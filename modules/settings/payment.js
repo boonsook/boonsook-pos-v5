@@ -137,7 +137,7 @@ export function renderSettingsPayment(el, ctx, goBack, navigate) {
   document.getElementById("setBackBtn")?.addEventListener("click", goBack);
 
   // ★ Add Bank button
-  document.getElementById("addBankBtn")?.addEventListener("click", () => {
+  document.getElementById("addBankBtn")?.addEventListener("click", async () => {
     _syncBanksFromDom(el, ctx); // ★ เก็บค่าที่กรอกก่อน re-render
     state.paymentInfo.banks = state.paymentInfo.banks || [];
     state.paymentInfo.banks.push({ bankCode: "", bankName: "", bankAccount: "", bankHolder: "", bankBranch: "" });
@@ -249,7 +249,7 @@ export function renderSettingsPayment(el, ctx, goBack, navigate) {
     e.target.value = "";
   });
 
-  document.getElementById("removeQrBtn")?.addEventListener("click", () => {
+  document.getElementById("removeQrBtn")?.addEventListener("click", async () => {
     _syncBanksFromDom(el, ctx); // ★ เก็บค่าก่อน re-render
     state.paymentInfo.qrImage = null;
     await savePaymentInfo();
@@ -258,7 +258,7 @@ export function renderSettingsPayment(el, ctx, goBack, navigate) {
   });
 
   // ★ Save Payment — collect all banks from DOM
-  document.getElementById("savePaymentInfoBtn")?.addEventListener("click", () => {
+  document.getElementById("savePaymentInfoBtn")?.addEventListener("click", async () => {
     const bankCards = el.querySelectorAll(".pay-bank-card");
     const updatedBanks = [];
     bankCards.forEach(card => {
