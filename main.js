@@ -668,19 +668,13 @@ async function saveStoreInfo(data = null) {
   }
 }
 async function savePaymentInfo() {
-  // ★ เก็บ qrImage ใน localStorage เท่านั้น (ใหญ่เกินสำหรับ Supabase)
   localStorage.setItem("bsk_payment_info", JSON.stringify(state.paymentInfo));
 
-  // 🔄 Sync ขึ้น Supabase (ไม่รวม qrImage)
+  // 🔄 Sync ขึ้น Supabase — qrImage เป็น URL แล้ว (ไม่ใช่ base64) sync ได้เลย
   try {
-    const payloadForCloud = {
-      ...state.paymentInfo,
-      qrImage: null,
-      banks: (state.paymentInfo.banks || []).map(b => ({ ...b, qrImage: null }))
-    };
     const { error } = await state.supabase
       .from('app_settings')
-      .upsert({ key: 'payment_info', value: payloadForCloud }, { onConflict: 'key' });
+      .upsert({ key: 'payment_info', value: state.paymentInfo }, { onConflict: 'key' });
     if (error) console.warn('Supabase savePaymentInfo warning:', error.message);
   } catch (err) {
     console.warn('Supabase savePaymentInfo failed (localStorage ok):', err.message);
@@ -1225,10 +1219,9 @@ async function loadAllData(){
           // ถ้า localStorage ว่าง (เครื่องใหม่/ล้าง cache) → ดึงจาก Supabase
           const hasLocalData = local && (local.banks?.length > 0 || local.promptPay);
           if (!hasLocalData) {
-            // รักษา qrImage จาก localStorage (ไม่ sync รูปขึ้น cloud)
-            const merged = { ...row.value, qrImage: local?.qrImage || null };
-            state.paymentInfo = merged;
-            localStorage.setItem("bsk_payment_info", JSON.stringify(merged));
+            // qrImage เป็น Supabase Storage URL แล้ว — ดึงจาก cloud ได้เลย
+            state.paymentInfo = row.value;
+            localStorage.setItem("bsk_payment_info", JSON.stringify(row.value));
           }
         }
       }
