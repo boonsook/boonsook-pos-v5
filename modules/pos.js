@@ -379,6 +379,7 @@ function renderPosView(ctx) {
     const methodIcons = { "เงินสด": "💵", "โอนเงิน": "🏦", "บัตรเครดิต": "💳", "QR พร้อมเพย์": "🔗" };
 
     el.innerHTML = `
+      <div style="height:100%;overflow-y:auto;padding-bottom:calc(80px + env(safe-area-inset-bottom, 16px))">
       <div class="pos-subpage-header">
         <button class="btn light pos-back-btn" id="posBack">←</button>
         <h3 style="margin:0">ยืนยันการชำระ</h3>
@@ -417,6 +418,7 @@ function renderPosView(ctx) {
         <button id="posConfirmWithProof" class="pos-collect-btn" style="width:100%;background:#10b981">เสร็จสิ้น</button>
         <button id="posConfirmNoProof" class="btn light" style="width:100%;padding:14px;font-size:15px;color:#6b7280">ข้าม ไม่แนบสลิป → เสร็จสิ้น</button>
       </div>
+      </div><!-- /scroll-wrapper -->
     `;
 
     // ─── Back ───
