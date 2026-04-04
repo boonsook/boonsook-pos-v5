@@ -141,18 +141,18 @@ export function renderSettingsPayment(el, ctx, goBack, navigate) {
     _syncBanksFromDom(el, ctx); // ★ เก็บค่าที่กรอกก่อน re-render
     state.paymentInfo.banks = state.paymentInfo.banks || [];
     state.paymentInfo.banks.push({ bankCode: "", bankName: "", bankAccount: "", bankHolder: "", bankBranch: "" });
-    savePaymentInfo();
+    await savePaymentInfo();
     renderSettingsPayment(el, ctx, goBack, navigate); // ✅ Re-render with ctx
   });
 
   // ★ Remove Bank buttons
   el.querySelectorAll("[data-remove-bank]").forEach(btn => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       const idx = Number(btn.dataset.removeBank);
       if (confirm("ลบบัญชีที่ " + (idx+1) + " ?")) {
         _syncBanksFromDom(el, ctx);
         state.paymentInfo.banks.splice(idx, 1);
-        savePaymentInfo();
+        await savePaymentInfo();
         showToast("ลบบัญชีแล้ว");
         renderSettingsPayment(el, ctx, goBack, navigate);
       }
@@ -199,7 +199,7 @@ export function renderSettingsPayment(el, ctx, goBack, navigate) {
         const publicUrl = urlData.publicUrl + "?t=" + Date.now();
         _syncBanksFromDom(el, ctx);
         state.paymentInfo.banks[idx].qrImage = publicUrl;
-        await savePaymentInfo();
+        await await savePaymentInfo();
         showToast("✅ อัปโหลด QR Code บัญชีที่ " + (idx+1) + " แล้ว");
         renderSettingsPayment(el, ctx, goBack, navigate);
       } catch (err) {
@@ -213,7 +213,7 @@ export function renderSettingsPayment(el, ctx, goBack, navigate) {
       _syncBanksFromDom(el, ctx); // ★ เก็บค่าก่อน re-render
       const idx = Number(btn.dataset.qrBankIdx);
       state.paymentInfo.banks[idx].qrImage = null;
-      savePaymentInfo();
+      await savePaymentInfo();
       showToast("ลบ QR Code บัญชีที่ " + (idx+1) + " แล้ว");
       renderSettingsPayment(el, ctx, goBack, navigate);
     });
@@ -240,7 +240,7 @@ export function renderSettingsPayment(el, ctx, goBack, navigate) {
       const publicUrl = urlData.publicUrl + "?t=" + Date.now();
       _syncBanksFromDom(el, ctx);
       state.paymentInfo.qrImage = publicUrl;
-      await savePaymentInfo();
+      await await savePaymentInfo();
       showToast("✅ อัปโหลด QR Code สำเร็จ");
       renderSettingsPayment(el, ctx, goBack, navigate);
     } catch (err) {
@@ -252,7 +252,7 @@ export function renderSettingsPayment(el, ctx, goBack, navigate) {
   document.getElementById("removeQrBtn")?.addEventListener("click", () => {
     _syncBanksFromDom(el, ctx); // ★ เก็บค่าก่อน re-render
     state.paymentInfo.qrImage = null;
-    savePaymentInfo();
+    await savePaymentInfo();
     showToast("ลบ QR Code แล้ว");
     renderSettingsPayment(el, ctx, goBack, navigate);
   });
@@ -286,7 +286,7 @@ export function renderSettingsPayment(el, ctx, goBack, navigate) {
       banks: updatedBanks,
       promptPay: document.getElementById("setPromptPay")?.value.trim() || ""
     };
-    savePaymentInfo();
+    await savePaymentInfo();
 
     // ★ บันทึก SlipOK API Key
     const slipKey = (document.getElementById("setSlipOkKey")?.value || "").trim();

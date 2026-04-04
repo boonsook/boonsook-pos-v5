@@ -1,5 +1,5 @@
 export function renderCalendarPage(ctx) {
-  const { state, showToast, showRoute, openServiceJobDrawer } = ctx;
+  const { state, showToast, showRoute, openServiceJobDrawer, loadAllData } = ctx;
   const pageContainer = document.getElementById("page-calendar");
 
   if (!pageContainer) {

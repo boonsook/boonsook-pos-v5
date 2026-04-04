@@ -685,7 +685,8 @@ async function savePaymentInfo() {
 const _toastQueue = [];
 let _toastBusy = false;
 
-function showToast(msg){
+function showToast(msg, type){
+  // ★ Fix: รับ type argument ได้ (success/error/warning) — บาง module ส่งมา 2 args
   _toastQueue.push(msg);
   if (!_toastBusy) _processToast();
 }

@@ -83,14 +83,17 @@ export function earnPoints(customerId, amount, refType, refId, ctx) {
     created_at: new Date().toISOString(),
   };
 
-  window._appXhrPost('/api/loyalty-points', newRecord, (success) => {
-    if (success) {
-      if (showToast) showToast(`บันทึกแต้ม ${pointsToAdd} แต้มสำหรับลูกค้า`, "success");
-      if (loadAllData) loadAllData();
+  try {
+    const res = await window._appXhrPost('loyalty_points', newRecord);
+    if (res?.ok) {
+      if (showToast) showToast(`บันทึกแต้ม ${pointsToAdd} แต้มสำเร็จ ✅`);
+      if (loadAllData) await loadAllData();
     } else {
-      if (showToast) showToast("บันทึกแต้มล้มเหลว", "error");
+      if (showToast) showToast("บันทึกแต้มล้มเหลว: " + (res?.error?.message || ""));
     }
-  });
+  } catch(e) {
+    if (showToast) showToast("เกิดข้อผิดพลาด: " + e.message);
+  }
 }
 
 /**
@@ -127,14 +130,17 @@ export function redeemPoints(customerId, points, note, ctx) {
     created_at: new Date().toISOString(),
   };
 
-  window._appXhrPost('/api/loyalty-points', newRecord, (success) => {
-    if (success) {
-      if (showToast) showToast(`แลกแต้ม ${points} แต้ม สำเร็จ`, "success");
-      if (loadAllData) loadAllData();
+  try {
+    const res = await window._appXhrPost('loyalty_points', newRecord);
+    if (res?.ok) {
+      if (showToast) showToast(`แลกแต้ม ${points} แต้มสำเร็จ ✅`);
+      if (loadAllData) await loadAllData();
     } else {
-      if (showToast) showToast("แลกแต้มล้มเหลว", "error");
+      if (showToast) showToast("แลกแต้มล้มเหลว: " + (res?.error?.message || ""));
     }
-  });
+  } catch(e) {
+    if (showToast) showToast("เกิดข้อผิดพลาด: " + e.message);
+  }
 }
 
 /**
@@ -416,14 +422,22 @@ function renderSettingsTab(settings, ctx) {
         updated_at: new Date().toISOString(),
       };
 
-      window._appXhrPatch(`/api/loyalty-settings/${settings.id}`, newSettings, (success) => {
-        if (success) {
-          if (showToast) showToast('บันทึกการตั้งค่าสำเร็จ', 'success');
-          if (loadAllData) loadAllData();
+      try {
+        let res;
+        if (settings?.id) {
+          res = await window._appXhrPatch('loyalty_settings', newSettings, 'id', settings.id);
         } else {
-          if (showToast) showToast('บันทึกการตั้งค่าล้มเหลว', 'error');
+          res = await window._appXhrPost('loyalty_settings', newSettings);
         }
-      });
+        if (res?.ok) {
+          if (showToast) showToast('บันทึกการตั้งค่าแต้มสำเร็จ ✅');
+          if (loadAllData) await loadAllData();
+        } else {
+          if (showToast) showToast('บันทึกล้มเหลว: ' + (res?.error?.message || ''));
+        }
+      } catch(e) {
+        if (showToast) showToast('เกิดข้อผิดพลาด: ' + e.message);
+      }
     });
   }, 0);
 }
@@ -500,17 +514,16 @@ function renderManualTab(customers, ctx) {
           created_at: new Date().toISOString(),
         };
 
-        window._appXhrPost('/api/loyalty-points', newRecord, (success) => {
-          if (success) {
-            if (showToast) showToast(`เพิ่มแต้ม ${points} แต้มสำเร็จ`, 'success');
-            document.getElementById('loyalty-manual-customer').value = '';
-            document.getElementById('loyalty-manual-points').value = '0';
-            document.getElementById('loyalty-manual-note').value = '';
-            if (loadAllData) loadAllData();
-          } else {
-            if (showToast) showToast('บันทึกล้มเหลว', 'error');
-          }
-        });
+        const res = await window._appXhrPost('loyalty_points', newRecord);
+        if (res?.ok) {
+          if (showToast) showToast(`เพิ่มแต้ม ${points} แต้มสำเร็จ ✅`);
+          document.getElementById('loyalty-manual-customer').value = '';
+          document.getElementById('loyalty-manual-points').value = '0';
+          document.getElementById('loyalty-manual-note').value = '';
+          if (loadAllData) await loadAllData();
+        } else {
+          if (showToast) showToast('บันทึกล้มเหลว: ' + (res?.error?.message || ''));
+        }
       } else {
         redeemPoints(customerId, points, note, ctx);
         document.getElementById('loyalty-manual-customer').value = '';

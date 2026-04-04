@@ -26,14 +26,49 @@ const JOB_TYPE_LABELS = {
   other: "🔧 อื่นๆ"
 };
 
+let _sjSearch = "";
+let _sjStatus = "";
+
 export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, showRoute }) {
-  // ★ ซ่อนงานที่ถูกลบ (status = cancelled + note มีคำว่า [ลบแล้ว])
-  const jobs = (state.serviceJobs || []).filter(j => !(j.status === "cancelled" && (j.note || "").includes("[ลบแล้ว]")));
+  const page = document.getElementById("page-service_jobs");
+  renderSJView({ state, openServiceJobDrawer, showToast, showRoute });
+}
+
+function renderSJView({ state, openServiceJobDrawer, showToast, showRoute }) {
+  // ★ ซ่อนงานที่ถูกลบ
+  let jobs = (state.serviceJobs || []).filter(j => !(j.status === "cancelled" && (j.note || "").includes("[ลบแล้ว]")));
+
+  // ★ Filter by status
+  if (_sjStatus) jobs = jobs.filter(j => j.status === _sjStatus);
+
+  // ★ Search
+  if (_sjSearch) {
+    const q = _sjSearch.toLowerCase();
+    jobs = jobs.filter(j =>
+      (j.customer_name || "").toLowerCase().includes(q) ||
+      (j.customer_phone || "").toLowerCase().includes(q) ||
+      (j.description || j.job_title || "").toLowerCase().includes(q) ||
+      (j.job_no || "").toLowerCase().includes(q)
+    );
+  }
+
   document.getElementById("page-service_jobs").innerHTML = `
     <div class="panel">
-      <div class="row">
+      <div class="row" style="flex-wrap:wrap;gap:8px">
         <h3 style="margin:0">ใบรับงาน / งานบริการ</h3>
         <button id="serviceJobAddBtn" class="btn primary">+ เพิ่มงานช่าง</button>
+      </div>
+      <!-- ★ Search + Filter -->
+      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+        <input id="sjSearchInput" placeholder="🔍 ค้นหาชื่อ / เบอร์ / งาน..." value="${(_sjSearch||"").replace(/"/g,'&quot;')}"
+          style="flex:1;min-width:160px;padding:8px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:14px" />
+        <select id="sjStatusFilter" style="padding:8px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:14px">
+          <option value="">ทุกสถานะ</option>
+          <option value="pending" ${_sjStatus==="pending"?"selected":""}>รอดำเนินการ</option>
+          <option value="in_progress" ${_sjStatus==="in_progress"?"selected":""}>กำลังดำเนินการ</option>
+          <option value="done" ${_sjStatus==="done"?"selected":""}>เสร็จแล้ว</option>
+          <option value="delivered" ${_sjStatus==="delivered"?"selected":""}>ส่งมอบแล้ว</option>
+        </select>
       </div>
       <div class="card-list mt16">
         ${jobs.length ? jobs.map(j => {
@@ -130,6 +165,20 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
   /* ── Add job ── */
   document.getElementById("serviceJobAddBtn")?.addEventListener("click", () => openServiceJobDrawer());
 
+  /* ── Search + Filter ── */
+  let _sjTimer = null;
+  document.getElementById("sjSearchInput")?.addEventListener("input", e => {
+    clearTimeout(_sjTimer);
+    _sjTimer = setTimeout(() => {
+      _sjSearch = e.target.value.trim();
+      renderSJView({ state, openServiceJobDrawer, showToast, showRoute });
+    }, 300);
+  });
+  document.getElementById("sjStatusFilter")?.addEventListener("change", e => {
+    _sjStatus = e.target.value;
+    renderSJView({ state, openServiceJobDrawer, showToast, showRoute });
+  });
+
   /* ── Edit job ── */
   document.querySelectorAll("[data-job-id]").forEach(btn => btn.addEventListener("click", () => {
     const item = state.serviceJobs.find(x => x.id === Number(btn.dataset.jobId));
@@ -186,7 +235,7 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
         if (showToast) showToast("ลบงานช่างเรียบร้อย ✅");
         const job = state.serviceJobs.find(x => x.id === jobId);
         if (job) { job.status = "cancelled"; job.note = newNote; }
-        renderServiceJobsPage({ state, openServiceJobDrawer, showToast, showRoute });
+        renderSJView({ state, openServiceJobDrawer, showToast, showRoute });
       } else {
         throw new Error("RLS บล็อค — กรุณาเพิ่ม UPDATE policy ที่ Supabase Dashboard สำหรับตาราง service_jobs");
       }
