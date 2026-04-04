@@ -1,0 +1,48 @@
+name: Deploy to Cloudflare Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: Deploy to Cloudflare Pages
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy . --project-name=round-lab-bd11
+
+  docker:
+    runs-on: ubuntu-latest
+    name: Build Docker Image
+    needs: deploy
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: |
+          docker build -t boonsook-pos:${{ github.sha }} .
+          docker build -t boonsook-pos:latest .
+
+      - name: Test Docker image
+        run: |
+          docker run -d --name test-pos -p 8080:80 boonsook-pos:latest
+          sleep 3
+          curl -f http://localhost:8080/ || exit 1
+          docker stop test-pos
+          docker rm test-pos
+          echo "Docker image test passed!"
