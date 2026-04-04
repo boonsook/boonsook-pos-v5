@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0284c7" />
+  <title>ไม่มีสัญญาณอินเทอร์เน็ต — บุญสุข อิเล็กทรอนิกส์</title>
+  <link rel="icon" href="./icons/logo.svg" type="image/svg+xml" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --primary:   #0284c7;
+      --primary-light: #e0f2fe;
+      --success:   #16a34a;
+      --warning:   #d97706;
+      --danger:    #dc2626;
+      --text:      #0f172a;
+      --muted:     #64748b;
+      --border:    #e2e8f0;
+      --bg:        #f8fafc;
+      --card:      #ffffff;
+      --radius:    16px;
+    }
+
+    body {
+      font-family: 'Sarabun', 'Noto Sans Thai', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      gap: 0;
+    }
+
+    /* ── Animated cloud/wifi illustration ── */
+    .illustration {
+      position: relative;
+      width: 140px;
+      height: 140px;
+      margin-bottom: 32px;
+    }
+    .cloud-circle {
+      position: absolute;
+      inset: 0;
+      width: 140px;
+      height: 140px;
+      border-radius: 50%;
+      background: var(--primary-light);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      animation: pulse 2.5s ease-in-out infinite;
+    }
+    .cloud-icon {
+      font-size: 64px;
+      animation: float 3s ease-in-out infinite;
+      filter: grayscale(0.3);
+    }
+    .signal-bars {
+      position: absolute;
+      bottom: 10px;
+      right: 10px;
+      display: flex;
+      align-items: flex-end;
+      gap: 3px;
+    }
+    .bar {
+      width: 6px;
+      border-radius: 3px;
+      background: #cbd5e1;
+      animation: fadeBar 1.5s ease-in-out infinite;
+    }
+    .bar:nth-child(1) { height: 8px;  animation-delay: 0s; }
+    .bar:nth-child(2) { height: 14px; animation-delay: 0.15s; }
+    .bar:nth-child(3) { height: 20px; animation-delay: 0.3s; }
+    .slash-line {
+      position: absolute;
+      bottom: 6px;
+      right: 6px;
+      width: 36px;
+      height: 3px;
+      background: var(--danger);
+      transform: rotate(-45deg);
+      transform-origin: center;
+      border-radius: 2px;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1);    opacity: 1; }
+      50%       { transform: scale(1.05); opacity: 0.85; }
+    }
+    @keyframes float {
+      0%, 100% { transform: translateY(0); }
+      50%       { transform: translateY(-6px); }
+    }
+    @keyframes fadeBar {
+      0%, 100% { opacity: 0.3; }
+      50%       { opacity: 1; }
+    }
+
+    /* ── Card ── */
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 36px 32px;
+      max-width: 420px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 4px 24px rgba(0,0,0,.06);
+    }
+
+    h1 {
+      font-size: 22px;
+      font-weight: 800;
+      color: var(--text);
+      margin-bottom: 8px;
+      letter-spacing: -0.3px;
+    }
+    .subtitle {
+      font-size: 15px;
+      color: var(--muted);
+      line-height: 1.6;
+      margin-bottom: 28px;
+    }
+
+    /* ── Tips ── */
+    .tips {
+      background: #f0f9ff;
+      border: 1px solid #bae6fd;
+      border-radius: 12px;
+      padding: 16px 18px;
+      text-align: left;
+      margin-bottom: 28px;
+    }
+    .tips-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--primary);
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .tip-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      font-size: 13px;
+      color: #334155;
+      margin-bottom: 6px;
+      line-height: 1.5;
+    }
+    .tip-item:last-child { margin-bottom: 0; }
+    .tip-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--primary);
+      flex-shrink: 0;
+      margin-top: 6px;
+    }
+
+    /* ── Status ── */
+    .status-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 24px;
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--danger);
+      animation: blink 1.5s ease-in-out infinite;
+    }
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.2; }
+    }
+
+    /* ── Buttons ── */
+    .btn-group {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 20px;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: all 0.18s ease;
+      text-decoration: none;
+    }
+    .btn-primary {
+      background: var(--primary);
+      color: #fff;
+    }
+    .btn-primary:hover { background: #0369a1; transform: translateY(-1px); }
+    .btn-primary:active { transform: translateY(0); }
+    .btn-light {
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-light:hover { background: #f1f5f9; }
+    .btn:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+      transform: none !important;
+    }
+
+    /* ── Logo bar ── */
+    .logo-bar {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 32px;
+    }
+    .logo-img {
+      width: 36px;
+      height: 36px;
+    }
+    .logo-text {
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--primary);
+    }
+    .logo-sub {
+      font-size: 11px;
+      color: var(--muted);
+      font-weight: 400;
+    }
+
+    /* ── Countdown ── */
+    #retry-countdown {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 8px;
+      min-height: 18px;
+    }
+
+    /* ── Online banner ── */
+    #online-banner {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      background: var(--success);
+      color: #fff;
+      text-align: center;
+      padding: 10px 16px;
+      font-size: 14px;
+      font-weight: 700;
+      z-index: 9999;
+      animation: slideDown 0.3s ease;
+    }
+    @keyframes slideDown {
+      from { transform: translateY(-100%); }
+      to   { transform: translateY(0); }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Online banner (shows when connection restored) -->
+  <div id="online-banner">✅ กลับมาออนไลน์แล้ว! กำลังโหลดใหม่...</div>
+
+  <!-- Logo -->
+  <div class="logo-bar">
+    <img src="./icons/logo.svg" alt="บุญสุข" class="logo-img"
+         onerror="this.style.display='none'" />
+    <div>
+      <div class="logo-text">บุญสุข อิเล็กทรอนิกส์</div>
+      <div class="logo-sub">V5 PRO</div>
+    </div>
+  </div>
+
+  <!-- Illustration -->
+  <div class="illustration">
+    <div class="cloud-circle">
+      <span class="cloud-icon">📡</span>
+    </div>
+    <div class="signal-bars">
+      <div class="bar"></div>
+      <div class="bar"></div>
+      <div class="bar"></div>
+    </div>
+    <div class="slash-line"></div>
+  </div>
+
+  <!-- Card -->
+  <div class="card">
+    <h1>ไม่มีสัญญาณอินเทอร์เน็ต</h1>
+    <p class="subtitle">
+      ระบบต้องการอินเทอร์เน็ตเพื่อเชื่อมต่อข้อมูล<br>
+      กรุณาตรวจสอบสัญญาณ Wi-Fi หรือเน็ตมือถือ
+    </p>
+
+    <!-- Status indicator -->
+    <div class="status-row">
+      <div class="status-dot" id="status-dot"></div>
+      <span id="status-text">ออฟไลน์อยู่</span>
+    </div>
+
+    <!-- Tips -->
+    <div class="tips">
+      <div class="tips-title">💡 วิธีแก้ไข</div>
+      <div class="tip-item">
+        <div class="tip-dot"></div>
+        <span>เปิด-ปิด Wi-Fi แล้วลองเชื่อมต่อใหม่</span>
+      </div>
+      <div class="tip-item">
+        <div class="tip-dot"></div>
+        <span>ตรวจสอบสัญญาณมือถือ หรือ Hotspot</span>
+      </div>
+      <div class="tip-item">
+        <div class="tip-dot"></div>
+        <span>รีสตาร์ท Router หากใช้ Wi-Fi ที่ร้าน</span>
+      </div>
+      <div class="tip-item">
+        <div class="tip-dot"></div>
+        <span>กดปุ่ม "ลองใหม่" เมื่อมีสัญญาณแล้ว</span>
+      </div>
+    </div>
+
+    <!-- Buttons -->
+    <div class="btn-group">
+      <button class="btn btn-primary" id="retry-btn" onclick="retryConnection()">
+        🔄 ลองใหม่
+      </button>
+      <div id="retry-countdown"></div>
+      <a href="./index.html" class="btn btn-light">
+        🏠 กลับหน้าหลัก
+      </a>
+    </div>
+  </div>
+
+  <script>
+    // ── Auto-detect online/offline ──
+    let retryTimer = null;
+    let countdown = 0;
+
+    function updateOnlineStatus() {
+      const isOnline = navigator.onLine;
+      const dot   = document.getElementById('status-dot');
+      const text  = document.getElementById('status-text');
+      const banner = document.getElementById('online-banner');
+
+      if (isOnline) {
+        dot.style.background = '#16a34a';
+        dot.style.animation  = 'none';
+        text.textContent = 'กลับมาออนไลน์แล้ว!';
+        banner.style.display = 'block';
+        // redirect หลัง 1.5 วินาที
+        setTimeout(() => { window.location.href = './index.html'; }, 1500);
+      } else {
+        dot.style.background = '#dc2626';
+        dot.style.animation  = 'blink 1.5s ease-in-out infinite';
+        text.textContent = 'ออฟไลน์อยู่';
+        banner.style.display = 'none';
+      }
+    }
+
+    function retryConnection() {
+      const btn = document.getElementById('retry-btn');
+      const cdEl = document.getElementById('retry-countdown');
+
+      // ถ้าออนไลน์แล้ว → redirect เลย
+      if (navigator.onLine) {
+        window.location.href = './index.html';
+        return;
+      }
+
+      // Cooldown 10 วินาที
+      btn.disabled = true;
+      countdown = 10;
+      cdEl.textContent = `กรุณารอ ${countdown} วินาที...`;
+
+      clearInterval(retryTimer);
+      retryTimer = setInterval(() => {
+        countdown--;
+        if (countdown <= 0) {
+          clearInterval(retryTimer);
+          btn.disabled = false;
+          cdEl.textContent = '';
+          // ลองตรวจสอบจริงๆ ผ่าน fetch
+          checkRealConnectivity();
+        } else {
+          cdEl.textContent = `กรุณารอ ${countdown} วินาที...`;
+        }
+      }, 1000);
+
+      // Ping ทันทีด้วย
+      checkRealConnectivity();
+    }
+
+    // Ping จริงๆ ไปที่ Supabase (เชื่อถือได้กว่า navigator.onLine)
+    function checkRealConnectivity() {
+      const ping = 'https://www.google.com/favicon.ico?_=' + Date.now();
+      fetch(ping, { mode: 'no-cors', cache: 'no-store' })
+        .then(() => {
+          // online จริง
+          window.location.href = './index.html';
+        })
+        .catch(() => {
+          // ยังออฟไลน์
+        });
+    }
+
+    // Auto-retry ทุก 15 วินาที (background check)
+    setInterval(checkRealConnectivity, 15000);
+
+    window.addEventListener('online',  updateOnlineStatus);
+    window.addEventListener('offline', updateOnlineStatus);
+    updateOnlineStatus();
+
+    // แสดงเวลาที่เกิดปัญหา
+    const now = new Date().toLocaleString('th-TH', {
+      hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short'
+    });
+    document.title = `ออฟไลน์ ${now} — บุญสุข POS`;
+  </script>
+</body>
+</html>
