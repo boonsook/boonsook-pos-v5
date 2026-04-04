@@ -667,7 +667,25 @@ async function saveStoreInfo(data = null) {
     console.warn('Supabase save failed (using localStorage):', err.message);
   }
 }
-function savePaymentInfo(){ localStorage.setItem("bsk_payment_info", JSON.stringify(state.paymentInfo)); }
+async function savePaymentInfo() {
+  // ★ เก็บ qrImage ใน localStorage เท่านั้น (ใหญ่เกินสำหรับ Supabase)
+  localStorage.setItem("bsk_payment_info", JSON.stringify(state.paymentInfo));
+
+  // 🔄 Sync ขึ้น Supabase (ไม่รวม qrImage)
+  try {
+    const payloadForCloud = {
+      ...state.paymentInfo,
+      qrImage: null,
+      banks: (state.paymentInfo.banks || []).map(b => ({ ...b, qrImage: null }))
+    };
+    const { error } = await state.supabase
+      .from('app_settings')
+      .upsert({ key: 'payment_info', value: payloadForCloud }, { onConflict: 'key' });
+    if (error) console.warn('Supabase savePaymentInfo warning:', error.message);
+  } catch (err) {
+    console.warn('Supabase savePaymentInfo failed (localStorage ok):', err.message);
+  }
+}
 
 // ★ Toast Queue — แสดงเรียงลำดับ ไม่ทับกัน
 const _toastQueue = [];
@@ -1175,13 +1193,14 @@ async function loadAllData(){
     }
 
     // ★ Phase 2: โมดูลเสริม — โหลดพร้อมกัน (ถ้าตารางยังไม่มีก็ไม่พัง)
-    const [rExpenses, rStockMov, rLoyalty, rLoySetting, rPerms, rLineNotify] = await Promise.allSettled([
+    const [rExpenses, rStockMov, rLoyalty, rLoySetting, rPerms, rLineNotify, rAppSettings] = await Promise.allSettled([
       sb.from("expenses").select("*").order("expense_date",{ascending:false}).limit(200),
       sb.from("stock_movements").select("*").order("created_at",{ascending:false}).limit(200),
       sb.from("loyalty_points").select("*").order("created_at",{ascending:false}).limit(500),
       sb.from("loyalty_settings").select("*").limit(1),
       sb.from("permissions").select("*"),
-      sb.from("line_notify_settings").select("*").limit(1)
+      sb.from("line_notify_settings").select("*").limit(1),
+      sb.from("app_settings").select("key,value").in("key", ["store_info","payment_info"])
     ]);
 
     state.expenses           = val(rExpenses);
@@ -1190,6 +1209,30 @@ async function loadAllData(){
     state.loyaltySettings    = (val(rLoySetting))[0] || null;
     state.permissions        = val(rPerms);
     state.lineNotifySettings = (val(rLineNotify))[0] || null;
+
+    // ★ Sync app_settings จาก Supabase → localStorage + state (เมื่อเปิดเครื่องใหม่)
+    if (rAppSettings.status === "fulfilled" && rAppSettings.value.data) {
+      for (const row of rAppSettings.value.data) {
+        if (row.key === "store_info" && row.value) {
+          const local = JSON.parse(localStorage.getItem("bsk_store_info") || "null");
+          if (!local || Object.keys(local).length === 0) {
+            state.storeInfo = row.value;
+            localStorage.setItem("bsk_store_info", JSON.stringify(row.value));
+          }
+        }
+        if (row.key === "payment_info" && row.value) {
+          const local = JSON.parse(localStorage.getItem("bsk_payment_info") || "null");
+          // ถ้า localStorage ว่าง (เครื่องใหม่/ล้าง cache) → ดึงจาก Supabase
+          const hasLocalData = local && (local.banks?.length > 0 || local.promptPay);
+          if (!hasLocalData) {
+            // รักษา qrImage จาก localStorage (ไม่ sync รูปขึ้น cloud)
+            const merged = { ...row.value, qrImage: local?.qrImage || null };
+            state.paymentInfo = merged;
+            localStorage.setItem("bsk_payment_info", JSON.stringify(merged));
+          }
+        }
+      }
+    }
 
     // ★ Sync cart with actual stock
     const _negOk = (function(){ try { return JSON.parse(localStorage.getItem("bsk_product_settings") || '{}').allowNegativeStock !== false; } catch(e){ return true; } })();
