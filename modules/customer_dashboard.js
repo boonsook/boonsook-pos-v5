@@ -656,11 +656,55 @@ export function renderCustomerDashboard(ctx) {
     });
   });
 
-  // ★ Slip upload
-  container.querySelector("#custSlipUploadBtn")?.addEventListener("click", () => {
-    container.querySelector("#custSlipFileInput")?.click();
-  });
-  container.querySelector("#custSlipFileInput")?.addEventListener("change", (e) => {
+  // ★ Slip upload — แก้ไขให้ทำงานได้ดี
+  // ใช้ setTimeout เพื่อให้ DOM render เสร็จก่อน
+  setTimeout(() => {
+    const uploadBtn = container.querySelector("#custSlipUploadBtn");
+    const fileInput = container.querySelector("#custSlipFileInput");
+
+    if (!uploadBtn) {
+      console.warn("[customer_dashboard] #custSlipUploadBtn not found");
+      return;
+    }
+    if (!fileInput) {
+      console.warn("[customer_dashboard] #custSlipFileInput not found");
+      return;
+    }
+
+    // ลบ event listener เก่า (ถ้ามี) ก่อนเพิ่มใหม่
+    const newUploadBtn = uploadBtn.cloneNode(true);
+    uploadBtn.parentNode.replaceChild(newUploadBtn, uploadBtn);
+
+    // attach listener ใหม่
+    newUploadBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      console.log("[customer_dashboard] Upload button clicked");
+      try {
+        const inp = container.querySelector("#custSlipFileInput");
+        if (inp) {
+          inp.click();
+          console.log("[customer_dashboard] File input clicked successfully");
+        } else {
+          console.error("[customer_dashboard] File input not found when clicking upload button");
+          showToast("❌ เกิดข้อผิดพลาด: ไม่พบ file input");
+        }
+      } catch(err) {
+        console.error("[customer_dashboard] Error clicking file input:", err);
+        showToast("❌ เกิดข้อผิดพลาดในการเปิด: " + err.message);
+      }
+    });
+  }, 100);
+
+  // File input change handler
+  setTimeout(() => {
+    const fileInput = container.querySelector("#custSlipFileInput");
+    if (!fileInput) {
+      console.warn("[customer_dashboard] File input not found for change listener");
+      return;
+    }
+
+    fileInput.addEventListener("change", (e) => {
     const file = e.target.files[0];
     if (!file) return;
     if (!file.type.startsWith("image/")) return showToast("กรุณาเลือกไฟล์รูปภาพ");
@@ -674,6 +718,7 @@ export function renderCustomerDashboard(ctx) {
       _custSlipData = ev.target.result;
       _custSlipVerified = false;
       _custSlipResult = null;
+      console.log("[customer_dashboard] File loaded successfully, size:", _custSlipData.length);
 
       // แสดง preview
       const previewEl = container.querySelector("#custSlipPreview");
@@ -720,10 +765,25 @@ export function renderCustomerDashboard(ctx) {
           chkBtn.style.background = "linear-gradient(135deg,#10b981,#059669)";
           chkBtn.textContent = "🛒 ยืนยันสั่งซื้อ";
         }
+      }).catch(err => {
+        console.error("[customer_dashboard] Slip verification error:", err);
+        if (statusEl) statusEl.innerHTML = '<span style="color:#f59e0b">📋 แนบสลิปแล้ว — ร้านจะตรวจสอบอีกครั้ง</span>';
+        _custSlipVerified = true; // ให้ผ่านได้ถ้า API error
       });
     };
-    reader.readAsDataURL(file);
-  });
+    reader.onerror = (err) => {
+      console.error("[customer_dashboard] FileReader error:", err);
+      showToast("❌ เกิดข้อผิดพลาดในการอ่านไฟล์");
+    };
+    try {
+      reader.readAsDataURL(file);
+      console.log("[customer_dashboard] Reading file...");
+    } catch(err) {
+      console.error("[customer_dashboard] Error reading file:", err);
+      showToast("❌ ไม่สามารถอ่านไฟล์ได้");
+    }
+    });
+  }, 100);
 
   // Checkout
   container.querySelector("#custCheckoutBtn")?.addEventListener("click", async () => {
