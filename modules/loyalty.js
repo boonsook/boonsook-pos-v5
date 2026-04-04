@@ -54,7 +54,7 @@ export function getCustomerPoints(customerId, ctx) {
 /**
  * Add points from a sale
  */
-export function earnPoints(customerId, amount, refType, refId, ctx) {
+export async function earnPoints(customerId, amount, refType, refId, ctx) {
   const { state, showToast, loadAllData } = ctx;
   const settings = state.loyaltySettings || {};
 
@@ -99,7 +99,7 @@ export function earnPoints(customerId, amount, refType, refId, ctx) {
 /**
  * Redeem points
  */
-export function redeemPoints(customerId, points, note, ctx) {
+export async function redeemPoints(customerId, points, note, ctx) {
   const { state, showToast, loadAllData, requireAdmin } = ctx;
   const settings = state.loyaltySettings || {};
 
@@ -375,7 +375,7 @@ function renderSummaryTab(loyaltyPoints, customers, settings, ctx) {
   return html;
 }
 
-function renderSettingsTab(settings, ctx) {
+async function renderSettingsTab(settings, ctx) {
   const { showToast, loadAllData } = ctx;
 
   return `
@@ -412,7 +412,7 @@ function renderSettingsTab(settings, ctx) {
 
   // Will be handled after render
   setTimeout(() => {
-    document.getElementById('loyalty-save-settings')?.addEventListener('click', function() {
+    document.getElementById('loyalty-save-settings')?.addEventListener('click', async function() {
       const newSettings = {
         id: settings.id,
         points_per_baht: Number(document.getElementById('loyalty-points-per-baht').value),
@@ -442,7 +442,7 @@ function renderSettingsTab(settings, ctx) {
   }, 0);
 }
 
-function renderManualTab(customers, ctx) {
+async function renderManualTab(customers, ctx) {
   const { showToast, loadAllData } = ctx;
 
   const customerOptions = customers
@@ -487,7 +487,7 @@ function renderManualTab(customers, ctx) {
   `;
 
   setTimeout(() => {
-    document.getElementById('loyalty-manual-submit')?.addEventListener('click', function() {
+    document.getElementById('loyalty-manual-submit')?.addEventListener('click', async function() {
       const customerId = document.getElementById('loyalty-manual-customer').value;
       const type = document.querySelector('input[name="loyalty-manual-type"]:checked').value;
       const points = Number(document.getElementById('loyalty-manual-points').value);
