@@ -19,7 +19,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy . --project-name=round-lab-bd11
+          command: pages deploy . --project-name=boonsook-pos-v5 --commit-dirty=true
 
   docker:
     runs-on: ubuntu-latest
