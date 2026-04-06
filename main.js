@@ -86,14 +86,22 @@ function xhrPost(table, payload, opts = {}) {
         try { data = JSON.parse(xhr.responseText); } catch (e) {}
         resolve({ ok: true, data: Array.isArray(data) ? data[0] : data, error: null });
       } else {
+        let errBody = xhr.responseText;
         let msg = "HTTP " + xhr.status;
-        try { msg = JSON.parse(xhr.responseText)?.message || msg; } catch (e) {}
+        try {
+          const parsed = JSON.parse(errBody);
+          msg = parsed.message || parsed.details || parsed.hint || msg;
+          console.error("[xhrPost] " + table + " ERROR:", parsed);
+        } catch (e) {
+          console.error("[xhrPost] " + table + " ERROR raw:", errBody);
+        }
         resolve({ ok: false, data: null, error: { message: msg } });
       }
     };
     xhr.onerror = function () { resolve({ ok: false, data: null, error: { message: "Network error" } }); };
     xhr.ontimeout = function () { resolve({ ok: false, data: null, error: { message: "Timeout" } }); };
-    xhr.send(JSON.stringify(Array.isArray(payload) ? payload : [payload]));
+    // ★ ส่งเป็น object เดียว (ไม่ wrap array)
+    xhr.send(JSON.stringify(payload));
   });
 }
 
@@ -1661,15 +1669,21 @@ async function checkout(){
 
   // Create sale items + deduct stock
   for (const item of state.cart) {
-    await xhrPost("sale_items", {
+    const itemPayload = {
       sale_id: saleId,
-      product_id: item.id,
-      product_name: item.name,
-      sku: item.sku,
-      qty: item.qty,
-      unit_price: item.price,
-      line_total: item.qty * item.price
-    });
+      product_id: item.id || null,
+      product_name: item.name || "สินค้า",
+      sku: item.sku || null,
+      qty: Number(item.qty) || 1,
+      unit_price: Number(item.price) || 0,
+      line_total: Number(item.qty || 1) * Number(item.price || 0)
+    };
+    console.log("[SALE] sale_items payload:", itemPayload);
+    const itemRes = await xhrPost("sale_items", itemPayload);
+    if (!itemRes.ok) {
+      console.error("[SALE] sale_items insert failed:", itemRes.error, "payload:", itemPayload);
+      showToast("บันทึกรายการสินค้าไม่สำเร็จ: " + (itemRes.error?.message || "unknown"));
+    }
     await state.supabase.rpc("deduct_stock", { p_product_id: item.id, p_qty: item.qty }).catch(() => {});
   }
 
