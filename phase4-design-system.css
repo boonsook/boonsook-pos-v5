@@ -212,3 +212,10 @@
   --card-padding: var(--space-4);
   --card-shadow: var(--shadow-sm);
 }
+
+/* ═══ Backward Compatibility — map old vars to new tokens ═══ */
+:root {
+  --primary: var(--primary-500);
+  --primary2: var(--primary-600);
+  --muted: var(--color-text-muted, #64748b);
+}

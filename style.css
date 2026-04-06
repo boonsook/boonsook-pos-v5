@@ -22,7 +22,7 @@
   --bg: #0f172a;
   --surface: #1e293b;
   --text: #f1f5f9;
-  --muted: #94a3b8;
+  --muted: #64748b;
   --line: #334155;
   --primary: #38bdf8;
   --primary2: #0ea5e9;
@@ -101,17 +101,17 @@ input, select, textarea { width: 100%; border: 1px solid var(--line); border-rad
 .user-name { font-weight: 900; font-size: 14px; }
 .user-role { margin-top: 4px; color: #bae6fd; font-size: 12px; }
 .nav-group-label { margin-top: 16px; color: #cbd5e1; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
-.nav-btn { width: 100%; margin-top: 6px; border: none; border-radius: 14px; padding: 11px 12px; background: transparent; color: #e2e8f0; text-align: left; cursor: pointer; font-size: 14px; font-weight: 600; transition: .15s; }
+.nav-btn { width: 100%; margin-top: 6px; border: none; border-radius: 14px; padding: 11px 12px; background: transparent; color: #f1f5f9; text-align: left; cursor: button; font-size: 14px; font-weight: 600; transition: .15s; }
 .nav-btn:hover, .nav-btn.active { background: rgba(14,165,233,.18); color: #fff; font-weight: 800; }
 .nav-btn.danger { color: #fecaca; }
-.nav-btn.sub { padding-left: 28px; font-size: 13px; font-weight: 500; color: #94a3b8; }
+.nav-btn.sub { padding-left: 28px; font-size: 13px; font-weight: 500; color: #cbd5e1; }
 .nav-btn.sub:hover, .nav-btn.sub.active { color: #fff; background: rgba(14,165,233,.14); font-weight: 700; }
 
 /* ─── Collapsible Nav Groups ─── */
 .nav-group { margin-top: 4px; }
 .nav-group-toggle {
   width: 100%; border: none; border-radius: 14px; padding: 11px 12px;
-  background: transparent; color: #e2e8f0; text-align: left;
+  background: transparent; color: #f1f5f9; text-align: left;
   cursor: pointer; font-size: 14px; font-weight: 700; transition: .15s;
   display: flex; justify-content: space-between; align-items: center;
 }
