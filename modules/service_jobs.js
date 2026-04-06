@@ -26,49 +26,21 @@ const JOB_TYPE_LABELS = {
   other: "🔧 อื่นๆ"
 };
 
-let _sjSearch = "";
-let _sjStatus = "";
+const escHtml = (s) => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+
+const sanitizeUrl = (url) => {
+  try { const u = new URL(url); return ["http:","https:"].includes(u.protocol) ? url : ""; }
+  catch { return ""; }
+};
 
 export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, showRoute }) {
-  const page = document.getElementById("page-service_jobs");
-  renderSJView({ state, openServiceJobDrawer, showToast, showRoute });
-}
-
-function renderSJView({ state, openServiceJobDrawer, showToast, showRoute }) {
-  // ★ ซ่อนงานที่ถูกลบ
-  let jobs = (state.serviceJobs || []).filter(j => !(j.status === "cancelled" && (j.note || "").includes("[ลบแล้ว]")));
-
-  // ★ Filter by status
-  if (_sjStatus) jobs = jobs.filter(j => j.status === _sjStatus);
-
-  // ★ Search
-  if (_sjSearch) {
-    const q = _sjSearch.toLowerCase();
-    jobs = jobs.filter(j =>
-      (j.customer_name || "").toLowerCase().includes(q) ||
-      (j.customer_phone || "").toLowerCase().includes(q) ||
-      (j.description || j.job_title || "").toLowerCase().includes(q) ||
-      (j.job_no || "").toLowerCase().includes(q)
-    );
-  }
-
+  // ★ ซ่อนงานที่ถูกลบ (status = cancelled + note มีคำว่า [ลบแล้ว])
+  const jobs = (state.serviceJobs || []).filter(j => !(j.status === "cancelled" && (j.note || "").includes("[ลบแล้ว]")));
   document.getElementById("page-service_jobs").innerHTML = `
     <div class="panel">
-      <div class="row" style="flex-wrap:wrap;gap:8px">
+      <div class="row">
         <h3 style="margin:0">ใบรับงาน / งานบริการ</h3>
         <button id="serviceJobAddBtn" class="btn primary">+ เพิ่มงานช่าง</button>
-      </div>
-      <!-- ★ Search + Filter -->
-      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
-        <input id="sjSearchInput" placeholder="🔍 ค้นหาชื่อ / เบอร์ / งาน..." value="${(_sjSearch||"").replace(/"/g,'&quot;')}"
-          style="flex:1;min-width:160px;padding:8px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:14px" />
-        <select id="sjStatusFilter" style="padding:8px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:14px">
-          <option value="">ทุกสถานะ</option>
-          <option value="pending" ${_sjStatus==="pending"?"selected":""}>รอดำเนินการ</option>
-          <option value="in_progress" ${_sjStatus==="in_progress"?"selected":""}>กำลังดำเนินการ</option>
-          <option value="done" ${_sjStatus==="done"?"selected":""}>เสร็จแล้ว</option>
-          <option value="delivered" ${_sjStatus==="delivered"?"selected":""}>ส่งมอบแล้ว</option>
-        </select>
       </div>
       <div class="card-list mt16">
         ${jobs.length ? jobs.map(j => {
@@ -96,7 +68,7 @@ function renderSJView({ state, openServiceJobDrawer, showToast, showRoute }) {
                 + '<div style="font-size:11px;font-weight:700;color:#64748b;margin-bottom:4px">🛒 รายการสินค้า</div>'
                 + itemLines.map(line => {
                     const clean = line.replace(/^• /, "");
-                    return '<div style="font-size:13px;color:#1f2937;padding:2px 0;border-bottom:1px solid #f1f5f9">' + clean + '</div>';
+                    return '<div style="font-size:13px;color:#1f2937;padding:2px 0;border-bottom:1px solid #f1f5f9">' + escHtml(clean) + '</div>';
                   }).join("")
                 + '</div>';
             }
@@ -116,13 +88,13 @@ function renderSJView({ state, openServiceJobDrawer, showToast, showRoute }) {
           // ★ Title: ออเดอร์เว็บ แสดงสั้นๆ / งานช่างแสดง description เต็ม
           const titleDisplay = isWebOrder
             ? '📱 สั่งซื้อผ่านเว็บ'
-            : (desc.length > 100 ? desc.substring(0, 100) + '…' : desc);
+            : escHtml(desc.length > 100 ? desc.substring(0, 100) + '…' : desc);
 
           // ★ แสดงรูปสลิปฝั่ง admin (ดึง URL จาก note ที่มี SLIP_URL:)
           let slipImgHtml = "";
           if (isWebOrder) {
             const slipUrlMatch = (j.note || "").match(/SLIP_URL:(https?:\/\/[^\|]+)/);
-            const slipUrl = slipUrlMatch?.[1] || "";
+            const slipUrl = sanitizeUrl(slipUrlMatch?.[1] || "");
             const slipStatus = (j.note || "").includes("SLIP_OK") ? "✅ ตรวจแล้ว" : (j.note || "").includes("SLIP_PENDING") ? "⏳ รอตรวจ" : "";
             if (slipUrl) {
               slipImgHtml = `<div style="margin-top:8px"><a href="${slipUrl}" target="_blank" title="ดูสลิป"><img src="${slipUrl}" style="max-width:80px;max-height:80px;border-radius:8px;border:2px solid #0284c7;object-fit:cover;cursor:pointer" onerror="this.style.display='none'" /></a>${slipStatus ? `<div style="font-size:11px;font-weight:700;color:#0284c7;margin-top:2px">${slipStatus}</div>` : ""}</div>`;
@@ -136,9 +108,9 @@ function renderSJView({ state, openServiceJobDrawer, showToast, showRoute }) {
               <div class="row" style="align-items:flex-start">
                 <div style="flex:1;min-width:0">
                   <div style="font-weight:900;font-size:15px">${titleDisplay}</div>
-                  ${jobNo ? `<div class="sku">${jobNo}</div>` : ''}
-                  <div class="sku" style="margin-top:2px">👤 ${customer}${phone ? ' &nbsp;📞 ' + phone : ''}</div>
-                  ${address ? `<div class="sku">📍 ${address}</div>` : ''}
+                  ${jobNo ? `<div class="sku">${escHtml(jobNo)}</div>` : ''}
+                  <div class="sku" style="margin-top:2px">👤 ${escHtml(customer)}${phone ? ' &nbsp;📞 ' + escHtml(phone) : ''}</div>
+                  ${address ? `<div class="sku">📍 ${escHtml(address)}</div>` : ''}
                   <div style="display:flex;align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap">
                     <span style="font-size:12px;color:${statusColor};font-weight:700;padding:2px 8px;border-radius:99px;background:${statusColor}15">${statusLabel}</span>
                     ${typeLabel ? `<span style="font-size:12px;color:#64748b">${typeLabel}</span>` : ''}
@@ -151,7 +123,7 @@ function renderSJView({ state, openServiceJobDrawer, showToast, showRoute }) {
                 </div>
                 <div style="display:flex;flex-direction:column;gap:6px;margin-left:8px;flex-shrink:0">
                   <button class="btn light" data-job-id="${j.id}">แก้ไข</button>
-                  <button class="btn" data-del-job="${j.id}" data-del-name="${(j.job_no || '') + ' ' + (j.customer_name || '')}" style="background:#ef4444;color:#fff;font-size:12px;padding:4px 10px;border-radius:8px;border:none;cursor:pointer">🗑️ ลบ</button>
+                  <button class="btn" data-del-job="${j.id}" data-del-name="${escHtml((j.job_no || '') + ' ' + (j.customer_name || ''))}" style="background:#ef4444;color:#fff;font-size:12px;padding:4px 10px;border-radius:8px;border:none;cursor:pointer">🗑️ ลบ</button>
                 </div>
               </div>
             </div>
@@ -165,20 +137,6 @@ function renderSJView({ state, openServiceJobDrawer, showToast, showRoute }) {
   /* ── Add job ── */
   document.getElementById("serviceJobAddBtn")?.addEventListener("click", () => openServiceJobDrawer());
 
-  /* ── Search + Filter ── */
-  let _sjTimer = null;
-  document.getElementById("sjSearchInput")?.addEventListener("input", e => {
-    clearTimeout(_sjTimer);
-    _sjTimer = setTimeout(() => {
-      _sjSearch = e.target.value.trim();
-      renderSJView({ state, openServiceJobDrawer, showToast, showRoute });
-    }, 300);
-  });
-  document.getElementById("sjStatusFilter")?.addEventListener("change", e => {
-    _sjStatus = e.target.value;
-    renderSJView({ state, openServiceJobDrawer, showToast, showRoute });
-  });
-
   /* ── Edit job ── */
   document.querySelectorAll("[data-job-id]").forEach(btn => btn.addEventListener("click", () => {
     const item = state.serviceJobs.find(x => x.id === Number(btn.dataset.jobId));
@@ -190,7 +148,7 @@ function renderSJView({ state, openServiceJobDrawer, showToast, showRoute }) {
     e.stopPropagation();
     const jobId = Number(btn.dataset.delJob);
     const jobName = btn.dataset.delName || "";
-    if (!confirm(`ลบใบรับงาน "${jobName.trim()}" ?`)) return;
+    if (!confirm(`ลบใบรับงาน "${escHtml(jobName.trim())}" ?`)) return;
 
     btn.disabled = true;
     btn.textContent = "กำลังลบ...";
@@ -235,7 +193,7 @@ function renderSJView({ state, openServiceJobDrawer, showToast, showRoute }) {
         if (showToast) showToast("ลบงานช่างเรียบร้อย ✅");
         const job = state.serviceJobs.find(x => x.id === jobId);
         if (job) { job.status = "cancelled"; job.note = newNote; }
-        renderSJView({ state, openServiceJobDrawer, showToast, showRoute });
+        renderServiceJobsPage({ state, openServiceJobDrawer, showToast, showRoute });
       } else {
         throw new Error("RLS บล็อค — กรุณาเพิ่ม UPDATE policy ที่ Supabase Dashboard สำหรับตาราง service_jobs");
       }

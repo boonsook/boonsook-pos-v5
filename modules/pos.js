@@ -44,6 +44,7 @@ let numpadValue = "";
 let quickPayAmount = 0;   // ยอดจาก numpad (เก็บเงินทันที) หรือ cart total
 let pendingPaidAmount = 0; // จำนวนเงินที่รับมา (สำหรับเงินสด)
 let scannerInstance = null;
+let _posAbort = null;     // ★ AbortController สำหรับลบ event listeners เก่า
 
 export function renderPosPage({ state, addToCart, changeQty, removeFromCart, openProductDrawer, checkout, openReceiptDrawer }) {
   const ctx = { state, addToCart, changeQty, removeFromCart, openProductDrawer, checkout, openReceiptDrawer };
@@ -58,6 +59,11 @@ function renderPosView(ctx) {
   const cartTotal = state.cart.reduce((sum,i)=>sum+i.qty*i.price,0);
   const cartQty = state.cart.reduce((sum,i)=>sum+i.qty,0);
   const el = document.getElementById("page-pos");
+
+  // ★ Cleanup: abort all old event listeners before re-rendering
+  if (_posAbort) _posAbort.abort();
+  _posAbort = new AbortController();
+  const signal = _posAbort.signal;
 
   // ═══════════════════════════════════════════════════════
   //  HOME — แบนเนอร์ยอดขายวันนี้ + ปุ่มเมนู
@@ -124,27 +130,27 @@ function renderPosView(ctx) {
     // Bindings
     document.getElementById("posQuickPay")?.addEventListener("click", () => {
       posView = "quick-numpad"; numpadValue = ""; renderPosView(ctx);
-    });
+    }, { signal });
     document.getElementById("posSelectProduct")?.addEventListener("click", () => {
       posView = "products"; renderPosView(ctx);
-    });
+    }, { signal });
     document.getElementById("posScanBtn")?.addEventListener("click", () => {
       posView = "scanner"; renderPosView(ctx);
-    });
+    }, { signal });
     document.getElementById("posShowQR")?.addEventListener("click", () => {
       posView = "qr-show"; renderPosView(ctx);
-    });
+    }, { signal });
     document.getElementById("posGoPayBtn")?.addEventListener("click", () => {
       quickPayAmount = cartTotal;
       posView = "payment-select"; renderPosView(ctx);
-    });
+    }, { signal });
     document.getElementById("posCartClear")?.addEventListener("click", () => {
       state.cart = []; localStorage.setItem("bsk_cart_v2", JSON.stringify(state.cart));
       renderPosView(ctx);
-    });
+    }, { signal });
     document.getElementById("posSalesHistory")?.addEventListener("click", () => {
       window.App?.showRoute?.("sales");
-    });
+    }, { signal });
 
 
   // ═══════════════════════════════════════════════════════
@@ -176,13 +182,13 @@ function renderPosView(ctx) {
 
     document.getElementById("posBack")?.addEventListener("click", () => {
       posView = "home"; renderPosView(ctx);
-    });
-    bindNumpad(ctx);
+    }, { signal });
+    bindNumpad(ctx, signal);
     document.getElementById("posCollectBtn")?.addEventListener("click", () => {
       quickPayAmount = Number(numpadValue || 0);
       if (quickPayAmount <= 0) return;
       posView = "payment-select"; renderPosView(ctx);
-    });
+    }, { signal });
 
 
   // ═══════════════════════════════════════════════════════
@@ -236,7 +242,7 @@ function renderPosView(ctx) {
         posView = "quick-numpad";
       }
       renderPosView(ctx);
-    });
+    }, { signal });
 
     document.querySelectorAll("[data-pay-method]").forEach(btn => btn.addEventListener("click", () => {
       selectedPaymentMethod = btn.dataset.payMethod;
@@ -251,7 +257,7 @@ function renderPosView(ctx) {
         pendingPaidAmount = amount;
         posView = "confirm-proof"; renderPosView(ctx);
       }
-    }));
+    }, { signal }));
 
 
   // ═══════════════════════════════════════════════════════
@@ -293,8 +299,8 @@ function renderPosView(ctx) {
 
     document.getElementById("posBack")?.addEventListener("click", () => {
       posView = "payment-select"; renderPosView(ctx);
-    });
-    bindNumpad(ctx);
+    }, { signal });
+    bindNumpad(ctx, signal);
 
     // Quick amounts
     document.querySelectorAll("[data-quick-amt]").forEach(btn => btn.addEventListener("click", () => {
@@ -302,13 +308,13 @@ function renderPosView(ctx) {
       if (v === "exact") numpadValue = String(amount);
       else numpadValue = String(Number(numpadValue||0) + Number(v));
       renderPosView(ctx); // re-render to update change
-    }));
+    }, { signal }));
 
     document.getElementById("posCashConfirmBtn")?.addEventListener("click", () => {
       if (paid < amount) return;
       pendingPaidAmount = paid;
       posView = "confirm-proof"; renderPosView(ctx);
-    });
+    }, { signal });
 
 
   // ═══════════════════════════════════════════════════════
@@ -363,12 +369,12 @@ function renderPosView(ctx) {
 
     document.getElementById("posBack")?.addEventListener("click", () => {
       posView = "payment-select"; renderPosView(ctx);
-    });
+    }, { signal });
 
     document.getElementById("posTransferConfirmBtn")?.addEventListener("click", () => {
       pendingPaidAmount = amount;
       posView = "confirm-proof"; renderPosView(ctx);
-    });
+    }, { signal });
 
 
   // ═══════════════════════════════════════════════════════
@@ -379,7 +385,6 @@ function renderPosView(ctx) {
     const methodIcons = { "เงินสด": "💵", "โอนเงิน": "🏦", "บัตรเครดิต": "💳", "QR พร้อมเพย์": "🔗" };
 
     el.innerHTML = `
-      <div style="height:100%;overflow-y:auto;padding-bottom:calc(80px + env(safe-area-inset-bottom, 16px))">
       <div class="pos-subpage-header">
         <button class="btn light pos-back-btn" id="posBack">←</button>
         <h3 style="margin:0">ยืนยันการชำระ</h3>
@@ -397,20 +402,15 @@ function renderPosView(ctx) {
       <div class="panel" style="margin:0 16px;border-radius:16px">
         <h4 style="margin:0 0 12px;color:#374151">แนบหลักฐานการชำระเงิน (สลิป)</h4>
         <div class="pos-proof-section" id="proofSection">
-          <div style="display:flex;gap:10px">
-            <button id="posCaptureProof" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:16px 10px;background:#f0fdf4;border:2px dashed #86efac;border-radius:12px;cursor:pointer;font-size:14px;font-weight:700;color:#166534">
-              <span style="font-size:30px">📷</span>
-              ถ่ายรูป
-            </button>
-            <button id="posPickGallery" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:16px 10px;background:#f0f9ff;border:2px dashed #7dd3fc;border-radius:12px;cursor:pointer;font-size:14px;font-weight:700;color:#0369a1">
-              <span style="font-size:30px">🖼️</span>
-              แกลเลอรี่
-            </button>
-          </div>
+          <button class="pos-proof-btn" id="posCaptureProof" style="display:flex;align-items:center;gap:12px;padding:16px;background:#f0fdf4;border:2px dashed #86efac;border-radius:12px;cursor:pointer;width:100%;text-align:left;font-size:15px">
+            <span style="font-size:28px">📷</span>
+            <div>
+              <div style="font-weight:700;color:#166534">ถ่ายรูป / เลือกรูปสลิป</div>
+              <div style="font-size:12px;color:#6b7280;margin-top:2px">เปิดกล้องถ่ายสลิป หรือเลือกจากแกลเลอรี่</div>
+            </div>
+          </button>
         </div>
-        <!-- ★ 2 inputs แยกกัน: กล้อง vs แกลเลอรี่ -->
         <input type="file" id="posProofFileInput" accept="image/*" capture="environment" style="display:none" />
-        <input type="file" id="posProofGalleryInput" accept="image/*" style="display:none" />
       </div>
 
       <!-- ปุ่ม -->
@@ -418,7 +418,6 @@ function renderPosView(ctx) {
         <button id="posConfirmWithProof" class="pos-collect-btn" style="width:100%;background:#10b981">เสร็จสิ้น</button>
         <button id="posConfirmNoProof" class="btn light" style="width:100%;padding:14px;font-size:15px;color:#6b7280">ข้าม ไม่แนบสลิป → เสร็จสิ้น</button>
       </div>
-      </div><!-- /scroll-wrapper -->
     `;
 
     // ─── Back ───
@@ -428,23 +427,18 @@ function renderPosView(ctx) {
       else if (selectedPaymentMethod === "โอนเงิน" || selectedPaymentMethod === "QR พร้อมเพย์") { posView = "transfer-qr"; }
       else { posView = "payment-select"; }
       renderPosView(ctx);
-    });
+    }, { signal });
 
-    // ─── ถ่ายรูป / แกลเลอรี่ ───
-    const proofInput   = document.getElementById("posProofFileInput");
-    const galleryInput = document.getElementById("posProofGalleryInput");
-
+    // ─── ถ่ายรูป/เลือกไฟล์ ───
+    const proofInput = document.getElementById("posProofFileInput");
     document.getElementById("posCaptureProof")?.addEventListener("click", () => {
-      proofInput?.click(); // เปิดกล้อง
-    });
-    document.getElementById("posPickGallery")?.addEventListener("click", () => {
-      galleryInput?.click(); // เลือกจากแกลเลอรี่
-    });
+      proofInput?.click();
+    }, { signal });
 
-    // ★ ใช้ฟังก์ชันเดียวกัน handle ทั้ง 2 input
-    async function handleProofFile(e) {
+    proofInput?.addEventListener("change", async (e) => {
       let file = e.target.files?.[0];
       if (!file) return;
+      // Note: Change event doesn't use signal because it's on input element
 
       // ★ บีบอัดรูปก่อนอัปโหลด
       if (window._compressImage) file = await window._compressImage(file);
@@ -518,22 +512,18 @@ function renderPosView(ctx) {
         console.error("Proof error:", err);
         window.App?.showToast?.("เกิดข้อผิดพลาด กรุณาลองใหม่");
       }
-    }
-
-    // ★ bind ทั้ง 2 inputs กับ handler เดียวกัน
-    proofInput?.addEventListener("change", handleProofFile);
-    galleryInput?.addEventListener("change", handleProofFile);
+    });
 
     // ─── เสร็จสิ้น (พร้อมสลิป) ───
     document.getElementById("posConfirmWithProof")?.addEventListener("click", () => {
       doCheckout(ctx, selectedPaymentMethod, pendingPaidAmount || amount);
-    });
+    }, { signal });
 
     // ─── ข้าม ไม่แนบสลิป ───
     document.getElementById("posConfirmNoProof")?.addEventListener("click", () => {
       window._pendingProofUrl = "";
       doCheckout(ctx, selectedPaymentMethod, pendingPaidAmount || amount);
-    });
+    }, { signal });
 
 
   // ═══════════════════════════════════════════════════════
@@ -570,7 +560,7 @@ function renderPosView(ctx) {
 
     document.getElementById("posBack")?.addEventListener("click", () => {
       posView = "home"; renderPosView(ctx);
-    });
+    }, { signal });
 
 
   // ═══════════════════════════════════════════════════════
@@ -602,22 +592,22 @@ function renderPosView(ctx) {
 
     document.getElementById("posBack")?.addEventListener("click", () => {
       posView = "home"; renderPosView(ctx);
-    });
+    }, { signal });
     document.getElementById("posScanFromProducts")?.addEventListener("click", () => {
       posView = "scanner"; renderPosView(ctx);
-    });
+    }, { signal });
     document.getElementById("posTrashCart")?.addEventListener("click", () => {
       state.cart = []; localStorage.setItem("bsk_cart_v2", JSON.stringify(state.cart));
       renderPosView(ctx);
-    });
+    }, { signal });
     document.getElementById("posStickyPayBtn")?.addEventListener("click", () => {
       if (state.cart.length === 0) { window.App?.showToast?.("ยังไม่มีสินค้าในบิล"); return; }
       quickPayAmount = state.cart.reduce((s,i)=>s+i.qty*i.price,0);
       posView = "payment-select"; renderPosView(ctx);
-    });
+    }, { signal });
 
-    bindProductList(state, ctx);
-    bindProductSearch(state, ctx);
+    bindProductList(state, ctx, signal);
+    bindProductSearch(state, ctx, signal);
 
 
   // ═══════════════════════════════════════════════════════
@@ -645,17 +635,17 @@ function renderPosView(ctx) {
     document.getElementById("posBack")?.addEventListener("click", () => {
       stopScanner();
       posView = "home"; renderPosView(ctx);
-    });
+    }, { signal });
     document.getElementById("posManualBarcodeBtn")?.addEventListener("click", () => {
       const code = document.getElementById("posManualBarcode")?.value?.trim();
       if (code) handleScanResult(code, ctx);
-    });
+    }, { signal });
     document.getElementById("posManualBarcode")?.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         const code = e.target.value.trim();
         if (code) handleScanResult(code, ctx);
       }
-    });
+    }, { signal });
     startScanner(ctx);
   }
 }
@@ -683,7 +673,7 @@ function renderNumpad() {
   `;
 }
 
-function bindNumpad(ctx) {
+function bindNumpad(ctx, signal) {
   document.querySelectorAll("[data-num]").forEach(btn => btn.addEventListener("click", () => {
     const v = btn.dataset.num;
     if (v === "del") {
@@ -700,7 +690,7 @@ function bindNumpad(ctx) {
     if (display) display.textContent = numpadValue || "0";
     // Update collect button state
     updateCollectBtn();
-  }));
+  }, { signal }));
 }
 
 function updateCollectBtn() {
@@ -810,14 +800,14 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
 // ═══════════════════════════════════════════════════════════
 //  PRODUCT LIST BINDINGS
 // ═══════════════════════════════════════════════════════════
-function bindProductList(state, ctx) {
+function bindProductList(state, ctx, signal) {
   document.querySelectorAll("[data-add-pos-product-id]").forEach(btn => btn.addEventListener("click", () => {
     ctx.addToCart(Number(btn.dataset.addPosProductId));
     updateStickyBar(state);
-  }));
+  }, { signal }));
 }
 
-function bindProductSearch(state, ctx) {
+function bindProductSearch(state, ctx, signal) {
   document.getElementById("posSearchInput")?.addEventListener("input", (e) => {
     const q = e.target.value.trim().toLowerCase();
     const filtered = state.products.filter(p =>
@@ -826,8 +816,8 @@ function bindProductSearch(state, ctx) {
       String(p.barcode||"").toLowerCase().includes(q)
     );
     document.getElementById("posProductList").innerHTML = renderProductCards(filtered);
-    bindProductList(state, ctx);
-  });
+    bindProductList(state, ctx, signal);
+  }, { signal });
 }
 
 function updateStickyBar(state) {
@@ -876,8 +866,18 @@ function initScanner(ctx) {
 
 function stopScanner() {
   if (scannerInstance) {
-    scannerInstance.stop().catch(()=>{});
-    scannerInstance.clear().catch(()=>{});
+    try {
+      if (scannerInstance && scannerInstance.isScanning) {
+        scannerInstance.stop().catch(() => {});
+      }
+    } catch (e) {
+      console.warn("QR Scanner stop (safe to ignore):", e.message);
+    }
+    try {
+      scannerInstance.clear().catch(() => {});
+    } catch (e) {
+      console.warn("QR Scanner clear (safe to ignore):", e.message);
+    }
     scannerInstance = null;
   }
 }

@@ -9,6 +9,7 @@ let currentFilter = "all"; // all | customer | supplier | both
 let searchQuery = "";
 let currentPage = 1;
 const PAGE_SIZE = 20;
+let _custAbort = null;
 
 export function renderCustomersPage({ state, openCustomerDrawer }) {
   const ctx = { state, openCustomerDrawer };
@@ -20,6 +21,12 @@ export function renderCustomersPage({ state, openCustomerDrawer }) {
 
 function renderView(ctx) {
   const { state, openCustomerDrawer } = ctx;
+
+  // Cleanup old event listeners
+  if (_custAbort) _custAbort.abort();
+  _custAbort = new AbortController();
+  const signal = _custAbort.signal;
+
   const el = document.getElementById("page-customers");
 
   // Filter + Search
@@ -134,30 +141,30 @@ function renderView(ctx) {
   `;
 
   // ─── Bindings ───
-  document.getElementById("contactAddBtn")?.addEventListener("click", () => openCustomerDrawer());
+  document.getElementById("contactAddBtn")?.addEventListener("click", () => openCustomerDrawer(), { signal });
   document.getElementById("contactImportBtn")?.addEventListener("click", () => {
     document.getElementById("contactFileInput")?.click();
-  });
-  document.getElementById("contactExportBtn")?.addEventListener("click", () => exportToExcel(state));
+  }, { signal });
+  document.getElementById("contactExportBtn")?.addEventListener("click", () => exportToExcel(state), { signal });
   document.getElementById("contactFileInput")?.addEventListener("change", (e) => {
     const file = e.target.files?.[0];
     if (file) importFromExcel(file, ctx);
     e.target.value = ""; // ★ reset เพื่อให้เลือกไฟล์เดิมซ้ำได้
-  });
+  }, { signal });
 
   // Filter tabs
   document.querySelectorAll("[data-filter]").forEach(btn => btn.addEventListener("click", () => {
     currentFilter = btn.dataset.filter;
     currentPage = 1;
     renderView(ctx);
-  }));
+  }, { signal }));
 
   // Search
   document.getElementById("contactSearchInput")?.addEventListener("input", (e) => {
     searchQuery = e.target.value.trim();
     currentPage = 1;
     renderView(ctx);
-  });
+  }, { signal });
 
   // Pagination
   document.querySelectorAll("[data-page]").forEach(btn => btn.addEventListener("click", () => {
@@ -166,13 +173,13 @@ function renderView(ctx) {
       currentPage = p;
       renderView(ctx);
     }
-  }));
+  }, { signal }));
 
   // Edit buttons
   document.querySelectorAll("[data-contact-edit]").forEach(btn => btn.addEventListener("click", () => {
     const item = state.customers.find(x => x.id === Number(btn.dataset.contactEdit));
     openCustomerDrawer(item);
-  }));
+  }, { signal }));
 
   // ★ Delete single contact
   document.querySelectorAll("[data-contact-delete]").forEach(btn => btn.addEventListener("click", async () => {
@@ -187,7 +194,7 @@ function renderView(ctx) {
     } else {
       window.App?.showToast?.("ลบไม่สำเร็จ — อาจต้องแก้ RLS policy ใน Supabase");
     }
-  }));
+  }, { signal }));
 
   // ★ Delete ALL contacts
   document.getElementById("contactDeleteAllBtn")?.addEventListener("click", async () => {
@@ -203,7 +210,7 @@ function renderView(ctx) {
     }
     if (window.App?.loadAllData) await window.App.loadAllData();
     renderView(ctx);
-  });
+  }, { signal });
 }
 
 function renderPageNumbers(current, total) {

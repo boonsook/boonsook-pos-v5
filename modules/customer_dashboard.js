@@ -842,6 +842,15 @@ export function renderCustomerDashboard(ctx) {
         created_by: state.currentUser?.id || null
       };
 
+      // ★ Validate payload ก่อนส่ง — ป้องกัน 400 error
+      if (!jobPayload.job_no || !jobPayload.customer_name || !jobPayload.customer_phone) {
+        throw new Error("ข้อมูลไม่ครบ กรุณากรอกชื่อ เบอร์โทร และที่อยู่");
+      }
+      if (typeof jobPayload.total_cost !== 'number' || jobPayload.total_cost <= 0) {
+        jobPayload.total_cost = Number(jobPayload.total_cost) || 0;
+        if (jobPayload.total_cost <= 0) throw new Error("ยอดรวมต้องมากกว่า 0");
+      }
+
       let success = false;
 
       // วิธีที่ 1: fetch REST API โดยตรง (เหมือน service_request.js ที่ทำงานได้)
@@ -897,9 +906,17 @@ export function renderCustomerDashboard(ctx) {
       else renderCustomerDashboard(ctx);
 
     } catch(e) {
-      showToast("❌ สั่งซื้อไม่สำเร็จ: " + e.message);
+      // Improved error handling with better user messages
+      let errorMsg = e?.message || "เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ";
+      // Show validation errors directly, wrap other errors
+      if (e?.message?.includes("ข้อมูลไม่ครบ") || e?.message?.includes("ยอดรวม")) {
+        showToast("❌ " + errorMsg);
+      } else {
+        showToast("❌ สั่งซื้อไม่สำเร็จ: " + errorMsg);
+      }
       const btn = container.querySelector("#custCheckoutBtn");
       if (btn) { btn.disabled = false; btn.textContent = "🛒 ยืนยันสั่งซื้อ"; }
+      console.error("Checkout error:", e);
     }
   });
 }
