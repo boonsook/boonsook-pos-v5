@@ -20,14 +20,22 @@ function xhrPostPOS(table, payload, returnData = false) {
         try { data = JSON.parse(xhr.responseText); } catch (e) {}
         resolve({ ok: true, data: Array.isArray(data) ? data[0] : data, error: null });
       } else {
+        let errBody = xhr.responseText;
         let msg = "HTTP " + xhr.status;
-        try { msg = JSON.parse(xhr.responseText)?.message || msg; } catch (e) {}
+        try {
+          const parsed = JSON.parse(errBody);
+          msg = parsed.message || parsed.details || parsed.hint || msg;
+          console.error("[xhrPostPOS] " + table + " ERROR:", parsed);
+        } catch (e) {
+          console.error("[xhrPostPOS] " + table + " ERROR raw:", errBody);
+        }
         resolve({ ok: false, data: null, error: msg });
       }
     };
     xhr.onerror = function () { resolve({ ok: false, data: null, error: "Network error" }); };
     xhr.ontimeout = function () { resolve({ ok: false, data: null, error: "Timeout" }); };
-    xhr.send(JSON.stringify(Array.isArray(payload) ? payload : [payload]));
+    // ★ ส่งเป็น object เดียว (ไม่ wrap array) — PostgREST รับได้ทั้ง object และ array
+    xhr.send(JSON.stringify(payload));
   });
 }
 
@@ -760,15 +768,21 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
     // ถ้ามีสินค้าในตะกร้า → บันทึก sale_items + ลดสต๊อก
     if (state.cart.length > 0) {
       for (const item of state.cart) {
-        await xhrPostPOS("sale_items", {
+        const itemPayload = {
           sale_id: saleId,
-          product_id: item.id,
-          product_name: item.name,
-          sku: item.sku,
-          qty: item.qty,
-          unit_price: item.price,
-          line_total: item.qty * item.price
-        });
+          product_id: item.id || null,
+          product_name: item.name || "สินค้า",
+          sku: item.sku || null,
+          qty: Number(item.qty) || 1,
+          unit_price: Number(item.price) || 0,
+          line_total: Number(item.qty || 1) * Number(item.price || 0)
+        };
+        console.log("[POS] sale_items payload:", itemPayload);
+        const itemRes = await xhrPostPOS("sale_items", itemPayload);
+        if (!itemRes.ok) {
+          console.error("[POS] sale_items insert failed:", itemRes.error, "payload:", itemPayload);
+          window.App?.showToast?.("บันทึกรายการสินค้าไม่สำเร็จ: " + (itemRes.error || "unknown"));
+        }
         await state.supabase.rpc("deduct_stock", { p_product_id: item.id, p_qty: item.qty }).catch(() => {});
       }
     }
