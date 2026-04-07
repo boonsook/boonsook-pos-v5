@@ -770,11 +770,10 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
       for (const item of state.cart) {
         const itemPayload = {
           sale_id: saleId,
-          product_id: item.id || null,
           product_name: item.name || "สินค้า",
           sku: item.sku || null,
-          qty: Number(item.qty) || 1,
-          unit_price: Number(item.price) || 0,
+          quantity: Number(item.qty) || 1,
+          sale_price: Number(item.price) || 0,
           line_total: Number(item.qty || 1) * Number(item.price || 0)
         };
         console.log("[POS] sale_items payload:", itemPayload);
