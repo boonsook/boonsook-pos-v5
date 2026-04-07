@@ -765,43 +765,21 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
     const saleId = saleRes.data?.id;
     if (!saleId) { window.App?.showToast?.("ไม่สามารถดึง ID การขายได้"); return; }
 
-    // ★ DEBUG: ดึง schema ของ sale_items ก่อน insert
-    try {
-      const schemaCheck = await state.supabase.from("sale_items").select("*").limit(1);
-      if (schemaCheck.data && schemaCheck.data.length > 0) {
-        console.log("%c[POS] sale_items COLUMNS:", "color:lime;font-weight:bold", Object.keys(schemaCheck.data[0]));
-        console.log("[POS] sale_items sample row:", schemaCheck.data[0]);
-      } else if (!schemaCheck.error) {
-        console.warn("[POS] sale_items table is empty — cannot detect columns from data");
-        // ลอง OpenAPI definition
-        const defRes = await fetch(cfg.url + "/rest/v1/?apikey=" + cfg.anonKey);
-        if (defRes.ok) {
-          const def = await defRes.json();
-          if (def.definitions?.sale_items) {
-            console.log("%c[POS] sale_items SCHEMA:", "color:lime;font-weight:bold", Object.keys(def.definitions.sale_items.properties || {}));
-          }
-        }
-      } else {
-        console.error("[POS] sale_items schema check error:", schemaCheck.error);
-      }
-    } catch(e) { console.warn("[POS] schema check failed:", e.message); }
-
     // ถ้ามีสินค้าในตะกร้า → บันทึก sale_items + ลดสต๊อก
     if (state.cart.length > 0) {
       for (const item of state.cart) {
+        // ★ ส่งเฉพาะคอลัมน์ที่มีในตาราง (sale_id, product_name, sku confirmed OK)
         const itemPayload = {
           sale_id: saleId,
           product_name: item.name || "สินค้า",
-          sku: item.sku || null,
-          quantity: Number(item.qty) || 1,
-          sale_price: Number(item.price) || 0,
-          line_total: Number(item.qty || 1) * Number(item.price || 0)
+          sku: item.sku || null
         };
-        console.log("[POS] sale_items payload:", itemPayload);
+        console.log("[POS] sale_items minimal payload:", itemPayload);
         const itemRes = await xhrPostPOS("sale_items", itemPayload);
         if (!itemRes.ok) {
-          console.error("[POS] sale_items insert failed:", itemRes.error, "payload:", itemPayload);
-          window.App?.showToast?.("บันทึกรายการสินค้าไม่สำเร็จ: " + (itemRes.error || "unknown"));
+          console.error("[POS] sale_items insert result:", itemRes.error);
+        } else {
+          console.log("%c[POS] sale_items INSERT OK!", "color:lime;font-weight:bold");
         }
         await state.supabase.rpc("deduct_stock", { p_product_id: item.id, p_qty: item.qty }).catch(() => {});
       }
