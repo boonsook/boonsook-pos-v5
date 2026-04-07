@@ -765,6 +765,27 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
     const saleId = saleRes.data?.id;
     if (!saleId) { window.App?.showToast?.("ไม่สามารถดึง ID การขายได้"); return; }
 
+    // ★ DEBUG: ดึง schema ของ sale_items ก่อน insert
+    try {
+      const schemaCheck = await state.supabase.from("sale_items").select("*").limit(1);
+      if (schemaCheck.data && schemaCheck.data.length > 0) {
+        console.log("%c[POS] sale_items COLUMNS:", "color:lime;font-weight:bold", Object.keys(schemaCheck.data[0]));
+        console.log("[POS] sale_items sample row:", schemaCheck.data[0]);
+      } else if (!schemaCheck.error) {
+        console.warn("[POS] sale_items table is empty — cannot detect columns from data");
+        // ลอง OpenAPI definition
+        const defRes = await fetch(cfg.url + "/rest/v1/?apikey=" + cfg.anonKey);
+        if (defRes.ok) {
+          const def = await defRes.json();
+          if (def.definitions?.sale_items) {
+            console.log("%c[POS] sale_items SCHEMA:", "color:lime;font-weight:bold", Object.keys(def.definitions.sale_items.properties || {}));
+          }
+        }
+      } else {
+        console.error("[POS] sale_items schema check error:", schemaCheck.error);
+      }
+    } catch(e) { console.warn("[POS] schema check failed:", e.message); }
+
     // ถ้ามีสินค้าในตะกร้า → บันทึก sale_items + ลดสต๊อก
     if (state.cart.length > 0) {
       for (const item of state.cart) {
