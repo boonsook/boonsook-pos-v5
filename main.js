@@ -1668,19 +1668,18 @@ async function checkout(){
   if (!saleId) return showToast("ไม่สามารถดึง ID การขายได้");
 
   // Create sale items + deduct stock
+  // ★ คอลัมน์จริงในตาราง: id(auto), sale_id, product_name, qty, unit_price, line_total
   for (const item of state.cart) {
     const itemPayload = {
       sale_id: saleId,
       product_name: item.name || "สินค้า",
-      sku: item.sku || null,
-      quantity: Number(item.qty) || 1,
-      sale_price: Number(item.price) || 0,
+      qty: Number(item.qty) || 1,
+      unit_price: Number(item.price) || 0,
       line_total: Number(item.qty || 1) * Number(item.price || 0)
     };
-    console.log("[SALE] sale_items payload:", itemPayload);
     const itemRes = await xhrPost("sale_items", itemPayload);
     if (!itemRes.ok) {
-      console.error("[SALE] sale_items insert failed:", itemRes.error, "payload:", itemPayload);
+      console.error("[SALE] sale_items insert failed:", itemRes.error);
       showToast("บันทึกรายการสินค้าไม่สำเร็จ: " + (itemRes.error?.message || "unknown"));
     }
     await state.supabase.rpc("deduct_stock", { p_product_id: item.id, p_qty: item.qty }).catch(() => {});
