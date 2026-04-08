@@ -410,15 +410,25 @@ function renderPosView(ctx) {
       <div class="panel" style="margin:0 16px;border-radius:16px">
         <h4 style="margin:0 0 12px;color:#374151">แนบหลักฐานการชำระเงิน (สลิป)</h4>
         <div class="pos-proof-section" id="proofSection">
-          <button class="pos-proof-btn" id="posCaptureProof" style="display:flex;align-items:center;gap:12px;padding:16px;background:#f0fdf4;border:2px dashed #86efac;border-radius:12px;cursor:pointer;width:100%;text-align:left;font-size:15px">
-            <span style="font-size:28px">📷</span>
-            <div>
-              <div style="font-weight:700;color:#166534">ถ่ายรูป / เลือกรูปสลิป</div>
-              <div style="font-size:12px;color:#6b7280;margin-top:2px">เปิดกล้องถ่ายสลิป หรือเลือกจากแกลเลอรี่</div>
-            </div>
-          </button>
+          <div style="display:flex;gap:8px">
+            <button id="posCaptureProof" style="flex:1;display:flex;align-items:center;gap:10px;padding:14px;background:#f0fdf4;border:2px dashed #86efac;border-radius:12px;cursor:pointer;text-align:left;font-size:14px">
+              <span style="font-size:24px">📷</span>
+              <div>
+                <div style="font-weight:700;color:#166534">ถ่ายรูป</div>
+                <div style="font-size:11px;color:#6b7280">เปิดกล้อง</div>
+              </div>
+            </button>
+            <button id="posGalleryProof" style="flex:1;display:flex;align-items:center;gap:10px;padding:14px;background:#eff6ff;border:2px dashed #93c5fd;border-radius:12px;cursor:pointer;text-align:left;font-size:14px">
+              <span style="font-size:24px">🖼️</span>
+              <div>
+                <div style="font-weight:700;color:#1e40af">เลือกรูป</div>
+                <div style="font-size:11px;color:#6b7280">จากแกลเลอรี่</div>
+              </div>
+            </button>
+          </div>
         </div>
-        <input type="file" id="posProofFileInput" accept="image/*" capture="environment" style="display:none" />
+        <input type="file" id="posProofCameraInput" accept="image/*" capture="environment" style="display:none" />
+        <input type="file" id="posProofGalleryInput" accept="image/*" style="display:none" />
       </div>
 
       <!-- ปุ่ม -->
@@ -437,13 +447,18 @@ function renderPosView(ctx) {
       renderPosView(ctx);
     }, { signal });
 
-    // ─── ถ่ายรูป/เลือกไฟล์ ───
-    const proofInput = document.getElementById("posProofFileInput");
+    // ─── ถ่ายรูป / เลือกจากแกลเลอรี่ ───
+    const cameraInput = document.getElementById("posProofCameraInput");
+    const galleryInput = document.getElementById("posProofGalleryInput");
     document.getElementById("posCaptureProof")?.addEventListener("click", () => {
-      proofInput?.click();
+      cameraInput?.click();
+    }, { signal });
+    document.getElementById("posGalleryProof")?.addEventListener("click", () => {
+      galleryInput?.click();
     }, { signal });
 
-    proofInput?.addEventListener("change", async (e) => {
+    // ─── handler สำหรับทั้ง 2 input ───
+    const handleProofFile = async (e) => {
       let file = e.target.files?.[0];
       if (!file) return;
       // Note: Change event doesn't use signal because it's on input element
@@ -520,7 +535,9 @@ function renderPosView(ctx) {
         console.error("Proof error:", err);
         window.App?.showToast?.("เกิดข้อผิดพลาด กรุณาลองใหม่");
       }
-    });
+    };
+    cameraInput?.addEventListener("change", handleProofFile);
+    galleryInput?.addEventListener("change", handleProofFile);
 
     // ─── เสร็จสิ้น (พร้อมสลิป) ───
     document.getElementById("posConfirmWithProof")?.addEventListener("click", () => {
@@ -781,7 +798,11 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
           console.error("[POS] sale_items insert failed:", itemRes.error);
           window.App?.showToast?.("บันทึกรายการสินค้าไม่สำเร็จ: " + (itemRes.error || "unknown"));
         }
-        try { await state.supabase.rpc("deduct_stock", { p_product_id: item.id, p_qty: item.qty }); } catch(e) { console.warn("[POS] deduct_stock skipped:", e.message); }
+        // ลดสต๊อก (ถ้า function มีใน DB)
+        try {
+          const rpcRes = await state.supabase.rpc("deduct_stock", { p_product_id: item.id, p_qty: Number(item.qty) || 1 });
+          if (rpcRes?.error) console.warn("[POS] deduct_stock:", rpcRes.error.message);
+        } catch(e) { /* ข้ามถ้าไม่มี function */ }
       }
     }
 
