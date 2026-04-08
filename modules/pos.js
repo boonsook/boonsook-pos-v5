@@ -781,7 +781,7 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
           console.error("[POS] sale_items insert failed:", itemRes.error);
           window.App?.showToast?.("บันทึกรายการสินค้าไม่สำเร็จ: " + (itemRes.error || "unknown"));
         }
-        await state.supabase.rpc("deduct_stock", { p_product_id: item.id, p_qty: item.qty }).catch(() => {});
+        try { await state.supabase.rpc("deduct_stock", { p_product_id: item.id, p_qty: item.qty }); } catch(e) { console.warn("[POS] deduct_stock skipped:", e.message); }
       }
     }
 
