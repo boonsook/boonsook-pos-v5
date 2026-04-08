@@ -17,8 +17,8 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
   const signal = _salesAbort.signal;
 
   const isAdmin = (state.profile?.role === "admin");
-  // ★ ซ่อนรายการที่ soft-delete แล้ว (เช็ค deleted_at และ note)
-  const visibleSales = state.sales.filter(s => !s.deleted_at && !(s.note || "").includes("[ลบแล้ว]"));
+  // ★ ซ่อนรายการที่ soft-delete แล้ว (เช็ค note มี [ลบแล้ว])
+  const visibleSales = state.sales.filter(s => !(s.note || "").includes("[ลบแล้ว]"));
 
   // ★ Pagination
   const totalPages = Math.max(1, Math.ceil(visibleSales.length / SALES_PAGE_SIZE));
@@ -90,16 +90,15 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
     btn.textContent = "กำลังลบ...";
 
     const newNote = "[ลบแล้ว] ลบโดยแอดมิน " + new Date().toLocaleString("th-TH");
-    const deletedAt = new Date().toISOString();
 
     try {
       let success = false;
 
-      // ★ วิธีที่ 1: ใช้ Supabase JS client โดยตรง (มี auth token ครบ)
+      // ★ วิธีที่ 1: ใช้ Supabase JS client (อัปเดตเฉพาะ note — ไม่มี deleted_at ในตาราง)
       if (state.supabase) {
         const { data, error } = await state.supabase
           .from("sales")
-          .update({ note: newNote, deleted_at: deletedAt })
+          .update({ note: newNote })
           .eq("id", saleId)
           .select();
 
@@ -110,25 +109,16 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
         }
       }
 
-      // ★ วิธีที่ 2: ใช้ XHR PATCH + return=representation
+      // ★ วิธีที่ 2: ใช้ XHR PATCH
       if (!success) {
         const res = await window._appXhrPatch(
           "sales",
-          { note: newNote, deleted_at: deletedAt },
+          { note: newNote },
           "id",
           saleId
         );
         if (res?.ok) success = true;
         else console.warn("XHR PATCH failed:", res?.error?.message);
-      }
-
-      // ★ วิธีที่ 3: ใช้ RPC function (ถ้ามี)
-      if (!success && state.supabase) {
-        try {
-          const { error: rpcErr } = await state.supabase.rpc("soft_delete_sale", { sale_id: saleId, del_note: newNote, deleted_at: deletedAt });
-          if (!rpcErr) success = true;
-          else console.warn("RPC soft_delete_sale failed:", rpcErr.message);
-        } catch(rpcE) { console.warn("RPC not available:", rpcE.message); }
       }
 
       if (success) {

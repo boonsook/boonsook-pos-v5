@@ -32,7 +32,7 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
   const thisMonth = today.slice(0,7);
 
   // ★ กรองรายการขายที่ soft-delete แล้วออกก่อนคำนวณทุกอย่าง
-  const allSales = (state.sales || []).filter(s => !s.deleted_at && !(s.note || "").includes("[ลบแล้ว]"));
+  const allSales = (state.sales || []).filter(s => !(s.note || "").includes("[ลบแล้ว]"));
 
   // ★ ออเดอร์จากเว็บ (service_jobs ที่เป็นคำสั่งซื้อสินค้า) — รวมทุกสถานะยกเว้นยกเลิก
   const webOrders = (state.serviceJobs || []).filter(j =>
@@ -355,7 +355,7 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
     }
   }));
 
-  renderChart((state.sales||[]).filter(s => !s.deleted_at && !(s.note||"").includes("[ลบแล้ว]")));
+  renderChart((state.sales||[]).filter(s => !(s.note||"").includes("[ลบแล้ว]")));
 
   // ═══ AUTO DAILY SUMMARY ผ่าน LINE Notify ตอน 22:00 ═══
   setupDailySummaryTimer(state, sendLineNotify);
@@ -402,7 +402,7 @@ function setupDailySummaryTimer(state, sendLineNotify) {
   _dailySummaryTimer = setTimeout(() => {
     // ส่งสรุปยอด
     const today = todayKey();
-    const todaySalesArr = (state.sales||[]).filter(s => !s.deleted_at && !(s.note||"").includes("[ลบแล้ว]") && String(s.created_at||"").slice(0,10) === today);
+    const todaySalesArr = (state.sales||[]).filter(s => !(s.note||"").includes("[ลบแล้ว]") && String(s.created_at||"").slice(0,10) === today);
     const revenue = todaySalesArr.reduce((s,x)=>s+Number(x.total_amount||0),0);
     const orders = todaySalesArr.length;
     const expenses = (state.expenses||[]).filter(e => String(e.expense_date||"").slice(0,10) === today);
