@@ -1682,7 +1682,7 @@ async function checkout(){
       console.error("[SALE] sale_items insert failed:", itemRes.error);
       showToast("บันทึกรายการสินค้าไม่สำเร็จ: " + (itemRes.error?.message || "unknown"));
     }
-    await state.supabase.rpc("deduct_stock", { p_product_id: item.id, p_qty: item.qty }).catch(() => {});
+    try { await state.supabase.rpc("deduct_stock", { p_product_id: item.id, p_qty: item.qty }); } catch(e) { console.warn("[SALE] deduct_stock skipped:", e.message); }
   }
 
   await loadReceipt(saleId);
