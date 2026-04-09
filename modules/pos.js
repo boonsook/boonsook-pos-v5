@@ -393,6 +393,7 @@ function renderPosView(ctx) {
     const methodIcons = { "เงินสด": "💵", "โอนเงิน": "🏦", "บัตรเครดิต": "💳", "QR พร้อมเพย์": "🔗" };
 
     el.innerHTML = `
+      <div style="overflow-y:auto;max-height:100vh;padding-bottom:80px">
       <div class="pos-subpage-header">
         <button class="btn light pos-back-btn" id="posBack">←</button>
         <h3 style="margin:0">ยืนยันการชำระ</h3>
@@ -435,6 +436,7 @@ function renderPosView(ctx) {
       <div style="padding:16px;display:flex;flex-direction:column;gap:10px">
         <button id="posConfirmWithProof" class="pos-collect-btn" style="width:100%;background:#10b981;padding:16px;font-size:16px;font-weight:700;border-radius:12px;color:#fff;border:none;cursor:pointer">เสร็จสิ้น</button>
         <button id="posConfirmNoProof" style="width:100%;padding:16px;font-size:15px;color:#6b7280;background:#f3f4f6;border:2px solid #e5e7eb;border-radius:12px;cursor:pointer;font-weight:600">ข้าม ไม่แนบสลิป → เสร็จสิ้น</button>
+      </div>
       </div>
     `;
 
@@ -767,9 +769,12 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
       total_amount: amount,
       paid_amount: paidAmount || amount,
       change_amount: Math.max((paidAmount || amount) - amount, 0),
+      discount_type: null,
+      discount_value: 0,
+      discount_amount: 0,
       note: proofUrl && proofUrl.startsWith("http") ? "สลิป: " + proofUrl : "",
       proof_url: proofUrl && proofUrl.startsWith("http") ? proofUrl : null,
-      created_by: state.currentUser.id
+      created_by: state.currentUser?.id || null
     };
 
     // ★ ใช้ XHR แทน supabase .insert() ที่ค้าง
