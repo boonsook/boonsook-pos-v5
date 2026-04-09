@@ -357,7 +357,7 @@ export async function notifyLowStock(products, ctx) {
 
   products.forEach((product, index) => {
     message += `${index + 1}. ${product.name}\n`;
-    message += `   สต็อก: ${product.quantity} ${product.unit}\n`;
+    message += `   สต็อก: ${product.stock || product.quantity || 0} ${product.unit || "ชิ้น"}\n`;
   });
 
   message += `\n⏰ ${new Date().toLocaleString('th-TH')}`;
@@ -374,7 +374,7 @@ export async function notifyNewOrder(sale, ctx) {
   const settings = ctx.state.lineNotifySettings;
   if (!settings || !settings.is_active || !settings.notify_new_order) return;
 
-  const totalItems = sale.items ? sale.items.reduce((sum, item) => sum + item.quantity, 0) : 0;
+  const totalItems = sale.items ? sale.items.reduce((sum, item) => sum + (item.qty || item.quantity || 0), 0) : 0;
   const totalPrice = sale.total_amount || 0;
 
   let message = '🛒 ออเดอร์ใหม่\n\n';

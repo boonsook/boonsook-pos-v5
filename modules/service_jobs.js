@@ -181,13 +181,7 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
         else console.warn("XHR PATCH failed:", res?.error?.message);
       }
 
-      // ★ วิธีที่ 3: RPC fallback
-      if (!success && state.supabase) {
-        try {
-          const { error: rpcErr } = await state.supabase.rpc("soft_delete_service_job", { job_id: jobId, del_note: newNote });
-          if (!rpcErr) success = true;
-        } catch(rpcE) { console.warn("RPC not available:", rpcE.message); }
-      }
+      // หมายเหตุ: RPC soft_delete_service_job ไม่มีใน DB — ข้ามไป
 
       if (success) {
         if (showToast) showToast("ลบงานช่างเรียบร้อย ✅");

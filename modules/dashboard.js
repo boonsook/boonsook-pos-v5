@@ -81,8 +81,8 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
       items.forEach(item => {
         const key = item.name || item.product_name || "สินค้า";
         if (!productSalesMap[key]) productSalesMap[key] = { name: key, qty: 0, revenue: 0 };
-        productSalesMap[key].qty += Number(item.qty || item.quantity || 1);
-        productSalesMap[key].revenue += Number(item.total || item.subtotal || 0);
+        productSalesMap[key].qty += Number(item.qty || 1);
+        productSalesMap[key].revenue += Number(item.line_total || item.total || 0);
       });
     } catch(e){}
   });
