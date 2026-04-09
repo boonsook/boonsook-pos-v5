@@ -780,8 +780,9 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
     // ★ ใช้ XHR แทน supabase .insert() ที่ค้าง
     const cfg = window.SUPABASE_CONFIG;
     const token = window._sbAccessToken || cfg.anonKey;
+    console.log("[POS] salePayload:", JSON.stringify(salePayload));
     const saleRes = await xhrPostPOS("sales", salePayload, true);
-    if (!saleRes.ok) { window.App?.showToast?.(saleRes.error || "บันทึกไม่สำเร็จ"); return; }
+    if (!saleRes.ok) { alert("Sales ERROR: " + (saleRes.error || "unknown")); window.App?.showToast?.(saleRes.error || "บันทึกไม่สำเร็จ"); return; }
 
     const saleId = saleRes.data?.id;
     if (!saleId) { window.App?.showToast?.("ไม่สามารถดึง ID การขายได้"); return; }
@@ -800,6 +801,7 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
         const itemRes = await xhrPostPOS("sale_items", itemPayload);
         if (!itemRes.ok) {
           console.error("[POS] sale_items insert failed:", itemRes.error);
+          alert("sale_items ERROR: " + (itemRes.error || "unknown"));
           window.App?.showToast?.("บันทึกรายการสินค้าไม่สำเร็จ: " + (itemRes.error || "unknown"));
         }
         // หมายเหตุ: deduct_stock RPC ยังไม่มีใน DB — ข้ามไปก่อน
@@ -825,6 +827,7 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
     if (window.App?.loadAllData) await window.App.loadAllData();
 
   } catch (err) {
+    alert("doCheckout ERROR: " + (err.message || err));
     window.App?.showToast?.("เกิดข้อผิดพลาด: " + (err.message || err));
   }
 }

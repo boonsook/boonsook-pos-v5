@@ -94,41 +94,55 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
     try {
       let success = false;
 
-      // ★ วิธีที่ 1: ใช้ Supabase JS client (อัปเดตเฉพาะ note — ไม่มี deleted_at ในตาราง)
-      if (state.supabase) {
+      // ★ วิธีที่ 1: XHR PATCH (เร็วกว่า + ควบคุม token ได้)
+      try {
+        const cfg = window.SUPABASE_CONFIG;
+        const token = window._sbAccessToken || cfg.anonKey;
+        const patchRes = await fetch(cfg.url + "/rest/v1/sales?id=eq." + saleId, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "apikey": cfg.anonKey,
+            "Authorization": "Bearer " + token,
+            "Prefer": "return=representation"
+          },
+          body: JSON.stringify({ note: newNote })
+        });
+        const patchData = await patchRes.json().catch(() => null);
+        if (patchRes.ok && Array.isArray(patchData) && patchData.length > 0) {
+          success = true;
+        } else {
+          const errMsg = patchData?.message || patchData?.hint || "status " + patchRes.status + " — 0 rows (RLS?)";
+          console.warn("PATCH failed:", errMsg);
+          alert("ลบ PATCH error: " + errMsg);
+        }
+      } catch (fetchErr) {
+        console.warn("PATCH fetch error:", fetchErr.message);
+        alert("ลบ fetch error: " + fetchErr.message);
+      }
+
+      // ★ วิธีที่ 2: Supabase JS client (fallback)
+      if (!success && state.supabase) {
         const { data, error } = await state.supabase
           .from("sales")
           .update({ note: newNote })
           .eq("id", saleId)
           .select();
-
         if (!error && data && data.length > 0) {
           success = true;
         } else {
-          console.warn("Supabase client update failed:", error?.message || "0 rows affected — RLS อาจบล็อค");
+          console.warn("Supabase update failed:", error?.message);
         }
-      }
-
-      // ★ วิธีที่ 2: ใช้ XHR PATCH
-      if (!success) {
-        const res = await window._appXhrPatch(
-          "sales",
-          { note: newNote },
-          "id",
-          saleId
-        );
-        if (res?.ok) success = true;
-        else console.warn("XHR PATCH failed:", res?.error?.message);
       }
 
       if (success) {
         if (showToast) showToast("ลบรายการขายเรียบร้อย ✅");
         await loadAllData();
       } else {
-        // ★ ลบไม่ได้จากทุกวิธี → ต้องแก้ RLS policy ที่ Supabase Dashboard
-        throw new Error("RLS บล็อคการอัปเดต — กรุณาเพิ่ม UPDATE policy ที่ Supabase Dashboard สำหรับตาราง sales");
+        throw new Error("ลบไม่ได้ — ต้องเพิ่ม UPDATE policy ที่ Supabase Dashboard สำหรับตาราง sales");
       }
     } catch (err) {
+      alert("ลบ ERROR: " + (err.message || err));
       if (showToast) showToast("❌ " + (err.message || "ลบไม่สำเร็จ"), "error");
       btn.disabled = false;
       btn.textContent = "🗑️ ลบ";
