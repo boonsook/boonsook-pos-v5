@@ -1,0 +1,87 @@
+name: Deploy Boonsook POS (GitHub Pages + Cloudflare)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# ★ สิทธิ์สำหรับ GitHub Pages deployment
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  # ═══════════════════════════════════════════
+  #  Job 1: Deploy → Cloudflare Pages (มือถือ)
+  # ═══════════════════════════════════════════
+  cloudflare:
+    runs-on: ubuntu-latest
+    name: Deploy to Cloudflare Pages
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy . --project-name=round-lab-bd11
+
+  # ═══════════════════════════════════════════
+  #  Job 2: Deploy → GitHub Pages (เดสก์ท็อป)
+  # ═══════════════════════════════════════════
+  github-pages:
+    runs-on: ubuntu-latest
+    name: Deploy to GitHub Pages
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  # ═══════════════════════════════════════════
+  #  Job 3: Build & Test Docker (optional)
+  # ═══════════════════════════════════════════
+  docker:
+    runs-on: ubuntu-latest
+    name: Build Docker Image
+    needs: [cloudflare, github-pages]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: |
+          docker build -t boonsook-pos:${{ github.sha }} .
+          docker build -t boonsook-pos:latest .
+
+      - name: Test Docker image
+        run: |
+          docker run -d --name test-pos -p 8080:80 boonsook-pos:latest
+          sleep 3
+          curl -f http://localhost:8080/ || exit 1
+          docker stop test-pos
+          docker rm test-pos
+          echo "Docker image test passed!"

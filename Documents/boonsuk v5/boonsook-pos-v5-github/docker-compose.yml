@@ -1,0 +1,12 @@
+version: "3.8"
+
+services:
+  boonsook-pos:
+    build: .
+    container_name: boonsook-pos
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+    labels:
+      - "app=boonsook-pos"
+      - "version=5.0"

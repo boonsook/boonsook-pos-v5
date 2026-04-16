@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Boonsook POS PRO V5</title>
+  <meta name="description" content="Boonsook POS PRO V5 — ระบบขายหน้าร้านเต็มรูปแบบ" />
+  <meta name="theme-color" content="#0284c7" />
+  <link rel="icon" type="image/svg+xml" href="./icons/logo.svg" />
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="apple-touch-icon" href="./icons/logo.svg" />
+  <link rel="stylesheet" href="./style.css" />
+  <link rel="stylesheet" href="./doc-print.css" />
+  <!-- ✨ Phase 4: Design System & Components (30/3/2569) -->
+  <link rel="stylesheet" href="./phase4-design-system.css" />
+  <link rel="stylesheet" href="./phase4-components.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <!-- html2canvas โหลดแบบ lazy เฉพาะตอนกด Share/PDF ใน main.js เพื่อลด initial load ~350KB -->
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+  <script src="./supabase-config.js"></script>
+</head>
+<body>
+  <!-- ═══ LOADING OVERLAY ═══ -->
+  <div id="loadingOverlay" class="loading-overlay" role="status" aria-label="กำลังโหลด">
+    <div class="loading-spinner">
+      <div class="spinner-ring"></div>
+      <img src="./icons/logo.svg" alt="" class="spinner-logo" />
+    </div>
+    <p class="loading-text">กำลังโหลด...</p>
+  </div>
+
+  <div id="toast" class="toast" role="alert" aria-live="polite"></div>
+
+  <!-- ═══ AUTH SCREEN ═══ -->
+  <div id="authScreen" class="auth-shell">
+    <div class="auth-card">
+      <img src="./icons/logo.svg" alt="บุญสุข อิเล็กทรอนิกส์" class="auth-logo-img" />
+      <h1 class="auth-title">Boonsook POS</h1>
+      <p class="muted auth-subtitle">ระบบขายหน้าร้านเต็มรูปแบบ V5</p>
+      <!-- ═══ STAFF LOGIN (email+password) ═══ -->
+      <div id="staffLoginForm">
+        <div class="stack">
+          <label for="loginEmail" class="sr-only">อีเมล</label>
+          <input class="form-input" id="loginEmail" type="email" placeholder="อีเมล (สำหรับพนักงาน)" autocomplete="email" aria-label="อีเมลสำหรับพนักงาน" />
+          <div class="password-wrap">
+            <label for="loginPassword" class="sr-only">รหัสผ่าน</label>
+            <input class="form-input" id="loginPassword" type="password" placeholder="รหัสผ่าน" autocomplete="current-password" aria-label="รหัสผ่าน" />
+            <button type="button" id="togglePassword" class="password-toggle" aria-label="แสดง/ซ่อนรหัสผ่าน" title="แสดง/ซ่อนรหัสผ่าน">👁️</button>
+          </div>
+        </div>
+        <div class="row mt16">
+          <button id="loginBtn" class="btn btn-primary">เข้าสู่ระบบ (พนักงาน)</button>
+        </div>
+      </div>
+      <div id="authStatus" class="card mt16">กำลังตรวจสอบการเชื่อมต่อ...</div>
+
+      <!-- ═══ DIVIDER ═══ -->
+      <div class="auth-divider" role="separator">
+        <div class="auth-divider-line"></div>
+        <span class="muted auth-divider-text">หรือ</span>
+        <div class="auth-divider-line"></div>
+      </div>
+
+      <!-- ═══ CUSTOMER LOGIN / REGISTER (phone + OTP) ═══ -->
+      <div id="customerAuthSection">
+        <h3 class="customer-auth-title">สำหรับลูกค้า — เข้าด้วยเบอร์โทร</h3>
+
+        <!-- STEP 1: กรอกเบอร์โทร (สมัคร/ล็อกอิน) -->
+        <div id="otpStep1">
+          <div class="stack">
+            <label for="custName" class="sr-only">ชื่อ-นามสกุล</label>
+            <input class="form-input" id="custName" type="text" placeholder="ชื่อ-นามสกุล (สมัครใหม่ใส่ / มีบัญชีแล้วเว้นว่าง)" autocomplete="name" aria-label="ชื่อ-นามสกุล" />
+            <label for="custPhone" class="sr-only">เบอร์โทรศัพท์</label>
+            <input class="form-input otp-phone-input" id="custPhone" type="tel" placeholder="เบอร์โทรศัพท์ เช่น 0812345678" maxlength="10" pattern="[0-9]{10}" autocomplete="tel" aria-label="เบอร์โทรศัพท์" />
+          </div>
+          <div class="row mt16">
+            <button id="requestOtpBtn" class="btn btn-primary btn-success-full">📱 ขอรหัส OTP</button>
+          </div>
+        </div>
+
+        <!-- STEP 2: กรอก OTP -->
+        <div id="otpStep2" class="hidden">
+          <div class="otp-display-section">
+            <div class="muted">ส่งรหัส OTP ไปที่</div>
+            <div id="otpPhoneDisplay" class="otp-phone-number"></div>
+          </div>
+          <div class="stack">
+            <label for="otpCode" class="sr-only">รหัส OTP</label>
+            <input class="form-input otp-code-input" id="otpCode" type="tel" placeholder="กรอกรหัส OTP 4 หลัก" maxlength="4" pattern="[0-9]{4}" autocomplete="one-time-code" aria-label="รหัส OTP 4 หลัก" />
+          </div>
+          <div class="row mt16">
+            <button id="verifyOtpBtn" class="btn btn-primary btn-success-full">ยืนยัน OTP</button>
+          </div>
+          <div class="otp-actions">
+            <button type="button" id="backToPhoneBtn" class="link-btn link-btn-muted" aria-label="กลับไปเปลี่ยนเบอร์โทร">← เปลี่ยนเบอร์โทร</button>
+            <span class="muted otp-actions-sep">|</span>
+            <button type="button" id="resendOtpBtn" class="link-btn link-btn-primary" aria-label="ส่งรหัส OTP อีกครั้ง">ส่ง OTP ใหม่</button>
+          </div>
+        </div>
+
+        <div id="otpStatus" class="hidden panel mt16" role="alert"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ APP SHELL ═══ -->
+  <div id="appShell" class="app-shell hidden">
+
+    <!-- ═══ SIDEBAR (Desktop) ═══ -->
+    <aside id="sidebar" class="sidebar" aria-label="เมนูหลัก">
+      <div class="sidebar-head">
+        <img src="./icons/logo.svg" alt="บุญสุข" class="sidebar-logo-img" />
+        <div>
+          <div class="sidebar-title">บุญสุข</div>
+          <div class="sidebar-sub">อิเล็กทรอนิกส์ V5</div>
+        </div>
+      </div>
+
+      <div class="user-box">
+        <div id="sideUserName" class="user-name">-</div>
+        <div id="sideUserRole" class="user-role">-</div>
+      </div>
+
+      <!-- ═══ ภาพรวมบริษัท ═══ -->
+      <button class="nav-btn active" data-route="dashboard">📊 ภาพรวมบริษัท</button>
+      <button class="nav-btn" data-route="customer_dashboard">🏠 หน้าหลัก</button>
+
+      <!-- ═══ แคชเชียร์ ═══ -->
+      <button class="nav-btn" data-route="pos">💰 แคชเชียร์</button>
+
+      <!-- ═══ งานขาย (กลุ่ม) ═══ -->
+      <div class="nav-group" data-group="sales">
+        <button class="nav-group-toggle">📋 งานขาย <span class="nav-arrow">▶</span></button>
+        <div class="nav-group-items">
+          <button class="nav-btn sub" data-route="quotations">📄 ใบเสนอราคา</button>
+          <button class="nav-btn sub" data-route="delivery_invoices">📦 ใบส่งสินค้า / ใบแจ้งหนี้</button>
+          <button class="nav-btn sub" data-route="receipts">🧾 ใบเสร็จรับเงิน</button>
+          <button class="nav-btn sub" data-route="sales">💳 รายการขาย POS</button>
+        </div>
+      </div>
+
+      <!-- ═══ งานช่าง (กลุ่ม) ═══ -->
+      <div class="nav-group" data-group="service">
+        <button class="nav-group-toggle">🧰 งานช่าง <span class="nav-arrow">▶</span></button>
+        <div class="nav-group-items">
+          <button class="nav-btn sub" data-route="service_jobs">📋 ใบรับงาน</button>
+          <button class="nav-btn sub" data-route="ac_install">🏗️ ติดตั้งแอร์</button>
+          <button class="nav-btn sub" data-route="solar">☀️ โซล่าเซลล์</button>
+        </div>
+      </div>
+
+      <!-- ═══ เครื่องมือ ═══ -->
+      <button class="nav-btn" data-route="btu_calculator">🧮 คำนวณ BTU</button>
+      <button class="nav-btn" data-route="service_request">🛠️ แจ้งซ่อม/บริการ</button>
+      <button class="nav-btn" data-route="error_codes">⚠️ Error Code แอร์</button>
+      <button class="nav-btn" data-route="ai_sales">🤖 AI ช่วยขายแอร์</button>
+      <button class="nav-btn" data-route="ac_shop">❄️ แอร์ใหม่พร้อมติดตั้ง</button>
+
+      <!-- ═══ สินค้า / คลัง (กลุ่ม) ═══ -->
+      <div class="nav-group" data-group="products">
+        <button class="nav-group-toggle">📦 สินค้า / คลัง <span class="nav-arrow">▶</span></button>
+        <div class="nav-group-items">
+          <button class="nav-btn sub" data-route="products">🏠 หน้าหลัก</button>
+          <button class="nav-btn sub" data-route="wh_kunkhao">🚐 คันขาว</button>
+          <button class="nav-btn sub" data-route="wh_kundaeng">🚗 คันแดง</button>
+          <button class="nav-btn sub" data-route="wh_sikhon">🏪 ศีขร</button>
+        </div>
+      </div>
+
+      <!-- ═══ ลูกค้า ═══ -->
+      <button class="nav-btn" data-route="customers">👥 ลูกค้า</button>
+
+      <!-- ═══ การเงิน (กลุ่ม) ═══ -->
+      <div class="nav-group" data-group="finance">
+        <button class="nav-group-toggle">💰 การเงิน <span class="nav-arrow">▶</span></button>
+        <div class="nav-group-items">
+          <button class="nav-btn sub" data-route="expenses">📒 รายรับ-รายจ่าย</button>
+          <button class="nav-btn sub" data-route="profit_report">📊 รายงานกำไร</button>
+        </div>
+      </div>
+
+      <!-- ═══ คลังสินค้า เพิ่มเติม ═══ -->
+      <button class="nav-btn" data-route="stock_movements">📋 ประวัติสต็อก</button>
+
+      <!-- ═══ ปฏิทินงานช่าง ═══ -->
+      <button class="nav-btn" data-route="calendar">📅 ปฏิทินงานช่าง</button>
+
+      <!-- ═══ Loyalty ═══ -->
+      <button class="nav-btn" data-route="loyalty">🎁 สะสมแต้ม</button>
+
+      <!-- ═══ ตั้งค่า ═══ -->
+      <button class="nav-btn" data-route="settings">⚙️ ตั้งค่า</button>
+
+      <div class="nav-group-label nav-group-label--bottom">ลัด</div>
+      <button id="quickAddProduct" class="nav-btn">➕ เพิ่มสินค้า</button>
+      <button id="quickAddCustomer" class="nav-btn">👤 เพิ่มลูกค้า</button>
+      <button id="quickAddQuotation" class="nav-btn">📄 เพิ่มใบเสนอราคา</button>
+      <button id="quickAddServiceJob" class="nav-btn">🧰 เพิ่มงานช่าง</button>
+      <button id="quickOpenReceipt" class="nav-btn">🖨️ ใบเสร็จล่าสุด</button>
+      <!-- ═══ DARK MODE TOGGLE ═══ -->
+      <div class="dark-mode-row">
+        <span class="dark-mode-label">โหมดมืด</span>
+        <label for="darkModeToggle" class="toggle-switch" aria-label="เปิด/ปิดโหมดมืด">
+          <input type="checkbox" id="darkModeToggle" class="toggle-input">
+          <span id="darkModeTrack" class="toggle-track"></span>
+          <span id="darkModeKnob" class="toggle-knob"></span>
+        </label>
+      </div>
+
+      <button id="logoutBtn" class="nav-btn danger nav-btn--logout" aria-label="ออกจากระบบ">↪️ ออกจากระบบ</button>
+    </aside>
+
+    <!-- ═══ MAIN CONTENT ═══ -->
+    <main class="content">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button id="menuToggle" class="icon-btn mobile-only">☰</button>
+          <div>
+            <div id="pageTitle" class="page-title">ภาพรวม</div>
+            <div id="dbStatus" class="page-sub">กำลังตรวจสอบการเชื่อมต่อ...</div>
+          </div>
+        </div>
+        <div class="topbar-right">
+          <input class="form-input desktop-search" id="globalSearch" placeholder="ค้นหาสินค้า / SKU" aria-label="ค้นหาสินค้า / SKU" autocomplete="off" />
+          <button id="refreshBtn" class="icon-btn">⟳</button>
+        </div>
+      </header>
+
+      <section id="page-dashboard" class="page"></section>
+      <section id="page-pos" class="page hidden"></section>
+      <section id="page-products" class="page hidden"></section>
+      <section id="page-wh_kunkhao" class="page hidden"></section>
+      <section id="page-wh_kundaeng" class="page hidden"></section>
+      <section id="page-wh_sikhon" class="page hidden"></section>
+      <section id="page-sales" class="page hidden"></section>
+      <section id="page-delivery_invoices" class="page hidden"></section>
+      <section id="page-receipts" class="page hidden"></section>
+      <section id="page-customers" class="page hidden"></section>
+      <section id="page-quotations" class="page hidden"></section>
+      <section id="page-service_jobs" class="page hidden"></section>
+      <section id="page-settings" class="page hidden"></section>
+      <section id="page-expenses" class="page hidden"></section>
+      <section id="page-profit_report" class="page hidden"></section>
+      <section id="page-stock_movements" class="page hidden"></section>
+      <section id="page-calendar" class="page hidden"></section>
+      <section id="page-loyalty" class="page hidden"></section>
+      <section id="page-customer_dashboard" class="page hidden"></section>
+      <section id="page-btu_calculator" class="page hidden"></section>
+      <section id="page-service_request" class="page hidden"></section>
+      <section id="page-solar" class="page hidden"></section>
+      <section id="page-ac_install" class="page hidden"></section>
+      <section id="page-error_codes" class="page hidden"></section>
+      <section id="page-ai_sales" class="page hidden"></section>
+      <section id="page-ac_shop" class="page hidden"></section>
+    </main>
+
+    <!-- ═══ MOBILE BOTTOM NAV (5 items) ═══ -->
+    <nav class="mobile-nav" aria-label="เมนูหลัก">
+      <button class="mobile-nav-btn active" data-route="dashboard" aria-label="ภาพรวมบริษัท">📊<span>ภาพรวม</span></button>
+      <button class="mobile-nav-btn" data-route="pos" aria-label="แคชเชียร์">💰<span>ขาย</span></button>
+      <button class="mobile-nav-btn" data-route="products" aria-label="สินค้า">📦<span>สินค้า</span></button>
+      <button class="mobile-nav-btn" data-route="customers" aria-label="ลูกค้า">👥<span>ลูกค้า</span></button>
+      <button class="mobile-nav-btn" data-route="settings" aria-label="ตั้งค่าและเมนูเพิ่มเติม">⚙️<span>เพิ่มเติม</span></button>
+    </nav>
+  </div>
+
+  <!-- ═══ BACKDROP ═══ -->
+  <div id="backdrop" class="backdrop hidden"></div>
+
+  <!-- ═══ PRODUCT DRAWER ═══ -->
+  <aside id="productDrawer" class="drawer hidden" role="dialog" aria-labelledby="productDrawerTitle">
+    <div class="drawer-head">
+      <h2 id="productDrawerTitle">เพิ่มสินค้า</h2>
+      <button class="btn light" data-close-drawer aria-label="ปิด">ปิด</button>
+    </div>
+    <div class="stack">
+      <label for="newProductType" class="sr-only">ประเภทสินค้า</label>
+      <select id="newProductType" aria-label="ประเภทสินค้า">
+        <option value="stock">🏪 สินค้านับสต็อก</option>
+        <option value="non_stock">📦 สินค้าไม่นับสต็อก</option>
+        <option value="service">🔧 บริการ</option>
+      </select>
+      <label for="newProductName" class="sr-only">ชื่อสินค้า</label>
+      <input class="form-input" id="newProductName" placeholder="ชื่อสินค้า" aria-label="ชื่อสินค้า" autocomplete="off" />
+      <label for="newProductSku" class="sr-only">รหัสสินค้า</label>
+      <input class="form-input" id="newProductSku" placeholder="รหัสสินค้า / SKU" aria-label="รหัสสินค้า / SKU" autocomplete="off" />
+      <label for="newProductCategory" class="sr-only">หมวดหมู่</label>
+      <input class="form-input" id="newProductCategory" placeholder="หมวดหมู่ (เช่น เครื่องปรับอากาศ, กล้อง)" aria-label="หมวดหมู่สินค้า" autocomplete="off" />
+      <label for="newProductPrice" class="sr-only">ราคาขาย</label>
+      <input class="form-input" id="newProductPrice" type="number" inputmode="decimal" placeholder="ราคาขาย" aria-label="ราคาขาย" min="0" autocomplete="off" />
+      <label for="newProductCost" class="sr-only">ต้นทุน</label>
+      <input class="form-input" id="newProductCost" type="number" inputmode="decimal" placeholder="ต้นทุน" aria-label="ต้นทุน" min="0" autocomplete="off" />
+      <div class="barcode-row">
+        <label for="newProductBarcode" class="sr-only">บาร์โค้ด</label>
+        <input class="form-input barcode-input" id="newProductBarcode" placeholder="บาร์โค้ด" aria-label="บาร์โค้ด" autocomplete="off" />
+        <button id="drawerGenBarcodeBtn" class="btn light btn-sm-action" aria-label="สร้างบาร์โค้ดอัตโนมัติ" title="สร้างบาร์โค้ดอัตโนมัติ">สร้าง</button>
+        <button id="drawerScanBtn" class="btn light btn-sm-icon" aria-label="สแกนบาร์โค้ด" title="สแกนบาร์โค้ด">📷</button>
+      </div>
+      <div id="drawerBarcodePreview" class="hidden barcode-preview">
+        <svg id="drawerBarcodeSvg"></svg>
+      </div>
+      <div id="drawerScannerArea" class="hidden scanner-area">
+        <div class="scanner-head">
+          <span class="scanner-label">📷 สแกนบาร์โค้ด</span>
+          <button id="drawerScannerClose" class="btn light btn-xs" aria-label="ปิดสแกนเนอร์">ปิด</button>
+        </div>
+        <div id="drawerScannerVideo" class="scanner-video"></div>
+        <div id="drawerScannerResult" class="scanner-result"></div>
+      </div>
+      <div class="wh-stock-section">
+        <div class="set-section-title wh-stock-title">สต็อกตามคลัง</div>
+        <div id="warehouseStockInputs" class="stack"></div>
+      </div>
+    </div>
+    <div class="row mt16">
+      <button id="resetProductFormBtn" class="btn light">ล้างค่า</button>
+      <button id="saveProductBtn" class="btn btn-primary">บันทึก</button>
+    </div>
+  </aside>
+
+  <!-- ═══ CUSTOMER DRAWER ═══ -->
+  <aside id="customerDrawer" class="drawer hidden" role="dialog" aria-labelledby="customerDrawerTitle">
+    <div class="drawer-head">
+      <h2 id="customerDrawerTitle">เพิ่มรายชื่อ</h2>
+      <button class="btn light" data-close-drawer aria-label="ปิด">ปิด</button>
+    </div>
+    <div class="stack">
+      <label for="customerContactType" class="sr-only">ประเภทรายชื่อ</label>
+      <select id="customerContactType" aria-label="ประเภทรายชื่อ">
+        <option value="customer">ลูกค้า</option>
+        <option value="supplier">ผู้จำหน่าย</option>
+        <option value="both">ผู้จำหน่าย/ลูกค้า</option>
+      </select>
+      <label for="customerName" class="sr-only">ชื่อรายชื่อ</label>
+      <input class="form-input" id="customerName" placeholder="ชื่อรายชื่อ / ชื่อบริษัท" aria-label="ชื่อรายชื่อ / ชื่อบริษัท" autocomplete="organization" />
+      <label for="customerContactPerson" class="sr-only">ชื่อผู้ติดต่อ</label>
+      <input class="form-input" id="customerContactPerson" placeholder="ชื่อผู้ติดต่อ" aria-label="ชื่อผู้ติดต่อ" autocomplete="name" />
+      <label for="customerPhone" class="sr-only">เบอร์ติดต่อ</label>
+      <input class="form-input" id="customerPhone" type="tel" placeholder="เบอร์ติดต่อ" aria-label="เบอร์ติดต่อ" pattern="[0-9]{9,10}" autocomplete="tel" />
+      <label for="customerEmail" class="sr-only">อีเมล</label>
+      <input class="form-input" id="customerEmail" type="email" placeholder="อีเมล" aria-label="อีเมล" autocomplete="email" />
+      <label for="customerCompany" class="sr-only">สำนักงาน / สาขา</label>
+      <input class="form-input" id="customerCompany" placeholder="สำนักงาน / สาขา" aria-label="สำนักงาน / สาขา" autocomplete="organization" />
+      <label for="customerAddress" class="sr-only">ที่อยู่</label>
+      <textarea id="customerAddress" rows="3" placeholder="ที่อยู่" aria-label="ที่อยู่" autocomplete="street-address"></textarea>
+      <label for="customerTaxId" class="sr-only">เลขผู้เสียภาษี</label>
+      <input class="form-input" id="customerTaxId" placeholder="เลขผู้เสียภาษี" aria-label="เลขผู้เสียภาษี" pattern="[0-9]{13}" maxlength="13" autocomplete="off" />
+    </div>
+    <div class="row mt16">
+      <button id="saveCustomerBtn" class="btn btn-primary">บันทึก</button>
+    </div>
+  </aside>
+
+  <!-- ═══ QUOTATION — Form now rendered in-page by quotations.js module ═══ -->
+
+  <!-- ═══ SERVICE JOB DRAWER ═══ -->
+  <aside id="serviceJobDrawer" class="drawer hidden" role="dialog" aria-labelledby="serviceJobDrawerTitle">
+    <div class="drawer-head">
+      <h2 id="serviceJobDrawerTitle">เพิ่มงานช่าง</h2>
+      <button class="btn light" data-close-drawer aria-label="ปิด">ปิด</button>
+    </div>
+    <div class="stack">
+      <label for="serviceCustomer" class="sr-only">ชื่อลูกค้า</label>
+      <input class="form-input" id="serviceCustomer" placeholder="ชื่อลูกค้า" aria-label="ชื่อลูกค้า" autocomplete="name" />
+      <label for="servicePhone" class="sr-only">เบอร์โทร</label>
+      <input class="form-input" id="servicePhone" type="tel" placeholder="เบอร์โทร" aria-label="เบอร์โทร" pattern="[0-9]{9,10}" autocomplete="tel" />
+      <label for="serviceAddress" class="sr-only">สถานที่หน้างาน</label>
+      <input class="form-input" id="serviceAddress" placeholder="สถานที่หน้างาน / ที่อยู่" aria-label="สถานที่หน้างาน" autocomplete="street-address" />
+      <label for="serviceTitle" class="sr-only">รายละเอียดงาน</label>
+      <input class="form-input" id="serviceTitle" placeholder="รายละเอียดงาน" aria-label="รายละเอียดงาน" autocomplete="off" />
+      <label for="serviceType" class="sr-only">ประเภทงาน</label>
+      <select id="serviceType" aria-label="ประเภทงาน">
+        <option value="ac">งานแอร์</option>
+        <option value="solar">โซลาร์เซลส์</option>
+        <option value="cctv">กล้องวงจรปิด</option>
+      </select>
+      <label for="serviceStatus" class="sr-only">สถานะงาน</label>
+      <select id="serviceStatus" aria-label="สถานะงาน">
+        <option value="pending">รอดำเนินการ</option>
+        <option value="progress">กำลังดำเนินการ</option>
+        <option value="done">เสร็จแล้ว</option>
+        <option value="delivered">ส่งมอบแล้ว</option>
+        <option value="cancelled">ยกเลิก</option>
+      </select>
+      <label for="serviceNote" class="sr-only">หมายเหตุ</label>
+      <textarea id="serviceNote" rows="3" placeholder="หมายเหตุ / รายละเอียดเพิ่มเติม" aria-label="หมายเหตุ"></textarea>
+    </div>
+    <div class="row mt16">
+      <button id="saveServiceJobBtn" class="btn btn-primary">บันทึก</button>
+    </div>
+  </aside>
+
+  <!-- ═══ RECEIPT DRAWER ═══ -->
+  <aside id="receiptDrawer" class="drawer hidden" role="dialog" aria-label="ใบเสร็จล่าสุด">
+    <div class="drawer-head">
+      <h2>ใบเสร็จล่าสุด</h2>
+      <button class="btn light" data-close-drawer aria-label="ปิด">ปิด</button>
+    </div>
+    <div id="receiptContent" class="card">ยังไม่มีบิลล่าสุด</div>
+    <div class="row mt16">
+      <button class="btn light" data-close-drawer>ปิด</button>
+      <button id="printReceiptBtn" class="btn dark">พิมพ์</button>
+      <button id="pdfReceiptBtn" class="btn btn-primary">PDF</button>
+    </div>
+  </aside>
+
+  <!-- ═══ ADD USER DRAWER (Admin only) ═══ -->
+  <aside id="addUserDrawer" class="drawer hidden" role="dialog" aria-label="เพิ่มผู้ใช้ใหม่">
+    <div class="drawer-head">
+      <h2>เพิ่มผู้ใช้ใหม่</h2>
+      <button class="btn light" data-close-drawer aria-label="ปิด">ปิด</button>
+    </div>
+    <div class="card mt16 sku">การเพิ่มผู้ใช้จะสร้างบัญชีผ่าน Supabase Auth โดยอัตโนมัติ</div>
+    <div class="stack mt16">
+      <label for="newUserEmail" class="sr-only">อีเมล</label>
+      <input class="form-input" id="newUserEmail" type="email" placeholder="อีเมล" aria-label="อีเมลผู้ใช้ใหม่" autocomplete="email" />
+      <div class="password-wrap">
+        <label for="newUserPassword" class="sr-only">รหัสผ่าน</label>
+        <input class="form-input" id="newUserPassword" type="password" placeholder="รหัสผ่าน (อย่างน้อย 6 ตัว)" minlength="6" aria-label="รหัสผ่านผู้ใช้ใหม่" autocomplete="new-password" />
+        <button type="button" id="toggleNewUserPassword" class="password-toggle" aria-label="แสดง/ซ่อนรหัสผ่าน" title="แสดง/ซ่อนรหัสผ่าน">👁️</button>
+      </div>
+      <label for="newUserName" class="sr-only">ชื่อ-นามสกุล</label>
+      <input class="form-input" id="newUserName" type="text" placeholder="ชื่อ-นามสกุล" aria-label="ชื่อ-นามสกุล" autocomplete="name" />
+      <label for="newUserRole" class="sr-only">บทบาท</label>
+      <select id="newUserRole" aria-label="บทบาทผู้ใช้">
+        <option value="sales">พนักงานขาย</option>
+        <option value="technician">ช่าง</option>
+        <option value="customer">ลูกค้า</option>
+        <option value="admin">ผู้ดูแลระบบ (Admin)</option>
+      </select>
+    </div>
+    <div class="row mt16">
+      <button id="addNewUserBtn" class="btn btn-primary">สร้างผู้ใช้</button>
+    </div>
+  </aside>
+
+  <script type="module" src="./main.js"></script>
+  <script>
+    // ═══ Loading Overlay ═══
+    function hideLoadingOverlay() {
+      const overlay = document.getElementById('loadingOverlay');
+      if (overlay) {
+        overlay.classList.add('fade-out');
+        setTimeout(() => overlay.remove(), 500);
+      }
+    }
+    // Auto-hide after auth check (max 4s fallback)
+    setTimeout(hideLoadingOverlay, 4000);
+    // Listen for app ready event from main.js
+    window.addEventListener('bsk-app-ready', hideLoadingOverlay);
+
+    // ═══ Service Worker ═══
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').then(reg => {
+          console.log('SW registered:', reg.scope);
+        }).catch(err => console.log('SW registration failed:', err));
+      });
+    }
+  </script>
+</body>
+</html>
