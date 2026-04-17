@@ -1,5 +1,5 @@
 // Boonsook POS V5 Service Worker
-const CACHE_NAME = 'boonsook-pos-v5-cache-v8';
+const CACHE_NAME = 'boonsook-pos-v5-cache-v9';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
