@@ -966,9 +966,9 @@ async function login(){
   if (error) { showToast(error.message || "เข้าสู่ระบบไม่สำเร็จ"); setText("authStatus", "เข้าสู่ระบบไม่สำเร็จ"); }
 }
 // ═══════════════════════════════════════════════════════════
-//  CUSTOMER OTP AUTH — สมัคร/ล็อกอินด้วยเบอร์โทร + OTP จำลอง
+//  CUSTOMER OTP AUTH — สมัคร/ล็อกอินด้วยเบอร์โทร + SMS OTP จริง (Twilio)
 // ═══════════════════════════════════════════════════════════
-let _pendingOtp = null; // { phone, code, name, expiresAt, nonce, attempts }
+let _pendingOtp = null; // { phone, name, hash, expiresAt, nonce, attempts }
 
 // ★ สร้าง nonce สุ่ม 32 ตัวอักษร สำหรับผสมใน password (ป้องกันคาดเดา)
 function generateNonce() {
@@ -977,12 +977,16 @@ function generateNonce() {
   return Array.from(arr).map(b => b.toString(16).padStart(2,'0')).join('');
 }
 
-function generateOtp() {
-  return String(Math.floor(1000 + Math.random() * 9000)); // 4 หลัก
-}
-
 function formatPhone(p) {
   return String(p || "").replace(/\D/g, "").slice(0, 10);
+}
+
+// ★ กำหนด API base URL ตาม environment
+function getApiBase() {
+  const host = window.location.hostname;
+  if (host === "localhost" || host === "127.0.0.1") return ""; // local dev
+  // Cloudflare Pages — functions อยู่ที่ path เดียวกัน
+  return window.location.origin;
 }
 
 async function requestOtp() {
@@ -992,38 +996,47 @@ async function requestOtp() {
 
   const statusEl = $("otpStatus");
   statusEl?.classList.remove("hidden");
-  setText("otpStatus", "กำลังส่งรหัส OTP...");
+  setText("otpStatus", "กำลังส่งรหัส OTP ทาง SMS...");
 
-  // สร้าง OTP จำลอง
-  const code = generateOtp();
-  const nonce = generateNonce();
-  _pendingOtp = { phone, code, name, nonce, expiresAt: Date.now() + 5 * 60 * 1000, attempts: 0 };
-
-  // ★ Production guard: ห้ามแสดง OTP ผ่าน alert ในโหมด production
-  if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
-    setTimeout(() => {
-      alert("📱 [DEV MODE] รหัส OTP: " + code + "\n(จำลอง — ระบบจริงจะส่ง SMS ไปเบอร์ " + phone + ")");
-    }, 300);
-  } else {
-    console.info("[OTP] รหัสถูกส่งไปยังเบอร์ " + phone + " แล้ว");
-  }
-
-  // บันทึก OTP ลง DB (ถ้ามีตาราง customer_otp)
   try {
-    await state.supabase.rpc("create_customer_otp", { p_phone: phone, p_code: code });
-  } catch(e) { console.warn("RPC create_customer_otp not available, using local OTP"); }
+    const res = await fetch(`${getApiBase()}/api/send-otp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone })
+    });
+    const data = await res.json();
 
-  // แสดง step 2
-  $("otpStep1")?.classList.add("hidden");
-  $("otpStep2")?.classList.remove("hidden");
-  setText("otpPhoneDisplay", phone.replace(/(\d{3})(\d{3})(\d{4})/, "$1-$2-$3"));
-  setText("otpStatus", "ส่ง OTP ไปเบอร์ " + phone + " แล้ว (จำลอง)");
-  $("otpCode")?.focus();
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error || "ส่ง SMS ไม่สำเร็จ");
+    }
+
+    const nonce = generateNonce();
+    _pendingOtp = {
+      phone,
+      name,
+      hash: data.hash,
+      expiresAt: data.expiresAt,
+      nonce,
+      attempts: 0
+    };
+
+    // แสดง step 2
+    $("otpStep1")?.classList.add("hidden");
+    $("otpStep2")?.classList.remove("hidden");
+    setText("otpPhoneDisplay", phone.replace(/(\d{3})(\d{3})(\d{4})/, "$1-$2-$3"));
+    setText("otpStatus", "ส่งรหัส OTP ไปเบอร์ " + phone + " แล้ว (ตรวจสอบ SMS)");
+    $("otpCode")?.focus();
+
+  } catch (e) {
+    console.error("[OTP] Send error:", e);
+    setText("otpStatus", "ส่ง SMS ไม่สำเร็จ: " + e.message);
+    showToast("ส่ง SMS ไม่สำเร็จ: " + e.message);
+  }
 }
 
 async function verifyOtp() {
   const code = $("otpCode")?.value.trim();
-  if (!code || code.length < 4) return showToast("กรุณากรอกรหัส OTP 4 หลัก");
+  if (!code || code.length < 6) return showToast("กรุณากรอกรหัส OTP 6 หลัก");
 
   if (!_pendingOtp) return showToast("กรุณาขอ OTP ใหม่");
   if (Date.now() > _pendingOtp.expiresAt) {
@@ -1038,7 +1051,25 @@ async function verifyOtp() {
     return showToast("ลองผิดเกินกำหนด กรุณาขอ OTP ใหม่");
   }
 
-  if (code !== _pendingOtp.code) return showToast("รหัส OTP ไม่ถูกต้อง");
+  // ★ ตรวจสอบ OTP ผ่าน server (stateless HMAC)
+  try {
+    const verifyRes = await fetch(`${getApiBase()}/api/verify-otp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        phone: _pendingOtp.phone,
+        code,
+        hash: _pendingOtp.hash,
+        expiresAt: _pendingOtp.expiresAt
+      })
+    });
+    const verifyData = await verifyRes.json();
+    if (!verifyRes.ok || !verifyData.ok) {
+      return showToast(verifyData.error || "รหัส OTP ไม่ถูกต้อง");
+    }
+  } catch (e) {
+    return showToast("ตรวจสอบ OTP ไม่สำเร็จ: " + e.message);
+  }
 
   setText("otpStatus", "กำลังเข้าสู่ระบบ...");
 
