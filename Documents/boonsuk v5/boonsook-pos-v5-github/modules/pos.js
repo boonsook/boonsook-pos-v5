@@ -2,8 +2,12 @@
 function money(n){return new Intl.NumberFormat("th-TH",{style:"currency",currency:"THB",minimumFractionDigits:2}).format(Number(n||0));}
 function moneyNum(n){return new Intl.NumberFormat("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(n||0));}
 
-// ★ XHR helper (ป้องกัน supabase .insert() ค้าง)
+// ★ XHR helper — delegate to window._appXhrPost when available
 function xhrPostPOS(table, payload, returnData = false) {
+  // ★ FIX: delegate to global helper ที่ใช้ร่วมกัน (main.js) ถ้ามี
+  if (typeof window._appXhrPost === "function") {
+    return window._appXhrPost(table, payload, { returnData });
+  }
   const cfg = window.SUPABASE_CONFIG;
   const token = window._sbAccessToken || cfg.anonKey;
   return new Promise((resolve) => {
@@ -823,14 +827,23 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
     // ถ้ามีสินค้าในตะกร้า → บันทึก sale_items
     if (state.cart.length > 0) {
       for (const item of state.cart) {
+        const prodRef = state.products.find(x => x.id === item.id);
         const itemPayload = {
           sale_id: saleId,
+          product_id: item.id || null,
           product_name: item.name || "สินค้า",
           qty: Number(item.qty) || 1,
           unit_price: Number(item.price) || 0,
+          unit_cost: Number(prodRef?.cost || 0),
           line_total: Number(item.qty || 1) * Number(item.price || 0)
         };
-        const itemRes = await xhrPostPOS("sale_items", itemPayload);
+        let itemRes = await xhrPostPOS("sale_items", itemPayload);
+        // Legacy fallback: ถ้า product_id/unit_cost ยังไม่มีใน DB → retry โดยไม่ส่ง
+        if (!itemRes.ok && /column|product_id|unit_cost/i.test(itemRes.error || "")) {
+          const { product_id: _pid, unit_cost: _uc, ...legacy } = itemPayload;
+          console.warn("[POS] sale_items legacy fallback");
+          itemRes = await xhrPostPOS("sale_items", legacy);
+        }
         if (!itemRes.ok) {
           console.error("[POS] sale_items failed:", itemRes.error);
         }

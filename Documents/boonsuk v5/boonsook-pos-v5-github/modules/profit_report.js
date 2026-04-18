@@ -93,9 +93,15 @@ export function renderProfitReportPage(ctx) {
 
       // Calculate revenue and cost
       totalRevenue = salesInRange.reduce((sum, s) => sum + (parseFloat(s.total_amount) || 0), 0);
-      // หมายเหตุ: ตาราง sale_items ไม่มี unit_cost — ใช้ unit_price คำนวณต้นทุนไม่ได้
-      // TODO: เพิ่มคอลัมน์ unit_cost ในตาราง sale_items เพื่อคำนวณกำไรที่แม่นยำ
-      totalCost = 0;
+      // ★ ใช้ unit_cost (คอลัมน์ใหม่หลัง migration 2026-04-18) + fallback จาก products.cost
+      const productCostMap = {};
+      (state.products || []).forEach(p => { productCostMap[p.id] = Number(p.cost || 0); productCostMap[p.name] = Number(p.cost || 0); });
+      totalCost = saleItems.reduce((sum, it) => {
+        const qty = Number(it.qty) || 0;
+        let uc = Number(it.unit_cost || 0);
+        if (!uc) uc = productCostMap[it.product_id] || productCostMap[it.product_name] || 0;
+        return sum + qty * uc;
+      }, 0);
 
       const grossProfit = totalRevenue - totalCost;
       const grossProfitPct = totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0;
@@ -119,7 +125,7 @@ export function renderProfitReportPage(ctx) {
       renderExpenseBreakdown(expensesInRange);
 
       // Render monthly trend
-      renderMonthlyTrend(fromDate, toDate);
+      renderMonthlyTrend(fromDate, toDate, saleItems, productCostMap);
 
     } catch (error) {
       console.error("Error loading profit report:", error);
@@ -174,10 +180,13 @@ export function renderProfitReportPage(ctx) {
 
       const qty = parseFloat(item.qty) || 0;
       const unitPrice = parseFloat(item.unit_price) || 0;
+      // ★ unit_cost จากตาราง (หลัง migration) + fallback จาก products.cost
+      const prodRef = products.find(p => p.id === item.product_id || p.name === item.product_name);
+      const unitCost = parseFloat(item.unit_cost) || Number(prodRef?.cost || 0);
 
       productMap[pName].totalQty += qty;
       productMap[pName].totalSale += qty * unitPrice;
-      // ไม่มี unit_cost ในตาราง — totalCost = 0
+      productMap[pName].totalCost += qty * unitCost;
     });
 
     // Convert to array and sort by profit
@@ -288,7 +297,7 @@ export function renderProfitReportPage(ctx) {
     container.innerHTML = html;
   }
 
-  function renderMonthlyTrend(fromDate, toDate) {
+  function renderMonthlyTrend(fromDate, toDate, saleItems = [], productCostMap = {}) {
     const container = document.getElementById("monthly_trend_container");
 
     // Get last 6 months
@@ -325,18 +334,22 @@ export function renderProfitReportPage(ctx) {
       }
     });
 
-    // Calculate cost from sale items for the period
-    activeSales.forEach(sale => {
-      const saleDate = new Date(sale.created_at);
-      const saleTime = saleDate.getTime();
-
-      if (saleTime >= fromTs && saleTime <= toTs) {
-        const year = saleDate.getFullYear();
-        const month = saleDate.getMonth();
-
-        // ไม่มี unit_cost ในตาราง sale_items — cost = 0
-        // TODO: เพิ่ม unit_cost เพื่อคำนวณกำไรแม่นยำ
-      }
+    // ★ Calculate monthly cost from sale_items.unit_cost (fallback: productCostMap)
+    const saleById = new Map(activeSales.map(s => [s.id, s]));
+    saleItems.forEach(it => {
+      const s = saleById.get(it.sale_id);
+      if (!s) return;
+      const saleTime = new Date(s.created_at).getTime();
+      if (saleTime < fromTs || saleTime > toTs) return;
+      const saleDate = new Date(s.created_at);
+      const year = saleDate.getFullYear();
+      const month = saleDate.getMonth();
+      const monthObj = months.find(m => m.year === year && m.month === month);
+      if (!monthObj) return;
+      const qty = Number(it.qty) || 0;
+      let uc = Number(it.unit_cost || 0);
+      if (!uc) uc = productCostMap[it.product_id] || productCostMap[it.product_name] || 0;
+      monthObj.cost += qty * uc;
     });
 
     const maxValue = Math.max(...months.flatMap(m => [m.revenue, m.cost])) || 1;

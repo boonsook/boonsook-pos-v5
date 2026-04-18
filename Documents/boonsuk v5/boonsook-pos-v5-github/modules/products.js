@@ -578,7 +578,16 @@ function openScanner(ctx) {
 
 function closeScanner() {
   if (scannerInstance) {
-    try { scannerInstance.stop(); } catch (e) {}
+    try {
+      const st = typeof scannerInstance.getState === "function" ? scannerInstance.getState() : null;
+      // html5-qrcode: NotStarted=1, Scanning=2, Paused=3 — stop() เฉพาะเมื่อสแกนอยู่เท่านั้น
+      if (st === 2 || st === 3) {
+        scannerInstance.stop().catch(e =>
+          console.warn("[products] scanner stop (safe to ignore):", e?.message || e));
+      }
+    } catch (e) {
+      console.warn("[products] scanner stop error (safe to ignore):", e?.message || e);
+    }
     scannerInstance = null;
   }
   document.getElementById("prodScannerModal")?.classList.add("hidden");

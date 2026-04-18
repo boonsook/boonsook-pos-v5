@@ -25,6 +25,7 @@ import { renderErrorCodesPage } from "./modules/error_codes.js";
 import { renderAiSalesPage } from "./modules/ai_sales.js";
 import { renderAcShopPage } from "./modules/ac_shop.js";
 import "./modules/doc-override.js";
+import { isValidPhone, isValidEmail, getUserFriendlyError, validateFile } from "./modules/validators.js";
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -168,6 +169,8 @@ function xhrDelete(table, eqCol, eqVal) {
 window._appXhrPost   = xhrPost;
 window._appXhrPatch  = xhrPatch;
 window._appXhrDelete = xhrDelete;
+// ★ Expose validators for modules
+window._appValidators = { isValidPhone, isValidEmail, getUserFriendlyError, validateFile };
 
 // ★ Get store logo — ใช้ได้จากทุก module ผ่าน window._appGetLogo()
 window._appGetLogo = function() {
@@ -1660,7 +1663,11 @@ async function saveServiceJob(){
     status:           $("serviceStatus").value,
     note:             $("serviceNote").value.trim()
   };
+  // ★ VALIDATE: ตรวจสอบข้อมูลก่อนส่ง
   if (!payload.customer_name || !payload.description) return showToast("กรอกข้อมูลงานช่างให้ครบ");
+  if (payload.customer_phone && !isValidPhone(payload.customer_phone)) {
+    return showToast("เบอร์โทรลูกค้าไม่ถูกต้อง (ต้องมี 10 หลักขึ้นไป)");
+  }
   let res;
   if (state.editingServiceJobId) {
     res = await xhrPatch("service_jobs", payload, "id", state.editingServiceJobId);
@@ -1738,16 +1745,26 @@ async function checkout(){
   if (!saleId) return showToast("ไม่สามารถดึง ID การขายได้");
 
   // Create sale items + deduct stock
-  // ★ คอลัมน์จริงในตาราง: id(auto), sale_id, product_name, qty, unit_price, line_total
+  // ★ คอลัมน์รองรับ (หลัง migration 2026-04-18): id, sale_id, product_id, product_name, qty, unit_price, unit_cost, line_total
+  // ถ้า DB ยังไม่ทำ migration → fallback ใช้ payload เก่าได้
   for (const item of state.cart) {
+    const prodRef = state.products.find(x => x.id === item.id);
     const itemPayload = {
       sale_id: saleId,
+      product_id: item.id || null,
       product_name: item.name || "สินค้า",
       qty: Number(item.qty) || 1,
       unit_price: Number(item.price) || 0,
+      unit_cost: Number(prodRef?.cost || 0),
       line_total: Number(item.qty || 1) * Number(item.price || 0)
     };
-    const itemRes = await xhrPost("sale_items", itemPayload);
+    let itemRes = await xhrPost("sale_items", itemPayload);
+    // Legacy fallback: ถ้า product_id / unit_cost ยังไม่มีใน DB ให้ลองใหม่โดยไม่ส่ง 2 ฟิลด์นี้
+    if (!itemRes.ok && /column|product_id|unit_cost/i.test(itemRes.error?.message || "")) {
+      const { product_id: _pid, unit_cost: _uc, ...legacy } = itemPayload;
+      console.warn("[SALE] sale_items legacy fallback (product_id/unit_cost missing in DB)");
+      itemRes = await xhrPost("sale_items", legacy);
+    }
     if (!itemRes.ok) {
       console.error("[SALE] sale_items insert failed:", itemRes.error);
       showToast("บันทึกรายการสินค้าไม่สำเร็จ: " + (itemRes.error?.message || "unknown"));
