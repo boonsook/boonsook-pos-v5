@@ -1027,7 +1027,12 @@ async function requestOtp() {
     $("otpStep1")?.classList.add("hidden");
     $("otpStep2")?.classList.remove("hidden");
     setText("otpPhoneDisplay", phone.replace(/(\d{3})(\d{3})(\d{4})/, "$1-$2-$3"));
-    setText("otpStatus", "ส่งรหัส OTP ไปเบอร์ " + phone + " แล้ว (ตรวจสอบ SMS)");
+    // * แสดง OTP บนจอใน dev mode (เมื่อยังไม่ได้ตั้ง Twilio)
+    if (data.dev && data.devCode) {
+      setText("otpStatus", "[โหมดทดสอบ] รหัส OTP ของคุณคือ " + data.devCode + " (ตั้ง Twilio env vars บน Cloudflare เพื่อส่ง SMS จริง)");
+    } else {
+      setText("otpStatus", "ส่งรหัส OTP ไปเบอร์ " + phone + " แล้ว (ตรวจสอบ SMS)");
+    }
     $("otpCode")?.focus();
 
   } catch (e) {

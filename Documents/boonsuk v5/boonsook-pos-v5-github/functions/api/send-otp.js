@@ -40,8 +40,18 @@ export async function onRequestPost(context) {
     const authToken = context.env.TWILIO_AUTH_TOKEN;
     const fromNumber = context.env.TWILIO_FROM_NUMBER;
 
+    // * DEV/DEMO fallback - if Twilio env vars are not set, return OTP via JSON for on-screen display
+    // User can test the system immediately, then set Twilio later for real SMS delivery
     if (!accountSid || !authToken || !fromNumber) {
-      return new Response(JSON.stringify({ error: "Twilio config missing" }), { status: 500, headers: corsHeaders });
+      return new Response(JSON.stringify({
+        ok: true,
+        hash,
+        expiresAt,
+        phone: cleanPhone,
+        dev: true,
+        devCode: code,
+        devNotice: "โหมดทดสอบ — ยังไม่ได้ตั้ง Twilio credentials บน Cloudflare Pages"
+      }), { status: 200, headers: corsHeaders });
     }
 
     const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
