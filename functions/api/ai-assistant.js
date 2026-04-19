@@ -148,7 +148,7 @@ export async function onRequestPost(context) {
       }
     } catch {}
 
-    if (\!parsed) {
+    if (!parsed) {
       // fallback: ถ้า parse ไม่ได้จริงๆ ใช้ raw เป็น reply
       parsed = {
         reply: raw || "ขอโทษครับ ลองพิมพ์ใหม่อีกครั้งได้ไหมครับ",
