@@ -40,18 +40,31 @@ const SYSTEM_PROMPT = `คุณเป็นผู้ช่วย AI ของ "
 - ประเมินราคาให้ช่วง (ไม่ฟันธง) เช่น "ประมาณ 500-1500 บาท ขึ้นกับอาการจริง"
 - ห้ามรับปากเวลา — บอกแค่ "ช่างจะติดต่อกลับเพื่อยืนยันคิว"
 
-Format ตอบกลับ (STRICT JSON, ไม่มี markdown):
+⚠️ CRITICAL OUTPUT RULES — อ่านให้ชัดก่อนตอบทุกครั้ง:
+- ตอบกลับเป็น JSON object เท่านั้น ขึ้นต้นด้วย { ลงท้ายด้วย }
+- ห้ามเขียนข้อความ/คำอธิบาย/markdown ก่อนหรือหลัง JSON เด็ดขาด
+- ห้ามใช้ triple backtick code fence
+- ข้อความที่จะให้ลูกค้าเห็น ใส่ในฟิลด์ "reply" เท่านั้น
+- ทุกฟิลด์ต้องมีครบตาม schema แม้ค่าจะเป็น null
+
+Schema:
 {
-  "reply": "ข้อความตอบลูกค้า (ภาษาไทย)",
-  "done": false,          // true เมื่อได้ข้อมูลครบพอจะสร้างใบแจ้งซ่อม
-  "job_type": "ซ่อมแอร์" หรือ null,
-  "sub_service": "อาการหลักสั้นๆ 3-6 คำ" หรือ null,
-  "description": "รายละเอียดเต็มจากที่คุยกัน" หรือ null,
-  "estimated_price_min": 500 หรือ null,
-  "estimated_price_max": 1500 หรือ null,
-  "urgency": "normal" / "urgent" / "emergency",
-  "needs_photo": true/false  // ถ้าควรให้ลูกค้าส่งรูปมาด้วย
-}`;
+  "reply": "ข้อความตอบลูกค้าภาษาไทย (1-3 ประโยค เท่านั้น)",
+  "done": false,
+  "job_type": null,
+  "sub_service": null,
+  "description": null,
+  "estimated_price_min": null,
+  "estimated_price_max": null,
+  "urgency": "normal",
+  "needs_photo": false
+}
+
+ตัวอย่างเมื่อลูกค้าเพิ่งเริ่มเล่า "แอร์ไม่เย็น" (ยังไม่พอ → ถามต่อ):
+{"reply":"เข้าใจแล้วครับ ขอถามเพิ่ม: แอร์ขนาดกี่ BTU และเริ่มไม่เย็นมานานแค่ไหนแล้วครับ?","done":false,"job_type":"ซ่อมแอร์","sub_service":null,"description":null,"estimated_price_min":null,"estimated_price_max":null,"urgency":"normal","needs_photo":false}
+
+ตัวอย่างเมื่อได้ข้อมูลครบแล้ว (→ done:true):
+{"reply":"รับเรื่องแล้วครับ ช่างจะโทรกลับเพื่อยืนยันคิวครับ","done":true,"job_type":"ซ่อมแอร์","sub_service":"แอร์ไม่เย็น น้ำหยด","description":"แอร์ Daikin 12000 BTU ไม่เย็น มีน้ำหยดที่คอยล์เย็น เป็นมา 3 วัน","estimated_price_min":500,"estimated_price_max":2500,"urgency":"normal","needs_photo":true}`;
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -101,24 +114,42 @@ export async function onRequestPost(context) {
       {
         messages,
         max_tokens: 512,
-        temperature: 0.7,
+        temperature: 0.3,
+        response_format: { type: "json_object" },
       }
     );
 
     const raw = (aiResp?.response || "").trim();
 
-    // พยายาม parse JSON จาก response
+    // พยายาม parse JSON จาก response — robust (regex สกัด block แรก)
     let parsed = null;
     try {
-      // ตัด markdown code fence ถ้ามี
-      const cleaned = raw
-        .replace(/^```json\s*/i, "")
-        .replace(/^```\s*/i, "")
-        .replace(/```\s*$/i, "")
-        .trim();
-      parsed = JSON.parse(cleaned);
-    } catch (e) {
-      // ถ้า parse ไม่ได้ → ใช้ raw text เป็น reply อย่างเดียว
+      // 1) ลอง parse raw ก่อน
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        // 2) ลอง strip markdown
+        const stripped = raw
+          .replace(/^```json\s*/i, "")
+          .replace(/^```\s*/i, "")
+          .replace(/```\s*$/i, "")
+          .trim();
+        try {
+          parsed = JSON.parse(stripped);
+        } catch {
+          // 3) regex สกัด JSON object แรก { ... } (greedy หา } ตัวสุดท้าย)
+          const m = raw.match(/\{[\s\S]*\}/);
+          if (m) {
+            try {
+              parsed = JSON.parse(m[0]);
+            } catch {}
+          }
+        }
+      }
+    } catch {}
+
+    if (\!parsed) {
+      // fallback: ถ้า parse ไม่ได้จริงๆ ใช้ raw เป็น reply
       parsed = {
         reply: raw || "ขอโทษครับ ลองพิมพ์ใหม่อีกครั้งได้ไหมครับ",
         done: false,
