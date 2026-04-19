@@ -119,34 +119,44 @@ export async function onRequestPost(context) {
       }
     );
 
-    const raw = (aiResp?.response || "").trim();
-
-    // พยายาม parse JSON จาก response — robust (regex สกัด block แรก)
+    // Workers AI อาจคืนค่าได้หลายแบบ: string, object, หรือ array
+    const rawResp = aiResp?.response;
+    let raw = "";
     let parsed = null;
-    try {
-      // 1) ลอง parse raw ก่อน
+
+    if (rawResp && typeof rawResp === "object" && !Array.isArray(rawResp)) {
+      // AI คืน object มาตรงๆ (เช่น json_object mode) → ใช้เลย ไม่ต้อง parse
+      parsed = rawResp;
+      raw = JSON.stringify(rawResp);
+    } else {
+      raw = String(rawResp == null ? "" : rawResp).trim();
+
+      // พยายาม parse JSON จาก response — robust (regex สกัด block แรก)
       try {
-        parsed = JSON.parse(raw);
-      } catch {
-        // 2) ลอง strip markdown
-        const stripped = raw
-          .replace(/^```json\s*/i, "")
-          .replace(/^```\s*/i, "")
-          .replace(/```\s*$/i, "")
-          .trim();
+        // 1) ลอง parse raw ก่อน
         try {
-          parsed = JSON.parse(stripped);
+          parsed = JSON.parse(raw);
         } catch {
-          // 3) regex สกัด JSON object แรก { ... } (greedy หา } ตัวสุดท้าย)
-          const m = raw.match(/\{[\s\S]*\}/);
-          if (m) {
-            try {
-              parsed = JSON.parse(m[0]);
-            } catch {}
+          // 2) ลอง strip markdown
+          const stripped = raw
+            .replace(/^```json\s*/i, "")
+            .replace(/^```\s*/i, "")
+            .replace(/```\s*$/i, "")
+            .trim();
+          try {
+            parsed = JSON.parse(stripped);
+          } catch {
+            // 3) regex สกัด JSON object แรก { ... } (greedy หา } ตัวสุดท้าย)
+            const m = raw.match(/\{[\s\S]*\}/);
+            if (m) {
+              try {
+                parsed = JSON.parse(m[0]);
+              } catch {}
+            }
           }
         }
-      }
-    } catch {}
+      } catch {}
+    }
 
     if (!parsed) {
       // fallback: ถ้า parse ไม่ได้จริงๆ ใช้ raw เป็น reply
