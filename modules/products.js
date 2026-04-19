@@ -242,7 +242,7 @@ function renderView(ctx) {
       <!-- ★ Product Type Tabs (เหมือน FlowAccount) -->
       <div class="prod-type-tabs mt16" style="display:flex;gap:0;border-bottom:2px solid #e2e8f0;margin-bottom:0;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none">
         <button class="prod-type-tab ${currentTypeFilter === 'all' ? 'active' : ''}" data-ptype="all" style="padding:8px 12px;font-size:12px;font-weight:600;border:none;background:none;cursor:pointer;white-space:nowrap;color:${currentTypeFilter === 'all' ? '#0284c7' : '#64748b'};border-bottom:${currentTypeFilter === 'all' ? '2px solid #0284c7' : '2px solid transparent'};margin-bottom:-2px">
-          แสดทั้งหมด</button>
+          แสดงทั้งหมด</button>
         <button class="prod-type-tab ${currentTypeFilter === 'service' ? 'active' : ''}" data-ptype="service" style="padding:8px 12px;font-size:12px;font-weight:600;border:none;background:none;cursor:pointer;white-space:nowrap;color:${currentTypeFilter === 'service' ? '#0284c7' : '#64748b'};border-bottom:${currentTypeFilter === 'service' ? '2px solid #0284c7' : '2px solid transparent'};margin-bottom:-2px">
           🔧 บริการ <span style="font-size:11px;color:#94a3b8">${countService}</span></button>
         <button class="prod-type-tab ${currentTypeFilter === 'non_stock' ? 'active' : ''}" data-ptype="non_stock" style="padding:8px 12px;font-size:12px;font-weight:600;border:none;background:none;cursor:pointer;white-space:nowrap;color:${currentTypeFilter === 'non_stock' ? '#0284c7' : '#64748b'};border-bottom:${currentTypeFilter === 'non_stock' ? '2px solid #0284c7' : '2px solid transparent'};margin-bottom:-2px">

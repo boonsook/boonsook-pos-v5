@@ -17,9 +17,10 @@ export function renderStockMovementsPage(ctx) {
     }
   }
 
-  // Get product name by ID
+  // Get product name by ID (tolerant of string/number mismatch)
   function getProductName(productId) {
-    const product = state.products?.find(p => p.id === productId);
+    const pid = productId == null ? null : String(productId);
+    const product = state.products?.find(p => String(p.id) === pid);
     return product ? product.name : `(ID: ${productId})`;
   }
 
@@ -68,6 +69,14 @@ export function renderStockMovementsPage(ctx) {
   if (!page) return;
 
   const stats = getMonthlyStats();
+  const thNum = (n) => (n || 0).toLocaleString('th-TH');
+
+  // Escape HTML to prevent XSS in product names / notes
+  function escHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+  }
 
   let html = `
     <div class="panel">
@@ -75,23 +84,23 @@ export function renderStockMovementsPage(ctx) {
 
       <div class="stats-grid mt16">
         <div class="stat-card">
-          <div class="stat-value">${stats.inCount}</div>
+          <div class="stat-value">${thNum(stats.inCount)}</div>
           <div class="stat-label">รายการเข้า</div>
         </div>
         <div class="stat-card">
-          <div class="stat-value">${stats.outCount}</div>
+          <div class="stat-value">${thNum(stats.outCount)}</div>
           <div class="stat-label">รายการออก</div>
         </div>
         <div class="stat-card">
-          <div class="stat-value">${stats.adjustCount}</div>
+          <div class="stat-value">${thNum(stats.adjustCount)}</div>
           <div class="stat-label">ปรับสต็อก</div>
         </div>
       </div>
 
       <div class="mt16">
-        <div class="row">
-          <input type="text" id="sm-search" class="sm-search" placeholder="ค้นหาสินค้า..." style="flex: 1; padding: 8px; border: 1px solid #ccc; border-radius: 4px; margin-right: 8px;">
-          <select id="sm-type-filter" style="padding: 8px; border: 1px solid #ccc; border-radius: 4px; margin-right: 8px;">
+        <div class="row" style="flex-wrap: wrap; gap: 8px;">
+          <input type="text" id="sm-search" class="sm-search" placeholder="ค้นหาสินค้า..." aria-label="ค้นหาสินค้า" style="flex: 1; min-width: 180px; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+          <select id="sm-type-filter" aria-label="กรองตามประเภท" style="padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
             <option value="">ทั้งหมด</option>
             <option value="in">รับเข้า</option>
             <option value="out">จ่ายออก</option>
@@ -100,17 +109,18 @@ export function renderStockMovementsPage(ctx) {
             <option value="return">คืนสินค้า</option>
             <option value="transfer">โอนย้าย</option>
           </select>
-          <input type="date" id="sm-date-from" style="padding: 8px; border: 1px solid #ccc; border-radius: 4px; margin-right: 8px;">
-          <input type="date" id="sm-date-to" style="padding: 8px; border: 1px solid #ccc; border-radius: 4px; margin-right: 8px;">
-          <button class="btn btn-light" id="sm-filter-btn" onclick="document.getElementById('sm-filter-btn').click();">ค้นหา</button>
+          <input type="date" id="sm-date-from" aria-label="วันที่เริ่มต้น" style="padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+          <input type="date" id="sm-date-to" aria-label="วันที่สิ้นสุด" style="padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+          <button class="btn btn-light" id="sm-filter-btn" aria-label="ค้นหา">ค้นหา</button>
+          <button class="btn btn-light" id="sm-clear-btn" aria-label="ล้างตัวกรอง">ล้าง</button>
         </div>
       </div>
 
       <div class="mt16">
-        <button class="btn btn-primary" id="sm-add-btn">+ เพิ่มเคลื่อนไหวสต็อก</button>
+        <button class="btn btn-primary" id="sm-add-btn" aria-label="เพิ่มเคลื่อนไหวสต็อก">+ เพิ่มเคลื่อนไหวสต็อก</button>
       </div>
 
-      <div id="sm-table-container" class="mt16">
+      <div id="sm-table-container" class="mt16" style="overflow-x: auto;">
         <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
           <thead style="background: #f5f5f5; border-bottom: 2px solid #ddd;">
             <tr>
@@ -131,21 +141,24 @@ export function renderStockMovementsPage(ctx) {
     </div>
 
     <!-- Add Movement Modal -->
-    <div id="sm-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
+    <div id="sm-modal" class="sm-modal-hidden" role="dialog" aria-modal="true" aria-label="เพิ่มเคลื่อนไหวสต็อก" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
       <div style="background: white; padding: 20px; border-radius: 8px; width: 90%; max-width: 500px; max-height: 80vh; overflow-y: auto;">
-        <h3>เพิ่มเคลื่อนไหวสต็อก</h3>
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <h3 style="margin: 0;">เพิ่มเคลื่อนไหวสต็อก</h3>
+          <button id="sm-close-btn" aria-label="ปิด" style="background: none; border: none; font-size: 24px; cursor: pointer; line-height: 1; padding: 0 8px;">&times;</button>
+        </div>
 
         <div style="margin-top: 15px;">
-          <label style="display: block; margin-bottom: 5px; font-weight: bold;">เลือกสินค้า:</label>
-          <select id="sm-product-select" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+          <label for="sm-product-select" style="display: block; margin-bottom: 5px; font-weight: bold;">เลือกสินค้า:</label>
+          <select id="sm-product-select" aria-label="เลือกสินค้า" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
             <option value="">-- เลือกสินค้า --</option>
-            ${(state.products || []).map(p => `<option value="${p.id}">${p.name}</option>`).join('')}
+            ${(state.products || []).map(p => `<option value="${escHtml(p.id)}">${escHtml(p.name)}</option>`).join('')}
           </select>
         </div>
 
         <div style="margin-top: 15px;">
-          <label style="display: block; margin-bottom: 5px; font-weight: bold;">ประเภท:</label>
-          <select id="sm-type-select" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+          <label for="sm-type-select" style="display: block; margin-bottom: 5px; font-weight: bold;">ประเภท:</label>
+          <select id="sm-type-select" aria-label="ประเภทการเคลื่อนไหว" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
             <option value="">-- เลือกประเภท --</option>
             <option value="in">รับเข้า</option>
             <option value="out">จ่ายออก</option>
@@ -157,24 +170,72 @@ export function renderStockMovementsPage(ctx) {
         </div>
 
         <div style="margin-top: 15px;">
-          <label style="display: block; margin-bottom: 5px; font-weight: bold;">จำนวน:</label>
-          <input type="number" id="sm-qty-input" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;" placeholder="กรอกจำนวน" min="0">
+          <label for="sm-qty-input" style="display: block; margin-bottom: 5px; font-weight: bold;">จำนวน:</label>
+          <input type="number" id="sm-qty-input" aria-label="จำนวน" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;" placeholder="กรอกจำนวน" min="1" step="1">
         </div>
 
+        <div id="sm-preview" style="margin-top: 10px; padding: 8px 12px; background: #f5f7fa; border-radius: 4px; font-size: 13px; color: #666; display: none;"></div>
+
         <div style="margin-top: 15px;">
-          <label style="display: block; margin-bottom: 5px; font-weight: bold;">หมายเหตุ:</label>
-          <input type="text" id="sm-note-input" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;" placeholder="หมายเหตุ (ตัวเลือก)">
+          <label for="sm-note-input" style="display: block; margin-bottom: 5px; font-weight: bold;">หมายเหตุ:</label>
+          <input type="text" id="sm-note-input" aria-label="หมายเหตุ" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;" placeholder="หมายเหตุ (ตัวเลือก)" maxlength="200">
         </div>
 
         <div style="margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end;">
-          <button class="btn btn-light" onclick="document.getElementById('sm-modal').style.display = 'none';">ยกเลิก</button>
+          <button class="btn btn-light" id="sm-cancel-btn">ยกเลิก</button>
           <button class="btn btn-primary" id="sm-save-btn">บันทึก</button>
         </div>
       </div>
     </div>
+
+    <style>
+      #sm-modal.sm-modal-hidden { display: none !important; }
+      #sm-modal:not(.sm-modal-hidden) { display: flex !important; }
+    </style>
   `;
 
   page.innerHTML = html;
+
+  // Modal helpers
+  const modal = document.getElementById("sm-modal");
+  const openModal = () => {
+    modal?.classList.remove("sm-modal-hidden");
+    updatePreview();
+    setTimeout(() => document.getElementById("sm-product-select")?.focus(), 50);
+  };
+  const closeModal = () => {
+    modal?.classList.add("sm-modal-hidden");
+    const sel = document.getElementById("sm-product-select"); if (sel) sel.value = '';
+    const ty  = document.getElementById("sm-type-select");    if (ty)  ty.value = '';
+    const qt  = document.getElementById("sm-qty-input");      if (qt)  qt.value = '';
+    const nt  = document.getElementById("sm-note-input");     if (nt)  nt.value = '';
+    const pv  = document.getElementById("sm-preview");        if (pv)  pv.style.display = 'none';
+  };
+
+  // Live preview: show expected stock_before / stock_after
+  function updatePreview() {
+    const pv = document.getElementById("sm-preview");
+    if (!pv) return;
+    const productIdStr = document.getElementById("sm-product-select")?.value || '';
+    const movementType = document.getElementById("sm-type-select")?.value || '';
+    const qtyRaw = document.getElementById("sm-qty-input")?.value;
+    const qty = parseInt(qtyRaw || '0', 10);
+
+    if (!productIdStr || !movementType || !qtyRaw || isNaN(qty) || qty <= 0) {
+      pv.style.display = 'none';
+      return;
+    }
+    const product = state.products?.find(p => String(p.id) === String(productIdStr));
+    const before = Number(product?.stock) || 0;
+    let after = before;
+    if (movementType === 'in' || movementType === 'return') after = before + qty;
+    else if (movementType === 'out' || movementType === 'sale') after = before - qty;
+    else if (movementType === 'adjust' || movementType === 'transfer') after = qty;
+
+    const warn = after < 0 ? ' <span style="color:#c53030; font-weight:bold;">⚠️ สต็อกจะติดลบ</span>' : '';
+    pv.innerHTML = `สต็อกก่อน: <b>${thNum(before)}</b> → หลัง: <b>${thNum(after)}</b>${warn}`;
+    pv.style.display = 'block';
+  }
 
   // Render movement log table
   function renderTable(movements) {
@@ -194,25 +255,32 @@ export function renderStockMovementsPage(ctx) {
 
       return `
         <tr style="border-bottom: 1px solid #eee;">
-          <td style="padding: 10px; font-size: 13px;">${dateTH(m.created_at)}</td>
-          <td style="padding: 10px;">${productName}</td>
-          <td style="padding: 10px; text-align: center; background: ${bgColor}; font-weight: bold;">${typeLabel}</td>
-          <td style="padding: 10px; text-align: right;">${m.quantity || 0}</td>
-          <td style="padding: 10px; text-align: right;">${m.stock_before || 0}</td>
-          <td style="padding: 10px; text-align: right;">${m.stock_after || 0}</td>
-          <td style="padding: 10px; font-size: 13px; color: #666;">${m.note || '-'}</td>
-          <td style="padding: 10px; font-size: 13px;">${m.created_by || '-'}</td>
+          <td style="padding: 10px; font-size: 13px;">${escHtml(dateTH(m.created_at))}</td>
+          <td style="padding: 10px;">${escHtml(productName)}</td>
+          <td style="padding: 10px; text-align: center; background: ${bgColor}; font-weight: bold;">${escHtml(typeLabel)}</td>
+          <td style="padding: 10px; text-align: right;">${thNum(m.quantity)}</td>
+          <td style="padding: 10px; text-align: right;">${thNum(m.stock_before)}</td>
+          <td style="padding: 10px; text-align: right;">${thNum(m.stock_after)}</td>
+          <td style="padding: 10px; font-size: 13px; color: #666;">${escHtml(m.note || '-')}</td>
+          <td style="padding: 10px; font-size: 13px;">${escHtml(m.created_by || '-')}</td>
         </tr>
       `;
     }).join('');
   }
 
-  // Initial table render
-  renderTable(state.stockMovements || []);
+  // Initial table render (sort by created_at desc)
+  const sorted = [...(state.stockMovements || [])].sort((a, b) => {
+    const ad = a.created_at || ''; const bd = b.created_at || '';
+    return bd.localeCompare(ad);
+  });
+  renderTable(sorted);
 
   // Filter and search logic
   function applyFilters() {
-    let filtered = [...(state.stockMovements || [])];
+    let filtered = [...(state.stockMovements || [])].sort((a, b) => {
+      const ad = a.created_at || ''; const bd = b.created_at || '';
+      return bd.localeCompare(ad);
+    });
 
     const search = document.getElementById("sm-search")?.value?.toLowerCase() || '';
     const typeFilter = document.getElementById("sm-type-filter")?.value || '';
@@ -247,75 +315,141 @@ export function renderStockMovementsPage(ctx) {
     renderTable(filtered);
   }
 
-  // Attach event listeners
-  document.getElementById("sm-search")?.addEventListener('input', applyFilters);
-  document.getElementById("sm-type-filter")?.addEventListener('change', applyFilters);
-  document.getElementById("sm-date-from")?.addEventListener('change', applyFilters);
-  document.getElementById("sm-date-to")?.addEventListener('change', applyFilters);
-  document.getElementById("sm-filter-btn")?.addEventListener('click', applyFilters);
+  function clearFilters() {
+    const s = document.getElementById("sm-search");       if (s)  s.value = '';
+    const t = document.getElementById("sm-type-filter");  if (t)  t.value = '';
+    const f = document.getElementById("sm-date-from");    if (f)  f.value = '';
+    const tt = document.getElementById("sm-date-to");     if (tt) tt.value = '';
+    applyFilters();
+  }
 
-  // Add movement button
-  document.getElementById("sm-add-btn")?.addEventListener('click', () => {
-    document.getElementById("sm-modal").style.display = 'flex';
-  });
+  // Attach event listeners — use onEvent property to avoid duplicate listeners on re-render
+  const $search = document.getElementById("sm-search");
+  const $typeF  = document.getElementById("sm-type-filter");
+  const $dFrom  = document.getElementById("sm-date-from");
+  const $dTo    = document.getElementById("sm-date-to");
+  const $filter = document.getElementById("sm-filter-btn");
+  const $clear  = document.getElementById("sm-clear-btn");
+  const $add    = document.getElementById("sm-add-btn");
+  const $close  = document.getElementById("sm-close-btn");
+  const $cancel = document.getElementById("sm-cancel-btn");
+  const $save   = document.getElementById("sm-save-btn");
+  const $prod   = document.getElementById("sm-product-select");
+  const $type   = document.getElementById("sm-type-select");
+  const $qty    = document.getElementById("sm-qty-input");
 
-  // Save movement button
-  document.getElementById("sm-save-btn")?.addEventListener('click', () => {
-    const productId = document.getElementById("sm-product-select")?.value;
-    const movementType = document.getElementById("sm-type-select")?.value;
-    const quantity = parseInt(document.getElementById("sm-qty-input")?.value || '0', 10);
-    const note = document.getElementById("sm-note-input")?.value || '';
+  if ($search) $search.oninput  = applyFilters;
+  if ($typeF)  $typeF.onchange   = applyFilters;
+  if ($dFrom)  $dFrom.onchange   = applyFilters;
+  if ($dTo)    $dTo.onchange     = applyFilters;
+  if ($filter) $filter.onclick   = applyFilters;
+  if ($clear)  $clear.onclick    = clearFilters;
+  if ($add)    $add.onclick      = openModal;
+  if ($close)  $close.onclick    = closeModal;
+  if ($cancel) $cancel.onclick   = closeModal;
 
-    if (!productId) {
-      showToast('กรุณาเลือกสินค้า', 'error');
-      return;
+  // Live preview update
+  if ($prod) $prod.onchange = updatePreview;
+  if ($type) $type.onchange = updatePreview;
+  if ($qty)  $qty.oninput   = updatePreview;
+
+  // Close modal on backdrop click
+  if (modal) {
+    modal.onclick = (e) => { if (e.target === modal) closeModal(); };
+  }
+  // ESC closes modal
+  document.onkeydown = (e) => {
+    if (e.key === 'Escape' && !modal?.classList.contains('sm-modal-hidden')) {
+      closeModal();
     }
-    if (!movementType) {
-      showToast('กรุณาเลือกประเภท', 'error');
-      return;
-    }
-    if (quantity <= 0) {
-      showToast('กรุณากรอกจำนวนที่ถูกต้อง', 'error');
-      return;
-    }
+  };
 
-    // Find current stock
-    const product = state.products?.find(p => p.id === productId);
-    const currentStock = product?.stock || 0;
-    let newStock = currentStock;
+  // Save movement button — Promise-based + proper validation
+  if ($save) {
+    $save.onclick = async () => {
+      const productIdStr = document.getElementById("sm-product-select")?.value || '';
+      const movementType = document.getElementById("sm-type-select")?.value || '';
+      const qtyRaw = document.getElementById("sm-qty-input")?.value;
+      const quantity = parseInt(qtyRaw || '', 10);
+      const note = document.getElementById("sm-note-input")?.value || '';
 
-    if (movementType === 'in' || movementType === 'return') {
-      newStock = currentStock + quantity;
-    } else if (movementType === 'out' || movementType === 'sale') {
-      newStock = currentStock - quantity;
-    } else if (movementType === 'adjust' || movementType === 'transfer') {
-      newStock = quantity;
-    }
-
-    const payload = {
-      product_id: productId,
-      movement_type: movementType,
-      quantity: quantity,
-      stock_before: currentStock,
-      stock_after: newStock,
-      note: note,
-      created_by: currentRole || 'User',
-      created_at: new Date().toISOString()
-    };
-
-    window._appXhrPost('stock_movements', payload, {
-      success: () => {
-        showToast('บันทึกเคลื่อนไหวสต็อกสำเร็จ', 'success');
-        document.getElementById("sm-modal").style.display = 'none';
-        document.getElementById("sm-product-select").value = '';
-        document.getElementById("sm-type-select").value = '';
-        document.getElementById("sm-qty-input").value = '';
-        document.getElementById("sm-note-input").value = '';
-        loadAllData();
-      },
-      error: (err) => {
-        showToast('ข้อผิดพลาด: ' + (err?.message || 'ไม่สามารถบันทึกได้'), 'error');
+      if (!productIdStr) {
+        showToast('กรุณาเลือกสินค้า', 'error');
+        return;
       }
-    });
-  });
+      if (!movementType) {
+        showToast('กรุณาเลือกประเภท', 'error');
+        return;
+      }
+      if (isNaN(quantity) || quantity <= 0) {
+        showToast('กรุณากรอกจำนวนที่ถูกต้อง (> 0)', 'error');
+        return;
+      }
+
+      // product_id should be numeric if the DB column is integer
+      const productIdNum = Number(productIdStr);
+      const productId = Number.isFinite(productIdNum) && String(productIdNum) === productIdStr
+        ? productIdNum
+        : productIdStr;
+
+      // Find current stock (compare as strings for safety)
+      const product = state.products?.find(p => String(p.id) === String(productIdStr));
+      const currentStock = Number(product?.stock) || 0;
+      let newStock = currentStock;
+
+      if (movementType === 'in' || movementType === 'return') {
+        newStock = currentStock + quantity;
+      } else if (movementType === 'out' || movementType === 'sale') {
+        newStock = currentStock - quantity;
+        if (newStock < 0) {
+          const ok = confirm(
+            `⚠️ คำเตือน: สต็อกหลังจะติดลบ (${newStock})\n` +
+            `สต็อกปัจจุบัน: ${currentStock}\n` +
+            `จำนวนที่จะหัก: ${quantity}\n\n` +
+            `ต้องการบันทึกต่อหรือไม่?`
+          );
+          if (!ok) return;
+        }
+      } else if (movementType === 'adjust' || movementType === 'transfer') {
+        newStock = quantity;
+      }
+
+      const payload = {
+        product_id: productId,
+        movement_type: movementType,
+        quantity: quantity,
+        stock_before: currentStock,
+        stock_after: newStock,
+        note: String(note).slice(0, 200),
+        created_by: String(currentRole || 'User'),
+        created_at: new Date().toISOString()
+      };
+
+      // Disable save button while request in flight
+      $save.disabled = true;
+      $save.textContent = 'กำลังบันทึก...';
+
+      try {
+        if (!window._appXhrPost) {
+          throw new Error('ระบบยังโหลดไม่เสร็จ — กรุณารีเฟรชหน้าเว็บ');
+        }
+        const res = await window._appXhrPost('stock_movements', payload);
+        if (res && res.ok) {
+          showToast('บันทึกเคลื่อนไหวสต็อกสำเร็จ', 'success');
+          closeModal();
+          if (typeof loadAllData === 'function') {
+            await loadAllData();
+          }
+        } else {
+          const msg = res?.error?.message || 'ไม่สามารถบันทึกได้';
+          showToast('ข้อผิดพลาด: ' + msg, 'error');
+        }
+      } catch (err) {
+        showToast('ข้อผิดพลาด: ' + (err?.message || String(err)), 'error');
+      } finally {
+        $save.disabled = false;
+        $save.textContent = 'บันทึก';
+      }
+    };
+  }
 }
