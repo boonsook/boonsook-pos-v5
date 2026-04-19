@@ -1,0 +1,397 @@
+// ai-chat-widget.js
+// UI chat modal สำหรับหน้าแจ้งซ่อม — เรียก /api/ai-assistant
+//
+// วิธีใช้:
+// 1. include script นี้ใน index.html (หลัง main.js):
+//      <script src="./ai-chat-widget.js"></script>
+// 2. ในหน้าแจ้งซ่อม (service request form) เพิ่มปุ่ม:
+//      <button onclick="BoonsookAI.open()">🤖 ให้ AI ช่วยกรอก</button>
+// 3. AI จะ auto-fill ช่องเหล่านี้เมื่อคุยจบ (ถ้ามี):
+//      - select[name="job_type"]  หรือ  #jobType
+//      - input[name="sub_service"] หรือ  #subService
+//      - textarea[name="description"] หรือ #description
+
+(function () {
+  "use strict";
+
+  const API_URL = "/api/ai-assistant";
+
+  const state = {
+    open: false,
+    loading: false,
+    history: [],
+    lastResult: null,
+  };
+
+  // ---------- STYLES ----------
+  const css = `
+  #bs-ai-backdrop {
+    position: fixed; inset: 0; background: rgba(10, 20, 35, 0.55);
+    backdrop-filter: blur(4px); z-index: 99998; display: none;
+  }
+  #bs-ai-backdrop.open { display: block; }
+  #bs-ai-modal {
+    position: fixed; z-index: 99999;
+    right: 20px; bottom: 20px;
+    width: min(400px, calc(100vw - 40px));
+    height: min(600px, calc(100vh - 40px));
+    background: #fff; border-radius: 18px;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.28);
+    display: none; flex-direction: column; overflow: hidden;
+    font-family: -apple-system, "Segoe UI", "Sarabun", sans-serif;
+  }
+  #bs-ai-modal.open { display: flex; }
+  #bs-ai-header {
+    background: linear-gradient(135deg, #1a2332 0%, #2d3f5c 100%);
+    color: #fff; padding: 16px 20px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  #bs-ai-header .dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: #4ade80; box-shadow: 0 0 8px #4ade80;
+    animation: bs-pulse 2s infinite;
+  }
+  @keyframes bs-pulse { 0%,100% { opacity:1 } 50% { opacity:0.5 } }
+  #bs-ai-header .title { font-size: 15px; font-weight: 600; flex: 1; }
+  #bs-ai-header .title small { display:block; font-size:11px; opacity:0.7; font-weight:400; margin-top:2px; }
+  #bs-ai-close {
+    background: rgba(255,255,255,0.15); border: none; color: #fff;
+    width: 30px; height: 30px; border-radius: 50%; cursor: pointer;
+    font-size: 16px; line-height: 1;
+  }
+  #bs-ai-close:hover { background: rgba(255,255,255,0.3); }
+  #bs-ai-body {
+    flex: 1; overflow-y: auto; padding: 18px;
+    background: #f5f7fa;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .bs-msg {
+    max-width: 82%; padding: 10px 14px; border-radius: 14px;
+    font-size: 14px; line-height: 1.5; word-wrap: break-word;
+  }
+  .bs-msg.user {
+    align-self: flex-end;
+    background: #1a2332; color: #fff;
+    border-bottom-right-radius: 4px;
+  }
+  .bs-msg.ai {
+    align-self: flex-start;
+    background: #fff; color: #1a2332;
+    border: 1px solid #e8ecf1;
+    border-bottom-left-radius: 4px;
+  }
+  .bs-msg.loading { opacity: 0.6; font-style: italic; }
+  .bs-summary {
+    align-self: stretch;
+    background: #e0f7e9; border: 1px solid #4ade80;
+    border-radius: 10px; padding: 12px 14px;
+    font-size: 13px; color: #065f46;
+  }
+  .bs-summary strong { color: #064e3b; }
+  .bs-summary .row { margin: 4px 0; }
+  .bs-summary .btns { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .bs-summary button {
+    background: #1a2332; color: #fff; border: none;
+    padding: 8px 14px; border-radius: 6px;
+    font-size: 13px; cursor: pointer;
+  }
+  .bs-summary button.ghost { background: #fff; color: #1a2332; border: 1px solid #94a3b8; }
+  #bs-ai-footer {
+    padding: 12px 14px; background: #fff; border-top: 1px solid #e8ecf1;
+    display: flex; gap: 8px;
+  }
+  #bs-ai-input {
+    flex: 1; padding: 10px 14px; font-size: 14px;
+    border: 1.5px solid #e8ecf1; border-radius: 20px; outline: none;
+    font-family: inherit;
+  }
+  #bs-ai-input:focus { border-color: #1a2332; }
+  #bs-ai-send {
+    background: #1a2332; color: #fff; border: none;
+    width: 40px; height: 40px; border-radius: 50%;
+    cursor: pointer; font-size: 16px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #bs-ai-send:disabled { opacity: 0.4; cursor: not-allowed; }
+  #bs-ai-fab {
+    position: fixed; right: 20px; bottom: 20px; z-index: 99997;
+    background: linear-gradient(135deg, #1a2332 0%, #2d3f5c 100%);
+    color: #fff; border: none; padding: 14px 20px;
+    border-radius: 50px; cursor: pointer;
+    box-shadow: 0 8px 24px rgba(26,35,50,0.35);
+    font-size: 14px; font-weight: 600; font-family: inherit;
+    display: flex; align-items: center; gap: 8px;
+    transition: transform 0.2s;
+  }
+  #bs-ai-fab:hover { transform: translateY(-2px); }
+  #bs-ai-fab.hidden { display: none; }
+  @media (max-width: 480px) {
+    #bs-ai-modal {
+      right: 0; bottom: 0; width: 100vw; height: 100vh;
+      border-radius: 0;
+    }
+  }
+  `;
+
+  // ---------- BUILD UI ----------
+  function mount() {
+    if (document.getElementById("bs-ai-modal")) return;
+
+    const style = document.createElement("style");
+    style.textContent = css;
+    document.head.appendChild(style);
+
+    const html = `
+      <div id="bs-ai-backdrop"></div>
+      <button id="bs-ai-fab" aria-label="เปิด AI ผู้ช่วย">
+        <span>🤖</span> AI ช่วยกรอก
+      </button>
+      <div id="bs-ai-modal" role="dialog" aria-label="AI ผู้ช่วย">
+        <div id="bs-ai-header">
+          <span class="dot"></span>
+          <div class="title">
+            ผู้ช่วย AI บุญสุขแอร์
+            <small>บอกอาการ — AI จะช่วยเลือกบริการและประเมินราคา</small>
+          </div>
+          <button id="bs-ai-close" aria-label="ปิด">✕</button>
+        </div>
+        <div id="bs-ai-body"></div>
+        <div id="bs-ai-footer">
+          <input id="bs-ai-input" type="text" placeholder="เช่น แอร์ไม่เย็น มีน้ำหยด..." />
+          <button id="bs-ai-send" aria-label="ส่ง">➤</button>
+        </div>
+      </div>
+    `;
+    const wrap = document.createElement("div");
+    wrap.innerHTML = html;
+    document.body.appendChild(wrap);
+
+    document.getElementById("bs-ai-fab").addEventListener("click", open);
+    document.getElementById("bs-ai-close").addEventListener("click", close);
+    document.getElementById("bs-ai-backdrop").addEventListener("click", close);
+    document.getElementById("bs-ai-send").addEventListener("click", send);
+    document.getElementById("bs-ai-input").addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        send();
+      }
+    });
+  }
+
+  // ---------- OPEN/CLOSE ----------
+  function open() {
+    mount();
+    state.open = true;
+    document.getElementById("bs-ai-modal").classList.add("open");
+    document.getElementById("bs-ai-backdrop").classList.add("open");
+    document.getElementById("bs-ai-fab").classList.add("hidden");
+
+    if (state.history.length === 0) {
+      pushMsg(
+        "ai",
+        "สวัสดีครับ ผมเป็น AI ผู้ช่วยของร้านบุญสุขแอร์ 🙏\n\nลองเล่าอาการที่เจอให้ฟังครับ เช่น \"แอร์ไม่เย็น\" หรือ \"ตู้เย็นเสียงดัง\""
+      );
+    }
+    setTimeout(() => document.getElementById("bs-ai-input").focus(), 100);
+  }
+
+  function close() {
+    state.open = false;
+    document.getElementById("bs-ai-modal").classList.remove("open");
+    document.getElementById("bs-ai-backdrop").classList.remove("open");
+    document.getElementById("bs-ai-fab").classList.remove("hidden");
+  }
+
+  // ---------- MESSAGE HANDLING ----------
+  function pushMsg(role, text) {
+    const body = document.getElementById("bs-ai-body");
+    const div = document.createElement("div");
+    div.className = "bs-msg " + role;
+    div.textContent = text;
+    body.appendChild(div);
+    body.scrollTop = body.scrollHeight;
+
+    if (role !== "loading") {
+      state.history.push({ role: role === "user" ? "user" : "assistant", content: text });
+    }
+    return div;
+  }
+
+  function pushLoading() {
+    const body = document.getElementById("bs-ai-body");
+    const div = document.createElement("div");
+    div.className = "bs-msg ai loading";
+    div.textContent = "กำลังคิด...";
+    body.appendChild(div);
+    body.scrollTop = body.scrollHeight;
+    return div;
+  }
+
+  function pushSummary(result) {
+    const body = document.getElementById("bs-ai-body");
+    const div = document.createElement("div");
+    div.className = "bs-summary";
+    const priceRange =
+      result.estimated_price_min && result.estimated_price_max
+        ? `${result.estimated_price_min.toLocaleString()}-${result.estimated_price_max.toLocaleString()} บาท`
+        : "ประเมินหน้างาน";
+    div.innerHTML = `
+      <strong>📋 สรุปใบแจ้งซ่อม</strong>
+      <div class="row">• ประเภท: <strong>${escapeHtml(result.job_type || "-")}</strong></div>
+      <div class="row">• อาการ: ${escapeHtml(result.sub_service || "-")}</div>
+      <div class="row">• ราคาประเมิน: <strong>${priceRange}</strong></div>
+      ${result.urgency !== "normal" ? `<div class="row">• ⚠️ ${result.urgency === "emergency" ? "ด่วนมาก" : "เร่งด่วน"}</div>` : ""}
+      ${result.needs_photo ? `<div class="row">📷 แนะนำส่งรูปมาด้วยจะประเมินได้แม่นยำขึ้น</div>` : ""}
+      <div class="btns">
+        <button id="bs-ai-apply">✓ ใช้ข้อมูลนี้กรอกแบบฟอร์ม</button>
+        <button id="bs-ai-restart" class="ghost">คุยใหม่</button>
+      </div>
+    `;
+    body.appendChild(div);
+    body.scrollTop = body.scrollHeight;
+
+    div.querySelector("#bs-ai-apply").addEventListener("click", () => applyToForm(result));
+    div.querySelector("#bs-ai-restart").addEventListener("click", restart);
+  }
+
+  function escapeHtml(s) {
+    return String(s || "").replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    })[c]);
+  }
+
+  // ---------- SEND ----------
+  async function send() {
+    if (state.loading) return;
+    const input = document.getElementById("bs-ai-input");
+    const text = (input.value || "").trim();
+    if (!text) return;
+    input.value = "";
+
+    pushMsg("user", text);
+    state.loading = true;
+    document.getElementById("bs-ai-send").disabled = true;
+    const loadingEl = pushLoading();
+
+    try {
+      const resp = await fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: text,
+          history: state.history.slice(0, -1), // exclude current user msg (already in message)
+          customerPhone: window.BoonsookAI?._currentPhone || null,
+        }),
+      });
+
+      const data = await resp.json();
+      loadingEl.remove();
+
+      if (!resp.ok) {
+        pushMsg("ai", "ขอโทษครับ เกิดข้อผิดพลาด: " + (data.error || "unknown") + (data.hint ? "\n" + data.hint : ""));
+        return;
+      }
+
+      pushMsg("ai", data.reply || "...");
+      state.lastResult = data;
+
+      if (data.done && data.job_type) {
+        pushSummary(data);
+      }
+    } catch (err) {
+      loadingEl.remove();
+      pushMsg("ai", "เชื่อมต่อ AI ไม่ได้ครับ ลองใหม่อีกครั้ง\n" + String(err?.message || err));
+    } finally {
+      state.loading = false;
+      document.getElementById("bs-ai-send").disabled = false;
+      input.focus();
+    }
+  }
+
+  // ---------- APPLY TO FORM ----------
+  function applyToForm(result) {
+    let filled = 0;
+
+    // job_type → select
+    const jobTypeEl =
+      document.querySelector('select[name="job_type"]') ||
+      document.getElementById("jobType") ||
+      document.getElementById("job_type");
+    if (jobTypeEl && result.job_type) {
+      // หา option ที่ text หรือ value ตรงกัน
+      const opts = Array.from(jobTypeEl.options || []);
+      const match = opts.find(
+        (o) =>
+          o.value === result.job_type ||
+          o.textContent.trim() === result.job_type ||
+          o.textContent.includes(result.job_type)
+      );
+      if (match) {
+        jobTypeEl.value = match.value;
+        jobTypeEl.dispatchEvent(new Event("change", { bubbles: true }));
+        filled++;
+      }
+    }
+
+    // sub_service → input
+    const subEl =
+      document.querySelector('input[name="sub_service"]') ||
+      document.getElementById("subService") ||
+      document.getElementById("sub_service");
+    if (subEl && result.sub_service) {
+      subEl.value = result.sub_service;
+      subEl.dispatchEvent(new Event("input", { bubbles: true }));
+      filled++;
+    }
+
+    // description → textarea
+    const descEl =
+      document.querySelector('textarea[name="description"]') ||
+      document.getElementById("description") ||
+      document.getElementById("jobDescription");
+    if (descEl && result.description) {
+      descEl.value = result.description;
+      descEl.dispatchEvent(new Event("input", { bubbles: true }));
+      filled++;
+    }
+
+    if (filled > 0) {
+      pushMsg("ai", `✓ กรอกแบบฟอร์มให้แล้ว ${filled} ช่อง กรุณาตรวจสอบและกด "บันทึก" ได้เลยครับ`);
+      setTimeout(() => close(), 1500);
+    } else {
+      pushMsg(
+        "ai",
+        "ไม่พบช่องที่ตรงในหน้านี้ครับ กรุณา copy ข้อมูลจากสรุปด้านบนไปกรอกเองนะครับ"
+      );
+    }
+  }
+
+  // ---------- RESTART ----------
+  function restart() {
+    state.history = [];
+    state.lastResult = null;
+    document.getElementById("bs-ai-body").innerHTML = "";
+    pushMsg(
+      "ai",
+      "เริ่มใหม่ได้เลยครับ ลองเล่าอาการให้ฟังใหม่"
+    );
+  }
+
+  // ---------- PUBLIC API ----------
+  window.BoonsookAI = {
+    open,
+    close,
+    restart,
+    _currentPhone: null,
+    setCustomerPhone(phone) {
+      this._currentPhone = phone;
+    },
+  };
+
+  // ---------- AUTO-MOUNT ----------
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", mount);
+  } else {
+    mount();
+  }
+})();
