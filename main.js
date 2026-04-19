@@ -1013,13 +1013,12 @@ async function requestOtp() {
       throw new Error(data.error || "ส่ง SMS ไม่สำเร็จ");
     }
 
-    const nonce = generateNonce();
     _pendingOtp = {
       phone,
       name,
       hash: data.hash,
       expiresAt: data.expiresAt,
-      nonce,
+      authPassword: null,
       attempts: 0
     };
 
@@ -1075,6 +1074,7 @@ async function verifyOtp() {
     if (!verifyRes.ok || !verifyData.ok) {
       return showToast(verifyData.error || "รหัส OTP ไม่ถูกต้อง");
     }
+    _pendingOtp.authPassword = verifyData.authPassword;
   } catch (e) {
     return showToast("ตรวจสอบ OTP ไม่สำเร็จ: " + e.message);
   }
@@ -1086,9 +1086,10 @@ async function verifyOtp() {
   const cfg = window.SUPABASE_CONFIG;
 
   try {
-    // ★ ใช้ nonce สุ่มผสมใน password — ป้องกันการ login โดยไม่ผ่าน OTP
+    // ★ ใช้ deterministic authPassword จาก server (HMAC+OTP_SECRET) — เบอร์เดียวกัน = password เดิม ลูกค้าเก่า login ซ้ำได้
     const fakeEmail = phone + "@phone.boonsook.local";
-    const fakePassword = "bsk_" + _pendingOtp.nonce + "_" + phone.slice(-4);
+    const fakePassword = _pendingOtp.authPassword;
+    if (!fakePassword) throw new Error("ไม่ได้รับ authPassword จาก server");
 
     // ลอง sign in ก่อน
     let { error: loginErr } = await state.supabase.auth.signInWithPassword({ email: fakeEmail, password: fakePassword });
@@ -1106,7 +1107,7 @@ async function verifyOtp() {
       if (signUpErr && signUpErr.message?.toLowerCase().includes("already registered")) {
         // ★ มีบัญชีแล้ว → ใช้ admin API reset password (ต้องมี Service Role key ฝั่ง server)
         // Fallback: แจ้งผู้ใช้ให้ติดต่อร้าน (safe ที่สุดในตอนนี้)
-        throw new Error("มีบัญชีอยู่แล้ว กรุณาติดต่อพนักงานเพื่อเข้าสู่ระบบ");
+        throw new Error("บัญชีนี้สร้างด้วยระบบเก่า — กรุณาติดต่อร้านเพื่อ reset");
       }
 
       if (signUpErr) throw new Error(signUpErr.message);

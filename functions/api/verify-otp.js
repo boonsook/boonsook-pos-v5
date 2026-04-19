@@ -1,5 +1,5 @@
 // Cloudflare Pages Function — POST /api/verify-otp
-// ตรวจสอบ OTP แบบ stateless ด้วย HMAC
+// ตรวจสอบ OTP แบบ stateless ด้วย HMAC และคืน deterministic authPassword สำหรับ Supabase
 
 export async function onRequestPost(context) {
   const corsHeaders = {
@@ -36,8 +36,18 @@ export async function onRequestPost(context) {
       return new Response(JSON.stringify({ error: "รหัส OTP ไม่ถูกต้อง" }), { status: 400, headers: corsHeaders });
     }
 
-    // OTP ถูกต้อง!
-    return new Response(JSON.stringify({ ok: true, phone: cleanPhone }), { status: 200, headers: corsHeaders });
+    // * OTP ถูกต้อง — สร้าง deterministic authPassword สำหรับ Supabase Auth
+    //   เบอร์เดียวกันได้ password เหมือนเดิมทุกครั้ง (ลูกค้าเก่า login ซ้ำได้)
+    //   Attacker คำนวณเองไม่ได้ (ต้องรู้ OTP_SECRET ฝั่ง server)
+    const authPayload = `${cleanPhone}:auth-v1`;
+    const authSig = await crypto.subtle.sign("HMAC", key, encoder.encode(authPayload));
+    const authPassword = "bsk_" + Array.from(new Uint8Array(authSig)).map(b => b.toString(16).padStart(2, "0")).join("").slice(0, 32);
+
+    return new Response(JSON.stringify({
+      ok: true,
+      phone: cleanPhone,
+      authPassword
+    }), { status: 200, headers: corsHeaders });
 
   } catch (e) {
     return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: corsHeaders });
