@@ -1,5 +1,5 @@
 // Cloudflare Pages Function — POST /api/send-otp
-// ส่ง SMS OTP จริงผ่าน Twilio API
+// ส่ง SMS OTP จริงผ่าน Twilio API พร้อม fallback แสดง OTP บนจอถ้า Twilio fail
 
 export async function onRequestPost(context) {
   const corsHeaders = {
@@ -41,7 +41,6 @@ export async function onRequestPost(context) {
     const fromNumber = context.env.TWILIO_FROM_NUMBER;
 
     // * DEV/DEMO fallback - if Twilio env vars are not set, return OTP via JSON for on-screen display
-    // User can test the system immediately, then set Twilio later for real SMS delivery
     if (!accountSid || !authToken || !fromNumber) {
       return new Response(JSON.stringify({
         ok: true,
@@ -61,20 +60,43 @@ export async function onRequestPost(context) {
       Body: `Boonsook POS: รหัส OTP ของคุณคือ ${code} (หมดอายุใน 5 นาที)`
     });
 
-    const twilioRes = await fetch(twilioUrl, {
-      method: "POST",
-      headers: {
-        "Authorization": "Basic " + btoa(`${accountSid}:${authToken}`),
-        "Content-Type": "application/x-www-form-urlencoded"
-      },
-      body: twilioBody.toString()
-    });
+    // * FALLBACK: wrap Twilio call so trial limit / unverified number / rate limit / network error
+    //   จะไม่ทำให้ร้านขายของไม่ได้ — จะโชว์ OTP บนจอแทน
+    let twilioFailed = false;
+    let twilioErrorMsg = "";
+    try {
+      const twilioRes = await fetch(twilioUrl, {
+        method: "POST",
+        headers: {
+          "Authorization": "Basic " + btoa(`${accountSid}:${authToken}`),
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body: twilioBody.toString()
+      });
 
-    const twilioData = await twilioRes.json();
+      if (!twilioRes.ok) {
+        const twilioData = await twilioRes.json().catch(() => ({}));
+        console.error("Twilio error:", twilioData);
+        twilioFailed = true;
+        twilioErrorMsg = twilioData.message || `HTTP ${twilioRes.status}`;
+      }
+    } catch (fetchErr) {
+      console.error("Twilio fetch error:", fetchErr);
+      twilioFailed = true;
+      twilioErrorMsg = fetchErr.message || "network error";
+    }
 
-    if (!twilioRes.ok) {
-      console.error("Twilio error:", twilioData);
-      return new Response(JSON.stringify({ error: "ส่ง SMS ไม่สำเร็จ: " + (twilioData.message || "unknown") }), { status: 500, headers: corsHeaders });
+    if (twilioFailed) {
+      // * โชว์ OTP บนจอแทน — ร้านทำงานต่อได้ แม้ Twilio trial/down/rate-limit
+      return new Response(JSON.stringify({
+        ok: true,
+        hash,
+        expiresAt,
+        phone: cleanPhone,
+        dev: true,
+        devCode: code,
+        devNotice: "Twilio: " + twilioErrorMsg + " — แสดง OTP บนจอแทน"
+      }), { status: 200, headers: corsHeaders });
     }
 
     // ส่ง hash + expiresAt กลับ (ไม่ส่ง code กลับ!)
