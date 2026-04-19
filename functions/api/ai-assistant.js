@@ -115,7 +115,7 @@ export async function onRequestPost(context) {
         messages,
         max_tokens: 512,
         temperature: 0.3,
-        response_format: { type: "json_object" },
+        // response_format: { type: "json_object" }, // disabled
       }
     );
 
