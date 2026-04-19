@@ -7,9 +7,12 @@
 // 2. ในหน้าแจ้งซ่อม (service request form) เพิ่มปุ่ม:
 //      <button onclick="BoonsookAI.open()">🤖 ให้ AI ช่วยกรอก</button>
 // 3. AI จะ auto-fill ช่องเหล่านี้เมื่อคุยจบ (ถ้ามี):
-//      - select[name="job_type"]  หรือ  #jobType
-//      - input[name="sub_service"] หรือ  #subService
-//      - textarea[name="description"] หรือ #description
+//      - #serviceCustomer       (ชื่อลูกค้า)
+//      - #servicePhone          (เบอร์โทร)
+//      - #serviceAddress / #srAddress  (ที่อยู่/สถานที่หน้างาน)
+//      - #serviceType           (ประเภทบริการ — ac/solar/cctv)
+//      - #serviceTitle          (หัวข้อ/อาการ)
+//      - #serviceNote / #srSymptom / #srNote  (รายละเอียด)
 
 (function () {
   "use strict";
@@ -89,6 +92,7 @@
   }
   .bs-summary strong { color: #064e3b; }
   .bs-summary .row { margin: 4px 0; }
+  .bs-summary .sep { border-top: 1px dashed #86efac; margin: 8px 0; }
   .bs-summary .btns { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; }
   .bs-summary button {
     background: #1a2332; color: #fff; border: none;
@@ -189,7 +193,7 @@
     if (state.history.length === 0) {
       pushMsg(
         "ai",
-        "สวัสดีครับ ผมเป็น AI ผู้ช่วยของร้านบุญสุขแอร์ 🙏\n\nลองเล่าอาการที่เจอให้ฟังครับ เช่น \"แอร์ไม่เย็น\" หรือ \"ตู้เย็นเสียงดัง\""
+        "สวัสดีครับ ผมเป็น AI ผู้ช่วยของร้านบุญสุขแอร์ 🙏\n\nลองเล่าอาการที่เจอให้ฟังครับ เช่น \"แอร์ไม่เย็น\" หรือ \"ตู้เย็นเสียงดัง\"\n\n(เดี๋ยวผมจะขอชื่อ เบอร์ติดต่อ และที่อยู่ ก่อนส่งเรื่องให้ช่างครับ)"
       );
     }
     setTimeout(() => document.getElementById("bs-ai-input").focus(), 100);
@@ -242,6 +246,10 @@
       <div class="row">• ราคาประเมิน: <strong>${priceRange}</strong></div>
       ${result.urgency !== "normal" ? `<div class="row">• ⚠️ ${result.urgency === "emergency" ? "ด่วนมาก" : "เร่งด่วน"}</div>` : ""}
       ${result.needs_photo ? `<div class="row">📷 แนะนำส่งรูปมาด้วยจะประเมินได้แม่นยำขึ้น</div>` : ""}
+      <div class="sep"></div>
+      <div class="row">👤 ชื่อ: <strong>${escapeHtml(result.customer_name || "-")}</strong></div>
+      <div class="row">📞 เบอร์: <strong>${escapeHtml(result.customer_phone || "-")}</strong></div>
+      <div class="row">📍 ที่อยู่: ${escapeHtml(result.customer_address || "-")}</div>
       <div class="btns">
         <button id="bs-ai-apply">✓ ใช้ข้อมูลนี้กรอกแบบฟอร์ม</button>
         <button id="bs-ai-restart" class="ghost">คุยใหม่</button>
@@ -318,14 +326,26 @@
     return "ac";
   }
 
+  // helper: set ค่าให้ element + trigger event
+  function setField(el, val, eventName) {
+    if (!el || val == null || val === "") return false;
+    el.value = val;
+    try {
+      el.dispatchEvent(new Event(eventName || "input", { bubbles: true }));
+    } catch {}
+    return true;
+  }
+
   // ---------- APPLY TO FORM ----------
   function tryFill(result) {
     let filled = 0;
 
+    // --- 1) ประเภทบริการ ---
     const typeEl =
       document.getElementById("serviceType") ||
       document.querySelector('select[name="job_type"]') ||
-      document.getElementById("jobType");
+      document.getElementById("jobType") ||
+      document.getElementById("srType");
     if (typeEl && result.job_type) {
       const mapped = mapJobTypeToServiceType(result.job_type);
       const opts = Array.from(typeEl.options || []);
@@ -343,27 +363,52 @@
       }
     }
 
+    // --- 2) หัวข้อ/อาการ ---
     const titleEl =
       document.getElementById("serviceTitle") ||
       document.querySelector('input[name="sub_service"]') ||
       document.getElementById("subService");
     if (titleEl) {
       const val = result.sub_service || result.job_type || "";
-      if (val) {
-        titleEl.value = val;
-        titleEl.dispatchEvent(new Event("input", { bubbles: true }));
-        filled++;
-      }
+      if (val && setField(titleEl, val)) filled++;
     }
 
+    // --- 3) รายละเอียด/อาการยาว ---
     const noteEl =
       document.getElementById("serviceNote") ||
       document.querySelector('textarea[name="description"]') ||
-      document.getElementById("description");
+      document.getElementById("description") ||
+      document.getElementById("srSymptom") ||
+      document.getElementById("srNote");
     if (noteEl && result.description) {
-      noteEl.value = result.description;
-      noteEl.dispatchEvent(new Event("input", { bubbles: true }));
-      filled++;
+      if (setField(noteEl, result.description)) filled++;
+    }
+
+    // --- 4) ชื่อลูกค้า (admin drawer เท่านั้น; customer form รู้จักลูกค้าอยู่แล้ว) ---
+    const nameEl =
+      document.getElementById("serviceCustomer") ||
+      document.querySelector('input[name="customer_name"]');
+    if (nameEl && result.customer_name) {
+      if (setField(nameEl, result.customer_name)) filled++;
+    }
+
+    // --- 5) เบอร์โทร ---
+    const phoneEl =
+      document.getElementById("servicePhone") ||
+      document.querySelector('input[name="customer_phone"]') ||
+      document.querySelector('input[type="tel"]');
+    if (phoneEl && result.customer_phone) {
+      if (setField(phoneEl, result.customer_phone)) filled++;
+    }
+
+    // --- 6) ที่อยู่/สถานที่หน้างาน ---
+    const addrEl =
+      document.getElementById("serviceAddress") ||
+      document.getElementById("srAddress") ||
+      document.querySelector('input[name="customer_address"]') ||
+      document.querySelector('textarea[name="customer_address"]');
+    if (addrEl && result.customer_address) {
+      if (setField(addrEl, result.customer_address)) filled++;
     }
 
     return filled;

@@ -10,7 +10,9 @@
 //
 // Endpoint: POST /api/ai-assistant
 // Body: { message: string, history?: [{role, content}], customerPhone?: string }
-// Return: { reply, suggested_category, sub_service, estimated_price_range, urgency, summary }
+// Return: { reply, job_type, sub_service, description,
+//           customer_name, customer_phone, customer_address,
+//           estimated_price_range, urgency, summary }
 
 const SYSTEM_PROMPT = `คุณเป็นผู้ช่วย AI ของ "บุญสุขแอร์" (Boonsook Air) ร้านซ่อม-ติดตั้งแอร์และเครื่องใช้ไฟฟ้า
 จังหวัด: ขอนแก่น (บริการทั่วภาคอีสาน)
@@ -20,6 +22,9 @@ const SYSTEM_PROMPT = `คุณเป็นผู้ช่วย AI ของ "
 2. อาการ/ปัญหา (description)
 3. รุ่น/ยี่ห้อ ถ้ามี (ใส่ใน description)
 4. ความเร่งด่วน
+5. ชื่อลูกค้า (customer_name)
+6. เบอร์ติดต่อ (customer_phone) — ต้องเป็นตัวเลข 9–10 หลัก
+7. ที่อยู่/สถานที่หน้างาน (customer_address)
 
 หมวดบริการ 9 อย่างที่เราให้บริการ (ต้องเลือก 1 ใน 9 นี้เท่านั้น):
 - "ซ่อมแอร์"        → แอร์ไม่เย็น, เสียงดัง, น้ำหยด, รีโมทใช้ไม่ได้  (ราคา 500-3500 บ.)
@@ -35,10 +40,13 @@ const SYSTEM_PROMPT = `คุณเป็นผู้ช่วย AI ของ "
 กฎการตอบ:
 - ใช้ภาษาไทยสุภาพ เป็นกันเอง เรียกลูกค้าว่า "คุณลูกค้า" หรือ "ครับ/ค่ะ"
 - ถามทีละข้อ สั้นๆ ไม่เกิน 2 ประโยค/ครั้ง
-- พอได้ข้อมูลครบ (รู้ประเภท + อาการ) ให้สรุปและ return JSON ตาม format
+- ลำดับการถาม: (ก) ประเภทบริการ + อาการ → (ข) รุ่น/ยี่ห้อ/ขนาด BTU → (ค) ความเร่งด่วน → (ง) ชื่อลูกค้า → (จ) เบอร์ติดต่อ → (ฉ) ที่อยู่/สถานที่หน้างาน
+- ถ้าลูกค้ายังไม่ได้บอก ชื่อ / เบอร์ / ที่อยู่ — ให้ขอเพิ่มก่อน done:true เสมอ
+- เบอร์โทรต้องเป็นตัวเลขล้วน 9–10 หลัก (ถ้าลูกค้าพิมพ์มีขีด/เว้นวรรค ให้แปลงเป็นตัวเลขล้วนก่อนเก็บ) ถ้าไม่ครบหรือไม่ใช่ตัวเลขให้ถามใหม่
 - ถ้าลูกค้าพิมพ์คลุมเครือ เช่น "แอร์ไม่เย็น" ให้ถามต่อว่า เริ่มเป็นเมื่อไหร่? มีน้ำหยดมั้ย? เสียงดังมั้ย?
 - ประเมินราคาให้ช่วง (ไม่ฟันธง) เช่น "ประมาณ 500-1500 บาท ขึ้นกับอาการจริง"
 - ห้ามรับปากเวลา — บอกแค่ "ช่างจะติดต่อกลับเพื่อยืนยันคิว"
+- ตั้ง done:true ก็ต่อเมื่อมีครบ: job_type, description, customer_name, customer_phone, customer_address
 
 ⚠️ CRITICAL OUTPUT RULES — อ่านให้ชัดก่อนตอบทุกครั้ง:
 - ตอบกลับเป็น JSON object เท่านั้น ขึ้นต้นด้วย { ลงท้ายด้วย }
@@ -54,6 +62,9 @@ Schema:
   "job_type": null,
   "sub_service": null,
   "description": null,
+  "customer_name": null,
+  "customer_phone": null,
+  "customer_address": null,
   "estimated_price_min": null,
   "estimated_price_max": null,
   "urgency": "normal",
@@ -61,10 +72,27 @@ Schema:
 }
 
 ตัวอย่างเมื่อลูกค้าเพิ่งเริ่มเล่า "แอร์ไม่เย็น" (ยังไม่พอ → ถามต่อ):
-{"reply":"เข้าใจแล้วครับ ขอถามเพิ่ม: แอร์ขนาดกี่ BTU และเริ่มไม่เย็นมานานแค่ไหนแล้วครับ?","done":false,"job_type":"ซ่อมแอร์","sub_service":null,"description":null,"estimated_price_min":null,"estimated_price_max":null,"urgency":"normal","needs_photo":false}
+{"reply":"เข้าใจแล้วครับ ขอถามเพิ่ม: แอร์ขนาดกี่ BTU และเริ่มไม่เย็นมานานแค่ไหนแล้วครับ?","done":false,"job_type":"ซ่อมแอร์","sub_service":null,"description":null,"customer_name":null,"customer_phone":null,"customer_address":null,"estimated_price_min":null,"estimated_price_max":null,"urgency":"normal","needs_photo":false}
+
+ตัวอย่างเมื่อได้อาการครบแต่ยังไม่มีข้อมูลติดต่อ (→ ถามชื่อ):
+{"reply":"ขอรบกวนชื่อคุณลูกค้าด้วยครับ เพื่อให้ช่างติดต่อกลับได้สะดวกครับ","done":false,"job_type":"ซ่อมแอร์","sub_service":"แอร์ไม่เย็น น้ำหยด","description":"แอร์ Daikin 12000 BTU ไม่เย็น มีน้ำหยดที่คอยล์เย็น เป็นมา 3 วัน","customer_name":null,"customer_phone":null,"customer_address":null,"estimated_price_min":500,"estimated_price_max":2500,"urgency":"normal","needs_photo":true}
+
+ตัวอย่างเมื่อมีชื่อแล้ว (→ ถามเบอร์):
+{"reply":"ขอบคุณครับคุณสมชาย ขอเบอร์โทรติดต่อด้วยครับ (9–10 หลัก)","done":false,"job_type":"ซ่อมแอร์","sub_service":"แอร์ไม่เย็น น้ำหยด","description":"แอร์ Daikin 12000 BTU ไม่เย็น มีน้ำหยดที่คอยล์เย็น เป็นมา 3 วัน","customer_name":"สมชาย ใจดี","customer_phone":null,"customer_address":null,"estimated_price_min":500,"estimated_price_max":2500,"urgency":"normal","needs_photo":true}
+
+ตัวอย่างเมื่อมีเบอร์แล้ว (→ ถามที่อยู่):
+{"reply":"ได้ครับ ขอที่อยู่หรือสถานที่หน้างานที่จะให้ช่างไปบริการด้วยครับ","done":false,"job_type":"ซ่อมแอร์","sub_service":"แอร์ไม่เย็น น้ำหยด","description":"แอร์ Daikin 12000 BTU ไม่เย็น มีน้ำหยดที่คอยล์เย็น เป็นมา 3 วัน","customer_name":"สมชาย ใจดี","customer_phone":"0812345678","customer_address":null,"estimated_price_min":500,"estimated_price_max":2500,"urgency":"normal","needs_photo":true}
 
 ตัวอย่างเมื่อได้ข้อมูลครบแล้ว (→ done:true):
-{"reply":"รับเรื่องแล้วครับ ช่างจะโทรกลับเพื่อยืนยันคิวครับ","done":true,"job_type":"ซ่อมแอร์","sub_service":"แอร์ไม่เย็น น้ำหยด","description":"แอร์ Daikin 12000 BTU ไม่เย็น มีน้ำหยดที่คอยล์เย็น เป็นมา 3 วัน","estimated_price_min":500,"estimated_price_max":2500,"urgency":"normal","needs_photo":true}`;
+{"reply":"รับเรื่องแล้วครับคุณสมชาย ช่างจะโทรกลับที่เบอร์ 0812345678 เพื่อยืนยันคิวครับ","done":true,"job_type":"ซ่อมแอร์","sub_service":"แอร์ไม่เย็น น้ำหยด","description":"แอร์ Daikin 12000 BTU ไม่เย็น มีน้ำหยดที่คอยล์เย็น เป็นมา 3 วัน","customer_name":"สมชาย ใจดี","customer_phone":"0812345678","customer_address":"123 หมู่ 5 ต.ในเมือง อ.เมือง จ.ขอนแก่น 40000","estimated_price_min":500,"estimated_price_max":2500,"urgency":"normal","needs_photo":true}`;
+
+// normalize เบอร์โทร → ตัวเลขล้วน
+function normalizePhone(s) {
+  if (!s) return null;
+  const digits = String(s).replace(/\D+/g, "");
+  if (digits.length >= 9 && digits.length <= 10) return digits;
+  return null;
+}
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -166,6 +194,9 @@ export async function onRequestPost(context) {
         job_type: null,
         sub_service: null,
         description: null,
+        customer_name: null,
+        customer_phone: null,
+        customer_address: null,
         estimated_price_min: null,
         estimated_price_max: null,
         urgency: "normal",
@@ -173,18 +204,35 @@ export async function onRequestPost(context) {
       };
     }
 
+    // ถ้า client ส่ง customerPhone มา (เช่น ลูกค้าที่ล็อกอินแล้ว) และ AI ยังไม่ได้เก็บ → prefill
+    if (!parsed.customer_phone && customerPhone) {
+      parsed.customer_phone = customerPhone;
+    }
+
     // sanity-check fields
+    const phoneClean = normalizePhone(parsed.customer_phone);
+
     const out = {
       reply: String(parsed.reply || "").slice(0, 2000),
       done: !!parsed.done,
       job_type: parsed.job_type || null,
       sub_service: parsed.sub_service ? String(parsed.sub_service).slice(0, 100) : null,
       description: parsed.description ? String(parsed.description).slice(0, 1000) : null,
+      customer_name: parsed.customer_name ? String(parsed.customer_name).slice(0, 100) : null,
+      customer_phone: phoneClean,
+      customer_address: parsed.customer_address ? String(parsed.customer_address).slice(0, 300) : null,
       estimated_price_min: Number.isFinite(parsed.estimated_price_min) ? parsed.estimated_price_min : null,
       estimated_price_max: Number.isFinite(parsed.estimated_price_max) ? parsed.estimated_price_max : null,
       urgency: ["normal", "urgent", "emergency"].includes(parsed.urgency) ? parsed.urgency : "normal",
       needs_photo: !!parsed.needs_photo,
     };
+
+    // ป้องกัน done:true ถ้าข้อมูลติดต่อไม่ครบจริงๆ
+    if (out.done) {
+      if (!out.customer_name || !out.customer_phone || !out.customer_address || !out.job_type) {
+        out.done = false;
+      }
+    }
 
     return new Response(JSON.stringify(out), {
       status: 200,
