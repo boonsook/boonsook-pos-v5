@@ -137,22 +137,22 @@ export function renderSettingsPayment(el, ctx, goBack, navigate) {
   document.getElementById("setBackBtn")?.addEventListener("click", goBack);
 
   // ★ Add Bank button
-  document.getElementById("addBankBtn")?.addEventListener("click", async () => {
+  document.getElementById("addBankBtn")?.addEventListener("click", () => {
     _syncBanksFromDom(el, ctx); // ★ เก็บค่าที่กรอกก่อน re-render
     state.paymentInfo.banks = state.paymentInfo.banks || [];
     state.paymentInfo.banks.push({ bankCode: "", bankName: "", bankAccount: "", bankHolder: "", bankBranch: "" });
-    await savePaymentInfo();
+    savePaymentInfo();
     renderSettingsPayment(el, ctx, goBack, navigate); // ✅ Re-render with ctx
   });
 
   // ★ Remove Bank buttons
   el.querySelectorAll("[data-remove-bank]").forEach(btn => {
-    btn.addEventListener("click", async () => {
+    btn.addEventListener("click", () => {
       const idx = Number(btn.dataset.removeBank);
       if (confirm("ลบบัญชีที่ " + (idx+1) + " ?")) {
         _syncBanksFromDom(el, ctx);
         state.paymentInfo.banks.splice(idx, 1);
-        await savePaymentInfo();
+        savePaymentInfo();
         showToast("ลบบัญชีแล้ว");
         renderSettingsPayment(el, ctx, goBack, navigate);
       }
@@ -180,40 +180,28 @@ export function renderSettingsPayment(el, ctx, goBack, navigate) {
     });
   });
   el.querySelectorAll(".bank-qr-file").forEach(inp => {
-    inp.addEventListener("change", async (e) => {
+    inp.addEventListener("change", (e) => {
       const file = e.target.files?.[0];
       if (!file) return;
-      if (file.size > 3 * 1024 * 1024) { showToast("ไฟล์ใหญ่เกิน 3MB"); return; }
+      if (file.size > 2 * 1024 * 1024) { showToast("ไฟล์ใหญ่เกิน 2MB"); return; }
       const idx = Number(inp.dataset.qrBankIdx);
-      showToast("กำลังอัปโหลด QR Code...");
-      try {
-        const ext = file.name.split(".").pop() || "jpg";
-        const fileName = `qr-bank-${idx}.${ext}`;
-        const { error: upErr } = await state.supabase.storage
-          .from("store-assets")
-          .upload(fileName, file, { upsert: true });
-        if (upErr) throw upErr;
-        const { data: urlData } = state.supabase.storage
-          .from("store-assets")
-          .getPublicUrl(fileName);
-        const publicUrl = urlData.publicUrl + "?t=" + Date.now();
-        _syncBanksFromDom(el, ctx);
-        state.paymentInfo.banks[idx].qrImage = publicUrl;
-        await savePaymentInfo();
-        showToast("✅ อัปโหลด QR Code บัญชีที่ " + (idx+1) + " แล้ว");
+      const reader = new FileReader();
+      reader.onload = () => {
+        _syncBanksFromDom(el, ctx); // ★ เก็บค่าก่อน re-render
+        state.paymentInfo.banks[idx].qrImage = reader.result;
+        savePaymentInfo();
+        showToast("แนบ QR Code บัญชีที่ " + (idx+1) + " แล้ว");
         renderSettingsPayment(el, ctx, goBack, navigate);
-      } catch (err) {
-        showToast("อัปโหลดไม่สำเร็จ: " + (err.message || err));
-      }
-      e.target.value = "";
+      };
+      reader.readAsDataURL(file);
     });
   });
   el.querySelectorAll(".bank-qr-remove").forEach(btn => {
-    btn.addEventListener("click", async () => {
+    btn.addEventListener("click", () => {
       _syncBanksFromDom(el, ctx); // ★ เก็บค่าก่อน re-render
       const idx = Number(btn.dataset.qrBankIdx);
       state.paymentInfo.banks[idx].qrImage = null;
-      await savePaymentInfo();
+      savePaymentInfo();
       showToast("ลบ QR Code บัญชีที่ " + (idx+1) + " แล้ว");
       renderSettingsPayment(el, ctx, goBack, navigate);
     });
@@ -222,43 +210,31 @@ export function renderSettingsPayment(el, ctx, goBack, navigate) {
   // Global QR Upload (PromptPay section)
   const qrFileInput = document.getElementById("qrFileInput");
   document.getElementById("qrUploadBtn")?.addEventListener("click", () => qrFileInput?.click());
-  qrFileInput?.addEventListener("change", async (e) => {
+  qrFileInput?.addEventListener("change", (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 3 * 1024 * 1024) { showToast("ไฟล์ใหญ่เกิน 3MB"); return; }
-    showToast("กำลังอัปโหลด QR Code...");
-    try {
-      const ext = file.name.split(".").pop() || "jpg";
-      const fileName = `qr-global.${ext}`;
-      const { error: upErr } = await state.supabase.storage
-        .from("store-assets")
-        .upload(fileName, file, { upsert: true });
-      if (upErr) throw upErr;
-      const { data: urlData } = state.supabase.storage
-        .from("store-assets")
-        .getPublicUrl(fileName);
-      const publicUrl = urlData.publicUrl + "?t=" + Date.now();
-      _syncBanksFromDom(el, ctx);
-      state.paymentInfo.qrImage = publicUrl;
-      await savePaymentInfo();
-      showToast("✅ อัปโหลด QR Code สำเร็จ");
+    if (file.size > 2 * 1024 * 1024) { showToast("ไฟล์ใหญ่เกิน 2MB"); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      _syncBanksFromDom(el, ctx); // ★ เก็บค่าก่อน re-render
+      state.paymentInfo.qrImage = reader.result;
+      savePaymentInfo();
+      showToast("แนบ QR Code แล้ว");
       renderSettingsPayment(el, ctx, goBack, navigate);
-    } catch (err) {
-      showToast("อัปโหลดไม่สำเร็จ: " + (err.message || err));
-    }
-    e.target.value = "";
+    };
+    reader.readAsDataURL(file);
   });
 
-  document.getElementById("removeQrBtn")?.addEventListener("click", async () => {
+  document.getElementById("removeQrBtn")?.addEventListener("click", () => {
     _syncBanksFromDom(el, ctx); // ★ เก็บค่าก่อน re-render
     state.paymentInfo.qrImage = null;
-    await savePaymentInfo();
+    savePaymentInfo();
     showToast("ลบ QR Code แล้ว");
     renderSettingsPayment(el, ctx, goBack, navigate);
   });
 
   // ★ Save Payment — collect all banks from DOM
-  document.getElementById("savePaymentInfoBtn")?.addEventListener("click", async () => {
+  document.getElementById("savePaymentInfoBtn")?.addEventListener("click", () => {
     const bankCards = el.querySelectorAll(".pay-bank-card");
     const updatedBanks = [];
     bankCards.forEach(card => {
@@ -286,7 +262,7 @@ export function renderSettingsPayment(el, ctx, goBack, navigate) {
       banks: updatedBanks,
       promptPay: document.getElementById("setPromptPay")?.value.trim() || ""
     };
-    await savePaymentInfo();
+    savePaymentInfo();
 
     // ★ บันทึก SlipOK API Key
     const slipKey = (document.getElementById("setSlipOkKey")?.value || "").trim();

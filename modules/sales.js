@@ -18,7 +18,8 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
 
   const isAdmin = (state.profile?.role === "admin");
   // ★ ซ่อนรายการที่ soft-delete แล้ว (เช็ค note มี [ลบแล้ว])
-  const visibleSales = state.sales.filter(s => !(s.note || "").includes("[ลบแล้ว]"));
+  // ★ FIX: ป้องกัน crash ถ้า state.sales เป็น null/undefined
+  const visibleSales = (state.sales || []).filter(s => !(s.note || "").includes("[ลบแล้ว]"));
 
   // ★ Pagination
   const totalPages = Math.max(1, Math.ceil(visibleSales.length / SALES_PAGE_SIZE));
@@ -38,7 +39,10 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
     <div class="panel">
       <div class="row">
         <h3 style="margin:0">รายการขายล่าสุด</h3>
-        <button id="refreshSalesBtn" class="btn light">รีโหลด</button>
+        <div style="display:flex;gap:6px">
+          <button id="exportSalesXlsxBtn" class="btn light" title="ส่งออก Excel สำหรับทำบัญชี">📊 Excel</button>
+          <button id="refreshSalesBtn" class="btn light">รีโหลด</button>
+        </div>
       </div>
       <div class="card-list mt16">
         ${pageSales.length ? pageSales.map(s => `
@@ -66,6 +70,43 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
 
   document.getElementById("refreshSalesBtn")?.addEventListener("click", loadAllData, { signal });
 
+  // ★ FEATURE: ส่งออก Excel สำหรับทำบัญชี (ใช้ XLSX library ที่ index.html โหลดไว้แล้ว)
+  document.getElementById("exportSalesXlsxBtn")?.addEventListener("click", () => {
+    try {
+      if (typeof XLSX === "undefined") {
+        return showToast?.("❌ ไลบรารี Excel ยังไม่พร้อม — รีเฟรชหน้าใหม่");
+      }
+      if (!visibleSales.length) {
+        return showToast?.("ยังไม่มีรายการขายที่จะส่งออก");
+      }
+      const rows = visibleSales.map(s => ({
+        "เลขที่บิล":      s.order_no || "",
+        "วันที่":         new Date(s.created_at).toLocaleString("th-TH"),
+        "ลูกค้า":         s.customer_name || "ลูกค้าทั่วไป",
+        "วิธีชำระ":       s.payment_method || "-",
+        "ยอดก่อนส่วนลด":  Number(s.subtotal || s.total_amount || 0),
+        "ส่วนลด":         Number(s.discount_amount || 0),
+        "รวมสุทธิ":       Number(s.total_amount || 0),
+        "รับเงิน":        Number(s.paid_amount || 0),
+        "เงินทอน":        Number(s.change_amount || 0),
+        "หมายเหตุ":       s.note || ""
+      }));
+      const ws = XLSX.utils.json_to_sheet(rows);
+      ws["!cols"] = [
+        { wch: 18 }, { wch: 20 }, { wch: 22 }, { wch: 12 },
+        { wch: 14 }, { wch: 10 }, { wch: 14 }, { wch: 12 }, { wch: 10 }, { wch: 28 }
+      ];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "รายการขาย");
+      const today = new Date().toISOString().slice(0, 10);
+      XLSX.writeFile(wb, `boonsook-sales-${today}.xlsx`);
+      showToast?.("📊 ส่งออก Excel เรียบร้อย");
+    } catch (err) {
+      console.error("[sales] export error:", err);
+      showToast?.("❌ ส่งออกไม่สำเร็จ: " + (err.message || "unknown"));
+    }
+  }, { signal });
+
   // ★ Pagination buttons
   document.querySelectorAll("[data-sales-page]").forEach(btn => btn.addEventListener("click", () => {
     const action = btn.dataset.salesPage;
@@ -83,6 +124,8 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
   document.querySelectorAll("[data-del-sale]").forEach(btn => btn.addEventListener("click", async (e) => {  // eslint-disable-line
     e.stopPropagation();
     const saleId = Number(btn.dataset.delSale);
+    // ★ FIX: ป้องกัน NaN
+    if (!saleId || isNaN(saleId)) { alert("ไม่พบ ID รายการขาย"); return; }
     const saleNo = btn.dataset.delSaleNo || "";
     if (!confirm(`ลบรายการขาย "${saleNo}" ?\nลบแล้วไม่สามารถกู้คืนได้`)) return;
 
@@ -112,7 +155,9 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
         if (patchRes.ok && Array.isArray(patchData) && patchData.length > 0) {
           success = true;
         } else {
-          const errMsg = patchData?.message || patchData?.hint || "status " + patchRes.status + " — 0 rows (RLS?)";
+          // ★ FIX: null-safe access to patchData
+          const errMsg = (patchData && (patchData.message || patchData.hint))
+            || ("status " + patchRes.status + " — 0 rows (RLS?)");
           console.warn("PATCH failed:", errMsg);
           alert("ลบ PATCH error: " + errMsg);
         }

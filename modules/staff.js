@@ -136,17 +136,17 @@ async function loadData() {
         <td style="padding:12px 14px;font-size:12px;color:#aaa">${date}</td>
         <td style="padding:12px 14px">
           <div style="display:flex;gap:6px;flex-wrap:wrap">
-            <button onclick="window.__staffEdit('${s.id}')"
+            <button data-action="edit" data-staff-id="${escHtml(s.id)}"
               style="padding:5px 12px;border:1px solid #ddd;border-radius:6px;
                      background:#fff;font-size:12px;cursor:pointer;color:#555">
               แก้ไข
             </button>
-            <button onclick="window.__staffChangePIN('${s.id}','${escHtml(s.name)}')"
+            <button data-action="change-pin" data-staff-id="${escHtml(s.id)}" data-staff-name="${escHtml(s.name)}"
               style="padding:5px 12px;border:1px solid #ddd;border-radius:6px;
                      background:#fff;font-size:12px;cursor:pointer;color:#555">
               เปลี่ยน PIN
             </button>
-            <button onclick="window.__staffToggle('${s.id}',${s.is_active},'${escHtml(s.name)}')"
+            <button data-action="toggle" data-staff-id="${escHtml(s.id)}" data-active="${s.is_active}" data-staff-name="${escHtml(s.name)}"
               style="padding:5px 12px;border:1px solid ${s.is_active?'#fcc':'#cfc'};
                      border-radius:6px;background:${s.is_active?'#fff9f9':'#f9fff9'};
                      font-size:12px;cursor:pointer;color:${s.is_active?'#e74c3c':'#27ae60'}">
@@ -173,15 +173,28 @@ async function loadData() {
       </table>
     </div>`;
 
-  // Expose handlers
-  window.__staffEdit = id => openModal(id);
-  window.__staffChangePIN = (id, name) => openChangePINModal(id, name);
-  window.__staffToggle = async (id, current, name) => {
-    if (!confirm(`${current ? 'ปิดการใช้งาน' : 'เปิดการใช้งาน'}: ${name}?`)) return;
-    const { error } = await sb.from('staff').update({ is_active: !current }).eq('id', id);
-    if (!error) await loadData();
-    else alert(`ผิดพลาด: ${error.message}`);
-  };
+  // ★ FIX: ใช้ event delegation แทน inline onclick เพื่อป้องกัน XSS + memory leak
+  wrap.querySelectorAll('[data-action="edit"]').forEach(btn => {
+    btn.addEventListener('click', () => openModal(btn.dataset.staffId));
+  });
+  wrap.querySelectorAll('[data-action="change-pin"]').forEach(btn => {
+    btn.addEventListener('click', () => openChangePINModal(btn.dataset.staffId, btn.dataset.staffName));
+  });
+  wrap.querySelectorAll('[data-action="toggle"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.staffId;
+      const current = btn.dataset.active === 'true';
+      const name = btn.dataset.staffName;
+      if (!confirm(`${current ? 'ปิดการใช้งาน' : 'เปิดการใช้งาน'}: ${name}?`)) return;
+      try {
+        const { error } = await sb.from('staff').update({ is_active: !current }).eq('id', id);
+        if (!error) await loadData();
+        else alert(`ผิดพลาด: ${error.message}`);
+      } catch (err) {
+        alert(`ผิดพลาด: ${err.message}`);
+      }
+    });
+  });
 }
 
 // ── Add / Edit Modal ──────────────────────────────────────
@@ -191,7 +204,12 @@ async function openModal(staffId = null) {
 
   let existing = null;
   if (staffId) {
-    const { data } = await sb.from('staff').select('*').eq('id', staffId).single();
+    const { data, error } = await sb.from('staff').select('*').eq('id', staffId).single();
+    if (error) {
+      console.error('[staff] load staff error:', error.message);
+      alert('ไม่สามารถโหลดข้อมูลพนักงานได้: ' + error.message);
+      return;
+    }
     existing = data;
   }
 

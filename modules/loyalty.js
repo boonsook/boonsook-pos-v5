@@ -54,7 +54,7 @@ export function getCustomerPoints(customerId, ctx) {
 /**
  * Add points from a sale
  */
-export async function earnPoints(customerId, amount, refType, refId, ctx) {
+export function earnPoints(customerId, amount, refType, refId, ctx) {
   const { state, showToast, loadAllData } = ctx;
   const settings = state.loyaltySettings || {};
 
@@ -83,23 +83,20 @@ export async function earnPoints(customerId, amount, refType, refId, ctx) {
     created_at: new Date().toISOString(),
   };
 
-  try {
-    const res = await window._appXhrPost('loyalty_points', newRecord);
-    if (res?.ok) {
-      if (showToast) showToast(`บันทึกแต้ม ${pointsToAdd} แต้มสำเร็จ ✅`);
-      if (loadAllData) await loadAllData();
+  window._appXhrPost('/api/loyalty-points', newRecord, (success) => {
+    if (success) {
+      if (showToast) showToast(`บันทึกแต้ม ${pointsToAdd} แต้มสำหรับลูกค้า`, "success");
+      if (loadAllData) loadAllData();
     } else {
-      if (showToast) showToast("บันทึกแต้มล้มเหลว: " + (res?.error?.message || ""));
+      if (showToast) showToast("บันทึกแต้มล้มเหลว", "error");
     }
-  } catch(e) {
-    if (showToast) showToast("เกิดข้อผิดพลาด: " + e.message);
-  }
+  });
 }
 
 /**
  * Redeem points
  */
-export async function redeemPoints(customerId, points, note, ctx) {
+export function redeemPoints(customerId, points, note, ctx) {
   const { state, showToast, loadAllData, requireAdmin } = ctx;
   const settings = state.loyaltySettings || {};
 
@@ -130,17 +127,14 @@ export async function redeemPoints(customerId, points, note, ctx) {
     created_at: new Date().toISOString(),
   };
 
-  try {
-    const res = await window._appXhrPost('loyalty_points', newRecord);
-    if (res?.ok) {
-      if (showToast) showToast(`แลกแต้ม ${points} แต้มสำเร็จ ✅`);
-      if (loadAllData) await loadAllData();
+  window._appXhrPost('/api/loyalty-points', newRecord, (success) => {
+    if (success) {
+      if (showToast) showToast(`แลกแต้ม ${points} แต้ม สำเร็จ`, "success");
+      if (loadAllData) loadAllData();
     } else {
-      if (showToast) showToast("แลกแต้มล้มเหลว: " + (res?.error?.message || ""));
+      if (showToast) showToast("แลกแต้มล้มเหลว", "error");
     }
-  } catch(e) {
-    if (showToast) showToast("เกิดข้อผิดพลาด: " + e.message);
-  }
+  });
 }
 
 /**
@@ -375,7 +369,7 @@ function renderSummaryTab(loyaltyPoints, customers, settings, ctx) {
   return html;
 }
 
-async function renderSettingsTab(settings, ctx) {
+function renderSettingsTab(settings, ctx) {
   const { showToast, loadAllData } = ctx;
 
   return `
@@ -412,7 +406,7 @@ async function renderSettingsTab(settings, ctx) {
 
   // Will be handled after render
   setTimeout(() => {
-    document.getElementById('loyalty-save-settings')?.addEventListener('click', async function() {
+    document.getElementById('loyalty-save-settings')?.addEventListener('click', function() {
       const newSettings = {
         id: settings.id,
         points_per_baht: Number(document.getElementById('loyalty-points-per-baht').value),
@@ -422,27 +416,19 @@ async function renderSettingsTab(settings, ctx) {
         updated_at: new Date().toISOString(),
       };
 
-      try {
-        let res;
-        if (settings?.id) {
-          res = await window._appXhrPatch('loyalty_settings', newSettings, 'id', settings.id);
+      window._appXhrPatch(`/api/loyalty-settings/${settings.id}`, newSettings, (success) => {
+        if (success) {
+          if (showToast) showToast('บันทึกการตั้งค่าสำเร็จ', 'success');
+          if (loadAllData) loadAllData();
         } else {
-          res = await window._appXhrPost('loyalty_settings', newSettings);
+          if (showToast) showToast('บันทึกการตั้งค่าล้มเหลว', 'error');
         }
-        if (res?.ok) {
-          if (showToast) showToast('บันทึกการตั้งค่าแต้มสำเร็จ ✅');
-          if (loadAllData) await loadAllData();
-        } else {
-          if (showToast) showToast('บันทึกล้มเหลว: ' + (res?.error?.message || ''));
-        }
-      } catch(e) {
-        if (showToast) showToast('เกิดข้อผิดพลาด: ' + e.message);
-      }
+      });
     });
   }, 0);
 }
 
-async function renderManualTab(customers, ctx) {
+function renderManualTab(customers, ctx) {
   const { showToast, loadAllData } = ctx;
 
   const customerOptions = customers
@@ -487,7 +473,7 @@ async function renderManualTab(customers, ctx) {
   `;
 
   setTimeout(() => {
-    document.getElementById('loyalty-manual-submit')?.addEventListener('click', async function() {
+    document.getElementById('loyalty-manual-submit')?.addEventListener('click', function() {
       const customerId = document.getElementById('loyalty-manual-customer').value;
       const type = document.querySelector('input[name="loyalty-manual-type"]:checked').value;
       const points = Number(document.getElementById('loyalty-manual-points').value);
@@ -514,16 +500,17 @@ async function renderManualTab(customers, ctx) {
           created_at: new Date().toISOString(),
         };
 
-        const res = await window._appXhrPost('loyalty_points', newRecord);
-        if (res?.ok) {
-          if (showToast) showToast(`เพิ่มแต้ม ${points} แต้มสำเร็จ ✅`);
-          document.getElementById('loyalty-manual-customer').value = '';
-          document.getElementById('loyalty-manual-points').value = '0';
-          document.getElementById('loyalty-manual-note').value = '';
-          if (loadAllData) await loadAllData();
-        } else {
-          if (showToast) showToast('บันทึกล้มเหลว: ' + (res?.error?.message || ''));
-        }
+        window._appXhrPost('/api/loyalty-points', newRecord, (success) => {
+          if (success) {
+            if (showToast) showToast(`เพิ่มแต้ม ${points} แต้มสำเร็จ`, 'success');
+            document.getElementById('loyalty-manual-customer').value = '';
+            document.getElementById('loyalty-manual-points').value = '0';
+            document.getElementById('loyalty-manual-note').value = '';
+            if (loadAllData) loadAllData();
+          } else {
+            if (showToast) showToast('บันทึกล้มเหลว', 'error');
+          }
+        });
       } else {
         redeemPoints(customerId, points, note, ctx);
         document.getElementById('loyalty-manual-customer').value = '';

@@ -16,7 +16,7 @@
   <link rel="stylesheet" href="./phase4-components.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <!-- html2canvas โหลดแบบ lazy เฉพาะตอนกด Share/PDF ใน main.js เพื่อลด initial load ~350KB -->
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
@@ -89,7 +89,7 @@
           </div>
           <div class="stack">
             <label for="otpCode" class="sr-only">รหัส OTP</label>
-            <input class="form-input otp-code-input" id="otpCode" type="tel" placeholder="กรอกรหัส OTP 4 หลัก" maxlength="4" pattern="[0-9]{4}" autocomplete="one-time-code" aria-label="รหัส OTP 4 หลัก" />
+            <input class="form-input otp-code-input" id="otpCode" type="tel" placeholder="กรอกรหัส OTP 6 หลัก" maxlength="6" pattern="[0-9]{6}" autocomplete="one-time-code" aria-label="รหัส OTP 6 หลัก" />
           </div>
           <div class="row mt16">
             <button id="verifyOtpBtn" class="btn btn-primary btn-success-full">ยืนยัน OTP</button>

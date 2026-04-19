@@ -25,6 +25,7 @@ import { renderErrorCodesPage } from "./modules/error_codes.js";
 import { renderAiSalesPage } from "./modules/ai_sales.js";
 import { renderAcShopPage } from "./modules/ac_shop.js";
 import "./modules/doc-override.js";
+import { isValidPhone, isValidEmail, getUserFriendlyError, validateFile } from "./modules/validators.js";
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -168,10 +169,12 @@ function xhrDelete(table, eqCol, eqVal) {
 window._appXhrPost   = xhrPost;
 window._appXhrPatch  = xhrPatch;
 window._appXhrDelete = xhrDelete;
+// ★ Expose validators for modules
+window._appValidators = { isValidPhone, isValidEmail, getUserFriendlyError, validateFile };
 
 // ★ Get store logo — ใช้ได้จากทุก module ผ่าน window._appGetLogo()
 window._appGetLogo = function() {
-  return localStorage.getItem("bsk_store_logo") || "./logo.svg";
+  return localStorage.getItem("bsk_store_logo") || "./icons/logo.svg";
 };
 
 // ★ Sync logo จาก Supabase Storage → localStorage (เรียกตอน boot)
@@ -202,9 +205,21 @@ window._appSyncLogo = async function() {
   } catch(e) { /* offline — ใช้ localStorage cache */ }
 };
 
+// ★ Lazy loader สำหรับ html2canvas (~350KB) — โหลดเฉพาะตอนใช้งาน Share/PDF
+function _loadHtml2Canvas() {
+  return new Promise((resolve) => {
+    if (window.html2canvas) { resolve(true); return; }
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+    s.onload = () => resolve(true);
+    s.onerror = () => resolve(false);
+    document.head.appendChild(s);
+  });
+}
+
 // ★ Share document function — แชร์เป็น PDF เหมือน FlowAccount
 // ใช้ได้จากทุก module ผ่าน window._appShareDoc(elementId, docName)
-window._appShareDoc = function(docElementId, docName) {
+window._appShareDoc = async function(docElementId, docName) {
   document.getElementById("shareOverlay")?.remove();
   const overlay = document.createElement("div");
   overlay.id = "shareOverlay";
@@ -261,6 +276,9 @@ window._appShareDoc = function(docElementId, docName) {
   let _canvas = null, _pdfBlob = null, _pdfUrl = null;
   const docEl = document.getElementById(docElementId);
   const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && window.innerWidth < 1024);
+
+  // ★ Lazy load html2canvas ก่อนใช้
+  await _loadHtml2Canvas();
 
   // ── สร้าง PDF ขนาด A4 จริง (ไม่ใช้ responsive) ──
   if (docEl && window.html2canvas && window.jspdf) {
@@ -951,16 +969,27 @@ async function login(){
   if (error) { showToast(error.message || "เข้าสู่ระบบไม่สำเร็จ"); setText("authStatus", "เข้าสู่ระบบไม่สำเร็จ"); }
 }
 // ═══════════════════════════════════════════════════════════
-//  CUSTOMER OTP AUTH — สมัคร/ล็อกอินด้วยเบอร์โทร + OTP จำลอง
+//  CUSTOMER OTP AUTH — สมัคร/ล็อกอินด้วยเบอร์โทร + SMS OTP จริง (Twilio)
 // ═══════════════════════════════════════════════════════════
-let _pendingOtp = null; // { phone, code, name, expiresAt }
+let _pendingOtp = null; // { phone, name, hash, expiresAt, nonce, attempts }
 
-function generateOtp() {
-  return String(Math.floor(1000 + Math.random() * 9000)); // 4 หลัก
+// ★ สร้าง nonce สุ่ม 32 ตัวอักษร สำหรับผสมใน password (ป้องกันคาดเดา)
+function generateNonce() {
+  const arr = new Uint8Array(16);
+  crypto.getRandomValues(arr);
+  return Array.from(arr).map(b => b.toString(16).padStart(2,'0')).join('');
 }
 
 function formatPhone(p) {
   return String(p || "").replace(/\D/g, "").slice(0, 10);
+}
+
+// ★ กำหนด API base URL ตาม environment
+function getApiBase() {
+  const host = window.location.hostname;
+  if (host === "localhost" || host === "127.0.0.1") return ""; // local dev
+  // Cloudflare Pages — functions อยู่ที่ path เดียวกัน
+  return window.location.origin;
 }
 
 async function requestOtp() {
@@ -970,44 +999,85 @@ async function requestOtp() {
 
   const statusEl = $("otpStatus");
   statusEl?.classList.remove("hidden");
-  setText("otpStatus", "กำลังส่งรหัส OTP...");
+  setText("otpStatus", "กำลังส่งรหัส OTP ทาง SMS...");
 
-  // สร้าง OTP จำลอง
-  const code = generateOtp();
-  _pendingOtp = { phone, code, name, expiresAt: Date.now() + 5 * 60 * 1000 };
-
-  // ★ Production guard: ห้ามแสดง OTP ผ่าน alert ในโหมด production
-  if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
-    setTimeout(() => {
-      alert("📱 [DEV MODE] รหัส OTP: " + code + "\n(จำลอง — ระบบจริงจะส่ง SMS ไปเบอร์ " + phone + ")");
-    }, 300);
-  } else {
-    console.info("[OTP] รหัสถูกส่งไปยังเบอร์ " + phone + " แล้ว");
-  }
-
-  // บันทึก OTP ลง DB (ถ้ามีตาราง customer_otp)
   try {
-    await state.supabase.rpc("create_customer_otp", { p_phone: phone, p_code: code });
-  } catch(e) { console.warn("RPC create_customer_otp not available, using local OTP"); }
+    const res = await fetch(`${getApiBase()}/api/send-otp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone })
+    });
+    const data = await res.json();
 
-  // แสดง step 2
-  $("otpStep1")?.classList.add("hidden");
-  $("otpStep2")?.classList.remove("hidden");
-  setText("otpPhoneDisplay", phone.replace(/(\d{3})(\d{3})(\d{4})/, "$1-$2-$3"));
-  setText("otpStatus", "ส่ง OTP ไปเบอร์ " + phone + " แล้ว (จำลอง)");
-  $("otpCode")?.focus();
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error || "ส่ง SMS ไม่สำเร็จ");
+    }
+
+    const nonce = generateNonce();
+    _pendingOtp = {
+      phone,
+      name,
+      hash: data.hash,
+      expiresAt: data.expiresAt,
+      nonce,
+      attempts: 0
+    };
+
+    // แสดง step 2
+    $("otpStep1")?.classList.add("hidden");
+    $("otpStep2")?.classList.remove("hidden");
+    setText("otpPhoneDisplay", phone.replace(/(\d{3})(\d{3})(\d{4})/, "$1-$2-$3"));
+    // * แสดง OTP บนจอใน dev mode (เมื่อยังไม่ได้ตั้ง Twilio)
+    if (data.dev && data.devCode) {
+      setText("otpStatus", "[โหมดทดสอบ] รหัส OTP ของคุณคือ " + data.devCode + " (ตั้ง Twilio env vars บน Cloudflare เพื่อส่ง SMS จริง)");
+    } else {
+      setText("otpStatus", "ส่งรหัส OTP ไปเบอร์ " + phone + " แล้ว (ตรวจสอบ SMS)");
+    }
+    $("otpCode")?.focus();
+
+  } catch (e) {
+    console.error("[OTP] Send error:", e);
+    setText("otpStatus", "ส่ง SMS ไม่สำเร็จ: " + e.message);
+    showToast("ส่ง SMS ไม่สำเร็จ: " + e.message);
+  }
 }
 
 async function verifyOtp() {
   const code = $("otpCode")?.value.trim();
-  if (!code || code.length < 4) return showToast("กรุณากรอกรหัส OTP 4 หลัก");
+  if (!code || code.length < 6) return showToast("กรุณากรอกรหัส OTP 6 หลัก");
 
   if (!_pendingOtp) return showToast("กรุณาขอ OTP ใหม่");
   if (Date.now() > _pendingOtp.expiresAt) {
     _pendingOtp = null;
     return showToast("OTP หมดอายุ กรุณาขอใหม่");
   }
-  if (code !== _pendingOtp.code) return showToast("รหัส OTP ไม่ถูกต้อง");
+
+  // ★ Brute-force protection: จำกัด 5 ครั้งต่อ session
+  _pendingOtp.attempts = (_pendingOtp.attempts || 0) + 1;
+  if (_pendingOtp.attempts > 5) {
+    _pendingOtp = null;
+    return showToast("ลองผิดเกินกำหนด กรุณาขอ OTP ใหม่");
+  }
+
+  // ★ ตรวจสอบ OTP ผ่าน server (stateless HMAC)
+  try {
+    const verifyRes = await fetch(`${getApiBase()}/api/verify-otp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        phone: _pendingOtp.phone,
+        code,
+        hash: _pendingOtp.hash,
+        expiresAt: _pendingOtp.expiresAt
+      })
+    });
+    const verifyData = await verifyRes.json();
+    if (!verifyRes.ok || !verifyData.ok) {
+      return showToast(verifyData.error || "รหัส OTP ไม่ถูกต้อง");
+    }
+  } catch (e) {
+    return showToast("ตรวจสอบ OTP ไม่สำเร็จ: " + e.message);
+  }
 
   setText("otpStatus", "กำลังเข้าสู่ระบบ...");
 
@@ -1016,21 +1086,29 @@ async function verifyOtp() {
   const cfg = window.SUPABASE_CONFIG;
 
   try {
-    // ★ ใช้ email จำลองจากเบอร์โทร เช่น 0812345678@phone.boonsook.local
+    // ★ ใช้ nonce สุ่มผสมใน password — ป้องกันการ login โดยไม่ผ่าน OTP
     const fakeEmail = phone + "@phone.boonsook.local";
-    const fakePassword = "bsk_" + phone + "_otp";
+    const fakePassword = "bsk_" + _pendingOtp.nonce + "_" + phone.slice(-4);
 
-    // ลอง sign in ก่อน (ถ้าเคยสมัครแล้ว)
+    // ลอง sign in ก่อน
     let { error: loginErr } = await state.supabase.auth.signInWithPassword({ email: fakeEmail, password: fakePassword });
 
     if (loginErr) {
-      // ยังไม่มีบัญชี → สมัครใหม่
+      // อาจมีบัญชีอยู่แล้วแต่ password (nonce) เปลี่ยน → ลอง update password ก่อน login
+      // โดยสมัครใหม่ก่อน ถ้า email ซ้ำ Supabase จะ return error ซึ่งเราจะ updateUser แทน
       const displayName = name || ("ลูกค้า " + phone);
       const { data: authData, error: signUpErr } = await state.supabase.auth.signUp({
         email: fakeEmail,
         password: fakePassword,
         options: { data: { full_name: displayName, role: "customer", phone: phone } }
       });
+
+      if (signUpErr && signUpErr.message?.toLowerCase().includes("already registered")) {
+        // ★ มีบัญชีแล้ว → ใช้ admin API reset password (ต้องมี Service Role key ฝั่ง server)
+        // Fallback: แจ้งผู้ใช้ให้ติดต่อร้าน (safe ที่สุดในตอนนี้)
+        throw new Error("มีบัญชีอยู่แล้ว กรุณาติดต่อพนักงานเพื่อเข้าสู่ระบบ");
+      }
+
       if (signUpErr) throw new Error(signUpErr.message);
 
       const userId = authData?.user?.id;
@@ -1590,7 +1668,11 @@ async function saveServiceJob(){
     status:           $("serviceStatus").value,
     note:             $("serviceNote").value.trim()
   };
+  // ★ VALIDATE: ตรวจสอบข้อมูลก่อนส่ง
   if (!payload.customer_name || !payload.description) return showToast("กรอกข้อมูลงานช่างให้ครบ");
+  if (payload.customer_phone && !isValidPhone(payload.customer_phone)) {
+    return showToast("เบอร์โทรลูกค้าไม่ถูกต้อง (ต้องมี 10 หลักขึ้นไป)");
+  }
   let res;
   if (state.editingServiceJobId) {
     res = await xhrPatch("service_jobs", payload, "id", state.editingServiceJobId);
@@ -1668,16 +1750,26 @@ async function checkout(){
   if (!saleId) return showToast("ไม่สามารถดึง ID การขายได้");
 
   // Create sale items + deduct stock
-  // ★ คอลัมน์จริงในตาราง: id(auto), sale_id, product_name, qty, unit_price, line_total
+  // ★ คอลัมน์รองรับ (หลัง migration 2026-04-18): id, sale_id, product_id, product_name, qty, unit_price, unit_cost, line_total
+  // ถ้า DB ยังไม่ทำ migration → fallback ใช้ payload เก่าได้
   for (const item of state.cart) {
+    const prodRef = state.products.find(x => x.id === item.id);
     const itemPayload = {
       sale_id: saleId,
+      product_id: item.id || null,
       product_name: item.name || "สินค้า",
       qty: Number(item.qty) || 1,
       unit_price: Number(item.price) || 0,
+      unit_cost: Number(prodRef?.cost || 0),
       line_total: Number(item.qty || 1) * Number(item.price || 0)
     };
-    const itemRes = await xhrPost("sale_items", itemPayload);
+    let itemRes = await xhrPost("sale_items", itemPayload);
+    // Legacy fallback: ถ้า product_id / unit_cost ยังไม่มีใน DB ให้ลองใหม่โดยไม่ส่ง 2 ฟิลด์นี้
+    if (!itemRes.ok && /column|product_id|unit_cost/i.test(itemRes.error?.message || "")) {
+      const { product_id: _pid, unit_cost: _uc, ...legacy } = itemPayload;
+      console.warn("[SALE] sale_items legacy fallback (product_id/unit_cost missing in DB)");
+      itemRes = await xhrPost("sale_items", legacy);
+    }
     if (!itemRes.ok) {
       console.error("[SALE] sale_items insert failed:", itemRes.error);
       showToast("บันทึกรายการสินค้าไม่สำเร็จ: " + (itemRes.error?.message || "unknown"));

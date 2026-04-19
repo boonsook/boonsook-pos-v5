@@ -1,12 +1,12 @@
 // Boonsook POS V5 Service Worker
-const CACHE_NAME = 'boonsook-pos-v5-cache-v8';
-const OFFLINE_PAGE = './offline.html';
+// v10 (2026-04-18): bug fixes — integrate validators, unit_cost in sale_items, QR scanner stop
+const CACHE_NAME = 'boonsook-pos-v5-cache-v10';
+const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
 const PRECACHE_URLS = [
   './',
   './index.html',
-  './offline.html',   // ★ หน้า offline fallback
   './style.css',
   './main.js',
   './icons/logo.svg'

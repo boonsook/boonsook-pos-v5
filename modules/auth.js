@@ -51,13 +51,16 @@ export function setCurrentStaff(staff) {
 
 export function clearCurrentStaff() {
   const staff = getCurrentStaff();
-  // ปิด session ใน DB (fire-and-forget)
+  // ปิด session ใน DB (fire-and-forget แต่ log error)
   if (staff?.sessionId && window._supabase) {
     window._supabase
       .from('staff_sessions')
       .update({ logged_out_at: new Date().toISOString() })
       .eq('id', staff.sessionId)
-      .then(() => {});
+      .then(({ error }) => {
+        if (error) console.warn('[auth] session logout failed:', error.message);
+      })
+      .catch(err => console.warn('[auth] session logout error:', err.message));
   }
   localStorage.removeItem(STORAGE_KEY);
   _renderIndicator();
@@ -143,12 +146,17 @@ export function showStaffLogin() {
     // ดึงรายชื่อพนักงานที่ active
     let staffList = [];
     if (sb) {
-      const { data } = await sb
-        .from('staff')
-        .select('id, name, role')
-        .eq('is_active', true)
-        .order('name');
-      staffList = data || [];
+      try {
+        const { data, error } = await sb
+          .from('staff')
+          .select('id, name, role')
+          .eq('is_active', true)
+          .order('name');
+        if (error) console.error('[auth] load staff error:', error.message);
+        staffList = data || [];
+      } catch (err) {
+        console.error('[auth] load staff failed:', err.message);
+      }
     }
 
     // ลบ modal เก่า
@@ -229,6 +237,7 @@ export function showStaffLogin() {
     // ── State ────
     let selected = null;
     let pin = '';
+    let _verifying = false; // ★ ป้องกันกด PIN ซ้ำ
 
     // ── Helpers ──
     function showStaffList() {
@@ -260,31 +269,54 @@ export function showStaffLogin() {
     }
 
     async function verifyPin() {
-      if (!sb || !selected) return;
-      const { data } = await sb
-        .from('staff')
-        .select('id, name, role, phone')
-        .eq('id', selected.id)
-        .eq('pin', pin)
-        .eq('is_active', true)
-        .single();
+      if (!sb || !selected || _verifying) return;
+      _verifying = true; // ★ lock ป้องกันกดซ้ำ
 
-      if (data) {
-        // สร้าง session record
-        const { data: sess } = await sb
-          .from('staff_sessions')
-          .insert({ staff_id: data.id, device_info: navigator.userAgent.slice(0, 120) })
-          .select('id')
+      try {
+        const { data, error } = await sb
+          .from('staff')
+          .select('id, name, role, phone')
+          .eq('id', selected.id)
+          .eq('pin', pin)
+          .eq('is_active', true)
           .single();
 
-        const staffObj = { ...data, sessionId: sess?.id, logged_in_at: new Date().toISOString() };
-        setCurrentStaff(staffObj);
-        overlay.remove();
-        resolve(staffObj);
-      } else {
-        document.getElementById('__perr').style.display = 'block';
+        if (error) {
+          console.warn('[auth] PIN verify query error:', error.message);
+        }
+
+        if (data) {
+          // สร้าง session record
+          let sessId = null;
+          try {
+            const deviceInfo = (typeof navigator !== 'undefined' && navigator.userAgent)
+              ? navigator.userAgent.slice(0, 120) : 'unknown';
+            const { data: sess, error: sessErr } = await sb
+              .from('staff_sessions')
+              .insert({ staff_id: data.id, device_info: deviceInfo })
+              .select('id')
+              .single();
+            if (sessErr) console.warn('[auth] session insert error:', sessErr.message);
+            sessId = sess?.id || null;
+          } catch (sessError) {
+            console.warn('[auth] session create failed:', sessError.message);
+          }
+
+          const staffObj = { ...data, sessionId: sessId, logged_in_at: new Date().toISOString() };
+          setCurrentStaff(staffObj);
+          overlay.remove();
+          resolve(staffObj);
+        } else {
+          document.getElementById('__perr').style.display = 'block';
+          pin = '';
+          updateDots();
+        }
+      } catch (err) {
+        console.error('[auth] verifyPin error:', err.message);
         pin = '';
         updateDots();
+      } finally {
+        _verifying = false; // ★ unlock
       }
     }
 
@@ -301,6 +333,7 @@ export function showStaffLogin() {
       btn.addEventListener('mouseenter', () => btn.style.background = '#e8f0fe');
       btn.addEventListener('mouseleave', () => btn.style.background = '#fafafa');
       btn.addEventListener('click', async () => {
+        if (_verifying) return; // ★ ป้องกันกดขณะกำลัง verify
         const k = btn.dataset.k;
         if (k === '⌫') {
           pin = pin.slice(0, -1);

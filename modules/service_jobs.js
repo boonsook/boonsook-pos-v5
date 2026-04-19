@@ -139,7 +139,7 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
 
   /* ── Edit job ── */
   document.querySelectorAll("[data-job-id]").forEach(btn => btn.addEventListener("click", () => {
-    const item = state.serviceJobs.find(x => x.id === Number(btn.dataset.jobId));
+    const item = (state.serviceJobs || []).find(x => x.id === Number(btn.dataset.jobId));
     openServiceJobDrawer(item);
   }));
 
@@ -147,6 +147,8 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
   document.querySelectorAll("[data-del-job]").forEach(btn => btn.addEventListener("click", async (e) => {
     e.stopPropagation();
     const jobId = Number(btn.dataset.delJob);
+    // ★ FIX: ป้องกัน NaN
+    if (!jobId || isNaN(jobId)) { alert("ไม่พบ ID งาน"); return; }
     const jobName = btn.dataset.delName || "";
     if (!confirm(`ลบใบรับงาน "${escHtml(jobName.trim())}" ?`)) return;
 
@@ -174,11 +176,15 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
         }
       }
 
-      // ★ วิธีที่ 2: XHR PATCH
-      if (!success) {
-        const res = await window._appXhrPatch("service_jobs", updatePayload, "id", jobId);
-        if (res?.ok) success = true;
-        else console.warn("XHR PATCH failed:", res?.error?.message);
+      // ★ วิธีที่ 2: XHR PATCH (FIX: เช็คว่า function มีอยู่ก่อนเรียก)
+      if (!success && typeof window._appXhrPatch === 'function') {
+        try {
+          const res = await window._appXhrPatch("service_jobs", updatePayload, "id", jobId);
+          if (res?.ok) success = true;
+          else console.warn("XHR PATCH failed:", res?.error?.message);
+        } catch (patchErr) {
+          console.warn("XHR PATCH error:", patchErr.message);
+        }
       }
 
       // หมายเหตุ: RPC soft_delete_service_job ไม่มีใน DB — ข้ามไป

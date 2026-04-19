@@ -1,6 +1,7 @@
 // ═══════════════════════════════════════════════════════════
 //  CUSTOMER DASHBOARD — หน้าหลักลูกค้า: ร้านค้าออนไลน์ + ตะกร้า + ประวัติ + แต้ม
 // ═══════════════════════════════════════════════════════════
+import { isValidPhone, getUserFriendlyError, validateFile } from "./validators.js";
 
 let _custCart = JSON.parse(localStorage.getItem("bsk_cust_cart") || "[]");
 let _custTab = "shop"; // shop | cart | orders | points
@@ -707,8 +708,9 @@ export function renderCustomerDashboard(ctx) {
     fileInput.addEventListener("change", (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (!file.type.startsWith("image/")) return showToast("กรุณาเลือกไฟล์รูปภาพ");
-    if (file.size > 10 * 1024 * 1024) return showToast("ไฟล์ใหญ่เกิน 10MB");
+    // ★ ใช้ validateFile() helper — ครอบคลุม type + size + extension
+    const _fv = validateFile(file, { maxSize: 10 * 1024 * 1024, allowedTypes: ["image/jpeg", "image/png", "image/webp", "image/gif"] });
+    if (!_fv.ok) return showToast(_fv.error || "ไฟล์ไม่ถูกต้อง");
 
     const statusEl = container.querySelector("#custSlipStatus");
     if (statusEl) statusEl.innerHTML = '<span style="color:#0284c7">กำลังอ่านไฟล์...</span>';
@@ -845,6 +847,13 @@ export function renderCustomerDashboard(ctx) {
       // ★ Validate payload ก่อนส่ง — ป้องกัน 400 error
       if (!jobPayload.job_no || !jobPayload.customer_name || !jobPayload.customer_phone) {
         throw new Error("ข้อมูลไม่ครบ กรุณากรอกชื่อ เบอร์โทร และที่อยู่");
+      }
+      // ★ ตรวจฟอร์แมตเบอร์โทร + ที่อยู่
+      if (!isValidPhone(jobPayload.customer_phone)) {
+        throw new Error("เบอร์โทรไม่ถูกต้อง (ต้องมี 10 หลักขึ้นไป)");
+      }
+      if (jobPayload.customer_address && String(jobPayload.customer_address).trim().length < 10) {
+        throw new Error("ที่อยู่สั้นเกินไป กรุณากรอกรายละเอียดที่อยู่ให้ครบ (อย่างน้อย 10 ตัวอักษร)");
       }
       if (typeof jobPayload.total_cost !== 'number' || jobPayload.total_cost <= 0) {
         jobPayload.total_cost = Number(jobPayload.total_cost) || 0;

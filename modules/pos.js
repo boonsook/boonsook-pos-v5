@@ -2,8 +2,12 @@
 function money(n){return new Intl.NumberFormat("th-TH",{style:"currency",currency:"THB",minimumFractionDigits:2}).format(Number(n||0));}
 function moneyNum(n){return new Intl.NumberFormat("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(n||0));}
 
-// ★ XHR helper (ป้องกัน supabase .insert() ค้าง)
+// ★ XHR helper — delegate to window._appXhrPost when available
 function xhrPostPOS(table, payload, returnData = false) {
+  // ★ FIX: delegate to global helper ที่ใช้ร่วมกัน (main.js) ถ้ามี
+  if (typeof window._appXhrPost === "function") {
+    return window._appXhrPost(table, payload, { returnData });
+  }
   const cfg = window.SUPABASE_CONFIG;
   const token = window._sbAccessToken || cfg.anonKey;
   return new Promise((resolve) => {
@@ -464,6 +468,20 @@ function renderPosView(ctx) {
       if (!file) return;
       // Note: Change event doesn't use signal because it's on input element
 
+      // ★ FIX: Validate file type + size ก่อนอัปโหลด
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+      const maxSizeMB = 10;
+      if (file.type && !allowedTypes.includes(file.type)) {
+        window.App?.showToast?.("รองรับเฉพาะไฟล์รูปภาพ (JPG, PNG, WebP)");
+        e.target.value = '';
+        return;
+      }
+      if (file.size > maxSizeMB * 1024 * 1024) {
+        window.App?.showToast?.(`ไฟล์ใหญ่เกิน ${maxSizeMB}MB กรุณาเลือกใหม่`);
+        e.target.value = '';
+        return;
+      }
+
       // ★ บีบอัดรูปก่อนอัปโหลด
       if (window._compressImage) file = await window._compressImage(file);
 
@@ -541,12 +559,22 @@ function renderPosView(ctx) {
     galleryInput?.addEventListener("change", handleProofFile);
 
     // ─── เสร็จสิ้น (พร้อมสลิป) ───
-    document.getElementById("posConfirmWithProof")?.addEventListener("click", () => {
+    document.getElementById("posConfirmWithProof")?.addEventListener("click", (e) => {
+      const btn = e.currentTarget;
+      if (btn.disabled || window._checkoutRunning) return;
+      btn.disabled = true;
+      btn.textContent = "⏳ กำลังบันทึก...";
+      window._checkoutRunning = true;
       doCheckout(ctx, selectedPaymentMethod, pendingPaidAmount || amount);
     }, { signal });
 
     // ─── ข้าม ไม่แนบสลิป ───
-    document.getElementById("posConfirmNoProof")?.addEventListener("click", () => {
+    document.getElementById("posConfirmNoProof")?.addEventListener("click", (e) => {
+      const btn = e.currentTarget;
+      if (btn.disabled || window._checkoutRunning) return;
+      btn.disabled = true;
+      btn.textContent = "⏳ กำลังบันทึก...";
+      window._checkoutRunning = true;
       window._pendingProofUrl = "";
       doCheckout(ctx, selectedPaymentMethod, pendingPaidAmount || amount);
     }, { signal });
@@ -754,6 +782,10 @@ function updateCollectBtn() {
 //  CHECKOUT — บันทึกการขาย
 // ═══════════════════════════════════════════════════════════
 async function doCheckout(ctx, paymentMethod, paidAmount) {
+  // ★ ป้องกันกดซ้ำ
+  if (window._checkoutRunning) return;
+  window._checkoutRunning = true;
+
   const { state, openReceiptDrawer } = ctx;
   const amount = quickPayAmount || state.cart.reduce((s,i)=>s+i.qty*i.price,0);
 
@@ -773,62 +805,97 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
       discount_value: 0,
       discount_amount: 0,
       note: proofUrl && proofUrl.startsWith("http") ? "สลิป: " + proofUrl : "",
-      proof_url: proofUrl && proofUrl.startsWith("http") ? proofUrl : null,
       created_by: state.currentUser?.id || null
     };
 
-    // ★ ใช้ XHR แทน supabase .insert() ที่ค้าง
-    const cfg = window.SUPABASE_CONFIG;
-    const token = window._sbAccessToken || cfg.anonKey;
     console.log("[POS] salePayload:", JSON.stringify(salePayload));
     const saleRes = await xhrPostPOS("sales", salePayload, true);
-    if (!saleRes.ok) { alert("Sales ERROR: " + (saleRes.error || "unknown")); window.App?.showToast?.(saleRes.error || "บันทึกไม่สำเร็จ"); return; }
+    if (!saleRes.ok) {
+      alert("Sales ERROR: " + (saleRes.error || "unknown"));
+      window.App?.showToast?.(saleRes.error || "บันทึกไม่สำเร็จ");
+      window._checkoutRunning = false;
+      return;
+    }
 
     const saleId = saleRes.data?.id;
-    if (!saleId) { window.App?.showToast?.("ไม่สามารถดึง ID การขายได้"); return; }
+    if (!saleId) {
+      alert("ไม่สามารถดึง ID การขายได้");
+      window._checkoutRunning = false;
+      return;
+    }
 
-    // ถ้ามีสินค้าในตะกร้า → บันทึก sale_items + ลดสต๊อก
-    // ★ คอลัมน์จริงในตาราง: id(auto), sale_id, product_name, qty, unit_price, line_total
+    // ถ้ามีสินค้าในตะกร้า → บันทึก sale_items
     if (state.cart.length > 0) {
       for (const item of state.cart) {
+        const prodRef = state.products.find(x => x.id === item.id);
         const itemPayload = {
           sale_id: saleId,
+          product_id: item.id || null,
           product_name: item.name || "สินค้า",
           qty: Number(item.qty) || 1,
           unit_price: Number(item.price) || 0,
+          unit_cost: Number(prodRef?.cost || 0),
           line_total: Number(item.qty || 1) * Number(item.price || 0)
         };
-        const itemRes = await xhrPostPOS("sale_items", itemPayload);
-        if (!itemRes.ok) {
-          console.error("[POS] sale_items insert failed:", itemRes.error);
-          alert("sale_items ERROR: " + (itemRes.error || "unknown"));
-          window.App?.showToast?.("บันทึกรายการสินค้าไม่สำเร็จ: " + (itemRes.error || "unknown"));
+        let itemRes = await xhrPostPOS("sale_items", itemPayload);
+        // Legacy fallback: ถ้า product_id/unit_cost ยังไม่มีใน DB → retry โดยไม่ส่ง
+        if (!itemRes.ok && /column|product_id|unit_cost/i.test(itemRes.error || "")) {
+          const { product_id: _pid, unit_cost: _uc, ...legacy } = itemPayload;
+          console.warn("[POS] sale_items legacy fallback");
+          itemRes = await xhrPostPOS("sale_items", legacy);
         }
-        // หมายเหตุ: deduct_stock RPC ยังไม่มีใน DB — ข้ามไปก่อน
+        if (!itemRes.ok) {
+          console.error("[POS] sale_items failed:", itemRes.error);
+        }
       }
     }
 
-    // โหลดใบเสร็จ
-    const saleResult = await state.supabase.from("sales").select("*").eq("id", saleId).single();
-    const itemsResult = await state.supabase.from("sale_items").select("*").eq("sale_id", saleId).order("id",{ascending:true});
-    if (!saleResult.error && !itemsResult.error) {
-      state.lastReceipt = { ...saleResult.data, items: itemsResult.data || [] };
-      localStorage.setItem("bsk_last_receipt", JSON.stringify(state.lastReceipt));
+    // โหลดใบเสร็จ (ใช้ fetch + timeout ไม่ใช้ Supabase JS ที่ค้างบนมือถือ)
+    try {
+      const cfg2 = window.SUPABASE_CONFIG;
+      const tk = window._sbAccessToken || cfg2.anonKey;
+      const hdrs = { "apikey": cfg2.anonKey, "Authorization": "Bearer " + tk };
+      const ctrl = new AbortController();
+      const tmr = setTimeout(() => ctrl.abort(), 5000); // 5 วินาที timeout
+
+      const [saleRes2, itemsRes2] = await Promise.all([
+        fetch(cfg2.url + "/rest/v1/sales?id=eq." + saleId + "&select=*", { headers: hdrs, signal: ctrl.signal }).then(r => r.json()).catch(() => []),
+        fetch(cfg2.url + "/rest/v1/sale_items?sale_id=eq." + saleId + "&select=*&order=id.asc", { headers: hdrs, signal: ctrl.signal }).then(r => r.json()).catch(() => [])
+      ]);
+      clearTimeout(tmr);
+
+      const saleData = Array.isArray(saleRes2) ? saleRes2[0] : saleRes2;
+      const itemsData = Array.isArray(itemsRes2) ? itemsRes2 : [];
+      if (saleData) {
+        state.lastReceipt = { ...saleData, items: itemsData };
+        localStorage.setItem("bsk_last_receipt", JSON.stringify(state.lastReceipt));
+      }
+    } catch (receiptErr) {
+      console.warn("[POS] receipt fetch failed:", receiptErr.message);
     }
 
+    // ★ เคลียร์ + กลับหน้า home เสมอ
     state.cart = [];
     localStorage.setItem("bsk_cart_v2", JSON.stringify(state.cart));
     numpadValue = "";
     quickPayAmount = 0;
     posView = "home";
 
-    window.App?.showToast?.("บันทึกการขายเรียบร้อย");
-    openReceiptDrawer();
-    if (window.App?.loadAllData) await window.App.loadAllData();
+    window.App?.showToast?.("บันทึกการขายเรียบร้อย ✅");
+    try { openReceiptDrawer(); } catch (e) { console.warn("openReceiptDrawer error:", e); }
+    try { if (window.App?.loadAllData) await window.App.loadAllData(); } catch (e) {}
 
   } catch (err) {
     alert("doCheckout ERROR: " + (err.message || err));
     window.App?.showToast?.("เกิดข้อผิดพลาด: " + (err.message || err));
+  } finally {
+    // ★ reset guard + UI buttons เสมอ
+    window._checkoutRunning = false;
+    // Reset ปุ่มที่ถูก disable ไว้
+    const confirmBtn = document.getElementById("posConfirmWithProof");
+    const noProofBtn = document.getElementById("posConfirmNoProof");
+    if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = "เสร็จสิ้น"; }
+    if (noProofBtn) { noProofBtn.disabled = false; noProofBtn.textContent = "ข้าม ไม่แนบสลิป → เสร็จสิ้น"; }
   }
 }
 
@@ -903,11 +970,16 @@ function initScanner(ctx) {
 function stopScanner() {
   if (scannerInstance) {
     try {
-      if (scannerInstance && scannerInstance.isScanning) {
-        scannerInstance.stop().catch(() => {});
+      // ★ FIX: Html5Qrcode ใช้ getState() แทน isScanning
+      const state = typeof scannerInstance.getState === 'function'
+        ? scannerInstance.getState() : null;
+      // state: 1 = NOT_STARTED, 2 = SCANNING, 3 = PAUSED
+      if (state === 2 || state === 3) {
+        scannerInstance.stop().catch(e =>
+          console.warn("QR Scanner stop (safe to ignore):", e.message || e));
       }
     } catch (e) {
-      console.warn("QR Scanner stop (safe to ignore):", e.message);
+      console.warn("QR Scanner stop error:", e.message);
     }
     try {
       scannerInstance.clear().catch(() => {});
@@ -929,7 +1001,7 @@ function handleScanResult(code, ctx) {
     if (resultEl) resultEl.innerHTML = `<div class="badge ok" style="font-size:14px;padding:8px 16px">เพิ่ม "${product.name}" แล้ว</div>`;
     window.App?.showToast?.(`เพิ่ม ${product.name} ลงบิล`);
   } else {
-    if (resultEl) resultEl.innerHTML = `<div class="badge low" style="font-size:14px;padding:8px 16px">ไม่พบสินค้า: ${code}</div>`;
+    if (resultEl) resultEl.innerHTML = `<div class="badge low" style="font-size:14px;padding:8px 16px">ไม่พบสินค้า: ${String(code).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}</div>`;
     window.App?.showToast?.("ไม่พบสินค้าที่ตรงกับบาร์โค้ดนี้");
   }
 }
