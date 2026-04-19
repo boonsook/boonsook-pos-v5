@@ -308,60 +308,93 @@
     }
   }
 
+  // Map หมวดบริการ AI (9 แบบ) → value ใน <select id="serviceType"> (ac/solar/cctv)
+  function mapJobTypeToServiceType(jobType) {
+    if (!jobType) return null;
+    const t = String(jobType);
+    if (/แอร์|ตู้เย็น|ซักผ้า|ทีวี/.test(t)) return "ac";
+    if (/cctv|กล้อง|จาน|ดาวเทียม/i.test(t)) return "cctv";
+    if (/โซลาร์|solar/i.test(t)) return "solar";
+    return "ac";
+  }
+
   // ---------- APPLY TO FORM ----------
-  function applyToForm(result) {
+  function tryFill(result) {
     let filled = 0;
 
-    // job_type → select
-    const jobTypeEl =
+    const typeEl =
+      document.getElementById("serviceType") ||
       document.querySelector('select[name="job_type"]') ||
-      document.getElementById("jobType") ||
-      document.getElementById("job_type");
-    if (jobTypeEl && result.job_type) {
-      // หา option ที่ text หรือ value ตรงกัน
-      const opts = Array.from(jobTypeEl.options || []);
+      document.getElementById("jobType");
+    if (typeEl && result.job_type) {
+      const mapped = mapJobTypeToServiceType(result.job_type);
+      const opts = Array.from(typeEl.options || []);
       const match = opts.find(
         (o) =>
+          o.value === mapped ||
           o.value === result.job_type ||
           o.textContent.trim() === result.job_type ||
           o.textContent.includes(result.job_type)
       );
       if (match) {
-        jobTypeEl.value = match.value;
-        jobTypeEl.dispatchEvent(new Event("change", { bubbles: true }));
+        typeEl.value = match.value;
+        typeEl.dispatchEvent(new Event("change", { bubbles: true }));
         filled++;
       }
     }
 
-    // sub_service → input
-    const subEl =
+    const titleEl =
+      document.getElementById("serviceTitle") ||
       document.querySelector('input[name="sub_service"]') ||
-      document.getElementById("subService") ||
-      document.getElementById("sub_service");
-    if (subEl && result.sub_service) {
-      subEl.value = result.sub_service;
-      subEl.dispatchEvent(new Event("input", { bubbles: true }));
-      filled++;
+      document.getElementById("subService");
+    if (titleEl) {
+      const val = result.sub_service || result.job_type || "";
+      if (val) {
+        titleEl.value = val;
+        titleEl.dispatchEvent(new Event("input", { bubbles: true }));
+        filled++;
+      }
     }
 
-    // description → textarea
-    const descEl =
+    const noteEl =
+      document.getElementById("serviceNote") ||
       document.querySelector('textarea[name="description"]') ||
-      document.getElementById("description") ||
-      document.getElementById("jobDescription");
-    if (descEl && result.description) {
-      descEl.value = result.description;
-      descEl.dispatchEvent(new Event("input", { bubbles: true }));
+      document.getElementById("description");
+    if (noteEl && result.description) {
+      noteEl.value = result.description;
+      noteEl.dispatchEvent(new Event("input", { bubbles: true }));
       filled++;
     }
 
+    return filled;
+  }
+
+  function applyToForm(result) {
+    let filled = tryFill(result);
+
+    if (filled === 0) {
+      const navBtn = document.querySelector('[data-route="service_request"]');
+      if (navBtn) {
+        pushMsg("ai", "กำลังพาไปหน้าแจ้งซ่อมให้ครับ...");
+        navBtn.click();
+        setTimeout(() => {
+          filled = tryFill(result);
+          finishFill(filled);
+        }, 600);
+        return;
+      }
+    }
+    finishFill(filled);
+  }
+
+  function finishFill(filled) {
     if (filled > 0) {
       pushMsg("ai", `✓ กรอกแบบฟอร์มให้แล้ว ${filled} ช่อง กรุณาตรวจสอบและกด "บันทึก" ได้เลยครับ`);
       setTimeout(() => close(), 1500);
     } else {
       pushMsg(
         "ai",
-        "ไม่พบช่องที่ตรงในหน้านี้ครับ กรุณา copy ข้อมูลจากสรุปด้านบนไปกรอกเองนะครับ"
+        'ไม่พบช่องที่ตรงในหน้านี้ครับ กรุณาเปิดหน้า "แจ้งซ่อม/บริการ" ก่อน แล้วกดปุ่ม AI อีกครั้งนะครับ'
       );
     }
   }
