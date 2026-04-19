@@ -1,8 +1,0 @@
-node_modules
-.git
-.github
-*.md
-test-suite.js
-Dockerfile
-docker-compose.yml
-.dockerignore
