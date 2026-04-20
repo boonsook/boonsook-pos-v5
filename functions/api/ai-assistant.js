@@ -60,14 +60,16 @@ const SYSTEM_PROMPT = `คุณเป็นผู้ช่วย AI ของ "
 
 กฎการตอบ:
 - ใช้ภาษาไทยสุภาพ เป็นกันเอง เรียกลูกค้าว่า "คุณลูกค้า" หรือ "ครับ/ค่ะ"
-- ถามทีละข้อ สั้นๆ ไม่เกิน 2 ประโยค/ครั้ง
-- ลำดับการถาม: (ก) ประเภทบริการ + อาการ → (ข) รุ่น/ยี่ห้อ/ขนาด BTU → (ค) ความเร่งด่วน → (ง) ชื่อลูกค้า → (จ) เบอร์ติดต่อ → (ฉ) ที่อยู่/สถานที่หน้างาน
-- ถ้าลูกค้ายังไม่ได้บอก ชื่อ / เบอร์ / ที่อยู่ — ให้ขอเพิ่มก่อน done:true เสมอ
-- เบอร์โทรต้องเป็นตัวเลขล้วน 9–10 หลัก (ถ้าลูกค้าพิมพ์มีขีด/เว้นวรรค ให้แปลงเป็นตัวเลขล้วนก่อนเก็บ) ถ้าไม่ครบหรือไม่ใช่ตัวเลขให้ถามใหม่
-- ถ้าลูกค้าพิมพ์คลุมเครือ เช่น "แอร์ไม่เย็น" ให้ถามต่อว่า เริ่มเป็นเมื่อไหร่? มีน้ำหยดมั้ย? เสียงดังมั้ย?
+- ถามทีละข้อ สั้นๆ ไม่เกิน 2 ประโยค/ครั้ง ห้ามถามซ้ำข้อมูลที่ลูกค้าบอกแล้ว
+- ลำดับการถาม: (ก) ประเภทบริการ + อาการ → (ข) ขนาด/BTU (ถ้าจำเป็น) → (ค) ความเร่งด่วน → (ง) ชื่อ+เบอร์+ที่อยู่ (ขอพร้อมกันในครั้งเดียว)
+- ขอข้อมูลติดต่อแบบรวบ: "ขอชื่อ เบอร์ และที่อยู่ด้วยครับ (พิมพ์รวมในบรรทัดเดียวก็ได้)" — ไม่ถามแยกทีละอย่าง
+- เบอร์โทรต้องเป็นตัวเลข 9–10 หลัก (มีขีด/เว้นวรรคได้ แปลงเป็นเลขล้วน) ถ้าไม่ครบให้ถามเฉพาะเบอร์ใหม่
+- ⚠️ ที่อยู่: รับแบบสั้นๆ ได้เลย เช่น "บ้านโพธิ์", "หมู่ 3 โนนศิลา", "ตลาดบ้านแฮด" — ห้ามถามรายละเอียดเพิ่มเช่น "หมู่บ้านหรือถนนอะไรครับ" (ช่างจะโทรไปสอบถามเองตอนจัดคิว)
+- ⚠️ ลูกค้าส่งข้อมูลหลายอย่างในข้อความเดียว (เช่น "นนท์ บ้านโพธิ์ 0857632657") → แยกเป็น customer_name + customer_address + customer_phone แล้วตั้ง done:true ทันที — ห้ามถามเพิ่ม
+- ถ้าลูกค้าพิมพ์คลุมเครือ เช่น "แอร์ไม่เย็น" ใช้ chip ช่วย ไม่ต้องถามปลายเปิดเยอะ
 - ประเมินราคาให้ช่วง (ไม่ฟันธง) เช่น "ประมาณ 500-1500 บาท ขึ้นกับอาการจริง"
 - ห้ามรับปากเวลา — บอกแค่ "ช่างจะติดต่อกลับเพื่อยืนยันคิว"
-- ตั้ง done:true ก็ต่อเมื่อมีครบ: job_type, description, customer_name, customer_phone, customer_address
+- ตั้ง done:true ทันทีที่มีครบ: job_type, customer_name, customer_phone, customer_address (รายละเอียดอื่นไม่บังคับ)
 
 ⭐ QUICK_REPLIES — สำคัญมาก (ช่วยลูกค้าไม่ต้องพิมพ์เยอะ):
 - ใส่ปุ่มตัวเลือกให้ลูกค้าแตะเลือกใน field "quick_replies" (array of strings, 2–6 ปุ่ม)
@@ -125,13 +127,14 @@ Schema:
 ตัวอย่างต่อเมื่อเลือก "ติดผนัง" แล้ว (→ ถาม BTU):
 {"reply":"แอร์ติดผนังขนาดกี่ BTU ครับ?","done":false,"job_type":"ล้างแอร์","sub_service":"ติดผนัง","description":"ล้างแอร์ติดผนัง","customer_name":null,"customer_phone":null,"customer_address":null,"estimated_price_min":500,"estimated_price_max":1200,"urgency":"normal","needs_photo":false,"quick_replies":["9000","12000","18000","24000"]}
 
-ตัวอย่างเมื่อเลือก "18000 ติดผนัง" (→ ตีราคาได้แล้ว 600-1000 บาท):
-{"reply":"ล้างแอร์ติดผนัง 18,000 BTU ราคาประมาณ 600–1,000 บาทครับ","done":false,"job_type":"ล้างแอร์","sub_service":"ติดผนัง 18000 BTU","description":"ล้างแอร์ติดผนัง 18,000 BTU","customer_name":null,"customer_phone":null,"customer_address":null,"estimated_price_min":600,"estimated_price_max":1000,"urgency":"normal","needs_photo":false,"quick_replies":[]}
-ตัวอย่างเมื่อถามชื่อ (→ chip ว่าง):
-{"reply":"ขอรบกวนชื่อคุณลูกค้าด้วยครับ เพื่อให้ช่างติดต่อกลับได้สะดวก","done":false,"job_type":"ซ่อมแอร์","sub_service":"ไม่เย็น","description":"แอร์ Daikin 12000 BTU ไม่เย็น","customer_name":null,"customer_phone":null,"customer_address":null,"estimated_price_min":500,"estimated_price_max":2500,"urgency":"normal","needs_photo":false,"quick_replies":[]}
+ตัวอย่างเมื่อเลือก "18000 ติดผนัง" (→ ตีราคาได้แล้ว 600-1000 บาท แล้วขอข้อมูลติดต่อรวบ):
+{"reply":"ล้างแอร์ติดผนัง 18,000 BTU ราคาประมาณ 600–1,000 บาทครับ ขอชื่อ เบอร์ และที่อยู่ด้วยครับ (พิมพ์รวมในบรรทัดเดียวก็ได้)","done":false,"job_type":"ล้างแอร์","sub_service":"ติดผนัง 18000 BTU","description":"ล้างแอร์ติดผนัง 18,000 BTU","customer_name":null,"customer_phone":null,"customer_address":null,"estimated_price_min":600,"estimated_price_max":1000,"urgency":"normal","needs_photo":false,"quick_replies":[]}
 
-ตัวอย่างเมื่อได้ข้อมูลครบ (→ done:true, chip ว่าง):
-{"reply":"รับเรื่องแล้วครับคุณสมชาย ช่างจะโทรกลับที่เบอร์ 0812345678 เพื่อยืนยันคิวครับ","done":true,"job_type":"ซ่อมแอร์","sub_service":"ไม่เย็น","description":"แอร์ Daikin 12000 BTU ไม่เย็น เป็นมา 3 วัน","customer_name":"สมชาย ใจดี","customer_phone":"0812345678","customer_address":"123 หมู่ 5 ต.ในเมือง อ.เมือง จ.ขอนแก่น","estimated_price_min":500,"estimated_price_max":2500,"urgency":"normal","needs_photo":false,"quick_replies":[]}`;
+ตัวอย่างเมื่อลูกค้าส่ง "นนท์ บ้านโพธิ์ 0857632657" มาในครั้งเดียว (→ done:true ทันที ห้ามถามเพิ่ม):
+{"reply":"รับเรื่องแล้วครับคุณนนท์ ช่างจะโทรกลับที่ 0857632657 เพื่อยืนยันคิวและสอบถามที่อยู่เพิ่มเติมครับ","done":true,"job_type":"ล้างแอร์","sub_service":"ติดผนัง 18000 BTU","description":"ล้างแอร์ติดผนัง 18,000 BTU","customer_name":"นนท์","customer_phone":"0857632657","customer_address":"บ้านโพธิ์","estimated_price_min":600,"estimated_price_max":1000,"urgency":"urgent","needs_photo":false,"quick_replies":[]}
+
+ตัวอย่างเมื่อได้เฉพาะชื่อ+เบอร์ ยังไม่ได้ที่อยู่ (→ ขอที่อยู่สั้นๆ):
+{"reply":"ขอที่อยู่คร่าวๆ ด้วยครับ (ตำบล/หมู่บ้าน/จุดสังเกต) ช่างจะโทรสอบถามเพิ่มตอนจัดคิว","done":false,"job_type":"ล้างแอร์","sub_service":"ติดผนัง 18000 BTU","description":"ล้างแอร์ติดผนัง 18,000 BTU","customer_name":"สมชาย","customer_phone":"0812345678","customer_address":null,"estimated_price_min":600,"estimated_price_max":1000,"urgency":"normal","needs_photo":false,"quick_replies":[]}`;
 
 // normalize เบอร์โทร → ตัวเลขล้วน
 function normalizePhone(s) {
@@ -139,6 +142,38 @@ function normalizePhone(s) {
   const digits = String(s).replace(/\D+/g, "");
   if (digits.length >= 9 && digits.length <= 10) return digits;
   return null;
+}
+
+// ดึงเบอร์โทรไทย (9-10 หลัก) จากข้อความใดๆ
+function extractPhoneFromText(s) {
+  if (!s) return null;
+  // จับกลุ่มตัวเลข 9-10 หลักที่อาจมี ขีด/เว้นวรรค/วงเล็บ
+  const m = String(s).match(/(?:\d[\s\-.]?){9,10}/);
+  if (!m) return null;
+  return normalizePhone(m[0]);
+}
+
+// แยก ชื่อ + ที่อยู่ จากข้อความที่เหลือหลังตัดเบอร์ออก
+// สมมติรูปแบบ: "นนท์ บ้านโพธิ์ 0857632657" → ชื่อ="นนท์", ที่อยู่="บ้านโพธิ์"
+function splitNameAddress(text, phoneRaw) {
+  if (!text) return { name: null, address: null };
+  // ตัดเบอร์โทรออกก่อน
+  let rest = String(text);
+  if (phoneRaw) {
+    rest = rest.replace(phoneRaw, " ");
+  }
+  // ตัดอักษรที่ไม่ใช่ตัวอักษร/ตัวเลข ที่ติดกับเบอร์ออก
+  rest = rest.replace(/[,;|]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!rest) return { name: null, address: null };
+  // แยกด้วย space — token แรก = ชื่อ, ที่เหลือ = ที่อยู่
+  const parts = rest.split(/\s+/);
+  if (parts.length === 1) return { name: parts[0], address: null };
+  // ถ้า token แรกสั้นๆ (≤3 พยางค์/≤20 ตัวอักษร) เหมือนชื่อ → แยกชื่อ-ที่อยู่
+  const first = parts[0];
+  if (first.length <= 20) {
+    return { name: first, address: parts.slice(1).join(" ") };
+  }
+  return { name: null, address: rest };
 }
 
 // sanity: array ของ string (chip)
@@ -265,6 +300,18 @@ export async function onRequestPost(context) {
       parsed.customer_phone = customerPhone;
     }
 
+    // ★ FALLBACK: ถ้า AI ไม่ได้แยกเบอร์/ชื่อ/ที่อยู่ จากข้อความลูกค้าในรอบนี้
+    //   ให้ server ช่วย parse จาก message ปัจจุบัน — กันกรณี AI ถามเพิ่มทั้งที่ลูกค้าบอกครบแล้ว
+    const phoneFromMsg = extractPhoneFromText(message);
+    if (phoneFromMsg && !parsed.customer_phone) {
+      parsed.customer_phone = phoneFromMsg;
+    }
+    if (phoneFromMsg && (!parsed.customer_name || !parsed.customer_address)) {
+      const split = splitNameAddress(message, phoneFromMsg);
+      if (!parsed.customer_name && split.name) parsed.customer_name = split.name;
+      if (!parsed.customer_address && split.address) parsed.customer_address = split.address;
+    }
+
     // sanity-check fields
     const phoneClean = normalizePhone(parsed.customer_phone);
 
@@ -297,6 +344,18 @@ export async function onRequestPost(context) {
     if (out.done) {
       if (!out.customer_name || !out.customer_phone || !out.customer_address || !out.job_type) {
         out.done = false;
+      }
+    }
+
+    // ★ AUTO-DONE: ถ้าได้ข้อมูลครบ 4 อย่างแล้ว (job_type + name + phone + address)
+    //   แต่ AI ยังไม่ตั้ง done:true (เพราะอาจจะพยายามถามเพิ่ม) → บังคับปิดงาน
+    //   ช่างจะโทรไปสอบถามรายละเอียดเอง ไม่จำเป็นต้องคุยต่อ
+    if (!out.done && out.job_type && out.customer_name && out.customer_phone && out.customer_address) {
+      out.done = true;
+      out.quick_replies = [];
+      // เขียน reply สรุปให้ลูกค้าแทน ถ้า AI ยังถามคำถามอยู่
+      if (/\?|ครับ\?|ค่ะ\?|ด้วยครับ|ด้วยค่ะ|ไหมครับ|ไหมค่ะ|หรือ|เพิ่มเติม/.test(out.reply)) {
+        out.reply = `รับเรื่องแล้วครับคุณ${out.customer_name} ช่างจะโทรกลับที่ ${out.customer_phone} เพื่อยืนยันคิวและสอบถามรายละเอียดเพิ่มเติมครับ`;
       }
     }
 
