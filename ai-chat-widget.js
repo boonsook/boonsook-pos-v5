@@ -486,6 +486,12 @@
       if (setField(addrEl, result.customer_address)) filled++;
     }
 
+    // --- 7) สถานะ (admin form) — ตั้งเป็น pending ถ้ายังว่าง เพื่อให้บันทึกผ่าน validation ---
+    const statusEl = document.getElementById("serviceStatus");
+    if (statusEl && !statusEl.value) {
+      setField(statusEl, "pending", "change");
+    }
+
     return filled;
   }
 
@@ -507,10 +513,42 @@
     finishFill(filled);
   }
 
+  // ค้นหาปุ่มบันทึกที่ใช้ได้ — admin form ก่อน, ถ้าไม่มีลอง customer form
+  function findSaveButton() {
+    return (
+      document.getElementById("saveServiceJobBtn") ||
+      document.getElementById("srSubmitBtn") ||
+      document.querySelector('[data-action="save-service-job"]')
+    );
+  }
+
+  // คลิกปุ่มบันทึกอัตโนมัติ — ลูกค้าจะได้เห็นงานเข้าคิวทันที
+  function autoSubmit() {
+    const btn = findSaveButton();
+    if (!btn) {
+      pushMsg("ai", '⚠️ กรอกให้แล้วครับ แต่หาปุ่ม "บันทึก" ไม่พบ กดบันทึกเองได้เลยนะครับ');
+      return false;
+    }
+    try {
+      btn.click();
+      return true;
+    } catch (e) {
+      pushMsg("ai", '⚠️ กรอกให้แล้วครับ กรุณากด "บันทึก" ด้วยตัวเองนะครับ');
+      return false;
+    }
+  }
+
   function finishFill(filled) {
     if (filled > 0) {
-      pushMsg("ai", `✓ กรอกแบบฟอร์มให้แล้ว ${filled} ช่อง กรุณาตรวจสอบและกด "บันทึก" ได้เลยครับ`);
-      setTimeout(() => close(), 1500);
+      pushMsg("ai", `✓ กรอกแบบฟอร์มให้แล้ว ${filled} ช่อง — กำลังบันทึกงานเข้าคิว...`);
+      // รอ 600ms ให้ field update เสร็จก่อน click save
+      setTimeout(() => {
+        const ok = autoSubmit();
+        if (ok) {
+          pushMsg("ai", "✅ บันทึกงานเรียบร้อย! งานเข้าคิวแล้วครับ 🎉");
+          setTimeout(() => close(), 1800);
+        }
+      }, 600);
     } else {
       pushMsg(
         "ai",
