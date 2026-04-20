@@ -1,0 +1,22 @@
+# Normalize line endings — กัน CRLF noise ตอน git diff
+# ไฟล์ข้อความทั่วไปใช้ LF
+* text=auto eol=lf
+
+# ไฟล์ Windows batch/script ต้องเป็น CRLF (ไม่งั้นรันไม่ได้)
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# ไฟล์ binary ห้ามแตะ line ending
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.pdf binary
+*.zip binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
