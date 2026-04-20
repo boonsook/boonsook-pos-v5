@@ -504,7 +504,7 @@ function renderProductItem(p, mode, state) {
           ${getLetterAvatar(p.name)}
           <span class="prod-stock-indicator" style="background:${statusDot}" title="${statusText}"></span>
         </div>
-        <div class="prod-grid-name">${escHtml(p.name || "-")}</div>
+        <div class="prod-grid-name" data-prod-edit="${p.id}" style="cursor:pointer" title="คลิกเพื่อแก้ไข">${escHtml(p.name || "-")}</div>
         ${skuStr ? `<div class="sku">${skuStr}</div>` : ''}
         <div class="prod-grid-price">฿${priceStr}</div>
         <div class="prod-grid-stock">คงเหลือ ${stock}</div>
@@ -527,7 +527,7 @@ function renderProductItem(p, mode, state) {
           <span class="prod-stock-indicator" style="background:${statusDot}" title="${statusText}"></span>
         </div>
         <div class="prod-list-info">
-          <div class="prod-list-name">${escHtml(p.name || "-")} ${typeBadge}</div>
+          <div class="prod-list-name" data-prod-edit="${p.id}" style="cursor:pointer" title="คลิกเพื่อแก้ไข"><span style="border-bottom:1px dashed transparent;transition:color .15s,border-color .15s" onmouseover="this.style.color='#0284c7';this.style.borderColor='#0284c7'" onmouseout="this.style.color='';this.style.borderColor='transparent'">${escHtml(p.name || "-")}</span> ${typeBadge}</div>
           ${skuStr ? `<div class="prod-list-sku">${skuStr}</div>` : ''}
           ${p.category ? `<div class="prod-list-sku" style="color:#6b7280">${escHtml(p.category)}</div>` : ''}
           ${pType === "stock" && p.barcode ? `<div class="prod-list-sku">บาร์โค้ด: ${escHtml(p.barcode)}</div>` : ''}
