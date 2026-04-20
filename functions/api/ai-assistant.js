@@ -12,7 +12,8 @@
 // Body: { message: string, history?: [{role, content}], customerPhone?: string }
 // Return: { reply, job_type, sub_service, description,
 //           customer_name, customer_phone, customer_address,
-//           estimated_price_range, urgency, summary }
+//           estimated_price_range, urgency, needs_photo,
+//           quick_replies, done }
 
 const SYSTEM_PROMPT = `คุณเป็นผู้ช่วย AI ของ "บุญสุขแอร์" (Boonsook Air) ร้านซ่อม-ติดตั้งแอร์และเครื่องใช้ไฟฟ้า
 จังหวัด: ขอนแก่น (บริการทั่วภาคอีสาน)
@@ -48,6 +49,22 @@ const SYSTEM_PROMPT = `คุณเป็นผู้ช่วย AI ของ "
 - ห้ามรับปากเวลา — บอกแค่ "ช่างจะติดต่อกลับเพื่อยืนยันคิว"
 - ตั้ง done:true ก็ต่อเมื่อมีครบ: job_type, description, customer_name, customer_phone, customer_address
 
+⭐ QUICK_REPLIES — สำคัญมาก (ช่วยลูกค้าไม่ต้องพิมพ์เยอะ):
+- ใส่ปุ่มตัวเลือกให้ลูกค้าแตะเลือกใน field "quick_replies" (array of strings, 2–6 ปุ่ม)
+- แต่ละปุ่มต้องสั้น ไม่เกิน 18 ตัวอักษร
+- ใช้ quick_replies เมื่อ:
+    • ถามประเภทบริการ → ["ซ่อมแอร์","ล้างแอร์","ย้ายแอร์","ติดตั้งแอร์","จานดาวเทียม","ซ่อมตู้เย็น","ซ่อมเครื่องซักผ้า","CCTV","ซ่อมทีวี"]
+    • ถามอาการแอร์ → ["ไม่เย็น","น้ำหยด","เสียงดัง","รีโมทใช้ไม่ได้","เย็นน้อย"]
+    • ถามอาการตู้เย็น → ["ไม่เย็น","น้ำรั่ว","เสียงดัง","ช่องแช่แข็งไม่ทำงาน"]
+    • ถามอาการซักผ้า → ["ไม่ปั่น","ไม่ระบายน้ำ","น้ำรั่ว","ไม่หมุน"]
+    • ถามขนาด BTU → ["9000","12000","18000","24000","30000+"]
+    • ถามยี่ห้อ → ["Daikin","Mitsubishi","Samsung","LG","Haier","อื่นๆ"]
+    • ถามเป็นมานานเท่าไหร่ → ["วันนี้","1–3 วัน","1 สัปดาห์","นานแล้ว"]
+    • ถามความเร่งด่วน → ["ปกติ","เร่งด่วน","ด่วนมาก"]
+    • ถามจำนวนกล้อง CCTV → ["1 ตัว","2 ตัว","4 ตัว","8 ตัว","อื่นๆ"]
+- ไม่ใช้ quick_replies (ปล่อยว่าง []) เมื่อถาม: ชื่อ, เบอร์โทร, ที่อยู่ (ลูกค้าต้องพิมพ์เอง)
+- quick_replies ต้องสอดคล้องกับคำถามในฟิลด์ reply
+
 ⚠️ CRITICAL OUTPUT RULES — อ่านให้ชัดก่อนตอบทุกครั้ง:
 - ตอบกลับเป็น JSON object เท่านั้น ขึ้นต้นด้วย { ลงท้ายด้วย }
 - ห้ามเขียนข้อความ/คำอธิบาย/markdown ก่อนหรือหลัง JSON เด็ดขาด
@@ -68,23 +85,24 @@ Schema:
   "estimated_price_min": null,
   "estimated_price_max": null,
   "urgency": "normal",
-  "needs_photo": false
+  "needs_photo": false,
+  "quick_replies": []
 }
 
-ตัวอย่างเมื่อลูกค้าเพิ่งเริ่มเล่า "แอร์ไม่เย็น" (ยังไม่พอ → ถามต่อ):
-{"reply":"เข้าใจแล้วครับ ขอถามเพิ่ม: แอร์ขนาดกี่ BTU และเริ่มไม่เย็นมานานแค่ไหนแล้วครับ?","done":false,"job_type":"ซ่อมแอร์","sub_service":null,"description":null,"customer_name":null,"customer_phone":null,"customer_address":null,"estimated_price_min":null,"estimated_price_max":null,"urgency":"normal","needs_photo":false}
+ตัวอย่างเมื่อลูกค้าเพิ่งทักเข้ามา (ยังไม่รู้ประเภท):
+{"reply":"สวัสดีครับ ให้ช่วยเรื่องไหนดีครับ?","done":false,"job_type":null,"sub_service":null,"description":null,"customer_name":null,"customer_phone":null,"customer_address":null,"estimated_price_min":null,"estimated_price_max":null,"urgency":"normal","needs_photo":false,"quick_replies":["ซ่อมแอร์","ล้างแอร์","ย้ายแอร์","ติดตั้งแอร์","จานดาวเทียม","ซ่อมตู้เย็น","ซ่อมเครื่องซักผ้า","CCTV","ซ่อมทีวี"]}
 
-ตัวอย่างเมื่อได้อาการครบแต่ยังไม่มีข้อมูลติดต่อ (→ ถามชื่อ):
-{"reply":"ขอรบกวนชื่อคุณลูกค้าด้วยครับ เพื่อให้ช่างติดต่อกลับได้สะดวกครับ","done":false,"job_type":"ซ่อมแอร์","sub_service":"แอร์ไม่เย็น น้ำหยด","description":"แอร์ Daikin 12000 BTU ไม่เย็น มีน้ำหยดที่คอยล์เย็น เป็นมา 3 วัน","customer_name":null,"customer_phone":null,"customer_address":null,"estimated_price_min":500,"estimated_price_max":2500,"urgency":"normal","needs_photo":true}
+ตัวอย่างเมื่อลูกค้าเลือก "ซ่อมแอร์" (→ ถามอาการ พร้อม chip):
+{"reply":"รับเรื่องซ่อมแอร์ครับ อาการที่เจอเป็นแบบไหนครับ?","done":false,"job_type":"ซ่อมแอร์","sub_service":null,"description":null,"customer_name":null,"customer_phone":null,"customer_address":null,"estimated_price_min":500,"estimated_price_max":3500,"urgency":"normal","needs_photo":false,"quick_replies":["ไม่เย็น","น้ำหยด","เสียงดัง","รีโมทใช้ไม่ได้","เย็นน้อย"]}
 
-ตัวอย่างเมื่อมีชื่อแล้ว (→ ถามเบอร์):
-{"reply":"ขอบคุณครับคุณสมชาย ขอเบอร์โทรติดต่อด้วยครับ (9–10 หลัก)","done":false,"job_type":"ซ่อมแอร์","sub_service":"แอร์ไม่เย็น น้ำหยด","description":"แอร์ Daikin 12000 BTU ไม่เย็น มีน้ำหยดที่คอยล์เย็น เป็นมา 3 วัน","customer_name":"สมชาย ใจดี","customer_phone":null,"customer_address":null,"estimated_price_min":500,"estimated_price_max":2500,"urgency":"normal","needs_photo":true}
+ตัวอย่างเมื่อลูกค้าเลือก "ไม่เย็น" (→ ถาม BTU พร้อม chip):
+{"reply":"แอร์ขนาดกี่ BTU ครับ?","done":false,"job_type":"ซ่อมแอร์","sub_service":"ไม่เย็น","description":"แอร์ไม่เย็น","customer_name":null,"customer_phone":null,"customer_address":null,"estimated_price_min":500,"estimated_price_max":2500,"urgency":"normal","needs_photo":false,"quick_replies":["9000","12000","18000","24000","30000+"]}
 
-ตัวอย่างเมื่อมีเบอร์แล้ว (→ ถามที่อยู่):
-{"reply":"ได้ครับ ขอที่อยู่หรือสถานที่หน้างานที่จะให้ช่างไปบริการด้วยครับ","done":false,"job_type":"ซ่อมแอร์","sub_service":"แอร์ไม่เย็น น้ำหยด","description":"แอร์ Daikin 12000 BTU ไม่เย็น มีน้ำหยดที่คอยล์เย็น เป็นมา 3 วัน","customer_name":"สมชาย ใจดี","customer_phone":"0812345678","customer_address":null,"estimated_price_min":500,"estimated_price_max":2500,"urgency":"normal","needs_photo":true}
+ตัวอย่างเมื่อถามชื่อ (→ chip ว่าง):
+{"reply":"ขอรบกวนชื่อคุณลูกค้าด้วยครับ เพื่อให้ช่างติดต่อกลับได้สะดวก","done":false,"job_type":"ซ่อมแอร์","sub_service":"ไม่เย็น","description":"แอร์ Daikin 12000 BTU ไม่เย็น","customer_name":null,"customer_phone":null,"customer_address":null,"estimated_price_min":500,"estimated_price_max":2500,"urgency":"normal","needs_photo":false,"quick_replies":[]}
 
-ตัวอย่างเมื่อได้ข้อมูลครบแล้ว (→ done:true):
-{"reply":"รับเรื่องแล้วครับคุณสมชาย ช่างจะโทรกลับที่เบอร์ 0812345678 เพื่อยืนยันคิวครับ","done":true,"job_type":"ซ่อมแอร์","sub_service":"แอร์ไม่เย็น น้ำหยด","description":"แอร์ Daikin 12000 BTU ไม่เย็น มีน้ำหยดที่คอยล์เย็น เป็นมา 3 วัน","customer_name":"สมชาย ใจดี","customer_phone":"0812345678","customer_address":"123 หมู่ 5 ต.ในเมือง อ.เมือง จ.ขอนแก่น 40000","estimated_price_min":500,"estimated_price_max":2500,"urgency":"normal","needs_photo":true}`;
+ตัวอย่างเมื่อได้ข้อมูลครบ (→ done:true, chip ว่าง):
+{"reply":"รับเรื่องแล้วครับคุณสมชาย ช่างจะโทรกลับที่เบอร์ 0812345678 เพื่อยืนยันคิวครับ","done":true,"job_type":"ซ่อมแอร์","sub_service":"ไม่เย็น","description":"แอร์ Daikin 12000 BTU ไม่เย็น เป็นมา 3 วัน","customer_name":"สมชาย ใจดี","customer_phone":"0812345678","customer_address":"123 หมู่ 5 ต.ในเมือง อ.เมือง จ.ขอนแก่น","estimated_price_min":500,"estimated_price_max":2500,"urgency":"normal","needs_photo":false,"quick_replies":[]}`;
 
 // normalize เบอร์โทร → ตัวเลขล้วน
 function normalizePhone(s) {
@@ -92,6 +110,21 @@ function normalizePhone(s) {
   const digits = String(s).replace(/\D+/g, "");
   if (digits.length >= 9 && digits.length <= 10) return digits;
   return null;
+}
+
+// sanity: array ของ string (chip)
+function sanitizeChips(arr) {
+  if (!Array.isArray(arr)) return [];
+  const out = [];
+  for (const x of arr) {
+    if (x == null) continue;
+    const s = String(x).trim();
+    if (!s) continue;
+    if (s.length > 30) continue;
+    out.push(s.slice(0, 30));
+    if (out.length >= 9) break;
+  }
+  return out;
 }
 
 export async function onRequestPost(context) {
@@ -141,9 +174,8 @@ export async function onRequestPost(context) {
       "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
       {
         messages,
-        max_tokens: 512,
+        max_tokens: 640,
         temperature: 0.3,
-        // response_format: { type: "json_object" }, // disabled
       }
     );
 
@@ -153,19 +185,15 @@ export async function onRequestPost(context) {
     let parsed = null;
 
     if (rawResp && typeof rawResp === "object" && !Array.isArray(rawResp)) {
-      // AI คืน object มาตรงๆ (เช่น json_object mode) → ใช้เลย ไม่ต้อง parse
       parsed = rawResp;
       raw = JSON.stringify(rawResp);
     } else {
       raw = String(rawResp == null ? "" : rawResp).trim();
 
-      // พยายาม parse JSON จาก response — robust (regex สกัด block แรก)
       try {
-        // 1) ลอง parse raw ก่อน
         try {
           parsed = JSON.parse(raw);
         } catch {
-          // 2) ลอง strip markdown
           const stripped = raw
             .replace(/^```json\s*/i, "")
             .replace(/^```\s*/i, "")
@@ -174,7 +202,6 @@ export async function onRequestPost(context) {
           try {
             parsed = JSON.parse(stripped);
           } catch {
-            // 3) regex สกัด JSON object แรก { ... } (greedy หา } ตัวสุดท้าย)
             const m = raw.match(/\{[\s\S]*\}/);
             if (m) {
               try {
@@ -187,7 +214,6 @@ export async function onRequestPost(context) {
     }
 
     if (!parsed) {
-      // fallback: ถ้า parse ไม่ได้จริงๆ ใช้ raw เป็น reply
       parsed = {
         reply: raw || "ขอโทษครับ ลองพิมพ์ใหม่อีกครั้งได้ไหมครับ",
         done: false,
@@ -201,10 +227,11 @@ export async function onRequestPost(context) {
         estimated_price_max: null,
         urgency: "normal",
         needs_photo: false,
+        quick_replies: [],
       };
     }
 
-    // ถ้า client ส่ง customerPhone มา (เช่น ลูกค้าที่ล็อกอินแล้ว) และ AI ยังไม่ได้เก็บ → prefill
+    // prefill phone ถ้าลูกค้าล็อกอินและ AI ยังไม่ได้เก็บ
     if (!parsed.customer_phone && customerPhone) {
       parsed.customer_phone = customerPhone;
     }
@@ -225,9 +252,19 @@ export async function onRequestPost(context) {
       estimated_price_max: Number.isFinite(parsed.estimated_price_max) ? parsed.estimated_price_max : null,
       urgency: ["normal", "urgent", "emergency"].includes(parsed.urgency) ? parsed.urgency : "normal",
       needs_photo: !!parsed.needs_photo,
+      quick_replies: sanitizeChips(parsed.quick_replies),
     };
 
-    // ป้องกัน done:true ถ้าข้อมูลติดต่อไม่ครบจริงๆ
+    // ไม่ต้องโชว์ chip ตอนถามข้อมูลที่ต้องพิมพ์เอง (ชื่อ/เบอร์/ที่อยู่)
+    const reply = out.reply;
+    const asksForName = /ชื่อ(คุณ|ของคุณ|ลูกค้า)/.test(reply) && !out.customer_name;
+    const asksForPhone = /(เบอร์|โทร)/.test(reply) && !out.customer_phone;
+    const asksForAddress = /(ที่อยู่|สถานที่|หน้างาน)/.test(reply) && !out.customer_address;
+    if (asksForName || asksForPhone || asksForAddress) {
+      out.quick_replies = [];
+    }
+
+    // ป้องกัน done:true ถ้าข้อมูลไม่ครบจริงๆ
     if (out.done) {
       if (!out.customer_name || !out.customer_phone || !out.customer_address || !out.job_type) {
         out.done = false;

@@ -19,6 +19,19 @@
 
   const API_URL = "/api/ai-assistant";
 
+  // 9 หมวดบริการสำหรับ welcome chips
+  const CATEGORIES = [
+    "ซ่อมแอร์",
+    "ล้างแอร์",
+    "ย้ายแอร์",
+    "ติดตั้งแอร์",
+    "จานดาวเทียม",
+    "ซ่อมตู้เย็น",
+    "ซ่อมเครื่องซักผ้า",
+    "CCTV",
+    "ซ่อมทีวี",
+  ];
+
   const state = {
     open: false,
     loading: false,
@@ -84,6 +97,24 @@
     border-bottom-left-radius: 4px;
   }
   .bs-msg.loading { opacity: 0.6; font-style: italic; }
+  .bs-chips {
+    align-self: flex-start;
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin: -4px 0 2px 0;
+    max-width: 100%;
+  }
+  .bs-chip {
+    background: #fff; color: #1a2332;
+    border: 1.5px solid #c7d2e0; border-radius: 20px;
+    padding: 7px 14px; font-size: 13px; cursor: pointer;
+    font-family: inherit;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .bs-chip:hover { background: #1a2332; color: #fff; border-color: #1a2332; transform: translateY(-1px); }
+  .bs-chip:active { transform: translateY(0); }
+  .bs-chip:disabled { opacity: 0.35; cursor: not-allowed; }
+  .bs-chip.selected { background: #1a2332; color: #fff; border-color: #1a2332; }
   .bs-summary {
     align-self: stretch;
     background: #e0f7e9; border: 1px solid #4ade80;
@@ -155,13 +186,13 @@
           <span class="dot"></span>
           <div class="title">
             ผู้ช่วย AI บุญสุขแอร์
-            <small>บอกอาการ — AI จะช่วยเลือกบริการและประเมินราคา</small>
+            <small>แตะเลือกบริการ — หรือพิมพ์อาการก็ได้</small>
           </div>
           <button id="bs-ai-close" aria-label="ปิด">✕</button>
         </div>
         <div id="bs-ai-body"></div>
         <div id="bs-ai-footer">
-          <input id="bs-ai-input" type="text" placeholder="เช่น แอร์ไม่เย็น มีน้ำหยด..." />
+          <input id="bs-ai-input" type="text" placeholder="พิมพ์เพิ่มเติมได้..." />
           <button id="bs-ai-send" aria-label="ส่ง">➤</button>
         </div>
       </div>
@@ -173,7 +204,7 @@
     document.getElementById("bs-ai-fab").addEventListener("click", open);
     document.getElementById("bs-ai-close").addEventListener("click", close);
     document.getElementById("bs-ai-backdrop").addEventListener("click", close);
-    document.getElementById("bs-ai-send").addEventListener("click", send);
+    document.getElementById("bs-ai-send").addEventListener("click", () => send());
     document.getElementById("bs-ai-input").addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
@@ -193,8 +224,9 @@
     if (state.history.length === 0) {
       pushMsg(
         "ai",
-        "สวัสดีครับ ผมเป็น AI ผู้ช่วยของร้านบุญสุขแอร์ 🙏\n\nลองเล่าอาการที่เจอให้ฟังครับ เช่น \"แอร์ไม่เย็น\" หรือ \"ตู้เย็นเสียงดัง\"\n\n(เดี๋ยวผมจะขอชื่อ เบอร์ติดต่อ และที่อยู่ ก่อนส่งเรื่องให้ช่างครับ)"
+        "สวัสดีครับ 🙏 แตะเลือกประเภทบริการได้เลยครับ หรือจะพิมพ์อาการเองก็ได้"
       );
+      pushChips(CATEGORIES);
     }
     setTimeout(() => document.getElementById("bs-ai-input").focus(), 100);
   }
@@ -207,6 +239,13 @@
   }
 
   // ---------- MESSAGE HANDLING ----------
+  // ปิดใช้งาน chip กลุ่มเก่าทั้งหมด (เมื่อลูกค้าเลือก/พิมพ์ไปแล้ว)
+  function disableOldChips() {
+    document.querySelectorAll("#bs-ai-body .bs-chips").forEach((g) => {
+      g.querySelectorAll("button").forEach((b) => (b.disabled = true));
+    });
+  }
+
   function pushMsg(role, text) {
     const body = document.getElementById("bs-ai-body");
     const div = document.createElement("div");
@@ -229,6 +268,31 @@
     body.appendChild(div);
     body.scrollTop = body.scrollHeight;
     return div;
+  }
+
+  // แสดงปุ่ม chip ให้ลูกค้าแตะเลือก
+  function pushChips(items) {
+    if (!items || !items.length) return;
+    const body = document.getElementById("bs-ai-body");
+    const wrap = document.createElement("div");
+    wrap.className = "bs-chips";
+    items.forEach((txt) => {
+      const btn = document.createElement("button");
+      btn.className = "bs-chip";
+      btn.type = "button";
+      btn.textContent = txt;
+      btn.onclick = () => {
+        if (state.loading) return;
+        // mark selected
+        btn.classList.add("selected");
+        // ส่งข้อความให้ AI
+        send(txt);
+      };
+      wrap.appendChild(btn);
+    });
+    body.appendChild(wrap);
+    body.scrollTop = body.scrollHeight;
+    return wrap;
   }
 
   function pushSummary(result) {
@@ -269,12 +333,18 @@
   }
 
   // ---------- SEND ----------
-  async function send() {
+  // รับได้ทั้ง: send() → อ่านจาก input, หรือ send("text") → ใช้ text จาก chip
+  async function send(presetText) {
     if (state.loading) return;
     const input = document.getElementById("bs-ai-input");
-    const text = (input.value || "").trim();
+    const text = presetText != null
+      ? String(presetText).trim()
+      : (input.value || "").trim();
     if (!text) return;
-    input.value = "";
+    if (presetText == null) input.value = "";
+
+    // ปิด chip เก่าทั้งหมดเมื่อ user action แล้ว
+    disableOldChips();
 
     pushMsg("user", text);
     state.loading = true;
@@ -287,7 +357,7 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: text,
-          history: state.history.slice(0, -1), // exclude current user msg (already in message)
+          history: state.history.slice(0, -1),
           customerPhone: window.BoonsookAI?._currentPhone || null,
         }),
       });
@@ -302,6 +372,11 @@
 
       pushMsg("ai", data.reply || "...");
       state.lastResult = data;
+
+      // ปุ่ม chip จาก AI (ถ้ามี และยังไม่ done)
+      if (!data.done && Array.isArray(data.quick_replies) && data.quick_replies.length > 0) {
+        pushChips(data.quick_replies);
+      }
 
       if (data.done && data.job_type) {
         pushSummary(data);
@@ -384,7 +459,7 @@
       if (setField(noteEl, result.description)) filled++;
     }
 
-    // --- 4) ชื่อลูกค้า (admin drawer เท่านั้น; customer form รู้จักลูกค้าอยู่แล้ว) ---
+    // --- 4) ชื่อลูกค้า ---
     const nameEl =
       document.getElementById("serviceCustomer") ||
       document.querySelector('input[name="customer_name"]');
@@ -398,7 +473,7 @@
       document.querySelector('input[name="customer_phone"]') ||
       document.querySelector('input[type="tel"]');
     if (phoneEl && result.customer_phone) {
-      if (setField(phoneEl, result.customer_phone)) filled++;
+            if (setField(phoneEl, result.customer_phone)) filled++;
     }
 
     // --- 6) ที่อยู่/สถานที่หน้างาน ---
@@ -451,8 +526,9 @@
     document.getElementById("bs-ai-body").innerHTML = "";
     pushMsg(
       "ai",
-      "เริ่มใหม่ได้เลยครับ ลองเล่าอาการให้ฟังใหม่"
+      "เริ่มใหม่ได้เลยครับ แตะเลือกบริการได้เลย"
     );
+    pushChips(CATEGORIES);
   }
 
   // ---------- PUBLIC API ----------
