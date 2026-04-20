@@ -405,6 +405,30 @@
     })[c]);
   }
 
+  // ---------- CONTACT EXTRACTORS (safety-net helpers) ----------
+  function extractContactFromText(txt) {
+    if (!txt) return null;
+    const m = String(txt).match(/(?:\d[\s\-.]?){9,10}/);
+    if (!m) return null;
+    const phone = m[0].replace(/\D/g, "");
+    if (phone.length < 9 || phone.length > 10) return null;
+    let rest = String(txt).replace(m[0], " ").replace(/[,;|]+/g, " ").replace(/\s+/g, " ").trim();
+    if (!rest) return { phone, name: null, address: null };
+    const parts = rest.split(/\s+/);
+    const first = parts[0];
+    if (parts.length === 1) return { phone, name: first, address: null };
+    return { phone, name: first, address: parts.slice(1).join(" ") };
+  }
+  function extractContactFromHistory() {
+    for (let i = state.history.length - 1; i >= 0; i--) {
+      const h = state.history[i];
+      if (h.role !== "user") continue;
+      const c = extractContactFromText(h.content);
+      if (c) return c;
+    }
+    return null;
+  }
+
   // ---------- SEND ----------
   // รับได้ทั้ง: send() → อ่านจาก input, หรือ send("text") → ใช้ text จาก chip
   async function send(presetText) {

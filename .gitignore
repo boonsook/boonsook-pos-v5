@@ -1,0 +1,31 @@
+# Local/temp files
+*.new
+*.bak
+*.bak.*
+*.tmp
+
+# Local helper scripts
+*.bat
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*~
+
+# Deps (if ever introduced)
+node_modules/
+
+# Env / secrets
+.env
+.env.local
+.dev.vars
+
+# Build output
+dist/
+build/

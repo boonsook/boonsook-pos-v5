@@ -69,6 +69,16 @@ export function renderServiceRequestPage(ctx) {
     customWrap.classList.toggle("hidden", !typeSelect.value.includes("อื่นๆ"));
   });
 
+  // ★ Map ประเภทงาน (text) → canonical job_type key ที่ dashboard/service_jobs ใช้
+  //   ค่า canonical: ac | solar | cctv | other  (ดู modules/service_jobs.js JOB_TYPE_LABELS)
+  function resolveJobType(typeText) {
+    const t = String(typeText || "").toLowerCase();
+    if (t.includes("แอร์")) return "ac";
+    if (t.includes("cctv") || t.includes("กล้อง")) return "cctv";
+    if (t.includes("โซล่า") || t.includes("solar")) return "solar";
+    return "other";
+  }
+
   // Submit
   container.querySelector("#srSubmitBtn").addEventListener("click", async () => {
     const typeVal = typeSelect.value.includes("อื่นๆ")
@@ -91,7 +101,7 @@ export function renderServiceRequestPage(ctx) {
       const record = {
         customer_name: userName,
         customer_phone: customerPhone,
-        job_type: "ac",
+        job_type: resolveJobType(typeVal),
         device_name: typeVal,
         description: symptom,
         address: address,
@@ -127,7 +137,7 @@ export function renderServiceRequestPage(ctx) {
       // Send LINE notify if available
       if (typeof ctx.sendLineNotify === "function") {
         ctx.sendLineNotify(
-          `🛠️ ลูกค้าแจ้งซ่อม!\n🔧 ${typeVal}\n👤 ${userName} | 📞 ${customerPhone}\n⚡ ${symptom.substring(0, 60)}`
+          `✍️ ลูกค้าแจ้งซ่อม\!\n🔧 ${typeVal}\n👤 ${userName} | 📞 ${customerPhone}\n⚡ ${symptom.substring(0, 60)}`
         );
       }
     } catch (e) {
