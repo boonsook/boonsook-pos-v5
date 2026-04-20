@@ -445,15 +445,58 @@
       }
 
       pushMsg("ai", data.reply || "...");
-      state.lastResult = data;
 
-      // ปุ่ม chip จาก AI (ถ้ามี และยังไม่ done)
-      if (!data.done && Array.isArray(data.quick_replies) && data.quick_replies.length > 0) {
-        pushChips(data.quick_replies);
+      // ★ MERGE กับ state.lastResult เก็บข้อมูลที่ AI เคยให้ในรอบก่อน
+      //   ป้องกัน AI ลืม job_type/price ในรอบท้ายๆ (Llama บางครั้งคืน null กลับมา)
+      const prev = state.lastResult || {};
+      const merged = {
+        reply: data.reply || "",
+        done: !!data.done,
+        job_type: data.job_type || prev.job_type || null,
+        sub_service: data.sub_service || prev.sub_service || null,
+        description: data.description || prev.description || null,
+        customer_name: data.customer_name || prev.customer_name || null,
+        customer_phone: data.customer_phone || prev.customer_phone || null,
+        customer_address: data.customer_address || prev.customer_address || null,
+        estimated_price_min:
+          data.estimated_price_min != null ? data.estimated_price_min : (prev.estimated_price_min != null ? prev.estimated_price_min : null),
+        estimated_price_max:
+          data.estimated_price_max != null ? data.estimated_price_max : (prev.estimated_price_max != null ? prev.estimated_price_max : null),
+        urgency: data.urgency || prev.urgency || "normal",
+        needs_photo: !!(data.needs_photo || prev.needs_photo),
+        quick_replies: Array.isArray(data.quick_replies) ? data.quick_replies : [],
+      };
+
+      // ★ SAFETY NET: ถ้า AI reply เหมือนจะปิดงานแล้ว แต่ยังไม่ set done:true
+      //   → พยายามแกะเบอร์/ชื่อ/ที่อยู่ จากข้อความล่าสุด แล้ว force done:true
+      const closingPatterns = /(รับเรื่องแล้ว|ช่างจะโทรกลับ|เข้าคิว|เรียบร้อย|บันทึกแล้ว)/;
+      if (!merged.done && closingPatterns.test(merged.reply)) {
+        const contact = extractContactFromText(text) || extractContactFromHistory();
+        if (contact) {
+          merged.customer_name = merged.customer_name || contact.name;
+          merged.customer_phone = merged.customer_phone || contact.phone;
+          merged.customer_address = merged.customer_address || contact.address;
+        }
+        if (
+          merged.job_type &&
+          merged.customer_name &&
+          merged.customer_phone &&
+          merged.customer_address
+        ) {
+          merged.done = true;
+          console.log("[BoonsookAI] safety net triggered — forced done:true", merged);
+        }
       }
 
-      if (data.done && data.job_type) {
-        pushSummary(data);
+      state.lastResult = merged;
+
+      // ปุ่ม chip จาก AI (ถ้ามี และยังไม่ done)
+      if (!merged.done && Array.isArray(merged.quick_replies) && merged.quick_replies.length > 0) {
+        pushChips(merged.quick_replies);
+      }
+
+      if (merged.done && merged.job_type) {
+        pushSummary(merged);
       }
     } catch (err) {
       loadingEl.remove();
