@@ -19,28 +19,45 @@
 
   const API_URL = "/api/ai-assistant";
 
-  // 9 หมวดบริการสำหรับ welcome chips (หน้าแจ้งซ่อม/หน้าทั่วไป)
-  const CATEGORIES = [
-    "ซ่อมแอร์",
-    "ล้างแอร์",
-    "ย้ายแอร์",
-    "ติดตั้งแอร์",
-    "จานดาวเทียม",
-    "ซ่อมตู้เย็น",
-    "ซ่อมเครื่องซักผ้า",
-    "CCTV",
-    "ซ่อมทีวี",
+  // ★ MAIN_MENU — เมนู 2 ชั้น (หมวดหลัก → หัวข้อย่อย)
+  //   อนาคตเพิ่มหมวดใหม่ง่ายๆ แค่ push entry เข้า array นี้
+  const MAIN_MENU = [
+    {
+      key: "ac",
+      label: "🛠️ งานแอร์ / เครื่องใช้ไฟฟ้า",
+      subs: [
+        "ซ่อมแอร์",
+        "ล้างแอร์",
+        "ย้ายแอร์",
+        "ติดตั้งแอร์",
+        "จานดาวเทียม",
+        "ซ่อมตู้เย็น",
+        "ซ่อมเครื่องซักผ้า",
+        "CCTV",
+        "ซ่อมทีวี",
+      ],
+    },
+    {
+      key: "solar",
+      label: "☀️ งานโซล่าเซลล์",
+      subs: [
+        "ติดตั้งปั๊มน้ำโซล่าเซลล์",
+        "ติดตั้งชุดออนกริดโซล่าเซลล์",
+        "ติดตั้งชุดออฟกริดโซล่าเซลล์",
+        "ติดตั้งชุดไฮบริดโซล่าเซลล์",
+        "ซ่อม & เซอร์วิสระบบโซล่าเซลล์",
+        "งานโซล่าเซลล์อื่นๆ",
+      ],
+    },
+    // ★ เพิ่มหมวดใหม่ตรงนี้ได้เลย เช่น
+    // { key: "network", label: "🌐 งานเน็ตเวิร์ก/LAN", subs: [...] },
+    // { key: "plumbing", label: "🚰 งานประปา",        subs: [...] },
   ];
 
-  // ★ 6 หมวดงานโซล่าเซลล์ — แสดงเมื่ออยู่หน้า page-solar
-  const SOLAR_CATEGORIES = [
-    "ติดตั้งปั๊มน้ำโซล่าเซลล์",
-    "ติดตั้งชุดออนกริดโซล่าเซลล์",
-    "ติดตั้งชุดออฟกริดโซล่าเซลล์",
-    "ติดตั้งชุดไฮบริดโซล่าเซลล์",
-    "ซ่อม & เซอร์วิสระบบโซล่าเซลล์",
-    "งานโซล่าเซลล์อื่นๆ",
-  ];
+  // หา main menu entry จาก key
+  function findMenuByKey(key) {
+    return MAIN_MENU.find((m) => m.key === key) || null;
+  }
 
   // ★ ตรวจว่าอยู่หน้าไหน → เลือก chip set + เลือกฟอร์มที่จะ fill
   function detectPage() {
@@ -240,18 +257,20 @@
 
     if (state.history.length === 0) {
       const page = detectPage();
+      // ★ ถ้าเปิดจากหน้า solar — ข้ามเมนูหลักเพื่อความเร็ว ไปที่หัวข้อย่อยโซล่าเลย
       if (page === "solar") {
+        const solar = findMenuByKey("solar");
         pushMsg(
           "ai",
           "สวัสดีครับ ☀️ เลือกประเภทงานโซล่าเซลล์ที่ต้องการได้เลยครับ"
         );
-        pushChips(SOLAR_CATEGORIES);
+        if (solar) pushChips(solar.subs);
       } else {
         pushMsg(
           "ai",
-          "สวัสดีครับ 🙏 แตะเลือกประเภทบริการได้เลยครับ หรือจะพิมพ์อาการเองก็ได้"
+          "สวัสดีครับ 🙏 เลือกหมวดงานที่ต้องการได้เลยครับ หรือพิมพ์อาการเองก็ได้"
         );
-        pushChips(CATEGORIES);
+        pushMainMenu();
       }
     }
     setTimeout(() => document.getElementById("bs-ai-input").focus(), 100);
@@ -313,6 +332,34 @@
         btn.classList.add("selected");
         // ส่งข้อความให้ AI
         send(txt);
+      };
+      wrap.appendChild(btn);
+    });
+    body.appendChild(wrap);
+    body.scrollTop = body.scrollHeight;
+    return wrap;
+  }
+
+  // ★ แสดง chip หมวดหลัก (ชั้น 1) — คลิกแล้วแตกเป็น chip หัวข้อย่อย (ชั้น 2)
+  function pushMainMenu() {
+    const body = document.getElementById("bs-ai-body");
+    const wrap = document.createElement("div");
+    wrap.className = "bs-chips";
+    MAIN_MENU.forEach((cat) => {
+      const btn = document.createElement("button");
+      btn.className = "bs-chip";
+      btn.type = "button";
+      btn.textContent = cat.label;
+      btn.onclick = () => {
+        if (state.loading) return;
+        // ปิด chip หมวดหลักทั้งกลุ่ม + ไฮไลต์ตัวที่เลือก
+        wrap.querySelectorAll("button").forEach((b) => (b.disabled = true));
+        btn.classList.add("selected");
+        // บันทึกเป็นข้อความ user (ให้ history รู้ว่าเลือกหมวดนี้)
+        pushMsg("user", cat.label);
+        // ตอบเป็น AI message แล้ว push chip หัวข้อย่อย (ไม่ส่งไป server รอบนี้)
+        pushMsg("ai", `รับเรื่อง ${cat.label} ครับ — ต้องการบริการแบบไหนครับ?`);
+        pushChips(cat.subs);
       };
       wrap.appendChild(btn);
     });
@@ -673,11 +720,12 @@
     document.getElementById("bs-ai-body").innerHTML = "";
     const page = detectPage();
     if (page === "solar") {
+      const solar = findMenuByKey("solar");
       pushMsg("ai", "เริ่มใหม่ได้เลยครับ ☀️ เลือกประเภทงานโซล่าเซลล์");
-      pushChips(SOLAR_CATEGORIES);
+      if (solar) pushChips(solar.subs);
     } else {
-      pushMsg("ai", "เริ่มใหม่ได้เลยครับ แตะเลือกบริการได้เลย");
-      pushChips(CATEGORIES);
+      pushMsg("ai", "เริ่มใหม่ได้เลยครับ เลือกหมวดงานได้เลย");
+      pushMainMenu();
     }
   }
 
