@@ -19,7 +19,7 @@
 
   const API_URL = "/api/ai-assistant";
 
-  // 9 หมวดบริการสำหรับ welcome chips
+  // 9 หมวดบริการสำหรับ welcome chips (หน้าแจ้งซ่อม/หน้าทั่วไป)
   const CATEGORIES = [
     "ซ่อมแอร์",
     "ล้างแอร์",
@@ -31,6 +31,23 @@
     "CCTV",
     "ซ่อมทีวี",
   ];
+
+  // ★ 6 หมวดงานโซล่าเซลล์ — แสดงเมื่ออยู่หน้า page-solar
+  const SOLAR_CATEGORIES = [
+    "ติดตั้งปั๊มน้ำโซล่าเซลล์",
+    "ติดตั้งชุดออนกริดโซล่าเซลล์",
+    "ติดตั้งชุดออฟกริดโซล่าเซลล์",
+    "ติดตั้งชุดไฮบริดโซล่าเซลล์",
+    "ซ่อม & เซอร์วิสระบบโซล่าเซลล์",
+    "งานโซล่าเซลล์อื่นๆ",
+  ];
+
+  // ★ ตรวจว่าอยู่หน้าไหน → เลือก chip set + เลือกฟอร์มที่จะ fill
+  function detectPage() {
+    const solarPage = document.getElementById("page-solar");
+    if (solarPage && !solarPage.classList.contains("hidden")) return "solar";
+    return "service";
+  }
 
   const state = {
     open: false,
@@ -222,11 +239,20 @@
     document.getElementById("bs-ai-fab").classList.add("hidden");
 
     if (state.history.length === 0) {
-      pushMsg(
-        "ai",
-        "สวัสดีครับ 🙏 แตะเลือกประเภทบริการได้เลยครับ หรือจะพิมพ์อาการเองก็ได้"
-      );
-      pushChips(CATEGORIES);
+      const page = detectPage();
+      if (page === "solar") {
+        pushMsg(
+          "ai",
+          "สวัสดีครับ ☀️ เลือกประเภทงานโซล่าเซลล์ที่ต้องการได้เลยครับ"
+        );
+        pushChips(SOLAR_CATEGORIES);
+      } else {
+        pushMsg(
+          "ai",
+          "สวัสดีครับ 🙏 แตะเลือกประเภทบริการได้เลยครับ หรือจะพิมพ์อาการเองก็ได้"
+        );
+        pushChips(CATEGORIES);
+      }
     }
     setTimeout(() => document.getElementById("bs-ai-input").focus(), 100);
   }
@@ -359,6 +385,7 @@
           message: text,
           history: state.history.slice(0, -1),
           customerPhone: window.BoonsookAI?._currentPhone || null,
+          page: detectPage(), // ★ "solar" หรือ "service" — ให้ AI รู้ context
         }),
       });
 
@@ -411,8 +438,72 @@
     return true;
   }
 
+  // ★ Map AI job_type (text) → solar select option (emoji + ชื่อยาว)
+  //   รับค่าใกล้เคียงได้หลายแบบ เช่น "ปั๊มน้ำ", "ติดตั้งปั๊มน้ำโซล่าเซลล์", "on-grid"
+  function mapSolarType(jobType) {
+    if (!jobType) return null;
+    const t = String(jobType).toLowerCase();
+    if (/ปั๊ม|pump/i.test(t)) return "💧 ติดตั้งปั๊มน้ำโซล่าเซลล์";
+    if (/ไฮบริด|hybrid/i.test(t)) return "🌐 ติดตั้งชุดไฮบริดโซล่าเซลล์";
+    if (/ออฟกริด|off.?grid/i.test(t)) return "🔋 ติดตั้งชุดออฟกริดโซล่าเซลล์";
+    if (/ออนกริด|on.?grid/i.test(t)) return "⚡ ติดตั้งชุดออนกริดโซล่าเซลล์";
+    if (/ซ่อม|เซอร์วิส|service/i.test(t)) return "🔌 ซ่อม & เซอร์วิสระบบโซล่าเซลล์";
+    if (/โซล่า|solar/i.test(t)) return "🛠️ งานโซล่าเซลล์อื่นๆ";
+    return null;
+  }
+
+  // ★ กรอกฟอร์มหน้า page-solar
+  function fillSolarForm(result) {
+    const typeEl = document.getElementById("solType");
+    if (!typeEl) return 0;
+
+    let filled = 0;
+
+    // 1) ประเภทงานโซล่า
+    const solarLabel = mapSolarType(result.job_type);
+    if (solarLabel) {
+      const opts = Array.from(typeEl.options || []);
+      const match = opts.find(o => o.value === solarLabel || o.textContent.trim() === solarLabel);
+      if (match) {
+        typeEl.value = match.value;
+        typeEl.dispatchEvent(new Event("change", { bubbles: true }));
+        filled++;
+      }
+    }
+
+    // 2) ชื่อลูกค้า
+    const nameEl = document.getElementById("solName");
+    if (nameEl && result.customer_name && setField(nameEl, result.customer_name)) filled++;
+
+    // 3) เบอร์โทร
+    const phoneEl = document.getElementById("solPhone");
+    if (phoneEl && result.customer_phone && setField(phoneEl, result.customer_phone)) filled++;
+
+    // 4) ที่อยู่
+    const addrEl = document.getElementById("solAddress");
+    if (addrEl && result.customer_address && setField(addrEl, result.customer_address)) filled++;
+
+    // 5) รายละเอียดงาน — รวม sub_service + description
+    const detailEl = document.getElementById("solDetail");
+    if (detailEl) {
+      const parts = [];
+      if (result.sub_service) parts.push(result.sub_service);
+      if (result.description) parts.push(result.description);
+      const txt = parts.join(" — ");
+      if (txt && setField(detailEl, txt)) filled++;
+    }
+
+    return filled;
+  }
+
   // ---------- APPLY TO FORM ----------
   function tryFill(result) {
+    // ★ ถ้าอยู่หน้า solar → fill ฟอร์มโซล่าก่อน (ถ้ากรอกได้) else fall-through
+    if (detectPage() === "solar") {
+      const n = fillSolarForm(result);
+      if (n > 0) return n;
+    }
+
     let filled = 0;
 
     // --- 1) ประเภทบริการ ---
@@ -499,6 +590,20 @@
     let filled = tryFill(result);
 
     if (filled === 0) {
+      // ★ ถ้า AI บอกเป็นงานโซล่า → พาไปหน้า solar
+      const solarLabel = mapSolarType(result.job_type);
+      if (solarLabel) {
+        const solarNav = document.querySelector('[data-route="solar"]');
+        if (solarNav) {
+          pushMsg("ai", "กำลังพาไปหน้างานโซล่าเซลล์ให้ครับ...");
+          solarNav.click();
+          setTimeout(() => {
+            filled = tryFill(result);
+            finishFill(filled);
+          }, 600);
+          return;
+        }
+      }
       const navBtn = document.querySelector('[data-route="service_request"]');
       if (navBtn) {
         pushMsg("ai", "กำลังพาไปหน้าแจ้งซ่อมให้ครับ...");
@@ -513,8 +618,12 @@
     finishFill(filled);
   }
 
-  // ค้นหาปุ่มบันทึกที่ใช้ได้ — admin form ก่อน, ถ้าไม่มีลอง customer form
+  // ค้นหาปุ่มบันทึกที่ใช้ได้ — รองรับ solar/service job/customer form
   function findSaveButton() {
+    // ★ solar page มีปุ่มบันทึกของตัวเอง
+    if (detectPage() === "solar") {
+      return document.getElementById("solSaveBtn");
+    }
     return (
       document.getElementById("saveServiceJobBtn") ||
       document.getElementById("srSubmitBtn") ||
@@ -562,11 +671,14 @@
     state.history = [];
     state.lastResult = null;
     document.getElementById("bs-ai-body").innerHTML = "";
-    pushMsg(
-      "ai",
-      "เริ่มใหม่ได้เลยครับ แตะเลือกบริการได้เลย"
-    );
-    pushChips(CATEGORIES);
+    const page = detectPage();
+    if (page === "solar") {
+      pushMsg("ai", "เริ่มใหม่ได้เลยครับ ☀️ เลือกประเภทงานโซล่าเซลล์");
+      pushChips(SOLAR_CATEGORIES);
+    } else {
+      pushMsg("ai", "เริ่มใหม่ได้เลยครับ แตะเลือกบริการได้เลย");
+      pushChips(CATEGORIES);
+    }
   }
 
   // ---------- PUBLIC API ----------
