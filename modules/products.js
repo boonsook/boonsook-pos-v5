@@ -234,6 +234,7 @@ function renderView(ctx) {
           <button id="prodImportBtn" class="btn light" style="font-size:12px;padding:6px 10px">นำเข้า</button>
           <button id="prodExportBtn" class="btn light" style="font-size:12px;padding:6px 10px">ส่งออก</button>
           <button id="prodGenAllBarcodesBtn" class="btn light" style="font-size:12px;padding:6px 10px" title="สร้างบาร์โค้ดให้สินค้านับสต็อกที่ยังไม่มี">สร้างบาร์โค้ด</button>
+          <button id="prodPrintBarcodesBtn" class="btn light" style="font-size:12px;padding:6px 10px" title="พิมพ์สติ๊กเกอร์บาร์โค้ดหลายตัว">🖨️ พิมพ์บาร์โค้ด</button>
           <button id="prodDeleteAllBtn" class="btn light" style="font-size:12px;padding:6px 10px;color:#dc2626;border-color:#fca5a5" title="ลบสินค้าทั้งหมดเพื่อนำเข้าใหม่">ลบทั้งหมด</button>
           <button id="prodAddBtn" class="btn primary" style="font-size:12px;padding:6px 12px">+ เพิ่มสินค้า</button>
         </div>
@@ -352,6 +353,7 @@ function renderView(ctx) {
   });
   el.querySelector("#prodExportBtn")?.addEventListener("click", () => exportProducts(state));
   el.querySelector("#prodGenAllBarcodesBtn")?.addEventListener("click", () => generateAllBarcodes(ctx));
+  el.querySelector("#prodPrintBarcodesBtn")?.addEventListener("click", () => openBulkBarcodePrintModal(ctx));
   el.querySelector("#prodDeleteAllBtn")?.addEventListener("click", () => deleteAllProducts(ctx));
   el.querySelector("#prodFileInput")?.addEventListener("change", (e) => {
     const file = e.target.files?.[0];
@@ -415,6 +417,18 @@ function renderView(ctx) {
   el.querySelectorAll("[data-prod-add]").forEach(btn => btn.addEventListener("click", () => {
     addToCart(Number(btn.dataset.prodAdd));
     window.App?.showToast?.("เพิ่มลงบิลแล้ว");
+  }));
+
+  // ★ Print single barcode (per-item)
+  el.querySelectorAll("[data-prod-print]").forEach(btn => btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const pid = Number(btn.dataset.prodPrint);
+    const prod = state.products.find(x => x.id === pid);
+    if (!prod || !prod.barcode) {
+      window.App?.showToast?.("สินค้าไม่มีบาร์โค้ด");
+      return;
+    }
+    openBarcodePrintWindow([{ name: prod.name, barcode: prod.barcode, price: prod.price, qty: 1 }]);
   }));
 
   // ★ Delete product (admin only)
@@ -497,6 +511,7 @@ function renderProductItem(p, mode, state) {
         <div class="prod-grid-actions">
           <button class="btn light" style="padding:6px 10px;font-size:12px" data-prod-edit="${p.id}">แก้ไข</button>
           <button class="btn primary" style="padding:6px 10px;font-size:12px" data-prod-add="${p.id}">+ บิล</button>
+          ${pType === "stock" && p.barcode ? `<button class="btn light" style="padding:6px 8px;font-size:12px" data-prod-print="${p.id}" title="พิมพ์บาร์โค้ด">🖨️</button>` : ''}
           ${isAdmin ? `<button class="btn" style="padding:6px 8px;font-size:12px;background:#ef4444;color:#fff;border:none;border-radius:8px;cursor:pointer" data-prod-del="${p.id}" title="ลบสินค้า">🗑️</button>` : ''}
         </div>
       </div>
@@ -524,6 +539,7 @@ function renderProductItem(p, mode, state) {
         <div class="prod-list-actions">
           <button class="btn light" style="padding:6px 10px;font-size:12px" data-prod-edit="${p.id}">•••</button>
           <button class="btn primary" style="padding:6px 10px;font-size:12px" data-prod-add="${p.id}">+ บิล</button>
+          ${pType === "stock" && p.barcode ? `<button class="btn light" style="padding:6px 8px;font-size:12px" data-prod-print="${p.id}" title="พิมพ์บาร์โค้ด">🖨️</button>` : ''}
           ${isAdmin ? `<button class="btn" style="padding:6px 8px;font-size:12px;background:#ef4444;color:#fff;border:none;border-radius:8px;cursor:pointer" data-prod-del="${p.id}" title="ลบสินค้า">🗑️</button>` : ''}
         </div>
       </div>
@@ -778,6 +794,268 @@ async function importProducts(file, ctx) {
     console.error("Import error:", err);
     window.App?.showToast?.("นำเข้าไม่สำเร็จ: " + (err.message || err));
   }
+}
+
+
+// ═══════════════════════════════════════════════════════════
+//  พิมพ์บาร์โค้ดสติ๊กเกอร์ (เปิดหน้าต่างใหม่ + auto print)
+//  items = [{name, barcode, price, qty}]  — qty = จำนวนสติ๊กเกอร์
+// ═══════════════════════════════════════════════════════════
+export function openBarcodePrintWindow(items) {
+  const valid = (items || []).filter(it => it && it.barcode && String(it.barcode).trim());
+  if (valid.length === 0) {
+    window.App?.showToast?.("ไม่มีบาร์โค้ดให้พิมพ์");
+    return;
+  }
+
+  // ★ ขยายตาม qty
+  const stickers = [];
+  valid.forEach(it => {
+    const qty = Math.max(1, Math.min(200, Number(it.qty || 1))); // cap 200 ป้าย/ตัว กันพิมพ์เกิน
+    for (let i = 0; i < qty; i++) stickers.push(it);
+  });
+
+  const w = window.open("", "barcode-print", "width=900,height=700");
+  if (!w) {
+    window.App?.showToast?.("กรุณาอนุญาต pop-up เพื่อพิมพ์บาร์โค้ด");
+    return;
+  }
+
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' })[c]);
+  const fmtPrice = (n) => Number(n || 0).toLocaleString("th-TH", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+
+  const html = `<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<title>พิมพ์บาร์โค้ด — ${stickers.length} ป้าย</title>
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"><\/script>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: 'Prompt', system-ui, -apple-system, sans-serif; margin: 0; padding: 0; background: #eef2f7; color: #111; }
+  .toolbar { position: sticky; top: 0; background: #fff; padding: 12px 16px; border-bottom: 1px solid #e2e8f0; display: flex; gap: 10px; align-items: center; z-index: 10; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+  .toolbar button { padding: 9px 16px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; border: 1px solid transparent; }
+  .btn-primary { background: #0284c7; color: #fff; border-color: #0284c7; }
+  .btn-gray { background: #fff; color: #334155; border-color: #cbd5e1; }
+  .toolbar select { padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; font-weight: 600; background: #fff; cursor: pointer; }
+  .toolbar .count { margin-left: auto; color: #64748b; font-size: 13px; font-weight: 600; }
+
+  .sheet { padding: 12px; display: grid; gap: 6px; background: #fff; }
+  .sheet.size-sm { grid-template-columns: repeat(4, 1fr); }
+  .sheet.size-md { grid-template-columns: repeat(3, 1fr); }
+  .sheet.size-lg { grid-template-columns: repeat(2, 1fr); }
+  .sticker { border: 1px dashed #cbd5e1; padding: 6px 8px; text-align: center; page-break-inside: avoid; break-inside: avoid; background: #fff; }
+  .sticker .shop { font-size: 9px; color: #64748b; letter-spacing: .3px; }
+  .sticker .name { font-size: 11px; font-weight: 700; color: #0f172a; margin: 2px 0; line-height: 1.2; min-height: 1.2em; max-height: 2.4em; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .sticker svg { display: block; margin: 2px auto; max-width: 100%; height: auto; }
+  .sticker .price { font-size: 13px; font-weight: 800; color: #0284c7; margin-top: 2px; }
+
+  @media print {
+    .toolbar { display: none !important; }
+    body { background: #fff; }
+    .sheet { gap: 0; padding: 0; }
+    .sticker { border: none; }
+    @page { margin: 8mm; }
+  }
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <button class="btn-primary" onclick="window.print()">🖨️ พิมพ์</button>
+  <label style="font-size:13px;color:#475569;font-weight:600">ขนาด:</label>
+  <select id="sz" onchange="document.getElementById('sheet').className='sheet '+this.value">
+    <option value="size-sm">เล็ก (4 คอลัมน์)</option>
+    <option value="size-md" selected>กลาง (3 คอลัมน์)</option>
+    <option value="size-lg">ใหญ่ (2 คอลัมน์)</option>
+  </select>
+  <button class="btn-gray" onclick="window.close()">ปิด</button>
+  <span class="count">${stickers.length} ป้าย</span>
+</div>
+<div id="sheet" class="sheet size-md">
+${stickers.map(s => `
+  <div class="sticker">
+    <div class="shop">บุญสุขแอร์</div>
+    <div class="name">${esc(s.name || '-')}</div>
+    <svg class="bc" data-code="${esc(s.barcode)}"></svg>
+    ${s.price != null && Number(s.price) > 0 ? `<div class="price">฿${esc(fmtPrice(s.price))}</div>` : ''}
+  </div>`).join('')}
+</div>
+<script>
+  window.addEventListener('load', function() {
+    var svgs = document.querySelectorAll('svg.bc');
+    svgs.forEach(function(svg) {
+      var code = svg.dataset.code;
+      if (!code) return;
+      try {
+        JsBarcode(svg, code, { format: "CODE128", width: 1.4, height: 38, displayValue: true, fontSize: 10, margin: 2, textMargin: 1 });
+      } catch(e) {
+        var div = document.createElement('div');
+        div.style.cssText = 'color:#999;font-size:10px;font-family:monospace;padding:8px';
+        div.textContent = code;
+        svg.parentNode.replaceChild(div, svg);
+      }
+    });
+    setTimeout(function() { window.print(); }, 400);
+  });
+<\/script>
+</body>
+</html>`;
+
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+}
+
+// ★ expose ให้ module อื่น / drawer เรียกได้
+if (typeof window !== "undefined") {
+  window.openBarcodePrintWindow = openBarcodePrintWindow;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Modal เลือกสินค้า + จำนวน เพื่อพิมพ์บาร์โค้ดหลายใบ
+// ═══════════════════════════════════════════════════════════
+function openBulkBarcodePrintModal(ctx) {
+  const { state } = ctx;
+  const products = (state.products || []).filter(p => {
+    const t = detectProductType(p);
+    return t === "stock" && p.barcode && String(p.barcode).trim();
+  });
+
+  if (products.length === 0) {
+    window.App?.showToast?.("ยังไม่มีสินค้านับสต็อกที่มีบาร์โค้ด — กด 'สร้างบาร์โค้ด' ก่อน");
+    return;
+  }
+
+  // ลบ modal เดิมถ้ามี
+  document.getElementById("bulkBarcodePrintModal")?.remove();
+
+  const modal = document.createElement("div");
+  modal.id = "bulkBarcodePrintModal";
+  modal.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px";
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:14px;width:100%;max-width:640px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden">
+      <div style="padding:14px 16px;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+        <h3 style="margin:0;font-size:16px;font-weight:800;color:#0284c7">🖨️ พิมพ์บาร์โค้ดสติ๊กเกอร์</h3>
+        <button id="bbpClose" class="btn light" style="font-size:12px">ปิด</button>
+      </div>
+      <div style="padding:12px 16px;border-bottom:1px solid #e2e8f0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input id="bbpSearch" placeholder="🔍 ค้นหาสินค้า/บาร์โค้ด" style="flex:1;min-width:160px;padding:8px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px" />
+        <button id="bbpSelectAll" class="btn light" style="font-size:12px">เลือกทั้งหมด</button>
+        <button id="bbpClearAll" class="btn light" style="font-size:12px">ล้างการเลือก</button>
+      </div>
+      <div id="bbpList" style="flex:1;overflow-y:auto;padding:8px 12px;display:flex;flex-direction:column;gap:4px"></div>
+      <div style="padding:12px 16px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;background:#f8fafc">
+        <div id="bbpSummary" style="font-size:13px;color:#475569;font-weight:600">เลือกแล้ว 0 รายการ / 0 ป้าย</div>
+        <button id="bbpPrint" class="btn primary" style="font-size:13px;padding:8px 16px">🖨️ พิมพ์บาร์โค้ด</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  // State
+  const selected = new Map(); // id → qty
+
+  const renderList = (q) => {
+    const query = (q || "").toLowerCase();
+    const filtered = query ? products.filter(p =>
+      String(p.name || "").toLowerCase().includes(query) ||
+      String(p.barcode || "").toLowerCase().includes(query) ||
+      String(p.sku || "").toLowerCase().includes(query)
+    ) : products;
+
+    const list = document.getElementById("bbpList");
+    if (!list) return;
+    list.innerHTML = filtered.length ? filtered.map(p => {
+      const qty = selected.get(p.id) || 0;
+      const checked = qty > 0;
+      return `
+        <div class="bbp-row" data-id="${p.id}" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid ${checked ? '#bae6fd' : '#f1f5f9'};border-radius:8px;background:${checked ? '#f0f9ff' : '#fff'}">
+          <input type="checkbox" class="bbp-check" data-id="${p.id}" ${checked ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer" />
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;font-weight:700;color:#1f2937;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(p.name || '-')}</div>
+            <div style="font-size:11px;color:#64748b">${escHtml(p.barcode)} · ฿${money(p.price)}</div>
+          </div>
+          <input type="number" class="bbp-qty" data-id="${p.id}" min="1" max="200" value="${qty || 1}" style="width:64px;padding:6px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;text-align:center" ${checked ? '' : 'disabled'} />
+        </div>
+      `;
+    }).join("") : '<div style="padding:20px;text-align:center;color:#94a3b8;font-size:13px">ไม่พบสินค้า</div>';
+
+    bindListEvents();
+  };
+
+  const updateSummary = () => {
+    const items = Array.from(selected.entries()).filter(([_, q]) => q > 0);
+    const totalStickers = items.reduce((s, [_, q]) => s + q, 0);
+    const el = document.getElementById("bbpSummary");
+    if (el) el.textContent = `เลือกแล้ว ${items.length} รายการ / ${totalStickers} ป้าย`;
+  };
+
+  const bindListEvents = () => {
+    document.querySelectorAll(".bbp-check").forEach(cb => {
+      cb.addEventListener("change", (e) => {
+        const id = Number(e.target.dataset.id);
+        const qtyInput = document.querySelector(`.bbp-qty[data-id="${id}"]`);
+        if (e.target.checked) {
+          const q = Math.max(1, Number(qtyInput?.value || 1));
+          selected.set(id, q);
+          if (qtyInput) qtyInput.disabled = false;
+          const row = document.querySelector(`.bbp-row[data-id="${id}"]`);
+          if (row) { row.style.background = "#f0f9ff"; row.style.borderColor = "#bae6fd"; }
+        } else {
+          selected.delete(id);
+          if (qtyInput) qtyInput.disabled = true;
+          const row = document.querySelector(`.bbp-row[data-id="${id}"]`);
+          if (row) { row.style.background = "#fff"; row.style.borderColor = "#f1f5f9"; }
+        }
+        updateSummary();
+      });
+    });
+    document.querySelectorAll(".bbp-qty").forEach(inp => {
+      inp.addEventListener("input", (e) => {
+        const id = Number(e.target.dataset.id);
+        const q = Math.max(1, Math.min(200, Number(e.target.value || 1)));
+        if (selected.has(id)) { selected.set(id, q); updateSummary(); }
+      });
+    });
+  };
+
+  // Wire modal buttons
+  document.getElementById("bbpClose")?.addEventListener("click", () => modal.remove());
+  modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
+
+  document.getElementById("bbpSearch")?.addEventListener("input", (e) => renderList(e.target.value));
+
+  document.getElementById("bbpSelectAll")?.addEventListener("click", () => {
+    products.forEach(p => { if (!selected.has(p.id)) selected.set(p.id, 1); });
+    renderList(document.getElementById("bbpSearch")?.value || "");
+    updateSummary();
+  });
+
+  document.getElementById("bbpClearAll")?.addEventListener("click", () => {
+    selected.clear();
+    renderList(document.getElementById("bbpSearch")?.value || "");
+    updateSummary();
+  });
+
+  document.getElementById("bbpPrint")?.addEventListener("click", () => {
+    const items = Array.from(selected.entries())
+      .filter(([_, q]) => q > 0)
+      .map(([id, qty]) => {
+        const p = products.find(x => x.id === id);
+        return p ? { name: p.name, barcode: p.barcode, price: p.price, qty } : null;
+      })
+      .filter(Boolean);
+
+    if (items.length === 0) {
+      window.App?.showToast?.("กรุณาเลือกอย่างน้อย 1 รายการ");
+      return;
+    }
+    openBarcodePrintWindow(items);
+    modal.remove();
+  });
+
+  renderList("");
+  updateSummary();
 }
 
 

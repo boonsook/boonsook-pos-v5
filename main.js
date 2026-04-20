@@ -1504,6 +1504,28 @@ function genDrawerBarcode() {
   showToast("สร้างบาร์โค้ด: " + input.value);
 }
 
+// ═══ พิมพ์สติ๊กเกอร์บาร์โค้ดจาก drawer ═══
+function printDrawerBarcode() {
+  const barcodeInput = $("newProductBarcode");
+  const nameInput    = $("newProductName");
+  const priceInput   = $("newProductPrice");
+  const barcode = (barcodeInput?.value || "").trim();
+  const name    = (nameInput?.value || "").trim() || "สินค้า";
+  const price   = Number(priceInput?.value || 0);
+
+  if (!barcode) {
+    showToast("กรุณาสร้างหรือกรอกบาร์โค้ดก่อน");
+    return;
+  }
+
+  if (typeof window.openBarcodePrintWindow !== "function") {
+    showToast("ฟังก์ชันพิมพ์ยังไม่พร้อม — โหลดหน้าใหม่");
+    return;
+  }
+
+  window.openBarcodePrintWindow([{ name, barcode, price, qty: 1 }]);
+}
+
 // อัปเดต preview เมื่อพิมพ์บาร์โค้ดเอง
 function updateBarcodePreview() {
   const input = $("newProductBarcode");
@@ -2074,6 +2096,7 @@ function bindStaticEvents(){
   $("drawerScanBtn")?.addEventListener("click", openDrawerScanner);
   $("drawerScannerClose")?.addEventListener("click", closeDrawerScanner);
   $("drawerGenBarcodeBtn")?.addEventListener("click", genDrawerBarcode);
+  $("drawerPrintBarcodeBtn")?.addEventListener("click", printDrawerBarcode);
   $("newProductBarcode")?.addEventListener("input", updateBarcodePreview);
   $("newProductType")?.addEventListener("change", (e) => _toggleDrawerSections(e.target.value));
   $("saveCustomerBtn")?.addEventListener("click", saveCustomer);
