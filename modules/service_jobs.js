@@ -5,6 +5,7 @@ const STATUS_LABELS = {
   in_progress:"กำลังดำเนินการ",
   done:       "เสร็จแล้ว",
   delivered:  "ส่งมอบแล้ว",
+  closed:     "🎉 ลูกค้ายืนยันปิดงาน",
   open:       "เปิดงาน",
   cancelled:  "ยกเลิก"
 };
@@ -15,6 +16,7 @@ const STATUS_COLOR = {
   in_progress:"#0284c7",
   done:       "#10b981",
   delivered:  "#6366f1",
+  closed:     "#7c3aed",
   open:       "#f59e0b",
   cancelled:  "#ef4444"
 };

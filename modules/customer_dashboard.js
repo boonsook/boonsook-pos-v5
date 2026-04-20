@@ -4,7 +4,7 @@
 import { isValidPhone, getUserFriendlyError, validateFile } from "./validators.js";
 
 let _custCart = JSON.parse(localStorage.getItem("bsk_cust_cart") || "[]");
-let _custTab = "shop"; // shop | cart | orders | points
+let _custTab = "shop"; // shop | cart | orders | jobs | points
 let _custCategory = "all";
 let _custSearch = "";
 let _acCatalog = null; // ★ แคชแคตตาล็อกแอร์
@@ -140,6 +140,15 @@ export function renderCustomerDashboard(ctx) {
     (j.sub_service || "").includes("สั่งซื้อ") &&
     !(j.note || "").includes("[ลบแล้ว]")
   );
+  // ★ งานบริการของฉัน (ซ่อม/ล้าง/ติดตั้ง — ไม่รวมออเดอร์ซื้อสินค้า)
+  const myServiceJobs = (state.serviceJobs || []).filter(j =>
+    (j.customer_phone === userPhone || j.created_by === state.currentUser?.id) &&
+    !(j.sub_service || "").includes("สั่งซื้อ") &&
+    !/^SH-(transfer|cod_cash|cod_transfer)\|/.test(j.note || "") &&
+    !(j.note || "").includes("[ลบแล้ว]")
+  ).sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+  // นับงานที่ต้องการยืนยันจากลูกค้า (ช่างส่งงานแล้ว)
+  const pendingConfirmCount = myServiceJobs.filter(j => j.status === "done" || j.status === "delivered").length;
   const mySales = customerId
     ? (state.sales || []).filter(s => s.customer_id === customerId && !(s.note||"").includes("[ลบแล้ว]"))
     : [];
@@ -199,6 +208,7 @@ export function renderCustomerDashboard(ctx) {
         {id:"shop", icon:"🛍️", label:"ร้านค้า"},
         {id:"cart", icon:"🛒", label:"ตะกร้า", badge: cartCount},
         {id:"orders", icon:"📋", label:"ประวัติซื้อ"},
+        {id:"jobs", icon:"🔧", label:"งานของฉัน", badge: pendingConfirmCount},
         {id:"points", icon:"⭐", label:"แต้มสะสม"}
       ].map(t => `
         <button class="cust-tab-btn" data-cust-tab="${t.id}" style="flex:1;padding:10px 4px;border:none;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;transition:.15s;position:relative;
@@ -491,6 +501,113 @@ export function renderCustomerDashboard(ctx) {
       </div>`}
     `;
 
+  } else if (_custTab === "jobs") {
+    // ═══ TAB: งานของฉัน (งานบริการ/ซ่อม) ═══
+    const jobTypeEmoji = { ac:"❄️", solar:"☀️", cctv:"📷", other:"🔧" };
+    const jobTypeLabel = { ac:"งานแอร์", solar:"โซลาร์เซลล์", cctv:"กล้องวงจรปิด", other:"งานอื่นๆ" };
+    const STEPS = [
+      { key:"pending",   label:"รอรับงาน",       icon:"📥" },
+      { key:"progress",  label:"ช่างกำลังทำ",    icon:"🔧" },
+      { key:"done",      label:"ช่างส่งงาน",     icon:"📦" },
+      { key:"closed",    label:"ปิดงาน",         icon:"✅" },
+    ];
+    // สถานะ → step index (0-3) — delivered/in_progress/accepted map เข้ากับ step ที่ใกล้ที่สุด
+    const statusToStep = (s) => {
+      if (s === "pending" || s === "open" || !s) return 0;
+      if (s === "progress" || s === "in_progress" || s === "accepted") return 1;
+      if (s === "done" || s === "delivered") return 2;
+      if (s === "closed" || s === "completed") return 3;
+      if (s === "cancelled") return -1;
+      return 0;
+    };
+
+    contentEl.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <h3 style="margin:0;color:#0284c7;font-size:16px">🔧 งานบริการของฉัน</h3>
+        ${pendingConfirmCount > 0 ? `<span style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:99px;background:#fef3c7;color:#92400e">รอยืนยัน ${pendingConfirmCount} งาน</span>` : ''}
+      </div>
+      ${myServiceJobs.length > 0 ? `
+      <div style="display:grid;gap:12px">
+        ${myServiceJobs.map(j => {
+          const step = statusToStep(j.status);
+          const isCancelled = j.status === "cancelled";
+          const canConfirm = j.status === "done" || j.status === "delivered";
+          const typeKey = j.job_type || "other";
+          const emoji = jobTypeEmoji[typeKey] || "🔧";
+          const typeLabel2 = jobTypeLabel[typeKey] || "งานอื่นๆ";
+          const desc = j.description || j.sub_service || "-";
+          const priceText = j.total_cost ? money(j.total_cost) : "ประเมินหน้างาน";
+          const createdStr = j.created_at ? new Date(j.created_at).toLocaleString("th-TH", { year:"numeric", month:"short", day:"numeric", hour:"2-digit", minute:"2-digit" }) : "";
+
+          // progress bar
+          const progressHtml = isCancelled
+            ? `<div style="background:#fee2e2;color:#991b1b;padding:8px 12px;border-radius:10px;font-size:13px;font-weight:700;text-align:center">🔴 งานถูกยกเลิก</div>`
+            : `<div style="display:flex;align-items:center;gap:2px;margin:8px 0">
+                ${STEPS.map((s, i) => {
+                  const active = i <= step;
+                  const isCur = i === step;
+                  return `
+                    <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;position:relative">
+                      <div style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;
+                        background:${active ? '#0284c7' : '#e2e8f0'};
+                        color:${active ? '#fff' : '#94a3b8'};
+                        ${isCur ? 'box-shadow:0 0 0 4px #bae6fd;' : ''}">
+                        ${s.icon}
+                      </div>
+                      <div style="font-size:10px;font-weight:${isCur ? '800' : '500'};color:${active ? '#0284c7' : '#94a3b8'};text-align:center;line-height:1.2">${s.label}</div>
+                      ${i < STEPS.length - 1 ? `<div style="position:absolute;top:14px;left:calc(50% + 16px);right:calc(-50% + 16px);height:3px;background:${i < step ? '#0284c7' : '#e2e8f0'};z-index:-1"></div>` : ''}
+                    </div>`;
+                }).join("")}
+              </div>`;
+
+          return `
+          <div style="background:#fff;border-radius:14px;border:1px solid #e2e8f0;overflow:hidden;${canConfirm ? 'box-shadow:0 4px 14px rgba(16,185,129,.15);border-color:#10b981' : ''}">
+            <div style="padding:14px">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:6px">
+                <div style="flex:1;min-width:0">
+                  <div style="font-size:11px;color:#94a3b8;font-weight:700">${escHtml(j.job_no || "-")}</div>
+                  <div style="font-size:15px;font-weight:800;color:#1f2937;margin-top:2px">${emoji} ${escHtml(typeLabel2)}</div>
+                  <div style="font-size:13px;color:#475569;margin-top:4px;word-wrap:break-word">${escHtml(desc)}</div>
+                </div>
+                <div style="text-align:right;white-space:nowrap">
+                  <div style="font-size:16px;font-weight:900;color:#0284c7">${priceText}</div>
+                  <div style="font-size:10px;color:#94a3b8;margin-top:2px">${createdStr}</div>
+                </div>
+              </div>
+              ${progressHtml}
+              ${canConfirm ? `
+                <div style="background:#f0fdf4;border:1px dashed #10b981;border-radius:10px;padding:10px;margin-top:10px">
+                  <div style="font-size:12px;color:#065f46;margin-bottom:8px;line-height:1.45">
+                    ✅ ช่างแจ้งว่าส่งงานเรียบร้อยแล้ว — กรุณายืนยันปิดงานเมื่อตรวจสอบเสร็จ
+                  </div>
+                  <button class="cust-confirm-btn" data-job-id="${escHtml(j.id)}"
+                    style="width:100%;padding:10px;background:#10b981;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer">
+                    ✓ ยืนยันปิดงาน
+                  </button>
+                </div>
+              ` : ''}
+              ${j.status === "closed" ? `
+                <div style="background:#f3e8ff;color:#6b21a8;padding:8px 12px;border-radius:10px;font-size:12px;font-weight:700;text-align:center;margin-top:8px">
+                  🎉 ปิดงานเรียบร้อยแล้ว — ขอบคุณที่ใช้บริการครับ
+                </div>
+              ` : ''}
+              ${j.note && !/^SH-/.test(j.note) && !j.note.includes("[ลบแล้ว]") ? `
+                <div style="font-size:12px;color:#64748b;margin-top:8px;padding:8px 10px;background:#f8fafc;border-radius:8px;border-left:3px solid #0284c7">
+                  💬 ${escHtml(j.note)}
+                </div>
+              ` : ''}
+            </div>
+          </div>`;
+        }).join("")}
+      </div>
+      ` : `
+      <div style="text-align:center;padding:60px 20px;color:#94a3b8">
+        <div style="font-size:64px;margin-bottom:12px">🔧</div>
+        <div style="font-size:16px;font-weight:700;margin-bottom:4px">ยังไม่มีงานบริการ</div>
+        <div style="font-size:13px">เมื่อแจ้งซ่อม/จอง งานจะมาแสดงที่นี่</div>
+      </div>`}
+    `;
+
   } else if (_custTab === "points") {
     contentEl.innerHTML = `
       <div style="text-align:center;background:linear-gradient(135deg,#fef3c7,#fde68a);border-radius:20px;padding:24px">
@@ -525,6 +642,35 @@ export function renderCustomerDashboard(ctx) {
   container.querySelectorAll("[data-cust-tab]").forEach(btn => btn.addEventListener("click", () => {
     _custTab = btn.dataset.custTab;
     renderCustomerDashboard(ctx);
+  }));
+
+  // ★ ปุ่ม "ยืนยันปิดงาน" ในแท็บงานของฉัน — ลูกค้ายืนยันว่าช่างส่งงานเรียบร้อย
+  container.querySelectorAll(".cust-confirm-btn").forEach(btn => btn.addEventListener("click", async (e) => {
+    const jobId = btn.dataset.jobId;
+    if (!jobId) return;
+    if (!confirm("ยืนยันว่าช่างส่งงานเรียบร้อยแล้วใช่ไหมครับ?\nหลังจากยืนยันแล้วงานจะถูกปิดและแจ้งไปที่แอดมิน")) return;
+    btn.disabled = true;
+    btn.textContent = "กำลังยืนยัน...";
+    try {
+      const xhrPatch = window._appXhrPatch;
+      if (!xhrPatch) throw new Error("xhrPatch not available");
+      // หา job เพื่อ append note ยืนยัน
+      const currentJob = (state.serviceJobs || []).find(j => String(j.id) === String(jobId));
+      const existingNote = (currentJob?.note || "").trim();
+      const ts = new Date().toLocaleString("th-TH");
+      const stamp = `[ลูกค้ายืนยันปิดงาน ${ts}]`;
+      const newNote = existingNote ? `${existingNote}\n${stamp}` : stamp;
+      const res = await xhrPatch("service_jobs", { status: "closed", note: newNote }, "id", jobId);
+      if (!res.ok) throw new Error(res.error?.message || "บันทึกไม่สำเร็จ");
+      // อัพเดท local state ทันที ไม่ต้องรอ reload
+      if (currentJob) { currentJob.status = "closed"; currentJob.note = newNote; }
+      showToast("✓ ปิดงานเรียบร้อย ขอบคุณที่ใช้บริการ");
+      renderCustomerDashboard(ctx);
+    } catch (err) {
+      showToast("เกิดข้อผิดพลาด: " + (err.message || err));
+      btn.disabled = false;
+      btn.textContent = "✓ ยืนยันปิดงาน";
+    }
   }));
 
   // Category filter (dropdown)
