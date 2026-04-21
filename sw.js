@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v10 (2026-04-18): bug fixes — integrate validators, unit_cost in sale_items, QR scanner stop
-const CACHE_NAME = 'boonsook-pos-v5-cache-v10';
+// v11 (2026-04-21): bust stale cache of truncated main.js + store defaults fix
+const CACHE_NAME = 'boonsook-pos-v5-cache-v11';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
