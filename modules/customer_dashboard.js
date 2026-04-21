@@ -976,18 +976,19 @@ export function renderCustomerDashboard(ctx) {
         _custSlipUrl = await _uploadSlipToStorage(_custSlipData, state);
       }
 
+      // ★ Minimal payload — match main.js saveServiceJob schema (known to work)
+      // Removed: created_by (RLS risk for customer session), sub_service (redundant w/ description)
+      // Kept: total_cost (displayed on dashboard), job_type "other" (Task #18)
       const jobPayload = {
         job_no: orderNo,
         customer_name: chkName,
         customer_phone: chkPhone,
         customer_address: chkAddress,
         job_type: "other",
-        sub_service: "🛒 สั่งซื้อสินค้า",
         status: "pending",
         total_cost: totalAmount,
         description: `📱 สั่งซื้อผ่านเว็บ\n👤 ${chkName}\n📞 ${chkPhone}\n📍 ${chkAddress}\n💳 ชำระ: ${payLabel}${payMethod === "transfer" && _custSlipResult ? `\n🧾 สลิป: ${_custSlipVerified ? "✅ ตรวจแล้ว" : "⏳ รอตรวจ"}${_custSlipResult.transRef ? " Ref:" + _custSlipResult.transRef : ""}${_custSlipResult.amount ? " ยอด:" + _custSlipResult.amount : ""}${_custSlipResult.sender ? " จาก:" + _custSlipResult.sender : ""}` : ""}${_custSlipUrl ? `\n🔗 สลิป: ${_custSlipUrl}` : ""}\n${chkNote ? `📝 ${chkNote}` : ""}\n\n🛒 รายการ:\n${orderItems.map(i => `• ${i.name} x${i.qty} = ${money(i.total)}`).join("\n")}\n\n💰 รวม: ${money(totalAmount)}`,
-        note: `SH-${payMethod}|${_custSlipVerified ? "SLIP_OK" : _custSlipData ? "SLIP_PENDING" : ""}|${chkNote || "สั่งซื้อจากลูกค้า " + chkName}${_custSlipUrl ? "|SLIP_URL:" + _custSlipUrl : ""}`,
-        created_by: state.currentUser?.id || null
+        note: `SH-${payMethod}|${_custSlipVerified ? "SLIP_OK" : _custSlipData ? "SLIP_PENDING" : ""}|${chkNote || "สั่งซื้อจากลูกค้า " + chkName}${_custSlipUrl ? "|SLIP_URL:" + _custSlipUrl : ""}`
       };
 
       // ★ Validate payload ก่อนส่ง — ป้องกัน 400 error
@@ -1007,6 +1008,7 @@ export function renderCustomerDashboard(ctx) {
       }
 
       let success = false;
+      let _lastCheckoutError = null;
 
       // วิธีที่ 1: fetch REST API โดยตรง (เหมือน service_request.js ที่ทำงานได้)
       try {
@@ -1019,25 +1021,39 @@ export function renderCustomerDashboard(ctx) {
             body: JSON.stringify(jobPayload)
           });
           if (resp.ok) success = true;
-          else console.warn("REST POST failed:", resp.status, await resp.text().catch(()=>""));
+          else {
+            const errBody = await resp.text().catch(() => "");
+            console.error("[checkout] REST POST 400 body:", errBody);
+            console.error("[checkout] failing payload:", JSON.stringify(jobPayload, null, 2));
+            _lastCheckoutError = errBody;
+          }
         }
-      } catch(fetchErr) { console.warn("Fetch insert error:", fetchErr); }
+      } catch(fetchErr) { console.warn("Fetch insert error:", fetchErr); _lastCheckoutError = String(fetchErr); }
 
       // วิธีที่ 2: Supabase JS client fallback (ไม่ใช้ .select() เพราะ RLS อาจบล็อค)
       if (!success && state.supabase) {
         const { error } = await state.supabase.from("service_jobs").insert([jobPayload]);
         if (!error) success = true;
-        else console.warn("Supabase insert failed:", error?.message);
+        else {
+          console.error("[checkout] Supabase insert failed — full error:", error);
+          _lastCheckoutError = error?.message || JSON.stringify(error);
+        }
       }
 
       // วิธีที่ 3: XHR POST fallback
       if (!success && window._appXhrPost) {
         const res = await window._appXhrPost("service_jobs", jobPayload);
         if (res?.ok) success = true;
-        else console.warn("XHR POST failed:", res?.error?.message);
+        else {
+          console.error("[checkout] XHR POST failed — full error:", res);
+          _lastCheckoutError = res?.error?.message || JSON.stringify(res);
+        }
       }
 
-      if (!success) throw new Error("ไม่สามารถสร้างออเดอร์ได้ — กรุณาลองอีกครั้ง");
+      if (!success) {
+        const detail = _lastCheckoutError ? ` (${String(_lastCheckoutError).slice(0, 200)})` : "";
+        throw new Error("ไม่สามารถสร้างออเดอร์ได้" + detail);
+      }
 
       // ★ ส่ง LINE แจ้งร้าน — 2 ช่องทาง
       const lineMsg = `🛒 ออเดอร์ใหม่!\n${orderNo}\n👤 ${chkName}\n📞 ${chkPhone}\n📍 ${chkAddress}\n💳 ${payLabel}\n\n${orderItems.map(i => `• ${i.name} x${i.qty}`).join("\n")}\n\n💰 รวม: ${money(totalAmount)}${chkNote ? `\n📝 ${chkNote}` : ""}`;
@@ -1066,17 +1082,4 @@ export function renderCustomerDashboard(ctx) {
       else renderCustomerDashboard(ctx);
 
     } catch(e) {
-      // Improved error handling with better user messages
-      let errorMsg = e?.message || "เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ";
-      // Show validation errors directly, wrap other errors
-      if (e?.message?.includes("ข้อมูลไม่ครบ") || e?.message?.includes("ยอดรวม")) {
-        showToast("❌ " + errorMsg);
-      } else {
-        showToast("❌ สั่งซื้อไม่สำเร็จ: " + errorMsg);
-      }
-      const btn = container.querySelector("#custCheckoutBtn");
-      if (btn) { btn.disabled = false; btn.textContent = "🛒 ยืนยันสั่งซื้อ"; }
-      console.error("Checkout error:", e);
-    }
-  });
-}
+      // Improved error handling wi
