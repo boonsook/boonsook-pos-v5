@@ -2156,4 +2156,3 @@ function updateAppLogos() {
   // Sync โลโก้จาก Supabase Storage (ทำ background ไม่ block)
   window._appSyncLogo().then(() => { if (typeof updateAppLogos === "function") updateAppLogos(); });
 })();
- 
