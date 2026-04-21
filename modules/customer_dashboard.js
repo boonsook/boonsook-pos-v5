@@ -1058,7 +1058,7 @@ export function renderCustomerDashboard(ctx) {
       const lineMsg = `🛒 ออเดอร์ใหม่!\n${orderNo}\n👤 ${chkName}\n📞 ${chkPhone}\n📍 ${chkAddress}\n💳 ${payLabel}\n\n${orderItems.map(i => `• ${i.name} x${i.qty}`).join("\n")}\n\n💰 รวม: ${money(totalAmount)}${chkNote ? `\n📝 ${chkNote}` : ""}`;
       // 1) Auto push via /api/line-notify (server-side token)
       if (typeof ctx.sendLineNotify === "function") {
-        Promise.resolve(ctx.sendLineNotify(lineMsg, { state, showToast })).catch(() => {});
+        Promise.resolve(ctx.sendLineNotify(lineMsg, { state, showToast }, "queue")).catch(() => {});
       }
       // 2) Customer-side share (optional)
       if (typeof window.shareViaLINE === "function") {
