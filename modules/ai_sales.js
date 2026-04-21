@@ -573,11 +573,13 @@ export function renderAiSalesPage(ctx) {
           const orderData = {
             job_no: jobNo,
             customer_name: cName,
+            customer_phone: cPhone,
+            customer_address: cAddr,
             job_type: "ac",
             status: "pending",
+            total_cost: prodPrice,
             description: `สั่งซื้อแอร์: ${prodName}\nBTU: ${(product.btu || 0).toLocaleString()}\nราคา: ${prodPrice.toLocaleString()} บาท\nแหล่ง: ${source}\nห้อง: ${answers.area?.toFixed(1) || "-"} ตร.ม. / BTU แนะนำ: ${answers.recBTU?.toLocaleString() || "-"}\n📞 เบอร์: ${cPhone}\n📍 ที่อยู่: ${cAddr}${cNote ? "\n📝 หมายเหตุ: " + cNote : ""}`,
-            note: `AI Sales: ${prodName} | ราคา ${prodPrice.toLocaleString()} บาท | โทร: ${cPhone}`,
-            created_at: new Date().toISOString()
+            note: `AI Sales: ${prodName} | ราคา ${prodPrice.toLocaleString()} บาท | โทร: ${cPhone}`
           };
 
           try {
@@ -646,7 +648,7 @@ export function renderAiSalesPage(ctx) {
               // LINE notify (safe — fire & forget with .catch)
               try {
                 if (typeof ctx?.sendLineNotify === "function") {
-                  Promise.resolve(ctx.sendLineNotify(`🛒 ออเดอร์ใหม่จาก AI Sales!\nเลขที่: ${jobNo}\nลูกค้า: ${cName}\nโทร: ${cPhone}\nที่อยู่: ${cAddr}\nสินค้า: ${prodName}\nราคา: ${prodPrice.toLocaleString()} บาท`)).catch(() => {});
+                  Promise.resolve(ctx.sendLineNotify(`🛒 ออเดอร์ใหม่จาก AI Sales!\nเลขที่: ${jobNo}\nลูกค้า: ${cName}\nโทร: ${cPhone}\nที่อยู่: ${cAddr}\nสินค้า: ${prodName}\nราคา: ${prodPrice.toLocaleString()} บาท`, { state, showToast }, "queue")).catch(() => {});
                 }
               } catch(lineErr) { /* skip */ }
             } else {
