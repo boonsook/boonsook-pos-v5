@@ -18,6 +18,8 @@ export async function onRequestPost(context) {
   try {
     const body = await context.request.json().catch(() => ({}));
     const message = String(body.message || "").trim();
+    // target: "queue" | "done" | "default" (default = LINE_USER_ID)
+    const target = String(body.target || "default").trim().toLowerCase();
 
     if (!message) {
       return new Response(JSON.stringify({ ok: false, error: "ข้อความว่าง" }), {
@@ -29,19 +31,27 @@ export async function onRequestPost(context) {
     const safeMessage = message.length > 4900 ? message.slice(0, 4900) + "\n…(ตัดทอน)" : message;
 
     const token = context.env.LINE_CHANNEL_ACCESS_TOKEN;
+    // ★ เลือกปลายทางตาม target (มี fallback เป็น LINE_USER_ID เสมอ)
     const userId = context.env.LINE_USER_ID;
+    let recipient = userId;
+    if (target === "queue") {
+      recipient = context.env.LINE_GROUP_QUEUE || userId;
+    } else if (target === "done") {
+      recipient = context.env.LINE_GROUP_DONE || userId;
+    }
 
-    if (!token || !userId) {
+    if (!token || !recipient) {
       // ไม่โยน error — แค่บอกว่ายังไม่ config เพื่อให้ UI แสดงคำแนะนำ
       return new Response(JSON.stringify({
         ok: false,
         configured: false,
-        error: "ยังไม่ได้ตั้ง LINE_CHANNEL_ACCESS_TOKEN / LINE_USER_ID บน Cloudflare Pages"
+        target,
+        error: "ยังไม่ได้ตั้ง LINE_CHANNEL_ACCESS_TOKEN / LINE_USER_ID (หรือ LINE_GROUP_QUEUE / LINE_GROUP_DONE) บน Cloudflare Pages"
       }), { status: 200, headers: corsHeaders });
     }
 
-    // รองรับกรณีส่งหลายคน (comma-separated)
-    const targets = userId.split(",").map(s => s.trim()).filter(Boolean);
+    // รองรับกรณีส่งหลายคน/หลายกลุ่ม (comma-separated)
+    const targets = recipient.split(",").map(s => s.trim()).filter(Boolean);
 
     const results = [];
     for (const to of targets) {

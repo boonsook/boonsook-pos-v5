@@ -69,6 +69,7 @@
   const state = {
     open: false,
     loading: false,
+    submitting: false,
     history: [],
     lastResult: null,
   };
@@ -278,6 +279,9 @@
 
   function close() {
     state.open = false;
+    // * reset guard when widget closes so next round can submit
+    state.submitting = false;
+    _autoSubmitDone = false;
     document.getElementById("bs-ai-modal").classList.remove("open");
     document.getElementById("bs-ai-backdrop").classList.remove("open");
     document.getElementById("bs-ai-fab").classList.remove("hidden");
@@ -395,7 +399,18 @@
     body.appendChild(div);
     body.scrollTop = body.scrollHeight;
 
-    div.querySelector("#bs-ai-apply").addEventListener("click", () => applyToForm(result));
+    const applyBtn = div.querySelector("#bs-ai-apply");
+    applyBtn.addEventListener("click", () => {
+      // * prevent double-click creating duplicate job queue
+      if (applyBtn.dataset.done === "1" || state.submitting) return;
+      applyBtn.dataset.done = "1";
+      state.submitting = true;
+      applyBtn.disabled = true;
+      applyBtn.textContent = "⏳ กำลังบันทึก...";
+      const restartBtn = div.querySelector("#bs-ai-restart");
+      if (restartBtn) restartBtn.disabled = true;
+      applyToForm(result);
+    });
     div.querySelector("#bs-ai-restart").addEventListener("click", restart);
   }
 
@@ -746,13 +761,17 @@
   }
 
   // คลิกปุ่มบันทึกอัตโนมัติ — ลูกค้าจะได้เห็นงานเข้าคิวทันที
+  let _autoSubmitDone = false;
   function autoSubmit() {
+    // * prevent double save click per round
+    if (_autoSubmitDone) return false;
     const btn = findSaveButton();
     if (!btn) {
       pushMsg("ai", '⚠️ กรอกให้แล้วครับ แต่หาปุ่ม "บันทึก" ไม่พบ กดบันทึกเองได้เลยนะครับ');
       return false;
     }
     try {
+      _autoSubmitDone = true;
       btn.click();
       return true;
     } catch (e) {
@@ -784,6 +803,9 @@
   function restart() {
     state.history = [];
     state.lastResult = null;
+    // * reset guard for a fresh round
+    state.submitting = false;
+    _autoSubmitDone = false;
     document.getElementById("bs-ai-body").innerHTML = "";
     const page = detectPage();
     if (page === "solar") {
