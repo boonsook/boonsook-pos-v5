@@ -313,11 +313,9 @@ function createSettingsContainer() {
  * @param {Object} ctx - Context object
  * @returns {Promise<void>}
  */
-export async function sendLineNotify(message, ctx, target) {
+export async function sendLineNotify(message, ctx) {
   const { state, showToast, forceSend } = ctx || {};
   const settings = state && state.lineNotifySettings;
-  // target: "queue" | "done" | "default" — server routes to LINE_GROUP_QUEUE / LINE_GROUP_DONE / LINE_USER_ID
-  const tgt = String(target || 'default').toLowerCase();
 
   // ยกเว้น forceSend (ใช้สำหรับปุ่มทดสอบ) — จะถูก gate ด้วย is_active
   if (!forceSend) {
@@ -331,7 +329,7 @@ export async function sendLineNotify(message, ctx, target) {
     const response = await fetch('/api/line-notify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, target: tgt })
+      body: JSON.stringify({ message })
     });
 
     let result = null;

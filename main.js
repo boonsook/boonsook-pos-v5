@@ -1673,8 +1673,6 @@ function openQuotationDrawer(doc=null){
 // ═══════════════════════════════════════════════════════════
 function openServiceJobDrawer(job=null){
   state.editingServiceJobId = job?.id || null;
-  // ★ เก็บสถานะเดิม ไว้ตรวจการเปลี่ยนเป็น "done" ตอน save
-  state.editingServiceJobOrigStatus = job?.status || "pending";
   setText("serviceJobDrawerTitle", job ? "แก้ไขงานช่าง" : "เพิ่มงานช่าง");
   $("serviceCustomer").value = job?.customer_name || "";
   $("servicePhone").value = job?.customer_phone || "";
@@ -1702,7 +1700,6 @@ async function saveServiceJob(){
     return showToast("เบอร์โทรลูกค้าไม่ถูกต้อง (ต้องมี 10 หลักขึ้นไป)");
   }
   let res;
-  const isNewJob = !state.editingServiceJobId;
   if (state.editingServiceJobId) {
     res = await xhrPatch("service_jobs", payload, "id", state.editingServiceJobId);
   } else {
@@ -1711,41 +1708,6 @@ async function saveServiceJob(){
   }
   if (!res.ok) return showToast(res.error?.message || "บันทึกงานช่างไม่สำเร็จ");
   closeAllDrawers(); await loadAllData(); showToast("บันทึกงานช่างแล้ว");
-
-  // ★ LINE notify เมื่อสร้างงานใหม่ → กลุ่ม "คิวงาน"
-  if (isNewJob) {
-    try {
-      const msg = "✍️ มีงานเข้าคิวใหม่!\n"
-        + "🔧 " + (payload.job_type || "-") + "\n"
-        + "👤 " + payload.customer_name + " | 📞 " + (payload.customer_phone || "-") + "\n"
-        + "📍 " + (payload.customer_address || "-") + "\n"
-        + "⚡ " + (payload.description || "").substring(0, 120) + "\n"
-        + "📝 เลขที่: " + payload.job_no;
-      sendLineNotify(msg, { state, showToast }, "queue");
-    } catch (e) {
-      console.warn("LINE notify (new service job) failed:", e);
-    }
-  }
-
-  // ★ LINE notify เมื่อปิดงาน (status เปลี่ยนเป็น done) → กลุ่ม "ส่งงาน"
-  const origStatus = state.editingServiceJobOrigStatus;
-  const transitionedToDone = !isNewJob && origStatus !== "done" && payload.status === "done";
-  if (transitionedToDone) {
-    try {
-      const msg = "✅ งานเสร็จแล้ว!\n"
-        + "🔧 " + (payload.job_type || "-") + "\n"
-        + "👤 " + payload.customer_name + " | 📞 " + (payload.customer_phone || "-") + "\n"
-        + "📍 " + (payload.customer_address || "-") + "\n"
-        + "⚡ " + (payload.description || "").substring(0, 120) + "\n"
-        + (payload.note ? "📝 หมายเหตุ: " + payload.note.substring(0, 120) + "\n" : "")
-        + "⏰ " + new Date().toLocaleString("th-TH");
-      sendLineNotify(msg, { state, showToast }, "done");
-    } catch (e) {
-      console.warn("LINE notify (job done) failed:", e);
-    }
-  }
-  // ★ รีเซ็ต orig-status หลังบันทึก
-  state.editingServiceJobOrigStatus = null;
 }
 
 // ═══════════════════════════════════════════════════════════
