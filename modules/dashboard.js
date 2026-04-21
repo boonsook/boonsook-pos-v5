@@ -157,10 +157,10 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
           <div class="hero-status">${lowStock.length ? `⚠ สินค้าใกล้หมด ${lowStock.length} รายการ` : "เชื่อมต่อฐานข้อมูลแล้ว"}</div>
         </div>
         <div class="stats-grid" style="grid-template-columns:repeat(2,1fr)">
-          <div class="stat-card"><div class="stat-label">ผู้ใช้งาน</div><div class="stat-value" style="font-size:14px">${state.profile?.full_name || "-"}</div></div>
-          <div class="stat-card"><div class="stat-label">สิทธิ์</div><div class="stat-value" style="font-size:14px">${state.profile?.role || "-"}</div></div>
-          <div class="stat-card"><div class="stat-label">สินค้าทั้งหมด</div><div class="stat-value">${state.products.length}</div></div>
-          <div class="stat-card"><div class="stat-label">งานช่างค้าง</div><div class="stat-value">${activeJobs}</div></div>
+          <div class="stat-card dash-clickable" data-go="settings" title="ไปหน้าตั้งค่า"><div class="stat-label">ผู้ใช้งาน</div><div class="stat-value" style="font-size:14px">${state.profile?.full_name || "-"}</div></div>
+          <div class="stat-card dash-clickable" data-go="settings/permissions" title="ดูสิทธิ์ทั้งหมด"><div class="stat-label">สิทธิ์</div><div class="stat-value" style="font-size:14px">${state.profile?.role || "-"}</div></div>
+          <div class="stat-card dash-clickable" data-go="products" title="ไปหน้าสินค้า"><div class="stat-label">สินค้าทั้งหมด</div><div class="stat-value">${state.products.length}</div></div>
+          <div class="stat-card dash-clickable" data-go="service_jobs" title="ไปหน้างานช่าง"><div class="stat-label">งานช่างค้าง</div><div class="stat-value">${activeJobs}</div></div>
         </div>
       </div>
     </div>
@@ -200,11 +200,16 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
     </div>
 
     <!-- ═══ QUICK STATS ROW ═══ -->
+    <style>
+      .dash-clickable { cursor:pointer; transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease; }
+      .dash-clickable:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(2,132,199,0.15); border-color:#0284c7; }
+      .dash-clickable:active { transform: translateY(0); }
+    </style>
     <div class="stats-grid" style="grid-template-columns:repeat(4,1fr)">
-      <div class="stat-card"><div class="stat-label">ยอดขายเดือนนี้</div><div class="stat-value" style="font-size:16px">${money(monthRevenue)}</div></div>
-      <div class="stat-card"><div class="stat-label">ลูกค้าทั้งหมด</div><div class="stat-value" style="font-size:16px">${state.customers.length}</div></div>
-      <div class="stat-card"><div class="stat-label">ใบเสนอราคา</div><div class="stat-value" style="font-size:16px">${state.quotations.length}</div></div>
-      <div class="stat-card"><div class="stat-label">ออเดอร์แอร์ค้าง</div><div class="stat-value" style="font-size:16px;color:#f59e0b">${pendingOrders.length}</div></div>
+      <div class="stat-card dash-clickable" data-go="receipts" title="ดูใบเสร็จ"><div class="stat-label">ยอดขายเดือนนี้</div><div class="stat-value" style="font-size:16px">${money(monthRevenue)}</div></div>
+      <div class="stat-card dash-clickable" data-go="customers" title="ไปหน้าลูกค้า"><div class="stat-label">ลูกค้าทั้งหมด</div><div class="stat-value" style="font-size:16px">${state.customers.length}</div></div>
+      <div class="stat-card dash-clickable" data-go="quotations" title="ไปหน้าใบเสนอราคา"><div class="stat-label">ใบเสนอราคา</div><div class="stat-value" style="font-size:16px">${state.quotations.length}</div></div>
+      <div class="stat-card dash-clickable" data-go="service_jobs" title="ไปหน้างานช่าง"><div class="stat-label">ออเดอร์แอร์ค้าง</div><div class="stat-value" style="font-size:16px;color:#f59e0b">${pendingOrders.length}</div></div>
     </div>
 
     <!-- ═══ PENDING ORDERS ═══ -->
@@ -403,6 +408,20 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
   document.getElementById("goProductsBtn")?.addEventListener("click", () => showRoute("products"));
   document.getElementById("goServiceJobsBtn")?.addEventListener("click", () => showRoute("service_jobs"));
   document.getElementById("goExpensesBtn")?.addEventListener("click", () => showRoute("expenses"));
+
+  // Clickable stat cards (data-go="<route>")
+  document.querySelectorAll(".dash-clickable[data-go]").forEach(card => {
+    card.addEventListener("click", () => {
+      const target = card.dataset.go || "";
+      if (!target) return;
+      if (target.startsWith("settings")) {
+        window.location.hash = "#" + target;
+        showRoute("settings");
+      } else {
+        showRoute(target);
+      }
+    });
+  });
 
   // ── Period tabs ──
   document.querySelectorAll(".dash-period-btn").forEach(btn => btn.addEventListener("click", () => {
