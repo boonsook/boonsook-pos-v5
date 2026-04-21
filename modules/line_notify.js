@@ -209,7 +209,7 @@ function attachLineNotifyListeners(container, ctx, settings) {
         statusEl.style.backgroundColor = '#fffbeb';
       }
     } catch (e) {
-      statusEl.innerHTML = '🔴 <b>เชื่อมต่อเซิร์ฟเวอร์ไม่ได้</b> — ' + (e && e.message || e);
+      statusEl.innerHTML = '🔴 <b>เชื่อมต่อเซิร์ฟเวอร์ไม่ได้</b> — ' + ((e && e.message) || e);
       statusEl.style.backgroundColor = '#fef2f2';
     }
   })();
@@ -230,10 +230,10 @@ function attachLineNotifyListeners(container, ctx, settings) {
       } else if (result && result.configured === false) {
         showToast('⚠️ ยังไม่ได้ตั้ง env vars บน Cloudflare Pages', 'warning');
       } else {
-        showToast('❌ ส่งไม่สำเร็จ: ' + (result && result.error || 'unknown'), 'error');
+        showToast('❌ ส่งไม่สำเร็จ: ' + ((result && result.error) || 'unknown'), 'error');
       }
     } catch (error) {
-      showToast('❌ ข้อผิดพลาด: ' + (error && error.message || error), 'error');
+      showToast('❌ ข้อผิดพลาด: ' + ((error && error.message) || error), 'error');
     } finally {
       testButton.disabled = false;
       testButton.textContent = originalText;
@@ -277,7 +277,7 @@ function attachLineNotifyListeners(container, ctx, settings) {
         await loadAllData();
       }
     } catch (error) {
-      showToast('❌ ข้อผิดพลาด: ' + (error && error.message || error), 'error');
+      showToast('❌ ข้อผิดพลาด: ' + ((error && error.message) || error), 'error');
     } finally {
       saveButton.disabled = false;
       saveButton.textContent = originalText;
@@ -333,7 +333,7 @@ export async function sendLineNotify(message, ctx) {
     }
 
     if (!response.ok || !(result && result.ok)) {
-      const detail = result && (result.error || JSON.stringify(result.results || {})) || `HTTP ${response.status}`;
+      const detail = (result && (result.error || JSON.stringify(result.results || {}))) || `HTTP ${response.status}`;
       console.error('LINE send failed:', detail);
       return { ok: false, error: detail };
     }
@@ -341,7 +341,7 @@ export async function sendLineNotify(message, ctx) {
     return { ok: true };
   } catch (error) {
     console.error('LINE Notify network error:', error);
-    return { ok: false, error: String(error && error.message || error) };
+    return { ok: false, error: String((error && error.message) || error) };
   }
 }
 
@@ -438,4 +438,61 @@ export async function notifyJobDone(job, ctx) {
  */
 export async function notifyDailySummary(summary, ctx) {
   const settings = ctx.state.lineNotifySettings;
-  if (!settings || !settings.is_active || !settings.notify
+  if (!settings || !settings.is_active || !settings.notify_daily_summary) return;
+
+  let message = '📊 สรุปยอดประจำวัน\n\n';
+
+  if (summary.date) {
+    message += `📅 วันที่: ${summary.date}\n`;
+  }
+
+  if (summary.total_orders !== undefined) {
+    message += `🛒 ออเดอร์ทั้งหมด: ${summary.total_orders} รายการ\n`;
+  }
+
+  if (summary.total_revenue !== undefined) {
+    message += `💰 รวมรายได้: ${summary.total_revenue.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท\n`;
+  }
+
+  if (summary.total_customers !== undefined) {
+    message += `👥 ลูกค้าทั้งหมด: ${summary.total_customers} คน\n`;
+  }
+
+  if (summary.completed_jobs !== undefined) {
+    message += `✅ งานเสร็จ: ${summary.completed_jobs} งาน\n`;
+  }
+
+  if (summary.low_stock_count !== undefined && summary.low_stock_count > 0) {
+    message += `⚠️ สินค้าสต็อกต่ำ: ${summary.low_stock_count} รายการ\n`;
+  }
+
+  message += `\n⏰ ${new Date().toLocaleString('th-TH')}`;
+
+  await sendLineNotify(message, ctx);
+}
+
+/**
+ * Helper function to translate status
+ */
+function translateStatus(status) {
+  const statusMap = {
+    'pending': 'รอดำเนินการ',
+    'processing': 'กำลังดำเนินการ',
+    'completed': 'เสร็จสิ้น',
+    'cancelled': 'ยกเลิก',
+    'draft': 'ร่าง',
+    'confirmed': 'ยืนยันแล้ว',
+    'shipped': 'จัดส่งแล้ว'
+  };
+
+  return statusMap[status] || status;
+}
+
+export default {
+  renderLineNotifySettings,
+  sendLineNotify,
+  notifyLowStock,
+  notifyNewOrder,
+  notifyJobDone,
+  notifyDailySummary
+};
