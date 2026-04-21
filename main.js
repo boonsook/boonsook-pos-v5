@@ -1700,6 +1700,7 @@ async function saveServiceJob(){
     return showToast("เบอร์โทรลูกค้าไม่ถูกต้อง (ต้องมี 10 หลักขึ้นไป)");
   }
   let res;
+  const isNewJob = !state.editingServiceJobId;
   if (state.editingServiceJobId) {
     res = await xhrPatch("service_jobs", payload, "id", state.editingServiceJobId);
   } else {
@@ -1708,6 +1709,21 @@ async function saveServiceJob(){
   }
   if (!res.ok) return showToast(res.error?.message || "บันทึกงานช่างไม่สำเร็จ");
   closeAllDrawers(); await loadAllData(); showToast("บันทึกงานช่างแล้ว");
+
+  // ★ LINE notify เมื่อสร้างงานใหม่ (ไม่ส่งตอนแก้ไข)
+  if (isNewJob) {
+    try {
+      const msg = "✍️ มีงานเข้าคิวใหม่!\n"
+        + "🔧 " + (payload.job_type || "-") + "\n"
+        + "👤 " + payload.customer_name + " | 📞 " + (payload.customer_phone || "-") + "\n"
+        + "📍 " + (payload.customer_address || "-") + "\n"
+        + "⚡ " + (payload.description || "").substring(0, 120) + "\n"
+        + "📝 เลขที่: " + payload.job_no;
+      sendLineNotify(msg, { state, showToast });
+    } catch (e) {
+      console.warn("LINE notify (new service job) failed:", e);
+    }
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
