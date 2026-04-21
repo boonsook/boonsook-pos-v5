@@ -41,20 +41,23 @@ export function renderLineNotifySettings(ctx, targetContainer) {
         </label>
       </div>
 
-      <!-- Server config status + test -->
-      <div class="form-group" style="margin-bottom: 20px; padding: 15px; background-color: #fff; border-radius: 6px; border: 1px solid #e5e7eb;">
-        <div style="font-weight:500;color:#333;margin-bottom:8px">🔐 สถานะการตั้งค่าเซิร์ฟเวอร์</div>
-        <div id="line-server-status" style="padding:10px 12px;border-radius:8px;background:#f3f4f6;color:#6b7280;font-size:13px">
+      <!-- Server Status (token อยู่ที่ Cloudflare Pages env vars — ไม่ใส่ใน UI แล้ว) -->
+      <div class="form-group" style="margin-bottom: 20px;">
+        <label style="display: block; margin-bottom: 8px; font-weight: 500; color: #333;">
+          🔐 สถานะเซิร์ฟเวอร์ LINE
+        </label>
+        <div id="line-server-status" style="padding: 12px; border: 1px solid #ddd; border-radius: 6px; background-color: #fff; font-size: 14px; color: #666;">
           ⏳ กำลังตรวจสอบ...
         </div>
-        <button id="line-test-button" type="button" style="margin-top:10px;padding: 10px 18px; background-color: #00b900; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 500;">
-          🧪 ส่งทดสอบ
-        </button>
-        <small style="color: #6b7280; margin-top: 10px; display: block; line-height:1.6">
-          ℹ️ Token/User ID ตั้งค่าบน <b>Cloudflare Pages → Settings → Environment variables</b>:
-          <br>• <code>LINE_CHANNEL_ACCESS_TOKEN</code> (จาก LINE Developer Console → Messaging API channel)
-          <br>• <code>LINE_USER_ID</code> (userId ปลายทาง — ขึ้นต้นด้วย U...)
-          <br>แล้ว redeploy 1 ครั้ง
+        <div style="display: flex; gap: 10px; margin-top: 10px;">
+          <button id="line-test-button" type="button" style="flex: 1; padding: 10px 15px; background-color: #00b900; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 500;">
+            🧪 ส่งทดสอบ
+          </button>
+        </div>
+        <small style="color: #666; margin-top: 8px; display: block; line-height: 1.6;">
+          📖 Token/UserID เก็บไว้ที่ <b>Cloudflare Pages → Settings → Environment variables</b><br>
+          ตัวแปรที่ต้องตั้ง: <code>LINE_CHANNEL_ACCESS_TOKEN</code> และ <code>LINE_USER_ID</code><br>
+          (LINE Notify เดิมถูกปิดตั้งแต่ 2025-03-31 — ตอนนี้ใช้ LINE Messaging API)
         </small>
       </div>
 
@@ -183,63 +186,64 @@ function attachLineNotifyListeners(container, ctx, settings) {
   const saveButton = container.querySelector('#line-save-button');
   const isActiveCheckbox = container.querySelector('#line-is-active');
 
-  // Probe server config status ทันทีที่เปิดหน้า
+  // Probe server on mount — ping /api/line-notify with empty body เพื่อเช็คว่า configured
   (async () => {
     try {
       const resp = await fetch('/api/line-notify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: '' })  // empty → 400 แต่ไม่ส่งจริง
+        body: JSON.stringify({ message: '' })
       });
-      // ถ้า endpoint ยังไม่ deploy จะได้ 404
-      if (resp.status === 404) {
-        statusEl.innerHTML = '⚠️ <b style="color:#d97706">ยังไม่ deploy /api/line-notify</b> — รอ Cloudflare Pages build';
-        statusEl.style.background = '#fef3c7'; statusEl.style.color = '#92400e';
-        return;
-      }
-      const result = await resp.json().catch(() => ({}));
-      if (result.configured === false) {
-        statusEl.innerHTML = '🔴 <b>ยังไม่ตั้ง env vars</b> บน Cloudflare Pages';
-        statusEl.style.background = '#fee2e2'; statusEl.style.color = '#991b1b';
+      const data = await resp.json().catch(() => ({}));
+      if (resp.status === 400) {
+        // 400 = endpoint ทำงาน แต่ข้อความว่าง → แปลว่า env vars ตั้งแล้ว
+        statusEl.innerHTML = '🟢 <b style="color:#059669">เซิร์ฟเวอร์พร้อมส่ง LINE</b>';
+        statusEl.style.backgroundColor = '#ecfdf5';
+        statusEl.style.borderColor = '#059669';
+      } else if (data && data.configured === false) {
+        statusEl.innerHTML = '🔴 <b style="color:#b91c1c">ยังไม่ตั้งค่า env vars</b> — ตั้งที่ Cloudflare Pages';
+        statusEl.style.backgroundColor = '#fef2f2';
+        statusEl.style.borderColor = '#b91c1c';
       } else {
-        statusEl.innerHTML = '🟢 <b>เซิร์ฟเวอร์พร้อมส่ง LINE</b>';
-        statusEl.style.background = '#dcfce7'; statusEl.style.color = '#166534';
+        statusEl.innerHTML = '🟡 <b>สถานะไม่ชัดเจน</b> (HTTP ' + resp.status + ') — ลองกดปุ่มทดสอบ';
+        statusEl.style.backgroundColor = '#fffbeb';
       }
     } catch (e) {
-      statusEl.textContent = '⚠️ ตรวจสอบไม่สำเร็จ: ' + e.message;
+      statusEl.innerHTML = '🔴 <b>เชื่อมต่อเซิร์ฟเวอร์ไม่ได้</b> — ' + (e && e.message || e);
+      statusEl.style.backgroundColor = '#fef2f2';
     }
   })();
 
-  // Test notification
+  // Test notification — ส่งจริงผ่าน endpoint (ไม่ต้องเปิด is_active ก่อน)
   testButton.addEventListener('click', async () => {
     testButton.disabled = true;
-    testButton.textContent = '⏳ กำลังส่ง...';
+    const originalText = testButton.textContent;
+    testButton.textContent = '⏳ กำลังทดสอบ...';
 
     try {
-      const resp = await fetch('/api/line-notify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: '🧪 ทดสอบ LINE — Boonsook POS\n⏰ ' + new Date().toLocaleString('th-TH') })
-      });
-      const result = await resp.json().catch(() => ({}));
-      if (result.ok) {
-        showToast('✅ ส่งทดสอบสำเร็จ! เช็ค LINE ได้เลย', 'success');
-      } else if (result.configured === false) {
-        showToast('⚠️ ยังไม่ตั้ง env vars บน Cloudflare Pages', 'warning');
+      const result = await sendLineNotify(
+        '🧪 ทดสอบ LINE — Boonsook POS\n⏰ ' + new Date().toLocaleString('th-TH'),
+        { state, showToast, forceSend: true }
+      );
+      if (result && result.ok) {
+        showToast('✅ ส่งทดสอบสำเร็จ! ตรวจสอบ LINE ของคุณ', 'success');
+      } else if (result && result.configured === false) {
+        showToast('⚠️ ยังไม่ได้ตั้ง env vars บน Cloudflare Pages', 'warning');
       } else {
-        showToast('❌ ส่งไม่สำเร็จ: ' + (result.error || 'unknown'), 'error');
+        showToast('❌ ส่งไม่สำเร็จ: ' + (result && result.error || 'unknown'), 'error');
       }
     } catch (error) {
-      showToast(`❌ ข้อผิดพลาด: ${error.message}`, 'error');
+      showToast('❌ ข้อผิดพลาด: ' + (error && error.message || error), 'error');
     } finally {
       testButton.disabled = false;
-      testButton.textContent = '🧪 ส่งทดสอบ';
+      testButton.textContent = originalText;
     }
   });
 
-  // Save settings
+  // Save settings — ไม่ต้องบันทึก token แล้ว (อยู่ที่ Cloudflare env)
   saveButton.addEventListener('click', async () => {
     saveButton.disabled = true;
+    const originalText = saveButton.textContent;
     saveButton.textContent = '⏳ กำลังบันทึก...';
 
     try {
@@ -252,12 +256,12 @@ function attachLineNotifyListeners(container, ctx, settings) {
       };
 
       // If settings have ID, use PATCH; otherwise use POST
-      if (settings.id) {
+      if (settings.id && window._appXhrPatch) {
         await window._appXhrPatch(
           `/api/line_notify_settings/${settings.id}`,
           updatedSettings
         );
-      } else {
+      } else if (window._appXhrPost) {
         await window._appXhrPost(
           '/api/line_notify_settings',
           updatedSettings
@@ -273,10 +277,10 @@ function attachLineNotifyListeners(container, ctx, settings) {
         await loadAllData();
       }
     } catch (error) {
-      showToast(`❌ ข้อผิดพลาด: ${error.message}`, 'error');
+      showToast('❌ ข้อผิดพลาด: ' + (error && error.message || error), 'error');
     } finally {
       saveButton.disabled = false;
-      saveButton.textContent = '💾 บันทึก';
+      saveButton.textContent = originalText;
     }
   });
 }
@@ -301,39 +305,43 @@ function createSettingsContainer() {
  * @returns {Promise<void>}
  */
 export async function sendLineNotify(message, ctx) {
-  ctx = ctx || {};
-  const { state, showToast } = ctx;
+  const { state, showToast, forceSend } = ctx || {};
   const settings = state && state.lineNotifySettings;
 
-  // ถ้าปิด is_active ไว้ — ไม่ส่ง (ให้ user คุมได้จากหน้า settings)
-  // ถ้ายังไม่มี settings record — อนุญาตให้ส่ง (default ON เมื่อ env vars config แล้ว)
-  if (settings && settings.is_active === false) {
-    return;
+  // ยกเว้น forceSend (ใช้สำหรับปุ่มทดสอบ) — จะถูก gate ด้วย is_active
+  if (!forceSend) {
+    if (!settings || !settings.is_active) {
+      // LINE Notify ถูกปิดไว้
+      return { ok: false, skipped: true, reason: 'disabled' };
+    }
   }
 
   try {
-    // ส่งผ่าน Cloudflare Pages Function → LINE Messaging API
-    // (LINE Notify ถูกยกเลิก 2025-03-31 แล้ว)
     const response = await fetch('/api/line-notify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message })
     });
 
-    const result = await response.json().catch(() => ({}));
+    let result = null;
+    try { result = await response.json(); } catch (_) { result = null; }
 
-    if (!response.ok || result.ok === false) {
-      if (result.configured === false) {
-        console.warn('[LINE] ยังไม่ตั้งค่า env vars บน Cloudflare Pages');
-        showToast && showToast('⚠️ LINE ยังไม่ตั้งค่าบนเซิร์ฟเวอร์', 'warning');
-      } else {
-        console.error('[LINE] ส่งไม่สำเร็จ:', result);
-      }
-      return;
+    if (result && result.configured === false) {
+      console.warn('LINE server not configured (env vars missing)');
+      showToast && showToast('⚠️ ยังไม่ตั้ง LINE env vars บน Cloudflare Pages', 'warning');
+      return { ok: false, configured: false };
     }
-    // ส่งสำเร็จ
+
+    if (!response.ok || !(result && result.ok)) {
+      const detail = result && (result.error || JSON.stringify(result.results || {})) || `HTTP ${response.status}`;
+      console.error('LINE send failed:', detail);
+      return { ok: false, error: detail };
+    }
+
+    return { ok: true };
   } catch (error) {
-    console.error('[LINE] network error:', error);
+    console.error('LINE Notify network error:', error);
+    return { ok: false, error: String(error && error.message || error) };
   }
 }
 
@@ -430,21 +438,4 @@ export async function notifyJobDone(job, ctx) {
  */
 export async function notifyDailySummary(summary, ctx) {
   const settings = ctx.state.lineNotifySettings;
-  if (!settings || !settings.is_active || !settings.notify_daily_summary) return;
-
-  let message = '📊 สรุปยอดประจำวัน\n\n';
-
-  if (summary.date) {
-    message += `📅 วันที่: ${summary.date}\n`;
-  }
-
-  if (summary.total_orders !== undefined) {
-    message += `🛒 ออเดอร์ทั้งหมด: ${summary.total_orders} รายการ\n`;
-  }
-
-  if (summary.total_revenue !== undefined) {
-    message += `💰 รวมรายได้: ${summary.total_revenue.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท\n`;
-  }
-
-  if (summary.total_customers !== undefined) {
-    message += `👥 ลูกค้าทั้งหมด: ${summary.total_customers}
+  if (!settings || !settings.is_active || !settings.notify
