@@ -33,7 +33,7 @@ export function renderLineNotifySettings(ctx, targetContainer) {
         LINE Notify ตั้งค่า
       </h3>
 
-      <\!-- Master Toggle -->
+      <!-- Master Toggle -->
       <div class="form-group" style="margin-bottom: 20px; padding: 15px; background-color: #fff; border-radius: 6px;">
         <label style="display: flex; align-items: center; cursor: pointer; font-weight: 500;">
           <input type="checkbox" id="line-is-active" ${settings.is_active ? 'checked' : ''} style="width: 20px; height: 20px; cursor: pointer; margin-right: 10px;">
@@ -41,7 +41,7 @@ export function renderLineNotifySettings(ctx, targetContainer) {
         </label>
       </div>
 
-      <\!-- Server Status (token อยู่ที่ Cloudflare Pages env vars — ไม่ใส่ใน UI แล้ว) -->
+      <!-- Server Status (token อยู่ที่ Cloudflare Pages env vars — ไม่ใส่ใน UI แล้ว) -->
       <div class="form-group" style="margin-bottom: 20px;">
         <label style="display: block; margin-bottom: 8px; font-weight: 500; color: #333;">
           🔐 สถานะเซิร์ฟเวอร์ LINE
@@ -61,7 +61,7 @@ export function renderLineNotifySettings(ctx, targetContainer) {
         </small>
       </div>
 
-      <\!-- Notification Toggle Switches -->
+      <!-- Notification Toggle Switches -->
       <div style="background-color: #fff; border-radius: 6px; padding: 15px;">
         <h4 style="margin: 0 0 15px 0; color: #333; font-size: 15px;">ตัวเลือกการแจ้งเตือน:</h4>
 
@@ -110,7 +110,7 @@ export function renderLineNotifySettings(ctx, targetContainer) {
         </div>
       </div>
 
-      <\!-- Save Button -->
+      <!-- Save Button -->
       <div style="margin-top: 20px; display: flex; gap: 10px;">
         <button id="line-save-button" type="button" style="flex: 1; padding: 12px 20px; background-color: #00b900; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 16px;">
           💾 บันทึก
@@ -226,7 +226,7 @@ function attachLineNotifyListeners(container, ctx, settings) {
         { state, showToast, forceSend: true }
       );
       if (result && result.ok) {
-        showToast('✅ ส่งทดสอบสำเร็จ\! ตรวจสอบ LINE ของคุณ', 'success');
+        showToast('✅ ส่งทดสอบสำเร็จ! ตรวจสอบ LINE ของคุณ', 'success');
       } else if (result && result.configured === false) {
         showToast('⚠️ ยังไม่ได้ตั้ง env vars บน Cloudflare Pages', 'warning');
       } else {
@@ -299,7 +299,7 @@ function attachLineNotifyListeners(container, ctx, settings) {
  */
 function createSettingsContainer() {
   let container = document.getElementById('line-notify-settings');
-  if (\!container) {
+  if (!container) {
     container = document.createElement('div');
     container.id = 'line-notify-settings';
     document.body.appendChild(container);
@@ -318,8 +318,8 @@ export async function sendLineNotify(message, ctx) {
   const settings = state && state.lineNotifySettings;
 
   // ยกเว้น forceSend (ใช้สำหรับปุ่มทดสอบ) — จะถูก gate ด้วย is_active
-  if (\!forceSend) {
-    if (\!settings || \!settings.is_active) {
+  if (!forceSend) {
+    if (!settings || !settings.is_active) {
       // LINE Notify ถูกปิดไว้
       return { ok: false, skipped: true, reason: 'disabled' };
     }
@@ -341,7 +341,7 @@ export async function sendLineNotify(message, ctx) {
       return { ok: false, configured: false };
     }
 
-    if (\!response.ok || \!(result && result.ok)) {
+    if (!response.ok || !(result && result.ok)) {
       const detail = (result && (result.error || JSON.stringify(result.results || {}))) || `HTTP ${response.status}`;
       console.error('LINE send failed:', detail);
       return { ok: false, error: detail };
@@ -360,10 +360,10 @@ export async function sendLineNotify(message, ctx) {
  * @param {Object} ctx - Context object
  */
 export async function notifyLowStock(products, ctx) {
-  if (\!products || products.length === 0) return;
+  if (!products || products.length === 0) return;
 
   const settings = ctx.state.lineNotifySettings;
-  if (\!settings || \!settings.is_active || \!settings.notify_low_stock) return;
+  if (!settings || !settings.is_active || !settings.notify_low_stock) return;
 
   let message = '📦 แจ้งเตือนสต็อกต่ำ\n\n';
 
@@ -384,7 +384,7 @@ export async function notifyLowStock(products, ctx) {
  */
 export async function notifyNewOrder(sale, ctx) {
   const settings = ctx.state.lineNotifySettings;
-  if (\!settings || \!settings.is_active || \!settings.notify_new_order) return;
+  if (!settings || !settings.is_active || !settings.notify_new_order) return;
 
   const totalItems = sale.items ? sale.items.reduce((sum, item) => sum + (item.qty || item.quantity || 0), 0) : 0;
   const totalPrice = sale.total_amount || 0;
@@ -415,7 +415,7 @@ export async function notifyNewOrder(sale, ctx) {
  */
 export async function notifyJobDone(job, ctx) {
   const settings = ctx.state.lineNotifySettings;
-  if (\!settings || \!settings.is_active || \!settings.notify_job_done) return;
+  if (!settings || !settings.is_active || !settings.notify_job_done) return;
 
   let message = '✅ งานช่างเสร็จแล้ว\n\n';
 
@@ -447,7 +447,7 @@ export async function notifyJobDone(job, ctx) {
  */
 export async function notifyDailySummary(summary, ctx) {
   const settings = ctx.state.lineNotifySettings;
-  if (\!settings || \!settings.is_active || \!settings.notify_daily_summary) return;
+  if (!settings || !settings.is_active || !settings.notify_daily_summary) return;
 
   let message = '📊 สรุปยอดประจำวัน\n\n';
 
@@ -455,23 +455,23 @@ export async function notifyDailySummary(summary, ctx) {
     message += `📅 วันที่: ${summary.date}\n`;
   }
 
-  if (summary.total_orders \!== undefined) {
+  if (summary.total_orders !== undefined) {
     message += `🛒 ออเดอร์ทั้งหมด: ${summary.total_orders} รายการ\n`;
   }
 
-  if (summary.total_revenue \!== undefined) {
+  if (summary.total_revenue !== undefined) {
     message += `💰 รวมรายได้: ${summary.total_revenue.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท\n`;
   }
 
-  if (summary.total_customers \!== undefined) {
+  if (summary.total_customers !== undefined) {
     message += `👥 ลูกค้าทั้งหมด: ${summary.total_customers} คน\n`;
   }
 
-  if (summary.completed_jobs \!== undefined) {
+  if (summary.completed_jobs !== undefined) {
     message += `✅ งานเสร็จ: ${summary.completed_jobs} งาน\n`;
   }
 
-  if (summary.low_stock_count \!== undefined && summary.low_stock_count > 0) {
+  if (summary.low_stock_count !== undefined && summary.low_stock_count > 0) {
     message += `⚠️ สินค้าสต็อกต่ำ: ${summary.low_stock_count} รายการ\n`;
   }
 
