@@ -500,10 +500,23 @@ export function renderAiSalesPage(ctx) {
 
   // ═══ ORDER SYSTEM: แสดงฟอร์มกรอกข้อมูล → สร้างออเดอร์ ═══
   let _formSeq = 0;
-  function showOrderForm(product, source) {
+  function showOrderForm(product, source, triggerBtn) {
     const fid = ++_formSeq; // unique ID per form
     const prodName = product.name || product.s + " " + product.m;
     const prodPrice = product.price || product.p || 0;
+    // Helper: reset parent card button when form is cancelled or errors
+    const resetTriggerBtn = () => {
+      if (!triggerBtn) return;
+      triggerBtn.disabled = false;
+      triggerBtn.textContent = "🛒 สั่งซื้อ";
+      triggerBtn.style.background = "linear-gradient(135deg,#3b82f6,#2563eb)";
+    };
+    const markTriggerBtnDone = () => {
+      if (!triggerBtn) return;
+      triggerBtn.disabled = true;
+      triggerBtn.textContent = "✅ สั่งแล้ว";
+      triggerBtn.style.background = "#16a34a";
+    };
 
     // Pre-fill from logged-in user if available
     const user = state.currentUser || {};
@@ -549,6 +562,7 @@ export function renderAiSalesPage(ctx) {
           formEl.style.pointerEvents = "none";
           addBubble("ยกเลิกคำสั่งซื้อ", "user");
           addBubble("ยกเลิกเรียบร้อยครับ ถ้าสนใจสินค้าตัวอื่นกดเลือกได้เลยนะครับ 😊");
+          resetTriggerBtn();
         });
       }
 
@@ -589,6 +603,7 @@ export function renderAiSalesPage(ctx) {
               const orderId = res.data?.id || null;
 
               showToast("สั่งซื้อสำเร็จ!");
+              markTriggerBtnDone();
               // Reset submit button + hide form bubble after success
               submitBtn.textContent = "✅ สั่งซื้อเรียบร้อย";
               submitBtn.style.background = "#16a34a";
@@ -675,6 +690,7 @@ export function renderAiSalesPage(ctx) {
             submitBtn.style.background = "linear-gradient(135deg,#16a34a,#15803d)";
             showToast("เกิดข้อผิดพลาด กรุณาลองใหม่");
             addBubble("ขออภัยครับ เกิดข้อผิดพลาดในการสั่งซื้อ กรุณาลองใหม่หรือติดต่อร้านโดยตรง 📞", "bot");
+            resetTriggerBtn();
           }
         });
       }
@@ -778,7 +794,7 @@ export function renderAiSalesPage(ctx) {
                   btn.disabled = true;
                   btn.textContent = "⏳ กำลังสั่ง...";
                   btn.style.background = "#9ca3af";
-                  showOrderForm({ name: item.s + " " + item.m, btu: item.btu, price: item.p }, "แคตตาล็อก");
+                  showOrderForm({ name: item.s + " " + item.m, btu: item.btu, price: item.p }, "แคตตาล็อก", btn);
                 });
                 btn.addEventListener("mouseenter", () => { if (!btn.disabled) btn.style.transform = "scale(1.05)"; });
                 btn.addEventListener("mouseleave", () => { btn.style.transform = "scale(1)"; });
@@ -830,7 +846,7 @@ export function renderAiSalesPage(ctx) {
                     btn.disabled = true;
                     btn.textContent = "⏳ กำลังสั่ง...";
                     btn.style.background = "#9ca3af";
-                    showOrderForm({ name: p.name, btu: p.btu, price: p.price, product_id: p.id }, "สต็อกในร้าน");
+                    showOrderForm({ name: p.name, btu: p.btu, price: p.price, product_id: p.id }, "สต็อกในร้าน", btn);
                   });
                   btn.addEventListener("mouseenter", () => { if (!btn.disabled) btn.style.transform = "scale(1.05)"; });
                   btn.addEventListener("mouseleave", () => { btn.style.transform = "scale(1)"; });
