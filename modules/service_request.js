@@ -134,15 +134,12 @@ export function renderServiceRequestPage(ctx) {
       container.querySelector("#srSymptom").value = "";
       container.querySelector("#srNote").value = "";
 
-      // Send LINE notify if available
+      // Send LINE notify if available — ใช้ endpoint /api/line-notify (server-side token)
       if (typeof ctx.sendLineNotify === "function") {
         ctx.sendLineNotify(
-          `✍️ ลูกค้าแจ้งซ่อม\!\n🔧 ${typeVal}\n👤 ${userName} | 📞 ${customerPhone}\n⚡ ${symptom.substring(0, 60)}`
+          `✍️ ลูกค้าแจ้งซ่อม!\n🔧 ${typeVal}\n👤 ${userName} | 📞 ${customerPhone}\n📍 ${address || "-"}\n⚡ ${symptom.substring(0, 120)}`,
+          { state, showToast }
         );
       }
     } catch (e) {
-      statusEl.textContent = "เกิดข้อผิดพลาด: " + e.message;
-      showToast("แจ้งซ่อมไม่สำเร็จ");
-    }
-  });
-}
+      statusEl.textContent = "เกิดข้

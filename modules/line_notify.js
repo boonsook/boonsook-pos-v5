@@ -41,28 +41,20 @@ export function renderLineNotifySettings(ctx, targetContainer) {
         </label>
       </div>
 
-      <!-- Token Input -->
-      <div class="form-group" style="margin-bottom: 20px;">
-        <label for="line-token" style="display: block; margin-bottom: 8px; font-weight: 500; color: #333;">
-          LINE Notify Token
-        </label>
-        <div style="display: flex; gap: 10px;">
-          <input
-            type="password"
-            id="line-token"
-            placeholder="ใส่ LINE Notify Token ของคุณ"
-            value="${settings.line_notify_token || ''}"
-            style="flex: 1; padding: 10px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; font-family: monospace;"
-          >
-          <button id="line-token-toggle" type="button" style="padding: 10px 15px; background-color: #f0f0f0; border: 1px solid #ddd; border-radius: 6px; cursor: pointer; font-size: 14px;">
-            👁️
-          </button>
-          <button id="line-test-button" type="button" style="padding: 10px 15px; background-color: #00b900; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 500;">
-            ทดสอบ
-          </button>
+      <!-- Server config status + test -->
+      <div class="form-group" style="margin-bottom: 20px; padding: 15px; background-color: #fff; border-radius: 6px; border: 1px solid #e5e7eb;">
+        <div style="font-weight:500;color:#333;margin-bottom:8px">🔐 สถานะการตั้งค่าเซิร์ฟเวอร์</div>
+        <div id="line-server-status" style="padding:10px 12px;border-radius:8px;background:#f3f4f6;color:#6b7280;font-size:13px">
+          ⏳ กำลังตรวจสอบ...
         </div>
-        <small style="color: #666; margin-top: 8px; display: block;">
-          📖 <a href="https://notify-bot.line.me/" target="_blank" style="color: #00b900; text-decoration: none;">รับ Token จากที่นี่</a>
+        <button id="line-test-button" type="button" style="margin-top:10px;padding: 10px 18px; background-color: #00b900; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 500;">
+          🧪 ส่งทดสอบ
+        </button>
+        <small style="color: #6b7280; margin-top: 10px; display: block; line-height:1.6">
+          ℹ️ Token/User ID ตั้งค่าบน <b>Cloudflare Pages → Settings → Environment variables</b>:
+          <br>• <code>LINE_CHANNEL_ACCESS_TOKEN</code> (จาก LINE Developer Console → Messaging API channel)
+          <br>• <code>LINE_USER_ID</code> (userId ปลายทาง — ขึ้นต้นด้วย U...)
+          <br>แล้ว redeploy 1 ครั้ง
         </small>
       </div>
 
@@ -186,41 +178,62 @@ export function renderLineNotifySettings(ctx, targetContainer) {
  */
 function attachLineNotifyListeners(container, ctx, settings) {
   const { state, showToast, loadAllData } = ctx;
-  const tokenInput = container.querySelector('#line-token');
-  const tokenToggleBtn = container.querySelector('#line-token-toggle');
+  const statusEl = container.querySelector('#line-server-status');
   const testButton = container.querySelector('#line-test-button');
   const saveButton = container.querySelector('#line-save-button');
   const isActiveCheckbox = container.querySelector('#line-is-active');
 
-  // Toggle password visibility
-  tokenToggleBtn.addEventListener('click', () => {
-    const isPassword = tokenInput.type === 'password';
-    tokenInput.type = isPassword ? 'text' : 'password';
-    tokenToggleBtn.textContent = isPassword ? '🙈' : '👁️';
-  });
+  // Probe server config status ทันทีที่เปิดหน้า
+  (async () => {
+    try {
+      const resp = await fetch('/api/line-notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: '' })  // empty → 400 แต่ไม่ส่งจริง
+      });
+      // ถ้า endpoint ยังไม่ deploy จะได้ 404
+      if (resp.status === 404) {
+        statusEl.innerHTML = '⚠️ <b style="color:#d97706">ยังไม่ deploy /api/line-notify</b> — รอ Cloudflare Pages build';
+        statusEl.style.background = '#fef3c7'; statusEl.style.color = '#92400e';
+        return;
+      }
+      const result = await resp.json().catch(() => ({}));
+      if (result.configured === false) {
+        statusEl.innerHTML = '🔴 <b>ยังไม่ตั้ง env vars</b> บน Cloudflare Pages';
+        statusEl.style.background = '#fee2e2'; statusEl.style.color = '#991b1b';
+      } else {
+        statusEl.innerHTML = '🟢 <b>เซิร์ฟเวอร์พร้อมส่ง LINE</b>';
+        statusEl.style.background = '#dcfce7'; statusEl.style.color = '#166534';
+      }
+    } catch (e) {
+      statusEl.textContent = '⚠️ ตรวจสอบไม่สำเร็จ: ' + e.message;
+    }
+  })();
 
   // Test notification
   testButton.addEventListener('click', async () => {
-    const token = tokenInput.value.trim();
-    if (!token) {
-      showToast('⚠️ กรุณาใส่ LINE Notify Token', 'warning');
-      return;
-    }
-
     testButton.disabled = true;
-    testButton.textContent = '⏳ กำลังทดสอบ...';
+    testButton.textContent = '⏳ กำลังส่ง...';
 
     try {
-      await sendLineNotify('🧪 ทดสอบ LINE Notify - Boonsook POS', {
-        ...ctx,
-        overrideToken: token
+      const resp = await fetch('/api/line-notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: '🧪 ทดสอบ LINE — Boonsook POS\n⏰ ' + new Date().toLocaleString('th-TH') })
       });
-      showToast('✅ ส่งทดสอบสำเร็จ! ตรวจสอบ LINE ของคุณ', 'success');
+      const result = await resp.json().catch(() => ({}));
+      if (result.ok) {
+        showToast('✅ ส่งทดสอบสำเร็จ! เช็ค LINE ได้เลย', 'success');
+      } else if (result.configured === false) {
+        showToast('⚠️ ยังไม่ตั้ง env vars บน Cloudflare Pages', 'warning');
+      } else {
+        showToast('❌ ส่งไม่สำเร็จ: ' + (result.error || 'unknown'), 'error');
+      }
     } catch (error) {
       showToast(`❌ ข้อผิดพลาด: ${error.message}`, 'error');
     } finally {
       testButton.disabled = false;
-      testButton.textContent = '✅ ทดสอบ';
+      testButton.textContent = '🧪 ส่งทดสอบ';
     }
   });
 
@@ -231,7 +244,6 @@ function attachLineNotifyListeners(container, ctx, settings) {
 
     try {
       const updatedSettings = {
-        line_notify_token: tokenInput.value.trim(),
         is_active: isActiveCheckbox.checked,
         notify_low_stock: container.querySelector('#line-low-stock').checked,
         notify_new_order: container.querySelector('#line-new-order').checked,
@@ -289,56 +301,39 @@ function createSettingsContainer() {
  * @returns {Promise<void>}
  */
 export async function sendLineNotify(message, ctx) {
-  const { state, showToast, overrideToken } = ctx;
-  const settings = state.lineNotifySettings;
+  ctx = ctx || {};
+  const { state, showToast } = ctx;
+  const settings = state && state.lineNotifySettings;
 
-  // Check if LINE Notify is enabled
-  if (!settings || !settings.is_active) {
-    // LINE Notify disabled
-    return;
-  }
-
-  const token = overrideToken || settings.line_notify_token;
-  if (!token) {
-    console.warn('LINE Notify token not configured');
-    showToast && showToast('⚠️ ยังไม่ได้ตั้งค่า LINE Notify Token', 'warning');
+  // ถ้าปิด is_active ไว้ — ไม่ส่ง (ให้ user คุมได้จากหน้า settings)
+  // ถ้ายังไม่มี settings record — อนุญาตให้ส่ง (default ON เมื่อ env vars config แล้ว)
+  if (settings && settings.is_active === false) {
     return;
   }
 
   try {
-    // Try direct API call (may fail due to CORS in browser)
-    const response = await fetch('https://notify-api.line.me/api/notify', {
+    // ส่งผ่าน Cloudflare Pages Function → LINE Messaging API
+    // (LINE Notify ถูกยกเลิก 2025-03-31 แล้ว)
+    const response = await fetch('/api/line-notify', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Authorization': `Bearer ${token}`
-      },
-      body: new URLSearchParams({ message }),
-      mode: 'cors'
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message })
     });
 
-    if (!response.ok) {
-      throw new Error(`LINE API returned ${response.status}`);
-    }
+    const result = await response.json().catch(() => ({}));
 
-    const result = await response.json();
-    // LINE Notify sent OK
-  } catch (error) {
-    console.error('LINE Notify error (CORS limitation - this is expected in browser):', error);
-
-    // Fallback: Attempt to send via backend if available
-    if (window._appXhrPost) {
-      try {
-        await window._appXhrPost('/api/send_line_notify', {
-          message,
-          token
-        });
-        // sent via backend OK
-      } catch (backendError) {
-        console.error('Backend send also failed:', backendError);
-        // Silent fail - notification queue approach would go here
+    if (!response.ok || result.ok === false) {
+      if (result.configured === false) {
+        console.warn('[LINE] ยังไม่ตั้งค่า env vars บน Cloudflare Pages');
+        showToast && showToast('⚠️ LINE ยังไม่ตั้งค่าบนเซิร์ฟเวอร์', 'warning');
+      } else {
+        console.error('[LINE] ส่งไม่สำเร็จ:', result);
       }
+      return;
     }
+    // ส่งสำเร็จ
+  } catch (error) {
+    console.error('[LINE] network error:', error);
   }
 }
 
@@ -452,44 +447,4 @@ export async function notifyDailySummary(summary, ctx) {
   }
 
   if (summary.total_customers !== undefined) {
-    message += `👥 ลูกค้าทั้งหมด: ${summary.total_customers} คน\n`;
-  }
-
-  if (summary.completed_jobs !== undefined) {
-    message += `✅ งานเสร็จ: ${summary.completed_jobs} งาน\n`;
-  }
-
-  if (summary.low_stock_count !== undefined && summary.low_stock_count > 0) {
-    message += `⚠️ สินค้าสต็อกต่ำ: ${summary.low_stock_count} รายการ\n`;
-  }
-
-  message += `\n⏰ ${new Date().toLocaleString('th-TH')}`;
-
-  await sendLineNotify(message, ctx);
-}
-
-/**
- * Helper function to translate status
- */
-function translateStatus(status) {
-  const statusMap = {
-    'pending': 'รอดำเนินการ',
-    'processing': 'กำลังดำเนินการ',
-    'completed': 'เสร็จสิ้น',
-    'cancelled': 'ยกเลิก',
-    'draft': 'ร่าง',
-    'confirmed': 'ยืนยันแล้ว',
-    'shipped': 'จัดส่งแล้ว'
-  };
-
-  return statusMap[status] || status;
-}
-
-export default {
-  renderLineNotifySettings,
-  sendLineNotify,
-  notifyLowStock,
-  notifyNewOrder,
-  notifyJobDone,
-  notifyDailySummary
-};
+    message += `👥 ลูกค้าทั้งหมด: ${summary.total_customers}
