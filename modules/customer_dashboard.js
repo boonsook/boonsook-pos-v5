@@ -1022,13 +1022,12 @@ export function renderCustomerDashboard(ctx) {
           });
           if (resp.ok) success = true;
           else {
-            const errBody = await resp.text().catch(() => "");
-            console.error("[checkout] REST POST 400 body:", errBody);
-            console.error("[checkout] failing payload:", JSON.stringify(jobPayload, null, 2));
-            _lastCheckoutError = errBody;
+            const body = await resp.text().catch(()=>"");
+            console.error("[checkout] REST POST failed — status:", resp.status, "body:", body);
+            _lastCheckoutError = body || ("HTTP " + resp.status);
           }
         }
-      } catch(fetchErr) { console.warn("Fetch insert error:", fetchErr); _lastCheckoutError = String(fetchErr); }
+      } catch(fetchErr) { console.warn("Fetch insert error:", fetchErr); }
 
       // วิธีที่ 2: Supabase JS client fallback (ไม่ใช้ .select() เพราะ RLS อาจบล็อค)
       if (!success && state.supabase) {
@@ -1082,4 +1081,17 @@ export function renderCustomerDashboard(ctx) {
       else renderCustomerDashboard(ctx);
 
     } catch(e) {
-      // Improved error handling wi
+      // Improved error handling with better user messages
+      let errorMsg = e?.message || "เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ";
+      // Show validation errors directly, wrap other errors
+      if (e?.message?.includes("ข้อมูลไม่ครบ") || e?.message?.includes("ยอดรวม")) {
+        showToast("❌ " + errorMsg);
+      } else {
+        showToast("❌ สั่งซื้อไม่สำเร็จ: " + errorMsg);
+      }
+      const btn = container.querySelector("#custCheckoutBtn");
+      if (btn) { btn.disabled = false; btn.textContent = "🛒 ยืนยันสั่งซื้อ"; }
+      console.error("Checkout error:", e);
+    }
+  });
+}
