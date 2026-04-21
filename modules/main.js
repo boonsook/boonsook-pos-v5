@@ -982,7 +982,7 @@ async function requestOtp() {
   // ★ Production guard: ห้ามแสดง OTP ผ่าน alert ในโหมด production
   if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
     setTimeout(() => {
-      alert("📱 [DEV MODE] รหัส OTP: " + code + "\n(จำลอง — ระบบจริงจะส่ง SMS ไปเบอร์ " + phone + ")");
+      console.info("[DEV OTP]", code, "phone:", phone); showToast("📱 [DEV] OTP: " + code);
     }, 300);
   } else {
     console.info("[OTP] รหัสถูกส่งไปยังเบอร์ " + phone + " แล้ว");

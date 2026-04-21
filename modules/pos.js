@@ -811,7 +811,7 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
     console.log("[POS] salePayload:", JSON.stringify(salePayload));
     const saleRes = await xhrPostPOS("sales", salePayload, true);
     if (!saleRes.ok) {
-      alert("Sales ERROR: " + (saleRes.error || "unknown"));
+      window.App?.showToast?.("บันทึกการขายไม่สำเร็จ: " + (saleRes.error || "unknown"));
       window.App?.showToast?.(saleRes.error || "บันทึกไม่สำเร็จ");
       window._checkoutRunning = false;
       return;
@@ -819,7 +819,7 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
 
     const saleId = saleRes.data?.id;
     if (!saleId) {
-      alert("ไม่สามารถดึง ID การขายได้");
+      window.App?.showToast?.("ไม่สามารถดึง ID การขายได้");
       window._checkoutRunning = false;
       return;
     }
@@ -886,7 +886,7 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
     try { if (window.App?.loadAllData) await window.App.loadAllData(); } catch (e) {}
 
   } catch (err) {
-    alert("doCheckout ERROR: " + (err.message || err));
+    window.App?.showToast?.("เกิดข้อผิดพลาด: " + (err.message || err));
     window.App?.showToast?.("เกิดข้อผิดพลาด: " + (err.message || err));
   } finally {
     // ★ reset guard + UI buttons เสมอ

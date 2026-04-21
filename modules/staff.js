@@ -189,9 +189,9 @@ async function loadData() {
       try {
         const { error } = await sb.from('staff').update({ is_active: !current }).eq('id', id);
         if (!error) await loadData();
-        else alert(`ผิดพลาด: ${error.message}`);
+        else window.App?.showToast?.(`ผิดพลาด: ${error.message}`);
       } catch (err) {
-        alert(`ผิดพลาด: ${err.message}`);
+        window.App?.showToast?.(`ผิดพลาด: ${err.message}`);
       }
     });
   });
@@ -207,7 +207,7 @@ async function openModal(staffId = null) {
     const { data, error } = await sb.from('staff').select('*').eq('id', staffId).single();
     if (error) {
       console.error('[staff] load staff error:', error.message);
-      alert('ไม่สามารถโหลดข้อมูลพนักงานได้: ' + error.message);
+      window.App?.showToast?.('ไม่สามารถโหลดข้อมูลพนักงานได้: ' + error.message);
       return;
     }
     existing = data;
@@ -362,7 +362,7 @@ async function openChangePINModal(staffId, staffName) {
     const { error } = await sb.from('staff').update({ pin: np }).eq('id', id);
     if (error) return showErr(errEl, `ผิดพลาด: ${error.message}`);
     closeModal();
-    alert(`✅ เปลี่ยน PIN ของ ${staffName} เรียบร้อย`);
+    window.App?.showToast?.(`✅ เปลี่ยน PIN ของ ${staffName} เรียบร้อย`);
   };
 }
 
