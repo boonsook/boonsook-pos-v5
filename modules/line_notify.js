@@ -255,21 +255,30 @@ function attachLineNotifyListeners(container, ctx, settings) {
         notify_daily_summary: container.querySelector('#line-daily-summary').checked
       };
 
-      // If settings have ID, use PATCH; otherwise use POST
+      // If settings have ID, use PATCH (table name only — helper prepends /rest/v1/)
+      // otherwise POST to create row
+      let saveResult = { ok: true };
       if (settings.id && window._appXhrPatch) {
-        await window._appXhrPatch(
-          `/api/line_notify_settings/${settings.id}`,
-          updatedSettings
+        saveResult = await window._appXhrPatch(
+          'line_notify_settings',
+          updatedSettings,
+          'id',
+          settings.id
         );
       } else if (window._appXhrPost) {
-        await window._appXhrPost(
-          '/api/line_notify_settings',
+        saveResult = await window._appXhrPost(
+          'line_notify_settings',
           updatedSettings
         );
       }
 
-      // Update state
+      if (saveResult && saveResult.ok === false) {
+        throw new Error(saveResult.error?.message || 'บันทึกไม่สำเร็จ');
+      }
+
+      // Update state + persist copy to localStorage so toggles survive refresh
       state.lineNotifySettings = { ...settings, ...updatedSettings };
+      try { localStorage.setItem('bsk_line_notify_settings', JSON.stringify(state.lineNotifySettings)); } catch(e) {}
 
       showToast('✅ บันทึกสำเร็จ', 'success');
 
@@ -476,23 +485,4 @@ export async function notifyDailySummary(summary, ctx) {
  */
 function translateStatus(status) {
   const statusMap = {
-    'pending': 'รอดำเนินการ',
-    'processing': 'กำลังดำเนินการ',
-    'completed': 'เสร็จสิ้น',
-    'cancelled': 'ยกเลิก',
-    'draft': 'ร่าง',
-    'confirmed': 'ยืนยันแล้ว',
-    'shipped': 'จัดส่งแล้ว'
-  };
-
-  return statusMap[status] || status;
-}
-
-export default {
-  renderLineNotifySettings,
-  sendLineNotify,
-  notifyLowStock,
-  notifyNewOrder,
-  notifyJobDone,
-  notifyDailySummary
-};
+    'pending': 'รอดำเน�

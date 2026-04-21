@@ -426,7 +426,7 @@ const state = {
   receipts: [],
   cart: JSON.parse(localStorage.getItem("bsk_cart_v2") || "[]"),
   lastReceipt: JSON.parse(localStorage.getItem("bsk_last_receipt") || "null"),
-  storeInfo: JSON.parse(localStorage.getItem("bsk_store_info") || '{"name":"บุญสุข อิเล็กทรอนิกส์","phone":"0862613829","email":"gangboo@gmail.com","address":"87 ม.12 ต.สำนัก จ.สุรินทร์ 32110","taxId":""}'),
+  storeInfo: JSON.parse(localStorage.getItem("bsk_store_info") || '{"name":"ร้านบุญสุขอิเล็กทรอนิกส์","phone":"0862613829","email":"gangboo@gmail.com","address":"87 ม.12 ต.คาลาแมะ อ.ศีขรภูมิ จ.สุรินทร์ 32110","taxId":""}'),
   paymentInfo: (() => {
     const raw = JSON.parse(localStorage.getItem("bsk_payment_info") || '{"banks":[],"promptPay":""}');
     // ★ Migrate: ถ้ายังเป็น format เดิม (มี bankName) ให้ย้ายเข้า banks[]
@@ -661,18 +661,21 @@ async function saveStoreInfo(data = null) {
   if (data) {
     state.storeInfo = { ...state.storeInfo, ...data };
   }
-  // ✅ Save to localStorage (primary storage)
+  // ✅ Save to localStorage (primary storage — synchronous, always succeeds)
   localStorage.setItem("bsk_store_info", JSON.stringify(state.storeInfo));
-  
-  // 🔄 Try Supabase (optional, don't fail if unavailable)
+
+  // 🔄 Try Supabase (optional, 3s timeout so UI never hangs on stalled network/RLS)
+  if (!state.supabase) return;
   try {
-    const { error } = await state.supabase
+    const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error("supabase timeout")), 3000));
+    const save = state.supabase
       .from('app_settings')
       .upsert({ key: 'store_info', value: state.storeInfo }, { onConflict: 'key' });
+    const { error } = await Promise.race([save, timeout]);
     if (error) console.warn('Supabase save warning:', error);
   } catch (err) {
     // Don't throw - localStorage already saved ✓
-    console.warn('Supabase save failed (using localStorage):', err.message);
+    console.warn('Supabase save failed (using localStorage):', err?.message || err);
   }
 }
 function savePaymentInfo(){ localStorage.setItem("bsk_payment_info", JSON.stringify(state.paymentInfo)); }
@@ -2030,10 +2033,4 @@ function updateAppLogos() {
   initDarkMode();
   bindStaticEvents();
   updateAppLogos();
-  const ok = await initSupabase();
-  if (!ok) return;
-  if (!state.currentUser) return;
-  await afterLogin();
-  // Sync โลโก้จาก Supabase Storage (ทำ background ไม่ block)
-  window._appSyncLogo().then(() => { if (typeof updateAppLogos === "function") updateAppLogos(); });
-})();
+  const ok = a
