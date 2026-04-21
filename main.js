@@ -683,7 +683,7 @@ async function saveStoreInfo(data = null) {
   localStorage.setItem("bsk_store_info", JSON.stringify(state.storeInfo));
 
   // 🔄 Try Supabase (optional, 3s timeout so UI never hangs on stalled network/RLS)
-  if (\!state.supabase) return;
+  if (!state.supabase) return;
   try {
     const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error("supabase timeout")), 3000));
     const save = state.supabase
@@ -2156,3 +2156,4 @@ function updateAppLogos() {
   // Sync โลโก้จาก Supabase Storage (ทำ background ไม่ block)
   window._appSyncLogo().then(() => { if (typeof updateAppLogos === "function") updateAppLogos(); });
 })();
+ 
