@@ -252,13 +252,18 @@ function renderInvoicePreview(container) {
     if (!(await window.App?.confirm?.(`ลบใบส่งสินค้า ${inv.inv_no} ?\n\nใบเสนอราคาที่อ้างอิงจะกลับสถานะเป็น "อนุมัติแล้ว" เพื่อให้แก้ไขหรือลบได้`))) return;
     const cfg = window.SUPABASE_CONFIG;
     const token = window._sbAccessToken || cfg.anonKey;
-    const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token, "Content-Type": "application/json", "Prefer": "return=minimal" };
+    // ★ return=representation — ได้ rows ที่ลบกลับมาเช็คว่า RLS ไม่บล็อค
+    const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token, "Content-Type": "application/json", "Prefer": "return=representation" };
     try {
       // 1. ลบ delivery_invoice_items
       await fetch(cfg.url + "/rest/v1/delivery_invoice_items?delivery_invoice_id=eq." + inv.id, { method: "DELETE", headers });
-      // 2. ลบ delivery_invoice — ต้องสำเร็จก่อนถึงจะ restore status
+      // 2. ลบ delivery_invoice — verify ว่าลบจริง
       const delResp = await fetch(cfg.url + "/rest/v1/delivery_invoices?id=eq." + inv.id, { method: "DELETE", headers });
-      if (!delResp.ok) throw new Error("ลบใบส่งสินค้าไม่สำเร็จ (HTTP " + delResp.status + ")");
+      if (!delResp.ok) throw new Error("HTTP " + delResp.status);
+      const deleted = await delResp.json().catch(() => []);
+      if (!Array.isArray(deleted) || deleted.length === 0) {
+        throw new Error("ไม่มี row ถูกลบ — RLS อาจบล็อค DELETE policy กรุณารัน supabase-rls-policies.sql");
+      }
       // 3. คืนสถานะ quotation กลับเป็น approved
       const qtId = inv.quotation_id || null;
       if (qtId) {
@@ -270,7 +275,8 @@ function renderInvoicePreview(container) {
       await _ctx.loadAllData();
       renderDeliveryInvoicesPage(_ctx);
     } catch(e) {
-      _ctx.showToast("เกิดข้อผิดพลาด: " + e.message);
+      console.error("[delivery_invoices delete] error:", e);
+      _ctx.showToast("❌ ลบไม่สำเร็จ: " + (e.message || e));
     }
   });
 

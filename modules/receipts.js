@@ -369,13 +369,18 @@ function renderReceiptPreview(container) {
     if (!(await window.App?.confirm?.(`ลบใบเสร็จ ${r.receipt_no} ?\n\nใบส่งสินค้าที่อ้างอิงจะกลับสถานะเป็น "รอดำเนินการ" เพื่อให้แก้ไขหรือลบได้`))) return;
     const cfg = window.SUPABASE_CONFIG;
     const token = window._sbAccessToken || cfg.anonKey;
-    const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token, "Content-Type": "application/json", "Prefer": "return=minimal" };
+    // ★ return=representation เพื่อให้ได้ rows ที่ลบจริงกลับมา — ตรวจได้ว่า RLS บล็อคไหม
+    const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token, "Content-Type": "application/json", "Prefer": "return=representation" };
     try {
-      // 1. ลบ receipt_items
+      // 1. ลบ receipt_items (OK ถ้า 0 rows เพราะอาจไม่มี items)
       await fetch(cfg.url + "/rest/v1/receipt_items?receipt_id=eq." + r.id, { method: "DELETE", headers });
-      // 2. ลบ receipt — ต้องสำเร็จก่อนถึงจะ restore status
+      // 2. ลบ receipt — verify ว่ามี row ถูกลบจริง
       const delResp = await fetch(cfg.url + "/rest/v1/receipts?id=eq." + r.id, { method: "DELETE", headers });
-      if (!delResp.ok) throw new Error("ลบใบเสร็จไม่สำเร็จ (HTTP " + delResp.status + ")");
+      if (!delResp.ok) throw new Error("HTTP " + delResp.status);
+      const deleted = await delResp.json().catch(() => []);
+      if (!Array.isArray(deleted) || deleted.length === 0) {
+        throw new Error("ไม่มี row ถูกลบ — RLS อาจบล็อค DELETE policy กรุณารัน supabase-rls-policies.sql");
+      }
       // 3. คืนสถานะ delivery_invoice กลับเป็น invoiced (รอดำเนินการ)
       const invId = r.delivery_invoice_id || null;
       if (invId) {
@@ -387,7 +392,8 @@ function renderReceiptPreview(container) {
       await _ctx.loadAllData();
       renderReceiptsPage(_ctx);
     } catch(e) {
-      _ctx.showToast("เกิดข้อผิดพลาด: " + e.message);
+      console.error("[receipts delete] error:", e);
+      _ctx.showToast("❌ ลบไม่สำเร็จ: " + (e.message || e));
     }
   });
 
