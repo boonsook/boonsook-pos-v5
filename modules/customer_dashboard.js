@@ -809,14 +809,8 @@ export function renderCustomerDashboard(ctx) {
     const uploadBtn = container.querySelector("#custSlipUploadBtn");
     const fileInput = container.querySelector("#custSlipFileInput");
 
-    if (!uploadBtn) {
-      console.warn("[customer_dashboard] #custSlipUploadBtn not found");
-      return;
-    }
-    if (!fileInput) {
-      console.warn("[customer_dashboard] #custSlipFileInput not found");
-      return;
-    }
+    // Slip section แสดงเฉพาะตอนเลือก "โอนเงิน" — ไม่ใช่ error ถ้าไม่มี
+    if (!uploadBtn || !fileInput) return;
 
     // ลบ event listener เก่า (ถ้ามี) ก่อนเพิ่มใหม่
     const newUploadBtn = uploadBtn.cloneNode(true);
@@ -844,10 +838,7 @@ export function renderCustomerDashboard(ctx) {
   // File input change handler
   setTimeout(() => {
     const fileInput = container.querySelector("#custSlipFileInput");
-    if (!fileInput) {
-      console.warn("[customer_dashboard] File input not found for change listener");
-      return;
-    }
+    if (!fileInput) return; // ไม่ใช่ error — ไม่ได้เลือกโอนเงิน
 
     fileInput.addEventListener("change", (e) => {
     const file = e.target.files[0];
