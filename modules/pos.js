@@ -26,8 +26,11 @@ function xhrPostPOS(table, payload, returnData = false) {
     xhr.onload = function () {
       if (xhr.status >= 200 && xhr.status < 300) {
         let data = null;
-        try { data = JSON.parse(xhr.responseText); } catch (e) {
-          console.warn("[xhrPostPOS] JSON.parse failed:", e, xhr.responseText?.slice(0, 200));
+        const txt = xhr.responseText;
+        if (txt && txt.trim()) {
+          try { data = JSON.parse(txt); } catch (e) {
+            console.warn("[xhrPostPOS] JSON.parse failed:", e, txt.slice(0, 200));
+          }
         }
         resolve({ ok: true, data: Array.isArray(data) ? data[0] : data, error: null });
       } else {

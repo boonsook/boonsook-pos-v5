@@ -84,8 +84,12 @@ function xhrPost(table, payload, opts = {}) {
     xhr.onload = function () {
       if (xhr.status >= 200 && xhr.status < 300) {
         let data = null;
-        try { data = JSON.parse(xhr.responseText); } catch (e) {
-          console.warn("[xhrPost] " + table + " JSON.parse failed:", e, xhr.responseText?.slice(0, 200));
+        const txt = xhr.responseText;
+        // ว่างเปล่า = return=minimal success (ไม่ต้อง parse/warn)
+        if (txt && txt.trim()) {
+          try { data = JSON.parse(txt); } catch (e) {
+            console.warn("[xhrPost] " + table + " JSON.parse failed:", e, txt.slice(0, 200));
+          }
         }
         resolve({ ok: true, data: Array.isArray(data) ? data[0] : data, error: null });
       } else {
@@ -123,8 +127,11 @@ function xhrPatch(table, payload, eqCol, eqVal) {
     xhr.onload = function () {
       if (xhr.status >= 200 && xhr.status < 300) {
         let data = null;
-        try { data = JSON.parse(xhr.responseText); } catch (e) {
-          console.warn("[xhrPatch] " + table + " JSON.parse failed:", e, xhr.responseText?.slice(0, 200));
+        const txt = xhr.responseText;
+        if (txt && txt.trim()) {
+          try { data = JSON.parse(txt); } catch (e) {
+            console.warn("[xhrPatch] " + table + " JSON.parse failed:", e, txt.slice(0, 200));
+          }
         }
         // ★ ถ้า Supabase คืน array ว่าง = RLS บล็อค (0 rows affected)
         if (Array.isArray(data) && data.length === 0) {
@@ -134,8 +141,11 @@ function xhrPatch(table, payload, eqCol, eqVal) {
         }
       } else {
         let msg = "HTTP " + xhr.status;
-        try { msg = JSON.parse(xhr.responseText)?.message || msg; } catch (e) {
-          console.warn("[xhrPatch] " + table + " error body parse failed:", e, xhr.responseText?.slice(0, 200));
+        const errTxt = xhr.responseText;
+        if (errTxt && errTxt.trim()) {
+          try { msg = JSON.parse(errTxt)?.message || msg; } catch (e) {
+            console.warn("[xhrPatch] " + table + " error body parse failed:", e, errTxt.slice(0, 200));
+          }
         }
         resolve({ ok: false, error: { message: msg } });
       }
@@ -161,8 +171,11 @@ function xhrDelete(table, eqCol, eqVal) {
       if (xhr.status >= 200 && xhr.status < 300) resolve({ ok: true, error: null });
       else {
         let msg = "HTTP " + xhr.status;
-        try { msg = JSON.parse(xhr.responseText)?.message || msg; } catch (e) {
-          console.warn("[xhrDelete] " + table + " error body parse failed:", e, xhr.responseText?.slice(0, 200));
+        const errTxt = xhr.responseText;
+        if (errTxt && errTxt.trim()) {
+          try { msg = JSON.parse(errTxt)?.message || msg; } catch (e) {
+            console.warn("[xhrDelete] " + table + " error body parse failed:", e, errTxt.slice(0, 200));
+          }
         }
         resolve({ ok: false, error: { message: msg } });
       }
