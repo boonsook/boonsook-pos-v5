@@ -160,36 +160,42 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
     const newNote = "[ลบแล้ว] ลบโดยแอดมิน " + new Date().toLocaleString("th-TH");
     const updatePayload = { status: "cancelled", note: newNote };
 
+    // ★ Safety timeout กัน hang
+    const withTimeout = (p, ms, label) => Promise.race([
+      p,
+      new Promise((_, rej) => setTimeout(() => rej(new Error(label + " timeout " + ms + "ms")), ms))
+    ]);
+
     try {
       let success = false;
 
       // ★ วิธีที่ 1: Supabase JS client
       if (state.supabase) {
-        const { data, error } = await state.supabase
-          .from("service_jobs")
-          .update(updatePayload)
-          .eq("id", jobId)
-          .select();
-
-        if (!error && data && data.length > 0) {
-          success = true;
-        } else {
-          console.warn("Supabase client update failed:", error?.message || "0 rows — RLS blocked");
+        try {
+          const { data, error } = await withTimeout(
+            state.supabase.from("service_jobs").update(updatePayload).eq("id", jobId).select(),
+            15000, "Supabase update"
+          );
+          if (!error && data && data.length > 0) {
+            success = true;
+          } else {
+            console.warn("[service_jobs delete] Supabase update failed:", error?.message || "0 rows — RLS blocked");
+          }
+        } catch (sbErr) {
+          console.warn("[service_jobs delete] Supabase timeout/error:", sbErr.message);
         }
       }
 
       // ★ วิธีที่ 2: XHR PATCH (FIX: เช็คว่า function มีอยู่ก่อนเรียก)
       if (!success && typeof window._appXhrPatch === 'function') {
         try {
-          const res = await window._appXhrPatch("service_jobs", updatePayload, "id", jobId);
+          const res = await withTimeout(window._appXhrPatch("service_jobs", updatePayload, "id", jobId), 15000, "XHR PATCH");
           if (res?.ok) success = true;
-          else console.warn("XHR PATCH failed:", res?.error?.message);
+          else console.warn("[service_jobs delete] XHR PATCH failed:", res?.error?.message);
         } catch (patchErr) {
-          console.warn("XHR PATCH error:", patchErr.message);
+          console.warn("[service_jobs delete] XHR PATCH error:", patchErr.message);
         }
       }
-
-      // หมายเหตุ: RPC soft_delete_service_job ไม่มีใน DB — ข้ามไป
 
       if (success) {
         if (showToast) showToast("ลบงานช่างเรียบร้อย ✅");
@@ -200,9 +206,14 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
         throw new Error("RLS บล็อค — กรุณาเพิ่ม UPDATE policy ที่ Supabase Dashboard สำหรับตาราง service_jobs");
       }
     } catch (err) {
+      console.error("[service_jobs delete] error:", err);
       if (showToast) showToast("❌ " + (err.message || "ลบไม่สำเร็จ"), "error");
-      btn.disabled = false;
-      btn.textContent = "🗑️ ลบ";
+    } finally {
+      // ★ Safety: reset button เสมอ (กัน stuck "กำลังลบ...")
+      if (btn.isConnected) {
+        btn.disabled = false;
+        btn.textContent = "🗑️ ลบ";
+      }
     }
   }));
 }

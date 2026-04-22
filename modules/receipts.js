@@ -145,9 +145,14 @@ export function renderReceiptsPage(ctx) {
         }
       }
     } catch (err) {
+      console.error("[receipts collect] error:", err);
       window.App?.showToast?.("❌ " + (err.message || "เก็บเงินไม่สำเร็จ"), "error");
-      btn.disabled = false;
-      btn.textContent = "เก็บเงิน";
+    } finally {
+      // ★ Safety: reset button เสมอ (กัน stuck)
+      if (btn.isConnected) {
+        btn.disabled = false;
+        btn.textContent = "เก็บเงิน";
+      }
     }
   }));
 
@@ -176,9 +181,14 @@ export function renderReceiptsPage(ctx) {
         }
       }
     } catch (err) {
+      console.error("[receipts cancel] error:", err);
       window.App?.showToast?.("❌ " + (err.message || "ยกเลิกไม่สำเร็จ"), "error");
-      btn.disabled = false;
-      btn.textContent = "ยกเลิก";
+    } finally {
+      // ★ Safety: reset button เสมอ (กัน stuck)
+      if (btn.isConnected) {
+        btn.disabled = false;
+        btn.textContent = "ยกเลิก";
+      }
     }
   }));
 }

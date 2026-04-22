@@ -134,6 +134,12 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
 
     const newNote = "[ลบแล้ว] ลบโดยแอดมิน " + new Date().toLocaleString("th-TH");
 
+    // ★ Safety timeout: ถ้า network/Supabase hang → หลุด 20 วินาที auto-reset
+    const withTimeout = (p, ms, label) => Promise.race([
+      p,
+      new Promise((_, rej) => setTimeout(() => rej(new Error(label + " timeout " + ms + "ms")), ms))
+    ]);
+
     try {
       let success = false;
 
@@ -141,7 +147,7 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
       try {
         const cfg = window.SUPABASE_CONFIG;
         const token = window._sbAccessToken || cfg.anonKey;
-        const patchRes = await fetch(cfg.url + "/rest/v1/sales?id=eq." + saleId, {
+        const patchRes = await withTimeout(fetch(cfg.url + "/rest/v1/sales?id=eq." + saleId, {
           method: "PATCH",
           headers: {
             "Content-Type": "application/json",
@@ -150,7 +156,7 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
             "Prefer": "return=representation"
           },
           body: JSON.stringify({ note: newNote })
-        });
+        }), 15000, "PATCH sales");
         const patchData = await patchRes.json().catch(() => null);
         if (patchRes.ok && Array.isArray(patchData) && patchData.length > 0) {
           success = true;
@@ -158,39 +164,44 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
           // ★ FIX: null-safe access to patchData
           const errMsg = (patchData && (patchData.message || patchData.hint))
             || ("status " + patchRes.status + " — 0 rows (RLS?)");
-          console.warn("PATCH failed:", errMsg);
-          showToast?.("ลบไม่สำเร็จ: " + errMsg);
+          console.warn("[sales delete] PATCH failed:", errMsg);
         }
       } catch (fetchErr) {
-        console.warn("PATCH fetch error:", fetchErr.message);
-        showToast?.("ลบไม่สำเร็จ (เครือข่าย): " + fetchErr.message);
+        console.warn("[sales delete] PATCH fetch error:", fetchErr.message);
       }
 
       // ★ วิธีที่ 2: Supabase JS client (fallback)
       if (!success && state.supabase) {
-        const { data, error } = await state.supabase
-          .from("sales")
-          .update({ note: newNote })
-          .eq("id", saleId)
-          .select();
-        if (!error && data && data.length > 0) {
-          success = true;
-        } else {
-          console.warn("Supabase update failed:", error?.message);
+        try {
+          const { data, error } = await withTimeout(
+            state.supabase.from("sales").update({ note: newNote }).eq("id", saleId).select(),
+            15000, "Supabase update"
+          );
+          if (!error && data && data.length > 0) {
+            success = true;
+          } else {
+            console.warn("[sales delete] Supabase update failed:", error?.message);
+          }
+        } catch (sbErr) {
+          console.warn("[sales delete] Supabase timeout/error:", sbErr.message);
         }
       }
 
       if (success) {
         if (showToast) showToast("ลบรายการขายเรียบร้อย ✅");
-        await loadAllData();
+        try { await withTimeout(loadAllData(), 10000, "loadAllData"); } catch(e) { console.warn("[sales delete] loadAllData timeout:", e.message); }
       } else {
-        throw new Error("ลบไม่ได้ — ต้องเพิ่ม UPDATE policy ที่ Supabase Dashboard สำหรับตาราง sales");
+        throw new Error("ลบไม่ได้ — อาจต้องเพิ่ม UPDATE policy ที่ Supabase สำหรับตาราง sales");
       }
     } catch (err) {
-      showToast?.("ลบไม่สำเร็จ: " + (err.message || err));
-      if (showToast) showToast("❌ " + (err.message || "ลบไม่สำเร็จ"), "error");
-      btn.disabled = false;
-      btn.textContent = "🗑️ ลบ";
+      console.error("[sales delete] error:", err);
+      showToast?.("❌ " + (err.message || "ลบไม่สำเร็จ"));
+    } finally {
+      // ★ Safety: reset button เสมอ ถ้ายังอยู่ใน DOM (กัน stuck "กำลังลบ...")
+      if (btn.isConnected) {
+        btn.disabled = false;
+        btn.textContent = "🗑️ ลบ";
+      }
     }
   }));
 }
