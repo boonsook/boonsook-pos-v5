@@ -150,7 +150,7 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
     e.stopPropagation();
     const jobId = Number(btn.dataset.delJob);
     // ★ FIX: ป้องกัน NaN
-    if (!jobId || isNaN(jobId)) { alert("ไม่พบ ID งาน"); return; }
+    if (!jobId || isNaN(jobId)) { showToast?.("ไม่พบ ID งาน"); return; }
     const jobName = btn.dataset.delName || "";
     if (!confirm(`ลบใบรับงาน "${escHtml(jobName.trim())}" ?`)) return;
 

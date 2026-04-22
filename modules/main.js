@@ -83,7 +83,7 @@ function xhrPost(table, payload, opts = {}) {
     xhr.onload = function () {
       if (xhr.status >= 200 && xhr.status < 300) {
         let data = null;
-        try { data = JSON.parse(xhr.responseText); } catch (e) {}
+        try { data = JSON.parse(xhr.responseText); } catch (e) { console.warn("[xhrPost] " + table + " response JSON parse failed:", e.message, xhr.responseText.substring(0, 200)); }
         resolve({ ok: true, data: Array.isArray(data) ? data[0] : data, error: null });
       } else {
         let errBody = xhr.responseText;
@@ -120,7 +120,7 @@ function xhrPatch(table, payload, eqCol, eqVal) {
     xhr.onload = function () {
       if (xhr.status >= 200 && xhr.status < 300) {
         let data = null;
-        try { data = JSON.parse(xhr.responseText); } catch (e) {}
+        try { data = JSON.parse(xhr.responseText); } catch (e) { console.warn("[xhrPatch] " + table + " response JSON parse failed:", e.message, xhr.responseText.substring(0, 200)); }
         // ★ ถ้า Supabase คืน array ว่าง = RLS บล็อค (0 rows affected)
         if (Array.isArray(data) && data.length === 0) {
           resolve({ ok: false, error: { message: "ไม่สามารถอัปเดตได้ (RLS blocked — 0 rows affected)" } });
@@ -129,7 +129,8 @@ function xhrPatch(table, payload, eqCol, eqVal) {
         }
       } else {
         let msg = "HTTP " + xhr.status;
-        try { msg = JSON.parse(xhr.responseText)?.message || msg; } catch (e) {}
+        try { msg = JSON.parse(xhr.responseText)?.message || msg; } catch (e) { console.warn("[xhrPatch] " + table + " error body parse failed:", xhr.responseText.substring(0, 200)); }
+        console.error("[xhrPatch] " + table + " " + xhr.status + ":", xhr.responseText.substring(0, 300));
         resolve({ ok: false, error: { message: msg } });
       }
     };
@@ -154,7 +155,8 @@ function xhrDelete(table, eqCol, eqVal) {
       if (xhr.status >= 200 && xhr.status < 300) resolve({ ok: true, error: null });
       else {
         let msg = "HTTP " + xhr.status;
-        try { msg = JSON.parse(xhr.responseText)?.message || msg; } catch (e) {}
+        try { msg = JSON.parse(xhr.responseText)?.message || msg; } catch (e) { console.warn("[xhrDelete] " + table + " error body parse failed:", xhr.responseText.substring(0, 200)); }
+        console.error("[xhrDelete] " + table + " " + xhr.status + ":", xhr.responseText.substring(0, 300));
         resolve({ ok: false, error: { message: msg } });
       }
     };
@@ -982,7 +984,7 @@ async function requestOtp() {
   // ★ Production guard: ห้ามแสดง OTP ผ่าน alert ในโหมด production
   if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
     setTimeout(() => {
-      alert("📱 [DEV MODE] รหัส OTP: " + code + "\n(จำลอง — ระบบจริงจะส่ง SMS ไปเบอร์ " + phone + ")");
+      console.info("[DEV OTP]", code, "phone:", phone); showToast("📱 [DEV] OTP: " + code);
     }, 300);
   } else {
     console.info("[OTP] รหัสถูกส่งไปยังเบอร์ " + phone + " แล้ว");
