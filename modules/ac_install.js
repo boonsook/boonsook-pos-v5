@@ -128,9 +128,15 @@ export function renderAcInstallPage(ctx) {
   container.querySelector("#acProduct")?.addEventListener("change", updateTotal);
 
   // Save
-  container.querySelector("#acSaveBtn").addEventListener("click", async () => {
+  container.querySelector("#acSaveBtn").addEventListener("click", async (e) => {
+    const saveBtn = e.currentTarget;
+    if (saveBtn.disabled) return; // ★ กัน double-click
     const name = container.querySelector("#acName").value.trim();
     if (!name) return showToast("กรอกชื่อลูกค้า");
+
+    saveBtn.disabled = true;
+    const origText = saveBtn.textContent;
+    saveBtn.textContent = "⏳ กำลังบันทึก...";
 
     const sel = container.querySelector("#acProduct");
     const productName = sel?.selectedOptions[0]?.textContent || "ติดตั้งแอร์";
@@ -186,7 +192,13 @@ export function renderAcInstallPage(ctx) {
       statusEl.innerHTML = `<div style="text-align:center;color:var(--success);font-weight:700">✅ บันทึกใบงานติดตั้งสำเร็จ!</div>`;
       showToast("บันทึกสำเร็จ!");
     } catch (e) {
+      console.error("[ac_install save] error:", e);
       statusEl.textContent = "เกิดข้อผิดพลาด: " + e.message;
+    } finally {
+      if (saveBtn.isConnected) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = origText;
+      }
     }
   });
 }

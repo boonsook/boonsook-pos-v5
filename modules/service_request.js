@@ -80,7 +80,11 @@ export function renderServiceRequestPage(ctx) {
   }
 
   // Submit
-  container.querySelector("#srSubmitBtn").addEventListener("click", async () => {
+  container.querySelector("#srSubmitBtn").addEventListener("click", async (e) => {
+    const submitBtn = e.currentTarget;
+    // ★ ป้องกัน double-click
+    if (submitBtn.disabled) return;
+
     const typeVal = typeSelect.value.includes("อื่นๆ")
       ? (container.querySelector("#srCustomType").value.trim() || typeSelect.value)
       : typeSelect.value;
@@ -89,6 +93,10 @@ export function renderServiceRequestPage(ctx) {
     const note = container.querySelector("#srNote").value.trim();
 
     if (!symptom) return showToast("กรุณากรอกอาการเสีย/รายละเอียด");
+
+    submitBtn.disabled = true;
+    const origText = submitBtn.textContent;
+    submitBtn.textContent = "⏳ กำลังส่ง...";
 
     const statusEl = container.querySelector("#srStatus");
     statusEl.classList.remove("hidden");
@@ -142,8 +150,14 @@ export function renderServiceRequestPage(ctx) {
         );
       }
     } catch (e) {
+      console.error("[service_request submit] error:", e);
       statusEl.textContent = "เกิดข้อผิดพลาด: " + e.message;
       showToast("แจ้งซ่อมไม่สำเร็จ");
+    } finally {
+      if (submitBtn.isConnected) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = origText;
+      }
     }
   });
 }

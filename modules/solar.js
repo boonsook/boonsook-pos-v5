@@ -130,7 +130,9 @@ export function renderSolarPage(ctx) {
   addEquipRow();
 
   // Save
-  container.querySelector("#solSaveBtn").addEventListener("click", async () => {
+  container.querySelector("#solSaveBtn").addEventListener("click", async (e) => {
+    const saveBtn = e.currentTarget;
+    if (saveBtn.disabled) return; // ★ กัน double-click
     const typeVal = container.querySelector("#solType").value.includes("อื่นๆ")
       ? (container.querySelector("#solCustomType")?.value.trim() || container.querySelector("#solType").value)
       : container.querySelector("#solType").value;
@@ -140,6 +142,10 @@ export function renderSolarPage(ctx) {
     const detail = container.querySelector("#solDetail").value.trim();
 
     if (!name) return showToast("กรอกชื่อลูกค้า");
+
+    saveBtn.disabled = true;
+    const origText = saveBtn.textContent;
+    saveBtn.textContent = "⏳ กำลังบันทึก...";
 
     const labor = parseFloat(container.querySelector("#solLabor").value) || 0;
     const discount = parseFloat(container.querySelector("#solDiscount").value) || 0;
@@ -193,8 +199,14 @@ export function renderSolarPage(ctx) {
       statusEl.innerHTML = `<div style="text-align:center;color:var(--success);font-weight:700">✅ บันทึกงานโซล่าเซลล์สำเร็จ!</div>`;
       showToast("บันทึกสำเร็จ!");
     } catch (e) {
+      console.error("[solar save] error:", e);
       statusEl.textContent = "เกิดข้อผิดพลาด: " + e.message;
       showToast("บันทึกไม่สำเร็จ");
+    } finally {
+      if (saveBtn.isConnected) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = origText;
+      }
     }
   });
 }

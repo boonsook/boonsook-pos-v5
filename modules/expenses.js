@@ -439,7 +439,10 @@ function bindAddFormEvents() {
     }
   });
 
-  document.getElementById("expFormSaveBtn")?.addEventListener("click", () => {
+  document.getElementById("expFormSaveBtn")?.addEventListener("click", async (ev) => {
+    const saveBtn = ev.currentTarget;
+    if (saveBtn.disabled) return; // ★ กัน double-click
+
     const date = document.getElementById("expFormDate")?.value || "";
     const category = document.getElementById("expFormCategory")?.value || "";
     const method = document.getElementById("expFormMethod")?.value || "";
@@ -451,6 +454,10 @@ function bindAddFormEvents() {
       _ctx.showToast("กรุณากรอกข้อมูลให้ครบถ้วน", "error");
       return;
     }
+
+    saveBtn.disabled = true;
+    const origText = saveBtn.textContent;
+    saveBtn.textContent = "⏳ กำลังบันทึก...";
 
     // ★ รวม receipt_url ใน payload
     const receiptUrl = _pendingExpProofUrl || _getFormValueProof() || "";
@@ -466,19 +473,31 @@ function bindAddFormEvents() {
       payload.receipt_url = receiptUrl;
     }
 
-    if (_editingExpenseId) {
-      window._appXhrPatch?.("expenses", payload, "id", _editingExpenseId);
-      _ctx.showToast("อัปเดตรายจ่ายเรียบร้อย", "success");
-    } else {
-      window._appXhrPost?.("expenses", payload, {});
-      _ctx.showToast("เพิ่มรายจ่ายเรียบร้อย", "success");
-    }
+    try {
+      if (_editingExpenseId) {
+        const res = await window._appXhrPatch?.("expenses", payload, "id", _editingExpenseId);
+        if (res && res.ok === false) throw new Error(res.error?.message || "update failed");
+        _ctx.showToast("อัปเดตรายจ่ายเรียบร้อย", "success");
+      } else {
+        const res = await window._appXhrPost?.("expenses", payload, {});
+        if (res && res.ok === false) throw new Error(res.error?.message || "insert failed");
+        _ctx.showToast("เพิ่มรายจ่ายเรียบร้อย", "success");
+      }
 
-    _showAddForm = false;
-    _editingExpenseId = null;
-    _pendingExpProofUrl = "";
-    _ctx.loadAllData?.();
-    setTimeout(() => renderExpensesPage(_ctx), 300);
+      _showAddForm = false;
+      _editingExpenseId = null;
+      _pendingExpProofUrl = "";
+      await _ctx.loadAllData?.();
+      renderExpensesPage(_ctx);
+    } catch (err) {
+      console.error("[expenses save] error:", err);
+      _ctx.showToast("❌ บันทึกไม่สำเร็จ: " + (err.message || err), "error");
+    } finally {
+      if (saveBtn.isConnected) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = origText;
+      }
+    }
   });
 }
 
