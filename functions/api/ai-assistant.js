@@ -224,6 +224,7 @@ export async function onRequestPost(context) {
     if (!env.AI) {
       return new Response(
         JSON.stringify({
+          ok: false,
           error: "AI binding not configured",
           hint: "Go to Cloudflare Pages → Settings → Functions → Bindings → Add AI binding named 'AI'",
         }),
@@ -236,7 +237,7 @@ export async function onRequestPost(context) {
 
     if (!message || typeof message !== "string") {
       return new Response(
-        JSON.stringify({ error: "message is required" }),
+        JSON.stringify({ ok: false, error: "message is required" }),
         { status: 400, headers: corsHeaders }
       );
     }
@@ -388,8 +389,10 @@ export async function onRequestPost(context) {
       headers: corsHeaders,
     });
   } catch (err) {
+    console.error("[ai-assistant] server error:", err);
     return new Response(
       JSON.stringify({
+        ok: false,
         error: "AI assistant failed",
         detail: String(err?.message || err),
       }),

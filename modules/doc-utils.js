@@ -111,7 +111,7 @@ export function printDoc(elementId, title = "เอกสาร") {
 
   const w = window.open("", "_blank", "width=900,height=700");
   if (!w) {
-    alert("กรุณาอนุญาต popup สำหรับหน้านี้ แล้วลองใหม่");
+    (window.App?.showToast || alert)("กรุณาอนุญาต popup สำหรับหน้านี้ แล้วลองใหม่");
     return;
   }
 
@@ -144,7 +144,7 @@ export function pdfDoc(elementId, filename = "document") {
 
   const w = window.open("", "_blank", "width=900,height=700");
   if (!w) {
-    alert("กรุณาอนุญาต popup สำหรับหน้านี้ แล้วลองใหม่");
+    (window.App?.showToast || alert)("กรุณาอนุญาต popup สำหรับหน้านี้ แล้วลองใหม่");
     return;
   }
 
