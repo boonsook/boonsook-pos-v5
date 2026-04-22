@@ -197,8 +197,16 @@ export function renderExpensesPage(ctx) {
     </div>
     ` : ''}
 
+    ${expenses.length === 0 ? `
+    <div style="text-align:center;padding:48px 20px;margin-top:16px;background:#f8fafc;border-radius:12px;border:2px dashed #cbd5e1">
+      <div style="font-size:56px;margin-bottom:8px">💸</div>
+      <h3 style="margin:0 0 8px;font-size:18px;color:#475569">ยังไม่มีรายจ่าย</h3>
+      <p style="margin:0;color:#94a3b8;font-size:14px">คลิก "+ เพิ่มรายจ่าย" ด้านบนเพื่อเริ่มบันทึกรายจ่ายแรก</p>
+    </div>
+    ` : ''}
+
     <!-- Expense List Table -->
-    <div class="panel mt16">
+    <div class="panel mt16"${expenses.length === 0 ? ' style="display:none"' : ''}>
       <h4 style="margin:0 0 12px">รายการรายจ่าย</h4>
       <div class="table-wrap">
         <table class="exp-table" style="width:100%;border-collapse:collapse;font-size:14px">

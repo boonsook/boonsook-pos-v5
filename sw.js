@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v11 (2026-04-21): bust stale cache of truncated main.js + store defaults fix
-const CACHE_NAME = 'boonsook-pos-v5-cache-v11';
+// v12 (2026-04-22): opt-in update via client-triggered SKIP_WAITING + banner
+const CACHE_NAME = 'boonsook-pos-v5-cache-v12';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
@@ -29,7 +29,7 @@ self.addEventListener('install', (event) => {
       console.error('Cache init error:', error);
     })
   );
-  self.skipWaiting();
+  // Note: no auto-skipWaiting — client sends SKIP_WAITING after user clicks update banner
 });
 
 // Activate event: clean up old caches

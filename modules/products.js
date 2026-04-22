@@ -240,6 +240,14 @@ function renderView(ctx) {
         </div>
       </div>
 
+      ${products.length === 0 ? `
+      <div style="text-align:center;padding:48px 20px;margin-top:16px;background:#f8fafc;border-radius:12px;border:2px dashed #cbd5e1">
+        <div style="font-size:56px;margin-bottom:8px">📦</div>
+        <h3 style="margin:0 0 8px;font-size:18px;color:#475569">ยังไม่มีสินค้า</h3>
+        <p style="margin:0;color:#94a3b8;font-size:14px">คลิก "+ เพิ่มสินค้า" ด้านบน หรือ "นำเข้า" จาก Excel เพื่อเริ่มต้น</p>
+      </div>
+      ` : ''}
+
       <!-- ★ Product Type Tabs (เหมือน FlowAccount) -->
       <div class="prod-type-tabs mt16" style="display:flex;gap:0;border-bottom:2px solid #e2e8f0;margin-bottom:0;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none">
         <button class="prod-type-tab ${currentTypeFilter === 'all' ? 'active' : ''}" data-ptype="all" style="padding:8px 12px;font-size:12px;font-weight:600;border:none;background:none;cursor:pointer;white-space:nowrap;color:${currentTypeFilter === 'all' ? '#0284c7' : '#64748b'};border-bottom:${currentTypeFilter === 'all' ? '2px solid #0284c7' : '2px solid transparent'};margin-bottom:-2px">
