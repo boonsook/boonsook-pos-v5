@@ -195,8 +195,8 @@ export function renderSettingsLogoPage(el, ctx, goBack) {
     }
   });
 
-  resetBtn?.addEventListener('click', () => {
-    if (!confirm('ใช้โลโก้เริ่มต้น (logo.svg) ใช่หรือไม่?')) return;
+  resetBtn?.addEventListener('click', async () => {
+    if (!(await window.App?.confirm?.('ใช้โลโก้เริ่มต้น (logo.svg) ใช่หรือไม่?'))) return;
     localStorage.removeItem('bsk_store_logo');
     const preview = document.querySelector('.logo-preview img');
     if (preview) preview.src = './logo.svg';

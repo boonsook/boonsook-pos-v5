@@ -2,6 +2,11 @@
 function money(n){return new Intl.NumberFormat("th-TH",{style:"currency",currency:"THB",minimumFractionDigits:2}).format(Number(n||0));}
 function moneyNum(n){return new Intl.NumberFormat("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(n||0));}
 
+function escHtml(s) {
+  if (s == null) return "";
+  return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#039;" }[c]));
+}
+
 // ★ XHR helper — delegate to window._appXhrPost when available
 function xhrPostPOS(table, payload, returnData = false) {
   // ★ FIX: delegate to global helper ที่ใช้ร่วมกัน (main.js) ถ้ามี
@@ -21,7 +26,9 @@ function xhrPostPOS(table, payload, returnData = false) {
     xhr.onload = function () {
       if (xhr.status >= 200 && xhr.status < 300) {
         let data = null;
-        try { data = JSON.parse(xhr.responseText); } catch (e) {}
+        try { data = JSON.parse(xhr.responseText); } catch (e) {
+          console.warn("[xhrPostPOS] JSON.parse failed:", e, xhr.responseText?.slice(0, 200));
+        }
         resolve({ ok: true, data: Array.isArray(data) ? data[0] : data, error: null });
       } else {
         let errBody = xhr.responseText;
@@ -824,7 +831,6 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
       created_by: state.currentUser?.id || null
     };
 
-    console.log("[POS] salePayload:", JSON.stringify(salePayload));
     const saleRes = await xhrPostPOS("sales", salePayload, true);
     if (!saleRes.ok) {
       window.App?.showToast?.("บันทึกการขายไม่สำเร็จ: " + (saleRes.error || "unknown"));
@@ -899,7 +905,7 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
 
     window.App?.showToast?.("บันทึกการขายเรียบร้อย ✅");
     try { openReceiptDrawer(); } catch (e) { console.warn("openReceiptDrawer error:", e); }
-    try { if (window.App?.loadAllData) await window.App.loadAllData(); } catch (e) {}
+    try { if (window.App?.loadAllData) await window.App.loadAllData(); } catch (e) { console.warn("[pos] loadAllData after checkout failed:", e); }
 
   } catch (err) {
     window.App?.showToast?.("เกิดข้อผิดพลาด: " + (err.message || err));
@@ -976,7 +982,7 @@ function initScanner(ctx) {
       (decodedText) => { handleScanResult(decodedText, ctx); stopScanner(); },
       () => {}
     ).catch(err => {
-      scanArea.innerHTML = `<div class="sku" style="text-align:center;padding:40px">ไม่สามารถเปิดกล้องได้<br><span style="font-size:11px">${err}</span></div>`;
+      scanArea.innerHTML = `<div class="sku" style="text-align:center;padding:40px">ไม่สามารถเปิดกล้องได้<br><span style="font-size:11px">${escHtml(err && err.message || err)}</span></div>`;
     });
   } catch(e) {
     scanArea.innerHTML = '<div class="sku" style="text-align:center;padding:40px">ไม่สามารถเปิดกล้องได้</div>';
@@ -1014,10 +1020,10 @@ function handleScanResult(code, ctx) {
   const resultEl = document.getElementById("posScanResult");
   if (product) {
     ctx.addToCart(product.id);
-    if (resultEl) resultEl.innerHTML = `<div class="badge ok" style="font-size:14px;padding:8px 16px">เพิ่ม "${product.name}" แล้ว</div>`;
+    if (resultEl) resultEl.innerHTML = `<div class="badge ok" style="font-size:14px;padding:8px 16px">เพิ่ม "${escHtml(product.name)}" แล้ว</div>`;
     window.App?.showToast?.(`เพิ่ม ${product.name} ลงบิล`);
   } else {
-    if (resultEl) resultEl.innerHTML = `<div class="badge low" style="font-size:14px;padding:8px 16px">ไม่พบสินค้า: ${String(code).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}</div>`;
+    if (resultEl) resultEl.innerHTML = `<div class="badge low" style="font-size:14px;padding:8px 16px">ไม่พบสินค้า: ${escHtml(code)}</div>`;
     window.App?.showToast?.("ไม่พบสินค้าที่ตรงกับบาร์โค้ดนี้");
   }
 }

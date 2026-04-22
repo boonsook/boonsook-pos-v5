@@ -116,6 +116,11 @@ const ERROR_DB = {
 
 const BRANDS = Object.keys(ERROR_DB);
 
+function escHtml(s) {
+  if (s == null) return "";
+  return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#039;" }[c]));
+}
+
 export function renderErrorCodesPage(ctx) {
   const container = document.getElementById("page-error_codes");
   if (!container) return;
@@ -195,7 +200,7 @@ export function renderErrorCodesPage(ctx) {
     }
 
     if (results.length === 0) {
-      resultsDiv.innerHTML = `<div style="text-align:center;padding:40px 16px;color:#9ca3af"><div style="font-size:40px;margin-bottom:8px">😕</div>ไม่พบรหัส "${query}" ${brand ? "ในยี่ห้อ " + brand : ""}<br><small>ลองค้นหาด้วยรหัสอื่น หรือ ติดต่อช่างโดยตรง</small></div>`;
+      resultsDiv.innerHTML = `<div style="text-align:center;padding:40px 16px;color:#9ca3af"><div style="font-size:40px;margin-bottom:8px">😕</div>ไม่พบรหัส "${escHtml(query)}" ${brand ? "ในยี่ห้อ " + escHtml(brand) : ""}<br><small>ลองค้นหาด้วยรหัสอื่น หรือ ติดต่อช่างโดยตรง</small></div>`;
       return;
     }
 

@@ -152,7 +152,7 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
     // ★ FIX: ป้องกัน NaN
     if (!jobId || isNaN(jobId)) { showToast?.("ไม่พบ ID งาน"); return; }
     const jobName = btn.dataset.delName || "";
-    if (!confirm(`ลบใบรับงาน "${escHtml(jobName.trim())}" ?`)) return;
+    if (!(await window.App?.confirm?.(`ลบใบรับงาน "${jobName.trim()}" ?`))) return;
 
     btn.disabled = true;
     btn.textContent = "กำลังลบ...";

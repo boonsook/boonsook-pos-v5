@@ -437,8 +437,7 @@ function renderView(ctx) {
     const pid = Number(btn.dataset.prodDel);
     const prod = state.products.find(x => x.id === pid);
     if (!prod) return;
-    const confirmDel = window.App?.showConfirmModal || ((msg, cb) => { if(confirm(msg)) cb(); });
-    confirmDel(`ลบสินค้า "${prod.name}" ?\nลบแล้วไม่สามารถกู้คืนได้`, async () => {
+    window.App?.showConfirmModal?.(`ลบสินค้า "${prod.name}" ?\nลบแล้วไม่สามารถกู้คืนได้`, async () => {
       btn.disabled = true;
       btn.textContent = "...";
       try {
@@ -585,10 +584,10 @@ function openScanner(ctx) {
       (code) => handleScanResult(code, ctx),
       () => {}
     ).catch(err => {
-      scanArea.innerHTML = `<div style="padding:24px;text-align:center;color:var(--muted)">ไม่สามารถเปิดกล้อง: ${err.message || err}</div>`;
+      scanArea.innerHTML = `<div style="padding:24px;text-align:center;color:var(--muted)">ไม่สามารถเปิดกล้อง: ${escHtml(err && err.message || err)}</div>`;
     });
   } catch (err) {
-    scanArea.innerHTML = `<div style="padding:24px;text-align:center;color:var(--muted)">เกิดข้อผิดพลาด: ${err.message || err}</div>`;
+    scanArea.innerHTML = `<div style="padding:24px;text-align:center;color:var(--muted)">เกิดข้อผิดพลาด: ${escHtml(err && err.message || err)}</div>`;
   }
 }
 
@@ -1085,7 +1084,7 @@ async function generateAllBarcodes(ctx) {
     return;
   }
 
-  if (!confirm(`สร้างบาร์โค้ดให้สินค้านับสต็อก ${noBarcode.length} รายการที่ยังไม่มี?\n(ข้ามบริการ + สินค้าไม่นับสต็อก)`)) return;
+  if (!(await window.App?.confirm?.(`สร้างบาร์โค้ดให้สินค้านับสต็อก ${noBarcode.length} รายการที่ยังไม่มี?\n(ข้ามบริการ + สินค้าไม่นับสต็อก)`))) return;
 
   window.App?.showToast?.(`กำลังสร้างบาร์โค้ด ${noBarcode.length} รายการ...`);
 
@@ -1133,8 +1132,8 @@ async function deleteAllProducts(ctx) {
     return;
   }
 
-  if (!confirm(`⚠️ ลบสินค้าทั้งหมด ${products.length} รายการ?\n\nหลังลบแล้วสามารถนำเข้าใหม่จาก Excel ได้เลย\n(โค้ดใหม่จะแยกบริการ/สินค้าให้อัตโนมัติ)`)) return;
-  if (!confirm("ยืนยันอีกครั้ง: ลบสินค้าทั้งหมด?")) return;
+  if (!(await window.App?.confirm?.(`⚠️ ลบสินค้าทั้งหมด ${products.length} รายการ?\n\nหลังลบแล้วสามารถนำเข้าใหม่จาก Excel ได้เลย\n(โค้ดใหม่จะแยกบริการ/สินค้าให้อัตโนมัติ)`))) return;
+  if (!(await window.App?.confirm?.("ยืนยันอีกครั้ง: ลบสินค้าทั้งหมด?"))) return;
 
   window.App?.showToast?.(`กำลังลบ ${products.length} รายการ...`);
 

@@ -3,6 +3,11 @@
 // PromptPay QR, Bank Transfer, Credit Card
 // ═══════════════════════════════════════════════════════════
 
+function escHtml(s) {
+  if (s == null) return "";
+  return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#039;" }[c]));
+}
+
 /**
  * Generate PromptPay QR Code payload (EMVCo standard)
  * @param {string} target - Phone number (0812345678) or National ID (13 digits) or Tax ID
@@ -115,7 +120,7 @@ export function showPromptPayModal(target, amount, onConfirm) {
     container.innerHTML = svg;
   }).catch(err => {
     const container = card.querySelector("#ppQrContainer");
-    container.innerHTML = `<div style="color:red;padding:20px">สร้าง QR ไม่ได้: ${err.message}</div>`;
+    container.innerHTML = `<div style="color:red;padding:20px">สร้าง QR ไม่ได้: ${escHtml(err.message || err)}</div>`;
   });
 
   // Events

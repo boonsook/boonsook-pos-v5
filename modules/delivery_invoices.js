@@ -249,7 +249,7 @@ function renderInvoicePreview(container) {
 
   // ── delete delivery invoice → restore quotation status ──
   document.getElementById("diDeleteBtn")?.addEventListener("click", async () => {
-    if (!confirm(`ลบใบส่งสินค้า ${inv.inv_no} ?\n\nใบเสนอราคาที่อ้างอิงจะกลับสถานะเป็น "อนุมัติแล้ว" เพื่อให้แก้ไขหรือลบได้`)) return;
+    if (!(await window.App?.confirm?.(`ลบใบส่งสินค้า ${inv.inv_no} ?\n\nใบเสนอราคาที่อ้างอิงจะกลับสถานะเป็น "อนุมัติแล้ว" เพื่อให้แก้ไขหรือลบได้`))) return;
     const cfg = window.SUPABASE_CONFIG;
     const token = window._sbAccessToken || cfg.anonKey;
     const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token, "Content-Type": "application/json", "Prefer": "return=minimal" };
@@ -323,7 +323,7 @@ function renderInvoicePreview(container) {
 //  CONVERT — Delivery Invoice → Receipt (ใบเสร็จรับเงิน)
 // ═══════════════════════════════════════════════════════════
 async function convertToReceipt(inv) {
-  if (!confirm("ออกใบเสร็จรับเงินจากใบส่งสินค้านี้?")) return;
+  if (!(await window.App?.confirm?.("ออกใบเสร็จรับเงินจากใบส่งสินค้านี้?"))) return;
 
   // Load items if not loaded
   if (!_lineItems.length) {

@@ -124,7 +124,7 @@ export function renderReceiptsPage(ctx) {
     const rcId = Number(btn.dataset.rcCollect);
     const r = (ctx.state.receipts || []).find(x => x.id === rcId);
     if (!r) return;
-    if (!confirm(`ยืนยันเก็บเงิน "${r.receipt_no}" ยอด ${money(r.grand_total||0)} ?`)) return;
+    if (!(await window.App?.confirm?.(`ยืนยันเก็บเงิน "${r.receipt_no}" ยอด ${money(r.grand_total||0)} ?`))) return;
 
     btn.disabled = true;
     btn.textContent = "กำลังบันทึก...";
@@ -156,7 +156,7 @@ export function renderReceiptsPage(ctx) {
     const rcId = Number(btn.dataset.rcCancel);
     const r = (ctx.state.receipts || []).find(x => x.id === rcId);
     if (!r) return;
-    if (!confirm(`ยกเลิกใบเสร็จ "${r.receipt_no}" ?\nยกเลิกแล้วจะกลับคืนสถานะใบส่งสินค้า`)) return;
+    if (!(await window.App?.confirm?.(`ยกเลิกใบเสร็จ "${r.receipt_no}" ?\nยกเลิกแล้วจะกลับคืนสถานะใบส่งสินค้า`))) return;
 
     btn.disabled = true;
     btn.textContent = "กำลังยกเลิก...";
@@ -336,7 +336,7 @@ function renderReceiptPreview(container) {
 
   // ★ เก็บเงิน (ในหน้า preview)
   document.getElementById("rcPreviewCollect")?.addEventListener("click", async () => {
-    if (!confirm(`ยืนยันเก็บเงิน "${r.receipt_no}" ยอด ${money(r.grand_total||0)} ?`)) return;
+    if (!(await window.App?.confirm?.(`ยืนยันเก็บเงิน "${r.receipt_no}" ยอด ${money(r.grand_total||0)} ?`))) return;
     try {
       await window._appXhrPatch?.("receipts", { status: "paid" }, "id", r.id);
       window.App?.showToast?.("เก็บเงินเรียบร้อย ✅");
@@ -346,7 +346,7 @@ function renderReceiptPreview(container) {
 
   // ★ ยกเลิก (ในหน้า preview)
   document.getElementById("rcPreviewCancel")?.addEventListener("click", async () => {
-    if (!confirm(`ยกเลิกใบเสร็จ "${r.receipt_no}" ?`)) return;
+    if (!(await window.App?.confirm?.(`ยกเลิกใบเสร็จ "${r.receipt_no}" ?`))) return;
     try {
       await window._appXhrPatch?.("receipts", { status: "cancelled" }, "id", r.id);
       window.App?.showToast?.("ยกเลิกใบเสร็จเรียบร้อย");
@@ -356,7 +356,7 @@ function renderReceiptPreview(container) {
 
   // ── delete receipt → restore delivery invoice status ──
   document.getElementById("rcDeleteBtn")?.addEventListener("click", async () => {
-    if (!confirm(`ลบใบเสร็จ ${r.receipt_no} ?\n\nใบส่งสินค้าที่อ้างอิงจะกลับสถานะเป็น "รอดำเนินการ" เพื่อให้แก้ไขหรือลบได้`)) return;
+    if (!(await window.App?.confirm?.(`ลบใบเสร็จ ${r.receipt_no} ?\n\nใบส่งสินค้าที่อ้างอิงจะกลับสถานะเป็น "รอดำเนินการ" เพื่อให้แก้ไขหรือลบได้`))) return;
     const cfg = window.SUPABASE_CONFIG;
     const token = window._sbAccessToken || cfg.anonKey;
     const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token, "Content-Type": "application/json", "Prefer": "return=minimal" };

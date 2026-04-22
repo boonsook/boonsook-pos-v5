@@ -645,7 +645,7 @@ export function renderAiSalesPage(ctx) {
                     cancelBtn.addEventListener("mouseenter", () => { cancelBtn.style.background = "#fef2f2"; });
                     cancelBtn.addEventListener("mouseleave", () => { cancelBtn.style.background = "#fff"; });
                     cancelBtn.addEventListener("click", async () => {
-                      if (!confirm("ต้องการยกเลิกคำสั่งซื้อนี้ใช่ไหมครับ?")) return;
+                      if (!(await window.App?.confirm?.("ต้องการยกเลิกคำสั่งซื้อนี้ใช่ไหมครับ?"))) return;
                       cancelBtn.disabled = true;
                       cancelBtn.textContent = "⏳ กำลังยกเลิก...";
                       try {
@@ -659,7 +659,7 @@ export function renderAiSalesPage(ctx) {
                           addBubble(`❌ ยกเลิกคำสั่งซื้อ <b>${prodName}</b> (${jobNo}) เรียบร้อยแล้วครับ`, "bot", true);
                           try {
                             if (typeof ctx?.sendLineNotify === "function") Promise.resolve(ctx.sendLineNotify(`❌ ยกเลิกออเดอร์ ${jobNo}\nลูกค้า: ${cName}\nสินค้า: ${prodName}`)).catch(() => {});
-                          } catch(le) {}
+                          } catch(le) { console.warn("[ai_sales] LINE notify threw:", le); }
                         } else {
                           throw new Error("cancel failed");
                         }
