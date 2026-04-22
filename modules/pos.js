@@ -566,17 +566,17 @@ function renderPosView(ctx) {
     galleryInput?.addEventListener("change", handleProofFile);
 
     // ─── เสร็จสิ้น (พร้อมสลิป) ───
-    document.getElementById("posConfirmWithProof")?.addEventListener("click", (e) => {
+    // ★ FIX: handler ห้าม set window._checkoutRunning — doCheckout() เป็นคน manage flag เอง
+    //   (เดิม handler set → doCheckout เห็นเป็น true → return ทันที → ปุ่มค้าง)
+    document.getElementById("posConfirmWithProof")?.addEventListener("click", async (e) => {
       const btn = e.currentTarget;
       if (btn.disabled || window._checkoutRunning) return;
       btn.disabled = true;
       btn.textContent = "⏳ กำลังบันทึก...";
-      window._checkoutRunning = true;
       try {
-        doCheckout(ctx, selectedPaymentMethod, pendingPaidAmount || amount);
+        await doCheckout(ctx, selectedPaymentMethod, pendingPaidAmount || amount);
       } catch (err) {
-        console.error("[pos] posConfirmWithProof sync error:", err);
-        window._checkoutRunning = false;
+        console.error("[pos] posConfirmWithProof error:", err);
         btn.disabled = false;
         btn.textContent = "เสร็จสิ้น";
         window.App?.showToast?.("เกิดข้อผิดพลาด กรุณาลองใหม่");
@@ -584,18 +584,16 @@ function renderPosView(ctx) {
     }, { signal });
 
     // ─── ข้าม ไม่แนบสลิป ───
-    document.getElementById("posConfirmNoProof")?.addEventListener("click", (e) => {
+    document.getElementById("posConfirmNoProof")?.addEventListener("click", async (e) => {
       const btn = e.currentTarget;
       if (btn.disabled || window._checkoutRunning) return;
       btn.disabled = true;
       btn.textContent = "⏳ กำลังบันทึก...";
-      window._checkoutRunning = true;
       window._pendingProofUrl = "";
       try {
-        doCheckout(ctx, selectedPaymentMethod, pendingPaidAmount || amount);
+        await doCheckout(ctx, selectedPaymentMethod, pendingPaidAmount || amount);
       } catch (err) {
-        console.error("[pos] posConfirmNoProof sync error:", err);
-        window._checkoutRunning = false;
+        console.error("[pos] posConfirmNoProof error:", err);
         btn.disabled = false;
         btn.textContent = "ข้าม ไม่แนบสลิป → เสร็จสิ้น";
         window.App?.showToast?.("เกิดข้อผิดพลาด กรุณาลองใหม่");
