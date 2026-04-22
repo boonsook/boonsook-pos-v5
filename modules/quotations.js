@@ -774,7 +774,7 @@ async function deleteQuotation(q) {
   } catch(e) { /* ถ้าเช็คไม่ได้ ให้ลบได้ตามสถานะ */ }
 
   const docNo = q.qt_no || q.title || "ใบเสนอราคานี้";
-  if (!confirm("ยืนยันลบ " + docNo + " ?\n\nข้อมูลจะถูกลบถาวรและไม่สามารถกู้คืนได้")) return;
+  if (!(await window.App?.confirm?.("ยืนยันลบ " + docNo + " ?\n\nข้อมูลจะถูกลบถาวรและไม่สามารถกู้คืนได้"))) return;
 
   const xhrDelete = window._appXhrDelete;
   _ctx.showToast("กำลังลบ...");
@@ -802,7 +802,7 @@ async function deleteQuotation(q) {
 //  CONVERT — Quotation → Delivery Invoice
 // ═══════════════════════════════════════════════════════════
 async function convertToDeliveryInvoice(q) {
-  if (!confirm("สร้างใบส่งสินค้า/ใบแจ้งหนี้ จากใบเสนอราคานี้?")) return;
+  if (!(await window.App?.confirm?.("สร้างใบส่งสินค้า/ใบแจ้งหนี้ จากใบเสนอราคานี้?"))) return;
 
   // Load items if not loaded
   if (!_lineItems.length) {

@@ -481,8 +481,8 @@ export function renderAcShopPage(ctx) {
           formDiv.querySelector("#shopOrderClose").addEventListener("click", () => formDiv.remove());
           showToast("สั่งซื้อสำเร็จ!");
           try {
-            if (typeof ctx?.sendLineNotify === "function") Promise.resolve(ctx.sendLineNotify(`🛒 ออเดอร์ใหม่จาก AC Shop!\nเลขที่: ${jobNo}\nลูกค้า: ${cName}\nโทร: ${cPhone}\nที่อยู่: ${cAddr}\nสินค้า: ${prodName}\nราคา: ${prod.p.toLocaleString()} บาท`)).catch(() => {});
-          } catch(e) {}
+            if (typeof ctx?.sendLineNotify === "function") Promise.resolve(ctx.sendLineNotify(`🛒 ออเดอร์ใหม่จาก AC Shop!\nเลขที่: ${jobNo}\nลูกค้า: ${cName}\nโทร: ${cPhone}\nที่อยู่: ${cAddr}\nสินค้า: ${prodName}\nราคา: ${prod.p.toLocaleString()} บาท`)).catch(err => { console.warn("[ac_shop] LINE notify failed:", err); });
+          } catch(e) { console.warn("[ac_shop] LINE notify threw:", e); }
         } else {
           throw new Error(res?.error?.message || "insert failed");
         }

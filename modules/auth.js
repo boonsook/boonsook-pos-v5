@@ -358,10 +358,10 @@ export async function initAuth() {
   _renderIndicator();
 
   // Expose logout/login ให้ header ใช้
-  window.__authLogout = () => {
+  window.__authLogout = async () => {
     const staff = getCurrentStaff();
     if (!staff) return;
-    if (confirm(`ออกจากระบบ: ${staff.name}?`)) {
+    if (await window.App?.confirm?.(`ออกจากระบบ: ${staff.name}?`)) {
       clearCurrentStaff();
       // Reload current page
       window.dispatchEvent(new Event('hashchange'));

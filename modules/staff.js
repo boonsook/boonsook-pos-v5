@@ -185,7 +185,7 @@ async function loadData() {
       const id = btn.dataset.staffId;
       const current = btn.dataset.active === 'true';
       const name = btn.dataset.staffName;
-      if (!confirm(`${current ? 'ปิดการใช้งาน' : 'เปิดการใช้งาน'}: ${name}?`)) return;
+      if (!(await window.App?.confirm?.(`${current ? 'ปิดการใช้งาน' : 'เปิดการใช้งาน'}: ${name}?`))) return;
       try {
         const { error } = await sb.from('staff').update({ is_active: !current }).eq('id', id);
         if (!error) await loadData();

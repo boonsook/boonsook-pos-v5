@@ -128,7 +128,7 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
         productSalesMap[key].qty += Number(item.qty || 1);
         productSalesMap[key].revenue += Number(item.line_total || item.total || 0);
       });
-    } catch(e){}
+    } catch(e){ console.warn("[dashboard] sale.items parse failed:", e, "sale id:", s?.id); }
   });
   const topProducts = Object.values(productSalesMap).sort((a,b) => b.revenue - a.revenue).slice(0, 5);
 
@@ -594,7 +594,7 @@ function renderSalesByProductPanel(allSales, webOrders) {
         const rev = Number(item.line_total || item.total || 0);
         productMap[key] = (productMap[key] || 0) + rev;
       });
-    } catch(e) {}
+    } catch(e) { console.warn("[dashboard] productMap sale.items parse failed:", e, "sale id:", s?.id); }
   });
   // รวมออเดอร์จากเว็บด้วย (ถ้าเดือนอยู่ในช่วง)
   const webIn = filterByMonths(webOrders, "created_at", months);

@@ -185,7 +185,7 @@ function renderView(ctx) {
   document.querySelectorAll("[data-contact-delete]").forEach(btn => btn.addEventListener("click", async () => {
     const id = Number(btn.dataset.contactDelete);
     const item = state.customers.find(x => x.id === id);
-    if (!confirm(`ลบ "${item?.name || '-'}" ?`)) return;
+    if (!(await window.App?.confirm?.(`ลบ "${item?.name || '-'}" ?`))) return;
     const ok = await xhrDeleteCustomer(id);
     if (ok) {
       window.App?.showToast?.("ลบแล้ว");
@@ -199,8 +199,8 @@ function renderView(ctx) {
   // ★ Delete ALL contacts
   document.getElementById("contactDeleteAllBtn")?.addEventListener("click", async () => {
     const total = (state.customers || []).length;
-    if (!confirm(`ลบรายชื่อทั้งหมด ${total} รายการ? การกระทำนี้ไม่สามารถย้อนกลับได้`)) return;
-    if (!confirm(`ยืนยันอีกครั้ง — ลบทั้งหมด ${total} รายการ?`)) return;
+    if (!(await window.App?.confirm?.(`ลบรายชื่อทั้งหมด ${total} รายการ? การกระทำนี้ไม่สามารถย้อนกลับได้`))) return;
+    if (!(await window.App?.confirm?.(`ยืนยันอีกครั้ง — ลบทั้งหมด ${total} รายการ?`))) return;
     window.App?.showToast?.("กำลังลบ...");
     const ok = await xhrDeleteCustomer(null); // null = ลบทั้งหมด
     if (ok) {
@@ -421,7 +421,7 @@ function xhrDeleteCustomer(id) {
       if (xhr.status >= 200 && xhr.status < 300) {
         // ★ เช็คว่า response มีข้อมูลที่ถูกลบจริง (ป้องกัน RLS block)
         let deleted = [];
-        try { deleted = JSON.parse(xhr.responseText); } catch(e) {}
+        try { deleted = JSON.parse(xhr.responseText); } catch(e) { console.warn("[customers DELETE] JSON.parse failed:", e, xhr.responseText?.slice(0, 200)); }
         if (id && Array.isArray(deleted) && deleted.length === 0) {
           console.warn("DELETE returned 200 but 0 rows deleted — RLS may be blocking");
           resolve(false);

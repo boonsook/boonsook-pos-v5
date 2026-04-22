@@ -485,11 +485,11 @@ function bindTableActions() {
   });
 
   document.querySelectorAll(".exp-delete-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       const expId = Number(btn.dataset.expDelete);
       const exp = _ctx.state.expenses.find(e => e.id === expId);
       if (!exp) return;
-      if (confirm(`ยืนยันการลบรายจ่าย "${exp.description}" หรือไม่?`)) {
+      if (await window.App?.confirm?.(`ยืนยันการลบรายจ่าย "${exp.description}" หรือไม่?`)) {
         window._appXhrDelete?.("expenses", "id", expId);
         _ctx.showToast("ลบรายจ่ายเรียบร้อย", "success");
         _ctx.loadAllData?.();

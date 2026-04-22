@@ -402,7 +402,7 @@ export function renderStockMovementsPage(ctx) {
       } else if (movementType === 'out' || movementType === 'sale') {
         newStock = currentStock - quantity;
         if (newStock < 0) {
-          const ok = confirm(
+          const ok = await window.App?.confirm?.(
             `⚠️ คำเตือน: สต็อกหลังจะติดลบ (${newStock})\n` +
             `สต็อกปัจจุบัน: ${currentStock}\n` +
             `จำนวนที่จะหัก: ${quantity}\n\n` +

@@ -2,7 +2,7 @@ import { escHtml } from "./utils.js";
 
 export function renderSettingsAcCatalog(el, ctx, goBack, navigate) {
   let catalog = [];
-  try { catalog = JSON.parse(localStorage.getItem("bsk_ac_catalog") || "[]"); } catch(e){}
+  try { catalog = JSON.parse(localStorage.getItem("bsk_ac_catalog") || "[]"); } catch(e){ console.warn("[settings/ac-catalog] parse failed:", e); }
   const sections = [...new Set(catalog.map(c => c.section))];
 
   el.innerHTML = `
@@ -157,8 +157,8 @@ export function renderSettingsAcCatalog(el, ctx, goBack, navigate) {
   });
 
   // ★ Clear catalog
-  document.getElementById("acCatalogClearBtn")?.addEventListener("click", () => {
-    if (!confirm("ล้างแคตตาล็อกแอร์ทั้งหมด? ข้อมูลจะถูกลบออกจากหน้าลูกค้า")) return;
+  document.getElementById("acCatalogClearBtn")?.addEventListener("click", async () => {
+    if (!(await window.App?.confirm?.("ล้างแคตตาล็อกแอร์ทั้งหมด? ข้อมูลจะถูกลบออกจากหน้าลูกค้า"))) return;
     localStorage.removeItem("bsk_ac_catalog");
     if (ctx?.showToast) ctx.showToast("ล้างแคตตาล็อกแล้ว");
     renderAcCatalogPage(el);

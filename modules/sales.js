@@ -127,7 +127,7 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
     // ★ FIX: ป้องกัน NaN
     if (!saleId || isNaN(saleId)) { showToast?.("ไม่พบ ID รายการขาย"); return; }
     const saleNo = btn.dataset.delSaleNo || "";
-    if (!confirm(`ลบรายการขาย "${saleNo}" ?\nลบแล้วไม่สามารถกู้คืนได้`)) return;
+    if (!(await window.App?.confirm?.(`ลบรายการขาย "${saleNo}" ?\nลบแล้วไม่สามารถกู้คืนได้`))) return;
 
     btn.disabled = true;
     btn.textContent = "กำลังลบ...";

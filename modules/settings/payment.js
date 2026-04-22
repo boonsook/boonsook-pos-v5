@@ -147,9 +147,9 @@ export function renderSettingsPayment(el, ctx, goBack, navigate) {
 
   // ★ Remove Bank buttons
   el.querySelectorAll("[data-remove-bank]").forEach(btn => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       const idx = Number(btn.dataset.removeBank);
-      if (confirm("ลบบัญชีที่ " + (idx+1) + " ?")) {
+      if (await window.App?.confirm?.("ลบบัญชีที่ " + (idx+1) + " ?")) {
         _syncBanksFromDom(el, ctx);
         state.paymentInfo.banks.splice(idx, 1);
         savePaymentInfo();

@@ -84,7 +84,9 @@ function xhrPost(table, payload, opts = {}) {
     xhr.onload = function () {
       if (xhr.status >= 200 && xhr.status < 300) {
         let data = null;
-        try { data = JSON.parse(xhr.responseText); } catch (e) {}
+        try { data = JSON.parse(xhr.responseText); } catch (e) {
+          console.warn("[xhrPost] " + table + " JSON.parse failed:", e, xhr.responseText?.slice(0, 200));
+        }
         resolve({ ok: true, data: Array.isArray(data) ? data[0] : data, error: null });
       } else {
         let errBody = xhr.responseText;
@@ -121,7 +123,9 @@ function xhrPatch(table, payload, eqCol, eqVal) {
     xhr.onload = function () {
       if (xhr.status >= 200 && xhr.status < 300) {
         let data = null;
-        try { data = JSON.parse(xhr.responseText); } catch (e) {}
+        try { data = JSON.parse(xhr.responseText); } catch (e) {
+          console.warn("[xhrPatch] " + table + " JSON.parse failed:", e, xhr.responseText?.slice(0, 200));
+        }
         // ★ ถ้า Supabase คืน array ว่าง = RLS บล็อค (0 rows affected)
         if (Array.isArray(data) && data.length === 0) {
           resolve({ ok: false, error: { message: "ไม่สามารถอัปเดตได้ (RLS blocked — 0 rows affected)" } });
@@ -130,7 +134,9 @@ function xhrPatch(table, payload, eqCol, eqVal) {
         }
       } else {
         let msg = "HTTP " + xhr.status;
-        try { msg = JSON.parse(xhr.responseText)?.message || msg; } catch (e) {}
+        try { msg = JSON.parse(xhr.responseText)?.message || msg; } catch (e) {
+          console.warn("[xhrPatch] " + table + " error body parse failed:", e, xhr.responseText?.slice(0, 200));
+        }
         resolve({ ok: false, error: { message: msg } });
       }
     };
@@ -155,7 +161,9 @@ function xhrDelete(table, eqCol, eqVal) {
       if (xhr.status >= 200 && xhr.status < 300) resolve({ ok: true, error: null });
       else {
         let msg = "HTTP " + xhr.status;
-        try { msg = JSON.parse(xhr.responseText)?.message || msg; } catch (e) {}
+        try { msg = JSON.parse(xhr.responseText)?.message || msg; } catch (e) {
+          console.warn("[xhrDelete] " + table + " error body parse failed:", e, xhr.responseText?.slice(0, 200));
+        }
         resolve({ ok: false, error: { message: msg } });
       }
     };
@@ -599,6 +607,13 @@ function hideLoading() {
     const overlay = $("loadingOverlay");
     if (overlay) { overlay.classList.add("fade-out"); setTimeout(() => { if (_loadingRef === 0 && overlay.parentNode) overlay.style.display = "none"; }, 500); }
   }
+}
+
+// ★ confirmAsync — Promise wrapper for showConfirmModal (use with await)
+function confirmAsync(message) {
+  return new Promise(resolve => {
+    showConfirmModal(message, () => resolve(true), () => resolve(false));
+  });
 }
 
 // ★ showConfirmModal — ARIA accessible confirm dialog (replaces native confirm())
@@ -1261,7 +1276,7 @@ async function loadAllData(){
         const { data: inserted, error: whErr } = await sb.from("warehouses").insert(defaultWarehouses).select();
         if (!whErr && inserted) {
           state.warehouses = inserted;
-          console.log("✅ Auto-created warehouses:", inserted.map(w => w.name).join(", "));
+          console.info("[main] Auto-created warehouses:", inserted.map(w => w.name).join(", "));
         } else {
           console.warn("⚠️ Could not auto-create warehouses:", whErr?.message);
         }
@@ -2162,7 +2177,8 @@ window.App = {
   escapeHtml, formatNumber, formatCurrency, formatDate, formatDateTime,
   getFormData, validateForm, clearForm,
   fadeIn, fadeOut, debounce, throttle,
-  showLoading, hideLoading, showConfirmModal
+  showLoading, hideLoading, showConfirmModal, confirmAsync,
+  confirm: confirmAsync
 };
 
 // ═══════════════════════════════════════════════════════════

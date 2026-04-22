@@ -159,7 +159,7 @@ export function renderCustomerDashboard(ctx) {
     try {
       const saved = localStorage.getItem("bsk_ac_catalog");
       if (saved) return JSON.parse(saved);
-    } catch(e){}
+    } catch(e){ console.warn("[customer_dashboard] ac_catalog parse failed:", e); }
     // fallback: ใช้ _acCatalog ที่โหลดมาจาก JSON
     return _acCatalog || [];
   })();
@@ -483,7 +483,7 @@ export function renderCustomerDashboard(ctx) {
         }).join("")}
         ${mySales.map(s => {
           let items = [];
-          try { items = typeof s.items === "string" ? JSON.parse(s.items) : (s.items || []); } catch(e){}
+          try { items = typeof s.items === "string" ? JSON.parse(s.items) : (s.items || []); } catch(e){ console.warn("[customer_dashboard] sale items parse failed:", e); }
           return `
           <div style="background:#fff;border-radius:14px;border:1px solid #e2e8f0;padding:14px">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
@@ -648,7 +648,7 @@ export function renderCustomerDashboard(ctx) {
   container.querySelectorAll(".cust-confirm-btn").forEach(btn => btn.addEventListener("click", async (e) => {
     const jobId = btn.dataset.jobId;
     if (!jobId) return;
-    if (!confirm("ยืนยันว่าช่างส่งงานเรียบร้อยแล้วใช่ไหมครับ?\nหลังจากยืนยันแล้วงานจะถูกปิดและแจ้งไปที่แอดมิน")) return;
+    if (!(await window.App?.confirm?.("ยืนยันว่าช่างส่งงานเรียบร้อยแล้วใช่ไหมครับ?\nหลังจากยืนยันแล้วงานจะถูกปิดและแจ้งไปที่แอดมิน"))) return;
     btn.disabled = true;
     btn.textContent = "กำลังยืนยัน...";
     try {
@@ -770,8 +770,8 @@ export function renderCustomerDashboard(ctx) {
   }));
 
   // Clear cart
-  container.querySelector("#custClearCartBtn")?.addEventListener("click", () => {
-    if (!confirm("ล้างตะกร้าทั้งหมด?")) return;
+  container.querySelector("#custClearCartBtn")?.addEventListener("click", async () => {
+    if (!(await window.App?.confirm?.("ล้างตะกร้าทั้งหมด?"))) return;
     _custCart = []; saveCustCart(); renderCustomerDashboard(ctx);
   });
 
@@ -788,7 +788,7 @@ export function renderCustomerDashboard(ctx) {
       const bankInfo = container.querySelector("#custBankInfo");
       if (bankInfo) bankInfo.style.display = val === "transfer" ? "block" : "none";
       const paySummary = container.querySelector("#custPaySummary");
-      if (paySummary) paySummary.innerHTML = `${val === "transfer" ? "🏦" : "💵"} ชำระโดย: ${payLabels[val] || val}`;
+      if (paySummary) paySummary.innerHTML = `${val === "transfer" ? "🏦" : "💵"} ชำระโดย: ${escHtml(payLabels[val] || val)}`;
       // ★ อัปเดตปุ่มยืนยัน
       const chkBtn = container.querySelector("#custCheckoutBtn");
       if (chkBtn) {
@@ -826,12 +826,10 @@ export function renderCustomerDashboard(ctx) {
     newUploadBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      console.log("[customer_dashboard] Upload button clicked");
       try {
         const inp = container.querySelector("#custSlipFileInput");
         if (inp) {
           inp.click();
-          console.log("[customer_dashboard] File input clicked successfully");
         } else {
           console.error("[customer_dashboard] File input not found when clicking upload button");
           showToast("❌ เกิดข้อผิดพลาด: ไม่พบ file input");
@@ -866,7 +864,6 @@ export function renderCustomerDashboard(ctx) {
       _custSlipData = ev.target.result;
       _custSlipVerified = false;
       _custSlipResult = null;
-      console.log("[customer_dashboard] File loaded successfully, size:", _custSlipData.length);
 
       // แสดง preview
       const previewEl = container.querySelector("#custSlipPreview");
@@ -925,7 +922,6 @@ export function renderCustomerDashboard(ctx) {
     };
     try {
       reader.readAsDataURL(file);
-      console.log("[customer_dashboard] Reading file...");
     } catch(err) {
       console.error("[customer_dashboard] Error reading file:", err);
       showToast("❌ ไม่สามารถอ่านไฟล์ได้");

@@ -585,6 +585,13 @@ function hideLoading() {
   }
 }
 
+// ★ confirmAsync — Promise wrapper for showConfirmModal (use with await)
+function confirmAsync(message) {
+  return new Promise(resolve => {
+    showConfirmModal(message, () => resolve(true), () => resolve(false));
+  });
+}
+
 // ★ showConfirmModal — ARIA accessible confirm dialog (replaces native confirm())
 function showConfirmModal(message, onConfirm, onCancel) {
   // Remove existing modal
@@ -1184,7 +1191,7 @@ async function loadAllData(){
         const { data: inserted, error: whErr } = await sb.from("warehouses").insert(defaultWarehouses).select();
         if (!whErr && inserted) {
           state.warehouses = inserted;
-          console.log("✅ Auto-created warehouses:", inserted.map(w => w.name).join(", "));
+          console.info("[main] Auto-created warehouses:", inserted.map(w => w.name).join(", "));
         } else {
           console.warn("⚠️ Could not auto-create warehouses:", whErr?.message);
         }
@@ -2010,7 +2017,8 @@ window.App = {
   escapeHtml, formatNumber, formatCurrency, formatDate, formatDateTime,
   getFormData, validateForm, clearForm,
   fadeIn, fadeOut, debounce, throttle,
-  showLoading, hideLoading, showConfirmModal
+  showLoading, hideLoading, showConfirmModal, confirmAsync,
+  confirm: confirmAsync
 };
 
 // ═══════════════════════════════════════════════════════════
