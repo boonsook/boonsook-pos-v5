@@ -125,7 +125,7 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
     e.stopPropagation();
     const saleId = Number(btn.dataset.delSale);
     // ★ FIX: ป้องกัน NaN
-    if (!saleId || isNaN(saleId)) { showToast?.("ไม่พบ ID รายการขาย"); return; }
+    if (!saleId || isNaN(saleId)) { alert("ไม่พบ ID รายการขาย"); return; }
     const saleNo = btn.dataset.delSaleNo || "";
     if (!confirm(`ลบรายการขาย "${saleNo}" ?\nลบแล้วไม่สามารถกู้คืนได้`)) return;
 
@@ -159,11 +159,11 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
           const errMsg = (patchData && (patchData.message || patchData.hint))
             || ("status " + patchRes.status + " — 0 rows (RLS?)");
           console.warn("PATCH failed:", errMsg);
-          showToast?.("ลบไม่สำเร็จ: " + errMsg);
+          alert("ลบ PATCH error: " + errMsg);
         }
       } catch (fetchErr) {
         console.warn("PATCH fetch error:", fetchErr.message);
-        showToast?.("ลบไม่สำเร็จ (เครือข่าย): " + fetchErr.message);
+        alert("ลบ fetch error: " + fetchErr.message);
       }
 
       // ★ วิธีที่ 2: Supabase JS client (fallback)
@@ -187,7 +187,7 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
         throw new Error("ลบไม่ได้ — ต้องเพิ่ม UPDATE policy ที่ Supabase Dashboard สำหรับตาราง sales");
       }
     } catch (err) {
-      showToast?.("ลบไม่สำเร็จ: " + (err.message || err));
+      alert("ลบ ERROR: " + (err.message || err));
       if (showToast) showToast("❌ " + (err.message || "ลบไม่สำเร็จ"), "error");
       btn.disabled = false;
       btn.textContent = "🗑️ ลบ";

@@ -565,15 +565,7 @@ function renderPosView(ctx) {
       btn.disabled = true;
       btn.textContent = "⏳ กำลังบันทึก...";
       window._checkoutRunning = true;
-      try {
-        doCheckout(ctx, selectedPaymentMethod, pendingPaidAmount || amount);
-      } catch (err) {
-        console.error("[pos] posConfirmWithProof sync error:", err);
-        window._checkoutRunning = false;
-        btn.disabled = false;
-        btn.textContent = "เสร็จสิ้น";
-        window.App?.showToast?.("เกิดข้อผิดพลาด กรุณาลองใหม่");
-      }
+      doCheckout(ctx, selectedPaymentMethod, pendingPaidAmount || amount);
     }, { signal });
 
     // ─── ข้าม ไม่แนบสลิป ───
@@ -584,15 +576,7 @@ function renderPosView(ctx) {
       btn.textContent = "⏳ กำลังบันทึก...";
       window._checkoutRunning = true;
       window._pendingProofUrl = "";
-      try {
-        doCheckout(ctx, selectedPaymentMethod, pendingPaidAmount || amount);
-      } catch (err) {
-        console.error("[pos] posConfirmNoProof sync error:", err);
-        window._checkoutRunning = false;
-        btn.disabled = false;
-        btn.textContent = "ข้าม ไม่แนบสลิป → เสร็จสิ้น";
-        window.App?.showToast?.("เกิดข้อผิดพลาด กรุณาลองใหม่");
-      }
+      doCheckout(ctx, selectedPaymentMethod, pendingPaidAmount || amount);
     }, { signal });
 
 
@@ -827,7 +811,7 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
     console.log("[POS] salePayload:", JSON.stringify(salePayload));
     const saleRes = await xhrPostPOS("sales", salePayload, true);
     if (!saleRes.ok) {
-      window.App?.showToast?.("บันทึกการขายไม่สำเร็จ: " + (saleRes.error || "unknown"));
+      alert("Sales ERROR: " + (saleRes.error || "unknown"));
       window.App?.showToast?.(saleRes.error || "บันทึกไม่สำเร็จ");
       window._checkoutRunning = false;
       return;
@@ -835,7 +819,7 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
 
     const saleId = saleRes.data?.id;
     if (!saleId) {
-      window.App?.showToast?.("ไม่สามารถดึง ID การขายได้");
+      alert("ไม่สามารถดึง ID การขายได้");
       window._checkoutRunning = false;
       return;
     }
@@ -902,8 +886,8 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
     try { if (window.App?.loadAllData) await window.App.loadAllData(); } catch (e) {}
 
   } catch (err) {
+    alert("doCheckout ERROR: " + (err.message || err));
     window.App?.showToast?.("เกิดข้อผิดพลาด: " + (err.message || err));
-    console.error("[pos doCheckout] error:", err);
   } finally {
     // ★ reset guard + UI buttons เสมอ
     window._checkoutRunning = false;

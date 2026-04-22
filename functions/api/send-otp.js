@@ -12,7 +12,7 @@ export async function onRequestPost(context) {
   try {
     const { phone } = await context.request.json();
     if (!phone || phone.replace(/\D/g, "").length < 9) {
-      return new Response(JSON.stringify({ ok: false, error: "เบอร์โทรไม่ถูกต้อง" }), { status: 400, headers: corsHeaders });
+      return new Response(JSON.stringify({ error: "เบอร์โทรไม่ถูกต้อง" }), { status: 400, headers: corsHeaders });
     }
 
     const cleanPhone = phone.replace(/\D/g, "");
@@ -108,8 +108,7 @@ export async function onRequestPost(context) {
     }), { status: 200, headers: corsHeaders });
 
   } catch (e) {
-    console.error("[send-otp] server error:", e);
-    return new Response(JSON.stringify({ ok: false, error: "ระบบส่ง OTP ขัดข้อง กรุณาลองใหม่" }), { status: 500, headers: corsHeaders });
+    return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: corsHeaders });
   }
 }
 

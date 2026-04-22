@@ -13,12 +13,12 @@ export async function onRequestPost(context) {
     const { phone, code, hash, expiresAt } = await context.request.json();
 
     if (!phone || !code || !hash || !expiresAt) {
-      return new Response(JSON.stringify({ ok: false, error: "ข้อมูลไม่ครบ" }), { status: 400, headers: corsHeaders });
+      return new Response(JSON.stringify({ error: "ข้อมูลไม่ครบ" }), { status: 400, headers: corsHeaders });
     }
 
     // เช็คหมดอายุ
     if (Date.now() > expiresAt) {
-      return new Response(JSON.stringify({ ok: false, error: "OTP หมดอายุ กรุณาขอใหม่" }), { status: 400, headers: corsHeaders });
+      return new Response(JSON.stringify({ error: "OTP หมดอายุ กรุณาขอใหม่" }), { status: 400, headers: corsHeaders });
     }
 
     // ตรวจสอบ HMAC
@@ -33,7 +33,7 @@ export async function onRequestPost(context) {
     const expectedHash = Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, "0")).join("");
 
     if (hash !== expectedHash) {
-      return new Response(JSON.stringify({ ok: false, error: "รหัส OTP ไม่ถูกต้อง" }), { status: 400, headers: corsHeaders });
+      return new Response(JSON.stringify({ error: "รหัส OTP ไม่ถูกต้อง" }), { status: 400, headers: corsHeaders });
     }
 
     // * OTP ถูกต้อง — สร้าง deterministic authPassword สำหรับ Supabase Auth
@@ -50,8 +50,7 @@ export async function onRequestPost(context) {
     }), { status: 200, headers: corsHeaders });
 
   } catch (e) {
-    console.error("[verify-otp] server error:", e);
-    return new Response(JSON.stringify({ ok: false, error: "ระบบตรวจ OTP ขัดข้อง กรุณาลองใหม่" }), { status: 500, headers: corsHeaders });
+    return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: corsHeaders });
   }
 }
 
