@@ -940,10 +940,12 @@ export function renderCustomerDashboard(ctx) {
     const chkNote    = (container.querySelector("#custOrderNote")?.value || "").trim();
     const payMethod  = container.querySelector("input[name='custPayMethod']:checked")?.value || "transfer";
 
-    // Validate
+    // ★ Validate ก่อน disable button (เพื่อไม่ให้ปุ่มค้างเมื่อ validation fail)
     if (!chkName)    return showToast("กรุณากรอกชื่อผู้รับ");
     if (!chkPhone)   return showToast("กรุณากรอกเบอร์โทร");
+    if (!isValidPhone(chkPhone)) return showToast("เบอร์โทรไม่ถูกต้อง (ต้องมี 10 หลักขึ้นไป)");
     if (!chkAddress) return showToast("กรุณากรอกที่อยู่จัดส่ง");
+    if (chkAddress.length < 10) return showToast("ที่อยู่สั้นเกินไป กรุณากรอกอย่างน้อย 10 ตัวอักษร");
     if (payMethod === "transfer" && !_custSlipData) return showToast("กรุณาแนบสลิปการโอนเงินก่อนยืนยัน 📸");
 
     const orderItems = _custCart.map(c => ({
@@ -957,10 +959,13 @@ export function renderCustomerDashboard(ctx) {
     const orderNo = "BSK-" + Date.now();
     const totalAmount = _custCart.reduce((s,i) => s + (i.price * i.qty), 0);
 
+    if (totalAmount <= 0) return showToast("ยอดรวมต้องมากกว่า 0");
+
     // สร้าง service_job (ออเดอร์จากลูกค้า)
+    const btn = container.querySelector("#custCheckoutBtn");
+    if (btn) { btn.disabled = true; btn.textContent = "กำลังสั่งซื้อ..."; }
+
     try {
-      const btn = container.querySelector("#custCheckoutBtn");
-      if (btn) { btn.disabled = true; btn.textContent = "กำลังสั่งซื้อ..."; }
 
       const payLabelsMap = { transfer: "โอนเงิน/QR", cod_cash: "เก็บเงินปลายทาง(สด)", cod_transfer: "จ่ายหน้างาน(โอน)" };
       const payLabel = payLabelsMap[payMethod] || payMethod;
@@ -987,21 +992,7 @@ export function renderCustomerDashboard(ctx) {
         note: `SH-${payMethod}|${_custSlipVerified ? "SLIP_OK" : _custSlipData ? "SLIP_PENDING" : ""}|${chkNote || "สั่งซื้อจากลูกค้า " + chkName}${_custSlipUrl ? "|SLIP_URL:" + _custSlipUrl : ""}`
       };
 
-      // ★ Validate payload ก่อนส่ง — ป้องกัน 400 error
-      if (!jobPayload.job_no || !jobPayload.customer_name || !jobPayload.customer_phone) {
-        throw new Error("ข้อมูลไม่ครบ กรุณากรอกชื่อ เบอร์โทร และที่อยู่");
-      }
-      // ★ ตรวจฟอร์แมตเบอร์โทร + ที่อยู่
-      if (!isValidPhone(jobPayload.customer_phone)) {
-        throw new Error("เบอร์โทรไม่ถูกต้อง (ต้องมี 10 หลักขึ้นไป)");
-      }
-      if (jobPayload.customer_address && String(jobPayload.customer_address).trim().length < 10) {
-        throw new Error("ที่อยู่สั้นเกินไป กรุณากรอกรายละเอียดที่อยู่ให้ครบ (อย่างน้อย 10 ตัวอักษร)");
-      }
-      if (typeof jobPayload.total_cost !== 'number' || jobPayload.total_cost <= 0) {
-        jobPayload.total_cost = Number(jobPayload.total_cost) || 0;
-        if (jobPayload.total_cost <= 0) throw new Error("ยอดรวมต้องมากกว่า 0");
-      }
+      // (Validation ทำไว้ก่อน disable button แล้ว)
 
       let success = false;
       let _lastCheckoutError = null;
@@ -1077,17 +1068,16 @@ export function renderCustomerDashboard(ctx) {
       else renderCustomerDashboard(ctx);
 
     } catch(e) {
-      // Improved error handling with better user messages
-      let errorMsg = e?.message || "เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ";
-      // Show validation errors directly, wrap other errors
-      if (e?.message?.includes("ข้อมูลไม่ครบ") || e?.message?.includes("ยอดรวม")) {
-        showToast("❌ " + errorMsg);
-      } else {
-        showToast("❌ สั่งซื้อไม่สำเร็จ: " + errorMsg);
+      console.error("[customer checkout] error:", e);
+      const errorMsg = e?.message || "เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ";
+      showToast("❌ สั่งซื้อไม่สำเร็จ: " + errorMsg);
+    } finally {
+      // ★ Safety: reset button เสมอ (กัน stuck "กำลังสั่งซื้อ...")
+      const btn2 = container.querySelector("#custCheckoutBtn");
+      if (btn2 && btn2.isConnected) {
+        btn2.disabled = false;
+        btn2.textContent = "🛒 ยืนยันสั่งซื้อ";
       }
-      const btn = container.querySelector("#custCheckoutBtn");
-      if (btn) { btn.disabled = false; btn.textContent = "🛒 ยืนยันสั่งซื้อ"; }
-      console.error("Checkout error:", e);
     }
   });
 }
