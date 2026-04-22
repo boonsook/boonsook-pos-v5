@@ -297,17 +297,25 @@ async function openModal(staffId = null) {
     const payload = { name, phone: phone || null, role };
     if (pin) payload.pin = pin;
 
-    const { error } = existing
-      ? await sb.from('staff').update(payload).eq('id', existing.id)
-      : await sb.from('staff').insert(payload);
+    try {
+      const { error } = existing
+        ? await sb.from('staff').update(payload).eq('id', existing.id)
+        : await sb.from('staff').insert(payload);
 
-    if (error) {
-      showErr(errEl, `ผิดพลาด: ${error.message}`);
-      btn.disabled = false;
-      btn.textContent = existing ? '💾 บันทึก' : '➕ เพิ่มพนักงาน';
-    } else {
-      closeModal();
-      await loadData();
+      if (error) {
+        showErr(errEl, `ผิดพลาด: ${error.message}`);
+      } else {
+        closeModal();
+        await loadData();
+      }
+    } catch (err) {
+      console.error('[staff save] error:', err);
+      showErr(errEl, `ผิดพลาด: ${err.message || err}`);
+    } finally {
+      if (btn.isConnected) {
+        btn.disabled = false;
+        btn.textContent = existing ? '💾 บันทึก' : '➕ เพิ่มพนักงาน';
+      }
     }
   });
 }

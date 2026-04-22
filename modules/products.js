@@ -456,13 +456,15 @@ function renderView(ctx) {
           renderView(ctx);
         } else {
           window.App?.showToast?.("ลบไม่สำเร็จ: " + (res.error?.message || ""));
+        }
+      } catch (err) {
+        console.error("[products delete] error:", err);
+        window.App?.showToast?.("เกิดข้อผิดพลาด: " + (err.message || err));
+      } finally {
+        if (btn.isConnected) {
           btn.disabled = false;
           btn.textContent = "🗑️";
         }
-      } catch (err) {
-        window.App?.showToast?.("เกิดข้อผิดพลาด: " + err.message);
-        btn.disabled = false;
-        btn.textContent = "🗑️";
       }
     });
   }));
