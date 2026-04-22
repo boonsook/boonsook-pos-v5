@@ -329,7 +329,27 @@ function renderInvoicePreview(container) {
 //  CONVERT — Delivery Invoice → Receipt (ใบเสร็จรับเงิน)
 // ═══════════════════════════════════════════════════════════
 async function convertToReceipt(inv) {
-  if (!(await window.App?.confirm?.("ออกใบเสร็จรับเงินจากใบส่งสินค้านี้?"))) return;
+  // ★ ป้องกันสร้างซ้ำ — เช็คว่ามีใบเสร็จจากใบส่งสินค้านี้อยู่แล้วไหม
+  try {
+    const cfg = window.SUPABASE_CONFIG;
+    const token = window._sbAccessToken || cfg.anonKey;
+    const chkResp = await fetch(
+      cfg.url + "/rest/v1/receipts?delivery_invoice_id=eq." + inv.id + "&select=receipt_no,status",
+      { headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token } }
+    );
+    const existing = await chkResp.json().catch(() => []);
+    const active = Array.isArray(existing) ? existing.filter(d => d.status !== "cancelled") : [];
+    if (active.length > 0) {
+      const list = active.map(d => d.receipt_no).join(", ");
+      const msg = `⚠️ มีใบเสร็จจากใบส่งสินค้านี้อยู่แล้ว: ${list}\n\nต้องการออกใบใหม่อีกใบหรือไม่?\n(ปกติควรลบใบเดิมก่อน)`;
+      if (!(await window.App?.confirm?.(msg))) return;
+    } else {
+      if (!(await window.App?.confirm?.("ออกใบเสร็จรับเงินจากใบส่งสินค้านี้?"))) return;
+    }
+  } catch(e) {
+    console.warn("[delivery_invoices convert] duplicate check failed, fallback to confirm:", e);
+    if (!(await window.App?.confirm?.("ออกใบเสร็จรับเงินจากใบส่งสินค้านี้?"))) return;
+  }
 
   // Load items if not loaded
   if (!_lineItems.length) {

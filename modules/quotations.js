@@ -802,7 +802,27 @@ async function deleteQuotation(q) {
 //  CONVERT — Quotation → Delivery Invoice
 // ═══════════════════════════════════════════════════════════
 async function convertToDeliveryInvoice(q) {
-  if (!(await window.App?.confirm?.("สร้างใบส่งสินค้า/ใบแจ้งหนี้ จากใบเสนอราคานี้?"))) return;
+  // ★ ป้องกันสร้างซ้ำ — เช็คว่ามีใบส่งสินค้าจาก quotation นี้อยู่แล้วไหม
+  try {
+    const cfg = window.SUPABASE_CONFIG;
+    const token = window._sbAccessToken || cfg.anonKey;
+    const chkResp = await fetch(
+      cfg.url + "/rest/v1/delivery_invoices?quotation_id=eq." + q.id + "&select=inv_no,status",
+      { headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token } }
+    );
+    const existing = await chkResp.json().catch(() => []);
+    const active = Array.isArray(existing) ? existing.filter(d => d.status !== "cancelled") : [];
+    if (active.length > 0) {
+      const list = active.map(d => d.inv_no).join(", ");
+      const msg = `⚠️ มีใบส่งสินค้าจากใบเสนอราคานี้อยู่แล้ว: ${list}\n\nต้องการสร้างใบใหม่อีกใบหรือไม่?\n(ปกติควรลบใบเดิมก่อน)`;
+      if (!(await window.App?.confirm?.(msg))) return;
+    } else {
+      if (!(await window.App?.confirm?.("สร้างใบส่งสินค้า/ใบแจ้งหนี้ จากใบเสนอราคานี้?"))) return;
+    }
+  } catch(e) {
+    console.warn("[quotations convert] duplicate check failed, fallback to confirm:", e);
+    if (!(await window.App?.confirm?.("สร้างใบส่งสินค้า/ใบแจ้งหนี้ จากใบเสนอราคานี้?"))) return;
+  }
 
   // Load items if not loaded
   if (!_lineItems.length) {
