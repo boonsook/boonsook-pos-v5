@@ -72,8 +72,16 @@ function renderView(ctx) {
         </div>
       </div>
 
+      ${countAll === 0 ? `
+      <div style="text-align:center;padding:48px 20px;margin-top:16px;background:#f8fafc;border-radius:12px;border:2px dashed #cbd5e1">
+        <div style="font-size:56px;margin-bottom:8px">👥</div>
+        <h3 style="margin:0 0 8px;font-size:18px;color:#475569">ยังไม่มีรายชื่อ</h3>
+        <p style="margin:0;color:#94a3b8;font-size:14px">เริ่มโดยคลิก "สร้างใหม่" ด้านบน หรือ "นำเข้ารายชื่อ" จาก Excel</p>
+      </div>
+      ` : ''}
+
       <!-- Filter Tabs -->
-      <div class="contact-filter-tabs mt16">
+      <div class="contact-filter-tabs mt16"${countAll === 0 ? ' style="display:none"' : ''}>
         <button class="contact-tab ${currentFilter==='all'?'active':''}" data-filter="all">แสดงทั้งหมด <span class="contact-tab-count">${countAll}</span></button>
         <button class="contact-tab ${currentFilter==='customer'?'active':''}" data-filter="customer"><span class="contact-dot" style="background:#3b82f6"></span> ลูกค้า <span class="contact-tab-count">${countCustomer}</span></button>
         <button class="contact-tab ${currentFilter==='supplier'?'active':''}" data-filter="supplier"><span class="contact-dot" style="background:#f59e0b"></span> ผู้จำหน่าย <span class="contact-tab-count">${countSupplier}</span></button>
@@ -81,12 +89,12 @@ function renderView(ctx) {
       </div>
 
       <!-- Search -->
-      <div class="toolbar mt16">
+      <div class="toolbar mt16"${countAll === 0 ? ' style="display:none"' : ''}>
         <input id="contactSearchInput" placeholder="ค้นหาจากชื่อ หรือรหัสผู้ติดต่อ" value="${escHtml(searchQuery)}" style="flex:1" />
       </div>
 
       <!-- Table -->
-      <div class="table-wrap mt16">
+      <div class="table-wrap mt16"${countAll === 0 ? ' style="display:none"' : ''}>
         <table class="contact-table">
           <thead>
             <tr>
