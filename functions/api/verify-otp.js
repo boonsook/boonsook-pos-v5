@@ -22,7 +22,12 @@ export async function onRequestPost(context) {
     }
 
     // ตรวจสอบ HMAC
-    const secret = context.env.OTP_SECRET || "bsk-otp-default-secret";
+    // ★ SECURITY: ไม่มี default fallback — ต้องตั้ง OTP_SECRET ใน Cloudflare Pages env vars
+    if (!context.env.OTP_SECRET) {
+      console.error("[verify-otp] OTP_SECRET not configured in Cloudflare Pages env vars");
+      return new Response(JSON.stringify({ ok: false, error: "ระบบ OTP ยังไม่พร้อมใช้งาน (missing server config)" }), { status: 500, headers: corsHeaders });
+    }
+    const secret = context.env.OTP_SECRET;
     const cleanPhone = phone.replace(/\D/g, "");
     const payload = `${cleanPhone}:${code}:${expiresAt}`;
     const encoder = new TextEncoder();

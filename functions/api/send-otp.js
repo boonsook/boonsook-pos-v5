@@ -26,7 +26,12 @@ export async function onRequestPost(context) {
     const expiresAt = Date.now() + 5 * 60 * 1000; // 5 นาที
 
     // สร้าง HMAC signature สำหรับ verify ฝั่ง server (stateless)
-    const secret = context.env.OTP_SECRET || "bsk-otp-default-secret";
+    // ★ SECURITY: ไม่มี default fallback — ต้องตั้ง OTP_SECRET ใน Cloudflare Pages env vars
+    if (!context.env.OTP_SECRET) {
+      console.error("[send-otp] OTP_SECRET not configured in Cloudflare Pages env vars");
+      return new Response(JSON.stringify({ ok: false, error: "ระบบ OTP ยังไม่พร้อมใช้งาน (missing server config)" }), { status: 500, headers: corsHeaders });
+    }
+    const secret = context.env.OTP_SECRET;
     const payload = `${cleanPhone}:${code}:${expiresAt}`;
     const encoder = new TextEncoder();
     const key = await crypto.subtle.importKey(
