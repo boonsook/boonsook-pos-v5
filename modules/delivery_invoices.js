@@ -185,7 +185,7 @@ function renderInvoicePreview(container) {
             </div>
             <div class="doc-header-right">
               <div class="doc-title inv">ใบส่งสินค้า/ใบแจ้งหนี้</div>
-              <div class="doc-copy-label">${pageNum === 1 ? 'ต้นฉบับ' : 'สำเนา'}</div>
+              <div class="doc-copy-label" style="display:inline-block;border:1.5px solid ${pageNum === 1 ? '#0369a1' : '#94a3b8'};color:${pageNum === 1 ? '#0369a1' : '#64748b'};background:${pageNum === 1 ? '#eff6ff' : '#f8fafc'};padding:3px 10px;border-radius:14px;font-weight:700;margin-top:4px">${pageNum === 1 ? 'ต้นฉบับ · สำหรับลูกค้า' : 'สำเนา · สำหรับร้าน'}</div>
               <table class="doc-detail-table">
                 <tr><td>เลขที่</td><td>${escHtml(inv.inv_no || '-')}</td></tr>
                 <tr><td>วันที่</td><td id="diDateCell">..................................</td></tr>

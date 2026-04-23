@@ -277,7 +277,7 @@ function renderReceiptPreview(container) {
             </div>
             <div class="doc-header-right">
               <div class="doc-title re">ใบเสร็จรับเงิน</div>
-              <div class="doc-copy-label">${pageNum === 1 ? 'ต้นฉบับ' : 'สำเนา'}</div>
+              <div class="doc-copy-label" style="display:inline-block;border:1.5px solid ${pageNum === 1 ? '#15803d' : '#94a3b8'};color:${pageNum === 1 ? '#15803d' : '#64748b'};background:${pageNum === 1 ? '#f0fdf4' : '#f8fafc'};padding:3px 10px;border-radius:14px;font-weight:700;margin-top:4px">${pageNum === 1 ? 'ต้นฉบับ · สำหรับลูกค้า' : 'สำเนา · สำหรับร้าน'}</div>
               <table class="doc-detail-table">
                 <tr><td>เลขที่</td><td>${escHtml(r.receipt_no || '-')}</td></tr>
                 <tr><td>วันที่</td><td id="rcDateCell">..................................</td></tr>
