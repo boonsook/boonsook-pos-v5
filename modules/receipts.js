@@ -9,6 +9,18 @@ function money(n){ return new Intl.NumberFormat("th-TH",{style:"currency",curren
 function num(n){ return new Intl.NumberFormat("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(n||0)); }
 function dateTH(d){ if(!d) return "-"; try{ return new Date(d).toLocaleDateString("th-TH",{year:"numeric",month:"short",day:"numeric"}); }catch(e){ return d; } }
 
+// ★ เช็คว่า payment_method ตรงกับ target หรือไม่ (รองรับ Thai/English)
+function _payIs(method, target) {
+  const m = String(method || "").toLowerCase();
+  const pats = {
+    cash:     ['cash', 'เงินสด', 'สด', 'cod_cash'],
+    cheque:   ['cheque', 'check', 'เช็ค'],
+    transfer: ['transfer', 'โอน', 'bank', 'qr', 'cod_transfer'],
+    credit:   ['credit', 'บัตร', 'card']
+  };
+  return (pats[target] || []).some(p => m.includes(p));
+}
+
 const STATUS_LABELS = {
   paid:      "ชำระแล้ว",
   partial:   "ชำระบางส่วน",
@@ -227,6 +239,16 @@ function renderReceiptPreview(container) {
             <span>📅 วันที่เอกสาร:</span>
             <input type="date" id="rcEditDate" value="${(r.created_at || new Date().toISOString()).slice(0,10)}" style="border:1px solid #d1d5db;border-radius:6px;padding:3px 6px;font-size:13px;cursor:pointer" />
           </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;border:1px solid #e2e8f0;border-radius:8px;padding:6px 10px;background:#eff6ff" title="เลือกวิธีชำระเงินของลูกค้า — ใบเสร็จจะติ๊ก ✓ ในช่องที่เลือก">
+            <span>💳 วิธีชำระ:</span>
+            <select id="rcEditPayMethod" style="border:1px solid #d1d5db;border-radius:6px;padding:3px 6px;font-size:13px;cursor:pointer;background:#fff">
+              <option value=""        ${!r.payment_method ? 'selected' : ''}>— ไม่ระบุ —</option>
+              <option value="cash"     ${_payIs(r.payment_method,'cash')     ? 'selected' : ''}>เงินสด</option>
+              <option value="cheque"   ${_payIs(r.payment_method,'cheque')   ? 'selected' : ''}>เช็ค</option>
+              <option value="transfer" ${_payIs(r.payment_method,'transfer') ? 'selected' : ''}>โอนเงิน</option>
+              <option value="credit"   ${_payIs(r.payment_method,'credit')   ? 'selected' : ''}>บัตรเครดิต</option>
+            </select>
+          </label>
           <button id="rcShareBtn" class="btn" style="background:#06C755;color:#fff">📤 แชร์</button>
           <button id="rcPrintBtn" class="btn light">🖨️ พิมพ์</button>
           <button id="rcPdfBtn" class="btn primary">📄 PDF</button>
@@ -311,10 +333,10 @@ function renderReceiptPreview(container) {
               <span>การชำระเงินจะสมบูรณ์เมื่อบริษัทได้รับเงินเรียบร้อยแล้ว</span>
             </div>
             <div class="doc-payment-check-row" style="margin-top:6px">
-              <span class="doc-checkbox"><span class="doc-checkbox-box"></span> เงินสด</span>
-              <span class="doc-checkbox"><span class="doc-checkbox-box"></span> เช็ค</span>
-              <span class="doc-checkbox"><span class="doc-checkbox-box"></span> โอนเงิน</span>
-              <span class="doc-checkbox"><span class="doc-checkbox-box"></span> บัตรเครดิต</span>
+              <span class="doc-checkbox"><span class="doc-checkbox-box" style="display:inline-flex;align-items:center;justify-content:center;font-size:11px;line-height:1">${_payIs(r.payment_method,'cash')?'✓':''}</span> เงินสด</span>
+              <span class="doc-checkbox"><span class="doc-checkbox-box" style="display:inline-flex;align-items:center;justify-content:center;font-size:11px;line-height:1">${_payIs(r.payment_method,'cheque')?'✓':''}</span> เช็ค</span>
+              <span class="doc-checkbox"><span class="doc-checkbox-box" style="display:inline-flex;align-items:center;justify-content:center;font-size:11px;line-height:1">${_payIs(r.payment_method,'transfer')?'✓':''}</span> โอนเงิน</span>
+              <span class="doc-checkbox"><span class="doc-checkbox-box" style="display:inline-flex;align-items:center;justify-content:center;font-size:11px;line-height:1">${_payIs(r.payment_method,'credit')?'✓':''}</span> บัตรเครดิต</span>
             </div>
             <div class="doc-bank-line">
               <div class="doc-bank-field">ธนาคาร<span class="underline"></span></div>
@@ -427,6 +449,33 @@ function renderReceiptPreview(container) {
       console.error("[receipts edit date] error:", e);
       _ctx.showToast("❌ แก้วันที่ไม่สำเร็จ: " + (e.message || e));
       ev.target.value = (r.created_at || "").slice(0,10);
+    }
+  });
+
+  // ★ เลือกวิธีชำระเงิน — PATCH payment_method แล้ว re-render preview ให้ checkboxes อัปเดต
+  document.getElementById("rcEditPayMethod")?.addEventListener("change", async (ev) => {
+    const labels = { cash: "เงินสด", cheque: "เช็ค", transfer: "โอนเงิน", credit: "บัตรเครดิต" };
+    const newMethod = labels[ev.target.value] || ""; // เก็บเป็นภาษาไทยใน DB
+    const prevMethod = r.payment_method;
+    try {
+      const res = await window._appXhrPatch?.("receipts", { payment_method: newMethod }, "id", r.id);
+      if (res && res.ok === false) throw new Error(res.error?.message || "patch failed");
+      r.payment_method = newMethod;
+      _ctx.showToast("อัปเดตวิธีชำระเรียบร้อย ✓");
+      // Re-render preview เพื่อให้ checkboxes แสดง ✓ ตรงตำแหน่งที่เลือก
+      renderReceiptsPage(_ctx);
+    } catch (e) {
+      console.error("[receipts edit pay method] error:", e);
+      _ctx.showToast("❌ อัปเดตไม่สำเร็จ: " + (e.message || e));
+      // rollback dropdown
+      r.payment_method = prevMethod;
+      for (const opt of ev.target.options) {
+        opt.selected = (opt.value === "cash" && _payIs(prevMethod,'cash')) ||
+                       (opt.value === "cheque" && _payIs(prevMethod,'cheque')) ||
+                       (opt.value === "transfer" && _payIs(prevMethod,'transfer')) ||
+                       (opt.value === "credit" && _payIs(prevMethod,'credit')) ||
+                       (opt.value === "" && !prevMethod);
+      }
     }
   });
 
