@@ -61,6 +61,30 @@ export function renderQuotationsPage(ctx) {
   const container = document.getElementById("page-quotations");
   if (!container) return;
 
+  // ★ ถ้าถูก trigger จากหน้าอื่น (เช่น delivery_invoice กด "อ้างอิง") → เปิด preview
+  if (window._pendingQuotationPreviewId) {
+    const pendingId = window._pendingQuotationPreviewId;
+    window._pendingQuotationPreviewId = null;
+    (async () => {
+      _editingId = pendingId;
+      _viewMode = "preview";
+      const cfg = window.SUPABASE_CONFIG;
+      const token = window._sbAccessToken || cfg.anonKey;
+      try {
+        const resp = await fetch(cfg.url + "/rest/v1/quotation_items?quotation_id=eq." + pendingId + "&order=sort_order.asc",
+          { headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token } });
+        _lineItems = ((await resp.json()) || []).map(i => ({
+          product_id: i.product_id, item_name: i.item_name || "",
+          qty: Number(i.qty||1), unit: i.unit || "ชิ้น",
+          unit_price: Number(i.unit_price||0), discount_pct: Number(i.discount_pct||0),
+          line_total: Number(i.line_total||0)
+        }));
+      } catch(e) { _lineItems = []; }
+      renderQuotationsPage(ctx);
+    })();
+    return;
+  }
+
   if (_viewMode === "form") { renderQuotationForm(container); return; }
   if (_viewMode === "preview") { renderQuotationPreview(container); return; }
 

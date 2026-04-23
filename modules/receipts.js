@@ -170,7 +170,7 @@ export function renderReceiptsPage(ctx) {
                   <span class="status-dot" style="background:${statusColor}"></span>
                   <span class="doc-no">${escHtml(r.receipt_no || "-")}</span>
                   <button class="pdf-icon-btn rc-view-btn" data-rc-id="${r.id}" title="ดูเอกสาร">📄</button>
-                  ${r.ref_no ? `<div class="sku" style="margin-left:16px;margin-top:2px">อ้างอิง: ${escHtml(r.ref_no)}</div>` : ''}
+                  ${r.ref_no || r.delivery_invoice_id ? `<div class="sku" style="margin-left:16px;margin-top:2px">อ้างอิง: <a href="#" class="rc-ref-link" data-rc-ref-inv="${r.delivery_invoice_id || ''}" data-rc-ref-no="${escHtml(r.ref_no || '')}" style="color:#0284c7;text-decoration:none;font-weight:600">${escHtml(r.ref_no || 'INV')} ↗</a></div>` : ''}
                 </td>
                 <td>${escHtml(r.customer_name || "-")}</td>
                 <td class="right" style="font-weight:700">${money(r.grand_total||0)}</td>
@@ -199,6 +199,22 @@ export function renderReceiptsPage(ctx) {
   container.querySelectorAll(".rc-tab-btn").forEach(btn => btn.addEventListener("click", () => {
     _tabFilter = btn.dataset.rcTab;
     renderReceiptsPage(_ctx);
+  }));
+
+  // ── Reference link: เปิดใบส่งสินค้าที่อ้างอิง ──
+  container.querySelectorAll(".rc-ref-link").forEach(link => link.addEventListener("click", (e) => {
+    e.preventDefault();
+    const invId = Number(link.dataset.rcRefInv);
+    const refNo = link.dataset.rcRefNo;
+    let target = null;
+    if (invId) target = (ctx.state.deliveryInvoices || []).find(x => x.id === invId);
+    if (!target && refNo) target = (ctx.state.deliveryInvoices || []).find(x => x.inv_no === refNo);
+    if (!target) {
+      window.App?.showToast?.("ไม่พบใบส่งสินค้านี้ในรายการ");
+      return;
+    }
+    window._pendingInvoicePreviewId = target.id;
+    window.App?.showRoute?.("delivery_invoices");
   }));
 
   // ── Select all checkbox ──
