@@ -90,17 +90,68 @@ body { margin: 0; padding: 0; background: #fff; font-family: "Sarabun","Noto San
 .doc-payment-grid { display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 4px 12px; margin-top: 6px; font-size: 11px; border: 1px solid #d1d5db; padding: 6px 8px; border-radius: 4px; }
 .doc-payment-grid span:nth-child(odd) { font-weight: 700; white-space: nowrap; }
 
-/* ═══ SIGNATURES ═══ */
-.doc-signatures { display: flex; justify-content: space-between; margin-top: auto; padding-top: 20px; font-size: 12px; }
+/* ═══ SIGNATURES (compact) ═══ */
+.doc-signatures { display: flex; justify-content: space-between; margin-top: auto; padding-top: 14px; font-size: 11.5px; gap: 20px; }
 .doc-sig-col { text-align: center; width: 44%; }
-.doc-sig-behalf { font-weight: 600; margin-bottom: 24px; font-size: 11.5px; }
-.doc-sig-line { width: 180px; border-bottom: 1px dotted #475569; margin: 0 auto 4px; height: 32px; }
-.doc-sig-label-row { display: flex; justify-content: center; gap: 36px; font-size: 11px; color: #64748b; }
-.doc-sig-date { font-size: 10.5px; color: #94a3b8; margin-top: 2px; }
+.doc-sig-behalf { font-weight: 600; margin-bottom: 18px; font-size: 11px; color: #475569; }
+.doc-sig-line { width: 160px; border-bottom: 1px dotted #94a3b8; margin: 0 auto 3px; height: 24px; }
+.doc-sig-label-row { display: flex; justify-content: center; gap: 30px; font-size: 10.5px; color: #64748b; }
+.doc-sig-date { font-size: 10px; color: #94a3b8; margin-top: 2px; }
 
 /* ═══ FOOTER ═══ */
 .doc-footer { margin-top: 12px; padding-top: 8px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 10px; color: #94a3b8; }
 `;
+
+// ─── bahtText ──────────────────────────────────────────────
+// แปลงจำนวนเงิน (number) เป็นคำไทย: 5500 → "ห้าพันห้าร้อยบาทถ้วน"
+// รองรับ 0-999,999,999,999 + สตางค์ (ทศนิยม 2 ตำแหน่ง)
+export function bahtText(amount) {
+  const nums = ['', 'หนึ่ง', 'สอง', 'สาม', 'สี่', 'ห้า', 'หก', 'เจ็ด', 'แปด', 'เก้า'];
+  const places = ['', 'สิบ', 'ร้อย', 'พัน', 'หมื่น', 'แสน'];
+
+  function readUnder1M(n) {
+    if (n <= 0) return '';
+    const s = String(n);
+    let out = '';
+    for (let i = 0; i < s.length; i++) {
+      const d = +s[i];
+      const pos = s.length - 1 - i;
+      if (d === 0) continue;
+      if (pos === 1 && d === 1) out += 'สิบ';
+      else if (pos === 1 && d === 2) out += 'ยี่สิบ';
+      else if (pos === 0 && d === 1 && s.length > 1) out += 'เอ็ด';
+      else out += nums[d] + places[pos];
+    }
+    return out;
+  }
+
+  function readNumber(n) {
+    if (n === 0) return 'ศูนย์';
+    let out = '';
+    if (n >= 1000000) {
+      const m = Math.floor(n / 1000000);
+      out += readNumber(m) + 'ล้าน'; // recursive for > million
+      n = n % 1000000;
+    }
+    out += readUnder1M(n);
+    return out;
+  }
+
+  const rounded = Math.round(Number(amount || 0) * 100) / 100;
+  const int = Math.floor(rounded);
+  const sat = Math.round((rounded - int) * 100);
+
+  if (int === 0 && sat === 0) return 'ศูนย์บาทถ้วน';
+
+  let txt = '';
+  if (int > 0) txt += readNumber(int) + 'บาท';
+  if (sat === 0) {
+    txt += int > 0 ? 'ถ้วน' : '';
+  } else {
+    txt += readUnder1M(sat) + 'สตางค์';
+  }
+  return txt;
+}
 
 // ─── printDoc ──────────────────────────────────────────────
 // เปิดหน้าต่าง print พร้อม CSS ที่ถูกต้อง
