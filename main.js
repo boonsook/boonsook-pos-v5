@@ -1001,17 +1001,32 @@ async function initSupabase(){
   }
   state.supabase = createClient(window.SUPABASE_CONFIG.url, window.SUPABASE_CONFIG.anonKey);
 
+  // ★ Detect recovery link (จาก invite email) — ต้องเช็คก่อน getSession
+  const isRecovery = /[#&]type=recovery/.test(window.location.hash || "");
+  if (isRecovery) state._recoveryMode = true;
+
   const { data:{session} } = await state.supabase.auth.getSession();
   if (session?.user) {
     state.currentUser = session.user;
     window._sbAccessToken = session.access_token; // ★ CRITICAL: เก็บ token
-    await afterLogin();
+    if (state._recoveryMode) {
+      showSetPasswordScreen();
+      window.dispatchEvent(new Event("bsk-app-ready"));
+    } else {
+      await afterLogin();
+    }
   }
 
   state.supabase.auth.onAuthStateChange(async (_event, session) => {
     if (session?.user) {
       state.currentUser = session.user;
       window._sbAccessToken = session.access_token; // ★ CRITICAL
+      if (_event === "PASSWORD_RECOVERY" || state._recoveryMode) {
+        state._recoveryMode = true;
+        showSetPasswordScreen();
+        window.dispatchEvent(new Event("bsk-app-ready"));
+        return;
+      }
       await afterLogin();
     } else {
       state.currentUser = null;
@@ -1019,10 +1034,50 @@ async function initSupabase(){
       window._sbAccessToken = null;
       $("authScreen")?.classList.remove("hidden");
       $("appShell")?.classList.add("hidden");
+      $("setPasswordScreen")?.classList.add("hidden");
       window.dispatchEvent(new Event("bsk-app-ready"));
     }
   });
   return true;
+}
+
+// ═══ SET PASSWORD SCREEN (recovery / invite) ═══
+function showSetPasswordScreen() {
+  $("authScreen")?.classList.add("hidden");
+  $("appShell")?.classList.add("hidden");
+  $("setPasswordScreen")?.classList.remove("hidden");
+  setTimeout(() => $("setPwNew")?.focus(), 50);
+}
+
+async function submitNewPassword() {
+  const pw = $("setPwNew")?.value || "";
+  const pw2 = $("setPwConfirm")?.value || "";
+  const statusEl = $("setPasswordStatus");
+  const setStatus = (msg) => {
+    if (!statusEl) return;
+    statusEl.textContent = msg;
+    statusEl.classList.remove("hidden");
+  };
+  if (pw.length < 6) { setStatus("รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร"); return; }
+  if (pw !== pw2) { setStatus("รหัสผ่านทั้งสองช่องไม่ตรงกัน"); return; }
+
+  const btn = $("setPasswordBtn");
+  if (btn) { btn.disabled = true; btn.textContent = "กำลังบันทึก..."; }
+  try {
+    const { error } = await state.supabase.auth.updateUser({ password: pw });
+    if (error) throw error;
+    // เคลียร์ hash ที่มี access_token ออก
+    try { history.replaceState(null, "", window.location.pathname + window.location.search); } catch(e){}
+    state._recoveryMode = false;
+    $("setPwNew").value = ""; $("setPwConfirm").value = "";
+    $("setPasswordScreen")?.classList.add("hidden");
+    showToast("ตั้งรหัสผ่านสำเร็จ — เข้าสู่ระบบอัตโนมัติ");
+    await afterLogin();
+  } catch (err) {
+    console.error("[submitNewPassword] error:", err);
+    setStatus("บันทึกไม่สำเร็จ: " + (err.message || "ไม่ทราบสาเหตุ"));
+    if (btn) { btn.disabled = false; btn.textContent = "บันทึกรหัสผ่าน"; }
+  }
 }
 
 async function login(){
@@ -2297,6 +2352,8 @@ function bindStaticEvents(){
   $("printReceiptBtn")?.addEventListener("click", printLastReceipt);
   $("pdfReceiptBtn")?.addEventListener("click", exportReceiptPdf);
   $("addNewUserBtn")?.addEventListener("click", addNewUser);
+  $("setPasswordBtn")?.addEventListener("click", submitNewPassword);
+  $("setPwConfirm")?.addEventListener("keydown", (e) => { if (e.key === "Enter") submitNewPassword(); });
 
   $("globalSearch")?.addEventListener("input", globalSearchProducts);
 }

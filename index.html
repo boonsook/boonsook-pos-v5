@@ -106,6 +106,25 @@
     </div>
   </div>
 
+  <!-- ═══ SET PASSWORD SCREEN (recovery/invite flow) ═══ -->
+  <div id="setPasswordScreen" class="auth-shell hidden">
+    <div class="auth-card">
+      <img src="./icons/logo.svg" alt="บุญสุข อิเล็กทรอนิกส์" class="auth-logo-img" />
+      <h1 class="auth-title">ตั้งรหัสผ่านใหม่</h1>
+      <p class="muted auth-subtitle">กรุณาตั้งรหัสผ่านเพื่อเข้าใช้งานระบบ</p>
+      <div class="stack mt16">
+        <label for="setPwNew" class="sr-only">รหัสผ่านใหม่</label>
+        <input class="form-input" id="setPwNew" type="password" placeholder="รหัสผ่านใหม่ (อย่างน้อย 6 ตัว)" autocomplete="new-password" aria-label="รหัสผ่านใหม่" />
+        <label for="setPwConfirm" class="sr-only">ยืนยันรหัสผ่าน</label>
+        <input class="form-input" id="setPwConfirm" type="password" placeholder="ยืนยันรหัสผ่านอีกครั้ง" autocomplete="new-password" aria-label="ยืนยันรหัสผ่าน" />
+      </div>
+      <div class="row mt16">
+        <button id="setPasswordBtn" class="btn btn-primary btn-success-full">บันทึกรหัสผ่าน</button>
+      </div>
+      <div id="setPasswordStatus" class="card mt16 hidden" role="alert"></div>
+    </div>
+  </div>
+
   <!-- ═══ APP SHELL ═══ -->
   <div id="appShell" class="app-shell hidden">
 
@@ -438,7 +457,7 @@
     </div>
   </aside>
 
-  <script type="module" src="./main.js?v=11"></script>
+  <script type="module" src="./main.js?v=12"></script>
   <script>
     // ═══ Loading Overlay ═══
     function hideLoadingOverlay() {
