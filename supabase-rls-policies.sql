@@ -15,6 +15,14 @@
 -- ═══════════════════════════════════════════════════════════════
 -- 1) เปิด RLS ทุกตารางหลัก (ถ้ายังไม่เปิด)
 -- ═══════════════════════════════════════════════════════════════
+-- ★ app_settings table — เก็บการตั้งค่าที่ sync ข้าม device (store info, payment info)
+CREATE TABLE IF NOT EXISTS public.app_settings (
+  key text PRIMARY KEY,
+  value jsonb,
+  updated_at timestamptz DEFAULT now()
+);
+ALTER TABLE IF EXISTS public.app_settings       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.profiles           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS public.sales              ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS public.sale_items         ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS public.service_jobs       ENABLE ROW LEVEL SECURITY;
@@ -35,6 +43,24 @@ ALTER TABLE IF EXISTS public.stock_movements    ENABLE ROW LEVEL SECURITY;
 -- 2) Policies สำหรับ authenticated users (staff/admin ที่ login แล้ว)
 --    ครอบคลุม: SELECT / INSERT / UPDATE / DELETE
 -- ═══════════════════════════════════════════════════════════════
+
+-- ───────── app_settings (sync store info + payment info ข้าม device) ─────────
+DROP POLICY IF EXISTS "auth_all_app_settings"  ON public.app_settings;
+CREATE POLICY "auth_all_app_settings"
+  ON public.app_settings
+  FOR ALL
+  TO authenticated
+  USING (true)
+  WITH CHECK (true);
+
+-- ───────── profiles (สำหรับหน้าตั้งค่าผู้ใช้ — admin ต้องอ่านรายชื่อได้) ─────────
+DROP POLICY IF EXISTS "auth_all_profiles"       ON public.profiles;
+CREATE POLICY "auth_all_profiles"
+  ON public.profiles
+  FOR ALL
+  TO authenticated
+  USING (true)
+  WITH CHECK (true);
 
 -- ───────── sales ─────────
 DROP POLICY IF EXISTS "auth_all_sales"         ON public.sales;

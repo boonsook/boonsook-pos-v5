@@ -711,7 +711,43 @@ async function saveStoreInfo(data = null) {
     console.warn('Supabase save failed (using localStorage):', err?.message || err);
   }
 }
-function savePaymentInfo(){ localStorage.setItem("bsk_payment_info", JSON.stringify(state.paymentInfo)); }
+// ★ savePaymentInfo — sync ทั้ง localStorage + Supabase (เหมือน saveStoreInfo)
+async function savePaymentInfo() {
+  localStorage.setItem("bsk_payment_info", JSON.stringify(state.paymentInfo));
+  if (!state.supabase) return;
+  try {
+    const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error("supabase timeout")), 3000));
+    const save = state.supabase
+      .from('app_settings')
+      .upsert({ key: 'payment_info', value: state.paymentInfo }, { onConflict: 'key' });
+    const { error } = await Promise.race([save, timeout]);
+    if (error) console.warn('[savePaymentInfo] Supabase warning:', error.message);
+  } catch (err) {
+    console.warn('[savePaymentInfo] Supabase failed (localStorage OK):', err?.message || err);
+  }
+}
+
+// ★ loadAppSettings — ดึง store_info + payment_info จาก Supabase หลัง login
+async function loadAppSettings() {
+  if (!state.supabase) return;
+  try {
+    const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error("supabase timeout")), 4000));
+    const fetch = state.supabase.from('app_settings').select('key,value').in('key', ['store_info','payment_info']);
+    const { data, error } = await Promise.race([fetch, timeout]);
+    if (error) { console.warn('[loadAppSettings] warn:', error.message); return; }
+    (data || []).forEach(row => {
+      if (row.key === 'store_info' && row.value) {
+        state.storeInfo = { ...state.storeInfo, ...row.value };
+        localStorage.setItem("bsk_store_info", JSON.stringify(state.storeInfo));
+      } else if (row.key === 'payment_info' && row.value) {
+        state.paymentInfo = row.value;
+        localStorage.setItem("bsk_payment_info", JSON.stringify(state.paymentInfo));
+      }
+    });
+  } catch (err) {
+    console.warn('[loadAppSettings] failed (using localStorage):', err?.message || err);
+  }
+}
 
 // ★ Toast Queue — แสดงเรียงลำดับ ไม่ทับกัน
 const _toastQueue = [];
@@ -1162,6 +1198,9 @@ async function afterLogin(){
 
   // ★ ตั้ง currentRoute ก่อน loadAllData เพื่อไม่ให้ renderAll() เปลี่ยนกลับไป dashboard
   state.currentRoute = restorePage;
+
+  // ★ Sync settings (store info + payment info) จาก Supabase ก่อน render
+  await loadAppSettings();
 
   await loadAllData();
   // loadAllData → renderAll() → showRoute(state.currentRoute) ซึ่งตอนนี้ = restorePage แล้ว ✅
