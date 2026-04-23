@@ -1627,7 +1627,14 @@ async function saveProduct(){
     barcode: (productType === "service" || productType === "non_stock") ? "" : $("newProductBarcode").value.trim(),
     is_active:true
   };
-  if (!payload.name || !payload.sku || payload.price <= 0) return showToast("กรอกข้อมูลสินค้าให้ครบ");
+  // ★ Validation ชี้จุดชัดเจน
+  if (!payload.name) return showToast("กรุณากรอกชื่อสินค้า");
+  if (payload.price <= 0) return showToast("กรุณากรอกราคาขาย (ต้องมากกว่า 0)");
+  // ★ Auto-gen SKU ถ้าว่าง (เช่น service ที่ไม่ต้องมี SKU)
+  if (!payload.sku) {
+    const prefix = productType === "service" ? "SVC" : productType === "non_stock" ? "NS" : "SKU";
+    payload.sku = `${prefix}-${Date.now().toString(36).toUpperCase()}`;
+  }
   showToast("กำลังบันทึก...");
 
   let productId = state.editingProductId;
