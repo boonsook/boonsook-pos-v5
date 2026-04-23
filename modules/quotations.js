@@ -9,6 +9,19 @@ function money(n){ return new Intl.NumberFormat("th-TH",{style:"currency",curren
 function num(n){ return new Intl.NumberFormat("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(n||0)); }
 function dateTH(d){ if(!d) return "-"; try{ return new Date(d).toLocaleDateString("th-TH",{year:"numeric",month:"short",day:"numeric"}); }catch(e){ return d; } }
 
+// ─── Thai baht amount to words ("หนึ่งพันสองร้อยบาทถ้วน") ───
+function bahtText(amount) {
+  const nums = ['','หนึ่ง','สอง','สาม','สี่','ห้า','หก','เจ็ด','แปด','เก้า'];
+  const places = ['','สิบ','ร้อย','พัน','หมื่น','แสน'];
+  function u1M(n){ if(n<=0)return ''; const s=String(n); let o=''; for(let i=0;i<s.length;i++){const d=+s[i],p=s.length-1-i; if(d===0)continue; if(p===1&&d===1)o+='สิบ'; else if(p===1&&d===2)o+='ยี่สิบ'; else if(p===0&&d===1&&s.length>1)o+='เอ็ด'; else o+=nums[d]+places[p];} return o; }
+  function rd(n){ if(n===0)return 'ศูนย์'; let o=''; if(n>=1000000){const m=Math.floor(n/1000000); o+=rd(m)+'ล้าน'; n=n%1000000;} o+=u1M(n); return o; }
+  const r=Math.round(Number(amount||0)*100)/100, i=Math.floor(r), sat=Math.round((r-i)*100);
+  if(i===0&&sat===0) return 'ศูนย์บาทถ้วน';
+  let t=''; if(i>0) t+=rd(i)+'บาท';
+  if(sat===0) t+=i>0?'ถ้วน':''; else t+=u1M(sat)+'สตางค์';
+  return t;
+}
+
 const STATUS_LABELS = {
   pending:   "รออนุมัติ",
   approved:  "อนุมัติแล้ว",
@@ -672,25 +685,24 @@ function renderQuotationPreview(container) {
 
           <table class="doc-table">
             <thead><tr>
-              <th class="qt" style="width:30px">#</th><th class="qt" style="text-align:left">รายละเอียด</th>
+              <th class="qt" style="text-align:left">รายละเอียด</th>
               <th class="qt" style="width:65px">จำนวน</th><th class="qt" style="width:55px">หน่วย</th>
               <th class="qt" style="width:95px">ราคาต่อหน่วย</th>
               <th class="qt" style="width:95px">ยอดรวม</th>
             </tr></thead>
             <tbody>
-              ${_lineItems.length ? _lineItems.map((item, idx) => '<tr>'
-                +'<td style="text-align:center">'+(idx+1)+'</td>'
+              ${_lineItems.length ? _lineItems.map((item) => '<tr>'
                 +'<td style="text-align:left">'+escHtml(item.item_name)+'</td>'
                 +'<td style="text-align:center">'+num(item.qty)+'</td>'
                 +'<td style="text-align:center">'+(item.unit||'ชิ้น')+'</td>'
                 +'<td style="text-align:right">'+num(item.unit_price)+'</td>'
                 +'<td style="text-align:right">'+num(item.line_total)+'</td>'
-                +'</tr>').join('') : '<tr><td colspan="6" style="text-align:center;color:#999;padding:20px">ไม่มีรายการ</td></tr>'}
+                +'</tr>').join('') : '<tr><td colspan="5" style="text-align:center;color:#999;padding:20px">ไม่มีรายการ</td></tr>'}
             </tbody>
           </table>
 
           <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-top:4px">
-            <div class="doc-baht-text"></div>
+            <div class="doc-baht-text">(${bahtText(grandTotal)})</div>
             <div class="doc-totals">
               <div class="doc-total-row"><span>รวมเป็นเงิน</span><span>${num(subtotal)} บาท</span></div>
               ${discPct > 0 ? '<div class="doc-total-row"><span>ส่วนลด '+discPct+'%</span><span>-'+num(discAmount)+' บาท</span></div>' : ''}
@@ -703,12 +715,12 @@ function renderQuotationPreview(container) {
 
           <div class="doc-signatures">
             <div class="doc-sig-col">
-              <div class="doc-sig-behalf">ในนาม ${escHtml(customerName)}</div>
+              <div class="doc-sig-behalf">${escHtml(customerName)}</div>
               <div class="doc-sig-line"></div>
               <div class="doc-sig-label-row"><span>ผู้สั่งซื้อ</span><span>วันที่ ___/___/______</span></div>
             </div>
             <div class="doc-sig-col">
-              <div class="doc-sig-behalf">ในนาม ${escHtml(si.name || 'บุญสุข อิเล็กทรอนิกส์')}</div>
+              <div class="doc-sig-behalf">${escHtml(si.name || 'บุญสุข อิเล็กทรอนิกส์')}</div>
               <div class="doc-sig-line"></div>
               <div class="doc-sig-label-row"><span>ผู้อนุมัติ</span><span>วันที่ ___/___/______</span></div>
             </div>
