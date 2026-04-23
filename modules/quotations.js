@@ -87,37 +87,69 @@ export function renderQuotationsPage(ctx) {
         </div>
       </div>
 
-      <div class="card-list mt16">
-        ${quotations.length ? quotations.map(q => {
-          const customerName = q.customer_name || q.customer || "-";
-          const amount       = q.grand_total || q.total_amount || q.amount || 0;
-          const docNo        = q.qt_no || q.title || "-";
-          const status       = q.status || "pending";
-          const statusLabel  = STATUS_LABELS[status] || status;
-          const statusColor  = STATUS_COLOR[status]  || "#9ca3af";
-          const dateStr      = dateTH(q.created_at);
-          return `
-            <div class="card qt-card" data-qt-id="${q.id}">
-              <div class="row" style="align-items:flex-start">
-                <div style="flex:1;min-width:0">
-                  <div style="font-weight:900;font-size:15px">${docNo}</div>
-                  <div class="sku" style="margin-top:2px">${customerName}</div>
-                  <div style="display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap">
-                    <span class="badge" style="background:${statusColor}18;color:${statusColor}">${statusLabel}</span>
-                    <span style="font-size:13px;font-weight:700">${money(amount)}</span>
-                    <span class="sku">${dateStr}</span>
+      <style>
+        .doc-list-table{width:100%;border-collapse:collapse;font-size:13px;background:#fff;margin-top:12px}
+        .doc-list-table th{background:#f8fafc;color:#475569;font-weight:700;text-align:left;padding:10px 12px;border-bottom:2px solid #e2e8f0;font-size:12px;white-space:nowrap}
+        .doc-list-table td{padding:10px 12px;border-bottom:1px solid #f1f5f9;vertical-align:middle}
+        .doc-list-table tbody tr:hover{background:#fafbfc}
+        .doc-list-table .status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;vertical-align:middle}
+        .doc-list-table .doc-no{font-weight:700;color:#1e293b}
+        .doc-list-table .pdf-icon-btn{background:none;border:none;cursor:pointer;padding:2px 4px;margin-left:4px;opacity:.6;font-size:14px}
+        .doc-list-table .pdf-icon-btn:hover{opacity:1}
+        .doc-list-table .right{text-align:right}
+        .doc-list-table .status-badge{display:inline-block;padding:4px 10px;border-radius:14px;font-size:12px;font-weight:600}
+        .doc-list-table .row-actions{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
+        .doc-list-table .row-actions button{font-size:11px;padding:5px 10px;border-radius:6px;border:none;cursor:pointer;font-weight:600;white-space:nowrap}
+      </style>
+
+      <div style="overflow-x:auto;margin-top:16px">
+      <table class="doc-list-table">
+        <thead>
+          <tr>
+            <th style="width:110px">วันที่</th>
+            <th>เลขที่เอกสาร</th>
+            <th>ชื่อลูกค้า/ชื่อโปรเจ็ค</th>
+            <th class="right" style="width:130px">ยอดรวมสุทธิ</th>
+            <th style="width:130px">สถานะ</th>
+            <th style="width:260px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${quotations.length ? quotations.map(q => {
+            const customerName = q.customer_name || q.customer || "-";
+            const amount       = q.grand_total || q.total_amount || q.amount || 0;
+            const docNo        = q.qt_no || q.title || "-";
+            const status       = q.status || "pending";
+            const statusLabel  = STATUS_LABELS[status] || status;
+            const statusColor  = STATUS_COLOR[status]  || "#9ca3af";
+            const canConvert   = !['invoiced','cancelled','receipted'].includes(status);
+            const canDelete    = !['invoiced','receipted'].includes(status);
+            return `
+              <tr>
+                <td class="sku">${dateTH(q.created_at)}</td>
+                <td>
+                  <span class="status-dot" style="background:${statusColor}"></span>
+                  <span class="doc-no">${escHtml(docNo)}</span>
+                  <button class="pdf-icon-btn qt-view-btn" data-qt-view="${q.id}" title="ดูเอกสาร">📄</button>
+                </td>
+                <td>${escHtml(customerName)}</td>
+                <td class="right" style="font-weight:700">${money(amount)}</td>
+                <td>
+                  <span class="status-badge" style="background:${statusColor}18;color:${statusColor}">${statusLabel}</span>
+                </td>
+                <td>
+                  <div class="row-actions">
+                    <button class="qt-edit-btn" data-qt-edit="${q.id}" style="background:#f1f5f9;color:#475569">แก้ไข</button>
+                    ${canConvert ? `<button class="qt-convert-btn" data-qt-convert="${q.id}" style="background:#10b981;color:#fff">สร้างใบส่ง</button>` : ''}
+                    <button class="qt-view-btn" data-qt-view="${q.id}" style="background:#f1f5f9;color:#475569">ดู</button>
+                    ${canDelete ? `<button class="qt-delete-btn" data-qt-delete="${q.id}" style="background:#fee2e2;color:#dc2626;border:1px solid #fca5a5">ลบ</button>` : ''}
                   </div>
-                </div>
-                <div style="display:flex;gap:6px;flex-shrink:0">
-                  <button class="btn light qt-view-btn" data-qt-view="${q.id}" style="font-size:12px;padding:8px 12px">ดูเอกสาร</button>
-                  <button class="btn light qt-edit-btn" data-qt-edit="${q.id}" style="font-size:12px;padding:8px 12px">แก้ไข</button>
-                  ${!['invoiced','cancelled','receipted'].includes(status) ? '<button class="btn primary qt-convert-btn" data-qt-convert="' + q.id + '" style="font-size:12px;padding:8px 12px">สร้างใบส่ง</button>' : ''}
-                  ${!['invoiced','receipted'].includes(status) ? '<button class="btn qt-delete-btn" data-qt-delete="' + q.id + '" style="font-size:12px;padding:8px 12px;background:#fee2e2;color:#dc2626;border:1px solid #fca5a5">ลบ</button>' : ''}
-                </div>
-              </div>
-            </div>
-          `;
-        }).join("") : '<div class="card" style="text-align:center;color:var(--muted);padding:24px">ยังไม่มีใบเสนอราคา</div>'}
+                </td>
+              </tr>
+            `;
+          }).join("") : '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:40px 20px">ยังไม่มีใบเสนอราคา</td></tr>'}
+        </tbody>
+      </table>
       </div>
     </div>
   `;
