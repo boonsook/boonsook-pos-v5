@@ -288,7 +288,8 @@
       <label for="newProductSku" class="sr-only">รหัสสินค้า</label>
       <input class="form-input" id="newProductSku" placeholder="รหัสสินค้า / SKU" aria-label="รหัสสินค้า / SKU" autocomplete="off" />
       <label for="newProductCategory" class="sr-only">หมวดหมู่</label>
-      <input class="form-input" id="newProductCategory" placeholder="หมวดหมู่ (เช่น เครื่องปรับอากาศ, กล้อง)" aria-label="หมวดหมู่สินค้า" autocomplete="off" />
+      <input class="form-input" id="newProductCategory" list="productCategoryList" placeholder="หมวดหมู่ (พิมพ์ใหม่ หรือเลือกจากที่มีอยู่)" aria-label="หมวดหมู่สินค้า" autocomplete="off" />
+      <datalist id="productCategoryList"></datalist>
       <label for="newProductPrice" class="sr-only">ราคาขาย</label>
       <input class="form-input" id="newProductPrice" type="number" inputmode="decimal" placeholder="ราคาขาย" aria-label="ราคาขาย" min="0" autocomplete="off" />
       <label for="newProductCost" class="sr-only">ต้นทุน</label>
