@@ -59,6 +59,29 @@ export function renderDeliveryInvoicesPage(ctx) {
   const container = document.getElementById("page-delivery_invoices");
   if (!container) return;
 
+  // ★ ถ้าถูก trigger จากหน้าอื่น (เช่น receipts กด "อ้างอิง") → เปิด preview
+  if (window._pendingInvoicePreviewId) {
+    const pendingId = window._pendingInvoicePreviewId;
+    window._pendingInvoicePreviewId = null;
+    (async () => {
+      _viewingId = pendingId;
+      _viewMode = "preview";
+      const cfg = window.SUPABASE_CONFIG;
+      const token = window._sbAccessToken || cfg.anonKey;
+      try {
+        const resp = await fetch(cfg.url + "/rest/v1/delivery_invoice_items?delivery_invoice_id=eq." + pendingId + "&order=sort_order.asc",
+          { headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token } });
+        _lineItems = ((await resp.json()) || []).map(i => ({
+          item_name: i.item_name || "", qty: Number(i.qty||1), unit: i.unit || "ชิ้น",
+          unit_price: Number(i.unit_price||0), discount_pct: Number(i.discount_pct||0),
+          line_total: Number(i.line_total||0)
+        }));
+      } catch(e) { _lineItems = []; }
+      renderDeliveryInvoicesPage(ctx);
+    })();
+    return;
+  }
+
   if (_viewMode === "preview" && _viewingId) { renderInvoicePreview(container); return; }
 
   _viewMode = "list";
@@ -161,7 +184,7 @@ export function renderDeliveryInvoicesPage(ctx) {
                   <span class="status-dot" style="background:${statusColor}"></span>
                   <span class="doc-no">${escHtml(inv.inv_no || "-")}</span>
                   <button class="pdf-icon-btn di-view-btn" data-di-id="${inv.id}" title="ดูเอกสาร">📄</button>
-                  ${inv.ref_no ? `<div class="sku" style="margin-left:16px;margin-top:2px">อ้างอิง: ${escHtml(inv.ref_no)}</div>` : ''}
+                  ${inv.ref_no || inv.quotation_id ? `<div class="sku" style="margin-left:16px;margin-top:2px">อ้างอิง: <a href="#" class="di-ref-link" data-di-ref-qt="${inv.quotation_id || ''}" data-di-ref-no="${escHtml(inv.ref_no || '')}" style="color:#f59e0b;text-decoration:none;font-weight:600">${escHtml(inv.ref_no || 'QT')} ↗</a></div>` : ''}
                 </td>
                 <td>${escHtml(inv.customer_name || "-")}</td>
                 <td class="sku" style="${overdue ? 'color:#dc2626;font-weight:700' : ''}">${dueStr}${overdue ? ' ⚠️' : ''}</td>
@@ -188,6 +211,22 @@ export function renderDeliveryInvoicesPage(ctx) {
   container.querySelectorAll(".di-tab-btn").forEach(btn => btn.addEventListener("click", () => {
     _tabFilter = btn.dataset.diTab;
     renderDeliveryInvoicesPage(_ctx);
+  }));
+
+  // ── Reference link: เปิดใบเสนอราคาที่อ้างอิง ──
+  container.querySelectorAll(".di-ref-link").forEach(link => link.addEventListener("click", (e) => {
+    e.preventDefault();
+    const qtId = Number(link.dataset.diRefQt);
+    const refNo = link.dataset.diRefNo;
+    let target = null;
+    if (qtId) target = (ctx.state.quotations || []).find(x => x.id === qtId);
+    if (!target && refNo) target = (ctx.state.quotations || []).find(x => x.qt_no === refNo);
+    if (!target) {
+      window.App?.showToast?.("ไม่พบใบเสนอราคานี้ในรายการ");
+      return;
+    }
+    window._pendingQuotationPreviewId = target.id;
+    window.App?.showRoute?.("quotations");
   }));
 
   // ── Select all ──
