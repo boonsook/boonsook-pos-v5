@@ -1,0 +1,526 @@
+# 📋 HANDOFF — Boonsook POS V5 PRO
+
+**อัปเดตล่าสุด:** 23 เมษายน 2026
+**สถานะ:** Production ที่ boonsukair.com (Cloudflare Pages + Supabase)
+**เป้าหมายเอกสาร:** Claude session ใหม่ / ผู้ช่วยใหม่ อ่านไฟล์นี้แล้วต่องานได้ทันที
+
+---
+
+## 🧑 เกี่ยวกับเจ้าของ
+
+- **ชื่อ:** gangboo
+- **Email:** gangboo@gmail.com
+- **ภาษา:** ไทย (ตอบภาษาไทย ยกเว้น code/terminology)
+- **สไตล์:** craftsman — ทำให้ถูกต้องครั้งเดียว ไม่ชอบ revise ซ้ำ
+- **บริบท:** เทรดหุ้นอเมริกัน ชอบ design ชอบเรียนของใหม่
+- **ธุรกิจ:** ร้านแอร์/โซลา (บุญสุข) — POS V5 ใช้ production จริง
+
+**สิทธิ์ที่ user ให้ Claude (ตามที่คุยใน session 22-23 เม.ย.):**
+- ✅ แก้ไฟล์ได้ไม่ต้องขอทุกรอบ
+- ✅ Commit ได้เอง
+- ✅ **Push ได้เอง** (user ไม่อยาก manual push ทุกครั้งแล้ว)
+- ❌ ห้าม force push, reset --hard บน remote, skip hooks, รื้อ auth/RLS
+
+---
+
+## 🏗️ โครงสร้างโปรเจกต์
+
+### Tech Stack
+- **Frontend:** Vanilla JS (no framework), HTML5, CSS3, Service Worker, ESM modules
+- **Hosting:** Cloudflare Pages (Git integration กับ GitHub — auto-deploy)
+- **Backend:** Cloudflare Pages Functions (serverless) + Supabase (PostgreSQL + Auth + RLS + Storage)
+- **Realtime:** LINE Messaging API — 2 groups (queue=ออเดอร์ใหม่, done=งานเสร็จ)
+- **SMS OTP:** Twilio + dev fallback แสดง OTP บนจอถ้า Twilio fail
+- **AI:** Cloudflare Workers AI binding `AI` สำหรับ AI Sales chat
+- **Excel:** SheetJS XLSX (CDN — โหลดใน index.html)
+- **QR:** html5-qrcode scanner, JsBarcode printer
+- **Charts:** chart.js
+- **PDF:** jspdf (lazy load)
+
+### URLs
+- **Production:** https://boonsukair.com
+- **Preview:** https://boonsook-pos-v5.pages.dev
+- **GitHub:** https://github.com/boonsook/boonsook-pos-v5
+- **Cloudflare:** Pages project `boonsook-pos`
+
+### Local paths (Windows)
+```
+Main repo:  C:\Users\Lenovo E14 Gen4\Documents\boonsuk v5\boonsook-pos-v5-github
+Worktree:   C:\...\boonsook-pos-v5-github\.claude\worktrees\gifted-fermi-fe5141
+```
+
+---
+
+## 📁 Repo Layout
+
+```
+boonsook-pos-v5-github/
+├── index.html                    # Entry page
+├── main.js                       # ~2200 lines — app shell, xhr helpers, routing
+├── ai-chat-widget.js             # AI chat widget
+├── sw.js                         # Service Worker (cache v12 — ต้อง bump เวอร์ชัน)
+├── style.css, phase4-*.css       # Styles
+├── supabase-config.js            # Supabase URL/anon key (public, in-browser)
+├── manifest.json                 # PWA manifest
+├── offline.html                  # Offline fallback
+├── supabase-rls-policies.sql     # ★ SQL setup script (copy-paste to SQL Editor)
+│
+├── modules/                      # ~38 feature modules (ESM)
+│   ├── main.js                   # (mirror of root main.js)
+│   ├── doc-utils.js              # ★ Shared print CSS + bahtText helper
+│   ├── pos.js                    # POS checkout flow
+│   ├── ai_sales.js               # AI recommender + order form
+│   ├── customer_dashboard.js     # Customer-facing ordering
+│   ├── sales.js / products.js / customers.js
+│   ├── service_jobs.js / service_request.js
+│   ├── staff.js / auth.js
+│   ├── dashboard.js / expenses.js / loyalty.js
+│   ├── quotations.js / delivery_invoices.js / receipts.js   # เอกสาร 3 ตัว
+│   ├── ac_shop.js / ac_install.js / solar.js / btu_calculator.js
+│   ├── line_notify.js / thermal_printer.js / payment_gateway.js
+│   ├── error_codes.js / stock_movements.js
+│   └── settings/                 # Sub-pages ของตั้งค่า
+│       ├── ac-catalog.js         # จัดการแคตตาล็อกแอร์ (Excel import/export)
+│       ├── payment.js / pages.js / store.js / users.js
+│       └── menu.js / index.js / utils.js / permissions.js / settings.js
+│
+├── functions/api/                # Cloudflare Pages Functions
+│   ├── send-otp.js               # POST /api/send-otp (Twilio)
+│   ├── verify-otp.js             # POST /api/verify-otp (HMAC)
+│   ├── line-notify.js            # POST /api/line-notify (LINE push)
+│   └── ai-assistant.js           # POST /api/ai-assistant (Workers AI)
+│
+├── data/                         # Seed data (ac_catalog.json etc.)
+├── icons/                        # PWA icons + logo.svg
+│
+├── .gitattributes                # CRLF/LF rules
+├── .gitignore                    # *.new, *.bak, *.bat, .env, commands.txt, .claude/
+└── HANDOFF.md                    # ไฟล์นี้
+```
+
+**⚠️ ไฟล์ขาด (ถ้าใครถาม):**
+- `OVERNIGHT_REPORT.md`, `OVERNIGHT-NOTES.md` — User ลบไปใน commit `6fc4422` (เคยมี)
+- `commands.txt`, `commit.bat` — Local helper ของ user (อยู่ใน .gitignore)
+
+---
+
+## 🔐 Environment Variables (Cloudflare Pages → Settings)
+
+### Required
+| Variable | Value | Type |
+|----------|-------|------|
+| `LINE_CHANNEL_ACCESS_TOKEN` | (LINE bot token) | **Secret** แนะนำ (เดิมเป็น Plaintext) |
+| `LINE_USER_ID` | (default recipient fallback) | Plaintext |
+| `LINE_GROUP_QUEUE` | (groupId สำหรับออเดอร์ใหม่) | Plaintext |
+| `LINE_GROUP_DONE` | (groupId สำหรับงานเสร็จ) | Plaintext |
+| `OTP_SECRET` | สุ่ม 32+ chars | **Secret** (เข้ารหัส) |
+| `TWILIO_ACCOUNT_SID` | (Twilio SID) | Plaintext |
+| `TWILIO_AUTH_TOKEN` | (Twilio token) | **Secret** แนะนำ |
+| `TWILIO_FROM_NUMBER` | +66... | Plaintext |
+
+### AI binding
+Pages → Settings → Functions → AI bindings:
+- Variable name: `AI`
+- Catalog: Workers AI
+
+### Supabase
+ใส่ใน `supabase-config.js` (public anon key — ไม่ใช่ secret)
+
+---
+
+## 🧠 Architecture Patterns
+
+### 1. xhr helpers — หลักของทุก HTTP call ไป Supabase
+อยู่ใน `modules/main.js` + `main.js` (mirror):
+```js
+window._appXhrPost(table, payload, options)   // INSERT
+window._appXhrPatch(table, payload, column, value)    // UPDATE
+window._appXhrDelete(table, column, value)    // DELETE
+window.App.xhrGet(url)                        // SELECT (raw URL)
+```
+**คืนค่า:** `{ ok: boolean, data?: any, error?: { message: string } }`
+**Never throws** — always resolves. Check `result.ok`
+
+**XHR logging (commits `32e8033`, `a02c7e7`):**
+- Log prefix `[xhrPost]`, `[xhrPatch]`, `[xhrDelete]` + response body 200-300 chars
+- ไม่ warn ถ้า response body ว่าง (กรณี `Prefer: return=minimal`)
+
+### 2. Toast notification
+```js
+window.App?.showToast?.("ข้อความ")    // ใช้ optional chain เสมอ
+```
+**อย่าใช้** `alert()` / `confirm()` / `prompt()` — ใช้ modal asยนค:
+```js
+if (await window.App?.confirm?.("ข้อความยืนยัน?")) { ... }
+```
+
+### 3. LINE notify — 2 groups routing
+```js
+ctx.sendLineNotify(message, { state, showToast }, "queue")   // ออเดอร์ใหม่
+ctx.sendLineNotify(message, { state, showToast }, "done")    // เสร็จ
+ctx.sendLineNotify(message)                                  // default (LINE_USER_ID)
+```
+
+### 4. API response shape
+ทุก `/api/*` endpoint:
+- Success: `{ ok: true, ...data }`
+- Error: `{ ok: false, error: "ข้อความไทย" }` (ไม่ leak `err.message` ฝั่ง client)
+- Server-side: `console.error("[endpoint-name] server error:", err)` → ดูได้ใน Cloudflare Functions Logs
+
+### 5. Supabase RLS
+- RLS เปิดทุกตารางหลัก — ใช้ `supabase-rls-policies.sql` ที่ root repo
+- Policy: `FOR ALL TO authenticated USING (true)` — แม้เปิดกว้างแต่ต้อง auth
+- Staff login ผ่าน Supabase Auth (email/password)
+- Customer login ผ่าน OTP → verify → `authPassword` deterministic (HMAC) → `signInWithPassword`
+
+### 6. `app_settings` table (new — 23 เม.ย.)
+Key-value store สำหรับ setting ที่ sync ข้าม device:
+- `store_info` — ชื่อร้าน, ที่อยู่, เบอร์, TaxID
+- `payment_info` — banks[], promptPay, qrImage
+
+โหลด/บันทึก:
+```js
+await loadAppSettings();      // ดึงจาก Supabase → merge localStorage
+await saveStoreInfo(data);    // localStorage + upsert Supabase
+await savePaymentInfo();      // localStorage + upsert Supabase
+```
+
+### 7. Service Worker update banner (new — commit `548208b`)
+- `sw.js`: ไม่ auto-skipWaiting
+- `index.html`: detect `updatefound` → banner "🔄 มีเวอร์ชันใหม่ — คลิกเพื่อใช้งาน"
+- Click "อัปเดตเลย" → SKIP_WAITING → controllerchange → reload
+- ต้อง bump `CACHE_NAME` ใน sw.js ทุก deploy ที่อยากให้ user เห็น banner
+
+### 8. Document preview pattern (quotations / delivery_invoices / receipts)
+3 module นี้มี pattern เดียวกัน:
+- List view (table layout แบบ FlowAccount): `_viewMode = "list"`
+- Preview view: `_viewMode = "preview", _viewingId = id`
+- Status dropdown → PATCH status
+- Bulk checkbox + bulk cancel/delete bar
+- "อ้างอิง" link cross-navigate (RC → INV → QT)
+- Cross-nav: `window._pendingInvoicePreviewId / _pendingQuotationPreviewId`
+
+### 9. Bulk actions
+- Checkbox per row (`data-xx-sel="${id}"`)
+- Header "select all"
+- `_selectedIds = new Set()`
+- Bulk bar shown conditionally
+- 2 ปุ่ม: "ยกเลิก (เก็บประวัติ)" + "🗑️ ลบถาวร"
+- ลบถาวร: cascade restore parent status
+
+---
+
+## ⚠️ Gotchas (เคยเจอจริง)
+
+### 1. Edit tool truncate ไฟล์ที่มี emoji/Thai chars
+**อาการ:** Claude's Edit tool เคยตัด EOF ของ `ai_sales.js`, `customer_dashboard.js` (หาย 5-10 บรรทัด)
+
+**วิธีแก้:**
+- Small edits: ใช้ Edit tool ปกติ
+- Large edits: เขียน Python patch script ใน `outputs/`
+- ตรวจเสมอหลังแก้:
+  ```bash
+  node --check path/to/file.js
+  tail -5 path/to/file.js
+  ```
+
+### 2. Python f-string backslash ห้าม
+```python
+f"EOL: {'CRLF' if eol == b'\\r\\n' else 'LF'}"   # ❌ SyntaxError
+```
+ใช้แทน:
+```python
+eol_name = "CRLF" if eol == b"\r\n" else "LF"
+print("EOL:", eol_name)
+```
+
+### 3. Bash heredoc mangles `!`
+ใน heredoc `<< 'EOF'` เมื่อเขียน `c != 1` bash อาจแทรก backslash
+→ `c \!= 1` → SyntaxError
+ใช้ `not c == 1` หรือ `if c == 0 or c > 1:` แทน
+
+### 4. CRLF vs LF per file
+- **Root files** (main.js, index.html, ai-chat-widget.js): LF
+- **modules/\*.js:** CRLF (ส่วนใหญ่)
+- **functions/api/\*.js:** CRLF (ยกเว้น ai-assistant.js = LF)
+- **อย่าบังคับเปลี่ยน** — `.gitattributes` จัดการให้แล้ว
+
+### 5. Cloudflare webhook stuck
+บางครั้ง GitHub push แล้ว Cloudflare ไม่ deploy ใน 5-40 นาที
+
+**วิธีแก้:**
+```bash
+git commit --allow-empty -m "chore: trigger cloudflare pages deploy"
+git push origin main
+```
+
+**อย่า** คลิก "Save and deploy" ใน Cloudflare upload mode — จะ disconnect Git integration
+
+### 6. Windows bash cd ไม่ข้าม worktree
+```bash
+cd "C:/path/to/repo" && command...  # อาจไม่ทำงานจาก worktree
+```
+ใช้:
+```bash
+cd "/c/Users/.../boonsook-pos-v5-github" && command...
+```
+หรือแก้ใน worktree แล้ว merge ที่ main repo
+
+### 7. Supabase REST DELETE with `return=minimal` returns 204 even if RLS blocked
+**ต้องใช้** `Prefer: return=representation` + check `deleted.length > 0`
+ดูตัวอย่างใน `modules/receipts.js` `rcDeleteBtn` handler
+
+### 8. Button stuck pattern
+ทุก async handler ที่ disable button ต้องมี `finally` block reset:
+```js
+try { ... } catch(e) { ... } finally {
+  if (btn.isConnected) { btn.disabled = false; btn.textContent = origText; }
+}
+```
+
+### 9. Double-click race condition
+ปุ่ม save/submit ต้องมี guard:
+```js
+if (btn.disabled) return; // กัน double-click
+btn.disabled = true;
+```
+
+---
+
+## 📊 Supabase Schema (ตารางหลัก)
+
+ตารางที่ code เรียกถึง (จาก xhrPost/xhrPatch):
+- `products`, `warehouse_stock`
+- `customers`, `staff`, `staff_permissions`, `profiles`
+- `sales`, `sale_items`
+- `quotations`, `quotation_items`
+- `delivery_invoices`, `delivery_invoice_items`
+- `receipts`, `receipt_items`
+- `service_jobs` (ทุกประเภทงาน — job_type: pos, ac, solar, ai_sales, other)
+- `expenses`, `stock_movements`, `loyalty_points`
+- `line_notify_settings`
+- `app_settings` (new — key/value/updated_at)
+- `warehouses`
+
+**RLS ทุกตาราง:** run `supabase-rls-policies.sql` ที่ SQL Editor
+
+---
+
+## 📝 ประวัติการแก้ใน session นี้ (22-23 เม.ย. 2026)
+
+### Critical / Security
+- `52e0ac2` — fix(security): remove OTP_SECRET hardcoded fallback (CRITICAL)
+- `b4f5b68` — fix(docs): verify DELETE returns rows (กัน RLS silent fail)
+- `dafb4bc` — XSS escape + confirm() migration + silent catch logging + console.log cleanup
+- `52e2cbc` — ป้องกัน double-click (service_request, ac_install, solar, expenses)
+- `5139d31` — stuck-button fix (staff, products)
+- `17f74dd` — customer checkout validation + finally
+- `aff48d8` — sales/service_jobs/receipts delete stuck + safety timeout
+- `d5971e8` — POS checkout stuck fix
+- `b258d82` — ป้องกันสร้างเอกสารซ้อน (qt→inv, inv→rc)
+
+### UX — FlowAccount-style redesign
+- `2ecf56b` — list → table layout (ใบเสร็จ/ใบส่งสินค้า/ใบเสนอราคา)
+- `7688468` — ต้นฉบับ/สำเนา pill badge + ระบุผู้ใช้
+- `a5f2ff1` — จำนวนเงินเป็นสีดำ (ไม่ใช่สีธีม)
+- `81afc13` — เอาคอลัมน์ # ออก + baht text + signature compact
+- `5922944` — เอา page badge (1/2) มุมขวาบนออก
+- `9d0291c` — tabs + status dropdown + bulk select + วันครบกำหนด
+- `44efd65` — "อ้างอิง: INV/QT" คลิกเปิดเอกสารต้นทาง
+- `07e688d` — bulk "ลบถาวร" hard delete + cascade
+- `69fbe2c` — คลิกเลขที่เอกสารเปิด preview ได้เลย
+
+### Features ใหม่
+- `b32d86c` — แก้วันที่เอกสารใน preview + cascading lock
+- `64b0da4` — receipt: payment method picker → ✓ ในช่อง checkbox
+- `548208b` — SW update banner + empty states
+- `9c4a625` — AI chat เพิ่มหมวด "🆕 แอร์ใหม่พร้อมติดตั้ง"
+- `9e92511` — product category autocomplete (datalist)
+- `090d85a` — product category chip filter
+- `c1443f9` — product save validation + auto-gen SKU
+- `998825e` — barcode print 50×30mm label printer
+- `046003c` — ค่าไฟคำนวณถูกต้อง (inverter EER + duty cycle)
+- `2bc0fd4` — ac-catalog: Excel import/export + bulk stock 5
+- `f991030` — savePaymentInfo + loadAppSettings sync Supabase
+
+### Infrastructure
+- `6973165` — supabase-rls-policies.sql (SQL script)
+- `75791d1` — silence false-positive warnings
+- `a02c7e7` — xhr ไม่ warn ถ้า body ว่าง
+- `64c4a1e` — ignore .claude/ worktrees
+- `410e000` — copy label pill
+- `6cc9377` — amount color black
+
+---
+
+## 🛣️ TODO — งานที่เหลือ (พิจารณาก่อนทำ)
+
+### ยังไม่ได้แก้ (เสี่ยง — ต้องวางแผน)
+
+#### Server-side security (functions/api/*)
+- 🔴 **Rate limiting** — OTP/LINE API spam ได้ (costs escalation risk)
+- 🟡 **CORS กว้างเกิน** (`Allow-Origin: *`) — CSRF risk
+- 🟡 **/api/ai-assistant ไม่มี auth** — ใครก็เรียก Workers AI ได้
+
+#### Accessibility (scope ใหญ่)
+- `<div onclick>` → `<button>`
+- Focus outline
+- Alt text บนรูป
+- ARIA labels
+
+#### Performance
+- Pagination สำหรับ list > 500 items
+- Dashboard RPC — ย้าย aggregation ไป Supabase server-side
+- Lazy load modules
+
+#### Minor
+- Input length limits (description, address) — กัน DB truncate
+- Offline queue + retry สำหรับ checkout / LINE notify
+
+### Cleanup ที่ทำไปแล้วครบ
+- ✅ XSS (16 จุด)
+- ✅ confirm() migration (30 จุด → 0)
+- ✅ Silent catch critical logging (10 จุด)
+- ✅ Production console.log (6 จุด)
+
+---
+
+## 🧪 Test Accounts
+
+### Staff (Admin)
+- ถาม gangboo — ใช้ Supabase Auth dashboard
+
+### Customer (OTP)
+- ใช้เบอร์จริง → Twilio ส่ง SMS
+- **Dev fallback:** ถ้า Twilio trial limit → endpoint return `devCode` ใน response → แสดงในจอ + console
+
+---
+
+## 🧭 Cheat Sheet
+
+### Deploy flow
+```bash
+# Claude session ทำใน worktree
+cd "/c/Users/Lenovo E14 Gen4/Documents/boonsuk v5/boonsook-pos-v5-github/.claude/worktrees/gifted-fermi-fe5141"
+# edit → commit
+git add <files>
+git commit -m "feat/fix(module): ..."
+
+# Merge ไปที่ main repo + push
+cd "/c/Users/Lenovo E14 Gen4/Documents/boonsuk v5/boonsook-pos-v5-github"
+git merge claude/gifted-fermi-fe5141 --no-edit
+git push origin main
+
+# Cloudflare auto-deploy 1-2 นาที
+```
+
+### Trigger Cloudflare stuck webhook
+```bash
+git commit --allow-empty -m "chore: trigger cloudflare pages deploy"
+git push origin main
+```
+
+### Syntax check ไฟล์
+```bash
+node --check modules/pos.js
+```
+
+### Hard refresh (clear SW cache)
+Ctrl + Shift + R ใน browser
+
+### ดู Cloudflare Functions Logs
+Dashboard → Pages → boonsook-pos → Functions → Realtime Logs
+
+### Supabase SQL Editor
+Dashboard → SQL Editor → paste `supabase-rls-policies.sql` → Run
+
+### Rollback commit ล่าสุด (ยังไม่ push)
+```bash
+git reset --hard HEAD~1
+```
+
+---
+
+## 📋 หน้าทั้งหมดในแอป
+
+### Staff side (dashboard route — auth required)
+- `dashboard` — สรุปยอดขาย, กราฟ, KPIs
+- `pos` — ขายหน้าร้าน (checkout, QR, attach slip)
+- `products` — สินค้า (CRUD + barcode print + category chip filter)
+- `sales` — ประวัติการขาย
+- `customers` — ลูกค้า + loyalty
+- `service_jobs` — งานซ่อม/ติดตั้ง/ออเดอร์ใหม่
+- `service_request` — ฟอร์มรับแจ้ง
+- `ai_sales` — AI ช่วยแนะนำสินค้า + รับออเดอร์
+- `ac_shop`, `ac_install`, `solar`, `btu_calculator` — เฉพาะธุรกิจ
+- `quotations`, `delivery_invoices`, `receipts` — เอกสาร 3 ตัว
+- `expenses`, `profit_report` — การเงิน
+- `calendar`, `stock_movements`, `loyalty` — อื่นๆ
+- `staff`, `settings`, `line_notify`, `payment_gateway`, `permission_matrix` — ตั้งค่า
+- `error_codes` — คู่มือรหัสข้อผิดพลาดแอร์
+
+### Customer side
+- `customer_dashboard` — OTP login → browse → cart → checkout
+- `ai-chat-widget` — Chat bot overlay (3 หมวด: งานแอร์/โซลา/แอร์ใหม่)
+
+---
+
+## 🎯 บริบทล่าสุด (23 เม.ย.)
+
+**สิ่งที่เพิ่งทำ:**
+1. Sync paymentInfo ข้าม device (+ Supabase app_settings table)
+2. AC catalog รองรับ Excel (.xlsx) + ตั้งสต็อก 5 ทุกรุ่น
+3. ค่าไฟ AC คำนวณถูกต้อง (เดิม 2,631 → ตอนนี้ ~487 บาท/เดือน สำหรับ 9000 BTU)
+4. Barcode print 50×30mm label printer
+
+**รอ user ทดสอบ:**
+- Cross-device sync บัญชีธนาคาร
+- หน้าผู้ใช้ (profiles) หลังรัน SQL ใหม่
+- AC catalog Excel workflow
+
+**ถ้า user เจอปัญหา:**
+- ขอ screenshot + console log (F12)
+- มองหา log prefix `[xhrPost]`, `[xhrPatch]`, `[xhrDelete]`, `[savePaymentInfo]`, `[loadAppSettings]`
+
+---
+
+## 📞 Next session checklist
+
+เมื่อ Claude session ใหม่เริ่ม:
+1. **อ่าน HANDOFF.md นี้ก่อน** (คุณกำลังอ่านอยู่)
+2. `git log --oneline -20` — ดู commits ล่าสุด
+3. `git status` — ดู unstaged/uncommitted
+4. ตรวจว่า worktree branch sync กับ main มั้ย
+5. ถาม user ว่าอยากทำอะไรต่อ อย่าเดา
+
+### Do's
+- ใช้ Python script ใน `outputs/` สำหรับ patch ไฟล์ใหญ่ (เลี่ยง Edit tool truncate)
+- `node --check` ทุกครั้งหลังแก้ JS
+- Preserve CRLF/LF ของไฟล์เดิม
+- Commit message conventional: `fix(module)`, `feat(module)`, `refactor(ux)`, `style(docs)`, `chore`
+- **Push ได้เองแล้ว** (user อนุญาตแล้วใน session นี้)
+- Safety net ในทุก async handler: `try { ... } catch { ... } finally { if (btn.isConnected) reset }`
+
+### Don'ts
+- ❌ `alert()`, `confirm()`, `prompt()` — ใช้ showToast, App.confirm
+- ❌ Leak `err.message` ฝั่ง client ที่ API endpoints
+- ❌ Bulk rewrite ไฟล์ใหญ่ด้วย Write tool — ใช้ Edit/Python
+- ❌ Create `.bak`, `.new`, `.old` files — ใช้ git history
+- ❌ Force push, reset --hard remote, skip hooks
+- ❌ คลิก "Save and deploy" ใน Cloudflare upload mode
+- ❌ `innerHTML = user_input` — escape ด้วย escHtml/escapeHtml
+
+---
+
+## 🗂️ รายงานอื่นๆ
+
+- **`supabase-rls-policies.sql`** (root) — script SQL setup RLS + create app_settings
+- **`.claude/plans/`** — Plan files ของ Claude (ถ้ามี)
+- **User's local** — `commands.txt`, `commit.bat` (ignored — ไม่อยู่ใน git)
+
+---
+
+**ขอบคุณที่อ่านถึงตรงนี้ — ช่วย gangboo ดูแลแอปต่อเลยครับ** 🙏
+
+_อัปเดต: Claude (Opus 4.7) — session 22-23 เม.ย. 2026_
+_Total commits this session: 30+_
