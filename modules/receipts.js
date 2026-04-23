@@ -419,7 +419,6 @@ function renderReceiptPreview(container) {
       ${[1,2].map(pageNum => `
       <div class="doc-page">
         <div class="doc-accent re"></div>
-        <div class="doc-page-badge re">${pageNum}</div>
         <div class="doc-page-inner">
           <div class="doc-header">
             <div class="doc-header-left">
