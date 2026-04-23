@@ -62,6 +62,16 @@ CREATE POLICY "auth_all_profiles"
   USING (true)
   WITH CHECK (true);
 
+-- ★ VIEW profiles_with_email — รวม email จาก auth.users เพื่อให้ UI แสดง email ได้
+--    (auth.users เข้าถึงตรงจาก anon/authenticated ไม่ได้ — ต้องผ่าน view + GRANT)
+CREATE OR REPLACE VIEW public.profiles_with_email
+WITH (security_invoker = on)  -- ใช้สิทธิ์ของผู้เรียก (ไม่ข้าม RLS ของ profiles)
+AS
+SELECT p.id, p.full_name, p.role, p.phone, p.created_at, u.email
+FROM public.profiles p
+LEFT JOIN auth.users u ON u.id = p.id;
+GRANT SELECT ON public.profiles_with_email TO authenticated;
+
 -- ───────── sales ─────────
 DROP POLICY IF EXISTS "auth_all_sales"         ON public.sales;
 CREATE POLICY "auth_all_sales"

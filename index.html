@@ -416,27 +416,25 @@
       <h2>เพิ่มผู้ใช้ใหม่</h2>
       <button class="btn light" data-close-drawer aria-label="ปิด">ปิด</button>
     </div>
-    <div class="card mt16 sku">การเพิ่มผู้ใช้จะสร้างบัญชีผ่าน Supabase Auth โดยอัตโนมัติ</div>
+    <div class="card mt16 sku" style="background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af">
+      ✉️ ระบบจะส่งอีเมลเชิญไปที่อีเมลของผู้ใช้ — ผู้ใช้คลิกลิงก์เพื่อตั้งรหัสผ่านเอง
+    </div>
     <div class="stack mt16">
       <label for="newUserEmail" class="sr-only">อีเมล</label>
-      <input class="form-input" id="newUserEmail" type="email" placeholder="อีเมล" aria-label="อีเมลผู้ใช้ใหม่" autocomplete="email" />
-      <div class="password-wrap">
-        <label for="newUserPassword" class="sr-only">รหัสผ่าน</label>
-        <input class="form-input" id="newUserPassword" type="password" placeholder="รหัสผ่าน (อย่างน้อย 6 ตัว)" minlength="6" aria-label="รหัสผ่านผู้ใช้ใหม่" autocomplete="new-password" />
-        <button type="button" id="toggleNewUserPassword" class="password-toggle" aria-label="แสดง/ซ่อนรหัสผ่าน" title="แสดง/ซ่อนรหัสผ่าน">👁️</button>
-      </div>
+      <input class="form-input" id="newUserEmail" type="email" placeholder="อีเมลของผู้ใช้ที่จะเชิญ" aria-label="อีเมลผู้ใช้ใหม่" autocomplete="email" />
       <label for="newUserName" class="sr-only">ชื่อ-นามสกุล</label>
       <input class="form-input" id="newUserName" type="text" placeholder="ชื่อ-นามสกุล" aria-label="ชื่อ-นามสกุล" autocomplete="name" />
       <label for="newUserRole" class="sr-only">บทบาท</label>
       <select id="newUserRole" aria-label="บทบาทผู้ใช้">
         <option value="sales">พนักงานขาย</option>
         <option value="technician">ช่าง</option>
-        <option value="customer">ลูกค้า</option>
         <option value="admin">ผู้ดูแลระบบ (Admin)</option>
       </select>
+      <!-- hidden password field — auto-generated, not shown to user -->
+      <input type="hidden" id="newUserPassword" />
     </div>
     <div class="row mt16">
-      <button id="addNewUserBtn" class="btn btn-primary">สร้างผู้ใช้</button>
+      <button id="addNewUserBtn" class="btn btn-primary">✉️ ส่งคำเชิญทางอีเมล</button>
     </div>
   </aside>
 
