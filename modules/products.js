@@ -52,6 +52,7 @@ const SORT_OPTIONS = [
 
 let currentTypeFilter = "all"; // all | service | non_stock | stock
 let currentFilter = "all";
+let currentCategory = "all"; // ★ "all" or category name
 let searchQuery = "";
 let currentPage = 1;
 let currentSort = "name_asc";
@@ -96,6 +97,7 @@ export function renderProductsPage({ state, addToCart, openProductDrawer, wareho
   currentPage = 1;
   searchQuery = "";
   currentFilter = "all";
+  currentCategory = "all";
   currentSort = "name_asc";
 
   // ถ้ามี warehouseFilter → หาตัว warehouse id จากชื่อ
@@ -150,6 +152,11 @@ function renderView(ctx) {
   // ─── Filter by product type (บริการ / ไม่นับสต็อก / นับสต็อก) ───
   if (currentTypeFilter !== "all") {
     filtered = filtered.filter(p => detectProductType(p) === currentTypeFilter);
+  }
+
+  // ─── Filter by category ───
+  if (currentCategory !== "all") {
+    filtered = filtered.filter(p => String(p.category || "") === currentCategory);
   }
 
   // ★ Filter ใช้ stock ตามคลังที่เลือก
@@ -305,6 +312,32 @@ function renderView(ctx) {
         </div>
       </div>
 
+      <!-- ★ Category filter — chip bar (scrollable) -->
+      ${(() => {
+        // นับจำนวนสินค้าต่อหมวด (จาก baseProducts — หลัง type filter แต่ก่อน category filter)
+        const catMap = new Map();
+        const base = currentTypeFilter === "all" ? baseProducts : baseProducts.filter(p => detectProductType(p) === currentTypeFilter);
+        base.forEach(p => {
+          const c = String(p.category || "").trim();
+          if (!c) return;
+          catMap.set(c, (catMap.get(c) || 0) + 1);
+        });
+        const catList = [...catMap.entries()].sort((a,b) => a[0].localeCompare(b[0], "th"));
+        if (catList.length === 0) return '';
+        return `
+        <div class="prod-category-bar" style="display:flex;gap:6px;margin-top:12px;overflow-x:auto;padding-bottom:6px;scrollbar-width:thin">
+          <button class="prod-cat-chip" data-pcat="all" style="padding:6px 14px;border-radius:20px;border:1px solid ${currentCategory==='all'?'#0284c7':'#e2e8f0'};background:${currentCategory==='all'?'#0284c7':'#fff'};color:${currentCategory==='all'?'#fff':'#475569'};font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
+            ทั้งหมด <span style="opacity:.7">(${base.length})</span>
+          </button>
+          ${catList.map(([cat, n]) => `
+            <button class="prod-cat-chip" data-pcat="${escHtml(cat)}" style="padding:6px 14px;border-radius:20px;border:1px solid ${currentCategory===cat?'#0284c7':'#e2e8f0'};background:${currentCategory===cat?'#0284c7':'#fff'};color:${currentCategory===cat?'#fff':'#475569'};font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
+              ${escHtml(cat)} <span style="opacity:.7">(${n})</span>
+            </button>
+          `).join('')}
+        </div>
+        `;
+      })()}
+
       <!-- Product List / Grid -->
       <div class="${viewMode === 'grid' ? 'prod-grid' : 'prod-list'} mt16">
         ${pageItems.length ? pageItems.map(p => renderProductItem(p, viewMode, state)).join("") : `
@@ -351,6 +384,14 @@ function renderView(ctx) {
   el.querySelectorAll("[data-ptype]").forEach(btn => btn.addEventListener("click", () => {
     currentTypeFilter = btn.dataset.ptype;
     currentFilter = "all"; // reset stock filter
+    currentCategory = "all"; // reset category filter
+    currentPage = 1;
+    renderView(ctx);
+  }));
+
+  // ★ Category chips
+  el.querySelectorAll("[data-pcat]").forEach(btn => btn.addEventListener("click", () => {
+    currentCategory = btn.dataset.pcat;
     currentPage = 1;
     renderView(ctx);
   }));
