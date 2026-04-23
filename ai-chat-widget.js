@@ -49,6 +49,13 @@
         "งานโซล่าเซลล์อื่นๆ",
       ],
     },
+    {
+      // ★ redirect: คลิกแล้วไปหน้าอื่น แทนการแสดง sub-menu
+      key: "new_ac",
+      label: "🆕 แอร์ใหม่พร้อมติดตั้ง",
+      redirect: "ai_sales",
+      redirectMsg: "กำลังพาไปหน้า AI ช่วยขายแอร์ให้ครับ...",
+    },
     // ★ เพิ่มหมวดใหม่ตรงนี้ได้เลย เช่น
     // { key: "network", label: "🌐 งานเน็ตเวิร์ก/LAN", subs: [...] },
     // { key: "plumbing", label: "🚰 งานประปา",        subs: [...] },
@@ -361,6 +368,26 @@
         btn.classList.add("selected");
         // บันทึกเป็นข้อความ user (ให้ history รู้ว่าเลือกหมวดนี้)
         pushMsg("user", cat.label);
+
+        // ★ ถ้ามี redirect → ปิด chat แล้วพาไปหน้าที่กำหนด
+        if (cat.redirect) {
+          pushMsg("ai", cat.redirectMsg || `กำลังพาไปหน้า ${cat.label} ให้ครับ...`);
+          setTimeout(() => {
+            // ปิด chat widget
+            const backdrop = document.getElementById("bs-ai-backdrop");
+            const modal = document.getElementById("bs-ai-modal");
+            if (backdrop) backdrop.classList.remove("open");
+            if (modal) modal.classList.remove("open");
+            state.open = false;
+            // พาไปหน้าเป้าหมาย — ลอง nav button ก่อน, fallback เป็น showRoute
+            const navBtn = document.querySelector(`[data-route="${cat.redirect}"]`);
+            if (navBtn) navBtn.click();
+            else if (window.App?.showRoute) window.App.showRoute(cat.redirect);
+            else console.warn("[chat-widget] ไม่พบ route:", cat.redirect);
+          }, 600);
+          return;
+        }
+
         // ตอบเป็น AI message แล้ว push chip หัวข้อย่อย (ไม่ส่งไป server รอบนี้)
         pushMsg("ai", `รับเรื่อง ${cat.label} ครับ — ต้องการบริการแบบไหนครับ?`);
         pushChips(cat.subs);
