@@ -183,7 +183,7 @@ export function renderDeliveryInvoicesPage(ctx) {
                 <td class="sku">${dateTH(inv.created_at)}</td>
                 <td>
                   <span class="status-dot" style="background:${statusColor}"></span>
-                  <span class="doc-no">${escHtml(inv.inv_no || "-")}</span>
+                  <a href="#" class="di-view-btn doc-no" data-di-id="${inv.id}" style="color:#1e293b;text-decoration:none;font-weight:700;cursor:pointer" title="คลิกดูเอกสาร">${escHtml(inv.inv_no || "-")}</a>
                   <button class="pdf-icon-btn di-view-btn" data-di-id="${inv.id}" title="ดูเอกสาร">📄</button>
                   ${inv.ref_no || inv.quotation_id ? `<div class="sku" style="margin-left:16px;margin-top:2px">อ้างอิง: <a href="#" class="di-ref-link" data-di-ref-qt="${inv.quotation_id || ''}" data-di-ref-no="${escHtml(inv.ref_no || '')}" style="color:#f59e0b;text-decoration:none;font-weight:600">${escHtml(inv.ref_no || 'QT')} ↗</a></div>` : ''}
                 </td>
@@ -311,7 +311,8 @@ export function renderDeliveryInvoicesPage(ctx) {
   });
 
   // ── View (📄) ──
-  container.querySelectorAll(".di-view-btn").forEach(btn => btn.addEventListener("click", async () => {
+  container.querySelectorAll(".di-view-btn").forEach(btn => btn.addEventListener("click", async (e) => {
+    e.preventDefault();
     const inv = (ctx.state.deliveryInvoices || []).find(x => x.id === Number(btn.dataset.diId));
     if (inv) {
       _viewingId = inv.id;
