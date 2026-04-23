@@ -193,7 +193,7 @@ export function renderQuotationsPage(ctx) {
                 <td class="sku">${dateTH(q.created_at)}</td>
                 <td>
                   <span class="status-dot" style="background:${statusColor}"></span>
-                  <span class="doc-no">${escHtml(docNo)}</span>
+                  <a href="#" class="qt-view-btn doc-no" data-qt-view="${q.id}" style="color:#1e293b;text-decoration:none;font-weight:700;cursor:pointer" title="คลิกดูเอกสาร">${escHtml(docNo)}</a>
                   <button class="pdf-icon-btn qt-view-btn" data-qt-view="${q.id}" title="ดูเอกสาร">📄</button>
                 </td>
                 <td>${escHtml(customerName)}</td>
@@ -306,8 +306,9 @@ export function renderQuotationsPage(ctx) {
     renderQuotationsPage(_ctx);
   });
 
-  // ── View (📄 + ดู button) ──
-  container.querySelectorAll(".qt-view-btn").forEach(btn => btn.addEventListener("click", () => {
+  // ── View (📄 + doc-no link + ดู button) ──
+  container.querySelectorAll(".qt-view-btn").forEach(btn => btn.addEventListener("click", (e) => {
+    e.preventDefault();
     const q = _ctx.state.quotations.find(x => x.id === Number(btn.dataset.qtView));
     if (q) openPreview(q);
   }));

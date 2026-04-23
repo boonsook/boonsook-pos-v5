@@ -169,7 +169,7 @@ export function renderReceiptsPage(ctx) {
                 <td class="sku">${dateTH(r.created_at)}</td>
                 <td>
                   <span class="status-dot" style="background:${statusColor}"></span>
-                  <span class="doc-no">${escHtml(r.receipt_no || "-")}</span>
+                  <a href="#" class="rc-view-btn doc-no" data-rc-id="${r.id}" style="color:#1e293b;text-decoration:none;font-weight:700;cursor:pointer" title="คลิกดูเอกสาร">${escHtml(r.receipt_no || "-")}</a>
                   <button class="pdf-icon-btn rc-view-btn" data-rc-id="${r.id}" title="ดูเอกสาร">📄</button>
                   ${r.ref_no || r.delivery_invoice_id ? `<div class="sku" style="margin-left:16px;margin-top:2px">อ้างอิง: <a href="#" class="rc-ref-link" data-rc-ref-inv="${r.delivery_invoice_id || ''}" data-rc-ref-no="${escHtml(r.ref_no || '')}" style="color:#0284c7;text-decoration:none;font-weight:600">${escHtml(r.ref_no || 'INV')} ↗</a></div>` : ''}
                 </td>
@@ -300,7 +300,8 @@ export function renderReceiptsPage(ctx) {
   });
 
   // ── View document (📄 icon) ──
-  container.querySelectorAll(".rc-view-btn").forEach(btn => btn.addEventListener("click", async () => {
+  container.querySelectorAll(".rc-view-btn").forEach(btn => btn.addEventListener("click", async (e) => {
+    e.preventDefault();
     const r = (ctx.state.receipts || []).find(x => x.id === Number(btn.dataset.rcId));
     if (r) {
       _viewingId = r.id;
