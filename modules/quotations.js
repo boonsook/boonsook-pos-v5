@@ -50,6 +50,8 @@ let _ctx = null;
 let _lineItems = [];
 let _editingId = null;
 let _viewMode = "list";    // list | form | preview
+let _tabFilter = "all";    // all | pending | approved | invoiced | receipted | cancelled
+let _selectedIds = new Set();
 
 // ═══════════════════════════════════════════════════════════
 //  RENDER — List Page
@@ -65,6 +67,19 @@ export function renderQuotationsPage(ctx) {
   _viewMode = "list";
   const quotations = ctx.state.quotations || [];
 
+  const countAll = quotations.length;
+  const countPending = quotations.filter(q => q.status === "pending").length;
+  const countApproved = quotations.filter(q => q.status === "approved").length;
+  const countInvoiced = quotations.filter(q => q.status === "invoiced" || q.status === "receipted").length;
+  const countCancelled = quotations.filter(q => q.status === "cancelled" || q.status === "rejected").length;
+  const filtered = quotations.filter(q => {
+    if (_tabFilter === "all") return true;
+    if (_tabFilter === "invoiced") return q.status === "invoiced" || q.status === "receipted";
+    if (_tabFilter === "cancelled") return q.status === "cancelled" || q.status === "rejected";
+    return q.status === _tabFilter;
+  });
+  _selectedIds = new Set([..._selectedIds].filter(id => filtered.some(q => q.id === id)));
+
   container.innerHTML = `
     <div class="panel">
       <div class="row">
@@ -75,17 +90,38 @@ export function renderQuotationsPage(ctx) {
       <div class="stats-grid mt16" style="grid-template-columns:repeat(3,1fr)">
         <div class="stat-card">
           <div class="stat-label">ทั้งหมด</div>
-          <div class="stat-value">${quotations.length}</div>
+          <div class="stat-value">${countAll}</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">รออนุมัติ</div>
-          <div class="stat-value" style="color:#f59e0b">${quotations.filter(q=>q.status==="pending").length}</div>
+          <div class="stat-value" style="color:#f59e0b">${countPending}</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">อนุมัติแล้ว</div>
-          <div class="stat-value" style="color:#10b981">${quotations.filter(q=>q.status==="approved").length}</div>
+          <div class="stat-value" style="color:#10b981">${countApproved}</div>
         </div>
       </div>
+
+      <div class="qt-tabs" style="display:flex;gap:6px;margin-top:16px;border-bottom:2px solid #e2e8f0;overflow-x:auto">
+        ${[
+          ['all', 'แสดงทั้งหมด', countAll, '#64748b'],
+          ['pending', 'รออนุมัติ', countPending, '#f59e0b'],
+          ['approved', 'อนุมัติแล้ว', countApproved, '#10b981'],
+          ['invoiced', 'ออกใบส่ง/ใบเสร็จแล้ว', countInvoiced, '#0284c7'],
+          ['cancelled', 'ยกเลิก', countCancelled, '#ef4444']
+        ].map(([k,label,n,color]) => {
+          const active = _tabFilter === k;
+          return `<button class="qt-tab-btn" data-qt-tab="${k}" style="padding:8px 14px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap;color:${active?color:'#64748b'};border-bottom:${active?`2px solid ${color}`:'2px solid transparent'};margin-bottom:-2px">${label} <span style="color:#94a3b8;font-weight:400">(${n})</span></button>`;
+        }).join('')}
+      </div>
+
+      ${_selectedIds.size > 0 ? `
+      <div class="bulk-bar" style="display:flex;align-items:center;gap:12px;padding:10px 14px;margin-top:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px">
+        <span style="font-weight:700;color:#1e40af">เลือก ${_selectedIds.size} รายการ</span>
+        <button id="qtBulkCancel" style="padding:6px 14px;background:#ef4444;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">ยกเลิก/ลบที่เลือก</button>
+        <button id="qtBulkClear" style="padding:6px 14px;background:#f1f5f9;color:#475569;border:none;border-radius:6px;cursor:pointer;font-size:12px">ล้างการเลือก</button>
+      </div>
+      ` : ''}
 
       <style>
         .doc-list-table{width:100%;border-collapse:collapse;font-size:13px;background:#fff;margin-top:12px}
@@ -102,30 +138,33 @@ export function renderQuotationsPage(ctx) {
         .doc-list-table .row-actions button{font-size:11px;padding:5px 10px;border-radius:6px;border:none;cursor:pointer;font-weight:600;white-space:nowrap}
       </style>
 
-      <div style="overflow-x:auto;margin-top:16px">
+      <div style="overflow-x:auto;margin-top:12px">
       <table class="doc-list-table">
         <thead>
           <tr>
+            <th style="width:36px"><input type="checkbox" id="qtSelectAll" ${filtered.length > 0 && filtered.every(q => _selectedIds.has(q.id)) ? 'checked' : ''} style="cursor:pointer"></th>
             <th style="width:110px">วันที่</th>
             <th>เลขที่เอกสาร</th>
             <th>ชื่อลูกค้า/ชื่อโปรเจ็ค</th>
             <th class="right" style="width:130px">ยอดรวมสุทธิ</th>
-            <th style="width:130px">สถานะ</th>
-            <th style="width:260px"></th>
+            <th style="width:170px">สถานะ</th>
+            <th style="width:80px"></th>
           </tr>
         </thead>
         <tbody>
-          ${quotations.length ? quotations.map(q => {
+          ${filtered.length ? filtered.map(q => {
             const customerName = q.customer_name || q.customer || "-";
             const amount       = q.grand_total || q.total_amount || q.amount || 0;
             const docNo        = q.qt_no || q.title || "-";
             const status       = q.status || "pending";
             const statusLabel  = STATUS_LABELS[status] || status;
             const statusColor  = STATUS_COLOR[status]  || "#9ca3af";
-            const canConvert   = !['invoiced','cancelled','receipted'].includes(status);
+            const canConvert   = !['invoiced','cancelled','receipted','rejected'].includes(status);
+            const canApprove   = status === "pending";
             const canDelete    = !['invoiced','receipted'].includes(status);
             return `
               <tr>
+                <td><input type="checkbox" class="qt-row-check" data-qt-sel="${q.id}" ${_selectedIds.has(q.id) ? 'checked' : ''} style="cursor:pointer"></td>
                 <td class="sku">${dateTH(q.created_at)}</td>
                 <td>
                   <span class="status-dot" style="background:${statusColor}"></span>
@@ -135,19 +174,20 @@ export function renderQuotationsPage(ctx) {
                 <td>${escHtml(customerName)}</td>
                 <td class="right" style="font-weight:700">${money(amount)}</td>
                 <td>
-                  <span class="status-badge" style="background:${statusColor}18;color:${statusColor}">${statusLabel}</span>
+                  <select class="qt-status-select" data-qt-id="${q.id}" style="width:100%;padding:5px 8px;border:1px solid ${statusColor}40;border-radius:6px;font-size:12px;font-weight:600;color:${statusColor};background:${statusColor}10;cursor:pointer">
+                    <option value="" selected>${statusLabel}</option>
+                    ${canApprove ? `<option value="approved" style="color:#10b981">✓ อนุมัติ</option>` : ''}
+                    ${canConvert ? `<option value="convert" style="color:#0284c7">📦 สร้างใบส่งสินค้า</option>` : ''}
+                    <option value="edit" style="color:#475569">✏️ แก้ไข</option>
+                    ${canDelete ? `<option value="delete" style="color:#ef4444">🗑️ ลบ</option>` : ''}
+                  </select>
                 </td>
-                <td>
-                  <div class="row-actions">
-                    <button class="qt-edit-btn" data-qt-edit="${q.id}" style="background:#f1f5f9;color:#475569">แก้ไข</button>
-                    ${canConvert ? `<button class="qt-convert-btn" data-qt-convert="${q.id}" style="background:#10b981;color:#fff">สร้างใบส่ง</button>` : ''}
-                    <button class="qt-view-btn" data-qt-view="${q.id}" style="background:#f1f5f9;color:#475569">ดู</button>
-                    ${canDelete ? `<button class="qt-delete-btn" data-qt-delete="${q.id}" style="background:#fee2e2;color:#dc2626;border:1px solid #fca5a5">ลบ</button>` : ''}
-                  </div>
+                <td class="right">
+                  <button class="qt-view-btn" data-qt-view="${q.id}" style="font-size:11px;padding:5px 10px;border-radius:6px;border:none;cursor:pointer;font-weight:600;background:#f1f5f9;color:#475569">ดู</button>
                 </td>
               </tr>
             `;
-          }).join("") : '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:40px 20px">ยังไม่มีใบเสนอราคา</td></tr>'}
+          }).join("") : '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:40px 20px">ไม่มีใบเสนอราคาในหมวดนี้</td></tr>'}
         </tbody>
       </table>
       </div>
@@ -162,24 +202,90 @@ export function renderQuotationsPage(ctx) {
     renderQuotationsPage(_ctx);
   });
 
-  container.querySelectorAll(".qt-edit-btn").forEach(btn => btn.addEventListener("click", () => {
-    const q = _ctx.state.quotations.find(x => x.id === Number(btn.dataset.qtEdit));
-    if (q) openEditForm(q);
+  // ── Tabs ──
+  container.querySelectorAll(".qt-tab-btn").forEach(btn => btn.addEventListener("click", () => {
+    _tabFilter = btn.dataset.qtTab;
+    renderQuotationsPage(_ctx);
   }));
 
+  // ── Select all ──
+  document.getElementById("qtSelectAll")?.addEventListener("change", (e) => {
+    const check = e.target.checked;
+    container.querySelectorAll(".qt-row-check").forEach(cb => {
+      const id = Number(cb.dataset.qtSel);
+      if (check) _selectedIds.add(id);
+      else _selectedIds.delete(id);
+      cb.checked = check;
+    });
+    renderQuotationsPage(_ctx);
+  });
+
+  // ── Row checkbox ──
+  container.querySelectorAll(".qt-row-check").forEach(cb => cb.addEventListener("change", (e) => {
+    const id = Number(cb.dataset.qtSel);
+    if (e.target.checked) _selectedIds.add(id);
+    else _selectedIds.delete(id);
+    renderQuotationsPage(_ctx);
+  }));
+
+  // ── Bulk cancel ──
+  document.getElementById("qtBulkCancel")?.addEventListener("click", async () => {
+    const ids = [..._selectedIds];
+    if (!ids.length) return;
+    if (!(await window.App?.confirm?.(`ยกเลิก/ลบใบเสนอราคา ${ids.length} รายการ?`))) return;
+    window.App?.showToast?.(`กำลังยกเลิก ${ids.length} รายการ...`);
+    let ok = 0, fail = 0;
+    for (const id of ids) {
+      try {
+        const res = await window._appXhrPatch?.("quotations", { status: "cancelled" }, "id", id);
+        if (res?.ok) ok++; else fail++;
+      } catch(e) { fail++; }
+    }
+    _selectedIds.clear();
+    window.App?.showToast?.(`สำเร็จ ${ok}${fail ? `, ล้มเหลว ${fail}` : ''}`);
+    if (ctx.loadAllData) await ctx.loadAllData();
+    renderQuotationsPage(_ctx);
+  });
+
+  document.getElementById("qtBulkClear")?.addEventListener("click", () => {
+    _selectedIds.clear();
+    renderQuotationsPage(_ctx);
+  });
+
+  // ── View (📄 + ดู button) ──
   container.querySelectorAll(".qt-view-btn").forEach(btn => btn.addEventListener("click", () => {
     const q = _ctx.state.quotations.find(x => x.id === Number(btn.dataset.qtView));
     if (q) openPreview(q);
   }));
 
-  container.querySelectorAll(".qt-convert-btn").forEach(btn => btn.addEventListener("click", () => {
-    const q = _ctx.state.quotations.find(x => x.id === Number(btn.dataset.qtConvert));
-    if (q) convertToDeliveryInvoice(q);
-  }));
+  // ── Status dropdown actions ──
+  container.querySelectorAll(".qt-status-select").forEach(sel => sel.addEventListener("change", async (e) => {
+    const qtId = Number(sel.dataset.qtId);
+    const action = e.target.value;
+    const q = _ctx.state.quotations.find(x => x.id === qtId);
+    if (!q || !action) return;
+    e.target.value = "";
 
-  container.querySelectorAll(".qt-delete-btn").forEach(btn => btn.addEventListener("click", () => {
-    const q = _ctx.state.quotations.find(x => x.id === Number(btn.dataset.qtDelete));
-    if (q) deleteQuotation(q);
+    if (action === "approved") {
+      if (!(await window.App?.confirm?.(`อนุมัติใบเสนอราคา "${q.qt_no || ''}"?`))) return;
+      try {
+        const res = await window._appXhrPatch?.("quotations", { status: "approved" }, "id", qtId);
+        if (res?.ok) {
+          window.App?.showToast?.("อนุมัติเรียบร้อย ✓");
+          if (ctx.loadAllData) await ctx.loadAllData();
+          renderQuotationsPage(_ctx);
+        } else throw new Error(res?.error?.message || "fail");
+      } catch (err) {
+        console.error("[quotations approve] error:", err);
+        window.App?.showToast?.("❌ อนุมัติไม่สำเร็จ: " + (err.message || err));
+      }
+    } else if (action === "convert") {
+      convertToDeliveryInvoice(q);
+    } else if (action === "edit") {
+      openEditForm(q);
+    } else if (action === "delete") {
+      deleteQuotation(q);
+    }
   }));
 }
 

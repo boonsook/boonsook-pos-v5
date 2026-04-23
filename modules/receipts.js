@@ -53,6 +53,8 @@ let _ctx = null;
 let _lineItems = [];
 let _viewMode = "list";  // list | preview
 let _viewingId = null;
+let _tabFilter = "all";  // all | pending | paid | cancelled
+let _selectedIds = new Set(); // bulk selection
 
 // ═══════════════════════════════════════════════════════════
 //  LIST PAGE
@@ -67,6 +69,20 @@ export function renderReceiptsPage(ctx) {
   _viewMode = "list";
   const receipts = ctx.state.receipts || [];
 
+  // ★ Filter ตาม tab
+  const countAll = receipts.length;
+  const countPending = receipts.filter(r => r.status === "pending" || r.status === "partial").length;
+  const countPaid = receipts.filter(r => r.status === "paid").length;
+  const countCancelled = receipts.filter(r => r.status === "cancelled").length;
+  const filtered = receipts.filter(r => {
+    if (_tabFilter === "all") return true;
+    if (_tabFilter === "pending") return r.status === "pending" || r.status === "partial";
+    return r.status === _tabFilter;
+  });
+
+  // ล้าง selected ids ที่ถูก filter ออก
+  _selectedIds = new Set([..._selectedIds].filter(id => filtered.some(r => r.id === id)));
+
   container.innerHTML = `
     <div class="panel">
       <div class="row">
@@ -77,17 +93,39 @@ export function renderReceiptsPage(ctx) {
       <div class="stats-grid mt16" style="grid-template-columns:repeat(3,1fr)">
         <div class="stat-card">
           <div class="stat-label">ทั้งหมด</div>
-          <div class="stat-value">${receipts.length}</div>
+          <div class="stat-value">${countAll}</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">ชำระแล้ว</div>
-          <div class="stat-value" style="color:#10b981">${receipts.filter(r=>r.status==="paid").length}</div>
+          <div class="stat-value" style="color:#10b981">${countPaid}</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">ยอดรวม</div>
           <div class="stat-value" style="color:#0284c7">${money(receipts.reduce((s,r) => s + Number(r.grand_total||0), 0))}</div>
         </div>
       </div>
+
+      <!-- ★ Tab row -->
+      <div class="rc-tabs" style="display:flex;gap:6px;margin-top:16px;border-bottom:2px solid #e2e8f0;overflow-x:auto">
+        ${[
+          ['all', 'แสดงทั้งหมด', countAll, '#64748b'],
+          ['pending', 'รอชำระ', countPending, '#0284c7'],
+          ['paid', 'ชำระแล้ว', countPaid, '#10b981'],
+          ['cancelled', 'ยกเลิก', countCancelled, '#ef4444']
+        ].map(([k,label,n,color]) => {
+          const active = _tabFilter === k;
+          return `<button class="rc-tab-btn" data-rc-tab="${k}" style="padding:8px 14px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap;color:${active?color:'#64748b'};border-bottom:${active?`2px solid ${color}`:'2px solid transparent'};margin-bottom:-2px">${label} <span style="color:#94a3b8;font-weight:400">(${n})</span></button>`;
+        }).join('')}
+      </div>
+
+      <!-- ★ Bulk action bar -->
+      ${_selectedIds.size > 0 ? `
+      <div class="bulk-bar" style="display:flex;align-items:center;gap:12px;padding:10px 14px;margin-top:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px">
+        <span style="font-weight:700;color:#1e40af">เลือก ${_selectedIds.size} รายการ</span>
+        <button id="rcBulkCancel" style="padding:6px 14px;background:#ef4444;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">ยกเลิกที่เลือก</button>
+        <button id="rcBulkClear" style="padding:6px 14px;background:#f1f5f9;color:#475569;border:none;border-radius:6px;cursor:pointer;font-size:12px">ล้างการเลือก</button>
+      </div>
+      ` : ''}
 
       <style>
         .doc-list-table{width:100%;border-collapse:collapse;font-size:13px;background:#fff;margin-top:12px}
@@ -105,26 +143,28 @@ export function renderReceiptsPage(ctx) {
         @media(max-width:700px){.doc-list-table .hide-sm{display:none}.doc-list-table th,.doc-list-table td{padding:8px 6px;font-size:12px}}
       </style>
 
-      <div style="overflow-x:auto;margin-top:16px">
+      <div style="overflow-x:auto;margin-top:12px">
       <table class="doc-list-table">
         <thead>
           <tr>
+            <th style="width:36px"><input type="checkbox" id="rcSelectAll" ${filtered.length > 0 && filtered.every(r => _selectedIds.has(r.id)) ? 'checked' : ''} style="cursor:pointer"></th>
             <th style="width:110px">วันที่</th>
             <th>เลขที่เอกสาร</th>
             <th>ชื่อลูกค้า/ชื่อโปรเจ็ค</th>
             <th class="right" style="width:130px">ยอดรวมสุทธิ</th>
-            <th style="width:130px">สถานะ</th>
-            <th style="width:210px"></th>
+            <th style="width:190px">สถานะ</th>
           </tr>
         </thead>
         <tbody>
-          ${receipts.length ? receipts.map(r => {
+          ${filtered.length ? filtered.map(r => {
             const status = r.status || "paid";
             const statusLabel = STATUS_LABELS[status] || status;
             const statusColor = STATUS_COLOR[status] || "#9ca3af";
             const isPending = status === "pending" || status === "partial";
+            const isPaid = status === "paid";
             return `
               <tr>
+                <td><input type="checkbox" class="rc-row-check" data-rc-sel="${r.id}" ${_selectedIds.has(r.id) ? 'checked' : ''} style="cursor:pointer"></td>
                 <td class="sku">${dateTH(r.created_at)}</td>
                 <td>
                   <span class="status-dot" style="background:${statusColor}"></span>
@@ -135,26 +175,78 @@ export function renderReceiptsPage(ctx) {
                 <td>${escHtml(r.customer_name || "-")}</td>
                 <td class="right" style="font-weight:700">${money(r.grand_total||0)}</td>
                 <td>
-                  <span class="status-badge" style="background:${statusColor}18;color:${statusColor}">${statusLabel}</span>
-                </td>
-                <td>
-                  <div class="row-actions">
+                  <select class="rc-status-select" data-rc-id="${r.id}" style="width:100%;padding:5px 8px;border:1px solid ${statusColor}40;border-radius:6px;font-size:12px;font-weight:600;color:${statusColor};background:${statusColor}10;cursor:pointer">
+                    <option value="" selected>${statusLabel}</option>
                     ${isPending ? `
-                      <button class="rc-collect-btn" data-rc-collect="${r.id}" style="background:#10b981;color:#fff">เก็บเงิน</button>
-                      <button class="rc-cancel-btn" data-rc-cancel="${r.id}" style="background:#ef4444;color:#fff">ยกเลิก</button>
+                      <option value="paid" style="color:#10b981">✓ เก็บเงิน</option>
+                      <option value="cancelled" style="color:#ef4444">✕ ยกเลิก</option>
                     ` : ''}
-                    <button class="rc-view-btn" data-rc-id="${r.id}" style="background:#f1f5f9;color:#475569">ดูเอกสาร</button>
-                  </div>
+                    ${isPaid ? `
+                      <option value="cancelled" style="color:#ef4444">✕ ยกเลิก</option>
+                    ` : ''}
+                  </select>
                 </td>
               </tr>
             `;
-          }).join("") : '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:40px 20px">ยังไม่มีใบเสร็จรับเงิน — สร้างจากใบส่งสินค้า</td></tr>'}
+          }).join("") : '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:40px 20px">ไม่มีใบเสร็จในหมวดนี้</td></tr>'}
         </tbody>
       </table>
       </div>
     </div>
   `;
 
+  // ── Tab click ──
+  container.querySelectorAll(".rc-tab-btn").forEach(btn => btn.addEventListener("click", () => {
+    _tabFilter = btn.dataset.rcTab;
+    renderReceiptsPage(_ctx);
+  }));
+
+  // ── Select all checkbox ──
+  document.getElementById("rcSelectAll")?.addEventListener("change", (e) => {
+    const check = e.target.checked;
+    container.querySelectorAll(".rc-row-check").forEach(cb => {
+      const id = Number(cb.dataset.rcSel);
+      if (check) _selectedIds.add(id);
+      else _selectedIds.delete(id);
+      cb.checked = check;
+    });
+    renderReceiptsPage(_ctx); // re-render เพื่อ update bulk bar
+  });
+
+  // ── Row checkbox ──
+  container.querySelectorAll(".rc-row-check").forEach(cb => cb.addEventListener("change", (e) => {
+    const id = Number(cb.dataset.rcSel);
+    if (e.target.checked) _selectedIds.add(id);
+    else _selectedIds.delete(id);
+    renderReceiptsPage(_ctx);
+  }));
+
+  // ── Bulk cancel ──
+  document.getElementById("rcBulkCancel")?.addEventListener("click", async () => {
+    const ids = [..._selectedIds];
+    if (!ids.length) return;
+    if (!(await window.App?.confirm?.(`ยกเลิกใบเสร็จ ${ids.length} รายการที่เลือกไว้?`))) return;
+    window.App?.showToast?.(`กำลังยกเลิก ${ids.length} รายการ...`);
+    let ok = 0, fail = 0;
+    for (const id of ids) {
+      try {
+        const res = await window._appXhrPatch?.("receipts", { status: "cancelled" }, "id", id);
+        if (res?.ok) ok++; else fail++;
+      } catch(e) { fail++; }
+    }
+    _selectedIds.clear();
+    window.App?.showToast?.(`ยกเลิกสำเร็จ ${ok}${fail ? `, ล้มเหลว ${fail}` : ''}`);
+    if (ctx.loadAllData) await ctx.loadAllData();
+    renderReceiptsPage(_ctx);
+  });
+
+  // ── Bulk clear selection ──
+  document.getElementById("rcBulkClear")?.addEventListener("click", () => {
+    _selectedIds.clear();
+    renderReceiptsPage(_ctx);
+  });
+
+  // ── View document (📄 icon) ──
   container.querySelectorAll(".rc-view-btn").forEach(btn => btn.addEventListener("click", async () => {
     const r = (ctx.state.receipts || []).find(x => x.id === Number(btn.dataset.rcId));
     if (r) {
@@ -175,76 +267,44 @@ export function renderReceiptsPage(ctx) {
     }
   }));
 
-  // ★ ปุ่มเก็บเงิน — เปลี่ยนสถานะเป็น "paid"
-  container.querySelectorAll(".rc-collect-btn").forEach(btn => btn.addEventListener("click", async () => {
-    const rcId = Number(btn.dataset.rcCollect);
+  // ── Status dropdown: เก็บเงิน / ยกเลิก ──
+  container.querySelectorAll(".rc-status-select").forEach(sel => sel.addEventListener("change", async (e) => {
+    const rcId = Number(sel.dataset.rcId);
+    const action = e.target.value;
     const r = (ctx.state.receipts || []).find(x => x.id === rcId);
-    if (!r) return;
-    if (!(await window.App?.confirm?.(`ยืนยันเก็บเงิน "${r.receipt_no}" ยอด ${money(r.grand_total||0)} ?`))) return;
+    if (!r || !action) return;
 
-    btn.disabled = true;
-    btn.textContent = "กำลังบันทึก...";
+    // reset dropdown value กลับไปเหมือนเดิม
+    e.target.value = "";
+
+    const actionConfig = {
+      paid:      { label: "เก็บเงิน",       status: "paid",      confirm: `ยืนยันเก็บเงิน "${r.receipt_no}" ยอด ${money(r.grand_total||0)} ?`, toast: "เก็บเงินเรียบร้อย ✅" },
+      cancelled: { label: "ยกเลิกใบเสร็จ", status: "cancelled", confirm: `ยกเลิกใบเสร็จ "${r.receipt_no}" ?\nยกเลิกแล้วจะกลับคืนสถานะใบส่งสินค้า`, toast: "ยกเลิกใบเสร็จเรียบร้อย" }
+    };
+    const cfg = actionConfig[action];
+    if (!cfg) return;
+    if (!(await window.App?.confirm?.(cfg.confirm))) return;
 
     try {
-      const res = await window._appXhrPatch?.("receipts", { status: "paid" }, "id", rcId);
+      const res = await window._appXhrPatch?.("receipts", { status: cfg.status }, "id", rcId);
       if (res?.ok) {
-        window.App?.showToast?.("เก็บเงินเรียบร้อย ✅");
+        window.App?.showToast?.(cfg.toast);
         if (ctx.loadAllData) await ctx.loadAllData();
+        renderReceiptsPage(_ctx);
       } else {
-        // Fallback: ใช้ Supabase client
-        const { error } = await ctx.state.supabase.from("receipts").update({ status: "paid" }).eq("id", rcId);
+        // Supabase client fallback
+        const { error } = await ctx.state.supabase.from("receipts").update({ status: cfg.status }).eq("id", rcId);
         if (!error) {
-          window.App?.showToast?.("เก็บเงินเรียบร้อย ✅");
+          window.App?.showToast?.(cfg.toast);
           if (ctx.loadAllData) await ctx.loadAllData();
+          renderReceiptsPage(_ctx);
         } else {
           throw new Error(error.message);
         }
       }
     } catch (err) {
-      console.error("[receipts collect] error:", err);
-      window.App?.showToast?.("❌ " + (err.message || "เก็บเงินไม่สำเร็จ"), "error");
-    } finally {
-      // ★ Safety: reset button เสมอ (กัน stuck)
-      if (btn.isConnected) {
-        btn.disabled = false;
-        btn.textContent = "เก็บเงิน";
-      }
-    }
-  }));
-
-  // ★ ปุ่มยกเลิก — เปลี่ยนสถานะเป็น "cancelled"
-  container.querySelectorAll(".rc-cancel-btn").forEach(btn => btn.addEventListener("click", async () => {
-    const rcId = Number(btn.dataset.rcCancel);
-    const r = (ctx.state.receipts || []).find(x => x.id === rcId);
-    if (!r) return;
-    if (!(await window.App?.confirm?.(`ยกเลิกใบเสร็จ "${r.receipt_no}" ?\nยกเลิกแล้วจะกลับคืนสถานะใบส่งสินค้า`))) return;
-
-    btn.disabled = true;
-    btn.textContent = "กำลังยกเลิก...";
-
-    try {
-      const res = await window._appXhrPatch?.("receipts", { status: "cancelled" }, "id", rcId);
-      if (res?.ok) {
-        window.App?.showToast?.("ยกเลิกใบเสร็จเรียบร้อย");
-        if (ctx.loadAllData) await ctx.loadAllData();
-      } else {
-        const { error } = await ctx.state.supabase.from("receipts").update({ status: "cancelled" }).eq("id", rcId);
-        if (!error) {
-          window.App?.showToast?.("ยกเลิกใบเสร็จเรียบร้อย");
-          if (ctx.loadAllData) await ctx.loadAllData();
-        } else {
-          throw new Error(error.message);
-        }
-      }
-    } catch (err) {
-      console.error("[receipts cancel] error:", err);
-      window.App?.showToast?.("❌ " + (err.message || "ยกเลิกไม่สำเร็จ"), "error");
-    } finally {
-      // ★ Safety: reset button เสมอ (กัน stuck)
-      if (btn.isConnected) {
-        btn.disabled = false;
-        btn.textContent = "ยกเลิก";
-      }
+      console.error("[receipts " + action + "] error:", err);
+      window.App?.showToast?.("❌ " + cfg.label + "ไม่สำเร็จ: " + (err.message || err));
     }
   }));
 }

@@ -41,6 +41,18 @@ let _ctx = null;
 let _lineItems = [];
 let _viewMode = "list";  // list | preview
 let _viewingId = null;
+let _tabFilter = "all";  // all | pending | receipted | cancelled
+let _selectedIds = new Set();
+
+// Due date helper — created_at + credit_days หรือ inv.due_date ถ้ามี
+function getDueDate(inv) {
+  if (inv.due_date) return new Date(inv.due_date);
+  const days = Number(inv.credit_days || 0);
+  if (!inv.created_at) return null;
+  const d = new Date(inv.created_at);
+  d.setDate(d.getDate() + days);
+  return d;
+}
 
 export function renderDeliveryInvoicesPage(ctx) {
   _ctx = ctx;
@@ -52,6 +64,16 @@ export function renderDeliveryInvoicesPage(ctx) {
   _viewMode = "list";
   const invoices = ctx.state.deliveryInvoices || [];
 
+  const countAll = invoices.length;
+  const countPending = invoices.filter(i => i.status === "pending").length;
+  const countReceipted = invoices.filter(i => i.status === "receipted").length;
+  const countCancelled = invoices.filter(i => i.status === "cancelled").length;
+  const filtered = invoices.filter(i => {
+    if (_tabFilter === "all") return true;
+    return i.status === _tabFilter;
+  });
+  _selectedIds = new Set([..._selectedIds].filter(id => filtered.some(i => i.id === id)));
+
   container.innerHTML = `
     <div class="panel">
       <div class="row">
@@ -62,17 +84,37 @@ export function renderDeliveryInvoicesPage(ctx) {
       <div class="stats-grid mt16" style="grid-template-columns:repeat(3,1fr)">
         <div class="stat-card">
           <div class="stat-label">ทั้งหมด</div>
-          <div class="stat-value">${invoices.length}</div>
+          <div class="stat-value">${countAll}</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">รอดำเนินการ</div>
-          <div class="stat-value" style="color:#f59e0b">${invoices.filter(i=>i.status==="pending").length}</div>
+          <div class="stat-value" style="color:#f59e0b">${countPending}</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">เปิดใบเสร็จแล้ว</div>
-          <div class="stat-value" style="color:#6366f1">${invoices.filter(i=>i.status==="receipted").length}</div>
+          <div class="stat-value" style="color:#6366f1">${countReceipted}</div>
         </div>
       </div>
+
+      <div class="di-tabs" style="display:flex;gap:6px;margin-top:16px;border-bottom:2px solid #e2e8f0;overflow-x:auto">
+        ${[
+          ['all', 'แสดงทั้งหมด', countAll, '#64748b'],
+          ['pending', 'รอดำเนินการ', countPending, '#f59e0b'],
+          ['receipted', 'เปิดใบเสร็จแล้ว', countReceipted, '#6366f1'],
+          ['cancelled', 'ยกเลิก', countCancelled, '#ef4444']
+        ].map(([k,label,n,color]) => {
+          const active = _tabFilter === k;
+          return `<button class="di-tab-btn" data-di-tab="${k}" style="padding:8px 14px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap;color:${active?color:'#64748b'};border-bottom:${active?`2px solid ${color}`:'2px solid transparent'};margin-bottom:-2px">${label} <span style="color:#94a3b8;font-weight:400">(${n})</span></button>`;
+        }).join('')}
+      </div>
+
+      ${_selectedIds.size > 0 ? `
+      <div class="bulk-bar" style="display:flex;align-items:center;gap:12px;padding:10px 14px;margin-top:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px">
+        <span style="font-weight:700;color:#1e40af">เลือก ${_selectedIds.size} รายการ</span>
+        <button id="diBulkCancel" style="padding:6px 14px;background:#ef4444;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">ยกเลิกที่เลือก</button>
+        <button id="diBulkClear" style="padding:6px 14px;background:#f1f5f9;color:#475569;border:none;border-radius:6px;cursor:pointer;font-size:12px">ล้างการเลือก</button>
+      </div>
+      ` : ''}
 
       <style>
         .doc-list-table{width:100%;border-collapse:collapse;font-size:13px;background:#fff;margin-top:12px}
@@ -89,26 +131,31 @@ export function renderDeliveryInvoicesPage(ctx) {
         .doc-list-table .row-actions button{font-size:11px;padding:5px 10px;border-radius:6px;border:none;cursor:pointer;font-weight:600;white-space:nowrap}
       </style>
 
-      <div style="overflow-x:auto;margin-top:16px">
+      <div style="overflow-x:auto;margin-top:12px">
       <table class="doc-list-table">
         <thead>
           <tr>
-            <th style="width:110px">วันที่</th>
+            <th style="width:36px"><input type="checkbox" id="diSelectAll" ${filtered.length > 0 && filtered.every(i => _selectedIds.has(i.id)) ? 'checked' : ''} style="cursor:pointer"></th>
+            <th style="width:100px">วันที่</th>
             <th>เลขที่เอกสาร</th>
             <th>ชื่อลูกค้า/ชื่อโปรเจ็ค</th>
-            <th class="right" style="width:130px">ยอดรวมสุทธิ</th>
-            <th style="width:140px">สถานะ</th>
-            <th style="width:180px"></th>
+            <th style="width:110px">วันครบกำหนด</th>
+            <th class="right" style="width:120px">ยอดรวมสุทธิ</th>
+            <th style="width:170px">สถานะ</th>
           </tr>
         </thead>
         <tbody>
-          ${invoices.length ? invoices.map(inv => {
+          ${filtered.length ? filtered.map(inv => {
             const status      = inv.status || "pending";
             const statusLabel = STATUS_LABELS[status] || status;
             const statusColor = STATUS_COLOR[status] || "#9ca3af";
             const canReceipt  = !['receipted','cancelled'].includes(status);
+            const due = getDueDate(inv);
+            const dueStr = due ? dateTH(due) : "-";
+            const overdue = due && status !== 'receipted' && status !== 'cancelled' && due < new Date();
             return `
               <tr>
+                <td><input type="checkbox" class="di-row-check" data-di-sel="${inv.id}" ${_selectedIds.has(inv.id) ? 'checked' : ''} style="cursor:pointer"></td>
                 <td class="sku">${dateTH(inv.created_at)}</td>
                 <td>
                   <span class="status-dot" style="background:${statusColor}"></span>
@@ -117,25 +164,77 @@ export function renderDeliveryInvoicesPage(ctx) {
                   ${inv.ref_no ? `<div class="sku" style="margin-left:16px;margin-top:2px">อ้างอิง: ${escHtml(inv.ref_no)}</div>` : ''}
                 </td>
                 <td>${escHtml(inv.customer_name || "-")}</td>
+                <td class="sku" style="${overdue ? 'color:#dc2626;font-weight:700' : ''}">${dueStr}${overdue ? ' ⚠️' : ''}</td>
                 <td class="right" style="font-weight:700">${money(inv.grand_total||0)}</td>
                 <td>
-                  <span class="status-badge" style="background:${statusColor}18;color:${statusColor}">${statusLabel}</span>
-                </td>
-                <td>
-                  <div class="row-actions">
-                    ${canReceipt ? `<button class="di-receipt-btn" data-di-receipt="${inv.id}" style="background:#6366f1;color:#fff">🧾 ออกใบเสร็จ</button>` : ''}
-                    <button class="di-view-btn" data-di-id="${inv.id}" style="background:#f1f5f9;color:#475569">ดูเอกสาร</button>
-                  </div>
+                  <select class="di-status-select" data-di-id="${inv.id}" style="width:100%;padding:5px 8px;border:1px solid ${statusColor}40;border-radius:6px;font-size:12px;font-weight:600;color:${statusColor};background:${statusColor}10;cursor:pointer">
+                    <option value="" selected>${statusLabel}</option>
+                    ${canReceipt ? `
+                      <option value="receipt" style="color:#6366f1">🧾 ออกใบเสร็จ</option>
+                      <option value="cancelled" style="color:#ef4444">✕ ยกเลิก</option>
+                    ` : ''}
+                  </select>
                 </td>
               </tr>
             `;
-          }).join("") : '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:40px 20px">ยังไม่มีใบส่งสินค้า — สร้างจากใบเสนอราคาที่อนุมัติแล้ว</td></tr>'}
+          }).join("") : '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:40px 20px">ไม่มีใบส่งสินค้าในหมวดนี้</td></tr>'}
         </tbody>
       </table>
       </div>
     </div>
   `;
 
+  // ── Tab click ──
+  container.querySelectorAll(".di-tab-btn").forEach(btn => btn.addEventListener("click", () => {
+    _tabFilter = btn.dataset.diTab;
+    renderDeliveryInvoicesPage(_ctx);
+  }));
+
+  // ── Select all ──
+  document.getElementById("diSelectAll")?.addEventListener("change", (e) => {
+    const check = e.target.checked;
+    container.querySelectorAll(".di-row-check").forEach(cb => {
+      const id = Number(cb.dataset.diSel);
+      if (check) _selectedIds.add(id);
+      else _selectedIds.delete(id);
+      cb.checked = check;
+    });
+    renderDeliveryInvoicesPage(_ctx);
+  });
+
+  // ── Row checkbox ──
+  container.querySelectorAll(".di-row-check").forEach(cb => cb.addEventListener("change", (e) => {
+    const id = Number(cb.dataset.diSel);
+    if (e.target.checked) _selectedIds.add(id);
+    else _selectedIds.delete(id);
+    renderDeliveryInvoicesPage(_ctx);
+  }));
+
+  // ── Bulk cancel ──
+  document.getElementById("diBulkCancel")?.addEventListener("click", async () => {
+    const ids = [..._selectedIds];
+    if (!ids.length) return;
+    if (!(await window.App?.confirm?.(`ยกเลิกใบส่งสินค้า ${ids.length} รายการ?`))) return;
+    window.App?.showToast?.(`กำลังยกเลิก ${ids.length} รายการ...`);
+    let ok = 0, fail = 0;
+    for (const id of ids) {
+      try {
+        const res = await window._appXhrPatch?.("delivery_invoices", { status: "cancelled" }, "id", id);
+        if (res?.ok) ok++; else fail++;
+      } catch(e) { fail++; }
+    }
+    _selectedIds.clear();
+    window.App?.showToast?.(`ยกเลิกสำเร็จ ${ok}${fail ? `, ล้มเหลว ${fail}` : ''}`);
+    if (ctx.loadAllData) await ctx.loadAllData();
+    renderDeliveryInvoicesPage(_ctx);
+  });
+
+  document.getElementById("diBulkClear")?.addEventListener("click", () => {
+    _selectedIds.clear();
+    renderDeliveryInvoicesPage(_ctx);
+  });
+
+  // ── View (📄) ──
   container.querySelectorAll(".di-view-btn").forEach(btn => btn.addEventListener("click", async () => {
     const inv = (ctx.state.deliveryInvoices || []).find(x => x.id === Number(btn.dataset.diId));
     if (inv) {
@@ -156,10 +255,31 @@ export function renderDeliveryInvoicesPage(ctx) {
     }
   }));
 
-  // ออกใบเสร็จรับเงิน
-  container.querySelectorAll(".di-receipt-btn").forEach(btn => btn.addEventListener("click", async () => {
-    const inv = (ctx.state.deliveryInvoices || []).find(x => x.id === Number(btn.dataset.diReceipt));
-    if (inv) convertToReceipt(inv);
+  // ── Status dropdown: ออกใบเสร็จ / ยกเลิก ──
+  container.querySelectorAll(".di-status-select").forEach(sel => sel.addEventListener("change", async (e) => {
+    const invId = Number(sel.dataset.diId);
+    const action = e.target.value;
+    const inv = (ctx.state.deliveryInvoices || []).find(x => x.id === invId);
+    if (!inv || !action) return;
+    e.target.value = "";
+
+    if (action === "receipt") {
+      // เปิด convertToReceipt (มี pre-check + form)
+      convertToReceipt(inv);
+    } else if (action === "cancelled") {
+      if (!(await window.App?.confirm?.(`ยกเลิกใบส่งสินค้า "${inv.inv_no}" ?`))) return;
+      try {
+        const res = await window._appXhrPatch?.("delivery_invoices", { status: "cancelled" }, "id", invId);
+        if (res?.ok) {
+          window.App?.showToast?.("ยกเลิกเรียบร้อย");
+          if (ctx.loadAllData) await ctx.loadAllData();
+          renderDeliveryInvoicesPage(_ctx);
+        } else throw new Error(res?.error?.message || "fail");
+      } catch (err) {
+        console.error("[delivery_invoices cancel] error:", err);
+        window.App?.showToast?.("❌ ยกเลิกไม่สำเร็จ: " + (err.message || err));
+      }
+    }
   }));
 }
 
