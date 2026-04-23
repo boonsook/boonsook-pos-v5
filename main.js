@@ -1365,6 +1365,15 @@ function openProductDrawer(product=null){
   $("newProductCost").value = product?.cost || "";
   $("newProductBarcode").value = product?.barcode || "";
 
+  // ★ Populate datalist หมวดหมู่ — unique categories จาก state.products
+  const catList = $("productCategoryList");
+  if (catList) {
+    const cats = [...new Set(
+      (state.products || []).map(p => String(p.category || "").trim()).filter(Boolean)
+    )].sort((a, b) => a.localeCompare(b, "th"));
+    catList.innerHTML = cats.map(c => `<option value="${escapeHtml(c)}"></option>`).join("");
+  }
+
   // ★ ซ่อน/แสดง barcode + stock ตามประเภท
   _toggleDrawerSections(pType);
 
