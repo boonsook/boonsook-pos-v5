@@ -2354,6 +2354,15 @@ function bindStaticEvents(){
   $("addNewUserBtn")?.addEventListener("click", addNewUser);
   $("setPasswordBtn")?.addEventListener("click", submitNewPassword);
   $("setPwConfirm")?.addEventListener("keydown", (e) => { if (e.key === "Enter") submitNewPassword(); });
+  // ═══ Toggle Set-Password Visibility ═══
+  [["toggleSetPwNew", "setPwNew"], ["toggleSetPwConfirm", "setPwConfirm"]].forEach(([btnId, inputId]) => {
+    const btn = $(btnId), inp = $(inputId);
+    if (btn && inp) btn.addEventListener("click", () => {
+      const hidden = inp.type === "password";
+      inp.type = hidden ? "text" : "password";
+      btn.textContent = hidden ? "🙈" : "👁️";
+    });
+  });
 
   $("globalSearch")?.addEventListener("input", globalSearchProducts);
 }
