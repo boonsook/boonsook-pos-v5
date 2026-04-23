@@ -120,9 +120,10 @@ export function renderReceiptsPage(ctx) {
 
       <!-- ★ Bulk action bar -->
       ${_selectedIds.size > 0 ? `
-      <div class="bulk-bar" style="display:flex;align-items:center;gap:12px;padding:10px 14px;margin-top:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px">
+      <div class="bulk-bar" style="display:flex;align-items:center;gap:12px;padding:10px 14px;margin-top:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;flex-wrap:wrap">
         <span style="font-weight:700;color:#1e40af">เลือก ${_selectedIds.size} รายการ</span>
-        <button id="rcBulkCancel" style="padding:6px 14px;background:#ef4444;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">ยกเลิกที่เลือก</button>
+        <button id="rcBulkCancel" style="padding:6px 14px;background:#f59e0b;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600" title="เปลี่ยนสถานะเป็น 'ยกเลิก' — เก็บในระบบ">ยกเลิก (เก็บประวัติ)</button>
+        <button id="rcBulkDelete" style="padding:6px 14px;background:#ef4444;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600" title="ลบออกจากระบบถาวร พร้อม restore ใบส่งสินค้า">🗑️ ลบถาวร</button>
         <button id="rcBulkClear" style="padding:6px 14px;background:#f1f5f9;color:#475569;border:none;border-radius:6px;cursor:pointer;font-size:12px">ล้างการเลือก</button>
       </div>
       ` : ''}
@@ -237,11 +238,11 @@ export function renderReceiptsPage(ctx) {
     renderReceiptsPage(_ctx);
   }));
 
-  // ── Bulk cancel ──
+  // ── Bulk cancel (soft — status change) ──
   document.getElementById("rcBulkCancel")?.addEventListener("click", async () => {
     const ids = [..._selectedIds];
     if (!ids.length) return;
-    if (!(await window.App?.confirm?.(`ยกเลิกใบเสร็จ ${ids.length} รายการที่เลือกไว้?`))) return;
+    if (!(await window.App?.confirm?.(`ยกเลิกใบเสร็จ ${ids.length} รายการ?\n(เปลี่ยนสถานะเป็น "ยกเลิก" — ใบเสร็จยังอยู่ใน tab "ยกเลิก")`))) return;
     window.App?.showToast?.(`กำลังยกเลิก ${ids.length} รายการ...`);
     let ok = 0, fail = 0;
     for (const id of ids) {
@@ -252,6 +253,42 @@ export function renderReceiptsPage(ctx) {
     }
     _selectedIds.clear();
     window.App?.showToast?.(`ยกเลิกสำเร็จ ${ok}${fail ? `, ล้มเหลว ${fail}` : ''}`);
+    if (ctx.loadAllData) await ctx.loadAllData();
+    renderReceiptsPage(_ctx);
+  });
+
+  // ── Bulk delete (hard — remove from DB + restore delivery_invoice status) ──
+  document.getElementById("rcBulkDelete")?.addEventListener("click", async () => {
+    const ids = [..._selectedIds];
+    if (!ids.length) return;
+    if (!(await window.App?.confirm?.(`⚠️ ลบใบเสร็จ ${ids.length} รายการออกจากระบบถาวร?\nใบส่งสินค้าที่อ้างอิงจะกลับสถานะเป็น "รอดำเนินการ"\n\nการกระทำนี้ไม่สามารถย้อนกลับได้`))) return;
+    window.App?.showToast?.(`กำลังลบ ${ids.length} รายการ...`);
+
+    const cfg = window.SUPABASE_CONFIG;
+    const token = window._sbAccessToken || cfg.anonKey;
+    const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token, "Content-Type": "application/json", "Prefer": "return=representation" };
+
+    let ok = 0, fail = 0;
+    for (const id of ids) {
+      try {
+        const r = (ctx.state.receipts || []).find(x => x.id === id);
+        // 1. ลบ receipt_items
+        await fetch(cfg.url + "/rest/v1/receipt_items?receipt_id=eq." + id, { method: "DELETE", headers });
+        // 2. ลบ receipt
+        const delResp = await fetch(cfg.url + "/rest/v1/receipts?id=eq." + id, { method: "DELETE", headers });
+        const deleted = await delResp.json().catch(() => []);
+        if (!delResp.ok || !Array.isArray(deleted) || deleted.length === 0) { fail++; continue; }
+        // 3. restore delivery_invoice status
+        const invId = r?.delivery_invoice_id;
+        if (invId) {
+          await fetch(cfg.url + "/rest/v1/delivery_invoices?id=eq." + invId,
+            { method: "PATCH", headers, body: JSON.stringify({ status: "invoiced" }) });
+        }
+        ok++;
+      } catch(e) { console.error("[receipts bulk delete]", e); fail++; }
+    }
+    _selectedIds.clear();
+    window.App?.showToast?.(`ลบสำเร็จ ${ok}${fail ? `, ล้มเหลว ${fail} (RLS บล็อค?)` : ''}`);
     if (ctx.loadAllData) await ctx.loadAllData();
     renderReceiptsPage(_ctx);
   });
