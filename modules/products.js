@@ -878,74 +878,127 @@ export function openBarcodePrintWindow(items) {
 <html lang="th">
 <head>
 <meta charset="UTF-8" />
-<title>พิมพ์บาร์โค้ด — ${stickers.length} ป้าย</title>
+<title>พิมพ์บาร์โค้ด — ${stickers.length} ป้าย (50×30mm)</title>
 <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"><\/script>
 <style>
-  * { box-sizing: border-box; }
-  body { font-family: 'Prompt', system-ui, -apple-system, sans-serif; margin: 0; padding: 0; background: #eef2f7; color: #111; }
-  .toolbar { position: sticky; top: 0; background: #fff; padding: 12px 16px; border-bottom: 1px solid #e2e8f0; display: flex; gap: 10px; align-items: center; z-index: 10; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+  * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { font-family: 'Prompt', system-ui, -apple-system, sans-serif; margin: 0; padding: 0; background: #eef2f7; color: #0f172a; }
+
+  /* ═══ TOOLBAR (ซ่อนตอนพิมพ์) ═══ */
+  .toolbar { position: sticky; top: 0; background: #fff; padding: 12px 16px; border-bottom: 1px solid #e2e8f0; display: flex; gap: 10px; align-items: center; z-index: 10; box-shadow: 0 1px 3px rgba(0,0,0,.04); flex-wrap: wrap; }
   .toolbar button { padding: 9px 16px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; border: 1px solid transparent; }
   .btn-primary { background: #0284c7; color: #fff; border-color: #0284c7; }
   .btn-gray { background: #fff; color: #334155; border-color: #cbd5e1; }
   .toolbar select { padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; font-weight: 600; background: #fff; cursor: pointer; }
+  .toolbar label { font-size: 13px; color: #475569; font-weight: 600; }
   .toolbar .count { margin-left: auto; color: #64748b; font-size: 13px; font-weight: 600; }
+  .toolbar .hint { display: block; width: 100%; font-size: 11px; color: #64748b; margin-top: 4px; }
 
-  .sheet { padding: 12px; display: grid; gap: 6px; background: #fff; }
-  .sheet.size-sm { grid-template-columns: repeat(4, 1fr); }
-  .sheet.size-md { grid-template-columns: repeat(3, 1fr); }
-  .sheet.size-lg { grid-template-columns: repeat(2, 1fr); }
-  .sticker { border: 1px dashed #cbd5e1; padding: 6px 8px; text-align: center; page-break-inside: avoid; break-inside: avoid; background: #fff; }
-  .sticker .shop { font-size: 9px; color: #64748b; letter-spacing: .3px; }
-  .sticker .name { font-size: 11px; font-weight: 700; color: #0f172a; margin: 2px 0; line-height: 1.2; min-height: 1.2em; max-height: 2.4em; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-  .sticker svg { display: block; margin: 2px auto; max-width: 100%; height: auto; }
-  .sticker .price { font-size: 13px; font-weight: 800; color: #0284c7; margin-top: 2px; }
+  /* ═══ STICKER 50×30mm (สำหรับ label printer) ═══ */
+  .sheet { padding: 20px; display: flex; flex-wrap: wrap; gap: 8px; background: #eef2f7; }
+  .sticker {
+    width: 50mm; height: 30mm;
+    padding: 1.5mm 2mm 1mm;
+    background: #fff;
+    border: 1px dashed #cbd5e1; /* แสดงขอบตอนดูใน browser — ไม่พิมพ์ */
+    display: flex; flex-direction: column;
+    page-break-after: always; break-after: page;
+    overflow: hidden;
+  }
+  .sticker:last-child { page-break-after: auto; }
+  .sticker .shop { font-size: 7pt; color: #666; text-align: center; line-height: 1; letter-spacing: .2px; }
+  .sticker .name {
+    font-size: 8pt; font-weight: 700; color: #0f172a;
+    text-align: center;
+    line-height: 1.1;
+    margin: .5mm 0;
+    overflow: hidden;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    max-height: 2.4em; min-height: 1.1em;
+  }
+  .sticker .bc-wrap { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; }
+  .sticker svg { display: block; max-width: 46mm; max-height: 11mm; }
+  .sticker .price { font-size: 10pt; font-weight: 800; color: #0284c7; text-align: center; line-height: 1; margin-top: .5mm; }
 
+  /* ═══ PRINT ═══ */
+  @page { size: 50mm 30mm; margin: 0; }
   @media print {
     .toolbar { display: none !important; }
     body { background: #fff; }
-    .sheet { gap: 0; padding: 0; }
-    .sticker { border: none; }
-    @page { margin: 8mm; }
+    .sheet { padding: 0; gap: 0; background: #fff; }
+    .sticker { border: none; margin: 0; }
+    .sticker .price { color: #000 !important; } /* บางเครื่องพิมพ์ไม่เอาสี — เปลี่ยนเป็นดำ */
   }
 </style>
 </head>
 <body>
 <div class="toolbar">
   <button class="btn-primary" onclick="window.print()">🖨️ พิมพ์</button>
-  <label style="font-size:13px;color:#475569;font-weight:600">ขนาด:</label>
-  <select id="sz" onchange="document.getElementById('sheet').className='sheet '+this.value">
-    <option value="size-sm">เล็ก (4 คอลัมน์)</option>
-    <option value="size-md" selected>กลาง (3 คอลัมน์)</option>
-    <option value="size-lg">ใหญ่ (2 คอลัมน์)</option>
+  <label for="sz">ขนาด:</label>
+  <select id="sz" onchange="changeSize(this.value)">
+    <option value="50x30" selected>50×30 mm (Label printer)</option>
+    <option value="40x25">40×25 mm (เล็ก)</option>
+    <option value="70x40">70×40 mm (ใหญ่)</option>
   </select>
   <button class="btn-gray" onclick="window.close()">ปิด</button>
   <span class="count">${stickers.length} ป้าย</span>
+  <span class="hint">💡 ตั้งค่าเครื่องพิมพ์: Paper size = 50×30mm, Margin = 0, Scale = 100%</span>
 </div>
-<div id="sheet" class="sheet size-md">
+<div id="sheet" class="sheet">
 ${stickers.map(s => `
   <div class="sticker">
     <div class="shop">บุญสุขแอร์</div>
     <div class="name">${esc(s.name || '-')}</div>
-    <svg class="bc" data-code="${esc(s.barcode)}"></svg>
+    <div class="bc-wrap"><svg class="bc" data-code="${esc(s.barcode)}"></svg></div>
     ${s.price != null && Number(s.price) > 0 ? `<div class="price">฿${esc(fmtPrice(s.price))}</div>` : ''}
   </div>`).join('')}
 </div>
 <script>
-  window.addEventListener('load', function() {
-    var svgs = document.querySelectorAll('svg.bc');
-    svgs.forEach(function(svg) {
+  var SIZES = {
+    "50x30": { w: "50mm", h: "30mm", bcH: 11, bcMax: 46, fontN: "8pt", fontP: "10pt" },
+    "40x25": { w: "40mm", h: "25mm", bcH: 9,  bcMax: 36, fontN: "7pt", fontP: "9pt" },
+    "70x40": { w: "70mm", h: "40mm", bcH: 14, bcMax: 66, fontN: "10pt", fontP: "12pt" }
+  };
+  function changeSize(key) {
+    var sz = SIZES[key] || SIZES["50x30"];
+    // update stylesheet
+    var style = document.getElementById("dynSize") || (function(){ var s = document.createElement("style"); s.id = "dynSize"; document.head.appendChild(s); return s; })();
+    style.textContent =
+      "@page { size: " + sz.w + " " + sz.h + "; margin: 0; }" +
+      ".sticker { width: " + sz.w + "; height: " + sz.h + "; }" +
+      ".sticker svg { max-width: " + sz.bcMax + "mm; max-height: " + sz.bcH + "mm; }" +
+      ".sticker .name { font-size: " + sz.fontN + "; }" +
+      ".sticker .price { font-size: " + sz.fontP + "; }";
+    // re-render barcodes ให้พอดีขนาดใหม่
+    renderBarcodes(sz.bcH);
+  }
+  function renderBarcodes(heightMM) {
+    var heightPx = Math.round((heightMM || 11) * 3.78); // ~3.78 px/mm @ 96dpi
+    document.querySelectorAll('svg.bc').forEach(function(svg) {
       var code = svg.dataset.code;
       if (!code) return;
       try {
-        JsBarcode(svg, code, { format: "CODE128", width: 1.4, height: 38, displayValue: true, fontSize: 10, margin: 2, textMargin: 1 });
+        JsBarcode(svg, code, {
+          format: "CODE128",
+          width: 1.2,
+          height: heightPx,
+          displayValue: true,
+          fontSize: 9,
+          margin: 0,
+          textMargin: 1,
+          textAlign: "center"
+        });
       } catch(e) {
         var div = document.createElement('div');
-        div.style.cssText = 'color:#999;font-size:10px;font-family:monospace;padding:8px';
+        div.style.cssText = 'color:#999;font-size:9px;font-family:monospace;padding:4px';
         div.textContent = code;
         svg.parentNode.replaceChild(div, svg);
       }
     });
-    setTimeout(function() { window.print(); }, 400);
+  }
+  window.addEventListener('load', function() {
+    renderBarcodes(11);
+    setTimeout(function() { window.print(); }, 500);
   });
 <\/script>
 </body>
