@@ -292,13 +292,32 @@ function recommendBTU(rawBTU) {
   return BTU_SIZES[BTU_SIZES.length - 1];
 }
 
+// ═══════════════════════════════════════════════════════════
+//  ประมาณการค่าไฟ/เดือน (อิงแอร์ระบบ Inverter เบอร์ 5 — ที่ขายวันนี้)
+// ═══════════════════════════════════════════════════════════
+//  ที่มาของตัวเลข (ตรวจกับ MEA/PEA 2567 + spec ผู้ผลิต):
+//    - Modern inverter AC เบอร์ 5: EER/COP ~3.5 (SEER 15-20)
+//    - Electrical input watts ≈ BTU ÷ 3.41 ÷ 3.5 ≈ BTU / 12
+//    - Duty cycle จริงในบ้านไทย (ตั้ง 25°C, ไม่ร้อนจัด): ~65%
+//      → compressor ปรับรอบ ไม่เดินที่ 100% ตลอดเวลา
+//    - อัตราค่าไฟ: 4.18 บาท/หน่วย (MEA residential tier เฉลี่ย 2568)
+//
+//  ตัวอย่าง (ใช้ 8 ชม./วัน):
+//    9,000  BTU →  ~487 บาท/เดือน
+//    12,000 BTU →  ~649 บาท/เดือน
+//    18,000 BTU →  ~974 บาท/เดือน
+//    24,000 BTU → ~1,299 บาท/เดือน
+//
+//  หมายเหตุ: ของเดิมใช้ watts = btu × 0.29 → 9000 BTU = 2,610W
+//  ซึ่งผิดเพราะ EER ไม่ใช่ 3.4 (แบบ old fixed-speed) — modern inverter = 10-15
 function estimateMonthlyCost(btu) {
-  const watts = btu * 0.29;
-  const kw = watts / 1000;
+  const MAX_WATTS = btu / 12;       // peak electrical input (inverter COP ~3.5)
+  const DUTY_CYCLE = 0.65;          // compressor duty cycle ในบ้านไทยทั่วไป
+  const avgKw = (MAX_WATTS * DUTY_CYCLE) / 1000;
   const hoursPerDay = 8;
   const daysPerMonth = 30;
-  const ratePerUnit = 4.2;
-  return Math.round(kw * hoursPerDay * daysPerMonth * ratePerUnit);
+  const ratePerUnit = 4.18;         // บาท/หน่วย (MEA residential tier 2 ~2568)
+  return Math.round(avgKw * hoursPerDay * daysPerMonth * ratePerUnit);
 }
 
 function matchProducts(products, btu) {
