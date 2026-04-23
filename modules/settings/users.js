@@ -16,7 +16,7 @@ export function renderSettingsUsers(el, ctx, goBack, navigateToView) {
       </div>
 
       <div class="set-user-list">
-        ${(state.allProfiles || []).map(p => {
+        ${(state.allProfiles || []).filter(p => p.role !== "customer").map(p => {
           const rLabel = ROLE_LABELS[p.role] || p.role;
           const rColor = roleColors[p.role] || "#64748b";
           const isMe = p.id === state.currentUser?.id;

@@ -72,7 +72,12 @@ function renderCurrentView() {
       renderSettingsPayment(el, ctxRef, goBack, navigateToView);
       break;
     case 'users':
-      renderSettingsUsers(el, ctxRef, goBack, navigateToView);
+      // ★ โหลด profiles จาก Supabase ก่อน render (state.allProfiles อาจยังว่าง)
+      if (typeof ctxRef.loadUsers === 'function') {
+        ctxRef.loadUsers().then(() => renderSettingsUsers(el, ctxRef, goBack, navigateToView));
+      } else {
+        renderSettingsUsers(el, ctxRef, goBack, navigateToView);
+      }
       break;
     case 'document':
       renderSettingsDocument(el, ctxRef, goBack);
