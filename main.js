@@ -2057,8 +2057,12 @@ function exportReceiptPdf(){
 // ═══════════════════════════════════════════════════════════
 async function loadUsers(){
   if (!requireAdmin()) return;
-  const { data: profiles } = await state.supabase.from("profiles").select("*").order("created_at");
-  state.allProfiles = profiles || [];
+  // ★ ลอง view ที่มี email ก่อน (ถ้ายังไม่ได้รัน SQL ใหม่ fallback เป็น profiles)
+  let result = await state.supabase.from("profiles_with_email").select("*").order("created_at");
+  if (result.error) {
+    result = await state.supabase.from("profiles").select("*").order("created_at");
+  }
+  state.allProfiles = result.data || [];
 }
 async function changeRole(userId, newRole){
   if (!requireAdmin()) return showToast("เฉพาะ Admin เปลี่ยนสิทธิ์ได้");
@@ -2075,49 +2079,110 @@ function openAddUserDrawer(){ openDrawer("addUserDrawer"); }
 async function addNewUser(){
   if (!requireAdmin()) return showToast("เฉพาะ Admin");
   const email = $("newUserEmail").value.trim();
-  const password = $("newUserPassword").value;
   const fullName = $("newUserName").value.trim();
   const role = $("newUserRole").value;
-  if (!email || !password || password.length < 6) return showToast("กรอกข้อมูลให้ครบ (รหัสผ่านอย่างน้อย 6 ตัว)");
-  showToast("กำลังสร้างผู้ใช้...");
+  if (!email || !fullName) return showToast("กรุณากรอกอีเมลและชื่อ-นามสกุล");
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return showToast("อีเมลไม่ถูกต้อง");
 
-  // ★ ใช้ XHR สำหรับ signUp เพื่อป้องกันค้าง
-  const cfg = window.SUPABASE_CONFIG;
-  const signUpResult = await new Promise((resolve) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", cfg.url + "/auth/v1/signup");
-    xhr.setRequestHeader("Content-Type", "application/json");
-    xhr.setRequestHeader("apikey", cfg.anonKey);
-    xhr.timeout = 15000;
-    xhr.onload = function () {
-      try {
-        const body = JSON.parse(xhr.responseText);
-        if (xhr.status >= 200 && xhr.status < 300) {
-          resolve({ ok: true, userId: body?.id || body?.user?.id, error: null });
-        } else {
-          resolve({ ok: false, userId: null, error: body?.msg || body?.error_description || body?.message || "HTTP " + xhr.status });
-        }
-      } catch (e) { resolve({ ok: false, userId: null, error: "Parse error" }); }
-    };
-    xhr.onerror = function () { resolve({ ok: false, userId: null, error: "Network error" }); };
-    xhr.ontimeout = function () { resolve({ ok: false, userId: null, error: "Timeout" }); };
-    xhr.send(JSON.stringify({
-      email, password,
-      data: { full_name: fullName }
-    }));
-  });
+  // ★ Auto-generate random password — user จะตั้งใหม่เองผ่านลิงก์ใน email
+  const randomPw = Array.from(crypto.getRandomValues(new Uint8Array(18)))
+    .map(b => b.toString(36).padStart(2, '0')).join('').slice(0, 20) + "A1!";
 
-  if (!signUpResult.ok) return showToast("สร้างไม่สำเร็จ: " + signUpResult.error);
+  const btn = $("addNewUserBtn");
+  if (btn) { btn.disabled = true; btn.textContent = "กำลังส่งคำเชิญ..."; }
 
-  // Set role if not default
-  if (signUpResult.userId && role !== "sales") {
-    await xhrPatch("profiles", { role }, "id", signUpResult.userId);
+  try {
+    const cfg = window.SUPABASE_CONFIG;
+
+    // ── Step 1: signUp ──
+    const signUpResult = await new Promise((resolve) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", cfg.url + "/auth/v1/signup");
+      xhr.setRequestHeader("Content-Type", "application/json");
+      xhr.setRequestHeader("apikey", cfg.anonKey);
+      xhr.timeout = 15000;
+      xhr.onload = function () {
+        try {
+          const body = JSON.parse(xhr.responseText);
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve({ ok: true, userId: body?.id || body?.user?.id, error: null });
+          } else {
+            resolve({ ok: false, userId: null, error: body?.msg || body?.error_description || body?.message || "HTTP " + xhr.status });
+          }
+        } catch (e) { resolve({ ok: false, userId: null, error: "Parse error" }); }
+      };
+      xhr.onerror = function () { resolve({ ok: false, userId: null, error: "Network error" }); };
+      xhr.ontimeout = function () { resolve({ ok: false, userId: null, error: "Timeout" }); };
+      xhr.send(JSON.stringify({
+        email, password: randomPw,
+        data: { full_name: fullName }
+      }));
+    });
+
+    if (!signUpResult.ok) {
+      // ถ้า email ซ้ำ — บอกให้ชัด
+      if (/already|registered|duplicate/i.test(signUpResult.error || "")) {
+        throw new Error("อีเมลนี้ถูกใช้แล้ว");
+      }
+      throw new Error(signUpResult.error || "ลงทะเบียนไม่สำเร็จ");
+    }
+
+    // ── Step 2: Set role in profiles ──
+    if (signUpResult.userId && role !== "sales") {
+      try { await xhrPatch("profiles", { role, full_name: fullName }, "id", signUpResult.userId); }
+      catch(e) { console.warn("[addNewUser] set role failed:", e); }
+    }
+
+    // ── Step 3: ส่งอีเมลเชิญตั้งรหัสผ่าน (recover endpoint) ──
+    await new Promise((resolve) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", cfg.url + "/auth/v1/recover");
+      xhr.setRequestHeader("Content-Type", "application/json");
+      xhr.setRequestHeader("apikey", cfg.anonKey);
+      xhr.timeout = 10000;
+      xhr.onload = () => resolve();
+      xhr.onerror = () => resolve();
+      xhr.ontimeout = () => resolve();
+      xhr.send(JSON.stringify({ email }));
+    });
+
+    $("newUserEmail").value = ""; $("newUserName").value = "";
+    closeAllDrawers();
+    await loadUsers();
+    showRoute("settings");
+    showToast(`✉️ ส่งคำเชิญไปที่ ${email} แล้ว — ผู้ใช้จะได้รับลิงก์ตั้งรหัสผ่าน`);
+  } catch (err) {
+    console.error("[addNewUser] error:", err);
+    showToast("❌ " + (err.message || "สร้างผู้ใช้ไม่สำเร็จ"));
+  } finally {
+    if (btn && btn.isConnected) { btn.disabled = false; btn.textContent = "✉️ ส่งคำเชิญทางอีเมล"; }
   }
-
-  $("newUserEmail").value = ""; $("newUserPassword").value = ""; $("newUserName").value = "";
-  closeAllDrawers(); await loadUsers(); showRoute("settings");
-  showToast("สร้างผู้ใช้แล้ว (อาจต้องยืนยันอีเมล)");
 }
+
+// ═══════════════════════════════════════════════════════════
+//  UPDATE / DELETE USER (admin only — from settings/users.js)
+// ═══════════════════════════════════════════════════════════
+async function updateUserProfile(userId, patch) {
+  if (!requireAdmin()) { showToast("เฉพาะ Admin"); return false; }
+  const res = await xhrPatch("profiles", patch, "id", userId);
+  if (!res.ok) { showToast("❌ อัปเดตไม่สำเร็จ: " + (res.error?.message || "")); return false; }
+  await loadUsers();
+  showToast("อัปเดตข้อมูลผู้ใช้เรียบร้อย");
+  return true;
+}
+async function deleteUserProfile(userId, displayName) {
+  if (!requireAdmin()) { showToast("เฉพาะ Admin"); return false; }
+  if (userId === state.currentUser?.id) { showToast("ลบบัญชีตัวเองไม่ได้"); return false; }
+  if (!(await window.App?.confirm?.(`ลบผู้ใช้ "${displayName || userId}"?\n\nหมายเหตุ: บัญชี auth ใน Supabase ยังอยู่ — ต้องลบเพิ่มที่ Supabase Dashboard หากต้องการ`))) return false;
+  const res = await xhrDelete("profiles", "id", userId);
+  if (!res.ok) { showToast("❌ ลบไม่สำเร็จ: " + (res.error?.message || "")); return false; }
+  await loadUsers();
+  showToast("ลบผู้ใช้เรียบร้อย");
+  return true;
+}
+// expose via window.App
+window._appUpdateUserProfile = updateUserProfile;
+window._appDeleteUserProfile = deleteUserProfile;
 
 // ═══════════════════════════════════════════════════════════
 //  GLOBAL SEARCH
