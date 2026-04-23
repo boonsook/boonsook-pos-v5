@@ -89,37 +89,68 @@ export function renderReceiptsPage(ctx) {
         </div>
       </div>
 
-      <div class="card-list mt16">
-        ${receipts.length ? receipts.map(r => {
-          const status = r.status || "paid";
-          const statusLabel = STATUS_LABELS[status] || status;
-          const statusColor = STATUS_COLOR[status] || "#9ca3af";
-          return `
-            <div class="card">
-              <div class="row" style="align-items:flex-start">
-                <div style="flex:1;min-width:0">
-                  <div style="font-weight:900;font-size:15px">${r.receipt_no || "-"}</div>
-                  <div class="sku">${r.customer_name || "-"}</div>
-                  ${r.ref_no ? '<div class="sku">อ้างอิง: '+r.ref_no+'</div>' : ''}
-                  <div style="display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap">
-                    <span class="badge" style="background:${statusColor}18;color:${statusColor}">${statusLabel}</span>
-                    <span style="font-size:13px;font-weight:700">${money(r.grand_total||0)}</span>
-                    <span class="sku">${dateTH(r.created_at)}</span>
+      <style>
+        .doc-list-table{width:100%;border-collapse:collapse;font-size:13px;background:#fff;margin-top:12px}
+        .doc-list-table th{background:#f8fafc;color:#475569;font-weight:700;text-align:left;padding:10px 12px;border-bottom:2px solid #e2e8f0;font-size:12px;white-space:nowrap}
+        .doc-list-table td{padding:10px 12px;border-bottom:1px solid #f1f5f9;vertical-align:middle}
+        .doc-list-table tbody tr:hover{background:#fafbfc}
+        .doc-list-table .status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;vertical-align:middle}
+        .doc-list-table .doc-no{font-weight:700;color:#1e293b}
+        .doc-list-table .pdf-icon-btn{background:none;border:none;cursor:pointer;padding:2px 4px;margin-left:4px;opacity:.6;font-size:14px}
+        .doc-list-table .pdf-icon-btn:hover{opacity:1}
+        .doc-list-table .right{text-align:right}
+        .doc-list-table .status-badge{display:inline-block;padding:4px 10px;border-radius:14px;font-size:12px;font-weight:600}
+        .doc-list-table .row-actions{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
+        .doc-list-table .row-actions button{font-size:11px;padding:5px 10px;border-radius:6px;border:none;cursor:pointer;font-weight:600;white-space:nowrap}
+        @media(max-width:700px){.doc-list-table .hide-sm{display:none}.doc-list-table th,.doc-list-table td{padding:8px 6px;font-size:12px}}
+      </style>
+
+      <div style="overflow-x:auto;margin-top:16px">
+      <table class="doc-list-table">
+        <thead>
+          <tr>
+            <th style="width:110px">วันที่</th>
+            <th>เลขที่เอกสาร</th>
+            <th>ชื่อลูกค้า/ชื่อโปรเจ็ค</th>
+            <th class="right" style="width:130px">ยอดรวมสุทธิ</th>
+            <th style="width:130px">สถานะ</th>
+            <th style="width:210px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${receipts.length ? receipts.map(r => {
+            const status = r.status || "paid";
+            const statusLabel = STATUS_LABELS[status] || status;
+            const statusColor = STATUS_COLOR[status] || "#9ca3af";
+            const isPending = status === "pending" || status === "partial";
+            return `
+              <tr>
+                <td class="sku">${dateTH(r.created_at)}</td>
+                <td>
+                  <span class="status-dot" style="background:${statusColor}"></span>
+                  <span class="doc-no">${escHtml(r.receipt_no || "-")}</span>
+                  <button class="pdf-icon-btn rc-view-btn" data-rc-id="${r.id}" title="ดูเอกสาร">📄</button>
+                  ${r.ref_no ? `<div class="sku" style="margin-left:16px;margin-top:2px">อ้างอิง: ${escHtml(r.ref_no)}</div>` : ''}
+                </td>
+                <td>${escHtml(r.customer_name || "-")}</td>
+                <td class="right" style="font-weight:700">${money(r.grand_total||0)}</td>
+                <td>
+                  <span class="status-badge" style="background:${statusColor}18;color:${statusColor}">${statusLabel}</span>
+                </td>
+                <td>
+                  <div class="row-actions">
+                    ${isPending ? `
+                      <button class="rc-collect-btn" data-rc-collect="${r.id}" style="background:#10b981;color:#fff">เก็บเงิน</button>
+                      <button class="rc-cancel-btn" data-rc-cancel="${r.id}" style="background:#ef4444;color:#fff">ยกเลิก</button>
+                    ` : ''}
+                    <button class="rc-view-btn" data-rc-id="${r.id}" style="background:#f1f5f9;color:#475569">ดูเอกสาร</button>
                   </div>
-                </div>
-                <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;align-items:flex-end">
-                  ${status === "pending" || status === "partial" ? `
-                    <div style="display:flex;gap:6px">
-                      <button class="btn rc-collect-btn" data-rc-collect="${r.id}" style="font-size:12px;padding:6px 14px;background:#10b981;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:700">เก็บเงิน</button>
-                      <button class="btn rc-cancel-btn" data-rc-cancel="${r.id}" style="font-size:12px;padding:6px 14px;background:#ef4444;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:700">ยกเลิก</button>
-                    </div>
-                  ` : ''}
-                  <button class="btn light rc-view-btn" data-rc-id="${r.id}" style="font-size:12px;padding:8px 12px">ดูเอกสาร</button>
-                </div>
-              </div>
-            </div>
-          `;
-        }).join("") : '<div class="card" style="text-align:center;color:var(--muted);padding:24px">ยังไม่มีใบเสร็จรับเงิน — สร้างจากใบส่งสินค้า</div>'}
+                </td>
+              </tr>
+            `;
+          }).join("") : '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:40px 20px">ยังไม่มีใบเสร็จรับเงิน — สร้างจากใบส่งสินค้า</td></tr>'}
+        </tbody>
+      </table>
       </div>
     </div>
   `;
