@@ -73,9 +73,10 @@ body { margin: 0; padding: 0; background: #fff; font-family: "Sarabun","Noto San
 .doc-totals { margin-left: auto; width: 260px; margin-top: 4px; }
 .doc-total-row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 12px; color: #475569; }
 .doc-total-row.grand { font-size: 13.5px; font-weight: 900; padding-top: 6px; margin-top: 3px; }
-.doc-total-row.grand.qt  { color: #f97316; border-top: 2px solid #f97316; }
-.doc-total-row.grand.inv { color: #0284c7; border-top: 2px solid #0284c7; }
-.doc-total-row.grand.re  { color: #10b981; border-top: 2px solid #10b981; }
+/* ★ ตัวเลขจำนวนเงิน ใช้สีดำ — เก็บสีของ border บนเป็น theme accent */
+.doc-total-row.grand.qt  { color: #1a1a1a; border-top: 2px solid #f97316; }
+.doc-total-row.grand.inv { color: #1a1a1a; border-top: 2px solid #0284c7; }
+.doc-total-row.grand.re  { color: #1a1a1a; border-top: 2px solid #10b981; }
 
 /* ═══ NOTE ═══ */
 .doc-note-section { margin-top: 12px; font-size: 11.5px; line-height: 1.6; padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 4px; background: #fafbfc; }
