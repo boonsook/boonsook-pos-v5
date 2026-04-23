@@ -223,6 +223,10 @@ function renderReceiptPreview(container) {
             <input type="checkbox" id="rcShowDate" checked style="width:15px;height:15px;cursor:pointer" />
             ลงวันที่
           </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;border:1px solid #e2e8f0;border-radius:8px;padding:6px 10px;background:#fffbeb" title="ใบเสร็จแก้วันที่ได้เสมอ">
+            <span>📅 วันที่เอกสาร:</span>
+            <input type="date" id="rcEditDate" value="${(r.created_at || new Date().toISOString()).slice(0,10)}" style="border:1px solid #d1d5db;border-radius:6px;padding:3px 6px;font-size:13px;cursor:pointer" />
+          </label>
           <button id="rcShareBtn" class="btn" style="background:#06C755;color:#fff">📤 แชร์</button>
           <button id="rcPrintBtn" class="btn light">🖨️ พิมพ์</button>
           <button id="rcPdfBtn" class="btn primary">📄 PDF</button>
@@ -405,6 +409,26 @@ function renderReceiptPreview(container) {
       rcDateCell.textContent = rcShowDate.checked ? dateTH(r.created_at) : "..................................";
     });
   }
+
+  // ★ แก้วันที่เอกสาร — PATCH created_at
+  document.getElementById("rcEditDate")?.addEventListener("change", async (ev) => {
+    const newDate = ev.target.value; // YYYY-MM-DD
+    if (!newDate) return;
+    const isoDate = newDate + "T00:00:00.000Z";
+    try {
+      const res = await window._appXhrPatch?.("receipts", { created_at: isoDate }, "id", r.id);
+      if (res && res.ok === false) throw new Error(res.error?.message || "patch failed");
+      r.created_at = isoDate;
+      document.querySelectorAll("#rcDocPreview [id^='rcDateCell']").forEach(el => {
+        if (rcShowDate?.checked) el.textContent = dateTH(isoDate);
+      });
+      _ctx.showToast("อัปเดตวันที่เรียบร้อย ✓");
+    } catch (e) {
+      console.error("[receipts edit date] error:", e);
+      _ctx.showToast("❌ แก้วันที่ไม่สำเร็จ: " + (e.message || e));
+      ev.target.value = (r.created_at || "").slice(0,10);
+    }
+  });
 
   // Share
   document.getElementById("rcShareBtn")?.addEventListener("click", () => {

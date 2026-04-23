@@ -598,6 +598,11 @@ function renderQuotationPreview(container) {
   const whtAmount    = Number(q.wht_amount || 0);
   const grandTotal   = Number(q.grand_total || q.amount || subtotal);
 
+  // ★ เช็คว่ามีใบส่งสินค้าอ้างอิงใบเสนอราคานี้อยู่หรือไม่ — ถ้ามี = lock
+  const hasInvoice = (_ctx.state.deliveryInvoices || []).some(di =>
+    di.quotation_id === q.id && di.status !== 'cancelled'
+  );
+
   container.innerHTML = `
     <div class="panel">
       <div class="row">
@@ -607,6 +612,16 @@ function renderQuotationPreview(container) {
             <input type="checkbox" id="qtShowDate" checked style="width:15px;height:15px;cursor:pointer" />
             ลงวันที่
           </label>
+          ${hasInvoice ? `
+          <span style="display:flex;align-items:center;gap:6px;font-size:13px;border:1px solid #fecaca;border-radius:8px;padding:6px 10px;background:#fef2f2;color:#991b1b" title="มีใบส่งสินค้าอ้างอิงอยู่ — ต้องลบใบส่งสินค้าก่อนถึงจะแก้วันที่ได้">
+            🔒 วันที่: ${dateTH(q.created_at)} (ล็อก — มีใบส่งสินค้าแล้ว)
+          </span>
+          ` : `
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;border:1px solid #e2e8f0;border-radius:8px;padding:6px 10px;background:#fffbeb" title="ยังไม่มีใบส่งสินค้า — แก้วันที่ได้">
+            <span>📅 วันที่เอกสาร:</span>
+            <input type="date" id="qtEditDate" value="${(q.created_at || new Date().toISOString()).slice(0,10)}" style="border:1px solid #d1d5db;border-radius:6px;padding:3px 6px;font-size:13px;cursor:pointer" />
+          </label>
+          `}
           <button id="qtEditFromPreview" class="btn light">แก้ไข</button>
           <button id="qtShareLinkBtn" class="btn" style="background:#6366f1;color:#fff">🔗 คัดลอกลิงก์</button>
           <button id="qtShareBtn" class="btn" style="background:#06C755;color:#fff">📤 แชร์</button>
@@ -715,6 +730,24 @@ function renderQuotationPreview(container) {
       qtDateCell.textContent = qtShowDate.checked ? dateTH(q.created_at) : "..................................";
     });
   }
+
+  // ★ แก้วันที่เอกสาร — อนุญาตเมื่อไม่มีใบส่งสินค้าอ้างอิง
+  document.getElementById("qtEditDate")?.addEventListener("change", async (ev) => {
+    const newDate = ev.target.value;
+    if (!newDate) return;
+    const isoDate = newDate + "T00:00:00.000Z";
+    try {
+      const res = await window._appXhrPatch?.("quotations", { created_at: isoDate }, "id", q.id);
+      if (res && res.ok === false) throw new Error(res.error?.message || "patch failed");
+      q.created_at = isoDate;
+      if (qtShowDate?.checked && qtDateCell) qtDateCell.textContent = dateTH(isoDate);
+      _ctx.showToast("อัปเดตวันที่เรียบร้อย ✓");
+    } catch (e) {
+      console.error("[quotations edit date] error:", e);
+      _ctx.showToast("❌ แก้วันที่ไม่สำเร็จ: " + (e.message || e));
+      ev.target.value = (q.created_at || "").slice(0,10);
+    }
+  });
 
   document.getElementById("qtShareLinkBtn")?.addEventListener("click", () => generateShareLink(q));
   document.getElementById("qtShareBtn")?.addEventListener("click", () => {

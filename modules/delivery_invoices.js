@@ -132,6 +132,11 @@ function renderInvoicePreview(container) {
   const whtAmount  = Number(inv.wht_amount || 0);
   const grandTotal = Number(inv.grand_total || 0);
 
+  // ★ เช็คว่ามีใบเสร็จอ้างอิงใบส่งสินค้านี้อยู่หรือไม่ — ถ้ามี = lock ห้ามแก้วันที่
+  const hasReceipt = (_ctx.state.receipts || []).some(rc =>
+    rc.delivery_invoice_id === inv.id && rc.status !== 'cancelled'
+  );
+
   container.innerHTML = `
     <div class="panel">
       <div class="row">
@@ -141,6 +146,16 @@ function renderInvoicePreview(container) {
             <input type="checkbox" id="diShowDate" checked style="width:15px;height:15px;cursor:pointer" />
             ลงวันที่
           </label>
+          ${hasReceipt ? `
+          <span style="display:flex;align-items:center;gap:6px;font-size:13px;border:1px solid #fecaca;border-radius:8px;padding:6px 10px;background:#fef2f2;color:#991b1b" title="มีใบเสร็จอ้างอิงอยู่ — ต้องลบใบเสร็จก่อนถึงจะแก้วันที่ได้">
+            🔒 วันที่: ${dateTH(inv.created_at)} (ล็อก — มีใบเสร็จแล้ว)
+          </span>
+          ` : `
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;border:1px solid #e2e8f0;border-radius:8px;padding:6px 10px;background:#fffbeb" title="ยังไม่มีใบเสร็จ — แก้วันที่ได้">
+            <span>📅 วันที่เอกสาร:</span>
+            <input type="date" id="diEditDate" value="${(inv.created_at || new Date().toISOString()).slice(0,10)}" style="border:1px solid #d1d5db;border-radius:6px;padding:3px 6px;font-size:13px;cursor:pointer" />
+          </label>
+          `}
           <button id="diShareBtn" class="btn" style="background:#06C755;color:#fff">📤 แชร์</button>
           <button id="diPrintBtn" class="btn light">🖨️ พิมพ์</button>
           <button id="diPdfBtn" class="btn primary">📄 PDF</button>
@@ -288,6 +303,24 @@ function renderInvoicePreview(container) {
       diDateCell.textContent = diShowDate.checked ? dateTH(inv.created_at) : "..................................";
     });
   }
+
+  // ★ แก้วันที่เอกสาร — อนุญาตเมื่อไม่มีใบเสร็จอ้างอิง
+  document.getElementById("diEditDate")?.addEventListener("change", async (ev) => {
+    const newDate = ev.target.value;
+    if (!newDate) return;
+    const isoDate = newDate + "T00:00:00.000Z";
+    try {
+      const res = await window._appXhrPatch?.("delivery_invoices", { created_at: isoDate }, "id", inv.id);
+      if (res && res.ok === false) throw new Error(res.error?.message || "patch failed");
+      inv.created_at = isoDate;
+      if (diShowDate?.checked && diDateCell) diDateCell.textContent = dateTH(isoDate);
+      _ctx.showToast("อัปเดตวันที่เรียบร้อย ✓");
+    } catch (e) {
+      console.error("[delivery_invoices edit date] error:", e);
+      _ctx.showToast("❌ แก้วันที่ไม่สำเร็จ: " + (e.message || e));
+      ev.target.value = (inv.created_at || "").slice(0,10);
+    }
+  });
 
   document.getElementById("diShareBtn")?.addEventListener("click", () => {
     window._appShareDoc("diDocPreview", inv.inv_no || "invoice");
