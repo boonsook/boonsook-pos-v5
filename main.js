@@ -2236,6 +2236,9 @@ async function _applyStockMovement({ productId, warehouseId, movementType, qty, 
 // Expose ให้ stock_movements module เรียกได้
 window._appTransferWarehouseStock = _transferWarehouseStock;
 window._appApplyStockMovement = _applyStockMovement;
+// Expose ให้ pos.js doCheckout เรียกได้ (POS ใช้ flow แยกจาก main.js checkout)
+window._appDeductStockForSaleItem = _deductStockForSaleItem;
+window._appNotifySaleToLine = (payload) => _notifySaleToLine(payload);
 
 async function checkout(){
   if (!state.cart.length) return showToast("ยังไม่มีสินค้าในบิล");
