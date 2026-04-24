@@ -262,6 +262,7 @@ function renderView(ctx) {
           <button id="prodExportBtn" class="btn light" style="font-size:12px;padding:6px 10px">ส่งออก</button>
           <button id="prodGenAllBarcodesBtn" class="btn light" style="font-size:12px;padding:6px 10px" title="สร้างบาร์โค้ดให้สินค้านับสต็อกที่ยังไม่มี">สร้างบาร์โค้ด</button>
           <button id="prodPrintBarcodesBtn" class="btn light" style="font-size:12px;padding:6px 10px" title="พิมพ์สติ๊กเกอร์บาร์โค้ดหลายตัว">🖨️ พิมพ์บาร์โค้ด</button>
+          <button id="prodMergeCatBtn" class="btn light" style="font-size:12px;padding:6px 10px" title="ค้นหาและรวมหมวดหมู่ซ้ำ/ใกล้เคียง">🔗 รวมหมวดซ้ำ</button>
           <button id="prodDeleteAllBtn" class="btn light" style="font-size:12px;padding:6px 10px;color:#dc2626;border-color:#fca5a5" title="ลบสินค้าทั้งหมดเพื่อนำเข้าใหม่">ลบทั้งหมด</button>
           <button id="prodAddBtn" class="btn primary" style="font-size:12px;padding:6px 12px">+ เพิ่มสินค้า</button>
         </div>
@@ -479,6 +480,7 @@ function renderView(ctx) {
   el.querySelector("#prodGenAllBarcodesBtn")?.addEventListener("click", () => generateAllBarcodes(ctx));
   el.querySelector("#prodPrintBarcodesBtn")?.addEventListener("click", () => openBulkBarcodePrintModal(ctx));
   el.querySelector("#prodDeleteAllBtn")?.addEventListener("click", () => deleteAllProducts(ctx));
+  el.querySelector("#prodMergeCatBtn")?.addEventListener("click", () => openMergeCategoriesDialog(ctx));
   el.querySelector("#prodFileInput")?.addEventListener("change", (e) => {
     const file = e.target.files?.[0];
     if (file) importProducts(file, ctx);
@@ -1397,6 +1399,148 @@ function exportProducts(state) {
 }
 
 function showToastFn(msg) { window.App?.showToast?.(msg); }
+
+// ═══════════════════════════════════════════════════════════
+//  MERGE DUPLICATE CATEGORIES — auto-detect + manual merge
+// ═══════════════════════════════════════════════════════════
+// Normalize ชื่อหมวดเพื่อหาตัวใกล้เคียงกัน (ตัดวรรณยุกต์, ไม้หันอากาศ variations, ช่องว่าง)
+function _normalizeCat(s) {
+  return String(s || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/[\u200b\u200c\u200d\ufeff\u00ad]/g, "") // zero-width chars
+    .replace(/์/g, "") // การันต์
+    .replace(/[่้๊๋]/g, "") // วรรณยุกต์
+    .replace(/[อ๊อ๋]/g, "อ")
+    .replace(/โซล่า/g, "โซลาร์")
+    .replace(/โซล่าร์/g, "โซลาร์");
+}
+
+function _findDuplicateCategories(products) {
+  const groups = new Map();
+  for (const p of (products || [])) {
+    const c = String(p.category || "").trim();
+    if (!c) continue;
+    const key = _normalizeCat(c);
+    if (!key) continue;
+    if (!groups.has(key)) groups.set(key, { variants: new Map(), total: 0 });
+    const g = groups.get(key);
+    g.variants.set(c, (g.variants.get(c) || 0) + 1);
+    g.total += 1;
+  }
+  // เฉพาะกลุ่มที่มีมากกว่า 1 ชื่อ (= มี variants)
+  const dups = [];
+  for (const [key, g] of groups.entries()) {
+    if (g.variants.size > 1) {
+      const variants = [...g.variants.entries()].sort((a, b) => b[1] - a[1]);
+      dups.push({ key, variants, total: g.total });
+    }
+  }
+  return dups;
+}
+
+async function openMergeCategoriesDialog(ctx) {
+  const { state } = ctx;
+  const dups = _findDuplicateCategories(state.products || []);
+
+  if (dups.length === 0) {
+    showToastFn("ไม่พบหมวดซ้ำ/ใกล้เคียง 🎉");
+    return;
+  }
+
+  // Remove existing modal
+  document.getElementById("bskMergeCatModal")?.remove();
+  const modal = document.createElement("div");
+  modal.id = "bskMergeCatModal";
+  modal.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px";
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:16px;max-width:560px;width:100%;max-height:85vh;overflow-y:auto;padding:20px">
+      <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:12px">
+        <div>
+          <h3 style="margin:0">🔗 รวมหมวดหมู่ซ้ำ</h3>
+          <div style="font-size:12px;color:#64748b;margin-top:2px">พบ ${dups.length} กลุ่มที่มีชื่อใกล้เคียงกัน — เลือกชื่อที่จะเก็บ</div>
+        </div>
+        <button id="bskMergeClose" style="background:transparent;border:none;font-size:22px;cursor:pointer;color:#64748b">×</button>
+      </div>
+      <div id="bskMergeList" style="display:flex;flex-direction:column;gap:12px"></div>
+      <div style="display:flex;gap:8px;margin-top:16px;padding-top:12px;border-top:1px solid #e5e7eb">
+        <button id="bskMergeCancel" style="flex:1;padding:10px;border:1px solid #cbd5e1;background:#fff;border-radius:8px;cursor:pointer">ยกเลิก</button>
+        <button id="bskMergeApply" style="flex:1;padding:10px;border:none;background:#0284c7;color:#fff;border-radius:8px;cursor:pointer;font-weight:700">บันทึกการรวม</button>
+      </div>
+    </div>
+  `;
+  modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
+  document.body.appendChild(modal);
+
+  const listEl = modal.querySelector("#bskMergeList");
+  dups.forEach((g, idx) => {
+    const div = document.createElement("div");
+    div.style.cssText = "border:1px solid #e5e7eb;border-radius:10px;padding:12px;background:#f8fafc";
+    div.innerHTML = `
+      <div style="font-size:12px;color:#64748b;margin-bottom:6px">กลุ่มที่ ${idx+1} — รวม ${g.total} สินค้า</div>
+      <div style="font-weight:700;margin-bottom:8px;font-size:13px">เลือกชื่อที่จะเก็บ:</div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        ${g.variants.map(([name, count], i) => `
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+            <input type="radio" name="mergeGrp${idx}" value="${escHtml(name)}" ${i === 0 ? 'checked' : ''} />
+            <span style="flex:1">${escHtml(name)} <span style="color:#64748b;font-size:11px">(${count} สินค้า)</span></span>
+          </label>
+        `).join("")}
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;padding-top:4px;border-top:1px dashed #cbd5e1;margin-top:4px">
+          <input type="radio" name="mergeGrp${idx}" value="__skip__" />
+          <span style="color:#94a3b8">⊘ ไม่รวมกลุ่มนี้</span>
+        </label>
+      </div>
+    `;
+    listEl.appendChild(div);
+  });
+
+  modal.querySelector("#bskMergeClose").addEventListener("click", () => modal.remove());
+  modal.querySelector("#bskMergeCancel").addEventListener("click", () => modal.remove());
+  modal.querySelector("#bskMergeApply").addEventListener("click", async () => {
+    const applyBtn = modal.querySelector("#bskMergeApply");
+    applyBtn.disabled = true;
+    applyBtn.textContent = "กำลังรวม...";
+
+    let merged = 0, updated = 0;
+    const cfg = window.SUPABASE_CONFIG;
+    const accessToken = window._sbAccessToken || cfg.anonKey;
+
+    for (let i = 0; i < dups.length; i++) {
+      const keep = modal.querySelector(`input[name="mergeGrp${i}"]:checked`)?.value;
+      if (!keep || keep === "__skip__") continue;
+      merged++;
+
+      const g = dups[i];
+      const othersToReplace = g.variants.map(([n]) => n).filter(n => n !== keep);
+
+      // PATCH ทุกสินค้าที่ category ตรงกับ otherName → เปลี่ยนเป็น keep
+      for (const oldName of othersToReplace) {
+        const matchingProducts = (state.products || []).filter(p => (p.category || "") === oldName);
+        for (const p of matchingProducts) {
+          await new Promise((resolve) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open("PATCH", cfg.url + "/rest/v1/products?id=eq." + encodeURIComponent(p.id));
+            xhr.setRequestHeader("Content-Type", "application/json");
+            xhr.setRequestHeader("apikey", cfg.anonKey);
+            xhr.setRequestHeader("Authorization", "Bearer " + accessToken);
+            xhr.setRequestHeader("Prefer", "return=minimal");
+            xhr.timeout = 8000;
+            xhr.onload = () => { if (xhr.status >= 200 && xhr.status < 300) updated++; resolve(); };
+            xhr.onerror = () => resolve();
+            xhr.ontimeout = () => resolve();
+            xhr.send(JSON.stringify({ category: keep }));
+          });
+        }
+      }
+    }
+
+    modal.remove();
+    showToastFn(`รวมหมวดสำเร็จ ${merged} กลุ่ม • อัพเดต ${updated} สินค้า`);
+    if (window.App?.loadAllData) await window.App.loadAllData();
+  });
+}
 
 // ═══════════════════════════════════════════════════════════
 //  QR CODE — lazy-load qrcodejs from CDN, render in modal

@@ -9,7 +9,7 @@
   <link rel="icon" type="image/svg+xml" href="./icons/logo.svg" />
   <link rel="manifest" href="./manifest.json" />
   <link rel="apple-touch-icon" href="./icons/logo.svg" />
-  <link rel="stylesheet" href="./style.css?v=2" />
+  <link rel="stylesheet" href="./style.css?v=3" />
   <link rel="stylesheet" href="./doc-print.css" />
   <!-- ✨ Phase 4: Design System & Components (30/3/2569) -->
   <link rel="stylesheet" href="./phase4-design-system.css" />
@@ -188,7 +188,7 @@
 
       <!-- ═══ สินค้า / คลัง (กลุ่ม) ═══ -->
       <div class="nav-group" data-group="products">
-        <button class="nav-group-toggle">📦 สินค้า / คลัง <span class="nav-arrow">▶</span></button>
+        <button class="nav-group-toggle">📦 สินค้า / คลัง <span id="navLowStockBadge" class="low-stock-badge hidden"></span> <span class="nav-arrow">▶</span></button>
         <div class="nav-group-items">
           <button class="nav-btn sub" data-route="products">🏠 หน้าหลัก</button>
           <button class="nav-btn sub" data-route="wh_kunkhao">🚐 คันขาว</button>
@@ -383,6 +383,8 @@
     <div class="row mt16">
       <button id="saveCustomerBtn" class="btn btn-primary">บันทึก</button>
     </div>
+    <!-- ★ ประวัติการซื้อของลูกค้า — โผล่ตอนเปิดแก้ไข -->
+    <div id="customerPurchaseHistory" class="mt16 hidden"></div>
   </aside>
 
   <!-- ═══ QUOTATION — Form now rendered in-page by quotations.js module ═══ -->
@@ -432,10 +434,11 @@
       <button class="btn light" data-close-drawer aria-label="ปิด">ปิด</button>
     </div>
     <div id="receiptContent" class="card">ยังไม่มีบิลล่าสุด</div>
-    <div class="row mt16">
+    <div class="row mt16" style="flex-wrap:wrap;gap:6px">
       <button class="btn light" data-close-drawer>ปิด</button>
       <button id="printReceiptBtn" class="btn dark">พิมพ์</button>
       <button id="pdfReceiptBtn" class="btn btn-primary">PDF</button>
+      <button id="shareReceiptLineBtn" class="btn" style="background:#06c755;color:#fff;border:none" title="แชร์ใบเสร็จผ่าน Line">💬 แชร์ Line</button>
     </div>
   </aside>
 
@@ -467,7 +470,7 @@
     </div>
   </aside>
 
-  <script type="module" src="./main.js?v=18"></script>
+  <script type="module" src="./main.js?v=19"></script>
   <script>
     // ═══ Loading Overlay ═══
     function hideLoadingOverlay() {

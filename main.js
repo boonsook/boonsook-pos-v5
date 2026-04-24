@@ -1453,7 +1453,31 @@ async function loadAllData(){
 }
 
 function renderAll(){
+  _updateLowStockBadge();
   showRoute(state.currentRoute);
+}
+
+// ★ Low Stock Badge ใน sidebar — นับสินค้าที่สต็อก ≤ min_stock (และ > 0 = near / = 0 = out)
+function _updateLowStockBadge() {
+  const badge = $("navLowStockBadge");
+  if (!badge) return;
+  const products = (state.products || []).filter(p => {
+    const t = p.product_type || _detectType(p);
+    return t === "stock"; // นับเฉพาะสินค้านับสต็อกจริง (ไม่รวมบริการ / non-stock)
+  });
+  const lowOrOut = products.filter(p => {
+    const s = Number(p.stock || 0);
+    const m = Number(p.min_stock || 0);
+    return s <= 0 || (m > 0 && s <= m);
+  });
+  if (lowOrOut.length === 0) {
+    badge.classList.add("hidden");
+    badge.textContent = "";
+  } else {
+    badge.classList.remove("hidden");
+    badge.textContent = lowOrOut.length;
+    badge.title = `สต็อกใกล้หมด/หมด ${lowOrOut.length} รายการ`;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1785,7 +1809,90 @@ function openCustomerDrawer(customer=null){
   $("customerCompany").value = customer?.company || "";
   $("customerAddress").value = customer?.address || "";
   $("customerTaxId").value = customer?.tax_id || "";
+
+  // ★ แสดงประวัติการซื้อ — เฉพาะเวลาเปิดแก้ไข (มี customer)
+  _renderCustomerPurchaseHistory(customer);
+
   openDrawer("customerDrawer");
+}
+
+function _renderCustomerPurchaseHistory(customer) {
+  const el = $("customerPurchaseHistory");
+  if (!el) return;
+  if (!customer) { el.classList.add("hidden"); el.innerHTML = ""; return; }
+
+  const name = String(customer.name || "").trim();
+  const phone = String(customer.phone || "").replace(/\D/g, "");
+
+  // หา sales ที่ match ชื่อ หรือเบอร์ใน note
+  const sales = (state.sales || [])
+    .filter(s => !(s.note || "").includes("[ลบแล้ว]"))
+    .filter(s => {
+      const sName = String(s.customer_name || "").trim();
+      const sNote = String(s.note || "");
+      if (name && sName && sName === name) return true;
+      if (phone && (sNote.replace(/\D/g, "").includes(phone) || sName.includes(phone))) return true;
+      return false;
+    })
+    .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")))
+    .slice(0, 50);
+
+  if (sales.length === 0) {
+    el.classList.remove("hidden");
+    el.innerHTML = `
+      <div class="set-section-title">📋 ประวัติการซื้อ</div>
+      <div class="card" style="text-align:center;color:#94a3b8;padding:16px;font-size:13px">ยังไม่มีประวัติการซื้อ</div>
+    `;
+    return;
+  }
+
+  const totalSpent = sales.reduce((s, x) => s + Number(x.total_amount || 0), 0);
+  const avg = totalSpent / sales.length;
+  const firstBuy = sales[sales.length - 1]?.created_at;
+  const lastBuy = sales[0]?.created_at;
+
+  const fmtDate = (iso) => {
+    if (!iso) return "-";
+    const d = new Date(iso);
+    return d.toLocaleDateString("th-TH", { year: "2-digit", month: "short", day: "numeric" });
+  };
+
+  el.classList.remove("hidden");
+  el.innerHTML = `
+    <div class="set-section-title">📋 ประวัติการซื้อ (${sales.length} บิล)</div>
+    <div class="card" style="padding:12px;background:#f0f9ff;border-color:#bae6fd">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px">
+        <div>💰 <b>ยอดรวม:</b> ฿${totalSpent.toLocaleString("th-TH", {minimumFractionDigits:2})}</div>
+        <div>📊 <b>เฉลี่ย/บิล:</b> ฿${avg.toLocaleString("th-TH", {maximumFractionDigits:0})}</div>
+        <div>📅 <b>ซื้อครั้งแรก:</b> ${fmtDate(firstBuy)}</div>
+        <div>🕐 <b>ล่าสุด:</b> ${fmtDate(lastBuy)}</div>
+      </div>
+    </div>
+    <div style="max-height:260px;overflow-y:auto;margin-top:8px">
+      ${sales.map(s => `
+        <div class="card" style="padding:10px;margin-bottom:6px;cursor:pointer;border-color:#e5e7eb" data-cust-sale-id="${s.id}">
+          <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
+            <div>
+              <div style="font-weight:700;font-size:13px">${escapeHtml(s.order_no || "-")}</div>
+              <div style="font-size:11px;color:#64748b">${fmtDate(s.created_at)} • ${escapeHtml(s.payment_method || "-")}</div>
+            </div>
+            <div style="font-weight:700;color:#0284c7;font-size:14px">฿${Number(s.total_amount || 0).toLocaleString("th-TH", {minimumFractionDigits:2})}</div>
+          </div>
+        </div>
+      `).join("")}
+    </div>
+  `;
+
+  // คลิกบิลไหน → เปิดใบเสร็จนั้น
+  el.querySelectorAll("[data-cust-sale-id]").forEach(card => {
+    card.addEventListener("click", async () => {
+      const id = card.dataset.custSaleId;
+      if (!id) return;
+      closeAllDrawers();
+      await loadReceipt(id);
+      openReceiptDrawer();
+    });
+  });
 }
 async function saveCustomer(){
   const payload = {
@@ -2190,6 +2297,57 @@ async function checkout(){
   await loadAllData();
   openReceiptDrawer();
   showToast("บันทึกการขายเรียบร้อย");
+
+  // ═══ Line Notify: แจ้งขาย + เตือนสต็อกใกล้หมด ═══
+  _notifySaleToLine({ orderNo, cartSnapshot: salePayload, items: state.lastReceipt?.items || [] }).catch(e => console.warn("[lineNotify sale] skipped:", e?.message));
+}
+
+// ★ ส่ง Line Notify ให้เจ้าของร้าน — รายการขาย + เตือนสต็อกใกล้หมด
+async function _notifySaleToLine({ orderNo, cartSnapshot, items }) {
+  try {
+    const cfg = state?.lineNotifySettings;
+    if (!cfg || !cfg.is_active) return; // ปิด Line notify ไว้ → ข้าม
+
+    const lines = [];
+    lines.push(`💰 ขายสำเร็จ — ${orderNo}`);
+    lines.push(`ลูกค้า: ${cartSnapshot.customer_name || "ลูกค้าทั่วไป"}`);
+    lines.push(`ชำระ: ${cartSnapshot.payment_method || "เงินสด"}`);
+    lines.push(`───`);
+    (items || []).forEach(it => {
+      const q = Number(it.qty || 1);
+      const p = Number(it.unit_price || it.line_total || 0);
+      lines.push(`• ${it.product_name || "-"} x${q} = ฿${(q*p).toLocaleString("th-TH")}`);
+    });
+    lines.push(`───`);
+    lines.push(`💵 รวม: ฿${Number(cartSnapshot.total_amount || 0).toLocaleString("th-TH")}`);
+    if (Number(cartSnapshot.change_amount || 0) > 0) {
+      lines.push(`🪙 เงินทอน: ฿${Number(cartSnapshot.change_amount).toLocaleString("th-TH")}`);
+    }
+    lines.push(`👤 โดย: ${state.profile?.full_name || state.currentUser?.email || "POS"}`);
+
+    // ★ เตือนสต็อกใกล้หมด — เช็คจาก state ล่าสุดหลัง loadAllData
+    const lowStock = [];
+    for (const it of (items || [])) {
+      if (!it.product_id) continue;
+      const p = (state.products || []).find(x => String(x.id) === String(it.product_id));
+      if (!p || p.product_type === "service" || p.product_type === "non_stock") continue;
+      const cur = Number(p.stock || 0);
+      const min = Number(p.min_stock || 0);
+      if (cur <= 0) lowStock.push(`🔴 ${p.name}: หมดสต็อก`);
+      else if (min > 0 && cur <= min) lowStock.push(`🟡 ${p.name}: เหลือ ${cur} (ขั้นต่ำ ${min})`);
+    }
+    if (lowStock.length) {
+      lines.push(`───`);
+      lines.push(`⚠️ แจ้งเตือนสต็อก:`);
+      lowStock.forEach(l => lines.push(l));
+    }
+
+    const message = lines.join("\n");
+    const { sendLineNotify } = await import("./modules/line_notify.js");
+    await sendLineNotify(message, { state, showToast }, "default");
+  } catch (e) {
+    console.warn("[_notifySaleToLine] error:", e?.message || e);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2275,6 +2433,46 @@ function printLastReceipt(){
   const w = window.open("", "_blank");
   w.document.write(`<html><head><title>Receipt</title><style>body{font-family:sans-serif;padding:20px}.row{display:flex;justify-content:space-between;margin:4px 0}hr{margin:10px 0}</style></head><body>${$("receiptContent").innerHTML}</body></html>`);
   w.document.close(); w.focus(); w.print();
+}
+
+// ★ แชร์ใบเสร็จผ่าน Line — เปิด Line Share URL + copy text ไว้ด้วย
+function shareReceiptToLine() {
+  if (!state.lastReceipt) return showToast("ยังไม่มีบิลล่าสุด");
+  const r = state.lastReceipt;
+  const store = state.storeInfo?.name || "บุญสุข";
+  const lines = [];
+  lines.push(`🧾 ใบเสร็จ ${store}`);
+  lines.push(`เลขที่: ${r.order_no || "-"}`);
+  lines.push(`วันที่: ${new Date(r.created_at).toLocaleString("th-TH")}`);
+  lines.push(`ลูกค้า: ${r.customer_name || "ลูกค้าทั่วไป"}`);
+  lines.push(`ชำระ: ${r.payment_method || "เงินสด"}`);
+  lines.push("───");
+  (r.items || []).forEach(it => {
+    const q = Number(it.qty || 1), p = Number(it.unit_price || 0);
+    lines.push(`• ${it.product_name} x${q} = ฿${(q*p).toLocaleString("th-TH")}`);
+  });
+  lines.push("───");
+  lines.push(`รวม: ฿${Number(r.total_amount || 0).toLocaleString("th-TH")}`);
+  lines.push(`ขอบคุณที่ใช้บริการครับ 🙏`);
+  const text = lines.join("\n");
+
+  // Web Share API (มือถือ) — ส่งตรง Line ได้
+  if (navigator.share) {
+    navigator.share({ text, title: `ใบเสร็จ ${r.order_no}` }).catch(() => {/* user cancelled */});
+    return;
+  }
+
+  // Fallback: เปิด Line Share URL ใน browser
+  const shareUrl = `https://line.me/R/msg/text/?${encodeURIComponent(text)}`;
+  window.open(shareUrl, "_blank");
+
+  // Copy ไว้เผื่อ user paste เอง
+  try {
+    navigator.clipboard?.writeText(text);
+    showToast("คัดลอกใบเสร็จแล้ว + เปิด Line ให้");
+  } catch(e) {
+    showToast("เปิด Line แล้ว");
+  }
 }
 function exportReceiptPdf(){
   if (!state.lastReceipt) return showToast("ยังไม่มีบิลล่าสุด");
@@ -2554,6 +2752,7 @@ function bindStaticEvents(){
   $("saveServiceJobBtn")?.addEventListener("click", saveServiceJob);
   $("printReceiptBtn")?.addEventListener("click", printLastReceipt);
   $("pdfReceiptBtn")?.addEventListener("click", exportReceiptPdf);
+  $("shareReceiptLineBtn")?.addEventListener("click", shareReceiptToLine);
   $("addNewUserBtn")?.addEventListener("click", addNewUser);
   $("setPasswordBtn")?.addEventListener("click", submitNewPassword);
   $("setPwConfirm")?.addEventListener("keydown", (e) => { if (e.key === "Enter") submitNewPassword(); });

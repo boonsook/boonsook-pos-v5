@@ -111,7 +111,37 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
   const monthExpenseTotal = expenses.filter(e => String(e.expense_date||"").slice(0,7) === thisMonth).reduce((s,x)=>s+Number(x.amount||0),0);
   const monthNetProfit = monthRevenue - monthExpenseTotal;
 
-  const lowStock = state.products.filter(p => Number(p.stock||0) <= Number(p.min_stock||0));
+  // ★ นับเฉพาะสินค้านับสต็อกจริง (ไม่รวมบริการ / non-stock)
+  const _isStockItem = (p) => {
+    const t = p.product_type;
+    if (t === "service" || t === "non_stock") return false;
+    return true;
+  };
+  const lowStock = state.products.filter(p => {
+    if (!_isStockItem(p)) return false;
+    const s = Number(p.stock || 0);
+    const m = Number(p.min_stock || 0);
+    return s <= 0 || (m > 0 && s <= m);
+  }).sort((a, b) => Number(a.stock || 0) - Number(b.stock || 0));
+
+  // ★ Top 5 สินค้าขายดี (30 วันล่าสุด)
+  const last30Key = (() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toLocaleDateString("en-CA"); })();
+  const recentSales = allSales.filter(s => String(s.created_at || "").slice(0, 10) >= last30Key);
+  const salesMap = new Map();
+  (state.saleItems || []).forEach(it => {
+    const saleExists = recentSales.some(s => String(s.id) === String(it.sale_id));
+    if (!saleExists) return;
+    const pid = it.product_id;
+    if (!pid) return;
+    const prev = salesMap.get(pid) || { qty: 0, revenue: 0, name: it.product_name };
+    prev.qty += Number(it.qty || 0);
+    prev.revenue += Number(it.line_total || (Number(it.qty||0) * Number(it.unit_price||0)));
+    salesMap.set(pid, prev);
+  });
+  const topSellers = [...salesMap.entries()]
+    .map(([pid, v]) => ({ pid, ...v }))
+    .sort((a, b) => b.qty - a.qty)
+    .slice(0, 5);
   const activeJobs = state.serviceJobs.filter(j => ["open","in_progress","pending","progress"].includes(j.status) && !j.deleted_at && !((j.note||"").includes("[ลบแล้ว]"))).length;
 
   // ═══ ออเดอร์ใหม่จาก AI Sales / AC Shop ═══
@@ -210,6 +240,56 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
       <div class="stat-card dash-clickable" data-go="customers" title="ไปหน้าลูกค้า"><div class="stat-label">ลูกค้าทั้งหมด</div><div class="stat-value" style="font-size:16px">${state.customers.length}</div></div>
       <div class="stat-card dash-clickable" data-go="quotations" title="ไปหน้าใบเสนอราคา"><div class="stat-label">ใบเสนอราคา</div><div class="stat-value" style="font-size:16px">${state.quotations.length}</div></div>
       <div class="stat-card dash-clickable" data-go="service_jobs" title="ไปหน้างานช่าง"><div class="stat-label">ออเดอร์แอร์ค้าง</div><div class="stat-value" style="font-size:16px;color:#f59e0b">${pendingOrders.length}</div></div>
+    </div>
+
+    <!-- ═══ LOW STOCK + TOP SELLERS (2 columns) ═══ -->
+    <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(340px,1fr))">
+      <!-- Low Stock Widget -->
+      <div class="stat-card" style="padding:14px;border-left:4px solid ${lowStock.length ? '#ef4444' : '#10b981'}">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="font-weight:800;color:${lowStock.length ? '#b91c1c' : '#065f46'}">${lowStock.length ? '⚠️' : '✅'} สต็อกใกล้หมด ${lowStock.length ? `(${lowStock.length})` : ''}</div>
+          ${lowStock.length ? `<button class="btn light dash-go-products" style="font-size:11px;padding:4px 8px">ไปจัดการ →</button>` : ''}
+        </div>
+        ${lowStock.length === 0 ? `
+          <div style="color:#64748b;font-size:12px;text-align:center;padding:16px 0">ทุกอย่างมีสต็อกพร้อม 🎉</div>
+        ` : `
+          <div style="max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:4px">
+            ${lowStock.slice(0, 10).map(p => {
+              const s = Number(p.stock || 0);
+              const m = Number(p.min_stock || 0);
+              const color = s <= 0 ? '#dc2626' : '#f59e0b';
+              const label = s <= 0 ? 'หมด' : `${s} / ${m}`;
+              return `
+              <div class="dash-low-stock-row" data-pid="${p.id}" style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:#f8fafc;border-radius:6px;cursor:pointer;font-size:12px">
+                <div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(p.name)}</div>
+                <div style="color:${color};font-weight:700;margin-left:8px">${label}</div>
+              </div>
+            `;}).join("")}
+            ${lowStock.length > 10 ? `<div style="text-align:center;color:#64748b;font-size:11px;padding:4px">+ อีก ${lowStock.length - 10} รายการ</div>` : ''}
+          </div>
+        `}
+      </div>
+
+      <!-- Top Sellers Widget -->
+      <div class="stat-card" style="padding:14px;border-left:4px solid #7c3aed">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="font-weight:800;color:#6d28d9">🏆 สินค้าขายดี 30 วันล่าสุด</div>
+        </div>
+        ${topSellers.length === 0 ? `
+          <div style="color:#64748b;font-size:12px;text-align:center;padding:16px 0">ยังไม่มีข้อมูลการขาย</div>
+        ` : `
+          <div style="display:flex;flex-direction:column;gap:4px">
+            ${topSellers.map((t, i) => `
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:#faf5ff;border-radius:6px;font-size:12px">
+                <div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                  <span style="color:#7c3aed;font-weight:700">#${i+1}</span> ${escapeHtml(t.name || "-")}
+                </div>
+                <div style="color:#7c3aed;font-weight:700;margin-left:8px;white-space:nowrap">${t.qty} ชิ้น · ฿${moneyShort(t.revenue)}</div>
+              </div>
+            `).join("")}
+          </div>
+        `}
+      </div>
     </div>
 
     <!-- ═══ PENDING ORDERS ═══ -->
@@ -422,6 +502,19 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
       }
     });
   });
+
+  // ★ Low-stock widget: คลิก row → เปิด drawer แก้สินค้า, ปุ่ม "ไปจัดการ" → ไปหน้าสินค้า
+  document.querySelectorAll(".dash-go-products").forEach(b => b.addEventListener("click", (e) => {
+    e.stopPropagation();
+    showRoute("products");
+  }));
+  document.querySelectorAll(".dash-low-stock-row").forEach(row => row.addEventListener("click", () => {
+    const pid = row.dataset.pid;
+    const prod = (state.products || []).find(x => String(x.id) === String(pid));
+    if (!prod) return;
+    if (window.App?.openProductDrawer) window.App.openProductDrawer(prod);
+    else showRoute("products");
+  }));
 
   // ── Period tabs ──
   document.querySelectorAll(".dash-period-btn").forEach(btn => btn.addEventListener("click", () => {
