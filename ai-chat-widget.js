@@ -212,6 +212,12 @@
   }
   #bs-ai-fab:hover { transform: translateY(-2px); }
   #bs-ai-fab.hidden { display: none; }
+  /* ★ ซ่อน FAB เมื่อมี drawer/modal เปิดอยู่ (กันบังปุ่มบันทึก) */
+  body:has(#backdrop:not(.hidden)) #bs-ai-fab,
+  body:has(.drawer:not(.hidden)) #bs-ai-fab,
+  body:has(#bskQrModal) #bs-ai-fab,
+  body:has(#sm-modal:not(.sm-modal-hidden)) #bs-ai-fab,
+  body:has(#sm-transfer-modal:not(.sm-modal-hidden)) #bs-ai-fab { display: none !important; }
   @media (max-width: 480px) {
     #bs-ai-modal {
       right: 0; bottom: 0; width: 100vw; height: 100vh;
@@ -257,6 +263,22 @@
     document.getElementById("bs-ai-fab").addEventListener("click", open);
     document.getElementById("bs-ai-close").addEventListener("click", close);
     document.getElementById("bs-ai-backdrop").addEventListener("click", close);
+
+    // ★ JS fallback สำหรับ browser ที่ไม่รองรับ CSS :has() — ซ่อน FAB เมื่อ drawer เปิด
+    try {
+      const supportsHas = CSS.supports?.("selector(:has(*))");
+      if (!supportsHas) {
+        const fab = document.getElementById("bs-ai-fab");
+        const observer = new MutationObserver(() => {
+          const backdropOpen = document.getElementById("backdrop") && !document.getElementById("backdrop").classList.contains("hidden");
+          const drawerOpen = Array.from(document.querySelectorAll(".drawer")).some(d => !d.classList.contains("hidden"));
+          if (fab) fab.style.display = (backdropOpen || drawerOpen) ? "none" : "";
+        });
+        const backdrop = document.getElementById("backdrop");
+        if (backdrop) observer.observe(backdrop, { attributes: true, attributeFilter: ["class"] });
+        document.querySelectorAll(".drawer").forEach(d => observer.observe(d, { attributes: true, attributeFilter: ["class"] }));
+      }
+    } catch(e){ /* ignore */ }
     document.getElementById("bs-ai-restart-header").addEventListener("click", () => {
       // ถ้ายังไม่มีประวัติ ไม่ต้องถาม — restart เลย
       if (!state.history.length) { restart(); return; }
