@@ -24,7 +24,7 @@
   const MAIN_MENU = [
     {
       key: "ac",
-      label: "🛠️ งานแอร์ / เครื่องใช้ไฟฟ้า",
+      label: "🛠️ แจ้งซ่อมและบริการ",
       subs: [
         "ซ่อมแอร์",
         "ล้างแอร์",
@@ -47,6 +47,16 @@
         "ติดตั้งชุดไฮบริดโซล่าเซลล์",
         "ซ่อม & เซอร์วิสระบบโซล่าเซลล์",
         "งานโซล่าเซลล์อื่นๆ",
+      ],
+    },
+    {
+      // ★ หมวด Error Code — sub เป็น object { label, redirect } ไปหน้า error code เครื่องนั้น
+      key: "error_codes",
+      label: "⚠️ Error Code",
+      subs: [
+        { label: "⚠️ Error Code แอร์", redirect: "error_codes" },
+        { label: "🧊 Error Code ตู้เย็น", redirect: "error_codes_fridge" },
+        { label: "🧺 Error Code เครื่องซักผ้า", redirect: "error_codes_washer" },
       ],
     },
     {
@@ -230,6 +240,7 @@
             ผู้ช่วย AI บุญสุขแอร์
             <small>แตะเลือกบริการ — หรือพิมพ์อาการก็ได้</small>
           </div>
+          <button id="bs-ai-restart-header" aria-label="เริ่มสนทนาใหม่" title="เริ่มสนทนาใหม่" style="background:transparent;border:none;color:#fff;font-size:18px;cursor:pointer;padding:6px 8px;margin-right:2px">↻</button>
           <button id="bs-ai-close" aria-label="ปิด">✕</button>
         </div>
         <div id="bs-ai-body"></div>
@@ -246,6 +257,11 @@
     document.getElementById("bs-ai-fab").addEventListener("click", open);
     document.getElementById("bs-ai-close").addEventListener("click", close);
     document.getElementById("bs-ai-backdrop").addEventListener("click", close);
+    document.getElementById("bs-ai-restart-header").addEventListener("click", () => {
+      // ถ้ายังไม่มีประวัติ ไม่ต้องถาม — restart เลย
+      if (!state.history.length) { restart(); return; }
+      if (confirm("ต้องการเริ่มสนทนาใหม่หรือไม่? (ข้อมูลที่คุยมาจะหายทั้งหมด)")) restart();
+    });
     document.getElementById("bs-ai-send").addEventListener("click", () => send());
     document.getElementById("bs-ai-input").addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey) {
@@ -327,22 +343,40 @@
   }
 
   // แสดงปุ่ม chip ให้ลูกค้าแตะเลือก
+  // items: array ของ string หรือ object { label, redirect }
   function pushChips(items) {
     if (!items || !items.length) return;
     const body = document.getElementById("bs-ai-body");
     const wrap = document.createElement("div");
     wrap.className = "bs-chips";
-    items.forEach((txt) => {
+    items.forEach((item) => {
+      const isObj = typeof item === "object" && item !== null;
+      const label = isObj ? item.label : item;
+      const redirect = isObj ? item.redirect : null;
+
       const btn = document.createElement("button");
       btn.className = "bs-chip";
       btn.type = "button";
-      btn.textContent = txt;
+      btn.textContent = label;
       btn.onclick = () => {
         if (state.loading) return;
-        // mark selected
         btn.classList.add("selected");
+        wrap.querySelectorAll("button").forEach((b) => (b.disabled = true));
+
+        if (redirect) {
+          pushMsg("user", label);
+          pushMsg("ai", `กำลังพาไปหน้า ${label} ให้ครับ...`);
+          setTimeout(() => {
+            close();
+            const navBtn = document.querySelector(`[data-route="${redirect}"]`);
+            if (navBtn) navBtn.click();
+            else if (window.App?.showRoute) window.App.showRoute(redirect);
+          }, 500);
+          return;
+        }
+
         // ส่งข้อความให้ AI
-        send(txt);
+        send(label);
       };
       wrap.appendChild(btn);
     });
