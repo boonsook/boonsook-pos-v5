@@ -848,10 +848,16 @@ function showRoute(route){
 
   // ★ บันทึก route ล่าสุดไว้ใน localStorage + URL hash เพื่อกดรีเฟรชแล้วอยู่หน้าเดิม
   try { localStorage.setItem("bsk_last_route", route); } catch(e){}
+  // ★ รักษา query string ไว้ใน hash (เช่น #products?cat=X&addNew=1)
+  //    ถ้า route ตรงกับ hash ปัจจุบัน deep link params จะคงอยู่ให้ page parser อ่านได้
+  const curHash = location.hash || "";
+  const curMainRoute = (curHash.replace("#","").split('/')[0] || "").split('?')[0];
+  const curQuery = curHash.includes("?") ? "?" + curHash.split("?")[1] : "";
+  const keepQuery = (curMainRoute === route) ? curQuery : "";
   if (history.replaceState) {
-    history.replaceState(null, "", "#" + route);
+    history.replaceState(null, "", "#" + route + keepQuery);
   } else {
-    location.hash = route;
+    location.hash = route + keepQuery;
   }
 
   // Toggle page sections
@@ -1327,8 +1333,8 @@ async function afterLogin(){
   // ★★★ อ่าน route ที่เก็บไว้ก่อน loadAllData จะ overwrite hash/localStorage ★★★
   const allowed = allowedPages();
   const fullHash = (location.hash || "").replace("#", "");
-  // ✅ Extract main route: "settings/store" → "settings"
-  const mainRouteFromHash = fullHash.split('/')[0] || "";
+  // ✅ Extract main route: "settings/store" → "settings", "products?cat=X" → "products"
+  const mainRouteFromHash = (fullHash.split('/')[0] || "").split('?')[0];
   const hashRoute = mainRouteFromHash || fullHash;
   const savedRoute = hashRoute || (function(){ try { return localStorage.getItem("bsk_last_route"); } catch(e){ return null; } })();
   const restorePage = (savedRoute && allowed.includes(savedRoute)) ? savedRoute : (allowed[0] || "dashboard");
@@ -1453,7 +1459,7 @@ function renderAll(){
 // ═══════════════════════════════════════════════════════════
 //  PRODUCT DRAWER
 // ═══════════════════════════════════════════════════════════
-function openProductDrawer(product=null){
+function openProductDrawer(product=null, opts={}){
   if (!requireAdminOrSales()) return showToast("สิทธิ์ไม่พอ");
   state.editingProductId = product?.id || null;
   setText("productDrawerTitle", product ? "แก้ไขสินค้า" : "เพิ่มสินค้า");
@@ -1463,7 +1469,7 @@ function openProductDrawer(product=null){
   if ($("newProductType")) $("newProductType").value = pType;
   $("newProductName").value = product?.name || "";
   $("newProductSku").value = product?.sku || "";
-  $("newProductCategory").value = product?.category || "";
+  $("newProductCategory").value = product?.category || opts?.prefillCategory || "";
   $("newProductPrice").value = product?.price || "";
   $("newProductCost").value = product?.cost || "";
   $("newProductBarcode").value = product?.barcode || "";
@@ -2325,7 +2331,8 @@ function bindStaticEvents(){
 
   // ★ รองรับปุ่ม Back/Forward ของ browser
   window.addEventListener("hashchange", () => {
-    const hashRoute = (location.hash || "").replace("#", "");
+    const raw = (location.hash || "").replace("#", "");
+    const hashRoute = (raw.split('/')[0] || "").split('?')[0];
     if (hashRoute && hashRoute !== state.currentRoute && ALL_ROUTES.includes(hashRoute)) {
       showRoute(hashRoute);
     }
