@@ -870,6 +870,13 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
         if (!itemRes.ok) {
           console.error("[POS] sale_items failed:", itemRes.error);
         }
+
+        // ★ ตัดสต็อก — call helper จาก main.js
+        try {
+          if (window._appDeductStockForSaleItem && prodRef) {
+            await window._appDeductStockForSaleItem({ product: prodRef, qty: Number(item.qty) || 0, orderNo });
+          }
+        } catch(e) { console.warn("[POS] deduct stock failed:", e?.message || e); }
       }
     }
 
@@ -907,6 +914,14 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
     window.App?.showToast?.("บันทึกการขายเรียบร้อย ✅");
     try { openReceiptDrawer(); } catch (e) { console.warn("openReceiptDrawer error:", e); }
     try { if (window.App?.loadAllData) await window.App.loadAllData(); } catch (e) { console.warn("[pos] loadAllData after checkout failed:", e); }
+
+    // ★ ส่ง Line Notify ให้เจ้าของ (async — ไม่รอ)
+    try {
+      if (window._appNotifySaleToLine) {
+        const items = state.lastReceipt?.items || [];
+        window._appNotifySaleToLine({ orderNo, cartSnapshot: salePayload, items }).catch(e => console.warn("[POS] line notify:", e?.message));
+      }
+    } catch(e) { console.warn("[POS] notify error:", e?.message); }
 
   } catch (err) {
     window.App?.showToast?.("เกิดข้อผิดพลาด: " + (err.message || err));
