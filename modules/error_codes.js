@@ -509,133 +509,30 @@ const ERROR_DB = {
   }
 };
 
-const BRANDS = Object.keys(ERROR_DB);
-
-function escHtml(s) {
-  if (s == null) return "";
-  return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#039;" }[c]));
-}
+import { renderErrorExplorer } from "./error_codes_shared.js";
 
 export function renderErrorCodesPage(ctx) {
-  const container = document.getElementById("page-error_codes");
-  if (!container) return;
-
-  container.innerHTML = `
-    <div style="max-width:900px;margin:0 auto;padding:8px">
-      <div class="hero" style="text-align:center;padding:24px 16px;margin-bottom:20px;background:linear-gradient(135deg,#fee2e2,#fef3c7);border-radius:16px">
-        <div style="font-size:48px;margin-bottom:8px">⚠️</div>
-        <h2 style="margin:0 0 4px;color:#b91c1c">Error Code แอร์</h2>
-        <p style="margin:0;color:#92400e;font-size:14px">ค้นหารหัสข้อผิดพลาดตามยี่ห้อ — วิเคราะห์ปัญหาเบื้องต้น</p>
-      </div>
-
-      <!-- ═══ Search Bar ═══ -->
-      <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
-        <select id="ecBrandSelect" style="flex:1;min-width:140px;padding:10px 12px;border:1px solid #d1d5db;border-radius:10px;font-size:15px;background:#fff">
-          <option value="">— เลือกยี่ห้อ —</option>
-          ${BRANDS.map(b => `<option value="${b}">${b}</option>`).join("")}
-        </select>
-        <input id="ecSearchInput" type="text" placeholder="พิมพ์รหัส เช่น E1, F3, CH02..." style="flex:2;min-width:160px;padding:10px 12px;border:1px solid #d1d5db;border-radius:10px;font-size:15px" />
-      </div>
-
-      <!-- ═══ Quick brand buttons ═══ -->
-      <div id="ecBrandBtns" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px">
-        ${BRANDS.map(b => `<button class="ec-brand-btn" data-brand="${b}" style="padding:6px 14px;border:2px solid #e5e7eb;border-radius:20px;background:#fff;cursor:pointer;font-size:13px;font-weight:600;transition:all .2s">${b}</button>`).join("")}
-      </div>
-
-      <!-- ═══ Results ═══ -->
-      <div id="ecResults"></div>
-
-      <!-- ═══ Tips Section ═══ -->
-      <div style="margin-top:24px;padding:16px;background:#f0fdf4;border-radius:12px;border:1px solid #bbf7d0">
-        <h3 style="margin:0 0 8px;color:#166534;font-size:15px">💡 เคล็ดลับก่อนเรียกช่าง</h3>
-        <div style="font-size:13px;color:#15803d;line-height:1.7">
-          1. <b>รีเซ็ตแอร์</b> — ถอดปลั๊ก 30 วินาที แล้วเสียบใหม่<br>
-          2. <b>ล้างฟิลเตอร์</b> — ฟิลเตอร์สกปรกเป็นสาเหตุหลักของ E6, F17<br>
-          3. <b>เช็คสายสัญญาณ</b> — สายหลวมทำให้เกิด Error สื่อสารตัวใน-นอก<br>
-          4. <b>บันทึกรหัส</b> — จดรหัส Error + กดถ่ายรูปไว้แจ้งช่าง<br>
-          5. <b>แจ้งซ่อม</b> — หากแก้ไม่ได้ กดแจ้งซ่อมผ่านระบบได้เลย
-        </div>
-      </div>
-    </div>
-  `;
-
-  const brandSelect = container.querySelector("#ecBrandSelect");
-  const searchInput = container.querySelector("#ecSearchInput");
-  const brandBtns = container.querySelectorAll(".ec-brand-btn");
-  const resultsDiv = container.querySelector("#ecResults");
-
-  function renderResults() {
-    const brand = brandSelect.value;
-    const query = searchInput.value.trim().toUpperCase();
-
-    if (!brand && !query) {
-      resultsDiv.innerHTML = `<div style="text-align:center;padding:40px 16px;color:#9ca3af"><div style="font-size:40px;margin-bottom:8px">🔍</div>เลือกยี่ห้อ หรือ พิมพ์รหัส Error เพื่อค้นหา</div>`;
-      return;
+  renderErrorExplorer({
+    containerId: "page-error_codes",
+    db: ERROR_DB,
+    hero: {
+      icon: "⚠️",
+      title: "Error Code แอร์",
+      subtitle: "ค้นหารหัสข้อผิดพลาดตามยี่ห้อ — วิเคราะห์ปัญหาเบื้องต้น",
+      gradient: "linear-gradient(135deg,#fee2e2,#fef3c7)",
+      titleColor: "#b91c1c",
+      subtitleColor: "#92400e"
+    },
+    placeholder: "พิมพ์รหัส เช่น E1, F3, CH02...",
+    tips: {
+      title: "💡 เคล็ดลับก่อนเรียกช่าง",
+      html: `
+        1. <b>รีเซ็ตแอร์</b> — ถอดปลั๊ก 30 วินาที แล้วเสียบใหม่<br>
+        2. <b>ล้างฟิลเตอร์</b> — ฟิลเตอร์สกปรกเป็นสาเหตุหลักของ E6, F17<br>
+        3. <b>เช็คสายสัญญาณ</b> — สายหลวมทำให้เกิด Error สื่อสารตัวใน-นอก<br>
+        4. <b>บันทึกรหัส</b> — จดรหัส Error + กดถ่ายรูปไว้แจ้งช่าง<br>
+        5. <b>แจ้งซ่อม</b> — หากแก้ไม่ได้ กดแจ้งซ่อมผ่านระบบได้เลย
+      `
     }
-
-    let results = [];
-
-    if (brand) {
-      // Search within selected brand
-      const codes = ERROR_DB[brand] || {};
-      for (const [code, info] of Object.entries(codes)) {
-        if (!query || code.toUpperCase().includes(query)) {
-          results.push({ brand, code, ...info });
-        }
-      }
-    } else {
-      // Search across all brands
-      for (const [b, codes] of Object.entries(ERROR_DB)) {
-        for (const [code, info] of Object.entries(codes)) {
-          if (code.toUpperCase().includes(query)) {
-            results.push({ brand: b, code, ...info });
-          }
-        }
-      }
-    }
-
-    if (results.length === 0) {
-      resultsDiv.innerHTML = `<div style="text-align:center;padding:40px 16px;color:#9ca3af"><div style="font-size:40px;margin-bottom:8px">😕</div>ไม่พบรหัส "${escHtml(query)}" ${brand ? "ในยี่ห้อ " + escHtml(brand) : ""}<br><small>ลองค้นหาด้วยรหัสอื่น หรือ ติดต่อช่างโดยตรง</small></div>`;
-      return;
-    }
-
-    resultsDiv.innerHTML = `
-      <div style="font-size:13px;color:#6b7280;margin-bottom:8px">พบ ${results.length} รายการ</div>
-      ${results.map(r => `
-        <div style="border:1px solid #e5e7eb;border-radius:12px;padding:14px;margin-bottom:10px;background:#fff;transition:box-shadow .2s" onmouseover="this.style.boxShadow='0 4px 12px rgba(0,0,0,0.08)'" onmouseout="this.style.boxShadow='none'">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
-            <span style="background:#ef4444;color:#fff;padding:4px 12px;border-radius:8px;font-weight:700;font-size:15px;font-family:monospace">${r.code}</span>
-            <span style="background:#f3f4f6;padding:3px 10px;border-radius:6px;font-size:12px;color:#4b5563;font-weight:600">${r.brand}</span>
-          </div>
-          <div style="font-weight:600;color:#1f2937;margin-bottom:6px;font-size:14px">${r.desc}</div>
-          <div style="display:grid;gap:4px;font-size:13px;color:#4b5563">
-            <div><span style="color:#dc2626;font-weight:600">สาเหตุ:</span> ${r.cause}</div>
-            <div><span style="color:#059669;font-weight:600">วิธีแก้:</span> ${r.fix}</div>
-          </div>
-        </div>
-      `).join("")}
-    `;
-  }
-
-  brandSelect.addEventListener("change", () => {
-    brandBtns.forEach(b => b.style.borderColor = b.dataset.brand === brandSelect.value ? "#3b82f6" : "#e5e7eb");
-    brandBtns.forEach(b => b.style.background = b.dataset.brand === brandSelect.value ? "#eff6ff" : "#fff");
-    renderResults();
   });
-
-  searchInput.addEventListener("input", renderResults);
-
-  brandBtns.forEach(btn => {
-    btn.addEventListener("click", () => {
-      brandSelect.value = btn.dataset.brand;
-      brandBtns.forEach(b => {
-        b.style.borderColor = b === btn ? "#3b82f6" : "#e5e7eb";
-        b.style.background = b === btn ? "#eff6ff" : "#fff";
-      });
-      renderResults();
-    });
-  });
-
-  // Initial render
-  renderResults();
 }

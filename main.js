@@ -22,6 +22,8 @@ import { renderServiceRequestPage } from "./modules/service_request.js";
 import { renderSolarPage } from "./modules/solar.js";
 import { renderAcInstallPage } from "./modules/ac_install.js";
 import { renderErrorCodesPage } from "./modules/error_codes.js";
+import { renderErrorCodesFridgePage } from "./modules/error_codes_fridge.js";
+import { renderErrorCodesWasherPage } from "./modules/error_codes_washer.js";
 import { renderAiSalesPage } from "./modules/ai_sales.js";
 import { renderAcShopPage } from "./modules/ac_shop.js";
 import "./modules/doc-override.js";
@@ -794,12 +796,12 @@ function isLowStock(product){ return Number(product.stock||0) <= Number(product.
 // ═══════════════════════════════════════════════════════════
 //  ROLE-BASED ACCESS CONTROL (4 กลุ่ม)
 // ═══════════════════════════════════════════════════════════
-const ALL_ROUTES = ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","service_jobs","settings","expenses","profit_report","stock_movements","calendar","loyalty","customer_dashboard","btu_calculator","service_request","solar","ac_install","error_codes","ai_sales","ac_shop"];
+const ALL_ROUTES = ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","service_jobs","settings","expenses","profit_report","stock_movements","calendar","loyalty","customer_dashboard","btu_calculator","service_request","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"];
 const ROLE_PAGES = {
   admin:      ALL_ROUTES,
-  technician: ["dashboard","pos","service_jobs","customers","receipts","calendar","btu_calculator","solar","ac_install","error_codes","ai_sales","ac_shop"],
-  sales:      ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","settings","expenses","profit_report","stock_movements","calendar","loyalty","btu_calculator","solar","ac_install","error_codes","ai_sales","ac_shop"],
-  customer:   ["customer_dashboard","btu_calculator","service_request","error_codes","ai_sales","ac_shop"]
+  technician: ["dashboard","pos","service_jobs","customers","receipts","calendar","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"],
+  sales:      ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","settings","expenses","profit_report","stock_movements","calendar","loyalty","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"],
+  customer:   ["customer_dashboard","btu_calculator","service_request","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"]
 };
 const ROLE_LABELS = {
   admin: "ผู้ดูแลระบบ",
@@ -885,6 +887,8 @@ function showRoute(route){
     solar:"งานโซล่าเซลล์",
     ac_install:"ใบงานติดตั้งแอร์",
     error_codes:"Error Code แอร์",
+    error_codes_fridge:"Error Code ตู้เย็น",
+    error_codes_washer:"Error Code เครื่องซักผ้า",
     ai_sales:"AI ผู้ช่วยขายแอร์",
     ac_shop:"แอร์ใหม่พร้อมติดตั้ง"
   };
@@ -915,6 +919,8 @@ function showRoute(route){
   if (route === "solar") renderSolarPage(ctx);
   if (route === "ac_install") renderAcInstallPage(ctx);
   if (route === "error_codes") renderErrorCodesPage(ctx);
+  if (route === "error_codes_fridge") renderErrorCodesFridgePage(ctx);
+  if (route === "error_codes_washer") renderErrorCodesWasherPage(ctx);
   if (route === "ai_sales") renderAiSalesPage(ctx);
   if (route === "ac_shop") renderAcShopPage(ctx);
 
