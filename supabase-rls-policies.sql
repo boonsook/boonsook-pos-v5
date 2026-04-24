@@ -198,6 +198,27 @@ CREATE POLICY "auth_all_stock_movements"
   USING (true)
   WITH CHECK (true);
 
+-- ───────── warehouses + warehouse_stock ─────────
+-- (ถ้ายังไม่ได้เปิด RLS / ยังไม่มี policy — UPDATE จะถูก block เงียบๆ)
+ALTER TABLE IF EXISTS public.warehouses      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.warehouse_stock ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "auth_all_warehouses" ON public.warehouses;
+CREATE POLICY "auth_all_warehouses"
+  ON public.warehouses
+  FOR ALL
+  TO authenticated
+  USING (true)
+  WITH CHECK (true);
+
+DROP POLICY IF EXISTS "auth_all_warehouse_stock" ON public.warehouse_stock;
+CREATE POLICY "auth_all_warehouse_stock"
+  ON public.warehouse_stock
+  FOR ALL
+  TO authenticated
+  USING (true)
+  WITH CHECK (true);
+
 
 -- ═══════════════════════════════════════════════════════════════
 -- 3) Policies สำหรับ customer (OTP login) — ลูกค้าสั่งซื้อผ่านเว็บ
