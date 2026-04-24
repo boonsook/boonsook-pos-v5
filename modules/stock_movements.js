@@ -116,8 +116,9 @@ export function renderStockMovementsPage(ctx) {
         </div>
       </div>
 
-      <div class="mt16">
+      <div class="mt16" style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-primary" id="sm-add-btn" aria-label="เพิ่มเคลื่อนไหวสต็อก">+ เพิ่มเคลื่อนไหวสต็อก</button>
+        <button class="btn" id="sm-transfer-btn" aria-label="ย้ายคลัง" style="background:#f59e0b;color:#fff;border:none;padding:8px 14px;border-radius:8px;cursor:pointer;font-weight:600">🔄 ย้ายระหว่างคลัง</button>
       </div>
 
       <div id="sm-table-container" class="mt16" style="overflow-x: auto;">
@@ -160,12 +161,18 @@ export function renderStockMovementsPage(ctx) {
           <label for="sm-type-select" style="display: block; margin-bottom: 5px; font-weight: bold;">ประเภท:</label>
           <select id="sm-type-select" aria-label="ประเภทการเคลื่อนไหว" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
             <option value="">-- เลือกประเภท --</option>
-            <option value="in">รับเข้า</option>
-            <option value="out">จ่ายออก</option>
-            <option value="adjust">ปรับสต็อก</option>
-            <option value="sale">ขาย</option>
-            <option value="return">คืนสินค้า</option>
-            <option value="transfer">โอนย้าย</option>
+            <option value="in">รับเข้า (+)</option>
+            <option value="out">จ่ายออก (-)</option>
+            <option value="adjust">ปรับสต็อก (ตั้งค่าใหม่)</option>
+            <option value="return">คืนสินค้า (+)</option>
+          </select>
+        </div>
+
+        <div style="margin-top: 15px;">
+          <label for="sm-warehouse-select" style="display: block; margin-bottom: 5px; font-weight: bold;">คลัง:</label>
+          <select id="sm-warehouse-select" aria-label="เลือกคลัง" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+            <option value="">-- เลือกคลัง --</option>
+            ${(state.warehouses || []).map(w => `<option value="${escHtml(w.id)}">${escHtml(w.name)}</option>`).join('')}
           </select>
         </div>
 
@@ -188,9 +195,59 @@ export function renderStockMovementsPage(ctx) {
       </div>
     </div>
 
+    <!-- Transfer Between Warehouses Modal -->
+    <div id="sm-transfer-modal" class="sm-modal-hidden" role="dialog" aria-modal="true" aria-label="ย้ายระหว่างคลัง" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
+      <div style="background: white; padding: 20px; border-radius: 8px; width: 90%; max-width: 500px; max-height: 80vh; overflow-y: auto;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <h3 style="margin: 0;">🔄 ย้ายสต็อกระหว่างคลัง</h3>
+          <button id="smt-close-btn" aria-label="ปิด" style="background: none; border: none; font-size: 24px; cursor: pointer; line-height: 1; padding: 0 8px;">&times;</button>
+        </div>
+
+        <div style="margin-top: 15px;">
+          <label for="smt-product-select" style="display: block; margin-bottom: 5px; font-weight: bold;">สินค้า:</label>
+          <select id="smt-product-select" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+            <option value="">-- เลือกสินค้า --</option>
+            ${(state.products || []).filter(p => p.product_type !== 'service' && p.product_type !== 'non_stock').map(p => `<option value="${escHtml(p.id)}">${escHtml(p.name)}</option>`).join('')}
+          </select>
+        </div>
+
+        <div style="margin-top: 15px;">
+          <label for="smt-from-select" style="display: block; margin-bottom: 5px; font-weight: bold;">คลังต้นทาง:</label>
+          <select id="smt-from-select" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+            <option value="">-- เลือกคลังต้นทาง --</option>
+            ${(state.warehouses || []).map(w => `<option value="${escHtml(w.id)}">${escHtml(w.name)}</option>`).join('')}
+          </select>
+          <div id="smt-from-stock" style="font-size:12px;color:#64748b;margin-top:4px"></div>
+        </div>
+
+        <div style="margin-top: 15px;">
+          <label for="smt-to-select" style="display: block; margin-bottom: 5px; font-weight: bold;">คลังปลายทาง:</label>
+          <select id="smt-to-select" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+            <option value="">-- เลือกคลังปลายทาง --</option>
+            ${(state.warehouses || []).map(w => `<option value="${escHtml(w.id)}">${escHtml(w.name)}</option>`).join('')}
+          </select>
+        </div>
+
+        <div style="margin-top: 15px;">
+          <label for="smt-qty-input" style="display: block; margin-bottom: 5px; font-weight: bold;">จำนวนที่ย้าย:</label>
+          <input type="number" id="smt-qty-input" min="1" step="1" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;" placeholder="กรอกจำนวน">
+        </div>
+
+        <div style="margin-top: 15px;">
+          <label for="smt-note-input" style="display: block; margin-bottom: 5px; font-weight: bold;">หมายเหตุ:</label>
+          <input type="text" id="smt-note-input" maxlength="200" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;" placeholder="เช่น ลงรถคันขาวไปส่ง">
+        </div>
+
+        <div style="margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end;">
+          <button class="btn btn-light" id="smt-cancel-btn">ยกเลิก</button>
+          <button class="btn btn-primary" id="smt-save-btn">ย้าย</button>
+        </div>
+      </div>
+    </div>
+
     <style>
-      #sm-modal.sm-modal-hidden { display: none !important; }
-      #sm-modal:not(.sm-modal-hidden) { display: flex !important; }
+      #sm-modal.sm-modal-hidden, #sm-transfer-modal.sm-modal-hidden { display: none !important; }
+      #sm-modal:not(.sm-modal-hidden), #sm-transfer-modal:not(.sm-modal-hidden) { display: flex !important; }
     </style>
   `;
 
@@ -207,10 +264,39 @@ export function renderStockMovementsPage(ctx) {
     modal?.classList.add("sm-modal-hidden");
     const sel = document.getElementById("sm-product-select"); if (sel) sel.value = '';
     const ty  = document.getElementById("sm-type-select");    if (ty)  ty.value = '';
+    const wh  = document.getElementById("sm-warehouse-select"); if (wh) wh.value = '';
     const qt  = document.getElementById("sm-qty-input");      if (qt)  qt.value = '';
     const nt  = document.getElementById("sm-note-input");     if (nt)  nt.value = '';
     const pv  = document.getElementById("sm-preview");        if (pv)  pv.style.display = 'none';
   };
+
+  // Transfer modal helpers
+  const transferModal = document.getElementById("sm-transfer-modal");
+  const openTransferModal = () => {
+    transferModal?.classList.remove("sm-modal-hidden");
+    setTimeout(() => document.getElementById("smt-product-select")?.focus(), 50);
+    updateTransferFromStock();
+  };
+  const closeTransferModal = () => {
+    transferModal?.classList.add("sm-modal-hidden");
+    ["smt-product-select","smt-from-select","smt-to-select","smt-qty-input","smt-note-input"].forEach(id => {
+      const e = document.getElementById(id); if (e) e.value = '';
+    });
+    const fs = document.getElementById("smt-from-stock"); if (fs) fs.textContent = '';
+  };
+  function updateTransferFromStock() {
+    const pid = document.getElementById("smt-product-select")?.value;
+    const wid = document.getElementById("smt-from-select")?.value;
+    const el = document.getElementById("smt-from-stock");
+    if (!el) return;
+    if (!pid || !wid) { el.textContent = ''; return; }
+    const ws = (state.warehouseStock || []).find(w =>
+      String(w.product_id) === String(pid) && String(w.warehouse_id) === String(wid)
+    );
+    const n = Number(ws?.stock || 0);
+    el.textContent = `สต็อกคลังนี้เหลือ: ${thNum(n)}`;
+    el.style.color = n > 0 ? "#059669" : "#dc2626";
+  }
 
   // Live preview: show expected stock_before / stock_after
   function updatePreview() {
@@ -230,7 +316,7 @@ export function renderStockMovementsPage(ctx) {
     let after = before;
     if (movementType === 'in' || movementType === 'return') after = before + qty;
     else if (movementType === 'out' || movementType === 'sale') after = before - qty;
-    else if (movementType === 'adjust' || movementType === 'transfer') after = qty;
+    else if (movementType === 'adjust') after = qty;
 
     const warn = after < 0 ? ' <span style="color:#c53030; font-weight:bold;">⚠️ สต็อกจะติดลบ</span>' : '';
     pv.innerHTML = `สต็อกก่อน: <b>${thNum(before)}</b> → หลัง: <b>${thNum(after)}</b>${warn}`;
@@ -348,6 +434,69 @@ export function renderStockMovementsPage(ctx) {
   if ($close)  $close.onclick    = closeModal;
   if ($cancel) $cancel.onclick   = closeModal;
 
+  // Transfer modal
+  const $transferBtn = document.getElementById("sm-transfer-btn");
+  const $smtClose = document.getElementById("smt-close-btn");
+  const $smtCancel = document.getElementById("smt-cancel-btn");
+  const $smtSave = document.getElementById("smt-save-btn");
+  const $smtProd = document.getElementById("smt-product-select");
+  const $smtFrom = document.getElementById("smt-from-select");
+  if ($transferBtn) $transferBtn.onclick = openTransferModal;
+  if ($smtClose) $smtClose.onclick = closeTransferModal;
+  if ($smtCancel) $smtCancel.onclick = closeTransferModal;
+  if ($smtProd) $smtProd.onchange = updateTransferFromStock;
+  if ($smtFrom) $smtFrom.onchange = updateTransferFromStock;
+  if (transferModal) transferModal.onclick = (e) => { if (e.target === transferModal) closeTransferModal(); };
+
+  if ($smtSave) {
+    $smtSave.onclick = async () => {
+      const pid = document.getElementById("smt-product-select")?.value || '';
+      const from = document.getElementById("smt-from-select")?.value || '';
+      const to = document.getElementById("smt-to-select")?.value || '';
+      const qtyRaw = document.getElementById("smt-qty-input")?.value;
+      const qty = parseInt(qtyRaw || '', 10);
+      const note = document.getElementById("smt-note-input")?.value || '';
+
+      if (!pid) { showToast('กรุณาเลือกสินค้า', 'error'); return; }
+      if (!from) { showToast('กรุณาเลือกคลังต้นทาง', 'error'); return; }
+      if (!to) { showToast('กรุณาเลือกคลังปลายทาง', 'error'); return; }
+      if (String(from) === String(to)) { showToast('คลังต้นทาง/ปลายทาง ต้องไม่ซ้ำกัน', 'error'); return; }
+      if (isNaN(qty) || qty <= 0) { showToast('กรอกจำนวนที่ถูกต้อง (> 0)', 'error'); return; }
+
+      const ws = (state.warehouseStock || []).find(w =>
+        String(w.product_id) === String(pid) && String(w.warehouse_id) === String(from)
+      );
+      const cur = Number(ws?.stock || 0);
+      if (qty > cur) {
+        if (!confirm(`⚠️ คลังต้นทางเหลือ ${cur} — ย้าย ${qty} จะติดลบ ${cur - qty}\nดำเนินการต่อ?`)) return;
+      }
+
+      const pidNum = Number(pid);
+      const productId = Number.isFinite(pidNum) && String(pidNum) === pid ? pidNum : pid;
+      const fromNum = Number(from), toNum = Number(to);
+      const fromWarehouseId = Number.isFinite(fromNum) && String(fromNum) === from ? fromNum : from;
+      const toWarehouseId = Number.isFinite(toNum) && String(toNum) === to ? toNum : to;
+
+      $smtSave.disabled = true;
+      $smtSave.textContent = 'กำลังย้าย...';
+      try {
+        const res = await window._appTransferWarehouseStock({ productId, fromWarehouseId, toWarehouseId, qty, note });
+        if (res?.ok) {
+          showToast('ย้ายสต็อกสำเร็จ', 'success');
+          closeTransferModal();
+          if (typeof loadAllData === 'function') await loadAllData();
+        } else {
+          showToast('ข้อผิดพลาด: ' + (res?.error || 'ย้ายไม่สำเร็จ'), 'error');
+        }
+      } catch (err) {
+        showToast('ข้อผิดพลาด: ' + (err?.message || String(err)), 'error');
+      } finally {
+        $smtSave.disabled = false;
+        $smtSave.textContent = 'ย้าย';
+      }
+    };
+  }
+
   // Live preview update
   if ($prod) $prod.onchange = updatePreview;
   if ($type) $type.onchange = updatePreview;
@@ -359,8 +508,9 @@ export function renderStockMovementsPage(ctx) {
   }
   // ESC closes modal
   document.onkeydown = (e) => {
-    if (e.key === 'Escape' && !modal?.classList.contains('sm-modal-hidden')) {
-      closeModal();
+    if (e.key === 'Escape') {
+      if (!modal?.classList.contains('sm-modal-hidden')) closeModal();
+      if (!transferModal?.classList.contains('sm-modal-hidden')) closeTransferModal();
     }
   };
 
@@ -369,80 +519,51 @@ export function renderStockMovementsPage(ctx) {
     $save.onclick = async () => {
       const productIdStr = document.getElementById("sm-product-select")?.value || '';
       const movementType = document.getElementById("sm-type-select")?.value || '';
+      const warehouseIdStr = document.getElementById("sm-warehouse-select")?.value || '';
       const qtyRaw = document.getElementById("sm-qty-input")?.value;
       const quantity = parseInt(qtyRaw || '', 10);
       const note = document.getElementById("sm-note-input")?.value || '';
 
-      if (!productIdStr) {
-        showToast('กรุณาเลือกสินค้า', 'error');
-        return;
-      }
-      if (!movementType) {
-        showToast('กรุณาเลือกประเภท', 'error');
-        return;
-      }
+      if (!productIdStr) { showToast('กรุณาเลือกสินค้า', 'error'); return; }
+      if (!movementType) { showToast('กรุณาเลือกประเภท', 'error'); return; }
+      if (!warehouseIdStr) { showToast('กรุณาเลือกคลัง', 'error'); return; }
       if (isNaN(quantity) || quantity <= 0) {
         showToast('กรุณากรอกจำนวนที่ถูกต้อง (> 0)', 'error');
         return;
       }
 
-      // product_id should be numeric if the DB column is integer
       const productIdNum = Number(productIdStr);
-      const productId = Number.isFinite(productIdNum) && String(productIdNum) === productIdStr
-        ? productIdNum
-        : productIdStr;
+      const productId = Number.isFinite(productIdNum) && String(productIdNum) === productIdStr ? productIdNum : productIdStr;
+      const warehouseIdNum = Number(warehouseIdStr);
+      const warehouseId = Number.isFinite(warehouseIdNum) && String(warehouseIdNum) === warehouseIdStr ? warehouseIdNum : warehouseIdStr;
 
-      // Find current stock (compare as strings for safety)
-      const product = state.products?.find(p => String(p.id) === String(productIdStr));
-      const currentStock = Number(product?.stock) || 0;
-      let newStock = currentStock;
-
-      if (movementType === 'in' || movementType === 'return') {
-        newStock = currentStock + quantity;
-      } else if (movementType === 'out' || movementType === 'sale') {
-        newStock = currentStock - quantity;
-        if (newStock < 0) {
-          const ok = await window.App?.confirm?.(
-            `⚠️ คำเตือน: สต็อกหลังจะติดลบ (${newStock})\n` +
-            `สต็อกปัจจุบัน: ${currentStock}\n` +
-            `จำนวนที่จะหัก: ${quantity}\n\n` +
-            `ต้องการบันทึกต่อหรือไม่?`
-          );
-          if (!ok) return;
+      // เตือนถ้า out/sale ทำสต็อกติดลบ
+      if (movementType === 'out' || movementType === 'sale') {
+        const ws = (state.warehouseStock || []).find(w =>
+          String(w.product_id) === String(productId) && String(w.warehouse_id) === String(warehouseId)
+        );
+        const cur = Number(ws?.stock || 0);
+        if (cur - quantity < 0) {
+          if (!confirm(`⚠️ สต็อกคลังนี้เหลือ ${cur} — จ่ายออก ${quantity} จะติดลบ ${cur - quantity}\nต้องการบันทึกต่อหรือไม่?`)) return;
         }
-      } else if (movementType === 'adjust' || movementType === 'transfer') {
-        newStock = quantity;
       }
 
-      const payload = {
-        product_id: productId,
-        movement_type: movementType,
-        quantity: quantity,
-        stock_before: currentStock,
-        stock_after: newStock,
-        note: String(note).slice(0, 200),
-        created_by: String(currentRole || 'User'),
-        created_at: new Date().toISOString()
-      };
-
-      // Disable save button while request in flight
       $save.disabled = true;
       $save.textContent = 'กำลังบันทึก...';
 
       try {
-        if (!window._appXhrPost) {
+        if (!window._appApplyStockMovement) {
           throw new Error('ระบบยังโหลดไม่เสร็จ — กรุณารีเฟรชหน้าเว็บ');
         }
-        const res = await window._appXhrPost('stock_movements', payload);
+        const res = await window._appApplyStockMovement({
+          productId, warehouseId, movementType, qty: quantity, note
+        });
         if (res && res.ok) {
           showToast('บันทึกเคลื่อนไหวสต็อกสำเร็จ', 'success');
           closeModal();
-          if (typeof loadAllData === 'function') {
-            await loadAllData();
-          }
+          if (typeof loadAllData === 'function') await loadAllData();
         } else {
-          const msg = res?.error?.message || 'ไม่สามารถบันทึกได้';
-          showToast('ข้อผิดพลาด: ' + msg, 'error');
+          showToast('ข้อผิดพลาด: ' + (res?.error || 'ไม่สามารถบันทึกได้'), 'error');
         }
       } catch (err) {
         showToast('ข้อผิดพลาด: ' + (err?.message || String(err)), 'error');

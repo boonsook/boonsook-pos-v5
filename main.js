@@ -1942,6 +1942,180 @@ function removeFromCart(productId){
   showRoute(state.currentRoute);
 }
 
+// ═══════════════════════════════════════════════════════════
+//  STOCK HELPERS — ตัดสต็อก + ย้ายคลัง + log stock_movements
+//  ใช้ทั้งใน checkout() และ stock_movements module
+// ═══════════════════════════════════════════════════════════
+async function _deductStockForSaleItem({ product, qty, orderNo }) {
+  if (!product || !qty || qty <= 0) return;
+  // ข้าม service / non_stock
+  if (product.product_type === "service" || product.product_type === "non_stock") return;
+
+  const creator = state.currentUser?.email || state.currentUser?.id || "POS";
+
+  // หาคลังที่มีสต็อกเหลือ > 0 — prefer "บ้าน" ก่อน ไม่งั้นเอาคลังที่มีสต็อกมากสุด
+  const stocks = (state.warehouseStock || []).filter(ws =>
+    String(ws.product_id) === String(product.id) && Number(ws.stock || 0) > 0
+  );
+
+  if (stocks.length > 0) {
+    stocks.sort((a, b) => {
+      const nameA = (state.warehouses.find(w => w.id === a.warehouse_id)?.name || "");
+      const nameB = (state.warehouses.find(w => w.id === b.warehouse_id)?.name || "");
+      const aHome = nameA.includes("บ้าน") ? 1 : 0;
+      const bHome = nameB.includes("บ้าน") ? 1 : 0;
+      if (aHome !== bHome) return bHome - aHome;
+      return Number(b.stock || 0) - Number(a.stock || 0);
+    });
+    const ws = stocks[0];
+    const before = Number(ws.stock || 0);
+    const after = before - qty;
+    await xhrPatch("warehouse_stock", { stock: after }, "id", ws.id);
+
+    await xhrPost("stock_movements", {
+      product_id: product.id,
+      movement_type: "sale",
+      quantity: qty,
+      stock_before: before,
+      stock_after: after,
+      note: `ขายบิล ${orderNo} — คลัง: ${state.warehouses.find(w => w.id === ws.warehouse_id)?.name || "?"}`,
+      created_by: String(creator),
+      created_at: new Date().toISOString()
+    });
+  }
+
+  // อัพเดท products.stock legacy field — สำคัญเพราะ UI ดู field นี้ตอนเลือก "ทั้งหมด"
+  const curStock = Number(product.stock || 0);
+  const newStock = curStock - qty;
+  try { await xhrPatch("products", { stock: newStock }, "id", product.id); } catch(e){ console.warn("[deductStock] products update failed:", e); }
+
+  if (stocks.length === 0) {
+    // ไม่มีคลังไหนมีสต็อก → log movement จาก legacy field เท่านั้น
+    await xhrPost("stock_movements", {
+      product_id: product.id,
+      movement_type: "sale",
+      quantity: qty,
+      stock_before: curStock,
+      stock_after: newStock,
+      note: `ขายบิล ${orderNo} (ไม่มีคลังมีสต็อก — ตัดจาก legacy stock)`,
+      created_by: String(creator),
+      created_at: new Date().toISOString()
+    });
+  }
+}
+
+// ★ ย้ายสต็อกระหว่างคลัง — ใช้โดย stock_movements module
+async function _transferWarehouseStock({ productId, fromWarehouseId, toWarehouseId, qty, note }) {
+  if (!productId || !fromWarehouseId || !toWarehouseId || qty <= 0) {
+    return { ok: false, error: "ข้อมูลไม่ครบ" };
+  }
+  if (String(fromWarehouseId) === String(toWarehouseId)) {
+    return { ok: false, error: "คลังต้นทาง/ปลายทาง ต้องไม่ซ้ำกัน" };
+  }
+
+  const creator = state.currentUser?.email || state.currentUser?.id || "User";
+
+  // หา source row
+  const srcWs = (state.warehouseStock || []).find(w =>
+    String(w.product_id) === String(productId) && String(w.warehouse_id) === String(fromWarehouseId)
+  );
+  const srcBefore = Number(srcWs?.stock || 0);
+  const srcAfter = srcBefore - qty;
+
+  // หา target row (ถ้าไม่มี จะ insert)
+  const tgtWs = (state.warehouseStock || []).find(w =>
+    String(w.product_id) === String(productId) && String(w.warehouse_id) === String(toWarehouseId)
+  );
+  const tgtBefore = Number(tgtWs?.stock || 0);
+  const tgtAfter = tgtBefore + qty;
+
+  try {
+    if (srcWs?.id) {
+      await xhrPatch("warehouse_stock", { stock: srcAfter }, "id", srcWs.id);
+    } else {
+      await xhrPost("warehouse_stock", { product_id: productId, warehouse_id: fromWarehouseId, stock: srcAfter, min_stock: 0 });
+    }
+
+    if (tgtWs?.id) {
+      await xhrPatch("warehouse_stock", { stock: tgtAfter }, "id", tgtWs.id);
+    } else {
+      await xhrPost("warehouse_stock", { product_id: productId, warehouse_id: toWarehouseId, stock: tgtAfter, min_stock: 0 });
+    }
+
+    const fromName = state.warehouses.find(w => String(w.id) === String(fromWarehouseId))?.name || "?";
+    const toName   = state.warehouses.find(w => String(w.id) === String(toWarehouseId))?.name || "?";
+
+    // Log 1 transfer movement
+    await xhrPost("stock_movements", {
+      product_id: productId,
+      movement_type: "transfer",
+      quantity: qty,
+      stock_before: srcBefore,
+      stock_after: srcAfter,
+      note: `โอนย้าย: ${fromName} → ${toName}${note ? " — " + note : ""}`,
+      created_by: String(creator),
+      created_at: new Date().toISOString()
+    });
+
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+}
+
+// ★ อัพเดทสต็อกใน warehouse — ใช้โดย stock_movements module (in/out/sale/return/adjust)
+async function _applyStockMovement({ productId, warehouseId, movementType, qty, note }) {
+  if (!productId || qty <= 0 || !movementType) return { ok: false, error: "ข้อมูลไม่ครบ" };
+  const creator = state.currentUser?.email || state.currentUser?.id || "User";
+
+  let ws = warehouseId ? (state.warehouseStock || []).find(w =>
+    String(w.product_id) === String(productId) && String(w.warehouse_id) === String(warehouseId)
+  ) : null;
+
+  const before = Number(ws?.stock || 0);
+  let after = before;
+  if (movementType === "in" || movementType === "return") after = before + qty;
+  else if (movementType === "out" || movementType === "sale") after = before - qty;
+  else if (movementType === "adjust") after = qty; // qty is the new target
+
+  try {
+    if (warehouseId) {
+      if (ws?.id) await xhrPatch("warehouse_stock", { stock: after }, "id", ws.id);
+      else await xhrPost("warehouse_stock", { product_id: productId, warehouse_id: warehouseId, stock: after, min_stock: 0 });
+    }
+
+    // Legacy products.stock — recompute as sum of warehouse_stock หลัง update
+    // ทำแบบง่าย: delta = after - before → products.stock += delta
+    try {
+      const prod = (state.products || []).find(p => String(p.id) === String(productId));
+      if (prod && warehouseId) {
+        const delta = after - before;
+        const newProdStock = Number(prod.stock || 0) + delta;
+        await xhrPatch("products", { stock: newProdStock }, "id", productId);
+      }
+    } catch(e){}
+
+    await xhrPost("stock_movements", {
+      product_id: productId,
+      movement_type: movementType,
+      quantity: qty,
+      stock_before: before,
+      stock_after: after,
+      note: String(note || "").slice(0, 200),
+      created_by: String(creator),
+      created_at: new Date().toISOString()
+    });
+
+    return { ok: true };
+  } catch(e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+}
+
+// Expose ให้ stock_movements module เรียกได้
+window._appTransferWarehouseStock = _transferWarehouseStock;
+window._appApplyStockMovement = _applyStockMovement;
+
 async function checkout(){
   if (!state.cart.length) return showToast("ยังไม่มีสินค้าในบิล");
   const subtotal = state.cart.reduce((s,i)=>s+i.qty*i.price, 0);
@@ -1991,7 +2165,9 @@ async function checkout(){
       console.error("[SALE] sale_items insert failed:", itemRes.error);
       showToast("บันทึกรายการสินค้าไม่สำเร็จ: " + (itemRes.error?.message || "unknown"));
     }
-    // หมายเหตุ: deduct_stock RPC ยังไม่มีใน DB — ข้ามไปก่อน
+
+    // ═══ ตัดสต็อก — warehouse_stock + products.stock + log movement ═══
+    await _deductStockForSaleItem({ product: prodRef, qty: Number(item.qty) || 0, orderNo });
   }
 
   await loadReceipt(saleId);
