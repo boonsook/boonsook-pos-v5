@@ -100,6 +100,21 @@ export function renderProductsPage({ state, addToCart, openProductDrawer, wareho
   currentCategory = "all";
   currentSort = "name_asc";
 
+  // ★ Deep link: #products?cat=CATEGORY&addNew=1 (สแกน QR จะมาที่นี่)
+  const hash = window.location.hash || "";
+  const q = hash.split("?")[1];
+  let deepLinkAddNew = false, deepLinkCat = "";
+  if (q) {
+    const params = new URLSearchParams(q);
+    const cat = params.get("cat");
+    if (cat) { currentCategory = cat; deepLinkCat = cat; }
+    if (params.get("addNew") === "1") deepLinkAddNew = true;
+    // เคลียร์ query string ออกจาก URL (เหลือแค่ #products)
+    if (cat || params.get("addNew")) {
+      try { history.replaceState(null, "", "#products"); } catch(e){}
+    }
+  }
+
   // ถ้ามี warehouseFilter → หาตัว warehouse id จากชื่อ
   // ★ ถ้าหาไม่เจอ ให้ใช้ "none" แทน "all" เพื่อไม่แสดงสินค้าทั้งหมด
   if (warehouseFilter) {
@@ -110,6 +125,11 @@ export function renderProductsPage({ state, addToCart, openProductDrawer, wareho
   }
 
   renderView(ctx);
+
+  // เปิด drawer พร้อม prefill หลัง render เสร็จ
+  if (deepLinkAddNew) {
+    setTimeout(() => openProductDrawer(null, { prefillCategory: deepLinkCat }), 100);
+  }
 }
 
 // ─── Helper: get stock for a product in specific warehouse ───
@@ -334,7 +354,20 @@ function renderView(ctx) {
               ${escHtml(cat)} <span style="opacity:.7">(${n})</span>
             </button>
           `).join('')}
+          <button id="prodAddCatBtn" title="เพิ่มหมวดใหม่" style="padding:6px 14px;border-radius:20px;border:1px dashed #0284c7;background:#f0f9ff;color:#0284c7;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">
+            + หมวดใหม่
+          </button>
         </div>
+        ${currentCategory !== 'all' ? `
+          <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center">
+            <button id="prodAddInCatBtn" data-cat="${escHtml(currentCategory)}" style="padding:8px 16px;border-radius:10px;border:none;background:linear-gradient(135deg,#0ea5e9,#0284c7);color:#fff;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 2px 4px rgba(2,132,199,.3)">
+              + เพิ่มสินค้าในหมวด "${escHtml(currentCategory)}"
+            </button>
+            <button id="prodCatQrBtn" data-cat="${escHtml(currentCategory)}" title="QR Code ลิงก์เพิ่มในหมวดนี้" style="padding:8px 14px;border-radius:10px;border:1px solid #cbd5e1;background:#fff;color:#475569;font-size:13px;font-weight:600;cursor:pointer">
+              📱 QR หมวดนี้
+            </button>
+          </div>
+        ` : ''}
         `;
       })()}
 
@@ -394,6 +427,48 @@ function renderView(ctx) {
     currentCategory = btn.dataset.pcat;
     currentPage = 1;
     renderView(ctx);
+  }));
+
+  // ★ เพิ่มหมวดใหม่ — prompt หมวด แล้วเปิด drawer พร้อม prefill
+  el.querySelector("#prodAddCatBtn")?.addEventListener("click", () => {
+    const name = (prompt("ชื่อหมวดใหม่ (เช่น เครื่องดูดฝุ่น, พัดลม):") || "").trim();
+    if (!name) return;
+    currentCategory = name;
+    ctx.openProductDrawer(null, { prefillCategory: name });
+  });
+
+  // ★ เพิ่มสินค้าในหมวดที่เลือกอยู่ — prefill category
+  el.querySelector("#prodAddInCatBtn")?.addEventListener("click", (e) => {
+    const cat = e.currentTarget.dataset.cat || "";
+    ctx.openProductDrawer(null, { prefillCategory: cat });
+  });
+
+  // ★ QR Code ของหมวดนี้ — ลิงก์กลับมาหน้านี้ + เปิด drawer ทันที
+  el.querySelector("#prodCatQrBtn")?.addEventListener("click", (e) => {
+    const cat = e.currentTarget.dataset.cat || "";
+    const url = `${window.location.origin}/#products?cat=${encodeURIComponent(cat)}&addNew=1`;
+    showQrModal({
+      title: `QR — เพิ่มสินค้าในหมวด "${cat}"`,
+      subtitle: "สแกนด้วยมือถือ → เปิดหน้าเพิ่มสินค้าในหมวดนี้ทันที",
+      text: url
+    });
+  });
+
+  // ★ QR ของสินค้าแต่ละตัว — สำหรับพิมพ์ label
+  el.querySelectorAll("[data-qr-prod]").forEach(btn => btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const id = btn.dataset.qrProd;
+    const p = (state.products || []).find(x => String(x.id) === String(id));
+    if (!p) return;
+    const code = p.barcode || p.sku || "";
+    if (!code) return showToastFn("สินค้ายังไม่มี barcode / SKU");
+    showQrModal({
+      title: `QR — ${p.name || ""}`,
+      subtitle: `${code}`,
+      text: code,
+      showPrint: true,
+      productName: p.name
+    });
   }));
 
   // Import / Export
@@ -561,6 +636,7 @@ function renderProductItem(p, mode, state) {
         <div class="prod-grid-actions">
           <button class="btn light" style="padding:6px 10px;font-size:12px" data-prod-edit="${p.id}">แก้ไข</button>
           <button class="btn primary" style="padding:6px 10px;font-size:12px" data-prod-add="${p.id}">+ บิล</button>
+          ${pType === "stock" && (p.barcode || p.sku) ? `<button class="btn light" style="padding:6px 8px;font-size:12px" data-qr-prod="${p.id}" title="QR Code สินค้า">📱</button>` : ''}
           ${pType === "stock" && p.barcode ? `<button class="btn light" style="padding:6px 8px;font-size:12px" data-prod-print="${p.id}" title="พิมพ์บาร์โค้ด">🖨️</button>` : ''}
           ${isAdmin ? `<button class="btn" style="padding:6px 8px;font-size:12px;background:#ef4444;color:#fff;border:none;border-radius:8px;cursor:pointer" data-prod-del="${p.id}" title="ลบสินค้า">🗑️</button>` : ''}
         </div>
@@ -589,6 +665,7 @@ function renderProductItem(p, mode, state) {
         <div class="prod-list-actions">
           <button class="btn light" style="padding:6px 10px;font-size:12px" data-prod-edit="${p.id}">•••</button>
           <button class="btn primary" style="padding:6px 10px;font-size:12px" data-prod-add="${p.id}">+ บิล</button>
+          ${pType === "stock" && (p.barcode || p.sku) ? `<button class="btn light" style="padding:6px 8px;font-size:12px" data-qr-prod="${p.id}" title="QR Code สินค้า">📱</button>` : ''}
           ${pType === "stock" && p.barcode ? `<button class="btn light" style="padding:6px 8px;font-size:12px" data-prod-print="${p.id}" title="พิมพ์บาร์โค้ด">🖨️</button>` : ''}
           ${isAdmin ? `<button class="btn" style="padding:6px 8px;font-size:12px;background:#ef4444;color:#fff;border:none;border-radius:8px;cursor:pointer" data-prod-del="${p.id}" title="ลบสินค้า">🗑️</button>` : ''}
         </div>
@@ -1316,5 +1393,88 @@ function exportProducts(state) {
     window.App?.showToast?.("ส่งออก Excel สำเร็จ");
   } catch (err) {
     window.App?.showToast?.("ส่งออกไม่สำเร็จ: " + (err.message || err));
+  }
+}
+
+function showToastFn(msg) { window.App?.showToast?.(msg); }
+
+// ═══════════════════════════════════════════════════════════
+//  QR CODE — lazy-load qrcodejs from CDN, render in modal
+// ═══════════════════════════════════════════════════════════
+let _qrLibPromise = null;
+function loadQrLib() {
+  if (window.QRCode) return Promise.resolve();
+  if (_qrLibPromise) return _qrLibPromise;
+  _qrLibPromise = new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js";
+    s.onload = () => resolve();
+    s.onerror = () => { _qrLibPromise = null; reject(new Error("โหลด QR library ไม่สำเร็จ")); };
+    document.head.appendChild(s);
+  });
+  return _qrLibPromise;
+}
+
+async function showQrModal({ title, subtitle, text, showPrint = false, productName = "" }) {
+  try {
+    await loadQrLib();
+  } catch (e) {
+    return showToastFn(e.message);
+  }
+
+  // Remove existing modal if any
+  document.getElementById("bskQrModal")?.remove();
+
+  const modal = document.createElement("div");
+  modal.id = "bskQrModal";
+  modal.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px";
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:16px;max-width:380px;width:100%;padding:20px;box-shadow:0 20px 50px rgba(0,0,0,.25)" onclick="event.stopPropagation()">
+      <div style="display:flex;justify-content:space-between;align-items:start;gap:10px;margin-bottom:8px">
+        <div>
+          <h3 style="margin:0;font-size:16px;color:#0f172a">${escHtml(title || "QR Code")}</h3>
+          ${subtitle ? `<div style="font-size:12px;color:#64748b;margin-top:2px">${escHtml(subtitle)}</div>` : ""}
+        </div>
+        <button id="bskQrClose" style="background:transparent;border:none;font-size:22px;cursor:pointer;color:#64748b;line-height:1">×</button>
+      </div>
+      <div id="bskQrBox" style="display:flex;justify-content:center;padding:16px;background:#fff"></div>
+      <div style="text-align:center;font-family:monospace;font-size:12px;color:#334155;word-break:break-all;padding:8px;background:#f8fafc;border-radius:8px;margin-top:8px">${escHtml(text)}</div>
+      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+        <button id="bskQrCopy" style="flex:1;min-width:100px;padding:10px;border:1px solid #cbd5e1;background:#fff;border-radius:8px;cursor:pointer;font-weight:600;font-size:13px">📋 คัดลอก</button>
+        ${showPrint ? `<button id="bskQrPrint" style="flex:1;min-width:100px;padding:10px;border:none;background:#0284c7;color:#fff;border-radius:8px;cursor:pointer;font-weight:600;font-size:13px">🖨️ พิมพ์</button>` : ""}
+      </div>
+    </div>
+  `;
+  modal.addEventListener("click", () => modal.remove());
+  document.body.appendChild(modal);
+
+  const box = modal.querySelector("#bskQrBox");
+  // eslint-disable-next-line no-undef
+  new QRCode(box, { text, width: 220, height: 220, correctLevel: QRCode.CorrectLevel.M });
+
+  modal.querySelector("#bskQrClose")?.addEventListener("click", () => modal.remove());
+  modal.querySelector("#bskQrCopy")?.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      showToastFn("คัดลอกแล้ว");
+    } catch (e) {
+      showToastFn("คัดลอกไม่สำเร็จ");
+    }
+  });
+
+  if (showPrint) {
+    modal.querySelector("#bskQrPrint")?.addEventListener("click", () => {
+      const img = box.querySelector("img") || box.querySelector("canvas");
+      const dataUrl = img?.src || (img?.toDataURL ? img.toDataURL() : "");
+      if (!dataUrl) return showToastFn("สร้าง QR ไม่สำเร็จ");
+      const w = window.open("", "_blank", "width=400,height=500");
+      if (!w) return showToastFn("เปิดหน้าต่างพิมพ์ไม่ได้ (popup blocker?)");
+      w.document.write(`<!DOCTYPE html><html><head><title>QR ${escHtml(productName)}</title>
+<style>body{margin:0;padding:24px;text-align:center;font-family:sans-serif}img{width:220px;height:220px}p{margin:8px 0 0;font-family:monospace;font-size:12px}@media print{body{padding:0}}</style>
+</head><body><img src="${dataUrl}" /><p>${escHtml(productName || "")}</p><p>${escHtml(text)}</p>
+<script>setTimeout(()=>{window.print();setTimeout(()=>window.close(),300)},200)<\/script>
+</body></html>`);
+      w.document.close();
+    });
   }
 }
