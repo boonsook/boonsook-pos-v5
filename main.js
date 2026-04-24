@@ -1970,7 +1970,13 @@ async function _deductStockForSaleItem({ product, qty, orderNo }) {
     const ws = stocks[0];
     const before = Number(ws.stock || 0);
     const after = before - qty;
-    await xhrPatch("warehouse_stock", { stock: after }, "id", ws.id);
+    const whName = state.warehouses.find(w => w.id === ws.warehouse_id)?.name || "?";
+    console.log(`[deductStock] ${product.name}: ${whName} ${before} → ${after} (qty ${qty})`);
+    const patchRes = await xhrPatch("warehouse_stock", { stock: after }, "id", ws.id);
+    if (!patchRes.ok) {
+      console.error("[deductStock] warehouse_stock PATCH failed:", patchRes.error);
+      showToast("⚠️ ตัดสต็อกคลังไม่สำเร็จ: " + (patchRes.error?.message || "RLS policy?"));
+    }
 
     await xhrPost("stock_movements", {
       product_id: product.id,
@@ -1978,16 +1984,24 @@ async function _deductStockForSaleItem({ product, qty, orderNo }) {
       quantity: qty,
       stock_before: before,
       stock_after: after,
-      note: `ขายบิล ${orderNo} — คลัง: ${state.warehouses.find(w => w.id === ws.warehouse_id)?.name || "?"}`,
+      note: `ขายบิล ${orderNo} — คลัง: ${whName}`,
       created_by: String(creator),
       created_at: new Date().toISOString()
     });
+  } else {
+    console.warn(`[deductStock] ${product.name}: ไม่มีคลังที่มีสต็อก > 0`);
   }
 
   // อัพเดท products.stock legacy field — สำคัญเพราะ UI ดู field นี้ตอนเลือก "ทั้งหมด"
   const curStock = Number(product.stock || 0);
   const newStock = curStock - qty;
-  try { await xhrPatch("products", { stock: newStock }, "id", product.id); } catch(e){ console.warn("[deductStock] products update failed:", e); }
+  try {
+    const r = await xhrPatch("products", { stock: newStock }, "id", product.id);
+    if (!r.ok) {
+      console.warn("[deductStock] products.stock PATCH failed:", r.error);
+      showToast("⚠️ อัพเดทสต็อกสินค้าไม่สำเร็จ: " + (r.error?.message || ""));
+    }
+  } catch(e){ console.warn("[deductStock] products update failed:", e); }
 
   if (stocks.length === 0) {
     // ไม่มีคลังไหนมีสต็อก → log movement จาก legacy field เท่านั้น
