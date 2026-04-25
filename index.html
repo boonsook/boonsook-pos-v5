@@ -206,6 +206,7 @@
         <div class="nav-group-items">
           <button class="nav-btn sub" data-route="expenses">📒 รายรับ-รายจ่าย</button>
           <button class="nav-btn sub" data-route="profit_report">📊 รายงานกำไร</button>
+          <button class="nav-btn sub" data-route="cash_recon">💵 กระทบยอดเงินสด</button>
         </div>
       </div>
 
@@ -290,6 +291,7 @@
       <section id="page-dead_stock" class="page hidden"></section>
       <section id="page-stock_count" class="page hidden"></section>
       <section id="page-stock_in_wizard" class="page hidden"></section>
+      <section id="page-cash_recon" class="page hidden"></section>
       <section id="page-ai_sales" class="page hidden"></section>
       <section id="page-ac_shop" class="page hidden"></section>
     </main>
@@ -465,6 +467,40 @@
       </select>
       <label for="serviceNote" class="sr-only">หมายเหตุ</label>
       <textarea id="serviceNote" rows="3" placeholder="หมายเหตุ / รายละเอียดเพิ่มเติม" aria-label="หมายเหตุ"></textarea>
+
+      <!-- ★ รูปก่อน-หลัง (สำหรับงานช่าง) -->
+      <div style="border:1px dashed #cbd5e1;border-radius:10px;padding:12px;background:#f8fafc">
+        <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:8px">📷 รูปก่อน-หลังงาน (Service Photos)</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <!-- BEFORE -->
+          <div>
+            <div style="font-size:11px;color:#64748b;margin-bottom:4px;font-weight:600">📸 ก่อนทำ</div>
+            <div id="serviceBeforePreview" style="min-height:90px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden">
+              <span style="color:#94a3b8;font-size:11px">ยังไม่มีรูป</span>
+            </div>
+            <input type="file" id="serviceBeforeFile" accept="image/*" capture="environment" style="display:none" />
+            <input type="hidden" id="serviceBeforeUrl" />
+            <div style="display:flex;gap:4px;margin-top:6px">
+              <button type="button" id="serviceBeforeBtn" class="btn light" style="flex:1;font-size:11px;padding:6px 8px">📤 อัพโหลด</button>
+              <button type="button" id="serviceBeforeClear" class="btn light" style="font-size:11px;padding:6px 8px;color:#dc2626" title="ลบรูป">🗑️</button>
+            </div>
+          </div>
+          <!-- AFTER -->
+          <div>
+            <div style="font-size:11px;color:#64748b;margin-bottom:4px;font-weight:600">✓ หลังทำ</div>
+            <div id="serviceAfterPreview" style="min-height:90px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden">
+              <span style="color:#94a3b8;font-size:11px">ยังไม่มีรูป</span>
+            </div>
+            <input type="file" id="serviceAfterFile" accept="image/*" capture="environment" style="display:none" />
+            <input type="hidden" id="serviceAfterUrl" />
+            <div style="display:flex;gap:4px;margin-top:6px">
+              <button type="button" id="serviceAfterBtn" class="btn light" style="flex:1;font-size:11px;padding:6px 8px">📤 อัพโหลด</button>
+              <button type="button" id="serviceAfterClear" class="btn light" style="font-size:11px;padding:6px 8px;color:#dc2626" title="ลบรูป">🗑️</button>
+            </div>
+          </div>
+        </div>
+        <div style="font-size:10px;color:#94a3b8;margin-top:6px">💡 บนมือถือจะเปิดกล้องอัตโนมัติ</div>
+      </div>
     </div>
     <div class="row mt16">
       <button id="saveServiceJobBtn" class="btn btn-primary">บันทึก</button>
@@ -514,7 +550,7 @@
     </div>
   </aside>
 
-  <script type="module" src="./main.js?v=27"></script>
+  <script type="module" src="./main.js?v=28"></script>
   <script>
     // ═══ Loading Overlay ═══
     function hideLoadingOverlay() {

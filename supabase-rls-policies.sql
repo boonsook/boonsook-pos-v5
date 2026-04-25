@@ -232,6 +232,16 @@ ALTER TABLE IF EXISTS public.products
   ADD COLUMN IF NOT EXISTS promo_start DATE,
   ADD COLUMN IF NOT EXISTS promo_end DATE;
 
+-- ★ ผูกการขายกับลูกค้า (สำหรับ POS Customer Picker)
+ALTER TABLE IF EXISTS public.sales
+  ADD COLUMN IF NOT EXISTS customer_id BIGINT REFERENCES public.customers(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_sales_customer_id ON public.sales(customer_id);
+
+-- ★ รูปก่อน-หลังสำหรับงานช่าง
+ALTER TABLE IF EXISTS public.service_jobs
+  ADD COLUMN IF NOT EXISTS photo_before TEXT,
+  ADD COLUMN IF NOT EXISTS photo_after  TEXT;
+
 
 -- ═══════════════════════════════════════════════════════════════
 -- 2.6) Storage Bucket สำหรับรูปสินค้า (product-images)

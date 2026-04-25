@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v13 (2026-04-25): + Phase 1-3 features (Stock IN Wizard, Quick Stock In, Featured, Promo, etc.)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v13';
+// v14 (2026-04-25): + Phase 4-6 (POS Customer Picker, Cash Recon, Service Photos)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v14';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
