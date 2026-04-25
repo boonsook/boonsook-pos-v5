@@ -242,6 +242,50 @@ ALTER TABLE IF EXISTS public.service_jobs
   ADD COLUMN IF NOT EXISTS photo_before TEXT,
   ADD COLUMN IF NOT EXISTS photo_after  TEXT;
 
+-- ═══════════════════════════════════════════════════════════════
+-- 2.7) Trigger + Backfill: Auto-create profiles row จาก auth.users
+--      แก้ปัญหา user สร้างใน Supabase Dashboard แต่ไม่โผล่ในหน้าแอป
+-- ═══════════════════════════════════════════════════════════════
+
+-- Function: handle_new_user (สร้าง profile row อัตโนมัติเมื่อ auth.users มี row ใหม่)
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  INSERT INTO public.profiles (id, full_name, role, created_at)
+  VALUES (
+    new.id,
+    COALESCE(new.raw_user_meta_data->>'full_name', ''),
+    'sales',
+    COALESCE(new.created_at, now())
+  )
+  ON CONFLICT (id) DO NOTHING;
+  RETURN new;
+END;
+$$;
+
+-- Trigger: รัน handle_new_user หลังมี user ใหม่ใน auth.users
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- ★ Backfill (one-time): สร้าง profiles row ให้ user เก่าที่ขาด
+-- (รันได้บ่อยเพราะ ON CONFLICT DO NOTHING)
+INSERT INTO public.profiles (id, full_name, role, created_at)
+SELECT
+  u.id,
+  COALESCE(u.raw_user_meta_data->>'full_name', '') AS full_name,
+  'sales' AS role,
+  u.created_at
+FROM auth.users u
+LEFT JOIN public.profiles p ON p.id = u.id
+WHERE p.id IS NULL
+ON CONFLICT (id) DO NOTHING;
+
 
 -- ═══════════════════════════════════════════════════════════════
 -- 2.6) Storage Bucket สำหรับรูปสินค้า (product-images)
