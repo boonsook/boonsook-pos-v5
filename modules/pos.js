@@ -132,15 +132,30 @@ function renderPosView(ctx) {
       </div>
 
       <!-- ★ Customer Picker (always visible, even without cart) -->
-      <div class="panel" style="padding:10px 14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <span style="font-size:13px;color:#64748b;font-weight:600">👤 ลูกค้า:</span>
-        ${_posCustomer ? `
-          <span style="background:#dbeafe;color:#1e40af;padding:4px 10px;border-radius:8px;font-weight:700;font-size:13px">${escHtml(_posCustomer.name)}${_posCustomer.phone ? ' • ' + escHtml(_posCustomer.phone) : ''}</span>
-          <button id="posCustClear" class="btn light" style="font-size:11px;padding:3px 8px;color:#dc2626" title="ล้างลูกค้า">×</button>
-        ` : `
-          <span style="color:#94a3b8;font-size:13px">(ลูกค้าทั่วไป — ไม่ผูกบัญชีลูกค้า)</span>
-        `}
-        <button id="posCustPick" class="btn light" style="font-size:12px;padding:5px 12px;margin-left:auto">${_posCustomer ? 'เปลี่ยน' : '+ เลือก/เพิ่มลูกค้า'}</button>
+      <div class="panel" style="padding:10px 14px;display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap">
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="font-size:13px;color:#64748b;font-weight:600">👤 ลูกค้า:</span>
+            ${_posCustomer ? `
+              <span style="background:#dbeafe;color:#1e40af;padding:4px 10px;border-radius:8px;font-weight:700;font-size:13px">${escHtml(_posCustomer.name)}${_posCustomer.phone ? ' • ' + escHtml(_posCustomer.phone) : ''}</span>
+              <button id="posCustClear" class="btn light" style="font-size:11px;padding:3px 8px;color:#dc2626" title="ล้างลูกค้า">×</button>
+            ` : `
+              <span style="color:#94a3b8;font-size:13px">(ลูกค้าทั่วไป — ไม่ผูกบัญชีลูกค้า)</span>
+            `}
+          </div>
+          ${_posCustomer && Array.isArray(_posCustomer.tags) && _posCustomer.tags.length > 0 ? `
+            <div style="margin-top:4px">
+              ${_posCustomer.tags.map(tag => {
+                const m = window._appGetCustomerTagMeta ? window._appGetCustomerTagMeta(tag) : { icon: "🏷️", color: "#64748b" };
+                return `<span style="background:${m.color};color:#fff;padding:1px 7px;border-radius:8px;font-size:10px;font-weight:700;margin-right:3px;display:inline-block">${m.icon} ${escHtml(tag)}</span>`;
+              }).join("")}
+            </div>
+          ` : ''}
+          ${_posCustomer && _posCustomer.notes ? `
+            <div style="margin-top:4px;font-size:11px;color:#0c4a6e;background:#f0f9ff;padding:4px 8px;border-radius:6px;border-left:2px solid #0284c7">📝 ${escHtml(_posCustomer.notes)}</div>
+          ` : ''}
+        </div>
+        <button id="posCustPick" class="btn light" style="font-size:12px;padding:5px 12px;flex-shrink:0">${_posCustomer ? 'เปลี่ยน' : '+ เลือก/เพิ่มลูกค้า'}</button>
       </div>
 
       <!-- Cart (ถ้ามีสินค้า) -->
@@ -1165,24 +1180,44 @@ function openCustomerPicker(ctx) {
       return;
     }
 
-    listEl.innerHTML = customers.map(c => `
-      <div class="pcp-item" data-cid="${escHtml(c.id)}" data-cname="${escHtml(c.name || '')}" data-cphone="${escHtml(c.phone || '')}" style="padding:10px 12px;cursor:pointer;border-radius:8px;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;border:1px solid transparent" onmouseover="this.style.background='#dbeafe';this.style.borderColor='#0284c7'" onmouseout="this.style.background='';this.style.borderColor='transparent'">
-        <div>
-          <div style="font-weight:700;font-size:14px">${escHtml(c.name || '-')}</div>
-          <div style="font-size:11px;color:#64748b">${escHtml(c.phone || '')} ${c.contact_person ? '• ' + escHtml(c.contact_person) : ''}</div>
-        </div>
+    listEl.innerHTML = customers.map(c => {
+      const tags = Array.isArray(c.tags) ? c.tags : [];
+      const tagsHtml = tags.map(tag => {
+        const m = window._appGetCustomerTagMeta ? window._appGetCustomerTagMeta(tag) : { icon: "🏷️", color: "#64748b" };
+        return `<span style="background:${m.color};color:#fff;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:700;margin-right:3px;display:inline-block">${m.icon} ${escHtml(tag)}</span>`;
+      }).join("");
+      const noteSnippet = c.notes ? `<div style="font-size:11px;color:#0284c7;font-style:italic;margin-top:2px">📝 ${escHtml(String(c.notes).slice(0, 60))}${String(c.notes).length > 60 ? '...' : ''}</div>` : "";
+      return `
+      <div class="pcp-item" data-cid="${escHtml(c.id)}" data-cname="${escHtml(c.name || '')}" data-cphone="${escHtml(c.phone || '')}" style="padding:10px 12px;cursor:pointer;border-radius:8px;margin-bottom:4px;border:1px solid transparent" onmouseover="this.style.background='#dbeafe';this.style.borderColor='#0284c7'" onmouseout="this.style.background='';this.style.borderColor='transparent'">
+        <div style="font-weight:700;font-size:14px">${escHtml(c.name || '-')}</div>
+        <div style="font-size:11px;color:#64748b">${escHtml(c.phone || '')} ${c.contact_person ? '• ' + escHtml(c.contact_person) : ''}</div>
+        ${tagsHtml ? `<div style="margin-top:4px">${tagsHtml}</div>` : ''}
+        ${noteSnippet}
       </div>
-    `).join("");
+    `;
+    }).join("");
 
     listEl.querySelectorAll(".pcp-item").forEach(item => item.addEventListener("click", () => {
+      const cid = item.dataset.cid;
+      const cust = (state.customers || []).find(x => String(x.id) === String(cid));
       _posCustomer = {
         id: item.dataset.cid,
         name: item.dataset.cname,
-        phone: item.dataset.cphone
+        phone: item.dataset.cphone,
+        tags: cust?.tags || [],
+        notes: cust?.notes || ""
       };
       modal.remove();
       renderPosView(ctx);
-      window.App?.showToast?.(`✓ เลือกลูกค้า: ${_posCustomer.name}`);
+
+      // ★ แจ้งเตือน VIP / ห้ามเครดิต / ระวัง
+      const tags = cust?.tags || [];
+      let alerts = [];
+      if (tags.includes("VIP")) alerts.push("🌟 ลูกค้า VIP");
+      if (tags.includes("ห้ามเครดิต")) alerts.push("🚫 ห้ามขายเงินเชื่อ");
+      if (tags.includes("ระวัง")) alerts.push("⚠️ ระวัง — ดู notes");
+      const alertMsg = alerts.length > 0 ? ` (${alerts.join(", ")})` : "";
+      window.App?.showToast?.(`✓ เลือกลูกค้า: ${_posCustomer.name}${alertMsg}`);
     }));
   }
   renderList();

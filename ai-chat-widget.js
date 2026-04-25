@@ -546,6 +546,23 @@
     document.getElementById("bs-ai-send").disabled = true;
     const loadingEl = pushLoading();
 
+    // ★ Phase 11: ส่ง customer context (notes + tags) ถ้าหา customer ได้จากเบอร์
+    let customerContext = null;
+    try {
+      const phone = window.BoonsookAI?._currentPhone || null;
+      if (phone && window.App?.state?.customers) {
+        const phoneClean = String(phone).replace(/\D/g, "");
+        const cust = window.App.state.customers.find(c => String(c.phone || "").replace(/\D/g,"") === phoneClean);
+        if (cust && (cust.notes || (Array.isArray(cust.tags) && cust.tags.length > 0))) {
+          customerContext = {
+            name: cust.name || "",
+            tags: Array.isArray(cust.tags) ? cust.tags : [],
+            notes: cust.notes || ""
+          };
+        }
+      }
+    } catch(e){}
+
     try {
       const resp = await fetch(API_URL, {
         method: "POST",
@@ -554,6 +571,7 @@
           message: text,
           history: state.history.slice(0, -1),
           customerPhone: window.BoonsookAI?._currentPhone || null,
+          customerContext, // ★ Phase 11: notes + tags
           page: detectPage(), // ★ "solar" หรือ "service" — ให้ AI รู้ context
         }),
       });
