@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v15 (2026-04-25): + _headers + bypass cache for sw.js/index.html + force update flow
-const CACHE_NAME = 'boonsook-pos-v5-cache-v15';
+// v16 (2026-04-25): + Phase 7-10 (Top Customers, Sales Heatmap, Recurring Expenses, Credit Tracker)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v16';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

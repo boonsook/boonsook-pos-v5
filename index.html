@@ -205,8 +205,12 @@
         <button class="nav-group-toggle">💰 การเงิน <span class="nav-arrow">▶</span></button>
         <div class="nav-group-items">
           <button class="nav-btn sub" data-route="expenses">📒 รายรับ-รายจ่าย</button>
+          <button class="nav-btn sub" data-route="recurring_expenses">🔁 รายจ่ายประจำ</button>
           <button class="nav-btn sub" data-route="profit_report">📊 รายงานกำไร</button>
           <button class="nav-btn sub" data-route="cash_recon">💵 กระทบยอดเงินสด</button>
+          <button class="nav-btn sub" data-route="credit_tracker">💳 ลูกค้าค้างชำระ</button>
+          <button class="nav-btn sub" data-route="top_customers">🏆 ลูกค้าซื้อเยอะสุด</button>
+          <button class="nav-btn sub" data-route="sales_heatmap">⏰ ยอดขายตามช่วงเวลา</button>
         </div>
       </div>
 
@@ -292,6 +296,10 @@
       <section id="page-stock_count" class="page hidden"></section>
       <section id="page-stock_in_wizard" class="page hidden"></section>
       <section id="page-cash_recon" class="page hidden"></section>
+      <section id="page-top_customers" class="page hidden"></section>
+      <section id="page-sales_heatmap" class="page hidden"></section>
+      <section id="page-recurring_expenses" class="page hidden"></section>
+      <section id="page-credit_tracker" class="page hidden"></section>
       <section id="page-ai_sales" class="page hidden"></section>
       <section id="page-ac_shop" class="page hidden"></section>
     </main>
@@ -550,7 +558,7 @@
     </div>
   </aside>
 
-  <script type="module" src="./main.js?v=31"></script>
+  <script type="module" src="./main.js?v=32"></script>
   <script>
     // ═══ Loading Overlay ═══
     function hideLoadingOverlay() {

@@ -273,6 +273,55 @@ CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
+-- ★ คอลัมน์ credit สำหรับ sales (เงินเชื่อ / ค้างชำระ)
+ALTER TABLE IF EXISTS public.sales
+  ADD COLUMN IF NOT EXISTS is_credit BOOLEAN DEFAULT false,
+  ADD COLUMN IF NOT EXISTS credit_due_date DATE,
+  ADD COLUMN IF NOT EXISTS credit_paid_amount NUMERIC DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS credit_paid_at TIMESTAMPTZ;
+
+-- ★ ตาราง credit_payments (ประวัติการเก็บเงินจากลูกค้าค้างชำระ)
+CREATE TABLE IF NOT EXISTS public.credit_payments (
+  id BIGSERIAL PRIMARY KEY,
+  sale_id BIGINT REFERENCES public.sales(id) ON DELETE CASCADE,
+  customer_id BIGINT REFERENCES public.customers(id) ON DELETE SET NULL,
+  amount NUMERIC NOT NULL DEFAULT 0,
+  payment_method TEXT DEFAULT 'cash',
+  paid_at TIMESTAMPTZ DEFAULT now(),
+  note TEXT,
+  created_by TEXT
+);
+ALTER TABLE IF EXISTS public.credit_payments ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "auth_all_credit_payments" ON public.credit_payments;
+CREATE POLICY "auth_all_credit_payments"
+  ON public.credit_payments
+  FOR ALL TO authenticated
+  USING (true) WITH CHECK (true);
+CREATE INDEX IF NOT EXISTS idx_credit_payments_sale ON public.credit_payments(sale_id);
+CREATE INDEX IF NOT EXISTS idx_credit_payments_customer ON public.credit_payments(customer_id);
+
+-- ★ ตาราง recurring_expenses (รายจ่ายประจำ — เช่น ค่าเช่า, ค่าน้ำ, เงินเดือน)
+CREATE TABLE IF NOT EXISTS public.recurring_expenses (
+  id BIGSERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  category TEXT,
+  amount NUMERIC NOT NULL DEFAULT 0,
+  frequency TEXT NOT NULL DEFAULT 'monthly', -- monthly | weekly | yearly
+  day_of_month INTEGER DEFAULT 1, -- ทำงานของทุกเดือน (1-28)
+  next_due DATE,                  -- ครั้งถัดไปที่ต้องสร้าง
+  last_generated DATE,            -- ครั้งล่าสุดที่สร้างจริง
+  is_active BOOLEAN DEFAULT true,
+  note TEXT,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+ALTER TABLE IF EXISTS public.recurring_expenses ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "auth_all_recurring_expenses" ON public.recurring_expenses;
+CREATE POLICY "auth_all_recurring_expenses"
+  ON public.recurring_expenses
+  FOR ALL TO authenticated
+  USING (true) WITH CHECK (true);
+
 -- ★ Backfill (one-time): สร้าง profiles row ให้ user เก่าที่ขาด
 -- (รันได้บ่อยเพราะ ON CONFLICT DO NOTHING)
 INSERT INTO public.profiles (id, full_name, role, created_at)
