@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v12 (2026-04-22): opt-in update via client-triggered SKIP_WAITING + banner
-const CACHE_NAME = 'boonsook-pos-v5-cache-v12';
+// v13 (2026-04-25): + Phase 1-3 features (Stock IN Wizard, Quick Stock In, Featured, Promo, etc.)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v13';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

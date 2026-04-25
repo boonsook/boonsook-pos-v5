@@ -22,15 +22,95 @@ export function renderSettingsAbout(el, ctx, goBack) {
           <div style="font-size:12px;color:#64748b">ระบบจัดการร้านค้าอิเล็กทรอนิกส์แบบครบวงจร</div>
         </div>
         <div style="display:grid;gap:6px;font-size:13px;color:#334155">
-          <div><strong>Version:</strong> 5.0.0</div>
-          <div><strong>Release:</strong> April 2026</div>
+          <div><strong>Version:</strong> 5.1.0</div>
+          <div><strong>Release:</strong> April 2026 (build 26)</div>
           <div><strong>Developer:</strong> Boonsook Electronics</div>
           <div><strong>Contact:</strong> gangboo@gmail.com</div>
+        </div>
+
+        <!-- ★ App Update Section -->
+        <div style="margin-top:20px;padding:14px;background:#f0f9ff;border-radius:10px;border:1px solid #bae6fd">
+          <div style="font-weight:700;color:#0c4a6e;margin-bottom:6px">🔄 ตรวจหาอัปเดต</div>
+          <div style="font-size:12px;color:#075985;margin-bottom:10px">กดเพื่อตรวจหาเวอร์ชันใหม่จาก server (ใช้ตอนเพิ่งแก้ไขแอป)</div>
+          <div id="appUpdateStatus" style="font-size:12px;color:#475569;margin-bottom:8px">พร้อมตรวจ — กดปุ่มด้านล่าง</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button id="appCheckUpdateBtn" class="btn primary" style="font-size:13px;padding:8px 14px">🔄 ตรวจหาอัปเดต</button>
+            <button id="appForceReloadBtn" class="btn light" style="font-size:13px;padding:8px 14px" title="บังคับโหลดใหม่ — ล้าง cache + reload">⚡ โหลดใหม่ทันที (Hard Refresh)</button>
+            <button id="appClearCacheBtn" class="btn light" style="font-size:13px;padding:8px 14px;color:#dc2626;border-color:#fca5a5" title="ลบ cache ทั้งหมด + reload">🗑️ ล้าง Cache</button>
+          </div>
         </div>
       </div>
     </div>
   `;
   document.getElementById("setBackBtn")?.addEventListener("click", goBack);
+
+  // ★ Update buttons
+  const statusEl = document.getElementById("appUpdateStatus");
+  const setStatus = (msg, color) => { if (statusEl) { statusEl.textContent = msg; statusEl.style.color = color || "#475569"; } };
+
+  document.getElementById("appCheckUpdateBtn")?.addEventListener("click", async () => {
+    const btn = document.getElementById("appCheckUpdateBtn");
+    btn.disabled = true; btn.textContent = "⏳ กำลังตรวจ...";
+    setStatus("กำลังถาม server หาเวอร์ชันใหม่...", "#0284c7");
+    try {
+      if (!('serviceWorker' in navigator)) {
+        setStatus("⚠️ Browser ไม่รองรับ Service Worker", "#dc2626");
+        return;
+      }
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (!reg) { setStatus("⚠️ ไม่พบ Service Worker", "#dc2626"); return; }
+      await reg.update();
+      // รอสักครู่ให้ updatefound trigger
+      await new Promise(r => setTimeout(r, 1500));
+      if (reg.waiting) {
+        setStatus("✅ มีเวอร์ชันใหม่! กำลัง apply + reload...", "#059669");
+        reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+        setTimeout(() => window.location.reload(), 800);
+      } else if (reg.installing) {
+        setStatus("⏳ กำลังดาวน์โหลดเวอร์ชันใหม่... รอสักครู่แล้วลองอีกครั้ง", "#f59e0b");
+      } else {
+        setStatus("✓ คุณใช้เวอร์ชันล่าสุดแล้ว — ไม่มีอัปเดตใหม่", "#059669");
+      }
+    } catch (e) {
+      setStatus("❌ ผิดพลาด: " + (e?.message || e), "#dc2626");
+    } finally {
+      btn.disabled = false; btn.textContent = "🔄 ตรวจหาอัปเดต";
+    }
+  });
+
+  document.getElementById("appForceReloadBtn")?.addEventListener("click", () => {
+    setStatus("⚡ กำลังโหลดใหม่...", "#0284c7");
+    // bypass cache
+    if (window.location.reload.length > 0) {
+      try { window.location.reload(true); } catch(e) { window.location.reload(); }
+    } else {
+      window.location.reload();
+    }
+  });
+
+  document.getElementById("appClearCacheBtn")?.addEventListener("click", async () => {
+    if (!confirm("ล้าง cache ทั้งหมด + reload? (จะใช้เวลาโหลดใหม่ครั้งแรกนานขึ้น)")) return;
+    const btn = document.getElementById("appClearCacheBtn");
+    btn.disabled = true; btn.textContent = "⏳ กำลังล้าง...";
+    setStatus("🗑️ กำลังล้าง cache...", "#0284c7");
+    try {
+      // 1. unregister all SW
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        for (const r of regs) await r.unregister();
+      }
+      // 2. delete all caches
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        for (const k of keys) await caches.delete(k);
+      }
+      setStatus("✅ ล้างเสร็จ — กำลัง reload...", "#059669");
+      setTimeout(() => window.location.reload(), 600);
+    } catch (e) {
+      setStatus("❌ ผิดพลาด: " + (e?.message || e), "#dc2626");
+      btn.disabled = false; btn.textContent = "🗑️ ล้าง Cache";
+    }
+  });
 }
 
 /**
