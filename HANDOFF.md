@@ -25,6 +25,52 @@
 
 ---
 
+## 🆕 ฟีเจอร์ใหม่ session 25 เม.ย. — รอบที่ 7 (Phase 11: Customer Notes & Tags)
+
+### ⚠️ ACTION REQUIRED — รัน SQL ใหม่
+รัน `supabase-rls-policies.sql` ใน Supabase SQL Editor — เพิ่ม:
+- `customers.notes` TEXT
+- `customers.tags` TEXT[]
+(idempotent — รันซ้ำได้)
+
+### Phase 11: 📝 Customer Notes & Tags
+
+**Use case:** จดความต้องการ/นิสัยลูกค้า + tag เพื่อจัดกลุ่ม + AI ใช้ context ต่อ
+
+**Customer Drawer (เพิ่มใน edit form):**
+- 📝 ช่อง "บันทึก/Notes" — textarea ยาว
+  ตัวอย่าง: "ชอบ Daikin", "บ้าน 2 ชั้น", "ติดตั้งวันเสาร์เท่านั้น"
+- 🏷️ Tags — chips multi-select
+  Preset: VIP 🌟 / ขายส่ง 📦 / ห้ามเครดิต 🚫 / ลูกค้าราคา 💰 /
+         ประจำ ⭐ / ระวัง ⚠️
+  + พิมพ์ tag เองได้
+
+**Display:**
+- หน้าลูกค้า list: tag chips ใต้ชื่อ
+- POS Customer Picker: tag chips + แจ้งเตือน VIP / ห้ามเครดิต
+- ใบงานช่าง / Quote: notes แสดงตอนเปิดใบ
+
+**AI Integration:**
+- AI Chat: ส่ง customer context (notes + tags) ไปกับ message
+- AI assistant.js: รับ customerContext + ผสมเข้า system prompt
+- AI แนะนำตรงใจมากขึ้น
+
+### Files touched
+- supabase-rls-policies.sql (ALTER TABLE customers)
+- index.html (customerDrawer)
+- main.js (openCustomerDrawer + saveCustomer)
+- modules/customers.js (display tags)
+- modules/pos.js (Customer Picker tags + alerts)
+- functions/api/ai-assistant.js (customer context)
+- ai-chat-widget.js (pass context)
+
+### Bump
+- main.js?v=32 → v=33
+- SW v16 → v17
+- Version display 5.3.0 → 5.4.0 (build 33)
+
+---
+
 ## 🆕 ฟีเจอร์ใหม่ session 25 เม.ย. — รอบที่ 6 (Phase 7-10: รายงาน + เครดิต)
 
 ### ⚠️ ACTION REQUIRED — รัน SQL ใหม่
