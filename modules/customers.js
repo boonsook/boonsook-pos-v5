@@ -110,12 +110,18 @@ function renderView(ctx) {
             ${pageItems.length ? pageItems.map(c => {
               const t = c.contact_type || "customer";
               const ct = CONTACT_TYPES[t] || CONTACT_TYPES.customer;
+              const tags = Array.isArray(c.tags) ? c.tags : [];
+              const tagBadges = tags.map(tag => {
+                const m = window._appGetCustomerTagMeta ? window._appGetCustomerTagMeta(tag) : { icon: "🏷️", color: "#64748b" };
+                return `<span style="background:${m.color};color:#fff;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:700;margin-right:3px;display:inline-block">${m.icon} ${escHtml(tag)}</span>`;
+              }).join("");
               return `
                 <tr>
                   <td>
                     <span class="contact-dot" style="background:${ct.dot}"></span>
                     <span style="font-weight:700">${escHtml(c.name || "-")}</span>
                     ${c.company ? `<div class="sku" style="margin-left:16px">${escHtml(c.company)}</div>` : ''}
+                    ${tagBadges ? `<div style="margin-top:3px;margin-left:16px">${tagBadges}</div>` : ''}
                   </td>
                   <td class="desktop-col">${escHtml(c.contact_person || "")}</td>
                   <td>${escHtml(c.phone || "-")}</td>

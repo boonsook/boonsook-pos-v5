@@ -1859,6 +1859,76 @@ async function saveProduct(){
 // ═══════════════════════════════════════════════════════════
 //  CUSTOMER DRAWER (ใช้ XMLHttpRequest แทน supabase client)
 // ═══════════════════════════════════════════════════════════
+// ★ Phase 11: Customer Notes & Tags
+const CUSTOMER_TAG_PRESETS = [
+  { name: "VIP",          icon: "🌟", color: "#f59e0b", desc: "ลูกค้ายอดสูง" },
+  { name: "ขายส่ง",        icon: "📦", color: "#0284c7", desc: "ใช้ราคาส่ง" },
+  { name: "ห้ามเครดิต",    icon: "🚫", color: "#dc2626", desc: "ไม่ขายเงินเชื่อ" },
+  { name: "ลูกค้าราคา",    icon: "💰", color: "#7c3aed", desc: "ขอลดราคาบ่อย" },
+  { name: "ประจำ",         icon: "⭐", color: "#10b981", desc: "ลูกค้าประจำ" },
+  { name: "ระวัง",         icon: "⚠️", color: "#ef4444", desc: "มีปัญหา ระวัง" }
+];
+
+function getCustomerTagMeta(tagName) {
+  const found = CUSTOMER_TAG_PRESETS.find(t => t.name === tagName);
+  return found || { name: tagName, icon: "🏷️", color: "#64748b", desc: "" };
+}
+window._appGetCustomerTagMeta = getCustomerTagMeta;
+
+function _renderCustomerTagsActive(tags) {
+  const el = $("customerTagsActive");
+  if (!el) return;
+  if (!tags || tags.length === 0) {
+    el.innerHTML = `<span style="font-size:11px;color:#94a3b8">— ยังไม่มี tag —</span>`;
+  } else {
+    el.innerHTML = tags.map(t => {
+      const m = getCustomerTagMeta(t);
+      return `<span class="cust-tag-chip" data-t="${escapeHtml(t)}" style="background:${m.color};color:#fff;padding:3px 8px;border-radius:12px;font-size:11px;font-weight:700;display:inline-flex;align-items:center;gap:4px">
+        ${m.icon} ${escapeHtml(t)}
+        <button type="button" class="cust-tag-remove" data-t="${escapeHtml(t)}" style="background:rgba(255,255,255,0.3);border:none;color:#fff;width:16px;height:16px;border-radius:50%;cursor:pointer;font-size:11px;line-height:1;padding:0;display:inline-flex;align-items:center;justify-content:center">×</button>
+      </span>`;
+    }).join("");
+  }
+  if ($("customerTagsValue")) $("customerTagsValue").value = JSON.stringify(tags || []);
+
+  // remove handlers
+  el.querySelectorAll(".cust-tag-remove").forEach(btn => btn.addEventListener("click", () => {
+    const t = btn.dataset.t;
+    const cur = _getCustomerTagsCurrent();
+    const next = cur.filter(x => x !== t);
+    _renderCustomerTagsActive(next);
+    _renderCustomerTagsPresets(next);
+  }));
+}
+
+function _renderCustomerTagsPresets(activeTags) {
+  const el = $("customerTagsPresets");
+  if (!el) return;
+  const active = new Set(activeTags || []);
+  el.innerHTML = CUSTOMER_TAG_PRESETS.map(t => {
+    const isActive = active.has(t.name);
+    return `<button type="button" class="cust-tag-preset" data-t="${escapeHtml(t.name)}"
+              style="padding:4px 10px;border-radius:14px;border:1px solid ${isActive ? t.color : '#cbd5e1'};
+                     background:${isActive ? t.color : '#fff'};color:${isActive ? '#fff' : '#475569'};
+                     cursor:pointer;font-size:11px;font-weight:600"
+              title="${escapeHtml(t.desc)}">
+              ${t.icon} ${escapeHtml(t.name)}${isActive ? ' ✓' : ''}
+            </button>`;
+  }).join("");
+  el.querySelectorAll(".cust-tag-preset").forEach(btn => btn.addEventListener("click", () => {
+    const t = btn.dataset.t;
+    const cur = _getCustomerTagsCurrent();
+    const next = cur.includes(t) ? cur.filter(x => x !== t) : [...cur, t];
+    _renderCustomerTagsActive(next);
+    _renderCustomerTagsPresets(next);
+  }));
+}
+
+function _getCustomerTagsCurrent() {
+  const v = $("customerTagsValue")?.value || "[]";
+  try { return JSON.parse(v); } catch(e) { return []; }
+}
+
 function openCustomerDrawer(customer=null){
   state.editingCustomerId = customer?.id || null;
   setText("customerDrawerTitle", customer ? "แก้ไขรายชื่อ" : "เพิ่มรายชื่อ");
@@ -1870,6 +1940,38 @@ function openCustomerDrawer(customer=null){
   $("customerCompany").value = customer?.company || "";
   $("customerAddress").value = customer?.address || "";
   $("customerTaxId").value = customer?.tax_id || "";
+
+  // ★ Phase 11: Notes + Tags
+  if ($("customerNotes")) $("customerNotes").value = customer?.notes || "";
+  const initialTags = Array.isArray(customer?.tags) ? customer.tags : [];
+  _renderCustomerTagsActive(initialTags);
+  _renderCustomerTagsPresets(initialTags);
+
+  // Custom tag add handler (bind once per drawer open)
+  const tagInp = $("customerTagInput");
+  const tagAddBtn = $("customerTagAddBtn");
+  const handleAdd = () => {
+    const v = (tagInp?.value || "").trim();
+    if (!v) return;
+    const cur = _getCustomerTagsCurrent();
+    if (cur.includes(v)) { showToast(`มี "${v}" อยู่แล้ว`); return; }
+    const next = [...cur, v];
+    _renderCustomerTagsActive(next);
+    _renderCustomerTagsPresets(next);
+    if (tagInp) tagInp.value = "";
+  };
+  if (tagAddBtn) {
+    const newBtn = tagAddBtn.cloneNode(true); // clean old listeners
+    tagAddBtn.parentNode.replaceChild(newBtn, tagAddBtn);
+    newBtn.addEventListener("click", handleAdd);
+  }
+  if (tagInp) {
+    const newInp = tagInp.cloneNode(true);
+    tagInp.parentNode.replaceChild(newInp, tagInp);
+    newInp.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); handleAdd(); }
+    });
+  }
 
   // ★ แสดงประวัติการซื้อ — เฉพาะเวลาเปิดแก้ไข (มี customer)
   _renderCustomerPurchaseHistory(customer);
@@ -2053,7 +2155,9 @@ async function saveCustomer(){
     company:$("customerCompany").value.trim(),
     address:$("customerAddress").value.trim(),
     tax_id:$("customerTaxId").value.trim(),
-    contact_type:$("customerContactType")?.value || "customer"
+    contact_type:$("customerContactType")?.value || "customer",
+    notes: $("customerNotes")?.value?.trim() || null,
+    tags: _getCustomerTagsCurrent()
   };
   if (!payload.name) return showToast("กรอกชื่อลูกค้า");
   showToast("กำลังบันทึก...");
@@ -3065,8 +3169,9 @@ function bindStaticEvents(){
 window.App = {
   showRoute, openProductDrawer, openCustomerDrawer, openQuotationDrawer,
   openServiceJobDrawer, openReceiptDrawer, addToCart, changeQty,
-  removeFromCart, loadAllData, renderAll, closeAllDrawers, changeRole,
+  removeFromCart, loadAllData, loadReceipt, renderAll, closeAllDrawers, changeRole,
   openAddUserDrawer, showToast, updateAppLogos,
+  state, // ★ Phase 11: expose state for ai-chat-widget customer context
   // ★ Phase 5: New utilities
   escapeHtml, formatNumber, formatCurrency, formatDate, formatDateTime,
   getFormData, validateForm, clearForm,

@@ -433,6 +433,25 @@
       <textarea id="customerAddress" rows="3" placeholder="ที่อยู่" aria-label="ที่อยู่" autocomplete="street-address"></textarea>
       <label for="customerTaxId" class="sr-only">เลขผู้เสียภาษี</label>
       <input class="form-input" id="customerTaxId" placeholder="เลขผู้เสียภาษี" aria-label="เลขผู้เสียภาษี" pattern="[0-9]{13}" maxlength="13" autocomplete="off" />
+
+      <!-- ★ Phase 11: Customer Notes & Tags -->
+      <div style="border:1px dashed #cbd5e1;border-radius:10px;padding:12px;background:#f8fafc">
+        <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:6px">📝 บันทึก / Notes</div>
+        <textarea id="customerNotes" rows="3" placeholder="ความต้องการ / นิสัย เช่น 'ชอบ Daikin', 'บ้าน 2 ชั้น', 'ติดตั้งเฉพาะวันเสาร์'" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-family:inherit;resize:vertical"></textarea>
+
+        <div style="font-size:12px;font-weight:700;color:#475569;margin:10px 0 6px">🏷️ Tags</div>
+        <div id="customerTagsPresets" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px">
+          <!-- preset chips populated via JS -->
+        </div>
+        <div style="display:flex;gap:6px">
+          <input id="customerTagInput" type="text" placeholder="พิมพ์ tag เอง + Enter" style="flex:1;padding:6px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:12px" />
+          <button id="customerTagAddBtn" type="button" class="btn light" style="font-size:12px;padding:6px 10px">+ เพิ่ม</button>
+        </div>
+        <div id="customerTagsActive" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px;min-height:24px">
+          <!-- selected tags rendered here -->
+        </div>
+        <input type="hidden" id="customerTagsValue" />
+      </div>
     </div>
     <div class="row mt16">
       <button id="saveCustomerBtn" class="btn btn-primary">บันทึก</button>
@@ -558,7 +577,7 @@
     </div>
   </aside>
 
-  <script type="module" src="./main.js?v=32"></script>
+  <script type="module" src="./main.js?v=33"></script>
   <script>
     // ═══ Loading Overlay ═══
     function hideLoadingOverlay() {

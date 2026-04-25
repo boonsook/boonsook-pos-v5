@@ -251,7 +251,7 @@ export async function onRequestPost(context) {
     }
 
     const body = await request.json();
-    const { message, history = [], customerPhone, page } = body || {};
+    const { message, history = [], customerPhone, customerContext, page } = body || {};
 
     if (!message || typeof message !== "string") {
       return new Response(
@@ -264,6 +264,14 @@ export async function onRequestPost(context) {
     let contextHint = "";
     if (page === "solar") {
       contextHint = `\n\n⚠️ CONTEXT ปัจจุบัน: ลูกค้ากำลังอยู่ที่หน้า "งานโซล่าเซลล์" — ต้องเลือก job_type จาก 6 หมวดโซล่าเซลล์เท่านั้น (ติดตั้งปั๊มน้ำโซล่าเซลล์/ติดตั้งชุดออนกริดโซล่าเซลล์/ติดตั้งชุดออฟกริดโซล่าเซลล์/ติดตั้งชุดไฮบริดโซล่าเซลล์/ซ่อม & เซอร์วิสระบบโซล่าเซลล์/งานโซล่าเซลล์อื่นๆ) ห้ามเสนอหมวดแอร์/CCTV/ตู้เย็น`;
+    }
+
+    // ★ Phase 11: Customer context (notes + tags) — ผสมเข้า system prompt
+    if (customerContext && (customerContext.notes || (Array.isArray(customerContext.tags) && customerContext.tags.length > 0))) {
+      const tags = Array.isArray(customerContext.tags) ? customerContext.tags : [];
+      const tagSummary = tags.length > 0 ? `Tags: ${tags.join(", ")}` : "";
+      const notes = String(customerContext.notes || "").slice(0, 300);
+      contextHint += `\n\n👤 ข้อมูลลูกค้าที่กำลังคุย:\n- ชื่อ: ${String(customerContext.name || "ไม่ทราบ").slice(0, 50)}\n${tagSummary ? "- " + tagSummary + "\n" : ""}${notes ? "- บันทึก: " + notes + "\n" : ""}\nใช้ข้อมูลนี้แนะนำให้ตรงใจ — เช่น ถ้า tag "VIP" → ดูแลพิเศษ, "ขายส่ง" → ใช้ราคาส่ง/ราคาพิเศษ, "ห้ามเครดิต" → ห้ามเสนอเงินเชื่อ, ใน notes บอกอะไรให้สอดคล้อง`;
     }
 
     // สร้าง messages array สำหรับ Llama

@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v16 (2026-04-25): + Phase 7-10 (Top Customers, Sales Heatmap, Recurring Expenses, Credit Tracker)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v16';
+// v17 (2026-04-25): + Phase 11 (Customer Notes & Tags + AI context)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v17';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

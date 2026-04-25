@@ -273,6 +273,11 @@ CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
+-- ★ Customer Notes & Tags (Phase 11)
+ALTER TABLE IF EXISTS public.customers
+  ADD COLUMN IF NOT EXISTS notes TEXT,
+  ADD COLUMN IF NOT EXISTS tags TEXT[];
+
 -- ★ คอลัมน์ credit สำหรับ sales (เงินเชื่อ / ค้างชำระ)
 ALTER TABLE IF EXISTS public.sales
   ADD COLUMN IF NOT EXISTS is_credit BOOLEAN DEFAULT false,
