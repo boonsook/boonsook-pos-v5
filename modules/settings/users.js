@@ -13,8 +13,12 @@ export function renderSettingsUsers(el, ctx, goBack, navigateToView) {
         <h3 class="set-subpage-title">ตั้งค่าผู้ใช้งาน</h3>
       </div>
 
-      <div style="text-align:right;margin-bottom:12px">
-        <button id="openAddUserBtn" class="btn primary">+ เพิ่มผู้ใช้</button>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap">
+        <div style="font-size:11px;color:#94a3b8">${users.length} ผู้ใช้ในระบบ</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button id="syncUsersBtn" class="btn light" style="font-size:12px" title="ดึง user ที่อาจตกหล่นจาก Supabase auth → profiles">🔄 Sync ผู้ใช้</button>
+          <button id="openAddUserBtn" class="btn primary">+ เพิ่มผู้ใช้</button>
+        </div>
       </div>
 
       <!-- ★ Inline styles เพื่อกัน layout overflow -->
@@ -74,6 +78,66 @@ export function renderSettingsUsers(el, ctx, goBack, navigateToView) {
 
   document.getElementById("setBackBtn")?.addEventListener("click", goBack);
   document.getElementById("openAddUserBtn")?.addEventListener("click", openAddUserDrawer);
+
+  // ★ Sync ผู้ใช้จาก auth.users (ใช้ profiles_with_email VIEW) → กรอก profiles ที่ขาด
+  document.getElementById("syncUsersBtn")?.addEventListener("click", async () => {
+    const btn = document.getElementById("syncUsersBtn");
+    btn.disabled = true; btn.textContent = "⏳ กำลัง sync...";
+    try {
+      // Step 1: query profiles_with_email VIEW (มี email + full_name จาก auth.users)
+      const cfg = window.SUPABASE_CONFIG;
+      const accessToken = window._sbAccessToken || cfg.anonKey;
+      const viewRes = await fetch(cfg.url + "/rest/v1/profiles_with_email?select=id,email,full_name,role", {
+        headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + accessToken }
+      });
+      let viewData = [];
+      if (viewRes.ok) {
+        try { viewData = await viewRes.json(); } catch(e){}
+      }
+
+      // Step 2: หา id ที่อยู่ใน VIEW แต่ไม่อยู่ใน state.allProfiles
+      const existingIds = new Set((state.allProfiles || []).map(p => String(p.id)));
+      const missing = (viewData || []).filter(v => !existingIds.has(String(v.id)));
+
+      if (missing.length === 0) {
+        showToast?.("✓ ผู้ใช้ครบแล้ว — ไม่มีตกหล่น");
+        btn.disabled = false; btn.textContent = "🔄 Sync ผู้ใช้";
+        return;
+      }
+
+      // Step 3: UPSERT แต่ละคนเข้า profiles
+      let ok = 0;
+      for (const u of missing) {
+        const payload = {
+          id: u.id,
+          full_name: u.full_name || (u.email ? u.email.split("@")[0] : ""),
+          role: u.role || "sales"
+        };
+        try {
+          const r = await fetch(cfg.url + "/rest/v1/profiles", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "apikey": cfg.anonKey,
+              "Authorization": "Bearer " + accessToken,
+              "Prefer": "resolution=merge-duplicates,return=minimal"
+            },
+            body: JSON.stringify(payload)
+          });
+          if (r.ok) ok++;
+        } catch(e) {}
+      }
+
+      showToast?.(`✓ Sync สำเร็จ ${ok}/${missing.length} user`);
+      if (window.App?.loadAllData) await window.App.loadAllData();
+      // re-render
+      if (window.App?.showRoute) window.App.showRoute("settings");
+    } catch (e) {
+      showToast?.("❌ ผิดพลาด: " + (e?.message || e) + " — ลองรัน SQL backfill แทน");
+    } finally {
+      btn.disabled = false; btn.textContent = "🔄 Sync ผู้ใช้";
+    }
+  });
 
   // เปลี่ยน role
   el.querySelectorAll("[data-role-user-id]").forEach(sel => {
