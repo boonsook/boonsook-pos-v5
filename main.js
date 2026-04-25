@@ -1488,8 +1488,8 @@ function openProductDrawer(product=null, opts={}){
   state.editingProductId = product?.id || null;
   setText("productDrawerTitle", product ? "แก้ไขสินค้า" : "เพิ่มสินค้า");
 
-  // ★ ตั้งค่าประเภทสินค้า
-  const pType = product?.product_type || _detectType(product) || "stock";
+  // ★ ตั้งค่าประเภทสินค้า — รับ prefillType ตอนเปิดสำหรับสินค้าใหม่
+  const pType = product?.product_type || _detectType(product) || opts?.prefillType || "stock";
   if ($("newProductType")) $("newProductType").value = pType;
   $("newProductName").value = product?.name || "";
   $("newProductSku").value = product?.sku || "";
