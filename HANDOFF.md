@@ -25,6 +25,48 @@
 
 ---
 
+## 🆕 ฟีเจอร์ใหม่ session 25 เม.ย. — รอบที่ 5 (Phase 4-6: POS Customer + Cash Recon + Service Photos)
+
+### ⚠️ ACTION REQUIRED — รัน SQL ใหม่อีกรอบ
+รัน `supabase-rls-policies.sql` ใน Supabase SQL Editor — เพิ่ม column ใหม่:
+- `sales.customer_id` BIGINT REFERENCES customers(id) — ผูกบิลกับลูกค้า
+- `service_jobs.photo_before` TEXT — รูปก่อนทำงาน
+- `service_jobs.photo_after` TEXT — รูปหลังทำงาน
+(idempotent — รันซ้ำได้ปลอดภัย)
+
+### Phase 4: 👤 POS Customer Picker
+- POS หน้า home: panel ลูกค้าด้านบน + ปุ่ม "+ เลือก/เพิ่มลูกค้า"
+- modal: search + list + quick add (ชื่อ + เบอร์)
+- เลือกแล้ว → บิลใหม่จะใช้ customer_name + customer_id
+- หลัง checkout → reset เป็น "ลูกค้าทั่วไป" อัตโนมัติ
+- **purchase history** (ที่ทำไว้แล้ว) ใช้ customer_id เป็น primary match
+- เพิ่มเบอร์โทรใน sale.note อัตโนมัติ
+
+### Phase 5: 💵 กระทบยอดเงินสด (Cash Drawer Reconciliation)
+- หน้าใหม่: Sidebar → การเงิน → 💵 กระทบยอดเงินสด
+- เลือกวันที่ (วันนี้ / เมื่อวาน / custom)
+- 4 ขั้น:
+  1. กรอก "เงินเริ่มต้นในลิ้นชัก" (เปิดร้าน) → save localStorage
+  2. ระบบคำนวณ "ควรมี" (เงินเริ่ม + ขายเงินสด − จ่ายเงินสด)
+  3. นับเงินจริง — กรอกจำนวนธนบัตร 1000/500/100/50/20/10/5/2/1
+  4. ดูผล: ตรงกัน / เกิน / ขาด พร้อมสีบอก
+- บันทึกผลใน localStorage ตามวันที่
+- โอน/บัตร แสดงแยกไม่นับในเงินสด
+
+### Phase 6: 📷 Service Job Photos (รูปก่อน-หลัง)
+- ใบงานช่าง drawer: ส่วน "รูปก่อน-หลังงาน" (2 ช่อง)
+- มือถือ: เปิดกล้องหลังอัตโนมัติ (capture="environment")
+- Upload → Supabase Storage `product-images` bucket (reuse)
+- save: `photo_before` + `photo_after` URL
+- โหลด edit job → preview ทั้ง 2 รูป
+
+### Bump
+- main.js?v=27 → v=28
+- SW cache v13 → v14
+- Version display 5.1.0 → 5.2.0 (build 28)
+
+---
+
 ## 🆕 ฟีเจอร์ใหม่ session 25 เม.ย. — รอบที่ 4 (Phase 3: Stock IN Wizard)
 
 ### 🚛 หน้าใหม่: รับเข้าสินค้า (Stock IN Wizard)

@@ -67,6 +67,7 @@ let quickPayAmount = 0;   // ยอดจาก numpad (เก็บเงิน
 let pendingPaidAmount = 0; // จำนวนเงินที่รับมา (สำหรับเงินสด)
 let scannerInstance = null;
 let _posAbort = null;     // ★ AbortController สำหรับลบ event listeners เก่า
+let _posCustomer = null;  // ★ Customer ที่เลือก {id, name, phone}
 
 export function renderPosPage({ state, addToCart, changeQty, removeFromCart, openProductDrawer, checkout, openReceiptDrawer }) {
   const ctx = { state, addToCart, changeQty, removeFromCart, openProductDrawer, checkout, openReceiptDrawer };
@@ -130,6 +131,18 @@ function renderPosView(ctx) {
         </button>
       </div>
 
+      <!-- ★ Customer Picker (always visible, even without cart) -->
+      <div class="panel" style="padding:10px 14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="font-size:13px;color:#64748b;font-weight:600">👤 ลูกค้า:</span>
+        ${_posCustomer ? `
+          <span style="background:#dbeafe;color:#1e40af;padding:4px 10px;border-radius:8px;font-weight:700;font-size:13px">${escHtml(_posCustomer.name)}${_posCustomer.phone ? ' • ' + escHtml(_posCustomer.phone) : ''}</span>
+          <button id="posCustClear" class="btn light" style="font-size:11px;padding:3px 8px;color:#dc2626" title="ล้างลูกค้า">×</button>
+        ` : `
+          <span style="color:#94a3b8;font-size:13px">(ลูกค้าทั่วไป — ไม่ผูกบัญชีลูกค้า)</span>
+        `}
+        <button id="posCustPick" class="btn light" style="font-size:12px;padding:5px 12px;margin-left:auto">${_posCustomer ? 'เปลี่ยน' : '+ เลือก/เพิ่มลูกค้า'}</button>
+      </div>
+
       <!-- Cart (ถ้ามีสินค้า) -->
       ${cartQty > 0 ? `
       <div class="panel pos-cart-summary">
@@ -148,6 +161,10 @@ function renderPosView(ctx) {
       </div>
       ` : ''}
     `;
+
+    // ★ Customer Picker bindings
+    document.getElementById("posCustPick")?.addEventListener("click", () => openCustomerPicker(ctx), { signal });
+    document.getElementById("posCustClear")?.addEventListener("click", () => { _posCustomer = null; renderPosView(ctx); }, { signal });
 
     // Bindings
     document.getElementById("posQuickPay")?.addEventListener("click", () => {
@@ -817,9 +834,16 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
     const orderNo = "BSK-" + Date.now();
     const proofUrl = window._pendingProofUrl || "";
     window._pendingProofUrl = "";
+    // ★ ใช้ลูกค้าที่เลือก (ถ้ามี)
+    const custName = _posCustomer?.name || "ลูกค้าทั่วไป";
+    const custPhone = _posCustomer?.phone || "";
+    let noteParts = [];
+    if (custPhone) noteParts.push(`📞 ${custPhone}`);
+    if (proofUrl && proofUrl.startsWith("http")) noteParts.push(`สลิป: ${proofUrl}`);
+
     const salePayload = {
       order_no: orderNo,
-      customer_name: "ลูกค้าทั่วไป",
+      customer_name: custName,
       payment_method: paymentMethod,
       subtotal: amount,
       total_amount: amount,
@@ -828,9 +852,11 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
       discount_type: null,
       discount_value: 0,
       discount_amount: 0,
-      note: proofUrl && proofUrl.startsWith("http") ? "สลิป: " + proofUrl : "",
+      note: noteParts.join(" • "),
       created_by: state.currentUser?.id || null
     };
+    // ★ ถ้ามี customer_id field ในตาราง — ใส่ด้วย (รองรับ schema ที่ extend แล้ว)
+    if (_posCustomer?.id) salePayload.customer_id = _posCustomer.id;
 
     const saleRes = await xhrPostPOS("sales", salePayload, true);
     if (!saleRes.ok) {
@@ -910,6 +936,7 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
     numpadValue = "";
     quickPayAmount = 0;
     posView = "home";
+    _posCustomer = null; // เคลียร์ลูกค้าหลังจบบิล
 
     window.App?.showToast?.("บันทึกการขายเรียบร้อย ✅");
     try { openReceiptDrawer(); } catch (e) { console.warn("openReceiptDrawer error:", e); }
@@ -1076,3 +1103,140 @@ function renderCartCompact(cart) {
 }
 
 export function addToCartLocal(){}
+
+// ═══════════════════════════════════════════════════════════
+//  CUSTOMER PICKER MODAL — เลือก/เพิ่ม/สร้างลูกค้าตอน POS
+// ═══════════════════════════════════════════════════════════
+function openCustomerPicker(ctx) {
+  const { state } = ctx;
+  document.getElementById("posCustPickerModal")?.remove();
+
+  const modal = document.createElement("div");
+  modal.id = "posCustPickerModal";
+  modal.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px";
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:14px;max-width:520px;width:100%;max-height:85vh;display:flex;flex-direction:column;overflow:hidden">
+      <div style="padding:14px 18px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center">
+        <h3 style="margin:0;font-size:16px">👤 เลือก / เพิ่มลูกค้า</h3>
+        <button id="pcpClose" style="background:transparent;border:none;font-size:22px;cursor:pointer;color:#64748b">×</button>
+      </div>
+
+      <!-- Search -->
+      <div style="padding:12px 18px;border-bottom:1px solid #e5e7eb">
+        <input id="pcpSearch" type="text" placeholder="🔍 ค้นหาชื่อ/เบอร์โทร..." style="width:100%;padding:10px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px" autofocus />
+      </div>
+
+      <!-- List -->
+      <div id="pcpList" style="flex:1;overflow-y:auto;padding:8px"></div>
+
+      <!-- Quick Add -->
+      <div style="padding:12px 18px;border-top:1px solid #e5e7eb;background:#f8fafc">
+        <div style="font-size:11px;color:#64748b;font-weight:700;margin-bottom:6px">+ เพิ่มลูกค้าใหม่ (Quick)</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <input id="pcpNewName" type="text" placeholder="ชื่อ" style="flex:2;min-width:120px;padding:8px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px" />
+          <input id="pcpNewPhone" type="tel" placeholder="เบอร์โทร" style="flex:1;min-width:100px;padding:8px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px" pattern="[0-9]{9,10}" />
+          <button id="pcpAddBtn" class="btn primary" style="padding:8px 14px;font-size:13px">+ เพิ่ม</button>
+        </div>
+      </div>
+    </div>
+  `;
+  modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
+  document.body.appendChild(modal);
+  setTimeout(() => modal.querySelector("#pcpSearch")?.focus(), 50);
+
+  function renderList(query = "") {
+    const listEl = modal.querySelector("#pcpList");
+    const q = (query || "").trim().toLowerCase();
+    let customers = (state.customers || []).filter(c => {
+      const ct = String(c.contact_type || "customer");
+      return ct === "customer" || ct === "both";
+    });
+    if (q) {
+      customers = customers.filter(c =>
+        String(c.name || "").toLowerCase().includes(q) ||
+        String(c.phone || "").includes(q) ||
+        String(c.contact_person || "").toLowerCase().includes(q)
+      );
+    }
+    customers = customers.slice(0, 50);
+
+    if (customers.length === 0) {
+      listEl.innerHTML = `<div style="text-align:center;padding:30px;color:#94a3b8;font-size:13px">${q ? `ไม่พบ "${escHtml(q)}" — เพิ่มใหม่ด้านล่าง` : 'ยังไม่มีลูกค้า — เพิ่มด้านล่าง'}</div>`;
+      return;
+    }
+
+    listEl.innerHTML = customers.map(c => `
+      <div class="pcp-item" data-cid="${escHtml(c.id)}" data-cname="${escHtml(c.name || '')}" data-cphone="${escHtml(c.phone || '')}" style="padding:10px 12px;cursor:pointer;border-radius:8px;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;border:1px solid transparent" onmouseover="this.style.background='#dbeafe';this.style.borderColor='#0284c7'" onmouseout="this.style.background='';this.style.borderColor='transparent'">
+        <div>
+          <div style="font-weight:700;font-size:14px">${escHtml(c.name || '-')}</div>
+          <div style="font-size:11px;color:#64748b">${escHtml(c.phone || '')} ${c.contact_person ? '• ' + escHtml(c.contact_person) : ''}</div>
+        </div>
+      </div>
+    `).join("");
+
+    listEl.querySelectorAll(".pcp-item").forEach(item => item.addEventListener("click", () => {
+      _posCustomer = {
+        id: item.dataset.cid,
+        name: item.dataset.cname,
+        phone: item.dataset.cphone
+      };
+      modal.remove();
+      renderPosView(ctx);
+      window.App?.showToast?.(`✓ เลือกลูกค้า: ${_posCustomer.name}`);
+    }));
+  }
+  renderList();
+
+  modal.querySelector("#pcpSearch")?.addEventListener("input", (e) => renderList(e.target.value));
+  modal.querySelector("#pcpClose")?.addEventListener("click", () => modal.remove());
+
+  // Quick add new customer
+  modal.querySelector("#pcpAddBtn")?.addEventListener("click", async () => {
+    const name = (modal.querySelector("#pcpNewName").value || "").trim();
+    const phone = (modal.querySelector("#pcpNewPhone").value || "").trim();
+    if (!name) { window.App?.showToast?.("กรอกชื่อลูกค้า"); return; }
+
+    const btn = modal.querySelector("#pcpAddBtn");
+    btn.disabled = true; btn.textContent = "กำลังบันทึก...";
+
+    const cfg = window.SUPABASE_CONFIG;
+    const accessToken = window._sbAccessToken || cfg.anonKey;
+    const payload = { name, phone, contact_type: "customer" };
+
+    try {
+      const result = await new Promise((resolve) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", cfg.url + "/rest/v1/customers");
+        xhr.setRequestHeader("Content-Type", "application/json");
+        xhr.setRequestHeader("apikey", cfg.anonKey);
+        xhr.setRequestHeader("Authorization", "Bearer " + accessToken);
+        xhr.setRequestHeader("Prefer", "return=representation");
+        xhr.timeout = 8000;
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try { resolve(JSON.parse(xhr.responseText)?.[0] || null); }
+            catch(e) { resolve(null); }
+          } else resolve(null);
+        };
+        xhr.onerror = () => resolve(null);
+        xhr.ontimeout = () => resolve(null);
+        xhr.send(JSON.stringify(payload));
+      });
+
+      if (!result) {
+        window.App?.showToast?.("เพิ่มลูกค้าไม่สำเร็จ");
+        btn.disabled = false; btn.textContent = "+ เพิ่ม";
+        return;
+      }
+      // Reload customers + select the new one
+      if (window.App?.loadAllData) await window.App.loadAllData();
+      _posCustomer = { id: result.id, name: result.name, phone: result.phone || "" };
+      modal.remove();
+      renderPosView(ctx);
+      window.App?.showToast?.(`✓ เพิ่ม + เลือก: ${result.name}`);
+    } catch (e) {
+      window.App?.showToast?.("ผิดพลาด: " + (e?.message || e));
+      btn.disabled = false; btn.textContent = "+ เพิ่ม";
+    }
+  });
+}

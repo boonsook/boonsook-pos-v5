@@ -28,6 +28,7 @@ import { renderStockValuePage } from "./modules/stock_value.js";
 import { renderDeadStockPage } from "./modules/dead_stock.js";
 import { renderStockCountPage } from "./modules/stock_count.js";
 import { renderStockInWizardPage } from "./modules/stock_in_wizard.js";
+import { renderCashReconPage } from "./modules/cash_recon.js";
 import { renderAiSalesPage } from "./modules/ai_sales.js";
 import { renderAcShopPage } from "./modules/ac_shop.js";
 import "./modules/doc-override.js";
@@ -800,11 +801,11 @@ function isLowStock(product){ return Number(product.stock||0) <= Number(product.
 // ═══════════════════════════════════════════════════════════
 //  ROLE-BASED ACCESS CONTROL (4 กลุ่ม)
 // ═══════════════════════════════════════════════════════════
-const ALL_ROUTES = ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","service_jobs","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","calendar","loyalty","customer_dashboard","btu_calculator","service_request","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"];
+const ALL_ROUTES = ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","service_jobs","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","calendar","loyalty","customer_dashboard","btu_calculator","service_request","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"];
 const ROLE_PAGES = {
   admin:      ALL_ROUTES,
   technician: ["dashboard","pos","service_jobs","customers","receipts","calendar","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop","stock_count"],
-  sales:      ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","calendar","loyalty","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"],
+  sales:      ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","calendar","loyalty","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"],
   customer:   ["customer_dashboard","btu_calculator","service_request","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"]
 };
 const ROLE_LABELS = {
@@ -903,6 +904,7 @@ function showRoute(route){
     dead_stock:"รายงานสต็อกค้างนาน",
     stock_count:"นับสต็อกจริง",
     stock_in_wizard:"รับเข้าสินค้า (Wizard)",
+    cash_recon:"กระทบยอดเงินสด",
     ai_sales:"AI ผู้ช่วยขายแอร์",
     ac_shop:"แอร์ใหม่พร้อมติดตั้ง"
   };
@@ -939,6 +941,7 @@ function showRoute(route){
   if (route === "dead_stock") renderDeadStockPage(ctx);
   if (route === "stock_count") renderStockCountPage(ctx);
   if (route === "stock_in_wizard") renderStockInWizardPage(ctx);
+  if (route === "cash_recon") renderCashReconPage(ctx);
   if (route === "ai_sales") renderAiSalesPage(ctx);
   if (route === "ac_shop") renderAcShopPage(ctx);
 
@@ -1955,13 +1958,17 @@ function _renderCustomerPurchaseHistory(customer) {
   const name = String(customer.name || "").trim();
   const phone = String(customer.phone || "").replace(/\D/g, "");
 
-  // หา sales ที่ match ชื่อ หรือเบอร์ใน note
+  // หา sales ที่ match ลูกค้านี้ — ใช้ customer_id ก่อน, fallback ที่ชื่อ/เบอร์
   const sales = (state.sales || [])
     .filter(s => !(s.note || "").includes("[ลบแล้ว]"))
     .filter(s => {
+      // 1) ตรง customer_id (ดีที่สุด — ถ้าตั้ง POS Customer Picker)
+      if (s.customer_id && customer.id && String(s.customer_id) === String(customer.id)) return true;
       const sName = String(s.customer_name || "").trim();
       const sNote = String(s.note || "");
+      // 2) ตรงชื่อ
       if (name && sName && sName === name) return true;
+      // 3) ตรงเบอร์ (ใน note หรือชื่อ)
       if (phone && (sNote.replace(/\D/g, "").includes(phone) || sName.includes(phone))) return true;
       return false;
     })
@@ -2074,7 +2081,24 @@ function openServiceJobDrawer(job=null){
   $("serviceType").value = job?.job_type || "ac";
   $("serviceStatus").value = job?.status || "pending";
   $("serviceNote").value = job?.note || "";
+
+  // ★ Load before/after photos
+  _setServicePhotoPreview("Before", job?.photo_before || "");
+  _setServicePhotoPreview("After", job?.photo_after || "");
+
   openDrawer("serviceJobDrawer");
+}
+
+function _setServicePhotoPreview(which, url) {
+  const previewEl = $(`service${which}Preview`);
+  const urlEl = $(`service${which}Url`);
+  if (urlEl) urlEl.value = url || "";
+  if (!previewEl) return;
+  if (url) {
+    previewEl.innerHTML = `<img src="${escapeHtml(url)}" alt="${which}" style="width:100%;height:100%;max-height:160px;object-fit:cover" />`;
+  } else {
+    previewEl.innerHTML = `<span style="color:#94a3b8;font-size:11px">ยังไม่มีรูป</span>`;
+  }
 }
 async function saveServiceJob(){
   const descVal = $("serviceTitle").value.trim();
@@ -2085,7 +2109,9 @@ async function saveServiceJob(){
     description:      descVal,
     job_type:         $("serviceType").value,
     status:           $("serviceStatus").value,
-    note:             $("serviceNote").value.trim()
+    note:             $("serviceNote").value.trim(),
+    photo_before:     $("serviceBeforeUrl")?.value?.trim() || null,
+    photo_after:      $("serviceAfterUrl")?.value?.trim() || null
   };
   // ★ VALIDATE: ตรวจสอบข้อมูลก่อนส่ง
   if (!payload.customer_name || !payload.description) return showToast("กรอกข้อมูลงานช่างให้ครบ");
@@ -2944,6 +2970,43 @@ function bindStaticEvents(){
   $("saveCustomerBtn")?.addEventListener("click", saveCustomer);
   // ★ saveQuotation now handled inside quotations.js module
   $("saveServiceJobBtn")?.addEventListener("click", saveServiceJob);
+
+  // ★ Service photos upload (Before/After) — reuse product-images bucket
+  ["Before", "After"].forEach(which => {
+    $(`service${which}Btn`)?.addEventListener("click", () => $(`service${which}File`)?.click());
+    $(`service${which}Clear`)?.addEventListener("click", () => _setServicePhotoPreview(which, ""));
+    $(`service${which}File`)?.addEventListener("change", async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      if (!file.type.startsWith("image/")) return showToast("ไฟล์ต้องเป็นรูปภาพ");
+      if (file.size > 5 * 1024 * 1024) return showToast("ไฟล์ใหญ่เกิน 5MB");
+      const btn = $(`service${which}Btn`);
+      if (btn) { btn.disabled = true; btn.textContent = "⏳..."; }
+      try {
+        const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+        const ts = Date.now();
+        const rand = Math.random().toString(36).slice(2, 8);
+        const path = `service-${which.toLowerCase()}-${ts}-${rand}.${ext}`;
+        const { data, error } = await state.supabase.storage
+          .from("product-images")
+          .upload(path, file, { cacheControl: "31536000", upsert: false });
+        if (error) {
+          console.error(`[service-${which.toLowerCase()} upload]`, error);
+          showToast("อัพโหลดไม่สำเร็จ: " + (error.message || "ตรวจ bucket 'product-images'"));
+          return;
+        }
+        const { data: urlData } = state.supabase.storage.from("product-images").getPublicUrl(data.path);
+        const url = urlData?.publicUrl || "";
+        _setServicePhotoPreview(which, url);
+        showToast(`อัพโหลดรูป${which === "Before" ? "ก่อน" : "หลัง"}สำเร็จ ✓`);
+      } catch (err) {
+        showToast("ผิดพลาด: " + (err?.message || err));
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = "📤 อัพโหลด"; }
+        e.target.value = "";
+      }
+    });
+  });
   $("printReceiptBtn")?.addEventListener("click", printLastReceipt);
   $("pdfReceiptBtn")?.addEventListener("click", exportReceiptPdf);
   $("shareReceiptLineBtn")?.addEventListener("click", shareReceiptToLine);
