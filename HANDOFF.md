@@ -25,7 +25,85 @@
 
 ---
 
-## 🆕 ฟีเจอร์ใหม่ session 25 เม.ย. (8 ฟีเจอร์ใหญ่ + UX)
+## 🆕 ฟีเจอร์ใหม่ session 25 เม.ย. — รอบที่ 4 (Phase 3: Stock IN Wizard)
+
+### 🚛 หน้าใหม่: รับเข้าสินค้า (Stock IN Wizard)
+- Sidebar → "🚛 รับเข้าสินค้า" (ใต้ "📋 ประวัติสต็อก")
+- ใช้ตอนรับของจาก supplier หลายตัวพร้อมกัน:
+  1. เลือก: คลังที่จะรับเข้า, ซัพพลายเออร์, เลขที่ใบกำกับ
+  2. สแกน barcode (กล้อง) หรือพิมพ์/ปืนยิง → กรอก qty + cost (option)
+  3. กด "+ เพิ่ม" → เข้า list ด้านล่าง
+  4. แก้ qty/cost ใน inline edit ได้ตลอด (cost เปลี่ยน → highlight สีส้ม)
+  5. ดู total: จำนวนรายการ + ชิ้น + มูลค่ารวม
+  6. กด "💾 บันทึกการรับเข้า" → batch ทำทุก row:
+     - call _appApplyStockMovement (in)
+     - PATCH cost ใหม่ถ้าต่างจากเดิม
+     - note format: "รับเข้า: ABC Trading (Inv INV-2026-001)"
+- Auto-focus search input + Enter to add (ปืนยิง barcode ใช้ได้ทันที)
+
+### Bump main.js?v=25 → v=26
+
+---
+
+## 🆕 ฟีเจอร์ใหม่ session 25 เม.ย. — รอบที่ 3 (Phase 2: Drag-drop + Featured + Promo)
+
+### ⚠️ ACTION REQUIRED — รัน SQL ใหม่อีกครั้ง
+รัน `supabase-rls-policies.sql` ใน SQL Editor — เพิ่ม column ใหม่:
+- `products.is_featured` BOOLEAN DEFAULT false
+- `products.promo_price` NUMERIC
+- `products.promo_start` DATE
+- `products.promo_end` DATE
+(idempotent — รันซ้ำได้)
+
+### ฟีเจอร์ที่เพิ่ม
+1. **Drag & Drop จัดลำดับหมวดหมู่** ใน Category Manager
+   - มี handle ⋮⋮ ลากได้ + ▲▼ ก็ยังใช้ได้
+   - ตอนลากแสดง preview สีฟ้า
+
+2. **⭐ Featured flag** — checkbox ในหน้าแก้สินค้า
+   - แสดง ⭐ ที่ชื่อสินค้าใน list
+   - DB: `products.is_featured`
+
+3. **🏷️ ราคาโปรโมชั่น** — ในหน้าแก้สินค้า
+   - 3 ฟิลด์: ราคาโปร / วันเริ่ม / วันสิ้นสุด
+   - DB: `promo_price`, `promo_start`, `promo_end`
+   - Display: ใน list แสดง `฿โปร [PROMO badge] ฿เดิม-strikethrough`
+   - **POS integration**: addToCart ใช้ราคาโปรอัตโนมัติเมื่ออยู่ในช่วงวัน
+   - Helper: `window._appGetActivePrice(p)` → `{price, isPromo, original}`
+
+### Bump main.js?v=24 → v=25
+
+---
+
+## 🆕 ฟีเจอร์ใหม่ session 25 เม.ย. — รอบที่ 2 (Phase 1: Quick Wins สำหรับสินค้า)
+
+### 4 ฟีเจอร์ใหม่ในหน้าสินค้า (เห็นในแถวสินค้าทันที)
+1. **+📦 Quick Stock In** — ปุ่มเขียวเล็กในแถวสินค้า
+   - คลิก → modal: เลือกคลัง + จำนวน + ต้นทุนใหม่ (optional) + หมายเหตุ
+   - บันทึก → log stock_movements (in) + อัพเดท warehouse_stock + sync products.stock
+   - ใช้ตอนรับของจาก supplier — ไม่ต้องไปหน้าประวัติสต็อก
+
+2. **Multi-warehouse breakdown** — chip เล็กใต้ "คงเหลือ X"
+   - ตัวอย่าง: `บ้าน:5 ศีขร:0 คันขาว:2`
+   - เห็นภาพรวมว่าของอยู่คลังไหน — ไม่ต้องเปิดสินค้าทีละตัว
+   - แสดงเฉพาะคลังที่มีของ > 0
+
+3. **Stock Turnover** — บอกกี่วันสินค้าจะหมด
+   - คำนวณ: ขาย 30 วัน / 30 = avg ต่อวัน → stock / avg = "≈12วัน"
+   - สีเตือน: ≤7วัน=แดง, ≤14วัน=ส้ม, มากกว่า=เทา
+   - hover dropdown title: "ขายเฉลี่ย X.X/วัน"
+
+4. **🔄 Auto Markup** ในหน้าแก้ไขสินค้า
+   - ปุ่มข้างราคาขาย: "🔄 จาก cost"
+   - prompt: "บวก % เท่าไหร่?" (จำค่าล่าสุด)
+   - คำนวณ: cost × (1 + pct/100) → set ในช่องราคา
+   - ทศนิยม 2 ตำแหน่ง
+
+### Bump main.js?v=23 → v=24
+
+---
+
+## 🆕 ฟีเจอร์ใหม่ session 25 เม.ย. — รอบที่ 1 (8 ฟีเจอร์ใหญ่ + UX)
 
 ### หน้าใหม่ 3 หน้า (Sidebar ใต้ "ประวัติสต็อก")
 1. **📊 นับสต็อกจริง** (`stock_count`) — สแกน barcode + นับจริง + ปรับสต็อก
