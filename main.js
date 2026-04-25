@@ -29,6 +29,10 @@ import { renderDeadStockPage } from "./modules/dead_stock.js";
 import { renderStockCountPage } from "./modules/stock_count.js";
 import { renderStockInWizardPage } from "./modules/stock_in_wizard.js";
 import { renderCashReconPage } from "./modules/cash_recon.js";
+import { renderTopCustomersPage } from "./modules/top_customers.js";
+import { renderSalesHeatmapPage } from "./modules/sales_heatmap.js";
+import { renderRecurringExpensesPage } from "./modules/recurring_expenses.js";
+import { renderCreditTrackerPage } from "./modules/credit_tracker.js";
 import { renderAiSalesPage } from "./modules/ai_sales.js";
 import { renderAcShopPage } from "./modules/ac_shop.js";
 import "./modules/doc-override.js";
@@ -801,11 +805,11 @@ function isLowStock(product){ return Number(product.stock||0) <= Number(product.
 // ═══════════════════════════════════════════════════════════
 //  ROLE-BASED ACCESS CONTROL (4 กลุ่ม)
 // ═══════════════════════════════════════════════════════════
-const ALL_ROUTES = ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","service_jobs","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","calendar","loyalty","customer_dashboard","btu_calculator","service_request","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"];
+const ALL_ROUTES = ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","service_jobs","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","calendar","loyalty","customer_dashboard","btu_calculator","service_request","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"];
 const ROLE_PAGES = {
   admin:      ALL_ROUTES,
   technician: ["dashboard","pos","service_jobs","customers","receipts","calendar","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop","stock_count"],
-  sales:      ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","calendar","loyalty","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"],
+  sales:      ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","calendar","loyalty","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"],
   customer:   ["customer_dashboard","btu_calculator","service_request","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"]
 };
 const ROLE_LABELS = {
@@ -905,6 +909,10 @@ function showRoute(route){
     stock_count:"นับสต็อกจริง",
     stock_in_wizard:"รับเข้าสินค้า (Wizard)",
     cash_recon:"กระทบยอดเงินสด",
+    top_customers:"ลูกค้าซื้อเยอะสุด",
+    sales_heatmap:"ยอดขายตามช่วงเวลา",
+    recurring_expenses:"รายจ่ายประจำ",
+    credit_tracker:"ลูกค้าค้างชำระ",
     ai_sales:"AI ผู้ช่วยขายแอร์",
     ac_shop:"แอร์ใหม่พร้อมติดตั้ง"
   };
@@ -942,6 +950,10 @@ function showRoute(route){
   if (route === "stock_count") renderStockCountPage(ctx);
   if (route === "stock_in_wizard") renderStockInWizardPage(ctx);
   if (route === "cash_recon") renderCashReconPage(ctx);
+  if (route === "top_customers") renderTopCustomersPage(ctx);
+  if (route === "sales_heatmap") renderSalesHeatmapPage(ctx);
+  if (route === "recurring_expenses") renderRecurringExpensesPage(ctx);
+  if (route === "credit_tracker") renderCreditTrackerPage(ctx);
   if (route === "ai_sales") renderAiSalesPage(ctx);
   if (route === "ac_shop") renderAcShopPage(ctx);
 

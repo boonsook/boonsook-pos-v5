@@ -25,6 +25,57 @@
 
 ---
 
+## 🆕 ฟีเจอร์ใหม่ session 25 เม.ย. — รอบที่ 6 (Phase 7-10: รายงาน + เครดิต)
+
+### ⚠️ ACTION REQUIRED — รัน SQL ใหม่
+รัน `supabase-rls-policies.sql` ใน Supabase SQL Editor — เพิ่ม:
+- ตาราง `recurring_expenses` (รายจ่ายประจำ) + RLS
+- ตาราง `credit_payments` (ประวัติการเก็บเงินเครดิต) + RLS
+- columns `sales.is_credit` BOOLEAN, `credit_due_date` DATE, `credit_paid_amount` NUMERIC, `credit_paid_at` TIMESTAMPTZ
+(idempotent — รันซ้ำได้)
+
+### Phase 7: 🏆 Top Customers Report
+- Sidebar → การเงิน → 🏆 ลูกค้าซื้อเยอะสุด
+- จัดอันดับลูกค้าตาม: ยอดซื้อ / จำนวนชิ้น / เฉลี่ย/บิล / ซื้อล่าสุด
+- ช่วงเวลา: 30 วัน / 90 วัน / เดือนนี้ / ปีนี้ / ทั้งหมด
+- 🥇🥈🥉 แสดง top 3 + Top 5% contribution
+- Match ด้วย customer_id ก่อน, fallback customer_name
+- Export Excel
+
+### Phase 8: ⏰ Sales Heatmap
+- Sidebar → การเงิน → ⏰ ยอดขายตามช่วงเวลา
+- Grid 7 วัน × 24 ชม. — เฉดสีฟ้า (เข้ม=ขายดี)
+- toggle: ยอดเงิน หรือ จำนวนบิล
+- สรุป: วันขายดีสุด, ชั่วโมงขายดีสุด
+- bar chart per day
+- ช่วยตัดสินใจเปิดร้าน/จัดพนักงาน
+
+### Phase 9: 🔁 Recurring Expenses (รายจ่ายประจำ)
+- Sidebar → การเงิน → 🔁 รายจ่ายประจำ
+- ตั้งครั้งเดียว: ค่าเช่า, เงินเดือน, ค่าน้ำ ฯลฯ
+- ความถี่: ทุกเดือน / สัปดาห์ / ปี + วันที่ของเดือน
+- ครบกำหนด → กดปุ่ม "💸 สร้าง Expense" → INSERT row ใน expenses table
+- Auto-update next_due
+- กด "สร้างทั้งหมด" ครั้งเดียวสำหรับ overdue หลายรายการ
+
+### Phase 10: 💳 Credit Tracker (ลูกค้าค้างชำระ)
+- Sidebar → การเงิน → 💳 ลูกค้าค้างชำระ
+- list บิลที่ is_credit=true พร้อมยอดค้าง/ชำระแล้ว/วันครบกำหนด
+- Filter: ยังค้าง / เกินกำหนด / ชำระแล้ว / ทั้งหมด
+- เน้นสีเหลืองแถวที่เกินกำหนด + แจ้งจำนวนวันเกิน
+- ปุ่ม "💰 รับชำระ" → modal กรอกยอด + วิธี + หมายเหตุ
+- ชำระบางส่วนได้ (partial payment)
+- Auto-mark complete ถ้าครบ + บันทึก credit_paid_at
+- Quick buttons: "ทั้งหมด" / "ครึ่งหนึ่ง"
+- แสดงประวัติใน credit_payments table
+
+### Bump
+- main.js?v=31 → v=32
+- SW v15 → v16
+- Version display 5.2.0 → 5.3.0 (build 32)
+
+---
+
 ## 🆕 ฟีเจอร์ใหม่ session 25 เม.ย. — รอบที่ 5 (Phase 4-6: POS Customer + Cash Recon + Service Photos)
 
 ### ⚠️ ACTION REQUIRED — รัน SQL ใหม่อีกรอบ
