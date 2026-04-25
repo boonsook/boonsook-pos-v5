@@ -25,6 +25,56 @@
 
 ---
 
+## 🆕 ฟีเจอร์ใหม่ session 25 เม.ย. — รอบที่ 8 (Phase 12-16: Big Batch)
+
+### ⚠️ ACTION REQUIRED — รัน SQL ใหม่
+รัน `supabase-rls-policies.sql` ใน Supabase SQL Editor — เพิ่ม:
+- ตาราง `refunds` + RLS
+- ตาราง `tasks` + RLS
+- ตาราง `quote_templates` + RLS
+- column `customers.birthday` DATE
+(idempotent — รันซ้ำได้)
+
+### Phase 12: 🔄 Refund / Return Tracker
+- หน้าใหม่: Sidebar → การเงิน → 🔄 รับคืนสินค้า
+- บันทึก: เลือกบิลขาย → เลือกสินค้าที่คืน → เหตุผล (ไม่พอใจ/เสีย/เคลม)
+- Action: คืนเงิน / เปลี่ยนสินค้า / เครดิตในบัญชี
+- Option: คืนสต็อกเข้าคลัง อัตโนมัติ
+- รายงาน: refund stats per product / per customer
+
+### Phase 13: ⏰ Task / Reminder System
+- หน้าใหม่: Sidebar → ⏰ Task / สิ่งที่ต้องทำ
+- เพิ่ม task จากที่ไหนก็ได้ (กลม FAB)
+- Linked to: customer / product / sale / service_job
+- Due date + Line Notify เมื่อใกล้ครบกำหนด
+- Filter: today / week / overdue / done
+
+### Phase 14: 📊 Profit by Product
+- หน้าใหม่: Sidebar → การเงิน → 📊 กำไรต่อสินค้า
+- คำนวณ: (price - cost) × qty sold ในช่วงที่เลือก
+- Sort: by total profit / margin% / qty
+- Table: Top 20 + Bottom 20 (dogs)
+- Export Excel
+
+### Phase 15: 🎂 Birthday Auto-Greeting
+- ALTER customers ADD birthday DATE
+- หน้าใหม่: Sidebar → ลูกค้า → 🎂 วันเกิดลูกค้า
+- รายชื่อลูกค้าวันเกิดเดือนนี้ + ปฏิทินรายเดือน
+- on app load: เช็ควันนี้มีใครเกิดมั้ย → toast แจ้ง + ปุ่ม "ส่ง LINE อวยพร"
+
+### Phase 16: 📑 Quote Templates
+- ตาราง `quote_templates` (name, items_json)
+- ในใบเสนอราคา: ปุ่ม "💾 บันทึกเป็น Template" + "📑 โหลดจาก Template"
+- เก็บ items + วันรับประกัน + เงื่อนไข
+- ใช้บ่อย: ขายแอร์ + ติดตั้ง + ท่อ → 1-click load
+
+### Bump
+- main.js?v=33 → v=34
+- SW v17 → v18
+- Version display 5.4.0 → 5.5.0 (build 34)
+
+---
+
 ## 🆕 ฟีเจอร์ใหม่ session 25 เม.ย. — รอบที่ 7 (Phase 11: Customer Notes & Tags)
 
 ### ⚠️ ACTION REQUIRED — รัน SQL ใหม่
