@@ -912,10 +912,11 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
           console.error("[POS] sale_items failed:", itemRes.error);
         }
 
-        // ★ ตัดสต็อก — call helper จาก main.js
+        // ★ ตัดสต็อก — ใช้ smart deduct (รองรับ bundle Phase 18)
         try {
-          if (window._appDeductStockForSaleItem && prodRef) {
-            await window._appDeductStockForSaleItem({ product: prodRef, qty: Number(item.qty) || 0, orderNo });
+          const fn = window._appDeductStockSmart || window._appDeductStockForSaleItem;
+          if (fn && prodRef) {
+            await fn({ product: prodRef, qty: Number(item.qty) || 0, orderNo });
           }
         } catch(e) { console.warn("[POS] deduct stock failed:", e?.message || e); }
       }

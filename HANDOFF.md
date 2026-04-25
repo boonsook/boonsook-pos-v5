@@ -1,7 +1,7 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 25 เมษายน 2026 (Phase 16 done)
-**Version:** 5.5.0 (build 34)
+**อัปเดตล่าสุด:** 25 เมษายน 2026 (Phase 17-19 done)
+**Version:** 5.6.0 (build 35)
 **สถานะ:** Production ที่ boonsukair.com (Cloudflare Pages + Supabase)
 **เป้าหมายเอกสาร:** Claude session ใหม่ / ผู้ช่วยใหม่ อ่านไฟล์นี้แล้วต่องานได้ทันที
 

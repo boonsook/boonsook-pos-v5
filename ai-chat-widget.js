@@ -563,10 +563,17 @@
       }
     } catch(e){}
 
+    // ★ Phase 17: ส่ง Supabase JWT ใน Authorization header (require auth)
+    const authHeaders = { "Content-Type": "application/json" };
+    try {
+      const token = window._sbAccessToken;
+      if (token) authHeaders["Authorization"] = "Bearer " + token;
+    } catch(e){}
+
     try {
       const resp = await fetch(API_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders,
         body: JSON.stringify({
           message: text,
           history: state.history.slice(0, -1),

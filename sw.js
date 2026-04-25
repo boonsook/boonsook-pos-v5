@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v18 (2026-04-25): + Phase 12-16 (Refund + Task + Profit + Birthday + Quote Templates)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v18';
+// v19 (2026-04-25): + Phase 17-19 (Security Hardening + Bundle/Set + Serial Number Tracking)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v19';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

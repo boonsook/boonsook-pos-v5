@@ -273,6 +273,45 @@ CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
+-- ★ Phase 18: Bundle / Set
+ALTER TABLE IF EXISTS public.products
+  ADD COLUMN IF NOT EXISTS is_bundle BOOLEAN DEFAULT false;
+
+CREATE TABLE IF NOT EXISTS public.product_bundles (
+  id BIGSERIAL PRIMARY KEY,
+  bundle_id BIGINT REFERENCES public.products(id) ON DELETE CASCADE,
+  child_product_id BIGINT REFERENCES public.products(id) ON DELETE CASCADE,
+  qty NUMERIC NOT NULL DEFAULT 1,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (bundle_id, child_product_id)
+);
+ALTER TABLE IF EXISTS public.product_bundles ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "auth_all_product_bundles" ON public.product_bundles;
+CREATE POLICY "auth_all_product_bundles" ON public.product_bundles FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE INDEX IF NOT EXISTS idx_product_bundles_bundle ON public.product_bundles(bundle_id);
+
+-- ★ Phase 19: Serial Number Tracking
+CREATE TABLE IF NOT EXISTS public.product_serials (
+  id BIGSERIAL PRIMARY KEY,
+  sale_id BIGINT REFERENCES public.sales(id) ON DELETE SET NULL,
+  sale_item_id BIGINT REFERENCES public.sale_items(id) ON DELETE SET NULL,
+  product_id BIGINT REFERENCES public.products(id) ON DELETE SET NULL,
+  product_name TEXT,
+  customer_id BIGINT REFERENCES public.customers(id) ON DELETE SET NULL,
+  customer_name TEXT,
+  serial_no TEXT NOT NULL,
+  warranty_until DATE,
+  status TEXT DEFAULT 'active', -- active | claimed | replaced | expired
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+ALTER TABLE IF EXISTS public.product_serials ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "auth_all_product_serials" ON public.product_serials;
+CREATE POLICY "auth_all_product_serials" ON public.product_serials FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE INDEX IF NOT EXISTS idx_product_serials_serial ON public.product_serials(serial_no);
+CREATE INDEX IF NOT EXISTS idx_product_serials_sale ON public.product_serials(sale_id);
+CREATE INDEX IF NOT EXISTS idx_product_serials_customer ON public.product_serials(customer_id);
+
 -- ★ Customer Notes & Tags (Phase 11)
 ALTER TABLE IF EXISTS public.customers
   ADD COLUMN IF NOT EXISTS notes TEXT,

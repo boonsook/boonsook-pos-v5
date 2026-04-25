@@ -38,6 +38,7 @@ import { renderTasksPage, checkOverdueTasksAndNotify } from "./modules/tasks.js"
 import { renderProfitByProductPage } from "./modules/profit_by_product.js";
 import { renderBirthdaysPage, checkTodayBirthdaysAndNotify } from "./modules/birthdays.js";
 import { renderQuoteTemplatesPage } from "./modules/quote_templates.js";
+import { renderSerialsPage } from "./modules/serials.js";
 import { renderAiSalesPage } from "./modules/ai_sales.js";
 import { renderAcShopPage } from "./modules/ac_shop.js";
 import "./modules/doc-override.js";
@@ -810,11 +811,11 @@ function isLowStock(product){ return Number(product.stock||0) <= Number(product.
 // ═══════════════════════════════════════════════════════════
 //  ROLE-BASED ACCESS CONTROL (4 กลุ่ม)
 // ═══════════════════════════════════════════════════════════
-const ALL_ROUTES = ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","quote_templates","service_jobs","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","refunds","tasks","profit_by_product","birthdays","calendar","loyalty","customer_dashboard","btu_calculator","service_request","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"];
+const ALL_ROUTES = ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","quote_templates","service_jobs","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","refunds","tasks","profit_by_product","birthdays","serials","calendar","loyalty","customer_dashboard","btu_calculator","service_request","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"];
 const ROLE_PAGES = {
   admin:      ALL_ROUTES,
   technician: ["dashboard","pos","service_jobs","customers","receipts","calendar","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop","stock_count"],
-  sales:      ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","quote_templates","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","refunds","tasks","profit_by_product","birthdays","calendar","loyalty","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"],
+  sales:      ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","quote_templates","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","refunds","tasks","profit_by_product","birthdays","serials","calendar","loyalty","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"],
   customer:   ["customer_dashboard","btu_calculator","service_request","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"]
 };
 const ROLE_LABELS = {
@@ -922,6 +923,7 @@ function showRoute(route){
     tasks:"Task / สิ่งที่ต้องทำ",
     profit_by_product:"กำไรต่อสินค้า",
     birthdays:"วันเกิดลูกค้า",
+    serials:"Serial Number Tracking",
     quote_templates:"Template ใบเสนอราคา",
     ai_sales:"AI ผู้ช่วยขายแอร์",
     ac_shop:"แอร์ใหม่พร้อมติดตั้ง"
@@ -969,6 +971,7 @@ function showRoute(route){
   if (route === "profit_by_product") renderProfitByProductPage(ctx);
   if (route === "birthdays") renderBirthdaysPage(ctx);
   if (route === "quote_templates") renderQuoteTemplatesPage(ctx);
+  if (route === "serials") renderSerialsPage(ctx);
   if (route === "ai_sales") renderAiSalesPage(ctx);
   if (route === "ac_shop") renderAcShopPage(ctx);
 
@@ -1553,6 +1556,18 @@ function openProductDrawer(product=null, opts={}){
   if ($("newProductPromoStart")) $("newProductPromoStart").value = product?.promo_start || "";
   if ($("newProductPromoEnd")) $("newProductPromoEnd").value = product?.promo_end || "";
 
+  // ★ Phase 18: Bundle
+  const isBundle = !!product?.is_bundle;
+  if ($("newProductIsBundle")) $("newProductIsBundle").checked = isBundle;
+  if ($("newProductBundleSection")) $("newProductBundleSection").style.display = isBundle ? "block" : "none";
+  // Load bundle children (ถ้าแก้ไข)
+  if (product?.id) {
+    _loadBundleChildren(product.id);
+  } else {
+    if ($("bundleItemsValue")) $("bundleItemsValue").value = "[]";
+    _renderBundleItems([]);
+  }
+
   // ★ Image preview — ถ้ามี image_url
   const imgUrl = product?.image_url || "";
   if ($("newProductImageUrl")) $("newProductImageUrl").value = imgUrl;
@@ -1842,6 +1857,9 @@ async function saveProduct(){
   payload.promo_price = promoPrice > 0 ? promoPrice : null;
   payload.promo_start = $("newProductPromoStart")?.value || null;
   payload.promo_end = $("newProductPromoEnd")?.value || null;
+
+  // ★ Phase 18: Bundle flag
+  payload.is_bundle = !!$("newProductIsBundle")?.checked;
   // ★ Validation ชี้จุดชัดเจน
   if (!payload.name) return showToast("กรุณากรอกชื่อสินค้า");
   if (payload.price <= 0) return showToast("กรุณากรอกราคาขาย (ต้องมากกว่า 0)");
@@ -1872,6 +1890,35 @@ async function saveProduct(){
         await xhrPost("warehouse_stock", { product_id: productId, warehouse_id: ws.warehouse_id, stock: ws.stock, min_stock: ws.min_stock });
       }
     }
+  }
+
+  // ★ Phase 18: Sync bundle children
+  if (productId && payload.is_bundle) {
+    const bundleItems = _getBundleItems();
+    const cfg = window.SUPABASE_CONFIG;
+    const accessToken = window._sbAccessToken || cfg.anonKey;
+    // 1) DELETE existing children
+    await fetch(cfg.url + "/rest/v1/product_bundles?bundle_id=eq." + productId, {
+      method: "DELETE",
+      headers: { "apikey":cfg.anonKey,"Authorization":"Bearer "+accessToken,"Prefer":"return=minimal" }
+    });
+    // 2) INSERT new children
+    if (bundleItems.length > 0) {
+      const rows = bundleItems.map(it => ({ bundle_id: productId, child_product_id: it.product_id, qty: it.qty }));
+      await fetch(cfg.url + "/rest/v1/product_bundles", {
+        method: "POST",
+        headers: { "Content-Type":"application/json","apikey":cfg.anonKey,"Authorization":"Bearer "+accessToken,"Prefer":"return=minimal" },
+        body: JSON.stringify(rows)
+      });
+    }
+  } else if (productId && !payload.is_bundle) {
+    // ถ้า uncheck is_bundle → ลบ children ทิ้ง
+    const cfg = window.SUPABASE_CONFIG;
+    const accessToken = window._sbAccessToken || cfg.anonKey;
+    await fetch(cfg.url + "/rest/v1/product_bundles?bundle_id=eq." + productId, {
+      method: "DELETE",
+      headers: { "apikey":cfg.anonKey,"Authorization":"Bearer "+accessToken,"Prefer":"return=minimal" }
+    });
   }
 
   resetProductForm(); closeAllDrawers(); await loadAllData(); showToast("บันทึกสินค้าแล้ว");
@@ -1999,6 +2046,59 @@ function openCustomerDrawer(customer=null){
   _renderCustomerPurchaseHistory(customer);
 
   openDrawer("customerDrawer");
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 18: Bundle / Set helpers
+// ═══════════════════════════════════════════════════════════
+async function _loadBundleChildren(bundleId) {
+  try {
+    const cfg = window.SUPABASE_CONFIG;
+    const accessToken = window._sbAccessToken || cfg.anonKey;
+    const res = await fetch(cfg.url + "/rest/v1/product_bundles?bundle_id=eq." + bundleId + "&select=child_product_id,qty", {
+      headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + accessToken }
+    });
+    if (!res.ok) { _renderBundleItems([]); return; }
+    const rows = await res.json();
+    const items = rows.map(r => {
+      const p = (state.products || []).find(x => String(x.id) === String(r.child_product_id));
+      return { product_id: r.child_product_id, name: p?.name || "(ไม่พบ)", qty: Number(r.qty || 1) };
+    });
+    if ($("bundleItemsValue")) $("bundleItemsValue").value = JSON.stringify(items);
+    _renderBundleItems(items);
+  } catch(e) { console.warn("[load bundle]", e); _renderBundleItems([]); }
+}
+
+function _getBundleItems() {
+  try { return JSON.parse($("bundleItemsValue")?.value || "[]"); } catch(e) { return []; }
+}
+
+function _renderBundleItems(items) {
+  const el = $("bundleItemsList");
+  if (!el) return;
+  if (!items || items.length === 0) {
+    el.innerHTML = `<div style="color:#94a3b8;font-size:12px;text-align:center;padding:8px">— ยังไม่มีรายการในชุด —</div>`;
+    return;
+  }
+  el.innerHTML = items.map((it, idx) => `
+    <div style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:#f3e8ff;border-radius:6px;font-size:12px">
+      <span style="flex:1">${escapeHtml(it.name)}</span>
+      <input type="number" class="bd-item-qty" data-idx="${idx}" min="1" value="${it.qty}" style="width:50px;padding:3px;border:1px solid #cbd5e1;border-radius:4px;text-align:center;font-size:11px" />
+      <button type="button" class="bd-item-del" data-idx="${idx}" style="border:none;background:transparent;cursor:pointer;color:#dc2626;font-size:14px;padding:0 4px">×</button>
+    </div>
+  `).join("");
+
+  el.querySelectorAll(".bd-item-qty").forEach(inp => inp.addEventListener("input", () => {
+    const items = _getBundleItems();
+    items[Number(inp.dataset.idx)].qty = Number(inp.value || 1);
+    if ($("bundleItemsValue")) $("bundleItemsValue").value = JSON.stringify(items);
+  }));
+  el.querySelectorAll(".bd-item-del").forEach(btn => btn.addEventListener("click", () => {
+    const items = _getBundleItems();
+    items.splice(Number(btn.dataset.idx), 1);
+    if ($("bundleItemsValue")) $("bundleItemsValue").value = JSON.stringify(items);
+    _renderBundleItems(items);
+  }));
 }
 
 function _renderProductRecentActivity(product) {
@@ -2539,6 +2639,43 @@ window._appApplyStockMovement = _applyStockMovement;
 window._appDeductStockForSaleItem = _deductStockForSaleItem;
 window._appNotifySaleToLine = (payload) => _notifySaleToLine(payload);
 
+// ★ Phase 18: Bundle expander — ถ้าสินค้าเป็น bundle, ตัดสต็อก children แทน
+window._appDeductStockSmart = async function({ product, qty, orderNo }) {
+  if (!product) return;
+  // ถ้าไม่ใช่ bundle → ตัดปกติ
+  if (!product.is_bundle) {
+    return await _deductStockForSaleItem({ product, qty, orderNo });
+  }
+  // เป็น bundle → ดึง children แล้วตัดทีละตัว
+  try {
+    const cfg = window.SUPABASE_CONFIG;
+    const accessToken = window._sbAccessToken || cfg.anonKey;
+    const res = await fetch(cfg.url + "/rest/v1/product_bundles?bundle_id=eq." + product.id + "&select=child_product_id,qty", {
+      headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + accessToken }
+    });
+    if (!res.ok) {
+      console.warn("[bundle expand] failed");
+      return await _deductStockForSaleItem({ product, qty, orderNo });
+    }
+    const rows = await res.json();
+    if (!rows || rows.length === 0) {
+      // ไม่มี children — เก็บไว้ แต่ตัดสต็อก bundle ตัวเองด้วย
+      return await _deductStockForSaleItem({ product, qty, orderNo });
+    }
+    // ตัดสต็อกของแต่ละลูก
+    for (const r of rows) {
+      const childProd = (state.products || []).find(p => String(p.id) === String(r.child_product_id));
+      if (!childProd) continue;
+      const childQty = Number(r.qty || 1) * qty;
+      await _deductStockForSaleItem({ product: childProd, qty: childQty, orderNo: orderNo + " [bundle:" + product.name + "]" });
+    }
+    console.log(`[bundle] ${product.name} × ${qty} → ตัด children ${rows.length} รายการ`);
+  } catch(e) {
+    console.warn("[bundle expand error]", e);
+    return await _deductStockForSaleItem({ product, qty, orderNo });
+  }
+};
+
 async function checkout(){
   if (!state.cart.length) return showToast("ยังไม่มีสินค้าในบิล");
   const subtotal = state.cart.reduce((s,i)=>s+i.qty*i.price, 0);
@@ -3065,6 +3202,40 @@ function bindStaticEvents(){
   $("saveProductBtn")?.addEventListener("click", saveProduct);
   $("resetProductFormBtn")?.addEventListener("click", resetProductForm);
   $("drawerScanBtn")?.addEventListener("click", openDrawerScanner);
+
+  // ★ Phase 18: Bundle toggle + add items
+  $("newProductIsBundle")?.addEventListener("change", (e) => {
+    const sec = $("newProductBundleSection");
+    if (sec) sec.style.display = e.target.checked ? "block" : "none";
+  });
+  $("bundleAddBtn")?.addEventListener("click", () => {
+    const search = ($("bundleSearchInput")?.value || "").trim().toLowerCase();
+    const qty = Number($("bundleQtyInput")?.value || 1);
+    if (!search) return showToast("พิมพ์ชื่อ/SKU/บาร์โค้ดสินค้า");
+    if (qty <= 0) return showToast("จำนวนต้องมากกว่า 0");
+    const prod = (state.products || []).find(p =>
+      String(p.barcode || "").toLowerCase() === search ||
+      String(p.sku || "").toLowerCase() === search ||
+      String(p.name || "").toLowerCase().includes(search)
+    );
+    if (!prod) return showToast("ไม่พบสินค้า: " + search);
+    if (prod.id === state.editingProductId) return showToast("ไม่สามารถใส่ตัวเองในชุดได้");
+    const items = _getBundleItems();
+    if (items.find(it => String(it.product_id) === String(prod.id))) {
+      // ถ้ามีอยู่แล้ว — บวก qty
+      items.find(it => String(it.product_id) === String(prod.id)).qty += qty;
+    } else {
+      items.push({ product_id: prod.id, name: prod.name, qty });
+    }
+    if ($("bundleItemsValue")) $("bundleItemsValue").value = JSON.stringify(items);
+    _renderBundleItems(items);
+    if ($("bundleSearchInput")) $("bundleSearchInput").value = "";
+    if ($("bundleQtyInput")) $("bundleQtyInput").value = "1";
+    showToast(`✓ เพิ่ม ${prod.name} × ${qty}`);
+  });
+  $("bundleSearchInput")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); $("bundleAddBtn")?.click(); }
+  });
 
   // ★ Auto Markup — คำนวณราคาขายจาก cost × (1 + markup%)
   $("autoMarkupBtn")?.addEventListener("click", () => {
