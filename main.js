@@ -2745,10 +2745,31 @@ async function addNewUser(){
       throw new Error(signUpResult.error || "ลงทะเบียนไม่สำเร็จ");
     }
 
-    // ── Step 2: Set role in profiles ──
-    if (signUpResult.userId && role !== "sales") {
-      try { await xhrPatch("profiles", { role, full_name: fullName }, "id", signUpResult.userId); }
-      catch(e) { console.warn("[addNewUser] set role failed:", e); }
+    // ── Step 2: ตั้ง full_name + role ใน profiles ──
+    // ★ ALWAYS update profiles (เดิมเช็คเฉพาะ role !== sales — ทำให้ sales user ไม่มีชื่อ)
+    if (signUpResult.userId) {
+      // รอให้ trigger สร้าง profile row ก่อน (Supabase มี trigger handle_new_user)
+      await new Promise(r => setTimeout(r, 800));
+      try {
+        const patchPayload = { full_name: fullName };
+        if (role && role !== "sales") patchPayload.role = role;
+        const res = await xhrPatch("profiles", patchPayload, "id", signUpResult.userId);
+        if (!res.ok) console.warn("[addNewUser] PATCH profiles failed:", res.error);
+        // ★ ถ้า PATCH ไม่สำเร็จ (อาจ trigger ยังไม่สร้าง row) → ลอง UPSERT
+        if (!res.ok) {
+          await new Promise(r => setTimeout(r, 600));
+          await fetch(cfg.url + "/rest/v1/profiles", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "apikey": cfg.anonKey,
+              "Authorization": "Bearer " + (window._sbAccessToken || cfg.anonKey),
+              "Prefer": "resolution=merge-duplicates,return=minimal"
+            },
+            body: JSON.stringify({ id: signUpResult.userId, full_name: fullName, role: role || "sales" })
+          }).catch(e => console.warn("[addNewUser] UPSERT profiles failed:", e));
+        }
+      } catch(e) { console.warn("[addNewUser] set name/role failed:", e); }
     }
 
     // ── Step 3: ส่งอีเมลเชิญตั้งรหัสผ่าน (recover endpoint) ──
