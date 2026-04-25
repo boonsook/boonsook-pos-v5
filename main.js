@@ -1558,27 +1558,25 @@ function _detectType(p) {
 // ★ ซ่อน/แสดง sections ตามประเภท
 function _toggleDrawerSections(type) {
   // barcode section: ซ่อนสำหรับ บริการ + ไม่นับสต็อก
-  const barcodeRow = $("newProductBarcode")?.closest("div[style]");
+  // (เลือกด้วย .barcode-row ตรงๆ — closest("div[style]") เดิมหาไม่เจอเพราะ wrapper ไม่มี inline style)
+  const barcodeRow = document.querySelector(".barcode-row");
   const barcodePreview = $("drawerBarcodePreview");
   const scannerArea = $("drawerScannerArea");
   const stockSection = document.querySelector(".wh-stock-section");
 
-  if (type === "service" || type === "non_stock") {
-    if (barcodeRow) barcodeRow.style.display = "none";
-    if (barcodePreview) barcodePreview.style.display = "none";
-    if (scannerArea) scannerArea.style.display = "none";
-  } else {
-    if (barcodeRow) barcodeRow.style.display = "";
-    if (barcodePreview) barcodePreview.style.display = "";
-    if (scannerArea) scannerArea.style.display = "";
+  const isNonBarcoded = (type === "service" || type === "non_stock");
+  if (barcodeRow) barcodeRow.style.display = isNonBarcoded ? "none" : "";
+  if (barcodePreview) {
+    if (isNonBarcoded) barcodePreview.style.display = "none";
+    else barcodePreview.style.removeProperty("display");
+  }
+  if (scannerArea) {
+    if (isNonBarcoded) scannerArea.style.display = "none";
+    else scannerArea.style.removeProperty("display");
   }
 
   // stock section: ซ่อนสำหรับ บริการ
-  if (type === "service") {
-    if (stockSection) stockSection.style.display = "none";
-  } else {
-    if (stockSection) stockSection.style.display = "";
-  }
+  if (stockSection) stockSection.style.display = (type === "service") ? "none" : "";
 }
 
 // ═══════════════════════════════════════════════════════════
