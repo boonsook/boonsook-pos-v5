@@ -58,6 +58,9 @@ let currentPage = 1;
 let currentSort = "name_asc";
 let viewMode = "list"; // list | grid
 let selectedWarehouse = "all"; // "all" or warehouse id
+let bulkMode = false; // ★ Bulk edit mode
+let bulkSelected = new Set(); // ★ product ids
+let quickFilter = ""; // ★ "no_cost" | "no_barcode" | ""
 const PAGE_SIZE = 20;
 
 // ─── Letter Avatar Colors ───
@@ -76,6 +79,13 @@ function getLetterAvatar(name) {
   const initial = String(name || "?").trim().charAt(0).toUpperCase();
   const color = getAvatarColor(name);
   return `<div class="prod-avatar" style="background:${color}">${escHtml(initial)}</div>`;
+}
+
+// ★ ใช้รูปสินค้า (image_url) ถ้ามี ไม่งั้น fallback letter avatar
+function getProductAvatar(p) {
+  const img = String(p?.image_url || "").trim();
+  if (img) return `<div class="prod-avatar" style="background:#fff;padding:0;overflow:hidden"><img src="${escHtml(img)}" alt="" style="width:100%;height:100%;object-fit:cover" onerror="this.style.display='none';this.parentElement.style.background='${getAvatarColor(p.name)}';this.parentElement.innerHTML='${escHtml(String(p.name || '?').trim().charAt(0).toUpperCase())}'" /></div>`;
+  return getLetterAvatar(p.name);
 }
 
 function money(n) {
@@ -188,6 +198,13 @@ function renderView(ctx) {
     filtered = filtered.filter(p => { const ds = getDisplayStock(state, p); return ds.stock <= 0; });
   }
 
+  // ★ Quick Filter (no_cost / no_barcode)
+  if (quickFilter === "no_cost") {
+    filtered = filtered.filter(p => detectProductType(p) === "stock" && Number(p.cost || 0) === 0);
+  } else if (quickFilter === "no_barcode") {
+    filtered = filtered.filter(p => detectProductType(p) === "stock" && !String(p.barcode || "").trim());
+  }
+
   // ─── Search ───
   if (searchQuery) {
     const q = searchQuery.toLowerCase();
@@ -264,6 +281,7 @@ function renderView(ctx) {
           <button id="prodPrintBarcodesBtn" class="btn light" style="font-size:12px;padding:6px 10px" title="พิมพ์สติ๊กเกอร์บาร์โค้ดหลายตัว">🖨️ พิมพ์บาร์โค้ด</button>
           <button id="prodManageCatBtn" class="btn light" style="font-size:12px;padding:6px 10px" title="จัดการหมวดหมู่ (เพิ่ม/ลบ/เปลี่ยนชื่อ/ย้ายตำแหน่ง)">🗂️ จัดการหมวด</button>
           <button id="prodMergeCatBtn" class="btn light" style="font-size:12px;padding:6px 10px" title="ค้นหาและรวมหมวดหมู่ซ้ำ/ใกล้เคียง">🔗 รวมหมวดซ้ำ</button>
+          <button id="prodBulkModeBtn" class="btn light" style="font-size:12px;padding:6px 10px;${bulkMode ? 'background:#0284c7;color:#fff;border-color:#0284c7' : ''}" title="โหมดเลือกหลายรายการ">${bulkMode ? '✓ Bulk (เลือก ' + bulkSelected.size + ')' : '☑ Bulk'}</button>
           <button id="prodDeleteAllBtn" class="btn light" style="font-size:12px;padding:6px 10px;color:#dc2626;border-color:#fca5a5" title="ลบสินค้าทั้งหมดเพื่อนำเข้าใหม่">ลบทั้งหมด</button>
           <button id="prodAddBtn" class="btn primary" style="font-size:12px;padding:6px 12px">${
             currentTypeFilter === 'service' ? '+ เพิ่มบริการ' :
@@ -279,6 +297,19 @@ function renderView(ctx) {
         <div style="font-size:56px;margin-bottom:8px">📦</div>
         <h3 style="margin:0 0 8px;font-size:18px;color:#475569">ยังไม่มีสินค้า</h3>
         <p style="margin:0;color:#94a3b8;font-size:14px">คลิก "+ เพิ่มสินค้า" ด้านบน หรือ "นำเข้า" จาก Excel เพื่อเริ่มต้น</p>
+      </div>
+      ` : ''}
+
+      ${bulkMode && bulkSelected.size > 0 ? `
+      <div style="position:sticky;top:0;z-index:5;background:linear-gradient(135deg,#0284c7,#0369a1);color:#fff;padding:10px 14px;border-radius:10px;margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;box-shadow:0 4px 12px rgba(2,132,199,.3)">
+        <strong style="font-size:14px">เลือก ${bulkSelected.size} รายการ:</strong>
+        <button id="bulkSelectAllPageBtn" class="btn light" style="font-size:12px;padding:5px 10px">☑ เลือกในหน้านี้</button>
+        <button id="bulkClearBtn" class="btn light" style="font-size:12px;padding:5px 10px">ล้าง</button>
+        <span style="opacity:.5">|</span>
+        <button id="bulkPriceUpBtn" class="btn light" style="font-size:12px;padding:5px 10px" title="ขึ้นราคา %">📈 ราคา ±%</button>
+        <button id="bulkSetCategoryBtn" class="btn light" style="font-size:12px;padding:5px 10px">🗂️ เปลี่ยนหมวด</button>
+        <button id="bulkSetTypeBtn" class="btn light" style="font-size:12px;padding:5px 10px">🏷️ เปลี่ยนประเภท</button>
+        <button id="bulkDeleteBtn" class="btn" style="font-size:12px;padding:5px 10px;background:#ef4444;color:#fff;border:none">🗑️ ลบที่เลือก</button>
       </div>
       ` : ''}
 
@@ -338,6 +369,35 @@ function renderView(ctx) {
           <button id="prodViewToggle" class="prod-view-toggle" title="เปลี่ยนมุมมอง">${viewMode === 'list' ? '☰' : '⊞'}</button>
         </div>
       </div>
+
+      <!-- ★ Quick Filters (no_cost / no_barcode) -->
+      ${(() => {
+        const noCostCount = baseProducts.filter(p => {
+          const t = detectProductType(p);
+          return t === "stock" && Number(p.cost || 0) === 0;
+        }).length;
+        const noBarcodeCount = baseProducts.filter(p => {
+          const t = detectProductType(p);
+          return t === "stock" && !String(p.barcode || "").trim();
+        }).length;
+        if (noCostCount === 0 && noBarcodeCount === 0 && !quickFilter) return '';
+        return `
+        <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;align-items:center">
+          <span style="font-size:11px;color:#94a3b8;font-weight:600;padding-right:4px">⚡ ลัด:</span>
+          ${noCostCount > 0 || quickFilter === 'no_cost' ? `
+            <button class="prod-quick-chip" data-qf="no_cost" style="padding:4px 10px;border-radius:14px;border:1px solid ${quickFilter==='no_cost'?'#dc2626':'#fde68a'};background:${quickFilter==='no_cost'?'#dc2626':'#fef3c7'};color:${quickFilter==='no_cost'?'#fff':'#92400e'};font-size:11px;font-weight:600;cursor:pointer">
+              ⚠️ ไม่มี cost (${noCostCount})
+            </button>
+          ` : ''}
+          ${noBarcodeCount > 0 || quickFilter === 'no_barcode' ? `
+            <button class="prod-quick-chip" data-qf="no_barcode" style="padding:4px 10px;border-radius:14px;border:1px solid ${quickFilter==='no_barcode'?'#dc2626':'#bfdbfe'};background:${quickFilter==='no_barcode'?'#dc2626':'#dbeafe'};color:${quickFilter==='no_barcode'?'#fff':'#1e40af'};font-size:11px;font-weight:600;cursor:pointer">
+              📵 ไม่มี barcode (${noBarcodeCount})
+            </button>
+          ` : ''}
+          ${quickFilter ? `<button id="prodClearQuickFilter" style="padding:4px 8px;border:none;background:transparent;color:#64748b;cursor:pointer;font-size:11px;font-weight:600">× ล้าง</button>` : ''}
+        </div>
+        `;
+      })()}
 
       <!-- ★ Category filter — chip bar (scrollable) -->
       ${(() => {
@@ -502,11 +562,77 @@ function renderView(ctx) {
   el.querySelector("#prodImportBtn")?.addEventListener("click", () => {
     el.querySelector("#prodFileInput")?.click();
   });
-  el.querySelector("#prodExportBtn")?.addEventListener("click", () => exportProducts(state));
+  el.querySelector("#prodExportBtn")?.addEventListener("click", () => {
+    // ★ ถ้ามี filter active → ถามว่าจะ export filtered หรือ all
+    const hasFilter = (currentTypeFilter !== 'all') || (currentFilter !== 'all') || (currentCategory !== 'all') || searchQuery || quickFilter;
+    let exportList = state.products || [];
+    if (hasFilter) {
+      // คำนวณ filtered list อีกรอบ (เหมือน renderView)
+      let f = [...exportList];
+      if (currentTypeFilter !== 'all') f = f.filter(p => detectProductType(p) === currentTypeFilter);
+      if (currentCategory !== 'all') f = f.filter(p => String(p.category || '') === currentCategory);
+      if (currentFilter === 'instock') f = f.filter(p => { const ds = getDisplayStock(state, p); return ds.stock > ds.min_stock; });
+      else if (currentFilter === 'low') f = f.filter(p => { const ds = getDisplayStock(state, p); return ds.stock > 0 && ds.stock <= ds.min_stock; });
+      else if (currentFilter === 'out') f = f.filter(p => { const ds = getDisplayStock(state, p); return ds.stock <= 0; });
+      if (quickFilter === 'no_cost') f = f.filter(p => detectProductType(p) === 'stock' && Number(p.cost || 0) === 0);
+      else if (quickFilter === 'no_barcode') f = f.filter(p => detectProductType(p) === 'stock' && !String(p.barcode || '').trim());
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        f = f.filter(p =>
+          String(p.name || "").toLowerCase().includes(q) ||
+          String(p.sku || "").toLowerCase().includes(q) ||
+          String(p.barcode || "").toLowerCase().includes(q)
+        );
+      }
+      const choice = confirm(`พบ filter ที่ใช้อยู่ (${f.length} รายการ)\n\nกด OK = export เฉพาะ ${f.length} รายการที่กรอง\nกด Cancel = export ทั้งหมด ${exportList.length} รายการ`);
+      if (choice) exportList = f;
+    }
+    exportProducts(state, exportList);
+  });
   el.querySelector("#prodGenAllBarcodesBtn")?.addEventListener("click", () => generateAllBarcodes(ctx));
   el.querySelector("#prodPrintBarcodesBtn")?.addEventListener("click", () => openBulkBarcodePrintModal(ctx));
   el.querySelector("#prodDeleteAllBtn")?.addEventListener("click", () => deleteAllProducts(ctx));
   el.querySelector("#prodMergeCatBtn")?.addEventListener("click", () => openMergeCategoriesDialog(ctx));
+
+  // ★ Bulk Mode Toggle
+  el.querySelector("#prodBulkModeBtn")?.addEventListener("click", () => {
+    bulkMode = !bulkMode;
+    if (!bulkMode) bulkSelected.clear();
+    renderView(ctx);
+  });
+
+  // ★ Bulk select per item
+  el.querySelectorAll(".prod-bulk-cb").forEach(cb => cb.addEventListener("change", (e) => {
+    const pid = String(cb.dataset.pid);
+    if (cb.checked) bulkSelected.add(pid); else bulkSelected.delete(pid);
+    renderView(ctx);
+  }));
+
+  // ★ Bulk action bar
+  el.querySelector("#bulkSelectAllPageBtn")?.addEventListener("click", () => {
+    el.querySelectorAll(".prod-bulk-cb").forEach(cb => bulkSelected.add(String(cb.dataset.pid)));
+    renderView(ctx);
+  });
+  el.querySelector("#bulkClearBtn")?.addEventListener("click", () => {
+    bulkSelected.clear();
+    renderView(ctx);
+  });
+  el.querySelector("#bulkPriceUpBtn")?.addEventListener("click", () => bulkPriceChange(ctx));
+  el.querySelector("#bulkSetCategoryBtn")?.addEventListener("click", () => bulkSetCategory(ctx));
+  el.querySelector("#bulkSetTypeBtn")?.addEventListener("click", () => bulkSetType(ctx));
+  el.querySelector("#bulkDeleteBtn")?.addEventListener("click", () => bulkDelete(ctx));
+
+  // ★ Quick Filter chips
+  el.querySelectorAll(".prod-quick-chip").forEach(btn => btn.addEventListener("click", () => {
+    quickFilter = (quickFilter === btn.dataset.qf) ? "" : btn.dataset.qf;
+    currentPage = 1;
+    renderView(ctx);
+  }));
+  el.querySelector("#prodClearQuickFilter")?.addEventListener("click", () => {
+    quickFilter = "";
+    currentPage = 1;
+    renderView(ctx);
+  });
   el.querySelector("#prodFileInput")?.addEventListener("change", (e) => {
     const file = e.target.files?.[0];
     if (file) importProducts(file, ctx);
@@ -623,6 +749,8 @@ function renderView(ctx) {
 //  RENDER PRODUCT ITEM
 // ═══════════════════════════════════════════════════════════
 function renderProductItem(p, mode, state) {
+  const _bulkChecked = bulkMode && bulkSelected.has(String(p.id));
+  const _bulkCheckbox = bulkMode ? `<input type="checkbox" class="prod-bulk-cb" data-pid="${p.id}" ${_bulkChecked ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer;flex-shrink:0;margin-right:8px" onclick="event.stopPropagation()" />` : '';
   const pType = detectProductType(p);
   const ds = getDisplayStock(state, p);
   const stock = ds.stock;
@@ -652,9 +780,10 @@ function renderProductItem(p, mode, state) {
 
   if (mode === "grid") {
     return `
-      <div class="prod-grid-card">
+      <div class="prod-grid-card" style="${_bulkChecked ? 'background:#dbeafe;border:2px solid #0284c7' : ''}">
+        ${bulkMode ? `<div style="position:absolute;top:8px;left:8px;z-index:2">${_bulkCheckbox}</div>` : ''}
         <div class="prod-grid-avatar-wrap">
-          ${getLetterAvatar(p.name)}
+          ${getProductAvatar(p)}
           <span class="prod-stock-indicator" style="background:${statusDot}" title="${statusText}"></span>
         </div>
         <div class="prod-grid-name" data-prod-edit="${p.id}" style="cursor:pointer" title="คลิกเพื่อแก้ไข">${escHtml(p.name || "-")}</div>
@@ -674,10 +803,11 @@ function renderProductItem(p, mode, state) {
 
   // List mode
   return `
-    <div class="prod-list-item">
+    <div class="prod-list-item" style="${_bulkChecked ? 'background:#dbeafe;border:2px solid #0284c7' : ''}">
       <div class="prod-list-left">
+        ${_bulkCheckbox}
         <div class="prod-avatar-wrap">
-          ${getLetterAvatar(p.name)}
+          ${getProductAvatar(p)}
           <span class="prod-stock-indicator" style="background:${statusDot}" title="${statusText}"></span>
         </div>
         <div class="prod-list-info">
@@ -1393,16 +1523,18 @@ async function deleteAllProducts(ctx) {
 // ═══════════════════════════════════════════════════════════
 //  EXPORT TO EXCEL
 // ═══════════════════════════════════════════════════════════
-function exportProducts(state) {
+function exportProducts(state, customList) {
   try {
     const TYPE_LABELS = { service: "บริการ", non_stock: "ไม่นับสต็อก", stock: "นับสต็อก" };
-    const items = (state.products || []).map(p => ({
+    const sourceList = Array.isArray(customList) ? customList : (state.products || []);
+    const items = sourceList.map(p => ({
       "ประเภท": TYPE_LABELS[detectProductType(p)] || "นับสต็อก",
       "ชื่อสินค้า": p.name || "",
       "รหัสสินค้า (SKU)": p.sku || "",
       "หมวดหมู่": p.category || "",
       "บาร์โค้ด": p.barcode || "",
       "ราคาขาย": p.price || 0,
+      "ราคาส่ง": p.price_wholesale || "",
       "ต้นทุน": p.cost || 0,
       "คงเหลือ": p.stock || 0,
       "สต็อกขั้นต่ำ": p.min_stock || 0
@@ -1414,17 +1546,153 @@ function exportProducts(state) {
 
     ws["!cols"] = [
       { wch: 14 }, { wch: 35 }, { wch: 18 }, { wch: 20 }, { wch: 18 },
-      { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 14 }
+      { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 14 }
     ];
 
-    XLSX.writeFile(wb, "สินค้า_บุญสุข.xlsx");
-    window.App?.showToast?.("ส่งออก Excel สำเร็จ");
+    const date = new Date().toISOString().slice(0, 10);
+    const suffix = customList ? `_filtered_${items.length}` : "";
+    XLSX.writeFile(wb, `สินค้า_บุญสุข${suffix}_${date}.xlsx`);
+    window.App?.showToast?.(`ส่งออก ${items.length} รายการสำเร็จ`);
   } catch (err) {
     window.App?.showToast?.("ส่งออกไม่สำเร็จ: " + (err.message || err));
   }
 }
 
 function showToastFn(msg) { window.App?.showToast?.(msg); }
+
+// ═══════════════════════════════════════════════════════════
+//  BULK EDIT — รายการที่เลือก batch update
+// ═══════════════════════════════════════════════════════════
+async function _bulkPatchProducts(ids, patch, label) {
+  const cfg = window.SUPABASE_CONFIG;
+  const accessToken = window._sbAccessToken || cfg.anonKey;
+  let ok = 0, fail = 0;
+  for (const id of ids) {
+    const r = await new Promise(resolve => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("PATCH", cfg.url + "/rest/v1/products?id=eq." + encodeURIComponent(id));
+      xhr.setRequestHeader("Content-Type", "application/json");
+      xhr.setRequestHeader("apikey", cfg.anonKey);
+      xhr.setRequestHeader("Authorization", "Bearer " + accessToken);
+      xhr.setRequestHeader("Prefer", "return=minimal");
+      xhr.timeout = 8000;
+      xhr.onload = () => resolve(xhr.status >= 200 && xhr.status < 300);
+      xhr.onerror = () => resolve(false);
+      xhr.ontimeout = () => resolve(false);
+      xhr.send(JSON.stringify(patch));
+    });
+    if (r) ok++; else fail++;
+  }
+  showToastFn(`${label}: สำเร็จ ${ok}/${ids.length}${fail > 0 ? ` (ล้มเหลว ${fail})` : ''}`);
+  return ok;
+}
+
+async function bulkPriceChange(ctx) {
+  const { state } = ctx;
+  if (bulkSelected.size === 0) return;
+  const input = prompt(
+    `ปรับราคาสำหรับ ${bulkSelected.size} สินค้าที่เลือก\n\nกรอกตัวเลข + เครื่องหมาย:\n• "+10%" = ขึ้นราคา 10%\n• "-5%" = ลดราคา 5%\n• "=1500" = ตั้งราคาตายตัว 1500\n• "+50" = ขึ้นราคา 50 บาทตรงๆ`,
+    "+10%"
+  );
+  if (!input) return;
+  const trimmed = input.trim();
+  let updateFn = null;
+  if (trimmed.startsWith("=")) {
+    const v = Number(trimmed.slice(1));
+    if (isNaN(v)) return showToastFn("รูปแบบไม่ถูกต้อง");
+    updateFn = () => v;
+  } else if (trimmed.endsWith("%")) {
+    const sign = trimmed.startsWith("-") ? -1 : 1;
+    const pct = Number(trimmed.replace(/[^\d.]/g, ""));
+    if (isNaN(pct)) return showToastFn("รูปแบบไม่ถูกต้อง");
+    updateFn = (cur) => Math.round(Number(cur || 0) * (1 + sign * pct / 100) * 100) / 100;
+  } else {
+    const v = Number(trimmed);
+    if (isNaN(v)) return showToastFn("รูปแบบไม่ถูกต้อง");
+    updateFn = (cur) => Math.max(0, Math.round((Number(cur || 0) + v) * 100) / 100);
+  }
+
+  const ids = [...bulkSelected];
+  const cfg = window.SUPABASE_CONFIG;
+  const accessToken = window._sbAccessToken || cfg.anonKey;
+  let ok = 0, fail = 0;
+  for (const id of ids) {
+    const prod = (state.products || []).find(p => String(p.id) === String(id));
+    if (!prod) continue;
+    const newPrice = updateFn(prod.price);
+    const r = await new Promise(resolve => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("PATCH", cfg.url + "/rest/v1/products?id=eq." + encodeURIComponent(id));
+      xhr.setRequestHeader("Content-Type", "application/json");
+      xhr.setRequestHeader("apikey", cfg.anonKey);
+      xhr.setRequestHeader("Authorization", "Bearer " + accessToken);
+      xhr.setRequestHeader("Prefer", "return=minimal");
+      xhr.timeout = 8000;
+      xhr.onload = () => resolve(xhr.status >= 200 && xhr.status < 300);
+      xhr.onerror = () => resolve(false);
+      xhr.ontimeout = () => resolve(false);
+      xhr.send(JSON.stringify({ price: newPrice }));
+    });
+    if (r) ok++; else fail++;
+  }
+  showToastFn(`ปรับราคา: สำเร็จ ${ok}/${ids.length}${fail > 0 ? ` (ล้มเหลว ${fail})` : ''}`);
+  bulkSelected.clear();
+  if (window.App?.loadAllData) await window.App.loadAllData();
+}
+
+async function bulkSetCategory(ctx) {
+  if (bulkSelected.size === 0) return;
+  const cats = [...new Set((ctx.state.products || []).map(p => String(p.category || "").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"th"));
+  const newCat = (prompt(`เปลี่ยนหมวดสำหรับ ${bulkSelected.size} สินค้า\n\nหมวดที่มี: ${cats.slice(0, 10).join(", ")}${cats.length > 10 ? "..." : ""}\n\nพิมพ์ชื่อหมวดใหม่ (หรือชื่อเดิม):`, "") || "").trim();
+  if (newCat === "") {
+    if (!confirm("เคลียร์หมวด (ลบหมวดออกจากสินค้า)?")) return;
+  }
+  await _bulkPatchProducts([...bulkSelected], { category: newCat }, "เปลี่ยนหมวด");
+  bulkSelected.clear();
+  if (window.App?.loadAllData) await window.App.loadAllData();
+}
+
+async function bulkSetType(ctx) {
+  if (bulkSelected.size === 0) return;
+  const choice = prompt(
+    `เปลี่ยนประเภทสำหรับ ${bulkSelected.size} สินค้า:\n\n1 = สินค้านับสต็อก\n2 = ไม่นับสต็อก\n3 = บริการ`,
+    "1"
+  );
+  const map = { "1": "stock", "2": "non_stock", "3": "service" };
+  const t = map[String(choice || "").trim()];
+  if (!t) return;
+  await _bulkPatchProducts([...bulkSelected], { product_type: t }, "เปลี่ยนประเภท");
+  bulkSelected.clear();
+  if (window.App?.loadAllData) await window.App.loadAllData();
+}
+
+async function bulkDelete(ctx) {
+  if (bulkSelected.size === 0) return;
+  if (!confirm(`⚠️ ลบสินค้าที่เลือก ${bulkSelected.size} รายการ?\n\nกู้คืนไม่ได้!`)) return;
+  if (!confirm(`ยืนยันอีกครั้ง: ลบ ${bulkSelected.size} รายการ?`)) return;
+  const cfg = window.SUPABASE_CONFIG;
+  const accessToken = window._sbAccessToken || cfg.anonKey;
+  let ok = 0, fail = 0;
+  for (const id of [...bulkSelected]) {
+    const r = await new Promise(resolve => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("DELETE", cfg.url + "/rest/v1/products?id=eq." + encodeURIComponent(id));
+      xhr.setRequestHeader("apikey", cfg.anonKey);
+      xhr.setRequestHeader("Authorization", "Bearer " + accessToken);
+      xhr.setRequestHeader("Prefer", "return=minimal");
+      xhr.timeout = 8000;
+      xhr.onload = () => resolve(xhr.status >= 200 && xhr.status < 300);
+      xhr.onerror = () => resolve(false);
+      xhr.ontimeout = () => resolve(false);
+      xhr.send();
+    });
+    if (r) ok++; else fail++;
+  }
+  showToastFn(`ลบสินค้า: สำเร็จ ${ok}/${bulkSelected.size}${fail > 0 ? ` (ล้มเหลว ${fail})` : ''}`);
+  bulkSelected.clear();
+  bulkMode = false;
+  if (window.App?.loadAllData) await window.App.loadAllData();
+}
 
 // ═══════════════════════════════════════════════════════════
 //  MERGE DUPLICATE CATEGORIES — auto-detect + manual merge

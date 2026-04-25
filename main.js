@@ -24,6 +24,9 @@ import { renderAcInstallPage } from "./modules/ac_install.js";
 import { renderErrorCodesPage } from "./modules/error_codes.js";
 import { renderErrorCodesFridgePage } from "./modules/error_codes_fridge.js";
 import { renderErrorCodesWasherPage } from "./modules/error_codes_washer.js";
+import { renderStockValuePage } from "./modules/stock_value.js";
+import { renderDeadStockPage } from "./modules/dead_stock.js";
+import { renderStockCountPage } from "./modules/stock_count.js";
 import { renderAiSalesPage } from "./modules/ai_sales.js";
 import { renderAcShopPage } from "./modules/ac_shop.js";
 import "./modules/doc-override.js";
@@ -796,11 +799,11 @@ function isLowStock(product){ return Number(product.stock||0) <= Number(product.
 // ═══════════════════════════════════════════════════════════
 //  ROLE-BASED ACCESS CONTROL (4 กลุ่ม)
 // ═══════════════════════════════════════════════════════════
-const ALL_ROUTES = ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","service_jobs","settings","expenses","profit_report","stock_movements","calendar","loyalty","customer_dashboard","btu_calculator","service_request","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"];
+const ALL_ROUTES = ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","service_jobs","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","calendar","loyalty","customer_dashboard","btu_calculator","service_request","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"];
 const ROLE_PAGES = {
   admin:      ALL_ROUTES,
-  technician: ["dashboard","pos","service_jobs","customers","receipts","calendar","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"],
-  sales:      ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","settings","expenses","profit_report","stock_movements","calendar","loyalty","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"],
+  technician: ["dashboard","pos","service_jobs","customers","receipts","calendar","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop","stock_count"],
+  sales:      ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","calendar","loyalty","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"],
   customer:   ["customer_dashboard","btu_calculator","service_request","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"]
 };
 const ROLE_LABELS = {
@@ -895,6 +898,9 @@ function showRoute(route){
     error_codes:"Error Code แอร์",
     error_codes_fridge:"Error Code ตู้เย็น",
     error_codes_washer:"Error Code เครื่องซักผ้า",
+    stock_value:"รายงานมูลค่าสต็อก",
+    dead_stock:"รายงานสต็อกค้างนาน",
+    stock_count:"นับสต็อกจริง",
     ai_sales:"AI ผู้ช่วยขายแอร์",
     ac_shop:"แอร์ใหม่พร้อมติดตั้ง"
   };
@@ -927,6 +933,9 @@ function showRoute(route){
   if (route === "error_codes") renderErrorCodesPage(ctx);
   if (route === "error_codes_fridge") renderErrorCodesFridgePage(ctx);
   if (route === "error_codes_washer") renderErrorCodesWasherPage(ctx);
+  if (route === "stock_value") renderStockValuePage(ctx);
+  if (route === "dead_stock") renderDeadStockPage(ctx);
+  if (route === "stock_count") renderStockCountPage(ctx);
   if (route === "ai_sales") renderAiSalesPage(ctx);
   if (route === "ac_shop") renderAcShopPage(ctx);
 
@@ -1495,8 +1504,22 @@ function openProductDrawer(product=null, opts={}){
   $("newProductSku").value = product?.sku || "";
   $("newProductCategory").value = product?.category || opts?.prefillCategory || "";
   $("newProductPrice").value = product?.price || "";
+  if ($("newProductPriceWholesale")) $("newProductPriceWholesale").value = product?.price_wholesale || "";
   $("newProductCost").value = product?.cost || "";
   $("newProductBarcode").value = product?.barcode || "";
+
+  // ★ Image preview — ถ้ามี image_url
+  const imgUrl = product?.image_url || "";
+  if ($("newProductImageUrl")) $("newProductImageUrl").value = imgUrl;
+  if ($("newProductImageImg")) {
+    if (imgUrl) {
+      $("newProductImageImg").src = imgUrl;
+      $("newProductImagePreview").style.display = "block";
+    } else {
+      $("newProductImageImg").src = "";
+      $("newProductImagePreview").style.display = "none";
+    }
+  }
 
   // ★ Populate datalist หมวดหมู่ — unique categories จาก state.products
   const catList = $("productCategoryList");
@@ -1509,6 +1532,9 @@ function openProductDrawer(product=null, opts={}){
 
   // ★ ซ่อน/แสดง barcode + stock ตามประเภท
   _toggleDrawerSections(pType);
+
+  // ★ Recent Activity — เฉพาะตอนแก้ไข (มี product)
+  _renderProductRecentActivity(product);
 
   // ★ สร้าง input สต็อกแยกตามคลัง
   const whContainer = $("warehouseStockInputs");
@@ -1758,6 +1784,12 @@ async function saveProduct(){
     barcode: (productType === "service" || productType === "non_stock") ? "" : $("newProductBarcode").value.trim(),
     is_active:true
   };
+  // ★ ราคาส่ง + รูปภาพ (เพิ่มเฉพาะถ้ามี — รองรับ DB ที่ยังไม่มี column)
+  const wholesale = Number($("newProductPriceWholesale")?.value || 0);
+  if (wholesale > 0) payload.price_wholesale = wholesale;
+  const imgUrl = ($("newProductImageUrl")?.value || "").trim();
+  if (imgUrl) payload.image_url = imgUrl;
+  else if (state.editingProductId) payload.image_url = null; // เคลียร์รูปเมื่อแก้ไขแล้วลบ
   // ★ Validation ชี้จุดชัดเจน
   if (!payload.name) return showToast("กรุณากรอกชื่อสินค้า");
   if (payload.price <= 0) return showToast("กรุณากรอกราคาขาย (ต้องมากกว่า 0)");
@@ -1812,6 +1844,91 @@ function openCustomerDrawer(customer=null){
   _renderCustomerPurchaseHistory(customer);
 
   openDrawer("customerDrawer");
+}
+
+function _renderProductRecentActivity(product) {
+  const el = $("productRecentActivity");
+  if (!el) return;
+  if (!product?.id) { el.classList.add("hidden"); el.innerHTML = ""; return; }
+
+  // Sale items ที่มี product_id ตรงกัน
+  const myItems = (state.saleItems || []).filter(it => String(it.product_id) === String(product.id));
+  if (myItems.length === 0 && (!state.stockMovements || state.stockMovements.length === 0)) {
+    el.classList.remove("hidden");
+    el.innerHTML = `
+      <div class="set-section-title">📊 ประวัติการเคลื่อนไหว</div>
+      <div class="card" style="text-align:center;color:#94a3b8;padding:16px;font-size:13px">ยังไม่มีกิจกรรมของสินค้านี้</div>
+    `;
+    return;
+  }
+
+  // Stats: จำนวนขาย + รายได้รวม + กี่ครั้ง (จากเดือนนี้, 30 วันล่าสุด, ปีนี้)
+  const today = new Date().toISOString().slice(0, 10);
+  const thisMonth = today.slice(0, 7);
+  const last30 = (() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10); })();
+  const thisYear = today.slice(0, 4);
+
+  let qtyMonth = 0, revenueMonth = 0;
+  let qty30 = 0, revenue30 = 0;
+  let qtyYear = 0, revenueYear = 0;
+  let totalQty = 0, totalRevenue = 0;
+  let lastSaleDate = null;
+
+  myItems.forEach(it => {
+    const sale = (state.sales || []).find(s => String(s.id) === String(it.sale_id));
+    if (!sale || (sale.note || "").includes("[ลบแล้ว]")) return;
+    const saleDate = String(sale.created_at || "").slice(0, 10);
+    const qty = Number(it.qty || 0);
+    const rev = Number(it.line_total || (qty * Number(it.unit_price || 0)));
+
+    totalQty += qty;
+    totalRevenue += rev;
+    if (!lastSaleDate || saleDate > lastSaleDate) lastSaleDate = saleDate;
+
+    if (saleDate.slice(0, 7) === thisMonth) { qtyMonth += qty; revenueMonth += rev; }
+    if (saleDate >= last30) { qty30 += qty; revenue30 += rev; }
+    if (saleDate.slice(0, 4) === thisYear) { qtyYear += qty; revenueYear += rev; }
+  });
+
+  // Stock movements ของสินค้านี้ (10 รายการล่าสุด)
+  const myMovements = (state.stockMovements || [])
+    .filter(m => String(m.product_id) === String(product.id))
+    .slice(0, 10);
+
+  const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString("th-TH", { year: "2-digit", month: "short", day: "numeric" }) : "-";
+  const moneyFmt = (n) => new Intl.NumberFormat("th-TH", { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(Number(n || 0));
+  const typeLabel = { in: "📥 รับเข้า", out: "📤 จ่ายออก", sale: "💰 ขาย", return: "↩️ คืน", adjust: "⚙️ ปรับสต็อก", transfer: "🔄 โอนย้าย" };
+
+  el.classList.remove("hidden");
+  el.innerHTML = `
+    <div class="set-section-title">📊 ประวัติการเคลื่อนไหว</div>
+    <div class="card" style="padding:12px;background:#f0f9ff;border-color:#bae6fd">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px">
+        <div>📦 ขาย 30 วัน: <b>${qty30}</b> ชิ้น (฿${moneyFmt(revenue30)})</div>
+        <div>📅 เดือนนี้: <b>${qtyMonth}</b> ชิ้น (฿${moneyFmt(revenueMonth)})</div>
+        <div>🗓️ ปีนี้: <b>${qtyYear}</b> ชิ้น (฿${moneyFmt(revenueYear)})</div>
+        <div>🏆 รวมทั้งหมด: <b>${totalQty}</b> ชิ้น (฿${moneyFmt(totalRevenue)})</div>
+        ${lastSaleDate ? `<div style="grid-column:span 2">🕐 ขายล่าสุด: ${fmtDate(lastSaleDate)}</div>` : `<div style="grid-column:span 2;color:#dc2626">⚠️ ยังไม่เคยขาย</div>`}
+      </div>
+    </div>
+    ${myMovements.length > 0 ? `
+      <div style="font-size:12px;color:#64748b;margin-top:10px;margin-bottom:6px">การเคลื่อนไหวสต็อก ${myMovements.length} รายการล่าสุด:</div>
+      <div style="max-height:240px;overflow-y:auto">
+        ${myMovements.map(m => `
+          <div style="padding:8px 10px;background:#fafbfc;border:1px solid #e5e7eb;border-radius:6px;margin-bottom:4px;font-size:12px;display:flex;justify-content:space-between;gap:8px">
+            <div>
+              <div style="font-weight:600">${typeLabel[m.movement_type] || m.movement_type}</div>
+              <div style="color:#64748b;font-size:11px">${fmtDate(m.created_at)} • ${escapeHtml(m.note || "").slice(0, 60)}</div>
+            </div>
+            <div style="text-align:right;white-space:nowrap">
+              <div style="color:#0f172a;font-weight:700">${m.quantity}</div>
+              <div style="color:#64748b;font-size:11px">${m.stock_before}→${m.stock_after}</div>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+    ` : ''}
+  `;
 }
 
 function _renderCustomerPurchaseHistory(customer) {
@@ -2743,6 +2860,48 @@ function bindStaticEvents(){
   $("saveProductBtn")?.addEventListener("click", saveProduct);
   $("resetProductFormBtn")?.addEventListener("click", resetProductForm);
   $("drawerScanBtn")?.addEventListener("click", openDrawerScanner);
+
+  // ★ Image upload — Supabase Storage
+  $("newProductImageBtn")?.addEventListener("click", () => $("newProductImageFile")?.click());
+  $("newProductImageClearBtn")?.addEventListener("click", () => {
+    if ($("newProductImageUrl")) $("newProductImageUrl").value = "";
+    if ($("newProductImageImg")) $("newProductImageImg").src = "";
+    if ($("newProductImagePreview")) $("newProductImagePreview").style.display = "none";
+  });
+  $("newProductImageFile")?.addEventListener("change", async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) return showToast("ไฟล์ต้องเป็นรูปภาพ");
+    if (file.size > 5 * 1024 * 1024) return showToast("ไฟล์ใหญ่เกิน 5MB");
+    const btn = $("newProductImageBtn");
+    if (btn) { btn.disabled = true; btn.textContent = "กำลังอัพโหลด..."; }
+    try {
+      const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+      const ts = Date.now();
+      const rand = Math.random().toString(36).slice(2, 8);
+      const path = `${ts}-${rand}.${ext}`;
+      const { data, error } = await state.supabase.storage
+        .from("product-images")
+        .upload(path, file, { cacheControl: "31536000", upsert: false });
+      if (error) {
+        console.error("[image upload]", error);
+        showToast("อัพโหลดไม่สำเร็จ: " + (error.message || "อาจยังไม่ได้สร้าง bucket 'product-images' ใน Supabase Storage"));
+        return;
+      }
+      const { data: urlData } = state.supabase.storage.from("product-images").getPublicUrl(data.path);
+      const url = urlData?.publicUrl || "";
+      if ($("newProductImageUrl")) $("newProductImageUrl").value = url;
+      if ($("newProductImageImg")) $("newProductImageImg").src = url;
+      if ($("newProductImagePreview")) $("newProductImagePreview").style.display = "block";
+      showToast("อัพโหลดรูปสำเร็จ ✓");
+    } catch (err) {
+      console.error(err);
+      showToast("เกิดข้อผิดพลาด: " + (err?.message || err));
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = "📤 อัพโหลดรูป"; }
+      e.target.value = ""; // reset เพื่อให้เลือกไฟล์เดิมซ้ำได้
+    }
+  });
   $("drawerScannerClose")?.addEventListener("click", closeDrawerScanner);
   $("drawerGenBarcodeBtn")?.addEventListener("click", genDrawerBarcode);
   $("drawerPrintBarcodeBtn")?.addEventListener("click", printDrawerBarcode);
