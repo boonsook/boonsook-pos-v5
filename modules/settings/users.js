@@ -41,12 +41,15 @@ export function renderSettingsUsers(el, ctx, goBack, navigateToView) {
           const rLabel = ROLE_LABELS[p.role] || p.role;
           const rColor = roleColors[p.role] || "#64748b";
           const isMe = p.id === state.currentUser?.id;
-          const displayName = p.full_name || p.email || "?";
+          // ★ Fallback: full_name → email prefix → "ผู้ใช้ใหม่"
+          const emailPrefix = p.email ? String(p.email).split("@")[0] : "";
+          const displayName = p.full_name || emailPrefix || "ผู้ใช้ใหม่";
+          const nameMissing = !p.full_name;
           return `
             <div class="usr-card">
               <div class="usr-avatar" style="background:${rColor}">${escHtml(displayName.charAt(0).toUpperCase())}</div>
               <div class="usr-info">
-                <div class="usr-name">${escHtml(p.full_name || "-")}${isMe ? ' <span style="background:#dcfce7;color:#166534;font-size:10px;padding:2px 6px;border-radius:10px;font-weight:700">คุณ</span>' : ''}</div>
+                <div class="usr-name">${escHtml(displayName)}${nameMissing ? ' <span style="background:#fef3c7;color:#92400e;font-size:10px;padding:2px 6px;border-radius:10px;font-weight:700" title="ยังไม่ได้กรอกชื่อ — กด ✏️ แก้ไขเพื่อใส่ชื่อจริง">⚠️ ไม่มีชื่อ</span>' : ''}${isMe ? ' <span style="background:#dcfce7;color:#166534;font-size:10px;padding:2px 6px;border-radius:10px;font-weight:700">คุณ</span>' : ''}</div>
                 ${p.email ? `<div class="usr-email">✉️ ${escHtml(p.email)}</div>` : ''}
                 <div class="usr-role" style="color:${rColor}">${rLabel}</div>
                 ${p.created_at ? `<div class="usr-date">เข้าร่วม: ${new Date(p.created_at).toLocaleDateString("th-TH")}</div>` : ''}
