@@ -1,33 +1,37 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 25 เมษายน 2026
+**อัปเดตล่าสุด:** 25 เมษายน 2026 (Phase 16 done)
+**Version:** 5.5.0 (build 34)
 **สถานะ:** Production ที่ boonsukair.com (Cloudflare Pages + Supabase)
 **เป้าหมายเอกสาร:** Claude session ใหม่ / ผู้ช่วยใหม่ อ่านไฟล์นี้แล้วต่องานได้ทันที
 
 ---
 
-## ⚠️ สำคัญ — ACTION REQUIRED ก่อนใช้ฟีเจอร์ใหม่ (25 เม.ย.)
+## ✅ สถานะ Migration ปัจจุบัน (ทำเสร็จแล้ว — 25 เม.ย. 2026)
 
-หลัง user push commit ล่าสุด → ต้องทำ 2 อย่างใน Supabase Dashboard:
+User ได้ทำ migration steps เหล่านี้เรียบร้อย ✓ — **ไม่ต้องทำซ้ำ**:
 
-### 1. SQL Editor — รัน supabase-rls-policies.sql ใหม่ทั้งไฟล์
-- เพิ่ม column `products.price_wholesale` (NUMERIC) — ราคาขายส่ง
-- เพิ่ม column `products.image_url` (TEXT) — URL รูปสินค้า
-- สร้าง RLS policies สำหรับ Storage bucket "product-images"
-- (script idempotent — รันซ้ำได้ไม่เสียอะไร)
+### ✅ SQL Migration (ผ่าน Supabase SQL Editor)
+รัน `supabase-rls-policies.sql` หลายรอบตาม phase — ทุก column + table ที่ต้องการมีครบ:
+- `products` columns: `price_wholesale`, `image_url`, `is_featured`, `promo_price`, `promo_start`, `promo_end`
+- `customers` columns: `notes`, `tags`, `birthday`
+- `sales` columns: `customer_id`, `is_credit`, `credit_due_date`, `credit_paid_amount`, `credit_paid_at`
+- `service_jobs` columns: `photo_before`, `photo_after`
+- ตารางใหม่: `warehouses`, `warehouse_stock`, `recurring_expenses`, `credit_payments`, `refunds`, `tasks`, `quote_templates` — RLS + indexes ครบ
+- Trigger: `handle_new_user` (auto-create profiles row จาก auth.users) + backfill done
+- Storage RLS policies สำหรับ `product-images` bucket
 
-### 2. Storage → "+ New bucket"
-- **Name:** `product-images`
-- **Public:** **ON** (สำคัญ — ต้องเปิด public ไม่งั้นรูปแสดงไม่ได้)
-- กด Save
+### ✅ Supabase Storage
+- bucket `product-images` สร้างแล้ว + Public: ON
 
-⚠️ ถ้าไม่ทำขั้น 2 — ปุ่มอัพโหลดรูปจะ error "อาจยังไม่ได้สร้าง bucket"
+### ➡️ ถ้ามี SQL migration ใหม่ในอนาคต
+File `supabase-rls-policies.sql` เป็น idempotent — User สามารถรันซ้ำได้ปลอดภัย ทุกครั้งที่มีการเพิ่ม phase ใหม่ที่ schema เปลี่ยน
 
 ---
 
 ## 🆕 ฟีเจอร์ใหม่ session 25 เม.ย. — รอบที่ 8 (Phase 12-16: Big Batch)
 
-### ⚠️ ACTION REQUIRED — รัน SQL ใหม่
+### ✅ SQL ทำเสร็จแล้ว (เก็บประวัติไว้เพื่อ reference)
 รัน `supabase-rls-policies.sql` ใน Supabase SQL Editor — เพิ่ม:
 - ตาราง `refunds` + RLS
 - ตาราง `tasks` + RLS
@@ -77,7 +81,7 @@
 
 ## 🆕 ฟีเจอร์ใหม่ session 25 เม.ย. — รอบที่ 7 (Phase 11: Customer Notes & Tags)
 
-### ⚠️ ACTION REQUIRED — รัน SQL ใหม่
+### ✅ SQL ทำเสร็จแล้ว (เก็บประวัติไว้เพื่อ reference)
 รัน `supabase-rls-policies.sql` ใน Supabase SQL Editor — เพิ่ม:
 - `customers.notes` TEXT
 - `customers.tags` TEXT[]
@@ -123,7 +127,7 @@
 
 ## 🆕 ฟีเจอร์ใหม่ session 25 เม.ย. — รอบที่ 6 (Phase 7-10: รายงาน + เครดิต)
 
-### ⚠️ ACTION REQUIRED — รัน SQL ใหม่
+### ✅ SQL ทำเสร็จแล้ว (เก็บประวัติไว้เพื่อ reference)
 รัน `supabase-rls-policies.sql` ใน Supabase SQL Editor — เพิ่ม:
 - ตาราง `recurring_expenses` (รายจ่ายประจำ) + RLS
 - ตาราง `credit_payments` (ประวัติการเก็บเงินเครดิต) + RLS
@@ -174,7 +178,7 @@
 
 ## 🆕 ฟีเจอร์ใหม่ session 25 เม.ย. — รอบที่ 5 (Phase 4-6: POS Customer + Cash Recon + Service Photos)
 
-### ⚠️ ACTION REQUIRED — รัน SQL ใหม่อีกรอบ
+### ✅ SQL ทำเสร็จแล้ว (เก็บประวัติไว้เพื่อ reference)
 รัน `supabase-rls-policies.sql` ใน Supabase SQL Editor — เพิ่ม column ใหม่:
 - `sales.customer_id` BIGINT REFERENCES customers(id) — ผูกบิลกับลูกค้า
 - `service_jobs.photo_before` TEXT — รูปก่อนทำงาน
@@ -236,7 +240,7 @@
 
 ## 🆕 ฟีเจอร์ใหม่ session 25 เม.ย. — รอบที่ 3 (Phase 2: Drag-drop + Featured + Promo)
 
-### ⚠️ ACTION REQUIRED — รัน SQL ใหม่อีกครั้ง
+### ✅ SQL ทำเสร็จแล้ว (เก็บประวัติไว้เพื่อ reference)
 รัน `supabase-rls-policies.sql` ใน SQL Editor — เพิ่ม column ใหม่:
 - `products.is_featured` BOOLEAN DEFAULT false
 - `products.promo_price` NUMERIC
