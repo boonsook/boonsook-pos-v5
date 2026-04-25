@@ -199,6 +199,13 @@
 
       <!-- ═══ ลูกค้า ═══ -->
       <button class="nav-btn" data-route="customers">👥 ลูกค้า</button>
+      <button class="nav-btn" data-route="birthdays">🎂 วันเกิดลูกค้า</button>
+
+      <!-- ═══ Task / สิ่งที่ต้องทำ (Phase 13) ═══ -->
+      <button class="nav-btn" data-route="tasks">⏰ Task / สิ่งที่ต้องทำ</button>
+
+      <!-- ═══ Quote Templates (Phase 16) ═══ -->
+      <button class="nav-btn" data-route="quote_templates">📑 Template ใบเสนอราคา</button>
 
       <!-- ═══ การเงิน (กลุ่ม) ═══ -->
       <div class="nav-group" data-group="finance">
@@ -209,7 +216,9 @@
           <button class="nav-btn sub" data-route="profit_report">📊 รายงานกำไร</button>
           <button class="nav-btn sub" data-route="cash_recon">💵 กระทบยอดเงินสด</button>
           <button class="nav-btn sub" data-route="credit_tracker">💳 ลูกค้าค้างชำระ</button>
+          <button class="nav-btn sub" data-route="refunds">🔄 รับคืนสินค้า</button>
           <button class="nav-btn sub" data-route="top_customers">🏆 ลูกค้าซื้อเยอะสุด</button>
+          <button class="nav-btn sub" data-route="profit_by_product">📊 กำไรต่อสินค้า</button>
           <button class="nav-btn sub" data-route="sales_heatmap">⏰ ยอดขายตามช่วงเวลา</button>
         </div>
       </div>
@@ -300,6 +309,11 @@
       <section id="page-sales_heatmap" class="page hidden"></section>
       <section id="page-recurring_expenses" class="page hidden"></section>
       <section id="page-credit_tracker" class="page hidden"></section>
+      <section id="page-refunds" class="page hidden"></section>
+      <section id="page-tasks" class="page hidden"></section>
+      <section id="page-profit_by_product" class="page hidden"></section>
+      <section id="page-birthdays" class="page hidden"></section>
+      <section id="page-quote_templates" class="page hidden"></section>
       <section id="page-ai_sales" class="page hidden"></section>
       <section id="page-ac_shop" class="page hidden"></section>
     </main>
@@ -433,6 +447,8 @@
       <textarea id="customerAddress" rows="3" placeholder="ที่อยู่" aria-label="ที่อยู่" autocomplete="street-address"></textarea>
       <label for="customerTaxId" class="sr-only">เลขผู้เสียภาษี</label>
       <input class="form-input" id="customerTaxId" placeholder="เลขผู้เสียภาษี" aria-label="เลขผู้เสียภาษี" pattern="[0-9]{13}" maxlength="13" autocomplete="off" />
+      <label for="customerBirthday" style="font-size:12px;color:#64748b">🎂 วันเกิด (Phase 15):</label>
+      <input class="form-input" id="customerBirthday" type="date" aria-label="วันเกิด" autocomplete="bday" />
 
       <!-- ★ Phase 11: Customer Notes & Tags -->
       <div style="border:1px dashed #cbd5e1;border-radius:10px;padding:12px;background:#f8fafc">
@@ -577,7 +593,7 @@
     </div>
   </aside>
 
-  <script type="module" src="./main.js?v=33"></script>
+  <script type="module" src="./main.js?v=34"></script>
   <script>
     // ═══ Loading Overlay ═══
     function hideLoadingOverlay() {

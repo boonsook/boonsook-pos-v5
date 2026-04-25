@@ -33,6 +33,11 @@ import { renderTopCustomersPage } from "./modules/top_customers.js";
 import { renderSalesHeatmapPage } from "./modules/sales_heatmap.js";
 import { renderRecurringExpensesPage } from "./modules/recurring_expenses.js";
 import { renderCreditTrackerPage } from "./modules/credit_tracker.js";
+import { renderRefundsPage } from "./modules/refunds.js";
+import { renderTasksPage, checkOverdueTasksAndNotify } from "./modules/tasks.js";
+import { renderProfitByProductPage } from "./modules/profit_by_product.js";
+import { renderBirthdaysPage, checkTodayBirthdaysAndNotify } from "./modules/birthdays.js";
+import { renderQuoteTemplatesPage } from "./modules/quote_templates.js";
 import { renderAiSalesPage } from "./modules/ai_sales.js";
 import { renderAcShopPage } from "./modules/ac_shop.js";
 import "./modules/doc-override.js";
@@ -805,11 +810,11 @@ function isLowStock(product){ return Number(product.stock||0) <= Number(product.
 // ═══════════════════════════════════════════════════════════
 //  ROLE-BASED ACCESS CONTROL (4 กลุ่ม)
 // ═══════════════════════════════════════════════════════════
-const ALL_ROUTES = ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","service_jobs","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","calendar","loyalty","customer_dashboard","btu_calculator","service_request","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"];
+const ALL_ROUTES = ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","quote_templates","service_jobs","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","refunds","tasks","profit_by_product","birthdays","calendar","loyalty","customer_dashboard","btu_calculator","service_request","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"];
 const ROLE_PAGES = {
   admin:      ALL_ROUTES,
   technician: ["dashboard","pos","service_jobs","customers","receipts","calendar","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop","stock_count"],
-  sales:      ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","calendar","loyalty","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"],
+  sales:      ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","quote_templates","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","refunds","tasks","profit_by_product","birthdays","calendar","loyalty","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"],
   customer:   ["customer_dashboard","btu_calculator","service_request","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"]
 };
 const ROLE_LABELS = {
@@ -913,6 +918,11 @@ function showRoute(route){
     sales_heatmap:"ยอดขายตามช่วงเวลา",
     recurring_expenses:"รายจ่ายประจำ",
     credit_tracker:"ลูกค้าค้างชำระ",
+    refunds:"รับคืนสินค้า",
+    tasks:"Task / สิ่งที่ต้องทำ",
+    profit_by_product:"กำไรต่อสินค้า",
+    birthdays:"วันเกิดลูกค้า",
+    quote_templates:"Template ใบเสนอราคา",
     ai_sales:"AI ผู้ช่วยขายแอร์",
     ac_shop:"แอร์ใหม่พร้อมติดตั้ง"
   };
@@ -954,6 +964,11 @@ function showRoute(route){
   if (route === "sales_heatmap") renderSalesHeatmapPage(ctx);
   if (route === "recurring_expenses") renderRecurringExpensesPage(ctx);
   if (route === "credit_tracker") renderCreditTrackerPage(ctx);
+  if (route === "refunds") renderRefundsPage(ctx);
+  if (route === "tasks") renderTasksPage(ctx);
+  if (route === "profit_by_product") renderProfitByProductPage(ctx);
+  if (route === "birthdays") renderBirthdaysPage(ctx);
+  if (route === "quote_templates") renderQuoteTemplatesPage(ctx);
   if (route === "ai_sales") renderAiSalesPage(ctx);
   if (route === "ac_shop") renderAcShopPage(ctx);
 
@@ -1376,6 +1391,12 @@ async function afterLogin(){
   await loadAllData();
   // loadAllData → renderAll() → showRoute(state.currentRoute) ซึ่งตอนนี้ = restorePage แล้ว ✅
   window.dispatchEvent(new Event("bsk-app-ready"));
+
+  // ★ Phase 13 + 15: Background checks (ไม่รอ — ทำใน background)
+  setTimeout(() => {
+    try { checkOverdueTasksAndNotify(state); } catch(e){ console.warn("[overdue tasks check]", e); }
+    try { checkTodayBirthdaysAndNotify(state); } catch(e){ console.warn("[bday check]", e); }
+  }, 3000); // หลัง app load 3 วินาทีค่อยเช็ค
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1940,6 +1961,7 @@ function openCustomerDrawer(customer=null){
   $("customerCompany").value = customer?.company || "";
   $("customerAddress").value = customer?.address || "";
   $("customerTaxId").value = customer?.tax_id || "";
+  if ($("customerBirthday")) $("customerBirthday").value = customer?.birthday || "";
 
   // ★ Phase 11: Notes + Tags
   if ($("customerNotes")) $("customerNotes").value = customer?.notes || "";
@@ -2157,7 +2179,8 @@ async function saveCustomer(){
     tax_id:$("customerTaxId").value.trim(),
     contact_type:$("customerContactType")?.value || "customer",
     notes: $("customerNotes")?.value?.trim() || null,
-    tags: _getCustomerTagsCurrent()
+    tags: _getCustomerTagsCurrent(),
+    birthday: $("customerBirthday")?.value || null
   };
   if (!payload.name) return showToast("กรอกชื่อลูกค้า");
   showToast("กำลังบันทึก...");

@@ -276,7 +276,70 @@ CREATE TRIGGER on_auth_user_created
 -- ★ Customer Notes & Tags (Phase 11)
 ALTER TABLE IF EXISTS public.customers
   ADD COLUMN IF NOT EXISTS notes TEXT,
-  ADD COLUMN IF NOT EXISTS tags TEXT[];
+  ADD COLUMN IF NOT EXISTS tags TEXT[],
+  ADD COLUMN IF NOT EXISTS birthday DATE;  -- Phase 15
+
+-- ★ ตาราง refunds (Phase 12)
+CREATE TABLE IF NOT EXISTS public.refunds (
+  id BIGSERIAL PRIMARY KEY,
+  refund_no TEXT UNIQUE,
+  sale_id BIGINT REFERENCES public.sales(id) ON DELETE SET NULL,
+  customer_id BIGINT REFERENCES public.customers(id) ON DELETE SET NULL,
+  customer_name TEXT,
+  reason TEXT,
+  refund_method TEXT DEFAULT 'cash', -- cash | transfer | credit | exchange
+  refund_amount NUMERIC NOT NULL DEFAULT 0,
+  items_json JSONB,                  -- [{product_id, name, qty, unit_price, restock}]
+  restocked BOOLEAN DEFAULT false,
+  warehouse_id BIGINT,
+  note TEXT,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  created_by TEXT
+);
+ALTER TABLE IF EXISTS public.refunds ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "auth_all_refunds" ON public.refunds;
+CREATE POLICY "auth_all_refunds" ON public.refunds FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE INDEX IF NOT EXISTS idx_refunds_sale ON public.refunds(sale_id);
+CREATE INDEX IF NOT EXISTS idx_refunds_customer ON public.refunds(customer_id);
+CREATE INDEX IF NOT EXISTS idx_refunds_created ON public.refunds(created_at DESC);
+
+-- ★ ตาราง tasks (Phase 13)
+CREATE TABLE IF NOT EXISTS public.tasks (
+  id BIGSERIAL PRIMARY KEY,
+  title TEXT NOT NULL,
+  description TEXT,
+  due_at TIMESTAMPTZ,
+  done BOOLEAN DEFAULT false,
+  done_at TIMESTAMPTZ,
+  related_to_type TEXT,    -- customer | product | sale | service_job | other
+  related_to_id BIGINT,
+  assigned_to TEXT,        -- user id (uuid) or "all"
+  priority TEXT DEFAULT 'normal',  -- low | normal | high | urgent
+  line_notify_sent BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  created_by TEXT
+);
+ALTER TABLE IF EXISTS public.tasks ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "auth_all_tasks" ON public.tasks;
+CREATE POLICY "auth_all_tasks" ON public.tasks FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE INDEX IF NOT EXISTS idx_tasks_due ON public.tasks(due_at) WHERE done = false;
+CREATE INDEX IF NOT EXISTS idx_tasks_done ON public.tasks(done);
+
+-- ★ ตาราง quote_templates (Phase 16)
+CREATE TABLE IF NOT EXISTS public.quote_templates (
+  id BIGSERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  items_json JSONB,        -- [{product_id, name, qty, unit_price, line_total}]
+  warranty TEXT,
+  conditions TEXT,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  created_by TEXT
+);
+ALTER TABLE IF EXISTS public.quote_templates ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "auth_all_quote_templates" ON public.quote_templates;
+CREATE POLICY "auth_all_quote_templates" ON public.quote_templates FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 -- ★ คอลัมน์ credit สำหรับ sales (เงินเชื่อ / ค้างชำระ)
 ALTER TABLE IF EXISTS public.sales
