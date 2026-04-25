@@ -27,6 +27,7 @@ import { renderErrorCodesWasherPage } from "./modules/error_codes_washer.js";
 import { renderStockValuePage } from "./modules/stock_value.js";
 import { renderDeadStockPage } from "./modules/dead_stock.js";
 import { renderStockCountPage } from "./modules/stock_count.js";
+import { renderStockInWizardPage } from "./modules/stock_in_wizard.js";
 import { renderAiSalesPage } from "./modules/ai_sales.js";
 import { renderAcShopPage } from "./modules/ac_shop.js";
 import "./modules/doc-override.js";
@@ -799,11 +800,11 @@ function isLowStock(product){ return Number(product.stock||0) <= Number(product.
 // ═══════════════════════════════════════════════════════════
 //  ROLE-BASED ACCESS CONTROL (4 กลุ่ม)
 // ═══════════════════════════════════════════════════════════
-const ALL_ROUTES = ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","service_jobs","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","calendar","loyalty","customer_dashboard","btu_calculator","service_request","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"];
+const ALL_ROUTES = ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","service_jobs","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","calendar","loyalty","customer_dashboard","btu_calculator","service_request","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"];
 const ROLE_PAGES = {
   admin:      ALL_ROUTES,
   technician: ["dashboard","pos","service_jobs","customers","receipts","calendar","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop","stock_count"],
-  sales:      ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","calendar","loyalty","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"],
+  sales:      ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","calendar","loyalty","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"],
   customer:   ["customer_dashboard","btu_calculator","service_request","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"]
 };
 const ROLE_LABELS = {
@@ -901,6 +902,7 @@ function showRoute(route){
     stock_value:"รายงานมูลค่าสต็อก",
     dead_stock:"รายงานสต็อกค้างนาน",
     stock_count:"นับสต็อกจริง",
+    stock_in_wizard:"รับเข้าสินค้า (Wizard)",
     ai_sales:"AI ผู้ช่วยขายแอร์",
     ac_shop:"แอร์ใหม่พร้อมติดตั้ง"
   };
@@ -936,6 +938,7 @@ function showRoute(route){
   if (route === "stock_value") renderStockValuePage(ctx);
   if (route === "dead_stock") renderDeadStockPage(ctx);
   if (route === "stock_count") renderStockCountPage(ctx);
+  if (route === "stock_in_wizard") renderStockInWizardPage(ctx);
   if (route === "ai_sales") renderAiSalesPage(ctx);
   if (route === "ac_shop") renderAcShopPage(ctx);
 

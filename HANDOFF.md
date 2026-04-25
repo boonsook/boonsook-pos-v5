@@ -25,6 +25,26 @@
 
 ---
 
+## 🆕 ฟีเจอร์ใหม่ session 25 เม.ย. — รอบที่ 4 (Phase 3: Stock IN Wizard)
+
+### 🚛 หน้าใหม่: รับเข้าสินค้า (Stock IN Wizard)
+- Sidebar → "🚛 รับเข้าสินค้า" (ใต้ "📋 ประวัติสต็อก")
+- ใช้ตอนรับของจาก supplier หลายตัวพร้อมกัน:
+  1. เลือก: คลังที่จะรับเข้า, ซัพพลายเออร์, เลขที่ใบกำกับ
+  2. สแกน barcode (กล้อง) หรือพิมพ์/ปืนยิง → กรอก qty + cost (option)
+  3. กด "+ เพิ่ม" → เข้า list ด้านล่าง
+  4. แก้ qty/cost ใน inline edit ได้ตลอด (cost เปลี่ยน → highlight สีส้ม)
+  5. ดู total: จำนวนรายการ + ชิ้น + มูลค่ารวม
+  6. กด "💾 บันทึกการรับเข้า" → batch ทำทุก row:
+     - call _appApplyStockMovement (in)
+     - PATCH cost ใหม่ถ้าต่างจากเดิม
+     - note format: "รับเข้า: ABC Trading (Inv INV-2026-001)"
+- Auto-focus search input + Enter to add (ปืนยิง barcode ใช้ได้ทันที)
+
+### Bump main.js?v=25 → v=26
+
+---
+
 ## 🆕 ฟีเจอร์ใหม่ session 25 เม.ย. — รอบที่ 3 (Phase 2: Drag-drop + Featured + Promo)
 
 ### ⚠️ ACTION REQUIRED — รัน SQL ใหม่อีกครั้ง
