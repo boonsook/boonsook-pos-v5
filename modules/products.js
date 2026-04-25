@@ -262,9 +262,15 @@ function renderView(ctx) {
           <button id="prodExportBtn" class="btn light" style="font-size:12px;padding:6px 10px">ส่งออก</button>
           <button id="prodGenAllBarcodesBtn" class="btn light" style="font-size:12px;padding:6px 10px" title="สร้างบาร์โค้ดให้สินค้านับสต็อกที่ยังไม่มี">สร้างบาร์โค้ด</button>
           <button id="prodPrintBarcodesBtn" class="btn light" style="font-size:12px;padding:6px 10px" title="พิมพ์สติ๊กเกอร์บาร์โค้ดหลายตัว">🖨️ พิมพ์บาร์โค้ด</button>
+          <button id="prodManageCatBtn" class="btn light" style="font-size:12px;padding:6px 10px" title="จัดการหมวดหมู่ (เพิ่ม/ลบ/เปลี่ยนชื่อ/ย้ายตำแหน่ง)">🗂️ จัดการหมวด</button>
           <button id="prodMergeCatBtn" class="btn light" style="font-size:12px;padding:6px 10px" title="ค้นหาและรวมหมวดหมู่ซ้ำ/ใกล้เคียง">🔗 รวมหมวดซ้ำ</button>
           <button id="prodDeleteAllBtn" class="btn light" style="font-size:12px;padding:6px 10px;color:#dc2626;border-color:#fca5a5" title="ลบสินค้าทั้งหมดเพื่อนำเข้าใหม่">ลบทั้งหมด</button>
-          <button id="prodAddBtn" class="btn primary" style="font-size:12px;padding:6px 12px">+ เพิ่มสินค้า</button>
+          <button id="prodAddBtn" class="btn primary" style="font-size:12px;padding:6px 12px">${
+            currentTypeFilter === 'service' ? '+ เพิ่มบริการ' :
+            currentTypeFilter === 'non_stock' ? '+ เพิ่มสินค้าไม่นับสต็อก' :
+            currentTypeFilter === 'stock' ? '+ เพิ่มสินค้านับสต็อก' :
+            '+ เพิ่มสินค้า'
+          }</button>
         </div>
       </div>
 
@@ -343,7 +349,16 @@ function renderView(ctx) {
           if (!c) return;
           catMap.set(c, (catMap.get(c) || 0) + 1);
         });
-        const catList = [...catMap.entries()].sort((a,b) => a[0].localeCompare(b[0], "th"));
+        // ★ ใช้ลำดับ custom (ถ้ามี) จาก localStorage — ที่ไม่อยู่ใน custom order ค่อยเรียง alphabet ต่อท้าย
+        let customOrder = [];
+        try { customOrder = JSON.parse(localStorage.getItem("bsk_category_order") || "[]"); } catch(e) {}
+        const orderRank = new Map(customOrder.map((c, i) => [c, i]));
+        const catList = [...catMap.entries()].sort((a, b) => {
+          const ra = orderRank.has(a[0]) ? orderRank.get(a[0]) : 9999;
+          const rb = orderRank.has(b[0]) ? orderRank.get(b[0]) : 9999;
+          if (ra !== rb) return ra - rb;
+          return a[0].localeCompare(b[0], "th");
+        });
         if (catList.length === 0) return '';
         return `
         <div class="prod-category-bar" style="display:flex;gap:6px;margin-top:12px;overflow-x:auto;padding-bottom:6px;scrollbar-width:thin">
@@ -412,7 +427,11 @@ function renderView(ctx) {
   `;
 
   // ═══ BINDINGS (ใช้ el.querySelector เพื่อรองรับ multi-page) ═══
-  el.querySelector("#prodAddBtn, .prod-add-btn")?.addEventListener("click", () => openProductDrawer());
+  el.querySelector("#prodAddBtn, .prod-add-btn")?.addEventListener("click", () => {
+    // ★ pre-fill product_type ตาม tab ที่เลือกอยู่
+    const opts = currentTypeFilter !== 'all' ? { prefillType: currentTypeFilter } : {};
+    openProductDrawer(null, opts);
+  });
 
   // ★ Product Type Tabs
   el.querySelectorAll("[data-ptype]").forEach(btn => btn.addEventListener("click", () => {
@@ -435,14 +454,21 @@ function renderView(ctx) {
     const name = (prompt("ชื่อหมวดใหม่ (เช่น เครื่องดูดฝุ่น, พัดลม):") || "").trim();
     if (!name) return;
     currentCategory = name;
-    ctx.openProductDrawer(null, { prefillCategory: name });
+    const opts = { prefillCategory: name };
+    if (currentTypeFilter !== 'all') opts.prefillType = currentTypeFilter;
+    ctx.openProductDrawer(null, opts);
   });
 
-  // ★ เพิ่มสินค้าในหมวดที่เลือกอยู่ — prefill category
+  // ★ เพิ่มสินค้าในหมวดที่เลือกอยู่ — prefill category + type
   el.querySelector("#prodAddInCatBtn")?.addEventListener("click", (e) => {
     const cat = e.currentTarget.dataset.cat || "";
-    ctx.openProductDrawer(null, { prefillCategory: cat });
+    const opts = { prefillCategory: cat };
+    if (currentTypeFilter !== 'all') opts.prefillType = currentTypeFilter;
+    ctx.openProductDrawer(null, opts);
   });
+
+  // ★ ปุ่มจัดการหมวดหมู่
+  el.querySelector("#prodManageCatBtn")?.addEventListener("click", () => openCategoryManagerDialog(ctx));
 
   // ★ QR Code ของหมวดนี้ — ลิงก์กลับมาหน้านี้ + เปิด drawer ทันที
   el.querySelector("#prodCatQrBtn")?.addEventListener("click", (e) => {
@@ -1438,6 +1464,227 @@ function _findDuplicateCategories(products) {
     }
   }
   return dups;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  CATEGORY MANAGER — เพิ่ม / ลบ / เปลี่ยนชื่อ / ย้ายตำแหน่ง
+// ═══════════════════════════════════════════════════════════
+function _loadCategoryOrder() {
+  try { return JSON.parse(localStorage.getItem("bsk_category_order") || "[]"); }
+  catch(e) { return []; }
+}
+function _saveCategoryOrder(order) {
+  try { localStorage.setItem("bsk_category_order", JSON.stringify(order || [])); } catch(e){}
+}
+
+async function openCategoryManagerDialog(ctx) {
+  const { state } = ctx;
+  // นับสินค้าต่อหมวด
+  const catMap = new Map();
+  for (const p of (state.products || [])) {
+    const c = String(p.category || "").trim();
+    if (!c) continue;
+    catMap.set(c, (catMap.get(c) || 0) + 1);
+  }
+  const customOrder = _loadCategoryOrder();
+  const rank = new Map(customOrder.map((c, i) => [c, i]));
+  let categories = [...catMap.entries()]
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => {
+      const ra = rank.has(a.name) ? rank.get(a.name) : 9999;
+      const rb = rank.has(b.name) ? rank.get(b.name) : 9999;
+      if (ra !== rb) return ra - rb;
+      return a.name.localeCompare(b.name, "th");
+    });
+
+  document.getElementById("bskCatMgrModal")?.remove();
+  const modal = document.createElement("div");
+  modal.id = "bskCatMgrModal";
+  modal.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px";
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:16px;max-width:600px;width:100%;max-height:88vh;overflow:hidden;display:flex;flex-direction:column">
+      <div style="padding:16px 20px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <h3 style="margin:0;font-size:17px">🗂️ จัดการหมวดหมู่</h3>
+          <div style="font-size:11px;color:#64748b;margin-top:2px">${categories.length} หมวด • ใช้ ▲▼ จัดลำดับ • ✏️ เปลี่ยนชื่อ • 🗑️ ลบ</div>
+        </div>
+        <button id="bskCatMgrClose" style="background:transparent;border:none;font-size:22px;cursor:pointer;color:#64748b">×</button>
+      </div>
+      <div style="padding:14px 20px;border-bottom:1px solid #e5e7eb;display:flex;gap:8px">
+        <input id="bskNewCatInput" type="text" placeholder="ชื่อหมวดใหม่..." style="flex:1;padding:8px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px" />
+        <button id="bskAddCatBtn" style="padding:8px 14px;border:none;background:#0284c7;color:#fff;border-radius:8px;cursor:pointer;font-weight:700">+ สร้าง</button>
+      </div>
+      <div id="bskCatMgrList" style="flex:1;overflow-y:auto;padding:8px"></div>
+      <div style="padding:12px 20px;border-top:1px solid #e5e7eb;display:flex;gap:8px;justify-content:flex-end">
+        <button id="bskCatMgrCancel" style="padding:8px 16px;border:1px solid #cbd5e1;background:#fff;border-radius:8px;cursor:pointer">ปิด</button>
+        <button id="bskCatMgrSaveOrder" style="padding:8px 16px;border:none;background:#10b981;color:#fff;border-radius:8px;cursor:pointer;font-weight:700">💾 บันทึกลำดับ</button>
+      </div>
+    </div>
+  `;
+  modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
+  document.body.appendChild(modal);
+
+  const listEl = modal.querySelector("#bskCatMgrList");
+
+  function renderList() {
+    if (categories.length === 0) {
+      listEl.innerHTML = `<div style="text-align:center;color:#94a3b8;padding:40px">ยังไม่มีหมวดหมู่ — เพิ่มจากด้านบนได้เลย</div>`;
+      return;
+    }
+    listEl.innerHTML = categories.map((cat, idx) => `
+      <div class="bsk-cat-row" data-idx="${idx}" style="display:flex;align-items:center;gap:6px;padding:8px 10px;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:6px;background:#fafbfc">
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <button class="bsk-cat-up" data-idx="${idx}" ${idx === 0 ? 'disabled' : ''} style="border:none;background:transparent;cursor:${idx===0?'not-allowed':'pointer'};font-size:12px;color:${idx===0?'#cbd5e1':'#475569'};padding:0 4px;line-height:1">▲</button>
+          <button class="bsk-cat-dn" data-idx="${idx}" ${idx === categories.length-1 ? 'disabled' : ''} style="border:none;background:transparent;cursor:${idx===categories.length-1?'not-allowed':'pointer'};font-size:12px;color:${idx===categories.length-1?'#cbd5e1':'#475569'};padding:0 4px;line-height:1">▼</button>
+        </div>
+        <div style="width:28px;text-align:center;font-size:11px;color:#94a3b8;font-weight:700">${idx+1}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(cat.name)}</div>
+          <div style="font-size:11px;color:#64748b">${cat.count} สินค้า</div>
+        </div>
+        <button class="bsk-cat-rename" data-idx="${idx}" title="เปลี่ยนชื่อ" style="padding:6px 8px;border:1px solid #cbd5e1;background:#fff;border-radius:6px;cursor:pointer;font-size:13px">✏️</button>
+        <button class="bsk-cat-del" data-idx="${idx}" title="ลบหมวด" style="padding:6px 8px;border:1px solid #fca5a5;background:#fff;color:#dc2626;border-radius:6px;cursor:pointer;font-size:13px">🗑️</button>
+      </div>
+    `).join("");
+
+    // ▲▼ swap
+    listEl.querySelectorAll(".bsk-cat-up").forEach(btn => btn.addEventListener("click", () => {
+      const i = Number(btn.dataset.idx);
+      if (i <= 0) return;
+      [categories[i-1], categories[i]] = [categories[i], categories[i-1]];
+      renderList();
+    }));
+    listEl.querySelectorAll(".bsk-cat-dn").forEach(btn => btn.addEventListener("click", () => {
+      const i = Number(btn.dataset.idx);
+      if (i >= categories.length - 1) return;
+      [categories[i], categories[i+1]] = [categories[i+1], categories[i]];
+      renderList();
+    }));
+
+    // ✏️ rename
+    listEl.querySelectorAll(".bsk-cat-rename").forEach(btn => btn.addEventListener("click", async () => {
+      const i = Number(btn.dataset.idx);
+      const oldName = categories[i].name;
+      const newName = (prompt(`เปลี่ยนชื่อหมวด "${oldName}" เป็น:`, oldName) || "").trim();
+      if (!newName || newName === oldName) return;
+      // PATCH ทุกสินค้าที่ category === oldName → newName
+      const matches = (state.products || []).filter(p => (p.category || "") === oldName);
+      const cfg = window.SUPABASE_CONFIG;
+      const accessToken = window._sbAccessToken || cfg.anonKey;
+      let ok = 0;
+      for (const p of matches) {
+        const r = await new Promise(resolve => {
+          const xhr = new XMLHttpRequest();
+          xhr.open("PATCH", cfg.url + "/rest/v1/products?id=eq." + encodeURIComponent(p.id));
+          xhr.setRequestHeader("Content-Type", "application/json");
+          xhr.setRequestHeader("apikey", cfg.anonKey);
+          xhr.setRequestHeader("Authorization", "Bearer " + accessToken);
+          xhr.setRequestHeader("Prefer", "return=minimal");
+          xhr.timeout = 8000;
+          xhr.onload = () => resolve(xhr.status >= 200 && xhr.status < 300);
+          xhr.onerror = () => resolve(false);
+          xhr.ontimeout = () => resolve(false);
+          xhr.send(JSON.stringify({ category: newName }));
+        });
+        if (r) ok++;
+      }
+      categories[i].name = newName;
+      // Update custom order ถ้ามี oldName อยู่
+      const order = _loadCategoryOrder();
+      const oi = order.indexOf(oldName);
+      if (oi !== -1) { order[oi] = newName; _saveCategoryOrder(order); }
+      showToastFn(`เปลี่ยนชื่อ "${oldName}" → "${newName}" (${ok}/${matches.length} สินค้า)`);
+      renderList();
+    }));
+
+    // 🗑️ delete
+    listEl.querySelectorAll(".bsk-cat-del").forEach(btn => btn.addEventListener("click", async () => {
+      const i = Number(btn.dataset.idx);
+      const cat = categories[i];
+      const matches = (state.products || []).filter(p => (p.category || "") === cat.name);
+
+      let action;
+      if (matches.length === 0) {
+        if (!confirm(`ลบหมวด "${cat.name}" หรือไม่? (ไม่มีสินค้าใช้หมวดนี้)`)) return;
+        action = "remove_only";
+      } else {
+        action = prompt(
+          `หมวด "${cat.name}" มี ${matches.length} สินค้าใช้งาน\n\nเลือก:\n1 = เคลียร์ category ของสินค้า (สินค้าไม่ถูกลบ)\n2 = ย้ายไปหมวดอื่น\n3 = ยกเลิก`,
+          "1"
+        );
+        if (!action || action === "3") return;
+      }
+
+      const cfg = window.SUPABASE_CONFIG;
+      const accessToken = window._sbAccessToken || cfg.anonKey;
+
+      let newCat = "";
+      if (action === "2") {
+        newCat = (prompt(`ย้ายไปหมวดอะไร? (พิมพ์ชื่อหมวด)`, "") || "").trim();
+        if (!newCat) return;
+      }
+
+      let ok = 0;
+      for (const p of matches) {
+        const r = await new Promise(resolve => {
+          const xhr = new XMLHttpRequest();
+          xhr.open("PATCH", cfg.url + "/rest/v1/products?id=eq." + encodeURIComponent(p.id));
+          xhr.setRequestHeader("Content-Type", "application/json");
+          xhr.setRequestHeader("apikey", cfg.anonKey);
+          xhr.setRequestHeader("Authorization", "Bearer " + accessToken);
+          xhr.setRequestHeader("Prefer", "return=minimal");
+          xhr.timeout = 8000;
+          xhr.onload = () => resolve(xhr.status >= 200 && xhr.status < 300);
+          xhr.onerror = () => resolve(false);
+          xhr.ontimeout = () => resolve(false);
+          xhr.send(JSON.stringify({ category: newCat }));
+        });
+        if (r) ok++;
+      }
+      // ลบจาก custom order
+      const order = _loadCategoryOrder().filter(c => c !== cat.name);
+      _saveCategoryOrder(order);
+
+      categories.splice(i, 1);
+      const msg = action === "remove_only" ? `ลบหมวด "${cat.name}"` :
+                  action === "2" ? `ย้าย ${ok}/${matches.length} สินค้า → "${newCat}"` :
+                  `เคลียร์หมวด ${ok}/${matches.length} สินค้า`;
+      showToastFn(msg);
+      renderList();
+    }));
+  }
+
+  renderList();
+
+  // เพิ่มหมวดใหม่ — บันทึกใน custom order ลำดับสุดท้าย
+  modal.querySelector("#bskAddCatBtn").addEventListener("click", () => {
+    const inp = modal.querySelector("#bskNewCatInput");
+    const name = (inp.value || "").trim();
+    if (!name) return;
+    if (categories.find(c => c.name === name)) {
+      showToastFn(`มีหมวด "${name}" อยู่แล้ว`);
+      return;
+    }
+    categories.push({ name, count: 0 });
+    inp.value = "";
+    renderList();
+    showToastFn(`เพิ่มหมวด "${name}" — สร้างสินค้าใหม่ในหมวดนี้แล้วจะเริ่มมองเห็นใน chip`);
+  });
+  modal.querySelector("#bskNewCatInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") modal.querySelector("#bskAddCatBtn").click();
+  });
+
+  modal.querySelector("#bskCatMgrClose").addEventListener("click", () => modal.remove());
+  modal.querySelector("#bskCatMgrCancel").addEventListener("click", () => modal.remove());
+
+  // 💾 Save order
+  modal.querySelector("#bskCatMgrSaveOrder").addEventListener("click", async () => {
+    const newOrder = categories.map(c => c.name);
+    _saveCategoryOrder(newOrder);
+    showToastFn(`บันทึกลำดับ ${newOrder.length} หมวดสำเร็จ`);
+    modal.remove();
+    if (window.App?.loadAllData) await window.App.loadAllData();
+  });
 }
 
 async function openMergeCategoriesDialog(ctx) {
