@@ -1508,6 +1508,12 @@ function openProductDrawer(product=null, opts={}){
   $("newProductCost").value = product?.cost || "";
   $("newProductBarcode").value = product?.barcode || "";
 
+  // ★ Featured + Promo
+  if ($("newProductFeatured")) $("newProductFeatured").checked = !!product?.is_featured;
+  if ($("newProductPromoPrice")) $("newProductPromoPrice").value = product?.promo_price || "";
+  if ($("newProductPromoStart")) $("newProductPromoStart").value = product?.promo_start || "";
+  if ($("newProductPromoEnd")) $("newProductPromoEnd").value = product?.promo_end || "";
+
   // ★ Image preview — ถ้ามี image_url
   const imgUrl = product?.image_url || "";
   if ($("newProductImageUrl")) $("newProductImageUrl").value = imgUrl;
@@ -1790,6 +1796,13 @@ async function saveProduct(){
   const imgUrl = ($("newProductImageUrl")?.value || "").trim();
   if (imgUrl) payload.image_url = imgUrl;
   else if (state.editingProductId) payload.image_url = null; // เคลียร์รูปเมื่อแก้ไขแล้วลบ
+
+  // ★ Featured + Promo
+  payload.is_featured = !!$("newProductFeatured")?.checked;
+  const promoPrice = Number($("newProductPromoPrice")?.value || 0);
+  payload.promo_price = promoPrice > 0 ? promoPrice : null;
+  payload.promo_start = $("newProductPromoStart")?.value || null;
+  payload.promo_end = $("newProductPromoEnd")?.value || null;
   // ★ Validation ชี้จุดชัดเจน
   if (!payload.name) return showToast("กรุณากรอกชื่อสินค้า");
   if (payload.price <= 0) return showToast("กรุณากรอกราคาขาย (ต้องมากกว่า 0)");
@@ -2140,11 +2153,14 @@ function addToCart(productId){
     found.qty += 1;
     found.maxStock = Number(p.stock||0);
   } else {
-    state.cart.push({ id:p.id, name:p.name, sku:p.sku, price:Number(p.price||0), qty:1, maxStock:Number(p.stock||0) });
+    // ★ ใช้ราคาโปรโมชั่นถ้าอยู่ในช่วงวัน — ไม่งั้นใช้ราคาปกติ
+    const ap = window._appGetActivePrice ? window._appGetActivePrice(p) : { price: Number(p.price||0), isPromo: false };
+    state.cart.push({ id:p.id, name:p.name, sku:p.sku, price:ap.price, qty:1, maxStock:Number(p.stock||0) });
+    if (ap.isPromo) showToast(`💰 ใช้ราคาโปร ฿${ap.price} (ปกติ ฿${ap.original})`);
   }
   saveCart();
   showRoute(state.currentRoute);
-  showToast(`เพิ่ม ${p.name} ลงบิล`);
+  if (!found) showToast(`เพิ่ม ${p.name} ลงบิล`);
 }
 function changeQty(productId, delta){
   const item = state.cart.find(x=>x.id===productId);

@@ -92,6 +92,19 @@ function money(n) {
   return new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n || 0));
 }
 
+// ★ คำนวณราคาที่ active (ถ้ามี promo + อยู่ในช่วงวัน → ใช้ promo)
+function getActivePrice(p) {
+  const today = new Date().toISOString().slice(0, 10);
+  const promo = Number(p?.promo_price || 0);
+  const ps = String(p?.promo_start || "");
+  const pe = String(p?.promo_end || "");
+  if (promo > 0 && (!ps || today >= ps) && (!pe || today <= pe)) {
+    return { price: promo, isPromo: true, original: Number(p.price || 0) };
+  }
+  return { price: Number(p?.price || 0), isPromo: false };
+}
+window._appGetActivePrice = getActivePrice; // expose for POS
+
 function escHtml(s) {
   return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
@@ -781,7 +794,11 @@ function renderProductItem(p, mode, state) {
     : pType === "non_stock" ? '<span style="font-size:10px;background:#fef3c7;color:#d97706;padding:1px 6px;border-radius:4px;font-weight:600">ไม่นับสต็อก</span>'
     : '';
 
-  const priceStr = money(p.price);
+  // ★ Active price (โปรหรือปลีก)
+  const ap = getActivePrice(p);
+  const priceStr = money(ap.price);
+  const promoBadge = ap.isPromo ? `<span style="background:#dc2626;color:#fff;padding:1px 6px;border-radius:6px;font-size:9px;font-weight:700;margin-left:4px">PROMO</span><span style="text-decoration:line-through;color:#94a3b8;font-size:11px;margin-left:4px">฿${money(ap.original)}</span>` : '';
+  const featuredStar = p.is_featured ? `<span title="สินค้าแนะนำ" style="color:#f59e0b;margin-right:3px">⭐</span>` : '';
   const skuStr = p.sku ? escHtml(p.sku) : "";
 
   const isAdmin = (state.profile?.role === "admin");
@@ -831,9 +848,9 @@ function renderProductItem(p, mode, state) {
           ${getProductAvatar(p)}
           <span class="prod-stock-indicator" style="background:${statusDot}" title="${statusText}"></span>
         </div>
-        <div class="prod-grid-name" data-prod-edit="${p.id}" style="cursor:pointer" title="คลิกเพื่อแก้ไข">${escHtml(p.name || "-")}</div>
+        <div class="prod-grid-name" data-prod-edit="${p.id}" style="cursor:pointer" title="คลิกเพื่อแก้ไข">${featuredStar}${escHtml(p.name || "-")}</div>
         ${skuStr ? `<div class="sku">${skuStr}</div>` : ''}
-        <div class="prod-grid-price">฿${priceStr}</div>
+        <div class="prod-grid-price">฿${priceStr}${promoBadge}</div>
         <div class="prod-grid-stock">คงเหลือ ${stock}${turnoverHint}</div>
         ${whBreakdown}
         <div class="prod-grid-actions">
@@ -858,14 +875,14 @@ function renderProductItem(p, mode, state) {
           <span class="prod-stock-indicator" style="background:${statusDot}" title="${statusText}"></span>
         </div>
         <div class="prod-list-info">
-          <div class="prod-list-name" data-prod-edit="${p.id}" style="cursor:pointer" title="คลิกเพื่อแก้ไข"><span style="border-bottom:1px dashed transparent;transition:color .15s,border-color .15s" onmouseover="this.style.color='#0284c7';this.style.borderColor='#0284c7'" onmouseout="this.style.color='';this.style.borderColor='transparent'">${escHtml(p.name || "-")}</span> ${typeBadge}</div>
+          <div class="prod-list-name" data-prod-edit="${p.id}" style="cursor:pointer" title="คลิกเพื่อแก้ไข">${featuredStar}<span style="border-bottom:1px dashed transparent;transition:color .15s,border-color .15s" onmouseover="this.style.color='#0284c7';this.style.borderColor='#0284c7'" onmouseout="this.style.color='';this.style.borderColor='transparent'">${escHtml(p.name || "-")}</span> ${typeBadge}</div>
           ${skuStr ? `<div class="prod-list-sku">${skuStr}</div>` : ''}
           ${p.category ? `<div class="prod-list-sku" style="color:#6b7280">${escHtml(p.category)}</div>` : ''}
           ${pType === "stock" && p.barcode ? `<div class="prod-list-sku">บาร์โค้ด: ${escHtml(p.barcode)}</div>` : ''}
         </div>
       </div>
       <div class="prod-list-right">
-        <div class="prod-list-price">฿${priceStr}</div>
+        <div class="prod-list-price">฿${priceStr}${promoBadge}</div>
         ${pType !== "service" ? `<div class="prod-list-stock">คงเหลือ <strong>${stock}</strong>${turnoverHint}</div>` : ''}
         ${whBreakdown}
         <div class="prod-list-actions">
@@ -1960,7 +1977,8 @@ async function openCategoryManagerDialog(ctx) {
       return;
     }
     listEl.innerHTML = categories.map((cat, idx) => `
-      <div class="bsk-cat-row" data-idx="${idx}" style="display:flex;align-items:center;gap:6px;padding:8px 10px;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:6px;background:#fafbfc">
+      <div class="bsk-cat-row" data-idx="${idx}" draggable="true" style="display:flex;align-items:center;gap:6px;padding:8px 10px;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:6px;background:#fafbfc;cursor:grab" title="ลากเพื่อจัดลำดับ">
+        <div style="font-size:14px;color:#94a3b8;cursor:grab;padding:0 4px;user-select:none" title="ลากเพื่อย้าย">⋮⋮</div>
         <div style="display:flex;flex-direction:column;gap:2px">
           <button class="bsk-cat-up" data-idx="${idx}" ${idx === 0 ? 'disabled' : ''} style="border:none;background:transparent;cursor:${idx===0?'not-allowed':'pointer'};font-size:12px;color:${idx===0?'#cbd5e1':'#475569'};padding:0 4px;line-height:1">▲</button>
           <button class="bsk-cat-dn" data-idx="${idx}" ${idx === categories.length-1 ? 'disabled' : ''} style="border:none;background:transparent;cursor:${idx===categories.length-1?'not-allowed':'pointer'};font-size:12px;color:${idx===categories.length-1?'#cbd5e1':'#475569'};padding:0 4px;line-height:1">▼</button>
@@ -1988,6 +2006,38 @@ async function openCategoryManagerDialog(ctx) {
       [categories[i], categories[i+1]] = [categories[i+1], categories[i]];
       renderList();
     }));
+
+    // ★ Drag & Drop reorder
+    let dragSrcIdx = null;
+    listEl.querySelectorAll(".bsk-cat-row").forEach(row => {
+      row.addEventListener("dragstart", (e) => {
+        dragSrcIdx = Number(row.dataset.idx);
+        row.style.opacity = "0.4";
+        if (e.dataTransfer) { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", String(dragSrcIdx)); }
+      });
+      row.addEventListener("dragend", () => { row.style.opacity = ""; });
+      row.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+        row.style.borderColor = "#0284c7";
+        row.style.borderWidth = "2px";
+      });
+      row.addEventListener("dragleave", () => {
+        row.style.borderColor = "#e5e7eb";
+        row.style.borderWidth = "1px";
+      });
+      row.addEventListener("drop", (e) => {
+        e.preventDefault();
+        row.style.borderColor = "#e5e7eb";
+        row.style.borderWidth = "1px";
+        const tgtIdx = Number(row.dataset.idx);
+        if (dragSrcIdx === null || tgtIdx === dragSrcIdx) return;
+        const [moved] = categories.splice(dragSrcIdx, 1);
+        categories.splice(tgtIdx, 0, moved);
+        dragSrcIdx = null;
+        renderList();
+      });
+    });
 
     // ✏️ rename
     listEl.querySelectorAll(".bsk-cat-rename").forEach(btn => btn.addEventListener("click", async () => {

@@ -25,6 +25,36 @@
 
 ---
 
+## 🆕 ฟีเจอร์ใหม่ session 25 เม.ย. — รอบที่ 3 (Phase 2: Drag-drop + Featured + Promo)
+
+### ⚠️ ACTION REQUIRED — รัน SQL ใหม่อีกครั้ง
+รัน `supabase-rls-policies.sql` ใน SQL Editor — เพิ่ม column ใหม่:
+- `products.is_featured` BOOLEAN DEFAULT false
+- `products.promo_price` NUMERIC
+- `products.promo_start` DATE
+- `products.promo_end` DATE
+(idempotent — รันซ้ำได้)
+
+### ฟีเจอร์ที่เพิ่ม
+1. **Drag & Drop จัดลำดับหมวดหมู่** ใน Category Manager
+   - มี handle ⋮⋮ ลากได้ + ▲▼ ก็ยังใช้ได้
+   - ตอนลากแสดง preview สีฟ้า
+
+2. **⭐ Featured flag** — checkbox ในหน้าแก้สินค้า
+   - แสดง ⭐ ที่ชื่อสินค้าใน list
+   - DB: `products.is_featured`
+
+3. **🏷️ ราคาโปรโมชั่น** — ในหน้าแก้สินค้า
+   - 3 ฟิลด์: ราคาโปร / วันเริ่ม / วันสิ้นสุด
+   - DB: `promo_price`, `promo_start`, `promo_end`
+   - Display: ใน list แสดง `฿โปร [PROMO badge] ฿เดิม-strikethrough`
+   - **POS integration**: addToCart ใช้ราคาโปรอัตโนมัติเมื่ออยู่ในช่วงวัน
+   - Helper: `window._appGetActivePrice(p)` → `{price, isPromo, original}`
+
+### Bump main.js?v=24 → v=25
+
+---
+
 ## 🆕 ฟีเจอร์ใหม่ session 25 เม.ย. — รอบที่ 2 (Phase 1: Quick Wins สำหรับสินค้า)
 
 ### 4 ฟีเจอร์ใหม่ในหน้าสินค้า (เห็นในแถวสินค้าทันที)

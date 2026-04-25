@@ -222,11 +222,15 @@ CREATE POLICY "auth_all_warehouse_stock"
 
 -- ═══════════════════════════════════════════════════════════════
 -- 2.5) เพิ่มคอลัมน์ใหม่ในตาราง products (ถ้ายังไม่มี)
---      สำหรับฟีเจอร์: ราคาส่ง + รูปสินค้า
+--      สำหรับฟีเจอร์: ราคาส่ง + รูปสินค้า + featured + promo
 -- ═══════════════════════════════════════════════════════════════
 ALTER TABLE IF EXISTS public.products
   ADD COLUMN IF NOT EXISTS price_wholesale NUMERIC,
-  ADD COLUMN IF NOT EXISTS image_url TEXT;
+  ADD COLUMN IF NOT EXISTS image_url TEXT,
+  ADD COLUMN IF NOT EXISTS is_featured BOOLEAN DEFAULT false,
+  ADD COLUMN IF NOT EXISTS promo_price NUMERIC,
+  ADD COLUMN IF NOT EXISTS promo_start DATE,
+  ADD COLUMN IF NOT EXISTS promo_end DATE;
 
 
 -- ═══════════════════════════════════════════════════════════════
