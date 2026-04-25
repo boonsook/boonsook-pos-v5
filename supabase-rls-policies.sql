@@ -221,6 +221,55 @@ CREATE POLICY "auth_all_warehouse_stock"
 
 
 -- ═══════════════════════════════════════════════════════════════
+-- 2.5) เพิ่มคอลัมน์ใหม่ในตาราง products (ถ้ายังไม่มี)
+--      สำหรับฟีเจอร์: ราคาส่ง + รูปสินค้า
+-- ═══════════════════════════════════════════════════════════════
+ALTER TABLE IF EXISTS public.products
+  ADD COLUMN IF NOT EXISTS price_wholesale NUMERIC,
+  ADD COLUMN IF NOT EXISTS image_url TEXT;
+
+
+-- ═══════════════════════════════════════════════════════════════
+-- 2.6) Storage Bucket สำหรับรูปสินค้า (product-images)
+--      ★ หมายเหตุ: ต้องสร้าง bucket ผ่าน Supabase Dashboard ก่อน
+--         Dashboard → Storage → "+ New bucket" → Name: "product-images"
+--         → Public: ON → Save
+--      หลังสร้าง bucket แล้ว policy ด้านล่างจะอนุญาตให้ upload/read ได้
+-- ═══════════════════════════════════════════════════════════════
+DO $$
+BEGIN
+  -- Drop existing policies (idempotent)
+  DROP POLICY IF EXISTS "auth_upload_product_images" ON storage.objects;
+  DROP POLICY IF EXISTS "public_read_product_images"  ON storage.objects;
+  DROP POLICY IF EXISTS "auth_delete_product_images"  ON storage.objects;
+
+  -- Allow authenticated users to upload to product-images bucket
+  CREATE POLICY "auth_upload_product_images"
+    ON storage.objects
+    FOR INSERT
+    TO authenticated
+    WITH CHECK (bucket_id = 'product-images');
+
+  -- Allow public read (so images show without auth — for AI sales / catalog)
+  CREATE POLICY "public_read_product_images"
+    ON storage.objects
+    FOR SELECT
+    TO public
+    USING (bucket_id = 'product-images');
+
+  -- Allow authenticated to delete their uploads
+  CREATE POLICY "auth_delete_product_images"
+    ON storage.objects
+    FOR DELETE
+    TO authenticated
+    USING (bucket_id = 'product-images');
+EXCEPTION WHEN undefined_table THEN
+  -- storage.objects might not exist on older Supabase — skip silently
+  NULL;
+END $$;
+
+
+-- ═══════════════════════════════════════════════════════════════
 -- 3) Policies สำหรับ customer (OTP login) — ลูกค้าสั่งซื้อผ่านเว็บ
 --    ลูกค้า login ผ่าน Supabase Auth ด้วย OTP → role = 'authenticated'
 --    ควรสร้างออเดอร์ได้เอง + ดูออเดอร์ตัวเอง

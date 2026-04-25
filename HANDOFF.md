@@ -1,8 +1,58 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 23 เมษายน 2026
+**อัปเดตล่าสุด:** 25 เมษายน 2026
 **สถานะ:** Production ที่ boonsukair.com (Cloudflare Pages + Supabase)
 **เป้าหมายเอกสาร:** Claude session ใหม่ / ผู้ช่วยใหม่ อ่านไฟล์นี้แล้วต่องานได้ทันที
+
+---
+
+## ⚠️ สำคัญ — ACTION REQUIRED ก่อนใช้ฟีเจอร์ใหม่ (25 เม.ย.)
+
+หลัง user push commit ล่าสุด → ต้องทำ 2 อย่างใน Supabase Dashboard:
+
+### 1. SQL Editor — รัน supabase-rls-policies.sql ใหม่ทั้งไฟล์
+- เพิ่ม column `products.price_wholesale` (NUMERIC) — ราคาขายส่ง
+- เพิ่ม column `products.image_url` (TEXT) — URL รูปสินค้า
+- สร้าง RLS policies สำหรับ Storage bucket "product-images"
+- (script idempotent — รันซ้ำได้ไม่เสียอะไร)
+
+### 2. Storage → "+ New bucket"
+- **Name:** `product-images`
+- **Public:** **ON** (สำคัญ — ต้องเปิด public ไม่งั้นรูปแสดงไม่ได้)
+- กด Save
+
+⚠️ ถ้าไม่ทำขั้น 2 — ปุ่มอัพโหลดรูปจะ error "อาจยังไม่ได้สร้าง bucket"
+
+---
+
+## 🆕 ฟีเจอร์ใหม่ session 25 เม.ย. (8 ฟีเจอร์ใหญ่ + UX)
+
+### หน้าใหม่ 3 หน้า (Sidebar ใต้ "ประวัติสต็อก")
+1. **📊 นับสต็อกจริง** (`stock_count`) — สแกน barcode + นับจริง + ปรับสต็อก
+2. **💰 มูลค่าสต็อก** (`stock_value`) — มูลค่ารวม/หมวด/คลัง + Export Excel 3 sheets
+3. **🐌 สต็อกค้างนาน** (`dead_stock`) — สินค้าไม่ขยับ 30/60/90/180/365 วัน + Export
+
+### Product Drawer
+4. **ราคาส่ง** — ฟิลด์ใหม่ใต้ราคาขายปลีก
+5. **อัพโหลดรูป** — ปุ่ม + preview + ลบ (Supabase Storage `product-images`)
+6. **Recent Activity** — สถิติขาย (30 วัน/เดือน/ปี/รวม) + stock movements 10 ล่าสุด (โผล่ตอนเปิดแก้ไข)
+
+### Products Page
+7. **☑ Bulk Mode** — multi-select checkbox + sticky bar:
+   - ปรับราคา (`+10%`, `-5%`, `=1500`, `+50`)
+   - เปลี่ยนหมวด, เปลี่ยนประเภท, ลบ
+8. **⚡ Quick Filters** — chip "ไม่มี cost" / "ไม่มี barcode" (เห็นเฉพาะเมื่อมี)
+9. **Export filtered** — confirm dialog: เฉพาะที่กรอง หรือทั้งหมด
+
+### List View
+- รูปสินค้าแทน letter avatar — ถ้ามี image_url
+
+---
+
+## 📦 Deferred (ยังไม่ได้ทำ — ต้องคุยกับ user ก่อน)
+- **Bundle/Set** (ขายแอร์พร้อมติดตั้งเป็น 1 SKU) — ต้อง design table schema
+- **Serial Number tracking** — ต้องคุยว่าเก็บที่ไหน/format
+- **Auto Reorder PO** — ต้องสร้าง suppliers + workflow ใหญ่
 
 ---
 
