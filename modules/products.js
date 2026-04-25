@@ -361,7 +361,7 @@ function renderView(ctx) {
         });
         if (catList.length === 0) return '';
         return `
-        <div class="prod-category-bar" style="display:flex;gap:6px;margin-top:12px;overflow-x:auto;padding-bottom:6px;scrollbar-width:thin">
+        <div class="prod-category-bar" style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap;padding-bottom:6px">
           <button class="prod-cat-chip" data-pcat="all" style="padding:6px 14px;border-radius:20px;border:1px solid ${currentCategory==='all'?'#0284c7':'#e2e8f0'};background:${currentCategory==='all'?'#0284c7':'#fff'};color:${currentCategory==='all'?'#fff':'#475569'};font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
             ทั้งหมด <span style="opacity:.7">(${base.length})</span>
           </button>
