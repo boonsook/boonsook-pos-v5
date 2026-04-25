@@ -2861,6 +2861,21 @@ function bindStaticEvents(){
   $("resetProductFormBtn")?.addEventListener("click", resetProductForm);
   $("drawerScanBtn")?.addEventListener("click", openDrawerScanner);
 
+  // ★ Auto Markup — คำนวณราคาขายจาก cost × (1 + markup%)
+  $("autoMarkupBtn")?.addEventListener("click", () => {
+    const cost = Number($("newProductCost")?.value || 0);
+    if (cost <= 0) return showToast("กรอก 'ต้นทุน' ก่อน");
+    const lastMarkup = Number(localStorage.getItem("bsk_last_markup") || 30);
+    const input = prompt("คำนวณราคาขาย: cost + กี่ %?\n(เช่น 30 = บวก 30%)", String(lastMarkup));
+    if (input === null) return;
+    const pct = Number(input);
+    if (isNaN(pct) || pct < 0) return showToast("กรอกตัวเลข ≥ 0");
+    try { localStorage.setItem("bsk_last_markup", String(pct)); } catch(e){}
+    const newPrice = Math.round(cost * (1 + pct / 100) * 100) / 100;
+    if ($("newProductPrice")) $("newProductPrice").value = newPrice;
+    showToast(`ราคา: ฿${cost} + ${pct}% = ฿${newPrice}`);
+  });
+
   // ★ Image upload — Supabase Storage
   $("newProductImageBtn")?.addEventListener("click", () => $("newProductImageFile")?.click());
   $("newProductImageClearBtn")?.addEventListener("click", () => {

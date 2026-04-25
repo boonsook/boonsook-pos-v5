@@ -325,8 +325,11 @@
       <label for="newProductCategory" class="sr-only">หมวดหมู่</label>
       <input class="form-input" id="newProductCategory" list="productCategoryList" placeholder="หมวดหมู่ (พิมพ์ใหม่ หรือเลือกจากที่มีอยู่)" aria-label="หมวดหมู่สินค้า" autocomplete="off" />
       <datalist id="productCategoryList"></datalist>
-      <label for="newProductPrice" class="sr-only">ราคาขาย (ปลีก)</label>
-      <input class="form-input" id="newProductPrice" type="number" inputmode="decimal" placeholder="ราคาขาย (ปลีก)" aria-label="ราคาขายปลีก" min="0" autocomplete="off" />
+      <div style="display:flex;gap:6px;align-items:center">
+        <label for="newProductPrice" class="sr-only">ราคาขาย (ปลีก)</label>
+        <input class="form-input" id="newProductPrice" type="number" inputmode="decimal" placeholder="ราคาขาย (ปลีก)" aria-label="ราคาขายปลีก" min="0" autocomplete="off" style="flex:1" />
+        <button id="autoMarkupBtn" type="button" class="btn light" style="font-size:11px;padding:8px 10px;white-space:nowrap" title="คำนวณราคาขายจาก cost + %">🔄 จาก cost</button>
+      </div>
       <label for="newProductPriceWholesale" class="sr-only">ราคาส่ง</label>
       <input class="form-input" id="newProductPriceWholesale" type="number" inputmode="decimal" placeholder="ราคาส่ง (ถ้ามี — ไม่กรอกใช้ราคาปลีก)" aria-label="ราคาขายส่ง" min="0" autocomplete="off" />
       <label for="newProductCost" class="sr-only">ต้นทุน</label>
@@ -493,7 +496,7 @@
     </div>
   </aside>
 
-  <script type="module" src="./main.js?v=23"></script>
+  <script type="module" src="./main.js?v=24"></script>
   <script>
     // ═══ Loading Overlay ═══
     function hideLoadingOverlay() {

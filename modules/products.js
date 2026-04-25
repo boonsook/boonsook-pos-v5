@@ -697,6 +697,14 @@ function renderView(ctx) {
     window.App?.showToast?.("เพิ่มลงบิลแล้ว");
   }));
 
+  // ★ Quick Stock In — รับเข้าสต็อกตรงจากแถว
+  el.querySelectorAll("[data-prod-stockin]").forEach(btn => btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const pid = btn.dataset.prodStockin;
+    const prod = state.products.find(x => String(x.id) === String(pid));
+    if (prod) openQuickStockInModal(prod, ctx);
+  }));
+
   // ★ Print single barcode (per-item)
   el.querySelectorAll("[data-prod-print]").forEach(btn => btn.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -778,6 +786,43 @@ function renderProductItem(p, mode, state) {
 
   const isAdmin = (state.profile?.role === "admin");
 
+  // ★ Multi-warehouse breakdown — สำหรับสินค้านับสต็อก (pType === stock)
+  let whBreakdown = "";
+  if (pType === "stock" && (state.warehouses || []).length > 1) {
+    const parts = (state.warehouses || []).map(w => {
+      const ws = (state.warehouseStock || []).find(s =>
+        String(s.product_id) === String(p.id) && String(s.warehouse_id) === String(w.id)
+      );
+      const n = Number(ws?.stock || 0);
+      if (n === 0) return null;
+      const shortName = String(w.name || "").replace(/^คลัง.+?[(\s]/, "").replace(/[)]/, "").trim() || w.name;
+      return `<span style="display:inline-block;background:#f1f5f9;color:#475569;padding:1px 7px;border-radius:6px;margin-right:3px;font-size:10px;font-weight:600">${escHtml(shortName)}:${n}</span>`;
+    }).filter(Boolean);
+    if (parts.length > 0) whBreakdown = `<div style="margin-top:3px">${parts.join("")}</div>`;
+  }
+
+  // ★ Stock turnover — กี่วันจะหมด (avg ขาย 30 วันล่าสุด)
+  let turnoverHint = "";
+  if (pType === "stock" && stock > 0) {
+    const last30Key = (() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10); })();
+    const recentSaleIds = new Set(
+      (state.sales || []).filter(s => !(s.note || "").includes("[ลบแล้ว]") && String(s.created_at || "").slice(0, 10) >= last30Key)
+        .map(s => String(s.id))
+    );
+    let qty30 = 0;
+    (state.saleItems || []).forEach(it => {
+      if (recentSaleIds.has(String(it.sale_id)) && String(it.product_id) === String(p.id)) {
+        qty30 += Number(it.qty || 0);
+      }
+    });
+    if (qty30 > 0) {
+      const avgPerDay = qty30 / 30;
+      const daysLeft = Math.floor(stock / avgPerDay);
+      const color = daysLeft <= 7 ? "#dc2626" : daysLeft <= 14 ? "#f59e0b" : "#94a3b8";
+      turnoverHint = `<span style="color:${color};font-size:11px;margin-left:4px" title="ขายเฉลี่ย ${avgPerDay.toFixed(1)}/วัน">≈${daysLeft}วัน</span>`;
+    }
+  }
+
   if (mode === "grid") {
     return `
       <div class="prod-grid-card" style="${_bulkChecked ? 'background:#dbeafe;border:2px solid #0284c7' : ''}">
@@ -789,10 +834,12 @@ function renderProductItem(p, mode, state) {
         <div class="prod-grid-name" data-prod-edit="${p.id}" style="cursor:pointer" title="คลิกเพื่อแก้ไข">${escHtml(p.name || "-")}</div>
         ${skuStr ? `<div class="sku">${skuStr}</div>` : ''}
         <div class="prod-grid-price">฿${priceStr}</div>
-        <div class="prod-grid-stock">คงเหลือ ${stock}</div>
+        <div class="prod-grid-stock">คงเหลือ ${stock}${turnoverHint}</div>
+        ${whBreakdown}
         <div class="prod-grid-actions">
           <button class="btn light" style="padding:6px 10px;font-size:12px" data-prod-edit="${p.id}">แก้ไข</button>
           <button class="btn primary" style="padding:6px 10px;font-size:12px" data-prod-add="${p.id}">+ บิล</button>
+          ${pType === "stock" ? `<button class="btn light" style="padding:6px 8px;font-size:12px;color:#059669;border-color:#a7f3d0" data-prod-stockin="${p.id}" title="รับสต็อกเข้า">+📦</button>` : ''}
           ${pType === "stock" && (p.barcode || p.sku) ? `<button class="btn light" style="padding:6px 8px;font-size:12px" data-qr-prod="${p.id}" title="QR Code สินค้า">📱</button>` : ''}
           ${pType === "stock" && p.barcode ? `<button class="btn light" style="padding:6px 8px;font-size:12px" data-prod-print="${p.id}" title="พิมพ์บาร์โค้ด">🖨️</button>` : ''}
           ${isAdmin ? `<button class="btn" style="padding:6px 8px;font-size:12px;background:#ef4444;color:#fff;border:none;border-radius:8px;cursor:pointer" data-prod-del="${p.id}" title="ลบสินค้า">🗑️</button>` : ''}
@@ -819,10 +866,12 @@ function renderProductItem(p, mode, state) {
       </div>
       <div class="prod-list-right">
         <div class="prod-list-price">฿${priceStr}</div>
-        ${pType !== "service" ? `<div class="prod-list-stock">คงเหลือ <strong>${stock}</strong></div>` : ''}
+        ${pType !== "service" ? `<div class="prod-list-stock">คงเหลือ <strong>${stock}</strong>${turnoverHint}</div>` : ''}
+        ${whBreakdown}
         <div class="prod-list-actions">
           <button class="btn light" style="padding:6px 10px;font-size:12px" data-prod-edit="${p.id}">•••</button>
           <button class="btn primary" style="padding:6px 10px;font-size:12px" data-prod-add="${p.id}">+ บิล</button>
+          ${pType === "stock" ? `<button class="btn light" style="padding:6px 8px;font-size:12px;color:#059669;border-color:#a7f3d0" data-prod-stockin="${p.id}" title="รับสต็อกเข้า">+📦</button>` : ''}
           ${pType === "stock" && (p.barcode || p.sku) ? `<button class="btn light" style="padding:6px 8px;font-size:12px" data-qr-prod="${p.id}" title="QR Code สินค้า">📱</button>` : ''}
           ${pType === "stock" && p.barcode ? `<button class="btn light" style="padding:6px 8px;font-size:12px" data-prod-print="${p.id}" title="พิมพ์บาร์โค้ด">🖨️</button>` : ''}
           ${isAdmin ? `<button class="btn" style="padding:6px 8px;font-size:12px;background:#ef4444;color:#fff;border:none;border-radius:8px;cursor:pointer" data-prod-del="${p.id}" title="ลบสินค้า">🗑️</button>` : ''}
@@ -1559,6 +1608,117 @@ function exportProducts(state, customList) {
 }
 
 function showToastFn(msg) { window.App?.showToast?.(msg); }
+
+// ═══════════════════════════════════════════════════════════
+//  QUICK STOCK IN MODAL — รับเข้าสต็อกตรงจากหน้าสินค้า
+// ═══════════════════════════════════════════════════════════
+function openQuickStockInModal(product, ctx) {
+  const { state } = ctx;
+  document.getElementById("bskQuickStockInModal")?.remove();
+
+  // หาคลังบ้าน default
+  const homeWh = (state.warehouses || []).find(w => (w.name || "").includes("บ้าน"));
+  const defaultWhId = homeWh?.id || (state.warehouses || [])[0]?.id || "";
+
+  const modal = document.createElement("div");
+  modal.id = "bskQuickStockInModal";
+  modal.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px";
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:14px;max-width:440px;width:100%;padding:20px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <h3 style="margin:0;color:#059669">📦 รับสต็อกเข้า</h3>
+        <button id="qsiClose" style="background:transparent;border:none;font-size:22px;cursor:pointer;color:#64748b">×</button>
+      </div>
+      <div style="background:#f0fdf4;padding:10px 12px;border-radius:8px;margin-bottom:12px;border:1px solid #bbf7d0">
+        <div style="font-weight:700;font-size:14px">${escHtml(product.name || "-")}</div>
+        <div style="font-size:11px;color:#64748b">${escHtml(product.sku || "")} ${product.barcode ? "• " + escHtml(product.barcode) : ""}</div>
+      </div>
+      <div style="display:grid;gap:12px">
+        <div>
+          <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">คลังที่จะรับเข้า:</label>
+          <select id="qsiWh" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px">
+            ${(state.warehouses || []).map(w => `<option value="${escHtml(w.id)}" ${String(w.id) === String(defaultWhId) ? 'selected' : ''}>${escHtml(w.name)}</option>`).join("")}
+          </select>
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">จำนวนรับเข้า:</label>
+          <input id="qsiQty" type="number" min="1" step="1" value="1" style="width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:8px;font-size:16px;font-weight:700;text-align:center" />
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">ต้นทุนใหม่ต่อชิ้น (ถ้าเปลี่ยน):</label>
+          <input id="qsiCost" type="number" min="0" step="0.01" placeholder="ปัจจุบัน ฿${money(product.cost || 0)} — เว้นว่างถ้าไม่เปลี่ยน" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px" />
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">หมายเหตุ:</label>
+          <input id="qsiNote" type="text" placeholder="เช่น ซื้อจาก ABC supplier (Inv #12345)" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px" />
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:16px">
+        <button id="qsiCancel" style="flex:1;padding:10px;border:1px solid #cbd5e1;background:#fff;border-radius:8px;cursor:pointer">ยกเลิก</button>
+        <button id="qsiSave" style="flex:1;padding:10px;border:none;background:#059669;color:#fff;border-radius:8px;cursor:pointer;font-weight:700">+ รับเข้า</button>
+      </div>
+    </div>
+  `;
+  modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
+  document.body.appendChild(modal);
+  setTimeout(() => modal.querySelector("#qsiQty")?.focus(), 50);
+
+  modal.querySelector("#qsiClose").addEventListener("click", () => modal.remove());
+  modal.querySelector("#qsiCancel").addEventListener("click", () => modal.remove());
+  modal.querySelector("#qsiQty").addEventListener("keydown", (e) => { if (e.key === "Enter") modal.querySelector("#qsiSave").click(); });
+
+  modal.querySelector("#qsiSave").addEventListener("click", async () => {
+    const whIdRaw = modal.querySelector("#qsiWh").value;
+    const qty = parseInt(modal.querySelector("#qsiQty").value, 10);
+    const newCostRaw = modal.querySelector("#qsiCost").value;
+    const note = modal.querySelector("#qsiNote").value || "";
+    if (!whIdRaw) return showToastFn("เลือกคลัง");
+    if (isNaN(qty) || qty <= 0) return showToastFn("จำนวนต้องมากกว่า 0");
+
+    const btn = modal.querySelector("#qsiSave");
+    btn.disabled = true; btn.textContent = "กำลังบันทึก...";
+
+    const whIdNum = Number(whIdRaw);
+    const warehouseId = Number.isFinite(whIdNum) && String(whIdNum) === whIdRaw ? whIdNum : whIdRaw;
+
+    try {
+      const res = await window._appApplyStockMovement({
+        productId: product.id,
+        warehouseId,
+        movementType: "in",
+        qty,
+        note: note || `รับเข้าจากแถวสินค้า`
+      });
+      if (!res?.ok) throw new Error(res?.error || "ไม่สำเร็จ");
+
+      // อัพเดทต้นทุนถ้ามีค่าใหม่
+      if (newCostRaw && Number(newCostRaw) >= 0 && Number(newCostRaw) !== Number(product.cost || 0)) {
+        const cfg = window.SUPABASE_CONFIG;
+        const accessToken = window._sbAccessToken || cfg.anonKey;
+        await new Promise(resolve => {
+          const xhr = new XMLHttpRequest();
+          xhr.open("PATCH", cfg.url + "/rest/v1/products?id=eq." + encodeURIComponent(product.id));
+          xhr.setRequestHeader("Content-Type", "application/json");
+          xhr.setRequestHeader("apikey", cfg.anonKey);
+          xhr.setRequestHeader("Authorization", "Bearer " + accessToken);
+          xhr.setRequestHeader("Prefer", "return=minimal");
+          xhr.timeout = 8000;
+          xhr.onload = () => resolve();
+          xhr.onerror = () => resolve();
+          xhr.ontimeout = () => resolve();
+          xhr.send(JSON.stringify({ cost: Number(newCostRaw) }));
+        });
+      }
+
+      showToastFn(`✓ รับเข้า ${qty} ชิ้น`);
+      modal.remove();
+      if (window.App?.loadAllData) await window.App.loadAllData();
+    } catch (e) {
+      showToastFn("ผิดพลาด: " + (e?.message || e));
+      btn.disabled = false; btn.textContent = "+ รับเข้า";
+    }
+  });
+}
 
 // ═══════════════════════════════════════════════════════════
 //  BULK EDIT — รายการที่เลือก batch update
