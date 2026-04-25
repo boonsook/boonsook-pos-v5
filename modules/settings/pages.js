@@ -36,7 +36,14 @@ export function renderSettingsAbout(el, ctx, goBack) {
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button id="appCheckUpdateBtn" class="btn primary" style="font-size:13px;padding:8px 14px">🔄 ตรวจหาอัปเดต</button>
             <button id="appForceReloadBtn" class="btn light" style="font-size:13px;padding:8px 14px" title="บังคับโหลดใหม่ — ล้าง cache + reload">⚡ โหลดใหม่ทันที (Hard Refresh)</button>
-            <button id="appClearCacheBtn" class="btn light" style="font-size:13px;padding:8px 14px;color:#dc2626;border-color:#fca5a5" title="ลบ cache ทั้งหมด + reload">🗑️ ล้าง Cache</button>
+            <button id="appClearCacheBtn" class="btn" style="font-size:13px;padding:8px 14px;background:#dc2626;color:#fff;border:none" title="ลบ cache ทั้งหมด + reload — ใช้ตอนอัปเดตไม่ได้">🚀 บังคับอัปเดต (ล้าง Cache + รีโหลด)</button>
+          </div>
+          <div style="margin-top:10px;padding:10px;background:#fef3c7;border-radius:8px;font-size:11px;color:#92400e;line-height:1.6">
+            <b>📱 บนมือถือ ถ้าอัปเดตไม่ได้:</b><br>
+            1. กดปุ่ม <b>"🚀 บังคับอัปเดต"</b> สีแดง (วิธีที่ดีที่สุด)<br>
+            2. ถ้ายังไม่ได้ — ปิดแอป (swipe ทิ้ง) → เปิดใหม่<br>
+            3. ถ้าติดตั้งเป็น PWA (icon บน home) → ลบ icon → เข้าผ่าน browser → กดติดตั้งใหม่<br>
+            4. iPhone Safari: Settings → Safari → Clear History
           </div>
         </div>
       </div>
@@ -57,22 +64,35 @@ export function renderSettingsAbout(el, ctx, goBack) {
         setStatus("⚠️ Browser ไม่รองรับ Service Worker", "#dc2626");
         return;
       }
+      // ★ Step 1: บังคับโหลด sw.js ใหม่จาก network (bypass HTTP cache)
+      try {
+        await fetch('./sw.js?bust=' + Date.now(), { cache: 'no-store' });
+      } catch(e) { /* ignore — main update() ก็จะลองอีก */ }
+
+      // ★ Step 2: บังคับโหลด index.html (เพื่อให้ ?v= ใหม่ของ main.js โผล่)
+      try {
+        await fetch('./index.html?bust=' + Date.now(), { cache: 'no-store' });
+      } catch(e) {}
+
       const reg = await navigator.serviceWorker.getRegistration();
-      if (!reg) { setStatus("⚠️ ไม่พบ Service Worker", "#dc2626"); return; }
+      if (!reg) { setStatus("⚠️ ไม่พบ Service Worker — ลอง 'ล้าง Cache'", "#dc2626"); return; }
+
+      // ★ Step 3: ให้ SW ตรวจอัปเดต
       await reg.update();
       // รอสักครู่ให้ updatefound trigger
-      await new Promise(r => setTimeout(r, 1500));
+      await new Promise(r => setTimeout(r, 2000));
+
       if (reg.waiting) {
         setStatus("✅ มีเวอร์ชันใหม่! กำลัง apply + reload...", "#059669");
         reg.waiting.postMessage({ type: 'SKIP_WAITING' });
         setTimeout(() => window.location.reload(), 800);
       } else if (reg.installing) {
-        setStatus("⏳ กำลังดาวน์โหลดเวอร์ชันใหม่... รอสักครู่แล้วลองอีกครั้ง", "#f59e0b");
+        setStatus("⏳ กำลังดาวน์โหลด... รอ 5 วินาทีแล้วกดปุ่มอีกครั้ง", "#f59e0b");
       } else {
         setStatus("✓ คุณใช้เวอร์ชันล่าสุดแล้ว — ไม่มีอัปเดตใหม่", "#059669");
       }
     } catch (e) {
-      setStatus("❌ ผิดพลาด: " + (e?.message || e), "#dc2626");
+      setStatus("❌ ผิดพลาด: " + (e?.message || e) + " — ลอง 'ล้าง Cache' แทน", "#dc2626");
     } finally {
       btn.disabled = false; btn.textContent = "🔄 ตรวจหาอัปเดต";
     }

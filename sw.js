@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v14 (2026-04-25): + Phase 4-6 (POS Customer Picker, Cash Recon, Service Photos)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v14';
+// v15 (2026-04-25): + _headers + bypass cache for sw.js/index.html + force update flow
+const CACHE_NAME = 'boonsook-pos-v5-cache-v15';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
