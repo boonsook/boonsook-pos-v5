@@ -22,8 +22,8 @@ export function renderSettingsAbout(el, ctx, goBack) {
           <div style="font-size:12px;color:#64748b">ระบบจัดการร้านค้าอิเล็กทรอนิกส์แบบครบวงจร</div>
         </div>
         <div style="display:grid;gap:6px;font-size:13px;color:#334155">
-          <div><strong>Version:</strong> 5.11.2</div>
-          <div><strong>Release:</strong> April 2026 (build 57)</div>
+          <div><strong>Version:</strong> 5.11.3</div>
+          <div><strong>Release:</strong> April 2026 (build 58)</div>
           <div><strong>Developer:</strong> Boonsook Electronics</div>
           <div><strong>Contact:</strong> gangboo@gmail.com</div>
         </div>
@@ -135,15 +135,23 @@ export function renderSettingsAbout(el, ctx, goBack) {
       }
 
       // Step 3: ตัดสินใจ
-      const hasNewBuild = newBuild && currentBuild && newBuild !== currentBuild;
-      const hasWaiting = reg?.waiting;
-      const hasInstalling = reg?.installing;
+      // Phase 43.3 fix: ใช้ Number(...) > เปรียบเทียบจริง (เดิม !== false alarm เมื่อ build เท่ากัน + SW waiting)
+      const hasNewBuild = !!(newBuild && currentBuild && Number(newBuild) > Number(currentBuild));
+      const hasWaiting = !!reg?.waiting;
+      const hasInstalling = !!reg?.installing;
 
-      if (hasNewBuild || hasWaiting) {
-        setStatus(`✅ พบเวอร์ชันใหม่ (build ${newBuild || '?'} ← ปัจจุบัน build ${currentBuild || '?'}) — กำลัง apply + reload...`, "#059669");
+      if (hasNewBuild) {
+        // Build ใหม่กว่าจริง → upgrade flow
+        setStatus(`✅ พบเวอร์ชันใหม่ (build ${newBuild} ← ปัจจุบัน build ${currentBuild}) — กำลัง apply + reload...`, "#059669");
         if (hasWaiting) {
           try { reg.waiting.postMessage({ type: 'SKIP_WAITING' }); } catch(e){}
         }
+        await new Promise(r => setTimeout(r, 800));
+        hardReload();
+      } else if (hasWaiting) {
+        // SW waiting แต่ build เท่าเดิม — apply เงียบๆ ไม่ต้องบอกว่ามี version ใหม่
+        setStatus("🔄 กำลัง apply Service Worker ใหม่...", "#0284c7");
+        try { reg.waiting.postMessage({ type: 'SKIP_WAITING' }); } catch(e){}
         await new Promise(r => setTimeout(r, 800));
         hardReload();
       } else if (hasInstalling) {

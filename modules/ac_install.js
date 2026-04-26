@@ -310,16 +310,13 @@ export function renderAcInstallPage(ctx) {
         }
       }
 
-      // ถ้ามี transfer ที่ต้องทำ → แสดง confirm dialog (Smart Confirm Option C)
+      // ถ้ามี transfer ที่ต้องทำ → แสดง App.confirm (Phase 43.3 — แทน native confirm)
       if (transfersNeeded.length > 0) {
         const summary = transfersNeeded.map(t =>
-          `• ${t.productName}: โอน ${t.qty} ชิ้น จาก ${t.fromWhName} → ${t.toWhName}`
-        ).join("\n");
-        const ok = window.confirm(
-          `🚐 ของในรถไม่พอ — ต้องโอนจากบ้านขึ้นรถก่อน\n\n${summary}\n\n` +
-          `กด OK = โอน + ตัดสต็อกอัตโนมัติ\n` +
-          `กด Cancel = ยกเลิกการบันทึก`
-        );
+          `${t.productName}: โอน ${t.qty} ชิ้น (${t.fromWhName} → ${t.toWhName})`
+        ).join(" • ");
+        const msg = `🚐 ของในรถไม่พอ — ต้องโอนจากบ้านขึ้นรถก่อน: ${summary} — ตกลงโอน + ตัดสต็อกอัตโนมัติ?`;
+        const ok = await window.App?.confirm?.(msg);
         if (!ok) {
           throw new Error("ยกเลิกการบันทึก — โอนสต็อกขึ้นรถก่อนแล้วลองใหม่");
         }
@@ -618,7 +615,7 @@ function _openItemPicker(ctx, container, updateTotal) {
     listEl.innerHTML = renderList(e.target.value);
   });
 
-  listEl.addEventListener("click", (e) => {
+  listEl.addEventListener("click", async (e) => {
     const btn = e.target.closest("[data-pk-id]");
     if (!btn) return;
     const id = btn.dataset.pkId;
@@ -634,16 +631,12 @@ function _openItemPicker(ctx, container, updateTotal) {
       // มีรถเดียว → auto-pick
       chosenWh = mobileStocks[0];
     } else if (mobileStocks.length > 1) {
-      // มีหลายรถ → user เลือก (ใช้ confirm + prompt-like — แต่เป็น modal สวยกว่า)
-      // ตอนนี้ใช้ window.confirm เพื่อความง่าย — Phase 44 ทำ modal สวยได้
-      const choices = mobileStocks.map((s, i) => `${i+1}. ${s.warehouse_name} (มี ${s.stock})`).join("\n");
-      const ans = window.prompt(`สินค้านี้มีในหลายรถ — เลือกใช้คันไหน?\n\n${choices}\n\nพิมพ์เลข 1-${mobileStocks.length}:`, "1");
-      const idx = parseInt(ans) - 1;
-      if (isNaN(idx) || idx < 0 || idx >= mobileStocks.length) {
+      // Phase 43.3: ใช้ custom modal (เดิมใช้ window.prompt ผิดกฎ)
+      chosenWh = await _pickMobileWarehouse(mobileStocks, p.name);
+      if (!chosenWh) {
         showToast?.("ยกเลิก");
         return;
       }
-      chosenWh = mobileStocks[idx];
     } else if (homeStock && homeStock.stock > 0) {
       // ไม่มีในรถเลย → auto-pick "บ้าน" + แจ้งว่าจะ auto-transfer ตอน save
       chosenWh = homeStock;
@@ -846,4 +839,51 @@ async function _sendLineReceipt(ctx, container) {
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = "📤 ส่ง LINE ลูกค้า"; }
   }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 43.3 — Mobile warehouse picker modal (แทน window.prompt)
+// ═══════════════════════════════════════════════════════════
+function _pickMobileWarehouse(mobileStocks, productName) {
+  return new Promise((resolve) => {
+    document.getElementById("acWhPickModal")?.remove();
+    const modal = document.createElement("div");
+    modal.id = "acWhPickModal";
+    modal.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px";
+    modal.innerHTML = `
+      <div style="background:#fff;border-radius:16px;max-width:420px;width:100%;overflow:hidden">
+        <div style="padding:14px 16px;border-bottom:1px solid #e2e8f0">
+          <h3 style="margin:0;font-size:15px">🚐 เลือกรถสำหรับตัดสต็อก</h3>
+          <div style="font-size:12px;color:#64748b;margin-top:2px">${escHtml(productName || "")} — มีในหลายรถ</div>
+        </div>
+        <div style="padding:12px 16px;display:flex;flex-direction:column;gap:8px">
+          ${mobileStocks.map((s, i) => `
+            <button data-wh-idx="${i}" style="display:flex;justify-content:space-between;align-items:center;padding:14px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;cursor:pointer;font:inherit;text-align:left">
+              <div style="flex:1">
+                <div style="font-weight:700">${escHtml(s.warehouse_name)}</div>
+                <div style="font-size:11px;color:#64748b">มีในสต็อก</div>
+              </div>
+              <div style="font-weight:800;color:#0284c7;font-size:18px">${s.stock}</div>
+            </button>
+          `).join("")}
+        </div>
+        <div style="padding:8px 16px 14px;border-top:1px solid #e2e8f0">
+          <button id="acWhPickCancel" style="width:100%;padding:10px;border:1px solid #cbd5e1;background:#f8fafc;border-radius:10px;cursor:pointer;font:inherit;color:#64748b">ยกเลิก</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    const cleanup = () => modal.remove();
+
+    modal.querySelectorAll("[data-wh-idx]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const idx = Number(btn.dataset.whIdx);
+        cleanup();
+        resolve(mobileStocks[idx]);
+      });
+    });
+    modal.querySelector("#acWhPickCancel").addEventListener("click", () => { cleanup(); resolve(null); });
+    modal.addEventListener("click", (e) => { if (e.target === modal) { cleanup(); resolve(null); } });
+  });
 }

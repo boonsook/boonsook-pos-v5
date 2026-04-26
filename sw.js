@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v41 (2026-04-26): Phase 43.2 — Fix HTTP 400: address → customer_address (schema match)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v41';
+// v42 (2026-04-26): Phase 43.3 — Fix update banner false alarm + replace native modals
+const CACHE_NAME = 'boonsook-pos-v5-cache-v42';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

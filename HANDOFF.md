@@ -1,10 +1,30 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 43 — AC install stock deduction)
-**Version:** 5.11.0 (build 55)
-**Previous:** 5.10.0 (build 54) — Phase 42 (AC install items + receipt)
+**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 43.3 — Update banner + native modal cleanup)
+**Version:** 5.11.3 (build 58)
+**Previous:** 5.11.2 (build 57) — Phase 43.2 (HTTP 400 hotfix)
 
 **🛡️ Phase 17 Active!** — KV binding ผูกแล้ว (Production + Preview), tested 429 OK
+
+---
+
+## 🧹 Phase 43.3 — Update Banner + Native Modal Cleanup (26 เม.ย. รอบ 19)
+
+### Fix #1: ปุ่มอัปเดต false alarm (ของเก่าค้างจาก Phase 20)
+[modules/settings/pages.js:138](modules/settings/pages.js:138) — เปลี่ยน `newBuild !== currentBuild` → `Number(newBuild) > Number(currentBuild)`
+- เดิม: build 58 vs 58 + SW waiting → "พบเวอร์ชันใหม่ build 58 ← ปัจจุบัน build 58" (false alarm)
+- แก้: ถ้า build เท่ากัน + SW waiting → apply เงียบๆ ("กำลัง apply Service Worker ใหม่...")
+
+### Fix #2: แทน native modal ใน Phase 43 (2 จุด)
+[modules/ac_install.js](modules/ac_install.js):
+- `window.confirm` (line 318 — smart transfer dialog) → `App.confirm`
+- `window.prompt` (line 637 — เลือกรถ) → custom modal `_pickMobileWarehouse()` — buttons สวยๆ แสดงคงเหลือ
+
+### Bump
+- main.js?v=57 → v=58
+- SW v41 → v42
+- Version display 5.11.2 → 5.11.3 (build 58)
+- selfHeal APP_BUILD: 57 → 58
 
 ---
 
