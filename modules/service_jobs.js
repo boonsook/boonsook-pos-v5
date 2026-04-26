@@ -35,15 +35,53 @@ const sanitizeUrl = (url) => {
   catch { return ""; }
 };
 
+// ★ Phase 39 — filter chips: ทั้งหมด / ค้าง / ปิดแล้ว / ยกเลิก
+// state อยู่ใน module-level — คงค่าระหว่าง re-render แต่ reset เมื่อ refresh page
+let _sjFilter = "open"; // default: ค้าง (เพราะคือ default workflow ของช่าง)
+
+const OPEN_STATUSES = ["pending", "progress", "in_progress", "open"];
+const CLOSED_STATUSES = ["done", "delivered", "closed"];
+
 export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, showRoute }) {
   // ★ ซ่อนงานที่ถูกลบ (status = cancelled + note มีคำว่า [ลบแล้ว])
-  const jobs = (state.serviceJobs || []).filter(j => !(j.status === "cancelled" && (j.note || "").includes("[ลบแล้ว]")));
+  const allJobs = (state.serviceJobs || []).filter(j => !(j.status === "cancelled" && (j.note || "").includes("[ลบแล้ว]")));
+
+  // Counts (เพื่อแสดงในแต่ละ chip)
+  const cAll = allJobs.length;
+  const cOpen = allJobs.filter(j => OPEN_STATUSES.includes(j.status || "pending")).length;
+  const cClosed = allJobs.filter(j => CLOSED_STATUSES.includes(j.status)).length;
+  const cCancelled = allJobs.filter(j => j.status === "cancelled").length;
+
+  // Filter ตาม chip ที่เลือก
+  let jobs;
+  if (_sjFilter === "open")          jobs = allJobs.filter(j => OPEN_STATUSES.includes(j.status || "pending"));
+  else if (_sjFilter === "closed")   jobs = allJobs.filter(j => CLOSED_STATUSES.includes(j.status));
+  else if (_sjFilter === "cancelled") jobs = allJobs.filter(j => j.status === "cancelled");
+  else                                jobs = allJobs; // "all"
+
+  const chip = (key, label, count, activeColor) => {
+    const isActive = _sjFilter === key;
+    return `<button class="sj-filter-chip" data-sj-filter="${key}" style="padding:6px 14px;border-radius:18px;border:1px solid ${isActive ? activeColor : '#cbd5e1'};background:${isActive ? activeColor : '#fff'};color:${isActive ? '#fff' : '#475569'};cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap">${label}${count > 0 ? ` (${count})` : ''}</button>`;
+  };
   document.getElementById("page-service_jobs").innerHTML = `
     <div class="panel">
       <div class="row">
         <h3 style="margin:0">ใบรับงาน / งานบริการ</h3>
         <button id="serviceJobAddBtn" class="btn primary">+ เพิ่มงานช่าง</button>
       </div>
+      <!-- Phase 39: filter chips -->
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;align-items:center">
+        <span style="font-size:12px;color:#64748b;font-weight:600;margin-right:4px">แสดง:</span>
+        ${chip("open",      "🟡 ค้าง",       cOpen,      "#0284c7")}
+        ${chip("closed",    "✅ ปิดแล้ว",    cClosed,    "#10b981")}
+        ${chip("cancelled", "⚫ ยกเลิก",     cCancelled, "#64748b")}
+        ${chip("all",       "ทั้งหมด",      cAll,       "#475569")}
+      </div>
+      ${jobs.length === 0 && _sjFilter !== "all" ? `
+        <div class="card mt16" style="text-align:center;color:var(--muted);padding:20px;font-size:13px">
+          ${_sjFilter === "open" ? "🎉 ไม่มีงานค้าง — เคลียร์หมดแล้ว!" : _sjFilter === "closed" ? "ยังไม่มีงานที่ปิดแล้ว" : "ไม่มีงานที่ยกเลิก"}
+        </div>
+      ` : ''}
       <div class="card-list mt16">
         ${jobs.length ? jobs.map(j => {
           // ★ รองรับทั้ง schema เดิม (job_title) และใหม่ (description)
@@ -130,11 +168,17 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
               </div>
             </div>
           `;
-        }).join("") : '<div class="card" style="text-align:center;color:var(--muted);padding:24px">ยังไม่มีงานช่าง</div>'}
+        }).join("") : (_sjFilter === "all" ? '<div class="card" style="text-align:center;color:var(--muted);padding:24px">ยังไม่มีงานช่าง</div>' : '')}
       </div>
     </div>
 
   `;
+
+  /* ── Phase 39 — Filter chips ── */
+  document.querySelectorAll("[data-sj-filter]").forEach(btn => btn.addEventListener("click", () => {
+    _sjFilter = btn.dataset.sjFilter;
+    renderServiceJobsPage({ state, openServiceJobDrawer, showToast, showRoute });
+  }));
 
   /* ── Add job ── */
   document.getElementById("serviceJobAddBtn")?.addEventListener("click", () => openServiceJobDrawer());

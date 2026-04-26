@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v34 (2026-04-26): Phase 38 — Hotfix logo overflow (style.css?v=4 → v=5 + inline guard)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v34';
+// v35 (2026-04-26): Phase 39 — Service jobs filter chips (ค้าง/ปิดแล้ว/ยกเลิก/ทั้งหมด)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v35';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

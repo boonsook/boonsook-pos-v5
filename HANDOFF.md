@@ -1,10 +1,37 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 37 — POS home FlowAccount redesign)
-**Version:** 5.9.1 (build 49)
-**Previous:** 5.9.0 (build 48) — Phase 36 (Logo sync to DB)
+**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 39 — Service jobs filter chips)
+**Version:** 5.9.3 (build 51)
+**Previous:** 5.9.2 (build 50) — Phase 38 (Hotfix logo overflow)
 
 **🛡️ Phase 17 Active!** — KV binding ผูกแล้ว (Production + Preview), tested 429 OK
+
+---
+
+## 🎛️ Phase 39 — Service Jobs Filter Chips (26 เม.ย. รอบ 14)
+
+### Why
+User ถาม: "ใบรับงานปิดงานแล้ว ไปอยู่ที่ไหนครับ"
+- ทุกใบงาน (ค้าง/เสร็จ/ยกเลิก) อยู่หน้าเดียวกัน → user สับสน + หาใบที่ปิดยาก
+- ต้องการ filter chips แบบ FlowAccount
+
+### Fix
+[modules/service_jobs.js](modules/service_jobs.js) — เพิ่ม filter chips 4 ตัว ด้านบนของ list:
+1. **🟡 ค้าง** (default) — pending / progress / in_progress / open
+2. **✅ ปิดแล้ว** — done / delivered / closed
+3. **⚫ ยกเลิก** — cancelled (ที่ไม่ใช่ [ลบแล้ว])
+4. **ทั้งหมด** — แสดงทั้งหมด
+
+แต่ละ chip แสดง count (จำนวนงาน) — กดเปลี่ยน filter แล้ว re-render
+- Default = "ค้าง" (workflow ปกติของช่าง: เห็นที่ต้องทำก่อน)
+- Empty state ตามแต่ละ filter (เช่น "🎉 ไม่มีงานค้าง — เคลียร์หมดแล้ว!")
+- Filter state อยู่ใน module-level `_sjFilter` — คงค่าระหว่าง re-render
+
+### Bump
+- main.js?v=50 → v=51
+- SW v34 → v35
+- Version display 5.9.2 → 5.9.3 (build 51)
+- selfHeal APP_BUILD: 50 → 51
 
 ---
 
