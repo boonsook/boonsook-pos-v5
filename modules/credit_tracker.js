@@ -239,8 +239,8 @@ function openReceivePaymentModal(ctx, sale) {
     const amount = Number(modal.querySelector("#ctPayAmount").value || 0);
     const method = modal.querySelector("#ctPayMethod").value;
     const note = modal.querySelector("#ctPayNote").value.trim();
-    if (amount <= 0) { alert("กรอกจำนวนเงิน"); return; }
-    if (amount > sale._due + 0.01) { alert("เกินยอดที่ค้าง"); return; }
+    if (amount <= 0) { window.App?.showToast?.("กรอกจำนวนเงิน", "warn"); return; }
+    if (amount > sale._due + 0.01) { window.App?.showToast?.("เกินยอดที่ค้าง", "warn"); return; }
 
     const btn = modal.querySelector("#ctPaySave");
     btn.disabled = true; btn.textContent = "กำลังบันทึก...";
@@ -283,7 +283,7 @@ function openReceivePaymentModal(ctx, sale) {
       if (window.App?.loadAllData) await window.App.loadAllData();
       renderCreditTrackerPage(ctx);
     } catch (e) {
-      alert("ผิดพลาด: " + (e?.message || e));
+      window.App?.showToast?.("ผิดพลาด: " + (e?.message || e), "error");
       btn.disabled = false; btn.textContent = "💾 บันทึกการรับชำระ";
     }
   });

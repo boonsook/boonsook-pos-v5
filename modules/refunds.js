@@ -334,7 +334,7 @@ function openRefundModal(ctx) {
   modal.querySelector("#rfSave").addEventListener("click", async () => {
     if (!_selectedSale) return;
     const itemsToRefund = _refundItems.filter(it => it.qty > 0);
-    if (itemsToRefund.length === 0) { alert("เลือกสินค้าที่คืนอย่างน้อย 1 รายการ + จำนวน > 0"); return; }
+    if (itemsToRefund.length === 0) { window.App?.showToast?.("เลือกสินค้าที่คืนอย่างน้อย 1 รายการ + จำนวน > 0", "warn"); return; }
     const totalAmount = itemsToRefund.reduce((s, it) => s + it.qty * it.unit_price, 0);
     const reason = modal.querySelector("#rfReasonSelect").value;
     const method = modal.querySelector("#rfMethodSelect").value;
@@ -342,7 +342,8 @@ function openRefundModal(ctx) {
     const whIdRaw = modal.querySelector("#rfWhSelect").value;
     const note = modal.querySelector("#rfNote").value.trim();
 
-    if (!confirm(`ยืนยันการคืน?\n\nบิล: ${_selectedSale.order_no}\nลูกค้า: ${_selectedSale.customer_name || 'ทั่วไป'}\nรายการ: ${itemsToRefund.length}\nมูลค่า: ฿${money(totalAmount)}\nวิธี: ${REFUND_METHODS[method].label}\nคืนสต็อก: ${restock ? 'ใช่' : 'ไม่'}`)) return;
+    const confirmMsg = `ยืนยันการคืน? บิล ${_selectedSale.order_no} • ${itemsToRefund.length} รายการ • ฿${money(totalAmount)} • ${REFUND_METHODS[method].label}${restock ? ' • คืนสต็อก' : ''}`;
+    if (!(await window.App?.confirm?.(confirmMsg))) return;
 
     saveBtn.disabled = true; saveBtn.textContent = "กำลังบันทึก...";
     const cfg = window.SUPABASE_CONFIG;
@@ -394,7 +395,7 @@ function openRefundModal(ctx) {
       if (window.App?.loadAllData) await window.App.loadAllData();
       renderRefundsPage(ctx);
     } catch (e) {
-      alert("ผิดพลาด: " + (e?.message || e));
+      window.App?.showToast?.("ผิดพลาด: " + (e?.message || e), "error");
       saveBtn.disabled = false; saveBtn.textContent = "💾 บันทึกการคืน";
     }
   });

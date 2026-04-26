@@ -229,7 +229,7 @@ function openTaskModal(ctx, t) {
       related_to_type: modal.querySelector("#tkRelType").value || null,
       line_notify_sent: !modal.querySelector("#tkLineNotify").checked
     };
-    if (!payload.title) { alert("กรอกหัวข้อ"); return; }
+    if (!payload.title) { window.App?.showToast?.("กรอกหัวข้อ", "warn"); return; }
 
     const cfg = window.SUPABASE_CONFIG;
     const accessToken = window._sbAccessToken || cfg.anonKey;
@@ -245,7 +245,7 @@ function openTaskModal(ctx, t) {
       ctx.showToast?.(t ? "✓ บันทึกแก้ไข" : "✓ เพิ่ม task แล้ว");
       renderTasksPage(ctx);
     } catch (e) {
-      alert("ผิดพลาด: " + (e?.message || e));
+      window.App?.showToast?.("ผิดพลาด: " + (e?.message || e), "error");
     }
   });
 }
@@ -266,7 +266,7 @@ async function toggleTask(ctx, id, done) {
 async function deleteTask(ctx, id) {
   const t = _tkList.find(x => String(x.id) === String(id));
   if (!t) return;
-  if (!confirm(`ลบ task "${t.title}"?`)) return;
+  if (!(await window.App?.confirm?.(`ลบ task "${t.title}"?`))) return;
   const cfg = window.SUPABASE_CONFIG;
   const accessToken = window._sbAccessToken || cfg.anonKey;
   await fetch(cfg.url + "/rest/v1/tasks?id=eq." + id, {

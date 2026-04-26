@@ -314,7 +314,7 @@ function openSerialModal(ctx, s) {
 }
 
 async function updateStatus(ctx, id, newStatus) {
-  if (!confirm(`เปลี่ยนสถานะเป็น "${STATUS_META[newStatus].label}"?`)) return;
+  if (!(await window.App?.confirm?.(`เปลี่ยนสถานะเป็น "${STATUS_META[newStatus].label}"?`))) return;
   const cfg = window.SUPABASE_CONFIG;
   const accessToken = window._sbAccessToken || cfg.anonKey;
   await fetch(cfg.url + "/rest/v1/product_serials?id=eq." + id, {

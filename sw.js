@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v20 (2026-04-26): + Phase 20-23 (Fix Update + Auto-link Serial + Warranty Report + Barcode Scanner)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v20';
+// v21 (2026-04-26): Phase 24 — Cleanup batch (rate-limit endpoint fix + alert/confirm cleanup 22 จุด)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v21';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

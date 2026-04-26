@@ -105,9 +105,9 @@ export function renderStockCountPage(ctx) {
     renderStockCountPage(ctx);
   });
 
-  container.querySelector("#scResetBtn")?.addEventListener("click", () => {
+  container.querySelector("#scResetBtn")?.addEventListener("click", async () => {
     if (_scCounts.size === 0) return;
-    if (!confirm(`ล้างรายการที่นับแล้ว ${_scCounts.size} รายการ?`)) return;
+    if (!(await window.App?.confirm?.(`ล้างรายการที่นับแล้ว ${_scCounts.size} รายการ?`))) return;
     _scCounts.clear();
     renderStockCountPage(ctx);
   });
@@ -295,7 +295,7 @@ async function applyAllAdjustments(ctx) {
     return;
   }
 
-  if (!confirm(`บันทึกการปรับสต็อก ${changedCount} รายการ?\n\nรายการที่ตรงกันแล้วจะไม่ถูกแตะต้อง`)) return;
+  if (!(await window.App?.confirm?.(`บันทึกการปรับสต็อก ${changedCount} รายการ? (รายการที่ตรงกันแล้วจะไม่ถูกแตะต้อง)`))) return;
 
   const btn = document.querySelector("#scApplyAllBtn");
   if (btn) { btn.disabled = true; btn.textContent = "กำลังบันทึก..."; }

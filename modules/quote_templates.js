@@ -212,7 +212,7 @@ function openTemplateEditor(ctx, t) {
   modal.querySelector("#qtCancel").addEventListener("click", () => modal.remove());
   modal.querySelector("#qtSave").addEventListener("click", async () => {
     const name = modal.querySelector("#qtName").value.trim();
-    if (!name) { alert("กรอกชื่อ"); return; }
+    if (!name) { window.App?.showToast?.("กรอกชื่อ", "warn"); return; }
 
     const cleanItems = _items.filter(it => it.name && it.qty > 0).map(it => ({
       name: it.name,
@@ -243,7 +243,7 @@ function openTemplateEditor(ctx, t) {
       modal.remove();
       ctx.showToast?.(t ? "✓ บันทึกแก้ไข" : "✓ สร้าง template");
       renderQuoteTemplatesPage(ctx);
-    } catch (e) { alert("ผิดพลาด: " + (e?.message || e)); }
+    } catch (e) { window.App?.showToast?.("ผิดพลาด: " + (e?.message || e), "error"); }
   });
 }
 
@@ -263,7 +263,7 @@ async function toggleActive(ctx, id) {
 async function deleteTemplate(ctx, id) {
   const t = _qtList.find(x => String(x.id) === String(id));
   if (!t) return;
-  if (!confirm(`ลบ template "${t.name}"?`)) return;
+  if (!(await window.App?.confirm?.(`ลบ template "${t.name}"?`))) return;
   const cfg = window.SUPABASE_CONFIG;
   const accessToken = window._sbAccessToken || cfg.anonKey;
   await fetch(cfg.url + "/rest/v1/quote_templates?id=eq." + id, {

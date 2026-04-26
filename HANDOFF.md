@@ -1,8 +1,32 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 20-23 in progress)
-**Version:** 5.7.0 (build 36) — กำลังทำ
-**Previous stable:** 5.6.0 (build 35) — Phase 17-19 done
+**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 24 — Cleanup)
+**Version:** 5.7.1 (build 37)
+**Previous:** 5.7.0 (build 36) — Phase 20-23 (Fix Update + Auto-Serial + Warranty + Barcode Scanner)
+
+---
+
+## 🆕 Phase 24 — Cleanup Batch (26 เม.ย. ตอนเย็น)
+
+### 🛡️ Fix #1: Rate-limit endpoints ตรงชื่อจริง (Security)
+- `functions/_middleware.js` เคยอ้างอิง `/api/auth-otp` (ไม่มีอยู่จริง)
+- แก้เป็น `/api/send-otp` (5 req/min) + `/api/verify-otp` (10 req/min)
+- ปิดช่องโหว่ที่ OTP fall-back ไป default 100 req/min — Twilio cost ป้องกันแน่นอนแล้ว
+
+### 🧹 Fix #2: ลบ alert/confirm ออกจากโค้ด Phase 9-19 (22 จุด)
+ตามกฎห้ามใช้ native modal — แทนด้วย `App.showToast` / `App.confirm`:
+- credit_tracker.js (3) • quote_templates.js (3) • recurring_expenses.js (5)
+- refunds.js (3) • tasks.js (3) • serials.js (1)
+- stock_in_wizard.js (2) • stock_count.js (2) • stock_movements.js (2)
+
+### TODO ที่ยังเหลือ
+- **products.js** — ยังมี alert/confirm/prompt 12 จุด (ของเก่า ก่อน Phase 11 — รอ batch แยก)
+- **settings/users.js** — 2 prompt (ต้องสร้าง modal — รอแยก scope)
+
+### Bump
+- main.js?v=36 → v=37
+- SW v20 → v21
+- Version display 5.7.0 → 5.7.1 (build 37)
 
 ---
 

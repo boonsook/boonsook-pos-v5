@@ -468,7 +468,7 @@ export function renderStockMovementsPage(ctx) {
       );
       const cur = Number(ws?.stock || 0);
       if (qty > cur) {
-        if (!confirm(`⚠️ คลังต้นทางเหลือ ${cur} — ย้าย ${qty} จะติดลบ ${cur - qty}\nดำเนินการต่อ?`)) return;
+        if (!(await window.App?.confirm?.(`⚠️ คลังต้นทางเหลือ ${cur} — ย้าย ${qty} จะติดลบ ${cur - qty} — ดำเนินการต่อ?`))) return;
       }
 
       const pidNum = Number(pid);
@@ -544,7 +544,7 @@ export function renderStockMovementsPage(ctx) {
         );
         const cur = Number(ws?.stock || 0);
         if (cur - quantity < 0) {
-          if (!confirm(`⚠️ สต็อกคลังนี้เหลือ ${cur} — จ่ายออก ${quantity} จะติดลบ ${cur - quantity}\nต้องการบันทึกต่อหรือไม่?`)) return;
+          if (!(await window.App?.confirm?.(`⚠️ สต็อกคลังนี้เหลือ ${cur} — จ่ายออก ${quantity} จะติดลบ ${cur - quantity} — บันทึกต่อ?`))) return;
         }
       }
 

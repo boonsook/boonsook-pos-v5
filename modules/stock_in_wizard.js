@@ -120,9 +120,9 @@ export function renderStockInWizardPage(ctx) {
   container.querySelector("#swScanBtn")?.addEventListener("click", () => openScanner(ctx));
   container.querySelector("#swScannerCloseBtn")?.addEventListener("click", () => closeScanner(ctx));
 
-  container.querySelector("#swClearBtn")?.addEventListener("click", () => {
+  container.querySelector("#swClearBtn")?.addEventListener("click", async () => {
     if (_swRows.length === 0) return;
-    if (!confirm(`ล้างรายการรับเข้า ${_swRows.length} รายการ?`)) return;
+    if (!(await window.App?.confirm?.(`ล้างรายการรับเข้า ${_swRows.length} รายการ?`))) return;
     _swRows = [];
     renderStockInWizardPage(ctx);
   });
@@ -302,15 +302,9 @@ async function saveAll(ctx) {
   const totalQty = _swRows.reduce((s, r) => s + r.qty, 0);
   const totalValue = _swRows.reduce((s, r) => s + r.qty * r.cost, 0);
 
-  if (!confirm(
-    `บันทึกการรับเข้า:\n` +
-    `• ${totalItems} รายการ • ${totalQty} ชิ้น\n` +
-    `• มูลค่ารวม ฿${money(totalValue)}\n` +
-    `• คลัง: ${state.warehouses.find(w => String(w.id) === String(_swWarehouseId))?.name || "?"}\n` +
-    `• ซัพพลายเออร์: ${_swSupplier || "ไม่ระบุ"}\n` +
-    `• ใบกำกับ: ${_swInvoiceNo || "ไม่ระบุ"}\n\n` +
-    `ดำเนินการต่อ?`
-  )) return;
+  const whName = state.warehouses.find(w => String(w.id) === String(_swWarehouseId))?.name || "?";
+  const summary = `บันทึกการรับเข้า ${totalItems} รายการ • ${totalQty} ชิ้น • ฿${money(totalValue)} • คลัง: ${whName}${_swSupplier ? ' • ' + _swSupplier : ''}${_swInvoiceNo ? ' • ' + _swInvoiceNo : ''} — ดำเนินการต่อ?`;
+  if (!(await window.App?.confirm?.(summary))) return;
 
   const btn = document.querySelector("#swSaveBtn");
   if (btn) { btn.disabled = true; btn.textContent = "กำลังบันทึก..."; }

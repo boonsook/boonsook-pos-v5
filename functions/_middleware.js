@@ -15,7 +15,8 @@
 
 // Rate limit config ต่อ endpoint (req/นาที/IP)
 const RATE_LIMITS = {
-  "/api/auth-otp":      { limit: 5,   windowSec: 60 },  // OTP ส่ง SMS/email — ค่าใช้จ่ายจริง
+  "/api/send-otp":      { limit: 5,   windowSec: 60 },  // OTP ส่ง SMS — Twilio cost จริง
+  "/api/verify-otp":    { limit: 10,  windowSec: 60 },  // ป้องกัน brute-force OTP
   "/api/line-notify":   { limit: 30,  windowSec: 60 },
   "/api/ai-assistant":  { limit: 20,  windowSec: 60 },  // AI inference cost
   "default":            { limit: 100, windowSec: 60 }   // ทุก endpoint อื่น

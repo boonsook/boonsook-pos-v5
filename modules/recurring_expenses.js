@@ -237,8 +237,8 @@ function openEditModal(ctx, r) {
       is_active: r?.is_active ?? true,
       updated_at: new Date().toISOString()
     };
-    if (!payload.name) { alert("กรอกชื่อ"); return; }
-    if (payload.amount <= 0) { alert("จำนวนต้องมากกว่า 0"); return; }
+    if (!payload.name) { window.App?.showToast?.("กรอกชื่อ", "warn"); return; }
+    if (payload.amount <= 0) { window.App?.showToast?.("จำนวนต้องมากกว่า 0", "warn"); return; }
 
     const cfg = window.SUPABASE_CONFIG;
     const accessToken = window._sbAccessToken || cfg.anonKey;
@@ -260,7 +260,7 @@ function openEditModal(ctx, r) {
       ctx.showToast?.(r ? "บันทึกแก้ไขแล้ว" : "เพิ่มแล้ว ✓");
       renderRecurringExpensesPage(ctx);
     } catch (e) {
-      alert("ผิดพลาด: " + (e?.message || e));
+      window.App?.showToast?.("ผิดพลาด: " + (e?.message || e), "error");
     }
   });
 }
@@ -282,7 +282,7 @@ async function toggleActive(ctx, id) {
 async function deleteRecurring(ctx, id) {
   const r = _reList.find(x => String(x.id) === String(id));
   if (!r) return;
-  if (!confirm(`ลบ "${r.name}"?\n(ไม่กระทบ expense ที่สร้างไปแล้ว)`)) return;
+  if (!(await window.App?.confirm?.(`ลบ "${r.name}"? (ไม่กระทบ expense ที่สร้างไปแล้ว)`))) return;
   const cfg = window.SUPABASE_CONFIG;
   const accessToken = window._sbAccessToken || cfg.anonKey;
   await fetch(cfg.url + "/rest/v1/recurring_expenses?id=eq." + id, {
@@ -315,7 +315,7 @@ async function generateOne(ctx, id) {
 }
 
 async function generateAllOverdue(ctx, overdue) {
-  if (!confirm(`สร้าง expense ${overdue.length} รายการเลย?`)) return;
+  if (!(await window.App?.confirm?.(`สร้าง expense ${overdue.length} รายการเลย?`))) return;
   let ok = 0;
   for (const r of overdue) {
     const result = await _createExpenseFromRecurring(ctx, r);
