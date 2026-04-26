@@ -174,12 +174,12 @@
           <button class="nav-btn sub" data-route="service_jobs">📋 ใบรับงาน</button>
           <button class="nav-btn sub" data-route="ac_install">🏗️ ติดตั้งแอร์</button>
           <button class="nav-btn sub" data-route="solar">☀️ โซล่าเซลล์</button>
+          <button class="nav-btn sub" data-route="service_request">🛠️ แจ้งซ่อม/บริการ</button>
         </div>
       </div>
 
       <!-- ═══ เครื่องมือ ═══ -->
       <button class="nav-btn" data-route="btu_calculator">🧮 คำนวณ BTU</button>
-      <button class="nav-btn" data-route="service_request">🛠️ แจ้งซ่อม/บริการ</button>
       <button class="nav-btn" data-route="error_codes">⚠️ Error Code แอร์</button>
       <button class="nav-btn" data-route="error_codes_fridge">🧊 Error Code ตู้เย็น</button>
       <button class="nav-btn" data-route="error_codes_washer">🧺 Error Code เครื่องซักผ้า</button>
@@ -630,7 +630,7 @@
   <script>
   (async function selfHeal() {
     try {
-      var APP_BUILD = 59;
+      var APP_BUILD = 60;
       var STUCK_BUILDS_BEFORE = 47; // builds before this มี immutable-cache bug
       var stored = parseInt(localStorage.getItem('bsk_app_build') || '0', 10);
       var justRecovered = sessionStorage.getItem('bsk_just_recovered') === '1';
@@ -679,7 +679,7 @@
     }
   })();
   </script>
-  <script type="module" src="./main.js?v=59"></script>
+  <script type="module" src="./main.js?v=60"></script>
   <script>
     // ═══ Loading Overlay ═══
     function hideLoadingOverlay() {
