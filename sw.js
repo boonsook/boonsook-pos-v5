@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v29 (2026-04-26): Phase 33 — Fix /modules/* stale cache (HTTP must-revalidate)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v29';
+// v30 (2026-04-26): Phase 34 — SW bypass HTTP cache for /modules/* (force revalidate)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v30';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
@@ -75,6 +75,26 @@ self.addEventListener('fetch', (event) => {
             { status: 503, statusText: 'Service Unavailable', headers: { 'Content-Type': 'application/json' } }
           );
         })
+    );
+    return;
+  }
+
+  // ★ Phase 34: JS modules + ai-chat-widget — bypass HTTP cache (cache: 'reload')
+  // เหตุผล: import URLs ไม่มี ?v= → browser cache by URL → stale ตลอดถ้า _headers เป็น immutable
+  // ใช้ cache: 'reload' บังคับ browser ดึงจาก network ทุกครั้ง (revalidate ETag)
+  if (url.origin === self.location.origin && (url.pathname.startsWith('/modules/') || url.pathname === '/ai-chat-widget.js')) {
+    event.respondWith(
+      fetch(request, { cache: 'reload' })
+        .then((response) => {
+          if (response && response.status === 200) {
+            const responseToCache = response.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(request, responseToCache);
+            });
+          }
+          return response;
+        })
+        .catch(() => caches.match(request).then(r => r || new Response('Module unavailable offline', { status: 503 })))
     );
     return;
   }

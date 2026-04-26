@@ -1,8 +1,35 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 33 — Fix /modules/* stale cache)
-**Version:** 5.8.7 (build 45)
-**Previous:** 5.8.6 (build 44) — Phase 32 (service photo gallery picker)
+**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 34 — SW bypass HTTP cache for modules)
+**Version:** 5.8.8 (build 46)
+**Previous:** 5.8.7 (build 45) — Phase 33 (_headers must-revalidate)
+
+---
+
+## 🐛 Phase 34 — SW Bypass HTTP Cache สำหรับ /modules/* (26 เม.ย. รอบ 9)
+
+### Why
+Phase 33 แก้ `_headers` แล้ว แต่ user ที่มี cached pages.js ของเก่า (ตอน immutable=1ปี) ยังติดอยู่
+- Browser HTTP cache ไม่ revalidate (เพราะ cached header เก่ายังบอก immutable)
+- `_headers` ใหม่จะมีผลกับ user ที่ download pages.js ใหม่เท่านั้น
+- Catch-22: ไม่ download ใหม่เพราะคิดว่า cached ของเก่ายัง valid
+
+### Fix
+[sw.js:69-86](sw.js:69) — เพิ่ม special case ใน SW fetch handler:
+- ทุก request ไป `/modules/*.js` หรือ `/ai-chat-widget.js`
+- ใช้ `fetch(request, { cache: 'reload' })` → **บังคับ browser bypass HTTP cache**
+- ETag check กับ server → 304 (fast) หรือ 200 (fresh)
+- Permanent fix — ไม่ต้องพึ่ง `_headers` อย่างเดียว
+
+### หลังจาก Phase 34 deploy
+- ถ้า user มี SW เก่า → ปุ่ม "ตรวจหาอัปเดต" จะ detect SW ใหม่ → reload → ใช้ SW v30
+- SW v30 จะ bypass HTTP cache ตลอด → ไม่มี stale modules อีก
+- ถ้า user ติด stale อยู่ → กด "🚀 บังคับอัปเดต" สีแดง = unregister + delete cache + reload → ทุกอย่างสด
+
+### Bump
+- main.js?v=45 → v=46
+- SW v29 → v30
+- Version display 5.8.7 → 5.8.8 (build 46)
 
 ---
 
