@@ -1,8 +1,31 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 31 — Service job LINE delivered/closed)
-**Version:** 5.8.5 (build 43)
-**Previous:** 5.8.4 (build 42) — Phase 29 (banner false alarm fix)
+**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 32 — Service photo gallery picker)
+**Version:** 5.8.6 (build 44)
+**Previous:** 5.8.5 (build 43) — Phase 31 (service job LINE notify)
+
+---
+
+## 🖼️ Phase 32 — Service Photo Gallery Picker (26 เม.ย. รอบ 7)
+
+### User report
+"ตรงหน้าให้แนบไฟล์ น่าจะมี ปุ่มแกลลอรี่ เพิ่มให้เลือกไฟล์ในมือถือได้ด้วย"
+
+### Bug ที่แก้
+[index.html:551,564](index.html:551) `<input type="file" capture="environment">` มี attribute `capture` → บนมือถือ browser **เปิดกล้องอย่างเดียว** ไม่ให้เลือกจากแกลลอรี่
+- ปัญหา: user ที่มีรูปอยู่ใน gallery แล้ว (เช่นถ่ายไว้นอกแอป) แนบไม่ได้ → ต้องถ่ายใหม่
+
+### Fix
+1. **index.html** — เพิ่ม input + button ที่ 2 ต่อสล็อต:
+   - `serviceBefore/AfterFile` (เก็บ capture) → ปุ่ม "📷 ถ่ายรูป"
+   - `serviceBefore/AfterGalleryFile` (ไม่มี capture) → ปุ่ม "🖼️ แกลลอรี่"
+   - 3 ปุ่มในแถว: 📷 / 🖼️ / 🗑️
+2. **main.js** — refactor handler เป็น `_handleServicePhotoUpload(which, file)` reuse จาก 2 inputs
+
+### Bump
+- main.js?v=43 → v=44
+- SW v27 → v28
+- Version display 5.8.5 → 5.8.6 (build 44)
 
 ---
 

@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v27 (2026-04-26): Phase 31 — Service job LINE notify (delivered/closed status)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v27';
+// v28 (2026-04-26): Phase 32 — Service photo upload + 🖼️ gallery picker (มือถือเลือกจากรูปได้)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v28';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

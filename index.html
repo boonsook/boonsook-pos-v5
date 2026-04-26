@@ -549,9 +549,11 @@
               <span style="color:#94a3b8;font-size:11px">ยังไม่มีรูป</span>
             </div>
             <input type="file" id="serviceBeforeFile" accept="image/*" capture="environment" style="display:none" />
+            <input type="file" id="serviceBeforeGalleryFile" accept="image/*" style="display:none" />
             <input type="hidden" id="serviceBeforeUrl" />
-            <div style="display:flex;gap:4px;margin-top:6px">
-              <button type="button" id="serviceBeforeBtn" class="btn light" style="flex:1;font-size:11px;padding:6px 8px">📤 อัพโหลด</button>
+            <div style="display:flex;gap:3px;margin-top:6px">
+              <button type="button" id="serviceBeforeBtn" class="btn light" style="flex:1;font-size:11px;padding:6px 4px" title="ถ่ายรูปด้วยกล้อง">📷 ถ่ายรูป</button>
+              <button type="button" id="serviceBeforeGalleryBtn" class="btn light" style="flex:1;font-size:11px;padding:6px 4px" title="เลือกจากแกลลอรี่/ไฟล์">🖼️ แกลลอรี่</button>
               <button type="button" id="serviceBeforeClear" class="btn light" style="font-size:11px;padding:6px 8px;color:#dc2626" title="ลบรูป">🗑️</button>
             </div>
           </div>
@@ -562,14 +564,16 @@
               <span style="color:#94a3b8;font-size:11px">ยังไม่มีรูป</span>
             </div>
             <input type="file" id="serviceAfterFile" accept="image/*" capture="environment" style="display:none" />
+            <input type="file" id="serviceAfterGalleryFile" accept="image/*" style="display:none" />
             <input type="hidden" id="serviceAfterUrl" />
-            <div style="display:flex;gap:4px;margin-top:6px">
-              <button type="button" id="serviceAfterBtn" class="btn light" style="flex:1;font-size:11px;padding:6px 8px">📤 อัพโหลด</button>
+            <div style="display:flex;gap:3px;margin-top:6px">
+              <button type="button" id="serviceAfterBtn" class="btn light" style="flex:1;font-size:11px;padding:6px 4px" title="ถ่ายรูปด้วยกล้อง">📷 ถ่ายรูป</button>
+              <button type="button" id="serviceAfterGalleryBtn" class="btn light" style="flex:1;font-size:11px;padding:6px 4px" title="เลือกจากแกลลอรี่/ไฟล์">🖼️ แกลลอรี่</button>
               <button type="button" id="serviceAfterClear" class="btn light" style="font-size:11px;padding:6px 8px;color:#dc2626" title="ลบรูป">🗑️</button>
             </div>
           </div>
         </div>
-        <div style="font-size:10px;color:#94a3b8;margin-top:6px">💡 บนมือถือจะเปิดกล้องอัตโนมัติ</div>
+        <div style="font-size:10px;color:#94a3b8;margin-top:6px">💡 📷 ถ่ายรูป = เปิดกล้อง • 🖼️ แกลลอรี่ = เลือกจากเครื่อง</div>
       </div>
     </div>
     <div class="row mt16">
@@ -620,7 +624,7 @@
     </div>
   </aside>
 
-  <script type="module" src="./main.js?v=43"></script>
+  <script type="module" src="./main.js?v=44"></script>
   <script>
     // ═══ Loading Overlay ═══
     function hideLoadingOverlay() {

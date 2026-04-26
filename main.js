@@ -3484,39 +3484,58 @@ function bindStaticEvents(){
   $("saveServiceJobBtn")?.addEventListener("click", saveServiceJob);
 
   // ★ Service photos upload (Before/After) — reuse product-images bucket
-  ["Before", "After"].forEach(which => {
-    $(`service${which}Btn`)?.addEventListener("click", () => $(`service${which}File`)?.click());
-    $(`service${which}Clear`)?.addEventListener("click", () => _setServicePhotoPreview(which, ""));
-    $(`service${which}File`)?.addEventListener("change", async (e) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      if (!file.type.startsWith("image/")) return showToast("ไฟล์ต้องเป็นรูปภาพ");
-      if (file.size > 5 * 1024 * 1024) return showToast("ไฟล์ใหญ่เกิน 5MB");
-      const btn = $(`service${which}Btn`);
-      if (btn) { btn.disabled = true; btn.textContent = "⏳..."; }
-      try {
-        const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
-        const ts = Date.now();
-        const rand = Math.random().toString(36).slice(2, 8);
-        const path = `service-${which.toLowerCase()}-${ts}-${rand}.${ext}`;
-        const { data, error } = await state.supabase.storage
-          .from("product-images")
-          .upload(path, file, { cacheControl: "31536000", upsert: false });
-        if (error) {
-          console.error(`[service-${which.toLowerCase()} upload]`, error);
-          showToast("อัพโหลดไม่สำเร็จ: " + (error.message || "ตรวจ bucket 'product-images'"));
-          return;
-        }
-        const { data: urlData } = state.supabase.storage.from("product-images").getPublicUrl(data.path);
-        const url = urlData?.publicUrl || "";
-        _setServicePhotoPreview(which, url);
-        showToast(`อัพโหลดรูป${which === "Before" ? "ก่อน" : "หลัง"}สำเร็จ ✓`);
-      } catch (err) {
-        showToast("ผิดพลาด: " + (err?.message || err));
-      } finally {
-        if (btn) { btn.disabled = false; btn.textContent = "📤 อัพโหลด"; }
-        e.target.value = "";
+  // Phase 32: รองรับ 2 source — 📷 กล้อง + 🖼️ แกลลอรี่ (เพื่อ user ที่อยากเลือกรูปเก่า/รูปจากที่อื่น)
+  async function _handleServicePhotoUpload(which, file) {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) return showToast("ไฟล์ต้องเป็นรูปภาพ");
+    if (file.size > 5 * 1024 * 1024) return showToast("ไฟล์ใหญ่เกิน 5MB");
+    const cameraBtn = $(`service${which}Btn`);
+    const galleryBtn = $(`service${which}GalleryBtn`);
+    const origCamera = cameraBtn?.textContent;
+    const origGallery = galleryBtn?.textContent;
+    if (cameraBtn) { cameraBtn.disabled = true; cameraBtn.textContent = "⏳..."; }
+    if (galleryBtn) { galleryBtn.disabled = true; galleryBtn.textContent = "⏳..."; }
+    try {
+      const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+      const ts = Date.now();
+      const rand = Math.random().toString(36).slice(2, 8);
+      const path = `service-${which.toLowerCase()}-${ts}-${rand}.${ext}`;
+      const { data, error } = await state.supabase.storage
+        .from("product-images")
+        .upload(path, file, { cacheControl: "31536000", upsert: false });
+      if (error) {
+        console.error(`[service-${which.toLowerCase()} upload]`, error);
+        showToast("อัพโหลดไม่สำเร็จ: " + (error.message || "ตรวจ bucket 'product-images'"));
+        return;
       }
+      const { data: urlData } = state.supabase.storage.from("product-images").getPublicUrl(data.path);
+      const url = urlData?.publicUrl || "";
+      _setServicePhotoPreview(which, url);
+      showToast(`อัพโหลดรูป${which === "Before" ? "ก่อน" : "หลัง"}สำเร็จ ✓`);
+    } catch (err) {
+      showToast("ผิดพลาด: " + (err?.message || err));
+    } finally {
+      if (cameraBtn) { cameraBtn.disabled = false; cameraBtn.textContent = origCamera || "📷 ถ่ายรูป"; }
+      if (galleryBtn) { galleryBtn.disabled = false; galleryBtn.textContent = origGallery || "🖼️ แกลลอรี่"; }
+    }
+  }
+
+  ["Before", "After"].forEach(which => {
+    // 📷 ปุ่มถ่ายรูป → input ที่มี capture="environment"
+    $(`service${which}Btn`)?.addEventListener("click", () => $(`service${which}File`)?.click());
+    // 🖼️ ปุ่มแกลลอรี่ → input ที่ไม่มี capture (เปิด file picker → user เลือกจากรูป/ไฟล์)
+    $(`service${which}GalleryBtn`)?.addEventListener("click", () => $(`service${which}GalleryFile`)?.click());
+    // 🗑️ ปุ่มลบ
+    $(`service${which}Clear`)?.addEventListener("click", () => _setServicePhotoPreview(which, ""));
+
+    // ทั้ง 2 inputs ใช้ handler เดียวกัน
+    $(`service${which}File`)?.addEventListener("change", async (e) => {
+      await _handleServicePhotoUpload(which, e.target.files?.[0]);
+      e.target.value = "";
+    });
+    $(`service${which}GalleryFile`)?.addEventListener("change", async (e) => {
+      await _handleServicePhotoUpload(which, e.target.files?.[0]);
+      e.target.value = "";
     });
   });
   $("printReceiptBtn")?.addEventListener("click", printLastReceipt);
