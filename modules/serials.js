@@ -202,7 +202,11 @@ function openSerialModal(ctx, s) {
       <div style="display:grid;gap:10px">
         <div>
           <label style="font-size:12px;font-weight:700">Serial No: <span style="color:#dc2626">*</span></label>
-          <input id="srNo" type="text" value="${escHtml(s?.serial_no || '')}" placeholder="พิมพ์ serial number" style="width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:8px;font-family:monospace;font-weight:700" />
+          <div style="display:flex;gap:6px">
+            <input id="srNo" type="text" value="${escHtml(s?.serial_no || '')}" placeholder="พิมพ์ หรือสแกน barcode" style="flex:1;padding:10px;border:1px solid #cbd5e1;border-radius:8px;font-family:monospace;font-weight:700" />
+            <button id="srScanBtn" type="button" style="padding:10px 14px;border:none;background:#0284c7;color:#fff;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap" title="สแกน barcode/QR ด้วยกล้อง">📷</button>
+          </div>
+          <div style="font-size:11px;color:#94a3b8;margin-top:4px">💡 บนมือถือกด 📷 → เปิดกล้อง → จ่อที่ barcode/QR</div>
         </div>
         <div>
           <label style="font-size:12px;font-weight:700">บิลขายที่ผูก (option):</label>
@@ -247,6 +251,18 @@ function openSerialModal(ctx, s) {
   modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
   document.body.appendChild(modal);
   setTimeout(() => modal.querySelector("#srNo")?.focus(), 50);
+
+  // Phase 23: Barcode/QR scanner
+  modal.querySelector("#srScanBtn")?.addEventListener("click", async () => {
+    const srNoInput = modal.querySelector("#srNo");
+    await openBarcodeScanner((code) => {
+      if (srNoInput) {
+        srNoInput.value = code;
+        srNoInput.focus();
+      }
+      ctx.showToast?.("✓ สแกน: " + code);
+    }, ctx);
+  });
 
   // Auto-fill จากบิลที่เลือก
   modal.querySelector("#srSale")?.addEventListener("change", (e) => {
@@ -309,3 +325,112 @@ async function updateStatus(ctx, id, newStatus) {
   ctx.showToast?.(`✓ เปลี่ยนสถานะ → ${STATUS_META[newStatus].label}`);
   renderSerialsPage(ctx);
 }
+
+// ═══════════════════════════════════════════════════════════
+// Phase 23 — Barcode/QR Scanner
+// ใช้ BarcodeDetector API (Chrome/Edge/Android) — fallback แสดง camera + manual entry
+// ═══════════════════════════════════════════════════════════
+export async function openBarcodeScanner(onDetected, ctx) {
+  document.getElementById("snScanModal")?.remove();
+
+  const modal = document.createElement("div");
+  modal.id = "snScanModal";
+  modal.style.cssText = "position:fixed;inset:0;background:#000;z-index:10001;display:flex;flex-direction:column;align-items:center;justify-content:center";
+  modal.innerHTML = `
+    <div style="position:absolute;top:0;left:0;right:0;padding:14px;background:linear-gradient(180deg,rgba(0,0,0,0.7),transparent);color:#fff;display:flex;align-items:center;gap:10px;z-index:10">
+      <button id="snScanClose" style="border:none;background:rgba(255,255,255,0.2);color:#fff;width:36px;height:36px;border-radius:50%;font-size:20px;cursor:pointer">×</button>
+      <div style="font-weight:700">📷 สแกน Barcode / QR Code</div>
+      <div id="snScanStatus" style="margin-left:auto;font-size:12px;opacity:0.8">เปิดกล้อง...</div>
+    </div>
+
+    <video id="snScanVideo" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover;background:#000"></video>
+
+    <div style="position:absolute;left:0;right:0;bottom:0;padding:16px;background:linear-gradient(0deg,rgba(0,0,0,0.85),transparent)">
+      <div style="background:rgba(255,255,255,0.95);border-radius:10px;padding:12px;max-width:480px;margin:0 auto">
+        <div style="font-size:12px;color:#475569;margin-bottom:6px">หรือพิมพ์เอง:</div>
+        <div style="display:flex;gap:6px">
+          <input id="snScanManual" type="text" placeholder="พิมพ์ Serial Number" style="flex:1;padding:10px;border:1px solid #cbd5e1;border-radius:8px;font-family:monospace;font-weight:700" />
+          <button id="snScanManualOk" style="padding:10px 16px;border:none;background:#0284c7;color:#fff;border-radius:8px;cursor:pointer;font-weight:700">ใช้</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  const video = modal.querySelector("#snScanVideo");
+  const statusEl = modal.querySelector("#snScanStatus");
+  let stream = null;
+  let detector = null;
+  let scanning = true;
+  let rafId = null;
+
+  const cleanup = () => {
+    scanning = false;
+    if (rafId) cancelAnimationFrame(rafId);
+    if (stream) {
+      try { stream.getTracks().forEach(t => t.stop()); } catch(e){}
+    }
+    modal.remove();
+  };
+
+  modal.querySelector("#snScanClose").addEventListener("click", cleanup);
+  modal.querySelector("#snScanManualOk").addEventListener("click", () => {
+    const v = modal.querySelector("#snScanManual").value.trim();
+    if (v) { onDetected(v); cleanup(); }
+  });
+  modal.querySelector("#snScanManual").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      modal.querySelector("#snScanManualOk").click();
+    }
+  });
+
+  // Try open camera
+  try {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      statusEl.textContent = "⚠️ Browser ไม่รองรับกล้อง — พิมพ์ด้านล่างได้";
+      return;
+    }
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment" } // กล้องหลังบนมือถือ
+    });
+    video.srcObject = stream;
+    statusEl.textContent = "🔍 กำลังหา barcode...";
+
+    // Try BarcodeDetector API
+    if ("BarcodeDetector" in window) {
+      try {
+        detector = new window.BarcodeDetector({
+          formats: ["qr_code", "code_128", "code_39", "ean_13", "ean_8", "upc_a", "upc_e", "data_matrix"]
+        });
+        const tick = async () => {
+          if (!scanning) return;
+          try {
+            const codes = await detector.detect(video);
+            if (codes && codes.length > 0) {
+              const code = codes[0].rawValue;
+              if (code) {
+                statusEl.textContent = "✓ เจอแล้ว: " + code;
+                onDetected(code);
+                setTimeout(cleanup, 300);
+                return;
+              }
+            }
+          } catch(e) { /* ignore frame errors */ }
+          rafId = requestAnimationFrame(tick);
+        };
+        rafId = requestAnimationFrame(tick);
+      } catch(e) {
+        statusEl.textContent = "⚠️ Detector error — พิมพ์ด้านล่าง";
+      }
+    } else {
+      statusEl.textContent = "⚠️ Browser ไม่รองรับ auto-scan — พิมพ์ด้านล่าง (กล้องช่วยอ่าน)";
+    }
+  } catch(e) {
+    statusEl.textContent = "⚠️ เปิดกล้องไม่ได้: " + (e?.message || e);
+    if (e?.name === "NotAllowedError") {
+      statusEl.textContent = "⚠️ ปฏิเสธการใช้กล้อง — เปลี่ยน permission ใน browser settings";
+    }
+  }
+}
+

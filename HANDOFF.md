@@ -1,7 +1,48 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 25 เมษายน 2026 (Phase 17-19 done)
-**Version:** 5.6.0 (build 35)
+**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 20-23 in progress)
+**Version:** 5.7.0 (build 36) — กำลังทำ
+**Previous stable:** 5.6.0 (build 35) — Phase 17-19 done
+
+---
+
+## 🚧 Phase 20-23 (in progress — 26 เม.ย. 2026)
+
+### Phase 20: 🔧 Fix Update Button (CRITICAL)
+**Why:** ปุ่ม "ตรวจหาอัปเดต / บังคับอัปเดต" ใน Settings ใช้ไม่ได้จริง — user ต้อง Ctrl+Shift+R เอง
+- Unregister ALL service workers ก่อน reload
+- Delete ALL cache storage (caches.keys() → caches.delete each)
+- Show progress toast ไม่ให้กดแล้วเงียบ
+- Force reload ด้วย cache-busting query string + `location.replace()`
+- Test บนมือถือจริง (iOS Safari + Android Chrome)
+
+### Phase 21: 📷 Auto-link Serial from POS
+**Why:** ตอนนี้ต้องไป +เพิ่ม Serial เองทีหลัง — ลืมง่าย
+- หลัง checkout สำเร็จ → check ว่ามี item ที่ขายเข้าข่าย "เครื่องใช้ไฟฟ้า" มั้ย
+- Popup ถาม "ขายเครื่องใช้ไฟฟ้า — บันทึก Serial Number มั้ย?"
+- Inline form: pre-fill product/customer/sale_id + ช่องกรอก SN + warranty months
+- Save ตรงเข้า product_serials linked sale_id
+
+### Phase 22: 📊 Warranty Report + LINE Notify
+**Why:** ลูกค้าไม่รู้ว่าประกันใกล้หมด → เสียโอกาสขาย service
+- เพิ่ม cron-style check (เช็คตอน load app) → serial ที่ warranty_until ภายใน 30 วัน
+- ส่ง LINE notify (ถ้ามี customer.line_id หรือเบอร์) ผ่าน existing /api/line-notify
+- Settings: เปิด/ปิด + threshold days (15/30/60)
+- หน้า Warranty Report (filter: ใกล้หมด / หมดแล้ว / ทั้งหมด)
+
+### Phase 23: 📷 Barcode/QR Scanner for Serial
+**Why:** พิมพ์ serial มือเสียเวลา + ผิดพลาดง่าย
+- ปุ่ม "📷 Scan" ข้าง input "Serial No" ใน serial modal
+- ใช้ `BarcodeDetector` API (Chrome/Edge) — fallback `getUserMedia` + manual entry
+- Mobile-first — ทดสอบบน iOS + Android
+- รองรับ EAN-13 / Code128 / QR Code
+
+### Bump
+- main.js?v=35 → v=36
+- SW v19 → v20
+- Version display 5.6.0 → 5.7.0 (build 36)
+
+---
 **สถานะ:** Production ที่ boonsukair.com (Cloudflare Pages + Supabase)
 **เป้าหมายเอกสาร:** Claude session ใหม่ / ผู้ช่วยใหม่ อ่านไฟล์นี้แล้วต่องานได้ทันที
 

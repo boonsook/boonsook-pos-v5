@@ -39,6 +39,7 @@ import { renderProfitByProductPage } from "./modules/profit_by_product.js";
 import { renderBirthdaysPage, checkTodayBirthdaysAndNotify } from "./modules/birthdays.js";
 import { renderQuoteTemplatesPage } from "./modules/quote_templates.js";
 import { renderSerialsPage } from "./modules/serials.js";
+import { renderWarrantyReportPage, checkWarrantyExpiringAndNotify } from "./modules/warranty_report.js";
 import { renderAiSalesPage } from "./modules/ai_sales.js";
 import { renderAcShopPage } from "./modules/ac_shop.js";
 import "./modules/doc-override.js";
@@ -811,11 +812,11 @@ function isLowStock(product){ return Number(product.stock||0) <= Number(product.
 // ═══════════════════════════════════════════════════════════
 //  ROLE-BASED ACCESS CONTROL (4 กลุ่ม)
 // ═══════════════════════════════════════════════════════════
-const ALL_ROUTES = ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","quote_templates","service_jobs","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","refunds","tasks","profit_by_product","birthdays","serials","calendar","loyalty","customer_dashboard","btu_calculator","service_request","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"];
+const ALL_ROUTES = ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","quote_templates","service_jobs","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","refunds","tasks","profit_by_product","birthdays","serials","warranty_report","calendar","loyalty","customer_dashboard","btu_calculator","service_request","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"];
 const ROLE_PAGES = {
   admin:      ALL_ROUTES,
   technician: ["dashboard","pos","service_jobs","customers","receipts","calendar","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop","stock_count"],
-  sales:      ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","quote_templates","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","refunds","tasks","profit_by_product","birthdays","serials","calendar","loyalty","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"],
+  sales:      ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","quote_templates","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","refunds","tasks","profit_by_product","birthdays","serials","warranty_report","calendar","loyalty","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"],
   customer:   ["customer_dashboard","btu_calculator","service_request","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"]
 };
 const ROLE_LABELS = {
@@ -924,6 +925,7 @@ function showRoute(route){
     profit_by_product:"กำไรต่อสินค้า",
     birthdays:"วันเกิดลูกค้า",
     serials:"Serial Number Tracking",
+    warranty_report:"รายงาน Warranty",
     quote_templates:"Template ใบเสนอราคา",
     ai_sales:"AI ผู้ช่วยขายแอร์",
     ac_shop:"แอร์ใหม่พร้อมติดตั้ง"
@@ -972,6 +974,7 @@ function showRoute(route){
   if (route === "birthdays") renderBirthdaysPage(ctx);
   if (route === "quote_templates") renderQuoteTemplatesPage(ctx);
   if (route === "serials") renderSerialsPage(ctx);
+  if (route === "warranty_report") renderWarrantyReportPage(ctx);
   if (route === "ai_sales") renderAiSalesPage(ctx);
   if (route === "ac_shop") renderAcShopPage(ctx);
 
@@ -1399,6 +1402,7 @@ async function afterLogin(){
   setTimeout(() => {
     try { checkOverdueTasksAndNotify(state); } catch(e){ console.warn("[overdue tasks check]", e); }
     try { checkTodayBirthdaysAndNotify(state); } catch(e){ console.warn("[bday check]", e); }
+    try { checkWarrantyExpiringAndNotify(state); } catch(e){ console.warn("[warranty check]", e); }
   }, 3000); // หลัง app load 3 วินาทีค่อยเช็ค
 }
 
@@ -2675,6 +2679,157 @@ window._appDeductStockSmart = async function({ product, qty, orderNo }) {
     return await _deductStockForSaleItem({ product, qty, orderNo });
   }
 };
+
+// ═══════════════════════════════════════════════════════════
+// Phase 21 — Auto-link Serial Number after sale
+// หลัง checkout → ถ้ามี item ที่เข้าข่ายเครื่องใช้ไฟฟ้า
+//   → popup ถาม "บันทึก serial มั้ย?" → modal กรอก SN ทีละชิ้น
+// Detection: ราคา ≥ 1,500 OR ชื่อสินค้ามี keyword: แอร์/ทีวี/ตู้เย็น/เครื่องซักผ้า/พัดลม/ไมโครเวฟ
+// ═══════════════════════════════════════════════════════════
+const SERIAL_KEYWORDS = ["แอร์","ทีวี","tv","ตู้เย็น","เครื่องซักผ้า","ไมโครเวฟ","เตาอบ","หม้อหุงข้าว","พัดลม","เครื่องทำน้ำอุ่น","เครื่องทำน้ำร้อน","หม้อทอด","เตารีด","กระติก","Mitsubishi","Samsung","LG","Daikin","Panasonic","Hitachi","Sharp","Toshiba","Haier"];
+
+function _qualifiesForSerial(item) {
+  const name = String(item?.product_name || item?.name || "").toLowerCase();
+  const price = Number(item?.unit_price || item?.price || 0);
+  if (price >= 1500) return true;
+  for (const kw of SERIAL_KEYWORDS) {
+    if (name.includes(kw.toLowerCase())) return true;
+  }
+  return false;
+}
+
+window._appPromptSerialAfterSale = function({ saleId, items, customerId, customerName }) {
+  if (!saleId || !Array.isArray(items) || items.length === 0) return;
+  const qualifying = items.filter(_qualifiesForSerial);
+  if (qualifying.length === 0) return;
+
+  // ถาม user ก่อน — non-blocking dialog
+  document.getElementById("serialPromptModal")?.remove();
+  const ask = document.createElement("div");
+  ask.id = "serialPromptModal";
+  ask.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px";
+  ask.innerHTML = `
+    <div style="background:#fff;border-radius:14px;max-width:420px;width:100%;padding:20px;text-align:center">
+      <div style="font-size:40px;margin-bottom:8px">🔢</div>
+      <h3 style="margin:0 0 8px;color:#0c4a6e">บันทึก Serial Number?</h3>
+      <p style="font-size:14px;color:#475569;margin:0 0 16px;line-height:1.5">
+        บิลนี้มีเครื่องใช้ไฟฟ้า <b style="color:#0284c7">${qualifying.length} รายการ</b><br>
+        บันทึก SN เพื่อ track warranty?
+      </p>
+      <div style="background:#f1f5f9;padding:10px;border-radius:8px;margin-bottom:14px;text-align:left;font-size:13px">
+        ${qualifying.map(it => `<div>• ${(it.product_name || it.name || "").slice(0, 40)} × ${it.qty}</div>`).join("")}
+      </div>
+      <div style="display:flex;gap:8px">
+        <button id="serialPromptSkip" style="flex:1;padding:10px;border:1px solid #cbd5e1;background:#fff;border-radius:8px;cursor:pointer">ข้าม</button>
+        <button id="serialPromptYes" style="flex:1;padding:10px;border:none;background:#0284c7;color:#fff;border-radius:8px;cursor:pointer;font-weight:700">+ บันทึก SN</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(ask);
+  document.getElementById("serialPromptSkip").addEventListener("click", () => ask.remove());
+  document.getElementById("serialPromptYes").addEventListener("click", () => {
+    ask.remove();
+    _openSerialBatchModal({ saleId, items: qualifying, customerId, customerName });
+  });
+};
+
+function _openSerialBatchModal({ saleId, items, customerId, customerName }) {
+  document.getElementById("serialBatchModal")?.remove();
+  const today = new Date();
+  const defaultWarranty = new Date(today.getFullYear() + 1, today.getMonth(), today.getDate()).toISOString().slice(0, 10);
+
+  // Expand แต่ละ item ตาม qty (1 SN ต่อ 1 ชิ้น)
+  const slots = [];
+  items.forEach(it => {
+    const qty = Number(it.qty || 1);
+    for (let i = 0; i < qty; i++) {
+      slots.push({
+        product_id: it.product_id || null,
+        product_name: it.product_name || it.name || "สินค้า",
+        sale_item_id: it.id || null,
+        idx: i + 1,
+        total: qty
+      });
+    }
+  });
+
+  const modal = document.createElement("div");
+  modal.id = "serialBatchModal";
+  modal.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px";
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:14px;max-width:560px;width:100%;max-height:90vh;overflow-y:auto;padding:20px">
+      <h3 style="margin:0 0 6px;color:#0c4a6e">🔢 บันทึก Serial Number (${slots.length} ชิ้น)</h3>
+      <div style="font-size:12px;color:#64748b;margin-bottom:14px">ลูกค้า: <b>${customerName || "ลูกค้าทั่วไป"}</b> • ปล่อยว่างได้ถ้ายังไม่มี SN</div>
+
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;padding:10px;background:#f0f9ff;border-radius:8px">
+        <label style="font-size:12px;font-weight:700;flex:1">วันหมดประกัน (default ทุกชิ้น):</label>
+        <input id="snBatchWarranty" type="date" value="${defaultWarranty}" style="padding:6px;border:1px solid #cbd5e1;border-radius:6px" />
+      </div>
+
+      <div id="snSlotsList" style="display:grid;gap:10px">
+        ${slots.map((s, i) => `
+          <div style="border:1px solid #e5e7eb;border-radius:8px;padding:10px;background:#fafafa">
+            <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:6px">
+              ${s.product_name} ${s.total > 1 ? `(${s.idx}/${s.total})` : ''}
+            </div>
+            <input type="text" data-slot="${i}" placeholder="กรอก Serial Number (ปล่อยว่าง = ข้ามชิ้นนี้)"
+              style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:6px;font-family:monospace;font-weight:700" />
+          </div>
+        `).join("")}
+      </div>
+
+      <div style="display:flex;gap:8px;margin-top:16px">
+        <button id="snBatchCancel" style="flex:1;padding:10px;border:1px solid #cbd5e1;background:#fff;border-radius:8px;cursor:pointer">ข้าม</button>
+        <button id="snBatchSave" style="flex:2;padding:10px;border:none;background:#0284c7;color:#fff;border-radius:8px;cursor:pointer;font-weight:700">💾 บันทึกทั้งหมด</button>
+      </div>
+    </div>
+  `;
+  modal.addEventListener("click", e => { if (e.target === modal) modal.remove(); });
+  document.body.appendChild(modal);
+  setTimeout(() => modal.querySelector("input[data-slot='0']")?.focus(), 80);
+
+  document.getElementById("snBatchCancel").addEventListener("click", () => modal.remove());
+  document.getElementById("snBatchSave").addEventListener("click", async () => {
+    const warranty = document.getElementById("snBatchWarranty").value || null;
+    const inputs = modal.querySelectorAll("input[data-slot]");
+    const payloads = [];
+    inputs.forEach((inp, i) => {
+      const sn = (inp.value || "").trim();
+      if (!sn) return;
+      const slot = slots[i];
+      payloads.push({
+        sale_id: saleId,
+        sale_item_id: slot.sale_item_id || null,
+        product_id: slot.product_id || null,
+        product_name: slot.product_name,
+        customer_id: customerId || null,
+        customer_name: customerName || null,
+        serial_no: sn,
+        warranty_until: warranty,
+        status: "active"
+      });
+    });
+    if (payloads.length === 0) {
+      modal.remove();
+      window.App?.showToast?.("ไม่ได้บันทึก SN");
+      return;
+    }
+    const cfg = window.SUPABASE_CONFIG;
+    const accessToken = window._sbAccessToken || cfg.anonKey;
+    try {
+      const r = await fetch(cfg.url + "/rest/v1/product_serials", {
+        method: "POST",
+        headers: { "Content-Type":"application/json","apikey":cfg.anonKey,"Authorization":"Bearer "+accessToken,"Prefer":"return=minimal" },
+        body: JSON.stringify(payloads)
+      });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      modal.remove();
+      window.App?.showToast?.(`✓ บันทึก ${payloads.length} serial(s)`);
+    } catch(e) {
+      window.App?.showToast?.("บันทึก SN ไม่สำเร็จ: " + (e?.message || e));
+    }
+  });
+}
 
 async function checkout(){
   if (!state.cart.length) return showToast("ยังไม่มีสินค้าในบิล");

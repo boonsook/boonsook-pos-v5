@@ -22,8 +22,8 @@ export function renderSettingsAbout(el, ctx, goBack) {
           <div style="font-size:12px;color:#64748b">ระบบจัดการร้านค้าอิเล็กทรอนิกส์แบบครบวงจร</div>
         </div>
         <div style="display:grid;gap:6px;font-size:13px;color:#334155">
-          <div><strong>Version:</strong> 5.6.0</div>
-          <div><strong>Release:</strong> April 2026 (build 35)</div>
+          <div><strong>Version:</strong> 5.7.0</div>
+          <div><strong>Release:</strong> April 2026 (build 36)</div>
           <div><strong>Developer:</strong> Boonsook Electronics</div>
           <div><strong>Contact:</strong> gangboo@gmail.com</div>
         </div>
@@ -55,80 +55,127 @@ export function renderSettingsAbout(el, ctx, goBack) {
   const statusEl = document.getElementById("appUpdateStatus");
   const setStatus = (msg, color) => { if (statusEl) { statusEl.textContent = msg; statusEl.style.color = color || "#475569"; } };
 
+  // ─────────────────────────────────────────────────────────────
+  // Phase 20 — Fix Update Button (CRITICAL)
+  // ปัญหาเดิม: ปุ่มกดแล้วเงียบ / location.reload() โดน cache เสมอ
+  // ─────────────────────────────────────────────────────────────
+
+  // helper: hard reload — bypass HTTP cache + cache-bust query
+  function hardReload() {
+    try {
+      const u = new URL(window.location.href);
+      u.searchParams.set("_t", String(Date.now()));
+      window.location.replace(u.toString());
+    } catch(e) {
+      window.location.href = window.location.pathname + "?_t=" + Date.now();
+    }
+  }
+
+  // helper: full nuke — unregister SW + delete caches + clear sw state
+  async function nukeEverything(progress) {
+    progress?.("🗑️ กำลังลบ Service Worker...");
+    if ('serviceWorker' in navigator) {
+      try {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        for (const r of regs) {
+          try { await r.unregister(); } catch(e) { console.warn("unregister fail", e); }
+        }
+      } catch(e) { console.warn("getRegistrations fail", e); }
+    }
+
+    progress?.("🗑️ กำลังลบ cache ทั้งหมด...");
+    if ('caches' in window) {
+      try {
+        const keys = await caches.keys();
+        for (const k of keys) {
+          try { await caches.delete(k); } catch(e) { console.warn("cache delete fail", e); }
+        }
+      } catch(e) { console.warn("caches.keys fail", e); }
+    }
+
+    // Clear ONLY app-update related localStorage flags (เก็บ token/settings ไว้)
+    progress?.("🗑️ กำลัง reset update flags...");
+    try {
+      const keysToRemove = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && (k.startsWith("sw-") || k.startsWith("update-") || k.startsWith("cache-"))) {
+          keysToRemove.push(k);
+        }
+      }
+      keysToRemove.forEach(k => localStorage.removeItem(k));
+    } catch(e) { console.warn("localStorage clear fail", e); }
+  }
+
   document.getElementById("appCheckUpdateBtn")?.addEventListener("click", async () => {
     const btn = document.getElementById("appCheckUpdateBtn");
+    const orig = btn.textContent;
     btn.disabled = true; btn.textContent = "⏳ กำลังตรวจ...";
-    setStatus("กำลังถาม server หาเวอร์ชันใหม่...", "#0284c7");
+    setStatus("📡 กำลังถาม server หาเวอร์ชันใหม่...", "#0284c7");
     try {
       if (!('serviceWorker' in navigator)) {
-        setStatus("⚠️ Browser ไม่รองรับ Service Worker", "#dc2626");
+        setStatus("⚠️ Browser ไม่รองรับ Service Worker — กดปุ่มสีแดง 'บังคับอัปเดต' แทน", "#dc2626");
         return;
       }
-      // ★ Step 1: บังคับโหลด sw.js ใหม่จาก network (bypass HTTP cache)
-      try {
-        await fetch('./sw.js?bust=' + Date.now(), { cache: 'no-store' });
-      } catch(e) { /* ignore — main update() ก็จะลองอีก */ }
 
-      // ★ Step 2: บังคับโหลด index.html (เพื่อให้ ?v= ใหม่ของ main.js โผล่)
+      // Step 1: ดึง index.html ใหม่จาก network (no-store) — เช็คว่า build ใหม่กว่ามั้ย
+      let newBuild = null, currentBuild = null;
       try {
-        await fetch('./index.html?bust=' + Date.now(), { cache: 'no-store' });
-      } catch(e) {}
+        currentBuild = document.querySelector('script[src*="main.js"]')?.src.match(/v=(\d+)/)?.[1] || null;
+        const r = await fetch('./index.html?_=' + Date.now(), { cache: 'no-store' });
+        const html = await r.text();
+        newBuild = html.match(/main\.js\?v=(\d+)/)?.[1] || null;
+      } catch(e) { console.warn("fetch index fail", e); }
 
+      // Step 2: สั่ง SW ตรวจอัปเดต
       const reg = await navigator.serviceWorker.getRegistration();
-      if (!reg) { setStatus("⚠️ ไม่พบ Service Worker — ลอง 'ล้าง Cache'", "#dc2626"); return; }
+      if (reg) {
+        try { await reg.update(); } catch(e) { console.warn("reg.update fail", e); }
+        await new Promise(r => setTimeout(r, 1500));
+      }
 
-      // ★ Step 3: ให้ SW ตรวจอัปเดต
-      await reg.update();
-      // รอสักครู่ให้ updatefound trigger
-      await new Promise(r => setTimeout(r, 2000));
+      // Step 3: ตัดสินใจ
+      const hasNewBuild = newBuild && currentBuild && newBuild !== currentBuild;
+      const hasWaiting = reg?.waiting;
+      const hasInstalling = reg?.installing;
 
-      if (reg.waiting) {
-        setStatus("✅ มีเวอร์ชันใหม่! กำลัง apply + reload...", "#059669");
-        reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-        setTimeout(() => window.location.reload(), 800);
-      } else if (reg.installing) {
-        setStatus("⏳ กำลังดาวน์โหลด... รอ 5 วินาทีแล้วกดปุ่มอีกครั้ง", "#f59e0b");
+      if (hasNewBuild || hasWaiting) {
+        setStatus(`✅ พบเวอร์ชันใหม่ (build ${newBuild || '?'} ← ปัจจุบัน build ${currentBuild || '?'}) — กำลัง apply + reload...`, "#059669");
+        if (hasWaiting) {
+          try { reg.waiting.postMessage({ type: 'SKIP_WAITING' }); } catch(e){}
+        }
+        await new Promise(r => setTimeout(r, 800));
+        hardReload();
+      } else if (hasInstalling) {
+        setStatus("⏳ กำลังดาวน์โหลดเวอร์ชันใหม่... รอ 5 วินาทีแล้วกดอีกครั้ง", "#f59e0b");
       } else {
-        setStatus("✓ คุณใช้เวอร์ชันล่าสุดแล้ว — ไม่มีอัปเดตใหม่", "#059669");
+        setStatus(`✓ คุณใช้เวอร์ชันล่าสุดแล้ว (build ${currentBuild || '?'}) — ไม่มีอัปเดตใหม่`, "#059669");
       }
     } catch (e) {
-      setStatus("❌ ผิดพลาด: " + (e?.message || e) + " — ลอง 'ล้าง Cache' แทน", "#dc2626");
+      setStatus("❌ ผิดพลาด: " + (e?.message || e) + " — กดปุ่มสีแดง 'บังคับอัปเดต' แทน", "#dc2626");
     } finally {
-      btn.disabled = false; btn.textContent = "🔄 ตรวจหาอัปเดต";
+      btn.disabled = false; btn.textContent = orig;
     }
   });
 
   document.getElementById("appForceReloadBtn")?.addEventListener("click", () => {
-    setStatus("⚡ กำลังโหลดใหม่...", "#0284c7");
-    // bypass cache
-    if (window.location.reload.length > 0) {
-      try { window.location.reload(true); } catch(e) { window.location.reload(); }
-    } else {
-      window.location.reload();
-    }
+    setStatus("⚡ กำลังโหลดใหม่ (bypass cache)...", "#0284c7");
+    setTimeout(hardReload, 300);
   });
 
   document.getElementById("appClearCacheBtn")?.addEventListener("click", async () => {
-    if (!confirm("ล้าง cache ทั้งหมด + reload? (จะใช้เวลาโหลดใหม่ครั้งแรกนานขึ้น)")) return;
+    if (!confirm("ล้าง cache + Service Worker ทั้งหมด + reload?\n\n(โหลดใหม่ครั้งแรกจะนานขึ้น แต่จะได้เวอร์ชันล่าสุดแน่นอน)")) return;
     const btn = document.getElementById("appClearCacheBtn");
+    const orig = btn.textContent;
     btn.disabled = true; btn.textContent = "⏳ กำลังล้าง...";
-    setStatus("🗑️ กำลังล้าง cache...", "#0284c7");
     try {
-      // 1. unregister all SW
-      if ('serviceWorker' in navigator) {
-        const regs = await navigator.serviceWorker.getRegistrations();
-        for (const r of regs) await r.unregister();
-      }
-      // 2. delete all caches
-      if ('caches' in window) {
-        const keys = await caches.keys();
-        for (const k of keys) await caches.delete(k);
-      }
-      setStatus("✅ ล้างเสร็จ — กำลัง reload...", "#059669");
-      setTimeout(() => window.location.reload(), 600);
+      await nukeEverything(setStatus);
+      setStatus("✅ ล้างหมดแล้ว — กำลัง reload เวอร์ชันใหม่...", "#059669");
+      await new Promise(r => setTimeout(r, 800));
+      hardReload();
     } catch (e) {
       setStatus("❌ ผิดพลาด: " + (e?.message || e), "#dc2626");
-      btn.disabled = false; btn.textContent = "🗑️ ล้าง Cache";
+      btn.disabled = false; btn.textContent = orig;
     }
   });
 }

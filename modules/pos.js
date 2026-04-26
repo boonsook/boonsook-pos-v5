@@ -966,6 +966,20 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
       }
     } catch(e) { console.warn("[POS] notify error:", e?.message); }
 
+    // ★ Phase 21: ถามบันทึก Serial Number ถ้าเป็นเครื่องใช้ไฟฟ้า (non-blocking)
+    try {
+      if (window._appPromptSerialAfterSale && saleId) {
+        const items = state.lastReceipt?.items || [];
+        const cName = _posCustomer?.name || custName || "ลูกค้าทั่วไป";
+        const cId = _posCustomer?.id || null;
+        // เปิดถามหลัง receipt drawer แสดงแล้ว 1 วินาที (ไม่กวน)
+        setTimeout(() => {
+          try { window._appPromptSerialAfterSale({ saleId, items, customerId: cId, customerName: cName }); }
+          catch(e) { console.warn("[POS] serial prompt failed:", e?.message); }
+        }, 1200);
+      }
+    } catch(e) { console.warn("[POS] serial prompt setup failed:", e?.message); }
+
   } catch (err) {
     window.App?.showToast?.("เกิดข้อผิดพลาด: " + (err.message || err));
     console.error("[pos doCheckout] error:", err);

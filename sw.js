@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v19 (2026-04-25): + Phase 17-19 (Security Hardening + Bundle/Set + Serial Number Tracking)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v19';
+// v20 (2026-04-26): + Phase 20-23 (Fix Update + Auto-link Serial + Warranty Report + Barcode Scanner)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v20';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
