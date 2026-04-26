@@ -1,8 +1,42 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 27 — Fix AI help HTTP 400)
-**Version:** 5.8.2 (build 40)
-**Previous:** 5.8.1 (build 39) — Phase 26 (Cleanup #2)
+**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 28 — Fix update banner mobile)
+**Version:** 5.8.3 (build 41)
+**Previous:** 5.8.2 (build 40) — Phase 27 (Fix AI help HTTP 400)
+
+---
+
+## 🐛 Phase 28 — Fix Update Banner ไม่ apply บนมือถือ (26 เม.ย. รอบ 4)
+
+### Bug
+- index.html ขึ้น banner "🔄 มีเวอร์ชันใหม่ — คลิกเพื่อใช้งาน"
+- กด "อัปเดตเลย" → SW activate ใหม่จริง + `controllerchange` event ยิง
+- แต่ใช้ `window.location.reload()` ปกติ → **HTTP cache ของ browser ยัง serve เก่า**
+- บนมือถือ (iOS Safari, PWA) — HTTP cache aggressive → ดูเหมือนไม่อัพเดท
+- เดสท็อป Chrome อาจ work เพราะ DevTools "Disable cache" หรือ refresh logic ต่าง
+
+### Root cause
+Phase 20 ของ user แก้ปุ่ม **ในหน้า Settings** ให้ใช้ `location.replace(url + '?_t=' + Date.now())`
+แต่ **banner ใน index.html ยังใช้ `reload()` ปกติ** — ลืมแก้คู่กัน
+
+### Fix
+[index.html:683-694](index.html:683) controllerchange handler — ใช้ cache-bust reload เหมือน Phase 20:
+```js
+var u = new URL(window.location.href);
+u.searchParams.set('_t', String(Date.now()));
+window.location.replace(u.toString());
+```
+
+### ⚠️ Catch-22 สำหรับ user
+Fix อยู่ใน 5.8.3 → user มือถือต้อง **manual force update ครั้งสุดท้าย**:
+- Settings → 🚀 บังคับอัปเดต สีแดง (Phase 20 fix — work)
+- หรือ ปิดแอป swipe ทิ้ง → เปิดใหม่
+- หลังจากได้ 5.8.3 → banner update flow จะ work เองทุกครั้งต่อไป
+
+### Bump
+- main.js?v=40 → v=41
+- SW v24 → v25
+- Version display 5.8.2 → 5.8.3 (build 41)
 
 ---
 

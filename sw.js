@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v24 (2026-04-26): Phase 27 — Fix AI help chat HTTP 400 (mode:"help" + correct payload)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v24';
+// v25 (2026-04-26): Phase 28 — Fix update banner ไม่ apply จริงบนมือถือ (cache-bust reload)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v25';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

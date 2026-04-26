@@ -620,7 +620,7 @@
     </div>
   </aside>
 
-  <script type="module" src="./main.js?v=40"></script>
+  <script type="module" src="./main.js?v=41"></script>
   <script>
     // ═══ Loading Overlay ═══
     function hideLoadingOverlay() {
@@ -679,11 +679,19 @@
       }
 
       // Reload once the new SW takes control (single reload guard)
+      // ★ Phase 28: ใช้ location.replace + cache-bust query เพื่อ bypass HTTP cache
+      // (location.reload() ปกติไม่ bust HTTP cache บน iOS Safari + PWA)
       let reloaded = false;
       navigator.serviceWorker.addEventListener('controllerchange', function () {
         if (reloaded) return;
         reloaded = true;
-        window.location.reload();
+        try {
+          var u = new URL(window.location.href);
+          u.searchParams.set('_t', String(Date.now()));
+          window.location.replace(u.toString());
+        } catch (e) {
+          window.location.href = window.location.pathname + '?_t=' + Date.now();
+        }
       });
 
       window.addEventListener('load', function () {
