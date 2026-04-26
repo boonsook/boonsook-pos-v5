@@ -1,20 +1,74 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 41 — Cache Drift Cleanup)
-**Version:** 5.9.5 (build 53)
-**Previous:** 5.9.4 (build 52) — Phase 40 (Fix AC install product filter)
+**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 42 — AC install line items + receipt)
+**Version:** 5.10.0 (build 54)
+**Previous:** 5.9.5 (build 53) — Phase 41 (Cache Drift Cleanup)
 
 **🛡️ Phase 17 Active!** — KV binding ผูกแล้ว (Production + Preview), tested 429 OK
 
 ---
 
-## 🧹 Phase 41 — Cache Drift Cleanup (26 เม.ย. รอบ 14 — Pre-emptive audit)
+## ⚠️ ACTION REQUIRED (Phase 42)
+
+User ต้องรัน `supabase-rls-policies.sql` ใหม่ — เพิ่ม column:
+```sql
+ALTER TABLE service_jobs ADD COLUMN IF NOT EXISTS items_json JSONB DEFAULT '[]'::jsonb;
+```
+(idempotent — รันซ้ำได้ปลอดภัย)
+
+ถ้าไม่รัน → บันทึกใบงานติดตั้งจะ error "column items_json does not exist"
+
+---
+
+## 🛠️ Phase 42 — AC Install: Line Items + Receipt + LINE (26 เม.ย. รอบ 17)
+
+### User request
+"ผมอยากให้เอาสต็อกในร้าน งานแอร์ และสต็อกนี้ มาให้ช่างเลือกบันทึกงาน ตรงนี้ด้วยครับ
+เวลาไปปิดงานแอร์เก่าลูกค้า เพิ่มอุปกรณ์ได้ด้วย ส่งสลิปใบเสร็จ รวมยอดให้ลูกค้าได้เลยครับ"
+
+### Phase B — Line items picker
+แทน input field "ค่าท่อทองแดง / น้ำทิ้ง / ขาตั้ง / ค่าไฟ" (เป็นตัวเลข) → **เลือกอุปกรณ์จากสต็อกจริง**
+
+- เพิ่ม section "🔧 อุปกรณ์เพิ่มเติม (จากสต็อก)" + ปุ่ม "+ เพิ่มอุปกรณ์"
+- เปิด **picker modal** — search สินค้าทั้งร้าน (ชื่อ/barcode/หมวด) ที่มี stock > 0
+- แสดง: รายการ / qty / ราคา/ชิ้น / ปุ่มลบ
+- แก้ qty + ราคา inline ได้
+- รวมราคาแบบ real-time
+
+### Phase C — Receipt + LINE share หลังบันทึก
+หลัง save สำเร็จ → แสดง 3 ปุ่ม:
+1. **📄 ดูใบเสร็จ / พิมพ์** — modal HTML format ใบเสร็จเต็ม
+2. **📤 ส่ง LINE ลูกค้า** — ใช้ sendLineNotify(msg, ctx, "done")
+3. **+ สร้างใบใหม่** — เคลียร์ form + items
+
+### Schema change
+```sql
+ALTER TABLE service_jobs ADD COLUMN items_json JSONB DEFAULT '[]'::jsonb
+```
+- เก็บ array: `[{product_id, name, qty, unit_price, line_total, is_main}]`
+
+### Bump
+- main.js?v=53 → v=54
+- SW v37 → v38
+- Version display 5.9.5 → 5.10.0 (build 54) — minor bump เพราะ feature ใหญ่
+- selfHeal APP_BUILD: 53 → 54
+
+### Test checklist
+1. รัน SQL migration ที่ Supabase (ที่จุด ⚠️ ACTION REQUIRED ด้านบน)
+2. Sidebar → งานช่าง → ติดตั้งแอร์
+3. กรอกข้อมูลลูกค้า + เลือกรุ่นแอร์
+4. กด "+ เพิ่มอุปกรณ์" → ค้นหา → เลือกหลายๆ ตัว → แก้ qty/ราคา
+5. กรอกค่าแรง + ส่วนลด → ดูยอดรวม
+6. กด "💾 บันทึกใบงานติดตั้ง"
+7. ปุ่ม 3 ปุ่ม: 📄 ดูใบเสร็จ + พิมพ์ / 📤 ส่ง LINE / + สร้างใบใหม่
+
+---
+
+## 🧹 Phase 41 — Cache Drift Cleanup (26 เม.ย. รอบ 14 — Pre-emptive audit by user)
 
 ### Why
 Audit เจอ 4 static assets ใน index.html ที่ไม่มี `?v=` cache-bust + ไม่มี `_headers` rule
 → ใช้ default cache aggressive → bug class "cache stale" ซ่อนอยู่ (เหมือน Phase 38 logo overflow)
-
-> 📝 Note: Phase number bump 40 → 41 เพราะ session อื่น push "Phase 40 — Fix AC install" ก่อน
 
 ### Files at risk (ก่อน fix)
 | File | Risk | Severity |
@@ -26,21 +80,10 @@ Audit เจอ 4 static assets ใน index.html ที่ไม่มี `?v=`
 
 ### Fix
 1. **index.html** — เพิ่ม `?v=1` ทั้ง 4 ไฟล์ (cache-bust)
-2. **_headers** — เพิ่ม rules:
-   - `/supabase-config.js` → `no-cache, must-revalidate` (CRITICAL)
-   - `/phase4-*.css` → `max-age=0, must-revalidate`
-   - `/doc-print.css` → `max-age=0, must-revalidate`
+2. **_headers** — เพิ่ม rules: `/supabase-config.js` no-cache + `/phase4-*.css` revalidate
 
-### Result
-- ครั้งหน้าแก้ไฟล์ใดก็ตาม → bump `?v=` → user ได้ของใหม่ทันที
-- ไม่ต้องรอ Phase 38-style hotfix อีก
-- Permanent — protection สำหรับ deploy ในอนาคต
-
-### Bump
-- main.js?v=52 → v=53
-- SW v36 → v37
-- Version display 5.9.4 → 5.9.5
-- selfHeal APP_BUILD: 52 → 53
+### Bump (Phase 41)
+- main.js?v=52 → v=53, SW v36 → v37, version 5.9.4 → 5.9.5 (build 53), APP_BUILD: 52 → 53
 
 ---
 

@@ -242,6 +242,11 @@ ALTER TABLE IF EXISTS public.service_jobs
   ADD COLUMN IF NOT EXISTS photo_before TEXT,
   ADD COLUMN IF NOT EXISTS photo_after  TEXT;
 
+-- ★ Phase 41 — รายการอุปกรณ์ในงานติดตั้งแอร์
+-- Format: [{product_id, name, qty, unit_price, line_total}]
+ALTER TABLE IF EXISTS public.service_jobs
+  ADD COLUMN IF NOT EXISTS items_json JSONB DEFAULT '[]'::jsonb;
+
 -- ═══════════════════════════════════════════════════════════════
 -- 2.7) Trigger + Backfill: Auto-create profiles row จาก auth.users
 --      แก้ปัญหา user สร้างใน Supabase Dashboard แต่ไม่โผล่ในหน้าแอป

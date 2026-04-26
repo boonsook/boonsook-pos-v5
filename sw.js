@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v37 (2026-04-26): Phase 41 — Cache Drift Cleanup (?v= + _headers for missing assets)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v37';
+// v38 (2026-04-26): Phase 42 — AC install line items + receipt + LINE share
+const CACHE_NAME = 'boonsook-pos-v5-cache-v38';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
