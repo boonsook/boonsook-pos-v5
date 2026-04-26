@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v39 (2026-04-26): Phase 43 — AC install stock deduction (mobile-only + auto-transfer)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v39';
+// v40 (2026-04-26): Phase 43.1 — Hotfix: re-pick mobile when picker chose home (force transfer)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v40';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

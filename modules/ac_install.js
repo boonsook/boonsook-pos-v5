@@ -232,17 +232,18 @@ export function renderAcInstallPage(ctx) {
       const token = (await state.supabase.auth.getSession())?.data?.session?.access_token || cfg.anonKey;
 
       // items_json: รวมทั้งแอร์หลัก + อุปกรณ์
-      // Phase 43: main air ก็ต้องเลือก warehouse — auto-pick mobile แรกที่มีของ, fallback บ้าน
+      // Phase 43: main air → auto-pick mobile (รถ) เสมอ — ถ้าไม่มีในรถ → pick mobile ตัวแรก ที่ระบบมี (force transfer flow)
+      const mobileWhList = _getMobileWarehouses(state);
       const fullItems = [];
       if (productId && productPrice > 0) {
         const mainProd = (state.products || []).find(p => String(p.id) === String(productId));
         let mainWh = null;
         if (mainProd) {
           const mobileStocks = _getMobileStocks(mainProd, state);
-          const homeStock = _getHomeStock(mainProd, state);
+          // Priority: mobile ที่พอ → mobile ที่มีบ้าง → mobile แรกในระบบ (force transfer)
           mainWh = mobileStocks.find(s => s.stock >= qty)
                 || mobileStocks[0]
-                || (homeStock?.stock > 0 ? homeStock : null);
+                || (mobileWhList[0] ? { warehouse_id: mobileWhList[0].id, warehouse_name: mobileWhList[0].name, stock: 0 } : null);
         }
         fullItems.push({
           product_id: Number(productId),
@@ -255,7 +256,23 @@ export function renderAcInstallPage(ctx) {
           is_main: true
         });
       }
-      _items.forEach(it => fullItems.push({ ...it, is_main: false }));
+      // Phase 43: items ที่ user pick "บ้าน" ใน picker (เพราะรถไม่มี) → re-pick เป็น mobile (force transfer)
+      _items.forEach(it => {
+        const homeWhTmp = _getHomeWarehouse(state);
+        const isPickedHome = homeWhTmp && String(it.warehouse_id) === String(homeWhTmp.id);
+        if (isPickedHome && mobileWhList.length > 0) {
+          // re-pick เป็น mobile แรก — save logic จะ trigger auto-transfer
+          const firstMobile = mobileWhList[0];
+          fullItems.push({
+            ...it,
+            warehouse_id: firstMobile.id,
+            warehouse_name: firstMobile.name,
+            is_main: false
+          });
+        } else {
+          fullItems.push({ ...it, is_main: false });
+        }
+      });
 
       // ★ Phase 43: เช็คก่อน save — ของในรถพอมั้ย? ถ้าไม่พอ + บ้านมี → confirm auto-transfer
       const transfersNeeded = []; // [{productId, productName, fromWh, toWh, qty}]
@@ -271,9 +288,10 @@ export function renderAcInstallPage(ctx) {
         const stockAvail = Number(ws?.stock || 0);
         const need = Number(it.qty || 0);
         if (stockAvail < need) {
-          // ถ้า warehouse ที่เลือกคือ home → ก็ตัดจากบ้านได้เลย ไม่ต้อง transfer
+          // ถ้า warehouse ที่เลือกเป็น home (โดย user เลือกเอง) → ตัดจากบ้านได้
+          // (case นี้ไม่ค่อยเจอเพราะเรา re-pick เป็น mobile ข้างบนแล้ว — เก็บไว้เผื่อ edge case)
           const isHome = homeWh && String(it.warehouse_id) === String(homeWh.id);
-          if (isHome) continue; // ตัดจากบ้านโดยตรง — ไม่ต้อง transfer
+          if (isHome) continue;
           // ถ้าเลือก mobile แต่ไม่พอ → ต้องโอนจากบ้าน
           const homeStock = _getHomeStock(prod, state);
           const shortage = need - stockAvail;
