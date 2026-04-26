@@ -332,18 +332,17 @@ export function renderAcInstallPage(ctx) {
         discount ? `ส่วนลด: -฿${discount.toLocaleString()}` : "",
       ].filter(Boolean).join(" | ");
 
+      // Phase 43.2: ใช้ field name ตรงกับ schema (customer_address ไม่ใช่ address)
+      // เดิม Phase 42 ส่ง "address" → HTTP 400 เพราะ column ไม่มีใน DB
       const record = {
         customer_name: name,
         customer_phone: container.querySelector("#acPhone").value.trim(),
+        customer_address: container.querySelector("#acAddress").value.trim(),
         job_type: "ac",
-        device_name: `🏗️ ติดตั้งแอร์`,
         description: desc,
-        address: container.querySelector("#acAddress").value.trim(),
-        price: net,
         items_json: fullItems,
         status: "pending",
-        note: container.querySelector("#acNote").value.trim(),
-        created_by: state.currentUser?.id
+        note: container.querySelector("#acNote").value.trim()
       };
 
       const resp = await fetch(`${cfg.url}/rest/v1/service_jobs`, {
@@ -356,7 +355,13 @@ export function renderAcInstallPage(ctx) {
         },
         body: JSON.stringify(record)
       });
-      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      if (!resp.ok) {
+        // Phase 43.2: log response body — เห็น error column/RLS ชัด
+        let errBody = "";
+        try { errBody = await resp.text(); } catch(e) {}
+        console.error("[ac_install save fail]", resp.status, errBody, "payload:", record);
+        throw new Error(`HTTP ${resp.status}: ${errBody.slice(0, 300) || "no body"}`);
+      }
       const inserted = await resp.json();
       const jobId = inserted?.[0]?.id || null;
       const jobNo = inserted?.[0]?.job_no || "";

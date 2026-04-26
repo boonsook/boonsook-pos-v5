@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v40 (2026-04-26): Phase 43.1 — Hotfix: re-pick mobile when picker chose home (force transfer)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v40';
+// v41 (2026-04-26): Phase 43.2 — Fix HTTP 400: address → customer_address (schema match)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v41';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
