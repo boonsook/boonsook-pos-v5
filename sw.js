@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v33 (2026-04-26): Phase 37 — POS home FlowAccount-style (logo + 6 actions + recent feed)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v33';
+// v34 (2026-04-26): Phase 38 — Hotfix logo overflow (style.css?v=4 → v=5 + inline guard)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v34';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

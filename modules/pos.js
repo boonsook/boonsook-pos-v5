@@ -111,8 +111,8 @@ function renderPosView(ctx) {
       <!-- Sales Banner — Phase 36: + logo circle, ขยายยอด -->
       <div class="pos-banner">
         <div class="pos-banner-top">
-          <div class="pos-banner-logo">
-            <img src="${escHtml(logoUrl)}" alt="" onerror="this.src='./icons/logo.svg'" />
+          <div class="pos-banner-logo" style="width:56px;height:56px;border-radius:50%;background:#fff;overflow:hidden;flex-shrink:0;display:grid;place-items:center;box-shadow:0 4px 12px rgba(0,0,0,.12)">
+            <img src="${escHtml(logoUrl)}" alt="" style="width:56px;height:56px;object-fit:cover;display:block" onerror="this.src='./icons/logo.svg'" />
           </div>
           <button id="posSalesHistory" class="pos-history-btn">🕒 ประวัติการขาย ›</button>
         </div>

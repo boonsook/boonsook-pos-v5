@@ -9,7 +9,7 @@
   <link rel="icon" type="image/svg+xml" href="./icons/logo.svg" />
   <link rel="manifest" href="./manifest.json" />
   <link rel="apple-touch-icon" href="./icons/logo.svg" />
-  <link rel="stylesheet" href="./style.css?v=4" />
+  <link rel="stylesheet" href="./style.css?v=5" />
   <link rel="stylesheet" href="./doc-print.css" />
   <!-- ✨ Phase 4: Design System & Components (30/3/2569) -->
   <link rel="stylesheet" href="./phase4-design-system.css" />
@@ -630,7 +630,7 @@
   <script>
   (async function selfHeal() {
     try {
-      var APP_BUILD = 49;
+      var APP_BUILD = 50;
       var STUCK_BUILDS_BEFORE = 47; // builds before this มี immutable-cache bug
       var stored = parseInt(localStorage.getItem('bsk_app_build') || '0', 10);
       var justRecovered = sessionStorage.getItem('bsk_just_recovered') === '1';
@@ -679,7 +679,7 @@
     }
   })();
   </script>
-  <script type="module" src="./main.js?v=49"></script>
+  <script type="module" src="./main.js?v=50"></script>
   <script>
     // ═══ Loading Overlay ═══
     function hideLoadingOverlay() {
