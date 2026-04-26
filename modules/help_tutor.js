@@ -675,16 +675,31 @@ function openAIChat() {
     msgs.scrollTop = msgs.scrollHeight;
 
     try {
-      // Build system prompt from PAGE_HELP
-      const systemContext = `คุณคือ AI ผู้ช่วยใน Boonsook POS V5 PRO — ระบบขายหน้าร้าน บุญสุข อิเล็กทรอนิกส์
-ผู้ใช้กำลังอยู่ที่หน้า: "${help.title}" (route: ${_currentRoute})
-รายละเอียดหน้านี้: ${help.intro || "-"}
-ขั้นตอนการใช้:
-${(help.steps || []).map((s, i) => `${i+1}. ${s}`).join("\n")}
-เคล็ดลับ:
-${(help.tips || []).join("\n")}
+      // Build helpContext from PAGE_HELP — ส่งให้ /api/ai-assistant ในโหมด help
+      const helpContextStr = `หน้า: "${help.title}" (route: ${_currentRoute})
+${help.intro || ""}
 
-ตอบเป็นภาษาไทย กระชับ ตรงประเด็น เน้นช่วยให้ user ใช้งานได้จริง ไม่ต้องอธิบายยาว`;
+ขั้นตอนใช้งาน:
+${(help.steps || []).map((s, i) => `${i+1}. ${s}`).join("\n")}
+
+เคล็ดลับ:
+${(help.tips || []).join("\n")}`;
+
+      // Build conversation history จาก DOM (ข้าม system greeting อันแรก)
+      const allMsgs = msgs.querySelectorAll(".msg");
+      const history = [];
+      allMsgs.forEach((m, idx) => {
+        if (idx === 0) return; // skip greeting
+        if (m.id === "bs-ai-typing") return;
+        history.push({
+          role: m.classList.contains("user") ? "user" : "assistant",
+          content: m.textContent.trim()
+        });
+      });
+      // ตัด user message ที่เพิ่งเพิ่มออก (ไม่ต้องส่งใน history เพราะมันคือ message ปัจจุบัน)
+      if (history.length > 0 && history[history.length - 1].role === "user") {
+        history.pop();
+      }
 
       const token = window._sbAccessToken;
       const headers = { "Content-Type": "application/json" };
@@ -694,16 +709,24 @@ ${(help.tips || []).join("\n")}
         method: "POST",
         headers,
         body: JSON.stringify({
-          messages: [
-            { role: "system", content: systemContext },
-            { role: "user", content: q }
-          ]
+          message: q,
+          mode: "help",
+          helpContext: helpContextStr,
+          history: history.slice(-6) // เก็บแค่ 6 turn ล่าสุด
         })
       });
       document.getElementById("bs-ai-typing")?.remove();
       if (!r.ok) {
-        const errText = r.status === 429 ? "⚠️ ถามบ่อยเกินไป — รอสักครู่" : `⚠️ ผิดพลาด (HTTP ${r.status})`;
-        msgs.insertAdjacentHTML("beforeend", `<div class="msg ai">${errText}</div>`);
+        let errText;
+        if (r.status === 429) errText = "⚠️ ถามบ่อยเกินไป — รอสักครู่";
+        else if (r.status === 401) errText = "⚠️ ต้อง login ก่อนถาม AI (Bearer token หาย)";
+        else if (r.status === 400) errText = "⚠️ Request format ผิด — แจ้ง dev";
+        else errText = `⚠️ ผิดพลาด (HTTP ${r.status})`;
+        try {
+          const errBody = await r.json();
+          if (errBody?.error) errText += ": " + errBody.error;
+        } catch(e){}
+        msgs.insertAdjacentHTML("beforeend", `<div class="msg ai">${escHtml(errText)}</div>`);
       } else {
         const data = await r.json();
         const reply = data?.reply || data?.message || data?.content || "(ไม่มีคำตอบ)";

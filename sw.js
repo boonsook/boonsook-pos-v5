@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v23 (2026-04-26): Phase 26 — Cleanup #2 (dead code + log noise + AC keyword bug)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v23';
+// v24 (2026-04-26): Phase 27 — Fix AI help chat HTTP 400 (mode:"help" + correct payload)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v24';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

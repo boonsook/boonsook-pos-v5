@@ -251,7 +251,7 @@ export async function onRequestPost(context) {
     }
 
     const body = await request.json();
-    const { message, history = [], customerPhone, customerContext, page } = body || {};
+    const { message, history = [], customerPhone, customerContext, page, mode, helpContext } = body || {};
 
     if (!message || typeof message !== "string") {
       return new Response(
@@ -259,6 +259,48 @@ export async function onRequestPost(context) {
         { status: 400, headers: corsHeaders }
       );
     }
+
+    // ─────────────────────────────────────────────────────────
+    // Phase 25 — HELP TUTOR mode (separate from service request)
+    // ใช้สำหรับสอนการใช้แอป — ไม่ใช่ service form filling
+    // ─────────────────────────────────────────────────────────
+    if (mode === "help") {
+      const helpSystemPrompt = `คุณคือ AI ผู้ช่วยใน Boonsook POS V5 PRO — ระบบขายหน้าร้าน บุญสุข อิเล็กทรอนิกส์
+
+${helpContext ? "📍 หน้าที่ผู้ใช้กำลังอยู่:\n" + String(helpContext).slice(0, 1500) : ""}
+
+หน้าที่: ตอบคำถามเกี่ยวกับการใช้งานแอป — เน้นช่วยให้ user ใช้งานได้จริง
+ตอบเป็นภาษาไทย กระชับ ตรงประเด็น ใช้ bullet หรือเลขลำดับถ้าเหมาะ
+ห้ามตอบแบบ JSON / form — ตอบเป็นข้อความปกติ
+ถ้าไม่รู้ → บอกตรงๆ + แนะนำให้ลองกดปุ่มดู หรือดู "📖 วิธีใช้หน้านี้"`;
+
+      const helpMessages = [
+        { role: "system", content: helpSystemPrompt },
+        ...history.slice(-6).map((h) => ({
+          role: h.role === "user" ? "user" : "assistant",
+          content: String(h.content || "").slice(0, 500),
+        })),
+        { role: "user", content: message.slice(0, 500) },
+      ];
+
+      try {
+        const helpResp = await env.AI.run(
+          "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+          { messages: helpMessages, max_tokens: 400, temperature: 0.5 }
+        );
+        const reply = String(helpResp?.response || "(ไม่มีคำตอบ)").trim();
+        return new Response(
+          JSON.stringify({ ok: true, reply, mode: "help" }),
+          { status: 200, headers: corsHeaders }
+        );
+      } catch (helpErr) {
+        return new Response(
+          JSON.stringify({ ok: false, error: "AI error: " + (helpErr?.message || String(helpErr)) }),
+          { status: 500, headers: corsHeaders }
+        );
+      }
+    }
+    // ─────────────────────────────────────────────────────────
 
     // ★ context hint ตามหน้าที่ลูกค้ากำลังดู
     let contextHint = "";

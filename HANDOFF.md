@@ -1,8 +1,32 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 26 — Cleanup #2)
-**Version:** 5.8.1 (build 39)
-**Previous:** 5.8.0 (build 38) — Phase 25 (AI Tutor + Help)
+**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 27 — Fix AI help HTTP 400)
+**Version:** 5.8.2 (build 40)
+**Previous:** 5.8.1 (build 39) — Phase 26 (Cleanup #2)
+
+---
+
+## 🐛 Phase 27 — Fix AI Help Chat HTTP 400 (26 เม.ย. กลางคืนรอบ 3)
+
+### Bug ที่แก้
+help_tutor.js (Phase 25) AI chat ส่ง `{ messages: [...] }` (OpenAI format)
+แต่ `/api/ai-assistant` expect `{ message, history, page }`
+→ ทุกข้อความที่ user พิมพ์ใน "🤖 ถาม AI" → HTTP 400 "message is required"
+
+### Fix
+1. **functions/api/ai-assistant.js** — เพิ่ม branch `mode: "help"`
+   - System prompt แยกสำหรับสอนใช้แอป (ไม่ใช่ service form filling)
+   - รับ helpContext (page title + intro + steps + tips)
+   - Return `{ ok, reply, mode }` เป็นข้อความปกติ ไม่ใช่ JSON format
+2. **modules/help_tutor.js** — แก้ payload + better error handling
+   - ส่ง `{ message, mode: "help", helpContext, history }`
+   - Build history จาก DOM (ข้าม greeting + typing indicator)
+   - Error message ตาม HTTP status (400/401/429)
+
+### Bump
+- main.js?v=39 → v=40
+- SW v23 → v24
+- Version display 5.8.1 → 5.8.2 (build 40)
 
 ---
 
