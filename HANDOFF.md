@@ -1,8 +1,35 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 24 — Cleanup)
-**Version:** 5.7.1 (build 37)
-**Previous:** 5.7.0 (build 36) — Phase 20-23 (Fix Update + Auto-Serial + Warranty + Barcode Scanner)
+**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 25 — AI Tutor + Help)
+**Version:** 5.8.0 (build 38)
+**Previous:** 5.7.1 (build 37) — Phase 24 Cleanup
+
+---
+
+## 🎓 Phase 25 — AI Tutor + In-app Help (26 เม.ย. กลางคืน)
+
+### Why
+40+ หน้า → user ใหม่ใช้ไม่เป็น → feature ดีไร้ค่า
+
+### What — "Smart Help Widget" 3-in-1
+1. **💡 Floating Button** มุมขวาล่าง (bottom: 90px เหนือ AI chat FAB)
+   - สีเหลือง gradient + pulse + red dot ถ้าหน้านี้ user ยังไม่เคยดู help
+   - auto-hide เมื่อมี modal/drawer เปิด (ไม่บัง)
+2. **📖 Steps Modal** — เขียน hardcode 12 หน้า: dashboard / pos / products / customers / sales / quotations / serials / warranty_report / expenses / tasks / refunds / cash_recon / settings
+3. **🎯 Interactive Tour** — SVG mask spotlight + tooltip + ปุ่มถัดไป/ก่อนหน้า/ข้าม
+4. **🤖 AI Chat** — context = title + intro + steps + tips ของหน้านั้น → AI ตอบตรงประเด็น
+   - reuse Bearer token จาก Phase 17
+   - 4 suggestion chips
+
+### Files
+- ใหม่: `modules/help_tutor.js` (~720 บรรทัด — self-contained, CSS in-line)
+- แก้: `main.js` import + setHelpContext on showRoute + mountHelpButton on app ready
+- แก้: index.html v=37→v=38, sw.js v21→v22, settings/pages.js 5.7.1→5.8.0
+
+### Bump
+- main.js?v=37 → v=38
+- SW v21 → v22
+- Version display 5.7.1 → 5.8.0 (build 38)
 
 ---
 

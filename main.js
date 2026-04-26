@@ -40,6 +40,7 @@ import { renderBirthdaysPage, checkTodayBirthdaysAndNotify } from "./modules/bir
 import { renderQuoteTemplatesPage } from "./modules/quote_templates.js";
 import { renderSerialsPage } from "./modules/serials.js";
 import { renderWarrantyReportPage, checkWarrantyExpiringAndNotify } from "./modules/warranty_report.js";
+import { mountHelpButton, setHelpContext } from "./modules/help_tutor.js";
 import { renderAiSalesPage } from "./modules/ai_sales.js";
 import { renderAcShopPage } from "./modules/ac_shop.js";
 import "./modules/doc-override.js";
@@ -933,6 +934,9 @@ function showRoute(route){
   setText("pageTitle", titles[route] || "Boonsook POS");
   $("sidebar")?.classList.remove("open");
 
+  // Phase 25 — update help tutor context on route change
+  try { setHelpContext(route, titles[route] || route); } catch(e){}
+
   // Lazy render on navigate
   const ctx = { state, money, addToCart, changeQty, removeFromCart, openProductDrawer, checkout, openReceiptDrawer, showRoute, openCustomerDrawer, openQuotationDrawer, openServiceJobDrawer, loadAllData, loadReceipt, ROLE_LABELS, currentRole, requireAdmin, requireAdminOrSales, showToast, saveStoreInfo, savePaymentInfo, loadUsers, changeRole, openAddUserDrawer, hasPermission: (key) => hasPermission(key, { state, currentRole }), renderLineNotifySettings, renderPermissionMatrix, sendLineNotify };
 
@@ -1397,6 +1401,9 @@ async function afterLogin(){
   await loadAllData();
   // loadAllData → renderAll() → showRoute(state.currentRoute) ซึ่งตอนนี้ = restorePage แล้ว ✅
   window.dispatchEvent(new Event("bsk-app-ready"));
+
+  // ★ Phase 25: mount Help Tutor floating button
+  try { mountHelpButton(); } catch(e) { console.warn("[help tutor]", e); }
 
   // ★ Phase 13 + 15: Background checks (ไม่รอ — ทำใน background)
   setTimeout(() => {

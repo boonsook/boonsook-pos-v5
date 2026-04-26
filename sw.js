@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v21 (2026-04-26): Phase 24 — Cleanup batch (rate-limit endpoint fix + alert/confirm cleanup 22 จุด)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v21';
+// v22 (2026-04-26): Phase 25 — AI Tutor + In-app Help (3-in-1: Steps + Tour + AI Chat)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v22';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
