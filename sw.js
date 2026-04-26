@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v30 (2026-04-26): Phase 34 — SW bypass HTTP cache for /modules/* (force revalidate)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v30';
+// v31 (2026-04-26): Phase 35 — Self-healing recovery (auto-clear stale cache)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v31';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

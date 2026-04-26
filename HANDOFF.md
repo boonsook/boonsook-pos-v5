@@ -1,8 +1,40 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 34 — SW bypass HTTP cache for modules)
-**Version:** 5.8.8 (build 46)
-**Previous:** 5.8.7 (build 45) — Phase 33 (_headers must-revalidate)
+**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 35 — Self-healing recovery)
+**Version:** 5.8.9 (build 47)
+**Previous:** 5.8.8 (build 46) — Phase 34 (SW bypass HTTP cache)
+
+---
+
+## 🚑 Phase 35 — Self-Healing Module Cache Recovery (26 เม.ย. รอบ 10)
+
+### Why
+หลัง Phase 33+34 user **ยังติด stale หนักมาก** — เห็น Version 5.7.0 (build 36) ทั้งที่ deploy 5.8.8 ไปแล้ว
+- SW เก่าของ user ไม่ activate ใหม่ตามต้องการ
+- Browser HTTP cache stuck ที่ immutable
+- Phase 34 SW fix ใช้ไม่ได้เพราะ user ยังไม่ได้ install SW ใหม่
+- Catch-22 ระดับ 2 — ยิ่งแก้ stale ยิ่งเพิ่ม
+
+### Fix — Auto Recovery Script
+[index.html:629-680](index.html:629) — inline script run **ก่อน** main.js โหลด:
+1. อ่าน `localStorage.bsk_app_build` (build ที่ user เคยเห็น)
+2. เปรียบเทียบกับ `APP_BUILD = 47` (current)
+3. ถ้า stored < 47 → **auto recovery:**
+   - Unregister ทุก SW
+   - Delete ทุก cache (Cache API)
+   - `location.replace(url + '?_t=' + Date.now())`
+4. ใช้ `sessionStorage.bsk_just_recovered` ป้องกัน infinite loop
+5. Update `bsk_app_build = 47` หลังสำเร็จ
+
+### Result
+- User ที่ติด stale → เปิดแอป 1 ครั้ง → script auto-recover → reload → fresh
+- User ใหม่หรือ build ≥ 47 → no-op (script ไม่ทำอะไร)
+- ทุก deploy ในอนาคต → ถ้ายัง stuck → script จะ recover อัตโนมัติ
+
+### Bump
+- main.js?v=46 → v=47
+- SW v30 → v31
+- Version display 5.8.8 → 5.8.9 (build 47)
 
 ---
 
