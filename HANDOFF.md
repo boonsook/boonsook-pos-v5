@@ -1,10 +1,41 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 39 — Service jobs filter chips)
-**Version:** 5.9.3 (build 51)
-**Previous:** 5.9.2 (build 50) — Phase 38 (Hotfix logo overflow)
+**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 40 — Fix AC install product filter)
+**Version:** 5.9.4 (build 52)
+**Previous:** 5.9.3 (build 51) — Phase 39 (Service jobs filter chips)
 
 **🛡️ Phase 17 Active!** — KV binding ผูกแล้ว (Production + Preview), tested 429 OK
+
+---
+
+## 🔧 Phase 40 — Fix AC Install Product Filter (26 เม.ย. รอบ 15)
+
+### Bug
+[modules/ac_install.js:13-16](modules/ac_install.js:13) — หน้า "ใบงานติดตั้งแอร์" แสดง **"ไม่มีสินค้าแอร์ในสต็อก"** ทั้งที่ user มีสินค้าแอร์ 178 ตัวในหมวด "เครื่องปรับอากาศ"
+
+### Root cause
+- Filter ใช้ `p.stock_qty || 0` — แต่ schema จริงใช้ field ชื่อ `p.stock`
+- → return 0 ตลอด → empty dropdown
+
+### Fix
+[modules/ac_install.js](modules/ac_install.js) — แก้ filter:
+1. **Field ถูก** — ใช้ `p.stock` แทน `p.stock_qty`
+2. **รองรับ multi-warehouse** — รวม `state.warehouseStock` ด้วย
+3. **ขยาย match** — รับทั้ง 6 เงื่อนไข:
+   - category มี "ปรับอากาศ" / "แอร์" / "air"
+   - name มี "แอร์" / "air"
+   - btu > 0
+4. **Dropdown แสดงคงเหลือ** — `รุ่น — BTU — ราคา (คงเหลือ N)`
+
+### Phase ต่อไป (รอ user)
+- Phase B: เพิ่มอุปกรณ์จากสต็อก (line items multi-select)
+- Phase C: พิมพ์ใบเสร็จ + ส่งสลิปลูกค้าตอนปิดงาน
+
+### Bump
+- main.js?v=51 → v=52
+- SW v35 → v36
+- Version display 5.9.3 → 5.9.4 (build 52)
+- selfHeal APP_BUILD: 51 → 52
 
 ---
 

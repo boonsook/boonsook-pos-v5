@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v35 (2026-04-26): Phase 39 — Service jobs filter chips (ค้าง/ปิดแล้ว/ยกเลิก/ทั้งหมด)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v35';
+// v36 (2026-04-26): Phase 40 — Fix AC install product filter (stock_qty → stock + ขยาย match)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v36';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

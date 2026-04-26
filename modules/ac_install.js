@@ -9,15 +9,37 @@ export function renderAcInstallPage(ctx) {
 
   const escHtml = (s) => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 
-  // สินค้าแอร์ในสต็อก
+  // ★ Phase 40 — สินค้าแอร์ในสต็อก
+  // Bug เดิม: ใช้ p.stock_qty (field ผิด — schema ใช้ p.stock) → filter return 0 เสมอ
+  // Fix: ใช้ p.stock + ขยาย match ครอบ category "เครื่องปรับอากาศ" / keyword / btu
   const acProducts = (state.products || []).filter(p => {
     const name = (p.name || p.model || "").toLowerCase();
-    return (name.includes("แอร์") || name.includes("air") || (parseInt(p.btu) > 0)) && (p.stock_qty || 0) > 0;
+    const category = (p.category || "").toLowerCase();
+    const matchesAc = (
+      category.includes("ปรับอากาศ") ||      // หมวด "เครื่องปรับอากาศ"
+      category.includes("แอร์") ||
+      category.includes("air") ||
+      name.includes("แอร์") ||
+      name.includes("air") ||
+      (parseInt(p.btu) > 0)
+    );
+    // นับเฉพาะที่มีสต็อก — รองรับทั้ง p.stock (legacy) + warehouseStock (multi-warehouse)
+    const stockTotal = Number(p.stock || 0) +
+      (state.warehouseStock || [])
+        .filter(w => String(w.product_id) === String(p.id))
+        .reduce((s, w) => s + Number(w.stock || 0), 0);
+    return matchesAc && stockTotal > 0;
   });
 
-  const productOptions = acProducts.map(p =>
-    `<option value="${p.id}" data-price="${p.price_install || p.price || 0}" data-btu="${p.btu || 0}">${escHtml(p.name || p.model)} — ${parseInt(p.btu||0).toLocaleString()} BTU (${money(p.price_install || p.price || 0)})</option>`
-  ).join("");
+  const productOptions = acProducts.map(p => {
+    const stockTotal = Number(p.stock || 0) +
+      (state.warehouseStock || [])
+        .filter(w => String(w.product_id) === String(p.id))
+        .reduce((s, w) => s + Number(w.stock || 0), 0);
+    const btu = parseInt(p.btu || 0);
+    const btuLabel = btu > 0 ? `${btu.toLocaleString()} BTU — ` : "";
+    return `<option value="${p.id}" data-price="${p.price_install || p.price || 0}" data-btu="${p.btu || 0}">${escHtml(p.name || p.model)} — ${btuLabel}${money(p.price_install || p.price || 0)} (คงเหลือ ${stockTotal})</option>`;
+  }).join("");
 
   container.innerHTML = `
     <div class="panel">
