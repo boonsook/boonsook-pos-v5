@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v44 (2026-04-26): Phase 44 — Move service_request into งานช่าง group
-const CACHE_NAME = 'boonsook-pos-v5-cache-v44';
+// v43 (2026-04-26): Phase 43.4 — Hotfix HTTP 400: missing job_no NOT NULL field
+const CACHE_NAME = 'boonsook-pos-v5-cache-v43';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
