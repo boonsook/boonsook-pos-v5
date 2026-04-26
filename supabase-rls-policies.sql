@@ -243,9 +243,22 @@ ALTER TABLE IF EXISTS public.service_jobs
   ADD COLUMN IF NOT EXISTS photo_after  TEXT;
 
 -- ★ Phase 41 — รายการอุปกรณ์ในงานติดตั้งแอร์
--- Format: [{product_id, name, qty, unit_price, line_total}]
+-- Format: [{product_id, name, qty, unit_price, line_total, warehouse_id}]
+-- (warehouse_id = คลัง mobile ที่ใช้ตัดสต็อก — เพิ่มใน Phase 43)
 ALTER TABLE IF EXISTS public.service_jobs
   ADD COLUMN IF NOT EXISTS items_json JSONB DEFAULT '[]'::jsonb;
+
+-- ★ Phase 43 — แยก mobile/home warehouses
+-- mobile = รถ (คันขาว, คันแดง) — ใช้กับใบงานช่างหน้างาน
+-- home   = บ้าน, สาขา (ศีขร) — ใช้กับ POS หน้าร้าน
+ALTER TABLE IF EXISTS public.warehouses
+  ADD COLUMN IF NOT EXISTS is_mobile BOOLEAN DEFAULT false;
+
+-- Backfill: คลังที่มี keyword "คัน", "รถ", "van" → mobile
+UPDATE public.warehouses
+SET is_mobile = true
+WHERE (name LIKE 'คัน%' OR name LIKE '%รถ%' OR LOWER(name) LIKE '%van%')
+  AND is_mobile = false;
 
 -- ═══════════════════════════════════════════════════════════════
 -- 2.7) Trigger + Backfill: Auto-create profiles row จาก auth.users

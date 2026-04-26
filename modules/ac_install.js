@@ -1,14 +1,65 @@
 // ═══════════════════════════════════════════════════════════
-//  AC INSTALL — ใบงานติดตั้งแอร์ (Phase 41 — line items + receipt + LINE)
+//  AC INSTALL — ใบงานติดตั้งแอร์
+//  Phase 41: line items + receipt + LINE
+//  Phase 43: ตัดสต็อกจากคลังในรถ (mobile) + auto-transfer จากบ้านถ้าไม่พอ
 // ═══════════════════════════════════════════════════════════
 
-// Module-level state สำหรับ items + picker + last saved record
-let _items = [];           // [{product_id, name, qty, unit_price, line_total}]
+// Module-level state
+let _items = [];           // [{product_id, name, qty, unit_price, line_total, warehouse_id, warehouse_name}]
 let _showPicker = false;
 let _pickerSearch = "";
-let _lastSavedJob = null;  // { id, jobNo, customer_name, customer_phone, total } — เก็บไว้สำหรับ ปุ่มหลังบันทึก
+let _lastSavedJob = null;  // ถ้ามีค่า → form อยู่ใน read-only (lock items, edit ได้แค่ note)
 
 const escHtml = (s) => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 43 — Mobile warehouse helpers
+// ═══════════════════════════════════════════════════════════
+
+// คืน warehouses ที่ is_mobile = true (รถ)
+function _getMobileWarehouses(state) {
+  return (state.warehouses || []).filter(w => w.is_mobile === true);
+}
+
+// คืน home warehouse แรกที่ active (บ้าน — สำหรับ auto-transfer source)
+function _getHomeWarehouse(state) {
+  // Priority: ชื่อ "บ้าน" > !is_mobile + active แรก
+  const wh = state.warehouses || [];
+  return wh.find(w => (w.name || "").includes("บ้าน")) ||
+         wh.find(w => w.is_mobile !== true) ||
+         null;
+}
+
+// คืน array ของ stock per mobile warehouse: [{ warehouse_id, warehouse_name, stock }]
+function _getMobileStocks(p, state) {
+  const mobileWh = _getMobileWarehouses(state);
+  return mobileWh
+    .map(w => {
+      const ws = (state.warehouseStock || []).find(s =>
+        String(s.product_id) === String(p.id) && String(s.warehouse_id) === String(w.id)
+      );
+      return { warehouse_id: w.id, warehouse_name: w.name, stock: Number(ws?.stock || 0) };
+    })
+    .filter(s => s.stock > 0);
+}
+
+// คืน stock ในบ้าน (home) — เผื่อ auto-transfer
+function _getHomeStock(p, state) {
+  const home = _getHomeWarehouse(state);
+  if (!home) return null;
+  const ws = (state.warehouseStock || []).find(s =>
+    String(s.product_id) === String(p.id) && String(s.warehouse_id) === String(home.id)
+  );
+  return { warehouse_id: home.id, warehouse_name: home.name, stock: Number(ws?.stock || 0) };
+}
+
+// คืน stock รวมทั้งหมด (mobile + home + legacy) — สำหรับ picker filter "มีของในระบบมั้ย"
+function _getTotalStock(p, state) {
+  return Number(p.stock || 0) +
+    (state.warehouseStock || [])
+      .filter(w => String(w.product_id) === String(p.id))
+      .reduce((s, w) => s + Number(w.stock || 0), 0);
+}
 
 export function renderAcInstallPage(ctx) {
   const { state, money, showToast } = ctx;
@@ -16,6 +67,7 @@ export function renderAcInstallPage(ctx) {
   if (!container) return;
 
   // ★ Phase 40 — สินค้าแอร์ในสต็อก (รุ่นหลัก)
+  // Phase 43: filter เฉพาะที่มีใน mobile (รถ) — ถ้าไม่มีในรถเลย ก็ขึ้นใน dropdown ได้ ถ้ามีในบ้าน (auto-transfer)
   const acProducts = (state.products || []).filter(p => {
     const name = (p.name || p.model || "").toLowerCase();
     const category = (p.category || "").toLowerCase();
@@ -27,15 +79,22 @@ export function renderAcInstallPage(ctx) {
       name.includes("air") ||
       (parseInt(p.btu) > 0)
     );
-    const stockTotal = _getStock(p, state);
-    return matchesAc && stockTotal > 0;
+    if (!matchesAc) return false;
+    // มีในรถ หรือ มีในบ้าน (เผื่อ auto-transfer)
+    const mobileTotal = _getMobileStocks(p, state).reduce((s, x) => s + x.stock, 0);
+    const homeStock = _getHomeStock(p, state)?.stock || 0;
+    return (mobileTotal + homeStock) > 0;
   });
 
   const productOptions = acProducts.map(p => {
-    const stockTotal = _getStock(p, state);
+    const mobileTotal = _getMobileStocks(p, state).reduce((s, x) => s + x.stock, 0);
+    const homeStock = _getHomeStock(p, state)?.stock || 0;
     const btu = parseInt(p.btu || 0);
     const btuLabel = btu > 0 ? `${btu.toLocaleString()} BTU — ` : "";
-    return `<option value="${p.id}" data-price="${p.price_install || p.price || 0}" data-btu="${p.btu || 0}">${escHtml(p.name || p.model)} — ${btuLabel}${money(p.price_install || p.price || 0)} (คงเหลือ ${stockTotal})</option>`;
+    const stockTag = mobileTotal > 0
+      ? `🚐 รถ:${mobileTotal}${homeStock > 0 ? ` 📦 บ้าน:${homeStock}` : ""}`
+      : `📦 บ้าน:${homeStock} (ต้องโอนขึ้นรถ)`;
+    return `<option value="${p.id}" data-price="${p.price_install || p.price || 0}" data-btu="${p.btu || 0}">${escHtml(p.name || p.model)} — ${btuLabel}${money(p.price_install || p.price || 0)} (${stockTag})</option>`;
   }).join("");
 
   container.innerHTML = `
@@ -173,18 +232,80 @@ export function renderAcInstallPage(ctx) {
       const token = (await state.supabase.auth.getSession())?.data?.session?.access_token || cfg.anonKey;
 
       // items_json: รวมทั้งแอร์หลัก + อุปกรณ์
+      // Phase 43: main air ก็ต้องเลือก warehouse — auto-pick mobile แรกที่มีของ, fallback บ้าน
       const fullItems = [];
       if (productId && productPrice > 0) {
+        const mainProd = (state.products || []).find(p => String(p.id) === String(productId));
+        let mainWh = null;
+        if (mainProd) {
+          const mobileStocks = _getMobileStocks(mainProd, state);
+          const homeStock = _getHomeStock(mainProd, state);
+          mainWh = mobileStocks.find(s => s.stock >= qty)
+                || mobileStocks[0]
+                || (homeStock?.stock > 0 ? homeStock : null);
+        }
         fullItems.push({
           product_id: Number(productId),
-          name: productName.replace(/^[^—]+— /, "").trim() || productName,  // ลบ btu/price ออก
+          name: productName.replace(/^[^—]+— /, "").trim() || productName,
           qty,
           unit_price: productPrice,
           line_total: productPrice * qty,
+          warehouse_id: mainWh?.warehouse_id || null,
+          warehouse_name: mainWh?.warehouse_name || null,
           is_main: true
         });
       }
       _items.forEach(it => fullItems.push({ ...it, is_main: false }));
+
+      // ★ Phase 43: เช็คก่อน save — ของในรถพอมั้ย? ถ้าไม่พอ + บ้านมี → confirm auto-transfer
+      const transfersNeeded = []; // [{productId, productName, fromWh, toWh, qty}]
+      const homeWh = _getHomeWarehouse(state);
+      for (const it of fullItems) {
+        if (!it.warehouse_id || !it.product_id) continue; // ไม่ตัดสต็อก (เช่น service)
+        const prod = (state.products || []).find(p => String(p.id) === String(it.product_id));
+        if (!prod) continue;
+        const ws = (state.warehouseStock || []).find(w =>
+          String(w.product_id) === String(it.product_id) &&
+          String(w.warehouse_id) === String(it.warehouse_id)
+        );
+        const stockAvail = Number(ws?.stock || 0);
+        const need = Number(it.qty || 0);
+        if (stockAvail < need) {
+          // ถ้า warehouse ที่เลือกคือ home → ก็ตัดจากบ้านได้เลย ไม่ต้อง transfer
+          const isHome = homeWh && String(it.warehouse_id) === String(homeWh.id);
+          if (isHome) continue; // ตัดจากบ้านโดยตรง — ไม่ต้อง transfer
+          // ถ้าเลือก mobile แต่ไม่พอ → ต้องโอนจากบ้าน
+          const homeStock = _getHomeStock(prod, state);
+          const shortage = need - stockAvail;
+          if (!homeStock || homeStock.stock < shortage) {
+            throw new Error(`❌ ${prod.name}: ของไม่พอ — ${it.warehouse_name} มี ${stockAvail}, บ้านมี ${homeStock?.stock || 0}, ต้องใช้ ${need}`);
+          }
+          transfersNeeded.push({
+            productId: it.product_id,
+            productName: prod.name,
+            fromWhId: homeStock.warehouse_id,
+            fromWhName: homeStock.warehouse_name,
+            toWhId: it.warehouse_id,
+            toWhName: it.warehouse_name,
+            qty: shortage
+          });
+        }
+      }
+
+      // ถ้ามี transfer ที่ต้องทำ → แสดง confirm dialog (Smart Confirm Option C)
+      if (transfersNeeded.length > 0) {
+        const summary = transfersNeeded.map(t =>
+          `• ${t.productName}: โอน ${t.qty} ชิ้น จาก ${t.fromWhName} → ${t.toWhName}`
+        ).join("\n");
+        const ok = window.confirm(
+          `🚐 ของในรถไม่พอ — ต้องโอนจากบ้านขึ้นรถก่อน\n\n${summary}\n\n` +
+          `กด OK = โอน + ตัดสต็อกอัตโนมัติ\n` +
+          `กด Cancel = ยกเลิกการบันทึก`
+        );
+        if (!ok) {
+          throw new Error("ยกเลิกการบันทึก — โอนสต็อกขึ้นรถก่อนแล้วลองใหม่");
+        }
+      }
 
       const desc = [
         productId ? `รุ่น: ${productName} x${qty}` : "",
@@ -222,6 +343,54 @@ export function renderAcInstallPage(ctx) {
       const jobId = inserted?.[0]?.id || null;
       const jobNo = inserted?.[0]?.job_no || "";
 
+      // ★ Phase 43: Auto-transfer (ถ้ามี) → ตัดสต็อก
+      let stockOpsFailed = false;
+      try {
+        // Step 1: Auto-transfer จากบ้าน → รถ (ถ้ามี shortage)
+        for (const t of transfersNeeded) {
+          if (typeof window._appTransferWarehouseStock === "function") {
+            const r = await window._appTransferWarehouseStock({
+              productId: t.productId,
+              fromWarehouseId: t.fromWhId,
+              toWarehouseId: t.toWhId,
+              qty: t.qty,
+              note: `auto-transfer for AC install ${jobNo}`
+            });
+            if (!r?.ok) {
+              console.error("[ac_install transfer fail]", t, r);
+              stockOpsFailed = true;
+            }
+          }
+        }
+        // Step 2: Deduct stock จาก warehouse ที่เลือก (ทุก item)
+        for (const it of fullItems) {
+          if (!it.warehouse_id || !it.product_id) continue;
+          if (typeof window._appApplyStockMovement === "function") {
+            const r = await window._appApplyStockMovement({
+              productId: it.product_id,
+              warehouseId: it.warehouse_id,
+              movementType: "out",
+              qty: Number(it.qty || 0),
+              note: `service_install: ${jobNo} — ${name}`
+            });
+            if (!r?.ok) {
+              console.error("[ac_install deduct fail]", it, r);
+              stockOpsFailed = true;
+            }
+          }
+        }
+      } catch (stockErr) {
+        console.error("[ac_install stock ops]", stockErr);
+        stockOpsFailed = true;
+      }
+
+      // Reload stock state เพื่อให้ UI sync
+      try { await ctx.loadAllData?.(); } catch(e) {}
+
+      if (stockOpsFailed) {
+        showToast?.("⚠️ ใบงาน save แล้ว แต่ตัดสต็อก/โอนบางรายการล้มเหลว — ตรวจ Console");
+      }
+
       // เก็บข้อมูลไว้สำหรับปุ่ม "ดูใบเสร็จ" / "ส่ง LINE"
       _lastSavedJob = {
         id: jobId,
@@ -255,13 +424,10 @@ export function renderAcInstallPage(ctx) {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  Helper: คำนวณ stock รวม legacy + multi-warehouse
+//  Helper: alias for backward compat (ใช้ _getTotalStock จริง)
 // ═══════════════════════════════════════════════════════════
 function _getStock(p, state) {
-  return Number(p.stock || 0) +
-    (state.warehouseStock || [])
-      .filter(w => String(w.product_id) === String(p.id))
-      .reduce((s, w) => s + Number(w.stock || 0), 0);
+  return _getTotalStock(p, state);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -274,34 +440,43 @@ function _renderItemsList(container, money) {
     el.innerHTML = `<div class="sku" style="text-align:center;padding:14px;color:#94a3b8">ยังไม่มีอุปกรณ์ — กด "+ เพิ่มอุปกรณ์"</div>`;
     return;
   }
+  // Phase 43: lock inputs ถ้า _lastSavedJob มีค่า (ใบงานบันทึกแล้ว)
+  const locked = !!_lastSavedJob;
   el.innerHTML = `
     <div style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:13px">
         <thead style="background:#f1f5f9">
           <tr>
             <th style="padding:8px;text-align:left">อุปกรณ์</th>
-            <th style="padding:8px;text-align:center;width:80px">จำนวน</th>
-            <th style="padding:8px;text-align:right;width:110px">ราคา/ชิ้น</th>
-            <th style="padding:8px;text-align:right;width:110px">รวม</th>
-            <th style="padding:8px;width:40px"></th>
+            <th style="padding:8px;text-align:left;width:110px">คลัง</th>
+            <th style="padding:8px;text-align:center;width:70px">จำนวน</th>
+            <th style="padding:8px;text-align:right;width:90px">ราคา/ชิ้น</th>
+            <th style="padding:8px;text-align:right;width:90px">รวม</th>
+            <th style="padding:8px;width:30px"></th>
           </tr>
         </thead>
         <tbody>
-          ${_items.map((it, idx) => `
+          ${_items.map((it, idx) => {
+            const whBadge = it.warehouse_id
+              ? `<span style="background:#dbeafe;color:#1e40af;padding:2px 6px;border-radius:6px;font-size:10px;font-weight:700">🚐 ${escHtml(it.warehouse_name || "?")}</span>`
+              : `<span style="color:#94a3b8;font-size:10px">—</span>`;
+            return `
             <tr style="border-bottom:1px solid #e5e7eb">
               <td style="padding:8px">
                 <div style="font-weight:600">${escHtml(it.name)}</div>
-                <div style="font-size:10px;color:#94a3b8">คงเหลือ ${it._stock_avail || "?"}</div>
+                <div style="font-size:10px;color:#94a3b8">${typeof it._stock_avail === "number" ? `คงเหลือ ${it._stock_avail}` : ""}</div>
               </td>
-              <td style="padding:6px"><input type="number" min="1" value="${it.qty}" data-item-qty="${idx}" style="width:60px;text-align:center;padding:4px;border:1px solid #cbd5e1;border-radius:6px" /></td>
-              <td style="padding:6px"><input type="number" min="0" step="1" value="${Number(it.unit_price)}" data-item-price="${idx}" style="width:90px;text-align:right;padding:4px;border:1px solid #cbd5e1;border-radius:6px" /></td>
+              <td style="padding:8px">${whBadge}</td>
+              <td style="padding:6px"><input type="number" min="1" value="${it.qty}" data-item-qty="${idx}" ${locked ? "disabled" : ""} style="width:54px;text-align:center;padding:4px;border:1px solid #cbd5e1;border-radius:6px${locked ? ";background:#f1f5f9;color:#94a3b8" : ""}" /></td>
+              <td style="padding:6px"><input type="number" min="0" step="1" value="${Number(it.unit_price)}" data-item-price="${idx}" ${locked ? "disabled" : ""} style="width:80px;text-align:right;padding:4px;border:1px solid #cbd5e1;border-radius:6px${locked ? ";background:#f1f5f9;color:#94a3b8" : ""}" /></td>
               <td style="padding:8px;text-align:right;font-weight:700;color:#0284c7">${money(it.line_total)}</td>
-              <td style="padding:6px;text-align:center"><button data-item-del="${idx}" class="btn light" style="font-size:14px;padding:2px 8px;color:#dc2626" title="ลบ">×</button></td>
+              <td style="padding:6px;text-align:center">${locked ? "" : `<button data-item-del="${idx}" class="btn light" style="font-size:14px;padding:2px 8px;color:#dc2626" title="ลบ">×</button>`}</td>
             </tr>
-          `).join("")}
+          `;}).join("")}
         </tbody>
       </table>
     </div>
+    ${locked ? `<div style="padding:8px 12px;margin-top:8px;background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;font-size:12px;color:#92400e">🔒 ใบงานบันทึกแล้ว — แก้ไขได้แค่หมายเหตุ/รูป (สร้างใบใหม่ถ้าต้องการแก้)</div>` : ""}
   `;
 }
 
@@ -343,8 +518,12 @@ function _openItemPicker(ctx, container, updateTotal) {
   const { state, money, showToast } = ctx;
   document.getElementById("acItemPickerModal")?.remove();
 
-  // กรองสินค้าทั้งหมดที่มีสต็อก (ไม่กรอง category — let user search)
-  const allInStock = (state.products || []).filter(p => _getStock(p, state) > 0);
+  // Phase 43: กรองเฉพาะสินค้าที่มีใน mobile (รถ) หรือบ้าน (เผื่อ auto-transfer)
+  const allInStock = (state.products || []).filter(p => {
+    const mobileTotal = _getMobileStocks(p, state).reduce((s, x) => s + x.stock, 0);
+    const homeStock = _getHomeStock(p, state)?.stock || 0;
+    return (mobileTotal + homeStock) > 0;
+  });
 
   const renderList = (search) => {
     const q = (search || "").toLowerCase().trim();
@@ -358,16 +537,31 @@ function _openItemPicker(ctx, container, updateTotal) {
       );
     }
     return filtered.slice(0, 50).map(p => {
-      const stockTotal = _getStock(p, state);
+      const mobileStocks = _getMobileStocks(p, state);
+      const homeStock = _getHomeStock(p, state);
+      const inMobile = mobileStocks.length > 0;
+      // แสดง stock per warehouse แบบเข้าใจง่าย
+      const stockTags = mobileStocks.map(s =>
+        `<span style="background:#dbeafe;color:#1e40af;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">🚐 ${escHtml(s.warehouse_name)}: ${s.stock}</span>`
+      ).join(" ");
+      const homeTag = homeStock && homeStock.stock > 0
+        ? `<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">📦 ${escHtml(homeStock.warehouse_name)}: ${homeStock.stock}</span>`
+        : "";
+      const warningBadge = !inMobile
+        ? `<div style="font-size:10px;color:#dc2626;margin-top:4px">⚠️ ยังไม่ได้โอนขึ้นรถ — ต้องยืนยันโอนตอนกดเลือก</div>`
+        : "";
       return `
-        <button class="acpk-item" data-pk-id="${p.id}" style="display:flex;justify-content:space-between;align-items:center;width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;background:#fff;cursor:pointer;text-align:left;font:inherit;margin-bottom:6px">
-          <div style="flex:1;min-width:0">
-            <div style="font-weight:700;color:#0f172a">${escHtml(p.name || "-")}</div>
-            <div style="font-size:11px;color:#64748b">${escHtml(p.category || "")}${p.barcode ? ` • ${escHtml(p.barcode)}` : ""}</div>
-          </div>
-          <div style="text-align:right;flex-shrink:0;margin-left:8px">
-            <div style="font-weight:700;color:#0284c7">${money(p.price || 0)}</div>
-            <div style="font-size:10px;color:#94a3b8">คงเหลือ ${stockTotal}</div>
+        <button class="acpk-item" data-pk-id="${p.id}" style="display:block;width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;background:#fff;cursor:pointer;text-align:left;font:inherit;margin-bottom:6px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:700;color:#0f172a">${escHtml(p.name || "-")}</div>
+              <div style="font-size:11px;color:#64748b">${escHtml(p.category || "")}${p.barcode ? ` • ${escHtml(p.barcode)}` : ""}</div>
+              <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px">${stockTags}${homeTag}</div>
+              ${warningBadge}
+            </div>
+            <div style="text-align:right;flex-shrink:0">
+              <div style="font-weight:700;color:#0284c7">${money(p.price || 0)}</div>
+            </div>
           </div>
         </button>
       `;
@@ -407,9 +601,40 @@ function _openItemPicker(ctx, container, updateTotal) {
     const id = btn.dataset.pkId;
     const p = (state.products || []).find(x => String(x.id) === String(id));
     if (!p) return;
-    const stockAvail = _getStock(p, state);
-    // เช็คว่าซ้ำมั้ย — ถ้าซ้ำเพิ่ม qty
-    const existing = _items.find(it => String(it.product_id) === String(p.id));
+
+    // Phase 43: เลือก warehouse (รถ) ที่จะตัดสต็อก
+    const mobileStocks = _getMobileStocks(p, state);
+    const homeStock = _getHomeStock(p, state);
+
+    let chosenWh = null;
+    if (mobileStocks.length === 1) {
+      // มีรถเดียว → auto-pick
+      chosenWh = mobileStocks[0];
+    } else if (mobileStocks.length > 1) {
+      // มีหลายรถ → user เลือก (ใช้ confirm + prompt-like — แต่เป็น modal สวยกว่า)
+      // ตอนนี้ใช้ window.confirm เพื่อความง่าย — Phase 44 ทำ modal สวยได้
+      const choices = mobileStocks.map((s, i) => `${i+1}. ${s.warehouse_name} (มี ${s.stock})`).join("\n");
+      const ans = window.prompt(`สินค้านี้มีในหลายรถ — เลือกใช้คันไหน?\n\n${choices}\n\nพิมพ์เลข 1-${mobileStocks.length}:`, "1");
+      const idx = parseInt(ans) - 1;
+      if (isNaN(idx) || idx < 0 || idx >= mobileStocks.length) {
+        showToast?.("ยกเลิก");
+        return;
+      }
+      chosenWh = mobileStocks[idx];
+    } else if (homeStock && homeStock.stock > 0) {
+      // ไม่มีในรถเลย → auto-pick "บ้าน" + แจ้งว่าจะ auto-transfer ตอน save
+      chosenWh = homeStock;
+      showToast?.(`⚠️ ${p.name} ยังอยู่ในบ้าน — จะถามยืนยันโอนตอนบันทึก`);
+    } else {
+      showToast?.("ไม่มีของในระบบ");
+      return;
+    }
+
+    // เช็คว่าซ้ำมั้ย — ถ้าซ้ำ + warehouse เดียวกัน → เพิ่ม qty / ถ้าคนละ wh → เพิ่มเป็นแถวใหม่
+    const existing = _items.find(it =>
+      String(it.product_id) === String(p.id) &&
+      String(it.warehouse_id) === String(chosenWh.warehouse_id)
+    );
     if (existing) {
       existing.qty = Number(existing.qty) + 1;
       existing.line_total = existing.qty * Number(existing.unit_price || 0);
@@ -420,13 +645,15 @@ function _openItemPicker(ctx, container, updateTotal) {
         qty: 1,
         unit_price: Number(p.price || 0),
         line_total: Number(p.price || 0),
-        _stock_avail: stockAvail
+        warehouse_id: chosenWh.warehouse_id,
+        warehouse_name: chosenWh.warehouse_name,
+        _stock_avail: chosenWh.stock
       });
     }
     modal.remove();
     _renderItemsList(container, money);
     updateTotal();
-    showToast?.(`เพิ่ม "${p.name}" แล้ว`);
+    showToast?.(`เพิ่ม "${p.name}" จาก ${chosenWh.warehouse_name} แล้ว`);
   });
 
   setTimeout(() => modal.querySelector("#acpkSearch")?.focus(), 100);

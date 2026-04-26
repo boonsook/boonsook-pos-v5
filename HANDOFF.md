@@ -1,10 +1,55 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 42 — AC install line items + receipt)
-**Version:** 5.10.0 (build 54)
-**Previous:** 5.9.5 (build 53) — Phase 41 (Cache Drift Cleanup)
+**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 43 — AC install stock deduction)
+**Version:** 5.11.0 (build 55)
+**Previous:** 5.10.0 (build 54) — Phase 42 (AC install items + receipt)
 
 **🛡️ Phase 17 Active!** — KV binding ผูกแล้ว (Production + Preview), tested 429 OK
+
+---
+
+## 🔧 Phase 43 — AC Install Stock Deduction (mobile-only) — 26 เม.ย. รอบ 16
+
+### Why
+Phase 42 audit เจอ gap: AC install ไม่ตัดสต็อก → สต็อกในระบบไม่ตรงกับของจริง
+User confirm business rule: "บ้าน=master, รถ=mobile, ใบงานช่างต้องตัดจากรถเท่านั้น"
+
+### Decisions (User confirmed)
+1. **ศีขร** = บ้านอีกหลัง / สาขา (ไม่ใช่รถ)
+2. **ของในรถไม่พอ** → Smart Confirm Dialog (Option C)
+   - Popup: "ในรถมี X, บ้านมี Y → โอนจากบ้านขึ้นรถ Z แล้วตัด?"
+   - User กด OK → ระบบทำ 2 transactions: transfer + deduct
+3. **แก้ไขใบงานหลัง save** = lock items + แก้ได้แค่ note/photo/status
+4. **บังคับขึ้นรถก่อน** — ไม่ตัดจากบ้านโดยตรง (Option C จัดการให้)
+5. **POS ตามเดิม** — prefer "บ้าน" ตัดก่อน
+
+### Schema
+```sql
+ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS is_mobile BOOLEAN DEFAULT false;
+UPDATE warehouses SET is_mobile = true
+  WHERE name LIKE 'คัน%' OR name LIKE '%รถ%' OR LOWER(name) LIKE '%van%';
+```
+
+### Code Changes
+- **modules/ac_install.js** — refactor picker:
+  - Filter เฉพาะสินค้าที่มีใน mobile warehouses (รถ)
+  - แสดง stock per warehouse → user เลือกรถ
+  - Items table เพิ่ม column "คลัง"
+  - Save → loop items → ตัดสต็อกจากรถ + auto-transfer ถ้าจำเป็น (with confirm)
+  - Lock items หลัง save (Q3)
+
+### Bump
+- main.js?v=54 → v=55
+- SW v38 → v39
+- Version display 5.10.0 → 5.11.0 (build 55)
+- selfHeal APP_BUILD: 54 → 55
+
+### ⚠️ User ต้องรัน SQL migration:
+```sql
+ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS is_mobile BOOLEAN DEFAULT false;
+UPDATE warehouses SET is_mobile = true
+  WHERE name LIKE 'คัน%' OR name LIKE '%รถ%' OR LOWER(name) LIKE '%van%';
+```
 
 ---
 

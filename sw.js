@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v38 (2026-04-26): Phase 42 — AC install line items + receipt + LINE share
-const CACHE_NAME = 'boonsook-pos-v5-cache-v38';
+// v39 (2026-04-26): Phase 43 — AC install stock deduction (mobile-only + auto-transfer)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v39';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
