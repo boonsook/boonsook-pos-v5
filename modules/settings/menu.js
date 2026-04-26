@@ -21,9 +21,9 @@ export function renderSettingsMainMenu(el, ctx, goBack, navigate) {
     <!-- Profile Card -->
     <div class="set-profile-card">
       <div class="set-profile-avatar">
-        <img src="${localStorage.getItem('bsk_store_logo') || './logo.svg'}" 
-             alt="Logo" class="set-profile-logo" 
-             onerror="this.style.display='none'" />
+        <img src="${state.storeInfo?.logoUrl || localStorage.getItem('bsk_store_logo') || './icons/logo.svg'}"
+             alt="Logo" class="set-profile-logo"
+             onerror="this.src='./icons/logo.svg'" />
       </div>
       <div class="set-profile-info">
         <div class="set-profile-name">

@@ -1,8 +1,51 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 35 — Self-healing recovery)
-**Version:** 5.8.9 (build 47)
-**Previous:** 5.8.8 (build 46) — Phase 34 (SW bypass HTTP cache)
+**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 36 — Logo sync to DB)
+**Version:** 5.9.0 (build 48)
+**Previous:** 5.8.9 (build 47) — Phase 35 (self-healing recovery)
+
+**🛡️ Phase 17 Active!** — KV binding ผูกแล้ว (Production + Preview), tested 429 OK
+
+---
+
+## 🖼️ Phase 36 — Logo Sync to DB (เลิกแนบใหม่ทุกครั้ง — 26 เม.ย. รอบ 11)
+
+### User report
+"ตอนนี้ผมมีปัญหากับการแนบโลโก้ร้านอยู่ครับ ต้องแนบใหม่ทุกครั้ง"
+
+### Bug ที่เจอ
+1. **Storage แค่ localStorage** — `bsk_store_logo` key เก็บ URL เฉพาะ device นั้น
+   - ใช้คนละ browser/device → ไม่เห็น logo
+   - Browser clear cache → logo หาย
+2. **`_appSyncLogo` หา prefix ผิด** — list bucket ด้วย prefix `"logo"` แต่ pages.js upload ตั้งชื่อ `store-logo-{ts}.{ext}` → ไม่ match → sync ไม่เคยทำงาน
+3. **ไม่ผูกกับ saveStoreInfo flow** — แม้ storeInfo อื่นๆ sync เข้า Supabase `app_settings.store_info` แล้ว
+
+### Fix
+1. **modules/settings/pages.js** `renderSettingsLogoPage`:
+   - Upload ตั้งชื่อคงที่ `logo.{ext}` + upsert (ทับของเดิม → URL คงที่)
+   - บันทึก URL เข้า `state.storeInfo.logoUrl` + เรียก `saveStoreInfo()` → sync DB
+   - Reset ลบทั้ง storeInfo + localStorage + DB
+   - Preview อ่าน priority: storeInfo.logoUrl > localStorage > default
+2. **main.js** `_appGetLogo`:
+   - Priority: `state.storeInfo?.logoUrl` > localStorage > default
+3. **main.js** `loadAppSettings`:
+   - หลังโหลด store_info → ถ้ามี logoUrl → sync ลง localStorage + เรียก updateAppLogos()
+4. **main.js** `updateAppLogos`:
+   - เพิ่ม set-profile-logo + spinner-logo + querySelectorAll auth-logo-img
+   - Expose `window.updateAppLogos`
+5. **modules/settings/menu.js**:
+   - Profile avatar อ่านจาก storeInfo.logoUrl ก่อน
+
+### Result
+- Login ทุก device → เห็น logo เดียวกันโดยอัตโนมัติ (Supabase sync)
+- Browser clear cache → logo ยังอยู่ (โหลดจาก DB ครั้งหน้า)
+- Upload ครั้งเดียว → ทุกที่เห็นเหมือนกัน
+
+### Bump
+- main.js?v=47 → v=48
+- SW v31 → v32
+- Version display 5.8.9 → 5.9.0 (build 48)
+- selfHeal APP_BUILD: 47 → 48
 
 ---
 

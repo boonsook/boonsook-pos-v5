@@ -22,8 +22,8 @@ export function renderSettingsAbout(el, ctx, goBack) {
           <div style="font-size:12px;color:#64748b">ระบบจัดการร้านค้าอิเล็กทรอนิกส์แบบครบวงจร</div>
         </div>
         <div style="display:grid;gap:6px;font-size:13px;color:#334155">
-          <div><strong>Version:</strong> 5.8.9</div>
-          <div><strong>Release:</strong> April 2026 (build 47)</div>
+          <div><strong>Version:</strong> 5.9.0</div>
+          <div><strong>Release:</strong> April 2026 (build 48)</div>
           <div><strong>Developer:</strong> Boonsook Electronics</div>
           <div><strong>Contact:</strong> gangboo@gmail.com</div>
         </div>
@@ -279,8 +279,15 @@ export function renderSettingsLineNotify(el, ctx, goBack) {
 
 /**
  * Render Logo page
+ * Phase 36: sync logo URL เข้า storeInfo.logoUrl (Supabase) — ไม่ใช่แค่ localStorage
+ *           → ทุก device login แล้วเห็น logo เดียวกันอัตโนมัติ
  */
 export function renderSettingsLogoPage(el, ctx, goBack) {
+  // อ่าน logo URL จาก storeInfo (ถ้า login แล้ว) > localStorage > default
+  const currentLogo = ctx?.state?.storeInfo?.logoUrl
+    || localStorage.getItem('bsk_store_logo')
+    || './icons/logo.svg';
+
   el.innerHTML = `
     <div class="set-subpage">
       <div class="set-subpage-header">
@@ -289,11 +296,14 @@ export function renderSettingsLogoPage(el, ctx, goBack) {
       </div>
       <div class="set-form-card">
         <div class="logo-preview" style="margin-bottom:20px;text-align:center">
-          <img src="${localStorage.getItem('bsk_store_logo') || './logo.svg'}" alt="Logo" style="max-width:150px;height:auto;border-radius:12px;background:#fff;padding:8px" />
+          <img src="${escHtml(currentLogo)}" alt="Logo" style="max-width:150px;height:auto;border-radius:12px;background:#fff;padding:8px" onerror="this.src='./icons/logo.svg'" />
         </div>
         <input type="file" id="logoFileInput" class="bank-input" accept="image/*" />
         <button id="logoUploadBtn" class="btn primary" style="width:100%;margin-top:10px">อัพโหลด</button>
         <button id="logoResetBtn" class="btn" style="width:100%;margin-top:6px;background:#f1f5f9;color:#64748b;border:1px solid #e2e8f0">🔄 ใช้โลโก้เริ่มต้น</button>
+        <div style="margin-top:10px;padding:10px;background:#ecfeff;border-radius:8px;border:1px solid #bae6fd;font-size:11px;color:#0c4a6e;line-height:1.5">
+          💾 <b>Phase 36:</b> โลโก้ sync เข้าฐานข้อมูล — ทุก device + browser ที่ login เข้ามาจะเห็น logo เดียวกันโดยอัตโนมัติ ไม่ต้องอัพโหลดซ้ำ
+        </div>
       </div>
     </div>
   `;
@@ -315,11 +325,13 @@ export function renderSettingsLogoPage(el, ctx, goBack) {
 
     try {
       const file = fileInput.files[0];
-      const fileName = `store-logo-${Date.now()}.${file.name.split('.').pop()}`;
+      // ใช้ชื่อคงที่ "logo.<ext>" + upsert → ทับของเก่าเสมอ → URL คงที่ (ไม่กิน storage เปล่าๆ)
+      const ext = (file.name.split('.').pop() || 'png').toLowerCase();
+      const fileName = `logo.${ext}`;
 
       const { error: uploadErr } = await ctx?.state?.supabase?.storage
         .from('store-assets')
-        .upload(fileName, file, { upsert: true });
+        .upload(fileName, file, { upsert: true, cacheControl: '60' });
 
       if (uploadErr) throw uploadErr;
 
@@ -328,11 +340,25 @@ export function renderSettingsLogoPage(el, ctx, goBack) {
         .getPublicUrl(fileName);
 
       if (data?.publicUrl) {
-        localStorage.setItem('bsk_store_logo', data.publicUrl);
-        ctx?.showToast?.('อัพโหลดโลโก้สำเร็จ ✅', 'success');
+        // เพิ่ม cache-bust query เผื่อ Cloudflare/Browser cache
+        const urlWithBust = data.publicUrl + '?t=' + Date.now();
+
+        // ★ Sync 3 ที่: storeInfo (DB) + localStorage + state
+        if (ctx?.state) {
+          ctx.state.storeInfo = ctx.state.storeInfo || {};
+          ctx.state.storeInfo.logoUrl = urlWithBust;
+        }
+        localStorage.setItem('bsk_store_logo', urlWithBust);
+        // เรียก saveStoreInfo() → upsert เข้า Supabase app_settings.store_info
+        try { await ctx?.saveStoreInfo?.(); } catch(e) { console.warn('saveStoreInfo fail:', e); }
+
+        ctx?.showToast?.('อัพโหลดโลโก้สำเร็จ ✅ (sync เข้า DB แล้ว)', 'success');
         const preview = document.querySelector('.logo-preview img');
-        if (preview) preview.src = data.publicUrl;
+        if (preview) preview.src = urlWithBust;
         fileInput.value = '';
+
+        // อัปเดต logo ใน sidebar/auth/favicon ทุกจุด
+        try { window.updateAppLogos?.(); } catch(e){}
       }
     } catch (err) {
       ctx?.showToast?.(`อัพโหลดผิดพลาด: ${err.message}`, 'error');
@@ -344,10 +370,18 @@ export function renderSettingsLogoPage(el, ctx, goBack) {
 
   resetBtn?.addEventListener('click', async () => {
     if (!(await window.App?.confirm?.('ใช้โลโก้เริ่มต้น (logo.svg) ใช่หรือไม่?'))) return;
+    // ★ Reset 3 ที่
+    if (ctx?.state?.storeInfo) {
+      delete ctx.state.storeInfo.logoUrl;
+    }
     localStorage.removeItem('bsk_store_logo');
+    localStorage.removeItem('bsk_store_logo_url');
+    try { await ctx?.saveStoreInfo?.(); } catch(e) {}
+
     const preview = document.querySelector('.logo-preview img');
-    if (preview) preview.src = './logo.svg';
-    ctx?.showToast?.('รีเซ็ตโลโก้แล้ว');
+    if (preview) preview.src = './icons/logo.svg';
+    try { window.updateAppLogos?.(); } catch(e){}
+    ctx?.showToast?.('รีเซ็ตโลโก้แล้ว (sync เข้า DB)');
   });
 }
 

@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v31 (2026-04-26): Phase 35 — Self-healing recovery (auto-clear stale cache)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v31';
+// v32 (2026-04-26): Phase 36 — Logo sync to DB (storeInfo.logoUrl)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v32';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

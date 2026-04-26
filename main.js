@@ -213,8 +213,11 @@ window._appXhrDelete = xhrDelete;
 window._appValidators = { isValidPhone, isValidEmail, getUserFriendlyError, validateFile };
 
 // ★ Get store logo — ใช้ได้จากทุก module ผ่าน window._appGetLogo()
+// Phase 36: priority storeInfo.logoUrl (DB sync) → localStorage (cache) → default
 window._appGetLogo = function() {
-  return localStorage.getItem("bsk_store_logo") || "./icons/logo.svg";
+  return state.storeInfo?.logoUrl
+    || localStorage.getItem("bsk_store_logo")
+    || "./icons/logo.svg";
 };
 
 // ★ Sync logo จาก Supabase Storage → localStorage (เรียกตอน boot)
@@ -773,6 +776,11 @@ async function loadAppSettings() {
       if (row.key === 'store_info' && row.value) {
         state.storeInfo = { ...state.storeInfo, ...row.value };
         localStorage.setItem("bsk_store_info", JSON.stringify(state.storeInfo));
+        // Phase 36: ถ้ามี logoUrl ใน DB → sync ลง localStorage + อัปเดต UI
+        if (state.storeInfo.logoUrl) {
+          localStorage.setItem("bsk_store_logo", state.storeInfo.logoUrl);
+          try { if (typeof updateAppLogos === "function") updateAppLogos(); } catch(e){}
+        }
       } else if (row.key === 'payment_info' && row.value) {
         state.paymentInfo = row.value;
         localStorage.setItem("bsk_payment_info", JSON.stringify(state.paymentInfo));
@@ -3578,19 +3586,26 @@ window.App = {
 //  BOOT
 // ═══════════════════════════════════════════════════════════
 
-// ★ อัปเดตโลโก้ใน HTML ทุกจุด (sidebar, auth, favicon) จาก localStorage
+// ★ อัปเดตโลโก้ใน HTML ทุกจุด (sidebar, auth, favicon) จาก state.storeInfo + localStorage
 function updateAppLogos() {
   const logo = window._appGetLogo();
   // Sidebar logo
   const sidebarLogo = document.querySelector(".sidebar-logo-img");
   if (sidebarLogo) sidebarLogo.src = logo;
-  // Auth/Login logo
-  const authLogo = document.querySelector(".auth-logo-img");
-  if (authLogo) authLogo.src = logo;
-  // Favicon
+  // Auth/Login logo (มี 2 จุด: login screen + set password screen)
+  document.querySelectorAll(".auth-logo-img").forEach(el => { el.src = logo; });
+  // Settings profile avatar
+  const profileLogo = document.querySelector(".set-profile-logo");
+  if (profileLogo) profileLogo.src = logo;
+  // Spinner logo (loading overlay)
+  const spinnerLogo = document.querySelector(".spinner-logo");
+  if (spinnerLogo) spinnerLogo.src = logo;
+  // Favicon (เฉพาะ data: URI — http URL จะไม่ override)
   const favicon = document.querySelector('link[rel="icon"]');
   if (favicon && logo.startsWith("data:")) favicon.href = logo;
 }
+// Expose ให้ modules อื่นเรียกได้ (Phase 36 — settings/pages.js logo upload)
+window.updateAppLogos = updateAppLogos;
 
 (async function boot(){
   initDarkMode();
