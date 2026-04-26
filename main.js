@@ -2488,7 +2488,7 @@ async function _deductStockForSaleItem({ product, qty, orderNo }) {
     const before = Number(ws.stock || 0);
     const after = before - qty;
     const whName = state.warehouses.find(w => w.id === ws.warehouse_id)?.name || "?";
-    console.log(`[deductStock] ${product.name}: ${whName} ${before} → ${after} (qty ${qty})`);
+    console.debug(`[deductStock] ${product.name}: ${whName} ${before} → ${after} (qty ${qty})`);
     const patchRes = await xhrPatch("warehouse_stock", { stock: after }, "id", ws.id);
     if (!patchRes.ok) {
       console.error("[deductStock] warehouse_stock PATCH failed:", patchRes.error);
@@ -2680,7 +2680,7 @@ window._appDeductStockSmart = async function({ product, qty, orderNo }) {
       const childQty = Number(r.qty || 1) * qty;
       await _deductStockForSaleItem({ product: childProd, qty: childQty, orderNo: orderNo + " [bundle:" + product.name + "]" });
     }
-    console.log(`[bundle] ${product.name} × ${qty} → ตัด children ${rows.length} รายการ`);
+    console.debug(`[bundle] ${product.name} × ${qty} → ตัด children ${rows.length} รายการ`);
   } catch(e) {
     console.warn("[bundle expand error]", e);
     return await _deductStockForSaleItem({ product, qty, orderNo });
@@ -2693,7 +2693,17 @@ window._appDeductStockSmart = async function({ product, qty, orderNo }) {
 //   → popup ถาม "บันทึก serial มั้ย?" → modal กรอก SN ทีละชิ้น
 // Detection: ราคา ≥ 1,500 OR ชื่อสินค้ามี keyword: แอร์/ทีวี/ตู้เย็น/เครื่องซักผ้า/พัดลม/ไมโครเวฟ
 // ═══════════════════════════════════════════════════════════
-const SERIAL_KEYWORDS = ["แอร์","ทีวี","tv","ตู้เย็น","เครื่องซักผ้า","ไมโครเวฟ","เตาอบ","หม้อหุงข้าว","พัดลม","เครื่องทำน้ำอุ่น","เครื่องทำน้ำร้อน","หม้อทอด","เตารีด","กระติก","Mitsubishi","Samsung","LG","Daikin","Panasonic","Hitachi","Sharp","Toshiba","Haier"];
+const SERIAL_KEYWORDS = [
+  // ภาษาไทย
+  "แอร์","ทีวี","ตู้เย็น","เครื่องซักผ้า","ไมโครเวฟ","เตาอบ","หม้อหุงข้าว","พัดลม",
+  "เครื่องทำน้ำอุ่น","เครื่องทำน้ำร้อน","หม้อทอด","เตารีด","กระติก",
+  // ภาษาอังกฤษ (lowercase — match กับ name.toLowerCase() ด้านล่าง)
+  "tv","ac","fridge","refrigerator","washer","washing machine","microwave","oven",
+  "rice cooker","fan","water heater","air fryer","iron","kettle","aircon",
+  "air conditioner","freezer","dishwasher","dryer","heater",
+  // Brand names
+  "mitsubishi","samsung","lg","daikin","panasonic","hitachi","sharp","toshiba","haier"
+];
 
 function _qualifiesForSerial(item) {
   const name = String(item?.product_name || item?.name || "").toLowerCase();

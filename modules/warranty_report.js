@@ -221,7 +221,7 @@ export async function checkWarrantyExpiringAndNotify(state) {
     const { sendLineNotify } = await import("./line_notify.js");
     await sendLineNotify(msg, { state, showToast: () => {} }, "default");
     localStorage.setItem(LAST_CHECK_KEY, today);
-    console.log(`[warranty] เตือน ${rows.length} เครื่อง`);
+    console.debug(`[warranty] เตือน ${rows.length} เครื่อง`);
   } catch(e) {
     console.warn("[warranty check] failed:", e?.message);
   }

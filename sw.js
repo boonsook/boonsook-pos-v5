@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v22 (2026-04-26): Phase 25 — AI Tutor + In-app Help (3-in-1: Steps + Tour + AI Chat)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v22';
+// v23 (2026-04-26): Phase 26 — Cleanup #2 (dead code + log noise + AC keyword bug)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v23';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

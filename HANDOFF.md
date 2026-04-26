@@ -1,8 +1,43 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 25 — AI Tutor + Help)
-**Version:** 5.8.0 (build 38)
-**Previous:** 5.7.1 (build 37) — Phase 24 Cleanup
+**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 26 — Cleanup #2)
+**Version:** 5.8.1 (build 39)
+**Previous:** 5.8.0 (build 38) — Phase 25 (AI Tutor + Help)
+
+---
+
+## 🧹 Phase 26 — Cleanup #2 (26 เม.ย. กลางคืนรอบ 2)
+
+### Fix #1: ลบ `modules/main.js` ทิ้ง (dead code)
+- 2185 บรรทัด — เคยเป็น "mirror of root main.js" แต่ไม่ได้ sync ตั้งแต่ Phase 11+
+- ขาด imports ใหม่หมด: stock_count, refunds, tasks, serials, warranty_report, help_tutor, validators ฯลฯ
+- ตรวจสอบแล้ว — **0 references** จากที่ไหน (index.html ใช้ root `./main.js`)
+- ลบเพื่อกัน confusion ตอน search code + memory จะได้ไม่ผิด
+
+### Fix #2: console.log → console.debug (4 จุด)
+- main.js:2491 `[deductStock]` — log ทุกครั้งที่ขายของ → console รก
+- main.js:2683 `[bundle]` — log ทุก bundle sale
+- modules/warranty_report.js:224 `[warranty]` — log ตอน background check
+- ai-chat-widget.js:634 `[BoonsookAI]` — debug safety net
+- เปลี่ยนเป็น `console.debug` (browser default ซ่อน — เปิดได้ใน DevTools level filter)
+
+### Fix #3: 🐛 Bug ซ่อน — Auto-Serial brand match ใช้ไม่ได้!
+- main.js:2696 `SERIAL_KEYWORDS` มี `"Mitsubishi","Samsung","LG","Daikin"...` (uppercase)
+- แต่ `_qualifiesForSerial` ใช้ `name.toLowerCase()` เปรียบเทียบ → **brand names ไม่ match เลย**
+- แก้: เปลี่ยนเป็น lowercase ทั้งหมด + เพิ่ม keyword อังกฤษ:
+  `ac, fridge, refrigerator, washer, washing machine, microwave, oven, rice cooker, fan, water heater, air fryer, iron, kettle, aircon, air conditioner, freezer, dishwasher, dryer, heater`
+
+### TODO ที่ยังเหลือ (ตามเดิม)
+- products.js — alert/confirm/prompt 12 จุด (รอ batch แยก)
+- settings/users.js — 2 prompt (ต้องสร้าง modal)
+- ⚠️ **KV binding** ใน Cloudflare Dashboard — user ยังไม่ตั้ง → rate limit ยัง skip
+- 🔵 (Future) Lazy-load CDN libs (chart.js, jspdf, xlsx ~2MB) — งานใหญ่ skip รอบนี้
+- 🔵 (Future) main.js refactor — split route handlers
+
+### Bump
+- main.js?v=38 → v=39
+- SW v22 → v23
+- Version display 5.8.0 → 5.8.1 (build 39)
 
 ---
 
@@ -524,7 +559,6 @@ boonsook-pos-v5-github/
 ├── supabase-rls-policies.sql     # ★ SQL setup script (copy-paste to SQL Editor)
 │
 ├── modules/                      # ~38 feature modules (ESM)
-│   ├── main.js                   # (mirror of root main.js)
 │   ├── doc-utils.js              # ★ Shared print CSS + bahtText helper
 │   ├── pos.js                    # POS checkout flow
 │   ├── ai_sales.js               # AI recommender + order form
@@ -589,7 +623,7 @@ Pages → Settings → Functions → AI bindings:
 ## 🧠 Architecture Patterns
 
 ### 1. xhr helpers — หลักของทุก HTTP call ไป Supabase
-อยู่ใน `modules/main.js` + `main.js` (mirror):
+อยู่ใน `main.js` (root):
 ```js
 window._appXhrPost(table, payload, options)   // INSERT
 window._appXhrPatch(table, payload, column, value)    // UPDATE

@@ -631,7 +631,7 @@
           merged.customer_address
         ) {
           merged.done = true;
-          console.log("[BoonsookAI] safety net triggered — forced done:true", merged);
+          console.debug("[BoonsookAI] safety net triggered — forced done:true", merged);
         }
       }
 
