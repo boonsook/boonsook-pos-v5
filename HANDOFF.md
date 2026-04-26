@@ -1,10 +1,35 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 43.3 — Update banner + native modal cleanup)
-**Version:** 5.11.3 (build 58)
-**Previous:** 5.11.2 (build 57) — Phase 43.2 (HTTP 400 hotfix)
+**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 45 PLAN approved — รอทำพรุ่งนี้)
+**Version:** 5.11.4 (build 59)
+**Previous:** 5.11.3 (build 58) — Phase 43.3 (Update banner + native modal cleanup)
 
 **🛡️ Phase 17 Active!** — KV binding ผูกแล้ว (Production + Preview), tested 429 OK
+
+---
+
+## 🚧 Phase 45 — Service Job Forms (9 ประเภท) — APPROVED, รอ implement
+
+**Status:** Plan approved ตอนค่ำ 26 เม.ย. — user ขอพัก, จะทำพรุ่งนี้
+**User quote:** "Plan B + ทำทั้งหมด ผมไม่รีบ พรุ่งนี้คุณคงทำให้ผมเสร็จ"
+
+### 📐 Blueprint full plan
+ดู [BLUEPRINT_PHASE_45.md](BLUEPRINT_PHASE_45.md) — มีครบ:
+- Architecture (generic `service_form.js` + 9 routes)
+- 8 sub-tasks เรียงลำดับ
+- Files to create/modify
+- Acceptance criteria + test checklist
+- Watch-out (จาก Phase 42-43 lessons)
+
+### Quick summary
+- สร้าง `modules/service_form.js` (generic — copy/reduce from ac_install.js)
+- 9 routes ใหม่: repair_ac, clean_ac, move_ac, satellite, repair_fridge, repair_washer, cctv, repair_tv, other
+- Sidebar "🧰 งานช่าง" ขยายเป็น 12 items (รวม ac_install + solar เดิม)
+- Reuse Phase 41-43 logic: line items + stock deduct + receipt + LINE
+- Bump 5.11.4 → 5.12.0 (build 61) — minor bump
+
+### สำหรับ Claude session ใหม่ที่มาทำต่อ
+อ่าน BLUEPRINT_PHASE_45.md ก่อน → follow sub-tasks 1-8 → commit + push (commit msg สั้น ASCII!)
 
 ---
 
