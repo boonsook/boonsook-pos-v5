@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v25 (2026-04-26): Phase 28 — Fix update banner ไม่ apply จริงบนมือถือ (cache-bust reload)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v25';
+// v26 (2026-04-26): Phase 29 — Update banner false alarm (เช็ค build number ก่อนขึ้น)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v26';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

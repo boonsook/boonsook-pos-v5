@@ -620,7 +620,7 @@
     </div>
   </aside>
 
-  <script type="module" src="./main.js?v=41"></script>
+  <script type="module" src="./main.js?v=42"></script>
   <script>
     // ═══ Loading Overlay ═══
     function hideLoadingOverlay() {
@@ -661,10 +661,34 @@
         });
       }
 
+      // ★ Phase 29: เช็ค build number จริงก่อนขึ้น banner — กัน false alarm
+      // (SW updatefound บางครั้งยิงเพราะ Cloudflare ส่ง sw.js byte ต่างเล็กน้อย แต่ build เดียวกัน)
+      async function isReallyNewBuild() {
+        try {
+          var script = document.querySelector('script[src*="main.js"]');
+          var currentBuild = script && script.src.match(/v=(\d+)/);
+          currentBuild = currentBuild ? Number(currentBuild[1]) : null;
+          if (!currentBuild) return true; // can't compare = assume yes (safer)
+          var r = await fetch('./index.html?_=' + Date.now(), { cache: 'no-store' });
+          var html = await r.text();
+          var m = html.match(/main\.js\?v=(\d+)/);
+          var newBuild = m ? Number(m[1]) : null;
+          if (!newBuild) return true;
+          return newBuild > currentBuild; // strict greater — เท่ากับไม่ใช่ update
+        } catch (e) {
+          console.warn('[update check] build compare failed:', e);
+          return false; // ผิดพลาด = อย่าเด้ง banner เปล่าๆ
+        }
+      }
+
+      async function maybeShowBanner(reg) {
+        if (await isReallyNewBuild()) showUpdateBanner(reg);
+      }
+
       function watchForUpdate(reg) {
         // Case 1: a waiting worker is already there at register-time
         if (reg.waiting && navigator.serviceWorker.controller) {
-          showUpdateBanner(reg);
+          maybeShowBanner(reg);
         }
         // Case 2: update appears later
         reg.addEventListener('updatefound', function () {
@@ -672,7 +696,7 @@
           if (!newSw) return;
           newSw.addEventListener('statechange', function () {
             if (newSw.state === 'installed' && navigator.serviceWorker.controller) {
-              showUpdateBanner(reg);
+              maybeShowBanner(reg);
             }
           });
         });

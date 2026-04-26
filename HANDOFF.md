@@ -1,8 +1,32 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 28 — Fix update banner mobile)
-**Version:** 5.8.3 (build 41)
-**Previous:** 5.8.2 (build 40) — Phase 27 (Fix AI help HTTP 400)
+**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 29 — Banner false alarm fix)
+**Version:** 5.8.4 (build 42)
+**Previous:** 5.8.3 (build 41) — Phase 28 (cache-bust reload)
+
+---
+
+## 🐛 Phase 29 — Update Banner False Alarm (26 เม.ย. รอบ 5)
+
+### Bug
+- หลัง user กด "อัปเดตเลย" ใน banner → Phase 28 cache-bust reload → ได้ build ใหม่จริง
+- แต่หน้า settings/about ยังขึ้น banner "🔄 มีเวอร์ชันใหม่" อีก (false alarm ทุกครั้ง)
+- เจอที่ Version 5.8.3 — banner ขึ้นแม้ตอนนี้เป็นเวอร์ชันล่าสุดแล้ว
+
+### Root cause
+[index.html:670-678](index.html:670) `watchForUpdate` — เห็น SW updatefound + installed + controller มีค่า → ขึ้น banner ทันที
+แต่ Cloudflare/Browser ส่ง sw.js byte ต่างเล็กน้อย (header timestamp, ETag) → updatefound trigger แม้ build เดียวกัน
+
+### Fix
+เพิ่ม `isReallyNewBuild()` — fetch index.html จาก network → เปรียบเทียบ `main.js?v=N`
+- newBuild > currentBuild = ขึ้น banner
+- newBuild === currentBuild = ไม่ขึ้น (false alarm)
+- error = ไม่ขึ้น (อย่ารบกวน user)
+
+### Bump
+- main.js?v=41 → v=42
+- SW v25 → v26
+- Version display 5.8.3 → 5.8.4 (build 42)
 
 ---
 
