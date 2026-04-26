@@ -347,28 +347,72 @@ th { color: var(--muted); font-size: 12px; }
    ═══════════════════════════════════════════════════════════ */
 
 /* ─── Sales Banner ─── */
+/* ─── POS Banner (Phase 36 — FlowAccount-style + logo) ─── */
 .pos-banner {
   background: linear-gradient(135deg, #38bdf8, #0284c7);
-  color: #fff; border-radius: 22px; padding: 24px 20px; text-align: center;
+  color: #fff; border-radius: 24px; padding: 22px 22px 26px; text-align: center;
   box-shadow: 0 12px 30px rgba(2,132,199,.25);
 }
-.pos-banner-label { font-size: 14px; opacity: .85; }
-.pos-banner-amount { font-size: 42px; font-weight: 900; line-height: 1.2; margin: 4px 0; }
+.pos-banner-top {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 10px;
+}
+.pos-banner-logo {
+  width: 56px; height: 56px; border-radius: 50%;
+  background: #fff; display: grid; place-items: center;
+  box-shadow: 0 4px 12px rgba(0,0,0,.12); overflow: hidden; flex-shrink: 0;
+}
+.pos-banner-logo img { width: 100%; height: 100%; object-fit: cover; }
+.pos-banner-label { font-size: 14px; opacity: .85; margin-top: 4px; }
+.pos-banner-amount { font-size: 48px; font-weight: 900; line-height: 1.15; margin: 6px 0; letter-spacing: -.5px; }
 .pos-banner-count { font-size: 13px; opacity: .8; }
 
-/* ─── Action Grid ─── */
+/* ─── Action Grid (Phase 36 — 3 cols × 2 rows + circle icons) ─── */
 .pos-action-grid {
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 16px;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 18px;
 }
 .pos-action-btn {
   background: #fff; border: 1px solid var(--line); border-radius: 20px;
-  padding: 18px 8px; text-align: center; cursor: pointer;
+  padding: 16px 8px 14px; text-align: center; cursor: pointer;
   box-shadow: var(--shadow); transition: .15s;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
 }
 .pos-action-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(15,23,42,.12); }
 .pos-action-btn:active { transform: scale(.97); }
-.pos-action-icon { font-size: 32px; margin-bottom: 6px; }
+.pos-action-icon-wrap {
+  width: 56px; height: 56px; border-radius: 50%;
+  background: #e0f2fe; display: grid; place-items: center;
+}
+.pos-action-icon { font-size: 28px; line-height: 1; }
 .pos-action-label { font-size: 12px; font-weight: 700; color: var(--primary2); }
+
+/* ─── Recent Sales Section (Phase 36 — "อัพเดทล่าสุด") ─── */
+.pos-recent-section { margin-top: 18px; }
+.pos-recent-header {
+  display: flex; align-items: baseline; justify-content: space-between;
+  padding: 0 4px 10px;
+}
+.pos-recent-title { margin: 0; font-size: 16px; font-weight: 800; color: #0f172a; }
+.pos-recent-sub { font-size: 11px; color: #94a3b8; }
+.pos-recent-list { display: flex; flex-direction: column; gap: 8px; }
+.pos-recent-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: #fff; border: 1px solid var(--line); border-radius: 14px;
+  padding: 12px 14px; cursor: pointer; text-align: left;
+  box-shadow: var(--shadow); transition: .15s; width: 100%; font: inherit;
+}
+.pos-recent-item:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(15,23,42,.10); }
+.pos-recent-item:active { transform: scale(.99); }
+.pos-recent-item:disabled { opacity: .55; cursor: not-allowed; }
+.pos-recent-item:disabled:hover { transform: none; box-shadow: var(--shadow); }
+.pos-recent-item-left { flex: 1; min-width: 0; }
+.pos-recent-item-no { font-weight: 800; color: var(--primary2); font-size: 14px; }
+.pos-recent-item-meta { font-size: 11px; color: #64748b; margin-top: 2px; }
+.pos-recent-item-right { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
+.pos-recent-item-amount { font-weight: 800; color: var(--primary2); font-size: 15px; }
+.pos-recent-item-tag { font-size: 10px; padding: 2px 8px; border-radius: 8px; font-weight: 700; }
+.pos-recent-item-tag.paid { background: #dcfce7; color: #15803d; }
+.pos-recent-item-tag.cancelled { background: #fee2e2; color: #b91c1c; }
 
 /* ─── Sub-page Header ─── */
 .pos-subpage-header {

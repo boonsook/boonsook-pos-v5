@@ -100,34 +100,52 @@ function renderPosView(ctx) {
     });
     const todayTotal = todaySales.reduce((s,i)=>s+Number(i.total_amount||0),0);
 
+    // ★ Phase 36 — Recent sales for "อัพเดทล่าสุด" feed (5 ล่าสุด)
+    const recentSales = todaySales
+      .slice()
+      .sort((a,b) => new Date(b.created_at) - new Date(a.created_at))
+      .slice(0, 5);
+    const logoUrl = (typeof window !== "undefined" && window._appGetLogo) ? window._appGetLogo() : "./icons/logo.svg";
+
     el.innerHTML = `
-      <!-- Sales Banner -->
+      <!-- Sales Banner — Phase 36: + logo circle, ขยายยอด -->
       <div class="pos-banner">
-        <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
-          <button id="posSalesHistory" class="pos-history-btn">ประวัติการขาย ›</button>
+        <div class="pos-banner-top">
+          <div class="pos-banner-logo">
+            <img src="${escHtml(logoUrl)}" alt="" onerror="this.src='./icons/logo.svg'" />
+          </div>
+          <button id="posSalesHistory" class="pos-history-btn">🕒 ประวัติการขาย ›</button>
         </div>
         <div class="pos-banner-label">วันนี้ขายได้</div>
         <div class="pos-banner-amount">฿${moneyNum(todayTotal)}</div>
         <div class="pos-banner-count">จาก ${todaySales.length} ออเดอร์</div>
       </div>
 
-      <!-- Quick Action Grid -->
+      <!-- Quick Action Grid — Phase 36: 6 ปุ่ม (3 cols × 2 rows) + circle icons -->
       <div class="pos-action-grid">
         <button class="pos-action-btn" id="posQuickPay">
-          <div class="pos-action-icon">🧮</div>
+          <div class="pos-action-icon-wrap"><div class="pos-action-icon">🧮</div></div>
           <div class="pos-action-label">เก็บเงินทันที</div>
         </button>
         <button class="pos-action-btn" id="posSelectProduct">
-          <div class="pos-action-icon">🛒</div>
+          <div class="pos-action-icon-wrap"><div class="pos-action-icon">🛒</div></div>
           <div class="pos-action-label">เลือกสินค้า</div>
         </button>
         <button class="pos-action-btn" id="posScanBtn">
-          <div class="pos-action-icon">📷</div>
+          <div class="pos-action-icon-wrap"><div class="pos-action-icon">📷</div></div>
           <div class="pos-action-label">สแกนเนอร์</div>
         </button>
         <button class="pos-action-btn" id="posShowQR">
-          <div class="pos-action-icon">📱</div>
+          <div class="pos-action-icon-wrap"><div class="pos-action-icon">📱</div></div>
           <div class="pos-action-label">QR รับเงิน</div>
+        </button>
+        <button class="pos-action-btn" id="posServiceJobs">
+          <div class="pos-action-icon-wrap"><div class="pos-action-icon">🔧</div></div>
+          <div class="pos-action-label">งานช่าง</div>
+        </button>
+        <button class="pos-action-btn" id="posReports">
+          <div class="pos-action-icon-wrap"><div class="pos-action-icon">📊</div></div>
+          <div class="pos-action-label">รายงาน</div>
         </button>
       </div>
 
@@ -175,6 +193,35 @@ function renderPosView(ctx) {
         </div>
       </div>
       ` : ''}
+
+      <!-- ★ Phase 36 — อัพเดทล่าสุด (5 บิลล่าสุดวันนี้) -->
+      ${recentSales.length > 0 ? `
+      <div class="pos-recent-section">
+        <div class="pos-recent-header">
+          <h3 class="pos-recent-title">📋 อัพเดทล่าสุด</h3>
+          <span class="pos-recent-sub">${recentSales.length} บิลล่าสุดวันนี้</span>
+        </div>
+        <div class="pos-recent-list">
+          ${recentSales.map(s => {
+            const time = new Date(s.created_at).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" });
+            const cust = (s.customer_name && s.customer_name.trim()) ? s.customer_name : "ลูกค้าทั่วไป";
+            const isCancelled = (s.note || "").includes("[ลบแล้ว]");
+            return `
+              <button class="pos-recent-item" data-recent-sale="${s.id}" ${isCancelled ? 'disabled' : ''}>
+                <div class="pos-recent-item-left">
+                  <div class="pos-recent-item-no">${escHtml(s.order_no || ('#' + s.id))}</div>
+                  <div class="pos-recent-item-meta">${time} • ${escHtml(cust)}</div>
+                </div>
+                <div class="pos-recent-item-right">
+                  <div class="pos-recent-item-amount">฿${moneyNum(s.total_amount || 0)}</div>
+                  ${isCancelled ? '<div class="pos-recent-item-tag cancelled">ยกเลิก</div>' : '<div class="pos-recent-item-tag paid">✓ เก็บเงินแล้ว</div>'}
+                </div>
+              </button>
+            `;
+          }).join("")}
+        </div>
+      </div>
+      ` : ''}
     `;
 
     // ★ Customer Picker bindings
@@ -205,6 +252,28 @@ function renderPosView(ctx) {
     document.getElementById("posSalesHistory")?.addEventListener("click", () => {
       window.App?.showRoute?.("sales");
     }, { signal });
+
+    // ★ Phase 36 — ปุ่มใหม่: งานช่าง + รายงาน
+    document.getElementById("posServiceJobs")?.addEventListener("click", () => {
+      window.App?.showRoute?.("service_jobs");
+    }, { signal });
+    document.getElementById("posReports")?.addEventListener("click", () => {
+      window.App?.showRoute?.("dashboard");
+    }, { signal });
+
+    // ★ Phase 36 — Recent sales feed: คลิก → loadReceipt(id) → openReceiptDrawer()
+    el.querySelectorAll("[data-recent-sale]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const id = btn.getAttribute("data-recent-sale");
+        if (!id) return;
+        try {
+          if (window.App?.loadReceipt) await window.App.loadReceipt(id);
+          window.App?.openReceiptDrawer?.();
+        } catch (e) {
+          window.App?.showToast?.("เปิดใบเสร็จไม่สำเร็จ: " + (e?.message || e), "error");
+        }
+      }, { signal });
+    });
 
 
   // ═══════════════════════════════════════════════════════

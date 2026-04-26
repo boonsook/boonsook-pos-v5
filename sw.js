@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v32 (2026-04-26): Phase 36 — Logo sync to DB (storeInfo.logoUrl)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v32';
+// v33 (2026-04-26): Phase 37 — POS home FlowAccount-style (logo + 6 actions + recent feed)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v33';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

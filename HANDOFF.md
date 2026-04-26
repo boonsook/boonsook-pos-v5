@@ -1,10 +1,68 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 36 — Logo sync to DB)
-**Version:** 5.9.0 (build 48)
-**Previous:** 5.8.9 (build 47) — Phase 35 (self-healing recovery)
+**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 37 — POS home FlowAccount redesign)
+**Version:** 5.9.1 (build 49)
+**Previous:** 5.9.0 (build 48) — Phase 36 (Logo sync to DB)
 
 **🛡️ Phase 17 Active!** — KV binding ผูกแล้ว (Production + Preview), tested 429 OK
+
+---
+
+## 🎨 Phase 37 — POS Home FlowAccount-Style Redesign (26 เม.ย. รอบ 12)
+
+### Why
+User เห็น UX ของ FlowAccount แล้วชอบ — อยากให้หน้า POS home ใกล้เคียง:
+- Logo ร้านในวงกลมที่ banner
+- Action grid 6 ปุ่ม (3 cols × 2 rows) + circle background สำหรับ icon
+- "อัพเดทล่าสุด" section แสดง 5 บิลล่าสุดวันนี้
+
+### What changed
+
+**modules/pos.js (home view):**
+- Banner เพิ่ม `pos-banner-top` flex container — logo (ซ้าย) + ปุ่ม "🕒 ประวัติการขาย ›" (ขวา)
+- Logo มาจาก `window._appGetLogo()` (Phase 36 priority: storeInfo.logoUrl > localStorage > default)
+- Amount ขยายจาก 42px → 48px
+- Action grid 4 ปุ่ม → **6 ปุ่ม** (3 cols × 2 rows):
+  1. 🧮 เก็บเงินทันที
+  2. 🛒 เลือกสินค้า
+  3. 📷 สแกนเนอร์
+  4. 📱 QR รับเงิน
+  5. 🔧 งานช่าง (→ showRoute("service_jobs"))
+  6. 📊 รายงาน (→ showRoute("dashboard"))
+- เพิ่ม "📋 อัพเดทล่าสุด" section ด้านล่าง:
+  - 5 บิลล่าสุดของวันนี้ (sort desc by created_at)
+  - แสดง: เลขบิล + เวลา + ชื่อลูกค้า + ยอด + tag (✓ เก็บเงินแล้ว / ยกเลิก)
+  - Click → `App.loadReceipt(id)` → `App.openReceiptDrawer()`
+  - Disabled ถ้าบิลถูกยกเลิก ([ลบแล้ว] in note)
+
+**style.css:**
+- `.pos-banner-top` flex container ใหม่
+- `.pos-banner-logo` วงกลม 56×56 พื้นขาว shadow + img cover
+- `.pos-banner-amount` 42px → 48px
+- `.pos-action-grid` 4 cols → **3 cols**
+- `.pos-action-icon-wrap` วงกลม 56×56 background `#e0f2fe` (ฟ้าอ่อน)
+- `.pos-action-icon` 32px → 28px (พอดีในวง)
+- เพิ่ม `.pos-recent-section` + `.pos-recent-item` + tags (paid/cancelled)
+
+### Files touched
+- `modules/pos.js` (~50 บรรทัดเพิ่ม)
+- `style.css` (~50 บรรทัดเพิ่ม)
+- `index.html` v=48 → v=49 + APP_BUILD = 49
+- `sw.js` v32 → v33
+- `modules/settings/pages.js` 5.9.0 → 5.9.1 (build 49)
+
+### Compatibility
+- ✅ ไม่กระทบ logic checkout / cart / customer picker
+- ✅ ไม่แตะ backend (functions/api/*)
+- ✅ ไม่แตะ database schema
+- ✅ ปุ่ม 4 ตัวเดิม handler เหมือนเดิม + เพิ่ม 2 ตัวใหม่ใช้ showRoute
+- ✅ ใช้ `window._appGetLogo()` ที่ Phase 36 sync ผ่าน DB แล้ว → cross-device
+
+### Bump
+- main.js?v=48 → v=49
+- SW v32 → v33
+- Version display 5.9.0 → 5.9.1 (build 49)
+- selfHeal APP_BUILD: 48 → 49
 
 ---
 
@@ -24,27 +82,11 @@
 1. **modules/settings/pages.js** `renderSettingsLogoPage`:
    - Upload ตั้งชื่อคงที่ `logo.{ext}` + upsert (ทับของเดิม → URL คงที่)
    - บันทึก URL เข้า `state.storeInfo.logoUrl` + เรียก `saveStoreInfo()` → sync DB
-   - Reset ลบทั้ง storeInfo + localStorage + DB
-   - Preview อ่าน priority: storeInfo.logoUrl > localStorage > default
-2. **main.js** `_appGetLogo`:
-   - Priority: `state.storeInfo?.logoUrl` > localStorage > default
-3. **main.js** `loadAppSettings`:
-   - หลังโหลด store_info → ถ้ามี logoUrl → sync ลง localStorage + เรียก updateAppLogos()
-4. **main.js** `updateAppLogos`:
-   - เพิ่ม set-profile-logo + spinner-logo + querySelectorAll auth-logo-img
-   - Expose `window.updateAppLogos`
-5. **modules/settings/menu.js**:
-   - Profile avatar อ่านจาก storeInfo.logoUrl ก่อน
+2. **main.js** `_appGetLogo`: priority `state.storeInfo?.logoUrl` > localStorage > default
+3. **main.js** `loadAppSettings`: sync logo จาก DB → localStorage ตอน boot
 
-### Result
-- Login ทุก device → เห็น logo เดียวกันโดยอัตโนมัติ (Supabase sync)
-- Browser clear cache → logo ยังอยู่ (โหลดจาก DB ครั้งหน้า)
-- Upload ครั้งเดียว → ทุกที่เห็นเหมือนกัน
-
-### Bump
-- main.js?v=47 → v=48
-- SW v31 → v32
-- Version display 5.8.9 → 5.9.0 (build 48)
+### Bump (Phase 36)
+- main.js?v=47 → v=48, SW v31 → v32, version 5.8.9 → 5.9.0 (build 48)
 - selfHeal APP_BUILD: 47 → 48
 
 ---
@@ -1007,16 +1049,28 @@ print("EOL:", eol_name)
 - **functions/api/\*.js:** CRLF (ยกเว้น ai-assistant.js = LF)
 - **อย่าบังคับเปลี่ยน** — `.gitattributes` จัดการให้แล้ว
 
-### 5. Cloudflare webhook stuck
-บางครั้ง GitHub push แล้ว Cloudflare ไม่ deploy ใน 5-40 นาที
+### 5. Deploy ผ่าน GitHub Actions (ไม่ใช่ Cloudflare GitHub integration!)
 
-**วิธีแก้:**
+**สำคัญ:** Repo นี้ **ไม่ใช้** Cloudflare Pages Git integration —
+ใช้ `.github/workflows/main.yml` ที่ run `wrangler pages deploy` upload โดยตรงแทน
+
+**Workflow มี 2 jobs:**
+1. `deploy` — wrangler upload ไป Cloudflare Pages (~30-60s)
+2. `docker` — build + test Docker image (~2-3 min) — needs deploy
+
+**เวลาเห็น "deploy ไม่ขึ้น":**
+1. ไป **GitHub → Actions tab** ดู workflow runs
+2. ถ้า `deploy` job ✓ green = Cloudflare ได้ของใหม่แล้ว → refresh dashboard
+3. ถ้า `deploy` job ❌ fail = ดู logs (Cloudflare token หมดอายุ? quota เกิน?)
+4. `docker` job fail ไม่กระทบ deployment — แค่ workflow status overall = fail
+
+**ถ้า deploy job ไม่ trigger เลย (rare):**
 ```bash
-git commit --allow-empty -m "chore: trigger cloudflare pages deploy"
+git commit --allow-empty -m "chore: trigger workflow"
 git push origin main
 ```
 
-**อย่า** คลิก "Save and deploy" ใน Cloudflare upload mode — จะ disconnect Git integration
+**อย่า** คลิก "Save and deploy" ใน Cloudflare upload mode — จะ disconnect ทุกอย่าง
 
 ### 6. Windows bash cd ไม่ข้าม worktree
 ```bash
