@@ -330,8 +330,9 @@ export function renderAcInstallPage(ctx) {
       ].filter(Boolean).join(" | ");
 
       // Phase 43.2: ใช้ field name ตรงกับ schema (customer_address ไม่ใช่ address)
-      // เดิม Phase 42 ส่ง "address" → HTTP 400 เพราะ column ไม่มีใน DB
+      // Phase 43.4: เพิ่ม job_no ก่อน insert (NOT NULL constraint) — pattern เดียวกับ main.js
       const record = {
+        job_no: "JOB-" + Date.now(),
         customer_name: name,
         customer_phone: container.querySelector("#acPhone").value.trim(),
         customer_address: container.querySelector("#acAddress").value.trim(),
