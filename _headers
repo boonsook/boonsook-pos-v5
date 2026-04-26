@@ -42,3 +42,17 @@
 # AI chat widget — must-revalidate (เหตุผลเดียวกับ /modules/*)
 /ai-chat-widget.js
   Cache-Control: public, max-age=0, must-revalidate
+
+# Phase 41 — Cache Drift cleanup (pre-emptive audit)
+# Phase 4 design system + Print stylesheet — must-revalidate (ป้องกัน UI พังเหมือน Phase 38 logo overflow)
+/phase4-design-system.css
+  Cache-Control: public, max-age=0, must-revalidate
+/phase4-components.css
+  Cache-Control: public, max-age=0, must-revalidate
+/doc-print.css
+  Cache-Control: public, max-age=0, must-revalidate
+
+# Supabase config — CRITICAL: ถ้า URL/anonKey เปลี่ยน user เก่าจะ connect ไม่ได้
+# no-cache บังคับ revalidate ทุกครั้ง
+/supabase-config.js
+  Cache-Control: no-cache, must-revalidate

@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v36 (2026-04-26): Phase 40 — Fix AC install product filter (stock_qty → stock + ขยาย match)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v36';
+// v37 (2026-04-26): Phase 41 — Cache Drift Cleanup (?v= + _headers for missing assets)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v37';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

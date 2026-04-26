@@ -1,10 +1,46 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 40 — Fix AC install product filter)
-**Version:** 5.9.4 (build 52)
-**Previous:** 5.9.3 (build 51) — Phase 39 (Service jobs filter chips)
+**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 41 — Cache Drift Cleanup)
+**Version:** 5.9.5 (build 53)
+**Previous:** 5.9.4 (build 52) — Phase 40 (Fix AC install product filter)
 
 **🛡️ Phase 17 Active!** — KV binding ผูกแล้ว (Production + Preview), tested 429 OK
+
+---
+
+## 🧹 Phase 41 — Cache Drift Cleanup (26 เม.ย. รอบ 14 — Pre-emptive audit)
+
+### Why
+Audit เจอ 4 static assets ใน index.html ที่ไม่มี `?v=` cache-bust + ไม่มี `_headers` rule
+→ ใช้ default cache aggressive → bug class "cache stale" ซ่อนอยู่ (เหมือน Phase 38 logo overflow)
+
+> 📝 Note: Phase number bump 40 → 41 เพราะ session อื่น push "Phase 40 — Fix AC install" ก่อน
+
+### Files at risk (ก่อน fix)
+| File | Risk | Severity |
+|---|---|---|
+| `supabase-config.js` | URL/anonKey เปลี่ยน → user เก่า connect ไม่ได้ | 🔴 P0 |
+| `phase4-design-system.css` | Design tokens stale → UI render พัง | 🟡 P1 |
+| `phase4-components.css` | Component CSS stale → UI render พัง | 🟡 P1 |
+| `doc-print.css` | Print stylesheet stale → ใบเสร็จพิมพ์ผิด | 🟡 P1 |
+
+### Fix
+1. **index.html** — เพิ่ม `?v=1` ทั้ง 4 ไฟล์ (cache-bust)
+2. **_headers** — เพิ่ม rules:
+   - `/supabase-config.js` → `no-cache, must-revalidate` (CRITICAL)
+   - `/phase4-*.css` → `max-age=0, must-revalidate`
+   - `/doc-print.css` → `max-age=0, must-revalidate`
+
+### Result
+- ครั้งหน้าแก้ไฟล์ใดก็ตาม → bump `?v=` → user ได้ของใหม่ทันที
+- ไม่ต้องรอ Phase 38-style hotfix อีก
+- Permanent — protection สำหรับ deploy ในอนาคต
+
+### Bump
+- main.js?v=52 → v=53
+- SW v36 → v37
+- Version display 5.9.4 → 5.9.5
+- selfHeal APP_BUILD: 52 → 53
 
 ---
 
