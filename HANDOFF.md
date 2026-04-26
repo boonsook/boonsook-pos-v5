@@ -1,8 +1,41 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 32 — Service photo gallery picker)
-**Version:** 5.8.6 (build 44)
-**Previous:** 5.8.5 (build 43) — Phase 31 (service job LINE notify)
+**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 33 — Fix /modules/* stale cache)
+**Version:** 5.8.7 (build 45)
+**Previous:** 5.8.6 (build 44) — Phase 32 (service photo gallery picker)
+
+---
+
+## 🐛 Phase 33 — Fix /modules/* HTTP cache stale (26 เม.ย. รอบ 8)
+
+### User report
+หลัง Phase 32 deploy → user เห็น:
+- ปุ่ม "ตรวจหาอัปเดต" บอก: "✓ build 44" (ใหม่ ✓)
+- แต่ Version display: **5.8.4 (build 42)** (เก่า — ของ Phase 29!) ❌
+
+### Root cause
+[_headers:32-34](_headers:32) — `/modules/*` ตั้ง `Cache-Control: public, max-age=31536000, immutable`
+- main.js?v=44 ใส่ cache-bust → โหลดใหม่ทุกครั้งที่ build เปลี่ยน ✓
+- แต่ `import { renderSettingsAbout } from "./modules/settings/pages.js"` **ไม่มี ?v=** → URL คงที่
+- Browser/CDN เห็น `immutable` → serve เก่าตลอด → user เห็น version 5.8.4
+- ปัญหานี้กระทบ **ทุกหน้า** — pages.js, serials.js, warranty_report.js, ฯลฯ ใช้ของเก่าทั้งหมด
+
+### Fix
+[_headers:32-34](_headers:32) — เปลี่ยนเป็น `max-age=0, must-revalidate`:
+- Browser ยังเก็บ cache ได้
+- แต่ทุก request → revalidate กับ server (If-None-Match → 304 ถ้าไม่เปลี่ยน → fast)
+- ถ้าไฟล์เปลี่ยน → download fresh ทันที — no stale
+- เปลี่ยน `/ai-chat-widget.js` ด้วย (เหตุผลเดียวกัน)
+
+### ⚠️ User ต้องทำ 1 ครั้ง
+หลัง deploy 5.8.7 → user ที่ติด stale cache ของเก่าต้อง:
+**กดปุ่ม "🚀 บังคับอัปเดต" สีแดง** → ล้าง SW + cache → reload
+หลังจากนั้นจะไม่มีปัญหา stale อีกในรุ่นต่อๆ ไป (ทุก deploy = revalidate)
+
+### Bump
+- main.js?v=44 → v=45
+- SW v28 → v29
+- Version display 5.8.6 → 5.8.7 (build 45)
 
 ---
 

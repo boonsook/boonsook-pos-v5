@@ -29,14 +29,16 @@
 /style.css
   Cache-Control: public, max-age=31536000, immutable
 
-# JS modules ใน /modules/: cache ได้นาน (URL เปลี่ยนตาม import path)
+# JS modules ใน /modules/: must-revalidate (เพราะ import path ไม่มี ?v= cache-bust)
+# Phase 33 fix: เดิมใช้ immutable 1 ปี → main.js?v=N โหลดใหม่ แต่ /modules/*.js stale
+# → user เห็น version display เก่า แม้ main.js ใหม่ — แก้ด้วย must-revalidate (ETag check)
 /modules/*
-  Cache-Control: public, max-age=31536000, immutable
+  Cache-Control: public, max-age=0, must-revalidate
 
 # Icons / images: cache 7 วัน
 /icons/*
   Cache-Control: public, max-age=604800
 
-# AI chat widget
+# AI chat widget — must-revalidate (เหตุผลเดียวกับ /modules/*)
 /ai-chat-widget.js
-  Cache-Control: public, max-age=31536000, immutable
+  Cache-Control: public, max-age=0, must-revalidate

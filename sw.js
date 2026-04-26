@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v28 (2026-04-26): Phase 32 — Service photo upload + 🖼️ gallery picker (มือถือเลือกจากรูปได้)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v28';
+// v29 (2026-04-26): Phase 33 — Fix /modules/* stale cache (HTTP must-revalidate)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v29';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
