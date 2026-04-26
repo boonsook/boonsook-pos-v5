@@ -1,8 +1,38 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 29 — Banner false alarm fix)
-**Version:** 5.8.4 (build 42)
-**Previous:** 5.8.3 (build 41) — Phase 28 (cache-bust reload)
+**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 31 — Service job LINE delivered/closed)
+**Version:** 5.8.5 (build 43)
+**Previous:** 5.8.4 (build 42) — Phase 29 (banner false alarm fix)
+
+---
+
+## 🐛 Phase 31 — Service Job LINE Notify รองรับ delivered/closed (26 เม.ย. รอบ 6)
+
+### Bug ที่ user แจ้ง
+"หน้านี้ปิดงานไม่ได้ ไม่ส่งเข้ากลุ่มไลน์ ส่งงาน"
+- เปลี่ยน status เป็น "ส่งมอบแล้ว" (delivered) หรือ "🎉 ลูกค้ายืนยันปิดงาน" (closed) → บันทึก
+- ไม่มี LINE notify เข้ากลุ่ม "ส่งงาน" (channel: done)
+
+### Root cause
+[main.js:2399](main.js:2399) `transitionedToDone` เช็คเฉพาะ `payload.status === "done"` เท่านั้น
+แต่ใน [index.html:530-537](index.html:530) `<select id="serviceStatus">` มี 6 options:
+- pending / progress / **done** / **delivered** / **closed** / cancelled
+→ "delivered" + "closed" ก็คือปิดงานเหมือนกัน แต่ code กรองออก
+
+### Fix
+[main.js:2398-2422](main.js:2398) — เพิ่ม COMPLETION_STATUSES whitelist:
+```js
+const COMPLETION_STATUSES = ["done", "delivered", "closed"];
+const wasComplete = COMPLETION_STATUSES.includes(origStatus);
+const isNowComplete = COMPLETION_STATUSES.includes(payload.status);
+const transitionedToDone = !isNewJob && !wasComplete && isNowComplete;
+```
++ message รวม STATUS_LABEL เด่น (เสร็จแล้ว / ส่งมอบแล้ว ✓ / 🎉 ลูกค้ายืนยันปิดงาน)
+
+### Bump
+- main.js?v=42 → v=43
+- SW v26 → v27
+- Version display 5.8.4 → 5.8.5 (build 43)
 
 ---
 

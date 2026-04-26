@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v26 (2026-04-26): Phase 29 — Update banner false alarm (เช็ค build number ก่อนขึ้น)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v26';
+// v27 (2026-04-26): Phase 31 — Service job LINE notify (delivered/closed status)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v27';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

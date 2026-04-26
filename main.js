@@ -2394,12 +2394,21 @@ async function saveServiceJob(){
     }
   }
 
-  // ★ LINE notify เมื่อปิดงาน (status เปลี่ยนเป็น done) → กลุ่ม "ส่งงาน"
+  // ★ LINE notify เมื่อปิดงาน → กลุ่ม "ส่งงาน"
+  // Phase 31 fix: ปิดงานนับ done / delivered / closed (ก่อนหน้าเช็คเฉพาะ "done" → "ส่งมอบแล้ว"/"ลูกค้ายืนยันปิดงาน" ไม่ส่ง LINE)
   const origStatus = state.editingServiceJobOrigStatus;
-  const transitionedToDone = !isNewJob && origStatus !== "done" && payload.status === "done";
+  const COMPLETION_STATUSES = ["done", "delivered", "closed"];
+  const wasComplete = COMPLETION_STATUSES.includes(origStatus);
+  const isNowComplete = COMPLETION_STATUSES.includes(payload.status);
+  const transitionedToDone = !isNewJob && !wasComplete && isNowComplete;
   if (transitionedToDone) {
     try {
-      const msg = "✅ งานเสร็จแล้ว!\n"
+      const STATUS_LABEL = {
+        done: "เสร็จแล้ว",
+        delivered: "ส่งมอบแล้ว ✓",
+        closed: "🎉 ลูกค้ายืนยันปิดงาน"
+      };
+      const msg = "✅ ปิดงาน — " + (STATUS_LABEL[payload.status] || payload.status) + "\n"
         + "🔧 " + (payload.job_type || "-") + "\n"
         + "👤 " + payload.customer_name + " | 📞 " + (payload.customer_phone || "-") + "\n"
         + "📍 " + (payload.customer_address || "-") + "\n"
