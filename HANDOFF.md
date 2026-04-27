@@ -1,10 +1,45 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 27 เมษายน 2026 (Phase 45 — Service forms for 9 job types DONE)
-**Version:** 5.12.0 (build 60)
-**Previous:** 5.11.4 (build 59) — Phase 43.4 (job_no hotfix)
+**อัปเดตล่าสุด:** 27 เมษายน 2026 (Phase 45.1 — service_form improvements)
+**Version:** 5.12.1 (build 61)
+**Previous:** 5.12.0 (build 60) — Phase 45 (9 service forms shipped)
 
 **🛡️ Phase 17 Active!** — KV binding ผูกแล้ว (Production + Preview), tested 429 OK
+
+---
+
+## 🔧 Phase 45.1 — service_form improvements (27 เม.ย. รอบ บ่าย)
+
+### Why
+Phase 45 ใน production มี gap 4 จุดเทียบกับ ac_install Phase 43 — ใบงานช่างไม่บังคับ business rule "ตัดจากรถเท่านั้น" + ไม่มี user confirm ก่อน auto-transfer
+
+### What changed (เฉพาะ [modules/service_form.js](modules/service_form.js))
+1. **Force re-pick "บ้าน" → "รถ"** — ตอน save ถ้า user pick home → re-map เป็น mobile แรก auto → trigger transfer flow (เหมือน ac_install Phase 43)
+2. **Pre-check stock + `App.confirm`** — ก่อน insert DB → collect transfersNeeded → ถ้ามี → แสดง modal ถาม "ตกลงโอน + ตัดสต็อก?" (silent transfer หายไป)
+3. **Throw error เมื่อของไม่พอจริงๆ** — ถ้า mobile ไม่พอ + home ก็ไม่พอ → throw + แสดงข้อความชัดเจน (เดิม continue silent → save ได้แต่ stock fail)
+4. **Picker UI ดีขึ้น** — แต่ละ product แสดง:
+   - 🚐 [ชื่อรถ]: N (badge แยกต่อรถ)
+   - 📦 บ้าน: N (badge ถ้าบ้านมี)
+   - ⚠️ "ยังไม่ได้โอนขึ้นรถ — ต้องยืนยันโอนตอนกดเลือก" (ถ้าไม่มีในรถเลย)
+5. **Items list `_stock_avail`** — ตาราง show "คงเหลือ N" ในแต่ละแถวอุปกรณ์
+6. **Toast หลังเพิ่ม item** — บอกว่ามาจากรถไหน (`เพิ่ม "ของ" จาก คันขาว แล้ว`)
+7. **Receipt header field "ประเภทงาน:"** — explicit แทน icon line อย่างเดียว
+
+### Bump
+- main.js?v=60 → v=61
+- SW v44 → v45
+- Version display 5.12.0 → 5.12.1 (build 61)
+- selfHeal APP_BUILD: 60 → 61
+
+### Test (สำหรับ user)
+1. Hard refresh (Ctrl+Shift+R) — ตรวจ version 5.12.1 (build 61)
+2. Sidebar → 🧰 งานช่าง → คลิก **"🔧 ซ่อมแอร์"** → เปิดหน้าใหม่
+3. กรอกข้อมูล + กด "+ เพิ่มอุปกรณ์" → ตรวจ picker UI:
+   - product ที่มีในรถ → เห็น 🚐 badge
+   - product ที่อยู่บ้านอย่างเดียว → เห็น ⚠️ "ยังไม่ได้โอนขึ้นรถ"
+4. เลือก product ที่อยู่บ้าน → กดบันทึก → ต้องเห็น modal "🚐 ของในรถไม่พอ — ต้องโอนจากบ้านขึ้นรถก่อน..." → ตกลง
+5. หลัง save → ตรวจ stock_movements: ต้องเห็น 1) transfer บ้าน→รถ 2) out จากรถ
+6. ทดสอบ sample 1-2 ประเภทอื่นพอ (ล้างแอร์, ซ่อมตู้เย็น)
 
 ---
 

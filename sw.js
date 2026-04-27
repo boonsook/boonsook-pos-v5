@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v44 (2026-04-27): Phase 45 — Service forms for 9 job types (generic)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v44';
+// v45 (2026-04-27): Phase 45.1 — service_form: force mobile-only + pre-check confirm + better picker UI
+const CACHE_NAME = 'boonsook-pos-v5-cache-v45';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
