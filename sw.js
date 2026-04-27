@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v43 (2026-04-26): Phase 43.4 — Hotfix HTTP 400: missing job_no NOT NULL field
-const CACHE_NAME = 'boonsook-pos-v5-cache-v43';
+// v44 (2026-04-27): Phase 45 — Service forms for 9 job types (generic)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v44';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

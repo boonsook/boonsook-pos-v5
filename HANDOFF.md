@@ -1,35 +1,62 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 26 เมษายน 2026 (Phase 45 PLAN approved — รอทำพรุ่งนี้)
-**Version:** 5.11.4 (build 59)
-**Previous:** 5.11.3 (build 58) — Phase 43.3 (Update banner + native modal cleanup)
+**อัปเดตล่าสุด:** 27 เมษายน 2026 (Phase 45 — Service forms for 9 job types DONE)
+**Version:** 5.12.0 (build 60)
+**Previous:** 5.11.4 (build 59) — Phase 43.4 (job_no hotfix)
 
 **🛡️ Phase 17 Active!** — KV binding ผูกแล้ว (Production + Preview), tested 429 OK
 
 ---
 
-## 🚧 Phase 45 — Service Job Forms (9 ประเภท) — APPROVED, รอ implement
+## 🎯 Phase 45 — Service Job Forms (9 ประเภท) — DONE
 
-**Status:** Plan approved ตอนค่ำ 26 เม.ย. — user ขอพัก, จะทำพรุ่งนี้
-**User quote:** "Plan B + ทำทั้งหมด ผมไม่รีบ พรุ่งนี้คุณคงทำให้ผมเสร็จ"
+**Status:** Implemented + deployed 27 เม.ย. รอบ early morning
+**Plan:** [BLUEPRINT_PHASE_45.md](BLUEPRINT_PHASE_45.md) — followed completely
 
-### 📐 Blueprint full plan
-ดู [BLUEPRINT_PHASE_45.md](BLUEPRINT_PHASE_45.md) — มีครบ:
-- Architecture (generic `service_form.js` + 9 routes)
-- 8 sub-tasks เรียงลำดับ
-- Files to create/modify
-- Acceptance criteria + test checklist
-- Watch-out (จาก Phase 42-43 lessons)
+### What was built
+สร้าง `modules/service_form.js` — generic module ที่ใช้ logic เดียวกับ `ac_install.js` (Phase 41-43) แต่ไม่มี "เลือกรุ่นแอร์":
+- ✅ ข้อมูลลูกค้า (ชื่อ + เบอร์ + ที่อยู่)
+- ✅ รายละเอียดงาน (textarea — type-specific placeholder)
+- ✅ เลือกอุปกรณ์จากสต็อก (line items picker — mobile warehouse priority)
+- ✅ ค่าแรง + ส่วนลด + สรุปยอด real-time
+- ✅ ตัดสต็อก auto + transfer บ้าน→รถ (App.confirm)
+- ✅ บันทึก service_jobs row + items_json
+- ✅ 3 ปุ่มหลังบันทึก: ดูใบเสร็จ + ส่ง LINE + สร้างใหม่
 
-### Quick summary
-- สร้าง `modules/service_form.js` (generic — copy/reduce from ac_install.js)
-- 9 routes ใหม่: repair_ac, clean_ac, move_ac, satellite, repair_fridge, repair_washer, cctv, repair_tv, other
-- Sidebar "🧰 งานช่าง" ขยายเป็น 12 items (รวม ac_install + solar เดิม)
-- Reuse Phase 41-43 logic: line items + stock deduct + receipt + LINE
-- Bump 5.11.4 → 5.12.0 (build 61) — minor bump
+### 9 routes ใหม่ + Sidebar
+| Route | Icon | Label | job_type |
+|---|---|---|---|
+| service_repair_ac | 🔧 | ซ่อมแอร์ | repair_ac |
+| service_clean_ac | 🧼 | ล้างแอร์ | clean_ac |
+| service_move_ac | 📦 | ย้ายแอร์ | move_ac |
+| service_repair_fridge | ❄️ | ซ่อมตู้เย็น | repair_fridge |
+| service_repair_washer | 🧺 | ซ่อมเครื่องซักผ้า | repair_washer |
+| service_repair_tv | 📺 | ซ่อมทีวี | repair_tv |
+| service_cctv | 📷 | CCTV | cctv |
+| service_satellite | 📡 | จานดาวเทียม | satellite |
+| service_other | 🔨 | งานอื่นๆ | other |
 
-### สำหรับ Claude session ใหม่ที่มาทำต่อ
-อ่าน BLUEPRINT_PHASE_45.md ก่อน → follow sub-tasks 1-8 → commit + push (commit msg สั้น ASCII!)
+Sidebar "🧰 งานช่าง" ขยายจาก 3 → **12 items** (ใบรับงาน + ติดตั้งแอร์ + 9 service forms + โซล่าเซลล์)
+
+### State management
+- ใช้ `Map` เก็บ state ต่อ serviceType — ไม่ปนกัน
+- กรอกใน "ซ่อมแอร์" → กลับไป "ซ่อมตู้เย็น" → state แยก ไม่ทับกัน
+
+### Schema
+ไม่ต้อง migration — `service_jobs.job_type` รองรับ string ใดๆ + ใช้ items_json (Phase 42)
+
+### Files touched
+- `modules/service_form.js` — **CREATED** (~796 บรรทัด)
+- `main.js` — import + SERVICE_FORM_ROUTES + ALL_ROUTES + ROLE_PAGES + ROUTE_GROUP + titles + showRoute handler
+- `index.html` — 9 `<section>` + 9 sidebar buttons in งานช่าง group + bump v=60 + APP_BUILD=60
+- `sw.js` — bump v44
+- `modules/settings/pages.js` — version display 5.12.0 (build 60)
+
+### Bump
+- main.js?v=59 → v=60
+- SW v43 → v44
+- Version display 5.11.4 → 5.12.0 (build 60) — minor bump (feature ใหญ่)
+- selfHeal APP_BUILD: 59 → 60
 
 ---
 

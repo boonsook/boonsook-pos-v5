@@ -21,6 +21,7 @@ import { renderBtuCalculatorPage } from "./modules/btu_calculator.js";
 import { renderServiceRequestPage } from "./modules/service_request.js";
 import { renderSolarPage } from "./modules/solar.js";
 import { renderAcInstallPage } from "./modules/ac_install.js";
+import { renderServiceFormPage, SERVICE_TYPES } from "./modules/service_form.js";
 import { renderErrorCodesPage } from "./modules/error_codes.js";
 import { renderErrorCodesFridgePage } from "./modules/error_codes_fridge.js";
 import { renderErrorCodesWasherPage } from "./modules/error_codes_washer.js";
@@ -821,11 +822,15 @@ function isLowStock(product){ return Number(product.stock||0) <= Number(product.
 // ═══════════════════════════════════════════════════════════
 //  ROLE-BASED ACCESS CONTROL (4 กลุ่ม)
 // ═══════════════════════════════════════════════════════════
-const ALL_ROUTES = ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","quote_templates","service_jobs","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","refunds","tasks","profit_by_product","birthdays","serials","warranty_report","calendar","loyalty","customer_dashboard","btu_calculator","service_request","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"];
+// Phase 45 — Service form routes (9 ประเภทงานช่าง — generic pattern)
+const SERVICE_FORM_TYPES = ["repair_ac","clean_ac","move_ac","satellite","repair_fridge","repair_washer","cctv","repair_tv","other"];
+const SERVICE_FORM_ROUTES = SERVICE_FORM_TYPES.map(t => "service_" + t);
+
+const ALL_ROUTES = ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","quote_templates","service_jobs","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","refunds","tasks","profit_by_product","birthdays","serials","warranty_report","calendar","loyalty","customer_dashboard","btu_calculator","service_request","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop", ...SERVICE_FORM_ROUTES];
 const ROLE_PAGES = {
   admin:      ALL_ROUTES,
-  technician: ["dashboard","pos","service_jobs","customers","receipts","calendar","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop","stock_count"],
-  sales:      ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","quote_templates","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","refunds","tasks","profit_by_product","birthdays","serials","warranty_report","calendar","loyalty","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"],
+  technician: ["dashboard","pos","service_jobs","customers","receipts","calendar","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop","stock_count", ...SERVICE_FORM_ROUTES],
+  sales:      ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","quote_templates","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","refunds","tasks","profit_by_product","birthdays","serials","warranty_report","calendar","loyalty","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop", ...SERVICE_FORM_ROUTES],
   customer:   ["customer_dashboard","btu_calculator","service_request","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"]
 };
 const ROLE_LABELS = {
@@ -855,7 +860,9 @@ const ROUTE_GROUP = {
   quotations: "sales", delivery_invoices: "sales", receipts: "sales", sales: "sales",
   service_jobs: "service", solar: "service", ac_install: "service",
   products: "products", wh_kunkhao: "products", wh_kundaeng: "products", wh_sikhon: "products",
-  expenses: "finance", profit_report: "finance"
+  expenses: "finance", profit_report: "finance",
+  // Phase 45 — service forms ทั้งหมดอยู่ในกลุ่ม "service"
+  ...Object.fromEntries(SERVICE_FORM_ROUTES.map(r => [r, "service"]))
 };
 
 function showRoute(route){
@@ -937,7 +944,9 @@ function showRoute(route){
     warranty_report:"รายงาน Warranty",
     quote_templates:"Template ใบเสนอราคา",
     ai_sales:"AI ผู้ช่วยขายแอร์",
-    ac_shop:"แอร์ใหม่พร้อมติดตั้ง"
+    ac_shop:"แอร์ใหม่พร้อมติดตั้ง",
+    // Phase 45 — service form titles (9 ประเภท)
+    ...Object.fromEntries(SERVICE_FORM_TYPES.map(t => ["service_" + t, `${SERVICE_TYPES[t].icon} ใบงาน${SERVICE_TYPES[t].label}`]))
   };
   setText("pageTitle", titles[route] || "Boonsook POS");
   $("sidebar")?.classList.remove("open");
@@ -968,6 +977,11 @@ function showRoute(route){
   if (route === "service_request") renderServiceRequestPage(ctx);
   if (route === "solar") renderSolarPage(ctx);
   if (route === "ac_install") renderAcInstallPage(ctx);
+  // Phase 45 — service form (9 ประเภท: repair_ac, clean_ac, move_ac, satellite, repair_fridge, repair_washer, cctv, repair_tv, other)
+  if (SERVICE_FORM_ROUTES.includes(route)) {
+    const serviceType = route.replace(/^service_/, "");
+    renderServiceFormPage(ctx, serviceType);
+  }
   if (route === "error_codes") renderErrorCodesPage(ctx);
   if (route === "error_codes_fridge") renderErrorCodesFridgePage(ctx);
   if (route === "error_codes_washer") renderErrorCodesWasherPage(ctx);
