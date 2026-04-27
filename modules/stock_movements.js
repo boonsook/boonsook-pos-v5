@@ -57,9 +57,9 @@ export function renderStockMovementsPage(ctx) {
       return mDate === currentMonth;
     });
 
-    const inCount = filtered.filter(m => m.movement_type === 'in').length;
-    const outCount = filtered.filter(m => m.movement_type === 'out' || m.movement_type === 'sale').length;
-    const adjustCount = filtered.filter(m => m.movement_type === 'adjust').length;
+    const inCount = filtered.filter(m => m.type === 'in').length;
+    const outCount = filtered.filter(m => m.type === 'out' || m.type === 'sale').length;
+    const adjustCount = filtered.filter(m => m.type === 'adjust').length;
 
     return { inCount, outCount, adjustCount };
   }
@@ -129,8 +129,7 @@ export function renderStockMovementsPage(ctx) {
               <th style="padding: 10px; text-align: left;">สินค้า</th>
               <th style="padding: 10px; text-align: center;">ประเภท</th>
               <th style="padding: 10px; text-align: right;">จำนวน</th>
-              <th style="padding: 10px; text-align: right;">ก่อน</th>
-              <th style="padding: 10px; text-align: right;">หลัง</th>
+              <th style="padding: 10px; text-align: center;" colspan="2">ก่อน → หลัง (ใน note)</th>
               <th style="padding: 10px; text-align: left;">หมายเหตุ</th>
               <th style="padding: 10px; text-align: left;">ผู้ทำ</th>
             </tr>
@@ -334,8 +333,8 @@ export function renderStockMovementsPage(ctx) {
     }
 
     tbody.innerHTML = movements.map(m => {
-      const color = getTypeColor(m.movement_type);
-      const typeLabel = getTypeLabel(m.movement_type);
+      const color = getTypeColor(m.type);
+      const typeLabel = getTypeLabel(m.type);
       const productName = getProductName(m.product_id);
       const bgColor = color === 'green' ? '#d4edda' : color === 'red' ? '#f8d7da' : color === 'yellow' ? '#fff3cd' : '#e2e3e5';
 
@@ -344,9 +343,8 @@ export function renderStockMovementsPage(ctx) {
           <td style="padding: 10px; font-size: 13px;">${escHtml(dateTH(m.created_at))}</td>
           <td style="padding: 10px;">${escHtml(productName)}</td>
           <td style="padding: 10px; text-align: center; background: ${bgColor}; font-weight: bold;">${escHtml(typeLabel)}</td>
-          <td style="padding: 10px; text-align: right;">${thNum(m.quantity)}</td>
-          <td style="padding: 10px; text-align: right;">${thNum(m.stock_before)}</td>
-          <td style="padding: 10px; text-align: right;">${thNum(m.stock_after)}</td>
+          <td style="padding: 10px; text-align: right;">${thNum(m.qty)}</td>
+          <td style="padding: 10px; text-align: right; color:#94a3b8;font-size:11px" colspan="2">ดูใน note</td>
           <td style="padding: 10px; font-size: 13px; color: #666;">${escHtml(m.note || '-')}</td>
           <td style="padding: 10px; font-size: 13px;">${escHtml(m.created_by || '-')}</td>
         </tr>
@@ -381,7 +379,7 @@ export function renderStockMovementsPage(ctx) {
     }
 
     if (typeFilter) {
-      filtered = filtered.filter(m => m.movement_type === typeFilter);
+      filtered = filtered.filter(m => m.type === typeFilter);
     }
 
     if (dateFrom) {

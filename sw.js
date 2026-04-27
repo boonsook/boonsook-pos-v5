@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v45 (2026-04-27): Phase 45.1 — service_form: force mobile-only + pre-check confirm + better picker UI
-const CACHE_NAME = 'boonsook-pos-v5-cache-v45';
+// v46 (2026-04-28): Phase 45.3 — fix stock_movements schema mismatch (type/qty/uuid)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v46';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

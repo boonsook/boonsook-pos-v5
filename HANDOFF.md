@@ -1,8 +1,69 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 28 เมษายน 2026 (Phase 45.2 — DB CHECK constraint hotfix)
-**Version:** 5.12.1 (build 61) — code ไม่เปลี่ยน, แค่ DB migration
-**Previous:** 5.12.0 (build 60) — Phase 45 (9 service forms shipped)
+**อัปเดตล่าสุด:** 28 เมษายน 2026 (Phase 45.3 — fix stock_movements schema mismatch)
+**Version:** 5.12.2 (build 62)
+**Previous:** 5.12.1 (build 61) — Phase 45.1 + 45.2 (service_form polish + DB constraint)
+
+**🛡️ Phase 17 Active!** — KV binding ผูกแล้ว (Production + Preview), tested 429 OK
+
+---
+
+## 🐛 Phase 45.3 — fix stock_movements schema mismatch (28 เม.ย. เช้า)
+
+### Why
+User ทดสอบบันทึกใบงานซ่อมแอร์ — ใบงาน save ผ่านแต่ Console log:
+```
+POST stock_movements 400 (Bad Request)
+PGRST204: Could not find the 'movement_type' column of 'stock_movements' in the schema cache
+```
+
+### Root cause (bug เก่ามาก่อน Phase 45 — silent-fail มาตลอด)
+DB schema `stock_movements` จริงๆ คือ:
+```
+id bigint, product_id bigint, type text, qty integer,
+note text, created_by uuid, created_at timestamptz
+```
+
+แต่ code main.js ใช้ field names ผิด:
+| Code | DB จริง |
+|---|---|
+| `movement_type` | `type` |
+| `quantity` | `qty` |
+| `stock_before` / `stock_after` | ❌ ไม่มี |
+| `created_by: "user@email"` (string) | `created_by uuid` |
+
+⚠️ POS ขาย / โอนคลัง / `_applyStockMovement` **ทุก call site** silent-fail มาตลอด เพราะ wrap try/catch — sale บิลไม่เคย log ใน stock_movements
+
+### Fix ([main.js](main.js))
+1. **`_applyStockMovement`** (line 2629): rename fields + ฝัง `before→after` ใน note + `created_by` ใช้ `state.currentUser?.id` (uuid)
+2. **`_deductStockForSaleItem`** (line 2497): 2 callsites POS sale — fix เหมือนกัน
+3. **`_transferWarehouseStock`** (line 2570): warehouse transfer — fix เหมือนกัน
+4. **[modules/stock_movements.js](modules/stock_movements.js)**:
+   - reads `m.movement_type` → `m.type` (4 จุด)
+   - `m.quantity` → `m.qty`
+   - `m.stock_before` / `m.stock_after` → ใส่ใน note column แทน (table colspan=2)
+
+### Bump
+- main.js?v=61 → v=62
+- SW v45 → v46
+- Version display 5.12.1 → 5.12.2 (build 62)
+- selfHeal APP_BUILD: 61 → 62
+
+### Test (สำหรับ user)
+1. Hard refresh **Ctrl+Shift+R** → ตรวจ version **5.12.2 (build 62)**
+2. กลับไปใบงานซ่อมแอร์ → กรอกใหม่ + เพิ่มอุปกรณ์ + กดบันทึก
+3. ✅ ต้องไม่มี HTTP 400 ใน Console
+4. ✅ Stock อุปกรณ์ในรถต้อง **ลดลงจริง** (ไปดูหน้า "🚐 คันขาว" หรือ "🚗 คันแดง")
+5. หน้า "ประวัติเคลื่อนไหวสต็อก" → ต้องเห็น row "out" จากใบงานล่าสุด + note `"... | 5→4"` (before/after)
+6. ทดสอบ POS ขายของ 1 บิล → ต้องเห็น row "sale" ใน stock_movements ด้วย (เดิม silent-fail)
+
+### Out of scope (ทำต่อในอนาคตถ้าต้องการ)
+- Add columns `stock_before`, `stock_after`, `warehouse_id` ใน DB เพื่อ audit ละเอียดกว่า (ต้อง migration)
+- Backfill movement_type → type สำหรับ row เก่า (ถ้ามี)
+
+---
+
+## 🚨 Phase 45.2 — DB CHECK constraint hotfix (28 เม.ย. เช้า) — DONE
 
 **🛡️ Phase 17 Active!** — KV binding ผูกแล้ว (Production + Preview), tested 429 OK
 

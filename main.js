@@ -2499,7 +2499,8 @@ async function _deductStockForSaleItem({ product, qty, orderNo }) {
   // ข้าม service / non_stock
   if (product.product_type === "service" || product.product_type === "non_stock") return;
 
-  const creator = state.currentUser?.email || state.currentUser?.id || "POS";
+  // Phase 45.3: stock_movements.created_by เป็น uuid → ส่ง auth user id
+  const creatorUuid = state.currentUser?.id || null;
 
   // หาคลังที่มีสต็อกเหลือ > 0 — prefer "บ้าน" ก่อน ไม่งั้นเอาคลังที่มีสต็อกมากสุด
   const stocks = (state.warehouseStock || []).filter(ws =>
@@ -2528,13 +2529,10 @@ async function _deductStockForSaleItem({ product, qty, orderNo }) {
 
     await xhrPost("stock_movements", {
       product_id: product.id,
-      movement_type: "sale",
-      quantity: qty,
-      stock_before: before,
-      stock_after: after,
-      note: `ขายบิล ${orderNo} — คลัง: ${whName}`,
-      created_by: String(creator),
-      created_at: new Date().toISOString()
+      type: "sale",
+      qty: qty,
+      note: `ขายบิล ${orderNo} — คลัง: ${whName} | ${before}→${after}`,
+      created_by: creatorUuid
     });
   } else {
     console.warn(`[deductStock] ${product.name}: ไม่มีคลังที่มีสต็อก > 0`);
@@ -2555,13 +2553,10 @@ async function _deductStockForSaleItem({ product, qty, orderNo }) {
     // ไม่มีคลังไหนมีสต็อก → log movement จาก legacy field เท่านั้น
     await xhrPost("stock_movements", {
       product_id: product.id,
-      movement_type: "sale",
-      quantity: qty,
-      stock_before: curStock,
-      stock_after: newStock,
-      note: `ขายบิล ${orderNo} (ไม่มีคลังมีสต็อก — ตัดจาก legacy stock)`,
-      created_by: String(creator),
-      created_at: new Date().toISOString()
+      type: "sale",
+      qty: qty,
+      note: `ขายบิล ${orderNo} (ไม่มีคลังมีสต็อก — legacy) | ${curStock}→${newStock}`,
+      created_by: creatorUuid
     });
   }
 }
@@ -2575,7 +2570,8 @@ async function _transferWarehouseStock({ productId, fromWarehouseId, toWarehouse
     return { ok: false, error: "คลังต้นทาง/ปลายทาง ต้องไม่ซ้ำกัน" };
   }
 
-  const creator = state.currentUser?.email || state.currentUser?.id || "User";
+  // Phase 45.3: stock_movements.created_by เป็น uuid
+  const creatorUuid = state.currentUser?.id || null;
 
   // หา source row
   const srcWs = (state.warehouseStock || []).find(w =>
@@ -2610,13 +2606,10 @@ async function _transferWarehouseStock({ productId, fromWarehouseId, toWarehouse
     // Log 1 transfer movement
     await xhrPost("stock_movements", {
       product_id: productId,
-      movement_type: "transfer",
-      quantity: qty,
-      stock_before: srcBefore,
-      stock_after: srcAfter,
-      note: `โอนย้าย: ${fromName} → ${toName}${note ? " — " + note : ""}`,
-      created_by: String(creator),
-      created_at: new Date().toISOString()
+      type: "transfer",
+      qty: qty,
+      note: `โอนย้าย: ${fromName} → ${toName} | ${srcBefore}→${srcAfter}${note ? " — " + note : ""}`.slice(0, 200),
+      created_by: creatorUuid
     });
 
     return { ok: true };
@@ -2628,7 +2621,8 @@ async function _transferWarehouseStock({ productId, fromWarehouseId, toWarehouse
 // ★ อัพเดทสต็อกใน warehouse — ใช้โดย stock_movements module (in/out/sale/return/adjust)
 async function _applyStockMovement({ productId, warehouseId, movementType, qty, note }) {
   if (!productId || qty <= 0 || !movementType) return { ok: false, error: "ข้อมูลไม่ครบ" };
-  const creator = state.currentUser?.email || state.currentUser?.id || "User";
+  // Phase 45.3: schema ใช้ created_by uuid → ต้องส่ง user uuid (auth.users.id) ไม่ใช่ email
+  const creatorUuid = state.currentUser?.id || null;
 
   let ws = warehouseId ? (state.warehouseStock || []).find(w =>
     String(w.product_id) === String(productId) && String(w.warehouse_id) === String(warehouseId)
@@ -2657,15 +2651,15 @@ async function _applyStockMovement({ productId, warehouseId, movementType, qty, 
       }
     } catch(e){}
 
+    // Phase 45.3: schema fields = id, product_id, type, qty, note, created_by, created_at
+    // ฝัง stock_before/after ใน note (DB ไม่มี column แยก)
+    const auditNote = `${String(note || "").slice(0, 150)} | ${before}→${after}`;
     await xhrPost("stock_movements", {
       product_id: productId,
-      movement_type: movementType,
-      quantity: qty,
-      stock_before: before,
-      stock_after: after,
-      note: String(note || "").slice(0, 200),
-      created_by: String(creator),
-      created_at: new Date().toISOString()
+      type: movementType,
+      qty: qty,
+      note: auditNote.slice(0, 200),
+      created_by: creatorUuid
     });
 
     return { ok: true };
