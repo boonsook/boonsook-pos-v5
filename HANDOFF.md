@@ -1,10 +1,42 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 27 เมษายน 2026 (Phase 45.1 — service_form improvements)
-**Version:** 5.12.1 (build 61)
+**อัปเดตล่าสุด:** 28 เมษายน 2026 (Phase 45.2 — DB CHECK constraint hotfix)
+**Version:** 5.12.1 (build 61) — code ไม่เปลี่ยน, แค่ DB migration
 **Previous:** 5.12.0 (build 60) — Phase 45 (9 service forms shipped)
 
 **🛡️ Phase 17 Active!** — KV binding ผูกแล้ว (Production + Preview), tested 429 OK
+
+---
+
+## 🚨 Phase 45.2 — DB CHECK constraint hotfix (28 เม.ย. เช้า) — **USER ACTION REQUIRED**
+
+### Problem
+User ทดสอบบันทึกใบงานซ่อมแอร์ → HTTP 400 code 23514:
+```
+new row for relation "service_jobs" violates check constraint "service_jobs_job_type_check"
+```
+
+### Root cause
+DB มี CHECK constraint ตั้งแต่เริ่ม schema เดิม — อนุญาต `job_type` แค่ `'ac'`, `'solar'`, `'cctv'` (ตรงกับ `<select id="serviceType">` เดิม) → ค่าใหม่ 9 ตัวจาก Phase 45 ถูก reject
+
+Blueprint Step 5 เขียน "ไม่ต้อง migration" — **ผิด**, repo ไม่มี constraint ใน .sql ทำให้พลาด
+
+### Fix
+ผม commit ไฟล์ migration ไว้แล้ว: [supabase-phase45-job-type-fix.sql](supabase-phase45-job-type-fix.sql)
+
+**🔴 USER ต้องรัน manual ใน Supabase:**
+1. เปิด Supabase Dashboard → SQL Editor
+2. เปิดไฟล์ `supabase-phase45-job-type-fix.sql` → copy ทั้งหมด → paste
+3. กด Run → ตรวจ "Success. No rows returned"
+4. กลับไปแอป → ทดสอบบันทึกใบงานซ่อมแอร์ → ต้องผ่านแล้ว
+
+**Migration ทำอะไร:**
+- DROP `service_jobs_job_type_check` เดิม
+- ADD ใหม่ที่ allow: `ac`, `solar`, `cctv`, `other`, `repair_ac`, `clean_ac`, `move_ac`, `satellite`, `repair_fridge`, `repair_washer`, `repair_tv` (11 ค่า)
+
+### ทำไมไม่ drop constraint ทิ้งไปเลย
+- ป้องกัน typo / bug ใน app code ไม่ให้ส่ง garbage เข้า DB
+- ถ้าเพิ่ม service type ใหม่ในอนาคต → ต้องอัพเดท constraint อีก (ขั้นตอน explicit)
 
 ---
 
