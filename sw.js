@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v47 (2026-04-28): Phase 45.4 — service_form: skip mid-save loadAllData (form re-mount issue)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v47';
+// v48 (2026-04-28): Phase 45.5 — apply skip mid-save loadAllData fix to ac_install.js too
+const CACHE_NAME = 'boonsook-pos-v5-cache-v48';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
