@@ -415,6 +415,7 @@ function renderReceiptPreview(container) {
               <option value="credit"   ${_payIs(r.payment_method,'credit')   ? 'selected' : ''}>บัตรเครดิต</option>
             </select>
           </label>
+          ${r.status !== 'cancelled' ? '<button id="rcEditBtn" class="btn light" style="border:1px solid #cbd5e1">✏️ แก้ไข</button>' : ''}
           <button id="rcShareBtn" class="btn" style="background:#06C755;color:#fff">📤 แชร์</button>
           <button id="rcPrintBtn" class="btn light">🖨️ พิมพ์</button>
           <button id="rcPdfBtn" class="btn primary">📄 PDF</button>
@@ -533,6 +534,9 @@ function renderReceiptPreview(container) {
     _viewMode = "list"; _viewingId = null;
     renderReceiptsPage(_ctx);
   });
+
+  // Phase 45.12: edit basic fields (customer info, salesperson, ref, project, note)
+  document.getElementById("rcEditBtn")?.addEventListener("click", () => _openReceiptEditDrawer(r));
 
   // ★ เก็บเงิน (ในหน้า preview)
   document.getElementById("rcPreviewCollect")?.addEventListener("click", async () => {
@@ -683,4 +687,122 @@ function escHtml(str) {
   const div = document.createElement("div");
   div.textContent = str || "";
   return div.innerHTML;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 45.12 — Edit drawer (basic fields only — line items lock)
+// ═══════════════════════════════════════════════════════════
+function _openReceiptEditDrawer(r) {
+  document.getElementById("rcEditModal")?.remove();
+  const modal = document.createElement("div");
+  modal.id = "rcEditModal";
+  modal.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:flex-start;justify-content:center;padding:16px;overflow-y:auto";
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:16px;max-width:560px;width:100%;overflow:hidden;display:flex;flex-direction:column">
+      <div style="padding:14px 16px;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;background:#f0fdf4">
+        <h3 style="margin:0;font-size:16px;color:#15803d">✏️ แก้ไขใบเสร็จ ${escHtml(r.receipt_no || '')}</h3>
+        <button id="rcEditClose" class="btn light" style="font-size:18px;padding:4px 10px">✕</button>
+      </div>
+      <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">
+        <div style="font-size:11px;color:#64748b;background:#fef3c7;padding:6px 10px;border-radius:6px">
+          ⚠️ แก้ได้เฉพาะข้อมูลทั่วไป — รายการสินค้า/ยอดรวม ล็อค (มาจากใบส่งสินค้า ถ้าต้องแก้ → ยกเลิกแล้วออกใหม่)
+        </div>
+
+        <label style="display:block">
+          <span style="font-size:12px;color:#64748b">ชื่อลูกค้า *</span>
+          <input id="rcEdName" type="text" value="${escHtml(r.customer_name || '')}" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;margin-top:4px" />
+        </label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <label style="display:block">
+            <span style="font-size:12px;color:#64748b">เบอร์โทร</span>
+            <input id="rcEdPhone" type="tel" value="${escHtml(r.customer_phone || '')}" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;margin-top:4px" />
+          </label>
+          <label style="display:block">
+            <span style="font-size:12px;color:#64748b">เลขผู้เสียภาษี</span>
+            <input id="rcEdTaxId" type="text" value="${escHtml(r.customer_tax_id || '')}" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;margin-top:4px" />
+          </label>
+        </div>
+        <label style="display:block">
+          <span style="font-size:12px;color:#64748b">ที่อยู่</span>
+          <textarea id="rcEdAddress" rows="2" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;margin-top:4px;resize:vertical;font-family:inherit">${escHtml(r.customer_address || '')}</textarea>
+        </label>
+        <label style="display:block">
+          <span style="font-size:12px;color:#64748b">ผู้ขาย</span>
+          <input id="rcEdSalesperson" type="text" value="${escHtml(r.salesperson || '')}" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;margin-top:4px" />
+        </label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <label style="display:block">
+            <span style="font-size:12px;color:#64748b">โครงการ</span>
+            <input id="rcEdProject" type="text" value="${escHtml(r.project_name || '')}" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;margin-top:4px" />
+          </label>
+          <label style="display:block">
+            <span style="font-size:12px;color:#64748b">ใบอ้างอิง</span>
+            <input id="rcEdRef" type="text" value="${escHtml(r.ref_no || '')}" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;margin-top:4px" />
+          </label>
+        </div>
+        <label style="display:block">
+          <span style="font-size:12px;color:#64748b">หมายเหตุ</span>
+          <textarea id="rcEdNote" rows="2" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;margin-top:4px;resize:vertical;font-family:inherit">${escHtml(r.note || '')}</textarea>
+        </label>
+
+        <div id="rcEdStatus" style="font-size:12px;min-height:16px"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button id="rcEdCancel" class="btn light">ยกเลิก</button>
+          <button id="rcEdSave" class="btn primary">💾 บันทึก</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  const close = () => modal.remove();
+  modal.querySelector("#rcEditClose").addEventListener("click", close);
+  modal.querySelector("#rcEdCancel").addEventListener("click", close);
+  modal.addEventListener("click", (e) => { if (e.target === modal) close(); });
+
+  modal.querySelector("#rcEdSave").addEventListener("click", async () => {
+    const name = modal.querySelector("#rcEdName").value.trim();
+    if (!name) {
+      modal.querySelector("#rcEdStatus").innerHTML = '<span style="color:#dc2626">กรอกชื่อลูกค้า</span>';
+      return;
+    }
+    const payload = {
+      customer_name: name,
+      customer_phone: modal.querySelector("#rcEdPhone").value.trim(),
+      customer_tax_id: modal.querySelector("#rcEdTaxId").value.trim(),
+      customer_address: modal.querySelector("#rcEdAddress").value.trim(),
+      salesperson: modal.querySelector("#rcEdSalesperson").value.trim(),
+      project_name: modal.querySelector("#rcEdProject").value.trim(),
+      ref_no: modal.querySelector("#rcEdRef").value.trim(),
+      note: modal.querySelector("#rcEdNote").value.trim()
+    };
+
+    const saveBtn = modal.querySelector("#rcEdSave");
+    saveBtn.disabled = true;
+    saveBtn.textContent = "⏳ กำลังบันทึก...";
+
+    try {
+      const result = await window._appXhrPatch?.("receipts", payload, "id", r.id);
+      if (!result?.ok) throw new Error(result?.error?.message || "บันทึกไม่สำเร็จ");
+
+      // Optimistic update local state
+      try {
+        const idx = (_ctx.state.receipts || []).findIndex(x => x.id === r.id);
+        if (idx >= 0) _ctx.state.receipts[idx] = { ..._ctx.state.receipts[idx], ...payload };
+      } catch(e){}
+
+      window.App?.showToast?.("บันทึกสำเร็จ");
+      close();
+      renderReceiptsPage(_ctx);
+      // Background reload
+      if (_ctx.loadAllData) _ctx.loadAllData().catch(e => console.warn("[rcEdit] reload", e));
+    } catch (e) {
+      console.error("[rcEdit save]", e);
+      modal.querySelector("#rcEdStatus").innerHTML = `<span style="color:#dc2626">${escHtml(e.message || String(e))}</span>`;
+      saveBtn.disabled = false;
+      saveBtn.textContent = "💾 บันทึก";
+    }
+  });
+
+  setTimeout(() => modal.querySelector("#rcEdName")?.focus(), 100);
 }

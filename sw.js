@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v53 (2026-04-28): Phase 45.11 — non-blocking loadAllData in all save flows (no more 10-30s hangs)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v53';
+// v54 (2026-04-28): Phase 45.12 — edit drawer for delivery_invoices + receipts (basic fields)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v54';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

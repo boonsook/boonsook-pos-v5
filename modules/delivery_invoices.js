@@ -408,6 +408,7 @@ function renderInvoicePreview(container) {
             <input type="date" id="diEditDate" value="${(inv.created_at || new Date().toISOString()).slice(0,10)}" style="border:1px solid #d1d5db;border-radius:6px;padding:3px 6px;font-size:13px;cursor:pointer" />
           </label>
           `}
+          ${inv.status !== 'receipted' ? '<button id="diEditBtn" class="btn light" style="border:1px solid #cbd5e1">✏️ แก้ไข</button>' : ''}
           <button id="diShareBtn" class="btn" style="background:#06C755;color:#fff">📤 แชร์</button>
           <button id="diPrintBtn" class="btn light">🖨️ พิมพ์</button>
           <button id="diPdfBtn" class="btn primary">📄 PDF</button>
@@ -511,6 +512,9 @@ function renderInvoicePreview(container) {
     _viewMode = "list"; _viewingId = null;
     renderDeliveryInvoicesPage(_ctx);
   });
+
+  // Phase 45.12: edit basic fields (customer info, salesperson, ref, project, due_date, note)
+  document.getElementById("diEditBtn")?.addEventListener("click", () => _openEditDrawer(inv));
 
   // ── delete delivery invoice → restore quotation status ──
   document.getElementById("diDeleteBtn")?.addEventListener("click", async () => {
@@ -719,4 +723,129 @@ function escHtml(str) {
   const div = document.createElement("div");
   div.textContent = str || "";
   return div.innerHTML;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 45.12 — Edit drawer (basic fields only — line items lock)
+// ═══════════════════════════════════════════════════════════
+function _openEditDrawer(inv) {
+  document.getElementById("diEditModal")?.remove();
+  const modal = document.createElement("div");
+  modal.id = "diEditModal";
+  modal.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:flex-start;justify-content:center;padding:16px;overflow-y:auto";
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:16px;max-width:560px;width:100%;overflow:hidden;display:flex;flex-direction:column">
+      <div style="padding:14px 16px;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;background:#eff6ff">
+        <h3 style="margin:0;font-size:16px;color:#0369a1">✏️ แก้ไขใบส่งสินค้า ${escHtml(inv.inv_no || '')}</h3>
+        <button id="diEditClose" class="btn light" style="font-size:18px;padding:4px 10px">✕</button>
+      </div>
+      <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">
+        <div style="font-size:11px;color:#64748b;background:#fef3c7;padding:6px 10px;border-radius:6px">
+          ⚠️ แก้ได้เฉพาะข้อมูลทั่วไป — รายการสินค้า/ยอดรวม ล็อค (มาจากใบเสนอราคา ถ้าต้องแก้ → ยกเลิกใบนี้แล้วออกใหม่)
+        </div>
+
+        <label style="display:block">
+          <span style="font-size:12px;color:#64748b">ชื่อลูกค้า *</span>
+          <input id="diEdName" type="text" value="${escHtml(inv.customer_name || '')}" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;margin-top:4px" />
+        </label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <label style="display:block">
+            <span style="font-size:12px;color:#64748b">เบอร์โทร</span>
+            <input id="diEdPhone" type="tel" value="${escHtml(inv.customer_phone || '')}" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;margin-top:4px" />
+          </label>
+          <label style="display:block">
+            <span style="font-size:12px;color:#64748b">เลขผู้เสียภาษี</span>
+            <input id="diEdTaxId" type="text" value="${escHtml(inv.customer_tax_id || '')}" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;margin-top:4px" />
+          </label>
+        </div>
+        <label style="display:block">
+          <span style="font-size:12px;color:#64748b">ที่อยู่</span>
+          <textarea id="diEdAddress" rows="2" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;margin-top:4px;resize:vertical;font-family:inherit">${escHtml(inv.customer_address || '')}</textarea>
+        </label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <label style="display:block">
+            <span style="font-size:12px;color:#64748b">ผู้ขาย</span>
+            <input id="diEdSalesperson" type="text" value="${escHtml(inv.salesperson || '')}" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;margin-top:4px" />
+          </label>
+          <label style="display:block">
+            <span style="font-size:12px;color:#64748b">วันครบกำหนด</span>
+            <input id="diEdDueDate" type="date" value="${(inv.due_date || '').slice(0,10)}" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;margin-top:4px" />
+          </label>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <label style="display:block">
+            <span style="font-size:12px;color:#64748b">โครงการ</span>
+            <input id="diEdProject" type="text" value="${escHtml(inv.project_name || '')}" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;margin-top:4px" />
+          </label>
+          <label style="display:block">
+            <span style="font-size:12px;color:#64748b">ใบอ้างอิง</span>
+            <input id="diEdRef" type="text" value="${escHtml(inv.ref_no || '')}" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;margin-top:4px" />
+          </label>
+        </div>
+        <label style="display:block">
+          <span style="font-size:12px;color:#64748b">หมายเหตุ</span>
+          <textarea id="diEdNote" rows="2" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;margin-top:4px;resize:vertical;font-family:inherit">${escHtml(inv.note || '')}</textarea>
+        </label>
+
+        <div id="diEdStatus" style="font-size:12px;min-height:16px"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button id="diEdCancel" class="btn light">ยกเลิก</button>
+          <button id="diEdSave" class="btn primary">💾 บันทึก</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  const close = () => modal.remove();
+  modal.querySelector("#diEditClose").addEventListener("click", close);
+  modal.querySelector("#diEdCancel").addEventListener("click", close);
+  modal.addEventListener("click", (e) => { if (e.target === modal) close(); });
+
+  modal.querySelector("#diEdSave").addEventListener("click", async () => {
+    const name = modal.querySelector("#diEdName").value.trim();
+    if (!name) {
+      modal.querySelector("#diEdStatus").innerHTML = '<span style="color:#dc2626">กรอกชื่อลูกค้า</span>';
+      return;
+    }
+    const payload = {
+      customer_name: name,
+      customer_phone: modal.querySelector("#diEdPhone").value.trim(),
+      customer_tax_id: modal.querySelector("#diEdTaxId").value.trim(),
+      customer_address: modal.querySelector("#diEdAddress").value.trim(),
+      salesperson: modal.querySelector("#diEdSalesperson").value.trim(),
+      due_date: modal.querySelector("#diEdDueDate").value || null,
+      project_name: modal.querySelector("#diEdProject").value.trim(),
+      ref_no: modal.querySelector("#diEdRef").value.trim(),
+      note: modal.querySelector("#diEdNote").value.trim()
+    };
+
+    const saveBtn = modal.querySelector("#diEdSave");
+    saveBtn.disabled = true;
+    saveBtn.textContent = "⏳ กำลังบันทึก...";
+
+    try {
+      const r = await window._appXhrPatch?.("delivery_invoices", payload, "id", inv.id);
+      if (!r?.ok) throw new Error(r?.error?.message || "บันทึกไม่สำเร็จ");
+
+      // Optimistic update local state
+      try {
+        const idx = (_ctx.state.deliveryInvoices || []).findIndex(x => x.id === inv.id);
+        if (idx >= 0) _ctx.state.deliveryInvoices[idx] = { ..._ctx.state.deliveryInvoices[idx], ...payload };
+      } catch(e){}
+
+      window.App?.showToast?.("บันทึกสำเร็จ");
+      close();
+      renderDeliveryInvoicesPage(_ctx);
+      // Background reload
+      if (_ctx.loadAllData) _ctx.loadAllData().catch(e => console.warn("[diEdit] reload", e));
+    } catch (e) {
+      console.error("[diEdit save]", e);
+      modal.querySelector("#diEdStatus").innerHTML = `<span style="color:#dc2626">${escHtml(e.message || String(e))}</span>`;
+      saveBtn.disabled = false;
+      saveBtn.textContent = "💾 บันทึก";
+    }
+  });
+
+  setTimeout(() => modal.querySelector("#diEdName")?.focus(), 100);
 }
