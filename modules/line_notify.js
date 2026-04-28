@@ -282,8 +282,9 @@ function attachLineNotifyListeners(container, ctx, settings) {
 
       showToast('✅ บันทึกสำเร็จ', 'success');
 
+      // Phase 45.11: non-blocking reload
       if (loadAllData) {
-        await loadAllData();
+        loadAllData().catch(e => console.warn("[lineNotify] reload", e));
       }
     } catch (error) {
       showToast('❌ ข้อผิดพลาด: ' + ((error && error.message) || error), 'error');

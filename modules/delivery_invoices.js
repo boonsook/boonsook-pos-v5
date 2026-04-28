@@ -272,7 +272,8 @@ export function renderDeliveryInvoicesPage(ctx) {
     }
     _selectedIds.clear();
     window.App?.showToast?.(`ยกเลิกสำเร็จ ${ok}${fail ? `, ล้มเหลว ${fail}` : ''}`);
-    if (ctx.loadAllData) await ctx.loadAllData();
+    // Phase 45.11: non-blocking reload
+    if (ctx.loadAllData) ctx.loadAllData().catch(e => console.warn("[di] reload", e));
     renderDeliveryInvoicesPage(_ctx);
   });
 
@@ -308,7 +309,8 @@ export function renderDeliveryInvoicesPage(ctx) {
     }
     _selectedIds.clear();
     window.App?.showToast?.(`ลบสำเร็จ ${ok}${fail ? `, ล้มเหลว ${fail} (RLS บล็อค?)` : ''}`);
-    if (ctx.loadAllData) await ctx.loadAllData();
+    // Phase 45.11: non-blocking reload
+    if (ctx.loadAllData) ctx.loadAllData().catch(e => console.warn("[di] reload", e));
     renderDeliveryInvoicesPage(_ctx);
   });
 
@@ -356,7 +358,8 @@ export function renderDeliveryInvoicesPage(ctx) {
         const res = await window._appXhrPatch?.("delivery_invoices", { status: "cancelled" }, "id", invId);
         if (res?.ok) {
           window.App?.showToast?.("ยกเลิกเรียบร้อย");
-          if (ctx.loadAllData) await ctx.loadAllData();
+          // Phase 45.11: non-blocking reload
+    if (ctx.loadAllData) ctx.loadAllData().catch(e => console.warn("[di] reload", e));
           renderDeliveryInvoicesPage(_ctx);
         } else throw new Error(res?.error?.message || "fail");
       } catch (err) {

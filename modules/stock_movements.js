@@ -482,7 +482,8 @@ export function renderStockMovementsPage(ctx) {
         if (res?.ok) {
           showToast('ย้ายสต็อกสำเร็จ', 'success');
           closeTransferModal();
-          if (typeof loadAllData === 'function') await loadAllData();
+          // Phase 45.11: non-blocking reload
+          if (typeof loadAllData === 'function') loadAllData().catch(e => console.warn("[sm] reload", e));
         } else {
           showToast('ข้อผิดพลาด: ' + (res?.error || 'ย้ายไม่สำเร็จ'), 'error');
         }
@@ -559,7 +560,8 @@ export function renderStockMovementsPage(ctx) {
         if (res && res.ok) {
           showToast('บันทึกเคลื่อนไหวสต็อกสำเร็จ', 'success');
           closeModal();
-          if (typeof loadAllData === 'function') await loadAllData();
+          // Phase 45.11: non-blocking reload
+          if (typeof loadAllData === 'function') loadAllData().catch(e => console.warn("[sm] reload", e));
         } else {
           showToast('ข้อผิดพลาด: ' + (res?.error || 'ไม่สามารถบันทึกได้'), 'error');
         }

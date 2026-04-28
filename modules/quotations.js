@@ -274,7 +274,8 @@ export function renderQuotationsPage(ctx) {
     }
     _selectedIds.clear();
     window.App?.showToast?.(`สำเร็จ ${ok}${fail ? `, ล้มเหลว ${fail}` : ''}`);
-    if (ctx.loadAllData) await ctx.loadAllData();
+    // Phase 45.11: non-blocking reload
+    if (ctx.loadAllData) ctx.loadAllData().catch(e => console.warn("[qt] reload", e));
     renderQuotationsPage(_ctx);
   });
 
@@ -303,7 +304,8 @@ export function renderQuotationsPage(ctx) {
     }
     _selectedIds.clear();
     window.App?.showToast?.(`ลบสำเร็จ ${ok}${fail ? `, ล้มเหลว ${fail} (RLS บล็อค? หรือใบเสนอราคานี้มีใบส่งสินค้าอ้างอิง — ลบใบส่งสินค้าก่อน)` : ''}`);
-    if (ctx.loadAllData) await ctx.loadAllData();
+    // Phase 45.11: non-blocking reload
+    if (ctx.loadAllData) ctx.loadAllData().catch(e => console.warn("[qt] reload", e));
     renderQuotationsPage(_ctx);
   });
 
@@ -333,7 +335,8 @@ export function renderQuotationsPage(ctx) {
         const res = await window._appXhrPatch?.("quotations", { status: "approved" }, "id", qtId);
         if (res?.ok) {
           window.App?.showToast?.("อนุมัติเรียบร้อย ✓");
-          if (ctx.loadAllData) await ctx.loadAllData();
+          // Phase 45.11: non-blocking reload
+    if (ctx.loadAllData) ctx.loadAllData().catch(e => console.warn("[qt] reload", e));
           renderQuotationsPage(_ctx);
         } else throw new Error(res?.error?.message || "fail");
       } catch (err) {

@@ -1068,9 +1068,9 @@ export function renderCustomerDashboard(ctx) {
         showToast("สั่งซื้อสำเร็จ! 🎉 ร้านค้าจะติดต่อกลับเร็วๆ นี้");
       }
       _custTab = "orders";
-      // Reload data
-      if (ctx.loadAllData) await ctx.loadAllData();
-      else renderCustomerDashboard(ctx);
+      // Phase 45.11: non-blocking reload + render ทันที (ไม่ block UI)
+      renderCustomerDashboard(ctx);
+      if (ctx.loadAllData) ctx.loadAllData().catch(e => console.warn("[cd] reload", e));
 
     } catch(e) {
       console.error("[customer checkout] error:", e);

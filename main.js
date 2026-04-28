@@ -1955,7 +1955,18 @@ async function saveProduct(){
     });
   }
 
-  resetProductForm(); closeAllDrawers(); await loadAllData(); showToast("บันทึกสินค้าแล้ว");
+  // Phase 45.11: optimistic + non-blocking reload (กันค้าง 10-30s)
+  try {
+    if (state.editingProductId && Array.isArray(state.products)) {
+      const idx = state.products.findIndex(p => String(p.id) === String(state.editingProductId));
+      if (idx >= 0) state.products[idx] = { ...state.products[idx], ...payload };
+    }
+  } catch(e) { console.warn("[saveProduct] optimistic", e); }
+  resetProductForm();
+  closeAllDrawers();
+  showToast("บันทึกสินค้าแล้ว");
+  if (state.currentRoute === "products") { try { showRoute("products"); } catch(e){} }
+  setTimeout(() => loadAllData().catch(e => console.warn("[saveProduct] reload", e)), 100);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2333,7 +2344,19 @@ async function saveCustomer(){
   }
   if (!res.ok) return showToast(res.error?.message || "บันทึกลูกค้าไม่สำเร็จ");
 
-  closeAllDrawers(); await loadAllData(); showToast("บันทึกลูกค้าแล้ว");
+  // Phase 45.11: optimistic + non-blocking reload
+  try {
+    if (state.editingCustomerId && Array.isArray(state.customers)) {
+      const idx = state.customers.findIndex(c => String(c.id) === String(state.editingCustomerId));
+      if (idx >= 0) state.customers[idx] = { ...state.customers[idx], ...payload };
+    } else if (Array.isArray(res.data) && res.data[0]) {
+      state.customers = [res.data[0], ...(state.customers || [])];
+    }
+  } catch(e) { console.warn("[saveCustomer] optimistic", e); }
+  closeAllDrawers();
+  showToast("บันทึกลูกค้าแล้ว");
+  if (state.currentRoute === "customers") { try { showRoute("customers"); } catch(e){} }
+  setTimeout(() => loadAllData().catch(e => console.warn("[saveCustomer] reload", e)), 100);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2963,9 +2986,10 @@ async function checkout(){
   await loadReceipt(saleId);
   state.cart = [];
   saveCart();
-  await loadAllData();
+  // Phase 45.11: openReceiptDrawer ใช้ state.lastReceipt (set โดย loadReceipt) — ไม่ต้องรอ loadAllData
   openReceiptDrawer();
   showToast("บันทึกการขายเรียบร้อย");
+  setTimeout(() => loadAllData().catch(e => console.warn("[checkout] reload", e)), 100);
 
   // ═══ Line Notify: แจ้งขาย + เตือนสต็อกใกล้หมด ═══
   _notifySaleToLine({ orderNo, cartSnapshot: salePayload, items: state.lastReceipt?.items || [] }).catch(e => console.warn("[lineNotify sale] skipped:", e?.message));

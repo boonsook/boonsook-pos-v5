@@ -257,7 +257,8 @@ export function renderReceiptsPage(ctx) {
     }
     _selectedIds.clear();
     window.App?.showToast?.(`ยกเลิกสำเร็จ ${ok}${fail ? `, ล้มเหลว ${fail}` : ''}`);
-    if (ctx.loadAllData) await ctx.loadAllData();
+    // Phase 45.11: non-blocking reload
+    if (ctx.loadAllData) ctx.loadAllData().catch(e => console.warn("[rc] reload", e));
     renderReceiptsPage(_ctx);
   });
 
@@ -293,7 +294,8 @@ export function renderReceiptsPage(ctx) {
     }
     _selectedIds.clear();
     window.App?.showToast?.(`ลบสำเร็จ ${ok}${fail ? `, ล้มเหลว ${fail} (RLS บล็อค?)` : ''}`);
-    if (ctx.loadAllData) await ctx.loadAllData();
+    // Phase 45.11: non-blocking reload
+    if (ctx.loadAllData) ctx.loadAllData().catch(e => console.warn("[rc] reload", e));
     renderReceiptsPage(_ctx);
   });
 
@@ -347,14 +349,16 @@ export function renderReceiptsPage(ctx) {
       const res = await window._appXhrPatch?.("receipts", { status: cfg.status }, "id", rcId);
       if (res?.ok) {
         window.App?.showToast?.(cfg.toast);
-        if (ctx.loadAllData) await ctx.loadAllData();
+        // Phase 45.11: non-blocking reload
+    if (ctx.loadAllData) ctx.loadAllData().catch(e => console.warn("[rc] reload", e));
         renderReceiptsPage(_ctx);
       } else {
         // Supabase client fallback
         const { error } = await ctx.state.supabase.from("receipts").update({ status: cfg.status }).eq("id", rcId);
         if (!error) {
           window.App?.showToast?.(cfg.toast);
-          if (ctx.loadAllData) await ctx.loadAllData();
+          // Phase 45.11: non-blocking reload
+    if (ctx.loadAllData) ctx.loadAllData().catch(e => console.warn("[rc] reload", e));
           renderReceiptsPage(_ctx);
         } else {
           throw new Error(error.message);
