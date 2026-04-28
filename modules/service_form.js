@@ -87,8 +87,13 @@ export function renderServiceFormPage(ctx, serviceType) {
 
   container.innerHTML = `
     <div class="panel">
-      <h3 style="color:var(--primary2);margin-bottom:4px">${cfg.icon} ใบงาน${escHtml(cfg.label)}</h3>
-      <p class="sku">กรอกข้อมูลลูกค้า + อุปกรณ์ที่ใช้ + ค่าแรง — บันทึกแล้วส่งใบเสร็จได้เลย</p>
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px">
+          <h3 style="color:var(--primary2);margin-bottom:4px">${cfg.icon} ใบงาน${escHtml(cfg.label)}</h3>
+          <p class="sku" style="margin:0">กรอกข้อมูลลูกค้า + อุปกรณ์ที่ใช้ + ค่าแรง — บันทึกแล้วส่งใบเสร็จได้เลย</p>
+        </div>
+        <button id="svTransferBtn" class="btn light" style="font-size:12px;padding:8px 12px;background:#dbeafe;color:#1e40af;border:1px solid #93c5fd;font-weight:700;white-space:nowrap" title="โอนสต็อกจากบ้านขึ้นรถก่อนเริ่มงาน">🔄 โอนสต็อก บ้าน→รถ</button>
+      </div>
     </div>
 
     <!-- ข้อมูลลูกค้า -->
@@ -173,6 +178,15 @@ export function renderServiceFormPage(ctx, serviceType) {
 
   container.querySelector("#svAddItemBtn")?.addEventListener("click", () => _openItemPicker(ctx, container, updateTotal, st));
   _bindItemListEvents(container, updateTotal, money, st);
+
+  // Phase 45.6 — โอนสต็อก บ้าน→รถ inline (ใช้ shared modal จาก ac_install.js)
+  container.querySelector("#svTransferBtn")?.addEventListener("click", () => {
+    if (typeof window._appOpenTransferModal === "function") {
+      window._appOpenTransferModal(ctx);
+    } else {
+      ctx.showToast?.("ระบบยังโหลดไม่เสร็จ — รีเฟรชหน้า");
+    }
+  });
 
   // Save
   container.querySelector("#svSaveBtn").addEventListener("click", async (e) => {

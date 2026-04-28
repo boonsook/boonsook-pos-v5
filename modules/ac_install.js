@@ -99,8 +99,13 @@ export function renderAcInstallPage(ctx) {
 
   container.innerHTML = `
     <div class="panel">
-      <h3 style="color:var(--primary2);margin-bottom:4px">🏗️ ใบงานติดตั้งแอร์</h3>
-      <p class="sku">เลือกรุ่นแอร์ + เพิ่มอุปกรณ์จากสต็อก + คำนวณราคา</p>
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px">
+          <h3 style="color:var(--primary2);margin-bottom:4px">🏗️ ใบงานติดตั้งแอร์</h3>
+          <p class="sku" style="margin:0">เลือกรุ่นแอร์ + เพิ่มอุปกรณ์จากสต็อก + คำนวณราคา</p>
+        </div>
+        <button id="acTransferBtn" class="btn light" style="font-size:12px;padding:8px 12px;background:#dbeafe;color:#1e40af;border:1px solid #93c5fd;font-weight:700;white-space:nowrap" title="โอนสต็อกจากบ้านขึ้นรถก่อนเริ่มงาน">🔄 โอนสต็อก บ้าน→รถ</button>
+      </div>
     </div>
 
     <!-- ข้อมูลลูกค้า -->
@@ -201,6 +206,9 @@ export function renderAcInstallPage(ctx) {
   // ★ Phase 41 — เพิ่ม/แก้ไข/ลบอุปกรณ์
   container.querySelector("#acAddItemBtn")?.addEventListener("click", () => _openItemPicker(ctx, container, updateTotal));
   _bindItemListEvents(container, updateTotal, money);
+
+  // ★ Phase 45.6 — โอนสต็อก บ้าน→รถ inline
+  container.querySelector("#acTransferBtn")?.addEventListener("click", () => _openTransferModal(ctx));
 
   // Save
   container.querySelector("#acSaveBtn").addEventListener("click", async (e) => {
@@ -901,3 +909,197 @@ function _pickMobileWarehouse(mobileStocks, productName) {
     modal.addEventListener("click", (e) => { if (e.target === modal) { cleanup(); resolve(null); } });
   });
 }
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 45.6 — Transfer modal: โอนสต็อก บ้าน → รถ inline
+//  ใช้โดยทั้ง ac_install + service_form (export ผ่าน window)
+// ═══════════════════════════════════════════════════════════
+function _openTransferModal(ctx) {
+  const { state, money, showToast } = ctx;
+  document.getElementById("acTransferModal")?.remove();
+
+  const homeWh = _getHomeWarehouse(state);
+  const mobileWhList = _getMobileWarehouses(state);
+
+  if (!homeWh) {
+    showToast?.("ไม่พบคลังบ้าน — ตรวจตั้งค่าคลัง");
+    return;
+  }
+  if (mobileWhList.length === 0) {
+    showToast?.("ไม่พบคลังรถ (mobile) — ตรวจตั้งค่าคลัง");
+    return;
+  }
+
+  // Products ที่มีของในบ้าน > 0
+  const productsInHome = (state.products || []).map(p => {
+    const ws = (state.warehouseStock || []).find(w =>
+      String(w.product_id) === String(p.id) && String(w.warehouse_id) === String(homeWh.id)
+    );
+    return { p, homeStock: Number(ws?.stock || 0) };
+  }).filter(x => x.homeStock > 0);
+
+  let chosenProduct = null;
+  let chosenWh = mobileWhList[0]; // default first mobile
+
+  const renderList = (search) => {
+    const q = (search || "").toLowerCase().trim();
+    let filtered = productsInHome;
+    if (q) {
+      filtered = filtered.filter(({ p }) =>
+        (p.name || "").toLowerCase().includes(q) ||
+        (p.barcode || "").toLowerCase().includes(q) ||
+        (p.category || "").toLowerCase().includes(q)
+      );
+    }
+    return filtered.slice(0, 50).map(({ p, homeStock }) => {
+      const mobileStocks = _getMobileStocks(p, state);
+      const inMobileTotal = mobileStocks.reduce((s, m) => s + m.stock, 0);
+      const mobileBadges = mobileWhList.map(w => {
+        const stk = mobileStocks.find(m => String(m.warehouse_id) === String(w.id))?.stock || 0;
+        return `<span style="background:#dbeafe;color:#1e40af;padding:2px 6px;border-radius:6px;font-size:10px;font-weight:700">🚐 ${escHtml(w.name)}: ${stk}</span>`;
+      }).join(" ");
+      return `
+        <button class="actr-item" data-tr-id="${p.id}" style="display:block;width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;background:#fff;cursor:pointer;text-align:left;font:inherit;margin-bottom:6px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:700;color:#0f172a">${escHtml(p.name || "-")}</div>
+              <div style="font-size:11px;color:#64748b">${escHtml(p.category || "")}${p.barcode ? ` • ${escHtml(p.barcode)}` : ""}</div>
+              <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px">
+                <span style="background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:6px;font-size:10px;font-weight:700">📦 บ้าน: ${homeStock}</span>
+                ${mobileBadges}
+              </div>
+            </div>
+          </div>
+        </button>
+      `;
+    }).join("") || `<div class="sku" style="text-align:center;padding:20px;color:#94a3b8">ไม่พบสินค้าที่มีของในบ้าน</div>`;
+  };
+
+  const modal = document.createElement("div");
+  modal.id = "acTransferModal";
+  modal.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px";
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:16px;max-width:560px;width:100%;max-height:90vh;display:flex;flex-direction:column;overflow:hidden">
+      <div style="padding:14px 16px;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;background:#eff6ff">
+        <h3 style="margin:0;font-size:16px;color:#1e40af">🔄 โอนสต็อก บ้าน → รถ</h3>
+        <button id="actrClose" class="btn light" style="font-size:18px;padding:4px 10px">✕</button>
+      </div>
+      <div id="actrStep1" style="flex:1;overflow-y:auto;padding:12px 16px">
+        <div style="font-size:12px;color:#64748b;margin-bottom:10px">เลือกสินค้าที่ต้องการโอน (มีในบ้าน ${productsInHome.length} รายการ)</div>
+        <input id="actrSearch" type="text" placeholder="🔍 ค้นหา ชื่อ / barcode / หมวด..." style="width:100%;padding:10px 12px;border:1px solid #cbd5e1;border-radius:10px;font:inherit;margin-bottom:10px" />
+        <div id="actrList"></div>
+      </div>
+      <div id="actrStep2" style="flex:1;overflow-y:auto;padding:12px 16px;display:none">
+        <button id="actrBack" class="btn light" style="font-size:12px;margin-bottom:10px">← กลับ</button>
+        <div style="padding:12px;background:#f8fafc;border-radius:10px;margin-bottom:12px">
+          <div id="actrProdName" style="font-weight:700"></div>
+          <div id="actrProdStock" style="font-size:12px;color:#64748b;margin-top:4px"></div>
+        </div>
+        <label class="set-field-label">โอนเข้ารถ</label>
+        <select id="actrWhTarget" style="width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:10px;margin-bottom:12px">
+          ${mobileWhList.map(w => `<option value="${w.id}">${escHtml(w.name)}</option>`).join("")}
+        </select>
+        <label class="set-field-label">จำนวน (สูงสุด <span id="actrQtyMax">0</span>)</label>
+        <input id="actrQty" type="number" min="1" value="1" style="width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:10px;margin-bottom:12px;font-size:18px;text-align:center" />
+        <button id="actrConfirm" class="btn primary" style="width:100%;padding:14px;font-size:15px;font-weight:700">✅ ยืนยันโอน</button>
+        <div id="actrStatus" style="margin-top:10px;font-size:12px"></div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  const listEl = modal.querySelector("#actrList");
+  const step1 = modal.querySelector("#actrStep1");
+  const step2 = modal.querySelector("#actrStep2");
+  listEl.innerHTML = renderList("");
+
+  modal.querySelector("#actrClose").addEventListener("click", () => modal.remove());
+  modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
+  modal.querySelector("#actrSearch").addEventListener("input", (e) => {
+    listEl.innerHTML = renderList(e.target.value);
+  });
+  modal.querySelector("#actrBack").addEventListener("click", () => {
+    step1.style.display = "block";
+    step2.style.display = "none";
+  });
+
+  listEl.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-tr-id]");
+    if (!btn) return;
+    const id = btn.dataset.trId;
+    const entry = productsInHome.find(x => String(x.p.id) === String(id));
+    if (!entry) return;
+    chosenProduct = entry;
+    modal.querySelector("#actrProdName").textContent = entry.p.name || "-";
+    modal.querySelector("#actrProdStock").textContent = `📦 บ้านมี ${entry.homeStock} ชิ้น`;
+    modal.querySelector("#actrQtyMax").textContent = entry.homeStock;
+    const qtyEl = modal.querySelector("#actrQty");
+    qtyEl.max = entry.homeStock;
+    qtyEl.value = 1;
+    step1.style.display = "none";
+    step2.style.display = "block";
+  });
+
+  modal.querySelector("#actrConfirm").addEventListener("click", async () => {
+    if (!chosenProduct) return;
+    const targetWhId = modal.querySelector("#actrWhTarget").value;
+    const qty = parseInt(modal.querySelector("#actrQty").value) || 0;
+    if (qty <= 0) {
+      modal.querySelector("#actrStatus").innerHTML = `<div style="color:#dc2626">จำนวนต้อง > 0</div>`;
+      return;
+    }
+    if (qty > chosenProduct.homeStock) {
+      modal.querySelector("#actrStatus").innerHTML = `<div style="color:#dc2626">จำนวนเกินที่มีในบ้าน (${chosenProduct.homeStock})</div>`;
+      return;
+    }
+
+    const confirmBtn = modal.querySelector("#actrConfirm");
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = "⏳ กำลังโอน...";
+    modal.querySelector("#actrStatus").innerHTML = `<div style="color:#64748b">กำลังโอน...</div>`;
+
+    try {
+      if (typeof window._appTransferWarehouseStock !== "function") {
+        throw new Error("ระบบยังโหลดไม่เสร็จ — รีเฟรชหน้า");
+      }
+      const targetName = mobileWhList.find(w => String(w.id) === String(targetWhId))?.name || "?";
+      const r = await window._appTransferWarehouseStock({
+        productId: chosenProduct.p.id,
+        fromWarehouseId: homeWh.id,
+        toWarehouseId: targetWhId,
+        qty,
+        note: `โอนเข้ารถ (manual จากหน้าใบงาน)`
+      });
+      if (!r?.ok) {
+        throw new Error(r?.error || "โอนไม่สำเร็จ");
+      }
+      // Optimistic update local state
+      const homeWs = (state.warehouseStock || []).find(w =>
+        String(w.product_id) === String(chosenProduct.p.id) && String(w.warehouse_id) === String(homeWh.id)
+      );
+      if (homeWs) homeWs.stock = Math.max(0, Number(homeWs.stock || 0) - qty);
+      let targetWs = (state.warehouseStock || []).find(w =>
+        String(w.product_id) === String(chosenProduct.p.id) && String(w.warehouse_id) === String(targetWhId)
+      );
+      if (targetWs) targetWs.stock = Number(targetWs.stock || 0) + qty;
+      else (state.warehouseStock = state.warehouseStock || []).push({
+        product_id: chosenProduct.p.id, warehouse_id: targetWhId, stock: qty
+      });
+
+      modal.remove();
+      showToast?.(`✅ โอน "${chosenProduct.p.name}" ${qty} ชิ้น จากบ้าน → ${targetName}`);
+      // Background reload (ไม่ block — re-render หน้าจะดึง state ใหม่)
+      setTimeout(() => { try { ctx.loadAllData?.(); } catch(e){} }, 100);
+    } catch (e) {
+      console.error("[ac_install transfer]", e);
+      modal.querySelector("#actrStatus").innerHTML = `<div style="color:#dc2626">${escHtml(e.message || String(e))}</div>`;
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = "✅ ยืนยันโอน";
+    }
+  });
+
+  setTimeout(() => modal.querySelector("#actrSearch")?.focus(), 100);
+}
+
+// Export ให้ service_form ใช้ซ้ำได้
+window._appOpenTransferModal = _openTransferModal;
