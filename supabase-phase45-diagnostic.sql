@@ -11,112 +11,115 @@
 -- วิธีรัน:
 --   1. Supabase Dashboard → SQL Editor → New query
 --   2. paste ทั้งไฟล์ → Run
---   3. copy ผล output ทั้งหมด (7 sections) → paste กลับให้ Claude
+--   3. result จะเป็น 1 row 7 columns (JSON) — Export → CSV หรือ click cell แล้ว copy
+--   4. paste กลับให้ Claude
 -- ═══════════════════════════════════════════════════════════
 
--- ───────── 1) RLS enabled status (เช็คว่าเปิด RLS ครบมั้ย) ─────────
 SELECT
-  '1_RLS_STATUS' AS section,
-  c.relname AS table_name,
-  c.relrowsecurity AS rls_enabled,
-  c.relforcerowsecurity AS rls_forced
-FROM pg_class c
-JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE n.nspname = 'public'
-  AND c.relkind = 'r'
-  AND c.relname IN (
-    'profiles','expenses','receipts','delivery_invoices',
-    'warehouse_stock','loyalty_settings','sales','customers',
-    'products','service_jobs','stock_movements','staff',
-    'app_settings','recurring_expenses','refunds','tasks',
-    'quotations','receipt_items','quotation_items',
-    'delivery_invoice_items','sale_items','warehouses',
-    'loyalty_points','product_serials','cash_recon'
-  )
-ORDER BY c.relname;
+  -- 1) RLS enabled status
+  (
+    SELECT json_agg(json_build_object(
+      'table', c.relname,
+      'rls_enabled', c.relrowsecurity,
+      'rls_forced', c.relforcerowsecurity
+    ) ORDER BY c.relname)
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relkind = 'r'
+      AND c.relname IN (
+        'profiles','expenses','receipts','delivery_invoices',
+        'warehouse_stock','loyalty_settings','sales','customers',
+        'products','service_jobs','stock_movements','staff',
+        'app_settings','recurring_expenses','refunds','tasks',
+        'quotations','receipt_items','quotation_items',
+        'delivery_invoice_items','sale_items','warehouses',
+        'loyalty_points','product_serials','cash_recon'
+      )
+  ) AS s1_rls_status,
 
+  -- 2) ทุก policies ใน public schema
+  (
+    SELECT json_agg(json_build_object(
+      'table', tablename,
+      'policy', policyname,
+      'cmd', cmd,
+      'roles', roles,
+      'using', qual,
+      'with_check', with_check
+    ) ORDER BY tablename, policyname)
+    FROM pg_policies
+    WHERE schemaname = 'public'
+  ) AS s2_policies,
 
--- ───────── 2) ทุก policies ใน public schema ─────────
-SELECT
-  '2_POLICIES' AS section,
-  schemaname,
-  tablename,
-  policyname,
-  cmd,
-  roles,
-  qual AS using_clause,
-  with_check
-FROM pg_policies
-WHERE schemaname = 'public'
-ORDER BY tablename, policyname;
+  -- 3) Helper function ownership + body
+  (
+    SELECT json_agg(json_build_object(
+      'name', p.proname,
+      'owner', pg_get_userbyid(p.proowner),
+      'security', CASE p.prosecdef WHEN true THEN 'DEFINER' ELSE 'INVOKER' END,
+      'returns', pg_get_function_result(p.oid),
+      'body', p.prosrc
+    ))
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.proname IN ('auth_user_role','is_admin','is_staff','is_sales_or_admin')
+  ) AS s3_helpers,
 
+  -- 4) Table-level GRANTs
+  (
+    SELECT json_agg(json_build_object(
+      'table', table_name,
+      'grantee', grantee,
+      'privileges', privileges
+    ) ORDER BY table_name, grantee)
+    FROM (
+      SELECT
+        table_name,
+        grantee,
+        string_agg(privilege_type, ',' ORDER BY privilege_type) AS privileges
+      FROM information_schema.role_table_grants
+      WHERE table_schema = 'public'
+        AND grantee IN ('anon','authenticated','service_role','PUBLIC')
+        AND table_name IN (
+          'profiles','expenses','receipts','delivery_invoices',
+          'warehouse_stock','loyalty_settings','sales','customers',
+          'products','service_jobs','stock_movements'
+        )
+      GROUP BY table_name, grantee
+    ) sub
+  ) AS s4_grants,
 
--- ───────── 3) Helper function ownership + body ─────────
-SELECT
-  '3_HELPER_FUNCS' AS section,
-  p.proname AS function_name,
-  pg_get_userbyid(p.proowner) AS owner,
-  CASE p.prosecdef WHEN true THEN 'DEFINER' ELSE 'INVOKER' END AS security,
-  pg_get_function_arguments(p.oid) AS args,
-  pg_get_function_result(p.oid) AS return_type,
-  p.prosrc AS body
-FROM pg_proc p
-JOIN pg_namespace n ON n.oid = p.pronamespace
-WHERE n.nspname = 'public'
-  AND p.proname IN ('auth_user_role','is_admin','is_staff','is_sales_or_admin');
+  -- 5) CHECK constraints
+  (
+    SELECT json_agg(json_build_object(
+      'table', conrelid::regclass::text,
+      'name', conname,
+      'def', pg_get_constraintdef(oid)
+    ) ORDER BY conrelid::regclass::text, conname)
+    FROM pg_constraint
+    WHERE conrelid::regclass::text IN ('public.service_jobs','public.stock_movements')
+      AND contype = 'c'
+  ) AS s5_check_constraints,
 
+  -- 6) profiles triggers
+  (
+    SELECT json_agg(json_build_object(
+      'name', trigger_name,
+      'event', event_manipulation,
+      'timing', action_timing,
+      'stmt', action_statement
+    ))
+    FROM information_schema.triggers
+    WHERE event_object_schema = 'public'
+      AND event_object_table = 'profiles'
+  ) AS s6_profiles_triggers,
 
--- ───────── 4) Table-level GRANTs (anon/authenticated สิทธิอะไรบ้าง) ─────────
-SELECT
-  '4_GRANTS' AS section,
-  table_schema,
-  table_name,
-  grantee,
-  string_agg(privilege_type, ',' ORDER BY privilege_type) AS privileges
-FROM information_schema.role_table_grants
-WHERE table_schema = 'public'
-  AND grantee IN ('anon','authenticated','service_role','PUBLIC')
-  AND table_name IN (
-    'profiles','expenses','receipts','delivery_invoices',
-    'warehouse_stock','loyalty_settings','sales','customers',
-    'products','service_jobs','stock_movements'
-  )
-GROUP BY table_schema, table_name, grantee
-ORDER BY table_name, grantee;
-
-
--- ───────── 5) CHECK constraints (ตรวจ Phase 45.2/45.7/45.8 ใช้ค่าใหม่แล้วมั้ย) ─────────
-SELECT
-  '5_CHECK_CONSTRAINTS' AS section,
-  conrelid::regclass AS table_name,
-  conname AS constraint_name,
-  pg_get_constraintdef(oid) AS definition
-FROM pg_constraint
-WHERE conrelid::regclass::text IN (
-    'public.service_jobs','public.stock_movements'
-  )
-  AND contype = 'c'
-ORDER BY table_name, conname;
-
-
--- ───────── 6) profiles triggers (อาจเป็นต้นเหตุ recursion) ─────────
-SELECT
-  '6_PROFILES_TRIGGERS' AS section,
-  trigger_schema,
-  trigger_name,
-  event_manipulation AS event,
-  action_timing AS timing,
-  action_statement
-FROM information_schema.triggers
-WHERE event_object_schema = 'public'
-  AND event_object_table = 'profiles';
-
-
--- ───────── 7) Test: รัน is_admin() ในฐานะ user ปัจจุบัน (ดูว่ามี recursion มั้ย) ─────────
--- ถ้าตรงนี้ error ด้วย stack depth → root cause confirm ที่ helper function
-SELECT
-  '7_IS_ADMIN_TEST' AS section,
-  current_user AS pg_role,
-  auth.uid() AS auth_uid,
-  public.auth_user_role() AS user_role_returns,
-  public.is_admin() AS is_admin_returns;
+  -- 7) IS_ADMIN test (postgres role bypasses RLS — แค่ confirm functions ไม่พังที่ระดับ syntax)
+  json_build_object(
+    'pg_role', current_user,
+    'auth_uid', auth.uid(),
+    'auth_user_role', public.auth_user_role(),
+    'is_admin', public.is_admin()
+  ) AS s7_is_admin_test;
