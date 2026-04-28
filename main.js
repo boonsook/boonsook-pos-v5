@@ -2405,7 +2405,28 @@ async function saveServiceJob(){
     res = await xhrPost("service_jobs", payload);
   }
   if (!res.ok) return showToast(res.error?.message || "บันทึกงานช่างไม่สำเร็จ");
-  closeAllDrawers(); await loadAllData(); showToast("บันทึกงานช่างแล้ว");
+
+  // Phase 45.9: optimistic update + background reload
+  // เดิม `await loadAllData()` block 10-30s ทุกครั้งหลัง save (slow connection อาจถึง 2 นาที)
+  try {
+    if (state.editingServiceJobId) {
+      const idx = (state.serviceJobs || []).findIndex(j => String(j.id) === String(state.editingServiceJobId));
+      if (idx >= 0) state.serviceJobs[idx] = { ...state.serviceJobs[idx], ...payload };
+    } else if (Array.isArray(res.data) && res.data[0]) {
+      state.serviceJobs = [res.data[0], ...(state.serviceJobs || [])];
+    }
+  } catch(e) { console.warn("[saveServiceJob] optimistic update fail", e); }
+
+  closeAllDrawers();
+  showToast("บันทึกงานช่างแล้ว");
+
+  // Re-render service jobs list ทันที (ใช้ state ที่ optimistic update แล้ว)
+  try {
+    if (state.currentRoute === "service_jobs") showRoute("service_jobs");
+  } catch(e){}
+
+  // Background full reload — ไม่ block UI
+  setTimeout(() => { loadAllData().catch(e => console.warn("[saveServiceJob] reload", e)); }, 100);
 
   // ★ LINE notify เมื่อสร้างงานใหม่ → กลุ่ม "คิวงาน"
   if (isNewJob) {

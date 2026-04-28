@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v50 (2026-04-28): Phase 45.8 — audit fix (drawer movement display + silent catch + closed status)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v50';
+// v51 (2026-04-28): Phase 45.9 — saveServiceJob non-blocking reload (drawer save was hanging 2min)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v51';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
