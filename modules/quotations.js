@@ -61,6 +61,12 @@ export function renderQuotationsPage(ctx) {
   const container = document.getElementById("page-quotations");
   if (!container) return;
 
+  // Phase 45.10 (B5-3): clear stale line items + selection
+  if (!window._pendingQuotationPreviewId && _viewMode === "list") {
+    _lineItems = [];
+    _selectedIds.clear();
+  }
+
   // ★ ถ้าถูก trigger จากหน้าอื่น (เช่น delivery_invoice กด "อ้างอิง") → เปิด preview
   if (window._pendingQuotationPreviewId) {
     const pendingId = window._pendingQuotationPreviewId;

@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v51 (2026-04-28): Phase 45.9 — saveServiceJob non-blocking reload (drawer save was hanging 2min)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v51';
+// v52 (2026-04-28): Phase 45.10 — B2 RBAC bypass + B5 module state leaks + RLS hardening
+const CACHE_NAME = 'boonsook-pos-v5-cache-v52';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

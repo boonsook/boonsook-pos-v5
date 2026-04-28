@@ -59,6 +59,13 @@ export function renderDeliveryInvoicesPage(ctx) {
   const container = document.getElementById("page-delivery_invoices");
   if (!container) return;
 
+  // Phase 45.10 (B5-2): clear stale line items + selection ตอนเข้าหน้า
+  // (ป้องกัน items จาก preview ใบเก่า leak มาใบใหม่)
+  if (!window._pendingInvoicePreviewId && _viewMode === "list") {
+    _lineItems = [];
+    _selectedIds.clear();
+  }
+
   // ★ ถ้าถูก trigger จากหน้าอื่น (เช่น receipts กด "อ้างอิง") → เปิด preview
   if (window._pendingInvoicePreviewId) {
     const pendingId = window._pendingInvoicePreviewId;

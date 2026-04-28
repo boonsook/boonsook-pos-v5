@@ -123,6 +123,10 @@ export function renderProductsPage({ state, addToCart, openProductDrawer, wareho
   currentCategory = "all";
   currentSort = "name_asc";
 
+  // Phase 45.10 (B5-6): clear bulk selection ตอนเข้าหน้า — กัน ID เก่าค้าง bulk-delete ผิด product
+  bulkMode = false;
+  bulkSelected.clear();
+
   // ★ Deep link: #products?cat=CATEGORY&addNew=1 (สแกน QR จะมาที่นี่)
   const hash = window.location.hash || "";
   const q = hash.split("?")[1];

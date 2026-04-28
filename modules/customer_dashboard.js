@@ -17,6 +17,20 @@ function saveCustCart() {
   try { localStorage.setItem("bsk_cust_cart", JSON.stringify(_custCart)); } catch(e){}
 }
 
+// Phase 45.10 (B5-1): expose clear function ให้ logout เรียก
+// ป้องกัน User A logout, User B login → ยังเห็น cart ของ A
+export function clearCustomerDashboardState() {
+  _custCart = [];
+  _custTab = "shop";
+  _custCategory = "all";
+  _custSearch = "";
+  _custSlipData = null;
+  _custSlipVerified = false;
+  _custSlipResult = null;
+  _custSlipUrl = null;
+  try { localStorage.removeItem("bsk_cust_cart"); } catch(e){}
+}
+
 function money(n){return new Intl.NumberFormat("th-TH",{style:"currency",currency:"THB",minimumFractionDigits:2}).format(Number(n||0));}
 
 const escHtml = (s) => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");

@@ -67,6 +67,10 @@ export function renderReceiptsPage(ctx) {
   if (_viewMode === "preview" && _viewingId) { renderReceiptPreview(container); return; }
 
   _viewMode = "list";
+
+  // Phase 45.10 (B5-4): clear stale line items + selection ตอนเข้า list view
+  _lineItems = [];
+  _selectedIds.clear();
   const receipts = ctx.state.receipts || [];
 
   // ★ Filter ตาม tab

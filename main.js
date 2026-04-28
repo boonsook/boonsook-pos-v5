@@ -1,7 +1,7 @@
 
 import { renderDashboard } from "./modules/dashboard.js";
 import { renderProductsPage } from "./modules/products.js";
-import { renderPosPage } from "./modules/pos.js";
+import { renderPosPage, clearPosState } from "./modules/pos.js";
 import { renderSalesPage } from "./modules/sales.js";
 import { renderCustomersPage } from "./modules/customers.js";
 import { renderQuotationsPage } from "./modules/quotations.js";
@@ -16,7 +16,7 @@ import { renderCalendarPage } from "./modules/calendar.js";
 import { renderLoyaltyPage } from "./modules/loyalty.js";
 import { renderLineNotifySettings, sendLineNotify, notifyLowStock, notifyNewOrder, notifyJobDone } from "./modules/line_notify.js";
 import { renderPermissionMatrix, hasPermission } from "./modules/permission_matrix.js";
-import { renderCustomerDashboard } from "./modules/customer_dashboard.js";
+import { renderCustomerDashboard, clearCustomerDashboardState } from "./modules/customer_dashboard.js";
 import { renderBtuCalculatorPage } from "./modules/btu_calculator.js";
 import { renderServiceRequestPage } from "./modules/service_request.js";
 import { renderSolarPage } from "./modules/solar.js";
@@ -1363,8 +1363,9 @@ async function logout(){
   state.profile = null;
   state.cart = []; saveCart();
   window._sbAccessToken = null;
-  // ★ ลบ customer cart ด้วย
-  try { localStorage.removeItem("bsk_cust_cart"); } catch(e){}
+  // Phase 45.10 (B5-1): clear module state ด้วย (กัน cross-login leak)
+  try { clearCustomerDashboardState(); } catch(e){}
+  try { clearPosState(); } catch(e){}
   // ★ Force UI กลับหน้า login
   $("authScreen")?.classList.remove("hidden");
   $("appShell")?.classList.add("hidden");
@@ -3341,6 +3342,12 @@ function debounce(fn, ms = 300) {
 }
 
 const globalSearchProducts = debounce(function(){
+  // Phase 45.10 (B2-1): Role check ก่อน render — กัน technician/customer bypass
+  // เห็นหน้า products (เห็น cost/margin) ผ่าน global search box
+  if (!canAccessPage("products")) {
+    showToast("คุณไม่มีสิทธิ์เข้าหน้าสินค้า");
+    return;
+  }
   const q = $("globalSearch")?.value?.trim().toLowerCase() || "";
   if (!q) return showRoute("products");
   const filtered = state.products.filter(p =>

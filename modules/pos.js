@@ -69,6 +69,16 @@ let scannerInstance = null;
 let _posAbort = null;     // ★ AbortController สำหรับลบ event listeners เก่า
 let _posCustomer = null;  // ★ Customer ที่เลือก {id, name, phone}
 
+// Phase 45.10 (B5-5): expose clear ให้ logout เรียก (กัน cross-login leak)
+export function clearPosState() {
+  _posCustomer = null;
+  posView = "home";
+  selectedPaymentMethod = "";
+  numpadValue = "";
+  quickPayAmount = 0;
+  pendingPaidAmount = 0;
+}
+
 export function renderPosPage({ state, addToCart, changeQty, removeFromCart, openProductDrawer, checkout, openReceiptDrawer }) {
   const ctx = { state, addToCart, changeQty, removeFromCart, openProductDrawer, checkout, openReceiptDrawer };
   posView = "home";
