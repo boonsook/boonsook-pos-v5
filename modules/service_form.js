@@ -340,7 +340,19 @@ export function renderServiceFormPage(ctx, serviceType) {
         stockOpsFailed = true;
       }
 
-      try { await ctx.loadAllData?.(); } catch(e) {}
+      // Phase 45.4: optimistic update state.warehouseStock + ไม่ await loadAllData
+      // เหตุผล: loadAllData → renderAll → showRoute → renderServiceFormPage → re-mount form →
+      //         labor/discount input reset เป็น value="0" ทั้งที่ user เพิ่งกรอกค่า
+      try {
+        for (const it of fullItems) {
+          if (!it.warehouse_id || !it.product_id) continue;
+          const ws = (state.warehouseStock || []).find(w =>
+            String(w.product_id) === String(it.product_id) &&
+            String(w.warehouse_id) === String(it.warehouse_id)
+          );
+          if (ws) ws.stock = Math.max(0, Number(ws.stock || 0) - Number(it.qty || 0));
+        }
+      } catch(e) { console.warn("[service_form] optimistic stock update fail", e); }
 
       if (stockOpsFailed) {
         showToast?.("⚠️ ใบงาน save แล้ว แต่ตัดสต็อก/โอนบางรายการล้มเหลว — ตรวจ Console");
@@ -615,7 +627,9 @@ function _renderAfterSaveActions(container, ctx, serviceType) {
 
   el.querySelector("#svViewReceipt")?.addEventListener("click", () => _openReceiptPreview(ctx, container, st));
   el.querySelector("#svSendLine")?.addEventListener("click", () => _sendLineReceipt(ctx, container, st));
-  el.querySelector("#svNewBill")?.addEventListener("click", () => {
+  el.querySelector("#svNewBill")?.addEventListener("click", async () => {
+    // Phase 45.4: reload data ตอนนี้ (ใบงานก่อนหน้า save แล้ว — ไม่กระทบ form)
+    try { await ctx.loadAllData?.(); } catch(e) {}
     st.items = [];
     st.lastSavedJob = null;
     renderServiceFormPage(ctx, serviceType);

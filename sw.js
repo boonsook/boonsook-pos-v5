@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v46 (2026-04-28): Phase 45.3 — fix stock_movements schema mismatch (type/qty/uuid)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v46';
+// v47 (2026-04-28): Phase 45.4 — service_form: skip mid-save loadAllData (form re-mount issue)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v47';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
