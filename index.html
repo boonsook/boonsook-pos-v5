@@ -541,9 +541,17 @@
       <input class="form-input" id="serviceTitle" placeholder="รายละเอียดงาน" aria-label="รายละเอียดงาน" autocomplete="off" />
       <label for="serviceType" class="sr-only">ประเภทงาน</label>
       <select id="serviceType" aria-label="ประเภทงาน">
-        <option value="ac">งานแอร์</option>
-        <option value="solar">โซลาร์เซลส์</option>
-        <option value="cctv">กล้องวงจรปิด</option>
+        <option value="ac">🏗️ ติดตั้งแอร์</option>
+        <option value="repair_ac">🔧 ซ่อมแอร์</option>
+        <option value="clean_ac">🧼 ล้างแอร์</option>
+        <option value="move_ac">📦 ย้ายแอร์</option>
+        <option value="repair_fridge">❄️ ซ่อมตู้เย็น</option>
+        <option value="repair_washer">🧺 ซ่อมเครื่องซักผ้า</option>
+        <option value="repair_tv">📺 ซ่อมทีวี</option>
+        <option value="cctv">📷 CCTV / กล้องวงจรปิด</option>
+        <option value="satellite">📡 จานดาวเทียม</option>
+        <option value="solar">☀️ โซล่าเซลล์</option>
+        <option value="other">🔨 งานอื่นๆ</option>
       </select>
       <label for="serviceStatus" class="sr-only">สถานะงาน</label>
       <select id="serviceStatus" aria-label="สถานะงาน">
@@ -649,7 +657,7 @@
   <script>
   (async function selfHeal() {
     try {
-      var APP_BUILD = 70;
+      var APP_BUILD = 71;
       var STUCK_BUILDS_BEFORE = 47; // builds before this มี immutable-cache bug
       var stored = parseInt(localStorage.getItem('bsk_app_build') || '0', 10);
       var justRecovered = sessionStorage.getItem('bsk_just_recovered') === '1';
@@ -698,7 +706,7 @@
     }
   })();
   </script>
-  <script type="module" src="./main.js?v=70"></script>
+  <script type="module" src="./main.js?v=71"></script>
   <script>
     // ═══ Loading Overlay ═══
     function hideLoadingOverlay() {

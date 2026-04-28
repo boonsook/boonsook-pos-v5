@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v54 (2026-04-28): Phase 45.12 — edit drawer for delivery_invoices + receipts (basic fields)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v54';
+// v55 (2026-04-28): Phase 45.13 — service_jobs drawer dropdown missing 9 new job types
+const CACHE_NAME = 'boonsook-pos-v5-cache-v55';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
