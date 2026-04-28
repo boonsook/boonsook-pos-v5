@@ -2202,18 +2202,24 @@ function _renderProductRecentActivity(product) {
     ${myMovements.length > 0 ? `
       <div style="font-size:12px;color:#64748b;margin-top:10px;margin-bottom:6px">การเคลื่อนไหวสต็อก ${myMovements.length} รายการล่าสุด:</div>
       <div style="max-height:240px;overflow-y:auto">
-        ${myMovements.map(m => `
+        ${myMovements.map(m => {
+          // Phase 45.8: schema fields = type/qty (not movement_type/quantity)
+          // before/after embed ใน note field — extract ออกมา (format: "... | 5→4")
+          const beforeAfter = String(m.note || "").match(/\|\s*(\d+)→(\d+)\s*$/);
+          const ba = beforeAfter ? `${beforeAfter[1]}→${beforeAfter[2]}` : "";
+          const cleanNote = String(m.note || "").replace(/\s*\|\s*\d+→\d+\s*$/, "");
+          return `
           <div style="padding:8px 10px;background:#fafbfc;border:1px solid #e5e7eb;border-radius:6px;margin-bottom:4px;font-size:12px;display:flex;justify-content:space-between;gap:8px">
             <div>
-              <div style="font-weight:600">${typeLabel[m.movement_type] || m.movement_type}</div>
-              <div style="color:#64748b;font-size:11px">${fmtDate(m.created_at)} • ${escapeHtml(m.note || "").slice(0, 60)}</div>
+              <div style="font-weight:600">${typeLabel[m.type] || m.type || "-"}</div>
+              <div style="color:#64748b;font-size:11px">${fmtDate(m.created_at)} • ${escapeHtml(cleanNote).slice(0, 60)}</div>
             </div>
             <div style="text-align:right;white-space:nowrap">
-              <div style="color:#0f172a;font-weight:700">${m.quantity}</div>
-              <div style="color:#64748b;font-size:11px">${m.stock_before}→${m.stock_after}</div>
+              <div style="color:#0f172a;font-weight:700">${m.qty || 0}</div>
+              <div style="color:#64748b;font-size:11px">${ba}</div>
             </div>
           </div>
-        `).join("")}
+        `;}).join("")}
       </div>
     ` : ''}
   `;
@@ -2647,9 +2653,14 @@ async function _applyStockMovement({ productId, warehouseId, movementType, qty, 
       if (prod && warehouseId) {
         const delta = after - before;
         const newProdStock = Number(prod.stock || 0) + delta;
-        await xhrPatch("products", { stock: newProdStock }, "id", productId);
+        const r = await xhrPatch("products", { stock: newProdStock }, "id", productId);
+        if (!r?.ok) {
+          console.warn("[applyStockMovement] products.stock recompute failed:", r?.error);
+        }
       }
-    } catch(e){}
+    } catch(e){
+      console.warn("[applyStockMovement] products.stock update threw:", e);
+    }
 
     // Phase 45.3: schema fields = id, product_id, type, qty, note, created_by, created_at
     // ฝัง stock_before/after ใน note (DB ไม่มี column แยก)

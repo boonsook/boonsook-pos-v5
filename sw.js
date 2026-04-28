@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v49 (2026-04-28): Phase 45.6 — inline transfer button (home→vehicle) in service forms
-const CACHE_NAME = 'boonsook-pos-v5-cache-v49';
+// v50 (2026-04-28): Phase 45.8 — audit fix (drawer movement display + silent catch + closed status)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v50';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
