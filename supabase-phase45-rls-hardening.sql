@@ -158,11 +158,19 @@ CREATE POLICY "refunds_sales" ON public.refunds
 
 DROP POLICY IF EXISTS "auth_all_sales" ON public.sales;
 DROP POLICY IF EXISTS "sales_rw_staff" ON public.sales;
-CREATE POLICY "sales_rw_staff" ON public.sales
-  FOR ALL TO authenticated
-  USING (public.is_sales_or_admin() OR auth.uid() = customer_id::uuid)
-  WITH CHECK (public.is_sales_or_admin() OR auth.uid() IS NOT NULL);
--- หมายเหตุ: customer ก็ insert ขายได้ (POS checkout) — RLS ไม่ block แค่จำกัด UPDATE/DELETE
+DROP POLICY IF EXISTS "sales_select_all" ON public.sales;
+DROP POLICY IF EXISTS "sales_write_staff" ON public.sales;
+-- READ: ทุก authenticated (UI filter เอง)
+CREATE POLICY "sales_select_all" ON public.sales
+  FOR SELECT TO authenticated USING (true);
+-- INSERT: ทุก authenticated (POS checkout — รวม customer)
+CREATE POLICY "sales_insert_all" ON public.sales
+  FOR INSERT TO authenticated WITH CHECK (auth.uid() IS NOT NULL);
+-- UPDATE/DELETE: sales/admin only
+CREATE POLICY "sales_update_staff" ON public.sales
+  FOR UPDATE TO authenticated USING (public.is_sales_or_admin()) WITH CHECK (public.is_sales_or_admin());
+CREATE POLICY "sales_delete_staff" ON public.sales
+  FOR DELETE TO authenticated USING (public.is_sales_or_admin());
 
 DROP POLICY IF EXISTS "auth_all_sale_items" ON public.sale_items;
 DROP POLICY IF EXISTS "sale_items_rw" ON public.sale_items;
