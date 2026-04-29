@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v56 (2026-04-29): Phase 45.14 — fix permission_matrix wrong xhrPatch call (PATCH/POST permissions)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v56';
+// v57 (2026-04-29): Phase 45.15 — technician sidebar trim (remove งานขาย/ลูกค้า/นับสต็อกจริง)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v57';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
