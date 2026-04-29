@@ -162,37 +162,54 @@ export function renderPermissionMatrix(ctx, container) {
  */
 async function handlePermissionChange(ctx, role, permKey, allowed, showToast) {
   const { state } = ctx;
+  const cfg = window.SUPABASE_CONFIG;
+  const token = window._sbAccessToken || cfg.anonKey;
+  const baseHeaders = {
+    'Content-Type': 'application/json',
+    'apikey': cfg.anonKey,
+    'Authorization': 'Bearer ' + token,
+    'Prefer': 'return=representation'
+  };
 
   try {
-    // Find existing permission record or create new one
     let permission = state.permissions.find(
       p => p.role === role && p.permission_key === permKey
     );
 
-    if (!permission) {
-      permission = {
-        role,
-        permission_key: permKey,
-        allowed: false
-      };
-      state.permissions.push(permission);
-    }
-
-    // Update the allowed value
-    permission.allowed = allowed;
-
-    // Use xhrPatch to save to backend
-    const response = await window._appXhrPatch('permission', permission);
-
-    if (response && response.success) {
-      const action = allowed ? 'เปิด' : 'ปิด';
-      showToast(`${action}สิทธิ์ ${PERMISSION_DEFINITIONS[permKey]} สำหรับ ${ROLE_LABELS[role]} สำเร็จ`, 'success');
+    let resp;
+    if (permission && permission.id) {
+      resp = await fetch(cfg.url + '/rest/v1/permissions?id=eq.' + permission.id, {
+        method: 'PATCH',
+        headers: baseHeaders,
+        body: JSON.stringify({ allowed })
+      });
     } else {
-      throw new Error('Update failed');
+      resp = await fetch(cfg.url + '/rest/v1/permissions', {
+        method: 'POST',
+        headers: baseHeaders,
+        body: JSON.stringify({ role, permission_key: permKey, allowed })
+      });
     }
+
+    if (!resp.ok) {
+      const txt = await resp.text();
+      throw new Error('HTTP ' + resp.status + ' ' + txt.slice(0, 200));
+    }
+
+    const data = await resp.json();
+    const newRec = Array.isArray(data) ? data[0] : data;
+
+    if (permission) {
+      Object.assign(permission, newRec || { allowed });
+    } else if (newRec) {
+      state.permissions.push(newRec);
+    }
+
+    const action = allowed ? 'เปิด' : 'ปิด';
+    showToast(action + 'สิทธิ์ ' + PERMISSION_DEFINITIONS[permKey] + ' สำหรับ ' + ROLE_LABELS[role] + ' สำเร็จ', 'success');
   } catch (error) {
     console.error('Permission update error:', error);
-    showToast('เกิดข้อผิดพลาดในการบันทึกสิทธิ์', 'error');
+    showToast('เกิดข้อผิดพลาดในการบันทึกสิทธิ์: ' + error.message, 'error');
 
     // Revert checkbox state
     const permission = state.permissions.find(
