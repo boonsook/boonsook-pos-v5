@@ -1,10 +1,262 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 28 เมษายน 2026 (Phase 45.3 — fix stock_movements schema mismatch)
-**Version:** 5.12.2 (build 62)
-**Previous:** 5.12.1 (build 61) — Phase 45.1 + 45.2 (service_form polish + DB constraint)
+**อัปเดตล่าสุด:** 29 เมษายน 2026 (Bug A/B/C — RLS recursion + data leak + CHECK constraints)
+**Version:** 5.13.1 (build 71)
+**Previous:** 5.12.2 (build 62) — Phase 45.3 (stock_movements schema mismatch)
 
 **🛡️ Phase 17 Active!** — KV binding ผูกแล้ว (Production + Preview), tested 429 OK
+
+---
+
+## 🛡️ Phase 45.x — Bug A/B/C RLS Audit & Fix (29 เม.ย.)
+
+### Audit context
+หลัง Phase 45.10 RLS hardening — diagnostic ผ่าน Supabase REST API + SQL Editor
+พบ 3 bugs ใหญ่ที่ migration ก่อนหน้าไม่ครอบคลุม
+
+### Bug A — profiles infinite recursion (HTTP 500)
+**Symptom:** GET `/rest/v1/profiles` → SQLSTATE 54001 "stack depth limit exceeded"
+**Root cause:** Policies เก่า 3 ตัวค้างบน profiles ใช้ custom function `"current_role"()`
+ที่ body ดึง role จาก profiles เอง → policy เรียก function → function อ่าน profiles
+→ trigger policy ซ้ำ → infinite loop
+
+Policies ที่ค้าง:
+- `profiles select self` (TO public, USING current_role()...)
+- `profiles update self` (TO public, USING current_role()...)
+- `Allow authenticated insert profiles` (duplicate ของ profiles_insert)
+
+**Fix:** [supabase-phase45-bug-fix-a-c.sql](supabase-phase45-bug-fix-a-c.sql) — Part A
+DROP 3 policies ค้าง — Phase 45.10 quartet (`profiles_select/insert/update/delete`)
+ที่ใช้ `is_admin()` SECURITY DEFINER ทำงานปกติ ไม่ recursion
+
+⚠️ ไม่ DROP function `"current_role"()` เพราะ policies อื่น (categories, customers,
+products, quotations, service_jobs) ยังใช้ — drop ตอนนี้ break
+
+### Bug B — anon data leak (publishable key อ่าน sensitive ได้)
+**Symptom:** anon (key สาธารณะใน supabase-config.js) อ่าน expenses (1 row),
+receipts (2), delivery_invoices (2), warehouse_stock (60), loyalty_settings (1),
+stock_movements (9) ได้โดยไม่ login
+
+**Root cause:** 80+ policies เก่าค้าง — หลายตัว `TO public USING (true)` หรือ
+`TO authenticated USING (true)` ทับ Phase 45.10 hardened policies. PostgreSQL
+ประเมิน policy แบบ OR — ANY policy true → granted → 45.10 ถูก bypass
+
+Worst offenders:
+- `Allow update sales` (TO public, USING true) — anyone update sales
+- `Allow authenticated delete products` (USING true) — authenticated ใครก็ลบ
+- `service_jobs_delete_authenticated` (USING true) — ใครก็ลบใบงาน
+- `qi_delete/qi_insert/qi_update` (TO public USING true) — public CRUD quotation_items
+- `expenses_select / rc_select / di_select / dii_select / warehouse_stock_select / etc.`
+  (TO public USING true) — read leak ทั้งหมด
+
+**Fix:** [supabase-phase45-bug-b-cleanup.sql](supabase-phase45-bug-b-cleanup.sql)
+DROP ~70 policies เก่า + REVOKE table-level GRANT จาก anon บน 28 tables sensitive
+
+KEEP (intentional public):
+- `customer_otp.Allow anon insert/select` — signup OTP
+- `store_settings.read_store_settings` — landing page
+- `quotations.public_read_by_share_token` — share link flow
+- `quotation_items.qi_select` — share-link line items
+- profiles + customers grants — signup flow (signUp ได้ JWT แล้วค่อย insert)
+
+ADD ใหม่:
+- `loyalty_settings_read_auth` (TO authenticated USING true)
+- `permissions_read_auth` + `permissions_write_admin`
+- `line_notify_settings_read_auth` + `line_notify_settings_write_admin`
+- `store_settings_update_admin` / `store_settings_insert_admin` / `store_settings_delete_admin`
+
+**Verify:** anon hit ทุก sensitive table → HTTP 401 (ก่อน 200 + data) ✅
+
+### Bug C — CHECK constraints หายหมด
+**Symptom:** Diagnostic Section 5 (`pg_constraint` filter) → 0 rows
+ตาราง service_jobs.job_type / service_jobs.status / stock_movements.type ไม่มี
+CHECK constraint เลย — defense in depth gap
+
+**Root cause:** Migration เก่า (45.2/45.7/45.8) DROP สำเร็จ แต่ ADD fail
+(น่าจะติด data เก่าที่ค่าไม่ pass) → transaction rollback → constraint หาย
+
+**Fix:** [supabase-phase45-bug-fix-a-c.sql](supabase-phase45-bug-fix-a-c.sql) — Part C
+ADD 3 constraints กลับ + ใช้ `NOT VALID` → skip validation ของ existing rows
+→ ไม่ fail แม้มีค่าผิด. ค่าใหม่ที่ INSERT/UPDATE จะถูก validate ทุกครั้ง
+
+```
+service_jobs_job_type_check    → 11 ค่า (ac, solar, cctv, other, repair_ac, ...)
+service_jobs_status_check      → 6 ค่า (pending, progress, done, delivered, closed, cancelled)
+stock_movements_type_check     → 6 ค่า (in, out, sale, transfer, return, adjust)
+```
+
+User สามารถรัน `VALIDATE CONSTRAINT` ทีหลังถ้าอยากให้ DB ตรวจของเก่าด้วย
+(ตัวอย่าง query อยู่ใน comment ปลายไฟล์ migration)
+
+### Files committed
+- `supabase-phase45-diagnostic.sql` — read-only diagnostic (1-row 7 JSON cols)
+- `supabase-phase45-bug-fix-a-c.sql` — Bug A + Bug C (146 lines)
+- `supabase-phase45-bug-b-cleanup.sql` — Bug B (302 lines)
+
+### USER ACTION ที่ทำไปแล้ว
+1. ✅ รัน `supabase-phase45-diagnostic.sql` — ส่ง JSON output กลับมา
+2. ✅ รัน `supabase-phase45-bug-fix-a-c.sql` — verified 3 constraints + profiles ไม่ recurse
+3. ✅ รัน `supabase-phase45-bug-b-cleanup.sql` — verified anon block ทุก sensitive table
+
+### Known leftover (pre-existing, ไม่ใช่ผลจาก migration)
+- View `profiles_with_email` JOIN `auth.users` — ฝั่ง app fallback ใช้ profiles
+  table ตรงๆ (display ทำงาน) แต่ console spam HTTP 403 "permission denied for
+  table users". Hotfix 1-liner: `GRANT SELECT (id, email) ON auth.users TO authenticated;`
+  รอ user สั่งทำ
+
+---
+
+## 🚀 Phase 45.4 → 45.13 — service_form polish + audit fixes (27-28 เม.ย.)
+
+### Phase 45.13 — service_jobs drawer dropdown (28 เม.ย.)
+edit drawer สำหรับ service_jobs ที่สร้างผ่าน service_form (Phase 45) มี
+`<select id="serviceType">` แค่ 3 ตัวเลือกเก่า (ac/solar/cctv) — ตอน save ใหม่
+ค่าใน dropdown blank → DB CHECK constraint reject. แก้: เพิ่ม 11 ตัวเลือกครบ
+
+Bump: main.js v=71, SW v55, version 5.13.1 (build 71), APP_BUILD=71
+
+### Phase 45.12 — edit drawer for delivery_invoices + receipts
+User ขอความสามารถแก้ใบส่งของ + ใบเสร็จ (เดิมแก้ได้แค่ใบเสนอราคา)
+
+Editable: customer info (name/phone/address/tax_id), salesperson, due_date
+(เฉพาะ delivery_invoice), project_name, ref_no, note
+
+NOT editable: line items, totals, discounts, taxes (มาจาก upstream doc)
++ banner เตือนใน modal
+
+Edit hidden เมื่อ:
+- delivery_invoice.status = 'receipted' (locked)
+- receipt.status = 'cancelled' (locked)
+
+Bump: main.js v=70, SW v54, **version 5.13.0 (build 70)** (minor bump)
+
+### Phase 45.11 — non-blocking loadAllData (UI hang fix)
+Same hang pattern จาก 45.9 (saveServiceJob) — เจออีก 13 จุด ทุก save/action button
+`await loadAllData()` block UI 10-30s ฟิ้น 10+ tables sequentially
+
+Fixed locations:
+- main.js: saveProduct, saveCustomer, checkout (POS — openReceiptDrawer
+  อ่านจาก state.lastReceipt)
+- modules/customer_dashboard.js (customer checkout)
+- modules/delivery_invoices.js (cancel/restore — 3)
+- modules/quotations.js (cancel/restore/approve — 3)
+- modules/receipts.js (cancel/restore — 4)
+- modules/stock_movements.js (manual + transfer — 2)
+- modules/line_notify.js (settings save)
+
+Pattern: replace `await loadAllData()` →
+`loadAllData().catch(e => console.warn(...))` — UI update ทันที, reload BG
+
+Intentionally NOT changed:
+- main.js:1424 (initial app boot)
+- ac_install.js:720 (+ create new bill — Phase 45.5)
+- service_form.js:646 (+ create new bill — Phase 45.4)
+
+Bump: main.js v=69, SW v53, version 5.12.9 (build 69)
+
+### Phase 45.10.1 — sales policy DENY ALL hotfix
+sales.customer_id = bigint (ไม่ใช่ uuid) — cast `customer_id::uuid` ใน
+rls-hardening.sql fail mid-migration → sales เหลือไม่มี policy → DENY ALL
+
+แยก 4 explicit policies: SELECT all, INSERT all authenticated,
+UPDATE/DELETE sales+admin only
+
+USER ACTION: re-run `supabase-phase45-rls-hardening.sql`
+
+### Phase 45.10 — RBAC + RLS hardening (B2/B5/RLS)
+**B2-1:** `globalSearchProducts` bypass role check — call `renderProductsPage`
+ตรง. แก้: wrap ใน `canAccessPage` check
+**B2-2:** New SQL `supabase-phase45-rls-hardening.sql` — replace `USING(true)`
+ด้วย role-based checks. Helper functions: `auth_user_role()`, `is_admin()`,
+`is_staff()`, `is_sales_or_admin()`. Critical: profiles UPDATE/DELETE
+admin-only (ป้องกัน role escalation). Financial tables (expenses, recurring,
+refunds) → sales/admin. Sales/quotations/receipts write → sales/admin.
+Stock tables write → staff
+
+**B5-1:** customer_dashboard module state (_custCart, slip data) leak ข้าม
+logout/login → เพิ่ม `clearCustomerDashboardState` exported, call จาก logout
+**B5-2/3/4:** delivery_invoices, quotations, receipts left _lineItems +
+_selectedIds stale หลัง preview → reset ตอนเริ่ม renderXPage
+**B5-5:** pos.js _posCustomer leak ข้าม session → `clearPosState` export +
+call จาก logout
+**B5-6:** products.js bulkSelected Set retain IDs ข้าม navigation (เสี่ยง
+bulk-delete ผิด product) → reset ตอนเริ่ม renderProductsPage
+
+USER ACTION: รัน `supabase-phase45-rls-hardening.sql`
+
+Bump: main.js v=68, SW v52, version 5.12.8 (build 68)
+
+### Phase 45.9 — saveServiceJob UI hang 2 นาที
+User report หลัง edit + save service job หน้าหมุน ~2 นาที.
+Root cause: line 2408 `await loadAllData()` ก่อน showToast + re-render
+→ block UI fetch 10+ tables sequentially
+
+Apply same pattern จาก 45.4/45.5:
+- Optimistic update state.serviceJobs (PATCH หรือ POST ใหม่)
+- ปิด drawer + toast ทันที
+- Re-render service_jobs page (instant)
+- Background loadAllData via setTimeout (no await, no block)
+
+Bump: main.js v=67, SW v51, version 5.12.7 (build 67)
+
+### Phase 45.8 — audit fixes (B1/B3/B7)
+**B1:** customer drawer 'movement history' (main.js:2208) ใช้ field name เก่า
+(movement_type/quantity/stock_before/stock_after) — Phase 45.3 พลาด callsite นี้
+แก้: m.type, m.qty, parse note หา before/after
+**B3:** products.stock recompute มี empty `catch{}` กลืน error → log warn
+ให้ silent drift visible ใน Console
+**B7:** SQL migration `supabase-phase45-service-status-closed.sql` เพิ่ม
+'closed' ใน service_jobs.status CHECK. Customer dashboard "ลูกค้ายืนยันปิดงาน"
+button ส่ง status='closed' แต่ DB allow แค่ pending/progress/done/delivered/
+cancelled
+
+USER ACTION: รัน `supabase-phase45-service-status-closed.sql`
+
+Bump: main.js v=66, SW v50, version 5.12.6 (build 66)
+
+### Phase 45.7 — stock_movements.type CHECK migration
+หลัง 45.3 rename `movement_type` → `type` — DB constraint
+`stock_movements_type_check` reject ค่าเช่น 'out', 'transfer'
+(allow แค่ subset)
+
+Migration drop + recreate allow 6 ค่า: in, out, sale, transfer, return, adjust
+
+USER ACTION: รัน `supabase-phase45-stock-type-fix.sql`
+
+### Phase 45.6 — inline transfer "บ้าน→รถ" button
+User ขอความสามารถโอน stock จากบ้าน → รถ โดยไม่ออกจากใบงาน
+
+Add button ใน panel header ของ:
+- ac_install.js (ติดตั้งแอร์)
+- service_form.js (ซ่อมแอร์ + 8 ประเภทอื่น)
+
+Modal: search/pick product (เฉพาะที่บ้าน stock > 0) → pick warehouse + qty
+→ confirm → call `window._appTransferWarehouseStock` → optimistic update
+
+Shared modal: `window._appOpenTransferModal` (defined ใน ac_install.js)
+ทั้ง 2 modules reuse
+
+Bump: main.js v=65, SW v49, version 5.12.5 (build 65)
+
+### Phase 45.5 — apply mid-save form re-mount fix to ac_install.js
+Same bug จาก 45.4 แต่ใน ac_install.js (Phase 41-43 module). Save flow call
+`await ctx.loadAllData()` → triggers renderAll → showRoute → renderAcInstallPage
+→ form re-mount mid-flow → labor/discount/note inputs reset to value=0
+(และ customer fields ว่างด้วย)
+
+แก้: optimistic state.warehouseStock decrement, defer full reload ไป
+'+ create new bill' button click
+
+Bump: main.js v=64, SW v48, version 5.12.4 (build 64)
+
+### Phase 45.4 — service_form skip mid-save loadAllData
+หลัง save, `ctx.loadAllData()` triggers renderAll → showRoute →
+renderServiceFormPage → form re-mounts → labor/discount inputs reset
+mid-flow (user งง คิดว่าระบบ reset input)
+
+แก้: defer full reload ไป '+ create new bill' button click
+
+Bump: main.js v=63, SW v47, version 5.12.3 (build 63)
 
 ---
 
