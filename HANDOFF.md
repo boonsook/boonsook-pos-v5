@@ -1,6 +1,6 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 29 เมษายน 2026 (Bug A/B/C — RLS recursion + data leak + CHECK constraints)
+**อัปเดตล่าสุด:** 29 เมษายน 2026 (Bug A/B/C/D — RLS recursion + data leak + CHECK + view 403)
 **Version:** 5.13.1 (build 71)
 **Previous:** 5.12.2 (build 62) — Phase 45.3 (stock_movements schema mismatch)
 
@@ -88,21 +88,36 @@ stock_movements_type_check     → 6 ค่า (in, out, sale, transfer, return,
 User สามารถรัน `VALIDATE CONSTRAINT` ทีหลังถ้าอยากให้ DB ตรวจของเก่าด้วย
 (ตัวอย่าง query อยู่ใน comment ปลายไฟล์ migration)
 
+### Bug D — profiles_with_email view 403 (pre-existing)
+**Symptom:** GET `/rest/v1/profiles_with_email` → HTTP 403
+"permission denied for table users". Display ใน "ตั้งค่าผู้ใช้งาน"
+ทำงานได้เพราะ fallback อ่าน profiles ตรง — แต่ console spam errors
+
+**Root cause:** View ตั้ง `security_invoker = on` → ใช้สิทธิ์ caller →
+authenticated role ไม่มี GRANT บน auth.users → JOIN fail
+
+**Fix:** [supabase-phase45-bug-d-view-fix.sql](supabase-phase45-bug-d-view-fix.sql)
+DROP + CREATE view ใหม่:
+- ไม่ใช้ `security_invoker` (default DEFINER mode — run as postgres) →
+  bypass auth.users RLS → JOIN ได้
+- WHERE filter ใน view: `is_admin() OR p.id = auth.uid()`
+  → admin เห็นทุก row, non-admin เห็นแค่ตัวเอง
+- GRANT SELECT TO authenticated, REVOKE FROM anon
+
+Trade-off: customer/sales/technician เห็นเฉพาะ profile ตัวเอง
+(ถ้าต้องเห็นคนอื่น relax เป็น `is_staff()` ทีหลัง)
+
 ### Files committed
 - `supabase-phase45-diagnostic.sql` — read-only diagnostic (1-row 7 JSON cols)
 - `supabase-phase45-bug-fix-a-c.sql` — Bug A + Bug C (146 lines)
 - `supabase-phase45-bug-b-cleanup.sql` — Bug B (302 lines)
+- `supabase-phase45-bug-d-view-fix.sql` — Bug D (76 lines)
 
 ### USER ACTION ที่ทำไปแล้ว
 1. ✅ รัน `supabase-phase45-diagnostic.sql` — ส่ง JSON output กลับมา
 2. ✅ รัน `supabase-phase45-bug-fix-a-c.sql` — verified 3 constraints + profiles ไม่ recurse
 3. ✅ รัน `supabase-phase45-bug-b-cleanup.sql` — verified anon block ทุก sensitive table
-
-### Known leftover (pre-existing, ไม่ใช่ผลจาก migration)
-- View `profiles_with_email` JOIN `auth.users` — ฝั่ง app fallback ใช้ profiles
-  table ตรงๆ (display ทำงาน) แต่ console spam HTTP 403 "permission denied for
-  table users". Hotfix 1-liner: `GRANT SELECT (id, email) ON auth.users TO authenticated;`
-  รอ user สั่งทำ
+4. ✅ รัน `supabase-phase45-bug-d-view-fix.sql` — verified anon ถูก REVOKE จาก view
 
 ---
 
