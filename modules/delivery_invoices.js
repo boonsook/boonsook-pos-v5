@@ -2,7 +2,7 @@
 //  DELIVERY INVOICES — ใบส่งสินค้า / ใบแจ้งหนี้
 //  ★ รายการ, preview, พิมพ์, PDF, แชร์, สร้างใบเสร็จ
 // ═══════════════════════════════════════════════════════════
-import { renderEmpty } from "./ui_states.js";
+import { renderEmpty, renderSkeleton } from "./ui_states.js";
 
 // share ใช้ window._appShareDoc จาก main.js
 
@@ -71,6 +71,7 @@ export function renderDeliveryInvoicesPage(ctx) {
   if (window._pendingInvoicePreviewId) {
     const pendingId = window._pendingInvoicePreviewId;
     window._pendingInvoicePreviewId = null;
+    container.innerHTML = renderSkeleton({ type: "list", count: 4 });
     (async () => {
       _viewingId = pendingId;
       _viewMode = "preview";
@@ -341,6 +342,8 @@ export function renderDeliveryInvoicesPage(ctx) {
     if (inv) {
       _viewingId = inv.id;
       _viewMode = "preview";
+      const pageEl = document.getElementById("page-delivery_invoices");
+      if (pageEl) pageEl.innerHTML = renderSkeleton({ type: "list", count: 4 });
       const cfg = window.SUPABASE_CONFIG;
       const token = window._sbAccessToken || cfg.anonKey;
       try {

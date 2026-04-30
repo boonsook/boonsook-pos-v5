@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v65 (2026-04-30): Phase 47 — adopt ui_states 7 more modules (dead_stock/profit_by_product/warranty_report/birthdays/recurring_expenses/credit_tracker/serials)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v65';
+// v66 (2026-04-30): Phase 48 — skeleton coverage (tasks + quotations/receipts/delivery_invoices preview)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v66';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

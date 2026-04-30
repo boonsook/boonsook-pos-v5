@@ -1,10 +1,44 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 30 เมษายน 2026 (Phase 47 — adopt ui_states 7 more modules)
-**Version:** 5.14.7 (build 81)
-**Previous:** 5.14.6 (build 80) — Phase 46.7 (ui_states refunds/stock_movements/top_customers)
+**อัปเดตล่าสุด:** 30 เมษายน 2026 (Phase 48 — skeleton coverage tasks + 3 preview modes)
+**Version:** 5.14.8 (build 82)
+**Previous:** 5.14.7 (build 81) — Phase 47 (ui_states 7 modules)
 
 **🛡️ Phase 17 Active!** — KV binding ผูกแล้ว (Production + Preview), tested 429 OK
+
+---
+
+## ✨ Phase 48 — Skeleton coverage (30 เม.ย.)
+
+### Scan ก่อนทำ
+ทำ scan 9 modules ที่ Phase 46/47 audit เสนอว่าควรเพิ่ม skeleton — พบจริง ๆ:
+- **8/9 modules เป็น IN-MEMORY** (products, sales, customers, service_jobs, expenses,
+  + list view ของ quotations/receipts/delivery_invoices) — render ทันทีจาก state.X
+  → ใส่ skeleton จะ flash ในเสี้ยววินาที = แย่กว่าเดิม → **skip**
+- **1/9 ASYNC จริง** (tasks.js) — ใช้ "กำลังโหลด..." text เก่า → upgrade เป็น skeleton
+- **3/9 ASYNC ใน preview mode** (quotations/receipts/delivery_invoices ตอนกด 📄 view → fetch line_items)
+  → user เห็น list เก่าระหว่างรอ ~100-500ms → ใส่ skeleton ก่อน fetch
+
+### Modules ที่แก้ (4 ไฟล์)
+1. **tasks.js** — แทน "กำลังโหลด..." ด้วย renderSkeleton(list×4) + เพิ่ม renderError 2 จุด
+   (table missing + fetch fail) มี retry button — เดิมไม่มี retry
+2. **quotations.js** — 3 จุด: openPreview, openEditForm, _pendingQuotationPreviewId
+   → set container.innerHTML = renderSkeleton ก่อน await fetch
+3. **receipts.js** — rc-view-btn click handler → set page innerHTML skeleton ก่อน fetch
+4. **delivery_invoices.js** — 2 จุด: _pendingInvoicePreviewId + di-view-btn handler
+   → set innerHTML skeleton ก่อน fetch
+
+### Bump
+- APP_BUILD 81 → 82
+- main.js?v=81 → ?v=82
+- sw.js cache v65 → v66
+- pages.js Version 5.14.7 → 5.14.8
+
+### Backlog เหลือ Phase 49+
+- Empty catch block hardening ~45 จุด ใน main.js (HIGH จาก audit)
+- CSS ?v= bump audit (doc-print.css, phase4-*.css ค้าง ?v=1)
+- escapeHtml dedup (main.js + 6 modules มี local copy)
+- USER ACTION: รัน `supabase-phase45-bug-e-tighten-anon.sql`
 
 ---
 

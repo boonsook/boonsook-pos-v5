@@ -2,7 +2,7 @@
 //  QUOTATIONS MODULE — ใบเสนอราคา (FlowAccount-style)
 //  ★ รายการสินค้า, ส่วนลด, หัก ณ ที่จ่าย, preview เอกสาร
 // ═══════════════════════════════════════════════════════════
-import { renderEmpty } from "./ui_states.js";
+import { renderEmpty, renderSkeleton } from "./ui_states.js";
 
 // share ใช้ window._appShareDoc จาก main.js
 
@@ -72,6 +72,7 @@ export function renderQuotationsPage(ctx) {
   if (window._pendingQuotationPreviewId) {
     const pendingId = window._pendingQuotationPreviewId;
     window._pendingQuotationPreviewId = null;
+    container.innerHTML = renderSkeleton({ type: "list", count: 4 });
     (async () => {
       _editingId = pendingId;
       _viewMode = "preview";
@@ -776,6 +777,8 @@ async function saveQuotationFull() {
 async function openEditForm(q) {
   _editingId = q.id;
   _viewMode = "form";
+  const container = document.getElementById("page-quotations");
+  if (container) container.innerHTML = renderSkeleton({ type: "list", count: 4 });
   const cfg = window.SUPABASE_CONFIG;
   const token = window._sbAccessToken || cfg.anonKey;
   try {
@@ -797,6 +800,8 @@ async function openEditForm(q) {
 // ═══════════════════════════════════════════════════════════
 async function openPreview(q) {
   _editingId = q.id; _viewMode = "preview";
+  const container = document.getElementById("page-quotations");
+  if (container) container.innerHTML = renderSkeleton({ type: "list", count: 4 });
   const cfg = window.SUPABASE_CONFIG;
   const token = window._sbAccessToken || cfg.anonKey;
   try {

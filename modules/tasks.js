@@ -2,7 +2,7 @@
 //  TASK / REMINDER SYSTEM (Phase 13)
 //  GTD สำหรับเจ้าของร้าน — โทรกลับลูกค้า, ติดตามค้างชำระ, ฯลฯ
 // ═══════════════════════════════════════════════════════════
-import { renderEmpty } from "./ui_states.js";
+import { renderEmpty, renderSkeleton, renderError } from "./ui_states.js";
 
 function escHtml(s) {
   if (s == null) return "";
@@ -32,7 +32,7 @@ export async function renderTasksPage(ctx) {
   const container = document.getElementById("page-tasks");
   if (!container) return;
 
-  container.innerHTML = `<div style="text-align:center;padding:40px;color:#94a3b8">กำลังโหลด...</div>`;
+  container.innerHTML = renderSkeleton({ type: "list", count: 4 });
 
   const cfg = window.SUPABASE_CONFIG;
   const accessToken = window._sbAccessToken || cfg.anonKey;
@@ -42,16 +42,24 @@ export async function renderTasksPage(ctx) {
       headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + accessToken }
     });
     if (!res.ok) {
-      container.innerHTML = `
-        <div style="max-width:800px;margin:40px auto;padding:24px;background:#fee2e2;border-radius:12px;text-align:center">
-          <h3 style="color:#b91c1c">⚠️ ตาราง tasks ยังไม่มี</h3>
-          <p style="color:#991b1b">รัน <code>supabase-rls-policies.sql</code> ก่อน</p>
-        </div>`;
+      container.innerHTML = renderError({
+        message: "ตาราง tasks ยังไม่มี",
+        detail: "รัน supabase-rls-policies.sql ก่อน (HTTP " + res.status + ")",
+        retryLabel: "ลองโหลดใหม่",
+        retryId: "tkRetryBtn"
+      });
+      document.getElementById("tkRetryBtn")?.addEventListener("click", () => renderTasksPage(ctx));
       return;
     }
     _tkList = await res.json();
   } catch (e) {
-    container.innerHTML = `<div style="color:#dc2626;text-align:center;padding:30px">โหลดไม่สำเร็จ: ${e.message}</div>`;
+    container.innerHTML = renderError({
+      message: "โหลดข้อมูลไม่สำเร็จ",
+      detail: e?.message || String(e),
+      retryLabel: "ลองใหม่",
+      retryId: "tkRetryBtn"
+    });
+    document.getElementById("tkRetryBtn")?.addEventListener("click", () => renderTasksPage(ctx));
     return;
   }
 

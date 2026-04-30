@@ -2,7 +2,7 @@
 //  RECEIPTS MODULE — ใบเสร็จรับเงิน
 //  ★ รายการ, preview, พิมพ์, PDF, แชร์
 // ═══════════════════════════════════════════════════════════
-import { renderEmpty } from "./ui_states.js";
+import { renderEmpty, renderSkeleton } from "./ui_states.js";
 
 // share ใช้ window._appShareDoc จาก main.js
 
@@ -327,6 +327,8 @@ export function renderReceiptsPage(ctx) {
     if (r) {
       _viewingId = r.id;
       _viewMode = "preview";
+      const pageEl = document.getElementById("page-receipts");
+      if (pageEl) pageEl.innerHTML = renderSkeleton({ type: "list", count: 4 });
       const cfg = window.SUPABASE_CONFIG;
       const token = window._sbAccessToken || cfg.anonKey;
       try {
