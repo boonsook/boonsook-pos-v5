@@ -322,11 +322,21 @@ async function applyAllAdjustments(ctx) {
 
   if (btn) { btn.disabled = false; btn.textContent = "💾 บันทึกการปรับสต็อก"; }
 
-  showToast?.(`✅ ปรับสต็อกสำเร็จ ${ok} รายการ${fail > 0 ? ` (ไม่สำเร็จ ${fail})` : ''}`);
+  // Phase 45.14 (B): toast แยกตาม outcome — ไม่ bias เห็น ✅ ทั้งที่ fail
+  if (ok === 0 && fail > 0) {
+    showToast?.(`❌ ปรับสต็อกไม่สำเร็จทั้งหมด (${fail} รายการ) — ตรวจ Console`);
+  } else if (fail > 0) {
+    showToast?.(`⚠️ ปรับสต็อกสำเร็จ ${ok} รายการ — ไม่สำเร็จ ${fail} รายการ`);
+  } else if (ok > 0) {
+    showToast?.(`✅ ปรับสต็อกสำเร็จ ${ok} รายการ`);
+  } else {
+    showToast?.("ไม่มีรายการที่ต้องปรับ");
+  }
 
   if (ok > 0) {
     _scCounts.clear();
-    if (window.App?.loadAllData) await window.App.loadAllData();
+    // Phase 45.14: non-blocking reload
+    if (window.App?.loadAllData) window.App.loadAllData().catch(e => console.warn("[stock_count] reload", e));
     renderStockCountPage(ctx);
   }
 }

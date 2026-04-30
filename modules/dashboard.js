@@ -434,7 +434,7 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
                 <div style="display:flex;align-items:center;gap:8px">
                   <span style="font-size:16px;width:24px;text-align:center">${i===0?'🥇':i===1?'🥈':i===2?'🥉':'▪️'}</span>
                   <div>
-                    <div style="font-size:13px;font-weight:700;color:#1f2937">${p.name}</div>
+                    <div style="font-size:13px;font-weight:700;color:#1f2937">${escapeHtml(p.name)}</div>
                     <div style="font-size:11px;color:#94a3b8">${p.qty} ชิ้น</div>
                   </div>
                 </div>
@@ -474,8 +474,8 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
       <div class="card-list mt16" style="max-height:300px;overflow-y:auto">
         ${lowStock.length ? lowStock.slice(0,20).map(p => `
           <div class="card">
-            <div style="font-weight:900">${p.name}</div>
-            <div class="sku">${p.sku || "-"}</div>
+            <div style="font-weight:900">${escapeHtml(p.name)}</div>
+            <div class="sku">${escapeHtml(p.sku) || "-"}</div>
             <div class="badge low">คงเหลือ ${p.stock} / ขั้นต่ำ ${p.min_stock}</div>
           </div>
         `).join("") : '<div class="card">ยังไม่มีสินค้าใกล้หมด</div>'}

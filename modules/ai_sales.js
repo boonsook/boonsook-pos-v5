@@ -3,6 +3,9 @@
 //  ระบบแนะนำแอร์อัจฉริยะ: ถาม-ตอบ → คำนวณ BTU → แนะนำรุ่น
 // ═══════════════════════════════════════════════════════════
 
+// Phase 45.14 (XSS fix): escape user-supplied data before innerHTML
+const escHtml = (s) => String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+
 const ROOM_TYPES = [
   { key: "bedroom", label: "🛏️ ห้องนอน", factor: 700 },
   { key: "living", label: "🛋️ ห้องนั่งเล่น", factor: 800 },
@@ -837,7 +840,7 @@ export function renderAiSalesPage(ctx) {
                     <div style="flex:1;min-width:180px">
                       <div style="display:flex;align-items:center;gap:6px">
                         <span style="background:#dbeafe;color:#1e40af;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">IN STOCK</span>
-                        <div style="font-weight:700;color:#1f2937;font-size:14px">${p.name}</div>
+                        <div style="font-weight:700;color:#1f2937;font-size:14px">${escHtml(p.name)}</div>
                       </div>
                       <div style="display:flex;gap:8px;font-size:12px;color:#6b7280;margin-top:6px;flex-wrap:wrap">
                         ${p.btu ? `<span>❄️ ${Number(p.btu).toLocaleString()} BTU</span>` : ""}

@@ -11,6 +11,11 @@ function money(n) {
   }).format(Number(n || 0));
 }
 
+// Phase 45.14 (XSS fix): escape user-supplied data before innerHTML
+function escHtml(s) {
+  return String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
 function dateTH(d) {
   if (!d) return "-";
   try {
@@ -326,7 +331,7 @@ function renderSummaryTab(loyaltyPoints, customers, settings, ctx) {
     const rowBg = idx % 2 === 0 ? 'white' : '#fafafa';
     tableHtml += `
       <tr style="background: ${rowBg}; border-bottom: 1px solid #eee;">
-        <td style="padding: 10px; text-align: left;">${row.name}</td>
+        <td style="padding: 10px; text-align: left;">${escHtml(row.name)}</td>
         <td style="padding: 10px; text-align: right;">${row.earned.toLocaleString('th-TH')}</td>
         <td style="padding: 10px; text-align: right; color: #ff4d4f;">${row.redeemed.toLocaleString('th-TH')}</td>
         <td style="padding: 10px; text-align: right; font-weight: bold; color: #4a90e2;">${row.remaining.toLocaleString('th-TH')}</td>

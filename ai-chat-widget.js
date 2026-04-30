@@ -492,7 +492,19 @@
       applyBtn.textContent = "⏳ กำลังบันทึก...";
       const restartBtn = div.querySelector("#bs-ai-restart");
       if (restartBtn) restartBtn.disabled = true;
-      applyToForm(result);
+      // Phase 45.14 (C): wrap in try/catch — applyToForm อาจ throw → ปุ่มไม่ stuck
+      try {
+        applyToForm(result);
+      } catch (err) {
+        console.error("[ai-chat applyToForm]", err);
+        // ปลด lock เพื่อให้ user retry ได้
+        applyBtn.dataset.done = "";
+        state.submitting = false;
+        applyBtn.disabled = false;
+        applyBtn.textContent = "✅ ลองอีกครั้ง";
+        if (restartBtn) restartBtn.disabled = false;
+        if (window.App?.showToast) window.App.showToast("ส่งงานเข้าคิวไม่สำเร็จ — ลองอีกครั้ง");
+      }
     });
     div.querySelector("#bs-ai-restart").addEventListener("click", restart);
   }

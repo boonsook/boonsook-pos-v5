@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v58 (2026-04-30): Phase 46.1 — ui_states module (skeleton/empty/error) + 2 sample applications
-const CACHE_NAME = 'boonsook-pos-v5-cache-v58';
+// v59 (2026-04-29): Phase 46.2 — XSS fix (6 places) + stock_count toast + ai-chat finally
+const CACHE_NAME = 'boonsook-pos-v5-cache-v59';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

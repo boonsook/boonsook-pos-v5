@@ -1189,8 +1189,8 @@ function renderProductCards(products) {
   return products.map(p => `
     <div class="pos-product-card">
       <div class="pos-product-info">
-        <div style="font-weight:900;font-size:15px">${p.name}</div>
-        <div class="sku">${p.sku || "-"} ${p.barcode ? "• " + p.barcode : ""}</div>
+        <div style="font-weight:900;font-size:15px">${escHtml(p.name)}</div>
+        <div class="sku">${escHtml(p.sku) || "-"} ${p.barcode ? "• " + escHtml(p.barcode) : ""}</div>
         <div style="font-weight:900;color:var(--primary2);margin-top:4px">${money(p.price)}</div>
       </div>
       <button class="btn primary pos-add-btn" data-add-pos-product-id="${p.id}">+</button>
@@ -1203,7 +1203,7 @@ function renderCartCompact(cart) {
   return cart.map(item => `
     <div class="pos-cart-item">
       <div class="pos-cart-item-info">
-        <span style="font-weight:700">${item.name}</span>
+        <span style="font-weight:700">${escHtml(item.name)}</span>
         <span class="sku">${money(item.price)} x ${item.qty}</span>
       </div>
       <div style="font-weight:900;color:var(--primary2);white-space:nowrap">${money(item.qty * item.price)}</div>
