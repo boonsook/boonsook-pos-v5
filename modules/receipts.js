@@ -2,6 +2,7 @@
 //  RECEIPTS MODULE — ใบเสร็จรับเงิน
 //  ★ รายการ, preview, พิมพ์, PDF, แชร์
 // ═══════════════════════════════════════════════════════════
+import { renderEmpty } from "./ui_states.js";
 
 // share ใช้ window._appShareDoc จาก main.js
 
@@ -94,6 +95,14 @@ export function renderReceiptsPage(ctx) {
         <span class="sku">สร้างจากใบส่งสินค้า</span>
       </div>
 
+      ${countAll === 0 ? renderEmpty({
+        icon: "🧾",
+        title: "ยังไม่มีใบเสร็จ",
+        message: "ใบเสร็จสร้างจากใบส่งสินค้าที่บันทึกการชำระแล้ว — หรือออกตรงจาก POS เมื่อขายเงินสด",
+        actionLabel: "ไปที่ POS",
+        actionId: "rcEmptyGoToPosBtn",
+        actionStyle: "ghost"
+      }) : `
       <div class="stats-grid mt16" style="grid-template-columns:repeat(3,1fr)">
         <div class="stat-card">
           <div class="stat-label">ทั้งหมด</div>
@@ -197,8 +206,14 @@ export function renderReceiptsPage(ctx) {
         </tbody>
       </table>
       </div>
+      `}
     </div>
   `;
+
+  // ── Empty-state CTA: ไปหน้า POS ──
+  document.getElementById("rcEmptyGoToPosBtn")?.addEventListener("click", () => {
+    location.hash = "pos";
+  });
 
   // ── Tab click ──
   container.querySelectorAll(".rc-tab-btn").forEach(btn => btn.addEventListener("click", () => {

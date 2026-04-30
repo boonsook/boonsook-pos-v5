@@ -2,6 +2,7 @@
 //  DELIVERY INVOICES — ใบส่งสินค้า / ใบแจ้งหนี้
 //  ★ รายการ, preview, พิมพ์, PDF, แชร์, สร้างใบเสร็จ
 // ═══════════════════════════════════════════════════════════
+import { renderEmpty } from "./ui_states.js";
 
 // share ใช้ window._appShareDoc จาก main.js
 
@@ -111,6 +112,14 @@ export function renderDeliveryInvoicesPage(ctx) {
         <span class="sku">สร้างจากใบเสนอราคาที่อนุมัติแล้ว</span>
       </div>
 
+      ${countAll === 0 ? renderEmpty({
+        icon: "📦",
+        title: "ยังไม่มีใบส่งสินค้า",
+        message: "ใบส่งสินค้าสร้างจากใบเสนอราคาที่อนุมัติแล้ว — ไปอนุมัติใบเสนอราคาที่ต้องการก่อน",
+        actionLabel: "ไปที่ใบเสนอราคา",
+        actionId: "diEmptyGoToQtBtn",
+        actionStyle: "ghost"
+      }) : `
       <div class="stats-grid mt16" style="grid-template-columns:repeat(3,1fr)">
         <div class="stat-card">
           <div class="stat-label">ทั้งหมด</div>
@@ -212,8 +221,14 @@ export function renderDeliveryInvoicesPage(ctx) {
         </tbody>
       </table>
       </div>
+      `}
     </div>
   `;
+
+  // ── Empty-state CTA: ไปหน้าใบเสนอราคา ──
+  document.getElementById("diEmptyGoToQtBtn")?.addEventListener("click", () => {
+    location.hash = "quotations";
+  });
 
   // ── Tab click ──
   container.querySelectorAll(".di-tab-btn").forEach(btn => btn.addEventListener("click", () => {

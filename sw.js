@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v60 (2026-04-30): Phase 46.3 — apply ui_states empty-state to products/customers/expenses/sales/tasks
-const CACHE_NAME = 'boonsook-pos-v5-cache-v60';
+// v61 (2026-04-30): Phase 46.4 — ui_states empty-state for quotations/delivery_invoices/receipts
+const CACHE_NAME = 'boonsook-pos-v5-cache-v61';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

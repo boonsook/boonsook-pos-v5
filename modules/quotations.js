@@ -2,6 +2,7 @@
 //  QUOTATIONS MODULE — ใบเสนอราคา (FlowAccount-style)
 //  ★ รายการสินค้า, ส่วนลด, หัก ณ ที่จ่าย, preview เอกสาร
 // ═══════════════════════════════════════════════════════════
+import { renderEmpty } from "./ui_states.js";
 
 // share ใช้ window._appShareDoc จาก main.js
 
@@ -117,6 +118,13 @@ export function renderQuotationsPage(ctx) {
         <button id="qtAddBtn" class="btn primary">+ สร้างใบเสนอราคา</button>
       </div>
 
+      ${countAll === 0 ? renderEmpty({
+        icon: "📄",
+        title: "ยังไม่มีใบเสนอราคา",
+        message: 'สร้างใบเสนอราคาแรก — แชร์ link ให้ลูกค้า + แปลงเป็นใบส่งของ/ใบเสร็จได้ทันทีเมื่ออนุมัติ',
+        actionLabel: "+ สร้างใบเสนอราคา",
+        actionId: "qtEmptyAddBtn"
+      }) : `
       <div class="stats-grid mt16" style="grid-template-columns:repeat(3,1fr)">
         <div class="stat-card">
           <div class="stat-label">ทั้งหมด</div>
@@ -222,11 +230,18 @@ export function renderQuotationsPage(ctx) {
         </tbody>
       </table>
       </div>
+      `}
     </div>
   `;
 
   // Bind events
   document.getElementById("qtAddBtn")?.addEventListener("click", () => {
+    _editingId = null;
+    _lineItems = [];
+    _viewMode = "form";
+    renderQuotationsPage(_ctx);
+  });
+  document.getElementById("qtEmptyAddBtn")?.addEventListener("click", () => {
     _editingId = null;
     _lineItems = [];
     _viewMode = "form";
