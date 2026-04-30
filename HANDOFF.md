@@ -1,8 +1,8 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 30 เมษายน 2026 (Phase 46.7 — adopt ui_states 3 modules + audit response)
-**Version:** 5.13.4 (build 80)
-**Previous:** 5.13.3 (build 79) — Phase 46.6 (permission_matrix race + RLS tighten reads)
+**อัปเดตล่าสุด:** 30 เมษายน 2026 (Phase 46.7 — adopt ui_states 3 modules + audit response + version display fix)
+**Version:** 5.14.6 (build 80)
+**Previous:** 5.14.5 (build 79) — Phase 46.6 (permission_matrix race + RLS tighten reads)
 
 **🛡️ Phase 17 Active!** — KV binding ผูกแล้ว (Production + Preview), tested 429 OK
 
