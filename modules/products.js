@@ -2,6 +2,7 @@
 // ═══════════════════════════════════════════════════════════
 //  Boonsook POS V5 — Products Page (FlowAccount Style)
 // ═══════════════════════════════════════════════════════════
+import { renderEmpty } from "./ui_states.js";
 
 // ═══ ประเภทสินค้า (เหมือน FlowAccount) ═══
 const PRODUCT_TYPES = {
@@ -309,13 +310,13 @@ function renderView(ctx) {
         </div>
       </div>
 
-      ${products.length === 0 ? `
-      <div style="text-align:center;padding:48px 20px;margin-top:16px;background:#f8fafc;border-radius:12px;border:2px dashed #cbd5e1">
-        <div style="font-size:56px;margin-bottom:8px">📦</div>
-        <h3 style="margin:0 0 8px;font-size:18px;color:#475569">ยังไม่มีสินค้า</h3>
-        <p style="margin:0;color:#94a3b8;font-size:14px">คลิก "+ เพิ่มสินค้า" ด้านบน หรือ "นำเข้า" จาก Excel เพื่อเริ่มต้น</p>
-      </div>
-      ` : ''}
+      ${products.length === 0 ? renderEmpty({
+        icon: "📦",
+        title: "ยังไม่มีสินค้า",
+        message: 'เริ่มต้นโดยกด "+ เพิ่มสินค้า" หรือนำเข้าจาก Excel — ระบบจะใช้ข้อมูลนี้ใน POS, ใบเสนอราคา, และตัดสต็อกอัตโนมัติ',
+        actionLabel: "+ เพิ่มสินค้า",
+        actionId: "prodEmptyAddBtn"
+      }) : ''}
 
       ${bulkMode && bulkSelected.size > 0 ? `
       <div style="position:sticky;top:0;z-index:5;background:linear-gradient(135deg,#0284c7,#0369a1);color:#fff;padding:10px 14px;border-radius:10px;margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;box-shadow:0 4px 12px rgba(2,132,199,.3)">
@@ -504,6 +505,9 @@ function renderView(ctx) {
   `;
 
   // ═══ BINDINGS (ใช้ el.querySelector เพื่อรองรับ multi-page) ═══
+  el.querySelector("#prodEmptyAddBtn")?.addEventListener("click", () => {
+    el.querySelector("#prodAddBtn")?.click();
+  });
   el.querySelector("#prodAddBtn, .prod-add-btn")?.addEventListener("click", () => {
     // ★ pre-fill product_type ตาม tab ที่เลือกอยู่
     const opts = currentTypeFilter !== 'all' ? { prefillType: currentTypeFilter } : {};

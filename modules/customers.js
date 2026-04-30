@@ -1,4 +1,6 @@
 
+import { renderEmpty } from "./ui_states.js";
+
 const CONTACT_TYPES = {
   customer: { label: "ลูกค้า", color: "#0284c7", dot: "#3b82f6" },
   supplier: { label: "ผู้จำหน่าย", color: "#d97706", dot: "#f59e0b" },
@@ -72,13 +74,13 @@ function renderView(ctx) {
         </div>
       </div>
 
-      ${countAll === 0 ? `
-      <div style="text-align:center;padding:48px 20px;margin-top:16px;background:#f8fafc;border-radius:12px;border:2px dashed #cbd5e1">
-        <div style="font-size:56px;margin-bottom:8px">👥</div>
-        <h3 style="margin:0 0 8px;font-size:18px;color:#475569">ยังไม่มีรายชื่อ</h3>
-        <p style="margin:0;color:#94a3b8;font-size:14px">เริ่มโดยคลิก "สร้างใหม่" ด้านบน หรือ "นำเข้ารายชื่อ" จาก Excel</p>
-      </div>
-      ` : ''}
+      ${countAll === 0 ? renderEmpty({
+        icon: "👥",
+        title: "ยังไม่มีรายชื่อ",
+        message: 'เพิ่มลูกค้า/ผู้จำหน่ายคนแรก — ใช้ในใบเสนอราคา, ใบส่งของ, สะสมแต้ม และวันเกิด',
+        actionLabel: "+ สร้างรายชื่อใหม่",
+        actionId: "contactEmptyAddBtn"
+      }) : ''}
 
       <!-- Filter Tabs -->
       <div class="contact-filter-tabs mt16"${countAll === 0 ? ' style="display:none"' : ''}>
@@ -156,6 +158,7 @@ function renderView(ctx) {
 
   // ─── Bindings ───
   document.getElementById("contactAddBtn")?.addEventListener("click", () => openCustomerDrawer(), { signal });
+  document.getElementById("contactEmptyAddBtn")?.addEventListener("click", () => openCustomerDrawer(), { signal });
   document.getElementById("contactImportBtn")?.addEventListener("click", () => {
     document.getElementById("contactFileInput")?.click();
   }, { signal });

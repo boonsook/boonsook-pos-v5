@@ -1,4 +1,6 @@
 
+import { renderEmpty } from "./ui_states.js";
+
 function money(n){return new Intl.NumberFormat("th-TH",{style:"currency",currency:"THB",minimumFractionDigits:2}).format(Number(n||0));}
 const escHtml = (s) => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 
@@ -62,7 +64,14 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
               </div>
             </div>
           </div>
-        `).join("") : '<div class="card" style="text-align:center;color:var(--muted);padding:24px">ยังไม่มีรายการขาย</div>'}
+        `).join("") : renderEmpty({
+          icon: "🧾",
+          title: "ยังไม่มีรายการขาย",
+          message: "ขายของผ่าน POS หรือบันทึกการขายใหม่ — รายการขายจะแสดงที่นี่ทั้งหมด",
+          actionLabel: "ไปที่ POS",
+          actionId: "salesEmptyGoToPosBtn",
+          actionStyle: "ghost"
+        })}
       </div>
       ${paginationHtml}
     </div>
@@ -119,6 +128,11 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
     await loadReceipt(Number(btn.dataset.saleId));
     openReceiptDrawer();
   }, { signal }));
+
+  /* ── Empty-state CTA (Phase 46.2): ไปหน้า POS ── */
+  document.getElementById("salesEmptyGoToPosBtn")?.addEventListener("click", () => {
+    location.hash = "pos";
+  }, { signal });
 
   /* ── ลบรายการขาย (admin only) ── */
   document.querySelectorAll("[data-del-sale]").forEach(btn => btn.addEventListener("click", async (e) => {  // eslint-disable-line

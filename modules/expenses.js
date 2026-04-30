@@ -2,6 +2,7 @@
 //  EXPENSES MODULE — รายรับ-รายจ่าย
 //  ★ Expense tracking with categories, summary cards, and monthly chart
 // ═══════════════════════════════════════════════════════════
+import { renderEmpty } from "./ui_states.js";
 
 function money(n){ return new Intl.NumberFormat("th-TH",{style:"currency",currency:"THB",minimumFractionDigits:2}).format(Number(n||0)); }
 function dateTH(d){ if(!d) return "-"; try{ return new Date(d).toLocaleDateString("th-TH",{year:"numeric",month:"short",day:"numeric"}); }catch(e){ return d; } }
@@ -197,13 +198,13 @@ export function renderExpensesPage(ctx) {
     </div>
     ` : ''}
 
-    ${expenses.length === 0 ? `
-    <div style="text-align:center;padding:48px 20px;margin-top:16px;background:#f8fafc;border-radius:12px;border:2px dashed #cbd5e1">
-      <div style="font-size:56px;margin-bottom:8px">💸</div>
-      <h3 style="margin:0 0 8px;font-size:18px;color:#475569">ยังไม่มีรายจ่าย</h3>
-      <p style="margin:0;color:#94a3b8;font-size:14px">คลิก "+ เพิ่มรายจ่าย" ด้านบนเพื่อเริ่มบันทึกรายจ่ายแรก</p>
-    </div>
-    ` : ''}
+    ${expenses.length === 0 ? renderEmpty({
+      icon: "💸",
+      title: "ยังไม่มีรายจ่าย",
+      message: 'บันทึกค่าใช้จ่ายร้านเช่น ค่าน้ำมัน, ค่าเช่า, เงินเดือนพนักงาน — ใช้คำนวณกำไรสุทธิและรายงานทางการเงิน',
+      actionLabel: "+ เพิ่มรายจ่าย",
+      actionId: "expEmptyAddBtn"
+    }) : ''}
 
     <!-- Expense List Table -->
     <div class="panel mt16"${expenses.length === 0 ? ' style="display:none"' : ''}>
@@ -350,6 +351,9 @@ function bindFilterEvents() {
     renderExpensesPage(_ctx);
   });
 
+  document.getElementById("expEmptyAddBtn")?.addEventListener("click", () => {
+    document.getElementById("expAddBtn")?.click();
+  });
   document.getElementById("expAddBtn")?.addEventListener("click", () => {
     _showAddForm = true;
     _editingExpenseId = null;

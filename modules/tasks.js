@@ -2,6 +2,7 @@
 //  TASK / REMINDER SYSTEM (Phase 13)
 //  GTD สำหรับเจ้าของร้าน — โทรกลับลูกค้า, ติดตามค้างชำระ, ฯลฯ
 // ═══════════════════════════════════════════════════════════
+import { renderEmpty } from "./ui_states.js";
 
 function escHtml(s) {
   if (s == null) return "";
@@ -111,10 +112,11 @@ export async function renderTasksPage(ctx) {
       <!-- List -->
       <div class="panel" style="padding:0">
         ${filtered.length === 0 ? `
-          <div style="text-align:center;padding:40px;color:#94a3b8">
-            <div style="font-size:40px;margin-bottom:8px">${_tkFilter==='done'?'✅':'🎉'}</div>
-            <div style="font-weight:600;font-size:14px">${_tkFilter==='done' ? 'ยังไม่มีงานที่ทำเสร็จ' : 'ไม่มีงานในกลุ่มนี้ — สบายใจ!'}</div>
-          </div>
+          ${renderEmpty({
+            icon: _tkFilter === 'done' ? '📂' : '🎉',
+            title: _tkFilter === 'done' ? 'ยังไม่มีงานที่ทำเสร็จ' : 'ไม่มีงานในกลุ่มนี้ — สบายใจ!',
+            message: _tkFilter === 'done' ? 'งานที่กดเสร็จแล้วจะมาเก็บที่นี่' : ''
+          })}
         ` : `
         <div style="display:flex;flex-direction:column">
           ${filtered.map(t => {
