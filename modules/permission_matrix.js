@@ -112,6 +112,9 @@ export function renderPermissionMatrix(ctx, container) {
       const checkbox = document.createElement('input');
       checkbox.type = 'checkbox';
       checkbox.style.cssText = 'width: 18px; height: 18px; cursor: pointer;';
+      // Phase 46.6 (B): tag checkbox for precise revert selector
+      checkbox.dataset.role = role;
+      checkbox.dataset.permKey = permKey;
 
       // Find current permission state
       const permission = state.permissions.find(
@@ -129,8 +132,9 @@ export function renderPermissionMatrix(ctx, container) {
       }
 
       // Add change listener
+      // Phase 46.6 (A): pass checkbox so handler can disable during save (กัน race condition)
       checkbox.addEventListener('change', async (e) => {
-        await handlePermissionChange(ctx, role, permKey, e.target.checked, showToast);
+        await handlePermissionChange(ctx, role, permKey, e.target.checked, showToast, e.target);
       });
 
       cell.appendChild(checkbox);
@@ -160,7 +164,7 @@ export function renderPermissionMatrix(ctx, container) {
  * @param {boolean} allowed - Whether permission is allowed
  * @param {Function} showToast - Toast notification function
  */
-async function handlePermissionChange(ctx, role, permKey, allowed, showToast) {
+async function handlePermissionChange(ctx, role, permKey, allowed, showToast, checkbox) {
   const { state } = ctx;
   const cfg = window.SUPABASE_CONFIG;
   const token = window._sbAccessToken || cfg.anonKey;
@@ -170,6 +174,10 @@ async function handlePermissionChange(ctx, role, permKey, allowed, showToast) {
     'Authorization': 'Bearer ' + token,
     'Prefer': 'return=representation'
   };
+
+  // Phase 46.6 (A): disable checkbox ระหว่าง save — กัน race condition จาก rapid clicks
+  // (กดเร็วๆ ก่อน Click 1 เสร็จ → POST 2 ครั้ง → row ซ้ำใน DB)
+  if (checkbox) checkbox.disabled = true;
 
   try {
     let permission = state.permissions.find(
@@ -211,18 +219,13 @@ async function handlePermissionChange(ctx, role, permKey, allowed, showToast) {
     console.error('Permission update error:', error);
     showToast('เกิดข้อผิดพลาดในการบันทึกสิทธิ์: ' + error.message, 'error');
 
-    // Revert checkbox state
-    const permission = state.permissions.find(
-      p => p.role === role && p.permission_key === permKey
-    );
-    if (permission) {
-      const checkboxes = document.querySelectorAll('input[type="checkbox"]');
-      checkboxes.forEach(cb => {
-        if (cb.dataset.role === role && cb.dataset.permKey === permKey) {
-          cb.checked = !allowed;
-        }
-      });
-    }
+    // Phase 46.6 (B): precise selector — เดิมหา input[type=checkbox] ทุกตัวบนหน้า (100+) ทุกครั้ง
+    // ใหม่: ใช้ data-role + data-perm-key ที่เพิ่งติดให้ checkbox โดยตรง
+    const cb = document.querySelector(`input[type="checkbox"][data-role="${role}"][data-perm-key="${permKey}"]`);
+    if (cb) cb.checked = !allowed;
+  } finally {
+    // Phase 46.6 (A): re-enable checkbox ทุกกรณี (success/error)
+    if (checkbox) checkbox.disabled = false;
   }
 }
 

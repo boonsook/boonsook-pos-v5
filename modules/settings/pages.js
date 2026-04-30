@@ -22,8 +22,8 @@ export function renderSettingsAbout(el, ctx, goBack) {
           <div style="font-size:12px;color:#64748b">ระบบจัดการร้านค้าอิเล็กทรอนิกส์แบบครบวงจร</div>
         </div>
         <div style="display:grid;gap:6px;font-size:13px;color:#334155">
-          <div><strong>Version:</strong> 5.14.4</div>
-          <div><strong>Release:</strong> April 2026 (build 78)</div>
+          <div><strong>Version:</strong> 5.14.5</div>
+          <div><strong>Release:</strong> April 2026 (build 79)</div>
           <div><strong>Developer:</strong> Boonsook Electronics</div>
           <div><strong>Contact:</strong> gangboo@gmail.com</div>
         </div>

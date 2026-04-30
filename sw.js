@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v62 (2026-04-29): Phase 46.5 — defensive XSS escape in ui_states renderEmpty/renderError
-const CACHE_NAME = 'boonsook-pos-v5-cache-v62';
+// v63 (2026-04-29): Phase 46.6 — permission_matrix race fix + RLS tighten reads
+const CACHE_NAME = 'boonsook-pos-v5-cache-v63';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
