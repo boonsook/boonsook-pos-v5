@@ -1364,8 +1364,8 @@ async function logout(){
   state.cart = []; saveCart();
   window._sbAccessToken = null;
   // Phase 45.10 (B5-1): clear module state ด้วย (กัน cross-login leak)
-  try { clearCustomerDashboardState(); } catch(e){}
-  try { clearPosState(); } catch(e){}
+  try { clearCustomerDashboardState(); } catch(e){ console.warn("[logout] clearCustomerDashboardState", e); }
+  try { clearPosState(); } catch(e){ console.warn("[logout] clearPosState", e); }
   // ★ Force UI กลับหน้า login
   $("authScreen")?.classList.remove("hidden");
   $("appShell")?.classList.add("hidden");
@@ -1403,7 +1403,7 @@ async function afterLogin(){
       // Wait for hash to update, then continue
       await new Promise(r => setTimeout(r, 100));
     }
-  } catch(e){}
+  } catch(e){ console.warn("[afterLogin] restore hash failed", e); }
 
   // ★★★ อ่าน route ที่เก็บไว้ก่อน loadAllData จะ overwrite hash/localStorage ★★★
   const allowed = allowedPages();
@@ -1524,9 +1524,9 @@ async function loadAllData(){
           if (data && Array.isArray(data) && data.length > 0) {
             localStorage.setItem("bsk_ac_catalog", JSON.stringify(data));
           }
-        }).catch(() => {});
+        }).catch(err => console.warn("[ac_catalog] fetch failed", err));
       }
-    } catch(e){}
+    } catch(e){ console.warn("[ac_catalog] init failed", e); }
 
     renderAll();
 
@@ -2447,7 +2447,7 @@ async function saveServiceJob(){
   // Re-render service jobs list ทันที (ใช้ state ที่ optimistic update แล้ว)
   try {
     if (state.currentRoute === "service_jobs") showRoute("service_jobs");
-  } catch(e){}
+  } catch(e){ console.warn("[saveServiceJob] re-render failed", e); }
 
   // Background full reload — ไม่ block UI
   setTimeout(() => { loadAllData().catch(e => console.warn("[saveServiceJob] reload", e)); }, 100);

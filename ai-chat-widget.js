@@ -573,14 +573,14 @@
           };
         }
       }
-    } catch(e){}
+    } catch(e){ console.warn("[ai-chat] customer context lookup failed", e); }
 
     // ★ Phase 17: ส่ง Supabase JWT ใน Authorization header (require auth)
     const authHeaders = { "Content-Type": "application/json" };
     try {
       const token = window._sbAccessToken;
       if (token) authHeaders["Authorization"] = "Bearer " + token;
-    } catch(e){}
+    } catch(e){ console.warn("[ai-chat] read access token failed", e); }
 
     try {
       const resp = await fetch(API_URL, {

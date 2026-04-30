@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v66 (2026-04-30): Phase 48 — skeleton coverage (tasks + quotations/receipts/delivery_invoices preview)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v66';
+// v67 (2026-04-30): Phase 49 — empty catch hardening (5 main.js + 2 ai-chat-widget.js)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v67';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

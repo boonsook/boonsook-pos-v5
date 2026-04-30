@@ -1,10 +1,53 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 30 เมษายน 2026 (Phase 48 — skeleton coverage tasks + 3 preview modes)
-**Version:** 5.14.8 (build 82)
-**Previous:** 5.14.7 (build 81) — Phase 47 (ui_states 7 modules)
+**อัปเดตล่าสุด:** 30 เมษายน 2026 (Phase 49 — empty catch hardening)
+**Version:** 5.14.9 (build 83)
+**Previous:** 5.14.8 (build 82) — Phase 48 (skeleton coverage)
 
 **🛡️ Phase 17 Active!** — KV binding ผูกแล้ว (Production + Preview), tested 429 OK
+
+---
+
+## 🔍 Phase 49 — Empty catch hardening (30 เม.ย.)
+
+### Audit re-scan ก่อนทำ
+รอบแรก audit เสนอ "~45 จุด" แต่ scan จริงพบ **16 empty catch** ใน main.js + 2 ใน ai-chat-widget.js
+แยกตาม intent:
+- **11 ตัว silent ตั้งใจ** (ควรปล่อยไว้): localStorage quota fail, DOM cleanup, JSON.parse with fallback,
+  popup blocker print/share, optimistic UI re-render — silent ปกติ ไม่กระทบ user
+- **7 ตัว silent ไม่ดี** (debug ยาก): state cleanup ตอน logout, restore hash หลัง login,
+  background AC catalog load, service_jobs re-render, AI chat customer context lookup, JWT token read
+
+### Fix scope (7 จุด)
+**main.js (5 จุด):**
+1. `clearCustomerDashboardState()` ตอน logout — เพิ่ม console.warn
+2. `clearPosState()` ตอน logout — เพิ่ม console.warn
+3. afterLogin restore hash block — เพิ่ม console.warn
+4. AC catalog background fetch — เพิ่ม console.warn 2 จุด (init + fetch fail)
+5. saveServiceJob re-render — เพิ่ม console.warn
+
+**ai-chat-widget.js (2 จุด):**
+6. customer context lookup — เพิ่ม console.warn (silent fail = AI ไม่รู้ context)
+7. JWT token read — เพิ่ม console.warn (silent fail = unauth request)
+
+### ตัวที่ไม่แก้ (intentional silent — เช็คแล้ว)
+- `localStorage.setItem` (lines 882, 1175, 3509, 1414) — quota safe
+- DOM cleanup (lines 399, 468, 1747) — element หายไปแล้ว safe
+- `JSON.parse` with default (lines 2042, 2118, 1511) — fallback ถูกต้อง
+- `showRoute` optimistic (lines 1968, 2358) — best-effort UI
+- `setHelpContext`, `updateAppLogos`, `history.replaceState` — defensive
+
+### Bump
+- APP_BUILD 82 → 83
+- main.js?v=82 → ?v=83
+- ai-chat-widget.js?v=3 → ?v=4 (เพราะแก้ไฟล์นี้)
+- sw.js cache v66 → v67
+- pages.js Version 5.14.8 → 5.14.9
+
+### Backlog เหลือ Phase 50+
+- CSS ?v= bump audit (doc-print.css, phase4-*.css ค้าง ?v=1)
+- escapeHtml dedup (main.js + 6 modules มี local copy)
+- USER ACTION: รัน `supabase-phase45-bug-e-tighten-anon.sql`
 
 ---
 
