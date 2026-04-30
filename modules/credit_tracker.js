@@ -1,7 +1,9 @@
 // ═══════════════════════════════════════════════════════════
 //  CUSTOMER CREDIT / DEBT TRACKER — ลูกค้าค้างชำระ
 //  ดู list บิลที่ขายเงินเชื่อ + ติดตามการเก็บเงิน + บันทึกชำระบางส่วน
+//  Phase 47 — adopt ui_states empty
 // ═══════════════════════════════════════════════════════════
+import { renderEmpty } from "./ui_states.js";
 
 function escHtml(s) {
   if (s == null) return "";
@@ -101,13 +103,11 @@ export function renderCreditTrackerPage(ctx) {
 
       <!-- List -->
       <div class="panel" style="padding:0">
-        ${filtered.length === 0 ? `
-          <div style="text-align:center;padding:40px;color:#94a3b8">
-            <div style="font-size:40px;margin-bottom:8px">${_ctFilter === 'open' || _ctFilter === 'overdue' ? '🎉' : '📭'}</div>
-            <div style="font-weight:600;font-size:14px">${_ctFilter === 'open' || _ctFilter === 'overdue' ? 'ไม่มีลูกค้าค้างชำระ — ดีมาก!' : 'ไม่มีรายการในช่วงนี้'}</div>
-            <div style="font-size:12px;margin-top:6px">ใช้ระบบนี้: ในหน้า POS ตอน checkout เลือก payment_method = "เงินเชื่อ"<br>หรือ "บันทึกขายเงินเชื่อ" จากเมนูเพิ่มเติม</div>
-          </div>
-        ` : `
+        ${filtered.length === 0 ? renderEmpty({
+          icon: (_ctFilter === 'open' || _ctFilter === 'overdue') ? '🎉' : '📭',
+          title: (_ctFilter === 'open' || _ctFilter === 'overdue') ? 'ไม่มีลูกค้าค้างชำระ — ดีมาก!' : 'ไม่มีรายการในช่วงนี้',
+          message: 'ใช้งาน: หน้า POS ตอน checkout เลือก payment_method = "เงินเชื่อ" หรือ "บันทึกขายเงินเชื่อ" จากเมนูเพิ่มเติม'
+        }) : `
         <div style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;font-size:13px">
             <thead style="background:#f1f5f9">

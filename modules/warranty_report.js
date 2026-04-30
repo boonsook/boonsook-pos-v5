@@ -1,7 +1,9 @@
 // ═══════════════════════════════════════════════════════════
 //  WARRANTY REPORT (Phase 22)
 //  รายงาน warranty ใกล้หมด + ส่ง LINE notify เตือนเจ้าของ
+//  Phase 47 — adopt ui_states (skeleton/empty/error)
 // ═══════════════════════════════════════════════════════════
+import { renderSkeleton, renderEmpty, renderError } from "./ui_states.js";
 
 function escHtml(s) {
   if (s == null) return "";
@@ -22,22 +24,30 @@ export async function renderWarrantyReportPage(ctx) {
   const today = new Date().toISOString().slice(0, 10);
   const future = new Date(Date.now() + _wrThreshold * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-  container.innerHTML = `<div style="text-align:center;padding:40px;color:#94a3b8">กำลังโหลด...</div>`;
+  container.innerHTML = renderSkeleton({ type: "table", count: 5 });
 
   try {
     const url = cfg.url + "/rest/v1/product_serials?select=*&order=warranty_until.asc.nullslast&limit=500";
     const res = await fetch(url, { headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + accessToken } });
     if (!res.ok) {
-      container.innerHTML = `
-        <div style="max-width:800px;margin:40px auto;padding:24px;background:#fee2e2;border-radius:12px;text-align:center">
-          <h3 style="color:#b91c1c">⚠️ ตาราง product_serials ยังไม่มี</h3>
-          <p style="color:#991b1b">รัน <code>supabase-rls-policies.sql</code> ก่อน</p>
-        </div>`;
+      container.innerHTML = renderError({
+        message: "ตาราง product_serials ยังไม่มี",
+        detail: "รัน supabase-rls-policies.sql ก่อน (HTTP " + res.status + ")",
+        retryLabel: "ลองโหลดใหม่",
+        retryId: "wrRetryBtn"
+      });
+      document.getElementById("wrRetryBtn")?.addEventListener("click", () => renderWarrantyReportPage(ctx));
       return;
     }
     _wrData = await res.json();
   } catch(e) {
-    container.innerHTML = `<div style="color:#dc2626;text-align:center;padding:30px">โหลดไม่สำเร็จ: ${e.message}</div>`;
+    container.innerHTML = renderError({
+      message: "โหลดข้อมูลไม่สำเร็จ",
+      detail: e?.message || String(e),
+      retryLabel: "ลองใหม่",
+      retryId: "wrRetryBtn"
+    });
+    document.getElementById("wrRetryBtn")?.addEventListener("click", () => renderWarrantyReportPage(ctx));
     return;
   }
 
@@ -97,12 +107,11 @@ export async function renderWarrantyReportPage(ctx) {
 
       <!-- List -->
       <div class="panel" style="padding:0">
-        ${view.length === 0 ? `
-          <div style="text-align:center;padding:40px;color:#94a3b8">
-            <div style="font-size:40px;margin-bottom:8px">${_wrFilter === 'soon' ? '🎉' : '🔍'}</div>
-            <div style="font-weight:600;font-size:14px">${_wrFilter === 'soon' ? 'ไม่มีเครื่องประกันใกล้หมด — ทุกอย่างปลอดภัย' : 'ไม่มีรายการ'}</div>
-          </div>
-        ` : `
+        ${view.length === 0 ? renderEmpty({
+          icon: _wrFilter === 'soon' ? '🎉' : '🔍',
+          title: _wrFilter === 'soon' ? 'ไม่มีเครื่องประกันใกล้หมด — ทุกอย่างปลอดภัย' : 'ไม่มีรายการในตัวกรองนี้',
+          message: _wrFilter === 'soon' ? '' : 'ลองกดที่การ์ดด้านบนเพื่อเปลี่ยนตัวกรอง'
+        }) : `
         <div style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;font-size:13px">
             <thead style="background:#f1f5f9">

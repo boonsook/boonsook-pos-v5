@@ -1,7 +1,9 @@
 // ═══════════════════════════════════════════════════════════
 //  DEAD STOCK REPORT — สินค้าที่ไม่ขยับนาน
 //  ช่วยตัดสินใจ: ลดราคาล้างสต็อก / คืนซัพพลายเออร์
+//  Phase 47 — adopt ui_states empty
 // ═══════════════════════════════════════════════════════════
+import { renderEmpty } from "./ui_states.js";
 
 function escHtml(s) {
   if (s == null) return "";
@@ -122,13 +124,11 @@ export function renderDeadStockPage(ctx) {
 
       <!-- Dead Stock List -->
       <div class="panel" style="padding:16px">
-        ${enriched.length === 0 ? `
-          <div style="text-align:center;padding:40px;color:#94a3b8">
-            <div style="font-size:48px;margin-bottom:8px">🎉</div>
-            <div style="font-weight:700;font-size:16px">ไม่มีสต็อกค้างนาน!</div>
-            <div style="font-size:13px;margin-top:4px">ทุกสินค้าขยับขายในช่วง ${days} วันที่ผ่านมา</div>
-          </div>
-        ` : `
+        ${enriched.length === 0 ? renderEmpty({
+          icon: "🎉",
+          title: "ไม่มีสต็อกค้างนาน!",
+          message: "ทุกสินค้าขยับขายในช่วง " + days + " วันที่ผ่านมา"
+        }) : `
         <div style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;font-size:13px">
             <thead style="background:#f1f5f9">

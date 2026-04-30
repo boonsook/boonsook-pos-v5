@@ -1,7 +1,9 @@
 // ═══════════════════════════════════════════════════════════
 //  RECURRING EXPENSES — รายจ่ายประจำ (ค่าเช่า / ค่าน้ำ / เงินเดือน)
 //  ตั้งครั้งเดียว → ระบบสร้าง expense row ทุกเดือน/สัปดาห์อัตโนมัติ
+//  Phase 47 — adopt ui_states (skeleton/empty/error)
 // ═══════════════════════════════════════════════════════════
+import { renderSkeleton, renderEmpty, renderError } from "./ui_states.js";
 
 function escHtml(s) {
   if (s == null) return "";
@@ -24,23 +26,31 @@ export async function renderRecurringExpensesPage(ctx) {
   const cfg = window.SUPABASE_CONFIG;
   const accessToken = window._sbAccessToken || cfg.anonKey;
 
-  container.innerHTML = `<div style="text-align:center;padding:40px;color:#94a3b8">กำลังโหลด...</div>`;
+  container.innerHTML = renderSkeleton({ type: "table", count: 4 });
 
   try {
     const res = await fetch(cfg.url + "/rest/v1/recurring_expenses?select=*&order=is_active.desc,name.asc", {
       headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + accessToken }
     });
     if (!res.ok) {
-      container.innerHTML = `
-        <div style="max-width:800px;margin:40px auto;padding:24px;background:#fee2e2;border-radius:12px;text-align:center">
-          <h3 style="color:#b91c1c">⚠️ ตาราง recurring_expenses ยังไม่มีในฐานข้อมูล</h3>
-          <p style="color:#991b1b">รัน <code>supabase-rls-policies.sql</code> ใน Supabase SQL Editor เพื่อสร้างตารางก่อน</p>
-        </div>`;
+      container.innerHTML = renderError({
+        message: "ตาราง recurring_expenses ยังไม่มีในฐานข้อมูล",
+        detail: "รัน supabase-rls-policies.sql ใน Supabase SQL Editor เพื่อสร้างตารางก่อน (HTTP " + res.status + ")",
+        retryLabel: "ลองโหลดใหม่",
+        retryId: "reRetryBtn"
+      });
+      document.getElementById("reRetryBtn")?.addEventListener("click", () => renderRecurringExpensesPage(ctx));
       return;
     }
     _reList = await res.json();
   } catch (e) {
-    container.innerHTML = `<div style="color:#dc2626;text-align:center;padding:30px">โหลดข้อมูลไม่สำเร็จ: ${e.message}</div>`;
+    container.innerHTML = renderError({
+      message: "โหลดข้อมูลไม่สำเร็จ",
+      detail: e?.message || String(e),
+      retryLabel: "ลองใหม่",
+      retryId: "reRetryBtn"
+    });
+    document.getElementById("reRetryBtn")?.addEventListener("click", () => renderRecurringExpensesPage(ctx));
     return;
   }
 
@@ -98,13 +108,13 @@ export async function renderRecurringExpensesPage(ctx) {
 
       <!-- List -->
       <div class="panel" style="padding:14px">
-        ${_reList.length === 0 ? `
-          <div style="text-align:center;padding:30px;color:#94a3b8">
-            <div style="font-size:40px;margin-bottom:8px">📝</div>
-            <div style="font-weight:600;font-size:14px">ยังไม่มีรายการ — กด "+ เพิ่มรายการใหม่"</div>
-            <div style="font-size:12px;margin-top:6px">ตัวอย่าง: ค่าเช่าร้าน 12000/เดือน, เงินเดือนพนง. 15000/เดือน, ค่าน้ำ-ไฟ 3000/เดือน</div>
-          </div>
-        ` : `
+        ${_reList.length === 0 ? renderEmpty({
+          icon: "📝",
+          title: "ยังไม่มีรายการประจำ",
+          message: "ตัวอย่าง: ค่าเช่าร้าน 12000/เดือน, เงินเดือนพนง. 15000/เดือน, ค่าน้ำ-ไฟ 3000/เดือน",
+          actionLabel: "+ เพิ่มรายการใหม่",
+          actionId: "reEmptyAddBtn"
+        }) : `
         <div style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;font-size:13px">
             <thead style="background:#f1f5f9">
@@ -152,6 +162,7 @@ export async function renderRecurringExpensesPage(ctx) {
 
   // Bindings
   container.querySelector("#reAddBtn")?.addEventListener("click", () => openEditModal(ctx, null));
+  container.querySelector("#reEmptyAddBtn")?.addEventListener("click", () => openEditModal(ctx, null));
   container.querySelectorAll(".re-edit-btn").forEach(btn => btn.addEventListener("click", () => {
     const r = _reList.find(x => String(x.id) === String(btn.dataset.id));
     if (r) openEditModal(ctx, r);

@@ -1,10 +1,41 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 30 เมษายน 2026 (Phase 46.7 — adopt ui_states 3 modules + audit response + version display fix)
-**Version:** 5.14.6 (build 80)
-**Previous:** 5.14.5 (build 79) — Phase 46.6 (permission_matrix race + RLS tighten reads)
+**อัปเดตล่าสุด:** 30 เมษายน 2026 (Phase 47 — adopt ui_states 7 more modules)
+**Version:** 5.14.7 (build 81)
+**Previous:** 5.14.6 (build 80) — Phase 46.7 (ui_states refunds/stock_movements/top_customers)
 
 **🛡️ Phase 17 Active!** — KV binding ผูกแล้ว (Production + Preview), tested 429 OK
+
+---
+
+## 🎨 Phase 47 — ui_states adoption ครบ (30 เม.ย.)
+
+ขยาย ui_states ไปอีก 7 modules → adoption coverage 17/17 list pages (~100%)
+
+### Modules ที่ apply
+1. **dead_stock.js** — renderEmpty (no CTA, "ทุกสินค้าขยับขายใน N วันที่ผ่านมา" — เป็น good state)
+2. **profit_by_product.js** — renderEmpty 2 จุด (top10 winners + bottom10 dogs) ใส่ message ตาม context
+3. **warranty_report.js** — renderSkeleton(table×5) + renderError 2 จุด (table missing + fetch fail) มี retry + renderEmpty filter-aware
+4. **birthdays.js** — renderEmpty (เดือนนี้ไม่มีวันเกิดลูกค้า)
+5. **recurring_expenses.js** — renderSkeleton + renderError 2 จุด + renderEmpty + CTA "+ เพิ่มรายการใหม่"
+6. **credit_tracker.js** — renderEmpty filter-aware (open/overdue → "ไม่มีค้างชำระ — ดีมาก!", อื่น ๆ → "ไม่มีรายการในช่วงนี้")
+7. **serials.js** — renderSkeleton + renderError 2 จุด + renderEmpty search-aware (ค้นหา → "ไม่พบ X", ไม่มี search → "ยังไม่มี serial" + CTA "+ เพิ่ม Serial")
+
+### Bump
+- APP_BUILD 80 → 81
+- main.js?v=80 → ?v=81
+- sw.js cache v64 → v65
+- pages.js Version 5.14.6 → 5.14.7
+
+### ยังเหลือใน Phase 48+ backlog
+- renderSkeleton coverage ใน 10 modules ที่ใช้ ui_states แล้วแต่ยังไม่มี loading state (products/sales/customers/quotations/receipts/delivery_invoices/service_jobs/expenses/tasks/customer_dashboard มีแค่ตัวเดียว)
+- empty catch block hardening ~45 จุดใน main.js
+- CSS ?v= bump audit (doc-print.css, phase4-*.css)
+- Module imports ?v= cache-bust strategy
+- escapeHtml dedup (main.js + dashboard.js + 6 modules ที่มี local copy)
+
+### USER ACTION pending (ยังค้างจาก Phase 45.x)
+- รัน `supabase-phase45-bug-e-tighten-anon.sql` + ทดสอบสมัครลูกค้าใหม่
 
 ---
 

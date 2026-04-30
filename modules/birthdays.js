@@ -1,7 +1,9 @@
 // ═══════════════════════════════════════════════════════════
 //  BIRTHDAY GREETING (Phase 15)
 //  ดูวันเกิดลูกค้า + Line Notify ตอนเปิดแอปเช้า
+//  Phase 47 — adopt ui_states empty
 // ═══════════════════════════════════════════════════════════
+import { renderEmpty } from "./ui_states.js";
 
 function escHtml(s) {
   if (s == null) return "";
@@ -94,7 +96,11 @@ export function renderBirthdaysPage(ctx) {
       <!-- Month list -->
       <div class="panel" style="padding:14px">
         <h3 style="margin:0 0 10px;font-size:15px">🎈 ${THAI_MONTHS[_bdMonthFilter-1]} (${monthBdays.length} ท่าน)</h3>
-        ${monthBdays.length === 0 ? `<div style="text-align:center;padding:30px;color:#94a3b8">ไม่มีลูกค้าวันเกิดในเดือนนี้</div>` : `
+        ${monthBdays.length === 0 ? renderEmpty({
+          icon: "🎈",
+          title: "ไม่มีลูกค้าวันเกิดในเดือนนี้",
+          message: "ลองเปลี่ยนเดือนด้านบน หรือเพิ่มวันเกิดในข้อมูลลูกค้า"
+        }) : `
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:8px">
           ${monthBdays.map(c => {
             const day = parseInt(String(c.birthday).slice(8,10), 10);

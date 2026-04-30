@@ -1,7 +1,9 @@
 // ═══════════════════════════════════════════════════════════
 //  SERIAL NUMBER TRACKING (Phase 19)
 //  บันทึก serial ตอนขายเครื่องใช้ไฟฟ้า + ค้นหา/เคลม warranty
+//  Phase 47 — adopt ui_states (skeleton/empty/error)
 // ═══════════════════════════════════════════════════════════
+import { renderSkeleton, renderEmpty, renderError } from "./ui_states.js";
 
 function escHtml(s) {
   if (s == null) return "";
@@ -33,21 +35,29 @@ export async function renderSerialsPage(ctx) {
   if (_srStatusFilter !== "all") url += "&status=eq." + _srStatusFilter;
   if (_srSearch) url += "&or=(serial_no.ilike.*" + encodeURIComponent(_srSearch) + "*,product_name.ilike.*" + encodeURIComponent(_srSearch) + "*,customer_name.ilike.*" + encodeURIComponent(_srSearch) + "*)";
 
-  container.innerHTML = `<div style="text-align:center;padding:40px;color:#94a3b8">กำลังโหลด...</div>`;
+  container.innerHTML = renderSkeleton({ type: "table", count: 5 });
 
   try {
     const res = await fetch(url, { headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + accessToken } });
     if (!res.ok) {
-      container.innerHTML = `
-        <div style="max-width:800px;margin:40px auto;padding:24px;background:#fee2e2;border-radius:12px;text-align:center">
-          <h3 style="color:#b91c1c">⚠️ ตาราง product_serials ยังไม่มี</h3>
-          <p style="color:#991b1b">รัน <code>supabase-rls-policies.sql</code> ก่อน</p>
-        </div>`;
+      container.innerHTML = renderError({
+        message: "ตาราง product_serials ยังไม่มี",
+        detail: "รัน supabase-rls-policies.sql ก่อน (HTTP " + res.status + ")",
+        retryLabel: "ลองโหลดใหม่",
+        retryId: "srRetryBtn"
+      });
+      document.getElementById("srRetryBtn")?.addEventListener("click", () => renderSerialsPage(ctx));
       return;
     }
     _srResults = await res.json();
   } catch(e) {
-    container.innerHTML = `<div style="color:#dc2626;text-align:center;padding:30px">โหลดไม่สำเร็จ: ${e.message}</div>`;
+    container.innerHTML = renderError({
+      message: "โหลดข้อมูลไม่สำเร็จ",
+      detail: e?.message || String(e),
+      retryLabel: "ลองใหม่",
+      retryId: "srRetryBtn"
+    });
+    document.getElementById("srRetryBtn")?.addEventListener("click", () => renderSerialsPage(ctx));
     return;
   }
 
@@ -98,13 +108,13 @@ export async function renderSerialsPage(ctx) {
 
       <!-- List -->
       <div class="panel" style="padding:0">
-        ${_srResults.length === 0 ? `
-          <div style="text-align:center;padding:40px;color:#94a3b8">
-            <div style="font-size:40px;margin-bottom:8px">🔍</div>
-            <div style="font-weight:600;font-size:14px">${_srSearch ? `ไม่พบ "${escHtml(_srSearch)}"` : "ยังไม่มี serial"}</div>
-            <div style="font-size:12px;margin-top:6px">กดปุ่ม "+ เพิ่ม Serial" หรือเปิดบิลที่ขายเครื่องใช้ไฟฟ้า → กรอก serial ที่นั่น</div>
-          </div>
-        ` : `
+        ${_srResults.length === 0 ? renderEmpty({
+          icon: _srSearch ? '🔍' : '🔢',
+          title: _srSearch ? `ไม่พบ "${_srSearch}"` : 'ยังไม่มี serial',
+          message: _srSearch ? 'ลองเปลี่ยนคำค้นหา หรือเลือกตัวกรองสถานะอื่น' : 'เปิดบิลที่ขายเครื่องใช้ไฟฟ้า → กรอก serial ที่นั่น หรือกดปุ่มด้านล่าง',
+          actionLabel: _srSearch ? '' : '+ เพิ่ม Serial',
+          actionId: _srSearch ? '' : 'srEmptyAddBtn'
+        }) : `
         <div style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;font-size:13px">
             <thead style="background:#f1f5f9">
@@ -173,6 +183,7 @@ export async function renderSerialsPage(ctx) {
     renderSerialsPage(ctx);
   }));
   container.querySelector("#srAddBtn")?.addEventListener("click", () => openSerialModal(ctx, null));
+  container.querySelector("#srEmptyAddBtn")?.addEventListener("click", () => openSerialModal(ctx, null));
   container.querySelectorAll(".sr-edit-btn").forEach(btn => btn.addEventListener("click", () => {
     const s = _srResults.find(x => String(x.id) === String(btn.dataset.id));
     if (s) openSerialModal(ctx, s);

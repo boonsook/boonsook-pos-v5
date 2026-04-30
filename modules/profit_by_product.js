@@ -1,7 +1,9 @@
 // ═══════════════════════════════════════════════════════════
 //  PROFIT BY PRODUCT REPORT (Phase 14)
 //  รายงานกำไรเชิงลึก — สินค้าไหนกำไรเยอะ/น้อย/ขาดทุน
+//  Phase 47 — adopt ui_states empty
 // ═══════════════════════════════════════════════════════════
+import { renderEmpty } from "./ui_states.js";
 
 function escHtml(s) {
   if (s == null) return "";
@@ -146,7 +148,11 @@ export function renderProfitByProductPage(ctx) {
         <!-- Top 10 winners -->
         <div class="panel" style="padding:14px">
           <h3 style="margin:0 0 10px;font-size:14px;color:#059669">🏆 Top 10 สินค้ากำไรเยอะที่สุด</h3>
-          ${top10.length === 0 ? `<div style="color:#94a3b8;text-align:center;padding:20px">ยังไม่มีข้อมูล</div>` :
+          ${top10.length === 0 ? renderEmpty({
+            icon: "📊",
+            title: "ยังไม่มีข้อมูลกำไร",
+            message: "ลองเปลี่ยนช่วงเวลาด้านบน หรือเริ่มขายเพื่อดูสินค้าที่ทำกำไรเยอะที่สุด"
+          }) :
           top10.map((g, i) => `
             <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px dashed #e5e7eb">
               <span style="width:24px;height:24px;border-radius:50%;background:${i<3?'#fbbf24':'#f1f5f9'};color:${i<3?'#fff':'#64748b'};display:grid;place-items:center;font-size:11px;font-weight:700;flex-shrink:0">${i+1}</span>
@@ -161,7 +167,11 @@ export function renderProfitByProductPage(ctx) {
         <!-- Bottom 10 dogs -->
         <div class="panel" style="padding:14px">
           <h3 style="margin:0 0 10px;font-size:14px;color:#dc2626">🐕 Bottom 10 สินค้ากำไรน้อย/ขาดทุน</h3>
-          ${bottom10.length === 0 ? `<div style="color:#94a3b8;text-align:center;padding:20px">ยังไม่มีข้อมูล</div>` :
+          ${bottom10.length === 0 ? renderEmpty({
+            icon: "✨",
+            title: "ไม่มีสินค้าที่กำไรน้อย/ขาดทุน",
+            message: "สินค้าทั้งหมดทำกำไรอยู่ในช่วงนี้"
+          }) :
           bottom10.map((g, i) => `
             <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px dashed #e5e7eb">
               <span style="width:24px;height:24px;border-radius:50%;background:#fee2e2;color:#dc2626;display:grid;place-items:center;font-size:11px;font-weight:700;flex-shrink:0">${i+1}</span>
