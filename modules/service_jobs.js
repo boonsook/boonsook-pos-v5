@@ -1,4 +1,6 @@
 
+import { renderEmpty } from "./ui_states.js";
+
 const STATUS_LABELS = {
   pending:    "รอดำเนินการ",
   progress:   "กำลังดำเนินการ",
@@ -77,11 +79,26 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
         ${chip("cancelled", "⚫ ยกเลิก",     cCancelled, "#64748b")}
         ${chip("all",       "ทั้งหมด",      cAll,       "#475569")}
       </div>
-      ${jobs.length === 0 && _sjFilter !== "all" ? `
-        <div class="card mt16" style="text-align:center;color:var(--muted);padding:20px;font-size:13px">
-          ${_sjFilter === "open" ? "🎉 ไม่มีงานค้าง — เคลียร์หมดแล้ว!" : _sjFilter === "closed" ? "ยังไม่มีงานที่ปิดแล้ว" : "ไม่มีงานที่ยกเลิก"}
-        </div>
-      ` : ''}
+      ${jobs.length === 0 ? (
+        _sjFilter === "all"
+          ? renderEmpty({
+              icon: "🛠️",
+              title: "ยังไม่มีใบงาน",
+              message: "เริ่มสร้างใบรับงานแรกเพื่อบันทึกงานช่าง — ระบบจะตัดสต็อกและสร้างใบเสร็จอัตโนมัติ",
+              actionLabel: "+ เพิ่มงานช่าง",
+              actionId: "emptyAddServiceJobBtn"
+            })
+          : renderEmpty({
+              icon: _sjFilter === "open" ? "🎉" : _sjFilter === "closed" ? "📂" : "🗑️",
+              title: _sjFilter === "open"      ? "ไม่มีงานค้าง — เคลียร์หมดแล้ว!"
+                   : _sjFilter === "closed"   ? "ยังไม่มีงานที่ปิดแล้ว"
+                   : "ไม่มีงานที่ยกเลิก",
+              message: _sjFilter === "open" ? "งานทั้งหมดเสร็จเรียบร้อย ไม่มีงานคงค้างในระบบ" : "",
+              actionLabel: _sjFilter !== "open" ? "ดูใบงานทั้งหมด" : "",
+              actionId: "emptyShowAllJobsBtn",
+              actionStyle: "ghost"
+            })
+      ) : ''}
       <div class="card-list mt16">
         ${jobs.length ? jobs.map(j => {
           // ★ รองรับทั้ง schema เดิม (job_title) และใหม่ (description)
@@ -182,6 +199,13 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
 
   /* ── Add job ── */
   document.getElementById("serviceJobAddBtn")?.addEventListener("click", () => openServiceJobDrawer());
+
+  /* ── Empty-state CTAs (Phase 46.1) ── */
+  document.getElementById("emptyAddServiceJobBtn")?.addEventListener("click", () => openServiceJobDrawer());
+  document.getElementById("emptyShowAllJobsBtn")?.addEventListener("click", () => {
+    _sjFilter = "all";
+    renderServiceJobsPage({ state, openServiceJobDrawer, showToast, showRoute });
+  });
 
   /* ── Edit job ── */
   document.querySelectorAll("[data-job-id]").forEach(btn => btn.addEventListener("click", () => {

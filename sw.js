@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v57 (2026-04-29): Phase 45.15 — technician sidebar trim (remove งานขาย/ลูกค้า/นับสต็อกจริง)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v57';
+// v58 (2026-04-30): Phase 46.1 — ui_states module (skeleton/empty/error) + 2 sample applications
+const CACHE_NAME = 'boonsook-pos-v5-cache-v58';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

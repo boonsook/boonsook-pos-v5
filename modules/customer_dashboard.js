@@ -2,6 +2,7 @@
 //  CUSTOMER DASHBOARD — หน้าหลักลูกค้า: ร้านค้าออนไลน์ + ตะกร้า + ประวัติ + แต้ม
 // ═══════════════════════════════════════════════════════════
 import { isValidPhone, getUserFriendlyError, validateFile } from "./validators.js";
+import { renderEmpty, renderSkeleton } from "./ui_states.js";
 
 let _custCart = JSON.parse(localStorage.getItem("bsk_cust_cart") || "[]");
 let _custTab = "shop"; // shop | cart | orders | jobs | points
@@ -261,7 +262,22 @@ export function renderCustomerDashboard(ctx) {
       </div>
 
       <!-- Products Grid -->
-      ${filteredProducts.length > 0 ? `
+      ${products.length === 0 ? (
+        // Catalog ยังไม่โหลด → skeleton
+        renderSkeleton({ type: "card-grid", count: 4 })
+      ) : filteredProducts.length === 0 ? (
+        // Catalog โหลดแล้วแต่ filter ไม่เจอ → empty + ปุ่มล้าง filter
+        renderEmpty({
+          icon: "🔍",
+          title: "ไม่พบสินค้า",
+          message: _custSearch
+            ? `ไม่พบ "${escHtml(_custSearch)}" ในแคตตาล็อก ลองคำค้นใหม่หรือดูทุกหมวด`
+            : "ไม่มีสินค้าในหมวดนี้ ลองเลือกหมวดอื่น",
+          actionLabel: "ดูทั้งหมด",
+          actionId: "custClearFilterBtn",
+          actionStyle: "ghost"
+        })
+      ) : `
       <div id="custProductGrid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px">
         ${filteredProducts.map(p => {
           const imgUrl = p.image_url || p.img || "";
@@ -286,10 +302,6 @@ export function renderCustomerDashboard(ctx) {
             </div>
           </div>`;
         }).join("")}
-      </div>` : `
-      <div id="custProductGrid" style="text-align:center;padding:40px;color:#94a3b8">
-        <div style="font-size:48px;margin-bottom:8px">🔍</div>
-        <div>ไม่พบสินค้า</div>
       </div>`}
     `;
 
@@ -690,6 +702,13 @@ export function renderCustomerDashboard(ctx) {
   // Category filter (dropdown)
   container.querySelector("#custCatSelect")?.addEventListener("change", (e) => {
     _custCategory = e.target.value;
+    renderCustomerDashboard(ctx);
+  });
+
+  // Phase 46.1 — empty-state CTA: ล้าง filter + search
+  container.querySelector("#custClearFilterBtn")?.addEventListener("click", () => {
+    _custCategory = "all";
+    _custSearch = "";
     renderCustomerDashboard(ctx);
   });
 
