@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v61 (2026-04-30): Phase 46.4 — ui_states empty-state for quotations/delivery_invoices/receipts
-const CACHE_NAME = 'boonsook-pos-v5-cache-v61';
+// v62 (2026-04-29): Phase 46.5 — defensive XSS escape in ui_states renderEmpty/renderError
+const CACHE_NAME = 'boonsook-pos-v5-cache-v62';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

@@ -14,7 +14,18 @@
  * หลังใส่ HTML แล้ว — bind handler ผ่าน document.getElementById(actionId).onclick
  *
  * Phase 46.1 (29 เม.ย. 2026)
+ * Phase 46.5 (29 เม.ย. 2026) — defensive XSS escape on all caller-supplied content
  */
+
+// Phase 46.5: defensive escape — กัน XSS ถ้า caller เผลอส่ง dynamic data (เช่น error message จาก server)
+function escHtml(s) {
+  return String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+}
+
+// strict ID sanitizer — DOM IDs ต้องเป็น alphanumeric/dash/underscore เท่านั้น
+function safeId(s) {
+  return String(s || "").replace(/[^a-zA-Z0-9_-]/g, "");
+}
 
 // ═══════════════════════════════════════════════════════════
 // 1) Inject shimmer keyframes (ครั้งเดียว — guard ด้วย dataset)
@@ -129,14 +140,15 @@ export function renderEmpty(opts = {}) {
   const btnColor  = actionStyle === "ghost" ? "#0284c7" : "#fff";
   const btnBorder = actionStyle === "ghost" ? "1px solid #0284c7" : "none";
 
+  // Phase 46.5: escape all caller-supplied content
   const ctaHtml = actionLabel
-    ? `<button id="${actionId}" style="margin-top:14px;padding:10px 20px;border:${btnBorder};border-radius:10px;background:${btnBg};color:${btnColor};font-size:14px;font-weight:700;cursor:pointer">${actionLabel}</button>`
+    ? `<button id="${safeId(actionId)}" style="margin-top:14px;padding:10px 20px;border:${btnBorder};border-radius:10px;background:${btnBg};color:${btnColor};font-size:14px;font-weight:700;cursor:pointer">${escHtml(actionLabel)}</button>`
     : "";
 
   return `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:36px 20px;text-align:center;background:#fff;border:1px dashed #cbd5e1;border-radius:14px;margin-top:12px">
-    <div style="font-size:48px;margin-bottom:10px;opacity:.85">${icon}</div>
-    <div style="font-size:16px;font-weight:800;color:#334155;margin-bottom:6px">${title}</div>
-    ${message ? `<div style="font-size:13px;color:#64748b;max-width:340px;line-height:1.5">${message}</div>` : ""}
+    <div style="font-size:48px;margin-bottom:10px;opacity:.85">${escHtml(icon)}</div>
+    <div style="font-size:16px;font-weight:800;color:#334155;margin-bottom:6px">${escHtml(title)}</div>
+    ${message ? `<div style="font-size:13px;color:#64748b;max-width:340px;line-height:1.5">${escHtml(message)}</div>` : ""}
     ${ctaHtml}
   </div>`;
 }
@@ -161,14 +173,15 @@ export function renderError(opts = {}) {
     retryId = ""
   } = opts;
 
+  // Phase 46.5: escape all caller-supplied content (เพราะ detail มักมาจาก server error)
   const retryHtml = retryId
-    ? `<button id="${retryId}" style="margin-top:14px;padding:8px 18px;border:1px solid #dc2626;border-radius:10px;background:#fff;color:#dc2626;font-size:13px;font-weight:700;cursor:pointer">🔄 ${retryLabel}</button>`
+    ? `<button id="${safeId(retryId)}" style="margin-top:14px;padding:8px 18px;border:1px solid #dc2626;border-radius:10px;background:#fff;color:#dc2626;font-size:13px;font-weight:700;cursor:pointer">🔄 ${escHtml(retryLabel)}</button>`
     : "";
 
   return `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:30px 20px;text-align:center;background:#fef2f2;border:1px solid #fecaca;border-radius:14px;margin-top:12px">
     <div style="font-size:42px;margin-bottom:8px">⚠️</div>
-    <div style="font-size:15px;font-weight:800;color:#991b1b;margin-bottom:4px">${message}</div>
-    ${detail ? `<div style="font-size:11px;color:#7f1d1d;font-family:ui-monospace,monospace;max-width:400px;word-break:break-all;opacity:.7">${detail}</div>` : ""}
+    <div style="font-size:15px;font-weight:800;color:#991b1b;margin-bottom:4px">${escHtml(message)}</div>
+    ${detail ? `<div style="font-size:11px;color:#7f1d1d;font-family:ui-monospace,monospace;max-width:400px;word-break:break-all;opacity:.7">${escHtml(detail)}</div>` : ""}
     ${retryHtml}
   </div>`;
 }
