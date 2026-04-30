@@ -1,7 +1,9 @@
 // ═══════════════════════════════════════════════════════════
 //  REFUND / RETURN TRACKER (Phase 12)
 //  บันทึกการคืนสินค้า + คืนเงิน + คืนสต็อก (option)
+//  Phase 46.7 — adopt ui_states (skeleton/empty/error)
 // ═══════════════════════════════════════════════════════════
+import { renderSkeleton, renderEmpty, renderError } from "./ui_states.js";
 
 function escHtml(s) {
   if (s == null) return "";
@@ -34,7 +36,7 @@ export async function renderRefundsPage(ctx) {
   const container = document.getElementById("page-refunds");
   if (!container) return;
 
-  container.innerHTML = `<div style="text-align:center;padding:40px;color:#94a3b8">กำลังโหลด...</div>`;
+  container.innerHTML = renderSkeleton({ type: "table", count: 5 });
 
   // Load refunds from DB
   const cfg = window.SUPABASE_CONFIG;
@@ -48,16 +50,24 @@ export async function renderRefundsPage(ctx) {
       headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + accessToken }
     });
     if (!res.ok) {
-      container.innerHTML = `
-        <div style="max-width:800px;margin:40px auto;padding:24px;background:#fee2e2;border-radius:12px;text-align:center">
-          <h3 style="color:#b91c1c">⚠️ ตาราง refunds ยังไม่มีในฐานข้อมูล</h3>
-          <p style="color:#991b1b">รัน <code>supabase-rls-policies.sql</code> ใน Supabase SQL Editor เพื่อสร้างตารางก่อน</p>
-        </div>`;
+      container.innerHTML = renderError({
+        message: "ตาราง refunds ยังไม่มีในฐานข้อมูล",
+        detail: "รัน supabase-rls-policies.sql ใน Supabase SQL Editor เพื่อสร้างตารางก่อน (HTTP " + res.status + ")",
+        retryLabel: "ลองโหลดใหม่",
+        retryId: "rfRetryBtn"
+      });
+      document.getElementById("rfRetryBtn")?.addEventListener("click", () => renderRefundsPage(ctx));
       return;
     }
     _rfList = await res.json();
   } catch (e) {
-    container.innerHTML = `<div style="color:#dc2626;text-align:center;padding:30px">โหลดไม่สำเร็จ: ${e.message}</div>`;
+    container.innerHTML = renderError({
+      message: "โหลดข้อมูลไม่สำเร็จ",
+      detail: e?.message || String(e),
+      retryLabel: "ลองใหม่",
+      retryId: "rfRetryBtn"
+    });
+    document.getElementById("rfRetryBtn")?.addEventListener("click", () => renderRefundsPage(ctx));
     return;
   }
 
@@ -128,13 +138,13 @@ export async function renderRefundsPage(ctx) {
 
       <!-- List -->
       <div class="panel" style="padding:0">
-        ${_rfList.length === 0 ? `
-          <div style="text-align:center;padding:40px;color:#94a3b8">
-            <div style="font-size:40px;margin-bottom:8px">🎉</div>
-            <div style="font-weight:600;font-size:14px">ยังไม่มีการคืนสินค้า — ดีมาก!</div>
-            <div style="font-size:12px;margin-top:6px">กดปุ่ม "+ บันทึกการคืนสินค้า" เมื่อมีลูกค้าคืน</div>
-          </div>
-        ` : `
+        ${_rfList.length === 0 ? renderEmpty({
+          icon: "🎉",
+          title: "ยังไม่มีการคืนสินค้า — ดีมาก!",
+          message: "เมื่อมีลูกค้าคืนสินค้า กดปุ่มด้านล่างเพื่อบันทึก",
+          actionLabel: "+ บันทึกการคืนสินค้า",
+          actionId: "rfEmptyNewBtn"
+        }) : `
         <div style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;font-size:13px">
             <thead style="background:#f1f5f9">
@@ -181,6 +191,7 @@ export async function renderRefundsPage(ctx) {
     renderRefundsPage(ctx);
   }));
   container.querySelector("#rfNewBtn")?.addEventListener("click", () => openRefundModal(ctx));
+  container.querySelector("#rfEmptyNewBtn")?.addEventListener("click", () => openRefundModal(ctx));
 }
 
 function openRefundModal(ctx) {

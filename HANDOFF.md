@@ -1,10 +1,53 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 30 เมษายน 2026 (Bug A/B/C/D/E/F — RLS + trigger role + Phase 45.14/15)
-**Version:** 5.13.3 (build 73)
-**Previous:** 5.12.2 (build 62) — Phase 45.3 (stock_movements schema mismatch)
+**อัปเดตล่าสุด:** 30 เมษายน 2026 (Phase 46.7 — adopt ui_states 3 modules + audit response)
+**Version:** 5.13.4 (build 80)
+**Previous:** 5.13.3 (build 79) — Phase 46.6 (permission_matrix race + RLS tighten reads)
 
 **🛡️ Phase 17 Active!** — KV binding ผูกแล้ว (Production + Preview), tested 429 OK
+
+---
+
+## 🩺 Phase 46.7 — Audit fixes (30 เม.ย.)
+
+### Audit findings (ก่อนทำ)
+ทำ audit 4 มุม (security / code quality / UX states / cache+PWA) พบ:
+
+**HIGH:**
+- Build version drift: APP_BUILD=79 ในโค้ด vs HANDOFF "build 73" → docs ตามไม่ทัน
+- Pending DB migration: `supabase-phase45-bug-e-tighten-anon.sql` ยัง user-action pending
+- Empty catch blocks ~45 ตำแหน่งใน main.js + ai-chat-widget.js (silent error swallow)
+
+**MED:**
+- ui_states adoption ~67% — 5+ list pages ยังไม่ใช้ (refunds/stock_movements/top_customers/dead_stock/profit_by_product/...)
+- renderSkeleton ใช้แค่ 1/11 module (customer_dashboard.js) — modules อื่นไม่มี loading state
+- renderError 0/11 — fetch fail fallback เงียบ
+- CSS ?v= ค้าง: doc-print.css?v=1, phase4-*.css?v=1 (ถ้าเคยแก้แล้วลืม bump → user ติด stale)
+- Module imports ไม่มี ?v= cache-bust — พึ่ง SW reload อย่างเดียว
+- SlipOK API key เก็บ plaintext ใน localStorage (defense in depth gap)
+
+**LOW:**
+- escapeHtml duplicate: main.js:528 + dashboard.js:901 (ทั้งคู่ทำงานถูก แต่ซ้ำ)
+- products.js 2,357 lines, main.js 3,691 lines — refactor candidate
+- STUCK_BUILDS_BEFORE=47 legacy จาก Phase 35 — harmless แต่ลบทิ้งได้
+
+**ผ่าน ✅:** XSS hardening Phase 46.2 ครอบคลุม sink หลัก / ไม่มี alert/eval / secrets อยู่ env vars / SW cache version bump ตามทุก phase / offline fallback ดี / manifest icons ครบ / update banner wired ถูก
+
+### Phase 46.7 fix scope (รอบนี้)
+1. **modules/refunds.js** — ใช้ renderSkeleton (table×5) ตอน load + renderError 2 จุด (table missing + fetch fail) มี retry button + renderEmpty + CTA "+ บันทึกการคืนสินค้า"
+2. **modules/stock_movements.js** — เพิ่ม sm-empty-slot แยกจาก table → ตอน empty hide table + show renderEmpty + CTA "+ เพิ่มเคลื่อนไหวสต็อก"
+3. **modules/top_customers.js** — แทน inline empty div ด้วย renderEmpty (ใส่ filter-empty message ตาม period)
+4. Bump APP_BUILD 79→80, main.js?v=80, sw.js cache v63→v64
+
+### ยังเหลือใน Phase 47 (ไว้รอบหน้า)
+- ui_states adoption ใน: dead_stock, profit_by_product, warranty_report, birthdays, recurring_expenses, credit_tracker, serials
+- renderSkeleton coverage ใน 10 modules ที่ใช้ ui_states แล้วแต่ยังไม่มี loading state
+- empty catch block hardening ~45 จุดใน main.js
+- CSS ?v= bump audit (ตรวจ history แต่ละไฟล์)
+- Module imports ?v= cache-bust strategy
+
+### USER ACTION pending (ค้างจาก Phase 45.x)
+- รัน `supabase-phase45-bug-e-tighten-anon.sql` + ทดสอบสมัครลูกค้าใหม่ (security gap จนกว่าจะรัน)
 
 ---
 

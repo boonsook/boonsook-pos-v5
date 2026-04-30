@@ -1,3 +1,6 @@
+// Phase 46.7 — adopt ui_states empty state
+import { renderEmpty } from "./ui_states.js";
+
 export function renderStockMovementsPage(ctx) {
   const { state, money, showToast, loadAllData, currentRole, requireAdmin } = ctx;
 
@@ -122,7 +125,7 @@ export function renderStockMovementsPage(ctx) {
       </div>
 
       <div id="sm-table-container" class="mt16" style="overflow-x: auto;">
-        <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+        <table id="sm-table" style="width: 100%; border-collapse: collapse; font-size: 14px;">
           <thead style="background: #f5f5f5; border-bottom: 2px solid #ddd;">
             <tr>
               <th style="padding: 10px; text-align: left;">วันที่เวลา</th>
@@ -137,6 +140,7 @@ export function renderStockMovementsPage(ctx) {
           <tbody id="sm-tbody">
           </tbody>
         </table>
+        <div id="sm-empty-slot"></div>
       </div>
     </div>
 
@@ -325,12 +329,27 @@ export function renderStockMovementsPage(ctx) {
   // Render movement log table
   function renderTable(movements) {
     const tbody = document.getElementById("sm-tbody");
+    const table = document.getElementById("sm-table");
+    const emptySlot = document.getElementById("sm-empty-slot");
     if (!tbody) return;
 
     if (!movements || movements.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="8" style="padding: 20px; text-align: center; color: #999;">ไม่มีข้อมูลเคลื่อนไหวสต็อก</td></tr>';
+      tbody.innerHTML = "";
+      if (table) table.style.display = "none";
+      if (emptySlot) {
+        emptySlot.innerHTML = renderEmpty({
+          icon: "📦",
+          title: "ยังไม่มีข้อมูลเคลื่อนไหวสต็อก",
+          message: "เริ่มบันทึกการรับเข้า/จ่ายออก เพื่อติดตามสต็อกได้แม่นยำ",
+          actionLabel: "+ เพิ่มเคลื่อนไหวสต็อก",
+          actionId: "sm-empty-add-btn"
+        });
+        document.getElementById("sm-empty-add-btn")?.addEventListener("click", () => openModal());
+      }
       return;
     }
+    if (table) table.style.display = "";
+    if (emptySlot) emptySlot.innerHTML = "";
 
     tbody.innerHTML = movements.map(m => {
       const color = getTypeColor(m.type);

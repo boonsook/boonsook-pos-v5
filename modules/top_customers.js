@@ -1,6 +1,8 @@
 // ═══════════════════════════════════════════════════════════
 //  TOP CUSTOMERS REPORT — ลูกค้าซื้อเยอะสุด (จัดอันดับ + Export)
+//  Phase 46.7 — adopt ui_states empty
 // ═══════════════════════════════════════════════════════════
+import { renderEmpty } from "./ui_states.js";
 
 function escHtml(s) {
   if (s == null) return "";
@@ -155,7 +157,11 @@ export function renderTopCustomersPage(ctx) {
 
       <!-- Top Customers Table -->
       <div class="panel" style="padding:16px">
-        ${list.length === 0 ? `<div style="text-align:center;padding:30px;color:#94a3b8">ยังไม่มีข้อมูลการขายในช่วงนี้</div>` : `
+        ${list.length === 0 ? renderEmpty({
+          icon: "📊",
+          title: "ยังไม่มีข้อมูลการขายในช่วงนี้",
+          message: "ลองเปลี่ยนช่วงเวลาด้านบน หรือเริ่มขายใน " + periodLabel + " เพื่อดูอันดับลูกค้า"
+        }) : `
         <div style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;font-size:13px">
             <thead style="background:#f1f5f9">

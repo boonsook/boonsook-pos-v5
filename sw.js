@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v63 (2026-04-29): Phase 46.6 — permission_matrix race fix + RLS tighten reads
-const CACHE_NAME = 'boonsook-pos-v5-cache-v63';
+// v64 (2026-04-30): Phase 46.7 — adopt ui_states (refunds/stock_movements/top_customers)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v64';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
