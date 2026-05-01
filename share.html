@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>ติดตามงาน — บุญสุข อิเล็กทรอนิกส์</title>
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700;900&display=swap" rel="stylesheet">
+  <style>
+    *,*::before,*::after { box-sizing: border-box; }
+    body { font-family: "Sarabun", system-ui, sans-serif; margin: 0; padding: 0; background: #f1f5f9; color: #0f172a; min-height: 100vh; }
+    .wrap { max-width: 560px; margin: 0 auto; padding: 16px; }
+    .card { background: #fff; border-radius: 18px; padding: 20px; margin-bottom: 14px; box-shadow: 0 4px 16px rgba(15,23,42,.08); }
+    .hero { background: linear-gradient(135deg, #0284c7, #0369a1); color: #fff; text-align: center; }
+    .hero h1 { margin: 0 0 6px; font-size: 22px; font-weight: 900; }
+    .hero p { margin: 0; opacity: .9; font-size: 13px; }
+    .sec-title { font-size: 13px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: .5px; margin: 0 0 10px; }
+    .field { display: flex; justify-content: space-between; align-items: flex-start; padding: 8px 0; border-bottom: 1px dashed #e2e8f0; font-size: 14px; }
+    .field:last-child { border: none; }
+    .field-key { color: #64748b; flex-shrink: 0; min-width: 80px; }
+    .field-val { color: #0f172a; font-weight: 600; text-align: right; word-break: break-word; }
+    .timeline-row { display: flex; gap: 12px; align-items: flex-start; padding: 8px 0; }
+    .timeline-icon { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-size: 14px; flex-shrink: 0; }
+    .timeline-body { flex: 1; }
+    .timeline-title { font-size: 14px; font-weight: 700; }
+    .timeline-meta { font-size: 11px; color: #94a3b8; margin-top: 2px; }
+    .status-badge { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 700; }
+    .photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+    .photo-grid img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 10px; cursor: pointer; }
+    .loading, .empty, .error { text-align: center; padding: 60px 20px; color: #64748b; }
+    .error { color: #dc2626; }
+    .footer { text-align: center; font-size: 11px; color: #94a3b8; padding: 20px 0; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div id="root"><div class="loading">⏳ กำลังโหลด...</div></div>
+    <div class="footer">บุญสุข อิเล็กทรอนิกส์ • powered by Boonsook POS V5</div>
+  </div>
+
+  <script src="./supabase-config.js?v=1"></script>
+  <script>
+    const STATUS_META = {
+      pending:  { icon: "⏳", color: "#f59e0b", label: "รอดำเนินการ", bg: "#fef3c7" },
+      progress: { icon: "🔧", color: "#0284c7", label: "กำลังทำ", bg: "#dbeafe" },
+      in_progress: { icon: "🔧", color: "#0284c7", label: "กำลังทำ", bg: "#dbeafe" },
+      done:     { icon: "✅", color: "#10b981", label: "เสร็จสิ้น", bg: "#dcfce7" },
+      delivered:{ icon: "🚚", color: "#6366f1", label: "ส่งมอบแล้ว", bg: "#e0e7ff" },
+      closed:   { icon: "🏁", color: "#7c3aed", label: "ปิดงาน", bg: "#f3e8ff" },
+      cancelled:{ icon: "❌", color: "#dc2626", label: "ยกเลิก", bg: "#fee2e2" }
+    };
+    const JOB_TYPE_LABELS = {
+      ac: "🌬️ งานแอร์", solar: "☀️ โซลาร์เซลล์", cctv: "📷 กล้องวงจรปิด", other: "🔧 อื่นๆ",
+      repair_ac: "🔧 ซ่อมแอร์", clean_ac: "🧼 ล้างแอร์", move_ac: "📦 ย้ายแอร์",
+      satellite: "📡 จานดาวเทียม", repair_fridge: "❄️ ซ่อมตู้เย็น",
+      repair_washer: "🧺 ซ่อมเครื่องซักผ้า", repair_tv: "📺 ซ่อมทีวี"
+    };
+    function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c])); }
+    function fmtDate(s){ if(!s) return "-"; try { return new Date(s).toLocaleString("th-TH", { year:"numeric", month:"short", day:"numeric", hour:"2-digit", minute:"2-digit" }); } catch(e){ return s; } }
+
+    const root = document.getElementById("root");
+    const params = new URLSearchParams(location.search);
+    const type = params.get("type");
+    const token = params.get("token");
+
+    function showError(msg) { root.innerHTML = `<div class="card error">⚠️ ${esc(msg)}</div>`; }
+
+    async function loadServiceJob() {
+      if (!token) return showError("ไม่มี token ใน URL");
+      const cfg = window.SUPABASE_CONFIG;
+      if (!cfg) return showError("ไม่พบ config");
+      try {
+        const url = cfg.url + "/rest/v1/service_jobs?share_token=eq." + encodeURIComponent(token) + "&select=*&limit=1";
+        const r = await fetch(url, { headers: { "apikey": cfg.anonKey } });
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        const rows = await r.json();
+        if (!rows.length) return showError("ไม่พบงาน — link อาจหมดอายุ");
+        const j = rows[0];
+        renderJob(j);
+      } catch (e) {
+        showError("โหลดไม่สำเร็จ: " + (e.message || e));
+      }
+    }
+
+    function renderJob(j) {
+      const m = STATUS_META[j.status] || { icon: "•", color: "#64748b", label: j.status || "-", bg: "#f1f5f9" };
+      const photos = Array.isArray(j.photos) ? j.photos : (j.photo_url ? [j.photo_url] : []);
+      root.innerHTML = `
+        <div class="card hero">
+          <div style="font-size:48px;margin-bottom:8px">${m.icon}</div>
+          <h1>${esc(JOB_TYPE_LABELS[j.job_type] || "งานช่าง")}</h1>
+          <p>${esc(j.device_name || j.description || "-")}</p>
+          <div style="margin-top:12px"><span class="status-badge" style="background:${m.bg};color:${m.color}">${esc(m.label)}</span></div>
+        </div>
+
+        <div class="card">
+          <h3 class="sec-title">📋 รายละเอียดงาน</h3>
+          <div class="field"><span class="field-key">เลขที่</span><span class="field-val">#${esc(j.job_no || j.id)}</span></div>
+          <div class="field"><span class="field-key">ลูกค้า</span><span class="field-val">${esc(j.customer_name || "-")}</span></div>
+          ${j.customer_phone ? `<div class="field"><span class="field-key">เบอร์โทร</span><span class="field-val"><a href="tel:${esc(j.customer_phone)}">${esc(j.customer_phone)}</a></span></div>` : ""}
+          ${j.address ? `<div class="field"><span class="field-key">ที่อยู่</span><span class="field-val">${esc(j.address)}</span></div>` : ""}
+          ${j.scheduled_at ? `<div class="field"><span class="field-key">นัดติดตั้ง</span><span class="field-val">${esc(fmtDate(j.scheduled_at))}</span></div>` : ""}
+          ${j.description ? `<div class="field"><span class="field-key">รายละเอียด</span><span class="field-val">${esc(j.description)}</span></div>` : ""}
+        </div>
+
+        <div class="card">
+          <h3 class="sec-title">🕐 Timeline</h3>
+          <div class="timeline-row">
+            <div class="timeline-icon" style="background:#dcfce7;color:#059669">📥</div>
+            <div class="timeline-body">
+              <div class="timeline-title">รับเรื่อง</div>
+              <div class="timeline-meta">${esc(fmtDate(j.created_at))}</div>
+            </div>
+          </div>
+          ${(j.scheduled_at && (j.status === "progress" || j.status === "in_progress" || j.status === "done" || j.status === "delivered")) ? `
+          <div class="timeline-row">
+            <div class="timeline-icon" style="background:#dbeafe;color:#0284c7">🔧</div>
+            <div class="timeline-body">
+              <div class="timeline-title">เริ่มทำงาน</div>
+              <div class="timeline-meta">${esc(fmtDate(j.scheduled_at))}</div>
+            </div>
+          </div>` : ""}
+          ${(j.completed_at || j.status === "done" || j.status === "delivered" || j.status === "closed") ? `
+          <div class="timeline-row">
+            <div class="timeline-icon" style="background:#dcfce7;color:#10b981">✅</div>
+            <div class="timeline-body">
+              <div class="timeline-title">งานเสร็จ</div>
+              <div class="timeline-meta">${esc(j.completed_at ? fmtDate(j.completed_at) : "วันนี้")}</div>
+            </div>
+          </div>` : ""}
+        </div>
+
+        ${photos.length ? `
+          <div class="card">
+            <h3 class="sec-title">📷 รูปประกอบ</h3>
+            <div class="photo-grid">
+              ${photos.map(url => `<img src="${esc(url)}" alt="งานช่าง" onclick="window.open('${esc(url)}', '_blank')" loading="lazy" />`).join("")}
+            </div>
+          </div>` : ""}
+
+        ${j.note ? `
+          <div class="card" style="background:#fef3c7;border:1px solid #fde68a">
+            <div style="font-size:12px;color:#92400e;font-weight:700;margin-bottom:4px">📌 หมายเหตุจากร้าน</div>
+            <div style="font-size:13px;color:#78350f;white-space:pre-wrap">${esc(j.note)}</div>
+          </div>` : ""}
+      `;
+    }
+
+    if (type === "service") loadServiceJob();
+    else if (type === "quotation") showError("ใบเสนอราคาแชร์: ฟีเจอร์นี้กำลังพัฒนา");
+    else showError("type ไม่ถูกต้อง — ใช้ ?type=service&token=...");
+  </script>
+</body>
+</html>

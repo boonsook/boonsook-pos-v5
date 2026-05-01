@@ -2473,7 +2473,111 @@ function openServiceJobDrawer(job=null){
   _setServicePhotoPreview("Before", job?.photo_before || "");
   _setServicePhotoPreview("After", job?.photo_after || "");
 
+  // Phase 63 (C1): Share link button (only for existing jobs)
+  _renderServiceJobShareSection(job);
+
   openDrawer("serviceJobDrawer");
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 63 (C1): Service Job Share Link
+// ═══════════════════════════════════════════════════════════
+function _renderServiceJobShareSection(job) {
+  const el = $("serviceJobShareSection");
+  if (!el) return;
+  if (!job || !job.id) { el.classList.add("hidden"); el.innerHTML = ""; return; }
+  el.classList.remove("hidden");
+
+  const hasToken = !!job.share_token;
+  const shareUrl = hasToken
+    ? `${location.origin}${location.pathname.replace(/\/index\.html$/, "/")}share.html?type=service&token=${encodeURIComponent(job.share_token)}`
+    : "";
+
+  el.innerHTML = `
+    <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:14px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span style="font-size:18px">🔗</span>
+        <h4 style="margin:0;font-size:14px;color:#1e40af;flex:1">Share link สำหรับลูกค้า</h4>
+      </div>
+      ${hasToken ? `
+        <div style="font-size:12px;color:#475569;margin-bottom:8px">ลูกค้าเปิดดูสถานะงาน + รูปได้ผ่าน link นี้ (ไม่ต้อง login):</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <input id="sjShareUrl" readonly value="${escapeHtml(shareUrl)}" style="flex:1;min-width:200px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:12px;font-family:ui-monospace,monospace;background:#fff" />
+          <button id="sjShareCopyBtn" type="button" style="padding:8px 14px;background:#0284c7;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:700">📋 คัดลอก</button>
+          <button id="sjShareLineBtn" type="button" style="padding:8px 14px;background:#10b981;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:700">📲 LINE</button>
+          <button id="sjShareRevokeBtn" type="button" style="padding:8px 14px;background:#fff;color:#dc2626;border:1px solid #fecaca;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">ยกเลิก link</button>
+        </div>
+      ` : `
+        <div style="font-size:12px;color:#475569;margin-bottom:8px">สร้าง link ให้ลูกค้าตรวจสอบสถานะงาน + รูปก่อน-หลัง</div>
+        <button id="sjShareCreateBtn" type="button" style="padding:8px 14px;background:#0284c7;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700">🔗 สร้าง share link</button>
+      `}
+    </div>
+  `;
+
+  document.getElementById("sjShareCreateBtn")?.addEventListener("click", () => _generateShareToken(job));
+  document.getElementById("sjShareCopyBtn")?.addEventListener("click", () => _copyShareUrl(shareUrl));
+  document.getElementById("sjShareLineBtn")?.addEventListener("click", () => _shareToLine(job, shareUrl));
+  document.getElementById("sjShareRevokeBtn")?.addEventListener("click", () => _revokeShareToken(job));
+}
+async function _generateShareToken(job) {
+  try {
+    const token = (crypto.randomUUID ? crypto.randomUUID().replace(/-/g, "") : Math.random().toString(36).slice(2)) + Date.now().toString(36);
+    const cfg = window.SUPABASE_CONFIG;
+    const t = window._sbAccessToken;
+    const r = await fetch(cfg.url + "/rest/v1/service_jobs?id=eq." + job.id, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", "apikey": cfg.anonKey, "Authorization": "Bearer " + t, "Prefer": "return=representation" },
+      body: JSON.stringify({ share_token: token })
+    });
+    if (!r.ok) {
+      const txt = await r.text();
+      if (txt.includes("share_token") || r.status === 400) throw new Error("ตาราง service_jobs ยังไม่มี column share_token — รัน supabase-phase63-service-share.sql ก่อน");
+      throw new Error("HTTP " + r.status);
+    }
+    const updated = await r.json();
+    job.share_token = (Array.isArray(updated) ? updated[0]?.share_token : updated?.share_token) || token;
+    // update local state
+    const idx = (state.serviceJobs || []).findIndex(j => j.id === job.id);
+    if (idx >= 0) state.serviceJobs[idx].share_token = job.share_token;
+    showToast("สร้าง share link สำเร็จ");
+    _renderServiceJobShareSection(job);
+  } catch(e) {
+    showToast("สร้างไม่สำเร็จ: " + (e.message || e));
+  }
+}
+async function _revokeShareToken(job) {
+  if (!confirm("ยกเลิก link นี้? — ลูกค้าจะเปิดดูสถานะไม่ได้แล้ว")) return;
+  try {
+    const cfg = window.SUPABASE_CONFIG;
+    const t = window._sbAccessToken;
+    const r = await fetch(cfg.url + "/rest/v1/service_jobs?id=eq." + job.id, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", "apikey": cfg.anonKey, "Authorization": "Bearer " + t, "Prefer": "return=minimal" },
+      body: JSON.stringify({ share_token: null })
+    });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    job.share_token = null;
+    const idx = (state.serviceJobs || []).findIndex(j => j.id === job.id);
+    if (idx >= 0) state.serviceJobs[idx].share_token = null;
+    showToast("ยกเลิก link แล้ว");
+    _renderServiceJobShareSection(job);
+  } catch(e) {
+    showToast("ยกเลิกไม่สำเร็จ: " + (e.message || e));
+  }
+}
+function _copyShareUrl(url) {
+  if (!url) return;
+  navigator.clipboard?.writeText(url).then(
+    () => showToast("คัดลอก link แล้ว"),
+    () => {
+      const inp = $("sjShareUrl"); if (inp) { inp.select(); document.execCommand("copy"); showToast("คัดลอก link แล้ว"); }
+    }
+  );
+}
+function _shareToLine(job, url) {
+  const text = `📋 ติดตามงาน ${job.customer_name || "ลูกค้า"}\n${job.description || job.device_name || ""}\n\nดูสถานะ: ${url}`;
+  const lineUrl = "https://line.me/R/msg/text/?" + encodeURIComponent(text);
+  window.open(lineUrl, "_blank");
 }
 
 function _setServicePhotoPreview(which, url) {

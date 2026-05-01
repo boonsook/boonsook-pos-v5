@@ -572,6 +572,9 @@
       <label for="serviceNote" class="sr-only">หมายเหตุ</label>
       <textarea id="serviceNote" rows="3" placeholder="หมายเหตุ / รายละเอียดเพิ่มเติม" aria-label="หมายเหตุ"></textarea>
 
+      <!-- Phase 63 (C1): Share link section — populated by _renderServiceJobShareSection() -->
+      <div id="serviceJobShareSection" class="hidden mt12"></div>
+
       <!-- ★ รูปก่อน-หลัง (สำหรับงานช่าง) -->
       <div style="border:1px dashed #cbd5e1;border-radius:10px;padding:12px;background:#f8fafc">
         <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:8px">📷 รูปก่อน-หลังงาน (Service Photos)</div>
@@ -664,7 +667,7 @@
   <script>
   (async function selfHeal() {
     try {
-      var APP_BUILD = 91;
+      var APP_BUILD = 92;
       var STUCK_BUILDS_BEFORE = 47; // builds before this มี immutable-cache bug
       var stored = parseInt(localStorage.getItem('bsk_app_build') || '0', 10);
       var justRecovered = sessionStorage.getItem('bsk_just_recovered') === '1';
@@ -713,7 +716,7 @@
     }
   })();
   </script>
-  <script type="module" src="./main.js?v=91"></script>
+  <script type="module" src="./main.js?v=92"></script>
   <script>
     // ═══ Loading Overlay ═══
     function hideLoadingOverlay() {

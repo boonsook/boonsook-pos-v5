@@ -1,8 +1,53 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 1 พฤษภาคม 2026 (Phase 53-57 — feature pack: search/shortcuts/loyalty/sparkline/audit)
-**Version:** 5.16.0 (build 87)
-**Previous:** 5.15.2 (build 86) — Phase 52.1 (nav-group max-height fix)
+**อัปเดตล่าสุด:** 1 พฤษภาคม 2026 (Phase 59-63 — feature mega-pack)
+**Version:** 5.19.0 (build 92)
+**Previous:** 5.16.1 (build 88) — Phase 57.1 (logActivity path fix)
+
+---
+
+## 🎁 Phase 59-63 — Feature mega-pack (1 พ.ค. รอบบ่าย-เย็น)
+
+User สั่ง "ทำมาหมดครับ" จาก backlog A/B/C/D ทั้ง 14 ข้อ. ทำได้ 9 ข้อ
+ที่ realistic + ไม่ต้อง external service. ต้อง renumber phase 58→59
+เพราะ user ทำ Phase 58 (error_codes check methods) parallel ก่อน
+
+### Phase 59-60 — Quick wins + Business pack
+- **A1 Quick-add** จาก global search → "+ สร้างลูกค้า/สินค้า/ใบเสนอราคา ชื่อนี้"
+- **A3+B1 Today/Alerts widget** — dashboard ใต้ stat cards 2 cards: นัดวันนี้ + alerts รวม (overdue jobs/expiring quotations/overdue credit/recurring expenses)
+- **B2 Receipt advanced filter** — search input + date range pills (today/7d/30d/month) + status tabs compose
+- **B4 PDF watermark** — ใบเสนอราคา (ยกเลิก/หมดอายุ), ใบเสร็จ (ชำระแล้ว/ยกเลิก), ใบส่งสินค้า (ยกเลิก) — pure CSS diagonal stamp
+
+### Phase 61-62 — Notes + Backup
+- **C3 Customer notes timeline** — drawer มี "บันทึกติดตามลูกค้า" ใช้ activity_log table (Phase 57) + filter by entity_type=customer + entity_id. ไม่ต้อง schema เพิ่ม
+- **D1 Settings backup/restore** — Settings → About เพิ่ม "💾 สำรอง/กู้คืน config". Export = JSON ของ storeInfo + payment + line notify + loyalty + permissions + safe localStorage entries (ไม่รวม slipok_key). Restore = upload + hardReload
+
+### Phase 63 — Service share link (ใหญ่สุด)
+- **C1 Service job share link + public viewer**:
+  - SQL: [supabase-phase63-service-share.sql](supabase-phase63-service-share.sql) — เพิ่ม column `share_token` ใน service_jobs + RLS `public_read_by_share`
+  - Drawer: ปุ่ม "🔗 สร้าง share link" → POST share_token → คัดลอก URL / ส่ง LINE / ยกเลิก
+  - **share.html (ใหม่)** — standalone page ไม่ต้อง login. anon GET service_jobs?share_token=eq.X → render hero + รายละเอียด + Timeline (รับเรื่อง/เริ่มทำ/เสร็จ) + รูป gallery + note
+
+### USER ACTION required
+- รัน `supabase-phase63-service-share.sql` (เพิ่ม column + policy)
+- หลังรัน → เปิดใบงานช่างเก่า → กดปุ่ม "🔗 สร้าง share link" → คัดลอก URL → เปิดใน private mode → ควรเห็น public viewer ทำงาน
+
+### ตัวที่ "ทำไม่ได้" (defer)
+- **B3 Tag system extend** (products + service_jobs) — ต้อง schema migration + UI ใหญ่
+- **C2 Multi-payment per receipt** — ต้องเพิ่ม table receipt_payments หรือ jsonb column → schema heavy
+- **C4 POS bottom-nav มือถือ** — ✅ มีอยู่แล้ว (.mobile-nav-btn role-aware applyRoleUI)
+- **D2 Lazy-load heavy modules** — risk break existing flow
+- **D3 Data export ครบ** — มี 7 modules ทำแล้ว (top_customers, dead_stock, profit_by_product, customers, products, sales, stock_value); ที่ขาด (quotations/receipts/delivery_invoices/service_jobs/expenses) ต้อง implement แต่ละไฟล์ → defer
+
+### Bump
+- APP_BUILD 87→92 (5 phases)
+- main.js?v=87→92, style.css?v=7→8, sw v71→v76
+- Version 5.16.0 → 5.19.0 (major-ish bump เพราะมี features ใหม่ + 2 SQL migrations)
+
+---
+
+## 🚀 Phase 53-57 — Feature pack (1 พ.ค. รอบเช้า)
+**Version:** 5.16.0 (build 87) — moved earlier history เก็บไว้
 
 ---
 

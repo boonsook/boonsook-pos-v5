@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v75 (2026-05-01): Phase 61-62 — customer notes timeline + settings backup/restore
-const CACHE_NAME = 'boonsook-pos-v5-cache-v75';
+// v76 (2026-05-01): Phase 63 — service job share link + standalone share.html viewer
+const CACHE_NAME = 'boonsook-pos-v5-cache-v76';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
