@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v69 (2026-05-01): Phase 52 — technician sidebar = customer_dashboard + sales (drop dashboard)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v69';
+// v70 (2026-05-01): Phase 52.1 — fix nav-group max-height (300->600px) + style.css?v=6
+const CACHE_NAME = 'boonsook-pos-v5-cache-v70';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
