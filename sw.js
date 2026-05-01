@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v72 (2026-05-01): Phase 57.1 — fix logActivity wrong path (window.App._state -> window.App.state) + skip when no user_id
-const CACHE_NAME = 'boonsook-pos-v5-cache-v72';
+// v73 (2026-05-01): Phase 58 — error_codes check method panel per brand (19 brands)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v73';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

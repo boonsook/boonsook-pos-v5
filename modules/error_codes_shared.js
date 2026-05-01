@@ -5,6 +5,7 @@
 // ═══════════════════════════════════════════════════════════
 
 import { escHtml } from "./utils.js";
+import { renderCheckMethod } from "./error_codes_check_methods.js";
 
 /**
  * Render a browsable Error Code page.
@@ -63,6 +64,10 @@ export function renderErrorExplorer(cfg) {
     const brand = brandSelect.value;
     const query = searchInput.value.trim().toUpperCase();
 
+    // Phase 58: แสดง "วิธีเช็ค Error Code" ของแบรนด์ที่เลือก (ถ้ามีข้อมูล)
+    // เฉพาะ error_codes (แอร์) — fridge/washer ใช้ shared module นี้แต่ไม่ส่ง brand match
+    const methodHtml = brand ? (renderCheckMethod(brand) || "") : "";
+
     if (!brand && !query) {
       resultsDiv.innerHTML = `<div style="text-align:center;padding:40px 16px;color:#9ca3af"><div style="font-size:40px;margin-bottom:8px">🔍</div>เลือกยี่ห้อ หรือ พิมพ์รหัส Error เพื่อค้นหา</div>`;
       return;
@@ -88,11 +93,12 @@ export function renderErrorExplorer(cfg) {
     }
 
     if (results.length === 0) {
-      resultsDiv.innerHTML = `<div style="text-align:center;padding:40px 16px;color:#9ca3af"><div style="font-size:40px;margin-bottom:8px">😕</div>ไม่พบรหัส "${escHtml(query)}" ${brand ? "ในยี่ห้อ " + escHtml(brand) : ""}<br><small>ลองค้นหาด้วยรหัสอื่น หรือ ติดต่อช่างโดยตรง</small></div>`;
+      resultsDiv.innerHTML = `${methodHtml}<div style="text-align:center;padding:40px 16px;color:#9ca3af"><div style="font-size:40px;margin-bottom:8px">😕</div>ไม่พบรหัส "${escHtml(query)}" ${brand ? "ในยี่ห้อ " + escHtml(brand) : ""}<br><small>ลองค้นหาด้วยรหัสอื่น หรือ ติดต่อช่างโดยตรง</small></div>`;
       return;
     }
 
     resultsDiv.innerHTML = `
+      ${methodHtml}
       <div style="font-size:13px;color:#6b7280;margin-bottom:8px">พบ ${results.length} รายการ</div>
       ${results.map(r => `
         <div style="border:1px solid #e5e7eb;border-radius:12px;padding:14px;margin-bottom:10px;background:#fff;transition:box-shadow .2s" onmouseover="this.style.boxShadow='0 4px 12px rgba(0,0,0,0.08)'" onmouseout="this.style.boxShadow='none'">
