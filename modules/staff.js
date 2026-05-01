@@ -399,11 +399,5 @@ function inputStyle() {
   ].join(';');
 }
 
-function escHtml(str) {
-  return String(str || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
+// Phase 51: dedup → use shared utils
+import { escHtml } from "./utils.js";

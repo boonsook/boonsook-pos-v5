@@ -1,10 +1,53 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 1 พฤษภาคม 2026 (Phase 50 — fix qi_select data leak + tighten anon GRANT)
-**Version:** 5.14.9 (build 83)
-**Previous:** 5.14.9 (build 83) — Phase 49 (empty catch hardening)
+**อัปเดตล่าสุด:** 1 พฤษภาคม 2026 (Phase 51 — escHtml dedup + XSS gap fix in 6 modules)
+**Version:** 5.15.0 (build 84)
+**Previous:** 5.14.9 (build 83) — Phase 50 (qi_select data leak fix)
 
 **🛡️ Phase 17 Active!** — KV binding ผูกแล้ว (Production + Preview), tested 429 OK
+
+---
+
+## 🧹 Phase 51 — escHtml dedup + XSS gap fix (1 พ.ค.)
+
+### Audit ก่อนทำ
+Scan พบ **33 ไฟล์** define `escHtml`/`escapeHtml` local มี **6 patterns ต่าง**:
+- **Pattern A** (canonical: null guard + dict map + 5 chars escape) — 20 modules
+- **Pattern B** (verbose) — main.js
+- **Pattern F** (`&#39;` แทน `&#039;`, render เหมือน) — dashboard.js
+- **Pattern C** (chained, no apostrophe escape) — auth.js 🔴 XSS gap
+- **Pattern D** (chained + `||""`, no apostrophe) — customers.js, loyalty.js, products.js 🔴 XSS gap
+- **Pattern G** (no apostrophe + no null guard) — thermal_printer.js 🔴 XSS gap
+- **Pattern E** (DOM-based createElement+textContent) — delivery_invoices.js, expenses.js, quotations.js, receipts.js (safe but different approach — keep)
+- **Self-defined helper** — ui_states.js (avoid circular dep — keep)
+- **Classic script** — ai-chat-widget.js (load without `type="module"` — keep)
+
+### Fix scope
+1. **Create `modules/utils.js`** — single source of truth สำหรับ canonical `escHtml(s)` (null-safe + escape 5 HTML chars including apostrophe)
+2. **Pure dedup (drop-in)** — 22 modules + main.js ที่ pattern เทียบเท่ากัน → import แทน local
+3. **🔴 XSS gap fix (security win)** — 6 modules (auth, customers, loyalty, products, staff, thermal_printer) เพิ่ม apostrophe escape ผ่านการ migrate ไป shared utils
+   - **Impact:** ก่อนหน้าถ้า render user data ที่มี `'` ใน HTML attribute ที่ใช้ single-quote (เช่น `style='color:red;'+userData+';'`) จะ inject ได้ — ตอนนี้ปลอดภัย
+
+### Total: 28 ไฟล์แก้
+- `modules/utils.js` (สร้างใหม่)
+- main.js + dashboard.js (import alias `escapeHtml`)
+- birthdays, cash_recon, credit_tracker, dead_stock, error_codes_shared, help_tutor, payment_gateway, pos, profit_by_product, quote_templates, recurring_expenses, refunds, sales_heatmap, serials, stock_count, stock_in_wizard, stock_value, tasks, top_customers, warranty_report (Pattern A — pure dedup)
+- auth, customers, loyalty, products, staff, thermal_printer (XSS gap fix + dedup)
+
+### ไม่แตะ (ตั้งใจ)
+- delivery_invoices.js, expenses.js, quotations.js, receipts.js — ใช้ DOM-based approach ปลอดภัยไม่ต่ำกว่า canonical
+- ui_states.js — utility module เอง keep local เลี่ยง circular dep
+- ai-chat-widget.js — classic script (ไม่มี import system)
+
+### Bump
+- APP_BUILD 83 → 84 (version 5.15.0 — minor bump เพราะ XSS fix นับเป็น behavior change)
+- main.js?v=83 → ?v=84
+- sw.js cache v67 → v68
+- pages.js Version 5.14.9 → 5.15.0 + Release "April" → "May"
+
+### Backlog เหลือ Phase 52+
+- ✅ All known bugs from audit closed
+- (พร้อมต่อยอดฟีเจอร์ใหม่)
 
 ---
 

@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v67 (2026-04-30): Phase 49 — empty catch hardening (5 main.js + 2 ai-chat-widget.js)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v67';
+// v68 (2026-05-01): Phase 51 — escHtml dedup (28 modules use shared utils) + fix XSS gap (apostrophe escape) in 6 modules
+const CACHE_NAME = 'boonsook-pos-v5-cache-v68';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

@@ -278,4 +278,5 @@ function formatThaiDate(d) {
 function padRight(s, len) { return (s + " ".repeat(len)).substring(0, len); }
 function padLeft(s, len) { return (" ".repeat(len) + s).slice(-len); }
 function truncate(s, len) { return s.length > len ? s.substring(0, len - 1) + "…" : s; }
-function escHtml(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+// Phase 51: dedup + fix XSS gap (added apostrophe + null guard via shared utils)
+import { escHtml } from "./utils.js";

@@ -4,10 +4,7 @@
 //  ปิดร้าน: นับเงินจริง → เทียบกับยอดที่ระบบคำนวณ → ดูผลต่าง
 // ═══════════════════════════════════════════════════════════
 
-function escHtml(s) {
-  if (s == null) return "";
-  return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#039;" }[c]));
-}
+import { escHtml } from "./utils.js";
 function money(n) {
   return new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n || 0));
 }

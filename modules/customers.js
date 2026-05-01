@@ -457,6 +457,5 @@ function xhrDeleteCustomer(id) {
 }
 
 
-function escHtml(s) {
-  return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
-}
+// Phase 51: dedup + fix XSS gap (added apostrophe escape via shared utils)
+import { escHtml } from "./utils.js";

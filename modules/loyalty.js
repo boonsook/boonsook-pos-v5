@@ -11,10 +11,8 @@ function money(n) {
   }).format(Number(n || 0));
 }
 
-// Phase 45.14 (XSS fix): escape user-supplied data before innerHTML
-function escHtml(s) {
-  return String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
-}
+// Phase 51: dedup + fix XSS gap (added apostrophe escape via shared utils)
+import { escHtml } from "./utils.js";
 
 function dateTH(d) {
   if (!d) return "-";

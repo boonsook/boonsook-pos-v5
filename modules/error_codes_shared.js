@@ -4,10 +4,7 @@
 //  error_codes_washer.js (เครื่องซักผ้า)
 // ═══════════════════════════════════════════════════════════
 
-function escHtml(s) {
-  if (s == null) return "";
-  return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#039;" }[c]));
-}
+import { escHtml } from "./utils.js";
 
 /**
  * Render a browsable Error Code page.

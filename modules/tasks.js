@@ -4,10 +4,7 @@
 // ═══════════════════════════════════════════════════════════
 import { renderEmpty, renderSkeleton, renderError } from "./ui_states.js";
 
-function escHtml(s) {
-  if (s == null) return "";
-  return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#039;" }[c]));
-}
+import { escHtml } from "./utils.js";
 
 let _tkList = [];
 let _tkFilter = "today"; // today | week | overdue | done | all

@@ -3,10 +3,7 @@
 //  ช่วยรู้ว่าเวลาไหนขายดี → จัดพนักงาน + เปิดร้านได้ตรงจังหวะ
 // ═══════════════════════════════════════════════════════════
 
-function escHtml(s) {
-  if (s == null) return "";
-  return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#039;" }[c]));
-}
+import { escHtml } from "./utils.js";
 function money(n) {
   return new Intl.NumberFormat("th-TH", { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(Number(n || 0));
 }

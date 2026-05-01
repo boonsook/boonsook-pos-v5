@@ -5,10 +5,7 @@
 // ═══════════════════════════════════════════════════════════
 import { renderSkeleton, renderEmpty, renderError } from "./ui_states.js";
 
-function escHtml(s) {
-  if (s == null) return "";
-  return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#039;" }[c]));
-}
+import { escHtml } from "./utils.js";
 
 let _wrFilter = "soon"; // soon | expired | all | active
 let _wrThreshold = 30;  // days

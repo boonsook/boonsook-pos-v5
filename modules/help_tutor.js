@@ -5,10 +5,7 @@
 
 const SEEN_KEY = "bsk_help_seen_v1"; // localStorage key (per-route flags)
 
-function escHtml(s) {
-  if (s == null) return "";
-  return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#039;" }[c]));
-}
+import { escHtml } from "./utils.js";
 
 function getSeenMap() {
   try { return JSON.parse(localStorage.getItem(SEEN_KEY) || "{}"); }

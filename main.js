@@ -524,13 +524,8 @@ const money = (n) => new Intl.NumberFormat("th-TH",{style:"currency",currency:"T
 
 // ═══ Phase 5: Utility Functions (2/4/2569) ═══
 
-// ★ XSS Protection — escapeHtml
-function escapeHtml(str) {
-  if (str == null) return "";
-  const s = String(str);
-  const map = { "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#039;" };
-  return s.replace(/[&<>"']/g, c => map[c]);
-}
+// ★ XSS Protection — escapeHtml (Phase 51: dedup → use shared utils.js)
+import { escHtml as escapeHtml } from "./modules/utils.js";
 
 // ★ Format helpers (Thai locale)
 function formatNumber(n) { return new Intl.NumberFormat("th-TH").format(Number(n || 0)); }

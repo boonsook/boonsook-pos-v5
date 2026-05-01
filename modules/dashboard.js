@@ -898,9 +898,7 @@ function renderJobStatusPanel(serviceJobs) {
   });
 }
 
-function escapeHtml(s) {
-  return String(s || "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
-}
+import { escHtml as escapeHtml } from "./utils.js";
 
 // ─── Chart ───
 function renderChart(sales) {

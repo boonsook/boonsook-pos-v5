@@ -3,10 +3,7 @@
 // PromptPay QR, Bank Transfer, Credit Card
 // ═══════════════════════════════════════════════════════════
 
-function escHtml(s) {
-  if (s == null) return "";
-  return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#039;" }[c]));
-}
+import { escHtml } from "./utils.js";
 
 /**
  * Generate PromptPay QR Code payload (EMVCo standard)
