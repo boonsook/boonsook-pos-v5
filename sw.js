@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v68 (2026-05-01): Phase 51 — escHtml dedup (28 modules use shared utils) + fix XSS gap (apostrophe escape) in 6 modules
-const CACHE_NAME = 'boonsook-pos-v5-cache-v68';
+// v69 (2026-05-01): Phase 52 — technician sidebar = customer_dashboard + sales (drop dashboard)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v69';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
