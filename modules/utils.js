@@ -65,10 +65,12 @@ export async function logActivity(action, opts = {}) {
     const token = window._sbAccessToken;
     if (!cfg || !token) return; // not logged in → skip
 
-    const profile = window.App?._state?.profile || {};
-    const user = window.App?._state?.currentUser || {};
+    const profile = window.App?.state?.profile || {};
+    const user = window.App?.state?.currentUser || {};
+    if (!user.id) return; // no user_id → RLS WITH CHECK (user_id = auth.uid()) would deny → skip
+
     const payload = {
-      user_id: user.id || null,
+      user_id: user.id,
       user_name: profile.full_name || user.email || null,
       user_role: profile.role || null,
       action: String(action || "unknown").slice(0, 64),
@@ -77,7 +79,7 @@ export async function logActivity(action, opts = {}) {
       summary: opts.summary ? String(opts.summary).slice(0, 500) : null,
       metadata: opts.metadata || null
     };
-    await fetch(cfg.url + "/rest/v1/activity_log", {
+    const resp = await fetch(cfg.url + "/rest/v1/activity_log", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -87,7 +89,8 @@ export async function logActivity(action, opts = {}) {
       },
       body: JSON.stringify(payload)
     });
+    if (!resp.ok) console.warn("[logActivity] HTTP", resp.status, "— check RLS policy / table exists");
   } catch (e) {
-    console.warn("[logActivity] silent fail (table may not exist yet)", e);
+    console.warn("[logActivity] silent fail", e);
   }
 }

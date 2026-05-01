@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v71 (2026-05-01): Phase 53-57 — global search + keyboard shortcuts + loyalty tier + sparkline + audit log
-const CACHE_NAME = 'boonsook-pos-v5-cache-v71';
+// v72 (2026-05-01): Phase 57.1 — fix logActivity wrong path (window.App._state -> window.App.state) + skip when no user_id
+const CACHE_NAME = 'boonsook-pos-v5-cache-v72';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
