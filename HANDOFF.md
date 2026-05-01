@@ -1,6 +1,6 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 30 เมษายน 2026 (Phase 49 — empty catch hardening)
+**อัปเดตล่าสุด:** 1 พฤษภาคม 2026 (Phase 49 + Bug E verified done)
 **Version:** 5.14.9 (build 83)
 **Previous:** 5.14.8 (build 82) — Phase 48 (skeleton coverage)
 
@@ -45,9 +45,16 @@
 - pages.js Version 5.14.8 → 5.14.9
 
 ### Backlog เหลือ Phase 50+
+- 🆕 **quotations + quotation_items anon GRANT ALL** — verified 1 พ.ค.
+  ตอนรัน Bug E pre-check พบว่า 2 tables มี anon `DELETE,INSERT,
+  REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE` ที่ table-level
+  ตอนนี้ปลอดภัยเพราะ RLS policy filter (`public_read_by_share_token`)
+  ป้องกันไว้ — แต่ defense-in-depth gap ถ้า policy bug → anon
+  เขียนได้ทันที. ควร REVOKE table-GRANT ให้เหลือแค่ SELECT (เสี่ยง
+  break share-link flow ถ้าทำไม่ระวัง — ต้อง test เยอะ)
 - CSS ?v= bump audit (doc-print.css, phase4-*.css ค้าง ?v=1)
 - escapeHtml dedup (main.js + 6 modules มี local copy)
-- USER ACTION: รัน `supabase-phase45-bug-e-tighten-anon.sql`
+- ✅ Bug E ปิดสนิทแล้ว — see Phase 45.x section
 
 ---
 
@@ -295,8 +302,14 @@ GRANT ALL ON public.profiles, public.customers TO anon;
 (default สำหรับ phone-based fake email — ถ้าเผลอเปิดใน Dashboard
 จะ break)
 
-USER ACTION pending: รัน `supabase-phase45-bug-e-tighten-anon.sql`
-+ ทดสอบ signup ลูกค้าใหม่
+USER ACTION: ✅ DONE (1 พ.ค. 2026)
+- Pre-check พบว่า profiles/customers/customer_otp anon GRANT
+  ถูก revoke ไปแล้วตั้งแต่ Phase 45.x ก่อนหน้า (Bug B cleanup
+  น่าจะ catch ไปแล้ว) → ไม่ต้องรัน Step 2 — state ตรงเป้าอยู่
+- ทดสอบ signup ลูกค้าใหม่ (babang / 0874536754) ✅ ผ่าน
+  - phone-based fake email login ทำงาน
+  - profile.role = customer ถูกต้อง (Bug F trigger working)
+  - customer dashboard load ได้ปกติ
 
 ### Bug D — profiles_with_email view 403 (pre-existing)
 **Symptom:** GET `/rest/v1/profiles_with_email` → HTTP 403
