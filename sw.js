@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v73 (2026-05-01): Phase 58 — error_codes check method panel per brand (19 brands)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v73';
+// v74 (2026-05-01): Phase 59-60 — quick-add + today/alerts widget + receipt filter + PDF watermark
+const CACHE_NAME = 'boonsook-pos-v5-cache-v74';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

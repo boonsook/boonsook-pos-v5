@@ -440,7 +440,8 @@ function renderInvoicePreview(container) {
 
     <div id="diDocPreview" class="doc-preview mt16">
       ${[1,2].map(pageNum => `
-      <div class="doc-page">
+      <div class="doc-page doc-watermark-wrap">
+        ${inv.status === "cancelled" ? '<div class="doc-watermark cancelled">ยกเลิก</div>' : ""}
         <div class="doc-accent inv"></div>
         <div class="doc-page-inner">
           <div class="doc-header">

@@ -18,6 +18,114 @@ let _panelRange = {
   jobStatus: 3,
 };
 
+// Phase 58 (A3+B1): "วันนี้และที่ต้องดู" — combined daily agenda + alerts
+function _renderTodayAndAlerts(state) {
+  const today = new Date().toISOString().slice(0, 10);
+  const now = Date.now();
+  const in7d = today; // for due-date checks
+
+  // 1) Today's service jobs
+  const todayJobs = (state.serviceJobs || [])
+    .filter(j => !(j.status === "cancelled" && (j.note || "").includes("[ลบแล้ว]")))
+    .filter(j => String(j.scheduled_at || j.due_date || "").slice(0, 10) === today
+              || String(j.created_at || "").slice(0, 10) === today);
+
+  // 2) Overdue service jobs
+  const overdueJobs = (state.serviceJobs || [])
+    .filter(j => !["done", "delivered", "closed", "cancelled"].includes(j.status))
+    .filter(j => j.scheduled_at && String(j.scheduled_at).slice(0, 10) < today);
+
+  // 3) Quotations expiring within 3 days
+  const expSoon = (state.quotations || []).filter(q => {
+    if (!q.expires_at || ["cancelled", "expired", "rejected", "invoiced", "receipted"].includes(q.status)) return false;
+    const exp = new Date(q.expires_at).getTime();
+    return exp > now && exp - now < 3 * 86400000;
+  });
+
+  // 4) Overdue credit (sales is_credit + due_date < today + not paid)
+  const overdueCredit = (state.sales || [])
+    .filter(s => !(s.note || "").includes("[ลบแล้ว]"))
+    .filter(s => s.is_credit)
+    .filter(s => {
+      const total = Number(s.total_amount || 0);
+      const paid = Number(s.credit_paid_amount || 0);
+      return (total - paid) > 0.01 && s.credit_due_date && s.credit_due_date < today;
+    });
+
+  // 5) Recurring expenses overdue
+  const overdueRecurring = (state.recurringExpenses || []).filter(r => r.is_active && r.next_due && r.next_due <= today);
+
+  // 6) Low-stock count (ใช้ logic เดิม — สินค้าที่ stock <= reorder_point หรือ <= 5 ถ้าไม่ตั้ง)
+  const lowStock = (state.products || []).filter(p => {
+    const t = p.product_type;
+    if (t === "service" || t === "non_stock") return false;
+    const s = Number(p.stock || 0);
+    const r = Number(p.reorder_point != null ? p.reorder_point : 5);
+    return s <= r;
+  });
+
+  const totalAlerts = overdueJobs.length + expSoon.length + overdueCredit.length + overdueRecurring.length;
+  if (todayJobs.length === 0 && totalAlerts === 0 && lowStock.length === 0) return ""; // เงียบ ๆ ถ้าไม่มี
+
+  return `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px;margin:14px 0">
+      <!-- 📅 วันนี้ -->
+      <div class="stat-card" style="padding:14px;border-left:4px solid #0284c7">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <div style="font-weight:800;color:#0c4a6e">📅 วันนี้ (${todayJobs.length})</div>
+          ${todayJobs.length ? `<button class="btn light dash-clickable" data-go="service_jobs" style="font-size:11px;padding:4px 8px">ดูทั้งหมด →</button>` : ''}
+        </div>
+        ${todayJobs.length === 0
+          ? '<div style="text-align:center;padding:18px 8px;color:#94a3b8;font-size:13px">ไม่มีนัดงานช่างวันนี้</div>'
+          : todayJobs.slice(0, 5).map(j => `
+            <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px dashed #e2e8f0;font-size:13px">
+              <div style="width:32px;height:32px;border-radius:50%;background:#dbeafe;color:#1e40af;display:grid;place-items:center;font-size:14px;flex-shrink:0">🔧</div>
+              <div style="flex:1;min-width:0">
+                <div style="font-weight:600;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(j.customer_name || "ลูกค้าทั่วไป")}</div>
+                <div style="font-size:11px;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(j.description || j.device_name || "-")}</div>
+              </div>
+              <span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:6px;font-size:10px;font-weight:700">${escapeHtml(j.status || "pending")}</span>
+            </div>
+          `).join("")
+        }
+        ${todayJobs.length > 5 ? `<div style="text-align:center;font-size:11px;color:#64748b;margin-top:6px">+${todayJobs.length - 5} อื่น ๆ</div>` : ""}
+      </div>
+
+      <!-- 🚨 Alerts -->
+      <div class="stat-card" style="padding:14px;border-left:4px solid ${totalAlerts > 0 ? '#dc2626' : '#10b981'}">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <div style="font-weight:800;color:${totalAlerts > 0 ? '#b91c1c' : '#065f46'}">${totalAlerts > 0 ? '🚨' : '✅'} ที่ต้องดู ${totalAlerts > 0 ? `(${totalAlerts})` : ''}</div>
+        </div>
+        ${totalAlerts === 0
+          ? '<div style="text-align:center;padding:18px 8px;color:#94a3b8;font-size:13px">ทุกอย่างปกติ — ไม่มีอะไรค้าง</div>'
+          : `
+            ${overdueJobs.length > 0 ? `
+              <div class="dash-clickable" data-go="service_jobs" style="display:flex;justify-content:space-between;padding:8px 10px;background:#fef2f2;border-radius:8px;margin-bottom:6px;cursor:pointer">
+                <div style="font-size:13px;color:#991b1b"><b>⏰ งานเลทกำหนด</b> (${overdueJobs.length})</div>
+                <div style="font-size:11px;color:#991b1b">→</div>
+              </div>` : ''}
+            ${expSoon.length > 0 ? `
+              <div class="dash-clickable" data-go="quotations" style="display:flex;justify-content:space-between;padding:8px 10px;background:#fff7ed;border-radius:8px;margin-bottom:6px;cursor:pointer">
+                <div style="font-size:13px;color:#92400e"><b>📄 ใบเสนอราคาใกล้หมดอายุ</b> (${expSoon.length}) ใน 3 วัน</div>
+                <div style="font-size:11px;color:#92400e">→</div>
+              </div>` : ''}
+            ${overdueCredit.length > 0 ? `
+              <div class="dash-clickable" data-go="credit_tracker" style="display:flex;justify-content:space-between;padding:8px 10px;background:#fef9c3;border-radius:8px;margin-bottom:6px;cursor:pointer">
+                <div style="font-size:13px;color:#854d0e"><b>💳 ลูกค้าค้างชำระเกินกำหนด</b> (${overdueCredit.length})</div>
+                <div style="font-size:11px;color:#854d0e">→</div>
+              </div>` : ''}
+            ${overdueRecurring.length > 0 ? `
+              <div class="dash-clickable" data-go="recurring_expenses" style="display:flex;justify-content:space-between;padding:8px 10px;background:#fef3c7;border-radius:8px;margin-bottom:6px;cursor:pointer">
+                <div style="font-size:13px;color:#92400e"><b>🔁 รายจ่ายประจำครบกำหนด</b> (${overdueRecurring.length})</div>
+                <div style="font-size:11px;color:#92400e">→</div>
+              </div>` : ''}
+          `
+        }
+      </div>
+    </div>
+  `;
+}
+
 // Phase 56: pure-SVG sparkline (no Chart.js dependency, no payload)
 function _sparkline7d(values, color) {
   if (!values || values.length < 2) return "";
@@ -278,6 +386,8 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
       <div class="stat-card dash-clickable" data-go="quotations" title="ไปหน้าใบเสนอราคา"><div class="stat-label">ใบเสนอราคา</div><div class="stat-value" style="font-size:16px">${state.quotations.length}</div></div>
       <div class="stat-card dash-clickable" data-go="service_jobs" title="ไปหน้างานช่าง"><div class="stat-label">ออเดอร์แอร์ค้าง</div><div class="stat-value" style="font-size:16px;color:#f59e0b">${pendingOrders.length}</div></div>
     </div>
+
+    ${_renderTodayAndAlerts(state)}
 
     <!-- ═══ LOW STOCK + TOP SELLERS (2 columns) ═══ -->
     <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(340px,1fr))">

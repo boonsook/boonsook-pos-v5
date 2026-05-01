@@ -58,6 +58,9 @@ let _viewMode = "list";  // list | preview
 let _viewingId = null;
 let _tabFilter = "all";  // all | pending | paid | cancelled
 let _selectedIds = new Set(); // bulk selection
+// Phase 59 (B2): advanced filters
+let _rcDateRange = "all"; // all | today | 7d | 30d | month
+let _rcSearch = "";
 
 // ═══════════════════════════════════════════════════════════
 //  LIST PAGE
@@ -81,10 +84,27 @@ export function renderReceiptsPage(ctx) {
   const countPending = receipts.filter(r => r.status === "pending" || r.status === "partial").length;
   const countPaid = receipts.filter(r => r.status === "paid").length;
   const countCancelled = receipts.filter(r => r.status === "cancelled").length;
+  // Phase 59 (B2): apply advanced filters
+  const today = new Date().toISOString().slice(0, 10);
+  let cutoff = "";
+  if (_rcDateRange === "today") cutoff = today;
+  else if (_rcDateRange === "7d") { const d = new Date(); d.setDate(d.getDate() - 7); cutoff = d.toISOString().slice(0, 10); }
+  else if (_rcDateRange === "30d") { const d = new Date(); d.setDate(d.getDate() - 30); cutoff = d.toISOString().slice(0, 10); }
+  else if (_rcDateRange === "month") { cutoff = today.slice(0, 7) + "-01"; }
+  const q = (_rcSearch || "").trim().toLowerCase();
+
   const filtered = receipts.filter(r => {
-    if (_tabFilter === "all") return true;
-    if (_tabFilter === "pending") return r.status === "pending" || r.status === "partial";
-    return r.status === _tabFilter;
+    if (_tabFilter !== "all") {
+      if (_tabFilter === "pending" && !(r.status === "pending" || r.status === "partial")) return false;
+      if (_tabFilter !== "pending" && r.status !== _tabFilter) return false;
+    }
+    if (cutoff && String(r.created_at || "").slice(0, 10) < cutoff) return false;
+    if (q && !(
+      String(r.receipt_no || "").toLowerCase().includes(q) ||
+      String(r.customer_name || "").toLowerCase().includes(q) ||
+      String(r.delivery_invoice_id || "").toLowerCase().includes(q)
+    )) return false;
+    return true;
   });
 
   // ล้าง selected ids ที่ถูก filter ออก
@@ -118,6 +138,15 @@ export function renderReceiptsPage(ctx) {
           <div class="stat-label">ยอดรวม</div>
           <div class="stat-value" style="color:#0284c7">${money(receipts.reduce((s,r) => s + Number(r.grand_total||0), 0))}</div>
         </div>
+      </div>
+
+      <!-- Phase 59 B2: Advanced filter row -->
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:14px;padding:10px 12px;background:#f8fafc;border-radius:10px">
+        <input type="search" id="rcSearchInput" placeholder="🔍 ค้นหา เลขที่ / ลูกค้า..." value="${escHtml(_rcSearch)}" style="flex:1;min-width:200px;padding:6px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px" />
+        <span style="font-size:12px;color:#64748b;font-weight:600">📅</span>
+        ${[["all","ทั้งหมด"],["today","วันนี้"],["7d","7 วัน"],["30d","30 วัน"],["month","เดือนนี้"]].map(([k,l]) =>
+          `<button class="rc-date-btn" data-d="${k}" style="padding:5px 10px;border-radius:14px;border:1px solid ${_rcDateRange===k?'#0284c7':'#cbd5e1'};background:${_rcDateRange===k?'#0284c7':'#fff'};color:${_rcDateRange===k?'#fff':'#475569'};cursor:pointer;font-size:11px;font-weight:600">${l}</button>`).join("")}
+        <span style="font-size:11px;color:#64748b">→ พบ ${filtered.length} รายการ</span>
       </div>
 
       <!-- ★ Tab row -->
@@ -222,6 +251,27 @@ export function renderReceiptsPage(ctx) {
     _tabFilter = btn.dataset.rcTab;
     renderReceiptsPage(_ctx);
   }));
+  // Phase 59 B2: date range pills
+  container.querySelectorAll(".rc-date-btn").forEach(btn => btn.addEventListener("click", () => {
+    _rcDateRange = btn.dataset.d;
+    renderReceiptsPage(_ctx);
+  }));
+  // Phase 59 B2: search box (debounce by re-render after blur or Enter)
+  const searchInp = container.querySelector("#rcSearchInput");
+  if (searchInp) {
+    let t; searchInp.addEventListener("input", () => {
+      clearTimeout(t);
+      t = setTimeout(() => {
+        _rcSearch = searchInp.value;
+        const cur = document.activeElement === searchInp;
+        renderReceiptsPage(_ctx);
+        if (cur) {
+          const ni = document.querySelector("#rcSearchInput");
+          if (ni) { ni.focus(); ni.setSelectionRange(ni.value.length, ni.value.length); }
+        }
+      }, 250);
+    });
+  }
 
   // ── Reference link: เปิดใบส่งสินค้าที่อ้างอิง ──
   container.querySelectorAll(".rc-ref-link").forEach(link => link.addEventListener("click", (e) => {
@@ -445,7 +495,8 @@ function renderReceiptPreview(container) {
 
     <div id="rcDocPreview" class="doc-preview mt16">
       ${[1,2].map(pageNum => `
-      <div class="doc-page">
+      <div class="doc-page doc-watermark-wrap">
+        ${r.status === "cancelled" ? '<div class="doc-watermark cancelled">ยกเลิก</div>' : '<div class="doc-watermark paid">ชำระแล้ว</div>'}
         <div class="doc-accent re"></div>
         <div class="doc-page-inner">
           <div class="doc-header">

@@ -879,7 +879,9 @@ function renderQuotationPreview(container) {
     </div>
 
     <div id="qtDocPreview" class="doc-preview mt16">
-      <div class="doc-page">
+      <div class="doc-page doc-watermark-wrap">
+        ${["cancelled","rejected"].includes(q.status) ? '<div class="doc-watermark cancelled">ยกเลิก</div>' : ""}
+        ${q.status === "expired" ? '<div class="doc-watermark expired">หมดอายุ</div>' : ""}
         <div class="doc-accent qt"></div>
         <div class="doc-page-inner">
           <div class="doc-header">

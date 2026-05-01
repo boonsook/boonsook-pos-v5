@@ -153,6 +153,28 @@ input, select, textarea { width: 100%; border: 1px solid var(--line); border-rad
 .gs-item-amount { font-size: 12px; font-weight: 700; color: #0284c7; flex-shrink: 0; }
 .gs-empty { text-align: center; padding: 28px 12px; color: #94a3b8; font-size: 13px; }
 .gs-hint { font-size: 11px; color: #94a3b8; padding: 6px 10px 4px; border-top: 1px solid #f1f5f9; margin-top: 4px; }
+
+/* Phase 59 (B4): Document watermark for cancelled/expired/paid status */
+.doc-watermark-wrap { position: relative; }
+.doc-watermark {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-30deg);
+  font-size: 96px; font-weight: 900; letter-spacing: 8px;
+  pointer-events: none; user-select: none; z-index: 1;
+  opacity: 0.18; white-space: nowrap;
+}
+.doc-watermark.cancelled { color: #dc2626; border: 6px solid #dc2626; padding: 8px 24px; border-radius: 14px; }
+.doc-watermark.expired   { color: #9a3412; border: 6px solid #9a3412; padding: 8px 24px; border-radius: 14px; }
+.doc-watermark.paid      { color: #059669; border: 6px solid #059669; padding: 8px 24px; border-radius: 14px; }
+
+/* Phase 59 (B3): Tag chip styling (used in products + service_jobs) */
+.bsk-tag {
+  display: inline-flex; align-items: center; gap: 3px;
+  background: #f1f5f9; color: #475569; padding: 2px 8px;
+  border-radius: 10px; font-size: 11px; font-weight: 600;
+  margin-right: 4px; cursor: pointer;
+}
+.bsk-tag:hover { background: #e2e8f0; }
+.bsk-tag.active { background: #0284c7; color: #fff; }
 .icon-btn { width: 42px; height: 42px; border: none; border-radius: 14px; background: #fff; box-shadow: var(--shadow); cursor: pointer; font-size: 18px; }
 .page-title { font-size: 24px; font-weight: 900; color: var(--primary2); }
 .page-sub { font-size: 12px; color: var(--muted); }

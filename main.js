@@ -3387,13 +3387,20 @@ const _gsClose = () => {
   if (dd) { dd.classList.add("hidden"); dd.innerHTML = ""; }
 };
 const _gsHandleClick = (action) => {
-  const [type, id] = action.split(":");
+  // action could be "type:id" or "quick-add-X:query" — split on first colon only
+  const idx = action.indexOf(":");
+  const type = idx >= 0 ? action.slice(0, idx) : action;
+  const id = idx >= 0 ? action.slice(idx + 1) : "";
   _gsClose();
   $("globalSearch").value = "";
   if (type === "product")    { showRoute("products"); setTimeout(() => openProductDrawer && state.products.find(p => String(p.id) === id) && openProductDrawer(state.products.find(p => String(p.id) === id)), 100); }
   else if (type === "customer") { showRoute("customers"); setTimeout(() => { const c = state.customers.find(x => String(x.id) === id); if (c && openCustomerDrawer) openCustomerDrawer(c); }, 100); }
   else if (type === "sale")     showRoute("sales");
   else if (type === "quotation") showRoute("quotations");
+  // Phase 58 A1: quick-add — open drawer/page with name pre-filled
+  else if (type === "quick-add-customer") { showRoute("customers"); setTimeout(() => openCustomerDrawer && openCustomerDrawer({ name: id, contact_type: "customer" }), 100); }
+  else if (type === "quick-add-product")  { showRoute("products"); setTimeout(() => openProductDrawer && openProductDrawer({ name: id }), 100); }
+  else if (type === "quick-add-quotation"){ showRoute("quotations"); setTimeout(() => { const btn = document.querySelector("#qtNewBtn,[data-action='create-quotation']"); btn?.click(); }, 200); }
 };
 
 const globalSearch = debounce(function(){
@@ -3465,8 +3472,20 @@ const globalSearch = debounce(function(){
     }
   }
 
-  if (!html) html = `<div class="gs-empty">ไม่พบ "${_gsEsc(q)}" ในระบบ</div>`;
-  else html += `<div class="gs-hint">💡 กด Esc เพื่อปิด • คลิกเพื่อเปิด</div>`;
+  // Phase 58 (A1): quick-add suggestions when search has results — speed up walk-in customer entry
+  let quickAdd = "";
+  if (q.length >= 2) {
+    const acts = [];
+    if ((allowed.includes("customers") || role === "admin")) acts.push({ icon: "👤", label: `+ สร้างลูกค้า "${q}"`, action: `quick-add-customer:${q}` });
+    if (allowed.includes("products")) acts.push({ icon: "📦", label: `+ สร้างสินค้า "${q}"`, action: `quick-add-product:${q}` });
+    if (allowed.includes("quotations")) acts.push({ icon: "📄", label: `+ สร้างใบเสนอราคา (ลูกค้า: ${q})`, action: `quick-add-quotation:${q}` });
+    if (acts.length) {
+      quickAdd = `<div class="gs-section-label">⚡ สร้างใหม่</div>` +
+        acts.map(a => _gsRenderItem(a.icon, a.label, "", "", a.action)).join("");
+    }
+  }
+  if (!html) html = `<div class="gs-empty">ไม่พบ "${_gsEsc(q)}" ในระบบ</div>` + quickAdd;
+  else html += quickAdd + `<div class="gs-hint">💡 กด Esc เพื่อปิด • คลิกเพื่อเปิด</div>`;
 
   dd.innerHTML = html;
   dd.classList.remove("hidden");
