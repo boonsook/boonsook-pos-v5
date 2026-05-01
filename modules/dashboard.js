@@ -18,6 +18,39 @@ let _panelRange = {
   jobStatus: 3,
 };
 
+// Phase 56: pure-SVG sparkline (no Chart.js dependency, no payload)
+function _sparkline7d(values, color) {
+  if (!values || values.length < 2) return "";
+  const max = Math.max(...values, 1);
+  const min = Math.min(...values, 0);
+  const range = (max - min) || 1;
+  const w = 120, h = 28, pad = 1;
+  const step = (w - pad * 2) / (values.length - 1);
+  const pts = values.map((v, i) =>
+    `${(pad + i * step).toFixed(1)},${(h - pad - ((v - min) / range) * (h - pad * 2)).toFixed(1)}`
+  ).join(" ");
+  // gradient fill below line
+  return `<svg width="100%" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="display:block;margin-top:6px;overflow:visible">
+    <polyline fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" points="${pts}"/>
+    <polygon fill="${color}" fill-opacity="0.12" points="${pts} ${w - pad},${h} ${pad},${h}"/>
+  </svg>`;
+}
+function _last7DaysSeries(items, dateKey, valKey) {
+  const days = [];
+  const today = new Date();
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(today.getDate() - i);
+    days.push(d.toISOString().slice(0, 10));
+  }
+  return days.map(day =>
+    (items || [])
+      .filter(it => !(it.note || "").includes("[ลบแล้ว]"))
+      .filter(it => String(it[dateKey] || "").slice(0, 10) === day)
+      .reduce((sum, it) => sum + Number(it[valKey] || 0), 0)
+  );
+}
+
 function money(n){return new Intl.NumberFormat("th-TH",{style:"currency",currency:"THB",minimumFractionDigits:2}).format(Number(n||0));}
 function moneyShort(n){
   const v = Number(n||0);
@@ -206,17 +239,21 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
       `).join("")}
     </div>
 
-    <!-- ═══ PERIOD STATS ═══ -->
+    <!-- ═══ PERIOD STATS (Phase 56: + 7d sparkline) ═══ -->
     <div class="stats-grid" style="grid-template-columns:repeat(2,1fr)">
       <div class="stat-card" style="border-left:4px solid #0284c7">
         <div class="stat-label">💰 ยอดขาย ${PERIOD_LABELS[_dashPeriod]}</div>
         <div class="stat-value" style="color:#0284c7">${money(periodRevenue)}</div>
         <div style="font-size:11px;color:#94a3b8;margin-top:2px">${periodOrders} ออเดอร์${periodWebOrders.length > 0 ? ` (🛒 ${periodWebOrders.length} จากเว็บ)` : ''}</div>
+        ${_sparkline7d(_last7DaysSeries(state.sales, "created_at", "total_amount"), "#0284c7")}
+        <div style="font-size:10px;color:#94a3b8;text-align:right;margin-top:-2px">7 วันล่าสุด</div>
       </div>
       <div class="stat-card" style="border-left:4px solid #ef4444">
         <div class="stat-label">📤 ค่าใช้จ่าย ${PERIOD_LABELS[_dashPeriod]}</div>
         <div class="stat-value" style="color:#ef4444">${money(periodExpenseTotal)}</div>
         <div style="font-size:11px;color:#94a3b8;margin-top:2px">${periodExpenses.length} รายการ</div>
+        ${_sparkline7d(_last7DaysSeries(state.expenses, "expense_date", "amount"), "#ef4444")}
+        <div style="font-size:10px;color:#94a3b8;text-align:right;margin-top:-2px">7 วันล่าสุด</div>
       </div>
       <div class="stat-card" style="border-left:4px solid #10b981">
         <div class="stat-label">📊 กำไรขั้นต้น ${PERIOD_LABELS[_dashPeriod]}</div>

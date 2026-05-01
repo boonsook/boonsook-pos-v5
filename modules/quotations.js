@@ -3,6 +3,8 @@
 //  ★ รายการสินค้า, ส่วนลด, หัก ณ ที่จ่าย, preview เอกสาร
 // ═══════════════════════════════════════════════════════════
 import { renderEmpty, renderSkeleton } from "./ui_states.js";
+// Phase 57: audit log
+import { logActivity } from "./utils.js";
 
 // share ใช้ window._appShareDoc จาก main.js
 
@@ -309,13 +311,22 @@ export function renderQuotationsPage(ctx) {
     let ok = 0, fail = 0;
     for (const id of ids) {
       try {
+        // ★ snapshot ก่อนลบ — สำหรับ audit log
+        const q = (_ctx.state.quotations || []).find(x => String(x.id) === String(id));
         // 1. ลบ items
         await fetch(cfg.url + "/rest/v1/quotation_items?quotation_id=eq." + id, { method: "DELETE", headers });
         // 2. ลบ quotation
         const delResp = await fetch(cfg.url + "/rest/v1/quotations?id=eq." + id, { method: "DELETE", headers });
         const deleted = await delResp.json().catch(() => []);
-        if (delResp.ok && Array.isArray(deleted) && deleted.length > 0) ok++;
-        else fail++;
+        if (delResp.ok && Array.isArray(deleted) && deleted.length > 0) {
+          ok++;
+          // Phase 57: audit log (silent)
+          logActivity("delete_quotation", {
+            entityType: "quotation",
+            entityId: id,
+            summary: `ลบใบเสนอราคา ${q?.quotation_no || "#"+id}` + (q?.customer_name ? ` (${q.customer_name})` : "") + (q?.grand_total ? ` ${Number(q.grand_total).toLocaleString("th-TH")} บาท` : "")
+          });
+        } else fail++;
       } catch(e) { console.error("[quotations bulk delete]", e); fail++; }
     }
     _selectedIds.clear();

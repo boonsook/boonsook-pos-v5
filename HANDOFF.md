@@ -1,8 +1,83 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 1 พฤษภาคม 2026 (Phase 51 — escHtml dedup + XSS gap fix in 6 modules)
-**Version:** 5.15.0 (build 84)
-**Previous:** 5.14.9 (build 83) — Phase 50 (qi_select data leak fix)
+**อัปเดตล่าสุด:** 1 พฤษภาคม 2026 (Phase 53-57 — feature pack: search/shortcuts/loyalty/sparkline/audit)
+**Version:** 5.16.0 (build 87)
+**Previous:** 5.15.2 (build 86) — Phase 52.1 (nav-group max-height fix)
+
+---
+
+## ✨ Phase 53-57 — Feature Pack (1 พ.ค.)
+
+User สั่ง "ลองทำมาทุกข้อ" จาก backlog A/B/C/D — ทำได้ 5 features ที่ value สูง + ไม่ต้องพึ่ง external service:
+
+### Phase 53 — Global Search
+- Extend แถบค้นหาบนสุดให้ค้นหา 4 entities: products / customers / sales / quotations
+- Dropdown แสดงผล ≤5 ต่อกลุ่ม + click → navigate + open drawer
+- Role-aware (ค้นได้ตาม allowedPages)
+- Debounce 200ms, Esc ปิด, click outside ปิด
+- ไฟล์: index.html, style.css, main.js (function `globalSearch`)
+
+### Phase 54 — Keyboard Shortcuts
+- F1=ลูกค้า / F2=สินค้า / F3=POS / F4=รายการขาย / F8=ใบรับงาน / F9=ใบเสนอราคา
+- `/` = focus global search
+- `?` = popup เมนูคีย์ลัด (role-aware รายการแสดงเฉพาะที่มีสิทธิ์)
+- Esc = ปิด popup
+- ตรวจ tag เพื่อไม่ขัดการพิมพ์ใน input/textarea
+- ไฟล์: main.js (function `_showShortcutHelp`)
+
+### Phase 55 — Customer Loyalty Tier
+- Auto-tier ตามยอดสะสม: Bronze (≥5k) / Silver (≥20k) / Gold (≥50k) / Platinum (≥100k)
+- Badge แสดงในตาราง customers (เฉพาะ contact_type ≠ supplier)
+- Helper export ใน utils.js — pure function ไม่กระทบ schema
+- ไฟล์: utils.js (`getCustomerTier` + `renderTierBadge` + `TIER_RULES`), customers.js
+
+### Phase 56 — Dashboard Sparkline
+- Mini-chart 7 วันล่าสุด (sales + expenses) ใน stat cards
+- Pure SVG — ไม่โหลด Chart.js เพิ่ม payload
+- Gradient fill ใต้เส้นสำหรับ visual depth
+- ไฟล์: dashboard.js (functions `_sparkline7d` + `_last7DaysSeries`)
+
+### Phase 57 — Audit Log Lite
+- Table ใหม่ `activity_log` — append-only, RLS admin-only read
+- Helper `logActivity(action, opts)` — silent fail ถ้า table ยังไม่ migrate
+- Wired ใน 3 จุด critical: delete quotation/receipt/delivery_invoice
+- Viewer page `/audit_log` — admin only, filter by action, แสดง icon + summary + timestamp
+- Sidebar: เพิ่มปุ่ม "📜 ประวัติการใช้งาน" ใต้ "หน้าหลัก"
+- ไฟล์ใหม่:
+  - [supabase-phase57-activity-log.sql](supabase-phase57-activity-log.sql)
+  - [modules/audit_log.js](modules/audit_log.js)
+  - utils.js (`logActivity`)
+
+### USER ACTION required (Phase 57)
+- รัน `supabase-phase57-activity-log.sql` ใน Supabase SQL Editor
+- หลังรัน → เปิดเมนู "📜 ประวัติการใช้งาน" → ทดสอบลบใบเสนอราคา 1 ใบ → reload audit log → ควรเห็น entry ใหม่
+- ก่อนรัน — แอปยังทำงานปกติ (logActivity silent fail)
+
+### ตัวเลือก backlog ที่ "ทำไม่ได้" + เหตุผล
+- LINE Notify ส่วนตัว — ระบบมีแล้ว user ใส่ token เอง
+- Promotion engine — schema/UI ใหญ่ ต้องคุย business rule
+- Mobile redesign — ต้อง UX survey + risk แตก style
+- Payment gateway — SlipOK มีแล้ว
+- Logistics tracking — ต้อง vendor API
+- Receipt OCR — ต้อง AI vision API
+- Multi-branch — schema migration ใหญ่
+- e-Tax — ต้อง digital signature certificate
+
+### Bump
+- APP_BUILD 86 → 87
+- main.js?v=86 → ?v=87
+- style.css?v=6 → ?v=7
+- sw.js cache v70 → v71
+- pages.js Version 5.15.2 → 5.16.0 (minor bump เพราะมี features ใหม่ + audit_log table)
+
+---
+
+## 🔧 Phase 52.1 — nav-group max-height fix (1 พ.ค.)
+[ย่อ — fix CSS max-height: 300px → 600px เพื่อให้กลุ่ม "งานช่าง" 12 ปุ่มไม่โดน clip]
+
+---
+
+## 🩹 Phase 51 — escHtml dedup + XSS gap fix (1 พ.ค.)
 
 **🛡️ Phase 17 Active!** — KV binding ผูกแล้ว (Production + Preview), tested 429 OK
 

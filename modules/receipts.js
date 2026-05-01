@@ -3,6 +3,8 @@
 //  ★ รายการ, preview, พิมพ์, PDF, แชร์
 // ═══════════════════════════════════════════════════════════
 import { renderEmpty, renderSkeleton } from "./ui_states.js";
+// Phase 57: audit log
+import { logActivity } from "./utils.js";
 
 // share ใช้ window._appShareDoc จาก main.js
 
@@ -598,6 +600,12 @@ function renderReceiptPreview(container) {
         await fetch(cfg.url + "/rest/v1/delivery_invoices?id=eq." + invId,
           { method: "PATCH", headers, body: JSON.stringify({ status: "invoiced" }) });
       }
+      // Phase 57: audit log (silent)
+      logActivity("delete_receipt", {
+        entityType: "receipt",
+        entityId: r.id,
+        summary: `ลบใบเสร็จ ${r.receipt_no || "#"+r.id}` + (r.customer_name ? ` (${r.customer_name})` : "") + (r.grand_total ? ` ${Number(r.grand_total).toLocaleString("th-TH")} บาท` : "")
+      });
       _ctx.showToast("ลบใบเสร็จแล้ว ✓");
       _viewMode = "list"; _viewingId = null;
       await _ctx.loadAllData();

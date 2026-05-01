@@ -36,6 +36,8 @@ import { renderRecurringExpensesPage } from "./modules/recurring_expenses.js";
 import { renderCreditTrackerPage } from "./modules/credit_tracker.js";
 import { renderRefundsPage } from "./modules/refunds.js";
 import { renderTasksPage, checkOverdueTasksAndNotify } from "./modules/tasks.js";
+// Phase 57: audit log viewer
+import { renderAuditLogPage } from "./modules/audit_log.js";
 import { renderProfitByProductPage } from "./modules/profit_by_product.js";
 import { renderBirthdaysPage, checkTodayBirthdaysAndNotify } from "./modules/birthdays.js";
 import { renderQuoteTemplatesPage } from "./modules/quote_templates.js";
@@ -821,7 +823,7 @@ function isLowStock(product){ return Number(product.stock||0) <= Number(product.
 const SERVICE_FORM_TYPES = ["repair_ac","clean_ac","move_ac","satellite","repair_fridge","repair_washer","cctv","repair_tv","other"];
 const SERVICE_FORM_ROUTES = SERVICE_FORM_TYPES.map(t => "service_" + t);
 
-const ALL_ROUTES = ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","quote_templates","service_jobs","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","refunds","tasks","profit_by_product","birthdays","serials","warranty_report","calendar","loyalty","customer_dashboard","btu_calculator","service_request","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop", ...SERVICE_FORM_ROUTES];
+const ALL_ROUTES = ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","quote_templates","service_jobs","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","refunds","tasks","profit_by_product","birthdays","serials","warranty_report","calendar","loyalty","customer_dashboard","btu_calculator","service_request","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop","audit_log", ...SERVICE_FORM_ROUTES];
 const ROLE_PAGES = {
   admin:      ALL_ROUTES,
   technician: ["customer_dashboard","pos","sales","service_jobs","calendar","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop", ...SERVICE_FORM_ROUTES],
@@ -998,6 +1000,7 @@ function showRoute(route){
   if (route === "warranty_report") renderWarrantyReportPage(ctx);
   if (route === "ai_sales") renderAiSalesPage(ctx);
   if (route === "ac_shop") renderAcShopPage(ctx);
+  if (route === "audit_log") renderAuditLogPage(ctx);
 
   // Warehouse sub-pages — reuse products page with warehouse filter
   if (WH_ROUTE_MAP[route]) {
@@ -3360,26 +3363,114 @@ function debounce(fn, ms = 300) {
   };
 }
 
-const globalSearchProducts = debounce(function(){
-  // Phase 45.10 (B2-1): Role check ก่อน render — กัน technician/customer bypass
-  // เห็นหน้า products (เห็น cost/margin) ผ่าน global search box
-  if (!canAccessPage("products")) {
-    showToast("คุณไม่มีสิทธิ์เข้าหน้าสินค้า");
-    return;
-  }
+// ═══════════════════════════════════════════════════════════
+//  Phase 53: GLOBAL SEARCH — products / customers / sales / quotations
+// ═══════════════════════════════════════════════════════════
+function _gsEsc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#039;" }[c]));
+}
+function _gsRenderItem(icon, title, sub, amount, action) {
+  return `<div class="gs-item" data-action="${_gsEsc(action)}">
+    <div class="gs-item-icon">${icon}</div>
+    <div class="gs-item-body">
+      <div class="gs-item-title">${_gsEsc(title)}</div>
+      ${sub ? `<div class="gs-item-sub">${_gsEsc(sub)}</div>` : ""}
+    </div>
+    ${amount ? `<div class="gs-item-amount">${_gsEsc(amount)}</div>` : ""}
+  </div>`;
+}
+function _gsCurrency(n) {
+  return "฿" + new Intl.NumberFormat("th-TH", { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(Number(n || 0));
+}
+const _gsClose = () => {
+  const dd = $("globalSearchDropdown");
+  if (dd) { dd.classList.add("hidden"); dd.innerHTML = ""; }
+};
+const _gsHandleClick = (action) => {
+  const [type, id] = action.split(":");
+  _gsClose();
+  $("globalSearch").value = "";
+  if (type === "product")    { showRoute("products"); setTimeout(() => openProductDrawer && state.products.find(p => String(p.id) === id) && openProductDrawer(state.products.find(p => String(p.id) === id)), 100); }
+  else if (type === "customer") { showRoute("customers"); setTimeout(() => { const c = state.customers.find(x => String(x.id) === id); if (c && openCustomerDrawer) openCustomerDrawer(c); }, 100); }
+  else if (type === "sale")     showRoute("sales");
+  else if (type === "quotation") showRoute("quotations");
+};
+
+const globalSearch = debounce(function(){
   const q = $("globalSearch")?.value?.trim().toLowerCase() || "";
-  if (!q) return showRoute("products");
-  const filtered = state.products.filter(p =>
-    String(p.name||"").toLowerCase().includes(q) ||
-    String(p.sku||"").toLowerCase().includes(q) ||
-    String(p.barcode||"").toLowerCase().includes(q)
-  );
-  const keep = state.products;
-  state.products = filtered;
-  renderProductsPage({ state, money, addToCart, openProductDrawer });
-  state.products = keep;
-  showRoute("products");
-}, 300); // ★ debounce 300ms
+  const dd = $("globalSearchDropdown");
+  if (!dd) return;
+  if (q.length < 2) { dd.classList.add("hidden"); dd.innerHTML = ""; return; }
+
+  const role = currentRole();
+  const allowed = allowedPages();
+  let html = "";
+
+  // 1) Products (max 5)
+  if (allowed.includes("products") || allowed.includes("pos") || allowed.includes("customer_dashboard")) {
+    const products = (state.products || [])
+      .filter(p =>
+        String(p.name||"").toLowerCase().includes(q) ||
+        String(p.sku||"").toLowerCase().includes(q) ||
+        String(p.barcode||"").toLowerCase().includes(q)
+      )
+      .slice(0, 5);
+    if (products.length) {
+      html += `<div class="gs-section-label">📦 สินค้า (${products.length})</div>`;
+      html += products.map(p => _gsRenderItem("🏷️", p.name || "-", p.sku || "", _gsCurrency(p.price || 0), `product:${p.id}`)).join("");
+    }
+  }
+
+  // 2) Customers (max 5)
+  if (allowed.includes("customers") || role === "admin") {
+    const customers = (state.customers || [])
+      .filter(c =>
+        String(c.name||"").toLowerCase().includes(q) ||
+        String(c.phone||"").toLowerCase().includes(q) ||
+        String(c.email||"").toLowerCase().includes(q)
+      )
+      .slice(0, 5);
+    if (customers.length) {
+      html += `<div class="gs-section-label">👤 ลูกค้า (${customers.length})</div>`;
+      html += customers.map(c => _gsRenderItem("👤", c.name || "-", c.phone || c.email || "", "", `customer:${c.id}`)).join("");
+    }
+  }
+
+  // 3) Sales (order_no) (max 5)
+  if (allowed.includes("sales")) {
+    const sales = (state.sales || [])
+      .filter(s => !(s.note || "").includes("[ลบแล้ว]"))
+      .filter(s =>
+        String(s.order_no||"").toLowerCase().includes(q) ||
+        String(s.customer_name||"").toLowerCase().includes(q)
+      )
+      .slice(0, 5);
+    if (sales.length) {
+      html += `<div class="gs-section-label">💳 บิลขาย (${sales.length})</div>`;
+      html += sales.map(s => _gsRenderItem("🧾", s.order_no || ("#"+s.id), s.customer_name || "ลูกค้าทั่วไป", _gsCurrency(s.total_amount || 0), `sale:${s.id}`)).join("");
+    }
+  }
+
+  // 4) Quotations (max 5)
+  if (allowed.includes("quotations")) {
+    const quotations = (state.quotations || [])
+      .filter(q2 =>
+        String(q2.quotation_no||"").toLowerCase().includes(q) ||
+        String(q2.customer_name||"").toLowerCase().includes(q)
+      )
+      .slice(0, 5);
+    if (quotations.length) {
+      html += `<div class="gs-section-label">📄 ใบเสนอราคา (${quotations.length})</div>`;
+      html += quotations.map(q2 => _gsRenderItem("📄", q2.quotation_no || ("#"+q2.id), q2.customer_name || "-", _gsCurrency(q2.grand_total || q2.total_amount || 0), `quotation:${q2.id}`)).join("");
+    }
+  }
+
+  if (!html) html = `<div class="gs-empty">ไม่พบ "${_gsEsc(q)}" ในระบบ</div>`;
+  else html += `<div class="gs-hint">💡 กด Esc เพื่อปิด • คลิกเพื่อเปิด</div>`;
+
+  dd.innerHTML = html;
+  dd.classList.remove("hidden");
+}, 200);
 
 // ═══════════════════════════════════════════════════════════
 //  BIND EVENTS
@@ -3628,7 +3719,126 @@ function bindStaticEvents(){
     });
   });
 
-  $("globalSearch")?.addEventListener("input", globalSearchProducts);
+  // Phase 53: global search — extend to all entities
+  $("globalSearch")?.addEventListener("input", globalSearch);
+  $("globalSearch")?.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { _gsClose(); $("globalSearch").value = ""; }
+  });
+  // click on dropdown item
+  $("globalSearchDropdown")?.addEventListener("click", (e) => {
+    const item = e.target.closest(".gs-item");
+    if (item) _gsHandleClick(item.dataset.action);
+  });
+  // click outside → close
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".global-search-wrap")) _gsClose();
+  });
+
+  // ═══════════════════════════════════════════════════════════
+  //  Phase 54: KEYBOARD SHORTCUTS
+  // ═══════════════════════════════════════════════════════════
+  document.addEventListener("keydown", (e) => {
+    // ignore if typing in input/textarea/contenteditable
+    const tag = e.target.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || e.target.isContentEditable) {
+      // exception: Esc + "/" still handled
+      if (e.key !== "Escape") return;
+    }
+
+    // skip if modifier (let browser handle Ctrl+R, Ctrl+F, etc.)
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+    const allowed = allowedPages();
+    let handled = false;
+
+    switch (e.key) {
+      case "/":
+        // focus global search
+        e.preventDefault();
+        $("globalSearch")?.focus();
+        handled = true;
+        break;
+      case "?":
+        // show help popup
+        e.preventDefault();
+        _showShortcutHelp();
+        handled = true;
+        break;
+      case "F1":
+        if (allowed.includes("customers")) { e.preventDefault(); showRoute("customers"); handled = true; }
+        break;
+      case "F2":
+        if (allowed.includes("products")) { e.preventDefault(); showRoute("products"); handled = true; }
+        break;
+      case "F3":
+        if (allowed.includes("pos")) { e.preventDefault(); showRoute("pos"); handled = true; }
+        break;
+      case "F4":
+        if (allowed.includes("sales")) { e.preventDefault(); showRoute("sales"); handled = true; }
+        break;
+      case "F8":
+        if (allowed.includes("service_jobs")) { e.preventDefault(); showRoute("service_jobs"); handled = true; }
+        break;
+      case "F9":
+        if (allowed.includes("quotations")) { e.preventDefault(); showRoute("quotations"); handled = true; }
+        break;
+      case "Escape":
+        // close drawers / dropdown
+        _gsClose();
+        document.getElementById("shortcutHelpModal")?.remove();
+        break;
+    }
+    if (handled) {
+      try { showToast("⌨️ " + e.key, "info"); } catch(_) {}
+    }
+  });
+}
+
+function _showShortcutHelp() {
+  document.getElementById("shortcutHelpModal")?.remove();
+  const role = currentRole();
+  const allowed = allowedPages();
+  const shortcuts = [
+    { key: "/",  label: "ค้นหา (focus search bar)", show: true },
+    { key: "F1", label: "👤 ลูกค้า", show: allowed.includes("customers") },
+    { key: "F2", label: "📦 สินค้า", show: allowed.includes("products") },
+    { key: "F3", label: "💰 แคชเชียร์ (POS)", show: allowed.includes("pos") },
+    { key: "F4", label: "💳 รายการขาย", show: allowed.includes("sales") },
+    { key: "F8", label: "🔧 ใบรับงาน (ช่าง)", show: allowed.includes("service_jobs") },
+    { key: "F9", label: "📄 ใบเสนอราคา", show: allowed.includes("quotations") },
+    { key: "Esc", label: "ปิด popup / dropdown", show: true },
+    { key: "?", label: "แสดงเมนูคีย์ลัด", show: true },
+  ].filter(s => s.show);
+
+  const modal = document.createElement("div");
+  modal.id = "shortcutHelpModal";
+  modal.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px";
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:18px;max-width:440px;width:100%;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+        <div style="font-size:28px">⌨️</div>
+        <div style="flex:1">
+          <h3 style="margin:0;font-size:18px;color:#0f172a">คีย์ลัด</h3>
+          <div style="font-size:12px;color:#64748b">role: ${ROLE_LABELS[role] || role}</div>
+        </div>
+        <button id="shortcutHelpCloseBtn" style="border:none;background:#f1f5f9;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:16px">×</button>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        ${shortcuts.map(s => `
+          <div style="display:flex;align-items:center;gap:12px;padding:8px 10px;background:#f8fafc;border-radius:8px">
+            <kbd style="background:#0f172a;color:#fff;font-family:ui-monospace,monospace;font-size:12px;padding:4px 10px;border-radius:6px;font-weight:700;min-width:42px;text-align:center">${s.key}</kbd>
+            <div style="font-size:13px;color:#334155">${s.label}</div>
+          </div>
+        `).join("")}
+      </div>
+      <div style="margin-top:14px;padding:10px;background:#fef3c7;border-radius:10px;font-size:11px;color:#92400e;line-height:1.5">
+        💡 <b>เคล็ดลับ:</b> กด <kbd style="background:#fff;padding:2px 6px;border-radius:4px;border:1px solid #fde68a">/</kbd> เพื่อค้นหาทุกอย่างจากแถบบนสุด
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
+  document.getElementById("shortcutHelpCloseBtn")?.addEventListener("click", () => modal.remove());
 }
 
 // ═══════════════════════════════════════════════════════════
