@@ -1,10 +1,72 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 1 พฤษภาคม 2026 (Phase 49 + Bug E verified done)
+**อัปเดตล่าสุด:** 1 พฤษภาคม 2026 (Phase 50 — fix qi_select data leak + tighten anon GRANT)
 **Version:** 5.14.9 (build 83)
-**Previous:** 5.14.8 (build 82) — Phase 48 (skeleton coverage)
+**Previous:** 5.14.9 (build 83) — Phase 49 (empty catch hardening)
 
 **🛡️ Phase 17 Active!** — KV binding ผูกแล้ว (Production + Preview), tested 429 OK
+
+---
+
+## 🛡️ Phase 50 — Fix data leak + tighten anon GRANT (1 พ.ค.)
+
+### Bug ที่พบจาก audit
+ตอนรัน Bug E pre-check พบ `quotations` + `quotation_items` มี anon GRANT ALL ที่ table-level
+→ scan code + RLS policies ก่อนเขียน migration พบ **bug ใหญ่กว่า**:
+
+**`qi_select` policy ใน quotation_items:**
+- Roles: `{public}` (ครอบ anon + authenticated)
+- Cmd: SELECT
+- USING: **`true`** 🔴
+
+→ แปลว่า **anon ดึง `GET /rest/v1/quotation_items?quotation_id=eq.X`** ได้ทุก ID
+ไม่ filter ผ่าน parent share_token เลย → **data leak**: anon iterate id
+อ่าน items ของใบเสนอราคาทุกใบในระบบได้
+
+`public_read_by_share_token` ของ header (quotations) ปลอดภัยกว่าเพราะ
+filter `share_token IS NOT NULL` แต่ items ใต้ leak ทั้งหมด
+
+### Fix scope (3 อย่าง)
+**Migration:** [supabase-phase45-bug-e-tighten-anon.sql](supabase-phase45-bug-e-tighten-anon.sql)
+ทำผ่าน SQL Editor แบบ ad-hoc (ไม่สร้าง .sql file ใหม่ — แค่ paste run):
+
+1. **DROP `qi_select`** (USING true, leaky)
+2. **CREATE `qi_select_via_parent_share`** — TO anon, USING:
+   ```
+   EXISTS (SELECT 1 FROM quotations q
+           WHERE q.id = quotation_items.quotation_id
+             AND q.share_token IS NOT NULL)
+   ```
+   → anon อ่าน items ได้เฉพาะของ quotation ที่มี share_token
+3. **REVOKE INSERT, UPDATE, DELETE, TRUNCATE** จาก anon บน 2 tables
+   → anon เหลือแค่ `REFERENCES,SELECT,TRIGGER` (defense-in-depth)
+
+### Verify result (รัน 1 พ.ค.)
+- ✅ pg_policies เห็น qi_select_via_parent_share (TO anon, EXISTS filter)
+- ✅ anon GRANT = REFERENCES,SELECT,TRIGGER (writes ไม่มีแล้ว)
+- ✅ quotation_items_rw + quotations_rw_staff (TO authenticated) คงเดิม → seller flow OK
+- ✅ public_read_by_share_token คงเดิม → share link header read OK
+
+### Test result (1 พ.ค. — 3/3 ผ่าน)
+| Test | Flow | Result |
+|---|---|---|
+| 4.1 | Preview ใบเก่า (HAIER 45,500) | ✅ items โหลดครบ |
+| 4.2 | สร้างใหม่ QT20260501003 + 2 line items | ✅ create + preview ทำงาน |
+| 4.3 | ลบใบ QT20260501003 | ✅ ลบสำเร็จ + list update |
+
+### Rollback (พร้อมรันถ้ามีปัญหาภายหลัง)
+```sql
+DROP POLICY IF EXISTS "qi_select_via_parent_share" ON public.quotation_items;
+CREATE POLICY "qi_select" ON public.quotation_items
+  FOR SELECT TO public USING (true);
+GRANT INSERT, UPDATE, DELETE, TRUNCATE ON public.quotations TO anon;
+GRANT INSERT, UPDATE, DELETE, TRUNCATE ON public.quotation_items TO anon;
+```
+
+### Backlog เหลือ Phase 51+
+- CSS ?v= bump audit (doc-print.css, phase4-*.css ค้าง ?v=1)
+- escapeHtml dedup (main.js + 6 modules มี local copy)
+- ✅ Bug E ปิดสนิท + Phase 50 data leak ปิดแล้ว
 
 ---
 
@@ -44,14 +106,9 @@
 - sw.js cache v66 → v67
 - pages.js Version 5.14.8 → 5.14.9
 
-### Backlog เหลือ Phase 50+
-- 🆕 **quotations + quotation_items anon GRANT ALL** — verified 1 พ.ค.
-  ตอนรัน Bug E pre-check พบว่า 2 tables มี anon `DELETE,INSERT,
-  REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE` ที่ table-level
-  ตอนนี้ปลอดภัยเพราะ RLS policy filter (`public_read_by_share_token`)
-  ป้องกันไว้ — แต่ defense-in-depth gap ถ้า policy bug → anon
-  เขียนได้ทันที. ควร REVOKE table-GRANT ให้เหลือแค่ SELECT (เสี่ยง
-  break share-link flow ถ้าทำไม่ระวัง — ต้อง test เยอะ)
+### Backlog เหลือ Phase 50+ → ✅ ปิดแล้วใน Phase 50
+- ✅ quotations + quotation_items anon GRANT — แก้ใน Phase 50 (1 พ.ค.)
+  พร้อม fix data leak ใน qi_select policy ที่เจอเพิ่มตอน scan
 - CSS ?v= bump audit (doc-print.css, phase4-*.css ค้าง ?v=1)
 - escapeHtml dedup (main.js + 6 modules มี local copy)
 - ✅ Bug E ปิดสนิทแล้ว — see Phase 45.x section
