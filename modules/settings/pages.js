@@ -22,8 +22,8 @@ export function renderSettingsAbout(el, ctx, goBack) {
           <div style="font-size:12px;color:#64748b">ระบบจัดการร้านค้าอิเล็กทรอนิกส์แบบครบวงจร</div>
         </div>
         <div style="display:grid;gap:6px;font-size:13px;color:#334155">
-          <div><strong>Version:</strong> 5.18.0</div>
-          <div><strong>Release:</strong> May 2026 (build 90)</div>
+          <div><strong>Version:</strong> 5.18.1</div>
+          <div><strong>Release:</strong> May 2026 (build 91)</div>
           <div><strong>Developer:</strong> Boonsook Electronics</div>
           <div><strong>Contact:</strong> gangboo@gmail.com</div>
         </div>
@@ -45,6 +45,18 @@ export function renderSettingsAbout(el, ctx, goBack) {
             3. ถ้าติดตั้งเป็น PWA (icon บน home) → ลบ icon → เข้าผ่าน browser → กดติดตั้งใหม่<br>
             4. iPhone Safari: Settings → Safari → Clear History
           </div>
+        </div>
+
+        <!-- Phase 62 (D1): Settings backup / restore -->
+        <div style="margin-top:20px;padding:14px;background:#f0fdf4;border-radius:10px;border:1px solid #bbf7d0">
+          <div style="font-weight:700;color:#065f46;margin-bottom:6px">💾 สำรอง / กู้คืน config</div>
+          <div style="font-size:12px;color:#047857;margin-bottom:10px">ดาวน์โหลดข้อมูลตั้งค่าร้าน (logo, ที่อยู่, ภาษี, payment info, tags) เป็นไฟล์ JSON — ใช้ย้ายเครื่อง/กู้คืนภายหลัง</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button id="appBackupBtn" class="btn primary" style="font-size:13px;padding:8px 14px;background:#10b981;border:none">📥 ดาวน์โหลด config</button>
+            <button id="appRestoreBtn" class="btn light" style="font-size:13px;padding:8px 14px" title="เลือกไฟล์ JSON ที่เคย backup ไว้">📤 กู้คืน (อัปโหลด JSON)</button>
+            <input type="file" id="appRestoreFile" accept="application/json,.json" style="display:none" />
+          </div>
+          <div id="appBackupStatus" style="font-size:12px;color:#475569;margin-top:8px"></div>
         </div>
       </div>
     </div>
@@ -169,6 +181,73 @@ export function renderSettingsAbout(el, ctx, goBack) {
   document.getElementById("appForceReloadBtn")?.addEventListener("click", () => {
     setStatus("⚡ กำลังโหลดใหม่ (bypass cache)...", "#0284c7");
     setTimeout(hardReload, 300);
+  });
+
+  // Phase 62 (D1): Backup config — download as JSON
+  document.getElementById("appBackupBtn")?.addEventListener("click", () => {
+    const bkStatus = document.getElementById("appBackupStatus");
+    const setBk = (msg, color) => { if (bkStatus) { bkStatus.textContent = msg; bkStatus.style.color = color || "#475569"; } };
+    try {
+      const state = ctx?.state || window.App?.state || {};
+      const payload = {
+        version: 1,
+        exported_at: new Date().toISOString(),
+        app_build: (typeof APP_BUILD !== "undefined" ? APP_BUILD : null),
+        store_info: state.storeInfo || {},
+        line_notify_settings: state.lineNotifySettings || null,
+        loyalty_settings: state.loyaltySettings || null,
+        permissions: state.permissions || [],
+        local_storage: {
+          bsk_store_logo:    localStorage.getItem("bsk_store_logo"),
+          bsk_payment_info:  localStorage.getItem("bsk_payment_info"),
+          bsk_store_info:    localStorage.getItem("bsk_store_info"),
+          bsk_dark_mode:     localStorage.getItem("bsk_dark_mode"),
+          bsk_product_settings: localStorage.getItem("bsk_product_settings"),
+          bsk_slipok_branch: localStorage.getItem("bsk_slipok_branch")
+          // (intentionally NOT exporting bsk_slipok_key for security)
+        }
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "boonsook-config-" + new Date().toISOString().slice(0,10) + ".json";
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setBk("✅ ดาวน์โหลดไฟล์สำเร็จ — เก็บไว้ในที่ปลอดภัย", "#059669");
+    } catch (e) {
+      setBk("❌ ผิดพลาด: " + (e?.message || e), "#dc2626");
+    }
+  });
+  // Restore: upload JSON
+  document.getElementById("appRestoreBtn")?.addEventListener("click", () => document.getElementById("appRestoreFile")?.click());
+  document.getElementById("appRestoreFile")?.addEventListener("change", async (e) => {
+    const bkStatus = document.getElementById("appBackupStatus");
+    const setBk = (msg, color) => { if (bkStatus) { bkStatus.textContent = msg; bkStatus.style.color = color || "#475569"; } };
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!confirm("ยืนยันกู้คืน config จากไฟล์นี้?\n\nข้อมูลปัจจุบัน (logo, payment info ฯลฯ) จะถูกทับด้วยข้อมูลในไฟล์")) {
+      e.target.value = ""; return;
+    }
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      if (!data || typeof data !== "object" || !data.version) throw new Error("ไฟล์ไม่ถูกต้อง — ขาด field 'version'");
+      // Restore localStorage entries (safe ones)
+      if (data.local_storage && typeof data.local_storage === "object") {
+        Object.entries(data.local_storage).forEach(([k, v]) => {
+          if (typeof v === "string" && k.startsWith("bsk_")) {
+            try { localStorage.setItem(k, v); } catch(_) {}
+          }
+        });
+      }
+      setBk("✅ กู้คืนสำเร็จ — กำลัง reload เพื่อใช้ข้อมูลใหม่...", "#059669");
+      setTimeout(hardReload, 800);
+    } catch (e2) {
+      setBk("❌ กู้คืนไม่สำเร็จ: " + (e2?.message || e2), "#dc2626");
+    } finally {
+      e.target.value = "";
+    }
   });
 
   document.getElementById("appClearCacheBtn")?.addEventListener("click", async () => {

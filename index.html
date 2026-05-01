@@ -525,6 +525,8 @@
     </div>
     <!-- ★ ประวัติการซื้อของลูกค้า — โผล่ตอนเปิดแก้ไข -->
     <div id="customerPurchaseHistory" class="mt16 hidden"></div>
+    <!-- Phase 61 (C3): Notes Timeline — เพิ่มโน้ต/ติดตามลูกค้า เก็บใน activity_log -->
+    <div id="customerNotesTimeline" class="mt16 hidden"></div>
   </aside>
 
   <!-- ═══ QUOTATION — Form now rendered in-page by quotations.js module ═══ -->
@@ -662,7 +664,7 @@
   <script>
   (async function selfHeal() {
     try {
-      var APP_BUILD = 90;
+      var APP_BUILD = 91;
       var STUCK_BUILDS_BEFORE = 47; // builds before this มี immutable-cache bug
       var stored = parseInt(localStorage.getItem('bsk_app_build') || '0', 10);
       var justRecovered = sessionStorage.getItem('bsk_just_recovered') === '1';
@@ -711,7 +713,7 @@
     }
   })();
   </script>
-  <script type="module" src="./main.js?v=90"></script>
+  <script type="module" src="./main.js?v=91"></script>
   <script>
     // ═══ Loading Overlay ═══
     function hideLoadingOverlay() {

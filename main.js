@@ -2087,8 +2087,95 @@ function openCustomerDrawer(customer=null){
 
   // ★ แสดงประวัติการซื้อ — เฉพาะเวลาเปิดแก้ไข (มี customer)
   _renderCustomerPurchaseHistory(customer);
+  // Phase 61 (C3): Notes timeline
+  _renderCustomerNotesTimeline(customer);
 
   openDrawer("customerDrawer");
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 61 (C3): Customer Notes Timeline — uses activity_log
+// ═══════════════════════════════════════════════════════════
+async function _renderCustomerNotesTimeline(customer) {
+  const el = $("customerNotesTimeline");
+  if (!el) return;
+  if (!customer || !customer.id) { el.classList.add("hidden"); el.innerHTML = ""; return; }
+  el.classList.remove("hidden");
+  el.innerHTML = `
+    <div style="background:#f8fafc;border-radius:12px;padding:14px;border:1px solid #e2e8f0">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <span style="font-size:18px">💬</span>
+        <h4 style="margin:0;font-size:14px;color:#0f172a;flex:1">บันทึกติดตามลูกค้า</h4>
+      </div>
+      <div style="display:flex;gap:6px;margin-bottom:10px">
+        <input id="cnNoteInput" placeholder="เพิ่มโน้ต... เช่น โทรนัดติดตั้ง, แจ้งราคาแล้ว, ลูกค้าขอคิดดู" style="flex:1;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px" />
+        <button id="cnAddBtn" style="padding:8px 14px;background:#0284c7;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700;white-space:nowrap">+ บันทึก</button>
+      </div>
+      <div id="cnList" style="max-height:240px;overflow-y:auto"></div>
+    </div>
+  `;
+
+  const listEl = el.querySelector("#cnList");
+  const input = el.querySelector("#cnNoteInput");
+  const btn = el.querySelector("#cnAddBtn");
+
+  const loadAndRender = async () => {
+    listEl.innerHTML = '<div style="text-align:center;padding:14px;color:#94a3b8;font-size:12px">⏳ กำลังโหลด...</div>';
+    try {
+      const cfg = window.SUPABASE_CONFIG;
+      const token = window._sbAccessToken;
+      if (!token) { listEl.innerHTML = '<div style="text-align:center;padding:14px;color:#94a3b8;font-size:12px">ต้องเข้าสู่ระบบก่อน</div>'; return; }
+      const url = cfg.url + "/rest/v1/activity_log?entity_type=eq.customer&entity_id=eq." + encodeURIComponent(customer.id) + "&action=eq.customer_note&order=created_at.desc&limit=50";
+      const r = await fetch(url, { headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token } });
+      if (!r.ok) {
+        if (r.status === 404 || r.status === 400) { listEl.innerHTML = '<div style="text-align:center;padding:14px;color:#94a3b8;font-size:12px">ตาราง activity_log ยังไม่มี — รัน supabase-phase57-activity-log.sql</div>'; return; }
+        throw new Error("HTTP " + r.status);
+      }
+      const notes = await r.json();
+      if (!notes.length) {
+        listEl.innerHTML = '<div style="text-align:center;padding:18px;color:#94a3b8;font-size:12px">ยังไม่มีโน้ต — เพิ่มอันแรกได้เลย</div>';
+        return;
+      }
+      listEl.innerHTML = notes.map(n => `
+        <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:10px;margin-bottom:6px">
+          <div style="font-size:13px;color:#0f172a;white-space:pre-wrap;line-height:1.5">${escapeHtml(n.summary || "")}</div>
+          <div style="font-size:11px;color:#94a3b8;margin-top:4px">
+            👤 ${escapeHtml(n.user_name || "ไม่ระบุ")} • ${new Date(n.created_at).toLocaleString("th-TH", { day:"numeric", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit" })}
+          </div>
+        </div>
+      `).join("");
+    } catch(e) {
+      listEl.innerHTML = `<div style="text-align:center;padding:14px;color:#dc2626;font-size:12px">โหลดไม่สำเร็จ: ${escapeHtml(e.message || String(e))}</div>`;
+    }
+  };
+
+  const addNote = async () => {
+    const text = input.value.trim();
+    if (!text) return;
+    btn.disabled = true; btn.textContent = "⏳";
+    try {
+      const { logActivity } = await import("./modules/utils.js");
+      await logActivity("customer_note", {
+        entityType: "customer",
+        entityId: customer.id,
+        summary: text
+      });
+      input.value = "";
+      await loadAndRender();
+      showToast("บันทึกโน้ตแล้ว");
+    } catch(e) {
+      showToast("บันทึกไม่สำเร็จ: " + (e.message || e));
+    } finally {
+      btn.disabled = false; btn.textContent = "+ บันทึก";
+    }
+  };
+
+  btn.addEventListener("click", addNote);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); addNote(); }
+  });
+
+  loadAndRender();
 }
 
 // ═══════════════════════════════════════════════════════════

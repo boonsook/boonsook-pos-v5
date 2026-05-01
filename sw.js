@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v74 (2026-05-01): Phase 59-60 — quick-add + today/alerts widget + receipt filter + PDF watermark
-const CACHE_NAME = 'boonsook-pos-v5-cache-v74';
+// v75 (2026-05-01): Phase 61-62 — customer notes timeline + settings backup/restore
+const CACHE_NAME = 'boonsook-pos-v5-cache-v75';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
