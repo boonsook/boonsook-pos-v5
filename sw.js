@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v77 (2026-05-01): Phase 64 — error_codes Tasaki/Mavell/Trane + unit type filter (wall/ceiling/cassette/floor)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v77';
+// v78 (2026-05-02): Phase 65 — Panasonic 4 missing codes (H33/H58/H98/H99) + verified check method from PDF
+const CACHE_NAME = 'boonsook-pos-v5-cache-v78';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
