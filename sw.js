@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v78 (2026-05-02): Phase 65 — Panasonic 4 missing codes (H33/H58/H98/H99) + verified check method from PDF
-const CACHE_NAME = 'boonsook-pos-v5-cache-v78';
+// v79 (2026-05-02): Phase 66 — Daikin enrichment (17 codes for Sky Air/VRV/RA coverage)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v79';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

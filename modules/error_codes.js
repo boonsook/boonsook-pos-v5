@@ -39,7 +39,25 @@ const ERROR_DB = {
     "U2": { desc: "แรงดันไฟ DC bus ผิดปกติ", cause: "ไฟเข้าไม่เสถียร / capacitor เสีย", fix: "เช็คไฟเข้า, ตรวจแผงอินเวอร์เตอร์" },
     "U4": { desc: "สัญญาณสื่อสารระหว่างตัวใน-นอกผิดพลาด", cause: "สายสัญญาณขาด / หลวม", fix: "เช็คสายสัญญาณ 3 เส้นระหว่างตัวใน-นอก" },
     "U5": { desc: "สัญญาณสื่อสารรีโมท-ตัวในผิดพลาด", cause: "สายสัญญาณรีโมทเสีย", fix: "เช็คสายสัญญาณรีโมท, เปลี่ยนรีโมท" },
-    "UA": { desc: "ตัวในกับตัวนอกไม่เข้ากัน", cause: "รุ่นไม่เข้ากัน / จำนวนตัวในผิด", fix: "เช็คสเป็คตัวใน-นอกให้ตรงกัน" }
+    "UA": { desc: "ตัวในกับตัวนอกไม่เข้ากัน", cause: "รุ่นไม่เข้ากัน / จำนวนตัวในผิด", fix: "เช็คสเป็คตัวใน-นอกให้ตรงกัน" },
+    // Phase 65: เพิ่ม codes จาก Daikin PDF (Sky Air / VRV / RA coverage)
+    "E2": { desc: "Outdoor unit electric box overheat (กล่องไฟตัวนอกร้อน)", cause: "ระบายความร้อนตัวนอกไม่ดี / พัดลมเสีย", fix: "ล้างคอยล์ร้อน, ตรวจพัดลมตัวนอก" },
+    "EC": { desc: "Refrigerant overcharge / amount abnormal", cause: "เติมน้ำยาเกิน หรือ ระบบรั่ว", fix: "วัด superheat/subcool, ปรับน้ำยาให้ตรงสเปก" },
+    "F8": { desc: "Discharge pipe temperature (HPS) protection", cause: "อุณหภูมิท่อ discharge สูงเกิน — น้ำยาน้อย/คอมฯผิด", fix: "เช็คน้ำยา, ตรวจ EEV valve, เช็คคอมเพรสเซอร์" },
+    "H1": { desc: "Indoor unit voltage abnormal", cause: "แรงดันไฟเข้าตัวในผิดปกติ", fix: "เช็คไฟ AC เข้า, ตรวจ stabilizer" },
+    "H3": { desc: "HPS (High Pressure Switch) abnormal — Sky Air/VRV", cause: "HP switch ทำงานผิด / ลัดวงจร", fix: "เปลี่ยน HPS, ตรวจคอยล์ร้อน" },
+    "H4": { desc: "LPS (Low Pressure Switch) abnormal", cause: "LP switch ทำงานผิด / น้ำยาน้อย", fix: "เปลี่ยน LPS, เช็ครอยรั่วน้ำยา" },
+    "H5": { desc: "Compressor overload (OL) protection", cause: "คอมฯร้อนจัด / กินไฟเกิน", fix: "ตรวจคอมฯ, เช็คน้ำยา, ล้างคอยล์ร้อน" },
+    "H7": { desc: "Outdoor fan motor lock / position signal abnormal", cause: "มอเตอร์พัดลมตัวนอกล็อค / sensor signal ผิด", fix: "เปลี่ยนมอเตอร์พัดลมคอยล์ร้อน" },
+    "HC": { desc: "Compressor speed sensor abnormal", cause: "Position sensor ของคอมฯเสีย", fix: "เปลี่ยน sensor / แผง inverter" },
+    "L0": { desc: "Inverter system error (general)", cause: "Inverter PCB เสีย", fix: "เปลี่ยนแผงอินเวอร์เตอร์ตัวนอก" },
+    "L1": { desc: "Inverter PCB capacitor / current abnormal", cause: "Capacitor inverter เสื่อม", fix: "เปลี่ยน inverter PCB / capacitor" },
+    "L6": { desc: "Compressor inverter abnormal — instantaneous", cause: "คอมฯ over-current ฉับพลัน", fix: "ตรวจคอมฯ, ตรวจน้ำยา, เปลี่ยน inverter" },
+    "L8": { desc: "Compressor motor lock", cause: "คอมฯล็อคไม่หมุน", fix: "วัดความต้านทานคอมฯ, เปลี่ยนคอมเพรสเซอร์" },
+    "L9": { desc: "Compressor startup fail (stall)", cause: "คอมฯสตาร์ตไม่ติด", fix: "ตรวจน้ำยา, เปลี่ยนคอมเพรสเซอร์, ตรวจ inverter" },
+    "LC": { desc: "Communication between inverter PCB และ outdoor PCB", cause: "สายสัญญาณภายในตัวนอกหลวม", fix: "เช็คสาย ribbon cable ในกล่องไฟตัวนอก" },
+    "P0": { desc: "Refrigerant shortage / vacuum detection", cause: "น้ำยาน้อยมากจนเครื่องตรวจจับ", fix: "หารอยรั่ว + เติมน้ำยา R32/R410A" },
+    "P1": { desc: "Open phase / power voltage imbalance (3-phase)", cause: "ไฟ 3 phase ขาด phase หรือไม่ smooth", fix: "เช็คไฟ 3 phase, ตรวจ fuse / breaker" }
   },
   "Mitsubishi Electric": {
     "E0": { desc: "รีโมทส่งผิดพลาด (Transmission)", cause: "รีโมทเสีย / สัญญาณรบกวน", fix: "รีเซ็ตรีโมท, เปลี่ยนแบตเตอรี่" },
