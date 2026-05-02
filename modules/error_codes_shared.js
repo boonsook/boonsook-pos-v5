@@ -21,9 +21,28 @@ export function renderErrorExplorer(cfg) {
   if (!container) return;
 
   const db = cfg.db || {};
-  const brands = Object.keys(db);
+  const allBrands = Object.keys(db);
   const hero = cfg.hero || {};
   const tips = cfg.tips || {};
+  const brandMeta = cfg.brandMeta || {};
+  const enableUnitTypeFilter = cfg.enableUnitTypeFilter === true;
+
+  // Phase 59: filter brands by selected unit type
+  // - 'all' → ทุกแบรนด์
+  // - 'wall' → แบรนด์ที่ types ครอบคลุม wall หรือ types = ['all'] (default)
+  // - 'ceiling' / 'cassette' / 'floor' → แบรนด์ที่ types ครอบคลุมประเภทนั้น (ตรงเป๊ะ)
+  function brandMatchesType(brandName, type) {
+    if (!type || type === 'all') return true;
+    const types = brandMeta[brandName]?.types || ["all"];
+    if (types.includes('all')) {
+      // generic brand — แสดงเฉพาะใน wall (เพราะส่วนใหญ่ของ DB เก่าเป็น wall split)
+      return type === 'wall';
+    }
+    return types.includes(type);
+  }
+
+  // Initial: ทุกแบรนด์ (selectedType = 'all')
+  let _selectedUnitType = 'all';
 
   container.innerHTML = `
     <div style="max-width:900px;margin:0 auto;padding:8px">
@@ -33,17 +52,25 @@ export function renderErrorExplorer(cfg) {
         <p style="margin:0;color:${hero.subtitleColor || "#92400e"};font-size:14px">${escHtml(hero.subtitle || "ค้นหารหัสข้อผิดพลาดตามยี่ห้อ")}</p>
       </div>
 
+      ${enableUnitTypeFilter ? `
+      <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+        <span style="font-size:13px;color:#475569;font-weight:600;margin-right:4px">ประเภทแอร์:</span>
+        <button class="ec-type-btn" data-type="all" style="padding:6px 12px;border:1.5px solid #3b82f6;background:#eff6ff;color:#1e40af;border-radius:18px;cursor:pointer;font-size:12px;font-weight:600">ทั้งหมด</button>
+        <button class="ec-type-btn" data-type="wall" style="padding:6px 12px;border:1.5px solid #e5e7eb;background:#fff;color:#475569;border-radius:18px;cursor:pointer;font-size:12px;font-weight:600">🧱 ติดผนัง</button>
+        <button class="ec-type-btn" data-type="ceiling" style="padding:6px 12px;border:1.5px solid #e5e7eb;background:#fff;color:#475569;border-radius:18px;cursor:pointer;font-size:12px;font-weight:600">🏠 แขวนใต้ฝา</button>
+        <button class="ec-type-btn" data-type="cassette" style="padding:6px 12px;border:1.5px solid #e5e7eb;background:#fff;color:#475569;border-radius:18px;cursor:pointer;font-size:12px;font-weight:600">⊞ สี่ทิศทาง</button>
+        <button class="ec-type-btn" data-type="floor" style="padding:6px 12px;border:1.5px solid #e5e7eb;background:#fff;color:#475569;border-radius:18px;cursor:pointer;font-size:12px;font-weight:600">📦 ตู้ตั้ง</button>
+      </div>
+      ` : ""}
+
       <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
         <select id="ecBrandSelect" style="flex:1;min-width:140px;padding:10px 12px;border:1px solid #d1d5db;border-radius:10px;font-size:15px;background:#fff">
           <option value="">— เลือกยี่ห้อ —</option>
-          ${brands.map(b => `<option value="${escHtml(b)}">${escHtml(b)}</option>`).join("")}
         </select>
         <input id="ecSearchInput" type="text" placeholder="${escHtml(cfg.placeholder || "พิมพ์รหัส Error...")}" style="flex:2;min-width:160px;padding:10px 12px;border:1px solid #d1d5db;border-radius:10px;font-size:15px" />
       </div>
 
-      <div id="ecBrandBtns" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px">
-        ${brands.map(b => `<button class="ec-brand-btn" data-brand="${escHtml(b)}" style="padding:6px 14px;border:2px solid #e5e7eb;border-radius:20px;background:#fff;cursor:pointer;font-size:13px;font-weight:600;transition:all .2s">${escHtml(b)}</button>`).join("")}
-      </div>
+      <div id="ecBrandBtns" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px"></div>
 
       <div id="ecResults"></div>
 
@@ -57,8 +84,35 @@ export function renderErrorExplorer(cfg) {
 
   const brandSelect = container.querySelector("#ecBrandSelect");
   const searchInput = container.querySelector("#ecSearchInput");
-  const brandBtns = container.querySelectorAll(".ec-brand-btn");
+  const brandBtnsHolder = container.querySelector("#ecBrandBtns");
   const resultsDiv = container.querySelector("#ecResults");
+  const typeBtns = container.querySelectorAll(".ec-type-btn");
+
+  // Phase 59: build brand select + chips ตาม _selectedUnitType
+  function rebuildBrandList() {
+    const brands = allBrands.filter(b => brandMatchesType(b, _selectedUnitType));
+    brandSelect.innerHTML = `<option value="">— เลือกยี่ห้อ —</option>` +
+      brands.map(b => `<option value="${escHtml(b)}">${escHtml(b)}</option>`).join("");
+    brandBtnsHolder.innerHTML = brands.map(b =>
+      `<button class="ec-brand-btn" data-brand="${escHtml(b)}" style="padding:6px 14px;border:2px solid #e5e7eb;border-radius:20px;background:#fff;cursor:pointer;font-size:13px;font-weight:600;transition:all .2s">${escHtml(b)}</button>`
+    ).join("");
+    // re-bind click events on new chips
+    brandBtnsHolder.querySelectorAll(".ec-brand-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        brandSelect.value = btn.dataset.brand;
+        brandBtnsHolder.querySelectorAll(".ec-brand-btn").forEach(b => {
+          b.style.borderColor = b === btn ? "#3b82f6" : "#e5e7eb";
+          b.style.background = b === btn ? "#eff6ff" : "#fff";
+        });
+        renderResults();
+      });
+    });
+    // ถ้า brand ที่เลือกอยู่ไม่อยู่ใน list หลัง filter — ล้างค่า
+    if (brandSelect.value && !brands.includes(brandSelect.value)) {
+      brandSelect.value = "";
+    }
+  }
+  rebuildBrandList();
 
   function renderResults() {
     const brand = brandSelect.value;
@@ -83,7 +137,9 @@ export function renderErrorExplorer(cfg) {
         }
       }
     } else {
+      // Phase 59: search ข้าม brand → filter ด้วย unit type ที่เลือกอยู่
       for (const [b, codes] of Object.entries(db)) {
+        if (!brandMatchesType(b, _selectedUnitType)) continue;
         for (const [code, info] of Object.entries(codes)) {
           if (code.toUpperCase().includes(query)) {
             results.push({ brand: b, code, ...info });
@@ -117,7 +173,7 @@ export function renderErrorExplorer(cfg) {
   }
 
   brandSelect.addEventListener("change", () => {
-    brandBtns.forEach(b => {
+    brandBtnsHolder.querySelectorAll(".ec-brand-btn").forEach(b => {
       b.style.borderColor = b.dataset.brand === brandSelect.value ? "#3b82f6" : "#e5e7eb";
       b.style.background = b.dataset.brand === brandSelect.value ? "#eff6ff" : "#fff";
     });
@@ -126,13 +182,17 @@ export function renderErrorExplorer(cfg) {
 
   searchInput.addEventListener("input", renderResults);
 
-  brandBtns.forEach(btn => {
+  // Phase 59: unit-type chip filter
+  typeBtns.forEach(btn => {
     btn.addEventListener("click", () => {
-      brandSelect.value = btn.dataset.brand;
-      brandBtns.forEach(b => {
-        b.style.borderColor = b === btn ? "#3b82f6" : "#e5e7eb";
-        b.style.background = b === btn ? "#eff6ff" : "#fff";
+      _selectedUnitType = btn.dataset.type || 'all';
+      typeBtns.forEach(b => {
+        const active = b === btn;
+        b.style.borderColor = active ? "#3b82f6" : "#e5e7eb";
+        b.style.background = active ? "#eff6ff" : "#fff";
+        b.style.color = active ? "#1e40af" : "#475569";
       });
+      rebuildBrandList();
       renderResults();
     });
   });

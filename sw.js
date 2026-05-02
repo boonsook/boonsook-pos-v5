@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v76 (2026-05-01): Phase 63 — service job share link + standalone share.html viewer
-const CACHE_NAME = 'boonsook-pos-v5-cache-v76';
+// v77 (2026-05-01): Phase 64 — error_codes Tasaki/Mavell/Trane + unit type filter (wall/ceiling/cassette/floor)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v77';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

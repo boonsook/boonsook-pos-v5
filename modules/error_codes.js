@@ -506,7 +506,97 @@ const ERROR_DB = {
     "F2": { desc: "เซ็นเซอร์อากาศภายนอกผิด", cause: "เทอร์มิสเตอร์เสีย", fix: "เปลี่ยนเทอร์มิสเตอร์" },
     "F3": { desc: "IPM module fault", cause: "แผง IPM เสีย", fix: "เปลี่ยนแผง IPM" },
     "P4": { desc: "Inverter overcurrent", cause: "แผงอินเวอร์เตอร์เสีย", fix: "เปลี่ยนแผง inverter" }
+  },
+
+  // ═══════════════════════════════════════════════════════════
+  // Phase 59 — เพิ่ม 4 sub-brands ใหม่ (Tasaki/Mavell/Trane)
+  //   จากข้อมูล PDF ที่ user ส่งมา (proairthailand.com / โปรแอร์ เซอร์วิส)
+  // ═══════════════════════════════════════════════════════════
+
+  "Tasaki (ติดผนัง)": {
+    // Model: FWDE-I-AF1, FWDE-AF2 — Wall Type
+    // Format: Operation Lamp กะพริบ N ครั้ง = รหัส Error
+    "E0": { desc: "พารามิเตอร์ EEPROM ของเครื่องส่วนในผิดปกติ (Operation Lamp 1 ครั้ง)", cause: "แผง PCB ตัวในเสีย", fix: "เปลี่ยนแผง PCB ตัวใน" },
+    "E1": { desc: "การสื่อสารตัวใน-ตัวนอก ผิดปกติ (Operation Lamp 2 ครั้ง)", cause: "สายสัญญาณตัวใน-นอกหลวม/ขาด", fix: "เช็คสายสัญญาณ 3 เส้นระหว่างตัวใน-นอก" },
+    "E2": { desc: "เซ็นเซอร์ Zero-Crossing ผิดปกติ (Operation Lamp 3 ครั้ง — บางรุ่น)", cause: "วงจรตรวจจับความถี่ไฟเสีย", fix: "เปลี่ยนแผง PCB ตัวใน" },
+    "E3": { desc: "ความเร็วพัดลมตัวเครื่องส่วนใน ทำงานผิดปกติ (Operation Lamp 4 ครั้ง)", cause: "มอเตอร์พัดลมตัวในเสีย / สายขาด", fix: "เช็คมอเตอร์พัดลมตัวใน, เปลี่ยนถ้าเสีย" },
+    "E4": { desc: "เซ็นเซอร์อุณหภูมิห้องตัวใน T1 สายหลุด/ขาดหรือลัดวงจร (Operation Lamp 5 ครั้ง)", cause: "เซ็นเซอร์ห้องเสีย", fix: "เปลี่ยนเทอร์มิสเตอร์ห้อง T1" },
+    "E5": { desc: "เซ็นเซอร์อุณหภูมิคอยล์เย็น T2 สายหลุด/ขาดหรือลัดวงจร (Operation Lamp 6 ครั้ง)", cause: "เซ็นเซอร์คอยล์เย็นเสีย", fix: "เปลี่ยนเทอร์มิสเตอร์คอยล์เย็น T2" },
+    "E7": { desc: "PCB ตัวใน / การสื่อสารกับแผงอินเวอร์เตอร์ผิดปกติ (Operation Lamp 9 ครั้ง — บางรุ่น)", cause: "แผง PCB ตัวในเสีย หรือสาย Inverter หลวม", fix: "เช็คสายระหว่างแผง, เปลี่ยน PCB ถ้าจำเป็น" },
+    "EC": { desc: "ตรวจสอบการรั่วไหลของสารทำความเย็น (Operation Lamp 7 ครั้ง)", cause: "น้ำยาแอร์รั่วหรือพร่อง", fix: "เช็ครอยรั่ว, เติมน้ำยา R32" },
+    "F0": { desc: "การป้องกันกระแสไฟฟ้าเกิน (Operation Lamp 1 ครั้ง — F-mode)", cause: "คอมฯกินไฟเกิน / ไฟเข้าผิดปกติ", fix: "ตรวจคอมเพรสเซอร์, ตรวจไฟเข้า" },
+    "F1": { desc: "เซ็นเซอร์อุณหภูมิห้องตัวนอก T4 สายหลุด/ขาดหรือลัดวงจร (Operation Lamp 2 ครั้ง — F-mode)", cause: "เซ็นเซอร์อากาศภายนอกเสีย", fix: "เปลี่ยนเทอร์มิสเตอร์ตัวนอก T4" },
+    "F2": { desc: "เซ็นเซอร์อุณหภูมิคอนเดนเซอร์คอยล์ T3 ขาดหรือลัดวงจร (Operation Lamp 3 ครั้ง — F-mode)", cause: "เซ็นเซอร์คอยล์ร้อนเสีย", fix: "เปลี่ยนเทอร์มิสเตอร์คอยล์ร้อน T3" },
+    "F3": { desc: "เซ็นเซอร์อุณหภูมิที่ท่อ TP สายหลุด/ขาดหรือลัดวงจร (Operation Lamp 4 ครั้ง — F-mode)", cause: "เซ็นเซอร์ท่อทางส่งเสีย", fix: "เปลี่ยนเทอร์มิสเตอร์ท่อทางส่ง TP" },
+    "F4": { desc: "พารามิเตอร์ EEPROM ของเครื่องส่วนนอกผิดปกติ (Operation Lamp 5 ครั้ง — F-mode)", cause: "แผง PCB ตัวนอกเสีย", fix: "เปลี่ยนแผง PCB ตัวนอก" },
+    "F5": { desc: "ความเร็วพัดลมตัวเครื่องส่วนนอกทำงานผิดปกติ (Operation Lamp 6 ครั้ง — F-mode)", cause: "มอเตอร์พัดลมตัวนอกเสีย", fix: "เปลี่ยนมอเตอร์พัดลมคอยล์ร้อน" },
+    "P0": { desc: "IPM ทำงานผิดปกติ / ป้องกัน IGBT กระแสไฟฟ้าเกิน (Operation Lamp 1 ครั้ง — P-mode)", cause: "แผง IPM เสีย", fix: "เปลี่ยนแผง IPM" },
+    "P1": { desc: "การป้องกันแรงดันไฟฟ้าสูงหรือต่ำกว่าปกติ (Operation Lamp 2 ครั้ง — P-mode)", cause: "ไฟเข้าไม่เสถียร", fix: "เช็คไฟเข้า, ติดตั้ง stabilizer" },
+    "P2": { desc: "ป้องกัน IPM อุณหภูมิสูง หรือเซ็นเซอร์ทำงานผิดปกติ (Operation Lamp 3 ครั้ง — P-mode)", cause: "IPM ร้อนเกิน / เซ็นเซอร์ IPM เสีย", fix: "ล้างคอยล์ร้อน, ตรวจพัดลมตัวนอก" },
+    "P3": { desc: "ไดรฟ์คอมเพรสเซอร์อินเวอร์เตอร์ทำงานผิดปกติ (Operation Lamp 5 ครั้ง — P-mode)", cause: "แผงอินเวอร์เตอร์เสีย", fix: "เปลี่ยนแผงอินเวอร์เตอร์" },
+    "P6": { desc: "การป้องกันแรงดันสูงทำงานต่ำผิดปกติ (Operation Lamp 7 ครั้ง — P-mode)", cause: "Pressure switch หลวม", fix: "เช็ค HP/LP switch, ตรวจน้ำยา" }
+  },
+
+  "Tasaki (แขวน/ตู้ตั้ง)": {
+    // Model: FUL-B-AD1, FULT-B-AD1, FULE-B-AD2, FULE-B-AF2 — Floor Ceiling
+    // Format: ไฟ POWER/TIMER กะพริบเป็นรูปแบบต่างๆ
+    "E1": { desc: "Freeze (Anti-ice) — Indoor coil ต่ำเกิน (POWER กะพริบต่อเนื่อง)", cause: "ทำงานในโหมด Cool/Dry แล้วคอยล์เย็นต่ำกว่าค่ากำหนด เกิดน้ำแข็ง — ระบบหยุดคอมฯ", fix: "ล้างฟิลเตอร์, ล้างคอยล์เย็น, ตรวจน้ำยา" },
+    "E6": { desc: "Cooling Fail — เครื่องทำเย็นไม่ได้ (POWER กะพริบ 2 ครั้ง หยุดเป็นจังหวะ)", cause: "ทำงาน Cool/Dry นาน 10 นาที แต่ Indoor coil ยังไม่ลดต่ำกว่า 25°C → คอมฯผิดปกติ", fix: "เช็คน้ำยา, ตรวจคอมเพรสเซอร์, ตรวจคอยล์ร้อน" },
+    "E8": { desc: "Sensor Error — Room sensor ผิดปกติ (TIMER กะพริบต่อเนื่อง)", cause: "เซ็นเซอร์อุณหภูมิห้องเสีย — ระบบจะ ON 10 นาที / OFF 5 นาที สลับกัน", fix: "เปลี่ยนเซ็นเซอร์ห้อง, ตรวจ Freeze sensor" }
+  },
+
+  "Mavell": {
+    // จาก "โปรแอร์ เซอร์วิส" — โหมด F/E/P
+    "F0": { desc: "Outdoor DC Fan Motor Fault — มอเตอร์ DC ตัวข้างนอกผิดปกติ", cause: "สายมอเตอร์พัดลม Outdoor ขาด หรือมอเตอร์เสีย", fix: "ตรวจสายมอเตอร์ Outdoor, ถ้าไม่ขาดให้เปลี่ยนมอเตอร์" },
+    "F1": { desc: "Clogged liquid pipe — ท่อของเหลวอุดตัน", cause: "Capillary tube อุดตัน", fix: "ตรวจสอบ Capillary, เปลี่ยนถ้ามีการเชื่อมปิดรู" },
+    "F3": { desc: "Compressor operation fault — ความผิดปกติจากคอมเพรสเซอร์", cause: "สายต่อคอมฯผิด หรือต่อแผงอินเวอร์เตอร์ผิด", fix: "เช็คสายต่อคอมฯ + แผงอินเวอร์เตอร์ให้ถูกต้อง" },
+    "F4": { desc: "Exhaust Temperature sensor fault — เซ็นเซอร์อุณหภูมิตัวจับความร้อนคอนเดนซิ่งผิดปกติ", cause: "เซ็นเซอร์เสีย หรือต่อ PCB ผิด", fix: "เช็คตำแหน่งเซ็นเซอร์ + การเชื่อมต่อ, เปลี่ยนถ้าเสีย" },
+    "F6": { desc: "Outdoor ambient temp sensor fault — เซ็นเซอร์วัดอุณหภูมิภายนอกผิดปกติ", cause: "เซ็นเซอร์ภายนอกเสีย", fix: "เช็คตำแหน่งเซ็นเซอร์, เปลี่ยนถ้าเสีย" },
+    "F7": { desc: "Over/under voltage protection — ป้องกันแรงดันไฟฟ้าเกิน/ต่ำ", cause: "ไฟเข้าไม่เสถียร", fix: "เช็คไฟเข้า, ติดตั้ง stabilizer" },
+    "E0": { desc: "Indoor over current protection — ป้องกันกระแสไฟเกินตัวแฟนคอยล์", cause: "ระบบไฟฟ้าเข้ามากเกินกว่าค่าที่กำหนด", fix: "เช็คระบบไฟฟ้าเข้า" },
+    "E1": { desc: "Room temperature sensor fault — เซ็นเซอร์อุณหภูมิห้องผิดปกติ", cause: "เซ็นเซอร์ห้องเสีย", fix: "เปลี่ยนเซ็นเซอร์ห้อง" },
+    "E2": { desc: "Outdoor coil temperature sensor fault — เซ็นเซอร์อุณหภูมิคอนเดนซิ่งผิดปกติ", cause: "เซ็นเซอร์คอนเดนซิ่งเสีย", fix: "เปลี่ยนเซ็นเซอร์, ถ้ายังไม่หายเปลี่ยน PCB Board" },
+    "E3": { desc: "Indoor coil temperature sensor fault — เซ็นเซอร์ตรงท่อทองแดงผิดปกติ", cause: "เซ็นเซอร์ท่อทองแดงเสีย", fix: "เปลี่ยนเซ็นเซอร์, ถ้ายังไม่หายเปลี่ยน PCB Board" },
+    "E4": { desc: "Indoor fan motor or DC motor feedback fault — มอเตอร์ไม่ทำงาน", cause: "สายมอเตอร์ Indoor ขาด หรือมอเตอร์เสีย", fix: "ตรวจสายมอเตอร์ Indoor + การทำงาน, เปลี่ยน PCB Board ถ้าเสีย" },
+    "E5": { desc: "Indoor & outdoor communication fault — ส่งสัญญาณตัวใน-นอกผิดพลาด", cause: "สายสัญญาณตัวใน-นอกชำรุด/ขาด", fix: "ตรวจสายสัญญาณ" },
+    "P3": { desc: "Leaked refrigerant — น้ำยารั่วหรือน้ำยาน้อย", cause: "น้ำยา R32/R410A พร่อง", fix: "แวคคั่ม + เติมน้ำยาใหม่" },
+    "P4": { desc: "Refrigeration overload protection — ป้องกันน้ำยาเกิน", cause: "น้ำยาในระบบเกิน", fix: "เช็คน้ำยาในระบบ, ใช้แอมป์มิเตอร์เช็คตามเนมเพลต" },
+    "P8": { desc: "Outdoor over current protection — ป้องกันกระแสไฟเกินคอนเดนซิ่ง", cause: "ระบบไฟฟ้าเข้าเกินกว่าค่ากำหนด", fix: "เช็คระบบไฟฟ้าเข้า" }
+  },
+
+  "Trane": {
+    // Model: MCWA09/12/18BB5 — Wall Type ติดผนัง
+    "E1": { desc: "ตัดการทำงานแรงดันสูง (HP cut-off)", cause: "ระบายความร้อนไม่ดี / น้ำยามากเกิน / HP switch เสีย", fix: "ล้างคอยล์ร้อน, ตรวจระดับน้ำยา, เปลี่ยน HP switch" },
+    "E2": { desc: "ตัวป้องกันการเกิดน้ำแข็ง — ตัดการทำงาน", cause: "น้ำยาน้อย หรือ Coil FCU สกปรก", fix: "ตรวจรอยรั่ว เติมน้ำยา, ทำความสะอาด Coil FCU + Filter" },
+    "E4": { desc: "Exhaust Temp. สูง ตัดการทำงาน (Discharge ≥ 110°C)", cause: "น้ำยาน้อย / ระบบตัน / ระบายความร้อนไม่ดี", fix: "ตรวจน้ำยา, เช็ค Capillary, ตรวจพัดลมระบายความร้อน" },
+    "E5": { desc: "ไฟตก-ตัดการทำงาน", cause: "ตัวป้องกันกระแสเกินทำงาน เพราะไฟตก", fix: "ตรวจ Main Power, ตรวจการระบายความร้อน" },
+    "E6": { desc: "Communication Error — สื่อสาร FCU-CDU ล้มเหลว", cause: "สายสัญญาณหลวม/ขาด หรือ Controller Board เสีย", fix: "ตรวจสายสัญญาณ, ตรวจแผง Controller Board" },
+    "E8": { desc: "CDU Ambient สูง (อุณหภูมิ ≥ 53°C)", cause: "ระบายความร้อนตัวนอกไม่ดี", fix: "ตรวจการระบายความร้อน, ล้างคอยล์ร้อน" },
+    "F1": { desc: "FCU Room Sensor Error — วัดอุณหภูมิห้องไม่ได้", cause: "Sensor ห้องเสีย / สายต่อ PCB หลุด", fix: "ตรวจ Sensor + สายต่อแผง PCB" },
+    "F2": { desc: "FCU Tube Sensor Error — วัดอุณหภูมิท่อน้ำยาตัวในไม่ได้", cause: "Sensor คอยล์เย็นเสีย", fix: "ตรวจ Sensor + สายต่อแผง PCB" },
+    "F3": { desc: "CDU Ambient Temp. Error — วัดอุณหภูมิภายนอกไม่ได้", cause: "Sensor ตัวนอกเสีย", fix: "ตรวจ Sensor + สายต่อแผง PCB" },
+    "F4": { desc: "CDU Tube Sensor Error — วัดอุณหภูมิท่อน้ำยาตัวนอกไม่ได้", cause: "Sensor คอยล์ร้อนเสีย", fix: "ตรวจ Sensor + สายต่อแผง PCB" },
+    "F5": { desc: "CDU Exhaust Temp. Error — วัดอุณหภูมิที่ Coil ตัวนอกไม่ได้", cause: "Discharge Sensor เสีย", fix: "ตรวจ Sensor + สายต่อแผง PCB" },
+    "H3": { desc: "Compressor Overload หรือ Comp. กระแสเกิน — ตัดการทำงาน", cause: "น้ำยาน้อย/ระบบตัน หรือ Compressor ร้อนมาก", fix: "ตรวจน้ำยา, เช็ค Capillary, ตรวจคอมเพรสเซอร์" },
+    "H4": { desc: "Overload จึงตัดการทำงาน (Discharge ≥ 115°C)", cause: "Discharge Temp Sensor ≥ 115°C", fix: "ตรวจการระบายความร้อน + Sensor (รอจน ≤ 95°C จึงทำงานต่อ)" },
+    "H5": { desc: "IPM Power Module ตัดการทำงาน", cause: "IPM อุณหภูมิสูง / DC bus < 150V หรือ > 420V / แรงดันไฟตก", fix: "ตรวจ IPM Power Module, ตรวจแรงดัน DC bus, ตรวจไฟ main" },
+    "H6": { desc: "DC Motor FCU ไม่ทำงาน", cause: "DC Motor ตัวในเสีย หรือสาย/แผง PCB เสีย", fix: "ตรวจแผง PCB + สายไฟ, ตรวจ Motor + ทิศการหมุน" },
+    "PH": { desc: "แรงดัน DC bus-bar สูง", cause: "AC Voltage L,N > 265 VAC / Electrolytic Capacitor เสีย", fix: "ตรวจ Main Power, ตรวจ Capacitor, ตรวจแผง Board AP1" },
+    "U5": { desc: "การวัดกระแสไฟฟ้าผิดปกติ", cause: "ตัดการทำงานเพราะกระแสไฟฟ้า — แผง Board AP1 เสีย", fix: "ตรวจ + เปลี่ยนแผง Board AP1" },
+    "EE": { desc: "EEPROM Error — CDU และ FCU หยุดทำงาน", cause: "หน่วยความจำใน Controller เสีย", fix: "เปลี่ยนแผง Controller CDU" }
   }
+};
+
+// ═══════════════════════════════════════════════════════════
+// Phase 59 — Brand metadata: ประเภทแอร์ที่แต่ละแบรนด์ครอบคลุม
+// ใช้สำหรับ filter dropdown "ติดผนัง / แขวน / สี่ทิศทาง / ตู้ตั้ง"
+// ═══════════════════════════════════════════════════════════
+export const BRAND_META = {
+  "Tasaki (ติดผนัง)":      { types: ["wall"] },
+  "Tasaki (แขวน/ตู้ตั้ง)": { types: ["ceiling", "floor"] },
+  "Mavell":                 { types: ["all"] },
+  "Trane":                  { types: ["wall"] }
+  // existing 19 brands → default ["all"] (รองรับทั้ง wall เป็นหลัก)
 };
 
 import { renderErrorExplorer } from "./error_codes_shared.js";
@@ -515,6 +605,8 @@ export function renderErrorCodesPage(ctx) {
   renderErrorExplorer({
     containerId: "page-error_codes",
     db: ERROR_DB,
+    brandMeta: BRAND_META,
+    enableUnitTypeFilter: true,
     hero: {
       icon: "⚠️",
       title: "Error Code แอร์",
