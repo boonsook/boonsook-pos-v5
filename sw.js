@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v95 (2026-05-03): Phase 74.8 — AutoKey category mapping (Thai → enum) + dropdown
-const CACHE_NAME = 'boonsook-pos-v5-cache-v95';
+// v96 (2026-05-03): Phase 76 — Payroll auto-create expense (salary) เมื่อ mark paid
+const CACHE_NAME = 'boonsook-pos-v5-cache-v96';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

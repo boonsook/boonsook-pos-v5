@@ -405,18 +405,60 @@ async function _markPaid(ctx, id) {
   if (!method) return;
   const cfg = window.SUPABASE_CONFIG;
   const token = window._sbAccessToken;
+  const headers = { "Content-Type": "application/json", "apikey": cfg.anonKey, "Authorization": "Bearer " + token };
   try {
+    const paidAt = new Date().toISOString();
     const resp = await fetch(cfg.url + "/rest/v1/staff_payroll?id=eq." + id, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json", "apikey": cfg.anonKey, "Authorization": "Bearer " + token },
-      body: JSON.stringify({ paid_at: new Date().toISOString(), payment_method: method })
+      method: "PATCH", headers,
+      body: JSON.stringify({ paid_at: paidAt, payment_method: method })
     });
     if (!resp.ok) throw new Error("HTTP " + resp.status);
-    ctx.showToast?.("บันทึกการจ่ายแล้ว");
+
+    // Phase 76: Auto-create expense in salary category — link via "#payroll-{id}" pattern
+    const payroll = _payrolls.find(p => String(p.id) === String(id));
+    if (payroll) {
+      try {
+        await _createSalaryExpense(cfg, headers, payroll, paidAt, method);
+      } catch (e) {
+        console.warn("auto-expense fail", e);
+        ctx.showToast?.("จ่ายแล้ว แต่บันทึกรายจ่ายอัตโนมัติไม่สำเร็จ");
+      }
+    }
+    ctx.showToast?.("บันทึกการจ่าย + ลงรายจ่ายเงินเดือนแล้ว ✅");
+    if (ctx.loadAllData) await ctx.loadAllData();
     renderPayrollPage(ctx);
   } catch(e) {
     ctx.showToast?.("บันทึกไม่สำเร็จ: " + (e.message || e));
   }
+}
+
+// Phase 76: ลงรายจ่าย salary อัตโนมัติเมื่อ mark paid — กัน duplicate ด้วย pattern #payroll-{id}
+async function _createSalaryExpense(cfg, headers, payroll, paidAt, method) {
+  const tag = "#payroll-" + payroll.id;
+  // ตรวจซ้ำก่อน — ถ้ามี expense ที่ note ลงท้าย/มี #payroll-{id} อยู่แล้ว skip
+  const checkUrl = `${cfg.url}/rest/v1/expenses?note=ilike.${encodeURIComponent('%' + tag + '%')}&select=id&limit=1`;
+  const cr = await fetch(checkUrl, { headers: { apikey: cfg.anonKey, Authorization: headers.Authorization } });
+  if (cr.ok) {
+    const arr = await cr.json();
+    if (arr && arr.length > 0) return; // มีแล้ว skip
+  }
+  const emp = _profiles.find(x => x.id === payroll.employee_id);
+  const empName = emp?.full_name || "(พนักงาน)";
+  const periodTH = new Date(payroll.period_month).toLocaleDateString("th-TH", { year: "numeric", month: "long" });
+  const payload = {
+    expense_date: paidAt.slice(0, 10),
+    category: "salary",
+    description: `จ่ายเงินเดือน ${empName} — ${periodTH}`,
+    amount: Number(payroll.total_amount || 0),
+    payment_method: method,
+    note: `บันทึกอัตโนมัติจากระบบเงินเดือน · ${empName} ${tag}`
+  };
+  const ir = await fetch(cfg.url + "/rest/v1/expenses", {
+    method: "POST",
+    headers: { ...headers, Prefer: "return=minimal" },
+    body: JSON.stringify(payload)
+  });
+  if (!ir.ok) throw new Error("expense insert HTTP " + ir.status);
 }
 
 // Phase 75: replace native prompt() — modal dropdown เลือกวิธีจ่าย
