@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v92 (2026-05-03): Phase 74.2 — AutoKey error handler verbose (debug HTML response)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v92';
+// v93 (2026-05-03): Phase 74.3 — AutoKey ลด image 1280px/0.75 + Gemini timeout 25s + 520 handler
+const CACHE_NAME = 'boonsook-pos-v5-cache-v93';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

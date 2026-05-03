@@ -647,7 +647,7 @@ function _openAutoKeyModal(ctx) {
   const onPick = async (e) => {
     const f = e.target.files?.[0];
     if (!f) return;
-    _imageDataUrl = await _resizeImage(f, 1600);
+    _imageDataUrl = await _resizeImage(f, 1280);
     previewImg.src = _imageDataUrl;
     document.getElementById("akStep1").style.display = "none";
     document.getElementById("akStep2").style.display = "block";
@@ -675,15 +675,13 @@ function _openAutoKeyModal(ctx) {
       } catch (parseErr) {
         document.getElementById("akStep3").style.display = "none";
         document.getElementById("akStep4").style.display = "block";
-        document.getElementById("akResult").innerHTML = `<div style="padding:14px;background:#fef2f2;border:1px solid #fecaca;border-radius:10px;color:#991b1b;font-size:13px;line-height:1.6">
-          <b>❌ Server ตอบไม่ใช่ JSON</b><br>
-          HTTP ${r.status} · content-type: ${escHtml(ct)}<br>
-          <small>raw: ${escHtml(raw.slice(0, 200))}</small><br><br>
-          <b>วิธีแก้:</b><br>
-          1. กด <b>Ctrl+Shift+R</b> (PC) หรือปิดแอปแล้วเปิดใหม่ (มือถือ)<br>
-          2. ตรวจ build เป็น 107 (ตั้งค่า → เกี่ยวกับแอป)<br>
-          3. เช็คว่า Cloudflare Function deploy เสร็จแล้ว
-        </div>
+        // Cloudflare 520/524/502/504 = origin/timeout error → friendlier message
+        const isCfError = [520, 521, 522, 523, 524, 502, 504].includes(r.status);
+        const friendly = isCfError
+          ? `<b>⚠️ Cloudflare timeout (HTTP ${r.status})</b><br>
+             AI ใช้เวลานานเกินไป — ลองรูปเล็กลง / ภาพชัดขึ้น / เครือข่ายเร็วขึ้น`
+          : `<b>❌ Server ตอบไม่ใช่ JSON</b><br>HTTP ${r.status} · ${escHtml(ct)}<br><small>raw: ${escHtml(raw.slice(0, 150))}</small>`;
+        document.getElementById("akResult").innerHTML = `<div style="padding:14px;background:#fef2f2;border:1px solid #fecaca;border-radius:10px;color:#991b1b;font-size:13px;line-height:1.6">${friendly}</div>
         <button onclick="document.getElementById('akStep2').style.display='block';document.getElementById('akStep4').style.display='none'" style="margin-top:10px;padding:10px;width:100%;background:#f1f5f9;border:none;border-radius:8px;cursor:pointer;font-size:13px">← กลับ</button>`;
         return;
       }
@@ -721,7 +719,7 @@ async function _resizeImage(file, maxDim) {
         const canvas = document.createElement("canvas");
         canvas.width = w; canvas.height = h;
         canvas.getContext("2d").drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL("image/jpeg", 0.85));
+        resolve(canvas.toDataURL("image/jpeg", 0.75));
       };
       img.src = e.target.result;
     };

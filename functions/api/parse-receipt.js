@@ -93,11 +93,27 @@ JSON schema:
       }
     };
 
-    const r = await fetch(geminiUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(geminiBody)
-    });
+    // Timeout safety — Cloudflare Pages Functions มี wall time limit ~30s
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 25000);
+
+    let r;
+    try {
+      r = await fetch(geminiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(geminiBody),
+        signal: ctrl.signal
+      });
+    } catch (fetchErr) {
+      clearTimeout(timer);
+      const isAbort = fetchErr?.name === "AbortError";
+      return new Response(JSON.stringify({
+        ok: false,
+        error: isAbort ? "Gemini ตอบช้าเกิน 25 วินาที — ลองรูปเล็กกว่า" : ("Gemini fetch failed: " + (fetchErr?.message || "unknown"))
+      }), { status: 200, headers: corsHeaders });
+    }
+    clearTimeout(timer);
 
     if (!r.ok) {
       const errTxt = await r.text();
