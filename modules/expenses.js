@@ -605,8 +605,10 @@ function _openAutoKeyModal(ctx) {
           📸 ถ่ายรูปสลิป/ใบเสร็จซัพพลายเออร์ → AI จะอ่านเลข ที่อยู่ ยอดรวม ให้อัตโนมัติ<br>
           <b>เคล็ดลับ:</b> ถ่ายให้สว่าง • ตัวเลขชัดเจน • ทั้งใบ
         </div>
-        <input id="akFile" type="file" accept="image/*" capture="environment" style="display:none" />
-        <button id="akPickBtn" type="button" style="width:100%;padding:18px;background:#7c3aed;color:#fff;border:none;border-radius:12px;cursor:pointer;font-size:15px;font-weight:700">📷 เลือกรูป / ถ่ายรูปสลิป</button>
+        <input id="akFile" type="file" accept="image/*" style="display:none" />
+        <input id="akFileCam" type="file" accept="image/*" capture="environment" style="display:none" />
+        <button id="akPickCamBtn" type="button" style="width:100%;padding:16px;background:#7c3aed;color:#fff;border:none;border-radius:12px;cursor:pointer;font-size:15px;font-weight:700;margin-bottom:8px">📷 ถ่ายรูปสลิป (เปิดกล้อง)</button>
+        <button id="akPickBtn" type="button" style="width:100%;padding:14px;background:#fff;color:#7c3aed;border:2px solid #7c3aed;border-radius:12px;cursor:pointer;font-size:14px;font-weight:600">🖼️ เลือกจากคลังภาพ / ไฟล์</button>
       </div>
 
       <div id="akStep2" style="display:none">
@@ -634,22 +636,25 @@ function _openAutoKeyModal(ctx) {
   document.getElementById("akClose")?.addEventListener("click", () => m.remove());
 
   const fileInp = document.getElementById("akFile");
+  const fileCamInp = document.getElementById("akFileCam");
   const previewImg = document.getElementById("akPreview");
   let _imageDataUrl = null;
 
   document.getElementById("akPickBtn")?.addEventListener("click", () => fileInp.click());
+  document.getElementById("akPickCamBtn")?.addEventListener("click", () => fileCamInp.click());
   document.getElementById("akRetakeBtn")?.addEventListener("click", () => fileInp.click());
 
-  fileInp.addEventListener("change", async (e) => {
+  const onPick = async (e) => {
     const f = e.target.files?.[0];
     if (!f) return;
-    // Resize ภาพถ้าใหญ่เกิน — ลด payload ไป Gemini
     _imageDataUrl = await _resizeImage(f, 1600);
     previewImg.src = _imageDataUrl;
     document.getElementById("akStep1").style.display = "none";
     document.getElementById("akStep2").style.display = "block";
     document.getElementById("akStep4").style.display = "none";
-  });
+  };
+  fileInp.addEventListener("change", onPick);
+  fileCamInp.addEventListener("change", onPick);
 
   document.getElementById("akAnalyzeBtn")?.addEventListener("click", async () => {
     if (!_imageDataUrl) return;

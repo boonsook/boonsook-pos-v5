@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v90 (2026-05-03): Phase 75.1 — เพิ่ม dropdown แผนกใน modal แก้ไขผู้ใช้
-const CACHE_NAME = 'boonsook-pos-v5-cache-v90';
+// v91 (2026-05-03): Phase 74.1 — AutoKey เพิ่มปุ่มเลือกจาก gallery (mobile fix)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v91';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
