@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v84 (2026-05-03): Phase 71 — departments management (foundation for payroll Phase 72-73)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v84';
+// v85 (2026-05-03): Phase 72 — staff payroll (list + add/edit/pay/delete + Excel export)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v85';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
