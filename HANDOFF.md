@@ -1,8 +1,8 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 3 พฤษภาคม 2026 (Phase 75.1 — เพิ่ม dropdown แผนกใน modal แก้ไขผู้ใช้)
-**Version:** 5.27.2 (build 106)
-**Previous:** 5.27.1 (build 105) — Phase 75 (no-confirm/no-prompt + departments staffCount fix)
+**อัปเดตล่าสุด:** 3 พฤษภาคม 2026 (Phase 75.2 — SQL update view profiles_with_email + dept_id)
+**Version:** 5.27.5 (build 109) — code ไม่เปลี่ยน (build จาก Phase 74.6), มี SQL ใหม่ user ต้องรัน
+**Previous:** 5.27.5 (build 109) — Phase 74.1-74.6 (AutoKey OCR fixes ทั้ง series), 5.27.2/106 — Phase 75.1 dept dropdown
 
 ---
 
@@ -47,9 +47,39 @@
 - ⚠️ **supabase-phase71-departments.sql** (Phase 71 — ตาราง departments) — ต้องรัน
 - ⚠️ **supabase-phase72-payroll.sql** (Phase 72 — ตาราง staff_payroll + RLS) — ต้องรัน
   - ถ้ายังไม่รัน 2 SQL ข้างบน → 2 เมนู "🏢 ตั้งค่าแผนก" + "💰 รายการเงินเดือน" + "📊 ภาพรวมเงินเดือน" จะขึ้น error "ตาราง X ยังไม่มีในฐานข้อมูล"
+- ⚠️ **supabase-phase75-profile-view-update.sql** — update view profiles_with_email เพิ่ม column department_id
+  - ถ้ายังไม่รัน → Settings/Users dropdown แผนก ดูเหมือนไม่เซฟ (เซฟจริง แต่ view อ่านกลับไม่ได้)
 
 ### Customer accounts (test)
 - babang / 0874536754 (ลูกค้า role) — สมัครผ่าน OTP เมื่อ 1 พ.ค. (Bug E verify)
+
+---
+
+## 🩹 Phase 75.2 — Fix view profiles_with_email ขาด department_id (3 พ.ค. รอบดึก+1)
+
+### Issue
+หลัง Phase 75.1 user ทดสอบ "แก้ไขผู้ใช้" + เลือกแผนก + กดบันทึก
+→ modal เปิดใหม่แสดง "— ไม่ระบุแผนก —" ตลอด ดูเหมือนไม่เซฟ
+
+### Root cause
+- xhrPatch profile table → success ✅ (เซฟจริง)
+- loadUsers() ดึงจาก **view** `profiles_with_email` (สร้าง Phase 45 Bug D)
+- View นี้ select แค่: id, full_name, role, phone, created_at, email
+- **ไม่มี department_id** (Phase 71 เพิ่ม column ใน table — ไม่ได้ update view)
+- ผล: state.allProfiles[id].department_id = undefined → modal เปิดดูเป็น "— ไม่ระบุ —"
+
+### Fix
+- ไฟล์ใหม่: [supabase-phase75-profile-view-update.sql](supabase-phase75-profile-view-update.sql)
+- CREATE OR REPLACE VIEW เพิ่ม `p.department_id`
+- USER ACTION: รัน SQL นี้ใน Supabase SQL Editor
+
+### หลังรัน SQL
+1. Hard reload (Ctrl+Shift+R)
+2. Settings → Users → แก้ไขพนักงาน → เลือกแผนก → บันทึก
+3. กดแก้ไขอีกครั้ง → ควรเห็น "ช่างแอร์ (01)" selected (ไม่ใช่ "— ไม่ระบุ —")
+4. /departments → จำนวนพนักงานในแต่ละแผนกควรอัปเดตด้วย
+
+### ไม่ต้อง bump build (code ไม่เปลี่ยน — แค่ SQL + docs)
 
 ---
 
