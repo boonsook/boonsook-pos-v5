@@ -485,11 +485,27 @@ function renderReceiptPreview(container) {
             </select>
           </label>
           ${r.status !== 'cancelled' ? '<button id="rcEditBtn" class="btn light" style="border:1px solid #cbd5e1">✏️ แก้ไข</button>' : ''}
+          <button id="rcMultiPayBtn" class="btn light" style="border:1px solid #cbd5e1" title="แตกย่อยหลายวิธีชำระ (เงินสด+โอน+เครดิต ฯลฯ)">📊 Multi-pay</button>
           <button id="rcShareBtn" class="btn" style="background:#06C755;color:#fff">📤 แชร์</button>
           <button id="rcPrintBtn" class="btn light">🖨️ พิมพ์</button>
           <button id="rcPdfBtn" class="btn primary">📄 PDF</button>
           <button id="rcDeleteBtn" class="btn" style="background:#ef4444;color:#fff">🗑️ ลบ</button>
         </div>
+      </div>
+
+      <!-- Phase 69 (C2): Multi-payment breakdown panel — toggle via button -->
+      <div id="rcMultiPayPanel" class="hidden" style="margin-top:10px;padding:12px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div style="font-size:13px;font-weight:700;color:#0c4a6e">📊 ช่องทางชำระเงิน (รับหลายวิธีในบิลเดียว)</div>
+          <div style="font-size:12px;color:#475569">ยอดรวม: <b style="color:#0284c7">${money(r.grand_total||0)}</b></div>
+        </div>
+        <div id="rcMultiPayRows" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+          <button id="rcMultiPayAddRow" type="button" class="btn light" style="font-size:12px;padding:6px 12px">+ เพิ่มช่องทาง</button>
+          <div style="font-size:12px;color:#475569">รวมที่กรอก: <b id="rcMultiPaySum" style="color:#0284c7">฿0.00</b> · เหลือ: <b id="rcMultiPayRemain" style="color:#dc2626">${money(r.grand_total||0)}</b></div>
+          <button id="rcMultiPaySave" type="button" class="btn primary" style="font-size:12px;padding:6px 16px;background:#10b981;border:none">💾 บันทึก</button>
+        </div>
+        <div style="font-size:11px;color:#64748b;margin-top:6px">💡 ผลรวมต้องเท่ากับยอดบิล (${money(r.grand_total||0)}) — ถ้าเหลือ 0 ค่อยกดบันทึกได้</div>
       </div>
     </div>
 
@@ -567,18 +583,35 @@ function renderReceiptPreview(container) {
             <div class="doc-payment-check-row">
               <span>การชำระเงินจะสมบูรณ์เมื่อบริษัทได้รับเงินเรียบร้อยแล้ว</span>
             </div>
-            <div class="doc-payment-check-row" style="margin-top:6px">
-              <span class="doc-checkbox"><span class="doc-checkbox-box" style="display:inline-flex;align-items:center;justify-content:center;font-size:11px;line-height:1">${_payIs(r.payment_method,'cash')?'✓':''}</span> เงินสด</span>
-              <span class="doc-checkbox"><span class="doc-checkbox-box" style="display:inline-flex;align-items:center;justify-content:center;font-size:11px;line-height:1">${_payIs(r.payment_method,'cheque')?'✓':''}</span> เช็ค</span>
-              <span class="doc-checkbox"><span class="doc-checkbox-box" style="display:inline-flex;align-items:center;justify-content:center;font-size:11px;line-height:1">${_payIs(r.payment_method,'transfer')?'✓':''}</span> โอนเงิน</span>
-              <span class="doc-checkbox"><span class="doc-checkbox-box" style="display:inline-flex;align-items:center;justify-content:center;font-size:11px;line-height:1">${_payIs(r.payment_method,'credit')?'✓':''}</span> บัตรเครดิต</span>
-            </div>
-            <div class="doc-bank-line">
-              <div class="doc-bank-field">ธนาคาร<span class="underline"></span></div>
-              <div class="doc-bank-field">เลขที่<span class="underline"></span></div>
-              <div class="doc-bank-field">วันที่<span class="underline"></span></div>
-              <div class="doc-bank-field">จำนวนเงิน<span class="underline"></span></div>
-            </div>
+            ${(Array.isArray(r.payments) && r.payments.length > 0) ? `
+              <!-- Phase 69 (C2): multi-payment breakdown -->
+              <div style="margin-top:6px;padding:8px 10px;background:#f9fafb;border-radius:6px;font-size:12.5px">
+                <div style="font-weight:700;color:#374151;margin-bottom:4px">รับชำระ ${r.payments.length} ช่องทาง:</div>
+                ${r.payments.map(p => {
+                  const meta = PAY_METHOD_OPTIONS.find(o => o.value === p.method) || { label: p.method };
+                  return `<div style="display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px dotted #e5e7eb">
+                    <span>${escHtml(meta.label)}${p.ref ? ` <span style="color:#6b7280">(${escHtml(p.ref)})</span>` : ""}</span>
+                    <span style="font-weight:700">${money(p.amount||0)}</span>
+                  </div>`;
+                }).join("")}
+                <div style="display:flex;justify-content:space-between;padding:4px 0 0;font-weight:900;color:#0284c7;border-top:1px solid #cbd5e1;margin-top:4px">
+                  <span>รวม</span><span>${money(r.payments.reduce((s,p)=>s+Number(p.amount||0),0))}</span>
+                </div>
+              </div>
+            ` : `
+              <div class="doc-payment-check-row" style="margin-top:6px">
+                <span class="doc-checkbox"><span class="doc-checkbox-box" style="display:inline-flex;align-items:center;justify-content:center;font-size:11px;line-height:1">${_payIs(r.payment_method,'cash')?'✓':''}</span> เงินสด</span>
+                <span class="doc-checkbox"><span class="doc-checkbox-box" style="display:inline-flex;align-items:center;justify-content:center;font-size:11px;line-height:1">${_payIs(r.payment_method,'cheque')?'✓':''}</span> เช็ค</span>
+                <span class="doc-checkbox"><span class="doc-checkbox-box" style="display:inline-flex;align-items:center;justify-content:center;font-size:11px;line-height:1">${_payIs(r.payment_method,'transfer')?'✓':''}</span> โอนเงิน</span>
+                <span class="doc-checkbox"><span class="doc-checkbox-box" style="display:inline-flex;align-items:center;justify-content:center;font-size:11px;line-height:1">${_payIs(r.payment_method,'credit')?'✓':''}</span> บัตรเครดิต</span>
+              </div>
+              <div class="doc-bank-line">
+                <div class="doc-bank-field">ธนาคาร<span class="underline"></span></div>
+                <div class="doc-bank-field">เลขที่<span class="underline"></span></div>
+                <div class="doc-bank-field">วันที่<span class="underline"></span></div>
+                <div class="doc-bank-field">จำนวนเงิน<span class="underline"></span></div>
+              </div>
+            `}
           </div>
 
           <div class="doc-signatures">
@@ -607,6 +640,9 @@ function renderReceiptPreview(container) {
 
   // Phase 45.12: edit basic fields (customer info, salesperson, ref, project, note)
   document.getElementById("rcEditBtn")?.addEventListener("click", () => _openReceiptEditDrawer(r));
+
+  // Phase 69 (C2): Multi-payment panel toggle + render
+  _wireMultiPayPanel(r);
 
   // ★ เก็บเงิน (ในหน้า preview)
   document.getElementById("rcPreviewCollect")?.addEventListener("click", async () => {
@@ -881,4 +917,136 @@ function _openReceiptEditDrawer(r) {
   });
 
   setTimeout(() => modal.querySelector("#rcEdName")?.focus(), 100);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 69 (C2): Multi-payment per receipt
+// ═══════════════════════════════════════════════════════════
+const PAY_METHOD_OPTIONS = [
+  { value: "cash",     label: "💵 เงินสด" },
+  { value: "transfer", label: "💸 โอนเงิน" },
+  { value: "credit",   label: "💳 บัตรเครดิต" },
+  { value: "cheque",   label: "📝 เช็ค" },
+  { value: "other",    label: "🏷️ อื่นๆ" }
+];
+
+function _renderMultiPayRows(rows, grandTotal) {
+  return rows.map((row, idx) => `
+    <div class="rc-mp-row" data-idx="${idx}" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <select class="rc-mp-method" style="padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;min-width:120px">
+        ${PAY_METHOD_OPTIONS.map(o => `<option value="${o.value}" ${o.value===row.method?'selected':''}>${o.label}</option>`).join("")}
+      </select>
+      <input class="rc-mp-amount" type="number" step="0.01" min="0" value="${Number(row.amount||0)}" placeholder="ยอด" style="width:110px;padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;text-align:right" />
+      <input class="rc-mp-ref" type="text" value="${escHtml(row.ref||'')}" placeholder="ref / เลขที่ (เลือกใส่)" style="flex:1;min-width:140px;padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px" />
+      <button type="button" class="rc-mp-remove" style="padding:5px 10px;background:#fee2e2;color:#dc2626;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700">×</button>
+    </div>
+  `).join("");
+}
+
+function _wireMultiPayPanel(r) {
+  const btn   = document.getElementById("rcMultiPayBtn");
+  const panel = document.getElementById("rcMultiPayPanel");
+  const rowsEl = document.getElementById("rcMultiPayRows");
+  const sumEl  = document.getElementById("rcMultiPaySum");
+  const remEl  = document.getElementById("rcMultiPayRemain");
+  const addBtn = document.getElementById("rcMultiPayAddRow");
+  const saveBtn= document.getElementById("rcMultiPaySave");
+  if (!btn || !panel || !rowsEl) return;
+
+  // local state — load from r.payments or seed with single row from payment_method
+  let rows = Array.isArray(r.payments) && r.payments.length
+    ? r.payments.map(p => ({ method: p.method || "cash", amount: Number(p.amount || 0), ref: p.ref || "" }))
+    : (r.payment_method
+        ? [{ method: r.payment_method, amount: Number(r.grand_total || 0), ref: "" }]
+        : []);
+
+  const grandTotal = Number(r.grand_total || 0);
+
+  const reflect = () => {
+    rowsEl.innerHTML = _renderMultiPayRows(rows, grandTotal);
+    const sum = rows.reduce((s, x) => s + Number(x.amount || 0), 0);
+    const remain = grandTotal - sum;
+    if (sumEl) sumEl.textContent = money(sum);
+    if (remEl) {
+      remEl.textContent = money(Math.abs(remain));
+      remEl.style.color = Math.abs(remain) < 0.01 ? "#10b981" : (remain < 0 ? "#dc2626" : "#dc2626");
+    }
+    if (saveBtn) {
+      const ok = Math.abs(remain) < 0.01 && rows.length > 0;
+      saveBtn.disabled = !ok;
+      saveBtn.style.opacity = ok ? "1" : "0.55";
+      saveBtn.style.cursor = ok ? "pointer" : "not-allowed";
+    }
+    // re-bind row handlers (after re-render)
+    rowsEl.querySelectorAll(".rc-mp-row").forEach(rowEl => {
+      const idx = Number(rowEl.dataset.idx);
+      rowEl.querySelector(".rc-mp-method")?.addEventListener("change", e => { rows[idx].method = e.target.value; updateLive(); });
+      rowEl.querySelector(".rc-mp-amount")?.addEventListener("input",  e => { rows[idx].amount = Number(e.target.value || 0); updateLive(); });
+      rowEl.querySelector(".rc-mp-ref")?.addEventListener("input",     e => { rows[idx].ref = e.target.value; });
+      rowEl.querySelector(".rc-mp-remove")?.addEventListener("click",  () => { rows.splice(idx, 1); reflect(); });
+    });
+  };
+  // updateLive: ไม่ต้อง re-render rows (รักษา focus)
+  const updateLive = () => {
+    const sum = rows.reduce((s, x) => s + Number(x.amount || 0), 0);
+    const remain = grandTotal - sum;
+    if (sumEl) sumEl.textContent = money(sum);
+    if (remEl) {
+      remEl.textContent = money(Math.abs(remain));
+      remEl.style.color = Math.abs(remain) < 0.01 ? "#10b981" : "#dc2626";
+    }
+    const ok = Math.abs(remain) < 0.01 && rows.length > 0;
+    if (saveBtn) {
+      saveBtn.disabled = !ok;
+      saveBtn.style.opacity = ok ? "1" : "0.55";
+      saveBtn.style.cursor = ok ? "pointer" : "not-allowed";
+    }
+  };
+
+  btn.addEventListener("click", () => {
+    panel.classList.toggle("hidden");
+    if (!panel.classList.contains("hidden")) reflect();
+  });
+  addBtn?.addEventListener("click", () => {
+    const sum = rows.reduce((s, x) => s + Number(x.amount || 0), 0);
+    const suggested = Math.max(0, grandTotal - sum);
+    rows.push({ method: "cash", amount: suggested, ref: "" });
+    reflect();
+  });
+  saveBtn?.addEventListener("click", async () => {
+    const sum = rows.reduce((s, x) => s + Number(x.amount || 0), 0);
+    if (Math.abs(grandTotal - sum) > 0.01) {
+      window.App?.showToast?.("ผลรวมไม่ตรงกับยอดบิล", "error");
+      return;
+    }
+    saveBtn.disabled = true;
+    const orig = saveBtn.textContent;
+    saveBtn.textContent = "⏳ บันทึก...";
+    try {
+      // Build clean payload (drop empty refs to keep DB tidy)
+      const payments = rows.map(x => {
+        const p = { method: x.method, amount: Number(x.amount) };
+        if (x.ref && x.ref.trim()) p.ref = x.ref.trim();
+        return p;
+      });
+      // Update primary payment_method to the largest entry (for backward compat)
+      const main = [...payments].sort((a,b)=>b.amount-a.amount)[0];
+      const patchBody = { payments };
+      if (main) patchBody.payment_method = main.method;
+      await window._appXhrPatch?.("receipts", patchBody, "id", r.id);
+      r.payments = payments;
+      if (main) r.payment_method = main.method;
+      window.App?.showToast?.("บันทึกการชำระเงินแล้ว ✅");
+      // re-render preview to reflect new payment list in document body
+      if (_ctx) renderReceiptsPage(_ctx);
+    } catch (e) {
+      console.error("[multi-pay save]", e);
+      window.App?.showToast?.("❌ บันทึกไม่สำเร็จ — รัน supabase-phase69-multi-payment.sql ก่อน", "error");
+      saveBtn.disabled = false;
+      saveBtn.textContent = orig;
+    }
+  });
+
+  // initial render so rows show even before user clicks (so they see existing data via toggle)
+  reflect();
 }

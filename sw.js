@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v81 (2026-05-03): Phase 68 — tag system extend to products + service_jobs
-const CACHE_NAME = 'boonsook-pos-v5-cache-v81';
+// v82 (2026-05-03): Phase 69 — multi-payment per receipt (cash + transfer + credit ผสมในบิลเดียว)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v82';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
