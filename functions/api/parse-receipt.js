@@ -91,13 +91,12 @@ JSON schema:
       }
     };
 
-    // ★ Fallback chain — ลอง free models ก่อน, ตกค่อยไป paid
-    // 2026-05: Google deprecate gemini-1.5-flash; gemini-2.0-flash ไม่มี free tier
+    // ★ Fallback chain — Gemini models 2026 (1.5 family ถูกลบทั้งหมดแล้ว)
     const MODELS = [
-      "gemini-2.0-flash-exp",       // free experimental
-      "gemini-1.5-flash-latest",    // alias — ยังอาจ active
-      "gemini-1.5-flash-8b",        // free smaller
-      "gemini-2.0-flash"            // paid fallback
+      "gemini-2.5-flash",           // current free vision model
+      "gemini-2.0-flash-lite",      // smaller free
+      "gemini-flash-latest",        // auto-alias
+      "gemini-2.0-flash"            // last resort
     ];
 
     let r = null, usedModel = "";
