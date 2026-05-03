@@ -1,8 +1,45 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 1 พฤษภาคม 2026 (Phase 59-63 — feature mega-pack)
-**Version:** 5.19.0 (build 92)
-**Previous:** 5.16.1 (build 88) — Phase 57.1 (logActivity path fix)
+**อัปเดตล่าสุด:** 3 พฤษภาคม 2026 (Phase 68 — tag system extend + LINE Notify status documented)
+**Version:** 5.21.0 (build 97)
+**Previous:** 5.20.3 (build 96) — Phase 67 (barcode scanner fix)
+
+---
+
+## 🛠️ User Configuration State (snapshot ปัจจุบัน)
+
+**🚨 อ่านก่อนเสนอฟีเจอร์ใด ๆ — รายการนี้สรุปสิ่งที่ user setup เสร็จแล้ว**
+อย่าบอกว่า "ต้อง setup X" ที่ user ทำเรียบร้อยแล้ว
+
+### LINE Notify (Messaging API)
+- **Status**: ✅ Active (verified 3 พ.ค. 2026 จาก screenshot Settings)
+- **API**: ใช้ LINE Messaging API (LINE Notify เดิมถูกปิด 2025-03-31)
+- **Token storage**: Cloudflare Pages → Settings → Environment variables
+  - `LINE_CHANNEL_ACCESS_TOKEN`
+  - `LINE_USER_ID`
+- **Notif categories** (ทั้งหมด ON):
+  - แจ้งเตือนสต็อกต่ำ
+  - แจ้งเตือนออเดอร์ใหม่
+  - แจ้งเตือนงานช่างเสร็จ
+  - สรุปยอดประจำวัน
+- **Server status**: เซิร์ฟเวอร์พร้อมส่ง LINE
+- **Code**: [modules/line_notify.js](modules/line_notify.js) + [functions/api/line-notify.js](functions/api/line-notify.js)
+
+### Payment (SlipOK)
+- **Status**: มีระบบใน Settings → Payment Gateway
+- **Token storage**: localStorage `bsk_slipok_key` + `bsk_slipok_branch`
+- **ไม่รวมใน config backup/restore** (security)
+
+### Database migrations applied (รายการ)
+- ✅ supabase-rls-policies.sql (Phase 19)
+- ✅ supabase-phase45-* (RLS hardening + bug fixes A/B/C/D/E/F)
+- ✅ supabase-phase46-rls-tighten-reads.sql
+- ✅ supabase-phase57-activity-log.sql (audit log table)
+- ✅ supabase-phase63-service-share.sql (service_jobs.share_token)
+- ✅ supabase-phase68-tags-extend.sql (products.tags + service_jobs.tags) ← 3 พ.ค.
+
+### Customer accounts (test)
+- babang / 0874536754 (ลูกค้า role) — สมัครผ่าน OTP เมื่อ 1 พ.ค. (Bug E verify)
 
 ---
 
