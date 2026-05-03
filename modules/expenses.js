@@ -126,6 +126,7 @@ export function renderExpensesPage(ctx) {
         </div>
         <button id="expFilterClearBtn" class="btn light">ล้าง</button>
         <button id="expExportBtn" class="btn light" title="ส่งออก Excel ตาม filter ที่กำลังเลือก">📥 Excel</button>
+        <button id="expAutoKeyBtn" class="btn" style="background:#7c3aed;color:#fff;border:none" title="ถ่ายรูปสลิป → AI กรอกให้อัตโนมัติ">📷 AutoKey</button>
         <button id="expAddBtn" class="btn primary">+ เพิ่มรายจ่าย</button>
       </div>
     </div>
@@ -363,6 +364,9 @@ function bindFilterEvents() {
     renderExpensesPage(_ctx);
   });
 
+  // Phase 74: AutoKey OCR — upload สลิปแล้วให้ Gemini parse
+  document.getElementById("expAutoKeyBtn")?.addEventListener("click", () => _openAutoKeyModal(_ctx));
+
   // Phase 70 (D3): Export filtered expenses to Excel
   document.getElementById("expExportBtn")?.addEventListener("click", () => {
     const rows = filtered.map(e => ({
@@ -579,4 +583,213 @@ function renderCategoryChart(categoryTotals) {
       </div>
     `;
   }).join("");
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 74: AutoKey OCR — ถ่ายรูปสลิป → Gemini Vision → กรอกฟอร์ม
+// ═══════════════════════════════════════════════════════════
+function _openAutoKeyModal(ctx) {
+  document.getElementById("akModal")?.remove();
+  const m = document.createElement("div");
+  m.id = "akModal";
+  m.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;overflow-y:auto";
+  m.innerHTML = `
+    <div style="background:#fff;border-radius:18px;max-width:520px;width:100%;padding:22px;max-height:92vh;overflow-y:auto">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+        <span style="font-size:24px">📷</span>
+        <h3 style="margin:0;font-size:17px;color:#0f172a;flex:1">AutoKey สลิปค่าใช้จ่าย</h3>
+        <button id="akClose" style="background:#f1f5f9;border:none;width:30px;height:30px;border-radius:8px;cursor:pointer;font-size:16px">×</button>
+      </div>
+      <div id="akStep1" style="display:block">
+        <div style="background:#faf5ff;border:1px solid #ddd6fe;border-radius:10px;padding:12px;margin-bottom:12px;font-size:12px;color:#6b21a8;line-height:1.6">
+          📸 ถ่ายรูปสลิป/ใบเสร็จซัพพลายเออร์ → AI จะอ่านเลข ที่อยู่ ยอดรวม ให้อัตโนมัติ<br>
+          <b>เคล็ดลับ:</b> ถ่ายให้สว่าง • ตัวเลขชัดเจน • ทั้งใบ
+        </div>
+        <input id="akFile" type="file" accept="image/*" capture="environment" style="display:none" />
+        <button id="akPickBtn" type="button" style="width:100%;padding:18px;background:#7c3aed;color:#fff;border:none;border-radius:12px;cursor:pointer;font-size:15px;font-weight:700">📷 เลือกรูป / ถ่ายรูปสลิป</button>
+      </div>
+
+      <div id="akStep2" style="display:none">
+        <div style="text-align:center;margin-bottom:12px">
+          <img id="akPreview" alt="preview" style="max-width:100%;max-height:280px;border-radius:10px;border:1px solid #e2e8f0" />
+        </div>
+        <button id="akAnalyzeBtn" type="button" style="width:100%;padding:14px;background:#7c3aed;color:#fff;border:none;border-radius:10px;cursor:pointer;font-size:14px;font-weight:700">🔍 ให้ AI วิเคราะห์ใบเสร็จ</button>
+        <button id="akRetakeBtn" type="button" style="width:100%;margin-top:6px;padding:10px;background:#f1f5f9;color:#475569;border:none;border-radius:10px;cursor:pointer;font-size:13px">เลือกรูปใหม่</button>
+      </div>
+
+      <div id="akStep3" style="display:none">
+        <div id="akProgress" style="text-align:center;padding:24px;color:#7c3aed;font-size:14px">
+          <div style="font-size:36px;margin-bottom:8px">🔍</div>
+          <div>กำลังให้ AI อ่านสลิป... (~5-10 วิ)</div>
+        </div>
+      </div>
+
+      <div id="akStep4" style="display:none">
+        <div id="akResult"></div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(m);
+  m.addEventListener("click", e => { if (e.target === m) m.remove(); });
+  document.getElementById("akClose")?.addEventListener("click", () => m.remove());
+
+  const fileInp = document.getElementById("akFile");
+  const previewImg = document.getElementById("akPreview");
+  let _imageDataUrl = null;
+
+  document.getElementById("akPickBtn")?.addEventListener("click", () => fileInp.click());
+  document.getElementById("akRetakeBtn")?.addEventListener("click", () => fileInp.click());
+
+  fileInp.addEventListener("change", async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    // Resize ภาพถ้าใหญ่เกิน — ลด payload ไป Gemini
+    _imageDataUrl = await _resizeImage(f, 1600);
+    previewImg.src = _imageDataUrl;
+    document.getElementById("akStep1").style.display = "none";
+    document.getElementById("akStep2").style.display = "block";
+    document.getElementById("akStep4").style.display = "none";
+  });
+
+  document.getElementById("akAnalyzeBtn")?.addEventListener("click", async () => {
+    if (!_imageDataUrl) return;
+    document.getElementById("akStep2").style.display = "none";
+    document.getElementById("akStep3").style.display = "block";
+    try {
+      const r = await fetch("/api/parse-receipt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: _imageDataUrl })
+      });
+      const j = await r.json();
+      document.getElementById("akStep3").style.display = "none";
+      if (!j.ok) {
+        const errMsg = j.configured === false
+          ? "❌ ยังไม่ตั้ง GEMINI_API_KEY ใน Cloudflare → Settings → Environment variables"
+          : "❌ " + (j.error || "วิเคราะห์ไม่สำเร็จ");
+        document.getElementById("akStep4").style.display = "block";
+        document.getElementById("akResult").innerHTML = `<div style="padding:14px;background:#fef2f2;border:1px solid #fecaca;border-radius:10px;color:#991b1b;font-size:13px">${errMsg}</div>
+          <button onclick="document.getElementById('akStep2').style.display='block';document.getElementById('akStep4').style.display='none'" style="margin-top:10px;padding:10px;width:100%;background:#f1f5f9;border:none;border-radius:8px;cursor:pointer;font-size:13px">← กลับไปลองใหม่</button>`;
+        return;
+      }
+      _showParsedResult(ctx, m, _imageDataUrl, j.data);
+    } catch (e) {
+      document.getElementById("akStep3").style.display = "none";
+      document.getElementById("akStep4").style.display = "block";
+      document.getElementById("akResult").innerHTML = `<div style="padding:14px;background:#fef2f2;color:#991b1b;border-radius:10px">เชื่อมต่อล้มเหลว: ${escHtml(e.message || String(e))}</div>`;
+    }
+  });
+}
+
+async function _resizeImage(file, maxDim) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let w = img.width, h = img.height;
+        if (w > maxDim || h > maxDim) {
+          const scale = Math.min(maxDim / w, maxDim / h);
+          w = Math.round(w * scale);
+          h = Math.round(h * scale);
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL("image/jpeg", 0.85));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function _showParsedResult(ctx, modal, imageDataUrl, data) {
+  const d = data || {};
+  document.getElementById("akStep4").style.display = "block";
+  const resultEl = document.getElementById("akResult");
+  const today = new Date().toISOString().slice(0, 10);
+  resultEl.innerHTML = `
+    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:#15803d">
+      ✓ AI อ่านได้แล้ว — ตรวจสอบและแก้ไขก่อนบันทึก
+    </div>
+    <div style="display:grid;gap:8px">
+      <label style="display:block">
+        <div style="font-size:11px;font-weight:700;color:#475569;margin-bottom:3px">ชื่อร้าน/ผู้จำหน่าย</div>
+        <input id="akEdVendor" type="text" value="${escHtml(d.vendor || '')}" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px" />
+      </label>
+      <label style="display:block">
+        <div style="font-size:11px;font-weight:700;color:#475569;margin-bottom:3px">เลขที่ใบเสร็จ</div>
+        <input id="akEdDocNo" type="text" value="${escHtml(d.doc_no || '')}" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px" />
+      </label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <label style="display:block">
+          <div style="font-size:11px;font-weight:700;color:#475569;margin-bottom:3px">วันที่</div>
+          <input id="akEdDate" type="date" value="${escHtml(d.date || today)}" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px" />
+        </label>
+        <label style="display:block">
+          <div style="font-size:11px;font-weight:700;color:#475569;margin-bottom:3px">ยอดรวม (บาท) *</div>
+          <input id="akEdAmount" type="number" step="0.01" value="${Number(d.total || 0)}" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;text-align:right;font-weight:700" />
+        </label>
+      </div>
+      <label style="display:block">
+        <div style="font-size:11px;font-weight:700;color:#475569;margin-bottom:3px">หมวด</div>
+        <input id="akEdCategory" type="text" value="${escHtml(d.category_guess || 'อื่นๆ')}" list="akCatList" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px" />
+        <datalist id="akCatList">
+          <option value="น้ำมันรถ"><option value="ค่าน้ำ"><option value="ค่าไฟ"><option value="ค่าโทรศัพท์"><option value="ค่าอินเทอร์เน็ต"><option value="ซื้อสินค้า"><option value="ค่าซ่อม"><option value="ค่าเช่า"><option value="ค่าอาหาร"><option value="อื่นๆ">
+        </datalist>
+      </label>
+      <label style="display:block">
+        <div style="font-size:11px;font-weight:700;color:#475569;margin-bottom:3px">รายละเอียด</div>
+        <textarea id="akEdDesc" rows="2" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;resize:vertical">${escHtml((d.vendor || '') + (d.doc_no ? ' #' + d.doc_no : '') + (d.tax_id ? ' (ภาษี: ' + d.tax_id + ')' : ''))}</textarea>
+      </label>
+      ${d.tax_id ? `<div style="font-size:11px;color:#64748b">เลขประจำตัวผู้เสียภาษี: <b>${escHtml(d.tax_id)}</b></div>` : ''}
+      ${Array.isArray(d.items) && d.items.length > 0 ? `
+        <div style="font-size:11px;color:#64748b;margin-top:4px">รายการที่ AI อ่านได้:</div>
+        <div style="background:#f8fafc;border-radius:6px;padding:6px 8px;font-size:11px;color:#475569;max-height:80px;overflow-y:auto">
+          ${d.items.map(it => `• ${escHtml(it.name || '-')} ${it.qty ? '×' + it.qty : ''} ${it.amount ? '= ' + Number(it.amount).toLocaleString('th-TH') : ''}`).join('<br>')}
+        </div>` : ''}
+    </div>
+    <div id="akResultStatus" style="margin-top:10px;font-size:12px;color:#dc2626;min-height:14px"></div>
+    <button id="akSaveBtn" type="button" style="margin-top:12px;width:100%;padding:14px;background:#10b981;color:#fff;border:none;border-radius:10px;cursor:pointer;font-size:14px;font-weight:700">💾 บันทึกเป็นรายจ่าย</button>
+  `;
+
+  document.getElementById("akSaveBtn")?.addEventListener("click", async () => {
+    const setErr = (msg) => { const el = document.getElementById("akResultStatus"); if (el) el.textContent = msg || ""; };
+    setErr("");
+    const amount = Number(document.getElementById("akEdAmount")?.value || 0);
+    if (!(amount > 0)) { setErr("กรอกยอดเงินให้ถูกต้อง"); return; }
+    const date = document.getElementById("akEdDate")?.value || today;
+    const category = document.getElementById("akEdCategory")?.value?.trim() || "อื่นๆ";
+    const description = document.getElementById("akEdDesc")?.value?.trim() || "";
+
+    const btn = document.getElementById("akSaveBtn");
+    btn.disabled = true;
+    const orig = btn.textContent;
+    btn.textContent = "⏳ บันทึก...";
+
+    try {
+      const cfg = window.SUPABASE_CONFIG;
+      const token = window._sbAccessToken;
+      const headers = { "Content-Type": "application/json", "apikey": cfg.anonKey, "Authorization": "Bearer " + token, "Prefer": "return=minimal" };
+      const payload = {
+        expense_date: date,
+        category,
+        description,
+        amount,
+        note: "บันทึกผ่าน AutoKey · " + (d.vendor || "")
+      };
+      const r = await fetch(cfg.url + "/rest/v1/expenses", { method: "POST", headers, body: JSON.stringify(payload) });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      modal.remove();
+      ctx.showToast?.("บันทึกรายจ่ายแล้ว ✅");
+      // reload list
+      if (ctx.loadAllData) await ctx.loadAllData();
+      renderExpensesPage(ctx);
+    } catch (e) {
+      setErr("บันทึกไม่สำเร็จ: " + (e.message || e));
+      btn.disabled = false;
+      btn.textContent = orig;
+    }
+  });
 }

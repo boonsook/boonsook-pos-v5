@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v87 (2026-05-03): Phase 73 — payroll overview dashboard (donut + bar + top earners)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v87';
+// v88 (2026-05-03): Phase 74 — AutoKey OCR สลิปค่าใช้จ่าย (Gemini Vision)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v88';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

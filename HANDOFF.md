@@ -30,6 +30,12 @@
 - **Token storage**: localStorage `bsk_slipok_key` + `bsk_slipok_branch`
 - **ไม่รวมใน config backup/restore** (security)
 
+### AI providers
+- **Cloudflare Workers AI** (binding `AI`) — ใช้กับ ai-chat-widget สำหรับ chat ลูกค้าแจ้งซ่อม. ฟรี 10K neuron/วัน
+- **Google Gemini Vision** (env `GEMINI_API_KEY`) — Phase 74 AutoKey OCR สลิป. ฟรี 60 RPM, model `gemini-1.5-flash`
+  - User ต้องสมัครเองที่ [aistudio.google.com/apikey](https://aistudio.google.com/apikey) → ใส่ใน Cloudflare Pages → Settings → Environment variables
+  - ถ้ายังไม่ตั้ง → endpoint `/api/parse-receipt` จะคืน `{ ok: false, configured: false }` UI จะแสดงข้อความบอก user
+
 ### Database migrations applied (รายการ)
 - ✅ supabase-rls-policies.sql (Phase 19)
 - ✅ supabase-phase45-* (RLS hardening + bug fixes A/B/C/D/E/F)
