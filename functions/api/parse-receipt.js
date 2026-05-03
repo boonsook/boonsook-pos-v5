@@ -78,7 +78,8 @@ JSON schema:
 - ถ้าใบเสร็จเก่ามีแต่ยอดรวม ไม่ต้องแยก items — ใส่ "items": []
 - response ต้องเป็น JSON ที่ valid parse ได้เท่านั้น ห้ามครอบด้วย markdown \`\`\`json`;
 
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+    // gemini-1.5-flash ถูก deprecated → ใช้ gemini-2.0-flash (free tier) แทน
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
 
     const geminiBody = {
       contents: [{
