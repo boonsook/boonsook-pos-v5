@@ -32,9 +32,13 @@
 
 ### AI providers
 - **Cloudflare Workers AI** (binding `AI`) — ใช้กับ ai-chat-widget สำหรับ chat ลูกค้าแจ้งซ่อม. ฟรี 10K neuron/วัน
-- **Google Gemini Vision** (env `GEMINI_API_KEY`) — Phase 74 AutoKey OCR สลิป. ฟรี 60 RPM, model `gemini-1.5-flash`
-  - User ต้องสมัครเองที่ [aistudio.google.com/apikey](https://aistudio.google.com/apikey) → ใส่ใน Cloudflare Pages → Settings → Environment variables
-  - ถ้ายังไม่ตั้ง → endpoint `/api/parse-receipt` จะคืน `{ ok: false, configured: false }` UI จะแสดงข้อความบอก user
+- **Google Gemini Vision** (env `GEMINI_API_KEY`) — Phase 74 AutoKey OCR สลิป ✅ **PRODUCTION READY**
+  - **Model: `gemini-2.5-flash`** (current 2026 free tier vision) — ⚠️ `gemini-1.5-flash` family ลบหมดแล้ว, `gemini-2.0-flash` มี limit:0 (paid only)
+  - Fallback chain: gemini-2.5-flash → gemini-2.0-flash-lite → gemini-flash-latest → gemini-2.0-flash
+  - User key ต้องสร้างจาก [aistudio.google.com/apikey](https://aistudio.google.com/apikey) (ไม่ใช่ Google Cloud Console เพราะ billing project = limit:0)
+  - Cloudflare Function: `functions/api/parse-receipt.js` — ทุก error response status 200 (กัน CF intercept 5xx ด้วย HTML)
+  - User Setup: ✅ key อยู่ใน Cloudflare Pages → Settings → Variables and Secrets → Production (Secret type)
+  - Tested 3 พ.ค. 2569 22:50 — อ่านบิล "บริษัท แมกซ์ การ์ด จำกัด" 988 บาท หมวด "น้ำมันรถ" ครบทุก field
 
 ### Database migrations applied (รายการ)
 - ✅ supabase-rls-policies.sql (Phase 19)
