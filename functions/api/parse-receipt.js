@@ -100,7 +100,9 @@ JSON schema:
       "gemini-2.0-flash"            // paid fallback
     ];
 
-    let r = null, lastErr = "", usedModel = "";
+    let r = null, usedModel = "";
+    const attempts = [];
+    let allFreeQuotaZero = true;
     for (const model of MODELS) {
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 25000);
@@ -114,9 +116,11 @@ JSON schema:
         });
         clearTimeout(timer);
         if (resp.ok) { r = resp; usedModel = model; break; }
-        // 404/429 → ลองรุ่นถัดไป; status อื่น (400/500) = ปัญหาอื่น → หยุด
         const errTxt = await resp.text();
-        lastErr = `${model}: HTTP ${resp.status} ${errTxt.slice(0, 200)}`;
+        attempts.push(`${model}: ${resp.status} ${errTxt.slice(0, 120)}`);
+        // ตรวจสาเหตุ — "limit: 0" = key ไม่มี free tier; quota exceeded ปกติ = ใช้หมด
+        const isLimitZero = /limit:\s*0/.test(errTxt);
+        if (resp.status === 429 && !isLimitZero) allFreeQuotaZero = false;
         if (resp.status !== 404 && resp.status !== 429) {
           return new Response(JSON.stringify({
             ok: false,
@@ -133,15 +137,19 @@ JSON schema:
             error: "Gemini ตอบช้าเกิน 25 วินาที — ลองรูปเล็กกว่า"
           }), { status: 200, headers: corsHeaders });
         }
-        lastErr = `${model}: ${fetchErr?.message || "fetch failed"}`;
+        attempts.push(`${model}: fetch ${fetchErr?.message || "fail"}`);
       }
     }
 
     if (!r) {
+      const hint = allFreeQuotaZero
+        ? "API key ของคุณไม่มี free tier (limit: 0) — สร้าง key ใหม่จาก https://aistudio.google.com/apikey (ไม่ใช่จาก Google Cloud Console)"
+        : "หมด quota วันนี้ — รอ 24 ชม. หรืออัพเกรด billing";
       return new Response(JSON.stringify({
         ok: false,
-        error: "ไม่มี Gemini model ใดใช้งานได้ (อาจหมด quota หรือ key ไม่ valid)",
-        detail: lastErr
+        error: "ไม่มี Gemini model ใดใช้งานได้",
+        hint,
+        attempts
       }), { status: 200, headers: corsHeaders });
     }
 
