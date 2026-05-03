@@ -117,11 +117,12 @@ JSON schema:
 
     if (!r.ok) {
       const errTxt = await r.text();
+      // ★ status 200 เสมอ — ป้องกัน Cloudflare intercept/replace 5xx ของ origin
       return new Response(JSON.stringify({
         ok: false,
         error: "Gemini API error " + r.status,
         detail: errTxt.slice(0, 500)
-      }), { status: 502, headers: corsHeaders });
+      }), { status: 200, headers: corsHeaders });
     }
 
     const j = await r.json();
@@ -137,7 +138,7 @@ JSON schema:
         ok: false,
         error: "AI ตอบกลับไม่ใช่ JSON ที่ valid",
         raw: text.slice(0, 500)
-      }), { status: 502, headers: corsHeaders });
+      }), { status: 200, headers: corsHeaders });
     }
 
     return new Response(JSON.stringify({ ok: true, data: parsed }), { status: 200, headers: corsHeaders });
@@ -145,8 +146,9 @@ JSON schema:
   } catch (e) {
     return new Response(JSON.stringify({
       ok: false,
-      error: e?.message || String(e)
-    }), { status: 500, headers: corsHeaders });
+      error: e?.message || String(e),
+      stack: e?.stack ? String(e.stack).slice(0, 300) : undefined
+    }), { status: 200, headers: corsHeaders });
   }
 }
 
