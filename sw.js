@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v91 (2026-05-03): Phase 74.1 — AutoKey เพิ่มปุ่มเลือกจาก gallery (mobile fix)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v91';
+// v92 (2026-05-03): Phase 74.2 — AutoKey error handler verbose (debug HTML response)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v92';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

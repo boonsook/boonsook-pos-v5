@@ -663,17 +663,37 @@ function _openAutoKeyModal(ctx) {
     try {
       const r = await fetch("/api/parse-receipt", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image: _imageDataUrl })
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({ image: _imageDataUrl }),
+        cache: "no-store"
       });
-      const j = await r.json();
+      const ct = r.headers.get("content-type") || "";
+      const raw = await r.text();
+      let j;
+      try {
+        j = JSON.parse(raw);
+      } catch (parseErr) {
+        document.getElementById("akStep3").style.display = "none";
+        document.getElementById("akStep4").style.display = "block";
+        document.getElementById("akResult").innerHTML = `<div style="padding:14px;background:#fef2f2;border:1px solid #fecaca;border-radius:10px;color:#991b1b;font-size:13px;line-height:1.6">
+          <b>❌ Server ตอบไม่ใช่ JSON</b><br>
+          HTTP ${r.status} · content-type: ${escHtml(ct)}<br>
+          <small>raw: ${escHtml(raw.slice(0, 200))}</small><br><br>
+          <b>วิธีแก้:</b><br>
+          1. กด <b>Ctrl+Shift+R</b> (PC) หรือปิดแอปแล้วเปิดใหม่ (มือถือ)<br>
+          2. ตรวจ build เป็น 107 (ตั้งค่า → เกี่ยวกับแอป)<br>
+          3. เช็คว่า Cloudflare Function deploy เสร็จแล้ว
+        </div>
+        <button onclick="document.getElementById('akStep2').style.display='block';document.getElementById('akStep4').style.display='none'" style="margin-top:10px;padding:10px;width:100%;background:#f1f5f9;border:none;border-radius:8px;cursor:pointer;font-size:13px">← กลับ</button>`;
+        return;
+      }
       document.getElementById("akStep3").style.display = "none";
       if (!j.ok) {
         const errMsg = j.configured === false
           ? "❌ ยังไม่ตั้ง GEMINI_API_KEY ใน Cloudflare → Settings → Environment variables"
           : "❌ " + (j.error || "วิเคราะห์ไม่สำเร็จ");
         document.getElementById("akStep4").style.display = "block";
-        document.getElementById("akResult").innerHTML = `<div style="padding:14px;background:#fef2f2;border:1px solid #fecaca;border-radius:10px;color:#991b1b;font-size:13px">${errMsg}</div>
+        document.getElementById("akResult").innerHTML = `<div style="padding:14px;background:#fef2f2;border:1px solid #fecaca;border-radius:10px;color:#991b1b;font-size:13px">${errMsg}${j.detail ? '<br><small>'+escHtml(String(j.detail).slice(0,200))+'</small>' : ''}</div>
           <button onclick="document.getElementById('akStep2').style.display='block';document.getElementById('akStep4').style.display='none'" style="margin-top:10px;padding:10px;width:100%;background:#f1f5f9;border:none;border-radius:8px;cursor:pointer;font-size:13px">← กลับไปลองใหม่</button>`;
         return;
       }
