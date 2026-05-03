@@ -756,11 +756,11 @@ function _showParsedResult(ctx, modal, imageDataUrl, data) {
         </label>
       </div>
       <label style="display:block">
-        <div style="font-size:11px;font-weight:700;color:#475569;margin-bottom:3px">หมวด</div>
-        <input id="akEdCategory" type="text" value="${escHtml(d.category_guess || 'อื่นๆ')}" list="akCatList" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px" />
-        <datalist id="akCatList">
-          <option value="น้ำมันรถ"><option value="ค่าน้ำ"><option value="ค่าไฟ"><option value="ค่าโทรศัพท์"><option value="ค่าอินเทอร์เน็ต"><option value="ซื้อสินค้า"><option value="ค่าซ่อม"><option value="ค่าเช่า"><option value="ค่าอาหาร"><option value="อื่นๆ">
-        </datalist>
+        <div style="font-size:11px;font-weight:700;color:#475569;margin-bottom:3px">หมวด (ใช้คำนวณสรุปรายเดือน)</div>
+        <select id="akEdCategory" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;background:#fff">
+          ${EXPENSE_CATEGORIES.map(c => `<option value="${c.value}"${c.value === _guessEnumCategory(d.category_guess) ? ' selected' : ''}>${c.label}</option>`).join('')}
+        </select>
+        ${d.category_guess ? `<div style="font-size:10px;color:#64748b;margin-top:3px">AI เดา: <b>${escHtml(d.category_guess)}</b></div>` : ''}
       </label>
       <label style="display:block">
         <div style="font-size:11px;font-weight:700;color:#475569;margin-bottom:3px">รายละเอียด</div>
@@ -815,7 +815,7 @@ function _showParsedResult(ctx, modal, imageDataUrl, data) {
     const amount = Number(document.getElementById("akEdAmount")?.value || 0);
     if (!(amount > 0)) { setErr("กรอกยอดเงินให้ถูกต้อง"); return; }
     const date = document.getElementById("akEdDate")?.value || today;
-    const category = document.getElementById("akEdCategory")?.value?.trim() || "อื่นๆ";
+    const category = document.getElementById("akEdCategory")?.value?.trim() || "other";
     const description = document.getElementById("akEdDesc")?.value?.trim() || "";
 
     const btn = document.getElementById("akSaveBtn");
@@ -847,6 +847,20 @@ function _showParsedResult(ctx, modal, imageDataUrl, data) {
       btn.textContent = orig;
     }
   });
+}
+
+// Phase 74.8: Map AI Thai category guess → enum value ที่ระบบใช้จริง
+function _guessEnumCategory(thai) {
+  if (!thai) return "other";
+  const t = String(thai).toLowerCase().trim();
+  if (/น้ำมัน|เชื้อเพลิง|ดีเซล|แก๊ส|gas|fuel|ปั๊ม/i.test(t)) return "fuel";
+  if (/น้ำ|ไฟฟ้า|ไฟ|โทรศัพท์|อินเทอร์เน็ต|internet|มือถือ|เน็ต|wifi/i.test(t)) return "utilities";
+  if (/เช่า|rent/i.test(t)) return "rent";
+  if (/เงินเดือน|salary|ค่าจ้างพนักงาน/i.test(t)) return "salary";
+  if (/ค่าจ้าง|ช่าง|labor|จ้างเหมา/i.test(t)) return "labor_hire";
+  if (/ซื้อสินค้า|วัสดุ|อะไหล่|materials|ของ/i.test(t)) return "materials";
+  if (/ซ่อม|repair|ค่าอาหาร|กิน|ของกิน|อาหาร|food|อื่น/i.test(t)) return "other";
+  return "other";
 }
 
 // Phase 74.7: ตรวจ duplicate expense จาก doc_no (เลขที่ใบเสร็จ) หรือ vendor+amount+date

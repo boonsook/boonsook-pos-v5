@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v94 (2026-05-03): Phase 74.7 — AutoKey duplicate check (doc_no/vendor+amount+date)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v94';
+// v95 (2026-05-03): Phase 74.8 — AutoKey category mapping (Thai → enum) + dropdown
+const CACHE_NAME = 'boonsook-pos-v5-cache-v95';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
