@@ -263,10 +263,13 @@ async function openScanner(ctx) {
 
   if (typeof Html5Qrcode === "undefined") return;
   try {
-    _swScanner = new Html5Qrcode("swScannerVideo");
+    // Phase 64: shared scanner config (1D barcodes + QR)
+    const { getScannerConfig } = await import("./utils.js");
+    const { ctorOpts, startConfig } = getScannerConfig();
+    _swScanner = new Html5Qrcode("swScannerVideo", ctorOpts);
     await _swScanner.start(
       { facingMode: "environment" },
-      { fps: 10, qrbox: { width: 250, height: 130 } },
+      startConfig,
       (decoded) => {
         const inp = container.querySelector("#swSearchInput");
         if (inp) inp.value = decoded;

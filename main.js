@@ -1717,27 +1717,29 @@ function openDrawerScanner() {
     return;
   }
 
-  try {
-    _drawerScanner = new Html5Qrcode("drawerScannerVideo");
-    _drawerScanner.start(
-      { facingMode: "environment" },
-      { fps: 10, qrbox: { width: 250, height: 150 } },
-      (code) => {
-        // สแกนสำเร็จ → ใส่ค่าบาร์โค้ดในช่อง
-        const barcodeInput = $("newProductBarcode");
-        if (barcodeInput) barcodeInput.value = code;
-        if (resultEl) resultEl.innerHTML = `<span style="color:#10b981;font-weight:600">✓ สแกนได้: ${escapeHtml(code)}</span>`;
-        // หยุด scanner หลังสแกนสำเร็จ
-        closeDrawerScanner();
-        showToast("สแกนบาร์โค้ดสำเร็จ: " + code);
-      },
-      () => {} // ignore scan errors
-    ).catch(err => {
-      videoEl.innerHTML = `<div style="padding:16px;text-align:center;color:#94a3b8">ไม่สามารถเปิดกล้อง: ${escapeHtml(err.message || err)}</div>`;
-    });
-  } catch(err) {
-    videoEl.innerHTML = `<div style="padding:16px;text-align:center;color:#94a3b8">เกิดข้อผิดพลาด: ${escapeHtml(err.message || err)}</div>`;
-  }
+  // Phase 64: shared scanner config (1D barcodes + QR)
+  import("./modules/utils.js").then(({ getScannerConfig }) => {
+    const { ctorOpts, startConfig } = getScannerConfig();
+    try {
+      _drawerScanner = new Html5Qrcode("drawerScannerVideo", ctorOpts);
+      _drawerScanner.start(
+        { facingMode: "environment" },
+        startConfig,
+        (code) => {
+          const barcodeInput = $("newProductBarcode");
+          if (barcodeInput) barcodeInput.value = code;
+          if (resultEl) resultEl.innerHTML = `<span style="color:#10b981;font-weight:600">✓ สแกนได้: ${escapeHtml(code)}</span>`;
+          closeDrawerScanner();
+          showToast("สแกนบาร์โค้ดสำเร็จ: " + code);
+        },
+        () => {} // ignore per-frame scan errors (very noisy)
+      ).catch(err => {
+        videoEl.innerHTML = `<div style="padding:16px;text-align:center;color:#94a3b8">ไม่สามารถเปิดกล้อง: ${escapeHtml(err.message || err)}</div>`;
+      });
+    } catch(err) {
+      videoEl.innerHTML = `<div style="padding:16px;text-align:center;color:#94a3b8">เกิดข้อผิดพลาด: ${escapeHtml(err.message || err)}</div>`;
+    }
+  });
 }
 
 function closeDrawerScanner() {

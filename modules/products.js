@@ -922,7 +922,7 @@ function renderPageNumbers(current, total) {
 // ═══════════════════════════════════════════════════════════
 let scannerInstance = null;
 
-function openScanner(ctx) {
+async function openScanner(ctx) {
   document.getElementById("prodScannerModal")?.classList.remove("hidden");
   document.getElementById("prodScannerResult").innerHTML = "";
 
@@ -935,11 +935,13 @@ function openScanner(ctx) {
       scanArea.innerHTML = '<div style="padding:24px;text-align:center;color:var(--muted)">ไม่พบไลบรารี Scanner</div>';
       return;
     }
-
-    scannerInstance = new Html5Qrcode("prodScannerArea");
+    // Phase 64: shared scanner config (1D barcodes + QR)
+    const { getScannerConfig } = await import("./utils.js");
+    const { ctorOpts, startConfig } = getScannerConfig();
+    scannerInstance = new Html5Qrcode("prodScannerArea", ctorOpts);
     scannerInstance.start(
       { facingMode: "environment" },
-      { fps: 10, qrbox: { width: 280, height: 160 } },
+      startConfig,
       (code) => handleScanResult(code, ctx),
       () => {}
     ).catch(err => {

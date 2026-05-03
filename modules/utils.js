@@ -45,6 +45,51 @@ export function getCustomerTier(customerId, sales) {
   return { revenue, tier, nextTier, progress };
 }
 
+// ═══════════════════════════════════════════════════════════
+//  Phase 64: Barcode Scanner config — shared across all scan UIs
+//  Fixes: html5-qrcode default only reliably reads QR. Without explicit
+//  formatsToSupport, 1D barcodes (EAN/UPC/Code128) often fail to decode
+//  even when camera opens fine. Square qrbox also doesn't suit horizontal
+//  retail barcodes — use wide rectangle.
+// ═══════════════════════════════════════════════════════════
+// Html5QrcodeSupportedFormats enum values (from library source)
+// 0=QR_CODE, 3=CODE_39, 4=CODE_93, 5=CODE_128, 8=ITF, 9=EAN_13,
+// 10=EAN_8, 14=UPC_A, 15=UPC_E
+export const BARCODE_FORMATS = [0, 3, 4, 5, 8, 9, 10, 14, 15];
+
+/**
+ * Build Html5Qrcode constructor options + start() config tuned for
+ * retail barcodes (1D + QR). Pass into both `new Html5Qrcode(elId, opts)`
+ * and `.start(camera, startConfig, ...)`.
+ *
+ * @param {Object} [overrides] - partial overrides for startConfig
+ * @returns {{ ctorOpts: Object, startConfig: Object }}
+ */
+export function getScannerConfig(overrides = {}) {
+  const ctorOpts = {
+    formatsToSupport: BARCODE_FORMATS,
+    verbose: false,
+    useBarCodeDetectorIfSupported: true,
+    experimentalFeatures: { useBarCodeDetectorIfSupported: true }
+  };
+  const startConfig = {
+    fps: 15,
+    // Wide rectangle box — fits horizontal retail barcodes, also works for QR
+    qrbox: function(viewfinderWidth, viewfinderHeight) {
+      const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+      const w = Math.floor(viewfinderWidth * 0.85);
+      const h = Math.floor(minEdge * 0.45);
+      return { width: w, height: h };
+    },
+    aspectRatio: 1.7777778, // 16:9 — plays nice with most phone cameras
+    formatsToSupport: BARCODE_FORMATS,
+    rememberLastUsedCamera: true,
+    showTorchButtonIfSupported: true,
+    ...overrides
+  };
+  return { ctorOpts, startConfig };
+}
+
 /**
  * Render a small inline tier badge (HTML string).
  * Caller is responsible for escaping if used in untrusted context.

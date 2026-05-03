@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v79 (2026-05-02): Phase 66 — Daikin enrichment (17 codes for Sky Air/VRV/RA coverage)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v79';
+// v80 (2026-05-03): Phase 67 — fix barcode scanner (enable 1D formats EAN/UPC/Code128 + wide qrbox)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v80';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

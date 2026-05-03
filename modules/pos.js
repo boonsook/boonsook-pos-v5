@@ -1120,14 +1120,17 @@ function startScanner(ctx) {
   initScanner(ctx);
 }
 
-function initScanner(ctx) {
+async function initScanner(ctx) {
   const scanArea = document.getElementById("posScannerArea");
   if (!scanArea) return;
+  // Phase 64: shared scanner config (1D barcodes + QR)
+  const { getScannerConfig } = await import("./utils.js");
+  const { ctorOpts, startConfig } = getScannerConfig();
   try {
-    scannerInstance = new Html5Qrcode("posScannerArea");
+    scannerInstance = new Html5Qrcode("posScannerArea", ctorOpts);
     scannerInstance.start(
       { facingMode: "environment" },
-      { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
+      startConfig,
       (decodedText) => { handleScanResult(decodedText, ctx); stopScanner(); },
       () => {}
     ).catch(err => {
