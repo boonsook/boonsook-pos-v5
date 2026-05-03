@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v80 (2026-05-03): Phase 67 — fix barcode scanner (enable 1D formats EAN/UPC/Code128 + wide qrbox)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v80';
+// v81 (2026-05-03): Phase 68 — tag system extend to products + service_jobs
+const CACHE_NAME = 'boonsook-pos-v5-cache-v81';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

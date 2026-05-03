@@ -46,6 +46,106 @@ export function getCustomerTier(customerId, sales) {
 }
 
 // ═══════════════════════════════════════════════════════════
+//  Phase 68: Tag presets for products + service_jobs
+//  (customers have their own preset list in main.js Phase 11)
+// ═══════════════════════════════════════════════════════════
+export const PRODUCT_TAG_PRESETS = [
+  { name: "ขายดี",        icon: "🔥", color: "#dc2626", desc: "สินค้าขายดี" },
+  { name: "โปรโมชั่น",     icon: "🎉", color: "#f59e0b", desc: "อยู่ในโปรโมชั่น" },
+  { name: "ใหม่",          icon: "✨", color: "#10b981", desc: "สินค้ามาใหม่" },
+  { name: "นำเข้า",        icon: "🌍", color: "#0284c7", desc: "นำเข้า/Import" },
+  { name: "เลิกผลิต",      icon: "⚠️", color: "#9a3412", desc: "Discontinued" },
+  { name: "ราคาส่ง",       icon: "📦", color: "#7c3aed", desc: "มีราคาส่ง" }
+];
+
+export const SERVICE_TAG_PRESETS = [
+  { name: "ด่วน",          icon: "🚨", color: "#dc2626", desc: "งานด่วน" },
+  { name: "VIP",           icon: "🌟", color: "#f59e0b", desc: "ลูกค้า VIP" },
+  { name: "ประกัน",         icon: "🛡️", color: "#10b981", desc: "งานในประกัน" },
+  { name: "ติดตั้งใหม่",    icon: "🏗️", color: "#0284c7", desc: "ติดตั้งครั้งแรก" },
+  { name: "ซ่อมซ้ำ",        icon: "🔁", color: "#7c3aed", desc: "เคยมาซ่อมแล้ว" },
+  { name: "ค้างจ่าย",       icon: "💳", color: "#ef4444", desc: "ลูกค้ายังไม่จ่าย" }
+];
+
+export function getTagMeta(tagName, presets) {
+  const found = (presets || []).find(t => t.name === tagName);
+  return found || { name: tagName, icon: "🏷️", color: "#64748b", desc: "" };
+}
+
+/**
+ * Render small badge for a tag (read-only, used in lists).
+ * @param {string} tagName
+ * @param {Array} presets - PRODUCT_TAG_PRESETS / SERVICE_TAG_PRESETS / etc.
+ * @returns {string} HTML
+ */
+export function renderTagBadge(tagName, presets) {
+  const m = getTagMeta(tagName, presets);
+  return `<span style="background:${m.color};color:#fff;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:700;margin-right:3px;display:inline-block">${m.icon} ${escHtml(tagName)}</span>`;
+}
+
+/**
+ * Mount editable tag widget on a container element.
+ * Two children expected: presets row + active row, both <div>.
+ * Returns helpers for outside callers.
+ *
+ * @param {Object} opts
+ * @param {HTMLElement} opts.activeEl - container that shows current chips
+ * @param {HTMLElement} opts.presetsEl - container that shows quick-add preset chips
+ * @param {HTMLInputElement} opts.inputEl - free-text input
+ * @param {HTMLButtonElement} opts.addBtn - "+ add" button
+ * @param {Array} opts.presets - preset list
+ * @param {Array<string>} opts.initial - initial tags
+ * @returns {{ getValue: () => Array<string> }}
+ */
+export function mountTagWidget({ activeEl, presetsEl, inputEl, addBtn, presets, initial }) {
+  let cur = Array.isArray(initial) ? [...initial] : [];
+
+  const renderActive = () => {
+    if (!activeEl) return;
+    if (cur.length === 0) {
+      activeEl.innerHTML = `<span style="font-size:11px;color:#94a3b8">— ยังไม่มี tag —</span>`;
+    } else {
+      activeEl.innerHTML = cur.map(t => {
+        const m = getTagMeta(t, presets);
+        return `<span style="background:${m.color};color:#fff;padding:3px 8px;border-radius:12px;font-size:11px;font-weight:700;display:inline-flex;align-items:center;gap:4px">
+          ${m.icon} ${escHtml(t)}
+          <button type="button" data-tw-remove="${escHtml(t)}" style="background:rgba(255,255,255,0.3);border:none;color:#fff;width:16px;height:16px;border-radius:50%;cursor:pointer;font-size:11px;line-height:1;padding:0;display:inline-flex;align-items:center;justify-content:center">×</button>
+        </span>`;
+      }).join("");
+      activeEl.querySelectorAll("[data-tw-remove]").forEach(btn => btn.addEventListener("click", () => {
+        cur = cur.filter(x => x !== btn.dataset.twRemove);
+        renderActive(); renderPresets();
+      }));
+    }
+  };
+  const renderPresets = () => {
+    if (!presetsEl) return;
+    presetsEl.innerHTML = presets.map(p => {
+      const active = cur.includes(p.name);
+      return `<button type="button" data-tw-toggle="${escHtml(p.name)}" style="background:${active?p.color:'#fff'};color:${active?'#fff':p.color};border:1px solid ${p.color};padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;cursor:pointer;opacity:${active?'1':'.85'}">${p.icon} ${escHtml(p.name)}</button>`;
+    }).join("");
+    presetsEl.querySelectorAll("[data-tw-toggle]").forEach(btn => btn.addEventListener("click", () => {
+      const t = btn.dataset.twToggle;
+      cur = cur.includes(t) ? cur.filter(x => x !== t) : [...cur, t];
+      renderActive(); renderPresets();
+    }));
+  };
+  const handleAdd = () => {
+    const v = (inputEl?.value || "").trim();
+    if (!v) return;
+    if (cur.includes(v)) return;
+    cur = [...cur, v];
+    if (inputEl) inputEl.value = "";
+    renderActive(); renderPresets();
+  };
+  if (addBtn) addBtn.addEventListener("click", handleAdd);
+  if (inputEl) inputEl.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); handleAdd(); } });
+
+  renderActive(); renderPresets();
+  return { getValue: () => [...cur] };
+}
+
+// ═══════════════════════════════════════════════════════════
 //  Phase 64: Barcode Scanner config — shared across all scan UIs
 //  Fixes: html5-qrcode default only reliably reads QR. Without explicit
 //  formatsToSupport, 1D barcodes (EAN/UPC/Code128) often fail to decode

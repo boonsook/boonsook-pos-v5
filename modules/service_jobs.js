@@ -1,5 +1,7 @@
 
 import { renderEmpty } from "./ui_states.js";
+// Phase 68 (B3): tag rendering + presets
+import { renderTagBadge, SERVICE_TAG_PRESETS } from "./utils.js";
 
 const STATUS_LABELS = {
   pending:    "รอดำเนินการ",
@@ -40,6 +42,7 @@ const sanitizeUrl = (url) => {
 // ★ Phase 39 — filter chips: ทั้งหมด / ค้าง / ปิดแล้ว / ยกเลิก
 // state อยู่ใน module-level — คงค่าระหว่าง re-render แต่ reset เมื่อ refresh page
 let _sjFilter = "open"; // default: ค้าง (เพราะคือ default workflow ของช่าง)
+let _sjTagFilter = null; // Phase 68: filter by tag
 
 const OPEN_STATUSES = ["pending", "progress", "in_progress", "open"];
 const CLOSED_STATUSES = ["done", "delivered", "closed"];
@@ -61,6 +64,11 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
   else if (_sjFilter === "cancelled") jobs = allJobs.filter(j => j.status === "cancelled");
   else                                jobs = allJobs; // "all"
 
+  // Phase 68 (B3): tag filter
+  if (_sjTagFilter) {
+    jobs = jobs.filter(j => Array.isArray(j.tags) && j.tags.includes(_sjTagFilter));
+  }
+
   const chip = (key, label, count, activeColor) => {
     const isActive = _sjFilter === key;
     return `<button class="sj-filter-chip" data-sj-filter="${key}" style="padding:6px 14px;border-radius:18px;border:1px solid ${isActive ? activeColor : '#cbd5e1'};background:${isActive ? activeColor : '#fff'};color:${isActive ? '#fff' : '#475569'};cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap">${label}${count > 0 ? ` (${count})` : ''}</button>`;
@@ -79,6 +87,23 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
         ${chip("cancelled", "⚫ ยกเลิก",     cCancelled, "#64748b")}
         ${chip("all",       "ทั้งหมด",      cAll,       "#475569")}
       </div>
+      <!-- Phase 68 (B3): Tag filter chips -->
+      ${(() => {
+        const tagCounts = {};
+        allJobs.forEach(j => Array.isArray(j.tags) && j.tags.forEach(t => { tagCounts[t] = (tagCounts[t] || 0) + 1; }));
+        const used = Object.entries(tagCounts).sort((a,b)=>b[1]-a[1]);
+        if (!used.length) return '';
+        return `
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;align-items:center">
+          <span style="font-size:11px;color:#64748b;font-weight:600">🏷️ Tag:</span>
+          <button data-sj-tag-filter="" style="padding:3px 10px;border-radius:12px;border:1px solid ${_sjTagFilter===null?'#0284c7':'#cbd5e1'};background:${_sjTagFilter===null?'#0284c7':'#fff'};color:${_sjTagFilter===null?'#fff':'#475569'};cursor:pointer;font-size:11px;font-weight:600">ทั้งหมด</button>
+          ${used.map(([t,n]) => {
+            const m = SERVICE_TAG_PRESETS.find(p => p.name === t) || { icon:"🏷️", color:"#64748b" };
+            const active = _sjTagFilter === t;
+            return `<button data-sj-tag-filter="${escHtml(t)}" style="padding:3px 10px;border-radius:12px;border:1px solid ${active?m.color:'#cbd5e1'};background:${active?m.color:'#fff'};color:${active?'#fff':m.color};cursor:pointer;font-size:11px;font-weight:600">${m.icon} ${escHtml(t)} <span style="opacity:.7">(${n})</span></button>`;
+          }).join("")}
+        </div>`;
+      })()}
       ${jobs.length === 0 ? (
         _sjFilter === "all"
           ? renderEmpty({
@@ -173,6 +198,7 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
                     ${typeLabel ? `<span style="font-size:12px;color:#64748b">${typeLabel}</span>` : ''}
                     ${isWebOrder ? '<span style="font-size:11px;color:#10b981;font-weight:700;padding:2px 8px;border-radius:99px;background:#ecfdf5">🛒 ออเดอร์เว็บ</span>' : ''}
                     ${payBadgeHtml}
+                    ${Array.isArray(j.tags) ? j.tags.map(t => renderTagBadge(t, SERVICE_TAG_PRESETS)).join("") : ""}
                   </div>
                   ${orderItemsHtml}
                   ${orderTotalHtml}
@@ -194,6 +220,13 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
   /* ── Phase 39 — Filter chips ── */
   document.querySelectorAll("[data-sj-filter]").forEach(btn => btn.addEventListener("click", () => {
     _sjFilter = btn.dataset.sjFilter;
+    renderServiceJobsPage({ state, openServiceJobDrawer, showToast, showRoute });
+  }));
+
+  /* ── Phase 68 (B3) — Tag filter chips ── */
+  document.querySelectorAll("[data-sj-tag-filter]").forEach(btn => btn.addEventListener("click", () => {
+    const t = btn.dataset.sjTagFilter;
+    _sjTagFilter = t === "" ? null : t;
     renderServiceJobsPage({ state, openServiceJobDrawer, showToast, showRoute });
   }));
 

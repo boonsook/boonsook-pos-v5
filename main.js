@@ -1661,7 +1661,52 @@ function openProductDrawer(product=null, opts={}){
   if (product?.barcode) { setTimeout(updateBarcodePreview, 100); }
   else { $("drawerBarcodePreview")?.classList.add("hidden"); }
 
+  // Phase 68 (B3): Tag widget for products
+  _mountProductTagWidget(product);
+
   openDrawer("productDrawer");
+}
+
+// Phase 68: Service job tag widget instance
+let _serviceJobTagWidget = null;
+async function _mountServiceJobTagWidget(job) {
+  const activeEl   = $("serviceTagsActive");
+  const presetsEl  = $("serviceTagsPresets");
+  const inputEl    = $("serviceTagInput");
+  const addBtn     = $("serviceTagAddBtn");
+  if (!activeEl || !presetsEl) return;
+  if (inputEl) { const ni = inputEl.cloneNode(true); inputEl.parentNode.replaceChild(ni, inputEl); }
+  if (addBtn)  { const nb = addBtn.cloneNode(true); addBtn.parentNode.replaceChild(nb, addBtn); }
+  const { mountTagWidget, SERVICE_TAG_PRESETS } = await import("./modules/utils.js");
+  _serviceJobTagWidget = mountTagWidget({
+    activeEl, presetsEl,
+    inputEl: $("serviceTagInput"),
+    addBtn: $("serviceTagAddBtn"),
+    presets: SERVICE_TAG_PRESETS,
+    initial: Array.isArray(job?.tags) ? job.tags : []
+  });
+}
+
+// Phase 68: Product tag widget instance (returns getValue for save)
+let _productTagWidget = null;
+async function _mountProductTagWidget(product) {
+  const activeEl   = $("productTagsActive");
+  const presetsEl  = $("productTagsPresets");
+  const inputEl    = $("productTagInput");
+  const addBtn     = $("productTagAddBtn");
+  if (!activeEl || !presetsEl) return;
+  // Reset input + button (re-cloning to drop old listeners)
+  if (inputEl) { const ni = inputEl.cloneNode(true); inputEl.parentNode.replaceChild(ni, inputEl); }
+  if (addBtn)  { const nb = addBtn.cloneNode(true); addBtn.parentNode.replaceChild(nb, addBtn); }
+  const { mountTagWidget, PRODUCT_TAG_PRESETS } = await import("./modules/utils.js");
+  _productTagWidget = mountTagWidget({
+    activeEl,
+    presetsEl,
+    inputEl: $("productTagInput"),
+    addBtn: $("productTagAddBtn"),
+    presets: PRODUCT_TAG_PRESETS,
+    initial: Array.isArray(product?.tags) ? product.tags : []
+  });
 }
 
 // ★ จำแนกประเภทจากชื่อ (fallback ถ้า DB ไม่มี product_type)
@@ -1884,6 +1929,11 @@ async function saveProduct(){
   const imgUrl = ($("newProductImageUrl")?.value || "").trim();
   if (imgUrl) payload.image_url = imgUrl;
   else if (state.editingProductId) payload.image_url = null; // เคลียร์รูปเมื่อแก้ไขแล้วลบ
+
+  // Phase 68 (B3): tags
+  if (_productTagWidget) {
+    try { payload.tags = _productTagWidget.getValue(); } catch(_){}
+  }
 
   // ★ Featured + Promo
   payload.is_featured = !!$("newProductFeatured")?.checked;
@@ -2478,6 +2528,9 @@ function openServiceJobDrawer(job=null){
   // Phase 63 (C1): Share link button (only for existing jobs)
   _renderServiceJobShareSection(job);
 
+  // Phase 68 (B3): Tag widget for service jobs
+  _mountServiceJobTagWidget(job);
+
   openDrawer("serviceJobDrawer");
 }
 
@@ -2606,6 +2659,10 @@ async function saveServiceJob(){
     photo_before:     $("serviceBeforeUrl")?.value?.trim() || null,
     photo_after:      $("serviceAfterUrl")?.value?.trim() || null
   };
+  // Phase 68 (B3): tags
+  if (_serviceJobTagWidget) {
+    try { payload.tags = _serviceJobTagWidget.getValue(); } catch(_){}
+  }
   // ★ VALIDATE: ตรวจสอบข้อมูลก่อนส่ง
   if (!payload.customer_name || !payload.description) return showToast("กรอกข้อมูลงานช่างให้ครบ");
   if (payload.customer_phone && !isValidPhone(payload.customer_phone)) {

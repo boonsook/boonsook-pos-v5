@@ -3,6 +3,8 @@
 //  Boonsook POS V5 — Products Page (FlowAccount Style)
 // ═══════════════════════════════════════════════════════════
 import { renderEmpty } from "./ui_states.js";
+// Phase 68 (B3): tag rendering + presets
+import { renderTagBadge, PRODUCT_TAG_PRESETS } from "./utils.js";
 
 // ═══ ประเภทสินค้า (เหมือน FlowAccount) ═══
 const PRODUCT_TYPES = {
@@ -62,6 +64,8 @@ let selectedWarehouse = "all"; // "all" or warehouse id
 let bulkMode = false; // ★ Bulk edit mode
 let bulkSelected = new Set(); // ★ product ids
 let quickFilter = ""; // ★ "no_cost" | "no_barcode" | ""
+// Phase 68 (B3): tag filter — null = no filter, string = filter by tag name
+let currentTagFilter = null;
 const PAGE_SIZE = 20;
 
 // ─── Letter Avatar Colors ───
@@ -232,6 +236,11 @@ function renderView(ctx) {
     );
   }
 
+  // ─── Tag filter (Phase 68 B3) ───
+  if (currentTagFilter) {
+    filtered = filtered.filter(p => Array.isArray(p.tags) && p.tags.includes(currentTagFilter));
+  }
+
   // ─── Sort ───
   filtered.sort((a, b) => {
     switch (currentSort) {
@@ -371,6 +380,24 @@ function renderView(ctx) {
           <span class="prod-status-dot" style="background:#ef4444"></span> หมดสต็อก <span class="prod-tab-count">${countOut}</span>
         </button>
       </div>
+
+      <!-- Phase 68 (B3): Tag filter chips — show used tags with counts -->
+      ${(() => {
+        const tagCounts = {};
+        baseProducts.forEach(p => Array.isArray(p.tags) && p.tags.forEach(t => { tagCounts[t] = (tagCounts[t] || 0) + 1; }));
+        const used = Object.entries(tagCounts).sort((a,b)=>b[1]-a[1]);
+        if (!used.length) return '';
+        return `
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;align-items:center">
+          <span style="font-size:11px;color:#64748b;font-weight:600">🏷️ Tag:</span>
+          <button data-tag-filter="" style="padding:3px 10px;border-radius:12px;border:1px solid ${currentTagFilter===null?'#0284c7':'#cbd5e1'};background:${currentTagFilter===null?'#0284c7':'#fff'};color:${currentTagFilter===null?'#fff':'#475569'};cursor:pointer;font-size:11px;font-weight:600">ทั้งหมด</button>
+          ${used.map(([t,n]) => {
+            const m = (PRODUCT_TAG_PRESETS.find(p => p.name === t)) || { icon:"🏷️", color:"#64748b" };
+            const active = currentTagFilter === t;
+            return `<button data-tag-filter="${escHtml(t)}" style="padding:3px 10px;border-radius:12px;border:1px solid ${active?m.color:'#cbd5e1'};background:${active?m.color:'#fff'};color:${active?'#fff':m.color};cursor:pointer;font-size:11px;font-weight:600">${m.icon} ${escHtml(t)} <span style="opacity:.7">(${n})</span></button>`;
+          }).join("")}
+        </div>`;
+      })()}
 
       <!-- Search + Sort Row -->
       <div class="prod-toolbar mt16">
@@ -525,6 +552,14 @@ function renderView(ctx) {
   // ★ Category chips
   el.querySelectorAll("[data-pcat]").forEach(btn => btn.addEventListener("click", () => {
     currentCategory = btn.dataset.pcat;
+    currentPage = 1;
+    renderView(ctx);
+  }));
+
+  // Phase 68 (B3): tag filter chips
+  el.querySelectorAll("[data-tag-filter]").forEach(btn => btn.addEventListener("click", () => {
+    const t = btn.dataset.tagFilter;
+    currentTagFilter = t === "" ? null : t;
     currentPage = 1;
     renderView(ctx);
   }));
@@ -886,6 +921,7 @@ function renderProductItem(p, mode, state) {
           ${skuStr ? `<div class="prod-list-sku">${skuStr}</div>` : ''}
           ${p.category ? `<div class="prod-list-sku" style="color:#6b7280">${escHtml(p.category)}</div>` : ''}
           ${pType === "stock" && p.barcode ? `<div class="prod-list-sku">บาร์โค้ด: ${escHtml(p.barcode)}</div>` : ''}
+          ${Array.isArray(p.tags) && p.tags.length ? `<div style="margin-top:4px">${p.tags.map(t => renderTagBadge(t, PRODUCT_TAG_PRESETS)).join("")}</div>` : ''}
         </div>
       </div>
       <div class="prod-list-right">

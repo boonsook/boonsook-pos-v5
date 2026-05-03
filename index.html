@@ -462,6 +462,17 @@
         <div class="set-section-title wh-stock-title">สต็อกตามคลัง</div>
         <div id="warehouseStockInputs" class="stack"></div>
       </div>
+
+      <!-- Phase 68 (B3): Product tags -->
+      <div style="border:1px dashed #cbd5e1;border-radius:10px;padding:12px;background:#f8fafc;margin-top:12px">
+        <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:6px">🏷️ Tags</div>
+        <div id="productTagsPresets" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px"></div>
+        <div style="display:flex;gap:6px">
+          <input id="productTagInput" type="text" placeholder="พิมพ์ tag เอง + Enter" style="flex:1;padding:6px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:12px" />
+          <button id="productTagAddBtn" type="button" class="btn light" style="font-size:12px;padding:6px 10px">+ เพิ่ม</button>
+        </div>
+        <div id="productTagsActive" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px;min-height:24px"></div>
+      </div>
     </div>
     <div class="row mt16">
       <button id="resetProductFormBtn" class="btn light">ล้างค่า</button>
@@ -575,6 +586,17 @@
       <!-- Phase 63 (C1): Share link section — populated by _renderServiceJobShareSection() -->
       <div id="serviceJobShareSection" class="hidden mt12"></div>
 
+      <!-- Phase 68 (B3): Service job tags -->
+      <div style="border:1px dashed #cbd5e1;border-radius:10px;padding:12px;background:#f8fafc;margin-top:12px">
+        <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:6px">🏷️ Tags</div>
+        <div id="serviceTagsPresets" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px"></div>
+        <div style="display:flex;gap:6px">
+          <input id="serviceTagInput" type="text" placeholder="พิมพ์ tag เอง + Enter" style="flex:1;padding:6px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:12px" />
+          <button id="serviceTagAddBtn" type="button" class="btn light" style="font-size:12px;padding:6px 10px">+ เพิ่ม</button>
+        </div>
+        <div id="serviceTagsActive" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px;min-height:24px"></div>
+      </div>
+
       <!-- ★ รูปก่อน-หลัง (สำหรับงานช่าง) -->
       <div style="border:1px dashed #cbd5e1;border-radius:10px;padding:12px;background:#f8fafc">
         <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:8px">📷 รูปก่อน-หลังงาน (Service Photos)</div>
@@ -667,7 +689,7 @@
   <script>
   (async function selfHeal() {
     try {
-      var APP_BUILD = 96;
+      var APP_BUILD = 97;
       var STUCK_BUILDS_BEFORE = 47; // builds before this มี immutable-cache bug
       var stored = parseInt(localStorage.getItem('bsk_app_build') || '0', 10);
       var justRecovered = sessionStorage.getItem('bsk_just_recovered') === '1';
@@ -716,7 +738,7 @@
     }
   })();
   </script>
-  <script type="module" src="./main.js?v=96"></script>
+  <script type="module" src="./main.js?v=97"></script>
   <script>
     // ═══ Loading Overlay ═══
     function hideLoadingOverlay() {
