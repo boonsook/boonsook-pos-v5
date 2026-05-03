@@ -186,6 +186,7 @@ export async function renderPayrollPage(ctx) {
                           : `<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">รอจ่าย</span>`}
                       </td>
                       <td style="padding:8px 10px;text-align:right;white-space:nowrap">
+                        <button class="btn pr-slip-btn" data-id="${p.id}" style="padding:4px 8px;font-size:11px;background:#0284c7;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700" title="พิมพ์สลิปเงินเดือน">🖨️ สลิป</button>
                         ${!p.paid_at ? `<button class="btn pr-pay-btn" data-id="${p.id}" style="padding:4px 8px;font-size:11px;background:#10b981;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700">💸 จ่าย</button>` : ''}
                         <button class="btn light pr-edit-btn" data-id="${p.id}" style="padding:4px 8px;font-size:11px">แก้</button>
                         <button class="btn pr-del-btn" data-id="${p.id}" style="padding:4px 8px;font-size:11px;background:#fee2e2;color:#dc2626;border:none;border-radius:6px;cursor:pointer">ลบ</button>
@@ -214,6 +215,7 @@ export async function renderPayrollPage(ctx) {
   }));
   container.querySelectorAll(".pr-del-btn").forEach(btn => btn.addEventListener("click", () => _deletePayroll(ctx, btn.dataset.id)));
   container.querySelectorAll(".pr-pay-btn").forEach(btn => btn.addEventListener("click", () => _markPaid(ctx, btn.dataset.id)));
+  container.querySelectorAll(".pr-slip-btn").forEach(btn => btn.addEventListener("click", () => _printPayslip(ctx, btn.dataset.id)));
   document.getElementById("prExportBtn")?.addEventListener("click", () => _exportPayroll());
 }
 
@@ -415,6 +417,207 @@ async function _markPaid(ctx, id) {
   } catch(e) {
     ctx.showToast?.("บันทึกไม่สำเร็จ: " + (e.message || e));
   }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 72.1: Payslip print — สลิปเงินเดือน A4 + auto-print
+// ═══════════════════════════════════════════════════════════
+function _bahtText(amount) {
+  const nums = ['','หนึ่ง','สอง','สาม','สี่','ห้า','หก','เจ็ด','แปด','เก้า'];
+  const places = ['','สิบ','ร้อย','พัน','หมื่น','แสน'];
+  function u1M(n){
+    if(n<=0) return '';
+    const s=String(n); let o='';
+    for(let i=0;i<s.length;i++){
+      const d=+s[i], p=s.length-1-i;
+      if(d===0) continue;
+      if(p===1 && d===1) o+='สิบ';
+      else if(p===1 && d===2) o+='ยี่สิบ';
+      else if(p===0 && d===1 && s.length>1) o+='เอ็ด';
+      else o+=nums[d]+places[p];
+    }
+    return o;
+  }
+  function rd(n){
+    if(n===0) return 'ศูนย์';
+    let o='';
+    if(n>=1000000){const m=Math.floor(n/1000000); o+=rd(m)+'ล้าน'; n=n%1000000;}
+    o+=u1M(n);
+    return o;
+  }
+  const r=Math.round(Number(amount||0)*100)/100;
+  const i=Math.floor(r);
+  const sat=Math.round((r-i)*100);
+  if(i===0 && sat===0) return 'ศูนย์บาทถ้วน';
+  let t=''; if(i>0) t+=rd(i)+'บาท';
+  if(sat===0) t+=i>0?'ถ้วน':''; else t+=u1M(sat)+'สตางค์';
+  return t;
+}
+
+function _printPayslip(ctx, payrollId) {
+  const p = _payrolls.find(x => String(x.id) === String(payrollId));
+  if (!p) { ctx.showToast?.("ไม่พบรายการ"); return; }
+  const emp = _profiles.find(x => x.id === p.employee_id);
+  const dept = _depts.find(d => d.id === p.department_id);
+  const store = ctx.state?.storeInfo || window.App?.state?.storeInfo || {};
+  const logo = window._appGetLogo ? window._appGetLogo() : "./icons/logo.svg";
+
+  const periodLabel = (() => {
+    const d = new Date((p.period_month || "").slice(0, 10));
+    return d.toLocaleDateString("th-TH", { year: "numeric", month: "long" });
+  })();
+  const slipNo = "PS" + (p.period_month || "").slice(0, 7).replace("-", "") + "-" + String(p.id).padStart(4, "0");
+
+  const incomeRows = [
+    ["เงินเดือน",       p.base_salary],
+    ["ค่าล่วงเวลา (OT)", p.overtime],
+    ["สวัสดิการ",        p.welfare],
+    ["เงินพิเศษ/โบนัส",  p.bonus],
+    ["คอมมิชชัน",        p.commission],
+  ].filter(r => Number(r[1] || 0) !== 0);
+
+  const totalIncome = incomeRows.reduce((s, r) => s + Number(r[1] || 0), 0);
+  const ded = Number(p.deductions || 0);
+  const net = Number(p.total_amount || (totalIncome - ded));
+
+  const html = `<!DOCTYPE html>
+<html lang="th"><head><meta charset="UTF-8" />
+<title>สลิปเงินเดือน — ${escHtml(emp?.full_name || "")}</title>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700;800;900&display=swap" rel="stylesheet">
+<style>
+  *,*::before,*::after { box-sizing: border-box; }
+  @page { size: A4; margin: 0; }
+  body { font-family: "Sarabun", system-ui, sans-serif; margin: 0; padding: 0; color: #0f172a; font-size: 14px; }
+  .page { width: 210mm; min-height: 297mm; padding: 18mm 16mm; box-sizing: border-box; position: relative; page-break-after: always; }
+  .page:last-child { page-break-after: avoid; }
+  .accent { height: 5px; width: 100%; position: absolute; top: 0; left: 0; background: linear-gradient(90deg,#7c3aed,#a78bfa,#ddd6fe); }
+  .hdr { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; }
+  .hdr-left { display: flex; gap: 12px; max-width: 60%; }
+  .logo { width: 60px; height: 60px; border-radius: 8px; object-fit: contain; }
+  .co-name { font-size: 16px; font-weight: 900; margin-bottom: 4px; }
+  .co-detail { font-size: 12px; color: #475569; line-height: 1.6; }
+  .doc-title { font-size: 26px; font-weight: 900; color: #6d28d9; }
+  .doc-sub { font-size: 12px; color: #64748b; }
+  .meta-table { margin-left: auto; margin-top: 8px; border-collapse: collapse; font-size: 12.5px; }
+  .meta-table td { padding: 3px 10px; border: 1px solid #d1d5db; }
+  .meta-table td:first-child { font-weight: 700; color: #475569; background: #f9fafb; white-space: nowrap; }
+  .copy { display: inline-block; border: 1.5px solid #6d28d9; color: #6d28d9; padding: 2px 10px; border-radius: 8px; font-size: 11px; font-weight: 700; margin-top: 4px; }
+  .emp-section { margin: 14px 0 16px; padding: 12px 14px; background: #faf5ff; border-radius: 10px; border: 1px solid #ddd6fe; }
+  .emp-name { font-size: 16px; font-weight: 900; color: #4c1d95; }
+  .emp-meta { font-size: 12.5px; color: #6b21a8; margin-top: 4px; }
+  .income-table { width: 100%; border-collapse: collapse; margin: 12px 0 8px; }
+  .income-table th { padding: 8px 12px; font-size: 12.5px; font-weight: 700; text-align: left; border: 1px solid #d1d5db; background: #f3f4f6; color: #1f2937; }
+  .income-table th.right { text-align: right; }
+  .income-table td { padding: 8px 12px; font-size: 13.5px; border: 1px solid #d1d5db; }
+  .income-table td.right { text-align: right; }
+  .income-table tr.subtotal td { background: #f9fafb; font-weight: 700; }
+  .income-table tr.deduct td { color: #dc2626; }
+  .income-table tr.net td { background: #ede9fe; font-weight: 900; font-size: 15px; color: #4c1d95; border-top: 2px solid #6d28d9; }
+  .baht-text { margin-top: 12px; padding: 10px 14px; background: #fef3c7; border-left: 4px solid #f59e0b; font-size: 13px; color: #78350f; font-weight: 600; }
+  .pay-section { margin-top: 18px; padding: 12px 14px; background: ${p.paid_at ? '#f0fdf4' : '#fff7ed'}; border-radius: 10px; border: 1px solid ${p.paid_at ? '#bbf7d0' : '#fed7aa'}; }
+  .pay-title { font-size: 12px; font-weight: 700; color: ${p.paid_at ? '#15803d' : '#9a3412'}; margin-bottom: 4px; }
+  .pay-detail { font-size: 13px; color: ${p.paid_at ? '#166534' : '#7c2d12'}; }
+  .note-section { margin-top: 14px; font-size: 12.5px; color: #475569; line-height: 1.6; }
+  .note-title { font-weight: 800; text-decoration: underline; color: #6d28d9; margin-bottom: 4px; }
+  .signatures { display: flex; justify-content: space-between; margin-top: 50px; padding: 0 30px; font-size: 12.5px; }
+  .sig-col { text-align: center; width: 38%; }
+  .sig-line { border-bottom: 1px solid #1f2937; margin: 30px 0 6px; }
+  .sig-label { font-size: 12px; color: #475569; }
+  .footer-note { position: absolute; bottom: 12mm; left: 16mm; right: 16mm; font-size: 10.5px; color: #94a3b8; text-align: center; border-top: 1px dashed #cbd5e1; padding-top: 6px; }
+  @media print { .no-print { display: none; } body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+</style>
+</head>
+<body>
+${[1,2].map(copyNum => `
+<div class="page">
+  <div class="accent"></div>
+  <div class="hdr">
+    <div class="hdr-left">
+      <img src="${escHtml(logo)}" class="logo" onerror="this.style.display='none'" />
+      <div>
+        <div class="co-name">${escHtml(store.name || "บุญสุข อิเล็กทรอนิกส์")}</div>
+        <div class="co-detail">
+          ${store.address ? escHtml(store.address) + "<br>" : ""}
+          ${store.taxId ? "เลขประจำตัวผู้เสียภาษี " + escHtml(store.taxId) + "<br>" : ""}
+          ${store.phone ? "โทร. " + escHtml(store.phone) : ""}${store.mobile ? " / " + escHtml(store.mobile) : ""}
+        </div>
+      </div>
+    </div>
+    <div style="text-align:right">
+      <div class="doc-title">สลิปเงินเดือน</div>
+      <div class="doc-sub">Payslip</div>
+      <div class="copy">${copyNum === 1 ? "ต้นฉบับ · สำหรับพนักงาน" : "สำเนา · สำหรับร้าน"}</div>
+      <table class="meta-table">
+        <tr><td>เลขที่</td><td>${escHtml(slipNo)}</td></tr>
+        <tr><td>รอบเดือน</td><td>${escHtml(periodLabel)}</td></tr>
+        <tr><td>วันที่ออก</td><td>${new Date().toLocaleDateString("th-TH", { year:"numeric", month:"short", day:"numeric" })}</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="emp-section">
+    <div style="font-size:11px;font-weight:700;color:#7c3aed;margin-bottom:4px">รายละเอียดพนักงาน</div>
+    <div class="emp-name">${escHtml(emp?.full_name || "(ไม่พบ)")}</div>
+    <div class="emp-meta">
+      ${dept ? "🏢 แผนก: " + escHtml(dept.name) + (dept.code ? " (" + escHtml(dept.code) + ")" : "") : "🏢 ไม่ระบุแผนก"}
+      ${emp?.role ? " · ตำแหน่ง: " + escHtml(emp.role) : ""}
+    </div>
+  </div>
+
+  <table class="income-table">
+    <thead>
+      <tr>
+        <th>รายการ</th>
+        <th class="right" style="width:40%">จำนวนเงิน (บาท)</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${incomeRows.map(r => `<tr><td>${escHtml(r[0])}</td><td class="right">${money(r[1]).replace("฿","")}</td></tr>`).join("")}
+      <tr class="subtotal"><td>รวมรายรับ</td><td class="right">${money(totalIncome).replace("฿","")}</td></tr>
+      ${ded > 0 ? `<tr class="deduct"><td>หัก</td><td class="right">- ${money(ded).replace("฿","")}</td></tr>` : ""}
+      <tr class="net"><td>เงินสุทธิที่ได้รับ</td><td class="right">${money(net).replace("฿","")}</td></tr>
+    </tbody>
+  </table>
+
+  <div class="baht-text">(${_bahtText(net)})</div>
+
+  <div class="pay-section">
+    <div class="pay-title">${p.paid_at ? "✓ ชำระแล้ว" : "⏳ ยังไม่ชำระ"}</div>
+    <div class="pay-detail">
+      ${p.paid_at
+        ? "วันที่จ่าย: " + new Date(p.paid_at).toLocaleString("th-TH", { year:"numeric", month:"short", day:"numeric", hour:"2-digit", minute:"2-digit" })
+            + (p.payment_method ? " · วิธีจ่าย: " + escHtml(p.payment_method) : "")
+        : "รอกระบวนการจ่าย"}
+    </div>
+  </div>
+
+  ${p.note ? `<div class="note-section"><div class="note-title">หมายเหตุ</div><div>${escHtml(p.note)}</div></div>` : ""}
+
+  <div class="signatures">
+    <div class="sig-col">
+      <div class="sig-line"></div>
+      <div class="sig-label">ผู้รับเงิน · ${escHtml(emp?.full_name || "")}</div>
+    </div>
+    <div class="sig-col">
+      <div class="sig-line"></div>
+      <div class="sig-label">ผู้จ่ายเงิน · ${escHtml(store.name || "บุญสุข อิเล็กทรอนิกส์")}</div>
+    </div>
+  </div>
+
+  <div class="footer-note">เอกสารนี้สร้างจากระบบ Boonsook POS V5 — โปรดเก็บไว้เป็นหลักฐาน</div>
+</div>
+`).join("")}
+<script>
+  setTimeout(() => { window.print(); }, 400);
+  window.onafterprint = () => window.close();
+</script>
+</body></html>`;
+
+  const w = window.open("", "_blank", "width=900,height=1100");
+  if (!w) { ctx.showToast?.("Browser block popup — เปิดใช้ popup สำหรับเว็บนี้"); return; }
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
 }
 
 function _exportPayroll() {
