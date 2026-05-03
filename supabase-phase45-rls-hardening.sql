@@ -79,6 +79,35 @@ GRANT EXECUTE ON FUNCTION public.is_admin() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.is_staff() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.is_sales_or_admin() TO authenticated;
 
+-- Guard profile identity/role changes. RLS allows users to update their
+-- own profile row, so a trigger is needed to block self role escalation.
+CREATE OR REPLACE FUNCTION public.guard_profile_role_update()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NEW.id IS DISTINCT FROM OLD.id THEN
+    RAISE EXCEPTION 'Profile id cannot be changed';
+  END IF;
+
+  IF NEW.role IS DISTINCT FROM OLD.role AND NOT COALESCE(public.is_admin(), false) THEN
+    RAISE EXCEPTION 'Only admins can change profile role';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.guard_profile_role_update() FROM PUBLIC;
+
+DROP TRIGGER IF EXISTS guard_profile_role_update ON public.profiles;
+CREATE TRIGGER guard_profile_role_update
+  BEFORE UPDATE ON public.profiles
+  FOR EACH ROW
+  EXECUTE FUNCTION public.guard_profile_role_update();
+
 
 -- ═══════════════════════════════════════════════════════════
 --  2) profiles — ป้องกัน role escalation (CRITICAL)
@@ -159,6 +188,9 @@ CREATE POLICY "refunds_sales" ON public.refunds
 DROP POLICY IF EXISTS "auth_all_sales" ON public.sales;
 DROP POLICY IF EXISTS "sales_rw_staff" ON public.sales;
 DROP POLICY IF EXISTS "sales_select_all" ON public.sales;
+DROP POLICY IF EXISTS "sales_insert_all" ON public.sales;
+DROP POLICY IF EXISTS "sales_update_staff" ON public.sales;
+DROP POLICY IF EXISTS "sales_delete_staff" ON public.sales;
 DROP POLICY IF EXISTS "sales_write_staff" ON public.sales;
 -- READ: ทุก authenticated (UI filter เอง)
 CREATE POLICY "sales_select_all" ON public.sales
@@ -229,7 +261,9 @@ CREATE POLICY "delivery_invoice_items_rw" ON public.delivery_invoice_items
 DROP POLICY IF EXISTS "auth_all_service_jobs" ON public.service_jobs;
 DROP POLICY IF EXISTS "service_jobs_select_all" ON public.service_jobs;
 DROP POLICY IF EXISTS "service_jobs_write_staff" ON public.service_jobs;
+DROP POLICY IF EXISTS "service_jobs_delete_staff" ON public.service_jobs;
 DROP POLICY IF EXISTS "service_jobs_customer_insert" ON public.service_jobs;
+DROP POLICY IF EXISTS "service_jobs_insert" ON public.service_jobs;
 
 -- READ: ทุก authenticated (UI filter เอง — customer dashboard กรอง customer_id)
 CREATE POLICY "service_jobs_select_all" ON public.service_jobs
@@ -277,6 +311,9 @@ CREATE POLICY "customers_self_insert" ON public.customers
 DROP POLICY IF EXISTS "auth_all_products" ON public.products;
 DROP POLICY IF EXISTS "products_read_all" ON public.products;
 DROP POLICY IF EXISTS "products_write_staff" ON public.products;
+DROP POLICY IF EXISTS "products_insert_staff" ON public.products;
+DROP POLICY IF EXISTS "products_update_staff" ON public.products;
+DROP POLICY IF EXISTS "products_delete_admin" ON public.products;
 CREATE POLICY "products_read_all" ON public.products
   FOR SELECT TO authenticated USING (true);  -- catalog ทุกคนเห็น
 CREATE POLICY "products_insert_staff" ON public.products
@@ -295,6 +332,10 @@ CREATE POLICY "warehouse_stock_rw" ON public.warehouse_stock
 
 DROP POLICY IF EXISTS "auth_all_warehouses" ON public.warehouses;
 DROP POLICY IF EXISTS "warehouses_rw" ON public.warehouses;
+DROP POLICY IF EXISTS "warehouses_read" ON public.warehouses;
+DROP POLICY IF EXISTS "warehouses_write_admin" ON public.warehouses;
+DROP POLICY IF EXISTS "warehouses_update_admin" ON public.warehouses;
+DROP POLICY IF EXISTS "warehouses_delete_admin" ON public.warehouses;
 CREATE POLICY "warehouses_read" ON public.warehouses
   FOR SELECT TO authenticated USING (true);
 CREATE POLICY "warehouses_write_admin" ON public.warehouses
@@ -325,6 +366,8 @@ CREATE POLICY "loyalty_points_rw" ON public.loyalty_points
 
 DROP POLICY IF EXISTS "auth_all_loyalty_settings" ON public.loyalty_settings;
 DROP POLICY IF EXISTS "loyalty_settings_rw" ON public.loyalty_settings;
+DROP POLICY IF EXISTS "loyalty_settings_read" ON public.loyalty_settings;
+DROP POLICY IF EXISTS "loyalty_settings_write_admin" ON public.loyalty_settings;
 CREATE POLICY "loyalty_settings_read" ON public.loyalty_settings
   FOR SELECT TO authenticated USING (true);
 CREATE POLICY "loyalty_settings_write_admin" ON public.loyalty_settings
@@ -351,6 +394,8 @@ CREATE POLICY "product_serials_rw" ON public.product_serials
 
 DROP POLICY IF EXISTS "auth_all_app_settings" ON public.app_settings;
 DROP POLICY IF EXISTS "app_settings_rw" ON public.app_settings;
+DROP POLICY IF EXISTS "app_settings_read" ON public.app_settings;
+DROP POLICY IF EXISTS "app_settings_write_admin" ON public.app_settings;
 CREATE POLICY "app_settings_read" ON public.app_settings
   FOR SELECT TO authenticated USING (true);
 CREATE POLICY "app_settings_write_admin" ON public.app_settings

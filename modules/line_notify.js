@@ -191,7 +191,7 @@ function attachLineNotifyListeners(container, ctx, settings) {
     try {
       const resp = await fetch('/api/line-notify', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await getLineNotifyHeaders(state),
         body: JSON.stringify({ message: '' })
       });
       const data = await resp.json().catch(() => ({}));
@@ -308,6 +308,18 @@ function createSettingsContainer() {
   return container;
 }
 
+async function getLineNotifyHeaders(state) {
+  const headers = { 'Content-Type': 'application/json' };
+  let token = window._sbAccessToken || null;
+  if (!token && state?.supabase?.auth?.getSession) {
+    token = (await state.supabase.auth.getSession())?.data?.session?.access_token || null;
+  }
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  return headers;
+}
+
 /**
  * Send notification via LINE Notify
  * @param {string} message - Message to send
@@ -331,7 +343,7 @@ export async function sendLineNotify(message, ctx, target) {
   try {
     const response = await fetch('/api/line-notify', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await getLineNotifyHeaders(state),
       body: JSON.stringify({ message, target: tgt })
     });
 

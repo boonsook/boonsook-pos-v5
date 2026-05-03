@@ -32,8 +32,21 @@ const ALLOWED_ORIGIN_PATTERNS = [
 
 // Endpoints ที่ต้อง require Supabase JWT
 const REQUIRE_AUTH_ENDPOINTS = [
-  "/api/ai-assistant"
+  "/api/ai-assistant",
+  "/api/line-notify"
 ];
+
+const STAFF_ONLY_ENDPOINTS = [
+  "/api/line-notify"
+];
+
+const STAFF_ROLES = new Set(["admin", "sales", "staff", "technician"]);
+
+// Public Supabase client config. Keep env vars preferred, but provide the same
+// public values used by supabase-config.js so Pages deploys work without extra
+// dashboard edits for role verification.
+const PUBLIC_SUPABASE_URL = "https://rwmmjljelpcpwohwiplu.supabase.co";
+const PUBLIC_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_MoeSC0AubZ4C8LXjNJtq7w_iS1baV0j";
 
 function getCorsHeaders(origin) {
   const allowed = ALLOWED_ORIGIN_PATTERNS.some(re => re.test(origin || ""));
@@ -81,18 +94,131 @@ async function checkRateLimit(env, ip, pathname) {
   }
 }
 
-async function verifyAuthToken(authHeader) {
+function base64UrlDecodeBytes(input) {
+  const base64 = input.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), "=");
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function base64UrlDecodeJson(input) {
+  const text = new TextDecoder().decode(base64UrlDecodeBytes(input));
+  return JSON.parse(text);
+}
+
+function timingSafeEqual(a, b) {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a[i] ^ b[i];
+  }
+  return diff === 0;
+}
+
+async function signHs256(input, secret) {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  return new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(input)));
+}
+
+async function verifyWithSupabaseAuth(authHeader, env) {
+  const supabaseUrl = env.SUPABASE_URL || PUBLIC_SUPABASE_URL;
+  const apiKey = env.SUPABASE_ANON_KEY || env.SUPABASE_PUBLISHABLE_KEY || PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  if (!supabaseUrl || !apiKey) {
+    console.error("[auth] SUPABASE_JWT_SECRET or SUPABASE_URL + SUPABASE_ANON_KEY is required");
+    return { ok: false, error: "Server auth verification is not configured" };
+  }
+
+  const response = await fetch(`${supabaseUrl.replace(/\/+$/, "")}/auth/v1/user`, {
+    headers: {
+      "apikey": apiKey,
+      "Authorization": authHeader
+    }
+  });
+
+  if (!response.ok) {
+    return { ok: false, error: "Invalid token" };
+  }
+
+  const user = await response.json().catch(() => null);
+  if (!user?.id) {
+    return { ok: false, error: "Invalid token user" };
+  }
+
+  return { ok: true, userId: user.id, email: user.email };
+}
+
+async function fetchUserRole(userId, authHeader, env) {
+  const supabaseUrl = env.SUPABASE_URL || PUBLIC_SUPABASE_URL;
+  const apiKey = env.SUPABASE_ANON_KEY || env.SUPABASE_PUBLISHABLE_KEY || PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  if (!supabaseUrl || !apiKey) {
+    console.error("[auth] SUPABASE_URL + SUPABASE_ANON_KEY is required for role checks");
+    return { ok: false, error: "Server role verification is not configured" };
+  }
+
+  const url = `${supabaseUrl.replace(/\/+$/, "")}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}&select=role&limit=1`;
+  const response = await fetch(url, {
+    headers: {
+      "apikey": apiKey,
+      "Authorization": authHeader,
+      "Accept": "application/json"
+    }
+  });
+
+  if (!response.ok) {
+    return { ok: false, error: "Cannot verify user role" };
+  }
+
+  const rows = await response.json().catch(() => []);
+  const role = rows?.[0]?.role || null;
+  if (!role) {
+    return { ok: false, error: "No profile role found" };
+  }
+
+  return { ok: true, role };
+}
+
+async function verifyAuthToken(authHeader, env) {
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return { ok: false, error: "Missing Authorization Bearer token" };
   }
+
   const token = authHeader.slice(7);
-  // Decode JWT ตรวจ exp (lightweight — ไม่ต้อง round-trip กับ Supabase ทุกครั้ง)
+  // Verify JWT signature before trusting any payload fields.
   try {
     const parts = token.split(".");
     if (parts.length !== 3) return { ok: false, error: "Invalid JWT format" };
-    const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
+    const header = base64UrlDecodeJson(parts[0]);
+    if (!env.SUPABASE_JWT_SECRET || header.alg !== "HS256") {
+      return await verifyWithSupabaseAuth(authHeader, env);
+    }
+
+    const expectedSig = await signHs256(`${parts[0]}.${parts[1]}`, env.SUPABASE_JWT_SECRET);
+    const actualSig = base64UrlDecodeBytes(parts[2]);
+    if (!timingSafeEqual(actualSig, expectedSig)) {
+      return { ok: false, error: "Invalid JWT signature" };
+    }
+
+    const payload = base64UrlDecodeJson(parts[1]);
     if (!payload.exp || payload.exp * 1000 < Date.now()) {
       return { ok: false, error: "Token expired" };
+    }
+    if (payload.nbf && payload.nbf * 1000 > Date.now()) {
+      return { ok: false, error: "Token not active yet" };
+    }
+    const audiences = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
+    if (payload.aud && !audiences.includes("authenticated")) {
+      return { ok: false, error: "Invalid JWT audience" };
     }
     if (!payload.sub) return { ok: false, error: "No subject in token" };
     return { ok: true, userId: payload.sub, email: payload.email };
@@ -142,7 +268,7 @@ export async function onRequest(context) {
   // ── Auth check (เฉพาะ endpoint ที่ระบุ) ──
   if (REQUIRE_AUTH_ENDPOINTS.includes(url.pathname)) {
     const authHeader = request.headers.get("Authorization");
-    const auth = await verifyAuthToken(authHeader);
+    const auth = await verifyAuthToken(authHeader, env);
     if (!auth.ok) {
       return new Response(
         JSON.stringify({ ok: false, error: "Unauthorized: " + auth.error }),
@@ -150,8 +276,26 @@ export async function onRequest(context) {
       );
     }
     // Pass user info ผ่าน data context
+    let role = null;
+    if (STAFF_ONLY_ENDPOINTS.includes(url.pathname)) {
+      const roleResult = await fetchUserRole(auth.userId, authHeader, env);
+      if (!roleResult.ok) {
+        return new Response(
+          JSON.stringify({ ok: false, error: "Forbidden: " + roleResult.error }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      role = roleResult.role;
+      if (!STAFF_ROLES.has(role)) {
+        return new Response(
+          JSON.stringify({ ok: false, error: "Forbidden: staff role required" }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+
     context.data = context.data || {};
-    context.data.user = { id: auth.userId, email: auth.email };
+    context.data.user = { id: auth.userId, email: auth.email, role };
   }
 
   // ── ยิงต่อไปยัง endpoint จริง + ใส่ CORS headers + rate limit headers ใน response ──
