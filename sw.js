@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v93 (2026-05-03): Phase 74.3 — AutoKey ลด image 1280px/0.75 + Gemini timeout 25s + 520 handler
-const CACHE_NAME = 'boonsook-pos-v5-cache-v93';
+// v94 (2026-05-03): Phase 74.7 — AutoKey duplicate check (doc_no/vendor+amount+date)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v94';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

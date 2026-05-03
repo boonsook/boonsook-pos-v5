@@ -773,9 +773,41 @@ function _showParsedResult(ctx, modal, imageDataUrl, data) {
           ${d.items.map(it => `• ${escHtml(it.name || '-')} ${it.qty ? '×' + it.qty : ''} ${it.amount ? '= ' + Number(it.amount).toLocaleString('th-TH') : ''}`).join('<br>')}
         </div>` : ''}
     </div>
+    <div id="akDupWarn"></div>
     <div id="akResultStatus" style="margin-top:10px;font-size:12px;color:#dc2626;min-height:14px"></div>
     <button id="akSaveBtn" type="button" style="margin-top:12px;width:100%;padding:14px;background:#10b981;color:#fff;border:none;border-radius:10px;cursor:pointer;font-size:14px;font-weight:700">💾 บันทึกเป็นรายจ่าย</button>
   `;
+
+  // ★ Duplicate check — ตรวจว่าเคยสแกนบิลนี้แล้วยัง (จาก doc_no หรือ vendor+amount+date)
+  _findDuplicateExpense(d).then(dup => {
+    if (!dup) return;
+    const warnEl = document.getElementById("akDupWarn");
+    if (!warnEl) return;
+    warnEl.innerHTML = `
+      <div style="background:#fef3c7;border:2px solid #f59e0b;border-radius:10px;padding:10px 12px;margin-top:12px;font-size:12px;color:#92400e;line-height:1.5">
+        ⚠️ <b>เคยบันทึกบิลนี้แล้ว!</b><br>
+        📅 ${escHtml(dup.expense_date || '')} · 💰 ${Number(dup.amount || 0).toLocaleString('th-TH')} บาท · ${escHtml(dup.category || '')}<br>
+        <span style="color:#78350f">"${escHtml(dup.description || dup.note || '')}"</span>
+        <label style="display:flex;align-items:center;gap:6px;margin-top:8px;cursor:pointer;padding:6px 8px;background:#fff;border-radius:6px">
+          <input type="checkbox" id="akDupConfirm" style="width:16px;height:16px;cursor:pointer" />
+          <span style="font-weight:700">ยืนยันบันทึกซ้ำ (เป็นบิลคนละใบ)</span>
+        </label>
+      </div>
+    `;
+    const saveBtn = document.getElementById("akSaveBtn");
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.style.opacity = "0.5";
+      saveBtn.style.cursor = "not-allowed";
+    }
+    document.getElementById("akDupConfirm")?.addEventListener("change", (e) => {
+      if (!saveBtn) return;
+      const ok = e.target.checked;
+      saveBtn.disabled = !ok;
+      saveBtn.style.opacity = ok ? "1" : "0.5";
+      saveBtn.style.cursor = ok ? "pointer" : "not-allowed";
+    });
+  });
 
   document.getElementById("akSaveBtn")?.addEventListener("click", async () => {
     const setErr = (msg) => { const el = document.getElementById("akResultStatus"); if (el) el.textContent = msg || ""; };
@@ -815,4 +847,40 @@ function _showParsedResult(ctx, modal, imageDataUrl, data) {
       btn.textContent = orig;
     }
   });
+}
+
+// Phase 74.7: ตรวจ duplicate expense จาก doc_no (เลขที่ใบเสร็จ) หรือ vendor+amount+date
+async function _findDuplicateExpense(d) {
+  try {
+    const cfg = window.SUPABASE_CONFIG;
+    const token = window._sbAccessToken;
+    if (!cfg || !token) return null;
+    const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token };
+    const select = "id,expense_date,amount,category,description,note";
+
+    // 1) ตรวจจาก doc_no — แม่นที่สุด (description มี "#docNo")
+    if (d.doc_no && String(d.doc_no).length >= 4) {
+      const pat = encodeURIComponent('%#' + String(d.doc_no).trim() + '%');
+      const url = `${cfg.url}/rest/v1/expenses?description=ilike.${pat}&select=${select}&limit=1&order=expense_date.desc`;
+      const r = await fetch(url, { headers });
+      if (r.ok) {
+        const arr = await r.json();
+        if (arr && arr.length > 0) return arr[0];
+      }
+    }
+
+    // 2) Fallback — vendor + amount + date (เผื่อบิลไม่มีเลขที่)
+    if (d.vendor && d.total > 0 && d.date) {
+      const vendorPat = encodeURIComponent('%' + String(d.vendor).trim().slice(0, 30) + '%');
+      const url = `${cfg.url}/rest/v1/expenses?note=ilike.${vendorPat}&amount=eq.${Number(d.total)}&expense_date=eq.${encodeURIComponent(d.date)}&select=${select}&limit=1`;
+      const r = await fetch(url, { headers });
+      if (r.ok) {
+        const arr = await r.json();
+        if (arr && arr.length > 0) return arr[0];
+      }
+    }
+  } catch (e) {
+    console.warn("dup check fail", e);
+  }
+  return null;
 }
