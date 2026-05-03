@@ -157,6 +157,10 @@ export function renderSettingsUsers(el, ctx, goBack, navigateToView) {
     if (String(result.department_id || "") !== String(p.department_id || "")) {
       patch.department_id = result.department_id || null;
     }
+    // Phase 77
+    const curPayType = p.pay_type || 'monthly';
+    if ((result.pay_type || 'monthly') !== curPayType) patch.pay_type = result.pay_type || 'monthly';
+    if (Number(result.daily_rate || 0) !== Number(p.daily_rate || 0)) patch.daily_rate = Number(result.daily_rate || 0);
     if (Object.keys(patch).length === 0) return showToast("ไม่มีการเปลี่ยนแปลง");
     const fn = window._appUpdateUserProfile;
     if (typeof fn === 'function') {
@@ -214,6 +218,23 @@ async function _editUserModal(profile) {
             <input id="editUserPhone" type="tel" maxlength="20" value="${escHtml(profile.phone || "")}" placeholder="08X-XXXXXXX" style="width:100%;padding:9px 11px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px" />
           </label>
           ${deptField}
+
+          <!-- Phase 77: Pay type + daily rate -->
+          <div style="border-top:1px dashed #e5e7eb;padding-top:10px;margin-top:4px">
+            <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:6px">💰 รูปแบบการจ่ายเงิน</div>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:6px;cursor:pointer">
+              <input type="radio" name="editUserPayType" value="monthly" ${profile.pay_type !== 'daily' ? 'checked' : ''} />
+              <span>📅 รายเดือน — กรอกเงินเดือนคงที่ตอนสร้างรายการ</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+              <input type="radio" name="editUserPayType" value="daily" ${profile.pay_type === 'daily' ? 'checked' : ''} />
+              <span>🕐 รายวัน — คิดค่าจ้างต่อวัน × จำนวนวัน</span>
+            </label>
+            <label id="editUserDailyRow" style="display:${profile.pay_type === 'daily' ? 'block' : 'none'};margin-top:8px">
+              <div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:4px">ค่าจ้าง/วัน (บาท)</div>
+              <input id="editUserDailyRate" type="number" step="0.01" min="0" value="${Number(profile.daily_rate || 0)}" placeholder="เช่น 500" style="width:100%;padding:9px 11px;border:1px solid #fbbf24;background:#fffbeb;border-radius:8px;font-size:13px;text-align:right;font-weight:700" />
+            </label>
+          </div>
         </div>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
           <button id="editUserCancel" type="button" style="padding:8px 14px;background:#f1f5f9;color:#475569;border:none;border-radius:8px;cursor:pointer;font-size:13px">ยกเลิก</button>
@@ -231,7 +252,18 @@ async function _editUserModal(profile) {
       const department_id = deptElem
         ? (deptElem.value ? Number(deptElem.value) : null)
         : (profile.department_id ?? null);
-      close({ full_name, phone, department_id });
+      // Phase 77: pay_type + daily_rate
+      const payTypeEl = document.querySelector('input[name="editUserPayType"]:checked');
+      const pay_type = payTypeEl?.value || 'monthly';
+      const daily_rate = pay_type === 'daily' ? Number(document.getElementById("editUserDailyRate")?.value || 0) : 0;
+      close({ full_name, phone, department_id, pay_type, daily_rate });
+    });
+    // Phase 77: toggle daily rate field
+    document.querySelectorAll('input[name="editUserPayType"]').forEach(r => {
+      r.addEventListener('change', () => {
+        const row = document.getElementById("editUserDailyRow");
+        if (row) row.style.display = r.value === 'daily' && r.checked ? 'block' : (document.querySelector('input[name="editUserPayType"]:checked')?.value === 'daily' ? 'block' : 'none');
+      });
     });
     m.addEventListener("click", e => { if (e.target === m) close(null); });
     setTimeout(() => document.getElementById("editUserName")?.focus(), 50);

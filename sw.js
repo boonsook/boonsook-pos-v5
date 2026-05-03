@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v96 (2026-05-03): Phase 76 — Payroll auto-create expense (salary) เมื่อ mark paid
-const CACHE_NAME = 'boonsook-pos-v5-cache-v96';
+// v97 (2026-05-03): Phase 77 — Daily-rate payroll (rate × days) + user pay_type
+const CACHE_NAME = 'boonsook-pos-v5-cache-v97';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

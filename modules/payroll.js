@@ -52,7 +52,7 @@ export async function renderPayrollPage(ctx) {
     const [pRes, dRes, profRes] = await Promise.all([
       fetch(cfg.url + `/rest/v1/staff_payroll?select=*&period_month=gte.${periodStart}&period_month=lt.${periodEnd}&order=period_month.desc`, { headers }),
       fetch(cfg.url + "/rest/v1/departments?select=*&is_active=eq.true&order=sort_order.asc", { headers }),
-      fetch(cfg.url + "/rest/v1/profiles?select=id,full_name,role,department_id&order=full_name.asc", { headers })
+      fetch(cfg.url + "/rest/v1/profiles?select=id,full_name,role,department_id,pay_type,daily_rate&order=full_name.asc", { headers })
     ]);
     if (!pRes.ok) {
       container.innerHTML = renderError({
@@ -257,6 +257,26 @@ function _openPayrollModal(ctx, payroll) {
           <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:4px">รอบเดือน *</div>
           <input id="prMonth" type="month" value="${(payroll?.period_month || (_periodMonth + '-01')).slice(0,7)}" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px" />
         </label>
+
+        <!-- Phase 77: Daily-rate toggle + section -->
+        <label style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:#fef3c7;border:1px solid #fde68a;border-radius:8px;cursor:pointer">
+          <input id="prDailyToggle" type="checkbox" ${payroll?.days_worked ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer" />
+          <span style="font-size:13px;color:#92400e;font-weight:700">🕐 คำนวณจากค่าจ้างรายวัน × จำนวนวัน</span>
+        </label>
+        <div id="prDailyBox" style="display:${payroll?.days_worked ? 'grid' : 'none'};grid-template-columns:1fr 1fr;gap:10px;background:#fffbeb;padding:10px;border-radius:8px">
+          <label style="display:block">
+            <div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:4px">ค่าจ้าง/วัน (บาท)</div>
+            <input id="prDailyRate" type="number" step="0.01" min="0" value="${Number(payroll?.daily_rate || 0)}" style="width:100%;padding:8px 10px;border:1px solid #fbbf24;border-radius:8px;text-align:right" />
+          </label>
+          <label style="display:block">
+            <div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:4px">จำนวนวันทำงาน</div>
+            <input id="prDaysWorked" type="number" step="1" min="0" max="31" value="${Number(payroll?.days_worked || 0)}" style="width:100%;padding:8px 10px;border:1px solid #fbbf24;border-radius:8px;text-align:right" />
+          </label>
+          <div style="grid-column:1/-1;font-size:11px;color:#78350f;text-align:center">
+            💡 ค่าที่กรอกจะคำนวณลงช่อง "เงินเดือน" ด้านล่างอัตโนมัติ
+          </div>
+        </div>
+
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
           <label style="display:block">
             <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:4px">เงินเดือน</div>
@@ -312,14 +332,47 @@ function _openPayrollModal(ctx, payroll) {
   ["prBase","prOT","prWel","prBonus","prCom","prDed"].forEach(id => {
     document.getElementById(id)?.addEventListener("input", recalc);
   });
-  // Auto-fill department from selected employee
+  // Auto-fill department + daily rate from selected employee
   document.getElementById("prEmp")?.addEventListener("change", (e) => {
     const emp = _profiles.find(p => p.id === e.target.value);
     if (emp?.department_id) {
       const sel = document.getElementById("prDept");
       if (sel) sel.value = emp.department_id;
     }
+    // Phase 77: ถ้าพนักงานเป็น daily — auto-toggle + fill rate
+    if (emp?.pay_type === "daily") {
+      const tog = document.getElementById("prDailyToggle");
+      const rate = document.getElementById("prDailyRate");
+      if (tog && !tog.checked) {
+        tog.checked = true;
+        document.getElementById("prDailyBox").style.display = "grid";
+      }
+      if (rate && !Number(rate.value)) rate.value = Number(emp.daily_rate || 0);
+      recalcDaily();
+    }
   });
+
+  // Phase 77: Daily toggle + recalc base
+  const recalcDaily = () => {
+    const rate = Number(document.getElementById("prDailyRate")?.value || 0);
+    const days = Number(document.getElementById("prDaysWorked")?.value || 0);
+    const baseInp = document.getElementById("prBase");
+    if (baseInp) baseInp.value = (rate * days).toFixed(2);
+    recalc();
+  };
+  document.getElementById("prDailyToggle")?.addEventListener("change", (e) => {
+    const box = document.getElementById("prDailyBox");
+    if (box) box.style.display = e.target.checked ? "grid" : "none";
+    if (!e.target.checked) {
+      // ปิด daily mode → reset days_worked = 0 ตอนบันทึก (ใช้เงินเดือนตรงๆ)
+      const days = document.getElementById("prDaysWorked");
+      if (days) days.value = 0;
+    } else {
+      recalcDaily();
+    }
+  });
+  document.getElementById("prDailyRate")?.addEventListener("input", recalcDaily);
+  document.getElementById("prDaysWorked")?.addEventListener("input", recalcDaily);
 
   m.addEventListener("click", e => { if (e.target === m) m.remove(); });
   document.getElementById("prModalCancel")?.addEventListener("click", () => m.remove());
@@ -339,6 +392,10 @@ async function _savePayroll(ctx, existing) {
   if (!employee_id) { setErr("เลือกพนักงาน"); return; }
   if (!periodInput) { setErr("เลือกรอบเดือน"); return; }
 
+  const dailyOn = document.getElementById("prDailyToggle")?.checked;
+  const daysWorked = dailyOn ? Number(document.getElementById("prDaysWorked")?.value || 0) : null;
+  const dailyRate  = dailyOn ? Number(document.getElementById("prDailyRate")?.value || 0) : null;
+
   const payload = {
     employee_id,
     department_id: department_id || null,
@@ -349,6 +406,8 @@ async function _savePayroll(ctx, existing) {
     bonus:       Number(document.getElementById("prBonus")?.value || 0),
     commission:  Number(document.getElementById("prCom")?.value || 0),
     deductions:  Number(document.getElementById("prDed")?.value || 0),
+    days_worked: daysWorked,
+    daily_rate:  dailyRate,
     note:        (document.getElementById("prNote")?.value || "").trim() || null
   };
 
@@ -540,8 +599,13 @@ function _printPayslip(ctx, payrollId) {
   })();
   const slipNo = "PS" + (p.period_month || "").slice(0, 7).replace("-", "") + "-" + String(p.id).padStart(4, "0");
 
+  // Phase 77: ถ้าจ่ายรายวัน → label เงินเดือนแสดง "rate × days"
+  const baseLabel = (p.days_worked > 0 && p.daily_rate > 0)
+    ? `ค่าจ้างรายวัน (฿${Number(p.daily_rate).toLocaleString('th-TH')} × ${p.days_worked} วัน)`
+    : "เงินเดือน";
+
   const incomeRows = [
-    ["เงินเดือน",       p.base_salary],
+    [baseLabel,           p.base_salary],
     ["ค่าล่วงเวลา (OT)", p.overtime],
     ["สวัสดิการ",        p.welfare],
     ["เงินพิเศษ/โบนัส",  p.bonus],
