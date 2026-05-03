@@ -1,8 +1,8 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 3 พฤษภาคม 2026 (Phase 68 — tag system extend + LINE Notify status documented)
-**Version:** 5.21.0 (build 97)
-**Previous:** 5.20.3 (build 96) — Phase 67 (barcode scanner fix)
+**อัปเดตล่าสุด:** 3 พฤษภาคม 2026 (Phase 75 — audit Quick Wins: no-confirm/no-prompt + departments staffCount fix)
+**Version:** 5.27.1 (build 105)
+**Previous:** 5.27.0 (build 104) — Phase 74 (Gemini OCR สลิปค่าใช้จ่าย)
 
 ---
 
@@ -43,9 +43,111 @@
 - ✅ supabase-phase57-activity-log.sql (audit log table)
 - ✅ supabase-phase63-service-share.sql (service_jobs.share_token)
 - ✅ supabase-phase68-tags-extend.sql (products.tags + service_jobs.tags) ← 3 พ.ค.
+- ✅ supabase-phase69-multi-payment.sql (receipts.payments jsonb) ← 3 พ.ค.
+- ⚠️ **supabase-phase71-departments.sql** (Phase 71 — ตาราง departments) — ต้องรัน
+- ⚠️ **supabase-phase72-payroll.sql** (Phase 72 — ตาราง staff_payroll + RLS) — ต้องรัน
+  - ถ้ายังไม่รัน 2 SQL ข้างบน → 2 เมนู "🏢 ตั้งค่าแผนก" + "💰 รายการเงินเดือน" + "📊 ภาพรวมเงินเดือน" จะขึ้น error "ตาราง X ยังไม่มีในฐานข้อมูล"
 
 ### Customer accounts (test)
 - babang / 0874536754 (ลูกค้า role) — สมัครผ่าน OTP เมื่อ 1 พ.ค. (Bug E verify)
+
+---
+
+## 🩹 Phase 75 — Audit Quick Wins (3 พ.ค. รอบเย็น)
+
+User สั่ง "ตรวจสอบแอปและแนะนำแก้ไขเพิ่มเติม" → audit พบ 3 priority-1 issues
++ option A "Quick wins"
+
+### Findings (priority-1)
+1. **`confirm()` / `prompt()` 19 จุด** — ผิด memory rule (ควรใช้ `App.confirm` / modal)
+2. **departments.js: staffCount = 0 เสมอ** — bug จริง
+   - ใช้ `state.allProfiles` แต่ field นี้ populate เฉพาะตอน admin เข้า settings/users
+   - ถ้าเปิดเมนู "ตั้งค่าแผนก" ก่อนเข้า users → ทุกแผนกแสดง "0 พนักงาน"
+3. **HANDOFF.md ขาด Phase 70-74** + ขาดบันทึกว่าต้องรัน SQL phase 71/72
+
+### Fixes (Phase 75 scope)
+- ✅ [modules/payroll.js](modules/payroll.js) line 387 + 404
+  - `confirm("ลบ?")` → `await App.confirm()`
+  - `prompt("วิธีจ่าย?")` → modal dropdown 3 ตัวเลือก (โอน/เงินสด/เช็ค) + emoji
+- ✅ [modules/departments.js](modules/departments.js)
+  - bug staffCount → fetch profiles เองใน Promise.all (parallel กับ departments)
+  - `confirm()` ลบแผนก → `App.confirm`
+- ✅ [modules/settings/pages.js](modules/settings/pages.js) — restore config + clear cache
+- ✅ [modules/settings/users.js](modules/settings/users.js)
+  - prompt ชื่อ + เบอร์ → modal เดียวมี 2 fields
+- ✅ HANDOFF.md เพิ่ม Phase 70-75 + warn SQL phase 71/72 ต้องรัน
+
+### Defer (ไม่อยู่ใน Quick Wins)
+- **modules/products.js** — 11 จุด confirm/prompt (สร้างหมวด, rename, bulk delete, แก้บาร์โค้ด) — เก่ากว่า + UX ฝังลึก ต้องเป็น phase แยก
+- **Sidebar grouping HR** — 3 ปุ่มกลางแจ้ง (departments/payroll/payroll_overview) ไม่จัดกลุ่ม → ปล่อยไว้ก่อน รอ user feedback
+- **หน้า "สลิปของฉัน" สำหรับ employee** — RLS เปิดให้แล้ว แต่ไม่มี UI sales/technician เข้าได้ → defer
+
+### Bump
+- APP_BUILD 104 → 105
+- index.html `main.js?v=104` → `?v=105`
+- sw.js cache v88 → v89
+- Version 5.27.0 → 5.27.1 (patch — ไม่มีฟีเจอร์ใหม่ แค่ no-confirm migration + bug fix + docs)
+
+### Test plan (หลัง deploy)
+1. **Hard reload** (Ctrl+Shift+R) — เลี่ยง stale cache
+2. **payroll**: เปิด `/payroll` → กด "ลบ" 1 รายการ → ขึ้น modal สีฟ้า (ไม่ใช่ native dialog)
+3. **payroll mark paid**: กด "💸 จ่าย" → ขึ้น modal มี dropdown 3 ตัวเลือก โอน/เงินสด/เช็ค
+4. **departments**: เปิด `/departments` ทันทีหลัง login (ก่อนเข้า users) → ตรวจว่าจำนวนพนักงานในแต่ละแผนกถูกต้อง
+5. **settings/users**: กด "แก้ไข" ผู้ใช้ → ขึ้น modal มี 2 ช่อง ชื่อ + เบอร์ พร้อมกัน
+6. **settings/about**: กด "ล้าง cache" → ขึ้น modal สีฟ้าก่อน confirm
+
+---
+
+## 🤖 Phase 74 — AutoKey OCR สลิปค่าใช้จ่าย (Gemini Vision) (3 พ.ค. รอบเย็น)
+
+- ใช้ Google Gemini Vision สำหรับอ่านสลิปค่าใช้จ่าย
+- ไฟล์ใหม่: [functions/api/parse-receipt.js](functions/api/parse-receipt.js) (Cloudflare Function)
+- UI: ใน [modules/expenses.js](modules/expenses.js) — ปุ่ม "📸 อ่านสลิป AI"
+- USER ACTION: ตั้ง `GEMINI_API_KEY` ใน Cloudflare Pages → Settings → Environment variables (ฟรี 60 RPM)
+
+---
+
+## 📊 Phase 73 — Payroll Overview Dashboard (3 พ.ค.)
+
+- หน้า `/payroll_overview` (admin only)
+- Donut chart ค่าใช้จ่ายตามหมวด (เงินเดือน/OT/สวัสดิการ/โบนัส/คอม)
+- Bar chart รายเดือน (paid vs total)
+- Top 5 earners + 4 stat cards
+- Period selector 3/6/12 เดือน
+- ใช้ Chart.js (มี global script tag อยู่แล้ว)
+- ไฟล์: [modules/payroll_overview.js](modules/payroll_overview.js)
+
+---
+
+## 💰 Phase 72-72.1 — Staff Payroll + Payslip Print (3 พ.ค.)
+
+### Phase 72 — รายการเงินเดือน
+- หน้า `/payroll` (admin only) — CRUD จ่ายเงินเดือนรายเดือน
+- หมวดเงินเดือน: base / overtime / welfare / bonus / commission - deductions
+- `total_amount` = generated column ใน DB
+- 1 พนักงาน 1 รอบเดือน (unique constraint `uq_staff_payroll_emp_month`)
+- RLS: admin all + employee_id = auth.uid() self-read
+- USER ACTION: รัน [supabase-phase72-payroll.sql](supabase-phase72-payroll.sql)
+
+### Phase 72.1 — Payslip Print
+- ปุ่ม "🖨️ สลิป" → เปิด popup สลิปเงินเดือน A4 + auto-print
+- 2 ก๊อบปี้ต่อใบ (ต้นฉบับ-สำหรับพนักงาน + สำเนา-สำหรับร้าน)
+- มี "(จำนวนเงินตัวอักษร)" — function `_bahtText()` แปลงตัวเลขเป็นภาษาไทย
+
+---
+
+## 🏢 Phase 71 — Departments Management (3 พ.ค.)
+
+- หน้า `/departments` (admin only) — CRUD แผนก (ชื่อ/code/icon/color/sort_order)
+- Foundation สำหรับ Phase 72 payroll
+- ตอน Phase 75 — แก้ bug staffCount = 0 (เพราะ state.allProfiles ไม่ได้ populate)
+- USER ACTION: รัน [supabase-phase71-departments.sql](supabase-phase71-departments.sql)
+
+---
+
+## 📥 Phase 70 — Excel Export ครบ 5 modules ที่ขาด (D3 backlog) (3 พ.ค.)
+
+ครอบคลุม: quotations / receipts / delivery_invoices / service_jobs / expenses
 
 ---
 

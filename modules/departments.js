@@ -6,6 +6,7 @@ import { renderSkeleton, renderEmpty, renderError } from "./ui_states.js";
 import { escHtml } from "./utils.js";
 
 let _depts = [];
+let _profiles = [];
 let _editingId = null;
 
 export async function renderDepartmentsPage(ctx) {
@@ -27,22 +28,27 @@ export async function renderDepartmentsPage(ctx) {
 
   const cfg = window.SUPABASE_CONFIG;
   const token = window._sbAccessToken || cfg.anonKey;
+  const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token };
 
   try {
-    const res = await fetch(cfg.url + "/rest/v1/departments?select=*&order=sort_order.asc,name.asc", {
-      headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token }
-    });
-    if (!res.ok) {
+    // Phase 75 fix: fetch profiles เองเพื่อให้ staffCount ถูกต้อง
+    // (เดิมพึ่ง state.allProfiles ซึ่ง populate ตอน admin เข้า settings/users — ถ้ายังไม่เข้าจะเป็น [])
+    const [dRes, pRes] = await Promise.all([
+      fetch(cfg.url + "/rest/v1/departments?select=*&order=sort_order.asc,name.asc", { headers }),
+      fetch(cfg.url + "/rest/v1/profiles?select=id,full_name,role,department_id", { headers })
+    ]);
+    if (!dRes.ok) {
       container.innerHTML = renderError({
         message: "ตาราง departments ยังไม่มีในฐานข้อมูล",
-        detail: "รัน supabase-phase71-departments.sql ก่อน (HTTP " + res.status + ")",
+        detail: "รัน supabase-phase71-departments.sql ก่อน (HTTP " + dRes.status + ")",
         retryLabel: "ลองโหลดใหม่",
         retryId: "depRetryBtn"
       });
       document.getElementById("depRetryBtn")?.addEventListener("click", () => renderDepartmentsPage(ctx));
       return;
     }
-    _depts = await res.json();
+    _depts = await dRes.json();
+    _profiles = pRes.ok ? await pRes.json() : (state.allProfiles || []);
   } catch (e) {
     container.innerHTML = renderError({
       message: "โหลดข้อมูลไม่สำเร็จ",
@@ -54,9 +60,7 @@ export async function renderDepartmentsPage(ctx) {
     return;
   }
 
-  // Count staff per dept (from state.profiles ถ้ามี — ถ้าไม่มีจะแสดง 0)
-  const profiles = state.allProfiles || [];
-  const staffCount = (deptId) => profiles.filter(p => String(p.department_id) === String(deptId)).length;
+  const staffCount = (deptId) => _profiles.filter(p => String(p.department_id) === String(deptId)).length;
 
   container.innerHTML = `
     <div style="max-width:1100px;margin:0 auto;padding:8px">
@@ -212,8 +216,8 @@ async function _saveDept(ctx, existing) {
 
 async function _deleteDept(ctx, id, name, cnt) {
   let msg = `ลบแผนก "${name}" ?`;
-  if (cnt > 0) msg += `\n\n⚠️ มีพนักงาน ${cnt} คนอยู่ในแผนกนี้ — หลังลบ พนักงานจะไม่ถูกระบุแผนก (department_id = NULL)`;
-  if (!confirm(msg)) return;
+  if (cnt > 0) msg += ` (มีพนักงาน ${cnt} คนอยู่ในแผนกนี้ — หลังลบจะไม่ถูกระบุแผนก)`;
+  if (!(await window.App?.confirm?.(msg))) return;
   const cfg = window.SUPABASE_CONFIG;
   const token = window._sbAccessToken;
   try {

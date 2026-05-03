@@ -384,7 +384,7 @@ async function _savePayroll(ctx, existing) {
 }
 
 async function _deletePayroll(ctx, id) {
-  if (!confirm("ลบรายการเงินเดือนนี้?")) return;
+  if (!(await window.App?.confirm?.("ลบรายการเงินเดือนนี้?"))) return;
   const cfg = window.SUPABASE_CONFIG;
   const token = window._sbAccessToken;
   try {
@@ -401,7 +401,7 @@ async function _deletePayroll(ctx, id) {
 }
 
 async function _markPaid(ctx, id) {
-  const method = prompt("วิธีจ่าย? (cash / transfer / cheque)", "transfer");
+  const method = await _askPaymentMethod();
   if (!method) return;
   const cfg = window.SUPABASE_CONFIG;
   const token = window._sbAccessToken;
@@ -409,7 +409,7 @@ async function _markPaid(ctx, id) {
     const resp = await fetch(cfg.url + "/rest/v1/staff_payroll?id=eq." + id, {
       method: "PATCH",
       headers: { "Content-Type": "application/json", "apikey": cfg.anonKey, "Authorization": "Bearer " + token },
-      body: JSON.stringify({ paid_at: new Date().toISOString(), payment_method: method.trim().toLowerCase() })
+      body: JSON.stringify({ paid_at: new Date().toISOString(), payment_method: method })
     });
     if (!resp.ok) throw new Error("HTTP " + resp.status);
     ctx.showToast?.("บันทึกการจ่ายแล้ว");
@@ -417,6 +417,36 @@ async function _markPaid(ctx, id) {
   } catch(e) {
     ctx.showToast?.("บันทึกไม่สำเร็จ: " + (e.message || e));
   }
+}
+
+// Phase 75: replace native prompt() — modal dropdown เลือกวิธีจ่าย
+function _askPaymentMethod() {
+  return new Promise(resolve => {
+    document.getElementById("prPayModal")?.remove();
+    const m = document.createElement("div");
+    m.id = "prPayModal";
+    m.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px";
+    m.innerHTML = `
+      <div style="background:#fff;border-radius:14px;max-width:380px;width:100%;padding:20px">
+        <h3 style="margin:0 0 4px;font-size:16px;color:#0f172a">💸 บันทึกการจ่ายเงินเดือน</h3>
+        <div style="font-size:12px;color:#64748b;margin-bottom:14px">เลือกวิธีจ่าย</div>
+        <select id="prPayMethodSel" style="width:100%;padding:10px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px;margin-bottom:14px;background:#fff">
+          <option value="transfer">🏦 โอนเงิน</option>
+          <option value="cash">💵 เงินสด</option>
+          <option value="cheque">📝 เช็ค</option>
+        </select>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button id="prPayCancel" type="button" style="padding:8px 14px;background:#f1f5f9;color:#475569;border:none;border-radius:8px;cursor:pointer;font-size:13px">ยกเลิก</button>
+          <button id="prPayOK" type="button" style="padding:8px 18px;background:#10b981;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700">บันทึกการจ่าย</button>
+        </div>
+      </div>`;
+    document.body.appendChild(m);
+    const close = (val) => { m.remove(); resolve(val); };
+    document.getElementById("prPayCancel")?.addEventListener("click", () => close(null));
+    document.getElementById("prPayOK")?.addEventListener("click", () => close(document.getElementById("prPayMethodSel")?.value || "transfer"));
+    m.addEventListener("click", e => { if (e.target === m) close(null); });
+    setTimeout(() => document.getElementById("prPayMethodSel")?.focus(), 50);
+  });
 }
 
 // ═══════════════════════════════════════════════════════════

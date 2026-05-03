@@ -22,8 +22,8 @@ export function renderSettingsAbout(el, ctx, goBack) {
           <div style="font-size:12px;color:#64748b">ระบบจัดการร้านค้าอิเล็กทรอนิกส์แบบครบวงจร</div>
         </div>
         <div style="display:grid;gap:6px;font-size:13px;color:#334155">
-          <div><strong>Version:</strong> 5.27.0</div>
-          <div><strong>Release:</strong> May 2026 (build 104)</div>
+          <div><strong>Version:</strong> 5.27.1</div>
+          <div><strong>Release:</strong> May 2026 (build 105)</div>
           <div><strong>Developer:</strong> Boonsook Electronics</div>
           <div><strong>Contact:</strong> gangboo@gmail.com</div>
         </div>
@@ -226,9 +226,8 @@ export function renderSettingsAbout(el, ctx, goBack) {
     const setBk = (msg, color) => { if (bkStatus) { bkStatus.textContent = msg; bkStatus.style.color = color || "#475569"; } };
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!confirm("ยืนยันกู้คืน config จากไฟล์นี้?\n\nข้อมูลปัจจุบัน (logo, payment info ฯลฯ) จะถูกทับด้วยข้อมูลในไฟล์")) {
-      e.target.value = ""; return;
-    }
+    const ok = await window.App?.confirm?.("ยืนยันกู้คืน config จากไฟล์นี้? ข้อมูลปัจจุบัน (logo, payment info ฯลฯ) จะถูกทับด้วยข้อมูลในไฟล์");
+    if (!ok) { e.target.value = ""; return; }
     try {
       const text = await file.text();
       const data = JSON.parse(text);
@@ -251,7 +250,7 @@ export function renderSettingsAbout(el, ctx, goBack) {
   });
 
   document.getElementById("appClearCacheBtn")?.addEventListener("click", async () => {
-    if (!confirm("ล้าง cache + Service Worker ทั้งหมด + reload?\n\n(โหลดใหม่ครั้งแรกจะนานขึ้น แต่จะได้เวอร์ชันล่าสุดแน่นอน)")) return;
+    if (!(await window.App?.confirm?.("ล้าง cache + Service Worker ทั้งหมด + reload? โหลดใหม่ครั้งแรกจะนานขึ้น แต่จะได้เวอร์ชันล่าสุดแน่นอน"))) return;
     const btn = document.getElementById("appClearCacheBtn");
     const orig = btn.textContent;
     btn.disabled = true; btn.textContent = "⏳ กำลังล้าง...";

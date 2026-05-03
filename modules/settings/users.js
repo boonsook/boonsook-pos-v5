@@ -144,18 +144,16 @@ export function renderSettingsUsers(el, ctx, goBack, navigateToView) {
     sel.addEventListener("change", () => changeRole(sel.dataset.roleUserId, sel.value));
   });
 
-  // แก้ไข (full_name + phone)
+  // แก้ไข (full_name + phone) — Phase 75: prompt → modal
   el.querySelectorAll("[data-edit-user-id]").forEach(btn => btn.addEventListener("click", async () => {
     const userId = btn.dataset.editUserId;
     const p = (state.allProfiles || []).find(x => x.id === userId);
     if (!p) return;
-    const newName = prompt("ชื่อ-นามสกุล:", p.full_name || "");
-    if (newName === null) return; // cancelled
-    const newPhone = prompt("เบอร์โทร:", p.phone || "");
-    if (newPhone === null) return;
+    const result = await _editUserModal(p);
+    if (!result) return;
     const patch = {};
-    if (newName.trim() !== (p.full_name || "")) patch.full_name = newName.trim();
-    if (newPhone.trim() !== (p.phone || "")) patch.phone = newPhone.trim();
+    if (result.full_name !== (p.full_name || "")) patch.full_name = result.full_name;
+    if (result.phone !== (p.phone || "")) patch.phone = result.phone;
     if (Object.keys(patch).length === 0) return showToast("ไม่มีการเปลี่ยนแปลง");
     const fn = window._appUpdateUserProfile;
     if (typeof fn === 'function') {
@@ -172,6 +170,44 @@ export function renderSettingsUsers(el, ctx, goBack, navigateToView) {
       if (await fn(userId, name)) navigateToView && navigateToView('users');
     }
   }));
+}
+
+// Phase 75: replace prompt() — modal แก้ไขชื่อ + เบอร์ในครั้งเดียว
+function _editUserModal(profile) {
+  return new Promise(resolve => {
+    document.getElementById("editUserModal")?.remove();
+    const m = document.createElement("div");
+    m.id = "editUserModal";
+    m.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px";
+    m.innerHTML = `
+      <div style="background:#fff;border-radius:14px;max-width:420px;width:100%;padding:20px">
+        <h3 style="margin:0 0 14px;font-size:16px;color:#0f172a">✏️ แก้ไขผู้ใช้</h3>
+        <div style="display:grid;gap:10px">
+          <label style="display:block">
+            <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:4px">ชื่อ-นามสกุล</div>
+            <input id="editUserName" type="text" maxlength="100" value="${escHtml(profile.full_name || "")}" style="width:100%;padding:9px 11px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px" />
+          </label>
+          <label style="display:block">
+            <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:4px">เบอร์โทร</div>
+            <input id="editUserPhone" type="tel" maxlength="20" value="${escHtml(profile.phone || "")}" placeholder="08X-XXXXXXX" style="width:100%;padding:9px 11px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px" />
+          </label>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+          <button id="editUserCancel" type="button" style="padding:8px 14px;background:#f1f5f9;color:#475569;border:none;border-radius:8px;cursor:pointer;font-size:13px">ยกเลิก</button>
+          <button id="editUserOK" type="button" style="padding:8px 18px;background:#0284c7;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700">บันทึก</button>
+        </div>
+      </div>`;
+    document.body.appendChild(m);
+    const close = (val) => { m.remove(); resolve(val); };
+    document.getElementById("editUserCancel")?.addEventListener("click", () => close(null));
+    document.getElementById("editUserOK")?.addEventListener("click", () => {
+      const full_name = (document.getElementById("editUserName")?.value || "").trim();
+      const phone = (document.getElementById("editUserPhone")?.value || "").trim();
+      close({ full_name, phone });
+    });
+    m.addEventListener("click", e => { if (e.target === m) close(null); });
+    setTimeout(() => document.getElementById("editUserName")?.focus(), 50);
+  });
 }
 
 

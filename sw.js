@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v88 (2026-05-03): Phase 74 — AutoKey OCR สลิปค่าใช้จ่าย (Gemini Vision)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v88';
+// v89 (2026-05-03): Phase 75 — audit Quick Wins (no-prompt/no-confirm + departments staffCount fix)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v89';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
