@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v83 (2026-05-03): Phase 70 — Excel export in 5 modules (quotations/receipts/invoices/service_jobs/expenses)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v83';
+// v84 (2026-05-03): Phase 71 — departments management (foundation for payroll Phase 72-73)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v84';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

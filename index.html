@@ -153,6 +153,7 @@
       <button class="nav-btn active" data-route="dashboard">📊 ภาพรวมบริษัท</button>
       <button class="nav-btn" data-route="customer_dashboard">🏠 หน้าหลัก</button>
       <button class="nav-btn" data-route="audit_log">📜 ประวัติการใช้งาน</button>
+      <button class="nav-btn" data-route="departments">🏢 ตั้งค่าแผนก</button>
 
       <!-- ═══ แคชเชียร์ ═══ -->
       <button class="nav-btn" data-route="pos">💰 แคชเชียร์</button>
@@ -295,6 +296,7 @@
 
       <section id="page-dashboard" class="page"></section>
       <section id="page-audit_log" class="page hidden"></section>
+      <section id="page-departments" class="page hidden"></section>
       <section id="page-pos" class="page hidden"></section>
       <section id="page-products" class="page hidden"></section>
       <section id="page-wh_kunkhao" class="page hidden"></section>
@@ -689,7 +691,7 @@
   <script>
   (async function selfHeal() {
     try {
-      var APP_BUILD = 99;
+      var APP_BUILD = 100;
       var STUCK_BUILDS_BEFORE = 47; // builds before this มี immutable-cache bug
       var stored = parseInt(localStorage.getItem('bsk_app_build') || '0', 10);
       var justRecovered = sessionStorage.getItem('bsk_just_recovered') === '1';
@@ -738,7 +740,7 @@
     }
   })();
   </script>
-  <script type="module" src="./main.js?v=99"></script>
+  <script type="module" src="./main.js?v=100"></script>
   <script>
     // ═══ Loading Overlay ═══
     function hideLoadingOverlay() {

@@ -38,6 +38,8 @@ import { renderRefundsPage } from "./modules/refunds.js";
 import { renderTasksPage, checkOverdueTasksAndNotify } from "./modules/tasks.js";
 // Phase 57: audit log viewer
 import { renderAuditLogPage } from "./modules/audit_log.js";
+// Phase 71: departments management
+import { renderDepartmentsPage } from "./modules/departments.js";
 import { renderProfitByProductPage } from "./modules/profit_by_product.js";
 import { renderBirthdaysPage, checkTodayBirthdaysAndNotify } from "./modules/birthdays.js";
 import { renderQuoteTemplatesPage } from "./modules/quote_templates.js";
@@ -823,7 +825,7 @@ function isLowStock(product){ return Number(product.stock||0) <= Number(product.
 const SERVICE_FORM_TYPES = ["repair_ac","clean_ac","move_ac","satellite","repair_fridge","repair_washer","cctv","repair_tv","other"];
 const SERVICE_FORM_ROUTES = SERVICE_FORM_TYPES.map(t => "service_" + t);
 
-const ALL_ROUTES = ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","quote_templates","service_jobs","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","refunds","tasks","profit_by_product","birthdays","serials","warranty_report","calendar","loyalty","customer_dashboard","btu_calculator","service_request","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop","audit_log", ...SERVICE_FORM_ROUTES];
+const ALL_ROUTES = ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","quote_templates","service_jobs","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","refunds","tasks","profit_by_product","birthdays","serials","warranty_report","calendar","loyalty","customer_dashboard","btu_calculator","service_request","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop","audit_log","departments", ...SERVICE_FORM_ROUTES];
 const ROLE_PAGES = {
   admin:      ALL_ROUTES,
   technician: ["customer_dashboard","pos","sales","service_jobs","calendar","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop", ...SERVICE_FORM_ROUTES],
@@ -1001,6 +1003,7 @@ function showRoute(route){
   if (route === "ai_sales") renderAiSalesPage(ctx);
   if (route === "ac_shop") renderAcShopPage(ctx);
   if (route === "audit_log") renderAuditLogPage(ctx);
+  if (route === "departments") renderDepartmentsPage(ctx);
 
   // Warehouse sub-pages — reuse products page with warehouse filter
   if (WH_ROUTE_MAP[route]) {
