@@ -1,8 +1,8 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 3 พฤษภาคม 2026 (Phase 75 — audit Quick Wins: no-confirm/no-prompt + departments staffCount fix)
-**Version:** 5.27.1 (build 105)
-**Previous:** 5.27.0 (build 104) — Phase 74 (Gemini OCR สลิปค่าใช้จ่าย)
+**อัปเดตล่าสุด:** 3 พฤษภาคม 2026 (Phase 75.1 — เพิ่ม dropdown แผนกใน modal แก้ไขผู้ใช้)
+**Version:** 5.27.2 (build 106)
+**Previous:** 5.27.1 (build 105) — Phase 75 (no-confirm/no-prompt + departments staffCount fix)
 
 ---
 
@@ -50,6 +50,31 @@
 
 ### Customer accounts (test)
 - babang / 0874536754 (ลูกค้า role) — สมัครผ่าน OTP เมื่อ 1 พ.ค. (Bug E verify)
+
+---
+
+## 🏷️ Phase 75.1 — Department dropdown ใน modal แก้ไขผู้ใช้ (3 พ.ค. รอบดึก)
+
+### Root cause
+User เปิดหน้า `/departments` พบทุกแผนกแสดง "0 พนักงาน" — ตรวจสอบแล้วไม่ใช่ bug
+จาก Phase 75 (state.allProfiles fix). **Root cause จริง:**
+- Phase 71 SQL เพิ่ม column `profiles.department_id` แล้ว ✅
+- แต่ไม่มี UI ที่ไหนเลยให้ assign แผนกให้พนักงาน — ทุกคน `department_id = NULL`
+- เลยทุกแผนกแสดง 0 (ถูกต้องตาม data)
+
+### Fix
+- [modules/settings/users.js](modules/settings/users.js) — `_editUserModal` เพิ่ม dropdown "🏢 แผนก"
+  - Lazy fetch departments ตอนเปิด modal (graceful: ถ้า phase 71 SQL ยังไม่รัน → ซ่อน field)
+  - Logic 3 ทาง: dropdown ไม่ render = คงค่าเดิม | "" = ถอดแผนก | id = set แผนก
+  - Patch ส่ง `{ department_id }` ไป PostgREST (FK validate ใน DB)
+
+### User flow ใหม่
+1. Settings → Users → กด "แก้ไข" ผู้ใช้
+2. เลือกแผนกจาก dropdown → กดบันทึก
+3. กลับไปดู `/departments` → จำนวนพนักงานในแต่ละแผนกอัปเดต
+
+### Bump
+- 5.27.1/105 → 5.27.2/106 + sw v89 → v90
 
 ---
 

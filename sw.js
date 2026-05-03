@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v89 (2026-05-03): Phase 75 — audit Quick Wins (no-prompt/no-confirm + departments staffCount fix)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v89';
+// v90 (2026-05-03): Phase 75.1 — เพิ่ม dropdown แผนกใน modal แก้ไขผู้ใช้
+const CACHE_NAME = 'boonsook-pos-v5-cache-v90';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

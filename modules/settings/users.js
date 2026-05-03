@@ -144,7 +144,7 @@ export function renderSettingsUsers(el, ctx, goBack, navigateToView) {
     sel.addEventListener("change", () => changeRole(sel.dataset.roleUserId, sel.value));
   });
 
-  // แก้ไข (full_name + phone) — Phase 75: prompt → modal
+  // แก้ไข (full_name + phone + department) — Phase 75 + 75.1
   el.querySelectorAll("[data-edit-user-id]").forEach(btn => btn.addEventListener("click", async () => {
     const userId = btn.dataset.editUserId;
     const p = (state.allProfiles || []).find(x => x.id === userId);
@@ -154,6 +154,9 @@ export function renderSettingsUsers(el, ctx, goBack, navigateToView) {
     const patch = {};
     if (result.full_name !== (p.full_name || "")) patch.full_name = result.full_name;
     if (result.phone !== (p.phone || "")) patch.phone = result.phone;
+    if (String(result.department_id || "") !== String(p.department_id || "")) {
+      patch.department_id = result.department_id || null;
+    }
     if (Object.keys(patch).length === 0) return showToast("ไม่มีการเปลี่ยนแปลง");
     const fn = window._appUpdateUserProfile;
     if (typeof fn === 'function') {
@@ -172,13 +175,32 @@ export function renderSettingsUsers(el, ctx, goBack, navigateToView) {
   }));
 }
 
-// Phase 75: replace prompt() — modal แก้ไขชื่อ + เบอร์ในครั้งเดียว
-function _editUserModal(profile) {
+// Phase 75 + 75.1: replace prompt() — modal แก้ไขชื่อ + เบอร์ + แผนก
+async function _editUserModal(profile) {
+  // Phase 75.1: fetch departments เพื่อสร้าง dropdown (ถ้ายังไม่ได้รัน SQL phase 71 → จะได้ [] = ซ่อน field)
+  let depts = [];
+  try {
+    const cfg = window.SUPABASE_CONFIG;
+    const token = window._sbAccessToken || cfg.anonKey;
+    const res = await fetch(cfg.url + "/rest/v1/departments?select=id,name,code&order=sort_order.asc,name.asc", {
+      headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token }
+    });
+    if (res.ok) depts = await res.json();
+  } catch (_) { /* table อาจยังไม่มี — ซ่อน field */ }
+
   return new Promise(resolve => {
     document.getElementById("editUserModal")?.remove();
     const m = document.createElement("div");
     m.id = "editUserModal";
     m.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px";
+    const deptField = depts.length > 0 ? `
+          <label style="display:block">
+            <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:4px">🏢 แผนก</div>
+            <select id="editUserDept" style="width:100%;padding:9px 11px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;background:#fff">
+              <option value="">— ไม่ระบุแผนก —</option>
+              ${depts.map(d => `<option value="${d.id}" ${String(profile.department_id || "") === String(d.id) ? "selected" : ""}>${escHtml(d.name)}${d.code ? ` (${escHtml(d.code)})` : ""}</option>`).join("")}
+            </select>
+          </label>` : "";
     m.innerHTML = `
       <div style="background:#fff;border-radius:14px;max-width:420px;width:100%;padding:20px">
         <h3 style="margin:0 0 14px;font-size:16px;color:#0f172a">✏️ แก้ไขผู้ใช้</h3>
@@ -191,6 +213,7 @@ function _editUserModal(profile) {
             <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:4px">เบอร์โทร</div>
             <input id="editUserPhone" type="tel" maxlength="20" value="${escHtml(profile.phone || "")}" placeholder="08X-XXXXXXX" style="width:100%;padding:9px 11px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px" />
           </label>
+          ${deptField}
         </div>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
           <button id="editUserCancel" type="button" style="padding:8px 14px;background:#f1f5f9;color:#475569;border:none;border-radius:8px;cursor:pointer;font-size:13px">ยกเลิก</button>
@@ -203,7 +226,12 @@ function _editUserModal(profile) {
     document.getElementById("editUserOK")?.addEventListener("click", () => {
       const full_name = (document.getElementById("editUserName")?.value || "").trim();
       const phone = (document.getElementById("editUserPhone")?.value || "").trim();
-      close({ full_name, phone });
+      const deptElem = document.getElementById("editUserDept");
+      // dropdown ไม่ได้ render → คงค่าเดิม | "" = ถอดแผนกออก | "5" = แผนก id 5
+      const department_id = deptElem
+        ? (deptElem.value ? Number(deptElem.value) : null)
+        : (profile.department_id ?? null);
+      close({ full_name, phone, department_id });
     });
     m.addEventListener("click", e => { if (e.target === m) close(null); });
     setTimeout(() => document.getElementById("editUserName")?.focus(), 50);
