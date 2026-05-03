@@ -3,8 +3,8 @@
 //  ★ รายการสินค้า, ส่วนลด, หัก ณ ที่จ่าย, preview เอกสาร
 // ═══════════════════════════════════════════════════════════
 import { renderEmpty, renderSkeleton } from "./ui_states.js";
-// Phase 57: audit log
-import { logActivity } from "./utils.js";
+// Phase 57: audit log + Phase 70 (D3): Excel export
+import { logActivity, exportToExcel, todaySuffix } from "./utils.js";
 
 // share ใช้ window._appShareDoc จาก main.js
 
@@ -118,7 +118,10 @@ export function renderQuotationsPage(ctx) {
     <div class="panel">
       <div class="row">
         <h3 style="margin:0">ใบเสนอราคา</h3>
-        <button id="qtAddBtn" class="btn primary">+ สร้างใบเสนอราคา</button>
+        <div style="display:flex;gap:8px">
+          <button id="qtExportBtn" class="btn light" style="font-size:13px" title="ส่งออก Excel ตาม filter ที่กำลังเลือก">📥 Excel</button>
+          <button id="qtAddBtn" class="btn primary">+ สร้างใบเสนอราคา</button>
+        </div>
       </div>
 
       ${countAll === 0 ? renderEmpty({
@@ -243,6 +246,24 @@ export function renderQuotationsPage(ctx) {
     _lineItems = [];
     _viewMode = "form";
     renderQuotationsPage(_ctx);
+  });
+  // Phase 70 (D3): Export current filtered list to Excel
+  document.getElementById("qtExportBtn")?.addEventListener("click", () => {
+    const rows = filtered.map(q => ({
+      "เลขที่": q.qt_no || ("#" + q.id),
+      "วันที่": (q.created_at || "").slice(0, 10),
+      "ลูกค้า": q.customer_name || "",
+      "พนักงานขาย": q.salesperson || "",
+      "สถานะ": STATUS_LABELS[q.status] || q.status || "",
+      "ยอดก่อนส่วนลด": Number(q.total_amount || 0),
+      "ส่วนลด %": Number(q.discount_pct || 0),
+      "หัก ณ ที่จ่าย %": Number(q.wht_pct || 0),
+      "รวมทั้งสิ้น": Number(q.grand_total || q.amount || 0),
+      "หมดอายุ": (q.expires_at || "").slice(0, 10),
+      "หมายเหตุ": q.note || ""
+    }));
+    const ok = exportToExcel(`ใบเสนอราคา_${todaySuffix()}.xlsx`, rows, "Quotations");
+    if (ok) window.App?.showToast?.(`ดาวน์โหลด ${rows.length} รายการแล้ว`);
   });
   document.getElementById("qtEmptyAddBtn")?.addEventListener("click", () => {
     _editingId = null;

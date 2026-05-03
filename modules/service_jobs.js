@@ -1,7 +1,7 @@
 
 import { renderEmpty } from "./ui_states.js";
-// Phase 68 (B3): tag rendering + presets
-import { renderTagBadge, SERVICE_TAG_PRESETS } from "./utils.js";
+// Phase 68 (B3): tag rendering + presets · Phase 70 (D3): Excel export
+import { renderTagBadge, SERVICE_TAG_PRESETS, exportToExcel, todaySuffix } from "./utils.js";
 
 const STATUS_LABELS = {
   pending:    "รอดำเนินการ",
@@ -77,7 +77,10 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
     <div class="panel">
       <div class="row">
         <h3 style="margin:0">ใบรับงาน / งานบริการ</h3>
-        <button id="serviceJobAddBtn" class="btn primary">+ เพิ่มงานช่าง</button>
+        <div style="display:flex;gap:8px">
+          <button id="sjExportBtn" class="btn light" style="font-size:13px" title="ส่งออก Excel ตาม filter ที่กำลังเลือก">📥 Excel</button>
+          <button id="serviceJobAddBtn" class="btn primary">+ เพิ่มงานช่าง</button>
+        </div>
       </div>
       <!-- Phase 39: filter chips -->
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;align-items:center">
@@ -232,6 +235,25 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
 
   /* ── Add job ── */
   document.getElementById("serviceJobAddBtn")?.addEventListener("click", () => openServiceJobDrawer());
+
+  /* Phase 70 (D3): Export filtered jobs to Excel */
+  document.getElementById("sjExportBtn")?.addEventListener("click", () => {
+    const rows = jobs.map(j => ({
+      "เลขที่งาน": j.job_no || ("#" + j.id),
+      "วันที่รับ": (j.created_at || "").slice(0, 10),
+      "ลูกค้า": j.customer_name || "",
+      "เบอร์โทร": j.customer_phone || "",
+      "ที่อยู่": j.customer_address || j.job_address || "",
+      "ประเภทงาน": JOB_TYPE_LABELS[j.job_type] || j.job_type || "",
+      "รายละเอียด": j.description || j.job_title || "",
+      "สถานะ": STATUS_LABELS[j.status] || j.status || "",
+      "Tags": Array.isArray(j.tags) ? j.tags.join(", ") : "",
+      "นัดติดตั้ง": (j.scheduled_at || "").slice(0, 16).replace("T", " "),
+      "หมายเหตุ": j.note || ""
+    }));
+    const ok = exportToExcel(`งานช่าง_${todaySuffix()}.xlsx`, rows, "ServiceJobs");
+    if (ok) showToast(`ดาวน์โหลด ${rows.length} รายการแล้ว`);
+  });
 
   /* ── Empty-state CTAs (Phase 46.1) ── */
   document.getElementById("emptyAddServiceJobBtn")?.addEventListener("click", () => openServiceJobDrawer());

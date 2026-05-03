@@ -46,6 +46,47 @@ export function getCustomerTier(customerId, sales) {
 }
 
 // ═══════════════════════════════════════════════════════════
+//  Phase 70 (D3): Generic Excel export — shared across modules
+//  Uses XLSX (SheetJS) loaded globally from CDN in index.html.
+//  All modules call this with the same shape so files behave consistently.
+// ═══════════════════════════════════════════════════════════
+/**
+ * Export an array of plain objects to an .xlsx file.
+ * @param {string} filename - e.g. "ใบเสนอราคา_2026-05-03.xlsx"
+ * @param {Array<Object>} rows - each row is one record. Keys become headers.
+ * @param {string} [sheetName="Sheet1"]
+ * @returns {boolean} true on success, false if XLSX library missing
+ */
+export function exportToExcel(filename, rows, sheetName) {
+  if (typeof window.XLSX === "undefined") {
+    console.warn("[exportToExcel] XLSX library not loaded");
+    return false;
+  }
+  const safe = (rows && rows.length) ? rows : [{ "ไม่มีข้อมูล": "" }];
+  const ws = window.XLSX.utils.json_to_sheet(safe);
+  const wb = window.XLSX.utils.book_new();
+  window.XLSX.utils.book_append_sheet(wb, ws, sheetName || "Sheet1");
+  window.XLSX.writeFile(wb, filename);
+  return true;
+}
+
+/**
+ * Format a numeric/string for Excel — wraps barcode-like strings to keep
+ * leading zeros intact (Excel auto-strips them otherwise).
+ */
+export function asExcelText(s) {
+  if (s == null) return "";
+  return String(s);
+}
+
+/**
+ * Helper: build a YYYY-MM-DD date suffix for filenames.
+ */
+export function todaySuffix() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+// ═══════════════════════════════════════════════════════════
 //  Phase 68: Tag presets for products + service_jobs
 //  (customers have their own preset list in main.js Phase 11)
 // ═══════════════════════════════════════════════════════════

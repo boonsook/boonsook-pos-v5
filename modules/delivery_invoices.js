@@ -3,8 +3,8 @@
 //  ★ รายการ, preview, พิมพ์, PDF, แชร์, สร้างใบเสร็จ
 // ═══════════════════════════════════════════════════════════
 import { renderEmpty, renderSkeleton } from "./ui_states.js";
-// Phase 57: audit log
-import { logActivity } from "./utils.js";
+// Phase 57: audit log + Phase 70 (D3): Excel export
+import { logActivity, exportToExcel, todaySuffix } from "./utils.js";
 
 // share ใช้ window._appShareDoc จาก main.js
 
@@ -113,6 +113,7 @@ export function renderDeliveryInvoicesPage(ctx) {
       <div class="row">
         <h3 style="margin:0">ใบส่งสินค้า / ใบแจ้งหนี้</h3>
         <span class="sku">สร้างจากใบเสนอราคาที่อนุมัติแล้ว</span>
+        <button id="diExportBtn" class="btn light" style="font-size:13px;margin-left:auto" title="ส่งออก Excel ตาม filter ที่กำลังเลือก">📥 Excel</button>
       </div>
 
       ${countAll === 0 ? renderEmpty({
@@ -238,6 +239,22 @@ export function renderDeliveryInvoicesPage(ctx) {
     _tabFilter = btn.dataset.diTab;
     renderDeliveryInvoicesPage(_ctx);
   }));
+  // Phase 70 (D3): Export filtered invoices to Excel
+  container.querySelector("#diExportBtn")?.addEventListener("click", () => {
+    const rows = filtered.map(inv => ({
+      "เลขที่": inv.inv_no || ("#" + inv.id),
+      "วันที่": (inv.created_at || "").slice(0, 10),
+      "ลูกค้า": inv.customer_name || "",
+      "อ้างอิงใบเสนอราคา": inv.quotation_id || "",
+      "สถานะ": inv.status || "",
+      "ยอดก่อนหัก": Number(inv.total_amount || 0),
+      "หัก ณ ที่จ่าย %": Number(inv.wht_pct || 0),
+      "รวมทั้งสิ้น": Number(inv.grand_total || 0),
+      "หมายเหตุ": inv.note || ""
+    }));
+    const ok = exportToExcel(`ใบส่งสินค้า_${todaySuffix()}.xlsx`, rows, "DeliveryInvoices");
+    if (ok) window.App?.showToast?.(`ดาวน์โหลด ${rows.length} รายการแล้ว`);
+  });
 
   // ── Reference link: เปิดใบเสนอราคาที่อ้างอิง ──
   container.querySelectorAll(".di-ref-link").forEach(link => link.addEventListener("click", (e) => {

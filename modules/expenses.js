@@ -3,6 +3,8 @@
 //  ★ Expense tracking with categories, summary cards, and monthly chart
 // ═══════════════════════════════════════════════════════════
 import { renderEmpty } from "./ui_states.js";
+// Phase 70 (D3): Excel export
+import { exportToExcel, todaySuffix } from "./utils.js";
 
 function money(n){ return new Intl.NumberFormat("th-TH",{style:"currency",currency:"THB",minimumFractionDigits:2}).format(Number(n||0)); }
 function dateTH(d){ if(!d) return "-"; try{ return new Date(d).toLocaleDateString("th-TH",{year:"numeric",month:"short",day:"numeric"}); }catch(e){ return d; } }
@@ -123,6 +125,7 @@ export function renderExpensesPage(ctx) {
           </select>
         </div>
         <button id="expFilterClearBtn" class="btn light">ล้าง</button>
+        <button id="expExportBtn" class="btn light" title="ส่งออก Excel ตาม filter ที่กำลังเลือก">📥 Excel</button>
         <button id="expAddBtn" class="btn primary">+ เพิ่มรายจ่าย</button>
       </div>
     </div>
@@ -358,6 +361,20 @@ function bindFilterEvents() {
     _showAddForm = true;
     _editingExpenseId = null;
     renderExpensesPage(_ctx);
+  });
+
+  // Phase 70 (D3): Export filtered expenses to Excel
+  document.getElementById("expExportBtn")?.addEventListener("click", () => {
+    const rows = filtered.map(e => ({
+      "วันที่": (e.expense_date || e.created_at || "").slice(0, 10),
+      "หมวด": e.category || "",
+      "รายละเอียด": e.description || "",
+      "จำนวนเงิน": Number(e.amount || 0),
+      "วิธีชำระ": e.payment_method || "",
+      "หมายเหตุ": e.note || ""
+    }));
+    const ok = exportToExcel(`รายจ่าย_${todaySuffix()}.xlsx`, rows, "Expenses");
+    if (ok) showToast?.(`ดาวน์โหลด ${rows.length} รายการแล้ว`);
   });
 }
 
