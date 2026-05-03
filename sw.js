@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v86 (2026-05-03): Phase 72.1 — payslip print (A4 doc + auto-print, original + copy)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v86';
+// v87 (2026-05-03): Phase 73 — payroll overview dashboard (donut + bar + top earners)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v87';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
