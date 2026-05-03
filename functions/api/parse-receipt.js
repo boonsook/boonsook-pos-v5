@@ -78,9 +78,6 @@ JSON schema:
 - ถ้าใบเสร็จเก่ามีแต่ยอดรวม ไม่ต้องแยก items — ใส่ "items": []
 - response ต้องเป็น JSON ที่ valid parse ได้เท่านั้น ห้ามครอบด้วย markdown \`\`\`json`;
 
-    // gemini-1.5-flash ถูก deprecated → ใช้ gemini-2.0-flash (free tier) แทน
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
-
     const geminiBody = {
       contents: [{
         parts: [
@@ -94,35 +91,57 @@ JSON schema:
       }
     };
 
-    // Timeout safety — Cloudflare Pages Functions มี wall time limit ~30s
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 25000);
+    // ★ Fallback chain — ลอง free models ก่อน, ตกค่อยไป paid
+    // 2026-05: Google deprecate gemini-1.5-flash; gemini-2.0-flash ไม่มี free tier
+    const MODELS = [
+      "gemini-2.0-flash-exp",       // free experimental
+      "gemini-1.5-flash-latest",    // alias — ยังอาจ active
+      "gemini-1.5-flash-8b",        // free smaller
+      "gemini-2.0-flash"            // paid fallback
+    ];
 
-    let r;
-    try {
-      r = await fetch(geminiUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(geminiBody),
-        signal: ctrl.signal
-      });
-    } catch (fetchErr) {
-      clearTimeout(timer);
-      const isAbort = fetchErr?.name === "AbortError";
-      return new Response(JSON.stringify({
-        ok: false,
-        error: isAbort ? "Gemini ตอบช้าเกิน 25 วินาที — ลองรูปเล็กกว่า" : ("Gemini fetch failed: " + (fetchErr?.message || "unknown"))
-      }), { status: 200, headers: corsHeaders });
+    let r = null, lastErr = "", usedModel = "";
+    for (const model of MODELS) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 25000);
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+        const resp = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(geminiBody),
+          signal: ctrl.signal
+        });
+        clearTimeout(timer);
+        if (resp.ok) { r = resp; usedModel = model; break; }
+        // 404/429 → ลองรุ่นถัดไป; status อื่น (400/500) = ปัญหาอื่น → หยุด
+        const errTxt = await resp.text();
+        lastErr = `${model}: HTTP ${resp.status} ${errTxt.slice(0, 200)}`;
+        if (resp.status !== 404 && resp.status !== 429) {
+          return new Response(JSON.stringify({
+            ok: false,
+            error: "Gemini API error " + resp.status,
+            detail: errTxt.slice(0, 500),
+            model
+          }), { status: 200, headers: corsHeaders });
+        }
+      } catch (fetchErr) {
+        clearTimeout(timer);
+        if (fetchErr?.name === "AbortError") {
+          return new Response(JSON.stringify({
+            ok: false,
+            error: "Gemini ตอบช้าเกิน 25 วินาที — ลองรูปเล็กกว่า"
+          }), { status: 200, headers: corsHeaders });
+        }
+        lastErr = `${model}: ${fetchErr?.message || "fetch failed"}`;
+      }
     }
-    clearTimeout(timer);
 
-    if (!r.ok) {
-      const errTxt = await r.text();
-      // ★ status 200 เสมอ — ป้องกัน Cloudflare intercept/replace 5xx ของ origin
+    if (!r) {
       return new Response(JSON.stringify({
         ok: false,
-        error: "Gemini API error " + r.status,
-        detail: errTxt.slice(0, 500)
+        error: "ไม่มี Gemini model ใดใช้งานได้ (อาจหมด quota หรือ key ไม่ valid)",
+        detail: lastErr
       }), { status: 200, headers: corsHeaders });
     }
 
@@ -142,7 +161,7 @@ JSON schema:
       }), { status: 200, headers: corsHeaders });
     }
 
-    return new Response(JSON.stringify({ ok: true, data: parsed }), { status: 200, headers: corsHeaders });
+    return new Response(JSON.stringify({ ok: true, data: parsed, model: usedModel }), { status: 200, headers: corsHeaders });
 
   } catch (e) {
     return new Response(JSON.stringify({
