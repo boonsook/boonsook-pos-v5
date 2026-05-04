@@ -61,7 +61,7 @@ export function renderCreditTrackerPage(ctx) {
   const countPaid = enriched.filter(x => x._isPaid).length;
 
   container.innerHTML = `
-    <div style="max-width:1200px;margin:0 auto;padding:8px">
+    <div style="padding:8px">
       <div class="hero" style="text-align:center;padding:20px 16px;margin-bottom:16px;background:linear-gradient(135deg,#fee2e2,#fef3c7);border-radius:16px">
         <div style="font-size:48px;margin-bottom:8px">💳</div>
         <h2 style="margin:0 0 4px;color:#b91c1c">ลูกค้าค้างชำระ (Credit Tracker)</h2>

@@ -79,7 +79,7 @@ export async function renderTasksPage(ctx) {
   const doneToday = _tkList.filter(t => t.done && t.done_at && String(t.done_at).slice(0,10) === today).length;
 
   container.innerHTML = `
-    <div style="max-width:1200px;margin:0 auto;padding:8px">
+    <div style="padding:8px">
       <div class="hero" style="text-align:center;padding:20px 16px;margin-bottom:16px;background:linear-gradient(135deg,#dbeafe,#dcfce7);border-radius:16px">
         <div style="font-size:48px;margin-bottom:8px">⏰</div>
         <h2 style="margin:0 0 4px;color:#1e40af">Task / สิ่งที่ต้องทำ</h2>

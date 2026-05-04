@@ -30,7 +30,7 @@ export function renderStockInWizardPage(ctx) {
   const totalValue = _swRows.reduce((s, r) => s + (Number(r.qty || 0) * Number(r.cost || 0)), 0);
 
   container.innerHTML = `
-    <div style="max-width:1100px;margin:0 auto;padding:8px">
+    <div style="padding:8px">
       <div class="hero" style="text-align:center;padding:20px 16px;margin-bottom:16px;background:linear-gradient(135deg,#dcfce7,#fef3c7);border-radius:16px">
         <div style="font-size:48px;margin-bottom:8px">🚛</div>
         <h2 style="margin:0 0 4px;color:#065f46">รับเข้าสินค้า (Stock IN Wizard)</h2>

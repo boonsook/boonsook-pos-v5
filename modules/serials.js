@@ -65,7 +65,7 @@ export async function renderSerialsPage(ctx) {
   const expiredSoon = _srResults.filter(s => s.status === "active" && s.warranty_until && s.warranty_until < new Date(Date.now() + 30*24*60*60*1000).toISOString().slice(0,10)).length;
 
   container.innerHTML = `
-    <div style="max-width:1200px;margin:0 auto;padding:8px">
+    <div style="padding:8px">
       <div class="hero" style="text-align:center;padding:20px 16px;margin-bottom:16px;background:linear-gradient(135deg,#dbeafe,#dcfce7);border-radius:16px">
         <div style="font-size:48px;margin-bottom:8px">🔢</div>
         <h2 style="margin:0 0 4px;color:#1e40af">Serial Number Tracking</h2>

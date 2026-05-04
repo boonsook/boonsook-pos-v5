@@ -36,7 +36,7 @@ export function renderBirthdaysPage(ctx) {
   const thisMonth = customers.filter(c => parseInt(String(c.birthday || "").slice(5,7),10) === today.getMonth()+1).length;
 
   container.innerHTML = `
-    <div style="max-width:1100px;margin:0 auto;padding:8px">
+    <div style="padding:8px">
       <div class="hero" style="text-align:center;padding:20px 16px;margin-bottom:16px;background:linear-gradient(135deg,#fce7f3,#fef3c7);border-radius:16px">
         <div style="font-size:48px;margin-bottom:8px">🎂</div>
         <h2 style="margin:0 0 4px;color:#9d174d">วันเกิดลูกค้า (Birthday)</h2>

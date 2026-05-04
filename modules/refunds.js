@@ -81,7 +81,7 @@ export async function renderRefundsPage(ctx) {
   const topReasons = Object.entries(reasonCount).sort((a,b) => b[1]-a[1]).slice(0, 5);
 
   container.innerHTML = `
-    <div style="max-width:1200px;margin:0 auto;padding:8px">
+    <div style="padding:8px">
       <div class="hero" style="text-align:center;padding:20px 16px;margin-bottom:16px;background:linear-gradient(135deg,#fef3c7,#fee2e2);border-radius:16px">
         <div style="font-size:48px;margin-bottom:8px">🔄</div>
         <h2 style="margin:0 0 4px;color:#b91c1c">รับคืนสินค้า (Refund Tracker)</h2>

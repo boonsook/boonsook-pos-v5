@@ -78,7 +78,7 @@ export function renderDeadStockPage(ctx) {
   const neverSoldCount = enriched.filter(p => !p.lastSale).length;
 
   container.innerHTML = `
-    <div style="max-width:1200px;margin:0 auto;padding:8px">
+    <div style="padding:8px">
       <div class="hero" style="text-align:center;padding:24px 16px;margin-bottom:20px;background:linear-gradient(135deg,#fee2e2,#fef3c7);border-radius:16px">
         <div style="font-size:48px;margin-bottom:8px">🐌</div>
         <h2 style="margin:0 0 4px;color:#b91c1c">รายงานสต็อกค้างนาน (Dead Stock)</h2>

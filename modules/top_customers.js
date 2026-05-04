@@ -101,7 +101,7 @@ export function renderTopCustomersPage(ctx) {
   const periodLabel = { "30d": "30 วันล่าสุด", "90d": "90 วันล่าสุด", "month": "เดือนนี้", "year": "ปีนี้", "all": "ทั้งหมด" }[_tcPeriod];
 
   container.innerHTML = `
-    <div style="max-width:1200px;margin:0 auto;padding:8px">
+    <div style="padding:8px">
       <div class="hero" style="text-align:center;padding:20px 16px;margin-bottom:16px;background:linear-gradient(135deg,#fef3c7,#dbeafe);border-radius:16px">
         <div style="font-size:48px;margin-bottom:8px">🏆</div>
         <h2 style="margin:0 0 4px;color:#854d0e">ลูกค้าซื้อเยอะสุด (Top Customers)</h2>
