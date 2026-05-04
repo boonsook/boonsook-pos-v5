@@ -828,19 +828,21 @@ th { color: var(--muted); font-size: 12px; }
   .prod-list-right { flex-direction: column; align-items: flex-end; gap: 4px; }
   .prod-list-actions { margin-top: 4px; }
   .prod-list-item { padding: 10px; gap: 8px; }
-  /* Override .page word-break + บังคับให้ทุก row บรรทัดเดียว + ellipsis */
+  /* Override .page word-break — ใช้ line-clamp 2 บรรทัดแทน nowrap (กัน text หาย) */
   .prod-list-name, .prod-list-sku, .prod-grid-name {
     word-break: keep-all !important;
-    overflow-wrap: normal !important;
-    white-space: nowrap !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
+    overflow-wrap: anywhere !important;     /* แตกได้ที่จำเป็น (กัน overflow ออกข้าง) */
+    white-space: normal !important;
+    display: -webkit-box !important;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    line-height: 1.3;
     max-width: 100%;
-    display: block;
   }
-  /* และ child <span> ภายใน name ก็ห้าม wrap (มี typeBadge + featured star อยู่ข้างใน) */
-  .prod-list-name > *, .prod-list-sku > *, .prod-grid-name > * {
-    white-space: nowrap !important;
+  /* SKU แสดงบรรทัดเดียวเฉยๆ — ตัด ellipsis ถ้ายาวเกิน */
+  .prod-list-sku {
+    -webkit-line-clamp: 1 !important;
   }
   .prod-avatar { width: 40px; height: 40px; font-size: 18px; border-radius: 12px; }
   .prod-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }

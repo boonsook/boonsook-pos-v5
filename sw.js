@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v109 (2026-05-04): Phase 79.6 — Force nowrap + ellipsis บน product name/sku (mobile)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v109';
+// v110 (2026-05-04): Phase 79.7 — Product name = line-clamp 2 (กัน text หายจาก overflow:hidden)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v110';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
