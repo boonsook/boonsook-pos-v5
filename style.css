@@ -1517,9 +1517,13 @@ aside.drawer { position: fixed; top: 0; right: 0; }
   .stat-card .stat-value { font-size: 18px !important; word-break: break-word; }
   .stat-card .stat-label { font-size: 11px !important; }
 
-  /* Table ใน .panel — ให้ scroll horizontal บน mobile แทนถูกตัด */
+  /* Table ใน .panel — scroll horizontal + ห้าม cell wrap (กัน text ซ้อนแนวตั้ง) */
   .panel { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  .panel table { min-width: 480px; }
+  .panel table { min-width: 760px; width: max-content; }
+  .panel table th,
+  .panel table td { white-space: nowrap; }
+  /* ส่ง hint ว่า scroll ได้ — ขอบขวามี shadow gradient */
+  .panel { background-image: linear-gradient(to right, transparent calc(100% - 16px), rgba(0,0,0,0.05)); background-attachment: local; background-repeat: no-repeat; }
 
   /* Action buttons ในแถว flex ขวา — wrap ลงล่างถ้าไม่พอ */
   .panel > div[style*="display:flex"][style*="space-between"] {

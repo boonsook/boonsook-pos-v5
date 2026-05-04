@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v105 (2026-05-04): Staff forgot-password login link
-const CACHE_NAME = 'boonsook-pos-v5-cache-v105';
+// v106 (2026-05-04): Phase 79.3 mobile table fix + staff forgot-password link
+const CACHE_NAME = 'boonsook-pos-v5-cache-v106';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
