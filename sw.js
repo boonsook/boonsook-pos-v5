@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v98 (2026-05-04): Phase 77.1 — Distinguish 401 (auth) from 404 (table missing)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v98';
+// v99 (2026-05-04): Phase 77.2 — Remove max-width constraint บน payroll/departments (full desktop width)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v99';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
