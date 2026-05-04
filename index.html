@@ -149,14 +149,28 @@
         <div id="sideUserRole" class="user-role">-</div>
       </div>
 
-      <!-- ═══ ภาพรวมบริษัท ═══ -->
+      <!-- ═══ ภาพรวมบริษัท (หน้าหลัก) ═══ -->
       <button class="nav-btn active" data-route="dashboard">📊 ภาพรวมบริษัท</button>
       <button class="nav-btn" data-route="customer_dashboard">🏠 หน้าหลัก</button>
-      <button class="nav-btn" data-route="audit_log">📜 ประวัติการใช้งาน</button>
-      <button class="nav-btn" data-route="departments">🏢 ตั้งค่าแผนก</button>
-      <button class="nav-btn" data-route="payroll">💰 รายการเงินเดือน</button>
-      <button class="nav-btn" data-route="payroll_overview">📊 ภาพรวมเงินเดือน</button>
-      <button class="nav-btn" data-route="expense_overview">📉 ภาพรวมรายจ่าย</button>
+
+      <!-- ═══ ภาพรวม / รายงาน (กลุ่ม) ═══ -->
+      <div class="nav-group" data-group="overview">
+        <button class="nav-group-toggle">📈 ภาพรวม / รายงาน <span class="nav-arrow">▶</span></button>
+        <div class="nav-group-items">
+          <button class="nav-btn sub" data-route="payroll_overview">📊 ภาพรวมเงินเดือน</button>
+          <button class="nav-btn sub" data-route="expense_overview">📉 ภาพรวมรายจ่าย</button>
+          <button class="nav-btn sub" data-route="audit_log">📜 ประวัติการใช้งาน</button>
+        </div>
+      </div>
+
+      <!-- ═══ บุคลากร / HR (กลุ่ม) ═══ -->
+      <div class="nav-group" data-group="hr">
+        <button class="nav-group-toggle">👥 บุคลากร / HR <span class="nav-arrow">▶</span></button>
+        <div class="nav-group-items">
+          <button class="nav-btn sub" data-route="departments">🏢 ตั้งค่าแผนก</button>
+          <button class="nav-btn sub" data-route="payroll">💰 รายการเงินเดือน</button>
+        </div>
+      </div>
 
       <!-- ═══ แคชเชียร์ ═══ -->
       <button class="nav-btn" data-route="pos">💰 แคชเชียร์</button>
@@ -697,7 +711,7 @@
   <script>
   (async function selfHeal() {
     try {
-      var APP_BUILD = 116;
+      var APP_BUILD = 117;
       var STUCK_BUILDS_BEFORE = 47; // builds before this มี immutable-cache bug
       var stored = parseInt(localStorage.getItem('bsk_app_build') || '0', 10);
       var justRecovered = sessionStorage.getItem('bsk_just_recovered') === '1';
@@ -746,7 +760,7 @@
     }
   })();
   </script>
-  <script type="module" src="./main.js?v=116"></script>
+  <script type="module" src="./main.js?v=117"></script>
   <script>
     // ═══ Loading Overlay ═══
     function hideLoadingOverlay() {
