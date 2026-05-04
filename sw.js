@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v108 (2026-05-04): Phase 79.5 — Override word-break บน prod-list-name (กัน text แตกแนวตั้ง)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v108';
+// v109 (2026-05-04): Phase 79.6 — Force nowrap + ellipsis บน product name/sku (mobile)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v109';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
