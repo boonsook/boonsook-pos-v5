@@ -1,8 +1,19 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 3 พฤษภาคม 2026 (Phase 75.2 — SQL update view profiles_with_email + dept_id)
-**Version:** 5.27.5 (build 109) — code ไม่เปลี่ยน (build จาก Phase 74.6), มี SQL ใหม่ user ต้องรัน
-**Previous:** 5.27.5 (build 109) — Phase 74.1-74.6 (AutoKey OCR fixes ทั้ง series), 5.27.2/106 — Phase 75.1 dept dropdown
+**อัปเดตล่าสุด:** 4 พฤษภาคม 2026 (Phase 79.9 — Mobile UX overhaul)
+**Version:** 5.30.1 (build 127) — Phase 76-79.9 รวมทั้งชุด
+**Previous:** 5.27.5 (build 109) — Phase 74.x AutoKey OCR
+
+## 🆕 Phase 76-79.9 ที่เสร็จในรอบนี้
+
+- **Phase 76**: Payroll mark paid → auto-create salary expense (link via `#payroll-{id}`)
+- **Phase 77**: Daily-rate payroll (rate × days) + user pay_type setting [SQL: supabase-phase77-daily-payroll.sql]
+- **Phase 77.1**: แยก 401 (auth) จาก 404 (table missing) ใน error message
+- **Phase 78**: ภาพรวมรายจ่าย dashboard (donut + bar + top 5 + period selector)
+- **Phase 79**: Sidebar restructure — กลุ่ม "ภาพรวม / รายงาน" + "บุคลากร / HR"
+- **Phase 79.1-79.9**: Mobile UX series (full width desktop + responsive cards/tables)
+  - Final solution: column-stack layout บน mobile (line 800+ ใน style.css)
+  - Root cause: `.page { word-break: break-word }` → เปลี่ยนเป็น `overflow-wrap: anywhere`
 
 ---
 
