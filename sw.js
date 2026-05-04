@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v99 (2026-05-04): Phase 77.2 — Remove max-width constraint บน payroll/departments (full desktop width)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v99';
+// v100 (2026-05-04): Phase 78 — ภาพรวมรายจ่าย dashboard (donut + bar + top 5 + period selector)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v100';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
