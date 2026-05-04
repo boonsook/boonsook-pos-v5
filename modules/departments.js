@@ -38,9 +38,10 @@ export async function renderDepartmentsPage(ctx) {
       fetch(cfg.url + "/rest/v1/profiles?select=id,full_name,role,department_id", { headers })
     ]);
     if (!dRes.ok) {
+      const isAuth = dRes.status === 401 || dRes.status === 403;
       container.innerHTML = renderError({
-        message: "ตาราง departments ยังไม่มีในฐานข้อมูล",
-        detail: "รัน supabase-phase71-departments.sql ก่อน (HTTP " + dRes.status + ")",
+        message: isAuth ? "ไม่มีสิทธิ์เข้าถึง (HTTP " + dRes.status + ")" : "ตาราง departments ยังไม่มีในฐานข้อมูล",
+        detail: isAuth ? "Token หมดอายุ — กรุณา Logout แล้ว Login ใหม่" : "รัน supabase-phase71-departments.sql ก่อน (HTTP " + dRes.status + ")",
         retryLabel: "ลองโหลดใหม่",
         retryId: "depRetryBtn"
       });

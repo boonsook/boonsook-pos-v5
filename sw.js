@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v97 (2026-05-03): Phase 77 — Daily-rate payroll (rate × days) + user pay_type
-const CACHE_NAME = 'boonsook-pos-v5-cache-v97';
+// v98 (2026-05-04): Phase 77.1 — Distinguish 401 (auth) from 404 (table missing)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v98';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

@@ -55,9 +55,10 @@ export async function renderPayrollPage(ctx) {
       fetch(cfg.url + "/rest/v1/profiles?select=id,full_name,role,department_id,pay_type,daily_rate&order=full_name.asc", { headers })
     ]);
     if (!pRes.ok) {
+      const isAuth = pRes.status === 401 || pRes.status === 403;
       container.innerHTML = renderError({
-        message: "ตาราง staff_payroll ยังไม่มีในฐานข้อมูล",
-        detail: "รัน supabase-phase72-payroll.sql ก่อน (HTTP " + pRes.status + ")",
+        message: isAuth ? "ไม่มีสิทธิ์เข้าถึง (HTTP " + pRes.status + ")" : "ตาราง staff_payroll ยังไม่มีในฐานข้อมูล",
+        detail: isAuth ? "Token หมดอายุ — กรุณา Logout แล้ว Login ใหม่" : "รัน supabase-phase72-payroll.sql ก่อน (HTTP " + pRes.status + ")",
         retryLabel: "ลองโหลดใหม่",
         retryId: "prRetryBtn"
       });
