@@ -271,7 +271,7 @@ th { color: var(--muted); font-size: 12px; }
   .sidebar.open { transform: translateX(0); }
 
   .content { padding-left: 0; padding-bottom: 80px; max-width: 100vw; overflow-x: hidden; }
-  .page { max-width: 100vw; overflow-x: hidden; word-break: break-word; }
+  .page { max-width: 100vw; overflow-x: hidden; overflow-wrap: anywhere; }
   .row { flex-wrap: wrap; }
   .panel, .card, .hero { max-width: 100%; overflow-x: hidden; }
   table { width: 100%; table-layout: auto; }
@@ -828,22 +828,7 @@ th { color: var(--muted); font-size: 12px; }
   .prod-list-right { flex-direction: column; align-items: flex-end; gap: 4px; }
   .prod-list-actions { margin-top: 4px; }
   .prod-list-item { padding: 10px; gap: 8px; }
-  /* Override .page word-break — ใช้ line-clamp 2 บรรทัดแทน nowrap (กัน text หาย) */
-  .prod-list-name, .prod-list-sku, .prod-grid-name {
-    word-break: keep-all !important;
-    overflow-wrap: anywhere !important;     /* แตกได้ที่จำเป็น (กัน overflow ออกข้าง) */
-    white-space: normal !important;
-    display: -webkit-box !important;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    line-height: 1.3;
-    max-width: 100%;
-  }
-  /* SKU แสดงบรรทัดเดียวเฉยๆ — ตัด ellipsis ถ้ายาวเกิน */
-  .prod-list-sku {
-    -webkit-line-clamp: 1 !important;
-  }
+  /* Phase 79.7 reverted — root cause แก้ที่ .page (เปลี่ยน word-break:break-word → overflow-wrap:anywhere) */
   .prod-avatar { width: 40px; height: 40px; font-size: 18px; border-radius: 12px; }
   .prod-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
   .prod-grid-card { padding: 12px; border-radius: 16px; }

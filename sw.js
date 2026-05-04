@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v110 (2026-05-04): Phase 79.7 — Product name = line-clamp 2 (กัน text หายจาก overflow:hidden)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v110';
+// v111 (2026-05-04): Phase 79.8 — Root cause fix: word-break:break-word → overflow-wrap:anywhere
+const CACHE_NAME = 'boonsook-pos-v5-cache-v111';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
