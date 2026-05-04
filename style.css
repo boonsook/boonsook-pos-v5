@@ -1500,3 +1500,31 @@ aside.drawer { position: fixed; top: 0; right: 0; }
 .confirm-actions { display: flex; gap: 10px; justify-content: flex-end; }
 [data-theme="dark"] .confirm-card { background: var(--surface); color: var(--text); }
 
+/* ═══ Phase 79.2: Mobile fixes สำหรับหน้าใหม่ (payroll/expense_overview/departments) ═══ */
+@media (max-width: 768px) {
+  /* Hero ที่ใช้ inline style (h2 + emoji) — ลด padding + font บน mobile */
+  .hero h2 { font-size: 18px !important; word-break: break-word; line-height: 1.3; }
+  .hero p { font-size: 11px !important; line-height: 1.4; }
+  .hero[style*="text-align:center"] { padding: 14px 12px !important; }
+  .hero[style*="text-align:center"] > div[style*="font-size:48px"] { font-size: 32px !important; }
+
+  /* Stat cards — wrap เป็น 2 คอลัมน์ บน mobile (เดิม 4) */
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px !important;
+  }
+  .stat-card { padding: 10px !important; border-radius: 12px !important; }
+  .stat-card .stat-value { font-size: 18px !important; word-break: break-word; }
+  .stat-card .stat-label { font-size: 11px !important; }
+
+  /* Table ใน .panel — ให้ scroll horizontal บน mobile แทนถูกตัด */
+  .panel { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .panel table { min-width: 480px; }
+
+  /* Action buttons ในแถว flex ขวา — wrap ลงล่างถ้าไม่พอ */
+  .panel > div[style*="display:flex"][style*="space-between"] {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+}
+

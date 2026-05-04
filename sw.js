@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v102 (2026-05-04): Phase 79.1 — Full desktop width ทุกหน้า list/report (ลบ max-width 16 ไฟล์)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v102';
+// v103 (2026-05-04): Phase 79.2 — Mobile fixes (hero font + stats wrap + table scroll)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v103';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
