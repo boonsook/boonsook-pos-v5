@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v106 (2026-05-04): Phase 79.3 mobile table fix + staff forgot-password link
-const CACHE_NAME = 'boonsook-pos-v5-cache-v106';
+// v107 (2026-05-04): Phase 79.4 — Products mobile action bar = horizontal swipe (no text ซ้อน)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v107';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

@@ -799,8 +799,25 @@ th { color: var(--muted); font-size: 12px; }
 /* ─── Products Mobile ─── */
 @media (max-width: 768px) {
   .prod-header { flex-direction: column; gap: 8px; }
-  .prod-header > div:last-child { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
-  .prod-header > div:last-child .btn { flex: 1; min-width: 0; font-size: 11px; padding: 8px 6px; white-space: nowrap; }
+  /* ปุ่ม actions — เรียงแถวเดียวยาว + swipe scroll แทนการบีบจน text ซ้อน */
+  .prod-header > div:last-child {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 6px;
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 4px;
+  }
+  .prod-header > div:last-child::-webkit-scrollbar { display: none; }
+  .prod-header > div:last-child .btn {
+    flex: 0 0 auto;
+    min-width: max-content;
+    font-size: 12px;
+    padding: 8px 12px;
+    white-space: nowrap;
+  }
   .prod-type-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; white-space: nowrap; scrollbar-width: none; }
   .prod-type-tabs::-webkit-scrollbar { display: none; }
   .prod-type-tab { padding: 8px 12px !important; font-size: 12px !important; white-space: nowrap; flex-shrink: 0; }
