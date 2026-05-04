@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v111 (2026-05-04): Phase 79.8 — Root cause fix: word-break:break-word → overflow-wrap:anywhere
-const CACHE_NAME = 'boonsook-pos-v5-cache-v111';
+// v112 (2026-05-04): Phase 79.9 — Mobile product list = column stack (name ได้ width เต็ม)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v112';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

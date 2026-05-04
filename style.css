@@ -828,7 +828,30 @@ th { color: var(--muted); font-size: 12px; }
   .prod-list-right { flex-direction: column; align-items: flex-end; gap: 4px; }
   .prod-list-actions { margin-top: 4px; }
   .prod-list-item { padding: 10px; gap: 8px; }
-  /* Phase 79.7 reverted — root cause แก้ที่ .page (เปลี่ยน word-break:break-word → overflow-wrap:anywhere) */
+
+  /* Phase 79.9: Mobile layout = column stack — name ได้ width เต็ม ไม่ถูก actions บีบ */
+  .prod-list-item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .prod-list-left { width: 100%; }
+  .prod-list-right {
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between;
+    width: 100%;
+    margin-top: 4px;
+    padding-top: 8px;
+    border-top: 1px dashed #e2e8f0;
+  }
+  .prod-list-actions { margin-top: 0 !important; flex-wrap: wrap; gap: 4px; }
+  .prod-list-info { width: 100%; }
+  .prod-list-name {
+    white-space: normal !important;     /* allow wrap ตอนนี้พอเพราะมีพื้นที่เต็ม */
+    overflow: visible !important;
+    text-overflow: clip !important;
+  }
+  .prod-list-sku { white-space: normal !important; }
   .prod-avatar { width: 40px; height: 40px; font-size: 18px; border-radius: 12px; }
   .prod-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
   .prod-grid-card { padding: 12px; border-radius: 16px; }
