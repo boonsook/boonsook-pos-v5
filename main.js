@@ -1187,6 +1187,44 @@ async function login(){
   const { error } = await state.supabase.auth.signInWithPassword({ email, password });
   if (error) { showToast(error.message || "เข้าสู่ระบบไม่สำเร็จ"); setText("authStatus", "เข้าสู่ระบบไม่สำเร็จ"); }
 }
+
+async function requestStaffPasswordReset(){
+  const email = $("loginEmail")?.value.trim();
+  if (!email) {
+    showToast("กรอกอีเมลพนักงานก่อน");
+    $("loginEmail")?.focus();
+    return;
+  }
+  if (!state.supabase) {
+    setText("authStatus", "ยังเชื่อมต่อ Supabase ไม่สำเร็จ");
+    return;
+  }
+
+  const btn = $("forgotPasswordBtn");
+  const originalText = btn?.textContent || "ลืมรหัสผ่าน?";
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "กำลังส่งลิงก์...";
+  }
+  setText("authStatus", "กำลังส่งลิงก์ตั้งรหัสผ่านใหม่...");
+
+  try {
+    const redirectTo = window.location.origin + window.location.pathname;
+    const { error } = await state.supabase.auth.resetPasswordForEmail(email, { redirectTo });
+    if (error) throw error;
+    setText("authStatus", "ส่งลิงก์ตั้งรหัสผ่านใหม่แล้ว กรุณาตรวจอีเมล");
+    showToast("ส่งลิงก์ตั้งรหัสผ่านใหม่แล้ว");
+  } catch (err) {
+    console.error("[requestStaffPasswordReset] error:", err);
+    setText("authStatus", "ส่งลิงก์ไม่สำเร็จ: " + (err.message || "ไม่ทราบสาเหตุ"));
+    showToast("ส่งลิงก์ไม่สำเร็จ");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+  }
+}
 // ═══════════════════════════════════════════════════════════
 //  CUSTOMER OTP AUTH — สมัคร/ล็อกอินด้วยเบอร์โทร + SMS OTP จริง (Twilio)
 // ═══════════════════════════════════════════════════════════
@@ -3757,6 +3795,7 @@ const globalSearch = debounce(function(){
 // ═══════════════════════════════════════════════════════════
 function bindStaticEvents(){
   $("loginBtn")?.addEventListener("click", login);
+  $("forgotPasswordBtn")?.addEventListener("click", requestStaffPasswordReset);
   // ═══ Toggle Password Visibility ═══
   const togglePwBtn = $("togglePassword");
   const pwInput = $("loginPassword");

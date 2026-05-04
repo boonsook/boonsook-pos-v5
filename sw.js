@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v104 (2026-05-04): Mobile layout overflow hardening
-const CACHE_NAME = 'boonsook-pos-v5-cache-v104';
+// v105 (2026-05-04): Staff forgot-password login link
+const CACHE_NAME = 'boonsook-pos-v5-cache-v105';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
