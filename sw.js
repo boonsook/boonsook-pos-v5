@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v107 (2026-05-04): Phase 79.4 — Products mobile action bar = horizontal swipe (no text ซ้อน)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v107';
+// v108 (2026-05-04): Phase 79.5 — Override word-break บน prod-list-name (กัน text แตกแนวตั้ง)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v108';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
