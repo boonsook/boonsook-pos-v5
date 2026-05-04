@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v103 (2026-05-04): Phase 79.2 — Mobile fixes (hero font + stats wrap + table scroll)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v103';
+// v104 (2026-05-04): Mobile layout overflow hardening
+const CACHE_NAME = 'boonsook-pos-v5-cache-v104';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

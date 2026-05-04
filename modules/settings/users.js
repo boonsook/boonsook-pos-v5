@@ -25,18 +25,20 @@ export function renderSettingsUsers(el, ctx, goBack, navigateToView) {
       <style>
         .usr-card{display:flex;align-items:center;gap:14px;background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:12px 14px;box-shadow:0 1px 3px rgba(0,0,0,.04);overflow:hidden}
         .usr-avatar{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;color:#fff;font-size:18px;font-weight:900;flex-shrink:0}
-        .usr-info{flex:1;min-width:0;overflow:hidden}
-        .usr-name{font-size:15px;font-weight:700;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-        .usr-email{font-size:12px;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        .usr-info{flex:1;min-width:0;overflow:visible}
+        .usr-name{font-size:15px;font-weight:700;color:#0f172a;overflow-wrap:anywhere;line-height:1.28}
+        .usr-email{font-size:12px;color:#64748b;overflow-wrap:anywhere;line-height:1.35}
         .usr-role{font-size:12px;font-weight:700;margin-top:2px}
         .usr-date{font-size:11px;color:#94a3b8;margin-top:2px}
-        .usr-actions{display:flex;gap:6px;flex-shrink:0;flex-wrap:nowrap}
-        .usr-actions select, .usr-actions button{font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;cursor:pointer;white-space:nowrap}
+        .usr-actions{display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end;min-width:0}
+        .usr-actions select, .usr-actions button{max-width:100%;font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;cursor:pointer;white-space:normal;line-height:1.2}
         .usr-actions .btn-edit{background:#f1f5f9;color:#475569}
         .usr-actions .btn-del{background:#fef2f2;color:#dc2626;border-color:#fca5a5}
         @media(max-width:640px){
-          .usr-card{flex-wrap:wrap}
-          .usr-actions{width:100%;margin-top:8px;justify-content:flex-end}
+          .usr-card{flex-wrap:wrap;align-items:flex-start}
+          .usr-actions{width:100%;margin-top:8px;justify-content:stretch}
+          .usr-actions select{flex:1 1 140px}
+          .usr-actions button{flex:1 1 86px}
         }
       </style>
 
