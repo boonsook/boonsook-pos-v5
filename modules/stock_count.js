@@ -12,6 +12,9 @@ function money(n) {
 let _scWarehouseId = null;     // คลังที่กำลังนับ
 let _scCounts = new Map();      // product_id → counted_qty (ภายใน session)
 let _scScanner = null;          // html5 qrcode instance
+// Phase 82: dedup scan — กันลูปนับเพิ่มไม่หยุด
+let _scLastScanCode = null;
+let _scLastScanTime = 0;
 
 export function renderStockCountPage(ctx) {
   const { state, showToast } = ctx;
@@ -253,9 +256,16 @@ async function openScanner(ctx) {
       { facingMode: "environment" },
       startConfig,
       (decoded) => {
+        // Phase 82: dedup — กันลูปนับเพิ่มไม่หยุดเมื่อบาร์โค้ดยังอยู่หน้ากล้อง
+        const now = Date.now();
+        if (decoded === _scLastScanCode && (now - _scLastScanTime) < 2500) return;
+        _scLastScanCode = decoded;
+        _scLastScanTime = now;
+
         const inp = container.querySelector("#scManualInput");
         if (inp) inp.value = decoded;
         addByCode(ctx);
+        try { navigator.vibrate?.(80); } catch(e){}
       },
       () => {} // ignore errors
     );

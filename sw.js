@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v116 (2026-05-05): OTP API response handling + local preview live API
-const CACHE_NAME = 'boonsook-pos-v5-cache-v116';
+// v117 (2026-05-05): Phase 82 scan dedup + OTP API handling + TSPL sanitization
+const CACHE_NAME = 'boonsook-pos-v5-cache-v117';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

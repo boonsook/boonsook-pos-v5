@@ -14,6 +14,9 @@ let _swWarehouseId = null;
 let _swSupplier = "";
 let _swInvoiceNo = "";
 let _swScanner = null;
+// Phase 82: dedup scan — กัน html5-qrcode callback fire ซ้ำตอนบาร์โค้ดยังอยู่หน้ากล้อง
+let _swLastScanCode = null;
+let _swLastScanTime = 0;
 
 export function renderStockInWizardPage(ctx) {
   const { state, showToast } = ctx;
@@ -271,9 +274,17 @@ async function openScanner(ctx) {
       { facingMode: "environment" },
       startConfig,
       (decoded) => {
+        // Phase 82: dedup — ถ้า code เดียวกันถูก scan ใน 2.5 วิ ก่อนหน้า → skip
+        const now = Date.now();
+        if (decoded === _swLastScanCode && (now - _swLastScanTime) < 2500) return;
+        _swLastScanCode = decoded;
+        _swLastScanTime = now;
+
         const inp = container.querySelector("#swSearchInput");
         if (inp) inp.value = decoded;
         addRow(ctx);
+        // Visual feedback — flash scanner overlay
+        try { navigator.vibrate?.(80); } catch(e){}
       },
       () => {}
     );
