@@ -484,12 +484,12 @@ function _renderItemsList(container, money) {
   const locked = !!_lastSavedJob;
   el.innerHTML = `
     <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;background-image:linear-gradient(to right,transparent calc(100% - 16px),rgba(0,0,0,0.06));background-attachment:local;background-repeat:no-repeat" title="เลื่อนซ้าย-ขวาเพื่อดูจำนวน/ราคา">
-      <table style="width:100%;min-width:560px;border-collapse:collapse;font-size:13px">
+      <table style="width:100%;min-width:600px;border-collapse:collapse;font-size:13px">
         <thead style="background:#f1f5f9">
           <tr>
             <th style="padding:8px;text-align:left">อุปกรณ์</th>
             <th style="padding:8px;text-align:left;width:110px">คลัง</th>
-            <th style="padding:8px;text-align:center;width:70px">จำนวน</th>
+            <th style="padding:8px;text-align:center;width:120px">จำนวน</th>
             <th style="padding:8px;text-align:right;width:90px">ราคา/ชิ้น</th>
             <th style="padding:8px;text-align:right;width:90px">รวม</th>
             <th style="padding:8px;width:30px"></th>
@@ -507,7 +507,13 @@ function _renderItemsList(container, money) {
                 <div style="font-size:10px;color:#94a3b8">${typeof it._stock_avail === "number" ? `คงเหลือ ${it._stock_avail}` : ""}</div>
               </td>
               <td style="padding:8px">${whBadge}</td>
-              <td style="padding:6px"><input type="number" min="1" value="${it.qty}" data-item-qty="${idx}" ${locked ? "disabled" : ""} style="width:54px;text-align:center;padding:4px;border:1px solid #cbd5e1;border-radius:6px${locked ? ";background:#f1f5f9;color:#94a3b8" : ""}" /></td>
+              <td style="padding:6px">
+                <div style="display:flex;align-items:center;justify-content:center;gap:2px">
+                  ${locked ? "" : `<button type="button" data-item-qty-dec="${idx}" style="width:26px;height:26px;border:1px solid #cbd5e1;background:#fff;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer;color:#475569" title="ลด">−</button>`}
+                  <input type="number" min="1" value="${it.qty}" data-item-qty="${idx}" ${locked ? "disabled" : ""} style="width:42px;text-align:center;padding:4px 0;border:1px solid #cbd5e1;border-radius:6px;font-weight:700${locked ? ";background:#f1f5f9;color:#94a3b8" : ""}" />
+                  ${locked ? "" : `<button type="button" data-item-qty-inc="${idx}" style="width:26px;height:26px;border:1px solid #0284c7;background:#0284c7;color:#fff;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer" title="เพิ่ม">+</button>`}
+                </div>
+              </td>
               <td style="padding:6px"><input type="number" min="0" step="1" value="${Number(it.unit_price)}" data-item-price="${idx}" ${locked ? "disabled" : ""} style="width:80px;text-align:right;padding:4px;border:1px solid #cbd5e1;border-radius:6px${locked ? ";background:#f1f5f9;color:#94a3b8" : ""}" /></td>
               <td style="padding:8px;text-align:right;font-weight:700;color:#0284c7">${money(it.line_total)}</td>
               <td style="padding:6px;text-align:center">${locked ? "" : `<button data-item-del="${idx}" class="btn light" style="font-size:14px;padding:2px 8px;color:#dc2626" title="ลบ">×</button>`}</td>
@@ -541,12 +547,32 @@ function _bindItemListEvents(container, updateTotal, money) {
     }
   });
   container.querySelector("#acItemsList")?.addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-item-del]");
-    if (btn) {
-      const idx = Number(btn.dataset.itemDel);
+    const delBtn = e.target.closest("[data-item-del]");
+    if (delBtn) {
+      const idx = Number(delBtn.dataset.itemDel);
       _items.splice(idx, 1);
       _renderItemsList(container, money);
       updateTotal();
+      return;
+    }
+    // Phase 83.1: ปุ่ม +/- เพิ่ม/ลดจำนวน (mobile-friendly stepper)
+    const incBtn = e.target.closest("[data-item-qty-inc]");
+    if (incBtn) {
+      const idx = Number(incBtn.dataset.itemQtyInc);
+      _items[idx].qty = Number(_items[idx].qty || 1) + 1;
+      _items[idx].line_total = _items[idx].qty * Number(_items[idx].unit_price || 0);
+      _renderItemsList(container, money);
+      updateTotal();
+      return;
+    }
+    const decBtn = e.target.closest("[data-item-qty-dec]");
+    if (decBtn) {
+      const idx = Number(decBtn.dataset.itemQtyDec);
+      _items[idx].qty = Math.max(1, Number(_items[idx].qty || 1) - 1);
+      _items[idx].line_total = _items[idx].qty * Number(_items[idx].unit_price || 0);
+      _renderItemsList(container, money);
+      updateTotal();
+      return;
     }
   });
 }
