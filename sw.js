@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v114 (2026-05-05): Phase 81 — Bluetooth printer (Web Bluetooth → Xprinter XP-420B + TSPL)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v114';
+// v115 (2026-05-05): Phase 81.1 — BT printer: ลบ namePrefix filter (acceptAllDevices)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v115';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

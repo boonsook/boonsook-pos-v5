@@ -39,14 +39,10 @@ export async function connectPrinter() {
     return _writeChar;
   }
 
-  // ขอ pair (browser แสดง dialog list device)
+  // ขอ pair — acceptAllDevices: true เพื่อให้เห็นทุกอุปกรณ์ BLE ในรัศมี
+  // (filter โดย namePrefix อาจ miss ถ้าเครื่องชื่อต่างจากที่คาด)
   _device = await navigator.bluetooth.requestDevice({
-    filters: [
-      { namePrefix: "XP-" },     // Xprinter ส่วนมากชื่อ XP-XXX
-      { namePrefix: "Xprinter" },
-      { namePrefix: "Printer" },
-      { namePrefix: "BlueTooth" }
-    ],
+    acceptAllDevices: true,
     optionalServices: BT_PRINTER_SERVICES
   });
 
