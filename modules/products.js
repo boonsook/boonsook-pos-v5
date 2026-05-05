@@ -1266,20 +1266,21 @@ export function openBarcodePrintWindow(items) {
   .sticker svg { display: block; max-width: 46mm; max-height: 11mm; }
   .sticker .price { font-size: 10pt; font-weight: 800; color: #0284c7; text-align: center; line-height: 1; margin-top: .5mm; }
 
-  /* ═══ PRINT ═══ */
-  @page { size: 50mm 30mm; margin: 0; }
+  /* ═══ PRINT — บังคับขนาด 50×30mm + margin 0 (browser ใช้ค่านี้ pre-select ใน dialog) ═══ */
+  @page { size: 50mm 30mm; margin: 0 !important; }
   @media print {
+    @page { size: 50mm 30mm; margin: 0 !important; }
     .toolbar { display: none !important; }
-    body { background: #fff; }
-    .sheet { padding: 0; gap: 0; background: #fff; }
-    .sticker { border: none; margin: 0; }
+    html, body { background: #fff; margin: 0 !important; padding: 0 !important; }
+    .sheet { padding: 0 !important; gap: 0 !important; background: #fff; }
+    .sticker { border: none !important; margin: 0 !important; }
     .sticker .price { color: #000 !important; } /* บางเครื่องพิมพ์ไม่เอาสี — เปลี่ยนเป็นดำ */
   }
 </style>
 </head>
 <body>
 <div class="toolbar">
-  <button class="btn-primary" onclick="window.print()">🖨️ พิมพ์</button>
+  <button class="btn-primary" onclick="window.print()">🖨️ พิมพ์อีกครั้ง</button>
   <label for="sz">ขนาด:</label>
   <select id="sz" onchange="changeSize(this.value)">
     <option value="50x30" selected>50×30 mm (Label printer)</option>
@@ -1288,7 +1289,7 @@ export function openBarcodePrintWindow(items) {
   </select>
   <button class="btn-gray" onclick="window.close()">ปิด</button>
   <span class="count">${stickers.length} ป้าย</span>
-  <span class="hint">💡 ตั้งค่าเครื่องพิมพ์: Paper size = 50×30mm, Margin = 0, Scale = 100%</span>
+  <span class="hint">⚡ <b>Auto-print เปิด</b> · ครั้งแรกใน Chrome dialog เลือก: <b>Paper size = "Custom 50×30mm"</b> + <b>Margins = None</b> → ครั้งต่อไป Chrome จะจำให้ ไม่ต้องตั้งใหม่</span>
 </div>
 <div id="sheet" class="sheet">
 ${stickers.map(s => `
@@ -1342,9 +1343,14 @@ ${stickers.map(s => `
       }
     });
   }
+  // Auto-close window หลังพิมพ์เสร็จ (กรณี user กด Print ใน dialog)
+  window.addEventListener('afterprint', function() {
+    setTimeout(function() { try { window.close(); } catch(e) {} }, 300);
+  });
   window.addEventListener('load', function() {
     renderBarcodes(11);
-    setTimeout(function() { window.print(); }, 500);
+    // รอ barcodes render ก่อน auto-trigger print dialog
+    setTimeout(function() { window.print(); }, 600);
   });
 <\/script>
 </body>
