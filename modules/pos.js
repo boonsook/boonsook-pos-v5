@@ -63,6 +63,9 @@ let numpadValue = "";
 let quickPayAmount = 0;   // ยอดจาก numpad (เก็บเงินทันที) หรือ cart total
 let pendingPaidAmount = 0; // จำนวนเงินที่รับมา (สำหรับเงินสด)
 let scannerInstance = null;
+let _posScanSessionId = 0;
+let _posScannerActive = false;
+let _posScanInProgress = false;
 let _posAbort = null;     // ★ AbortController สำหรับลบ event listeners เก่า
 let _posCustomer = null;  // ★ Customer ที่เลือก {id, name, phone}
 
@@ -1123,45 +1126,70 @@ function startScanner(ctx) {
 async function initScanner(ctx) {
   const scanArea = document.getElementById("posScannerArea");
   if (!scanArea) return;
+  await stopScannerHard();
   // Phase 64: shared scanner config (1D barcodes + QR)
   const { getScannerConfig } = await import("./utils.js");
   const { ctorOpts, startConfig } = getScannerConfig();
   try {
+    const sessionId = ++_posScanSessionId;
+    _posScannerActive = true;
     scannerInstance = new Html5Qrcode("posScannerArea", ctorOpts);
     scannerInstance.start(
       { facingMode: "environment" },
       startConfig,
-      (decodedText) => { handleScanResult(decodedText, ctx); stopScanner(); },
+      async (decodedText) => {
+        if (!_posScannerActive || sessionId !== _posScanSessionId || _posScanInProgress || posView !== "scanner") return;
+        _posScanInProgress = true;
+        _posScannerActive = false;
+        await stopScannerHard();
+        handleScanResult(decodedText, ctx);
+        setTimeout(() => { _posScanInProgress = false; }, 800);
+      },
       () => {}
     ).catch(err => {
+      _posScannerActive = false;
       scanArea.innerHTML = `<div class="sku" style="text-align:center;padding:40px">ไม่สามารถเปิดกล้องได้<br><span style="font-size:11px">${escHtml(err && err.message || err)}</span></div>`;
     });
   } catch(e) {
+    _posScannerActive = false;
     scanArea.innerHTML = '<div class="sku" style="text-align:center;padding:40px">ไม่สามารถเปิดกล้องได้</div>';
   }
 }
 
-function stopScanner() {
-  if (scannerInstance) {
+async function stopScannerHard() {
+  _posScannerActive = false;
+  _posScanSessionId++;
+  const scanner = scannerInstance;
+  scannerInstance = null;
+
+  if (scanner) {
     try {
       // ★ FIX: Html5Qrcode ใช้ getState() แทน isScanning
-      const state = typeof scannerInstance.getState === 'function'
-        ? scannerInstance.getState() : null;
+      const state = typeof scanner.getState === 'function'
+        ? scanner.getState() : null;
       // state: 1 = NOT_STARTED, 2 = SCANNING, 3 = PAUSED
       if (state === 2 || state === 3) {
-        scannerInstance.stop().catch(e =>
+        await scanner.stop().catch(e =>
           console.warn("QR Scanner stop (safe to ignore):", e.message || e));
       }
     } catch (e) {
       console.warn("QR Scanner stop error:", e.message);
     }
     try {
-      scannerInstance.clear().catch(() => {});
+      const clearResult = scanner.clear?.();
+      if (clearResult?.catch) await clearResult.catch(() => {});
     } catch (e) {
       console.warn("QR Scanner clear (safe to ignore):", e.message);
     }
-    scannerInstance = null;
   }
+}
+
+function stopScanner() {
+  stopScannerHard().catch(() => {});
+}
+
+if (typeof window !== "undefined") {
+  window._stopPosScanner = () => stopScanner();
 }
 
 function handleScanResult(code, ctx) {

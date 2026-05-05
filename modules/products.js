@@ -959,8 +959,32 @@ function renderPageNumbers(current, total) {
 //  BARCODE SCANNER
 // ═══════════════════════════════════════════════════════════
 let scannerInstance = null;
+let _prodScanSessionId = 0;
+let _prodScannerActive = false;
+let _prodScanInProgress = false;
+
+async function stopProductScannerHard() {
+  _prodScannerActive = false;
+  _prodScanSessionId++;
+  const scanner = scannerInstance;
+  scannerInstance = null;
+
+  if (scanner) {
+    try {
+      const st = typeof scanner.getState === "function" ? scanner.getState() : null;
+      if (st === 2 || st === 3) {
+        await scanner.stop().catch(e =>
+          console.warn("[products] scanner stop (safe to ignore):", e?.message || e));
+      }
+    } catch (e) {
+      console.warn("[products] scanner stop error (safe to ignore):", e?.message || e);
+    }
+    try { await scanner.clear?.(); } catch(e) {}
+  }
+}
 
 async function openScanner(ctx) {
+  await stopProductScannerHard();
   document.getElementById("prodScannerModal")?.classList.remove("hidden");
   document.getElementById("prodScannerResult").innerHTML = "";
 
@@ -976,35 +1000,38 @@ async function openScanner(ctx) {
     // Phase 64: shared scanner config (1D barcodes + QR)
     const { getScannerConfig } = await import("./utils.js");
     const { ctorOpts, startConfig } = getScannerConfig();
+    const sessionId = ++_prodScanSessionId;
+    _prodScannerActive = true;
     scannerInstance = new Html5Qrcode("prodScannerArea", ctorOpts);
     scannerInstance.start(
       { facingMode: "environment" },
       startConfig,
-      (code) => handleScanResult(code, ctx),
+      async (code) => {
+        if (!_prodScannerActive || sessionId !== _prodScanSessionId || _prodScanInProgress) return;
+        _prodScanInProgress = true;
+        _prodScannerActive = false;
+        await stopProductScannerHard();
+        handleScanResult(code, ctx);
+        setTimeout(() => { _prodScanInProgress = false; }, 800);
+      },
       () => {}
     ).catch(err => {
+      _prodScannerActive = false;
       scanArea.innerHTML = `<div style="padding:24px;text-align:center;color:var(--muted)">ไม่สามารถเปิดกล้อง: ${escHtml(err && err.message || err)}</div>`;
     });
   } catch (err) {
+    _prodScannerActive = false;
     scanArea.innerHTML = `<div style="padding:24px;text-align:center;color:var(--muted)">เกิดข้อผิดพลาด: ${escHtml(err && err.message || err)}</div>`;
   }
 }
 
 function closeScanner() {
-  if (scannerInstance) {
-    try {
-      const st = typeof scannerInstance.getState === "function" ? scannerInstance.getState() : null;
-      // html5-qrcode: NotStarted=1, Scanning=2, Paused=3 — stop() เฉพาะเมื่อสแกนอยู่เท่านั้น
-      if (st === 2 || st === 3) {
-        scannerInstance.stop().catch(e =>
-          console.warn("[products] scanner stop (safe to ignore):", e?.message || e));
-      }
-    } catch (e) {
-      console.warn("[products] scanner stop error (safe to ignore):", e?.message || e);
-    }
-    scannerInstance = null;
-  }
+  stopProductScannerHard().catch(() => {});
   document.getElementById("prodScannerModal")?.classList.add("hidden");
+}
+
+if (typeof window !== "undefined") {
+  window._stopProductScanner = () => closeScanner();
 }
 
 function handleScanResult(code, ctx) {

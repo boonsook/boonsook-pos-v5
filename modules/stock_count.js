@@ -15,6 +15,10 @@ let _scScanner = null;          // html5 qrcode instance
 // Phase 82: dedup scan — กันลูปนับเพิ่มไม่หยุด
 let _scLastScanCode = null;
 let _scLastScanTime = 0;
+let _scScanSessionId = 0;
+let _scScannerActive = false;
+let _scAddInProgress = false;
+let _scSaving = false;
 
 export function renderStockCountPage(ctx) {
   const { state, showToast } = ctx;
@@ -122,19 +126,64 @@ export function renderStockCountPage(ctx) {
 
   container.querySelector("#scApplyAllBtn")?.addEventListener("click", () => applyAllAdjustments(ctx));
 
-  // Auto-focus manual input (สะดวกสำหรับปืนยิง barcode)
-  setTimeout(() => container.querySelector("#scManualInput")?.focus(), 100);
+  // Auto-focus only on non-touch devices. Mobile keyboards can resend Enter after re-render.
+  if (!window.matchMedia?.("(pointer: coarse)")?.matches) {
+    setTimeout(() => container.querySelector("#scManualInput")?.focus(), 100);
+  }
 }
 
-function addByCode(ctx) {
+function isConfirmOpen() {
+  return !!document.querySelector(".confirm-overlay");
+}
+
+function blurStockCountInputs() {
+  const container = document.getElementById("page-stock_count");
+  container?.querySelector("#scManualInput")?.blur();
+  container?.querySelector("#scQtyInput")?.blur();
+  if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+}
+
+async function stopScannerHard({ resetDedup = true } = {}) {
+  _scScannerActive = false;
+  _scScanSessionId++;
+  const scanner = _scScanner;
+  _scScanner = null;
+
+  if (scanner) {
+    try {
+      const state = typeof scanner.getState === "function" ? scanner.getState() : null;
+      if (state === 2 || state === 3) await scanner.stop();
+    } catch(e){}
+    try { await scanner.clear?.(); } catch(e){}
+  }
+
+  if (resetDedup) {
+    _scLastScanCode = null;
+    _scLastScanTime = 0;
+  }
+  const area = document.getElementById("scScannerArea");
+  if (area) area.classList.add("hidden");
+}
+
+async function addByCode(ctx, source = "unknown") {
   const { state, showToast } = ctx;
   const container = document.getElementById("page-stock_count");
+  if (!container || container.classList.contains("hidden")) return;
+  if (_scSaving || isConfirmOpen()) return;
+  if (_scAddInProgress) return;
+
   const codeInp = container.querySelector("#scManualInput");
   const qtyInp = container.querySelector("#scQtyInput");
   const code = (codeInp?.value || "").trim();
   const qty = parseInt(qtyInp?.value || "1", 10);
 
-  if (!code) { showToast?.("กรอก barcode/SKU"); codeInp?.focus(); return; }
+  _scAddInProgress = true;
+  try {
+  if (!code) {
+    showToast?.("กรอก barcode/SKU");
+    if (source !== "scanner") codeInp?.focus();
+    return;
+  }
   if (isNaN(qty) || qty < 0) { showToast?.("จำนวนต้องเป็นตัวเลข ≥ 0"); return; }
 
   // Find product by barcode or SKU (case-insensitive)
@@ -146,13 +195,13 @@ function addByCode(ctx) {
   if (!prod) {
     showToast?.(`❌ ไม่พบสินค้า: ${code}`);
     codeInp.value = "";
-    codeInp.focus();
+    if (source !== "scanner") codeInp.focus();
     return;
   }
   if (prod.product_type === "service" || prod.product_type === "non_stock") {
     showToast?.(`⚠️ "${prod.name}" เป็น ${prod.product_type === "service" ? "บริการ" : "ไม่นับสต็อก"} — ข้าม`);
     codeInp.value = "";
-    codeInp.focus();
+    if (source !== "scanner") codeInp.focus();
     return;
   }
 
@@ -163,8 +212,12 @@ function addByCode(ctx) {
   showToast?.(`✓ ${prod.name} → ${prev + qty} ชิ้น`);
   codeInp.value = "";
   qtyInp.value = "1";
-  codeInp.focus();
+  blurStockCountInputs();
+  await stopScannerHard({ resetDedup: false });
   renderStockCountPage(ctx);
+  } finally {
+    setTimeout(() => { _scAddInProgress = false; }, 800);
+  }
 }
 
 function renderCountedList(state) {
@@ -241,6 +294,7 @@ function renderCountedList(state) {
 async function openScanner(ctx) {
   const container = document.getElementById("page-stock_count");
   const area = container.querySelector("#scScannerArea");
+  await stopScannerHard({ resetDedup: false });
   area.classList.remove("hidden");
 
   if (typeof Html5Qrcode === "undefined") {
@@ -251,15 +305,18 @@ async function openScanner(ctx) {
     // Phase 64: shared scanner config (1D barcodes + QR)
     const { getScannerConfig } = await import("./utils.js");
     const { ctorOpts, startConfig } = getScannerConfig();
+    const sessionId = ++_scScanSessionId;
+    _scScannerActive = true;
     _scScanner = new Html5Qrcode("scScannerVideo", ctorOpts);
     await _scScanner.start(
       { facingMode: "environment" },
       startConfig,
-      (decoded) => {
+      async (decoded) => {
+        if (!_scScannerActive || sessionId !== _scScanSessionId || _scSaving || isConfirmOpen()) return;
         // Phase 82.1: ถ้าหน้านี้ถูก navigate ออก → stop scanner + ignore
         const page = document.getElementById("page-stock_count");
         if (!page || page.classList.contains("hidden")) {
-          try { _scScanner?.stop(); } catch(e){}
+          await stopScannerHard();
           return;
         }
         // Phase 82: dedup
@@ -267,10 +324,15 @@ async function openScanner(ctx) {
         if (decoded === _scLastScanCode && (now - _scLastScanTime) < 2500) return;
         _scLastScanCode = decoded;
         _scLastScanTime = now;
+        _scScannerActive = false;
+        await stopScannerHard({ resetDedup: false });
 
         const inp = container.querySelector("#scManualInput");
-        if (inp) inp.value = decoded;
-        addByCode(ctx);
+        if (inp) {
+          inp.value = decoded;
+          inp.blur();
+        }
+        await addByCode(ctx, "scanner");
         try { navigator.vibrate?.(80); } catch(e){}
       },
       () => {} // ignore errors
@@ -281,35 +343,33 @@ async function openScanner(ctx) {
 }
 
 async function closeScanner(ctx) {
-  if (_scScanner) {
-    try {
-      const state = _scScanner.getState();
-      if (state === 2 || state === 3) await _scScanner.stop();
-      await _scScanner.clear();
-    } catch(e){}
-    _scScanner = null;
-  }
-  _scLastScanCode = null;
-  _scLastScanTime = 0;
-  const area = document.getElementById("scScannerArea");
-  if (area) area.classList.add("hidden");
+  await stopScannerHard();
 }
 
 // Phase 82.2: expose stop hook ให้ showRoute() เรียกตอน navigate ออก
 if (typeof window !== "undefined") {
   window._stopStockCountScanner = () => {
-    if (_scScanner) {
-      try { _scScanner.stop?.().catch?.(()=>{}); _scScanner.clear?.(); } catch(e){}
-      _scScanner = null;
+    _scScannerActive = false;
+    _scScanSessionId++;
+    const scanner = _scScanner;
+    _scScanner = null;
+    if (scanner) {
+      try { scanner.stop?.().catch?.(()=>{}); scanner.clear?.(); } catch(e){}
     }
     _scLastScanCode = null;
     _scLastScanTime = 0;
+    document.getElementById("scScannerArea")?.classList.add("hidden");
   };
 }
 
 async function applyAllAdjustments(ctx) {
   const { state, showToast } = ctx;
   if (_scCounts.size === 0) return;
+  if (_scSaving) return;
+  _scSaving = true;
+  try {
+  await stopScannerHard();
+  blurStockCountInputs();
 
   const adjustList = [..._scCounts.entries()].map(([pid, counted]) => {
     const ws = (state.warehouseStock || []).find(s =>
@@ -368,5 +428,8 @@ async function applyAllAdjustments(ctx) {
     // Phase 45.14: non-blocking reload
     if (window.App?.loadAllData) window.App.loadAllData().catch(e => console.warn("[stock_count] reload", e));
     renderStockCountPage(ctx);
+  }
+  } finally {
+    _scSaving = false;
   }
 }

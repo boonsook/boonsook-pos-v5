@@ -888,6 +888,7 @@ function showRoute(route){
     try { window._stopDrawerScanner?.(); } catch(e){}
     try { window._stopPosScanner?.(); } catch(e){}
     try { window._stopProductScanner?.(); } catch(e){}
+    try { window._stopSerialScanner?.(); } catch(e){}
   }
 
   state.currentRoute = route;
@@ -1837,13 +1838,32 @@ function _toggleDrawerSections(type) {
 //  BARCODE SCANNER ใน Drawer เพิ่มสินค้า
 // ═══════════════════════════════════════════════════════════
 let _drawerScanner = null;
+let _drawerScanSessionId = 0;
+let _drawerScannerActive = false;
 
-function openDrawerScanner() {
+async function stopDrawerScannerHard() {
+  _drawerScannerActive = false;
+  _drawerScanSessionId++;
+  const scanner = _drawerScanner;
+  _drawerScanner = null;
+
+  if (scanner) {
+    try {
+      const state = typeof scanner.getState === "function" ? scanner.getState() : null;
+      if (state === 2 || state === 3) await scanner.stop();
+    } catch(e) {}
+    try { await scanner.clear?.(); } catch(e) {}
+  }
+  $("drawerScannerArea")?.classList.add("hidden");
+}
+
+async function openDrawerScanner() {
   const area = $("drawerScannerArea");
   const videoEl = $("drawerScannerVideo");
   const resultEl = $("drawerScannerResult");
   if (!area || !videoEl) return;
 
+  await stopDrawerScannerHard();
   area.classList.remove("hidden");
   videoEl.innerHTML = "";
   if (resultEl) resultEl.innerHTML = "";
@@ -1857,34 +1877,41 @@ function openDrawerScanner() {
   import("./modules/utils.js").then(({ getScannerConfig }) => {
     const { ctorOpts, startConfig } = getScannerConfig();
     try {
+      const sessionId = ++_drawerScanSessionId;
+      _drawerScannerActive = true;
       _drawerScanner = new Html5Qrcode("drawerScannerVideo", ctorOpts);
       _drawerScanner.start(
         { facingMode: "environment" },
         startConfig,
-        (code) => {
+        async (code) => {
+          if (!_drawerScannerActive || sessionId !== _drawerScanSessionId) return;
+          _drawerScannerActive = false;
+          await stopDrawerScannerHard();
           const barcodeInput = $("newProductBarcode");
-          if (barcodeInput) barcodeInput.value = code;
+          if (barcodeInput) {
+            barcodeInput.value = code;
+            barcodeInput.blur();
+          }
           if (resultEl) resultEl.innerHTML = `<span style="color:#10b981;font-weight:600">✓ สแกนได้: ${escapeHtml(code)}</span>`;
-          closeDrawerScanner();
           showToast("สแกนบาร์โค้ดสำเร็จ: " + code);
         },
         () => {} // ignore per-frame scan errors (very noisy)
       ).catch(err => {
+        _drawerScannerActive = false;
         videoEl.innerHTML = `<div style="padding:16px;text-align:center;color:#94a3b8">ไม่สามารถเปิดกล้อง: ${escapeHtml(err.message || err)}</div>`;
       });
     } catch(err) {
+      _drawerScannerActive = false;
       videoEl.innerHTML = `<div style="padding:16px;text-align:center;color:#94a3b8">เกิดข้อผิดพลาด: ${escapeHtml(err.message || err)}</div>`;
     }
   });
 }
 
-function closeDrawerScanner() {
-  if (_drawerScanner) {
-    try { _drawerScanner.stop(); } catch(e) {}
-    _drawerScanner = null;
-  }
-  $("drawerScannerArea")?.classList.add("hidden");
+async function closeDrawerScanner() {
+  await stopDrawerScannerHard();
 }
+
+window._stopDrawerScanner = () => { stopDrawerScannerHard().catch?.(() => {}); };
 
 // ═══════════════════════════════════════════════════════════
 //  สร้างบาร์โค้ดอัตโนมัติ

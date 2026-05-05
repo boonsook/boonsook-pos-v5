@@ -17,6 +17,8 @@ const STATUS_META = {
 let _srSearch = "";
 let _srStatusFilter = "all"; // all | active | claimed | replaced | expired
 let _srResults = null;
+let _srScanSessionId = 0;
+let _srScannerCleanup = null;
 
 export async function renderSerialsPage(ctx) {
   const { state, showToast } = ctx;
@@ -339,6 +341,8 @@ async function updateStatus(ctx, id, newStatus) {
 // ใช้ BarcodeDetector API (Chrome/Edge/Android) — fallback แสดง camera + manual entry
 // ═══════════════════════════════════════════════════════════
 export async function openBarcodeScanner(onDetected, ctx) {
+  _srScannerCleanup?.();
+  _srScannerCleanup = null;
   document.getElementById("snScanModal")?.remove();
 
   const modal = document.createElement("div");
@@ -371,20 +375,29 @@ export async function openBarcodeScanner(onDetected, ctx) {
   let detector = null;
   let scanning = true;
   let rafId = null;
+  const sessionId = ++_srScanSessionId;
+  let detected = false;
 
   const cleanup = () => {
     scanning = false;
+    _srScanSessionId++;
     if (rafId) cancelAnimationFrame(rafId);
     if (stream) {
       try { stream.getTracks().forEach(t => t.stop()); } catch(e){}
     }
+    if (_srScannerCleanup === cleanup) _srScannerCleanup = null;
     modal.remove();
   };
+  _srScannerCleanup = cleanup;
 
   modal.querySelector("#snScanClose").addEventListener("click", cleanup);
   modal.querySelector("#snScanManualOk").addEventListener("click", () => {
     const v = modal.querySelector("#snScanManual").value.trim();
-    if (v) { onDetected(v); cleanup(); }
+    if (v && !detected) {
+      detected = true;
+      cleanup();
+      onDetected(v);
+    }
   });
   modal.querySelector("#snScanManual").addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
@@ -412,15 +425,16 @@ export async function openBarcodeScanner(onDetected, ctx) {
           formats: ["qr_code", "code_128", "code_39", "ean_13", "ean_8", "upc_a", "upc_e", "data_matrix"]
         });
         const tick = async () => {
-          if (!scanning) return;
+          if (!scanning || sessionId !== _srScanSessionId || detected) return;
           try {
             const codes = await detector.detect(video);
             if (codes && codes.length > 0) {
               const code = codes[0].rawValue;
               if (code) {
+                detected = true;
                 statusEl.textContent = "✓ เจอแล้ว: " + code;
+                cleanup();
                 onDetected(code);
-                setTimeout(cleanup, 300);
                 return;
               }
             }
@@ -442,3 +456,9 @@ export async function openBarcodeScanner(onDetected, ctx) {
   }
 }
 
+if (typeof window !== "undefined") {
+  window._stopSerialScanner = () => {
+    _srScannerCleanup?.();
+    _srScannerCleanup = null;
+  };
+}
