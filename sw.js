@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v124 (2026-05-05): Phase 74.9 AutoKey upload สลิป + Phase 82.6 hard-stop product scanners
-const CACHE_NAME = 'boonsook-pos-v5-cache-v124';
+// v125 (2026-05-06): Phase 83 — AC install items table mobile scroll (min-width 560)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v125';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

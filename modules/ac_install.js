@@ -483,8 +483,8 @@ function _renderItemsList(container, money) {
   // Phase 43: lock inputs ถ้า _lastSavedJob มีค่า (ใบงานบันทึกแล้ว)
   const locked = !!_lastSavedJob;
   el.innerHTML = `
-    <div style="overflow-x:auto">
-      <table style="width:100%;border-collapse:collapse;font-size:13px">
+    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;background-image:linear-gradient(to right,transparent calc(100% - 16px),rgba(0,0,0,0.06));background-attachment:local;background-repeat:no-repeat" title="เลื่อนซ้าย-ขวาเพื่อดูจำนวน/ราคา">
+      <table style="width:100%;min-width:560px;border-collapse:collapse;font-size:13px">
         <thead style="background:#f1f5f9">
           <tr>
             <th style="padding:8px;text-align:left">อุปกรณ์</th>
