@@ -880,6 +880,16 @@ function showRoute(route){
     }
   }
 
+  // ★ Phase 82.2: Force-stop scanners ก่อน page change (กัน scan ลูปข้ามหน้า)
+  // กล้องและ scanner callback อาจยัง active แม้ page section ถูก hide ไปแล้ว
+  if (state.currentRoute !== route) {
+    try { window._stopStockInScanner?.(); } catch(e){}
+    try { window._stopStockCountScanner?.(); } catch(e){}
+    try { window._stopDrawerScanner?.(); } catch(e){}
+    try { window._stopPosScanner?.(); } catch(e){}
+    try { window._stopProductScanner?.(); } catch(e){}
+  }
+
   state.currentRoute = route;
 
   // ★ บันทึก route ล่าสุดไว้ใน localStorage + URL hash เพื่อกดรีเฟรชแล้วอยู่หน้าเดิม

@@ -289,8 +289,22 @@ async function closeScanner(ctx) {
     } catch(e){}
     _scScanner = null;
   }
+  _scLastScanCode = null;
+  _scLastScanTime = 0;
   const area = document.getElementById("scScannerArea");
   if (area) area.classList.add("hidden");
+}
+
+// Phase 82.2: expose stop hook ให้ showRoute() เรียกตอน navigate ออก
+if (typeof window !== "undefined") {
+  window._stopStockCountScanner = () => {
+    if (_scScanner) {
+      try { _scScanner.stop?.().catch?.(()=>{}); _scScanner.clear?.(); } catch(e){}
+      _scScanner = null;
+    }
+    _scLastScanCode = null;
+    _scLastScanTime = 0;
+  };
 }
 
 async function applyAllAdjustments(ctx) {

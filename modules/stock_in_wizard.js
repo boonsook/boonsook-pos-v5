@@ -307,7 +307,22 @@ async function closeScanner(ctx) {
     } catch(e){}
     _swScanner = null;
   }
+  // Reset dedup state เพื่อ scan ครั้งหน้าทำงานปกติ
+  _swLastScanCode = null;
+  _swLastScanTime = 0;
   document.getElementById("swScannerArea")?.classList.add("hidden");
+}
+
+// Phase 82.2: expose stop hook ให้ showRoute() เรียกตอน navigate ออก
+if (typeof window !== "undefined") {
+  window._stopStockInScanner = () => {
+    if (_swScanner) {
+      try { _swScanner.stop?.().catch?.(()=>{}); _swScanner.clear?.(); } catch(e){}
+      _swScanner = null;
+    }
+    _swLastScanCode = null;
+    _swLastScanTime = 0;
+  };
 }
 
 async function saveAll(ctx) {
