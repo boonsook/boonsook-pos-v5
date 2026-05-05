@@ -515,7 +515,7 @@ function _renderItemsList(container, money) {
                 </div>
               </td>
               <td style="padding:6px"><input type="number" min="0" step="1" value="${Number(it.unit_price)}" data-item-price="${idx}" ${locked ? "disabled" : ""} style="width:80px;text-align:right;padding:4px;border:1px solid #cbd5e1;border-radius:6px${locked ? ";background:#f1f5f9;color:#94a3b8" : ""}" /></td>
-              <td style="padding:8px;text-align:right;font-weight:700;color:#0284c7">${money(it.line_total)}</td>
+              <td data-line-total="${idx}" style="padding:8px;text-align:right;font-weight:700;color:#0284c7">${money(it.line_total)}</td>
               <td style="padding:6px;text-align:center">${locked ? "" : `<button data-item-del="${idx}" class="btn light" style="font-size:14px;padding:2px 8px;color:#dc2626" title="ลบ">×</button>`}</td>
             </tr>
           `;}).join("")}
@@ -527,7 +527,12 @@ function _renderItemsList(container, money) {
 }
 
 function _bindItemListEvents(container, updateTotal, money) {
-  // delegated event — bind on container for child inputs (re-render-friendly)
+  // Phase 83.2: อัปเดตเฉพาะ cell รวม + grand total — ไม่ re-render ทั้ง table
+  // (ก่อนหน้านี้ re-render ทำให้ input ถูกแทน → focus หาย → keyboard เด้งออกตอนพิมพ์)
+  const updateLineTotal = (idx) => {
+    const cell = container.querySelector(`[data-line-total="${idx}"]`);
+    if (cell) cell.textContent = money(_items[idx].line_total);
+  };
   container.querySelector("#acItemsList")?.addEventListener("input", (e) => {
     const tgt = e.target;
     if (tgt.dataset.itemQty !== undefined) {
@@ -535,14 +540,14 @@ function _bindItemListEvents(container, updateTotal, money) {
       const qty = Math.max(1, parseInt(tgt.value) || 1);
       _items[idx].qty = qty;
       _items[idx].line_total = qty * Number(_items[idx].unit_price || 0);
-      _renderItemsList(container, money);
+      updateLineTotal(idx);
       updateTotal();
     } else if (tgt.dataset.itemPrice !== undefined) {
       const idx = Number(tgt.dataset.itemPrice);
       const price = Math.max(0, parseFloat(tgt.value) || 0);
       _items[idx].unit_price = price;
       _items[idx].line_total = Number(_items[idx].qty) * price;
-      _renderItemsList(container, money);
+      updateLineTotal(idx);
       updateTotal();
     }
   });
@@ -556,12 +561,15 @@ function _bindItemListEvents(container, updateTotal, money) {
       return;
     }
     // Phase 83.1: ปุ่ม +/- เพิ่ม/ลดจำนวน (mobile-friendly stepper)
+    // Phase 83.2: อัปเดต DOM เฉพาะที่จำเป็น (ไม่ re-render → keyboard ไม่เด้งออก)
     const incBtn = e.target.closest("[data-item-qty-inc]");
     if (incBtn) {
       const idx = Number(incBtn.dataset.itemQtyInc);
       _items[idx].qty = Number(_items[idx].qty || 1) + 1;
       _items[idx].line_total = _items[idx].qty * Number(_items[idx].unit_price || 0);
-      _renderItemsList(container, money);
+      const qtyInput = container.querySelector(`[data-item-qty="${idx}"]`);
+      if (qtyInput) qtyInput.value = _items[idx].qty;
+      updateLineTotal(idx);
       updateTotal();
       return;
     }
@@ -570,7 +578,9 @@ function _bindItemListEvents(container, updateTotal, money) {
       const idx = Number(decBtn.dataset.itemQtyDec);
       _items[idx].qty = Math.max(1, Number(_items[idx].qty || 1) - 1);
       _items[idx].line_total = _items[idx].qty * Number(_items[idx].unit_price || 0);
-      _renderItemsList(container, money);
+      const qtyInput = container.querySelector(`[data-item-qty="${idx}"]`);
+      if (qtyInput) qtyInput.value = _items[idx].qty;
+      updateLineTotal(idx);
       updateTotal();
       return;
     }

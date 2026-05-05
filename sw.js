@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v126 (2026-05-06): Phase 83.1 — AC install qty stepper buttons +/-
-const CACHE_NAME = 'boonsook-pos-v5-cache-v126';
+// v127 (2026-05-06): Phase 83.2 — fix keyboard เด้งออก เพราะ re-render (DOM surgery แทน)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v127';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
