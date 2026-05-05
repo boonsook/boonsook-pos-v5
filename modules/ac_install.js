@@ -233,7 +233,16 @@ export function renderAcInstallPage(ctx) {
 
     const statusEl = container.querySelector("#acStatus");
     statusEl.classList.remove("hidden");
-    statusEl.textContent = "กำลังบันทึก...";
+    statusEl.textContent = "📋 กำลังตรวจสอบข้อมูล...";
+
+    // ★ Phase 83.3: Timeout safety — ถ้าค้างเกิน 25 วิ → unblock UI
+    const _saveTimeout = setTimeout(() => {
+      if (saveBtn.disabled) {
+        statusEl.innerHTML = '<div style="color:#dc2626">⚠️ บันทึกใช้เวลานานเกิน 25 วินาที — เน็ตช้า/server timeout — กรุณาลองอีกครั้ง</div>';
+        saveBtn.disabled = false;
+        saveBtn.textContent = origText;
+      }
+    }, 25000);
 
     try {
       const cfg = window.SUPABASE_CONFIG;
@@ -320,6 +329,7 @@ export function renderAcInstallPage(ctx) {
 
       // ถ้ามี transfer ที่ต้องทำ → แสดง App.confirm (Phase 43.3 — แทน native confirm)
       if (transfersNeeded.length > 0) {
+        statusEl.textContent = "🚐 รอ user ตอบ confirm dialog...";
         const summary = transfersNeeded.map(t =>
           `${t.productName}: โอน ${t.qty} ชิ้น (${t.fromWhName} → ${t.toWhName})`
         ).join(" • ");
@@ -329,6 +339,7 @@ export function renderAcInstallPage(ctx) {
           throw new Error("ยกเลิกการบันทึก — โอนสต็อกขึ้นรถก่อนแล้วลองใหม่");
         }
       }
+      statusEl.textContent = "💾 กำลังบันทึกใบงาน...";
 
       const desc = [
         productId ? `รุ่น: ${productName} x${qty}` : "",
@@ -373,6 +384,7 @@ export function renderAcInstallPage(ctx) {
       const jobNo = inserted?.[0]?.job_no || "";
 
       // ★ Phase 43: Auto-transfer (ถ้ามี) → ตัดสต็อก
+      statusEl.textContent = "🔄 กำลังโอน/ตัดสต็อก...";
       let stockOpsFailed = false;
       try {
         // Step 1: Auto-transfer จากบ้าน → รถ (ถ้ามี shortage)
@@ -453,6 +465,7 @@ export function renderAcInstallPage(ctx) {
       console.error("[ac_install save] error:", e);
       statusEl.textContent = "เกิดข้อผิดพลาด: " + e.message;
     } finally {
+      clearTimeout(_saveTimeout);
       if (saveBtn.isConnected) {
         saveBtn.disabled = false;
         saveBtn.textContent = origText;
