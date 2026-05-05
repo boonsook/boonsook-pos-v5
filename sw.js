@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v123 (2026-05-05): Phase 82.6 — hard-stop all product scanner callbacks
-const CACHE_NAME = 'boonsook-pos-v5-cache-v123';
+// v124 (2026-05-05): Phase 74.9 AutoKey upload สลิป + Phase 82.6 hard-stop product scanners
+const CACHE_NAME = 'boonsook-pos-v5-cache-v124';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

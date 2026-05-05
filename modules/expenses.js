@@ -821,11 +821,41 @@ function _showParsedResult(ctx, modal, imageDataUrl, data) {
     const btn = document.getElementById("akSaveBtn");
     btn.disabled = true;
     const orig = btn.textContent;
-    btn.textContent = "⏳ บันทึก...";
+    btn.textContent = "⏳ อัปโหลดรูป...";
 
     try {
       const cfg = window.SUPABASE_CONFIG;
       const token = window._sbAccessToken;
+
+      // Phase 74.9: Upload รูปสลิปไป Supabase Storage ก่อน insert
+      let receiptUrl = "";
+      if (imageDataUrl && imageDataUrl.startsWith("data:")) {
+        try {
+          // Convert base64 data URL → Blob
+          const blob = await (await fetch(imageDataUrl)).blob();
+          const ts = Date.now();
+          const filePath = `expenses/autokey_${ts}_${Math.random().toString(36).slice(2)}.jpg`;
+          const upRes = await fetch(`${cfg.url}/storage/v1/object/proofs/${filePath}`, {
+            method: "POST",
+            headers: {
+              "apikey": cfg.anonKey,
+              "Authorization": "Bearer " + token,
+              "Content-Type": blob.type || "image/jpeg",
+              "x-upsert": "true"
+            },
+            body: blob
+          });
+          if (upRes.ok) {
+            receiptUrl = `${cfg.url}/storage/v1/object/public/proofs/${filePath}`;
+          } else {
+            console.warn("AutoKey image upload failed:", upRes.status);
+          }
+        } catch (upErr) {
+          console.warn("AutoKey upload error:", upErr);
+        }
+      }
+
+      btn.textContent = "⏳ บันทึก...";
       const headers = { "Content-Type": "application/json", "apikey": cfg.anonKey, "Authorization": "Bearer " + token, "Prefer": "return=minimal" };
       const payload = {
         expense_date: date,
@@ -834,11 +864,12 @@ function _showParsedResult(ctx, modal, imageDataUrl, data) {
         amount,
         note: "บันทึกผ่าน AutoKey · " + (d.vendor || "")
       };
+      if (receiptUrl) payload.receipt_url = receiptUrl;
+
       const r = await fetch(cfg.url + "/rest/v1/expenses", { method: "POST", headers, body: JSON.stringify(payload) });
       if (!r.ok) throw new Error("HTTP " + r.status);
       modal.remove();
-      ctx.showToast?.("บันทึกรายจ่ายแล้ว ✅");
-      // reload list
+      ctx.showToast?.(receiptUrl ? "บันทึกรายจ่าย + แนบรูปบิลแล้ว ✅" : "บันทึกรายจ่ายแล้ว (รูปบิลอัปโหลดไม่ได้)");
       if (ctx.loadAllData) await ctx.loadAllData();
       renderExpensesPage(ctx);
     } catch (e) {
