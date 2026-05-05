@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v113 (2026-05-05): Phase 80 — Sticker print: auto-print + auto-close + @page strict 50x30mm
-const CACHE_NAME = 'boonsook-pos-v5-cache-v113';
+// v114 (2026-05-05): Phase 81 — Bluetooth printer (Web Bluetooth → Xprinter XP-420B + TSPL)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v114';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

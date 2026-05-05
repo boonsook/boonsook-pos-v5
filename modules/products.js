@@ -5,6 +5,8 @@
 import { renderEmpty } from "./ui_states.js";
 // Phase 68 (B3): tag rendering + presets
 import { renderTagBadge, PRODUCT_TAG_PRESETS } from "./utils.js";
+// Phase 81: Bluetooth printer integration (Web Bluetooth API → XP-420B)
+import * as BTPrinter from "./bt_printer.js";
 
 // ═══ ประเภทสินค้า (เหมือน FlowAccount) ═══
 const PRODUCT_TYPES = {
@@ -1401,7 +1403,10 @@ function openBulkBarcodePrintModal(ctx) {
       <div id="bbpList" style="flex:1;overflow-y:auto;padding:8px 12px;display:flex;flex-direction:column;gap:4px"></div>
       <div style="padding:12px 16px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;background:#f8fafc">
         <div id="bbpSummary" style="font-size:13px;color:#475569;font-weight:600">เลือกแล้ว 0 รายการ / 0 ป้าย</div>
-        <button id="bbpPrint" class="btn primary" style="font-size:13px;padding:8px 16px">🖨️ พิมพ์บาร์โค้ด</button>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button id="bbpPrintBT" class="btn" style="font-size:13px;padding:8px 14px;background:#7c3aed;color:#fff;border:none" title="ส่งตรงไป Xprinter ผ่าน Bluetooth — Android/Desktop Chrome เท่านั้น">📡 Bluetooth (XP-420B)</button>
+          <button id="bbpPrint" class="btn primary" style="font-size:13px;padding:8px 14px">🖨️ พิมพ์ผ่านเบราว์เซอร์</button>
+        </div>
       </div>
     </div>
   `;
@@ -1507,6 +1512,47 @@ function openBulkBarcodePrintModal(ctx) {
     }
     openBarcodePrintWindow(items);
     modal.remove();
+  });
+
+  // Phase 81: ปุ่มพิมพ์ Bluetooth — ส่งตรงไป XP-420B (TSPL command)
+  document.getElementById("bbpPrintBT")?.addEventListener("click", async () => {
+    const items = Array.from(selected.entries())
+      .filter(([_, q]) => q > 0)
+      .map(([id, qty]) => {
+        const p = products.find(x => x.id === id);
+        return p ? { name: p.name, barcode: p.barcode, price: p.price, copies: qty } : null;
+      })
+      .filter(Boolean);
+    if (items.length === 0) {
+      window.App?.showToast?.("กรุณาเลือกอย่างน้อย 1 รายการ");
+      return;
+    }
+    if (!navigator.bluetooth) {
+      window.App?.showToast?.("⚠️ Browser นี้ไม่รองรับ Bluetooth — ใช้ Chrome/Edge บน Desktop หรือ Android");
+      return;
+    }
+    const btn = document.getElementById("bbpPrintBT");
+    const orig = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "📡 กำลังเชื่อมต่อ...";
+    try {
+      // Expand items by copies → 1 รายการ × N สำเนา = N labels
+      const allLabels = [];
+      items.forEach(it => {
+        for (let i = 0; i < it.copies; i++) {
+          allLabels.push({ name: it.name, barcode: it.barcode, price: it.price, copies: 1 });
+        }
+      });
+      btn.textContent = `📡 พิมพ์ ${allLabels.length} ป้าย...`;
+      await BTPrinter.printLabels(allLabels);
+      window.App?.showToast?.(`✅ ส่งคำสั่งพิมพ์ ${allLabels.length} ป้ายไป ${BTPrinter.getDeviceName()} แล้ว`);
+      btn.textContent = "✓ พิมพ์สำเร็จ";
+      setTimeout(() => modal.remove(), 1200);
+    } catch (e) {
+      window.App?.showToast?.("❌ พิมพ์ไม่สำเร็จ: " + (e?.message || e));
+      btn.disabled = false;
+      btn.textContent = orig;
+    }
   });
 
   renderList("");
