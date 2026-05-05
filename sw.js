@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v115 (2026-05-05): Phase 81.1 — BT printer: ลบ namePrefix filter (acceptAllDevices)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v115';
+// v116 (2026-05-05): OTP API response handling + local preview live API
+const CACHE_NAME = 'boonsook-pos-v5-cache-v116';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

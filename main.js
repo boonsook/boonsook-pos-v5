@@ -1243,10 +1243,42 @@ function formatPhone(p) {
 
 // ★ กำหนด API base URL ตาม environment
 function getApiBase() {
+  const explicitBase = window.BSK_API_BASE || localStorage.getItem("bsk_api_base");
+  if (explicitBase) return String(explicitBase).replace(/\/+$/, "");
+
   const host = window.location.hostname;
-  if (host === "localhost" || host === "127.0.0.1") return ""; // local dev
+  const port = window.location.port;
+  if ((host === "localhost" || host === "127.0.0.1") && port !== "8787" && port !== "8788") {
+    return "https://boonsukair.com";
+  }
+  if (host === "localhost" || host === "127.0.0.1") return ""; // Cloudflare Pages dev
   // Cloudflare Pages — functions อยู่ที่ path เดียวกัน
   return window.location.origin;
+}
+
+async function readApiJson(response, label) {
+  const text = await response.text();
+  const contentType = response.headers.get("content-type") || "";
+
+  if (!text) return {};
+  if (contentType.includes("application/json")) {
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      throw new Error(`${label}: เซิร์ฟเวอร์ส่ง JSON ไม่ถูกต้อง`);
+    }
+  }
+
+  const trimmed = text.trim();
+  if (trimmed.startsWith("<!DOCTYPE") || trimmed.startsWith("<html") || trimmed.startsWith("<")) {
+    throw new Error(`${label}: ไม่พบ API หรือ server คืนหน้าเว็บแทนข้อมูล กรุณาลองรีเฟรชหรือรอ deploy ให้เสร็จ`);
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    throw new Error(`${label}: คำตอบจากเซิร์ฟเวอร์ไม่ถูกต้อง`);
+  }
 }
 
 async function requestOtp() {
@@ -1264,7 +1296,7 @@ async function requestOtp() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ phone })
     });
-    const data = await res.json();
+    const data = await readApiJson(res, "ส่ง OTP");
 
     if (!res.ok || !data.ok) {
       throw new Error(data.error || "ส่ง SMS ไม่สำเร็จ");
@@ -1327,7 +1359,7 @@ async function verifyOtp() {
         expiresAt: _pendingOtp.expiresAt
       })
     });
-    const verifyData = await verifyRes.json();
+    const verifyData = await readApiJson(verifyRes, "ตรวจ OTP");
     if (!verifyRes.ok || !verifyData.ok) {
       return showToast(verifyData.error || "รหัส OTP ไม่ถูกต้อง");
     }
