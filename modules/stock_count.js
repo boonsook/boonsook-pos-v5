@@ -256,7 +256,13 @@ async function openScanner(ctx) {
       { facingMode: "environment" },
       startConfig,
       (decoded) => {
-        // Phase 82: dedup — กันลูปนับเพิ่มไม่หยุดเมื่อบาร์โค้ดยังอยู่หน้ากล้อง
+        // Phase 82.1: ถ้าหน้านี้ถูก navigate ออก → stop scanner + ignore
+        const page = document.getElementById("page-stock_count");
+        if (!page || page.classList.contains("hidden")) {
+          try { _scScanner?.stop(); } catch(e){}
+          return;
+        }
+        // Phase 82: dedup
         const now = Date.now();
         if (decoded === _scLastScanCode && (now - _scLastScanTime) < 2500) return;
         _scLastScanCode = decoded;

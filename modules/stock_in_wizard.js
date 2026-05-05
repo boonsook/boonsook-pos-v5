@@ -274,6 +274,12 @@ async function openScanner(ctx) {
       { facingMode: "environment" },
       startConfig,
       (decoded) => {
+        // Phase 82.1: ถ้าหน้านี้ถูก navigate ออก (page hidden) → stop scanner + ignore
+        const page = document.getElementById("page-stock_in_wizard");
+        if (!page || page.classList.contains("hidden")) {
+          closeScanner(ctx);
+          return;
+        }
         // Phase 82: dedup — ถ้า code เดียวกันถูก scan ใน 2.5 วิ ก่อนหน้า → skip
         const now = Date.now();
         if (decoded === _swLastScanCode && (now - _swLastScanTime) < 2500) return;
@@ -283,7 +289,6 @@ async function openScanner(ctx) {
         const inp = container.querySelector("#swSearchInput");
         if (inp) inp.value = decoded;
         addRow(ctx);
-        // Visual feedback — flash scanner overlay
         try { navigator.vibrate?.(80); } catch(e){}
       },
       () => {}
