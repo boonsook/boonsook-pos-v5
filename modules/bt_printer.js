@@ -95,12 +95,38 @@ export async function disconnect() {
 // ═══════════════════════════════════════════════════════════
 //  TSPL command builder (50×30mm sticker)
 // ═══════════════════════════════════════════════════════════
+function sanitizeTsplText(value, maxLength) {
+  return String(value || "")
+    .replace(/[\x00-\x1F\x7F]/g, " ")
+    .replace(/["\\]/g, "'")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+}
+
+function sanitizeBarcode(value) {
+  return String(value || "")
+    .replace(/[\x00-\x20\x7F"\\]/g, "")
+    .replace(/[^0-9A-Za-z._-]/g, "")
+    .slice(0, 48);
+}
+
+function sanitizeCopies(value) {
+  const count = Number.parseInt(value, 10);
+  return Number.isFinite(count) ? Math.min(Math.max(count, 1), 99) : 1;
+}
+
 function buildTSPL(label) {
   const { name = "", barcode = "", price = "", shop = "บุญสุขแอร์", copies = 1 } = label;
   // Truncate name ให้ไม่เกิน 1 บรรทัด — TSPL ไม่ wrap auto
-  const safeName = String(name).slice(0, 28);
-  const safeShop = String(shop).slice(0, 20);
-  const priceStr = price ? `Bt${Number(price).toLocaleString("en-US")}` : "";
+  const safeName = sanitizeTsplText(name, 28);
+  const safeShop = sanitizeTsplText(shop, 20);
+  const safeBarcode = sanitizeBarcode(barcode);
+  const safeCopies = sanitizeCopies(copies);
+  const priceValue = Number(price);
+  const priceStr = Number.isFinite(priceValue) && priceValue > 0
+    ? `Bt${priceValue.toLocaleString("en-US")}`
+    : "";
 
   // TSPL coordinate system: dot @ 203 DPI → 8 dots/mm → 50mm = 400 dots, 30mm = 240 dots
   // Y top-down. ข้อความ font 1-5 (built-in)
@@ -113,14 +139,14 @@ function buildTSPL(label) {
     `TEXT 200,10,"1",0,1,1,2,"${safeShop}"`,                // ชื่อร้าน บนสุด center
     `TEXT 200,40,"2",0,1,1,2,"${safeName}"`,                // ชื่อสินค้า
   ];
-  if (barcode) {
+  if (safeBarcode) {
     // BARCODE x,y,"type",height,human-readable,rotation,narrow,wide,"data"
-    lines.push(`BARCODE 50,90,"128",70,1,0,2,2,"${barcode}"`);
+    lines.push(`BARCODE 50,90,"128",70,1,0,2,2,"${safeBarcode}"`);
   }
   if (priceStr) {
     lines.push(`TEXT 200,200,"3",0,1,1,2,"${priceStr}"`);
   }
-  lines.push(`PRINT ${copies},1`);
+  lines.push(`PRINT ${safeCopies},1`);
   lines.push("");  // trailing newline
 
   return lines.join("\r\n");

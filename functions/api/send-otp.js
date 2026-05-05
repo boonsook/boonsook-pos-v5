@@ -1,5 +1,46 @@
 // Cloudflare Pages Function — POST /api/send-otp
-// ส่ง SMS OTP จริงผ่าน Twilio API พร้อม fallback แสดง OTP บนจอถ้า Twilio fail
+// Sends SMS OTP via Twilio. Dev-code fallback is disabled unless explicitly
+// enabled for a non-production runtime.
+
+const DEV_OTP_RUNTIMES = new Set(["dev", "development", "local", "staging", "test"]);
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
+
+function isTrue(value) {
+  return String(value || "").trim().toLowerCase() === "true";
+}
+
+function runtimeName(env = {}) {
+  return String(env.APP_ENV || env.ENVIRONMENT || env.NODE_ENV || "").trim().toLowerCase();
+}
+
+function isDevOtpAllowed(context) {
+  const env = context.env || {};
+  const hostname = new URL(context.request.url).hostname;
+  return isTrue(env.OTP_DEV_MODE) && (LOCAL_HOSTS.has(hostname) || DEV_OTP_RUNTIMES.has(runtimeName(env)));
+}
+
+function jsonResponse(data, status, headers) {
+  return new Response(JSON.stringify(data), { status, headers });
+}
+
+function devOtpResponse({ hash, expiresAt, phone, code, notice, headers }) {
+  return jsonResponse({
+    ok: true,
+    hash,
+    expiresAt,
+    phone,
+    dev: true,
+    devCode: code,
+    devNotice: notice
+  }, 200, headers);
+}
+
+function otpUnavailable(headers, status = 503) {
+  return jsonResponse({
+    ok: false,
+    error: "ระบบส่ง OTP ยังไม่พร้อมใช้งาน กรุณาลองใหม่หรือติดต่อร้าน"
+  }, status, headers);
+}
 
 export async function onRequestPost(context) {
   const corsHeaders = {
@@ -8,6 +49,7 @@ export async function onRequestPost(context) {
     "Access-Control-Allow-Headers": "Content-Type",
     "Content-Type": "application/json"
   };
+  const allowDevOtp = isDevOtpAllowed(context);
 
   try {
     const { phone } = await context.request.json();
@@ -45,17 +87,20 @@ export async function onRequestPost(context) {
     const authToken = context.env.TWILIO_AUTH_TOKEN;
     const fromNumber = context.env.TWILIO_FROM_NUMBER;
 
-    // * DEV/DEMO fallback - if Twilio env vars are not set, return OTP via JSON for on-screen display
+    // Dev fallback is opt-in only; production must fail closed instead of leaking the OTP.
     if (!accountSid || !authToken || !fromNumber) {
-      return new Response(JSON.stringify({
-        ok: true,
-        hash,
-        expiresAt,
-        phone: cleanPhone,
-        dev: true,
-        devCode: code,
-        devNotice: "โหมดทดสอบ — ยังไม่ได้ตั้ง Twilio credentials บน Cloudflare Pages"
-      }), { status: 200, headers: corsHeaders });
+      console.error("[send-otp] Twilio credentials not configured");
+      if (allowDevOtp) {
+        return devOtpResponse({
+          hash,
+          expiresAt,
+          phone: cleanPhone,
+          code,
+          notice: "OTP_DEV_MODE: Twilio credentials are not configured",
+          headers: corsHeaders
+        });
+      }
+      return otpUnavailable(corsHeaders, 503);
     }
 
     const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
@@ -65,8 +110,7 @@ export async function onRequestPost(context) {
       Body: `Boonsook POS: รหัส OTP ของคุณคือ ${code} (หมดอายุใน 5 นาที)`
     });
 
-    // * FALLBACK: wrap Twilio call so trial limit / unverified number / rate limit / network error
-    //   จะไม่ทำให้ร้านขายของไม่ได้ — จะโชว์ OTP บนจอแทน
+    // Wrap Twilio call so provider errors can be logged and returned safely.
     let twilioFailed = false;
     let twilioErrorMsg = "";
     try {
@@ -92,16 +136,17 @@ export async function onRequestPost(context) {
     }
 
     if (twilioFailed) {
-      // * โชว์ OTP บนจอแทน — ร้านทำงานต่อได้ แม้ Twilio trial/down/rate-limit
-      return new Response(JSON.stringify({
-        ok: true,
-        hash,
-        expiresAt,
-        phone: cleanPhone,
-        dev: true,
-        devCode: code,
-        devNotice: "Twilio: " + twilioErrorMsg + " — แสดง OTP บนจอแทน"
-      }), { status: 200, headers: corsHeaders });
+      if (allowDevOtp) {
+        return devOtpResponse({
+          hash,
+          expiresAt,
+          phone: cleanPhone,
+          code,
+          notice: "Twilio: " + twilioErrorMsg,
+          headers: corsHeaders
+        });
+      }
+      return otpUnavailable(corsHeaders, 502);
     }
 
     // ส่ง hash + expiresAt กลับ (ไม่ส่ง code กลับ!)
