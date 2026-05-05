@@ -114,9 +114,9 @@ export function renderStockInWizardPage(ctx) {
   container.querySelector("#swInvoiceNo")?.addEventListener("input", (e) => { _swInvoiceNo = e.target.value; });
 
   container.querySelector("#swSearchInput")?.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { e.preventDefault(); addRow(ctx); }
+    if (e.key === "Enter") { e.preventDefault(); addRow(ctx, "enter-key"); }
   });
-  container.querySelector("#swAddBtn")?.addEventListener("click", () => addRow(ctx));
+  container.querySelector("#swAddBtn")?.addEventListener("click", () => addRow(ctx, "add-btn-click"));
   container.querySelector("#swScanBtn")?.addEventListener("click", () => openScanner(ctx));
   container.querySelector("#swScannerCloseBtn")?.addEventListener("click", () => closeScanner(ctx));
 
@@ -129,32 +129,35 @@ export function renderStockInWizardPage(ctx) {
 
   container.querySelector("#swSaveBtn")?.addEventListener("click", () => saveAll(ctx));
 
-  setTimeout(() => container.querySelector("#swSearchInput")?.focus(), 100);
+  // Phase 82.4: ไม่ auto-focus — กัน keyboard popup + suggestion bar trigger Enter เอง
+  // User ต้องการ focus ก็ tap ที่ input เอง
 }
 
-// Phase 82.3: Universal throttle — กัน addRow ถูกเรียกซ้ำเร็วเกินไป (จาก autocomplete, scanner, หรือ source อื่น)
-let _swLastAddCode = "";
+// Phase 82.4: Hard throttle — block ทุก call ที่เร็วเกิน 500ms ไม่ว่า code/source ใด
 let _swLastAddTime = 0;
 
-function addRow(ctx) {
+function addRow(ctx, source = "unknown") {
   const { state, showToast } = ctx;
   const container = document.getElementById("page-stock_in_wizard");
-  // ★ ถ้าหน้านี้ถูก hide ไปแล้ว → ไม่ทำอะไร
-  if (!container || container.classList.contains("hidden")) return;
+  if (!container || container.classList.contains("hidden")) {
+    console.log("[stock_in] addRow blocked (page hidden):", source);
+    return;
+  }
   const inp = container.querySelector("#swSearchInput");
   if (!inp) return;
+
+  // ★ Hard throttle 500ms — ไม่ว่ามาจาก source/code ไหน
+  const now = Date.now();
+  if (now - _swLastAddTime < 500) {
+    console.log("[stock_in] addRow BLOCKED (too fast):", source, "delta:", now - _swLastAddTime, "ms");
+    return;
+  }
+  _swLastAddTime = now;
+
   const qty = parseInt(container.querySelector("#swQty").value, 10);
   const costRaw = container.querySelector("#swCost").value;
   const code = (inp.value || "").trim();
-
-  // ★ Throttle: code เดียวกันใน 1 วิ → block (กัน loop จาก autocomplete/scanner)
-  const now = Date.now();
-  if (code && code === _swLastAddCode && (now - _swLastAddTime) < 1000) {
-    console.log("[stock_in] addRow throttled:", code);
-    return;
-  }
-  _swLastAddCode = code;
-  _swLastAddTime = now;
+  console.log("[stock_in] addRow called:", source, "code:", code);
 
   if (!code) { showToast?.("พิมพ์/สแกน barcode/SKU"); inp.focus(); return; }
   if (isNaN(qty) || qty <= 0) { showToast?.("จำนวนต้องมากกว่า 0"); return; }
@@ -304,7 +307,7 @@ async function openScanner(ctx) {
 
         const inp = container.querySelector("#swSearchInput");
         if (inp) inp.value = decoded;
-        addRow(ctx);
+        addRow(ctx, "scanner");
         try { navigator.vibrate?.(80); } catch(e){}
       },
       () => {}

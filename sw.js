@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v120 (2026-05-05): Phase 82.3 — addRow throttle 1s + autocomplete=off (กัน loop จาก autofill)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v120';
+// v121 (2026-05-05): Phase 82.4 — Hard throttle 500ms ทุก call + remove auto-focus + log source
+const CACHE_NAME = 'boonsook-pos-v5-cache-v121';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
