@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v119 (2026-05-05): Phase 82.2 — Global scanner cleanup ใน showRoute() (force-stop ทุก scanner)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v119';
+// v120 (2026-05-05): Phase 82.3 — addRow throttle 1s + autocomplete=off (กัน loop จาก autofill)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v120';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

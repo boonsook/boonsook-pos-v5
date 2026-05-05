@@ -66,7 +66,7 @@ export function renderStockInWizardPage(ctx) {
           <div>
             <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">📷 สแกน barcode/SKU:</label>
             <div style="display:flex;gap:6px">
-              <input id="swSearchInput" type="text" placeholder="พิมพ์/สแกน barcode/SKU/ชื่อ..." style="flex:1;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px" />
+              <input id="swSearchInput" type="text" placeholder="พิมพ์/สแกน barcode/SKU/ชื่อ..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" style="flex:1;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px" />
               <button id="swScanBtn" class="btn light" style="font-size:12px;padding:8px 10px" title="เปิดกล้อง">📷</button>
             </div>
             <div id="swSearchSuggest" style="position:relative"></div>
@@ -132,13 +132,29 @@ export function renderStockInWizardPage(ctx) {
   setTimeout(() => container.querySelector("#swSearchInput")?.focus(), 100);
 }
 
+// Phase 82.3: Universal throttle — กัน addRow ถูกเรียกซ้ำเร็วเกินไป (จาก autocomplete, scanner, หรือ source อื่น)
+let _swLastAddCode = "";
+let _swLastAddTime = 0;
+
 function addRow(ctx) {
   const { state, showToast } = ctx;
   const container = document.getElementById("page-stock_in_wizard");
+  // ★ ถ้าหน้านี้ถูก hide ไปแล้ว → ไม่ทำอะไร
+  if (!container || container.classList.contains("hidden")) return;
   const inp = container.querySelector("#swSearchInput");
+  if (!inp) return;
   const qty = parseInt(container.querySelector("#swQty").value, 10);
   const costRaw = container.querySelector("#swCost").value;
   const code = (inp.value || "").trim();
+
+  // ★ Throttle: code เดียวกันใน 1 วิ → block (กัน loop จาก autocomplete/scanner)
+  const now = Date.now();
+  if (code && code === _swLastAddCode && (now - _swLastAddTime) < 1000) {
+    console.log("[stock_in] addRow throttled:", code);
+    return;
+  }
+  _swLastAddCode = code;
+  _swLastAddTime = now;
 
   if (!code) { showToast?.("พิมพ์/สแกน barcode/SKU"); inp.focus(); return; }
   if (isNaN(qty) || qty <= 0) { showToast?.("จำนวนต้องมากกว่า 0"); return; }
@@ -184,7 +200,7 @@ function addRow(ctx) {
   inp.value = "";
   container.querySelector("#swQty").value = "1";
   container.querySelector("#swCost").value = "";
-  inp.focus();
+  // ★ ไม่ auto-focus ที่นี่ — re-render จะ bind handler ใหม่ + setTimeout focus หลัง render
   renderStockInWizardPage(ctx);
 }
 
