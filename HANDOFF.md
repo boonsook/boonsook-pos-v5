@@ -1,19 +1,18 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 4 พฤษภาคม 2026 (Phase 79.9 — Mobile UX overhaul)
-**Version:** 5.30.1 (build 127) — Phase 76-79.9 รวมทั้งชุด
-**Previous:** 5.27.5 (build 109) — Phase 74.x AutoKey OCR
+**อัปเดตล่าสุด:** 5 พฤษภาคม 2026 (Phase 82.5 — Stop Stock IN scanner after first scan)
+**Version:** 5.31.8 (build 137) — Phase 80-82.5 รวมทั้งชุด
+**Previous:** 5.30.1 (build 127) — Phase 76-79.9
 
-## 🆕 Phase 76-79.9 ที่เสร็จในรอบนี้
+## 🆕 Phase 80-82.5 ที่เสร็จในรอบนี้
 
-- **Phase 76**: Payroll mark paid → auto-create salary expense (link via `#payroll-{id}`)
-- **Phase 77**: Daily-rate payroll (rate × days) + user pay_type setting [SQL: supabase-phase77-daily-payroll.sql]
-- **Phase 77.1**: แยก 401 (auth) จาก 404 (table missing) ใน error message
-- **Phase 78**: ภาพรวมรายจ่าย dashboard (donut + bar + top 5 + period selector)
-- **Phase 79**: Sidebar restructure — กลุ่ม "ภาพรวม / รายงาน" + "บุคลากร / HR"
-- **Phase 79.1-79.9**: Mobile UX series (full width desktop + responsive cards/tables)
-  - Final solution: column-stack layout บน mobile (line 800+ ใน style.css)
-  - Root cause: `.page { word-break: break-word }` → เปลี่ยนเป็น `overflow-wrap: anywhere`
+- **Phase 80**: Sticker print 50×30mm — auto-print + auto-close window + strict @page
+- **Phase 81**: Bluetooth printer module (`modules/bt_printer.js`) — Web Bluetooth → XP-420B + TSPL command
+  - ⚠️ **ยังไม่ work บน XP-420B จริง** — เครื่องน่าจะเป็น Bluetooth Classic (passcode 0000) ไม่ใช่ BLE
+  - Web Bluetooth ใช้ได้แค่ BLE → ขั้นถัดไปต้องลอง WebUSB API ผ่าน USB OTG
+- **Phase 82-82.5**: Scan-loop bug fix series (รับเข้าสินค้า + นับสต็อก ลูปเพิ่มเอง)
+  - **Root cause: html5-qrcode callback fires ทุก frame ตราบใดที่บาร์โค้ดอยู่หน้ากล้อง** + scanner ไม่ stop หลัง navigate
+  - **Final solution (Phase 82.5)**: stop scanner ทันทีหลัง scan สำเร็จ + mutex flags (`_swAddInProgress`, `_swSaving`, `_swScannerActive`) + `isConfirmOpen()` guard + `blurStockInInputs()` + session ID invalidation
 
 ---
 
