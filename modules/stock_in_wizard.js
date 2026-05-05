@@ -17,6 +17,10 @@ let _swScanner = null;
 // Phase 82: dedup scan — กัน html5-qrcode callback fire ซ้ำตอนบาร์โค้ดยังอยู่หน้ากล้อง
 let _swLastScanCode = null;
 let _swLastScanTime = 0;
+let _swScanSessionId = 0;
+let _swScannerActive = false;
+let _swAddInProgress = false;
+let _swSaving = false;
 
 export function renderStockInWizardPage(ctx) {
   const { state, showToast } = ctx;
@@ -136,75 +140,127 @@ export function renderStockInWizardPage(ctx) {
 // Phase 82.4: Hard throttle — block ทุก call ที่เร็วเกิน 500ms ไม่ว่า code/source ใด
 let _swLastAddTime = 0;
 
-function addRow(ctx, source = "unknown") {
+function isConfirmOpen() {
+  return !!document.querySelector(".confirm-overlay");
+}
+
+function blurStockInInputs() {
+  const container = document.getElementById("page-stock_in_wizard");
+  container?.querySelector("#swSearchInput")?.blur();
+  container?.querySelector("#swQty")?.blur();
+  container?.querySelector("#swCost")?.blur();
+  if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+}
+
+async function stopScannerHard({ resetDedup = true } = {}) {
+  _swScannerActive = false;
+  _swScanSessionId++;
+  const scanner = _swScanner;
+  _swScanner = null;
+
+  if (scanner) {
+    try {
+      const state = typeof scanner.getState === "function" ? scanner.getState() : null;
+      if (state === 2 || state === 3) await scanner.stop();
+    } catch(e){}
+    try { await scanner.clear?.(); } catch(e){}
+  }
+
+  if (resetDedup) {
+    _swLastScanCode = null;
+    _swLastScanTime = 0;
+  }
+  document.getElementById("swScannerArea")?.classList.add("hidden");
+}
+
+async function addRow(ctx, source = "unknown") {
   const { state, showToast } = ctx;
   const container = document.getElementById("page-stock_in_wizard");
   if (!container || container.classList.contains("hidden")) {
     console.log("[stock_in] addRow blocked (page hidden):", source);
     return;
   }
+  if (_swSaving || isConfirmOpen()) {
+    console.log("[stock_in] addRow blocked (modal/save active):", source);
+    return;
+  }
+  if (_swAddInProgress) {
+    console.log("[stock_in] addRow blocked (add in progress):", source);
+    return;
+  }
   const inp = container.querySelector("#swSearchInput");
   if (!inp) return;
 
-  // ★ Hard throttle 500ms — ไม่ว่ามาจาก source/code ไหน
-  const now = Date.now();
-  if (now - _swLastAddTime < 500) {
-    console.log("[stock_in] addRow BLOCKED (too fast):", source, "delta:", now - _swLastAddTime, "ms");
-    return;
-  }
-  _swLastAddTime = now;
+  _swAddInProgress = true;
+  try {
+    // ★ Hard throttle 500ms — ไม่ว่ามาจาก source/code ไหน
+    const now = Date.now();
+    if (now - _swLastAddTime < 500) {
+      console.log("[stock_in] addRow BLOCKED (too fast):", source, "delta:", now - _swLastAddTime, "ms");
+      return;
+    }
+    _swLastAddTime = now;
 
-  const qty = parseInt(container.querySelector("#swQty").value, 10);
-  const costRaw = container.querySelector("#swCost").value;
-  const code = (inp.value || "").trim();
-  console.log("[stock_in] addRow called:", source, "code:", code);
+    const qty = parseInt(container.querySelector("#swQty").value, 10);
+    const costRaw = container.querySelector("#swCost").value;
+    const code = (inp.value || "").trim();
+    console.log("[stock_in] addRow called:", source, "code:", code);
 
-  if (!code) { showToast?.("พิมพ์/สแกน barcode/SKU"); inp.focus(); return; }
-  if (isNaN(qty) || qty <= 0) { showToast?.("จำนวนต้องมากกว่า 0"); return; }
+    if (!code) {
+      showToast?.("พิมพ์/สแกน barcode/SKU");
+      if (source !== "scanner") inp.focus();
+      return;
+    }
+    if (isNaN(qty) || qty <= 0) { showToast?.("จำนวนต้องมากกว่า 0"); return; }
 
-  // หา product
-  const c = code.toLowerCase();
-  let prod = (state.products || []).find(p =>
-    String(p.barcode || "").toLowerCase() === c ||
-    String(p.sku || "").toLowerCase() === c
-  );
-  if (!prod) {
-    // search by name
-    prod = (state.products || []).find(p => String(p.name || "").toLowerCase().includes(c));
-  }
-  if (!prod) {
-    showToast?.(`❌ ไม่พบสินค้า: ${code}`);
-    inp.focus();
-    return;
-  }
-  if (prod.product_type === "service") {
-    showToast?.(`⚠️ "${prod.name}" เป็นบริการ — ข้าม`);
-    return;
-  }
+    // หา product
+    const c = code.toLowerCase();
+    let prod = (state.products || []).find(p =>
+      String(p.barcode || "").toLowerCase() === c ||
+      String(p.sku || "").toLowerCase() === c
+    );
+    if (!prod) {
+      // search by name
+      prod = (state.products || []).find(p => String(p.name || "").toLowerCase().includes(c));
+    }
+    if (!prod) {
+      showToast?.(`❌ ไม่พบสินค้า: ${code}`);
+      if (source !== "scanner") inp.focus();
+      return;
+    }
+    if (prod.product_type === "service") {
+      showToast?.(`⚠️ "${prod.name}" เป็นบริการ — ข้าม`);
+      return;
+    }
 
-  // ★ ถ้ามีอยู่แล้ว — รวม qty + ใช้ cost ใหม่ถ้ากรอก
-  const existing = _swRows.find(r => String(r.productId) === String(prod.id));
-  if (existing) {
-    existing.qty += qty;
-    if (costRaw) existing.cost = Number(costRaw);
-  } else {
-    _swRows.push({
-      productId: prod.id,
-      name: prod.name,
-      sku: prod.sku || "",
-      barcode: prod.barcode || "",
-      qty,
-      cost: costRaw ? Number(costRaw) : Number(prod.cost || 0),
-      originalCost: Number(prod.cost || 0)
-    });
-  }
+    // ★ ถ้ามีอยู่แล้ว — รวม qty + ใช้ cost ใหม่ถ้ากรอก
+    const existing = _swRows.find(r => String(r.productId) === String(prod.id));
+    if (existing) {
+      existing.qty += qty;
+      if (costRaw) existing.cost = Number(costRaw);
+    } else {
+      _swRows.push({
+        productId: prod.id,
+        name: prod.name,
+        sku: prod.sku || "",
+        barcode: prod.barcode || "",
+        qty,
+        cost: costRaw ? Number(costRaw) : Number(prod.cost || 0),
+        originalCost: Number(prod.cost || 0)
+      });
+    }
 
-  showToast?.(`✓ ${prod.name} ${qty} ชิ้น`);
-  inp.value = "";
-  container.querySelector("#swQty").value = "1";
-  container.querySelector("#swCost").value = "";
-  // ★ ไม่ auto-focus ที่นี่ — re-render จะ bind handler ใหม่ + setTimeout focus หลัง render
-  renderStockInWizardPage(ctx);
+    showToast?.(`✓ ${prod.name} ${qty} ชิ้น`);
+    inp.value = "";
+    container.querySelector("#swQty").value = "1";
+    container.querySelector("#swCost").value = "";
+    blurStockInInputs();
+    await stopScannerHard({ resetDedup: false });
+    // ★ ไม่ auto-focus ที่นี่ — กัน keyboard/IME ส่ง Enter ซ้ำหลัง re-render
+    renderStockInWizardPage(ctx);
+  } finally {
+    setTimeout(() => { _swAddInProgress = false; }, 800);
+  }
 }
 
 function renderList(state) {
@@ -281,6 +337,7 @@ function renderList(state) {
 async function openScanner(ctx) {
   const container = document.getElementById("page-stock_in_wizard");
   const area = container.querySelector("#swScannerArea");
+  await stopScannerHard({ resetDedup: false });
   area.classList.remove("hidden");
 
   if (typeof Html5Qrcode === "undefined") return;
@@ -288,15 +345,18 @@ async function openScanner(ctx) {
     // Phase 64: shared scanner config (1D barcodes + QR)
     const { getScannerConfig } = await import("./utils.js");
     const { ctorOpts, startConfig } = getScannerConfig();
+    const sessionId = ++_swScanSessionId;
+    _swScannerActive = true;
     _swScanner = new Html5Qrcode("swScannerVideo", ctorOpts);
     await _swScanner.start(
       { facingMode: "environment" },
       startConfig,
-      (decoded) => {
+      async (decoded) => {
+        if (!_swScannerActive || sessionId !== _swScanSessionId || _swSaving || isConfirmOpen()) return;
         // Phase 82.1: ถ้าหน้านี้ถูก navigate ออก (page hidden) → stop scanner + ignore
         const page = document.getElementById("page-stock_in_wizard");
         if (!page || page.classList.contains("hidden")) {
-          closeScanner(ctx);
+          await stopScannerHard();
           return;
         }
         // Phase 82: dedup — ถ้า code เดียวกันถูก scan ใน 2.5 วิ ก่อนหน้า → skip
@@ -304,106 +364,113 @@ async function openScanner(ctx) {
         if (decoded === _swLastScanCode && (now - _swLastScanTime) < 2500) return;
         _swLastScanCode = decoded;
         _swLastScanTime = now;
+        _swScannerActive = false;
+        await stopScannerHard({ resetDedup: false });
 
         const inp = container.querySelector("#swSearchInput");
-        if (inp) inp.value = decoded;
-        addRow(ctx, "scanner");
+        if (inp) {
+          inp.value = decoded;
+          inp.blur();
+        }
+        await addRow(ctx, "scanner");
         try { navigator.vibrate?.(80); } catch(e){}
       },
       () => {}
     );
   } catch (e) {
+    _swScannerActive = false;
     console.warn("[scanner]", e);
   }
 }
 
 async function closeScanner(ctx) {
-  if (_swScanner) {
-    try {
-      const state = _swScanner.getState();
-      if (state === 2 || state === 3) await _swScanner.stop();
-      await _swScanner.clear();
-    } catch(e){}
-    _swScanner = null;
-  }
-  // Reset dedup state เพื่อ scan ครั้งหน้าทำงานปกติ
-  _swLastScanCode = null;
-  _swLastScanTime = 0;
-  document.getElementById("swScannerArea")?.classList.add("hidden");
+  await stopScannerHard();
 }
 
 // Phase 82.2: expose stop hook ให้ showRoute() เรียกตอน navigate ออก
 if (typeof window !== "undefined") {
   window._stopStockInScanner = () => {
-    if (_swScanner) {
-      try { _swScanner.stop?.().catch?.(()=>{}); _swScanner.clear?.(); } catch(e){}
-      _swScanner = null;
+    _swScannerActive = false;
+    _swScanSessionId++;
+    const scanner = _swScanner;
+    _swScanner = null;
+    if (scanner) {
+      try { scanner.stop?.().catch?.(()=>{}); scanner.clear?.(); } catch(e){}
     }
     _swLastScanCode = null;
     _swLastScanTime = 0;
+    document.getElementById("swScannerArea")?.classList.add("hidden");
   };
 }
 
 async function saveAll(ctx) {
   const { state, showToast } = ctx;
   if (_swRows.length === 0) return;
+  if (_swSaving) return;
+  _swSaving = true;
+  try {
+    await stopScannerHard();
+    blurStockInInputs();
 
-  const totalItems = _swRows.length;
-  const totalQty = _swRows.reduce((s, r) => s + r.qty, 0);
-  const totalValue = _swRows.reduce((s, r) => s + r.qty * r.cost, 0);
+    const totalItems = _swRows.length;
+    const totalQty = _swRows.reduce((s, r) => s + r.qty, 0);
+    const totalValue = _swRows.reduce((s, r) => s + r.qty * r.cost, 0);
 
-  const whName = state.warehouses.find(w => String(w.id) === String(_swWarehouseId))?.name || "?";
-  const summary = `บันทึกการรับเข้า ${totalItems} รายการ • ${totalQty} ชิ้น • ฿${money(totalValue)} • คลัง: ${whName}${_swSupplier ? ' • ' + _swSupplier : ''}${_swInvoiceNo ? ' • ' + _swInvoiceNo : ''} — ดำเนินการต่อ?`;
-  if (!(await window.App?.confirm?.(summary))) return;
+    const whName = state.warehouses.find(w => String(w.id) === String(_swWarehouseId))?.name || "?";
+    const summary = `บันทึกการรับเข้า ${totalItems} รายการ • ${totalQty} ชิ้น • ฿${money(totalValue)} • คลัง: ${whName}${_swSupplier ? ' • ' + _swSupplier : ''}${_swInvoiceNo ? ' • ' + _swInvoiceNo : ''} — ดำเนินการต่อ?`;
+    if (!(await window.App?.confirm?.(summary))) return;
 
-  const btn = document.querySelector("#swSaveBtn");
-  if (btn) { btn.disabled = true; btn.textContent = "กำลังบันทึก..."; }
+    const btn = document.querySelector("#swSaveBtn");
+    if (btn) { btn.disabled = true; btn.textContent = "กำลังบันทึก..."; }
 
-  const whIdNum = Number(_swWarehouseId);
-  const warehouseId = Number.isFinite(whIdNum) && String(whIdNum) === String(_swWarehouseId) ? whIdNum : _swWarehouseId;
-  const noteCommon = `รับเข้า: ${_swSupplier || "ไม่ระบุ supplier"}${_swInvoiceNo ? " (Inv " + _swInvoiceNo + ")" : ""}`;
+    const whIdNum = Number(_swWarehouseId);
+    const warehouseId = Number.isFinite(whIdNum) && String(whIdNum) === String(_swWarehouseId) ? whIdNum : _swWarehouseId;
+    const noteCommon = `รับเข้า: ${_swSupplier || "ไม่ระบุ supplier"}${_swInvoiceNo ? " (Inv " + _swInvoiceNo + ")" : ""}`;
 
-  let ok = 0, fail = 0;
-  for (const r of _swRows) {
-    try {
-      const res = await window._appApplyStockMovement({
-        productId: r.productId,
-        warehouseId,
-        movementType: "in",
-        qty: r.qty,
-        note: noteCommon
-      });
-      if (!res?.ok) { fail++; continue; }
-
-      // อัพเดทต้นทุนถ้าเปลี่ยน
-      if (r.cost !== r.originalCost && r.cost >= 0) {
-        const cfg = window.SUPABASE_CONFIG;
-        const accessToken = window._sbAccessToken || cfg.anonKey;
-        await new Promise(resolve => {
-          const xhr = new XMLHttpRequest();
-          xhr.open("PATCH", cfg.url + "/rest/v1/products?id=eq." + encodeURIComponent(r.productId));
-          xhr.setRequestHeader("Content-Type", "application/json");
-          xhr.setRequestHeader("apikey", cfg.anonKey);
-          xhr.setRequestHeader("Authorization", "Bearer " + accessToken);
-          xhr.setRequestHeader("Prefer", "return=minimal");
-          xhr.timeout = 8000;
-          xhr.onload = () => resolve();
-          xhr.onerror = () => resolve();
-          xhr.ontimeout = () => resolve();
-          xhr.send(JSON.stringify({ cost: r.cost }));
+    let ok = 0, fail = 0;
+    for (const r of _swRows) {
+      try {
+        const res = await window._appApplyStockMovement({
+          productId: r.productId,
+          warehouseId,
+          movementType: "in",
+          qty: r.qty,
+          note: noteCommon
         });
-      }
-      ok++;
-    } catch(e) { fail++; }
-  }
+        if (!res?.ok) { fail++; continue; }
 
-  if (btn) { btn.disabled = false; btn.textContent = "💾 บันทึกการรับเข้า"; }
-  showToast?.(`✅ รับเข้าสำเร็จ ${ok}/${totalItems}${fail > 0 ? ` (ล้มเหลว ${fail})` : ''}`);
+        // อัพเดทต้นทุนถ้าเปลี่ยน
+        if (r.cost !== r.originalCost && r.cost >= 0) {
+          const cfg = window.SUPABASE_CONFIG;
+          const accessToken = window._sbAccessToken || cfg.anonKey;
+          await new Promise(resolve => {
+            const xhr = new XMLHttpRequest();
+            xhr.open("PATCH", cfg.url + "/rest/v1/products?id=eq." + encodeURIComponent(r.productId));
+            xhr.setRequestHeader("Content-Type", "application/json");
+            xhr.setRequestHeader("apikey", cfg.anonKey);
+            xhr.setRequestHeader("Authorization", "Bearer " + accessToken);
+            xhr.setRequestHeader("Prefer", "return=minimal");
+            xhr.timeout = 8000;
+            xhr.onload = () => resolve();
+            xhr.onerror = () => resolve();
+            xhr.ontimeout = () => resolve();
+            xhr.send(JSON.stringify({ cost: r.cost }));
+          });
+        }
+        ok++;
+      } catch(e) { fail++; }
+    }
 
-  if (ok > 0) {
-    _swRows = [];
-    _swInvoiceNo = "";
-    if (window.App?.loadAllData) await window.App.loadAllData();
-    renderStockInWizardPage(ctx);
+    if (btn) { btn.disabled = false; btn.textContent = "💾 บันทึกการรับเข้า"; }
+    showToast?.(`✅ รับเข้าสำเร็จ ${ok}/${totalItems}${fail > 0 ? ` (ล้มเหลว ${fail})` : ''}`);
+
+    if (ok > 0) {
+      _swRows = [];
+      _swInvoiceNo = "";
+      if (window.App?.loadAllData) await window.App.loadAllData();
+      renderStockInWizardPage(ctx);
+    }
+  } finally {
+    _swSaving = false;
   }
 }
