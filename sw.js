@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v127 (2026-05-06): Phase 83.2 — fix keyboard เด้งออก เพราะ re-render (DOM surgery แทน)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v127';
+// v128 (2026-05-06): Phase 83.3 — OTP provider errors stay JSON
+const CACHE_NAME = 'boonsook-pos-v5-cache-v128';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

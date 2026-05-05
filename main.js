@@ -1271,7 +1271,12 @@ async function readApiJson(response, label) {
   const text = await response.text();
   const contentType = response.headers.get("content-type") || "";
 
-  if (!text) return {};
+  if (!text) {
+    if (!response.ok) {
+      throw new Error(`${label}: server ขัดข้อง (HTTP ${response.status}) กรุณาลองใหม่อีกครั้ง`);
+    }
+    return {};
+  }
   if (contentType.includes("application/json")) {
     try {
       return JSON.parse(text);
@@ -1282,12 +1287,18 @@ async function readApiJson(response, label) {
 
   const trimmed = text.trim();
   if (trimmed.startsWith("<!DOCTYPE") || trimmed.startsWith("<html") || trimmed.startsWith("<")) {
+    if (!response.ok) {
+      throw new Error(`${label}: server ขัดข้อง (HTTP ${response.status}) กรุณาลองใหม่อีกครั้ง`);
+    }
     throw new Error(`${label}: ไม่พบ API หรือ server คืนหน้าเว็บแทนข้อมูล กรุณาลองรีเฟรชหรือรอ deploy ให้เสร็จ`);
   }
 
   try {
     return JSON.parse(text);
   } catch (e) {
+    if (!response.ok) {
+      throw new Error(`${label}: server ขัดข้อง (HTTP ${response.status}) กรุณาลองใหม่อีกครั้ง`);
+    }
     throw new Error(`${label}: คำตอบจากเซิร์ฟเวอร์ไม่ถูกต้อง`);
   }
 }

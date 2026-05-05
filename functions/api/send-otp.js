@@ -52,7 +52,11 @@ export async function onRequestPost(context) {
   const allowDevOtp = isDevOtpAllowed(context);
 
   try {
-    const { phone } = await context.request.json();
+    const body = await context.request.json().catch(() => null);
+    if (!body || typeof body !== "object") {
+      return jsonResponse({ ok: false, error: "รูปแบบคำขอ OTP ไม่ถูกต้อง" }, 400, corsHeaders);
+    }
+    const { phone } = body;
     if (!phone || phone.replace(/\D/g, "").length < 9) {
       return new Response(JSON.stringify({ ok: false, error: "เบอร์โทรไม่ถูกต้อง" }), { status: 400, headers: corsHeaders });
     }
@@ -146,7 +150,10 @@ export async function onRequestPost(context) {
           headers: corsHeaders
         });
       }
-      return otpUnavailable(corsHeaders, 502);
+      // Avoid returning HTTP 502 from Pages Functions. Cloudflare may replace
+      // worker-generated 502 bodies with a plain edge error, which breaks JSON
+      // parsing on the client and hides the real OTP provider problem.
+      return otpUnavailable(corsHeaders, 503);
     }
 
     // ส่ง hash + expiresAt กลับ (ไม่ส่ง code กลับ!)
