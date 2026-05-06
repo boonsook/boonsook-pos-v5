@@ -67,6 +67,16 @@
 ### Customer accounts (test)
 - babang / 0874536754 (ลูกค้า role) — สมัครผ่าน OTP เมื่อ 1 พ.ค. (Bug E verify)
 
+### OTP / SMS (Customer login)
+- **Mode**: 🟡 **On-screen fallback** (ไม่ใช่ SMS จริง) ตั้งแต่ 6 พ.ค. 2026
+- **Cloudflare env**: `OTP_WEB_FALLBACK=true` (Plaintext) + `OTP_SECRET` (Secret)
+- **Twilio**: ไม่ active หรือ trial หมด — server return 503 ถ้า fallback ปิด
+- **Code**: [functions/api/send-otp.js](functions/api/send-otp.js) — เห็น `otpDelivery: "web_fallback"` → frontend แสดง prefix "[OTP หน้าเว็บชั่วคราว]"
+- **⚠️ Security trade-off accepted**: ใครพิมพ์เบอร์ลูกค้าคนใดก็ login เป็นคนนั้นได้
+  - `authPassword` ใน [verify-otp.js:47-49](functions/api/verify-otp.js) เป็น HMAC deterministic — login สำเร็จ 1 ครั้ง = จำ password ใช้ได้ตลอด
+  - ถ้าเปลี่ยนกลับมาใช้ SMS ถาวร → ต้อง **หมุน `OTP_SECRET`** เพื่อ invalidate password ที่ attacker อาจคำนวณไว้
+- **TODO ระยะยาว**: ตั้ง Twilio (เติม credit) หรือใช้ ThaiBulkSMS / SMS Master ราคาถูกกว่า
+
 ---
 
 ## 🩹 Phase 75.2 — Fix view profiles_with_email ขาด department_id (3 พ.ค. รอบดึก+1)
