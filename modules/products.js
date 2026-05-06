@@ -2071,7 +2071,7 @@ async function openCategoryManagerDialog(ctx) {
   modal.id = "bskCatMgrModal";
   modal.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px";
   modal.innerHTML = `
-    <div style="background:#fff;border-radius:16px;max-width:600px;width:100%;max-height:88vh;overflow:hidden;display:flex;flex-direction:column">
+    <div style="background:#fff;border-radius:16px;max-width:600px;width:100%;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;padding-bottom:env(safe-area-inset-bottom,0)">
       <div style="padding:16px 20px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center">
         <div>
           <h3 style="margin:0;font-size:17px">🗂️ จัดการหมวดหมู่</h3>

@@ -111,7 +111,7 @@ export function renderAcInstallPage(ctx) {
     <!-- ข้อมูลลูกค้า -->
     <div class="panel">
       <div class="set-section-title">👤 ข้อมูลลูกค้า</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px">
         <div>
           <label class="set-field-label">ชื่อลูกค้า</label>
           <input type="text" id="acName" placeholder="ชื่อ-นามสกุล" />
