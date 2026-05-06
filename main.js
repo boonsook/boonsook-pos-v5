@@ -661,12 +661,19 @@ function showConfirmModal(message, onConfirm, onCancel) {
   // Remove existing modal
   document.getElementById("bskConfirmModal")?.remove();
 
+  // ★ Phase 83.4: Mobile fix — blur active input ก่อน show dialog (กัน keyboard บัง)
+  if (document.activeElement instanceof HTMLElement) {
+    document.activeElement.blur();
+  }
+
   const modal = document.createElement("div");
   modal.id = "bskConfirmModal";
   modal.className = "confirm-overlay";
   modal.setAttribute("role", "alertdialog");
   modal.setAttribute("aria-modal", "true");
   modal.setAttribute("aria-label", "ยืนยัน");
+  // ★ Phase 83.4: Inline z-index สูงกว่า keyboard layer + ensure visibility บน mobile
+  modal.style.zIndex = "10000";
   modal.innerHTML = `
     <div class="confirm-card">
       <p class="confirm-msg">${escapeHtml(message)}</p>
@@ -677,13 +684,22 @@ function showConfirmModal(message, onConfirm, onCancel) {
     </div>`;
   document.body.appendChild(modal);
 
+  // ★ Scroll dialog into view + lock body scroll (mobile reliability)
+  const _prevBodyOverflow = document.body.style.overflow;
+  document.body.style.overflow = "hidden";
+  setTimeout(() => modal.scrollIntoView({ block: "center", behavior: "instant" }), 10);
+
   const okBtn = modal.querySelector(".confirm-ok");
   const cancelBtn = modal.querySelector(".confirm-cancel");
   const previousFocus = document.activeElement;
 
   function close(result) {
     modal.remove();
-    previousFocus?.focus();
+    document.body.style.overflow = _prevBodyOverflow || "";
+    // อย่า refocus previous element ถ้าเป็น text input — กัน keyboard เด้งกลับ
+    if (previousFocus && !(previousFocus instanceof HTMLInputElement) && !(previousFocus instanceof HTMLTextAreaElement)) {
+      try { previousFocus.focus(); } catch (e) {}
+    }
     if (result && onConfirm) onConfirm();
     else if (!result && onCancel) onCancel();
   }
