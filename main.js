@@ -1337,9 +1337,10 @@ async function requestOtp() {
     $("otpStep1")?.classList.add("hidden");
     $("otpStep2")?.classList.remove("hidden");
     setText("otpPhoneDisplay", phone.replace(/(\d{3})(\d{3})(\d{4})/, "$1-$2-$3"));
-    // * แสดง OTP บนจอใน dev mode (เมื่อยังไม่ได้ตั้ง Twilio)
+    // * แสดง OTP บนจอเมื่อเปิดโหมด fallback ชั่วคราวจากฝั่ง server
     if (data.dev && data.devCode) {
-      setText("otpStatus", "[โหมดทดสอบ] รหัส OTP ของคุณคือ " + data.devCode + " (ตั้ง Twilio env vars บน Cloudflare เพื่อส่ง SMS จริง)");
+      const prefix = data.otpDelivery === "web_fallback" ? "[OTP หน้าเว็บชั่วคราว]" : "[โหมดทดสอบ]";
+      setText("otpStatus", prefix + " รหัส OTP ของคุณคือ " + data.devCode);
     } else {
       setText("otpStatus", "ส่งรหัส OTP ไปเบอร์ " + phone + " แล้ว (ตรวจสอบ SMS)");
     }

@@ -1,6 +1,6 @@
 // Cloudflare Pages Function — POST /api/send-otp
-// Sends SMS OTP via Twilio. Dev-code fallback is disabled unless explicitly
-// enabled for a non-production runtime.
+// Sends SMS OTP via Twilio. Web-code fallback is opt-in for temporary use
+// while the SMS provider is unavailable.
 
 const DEV_OTP_RUNTIMES = new Set(["dev", "development", "local", "staging", "test"]);
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
@@ -19,11 +19,16 @@ function isDevOtpAllowed(context) {
   return isTrue(env.OTP_DEV_MODE) && (LOCAL_HOSTS.has(hostname) || DEV_OTP_RUNTIMES.has(runtimeName(env)));
 }
 
+function isWebOtpFallbackAllowed(context) {
+  const env = context.env || {};
+  return isTrue(env.OTP_WEB_FALLBACK) || isTrue(env.OTP_SHOW_CODE_ON_SCREEN);
+}
+
 function jsonResponse(data, status, headers) {
   return new Response(JSON.stringify(data), { status, headers });
 }
 
-function devOtpResponse({ hash, expiresAt, phone, code, notice, headers }) {
+function devOtpResponse({ hash, expiresAt, phone, code, notice, headers, mode = "dev" }) {
   return jsonResponse({
     ok: true,
     hash,
@@ -31,6 +36,7 @@ function devOtpResponse({ hash, expiresAt, phone, code, notice, headers }) {
     phone,
     dev: true,
     devCode: code,
+    otpDelivery: mode,
     devNotice: notice
   }, 200, headers);
 }
@@ -50,6 +56,7 @@ export async function onRequestPost(context) {
     "Content-Type": "application/json"
   };
   const allowDevOtp = isDevOtpAllowed(context);
+  const allowWebOtpFallback = isWebOtpFallbackAllowed(context);
 
   try {
     const body = await context.request.json().catch(() => null);
@@ -91,17 +98,20 @@ export async function onRequestPost(context) {
     const authToken = context.env.TWILIO_AUTH_TOKEN;
     const fromNumber = context.env.TWILIO_FROM_NUMBER;
 
-    // Dev fallback is opt-in only; production must fail closed instead of leaking the OTP.
+    // Temporary web fallback is opt-in only. Disable OTP_WEB_FALLBACK when SMS works.
     if (!accountSid || !authToken || !fromNumber) {
       console.error("[send-otp] Twilio credentials not configured");
-      if (allowDevOtp) {
+      if (allowDevOtp || allowWebOtpFallback) {
         return devOtpResponse({
           hash,
           expiresAt,
           phone: cleanPhone,
           code,
-          notice: "OTP_DEV_MODE: Twilio credentials are not configured",
-          headers: corsHeaders
+          notice: allowWebOtpFallback
+            ? "โหมด OTP หน้าเว็บชั่วคราว: ยังไม่ได้ตั้งค่า SMS provider"
+            : "OTP_DEV_MODE: Twilio credentials are not configured",
+          headers: corsHeaders,
+          mode: allowWebOtpFallback ? "web_fallback" : "dev"
         });
       }
       return otpUnavailable(corsHeaders, 503);
@@ -140,14 +150,17 @@ export async function onRequestPost(context) {
     }
 
     if (twilioFailed) {
-      if (allowDevOtp) {
+      if (allowDevOtp || allowWebOtpFallback) {
         return devOtpResponse({
           hash,
           expiresAt,
           phone: cleanPhone,
           code,
-          notice: "Twilio: " + twilioErrorMsg,
-          headers: corsHeaders
+          notice: allowWebOtpFallback
+            ? "โหมด OTP หน้าเว็บชั่วคราว: SMS provider ส่งไม่สำเร็จ"
+            : "Twilio: " + twilioErrorMsg,
+          headers: corsHeaders,
+          mode: allowWebOtpFallback ? "web_fallback" : "dev"
         });
       }
       // Avoid returning HTTP 502 from Pages Functions. Cloudflare may replace

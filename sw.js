@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v129 (2026-05-06): Phase 83.3 AC install save timeout/progress + OTP errors stay JSON
-const CACHE_NAME = 'boonsook-pos-v5-cache-v129';
+// v130 (2026-05-06): Phase 83.4 — optional web OTP fallback
+const CACHE_NAME = 'boonsook-pos-v5-cache-v130';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
