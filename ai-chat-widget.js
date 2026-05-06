@@ -212,12 +212,16 @@
   }
   #bs-ai-fab:hover { transform: translateY(-2px); }
   #bs-ai-fab.hidden { display: none; }
-  /* ★ ซ่อน FAB เมื่อมี drawer/modal เปิดอยู่ (กันบังปุ่มบันทึก) */
+  /* ★ ซ่อน FAB เมื่อมี drawer/modal เปิดอยู่ (กันบังปุ่มบันทึก)
+     + Phase 84: ซ่อนตอน login screen (ทับ "สำหรับลูกค้า") + setPasswordScreen */
   body:has(#backdrop:not(.hidden)) #bs-ai-fab,
   body:has(.drawer:not(.hidden)) #bs-ai-fab,
   body:has(#bskQrModal) #bs-ai-fab,
   body:has(#sm-modal:not(.sm-modal-hidden)) #bs-ai-fab,
-  body:has(#sm-transfer-modal:not(.sm-modal-hidden)) #bs-ai-fab { display: none !important; }
+  body:has(#sm-transfer-modal:not(.sm-modal-hidden)) #bs-ai-fab,
+  body:has(#authScreen:not(.hidden)) #bs-ai-fab,
+  body:has(#setPasswordScreen:not(.hidden)) #bs-ai-fab,
+  body:has(#bskConfirmModal) #bs-ai-fab { display: none !important; }
   @media (max-width: 480px) {
     #bs-ai-modal {
       right: 0; bottom: 0; width: 100vw; height: 100vh;
