@@ -459,9 +459,9 @@ function renderQuotationForm(container) {
           <input id="qt_customerSearch" placeholder="ค้นหาลูกค้า หรือพิมพ์ชื่อใหม่..." value="${escHtml(prevCust)}" autocomplete="off" />
           <div id="qt_customerDropdown" class="qt-dropdown hidden"></div>
         </div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
-          <input id="qt_customerPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="เบอร์โทร" value="${escHtml(prevPhone)}" />
-          <input id="qt_customerTaxId" inputmode="numeric" placeholder="เลขผู้เสียภาษี" value="${escHtml(prevTaxId)}" />
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <input id="qt_customerPhone" placeholder="เบอร์โทร" value="${escHtml(prevPhone)}" />
+          <input id="qt_customerTaxId" placeholder="เลขผู้เสียภาษี" value="${escHtml(prevTaxId)}" />
         </div>
         <textarea id="qt_customerAddress" rows="2" placeholder="ที่อยู่ลูกค้า">${escHtml(prevAddr)}</textarea>
       </div>

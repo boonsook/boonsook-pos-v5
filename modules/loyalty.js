@@ -225,8 +225,8 @@ export function renderLoyaltyPage(ctx) {
       </div>
 
       <!-- Point History Modal -->
-      <div id="loyalty-history-modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; padding: 20px; overflow-y: auto;">
-        <div style="background: white; border-radius: 8px; margin: 50px auto 20px; max-width: 600px; max-height: calc(100vh - 80px); overflow-y: auto; padding-bottom: 20px;">
+      <div id="loyalty-history-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; padding: 20px;">
+        <div style="background: white; border-radius: 8px; margin: auto; margin-top: 50px; max-width: 600px; max-height: 80vh; overflow-y: auto;">
           <div style="padding: 20px; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center;">
             <h3 id="loyalty-history-title" style="margin: 0;">ประวัติแต้ม</h3>
             <button onclick="document.getElementById('loyalty-history-modal').style.display='none'" style="background: none; border: none; font-size: 20px; cursor: pointer; color: #999;">✕</button>

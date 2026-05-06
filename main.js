@@ -2747,7 +2747,7 @@ async function _generateShareToken(job) {
   }
 }
 async function _revokeShareToken(job) {
-  if (!(await confirmAsync("ยกเลิก link นี้? — ลูกค้าจะเปิดดูสถานะไม่ได้แล้ว"))) return;
+  if (!confirm("ยกเลิก link นี้? — ลูกค้าจะเปิดดูสถานะไม่ได้แล้ว")) return;
   try {
     const cfg = window.SUPABASE_CONFIG;
     const t = window._sbAccessToken;

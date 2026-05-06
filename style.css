@@ -207,7 +207,7 @@ input, select, textarea { width: 100%; border: 1px solid var(--line); border-rad
 .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
 .stat-card { background: #fff; border: 1px solid var(--line); border-radius: 20px; padding: 16px; box-shadow: var(--shadow); }
 .stat-label { font-size: 13px; color: var(--muted); }
-.stat-value { font-size: clamp(18px, 5vw, 28px); font-weight: 900; margin-top: 6px; overflow-wrap: anywhere; line-height: 1.15; }
+.stat-value { font-size: 28px; font-weight: 900; margin-top: 6px; word-break: break-all; }
 
 /* ═══ GRID / LIST ═══ */
 .two-col { display: grid; grid-template-columns: 1.15fr .85fr; gap: 16px; }
@@ -372,15 +372,6 @@ th { color: var(--muted); font-size: 12px; }
   .page { padding: 10px 10px 100px; gap: 10px; }
   .topbar { padding: 8px 10px; }
   .page-title { font-size: 16px; }
-  /* Phase 84: hide step-connector line on tiny screens (overlaps labels) */
-  .cust-step-line { display: none; }
-  /* Phase 84: customer product grid → 2 cols max on tiny screens (auto-fill drops to 1 if min-width too high) */
-  .cust-product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
-}
-
-/* Phase 84: small phones — single column for customer product grid */
-@media (max-width: 360px) {
-  .cust-product-grid { grid-template-columns: 1fr !important; }
 }
 
 /* ═══════════════════════════════════════════════════════════

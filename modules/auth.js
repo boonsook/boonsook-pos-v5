@@ -139,21 +139,8 @@ function _renderIndicator() {
 }
 
 // ── PIN Login Modal ───────────────────────────────────────
-// ★ Phase 84: ย้าย async logic ออกจาก Promise constructor (กัน promise ค้างถ้า throw)
 export function showStaffLogin() {
-  return new Promise((resolve, reject) => {
-    (async () => {
-      try {
-        await _showStaffLoginImpl(resolve);
-      } catch (err) {
-        console.error('[auth] showStaffLogin failed:', err);
-        reject(err);
-      }
-    })();
-  });
-}
-
-async function _showStaffLoginImpl(resolve) {
+  return new Promise(async (resolve) => {
     const sb = window._supabase;
 
     // ดึงรายชื่อพนักงานที่ active
@@ -363,6 +350,7 @@ async function _showStaffLoginImpl(resolve) {
         }
       });
     });
+  });
 }
 
 // ── Init (เรียกจาก index.html หรือ main router) ───────────

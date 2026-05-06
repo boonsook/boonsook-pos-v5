@@ -1,68 +1,8 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 6 พฤษภาคม 2026 (Phase 84 — Full-app audit fixes)
-**Version:** 5.33.0 (build 147) — Phase 84 audit batch
-**Previous:** 5.32.7 (build 146) — Phase 83.4 confirm dialog mobile
-
-## 🆕 Phase 84 — Full-app audit fixes (6 พ.ค. 2026)
-
-User ขอ audit หาบัค & แก้ — focus mobile font ทับ. ทำ 4-agent parallel audit + verify findings สำคัญ + แก้ใน 5 batch:
-
-### Batch 1: Mobile CSS / font overlap
-- [style.css:210](style.css:210) — `.stat-value` `word-break:break-all` (แตกพิกเซล) → `clamp(18px,5vw,28px)` + `overflow-wrap:anywhere`
-- [modules/customer_dashboard.js:281](modules/customer_dashboard.js:281) — product grid 2-col hardcoded → `repeat(auto-fill,minmax(160px,1fr))` + class `cust-product-grid`
-- [style.css](style.css) — เพิ่ม `@media (max-width:768px) .cust-product-grid` 2-col + `(max-width:360px)` 1-col + hide `.cust-step-line`
-- [modules/customer_dashboard.js:584](modules/customer_dashboard.js:584) — stepper line `position:absolute` ทับ label บน mobile → class + CSS hide
-- [modules/ac_install.js:114](modules/ac_install.js:114) — customer info grid 2-col → `auto-fit minmax(200px,1fr)` (stack auto)
-- [modules/btu_calculator.js:42](modules/btu_calculator.js:42) — 3-col grid → `auto-fit minmax(120px,1fr)`
-- [modules/products.js:2074](modules/products.js:2074) — Cat manager modal `max-height:88vh` → `90vh` + safe-area-inset padding
-- [modules/loyalty.js:228](modules/loyalty.js:228) — history modal ไม่มี outer overflow → `inset:0` + `overflow-y:auto` + `max-height:calc(100vh - 80px)`
-- [modules/quotations.js:462](modules/quotations.js:462) — phone+taxId 2-col → `auto-fit minmax(180px,1fr)`
-
-### Batch 2: Native confirm() → App.confirm (มี wrapper พร้อมตั้งแต่ Phase 43.3)
-- [main.js:2750](main.js) — _revokeShareToken
-- [ai-chat-widget.js:285](ai-chat-widget.js) — restart chat
-- [modules/products.js:644](modules/products.js) — export filter choice
-- [modules/products.js:1949](modules/products.js) — bulk clear category
-- [modules/products.js:1972-1973](modules/products.js) — bulk delete (double confirm)
-- [modules/products.js:2210](modules/products.js) — delete category
-
-**Note**: `prompt()` 3 จุดใน [products.js:1947, 1958, 2213](modules/products.js) ยังคงไว้ — ต้อง custom prompt modal (text input) ใหญ่กว่า 1 commit ทำไหว — ทำใน phase ถัดไป
-
-### Batch 3: Promise antipattern
-- [modules/auth.js:142](modules/auth.js) — `new Promise(async (resolve) => ...)` (ถ้า throw → modal ค้าง) → wrap ใน `(async()=>{try{...}catch(e){reject(e)}})()` + แยก `_showStaffLoginImpl(resolve)`
-
-### Batch 4: Form input attrs (mobile keyboard ถูกต้อง)
-- [index.html:47](index.html) — loginEmail: + `inputmode="email"` `enterkeyhint="next"`
-- [index.html:50](index.html) — loginPassword: + `enterkeyhint="go"`
-- [index.html:81](index.html) — custPhone: + `inputmode="tel"` `enterkeyhint="go"` + ลด placeholder ยาว
-- [index.html:96](index.html) — otpCode: + `inputmode="numeric"` `enterkeyhint="go"`
-- [modules/quotations.js:463](modules/quotations.js) — phone: + `type="tel"` `inputmode="tel"` `autocomplete="tel"`; taxId: + `inputmode="numeric"`
-- [modules/ac_install.js:121](modules/ac_install.js) — acPhone: + `inputmode="tel"` `autocomplete="tel"`; acName: + `autocomplete="name"`
-- [modules/ac_install.js:137](modules/ac_install.js) — acQty: + `inputmode="numeric"`
-
-### Batch 5: Defensive null checks
-- [modules/customer_dashboard.js:48](modules/customer_dashboard.js) — `_uploadSlipToStorage` base64 parsing — เพิ่ม input validation + try/catch atob
-
-### ⚠️ ที่ปล่อยไว้ (รอ user ตัดสินใจ phase ต่อ)
-- Duplicate IDs `posBack` (8 จุด) + `setBackBtn` (9 จุด) — agent flag เป็น critical แต่จริงๆ render รี-replace innerHTML → element เดียวต่อเวลา ไม่ใช่ bug ตอนนี้ (code smell)
-- Native `prompt()` ใน products.js (3 จุด) — รอ custom prompt modal
-- Timer cleanup ใน dashboard.js + customer_dashboard.js — `setTimeout` ไม่ clear ตอน route change (race condition)
-- ปุ่ม `<button>` หลายจุดใน pos.js ไม่มี `type="button"` (ยังไม่มีปัญหาเพราะไม่อยู่ใน `<form>`)
-
-### How to test (after deploy)
-1. Hard reload (Ctrl+Shift+R) บนมือถือจริง
-2. ดู Settings → ตรวจหาอัปเดต — ต้องเป็น 5.33.0 (build 147)
-3. ทดสอบหน้า:
-   - Customer dashboard — product grid stack ดี ไม่ทับ?
-   - AC install — customer name+phone, qty input keyboard ถูก (numeric)
-   - Login screen — email enter→password, password enter→login
-   - OTP screen — เบอร์ enter → submit, OTP enter → verify
-   - Settings → Products → bulk delete → ต้องเห็น modal สวยๆ ไม่ใช่ native popup
-   - Quotation → กรอกลูกค้า → phone keyboard เป็น tel
-4. POS staff login modal — login ปกติได้ (ดู error console ห้ามมี Promise unhandled)
-
----
+**อัปเดตล่าสุด:** 5 พฤษภาคม 2026 (Phase 82.5 — Stop Stock IN scanner after first scan)
+**Version:** 5.31.8 (build 137) — Phase 80-82.5 รวมทั้งชุด
+**Previous:** 5.30.1 (build 127) — Phase 76-79.9
 
 ## 🆕 Phase 80-82.5 ที่เสร็จในรอบนี้
 
