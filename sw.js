@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v131 (2026-05-06): Phase 83.4 confirm dialog mobile fix + optional web OTP fallback
-const CACHE_NAME = 'boonsook-pos-v5-cache-v131';
+// v132 (2026-05-06): Phase 84 — full-app audit fixes (mobile CSS + native confirm migration + a11y)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v132';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

@@ -39,7 +39,7 @@ export function renderBtuCalculatorPage(ctx) {
 
     <div class="panel">
       <div class="set-section-title">📐 ขนาดห้อง</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px">
         <div>
           <label class="set-field-label">กว้าง (เมตร)</label>
           <input type="number" id="btuWidth" value="4" min="1" max="30" step="0.5" />

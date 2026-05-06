@@ -9,7 +9,7 @@
   <link rel="icon" type="image/svg+xml" href="./icons/logo.svg" />
   <link rel="manifest" href="./manifest.json" />
   <link rel="apple-touch-icon" href="./icons/logo.svg" />
-  <link rel="stylesheet" href="./style.css?v=17" />
+  <link rel="stylesheet" href="./style.css?v=18" />
   <link rel="stylesheet" href="./doc-print.css?v=1" />
   <!-- ✨ Phase 4: Design System & Components (30/3/2569) -->
   <link rel="stylesheet" href="./phase4-design-system.css?v=1" />
@@ -44,10 +44,10 @@
       <div id="staffLoginForm">
         <div class="stack">
           <label for="loginEmail" class="sr-only">อีเมล</label>
-          <input class="form-input" id="loginEmail" type="email" placeholder="อีเมล (สำหรับพนักงาน)" autocomplete="email" aria-label="อีเมลสำหรับพนักงาน" />
+          <input class="form-input" id="loginEmail" type="email" inputmode="email" enterkeyhint="next" placeholder="อีเมล (สำหรับพนักงาน)" autocomplete="email" aria-label="อีเมลสำหรับพนักงาน" />
           <div class="password-wrap">
             <label for="loginPassword" class="sr-only">รหัสผ่าน</label>
-            <input class="form-input" id="loginPassword" type="password" placeholder="รหัสผ่าน" autocomplete="current-password" aria-label="รหัสผ่าน" />
+            <input class="form-input" id="loginPassword" type="password" enterkeyhint="go" placeholder="รหัสผ่าน" autocomplete="current-password" aria-label="รหัสผ่าน" />
             <button type="button" id="togglePassword" class="password-toggle" aria-label="แสดง/ซ่อนรหัสผ่าน" title="แสดง/ซ่อนรหัสผ่าน">👁️</button>
           </div>
         </div>
@@ -78,7 +78,7 @@
             <label for="custName" class="sr-only">ชื่อ-นามสกุล</label>
             <input class="form-input" id="custName" type="text" placeholder="ชื่อ-นามสกุล (สมัครใหม่ใส่ / มีบัญชีแล้วเว้นว่าง)" autocomplete="name" aria-label="ชื่อ-นามสกุล" />
             <label for="custPhone" class="sr-only">เบอร์โทรศัพท์</label>
-            <input class="form-input otp-phone-input" id="custPhone" type="tel" placeholder="เบอร์โทรศัพท์ เช่น 0812345678" maxlength="10" pattern="[0-9]{10}" autocomplete="tel" aria-label="เบอร์โทรศัพท์" />
+            <input class="form-input otp-phone-input" id="custPhone" type="tel" inputmode="tel" enterkeyhint="go" placeholder="เบอร์ เช่น 0812345678" maxlength="10" pattern="[0-9]{10}" autocomplete="tel" aria-label="เบอร์โทรศัพท์" />
           </div>
           <div class="row mt16">
             <button id="requestOtpBtn" class="btn btn-primary btn-success-full">📱 ขอรหัส OTP</button>
@@ -93,7 +93,7 @@
           </div>
           <div class="stack">
             <label for="otpCode" class="sr-only">รหัส OTP</label>
-            <input class="form-input otp-code-input" id="otpCode" type="tel" placeholder="กรอกรหัส OTP 6 หลัก" maxlength="6" pattern="[0-9]{6}" autocomplete="one-time-code" aria-label="รหัส OTP 6 หลัก" />
+            <input class="form-input otp-code-input" id="otpCode" type="tel" inputmode="numeric" enterkeyhint="go" placeholder="กรอกรหัส OTP 6 หลัก" maxlength="6" pattern="[0-9]{6}" autocomplete="one-time-code" aria-label="รหัส OTP 6 หลัก" />
           </div>
           <div class="row mt16">
             <button id="verifyOtpBtn" class="btn btn-primary btn-success-full">ยืนยัน OTP</button>
@@ -715,7 +715,7 @@
   <script>
   (async function selfHeal() {
     try {
-      var APP_BUILD = 146;
+      var APP_BUILD = 147;
       var STUCK_BUILDS_BEFORE = 47; // builds before this มี immutable-cache bug
       var stored = parseInt(localStorage.getItem('bsk_app_build') || '0', 10);
       var justRecovered = sessionStorage.getItem('bsk_just_recovered') === '1';
@@ -764,7 +764,7 @@
     }
   })();
   </script>
-  <script type="module" src="./main.js?v=146"></script>
+  <script type="module" src="./main.js?v=147"></script>
   <script>
     // ═══ Loading Overlay ═══
     function hideLoadingOverlay() {

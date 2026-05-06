@@ -279,10 +279,13 @@
         document.querySelectorAll(".drawer").forEach(d => observer.observe(d, { attributes: true, attributeFilter: ["class"] }));
       }
     } catch(e){ /* ignore */ }
-    document.getElementById("bs-ai-restart-header").addEventListener("click", () => {
+    document.getElementById("bs-ai-restart-header").addEventListener("click", async () => {
       // ถ้ายังไม่มีประวัติ ไม่ต้องถาม — restart เลย
       if (!state.history.length) { restart(); return; }
-      if (confirm("ต้องการเริ่มสนทนาใหม่หรือไม่? (ข้อมูลที่คุยมาจะหายทั้งหมด)")) restart();
+      const ok = window.App?.confirm
+        ? await window.App.confirm("ต้องการเริ่มสนทนาใหม่หรือไม่? (ข้อมูลที่คุยมาจะหายทั้งหมด)")
+        : confirm("ต้องการเริ่มสนทนาใหม่หรือไม่? (ข้อมูลที่คุยมาจะหายทั้งหมด)");
+      if (ok) restart();
     });
     document.getElementById("bs-ai-send").addEventListener("click", () => send());
     document.getElementById("bs-ai-input").addEventListener("keydown", (e) => {

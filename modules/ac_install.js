@@ -111,14 +111,14 @@ export function renderAcInstallPage(ctx) {
     <!-- ข้อมูลลูกค้า -->
     <div class="panel">
       <div class="set-section-title">👤 ข้อมูลลูกค้า</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px">
         <div>
           <label class="set-field-label">ชื่อลูกค้า</label>
-          <input type="text" id="acName" placeholder="ชื่อ-นามสกุล" />
+          <input type="text" id="acName" placeholder="ชื่อ-นามสกุล" autocomplete="name" />
         </div>
         <div>
           <label class="set-field-label">เบอร์โทร</label>
-          <input type="tel" id="acPhone" placeholder="08X-XXXXXXX" />
+          <input type="tel" id="acPhone" placeholder="08X-XXXXXXX" inputmode="tel" autocomplete="tel" />
         </div>
       </div>
       <label class="set-field-label" style="margin-top:8px">ที่อยู่ติดตั้ง</label>
@@ -134,7 +134,7 @@ export function renderAcInstallPage(ctx) {
       }
       <div style="margin-top:10px">
         <label class="set-field-label">จำนวน (เครื่อง)</label>
-        <input type="number" id="acQty" value="1" min="1" max="10" />
+        <input type="number" id="acQty" value="1" min="1" max="10" inputmode="numeric" />
       </div>
     </div>
 

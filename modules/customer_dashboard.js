@@ -43,11 +43,14 @@ async function _uploadSlipToStorage(base64Data, state) {
     if (!cfg?.url || !cfg?.anonKey) return null;
     const token = (await state.supabase?.auth?.getSession?.())?.data?.session?.access_token || cfg.anonKey;
 
-    // แปลง base64 → Blob
+    // แปลง base64 → Blob (★ Phase 84: defensive — input อาจไม่มี data URL prefix)
+    if (!base64Data || typeof base64Data !== "string") return null;
     const arr = base64Data.split(",");
-    const mimeType = arr[0].match(/:(.*?);/)?.[1] || "image/jpeg";
+    const mimeType = arr[0]?.match(/:(.*?);/)?.[1] || "image/jpeg";
     const ext = mimeType.split("/")[1] || "jpg";
-    const bstr = atob(arr[1]);
+    const b64Body = arr[1] || arr[0];  // fallback ถ้า input ไม่มี comma prefix
+    let bstr;
+    try { bstr = atob(b64Body); } catch (e) { console.error("[slip] invalid base64:", e); return null; }
     const u8arr = new Uint8Array(bstr.length);
     for (let i = 0; i < bstr.length; i++) u8arr[i] = bstr.charCodeAt(i);
     const blob = new Blob([u8arr], { type: mimeType });
@@ -278,7 +281,7 @@ export function renderCustomerDashboard(ctx) {
           actionStyle: "ghost"
         })
       ) : `
-      <div id="custProductGrid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px">
+      <div id="custProductGrid" class="cust-product-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px">
         ${filteredProducts.map(p => {
           const imgUrl = p.image_url || p.img || "";
           const inCart = _custCart.find(c => c.id === p.id);
@@ -581,7 +584,7 @@ export function renderCustomerDashboard(ctx) {
                         ${s.icon}
                       </div>
                       <div style="font-size:10px;font-weight:${isCur ? '800' : '500'};color:${active ? '#0284c7' : '#94a3b8'};text-align:center;line-height:1.2">${s.label}</div>
-                      ${i < STEPS.length - 1 ? `<div style="position:absolute;top:14px;left:calc(50% + 16px);right:calc(-50% + 16px);height:3px;background:${i < step ? '#0284c7' : '#e2e8f0'};z-index:-1"></div>` : ''}
+                      ${i < STEPS.length - 1 ? `<div class="cust-step-line" style="position:absolute;top:14px;left:calc(50% + 16px);right:calc(-50% + 16px);height:3px;background:${i < step ? '#0284c7' : '#e2e8f0'};z-index:-1"></div>` : ''}
                     </div>`;
                 }).join("")}
               </div>`;

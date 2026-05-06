@@ -619,7 +619,7 @@ function renderView(ctx) {
   el.querySelector("#prodImportBtn")?.addEventListener("click", () => {
     el.querySelector("#prodFileInput")?.click();
   });
-  el.querySelector("#prodExportBtn")?.addEventListener("click", () => {
+  el.querySelector("#prodExportBtn")?.addEventListener("click", async () => {
     // ★ ถ้ามี filter active → ถามว่าจะ export filtered หรือ all
     const hasFilter = (currentTypeFilter !== 'all') || (currentFilter !== 'all') || (currentCategory !== 'all') || searchQuery || quickFilter;
     let exportList = state.products || [];
@@ -641,7 +641,7 @@ function renderView(ctx) {
           String(p.barcode || "").toLowerCase().includes(q)
         );
       }
-      const choice = confirm(`พบ filter ที่ใช้อยู่ (${f.length} รายการ)\n\nกด OK = export เฉพาะ ${f.length} รายการที่กรอง\nกด Cancel = export ทั้งหมด ${exportList.length} รายการ`);
+      const choice = await (window.App?.confirm?.(`พบ filter ที่ใช้อยู่ ${f.length} รายการ — กดยืนยันเพื่อ export เฉพาะที่กรอง (กดยกเลิกเพื่อ export ทั้งหมด ${exportList.length} รายการ)`) ?? Promise.resolve(false));
       if (choice) exportList = f;
     }
     exportProducts(state, exportList);
@@ -1946,7 +1946,8 @@ async function bulkSetCategory(ctx) {
   const cats = [...new Set((ctx.state.products || []).map(p => String(p.category || "").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"th"));
   const newCat = (prompt(`เปลี่ยนหมวดสำหรับ ${bulkSelected.size} สินค้า\n\nหมวดที่มี: ${cats.slice(0, 10).join(", ")}${cats.length > 10 ? "..." : ""}\n\nพิมพ์ชื่อหมวดใหม่ (หรือชื่อเดิม):`, "") || "").trim();
   if (newCat === "") {
-    if (!confirm("เคลียร์หมวด (ลบหมวดออกจากสินค้า)?")) return;
+    const ok = await (window.App?.confirm?.("เคลียร์หมวด (ลบหมวดออกจากสินค้า)?") ?? Promise.resolve(false));
+    if (!ok) return;
   }
   await _bulkPatchProducts([...bulkSelected], { category: newCat }, "เปลี่ยนหมวด");
   bulkSelected.clear();
@@ -1969,8 +1970,10 @@ async function bulkSetType(ctx) {
 
 async function bulkDelete(ctx) {
   if (bulkSelected.size === 0) return;
-  if (!confirm(`⚠️ ลบสินค้าที่เลือก ${bulkSelected.size} รายการ?\n\nกู้คืนไม่ได้!`)) return;
-  if (!confirm(`ยืนยันอีกครั้ง: ลบ ${bulkSelected.size} รายการ?`)) return;
+  const ok1 = await (window.App?.confirm?.(`⚠️ ลบสินค้าที่เลือก ${bulkSelected.size} รายการ? (กู้คืนไม่ได้)`) ?? Promise.resolve(false));
+  if (!ok1) return;
+  const ok2 = await (window.App?.confirm?.(`ยืนยันอีกครั้ง: ลบ ${bulkSelected.size} รายการ?`) ?? Promise.resolve(false));
+  if (!ok2) return;
   const cfg = window.SUPABASE_CONFIG;
   const accessToken = window._sbAccessToken || cfg.anonKey;
   let ok = 0, fail = 0;
@@ -2071,7 +2074,7 @@ async function openCategoryManagerDialog(ctx) {
   modal.id = "bskCatMgrModal";
   modal.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px";
   modal.innerHTML = `
-    <div style="background:#fff;border-radius:16px;max-width:600px;width:100%;max-height:88vh;overflow:hidden;display:flex;flex-direction:column">
+    <div style="background:#fff;border-radius:16px;max-width:600px;width:100%;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;padding-bottom:env(safe-area-inset-bottom,0)">
       <div style="padding:16px 20px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center">
         <div>
           <h3 style="margin:0;font-size:17px">🗂️ จัดการหมวดหมู่</h3>
@@ -2207,7 +2210,8 @@ async function openCategoryManagerDialog(ctx) {
 
       let action;
       if (matches.length === 0) {
-        if (!confirm(`ลบหมวด "${cat.name}" หรือไม่? (ไม่มีสินค้าใช้หมวดนี้)`)) return;
+        const ok = await (window.App?.confirm?.(`ลบหมวด "${cat.name}" หรือไม่? (ไม่มีสินค้าใช้หมวดนี้)`) ?? Promise.resolve(false));
+        if (!ok) return;
         action = "remove_only";
       } else {
         action = prompt(
