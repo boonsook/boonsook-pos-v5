@@ -845,7 +845,7 @@ function _openReceiptEditDrawer(r) {
           <span style="font-size:12px;color:#64748b">ชื่อลูกค้า *</span>
           <input id="rcEdName" type="text" value="${escHtml(r.customer_name || '')}" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;margin-top:4px" />
         </label>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
           <label style="display:block">
             <span style="font-size:12px;color:#64748b">เบอร์โทร</span>
             <input id="rcEdPhone" type="tel" value="${escHtml(r.customer_phone || '')}" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;margin-top:4px" />
@@ -863,7 +863,7 @@ function _openReceiptEditDrawer(r) {
           <span style="font-size:12px;color:#64748b">ผู้ขาย</span>
           <input id="rcEdSalesperson" type="text" value="${escHtml(r.salesperson || '')}" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;margin-top:4px" />
         </label>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
           <label style="display:block">
             <span style="font-size:12px;color:#64748b">โครงการ</span>
             <input id="rcEdProject" type="text" value="${escHtml(r.project_name || '')}" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;margin-top:4px" />

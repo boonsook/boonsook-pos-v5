@@ -792,7 +792,7 @@ function _openEditDrawer(inv) {
           <span style="font-size:12px;color:#64748b">ชื่อลูกค้า *</span>
           <input id="diEdName" type="text" value="${escHtml(inv.customer_name || '')}" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;margin-top:4px" />
         </label>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
           <label style="display:block">
             <span style="font-size:12px;color:#64748b">เบอร์โทร</span>
             <input id="diEdPhone" type="tel" value="${escHtml(inv.customer_phone || '')}" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;margin-top:4px" />
@@ -806,7 +806,7 @@ function _openEditDrawer(inv) {
           <span style="font-size:12px;color:#64748b">ที่อยู่</span>
           <textarea id="diEdAddress" rows="2" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;margin-top:4px;resize:vertical;font-family:inherit">${escHtml(inv.customer_address || '')}</textarea>
         </label>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
           <label style="display:block">
             <span style="font-size:12px;color:#64748b">ผู้ขาย</span>
             <input id="diEdSalesperson" type="text" value="${escHtml(inv.salesperson || '')}" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;margin-top:4px" />
@@ -816,7 +816,7 @@ function _openEditDrawer(inv) {
             <input id="diEdDueDate" type="date" value="${(inv.due_date || '').slice(0,10)}" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;margin-top:4px" />
           </label>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
           <label style="display:block">
             <span style="font-size:12px;color:#64748b">โครงการ</span>
             <input id="diEdProject" type="text" value="${escHtml(inv.project_name || '')}" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;margin-top:4px" />

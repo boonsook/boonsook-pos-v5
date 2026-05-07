@@ -286,7 +286,7 @@ window._appShareDoc = async function(docElementId, docName) {
       <div id="shareThumbnail" style="background:#f8fafc;border-radius:8px;padding:12px;margin-bottom:16px;text-align:center;min-height:60px">
         <div style="color:#64748b;font-size:13px">กำลังสร้าง PDF...</div>
       </div>
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(80px,1fr));gap:12px;margin-bottom:16px">
         <button class="share-opt" data-sh="line" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 8px;border:1px solid #e2e8f0;border-radius:12px;background:#fff;cursor:pointer">
           <div style="width:40px;height:40px;border-radius:10px;background:#06C755;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:16px">L</div>
           <span style="font-size:11px;font-weight:600">LINE</span>
@@ -304,7 +304,7 @@ window._appShareDoc = async function(docElementId, docName) {
           <span style="font-size:11px;font-weight:600">แชร์อื่นๆ</span>
         </button>
       </div>
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:12px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(80px,1fr));gap:12px;margin-bottom:12px">
         <button class="share-opt" data-sh="pdf" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 8px;border:1px solid #e2e8f0;border-radius:12px;background:#fff;cursor:pointer">
           <div style="width:40px;height:40px;border-radius:10px;background:#DC2626;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:14px">PDF</div>
           <span style="font-size:11px;font-weight:600">บันทึก PDF</span>
@@ -2486,7 +2486,7 @@ function _renderProductRecentActivity(product) {
   el.innerHTML = `
     <div class="set-section-title">📊 ประวัติการเคลื่อนไหว</div>
     <div class="card" style="padding:12px;background:#f0f9ff;border-color:#bae6fd">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;font-size:12px">
         <div>📦 ขาย 30 วัน: <b>${qty30}</b> ชิ้น (฿${moneyFmt(revenue30)})</div>
         <div>📅 เดือนนี้: <b>${qtyMonth}</b> ชิ้น (฿${moneyFmt(revenueMonth)})</div>
         <div>🗓️ ปีนี้: <b>${qtyYear}</b> ชิ้น (฿${moneyFmt(revenueYear)})</div>
@@ -2569,7 +2569,7 @@ function _renderCustomerPurchaseHistory(customer) {
   el.innerHTML = `
     <div class="set-section-title">📋 ประวัติการซื้อ (${sales.length} บิล)</div>
     <div class="card" style="padding:12px;background:#f0f9ff;border-color:#bae6fd">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;font-size:12px">
         <div>💰 <b>ยอดรวม:</b> ฿${totalSpent.toLocaleString("th-TH", {minimumFractionDigits:2})}</div>
         <div>📊 <b>เฉลี่ย/บิล:</b> ฿${avg.toLocaleString("th-TH", {maximumFractionDigits:0})}</div>
         <div>📅 <b>ซื้อครั้งแรก:</b> ${fmtDate(firstBuy)}</div>

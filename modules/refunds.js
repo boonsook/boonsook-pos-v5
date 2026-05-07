@@ -224,7 +224,7 @@ function openRefundModal(ctx) {
 
       <!-- Step 3: Reason + Method + Restock -->
       <div id="rfDetailsSection" style="margin-bottom:14px;display:none">
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
           <div>
             <label style="font-size:12px;font-weight:700">เหตุผล:</label>
             <select id="rfReasonSelect" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px">

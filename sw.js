@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v134 (2026-05-07): Phase 84-CSS.2 — products list mobile (price/stock/wh/actions stack)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v134';
+// v135 (2026-05-07): Phase 84-CSS.3 — form grids auto-fit (drawer/modal forms across all pages)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v135';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

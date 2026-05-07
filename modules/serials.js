@@ -225,7 +225,7 @@ function openSerialModal(ctx, s) {
             ${recentSales.map(x => `<option value="${x.id}" ${s?.sale_id==x.id?'selected':''}>${escHtml(x.order_no)} • ${escHtml(x.customer_name||'-')} • ${new Date(x.created_at).toLocaleDateString("th-TH")}</option>`).join("")}
           </select>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
           <div>
             <label style="font-size:12px;font-weight:700">ชื่อสินค้า:</label>
             <input id="srProductName" type="text" value="${escHtml(s?.product_name || '')}" placeholder="ชื่อสินค้า" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px" />
@@ -235,7 +235,7 @@ function openSerialModal(ctx, s) {
             <input id="srCustomerName" type="text" value="${escHtml(s?.customer_name || '')}" placeholder="ชื่อลูกค้า" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px" />
           </div>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
           <div>
             <label style="font-size:12px;font-weight:700">วันหมดประกัน:</label>
             <input id="srWarranty" type="date" value="${s?.warranty_until || ''}" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px" />

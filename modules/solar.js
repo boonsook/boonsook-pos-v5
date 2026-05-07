@@ -37,7 +37,7 @@ export function renderSolarPage(ctx) {
     <!-- ข้อมูลลูกค้า -->
     <div class="panel">
       <div class="set-section-title">👤 ข้อมูลลูกค้า</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
         <div>
           <label class="set-field-label">ชื่อลูกค้า</label>
           <input type="text" id="solName" placeholder="ชื่อ-นามสกุล" />
@@ -64,7 +64,7 @@ export function renderSolarPage(ctx) {
     <!-- ราคา -->
     <div class="panel">
       <div class="set-section-title">💰 ราคาค่าบริการ</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
         <div>
           <label class="set-field-label">🔨 ค่าแรง/ค่าบริการ (฿)</label>
           <input type="number" id="solLabor" value="0" min="0" step="100" />

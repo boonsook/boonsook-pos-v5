@@ -192,7 +192,7 @@ function openTaskModal(ctx, t) {
           <label style="font-size:12px;font-weight:700">รายละเอียด (option):</label>
           <textarea id="tkDesc" rows="3" placeholder="ข้อมูลเพิ่มเติม" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;font-family:inherit;resize:vertical">${escHtml(t?.description || '')}</textarea>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
           <div>
             <label style="font-size:12px;font-weight:700">ครบกำหนด:</label>
             <input id="tkDue" type="datetime-local" value="${t?.due_at ? new Date(new Date(t.due_at).getTime() - new Date(t.due_at).getTimezoneOffset()*60000).toISOString().slice(0,16) : defStr}" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px" />

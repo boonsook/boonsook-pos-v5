@@ -16,7 +16,7 @@ export function renderSettingsAcCatalog(el, ctx, goBack, navigate) {
       </div>
 
       <!-- Stats -->
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-bottom:16px">
         <div style="background:#eff6ff;border-radius:12px;padding:12px;text-align:center">
           <div style="font-size:22px;font-weight:900;color:#0284c7">${catalog.length}</div>
           <div style="font-size:11px;color:#64748b">รุ่นทั้งหมด</div>

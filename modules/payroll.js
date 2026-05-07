@@ -264,7 +264,7 @@ function _openPayrollModal(ctx, payroll) {
           <input id="prDailyToggle" type="checkbox" ${payroll?.days_worked ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer" />
           <span style="font-size:13px;color:#92400e;font-weight:700">🕐 คำนวณจากค่าจ้างรายวัน × จำนวนวัน</span>
         </label>
-        <div id="prDailyBox" style="display:${payroll?.days_worked ? 'grid' : 'none'};grid-template-columns:1fr 1fr;gap:10px;background:#fffbeb;padding:10px;border-radius:8px">
+        <div id="prDailyBox" style="display:${payroll?.days_worked ? 'grid' : 'none'};grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;background:#fffbeb;padding:10px;border-radius:8px">
           <label style="display:block">
             <div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:4px">ค่าจ้าง/วัน (บาท)</div>
             <input id="prDailyRate" type="number" step="0.01" min="0" value="${Number(payroll?.daily_rate || 0)}" style="width:100%;padding:8px 10px;border:1px solid #fbbf24;border-radius:8px;text-align:right" />
@@ -278,7 +278,7 @@ function _openPayrollModal(ctx, payroll) {
           </div>
         </div>
 
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px">
           <label style="display:block">
             <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:4px">เงินเดือน</div>
             <input id="prBase" type="number" step="0.01" min="0" value="${Number(payroll?.base_salary || 0)}" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;text-align:right" />

@@ -745,7 +745,7 @@ function _showParsedResult(ctx, modal, imageDataUrl, data) {
         <div style="font-size:11px;font-weight:700;color:#475569;margin-bottom:3px">เลขที่ใบเสร็จ</div>
         <input id="akEdDocNo" type="text" value="${escHtml(d.doc_no || '')}" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px" />
       </label>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px">
         <label style="display:block">
           <div style="font-size:11px;font-weight:700;color:#475569;margin-bottom:3px">วันที่</div>
           <input id="akEdDate" type="date" value="${escHtml(d.date || today)}" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px" />

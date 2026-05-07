@@ -151,7 +151,7 @@ export function renderAcInstallPage(ctx) {
     <!-- ค่าแรง + ส่วนลด -->
     <div class="panel">
       <div class="set-section-title">💰 ค่าแรง / ส่วนลด</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
         <div>
           <label class="set-field-label">ค่าแรงติดตั้ง (฿)</label>
           <input type="number" id="acLabor" value="0" min="0" step="100" />
