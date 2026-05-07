@@ -1,8 +1,40 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 5 พฤษภาคม 2026 (Phase 82.5 — Stop Stock IN scanner after first scan)
-**Version:** 5.31.8 (build 137) — Phase 80-82.5 รวมทั้งชุด
-**Previous:** 5.30.1 (build 127) — Phase 76-79.9
+**อัปเดตล่าสุด:** 7 พฤษภาคม 2026 (Phase 83-84.CSS.2 — AC install + revert + CSS-only + product list mobile)
+**Version:** 5.32.9 (build 149) — Phase 83/84/84-CSS/84-CSS.2 รวมทั้งชุด
+**Previous:** 5.31.8 (build 137) — Phase 80-82.5
+
+## 🆕 Phase 83-84 ที่เสร็จในรอบนี้
+
+### Phase 83 series (6-7 พ.ค.) — AC install + mobile UX hardening
+- **Phase 83**: AC install items table mobile scroll — wrap ใน scroll container `min-width:560px` กัน column compress บนมือถือ
+- **Phase 83.1**: Qty stepper +/− mobile-friendly (ปุ่มใหญ่กว่า input, no spinner)
+- **Phase 83.2**: DOM surgery แทน re-render — กัน keyboard เด้งออกขณะพิมพ์ field qty/price
+- **Phase 83.3**: AC install save timeout 25 วินาที + step progress UI ("กำลังตัดสต็อก", "กำลังบันทึกใบงาน") — debug ค้างหน้าบันทึก
+- **Phase 83.4**: Confirm dialog mobile fix — blur active input + scrollIntoView + body scroll lock — กัน keyboard บัง modal
+
+### Phase 84 series (6-7 พ.ค.) — Full-app audit (rolled back)
+- **Phase 84 (cfc122c)**: feat — full-app audit fixes 5 batches:
+  1. Mobile font overlap (stat-value clamp, customer grid auto-fill, ac_install/btu_calc grid stack, modal max-height/overflow)
+  2. native `confirm()` → `App.confirm` migration (9 จุด)
+  3. Promise antipattern fix ใน showStaffLogin
+  4. Form input attrs (inputmode/enterkeyhint/autocomplete)
+  5. Defensive base64 parsing
+- **Phase 84.1 (379fd3f)**: hide AI FAB ตอน login/setPassword/confirm-modal — live test pinpoint
+- **🔴 ทั้ง 84 + 84.1 ถูก REVERT** (24a4f5c, 47a53ae) — สาเหตุที่ revert ไม่อยู่ใน commit message
+- **Phase 84-CSS only (c0a5fd8)**: เก็บแค่ส่วน CSS mobile fixes — ทิ้ง confirm migration + a11y JS
+- **Phase 84-CSS.2 (47bef49)**: product list mobile — price/stock/wh/actions stack column บน narrow screens (CSS only)
+
+### ⚠️ ที่ค้างจาก Phase 84 revert (debt)
+- **6 จุด `confirm()` native ยังค้างอยู่** (Phase 84 ตั้งใจ migrate แต่โดน revert):
+  - `modules/products.js:644` (export filter choice)
+  - `modules/products.js:1949` (clear category)
+  - `modules/products.js:1972, 1973` (bulk delete + reconfirm)
+  - `modules/products.js:2210` (delete category)
+  - `main.js:2750` (cancel link)
+- **Memory rule** บอก "alert() forbidden ใช้ showToast" — confirm() ก็ควรใช้ App.confirm เหมือนกัน
+- **App.confirm พร้อมใช้** — `window.App.confirm(message)` returns Promise<boolean>
+- **ก่อน migrate ใหม่** — ต้องเข้าใจว่าทำไม Phase 84 revert (อาจมี bug ที่ไม่บันทึก)
 
 ## 🆕 Phase 80-82.5 ที่เสร็จในรอบนี้
 
