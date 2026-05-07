@@ -1356,11 +1356,23 @@ async function loadAllData(){
     saveCart();
 
     // ★ โหลดแคตตาล็อกแอร์ (background)
+    // Phase 87.1.1 — ตรวจ schema version: ถ้า cache เก่า (ไม่มี extended specs) → refresh
     try {
-      if (!localStorage.getItem("bsk_ac_catalog")) {
-        fetch("data/ac_catalog.json").then(r => r.ok ? r.json() : null).then(data => {
+      const cached = localStorage.getItem("bsk_ac_catalog");
+      let needRefresh = !cached;
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          // schema v2 มี fields เพิ่ม (seer, refrigerant, features, description) → ตรวจว่ามี entry ใดมี features หรือไม่
+          const hasExtended = Array.isArray(parsed) && parsed.some(p => p && (p.features || p.seer || p.description));
+          if (!hasExtended) needRefresh = true;
+        } catch(e){ needRefresh = true; }
+      }
+      if (needRefresh) {
+        fetch("data/ac_catalog.json", { cache: "no-store" }).then(r => r.ok ? r.json() : null).then(data => {
           if (data && Array.isArray(data) && data.length > 0) {
             localStorage.setItem("bsk_ac_catalog", JSON.stringify(data));
+            console.info("[ac_catalog] refreshed to schema v2 (" + data.length + " entries)");
           }
         }).catch(err => console.warn("[ac_catalog] fetch failed", err));
       }

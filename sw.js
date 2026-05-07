@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v146 (2026-05-07): Phase 87.1 — product detail modal + extended catalog schema (sample 2 รุ่น)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v146';
+// v147 (2026-05-07): Phase 87.1.1 — auto schema upgrade for ac_catalog (refresh if old cache)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v147';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
