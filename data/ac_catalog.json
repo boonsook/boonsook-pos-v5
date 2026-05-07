@@ -8,7 +8,32 @@
     "w_install": "1 ปี",
     "w_parts": "5 ปี",
     "w_comp": "10 ปี",
-    "stock": 0
+    "stock": 0,
+    "image_url": "",
+    "description": "แอร์ติดผนัง TCL รุ่นมาตรฐาน 9,000 BTU เหมาะกับห้องนอนขนาด 12-15 ตร.ม. ใช้น้ำยา R32 เป็นมิตรต่อสิ่งแวดล้อม ทำความเย็นเร็ว ประหยัดไฟ",
+    "features": [
+      "Eco Mode ประหยัดไฟ",
+      "Sleep Mode",
+      "Auto Restart",
+      "Anti-Bacterial Filter",
+      "Gold Fin คอยล์ทองคำ กันสนิม",
+      "รีโมทไร้สาย"
+    ],
+    "badge_tags": [
+      "ขายดี"
+    ],
+    "seer": 11.5,
+    "refrigerant": "R32",
+    "voltage": "220V/1Ph/50Hz",
+    "current_a": 3.8,
+    "power_w": 830,
+    "indoor_dim": "770 × 285 × 192",
+    "outdoor_dim": "720 × 540 × 270",
+    "indoor_weight_kg": 8,
+    "outdoor_weight_kg": 25,
+    "noise_indoor_db": 38,
+    "noise_outdoor_db": 53,
+    "color": "ขาว"
   },
   {
     "id": 2,
@@ -52,7 +77,35 @@
     "w_install": "1 ปี",
     "w_parts": "5 ปี",
     "w_comp": "10 ปี",
-    "stock": 0
+    "stock": 0,
+    "image_url": "",
+    "description": "แอร์ติดผนัง TCL Inverter WIFI 9,000 BTU ควบคุมผ่านมือถือได้ ประหยัดไฟกว่ารุ่นธรรมดาถึง 30% เสียงเงียบ เหมาะกับห้องนอน 12-15 ตร.ม.",
+    "features": [
+      "Inverter ประหยัดไฟ 30%",
+      "WiFi ควบคุมผ่านมือถือ",
+      "Self-Cleaning ฟอกตัวเอง",
+      "Turbo Cool เย็นเร็วใน 30 วิ",
+      "Anti-Bacterial HD Filter",
+      "Sleep Mode + Eco Mode",
+      "รองรับ Google/Alexa",
+      "Gold Fin คอยล์ทองคำ"
+    ],
+    "badge_tags": [
+      "Inverter",
+      "WiFi"
+    ],
+    "seer": 17.0,
+    "refrigerant": "R32",
+    "voltage": "220V/1Ph/50Hz",
+    "current_a": "0.4-4.5",
+    "power_w": "100-1000",
+    "indoor_dim": "805 × 295 × 200",
+    "outdoor_dim": "720 × 540 × 270",
+    "indoor_weight_kg": 9,
+    "outdoor_weight_kg": 28,
+    "noise_indoor_db": "22-40",
+    "noise_outdoor_db": 51,
+    "color": "ขาว"
   },
   {
     "id": 6,

@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v145 (2026-05-07): Phase 86.4 — extract customer OTP flow to modules/auth_otp.js
-const CACHE_NAME = 'boonsook-pos-v5-cache-v145';
+// v146 (2026-05-07): Phase 87.1 — product detail modal + extended catalog schema (sample 2 รุ่น)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v146';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

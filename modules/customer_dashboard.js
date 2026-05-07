@@ -3,6 +3,8 @@
 // ═══════════════════════════════════════════════════════════
 import { isValidPhone, getUserFriendlyError, validateFile } from "./validators.js";
 import { renderEmpty, renderSkeleton } from "./ui_states.js";
+// Phase 87.1 — product detail modal
+import { openProductDetail } from "./product_detail_modal.js";
 
 let _custCart = JSON.parse(localStorage.getItem("bsk_cust_cart") || "[]");
 let _custTab = "shop"; // shop | cart | orders | jobs | points
@@ -179,6 +181,7 @@ export function renderCustomerDashboard(ctx) {
     return _acCatalog || [];
   })();
   const products = catalog.map(c => ({
+    ...c,                              // ★ Phase 87.1 — keep extended spec fields (image_url, description, features, seer, ...)
     id: c.id || c.model,
     name: `${c.section} ${c.model}`,
     sku: c.model,
@@ -762,14 +765,9 @@ export function renderCustomerDashboard(ctx) {
     }, 200);
   });
 
-  // Add to cart
-  container.querySelectorAll("[data-add-cart]").forEach(btn => btn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    const pid = Number(btn.dataset.addCart);
-    const product = products.find(p => p.id === pid);
-    if (!product) return;
-
-    const existing = _custCart.find(c => c.id === pid);
+  // ★ Phase 87.1 — Open product detail modal on card click
+  const _addToCart = (product) => {
+    const existing = _custCart.find(c => c.id === product.id);
     if (existing) {
       if (existing.qty < Number(product.stock || 99)) {
         existing.qty++;
@@ -777,11 +775,38 @@ export function renderCustomerDashboard(ctx) {
         return showToast("สินค้าหมดสต็อก");
       }
     } else {
-      _custCart.push({ id: pid, name: product.name, price: Number(product.price || 0), qty: 1 });
+      _custCart.push({ id: product.id, name: product.name, price: Number(product.price || 0), qty: 1 });
     }
     saveCustCart();
     if (showToast) showToast(`เพิ่ม "${product.name}" ลงตะกร้า 🛒`);
     renderCustomerDashboard(ctx);
+  };
+  const _reserve = (product) => {
+    if (showToast) showToast(`📞 กรุณาติดต่อร้านเพื่อสั่งจอง "${product.name}"`);
+  };
+
+  container.querySelectorAll("[data-view-product]").forEach(card => card.addEventListener("click", (e) => {
+    // ไม่เปิด modal ถ้าคลิกที่ปุ่ม (data-add-cart) ภายใน card — ปล่อยให้ event bubble ของปุ่มทำงาน
+    if (e.target.closest("[data-add-cart]")) return;
+    const pid = Number(card.dataset.viewProduct);
+    const product = products.find(p => p.id === pid);
+    if (!product) return;
+    const inCartItem = _custCart.find(c => c.id === pid);
+    openProductDetail(product, {
+      onAddToCart: _addToCart,
+      onReserve: _reserve,
+      inCart: !!inCartItem,
+      inCartQty: inCartItem?.qty || 0
+    });
+  }));
+
+  // Add to cart (ปุ่มในการ์ด — มี stopPropagation กัน trigger card click)
+  container.querySelectorAll("[data-add-cart]").forEach(btn => btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const pid = Number(btn.dataset.addCart);
+    const product = products.find(p => p.id === pid);
+    if (!product) return;
+    _addToCart(product);
   }));
 
   // Cart +/-/remove
