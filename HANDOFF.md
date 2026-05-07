@@ -1,8 +1,120 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 7 พฤษภาคม 2026 (Phase 85.x + 86.x — login fix + UX + main.js refactor)
-**Version:** 5.32.20 (build 160) — Phase 85.1-5 + 86.1-4 รวมทั้งชุด
+**อัปเดตล่าสุด:** 7 พฤษภาคม 2026 (Phase 85-87 — login fix + UX + main.js refactor + product detail)
+**Version:** 5.33.3 (build 164) — Phase 85.1-5 + 86.1-4 + 87.1-3 รวมทั้งชุด
 **Previous:** 5.31.8 (build 137) — Phase 80-82.5
+
+---
+
+## 🛍️ Phase 87 — Product Detail Modal & Spec Management (7 พ.ค.)
+
+### Why
+User: "หาข้อมูลสินค้ามาใส่ สเปกเครื่อง BTU แต่ละรุ่น ให้ลูกค้าคลิกดูรายละเอียดข้างในได้
+เหมือนร้านมืออาชีพ หรือห้างเขาขายสินค้า"
+
+### What shipped
+**4 commits**, 2 ไฟล์ใหม่ใน `modules/`, 1 ไฟล์ใหม่ใน `modules/settings/`,
+schema v2 ของ `data/ac_catalog.json` (24 fields ต่อ entry), 12 SKUs seeded
+ครอบคลุม 6 แบรนด์ (TCL/Carrier/LG/Daikin/Mitsubishi).
+
+### 🎨 Phase 87.1 — Product Detail Modal foundation
+**ไฟล์ใหม่:** `modules/product_detail_modal.js` (212 lines)
+
+**Schema v2 — 16 extended fields** (optional):
+```
+description, features (array), badge_tags (array), image_url,
+seer, refrigerant, voltage, current_a, power_w,
+indoor_dim, outdoor_dim, indoor_weight_kg, outdoor_weight_kg,
+noise_indoor_db, noise_outdoor_db, color
+```
+
+**Modal layout (เหมือนหน้าสินค้าห้างใหญ่):**
+- Hero image (placeholder ❄️ ถ้าไม่มี image_url)
+- Badge tags (ขายดี / Inverter / WiFi) มุมซ้ายบน + BTU pill มุมขวาล่าง
+- Title + price + "รวมติดตั้ง" + Description paragraph
+- Warranty bar (ติดตั้ง/อะไหล่/คอม)
+- Features list (pill style)
+- Spec table — render เฉพาะ field ที่มีค่า; placeholder "ยังไม่มีข้อมูลสเปก" ถ้าว่าง
+- Sticky footer: ปิด + CTA (เพิ่มลงตะกร้า / สั่งจอง)
+- ESC + click-outside dismiss + mobile-friendly (full-screen <640px)
+
+**Wired ใน customer_dashboard.js:**
+- `import { openProductDetail }`
+- Spread `...c` ใน `products = catalog.map(...)` เพื่อ keep extended fields
+- Click `[data-view-product]` card → openProductDetail
+- Card "+ ลงตะกร้า" button: stopPropagation กัน double-trigger
+
+**Seed 2 SKUs:** id=1 MFS10, id=5 T-PROWD10
+
+### 🔧 Phase 87.1.1 — Schema auto-refresh hotfix
+**Bug:** localStorage cache v1 → JSON v2 ไม่ถูก load → modal เห็นแค่ BTU
+**Fix in main.js:** หลัง parse cache ตรวจว่ามี entry ใดมี `features|seer|description`
+ถ้าไม่มี (= v1) → fetch JSON v2 + overwrite + log "upgraded to v2"
+
+### ✏️ Phase 87.2 — Admin Spec Editor + Seed
+**ไฟล์ใหม่:** `modules/settings/ac-spec-editor.js` (233 lines)
+
+`openSpecEditor(product, onSave)` — Modal form:
+- Description (textarea), Features + Badges (comma input → string[])
+- Image URL, SEER, refrigerant, voltage, current, power, color
+- Dim: indoor/outdoor W×H×D, weights
+- Noise: indoor/outdoor dB
+
+Number fields fall back to string when range (e.g. `"0.4-4.5"`)
+Empty values stripped from save diff
+
+**Wired ใน ac-catalog.js:**
+- Each row: ✏️ button — `+ สเปก` (เทา) ถ้าว่าง, `แก้` + 📋 (เขียว) ถ้ามี
+- Click → openSpecEditor → save merge → localStorage + rerender + toast
+
+**Seed 8 SKUs เพิ่ม** (รวม 12/223):
+- TCL Wall standard: MFS13/19/25
+- TCL Inverter WIFI: T-PROWD13/19/25
+- Carrier COPPER SEAL: 38TVDB010/42TVDB010
+- LG Inverter: ISC10E (Dual Inverter, 19dB whisper)
+- Daikin SMASH: FTM 09 PV2S
+- Mitsubishi Mr.SLIM: MSY-JZ 09 VF (SEER 18)
+
+### 📊 Phase 87.3 — CSV/Excel Round-trip 24 columns
+**Updated ac-catalog.js:**
+- Helpers: `_arrToPipe`, `_pipeToArr`, `_tryNum`, `_toExportRow`,
+  `_fromImportRow`, `_EXPORT_HEADERS` (24 names)
+- Excel export: catalog.map(_toExportRow) + per-column widths
+- CSV export: header from _EXPORT_HEADERS, body via _toExportRow
+- Import: parse via _fromImportRow (column-name-tolerant English+Thai)
+
+**Smart serialization:**
+- Array fields → `"item1 | item2 | item3"` ใน cell
+- Import accepts `|` or `,` as separator
+- Number-or-range fields → try Number() → fallback string
+- Empty fields → ไม่เก็บใน catalog (clean schema)
+- **Backwards-compat:** old 8-column CSV/Excel still imports
+
+**UI hint** ใต้ file picker — แสดงรายการ 24 fields แบ่ง 4 กลุ่ม +
+ตัวอย่าง pipe separator `Inverter | WiFi | Self-Cleaning`
+
+### 📊 Status: 12/223 SKUs มี specs
+**Remaining 211 SKUs** — admin กรอกเอง 3 วิธี:
+1. **UI editor ทีละรุ่น** (ละเอียด)
+2. **Excel bulk** (เร็ว — 50+ รุ่นต่อรอบ)
+3. **Hybrid** (Excel เริ่ม + UI fine-tune)
+
+### Files
+- `modules/product_detail_modal.js`
+- `modules/settings/ac-spec-editor.js`
+- `modules/settings/ac-catalog.js` (extended)
+- `modules/customer_dashboard.js` (catalog spread fix)
+- `main.js` (schema upgrade check)
+- `data/ac_catalog.json` (12 SKUs with full specs)
+
+### ✅ Smoke test ที่ผ่านใน production
+- Customer คลิก card MFS10/13, T-PROWD10, MSY-JZ → modal สวย + spec table
+- Customer คลิก card ที่ยังไม่ seed → modal เปิด + "ยังไม่มีข้อมูลสเปก"
+- Admin ✏️ + สเปก → modal editor → save → ✅ 📋 ทันที
+- Admin export Excel → ตรวจ 24 columns + features pipe-separated +
+  range strings (`0.4-4.5`) ถูกต้อง
+- Admin upload back → import 223 รุ่นสำเร็จ
+- Old 8-column CSV → ยัง import ได้ (backwards-compat)
 
 ---
 
