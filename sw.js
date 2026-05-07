@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v138 (2026-05-07): Phase 85.2.1 — HOTFIX prodExportBtn callback async (SyntaxError fix)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v138';
+// v139 (2026-05-07): Phase 85.3 — OTP cooldown UX (60s normal / 5min on 429 + button countdown)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v139';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
