@@ -44,7 +44,29 @@
     "w_install": "1 ปี",
     "w_parts": "5 ปี",
     "w_comp": "10 ปี",
-    "stock": 0
+    "stock": 0,
+    "description": "แอร์ติดผนัง TCL 13,000 BTU เหมาะกับห้อง 16-20 ตร.ม. น้ำยา R32 ทำความเย็นเร็ว ประหยัดไฟ",
+    "features": [
+      "Eco Mode ประหยัดไฟ",
+      "Sleep Mode",
+      "Auto Restart",
+      "Anti-Bacterial Filter",
+      "Gold Fin คอยล์ทองคำ กันสนิม",
+      "รีโมทไร้สาย"
+    ],
+    "badge_tags": [],
+    "seer": 11.6,
+    "refrigerant": "R32",
+    "voltage": "220V/1Ph/50Hz",
+    "current_a": 5.4,
+    "power_w": 1180,
+    "indoor_dim": "805 × 295 × 200",
+    "outdoor_dim": "770 × 555 × 300",
+    "indoor_weight_kg": 10,
+    "outdoor_weight_kg": 30,
+    "noise_indoor_db": 40,
+    "noise_outdoor_db": 55,
+    "color": "ขาว"
   },
   {
     "id": 3,
@@ -55,7 +77,29 @@
     "w_install": "1 ปี",
     "w_parts": "5 ปี",
     "w_comp": "10 ปี",
-    "stock": 0
+    "stock": 0,
+    "description": "แอร์ติดผนัง TCL 18,000 BTU เหมาะกับห้อง 22-28 ตร.ม. น้ำยา R32 พลังเย็นเต็มที่",
+    "features": [
+      "Eco Mode ประหยัดไฟ",
+      "Sleep Mode",
+      "Auto Restart",
+      "Anti-Bacterial Filter",
+      "Gold Fin คอยล์ทองคำ กันสนิม",
+      "รีโมทไร้สาย"
+    ],
+    "badge_tags": [],
+    "seer": 11.0,
+    "refrigerant": "R32",
+    "voltage": "220V/1Ph/50Hz",
+    "current_a": 7.7,
+    "power_w": 1700,
+    "indoor_dim": "940 × 320 × 220",
+    "outdoor_dim": "800 × 590 × 300",
+    "indoor_weight_kg": 12,
+    "outdoor_weight_kg": 40,
+    "noise_indoor_db": 44,
+    "noise_outdoor_db": 58,
+    "color": "ขาว"
   },
   {
     "id": 4,
@@ -66,7 +110,29 @@
     "w_install": "1 ปี",
     "w_parts": "5 ปี",
     "w_comp": "10 ปี",
-    "stock": 0
+    "stock": 0,
+    "description": "แอร์ติดผนัง TCL 24,000 BTU เหมาะกับห้อง 30-38 ตร.ม. น้ำยา R32 พลังเย็นสูงสุด",
+    "features": [
+      "Eco Mode ประหยัดไฟ",
+      "Sleep Mode",
+      "Auto Restart",
+      "Anti-Bacterial Filter",
+      "Gold Fin คอยล์ทองคำ กันสนิม",
+      "รีโมทไร้สาย"
+    ],
+    "badge_tags": [],
+    "seer": 10.8,
+    "refrigerant": "R32",
+    "voltage": "220V/1Ph/50Hz",
+    "current_a": 10.5,
+    "power_w": 2300,
+    "indoor_dim": "1080 × 340 × 235",
+    "outdoor_dim": "870 × 655 × 320",
+    "indoor_weight_kg": 14,
+    "outdoor_weight_kg": 50,
+    "noise_indoor_db": 48,
+    "noise_outdoor_db": 62,
+    "color": "ขาว"
   },
   {
     "id": 5,
@@ -116,7 +182,34 @@
     "w_install": "1 ปี",
     "w_parts": "5 ปี",
     "w_comp": "10 ปี",
-    "stock": 0
+    "stock": 0,
+    "description": "แอร์ติดผนัง TCL Inverter WIFI 13,000 BTU ควบคุมผ่านมือถือ ประหยัดไฟกว่ารุ่นธรรมดา 30% เหมาะกับห้อง 16-20 ตร.ม.",
+    "features": [
+      "Inverter ประหยัดไฟ 30%",
+      "WiFi ควบคุมผ่านมือถือ",
+      "Self-Cleaning ฟอกตัวเอง",
+      "Turbo Cool เย็นเร็วใน 30 วิ",
+      "Anti-Bacterial HD Filter",
+      "Sleep Mode + Eco Mode",
+      "รองรับ Google/Alexa",
+      "Gold Fin คอยล์ทองคำ"
+    ],
+    "badge_tags": [
+      "Inverter",
+      "WiFi"
+    ],
+    "seer": 17.0,
+    "refrigerant": "R32",
+    "voltage": "220V/1Ph/50Hz",
+    "current_a": "0.5-6.5",
+    "power_w": "150-1450",
+    "indoor_dim": "855 × 305 × 210",
+    "outdoor_dim": "770 × 555 × 300",
+    "indoor_weight_kg": 11,
+    "outdoor_weight_kg": 33,
+    "noise_indoor_db": "24-43",
+    "noise_outdoor_db": 54,
+    "color": "ขาว"
   },
   {
     "id": 7,
@@ -127,7 +220,34 @@
     "w_install": "1 ปี",
     "w_parts": "5 ปี",
     "w_comp": "10 ปี",
-    "stock": 0
+    "stock": 0,
+    "description": "แอร์ติดผนัง TCL Inverter WIFI 18,000 BTU ควบคุมผ่านมือถือ พลังเย็นเต็มที่ ประหยัดไฟ เหมาะกับห้อง 22-28 ตร.ม.",
+    "features": [
+      "Inverter ประหยัดไฟ 30%",
+      "WiFi ควบคุมผ่านมือถือ",
+      "Self-Cleaning ฟอกตัวเอง",
+      "Turbo Cool เย็นเร็วใน 30 วิ",
+      "Anti-Bacterial HD Filter",
+      "Sleep Mode + Eco Mode",
+      "รองรับ Google/Alexa",
+      "Gold Fin คอยล์ทองคำ"
+    ],
+    "badge_tags": [
+      "Inverter",
+      "WiFi"
+    ],
+    "seer": 17.5,
+    "refrigerant": "R32",
+    "voltage": "220V/1Ph/50Hz",
+    "current_a": "0.7-9.0",
+    "power_w": "200-2000",
+    "indoor_dim": "940 × 320 × 220",
+    "outdoor_dim": "800 × 590 × 300",
+    "indoor_weight_kg": 13,
+    "outdoor_weight_kg": 42,
+    "noise_indoor_db": "27-45",
+    "noise_outdoor_db": 57,
+    "color": "ขาว"
   },
   {
     "id": 8,
@@ -138,7 +258,34 @@
     "w_install": "1 ปี",
     "w_parts": "5 ปี",
     "w_comp": "10 ปี",
-    "stock": 0
+    "stock": 0,
+    "description": "แอร์ติดผนัง TCL Inverter WIFI 24,000 BTU ควบคุมผ่านมือถือ พลังเย็นสูงสุด ประหยัดไฟ 30% เหมาะกับห้อง 30-38 ตร.ม.",
+    "features": [
+      "Inverter ประหยัดไฟ 30%",
+      "WiFi ควบคุมผ่านมือถือ",
+      "Self-Cleaning ฟอกตัวเอง",
+      "Turbo Cool เย็นเร็วใน 30 วิ",
+      "Anti-Bacterial HD Filter",
+      "Sleep Mode + Eco Mode",
+      "รองรับ Google/Alexa",
+      "Gold Fin คอยล์ทองคำ"
+    ],
+    "badge_tags": [
+      "Inverter",
+      "WiFi"
+    ],
+    "seer": 17.2,
+    "refrigerant": "R32",
+    "voltage": "220V/1Ph/50Hz",
+    "current_a": "1.0-12.0",
+    "power_w": "300-2700",
+    "indoor_dim": "1080 × 340 × 235",
+    "outdoor_dim": "870 × 655 × 320",
+    "indoor_weight_kg": 15,
+    "outdoor_weight_kg": 52,
+    "noise_indoor_db": "30-48",
+    "noise_outdoor_db": 60,
+    "color": "ขาว"
   },
   {
     "id": 9,
@@ -391,7 +538,33 @@
     "w_install": "1 ปี",
     "w_parts": "5 ปี",
     "w_comp": "10 ปี",
-    "stock": 0
+    "stock": 0,
+    "description": "Carrier COPPER SEAL Inverter 9,000 BTU ใช้คอยล์ทองแดงทั้งระบบ ทนทานต่อสนิม รับประกันคอม 10 ปี ประหยัดไฟ เหมาะกับห้องนอน 12-15 ตร.ม.",
+    "features": [
+      "Inverter ประหยัดไฟ",
+      "Copper Seal คอยล์ทองแดงทั้งระบบ",
+      "Anti-Corrosion Coating",
+      "Self-Diagnosis",
+      "Auto Restart",
+      "รีโมทไร้สาย",
+      "รับประกันคอม 10 ปี"
+    ],
+    "badge_tags": [
+      "Inverter",
+      "Copper"
+    ],
+    "seer": 16.0,
+    "refrigerant": "R32",
+    "voltage": "220V/1Ph/50Hz",
+    "current_a": "0.4-4.7",
+    "power_w": "110-1050",
+    "indoor_dim": "789 × 280 × 199",
+    "outdoor_dim": "720 × 495 × 270",
+    "indoor_weight_kg": 8,
+    "outdoor_weight_kg": 26,
+    "noise_indoor_db": "24-41",
+    "noise_outdoor_db": 51,
+    "color": "ขาว"
   },
   {
     "id": 32,
@@ -1645,7 +1818,33 @@
     "w_install": "1 ปี",
     "w_parts": "1 ปี",
     "w_comp": "5 ปี",
-    "stock": 0
+    "stock": 0,
+    "description": "LG Dual Inverter 9,000 BTU เสียงเงียบเป็นพิเศษ (19dB) ประหยัดไฟด้วยเทคโนโลยี Dual Inverter รับประกันคอม 10 ปี เหมาะกับห้องนอน 12-15 ตร.ม.",
+    "features": [
+      "Dual Inverter ประหยัดไฟ",
+      "Smart ThinQ App",
+      "Auto Cleaning",
+      "4-way Air Swing",
+      "Anti-Bacterial Filter",
+      "Low Sound 19dB",
+      "รับประกัน Inverter 10 ปี"
+    ],
+    "badge_tags": [
+      "Inverter",
+      "เงียบ"
+    ],
+    "seer": 17.5,
+    "refrigerant": "R32",
+    "voltage": "220V/1Ph/50Hz",
+    "current_a": "0.4-4.5",
+    "power_w": "100-1100",
+    "indoor_dim": "837 × 308 × 189",
+    "outdoor_dim": "717 × 495 × 230",
+    "indoor_weight_kg": 8,
+    "outdoor_weight_kg": 24,
+    "noise_indoor_db": "19-40",
+    "noise_outdoor_db": 49,
+    "color": "ขาว"
   },
   {
     "id": 146,
@@ -1733,7 +1932,31 @@
     "w_install": "1 ปี",
     "w_parts": "1 ปี",
     "w_comp": "3 ปี",
-    "stock": 0
+    "stock": 0,
+    "description": "Daikin SMASH 9,000 BTU แอร์ญี่ปุ่นมาตรฐาน Daikin คุ้มค่า ทนทาน ใช้น้ำยา R32 เหมาะกับห้องนอน 12-15 ตร.ม.",
+    "features": [
+      "Eco Plus Mode",
+      "Powerful Mode",
+      "Anti-Bacterial Filter",
+      "Auto Restart",
+      "Self-Diagnosis",
+      "รีโมทไร้สาย"
+    ],
+    "badge_tags": [
+      "Daikin"
+    ],
+    "seer": 11.5,
+    "refrigerant": "R32",
+    "voltage": "220V/1Ph/50Hz",
+    "current_a": 4.0,
+    "power_w": 880,
+    "indoor_dim": "770 × 285 × 215",
+    "outdoor_dim": "658 × 495 × 230",
+    "indoor_weight_kg": 8,
+    "outdoor_weight_kg": 24,
+    "noise_indoor_db": 38,
+    "noise_outdoor_db": 49,
+    "color": "ขาว"
   },
   {
     "id": 154,
@@ -2019,7 +2242,32 @@
     "w_install": "1 ปี",
     "w_parts": "1 ปี",
     "w_comp": "5 ปี",
-    "stock": 0
+    "stock": 0,
+    "description": "Mitsubishi Mr.SLIM Standard Inverter 9,000 BTU แบรนด์ญี่ปุ่นแท้ คุณภาพสูง ประหยัดไฟ ใช้น้ำยา R32 เหมาะกับห้องนอน 12-15 ตร.ม.",
+    "features": [
+      "Inverter ประหยัดไฟ",
+      "Wide & Long Airflow",
+      "Anti-Allergy Enzyme Filter",
+      "Econo Cool",
+      "Auto Restart",
+      "รีโมทมีไฟส่อง"
+    ],
+    "badge_tags": [
+      "Inverter",
+      "ญี่ปุ่นแท้"
+    ],
+    "seer": 18.0,
+    "refrigerant": "R32",
+    "voltage": "220V/1Ph/50Hz",
+    "current_a": "0.3-4.0",
+    "power_w": "70-880",
+    "indoor_dim": "799 × 295 × 192",
+    "outdoor_dim": "714 × 549 × 257",
+    "indoor_weight_kg": 9,
+    "outdoor_weight_kg": 28,
+    "noise_indoor_db": "21-42",
+    "noise_outdoor_db": 47,
+    "color": "ขาว"
   },
   {
     "id": 180,

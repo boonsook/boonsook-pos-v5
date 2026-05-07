@@ -1,4 +1,6 @@
 import { escHtml } from "./utils.js";
+// Phase 87.2 — spec editor modal
+import { openSpecEditor } from "./ac-spec-editor.js";
 
 export function renderSettingsAcCatalog(el, ctx, goBack, navigate) {
   let catalog = [];
@@ -72,18 +74,22 @@ export function renderSettingsAcCatalog(el, ctx, goBack, navigate) {
               ${escHtml(sec)} <span style="color:#94a3b8;font-weight:400">(${items.length} รุ่น)</span>
             </summary>
             <div style="padding:8px 14px">
-              ${items.map(c => `
-                <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #f1f5f9;font-size:12px">
-                  <div>
+              ${items.map(c => {
+                const hasSpec = !!(c.features || c.seer || c.description);
+                return `
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #f1f5f9;font-size:12px">
+                  <div style="flex:1;min-width:0">
                     <span style="font-weight:700">${escHtml(c.model)}</span>
                     <span style="color:#64748b;margin-left:6px">❄️ ${Number(c.btu||0).toLocaleString()} BTU</span>
+                    ${hasSpec ? '<span title="มีสเปกครบ" style="color:#10b981;margin-left:4px">📋</span>' : ''}
                   </div>
-                  <div style="text-align:right">
+                  <div style="display:flex;align-items:center;gap:6px;text-align:right">
                     <span style="font-weight:700;color:#0284c7">฿${Number(c.price||0).toLocaleString()}</span>
-                    <span style="color:${(c.stock||0) > 0 ? '#10b981' : '#ef4444'};margin-left:6px">${(c.stock||0) > 0 ? '✅' + c.stock : '—'}</span>
+                    <span style="color:${(c.stock||0) > 0 ? '#10b981' : '#ef4444'}">${(c.stock||0) > 0 ? '✅' + c.stock : '—'}</span>
+                    <button data-edit-spec="${c.id}" title="${hasSpec ? 'แก้สเปก' : 'เพิ่มสเปก'}" style="padding:3px 8px;border:1px solid ${hasSpec ? '#10b981' : '#cbd5e1'};border-radius:6px;background:${hasSpec ? '#ecfdf5' : '#fff'};color:${hasSpec ? '#065f46' : '#64748b'};cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap">✏️ ${hasSpec ? 'แก้' : '+ สเปก'}</button>
                   </div>
-                </div>
-              `).join("")}
+                </div>`;
+              }).join("")}
             </div>
           </details>`;
         }).join("") : '<div style="text-align:center;padding:24px;color:#94a3b8">ยังไม่มีข้อมูลแคตตาล็อก — กรุณาอัปโหลดไฟล์</div>'}
@@ -267,6 +273,19 @@ export function renderSettingsAcCatalog(el, ctx, goBack, navigate) {
       e.target.value = ""; // reset input ให้เลือกไฟล์เดิมซ้ำได้
     }
   });
+
+  // ═══ Phase 87.2 — Edit spec per row ═══
+  document.querySelectorAll("[data-edit-spec]").forEach(btn => btn.addEventListener("click", () => {
+    const id = Number(btn.dataset.editSpec);
+    const idx = catalog.findIndex(c => c.id === id);
+    if (idx < 0) return;
+    openSpecEditor(catalog[idx], (updates) => {
+      catalog[idx] = { ...catalog[idx], ...updates };
+      localStorage.setItem("bsk_ac_catalog", JSON.stringify(catalog));
+      if (ctx?.showToast) ctx.showToast(`บันทึกสเปก ${catalog[idx].model} แล้ว ✅`);
+      rerender();
+    });
+  }));
 
   // ═══ Refresh from JSON file ═══
   document.getElementById("acCatalogRefreshBtn")?.addEventListener("click", async () => {

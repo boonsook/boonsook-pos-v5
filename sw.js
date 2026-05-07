@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v147 (2026-05-07): Phase 87.1.1 — auto schema upgrade for ac_catalog (refresh if old cache)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v147';
+// v148 (2026-05-07): Phase 87.2 — admin spec editor + 12 SKUs with full specs
+const CACHE_NAME = 'boonsook-pos-v5-cache-v148';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
