@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v143 (2026-05-07): Phase 86.2 — extract OTP cooldown state+helpers to modules/otp_cooldown.js
-const CACHE_NAME = 'boonsook-pos-v5-cache-v143';
+// v144 (2026-05-07): Phase 86.3 — extract email auth flow to modules/auth_email.js
+const CACHE_NAME = 'boonsook-pos-v5-cache-v144';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
