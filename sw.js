@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v137 (2026-05-07): Phase 85.2 — confirm() migration (6 จุด: products.js + main.js → App.confirm)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v137';
+// v138 (2026-05-07): Phase 85.2.1 — HOTFIX prodExportBtn callback async (SyntaxError fix)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v138';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

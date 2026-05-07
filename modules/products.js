@@ -625,7 +625,7 @@ function renderView(ctx) {
   el.querySelector("#prodImportBtn")?.addEventListener("click", () => {
     el.querySelector("#prodFileInput")?.click();
   });
-  el.querySelector("#prodExportBtn")?.addEventListener("click", () => {
+  el.querySelector("#prodExportBtn")?.addEventListener("click", async () => {
     // ★ ถ้ามี filter active → ถามว่าจะ export filtered หรือ all
     const hasFilter = (currentTypeFilter !== 'all') || (currentFilter !== 'all') || (currentCategory !== 'all') || searchQuery || quickFilter;
     let exportList = state.products || [];
