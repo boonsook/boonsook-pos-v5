@@ -538,6 +538,11 @@ import { escHtml as escapeHtml } from "./modules/utils.js";
 
 // ★ Phase 86.1 — pure API helpers (extracted from main.js)
 import { formatPhone, getApiBase, readApiJson } from "./modules/api_utils.js";
+// ★ Phase 86.2 — OTP cooldown manager (extracted from main.js)
+import {
+  isOtpCooldownActive, getOtpRemaining,
+  disableOtpButtons, setOtpCooldown, clearOtpCooldown
+} from "./modules/otp_cooldown.js";
 
 // ★ Format helpers (Thai locale)
 function formatNumber(n) { return new Intl.NumberFormat("th-TH").format(Number(n || 0)); }
@@ -1290,50 +1295,14 @@ async function requestStaffPasswordReset(){
 let _pendingOtp = null; // { phone, name, hash, expiresAt, nonce, attempts }
 
 // ═══════════════════════════════════════════════════════════
-//  Phase 85.3 — OTP cooldown state (กัน user spam จนติด rate limit)
+//  Phase 85.3 → 86.2 — OTP cooldown ย้ายไป modules/otp_cooldown.js
+//  (state + helpers ทั้งหมด encapsulate ใน module → เหลือ public API ที่ใช้)
 // ═══════════════════════════════════════════════════════════
-let _otpCooldownEnd = 0;     // timestamp ms when cooldown ends; 0 = no cooldown
-let _otpTickInterval = null; // setInterval id
-
-function _otpButtons() {
-  return [$("requestOtpBtn"), $("resendOtpBtn")].filter(Boolean);
-}
-function _otpOrigText(btn) {
-  return btn.id === "requestOtpBtn" ? "📱 ขอรหัส OTP" : "ส่ง OTP ใหม่";
-}
-function _tickOtpCooldown() {
-  const remain = Math.max(0, Math.ceil((_otpCooldownEnd - Date.now()) / 1000));
-  if (remain <= 0) { _clearOtpCooldown(); return; }
-  const mm = Math.floor(remain / 60);
-  const ss = remain % 60;
-  const label = mm > 0
-    ? "รอ " + mm + ":" + String(ss).padStart(2, "0")
-    : "รอ " + ss + " วิ";
-  for (const btn of _otpButtons()) {
-    btn.disabled = true;
-    btn.textContent = label;
-  }
-}
-function _clearOtpCooldown() {
-  _otpCooldownEnd = 0;
-  if (_otpTickInterval) { clearInterval(_otpTickInterval); _otpTickInterval = null; }
-  for (const btn of _otpButtons()) {
-    btn.disabled = false;
-    btn.textContent = _otpOrigText(btn);
-  }
-}
-function _setOtpCooldown(seconds) {
-  _otpCooldownEnd = Date.now() + seconds * 1000;
-  if (_otpTickInterval) clearInterval(_otpTickInterval);
-  _tickOtpCooldown();
-  _otpTickInterval = setInterval(_tickOtpCooldown, 1000);
-}
 
 async function requestOtp() {
   // ★ Phase 85.3 — guard cooldown
-  if (_otpCooldownEnd > Date.now()) {
-    const remain = Math.ceil((_otpCooldownEnd - Date.now()) / 1000);
-    showToast("โปรดรออีก " + remain + " วินาทีก่อนขอ OTP ใหม่");
+  if (isOtpCooldownActive()) {
+    showToast("โปรดรออีก " + getOtpRemaining() + " วินาทีก่อนขอ OTP ใหม่");
     return;
   }
 
@@ -1342,10 +1311,7 @@ async function requestOtp() {
   if (!phone || phone.length < 9) return showToast("กรุณากรอกเบอร์โทรให้ถูกต้อง");
 
   // ★ Phase 85.3 — disable buttons during request
-  for (const btn of _otpButtons()) {
-    btn.disabled = true;
-    btn.textContent = "⏳ กำลังส่ง...";
-  }
+  disableOtpButtons("⏳ กำลังส่ง...");
 
   const statusEl = $("otpStatus");
   statusEl?.classList.remove("hidden");
@@ -1388,7 +1354,7 @@ async function requestOtp() {
     $("otpCode")?.focus();
 
     // ★ Phase 85.3 — start 60s cooldown หลัง send สำเร็จ
-    _setOtpCooldown(60);
+    setOtpCooldown(60);
 
   } catch (e) {
     console.error("[OTP] Send error:", e);
@@ -1397,11 +1363,11 @@ async function requestOtp() {
 
     // ★ Phase 85.3 — ถ้า rate-limited (429 จาก Phase 17 KV) → cooldown 5 นาที
     if (httpStatus === 429 || /too many|rate.?limit/i.test(e.message)) {
-      _setOtpCooldown(300);
+      setOtpCooldown(300);
       showToast("⚠️ ขอ OTP บ่อยเกินไป — รอ 5 นาทีแล้วลองใหม่");
     } else {
       // error อื่น → restore buttons ทันที (ให้ user retry ได้)
-      _clearOtpCooldown();
+      clearOtpCooldown();
     }
   }
 }
