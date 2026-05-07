@@ -1,7 +1,7 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 7 พฤษภาคม 2026 (Phase 85-87 — login fix + UX + main.js refactor + product detail)
-**Version:** 5.33.3 (build 164) — Phase 85.1-5 + 86.1-4 + 87.1-3 รวมทั้งชุด
+**อัปเดตล่าสุด:** 7 พฤษภาคม 2026 (Phase 85-87 — login + UX + main.js refactor + product detail + Hybrid editor)
+**Version:** 5.33.4 (build 165) — Phase 85.1-5 + 86.1-4 + 87.1-4 รวมทั้งชุด
 **Previous:** 5.31.8 (build 137) — Phase 80-82.5
 
 ---
@@ -93,11 +93,43 @@ Empty values stripped from save diff
 **UI hint** ใต้ file picker — แสดงรายการ 24 fields แบ่ง 4 กลุ่ม +
 ตัวอย่าง pipe separator `Inverter | WiFi | Self-Cleaning`
 
+### ⚡ Phase 87.4 — Copy spec from another SKU (Hybrid workflow boost)
+**Updated `modules/settings/ac-spec-editor.js`** — เพิ่ม `sourceList` 3rd arg
+
+**Use case:** Admin กรอก T-PROWD10 ครบ → ต้องกรอก T-PROWD13/19/25
+(BTU/dim/power ต่างกัน แต่ description/features/SEER/refrig/voltage
+เหมือนกันทั้ง series) → กดปุ่ม "📥 ดูด" → form fill ทันที → แก้แค่
+fields ที่ต่าง (current_a, power_w, indoor_dim, weight, noise) → save
+→ เร็วกว่ากรอกเองทั้งหมด ~5x
+
+**UI:**
+- Green panel ด้านบน body (ใต้ header) — แสดงเฉพาะเมื่อ `sourceList`
+  มีอย่างน้อย 1 รุ่น
+- `<select>` ที่ optgroup ตาม section + แสดง model + BTU per option
+- ปุ่ม "📥 ดูด" disabled จนกว่าเลือก dropdown
+- Self-filter: ไม่แสดงรุ่นปัจจุบันใน dropdown
+- บน click: fill 16 spec inputs (ไม่แตะ id/section/model/btu/price/stock)
+- Feedback: ปุ่ม → "✅ คัดลอกแล้ว" 1.5 วินาที → กลับเป็น "📥 ดูด"
+
+**Wired ใน `ac-catalog.js`:**
+```js
+const sourceList = catalog.filter(c => c.features || c.seer || c.description);
+openSpecEditor(catalog[idx], onSave, sourceList);
+```
+
+**Backwards-compat:** ถ้า sourceList ว่าง (ครั้งแรกที่ใช้ — ยังไม่มี
+SKU มี specs) → ไม่ render panel — back to plain editor.
+
 ### 📊 Status: 12/223 SKUs มี specs
-**Remaining 211 SKUs** — admin กรอกเอง 3 วิธี:
-1. **UI editor ทีละรุ่น** (ละเอียด)
-2. **Excel bulk** (เร็ว — 50+ รุ่นต่อรอบ)
-3. **Hybrid** (Excel เริ่ม + UI fine-tune)
+**Remaining 211 SKUs** — admin กรอกเอง 4 วิธี (Hybrid workflow ครบ):
+1. **UI editor ทีละรุ่น** (ละเอียด — Phase 87.2)
+2. **Copy spec จาก SKU อื่น** (เร็ว — สำหรับ series รุ่น — Phase 87.4)
+3. **Excel bulk** (เร็วสุด — 50+ รุ่นต่อรอบ — Phase 87.3)
+4. **Hybrid** (รวมทุกข้อข้างต้น)
+
+**Time-saving estimate:**
+- กรอกเอง 16 fields × 30s = **8 นาที/รุ่น** → 28 ชม. สำหรับ 211 รุ่น
+- Copy + tweak = **1.5 นาที/รุ่น** → ~5 ชม. (5x faster)
 
 ### Files
 - `modules/product_detail_modal.js`
@@ -115,6 +147,9 @@ Empty values stripped from save diff
   range strings (`0.4-4.5`) ถูกต้อง
 - Admin upload back → import 223 รุ่นสำเร็จ
 - Old 8-column CSV → ยัง import ได้ (backwards-compat)
+- ✅ **Phase 87.4 verified:** เปิด T-PROWD13 → dropdown "T-PROWD10 (9,000 BTU)"
+  → กด "📥 ดูด" → form fill 16 fields ทันที → user แก้ description
+  + dim + weight + noise → save → ✅
 
 ---
 
