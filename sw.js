@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v139 (2026-05-07): Phase 85.3 — OTP cooldown UX (60s normal / 5min on 429 + button countdown)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v139';
+// v140 (2026-05-07): Phase 85.4 — dashboard KPI cards defensive render (icons + min-height + Thai role labels)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v140';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

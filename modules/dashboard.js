@@ -328,10 +328,34 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
           <div class="hero-status">${lowStock.length ? `⚠ สินค้าใกล้หมด ${lowStock.length} รายการ` : "เชื่อมต่อฐานข้อมูลแล้ว"}</div>
         </div>
         <div class="stats-grid" style="grid-template-columns:repeat(2,1fr)">
-          <div class="stat-card dash-clickable" data-go="settings" title="ไปหน้าตั้งค่า"><div class="stat-label">ผู้ใช้งาน</div><div class="stat-value" style="font-size:14px">${state.profile?.full_name || "-"}</div></div>
-          <div class="stat-card dash-clickable" data-go="settings/permissions" title="ดูสิทธิ์ทั้งหมด"><div class="stat-label">สิทธิ์</div><div class="stat-value" style="font-size:14px">${state.profile?.role || "-"}</div></div>
-          <div class="stat-card dash-clickable" data-go="products" title="ไปหน้าสินค้า"><div class="stat-label">สินค้าทั้งหมด</div><div class="stat-value">${state.products.length}</div></div>
-          <div class="stat-card dash-clickable" data-go="service_jobs" title="ไปหน้างานช่าง"><div class="stat-label">งานช่างค้าง</div><div class="stat-value">${activeJobs}</div></div>
+          ${(() => {
+            // ★ Phase 85.4 — defensive KPI fallbacks (กัน profile/products/jobs render ว่าง)
+            const ROLE_LABEL_TH = { admin: "ผู้ดูแลระบบ", sales: "พนักงานขาย", technician: "ช่าง", customer: "ลูกค้า" };
+            const userName = (state.profile?.full_name || "").trim()
+              || (state.currentUser?.email || "").split("@")[0]
+              || "ยังไม่ระบุ";
+            const userRoleKey = state.profile?.role || "";
+            const userRoleLabel = ROLE_LABEL_TH[userRoleKey] || userRoleKey || "ผู้ใช้";
+            const productCount = (state.products || []).length;
+            const jobsCount = activeJobs ?? 0;
+            return `
+              <div class="stat-card dash-clickable" data-go="settings" title="ไปหน้าตั้งค่า">
+                <div class="stat-label">👤 ผู้ใช้งาน</div>
+                <div class="stat-value" style="font-size:14px;min-height:20px">${escapeHtml(userName)}</div>
+              </div>
+              <div class="stat-card dash-clickable" data-go="settings/permissions" title="ดูสิทธิ์ทั้งหมด">
+                <div class="stat-label">🛡️ สิทธิ์</div>
+                <div class="stat-value" style="font-size:14px;min-height:20px">${escapeHtml(userRoleLabel)}</div>
+              </div>
+              <div class="stat-card dash-clickable" data-go="products" title="ไปหน้าสินค้า">
+                <div class="stat-label">📦 สินค้าทั้งหมด</div>
+                <div class="stat-value" style="min-height:24px">${productCount.toLocaleString("th-TH")}</div>
+              </div>
+              <div class="stat-card dash-clickable" data-go="service_jobs" title="ไปหน้างานช่าง">
+                <div class="stat-label">🔧 งานช่างค้าง</div>
+                <div class="stat-value" style="min-height:24px">${jobsCount.toLocaleString("th-TH")}</div>
+              </div>`;
+          })()}
         </div>
       </div>
     </div>
