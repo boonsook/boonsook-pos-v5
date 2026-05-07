@@ -1206,13 +1206,40 @@ async function login(){
   const email = $("loginEmail").value.trim();
   const password = $("loginPassword").value;
   if (!email || !password) return showToast("กรอกอีเมลและรหัสผ่าน");
+
+  // ★ Phase 85.1 — guard: state.supabase ต้อง init ก่อน (boot race fix)
+  if (!state.supabase || !state.supabase.auth) {
+    showToast("ระบบยังเชื่อมต่อไม่เสร็จ — รอ 2-3 วินาทีแล้วลองใหม่");
+    setText("authStatus", "ยังเชื่อมต่อ Supabase ไม่สำเร็จ");
+    return;
+  }
+
   // ✅ Save hash before login (in case session is reset)
   const originalHash = window.location.hash;
   try { localStorage.setItem("bsk_login_destination", originalHash); } catch(e){}
-  
+
+  // ★ Phase 85.1 — disable button + show progress (กัน double-click + UI freeze)
+  const btn = $("loginBtn");
+  const origText = btn?.textContent || "เข้าสู่ระบบ (พนักงาน)";
+  if (btn) { btn.disabled = true; btn.textContent = "⏳ กำลังเข้าสู่ระบบ..."; }
   setText("authStatus", "กำลังเข้าสู่ระบบ...");
-  const { error } = await state.supabase.auth.signInWithPassword({ email, password });
-  if (error) { showToast(error.message || "เข้าสู่ระบบไม่สำเร็จ"); setText("authStatus", "เข้าสู่ระบบไม่สำเร็จ"); }
+
+  // ★ Phase 85.1 — wrap ใน try/catch กัน UI freeze ถ้า network/SDK throw
+  try {
+    const { error } = await state.supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      showToast(error.message || "เข้าสู่ระบบไม่สำเร็จ");
+      setText("authStatus", "เข้าสู่ระบบไม่สำเร็จ");
+    }
+    // success: onAuthStateChange handler จะปิดหน้า login อัตโนมัติ
+  } catch (err) {
+    console.error("[login] signInWithPassword threw:", err);
+    showToast("เกิดข้อผิดพลาด: " + (err?.message || "ไม่ทราบสาเหตุ"));
+    setText("authStatus", "เข้าสู่ระบบไม่สำเร็จ — " + (err?.message || ""));
+  } finally {
+    // ★ Phase 85.1 — restore button (success ก็ restore เผื่อ onAuthStateChange ช้า)
+    if (btn) { btn.disabled = false; btn.textContent = origText; }
+  }
 }
 
 async function requestStaffPasswordReset(){

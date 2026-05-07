@@ -1,8 +1,46 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 7 พฤษภาคม 2026 (Phase 83-84.CSS.2 — AC install + revert + CSS-only + product list mobile)
-**Version:** 5.32.9 (build 149) — Phase 83/84/84-CSS/84-CSS.2 รวมทั้งชุด
+**อัปเดตล่าสุด:** 7 พฤษภาคม 2026 (Phase 85.1 — login() race-condition fix + state.supabase guard)
+**Version:** 5.32.11 (build 151) — Phase 83/84/84-CSS.x/85.1 รวมทั้งชุด
 **Previous:** 5.31.8 (build 137) — Phase 80-82.5
+
+## 🔧 Phase 85.1 — login() race-condition fix (7 พ.ค. รอบบ่าย)
+
+### Why
+User รายงาน Phase 84 ทำให้ "ล็อกอินไม่ได้" — revert Phase 84 ทั้งก้อน
+
+Audit `main.js login()` function (line 1205) พบ:
+- ❌ ไม่มี `state.supabase` guard — ถ้า boot ช้าจน user click ก่อน init เสร็จ → throw `Cannot read property 'auth' of undefined`
+- ❌ ไม่มี try/catch — error throw → unhandled promise rejection → UI freeze (button stuck "กำลังเข้าสู่ระบบ...")
+- ❌ ไม่มี button lock — double-click → race condition
+
+ในขณะที่ `requestStaffPasswordReset` (line 1218), `requestOtp`, `verifyOtp` มี guard + try/catch ครบ
+
+→ **Phase 84 น่าจะ slow boot นิดเดียว** (ai-chat-widget.js?v=4 → v=5 cache miss / มี code ใหม่ใน boot path) — make race condition window กว้างขึ้น → user เจอ "login เงียบ" บ่อยพอ revert
+
+### Fix ([main.js login()](main.js))
+1. **Guard `state.supabase`** — ถ้ายัง init ไม่เสร็จ → toast "ระบบยังเชื่อมต่อไม่เสร็จ — รอ 2-3 วินาทีแล้วลองใหม่"
+2. **Wrap `signInWithPassword` ใน try/catch** — surface error ทันที + log
+3. **Button lock + restore** — disable + แสดง "⏳ กำลังเข้าสู่ระบบ..." → restore ใน `finally`
+4. **Pattern เดียวกับ `requestStaffPasswordReset`** ที่มีอยู่แล้ว — proven safe
+
+### ❌ ไม่ retry Phase 84 ทั้งก้อน
+- Phase 84 modify `showStaffLogin` Promise wrapper — uncertain root cause
+- 6 จุด `confirm()` migration ยังค้าง (debt) — รอ confirmed safe
+
+### Bump
+- main.js v=150 → v=151
+- SW v135 → v136
+- Version 5.32.10 (build 150) → **5.32.11 (build 151)**
+
+### Test
+1. Hard refresh **Ctrl+Shift+R**
+2. หน้า login → กรอก email + password ปลอม → กดเข้าสู่ระบบ
+3. ✅ ต้องเห็น button disable + "⏳ กำลังเข้าสู่ระบบ..." → toast error → button restore (ไม่ค้าง)
+4. ทดสอบในเบราว์เซอร์ **fresh tab** (ที่ supabase ยังไม่ init) → กดเข้าระบบ **ทันทีก่อน 2 วินาที** → ต้องเห็น "ระบบยังเชื่อมต่อไม่เสร็จ" toast (ไม่ throw silent)
+5. Login ปกติ → ต้องเข้าได้เหมือนเดิม
+
+
 
 ## 🆕 Phase 83-84 ที่เสร็จในรอบนี้
 

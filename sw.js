@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v135 (2026-05-07): Phase 84-CSS.3 — form grids auto-fit (drawer/modal forms across all pages)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v135';
+// v136 (2026-05-07): Phase 85.1 — login() race-condition fix (state.supabase guard + try/catch + button lock)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v136';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
