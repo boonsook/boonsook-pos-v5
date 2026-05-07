@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v140 (2026-05-07): Phase 85.4 — dashboard KPI cards defensive render (icons + min-height + Thai role labels)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v140';
+// v141 (2026-05-07): Phase 85.5 — KPI cards color fix (text was white-on-white, color:#0f172a)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v141';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

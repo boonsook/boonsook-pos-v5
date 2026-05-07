@@ -338,22 +338,25 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
             const userRoleLabel = ROLE_LABEL_TH[userRoleKey] || userRoleKey || "ผู้ใช้";
             const productCount = (state.products || []).length;
             const jobsCount = activeJobs ?? 0;
+            // ★ Phase 85.5 — color:#0f172a เพื่อให้ตัวเลขมองเห็นบน card สีขาว
+            // (parent <div class="hero"> set color:#fff สำหรับ hero text → inherit ทำให้ตัวอักษรเป็นสีขาวมองไม่เห็น)
+            const valStyle = "color:#0f172a";
             return `
               <div class="stat-card dash-clickable" data-go="settings" title="ไปหน้าตั้งค่า">
-                <div class="stat-label">👤 ผู้ใช้งาน</div>
-                <div class="stat-value" style="font-size:14px;min-height:20px">${escapeHtml(userName)}</div>
+                <div class="stat-label" style="${valStyle}">👤 ผู้ใช้งาน</div>
+                <div class="stat-value" style="font-size:14px;min-height:20px;${valStyle}">${escapeHtml(userName)}</div>
               </div>
               <div class="stat-card dash-clickable" data-go="settings/permissions" title="ดูสิทธิ์ทั้งหมด">
-                <div class="stat-label">🛡️ สิทธิ์</div>
-                <div class="stat-value" style="font-size:14px;min-height:20px">${escapeHtml(userRoleLabel)}</div>
+                <div class="stat-label" style="${valStyle}">🛡️ สิทธิ์</div>
+                <div class="stat-value" style="font-size:14px;min-height:20px;${valStyle}">${escapeHtml(userRoleLabel)}</div>
               </div>
               <div class="stat-card dash-clickable" data-go="products" title="ไปหน้าสินค้า">
-                <div class="stat-label">📦 สินค้าทั้งหมด</div>
-                <div class="stat-value" style="min-height:24px">${productCount.toLocaleString("th-TH")}</div>
+                <div class="stat-label" style="${valStyle}">📦 สินค้าทั้งหมด</div>
+                <div class="stat-value" style="min-height:24px;${valStyle}">${productCount.toLocaleString("th-TH")}</div>
               </div>
               <div class="stat-card dash-clickable" data-go="service_jobs" title="ไปหน้างานช่าง">
-                <div class="stat-label">🔧 งานช่างค้าง</div>
-                <div class="stat-value" style="min-height:24px">${jobsCount.toLocaleString("th-TH")}</div>
+                <div class="stat-label" style="${valStyle}">🔧 งานช่างค้าง</div>
+                <div class="stat-value" style="min-height:24px;${valStyle}">${jobsCount.toLocaleString("th-TH")}</div>
               </div>`;
           })()}
         </div>
