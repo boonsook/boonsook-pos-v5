@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v141 (2026-05-07): Phase 85.5 — KPI cards color fix (text was white-on-white, color:#0f172a)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v141';
+// v142 (2026-05-07): Phase 86.1 — extract pure API utils to modules/api_utils.js
+const CACHE_NAME = 'boonsook-pos-v5-cache-v142';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

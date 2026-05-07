@@ -536,6 +536,9 @@ const money = (n) => new Intl.NumberFormat("th-TH",{style:"currency",currency:"T
 // ★ XSS Protection — escapeHtml (Phase 51: dedup → use shared utils.js)
 import { escHtml as escapeHtml } from "./modules/utils.js";
 
+// ★ Phase 86.1 — pure API helpers (extracted from main.js)
+import { formatPhone, getApiBase, readApiJson } from "./modules/api_utils.js";
+
 // ★ Format helpers (Thai locale)
 function formatNumber(n) { return new Intl.NumberFormat("th-TH").format(Number(n || 0)); }
 function formatCurrency(n) { return money(n); }
@@ -1282,69 +1285,9 @@ async function requestStaffPasswordReset(){
 // ═══════════════════════════════════════════════════════════
 //  CUSTOMER OTP AUTH — สมัคร/ล็อกอินด้วยเบอร์โทร + SMS OTP จริง (Twilio)
 // ═══════════════════════════════════════════════════════════
+// Phase 86.1: formatPhone, getApiBase, readApiJson ย้ายไป modules/api_utils.js แล้ว
+// (generateNonce ลบทิ้ง — ไม่มีคนเรียก)
 let _pendingOtp = null; // { phone, name, hash, expiresAt, nonce, attempts }
-
-// ★ สร้าง nonce สุ่ม 32 ตัวอักษร สำหรับผสมใน password (ป้องกันคาดเดา)
-function generateNonce() {
-  const arr = new Uint8Array(16);
-  crypto.getRandomValues(arr);
-  return Array.from(arr).map(b => b.toString(16).padStart(2,'0')).join('');
-}
-
-function formatPhone(p) {
-  return String(p || "").replace(/\D/g, "").slice(0, 10);
-}
-
-// ★ กำหนด API base URL ตาม environment
-function getApiBase() {
-  const explicitBase = window.BSK_API_BASE || localStorage.getItem("bsk_api_base");
-  if (explicitBase) return String(explicitBase).replace(/\/+$/, "");
-
-  const host = window.location.hostname;
-  const port = window.location.port;
-  if ((host === "localhost" || host === "127.0.0.1") && port !== "8787" && port !== "8788") {
-    return "https://boonsukair.com";
-  }
-  if (host === "localhost" || host === "127.0.0.1") return ""; // Cloudflare Pages dev
-  // Cloudflare Pages — functions อยู่ที่ path เดียวกัน
-  return window.location.origin;
-}
-
-async function readApiJson(response, label) {
-  const text = await response.text();
-  const contentType = response.headers.get("content-type") || "";
-
-  if (!text) {
-    if (!response.ok) {
-      throw new Error(`${label}: server ขัดข้อง (HTTP ${response.status}) กรุณาลองใหม่อีกครั้ง`);
-    }
-    return {};
-  }
-  if (contentType.includes("application/json")) {
-    try {
-      return JSON.parse(text);
-    } catch (e) {
-      throw new Error(`${label}: เซิร์ฟเวอร์ส่ง JSON ไม่ถูกต้อง`);
-    }
-  }
-
-  const trimmed = text.trim();
-  if (trimmed.startsWith("<!DOCTYPE") || trimmed.startsWith("<html") || trimmed.startsWith("<")) {
-    if (!response.ok) {
-      throw new Error(`${label}: server ขัดข้อง (HTTP ${response.status}) กรุณาลองใหม่อีกครั้ง`);
-    }
-    throw new Error(`${label}: ไม่พบ API หรือ server คืนหน้าเว็บแทนข้อมูล กรุณาลองรีเฟรชหรือรอ deploy ให้เสร็จ`);
-  }
-
-  try {
-    return JSON.parse(text);
-  } catch (e) {
-    if (!response.ok) {
-      throw new Error(`${label}: server ขัดข้อง (HTTP ${response.status}) กรุณาลองใหม่อีกครั้ง`);
-    }
-    throw new Error(`${label}: คำตอบจากเซิร์ฟเวอร์ไม่ถูกต้อง`);
-  }
-}
 
 // ═══════════════════════════════════════════════════════════
 //  Phase 85.3 — OTP cooldown state (กัน user spam จนติด rate limit)
