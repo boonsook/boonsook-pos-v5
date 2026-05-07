@@ -859,7 +859,7 @@ function renderProductItem(p, mode, state) {
       const shortName = String(w.name || "").replace(/^คลัง.+?[(\s]/, "").replace(/[)]/, "").trim() || w.name;
       return `<span style="display:inline-block;background:#f1f5f9;color:#475569;padding:1px 7px;border-radius:6px;margin-right:3px;font-size:10px;font-weight:600">${escHtml(shortName)}:${n}</span>`;
     }).filter(Boolean);
-    if (parts.length > 0) whBreakdown = `<div style="margin-top:3px">${parts.join("")}</div>`;
+    if (parts.length > 0) whBreakdown = `<div class="prod-list-wh" style="margin-top:3px">${parts.join("")}</div>`;
   }
 
   // ★ Stock turnover — กี่วันจะหมด (avg ขาย 30 วันล่าสุด)

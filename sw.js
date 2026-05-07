@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v133 (2026-05-06): Phase 84-CSS only — mobile font/layout fixes (no JS logic changes)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v133';
+// v134 (2026-05-07): Phase 84-CSS.2 — products list mobile (price/stock/wh/actions stack)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v134';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

@@ -872,12 +872,44 @@ th { color: var(--muted); font-size: 12px; }
   .wh-selector { margin-top: 8px; }
 }
 
+@media (max-width: 480px) {
+  /* Phase 84-CSS.2: ป้องกัน prod-list-right บีบ — wrap + actions เต็มแถว */
+  .prod-list-right {
+    flex-wrap: wrap !important;
+    gap: 4px 10px !important;
+    align-items: flex-start !important;
+    justify-content: space-between !important;
+  }
+  .prod-list-price { font-size: 16px !important; flex: 0 0 auto; }
+  .prod-list-stock { font-size: 11px !important; flex: 0 0 auto; }
+  .prod-list-wh {
+    flex-basis: 100% !important;
+    margin-top: 2px !important;
+    line-height: 1.6;
+  }
+  .prod-list-actions {
+    flex-basis: 100% !important;
+    justify-content: flex-end !important;
+    gap: 4px !important;
+    margin-top: 6px !important;
+  }
+  .prod-list-actions .btn {
+    padding: 5px 8px !important;
+    font-size: 12px !important;
+    min-width: 32px;
+  }
+}
+
 @media (max-width: 400px) {
   .prod-grid { grid-template-columns: 1fr 1fr; gap: 6px; }
   .prod-grid-card { padding: 10px; }
   .prod-list-name { font-size: 13px; }
-  .prod-list-price { font-size: 13px; }
+  .prod-list-price { font-size: 14px !important; }
   .prod-list-item { padding: 8px; }
+  .prod-list-actions .btn {
+    padding: 4px 6px !important;
+    font-size: 11px !important;
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════
