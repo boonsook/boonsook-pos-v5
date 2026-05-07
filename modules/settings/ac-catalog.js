@@ -359,16 +359,18 @@ export function renderSettingsAcCatalog(el, ctx, goBack, navigate) {
   });
 
   // ═══ Phase 87.2 — Edit spec per row ═══
+  // ★ Phase 87.4 — pass sourceList = SKUs ที่มี extended specs (ให้ copy spec ได้)
   document.querySelectorAll("[data-edit-spec]").forEach(btn => btn.addEventListener("click", () => {
     const id = Number(btn.dataset.editSpec);
     const idx = catalog.findIndex(c => c.id === id);
     if (idx < 0) return;
+    const sourceList = catalog.filter(c => c.features || c.seer || c.description);
     openSpecEditor(catalog[idx], (updates) => {
       catalog[idx] = { ...catalog[idx], ...updates };
       localStorage.setItem("bsk_ac_catalog", JSON.stringify(catalog));
       if (ctx?.showToast) ctx.showToast(`บันทึกสเปก ${catalog[idx].model} แล้ว ✅`);
       rerender();
-    });
+    }, sourceList);
   }));
 
   // ═══ Refresh from JSON file ═══

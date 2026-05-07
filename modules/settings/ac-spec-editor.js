@@ -47,15 +47,28 @@ function _injectKf() {
 /**
  * เปิด modal กรอก/แก้สเปกเครื่อง
  * @param {object} product
- * @param {(updates: object) => void} onSave - callback เมื่อกดบันทึก (รับ object ของ field ที่แก้)
+ * @param {(updates: object) => void} onSave - callback เมื่อกดบันทึก
+ * @param {Array<object>} [sourceList] - รายการ SKU ที่มี specs ครบ (สำหรับ Phase 87.4 copy from)
  */
-export function openSpecEditor(product, onSave) {
+export function openSpecEditor(product, onSave, sourceList = []) {
   if (!product) return;
   _injectKf();
   document.getElementById("spec-overlay")?.remove();
 
   // Helper convert array ↔ comma string
   const arrToStr = (a) => Array.isArray(a) ? a.join(", ") : (a || "");
+
+  // ★ Phase 87.4 — Group sourceList by section + filter out current product
+  const sourcesGrouped = (() => {
+    const map = {};
+    sourceList.forEach(s => {
+      if (s.id === product.id) return; // skip self
+      const sec = s.section || "อื่นๆ";
+      (map[sec] = map[sec] || []).push(s);
+    });
+    return Object.entries(map).sort((a, b) => a[0].localeCompare(b[0], "th"));
+  })();
+  const hasSources = sourcesGrouped.length > 0;
 
   const overlay = document.createElement("div");
   overlay.id = "spec-overlay";
@@ -76,6 +89,25 @@ export function openSpecEditor(product, onSave) {
 
       <!-- Body (scrollable) -->
       <div style="overflow-y:auto;padding:16px 18px;flex:1">
+
+        ${hasSources ? `
+        <!-- ★ Phase 87.4 — Copy spec from another SKU (Hybrid workflow) -->
+        <div style="margin-bottom:14px;padding:10px 12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px">
+          <div style="font-size:12px;font-weight:700;color:#065f46;margin-bottom:6px">📋 คัดลอกสเปกจากรุ่นอื่น (เร็ว)</div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <select id="specCopyFrom" class="spec-input" style="flex:1">
+              <option value="">— เลือกรุ่นที่จะคัดลอกมา —</option>
+              ${sourcesGrouped.map(([sec, items]) => `
+                <optgroup label="${escAttr(sec)}">
+                  ${items.map(s => `<option value="${s.id}">${escHtml(s.model)}${s.btu ? ' (' + Number(s.btu).toLocaleString() + ' BTU)' : ''}</option>`).join("")}
+                </optgroup>
+              `).join("")}
+            </select>
+            <button type="button" id="specCopyBtn" disabled style="padding:8px 14px;border:none;border-radius:8px;background:#94a3b8;color:#fff;font-size:13px;font-weight:700;cursor:not-allowed;opacity:.5;transition:.15s">📥 ดูด</button>
+          </div>
+          <div style="font-size:10px;color:#64748b;margin-top:4px">⚠️ ดูดสเปก (description / features / SEER / dim / weight / ฯลฯ) — ราคา/BTU/รุ่น คงเดิม</div>
+        </div>
+        ` : ''}
 
         <!-- Description -->
         <label class="spec-label">📝 คำอธิบาย</label>
@@ -193,6 +225,48 @@ export function openSpecEditor(product, onSave) {
     return Number.isFinite(n) ? n : s; // คงเป็น string ถ้าไม่ใช่ตัวเลขแท้ (e.g. "0.4-4.5")
   };
   const vArr = (id) => v(id).split(",").map(s => s.trim()).filter(Boolean);
+
+  // ★ Phase 87.4 — Copy spec from another SKU
+  const _setVal = (id, val) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.value = val ?? "";
+  };
+  const copySelect = document.getElementById("specCopyFrom");
+  const copyBtn = document.getElementById("specCopyBtn");
+  copySelect?.addEventListener("change", () => {
+    const enabled = !!copySelect.value;
+    copyBtn.disabled = !enabled;
+    copyBtn.style.cursor = enabled ? "pointer" : "not-allowed";
+    copyBtn.style.opacity = enabled ? "1" : ".5";
+    copyBtn.style.background = enabled ? "#10b981" : "#94a3b8";
+  });
+  copyBtn?.addEventListener("click", () => {
+    const id = Number(copySelect.value);
+    const src = sourceList.find(s => s.id === id);
+    if (!src) return;
+    // Fill form fields (keep id/section/model/btu/price/stock — only copy spec fields)
+    _setVal("specDesc", src.description || "");
+    _setVal("specFeatures", arrToStr(src.features));
+    _setVal("specBadges", arrToStr(src.badge_tags));
+    _setVal("specImage", src.image_url || "");
+    _setVal("specSeer", src.seer ?? "");
+    _setVal("specRefrig", src.refrigerant || "");
+    _setVal("specVoltage", src.voltage || "");
+    _setVal("specColor", src.color || "");
+    _setVal("specCurrent", src.current_a ?? "");
+    _setVal("specPower", src.power_w ?? "");
+    _setVal("specInDim", src.indoor_dim || "");
+    _setVal("specOutDim", src.outdoor_dim || "");
+    _setVal("specInWeight", src.indoor_weight_kg ?? "");
+    _setVal("specOutWeight", src.outdoor_weight_kg ?? "");
+    _setVal("specNoiseIn", src.noise_indoor_db ?? "");
+    _setVal("specNoiseOut", src.noise_outdoor_db ?? "");
+    // Visual feedback
+    copyBtn.textContent = "✅ คัดลอกแล้ว";
+    copyBtn.style.background = "#0284c7";
+    setTimeout(() => { copyBtn.textContent = "📥 ดูด"; copyBtn.style.background = "#10b981"; }, 1500);
+  });
 
   // Bind
   document.getElementById("specCloseBtn")?.addEventListener("click", close);

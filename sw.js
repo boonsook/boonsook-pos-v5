@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v149 (2026-05-07): Phase 87.3 — CSV/Excel import/export with 16 extended spec fields
-const CACHE_NAME = 'boonsook-pos-v5-cache-v149';
+// v150 (2026-05-07): Phase 87.4 — copy spec from another SKU (Hybrid workflow boost)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v150';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
