@@ -1,8 +1,101 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 7 พฤษภาคม 2026 (Phase 85.1 — login() race-condition fix + state.supabase guard)
-**Version:** 5.32.11 (build 151) — Phase 83/84/84-CSS.x/85.1 รวมทั้งชุด
+**อัปเดตล่าสุด:** 7 พฤษภาคม 2026 (Phase 85.x + 86.x — login fix + UX + main.js refactor)
+**Version:** 5.32.20 (build 160) — Phase 85.1-5 + 86.1-4 รวมทั้งชุด
 **Previous:** 5.31.8 (build 137) — Phase 80-82.5
+
+---
+
+## 🚀 Phase 85-86 ที่เสร็จในรอบนี้ (7 พ.ค.)
+
+### 📊 สถิติ Session
+- **13 commits** in main.js + 4 modules ใหม่ (api_utils, otp_cooldown, auth_email, auth_otp)
+- **main.js: 4,415 → 4,032 บรรทัด (-383 lines, -8.7%)**
+- ปิด Phase 84 debt (confirm migration) + แก้ login race + UX dashboard + OTP cooldown
+- ทุก phase ทดสอบใน production https://boonsukair.com/ แล้ว
+
+### 🔧 Phase 85.x — Bug fix + UX
+
+#### Phase 85.1 — login() race-condition fix
+**Symptom:** Phase 84 ทำให้ "ล็อกอินไม่ได้" → revert Phase 84 ทั้งก้อน
+**Root cause:** `login()` ใน main.js ขาด 3 defenses ที่ฟังก์ชันคู่ขนาน (requestStaffPasswordReset, requestOtp, verifyOtp) มีครบ:
+- ❌ ไม่มี `state.supabase` guard → ถ้า boot ช้า → throw `Cannot read property 'auth' of undefined`
+- ❌ ไม่มี try/catch → unhandled rejection → button stuck "กำลังเข้าสู่ระบบ..."
+- ❌ ไม่มี button lock → double-click race
+
+**Fix:** Apply pattern เดียวกับ requestStaffPasswordReset:
+1. Guard `state.supabase + state.supabase.auth` → toast + return
+2. `try/catch` ครอบ `signInWithPassword` + log + toast on throw
+3. Button disable + restore ใน `finally`
+
+#### Phase 85.2 + 85.2.1 — confirm() migration (Phase 84 debt)
+**Why:** Phase 84 ตั้งใจ migrate native `confirm()` → `App.confirm` (Promise) แต่โดน revert ตามไป
+**Migrate 6 จุด:**
+- products.js (5 callsites: export filter, clear category, bulk delete x2, delete category)
+- main.js:_revokeShareToken (cancel link)
+- ใช้ `_appConfirm` wrapper ใน products.js (fallback `window.confirm` ถ้า App ยังไม่พร้อม)
+- ใช้ `confirmAsync` (already in scope) ใน main.js
+
+**🐛 85.2.1 hotfix:** Phase 85.2 ใส่ `await _appConfirm()` ใน arrow function ปกติของ `#prodExportBtn` click → SyntaxError → ทั้ง products.js parse fail → import chain แตก → login dead. แก้: async callback
+
+#### Phase 85.3 — OTP cooldown UX
+**Why:** User ทดสอบ OTP กดซ้ำ 6 ครั้ง → ติด Phase 17 KV rate limit (HTTP 429) → เข้าระบบไม่ได้
+**Fix:** Module-scoped state + 5 helpers ใน main.js:
+- `_setOtpCooldown(seconds)` — start countdown + tick ทุกวินาที
+- 60s cooldown หลัง send สำเร็จ
+- 5-min cooldown ถ้าได้ HTTP 429 + special toast
+- `requestOtp` guard cooldown ก่อน fetch
+- Button disable "⏳ กำลังส่ง..." → "รอ NN วิ" → restore
+
+#### Phase 85.4 + 85.5 — Dashboard KPI cards (white-on-white bug)
+**85.4 attempt:** เปลี่ยน 4 cards (ผู้ใช้งาน/สิทธิ์/สินค้าทั้งหมด/งานช่างค้าง) เป็น defensive IIFE — เพิ่ม fallback chain + min-height + emoji label + Thai role labels
+**85.5 actual fix:** DOM inspector ยืนยัน text render OK แต่ `color: rgb(255, 255, 255)` (white) บน card สีขาว → invisible! Parent `<div class="hero">` set `color:#fff` สำหรับ headline → cards inside inherit white. แก้: explicit `color:#0f172a` ใน inline style ทุก stat-label + stat-value
+
+### 🏗️ Phase 86.x — main.js refactor (extract auth modules)
+
+**เป้าหมาย:** main.js 4,300+ บรรทัด ใหญ่เกินไป → แตกเป็น modules ที่ test/reuse ได้
+
+| Phase | Module | main.js Δ | Total Δ |
+|---|---|---|---|
+| 86.1 | `api_utils.js` (formatPhone, getApiBase, readApiJson) | -62 | 4,287 |
+| 86.2 | `otp_cooldown.js` (state + 5 public APIs) | -38 | 4,315 |
+| 86.3 | `auth_email.js` (login + setPassword + reset) | -101 | 4,214 |
+| 86.4 | `auth_otp.js` (requestOtp + verifyOtp + _pendingOtp) | -182 | **4,032** |
+
+**Pattern:**
+- Pure utils (api_utils) → import ตรง
+- State-encapsulated (otp_cooldown) → module-private state, public API
+- Stateful flow (auth_email, auth_otp) → factory pattern: `createXxxAuth({state, $, setText, showToast, ...})`
+- afterLogin pass เป็น `() => afterLogin()` (lazy resolve hoisted function)
+
+**Module dependency tree:**
+```
+main.js
+  ├─ imports auth_email, auth_otp
+  └─ const { login } = createEmailAuth({state, $, setText, showToast, afterLogin: () => afterLogin()})
+     const { requestOtp, verifyOtp } = createOtpAuth({state, $, setText, showToast})
+
+modules/
+  ├─ api_utils.js       (pure - no deps)
+  │    ↓ used by
+  ├─ auth_otp.js        ← imports api_utils + otp_cooldown directly
+  ├─ auth_email.js      (factory pattern, deps via DI)
+  └─ otp_cooldown.js    (uses document.getElementById directly)
+```
+
+**Phase 85.1 race-condition guards** ยังคงครบใน auth_email.js (ไม่ regress)
+**Phase 85.3 OTP cooldown UX** ยังคงครบใน otp_cooldown.js + auth_otp.js (ไม่ regress)
+
+### ✅ Smoke test ที่ผ่านใน production
+- Email login (ผิด/ถูก/forgot password) → working ✅
+- Customer OTP signup ใหม่ → working (Bug F trigger fix ยังทำงาน)
+- Customer OTP signin ลูกค้าเดิม → working
+- OTP cooldown countdown 60s/5min → visible
+- Dashboard KPI cards 4 ใบ → readable (color:#0f172a)
+- confirm modals 6 จุด → ARIA dialog (App.confirm)
+- ui_states empty/skeleton ใน 25+ modules → ยังทำงาน
+
+---
 
 ## 🔧 Phase 85.1 — login() race-condition fix (7 พ.ค. รอบบ่าย)
 
