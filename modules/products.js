@@ -5,6 +5,12 @@
 import { renderEmpty } from "./ui_states.js";
 // Phase 68 (B3): tag rendering + presets
 import { renderTagBadge, PRODUCT_TAG_PRESETS } from "./utils.js";
+
+// ★ Phase 85.2 — App.confirm wrapper with native fallback (กันช่วง boot)
+const _appConfirm = (msg) => {
+  if (typeof window.App?.confirm === "function") return window.App.confirm(msg);
+  return Promise.resolve(window.confirm(msg));
+};
 // Phase 81: Bluetooth printer integration (Web Bluetooth API → XP-420B)
 import * as BTPrinter from "./bt_printer.js";
 
@@ -641,7 +647,7 @@ function renderView(ctx) {
           String(p.barcode || "").toLowerCase().includes(q)
         );
       }
-      const choice = confirm(`พบ filter ที่ใช้อยู่ (${f.length} รายการ)\n\nกด OK = export เฉพาะ ${f.length} รายการที่กรอง\nกด Cancel = export ทั้งหมด ${exportList.length} รายการ`);
+      const choice = await _appConfirm(`พบ filter ที่ใช้อยู่ (${f.length} รายการ)\n\nตกลง = export เฉพาะ ${f.length} รายการที่กรอง\nยกเลิก = export ทั้งหมด ${exportList.length} รายการ`);
       if (choice) exportList = f;
     }
     exportProducts(state, exportList);
@@ -1946,7 +1952,7 @@ async function bulkSetCategory(ctx) {
   const cats = [...new Set((ctx.state.products || []).map(p => String(p.category || "").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"th"));
   const newCat = (prompt(`เปลี่ยนหมวดสำหรับ ${bulkSelected.size} สินค้า\n\nหมวดที่มี: ${cats.slice(0, 10).join(", ")}${cats.length > 10 ? "..." : ""}\n\nพิมพ์ชื่อหมวดใหม่ (หรือชื่อเดิม):`, "") || "").trim();
   if (newCat === "") {
-    if (!confirm("เคลียร์หมวด (ลบหมวดออกจากสินค้า)?")) return;
+    if (!(await _appConfirm("เคลียร์หมวด (ลบหมวดออกจากสินค้า)?"))) return;
   }
   await _bulkPatchProducts([...bulkSelected], { category: newCat }, "เปลี่ยนหมวด");
   bulkSelected.clear();
@@ -1969,8 +1975,8 @@ async function bulkSetType(ctx) {
 
 async function bulkDelete(ctx) {
   if (bulkSelected.size === 0) return;
-  if (!confirm(`⚠️ ลบสินค้าที่เลือก ${bulkSelected.size} รายการ?\n\nกู้คืนไม่ได้!`)) return;
-  if (!confirm(`ยืนยันอีกครั้ง: ลบ ${bulkSelected.size} รายการ?`)) return;
+  if (!(await _appConfirm(`⚠️ ลบสินค้าที่เลือก ${bulkSelected.size} รายการ?\n\nกู้คืนไม่ได้!`))) return;
+  if (!(await _appConfirm(`ยืนยันอีกครั้ง: ลบ ${bulkSelected.size} รายการ?`))) return;
   const cfg = window.SUPABASE_CONFIG;
   const accessToken = window._sbAccessToken || cfg.anonKey;
   let ok = 0, fail = 0;
@@ -2207,7 +2213,7 @@ async function openCategoryManagerDialog(ctx) {
 
       let action;
       if (matches.length === 0) {
-        if (!confirm(`ลบหมวด "${cat.name}" หรือไม่? (ไม่มีสินค้าใช้หมวดนี้)`)) return;
+        if (!(await _appConfirm(`ลบหมวด "${cat.name}" หรือไม่? (ไม่มีสินค้าใช้หมวดนี้)`))) return;
         action = "remove_only";
       } else {
         action = prompt(

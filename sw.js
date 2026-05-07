@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v136 (2026-05-07): Phase 85.1 — login() race-condition fix (state.supabase guard + try/catch + button lock)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v136';
+// v137 (2026-05-07): Phase 85.2 — confirm() migration (6 จุด: products.js + main.js → App.confirm)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v137';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
