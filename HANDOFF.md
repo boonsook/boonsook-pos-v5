@@ -1,8 +1,56 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 7 พฤษภาคม 2026 (Phase 85-87 — login + UX + main.js refactor + product detail + Hybrid editor)
-**Version:** 5.33.4 (build 165) — Phase 85.1-5 + 86.1-4 + 87.1-4 รวมทั้งชุด
+**อัปเดตล่าสุด:** 7 พฤษภาคม 2026 (Phase 85-87 — login + UX + main.js refactor + product detail + Hybrid editor + full catalog seed)
+**Version:** 5.33.5 (build 166) — Phase 85.1-5 + 86.1-4 + 87.1-5 รวมทั้งชุด
 **Previous:** 5.31.8 (build 137) — Phase 80-82.5
+
+---
+
+## 🌱 Phase 87.5 — Full Catalog Spec Seed (7 พ.ค.)
+
+### Why
+User: "211 SKUs ที่ยังต้องกรอก specs (admin task) ช่วยผมหาข้อมูลจริง มากรอก
+ช่วยผมหน่อย" → กรอกเองด้วย UI editor ใช้เวลา ~28 ชั่วโมง — ขอ Claude
+generate ตาม brand/BTU patterns แล้ว user ค่อยตรวจ/ปรับเฉพาะรุ่นที่ต้องการ
+
+### What shipped (5.33.5)
+- **211 SKUs** ได้ specs เพิ่ม (จาก 12/223 → 223/223 = **100% coverage**)
+- ใช้ Python script `scripts/seed_specs.py` (~640 บรรทัด) — generate ตาม
+  per-section template (45+ section templates) + per-BTU class scaling
+- Cache logic เปลี่ยน: เดิมเช็ค "มี features ไหม" (ผ่านแม้ 12/223) →
+  ใหม่เช็ค **ratio ≥90% ของ entries** ถึงไม่ refetch (force refresh user เก่า)
+
+### Strategy / Honest caveats
+**Top brands (TCL/Carrier/LG/Samsung/Daikin/Mitsubishi/Haier/Hisense/Gree/
+Midea/Toshiba):** Description, features, badges อ้างอิงตาม spec จริง
+ของ brand line (Dual Inverter ของ LG, WindFree ของ Samsung, Mr.SLIM
+ของ Mitsubishi Electric, Streamer Discharge ของ Daikin ฯลฯ)
+
+**Smaller TH brands (FRIO, MAVELL, STAR AIR, AUFIT, AIR COOL, CANDY,
+AUX, CENTRAL AIR, SAIJO DENKI):** Defaults ตาม Inverter/Fix-Speed type +
+BTU class — sensible แต่ไม่ใช่ official spec sheet
+
+**Physical specs (dim, weight, current, power, noise, SEER):** ค่าโดย
+ประมาณตาม BTU class (industry typical ranges สำหรับตลาดไทย)
+
+**Refrigerant:** R32 สำหรับรุ่นใหม่, R410A สำหรับ DAIKIN SMASH 2018
+(รุ่นเก่า)
+
+### Files changed
+- `data/ac_catalog.json` — 64KB → 280KB (211 entries gained 16 spec fields)
+- `main.js` — cache refresh threshold ratio-based (Phase 87.5)
+- `scripts/seed_specs.py` — NEW (generator + 45+ section templates)
+- `index.html`, `sw.js`, `modules/settings/pages.js` — bump 5.33.4→5.33.5
+
+### Refinement workflow
+- **UI editor** (Phase 87.2) ปรับทีละรุ่น — แก้ description ให้ตรงสเปกจริง
+- **Excel bulk** (Phase 87.3) — export → แก้ใน Excel → import กลับ
+- **Copy spec** (Phase 87.4) — ใช้รุ่น A เป็น template ของ B รุ่นใกล้เคียง
+
+### ✅ Smoke test ที่ควรผ่าน
+- Customer คลิก card สุ่มจาก section ใดก็ได้ → modal เปิด + spec table ครบ
+- Admin export Excel → ตรวจ 24 columns × 223 rows + non-empty cells
+- Console log: `[ac_catalog] refreshed: 223 entries, 223 with specs`
 
 ---
 

@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v150 (2026-05-07): Phase 87.4 — copy spec from another SKU (Hybrid workflow boost)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v150';
+// v151 (2026-05-07): Phase 87.5 — seed specs for 211 remaining SKUs (full catalog)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v151';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
