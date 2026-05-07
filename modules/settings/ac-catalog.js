@@ -2,6 +2,109 @@ import { escHtml } from "./utils.js";
 // Phase 87.2 — spec editor modal
 import { openSpecEditor } from "./ac-spec-editor.js";
 
+// ═══════════════════════════════════════════════════════════
+//  Phase 87.3 — Extended fields helpers (CSV/Excel ↔ catalog object)
+// ═══════════════════════════════════════════════════════════
+// Array fields serialize as "item1 | item2 | item3" (pipe-separated)
+const _arrToPipe = (a) => Array.isArray(a) ? a.join(" | ") : (a || "");
+const _pipeToArr = (s) => String(s || "").split(/\s*\|\s*|\s*,\s*/).map(x => x.trim()).filter(Boolean);
+// Number fields ที่อาจเป็น range string ("0.4-4.5") — try Number(), keep string ถ้า parse ไม่ได้
+const _tryNum = (val) => {
+  if (val === "" || val == null) return undefined;
+  const s = String(val).trim();
+  if (!s) return undefined;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : s;
+};
+
+/** flatten catalog entry → row object สำหรับ Excel/CSV export (24 columns) */
+function _toExportRow(c) {
+  return {
+    section: c.section || "",
+    model: c.model || "",
+    btu: Number(c.btu || 0),
+    price: Number(c.price || 0),
+    w_install: c.w_install || "",
+    w_parts: c.w_parts || "",
+    w_comp: c.w_comp || "",
+    stock: Number(c.stock || 0),
+    // ★ Phase 87.3 — extended schema v2
+    description: c.description || "",
+    features: _arrToPipe(c.features),
+    badge_tags: _arrToPipe(c.badge_tags),
+    image_url: c.image_url || "",
+    seer: c.seer ?? "",
+    refrigerant: c.refrigerant || "",
+    voltage: c.voltage || "",
+    current_a: c.current_a ?? "",
+    power_w: c.power_w ?? "",
+    indoor_dim: c.indoor_dim || "",
+    outdoor_dim: c.outdoor_dim || "",
+    indoor_weight_kg: c.indoor_weight_kg ?? "",
+    outdoor_weight_kg: c.outdoor_weight_kg ?? "",
+    noise_indoor_db: c.noise_indoor_db ?? "",
+    noise_outdoor_db: c.noise_outdoor_db ?? "",
+    color: c.color || ""
+  };
+}
+
+const _EXPORT_HEADERS = [
+  "section","model","btu","price","w_install","w_parts","w_comp","stock",
+  "description","features","badge_tags","image_url",
+  "seer","refrigerant","voltage","current_a","power_w",
+  "indoor_dim","outdoor_dim","indoor_weight_kg","outdoor_weight_kg",
+  "noise_indoor_db","noise_outdoor_db","color"
+];
+
+/** parse Excel/CSV row → catalog entry (extended fields optional) */
+function _fromImportRow(r, idx, pick) {
+  const section = String(pick(r, ["section", "ยี่ห้อ", "แบรนด์"]) || "").trim();
+  const model   = String(pick(r, ["model", "รุ่น"]) || "").trim();
+  if (!section || !model) return null;
+
+  const priceRaw = String(pick(r, ["price", "price_install", "ราคา"]) || "0").replace(/[^0-9.]/g, "");
+  const entry = {
+    id: idx + 1,
+    section,
+    model,
+    btu: Number(pick(r, ["btu"]) || 0) || 0,
+    price: Number(priceRaw) || 0,
+    w_install: String(pick(r, ["w_install", "ประกันติดตั้ง"]) || ""),
+    w_parts:   String(pick(r, ["w_parts", "ประกันอะไหล่"]) || ""),
+    w_comp:    String(pick(r, ["w_comp", "ประกันคอม", "ประกันคอมเพรสเซอร์"]) || ""),
+    stock: Number(pick(r, ["stock", "stock_qty", "จำนวน"]) || 0) || 0
+  };
+
+  // ★ Extended fields — only set if non-empty (avoid burying schema with empty keys)
+  const setIfTruthy = (key, val) => {
+    if (val !== undefined && val !== null && val !== "" &&
+        !(Array.isArray(val) && val.length === 0)) {
+      entry[key] = val;
+    }
+  };
+
+  setIfTruthy("description", String(pick(r, ["description", "คำอธิบาย"]) || "").trim() || undefined);
+  const feats = _pipeToArr(pick(r, ["features", "จุดเด่น"]));
+  setIfTruthy("features", feats.length ? feats : undefined);
+  const badges = _pipeToArr(pick(r, ["badge_tags", "badges"]));
+  setIfTruthy("badge_tags", badges.length ? badges : undefined);
+  setIfTruthy("image_url",   String(pick(r, ["image_url", "รูป"]) || "").trim() || undefined);
+  setIfTruthy("seer",        _tryNum(pick(r, ["seer"])));
+  setIfTruthy("refrigerant", String(pick(r, ["refrigerant", "น้ำยา"]) || "").trim() || undefined);
+  setIfTruthy("voltage",     String(pick(r, ["voltage", "แรงดัน"]) || "").trim() || undefined);
+  setIfTruthy("current_a",   _tryNum(pick(r, ["current_a"])));
+  setIfTruthy("power_w",     _tryNum(pick(r, ["power_w"])));
+  setIfTruthy("indoor_dim",  String(pick(r, ["indoor_dim"]) || "").trim() || undefined);
+  setIfTruthy("outdoor_dim", String(pick(r, ["outdoor_dim"]) || "").trim() || undefined);
+  setIfTruthy("indoor_weight_kg",  _tryNum(pick(r, ["indoor_weight_kg"])));
+  setIfTruthy("outdoor_weight_kg", _tryNum(pick(r, ["outdoor_weight_kg"])));
+  setIfTruthy("noise_indoor_db",   _tryNum(pick(r, ["noise_indoor_db"])));
+  setIfTruthy("noise_outdoor_db",  _tryNum(pick(r, ["noise_outdoor_db"])));
+  setIfTruthy("color", String(pick(r, ["color", "สี"]) || "").trim() || undefined);
+
+  return entry;
+}
+
 export function renderSettingsAcCatalog(el, ctx, goBack, navigate) {
   let catalog = [];
   try { catalog = JSON.parse(localStorage.getItem("bsk_ac_catalog") || "[]"); } catch(e){ console.warn("[settings/ac-catalog] parse failed:", e); }
@@ -53,12 +156,24 @@ export function renderSettingsAcCatalog(el, ctx, goBack, navigate) {
         <div style="text-align:center;padding:16px">
           <div style="font-size:36px;margin-bottom:8px">📤</div>
           <div style="font-size:15px;font-weight:700;color:#0284c7;margin-bottom:4px">อัปโหลดไฟล์ — Excel (.xlsx) หรือ CSV</div>
-          <div style="font-size:12px;color:#64748b;margin-bottom:12px">คอลัมน์: section, model, btu, price, w_install, w_parts, w_comp, stock</div>
+          <div style="font-size:12px;color:#64748b;margin-bottom:12px">รองรับ <b>24 คอลัมน์</b> — พื้นฐาน 8 + สเปกขยาย 16 ฟิลด์</div>
           <input type="file" id="acCatalogFileInput" accept=".csv,.xlsx,.xls" style="display:none" />
           <button id="acCatalogImportBtn" class="btn primary" style="padding:10px 24px;font-size:14px">📂 เลือกไฟล์</button>
           <div id="acCatalogImportStatus" style="margin-top:8px;font-size:13px;color:#64748b"></div>
-          <div style="margin-top:8px;font-size:11px;color:#94a3b8;line-height:1.6">
-            💡 <b>Workflow:</b> ดาวน์โหลด .xlsx → แก้ไขใน Excel → อัปโหลดกลับมา — ข้อมูลจะทับของเดิม
+          <div style="margin-top:8px;font-size:11px;color:#94a3b8;line-height:1.7;text-align:left;max-width:520px;margin-left:auto;margin-right:auto">
+            💡 <b>Workflow:</b> ดาวน์โหลด .xlsx → กรอกสเปกใน Excel → อัปโหลดกลับ — ข้อมูลจะทับของเดิม<br>
+            🆕 <b>Phase 87.3</b> — ตอนนี้รองรับ extended fields:
+            <div style="margin:4px 0 0 8px;font-size:10px;color:#64748b">
+              <b>พื้นฐาน:</b> section, model, btu, price, w_install, w_parts, w_comp, stock<br>
+              <b>การตลาด:</b> description, features, badge_tags, image_url<br>
+              <b>เทคนิค:</b> seer, refrigerant, voltage, current_a, power_w<br>
+              <b>ขนาด:</b> indoor_dim, outdoor_dim, indoor_weight_kg, outdoor_weight_kg<br>
+              <b>เสียง+สี:</b> noise_indoor_db, noise_outdoor_db, color
+            </div>
+            <div style="margin-top:4px;color:#10b981">
+              ℹ️ <b>features / badge_tags</b> ใส่หลายค่าได้ คั่นด้วย <code style="background:#fff;padding:1px 4px;border-radius:3px">|</code> หรือ <code style="background:#fff;padding:1px 4px;border-radius:3px">,</code>
+              <br>เช่น <code style="background:#fff;padding:1px 4px;border-radius:3px">Inverter | WiFi | Self-Cleaning</code>
+            </div>
           </div>
         </div>
       </div>
@@ -121,28 +236,18 @@ export function renderSettingsAcCatalog(el, ctx, goBack, navigate) {
       return;
     }
     try {
-      // เตรียม data — ให้ column order ตรงกับ import
-      const rows = catalog.map(c => ({
-        section: c.section || "",
-        model: c.model || "",
-        btu: Number(c.btu || 0),
-        price: Number(c.price || 0),
-        w_install: c.w_install || "",
-        w_parts: c.w_parts || "",
-        w_comp: c.w_comp || "",
-        stock: Number(c.stock || 0)
-      }));
-      const ws = window.XLSX.utils.json_to_sheet(rows);
-      // ตั้งความกว้างคอลัมน์ให้อ่านง่าย
+      // ★ Phase 87.3 — flatten ผ่าน helper (24 columns: 8 หลัก + 16 extended)
+      const rows = catalog.map(_toExportRow);
+      const ws = window.XLSX.utils.json_to_sheet(rows, { header: _EXPORT_HEADERS });
+      // ตั้งความกว้างคอลัมน์
       ws["!cols"] = [
-        { wch: 28 }, // section
-        { wch: 22 }, // model
-        { wch: 8 },  // btu
-        { wch: 10 }, // price
-        { wch: 12 }, // w_install
-        { wch: 12 }, // w_parts
-        { wch: 12 }, // w_comp
-        { wch: 6 }   // stock
+        { wch: 28 }, { wch: 22 }, { wch: 8 },  { wch: 10 }, // section, model, btu, price
+        { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 6 },  // warranty + stock
+        { wch: 50 }, { wch: 40 }, { wch: 18 }, { wch: 30 }, // desc, features, badges, image
+        { wch: 8 },  { wch: 12 }, { wch: 18 }, { wch: 12 }, // seer, refrig, voltage, current
+        { wch: 12 }, { wch: 22 }, { wch: 22 },              // power, indoor_dim, outdoor_dim
+        { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, // weights, noise
+        { wch: 8 }                                            // color
       ];
       const wb = window.XLSX.utils.book_new();
       window.XLSX.utils.book_append_sheet(wb, ws, "แคตตาล็อกแอร์");
@@ -155,26 +260,17 @@ export function renderSettingsAcCatalog(el, ctx, goBack, navigate) {
     }
   });
 
-  // ═══ Export CSV ═══
+  // ═══ Export CSV (Phase 87.3 — 24 columns) ═══
   document.getElementById("acExportCsvBtn")?.addEventListener("click", () => {
     try {
-      const headers = ["section","model","btu","price","w_install","w_parts","w_comp","stock"];
       const csvEsc = (v) => {
         const s = String(v == null ? "" : v);
         return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
       };
-      const lines = [headers.join(",")];
+      const lines = [_EXPORT_HEADERS.join(",")];
       catalog.forEach(c => {
-        lines.push([
-          csvEsc(c.section||""),
-          csvEsc(c.model||""),
-          Number(c.btu||0),
-          Number(c.price||0),
-          csvEsc(c.w_install||""),
-          csvEsc(c.w_parts||""),
-          csvEsc(c.w_comp||""),
-          Number(c.stock||0)
-        ].join(","));
+        const row = _toExportRow(c);
+        lines.push(_EXPORT_HEADERS.map(h => csvEsc(row[h])).join(","));
       });
       // BOM สำหรับ Excel เปิดภาษาไทยถูกต้อง
       const blob = new Blob(["\uFEFF" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
@@ -243,21 +339,9 @@ export function renderSettingsAcCatalog(el, ctx, goBack, navigate) {
 
       const newCatalog = [];
       rows.forEach((r, idx) => {
-        const section = String(pick(r, ["section", "ยี่ห้อ", "แบรนด์"]) || "").trim();
-        const model   = String(pick(r, ["model", "รุ่น"]) || "").trim();
-        if (!section || !model) return; // ข้ามแถวว่าง
-        const priceRaw = String(pick(r, ["price", "price_install", "ราคา"]) || "0").replace(/[^0-9.]/g, "");
-        newCatalog.push({
-          id: idx + 1,
-          section,
-          model,
-          btu: Number(pick(r, ["btu"]) || 0) || 0,
-          price: Number(priceRaw) || 0,
-          w_install: String(pick(r, ["w_install", "ประกันติดตั้ง"]) || ""),
-          w_parts:   String(pick(r, ["w_parts", "ประกันอะไหล่"]) || ""),
-          w_comp:    String(pick(r, ["w_comp", "ประกันคอม", "ประกันคอมเพรสเซอร์"]) || ""),
-          stock: Number(pick(r, ["stock", "stock_qty", "จำนวน"]) || 0) || 0
-        });
+        // ★ Phase 87.3 — parse ผ่าน helper (รองรับ extended fields ทั้ง 16 ตัว)
+        const entry = _fromImportRow(r, idx, pick);
+        if (entry) newCatalog.push(entry);
       });
 
       if (newCatalog.length === 0) throw new Error("ไม่พบแถวที่มี section + model");

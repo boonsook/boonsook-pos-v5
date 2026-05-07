@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v148 (2026-05-07): Phase 87.2 — admin spec editor + 12 SKUs with full specs
-const CACHE_NAME = 'boonsook-pos-v5-cache-v148';
+// v149 (2026-05-07): Phase 87.3 — CSV/Excel import/export with 16 extended spec fields
+const CACHE_NAME = 'boonsook-pos-v5-cache-v149';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
