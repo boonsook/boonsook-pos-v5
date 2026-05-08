@@ -1,8 +1,82 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 8 พฤษภาคม 2026 (Phase 88.1b verified end-to-end — Backfill 90 JV)
-**Version:** 5.34.4 (build 171) — Phase 88.1b + ALL_ROUTES hotfix
-**Previous:** 5.34.3 (build 170) — Phase 88.1b initial (missing accounting_backfill in ALL_ROUTES)
+**อัปเดตล่าสุด:** 8 พฤษภาคม 2026 (Phase 88.2 — Trial Balance report)
+**Version:** 5.34.5 (build 172) — Phase 88.2 (รายงานยอดทดลอง)
+**Previous:** 5.34.4 (build 171) — Phase 88.1b verified + ลบ JV ทดสอบ 88 รายการ
+
+---
+
+## 📊 Phase 88.2 — Trial Balance Report (8 พ.ค.)
+
+### Why
+หลัง Backfill เสร็จ + ลบ JV ทดสอบ → user มีข้อมูลจริง 5 PV ใน พ.ค. → ต้องการ
+รายงานยอดทดลอง (trial balance) เพื่อส่งสำนักงานบัญชี + ตรวจ Dr = Cr
+
+### What shipped (5.34.5 build 172)
+
+**`modules/accounting/trial_balance.js`** (~290 บรรทัด — NEW):
+
+**Period picker:**
+- 4 modes: month / quarter / year / custom range
+- Auto-default = เดือนปัจจุบัน
+- Reactive UI — เปลี่ยน tab → re-render input controls
+
+**Data fetch (3 queries):**
+1. journal_entries — list ids ที่ doc_date ใน range + status='approved'
+2. journal_lines — bulk fetch ผ่าน `entry_id=in.(...)` (chunked 200/batch)
+3. chart_of_accounts — full COA สำหรับ map name + type
+
+**Aggregate:**
+- Group lines by `account_code` → sum debit + credit ทุก line
+- Group accounts by `type` (asset/liability/equity/income/expense)
+- Sort by code
+
+**Render:**
+- 5 sections (asset/liability/equity/income/expense) — เฉพาะ section ที่มี data
+- แต่ละ section มี subtotal Dr/Cr
+- Grand total card สีเขียวถ้า balanced (Dr=Cr) / สีแดงถ้าไม่
+- Header card: ชื่องวด + range + จำนวนบัญชีที่เคลื่อนไหว
+
+**Actions:**
+- 📤 **Export Excel** — sheet "TB_YYYY-MM_YYYY-MM" + 5 columns
+  (รหัส | ชื่อบัญชี | ประเภท | เดบิต | เครดิต) + total row
+- 🖨 **พิมพ์** — popup window with `<style>` + auto window.print()
+
+### Files changed (Phase 88.2)
+- `modules/accounting/trial_balance.js` — NEW (290 lines)
+- `main.js` — import + 4 wire points (ALL_ROUTES, ROUTE_GROUP, routeTitles, showRoute)
+- `index.html` — nav button (ใต้ "ผังบัญชี" — ก่อน Backfill) + `<section id="page-accounting_trial_balance">`
+- `sw.js`, `modules/settings/pages.js` — bump 5.34.4→5.34.5 build 172, SW v157
+
+### ⭐ ใช้ "4-point checklist" ที่จดในบทเรียน Phase 88.1b
+- [✓] index.html — button + section
+- [✓] ALL_ROUTES (line 863)
+- [✓] ROUTE_GROUP (line 899)
+- [✓] routeTitles + showRoute handler
+
+### ✅ Smoke tests ที่ควรผ่าน
+1. เมนู "บัญชี" → "📊 รายงานยอดทดลอง" (อยู่ระหว่าง "ผังบัญชี" และ "Backfill")
+2. Default mode = เดือนปัจจุบัน → auto-load TB ของ พ.ค. 2026
+3. แสดง:
+   - Section "ค่าใช้จ่าย": 4-5 บัญชี (5210/5220/5260/5900?) รวม Dr ~129K
+   - Section "สินทรัพย์": 1110 (เงินสด) Cr ~129K
+   - Grand total: Dr 129,258 / Cr 129,258 / ผลต่าง 0 → ✅ balance สีเขียว
+4. เปลี่ยนเป็น "ปี 2026" → ดูทุก JV (รวมเดือนหน้าๆ ที่จะมี)
+5. Export Excel → ไฟล์ `trial_balance_2026-05-01_2026-05-31_<date>.xlsx`
+6. พิมพ์ → popup window พิมพ์ได้
+
+### ⚠️ Known caveats
+- Trial Balance ตอนนี้เป็น **Movement-based** (ผลรวม Dr/Cr ในงวด) — ไม่ใช่
+  closing balance — เพราะระบบยังไม่มี opening balance (Phase 88.5 จะทำ)
+- ถ้า user manual delete JV เฉพาะ entry → CASCADE จะลบ lines อัตโนมัติ
+  (foreign key ON DELETE CASCADE) — ดังนั้นไม่มี orphan lines
+
+### Pending Phase 88.3-88.5
+- 88.3: P&L (กำไรขาดทุน) report — รายได้ - ค่าใช้จ่าย = กำไรสุทธิ
+- 88.4: Balance Sheet — สินทรัพย์ = หนี้สิน + ส่วนของเจ้าของ
+- 88.5: Export bundle ส่งสำนักงานบัญชี (PDF + CSV หลายชีท)
+
+---
 
 ## ✅ Phase 88.1b — Verified end-to-end (8 พ.ค. ตอนเย็น)
 

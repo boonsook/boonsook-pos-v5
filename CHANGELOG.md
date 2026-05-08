@@ -7,6 +7,19 @@
 
 ---
 
+## 5.34.5 (build 172) — 2026-05-08
+
+### Phase 88.2 — Trial Balance Report
+- **feat:** หน้ารายงานยอดทดลอง (รายงานหัวใจของบัญชี — ส่งสำนักงานบัญชีได้)
+  - `modules/accounting/trial_balance.js`: period picker (เดือน/ไตรมาส/ปี/custom)
+    + auto-aggregate Dr/Cr per account + balance check Dr=Cr
+  - 5 sections (สินทรัพย์/หนี้สิน/ส่วนของเจ้าของ/รายได้/ค่าใช้จ่าย) + subtotals
+  - Export Excel (5 columns + total row) + พิมพ์ (popup window)
+- ใช้ "4-point checklist" — เพิ่ม route ครบทั้ง 4 จุด (index.html + ALL_ROUTES +
+  ROUTE_GROUP + routeTitles/showRoute) — ไม่พลาดเหมือน Phase 88.1b initial
+
+---
+
 ## 5.34.4 (build 171) — 2026-05-08
 
 ### Phase 88.1b hotfix + verified end-to-end

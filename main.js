@@ -51,6 +51,8 @@ import { renderJournalFormPage } from "./modules/accounting/journal_form.js";
 import { renderCoaPage } from "./modules/accounting/coa.js";
 // Phase 88.1b: backfill JV ย้อนหลัง
 import { renderBackfillPage } from "./modules/accounting/backfill.js";
+// Phase 88.2: Trial Balance report
+import { renderTrialBalancePage } from "./modules/accounting/trial_balance.js";
 // Phase 88.1: auto-posting JV จาก sales/expenses
 import { postJournalForSale, postJournalForExpense, postJournalForServiceJob } from "./modules/accounting/auto_post.js";
 import { renderProfitByProductPage } from "./modules/profit_by_product.js";
@@ -860,7 +862,7 @@ function isLowStock(product){ return Number(product.stock||0) <= Number(product.
 const SERVICE_FORM_TYPES = ["repair_ac","clean_ac","move_ac","satellite","repair_fridge","repair_washer","cctv","repair_tv","other"];
 const SERVICE_FORM_ROUTES = SERVICE_FORM_TYPES.map(t => "service_" + t);
 
-const ALL_ROUTES = ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","quote_templates","service_jobs","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","refunds","tasks","profit_by_product","birthdays","serials","warranty_report","calendar","loyalty","customer_dashboard","btu_calculator","service_request","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop","audit_log","departments","payroll","payroll_overview","expense_overview","accounting_journals","accounting_journal_new","accounting_coa","accounting_backfill", ...SERVICE_FORM_ROUTES];
+const ALL_ROUTES = ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","quote_templates","service_jobs","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","refunds","tasks","profit_by_product","birthdays","serials","warranty_report","calendar","loyalty","customer_dashboard","btu_calculator","service_request","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop","audit_log","departments","payroll","payroll_overview","expense_overview","accounting_journals","accounting_journal_new","accounting_coa","accounting_backfill","accounting_trial_balance", ...SERVICE_FORM_ROUTES];
 const ROLE_PAGES = {
   admin:      ALL_ROUTES,
   technician: ["customer_dashboard","pos","sales","service_jobs","calendar","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop", ...SERVICE_FORM_ROUTES],
@@ -896,7 +898,7 @@ const ROUTE_GROUP = {
   products: "products", wh_kunkhao: "products", wh_kundaeng: "products", wh_sikhon: "products",
   expenses: "finance", profit_report: "finance",
   // Phase 88.0 — accounting routes อยู่ในกลุ่ม "accounting"
-  accounting_journals: "accounting", accounting_journal_new: "accounting", accounting_coa: "accounting", accounting_backfill: "accounting",
+  accounting_journals: "accounting", accounting_journal_new: "accounting", accounting_coa: "accounting", accounting_backfill: "accounting", accounting_trial_balance: "accounting",
   // Phase 45 — service forms ทั้งหมดอยู่ในกลุ่ม "service"
   ...Object.fromEntries(SERVICE_FORM_ROUTES.map(r => [r, "service"]))
 };
@@ -995,6 +997,7 @@ function showRoute(route){
     accounting_journal_new:"บันทึกรายการบัญชี",
     accounting_coa:"ผังบัญชี",
     accounting_backfill:"Backfill JV ย้อนหลัง",
+    accounting_trial_balance:"รายงานยอดทดลอง (Trial Balance)",
     ac_shop:"แอร์ใหม่พร้อมติดตั้ง",
     // Phase 45 — service form titles (9 ประเภท)
     ...Object.fromEntries(SERVICE_FORM_TYPES.map(t => ["service_" + t, `${SERVICE_TYPES[t].icon} ใบงาน${SERVICE_TYPES[t].label}`]))
@@ -1065,6 +1068,8 @@ function showRoute(route){
   if (route === "accounting_coa") renderCoaPage(ctx);
   // Phase 88.1b — backfill
   if (route === "accounting_backfill") renderBackfillPage(ctx);
+  // Phase 88.2 — Trial Balance report
+  if (route === "accounting_trial_balance") renderTrialBalancePage(ctx);
 
   // Warehouse sub-pages — reuse products page with warehouse filter
   if (WH_ROUTE_MAP[route]) {

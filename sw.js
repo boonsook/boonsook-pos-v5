@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v156 (2026-05-08): Phase 88.1b hotfix — เพิ่ม accounting_backfill ใน ALL_ROUTES
-const CACHE_NAME = 'boonsook-pos-v5-cache-v156';
+// v157 (2026-05-08): Phase 88.2 — Trial Balance report (รายงานยอดทดลอง)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v157';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
