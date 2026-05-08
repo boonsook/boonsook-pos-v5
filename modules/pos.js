@@ -3,6 +3,8 @@ function money(n){return new Intl.NumberFormat("th-TH",{style:"currency",currenc
 function moneyNum(n){return new Intl.NumberFormat("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(n||0));}
 
 import { escHtml } from "./utils.js";
+// Phase 88.1a: auto-post JV หลังบันทึกการขาย (fire-and-forget)
+import { postJournalForSale } from "./accounting/auto_post.js";
 
 // ★ XHR helper — delegate to window._appXhrPost when available
 function xhrPostPOS(table, payload, returnData = false) {
@@ -1036,6 +1038,16 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
     window.App?.showToast?.("บันทึกการขายเรียบร้อย ✅");
     try { openReceiptDrawer(); } catch (e) { console.warn("openReceiptDrawer error:", e); }
     try { if (window.App?.loadAllData) await window.App.loadAllData(); } catch (e) { console.warn("[pos] loadAllData after checkout failed:", e); }
+
+    // ★ Phase 88.1a — auto-post JV (fire-and-forget, ไม่ block UX)
+    postJournalForSale({
+      id: saleId,
+      order_no: orderNo,
+      customer_name: salePayload.customer_name,
+      payment_method: salePayload.payment_method,
+      total_amount: salePayload.total_amount,
+      created_at: new Date().toISOString()
+    }).catch(e => console.warn("[pos] auto-post JV failed:", e?.message));
 
     // ★ ส่ง Line Notify ให้เจ้าของ (async — ไม่รอ)
     try {
