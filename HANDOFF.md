@@ -1,8 +1,62 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 8 พฤษภาคม 2026 (Phase 88.2 — Trial Balance report)
-**Version:** 5.34.5 (build 172) — Phase 88.2 (รายงานยอดทดลอง)
-**Previous:** 5.34.4 (build 171) — Phase 88.1b verified + ลบ JV ทดสอบ 88 รายการ
+**อัปเดตล่าสุด:** 8 พฤษภาคม 2026 (Phase 88.3 — P&L งบกำไรขาดทุน)
+**Version:** 5.34.6 (build 173) — Phase 88.3 (Profit & Loss statement)
+**Previous:** 5.34.5 (build 172) — Phase 88.2 verified (TB Dr=Cr=129,258)
+
+---
+
+## 📈 Phase 88.3 — P&L (งบกำไรขาดทุน) (8 พ.ค.)
+
+### Why
+หลัง Trial Balance แล้ว → user ต้องการรู้ผลประกอบการ — **กำไร/ขาดทุนสุทธิ**
+รายเดือน เพื่อตัดสินใจธุรกิจ + ส่งสำนักงานบัญชี
+
+### What shipped (5.34.6 build 173)
+
+**`modules/accounting/profit_loss.js`** (~280 บรรทัด — NEW):
+
+**Logic ที่ตรงตามมาตรฐานบัญชี:**
+- รายได้ (4xxx) — normal Cr balance → `amount = credit - debit`
+- ค่าใช้จ่าย (5xxx) — normal Dr balance → `amount = debit - credit`
+- **กำไรสุทธิ = รวมรายได้ - รวมค่าใช้จ่าย**
+
+**Layout:**
+- Section 1: 🟢 รายได้ (เขียว) — แสดงทุก 4xxx ที่มียอด
+- "หัก" separator
+- Section 2: 🟠 ค่าใช้จ่าย (ส้ม) — แสดงทุก 5xxx ที่มียอด
+- **Net Income card** — สีเขียวถ้ากำไร / สีแดงถ้าขาดทุน
+  - ขาดทุนแสดงในวงเล็บ `(฿XXX)` ตามมาตรฐาน
+  - **Margin %** = net / revenue (ถ้ามีรายได้)
+
+**Period picker + Export Excel + พิมพ์** เหมือน Trial Balance
+
+### Files changed (Phase 88.3)
+- `modules/accounting/profit_loss.js` — NEW (~280 lines)
+- `main.js` — import + 4 wire points (ALL_ROUTES, ROUTE_GROUP, routeTitles, showRoute)
+- `index.html` — nav button "📈 งบกำไรขาดทุน" + section
+- `sw.js`, `modules/settings/pages.js` — bump 5.34.5→5.34.6 build 173, SW v158
+
+### Architecture note
+Reuse `fetchData` + `aggregate` pattern จาก trial_balance.js (ไม่ shared utility ทันที — wait until 88.4 มี balance sheet เพราะต้อง logic แตกต่าง)
+
+### ✅ Smoke tests ที่ควรผ่าน
+1. เมนู "บัญชี" → "📈 งบกำไรขาดทุน"
+2. Default = พ.ค. 2026 → load ทันที
+3. **คาดผลปัจจุบัน (data ของ user หลังลบ JV):**
+   - รายได้: ไม่มีรายการ (ยังไม่ได้ขายจริง)
+   - ค่าใช้จ่าย: 5210 (988) + 5260 (125,270) + 5900 (3,000) = **129,258**
+   - **ขาดทุนสุทธิ: (129,258.00)** — สีแดง
+   - Margin: -∞ % (เพราะ revenue = 0) → จะไม่แสดง
+4. Export Excel — header "หมวด/รหัส/ชื่อบัญชี/จำนวนเงิน" + section breaks + total + net
+5. พิมพ์ → popup window พิมพ์ได้
+
+### Pending Phase 88.4-88.5
+- 88.4: Balance Sheet (งบดุล) — สินทรัพย์ = หนี้สิน + ส่วนของเจ้าของ
+  - ต้อง opening balance → จุดต่อ Phase ที่ซับซ้อนกว่า TB/PL (ต้อง running balance)
+- 88.5: Export bundle — PDF (TB + PL + BS) ในไฟล์เดียว + multi-sheet Excel
+
+---
 
 ---
 

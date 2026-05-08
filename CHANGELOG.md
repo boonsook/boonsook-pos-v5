@@ -7,6 +7,17 @@
 
 ---
 
+## 5.34.6 (build 173) — 2026-05-08
+
+### Phase 88.3 — งบกำไรขาดทุน (P&L)
+- **feat:** หน้างบกำไรขาดทุน — รายได้ - ค่าใช้จ่าย = กำไร/ขาดทุนสุทธิ
+  - `modules/accounting/profit_loss.js`: 2 sections (รายได้ 4xxx / ค่าใช้จ่าย 5xxx)
+    + Net Income card (สีเขียวถ้ากำไร / แดงถ้าขาดทุน) + Margin %
+  - ใช้ logic ตรงมาตรฐานบัญชี: income normal Cr balance, expense normal Dr balance
+  - Period picker + Export Excel + พิมพ์ (เหมือน Trial Balance)
+
+---
+
 ## 5.34.5 (build 172) — 2026-05-08
 
 ### Phase 88.2 — Trial Balance Report

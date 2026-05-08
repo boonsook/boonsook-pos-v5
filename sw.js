@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v157 (2026-05-08): Phase 88.2 — Trial Balance report (รายงานยอดทดลอง)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v157';
+// v158 (2026-05-08): Phase 88.3 — งบกำไรขาดทุน (P&L)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v158';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
