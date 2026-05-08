@@ -15,8 +15,12 @@
 -- ───────────────────────────────────────────────────────────
 ALTER TABLE public.service_jobs
   ADD COLUMN IF NOT EXISTS total_cost         NUMERIC(14,2),
+  ADD COLUMN IF NOT EXISTS payment_method     TEXT,
   ADD COLUMN IF NOT EXISTS payment_slip_url   TEXT,
   ADD COLUMN IF NOT EXISTS closed_at          TIMESTAMPTZ;
+
+-- บังคับ PostgREST reload schema cache (ป้องกัน PGRST204 error หลัง ALTER)
+NOTIFY pgrst, 'reload schema';
 
 
 -- ───────────────────────────────────────────────────────────
