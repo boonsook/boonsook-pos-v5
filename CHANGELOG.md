@@ -7,6 +7,24 @@
 
 ---
 
+## 5.34.3 (build 170) — 2026-05-08
+
+### Phase 88.1b — Receipts/Service Jobs auto-post + Backfill UI
+- **feat:** auto-post JV จาก 4 sources ใหม่ + Backfill UI
+  - `auto_post.js`: เพิ่ม `postJournalForReceipt` (RV) + ขยาย `EXPENSE_CATEGORY_MAP`
+    (salary/labor_hire/payroll/materials/utilities)
+  - `receipts.js`: wire 2 จุด (dropdown + preview button) — fire ตอน status=paid
+  - `main.js saveServiceJob`: wire ตอน status transition → done/delivered/closed
+    (xhrPost ใส่ `returnData: true` ขอ id; ใช้ `state.serviceJobs` ที่ optimistic update
+    เพื่อได้ total_cost)
+  - `modules/accounting/backfill.js`: หน้าใหม่ — เลือก source + date range → preview/run
+    batch post (idempotent)
+- **Architecture:** Payroll ไม่ wire ตรง — ใช้ expense flow (Phase 76 auto-create
+  expense category=salary ตอน markPaid → triggers postJournalForExpense)
+  เพื่อกัน duplicate JV (1 transaction = 1 JV)
+
+---
+
 ## 5.34.2 (build 169) — 2026-05-08
 
 ### Phase 88.1a-fix — RLS hotfix + wire auto-post ที่ pos.js (จุดที่ POS ใช้จริง)

@@ -49,8 +49,10 @@ import { renderExpenseOverviewPage } from "./modules/expense_overview.js";
 import { renderJournalsPage } from "./modules/accounting/journals.js";
 import { renderJournalFormPage } from "./modules/accounting/journal_form.js";
 import { renderCoaPage } from "./modules/accounting/coa.js";
+// Phase 88.1b: backfill JV ย้อนหลัง
+import { renderBackfillPage } from "./modules/accounting/backfill.js";
 // Phase 88.1: auto-posting JV จาก sales/expenses
-import { postJournalForSale, postJournalForExpense } from "./modules/accounting/auto_post.js";
+import { postJournalForSale, postJournalForExpense, postJournalForServiceJob } from "./modules/accounting/auto_post.js";
 import { renderProfitByProductPage } from "./modules/profit_by_product.js";
 import { renderBirthdaysPage, checkTodayBirthdaysAndNotify } from "./modules/birthdays.js";
 import { renderQuoteTemplatesPage } from "./modules/quote_templates.js";
@@ -894,7 +896,7 @@ const ROUTE_GROUP = {
   products: "products", wh_kunkhao: "products", wh_kundaeng: "products", wh_sikhon: "products",
   expenses: "finance", profit_report: "finance",
   // Phase 88.0 — accounting routes อยู่ในกลุ่ม "accounting"
-  accounting_journals: "accounting", accounting_journal_new: "accounting", accounting_coa: "accounting",
+  accounting_journals: "accounting", accounting_journal_new: "accounting", accounting_coa: "accounting", accounting_backfill: "accounting",
   // Phase 45 — service forms ทั้งหมดอยู่ในกลุ่ม "service"
   ...Object.fromEntries(SERVICE_FORM_ROUTES.map(r => [r, "service"]))
 };
@@ -992,6 +994,7 @@ function showRoute(route){
     accounting_journals:"สมุดรายวัน",
     accounting_journal_new:"บันทึกรายการบัญชี",
     accounting_coa:"ผังบัญชี",
+    accounting_backfill:"Backfill JV ย้อนหลัง",
     ac_shop:"แอร์ใหม่พร้อมติดตั้ง",
     // Phase 45 — service form titles (9 ประเภท)
     ...Object.fromEntries(SERVICE_FORM_TYPES.map(t => ["service_" + t, `${SERVICE_TYPES[t].icon} ใบงาน${SERVICE_TYPES[t].label}`]))
@@ -1060,6 +1063,8 @@ function showRoute(route){
   if (route === "accounting_journals") renderJournalsPage(ctx);
   if (route === "accounting_journal_new") renderJournalFormPage(ctx);
   if (route === "accounting_coa") renderCoaPage(ctx);
+  // Phase 88.1b — backfill
+  if (route === "accounting_backfill") renderBackfillPage(ctx);
 
   // Warehouse sub-pages — reuse products page with warehouse filter
   if (WH_ROUTE_MAP[route]) {
@@ -2571,7 +2576,8 @@ async function saveServiceJob(){
     res = await xhrPatch("service_jobs", payload, "id", state.editingServiceJobId);
   } else {
     payload.job_no = "JOB-" + Date.now();
-    res = await xhrPost("service_jobs", payload);
+    // ★ Phase 88.1b: ขอ returnData=true เพื่อเอา id กลับมา auto-post JV
+    res = await xhrPost("service_jobs", payload, { returnData: true });
   }
   if (!res.ok) return showToast(res.error?.message || "บันทึกงานช่างไม่สำเร็จ");
 
@@ -2619,6 +2625,23 @@ async function saveServiceJob(){
   const wasComplete = COMPLETION_STATUSES.includes(origStatus);
   const isNowComplete = COMPLETION_STATUSES.includes(payload.status);
   const transitionedToDone = !isNewJob && !wasComplete && isNowComplete;
+  const newJobAlreadyComplete = isNewJob && isNowComplete;
+
+  // ★ Phase 88.1b — auto-post JV เมื่องานปิด (transition หรือสร้างใหม่ + status = closed/done/delivered)
+  // (fire-and-forget — ไม่ block UX)
+  if (transitionedToDone || newJobAlreadyComplete) {
+    try {
+      // xhrPost returns { data: row } (ไม่ใช่ array); xhrPatch อาจไม่ return data
+      const jobId = isNewJob ? res.data?.id : state.editingServiceJobId;
+      if (jobId) {
+        // Pull ของ job เต็ม (ต้องการ total_cost ที่ payload save อาจไม่มี — มาจาก state ที่ optimistic update แล้ว)
+        const fullJob = (state.serviceJobs || []).find(j => String(j.id) === String(jobId)) || { ...payload, id: jobId };
+        postJournalForServiceJob(fullJob)
+          .catch(e => console.warn("[saveServiceJob] auto-post JV failed:", e?.message));
+      }
+    } catch(e) { console.warn("[saveServiceJob] auto-post wire fail:", e?.message); }
+  }
+
   if (transitionedToDone) {
     try {
       const STATUS_LABEL = {

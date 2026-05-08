@@ -221,23 +221,29 @@ export async function postJournalForSale(sale) {
 // Public: Expense → JV
 // ═══════════════════════════════════════════════════════════
 const EXPENSE_CATEGORY_MAP = {
-  fuel:     "expense_fuel",
-  gasoline: "expense_fuel",
-  น้ำมัน:   "expense_fuel",
-  utility:  "expense_utility",
+  fuel:        "expense_fuel",
+  gasoline:    "expense_fuel",
+  น้ำมัน:      "expense_fuel",
+  utility:     "expense_utility",
+  utilities:   "expense_utility",
   electricity: "expense_utility",
-  water:    "expense_utility",
-  phone:    "expense_phone",
-  internet: "expense_phone",
-  rent:     "expense_rent",
-  repair:   "expense_repair",
+  water:       "expense_utility",
+  phone:       "expense_phone",
+  internet:    "expense_phone",
+  rent:        "expense_rent",
+  repair:      "expense_repair",
   maintenance: "expense_repair",
-  supplies: "expense_supplies",
-  ads:      "expense_ads",
-  marketing: "expense_ads",
-  bank_fee: "expense_bank_fee",
-  bank:     "expense_bank_fee",
-  travel:   "expense_travel"
+  supplies:    "expense_supplies",
+  materials:   "expense_supplies",
+  ads:         "expense_ads",
+  marketing:   "expense_ads",
+  bank_fee:    "expense_bank_fee",
+  bank:        "expense_bank_fee",
+  travel:      "expense_travel",
+  // Phase 88.1b: payroll → expense flow (Phase 76 auto-creates expense w/ category=salary on mark paid)
+  salary:      "payroll_salary",
+  labor_hire:  "payroll_salary",  // ค่าจ้างช่าง — ใช้ mapping เดียวกับเงินเดือนพนักงาน (Dr 5200 / Cr 1110)
+  payroll:     "payroll_salary"
 };
 
 /**
@@ -319,6 +325,51 @@ export async function postJournalForServiceJob(job) {
     sourceTable: "service_jobs",
     sourceId: job.id,
     docType: "SV",
+    docDate,
+    description: desc,
+    lines: [
+      { account_code: mapping.debit_account_code,  debit: amount, credit: 0,      description: desc },
+      { account_code: mapping.credit_account_code, debit: 0,      credit: amount, description: desc }
+    ]
+  });
+}
+
+
+// ═══════════════════════════════════════════════════════════
+// Public: Receipt payment → JV (Phase 88.1b — รับชำระจากลูกหนี้)
+// ═══════════════════════════════════════════════════════════
+/**
+ * เรียกหลัง PATCH receipts.status = "paid" สำเร็จ
+ * @param {object} receipt - row จาก state.receipts (ต้องมี id, grand_total, payment_method หรือไม่ก็ได้)
+ */
+export async function postJournalForReceipt(receipt) {
+  if (!receipt?.id) return null;
+  const amountRaw = receipt.grand_total ?? receipt.total_amount ?? receipt.amount;
+  if (!amountRaw) return null;
+  const docDate = (receipt.paid_at || receipt.receipt_date || receipt.created_at || new Date().toISOString()).slice(0, 10);
+  if (!_isAfterEffective(docDate)) {
+    console.info("[auto_post] receipt before effective date, skip:", docDate);
+    return null;
+  }
+
+  const mappings = await _getMappings();
+  const pm = String(receipt.payment_method || "").toLowerCase();
+  let mappingKey = "receipt_payment";  // default = เงินสด (Dr 1110 / Cr 1200)
+  if (/transfer|โอน|qr|bank/.test(pm)) mappingKey = "receipt_transfer";
+
+  const mapping = mappings[mappingKey];
+  if (!mapping?.debit_account_code || !mapping?.credit_account_code) {
+    console.warn("[auto_post] no mapping for receipt:", mappingKey);
+    return null;
+  }
+
+  const desc = `รับชำระ ${receipt.receipt_no || '#' + receipt.id} — ${receipt.customer_name || 'ลูกค้า'}`;
+  const amount = Number(amountRaw);
+
+  return _postJournal({
+    sourceTable: "receipts",
+    sourceId: receipt.id,
+    docType: "RV",
     docDate,
     description: desc,
     lines: [

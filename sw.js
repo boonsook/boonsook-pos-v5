@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v154 (2026-05-08): Phase 88.1a-fix — wire auto-post ใน pos.js doCheckout (จุดที่ POS ใช้จริง)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v154';
+// v155 (2026-05-08): Phase 88.1b — wire receipts/service_jobs/payroll auto-post + Backfill UI
+const CACHE_NAME = 'boonsook-pos-v5-cache-v155';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

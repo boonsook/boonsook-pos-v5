@@ -1,8 +1,91 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 8 พฤษภาคม 2026 (Phase 88.1a fix — auto-post wired ที่ pos.js + RLS hotfix)
-**Version:** 5.34.2 (build 169) — Phase 88.0 + 88.1a (verified end-to-end ✅)
-**Previous:** 5.33.5 (build 166) — Phase 87.5 (full catalog seed)
+**อัปเดตล่าสุด:** 8 พฤษภาคม 2026 (Phase 88.1b — receipts/service jobs/payroll auto-post + Backfill UI)
+**Version:** 5.34.3 (build 170) — Phase 88.0 + 88.1a + 88.1b (4 source flows + backfill)
+**Previous:** 5.34.2 (build 169) — Phase 88.1a verified end-to-end (sales + expenses)
+
+---
+
+## ⏪ Phase 88.1b — Receipts/Service Jobs auto-post + Backfill UI (8 พ.ค.)
+
+### Why
+หลัง Phase 88.1a ทำ sales + expenses เสร็จ — ยังเหลือ source อีก 3 ตัว
+(receipts, service_jobs, payroll) + ต้องมี backfill UI เพื่อ post JV ย้อนหลัง
+ให้ rows เก่าก่อน Phase 88.1a deploy (ไม่งั้น trial balance ไม่ครบ)
+
+### What shipped (5.34.3)
+
+**1. `modules/accounting/auto_post.js` updates:**
+- ขยาย `EXPENSE_CATEGORY_MAP` รวม `salary` / `labor_hire` / `payroll` / `materials` / `utilities`
+  - ⭐ **สำคัญ:** Payroll ไม่ต้อง wire ตรง — เพราะ Phase 76 (`payroll.js _markPaid`)
+    auto-create expense category=salary ตอนกดจ่าย → expense.js wire (Phase 88.1a)
+    จะ trigger postJournalForExpense → ใช้ mapping `payroll_salary` (Dr 5200 / Cr 1110)
+- เพิ่ม **`postJournalForReceipt(receipt)`** — RV doc_type
+  - default `receipt_payment` (Dr 1110 / Cr 1200)
+  - ถ้า `payment_method` มี transfer/โอน/qr/bank → `receipt_transfer` (Dr 1130 / Cr 1200)
+
+**2. Wire 3 จุด:**
+- `modules/receipts.js`:
+  - dropdown action "เก็บเงิน" (line 442) + button "rcPreviewCollect" (line 671) →
+    หลัง PATCH status=paid สำเร็จ → fire `postJournalForReceipt({ ...r, paid_at: now })`
+- `main.js saveServiceJob`:
+  - import `postJournalForServiceJob`
+  - เพิ่ม `{ returnData: true }` ใน xhrPost — ขอ id กลับมา
+  - ตรวจ `transitionedToDone || newJobAlreadyComplete` → fire postJournalForServiceJob
+  - ใช้ `state.serviceJobs[idx]` (มี total_cost) เป็น input — ไม่ใช่ payload (อาจไม่มี total_cost)
+- ⭐ **Payroll:** ผ่าน expense flow auto (จาก Phase 76 + Phase 88.1a) — verified design
+
+**3. `modules/accounting/backfill.js` (NEW — 305 บรรทัด):**
+- Page `accounting_backfill` — UI ติ๊ก source (sales/expenses/receipts/service_jobs)
+  + date range → Preview / Run
+- **Preview mode:** query existing JV → สรุป "รวม / มีอยู่แล้ว / จะสร้างใหม่" ต่อ source
+- **Run mode:** loop ทุก row → call postJournalForX — ผ่าน idempotency (HTTP 409 →
+  return null = "skipped"); progress bar live update; collected error log (collapsible)
+- Effective date check: 2026-01-01 — clamps `from < cutoff` → use cutoff
+- Receipts/service_jobs filter pre-loop: `status=eq.paid` / `status=in.(done,delivered,closed)`
+
+**4. Navigation:**
+- `index.html`: nav button "⏪ Backfill ย้อนหลัง" + section `page-accounting_backfill`
+- `main.js`: route `accounting_backfill` (group "accounting" + label "Backfill JV ย้อนหลัง" +
+  call `renderBackfillPage(ctx)` ใน showRoute)
+
+### Files changed (Phase 88.1b)
+- `modules/accounting/auto_post.js` — 23 → 24 mappings + postJournalForReceipt function
+- `modules/accounting/backfill.js` — NEW (Backfill UI page)
+- `modules/receipts.js` — wire 2 จุด (dropdown + preview button)
+- `main.js` — import postJournalForServiceJob + wire saveServiceJob + route accounting_backfill
+- `index.html` — nav button + section
+- `sw.js`, `modules/settings/pages.js` — bump 5.34.2→5.34.3 build 170, SW v155
+
+### Architecture decision: ทำไม Payroll ไม่ wire ตรง
+| Approach | ข้อดี | ข้อเสีย |
+|---|---|---|
+| Wire ตรงที่ `payroll.js _markPaid` | ชัดเจน — JV เกิดจาก source ตรงๆ | ❌ Duplicate — Phase 76 auto-create expense ก็ trigger postJournalForExpense → JV เกิด 2 ครั้ง (PV จาก payroll + PV จาก expense) เพราะ source_table ต่างกัน → ผ่าน idempotency unique → ผิด |
+| ⭐ ใช้ expense flow (Phase 76) | JV เกิดครั้งเดียว — สอดคล้อง principle "1 transaction = 1 JV" | ต้องเพิ่ม mapping `salary` ใน EXPENSE_CATEGORY_MAP (ทำแล้ว) |
+
+→ Decision: **expense flow only** — เพิ่ม mapping `salary` → `payroll_salary` (Dr 5200 / Cr 1110)
+
+### ✅ Smoke tests ที่ควรผ่าน
+1. ทำ POS sale (เงินสด) → SV เกิด ✅ (verified ใน 88.1a)
+2. เพิ่ม expense (fuel) → PV เกิด ✅ (verified ใน 88.1a)
+3. **เก็บเงินใบเสร็จ (status pending → paid)** → RV เกิด Dr 1110/1130 / Cr 1200
+4. **บันทึกงานช่างใหม่ status=done** → SV เกิด (ถ้ามี total_cost)
+5. **เปลี่ยน status งานเก่า → done/delivered/closed** → SV เกิด
+6. **จ่ายเงินเดือน** (markPaid) → expense salary เกิด → PV เกิด Dr 5200 / Cr 1110/1130
+7. **Backfill UI:** เลือก source + date range → Preview แสดงจำนวน → Run → progress bar → summary
+
+### ⚠️ Known caveats
+- Service jobs ที่ **ไม่มี total_cost** → postJournalForServiceJob return null silent
+  → user ต้องกรอกยอดก่อน หรือ JV จะไม่เกิด (admin ต้องสร้าง manual JV แทน)
+- Backfill ใช้ idempotency unique index — ถ้า admin เคย create manual JV ที่
+  source_table+source_id ซ้ำ → backfill skip (ดี — กัน duplicate)
+
+### Pending Phase 88.2-88.5
+- 88.1c: Drill-down (click JV row → drawer with source link) + mapping editor UI
+- 88.2: Trial Balance report (filter ตาม fiscal period)
+- 88.3: P&L (กำไรขาดทุน) report
+- 88.4: Balance Sheet (งบดุล) report
+- 88.5: Export bundle ส่งสำนักงานบัญชี (PDF + CSV ของทุก JV + รายงาน)
 
 ---
 

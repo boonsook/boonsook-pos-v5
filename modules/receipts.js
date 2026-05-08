@@ -5,6 +5,8 @@
 import { renderEmpty, renderSkeleton } from "./ui_states.js";
 // Phase 57: audit log + Phase 70 (D3): Excel export
 import { logActivity, exportToExcel, todaySuffix } from "./utils.js";
+// Phase 88.1b: auto-post JV หลังรับชำระลูกหนี้ (fire-and-forget)
+import { postJournalForReceipt } from "./accounting/auto_post.js";
 
 // share ใช้ window._appShareDoc จาก main.js
 
@@ -439,6 +441,11 @@ export function renderReceiptsPage(ctx) {
       const res = await window._appXhrPatch?.("receipts", { status: cfg.status }, "id", rcId);
       if (res?.ok) {
         window.App?.showToast?.(cfg.toast);
+        // ★ Phase 88.1b — auto-post JV ตอนเก็บเงิน (fire-and-forget)
+        if (action === "paid") {
+          postJournalForReceipt({ ...r, status: "paid", paid_at: new Date().toISOString() })
+            .catch(e => console.warn("[rc] auto-post JV failed:", e?.message));
+        }
         // Phase 45.11: non-blocking reload
     if (ctx.loadAllData) ctx.loadAllData().catch(e => console.warn("[rc] reload", e));
         renderReceiptsPage(_ctx);
@@ -447,6 +454,11 @@ export function renderReceiptsPage(ctx) {
         const { error } = await ctx.state.supabase.from("receipts").update({ status: cfg.status }).eq("id", rcId);
         if (!error) {
           window.App?.showToast?.(cfg.toast);
+          // ★ Phase 88.1b — auto-post JV (fallback path)
+          if (action === "paid") {
+            postJournalForReceipt({ ...r, status: "paid", paid_at: new Date().toISOString() })
+              .catch(e => console.warn("[rc] auto-post JV failed:", e?.message));
+          }
           // Phase 45.11: non-blocking reload
     if (ctx.loadAllData) ctx.loadAllData().catch(e => console.warn("[rc] reload", e));
           renderReceiptsPage(_ctx);
@@ -671,6 +683,9 @@ function renderReceiptPreview(container) {
     try {
       await window._appXhrPatch?.("receipts", { status: "paid" }, "id", r.id);
       window.App?.showToast?.("เก็บเงินเรียบร้อย ✅");
+      // ★ Phase 88.1b — auto-post JV ตอนเก็บเงิน (fire-and-forget)
+      postJournalForReceipt({ ...r, status: "paid", paid_at: new Date().toISOString() })
+        .catch(e => console.warn("[rc-preview] auto-post JV failed:", e?.message));
       if (_ctx.loadAllData) await _ctx.loadAllData();
     } catch(e) { window.App?.showToast?.("❌ เก็บเงินไม่สำเร็จ", "error"); }
   });
