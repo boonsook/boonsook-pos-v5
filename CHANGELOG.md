@@ -7,6 +7,20 @@
 
 ---
 
+## 5.34.7 (build 174) — 2026-05-08
+
+### Phase 88.4 — งบดุล Balance Sheet
+- **feat:** หน้างบดุล — สมการบัญชี Assets = Liabilities + Equity
+  - `modules/accounting/balance_sheet.js` (~310 lines): closing balance
+    cumulative ตั้งแต่ effective date 2026-01-01 → as-of date
+  - 3 sections: Assets (Dr-Cr) / Liabilities (Cr-Dr) / Equity (Cr-Dr)
+    + Retained Earnings (Σincome-Σexpense) → row พิเศษใน Equity
+  - Equation card: balance check ✓ สีเขียว / ⚠️ สีแดง + ผลต่าง
+  - Negative number warning → แนะนำลง JV ประเภท OB (Phase 88.5)
+- "As of date" picker (default=today, min=2026-01-01) + Excel + พิมพ์
+
+---
+
 ## 5.34.6 (build 173) — 2026-05-08
 
 ### Phase 88.3 — งบกำไรขาดทุน (P&L)

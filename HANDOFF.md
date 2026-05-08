@@ -1,8 +1,91 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 8 พฤษภาคม 2026 (Phase 88.3 — P&L งบกำไรขาดทุน)
-**Version:** 5.34.6 (build 173) — Phase 88.3 (Profit & Loss statement)
-**Previous:** 5.34.5 (build 172) — Phase 88.2 verified (TB Dr=Cr=129,258)
+**อัปเดตล่าสุด:** 8 พฤษภาคม 2026 (Phase 88.4 — งบดุล Balance Sheet)
+**Version:** 5.34.7 (build 174) — Phase 88.4 (Balance Sheet)
+**Previous:** 5.34.6 (build 173) — Phase 88.3 verified (P&L Net Loss 129,258)
+
+---
+
+## 🏦 Phase 88.4 — งบดุล Balance Sheet (8 พ.ค.)
+
+### Why
+หลัง P&L แล้ว → user ต้องการ Balance Sheet (งบดุล) ที่แสดงสถานะ ณ จุดเวลา
+ใดเวลาหนึ่ง — สมการ Assets = Liabilities + Equity
+
+### What shipped (5.34.7 build 174)
+
+**`modules/accounting/balance_sheet.js`** (~310 lines — NEW):
+
+**Logic — closing balance (cumulative):**
+- BS ใช้ closing balance ตั้งแต่ effective date (2026-01-01) ถึง "as of date"
+- ไม่ใช่ movement ในงวด → query JV ทั้งหมด since effective date
+
+**Per-account balance:**
+- Asset (1xxx)     → Dr - Cr (normal Dr balance)
+- Liability (2xxx) → Cr - Dr (normal Cr balance)
+- Equity (3xxx)    → Cr - Dr (normal Cr balance)
+- Filter accounts ที่ balance ≈ 0 ออก (ไม่แสดง)
+
+**Retained Earnings (กำไรสะสม):**
+- คำนวณ Σ(income amount) - Σ(expense amount) จาก JV ในช่วง effective→asOf
+- เพิ่มเป็น row พิเศษใน Equity section (รหัส 3900)
+- ถ้าเป็นลบ → label "ขาดทุนสะสม" + สีแดง
+
+**Equation card:**
+- แสดง สินทรัพย์ = หนี้สิน + ส่วนของเจ้าของ
+- สีเขียว ถ้า balance / สีแดง + ผลต่าง ถ้าไม่
+- Visual: 2 ตัวเลขใหญ่ + เครื่องหมาย =
+
+**Negative number warning:**
+- ถ้า total assets < 0 หรือ total equity < 0 → แสดง info card สีส้ม
+- บอก user ว่า "ระบบยังไม่มี opening balance" + แนะนำให้ลง JV ประเภท OB
+- (Phase 88.5 จะมี OB wizard UI)
+
+**UI inputs:**
+- Single date picker "ณ วันที่" (default = today, min = 2026-01-01)
+- Export Excel + พิมพ์ — เหมือน TB / P&L
+
+### Files changed (Phase 88.4)
+- `modules/accounting/balance_sheet.js` — NEW (~310 lines)
+- `main.js` — import + 4 wire points
+- `index.html` — nav button "🏦 งบดุล" + section
+- `sw.js`, `modules/settings/pages.js` — bump 5.34.6→5.34.7 build 174, SW v159
+
+### ⚠️ Cloudflare deploy pattern (จดเป็น insight)
+ตั้งแต่ Phase 88.2 deploys เริ่ม fail สำหรับ commits ที่มีไฟล์ใหม่ใน
+`modules/accounting/*` — empty commit re-trigger แก้ได้ทุกครั้ง
+- 0e25d04 (88.2): fail → cbea042 (empty): success
+- 51ebd39 (88.3): fail → 08fbe1f (empty): success
+- 088aaaa? (88.4): expect fail → empty re-trigger
+
+อาจเป็น Cloudflare API rate limit หรือ wrangler-action transient — ไม่กระทบ
+production (เพราะ Cloudflare Pages เก็บ deploy ก่อนหน้าไว้)
+
+**Not investigated yet:** ลอง batch 2 commits → empty re-trigger as standard
+practice หรือเปลี่ยน workflow ใช้ `--keep-cache` หรือลด file count ใน upload
+
+### ✅ Smoke tests ที่ควรผ่าน
+1. เมนู "บัญชี" → "🏦 งบดุล"
+2. As-of date default = วันนี้ → load ทันที
+3. **คาดผลปัจจุบัน (data ของ user หลังลบ JV):**
+   - 🟦 Assets:
+     - 1110 เงินสดในมือ: -115,388 (สีแดง — เพราะ Cr มากกว่า Dr)
+     - 1130 เงินฝากธนาคาร: -13,870
+     - รวม: -129,258
+   - 🟥 Liabilities: ไม่มี → 0.00
+   - 🟪 Equity:
+     - 3900 ขาดทุนสะสม: -129,258 (จาก P&L)
+     - รวม: -129,258
+   - **Equation: -129,258 = 0 + (-129,258) ✓** สีเขียว balance
+   - ⚠️ Info card สีส้ม: "ตัวเลขลบ — ยังไม่มี opening balance"
+4. Export Excel — section breaks + 4 columns + total rows
+5. พิมพ์ → popup window
+
+### Pending Phase 88.5
+- Export bundle — ดาวน์โหลด PDF + multi-sheet Excel ของ TB + PL + BS รวมกัน
+- (Optional) Opening Balance wizard — admin เซต ทุน/เงินสดเริ่มต้น
+
+---
 
 ---
 
