@@ -7,6 +7,18 @@
 
 ---
 
+## 5.34.4 (build 171) — 2026-05-08
+
+### Phase 88.1b hotfix + verified end-to-end
+- `cb4c13b` **fix:** เพิ่ม `accounting_backfill` ใน `ALL_ROUTES` list
+  - Phase 88.1b (build 170) ลืมจุดนี้ → admin canAccessPage = false →
+    กดปุ่ม Backfill แล้ว redirect ไป fallback (เข้าหน้าไม่ได้)
+- ✅ **Verified end-to-end:** Backfill 91 rows → สร้าง JV ใหม่ 90 (1 มี JV แล้ว)
+  - สมุดรายวัน 3 → 93 รายการ
+  - PV/SV ครบทั้งเดือน เม.ย.-พ.ค. 2026 → trial balance ครบจริง
+
+---
+
 ## 5.34.3 (build 170) — 2026-05-08
 
 ### Phase 88.1b — Receipts/Service Jobs auto-post + Backfill UI

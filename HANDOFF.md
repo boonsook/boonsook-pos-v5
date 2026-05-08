@@ -1,8 +1,40 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 8 พฤษภาคม 2026 (Phase 88.1b — receipts/service jobs/payroll auto-post + Backfill UI)
-**Version:** 5.34.3 (build 170) — Phase 88.0 + 88.1a + 88.1b (4 source flows + backfill)
-**Previous:** 5.34.2 (build 169) — Phase 88.1a verified end-to-end (sales + expenses)
+**อัปเดตล่าสุด:** 8 พฤษภาคม 2026 (Phase 88.1b verified end-to-end — Backfill 90 JV)
+**Version:** 5.34.4 (build 171) — Phase 88.1b + ALL_ROUTES hotfix
+**Previous:** 5.34.3 (build 170) — Phase 88.1b initial (missing accounting_backfill in ALL_ROUTES)
+
+## ✅ Phase 88.1b — Verified end-to-end (8 พ.ค. ตอนเย็น)
+
+**Backfill stress-test:** user ติ๊ก sales + expenses + receipts + service_jobs,
+range 01/04/2026 → 08/05/2026 → preview แสดง 91 rows (84 sales + 7 expenses,
+receipts/service_jobs = 0) → run → สำเร็จ 90/91 (1 อันเก่ามี JV แล้ว)
+
+→ สมุดรายวันก่อน 3 รายการ → หลัง **93 รายการ** (Phase 88.1a 3 + Backfill 90)
+
+JV ที่ Backfill สร้างย้อนหลังถึง:
+- PV2026040001 (เติมน้ำมัน 12/04 ฿1,000)
+- SV2026040071 (ขาย 16/04 ฿11,900)
+- PV2026050004 (แอร์ 30,000btu 2 ตัว ฿60,000) ฯลฯ
+
+→ trial balance ของเดือน เม.ย.-พ.ค. 2026 **ครบจริง 100%** — สำนักงานบัญชีพร้อมใช้
+
+### Hotfix 5.34.4 (build 171)
+ปัญหา: `ALL_ROUTES` ใน main.js line 863 ไม่ได้รวม `accounting_backfill`
+→ `canAccessPage("accounting_backfill")` return false → showRoute redirect → กดปุ่มไม่เข้า
+
+แก้: เพิ่ม `"accounting_backfill"` ใน ALL_ROUTES list (1 บรรทัด)
+
+### Lesson learned สำหรับเพิ่ม route ในอนาคต
+**4 จุดต้องแก้พร้อมกัน** เวลาเพิ่ม route:
+1. `index.html` — `<button data-route="X">` + `<section id="page-X">`
+2. `main.js ALL_ROUTES` — list (สำหรับ canAccessPage)
+3. `main.js ROUTE_GROUP` — group สำหรับ auto-open sidebar
+4. `main.js routeTitles` + `showRoute` — title + render handler
+
+(ลืม #2 ใน Phase 88.1b initial → ต้อง hotfix 171)
+
+---
 
 ---
 
