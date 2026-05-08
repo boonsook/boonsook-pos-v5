@@ -49,6 +49,8 @@ import { renderExpenseOverviewPage } from "./modules/expense_overview.js";
 import { renderJournalsPage } from "./modules/accounting/journals.js";
 import { renderJournalFormPage } from "./modules/accounting/journal_form.js";
 import { renderCoaPage } from "./modules/accounting/coa.js";
+// Phase 88.1: auto-posting JV จาก sales/expenses
+import { postJournalForSale, postJournalForExpense } from "./modules/accounting/auto_post.js";
 import { renderProfitByProductPage } from "./modules/profit_by_product.js";
 import { renderBirthdaysPage, checkTodayBirthdaysAndNotify } from "./modules/birthdays.js";
 import { renderQuoteTemplatesPage } from "./modules/quote_templates.js";
@@ -3133,6 +3135,16 @@ async function checkout(){
   openReceiptDrawer();
   showToast("บันทึกการขายเรียบร้อย");
   setTimeout(() => loadAllData().catch(e => console.warn("[checkout] reload", e)), 100);
+
+  // ★ Phase 88.1 — auto-post JV (fire-and-forget, ไม่ block UX)
+  postJournalForSale({
+    id: saleId,
+    order_no: orderNo,
+    customer_name: salePayload.customer_name,
+    payment_method: salePayload.payment_method,
+    total_amount: salePayload.total_amount,
+    created_at: new Date().toISOString()
+  }).catch(e => console.warn("[checkout] auto-post JV failed:", e?.message));
 
   // ═══ Line Notify: แจ้งขาย + เตือนสต็อกใกล้หมด ═══
   _notifySaleToLine({ orderNo, cartSnapshot: salePayload, items: state.lastReceipt?.items || [] }).catch(e => console.warn("[lineNotify sale] skipped:", e?.message));

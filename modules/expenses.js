@@ -5,6 +5,8 @@
 import { renderEmpty } from "./ui_states.js";
 // Phase 70 (D3): Excel export
 import { exportToExcel, todaySuffix } from "./utils.js";
+// Phase 88.1a: auto-post JV ตอนบันทึก expense
+import { postJournalForExpense } from "./accounting/auto_post.js";
 
 function money(n){ return new Intl.NumberFormat("th-TH",{style:"currency",currency:"THB",minimumFractionDigits:2}).format(Number(n||0)); }
 function dateTH(d){ if(!d) return "-"; try{ return new Date(d).toLocaleDateString("th-TH",{year:"numeric",month:"short",day:"numeric"}); }catch(e){ return d; } }
@@ -504,9 +506,17 @@ function bindAddFormEvents() {
         if (res && res.ok === false) throw new Error(res.error?.message || "update failed");
         _ctx.showToast("อัปเดตรายจ่ายเรียบร้อย", "success");
       } else {
-        const res = await window._appXhrPost?.("expenses", payload, {});
+        // ★ Phase 88.1a: ขอ returnData เพื่อเอา id ไป auto-post JV
+        const res = await window._appXhrPost?.("expenses", payload, { returnData: true });
         if (res && res.ok === false) throw new Error(res.error?.message || "insert failed");
         _ctx.showToast("เพิ่มรายจ่ายเรียบร้อย", "success");
+
+        // ★ Phase 88.1a: auto-post JV (fire-and-forget — ไม่ block UX)
+        const inserted = res?.data;
+        if (inserted?.id) {
+          postJournalForExpense(inserted)
+            .catch(e => console.warn("[expenses] auto-post JV failed:", e?.message));
+        }
       }
 
       _showAddForm = false;
@@ -856,7 +866,8 @@ function _showParsedResult(ctx, modal, imageDataUrl, data) {
       }
 
       btn.textContent = "⏳ บันทึก...";
-      const headers = { "Content-Type": "application/json", "apikey": cfg.anonKey, "Authorization": "Bearer " + token, "Prefer": "return=minimal" };
+      // ★ Phase 88.1a: ขอ representation เพื่อเอา id กลับมา auto-post JV
+      const headers = { "Content-Type": "application/json", "apikey": cfg.anonKey, "Authorization": "Bearer " + token, "Prefer": "return=representation" };
       const payload = {
         expense_date: date,
         category,
@@ -868,6 +879,19 @@ function _showParsedResult(ctx, modal, imageDataUrl, data) {
 
       const r = await fetch(cfg.url + "/rest/v1/expenses", { method: "POST", headers, body: JSON.stringify(payload) });
       if (!r.ok) throw new Error("HTTP " + r.status);
+
+      // ★ Phase 88.1a: parse inserted row → auto-post JV (fire-and-forget)
+      try {
+        const arr = await r.json();
+        const inserted = Array.isArray(arr) ? arr[0] : arr;
+        if (inserted?.id) {
+          postJournalForExpense(inserted)
+            .catch(e => console.warn("[expenses-autokey] auto-post JV failed:", e?.message));
+        }
+      } catch (parseErr) {
+        console.warn("[expenses-autokey] parse insert response failed:", parseErr?.message);
+      }
+
       modal.remove();
       ctx.showToast?.(receiptUrl ? "บันทึกรายจ่าย + แนบรูปบิลแล้ว ✅" : "บันทึกรายจ่ายแล้ว (รูปบิลอัปโหลดไม่ได้)");
       if (ctx.loadAllData) await ctx.loadAllData();

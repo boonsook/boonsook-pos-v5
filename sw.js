@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v152 (2026-05-08): Phase 88.0 — accounting foundation (chart_of_accounts + journal_entries + lines + JV form)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v152';
+// v153 (2026-05-08): Phase 88.1a — auto-post JV จากการขาย POS + รายจ่าย (idempotent + 22 mappings)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v153';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

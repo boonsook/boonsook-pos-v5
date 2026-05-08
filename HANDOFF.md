@@ -1,8 +1,111 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 7 พฤษภาคม 2026 (Phase 85-87 — login + UX + main.js refactor + product detail + Hybrid editor + full catalog seed)
-**Version:** 5.33.5 (build 166) — Phase 85.1-5 + 86.1-4 + 87.1-5 รวมทั้งชุด
-**Previous:** 5.31.8 (build 137) — Phase 80-82.5
+**อัปเดตล่าสุด:** 8 พฤษภาคม 2026 (Phase 88.0-88.1a — accounting foundation + auto-post JV)
+**Version:** 5.34.1 (build 168) — Phase 88.0 + 88.1a (sales + expenses auto-post)
+**Previous:** 5.33.5 (build 166) — Phase 87.5 (full catalog seed)
+
+---
+
+## 🧾 Phase 88.1a — Auto-post JV (sales + expenses) (8 พ.ค.)
+
+### Why
+User ขอ "หน้าบัญชีให้ใกล้เคียง FlowAccount และทำได้ดีกว่า — ส่งสำนักงานบัญชีใช้ได้
+จริง" + ตอบ scope: VAT B (ไม่จด), COA B (ส่ง CSV), period month/quarter/year,
+start 2026-01-01, path A (sequential 88.0 → 88.5)
+
+Phase 88.0 (build 167) วาง foundation (chart_of_accounts + journal_entries
++ lines + manual JV form) เสร็จแล้ว → 88.1a เริ่ม auto-posting จาก source
+transactions แทนการกรอก JV ด้วยมือทุกครั้ง
+
+### What shipped (5.34.1)
+
+**SQL migration** (`supabase-phase88-auto-post.sql`):
+1. **Idempotency** — partial unique index บน `journal_entries (source_table,
+   source_id) WHERE NOT NULL` → POST ซ้ำได้ HTTP 409 → return null (manual
+   JV ที่ source = NULL ใส่ได้หลายอันตามปกติ)
+2. **`account_mapping` table** — config ผูก `mapping_key` →
+   `debit_account_code` / `credit_account_code` + RLS admin only
+3. **22 seed mappings:**
+   - Sales: 4 (sale_cash 1110/4100, sale_transfer 1130/4100, sale_credit
+     1130/4100, sale_credit_term 1200/4100)
+   - Expenses: 10 (fuel/utility/phone/rent/repair/supplies/ads/bank_fee/
+     travel/misc — Dr 5xxx / Cr 1110)
+   - Service jobs: 5 (install/repair/clean/move/other AC — Dr 1110 / Cr 4xxx)
+   - Receipts: 2 (cash 1110/1200, transfer 1130/1200)
+   - Payroll: 2 (salary 5200/1110, wht 5200/2140)
+
+**JS module** (`modules/accounting/auto_post.js` — 330 บรรทัด):
+- `postJournalForSale(sale)` — POS sale → SV (ดู `payment_method` →
+  ระบุ mapping_key: cash/transfer/credit/credit_term)
+- `postJournalForExpense(expense)` — expense → PV (ดู `category` →
+  EXPENSE_CATEGORY_MAP → mapping; override credit account ถ้า
+  `payment_method = transfer/credit`)
+- `postJournalForServiceJob(job)` — service → SV (เฉพาะ status
+  delivered/closed/done)
+- `resetMappingCache()` — เรียกหลัง admin แก้ mapping
+- Effective date: skip ถ้า docDate < `2026-01-01`
+- Mapping cache: lazy-loaded once per session
+
+**Wiring:**
+- `main.js → checkout()` — หลัง `showToast("บันทึกการขายเรียบร้อย")`
+  → `postJournalForSale({...}).catch(...)` (fire-and-forget)
+- `modules/expenses.js → expFormSaveBtn click` — เปลี่ยน
+  `_appXhrPost(...)` ให้ใช้ `{returnData:true}` เพื่อเอา id กลับมา →
+  `postJournalForExpense(inserted).catch(...)`
+- `modules/expenses.js → akSaveBtn click (AutoKey)` — เปลี่ยน
+  `Prefer: return=minimal` → `return=representation` → parse first row →
+  `postJournalForExpense(inserted).catch(...)`
+
+### Why fire-and-forget + idempotent
+ถ้า auto-post ล้มเหลว (network/RLS/missing mapping) — ไม่ block UX checkout/
+expense save (user ทำงานต่อได้) แต่ console.warn เก็บไว้ debug
+
+ถ้า user reload + retry → unique partial index จะ reject (HTTP 409) →
+auto_post.js detect 409 → return null (ไม่ duplicate)
+
+### Files changed (Phase 88.1a)
+- `supabase-phase88-auto-post.sql` — NEW (idempotency + mapping + seed)
+- `modules/accounting/auto_post.js` — NEW (helper เรียกจาก source modules)
+- `main.js` — import + wire `postJournalForSale` ใน checkout()
+- `modules/expenses.js` — import + wire 2 จุด (manual save + AutoKey)
+- `index.html`, `sw.js`, `modules/settings/pages.js` — bump 5.34.0 → 5.34.1
+
+### ⚠️ Manual step required (post-deploy)
+**Run `supabase-phase88-auto-post.sql` ใน Supabase SQL Editor** ก่อน user
+ทดสอบ — ไม่งั้น auto-post จะ fail (mapping table ไม่มี + ไม่มี idempotency
+index → ขายซ้ำเดิม → JV ซ้ำ)
+
+### ✅ Smoke test ที่ควรผ่าน
+1. หลังรัน SQL: `SELECT count(*) FROM account_mapping` → 22
+2. ทำ POS sale 1 ครั้ง (cash) → เปิดสมุดรายวัน → JV เลข `SV202605####`
+   ปรากฏ Dr 1110 / Cr 4100
+3. เพิ่ม expense category=fuel 200 บาท (cash) → เปิดสมุดรายวัน → JV
+   `PV202605####` Dr 5210 / Cr 1110
+4. AutoKey OCR สลิป → save → JV เกิดเหมือนกัน
+5. ทำขายซ้ำ id เดิม (manual SQL test) → console "[auto_post] already
+   posted" + ไม่ duplicate
+
+### Pending Phase 88.1b/c (next session)
+- 88.1b: receipts.js + service_jobs (in main.js) + payroll.js wires +
+  backfill UI (post existing pre-2026-05 sales/expenses retroactively)
+- 88.1c: Drill-down (click JV row → drawer with source link) + mapping
+  editor UI (admin แก้ mapping_key → account ใน Settings)
+- 88.2-88.5: Trial Balance + P&L + BS reports + WHT + Export bundle
+
+---
+
+## 🏛️ Phase 88.0 — Accounting Foundation (8 พ.ค.)
+
+### What shipped (5.34.0 build 167 — already pushed)
+- `supabase-phase88-accounting-foundation.sql` — chart_of_accounts (51
+  Thai accounts), journal_entries (with je_balanced CHECK Dr=Cr),
+  journal_lines (line_one_side CHECK), fiscal_periods, is_accountant()
+  helper, 4 RLS policies admin-only
+- `modules/accounting/journals.js` — JV list (status chip + filter)
+- `modules/accounting/journal_form.js` — manual JV form (auto doc_no
+  `JV2026MM####`, balance validator)
+- `modules/accounting/coa.js` — COA management (stats + collapsible +
+  CSV/Excel import/export with Thai aliases)
 
 ---
 

@@ -7,6 +7,33 @@
 
 ---
 
+## 5.34.1 (build 168) — 2026-05-08
+
+### Phase 88.1a — Auto-post JV (sales + expenses)
+- **feat:** auto-post Journal Entry จาก POS sale + expense (fire-and-forget)
+  - `supabase-phase88-auto-post.sql`: partial unique index บน
+    `(source_table, source_id)` → idempotent + 22 seed mappings
+    (4 sales + 10 expenses + 5 services + 2 receipts + 2 payroll)
+  - `modules/accounting/auto_post.js`: postJournalForSale/Expense/
+    ServiceJob — effective date 2026-01-01, mapping cache lazy-loaded
+  - `main.js`: wire `postJournalForSale` ใน checkout()
+  - `modules/expenses.js`: wire 2 จุด (manual save + AutoKey OCR flow)
+- **⚠️ Post-deploy:** ต้องรัน `supabase-phase88-auto-post.sql` ใน Supabase
+
+---
+
+## 5.34.0 (build 167) — 2026-05-08
+
+### Phase 88.0 — Accounting Foundation
+- `98f5574` **feat:** accounting foundation
+  - SQL: chart_of_accounts (51 Thai accounts) + journal_entries
+    (je_balanced CHECK) + journal_lines (line_one_side CHECK) +
+    fiscal_periods + is_accountant() helper + 4 RLS policies admin-only
+  - JS: journals.js (สมุดรายวัน list) + journal_form.js (manual JV) +
+    coa.js (ผังบัญชี + CSV/Excel import/export)
+
+---
+
 ## 5.33.5 (build 166) — 2026-05-08
 
 ### Phase 87.5 — Full catalog spec seed
