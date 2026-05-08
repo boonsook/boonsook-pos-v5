@@ -7,6 +7,18 @@
 
 ---
 
+## 5.34.2 (build 169) — 2026-05-08
+
+### Phase 88.1a-fix — RLS hotfix + wire auto-post ที่ pos.js (จุดที่ POS ใช้จริง)
+- `60b8fee` **fix:** wire `postJournalForSale` ใน `modules/pos.js doCheckout()`
+  (build 168 wire ผิดที่ — main.js:checkout() เป็น legacy ไม่ถูกเรียก)
+- `6b2ff34` **fix:** RLS hotfix — split `je_admin`/`jl_admin` policies
+  (Phase 88.0 ใช้ FOR ALL → block INSERT จาก non-admin → JV ไม่เกิด)
+  - Run `supabase-phase88-hotfix-rls.sql` post-deploy
+- ✅ **Verified end-to-end:** ขาย POS → JV `SV2026050001` เกิดอัตโนมัติ Dr 1110 / Cr 4100
+
+---
+
 ## 5.34.1 (build 168) — 2026-05-08
 
 ### Phase 88.1a — Auto-post JV (sales + expenses)

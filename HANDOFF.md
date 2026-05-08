@@ -1,8 +1,59 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 8 พฤษภาคม 2026 (Phase 88.0-88.1a — accounting foundation + auto-post JV)
-**Version:** 5.34.1 (build 168) — Phase 88.0 + 88.1a (sales + expenses auto-post)
+**อัปเดตล่าสุด:** 8 พฤษภาคม 2026 (Phase 88.1a fix — auto-post wired ที่ pos.js + RLS hotfix)
+**Version:** 5.34.2 (build 169) — Phase 88.0 + 88.1a (verified end-to-end ✅)
 **Previous:** 5.33.5 (build 166) — Phase 87.5 (full catalog seed)
+
+---
+
+## 🛠️ Phase 88.1a-fix — Wire auto-post ที่ pos.js + RLS hotfix (8 พ.ค.)
+
+### ปัญหาที่เจอตอน user test build 168
+1. **ตาราง `journal_entries` ว่างเปล่า** ทุกครั้งที่ขายจริง
+2. แต่ test ผ่าน console import ตรง → `postJournalForSale` insert ได้สำเร็จ
+
+### 2 root causes (สำคัญสำหรับ session ต่อ)
+
+**Root cause #1 — RLS ของ Phase 88.0 block INSERT:**
+- `is_accountant()` ตรวจ `role = 'admin'` เท่านั้น
+- RLS `je_admin` / `jl_admin` ใช้ `FOR ALL` → block INSERT จาก non-admin users
+- Cashier/owner ขาย → POST JV ตก HTTP 403 → fire-and-forget เก็บ console.warn
+
+→ **Fix:** `supabase-phase88-hotfix-rls.sql` (ไฟล์ใหม่)
+- Split `je_admin` / `jl_admin` เป็น 4 policy แยก (SELECT/UPDATE/DELETE = accountant, INSERT = accountant OR source-linked)
+- เปิด `account_mapping` SELECT ให้ทุก authenticated (client ต้องอ่าน mapping)
+- Total: 10 policies (4+4+2)
+
+**Root cause #2 — Wire auto-post ผิดไฟล์ใน build 168:**
+- main.js มี `async function checkout()` (line 3077) — **legacy ที่ไม่ถูกเรียกแล้ว**
+- POS จริงใช้ `doCheckout()` ใน `modules/pos.js` line 919
+- Build 168 wire ที่ main.js → ขายจริงไม่ trigger
+
+→ **Fix (build 169):** ย้าย wire ไปที่ `modules/pos.js` หลัง `showToast("บันทึกการขายเรียบร้อย ✅")`
+- เก็บ wire เก่าใน main.js ไว้ — ไม่ทำงานแต่ idempotent กัน duplicate
+
+### Verification (build 169)
+Console ตอนขายจริง:
+```
+[auto_post] ✅ created SV2026050001 from sales #119 amount 50
+```
+สมุดรายวัน → SV2026050001 ขาย POS BSK-1778227814186 ฿50 status "อนุมัติแล้ว"
+
+### Files changed (Phase 88.1a-fix)
+- `supabase-phase88-hotfix-rls.sql` — NEW (RLS split policies, 10 policies)
+- `modules/pos.js` — import + wire postJournalForSale ใน doCheckout
+- `index.html`, `sw.js`, `modules/settings/pages.js` — bump 5.34.1→5.34.2 build 169, SW v154
+
+### ⚠️ Lesson learned (สำคัญสำหรับ Phase 88.1b)
+**ก่อน wire auto-post — ตรวจ source module ที่ใช้จริง:**
+- `pos.js doCheckout()` (sales) — ✅ wired
+- `expenses.js expFormSaveBtn` (manual expense) — ✅ wired
+- `expenses.js akSaveBtn` (AutoKey OCR) — ✅ wired
+- `receipts.js` — TBD (ตรวจไฟล์จริง — อาจอยู่ใน main.js หรือ module แยก)
+- `service_jobs` — TBD (เคยอยู่ใน main.js — ต้อง grep)
+- `payroll.js` — TBD (มี module แยกอยู่)
+
+**ห้ามแก้ `main.js` แล้วคิดว่าครอบคลุม** — โครงสร้างหลัง refactor 86 → ทุก source flow อยู่ใน `modules/*.js`
 
 ---
 
