@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v164 (2026-05-08): Hotfix — service_form.js เก็บ total_cost (สำหรับ auto-post JV)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v164';
+// v165 (2026-05-08): Phase 88.6 — Service job closure (status + slip + auto JV by job_type)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v165';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

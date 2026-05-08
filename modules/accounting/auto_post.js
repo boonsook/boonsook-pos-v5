@@ -307,16 +307,28 @@ export async function postJournalForServiceJob(job) {
   const mappings = await _getMappings();
   const jt = String(job.job_type || "").toLowerCase();
   const keyMap = {
-    ac:           "service_install_ac",
-    install_ac:   "service_install_ac",
-    repair_ac:    "service_repair_ac",
-    clean_ac:     "service_clean_ac",
-    move_ac:      "service_move_ac"
+    ac:            "service_install_ac",
+    install_ac:    "service_install_ac",
+    repair_ac:     "service_repair_ac",
+    clean_ac:      "service_clean_ac",
+    move_ac:       "service_move_ac",
+    // Phase 88.6: รองรับ 9 ประเภทงานช่างครบ
+    satellite:     "service_satellite",
+    repair_fridge: "service_repair_fridge",
+    repair_washer: "service_repair_washer",
+    cctv:          "service_cctv",
+    repair_tv:     "service_repair_tv",
+    other:         "service_other"
   };
   const mappingKey = keyMap[jt] || "service_other";
 
   const mapping = mappings[mappingKey];
   if (!mapping?.debit_account_code || !mapping?.credit_account_code) return null;
+
+  // ★ Phase 88.6: ถ้าระบุ payment_method = transfer/โอน → Dr 1130 (เงินฝากธนาคาร) แทน 1110 (เงินสด)
+  let debitAccount = mapping.debit_account_code;
+  const pm = String(job.payment_method || "").toLowerCase();
+  if (/transfer|โอน|qr|bank/.test(pm)) debitAccount = "1130";
 
   const desc = `งานบริการ ${job.job_no || '#' + job.id} — ${job.customer_name || ''}`.trim();
   const amount = Number(job.total_cost);
@@ -328,7 +340,7 @@ export async function postJournalForServiceJob(job) {
     docDate,
     description: desc,
     lines: [
-      { account_code: mapping.debit_account_code,  debit: amount, credit: 0,      description: desc },
+      { account_code: debitAccount,                debit: amount, credit: 0,      description: desc },
       { account_code: mapping.credit_account_code, debit: 0,      credit: amount, description: desc }
     ]
   });

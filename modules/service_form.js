@@ -149,6 +149,41 @@ export function renderServiceFormPage(ctx, serviceType) {
       <input type="text" id="svNote" placeholder="เช่น วันนัดหมาย, รายละเอียดเพิ่มเติม..." />
     </div>
 
+    <!-- 🔚 ปิดงาน (Phase 88.6) — ช่างเลือก status + แนบสลิป → JV เกิดทันที -->
+    <div class="panel" style="border:2px solid #fef3c7;background:#fffbeb">
+      <div class="set-section-title" style="color:#78350f">🔚 ปิดงาน (กรณีงานเสร็จ + รับเงินแล้ว)</div>
+      <div style="font-size:11px;color:#92400e;margin-bottom:10px;line-height:1.6">
+        💡 ถ้างานยังไม่เสร็จ — ทิ้งสถานะเป็น <b>"กำลังดำเนินการ"</b> (default)<br>
+        ถ้าเสร็จแล้ว + รับเงิน → เลือก <b>"ส่งมอบแล้ว"</b> + แนบสลิป → ระบบจะลงรายได้อัตโนมัติ ✨
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:10px">
+        <div>
+          <label class="set-field-label">สถานะงาน</label>
+          <select id="svStatusSel" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;font:inherit;background:#fff">
+            <option value="pending">⏳ รอดำเนินการ</option>
+            <option value="in_progress">🔄 กำลังดำเนินการ</option>
+            <option value="done">✅ เสร็จแล้ว</option>
+            <option value="delivered">📦 ส่งมอบแล้ว (ลง JV ทันที)</option>
+            <option value="closed">🎉 ปิดงาน + รับเงิน (ลง JV ทันที)</option>
+          </select>
+        </div>
+        <div>
+          <label class="set-field-label">วิธีรับเงิน (ถ้ามี)</label>
+          <select id="svPaymentMethod" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;font:inherit;background:#fff">
+            <option value="">— ยังไม่ระบุ —</option>
+            <option value="cash">💵 เงินสด → Dr 1110</option>
+            <option value="transfer">🏦 โอน/QR → Dr 1130</option>
+          </select>
+        </div>
+      </div>
+
+      <label class="set-field-label" style="margin-top:6px">📷 แนบสลิปรับเงิน (รูป — ถ้ามี)</label>
+      <div id="svSlipPreview" style="margin-top:6px"></div>
+      <input type="file" id="svSlipFile" accept="image/*" style="display:none" />
+      <button type="button" id="svSlipPickBtn" class="btn light" style="font-size:12px;padding:8px 14px;margin-top:6px">📸 เลือก/ถ่ายรูปสลิป</button>
+    </div>
+
     <!-- สรุปราคา -->
     <div id="svPriceSummary" class="panel" style="text-align:center">
       <div class="sku">ราคารวมทั้งหมด</div>
@@ -161,6 +196,61 @@ export function renderServiceFormPage(ctx, serviceType) {
   `;
 
   _renderItemsList(container, money, st);
+
+  // ★ Phase 88.6: Slip upload — preview + Supabase Storage
+  let _slipUrl = "";
+  const slipFileEl = container.querySelector("#svSlipFile");
+  const slipPickBtn = container.querySelector("#svSlipPickBtn");
+  const slipPreview = container.querySelector("#svSlipPreview");
+  slipPickBtn?.addEventListener("click", () => slipFileEl?.click());
+  slipFileEl?.addEventListener("change", async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    // Local preview
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      slipPreview.innerHTML = `
+        <div style="display:flex;align-items:center;gap:10px;padding:8px;background:#fff;border:1px solid #e2e8f0;border-radius:10px">
+          <img src="${ev.target.result}" style="width:60px;height:60px;object-fit:cover;border-radius:6px" />
+          <div style="flex:1">
+            <div id="svSlipStatus" style="color:#0284c7;font-size:12px;font-weight:600">⏳ กำลังอัปโหลด...</div>
+            <div style="font-size:11px;color:#64748b">${escHtml(f.name)}</div>
+          </div>
+        </div>
+      `;
+    };
+    reader.readAsDataURL(f);
+
+    // Upload to Supabase Storage
+    try {
+      const cfg = window.SUPABASE_CONFIG;
+      const token = window._sbAccessToken || cfg.anonKey;
+      const ts = Date.now();
+      const ext = (f.name.split(".").pop() || "jpg").toLowerCase();
+      const filePath = `service-slips/${ts}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+      const upRes = await fetch(`${cfg.url}/storage/v1/object/proofs/${filePath}`, {
+        method: "POST",
+        headers: {
+          "apikey": cfg.anonKey,
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": f.type || "image/jpeg",
+          "x-upsert": "true"
+        },
+        body: f
+      });
+      if (upRes.ok) {
+        _slipUrl = `${cfg.url}/storage/v1/object/public/proofs/${filePath}`;
+        const s = container.querySelector("#svSlipStatus");
+        if (s) { s.textContent = "✅ อัปโหลดสลิปสำเร็จ"; s.style.color = "#059669"; }
+      } else {
+        throw new Error("HTTP " + upRes.status);
+      }
+    } catch(upErr) {
+      console.warn("[service_form slip upload]", upErr);
+      const s = container.querySelector("#svSlipStatus");
+      if (s) { s.textContent = "⚠️ อัปโหลดล้มเหลว — ลองรูปเล็กลง"; s.style.color = "#dc2626"; }
+    }
+  });
 
   function updateTotal() {
     const labor = parseFloat(container.querySelector("#svLabor").value) || 0;
@@ -287,6 +377,12 @@ export function renderServiceFormPage(ctx, serviceType) {
         discount ? `ส่วนลด: -฿${discount.toLocaleString()}` : "",
       ].filter(Boolean).join(" | ");
 
+      // ★ Phase 88.6: รับค่าจาก closure section (default pending — ถ้า user ไม่เปลี่ยน)
+      const selectedStatus = container.querySelector("#svStatusSel")?.value || "pending";
+      const paymentMethod  = container.querySelector("#svPaymentMethod")?.value || "";
+      const COMPLETION_STATUSES = ["done", "delivered", "closed"];
+      const isClosure = COMPLETION_STATUSES.includes(selectedStatus);
+
       const record = {
         job_no: "JOB-" + Date.now(),
         customer_name: name,
@@ -295,10 +391,14 @@ export function renderServiceFormPage(ctx, serviceType) {
         job_type: cfg.job_type,
         description: desc,
         items_json: fullItems,
-        status: "pending",
+        status: selectedStatus,
         note: container.querySelector("#svNote").value.trim(),
         // ★ Phase 88.1b+: เก็บยอดสุทธิใน total_cost เพื่อให้ auto-post JV ใช้ได้
-        total_cost: net
+        total_cost: net,
+        // ★ Phase 88.6: ถ้าปิดงานเลย → เก็บ payment + slip + closed_at
+        payment_method: paymentMethod || null,
+        payment_slip_url: _slipUrl || null,
+        closed_at: isClosure ? new Date().toISOString() : null
       };
 
       // ★ Phase 88.5+: AbortController + 15s timeout — กัน fetch ค้างไม่จบ (network slow ฯลฯ)
@@ -408,11 +508,9 @@ export function renderServiceFormPage(ctx, serviceType) {
       statusEl.innerHTML = `<div style="text-align:center;color:#059669;font-weight:700">✅ บันทึกใบงาน${escHtml(cfg.label)}สำเร็จ!${jobNo ? ` (เลขที่ ${escHtml(jobNo)})` : ""}</div>`;
       showToast("บันทึกสำเร็จ!");
 
-      // ★ Phase 88.1b+: auto-post JV ถ้างานปิดทันที (status=delivered/closed/done)
-      // (default ของ create form = status="pending" → ไม่ trigger; งานจะ post ตอน admin
-      //  ไป edit drawer ใน main.js เปลี่ยน status เป็น completion)
-      const COMPLETION_STATUSES = ["done", "delivered", "closed"];
-      if (jobId && COMPLETION_STATUSES.includes(record.status)) {
+      // ★ Phase 88.6: auto-post JV ถ้าช่างปิดงาน + เลือก completion status (delivered/closed/done)
+      // (default = pending → ไม่ trigger; ต้องเลือก status เพื่อสั่งปิดงาน)
+      if (jobId && isClosure) {
         postJournalForServiceJob({
           id: jobId,
           job_no: jobNo,
@@ -420,6 +518,7 @@ export function renderServiceFormPage(ctx, serviceType) {
           job_type: cfg.job_type,
           total_cost: net,
           status: record.status,
+          payment_method: paymentMethod,  // ★ เพื่อ override Dr account ถ้า transfer
           created_at: new Date().toISOString()
         }).catch(e => console.warn("[service_form] auto-post JV failed:", e?.message));
       }
