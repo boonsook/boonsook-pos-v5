@@ -1,8 +1,81 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 8 พฤษภาคม 2026 (Phase 88.5 — FINAL: Opening Balance wizard + Export bundle)
-**Version:** 5.34.8 (build 175) — **Phase 88 ครบทุก sub-phase!** (88.0 → 88.5)
-**Previous:** 5.34.7 (build 174) — Phase 88.4 verified (BS equation balanced)
+**อัปเดตล่าสุด:** 8 พฤษภาคม 2026 (Phase 88.6 — Service Closure Workflow + bonus hotfixes)
+**Version:** 5.36.0 (build 180) + SQL hotfix payment_method
+**Previous:** 5.34.8 (build 175) — Phase 88.5 ครบ + ปัญหาเล็กๆ (mobile timeout, Backfill range, total_cost)
+
+---
+
+## 🔧 Phase 88.6 + Hotfixes (8 พ.ค. ตอนเย็น)
+
+### Builds 176-180 (5 hotfixes ระหว่าง 88.5 → 88.6)
+
+**Build 176 (5.34.9):** service_form fetch timeout 15s
+- ปัญหา: มือถือกดบันทึกแล้วค้าง "กำลังบันทึก..." ตลอด
+- แก้: AbortController + timeout — error message แทน hang
+
+**Build 177 (5.35.0):** service_form mobile token + wire auto-post JV
+- ปัญหา 1: `state.supabase.auth.getSession()` hang บน slow mobile network
+  → แก้: ใช้ `window._sbAccessToken` cache ตรงๆ (pattern xhrPost)
+- ปัญหา 2: ผม wire `postJournalForServiceJob` ผิดที่ — main.js drawer แทนที่จะเป็น
+  service_form.js (create flow) → JV ไม่เกิดตอนสร้าง
+  → แก้: เพิ่ม import + wire ใน service_form.js หลัง POST สำเร็จ
+
+**Build 178 (5.35.1):** Backfill date range bug
+- ปัญหา: `created_at=lte.YYYY-MM-DD` = midnight 00:00 → row created 12:56:24 ของ
+  วันสุดท้ายในช่วงถูก exclude (Postgres timestamp comparison)
+- แก้: ตรวจ field type — timestamptz ใช้ `lt.<nextDay>`, DATE ใช้ `lte.<to>`
+- ผลกระทบ: sales + service_jobs (ใช้ `created_at`) — เก่าเสียเอง
+
+**Build 179 (5.35.2):** service_jobs.total_cost
+- ปัญหา: service_form.js record ไม่ใส่ `total_cost` field → DB เก็บ NULL →
+  postJournalForServiceJob skip silent
+- แก้: เพิ่ม `total_cost: net` ใน record (net = itemsTotal+labor-discount)
+- Workaround งานเก่า: SQL UPDATE service_jobs SET total_cost=...
+
+**Build 180 (5.36.0) + SQL hotfix — Phase 88.6 FULL:**
+- SQL `supabase-phase88-service-mappings.sql`:
+  - ALTER service_jobs ADD: total_cost, payment_method, payment_slip_url, closed_at
+  - 5 COA ใหม่ (4250-4290): จานดาวเทียม/ตู้เย็น/เครื่องซักผ้า/CCTV/ทีวี
+  - 5 account_mappings: service_satellite/repair_fridge/repair_washer/cctv/repair_tv
+  - `NOTIFY pgrst, 'reload schema'` — บังคับ PostgREST reload (กัน PGRST204)
+- auto_post.js:
+  - keyMap ขยาย 9 ประเภทครบ
+  - รองรับ `payment_method` — transfer/QR → Dr 1130 แทน 1110
+- service_form.js — section "🔚 ปิดงาน" สีเหลือง:
+  - Status selector: pending / in_progress / done / delivered / closed
+  - Payment method: cash / transfer
+  - 📷 Slip upload → Storage `proofs/service-slips/`
+  - หลัง save status=closure → fire JV ทันที + payment_method override
+
+### Verified by user
+- Mobile บันทึกใบงานเครื่องซักผ้า → JV `SV2026050002` ฿2,000 (Backfill)
+- Desktop ลองสร้างงานใหม่ JOB-1778247978973 ดาหมอก → JV `SV2026050003` ฿3,000
+- สมุดรายวัน: 9 รายการ (4 SV + 4 PV + 1 OB) — ทุกประเภทครบ
+- Trial Balance / P&L / BS — sync ตามจริง
+
+### Lesson Learned (สำคัญสำหรับ session ใหม่)
+1. **อย่าแก้ main.js แล้วคิดว่าครอบคลุม** — Phase 86 refactor → ทุก source flow ใน modules/
+   - `pos.js doCheckout` (POS sale) — wire ที่นี่
+   - `service_form.js` (create) + `main.js saveServiceJob` (drawer edit) — wire **ทั้งคู่**
+   - `expenses.js expFormSaveBtn` + `akSaveBtn` — wire **ทั้งคู่**
+
+2. **PostgREST schema cache** — หลัง ALTER TABLE → run `NOTIFY pgrst, 'reload schema'`
+   ไม่งั้นเจอ PGRST204 "Could not find column"
+
+3. **Postgres lte กับ timestamptz** — `lte.YYYY-MM-DD` = midnight ของวันนั้นเท่านั้น
+   ใช้ `lt.<nextDay>` แทน หรือ append `T23:59:59.999Z`
+
+4. **Mobile/Slow network** — supabase JS lib (`auth.getSession()`) อาจ hang ตลอด
+   ใช้ `window._sbAccessToken` cache + AbortController timeout 15s
+
+5. **4-point route checklist** — เพิ่ม route ใหม่ต้องแก้ 4 จุด:
+   - index.html (button + section)
+   - main.js ALL_ROUTES list
+   - main.js ROUTE_GROUP map
+   - main.js routeTitles + showRoute handler
+
+---
 
 ---
 

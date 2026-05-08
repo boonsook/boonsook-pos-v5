@@ -7,6 +7,51 @@
 
 ---
 
+## 5.36.0 (build 180) + SQL hotfix — 2026-05-08 ⭐ Phase 88.6
+
+### Phase 88.6 — Service Job Closure Workflow
+- **feat:** ช่างปิดงานในหน้าเดียว — JV ลงรายได้อัตโนมัติตามประเภทงาน
+  - SQL: ALTER service_jobs (total_cost/payment_method/payment_slip_url/closed_at)
+    + 5 COA ใหม่ (4250-4290) + 5 mappings (satellite/fridge/washer/cctv/tv)
+  - auto_post.js: keyMap 9 ประเภทครบ + payment_method override (transfer→1130)
+  - service_form.js: section "🔚 ปิดงาน" (status + payment + slip upload + auto JV)
+- **SQL hotfix** (c89a75c): ลืม payment_method ในรอบแรก — เพิ่ม + NOTIFY pgrst
+- ✅ User verified: SV2026050003 ฿3,000 จากงานซ่อมแอร์ลูกค้าดาหมอก
+
+---
+
+## 5.35.2 (build 179) — 2026-05-08
+
+### Hotfix — service_jobs.total_cost
+- **fix:** service_form.js เพิ่ม `total_cost: net` ใน record ตอน insert
+  - Bug: postJournalForServiceJob skip silent ถ้า total_cost=NULL
+
+---
+
+## 5.35.1 (build 178) — 2026-05-08
+
+### Hotfix — Backfill date range
+- **fix:** `created_at=lte.YYYY-MM-DD` exclude row ที่ created 12:56 UTC
+  - แก้: timestamptz field ใช้ `lt.<nextDay>`, DATE field ใช้ `lte.<to>`
+
+---
+
+## 5.35.0 (build 177) — 2026-05-08
+
+### Hotfix — Mobile service form save
+- **fix:** ใช้ `window._sbAccessToken` cache แทน `supabase.auth.getSession()`
+  (มือถือ slow network → getSession hang ตลอด)
+- **fix:** wire `postJournalForServiceJob` ใน service_form.js (เดิม wire ผิดที่ใน main.js)
+
+---
+
+## 5.34.9 (build 176) — 2026-05-08
+
+### Hotfix — service_form fetch timeout
+- **fix:** AbortController + 15s timeout — กัน "กำลังบันทึก..." ค้างไม่จบ
+
+---
+
 ## 5.34.8 (build 175) — 2026-05-08 ⭐ Phase 88 FINAL
 
 ### Phase 88.5 — Opening Balance wizard + Export bundle (FINAL)
