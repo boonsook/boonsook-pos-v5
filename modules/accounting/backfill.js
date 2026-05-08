@@ -127,16 +127,28 @@ async function _fetchSourceRows(srcKey, from, to) {
   const cutoff = "2026-01-01";  // effective date
   const fromEff = (from < cutoff) ? cutoff : from;
 
+  // ★ Fix: 'created_at' เป็น timestamptz → 'lte.YYYY-MM-DD' = midnight ของวันนั้น
+  //   → row ที่ created_at = 12:56:24 UTC จะถูก exclude ทั้งที่อยู่ในวันเดียวกัน
+  //   วิธีแก้: ใช้ 'lt' กับ next day (exclusive) สำหรับ timestamp fields
+  const nextDay = new Date(to + "T00:00:00Z");
+  nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+  const toExclusive = nextDay.toISOString().slice(0, 10);
+
   // Filter pieces ตาม source
   let extraFilter = "";
   if (srcKey === "receipts") {
-    // เฉพาะ paid (rv post จะ check status ใน auto_post.js เอง — แต่ filter ก่อนช่วยให้ list สั้น)
     extraFilter = "&status=eq.paid";
   } else if (srcKey === "service_jobs") {
     extraFilter = "&status=in.(done,delivered,closed)";
   }
 
-  const url = `${cfg.url}/rest/v1/${meta.table}?select=*&${meta.dateField}=gte.${fromEff}&${meta.dateField}=lte.${to}${extraFilter}&order=${meta.dateField}.asc`;
+  // expense_date / receipt_date = DATE (no time) → lte ปกติ; created_at = TIMESTAMPTZ → lt exclusive
+  const isTimestampField = (meta.dateField === "created_at");
+  const upperBound = isTimestampField
+    ? `${meta.dateField}=lt.${toExclusive}`
+    : `${meta.dateField}=lte.${to}`;
+
+  const url = `${cfg.url}/rest/v1/${meta.table}?select=*&${meta.dateField}=gte.${fromEff}&${upperBound}${extraFilter}&order=${meta.dateField}.asc`;
   try {
     const r = await fetch(url, { headers });
     if (!r.ok) throw new Error("HTTP " + r.status);
