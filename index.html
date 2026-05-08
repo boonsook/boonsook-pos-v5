@@ -176,6 +176,15 @@
         </div>
       </div>
 
+      <!-- ═══ บัญชี (กลุ่ม) — Phase 88.0 ═══ -->
+      <div class="nav-group" data-group="accounting">
+        <button class="nav-group-toggle">💼 บัญชี <span class="nav-arrow">▶</span></button>
+        <div class="nav-group-items">
+          <button class="nav-btn sub" data-route="accounting_journals">📒 สมุดรายวัน</button>
+          <button class="nav-btn sub" data-route="accounting_coa">📚 ผังบัญชี</button>
+        </div>
+      </div>
+
       <!-- ═══ แคชเชียร์ ═══ -->
       <button class="nav-btn" data-route="pos">💰 แคชเชียร์</button>
 
@@ -321,6 +330,10 @@
       <section id="page-payroll" class="page hidden"></section>
       <section id="page-payroll_overview" class="page hidden"></section>
       <section id="page-expense_overview" class="page hidden"></section>
+      <!-- Phase 88.0: accounting -->
+      <section id="page-accounting_journals" class="page hidden"></section>
+      <section id="page-accounting_journal_new" class="page hidden"></section>
+      <section id="page-accounting_coa" class="page hidden"></section>
       <section id="page-pos" class="page hidden"></section>
       <section id="page-products" class="page hidden"></section>
       <section id="page-wh_kunkhao" class="page hidden"></section>
@@ -715,7 +728,7 @@
   <script>
   (async function selfHeal() {
     try {
-      var APP_BUILD = 166;
+      var APP_BUILD = 167;
       var STUCK_BUILDS_BEFORE = 47; // builds before this มี immutable-cache bug
       var stored = parseInt(localStorage.getItem('bsk_app_build') || '0', 10);
       var justRecovered = sessionStorage.getItem('bsk_just_recovered') === '1';
@@ -764,7 +777,7 @@
     }
   })();
   </script>
-  <script type="module" src="./main.js?v=166"></script>
+  <script type="module" src="./main.js?v=167"></script>
   <script>
     // ═══ Loading Overlay ═══
     function hideLoadingOverlay() {

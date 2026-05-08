@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v151 (2026-05-07): Phase 87.5 — seed specs for 211 remaining SKUs (full catalog)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v151';
+// v152 (2026-05-08): Phase 88.0 — accounting foundation (chart_of_accounts + journal_entries + lines + JV form)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v152';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
