@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v161 (2026-05-08): Hotfix — service form fetch timeout (กัน "กำลังบันทึก..." ค้าง)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v161';
+// v162 (2026-05-08): Hotfix — service_form mobile token + wire auto-post JV
+const CACHE_NAME = 'boonsook-pos-v5-cache-v162';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

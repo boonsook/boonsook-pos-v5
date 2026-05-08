@@ -8,6 +8,9 @@
 //  + รับ serviceType pre-fill ตอน mount
 // ═══════════════════════════════════════════════════════════
 
+// Phase 88.1b+: auto-post JV หลัง save (fire-and-forget)
+import { postJournalForServiceJob } from "./accounting/auto_post.js";
+
 export const SERVICE_TYPES = {
   repair_ac:     { icon: "🔧", label: "ซ่อมแอร์",            job_type: "repair_ac",     defaultDesc: "อาการเสีย เช่น ไม่เย็น / มีน้ำหยด / เสียงดัง" },
   clean_ac:      { icon: "🧼", label: "ล้างแอร์",             job_type: "clean_ac",      defaultDesc: "ล้างทำความสะอาด" },
@@ -211,7 +214,8 @@ export function renderServiceFormPage(ctx, serviceType) {
 
     try {
       const supaCfg = window.SUPABASE_CONFIG;
-      const token = (await state.supabase.auth.getSession())?.data?.session?.access_token || supaCfg.anonKey;
+      // ★ Mobile fix: ใช้ token cache ตรงๆ — เลี่ยง supabase.auth.getSession() ที่อาจ hang บน slow network
+      const token = window._sbAccessToken || supaCfg.anonKey;
 
       // Phase 43: items ที่ user pick "บ้าน" ใน picker → re-pick เป็น mobile แรก (force transfer)
       const mobileWhList = _getMobileWarehouses(state);
@@ -401,6 +405,22 @@ export function renderServiceFormPage(ctx, serviceType) {
 
       statusEl.innerHTML = `<div style="text-align:center;color:#059669;font-weight:700">✅ บันทึกใบงาน${escHtml(cfg.label)}สำเร็จ!${jobNo ? ` (เลขที่ ${escHtml(jobNo)})` : ""}</div>`;
       showToast("บันทึกสำเร็จ!");
+
+      // ★ Phase 88.1b+: auto-post JV ถ้างานปิดทันที (status=delivered/closed/done)
+      // (default ของ create form = status="pending" → ไม่ trigger; งานจะ post ตอน admin
+      //  ไป edit drawer ใน main.js เปลี่ยน status เป็น completion)
+      const COMPLETION_STATUSES = ["done", "delivered", "closed"];
+      if (jobId && COMPLETION_STATUSES.includes(record.status)) {
+        postJournalForServiceJob({
+          id: jobId,
+          job_no: jobNo,
+          customer_name: name,
+          job_type: cfg.job_type,
+          total_cost: net,
+          status: record.status,
+          created_at: new Date().toISOString()
+        }).catch(e => console.warn("[service_form] auto-post JV failed:", e?.message));
+      }
 
       _renderAfterSaveActions(container, ctx, serviceType);
     } catch (e) {
