@@ -295,16 +295,28 @@ export function renderServiceFormPage(ctx, serviceType) {
         note: container.querySelector("#svNote").value.trim()
       };
 
-      const resp = await fetch(`${supaCfg.url}/rest/v1/service_jobs`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "apikey": supaCfg.anonKey,
-          "Authorization": `Bearer ${token}`,
-          "Prefer": "return=representation"
-        },
-        body: JSON.stringify(record)
-      });
+      // ★ Phase 88.5+: AbortController + 15s timeout — กัน fetch ค้างไม่จบ (network slow ฯลฯ)
+      const ctrl = new AbortController();
+      const tmr = setTimeout(() => ctrl.abort(), 15000);
+      let resp;
+      try {
+        resp = await fetch(`${supaCfg.url}/rest/v1/service_jobs`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "apikey": supaCfg.anonKey,
+            "Authorization": `Bearer ${token}`,
+            "Prefer": "return=representation"
+          },
+          body: JSON.stringify(record),
+          signal: ctrl.signal
+        });
+      } catch(fetchErr) {
+        if (fetchErr.name === "AbortError") throw new Error("⏰ บันทึกล้มเหลว — server ตอบช้าเกิน 15 วิ (ลอง refresh แล้วลองใหม่)");
+        throw new Error("เครือข่ายขัดข้อง: " + (fetchErr.message || String(fetchErr)));
+      } finally {
+        clearTimeout(tmr);
+      }
       if (!resp.ok) {
         let errBody = "";
         try { errBody = await resp.text(); } catch(e) {}
