@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v155 (2026-05-08): Phase 88.1b — wire receipts/service_jobs/payroll auto-post + Backfill UI
-const CACHE_NAME = 'boonsook-pos-v5-cache-v155';
+// v156 (2026-05-08): Phase 88.1b hotfix — เพิ่ม accounting_backfill ใน ALL_ROUTES
+const CACHE_NAME = 'boonsook-pos-v5-cache-v156';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
