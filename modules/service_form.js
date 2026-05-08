@@ -296,7 +296,9 @@ export function renderServiceFormPage(ctx, serviceType) {
         description: desc,
         items_json: fullItems,
         status: "pending",
-        note: container.querySelector("#svNote").value.trim()
+        note: container.querySelector("#svNote").value.trim(),
+        // ★ Phase 88.1b+: เก็บยอดสุทธิใน total_cost เพื่อให้ auto-post JV ใช้ได้
+        total_cost: net
       };
 
       // ★ Phase 88.5+: AbortController + 15s timeout — กัน fetch ค้างไม่จบ (network slow ฯลฯ)

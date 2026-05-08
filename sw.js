@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v163 (2026-05-08): Hotfix — Backfill timestamp range (lte→lt exclusive for created_at fields)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v163';
+// v164 (2026-05-08): Hotfix — service_form.js เก็บ total_cost (สำหรับ auto-post JV)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v164';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
