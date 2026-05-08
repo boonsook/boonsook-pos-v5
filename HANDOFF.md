@@ -1,8 +1,100 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 8 พฤษภาคม 2026 (Phase 88.4 — งบดุล Balance Sheet)
-**Version:** 5.34.7 (build 174) — Phase 88.4 (Balance Sheet)
-**Previous:** 5.34.6 (build 173) — Phase 88.3 verified (P&L Net Loss 129,258)
+**อัปเดตล่าสุด:** 8 พฤษภาคม 2026 (Phase 88.5 — FINAL: Opening Balance wizard + Export bundle)
+**Version:** 5.34.8 (build 175) — **Phase 88 ครบทุก sub-phase!** (88.0 → 88.5)
+**Previous:** 5.34.7 (build 174) — Phase 88.4 verified (BS equation balanced)
+
+---
+
+## 📦 Phase 88.5 — FINAL (Opening Balance + Export Bundle) (8 พ.ค.)
+
+### 🎉 จบ Phase 88!
+ระบบบัญชีครบสมบูรณ์ — รองรับทุก use case ตั้งแต่บันทึกรายการจน export ส่งสำนักงานบัญชี
+
+### What shipped (5.34.8 build 175)
+
+**1. `modules/accounting/opening_balance.js` (~250 lines — NEW):**
+- หน้า wizard ลง JV ประเภท OB (Opening Balance) — ลงวันที่ effective date 2026-01-01
+- 3 sections (สีตามมาตรฐาน):
+  - 🟦 **Asset (Dr):** 1110/1120/1130/1140/1200/1300 — เงินสด/เงินฝาก/ลูกหนี้/สินค้าคงเหลือ
+  - 🟥 **Liability (Cr):** 2100/2120/2200 — เจ้าหนี้/บัตรเครดิต/เงินกู้
+  - 🟪 **Equity (Cr):** 3100/3200 — ทุนจดทะเบียน/ทุนของเจ้าของ
+- **Live balance check** — แสดง Dr / Cr / ผลต่าง realtime ขณะกรอก
+- ปุ่มบันทึกใช้ได้ก็ต่อเมื่อ Dr = Cr (validate ก่อน confirm)
+- หลัง save → POST entry + lines → JV `OB2026010001` doc_type=OB
+- หลังลง OB → Balance Sheet จะแสดงตัวเลขเป็นบวก (สมจริง)
+
+**2. `modules/accounting/export_bundle.js` (~280 lines — NEW):**
+- หน้า "Export ชุดรายงาน" — สร้าง Excel 1 ไฟล์ มี **4 sheets:**
+  1. **Trial Balance** — Dr/Cr ทุกบัญชีในงวด
+  2. **P&L** — รายได้ - ค่าใช้จ่าย = กำไร/ขาดทุน + section breaks
+  3. **Balance Sheet** — Assets = L + E (cumulative since effective)
+  4. **Journal** — ทุก JV พร้อม lines (วันที่/เลขที่/ประเภท/คำอธิบาย/Dr/Cr)
+- ใช้ `window.XLSX` (SheetJS) ที่ load ใน index.html
+- Single `fetchAll()` query → reuse data across 4 sheets (efficient)
+- Period picker (month/quarter/year/custom) เหมือน TB / P&L
+- Filename: `accounting_bundle_<period>_<date>.xlsx`
+- ส่งสำนักงานบัญชีทาง email/Line ได้ทันที — รูปแบบ standard
+
+### Files changed (Phase 88.5)
+- `modules/accounting/opening_balance.js` — NEW
+- `modules/accounting/export_bundle.js` — NEW
+- `main.js` — import + 8 wire points (4 per module)
+- `index.html` — 2 nav buttons + 2 sections
+- `sw.js`, `modules/settings/pages.js` — bump 5.34.7→5.34.8 build 175, SW v160
+
+### ⚠️ Cloudflare deploy pattern (จดเป็น insight final)
+- Pattern ตลอด Phase 88.2-88.4: file commits → fail, empty commits → success
+- Phase 88.5 อาจจะเป็นเหมือนกัน → preemptive empty commit ส่งทันทีหลัง main commit
+- Root cause: ไม่ทราบ — น่าจะเป็น Cloudflare Pages API rate limit / network hiccup
+
+### ✅ Smoke tests Phase 88.5
+
+**Opening Balance:**
+1. เมนู "บัญชี" → "📥 ลงยอดยกมา"
+2. กรอกตัวอย่าง:
+   - 1110 เงินสดในมือ: 50,000
+   - 1130 เงินฝากธนาคาร: 100,000
+   - 3100 ทุนจดทะเบียน: 150,000
+3. Live balance: Dr 150,000 = Cr 150,000 ✓
+4. กดบันทึก → confirm → "ยืนยันบันทึกยอดยกมา?"
+5. → JV `OB2026010001` ลงวันที่ 2026-01-01
+6. ไป **🏦 งบดุล** → ดูตัวเลขเป็นบวก
+
+**Export Bundle:**
+1. เมนู "บัญชี" → "📦 Export ชุดรายงาน"
+2. เลือก period: เดือน 05/2026
+3. กดปุ่มดาวน์โหลด → progress steps (ดึง → aggregate → สร้าง)
+4. ได้ไฟล์ `accounting_bundle_05_2026_<date>.xlsx`
+5. เปิดดู — มี 4 sheets ครบ (TB, PL, BS, Journal)
+
+---
+
+## 🎯 Phase 88 — สถานะสุดท้าย (FINAL)
+
+| Sub-Phase | สถานะ | สิ่งที่ลง |
+|---|---|---|
+| 88.0 | ✅ | Foundation — 51 accounts + JV + lines + manual form |
+| 88.1a | ✅ | Auto-post sales + expenses |
+| 88.1b | ✅ | Auto-post receipts + service jobs + Backfill UI |
+| 88.2 | ✅ | Trial Balance report |
+| 88.3 | ✅ | P&L report |
+| 88.4 | ✅ | Balance Sheet report |
+| **88.5** | **✅** | **Opening Balance wizard + Export bundle** |
+
+**สมบูรณ์ครบทุก spec ที่ user ขอตอนเปิด Phase 88:**
+- ✅ "ใกล้เคียง FlowAccount" — TB / PL / BS ครบ + auto-post + Backfill
+- ✅ "ทำได้ดีกว่า" — auto-post จาก source (FlowAccount ต้องลง JV manual)
+- ✅ "ส่งสำนักงานบัญชีได้จริง" — Export bundle 4 sheets standard format
+
+### Pending ที่อาจทำในอนาคต (ไม่อยู่ใน Phase 88)
+- 88.6: Drill-down (click JV → drawer with source link)
+- 88.7: Mapping editor UI (admin แก้ EXPENSE_CATEGORY_MAP)
+- 88.8: Period close + Lock periods
+- 88.9: Comparative reports (เทียบกับงวดก่อน + กราฟ trend)
+- 89.x: VAT support (ถ้า user จด VAT ในอนาคต)
+
+---
 
 ---
 

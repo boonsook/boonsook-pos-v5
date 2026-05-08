@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v159 (2026-05-08): Phase 88.4 — งบดุล (Balance Sheet)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v159';
+// v160 (2026-05-08): Phase 88.5 — Opening Balance wizard + Export bundle (4-sheet Excel)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v160';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

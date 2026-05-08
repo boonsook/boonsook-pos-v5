@@ -7,6 +7,21 @@
 
 ---
 
+## 5.34.8 (build 175) — 2026-05-08 ⭐ Phase 88 FINAL
+
+### Phase 88.5 — Opening Balance wizard + Export bundle (FINAL)
+- **feat:** wizard ลงยอดยกมา (Opening Balance) — `modules/accounting/opening_balance.js`
+  - 3 sections (Asset/Liability/Equity) + live balance check Dr=Cr
+  - หลัง save → JV `OB2026010001` doc_type=OB ลงวันที่ effective date
+  - แก้ปัญหา BS แสดงตัวเลขลบ (ไม่มี opening balance)
+- **feat:** export bundle ส่งสำนักงานบัญชี — `modules/accounting/export_bundle.js`
+  - Excel 1 ไฟล์ มี 4 sheets: TB / P&L / BS / Journal
+  - ใช้ window.XLSX (SheetJS) — single fetchAll() reuse data
+  - Period picker month/quarter/year/custom
+- 🎉 **Phase 88 ครบสมบูรณ์** — รองรับทุก use case จาก spec ของ user
+
+---
+
 ## 5.34.7 (build 174) — 2026-05-08
 
 ### Phase 88.4 — งบดุล Balance Sheet

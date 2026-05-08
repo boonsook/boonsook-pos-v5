@@ -57,6 +57,9 @@ import { renderTrialBalancePage } from "./modules/accounting/trial_balance.js";
 import { renderProfitLossPage } from "./modules/accounting/profit_loss.js";
 // Phase 88.4: Balance Sheet (งบดุล)
 import { renderBalanceSheetPage } from "./modules/accounting/balance_sheet.js";
+// Phase 88.5: Opening Balance wizard + Export bundle
+import { renderOpeningBalancePage } from "./modules/accounting/opening_balance.js";
+import { renderExportBundlePage }   from "./modules/accounting/export_bundle.js";
 // Phase 88.1: auto-posting JV จาก sales/expenses
 import { postJournalForSale, postJournalForExpense, postJournalForServiceJob } from "./modules/accounting/auto_post.js";
 import { renderProfitByProductPage } from "./modules/profit_by_product.js";
@@ -866,7 +869,7 @@ function isLowStock(product){ return Number(product.stock||0) <= Number(product.
 const SERVICE_FORM_TYPES = ["repair_ac","clean_ac","move_ac","satellite","repair_fridge","repair_washer","cctv","repair_tv","other"];
 const SERVICE_FORM_ROUTES = SERVICE_FORM_TYPES.map(t => "service_" + t);
 
-const ALL_ROUTES = ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","quote_templates","service_jobs","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","refunds","tasks","profit_by_product","birthdays","serials","warranty_report","calendar","loyalty","customer_dashboard","btu_calculator","service_request","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop","audit_log","departments","payroll","payroll_overview","expense_overview","accounting_journals","accounting_journal_new","accounting_coa","accounting_backfill","accounting_trial_balance","accounting_profit_loss","accounting_balance_sheet", ...SERVICE_FORM_ROUTES];
+const ALL_ROUTES = ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","quote_templates","service_jobs","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","refunds","tasks","profit_by_product","birthdays","serials","warranty_report","calendar","loyalty","customer_dashboard","btu_calculator","service_request","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop","audit_log","departments","payroll","payroll_overview","expense_overview","accounting_journals","accounting_journal_new","accounting_coa","accounting_backfill","accounting_trial_balance","accounting_profit_loss","accounting_balance_sheet","accounting_opening_balance","accounting_export_bundle", ...SERVICE_FORM_ROUTES];
 const ROLE_PAGES = {
   admin:      ALL_ROUTES,
   technician: ["customer_dashboard","pos","sales","service_jobs","calendar","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop", ...SERVICE_FORM_ROUTES],
@@ -902,7 +905,7 @@ const ROUTE_GROUP = {
   products: "products", wh_kunkhao: "products", wh_kundaeng: "products", wh_sikhon: "products",
   expenses: "finance", profit_report: "finance",
   // Phase 88.0 — accounting routes อยู่ในกลุ่ม "accounting"
-  accounting_journals: "accounting", accounting_journal_new: "accounting", accounting_coa: "accounting", accounting_backfill: "accounting", accounting_trial_balance: "accounting", accounting_profit_loss: "accounting", accounting_balance_sheet: "accounting",
+  accounting_journals: "accounting", accounting_journal_new: "accounting", accounting_coa: "accounting", accounting_backfill: "accounting", accounting_trial_balance: "accounting", accounting_profit_loss: "accounting", accounting_balance_sheet: "accounting", accounting_opening_balance: "accounting", accounting_export_bundle: "accounting",
   // Phase 45 — service forms ทั้งหมดอยู่ในกลุ่ม "service"
   ...Object.fromEntries(SERVICE_FORM_ROUTES.map(r => [r, "service"]))
 };
@@ -1004,6 +1007,8 @@ function showRoute(route){
     accounting_trial_balance:"รายงานยอดทดลอง (Trial Balance)",
     accounting_profit_loss:"งบกำไรขาดทุน (P&L)",
     accounting_balance_sheet:"งบดุล (Balance Sheet)",
+    accounting_opening_balance:"ลงยอดยกมา (Opening Balance)",
+    accounting_export_bundle:"Export ชุดรายงานบัญชี",
     ac_shop:"แอร์ใหม่พร้อมติดตั้ง",
     // Phase 45 — service form titles (9 ประเภท)
     ...Object.fromEntries(SERVICE_FORM_TYPES.map(t => ["service_" + t, `${SERVICE_TYPES[t].icon} ใบงาน${SERVICE_TYPES[t].label}`]))
@@ -1080,6 +1085,9 @@ function showRoute(route){
   if (route === "accounting_profit_loss") renderProfitLossPage(ctx);
   // Phase 88.4 — Balance Sheet
   if (route === "accounting_balance_sheet") renderBalanceSheetPage(ctx);
+  // Phase 88.5 — Opening Balance + Export bundle
+  if (route === "accounting_opening_balance") renderOpeningBalancePage(ctx);
+  if (route === "accounting_export_bundle")   renderExportBundlePage(ctx);
 
   // Warehouse sub-pages — reuse products page with warehouse filter
   if (WH_ROUTE_MAP[route]) {
