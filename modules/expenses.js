@@ -172,29 +172,41 @@ export function renderExpensesPage(ctx) {
           <label style="font-size:13px;color:var(--muted);font-weight:600">หมายเหตุ</label>
           <input id="expFormNote" placeholder="เพิ่มเติม (ถ้ามี)" value="${_getFormValueNote()}" />
         </div>
-        <!-- ★ แนบรูปบิล -->
+        <!-- ★ แนบรูปบิล (Phase 88.18c: แยก 2 ปุ่ม กล้อง vs แกลเลอรี่) -->
         <div>
           <label style="font-size:13px;color:var(--muted);font-weight:600">แนบรูปบิล / ใบเสร็จ</label>
           <div id="expProofSection" style="margin-top:8px">
             ${_getFormValueProof() ? `
-              <div style="display:flex;align-items:center;gap:12px">
+              <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
                 <img src="${_getFormValueProof()}" style="width:80px;height:80px;object-fit:cover;border-radius:8px;border:2px solid #10b981" />
-                <div>
-                  <div style="color:#10b981;font-weight:600;font-size:13px">มีรูปบิลแล้ว</div>
-                  <button type="button" id="expChangeProofBtn" class="btn light" style="margin-top:4px;font-size:11px;padding:4px 10px">เปลี่ยนรูป</button>
+                <div style="display:flex;gap:6px;flex-wrap:wrap">
+                  <div style="color:#10b981;font-weight:600;font-size:13px;width:100%">มีรูปบิลแล้ว</div>
+                  <button type="button" id="expChangeProofCameraBtn" class="btn light" style="font-size:11px;padding:4px 10px">📷 ถ่ายใหม่</button>
+                  <button type="button" id="expChangeProofGalleryBtn" class="btn light" style="font-size:11px;padding:4px 10px">🖼️ เลือกใหม่</button>
                 </div>
               </div>
             ` : `
-              <button type="button" id="expCaptureProofBtn" style="display:flex;align-items:center;gap:10px;padding:14px;background:#f0fdf4;border:2px dashed #86efac;border-radius:10px;cursor:pointer;width:100%;text-align:left;font-size:14px">
-                <span style="font-size:24px">📷</span>
-                <div>
-                  <div style="font-weight:700;color:#166534">ถ่ายรูป / เลือกรูปบิล</div>
-                  <div style="font-size:11px;color:#6b7280;margin-top:2px">ถ่ายรูปบิล หรือเลือกจากแกลเลอรี่</div>
-                </div>
-              </button>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button type="button" id="expCaptureProofCameraBtn" style="flex:1;min-width:140px;display:flex;align-items:center;gap:8px;padding:14px;background:#f0fdf4;border:2px dashed #86efac;border-radius:10px;cursor:pointer;text-align:left;font-size:14px">
+                  <span style="font-size:22px">📷</span>
+                  <div>
+                    <div style="font-weight:700;color:#166534">ถ่ายรูป</div>
+                    <div style="font-size:11px;color:#6b7280;margin-top:2px">เปิดกล้อง</div>
+                  </div>
+                </button>
+                <button type="button" id="expCaptureProofGalleryBtn" style="flex:1;min-width:140px;display:flex;align-items:center;gap:8px;padding:14px;background:#eff6ff;border:2px dashed #93c5fd;border-radius:10px;cursor:pointer;text-align:left;font-size:14px">
+                  <span style="font-size:22px">🖼️</span>
+                  <div>
+                    <div style="font-weight:700;color:#1e40af">แกลเลอรี่</div>
+                    <div style="font-size:11px;color:#6b7280;margin-top:2px">เลือกจากเครื่อง</div>
+                  </div>
+                </button>
+              </div>
             `}
           </div>
-          <input type="file" id="expProofFileInput" accept="image/*" capture="environment" style="display:none" />
+          <!-- 2 file inputs — แยก capture vs no-capture (จำเป็นบน mobile) -->
+          <input type="file" id="expProofFileCamera" accept="image/*" capture="environment" style="display:none" />
+          <input type="file" id="expProofFileGallery" accept="image/*" style="display:none" />
         </div>
         <div style="display:flex;gap:8px;justify-content:flex-end">
           <button id="expFormCancelBtn" class="btn light">ยกเลิก</button>
@@ -392,12 +404,16 @@ function bindAddFormEvents() {
     renderExpensesPage(_ctx);
   });
 
-  // ★ ถ่ายรูป / เลือกรูปบิล
-  const proofInput = document.getElementById("expProofFileInput");
-  const captureBtn = document.getElementById("expCaptureProofBtn") || document.getElementById("expChangeProofBtn");
-  captureBtn?.addEventListener("click", () => proofInput?.click());
+  // ★ Phase 88.18c: 2 ปุ่ม + 2 file inputs — แยก กล้อง vs แกลเลอรี่
+  const cameraInput  = document.getElementById("expProofFileCamera");
+  const galleryInput = document.getElementById("expProofFileGallery");
+  const cameraBtn    = document.getElementById("expCaptureProofCameraBtn")  || document.getElementById("expChangeProofCameraBtn");
+  const galleryBtn   = document.getElementById("expCaptureProofGalleryBtn") || document.getElementById("expChangeProofGalleryBtn");
+  cameraBtn?.addEventListener("click",  () => cameraInput?.click());
+  galleryBtn?.addEventListener("click", () => galleryInput?.click());
 
-  proofInput?.addEventListener("change", async (e) => {
+  // shared change handler — ใช้กับทั้ง 2 inputs
+  const proofChangeHandler = async (e) => {
     let file = e.target.files?.[0];
     if (!file) return;
 
@@ -418,7 +434,7 @@ function bindAddFormEvents() {
             </div>
           </div>
         `;
-        document.getElementById("expChangeProofBtn2")?.addEventListener("click", () => proofInput?.click());
+        document.getElementById("expChangeProofBtn2")?.addEventListener("click", () => galleryInput?.click());
       }
     };
     reader.readAsDataURL(file);
@@ -464,7 +480,10 @@ function bindAddFormEvents() {
     } catch (err) {
       console.error("Expense proof upload error:", err);
     }
-  });
+  };
+  // register handler ให้ทั้ง 2 inputs
+  cameraInput?.addEventListener("change",  proofChangeHandler);
+  galleryInput?.addEventListener("change", proofChangeHandler);
 
   document.getElementById("expFormSaveBtn")?.addEventListener("click", async (ev) => {
     const saveBtn = ev.currentTarget;

@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v183 (2026-05-09): Phase 88.18b — effective date → 2026-05-01 (production start)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v183';
+// v184 (2026-05-09): Phase 88.18c — expense form: split camera/gallery buttons
+const CACHE_NAME = 'boonsook-pos-v5-cache-v184';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
