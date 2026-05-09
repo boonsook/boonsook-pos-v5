@@ -2741,7 +2741,17 @@ async function _verifySlip(dataUrl) {
     });
     const j = await r.json();
     if (!j.ok) {
-      result.innerHTML = `<div style="padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;color:#991b1b;font-size:12px">❌ ${escapeHtml(j.error || "verification fail")}</div>`;
+      const debugInfo = [];
+      if (j.model) debugInfo.push(`<div>model: <code>${escapeHtml(j.model)}</code></div>`);
+      if (j.attempts) debugInfo.push(`<details><summary style="cursor:pointer">▼ attempts (${j.attempts.length})</summary><pre style="font-size:10px;overflow:auto;max-height:200px;background:#fff;padding:6px;border-radius:4px;margin-top:4px">${escapeHtml(JSON.stringify(j.attempts, null, 2))}</pre></details>`);
+      if (j.raw) debugInfo.push(`<details><summary style="cursor:pointer">▼ Gemini raw response</summary><pre style="font-size:10px;overflow:auto;max-height:200px;background:#fff;padding:6px;border-radius:4px;margin-top:4px;white-space:pre-wrap">${escapeHtml(j.raw)}</pre></details>`);
+      if (j.detail) debugInfo.push(`<details><summary style="cursor:pointer">▼ detail</summary><pre style="font-size:10px;overflow:auto;max-height:200px;background:#fff;padding:6px;border-radius:4px;margin-top:4px;white-space:pre-wrap">${escapeHtml(j.detail)}</pre></details>`);
+      if (j.hint) debugInfo.push(`<div style="margin-top:6px;color:#92400e">💡 ${escapeHtml(j.hint)}</div>`);
+      result.innerHTML = `<div style="padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;color:#991b1b;font-size:12px">
+        <div style="font-weight:700;margin-bottom:4px">❌ ${escapeHtml(j.error || "verification fail")}</div>
+        ${debugInfo.join("")}
+      </div>`;
+      console.warn("[verify-slip] full response:", j);
       return;
     }
     const d = j.data || {};

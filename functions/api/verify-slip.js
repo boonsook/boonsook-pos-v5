@@ -141,17 +141,37 @@ JSON schema:
 
     const data = await r.json();
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    let parsed;
-    try {
-      // ★ Clean code fences ก่อน parse (เผื่อ Gemini ครอบ ```json...``` แม้ตั้ง responseMimeType)
-      const clean = text.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
-      parsed = JSON.parse(clean);
-    } catch(e) {
+
+    // ★ Robust JSON extraction — รองรับหลายรูปแบบ:
+    //   1. JSON ล้วน → parse ได้เลย
+    //   2. ```json ... ``` → strip code fence
+    //   3. ข้อความก่อน + JSON + ข้อความหลัง → regex หา {...} block ใหญ่สุด
+    let parsed = null;
+    let parseError = null;
+    const tryParse = (str) => {
+      try { return JSON.parse(str); } catch(e) { parseError = e.message; return null; }
+    };
+    // 1. ลอง parse ตรงๆ
+    parsed = tryParse(text.trim());
+    // 2. Strip code fence
+    if (!parsed) {
+      const cleaned = text.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
+      parsed = tryParse(cleaned);
+    }
+    // 3. Extract first {...} block (greedy — รองรับ nested object)
+    if (!parsed) {
+      const m = text.match(/\{[\s\S]*\}/);
+      if (m) parsed = tryParse(m[0]);
+    }
+    if (!parsed) {
       return new Response(JSON.stringify({
         ok: false,
         error: "Gemini ส่ง JSON ไม่ valid",
-        raw: text.slice(0, 500),
-        model: usedModel
+        raw: text.slice(0, 800),
+        parseError,
+        model: usedModel,
+        finishReason: data?.candidates?.[0]?.finishReason || null,
+        promptFeedback: data?.promptFeedback || null
       }), { status: 200, headers: corsHeaders });
     }
 

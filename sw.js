@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v171 (2026-05-09): Phase 88.11c — verify-slip fallback chain + code-fence strip (fix Gemini JSON parse)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v171';
+// v172 (2026-05-09): Phase 88.11d — robust JSON extraction + diagnostic info สำหรับ debug
+const CACHE_NAME = 'boonsook-pos-v5-cache-v172';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
