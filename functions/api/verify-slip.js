@@ -66,9 +66,12 @@ export async function onRequestPost(context) {
 กฎ:
 - is_slip=false ถ้าไม่ใช่สลิป (รูปอื่น) → field อื่น null/0 ได้
 - amount/fee: number เท่านั้น (no comma, no "บาท")
-- tampering_score: 0=ปกติ, 100=ตัดต่อแน่
+- tampering_score: 0=ปกติ, 100=ตัดต่อแน่ (พิจารณาเฉพาะ digital editing — เช่น Photoshop ตัวเลข, มี pixel artifact, ฟ้อนต์ไม่ตรง)
+- ⚠️ ถ่ายรูปสลิปจากจอโทรศัพท์อีกเครื่อง = workflow ปกติของร้านค้าไทย → tampering_score ≤ 10 (ไม่ใช่ tampering)
+- ⚠️ Screenshot ส่งต่อมา = ปกติ ไม่ใช่ tampering ถ้าเนื้อหาดูปกติ
+- tampering ที่ "จริง" คือ: ตัวเลข amount ฟ้อนต์ผิด, ขอบ rectangle crop ผิดธรรมชาติ, สี background ไม่สม่ำเสมอรอบ amount, Ref number ดูไม่ตรง pattern ของธนาคาร
 - tampering_note: ถ้า score>=30 ใส่เหตุสั้นๆ (≤80 ตัวอักษร) ไม่งั้น null
-- confidence: 0-100 (ภาพชัด/ไม่ชัด)`;
+- confidence: 0-100 (ภาพชัด/ไม่ชัด — ลดถ้ามัว/แสงน้อย แต่ไม่เกี่ยวกับ tampering)`;
 
     const geminiBody = {
       contents: [{
