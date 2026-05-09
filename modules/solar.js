@@ -785,7 +785,7 @@ export function renderSolarPage(ctx) {
           id: jobId,
           job_no: jobNo,
           customer_name: name,
-          job_type: "solar",  // → mapping service_other (ไม่มี solar mapping เฉพาะ — fallback 4240)
+          job_type: "solar",  // Phase 88.16 → mapping service_solar → Cr 4300
           total_cost: net,
           status: selectedStatus,
           payment_method: paymentMethod,

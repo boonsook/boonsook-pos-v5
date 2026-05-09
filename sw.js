@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v180 (2026-05-09): Phase 88.15 — remove delivered/closed from technician form (admin only)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v180';
+// v181 (2026-05-09): Phase 88.16 — solar revenue mapping → 4300
+const CACHE_NAME = 'boonsook-pos-v5-cache-v181';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

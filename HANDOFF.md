@@ -1,8 +1,71 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 9 พฤษภาคม 2026 (Phase 88.15 — แยกสิทธิ์ ช่าง vs admin)
-**Version:** 5.39.4 (build 195) — Phase 88.15 (technician status options ลด 6→4)
-**Previous:** 5.39.3 (build 194) — Phase 88.14 (state optimistic update)
+**อัปเดตล่าสุด:** 9 พฤษภาคม 2026 (Phase 88.16 — Solar revenue mapping → 4300)
+**Version:** 5.39.5 (build 196) — Phase 88.16 (COA 4300 + service_solar mapping)
+**Previous:** 5.39.4 (build 195) — Phase 88.15 (แยกสิทธิ์ ช่าง vs admin)
+
+---
+
+## ☀️ Phase 88.16 — Solar Revenue Mapping → 4300 (9 พ.ค.)
+
+### Why
+- เดิม: งาน solar fallback → `service_other` mapping → Cr **4240** (รายได้บริการอื่นๆ)
+- ปัญหา: P&L มองไม่เห็นว่ารายได้โซล่าเป็นเท่าไหร่ — ผสมกับงานเล็กๆ น้อยๆ
+- ใหม่: solar มี mapping เฉพาะ → Cr **4300** (รายได้บริการ — โซล่าเซลล์)
+
+### What shipped (build 196)
+
+**1. SQL migration** — `supabase-phase88-16-solar-mapping.sql`
+```sql
+-- COA 4300
+INSERT INTO chart_of_accounts (code, name, type, parent_code, sort_order)
+  VALUES ('4300', 'รายได้บริการ — โซล่าเซลล์', 'income', '4000', 300)
+  ON CONFLICT (code) DO UPDATE...;
+
+-- mapping service_solar
+INSERT INTO account_mapping (mapping_key, debit_account_code, credit_account_code)
+  VALUES ('service_solar', '1110', '4300')
+  ON CONFLICT (mapping_key) DO UPDATE...;
+
+NOTIFY pgrst, 'reload schema';
+```
+
+**2. JS code** — `modules/accounting/auto_post.js`
+```js
+const keyMap = {
+  ...
+  solar: "service_solar",  // ★ Phase 88.16
+  other: "service_other"
+};
+```
+
+**3. solar.js comment** — อัปเดตหลัง mapping เปลี่ยน (ไม่ใช่ fallback อีก)
+
+### ⚠️ User action required
+ต้อง run SQL ใน **Supabase SQL Editor** ก่อนถึงจะมี COA 4300 + mapping
+- File: `supabase-phase88-16-solar-mapping.sql` (อยู่ root project)
+- รัน 1 ครั้งเดียว → cache invalidate อัตโนมัติด้วย `NOTIFY pgrst`
+
+### Files changed
+- `supabase-phase88-16-solar-mapping.sql` (NEW)
+- `modules/accounting/auto_post.js` — เพิ่ม solar key
+- `modules/solar.js` — comment update
+- `index.html` — bump 196
+- `sw.js` — v181
+- `modules/settings/pages.js` — build 196
+- `CHANGELOG.md` — entry 5.39.5
+
+### Test plan
+1. **Run SQL** ใน Supabase Editor → ตรวจ result query (ต้องเห็น `service_solar` mapping)
+2. **Refresh app** (Ctrl+Shift+R) — clear `_mappingCache`
+3. **เปิดงานโซล่าเก่าที่ยัง pending** → admin approve → JV เกิด
+4. **ตรวจ JV row** → Cr account ต้องเป็น **4300** (ไม่ใช่ 4240)
+5. **เปิด P&L** → ควรเห็นบรรทัดแยก "รายได้บริการ — โซล่าเซลล์"
+
+### Pending Phase 88+ (priority order)
+- 🔒 **Period close + Lock periods** (ถัดไป — Step 1 ในแผน)
+- ✏️ Mapping editor UI (Step 2)
+- 📜 VAT support (XL — Phase ใหม่)
 
 ---
 

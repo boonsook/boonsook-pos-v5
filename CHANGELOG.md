@@ -7,6 +7,18 @@
 
 ---
 
+## 5.39.5 (build 196) — 2026-05-09 ⭐ Phase 88.16
+
+### Phase 88.16 — Solar revenue mapping → 4300
+- **feat:** เพิ่ม COA 4300 "รายได้บริการ — โซล่าเซลล์"
+  - SQL migration: `supabase-phase88-16-solar-mapping.sql`
+- **feat:** เพิ่ม `account_mapping.service_solar` (Dr 1110 / Cr 4300)
+- **fix:** `auto_post.js` keyMap: `solar → service_solar` (เดิม fallback service_other → 4240)
+- **impact:** P&L แยกรายได้โซล่าออกจาก "บริการอื่นๆ" — ดู revenue mix ของแต่ละสายงานได้ชัด
+- **action:** ⚠️ User ต้อง run SQL ใน Supabase SQL Editor ก่อน mapping ใหม่จะใช้ได้
+
+---
+
 ## 5.39.4 (build 195) — 2026-05-09 ⭐ Phase 88.15
 
 ### Phase 88.15 — แยกสิทธิ์ ช่าง vs admin (delivered/closed = admin only)

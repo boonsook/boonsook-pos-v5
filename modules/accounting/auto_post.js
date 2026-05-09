@@ -356,6 +356,8 @@ export async function postJournalForServiceJob(job) {
     repair_washer: "service_repair_washer",
     cctv:          "service_cctv",
     repair_tv:     "service_repair_tv",
+    // Phase 88.16: solar revenue → 4300 (เดิม fallback service_other → 4240)
+    solar:         "service_solar",
     other:         "service_other"
   };
   const mappingKey = keyMap[jt] || "service_other";
