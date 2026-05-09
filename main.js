@@ -2758,7 +2758,9 @@ async function _verifySlip(dataUrl) {
     const v = j.verification || {};
     const isSafe = v.is_safe === true;
     const warningsHtml = (v.warnings || []).map(w => `<div style="color:#b91c1c;font-size:11px">${escapeHtml(w)}</div>`).join("");
-    const tampHtml = (d.tampering_signs || []).map(s => `<div style="font-size:10px;color:#92400e">• ${escapeHtml(s)}</div>`).join("");
+    // tampering_signs (legacy array) หรือ tampering_note (single string ใหม่)
+    const tampNotes = d.tampering_signs && Array.isArray(d.tampering_signs) ? d.tampering_signs : (d.tampering_note ? [d.tampering_note] : []);
+    const tampHtml = tampNotes.map(s => `<div style="font-size:10px;color:#92400e">• ${escapeHtml(s)}</div>`).join("");
     result.innerHTML = `
       <div style="padding:10px;background:${isSafe ? '#f0fdf4' : '#fffbeb'};border:1px solid ${isSafe ? '#86efac' : '#fde68a'};border-radius:8px;font-size:12px">
         <div style="font-weight:700;color:${isSafe ? '#15803d' : '#92400e'};margin-bottom:6px">${isSafe ? '✅ ผ่านการตรวจสอบ' : '⚠️ ต้องตรวจเพิ่มเติม'}</div>

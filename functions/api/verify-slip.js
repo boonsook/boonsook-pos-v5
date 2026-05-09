@@ -42,35 +42,33 @@ export async function onRequestPost(context) {
       return new Response(JSON.stringify({ ok: false, error: "รูปสลิปไม่ถูกต้องหรือเล็กเกินไป" }), { status: 400, headers: corsHeaders });
     }
 
-    const prompt = `คุณเป็น OCR + ตรวจสอบสลิปโอนเงิน/QR Payment ของธนาคารไทย ดูรูปแล้วดึงข้อมูล + ประเมินความน่าเชื่อถือ ส่งกลับเป็น JSON เท่านั้น (ห้ามมี markdown หรือข้อความอื่น)
+    // ★ Compact prompt — ลด token ของ schema + tampering_signs (ป้องกัน MAX_TOKENS truncate)
+    const prompt = `OCR + ตรวจสลิปโอนเงิน/QR Payment ไทย — ส่ง JSON ตาม schema นี้เท่านั้น (no markdown):
 
-JSON schema:
 {
-  "is_slip": true/false,
-  "type": "transfer" | "qr" | "promptpay" | "internet_banking" | "atm" | "none",
-  "bank_from": "ธนาคารต้นทาง (เช่น KBank, SCB) หรือ null",
-  "bank_to": "ธนาคารปลายทาง หรือ null",
-  "sender_name": "ชื่อผู้โอน (string หรือ null)",
-  "sender_account": "เลขบัญชี/เบอร์พร้อมเพย์ผู้โอน (มาส์กบ้างก็ใส่ตามนั้น) หรือ null",
-  "recipient_name": "ชื่อผู้รับ (string หรือ null)",
-  "recipient_account": "เลขบัญชี/พร้อมเพย์ผู้รับ หรือ null",
-  "amount": 0,
-  "fee": 0,
-  "transaction_id": "เลข ref/transaction หรือ null",
-  "datetime": "YYYY-MM-DDTHH:MM (เวลาไทย) หรือ null",
-  "tampering_signs": ["รายการสัญญาณการตัดต่อ — ตัวอย่าง: 'ฟ้อนต์ amount ไม่ตรงกับ field อื่น', 'ขอบ rectangular crop ไม่ธรรมชาติ', 'pixel artifact รอบตัวเลข', 'สี background ไม่สม่ำเสมอ'"],
-  "tampering_score": 0,
-  "confidence": 0
+"is_slip": bool,
+"type": "transfer|qr|promptpay|internet_banking|atm|none",
+"bank_from": string|null,
+"bank_to": string|null,
+"sender_name": string|null,
+"sender_account": string|null,
+"recipient_name": string|null,
+"recipient_account": string|null,
+"amount": number,
+"fee": number,
+"transaction_id": string|null,
+"datetime": "YYYY-MM-DDTHH:MM"|null,
+"tampering_score": 0-100,
+"confidence": 0-100,
+"tampering_note": string|null
 }
 
 กฎ:
-- is_slip: true ถ้ารูปดูเหมือนสลิปโอนเงินจริงๆ, false ถ้าเป็นรูปอื่น (เช่น ใบเสร็จ, รูปสินค้า)
-- amount: ตัวเลขเท่านั้น ไม่มีคอมม่า ไม่มี "บาท"
-- tampering_score: 0-100 (0=ไม่มีสัญญาณ, 100=ตัดต่อแน่นอน) — ประเมินจากภาพรวม
-- tampering_signs: array ว่าง [] ถ้าไม่เจออะไรน่าสงสัย
-- confidence: 0-100 — ความมั่นใจในการอ่านข้อมูล (พื้นหลังชัด/ไม่ชัด)
-- ถ้าไม่ใช่สลิป (is_slip=false) → field อื่นใส่ null/0 ได้
-- ห้ามครอบด้วย \`\`\`json`;
+- is_slip=false ถ้าไม่ใช่สลิป (รูปอื่น) → field อื่น null/0 ได้
+- amount/fee: number เท่านั้น (no comma, no "บาท")
+- tampering_score: 0=ปกติ, 100=ตัดต่อแน่
+- tampering_note: ถ้า score>=30 ใส่เหตุสั้นๆ (≤80 ตัวอักษร) ไม่งั้น null
+- confidence: 0-100 (ภาพชัด/ไม่ชัด)`;
 
     const geminiBody = {
       contents: [{
@@ -81,7 +79,7 @@ JSON schema:
       }],
       generationConfig: {
         temperature: 0.1,
-        maxOutputTokens: 1500,
+        maxOutputTokens: 4000,  // ★ เพิ่มจาก 1500 — ภาษาไทยใช้ token เยอะ
         responseMimeType: "application/json"
       }
     };

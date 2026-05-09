@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v172 (2026-05-09): Phase 88.11d — robust JSON extraction + diagnostic info สำหรับ debug
-const CACHE_NAME = 'boonsook-pos-v5-cache-v172';
+// v173 (2026-05-09): Phase 88.11e — verify-slip MAX_TOKENS fix (1500→4000) + compact prompt
+const CACHE_NAME = 'boonsook-pos-v5-cache-v173';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
