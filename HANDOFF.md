@@ -1,8 +1,62 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 9 พฤษภาคม 2026 (Phase 88.12 — Approval workflow ครบ 13 หน้างานช่าง)
-**Version:** 5.39.1 (build 192) — Phase 88.12b (ac_install + solar)
-**Previous:** 5.38.6 (build 190) — Phase 88.11g (AI verify clean)
+**อัปเดตล่าสุด:** 9 พฤษภาคม 2026 (Phase 88.13 — Solar equipment ↔ Stock link)
+**Version:** 5.39.2 (build 193) — Phase 88.13 (solar items linked to inventory)
+**Previous:** 5.39.1 (build 192) — Phase 88.12b (ac_install + solar closure)
+
+---
+
+## 🔗 Phase 88.13 — Solar Equipment ↔ Stock Link (9 พ.ค.)
+
+### User feedback
+> "หน้าเพิ่ม อุปกรณ์ ควรลิ้งกับ สินค้า คงคลัง ครับ จะได้ทำสต็อกไปด้วย"
+
+### What shipped (build 193)
+
+**1. modules/solar.js — rewrite ครั้งใหญ่ (359 → 801 บรรทัด)**
+- ลบ free-text equipment rows ออก → ใช้ modal picker เลือกจาก `state.products`
+- Module-private state: `let _solItems = []` (prefix `_sol*` กัน collision กับ ac_install)
+- ปุ่ม "+ เพิ่มอุปกรณ์" เปิด modal picker จาก state.products
+- แสดงตาราง: ชื่ออุปกรณ์ / คลัง (รถ/บ้าน) / qty stepper / ราคา / รวม / ลบ
+- บันทึก `items_json` ลง service_jobs
+
+**2. Helper functions (private)**
+- `_solGetMobileWarehouses()` → list คลังในรถ
+- `_solGetHomeWarehouse()` → คลังบ้าน
+- `_solGetMobileStocks(productId)` → stock ในรถทั้งหมด
+- `_solGetHomeStock(productId)` → stock ในบ้าน
+- `_solPickMobileWarehouse()` → ถามคลังปลายทาง (ถ้ามีหลายคัน)
+- `_solRenderItemsList()` / `_solBindItemListEvents()` — UI render
+- `_solOpenItemPicker()` — modal picker UI
+
+**3. Save logic — auto stock movement**
+- ถ้าเลือกของจาก "บ้าน" → prompt confirm → call `window._appTransferWarehouseStock(home, mobile, productId, qty)` ก่อน
+- ตอน save → call `window._appApplyStockMovement(productId, mobile_warehouse, -qty, ...)` ตัดสต็อก
+- Optimistic update `state.warehouseStock` ทันที (ไม่ต้องรอ refresh)
+
+**4. ไม่กระทบ Phase 88.12**
+- Section "💰 ปิดงาน + แนบสลิป + AI verify" ยังคงเดิม
+- JV trigger (postJournalForServiceJob) ยังเรียกตอน isClosure=true
+- Status flow: pending → in_progress → pending_review → delivered/closed
+
+### Files changed
+- `modules/solar.js` — rewrite ครั้งใหญ่ (359→801)
+- `index.html` — bump `?v=193` (main.js + style.css)
+- `sw.js` — bump CACHE_NAME → `v178`
+- `modules/settings/pages.js` — bump APP_BUILD → 193
+- `CHANGELOG.md` — entry 5.39.2
+
+### Test plan
+- เปิด POS → เมนู โซล่าเซลล์ → กด "+ เพิ่มอุปกรณ์"
+- ✅ Modal picker เปิด → เห็นรายการ products ที่มีสต็อก
+- ✅ เลือกจากบ้าน → confirm transfer → save → stock บ้านลด + รถเพิ่ม + ของในงานหัก
+- ✅ JV ยังเกิดถูกต้องตอนปิดงาน
+
+### Pending Phase 88+ (priority order)
+- 🔒 Period close + Lock periods
+- ✏️ Mapping editor UI
+- ☀️ Solar revenue mapping (4300 — currently fallback to 4240)
+- 📜 VAT support (XL — Phase ใหม่)
 
 ---
 
