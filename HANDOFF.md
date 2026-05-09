@@ -1,8 +1,60 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 9 พฤษภาคม 2026 (Phase 88.13 — Solar equipment ↔ Stock link)
-**Version:** 5.39.2 (build 193) — Phase 88.13 (solar items linked to inventory)
-**Previous:** 5.39.1 (build 192) — Phase 88.12b (ac_install + solar closure)
+**อัปเดตล่าสุด:** 9 พฤษภาคม 2026 (Phase 88.14 — Fix service jobs missing from list after save)
+**Version:** 5.39.3 (build 194) — Phase 88.14 (state.serviceJobs optimistic update)
+**Previous:** 5.39.2 (build 193) — Phase 88.13 (solar items linked to inventory)
+
+---
+
+## 🔧 Phase 88.14 — Fix New Service Jobs ไม่โผล่ในใบรับงาน (9 พ.ค.)
+
+### User feedback
+> "ผมบันทึกงานเฉยๆ ไม่แนบสลิป งานผมต้องไปอยู่หน้าไหนครับ
+> หน้า 'ใบรับงาน' ไม่เจองาน"
+
+### Root cause
+- `main.js` `saveServiceJob` มี optimistic update — push job ใหม่เข้า `state.serviceJobs` ทันทีหลัง insert
+- แต่ `solar.js`, `ac_install.js`, `service_form.js` (9 routes) **ไม่มี** pattern นี้
+- → บันทึก DB สำเร็จ แต่ `state.serviceJobs` ใน RAM ยังเก่า → ใบรับงาน render จาก state → ไม่เห็น
+
+### What shipped (build 194)
+
+**1. modules/solar.js** — เพิ่ม optimistic update หลัง insert
+```js
+if (inserted?.[0]) {
+  state.serviceJobs = [inserted[0], ...(state.serviceJobs || [])];
+}
+```
+
+**2. modules/ac_install.js** — เพิ่ม pattern เดียวกัน
+
+**3. modules/service_form.js** — เพิ่มที่ครอบคลุม 9 service types
+- repair_ac / clean_ac / move_ac / satellite / fridge / washer / cctv / tv / other
+
+### Workflow ที่แก้แล้ว
+```
+ก่อน fix:
+  ช่างเข้าหน้าโซล่า → กรอก → save → DB success → ไปดูใบรับงาน → ❌ ไม่เห็น job
+  (ต้อง Ctrl+Shift+R เพื่อ reload state)
+
+หลัง fix:
+  ช่างเข้าหน้าโซล่า → กรอก → save → DB success + state push → ไปดูใบรับงาน → ✅ เห็นทันที
+```
+
+### Files changed
+- `modules/solar.js`
+- `modules/ac_install.js`
+- `modules/service_form.js`
+- `index.html` — bump `?v=194` + APP_BUILD
+- `sw.js` — bump CACHE_NAME → `v179`
+- `modules/settings/pages.js` — bump build 194
+- `CHANGELOG.md` — entry 5.39.3
+
+### Test plan
+1. ปิดงานปกติ (เลือก status "รอดำเนินการ" — ไม่แนบสลิป)
+2. กดบันทึก → success
+3. คลิก "ใบรับงาน" → ✅ เห็น job ทันที (filter "🟡 ค้าง")
+4. ทดสอบกับทุกประเภท: solar / ติดตั้งแอร์ / ซ่อมแอร์ / ล้างแอร์ / etc
 
 ---
 

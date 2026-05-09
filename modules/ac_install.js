@@ -520,6 +520,14 @@ export function renderAcInstallPage(ctx) {
       const jobId = inserted?.[0]?.id || null;
       const jobNo = inserted?.[0]?.job_no || "";
 
+      // ★ Phase 88.14: Optimistic update — push job ใหม่เข้า state.serviceJobs
+      // (เดิมไม่ push → หน้าใบรับงานไม่เห็น job จนกว่าจะ refresh page)
+      try {
+        if (inserted?.[0]) {
+          state.serviceJobs = [inserted[0], ...(state.serviceJobs || [])];
+        }
+      } catch(e) { console.warn("[ac_install] state update fail", e); }
+
       // ★ Phase 43: Auto-transfer (ถ้ามี) → ตัดสต็อก
       statusEl.textContent = "🔄 กำลังโอน/ตัดสต็อก...";
       let stockOpsFailed = false;

@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v178 (2026-05-09): Phase 88.13 — solar.js link equipment to stock + auto deduct
-const CACHE_NAME = 'boonsook-pos-v5-cache-v178';
+// v179 (2026-05-09): Phase 88.14 — fix new service jobs not appearing in list (state update)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v179';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

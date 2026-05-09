@@ -521,6 +521,14 @@ export function renderServiceFormPage(ctx, serviceType) {
       const jobId = inserted?.[0]?.id || null;
       const jobNo = inserted?.[0]?.job_no || "";
 
+      // ★ Phase 88.14: Optimistic update — push job ใหม่เข้า state.serviceJobs
+      // (เดิมไม่ push → หน้าใบรับงานไม่เห็น job จนกว่าจะ refresh page)
+      try {
+        if (inserted?.[0]) {
+          state.serviceJobs = [inserted[0], ...(state.serviceJobs || [])];
+        }
+      } catch(e) { console.warn("[service_form] state update fail", e); }
+
       // Auto-transfer + deduct stock
       let stockOpsFailed = false;
       try {

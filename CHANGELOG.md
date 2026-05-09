@@ -7,6 +7,17 @@
 
 ---
 
+## 5.39.3 (build 194) — 2026-05-09 ⭐ Phase 88.14
+
+### Phase 88.14 — Fix new service jobs ไม่โผล่ในใบรับงาน
+- **fix:** `solar.js` / `ac_install.js` / `service_form.js` (9 routes) บันทึกแล้ว job ใหม่ไม่ push เข้า `state.serviceJobs`
+  - ทำให้หน้า "ใบรับงาน" ไม่เห็น job ใหม่จนกว่าจะ refresh page
+  - เพิ่ม optimistic update: `state.serviceJobs = [inserted[0], ...state.serviceJobs]` หลัง insert สำเร็จ
+  - Pattern เดียวกับ `saveServiceJob` ใน main.js
+- **impact:** ทุกหน้างานช่าง (11 หน้า) — บันทึก → เปลี่ยนหน้าใบรับงาน → เห็นทันที
+
+---
+
 ## 5.39.2 (build 193) — 2026-05-09 ⭐ Phase 88.13
 
 ### Phase 88.13 — Solar equipment ↔ Stock link
