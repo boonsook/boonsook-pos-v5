@@ -1,8 +1,61 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 9 พฤษภาคม 2026 (Phase 88.18b — Production start 1 พ.ค.)
-**Version:** 5.40.1 (build 198) — Phase 88.18b (effective date → 2026-05-01)
-**Previous:** 5.40.0 (build 197) — Phase 88.17/18 (Receipt approval + B2B fix)
+**อัปเดตล่าสุด:** 9 พฤษภาคม 2026 (Phase 88.19 — Period Close ✅ verified)
+**Version:** 5.41.2 (build 202) — Phase 88.19 (Period Close + relax trigger)
+**Previous:** 5.40.2 (build 199) — Phase 88.18c (camera/gallery split)
+
+---
+
+## 🆕 Pending — User Requests ปลาย Session (9 พ.ค.)
+
+### 1. 💰 POS แคชเชียร์ — เพิ่ม "เงินที่ลูกค้าให้มา" (cash)
+> "เงินสด ควรเพิ่มรายละเอียดยอดเงินที่ได้ จากลูกค้า อะไร ยอดอะไร ได้ด้วย"
+
+**Plan:**
+- เพิ่ม input "เงินที่ได้รับ" ในหน้า checkout (ตอน payment_method='cash')
+- Auto-calc เงินทอน = received - grand_total
+- บันทึกในใบเสร็จ POS / sales table
+
+### 2. 🏦 POS แคชเชียร์ — เลือกบัญชีธนาคาร (transfer)
+> "โอนบัญชีธนาคาร ควรให้เราเลือกเปลี่ยนบัญชีได้เอง"
+
+**Plan:**
+- เพิ่ม dropdown เลือกบัญชีปลายทาง (1130, 1131, 1132...)
+- ตอน checkout → user เลือก → JV ลงบัญชีนั้นแทน 1130 default
+- หรือเพิ่ม column `bank_account_code` ใน sales
+
+---
+
+## 🔒 Phase 88.19 — Period Close + Lock Periods (build 200-202) ✅ VERIFIED
+
+### What shipped
+- **DB:** ตาราง `accounting_periods` + `is_period_locked()` function + trigger `check_period_not_locked`
+- **UI:** หน้า "🔒 ปิดงวดบัญชี" — grid 12 เดือน + summary + Lock/Unlock
+- **Validation:** Defense in depth (UI + DB)
+  - Front-end: `auto_post.js` ตรวจ period ก่อน insert
+  - Back-end: DB trigger ป้องกัน insert + update doc_date เข้า/ใน locked period
+- **Relaxed trigger (88.19b):** อนุญาต void/unvoid ใน locked period (เพื่อ correction หลังปิดงวด)
+
+### SQL ที่รัน
+- `supabase-phase88-19-period-close.sql` — สร้าง table + function + trigger
+- `supabase-phase88-19b-relax-void.sql` — relax allow void/unvoid
+
+### Files
+- `modules/accounting/periods.js` (NEW)
+- `main.js` — wire route + ALL_ROUTES + title + parent group
+- `modules/accounting/auto_post.js` — period check ใน `_postJournal`
+- `index.html` — page section + sidebar menu
+
+### Verified by user
+- ✅ Lock งวด → 🔒 ล็อก + locked_at + locked_by
+- ✅ Unlock งวด → กรอก reason → audit trail
+- ✅ Insert JV ใน locked period → reject (PERIOD_LOCKED)
+- ✅ Void JV ใน locked period → ผ่าน (relaxed trigger)
+- ✅ Cleanup 5 mock JVs (เม.ย. + test JVs)
+
+---
+
+## ก่อนหน้า: Phase 88.18b (build 198) — Production start 1 พ.ค.
 
 ---
 
