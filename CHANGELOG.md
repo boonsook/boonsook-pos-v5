@@ -7,6 +7,18 @@
 
 ---
 
+## 5.39.2 (build 193) — 2026-05-09 ⭐ Phase 88.13
+
+### Phase 88.13 — Solar equipment ↔ Stock link
+- **feat:** หน้าโซล่าเซลล์ — อุปกรณ์/วัสดุ ลิ้งกับสต็อก (warehouse) แทน free-text
+  - ปุ่ม "+ เพิ่มอุปกรณ์" เปิด modal picker จาก state.products + แสดงสต็อกในรถ/บ้าน
+  - แสดงตาราง อุปกรณ์/คลัง/qty stepper/ราคา/รวม + ลบรายการ
+  - ตอน save → ตัดสต็อกอัตโนมัติ (window._appApplyStockMovement) + auto-transfer บ้าน→รถ ถ้าไม่พอ
+  - เก็บ items_json ลง service_jobs
+  - ไม่กระทบ section ปิดงาน/สลิป/AI verify/JV trigger ของ Phase 88.12
+
+---
+
 ## 5.39.1 (build 192) — 2026-05-09 ⭐ Phase 88.12 final
 
 ### Phase 88.12 — Approval Workflow ครบ 13 หน้างานช่าง

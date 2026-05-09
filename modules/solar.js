@@ -1,6 +1,7 @@
 // ═══════════════════════════════════════════════════════════
 //  SOLAR — งานโซล่าเซลล์
 //  Phase 88.12: + ปิดงาน/แนบสลิป/AI verify (workflow ช่างส่ง→admin ยืนยัน)
+//  Phase 88.13: ลิ้งอุปกรณ์กับสต็อก (warehouse) + ตัดสต็อกอัตโนมัติตอน save
 // ═══════════════════════════════════════════════════════════
 
 import { postJournalForServiceJob } from "./accounting/auto_post.js";
@@ -14,12 +15,348 @@ const SOLAR_TYPES = [
   "🛠️ งานโซล่าเซลล์อื่นๆ"
 ];
 
+// Phase 88.13 — Module-level state สำหรับอุปกรณ์ที่ลิ้งกับสต็อก
+// items: [{product_id, name, qty, unit_price, line_total, warehouse_id, warehouse_name}]
+let _solItems = [];
+
+const escHtml = (s) => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 88.13 — Mobile warehouse helpers (duplicate from ac_install.js)
+// ═══════════════════════════════════════════════════════════
+
+function _solGetMobileWarehouses(state) {
+  return (state.warehouses || []).filter(w => w.is_mobile === true);
+}
+
+function _solGetHomeWarehouse(state) {
+  const wh = state.warehouses || [];
+  return wh.find(w => (w.name || "").includes("บ้าน")) ||
+         wh.find(w => w.is_mobile !== true) ||
+         null;
+}
+
+function _solGetMobileStocks(p, state) {
+  const mobileWh = _solGetMobileWarehouses(state);
+  return mobileWh
+    .map(w => {
+      const ws = (state.warehouseStock || []).find(s =>
+        String(s.product_id) === String(p.id) && String(s.warehouse_id) === String(w.id)
+      );
+      return { warehouse_id: w.id, warehouse_name: w.name, stock: Number(ws?.stock || 0) };
+    })
+    .filter(s => s.stock > 0);
+}
+
+function _solGetHomeStock(p, state) {
+  const home = _solGetHomeWarehouse(state);
+  if (!home) return null;
+  const ws = (state.warehouseStock || []).find(s =>
+    String(s.product_id) === String(p.id) && String(s.warehouse_id) === String(home.id)
+  );
+  return { warehouse_id: home.id, warehouse_name: home.name, stock: Number(ws?.stock || 0) };
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 88.13 — Mobile warehouse picker modal
+// ═══════════════════════════════════════════════════════════
+function _solPickMobileWarehouse(mobileStocks, productName) {
+  return new Promise((resolve) => {
+    document.getElementById("solWhPickModal")?.remove();
+    const modal = document.createElement("div");
+    modal.id = "solWhPickModal";
+    modal.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px";
+    modal.innerHTML = `
+      <div style="background:#fff;border-radius:16px;max-width:420px;width:100%;overflow:hidden">
+        <div style="padding:14px 16px;border-bottom:1px solid #e2e8f0">
+          <h3 style="margin:0;font-size:15px">🚐 เลือกรถสำหรับตัดสต็อก</h3>
+          <div style="font-size:12px;color:#64748b;margin-top:2px">${escHtml(productName || "")} — มีในหลายรถ</div>
+        </div>
+        <div style="padding:12px 16px;display:flex;flex-direction:column;gap:8px">
+          ${mobileStocks.map((s, i) => `
+            <button data-wh-idx="${i}" style="display:flex;justify-content:space-between;align-items:center;padding:14px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;cursor:pointer;font:inherit;text-align:left">
+              <div style="flex:1">
+                <div style="font-weight:700">${escHtml(s.warehouse_name)}</div>
+                <div style="font-size:11px;color:#64748b">มีในสต็อก</div>
+              </div>
+              <div style="font-weight:800;color:#0284c7;font-size:18px">${s.stock}</div>
+            </button>
+          `).join("")}
+        </div>
+        <div style="padding:8px 16px 14px;border-top:1px solid #e2e8f0">
+          <button id="solWhPickCancel" style="width:100%;padding:10px;border:1px solid #cbd5e1;background:#f8fafc;border-radius:10px;cursor:pointer;font:inherit;color:#64748b">ยกเลิก</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    const cleanup = () => modal.remove();
+    modal.querySelectorAll("[data-wh-idx]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const idx = Number(btn.dataset.whIdx);
+        cleanup();
+        resolve(mobileStocks[idx]);
+      });
+    });
+    modal.querySelector("#solWhPickCancel").addEventListener("click", () => { cleanup(); resolve(null); });
+    modal.addEventListener("click", (e) => { if (e.target === modal) { cleanup(); resolve(null); } });
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 88.13 — Items list rendering + binding
+// ═══════════════════════════════════════════════════════════
+function _solRenderItemsList(container, money) {
+  const el = container.querySelector("#solItemsList");
+  if (!el) return;
+  if (_solItems.length === 0) {
+    el.innerHTML = `<div class="sku" style="text-align:center;padding:14px;color:#94a3b8">ยังไม่มีอุปกรณ์ — กด "+ เพิ่มอุปกรณ์"</div>`;
+    return;
+  }
+  el.innerHTML = `
+    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;background-image:linear-gradient(to right,transparent calc(100% - 16px),rgba(0,0,0,0.06));background-attachment:local;background-repeat:no-repeat" title="เลื่อนซ้าย-ขวาเพื่อดูจำนวน/ราคา">
+      <table style="width:100%;min-width:600px;border-collapse:collapse;font-size:13px">
+        <thead style="background:#f1f5f9">
+          <tr>
+            <th style="padding:8px;text-align:left">อุปกรณ์</th>
+            <th style="padding:8px;text-align:left;width:110px">คลัง</th>
+            <th style="padding:8px;text-align:center;width:120px">จำนวน</th>
+            <th style="padding:8px;text-align:right;width:90px">ราคา/ชิ้น</th>
+            <th style="padding:8px;text-align:right;width:90px">รวม</th>
+            <th style="padding:8px;width:30px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${_solItems.map((it, idx) => {
+            const whBadge = it.warehouse_id
+              ? `<span style="background:#dbeafe;color:#1e40af;padding:2px 6px;border-radius:6px;font-size:10px;font-weight:700">🚐 ${escHtml(it.warehouse_name || "?")}</span>`
+              : `<span style="color:#94a3b8;font-size:10px">—</span>`;
+            return `
+            <tr style="border-bottom:1px solid #e5e7eb">
+              <td style="padding:8px">
+                <div style="font-weight:600">${escHtml(it.name)}</div>
+                <div style="font-size:10px;color:#94a3b8">${typeof it._stock_avail === "number" ? `คงเหลือ ${it._stock_avail}` : ""}</div>
+              </td>
+              <td style="padding:8px">${whBadge}</td>
+              <td style="padding:6px">
+                <div style="display:flex;align-items:center;justify-content:center;gap:2px">
+                  <button type="button" data-sol-qty-dec="${idx}" style="width:26px;height:26px;border:1px solid #cbd5e1;background:#fff;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer;color:#475569" title="ลด">−</button>
+                  <input type="number" min="1" value="${it.qty}" data-sol-qty="${idx}" style="width:42px;text-align:center;padding:4px 0;border:1px solid #cbd5e1;border-radius:6px;font-weight:700" />
+                  <button type="button" data-sol-qty-inc="${idx}" style="width:26px;height:26px;border:1px solid #0284c7;background:#0284c7;color:#fff;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer" title="เพิ่ม">+</button>
+                </div>
+              </td>
+              <td style="padding:6px"><input type="number" min="0" step="1" value="${Number(it.unit_price)}" data-sol-price="${idx}" style="width:80px;text-align:right;padding:4px;border:1px solid #cbd5e1;border-radius:6px" /></td>
+              <td data-sol-line-total="${idx}" style="padding:8px;text-align:right;font-weight:700;color:#0284c7">${money(it.line_total)}</td>
+              <td style="padding:6px;text-align:center"><button data-sol-del="${idx}" class="btn light" style="font-size:14px;padding:2px 8px;color:#dc2626" title="ลบ">×</button></td>
+            </tr>
+          `;}).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function _solBindItemListEvents(container, updatePrice, money) {
+  const updateLineTotal = (idx) => {
+    const cell = container.querySelector(`[data-sol-line-total="${idx}"]`);
+    if (cell) cell.textContent = money(_solItems[idx].line_total);
+  };
+  container.querySelector("#solItemsList")?.addEventListener("input", (e) => {
+    const tgt = e.target;
+    if (tgt.dataset.solQty !== undefined) {
+      const idx = Number(tgt.dataset.solQty);
+      const qty = Math.max(1, parseInt(tgt.value) || 1);
+      _solItems[idx].qty = qty;
+      _solItems[idx].line_total = qty * Number(_solItems[idx].unit_price || 0);
+      updateLineTotal(idx);
+      updatePrice();
+    } else if (tgt.dataset.solPrice !== undefined) {
+      const idx = Number(tgt.dataset.solPrice);
+      const price = Math.max(0, parseFloat(tgt.value) || 0);
+      _solItems[idx].unit_price = price;
+      _solItems[idx].line_total = Number(_solItems[idx].qty) * price;
+      updateLineTotal(idx);
+      updatePrice();
+    }
+  });
+  container.querySelector("#solItemsList")?.addEventListener("click", (e) => {
+    const delBtn = e.target.closest("[data-sol-del]");
+    if (delBtn) {
+      const idx = Number(delBtn.dataset.solDel);
+      _solItems.splice(idx, 1);
+      _solRenderItemsList(container, money);
+      updatePrice();
+      return;
+    }
+    const incBtn = e.target.closest("[data-sol-qty-inc]");
+    if (incBtn) {
+      const idx = Number(incBtn.dataset.solQtyInc);
+      _solItems[idx].qty = Number(_solItems[idx].qty || 1) + 1;
+      _solItems[idx].line_total = _solItems[idx].qty * Number(_solItems[idx].unit_price || 0);
+      const qtyInput = container.querySelector(`[data-sol-qty="${idx}"]`);
+      if (qtyInput) qtyInput.value = _solItems[idx].qty;
+      updateLineTotal(idx);
+      updatePrice();
+      return;
+    }
+    const decBtn = e.target.closest("[data-sol-qty-dec]");
+    if (decBtn) {
+      const idx = Number(decBtn.dataset.solQtyDec);
+      _solItems[idx].qty = Math.max(1, Number(_solItems[idx].qty || 1) - 1);
+      _solItems[idx].line_total = _solItems[idx].qty * Number(_solItems[idx].unit_price || 0);
+      const qtyInput = container.querySelector(`[data-sol-qty="${idx}"]`);
+      if (qtyInput) qtyInput.value = _solItems[idx].qty;
+      updateLineTotal(idx);
+      updatePrice();
+      return;
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 88.13 — Picker modal: search + select equipment from stock
+// ═══════════════════════════════════════════════════════════
+function _solOpenItemPicker(ctx, container, updatePrice) {
+  const { state, money, showToast } = ctx;
+  document.getElementById("solItemPickerModal")?.remove();
+
+  // กรองเฉพาะสินค้าที่มีใน mobile (รถ) หรือบ้าน (เผื่อ auto-transfer)
+  const allInStock = (state.products || []).filter(p => {
+    const mobileTotal = _solGetMobileStocks(p, state).reduce((s, x) => s + x.stock, 0);
+    const homeStock = _solGetHomeStock(p, state)?.stock || 0;
+    return (mobileTotal + homeStock) > 0;
+  });
+
+  const renderList = (search) => {
+    const q = (search || "").toLowerCase().trim();
+    let filtered = allInStock;
+    if (q) {
+      filtered = allInStock.filter(p =>
+        (p.name || "").toLowerCase().includes(q) ||
+        (p.barcode || "").toLowerCase().includes(q) ||
+        (p.sku || "").toLowerCase().includes(q) ||
+        (p.category || "").toLowerCase().includes(q)
+      );
+    }
+    return filtered.slice(0, 50).map(p => {
+      const mobileStocks = _solGetMobileStocks(p, state);
+      const homeStock = _solGetHomeStock(p, state);
+      const inMobile = mobileStocks.length > 0;
+      const stockTags = mobileStocks.map(s =>
+        `<span style="background:#dbeafe;color:#1e40af;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">🚐 ${escHtml(s.warehouse_name)}: ${s.stock}</span>`
+      ).join(" ");
+      const homeTag = homeStock && homeStock.stock > 0
+        ? `<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">📦 ${escHtml(homeStock.warehouse_name)}: ${homeStock.stock}</span>`
+        : "";
+      const warningBadge = !inMobile
+        ? `<div style="font-size:10px;color:#dc2626;margin-top:4px">⚠️ ยังไม่ได้โอนขึ้นรถ — ต้องยืนยันโอนตอนกดเลือก</div>`
+        : "";
+      return `
+        <button class="solpk-item" data-pk-id="${p.id}" style="display:block;width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;background:#fff;cursor:pointer;text-align:left;font:inherit;margin-bottom:6px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:700;color:#0f172a">${escHtml(p.name || "-")}</div>
+              <div style="font-size:11px;color:#64748b">${escHtml(p.category || "")}${p.barcode ? ` • ${escHtml(p.barcode)}` : ""}</div>
+              <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px">${stockTags}${homeTag}</div>
+              ${warningBadge}
+            </div>
+            <div style="text-align:right;flex-shrink:0">
+              <div style="font-weight:700;color:#0284c7">${money(p.price || 0)}</div>
+            </div>
+          </div>
+        </button>
+      `;
+    }).join("") || `<div class="sku" style="text-align:center;padding:20px;color:#94a3b8">ไม่พบสินค้า "${escHtml(q)}"</div>`;
+  };
+
+  const modal = document.createElement("div");
+  modal.id = "solItemPickerModal";
+  modal.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px";
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:16px;max-width:500px;width:100%;max-height:80vh;display:flex;flex-direction:column;overflow:hidden">
+      <div style="padding:14px 16px;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center">
+        <h3 style="margin:0;font-size:16px">☀️ เลือกอุปกรณ์โซล่าเซลล์</h3>
+        <button id="solpkClose" class="btn light" style="font-size:18px;padding:4px 10px">✕</button>
+      </div>
+      <div style="padding:12px 16px;border-bottom:1px solid #e2e8f0">
+        <input id="solpkSearch" type="text" placeholder="🔍 ค้นหา ชื่อ / barcode / หมวด..." style="width:100%;padding:10px 12px;border:1px solid #cbd5e1;border-radius:10px;font:inherit" />
+      </div>
+      <div id="solpkList" style="flex:1;overflow-y:auto;padding:12px 16px"></div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  const listEl = modal.querySelector("#solpkList");
+  listEl.innerHTML = renderList("");
+
+  modal.querySelector("#solpkClose").addEventListener("click", () => modal.remove());
+  modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
+  modal.querySelector("#solpkSearch").addEventListener("input", (e) => {
+    listEl.innerHTML = renderList(e.target.value);
+  });
+
+  listEl.addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-pk-id]");
+    if (!btn) return;
+    const id = btn.dataset.pkId;
+    const p = (state.products || []).find(x => String(x.id) === String(id));
+    if (!p) return;
+
+    const mobileStocks = _solGetMobileStocks(p, state);
+    const homeStock = _solGetHomeStock(p, state);
+
+    let chosenWh = null;
+    if (mobileStocks.length === 1) {
+      chosenWh = mobileStocks[0];
+    } else if (mobileStocks.length > 1) {
+      chosenWh = await _solPickMobileWarehouse(mobileStocks, p.name);
+      if (!chosenWh) {
+        showToast?.("ยกเลิก");
+        return;
+      }
+    } else if (homeStock && homeStock.stock > 0) {
+      chosenWh = homeStock;
+      showToast?.(`⚠️ ${p.name} ยังอยู่ในบ้าน — จะถามยืนยันโอนตอนบันทึก`);
+    } else {
+      showToast?.("ไม่มีของในระบบ");
+      return;
+    }
+
+    const existing = _solItems.find(it =>
+      String(it.product_id) === String(p.id) &&
+      String(it.warehouse_id) === String(chosenWh.warehouse_id)
+    );
+    if (existing) {
+      existing.qty = Number(existing.qty) + 1;
+      existing.line_total = existing.qty * Number(existing.unit_price || 0);
+    } else {
+      _solItems.push({
+        product_id: Number(p.id),
+        name: p.name || "-",
+        qty: 1,
+        unit_price: Number(p.price || 0),
+        line_total: Number(p.price || 0),
+        warehouse_id: chosenWh.warehouse_id,
+        warehouse_name: chosenWh.warehouse_name,
+        _stock_avail: chosenWh.stock
+      });
+    }
+    modal.remove();
+    _solRenderItemsList(container, money);
+    updatePrice();
+    showToast?.(`เพิ่ม "${p.name}" จาก ${chosenWh.warehouse_name} แล้ว`);
+  });
+
+  setTimeout(() => modal.querySelector("#solpkSearch")?.focus(), 100);
+}
+
 export function renderSolarPage(ctx) {
   const { state, money, showToast } = ctx;
   const container = document.getElementById("page-solar");
   if (!container) return;
 
-  const escHtml = (s) => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  // Phase 88.13 — รีเซ็ต items list ตอน mount หน้า (กัน items ค้างจากครั้งก่อน)
+  _solItems = [];
+
   const typeOptions = SOLAR_TYPES.map(t => `<option value="${escHtml(t)}">${escHtml(t)}</option>`).join("");
 
   container.innerHTML = `
@@ -58,10 +395,16 @@ export function renderSolarPage(ctx) {
     <div class="panel">
       <div class="set-section-title">⚡ รายละเอียดงาน</div>
       <textarea id="solDetail" rows="3" placeholder="เช่น ระบบ 3kW, จำนวนแผง 8 แผง, อินเวอร์เตอร์ยี่ห้อ..." style="width:100%;border:1px solid var(--line);border-radius:14px;padding:12px;font:inherit;resize:vertical"></textarea>
+    </div>
 
-      <div class="set-section-title" style="margin-top:14px">🔧 อุปกรณ์ / วัสดุ</div>
-      <div id="solEquipList"></div>
-      <button type="button" id="solAddEquip" class="btn light" style="margin-top:8px;font-size:13px">+ เพิ่มอุปกรณ์</button>
+    <!-- 🔧 อุปกรณ์ / วัสดุ (Phase 88.13: ลิ้งกับสต็อก) -->
+    <div class="panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div class="set-section-title" style="margin:0">🔧 อุปกรณ์ / วัสดุ (จากสต็อก)</div>
+        <button id="solAddItemBtn" class="btn primary" style="font-size:12px;padding:6px 12px">+ เพิ่มอุปกรณ์</button>
+      </div>
+      <div id="solItemsList"></div>
+      <div style="font-size:11px;color:#94a3b8;margin-top:6px">💡 แผงโซล่า / อินเวอร์เตอร์ / สายไฟ / โครงเหล็ก — เพิ่มเป็นอุปกรณ์จากสต็อก (ตัดสต็อกอัตโนมัติตอนบันทึก)</div>
     </div>
 
     <!-- ราคา -->
@@ -128,32 +471,13 @@ export function renderSolarPage(ctx) {
     <div id="solStatus" class="hidden panel mt16"></div>
   `;
 
-  let equipCount = 0;
-
-  function addEquipRow() {
-    equipCount++;
-    const div = document.createElement("div");
-    div.style.cssText = "display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;align-items:end;margin-top:6px";
-    div.innerHTML = `
-      <input type="text" placeholder="ชื่ออุปกรณ์" class="sol-eq-name" />
-      <input type="number" placeholder="ราคา/ชิ้น" min="0" step="100" value="0" class="sol-eq-price" />
-      <input type="number" placeholder="จำนวน" min="1" value="1" class="sol-eq-qty" />
-      <button type="button" class="btn danger-fill" style="padding:8px 12px;font-size:16px" data-remove-equip>✕</button>
-    `;
-    div.querySelector("[data-remove-equip]").addEventListener("click", () => { div.remove(); updatePrice(); });
-    div.querySelectorAll("input").forEach(inp => inp.addEventListener("input", updatePrice));
-    container.querySelector("#solEquipList").appendChild(div);
-  }
+  // Render initial items list
+  _solRenderItemsList(container, money);
 
   function updatePrice() {
     const labor = parseFloat(container.querySelector("#solLabor").value) || 0;
     const discount = parseFloat(container.querySelector("#solDiscount").value) || 0;
-    let equipTotal = 0;
-    container.querySelectorAll("#solEquipList > div").forEach(row => {
-      const price = parseFloat(row.querySelector(".sol-eq-price")?.value) || 0;
-      const qty = parseInt(row.querySelector(".sol-eq-qty")?.value) || 1;
-      equipTotal += price * qty;
-    });
+    const equipTotal = _solItems.reduce((s, it) => s + Number(it.line_total || 0), 0);
     const net = Math.max(0, labor + equipTotal - discount);
     container.querySelector("#solPriceSummary").innerHTML = `
       <div class="sku">ราคารวม ${equipTotal > 0 ? `(ค่าแรง ${money(labor)} + อุปกรณ์ ${money(equipTotal)}${discount > 0 ? ` - ส่วนลด ${money(discount)}` : ""})` : ""}</div>
@@ -165,12 +489,10 @@ export function renderSolarPage(ctx) {
   container.querySelector("#solType").addEventListener("change", (e) => {
     container.querySelector("#solCustomTypeWrap").classList.toggle("hidden", !e.target.value.includes("อื่นๆ"));
   });
-  container.querySelector("#solAddEquip").addEventListener("click", addEquipRow);
+  container.querySelector("#solAddItemBtn").addEventListener("click", () => _solOpenItemPicker(ctx, container, updatePrice));
+  _solBindItemListEvents(container, updatePrice, money);
   container.querySelector("#solLabor").addEventListener("input", updatePrice);
   container.querySelector("#solDiscount").addEventListener("input", updatePrice);
-
-  // Add 1 default row
-  addEquipRow();
 
   // ★ Phase 88.12: Slip + AI verify
   let _slipUrl = "";
@@ -264,17 +586,8 @@ export function renderSolarPage(ctx) {
 
     const labor = parseFloat(container.querySelector("#solLabor").value) || 0;
     const discount = parseFloat(container.querySelector("#solDiscount").value) || 0;
-    let equipTotal = 0;
-    let equipNote = [];
-    container.querySelectorAll("#solEquipList > div").forEach(row => {
-      const eqName = row.querySelector(".sol-eq-name")?.value.trim();
-      const price = parseFloat(row.querySelector(".sol-eq-price")?.value) || 0;
-      const qty = parseInt(row.querySelector(".sol-eq-qty")?.value) || 1;
-      if (eqName) {
-        equipTotal += price * qty;
-        equipNote.push(`${eqName} ${qty} ชิ้น = ฿${(price * qty).toLocaleString()}`);
-      }
-    });
+    const equipTotal = _solItems.reduce((s, it) => s + Number(it.line_total || 0), 0);
+    const equipNote = _solItems.map(it => `${it.name} ${it.qty} ชิ้น = ฿${Number(it.line_total).toLocaleString()}`);
     const net = Math.max(0, labor + equipTotal - discount);
 
     // Phase 88.12 — closure values
@@ -285,12 +598,77 @@ export function renderSolarPage(ctx) {
 
     const statusEl = container.querySelector("#solStatus");
     statusEl.classList.remove("hidden");
-    statusEl.textContent = "กำลังบันทึก...";
+    statusEl.textContent = "📋 กำลังตรวจสอบข้อมูล...";
 
     try {
       const cfg = window.SUPABASE_CONFIG;
       // ★ Phase 88.12: ใช้ token cache (เลี่ยง getSession() hang on slow mobile)
       const token = window._sbAccessToken || cfg.anonKey;
+
+      // Phase 88.13 — เตรียม fullItems + transfer-needed (pattern เหมือน ac_install)
+      const mobileWhList = _solGetMobileWarehouses(state);
+      const homeWh = _solGetHomeWarehouse(state);
+      const fullItems = [];
+      _solItems.forEach(it => {
+        const isPickedHome = homeWh && String(it.warehouse_id) === String(homeWh.id);
+        if (isPickedHome && mobileWhList.length > 0) {
+          // user pick "บ้าน" → re-pick เป็น mobile แรก (force transfer flow)
+          const firstMobile = mobileWhList[0];
+          fullItems.push({
+            ...it,
+            warehouse_id: firstMobile.id,
+            warehouse_name: firstMobile.name,
+            is_main: false
+          });
+        } else {
+          fullItems.push({ ...it, is_main: false });
+        }
+      });
+
+      // ★ Phase 88.13: เช็คก่อน save — ของในรถพอมั้ย? ถ้าไม่พอ + บ้านมี → confirm auto-transfer
+      const transfersNeeded = [];
+      for (const it of fullItems) {
+        if (!it.warehouse_id || !it.product_id) continue;
+        const prod = (state.products || []).find(p => String(p.id) === String(it.product_id));
+        if (!prod) continue;
+        const ws = (state.warehouseStock || []).find(w =>
+          String(w.product_id) === String(it.product_id) &&
+          String(w.warehouse_id) === String(it.warehouse_id)
+        );
+        const stockAvail = Number(ws?.stock || 0);
+        const need = Number(it.qty || 0);
+        if (stockAvail < need) {
+          const isHome = homeWh && String(it.warehouse_id) === String(homeWh.id);
+          if (isHome) continue;
+          const homeStock = _solGetHomeStock(prod, state);
+          const shortage = need - stockAvail;
+          if (!homeStock || homeStock.stock < shortage) {
+            throw new Error(`❌ ${prod.name}: ของไม่พอ — ${it.warehouse_name} มี ${stockAvail}, บ้านมี ${homeStock?.stock || 0}, ต้องใช้ ${need}`);
+          }
+          transfersNeeded.push({
+            productId: it.product_id,
+            productName: prod.name,
+            fromWhId: homeStock.warehouse_id,
+            fromWhName: homeStock.warehouse_name,
+            toWhId: it.warehouse_id,
+            toWhName: it.warehouse_name,
+            qty: shortage
+          });
+        }
+      }
+
+      if (transfersNeeded.length > 0) {
+        statusEl.textContent = "🚐 รอ user ตอบ confirm dialog...";
+        const summary = transfersNeeded.map(t =>
+          `${t.productName}: โอน ${t.qty} ชิ้น (${t.fromWhName} → ${t.toWhName})`
+        ).join(" • ");
+        const msg = `🚐 ของในรถไม่พอ — ต้องโอนจากบ้านขึ้นรถก่อน: ${summary} — ตกลงโอน + ตัดสต็อกอัตโนมัติ?`;
+        const ok = await window.App?.confirm?.(msg);
+        if (!ok) {
+          throw new Error("ยกเลิกการบันทึก — โอนสต็อกขึ้นรถก่อนแล้วลองใหม่");
+        }
+      }
+      statusEl.textContent = "💾 กำลังบันทึกใบงาน...";
 
       const record = {
         job_no: "JOB-" + Date.now(),
@@ -299,8 +677,9 @@ export function renderSolarPage(ctx) {
         customer_address: address,
         job_type: "solar",
         description: [`☀️ ${typeVal}`, detail, equipNote.length ? `อุปกรณ์: ${equipNote.join(" | ")}` : ""].filter(Boolean).join(" | "),
+        items_json: fullItems,  // ★ Phase 88.13: เก็บ items ใน DB
         status: selectedStatus,
-        note: `ค่าแรง: ฿${labor.toLocaleString()}${discount ? ` ส่วนลด: ฿${discount.toLocaleString()}` : ""}${container.querySelector("#solNote")?.value ? "\n" + container.querySelector("#solNote").value.trim() : ""}`,
+        note: `ค่าแรง: ฿${labor.toLocaleString()}${discount ? ` ส่วนลด: ฿${discount.toLocaleString()}` : ""}`,
         // Phase 88.12 — บัญชี
         total_cost: net,
         payment_method: paymentMethod || null,
@@ -329,6 +708,64 @@ export function renderSolarPage(ctx) {
       const jobId = inserted?.[0]?.id;
       const jobNo = inserted?.[0]?.job_no || "";
 
+      // ★ Phase 88.13: Auto-transfer (ถ้ามี) → ตัดสต็อก
+      statusEl.textContent = "🔄 กำลังโอน/ตัดสต็อก...";
+      let stockOpsFailed = false;
+      try {
+        // Step 1: Auto-transfer จากบ้าน → รถ (ถ้ามี shortage)
+        for (const t of transfersNeeded) {
+          if (typeof window._appTransferWarehouseStock === "function") {
+            const r = await window._appTransferWarehouseStock({
+              productId: t.productId,
+              fromWarehouseId: t.fromWhId,
+              toWarehouseId: t.toWhId,
+              qty: t.qty,
+              note: `auto-transfer for solar ${jobNo}`
+            });
+            if (!r?.ok) {
+              console.error("[solar transfer fail]", t, r);
+              stockOpsFailed = true;
+            }
+          }
+        }
+        // Step 2: Deduct stock จาก warehouse ที่เลือก (ทุก item)
+        for (const it of fullItems) {
+          if (!it.warehouse_id || !it.product_id) continue;
+          if (typeof window._appApplyStockMovement === "function") {
+            const r = await window._appApplyStockMovement({
+              productId: it.product_id,
+              warehouseId: it.warehouse_id,
+              movementType: "out",
+              qty: Number(it.qty || 0),
+              note: `solar: ${jobNo} — ${name}`
+            });
+            if (!r?.ok) {
+              console.error("[solar deduct fail]", it, r);
+              stockOpsFailed = true;
+            }
+          }
+        }
+      } catch (stockErr) {
+        console.error("[solar stock ops]", stockErr);
+        stockOpsFailed = true;
+      }
+
+      // Phase 88.13: optimistic update state.warehouseStock (ไม่ await loadAllData)
+      try {
+        for (const it of fullItems) {
+          if (!it.warehouse_id || !it.product_id) continue;
+          const ws = (state.warehouseStock || []).find(w =>
+            String(w.product_id) === String(it.product_id) &&
+            String(w.warehouse_id) === String(it.warehouse_id)
+          );
+          if (ws) ws.stock = Math.max(0, Number(ws.stock || 0) - Number(it.qty || 0));
+        }
+      } catch(e) { console.warn("[solar] optimistic stock update fail", e); }
+
+      if (stockOpsFailed) {
+        showToast?.("⚠️ ใบงาน save แล้ว แต่ตัดสต็อก/โอนบางรายการล้มเหลว — ตรวจ Console");
+      }
+
       statusEl.innerHTML = `<div style="text-align:center;color:var(--success);font-weight:700">✅ บันทึกงานโซล่าเซลล์สำเร็จ!${jobNo ? ` (${escHtml(jobNo)})` : ""}</div>`;
       showToast("บันทึกสำเร็จ!");
 
@@ -345,6 +782,11 @@ export function renderSolarPage(ctx) {
           created_at: new Date().toISOString()
         }).catch(e => console.warn("[solar] auto-post JV failed:", e?.message));
       }
+
+      // Phase 88.13: เคลียร์ items + reset price (กรณี user save แล้วทำใบใหม่)
+      _solItems = [];
+      _solRenderItemsList(container, money);
+      updatePrice();
     } catch (e) {
       console.error("[solar save] error:", e);
       statusEl.textContent = "เกิดข้อผิดพลาด: " + e.message;
