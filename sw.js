@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v181 (2026-05-09): Phase 88.16 — solar revenue mapping → 4300
-const CACHE_NAME = 'boonsook-pos-v5-cache-v181';
+// v182 (2026-05-09): Phase 88.17/18 — Receipt approval + B2B revenue split (4150)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v182';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

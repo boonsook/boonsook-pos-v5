@@ -396,6 +396,11 @@ export async function postJournalForServiceJob(job) {
  */
 export async function postJournalForReceipt(receipt) {
   if (!receipt?.id) return null;
+  // ★ Phase 88.17: เฉพาะ status='paid' เท่านั้น — ป้องกัน JV เกิดจาก receipt ที่ยัง pending
+  if (String(receipt.status || "").toLowerCase() !== "paid") {
+    console.info("[auto_post] receipt not yet paid, skip:", receipt.id, receipt.status);
+    return null;
+  }
   const amountRaw = receipt.grand_total ?? receipt.total_amount ?? receipt.amount;
   if (!amountRaw) return null;
   const docDate = (receipt.paid_at || receipt.receipt_date || receipt.created_at || new Date().toISOString()).slice(0, 10);
@@ -422,6 +427,55 @@ export async function postJournalForReceipt(receipt) {
     sourceTable: "receipts",
     sourceId: receipt.id,
     docType: "RV",
+    docDate,
+    description: desc,
+    lines: [
+      { account_code: mapping.debit_account_code,  debit: amount, credit: 0,      description: desc },
+      { account_code: mapping.credit_account_code, debit: 0,      credit: amount, description: desc }
+    ]
+  });
+}
+
+
+// ═══════════════════════════════════════════════════════════
+// Public: Delivery Invoice → JV (Phase 88.18 — B2B revenue)
+// ═══════════════════════════════════════════════════════════
+/**
+ * เรียกหลังออกใบส่งสินค้า/ใบแจ้งหนี้ — ลง revenue ที่นี่ (ไม่ใช่ตอนรับเงิน)
+ * Dr ลูกหนี้การค้า (1200) / Cr รายได้ B2B (4150)
+ *
+ * Receipts ที่อ้างอิง invoice นี้ → Cr 1200 (ตัดลูกหนี้) ตามปกติ
+ *
+ * @param {object} invoice - row จาก state.deliveryInvoices
+ *   ต้องมี: id, inv_no, customer_name, grand_total, created_at, status
+ */
+export async function postJournalForDeliveryInvoice(invoice) {
+  if (!invoice?.id) return null;
+  // skip ถ้าใบนี้ยกเลิก
+  if (String(invoice.status || "").toLowerCase() === "cancelled") return null;
+
+  const amount = Number(invoice.grand_total || invoice.total_amount || invoice.after_discount || 0);
+  if (amount < 0.01) return null;
+
+  const docDate = (invoice.created_at || new Date().toISOString()).slice(0, 10);
+  if (!_isAfterEffective(docDate)) {
+    console.info("[auto_post] invoice before effective date, skip:", docDate);
+    return null;
+  }
+
+  const mappings = await _getMappings();
+  const mapping = mappings["invoice_credit"];
+  if (!mapping?.debit_account_code || !mapping?.credit_account_code) {
+    console.warn("[auto_post] no mapping for invoice_credit");
+    return null;
+  }
+
+  const desc = `ใบส่งสินค้า ${invoice.inv_no || '#' + invoice.id} — ${invoice.customer_name || ''}`.trim();
+
+  return _postJournal({
+    sourceTable: "delivery_invoices",
+    sourceId: invoice.id,
+    docType: "SV",
     docDate,
     description: desc,
     lines: [

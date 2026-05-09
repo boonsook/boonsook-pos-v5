@@ -1,8 +1,114 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 9 พฤษภาคม 2026 (Phase 88.16 — Solar revenue mapping → 4300)
-**Version:** 5.39.5 (build 196) — Phase 88.16 (COA 4300 + service_solar mapping)
-**Previous:** 5.39.4 (build 195) — Phase 88.15 (แยกสิทธิ์ ช่าง vs admin)
+**อัปเดตล่าสุด:** 9 พฤษภาคม 2026 (Phase 88.17/18 — Receipt approval + B2B revenue split)
+**Version:** 5.40.0 (build 197) — Phase 88.17 + 88.18
+**Previous:** 5.39.5 (build 196) — Phase 88.16 (Solar revenue → 4300)
+
+---
+
+## 🚨 Phase 88.17 + 88.18 — Receipt Approval + B2B Revenue Fix (9 พ.ค.)
+
+### User feedback (2 ประเด็นใหญ่)
+1. **"ใบเสร็จขึ้น 'ชำระแล้ว' ทั้งที่ยังไม่รับเงิน → ควรเป็นรออนุมัติ"**
+2. **"แยกรายได้: หน้าร้าน vs งานราชการ/บริษัท เพื่อเข้าระบบสรรพากร"**
+
+### Audit เจอบั๊กบัญชีสำคัญ
+ก่อน fix, P&L แสดงรายได้แค่ **฿5,600** ทั้งที่มีใบเสร็จจริง **฿153,153**
+- 4100 = ฿600 (POS เล็กๆ)
+- 4210 = ฿3,000 (ซ่อมแอร์)
+- 4240 = ฿2,000 (อื่นๆ)
+- **gap = ฿147,553** ← B2B chain (Quote→Invoice→Receipt) revenue ไม่เคยถูก post!
+
+**Root cause:** เดิม
+- ออกใบเสนอราคา → ❌ ไม่ลง JV (ถูก)
+- ออกใบส่งสินค้า/แจ้งหนี้ → ❌ **ไม่ลง JV** (ผิด!)
+- ออกใบเสร็จ → ✅ ลง JV: Dr 1110 / Cr 1200 (แต่ Dr 1200 ไม่เคยมี → balance ติดลบ)
+
+---
+
+### What shipped (build 197)
+
+#### Phase 88.17 — Receipt Approval Workflow
+
+**1. delivery_invoices.js** — receipt default status="pending" (เดิม "paid")
+```js
+status: "pending",  // เดิม "paid" → user ต้องกดยืนยันใน list
+```
+
+**2. auto_post.js** — `postJournalForReceipt` ตรวจ status="paid" ก่อน post
+```js
+if (String(receipt.status || "").toLowerCase() !== "paid") return null;
+```
+
+**3. receipts.js** — UI ใหม่
+- Default filter chip = "🟡 รออนุมัติ" (สีม่วง #a855f7)
+- STATUS_LABELS: paid="✅ ชำระแล้ว" / pending="🟡 รออนุมัติ"
+
+#### Phase 88.18 — B2B Revenue Split + Fix JV Chain
+
+**SQL migration** (`supabase-phase88-17-revenue-split.sql`)
+```sql
+-- Rename 4100 → "หน้าร้าน (POS)"
+UPDATE chart_of_accounts SET name='รายได้ขายสินค้า — หน้าร้าน (POS)' WHERE code='4100';
+
+-- เพิ่ม 4150 → "ราชการ/บริษัท"
+INSERT INTO chart_of_accounts ... ('4150', 'รายได้ขายสินค้า — งานราชการ/บริษัท', ...);
+
+-- mapping invoice_credit
+INSERT INTO account_mapping ... ('invoice_credit', '...', '1200', '4150');
+```
+
+**JS code:**
+- `auto_post.js`: เพิ่ม `postJournalForDeliveryInvoice(invoice)` — Dr 1200 / Cr 4150
+- `quotations.js`: import + fire หลัง insert delivery_invoices
+- `backfill.js`: เพิ่ม source "🧾 ใบส่งสินค้า (B2B)"
+
+### Workflow ที่แก้แล้ว
+
+```
+ก่อน fix:
+  Quote → Invoice (no JV) → Receipt (paid auto, JV: Dr 1110/Cr 1200)
+  ผล: revenue ไม่ขึ้น P&L + ลูกหนี้ติดลบ
+
+หลัง fix (Phase 88.17 + 88.18):
+  Quote → Invoice (✅ JV: Dr 1200/Cr 4150) → Receipt (pending — รออนุมัติ)
+                                              ↓
+                             user กดยืนยัน → status=paid → JV: Dr 1110/Cr 1200
+  ผล: revenue ขึ้น P&L (4150 แยกจาก 4100) + ลูกหนี้ balance ถูก
+```
+
+### ⚠️ User actions required (2 ขั้นตอน)
+1. **Run SQL** ใน Supabase Editor — `supabase-phase88-17-revenue-split.sql`
+2. **Backfill ย้อนหลัง** ใบส่งสินค้าเก่า:
+   - เมนู → บัญชี → Backfill ย้อนหลัง
+   - ☑ ติ๊ก "🧾 ใบส่งสินค้า (B2B)"
+   - เลือก date range (เช่น 1 เม.ย. — 9 พ.ค.)
+   - กด "⚡ เริ่ม Backfill"
+   - ผลลัพธ์: P&L revenue 4150 จะเพิ่ม ฿147,553
+
+### Files changed (build 197)
+- `supabase-phase88-17-revenue-split.sql` (NEW)
+- `modules/accounting/auto_post.js` — เพิ่ม `postJournalForDeliveryInvoice` + ตรวจ status
+- `modules/quotations.js` — import + fire JV หลัง insert invoice
+- `modules/delivery_invoices.js` — receipt default status=pending
+- `modules/receipts.js` — UI default filter pending + STATUS_LABELS ใหม่
+- `modules/accounting/backfill.js` — เพิ่ม source delivery_invoices
+- `index.html` — bump 197
+- `sw.js` — v182
+- `modules/settings/pages.js` — build 197 + version 5.40.0
+- `CHANGELOG.md` — entry 5.40.0
+
+### Test plan
+1. ✅ Run SQL — ตรวจมี COA 4150 + mapping invoice_credit
+2. ✅ Backfill ใบส่งสินค้าเก่า → ดู progress + ผล "✅ created"
+3. ✅ เปิด P&L → ควรเห็นบรรทัด "รายได้ขายสินค้า — งานราชการ/บริษัท" ฿147,553
+4. ✅ ออกใบเสร็จใหม่ → status=pending → ใบรับงานเห็น "🟡 รออนุมัติ" → ยังไม่มี JV
+5. ✅ คลิก dropdown → "✓ เก็บเงิน" → status=paid → JV: Dr 1110 / Cr 1200
+
+### Pending Phase 88+
+- 🔒 **Period close + Lock periods** (เดิม Step 1 — ทำหลังจากนี้)
+- ✏️ Mapping editor UI
+- 📜 VAT support (XL — Phase ใหม่)
 
 ---
 

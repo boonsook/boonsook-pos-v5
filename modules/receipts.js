@@ -39,18 +39,19 @@ function _payIs(method, target) {
   return (pats[target] || []).some(p => m.includes(p));
 }
 
+// Phase 88.17: รออนุมัติ (pending) คือ default — JV ยังไม่เกิด
 const STATUS_LABELS = {
-  paid:      "ชำระแล้ว",
-  partial:   "ชำระบางส่วน",
-  pending:   "รอชำระ",
-  cancelled: "ยกเลิก",
-  refunded:  "คืนเงิน"
+  paid:      "✅ ชำระแล้ว",
+  partial:   "⏳ ชำระบางส่วน",
+  pending:   "🟡 รออนุมัติ",
+  cancelled: "⚫ ยกเลิก",
+  refunded:  "↩️ คืนเงิน"
 };
 const STATUS_COLOR = {
   paid:      "#10b981",
   partial:   "#f59e0b",
-  pending:   "#0284c7",
-  cancelled: "#ef4444",
+  pending:   "#a855f7",  // ม่วง — เน้นว่ารออนุมัติ (เหมือน workflow ของช่าง)
+  cancelled: "#64748b",
   refunded:  "#9ca3af"
 };
 
@@ -58,7 +59,8 @@ let _ctx = null;
 let _lineItems = [];
 let _viewMode = "list";  // list | preview
 let _viewingId = null;
-let _tabFilter = "all";  // all | pending | paid | cancelled
+// Phase 88.17: default filter = pending (เน้นใบที่รออนุมัติให้เห็นชัด)
+let _tabFilter = "pending";  // all | pending | paid | cancelled
 let _selectedIds = new Set(); // bulk selection
 // Phase 59 (B2): advanced filters
 let _rcDateRange = "all"; // all | today | 7d | 30d | month
@@ -155,10 +157,10 @@ export function renderReceiptsPage(ctx) {
       <!-- ★ Tab row -->
       <div class="rc-tabs" style="display:flex;gap:6px;margin-top:16px;border-bottom:2px solid #e2e8f0;overflow-x:auto">
         ${[
-          ['all', 'แสดงทั้งหมด', countAll, '#64748b'],
-          ['pending', 'รอชำระ', countPending, '#0284c7'],
-          ['paid', 'ชำระแล้ว', countPaid, '#10b981'],
-          ['cancelled', 'ยกเลิก', countCancelled, '#ef4444']
+          ['pending', '🟡 รออนุมัติ', countPending, '#a855f7'],
+          ['paid', '✅ ชำระแล้ว', countPaid, '#10b981'],
+          ['cancelled', '⚫ ยกเลิก', countCancelled, '#64748b'],
+          ['all', 'แสดงทั้งหมด', countAll, '#475569']
         ].map(([k,label,n,color]) => {
           const active = _tabFilter === k;
           return `<button class="rc-tab-btn" data-rc-tab="${k}" style="padding:8px 14px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap;color:${active?color:'#64748b'};border-bottom:${active?`2px solid ${color}`:'2px solid transparent'};margin-bottom:-2px">${label} <span style="color:#94a3b8;font-weight:400">(${n})</span></button>`;
@@ -205,7 +207,8 @@ export function renderReceiptsPage(ctx) {
         </thead>
         <tbody>
           ${filtered.length ? filtered.map(r => {
-            const status = r.status || "paid";
+            // Phase 88.17: default = pending (ไม่ใช่ paid อัตโนมัติ)
+            const status = r.status || "pending";
             const statusLabel = STATUS_LABELS[status] || status;
             const statusColor = STATUS_COLOR[status] || "#9ca3af";
             const isPending = status === "pending" || status === "partial";

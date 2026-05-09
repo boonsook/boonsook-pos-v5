@@ -5,6 +5,8 @@
 import { renderEmpty, renderSkeleton } from "./ui_states.js";
 // Phase 57: audit log + Phase 70 (D3): Excel export
 import { logActivity, exportToExcel, todaySuffix } from "./utils.js";
+// Phase 88.18: auto-post JV ตอนออก invoice (B2B revenue)
+import { postJournalForDeliveryInvoice } from "./accounting/auto_post.js";
 
 // share ใช้ window._appShareDoc จาก main.js
 
@@ -1181,6 +1183,22 @@ async function convertToDeliveryInvoice(q) {
   }
 
   await xhrPatch("quotations", { status: "invoiced" }, "id", q.id);
+
+  // ★ Phase 88.18: auto-post JV — Dr 1200 (ลูกหนี้) / Cr 4150 (รายได้ B2B)
+  // เดิม: revenue ไม่เคย post จนกว่าจะออกใบเสร็จ — ทำให้ลูกหนี้ติดลบ + revenue หายจาก P&L
+  if (invoiceId) {
+    postJournalForDeliveryInvoice({
+      id: invoiceId,
+      inv_no: invNo,
+      customer_name: q.customer_name || q.customer || "",
+      grand_total: q.grand_total || q.amount || 0,
+      total_amount: q.total_amount || 0,
+      after_discount: q.after_discount || 0,
+      status: "pending",
+      created_at: new Date().toISOString()
+    }).catch(e => console.warn("[quotations] auto-post invoice JV failed:", e?.message));
+  }
+
   await _ctx.loadAllData();
   _ctx.showToast("สร้างใบส่งสินค้าแล้ว: " + invNo);
   _viewMode = "list";

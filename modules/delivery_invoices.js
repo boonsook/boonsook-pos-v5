@@ -728,7 +728,8 @@ async function convertToReceipt(inv) {
     project_name: inv.project_name || "",
     ref_no: inv.inv_no || "",
     salesperson: inv.salesperson || "",
-    status: "paid",
+    // ★ Phase 88.17: เดิม "paid" (auto JV) — ตอนนี้ "pending" → user ต้องกดยืนยันใน list
+    status: "pending",
     note: "จากใบส่งสินค้า " + (inv.inv_no || "")
   };
 

@@ -7,6 +7,33 @@
 
 ---
 
+## 5.40.0 (build 197) — 2026-05-09 ⭐ Phase 88.17 + 88.18
+
+### Phase 88.17 — Receipt Approval Workflow
+- **fix:** ใบเสร็จออกใหม่ default `status="pending"` (เดิม "paid" auto)
+  - delivery_invoices.js line 731 — เปลี่ยน default
+- **fix:** `postJournalForReceipt` ตรวจ `status="paid"` ก่อน post JV
+  - กัน JV เกิดทั้งที่ user ยังไม่ยืนยันรับเงิน
+- **feat:** receipts.js UI:
+  - Default filter chip = "🟡 รออนุมัติ" (ม่วง — เน้นความสำคัญ)
+  - STATUS_LABELS: paid="✅ ชำระแล้ว" / pending="🟡 รออนุมัติ" / cancelled="⚫ ยกเลิก"
+
+### Phase 88.18 — B2B Revenue Split + Fix JV Chain ⚠️ บั๊กบัญชีสำคัญ
+- **bug fix:** เดิม invoice ออกแล้ว revenue **ไม่เคย post** เข้า P&L → ลูกหนี้ติดลบ + ขาดทุนปลอม
+- **feat:** เพิ่ม COA **4150** "รายได้ขายสินค้า — งานราชการ/บริษัท"
+- **feat:** Rename COA 4100 → "รายได้ขายสินค้า — หน้าร้าน (POS)"
+- **feat:** เพิ่ม mapping `invoice_credit` (Dr 1200 / Cr 4150)
+- **feat:** เพิ่ม `postJournalForDeliveryInvoice()` ใน auto_post.js
+  - quotations.js หลัง insert invoice → fire JV (Dr 1200 / Cr 4150)
+- **feat:** Backfill page เพิ่ม source "🧾 ใบส่งสินค้า (B2B)"
+  - User backfill ย้อนหลังให้ invoice เก่าได้
+
+### User actions required
+1. Run SQL: `supabase-phase88-17-revenue-split.sql`
+2. Backfill ย้อนหลัง: บัญชี → Backfill ย้อนหลัง → เลือก "ใบส่งสินค้า" + date range → รัน
+
+---
+
 ## 5.39.5 (build 196) — 2026-05-09 ⭐ Phase 88.16
 
 ### Phase 88.16 — Solar revenue mapping → 4300

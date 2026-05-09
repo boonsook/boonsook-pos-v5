@@ -17,17 +17,19 @@ import {
   postJournalForSale,
   postJournalForExpense,
   postJournalForReceipt,
-  postJournalForServiceJob
+  postJournalForServiceJob,
+  postJournalForDeliveryInvoice
 } from "./auto_post.js";
 
 let _ctx = null;
 let _running = false;
 
 const SOURCES = [
-  { key: "sales",        label: "🛒 การขาย POS",       table: "sales",        dateField: "created_at",   docType: "SV" },
-  { key: "expenses",     label: "💸 รายจ่าย",          table: "expenses",     dateField: "expense_date", docType: "PV" },
-  { key: "receipts",     label: "🧾 ใบเสร็จ (paid)",   table: "receipts",     dateField: "receipt_date", docType: "RV" },
-  { key: "service_jobs", label: "🔧 งานช่าง (closed)", table: "service_jobs", dateField: "created_at",   docType: "SV" }
+  { key: "sales",              label: "🛒 การขาย POS",            table: "sales",              dateField: "created_at",   docType: "SV" },
+  { key: "expenses",           label: "💸 รายจ่าย",               table: "expenses",           dateField: "expense_date", docType: "PV" },
+  { key: "delivery_invoices",  label: "🧾 ใบส่งสินค้า (B2B)",     table: "delivery_invoices",  dateField: "created_at",   docType: "SV" },
+  { key: "receipts",           label: "💰 ใบเสร็จ (paid)",        table: "receipts",           dateField: "receipt_date", docType: "RV" },
+  { key: "service_jobs",       label: "🔧 งานช่าง (closed)",      table: "service_jobs",       dateField: "created_at",   docType: "SV" }
 ];
 
 function escHtml(s) { const d = document.createElement("div"); d.textContent = String(s ?? ""); return d.innerHTML; }
@@ -286,10 +288,11 @@ async function _onRun() {
       try {
         let result = null;
         switch (bucket.srcKey) {
-          case "sales":         result = await postJournalForSale(row);        break;
-          case "expenses":      result = await postJournalForExpense(row);     break;
-          case "receipts":      result = await postJournalForReceipt(row);     break;
-          case "service_jobs":  result = await postJournalForServiceJob(row);  break;
+          case "sales":              result = await postJournalForSale(row);             break;
+          case "expenses":           result = await postJournalForExpense(row);          break;
+          case "delivery_invoices":  result = await postJournalForDeliveryInvoice(row);  break;
+          case "receipts":           result = await postJournalForReceipt(row);          break;
+          case "service_jobs":       result = await postJournalForServiceJob(row);       break;
         }
         if (result) stats.created++;
         else        stats.skipped++;  // null = duplicate / before effective / no mapping
