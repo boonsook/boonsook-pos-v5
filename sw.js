@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v186 (2026-05-09): Phase 88.19b — fix accounting_periods route in ALL_ROUTES
-const CACHE_NAME = 'boonsook-pos-v5-cache-v186';
+// v187 (2026-05-09): Phase 88.19c — fix table name journal_entry_lines → journal_lines
+const CACHE_NAME = 'boonsook-pos-v5-cache-v187';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

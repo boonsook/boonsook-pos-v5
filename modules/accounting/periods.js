@@ -46,7 +46,7 @@ async function fetchPeriodSummary(year, month) {
 
   let revenue = 0, expense = 0;
   if (ids.length) {
-    const linesUrl = `${cfg.url}/rest/v1/journal_entry_lines?select=account_code,debit,credit&entry_id=in.(${ids.join(",")})`;
+    const linesUrl = `${cfg.url}/rest/v1/journal_lines?select=account_code,debit,credit&entry_id=in.(${ids.join(",")})`;
     const lines = await (await fetch(linesUrl, { headers })).json();
     lines.forEach(l => {
       const code = String(l.account_code || "");
