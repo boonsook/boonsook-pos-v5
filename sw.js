@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v170 (2026-05-09): Phase 88.11b — แยกปุ่ม slip 📷 ถ่ายรูป / 🖼️ แกลลอรี่ (มือถือ UX)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v170';
+// v171 (2026-05-09): Phase 88.11c — verify-slip fallback chain + code-fence strip (fix Gemini JSON parse)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v171';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

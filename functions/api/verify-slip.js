@@ -72,8 +72,6 @@ JSON schema:
 - ถ้าไม่ใช่สลิป (is_slip=false) → field อื่นใส่ null/0 ได้
 - ห้ามครอบด้วย \`\`\`json`;
 
-    // Call Gemini Vision (gemini-2.5-flash — ฟรี 60 req/min, รองรับภาพ)
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
     const geminiBody = {
       contents: [{
         parts: [
@@ -88,18 +86,56 @@ JSON schema:
       }
     };
 
-    const r = await fetch(geminiUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(geminiBody)
-    });
+    // ★ Fallback chain — เหมือน parse-receipt.js (1.5 family ถูกลบหมดแล้ว)
+    const MODELS = [
+      "gemini-2.5-flash",
+      "gemini-2.0-flash-lite",
+      "gemini-flash-latest",
+      "gemini-2.0-flash"
+    ];
 
-    if (!r.ok) {
-      const errText = await r.text().catch(() => "");
+    let r = null, usedModel = "";
+    const attempts = [];
+    for (const model of MODELS) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 25000);
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+        const resp = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(geminiBody),
+          signal: ctrl.signal
+        });
+        clearTimeout(timer);
+        if (resp.ok) { r = resp; usedModel = model; break; }
+        const errTxt = await resp.text();
+        attempts.push(`${model}: ${resp.status} ${errTxt.slice(0, 120)}`);
+        if (resp.status !== 404 && resp.status !== 429) {
+          return new Response(JSON.stringify({
+            ok: false,
+            error: "Gemini API error " + resp.status,
+            detail: errTxt.slice(0, 500),
+            model
+          }), { status: 200, headers: corsHeaders });
+        }
+      } catch (fetchErr) {
+        clearTimeout(timer);
+        if (fetchErr?.name === "AbortError") {
+          return new Response(JSON.stringify({
+            ok: false,
+            error: "Gemini ตอบช้าเกิน 25 วินาที — ลองรูปเล็กกว่า"
+          }), { status: 200, headers: corsHeaders });
+        }
+        attempts.push(`${model}: fetch ${fetchErr?.message || "fail"}`);
+      }
+    }
+
+    if (!r) {
       return new Response(JSON.stringify({
         ok: false,
-        error: `Gemini API error ${r.status}`,
-        detail: errText.slice(0, 500)
+        error: "ไม่มี Gemini model ใดใช้งานได้",
+        attempts
       }), { status: 200, headers: corsHeaders });
     }
 
@@ -107,12 +143,15 @@ JSON schema:
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
     let parsed;
     try {
-      parsed = JSON.parse(text);
+      // ★ Clean code fences ก่อน parse (เผื่อ Gemini ครอบ ```json...``` แม้ตั้ง responseMimeType)
+      const clean = text.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
+      parsed = JSON.parse(clean);
     } catch(e) {
       return new Response(JSON.stringify({
         ok: false,
         error: "Gemini ส่ง JSON ไม่ valid",
-        raw: text.slice(0, 500)
+        raw: text.slice(0, 500),
+        model: usedModel
       }), { status: 200, headers: corsHeaders });
     }
 
