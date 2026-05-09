@@ -1,8 +1,51 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 9 พฤษภาคม 2026 (Phase 88.19 — Period Close ✅ verified)
-**Version:** 5.41.2 (build 202) — Phase 88.19 (Period Close + relax trigger)
-**Previous:** 5.40.2 (build 199) — Phase 88.18c (camera/gallery split)
+**อัปเดตล่าสุด:** 9 พฤษภาคม 2026 (Phase 88.20 — POS bank picker ✅ verified)
+**Version:** 5.42.0 (build 203) — Phase 88.20 (cash breakdown + bank picker)
+**Previous:** 5.41.2 (build 202) — Phase 88.19 (Period Close)
+
+---
+
+## 🛒 Phase 88.20 — POS Cash Breakdown + Bank Picker (build 203) ✅ VERIFIED
+
+### User feedback
+> "เงินสด ควรเพิ่มรายละเอียดยอดเงินที่ได้ จากลูกค้า อะไร ยอดอะไร ได้ด้วย"
+> "โอนบัญชีธนาคาร ควรให้เราเลือกเปลี่ยนบัญชีได้เอง"
+
+### What shipped (build 203)
+
+**1. POS Cash UI:**
+- Confirm-proof view: 2-column breakdown (รับเงิน / เงินทอน) เด่นชัด
+- Sales note: `💵 รับ ฿X ทอน ฿Y`
+
+**2. POS Transfer UI:**
+- Dropdown picker (ถ้ามี ≥ 2 banks) — เลือกบัญชีรับเงิน
+- QR + ข้อมูลบัญชีเปลี่ยนตามที่เลือก
+- แสดง COA Code
+
+**3. Settings → ข้อมูลการเงิน:**
+- เพิ่ม field "📊 รหัสบัญชี COA" per bank
+- บัญชีแรก default = 1130 (suggestion)
+
+**4. auto_post.js logic:**
+- `postJournalForSale` parse `BANK_COA:XXXX` จาก note
+- Override Dr account จาก default 1130 → COA ที่เลือก
+
+### Verified by user
+- ✅ ตั้งค่า 2 banks: KBANK (1130) + SCB (1131) ครบ
+- ✅ POS Transfer dropdown: 2 ตัวเลือก แสดง COA
+- ✅ เลือก KBANK → QR เขียว, COA 1130
+- ✅ เลือก SCB → QR ม่วง, COA 1131
+- ✅ Checkout → JV (SV2026050005): Dr 1130 / Cr 4100 ตรงกับ KBANK ที่เลือก
+
+### Files changed
+- `modules/pos.js` — bank dropdown + cash breakdown + note format
+- `modules/settings/payment.js` — coaCode field
+- `modules/accounting/auto_post.js` — parse BANK_COA from note
+- `index.html` + `sw.js` + `pages.js` — bump 203
+- `CHANGELOG.md`
+
+---
 
 ---
 
