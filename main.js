@@ -2437,6 +2437,9 @@ function openServiceJobDrawer(job=null){
   state.editingServiceJobId = job?.id || null;
   // ★ เก็บสถานะเดิม ไว้ตรวจการเปลี่ยนเป็น "done" ตอน save
   state.editingServiceJobOrigStatus = job?.status || "pending";
+  // ★ Phase 88.10b: เก็บ total_cost + payment_method เดิม → ตรวจว่าเปลี่ยนตอน save
+  state.editingServiceJobOrigTotalCost = job?.total_cost ?? null;
+  state.editingServiceJobOrigPaymentMethod = job?.payment_method ?? null;
   setText("serviceJobDrawerTitle", job ? "แก้ไขงานช่าง" : "เพิ่มงานช่าง");
   $("serviceCustomer").value = job?.customer_name || "";
   $("servicePhone").value = job?.customer_phone || "";
@@ -2681,18 +2684,28 @@ async function saveServiceJob(){
   const transitionedToDone = !isNewJob && !wasComplete && isNowComplete;
   const newJobAlreadyComplete = isNewJob && isNowComplete;
 
-  // ★ Phase 88.1b/88.8/88.10 — auto-post JV เมื่องานปิด (transition หรือสร้างใหม่ + status = closed/done/delivered)
-  // (fire-and-forget — ไม่ block UX)
-  if (transitionedToDone || newJobAlreadyComplete) {
+  // ★ Phase 88.10b: ตรวจว่า amount/method เปลี่ยนหรือไม่ — trigger re-post แม้ status ไม่ transition
+  const origTotalCost = Number(state.editingServiceJobOrigTotalCost ?? 0);
+  const newTotalCost  = Number(payload.total_cost ?? 0);
+  const totalChanged  = Math.abs(origTotalCost - newTotalCost) > 0.005;
+  const methodChanged = (state.editingServiceJobOrigPaymentMethod || "") !== (payload.payment_method || "");
+  // Edit งานเก่าที่ status complete อยู่แล้ว + แก้ค่าเงิน/method → ก็ต้อง re-post
+  const editCompleteWithChange = !isNewJob && wasComplete && isNowComplete && (totalChanged || methodChanged);
+
+  // ★ Phase 88.1b/88.8/88.10 — auto-post JV เมื่องานปิด
+  //   trigger 3 case:
+  //   1. transitionedToDone   — เพิ่ง transition pending → delivered
+  //   2. newJobAlreadyComplete — สร้างใหม่ + status=delivered ทันที
+  //   3. editCompleteWithChange — งานปิดอยู่แล้ว + user แก้ total/method (Phase 88.10b)
+  if (transitionedToDone || newJobAlreadyComplete || editCompleteWithChange) {
     try {
-      // xhrPost returns { data: row } (ไม่ใช่ array); xhrPatch อาจไม่ return data
       const jobId = isNewJob ? res.data?.id : state.editingServiceJobId;
       if (jobId) {
         const fullJob = { ...(state.serviceJobs || []).find(j => String(j.id) === String(jobId)), ...payload, id: jobId };
-        // ★ Phase 88.10: ถ้า edit งานเก่า → void JV เก่าก่อน เพื่อให้ re-post ด้วย total_cost ใหม่
-        // (idempotent unique index จะ block POST ถ้ามี JV เดิม — ต้องลบก่อน)
+        // ถ้า edit + มี JV เก่า (transition หรือ change) → void ก่อน เพื่อให้ POST ใหม่ผ่าน
+        const needsVoid = !isNewJob && (wasComplete || transitionedToDone);
         const prepareAndPost = async () => {
-          if (!isNewJob) {
+          if (needsVoid) {
             await voidJvForSource("service_jobs", jobId);
           }
           await postJournalForServiceJob(fullJob);
