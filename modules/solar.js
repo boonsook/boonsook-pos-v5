@@ -441,9 +441,9 @@ export function renderSolarPage(ctx) {
             <option value="in_progress">🔄 กำลังดำเนินการ</option>
             <option value="done">✅ เสร็จแล้ว</option>
             <option value="pending_review">📨 รออนุมัติ</option>
-            <option value="delivered">📦 ส่งมอบแล้ว (ลง JV ทันที)</option>
-            <option value="closed">🎉 ปิดงาน + รับเงิน (ลง JV ทันที)</option>
           </select>
+          <!-- Phase 88.15: ลบ delivered/closed ออก — admin only ใน drawer ใบรับงาน -->
+          <!-- ช่างใช้ "📨 รออนุมัติ" + แนบสลิป → admin approve → JV เกิด -->
         </div>
         <div>
           <label class="set-field-label">วิธีรับเงิน</label>
@@ -593,7 +593,9 @@ export function renderSolarPage(ctx) {
     // Phase 88.12 — closure values
     const selectedStatus = container.querySelector("#solStatusSel")?.value || "pending";
     const paymentMethod  = container.querySelector("#solPaymentMethod")?.value || "";
-    const COMPLETION_STATUSES = ["done","delivered","closed"];
+    // Phase 88.15: ฟอร์มช่างไม่ trigger JV เอง — JV เกิดผ่าน admin drawer (approve banner)
+    // เดิม: ["done","delivered","closed"] → ตอนนี้ [] (ปลอดภัยกว่า — กัน JV เกิด 2 ครั้ง)
+    const COMPLETION_STATUSES = [];
     const isClosure = COMPLETION_STATUSES.includes(selectedStatus);
 
     const statusEl = container.querySelector("#solStatus");

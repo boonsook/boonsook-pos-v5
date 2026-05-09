@@ -183,9 +183,8 @@ export function renderAcInstallPage(ctx) {
             <option value="in_progress">🔄 กำลังดำเนินการ</option>
             <option value="done">✅ เสร็จแล้ว</option>
             <option value="pending_review">📨 รออนุมัติ (ช่างส่ง — รอแอดมิน)</option>
-            <option value="delivered">📦 ส่งมอบแล้ว (ลง JV ทันที)</option>
-            <option value="closed">🎉 ปิดงาน + รับเงิน (ลง JV ทันที)</option>
           </select>
+          <!-- Phase 88.15: ลบ delivered/closed ออก — admin only ใน drawer ใบรับงาน -->
         </div>
         <div>
           <label class="set-field-label">วิธีรับเงิน</label>
@@ -477,7 +476,8 @@ export function renderAcInstallPage(ctx) {
       const selectedStatus = container.querySelector("#acStatusSel")?.value || "pending";
       const paymentMethod  = container.querySelector("#acPaymentMethod")?.value || "";
       const slipUrl        = container._getAcSlipUrl?.() || "";
-      const COMPLETION_STATUSES = ["done", "delivered", "closed"];
+      // Phase 88.15: ฟอร์มช่างไม่ trigger JV เอง — JV เกิดผ่าน admin drawer (approve banner)
+      const COMPLETION_STATUSES = [];
       const isClosure = COMPLETION_STATUSES.includes(selectedStatus);
 
       // Phase 43.2: ใช้ field name ตรงกับ schema (customer_address ไม่ใช่ address)

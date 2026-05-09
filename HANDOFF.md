@@ -1,8 +1,71 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 9 พฤษภาคม 2026 (Phase 88.14 — Fix service jobs missing from list after save)
-**Version:** 5.39.3 (build 194) — Phase 88.14 (state.serviceJobs optimistic update)
-**Previous:** 5.39.2 (build 193) — Phase 88.13 (solar items linked to inventory)
+**อัปเดตล่าสุด:** 9 พฤษภาคม 2026 (Phase 88.15 — แยกสิทธิ์ ช่าง vs admin)
+**Version:** 5.39.4 (build 195) — Phase 88.15 (technician status options ลด 6→4)
+**Previous:** 5.39.3 (build 194) — Phase 88.14 (state optimistic update)
+
+---
+
+## 🔐 Phase 88.15 — แยกสิทธิ์ ช่าง vs Admin (9 พ.ค.)
+
+### User feedback
+> "ในหน้าช่าง ทุกหน้า ไม่ควรมี 2 ช้อยนี้นะครับ"
+> (📦 ส่งมอบแล้ว / 🎉 ปิดงาน + รับเงิน — ลง JV ทันที)
+
+### Root cause / Design
+- ก่อน fix: ทุก dropdown ในฟอร์มช่างมี 6 options รวม `delivered` + `closed`
+- ช่างเลือก → JV เกิดทันที (`COMPLETION_STATUSES = ["done","delivered","closed"]`)
+- ผู้ใช้ต้องการ: **ช่างห้ามทำให้ JV เกิดเอง** — ต้องผ่าน admin approve เสมอ
+
+### What shipped (build 195)
+
+**1. ฟอร์มช่าง dropdown — เหลือ 4 options:**
+```
+⏳ รอดำเนินการ      (pending)
+🔄 กำลังดำเนินการ    (in_progress)
+✅ เสร็จแล้ว         (done)
+📨 รออนุมัติ         (pending_review)  ← ส่งให้ admin ตรวจ
+```
+
+ลบออก:
+- ❌ 📦 ส่งมอบแล้ว (ลง JV ทันที) — admin only
+- ❌ 🎉 ปิดงาน + รับเงิน (ลง JV ทันที) — admin only
+
+**2. ปิด JV trigger ในฟอร์มช่าง:**
+```js
+// เดิม:    const COMPLETION_STATUSES = ["done","delivered","closed"];
+// ใหม่:    const COMPLETION_STATUSES = [];
+```
+
+**3. Admin drawer (index.html `#serviceStatus`) ยังมี 7 options ครบ**
+- ใช้ approve banner (ม่วง) → กดอนุมัติ → set status=delivered → save → JV เกิด
+
+### Workflow ที่ชัดเจน
+```
+ช่าง (mobile):
+  เปิดฟอร์ม → กรอก → status="📨 รออนุมัติ" + แนบสลิป → ส่ง
+
+Admin (desktop):
+  ใบรับงาน → filter "📨 รออนุมัติ" → คลิก row → drawer
+  → banner ม่วง "✅ อนุมัติ + ลงรายได้" → กด → JV เกิด
+
+JV ไม่มีทางเกิดจากฟอร์มช่าง (ปลอดภัย กัน duplicate)
+```
+
+### Files changed (build 195)
+- `modules/solar.js` — ลบ 2 options + `COMPLETION_STATUSES = []`
+- `modules/ac_install.js` — เหมือนกัน
+- `modules/service_form.js` — เหมือนกัน (ครอบคลุม 9 service types)
+- `index.html` — bump `?v=195` + APP_BUILD
+- `sw.js` — bump v180
+- `modules/settings/pages.js` — bump build 195
+- `CHANGELOG.md` — entry 5.39.4
+
+### Test plan
+1. **เปิดหน้าช่าง** (โซล่า, ติดตั้งแอร์, ซ่อมแอร์ ฯลฯ)
+2. **เปิด dropdown สถานะงาน** → ควรเห็นแค่ 4 ตัวเลือก (ไม่มี ส่งมอบแล้ว / ปิดงาน)
+3. **เลือก "📨 รออนุมัติ"** → กรอก + แนบสลิป → save → ✅ ใบรับงานเห็นใน filter "รออนุมัติ"
+4. **Admin เปิด drawer** → ดู dropdown → ✅ ยังมี 7 options ครบ + banner approve
 
 ---
 

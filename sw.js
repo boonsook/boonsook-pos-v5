@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v179 (2026-05-09): Phase 88.14 — fix new service jobs not appearing in list (state update)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v179';
+// v180 (2026-05-09): Phase 88.15 — remove delivered/closed from technician form (admin only)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v180';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

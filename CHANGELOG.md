@@ -7,6 +7,18 @@
 
 ---
 
+## 5.39.4 (build 195) — 2026-05-09 ⭐ Phase 88.15
+
+### Phase 88.15 — แยกสิทธิ์ ช่าง vs admin (delivered/closed = admin only)
+- **fix:** ลบ option "📦 ส่งมอบแล้ว (ลง JV ทันที)" + "🎉 ปิดงาน + รับเงิน (ลง JV ทันที)" ออกจากฟอร์มช่าง
+  - 11 หน้า: solar.js / ac_install.js / service_form.js (9 routes)
+  - ช่างเลือกได้: pending / in_progress / done / pending_review เท่านั้น
+- **fix:** `COMPLETION_STATUSES = []` ในฟอร์มช่าง — JV ไม่ trigger เองอีก
+  - JV เกิดผ่าน admin drawer (approve banner) เท่านั้น
+- **impact:** ป้องกันช่างกดผิดแล้ว JV เกิด — workflow ชัดเจน: ช่างส่ง → admin อนุมัติ
+
+---
+
 ## 5.39.3 (build 194) — 2026-05-09 ⭐ Phase 88.14
 
 ### Phase 88.14 — Fix new service jobs ไม่โผล่ในใบรับงาน

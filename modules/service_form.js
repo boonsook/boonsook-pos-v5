@@ -165,9 +165,8 @@ export function renderServiceFormPage(ctx, serviceType) {
             <option value="in_progress">🔄 กำลังดำเนินการ</option>
             <option value="done">✅ เสร็จแล้ว</option>
             <option value="pending_review">📨 รออนุมัติ (ช่างส่ง — รอแอดมิน)</option>
-            <option value="delivered">📦 ส่งมอบแล้ว (ลง JV ทันที)</option>
-            <option value="closed">🎉 ปิดงาน + รับเงิน (ลง JV ทันที)</option>
           </select>
+          <!-- Phase 88.15: ลบ delivered/closed ออก — admin only ใน drawer ใบรับงาน -->
         </div>
         <div>
           <label class="set-field-label">วิธีรับเงิน (ถ้ามี)</label>
@@ -468,7 +467,8 @@ export function renderServiceFormPage(ctx, serviceType) {
       // ★ Phase 88.6: รับค่าจาก closure section (default pending — ถ้า user ไม่เปลี่ยน)
       const selectedStatus = container.querySelector("#svStatusSel")?.value || "pending";
       const paymentMethod  = container.querySelector("#svPaymentMethod")?.value || "";
-      const COMPLETION_STATUSES = ["done", "delivered", "closed"];
+      // Phase 88.15: ฟอร์มช่างไม่ trigger JV เอง — JV เกิดผ่าน admin drawer (approve banner)
+      const COMPLETION_STATUSES = [];
       const isClosure = COMPLETION_STATUSES.includes(selectedStatus);
 
       const record = {
