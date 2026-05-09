@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v168 (2026-05-09): Phase 88.10b — Trigger re-post แม้ status ไม่ transition (edit complete job)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v168';
+// v169 (2026-05-09): Phase 88.11 — Slip upload + AI verify (Gemini Vision) ใน drawer
+const CACHE_NAME = 'boonsook-pos-v5-cache-v169';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

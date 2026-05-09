@@ -667,6 +667,23 @@
         <div style="font-size:10px;color:#92400e;margin-top:6px;line-height:1.5">💡 เปลี่ยน status เป็น <b>"ส่งมอบแล้ว"</b> หรือ <b>"ปิดงาน"</b> → ระบบลงรายได้อัตโนมัติ (Cr 4200-4290 ตามประเภทงาน)</div>
       </div>
 
+      <!-- 📷 Slip section (Phase 88.11) — แสดงเมื่อ payment_method = transfer/qr -->
+      <div id="serviceSlipSection" style="border:1px dashed #c4b5fd;border-radius:10px;padding:12px;background:#faf5ff;margin-top:12px;display:none">
+        <div style="font-size:12px;font-weight:700;color:#581c87;margin-bottom:8px">📷 สลิปการโอน + ตรวจ AI</div>
+        <div id="serviceSlipPreview" style="margin-bottom:8px">
+          <div style="color:#94a3b8;font-size:11px;font-style:italic">ยังไม่มีสลิป — เลือกรูปด้านล่าง</div>
+        </div>
+        <input type="file" id="serviceSlipFile" accept="image/*" capture="environment" style="display:none" />
+        <input type="hidden" id="serviceSlipUrl" />
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button type="button" id="serviceSlipPickBtn" class="btn light" style="font-size:12px;padding:8px 12px">📸 ถ่าย/เลือกรูปสลิป</button>
+          <button type="button" id="serviceSlipVerifyBtn" class="btn light" style="font-size:12px;padding:8px 12px;display:none">🤖 ตรวจ AI</button>
+          <button type="button" id="serviceSlipRemoveBtn" class="btn light" style="font-size:12px;padding:8px 12px;color:#dc2626;display:none">🗑️ ลบ</button>
+        </div>
+        <div id="serviceSlipVerifyResult" style="margin-top:8px"></div>
+        <div style="font-size:10px;color:#6b21a8;margin-top:8px;line-height:1.5">💡 AI จะอ่าน: ผู้โอน · ผู้รับ · ยอด · เลข ref · สัญญาณตัดต่อ — เทียบยอดสุทธิอัตโนมัติ</div>
+      </div>
+
       <!-- Phase 63 (C1): Share link section — populated by _renderServiceJobShareSection() -->
       <div id="serviceJobShareSection" class="hidden mt12"></div>
 
@@ -773,7 +790,7 @@
   <script>
   (async function selfHeal() {
     try {
-      var APP_BUILD = 183;
+      var APP_BUILD = 184;
       var STUCK_BUILDS_BEFORE = 47; // builds before this มี immutable-cache bug
       var stored = parseInt(localStorage.getItem('bsk_app_build') || '0', 10);
       var justRecovered = sessionStorage.getItem('bsk_just_recovered') === '1';
@@ -822,7 +839,7 @@
     }
   })();
   </script>
-  <script type="module" src="./main.js?v=183"></script>
+  <script type="module" src="./main.js?v=184"></script>
   <script>
     // ═══ Loading Overlay ═══
     function hideLoadingOverlay() {

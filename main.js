@@ -2474,6 +2474,12 @@ function openServiceJobDrawer(job=null){
     $(id)?.addEventListener("input", _recalc, { once: false });
   });
 
+  // ★ Phase 88.11: Slip section — แสดงเมื่อ payment_method = transfer/qr
+  $("serviceSlipUrl").value = job?.payment_slip_url || "";
+  _updateServiceSlipSection();
+  $("servicePaymentMethod")?.addEventListener("change", _updateServiceSlipSection);
+  _wireServiceSlipUpload();
+
   // ★ Load before/after photos
   _setServicePhotoPreview("Before", job?.photo_before || "");
   _setServicePhotoPreview("After", job?.photo_after || "");
@@ -2588,6 +2594,173 @@ function _shareToLine(job, url) {
   window.open(lineUrl, "_blank");
 }
 
+// ═══════════════════════════════════════════════════════════
+//  Phase 88.11 — Slip upload + AI verification ใน drawer
+// ═══════════════════════════════════════════════════════════
+function _updateServiceSlipSection() {
+  const sec = document.getElementById("serviceSlipSection");
+  if (!sec) return;
+  const pm = $("servicePaymentMethod")?.value || "";
+  const showSection = /transfer|qr/.test(pm);
+  sec.style.display = showSection ? "block" : "none";
+  if (showSection) _renderSlipPreviewState();
+}
+
+function _renderSlipPreviewState() {
+  const url = $("serviceSlipUrl")?.value || "";
+  const preview = document.getElementById("serviceSlipPreview");
+  const verifyBtn = document.getElementById("serviceSlipVerifyBtn");
+  const removeBtn = document.getElementById("serviceSlipRemoveBtn");
+  if (!preview) return;
+  if (url) {
+    preview.innerHTML = `<img src="${escapeHtml(url)}" alt="slip" style="max-width:200px;max-height:200px;border-radius:8px;border:1px solid #e2e8f0" />`;
+    if (verifyBtn) verifyBtn.style.display = "inline-block";
+    if (removeBtn) removeBtn.style.display = "inline-block";
+  } else {
+    preview.innerHTML = `<div style="color:#94a3b8;font-size:11px;font-style:italic">ยังไม่มีสลิป — เลือกรูปด้านล่าง</div>`;
+    if (verifyBtn) verifyBtn.style.display = "none";
+    if (removeBtn) removeBtn.style.display = "none";
+  }
+}
+
+let _slipWired = false;
+function _wireServiceSlipUpload() {
+  if (_slipWired) return;
+  _slipWired = true;
+
+  const fileEl = document.getElementById("serviceSlipFile");
+  const pickBtn = document.getElementById("serviceSlipPickBtn");
+  const verifyBtn = document.getElementById("serviceSlipVerifyBtn");
+  const removeBtn = document.getElementById("serviceSlipRemoveBtn");
+
+  pickBtn?.addEventListener("click", () => fileEl?.click());
+
+  fileEl?.addEventListener("change", async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+
+    // Local preview ก่อน upload
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const preview = document.getElementById("serviceSlipPreview");
+      if (preview) preview.innerHTML = `
+        <img src="${ev.target.result}" alt="slip" style="max-width:200px;max-height:200px;border-radius:8px;border:1px solid #e2e8f0" />
+        <div id="serviceSlipUploadStatus" style="font-size:11px;color:#0284c7;margin-top:4px">⏳ กำลังอัปโหลด...</div>
+      `;
+    };
+    reader.readAsDataURL(f);
+
+    // Upload to Supabase Storage
+    try {
+      const cfg = window.SUPABASE_CONFIG;
+      const token = window._sbAccessToken || cfg.anonKey;
+      const ts = Date.now();
+      const ext = (f.name.split(".").pop() || "jpg").toLowerCase();
+      const filePath = `service-slips/drawer_${ts}_${Math.random().toString(36).slice(2,8)}.${ext}`;
+      const upRes = await fetch(`${cfg.url}/storage/v1/object/proofs/${filePath}`, {
+        method: "POST",
+        headers: {
+          "apikey": cfg.anonKey,
+          "Authorization": "Bearer " + token,
+          "Content-Type": f.type || "image/jpeg",
+          "x-upsert": "true"
+        },
+        body: f
+      });
+      if (!upRes.ok) throw new Error("HTTP " + upRes.status);
+      const url = `${cfg.url}/storage/v1/object/public/proofs/${filePath}`;
+      $("serviceSlipUrl").value = url;
+      _renderSlipPreviewState();
+
+      // Auto-verify ถ้าตั้ง payment_method = transfer/qr
+      const pm = $("servicePaymentMethod")?.value || "";
+      if (/transfer|qr/.test(pm)) {
+        const dataUrl = await new Promise(resolve => {
+          const r = new FileReader();
+          r.onload = () => resolve(r.result);
+          r.readAsDataURL(f);
+        });
+        await _verifySlip(dataUrl);
+      }
+    } catch(err) {
+      console.error("[slip upload]", err);
+      const status = document.getElementById("serviceSlipUploadStatus");
+      if (status) { status.textContent = "❌ อัปโหลดล้มเหลว: " + (err.message || err); status.style.color = "#dc2626"; }
+    }
+  });
+
+  verifyBtn?.addEventListener("click", async () => {
+    const url = $("serviceSlipUrl")?.value;
+    if (!url) return;
+    // Fetch image → convert to data URL → verify
+    try {
+      const r = await fetch(url);
+      const blob = await r.blob();
+      const dataUrl = await new Promise(resolve => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(fr.result);
+        fr.readAsDataURL(blob);
+      });
+      await _verifySlip(dataUrl);
+    } catch(e) {
+      const result = document.getElementById("serviceSlipVerifyResult");
+      if (result) result.innerHTML = `<div style="color:#dc2626;font-size:12px">❌ ดึงรูปไม่สำเร็จ: ${escapeHtml(e.message)}</div>`;
+    }
+  });
+
+  removeBtn?.addEventListener("click", () => {
+    if (!confirm("ลบสลิป?")) return;
+    $("serviceSlipUrl").value = "";
+    document.getElementById("serviceSlipVerifyResult").innerHTML = "";
+    _renderSlipPreviewState();
+  });
+}
+
+async function _verifySlip(dataUrl) {
+  const result = document.getElementById("serviceSlipVerifyResult");
+  if (!result) return;
+  result.innerHTML = `<div style="padding:10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;color:#1e40af;font-size:12px">🤖 AI กำลังตรวจสลิป...</div>`;
+
+  const expectedAmount = Number($("serviceTotalCost")?.value || 0);
+  const expectedRecipient = (state.profile?.shop_name || state.storeInfo?.name || "บุญสุข").trim();
+
+  try {
+    const r = await fetch("/api/verify-slip", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image: dataUrl, expected_amount: expectedAmount, expected_recipient: expectedRecipient }),
+      cache: "no-store"
+    });
+    const j = await r.json();
+    if (!j.ok) {
+      result.innerHTML = `<div style="padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;color:#991b1b;font-size:12px">❌ ${escapeHtml(j.error || "verification fail")}</div>`;
+      return;
+    }
+    const d = j.data || {};
+    const v = j.verification || {};
+    const isSafe = v.is_safe === true;
+    const warningsHtml = (v.warnings || []).map(w => `<div style="color:#b91c1c;font-size:11px">${escapeHtml(w)}</div>`).join("");
+    const tampHtml = (d.tampering_signs || []).map(s => `<div style="font-size:10px;color:#92400e">• ${escapeHtml(s)}</div>`).join("");
+    result.innerHTML = `
+      <div style="padding:10px;background:${isSafe ? '#f0fdf4' : '#fffbeb'};border:1px solid ${isSafe ? '#86efac' : '#fde68a'};border-radius:8px;font-size:12px">
+        <div style="font-weight:700;color:${isSafe ? '#15803d' : '#92400e'};margin-bottom:6px">${isSafe ? '✅ ผ่านการตรวจสอบ' : '⚠️ ต้องตรวจเพิ่มเติม'}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;color:#0f172a">
+          <div><b>ผู้โอน:</b> ${escapeHtml(d.sender_name || '-')}</div>
+          <div><b>ผู้รับ:</b> ${escapeHtml(d.recipient_name || '-')}</div>
+          <div><b>ยอด:</b> ${d.amount ? Number(d.amount).toLocaleString() : '-'}</div>
+          <div><b>วันที่:</b> ${escapeHtml(d.datetime || '-')}</div>
+          <div style="grid-column:1/-1"><b>Ref:</b> <code style="font-size:11px">${escapeHtml(d.transaction_id || '-')}</code></div>
+        </div>
+        <div style="margin-top:6px;font-size:11px;color:#64748b">Confidence: ${d.confidence || '?'}/100 · Tampering score: ${d.tampering_score || 0}/100</div>
+        ${warningsHtml ? `<div style="margin-top:6px">${warningsHtml}</div>` : ''}
+        ${tampHtml ? `<details style="margin-top:6px"><summary style="cursor:pointer;font-size:11px;color:#92400e">▼ สัญญาณตัดต่อที่พบ</summary>${tampHtml}</details>` : ''}
+      </div>
+    `;
+  } catch(e) {
+    result.innerHTML = `<div style="padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;color:#991b1b;font-size:12px">❌ ตรวจสลิปล้มเหลว: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
 function _setServicePhotoPreview(which, url) {
   const previewEl = $(`service${which}Preview`);
   const urlEl = $(`service${which}Url`);
@@ -2616,7 +2789,9 @@ async function saveServiceJob(){
     photo_after:      $("serviceAfterUrl")?.value?.trim() || null,
     // Phase 88.8: บัญชี
     total_cost:       totalCostVal > 0 ? totalCostVal : null,
-    payment_method:   paymentMethodVal || null
+    payment_method:   paymentMethodVal || null,
+    // Phase 88.11: slip URL
+    payment_slip_url: $("serviceSlipUrl")?.value?.trim() || null
   };
   // Phase 68 (B3): tags
   if (_serviceJobTagWidget) {
