@@ -2,7 +2,10 @@
 //  AC INSTALL — ใบงานติดตั้งแอร์
 //  Phase 41: line items + receipt + LINE
 //  Phase 43: ตัดสต็อกจากคลังในรถ (mobile) + auto-transfer จากบ้านถ้าไม่พอ
+//  Phase 88.12: + ปิดงาน/แนบสลิป/AI verify (workflow ช่างส่ง→admin ยืนยัน)
 // ═══════════════════════════════════════════════════════════
+
+import { postJournalForServiceJob } from "./accounting/auto_post.js";
 
 // Module-level state
 let _items = [];           // [{product_id, name, qty, unit_price, line_total, warehouse_id, warehouse_name}]
@@ -165,6 +168,46 @@ export function renderAcInstallPage(ctx) {
       <input type="text" id="acNote" placeholder="เช่น วันนัดติดตั้ง, รายละเอียดเพิ่มเติม..." />
     </div>
 
+    <!-- 🔚 ปิดงาน + แนบสลิป + AI verify (Phase 88.12) -->
+    <div class="panel" style="border:2px solid #fef3c7;background:#fffbeb">
+      <div class="set-section-title" style="color:#78350f">🔚 ปิดงาน (กรณีงานเสร็จ + รับเงินแล้ว)</div>
+      <div style="font-size:11px;color:#92400e;margin-bottom:10px;line-height:1.6">
+        💡 ช่าง — เลือก <b>"📨 รออนุมัติ"</b> + แนบสลิป → ส่งให้แอดมินยืนยัน<br>
+        แอดมิน — เลือก <b>"ส่งมอบแล้ว"</b> → ระบบลงรายได้อัตโนมัติ ✨
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:10px">
+        <div>
+          <label class="set-field-label">สถานะงาน</label>
+          <select id="acStatusSel" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;font:inherit;background:#fff">
+            <option value="pending">⏳ รอดำเนินการ</option>
+            <option value="in_progress">🔄 กำลังดำเนินการ</option>
+            <option value="done">✅ เสร็จแล้ว</option>
+            <option value="pending_review">📨 รออนุมัติ (ช่างส่ง — รอแอดมิน)</option>
+            <option value="delivered">📦 ส่งมอบแล้ว (ลง JV ทันที)</option>
+            <option value="closed">🎉 ปิดงาน + รับเงิน (ลง JV ทันที)</option>
+          </select>
+        </div>
+        <div>
+          <label class="set-field-label">วิธีรับเงิน</label>
+          <select id="acPaymentMethod" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;font:inherit;background:#fff">
+            <option value="">— ยังไม่ระบุ —</option>
+            <option value="cash">💵 เงินสด → Dr 1110</option>
+            <option value="transfer">🏦 โอน/QR → Dr 1130</option>
+          </select>
+        </div>
+      </div>
+      <label class="set-field-label" style="margin-top:6px">📷 แนบสลิปรับเงิน (รูป — ถ้ามี)</label>
+      <div id="acSlipPreview" style="margin-top:6px"></div>
+      <input type="file" id="acSlipFile" accept="image/*" capture="environment" style="display:none" />
+      <input type="file" id="acSlipGalleryFile" accept="image/*" style="display:none" />
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+        <button type="button" id="acSlipCameraBtn" class="btn light" style="font-size:12px;padding:8px 14px">📷 ถ่ายรูป</button>
+        <button type="button" id="acSlipGalleryBtn" class="btn light" style="font-size:12px;padding:8px 14px">🖼️ แกลลอรี่</button>
+        <button type="button" id="acSlipVerifyBtn" class="btn light" style="font-size:12px;padding:8px 14px;display:none">🤖 ตรวจ AI</button>
+      </div>
+      <div id="acSlipVerifyResult" style="margin-top:8px"></div>
+    </div>
+
     <!-- สรุปราคา -->
     <div id="acPriceSummary" class="panel" style="text-align:center">
       <div class="sku">ราคารวมทั้งหมด</div>
@@ -178,6 +221,88 @@ export function renderAcInstallPage(ctx) {
 
   // Render initial items list
   _renderItemsList(container, money);
+
+  // ★ Phase 88.12: Slip upload + AI verify (port จาก service_form.js)
+  let _slipUrl = "";
+  const slipCameraEl  = container.querySelector("#acSlipFile");
+  const slipGalleryEl = container.querySelector("#acSlipGalleryFile");
+  const slipCameraBtn = container.querySelector("#acSlipCameraBtn");
+  const slipGalleryBtn= container.querySelector("#acSlipGalleryBtn");
+  const slipVerifyBtn = container.querySelector("#acSlipVerifyBtn");
+  const slipPreview   = container.querySelector("#acSlipPreview");
+  const slipResult    = container.querySelector("#acSlipVerifyResult");
+  slipCameraBtn?.addEventListener("click", () => slipCameraEl?.click());
+  slipGalleryBtn?.addEventListener("click", () => slipGalleryEl?.click());
+
+  const _verifyAcSlip = async (dataUrl) => {
+    if (!slipResult) return;
+    slipResult.innerHTML = `<div style="padding:10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;color:#1e40af;font-size:12px">🤖 AI กำลังตรวจสลิป...</div>`;
+    const expectedAmount = Number(container.querySelector("#acPriceSummary")?.textContent?.match(/[\d,]+/)?.[0]?.replace(/,/g,"") || 0);
+    const expectedRecipient = (window.state?.profile?.shop_name || window.state?.storeInfo?.name || "บุญสุข").trim();
+    try {
+      const r = await fetch("/api/verify-slip", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image: dataUrl, expected_amount: expectedAmount, expected_recipient: expectedRecipient }) });
+      const j = await r.json();
+      if (!j.ok) { slipResult.innerHTML = `<div style="padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;color:#991b1b;font-size:12px">❌ ${escHtml(j.error || "verify fail")}</div>`; return; }
+      const d = j.data || {}, v = j.verification || {};
+      const isSafe = v.is_safe === true;
+      const wHtml = (v.warnings || []).map(w => `<div style="color:#b91c1c;font-size:11px">${escHtml(w)}</div>`).join("");
+      const note = d.tampering_note || (d.tampering_signs?.[0]) || "";
+      slipResult.innerHTML = `
+        <div style="padding:10px;background:${isSafe?'#f0fdf4':'#fffbeb'};border:1px solid ${isSafe?'#86efac':'#fde68a'};border-radius:8px;font-size:12px">
+          <div style="font-weight:700;color:${isSafe?'#15803d':'#92400e'};margin-bottom:6px">${isSafe?'✅ ผ่านการตรวจสอบ':'⚠️ ต้องตรวจเพิ่มเติม'}</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;color:#0f172a">
+            <div><b>ผู้โอน:</b> ${escHtml(d.sender_name||'-')}</div>
+            <div><b>ผู้รับ:</b> ${escHtml(d.recipient_name||'-')}</div>
+            <div><b>ยอด:</b> ${d.amount?Number(d.amount).toLocaleString():'-'}</div>
+            <div><b>วันที่:</b> ${escHtml(d.datetime||'-')}</div>
+          </div>
+          <div style="margin-top:6px;font-size:11px;color:#64748b">Confidence: ${d.confidence||'?'}/100 · Tampering: ${d.tampering_score||0}/100</div>
+          ${wHtml}
+          ${note?`<div style="font-size:10px;color:#92400e;margin-top:4px">• ${escHtml(note)}</div>`:''}
+        </div>`;
+    } catch(e) { slipResult.innerHTML = `<div style="color:#dc2626;font-size:12px;padding:8px">❌ ${escHtml(e.message)}</div>`; }
+  };
+
+  slipVerifyBtn?.addEventListener("click", async () => {
+    if (!_slipUrl) return;
+    try { const r = await fetch(_slipUrl); const blob = await r.blob(); const du = await new Promise(res => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.readAsDataURL(blob); }); await _verifyAcSlip(du); }
+    catch(e) { if (slipResult) slipResult.innerHTML = `<div style="color:#dc2626;font-size:12px">❌ ${escHtml(e.message)}</div>`; }
+  });
+
+  const _onSlipPick = async (e) => {
+    const f = e.target.files?.[0]; if (!f) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      slipPreview.innerHTML = `<div style="display:flex;align-items:center;gap:10px;padding:8px;background:#fff;border:1px solid #e2e8f0;border-radius:10px"><img src="${ev.target.result}" style="width:60px;height:60px;object-fit:cover;border-radius:6px" /><div style="flex:1"><div id="acSlipStatus" style="color:#0284c7;font-size:12px;font-weight:600">⏳ กำลังอัปโหลด...</div><div style="font-size:11px;color:#64748b">${escHtml(f.name)}</div></div></div>`;
+    };
+    reader.readAsDataURL(f);
+    try {
+      const cfg = window.SUPABASE_CONFIG;
+      const token = window._sbAccessToken || cfg.anonKey;
+      const ts = Date.now();
+      const ext = (f.name.split(".").pop() || "jpg").toLowerCase();
+      const filePath = `service-slips/ac_${ts}_${Math.random().toString(36).slice(2,8)}.${ext}`;
+      const upRes = await fetch(`${cfg.url}/storage/v1/object/proofs/${filePath}`, { method: "POST", headers: { "apikey": cfg.anonKey, "Authorization": `Bearer ${token}`, "Content-Type": f.type || "image/jpeg", "x-upsert": "true" }, body: f });
+      if (!upRes.ok) throw new Error("HTTP " + upRes.status);
+      _slipUrl = `${cfg.url}/storage/v1/object/public/proofs/${filePath}`;
+      const s = container.querySelector("#acSlipStatus");
+      if (s) { s.textContent = "✅ อัปโหลดสำเร็จ"; s.style.color = "#059669"; }
+      if (slipVerifyBtn) slipVerifyBtn.style.display = "inline-block";
+      const pm = container.querySelector("#acPaymentMethod")?.value || "";
+      if (/transfer|qr/.test(pm)) {
+        const du = await new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(f); });
+        await _verifyAcSlip(du);
+      }
+    } catch(err) {
+      const s = container.querySelector("#acSlipStatus");
+      if (s) { s.textContent = "⚠️ อัปโหลดล้มเหลว"; s.style.color = "#dc2626"; }
+    }
+  };
+  slipCameraEl?.addEventListener("change", _onSlipPick);
+  slipGalleryEl?.addEventListener("change", _onSlipPick);
+
+  // Expose for save handler ใน same closure
+  container._getAcSlipUrl = () => _slipUrl;
 
   function updateTotal() {
     const sel = container.querySelector("#acProduct");
@@ -348,6 +473,13 @@ export function renderAcInstallPage(ctx) {
         discount ? `ส่วนลด: -฿${discount.toLocaleString()}` : "",
       ].filter(Boolean).join(" | ");
 
+      // ★ Phase 88.12: รับค่าจาก closure section
+      const selectedStatus = container.querySelector("#acStatusSel")?.value || "pending";
+      const paymentMethod  = container.querySelector("#acPaymentMethod")?.value || "";
+      const slipUrl        = container._getAcSlipUrl?.() || "";
+      const COMPLETION_STATUSES = ["done", "delivered", "closed"];
+      const isClosure = COMPLETION_STATUSES.includes(selectedStatus);
+
       // Phase 43.2: ใช้ field name ตรงกับ schema (customer_address ไม่ใช่ address)
       // Phase 43.4: เพิ่ม job_no ก่อน insert (NOT NULL constraint) — pattern เดียวกับ main.js
       const record = {
@@ -358,8 +490,13 @@ export function renderAcInstallPage(ctx) {
         job_type: "ac",
         description: desc,
         items_json: fullItems,
-        status: "pending",
-        note: container.querySelector("#acNote").value.trim()
+        status: selectedStatus,
+        note: container.querySelector("#acNote").value.trim(),
+        // Phase 88.12 — บัญชี
+        total_cost: net,
+        payment_method: paymentMethod || null,
+        payment_slip_url: slipUrl || null,
+        closed_at: isClosure ? new Date().toISOString() : null
       };
 
       const resp = await fetch(`${cfg.url}/rest/v1/service_jobs`, {
@@ -458,6 +595,20 @@ export function renderAcInstallPage(ctx) {
 
       statusEl.innerHTML = `<div style="text-align:center;color:#059669;font-weight:700">✅ บันทึกใบงานติดตั้งสำเร็จ!${jobNo ? ` (เลขที่ ${escHtml(jobNo)})` : ""}</div>`;
       showToast("บันทึกสำเร็จ!");
+
+      // ★ Phase 88.12: auto-post JV ถ้าช่างปิดงานทันที (delivered/closed/done)
+      if (jobId && isClosure) {
+        postJournalForServiceJob({
+          id: jobId,
+          job_no: jobNo,
+          customer_name: name,
+          job_type: "ac",  // install_ac → mapping service_install_ac → 4200
+          total_cost: net,
+          status: selectedStatus,
+          payment_method: paymentMethod,
+          created_at: new Date().toISOString()
+        }).catch(e => console.warn("[ac_install] auto-post JV failed:", e?.message));
+      }
 
       // ★ Phase 41 — แสดงปุ่มหลังบันทึก: ดูใบเสร็จ / ส่ง LINE / สร้างใบใหม่
       _renderAfterSaveActions(container, ctx);

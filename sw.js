@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v176 (2026-05-09): Phase 88.12 — Approval workflow (ช่างส่งงาน → admin ยืนยัน → JV)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v176';
+// v177 (2026-05-09): Phase 88.12b — เพิ่มสลิป+AI verify ใน ac_install + solar (separate files)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v177';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
