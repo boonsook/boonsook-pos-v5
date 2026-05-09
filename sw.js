@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v165 (2026-05-08): Phase 88.6 — Service job closure (status + slip + auto JV by job_type)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v165';
+// v166 (2026-05-09): Phase 88.7-88.9 — JV drill-down + drawer cost input + comparative P&L
+const CACHE_NAME = 'boonsook-pos-v5-cache-v166';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

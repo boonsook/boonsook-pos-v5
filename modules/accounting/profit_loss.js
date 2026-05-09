@@ -18,6 +18,9 @@ let _customFrom = "";
 let _customTo = "";
 let _result = null;
 let _loading = false;
+// ★ Phase 88.9: comparative mode
+let _compareMode = false;
+let _resultPrev = null;
 
 function money(n) { return new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n || 0)); }
 function moneyColor(n) {
@@ -64,6 +67,43 @@ function getDateRange() {
   const from = _customFrom || defaultMonth() + "-01";
   const to   = _customTo   || new Date().toISOString().slice(0, 10);
   return { from, to, label: `${from} → ${to}` };
+}
+
+// ★ Phase 88.9: คำนวณงวดก่อน (สำหรับ comparative mode)
+function getPreviousRange() {
+  if (_periodType === "month") {
+    const v = _periodValue || defaultMonth();
+    const [y, m] = v.split("-").map(Number);
+    const prevDate = new Date(y, m - 2, 1);  // m-2 เพราะ Date month = 0-based
+    const prevY = prevDate.getFullYear();
+    const prevM = prevDate.getMonth() + 1;
+    const lastDay = new Date(prevY, prevM, 0).getDate();
+    return { from: `${prevY}-${pad2(prevM)}-01`, to: `${prevY}-${pad2(prevM)}-${pad2(lastDay)}`, label: `เดือน ${pad2(prevM)}/${prevY}` };
+  }
+  if (_periodType === "quarter") {
+    const v = _periodValue || defaultQuarter();
+    const [yStr, qStr] = v.split("-Q");
+    let prevY = Number(yStr), prevQ = Number(qStr) - 1;
+    if (prevQ < 1) { prevQ = 4; prevY -= 1; }
+    const startMonth = (prevQ - 1) * 3 + 1;
+    const endMonth = startMonth + 2;
+    const lastDay = new Date(prevY, endMonth, 0).getDate();
+    return { from: `${prevY}-${pad2(startMonth)}-01`, to: `${prevY}-${pad2(endMonth)}-${pad2(lastDay)}`, label: `ไตรมาส ${prevQ}/${prevY}` };
+  }
+  if (_periodType === "year") {
+    const y = Number(_periodValue || defaultYear()) - 1;
+    return { from: `${y}-01-01`, to: `${y}-12-31`, label: `ปี ${y}` };
+  }
+  // custom — ขนาดเท่ากันก่อนช่วงนี้
+  const cur = getDateRange();
+  const fromDate = new Date(cur.from);
+  const toDate = new Date(cur.to);
+  const days = Math.round((toDate - fromDate) / 86400000);
+  const prevTo = new Date(fromDate);
+  prevTo.setDate(prevTo.getDate() - 1);
+  const prevFrom = new Date(prevTo);
+  prevFrom.setDate(prevFrom.getDate() - days);
+  return { from: prevFrom.toISOString().slice(0,10), to: prevTo.toISOString().slice(0,10), label: `${prevFrom.toISOString().slice(0,10)} → ${prevTo.toISOString().slice(0,10)}` };
 }
 
 // ─── Data fetch (เหมือน trial_balance.js) ───
@@ -170,6 +210,14 @@ export function renderProfitLossPage(ctx) {
           `).join("")}
         </div>
         <div id="plPeriodInputs" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"></div>
+        <!-- Phase 88.9: Compare toggle -->
+        <div style="margin-top:10px;padding-top:10px;border-top:1px dashed #e2e8f0;display:flex;align-items:center;gap:8px">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:#475569;font-weight:600">
+            <input type="checkbox" id="plCompareToggle" ${_compareMode ? "checked" : ""} style="width:16px;height:16px;cursor:pointer" />
+            📊 เทียบกับงวดก่อน
+          </label>
+          <span style="font-size:11px;color:#94a3b8">— ดูเทรนด์รายได้/ค่าใช้จ่ายเทียบกับเดือน/ไตรมาส/ปีก่อน</span>
+        </div>
       </div>
 
       <div id="plResultPanel"></div>
@@ -189,6 +237,12 @@ export function renderProfitLossPage(ctx) {
 
   document.getElementById("plExportBtn")?.addEventListener("click", _onExport);
   document.getElementById("plPrintBtn")?.addEventListener("click", _onPrint);
+
+  // ★ Phase 88.9: Compare toggle
+  document.getElementById("plCompareToggle")?.addEventListener("change", (ev) => {
+    _compareMode = ev.target.checked;
+    _loadAndRender();
+  });
 
   _renderPeriodInputs();
   _loadAndRender();
@@ -245,19 +299,144 @@ async function _loadAndRender() {
   _loading = true;
 
   const { from, to, label } = getDateRange();
-  panel.innerHTML = `<div style="padding:30px;text-align:center;color:#64748b">⏳ กำลังโหลดรายงาน...</div>`;
+  panel.innerHTML = `<div style="padding:30px;text-align:center;color:#64748b">⏳ กำลังโหลดรายงาน${_compareMode ? " (2 งวด)" : ""}...</div>`;
 
   try {
-    const { lines, coa } = await fetchData(from, to);
-    const agg = aggregate(lines, coa);
-    _result = { range: { from, to, label }, ...agg };
-    _renderTable(panel);
+    if (_compareMode) {
+      // ★ Phase 88.9: fetch ทั้ง 2 งวดพร้อมกัน
+      const prev = getPreviousRange();
+      const [curData, prevData] = await Promise.all([
+        fetchData(from, to),
+        fetchData(prev.from, prev.to)
+      ]);
+      const curAgg = aggregate(curData.lines, curData.coa);
+      const prevAgg = aggregate(prevData.lines, prevData.coa);
+      _result = { range: { from, to, label }, ...curAgg };
+      _resultPrev = { range: prev, ...prevAgg };
+      _renderTableCompare(panel);
+    } else {
+      const { lines, coa } = await fetchData(from, to);
+      const agg = aggregate(lines, coa);
+      _result = { range: { from, to, label }, ...agg };
+      _resultPrev = null;
+      _renderTable(panel);
+    }
   } catch (e) {
     console.error("[profit_loss] load failed:", e);
     panel.innerHTML = `<div style="padding:14px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;color:#991b1b">❌ ${escHtml(e.message || String(e))}</div>`;
   } finally {
     _loading = false;
   }
+}
+
+// ★ Phase 88.9: Comparative render — 4 columns (รายการ | งวดนี้ | งวดก่อน | Δ % )
+function _renderTableCompare(panel) {
+  const cur = _result;
+  const prev = _resultPrev;
+
+  // Build merged account list (union ของ revenue + expense ทั้ง 2 งวด)
+  const merge = (curList, prevList) => {
+    const map = {};
+    curList.forEach(a => { map[a.code] = { code: a.code, name: a.name, cur: a.amount, prev: 0 }; });
+    prevList.forEach(a => {
+      if (!map[a.code]) map[a.code] = { code: a.code, name: a.name, cur: 0, prev: a.amount };
+      else map[a.code].prev = a.amount;
+    });
+    return Object.values(map).sort((a, b) => a.code.localeCompare(b.code));
+  };
+
+  const revenues = merge(cur.revenues, prev.revenues);
+  const expenses = merge(cur.expenses, prev.expenses);
+
+  const totalRevCur = cur.totalRevenue,  totalRevPrev = prev.totalRevenue;
+  const totalExpCur = cur.totalExpense,  totalExpPrev = prev.totalExpense;
+  const netCur      = cur.netIncome,      netPrev = prev.netIncome;
+
+  const fmtChange = (curVal, prevVal) => {
+    const diff = curVal - prevVal;
+    const sign = diff > 0 ? "+" : (diff < 0 ? "−" : "");
+    const absV = Math.abs(diff);
+    const pct = prevVal !== 0 ? (diff / Math.abs(prevVal) * 100) : null;
+    const color = diff > 0 ? "#15803d" : (diff < 0 ? "#dc2626" : "#94a3b8");
+    return `<div style="color:${color};font-weight:700">${sign}${money(absV)}</div>${pct !== null ? `<div style="font-size:10px;color:${color}">(${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%)</div>` : '<div style="font-size:10px;color:#cbd5e1">—</div>'}`;
+  };
+
+  const renderSection = (title, items, color, totalCurVal, totalPrevVal) => `
+    <div style="margin-bottom:14px">
+      <div style="background:${color};color:#fff;padding:8px 12px;border-radius:8px 8px 0 0;font-weight:700;font-size:13px">${title}</div>
+      <table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px;overflow:hidden;font-size:12px">
+        <thead>
+          <tr style="background:#f8fafc;color:#64748b">
+            <th style="padding:6px 10px;text-align:left;width:60px">รหัส</th>
+            <th style="padding:6px 10px;text-align:left">ชื่อบัญชี</th>
+            <th style="padding:6px 10px;text-align:right;width:120px">งวดนี้</th>
+            <th style="padding:6px 10px;text-align:right;width:120px">งวดก่อน</th>
+            <th style="padding:6px 10px;text-align:right;width:120px">Δ</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${items.length === 0 ? `<tr><td colspan="5" style="padding:14px;text-align:center;color:#94a3b8;font-style:italic">ไม่มีรายการ</td></tr>`
+            : items.map(a => `
+              <tr style="border-top:1px solid #f1f5f9">
+                <td style="padding:6px 10px;font-family:monospace;color:#475569">${escHtml(a.code)}</td>
+                <td style="padding:6px 10px">${escHtml(a.name)}</td>
+                <td style="padding:6px 10px;text-align:right;font-family:monospace">${money(a.cur)}</td>
+                <td style="padding:6px 10px;text-align:right;font-family:monospace;color:#94a3b8">${money(a.prev)}</td>
+                <td style="padding:6px 10px;text-align:right;font-family:monospace">${fmtChange(a.cur, a.prev)}</td>
+              </tr>
+            `).join("")}
+          <tr style="background:#f8fafc;font-weight:800">
+            <td colspan="2" style="padding:8px 10px;text-align:right;color:${color}">รวม</td>
+            <td style="padding:8px 10px;text-align:right;font-family:monospace;color:${color}">${money(totalCurVal)}</td>
+            <td style="padding:8px 10px;text-align:right;font-family:monospace;color:#94a3b8">${money(totalPrevVal)}</td>
+            <td style="padding:8px 10px;text-align:right;font-family:monospace">${fmtChange(totalCurVal, totalPrevVal)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  const isProfit = netCur >= 0;
+
+  panel.innerHTML = `
+    <div id="plPrintArea">
+      <div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin-bottom:14px;display:flex;gap:14px;flex-wrap:wrap;align-items:center">
+        <div>
+          <div style="font-size:11px;color:#64748b">งวดนี้</div>
+          <div style="font-weight:700;color:#0284c7">${escHtml(cur.range.label)}</div>
+          <div style="font-size:11px;color:#94a3b8">${cur.range.from} → ${cur.range.to}</div>
+        </div>
+        <div style="font-size:18px;color:#94a3b8">vs</div>
+        <div>
+          <div style="font-size:11px;color:#64748b">งวดก่อน</div>
+          <div style="font-weight:700;color:#94a3b8">${escHtml(prev.range.label)}</div>
+          <div style="font-size:11px;color:#94a3b8">${prev.range.from} → ${prev.range.to}</div>
+        </div>
+      </div>
+
+      ${renderSection("🟢 รายได้ (Revenue)", revenues, "#059669", totalRevCur, totalRevPrev)}
+      <div style="text-align:center;color:#94a3b8;margin:6px 0;font-size:13px;font-weight:700">— หัก —</div>
+      ${renderSection("🟠 ค่าใช้จ่าย (Expenses)", expenses, "#ea580c", totalExpCur, totalExpPrev)}
+
+      <!-- Net Income compare card -->
+      <div style="background:${isProfit ? '#f0fdf4' : '#fef2f2'};border:3px solid ${isProfit ? '#16a34a' : '#dc2626'};border-radius:12px;padding:14px;margin-top:14px">
+        <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;justify-content:space-around">
+          <div style="text-align:center">
+            <div style="font-size:11px;color:#64748b">${isProfit ? '✅ กำไร' : '⚠️ ขาดทุน'} งวดนี้</div>
+            <div style="font-size:22px;font-weight:900;font-family:monospace;color:${isProfit ? '#15803d' : '#dc2626'}">${isProfit ? '' : '('}${money(Math.abs(netCur))}${isProfit ? '' : ')'}</div>
+          </div>
+          <div style="text-align:center">
+            <div style="font-size:11px;color:#64748b">งวดก่อน</div>
+            <div style="font-size:18px;font-weight:700;font-family:monospace;color:#94a3b8">${netPrev >= 0 ? '' : '('}${money(Math.abs(netPrev))}${netPrev >= 0 ? '' : ')'}</div>
+          </div>
+          <div style="text-align:center">
+            <div style="font-size:11px;color:#64748b">เปลี่ยน</div>
+            <div style="font-size:14px;font-family:monospace">${fmtChange(netCur, netPrev)}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 function _renderTable(panel) {

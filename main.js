@@ -2446,6 +2446,31 @@ function openServiceJobDrawer(job=null){
   $("serviceStatus").value = job?.status || "pending";
   $("serviceNote").value = job?.note || "";
 
+  // ★ Phase 88.8: ค่าแรง / ส่วนลด / ยอดสุทธิ / วิธีรับเงิน — สำหรับลง JV
+  // ถ้า job เก่า (มี items_json) → คำนวณ items total + ใช้ existing total_cost
+  let _itemsTotal = 0;
+  if (job?.items_json && Array.isArray(job.items_json)) {
+    _itemsTotal = job.items_json.reduce((s, it) => s + Number(it.line_total || 0), 0);
+  }
+  // labor / discount เก็บใน hidden field — derived จาก total_cost - items_total เป็นอย่างน้อย
+  // (สำหรับ row เก่าที่ไม่มี labor/discount แยก)
+  const existingTotal = Number(job?.total_cost || 0);
+  const existingLabor = Math.max(0, existingTotal - _itemsTotal);  // approximation
+  $("serviceLabor").value = existingLabor || 0;
+  $("serviceDiscount").value = 0;
+  $("serviceTotalCost").value = existingTotal || 0;
+  $("servicePaymentMethod").value = job?.payment_method || "";
+  // Auto-recalc ยอดสุทธิเวลาแก้ค่าแรง/ส่วนลด
+  const _recalc = () => {
+    const labor = Number($("serviceLabor")?.value || 0);
+    const discount = Number($("serviceDiscount")?.value || 0);
+    const net = Math.max(0, _itemsTotal + labor - discount);
+    $("serviceTotalCost").value = net;
+  };
+  ["serviceLabor","serviceDiscount"].forEach(id => {
+    $(id)?.addEventListener("input", _recalc, { once: false });
+  });
+
   // ★ Load before/after photos
   _setServicePhotoPreview("Before", job?.photo_before || "");
   _setServicePhotoPreview("After", job?.photo_after || "");
@@ -2573,6 +2598,9 @@ function _setServicePhotoPreview(which, url) {
 }
 async function saveServiceJob(){
   const descVal = $("serviceTitle").value.trim();
+  // ★ Phase 88.8: ค่าแรง/ส่วนลด/total_cost/payment_method สำหรับลง JV
+  const totalCostVal = Number($("serviceTotalCost")?.value || 0);
+  const paymentMethodVal = $("servicePaymentMethod")?.value || "";
   const payload = {
     customer_name:    $("serviceCustomer").value.trim(),
     customer_phone:   $("servicePhone").value.trim(),
@@ -2582,7 +2610,10 @@ async function saveServiceJob(){
     status:           $("serviceStatus").value,
     note:             $("serviceNote").value.trim(),
     photo_before:     $("serviceBeforeUrl")?.value?.trim() || null,
-    photo_after:      $("serviceAfterUrl")?.value?.trim() || null
+    photo_after:      $("serviceAfterUrl")?.value?.trim() || null,
+    // Phase 88.8: บัญชี
+    total_cost:       totalCostVal > 0 ? totalCostVal : null,
+    payment_method:   paymentMethodVal || null
   };
   // Phase 68 (B3): tags
   if (_serviceJobTagWidget) {
@@ -2650,15 +2681,16 @@ async function saveServiceJob(){
   const transitionedToDone = !isNewJob && !wasComplete && isNowComplete;
   const newJobAlreadyComplete = isNewJob && isNowComplete;
 
-  // ★ Phase 88.1b — auto-post JV เมื่องานปิด (transition หรือสร้างใหม่ + status = closed/done/delivered)
+  // ★ Phase 88.1b/88.8 — auto-post JV เมื่องานปิด (transition หรือสร้างใหม่ + status = closed/done/delivered)
   // (fire-and-forget — ไม่ block UX)
   if (transitionedToDone || newJobAlreadyComplete) {
     try {
       // xhrPost returns { data: row } (ไม่ใช่ array); xhrPatch อาจไม่ return data
       const jobId = isNewJob ? res.data?.id : state.editingServiceJobId;
       if (jobId) {
-        // Pull ของ job เต็ม (ต้องการ total_cost ที่ payload save อาจไม่มี — มาจาก state ที่ optimistic update แล้ว)
-        const fullJob = (state.serviceJobs || []).find(j => String(j.id) === String(jobId)) || { ...payload, id: jobId };
+        // ★ Phase 88.8: ใช้ payload ที่ user แก้ใน drawer (มี total_cost + payment_method ใหม่)
+        // ก่อนนี้ใช้ state.serviceJobs[idx] ที่อาจ stale → ตอนนี้ payload มีข้อมูลล่าสุด
+        const fullJob = { ...(state.serviceJobs || []).find(j => String(j.id) === String(jobId)), ...payload, id: jobId };
         postJournalForServiceJob(fullJob)
           .catch(e => console.warn("[saveServiceJob] auto-post JV failed:", e?.message));
       }

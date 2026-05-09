@@ -184,10 +184,240 @@ export async function renderJournalsPage(ctx) {
     renderJournalsPage(ctx);
   });
 
-  // Click row → ดูรายละเอียด (Phase 88.0b — TBD: drawer drill-down)
+  // ★ Phase 88.7: Click row → เปิด drawer drill-down (lines + source link)
   container.querySelectorAll("[data-jv-row]").forEach(row => row.addEventListener("click", () => {
     const id = Number(row.dataset.jvRow);
-    showToast?.("กำลังเปิดรายละเอียด JV " + id + " (Phase 88.0b)");
-    // TODO Phase 88.0b: open drawer with JV detail + journal_lines
+    const entry = _entries.find(e => e.id === id);
+    if (entry) _openJvDrawer(entry, ctx);
   }));
+}
+
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 88.7 — JV Drill-down Drawer
+//  คลิก row → drawer แสดง lines + source preview + navigate ปุ่ม
+// ═══════════════════════════════════════════════════════════
+
+const SOURCE_LABELS = {
+  sales:        { icon: "🛒", label: "การขาย POS",   route: "sales" },
+  expenses:     { icon: "💸", label: "รายจ่าย",       route: "expenses" },
+  receipts:     { icon: "🧾", label: "ใบเสร็จ",       route: "receipts" },
+  service_jobs: { icon: "🔧", label: "งานช่าง",       route: "service_jobs" }
+};
+
+async function _openJvDrawer(entry, ctx) {
+  // เปิด drawer แบบ overlay
+  document.getElementById("jvDrawer")?.remove();
+  const drawer = document.createElement("div");
+  drawer.id = "jvDrawer";
+  drawer.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;display:flex;justify-content:flex-end";
+  drawer.innerHTML = `
+    <div style="background:#fff;width:100%;max-width:680px;height:100%;overflow-y:auto;box-shadow:-4px 0 20px rgba(0,0,0,.15);display:flex;flex-direction:column">
+      <div style="padding:16px 18px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:12px">
+        <div style="flex:1">
+          <div style="font-size:11px;color:#64748b">รายละเอียด JV</div>
+          <div style="font-weight:800;font-size:18px;color:#0284c7;font-family:monospace">${escHtml(entry.doc_no)}</div>
+        </div>
+        <button id="jvDrawerClose" style="background:#f1f5f9;border:none;width:36px;height:36px;border-radius:10px;cursor:pointer;font-size:18px">×</button>
+      </div>
+      <div id="jvDrawerBody" style="flex:1;padding:18px">
+        <div style="text-align:center;color:#94a3b8;padding:40px">⏳ กำลังโหลด...</div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(drawer);
+
+  // close handlers
+  drawer.addEventListener("click", e => { if (e.target === drawer) drawer.remove(); });
+  document.getElementById("jvDrawerClose").addEventListener("click", () => drawer.remove());
+
+  // Fetch lines + COA + source row in parallel
+  const cfg = window.SUPABASE_CONFIG;
+  const token = window._sbAccessToken || cfg.anonKey;
+  const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token };
+
+  try {
+    const [linesRes, coaRes, sourceRow] = await Promise.all([
+      fetch(`${cfg.url}/rest/v1/journal_lines?select=*&entry_id=eq.${entry.id}&order=line_no.asc`, { headers }).then(r => r.json()),
+      fetch(`${cfg.url}/rest/v1/chart_of_accounts?select=code,name`, { headers }).then(r => r.json()),
+      _fetchSourceRow(entry, headers)
+    ]);
+
+    const coaMap = {};
+    (coaRes || []).forEach(a => { coaMap[a.code] = a.name; });
+
+    _renderJvDrawerBody(entry, linesRes || [], coaMap, sourceRow, ctx);
+  } catch(err) {
+    console.error("[jv-drawer] load fail:", err);
+    document.getElementById("jvDrawerBody").innerHTML = `
+      <div style="padding:20px;background:#fef2f2;border:1px solid #fecaca;border-radius:10px;color:#991b1b">
+        ❌ โหลดข้อมูลไม่สำเร็จ: ${escHtml(err.message || String(err))}
+      </div>`;
+  }
+}
+
+async function _fetchSourceRow(entry, headers) {
+  if (!entry.source_table || !entry.source_id) return null;
+  if (!SOURCE_LABELS[entry.source_table]) return null;
+  const cfg = window.SUPABASE_CONFIG;
+  try {
+    const r = await fetch(`${cfg.url}/rest/v1/${entry.source_table}?select=*&id=eq.${entry.source_id}&limit=1`, { headers });
+    if (!r.ok) return null;
+    const arr = await r.json();
+    return arr?.[0] || null;
+  } catch(_) { return null; }
+}
+
+function _renderJvDrawerBody(entry, lines, coaMap, sourceRow, ctx) {
+  const body = document.getElementById("jvDrawerBody");
+  if (!body) return;
+
+  const st = STATUS_LABEL[entry.status] || STATUS_LABEL.draft;
+  const dtLabel = DOC_TYPE_LABEL[entry.doc_type] || entry.doc_type;
+  const totalDr = lines.reduce((s, l) => s + Number(l.debit || 0), 0);
+  const totalCr = lines.reduce((s, l) => s + Number(l.credit || 0), 0);
+  const balanced = Math.abs(totalDr - totalCr) < 0.01;
+
+  // Source preview
+  let sourceSection = "";
+  if (entry.source_table) {
+    const meta = SOURCE_LABELS[entry.source_table];
+    if (sourceRow) {
+      sourceSection = `
+        <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:12px;margin-top:14px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+            <span style="font-size:18px">${meta?.icon || "🔗"}</span>
+            <div style="flex:1">
+              <div style="font-size:11px;color:#1e40af">ที่มา (Source)</div>
+              <div style="font-weight:700;color:#1e3a8a">${escHtml(meta?.label || entry.source_table)} #${entry.source_id}</div>
+            </div>
+            ${meta?.route ? `<button class="jv-goto-source" data-route="${meta.route}" style="padding:6px 12px;background:#3b82f6;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">เปิดหน้า →</button>` : ''}
+          </div>
+          ${_renderSourcePreview(entry.source_table, sourceRow)}
+        </div>`;
+    } else {
+      sourceSection = `
+        <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:10px;padding:12px;margin-top:14px;font-size:12px;color:#78350f">
+          ⚠️ ไม่พบ source row (${escHtml(entry.source_table)} #${entry.source_id}) — อาจถูกลบไปแล้ว
+        </div>`;
+    }
+  }
+
+  body.innerHTML = `
+    <!-- Meta -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;background:#f8fafc;border-radius:10px;padding:12px;margin-bottom:14px">
+      <div>
+        <div style="font-size:11px;color:#64748b">วันที่</div>
+        <div style="font-weight:700">${dateTH(entry.doc_date)}</div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:#64748b">ประเภท</div>
+        <div style="font-weight:700">${entry.doc_type} — ${escHtml(dtLabel)}</div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:#64748b">สถานะ</div>
+        <div><span style="display:inline-block;padding:3px 10px;border-radius:12px;background:${st.bg};color:${st.color};font-size:11px;font-weight:700">${st.th}</span></div>
+      </div>
+    </div>
+
+    <!-- Description -->
+    ${entry.description ? `
+      <div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px;margin-bottom:14px">
+        <div style="font-size:11px;color:#64748b;margin-bottom:4px">คำอธิบาย</div>
+        <div style="color:#0f172a;line-height:1.5">${escHtml(entry.description)}</div>
+      </div>
+    ` : ''}
+
+    <!-- Lines -->
+    <div style="margin-bottom:14px">
+      <div style="font-weight:700;color:#0f172a;margin-bottom:8px">📋 รายการ Dr/Cr (${lines.length} บรรทัด)</div>
+      <div style="overflow-x:auto;background:#fff;border:1px solid #e2e8f0;border-radius:10px">
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead>
+            <tr style="background:#f8fafc;font-size:11px;color:#64748b">
+              <th style="padding:8px 10px;text-align:left;width:40px">#</th>
+              <th style="padding:8px 10px;text-align:left;width:80px">รหัส</th>
+              <th style="padding:8px 10px;text-align:left">ชื่อบัญชี</th>
+              <th style="padding:8px 10px;text-align:right;width:90px">เดบิต</th>
+              <th style="padding:8px 10px;text-align:right;width:90px">เครดิต</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${lines.map(l => `
+              <tr style="border-top:1px solid #f1f5f9">
+                <td style="padding:8px 10px;color:#94a3b8;font-family:monospace">${l.line_no}</td>
+                <td style="padding:8px 10px;color:#475569;font-family:monospace">${escHtml(l.account_code)}</td>
+                <td style="padding:8px 10px">${escHtml(coaMap[l.account_code] || "(ไม่พบ)")}</td>
+                <td style="padding:8px 10px;text-align:right;font-family:monospace;color:#0f172a">${l.debit > 0 ? money(l.debit) : '<span style="color:#cbd5e1">-</span>'}</td>
+                <td style="padding:8px 10px;text-align:right;font-family:monospace;color:#0f172a">${l.credit > 0 ? money(l.credit) : '<span style="color:#cbd5e1">-</span>'}</td>
+              </tr>
+            `).join("")}
+            <tr style="background:#f8fafc;font-weight:800">
+              <td colspan="3" style="padding:10px;text-align:right;color:${balanced ? '#15803d' : '#dc2626'}">${balanced ? '✓' : '⚠️'} รวม</td>
+              <td style="padding:10px;text-align:right;font-family:monospace;color:${balanced ? '#15803d' : '#dc2626'}">${money(totalDr)}</td>
+              <td style="padding:10px;text-align:right;font-family:monospace;color:${balanced ? '#15803d' : '#dc2626'}">${money(totalCr)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      ${!balanced ? `<div style="font-size:11px;color:#dc2626;margin-top:6px">⚠️ Dr ≠ Cr (ผลต่าง ${money(totalDr - totalCr)}) — JV นี้อาจมีปัญหา ติดต่อ admin</div>` : ''}
+    </div>
+
+    ${sourceSection}
+
+    <!-- Audit info -->
+    <div style="margin-top:18px;padding:10px;background:#fafbfc;border-radius:8px;font-size:11px;color:#64748b;line-height:1.7">
+      <div>📅 สร้าง: ${entry.created_at ? new Date(entry.created_at).toLocaleString("th-TH") : "-"}</div>
+      ${entry.approved_at ? `<div>✅ อนุมัติ: ${new Date(entry.approved_at).toLocaleString("th-TH")}</div>` : ""}
+      ${entry.voided_at ? `<div>❌ ยกเลิก: ${new Date(entry.voided_at).toLocaleString("th-TH")}${entry.void_reason ? ` (${escHtml(entry.void_reason)})` : ""}</div>` : ""}
+    </div>
+  `;
+
+  // Wire goto source button
+  body.querySelector(".jv-goto-source")?.addEventListener("click", () => {
+    const route = body.querySelector(".jv-goto-source").dataset.route;
+    document.getElementById("jvDrawer")?.remove();
+    // Navigate via existing app routing
+    document.querySelector(`[data-route="${route}"]`)?.click();
+  });
+}
+
+function _renderSourcePreview(sourceTable, row) {
+  if (!row) return "";
+  if (sourceTable === "sales") {
+    return `
+      <div style="font-size:12px;color:#1e3a8a;line-height:1.7">
+        <div>เลขบิล: <b>${escHtml(row.order_no || row.id)}</b></div>
+        <div>ลูกค้า: ${escHtml(row.customer_name || "-")}</div>
+        <div>ยอดรวม: <b>${money(row.total_amount || row.grand_total)}</b> · ชำระ: ${escHtml(row.payment_method || "-")}</div>
+      </div>`;
+  }
+  if (sourceTable === "expenses") {
+    return `
+      <div style="font-size:12px;color:#1e3a8a;line-height:1.7">
+        <div>หมวด: <b>${escHtml(row.category || "-")}</b></div>
+        <div>คำอธิบาย: ${escHtml(row.description || "-")}</div>
+        <div>ยอด: <b>${money(row.amount)}</b> · ชำระ: ${escHtml(row.payment_method || "-")}</div>
+        ${row.receipt_url ? `<div><a href="${escHtml(row.receipt_url)}" target="_blank" style="color:#3b82f6">📷 ดูรูปบิล</a></div>` : ""}
+      </div>`;
+  }
+  if (sourceTable === "service_jobs") {
+    return `
+      <div style="font-size:12px;color:#1e3a8a;line-height:1.7">
+        <div>เลขที่: <b>${escHtml(row.job_no || row.id)}</b></div>
+        <div>ลูกค้า: ${escHtml(row.customer_name || "-")} · ${escHtml(row.customer_phone || "")}</div>
+        <div>ประเภท: ${escHtml(row.job_type || "-")} · สถานะ: <b>${escHtml(row.status || "-")}</b></div>
+        <div>ยอด: <b>${money(row.total_cost)}</b></div>
+        ${row.payment_slip_url ? `<div><a href="${escHtml(row.payment_slip_url)}" target="_blank" style="color:#3b82f6">📷 ดูสลิป</a></div>` : ""}
+      </div>`;
+  }
+  if (sourceTable === "receipts") {
+    return `
+      <div style="font-size:12px;color:#1e3a8a;line-height:1.7">
+        <div>เลขที่: <b>${escHtml(row.receipt_no || row.id)}</b></div>
+        <div>ลูกค้า: ${escHtml(row.customer_name || "-")}</div>
+        <div>ยอด: <b>${money(row.grand_total || row.total_amount)}</b> · สถานะ: ${escHtml(row.status || "-")}</div>
+      </div>`;
+  }
+  return `<div style="font-size:11px;color:#64748b">id ${row.id}</div>`;
 }

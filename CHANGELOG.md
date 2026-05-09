@@ -7,6 +7,32 @@
 
 ---
 
+## 5.37.0 (build 181) — 2026-05-09 ⭐ Phase 88.7-88.9
+
+### Phase 88.7 — JV Drill-down (สมุดรายวัน → drawer)
+- **feat:** คลิก row JV → drawer แสดง:
+  - Meta (วันที่/ประเภท/สถานะ) + คำอธิบาย
+  - Lines table (Dr/Cr ทุกบรรทัด) + balance check
+  - Source preview (ถ้ามี source_table/source_id) — sales/expenses/receipts/service_jobs
+  - ปุ่ม "เปิดหน้า [source]" → navigate ไป list page
+  - Audit info (created_at / approved_at / voided_at)
+
+### Phase 88.8 — Drawer service edit: ค่าแรง/discount + payment_method
+- **feat:** เพิ่ม section "💰 ค่าแรง / ปิดงาน" ใน serviceJobDrawer
+  - input ค่าแรง / ส่วนลด / ยอดสุทธิ (auto-recalc)
+  - dropdown payment_method (cash → Dr 1110 / transfer → Dr 1130)
+- **feat:** saveServiceJob ใส่ `total_cost` + `payment_method` ใน payload
+  - ส่ง payment_method ไปยัง postJournalForServiceJob — override Dr account
+  - แก้ pain point: drawer ก่อนหน้านี้ไม่มีช่อง total_cost (ต้องไป SQL UPDATE manual)
+
+### Phase 88.9 — Comparative P&L
+- **feat:** toggle "📊 เทียบกับงวดก่อน" ในหน้างบกำไรขาดทุน
+  - Auto-compute previous period (เดือน/ไตรมาส/ปี/custom = ขนาดเท่ากัน)
+  - Fetch 2 งวดพร้อมกัน → render side-by-side (5 columns: รหัส | ชื่อ | งวดนี้ | งวดก่อน | Δ)
+  - Net Income compare card (3 ตัวเลข + % change)
+
+---
+
 ## 5.36.0 (build 180) + SQL hotfix — 2026-05-08 ⭐ Phase 88.6
 
 ### Phase 88.6 — Service Job Closure Workflow
