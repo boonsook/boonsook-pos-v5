@@ -262,6 +262,16 @@ export async function postJournalForSale(sale) {
   const desc = `ขาย POS ${sale.order_no || '#' + sale.id} — ${sale.customer_name || 'ลูกค้าทั่วไป'}`;
   const amount = Number(amountRaw);
 
+  // ★ Phase 88.20: ถ้าเป็น sale_transfer + มี BANK_COA:XXXX ใน note → ใช้ COA นั้นแทน mapping default
+  let debitAccount = mapping.debit_account_code;
+  if (mappingKey === "sale_transfer" || mappingKey === "sale_credit") {
+    const noteMatch = String(sale.note || "").match(/BANK_COA:(\d{4,5})/);
+    if (noteMatch?.[1]) {
+      debitAccount = noteMatch[1];
+      console.info("[auto_post] sale transfer override Dr account:", debitAccount, "(from note BANK_COA)");
+    }
+  }
+
   return _postJournal({
     sourceTable: "sales",
     sourceId: sale.id,
@@ -269,8 +279,8 @@ export async function postJournalForSale(sale) {
     docDate,
     description: desc,
     lines: [
-      { account_code: mapping.debit_account_code,  debit: amount, credit: 0,      description: desc },
-      { account_code: mapping.credit_account_code, debit: 0,      credit: amount, description: desc }
+      { account_code: debitAccount,                 debit: amount, credit: 0,      description: desc },
+      { account_code: mapping.credit_account_code,  debit: 0,      credit: amount, description: desc }
     ]
   });
 }

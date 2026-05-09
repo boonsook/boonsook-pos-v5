@@ -20,6 +20,7 @@ function _syncBanksFromDom(el, ctx) {
     state.paymentInfo.banks[idx].bankAccount = card.querySelector(`[data-bank-field="bankAccount"][data-bank-idx="${idx}"]`)?.value?.trim() || "";
     state.paymentInfo.banks[idx].bankHolder = card.querySelector(`[data-bank-field="bankHolder"][data-bank-idx="${idx}"]`)?.value?.trim() || "";
     state.paymentInfo.banks[idx].bankBranch = card.querySelector(`[data-bank-field="bankBranch"][data-bank-idx="${idx}"]`)?.value?.trim() || "";
+    state.paymentInfo.banks[idx].coaCode    = card.querySelector(`[data-bank-field="coaCode"][data-bank-idx="${idx}"]`)?.value?.trim() || "";
   });
   // ★ PromptPay
   const ppEl = document.getElementById("setPromptPay");
@@ -79,6 +80,10 @@ export function renderSettingsPayment(el, ctx, goBack, navigate) {
 
                 <label class="set-field-label">สาขา</label>
                 <input class="bank-input" data-bank-field="bankBranch" data-bank-idx="${idx}" value="${escHtml(bank.bankBranch || '')}" placeholder="สาขา" />
+
+                <label class="set-field-label" style="margin-top:8px;color:#0284c7;font-weight:700">📊 รหัสบัญชีระบบบัญชี (COA)</label>
+                <input class="bank-input" data-bank-field="coaCode" data-bank-idx="${idx}" value="${escHtml(bank.coaCode || (idx === 0 ? '1130' : ''))}" placeholder="เช่น 1130, 1131, 1132 (ดูจากผังบัญชี)" inputmode="numeric" />
+                <div class="sku" style="font-size:11px;color:#64748b;margin-top:-4px">ใช้ตอนลง JV รับเงินโอน → Dr [COA] / Cr 4xxx · ปล่อยว่าง = ใช้ค่าเริ่มต้น (1130)</div>
 
                 <label class="set-field-label" style="margin-top:8px">QR Code บัญชีนี้</label>
                 ${bank.qrImage
@@ -253,6 +258,7 @@ export function renderSettingsPayment(el, ctx, goBack, navigate) {
         bankAccount: card.querySelector(`[data-bank-field="bankAccount"][data-bank-idx="${idx}"]`)?.value.trim() || "",
         bankHolder: card.querySelector(`[data-bank-field="bankHolder"][data-bank-idx="${idx}"]`)?.value.trim() || "",
         bankBranch: card.querySelector(`[data-bank-field="bankBranch"][data-bank-idx="${idx}"]`)?.value.trim() || "",
+        coaCode:    card.querySelector(`[data-bank-field="coaCode"][data-bank-idx="${idx}"]`)?.value.trim() || "",
         qrImage: state.paymentInfo.banks[idx]?.qrImage || null
       });
     });

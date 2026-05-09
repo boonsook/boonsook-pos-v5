@@ -7,6 +7,35 @@
 
 ---
 
+## 5.42.0 (build 203) — 2026-05-09 ⭐ Phase 88.20
+
+### Phase 88.20 — POS Cash breakdown + Bank account picker
+- **feat:** POS หน้า "ยืนยันการชำระ" — เพิ่ม breakdown รับเงิน-เงินทอน เด่นชัด
+  - 2 columns: 💵 รับเงินจากลูกค้า / 💸 เงินทอน
+  - แสดงเสมอ (ไม่ใช่เฉพาะกรณีทอน)
+- **feat:** POS Transfer — dropdown เลือกบัญชีธนาคารปลายทาง (ถ้ามีหลายบัญชี)
+  - QR + ข้อมูลบัญชีเปลี่ยนตามที่เลือก
+  - แสดง COA Code ถ้ากรอกใน settings
+- **feat:** Settings → ข้อมูลการเงิน — เพิ่ม "📊 รหัสบัญชี COA" ใน bank card
+  - บัญชีแรก default = 1130 (suggestion)
+- **feat:** Sales note บันทึก:
+  - `BANK_COA:XXXX` — สำหรับ auto-post ใช้
+  - `🏦 ชื่อธนาคาร (เลขบัญชี)` — readable
+  - `💵 รับ ฿X ทอน ฿Y` — สำหรับ cash
+- **feat:** auto_post.js `postJournalForSale` — ตรวจ note BANK_COA → override Dr account
+
+### User actions
+- ตั้งค่า → ข้อมูลการเงิน → เพิ่มบัญชี → กรอก COA Code (1130, 1131, 1132)
+- POS Transfer → ≥ 2 บัญชี → dropdown โผล่
+
+---
+
+## 5.41.2 (build 202) — Phase 88.19c (table fix)
+- **fix:** `journal_entry_lines` → `journal_lines` ใน periods.js fetchPeriodSummary
+
+## 5.41.1 (build 201) — Phase 88.19b (route fix)
+- **fix:** เพิ่ม `accounting_periods` ใน `ALL_ROUTES` (ลืม register)
+
 ## 5.41.0 (build 200) — 2026-05-09 ⭐ Phase 88.19 — Period Close 🎉
 
 ### Phase 88.19 — ปิดงวดบัญชี (Lock Periods)

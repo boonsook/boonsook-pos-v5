@@ -61,6 +61,8 @@ function xhrPostPOS(table, payload, returnData = false) {
 // ═══════════════════════════════════════════════════════════
 let posView = "home";
 let selectedPaymentMethod = "";
+// Phase 88.20: เลือกบัญชีธนาคารปลายทางสำหรับการโอน (index ใน paymentInfo.banks[])
+let selectedBankIdx = 0;
 let numpadValue = "";
 let quickPayAmount = 0;   // ยอดจาก numpad (เก็บเงินทันที) หรือ cart total
 let pendingPaidAmount = 0; // จำนวนเงินที่รับมา (สำหรับเงินสด)
@@ -457,8 +459,15 @@ function renderPosView(ctx) {
   // ═══════════════════════════════════════════════════════
   } else if (posView === "transfer-qr") {
     const amount = quickPayAmount || cartTotal;
+    // Phase 88.20: ดึง banks list — ถ้ามีหลายบัญชี → dropdown ให้เลือก
+    const allBanks = state.paymentInfo?.banks || [];
+    const validBanks = allBanks.filter(b => b.bankName || b.bankAccount);
+    if (selectedBankIdx >= validBanks.length) selectedBankIdx = 0;
+    const activeBank = validBanks[selectedBankIdx] || null;
     const pi = state.paymentInfo || {};
-    const hasQR = !!pi.qrImage;
+    // ★ Phase 88.20: ถ้าใช้บัญชีจาก banks[] → ใช้ QR ของบัญชีนั้น (ไม่งั้น fallback to global qrImage)
+    const bankQR = activeBank?.qrImage || pi.qrImage || "";
+    const hasQR = !!bankQR;
 
     el.innerHTML = `
       <div class="pos-subpage-header">
@@ -467,10 +476,23 @@ function renderPosView(ctx) {
         <div></div>
       </div>
 
+      ${validBanks.length > 1 ? `
+        <!-- Phase 88.20: Dropdown เลือกบัญชี (ถ้ามีหลายบัญชี) -->
+        <div style="padding:12px 16px 4px">
+          <label style="font-size:12px;color:#475569;font-weight:700;margin-bottom:6px;display:block">🏦 เลือกบัญชีรับเงิน:</label>
+          <select id="posBankPicker" style="width:100%;padding:12px;border:2px solid #0284c7;border-radius:10px;background:#f0f9ff;font-size:14px;font-weight:600;cursor:pointer">
+            ${validBanks.map((b, i) => {
+              const label = `${b.bankName || 'ธนาคาร'}${b.bankAccount ? ' — ' + b.bankAccount : ''}${b.coaCode ? ' (COA ' + b.coaCode + ')' : ''}`;
+              return `<option value="${i}" ${i === selectedBankIdx ? 'selected' : ''}>${label}</option>`;
+            }).join("")}
+          </select>
+        </div>
+      ` : ''}
+
       <div class="pos-transfer-card">
         ${hasQR ? `
           <div class="pos-transfer-qr-wrap">
-            <img src="${pi.qrImage}" alt="QR Code" class="pos-transfer-qr-img" />
+            <img src="${bankQR}" alt="QR Code" class="pos-transfer-qr-img" />
           </div>
         ` : `
           <div class="pos-qr-placeholder">
@@ -482,16 +504,26 @@ function renderPosView(ctx) {
 
         <div class="pos-transfer-amount">${moneyNum(amount)}</div>
 
-        ${pi.bankName || pi.bankHolder ? `
+        ${activeBank ? `
         <div class="pos-transfer-bank-info">
-          ${pi.bankName ? `<div class="pos-transfer-bank-icon">🏦</div>` : ''}
+          <div class="pos-transfer-bank-icon">🏦</div>
+          <div>
+            ${activeBank.bankHolder ? `<div style="font-weight:900">${activeBank.bankHolder}</div>` : ''}
+            ${activeBank.bankAccount ? `<div class="sku">เลขที่บัญชี ${activeBank.bankAccount}</div>` : ''}
+            ${activeBank.bankName ? `<div class="sku">${activeBank.bankName}${activeBank.bankBranch ? ' สาขา ' + activeBank.bankBranch : ''}</div>` : ''}
+            ${activeBank.coaCode ? `<div class="sku" style="color:#0284c7;font-weight:600">📊 COA: ${activeBank.coaCode}</div>` : ''}
+          </div>
+        </div>
+        ` : (pi.bankName || pi.bankHolder ? `
+        <div class="pos-transfer-bank-info">
+          <div class="pos-transfer-bank-icon">🏦</div>
           <div>
             ${pi.bankHolder ? `<div style="font-weight:900">${pi.bankHolder}</div>` : ''}
             ${pi.bankAccount ? `<div class="sku">เลขที่บัญชี ${pi.bankAccount}</div>` : ''}
             ${pi.bankName ? `<div class="sku">${pi.bankName}${pi.bankBranch ? ' สาขา ' + pi.bankBranch : ''}</div>` : ''}
           </div>
         </div>
-        ` : ''}
+        ` : '')}
 
         ${pi.promptPay ? `<div class="sku" style="text-align:center;margin-top:8px">พร้อมเพย์: ${pi.promptPay}</div>` : ''}
       </div>
@@ -511,6 +543,12 @@ function renderPosView(ctx) {
       posView = "confirm-proof"; renderPosView(ctx);
     }, { signal });
 
+    // Phase 88.20: bank picker dropdown — เปลี่ยนบัญชี → re-render เพื่อแสดง QR/info ใหม่
+    document.getElementById("posBankPicker")?.addEventListener("change", (e) => {
+      selectedBankIdx = parseInt(e.target.value, 10) || 0;
+      renderPosView(ctx);
+    }, { signal });
+
 
   // ═══════════════════════════════════════════════════════
   //  CONFIRM + PROOF — ยืนยัน + แนบสลิป (ทุกวิธีชำระเงิน)
@@ -528,10 +566,33 @@ function renderPosView(ctx) {
       </div>
 
       <!-- สรุปยอด -->
-      <div class="pos-pay-amount-box" style="margin:16px;border-radius:16px;background:linear-gradient(135deg,#0284c7,#0ea5e9);color:#fff;padding:24px;text-align:center">
+      <div class="pos-pay-amount-box" style="margin:16px;border-radius:16px;background:linear-gradient(135deg,#0284c7,#0ea5e9);color:#fff;padding:20px 24px;text-align:center">
         <div style="font-size:14px;opacity:.8">${selectedPaymentMethod} ${methodIcons[selectedPaymentMethod] || ""}</div>
         <div style="font-size:36px;font-weight:900;margin:8px 0">฿${moneyNum(amount)}</div>
-        ${selectedPaymentMethod === "เงินสด" && pendingPaidAmount > amount ? `<div style="font-size:14px;opacity:.8">รับมา ฿${moneyNum(pendingPaidAmount)} — เงินทอน ฿${moneyNum(pendingPaidAmount - amount)}</div>` : ''}
+        ${selectedPaymentMethod === "เงินสด" ? `
+          <!-- Phase 88.20: Breakdown รับเงิน-เงินทอน เด่นชัด -->
+          <div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.25);display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px">
+            <div>
+              <div style="opacity:.7;font-size:11px">💵 รับเงินจากลูกค้า</div>
+              <div style="font-size:18px;font-weight:800">฿${moneyNum(pendingPaidAmount || amount)}</div>
+            </div>
+            <div>
+              <div style="opacity:.7;font-size:11px">💸 เงินทอน</div>
+              <div style="font-size:18px;font-weight:800">฿${moneyNum(Math.max((pendingPaidAmount || amount) - amount, 0))}</div>
+            </div>
+          </div>
+        ` : ''}
+        ${(selectedPaymentMethod === "โอนเงิน" || selectedPaymentMethod === "QR พร้อมเพย์") ? (() => {
+          const allBanks = state.paymentInfo?.banks || [];
+          const validBanks = allBanks.filter(b => b.bankName || b.bankAccount);
+          const activeBank = validBanks[selectedBankIdx];
+          return activeBank ? `
+            <div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.25);font-size:13px;opacity:.95">
+              🏦 ${activeBank.bankName || ''}${activeBank.bankAccount ? ' — ' + activeBank.bankAccount : ''}
+              ${activeBank.coaCode ? `<span style="opacity:.7;margin-left:6px">[COA ${activeBank.coaCode}]</span>` : ''}
+            </div>
+          ` : '';
+        })() : ''}
       </div>
 
       <!-- แนบสลิป -->
@@ -936,6 +997,28 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
     let noteParts = [];
     if (custPhone) noteParts.push(`📞 ${custPhone}`);
     if (proofUrl && proofUrl.startsWith("http")) noteParts.push(`สลิป: ${proofUrl}`);
+
+    // ★ Phase 88.20: ถ้าโอนเงิน + เลือกบัญชี → ใส่ COA + ชื่อบัญชี ใน note (ใช้ตอน post JV)
+    let bankCoaCode = "";
+    if (paymentMethod === "โอนเงิน" || paymentMethod === "QR พร้อมเพย์") {
+      const allBanks = state.paymentInfo?.banks || [];
+      const validBanks = allBanks.filter(b => b.bankName || b.bankAccount);
+      const activeBank = validBanks[selectedBankIdx];
+      if (activeBank?.coaCode) {
+        bankCoaCode = activeBank.coaCode;
+        noteParts.push(`BANK_COA:${activeBank.coaCode}`);
+        noteParts.push(`🏦 ${activeBank.bankName}${activeBank.bankAccount ? ' (' + activeBank.bankAccount + ')' : ''}`);
+      }
+    }
+    // ★ Phase 88.20: เพิ่มรายละเอียดเงินสด (รับเงิน + เงินทอน) ใน note ถ้า payment=cash
+    if (paymentMethod === "เงินสด" && (paidAmount || 0) > 0) {
+      const change = Math.max((paidAmount || 0) - amount, 0);
+      if (change > 0) {
+        noteParts.push(`💵 รับ ฿${(paidAmount || 0).toLocaleString("th-TH")} ทอน ฿${change.toLocaleString("th-TH")}`);
+      } else {
+        noteParts.push(`💵 รับ ฿${(paidAmount || amount).toLocaleString("th-TH")} (พอดี)`);
+      }
+    }
 
     const salePayload = {
       order_no: orderNo,
