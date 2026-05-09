@@ -186,9 +186,22 @@ export async function onRequestPost(context) {
       }
     }
     if (expectedRecipient && parsed.recipient_name) {
-      const recipientLower = parsed.recipient_name.toLowerCase();
-      const expectedLower = expectedRecipient.toLowerCase();
-      verification.recipient_match = recipientLower.includes(expectedLower) || expectedLower.includes(recipientLower);
+      // ★ Smart name match — ลบคำนำหน้า/ปีกกา/ธนาคาร ก่อนเทียบ substring
+      const normalizeName = (s) => String(s || "")
+        .toLowerCase()
+        .replace(/^(ร้าน|บริษัท|หจก\.?|บจ\.?|บมจ\.?|จำกัด|มณี\s*shop|mn\s*shop)\s*/gi, "")
+        .replace(/[\(\)\[\]]/g, " ")  // unwrap brackets — keep content
+        .replace(/\b(scb|kbank|krungthai|bbl|ttb|kkp|gsb|baac|tisco|uob|mha|bay|cimb)\b/gi, "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      const recipientNorm = normalizeName(parsed.recipient_name);
+      const expectedNorm  = normalizeName(expectedRecipient);
+      // เทียบ substring ทั้ง 2 ทิศทาง — รองรับชื่อยาว/สั้นต่างกัน
+      verification.recipient_match = recipientNorm.length > 2 && expectedNorm.length > 2 && (
+        recipientNorm.includes(expectedNorm) ||
+        expectedNorm.includes(recipientNorm)
+      );
       if (!verification.recipient_match) {
         verification.warnings.push(`⚠️ ชื่อผู้รับไม่ตรง — สลิป "${parsed.recipient_name}" ≠ คาด "${expectedRecipient}"`);
       }
