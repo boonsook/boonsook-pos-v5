@@ -1,8 +1,79 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 9 พฤษภาคม 2026 (Phase 88.7-88.11 — drill-down + comparative + drawer cost + slip+AI)
-**Version:** 5.38.6 (build 190) — Phase 88.11g (AI verify slip ทำงาน clean)
-**Previous:** 5.36.0 (build 180) — Phase 88.6 (service closure)
+**อัปเดตล่าสุด:** 9 พฤษภาคม 2026 (Phase 88.12 — Approval workflow ครบ 13 หน้างานช่าง)
+**Version:** 5.39.1 (build 192) — Phase 88.12b (ac_install + solar)
+**Previous:** 5.38.6 (build 190) — Phase 88.11g (AI verify clean)
+
+---
+
+## 📨 Phase 88.12 — Approval Workflow + Slip ทุกหน้างานช่าง (9 พ.ค.)
+
+### User feedback
+> "ในหน้างานช่างควรมีเมนูเพิ่มสลิ๊ปปิดงาน ทุกหน้าด้วยครับ บางครั้งไปหน้างาน
+> ก็สามารถส่งงานได้เลย รอแอดมินยืนยัน อีกที ค่อยลงเป็นรายได้"
+
+### What shipped (build 191-192)
+
+**1. New status: `pending_review`** (📨 รออนุมัติ)
+- ช่างเลือก → JV ไม่เกิด (รอ admin)
+- ใส่ใน `STATUS_LABELS` + `STATUS_COLOR` (สีม่วง #a855f7)
+
+**2. service_jobs.js list — filter chip ใหม่**
+- "📨 รออนุมัติ" + counter
+- `REVIEW_STATUSES = ["pending_review"]`
+- ระหว่าง chip "ค้าง" และ "ปิดแล้ว"
+
+**3. Drawer admin approve (main.js + index.html):**
+- Banner สีม่วงโผล่เมื่อ status=pending_review
+- ✅ อนุมัติ + ลงรายได้ → set status=delivered → save → JV
+- ↩️ ส่งกลับให้แก้ → set status=in_progress
+
+**4. ครบ 13 หน้างานช่าง** (port closure section + slip + AI verify):
+- `service_form.js` → 9 routes (repair_ac/clean/move/satellite/fridge/washer/cctv/tv/other)
+- `ac_install.js` → ติดตั้งแอร์
+- `solar.js` → โซล่าเซลล์ (refactor: `address` → `customer_address`, ใช้ token cache, return=representation)
+
+**5. ทุกไฟล์มี:**
+- 📷 ถ่ายรูป + 🖼️ แกลลอรี่ (capture + no-capture inputs)
+- Status dropdown 6 options (รอดำเนินการ → รออนุมัติ → ส่งมอบ → ปิดงาน)
+- Payment method (cash → Dr 1110 / transfer → Dr 1130)
+- Auto AI verify หลัง upload ถ้า payment=transfer/qr
+- ปุ่ม 🤖 ตรวจ AI manual
+- Verify result card (ผ่าน/ตรวจเพิ่ม)
+- Wire `postJournalForServiceJob` หลัง save ถ้า isClosure=true
+
+### Workflow ที่รองรับแล้ว
+```
+ช่าง (มือถือ — หน้างาน):
+  เปิดหน้างานใดๆ → กรอก + แนบสลิป → status='📨 รออนุมัติ' → ส่ง
+
+Admin (เดสก์ท็อป):
+  ใบรับงาน → filter 'รออนุมัติ' → คลิกแก้ไข → drawer → กด 'อนุมัติ + ลงรายได้'
+
+ระบบ:
+  status='delivered' → JV เกิด Cr 4200-4290 ตามประเภทงาน
+```
+
+หรือ workflow เก่า (ช่างปิดเอง) ยังใช้ได้:
+```
+ช่าง: เลือก status='ส่งมอบแล้ว' → save → JV เกิดทันที
+```
+
+### Files changed (Phase 88.12 + 88.12b)
+- `index.html` — เพิ่ม `pending_review` option + admin approve banner
+- `main.js` — wire approve/reject buttons + show banner ใน openServiceJobDrawer
+- `modules/service_form.js` — closure section + AI verify (port from drawer)
+- `modules/service_jobs.js` — filter chip "รออนุมัติ" + REVIEW_STATUSES
+- `modules/ac_install.js` — เพิ่ม closure section + AI verify
+- `modules/solar.js` — เพิ่ม closure + refactor (token cache + customer_address)
+
+### Pending Phase 88+
+- Period close + Lock periods
+- Mapping editor UI
+- Service mapping for `solar` (ตอนนี้ fallback service_other → 4240)
+- VAT support (XL — Phase ใหม่)
+
+---
 
 ---
 

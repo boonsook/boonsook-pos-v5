@@ -7,6 +7,21 @@
 
 ---
 
+## 5.39.1 (build 192) — 2026-05-09 ⭐ Phase 88.12 final
+
+### Phase 88.12 — Approval Workflow ครบ 13 หน้างานช่าง
+- **feat:** ทุกหน้างานช่างมี section "ปิดงาน + แนบสลิป + AI verify"
+  - 9 service types (service_form.js) + ติดตั้งแอร์ (ac_install.js) + โซล่าเซลล์ (solar.js)
+  - ปุ่มแยก 📷 ถ่ายรูป / 🖼️ แกลลอรี่
+  - Auto AI verify ถ้า payment=transfer/qr
+- **feat:** Status ใหม่ `pending_review` (📨 รออนุมัติ)
+  - ช่างเลือก → JV ไม่เกิด (รอ admin)
+  - filter chip "รออนุมัติ" สีม่วง ในใบรับงาน
+- **feat:** Admin approve banner ใน drawer (ม่วง) + ปุ่ม "อนุมัติ + ลงรายได้"
+  - กด → status=delivered → save → JV เกิด
+
+---
+
 ## 5.38.6 (build 190) — 2026-05-09 ⭐ Phase 88.11 final
 
 ### Phase 88.11 — Slip Upload + AI Verify (Gemini Vision)
