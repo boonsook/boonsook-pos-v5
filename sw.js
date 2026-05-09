@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v175 (2026-05-09): Phase 88.11g — สอน AI ว่า "ถ่ายจากจอมือถือ" = ปกติ ไม่ใช่ tampering
-const CACHE_NAME = 'boonsook-pos-v5-cache-v175';
+// v176 (2026-05-09): Phase 88.12 — Approval workflow (ช่างส่งงาน → admin ยืนยัน → JV)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v176';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

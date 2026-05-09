@@ -604,6 +604,22 @@
       <h2 id="serviceJobDrawerTitle">เพิ่มงานช่าง</h2>
       <button class="btn light" data-close-drawer aria-label="ปิด">ปิด</button>
     </div>
+
+    <!-- 📨 Admin approve banner — แสดงเมื่อ status = pending_review (Phase 88.12) -->
+    <div id="serviceApproveBanner" style="display:none;background:#faf5ff;border:2px solid #c4b5fd;border-radius:10px;padding:12px;margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="font-size:18px">📨</span>
+        <div style="flex:1;min-width:140px">
+          <div style="font-weight:700;color:#581c87;font-size:13px">งานนี้รออนุมัติจากแอดมิน</div>
+          <div style="font-size:11px;color:#7e22ce">ช่างส่งงานแล้ว — กดยืนยันด้านล่างเพื่อลงรายได้เข้าระบบบัญชี</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+        <button id="serviceApproveBtn" type="button" class="btn primary" style="background:#16a34a;border-color:#16a34a;font-size:13px;padding:8px 14px">✅ อนุมัติ + ลงรายได้</button>
+        <button id="serviceRejectBtn" type="button" class="btn light" style="font-size:13px;padding:8px 14px;color:#dc2626">↩️ ส่งกลับให้แก้</button>
+      </div>
+    </div>
+
     <div class="stack">
       <label for="serviceCustomer" class="sr-only">ชื่อลูกค้า</label>
       <input class="form-input" id="serviceCustomer" placeholder="ชื่อลูกค้า" aria-label="ชื่อลูกค้า" autocomplete="name" />
@@ -632,6 +648,7 @@
         <option value="pending">รอดำเนินการ</option>
         <option value="progress">กำลังดำเนินการ</option>
         <option value="done">เสร็จแล้ว</option>
+        <option value="pending_review">📨 รออนุมัติ (ช่างส่ง — รอแอดมิน)</option>
         <option value="delivered">ส่งมอบแล้ว</option>
         <option value="closed">🎉 ลูกค้ายืนยันปิดงาน</option>
         <option value="cancelled">ยกเลิก</option>
@@ -792,7 +809,7 @@
   <script>
   (async function selfHeal() {
     try {
-      var APP_BUILD = 190;
+      var APP_BUILD = 191;
       var STUCK_BUILDS_BEFORE = 47; // builds before this มี immutable-cache bug
       var stored = parseInt(localStorage.getItem('bsk_app_build') || '0', 10);
       var justRecovered = sessionStorage.getItem('bsk_just_recovered') === '1';
@@ -841,7 +858,7 @@
     }
   })();
   </script>
-  <script type="module" src="./main.js?v=190"></script>
+  <script type="module" src="./main.js?v=191"></script>
   <script>
     // ═══ Loading Overlay ═══
     function hideLoadingOverlay() {

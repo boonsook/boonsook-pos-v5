@@ -2480,6 +2480,31 @@ function openServiceJobDrawer(job=null){
   $("servicePaymentMethod")?.addEventListener("change", _updateServiceSlipSection);
   _wireServiceSlipUpload();
 
+  // ★ Phase 88.12: Admin approve banner — แสดงเมื่อ status = pending_review
+  const approveBanner = document.getElementById("serviceApproveBanner");
+  if (approveBanner) {
+    approveBanner.style.display = job?.status === "pending_review" ? "block" : "none";
+  }
+  // Wire approve button (idempotent — replace handler)
+  const approveBtn = document.getElementById("serviceApproveBtn");
+  const rejectBtn = document.getElementById("serviceRejectBtn");
+  if (approveBtn) {
+    const newApprove = approveBtn.cloneNode(true); approveBtn.parentNode.replaceChild(newApprove, approveBtn);
+    newApprove.addEventListener("click", async () => {
+      $("serviceStatus").value = "delivered";  // → save handler จะ trigger JV
+      showToast?.("เปลี่ยน status เป็น 'ส่งมอบแล้ว' — กดบันทึกเพื่อลง JV");
+      // Auto-click save
+      document.getElementById("saveServiceJobBtn")?.click();
+    });
+  }
+  if (rejectBtn) {
+    const newReject = rejectBtn.cloneNode(true); rejectBtn.parentNode.replaceChild(newReject, rejectBtn);
+    newReject.addEventListener("click", () => {
+      $("serviceStatus").value = "in_progress";  // ส่งกลับให้ช่างทำต่อ
+      showToast?.("เปลี่ยน status เป็น 'กำลังดำเนินการ' — กดบันทึกเพื่อส่งกลับ");
+    });
+  }
+
   // ★ Load before/after photos
   _setServicePhotoPreview("Before", job?.photo_before || "");
   _setServicePhotoPreview("After", job?.photo_after || "");

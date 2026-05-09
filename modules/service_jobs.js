@@ -4,25 +4,27 @@ import { renderEmpty } from "./ui_states.js";
 import { renderTagBadge, SERVICE_TAG_PRESETS, exportToExcel, todaySuffix } from "./utils.js";
 
 const STATUS_LABELS = {
-  pending:    "รอดำเนินการ",
-  progress:   "กำลังดำเนินการ",
-  in_progress:"กำลังดำเนินการ",
-  done:       "เสร็จแล้ว",
-  delivered:  "ส่งมอบแล้ว",
-  closed:     "🎉 ลูกค้ายืนยันปิดงาน",
-  open:       "เปิดงาน",
-  cancelled:  "ยกเลิก"
+  pending:        "รอดำเนินการ",
+  progress:       "กำลังดำเนินการ",
+  in_progress:    "กำลังดำเนินการ",
+  done:           "เสร็จแล้ว",
+  pending_review: "📨 รออนุมัติ",
+  delivered:      "ส่งมอบแล้ว",
+  closed:         "🎉 ลูกค้ายืนยันปิดงาน",
+  open:           "เปิดงาน",
+  cancelled:      "ยกเลิก"
 };
 
 const STATUS_COLOR = {
-  pending:    "#f59e0b",
-  progress:   "#0284c7",
-  in_progress:"#0284c7",
-  done:       "#10b981",
-  delivered:  "#6366f1",
-  closed:     "#7c3aed",
-  open:       "#f59e0b",
-  cancelled:  "#ef4444"
+  pending:        "#f59e0b",
+  progress:       "#0284c7",
+  in_progress:    "#0284c7",
+  done:           "#10b981",
+  pending_review: "#a855f7",  // ม่วง — รออนุมัติ
+  delivered:      "#6366f1",
+  closed:         "#7c3aed",
+  open:           "#f59e0b",
+  cancelled:      "#ef4444"
 };
 
 const JOB_TYPE_LABELS = {
@@ -46,6 +48,7 @@ let _sjTagFilter = null; // Phase 68: filter by tag
 
 const OPEN_STATUSES = ["pending", "progress", "in_progress", "open"];
 const CLOSED_STATUSES = ["done", "delivered", "closed"];
+const REVIEW_STATUSES = ["pending_review"];
 
 export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, showRoute }) {
   // ★ ซ่อนงานที่ถูกลบ (status = cancelled + note มีคำว่า [ลบแล้ว])
@@ -54,13 +57,15 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
   // Counts (เพื่อแสดงในแต่ละ chip)
   const cAll = allJobs.length;
   const cOpen = allJobs.filter(j => OPEN_STATUSES.includes(j.status || "pending")).length;
+  const cReview = allJobs.filter(j => REVIEW_STATUSES.includes(j.status)).length;
   const cClosed = allJobs.filter(j => CLOSED_STATUSES.includes(j.status)).length;
   const cCancelled = allJobs.filter(j => j.status === "cancelled").length;
 
   // Filter ตาม chip ที่เลือก
   let jobs;
-  if (_sjFilter === "open")          jobs = allJobs.filter(j => OPEN_STATUSES.includes(j.status || "pending"));
-  else if (_sjFilter === "closed")   jobs = allJobs.filter(j => CLOSED_STATUSES.includes(j.status));
+  if (_sjFilter === "open")           jobs = allJobs.filter(j => OPEN_STATUSES.includes(j.status || "pending"));
+  else if (_sjFilter === "review")    jobs = allJobs.filter(j => REVIEW_STATUSES.includes(j.status));
+  else if (_sjFilter === "closed")    jobs = allJobs.filter(j => CLOSED_STATUSES.includes(j.status));
   else if (_sjFilter === "cancelled") jobs = allJobs.filter(j => j.status === "cancelled");
   else                                jobs = allJobs; // "all"
 
@@ -86,6 +91,7 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;align-items:center">
         <span style="font-size:12px;color:#64748b;font-weight:600;margin-right:4px">แสดง:</span>
         ${chip("open",      "🟡 ค้าง",       cOpen,      "#0284c7")}
+        ${chip("review",    "📨 รออนุมัติ",  cReview,    "#a855f7")}
         ${chip("closed",    "✅ ปิดแล้ว",    cClosed,    "#10b981")}
         ${chip("cancelled", "⚫ ยกเลิก",     cCancelled, "#64748b")}
         ${chip("all",       "ทั้งหมด",      cAll,       "#475569")}

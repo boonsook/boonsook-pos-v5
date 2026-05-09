@@ -153,8 +153,8 @@ export function renderServiceFormPage(ctx, serviceType) {
     <div class="panel" style="border:2px solid #fef3c7;background:#fffbeb">
       <div class="set-section-title" style="color:#78350f">🔚 ปิดงาน (กรณีงานเสร็จ + รับเงินแล้ว)</div>
       <div style="font-size:11px;color:#92400e;margin-bottom:10px;line-height:1.6">
-        💡 ถ้างานยังไม่เสร็จ — ทิ้งสถานะเป็น <b>"กำลังดำเนินการ"</b> (default)<br>
-        ถ้าเสร็จแล้ว + รับเงิน → เลือก <b>"ส่งมอบแล้ว"</b> + แนบสลิป → ระบบจะลงรายได้อัตโนมัติ ✨
+        💡 ช่าง — เลือก <b>"📨 รออนุมัติ"</b> + แนบสลิป → ส่งให้แอดมินยืนยัน<br>
+        แอดมิน — เลือก <b>"ส่งมอบแล้ว"</b> หรือ <b>"ปิดงาน"</b> → ระบบลงรายได้อัตโนมัติ ✨
       </div>
 
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:10px">
@@ -164,6 +164,7 @@ export function renderServiceFormPage(ctx, serviceType) {
             <option value="pending">⏳ รอดำเนินการ</option>
             <option value="in_progress">🔄 กำลังดำเนินการ</option>
             <option value="done">✅ เสร็จแล้ว</option>
+            <option value="pending_review">📨 รออนุมัติ (ช่างส่ง — รอแอดมิน)</option>
             <option value="delivered">📦 ส่งมอบแล้ว (ลง JV ทันที)</option>
             <option value="closed">🎉 ปิดงาน + รับเงิน (ลง JV ทันที)</option>
           </select>
@@ -180,8 +181,15 @@ export function renderServiceFormPage(ctx, serviceType) {
 
       <label class="set-field-label" style="margin-top:6px">📷 แนบสลิปรับเงิน (รูป — ถ้ามี)</label>
       <div id="svSlipPreview" style="margin-top:6px"></div>
-      <input type="file" id="svSlipFile" accept="image/*" style="display:none" />
-      <button type="button" id="svSlipPickBtn" class="btn light" style="font-size:12px;padding:8px 14px;margin-top:6px">📸 เลือก/ถ่ายรูปสลิป</button>
+      <input type="file" id="svSlipFile" accept="image/*" capture="environment" style="display:none" />
+      <input type="file" id="svSlipGalleryFile" accept="image/*" style="display:none" />
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+        <button type="button" id="svSlipCameraBtn" class="btn light" style="font-size:12px;padding:8px 14px" title="ถ่ายรูปด้วยกล้อง">📷 ถ่ายรูป</button>
+        <button type="button" id="svSlipGalleryBtn" class="btn light" style="font-size:12px;padding:8px 14px" title="เลือกจากแกลลอรี่/ไฟล์">🖼️ แกลลอรี่</button>
+        <button type="button" id="svSlipVerifyBtn" class="btn light" style="font-size:12px;padding:8px 14px;display:none" title="สั่ง AI ตรวจสลิปอีกครั้ง">🤖 ตรวจ AI</button>
+      </div>
+      <div id="svSlipVerifyResult" style="margin-top:8px"></div>
+      <div style="font-size:10px;color:#92400e;margin-top:6px;line-height:1.5">💡 📷 ถ่ายรูป = เปิดกล้อง · 🖼️ แกลลอรี่ = เลือกจากเครื่อง<br>AI ตรวจสลิปอัตโนมัติเมื่อ payment = โอน/QR</div>
     </div>
 
     <!-- สรุปราคา -->
@@ -197,13 +205,76 @@ export function renderServiceFormPage(ctx, serviceType) {
 
   _renderItemsList(container, money, st);
 
-  // ★ Phase 88.6: Slip upload — preview + Supabase Storage
+  // ★ Phase 88.6 + 88.12: Slip upload + AI verify (Gemini Vision) — service_form
   let _slipUrl = "";
-  const slipFileEl = container.querySelector("#svSlipFile");
-  const slipPickBtn = container.querySelector("#svSlipPickBtn");
-  const slipPreview = container.querySelector("#svSlipPreview");
-  slipPickBtn?.addEventListener("click", () => slipFileEl?.click());
-  slipFileEl?.addEventListener("change", async (e) => {
+  const slipCameraEl  = container.querySelector("#svSlipFile");
+  const slipGalleryEl = container.querySelector("#svSlipGalleryFile");
+  const slipCameraBtn = container.querySelector("#svSlipCameraBtn");
+  const slipGalleryBtn= container.querySelector("#svSlipGalleryBtn");
+  const slipVerifyBtn = container.querySelector("#svSlipVerifyBtn");
+  const slipPreview   = container.querySelector("#svSlipPreview");
+  const slipVerifyResult = container.querySelector("#svSlipVerifyResult");
+
+  slipCameraBtn?.addEventListener("click", () => slipCameraEl?.click());
+  slipGalleryBtn?.addEventListener("click", () => slipGalleryEl?.click());
+
+  // Auto AI verify (เหมือน main.js drawer)
+  const _doVerifySlip = async (dataUrl) => {
+    if (!slipVerifyResult) return;
+    slipVerifyResult.innerHTML = `<div style="padding:10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;color:#1e40af;font-size:12px">🤖 AI กำลังตรวจสลิป...</div>`;
+    const expectedAmount = Number(container.querySelector("#svPriceSummary")?.textContent?.match(/[\d,]+/)?.[0]?.replace(/,/g, "") || 0);
+    const expectedRecipient = (window.state?.profile?.shop_name || window.state?.storeInfo?.name || "บุญสุข").trim();
+    try {
+      const r = await fetch("/api/verify-slip", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: dataUrl, expected_amount: expectedAmount, expected_recipient: expectedRecipient }),
+        cache: "no-store"
+      });
+      const j = await r.json();
+      if (!j.ok) {
+        slipVerifyResult.innerHTML = `<div style="padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;color:#991b1b;font-size:12px">❌ ${escHtml(j.error || "verify fail")}${j.raw ? `<details style="margin-top:4px"><summary style="cursor:pointer">▼ raw</summary><pre style="font-size:10px;max-height:160px;overflow:auto;white-space:pre-wrap">${escHtml(j.raw)}</pre></details>` : ""}</div>`;
+        return;
+      }
+      const d = j.data || {};
+      const v = j.verification || {};
+      const isSafe = v.is_safe === true;
+      const warningsHtml = (v.warnings || []).map(w => `<div style="color:#b91c1c;font-size:11px">${escHtml(w)}</div>`).join("");
+      const tampNote = d.tampering_note || (d.tampering_signs?.[0]) || "";
+      slipVerifyResult.innerHTML = `
+        <div style="padding:10px;background:${isSafe ? '#f0fdf4' : '#fffbeb'};border:1px solid ${isSafe ? '#86efac' : '#fde68a'};border-radius:8px;font-size:12px">
+          <div style="font-weight:700;color:${isSafe ? '#15803d' : '#92400e'};margin-bottom:6px">${isSafe ? '✅ ผ่านการตรวจสอบ' : '⚠️ ต้องตรวจเพิ่มเติม'}</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;color:#0f172a">
+            <div><b>ผู้โอน:</b> ${escHtml(d.sender_name || '-')}</div>
+            <div><b>ผู้รับ:</b> ${escHtml(d.recipient_name || '-')}</div>
+            <div><b>ยอด:</b> ${d.amount ? Number(d.amount).toLocaleString() : '-'}</div>
+            <div><b>วันที่:</b> ${escHtml(d.datetime || '-')}</div>
+            <div style="grid-column:1/-1"><b>Ref:</b> <code style="font-size:11px">${escHtml(d.transaction_id || '-')}</code></div>
+          </div>
+          <div style="margin-top:6px;font-size:11px;color:#64748b">Confidence: ${d.confidence || '?'}/100 · Tampering: ${d.tampering_score || 0}/100</div>
+          ${warningsHtml}
+          ${tampNote ? `<div style="font-size:10px;color:#92400e;margin-top:4px">• ${escHtml(tampNote)}</div>` : ''}
+        </div>
+      `;
+    } catch(e) {
+      slipVerifyResult.innerHTML = `<div style="padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;color:#991b1b;font-size:12px">❌ ตรวจสลิปล้มเหลว: ${escHtml(e.message)}</div>`;
+    }
+  };
+
+  slipVerifyBtn?.addEventListener("click", async () => {
+    if (!_slipUrl) return;
+    try {
+      const r = await fetch(_slipUrl);
+      const blob = await r.blob();
+      const dataUrl = await new Promise(resolve => { const fr = new FileReader(); fr.onload = () => resolve(fr.result); fr.readAsDataURL(blob); });
+      await _doVerifySlip(dataUrl);
+    } catch(e) {
+      if (slipVerifyResult) slipVerifyResult.innerHTML = `<div style="color:#dc2626;font-size:12px">❌ ดึงรูปไม่สำเร็จ: ${escHtml(e.message)}</div>`;
+    }
+  });
+
+  // Shared file pick handler — ใช้กับทั้ง camera + gallery
+  const _onSlipPick = async (e) => {
     const f = e.target.files?.[0];
     if (!f) return;
     // Local preview
@@ -242,6 +313,19 @@ export function renderServiceFormPage(ctx, serviceType) {
         _slipUrl = `${cfg.url}/storage/v1/object/public/proofs/${filePath}`;
         const s = container.querySelector("#svSlipStatus");
         if (s) { s.textContent = "✅ อัปโหลดสลิปสำเร็จ"; s.style.color = "#059669"; }
+        // Show "ตรวจ AI" button after success
+        if (slipVerifyBtn) slipVerifyBtn.style.display = "inline-block";
+
+        // ★ Phase 88.12: Auto-verify ถ้า payment_method = transfer/qr
+        const pm = container.querySelector("#svPaymentMethod")?.value || "";
+        if (/transfer|qr/.test(pm)) {
+          const dataUrl = await new Promise(resolve => {
+            const r = new FileReader();
+            r.onload = () => resolve(r.result);
+            r.readAsDataURL(f);
+          });
+          await _doVerifySlip(dataUrl);
+        }
       } else {
         throw new Error("HTTP " + upRes.status);
       }
@@ -250,7 +334,11 @@ export function renderServiceFormPage(ctx, serviceType) {
       const s = container.querySelector("#svSlipStatus");
       if (s) { s.textContent = "⚠️ อัปโหลดล้มเหลว — ลองรูปเล็กลง"; s.style.color = "#dc2626"; }
     }
-  });
+  };
+
+  // Wire ทั้ง 2 file inputs
+  slipCameraEl?.addEventListener("change", _onSlipPick);
+  slipGalleryEl?.addEventListener("change", _onSlipPick);
 
   function updateTotal() {
     const labor = parseFloat(container.querySelector("#svLabor").value) || 0;
