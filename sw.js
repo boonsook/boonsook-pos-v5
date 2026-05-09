@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v169 (2026-05-09): Phase 88.11 — Slip upload + AI verify (Gemini Vision) ใน drawer
-const CACHE_NAME = 'boonsook-pos-v5-cache-v169';
+// v170 (2026-05-09): Phase 88.11b — แยกปุ่ม slip 📷 ถ่ายรูป / 🖼️ แกลลอรี่ (มือถือ UX)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v170';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

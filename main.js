@@ -2628,14 +2628,18 @@ function _wireServiceSlipUpload() {
   if (_slipWired) return;
   _slipWired = true;
 
-  const fileEl = document.getElementById("serviceSlipFile");
-  const pickBtn = document.getElementById("serviceSlipPickBtn");
-  const verifyBtn = document.getElementById("serviceSlipVerifyBtn");
-  const removeBtn = document.getElementById("serviceSlipRemoveBtn");
+  const cameraFileEl  = document.getElementById("serviceSlipFile");
+  const galleryFileEl = document.getElementById("serviceSlipGalleryFile");
+  const cameraBtn     = document.getElementById("serviceSlipCameraBtn");
+  const galleryBtn    = document.getElementById("serviceSlipGalleryBtn");
+  const verifyBtn     = document.getElementById("serviceSlipVerifyBtn");
+  const removeBtn     = document.getElementById("serviceSlipRemoveBtn");
 
-  pickBtn?.addEventListener("click", () => fileEl?.click());
+  cameraBtn?.addEventListener("click", () => cameraFileEl?.click());
+  galleryBtn?.addEventListener("click", () => galleryFileEl?.click());
 
-  fileEl?.addEventListener("change", async (e) => {
+  // Shared handler — ใช้กับทั้ง 2 inputs
+  const onPick = async (e) => {
     const f = e.target.files?.[0];
     if (!f) return;
 
@@ -2687,7 +2691,11 @@ function _wireServiceSlipUpload() {
       const status = document.getElementById("serviceSlipUploadStatus");
       if (status) { status.textContent = "❌ อัปโหลดล้มเหลว: " + (err.message || err); status.style.color = "#dc2626"; }
     }
-  });
+  };
+
+  // Wire shared handler ให้ทั้ง camera + gallery
+  cameraFileEl?.addEventListener("change", onPick);
+  galleryFileEl?.addEventListener("change", onPick);
 
   verifyBtn?.addEventListener("click", async () => {
     const url = $("serviceSlipUrl")?.value;
