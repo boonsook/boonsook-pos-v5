@@ -187,6 +187,7 @@
           <button class="nav-btn sub" data-route="accounting_balance_sheet">🏦 งบดุล</button>
           <button class="nav-btn sub" data-route="accounting_opening_balance">📥 ลงยอดยกมา</button>
           <button class="nav-btn sub" data-route="accounting_export_bundle">📦 Export ชุดรายงาน</button>
+          <button class="nav-btn sub" data-route="accounting_periods">🔒 ปิดงวดบัญชี</button>
           <button class="nav-btn sub" data-route="accounting_backfill">⏪ Backfill ย้อนหลัง</button>
         </div>
       </div>
@@ -351,6 +352,7 @@
       <!-- Phase 88.5: opening balance + export bundle -->
       <section id="page-accounting_opening_balance" class="page hidden"></section>
       <section id="page-accounting_export_bundle" class="page hidden"></section>
+      <section id="page-accounting_periods" class="page hidden"></section>
       <section id="page-pos" class="page hidden"></section>
       <section id="page-products" class="page hidden"></section>
       <section id="page-wh_kunkhao" class="page hidden"></section>
@@ -809,7 +811,7 @@
   <script>
   (async function selfHeal() {
     try {
-      var APP_BUILD = 199;
+      var APP_BUILD = 200;
       var STUCK_BUILDS_BEFORE = 47; // builds before this มี immutable-cache bug
       var stored = parseInt(localStorage.getItem('bsk_app_build') || '0', 10);
       var justRecovered = sessionStorage.getItem('bsk_just_recovered') === '1';
@@ -858,7 +860,7 @@
     }
   })();
   </script>
-  <script type="module" src="./main.js?v=199"></script>
+  <script type="module" src="./main.js?v=200"></script>
   <script>
     // ═══ Loading Overlay ═══
     function hideLoadingOverlay() {

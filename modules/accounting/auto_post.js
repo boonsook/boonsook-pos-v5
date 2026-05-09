@@ -116,6 +116,24 @@ async function _postJournal(opts) {
     return null;
   }
 
+  // ★ Phase 88.19: ตรวจ period locked ก่อน insert (front-end check + DB trigger เป็น defense in depth)
+  try {
+    const yyyy = parseInt(docDate.slice(0, 4), 10);
+    const mm   = parseInt(docDate.slice(5, 7), 10);
+    const r = await fetch(
+      `${cfg.url}/rest/v1/accounting_periods?select=status&year=eq.${yyyy}&month=eq.${mm}`,
+      { headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token } }
+    );
+    if (r.ok) {
+      const arr = await r.json();
+      if (arr[0]?.status === "locked") {
+        console.warn("[auto_post] period locked, skipping:", `${yyyy}-${mm}`, sourceTable, sourceId);
+        if (window.showToast) window.showToast(`⛔ งวด ${yyyy}-${String(mm).padStart(2,"0")} ถูกปิดแล้ว — ลง JV ไม่ได้`);
+        return null;
+      }
+    }
+  } catch(e) { /* fail open — DB trigger จะกันอีกชั้น */ }
+
   // Generate doc_no: <type><YYYY><MM><####>
   const yyyy = docDate.slice(0, 4);
   const mm   = docDate.slice(5, 7);

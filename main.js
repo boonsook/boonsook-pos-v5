@@ -60,6 +60,8 @@ import { renderBalanceSheetPage } from "./modules/accounting/balance_sheet.js";
 // Phase 88.5: Opening Balance wizard + Export bundle
 import { renderOpeningBalancePage } from "./modules/accounting/opening_balance.js";
 import { renderExportBundlePage }   from "./modules/accounting/export_bundle.js";
+// Phase 88.19: Period Close
+import { renderPeriodsPage }        from "./modules/accounting/periods.js";
 // Phase 88.1: auto-posting JV จาก sales/expenses
 import { postJournalForSale, postJournalForExpense, postJournalForServiceJob, voidJvForSource } from "./modules/accounting/auto_post.js";
 import { renderProfitByProductPage } from "./modules/profit_by_product.js";
@@ -905,7 +907,7 @@ const ROUTE_GROUP = {
   products: "products", wh_kunkhao: "products", wh_kundaeng: "products", wh_sikhon: "products",
   expenses: "finance", profit_report: "finance",
   // Phase 88.0 — accounting routes อยู่ในกลุ่ม "accounting"
-  accounting_journals: "accounting", accounting_journal_new: "accounting", accounting_coa: "accounting", accounting_backfill: "accounting", accounting_trial_balance: "accounting", accounting_profit_loss: "accounting", accounting_balance_sheet: "accounting", accounting_opening_balance: "accounting", accounting_export_bundle: "accounting",
+  accounting_journals: "accounting", accounting_journal_new: "accounting", accounting_coa: "accounting", accounting_backfill: "accounting", accounting_trial_balance: "accounting", accounting_profit_loss: "accounting", accounting_balance_sheet: "accounting", accounting_opening_balance: "accounting", accounting_export_bundle: "accounting", accounting_periods: "accounting",
   // Phase 45 — service forms ทั้งหมดอยู่ในกลุ่ม "service"
   ...Object.fromEntries(SERVICE_FORM_ROUTES.map(r => [r, "service"]))
 };
@@ -1009,6 +1011,7 @@ function showRoute(route){
     accounting_balance_sheet:"งบดุล (Balance Sheet)",
     accounting_opening_balance:"ลงยอดยกมา (Opening Balance)",
     accounting_export_bundle:"Export ชุดรายงานบัญชี",
+    accounting_periods:"🔒 ปิดงวดบัญชี (Period Close)",
     ac_shop:"แอร์ใหม่พร้อมติดตั้ง",
     // Phase 45 — service form titles (9 ประเภท)
     ...Object.fromEntries(SERVICE_FORM_TYPES.map(t => ["service_" + t, `${SERVICE_TYPES[t].icon} ใบงาน${SERVICE_TYPES[t].label}`]))
@@ -1087,6 +1090,8 @@ function showRoute(route){
   if (route === "accounting_balance_sheet") renderBalanceSheetPage(ctx);
   // Phase 88.5 — Opening Balance + Export bundle
   if (route === "accounting_opening_balance") renderOpeningBalancePage(ctx);
+  // Phase 88.19 — Period Close
+  if (route === "accounting_periods") renderPeriodsPage(ctx);
   if (route === "accounting_export_bundle")   renderExportBundlePage(ctx);
 
   // Warehouse sub-pages — reuse products page with warehouse filter

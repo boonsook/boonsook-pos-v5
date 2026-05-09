@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v184 (2026-05-09): Phase 88.18c — expense form: split camera/gallery buttons
-const CACHE_NAME = 'boonsook-pos-v5-cache-v184';
+// v185 (2026-05-09): Phase 88.19 — Period Close (lock งวดบัญชี)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v185';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

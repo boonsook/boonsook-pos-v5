@@ -7,6 +7,28 @@
 
 ---
 
+## 5.41.0 (build 200) — 2026-05-09 ⭐ Phase 88.19 — Period Close 🎉
+
+### Phase 88.19 — ปิดงวดบัญชี (Lock Periods)
+- **feat:** ตารางใหม่ `accounting_periods` (year/month/status/locked_at/locked_by/unlock_reason)
+- **feat:** หน้าใหม่ "🔒 ปิดงวดบัญชี" ใน เมนูบัญชี
+  - Grid 12 เดือน × N ปี + summary (revenue/expense/net/JV count)
+  - ปุ่ม Lock งวด — confirm dialog แสดง summary
+  - ปุ่ม Unlock — กรอกเหตุผล (≥5 chars) → audit trail
+- **feat:** Validation 2 ชั้น (defense in depth):
+  - Front-end: `auto_post.js` ตรวจ period status ก่อน insert JV
+  - Back-end: DB trigger `check_period_not_locked` กัน insert/update ผิดงวด
+- **feat:** อนุญาต void JV ใน locked period (soft delete) — ห้าม insert/update
+- **SQL:** `supabase-phase88-19-period-close.sql`
+
+### User actions required
+1. Run SQL: `supabase-phase88-19-period-close.sql`
+2. ลอง: เมนู → บัญชี → "🔒 ปิดงวดบัญชี" → คลิกเดือน → Lock
+
+🎯 **Build 200 — milestone!**
+
+---
+
 ## 5.40.2 (build 199) — 2026-05-09 ⭐ Phase 88.18c
 
 ### Phase 88.18c — Expense form: แยก ถ่ายรูป / แกลเลอรี่
