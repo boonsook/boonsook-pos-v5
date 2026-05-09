@@ -19,7 +19,10 @@
 //  Pre-req: รัน supabase-phase88-auto-post.sql ก่อนใช้
 // ═══════════════════════════════════════════════════════════
 
-const ACCOUNTING_EFFECTIVE_DATE = "2026-01-01";
+// ★ Phase 88.18b: เลื่อน effective date จาก 2026-01-01 → 2026-05-01
+//   เหตุผล: ก่อน 1 พ.ค. = test/mock data (เม.ย. = ทดสอบระบบ)
+//           production จริงเริ่ม 1 พ.ค. — JV ก่อนวันนี้จะถูก reject อัตโนมัติ
+const ACCOUNTING_EFFECTIVE_DATE = "2026-05-01";
 
 let _mappingCache = null;
 

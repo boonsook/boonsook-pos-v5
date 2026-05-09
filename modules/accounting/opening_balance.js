@@ -8,7 +8,8 @@
 //  (เช่น เงินสดยกมา 100,000 + ทุนเริ่มต้น 100,000 → BS จะ balance ตามจริง)
 // ═══════════════════════════════════════════════════════════
 
-const ACCOUNTING_EFFECTIVE_DATE = "2026-01-01";
+// ★ Phase 88.18b: production เริ่ม 1 พ.ค. 2026 — opening balance ลงวันนี้
+const ACCOUNTING_EFFECTIVE_DATE = "2026-05-01";
 
 let _ctx = null;
 

@@ -1,8 +1,33 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 9 พฤษภาคม 2026 (Phase 88.17/18 — Receipt approval + B2B revenue split)
-**Version:** 5.40.0 (build 197) — Phase 88.17 + 88.18
-**Previous:** 5.39.5 (build 196) — Phase 88.16 (Solar revenue → 4300)
+**อัปเดตล่าสุด:** 9 พฤษภาคม 2026 (Phase 88.18b — Production start 1 พ.ค.)
+**Version:** 5.40.1 (build 198) — Phase 88.18b (effective date → 2026-05-01)
+**Previous:** 5.40.0 (build 197) — Phase 88.17/18 (Receipt approval + B2B fix)
+
+---
+
+## 🚀 Phase 88.18b — Production Start (1 พ.ค. 2026)
+
+### Context
+> "ผมจะเริ่ม production จริง ก็ตั้งแต่เริ่มเดือน พฤษภาคม ครับ"
+> "ส่วนของกุดขาคีม ยังไม่ได้รับเงินนะครับ ลบรายได้ออกก่อน"
+
+### What changed (build 198)
+- `ACCOUNTING_EFFECTIVE_DATE`: `2026-01-01` → `2026-05-01` (4 ไฟล์)
+- ระบบจะปฏิเสธ post JV ของ docDate < 1 พ.ค. โดยอัตโนมัติ
+
+### User actions ทำแล้ว
+1. ✅ Run SQL void JV กุดขาคีม (id=103, ฿93,456) — ยังไม่ได้รับเงินจริง
+2. ⏳ Run SQL void JV เม.ย. 2026 (mock data) — รอ user รัน
+
+### Workflow ที่ปลอดภัย (หลัง build 198)
+- POS sale วันที่ 30 เม.ย. → ระบบ reject post JV (เพราะก่อน effective date)
+- Invoice วันที่ 1 พ.ค. → JV ปกติ
+- Backfill เก่าก่อน 1 พ.ค. → ระบบ skip อัตโนมัติ
+
+---
+
+## 🚨 Phase 88.17 + 88.18 — Receipt Approval + B2B Revenue Fix (9 พ.ค.)
 
 ---
 

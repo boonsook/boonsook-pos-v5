@@ -7,6 +7,20 @@
 
 ---
 
+## 5.40.1 (build 198) — 2026-05-09 ⭐ Phase 88.18b — Production start
+
+### Phase 88.18b — เลื่อน ACCOUNTING_EFFECTIVE_DATE → 2026-05-01
+- **change:** Effective date 2026-01-01 → **2026-05-01** ใน 4 ไฟล์
+  - auto_post.js / balance_sheet.js / export_bundle.js / opening_balance.js
+- **เหตุผล:** User เริ่ม production จริงตั้งแต่ 1 พ.ค. — ก่อนหน้านี้คือ test data
+- **ผล:**
+  - ระบบจะ reject auto-post JV ของ docDate < 1 พ.ค. โดยอัตโนมัติ
+  - กัน backfill mock data + กันสร้าง JV ผิดวันโดยไม่ตั้งใจ
+  - Balance Sheet / Export bundle ใช้ 1 พ.ค. เป็น cumulative start
+- **User action:** Run SQL void JV ของ เม.ย. 2026 (mock data) → P&L สะอาด
+
+---
+
 ## 5.40.0 (build 197) — 2026-05-09 ⭐ Phase 88.17 + 88.18
 
 ### Phase 88.17 — Receipt Approval Workflow

@@ -12,7 +12,8 @@
 
 import { todaySuffix } from "../utils.js";
 
-const ACCOUNTING_EFFECTIVE_DATE = "2026-01-01";
+// ★ Phase 88.18b: production เริ่ม 1 พ.ค. 2026
+const ACCOUNTING_EFFECTIVE_DATE = "2026-05-01";
 
 let _ctx = null;
 let _periodType = "month";
