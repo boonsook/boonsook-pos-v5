@@ -1,8 +1,81 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 8 พฤษภาคม 2026 (Phase 88.6 — Service Closure Workflow + bonus hotfixes)
-**Version:** 5.36.0 (build 180) + SQL hotfix payment_method
-**Previous:** 5.34.8 (build 175) — Phase 88.5 ครบ + ปัญหาเล็กๆ (mobile timeout, Backfill range, total_cost)
+**อัปเดตล่าสุด:** 9 พฤษภาคม 2026 (Phase 88.7-88.11 — drill-down + comparative + drawer cost + slip+AI)
+**Version:** 5.38.6 (build 190) — Phase 88.11g (AI verify slip ทำงาน clean)
+**Previous:** 5.36.0 (build 180) — Phase 88.6 (service closure)
+
+---
+
+## 🎯 Phase 88.7-88.11 (9 พ.ค.)
+
+### Phase 88.7 — JV Drill-down (build 181)
+คลิก row สมุดรายวัน → drawer overlay แสดง:
+- Lines table (Dr/Cr ทุกบรรทัด + balance check)
+- Source preview ตาม `source_table` (sales/expenses/receipts/service_jobs)
+- ปุ่ม "เปิดหน้า [source]" → navigate
+- Audit info (created/approved/voided timestamps)
+
+### Phase 88.8 — Drawer service cost input (build 181)
+แก้ pain point เดิม: drawer แก้ไขงานช่างไม่มีช่อง total_cost
+- HTML: section "💰 ค่าแรง / ปิดงาน" ใน serviceJobDrawer
+- Inputs: ค่าแรง + ส่วนลด (auto-recalc ยอดสุทธิ) + payment_method
+- payload: `total_cost` + `payment_method` ใส่ตอน save
+- ส่ง payment_method ให้ postJournalForServiceJob → override Dr account (transfer→1130)
+
+### Phase 88.9 — Comparative P&L (build 181)
+- Toggle "📊 เทียบกับงวดก่อน"
+- Auto-compute previous period (m/q/y/custom)
+- Side-by-side 5 columns + Net Income compare card
+
+### Phase 88.10 / 88.10b — Re-post JV on edit (build 182-183)
+- ปัญหา: edit งานเก่า + เปลี่ยน total_cost → JV ค้าง (idempotent unique block POST ใหม่)
+- Fix: เพิ่ม `voidJvForSource()` ใน auto_post.js — DELETE JV เดิม (lines cascade)
+- Wire ใน saveServiceJob: void ก่อน post ใหม่ ถ้า edit (!isNewJob)
+- 88.10b: trigger logic ขยาย — `editCompleteWithChange` (status เป็น completion อยู่แล้ว + total/method เปลี่ยน)
+- เก็บ `state.editingServiceJobOrigTotalCost` + `OrigPaymentMethod` ตอน open drawer เพื่อตรวจ change
+
+### Phase 88.11 — Slip Upload + AI Verify (build 184-190)
+ฟีเจอร์ใหญ่ — user ขอ "แนบสลิป + ตรวจจริง/ปลอม"
+- **`functions/api/verify-slip.js`** (NEW) — Gemini Vision API:
+  - Compact prompt → ดึง 14 fields (sender/recipient/amount/datetime/ref/tampering)
+  - Fallback chain 4 models: 2.5-flash → 2.0-flash-lite → flash-latest → 2.0-flash
+  - 3-layer JSON extraction (parse ตรง → strip code fence → regex {})
+  - maxOutputTokens 4000 (1500 ไม่พอสำหรับ Thai)
+- **Drawer section "📷 สลิปการโอน + ตรวจ AI"** สีม่วง — แสดงเมื่อ payment=transfer/qr
+  - 2 ปุ่ม (📷 ถ่ายรูป + 🖼️ แกลลอรี่) — แยกตาม Service Photos pattern
+  - Auto-verify หลัง upload สำเร็จ
+  - Card สีเขียว/เหลือง: ผู้โอน/ผู้รับ/ยอด/Ref/datetime + confidence + tampering_score
+- **Smart name match** — normalize ชื่อก่อนเทียบ:
+  - Strip คำนำหน้า: ร้าน/บริษัท/หจก./บจ./บมจ./จำกัด/มณี shop/mn shop
+  - Unwrap ปีกกา ( ) [ ]
+  - Strip bank names: scb/kbank/krungthai/bbl/ttb/kkp/gsb/baac/...
+- **Tampering threshold** — สอน AI:
+  - ถ่ายจากจอมือถือ ≠ tampering (workflow ปกติร้านค้าไทย)
+  - "จริง" tampering = digital editing (ฟ้อนต์ผิด/crop unnatural/pixel artifact)
+
+### Bug debug journey ของ Phase 88.11 (สำหรับ session ใหม่)
+1. **build 184**: ปุ่มเดียว — ปัญหา UX มือถือเด้งกล้องเสมอ
+2. **185**: แยก 2 ปุ่ม
+3. **186-187**: "Gemini ส่ง JSON ไม่ valid" — ลอง fallback chain + cleanup
+4. **188**: เห็น raw response ตัดกลาง → MAX_TOKENS issue → 1500→4000
+5. **189**: false positive ชื่อร้านไม่ตรง → smart normalize
+6. **190**: false positive tampering 40 → สอน AI
+
+### Pre-req
+- `GEMINI_API_KEY` ใน Cloudflare env (มีอยู่แล้วจาก Phase 74 AutoKey)
+- Storage bucket `proofs/` (มีอยู่แล้ว)
+
+### ✅ Verified (build 190 final)
+```
+✅ ผ่านการตรวจสอบ
+ผู้โอน: น.ส.ปณิชยา W***
+ผู้รับ: SCB มณี SHOP (บุญสุขอิเล็กทรอนิกส์)
+ยอด: 2,000 · วันที่: 2026-05-08T17:07
+Ref: C20260508612817830614
+Confidence: 90/100 · Tampering: 10/100
+```
+
+---
 
 ---
 

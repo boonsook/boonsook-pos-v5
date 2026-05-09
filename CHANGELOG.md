@@ -7,6 +7,34 @@
 
 ---
 
+## 5.38.6 (build 190) — 2026-05-09 ⭐ Phase 88.11 final
+
+### Phase 88.11 — Slip Upload + AI Verify (Gemini Vision)
+- **feat:** ช่างแนบสลิปการโอน + AI ตรวจ tampering ใน drawer
+  - `functions/api/verify-slip.js`: Gemini Vision API + 4-model fallback chain
+  - Compact prompt + maxTokens 4000 (รองรับ Thai)
+  - Extract: sender/recipient/amount/datetime/ref + tampering_score
+  - Smart name match (strip prefix + bank name) — กัน false positive
+  - Tampering threshold สอน AI: phone-of-phone ≠ tampering
+- **feat:** drawer section สีม่วง — 📷 ถ่าย / 🖼️ แกลลอรี่ + auto-verify
+- 7 builds (184-190) — debug journey: token truncate, name match, tampering threshold
+
+---
+
+## 5.37.2 (build 183) — 2026-05-09
+
+### Phase 88.10b — Re-post JV ตอน user แก้ total/method
+- **fix:** เพิ่ม `editCompleteWithChange` trigger — งาน complete + แก้ total/method
+- เก็บ origTotalCost + origPaymentMethod ใน state ตอน open drawer
+
+## 5.37.1 (build 182) — 2026-05-09
+
+### Phase 88.10 — Re-post JV (initial)
+- **fix:** เพิ่ม `voidJvForSource()` — DELETE JV เดิมก่อน post ใหม่
+- กัน idempotent unique block POST ตอน user แก้ amount
+
+---
+
 ## 5.37.0 (build 181) — 2026-05-09 ⭐ Phase 88.7-88.9
 
 ### Phase 88.7 — JV Drill-down (สมุดรายวัน → drawer)
