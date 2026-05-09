@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v166 (2026-05-09): Phase 88.7-88.9 — JV drill-down + drawer cost input + comparative P&L
-const CACHE_NAME = 'boonsook-pos-v5-cache-v166';
+// v167 (2026-05-09): Phase 88.10 — Re-post JV เมื่อ user แก้ total_cost/payment_method ใน drawer
+const CACHE_NAME = 'boonsook-pos-v5-cache-v167';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

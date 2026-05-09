@@ -61,7 +61,7 @@ import { renderBalanceSheetPage } from "./modules/accounting/balance_sheet.js";
 import { renderOpeningBalancePage } from "./modules/accounting/opening_balance.js";
 import { renderExportBundlePage }   from "./modules/accounting/export_bundle.js";
 // Phase 88.1: auto-posting JV จาก sales/expenses
-import { postJournalForSale, postJournalForExpense, postJournalForServiceJob } from "./modules/accounting/auto_post.js";
+import { postJournalForSale, postJournalForExpense, postJournalForServiceJob, voidJvForSource } from "./modules/accounting/auto_post.js";
 import { renderProfitByProductPage } from "./modules/profit_by_product.js";
 import { renderBirthdaysPage, checkTodayBirthdaysAndNotify } from "./modules/birthdays.js";
 import { renderQuoteTemplatesPage } from "./modules/quote_templates.js";
@@ -2681,18 +2681,23 @@ async function saveServiceJob(){
   const transitionedToDone = !isNewJob && !wasComplete && isNowComplete;
   const newJobAlreadyComplete = isNewJob && isNowComplete;
 
-  // ★ Phase 88.1b/88.8 — auto-post JV เมื่องานปิด (transition หรือสร้างใหม่ + status = closed/done/delivered)
+  // ★ Phase 88.1b/88.8/88.10 — auto-post JV เมื่องานปิด (transition หรือสร้างใหม่ + status = closed/done/delivered)
   // (fire-and-forget — ไม่ block UX)
   if (transitionedToDone || newJobAlreadyComplete) {
     try {
       // xhrPost returns { data: row } (ไม่ใช่ array); xhrPatch อาจไม่ return data
       const jobId = isNewJob ? res.data?.id : state.editingServiceJobId;
       if (jobId) {
-        // ★ Phase 88.8: ใช้ payload ที่ user แก้ใน drawer (มี total_cost + payment_method ใหม่)
-        // ก่อนนี้ใช้ state.serviceJobs[idx] ที่อาจ stale → ตอนนี้ payload มีข้อมูลล่าสุด
         const fullJob = { ...(state.serviceJobs || []).find(j => String(j.id) === String(jobId)), ...payload, id: jobId };
-        postJournalForServiceJob(fullJob)
-          .catch(e => console.warn("[saveServiceJob] auto-post JV failed:", e?.message));
+        // ★ Phase 88.10: ถ้า edit งานเก่า → void JV เก่าก่อน เพื่อให้ re-post ด้วย total_cost ใหม่
+        // (idempotent unique index จะ block POST ถ้ามี JV เดิม — ต้องลบก่อน)
+        const prepareAndPost = async () => {
+          if (!isNewJob) {
+            await voidJvForSource("service_jobs", jobId);
+          }
+          await postJournalForServiceJob(fullJob);
+        };
+        prepareAndPost().catch(e => console.warn("[saveServiceJob] auto-post JV failed:", e?.message));
       }
     } catch(e) { console.warn("[saveServiceJob] auto-post wire fail:", e?.message); }
   }

@@ -30,6 +30,44 @@ export function resetMappingCache() {
   _mappingCache = null;
 }
 
+/**
+ * ★ Phase 88.10: Void/delete JV for given source (เพื่อ re-post หลัง user แก้ amount/method)
+ * ใช้ pattern DELETE + repost — ง่ายกว่า in-place update
+ * เรียกก่อน postJournalForX(...) ตอน edit existing source row
+ *
+ * @returns {Promise<number>} จำนวน entries ที่ถูกลบ
+ */
+export async function voidJvForSource(sourceTable, sourceId) {
+  if (!sourceTable || !sourceId) return 0;
+  const cfg = window.SUPABASE_CONFIG;
+  const token = window._sbAccessToken || cfg.anonKey;
+  const headers = {
+    "apikey": cfg.anonKey,
+    "Authorization": "Bearer " + token,
+    "Prefer": "return=representation"
+  };
+  try {
+    // DELETE — lines จะถูกลบอัตโนมัติเพราะ FK ON DELETE CASCADE
+    const r = await fetch(`${cfg.url}/rest/v1/journal_entries?source_table=eq.${encodeURIComponent(sourceTable)}&source_id=eq.${sourceId}`, {
+      method: "DELETE",
+      headers
+    });
+    if (!r.ok) {
+      console.warn(`[auto_post] failed to void JV for ${sourceTable}#${sourceId}:`, r.status);
+      return 0;
+    }
+    const deleted = await r.json().catch(() => []);
+    const count = Array.isArray(deleted) ? deleted.length : 0;
+    if (count > 0) {
+      console.info(`[auto_post] voided ${count} JV(s) for ${sourceTable}#${sourceId} (will re-post)`);
+    }
+    return count;
+  } catch(e) {
+    console.warn(`[auto_post] void JV error:`, e?.message);
+    return 0;
+  }
+}
+
 async function _getMappings() {
   if (_mappingCache) return _mappingCache;
   const cfg = window.SUPABASE_CONFIG;
