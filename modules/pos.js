@@ -63,6 +63,33 @@ let posView = "home";
 let selectedPaymentMethod = "";
 // Phase 88.20: เลือกบัญชีธนาคารปลายทางสำหรับการโอน (index ใน paymentInfo.banks[])
 let selectedBankIdx = 0;
+
+// ═══════════════════════════════════════════════════════════
+// Phase 88.21: VAT helper — คำนวณ VAT จาก paymentInfo settings
+// ═══════════════════════════════════════════════════════════
+/**
+ * @param {number} amount - ยอดเงิน (ขึ้นกับ mode)
+ * @param {object} paymentInfo - state.paymentInfo
+ * @returns {{subtotal:number, vat:number, total:number, rate:number, enabled:boolean, mode:string}}
+ */
+function calcVAT(amount, paymentInfo) {
+  const rate = Number(paymentInfo?.vatRate || 0);
+  const enabled = !!paymentInfo?.vatEnabled && rate > 0;
+  if (!enabled) {
+    return { subtotal: amount, vat: 0, total: amount, rate: 0, enabled: false, mode: "none" };
+  }
+  const mode = paymentInfo?.vatPriceMode || "inclusive";
+  if (mode === "inclusive") {
+    // amount รวม VAT แล้ว → แยกออก
+    const subtotal = Math.round((amount * 100 / (100 + rate)) * 100) / 100;
+    const vat = Math.round((amount - subtotal) * 100) / 100;
+    return { subtotal, vat, total: amount, rate, enabled, mode };
+  } else {
+    // exclusive: amount ยังไม่รวม VAT → บวก VAT
+    const vat = Math.round((amount * rate / 100) * 100) / 100;
+    return { subtotal: amount, vat, total: Math.round((amount + vat) * 100) / 100, rate, enabled, mode };
+  }
+}
 let numpadValue = "";
 let quickPayAmount = 0;   // ยอดจาก numpad (เก็บเงินทันที) หรือ cart total
 let pendingPaidAmount = 0; // จำนวนเงินที่รับมา (สำหรับเงินสด)
@@ -569,6 +596,18 @@ function renderPosView(ctx) {
       <div class="pos-pay-amount-box" style="margin:16px;border-radius:16px;background:linear-gradient(135deg,#0284c7,#0ea5e9);color:#fff;padding:20px 24px;text-align:center">
         <div style="font-size:14px;opacity:.8">${selectedPaymentMethod} ${methodIcons[selectedPaymentMethod] || ""}</div>
         <div style="font-size:36px;font-weight:900;margin:8px 0">฿${moneyNum(amount)}</div>
+        ${(() => {
+          // ★ Phase 88.21: แสดง VAT breakdown ถ้าเปิด VAT
+          const vatCalc = calcVAT(amount, state.paymentInfo);
+          if (!vatCalc.enabled) return '';
+          return `
+            <div style="margin-top:8px;padding:8px 12px;background:rgba(255,255,255,.15);border-radius:10px;font-size:12px;text-align:left">
+              <div style="display:flex;justify-content:space-between"><span>ยอดสินค้า (ก่อน VAT)</span><b>฿${moneyNum(vatCalc.subtotal)}</b></div>
+              <div style="display:flex;justify-content:space-between"><span>VAT ${vatCalc.rate}%</span><b>฿${moneyNum(vatCalc.vat)}</b></div>
+              <div style="display:flex;justify-content:space-between;border-top:1px solid rgba(255,255,255,.3);padding-top:4px;margin-top:4px"><span>${vatCalc.mode === 'inclusive' ? 'รวม VAT แล้ว' : 'รวมสุทธิ'}</span><b>฿${moneyNum(vatCalc.total)}</b></div>
+            </div>
+          `;
+        })()}
         ${selectedPaymentMethod === "เงินสด" ? `
           <!-- Phase 88.20: Breakdown รับเงิน-เงินทอน เด่นชัด -->
           <div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.25);display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px">
@@ -1020,17 +1059,30 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
       }
     }
 
+    // ★ Phase 88.21: คำนวณ VAT (ถ้าเปิดใช้งาน)
+    const vatCalc = calcVAT(amount, state.paymentInfo);
+    let actualTotal = amount;
+    if (vatCalc.enabled && vatCalc.mode === "exclusive") {
+      // exclusive: amount = ราคาก่อน VAT → ลูกค้าจ่ายจริง = total
+      actualTotal = vatCalc.total;
+    }
+    // inclusive: amount = total อยู่แล้ว → ไม่ต้องแก้
+
     const salePayload = {
       order_no: orderNo,
       customer_name: custName,
       payment_method: paymentMethod,
-      subtotal: amount,
-      total_amount: amount,
-      paid_amount: paidAmount || amount,
-      change_amount: Math.max((paidAmount || amount) - amount, 0),
+      subtotal: vatCalc.enabled ? vatCalc.subtotal : amount,
+      total_amount: actualTotal,
+      paid_amount: paidAmount || actualTotal,
+      change_amount: Math.max((paidAmount || actualTotal) - actualTotal, 0),
       discount_type: null,
       discount_value: 0,
       discount_amount: 0,
+      // Phase 88.21: VAT breakdown (เป็น 0 ถ้าไม่เปิด VAT)
+      vat_amount: vatCalc.vat,
+      vat_rate: vatCalc.rate,
+      subtotal_before_vat: vatCalc.enabled ? vatCalc.subtotal : null,
       note: noteParts.join(" • "),
       created_by: state.currentUser?.id || null
     };

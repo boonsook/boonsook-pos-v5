@@ -7,6 +7,34 @@
 
 ---
 
+## 5.43.0 (build 204) — 2026-05-10 ⭐ Phase 88.21 — VAT Support MVP 📜
+
+### Phase 88.21 — รองรับภาษีมูลค่าเพิ่ม (VAT 7%) — MVP
+- **feat:** SQL — เพิ่ม COA + mapping + columns
+  - COA `1170` (ภาษีซื้อ — Input VAT) / `2170` (ภาษีขาย — Output VAT)
+  - Mapping `vat_output` / `vat_input`
+  - sales/expenses/delivery_invoices: + columns `vat_amount`, `vat_rate`, `subtotal_before_vat`
+- **feat:** Settings → ข้อมูลการเงิน → section "📜 ภาษีมูลค่าเพิ่ม (VAT)"
+  - Toggle เปิด/ปิด VAT
+  - Tax ID 13 หลัก
+  - อัตราภาษี (default 7%)
+  - Mode: exclusive (บวก VAT) / inclusive (ราคารวม VAT แล้ว)
+- **feat:** POS Cashier — calc VAT auto + แสดง breakdown ในหน้ายืนยัน
+  - "ยอดสินค้า ฿X / VAT 7% ฿Y / รวมสุทธิ ฿Z"
+  - บันทึก vat_amount + subtotal_before_vat ใน sales
+- **feat:** auto_post.js `postJournalForSale` — split JV เป็น 3 บรรทัดเมื่อมี VAT
+  - Dr 1110/1130 (เงิน) ฿107
+  - Cr 4100 (รายได้) ฿100
+  - Cr 2170 (Output VAT) ฿7
+- **scope MVP:** POS sale only — Phase ถัดไป: expense (Input VAT) + invoice + service jobs
+
+### User actions required
+1. Run SQL: `supabase-phase88-21-vat-support.sql`
+2. ตั้งค่า → ข้อมูลการเงิน → ✅ เปิด VAT 7%
+3. ทดสอบ POS → ขายของ → ดู breakdown ในหน้ายืนยัน → JV 3 บรรทัด
+
+---
+
 ## 5.42.0 (build 203) — 2026-05-09 ⭐ Phase 88.20
 
 ### Phase 88.20 — POS Cash breakdown + Bank account picker

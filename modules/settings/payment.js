@@ -104,6 +104,38 @@ export function renderSettingsPayment(el, ctx, goBack, navigate) {
         </div>
       </div>
 
+      <!-- Phase 88.21: VAT Settings -->
+      <div class="set-form-card" style="border:2px solid #0284c7;background:#f0f9ff">
+        <div class="set-section-title" style="color:#0284c7">📜 ภาษีมูลค่าเพิ่ม (VAT)</div>
+        <div class="sku" style="margin-bottom:8px">เปิดใช้ถ้าร้านจดทะเบียน VAT — ระบบจะคำนวณ VAT 7% + ลง JV แยก Output VAT (2170)</div>
+        <div class="stack">
+          <label style="display:flex;align-items:center;gap:8px;font-weight:600;cursor:pointer;font-size:14px">
+            <input type="checkbox" id="setVatEnabled" ${state.paymentInfo.vatEnabled ? 'checked' : ''} style="width:20px;height:20px;cursor:pointer" />
+            <span>✅ เปิดใช้งาน VAT 7%</span>
+          </label>
+
+          <div id="vatFieldsBox" style="${state.paymentInfo.vatEnabled ? '' : 'display:none'};padding-top:8px;border-top:1px dashed #93c5fd;margin-top:8px">
+            <label class="set-field-label">เลขประจำตัวผู้เสียภาษี (13 หลัก)</label>
+            <input id="setVatId" value="${escHtml(state.paymentInfo.vatId || '')}" placeholder="0123456789012" inputmode="numeric" maxlength="13" />
+
+            <label class="set-field-label" style="margin-top:8px">อัตราภาษี (%)</label>
+            <input id="setVatRate" type="number" value="${state.paymentInfo.vatRate ?? 7}" min="0" max="20" step="0.5" />
+
+            <label class="set-field-label" style="margin-top:8px">รูปแบบราคา</label>
+            <select id="setVatPriceMode">
+              <option value="exclusive" ${state.paymentInfo.vatPriceMode === "exclusive" ? "selected" : ""}>ราคายังไม่รวม VAT (บวก VAT ตอน checkout)</option>
+              <option value="inclusive" ${state.paymentInfo.vatPriceMode === "inclusive" ? "selected" : ""}>ราคารวม VAT แล้ว (แยกออกตอน checkout)</option>
+            </select>
+
+            <div class="sku" style="font-size:11px;color:#0284c7;margin-top:8px;padding:8px;background:#dbeafe;border-radius:6px">
+              💡 <b>ตัวอย่าง:</b> ขายสินค้า ฿100 ที่ VAT 7%<br>
+              • <b>Exclusive:</b> ลูกค้าจ่าย ฿107 (สินค้า ฿100 + VAT ฿7)<br>
+              • <b>Inclusive:</b> ลูกค้าจ่าย ฿100 (สินค้า ฿93.46 + VAT ฿6.54)
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- PromptPay Section -->
       <div class="set-form-card">
         <div class="set-section-title">พร้อมเพย์ / PromptPay</div>
@@ -140,6 +172,12 @@ export function renderSettingsPayment(el, ctx, goBack, navigate) {
   `;
 
   document.getElementById("setBackBtn")?.addEventListener("click", goBack);
+
+  // ★ Phase 88.21: VAT toggle — show/hide fields
+  document.getElementById("setVatEnabled")?.addEventListener("change", (e) => {
+    const box = document.getElementById("vatFieldsBox");
+    if (box) box.style.display = e.target.checked ? "" : "none";
+  });
 
   // ★ Add Bank button
   document.getElementById("addBankBtn")?.addEventListener("click", () => {
@@ -263,10 +301,20 @@ export function renderSettingsPayment(el, ctx, goBack, navigate) {
       });
     });
 
+    // ★ Phase 88.21: VAT settings
+    const vatEnabled   = !!document.getElementById("setVatEnabled")?.checked;
+    const vatId        = (document.getElementById("setVatId")?.value || "").trim();
+    const vatRate      = Number(document.getElementById("setVatRate")?.value || 7);
+    const vatPriceMode = document.getElementById("setVatPriceMode")?.value || "exclusive";
+
     state.paymentInfo = {
       ...state.paymentInfo,
       banks: updatedBanks,
-      promptPay: document.getElementById("setPromptPay")?.value.trim() || ""
+      promptPay: document.getElementById("setPromptPay")?.value.trim() || "",
+      vatEnabled,
+      vatId,
+      vatRate,
+      vatPriceMode
     };
     savePaymentInfo();
 

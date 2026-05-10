@@ -272,6 +272,26 @@ export async function postJournalForSale(sale) {
     }
   }
 
+  // ★ Phase 88.21: VAT split — ถ้ามี vat_amount > 0 → แยก JV เป็น 3 บรรทัด
+  const vatAmount = Number(sale.vat_amount || 0);
+  const subtotalBeforeVat = Number(sale.subtotal_before_vat || 0) || (amount - vatAmount);
+
+  if (vatAmount > 0.01 && subtotalBeforeVat > 0.01) {
+    return _postJournal({
+      sourceTable: "sales",
+      sourceId: sale.id,
+      docType: "SV",
+      docDate,
+      description: desc,
+      lines: [
+        { account_code: debitAccount,                 debit: amount,            credit: 0,                  description: desc },
+        { account_code: mapping.credit_account_code,  debit: 0,                  credit: subtotalBeforeVat,  description: desc + " (รายได้ก่อน VAT)" },
+        { account_code: "2170",                       debit: 0,                  credit: vatAmount,          description: desc + ` (VAT ${sale.vat_rate || 7}%)` }
+      ]
+    });
+  }
+
+  // ไม่มี VAT — JV ปกติ 2 บรรทัด
   return _postJournal({
     sourceTable: "sales",
     sourceId: sale.id,
