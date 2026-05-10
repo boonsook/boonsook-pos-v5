@@ -38,18 +38,9 @@ ON CONFLICT (code) DO UPDATE SET
 
 
 -- ───────────────────────────────────────────────────────────
--- 2) เพิ่ม mapping สำหรับ VAT
---    มี 2 mapping:
---      vat_output: Cr 2170 (ใช้ใน sale + invoice)
---      vat_input:  Dr 1170 (ใช้ใน expense)
+-- 2) Mapping ไม่ต้องเพิ่ม — auto_post.js hardcode "2170"/"1170" ตรงๆ
+--    (เผื่ออนาคต mapping editor UI จะใช้ code 2170/1170 อยู่แล้ว)
 -- ───────────────────────────────────────────────────────────
-INSERT INTO public.account_mapping (mapping_key, description, debit_account_code, credit_account_code) VALUES
-  ('vat_output', 'ภาษีขาย — ตอนขาย/ออก invoice (Cr)', '0',    '2170'),
-  ('vat_input',  'ภาษีซื้อ — ตอนซื้อ/รายจ่าย (Dr)',    '1170', '0')
-ON CONFLICT (mapping_key) DO UPDATE SET
-  description         = EXCLUDED.description,
-  debit_account_code  = EXCLUDED.debit_account_code,
-  credit_account_code = EXCLUDED.credit_account_code;
 
 
 -- ───────────────────────────────────────────────────────────
