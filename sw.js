@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v190 (2026-05-11): Phase 88.21b — fix cash-input show total incl VAT (exclusive mode)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v190';
+// v191 (2026-05-11): Phase 88.21c — fix confirm-proof display total incl VAT (exclusive)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v191';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

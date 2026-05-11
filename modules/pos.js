@@ -584,7 +584,10 @@ function renderPosView(ctx) {
   //  CONFIRM + PROOF — ยืนยัน + แนบสลิป (ทุกวิธีชำระเงิน)
   // ═══════════════════════════════════════════════════════
   } else if (posView === "confirm-proof") {
-    const amount = quickPayAmount || cartTotal;
+    const baseAmount = quickPayAmount || cartTotal;
+    // ★ Phase 88.21 fix: ใน exclusive mode → display total หลัง VAT (ที่ลูกค้าจ่ายจริง)
+    const cpVat = calcVAT(baseAmount, state.paymentInfo);
+    const amount = (cpVat.enabled && cpVat.mode === "exclusive") ? cpVat.total : baseAmount;
     const methodIcons = { "เงินสด": "💵", "โอนเงิน": "🏦", "บัตรเครดิต": "💳", "QR พร้อมเพย์": "🔗" };
 
     el.innerHTML = `
@@ -600,14 +603,13 @@ function renderPosView(ctx) {
         <div style="font-size:14px;opacity:.8">${selectedPaymentMethod} ${methodIcons[selectedPaymentMethod] || ""}</div>
         <div style="font-size:36px;font-weight:900;margin:8px 0">฿${moneyNum(amount)}</div>
         ${(() => {
-          // ★ Phase 88.21: แสดง VAT breakdown ถ้าเปิด VAT
-          const vatCalc = calcVAT(amount, state.paymentInfo);
-          if (!vatCalc.enabled) return '';
+          // ★ Phase 88.21 fix: ใช้ baseAmount (ก่อน VAT) เป็น input — ไม่ทับซ้อน
+          if (!cpVat.enabled) return '';
           return `
             <div style="margin-top:8px;padding:8px 12px;background:rgba(255,255,255,.15);border-radius:10px;font-size:12px;text-align:left">
-              <div style="display:flex;justify-content:space-between"><span>ยอดสินค้า (ก่อน VAT)</span><b>฿${moneyNum(vatCalc.subtotal)}</b></div>
-              <div style="display:flex;justify-content:space-between"><span>VAT ${vatCalc.rate}%</span><b>฿${moneyNum(vatCalc.vat)}</b></div>
-              <div style="display:flex;justify-content:space-between;border-top:1px solid rgba(255,255,255,.3);padding-top:4px;margin-top:4px"><span>${vatCalc.mode === 'inclusive' ? 'รวม VAT แล้ว' : 'รวมสุทธิ'}</span><b>฿${moneyNum(vatCalc.total)}</b></div>
+              <div style="display:flex;justify-content:space-between"><span>ยอดสินค้า (ก่อน VAT)</span><b>฿${moneyNum(cpVat.subtotal)}</b></div>
+              <div style="display:flex;justify-content:space-between"><span>VAT ${cpVat.rate}%</span><b>฿${moneyNum(cpVat.vat)}</b></div>
+              <div style="display:flex;justify-content:space-between;border-top:1px solid rgba(255,255,255,.3);padding-top:4px;margin-top:4px"><span>${cpVat.mode === 'inclusive' ? 'รวม VAT แล้ว' : 'รวมสุทธิ'}</span><b>฿${moneyNum(cpVat.total)}</b></div>
             </div>
           `;
         })()}
