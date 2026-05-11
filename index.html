@@ -16,12 +16,13 @@
   <link rel="stylesheet" href="./phase4-components.css?v=2" />
   <!-- Phase 89.2b: pin Chart.js version + ใช้ UMD bundle เพื่อ define window.Chart global -->
   <!-- เดิม cdn.jsdelivr.net/npm/chart.js → resolve เป็น CJS (chart.cjs) → Chart undefined -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <!-- Phase 89.5: SRI (Subresource Integrity) — กัน CDN supply-chain attack ถ้า script ถูกแก้ → browser ไม่ execute -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" integrity="sha384-vsrfeLOOY6KuIYKDlmVH5UiBmgIdB1oEf7p01YgWHuqmOHfZr374+odEv96n9tNC" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js" integrity="sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk" crossorigin="anonymous"></script>
   <!-- html2canvas โหลดแบบ lazy เฉพาะตอนกด Share/PDF ใน main.js เพื่อลด initial load ~350KB -->
-  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-  <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" integrity="sha384-c9d8RFSL+u3exBOJ4Yp3HUJXS4znl9f+z66d1y54ig+ea249SpqR+w1wyvXz/lk+" crossorigin="anonymous"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js" integrity="sha384-QCIdq2UMVEoSRhR3ZWZwdz2/pivLowr+eokFMdYyukq7qI26VYRxFa4Nl6FKetmL" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js" integrity="sha384-Kk5SjBOKprEnGfyBWfD2zROFd1Cu8kwOXxG2GIhYPcoDL2rBJS9P8Ud1ZMy4412a" crossorigin="anonymous"></script>
   <script src="./supabase-config.js?v=1"></script>
 </head>
 <body>
@@ -813,7 +814,7 @@
   <script>
   (async function selfHeal() {
     try {
-      var APP_BUILD = 213;
+      var APP_BUILD = 214;
       var STUCK_BUILDS_BEFORE = 47; // builds before this มี immutable-cache bug
       var stored = parseInt(localStorage.getItem('bsk_app_build') || '0', 10);
       var justRecovered = sessionStorage.getItem('bsk_just_recovered') === '1';
@@ -862,7 +863,7 @@
     }
   })();
   </script>
-  <script type="module" src="./main.js?v=213"></script>
+  <script type="module" src="./main.js?v=214"></script>
   <script>
     // ═══ Loading Overlay ═══
     function hideLoadingOverlay() {

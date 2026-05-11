@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v198 (2026-05-11): Phase 89.4 — Hot-path 401 coverage + double-click guards + round2 forms
-const CACHE_NAME = 'boonsook-pos-v5-cache-v198';
+// v199 (2026-05-11): Phase 89.5 — CDN SRI (Subresource Integrity) — supply-chain protection
+const CACHE_NAME = 'boonsook-pos-v5-cache-v199';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
