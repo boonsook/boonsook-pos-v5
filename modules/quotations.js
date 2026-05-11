@@ -148,13 +148,14 @@ export function renderQuotationsPage(ctx) {
         </div>
       </div>
 
-      <div class="qt-tabs" style="display:flex;gap:6px;margin-top:16px;border-bottom:2px solid #e2e8f0;overflow-x:auto">
+      <div style="font-size:11px;color:#94a3b8;margin-top:12px;font-weight:600">กรองตามสถานะ:</div>
+      <div class="qt-tabs" style="display:flex;gap:6px;margin-top:4px;border-bottom:2px solid #e2e8f0;overflow-x:auto">
         ${[
-          ['all', 'แสดงทั้งหมด', countAll, '#64748b'],
-          ['pending', 'รออนุมัติ', countPending, '#f59e0b'],
-          ['approved', 'อนุมัติแล้ว', countApproved, '#10b981'],
-          ['invoiced', 'ออกใบส่ง/ใบเสร็จแล้ว', countInvoiced, '#0284c7'],
-          ['cancelled', 'ยกเลิก', countCancelled, '#ef4444']
+          ['all', '📋 แสดงทั้งหมด', countAll, '#64748b'],
+          ['pending', '🟡 รออนุมัติ', countPending, '#f59e0b'],
+          ['approved', '✅ อนุมัติแล้ว', countApproved, '#10b981'],
+          ['invoiced', '📦 ออกใบส่ง/ใบเสร็จแล้ว', countInvoiced, '#0284c7'],
+          ['cancelled', '❌ ที่ยกเลิก', countCancelled, '#ef4444']
         ].map(([k,label,n,color]) => {
           const active = _tabFilter === k;
           return `<button class="qt-tab-btn" data-qt-tab="${k}" style="padding:8px 14px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap;color:${active?color:'#64748b'};border-bottom:${active?`2px solid ${color}`:'2px solid transparent'};margin-bottom:-2px">${label} <span style="color:#94a3b8;font-weight:400">(${n})</span></button>`;

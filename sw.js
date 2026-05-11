@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v200 (2026-05-11): Phase 89.6 — Cancel receipt → restore delivery_invoice.status="invoiced"
-const CACHE_NAME = 'boonsook-pos-v5-cache-v200';
+// v201 (2026-05-11): Phase 89.7 — Rename filter chips with icons + "กรองตามสถานะ:" label (UX clarity)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v201';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
