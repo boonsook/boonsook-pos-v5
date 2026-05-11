@@ -1,8 +1,77 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 11 พฤษภาคม 2026 (Phase 89.2 — Defensive Fixes Batch 1)
-**Version:** 5.43.4 (build 208) — Phase 89.2 (เน้น stability — 5 defensive fixes)
-**Previous:** 5.43.3 (build 207) — Phase 89.1 (Security & Critical Bug Sweep)
+**อัปเดตล่าสุด:** 11 พฤษภาคม 2026 (Phase 89.5 — CDN SRI)
+**Version:** 5.43.10 (build 214) — Phase 89.5 (CDN Subresource Integrity)
+**Previous:** 5.43.9 (build 213) — Phase 89.4 (Hot-path 401 + double-click + round2)
+
+---
+
+## 📚 Phase 89 series summary (11 พ.ค. 2026 — 1 วัน)
+
+| Phase | Build | สิ่งที่แก้ | Verified |
+|-------|-------|----------|----------|
+| 89.1 | 207 | Security headers + XSS share.html + Timezone BKK + JV-void + POS auto-post payload | ✅ user |
+| 89.2 | 208 | JV rollback + BANK_COA validate + Float round + Backfill UI + dbl-click | ✅ user |
+| 89.2b | 209 | Chart.js pin UMD + CSP script-src-elem + cloudflareinsights | ✅ user |
+| 89.2c | 210 | CSP connect-src for SW CDN fetch | ✅ user (dashboard render OK) |
+| 89.2d | 211 | Auto-refresh JWT on 401 (single-flight + _appAuthFetch) | ✅ user |
+| 89.3 | 212 | Delete POS sale ครบวงจร (void JV + revert stock) | ✅ user (฿214 → 4100 ลด ฿200) |
+| 89.3a/89.4 | 213 | Hot-path 401 coverage + 4 dbl-click guards + round2 export + log polish | ⏳ pending |
+| 89.5 | 214 | CDN SRI (5 scripts, SHA-384) — supply-chain protection | ⏳ pending (auto-verified) |
+
+**8 builds + 1 day** — ครอบ Critical + High + defensive papercuts จาก audit เดิม
+
+---
+
+## 🛡️ Phase 89.4 — Hot-path 401 + dbl-click + round2 (build 213) — 11 พ.ค.
+
+### Context
+หลัง Phase 89.3 ผ่าน → ทำ defensive batch ตอน user ไปทำงาน (autonomous, low-risk only)
+
+### What shipped
+1. **Log polish:** `voided N JV(s) ... (will re-post)` → `voided N JV(s)` ([auto_post.js:93](modules/accounting/auto_post.js:93))
+2. **Migrate raw fetch → _appAuthFetch** ที่ critical writes:
+   - auto_post.js: 4 sites (void/post entry/post lines/rollback)
+   - delivery_invoices.js: bulk + single delete
+   - receipts.js: bulk delete
+3. **Double-click guard** เพิ่ม 4 ปุ่ม: diBulkCancel, diBulkDelete, rcBulkCancel, rcBulkDelete
+4. **round2()** export กลางใน utils.js + ใช้ใน quotations form line_total
+
+### Result
+- ทุก critical write path ครอบ 401 retry — JWT expire ตอน accounting/cancel ก็ refresh เอง
+- Bulk delete/cancel กดรัวๆ = 1 PATCH (ปุ่มเทาทันที)
+- quotation line_total ไม่มี `0.30000000000000004` อีก
+
+---
+
+## 🔐 Phase 89.5 — CDN SRI (build 214) — 11 พ.ค.
+
+### Context
+จาก audit Phase 89.1: HIGH risk #C2 — CDN scripts ไม่มี SRI → CDN compromise = full DOM/token access
+
+### What shipped
+- เพิ่ม `integrity="sha384-..."` + `crossorigin="anonymous"` ให้ 5 CDN scripts
+- Hashes computed: `curl URL | openssl dgst -sha384 -binary | openssl base64`
+- Auto-verified against live HTML + CDN content ปัจจุบัน
+
+### Hashes (สำหรับ reference เผื่อ upgrade version)
+| Library | Version | Hash (SHA-384) |
+|---------|---------|----------------|
+| chart.js | 4.4.7 UMD | vsrfeLOOY6KuIYKDlmVH5UiBmgIdB1oEf7p01YgWHuqmOHfZr374+odEv96n9tNC |
+| jspdf | 2.5.1 UMD | JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk |
+| html5-qrcode | 2.3.8 | c9d8RFSL+u3exBOJ4Yp3HUJXS4znl9f+z66d1y54ig+ea249SpqR+w1wyvXz/lk+ |
+| xlsx (SheetJS) | 0.20.1 | QCIdq2UMVEoSRhR3ZWZwdz2/pivLowr+eokFMdYyukq7qI26VYRxFa4Nl6FKetmL |
+| jsbarcode | 3.11.6 | Kk5SjBOKprEnGfyBWfD2zROFd1Cu8kwOXxG2GIhYPcoDL2rBJS9P8Ud1ZMy4412a |
+
+### Risk note
+- Upgrade version ของ library ต้อง regenerate hash (ไม่งั้น script ไม่โหลด → Chart undefined)
+- Workflow upgrade: 
+  ```bash
+  curl -sL "<NEW URL>" | openssl dgst -sha384 -binary | openssl base64 -A
+  # → paste เข้า integrity attribute + bump build
+  ```
+
+---
 
 ---
 
