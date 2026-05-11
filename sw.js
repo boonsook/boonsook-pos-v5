@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v189 (2026-05-10): Phase 88.21 — VAT support MVP (POS sale + JV 3-line split)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v189';
+// v190 (2026-05-11): Phase 88.21b — fix cash-input show total incl VAT (exclusive mode)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v190';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

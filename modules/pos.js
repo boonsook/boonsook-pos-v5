@@ -428,7 +428,10 @@ function renderPosView(ctx) {
   //  CASH INPUT — "เงินสด" Numpad รับเงินมา + คำนวณทอน
   // ═══════════════════════════════════════════════════════
   } else if (posView === "cash-input") {
-    const amount = quickPayAmount || cartTotal;
+    const baseAmount = quickPayAmount || cartTotal;
+    // ★ Phase 88.21 fix: ในโหมด VAT exclusive ลูกค้าต้องจ่าย = baseAmount + VAT
+    const cashVatCalc = calcVAT(baseAmount, state.paymentInfo);
+    const amount = (cashVatCalc.enabled && cashVatCalc.mode === "exclusive") ? cashVatCalc.total : baseAmount;
     const displayVal = numpadValue || "0";
     const paid = Number(numpadValue || 0);
     const change = Math.max(paid - amount, 0);
@@ -443,7 +446,7 @@ function renderPosView(ctx) {
       <div class="pos-numpad-display">
         <div class="pos-pay-label">รับเงินมา</div>
         <div class="pos-numpad-value" id="numpadDisplay">${displayVal}</div>
-        <div class="pos-pay-label">จากยอดทั้งหมด ${moneyNum(amount)} บาท</div>
+        <div class="pos-pay-label">จากยอดทั้งหมด ${moneyNum(amount)} บาท${cashVatCalc.enabled && cashVatCalc.mode === "exclusive" ? ` <span style="color:#0284c7;font-size:11px">(${moneyNum(baseAmount)} + VAT ${moneyNum(cashVatCalc.vat)})</span>` : ''}</div>
         ${paid >= amount && paid > 0 ? `<div class="pos-change-display">เงินทอน ฿${moneyNum(change)}</div>` : ''}
       </div>
 
@@ -994,7 +997,11 @@ function updateCollectBtn() {
   // Also update cash confirm
   const cashBtn = document.getElementById("posCashConfirmBtn");
   if (cashBtn) {
-    const amount = quickPayAmount;
+    // ★ Phase 88.21 fix: ใช้ total หลัง VAT (exclusive mode) เป็น threshold
+    const pi = (window.App?.state || {}).paymentInfo;
+    const baseAmount = quickPayAmount;
+    const vc = calcVAT(baseAmount, pi);
+    const amount = (vc.enabled && vc.mode === "exclusive") ? vc.total : baseAmount;
     const paid = Number(numpadValue || 0);
     if (paid >= amount) { cashBtn.disabled = false; cashBtn.classList.remove("disabled"); }
     else { cashBtn.disabled = true; cashBtn.classList.add("disabled"); }
