@@ -1,5 +1,7 @@
 
 import { renderEmpty } from "./ui_states.js";
+// Phase 89.3: void JV + revert stock ตอนลบ POS sale (ป้องกัน P&L นับรายได้เกินจริง)
+import { voidJvForSource } from "./accounting/auto_post.js";
 
 function money(n){return new Intl.NumberFormat("th-TH",{style:"currency",currency:"THB",minimumFractionDigits:2}).format(Number(n||0));}
 const escHtml = (s) => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
@@ -202,7 +204,36 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
       }
 
       if (success) {
-        if (showToast) showToast("ลบรายการขายเรียบร้อย ✅");
+        // Phase 89.3: void JV + revert stock — แก้ปัญหา P&L นับรายได้เกินจริง + stock ลดถาวร
+        // ทำแบบ best-effort: ถ้าตัวใดล้มเหลว → toast เตือนแต่ไม่ block
+        const sideEffects = [];
+
+        // (a) void JV ของ sale นี้ (ถ้ามี — POS sale ก่อน effective date ไม่มี JV)
+        try {
+          const voided = await voidJvForSource("sales", saleId);
+          if (voided > 0) sideEffects.push(`JV ${voided} entry`);
+        } catch(e) {
+          console.warn("[sales delete] void JV failed:", e?.message);
+          sideEffects.push("⚠️ void JV fail");
+        }
+
+        // (b) revert stock — คืนสต็อกสินค้าใน sale_items กลับ
+        try {
+          if (window._appRevertStockForSale) {
+            const rev = await window._appRevertStockForSale({ saleId, orderNo: saleNo });
+            if (rev?.reverted > 0) sideEffects.push(`คืนสต็อก ${rev.reverted} รายการ`);
+            if (rev?.errors?.length > 0) {
+              console.warn("[sales delete] revert stock partial:", rev.errors);
+              sideEffects.push(`⚠️ stock partial (${rev.errors.length} fail)`);
+            }
+          }
+        } catch(e) {
+          console.warn("[sales delete] revert stock exception:", e?.message);
+          sideEffects.push("⚠️ revert stock exception");
+        }
+
+        const sideEffectsMsg = sideEffects.length ? ` (${sideEffects.join(", ")})` : "";
+        if (showToast) showToast("ลบรายการขายเรียบร้อย ✅" + sideEffectsMsg);
         try { await withTimeout(loadAllData(), 10000, "loadAllData"); } catch(e) { console.warn("[sales delete] loadAllData timeout:", e.message); }
       } else {
         throw new Error("ลบไม่ได้ — อาจต้องเพิ่ม UPDATE policy ที่ Supabase สำหรับตาราง sales");

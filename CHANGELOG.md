@@ -7,6 +7,33 @@
 
 ---
 
+## 5.43.8 (build 212) — 2026-05-11 🗑️ Phase 89.3 — Delete POS sale ครบวงจร
+
+### ปัญหาเดิม
+- ปุ่ม "🗑️ ลบ" ใน [รายการขาย POS](modules/sales.js:137) ทำแค่ **soft-delete** (เปลี่ยน `sales.note = "[ลบแล้ว]..."`)
+- ไม่ revert side effects → **P&L ยังเห็นรายได้ + stock ลดถาวร**
+- ผลกระทบ: ลบบิล POS ฿600 → JV `Dr 1110 / Cr 4100 = ฿600` ยังลง → รายได้ในงบกำไรขาดทุนเพี้ยน
+
+### Fix
+- **`voidJvForSource("sales", saleId)`** ใน sales delete handler → JV หายจากสมุดรายวัน → P&L ถูกต้อง
+- **`window._appRevertStockForSale({saleId, orderNo})`** ใน main.js — best-effort:
+  - Query `sale_items` ของบิลที่ลบ
+  - คืน `warehouse_stock += qty` (เลือก "บ้าน" ก่อน)
+  - คืน `products.stock += qty` (legacy)
+  - INSERT `stock_movements` type=`return_sale` qty=+ note="คืนสต็อกจากลบ POS..."
+- **Toast แจ้งผล:** `"ลบรายการขายเรียบร้อย ✅ (JV 1 entry, คืนสต็อก 3 รายการ)"`
+- Best-effort: ถ้า void/revert ล้มเหลว → warning toast + console.warn แต่ไม่ block soft-delete
+
+### Test plan
+1. POS → ขายของ ฿100 → checkout
+2. เปิด **บัญชี → งบกำไรขาดทุน** → จดยอด 4100
+3. ไป **งานขาย → รายการขาย POS** → กดลบบิล
+4. Toast ต้องขึ้น "ลบรายการขายเรียบร้อย ✅ (JV 1 entry, คืนสต็อก 1 รายการ)"
+5. กลับมา P&L → reload → 4100 **ลดลง ฿100**
+6. ไป **คลัง → ประวัติเคลื่อนไหวสต็อก** → ต้องเห็น movement type="return_sale"
+
+---
+
 ## 5.43.7 (build 211) — 2026-05-11 🔄 Phase 89.2d — Auto-refresh access token on 401
 
 ### ปัญหาที่เจอ

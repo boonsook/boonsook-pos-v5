@@ -3174,6 +3174,93 @@ async function _deductStockForSaleItem({ product, qty, orderNo }) {
   }
 }
 
+// ═══════════════════════════════════════════════════════════
+//  Phase 89.3: Revert stock จาก POS sale ที่ถูก soft-deleted
+//  best-effort: ถ้าทำ partial ก็จะ toast เตือน + ไม่ throw
+//  Strategy:
+//    1. query sale_items where sale_id = saleId
+//    2. สำหรับแต่ละ item — เพิ่ม stock_movement type="return_sale" qty=+
+//    3. คืน warehouse_stock + products.stock (เลือก warehouse ที่ขายเดิม จาก movement เก่า)
+// ═══════════════════════════════════════════════════════════
+async function _revertStockForSale({ saleId, orderNo }) {
+  if (!saleId) return { ok: false, error: "no saleId" };
+  const cfg = window.SUPABASE_CONFIG;
+  const token = window._sbAccessToken || cfg.anonKey;
+  const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token };
+  const creatorUuid = state.currentUser?.id || null;
+
+  const errors = [];
+  try {
+    // 1. fetch sale_items
+    const r = await fetch(cfg.url + "/rest/v1/sale_items?sale_id=eq." + saleId + "&select=*", { headers });
+    if (!r.ok) return { ok: false, error: "fetch sale_items HTTP " + r.status };
+    const items = await r.json().catch(() => []);
+    if (!Array.isArray(items) || items.length === 0) {
+      // ไม่มี items (ขายผ่าน numpad ไม่ใส่ cart) → ไม่ต้องคืนสต็อก
+      return { ok: true, reverted: 0, message: "ไม่มี sale_items" };
+    }
+
+    let revertedCount = 0;
+    for (const item of items) {
+      if (!item.product_id || !item.qty) continue;
+      const product = (state.products || []).find(p => String(p.id) === String(item.product_id));
+      if (!product) {
+        errors.push(`สินค้า id=${item.product_id} ไม่พบ — ข้าม`);
+        continue;
+      }
+      if (product.product_type === "service" || product.product_type === "non_stock") continue;
+      const qty = Number(item.qty || 0);
+      if (qty <= 0) continue;
+
+      // 2a. หา warehouse_stock ที่จะคืนสต็อก — เลือก "บ้าน" ก่อน, ไม่งั้น row แรกที่เจอ
+      const stocks = (state.warehouseStock || []).filter(ws => String(ws.product_id) === String(product.id));
+      let targetWs = null;
+      if (stocks.length > 0) {
+        const sorted = [...stocks].sort((a, b) => {
+          const nameA = (state.warehouses.find(w => w.id === a.warehouse_id)?.name || "");
+          const nameB = (state.warehouses.find(w => w.id === b.warehouse_id)?.name || "");
+          const aHome = nameA.includes("บ้าน") ? 1 : 0;
+          const bHome = nameB.includes("บ้าน") ? 1 : 0;
+          return bHome - aHome;
+        });
+        targetWs = sorted[0];
+      }
+      const whName = targetWs ? (state.warehouses.find(w => w.id === targetWs.warehouse_id)?.name || "?") : "(no warehouse)";
+
+      // 2b. update warehouse_stock += qty (ถ้ามี)
+      if (targetWs) {
+        const before = Number(targetWs.stock || 0);
+        const after = before + qty;
+        const pr = await xhrPatch("warehouse_stock", { stock: after }, "id", targetWs.id);
+        if (!pr.ok) {
+          errors.push(`${product.name}: warehouse_stock fail — ${pr.error?.message || "RLS?"}`);
+        }
+      }
+
+      // 2c. update products.stock (legacy) += qty
+      const curStock = Number(product.stock || 0);
+      const newStock = curStock + qty;
+      const pr2 = await xhrPatch("products", { stock: newStock }, "id", product.id);
+      if (!pr2.ok) errors.push(`${product.name}: products.stock fail`);
+
+      // 2d. log return movement
+      await xhrPost("stock_movements", {
+        product_id: product.id,
+        type: "return_sale",
+        qty: qty,
+        note: `คืนสต็อกจากลบ POS ${orderNo || '#' + saleId} — คลัง: ${whName} +${qty}`,
+        created_by: creatorUuid
+      });
+      revertedCount++;
+    }
+
+    return { ok: errors.length === 0, reverted: revertedCount, errors };
+  } catch (e) {
+    return { ok: false, error: e?.message || "revert exception" };
+  }
+}
+window._appRevertStockForSale = _revertStockForSale;
+
 // ★ ย้ายสต็อกระหว่างคลัง — ใช้โดย stock_movements module
 async function _transferWarehouseStock({ productId, fromWarehouseId, toWarehouseId, qty, note }) {
   if (!productId || !fromWarehouseId || !toWarehouseId || qty <= 0) {
