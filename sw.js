@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v193 (2026-05-11): Phase 89.2 — Defensive fixes (JV rollback, BANK_COA validate, float round, dbl-click guard)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v193';
+// v194 (2026-05-11): Phase 89.2b — Hotfix CSP (cloudflareinsights + script-src-elem) + pin Chart.js UMD
+const CACHE_NAME = 'boonsook-pos-v5-cache-v194';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

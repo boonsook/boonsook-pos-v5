@@ -14,7 +14,9 @@
   <!-- ✨ Phase 4: Design System & Components (30/3/2569) -->
   <link rel="stylesheet" href="./phase4-design-system.css?v=1" />
   <link rel="stylesheet" href="./phase4-components.css?v=2" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Phase 89.2b: pin Chart.js version + ใช้ UMD bundle เพื่อ define window.Chart global -->
+  <!-- เดิม cdn.jsdelivr.net/npm/chart.js → resolve เป็น CJS (chart.cjs) → Chart undefined -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <!-- html2canvas โหลดแบบ lazy เฉพาะตอนกด Share/PDF ใน main.js เพื่อลด initial load ~350KB -->
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
@@ -811,7 +813,7 @@
   <script>
   (async function selfHeal() {
     try {
-      var APP_BUILD = 208;
+      var APP_BUILD = 209;
       var STUCK_BUILDS_BEFORE = 47; // builds before this มี immutable-cache bug
       var stored = parseInt(localStorage.getItem('bsk_app_build') || '0', 10);
       var justRecovered = sessionStorage.getItem('bsk_just_recovered') === '1';
@@ -860,7 +862,7 @@
     }
   })();
   </script>
-  <script type="module" src="./main.js?v=208"></script>
+  <script type="module" src="./main.js?v=209"></script>
   <script>
     // ═══ Loading Overlay ═══
     function hideLoadingOverlay() {
