@@ -19,6 +19,8 @@
 //  Pre-req: รัน supabase-phase88-auto-post.sql ก่อนใช้
 // ═══════════════════════════════════════════════════════════
 
+import { dateBkk, todayBkk } from "../utils.js";
+
 // ★ Phase 88.18b: เลื่อน effective date จาก 2026-01-01 → 2026-05-01
 //   เหตุผล: ก่อน 1 พ.ค. = test/mock data (เม.ย. = ทดสอบระบบ)
 //           production จริงเริ่ม 1 พ.ค. — JV ก่อนวันนี้จะถูก reject อัตโนมัติ
@@ -239,7 +241,8 @@ export async function postJournalForSale(sale) {
   // ★ Boonsook sales ใช้ total_amount; quotations ใช้ grand_total — รองรับทั้งคู่
   const amountRaw = sale?.total_amount ?? sale?.grand_total;
   if (!sale?.id || !amountRaw) return null;
-  const docDate = (sale.created_at || new Date().toISOString()).slice(0, 10);
+  // Phase 89.1: ใช้ Bangkok time — กัน 00:00-06:59 ลง doc_date เป็นเมื่อวาน
+  const docDate = sale.created_at ? dateBkk(sale.created_at) : todayBkk();
   if (!_isAfterEffective(docDate)) {
     console.info("[auto_post] sale before effective date, skip:", docDate);
     return null;
@@ -340,7 +343,7 @@ const EXPENSE_CATEGORY_MAP = {
  */
 export async function postJournalForExpense(expense) {
   if (!expense?.id || !expense?.amount) return null;
-  const docDate = (expense.expense_date || expense.created_at || new Date().toISOString()).slice(0, 10);
+  const docDate = (expense.expense_date || expense.created_at) ? dateBkk(expense.expense_date || expense.created_at) : todayBkk();
   if (!_isAfterEffective(docDate)) {
     console.info("[auto_post] expense before effective date, skip:", docDate);
     return null;
@@ -390,7 +393,7 @@ export async function postJournalForServiceJob(job) {
   // เฉพาะงานที่ปิดแล้ว (delivered / closed) เท่านั้น
   if (!["delivered", "closed", "done"].includes(String(job.status || "").toLowerCase())) return null;
 
-  const docDate = (job.created_at || new Date().toISOString()).slice(0, 10);
+  const docDate = job.created_at ? dateBkk(job.created_at) : todayBkk();
   if (!_isAfterEffective(docDate)) return null;
 
   const mappings = await _getMappings();
@@ -454,7 +457,7 @@ export async function postJournalForReceipt(receipt) {
   }
   const amountRaw = receipt.grand_total ?? receipt.total_amount ?? receipt.amount;
   if (!amountRaw) return null;
-  const docDate = (receipt.paid_at || receipt.receipt_date || receipt.created_at || new Date().toISOString()).slice(0, 10);
+  const docDate = (receipt.paid_at || receipt.receipt_date || receipt.created_at) ? dateBkk(receipt.paid_at || receipt.receipt_date || receipt.created_at) : todayBkk();
   if (!_isAfterEffective(docDate)) {
     console.info("[auto_post] receipt before effective date, skip:", docDate);
     return null;
@@ -508,7 +511,7 @@ export async function postJournalForDeliveryInvoice(invoice) {
   const amount = Number(invoice.grand_total || invoice.total_amount || invoice.after_discount || 0);
   if (amount < 0.01) return null;
 
-  const docDate = (invoice.created_at || new Date().toISOString()).slice(0, 10);
+  const docDate = invoice.created_at ? dateBkk(invoice.created_at) : todayBkk();
   if (!_isAfterEffective(docDate)) {
     console.info("[auto_post] invoice before effective date, skip:", docDate);
     return null;

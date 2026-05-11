@@ -56,6 +56,16 @@
     };
     function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c])); }
     function fmtDate(s){ if(!s) return "-"; try { return new Date(s).toLocaleString("th-TH", { year:"numeric", month:"short", day:"numeric", hour:"2-digit", minute:"2-digit" }); } catch(e){ return s; } }
+    // Phase 89.1: validate URL scheme — กัน javascript:/data:text/html ใน photo URLs
+    function safeUrl(u){
+      try {
+        const parsed = new URL(String(u||""), location.href);
+        if (parsed.protocol === "http:" || parsed.protocol === "https:") return parsed.href;
+      } catch(e){}
+      return "";
+    }
+    // Phase 89.1: sanitize tel: links — เก็บแค่ตัวเลข/+/-/space
+    function safeTel(s){ return String(s||"").replace(/[^0-9+\-\s]/g, ""); }
 
     const root = document.getElementById("root");
     const params = new URLSearchParams(location.search);
@@ -96,7 +106,7 @@
           <h3 class="sec-title">📋 รายละเอียดงาน</h3>
           <div class="field"><span class="field-key">เลขที่</span><span class="field-val">#${esc(j.job_no || j.id)}</span></div>
           <div class="field"><span class="field-key">ลูกค้า</span><span class="field-val">${esc(j.customer_name || "-")}</span></div>
-          ${j.customer_phone ? `<div class="field"><span class="field-key">เบอร์โทร</span><span class="field-val"><a href="tel:${esc(j.customer_phone)}">${esc(j.customer_phone)}</a></span></div>` : ""}
+          ${j.customer_phone ? `<div class="field"><span class="field-key">เบอร์โทร</span><span class="field-val"><a href="tel:${esc(safeTel(j.customer_phone))}">${esc(j.customer_phone)}</a></span></div>` : ""}
           ${j.address ? `<div class="field"><span class="field-key">ที่อยู่</span><span class="field-val">${esc(j.address)}</span></div>` : ""}
           ${j.scheduled_at ? `<div class="field"><span class="field-key">นัดติดตั้ง</span><span class="field-val">${esc(fmtDate(j.scheduled_at))}</span></div>` : ""}
           ${j.description ? `<div class="field"><span class="field-key">รายละเอียด</span><span class="field-val">${esc(j.description)}</span></div>` : ""}
@@ -132,8 +142,8 @@
         ${photos.length ? `
           <div class="card">
             <h3 class="sec-title">📷 รูปประกอบ</h3>
-            <div class="photo-grid">
-              ${photos.map(url => `<img src="${esc(url)}" alt="งานช่าง" onclick="window.open('${esc(url)}', '_blank')" loading="lazy" />`).join("")}
+            <div class="photo-grid" id="photoGrid">
+              ${photos.map(url => { const u = safeUrl(url); return u ? `<img src="${esc(u)}" alt="งานช่าง" data-photo-url="${esc(u)}" loading="lazy" />` : ""; }).join("")}
             </div>
           </div>` : ""}
 
@@ -143,6 +153,16 @@
             <div style="font-size:13px;color:#78350f;white-space:pre-wrap">${esc(j.note)}</div>
           </div>` : ""}
       `;
+      // Phase 89.1: delegated photo-click listener (replaces inline onclick — fixes XSS)
+      const grid = document.getElementById("photoGrid");
+      if (grid) {
+        grid.addEventListener("click", (e) => {
+          const img = e.target.closest("img[data-photo-url]");
+          if (!img) return;
+          const u = img.getAttribute("data-photo-url");
+          if (u) window.open(u, "_blank", "noopener,noreferrer");
+        });
+      }
     }
 
     if (type === "service") loadServiceJob();

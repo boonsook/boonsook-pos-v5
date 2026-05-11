@@ -79,11 +79,40 @@ export function asExcelText(s) {
   return String(s);
 }
 
+// ═══════════════════════════════════════════════════════════
+//  Phase 89.1: Bangkok-timezone date helpers (Asia/Bangkok = UTC+7)
+//  ป้องกัน off-by-1: เดิม `new Date().toISOString().slice(0,10)` คืน UTC
+//  → ตี 1 ไทย (UTC 18:00 วันก่อนหน้า) ได้วันที่ "เมื่อวาน" → JV ลง period ผิด
+//  Output: "YYYY-MM-DD" (en-CA locale)
+// ═══════════════════════════════════════════════════════════
+const _BKK_FORMATTER = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Bangkok",
+  year: "numeric", month: "2-digit", day: "2-digit"
+});
+
+export function todayBkk() {
+  return _BKK_FORMATTER.format(new Date());
+}
+
+export function dateBkk(d) {
+  if (!d) return "";
+  const date = (d instanceof Date) ? d : new Date(d);
+  if (isNaN(date.getTime())) return "";
+  return _BKK_FORMATTER.format(date);
+}
+
+export function addDaysBkk(n) {
+  const d = new Date();
+  d.setDate(d.getDate() + Number(n || 0));
+  return _BKK_FORMATTER.format(d);
+}
+
 /**
  * Helper: build a YYYY-MM-DD date suffix for filenames.
+ * Phase 89.1: ใช้ Bangkok time แทน UTC
  */
 export function todaySuffix() {
-  return new Date().toISOString().slice(0, 10);
+  return todayBkk();
 }
 
 // ═══════════════════════════════════════════════════════════

@@ -14,7 +14,7 @@
 //        → automatic ใน equity section (ใช้แทน 3900)
 // ═══════════════════════════════════════════════════════════
 
-import { exportToExcel, todaySuffix } from "../utils.js";
+import { exportToExcel, todaySuffix, todayBkk } from "../utils.js";
 
 // ★ Phase 88.18b: production เริ่ม 1 พ.ค. 2026 (ก่อนหน้านี้เป็น test data)
 const ACCOUNTING_EFFECTIVE_DATE = "2026-05-01";
@@ -34,7 +34,7 @@ function fmtMoney(n) {
 }
 
 function defaultAsOf() {
-  return new Date().toISOString().slice(0, 10);
+  return todayBkk();  // Phase 89.1: Bangkok time
 }
 
 async function fetchData(asOfDate) {

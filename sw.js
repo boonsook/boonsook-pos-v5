@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v191 (2026-05-11): Phase 88.21c — fix confirm-proof display total incl VAT (exclusive)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v191';
+// v192 (2026-05-11): Phase 89.1 — Security headers + XSS fix + BKK TZ + JV-void + POS auto-post payload
+const CACHE_NAME = 'boonsook-pos-v5-cache-v192';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

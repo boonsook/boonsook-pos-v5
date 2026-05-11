@@ -10,6 +10,8 @@
 //  Doc number auto-gen: JV2026MM#### (sequential per month)
 // ═══════════════════════════════════════════════════════════
 
+import { todayBkk } from "../utils.js";
+
 const escHtml = (s) => String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 const escAttr = (s) => String(s ?? "").replace(/&/g,"&amp;").replace(/"/g,"&quot;");
 
@@ -59,7 +61,7 @@ export async function renderJournalFormPage(ctx) {
     _lines = [{ account_code: "", debit: 0, credit: 0, description: "" }];
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayBkk();  // Phase 89.1: Bangkok time
 
   const accountOptions = _coa
     .filter(a => a.parent_code) // skip header rows (parent accounts)

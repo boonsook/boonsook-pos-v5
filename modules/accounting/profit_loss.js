@@ -9,7 +9,7 @@
 //          + Comparative mode (เทียบกับงวดก่อน) — Phase ต่อ
 // ═══════════════════════════════════════════════════════════
 
-import { exportToExcel, todaySuffix } from "../utils.js";
+import { exportToExcel, todaySuffix, todayBkk, dateBkk } from "../utils.js";
 
 let _ctx = null;
 let _periodType = "month";
@@ -65,7 +65,8 @@ function getDateRange() {
     return { from: `${y}-01-01`, to: `${y}-12-31`, label: `ปี ${y}` };
   }
   const from = _customFrom || defaultMonth() + "-01";
-  const to   = _customTo   || new Date().toISOString().slice(0, 10);
+  // Phase 89.1: Bangkok time default
+  const to   = _customTo   || todayBkk();
   return { from, to, label: `${from} → ${to}` };
 }
 
@@ -103,7 +104,9 @@ function getPreviousRange() {
   prevTo.setDate(prevTo.getDate() - 1);
   const prevFrom = new Date(prevTo);
   prevFrom.setDate(prevFrom.getDate() - days);
-  return { from: prevFrom.toISOString().slice(0,10), to: prevTo.toISOString().slice(0,10), label: `${prevFrom.toISOString().slice(0,10)} → ${prevTo.toISOString().slice(0,10)}` };
+  // Phase 89.1: Bangkok time
+  const pf = dateBkk(prevFrom), pt = dateBkk(prevTo);
+  return { from: pf, to: pt, label: `${pf} → ${pt}` };
 }
 
 // ─── Data fetch (เหมือน trial_balance.js) ───
@@ -272,7 +275,7 @@ function _renderPeriodInputs() {
     `;
   } else {
     if (!_customFrom) _customFrom = `${new Date().getFullYear()}-${pad2(new Date().getMonth() + 1)}-01`;
-    if (!_customTo)   _customTo   = new Date().toISOString().slice(0, 10);
+    if (!_customTo)   _customTo   = todayBkk();  // Phase 89.1
     c.innerHTML = `
       <input type="date" id="plCustomFrom" value="${_customFrom}" style="padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px" />
       <span>→</span>

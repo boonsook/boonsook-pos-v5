@@ -20,6 +20,7 @@ import {
   postJournalForServiceJob,
   postJournalForDeliveryInvoice
 } from "./auto_post.js";
+import { todayBkk, dateBkk } from "../utils.js";
 
 let _ctx = null;
 let _running = false;
@@ -33,11 +34,12 @@ const SOURCES = [
 ];
 
 function escHtml(s) { const d = document.createElement("div"); d.textContent = String(s ?? ""); return d.innerHTML; }
-function todayStr() { return new Date().toISOString().slice(0, 10); }
+// Phase 89.1: ใช้ Bangkok time (todayBkk) — กัน default ผิดวันตอนใกล้เที่ยงคืน
+function todayStr() { return todayBkk(); }
 function defaultFrom() {
   // 30 วันย้อนหลัง — สมเหตุสมผลสำหรับ "ตามให้ทัน"
   const d = new Date(); d.setDate(d.getDate() - 30);
-  return d.toISOString().slice(0, 10);
+  return dateBkk(d);
 }
 
 export function renderBackfillPage(ctx) {

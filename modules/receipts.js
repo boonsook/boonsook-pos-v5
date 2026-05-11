@@ -6,7 +6,7 @@ import { renderEmpty, renderSkeleton } from "./ui_states.js";
 // Phase 57: audit log + Phase 70 (D3): Excel export
 import { logActivity, exportToExcel, todaySuffix } from "./utils.js";
 // Phase 88.1b: auto-post JV หลังรับชำระลูกหนี้ (fire-and-forget)
-import { postJournalForReceipt } from "./accounting/auto_post.js";
+import { postJournalForReceipt, voidJvForSource } from "./accounting/auto_post.js";
 
 // share ใช้ window._appShareDoc จาก main.js
 
@@ -345,7 +345,11 @@ export function renderReceiptsPage(ctx) {
     for (const id of ids) {
       try {
         const res = await window._appXhrPatch?.("receipts", { status: "cancelled" }, "id", id);
-        if (res?.ok) ok++; else fail++;
+        if (res?.ok) {
+          // Phase 89.1: void JV ของใบเสร็จที่ยกเลิก (กัน double-revenue + ลูกหนี้ติดลบ)
+          await voidJvForSource("receipts", id).catch(e => console.warn("[rc bulk cancel] void JV", e));
+          ok++;
+        } else fail++;
       } catch(e) { fail++; }
     }
     _selectedIds.clear();
@@ -449,6 +453,11 @@ export function renderReceiptsPage(ctx) {
           postJournalForReceipt({ ...r, status: "paid", paid_at: new Date().toISOString() })
             .catch(e => console.warn("[rc] auto-post JV failed:", e?.message));
         }
+        // Phase 89.1: void JV ของใบเสร็จที่ยกเลิก (กัน double-revenue ใน P&L + ลูกหนี้ติดลบ)
+        if (action === "cancelled") {
+          voidJvForSource("receipts", rcId)
+            .catch(e => console.warn("[rc] void JV failed:", e?.message));
+        }
         // Phase 45.11: non-blocking reload
     if (ctx.loadAllData) ctx.loadAllData().catch(e => console.warn("[rc] reload", e));
         renderReceiptsPage(_ctx);
@@ -461,6 +470,11 @@ export function renderReceiptsPage(ctx) {
           if (action === "paid") {
             postJournalForReceipt({ ...r, status: "paid", paid_at: new Date().toISOString() })
               .catch(e => console.warn("[rc] auto-post JV failed:", e?.message));
+          }
+          // Phase 89.1: void JV (fallback path)
+          if (action === "cancelled") {
+            voidJvForSource("receipts", rcId)
+              .catch(e => console.warn("[rc] void JV failed:", e?.message));
           }
           // Phase 45.11: non-blocking reload
     if (ctx.loadAllData) ctx.loadAllData().catch(e => console.warn("[rc] reload", e));
@@ -698,6 +712,8 @@ function renderReceiptPreview(container) {
     if (!(await window.App?.confirm?.(`ยกเลิกใบเสร็จ "${r.receipt_no}" ?`))) return;
     try {
       await window._appXhrPatch?.("receipts", { status: "cancelled" }, "id", r.id);
+      // Phase 89.1: void JV ของใบเสร็จที่ยกเลิก (กัน double-revenue ใน P&L)
+      await voidJvForSource("receipts", r.id).catch(e => console.warn("[rc preview cancel] void JV", e));
       window.App?.showToast?.("ยกเลิกใบเสร็จเรียบร้อย");
       if (_ctx.loadAllData) await _ctx.loadAllData();
     } catch(e) { window.App?.showToast?.("❌ ยกเลิกไม่สำเร็จ", "error"); }

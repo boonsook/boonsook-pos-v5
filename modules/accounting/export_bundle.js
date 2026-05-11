@@ -10,7 +10,7 @@
 //  สำนักงานบัญชีนำไปบันทึกในระบบของเขาได้ทันที (รูปแบบ standard)
 // ═══════════════════════════════════════════════════════════
 
-import { todaySuffix } from "../utils.js";
+import { todaySuffix, todayBkk } from "../utils.js";
 
 // ★ Phase 88.18b: production เริ่ม 1 พ.ค. 2026
 const ACCOUNTING_EFFECTIVE_DATE = "2026-05-01";
@@ -58,7 +58,7 @@ function getDateRange() {
     return { from: `${y}-01-01`, to: `${y}-12-31`, label: `Year_${y}` };
   }
   const from = _customFrom || defaultMonth() + "-01";
-  const to   = _customTo   || new Date().toISOString().slice(0, 10);
+  const to   = _customTo   || todayBkk();  // Phase 89.1: Bangkok time
   return { from, to, label: `${from}_${to}` };
 }
 
@@ -339,7 +339,7 @@ function _renderPeriodInputs() {
     c.innerHTML = `<input type="number" id="ebYear" value="${_periodValue}" min="2025" max="2030" style="padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;width:120px" />`;
   } else {
     if (!_customFrom) _customFrom = `${new Date().getFullYear()}-${pad2(new Date().getMonth() + 1)}-01`;
-    if (!_customTo)   _customTo   = new Date().toISOString().slice(0, 10);
+    if (!_customTo)   _customTo   = todayBkk();  // Phase 89.1
     c.innerHTML = `
       <input type="date" id="ebCustomFrom" value="${_customFrom}" style="padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px" />
       <span>→</span>

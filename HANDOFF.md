@@ -1,8 +1,74 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 9 พฤษภาคม 2026 (Phase 88.20 — POS bank picker ✅ verified)
-**Version:** 5.42.0 (build 203) — Phase 88.20 (cash breakdown + bank picker)
-**Previous:** 5.41.2 (build 202) — Phase 88.19 (Period Close)
+**อัปเดตล่าสุด:** 11 พฤษภาคม 2026 (Phase 89.1 — Security & Critical Bug Sweep)
+**Version:** 5.43.3 (build 207) — Phase 89.1 (Phase A — หยุดเลือดออก)
+**Previous:** 5.43.2 (build 206) — Phase 88.21c (VAT confirm-proof display)
+
+---
+
+## 🛡️ Phase 89.1 — Phase A Security & Critical Bug Sweep (build 207) — 11 พ.ค.
+
+### Context
+หลัง full-codebase audit (security / code quality / bugs / performance) — เจอปัญหา critical 5 ตัวที่อาจทำให้บัญชีและภาษีผิดเงียบ + ช่องโหว่ security ระดับ takeover account ได้ — ทำ "Phase A" หยุดเลือดออกก่อน
+
+### What shipped (build 207)
+
+**1. 💸 POS auto-post — pass full salePayload**
+- `modules/pos.js:1187-1196` — เดิม pass `{id, order_no, customer_name, payment_method, total_amount, created_at}` เท่านั้น
+- ขาด `note` (BANK_COA) + `vat_amount` + `vat_rate` + `subtotal_before_vat`
+- ผลกระทบ: Phase 88.20 bank picker + Phase 88.21 VAT split พังเงียบ → JV ขาดบรรทัด Cr 2170 + override bank ไม่ทำงาน
+- Fix: `postJournalForSale({ ...salePayload, id, created_at })`
+
+**2. 📑 JV void on cancel — 5 จุด**
+- `delivery_invoices.js`: bulk cancel + dropdown cancel
+- `receipts.js`: bulk cancel + dropdown cancel + preview cancel
+- ทุกจุดเรียก `voidJvForSource("delivery_invoices"|"receipts", id)` หลัง PATCH สำเร็จ
+- ผลกระทบเดิม: ยกเลิกใบเสร็จ → JV เก่าค้าง → รายได้นับซ้ำใน P&L
+
+**3. 🌏 Bangkok timezone helpers**
+- `modules/utils.js`: เพิ่ม `todayBkk()`, `dateBkk(date)`, `addDaysBkk(n)` — ใช้ `Intl.DateTimeFormat("en-CA", {timeZone:"Asia/Bangkok"})`
+- Replace `new Date().toISOString().slice(0,10)` (UTC) ใน 7 accounting files
+  - `auto_post.js` (5 จุด — sale/expense/job/receipt/invoice doc_date)
+  - `backfill.js` (todayStr + defaultFrom)
+  - `profit_loss.js` (date range default + prev period)
+  - `trial_balance.js` (date range default)
+  - `balance_sheet.js` (defaultAsOf)
+  - `export_bundle.js` (date range default)
+  - `journal_form.js` (today default)
+- ผลกระทบเดิม: ตี 1-6 โมงเช้าไทย doc_date กลายเป็นเมื่อวาน → ถ้าเมื่อวานปิดงวด → JV ถูก reject
+
+**4. 🛡️ XSS fix ใน share.html (public page)**
+- เปลี่ยน photo `onclick="window.open('${esc(url)}')"` → `data-photo-url` + delegated listener
+- เพิ่ม `safeUrl()` (allow http/https only) + `safeTel()` (digit-only)
+- `window.open(u, "_blank", "noopener,noreferrer")`
+- ผลกระทบเดิม: photo URL ที่มี apostrophe → escape เป็น `&#039;` → browser decode ก่อน JS eval → XSS ในหน้า public no-auth
+
+**5. 🔒 Security headers**
+- `_headers` — เพิ่ม block `/*` (Cloudflare Pages merge):
+  - `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload`
+  - `X-Frame-Options: DENY`
+  - `X-Content-Type-Options: nosniff`
+  - `Referrer-Policy: strict-origin-when-cross-origin`
+  - `Permissions-Policy: camera=(self), microphone=(), geolocation=(), payment=(), usb=(self), bluetooth=(self), serial=(self)`
+  - `Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://unpkg.com https://cdn.sheetjs.com https://esm.sh; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://*.supabase.co https://esm.sh; worker-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; upgrade-insecure-requests`
+- หมายเหตุ: ใช้ `unsafe-inline`+`unsafe-eval` เพราะ codebase มี onclick="" + jsPDF — Phase B จะ refactor
+
+### ⚠️ User actions ที่ต้องทำเอง (ก่อน/หลัง deploy)
+
+**ก่อน deploy:**
+1. **ปิด `OTP_WEB_FALLBACK` ใน Cloudflare Pages env** (CRITICAL)
+   - ไปที่ Cloudflare Dashboard → Pages → boonsook-pos → **Settings** → **Environment variables**
+   - หา `OTP_WEB_FALLBACK` → ลบ หรือเปลี่ยนเป็น `false`
+   - ทั้ง **Production** และ **Preview**
+   - เหตุผล: endpoint `/api/send-otp` คืน `devCode` ใน HTTP response → ใครรู้เบอร์ลูกค้าก็เข้าบัญชีได้ทันที (ไม่ต้องมือถือลูกค้า)
+   - ผลกระทบหลังปิด: ลูกค้าจะใช้ login OTP ไม่ได้ถ้ายังไม่ได้ตั้ง Twilio — ถ้าตอนนี้ระบบ SMS ยังไม่พร้อม → leave fallback ไว้แต่ตั้ง `OTP_REQUIRE_ADMIN_FOR_DEV_CODE=true` (ยังต้อง implement)
+
+**หลัง deploy — ทดสอบ:**
+1. **POS VAT + Bank picker:** ขายของจริงเปิด VAT 7% → checkout → ดู journal entries ต้องมี **3 บรรทัด** (Dr bank/cash + Cr revenue + Cr 2170 VAT) + Dr account ตรง bank ที่เลือก
+2. **Cancel ใบเสร็จ:** เปิด P&L ก่อน → ยกเลิกใบเสร็จ 1 ใบ → reload P&L → รายได้ต้องลดลงตามใบที่ยกเลิก
+3. **Timezone:** ลองตั้งนาฬิกาคอมเป็น 02:00 ไทย (จริงๆ ทดสอบยาก) — หรือเช็ค `localStorage` → `new Date()` ของ JV ที่ลงตอนเช้ามืด ต้องเป็นวันเดียวกับวันที่ขาย
+4. **Security headers:** เปิด DevTools → Network → ดู Response Headers ของ index.html ต้องเห็น CSP/HSTS/X-Frame-Options
+5. **XSS share.html:** เปิด link share สดๆ → คลิกรูป → ต้องเปิด tab ใหม่ปกติ (regression check)
 
 ---
 

@@ -9,7 +9,7 @@
 //          + Export Excel/CSV + พิมพ์
 // ═══════════════════════════════════════════════════════════
 
-import { exportToExcel, todaySuffix } from "../utils.js";
+import { exportToExcel, todaySuffix, todayBkk } from "../utils.js";
 
 let _ctx = null;
 let _periodType = "month";
@@ -70,7 +70,7 @@ function getDateRange() {
   }
   // custom
   const from = _customFrom || defaultMonth() + "-01";
-  const to   = _customTo   || new Date().toISOString().slice(0, 10);
+  const to   = _customTo   || todayBkk();  // Phase 89.1: Bangkok time
   return { from, to, label: `${from} → ${to}` };
 }
 
@@ -233,7 +233,7 @@ function _renderPeriodInputs() {
     `;
   } else {
     if (!_customFrom) _customFrom = `${new Date().getFullYear()}-${pad2(new Date().getMonth() + 1)}-01`;
-    if (!_customTo)   _customTo   = new Date().toISOString().slice(0, 10);
+    if (!_customTo)   _customTo   = todayBkk();  // Phase 89.1
     c.innerHTML = `
       <input type="date" id="tbCustomFrom" value="${_customFrom}" style="padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px" />
       <span>→</span>

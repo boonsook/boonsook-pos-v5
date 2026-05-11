@@ -1184,12 +1184,12 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
     try { if (window.App?.loadAllData) await window.App.loadAllData(); } catch (e) { console.warn("[pos] loadAllData after checkout failed:", e); }
 
     // ★ Phase 88.1a — auto-post JV (fire-and-forget, ไม่ block UX)
+    // ★ Phase 89.1 FIX: spread salePayload เข้าไป → ส่ง note (BANK_COA) + vat_amount/rate/subtotal_before_vat
+    //   เดิม pass แค่ 6 fields → Phase 88.20 (bank picker) + 88.21 (VAT split) พังเงียบ
+    //   เพราะ postJournalForSale อ่าน sale.note (regex BANK_COA) + sale.vat_amount ไม่เจอ
     postJournalForSale({
+      ...salePayload,
       id: saleId,
-      order_no: orderNo,
-      customer_name: salePayload.customer_name,
-      payment_method: salePayload.payment_method,
-      total_amount: salePayload.total_amount,
       created_at: new Date().toISOString()
     }).catch(e => console.warn("[pos] auto-post JV failed:", e?.message));
 
