@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v195 (2026-05-11): Phase 89.2c — Hotfix CSP connect-src ให้ครอบ CDN ที่ SW fetch (Chrome enforces SW fetch via document CSP)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v195';
+// v196 (2026-05-11): Phase 89.2d — Auto-refresh access token on 401 (single-flight)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v196';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

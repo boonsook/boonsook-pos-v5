@@ -746,14 +746,15 @@ function renderReceiptPreview(container) {
   document.getElementById("rcDeleteBtn")?.addEventListener("click", async () => {
     if (!(await window.App?.confirm?.(`ลบใบเสร็จ ${r.receipt_no} ?\n\nใบส่งสินค้าที่อ้างอิงจะกลับสถานะเป็น "รอดำเนินการ" เพื่อให้แก้ไขหรือลบได้`))) return;
     const cfg = window.SUPABASE_CONFIG;
-    const token = window._sbAccessToken || cfg.anonKey;
+    // Phase 89.2d: ใช้ _appAuthFetch — 401 → refresh + retry อัตโนมัติ
+    const authFetch = window._appAuthFetch || fetch;
     // ★ return=representation เพื่อให้ได้ rows ที่ลบจริงกลับมา — ตรวจได้ว่า RLS บล็อคไหม
-    const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token, "Content-Type": "application/json", "Prefer": "return=representation" };
+    const headers = { "Content-Type": "application/json", "Prefer": "return=representation" };
     try {
       // 1. ลบ receipt_items (OK ถ้า 0 rows เพราะอาจไม่มี items)
-      await fetch(cfg.url + "/rest/v1/receipt_items?receipt_id=eq." + r.id, { method: "DELETE", headers });
+      await authFetch(cfg.url + "/rest/v1/receipt_items?receipt_id=eq." + r.id, { method: "DELETE", headers });
       // 2. ลบ receipt — verify ว่ามี row ถูกลบจริง
-      const delResp = await fetch(cfg.url + "/rest/v1/receipts?id=eq." + r.id, { method: "DELETE", headers });
+      const delResp = await authFetch(cfg.url + "/rest/v1/receipts?id=eq." + r.id, { method: "DELETE", headers });
       if (!delResp.ok) throw new Error("HTTP " + delResp.status);
       const deleted = await delResp.json().catch(() => []);
       if (!Array.isArray(deleted) || deleted.length === 0) {
@@ -762,7 +763,7 @@ function renderReceiptPreview(container) {
       // 3. คืนสถานะ delivery_invoice กลับเป็น invoiced (รอดำเนินการ)
       const invId = r.delivery_invoice_id || null;
       if (invId) {
-        await fetch(cfg.url + "/rest/v1/delivery_invoices?id=eq." + invId,
+        await authFetch(cfg.url + "/rest/v1/delivery_invoices?id=eq." + invId,
           { method: "PATCH", headers, body: JSON.stringify({ status: "invoiced" }) });
       }
       // Phase 57: audit log (silent)

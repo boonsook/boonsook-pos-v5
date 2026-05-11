@@ -114,10 +114,75 @@ window._compressImage = function(file, maxWidth = 1200, quality = 0.7) {
 };
 
 // ═══════════════════════════════════════════════════════════
+//  Phase 89.2d: Access-token refresh — single-flight
+//  เมื่อ XHR/fetch ได้ 401 → trigger supabase.auth.refreshSession()
+//  → อัพเดท window._sbAccessToken → caller retry ครั้งเดียว
+//  Single-flight: ถ้ามี refresh อยู่ ทุก parallel call แชร์ promise เดียว
+// ═══════════════════════════════════════════════════════════
+let _refreshInflight = null;
+async function refreshAccessToken() {
+  if (_refreshInflight) return _refreshInflight;
+  _refreshInflight = (async () => {
+    try {
+      const sb = window.App?.state?.supabase || (typeof state !== "undefined" ? state.supabase : null);
+      if (!sb || !sb.auth) {
+        console.warn("[token-refresh] no supabase client");
+        return false;
+      }
+      const { data, error } = await sb.auth.refreshSession();
+      if (error) {
+        console.warn("[token-refresh] failed:", error.message);
+        return false;
+      }
+      if (data?.session?.access_token) {
+        window._sbAccessToken = data.session.access_token;
+        console.info("[token-refresh] OK — token rotated");
+        return true;
+      }
+      console.warn("[token-refresh] no new token in response");
+      return false;
+    } catch (e) {
+      console.warn("[token-refresh] exception:", e?.message);
+      return false;
+    } finally {
+      // clear inflight ทันทีที่ resolve เพื่อให้ retry รอบใหม่ของ caller ใช้ token ใหม่
+      _refreshInflight = null;
+    }
+  })();
+  return _refreshInflight;
+}
+window._appRefreshAccessToken = refreshAccessToken;
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 89.2d: Auth-fetch wrapper สำหรับ raw fetch
+//  ใช้แทน fetch() ใน module ที่ต้องการ 401-retry
+//  Auto-inject apikey + Authorization headers
+//  Auto-retry ครั้งเดียวหลัง refresh token
+// ═══════════════════════════════════════════════════════════
+async function appAuthFetch(url, options = {}, _isRetry = false) {
+  const cfg = window.SUPABASE_CONFIG;
+  const accessToken = window._sbAccessToken || cfg.anonKey;
+  const headers = {
+    ...(options.headers || {}),
+    "apikey": cfg.anonKey,
+    "Authorization": "Bearer " + accessToken
+  };
+  const resp = await fetch(url, { ...options, headers });
+  if (resp.status === 401 && !_isRetry) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) return appAuthFetch(url, options, true);
+    window.App?.showToast?.("⚠️ Session หมดอายุ — กรุณา login ใหม่", "error");
+  }
+  return resp;
+}
+window._appAuthFetch = appAuthFetch;
+
+// ═══════════════════════════════════════════════════════════
 //  XHR HELPER — supabase .insert() ค้างในบางสภาพแวดล้อม
 //  ใช้ XHR ตรงๆ แทนทุก INSERT/POST operation
+//  Phase 89.2d: เพิ่ม 401-retry-with-refresh (recursive _isRetry flag)
 // ═══════════════════════════════════════════════════════════
-function xhrPost(table, payload, opts = {}) {
+function xhrPost(table, payload, opts = {}, _isRetry = false) {
   const cfg = window.SUPABASE_CONFIG;
   const accessToken = window._sbAccessToken || cfg.anonKey;
   const prefer = opts.returnData ? "return=representation" : "return=minimal";
@@ -129,7 +194,17 @@ function xhrPost(table, payload, opts = {}) {
     xhr.setRequestHeader("Authorization", "Bearer " + accessToken);
     xhr.setRequestHeader("Prefer", prefer);
     xhr.timeout = 15000;
-    xhr.onload = function () {
+    xhr.onload = async function () {
+      // Phase 89.2d: 401 → refresh token + retry ครั้งเดียว
+      if (xhr.status === 401 && !_isRetry) {
+        const refreshed = await refreshAccessToken();
+        if (refreshed) {
+          const retryRes = await xhrPost(table, payload, opts, true);
+          resolve(retryRes);
+          return;
+        }
+        window.App?.showToast?.("⚠️ Session หมดอายุ — กรุณา login ใหม่", "error");
+      }
       if (xhr.status >= 200 && xhr.status < 300) {
         let data = null;
         const txt = xhr.responseText;
@@ -160,7 +235,7 @@ function xhrPost(table, payload, opts = {}) {
   });
 }
 
-function xhrPatch(table, payload, eqCol, eqVal) {
+function xhrPatch(table, payload, eqCol, eqVal, _isRetry = false) {
   const cfg = window.SUPABASE_CONFIG;
   const accessToken = window._sbAccessToken || cfg.anonKey;
   return new Promise((resolve) => {
@@ -172,7 +247,17 @@ function xhrPatch(table, payload, eqCol, eqVal) {
     // ★ ใช้ return=representation เพื่อตรวจสอบว่า RLS อนุญาตจริงหรือไม่
     xhr.setRequestHeader("Prefer", "return=representation");
     xhr.timeout = 15000;
-    xhr.onload = function () {
+    xhr.onload = async function () {
+      // Phase 89.2d: 401 → refresh + retry ครั้งเดียว
+      if (xhr.status === 401 && !_isRetry) {
+        const refreshed = await refreshAccessToken();
+        if (refreshed) {
+          const retryRes = await xhrPatch(table, payload, eqCol, eqVal, true);
+          resolve(retryRes);
+          return;
+        }
+        window.App?.showToast?.("⚠️ Session หมดอายุ — กรุณา login ใหม่", "error");
+      }
       if (xhr.status >= 200 && xhr.status < 300) {
         let data = null;
         const txt = xhr.responseText;
@@ -205,7 +290,8 @@ function xhrPatch(table, payload, eqCol, eqVal) {
 }
 
 // ═══ XHR DELETE — ลบข้อมูลผ่าน REST API ═══
-function xhrDelete(table, eqCol, eqVal) {
+// Phase 89.2d: เพิ่ม 401-retry-with-refresh
+function xhrDelete(table, eqCol, eqVal, _isRetry = false) {
   const cfg = window.SUPABASE_CONFIG;
   const accessToken = window._sbAccessToken || cfg.anonKey;
   return new Promise((resolve) => {
@@ -215,7 +301,17 @@ function xhrDelete(table, eqCol, eqVal) {
     xhr.setRequestHeader("Authorization", "Bearer " + accessToken);
     xhr.setRequestHeader("Prefer", "return=minimal");
     xhr.timeout = 15000;
-    xhr.onload = function () {
+    xhr.onload = async function () {
+      // Phase 89.2d: 401 → refresh + retry ครั้งเดียว
+      if (xhr.status === 401 && !_isRetry) {
+        const refreshed = await refreshAccessToken();
+        if (refreshed) {
+          const retryRes = await xhrDelete(table, eqCol, eqVal, true);
+          resolve(retryRes);
+          return;
+        }
+        window.App?.showToast?.("⚠️ Session หมดอายุ — กรุณา login ใหม่", "error");
+      }
       if (xhr.status >= 200 && xhr.status < 300) resolve({ ok: true, error: null });
       else {
         let msg = "HTTP " + xhr.status;

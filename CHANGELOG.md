@@ -7,6 +7,32 @@
 
 ---
 
+## 5.43.7 (build 211) — 2026-05-11 🔄 Phase 89.2d — Auto-refresh access token on 401
+
+### ปัญหาที่เจอ
+- User login เกิน 1 ชั่วโมง → Supabase JWT expire
+- `window._sbAccessToken` ยังเก็บ token เก่า
+- DELETE/PATCH/POST → return HTTP 401
+- เดิม ต้อง `Ctrl+Shift+R` หรือ logout/login เพื่อ refresh — UX papercut
+
+### Fix
+- **`refreshAccessToken()`** ใน [main.js](main.js) — single-flight, parallel calls แชร์ promise เดียว
+- **xhrPost / xhrPatch / xhrDelete** — เพิ่ม `_isRetry` flag → ถ้า 401 → refresh + retry ครั้งเดียว
+- **`window._appAuthFetch()`** — global wrapper สำหรับ raw fetch sites (auto-inject headers + retry)
+- **rcDeleteBtn** ใน [receipts.js](modules/receipts.js) — wrap raw fetch เป็น `_appAuthFetch`
+- ถ้า refresh fail → toast "⚠️ Session หมดอายุ — กรุณา login ใหม่"
+
+### Coverage
+- ✅ ทุก call ผ่าน `window._appXhrPost/Patch/Delete` (modules มากกว่า 40+ จุด)
+- ✅ Delete receipt ที่ user เพิ่งเจอ (Phase 89.2c)
+- ⚠️ Raw fetch sites อื่นๆ ใน modules (เช่น auto_post.js, delivery_invoices.js) ยังไม่ wrap — สามารถ migrate เพิ่มทีหลังได้โดยเปลี่ยน `fetch(...)` → `window._appAuthFetch(...)`
+
+### Test
+- ใช้แอปต่อเนื่อง 1+ ชั่วโมง → ทำ insert/update/delete → ต้อง work เงียบ ๆ (มี toast แค่ถ้า refresh fail)
+- Network tab: ตอน 401 → จะเห็น 2 requests (1st: 401, 2nd: 200 หลัง refresh)
+
+---
+
 ## 5.43.6 (build 210) — 2026-05-11 🚑 Phase 89.2c — CSP connect-src CDN
 
 ### Root cause หลังจาก 209 ยังพัง:
