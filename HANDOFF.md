@@ -1,8 +1,66 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 11 พฤษภาคม 2026 (Phase 89.1 — Security & Critical Bug Sweep)
-**Version:** 5.43.3 (build 207) — Phase 89.1 (Phase A — หยุดเลือดออก)
-**Previous:** 5.43.2 (build 206) — Phase 88.21c (VAT confirm-proof display)
+**อัปเดตล่าสุด:** 11 พฤษภาคม 2026 (Phase 89.2 — Defensive Fixes Batch 1)
+**Version:** 5.43.4 (build 208) — Phase 89.2 (เน้น stability — 5 defensive fixes)
+**Previous:** 5.43.3 (build 207) — Phase 89.1 (Security & Critical Bug Sweep)
+
+---
+
+## 🛡️ Phase 89.2 — Defensive Fixes Batch 1 (build 208) — 11 พ.ค.
+
+### Context
+หลัง Phase 89.1 (build 207) เสร็จ + user เลือก "เน้นไม่ให้แอปพัง" → ทำ defensive fixes ที่ความเสี่ยง break ต่ำ 5 ข้อก่อน
+
+### What shipped (build 208)
+
+**1. 💾 JV orphan rollback**
+- `modules/accounting/auto_post.js:223-243` — ถ้า lines insert fail → DELETE entry รถอลแบ็ค
+- เดิม: entry ค้าง trial balance พังเงียบ + admin ต้องมาลบเอง
+- ตอนนี้: rollback อัตโนมัติ + ถ้า rollback ล้มเหลว (network/RLS) → showToast เตือน admin
+
+**2. 🏦 BANK_COA regex tighten + validate**
+- `modules/accounting/auto_post.js:286` — regex จาก `/BANK_COA:(\d{4,5})/` → `/(?:^|[\s•])BANK_COA:(\d{4,5})(?=$|[\s•])/` (anchor + word boundary)
+- เพิ่ม `_getValidCoaCodes()` cache + validate กับ `chart_of_accounts` ก่อน override Dr account
+- ถ้า COA invalid → fall back ไป default mapping + showToast
+- เดิม: typo `BANK_COA:9999` → FK error เงียบ ไม่มี JV เลย
+
+**3. 🔢 Float math rounding**
+- `modules/pos.js`:
+  - เพิ่ม `round2()` helper
+  - Numpad sum (บรรทัด 476): `round2(Number(numpadValue) + Number(v))`
+  - line_total (บรรทัด 1127): `round2(qty * price)`
+  - salePayload money fields ทั้งหมด: subtotal, total_amount, paid_amount, change_amount, vat_amount, subtotal_before_vat → ใช้ `round2()` 
+- เดิม: `0.1+0.2 = 0.30000000000000004` เข้า DB → balance check fail บางครั้ง
+
+**4. 📅 Backfill UI effective date**
+- `modules/accounting/backfill.js:62` UI warning + `:131` cutoff logic — `2026-01-01` → `2026-05-01`
+- เดิม: user เห็น UI บอก "rows ก่อน 2026-01-01 จะ skip" แต่ logic ใน auto_post.js (Phase 88.18b) ใช้ `2026-05-01` แล้ว → confused
+
+**5. 🛑 Double-click guard ใน receipt preview**
+- `modules/receipts.js:698-720` — "เก็บเงิน" + "ยกเลิก" buttons
+- เพิ่ม `btn.disabled = true` + opacity + text "⏳ กำลัง..." → restore เฉพาะตอน error
+- กัน user double-tap = duplicate PATCH + JV post ซ้ำ (DB มี unique index จับได้แต่ UX สับสน)
+
+### Test plan
+1. **POS float math:** ขายของ ฿0.10 + ฿0.20 → ตรวจ DB sale_items.line_total = `0.30` (ไม่ใช่ `0.30000000000000004`)
+2. **JV rollback:** ดู console log ตอน checkout — ถ้าเห็น `[auto_post] rollback OK` หรือ `lines insert failed (entry NN), rolling back` แสดงว่าทำงาน
+3. **BANK_COA validate:** ตั้งค่า bank ด้วย COA code ผิด (เช่น 9999) → ขายแบบโอน → คอนโซลต้องเห็น "BANK_COA invalid: 9999 — falling back to default 1130" + toast
+4. **Backfill UI:** เปิดหน้า Backfill → ต้องเห็น "Effective date: 2026-05-01"
+5. **Double-click guard:** เปิดใบเสร็จ pending → กดเก็บเงินรัวๆ → patch + JV ต้องเกิดครั้งเดียว (ดู Network tab)
+
+### Files changed
+- `modules/accounting/auto_post.js` — rollback + BANK_COA validate (+~50 บรรทัด)
+- `modules/accounting/backfill.js` — effective date 2 จุด
+- `modules/pos.js` — round2 helper + ใช้ใน 5 จุด
+- `modules/receipts.js` — double-click guard 2 ปุ่ม
+- `index.html`, `sw.js`, `modules/settings/pages.js` — bump 208
+- `CHANGELOG.md`, `HANDOFF.md`
+
+### Batch 2 ที่รออยู่ (Phase 89.3 — high-risk)
+- Tighten RLS sales/customers/profiles_with_email — ลูกค้าเห็นเฉพาะของตัวเอง
+- Admin-only RLS บน permissions table
+- SRI hash + version pin ทุก CDN script
+- ⚠️ ต้องทดสอบรอบคอบ — RLS ผิดอาจทำให้ user ทั้งหมด access ไม่ได้
 
 ---
 

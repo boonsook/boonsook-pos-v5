@@ -65,6 +65,14 @@ let selectedPaymentMethod = "";
 let selectedBankIdx = 0;
 
 // ═══════════════════════════════════════════════════════════
+// Phase 89.2: helper round-to-2-decimals
+// กัน float drift: 0.1 + 0.2 = 0.30000000000000004 → round2(...) = 0.3
+// ═══════════════════════════════════════════════════════════
+function round2(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+// ═══════════════════════════════════════════════════════════
 // Phase 88.21: VAT helper — คำนวณ VAT จาก paymentInfo settings
 // ═══════════════════════════════════════════════════════════
 /**
@@ -473,7 +481,8 @@ function renderPosView(ctx) {
     document.querySelectorAll("[data-quick-amt]").forEach(btn => btn.addEventListener("click", () => {
       const v = btn.dataset.quickAmt;
       if (v === "exact") numpadValue = String(amount);
-      else numpadValue = String(Number(numpadValue||0) + Number(v));
+      // Phase 89.2: round2 กัน float drift (0.1+0.2 = 0.300000...004)
+      else numpadValue = String(round2(Number(numpadValue||0) + Number(v)));
       renderPosView(ctx); // re-render to update change
     }, { signal }));
 
@@ -1077,21 +1086,22 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
     }
     // inclusive: amount = total อยู่แล้ว → ไม่ต้องแก้
 
+    // Phase 89.2: round2 ทุก money field — กัน 0.30000000000000004 เข้า DB
     const salePayload = {
       order_no: orderNo,
       customer_name: custName,
       payment_method: paymentMethod,
-      subtotal: vatCalc.enabled ? vatCalc.subtotal : amount,
-      total_amount: actualTotal,
-      paid_amount: paidAmount || actualTotal,
-      change_amount: Math.max((paidAmount || actualTotal) - actualTotal, 0),
+      subtotal: round2(vatCalc.enabled ? vatCalc.subtotal : amount),
+      total_amount: round2(actualTotal),
+      paid_amount: round2(paidAmount || actualTotal),
+      change_amount: round2(Math.max((paidAmount || actualTotal) - actualTotal, 0)),
       discount_type: null,
       discount_value: 0,
       discount_amount: 0,
       // Phase 88.21: VAT breakdown (เป็น 0 ถ้าไม่เปิด VAT)
-      vat_amount: vatCalc.vat,
+      vat_amount: round2(vatCalc.vat),
       vat_rate: vatCalc.rate,
-      subtotal_before_vat: vatCalc.enabled ? vatCalc.subtotal : null,
+      subtotal_before_vat: vatCalc.enabled ? round2(vatCalc.subtotal) : null,
       note: noteParts.join(" • "),
       created_by: state.currentUser?.id || null
     };
@@ -1122,9 +1132,10 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
           product_id: item.id || null,
           product_name: item.name || "สินค้า",
           qty: Number(item.qty) || 1,
-          unit_price: Number(item.price) || 0,
-          unit_cost: Number(prodRef?.cost || 0),
-          line_total: Number(item.qty || 1) * Number(item.price || 0)
+          unit_price: round2(item.price),
+          unit_cost: round2(prodRef?.cost || 0),
+          // Phase 89.2: round2 กัน 0.30000000000000004
+          line_total: round2(Number(item.qty || 1) * Number(item.price || 0))
         };
         let itemRes = await xhrPostPOS("sale_items", itemPayload);
         // Legacy fallback: ถ้า product_id/unit_cost ยังไม่มีใน DB → retry โดยไม่ส่ง

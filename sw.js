@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v192 (2026-05-11): Phase 89.1 — Security headers + XSS fix + BKK TZ + JV-void + POS auto-post payload
-const CACHE_NAME = 'boonsook-pos-v5-cache-v192';
+// v193 (2026-05-11): Phase 89.2 — Defensive fixes (JV rollback, BANK_COA validate, float round, dbl-click guard)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v193';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

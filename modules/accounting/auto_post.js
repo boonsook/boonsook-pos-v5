@@ -27,12 +27,37 @@ import { dateBkk, todayBkk } from "../utils.js";
 const ACCOUNTING_EFFECTIVE_DATE = "2026-05-01";
 
 let _mappingCache = null;
+let _coaCache = null;  // Phase 89.2: cache COA codes สำหรับ validate BANK_COA override
 
 /**
  * Reset mapping cache — เรียกหลัง admin แก้ account_mapping ใน DB
+ * Phase 89.2: รวม COA cache ด้วย — เรียกหลัง admin เพิ่ม/ลบ chart_of_accounts
  */
 export function resetMappingCache() {
   _mappingCache = null;
+  _coaCache = null;
+}
+
+/**
+ * Phase 89.2: Load active COA codes for validation.
+ * Cache เพื่อไม่ต้อง fetch ทุก JV — reset ผ่าน resetMappingCache()
+ */
+async function _getValidCoaCodes() {
+  if (_coaCache) return _coaCache;
+  const cfg = window.SUPABASE_CONFIG;
+  const token = window._sbAccessToken || cfg.anonKey;
+  try {
+    const r = await fetch(`${cfg.url}/rest/v1/chart_of_accounts?select=code&is_active=eq.true`, {
+      headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token }
+    });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const arr = await r.json();
+    _coaCache = new Set(arr.map(a => String(a.code)));
+    return _coaCache;
+  } catch(e) {
+    console.warn("[auto_post] cannot load COA list:", e.message);
+    return new Set(); // fail-safe — caller จะใช้ default mapping
+  }
 }
 
 /**
@@ -221,8 +246,23 @@ async function _postJournal(opts) {
     });
     if (!r.ok) throw new Error(`HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
   } catch(e) {
-    console.error("[auto_post] lines insert failed (entry " + entryId + " ค้าง — ไม่มี lines):", e.message);
-    // ไม่ rollback entry — admin จะเห็น "JV ไม่มี lines" ใน UI และแก้เอง
+    console.error("[auto_post] lines insert failed (entry " + entryId + "), rolling back entry:", e.message);
+    // Phase 89.2: rollback entry — กัน orphan JV ที่ trial balance พังเงียบ
+    try {
+      const delResp = await fetch(`${cfg.url}/rest/v1/journal_entries?id=eq.${entryId}`, {
+        method: "DELETE",
+        headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token }
+      });
+      if (delResp.ok) {
+        console.info("[auto_post] rollback OK — entry " + entryId + " deleted");
+      } else {
+        console.error("[auto_post] rollback FAILED — entry " + entryId + " still orphan:", delResp.status);
+        if (window.showToast) window.showToast(`⚠️ JV ${entryId} ค้าง — ไม่มี lines (ลบจาก UI ได้)`);
+      }
+    } catch(delErr) {
+      console.error("[auto_post] rollback exception:", delErr.message);
+      if (window.showToast) window.showToast(`⚠️ JV ${entryId} ค้าง — ไม่มี lines (network error)`);
+    }
     return null;
   }
 
@@ -266,12 +306,21 @@ export async function postJournalForSale(sale) {
   const amount = Number(amountRaw);
 
   // ★ Phase 88.20: ถ้าเป็น sale_transfer + มี BANK_COA:XXXX ใน note → ใช้ COA นั้นแทน mapping default
+  // Phase 89.2: tighten regex (anchor + word boundary) + validate กับ chart_of_accounts
   let debitAccount = mapping.debit_account_code;
   if (mappingKey === "sale_transfer" || mappingKey === "sale_credit") {
-    const noteMatch = String(sale.note || "").match(/BANK_COA:(\d{4,5})/);
+    const noteMatch = String(sale.note || "").match(/(?:^|[\s•])BANK_COA:(\d{4,5})(?=$|[\s•])/);
     if (noteMatch?.[1]) {
-      debitAccount = noteMatch[1];
-      console.info("[auto_post] sale transfer override Dr account:", debitAccount, "(from note BANK_COA)");
+      const candidate = noteMatch[1];
+      const validCodes = await _getValidCoaCodes();
+      if (validCodes.size === 0 || validCodes.has(candidate)) {
+        // validCodes ว่าง = COA fetch fail → fail-open (เผื่อ DB จะ reject FK ทีหลัง — ดีกว่าไม่ post เลย)
+        debitAccount = candidate;
+        console.info("[auto_post] sale transfer override Dr account:", debitAccount, "(from note BANK_COA)");
+      } else {
+        console.warn("[auto_post] BANK_COA invalid:", candidate, "— falling back to default", mapping.debit_account_code);
+        if (window.showToast) window.showToast(`⚠️ COA ${candidate} ไม่พบ — ใช้ default ${mapping.debit_account_code} แทน`);
+      }
     }
   }
 

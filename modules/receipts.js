@@ -695,28 +695,51 @@ function renderReceiptPreview(container) {
   _wireMultiPayPanel(r);
 
   // ★ เก็บเงิน (ในหน้า preview)
-  document.getElementById("rcPreviewCollect")?.addEventListener("click", async () => {
+  // Phase 89.2: double-click guard — กัน user double-tap = post JV ซ้ำ (DB unique index จับได้ แต่ patch อาจซ้ำ)
+  document.getElementById("rcPreviewCollect")?.addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    if (btn.disabled) return;
     if (!(await window.App?.confirm?.(`ยืนยันเก็บเงิน "${r.receipt_no}" ยอด ${money(r.grand_total||0)} ?`))) return;
+    btn.disabled = true;
+    btn.style.opacity = "0.6";
+    btn.textContent = "⏳ กำลังเก็บเงิน...";
     try {
       await window._appXhrPatch?.("receipts", { status: "paid" }, "id", r.id);
       window.App?.showToast?.("เก็บเงินเรียบร้อย ✅");
       // ★ Phase 88.1b — auto-post JV ตอนเก็บเงิน (fire-and-forget)
       postJournalForReceipt({ ...r, status: "paid", paid_at: new Date().toISOString() })
-        .catch(e => console.warn("[rc-preview] auto-post JV failed:", e?.message));
+        .catch(err => console.warn("[rc-preview] auto-post JV failed:", err?.message));
       if (_ctx.loadAllData) await _ctx.loadAllData();
-    } catch(e) { window.App?.showToast?.("❌ เก็บเงินไม่สำเร็จ", "error"); }
+    } catch(err) {
+      window.App?.showToast?.("❌ เก็บเงินไม่สำเร็จ", "error");
+      // restore button only on error — สำเร็จแล้วจะ re-render อยู่ดี
+      btn.disabled = false;
+      btn.style.opacity = "1";
+      btn.textContent = "✅ เก็บเงิน";
+    }
   });
 
   // ★ ยกเลิก (ในหน้า preview)
-  document.getElementById("rcPreviewCancel")?.addEventListener("click", async () => {
+  // Phase 89.2: double-click guard
+  document.getElementById("rcPreviewCancel")?.addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    if (btn.disabled) return;
     if (!(await window.App?.confirm?.(`ยกเลิกใบเสร็จ "${r.receipt_no}" ?`))) return;
+    btn.disabled = true;
+    btn.style.opacity = "0.6";
+    btn.textContent = "⏳ กำลังยกเลิก...";
     try {
       await window._appXhrPatch?.("receipts", { status: "cancelled" }, "id", r.id);
       // Phase 89.1: void JV ของใบเสร็จที่ยกเลิก (กัน double-revenue ใน P&L)
-      await voidJvForSource("receipts", r.id).catch(e => console.warn("[rc preview cancel] void JV", e));
+      await voidJvForSource("receipts", r.id).catch(err => console.warn("[rc preview cancel] void JV", err));
       window.App?.showToast?.("ยกเลิกใบเสร็จเรียบร้อย");
       if (_ctx.loadAllData) await _ctx.loadAllData();
-    } catch(e) { window.App?.showToast?.("❌ ยกเลิกไม่สำเร็จ", "error"); }
+    } catch(err) {
+      window.App?.showToast?.("❌ ยกเลิกไม่สำเร็จ", "error");
+      btn.disabled = false;
+      btn.style.opacity = "1";
+      btn.textContent = "❌ ยกเลิก";
+    }
   });
 
   // ── delete receipt → restore delivery invoice status ──
