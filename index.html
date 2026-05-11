@@ -813,7 +813,7 @@
   <script>
   (async function selfHeal() {
     try {
-      var APP_BUILD = 212;
+      var APP_BUILD = 213;
       var STUCK_BUILDS_BEFORE = 47; // builds before this มี immutable-cache bug
       var stored = parseInt(localStorage.getItem('bsk_app_build') || '0', 10);
       var justRecovered = sessionStorage.getItem('bsk_just_recovered') === '1';
@@ -862,7 +862,7 @@
     }
   })();
   </script>
-  <script type="module" src="./main.js?v=212"></script>
+  <script type="module" src="./main.js?v=213"></script>
   <script>
     // ═══ Loading Overlay ═══
     function hideLoadingOverlay() {

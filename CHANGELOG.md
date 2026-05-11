@@ -7,6 +7,43 @@
 
 ---
 
+## 5.43.9 (build 213) — 2026-05-11 🛡️ Phase 89.4 — Hot-path coverage + double-click + round2
+
+### Defensive batch — เน้นไม่ให้แอปพัง (ทำตอน user ไปทำงาน)
+
+**1. แก้ log "will re-post" → "voided"**
+- [auto_post.js:92](modules/accounting/auto_post.js:92) — log message ที่ misleading (พบตอนทดสอบ delete POS sale)
+- เดิม: `voided 1 JV(s) for sales#126 (will re-post)`
+- ใหม่: `voided 1 JV(s) for sales#126`
+
+**2. Migrate raw `fetch()` → `window._appAuthFetch` ที่ critical write sites**
+- `_authFetch()` helper ใน [auto_post.js](modules/accounting/auto_post.js) — 4 จุด: void JV, post entry, post lines, rollback entry
+- `delivery_invoices.js` bulk delete + single delete — ใช้ `authFetch` (alias of `_appAuthFetch`)
+- `receipts.js` bulk delete — เหมือนกัน
+- **ผล:** ทุก critical write path ครอบ 401-retry-with-refresh (Phase 89.2d) — JWT expire ตอน accounting/cancel ก็จะ auto refresh ไม่ต้อง Ctrl+Shift+R
+
+**3. Double-click guard เพิ่ม 4 ปุ่ม**
+- `diBulkCancel`, `diBulkDelete` ใน delivery_invoices.js
+- `rcBulkCancel`, `rcBulkDelete` ใน receipts.js
+- Pattern: `if (btn.disabled) return; btn.disabled = true; btn.style.opacity = "0.6"` → render ใหม่ DOM cleanup
+
+**4. `round2()` export กลาง + ใช้ใน quotations form**
+- `utils.js` export `round2(n)` — single source
+- `quotations.js:714` — `item.line_total = round2(qty * unit_price * (1 - discount/100))`
+- pos.js ใช้ตัวเดียวกันได้ (จาก local helper ใน Phase 89.2)
+- **ผล:** ใบเสนอราคา/ใบส่งสินค้า/ใบเสร็จ ไม่มี `0.30000000000000004` อีก
+
+### ที่เก็บไว้
+- ac_install/solar/service_form: line_total ยังไม่ round (low-traffic, ทำเป็น Phase ถัดไปได้)
+- BANK_COA validate ที่ receipt/invoice: ไม่มี bank picker UI → ไม่จำเป็น
+
+### Test (รอ deploy 213)
+1. ลบใบส่งสินค้า/ใบเสร็จ bulk — กดรัวๆ → ปุ่มเทาทันที กด PATCH ครั้งเดียว
+2. ใช้แอปจน JWT expire (1+ ชม.) → กดลบ/post JV → ต้องไม่ต้อง refresh เอง — มี toast ก็ต่อเมื่อ refresh fail
+3. แก้ qty/price ใน line item ของใบเสนอราคา → line_total ต้องเป็น 2 ตำแหน่งทศนิยม
+
+---
+
 ## 5.43.8 (build 212) — 2026-05-11 🗑️ Phase 89.3 — Delete POS sale ครบวงจร
 
 ### ปัญหาเดิม

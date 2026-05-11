@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v197 (2026-05-11): Phase 89.3 — Delete POS sale ครบวงจร (void JV + revert stock + soft-delete)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v197';
+// v198 (2026-05-11): Phase 89.4 — Hot-path 401 coverage + double-click guards + round2 forms
+const CACHE_NAME = 'boonsook-pos-v5-cache-v198';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

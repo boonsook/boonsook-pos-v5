@@ -4,7 +4,7 @@
 // ═══════════════════════════════════════════════════════════
 import { renderEmpty, renderSkeleton } from "./ui_states.js";
 // Phase 57: audit log + Phase 70 (D3): Excel export
-import { logActivity, exportToExcel, todaySuffix } from "./utils.js";
+import { logActivity, exportToExcel, todaySuffix, round2 } from "./utils.js";
 // Phase 88.18: auto-post JV ตอนออก invoice (B2B revenue)
 import { postJournalForDeliveryInvoice } from "./accounting/auto_post.js";
 
@@ -710,7 +710,8 @@ function bindFormEvents(container, customers, products) {
       item.unit_price   = Number(row.querySelector(".qt-li-price")?.value || 0);
       item.discount_pct = Number(row.querySelector(".qt-li-disc")?.value || 0);
       item.unit         = row.querySelector(".qt-li-unit")?.value || "ชิ้น";
-      item.line_total   = item.qty * item.unit_price * (1 - item.discount_pct / 100);
+      // Phase 89.4: round2 กัน float drift (0.1+0.2 = 0.30000000000000004)
+      item.line_total   = round2(item.qty * item.unit_price * (1 - item.discount_pct / 100));
       renderQuotationForm(container);
     });
   });

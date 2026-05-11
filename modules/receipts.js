@@ -336,10 +336,15 @@ export function renderReceiptsPage(ctx) {
   }));
 
   // ── Bulk cancel (soft — status change) ──
-  document.getElementById("rcBulkCancel")?.addEventListener("click", async () => {
+  document.getElementById("rcBulkCancel")?.addEventListener("click", async (e) => {
+    // Phase 89.4: double-click guard
+    const btn = e.currentTarget;
+    if (btn.disabled) return;
     const ids = [..._selectedIds];
     if (!ids.length) return;
     if (!(await window.App?.confirm?.(`ยกเลิกใบเสร็จ ${ids.length} รายการ?\n(เปลี่ยนสถานะเป็น "ยกเลิก" — ใบเสร็จยังอยู่ใน tab "ยกเลิก")`))) return;
+    btn.disabled = true;
+    btn.style.opacity = "0.6";
     window.App?.showToast?.(`กำลังยกเลิก ${ids.length} รายการ...`);
     let ok = 0, fail = 0;
     for (const id of ids) {
@@ -360,30 +365,36 @@ export function renderReceiptsPage(ctx) {
   });
 
   // ── Bulk delete (hard — remove from DB + restore delivery_invoice status) ──
-  document.getElementById("rcBulkDelete")?.addEventListener("click", async () => {
+  document.getElementById("rcBulkDelete")?.addEventListener("click", async (e) => {
+    // Phase 89.4: double-click guard
+    const btn = e.currentTarget;
+    if (btn.disabled) return;
     const ids = [..._selectedIds];
     if (!ids.length) return;
     if (!(await window.App?.confirm?.(`⚠️ ลบใบเสร็จ ${ids.length} รายการออกจากระบบถาวร?\nใบส่งสินค้าที่อ้างอิงจะกลับสถานะเป็น "รอดำเนินการ"\n\nการกระทำนี้ไม่สามารถย้อนกลับได้`))) return;
+    btn.disabled = true;
+    btn.style.opacity = "0.6";
     window.App?.showToast?.(`กำลังลบ ${ids.length} รายการ...`);
 
     const cfg = window.SUPABASE_CONFIG;
-    const token = window._sbAccessToken || cfg.anonKey;
-    const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token, "Content-Type": "application/json", "Prefer": "return=representation" };
+    // Phase 89.4: _appAuthFetch → auto 401 retry
+    const authFetch = window._appAuthFetch || fetch;
+    const headers = { "Content-Type": "application/json", "Prefer": "return=representation" };
 
     let ok = 0, fail = 0;
     for (const id of ids) {
       try {
         const r = (ctx.state.receipts || []).find(x => x.id === id);
         // 1. ลบ receipt_items
-        await fetch(cfg.url + "/rest/v1/receipt_items?receipt_id=eq." + id, { method: "DELETE", headers });
+        await authFetch(cfg.url + "/rest/v1/receipt_items?receipt_id=eq." + id, { method: "DELETE", headers });
         // 2. ลบ receipt
-        const delResp = await fetch(cfg.url + "/rest/v1/receipts?id=eq." + id, { method: "DELETE", headers });
+        const delResp = await authFetch(cfg.url + "/rest/v1/receipts?id=eq." + id, { method: "DELETE", headers });
         const deleted = await delResp.json().catch(() => []);
         if (!delResp.ok || !Array.isArray(deleted) || deleted.length === 0) { fail++; continue; }
         // 3. restore delivery_invoice status
         const invId = r?.delivery_invoice_id;
         if (invId) {
-          await fetch(cfg.url + "/rest/v1/delivery_invoices?id=eq." + invId,
+          await authFetch(cfg.url + "/rest/v1/delivery_invoices?id=eq." + invId,
             { method: "PATCH", headers, body: JSON.stringify({ status: "invoiced" }) });
         }
         ok++;

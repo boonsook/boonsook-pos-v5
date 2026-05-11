@@ -295,10 +295,15 @@ export function renderDeliveryInvoicesPage(ctx) {
   }));
 
   // ── Bulk cancel (soft) ──
-  document.getElementById("diBulkCancel")?.addEventListener("click", async () => {
+  document.getElementById("diBulkCancel")?.addEventListener("click", async (e) => {
+    // Phase 89.4: double-click guard — กัน user double-tap = patch ซ้ำ
+    const btn = e.currentTarget;
+    if (btn.disabled) return;
     const ids = [..._selectedIds];
     if (!ids.length) return;
     if (!(await window.App?.confirm?.(`ยกเลิกใบส่งสินค้า ${ids.length} รายการ?\n(เปลี่ยนสถานะเป็น "ยกเลิก" — ยังอยู่ใน tab "ยกเลิก")`))) return;
+    btn.disabled = true;
+    btn.style.opacity = "0.6";
     window.App?.showToast?.(`กำลังยกเลิก ${ids.length} รายการ...`);
     let ok = 0, fail = 0;
     for (const id of ids) {
@@ -319,30 +324,36 @@ export function renderDeliveryInvoicesPage(ctx) {
   });
 
   // ── Bulk delete (hard) — ลบถาวร + restore quotation status ──
-  document.getElementById("diBulkDelete")?.addEventListener("click", async () => {
+  document.getElementById("diBulkDelete")?.addEventListener("click", async (e) => {
+    // Phase 89.4: double-click guard
+    const btn = e.currentTarget;
+    if (btn.disabled) return;
     const ids = [..._selectedIds];
     if (!ids.length) return;
     if (!(await window.App?.confirm?.(`⚠️ ลบใบส่งสินค้า ${ids.length} รายการออกจากระบบถาวร?\nใบเสนอราคาที่อ้างอิงจะกลับสถานะเป็น "อนุมัติแล้ว"\n\nการกระทำนี้ไม่สามารถย้อนกลับได้`))) return;
+    btn.disabled = true;
+    btn.style.opacity = "0.6";
     window.App?.showToast?.(`กำลังลบ ${ids.length} รายการ...`);
 
     const cfg = window.SUPABASE_CONFIG;
-    const token = window._sbAccessToken || cfg.anonKey;
-    const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token, "Content-Type": "application/json", "Prefer": "return=representation" };
+    // Phase 89.4: _appAuthFetch → auto 401 retry
+    const authFetch = window._appAuthFetch || fetch;
+    const headers = { "Content-Type": "application/json", "Prefer": "return=representation" };
 
     let ok = 0, fail = 0;
     for (const id of ids) {
       try {
         const inv = (ctx.state.deliveryInvoices || []).find(x => x.id === id);
         // 1. ลบ items
-        await fetch(cfg.url + "/rest/v1/delivery_invoice_items?delivery_invoice_id=eq." + id, { method: "DELETE", headers });
+        await authFetch(cfg.url + "/rest/v1/delivery_invoice_items?delivery_invoice_id=eq." + id, { method: "DELETE", headers });
         // 2. ลบ invoice
-        const delResp = await fetch(cfg.url + "/rest/v1/delivery_invoices?id=eq." + id, { method: "DELETE", headers });
+        const delResp = await authFetch(cfg.url + "/rest/v1/delivery_invoices?id=eq." + id, { method: "DELETE", headers });
         const deleted = await delResp.json().catch(() => []);
         if (!delResp.ok || !Array.isArray(deleted) || deleted.length === 0) { fail++; continue; }
         // 3. restore quotation status
         const qtId = inv?.quotation_id;
         if (qtId) {
-          await fetch(cfg.url + "/rest/v1/quotations?id=eq." + qtId,
+          await authFetch(cfg.url + "/rest/v1/quotations?id=eq." + qtId,
             { method: "PATCH", headers, body: JSON.stringify({ status: "approved" }) });
         }
         ok++;
@@ -566,14 +577,15 @@ function renderInvoicePreview(container) {
   document.getElementById("diDeleteBtn")?.addEventListener("click", async () => {
     if (!(await window.App?.confirm?.(`ลบใบส่งสินค้า ${inv.inv_no} ?\n\nใบเสนอราคาที่อ้างอิงจะกลับสถานะเป็น "อนุมัติแล้ว" เพื่อให้แก้ไขหรือลบได้`))) return;
     const cfg = window.SUPABASE_CONFIG;
-    const token = window._sbAccessToken || cfg.anonKey;
+    // Phase 89.4: _appAuthFetch → auto 401 retry
+    const authFetch = window._appAuthFetch || fetch;
     // ★ return=representation — ได้ rows ที่ลบกลับมาเช็คว่า RLS ไม่บล็อค
-    const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token, "Content-Type": "application/json", "Prefer": "return=representation" };
+    const headers = { "Content-Type": "application/json", "Prefer": "return=representation" };
     try {
       // 1. ลบ delivery_invoice_items
-      await fetch(cfg.url + "/rest/v1/delivery_invoice_items?delivery_invoice_id=eq." + inv.id, { method: "DELETE", headers });
+      await authFetch(cfg.url + "/rest/v1/delivery_invoice_items?delivery_invoice_id=eq." + inv.id, { method: "DELETE", headers });
       // 2. ลบ delivery_invoice — verify ว่าลบจริง
-      const delResp = await fetch(cfg.url + "/rest/v1/delivery_invoices?id=eq." + inv.id, { method: "DELETE", headers });
+      const delResp = await authFetch(cfg.url + "/rest/v1/delivery_invoices?id=eq." + inv.id, { method: "DELETE", headers });
       if (!delResp.ok) throw new Error("HTTP " + delResp.status);
       const deleted = await delResp.json().catch(() => []);
       if (!Array.isArray(deleted) || deleted.length === 0) {
@@ -582,7 +594,7 @@ function renderInvoicePreview(container) {
       // 3. คืนสถานะ quotation กลับเป็น approved
       const qtId = inv.quotation_id || null;
       if (qtId) {
-        await fetch(cfg.url + "/rest/v1/quotations?id=eq." + qtId,
+        await authFetch(cfg.url + "/rest/v1/quotations?id=eq." + qtId,
           { method: "PATCH", headers, body: JSON.stringify({ status: "approved" }) });
       }
       // Phase 57: audit log (silent)

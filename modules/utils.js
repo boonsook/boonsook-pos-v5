@@ -80,6 +80,14 @@ export function asExcelText(s) {
 }
 
 // ═══════════════════════════════════════════════════════════
+//  Phase 89.4: Round to 2 decimals — กัน float drift (0.1+0.2 = 0.30000000000000004)
+//  ใช้ทุกที่ที่มี money math: line_total, grand_total, subtotal, vat
+// ═══════════════════════════════════════════════════════════
+export function round2(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+// ═══════════════════════════════════════════════════════════
 //  Phase 89.1: Bangkok-timezone date helpers (Asia/Bangkok = UTC+7)
 //  ป้องกัน off-by-1: เดิม `new Date().toISOString().slice(0,10)` คืน UTC
 //  → ตี 1 ไทย (UTC 18:00 วันก่อนหน้า) ได้วันที่ "เมื่อวาน" → JV ลง period ผิด

@@ -21,6 +21,19 @@
 
 import { dateBkk, todayBkk } from "../utils.js";
 
+// Phase 89.4: auth-fetch helper สำหรับ critical write ops
+// ใช้ window._appAuthFetch (auto 401 retry) — fallback ราฟ fetch + manual headers ถ้า main.js ยังไม่ init
+function _authFetch(url, opts = {}) {
+  if (window._appAuthFetch) return window._appAuthFetch(url, opts);
+  // Fallback: manual auth headers (no retry on 401)
+  const cfg = window.SUPABASE_CONFIG;
+  const token = window._sbAccessToken || cfg.anonKey;
+  return fetch(url, {
+    ...opts,
+    headers: { ...(opts.headers || {}), apikey: cfg.anonKey, Authorization: "Bearer " + token }
+  });
+}
+
 // ★ Phase 88.18b: เลื่อน effective date จาก 2026-01-01 → 2026-05-01
 //   เหตุผล: ก่อน 1 พ.ค. = test/mock data (เม.ย. = ทดสอบระบบ)
 //           production จริงเริ่ม 1 พ.ค. — JV ก่อนวันนี้จะถูก reject อัตโนมัติ
@@ -70,15 +83,11 @@ async function _getValidCoaCodes() {
 export async function voidJvForSource(sourceTable, sourceId) {
   if (!sourceTable || !sourceId) return 0;
   const cfg = window.SUPABASE_CONFIG;
-  const token = window._sbAccessToken || cfg.anonKey;
-  const headers = {
-    "apikey": cfg.anonKey,
-    "Authorization": "Bearer " + token,
-    "Prefer": "return=representation"
-  };
+  // Phase 89.4: ใช้ _authFetch → auto 401 retry
+  const headers = { "Prefer": "return=representation" };
   try {
     // DELETE — lines จะถูกลบอัตโนมัติเพราะ FK ON DELETE CASCADE
-    const r = await fetch(`${cfg.url}/rest/v1/journal_entries?source_table=eq.${encodeURIComponent(sourceTable)}&source_id=eq.${sourceId}`, {
+    const r = await _authFetch(`${cfg.url}/rest/v1/journal_entries?source_table=eq.${encodeURIComponent(sourceTable)}&source_id=eq.${sourceId}`, {
       method: "DELETE",
       headers
     });
@@ -89,7 +98,8 @@ export async function voidJvForSource(sourceTable, sourceId) {
     const deleted = await r.json().catch(() => []);
     const count = Array.isArray(deleted) ? deleted.length : 0;
     if (count > 0) {
-      console.info(`[auto_post] voided ${count} JV(s) for ${sourceTable}#${sourceId} (will re-post)`);
+      // Phase 89.3a: clearer log — caller จะ re-post หรือ delete ก็แล้วแต่ใคร context
+      console.info(`[auto_post] voided ${count} JV(s) for ${sourceTable}#${sourceId}`);
     }
     return count;
   } catch(e) {
@@ -179,14 +189,13 @@ async function _postJournal(opts) {
   const docNo = `${docNoPrefix}${String(nextSeq).padStart(4, "0")}`;
 
   // POST entry — idempotent via partial unique index
+  // Phase 89.4: _authFetch → auto 401 retry
   let entryId = null;
   try {
-    const r = await fetch(`${cfg.url}/rest/v1/journal_entries`, {
+    const r = await _authFetch(`${cfg.url}/rest/v1/journal_entries`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "apikey": cfg.anonKey,
-        "Authorization": "Bearer " + token,
         "Prefer": "return=representation"
       },
       body: JSON.stringify({
@@ -234,12 +243,11 @@ async function _postJournal(opts) {
       credit: Number(l.credit || 0),
       description: l.description || ""
     }));
-    const r = await fetch(`${cfg.url}/rest/v1/journal_lines`, {
+    // Phase 89.4: _authFetch → auto 401 retry
+    const r = await _authFetch(`${cfg.url}/rest/v1/journal_lines`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "apikey": cfg.anonKey,
-        "Authorization": "Bearer " + token,
         "Prefer": "return=minimal"
       },
       body: JSON.stringify(lineData)
@@ -248,10 +256,10 @@ async function _postJournal(opts) {
   } catch(e) {
     console.error("[auto_post] lines insert failed (entry " + entryId + "), rolling back entry:", e.message);
     // Phase 89.2: rollback entry — กัน orphan JV ที่ trial balance พังเงียบ
+    // Phase 89.4: _authFetch → auto 401 retry
     try {
-      const delResp = await fetch(`${cfg.url}/rest/v1/journal_entries?id=eq.${entryId}`, {
-        method: "DELETE",
-        headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token }
+      const delResp = await _authFetch(`${cfg.url}/rest/v1/journal_entries?id=eq.${entryId}`, {
+        method: "DELETE"
       });
       if (delResp.ok) {
         console.info("[auto_post] rollback OK — entry " + entryId + " deleted");
