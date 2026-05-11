@@ -353,6 +353,12 @@ export function renderReceiptsPage(ctx) {
         if (res?.ok) {
           // Phase 89.1: void JV ของใบเสร็จที่ยกเลิก (กัน double-revenue + ลูกหนี้ติดลบ)
           await voidJvForSource("receipts", id).catch(e => console.warn("[rc bulk cancel] void JV", e));
+          // Phase 89.6: restore delivery_invoice status → "invoiced" (รอดำเนินการ) เพื่อให้ user ออกใบเสร็จใหม่ได้
+          const rec = (ctx.state.receipts || []).find(x => x.id === id);
+          if (rec?.delivery_invoice_id) {
+            await window._appXhrPatch?.("delivery_invoices", { status: "invoiced" }, "id", rec.delivery_invoice_id)
+              .catch(e => console.warn("[rc bulk cancel] restore invoice", e));
+          }
           ok++;
         } else fail++;
       } catch(e) { fail++; }
@@ -465,9 +471,14 @@ export function renderReceiptsPage(ctx) {
             .catch(e => console.warn("[rc] auto-post JV failed:", e?.message));
         }
         // Phase 89.1: void JV ของใบเสร็จที่ยกเลิก (กัน double-revenue ใน P&L + ลูกหนี้ติดลบ)
+        // Phase 89.6: restore delivery_invoice status → "invoiced" (เปิดใบเสร็จใหม่ได้)
         if (action === "cancelled") {
           voidJvForSource("receipts", rcId)
             .catch(e => console.warn("[rc] void JV failed:", e?.message));
+          if (r.delivery_invoice_id) {
+            window._appXhrPatch?.("delivery_invoices", { status: "invoiced" }, "id", r.delivery_invoice_id)
+              .catch(e => console.warn("[rc] restore invoice failed:", e?.message));
+          }
         }
         // Phase 45.11: non-blocking reload
     if (ctx.loadAllData) ctx.loadAllData().catch(e => console.warn("[rc] reload", e));
@@ -483,9 +494,14 @@ export function renderReceiptsPage(ctx) {
               .catch(e => console.warn("[rc] auto-post JV failed:", e?.message));
           }
           // Phase 89.1: void JV (fallback path)
+          // Phase 89.6: restore invoice status (fallback path)
           if (action === "cancelled") {
             voidJvForSource("receipts", rcId)
               .catch(e => console.warn("[rc] void JV failed:", e?.message));
+            if (r.delivery_invoice_id) {
+              window._appXhrPatch?.("delivery_invoices", { status: "invoiced" }, "id", r.delivery_invoice_id)
+                .catch(e => console.warn("[rc] restore invoice failed:", e?.message));
+            }
           }
           // Phase 45.11: non-blocking reload
     if (ctx.loadAllData) ctx.loadAllData().catch(e => console.warn("[rc] reload", e));
@@ -743,7 +759,12 @@ function renderReceiptPreview(container) {
       await window._appXhrPatch?.("receipts", { status: "cancelled" }, "id", r.id);
       // Phase 89.1: void JV ของใบเสร็จที่ยกเลิก (กัน double-revenue ใน P&L)
       await voidJvForSource("receipts", r.id).catch(err => console.warn("[rc preview cancel] void JV", err));
-      window.App?.showToast?.("ยกเลิกใบเสร็จเรียบร้อย");
+      // Phase 89.6: restore delivery_invoice status → "invoiced" (เปิดใบเสร็จใหม่ได้)
+      if (r.delivery_invoice_id) {
+        await window._appXhrPatch?.("delivery_invoices", { status: "invoiced" }, "id", r.delivery_invoice_id)
+          .catch(err => console.warn("[rc preview cancel] restore invoice", err));
+      }
+      window.App?.showToast?.("ยกเลิกใบเสร็จเรียบร้อย — ใบส่งสินค้ากลับเป็น 'รอดำเนินการ'");
       if (_ctx.loadAllData) await _ctx.loadAllData();
     } catch(err) {
       window.App?.showToast?.("❌ ยกเลิกไม่สำเร็จ", "error");

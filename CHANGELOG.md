@@ -7,6 +7,29 @@
 
 ---
 
+## 5.43.11 (build 215) — 2026-05-11 🔄 Phase 89.6 — Cancel receipt → restore invoice
+
+### ปัญหา (user รายงาน)
+- ยกเลิกใบเสร็จ RC20260511020 → ใบส่งสินค้า INV20260511780 ยังเป็น "เปิดใบเสร็จแล้ว"
+- ลูกค้าไม่สามารถออกใบเสร็จใหม่ได้ → flow ค้าง
+
+### Root cause
+Phase 89.1 ผมใส่ `voidJvForSource("receipts")` ตอน cancel แต่**ลืม restore `delivery_invoices.status="invoiced"`**
+Inconsistent กับ rcDeleteBtn (ลบ) ที่ restore อยู่แล้ว
+
+### Fix — เพิ่ม restore invoice status ที่ 3 จุด cancel
+- **Bulk cancel** ([receipts.js:357-363](modules/receipts.js:357))
+- **Dropdown cancel** (XHR path + Supabase fallback path)
+- **Preview cancel** ([receipts.js:768-771](modules/receipts.js:768))
+- Toast message: "ยกเลิกใบเสร็จเรียบร้อย — ใบส่งสินค้ากลับเป็น 'รอดำเนินการ'"
+
+### Test
+1. สร้าง invoice → ออกใบเสร็จ → ยกเลิกใบเสร็จ (ดร็อปดาวน์ หรือ preview)
+2. กลับไปที่ **ใบส่งสินค้า/ใบแจ้งหนี้** → invoice ต้องกลับเป็น "รอดำเนินการ"
+3. กดออกใบเสร็จใหม่ได้
+
+---
+
 ## 5.43.10 (build 214) — 2026-05-11 🔐 Phase 89.5 — CDN SRI (Subresource Integrity)
 
 ### ปัญหาเดิม

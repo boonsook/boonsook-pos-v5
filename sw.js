@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v199 (2026-05-11): Phase 89.5 — CDN SRI (Subresource Integrity) — supply-chain protection
-const CACHE_NAME = 'boonsook-pos-v5-cache-v199';
+// v200 (2026-05-11): Phase 89.6 — Cancel receipt → restore delivery_invoice.status="invoiced"
+const CACHE_NAME = 'boonsook-pos-v5-cache-v200';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
