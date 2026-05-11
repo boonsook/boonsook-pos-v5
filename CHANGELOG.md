@@ -7,6 +7,23 @@
 
 ---
 
+## 5.43.6 (build 210) — 2026-05-11 🚑 Phase 89.2c — CSP connect-src CDN
+
+### Root cause หลังจาก 209 ยังพัง:
+- Service Worker [sw.js:110](sw.js:110) intercept CDN script request แล้วทำ `fetch()` เพื่อ cache
+- Chrome enforces SW `fetch()` ต้องผ่าน document CSP `connect-src`
+- CSP `connect-src` ผมใส่แค่ `'self' supabase esm.sh cloudflareinsights` — ไม่มี CDN domains → fetch fail → script unavailable → `Chart is not defined`
+
+### Fix
+- `_headers` CSP `connect-src` เพิ่ม: `https://cdn.jsdelivr.net`, `https://unpkg.com`, `https://cdn.sheetjs.com`, `https://static.cloudflareinsights.com`
+
+### Test (รอ deploy 210 + hard reload)
+- Console ห้ามมี `Fetch API cannot load https://cdn.jsdelivr.net/...`
+- ห้ามมี `Chart is not defined`
+- dashboard chart โหลดได้
+
+---
+
 ## 5.43.5 (build 209) — 2026-05-11 🚑 Phase 89.2b — Hotfix CSP + Chart.js
 
 ### Critical hotfix หลัง deploy 208 พบ dashboard error

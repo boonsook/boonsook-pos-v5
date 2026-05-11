@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v194 (2026-05-11): Phase 89.2b — Hotfix CSP (cloudflareinsights + script-src-elem) + pin Chart.js UMD
-const CACHE_NAME = 'boonsook-pos-v5-cache-v194';
+// v195 (2026-05-11): Phase 89.2c — Hotfix CSP connect-src ให้ครอบ CDN ที่ SW fetch (Chrome enforces SW fetch via document CSP)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v195';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
