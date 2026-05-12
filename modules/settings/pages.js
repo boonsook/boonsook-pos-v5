@@ -22,8 +22,8 @@ export function renderSettingsAbout(el, ctx, goBack) {
           <div style="font-size:12px;color:#64748b">ระบบจัดการร้านค้าอิเล็กทรอนิกส์แบบครบวงจร</div>
         </div>
         <div style="display:grid;gap:6px;font-size:13px;color:#334155">
-          <div><strong>Version:</strong> 5.43.21</div>
-          <div><strong>Release:</strong> May 2026 (build 225)</div>
+          <div><strong>Version:</strong> 5.43.22</div>
+          <div><strong>Release:</strong> May 2026 (build 226)</div>
           <div><strong>Developer:</strong> Boonsook Electronics</div>
           <div><strong>Contact:</strong> gangboo@gmail.com</div>
         </div>
@@ -192,7 +192,7 @@ export function renderSettingsAbout(el, ctx, goBack) {
       const payload = {
         version: 1,
         exported_at: new Date().toISOString(),
-        app_build: (typeof APP_BUILD !== "undefined" ? APP_BUILD : null),
+        app_build: (typeof window.APP_BUILD === "number" ? window.APP_BUILD : null),
         store_info: state.storeInfo || {},
         line_notify_settings: state.lineNotifySettings || null,
         loyalty_settings: state.loyaltySettings || null,

@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v225 (2026-05-12): Phase 89.14 — Security batch (auth-gate Gemini/SlipOK + error_log redact + proxy + DB cap)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v225';
+// v226 (2026-05-12): Phase 89.15 — CSP drop script-src 'unsafe-inline' (externalize selfheal+boot)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v226';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

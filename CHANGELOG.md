@@ -7,6 +7,39 @@
 
 ---
 
+## 5.43.22 (build 226) — 2026-05-12 🔐 Phase 89.15 — CSP drop script-src `unsafe-inline` (M4) + bonus APP_BUILD global fix
+
+### ปัญหา (จาก audit)
+- **M4:** CSP `script-src 'unsafe-inline'` ยังอยู่ — ปิด unsafe-eval (89.10) + SRI (89.5) แล้ว แต่ inline script ยัง bypass injection protection ได้
+- **Bonus bug ผมเจอตอนแก้ M4:** `window.APP_BUILD` ไม่เคย set จริง! `var APP_BUILD` ใน inline IIFE scoped function เท่านั้น → main.js:1288 + pages.js:195 อ่าน `window.APP_BUILD` ได้ `undefined` ตลอด → error_log `build` field = null เสมอ + backup `app_build` = null
+
+### Fix
+- **Externalize inline scripts** (2 จุด):
+  - [selfheal.js](selfheal.js) (NEW) — cache recovery (Phase 35 logic) + set `window.APP_BUILD` global ทันที (อ่านจาก `data-app-build` ของ script tag)
+  - [boot.js](boot.js) (NEW) — loading overlay + SW register + update banner (เดิมคือ inline block หลัง main.js)
+- **[index.html](index.html)** — 2 inline `<script>...</script>` หายไป เหลือแค่ `src=` 4 ตัว (chart/jspdf/qr/xlsx CDN + selfheal/main/boot/ai-chat-widget local)
+- **[_headers](_headers)** — CSP: drop `'unsafe-inline'` จาก `script-src` + `script-src-elem` (`style-src` ยัง keep — refactor 121 inline styles แยก task)
+- **[modules/settings/pages.js](modules/settings/pages.js)** — แก้ bug: `typeof APP_BUILD !== "undefined" ? APP_BUILD : null` → `typeof window.APP_BUILD === "number" ? window.APP_BUILD : null` (consistent กับ main.js + ใช้ global ที่ selfheal.js set)
+
+### ผลกระทบ
+- ✅ XSS via inline `<script>` injection ปิดได้สมบูรณ์ (CSP enforce — browser block inline ไม่ว่าจะมี SQL injection หรือ DOM-based ก็ตาม)
+- ✅ Error tracking มี `build` ที่ถูก — track regression ได้ตามเวอร์ชั่นจริง
+- ✅ Backup config มี `app_build` ที่ถูก — รู้ว่า user ใช้ build ไหน import กลับ
+- ⚠️ ถ้า selfheal.js หรือ boot.js โหลดช้า/ขัดข้อง → SW update banner + cache recovery จะ defer 200-500ms (acceptable trade-off)
+
+### Test plan
+1. Ctrl+Shift+R → DevTools Console ไม่มี CSP error
+2. DevTools → Network → `selfheal.js?v=226` + `boot.js?v=226` ทั้งคู่ load 200 OK
+3. Console: `window.APP_BUILD` ต้องเป็น `226` (ไม่ใช่ undefined)
+4. Settings → "เกี่ยวกับระบบ" → build 226
+5. (regression) PWA install + offline mode → ยัง work เพราะ SW จัดการ
+6. (regression) ปุ่ม Service Worker update banner → ยังเด้งเมื่อมี build ใหม่
+
+### Style-src refactor (M4 part 2) — defer
+- `style-src 'unsafe-inline'` ยังอยู่ — refactor 121 inline `style="..."` ใน HTML strings + `.style.cssText` ทั้งหมด → จะทำใน batch แยก หลัง Phase 2-3-4 เสร็จ (มี test coverage แล้ว ปลอดภัยกว่าแก้)
+
+---
+
 ## 5.43.21 (build 225) — 2026-05-12 🔒 Phase 89.14 — Security batch (M6+L4+M7)
 
 ### ปัญหา (จาก audit Phase 89.13)
