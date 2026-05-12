@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v204 (2026-05-12): Phase 89.10 — Drop CSP 'unsafe-eval' (no eval/Function/setTimeout-string in codebase)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v204';
+// v205 (2026-05-12): Phase 89.11 — Extract CAS to module + unit tests (16 cases, all passing)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v205';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

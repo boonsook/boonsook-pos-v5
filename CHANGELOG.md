@@ -7,6 +7,52 @@
 
 ---
 
+## 5.43.16 (build 220) — 2026-05-12 🧪 Phase 89.11 — Extract CAS to module + first unit tests (16 cases)
+
+### ปัญหาเดิม (audit finding)
+- `_atomicDecrementStock` (CAS logic ที่กัน race condition stock) อยู่ใน main.js god-object → ทดสอบไม่ได้
+- ทั้ง repo **0 tests** → refactor ครั้งหน้าอาจพังเงียบ — CAS logic เป็น hot-path ทางการเงิน ถ้าพังคือขายเกินสต็อก
+
+### Refactor
+- **`modules/stock_cas.js`** (ใหม่) — pure function `atomicDecrementStock({fetcher, supabaseUrl, anonKey, accessToken, table, rowId, qty, field, maxRetries, logger})` รับ fetcher แบบ inject ได้ → unit test ไม่ต้องชน network
+- **[main.js:3110](main.js:3110)** — เปลี่ยน `_atomicDecrementStock` เป็น **thin wrapper** (12 บรรทัด) ที่ delegate ไป module ใหม่ พร้อม inject `window.SUPABASE_CONFIG` + `window._sbAccessToken`
+- **Behavior ไม่เปลี่ยน** — public API เดิม, _deductStockForSaleItem ใช้ได้เหมือนเดิม
+
+### Tests (16 cases — all passing)
+- Happy path: success on first attempt
+- CAS retry: first PATCH loses (0 rows) → retry succeeds
+- CAS contention: ทั้ง 3 attempts ล้มเหลว → return error
+- Row not found (refetch returns [])
+- Fetch HTTP error / PATCH HTTP error
+- Network throw on fetch / on PATCH (try/catch coverage)
+- Bad args (6 variants): null rowId, empty rowId, qty=0, negative qty, empty table, non-numeric qty
+- Bad args: missing supabaseUrl / missing anonKey
+- URL encoding: rowId มี special chars (spaces, quotes, &, =, /)
+- Custom field: products.stock เหมือนกัน warehouse_stock
+- accessToken fallback to anonKey when omitted
+- PATCH body shape `{[field]: after}`
+- PATCH WHERE clause มี `&{field}=eq.{before}` (essence ของ CAS)
+- logger.warn called บน retry, **ไม่ใช่** บน success
+
+### Infrastructure (ใหม่)
+- **`package.json`** — `type: "module"`, `npm test` → `node --test tests/*.test.js` (zero dependencies)
+- **`tests/stock_cas.test.js`** — 16 tests ใช้ Node built-in test runner (มาตั้งแต่ Node 20)
+- **`.github/workflows/test.yml`** — รัน tests on every push to `main`/`claude/**` + PR to `main`
+
+### Test plan (manual smoke)
+- POS checkout ปกติ → stock ลด → ทำงานเหมือนเดิม
+- `npm test` → 16/16 pass
+
+### Files
+- `modules/stock_cas.js` (new, 78 lines)
+- `tests/stock_cas.test.js` (new, 215 lines)
+- `package.json` (new)
+- `.github/workflows/test.yml` (new)
+- `main.js` (replace 50-line impl → 12-line wrapper + import)
+- `sw.js` `index.html` `modules/settings/pages.js` `CHANGELOG.md` (build 219→220, cache v204→v205)
+
+---
+
 ## 5.43.15 (build 219) — 2026-05-12 🔒 Phase 89.10 — Drop CSP `'unsafe-eval'` (security hardening)
 
 ### ปัญหาเดิม

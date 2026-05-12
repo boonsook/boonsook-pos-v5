@@ -74,6 +74,7 @@ import { renderAiSalesPage } from "./modules/ai_sales.js";
 import { renderAcShopPage } from "./modules/ac_shop.js";
 import "./modules/doc-override.js";
 import { isValidPhone, isValidEmail, getUserFriendlyError, validateFile } from "./modules/validators.js";
+import { atomicDecrementStock } from "./modules/stock_cas.js";
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -3109,61 +3110,18 @@ function removeFromCart(productId){
 // ═══════════════════════════════════════════════════════════
 
 // Phase 89.9 H10: Atomic decrement via Compare-And-Swap (PostgREST conditional UPDATE)
-// ปัญหาเดิม: อ่าน state.warehouseStock (JS cache) → คำนวณ before-qty → PATCH ตรง
-//   2 checkout พร้อมกันทั้งคู่อ่าน before=10 → ทั้งคู่ PATCH stock=9 (ที่จริงควร 8) → ขายเกิน
-// CAS strategy:
-//   1. Refetch จาก DB (ไม่ trust cache)
-//   2. PATCH ?id=eq.X&{field}=eq.{before} → atomic UPDATE WHERE บน DB
-//      ถ้า field เปลี่ยนระหว่าง fetch→patch → 0 rows affected → retry
+// Phase 89.11: extracted core logic to modules/stock_cas.js for unit testability;
+// main.js now provides a thin wrapper that injects browser globals.
 async function _atomicDecrementStock(table, rowId, qty, field = "stock", maxRetries = 3) {
   const cfg = window.SUPABASE_CONFIG;
-  if (!cfg || !rowId || !(qty > 0)) return { ok: false, error: "bad args" };
-  const token = window._sbAccessToken || cfg.anonKey;
-  const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token };
-
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    // 1. Refetch ค่าปัจจุบันจาก DB
-    let before;
-    try {
-      const r = await fetch(
-        cfg.url + "/rest/v1/" + table + "?id=eq." + encodeURIComponent(rowId) + "&select=" + field,
-        { headers }
-      );
-      if (!r.ok) return { ok: false, error: "fetch HTTP " + r.status };
-      const rows = await r.json();
-      if (!Array.isArray(rows) || rows.length === 0) {
-        return { ok: false, error: table + " row not found (id=" + rowId + ")" };
-      }
-      before = Number(rows[0][field] || 0);
-    } catch (e) {
-      return { ok: false, error: "fetch error: " + (e?.message || String(e)) };
-    }
-
-    const after = before - qty;
-
-    // 2. Atomic CAS PATCH — UPDATE WHERE id=X AND {field}=before
-    try {
-      const url = cfg.url + "/rest/v1/" + table +
-        "?id=eq." + encodeURIComponent(rowId) +
-        "&" + field + "=eq." + before;
-      const r = await fetch(url, {
-        method: "PATCH",
-        headers: { ...headers, "Content-Type": "application/json", "Prefer": "return=representation" },
-        body: JSON.stringify({ [field]: after })
-      });
-      if (!r.ok) return { ok: false, error: "PATCH HTTP " + r.status };
-      const data = await r.json().catch(() => []);
-      if (Array.isArray(data) && data.length > 0) {
-        return { ok: true, before, after, data: data[0] };
-      }
-      // 0 rows = CAS lost (concurrent writer updated value) → loop & retry
-      console.warn(`[atomicDecrement] CAS retry ${attempt + 1}/${maxRetries} ${table} id=${rowId} (before=${before} stale)`);
-    } catch (e) {
-      return { ok: false, error: "PATCH error: " + (e?.message || String(e)) };
-    }
-  }
-
-  return { ok: false, error: "CAS contention — failed after " + maxRetries + " retries" };
+  if (!cfg) return { ok: false, error: "missing SUPABASE_CONFIG" };
+  return atomicDecrementStock({
+    fetcher: fetch,
+    supabaseUrl: cfg.url,
+    anonKey: cfg.anonKey,
+    accessToken: window._sbAccessToken || cfg.anonKey,
+    table, rowId, qty, field, maxRetries,
+  });
 }
 
 async function _deductStockForSaleItem({ product, qty, orderNo }) {
