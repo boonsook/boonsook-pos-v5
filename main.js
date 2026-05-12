@@ -3107,6 +3107,65 @@ function removeFromCart(productId){
 //  STOCK HELPERS — ตัดสต็อก + ย้ายคลัง + log stock_movements
 //  ใช้ทั้งใน checkout() และ stock_movements module
 // ═══════════════════════════════════════════════════════════
+
+// Phase 89.9 H10: Atomic decrement via Compare-And-Swap (PostgREST conditional UPDATE)
+// ปัญหาเดิม: อ่าน state.warehouseStock (JS cache) → คำนวณ before-qty → PATCH ตรง
+//   2 checkout พร้อมกันทั้งคู่อ่าน before=10 → ทั้งคู่ PATCH stock=9 (ที่จริงควร 8) → ขายเกิน
+// CAS strategy:
+//   1. Refetch จาก DB (ไม่ trust cache)
+//   2. PATCH ?id=eq.X&{field}=eq.{before} → atomic UPDATE WHERE บน DB
+//      ถ้า field เปลี่ยนระหว่าง fetch→patch → 0 rows affected → retry
+async function _atomicDecrementStock(table, rowId, qty, field = "stock", maxRetries = 3) {
+  const cfg = window.SUPABASE_CONFIG;
+  if (!cfg || !rowId || !(qty > 0)) return { ok: false, error: "bad args" };
+  const token = window._sbAccessToken || cfg.anonKey;
+  const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token };
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    // 1. Refetch ค่าปัจจุบันจาก DB
+    let before;
+    try {
+      const r = await fetch(
+        cfg.url + "/rest/v1/" + table + "?id=eq." + encodeURIComponent(rowId) + "&select=" + field,
+        { headers }
+      );
+      if (!r.ok) return { ok: false, error: "fetch HTTP " + r.status };
+      const rows = await r.json();
+      if (!Array.isArray(rows) || rows.length === 0) {
+        return { ok: false, error: table + " row not found (id=" + rowId + ")" };
+      }
+      before = Number(rows[0][field] || 0);
+    } catch (e) {
+      return { ok: false, error: "fetch error: " + (e?.message || String(e)) };
+    }
+
+    const after = before - qty;
+
+    // 2. Atomic CAS PATCH — UPDATE WHERE id=X AND {field}=before
+    try {
+      const url = cfg.url + "/rest/v1/" + table +
+        "?id=eq." + encodeURIComponent(rowId) +
+        "&" + field + "=eq." + before;
+      const r = await fetch(url, {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json", "Prefer": "return=representation" },
+        body: JSON.stringify({ [field]: after })
+      });
+      if (!r.ok) return { ok: false, error: "PATCH HTTP " + r.status };
+      const data = await r.json().catch(() => []);
+      if (Array.isArray(data) && data.length > 0) {
+        return { ok: true, before, after, data: data[0] };
+      }
+      // 0 rows = CAS lost (concurrent writer updated value) → loop & retry
+      console.warn(`[atomicDecrement] CAS retry ${attempt + 1}/${maxRetries} ${table} id=${rowId} (before=${before} stale)`);
+    } catch (e) {
+      return { ok: false, error: "PATCH error: " + (e?.message || String(e)) };
+    }
+  }
+
+  return { ok: false, error: "CAS contention — failed after " + maxRetries + " retries" };
+}
+
 async function _deductStockForSaleItem({ product, qty, orderNo }) {
   if (!product || !qty || qty <= 0) return;
   // ข้าม service / non_stock
@@ -3116,6 +3175,7 @@ async function _deductStockForSaleItem({ product, qty, orderNo }) {
   const creatorUuid = state.currentUser?.id || null;
 
   // หาคลังที่มีสต็อกเหลือ > 0 — prefer "บ้าน" ก่อน ไม่งั้นเอาคลังที่มีสต็อกมากสุด
+  // (ใช้ cache แค่เพื่อเลือก warehouse — ค่า stock จริงจะ refetch ภายใน CAS)
   const stocks = (state.warehouseStock || []).filter(ws =>
     String(ws.product_id) === String(product.id) && Number(ws.stock || 0) > 0
   );
@@ -3130,14 +3190,19 @@ async function _deductStockForSaleItem({ product, qty, orderNo }) {
       return Number(b.stock || 0) - Number(a.stock || 0);
     });
     const ws = stocks[0];
-    const before = Number(ws.stock || 0);
-    const after = before - qty;
     const whName = state.warehouses.find(w => w.id === ws.warehouse_id)?.name || "?";
-    console.debug(`[deductStock] ${product.name}: ${whName} ${before} → ${after} (qty ${qty})`);
-    const patchRes = await xhrPatch("warehouse_stock", { stock: after }, "id", ws.id);
-    if (!patchRes.ok) {
-      console.error("[deductStock] warehouse_stock PATCH failed:", patchRes.error);
-      showToast("⚠️ ตัดสต็อกคลังไม่สำเร็จ: " + (patchRes.error?.message || "RLS policy?"));
+
+    // Phase 89.9 H10: atomic CAS decrement (กัน 2 checkout พร้อมกันตัดสต็อกซ้ำ)
+    const dec = await _atomicDecrementStock("warehouse_stock", ws.id, qty);
+    const before = dec.ok ? dec.before : Number(ws.stock || 0);
+    const after = dec.ok ? dec.after : (before - qty);
+
+    if (!dec.ok) {
+      console.error("[deductStock] warehouse_stock CAS failed:", dec.error);
+      showToast("⚠️ ตัดสต็อกคลังไม่สำเร็จ: " + dec.error);
+    } else {
+      ws.stock = after; // sync local cache เพื่อ render ถัดไป
+      console.debug(`[deductStock] ${product.name}: ${whName} ${before} → ${after} (qty ${qty}, atomic)`);
     }
 
     await xhrPost("stock_movements", {
@@ -3152,15 +3217,16 @@ async function _deductStockForSaleItem({ product, qty, orderNo }) {
   }
 
   // อัพเดท products.stock legacy field — สำคัญเพราะ UI ดู field นี้ตอนเลือก "ทั้งหมด"
-  const curStock = Number(product.stock || 0);
-  const newStock = curStock - qty;
-  try {
-    const r = await xhrPatch("products", { stock: newStock }, "id", product.id);
-    if (!r.ok) {
-      console.warn("[deductStock] products.stock PATCH failed:", r.error);
-      showToast("⚠️ อัพเดทสต็อกสินค้าไม่สำเร็จ: " + (r.error?.message || ""));
-    }
-  } catch(e){ console.warn("[deductStock] products update failed:", e); }
+  // Phase 89.9 H10: ใช้ CAS เช่นกัน (มี race condition แบบเดียวกับ warehouse_stock)
+  const dec2 = await _atomicDecrementStock("products", product.id, qty);
+  const curStock = dec2.ok ? dec2.before : Number(product.stock || 0);
+  const newStock = dec2.ok ? dec2.after : (curStock - qty);
+  if (!dec2.ok) {
+    console.warn("[deductStock] products.stock CAS failed:", dec2.error);
+    showToast("⚠️ อัพเดทสต็อกสินค้าไม่สำเร็จ: " + dec2.error);
+  } else {
+    product.stock = newStock; // sync local cache
+  }
 
   if (stocks.length === 0) {
     // ไม่มีคลังไหนมีสต็อก → log movement จาก legacy field เท่านั้น
