@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v222 (2026-05-12): Phase 89.13 — Critical regression fixes (cache bump, .catch dead-code, error_reporter race, refresh single-flight)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v222';
+// v223 (2026-05-12): Phase 89.13a — Fix forgotten main.js?v= bump (was stuck at 218 since Phase 89.9)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v223';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

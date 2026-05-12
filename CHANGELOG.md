@@ -7,6 +7,25 @@
 
 ---
 
+## 5.43.19 (build 223) — 2026-05-12 🔖 Phase 89.13a — Hotfix: `main.js?v=` cache-buster ค้างที่ 218
+
+### ปัญหา
+- หลัง deploy build 222 → user เปิด "ตรวจหาอัปเดต" เห็น **"build 218"** (แต่ footer/Settings เห็น 222)
+- Root cause: [index.html:866](index.html:866) `<script src="./main.js?v=218">` ลืม bump ตั้งแต่ Phase 89.9 (build 218 → 222 = ค้าง 4 builds)
+- "ตรวจหาอัปเดต" ใช้ `?v=` ใน script tag เป็น source-of-truth ของ update check — ไม่ใช่ APP_BUILD
+- ผลข้างเคียง: หน้าจอ user ที่ใช้ SW เก่า ยัง resolve `main.js?v=218` จาก cache → ไม่โหลด JS ใหม่จริง
+
+### Fix
+- [index.html:866](index.html:866) `?v=218` → `?v=223`
+- [index.html:817](index.html:817) APP_BUILD 222 → 223
+- [sw.js:3](sw.js:3) CACHE_NAME v222 → v223
+- [modules/settings/pages.js:25](modules/settings/pages.js:25) version 5.43.18/222 → 5.43.19/223
+
+### Lesson (เพิ่มใน memory)
+- bump build **4 จุด** ไม่ใช่ 3: APP_BUILD + sw.js cache + pages.js version + **`main.js?v=` ใน index.html**
+
+---
+
 ## 5.43.18 (build 222) — 2026-05-12 🚑 Phase 89.13 — Critical regression fix batch (5 bugs)
 
 ### ปัญหา (พบจาก audit)
