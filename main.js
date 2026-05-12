@@ -147,8 +147,10 @@ async function refreshAccessToken() {
       console.warn("[token-refresh] exception:", e?.message);
       return false;
     } finally {
-      // clear inflight ทันทีที่ resolve เพื่อให้ retry รอบใหม่ของ caller ใช้ token ใหม่
-      _refreshInflight = null;
+      // Phase 89.13: keep inflight non-null for 3s after resolve to absorb thundering herd.
+      // เดิม: clear ใน finally แบบ sync → concurrent 401 ที่เข้ามาหลัง finally tick
+      // จะเห็น null และ trigger refresh รอบใหม่ทั้งหมด → Supabase rate-limit/conflict
+      setTimeout(() => { _refreshInflight = null; }, 3000);
     }
   })();
   return _refreshInflight;

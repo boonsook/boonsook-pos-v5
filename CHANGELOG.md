@@ -7,6 +7,37 @@
 
 ---
 
+## 5.43.18 (build 222) — 2026-05-12 🚑 Phase 89.13 — Critical regression fix batch (5 bugs)
+
+### ปัญหา (พบจาก audit)
+1. **`sw.js` CACHE_NAME ค้างที่ `v206`** ทั้งๆ ที่ live ที่ build 221 → user offline/Ctrl+R เสิร์ฟไฟล์เก่าจาก SW cache → bug fix หลัง build 207 ไม่ถึง user หลายคน
+2. **Phase 89.6 cancel receipt → restore invoice ไม่ทำงานจริง** — `_appXhrPatch` return resolved promise (`{ok,error}`) เสมอ ไม่เคย reject → `.catch()` 3 จุดใน [receipts.js](modules/receipts.js) เป็น dead code → ถ้า RLS block PATCH `delivery_invoices` → receipt cancel ผ่าน แต่ invoice ค้าง `รับเงินแล้ว` เงียบๆ
+3. **`error_reporter` dedup race + per-session cap leak** — `sent.add(fp)` + `stats.sent++` วางหลัง `await beforeSend` → 2 errors เดียวกัน fire พร้อมกันผ่าน `sent.has()` ก่อนทั้งคู่ → burst หลายสิบ POST ก่อน cap fire
+4. **`beforeSend` throw → infinite loop** — payload=null + return ก่อน `sent.add()` → error เดิม trigger send() ซ้ำๆ
+5. **JWT single-flight refresh ใช้ไม่ได้** — `_refreshInflight = null` ใน `finally` sync ก่อน promise resolve → concurrent 401 trigger refreshSession() พร้อมกัน → Supabase rate-limit/token race
+
+### Fixes
+- [sw.js:3](sw.js:3) — CACHE_NAME `v206` → `v222`
+- [index.html:817](index.html:817) — APP_BUILD 221 → 222 (+ [modules/settings/pages.js:25](modules/settings/pages.js:25) version sync)
+- [modules/error_reporter.js](modules/error_reporter.js) — ย้าย `sent.add(fp)` + `stats.sent++` ขึ้นก่อน `await beforeSend` (fix race + throw loop) + refund slot ถ้า filtered + lazy `build` (รับ function ได้) + check `r.ok` หลัง POST (4xx/RLS ไม่ silent)
+- [modules/receipts.js](modules/receipts.js) — 3 จุด (bulk cancel + single cancel primary + single cancel fallback) เปลี่ยน `.catch()` → `await ... ; if (!ok) showToast + warn`
+- [main.js:124](main.js:124) — `setTimeout(()=>{_refreshInflight=null}, 3000)` แทน sync clear ใน finally (absorb thundering herd 3s)
+
+### ผลกระทบ user
+- **กด Ctrl+Shift+R ครั้งเดียวหลัง deploy** — SW cache เก่าถูกลบ (CACHE_NAME เปลี่ยน) → ทุก browser โหลด build 222
+- ใบเสร็จยกเลิก → ใบส่งสินค้ากลับสถานะ `รอดำเนินการ` ถูกต้องแล้ว (ของจริง — Phase 89.6 ที่อ้างว่า fix)
+- Error tracking ไม่ spam ตอนเจอ infinite loop bug + RLS reject ใน error_log ไม่หายเงียบ
+- JWT expire 1 ชม → refresh ครั้งเดียวต่อหน้าจอ (ก่อนหน้านี้อาจ 10+ ครั้ง)
+
+### Test plan
+- [ ] Ctrl+Shift+R → DevTools Application → Cache Storage เห็น `boonsook-pos-v5-cache-v222` เท่านั้น (v206 หาย)
+- [ ] เปิด POS → footer/Settings เห็น "build 222"
+- [ ] ออกใบเสร็จ → กดยกเลิก → เปิด tab "ใบส่งสินค้า" → status กลับเป็น "รอดำเนินการ"
+- [ ] ทิ้ง POS เปิด >1 ชม. → กด refresh data → ไม่เห็น "Session หมดอายุ" หลายครั้ง
+- [ ] (optional) Console: `errorReporter._stats()` → cap ทำงาน
+
+---
+
 ## 5.43.17 (build 221) — 2026-05-12 📡 Phase 89.12 — Error tracking via Supabase `error_log` (homegrown, replaces Sentry)
 
 ### ปัญหาเดิม (audit finding)

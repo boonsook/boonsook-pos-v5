@@ -1,12 +1,58 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 11 พฤษภาคม 2026 (Phase 89.5 — CDN SRI)
-**Version:** 5.43.10 (build 214) — Phase 89.5 (CDN Subresource Integrity)
-**Previous:** 5.43.9 (build 213) — Phase 89.4 (Hot-path 401 + double-click + round2)
+**อัปเดตล่าสุด:** 12 พฤษภาคม 2026 (Phase 89.13 — Critical regression fix batch)
+**Version:** 5.43.18 (build 222) — Phase 89.13 (5 critical/high regression fixes)
+**Previous:** 5.43.17 (build 221) — Phase 89.12 (Error tracking via Supabase error_log)
 
 ---
 
-## 📚 Phase 89 series summary (11 พ.ค. 2026 — 1 วัน)
+## 🚑 Phase 89.13 — Critical regression fix batch (build 222) — 12 พ.ค.
+
+### Context
+หลัง full audit (3-agent parallel review) เจอ **2 Critical + 3 High + 5 Med/Low** บัค โดยเฉพาะ 2 regression เก่า + 1 race condition ของ Phase 89.12 ที่เพิ่งคลอด → batch fix ทันที
+
+### Findings & fixes
+
+| ID | Severity | จุด | Root cause | Fix |
+|----|----------|-----|------------|-----|
+| C1 | Critical | [receipts.js](modules/receipts.js) 3 จุด | `_appXhrPatch.catch(...)` dead code — xhrPatch return resolved `{ok,error}` ไม่เคย reject → restore invoice fail เงียบ (Phase 89.6 regression) | `await` + check `res.ok` + showToast warn |
+| C2 | Critical | [sw.js:3](sw.js:3) | CACHE_NAME ค้างที่ `v206` (จริง 222 = ห่าง 15 builds) → user offline เสิร์ฟ build เก่า | bump เป็น `v222` |
+| C3 | Critical | [error_reporter.js:62-98](modules/error_reporter.js:62) | `sent.add(fp)` + `stats.sent++` อยู่หลัง `await beforeSend` → 2 errors เดียวกัน fire พร้อมกัน burst POST | ย้าย `sent.add` + `sent++` ขึ้น ก่อน beforeSend |
+| H1 | High | [main.js:124-155](main.js:124) | `_refreshInflight = null` sync ใน finally → concurrent 401 trigger refresh พร้อมกัน → Supabase rate-limit | `setTimeout(...,3000)` clear (absorb herd) |
+| H3 | High | [error_reporter.js:84-95](modules/error_reporter.js:84) | beforeSend throw → `payload=null` + return ก่อน `sent.add()` → error เดิม trigger send() ซ้ำๆ ไม่หยุด | sent.add ขึ้นก่อน beforeSend (C3 fix ครอบด้วย) |
+| L1 | Low | [error_reporter.js POST](modules/error_reporter.js:102) | fetch 4xx ไม่ throw → RLS/PGRST204 ไม่ log | เช็ค `r.ok` + warn |
+| L2 (related) | — | error_reporter `build` | snapshot ตอน init → null forever ถ้า APP_BUILD set ทีหลัง | รับ `build` เป็น function ได้ (lazy) |
+
+### Files touched (5)
+1. `sw.js` — CACHE_NAME v206 → v222 + comment
+2. `index.html` — APP_BUILD 221 → 222
+3. `modules/settings/pages.js` — version 5.43.17/build 221 → 5.43.18/build 222
+4. `modules/error_reporter.js` — race fix + lazy build + refund slot + r.ok check
+5. `modules/receipts.js` — 3 จุด restore invoice (bulk cancel + single primary + single fallback)
+6. `main.js` — refresh inflight setTimeout 3s
+
+### Verify after deploy
+1. **Ctrl+Shift+R** ครั้งเดียวบนทุกเครื่อง → DevTools → Application → Cache Storage เหลือแค่ `boonsook-pos-v5-cache-v222` (v206 หาย)
+2. **Footer/Settings** เห็น "build 222"
+3. **Smoke test C1:** ออกใบเสร็จจากใบส่งสินค้า → ยกเลิกใบเสร็จ → เปิด tab ใบส่งสินค้า → status = "รอดำเนินการ" ✅ (ก่อน fix จะค้างเป็น "รับเงินแล้ว")
+4. **Smoke test H1:** ทิ้ง POS เปิด >1 ชม. → กด refresh dashboard → ไม่มี toast "Session หมดอายุ" หลายครั้ง (refresh ครั้งเดียวพอ)
+
+### Known bugs ยังไม่แก้รอบนี้ (สำหรับ batch ถัดไป)
+- **M1** `voidJvForSource` silent fail (RLS DELETE = 0 rows) → double-revenue risk
+- **M3** `cash_recon.js:51` filter expense ใช้ `.slice(0,10)` raw → TZ bug รอบเก่ายังครอบไม่หมด
+- **M4** CSP `script-src 'unsafe-inline'` ยังอยู่
+- **M5** `products.js:100` inline `onerror` pattern เปราะ (escape gated by .charAt(0))
+- **M6** `/api/parse-receipt` + `/api/verify-slip` เปิด anon → cost-abuse risk
+- **M7** error_log RLS anon INSERT spam risk (ผ่าน publishable key)
+- **L4** error_log payload เก็บ full URL → share token PII leak risk
+- **L2** stock_cas.js null → 0 → infinite CAS retry
+- **M2** products.stock CAS divergence เมื่อ warehouse_stock fail
+
+→ Critical/High clear, Med/Low ค้าง 9 รายการ — แนะนำเรียงตาม priority: M6 → M1 → M2 → M5 → M3
+
+---
+
+## 📚 Phase 89 series summary (11-12 พ.ค. 2026 — 2 วัน)
 
 | Phase | Build | สิ่งที่แก้ | Verified |
 |-------|-------|----------|----------|
@@ -16,8 +62,15 @@
 | 89.2c | 210 | CSP connect-src for SW CDN fetch | ✅ user (dashboard render OK) |
 | 89.2d | 211 | Auto-refresh JWT on 401 (single-flight + _appAuthFetch) | ✅ user |
 | 89.3 | 212 | Delete POS sale ครบวงจร (void JV + revert stock) | ✅ user (฿214 → 4100 ลด ฿200) |
-| 89.3a/89.4 | 213 | Hot-path 401 coverage + 4 dbl-click guards + round2 export + log polish | ⏳ pending |
-| 89.5 | 214 | CDN SRI (5 scripts, SHA-384) — supply-chain protection | ⏳ pending (auto-verified) |
+| 89.3a/89.4 | 213 | Hot-path 401 coverage + 4 dbl-click guards + round2 export + log polish | ✅ |
+| 89.5 | 214 | CDN SRI (5 scripts, SHA-384) — supply-chain protection | ✅ |
+| 89.6 | 215 | Cancel receipt → restore invoice status (BUT regression — see 89.13) | ⚠️ regression |
+| 89.7 | 216 | Filter chip UX clarity | ✅ |
+| 89.9 | 218 | Stabilization batch 2 (H10 stock race + H11 cash_recon TZ) | ✅ partial (M3 ยังครอบไม่หมด) |
+| 89.10 | 219 | Drop CSP 'unsafe-eval' | ✅ |
+| 89.11 | 220 | Extract CAS module + first unit tests | ✅ |
+| 89.12 | 221 | Error tracking via Supabase error_log | ⚠️ race fixed in 89.13 |
+| **89.13** | **222** | **Critical regression batch — sw cache + .catch dead + reporter race + refresh single-flight** | **⏳ pending** |
 
 **8 builds + 1 day** — ครอบ Critical + High + defensive papercuts จาก audit เดิม
 

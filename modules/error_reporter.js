@@ -68,6 +68,18 @@ export function installErrorReporter({
       return;
     }
 
+    // Phase 89.13: mark fingerprint + count BEFORE beforeSend/await to close the race window.
+    // Without this, a tight error loop (e.g. infinite render bug) can pass both guards in
+    // parallel before either branch reaches the add/increment, bursting dozens of POSTs.
+    // A throwing beforeSend is also handled — fp stays marked so we don't re-enter forever.
+    sent.add(fp);
+    stats.sent++;
+
+    // Phase 89.13: read build lazily so it isn't snapshot as null when reporter installs
+    // before APP_BUILD is set on window.
+    const buildVal = (typeof build === "function") ? build() :
+                     (Number.isFinite(build) ? build : null);
+
     let payload = {
       severity: rawEvent.severity || "error",
       message: String(rawEvent.message || "unknown").slice(0, 2000),
@@ -76,7 +88,7 @@ export function installErrorReporter({
       url: win.location?.href?.slice(0, 1000) || null,
       user_id: (typeof getUserId === "function" ? getUserId() : null) || null,
       user_agent: win.navigator?.userAgent?.slice(0, 500) || null,
-      build: Number.isFinite(build) ? build : null,
+      build: Number.isFinite(buildVal) ? buildVal : null,
       fingerprint: fp,
       extra: rawEvent.extra || null,
     };
@@ -90,16 +102,14 @@ export function installErrorReporter({
       }
       if (!payload) {
         stats.dropped++;
+        stats.sent--; // refund the slot — filtered events shouldn't eat the cap
         return;
       }
     }
 
-    sent.add(fp);
-    stats.sent++;
-
     const token = (typeof getAccessToken === "function" ? getAccessToken() : null) || anonKey;
     try {
-      await fetchFn(supabaseUrl + "/rest/v1/error_log", {
+      const r = await fetchFn(supabaseUrl + "/rest/v1/error_log", {
         method: "POST",
         headers: {
           "apikey": anonKey,
@@ -109,6 +119,8 @@ export function installErrorReporter({
         },
         body: JSON.stringify(payload),
       });
+      // Phase 89.13: fetch resolves on 4xx/5xx — surface RLS/PGRST204 so silent loss is visible
+      if (r && !r.ok) logger?.warn?.("[errorReporter] POST non-2xx:", r.status);
     } catch (e) {
       logger?.warn?.("[errorReporter] POST failed:", e?.message || e);
     }
