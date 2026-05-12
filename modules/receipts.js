@@ -355,11 +355,11 @@ export function renderReceiptsPage(ctx) {
           // Phase 89.1: void JV ของใบเสร็จที่ยกเลิก (กัน double-revenue + ลูกหนี้ติดลบ)
           // Phase 89.13: voidJvForSource ไม่ throw — return count; .catch ตัวเดิมเป็น dead code
           await voidJvForSource("receipts", id);
-          // Phase 89.6: restore delivery_invoice status → "invoiced" (รอดำเนินการ) เพื่อให้ user ออกใบเสร็จใหม่ได้
+          // Phase 89.6: restore delivery_invoice status → "pending" (รอดำเนินการ) เพื่อให้ user ออกใบเสร็จใหม่ได้
           // Phase 89.13: xhrPatch returns resolved {ok,error} เสมอ — เดิม .catch ไม่ fire → silent fail
           const rec = (ctx.state.receipts || []).find(x => x.id === id);
           if (rec?.delivery_invoice_id) {
-            const invRes = await window._appXhrPatch?.("delivery_invoices", { status: "invoiced" }, "id", rec.delivery_invoice_id);
+            const invRes = await window._appXhrPatch?.("delivery_invoices", { status: "pending" }, "id", rec.delivery_invoice_id);
             if (invRes && !invRes.ok) {
               console.warn("[rc bulk cancel] restore invoice failed:", invRes.error?.message);
               fail++; continue;
@@ -407,7 +407,7 @@ export function renderReceiptsPage(ctx) {
         const invId = r?.delivery_invoice_id;
         if (invId) {
           await authFetch(cfg.url + "/rest/v1/delivery_invoices?id=eq." + invId,
-            { method: "PATCH", headers, body: JSON.stringify({ status: "invoiced" }) });
+            { method: "PATCH", headers, body: JSON.stringify({ status: "pending" }) });
         }
         ok++;
       } catch(e) { console.error("[receipts bulk delete]", e); fail++; }
@@ -477,12 +477,12 @@ export function renderReceiptsPage(ctx) {
             .catch(e => console.warn("[rc] auto-post JV failed:", e?.message));
         }
         // Phase 89.1: void JV ของใบเสร็จที่ยกเลิก (กัน double-revenue ใน P&L + ลูกหนี้ติดลบ)
-        // Phase 89.6: restore delivery_invoice status → "invoiced" (เปิดใบเสร็จใหม่ได้)
+        // Phase 89.6: restore delivery_invoice status → "pending" (เปิดใบเสร็จใหม่ได้)
         // Phase 89.13: voidJv ไม่ throw, xhrPatch return resolved — เดิม .catch ทั้งคู่เป็น dead code
         if (action === "cancelled") {
           await voidJvForSource("receipts", rcId);
           if (r.delivery_invoice_id) {
-            const invRes = await window._appXhrPatch?.("delivery_invoices", { status: "invoiced" }, "id", r.delivery_invoice_id);
+            const invRes = await window._appXhrPatch?.("delivery_invoices", { status: "pending" }, "id", r.delivery_invoice_id);
             if (invRes && !invRes.ok) {
               window.App?.showToast?.("⚠️ ยกเลิกใบเสร็จแล้ว แต่คืนสถานะใบส่งของไม่สำเร็จ: " + (invRes.error?.message || ""));
               console.warn("[rc] restore invoice failed:", invRes.error?.message);
@@ -508,7 +508,7 @@ export function renderReceiptsPage(ctx) {
           if (action === "cancelled") {
             await voidJvForSource("receipts", rcId);
             if (r.delivery_invoice_id) {
-              const invRes = await window._appXhrPatch?.("delivery_invoices", { status: "invoiced" }, "id", r.delivery_invoice_id);
+              const invRes = await window._appXhrPatch?.("delivery_invoices", { status: "pending" }, "id", r.delivery_invoice_id);
               if (invRes && !invRes.ok) {
                 window.App?.showToast?.("⚠️ ยกเลิกใบเสร็จแล้ว แต่คืนสถานะใบส่งของไม่สำเร็จ: " + (invRes.error?.message || ""));
                 console.warn("[rc fallback] restore invoice failed:", invRes.error?.message);
@@ -771,9 +771,9 @@ function renderReceiptPreview(container) {
       await window._appXhrPatch?.("receipts", { status: "cancelled" }, "id", r.id);
       // Phase 89.1: void JV ของใบเสร็จที่ยกเลิก (กัน double-revenue ใน P&L)
       await voidJvForSource("receipts", r.id).catch(err => console.warn("[rc preview cancel] void JV", err));
-      // Phase 89.6: restore delivery_invoice status → "invoiced" (เปิดใบเสร็จใหม่ได้)
+      // Phase 89.6: restore delivery_invoice status → "pending" (เปิดใบเสร็จใหม่ได้)
       if (r.delivery_invoice_id) {
-        await window._appXhrPatch?.("delivery_invoices", { status: "invoiced" }, "id", r.delivery_invoice_id)
+        await window._appXhrPatch?.("delivery_invoices", { status: "pending" }, "id", r.delivery_invoice_id)
           .catch(err => console.warn("[rc preview cancel] restore invoice", err));
       }
       window.App?.showToast?.("ยกเลิกใบเสร็จเรียบร้อย — ใบส่งสินค้ากลับเป็น 'รอดำเนินการ'");
@@ -808,7 +808,7 @@ function renderReceiptPreview(container) {
       const invId = r.delivery_invoice_id || null;
       if (invId) {
         await authFetch(cfg.url + "/rest/v1/delivery_invoices?id=eq." + invId,
-          { method: "PATCH", headers, body: JSON.stringify({ status: "invoiced" }) });
+          { method: "PATCH", headers, body: JSON.stringify({ status: "pending" }) });
       }
       // Phase 57: audit log (silent)
       logActivity("delete_receipt", {

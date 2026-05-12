@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v223 (2026-05-12): Phase 89.13a — Fix forgotten main.js?v= bump (was stuck at 218 since Phase 89.9)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v223';
+// v224 (2026-05-12): Phase 89.13b — Fix delivery_invoices status "invoiced" -> "pending" (Phase 89.6 typo since build 215)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v224';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

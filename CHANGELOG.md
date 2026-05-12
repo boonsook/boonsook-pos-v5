@@ -7,6 +7,35 @@
 
 ---
 
+## 5.43.20 (build 224) — 2026-05-12 🩹 Phase 89.13b — Hotfix: status="invoiced" ผิด enum (Phase 89.6 typo มาตั้งแต่ build 215)
+
+### ปัญหา (user เจอตอน smoke test build 223)
+- หลังกดยกเลิกใบเสร็จ → ใบส่งสินค้าใน UI แสดง status raw **"invoiced"** (ไม่ใช่ "รอดำเนินการ" ตามที่ Phase 89.6 ตั้งใจ)
+- Root cause: `delivery_invoices.status` enum = `pending|delivered|receipted|cancelled|partial` ([modules/delivery_invoices.js:30-36](modules/delivery_invoices.js:30))
+- **"invoiced" เป็นค่าของ `quotations.status` ไม่ใช่ `delivery_invoices.status`** — Phase 89.6 copy-paste ผิด table
+- ผม (Phase 89.13) audit เจอ `.catch()` dead code แต่ไม่ verify enum value — propagate bug ต่อ
+- รวม 9 จุดผิดใน receipts.js (6 code + 3 comments)
+
+### Fix
+- [modules/receipts.js](modules/receipts.js) — replace `"invoiced"` → `"pending"` ทั้ง 9 จุด (cancel/delete x 3 paths: bulk + single primary + single fallback + preview)
+- **Migration SQL ที่ต้องรัน:** [supabase-phase89-13b-fix-invoiced-status.sql](supabase-phase89-13b-fix-invoiced-status.sql)
+  ```sql
+  UPDATE delivery_invoices SET status = 'pending' WHERE status = 'invoiced';
+  ```
+  → repair row เก่าที่ค้าง status="invoiced" จาก Phase 89.6/89.13 ทำให้ UI แสดง raw
+
+### Action required by user
+**ลำดับสำคัญ:**
+1. รัน SQL migration ก่อน (Supabase Studio → SQL Editor → paste file content → run)
+2. รอ deploy ของ commit นี้เสร็จ (~1-2 min)
+3. Ctrl+Shift+R + verify build 224
+
+### Lesson (เพิ่มใน memory แล้ว)
+- ก่อน PATCH field enum → grep enum source-of-truth (`STATUS_LABELS` หรือ schema) เพื่อ verify ค่าตรงกัน
+- ไม่ trust comment เก่า (`"invoiced" (รอดำเนินการ)`) — comment โกหก code ก็ผิด → ตาม source-of-truth ของ code/schema เสมอ
+
+---
+
 ## 5.43.19 (build 223) — 2026-05-12 🔖 Phase 89.13a — Hotfix: `main.js?v=` cache-buster ค้างที่ 218
 
 ### ปัญหา
