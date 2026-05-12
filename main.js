@@ -75,6 +75,7 @@ import { renderAcShopPage } from "./modules/ac_shop.js";
 import "./modules/doc-override.js";
 import { isValidPhone, isValidEmail, getUserFriendlyError, validateFile } from "./modules/validators.js";
 import { atomicDecrementStock } from "./modules/stock_cas.js";
+import { installErrorReporter } from "./modules/error_reporter.js";
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -1273,6 +1274,24 @@ async function initSupabase(){
     return false;
   }
   state.supabase = createClient(window.SUPABASE_CONFIG.url, window.SUPABASE_CONFIG.anonKey);
+
+  // Phase 89.12: install error reporter once Supabase config is verified
+  if (!window._errorReporter) {
+    window._errorReporter = installErrorReporter({
+      fetcher: fetch,
+      supabaseUrl: window.SUPABASE_CONFIG.url,
+      anonKey: window.SUPABASE_CONFIG.anonKey,
+      getAccessToken: () => window._sbAccessToken || window.SUPABASE_CONFIG.anonKey,
+      getUserId: () => state?.currentUser?.id || null,
+      build: typeof window.APP_BUILD === "number" ? window.APP_BUILD : null,
+      beforeSend: (event) => {
+        if (/ResizeObserver loop/i.test(event.message)) return null;
+        if (/^Script error\.?$/i.test(event.message)) return null;
+        if (/Non-Error promise rejection captured/i.test(event.message)) return null;
+        return event;
+      },
+    });
+  }
 
   // ★ Detect recovery link (จาก invite email) — ต้องเช็คก่อน getSession
   const isRecovery = /[#&]type=recovery/.test(window.location.hash || "");

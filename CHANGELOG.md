@@ -7,6 +7,65 @@
 
 ---
 
+## 5.43.17 (build 221) — 2026-05-12 📡 Phase 89.12 — Error tracking via Supabase `error_log` (homegrown, replaces Sentry)
+
+### ปัญหาเดิม (audit finding)
+- ไม่มี error tracking → user เจอ bug แล้วเรารู้ได้แค่ตอนเขาบ่น
+- Sentry signup + DSN management = friction; app ไม่มี source-map (no build step) ทำให้ Sentry value หลักหาย → คุ้มน้อย
+- มี Supabase อยู่แล้ว → เพิ่ม table ฟรี ไม่ต้อง vendor ใหม่
+
+### Migration (`supabase-phase89-12-error-log.sql`)
+- Table `error_log` — id / ts / severity (error|warning|info) / message / stack / source / url / user_id / user_agent / build / fingerprint / extra(jsonb)
+- 4 indexes: ts DESC, severity, fingerprint, build
+- RLS: anon+authenticated `INSERT` (errors เกิดก่อน login ได้), authenticated `SELECT` (UI admin filter เพิ่มในชั้น app)
+- View `error_log_grouped` — aggregate by fingerprint (occurrences, first_seen, last_seen, affected_users)
+
+### Module — `modules/error_reporter.js`
+- `installErrorReporter({fetcher, supabaseUrl, anonKey, getAccessToken, getUserId, build, beforeSend, maxPerSession, logger, windowRef})`
+- Hooks `window.error` + `window.unhandledrejection`
+- **Dedup** ฝั่ง client (Set ต่อ session) — error ซ้ำ fingerprint เดียวกัน ส่งแค่ครั้งเดียว
+- **Spam guard** — cap `maxPerSession` (default 50) → infinite-loop ไม่ flood DB
+- **`beforeSend` hook** — filter ResizeObserver loop, Script error, Non-Error rejection noise + redact-friendly
+- **Fire-and-forget POST** — fetch fail ไม่ throw, แค่ console.warn → reporter เองพังไม่ทำ POS ค้าง
+- Truncate message≤2000, stack≤8000, source≤500, url≤1000, UA≤500 (defensive)
+- API: `captureMessage()`, `captureException()`, `teardown()` (สำหรับ tests)
+
+### Wired in `main.js:initSupabase`
+- Install ทันทีหลัง SUPABASE_CONFIG verified — capture init errors ทัน
+- inject `state.currentUser?.id` ผ่าน `getUserId` callback → token rotation ไม่ stale
+- Filter known noise: ResizeObserver loop, Script error (CORS), Non-Error rejection
+
+### Tests (17 cases — all passing; total suite now 33/33)
+- Listener install/teardown
+- Capture error event with stack/source
+- Capture promise rejection (Error reason + plain-string reason)
+- Dedup identical errors (same fingerprint → 1 send + 2 dedupped)
+- Different errors NOT dedupped together
+- maxPerSession cap (10 fired → 2 sent + 8 dropped)
+- beforeSend null → drop
+- beforeSend mutate → custom message sent
+- beforeSend throw → drop + no crash
+- POST shape (method, headers, Authorization, body fields)
+- captureMessage / captureException manual API
+- Network throw on POST → caught + warn
+- Disabled config (missing url or anonKey) → no-op reporter, never fetches
+- Truncation (5000-char message → 2000, 20000-char stack → 8000)
+- accessToken fallback to anonKey when getAccessToken returns null
+- Fingerprint stability across calls
+
+### Test plan (manual smoke)
+- หลัง deploy + `supabase-phase89-12-error-log.sql` รันแล้ว — เปิด console ใน POS → `throw new Error("test phase 89.12")` → ดูใน Supabase `select * from error_log_grouped order by last_seen desc limit 5;`
+- POS ปกติทำงานต่อ — ไม่มี request ค้างหรือ slowdown
+
+### Files
+- `supabase-phase89-12-error-log.sql` (new — DDL + RLS + view, run แบบ manual ใน Supabase SQL editor)
+- `modules/error_reporter.js` (new)
+- `tests/error_reporter.test.js` (new, 17 cases)
+- `main.js` (+ import + bootstrap call ใน initSupabase)
+- `sw.js` `index.html` `modules/settings/pages.js` `package.json` `CHANGELOG.md` (build 220→221, cache v205→v206, version 5.43.16→5.43.17)
+
+---
+
 ## 5.43.16 (build 220) — 2026-05-12 🧪 Phase 89.11 — Extract CAS to module + first unit tests (16 cases)
 
 ### ปัญหาเดิม (audit finding)
