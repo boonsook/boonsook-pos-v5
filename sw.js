@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v205 (2026-05-12): Phase 89.11 — Extract CAS to module + unit tests (16 cases, all passing)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v205';
+// v206 (2026-05-12): Phase 89.12 — Error tracking via Supabase error_log (homegrown, replaces Sentry)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v206';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
