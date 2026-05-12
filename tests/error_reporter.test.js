@@ -82,7 +82,8 @@ test("captures synchronous error events with stack + source", async () => {
   assert.equal(body.user_agent, "TestAgent/1.0");
   assert.ok(body.fingerprint);
   assert.equal(fetcher.calls[0].init.method, "POST");
-  assert.match(fetcher.calls[0].url, /\/rest\/v1\/error_log$/);
+  // Phase 89.14: POST ผ่าน CF proxy /api/log-error (anti-spam) แทน Supabase REST direct
+  assert.match(fetcher.calls[0].url, /\/api\/log-error$/);
 });
 
 test("captures unhandled promise rejections with reason.message + stack", async () => {
@@ -226,10 +227,9 @@ test("POST request shape — headers + body fields", async () => {
 
   const call = fetcher.calls[0];
   assert.equal(call.init.method, "POST");
-  assert.equal(call.init.headers["apikey"], "anon-key");
+  // Phase 89.14: proxy ตัดสินใจ apikey + Prefer เอง — client ส่งแค่ Authorization (ถ้ามี) + Content-Type
   assert.equal(call.init.headers["Authorization"], "Bearer user-token");
   assert.equal(call.init.headers["Content-Type"], "application/json");
-  assert.equal(call.init.headers["Prefer"], "return=minimal");
   assert.equal(call.body.user_id, "user-uuid-xyz");
   assert.equal(call.body.stack, "trace");
 });
@@ -298,7 +298,8 @@ test("message / stack are truncated to safe lengths", async () => {
   assert.equal(fetcher.calls[0].body.stack.length, 8000);
 });
 
-test("accessToken fallback to anonKey when getAccessToken returns null", async () => {
+test("when getAccessToken returns null, no Authorization header sent (proxy will use anon key)", async () => {
+  // Phase 89.14: proxy ตัดสินใจ auth เอง — client ส่ง Authorization เฉพาะตอนมี user JWT
   const win = makeWin();
   const fetcher = makeFetcher();
   installErrorReporter({
@@ -307,7 +308,7 @@ test("accessToken fallback to anonKey when getAccessToken returns null", async (
   });
   win.dispatch("error", { message: "x", filename: "a.js", lineno: 1, colno: 1 });
   await Promise.resolve(); await Promise.resolve();
-  assert.equal(fetcher.calls[0].init.headers["Authorization"], "Bearer anon-only");
+  assert.equal(fetcher.calls[0].init.headers["Authorization"], undefined);
 });
 
 test("fingerprint is stable across calls for identical input", () => {

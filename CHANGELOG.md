@@ -7,6 +7,34 @@
 
 ---
 
+## 5.43.21 (build 225) — 2026-05-12 🔒 Phase 89.14 — Security batch (M6+L4+M7)
+
+### ปัญหา (จาก audit Phase 89.13)
+- **M6**: `/api/parse-receipt` (Gemini OCR) + `/api/verify-slip` (SlipOK) **เปิด anon** ใครก็เรียกได้ → cost-abuse ผ่าน Gemini quota / SlipOK API
+- **L4**: `error_log.url` เก็บ `window.location.href` ดิบ → `?token=`/`?code=` จาก share.html, reset-password, OTP fallback ลงทุก crash
+- **M7**: `error_log` RLS anon `INSERT WITH CHECK (true)` → 50/session cap = client-side เท่านั้น → attacker spam ตรงผ่าน publishable key
+
+### Fix
+- **M6** — [functions/_middleware.js](functions/_middleware.js):
+  - `REQUIRE_AUTH_ENDPOINTS` += `/api/parse-receipt`, `/api/verify-slip`
+  - `RATE_LIMITS` += parse-receipt 10/min, verify-slip 20/min (กัน abuse แม้ login แล้ว)
+- **L4** — [modules/error_reporter.js](modules/error_reporter.js):
+  - `_redactUrl()` ตัด query string + hash ก่อน log (เก็บแค่ origin + pathname)
+- **M7** — [modules/error_reporter.js](modules/error_reporter.js) + [functions/api/log-error.js](functions/api/log-error.js) (NEW):
+  - POST ผ่าน `/api/log-error` proxy แทน Supabase REST direct
+  - Proxy: rate limit 60/min/IP + validate shape + forward to Supabase
+  - SQL migration ([supabase-phase89-14-error-log-rate-limit.sql](supabase-phase89-14-error-log-rate-limit.sql)) — DB trigger: global 500/min cap + per-fingerprint 100/hr cap (last line of defense ถ้า attacker bypass proxy)
+- Tests updated: 33/33 pass — adjusted URL pattern + headers ตาม proxy interface
+
+### Action required
+**รัน SQL migration:** `supabase-phase89-14-error-log-rate-limit.sql` (PG trigger เพิ่ม)
+
+### ผลกระทบ
+- ❌ ปิด: anon ใช้ Gemini/SlipOK direct + direct spam error_log
+- ✅ เปิด: staff login ใช้งานปกติ (transparent — error_reporter handle JWT pass-through)
+
+---
+
 ## 5.43.20 (build 224) — 2026-05-12 🩹 Phase 89.13b — Hotfix: status="invoiced" ผิด enum (Phase 89.6 typo มาตั้งแต่ build 215)
 
 ### ปัญหา (user เจอตอน smoke test build 223)

@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v224 (2026-05-12): Phase 89.13b — Fix delivery_invoices status "invoiced" -> "pending" (Phase 89.6 typo since build 215)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v224';
+// v225 (2026-05-12): Phase 89.14 — Security batch (auth-gate Gemini/SlipOK + error_log redact + proxy + DB cap)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v225';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

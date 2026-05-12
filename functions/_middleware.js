@@ -19,6 +19,9 @@ const RATE_LIMITS = {
   "/api/verify-otp":    { limit: 10,  windowSec: 60 },  // ป้องกัน brute-force OTP
   "/api/line-notify":   { limit: 30,  windowSec: 60 },
   "/api/ai-assistant":  { limit: 20,  windowSec: 60 },  // AI inference cost
+  "/api/parse-receipt": { limit: 10,  windowSec: 60 },  // Phase 89.14: Gemini OCR — cost ต่อ image
+  "/api/verify-slip":   { limit: 20,  windowSec: 60 },  // Phase 89.14: SlipOK 3rd-party — cost ต่อ verify
+  "/api/log-error":     { limit: 60,  windowSec: 60 },  // Phase 89.14: error_log proxy — burst-tolerant, spam-resistant
   "default":            { limit: 100, windowSec: 60 }   // ทุก endpoint อื่น
 };
 
@@ -33,7 +36,9 @@ const ALLOWED_ORIGIN_PATTERNS = [
 // Endpoints ที่ต้อง require Supabase JWT
 const REQUIRE_AUTH_ENDPOINTS = [
   "/api/ai-assistant",
-  "/api/line-notify"
+  "/api/line-notify",
+  "/api/parse-receipt",   // Phase 89.14: ปิด anon — Gemini OCR ใช้แค่ staff ที่ login
+  "/api/verify-slip"      // Phase 89.14: ปิด anon — SlipOK ใช้แค่ staff ที่ login
 ];
 
 const STAFF_ONLY_ENDPOINTS = [

@@ -80,12 +80,25 @@ export function installErrorReporter({
     const buildVal = (typeof build === "function") ? build() :
                      (Number.isFinite(build) ? build : null);
 
+    // Phase 89.14 (L4): redact URL — เก็บแค่ origin + pathname, ตัด query string + hash
+    // เหตุผล: share.html ใช้ ?token=..., reset password ใช้ ?code=..., OTP ใช้ ?otp=...
+    // ถ้า client crash บนหน้าเหล่านี้ → token จะลงไปใน error_log ผ่าน publishable key อ่านได้ทันที.
+    function _redactUrl(u) {
+      if (!u) return null;
+      try {
+        const parsed = new URL(u);
+        return (parsed.origin + parsed.pathname).slice(0, 500);
+      } catch {
+        return String(u).split("?")[0].split("#")[0].slice(0, 500);
+      }
+    }
+
     let payload = {
       severity: rawEvent.severity || "error",
       message: String(rawEvent.message || "unknown").slice(0, 2000),
       stack: rawEvent.stack ? String(rawEvent.stack).slice(0, 8000) : null,
       source: rawEvent.source ? String(rawEvent.source).slice(0, 500) : null,
-      url: win.location?.href?.slice(0, 1000) || null,
+      url: _redactUrl(win.location?.href),
       user_id: (typeof getUserId === "function" ? getUserId() : null) || null,
       user_agent: win.navigator?.userAgent?.slice(0, 500) || null,
       build: Number.isFinite(buildVal) ? buildVal : null,
@@ -107,16 +120,18 @@ export function installErrorReporter({
       }
     }
 
-    const token = (typeof getAccessToken === "function" ? getAccessToken() : null) || anonKey;
+    // Phase 89.14 (M7): POST ผ่าน CF proxy /api/log-error แทน Supabase REST direct
+    // เหตุผล: anon key public อ่านได้ → attacker spam table ตรงด้วย POST /rest/v1/error_log
+    // proxy ใช้ rate limit ของ middleware (60/min/IP) + validate shape ก่อน forward
+    const token = (typeof getAccessToken === "function" ? getAccessToken() : null);
+    const headers = {
+      "Content-Type": "application/json",
+    };
+    if (token) headers["Authorization"] = "Bearer " + token;
     try {
-      const r = await fetchFn(supabaseUrl + "/rest/v1/error_log", {
+      const r = await fetchFn(win.location.origin + "/api/log-error", {
         method: "POST",
-        headers: {
-          "apikey": anonKey,
-          "Authorization": "Bearer " + token,
-          "Content-Type": "application/json",
-          "Prefer": "return=minimal",
-        },
+        headers,
         body: JSON.stringify(payload),
       });
       // Phase 89.13: fetch resolves on 4xx/5xx — surface RLS/PGRST204 so silent loss is visible
