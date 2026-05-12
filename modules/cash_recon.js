@@ -4,7 +4,7 @@
 //  ปิดร้าน: นับเงินจริง → เทียบกับยอดที่ระบบคำนวณ → ดูผลต่าง
 // ═══════════════════════════════════════════════════════════
 
-import { escHtml } from "./utils.js";
+import { escHtml, todayBkk, dateBkk } from "./utils.js";
 function money(n) {
   return new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n || 0));
 }
@@ -22,8 +22,8 @@ const DENOMINATIONS = [
   { value: 1,    label: "1",     color: "#6b7280" }
 ];
 
-// State สำหรับวันที่เลือก (default = วันนี้)
-let _crDate = new Date().toISOString().slice(0, 10);
+// State สำหรับวันที่เลือก (default = วันนี้ — Phase 89.9 H11: BKK time, ไม่ใช่ UTC)
+let _crDate = todayBkk();
 let _crDenoms = {}; // { value: count }
 
 export function renderCashReconPage(ctx) {
@@ -162,13 +162,14 @@ export function renderCashReconPage(ctx) {
     renderCashReconPage(ctx);
   });
   container.querySelector("#crToday")?.addEventListener("click", () => {
-    _crDate = new Date().toISOString().slice(0, 10);
+    // Phase 89.9 H11: BKK time → กัน 00:00-06:59 ตี "วันนี้" เป็นเมื่อวาน
+    _crDate = todayBkk();
     _crDenoms = {};
     renderCashReconPage(ctx);
   });
   container.querySelector("#crYesterday")?.addEventListener("click", () => {
     const d = new Date(); d.setDate(d.getDate() - 1);
-    _crDate = d.toISOString().slice(0, 10);
+    _crDate = dateBkk(d);
     _crDenoms = {};
     renderCashReconPage(ctx);
   });

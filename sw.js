@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v201 (2026-05-11): Phase 89.7 — Rename filter chips with icons + "กรองตามสถานะ:" label (UX clarity)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v201';
+// v203 (2026-05-12): Phase 89.9 — H10 atomic stock CAS + H11 cash_recon BKK timezone (Batch 2)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v203';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

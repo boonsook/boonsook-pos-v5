@@ -7,6 +7,39 @@
 
 ---
 
+## 5.43.14 (build 218) — 2026-05-12 🔒 Phase 89.9 — Stabilization Sprint Batch 2 (H10 stock race + H11 cash_recon TZ)
+
+ต่อจาก Phase 89.8 (Batch 1 — 10 blockers) → Batch 2 เก็บ HIGH ที่เหลือใน BUGS.md
+
+### H10 — Stock decrement race condition (cached state → double-deduct)
+- **ปัญหา:** `_deductStockForSaleItem` อ่าน `state.warehouseStock` (JS cache) → คำนวณ `before - qty` → `xhrPatch` ตรง
+  - 2 checkout พร้อมกันบน device 2 เครื่อง: ทั้งคู่อ่าน `before = 10` → ทั้งคู่ PATCH `stock = 9` (ที่จริงควรเป็น 8) → **ขายเกินสต็อก**
+- **Fix ([main.js:3110](main.js)):** เพิ่ม `_atomicDecrementStock(table, rowId, qty, field)` helper ใช้ **CAS** (Compare-And-Swap) pattern:
+  1. Refetch ค่า `field` ปัจจุบันจาก DB (ไม่ trust cache)
+  2. PATCH `?id=eq.X&{field}=eq.{before}` — atomic UPDATE WHERE บน PostgreSQL
+  3. ถ้า return 0 rows → CAS ชน (มี writer อื่น) → retry สูงสุด 3 ครั้ง
+  4. ใช้ทั้ง `warehouse_stock` และ `products` (ทั้ง 2 table มี race เหมือนกัน)
+- **Trade-off:** ไม่ต้องเพิ่ม SQL function (ใช้ PostgREST conditional update) — atomic จริงผ่าน DB UPDATE WHERE
+
+### H11 — Cash recon UTC date → "วันนี้" ก่อน 07:00 BKK = เมื่อวาน
+- **ปัญหา:** `let _crDate = new Date().toISOString().slice(0,10)` คืน UTC date
+  - 00:00–06:59 BKK (= 17:00–23:59 UTC ของวันก่อน) → tab "วันนี้" แสดง recon ของเมื่อวาน
+- **Fix ([cash_recon.js:7,26,164,170](modules/cash_recon.js)):** import `todayBkk` + `dateBkk` from `utils.js` (มีอยู่จาก Phase 89.1) — แทน UTC slice ทั้ง 3 จุด:
+  - Module init `_crDate`
+  - ปุ่ม "วันนี้" handler
+  - ปุ่ม "เมื่อวาน" handler
+
+### Test plan
+- **H10:** เปิด POS 2 tab → ขายสินค้าเดียวกันพร้อมกัน → ตรวจ `warehouse_stock.stock` ลด 2 หน่วยจริง (ไม่ใช่ 1)
+- **H11:** ปรับเวลาเครื่องเป็น 02:00 BKK → เข้าหน้า cash recon → ดู `_crDate` = วันนี้ (ไม่ใช่เมื่อวาน)
+
+### Files
+- `main.js` (atomic CAS helper + refactor `_deductStockForSaleItem`)
+- `modules/cash_recon.js` (3 จุด UTC → BKK)
+- `index.html` `sw.js` `modules/settings/pages.js` (build bumps)
+
+---
+
 ## 5.43.12 (build 216) — 2026-05-11 🎨 Phase 89.7 — Filter chip UX clarity
 
 ### ปัญหา (user รายงาน)
