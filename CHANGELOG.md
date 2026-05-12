@@ -7,6 +7,35 @@
 
 ---
 
+## 5.43.15 (build 219) — 2026-05-12 🔒 Phase 89.10 — Drop CSP `'unsafe-eval'` (security hardening)
+
+### ปัญหาเดิม
+- CSP `script-src` มี `'unsafe-eval'` → ถ้ามี XSS หลุด attacker สามารถใช้ `eval()` / `new Function()` แปลง string เป็น code ได้
+- เป็น CRITICAL finding จาก audit Phase 89.10 (audit แอป)
+
+### ตรวจสอบก่อนตัด
+- `grep eval(` ทั้ง repo — **0 matches**
+- `grep "new Function("` — **0 matches**
+- `grep setTimeout/setInterval ที่รับ string` — **0 matches**
+- `grep setAttribute('on...')` (event handler injection) — **0 matches**
+- → codebase ไม่ได้ใช้ eval-like primitive เลย → ตัดออกได้สะอาด
+
+### Fix
+- [_headers:70](\_headers) — ลบ `'unsafe-eval'` ออกจาก `script-src`
+- `script-src-elem` ไม่มี `unsafe-eval` อยู่แล้ว → ไม่ต้องแก้
+- คง `'unsafe-inline'` ไว้ก่อน (ต้อง refactor inline scripts ใน index.html ก่อน — Phase ถัดไป)
+
+### Test plan
+- เปิดแอป → check console **ห้ามมี** `Refused to evaluate a string as JavaScript because 'unsafe-eval' is not an allowed source`
+- ทดสอบ feature ที่ใช้ CDN libs: Chart (dashboard), jsPDF (export PDF), html5-qrcode (สแกน), SheetJS (export Excel), JsBarcode (พิมพ์บาร์โค้ด) — ทุกตัวต้องทำงานปกติ
+- ถ้าฝั่ง CDN lib ใดใช้ eval ภายใน → จะ fail loud → revert ได้ทันที
+
+### Files
+- `_headers` (CSP tightening)
+- `sw.js` `index.html` `modules/settings/pages.js` (build 218→219, cache v203→v204)
+
+---
+
 ## 5.43.14 (build 218) — 2026-05-12 🔒 Phase 89.9 — Stabilization Sprint Batch 2 (H10 stock race + H11 cash_recon TZ)
 
 ต่อจาก Phase 89.8 (Batch 1 — 10 blockers) → Batch 2 เก็บ HIGH ที่เหลือใน BUGS.md

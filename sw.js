@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v203 (2026-05-12): Phase 89.9 — H10 atomic stock CAS + H11 cash_recon BKK timezone (Batch 2)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v203';
+// v204 (2026-05-12): Phase 89.10 — Drop CSP 'unsafe-eval' (no eval/Function/setTimeout-string in codebase)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v204';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
