@@ -312,7 +312,8 @@ export function renderDeliveryInvoicesPage(ctx) {
         const res = await window._appXhrPatch?.("delivery_invoices", { status: "cancelled" }, "id", id);
         if (res?.ok) {
           // Phase 89.1: void JV ของใบส่งสินค้าที่ยกเลิก (กัน double-revenue ใน P&L)
-          await voidJvForSource("delivery_invoices", id).catch(e => console.warn("[di bulk cancel] void JV", e));
+          // Phase 89.16: voidJv ไม่ throw — handle silent-fail ภายในตัวมัน + show toast เอง
+          await voidJvForSource("delivery_invoices", id);
           ok++;
         } else fail++;
       } catch(e) { fail++; }
@@ -413,7 +414,8 @@ export function renderDeliveryInvoicesPage(ctx) {
         const res = await window._appXhrPatch?.("delivery_invoices", { status: "cancelled" }, "id", invId);
         if (res?.ok) {
           // Phase 89.1: void JV ของใบส่งสินค้าที่ยกเลิก (กัน double-revenue ใน P&L)
-          await voidJvForSource("delivery_invoices", invId).catch(e => console.warn("[di cancel] void JV", e));
+          // Phase 89.16: voidJv handles silent-fail + toast เอง — ไม่ต้องใส่ .catch
+          await voidJvForSource("delivery_invoices", invId);
           window.App?.showToast?.("ยกเลิกเรียบร้อย");
           // Phase 45.11: non-blocking reload
     if (ctx.loadAllData) ctx.loadAllData().catch(e => console.warn("[di] reload", e));

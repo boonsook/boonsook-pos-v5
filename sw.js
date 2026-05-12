@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v227 (2026-05-12): Phase 89.15a — Hotfix selfheal.js (currentScript null in async IIFE) — APP_BUILD now sync-set
-const CACHE_NAME = 'boonsook-pos-v5-cache-v227';
+// v228 (2026-05-12): Phase 89.16 (M1) — voidJvForSource silent-fail detection (pre-check + toast on RLS-block)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v228';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

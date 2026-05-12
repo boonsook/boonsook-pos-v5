@@ -7,6 +7,41 @@
 
 ---
 
+## 5.43.24 (build 228) — 2026-05-12 💰 Phase 89.16 (M1) — voidJvForSource silent-fail detection (double-revenue risk)
+
+### ปัญหา (จาก audit)
+- `voidJvForSource()` ใน [auto_post.js](modules/accounting/auto_post.js) ใช้ใน 8 จุดทั่วแอป (cancel receipt/invoice/sale/service_job)
+- ถ้า RLS DELETE policy block → Supabase ตอบ 2xx + array ว่าง → return 0 silent — function "ดู" เหมือนทำงานปกติ
+- User เห็น "ยกเลิกเรียบร้อย" toast → แต่ JV ค้างใน sumud → **P&L นับรายได้ซ้ำ = double-revenue ใน accounting report**
+- ผม audit รอบแรก (Phase 89.13) จับ `.catch()` dead code แต่ไม่ catch semantic ของ "return 0 silent fail"
+
+### Fix
+- **[modules/accounting/auto_post.js:83-138](modules/accounting/auto_post.js:83)** — `voidJvForSource()` refactor:
+  - **Pre-check query** `journal_entries?source_table=X&source_id=Y&select=id` → expected count
+  - **DELETE** เหมือนเดิม
+  - **Detect silent fail:** ถ้า `expected > 0 && deleted === 0` → console.error + `showToast("⚠️ JV ของ X#Y ลบไม่ได้ (RLS อาจบล็อค) — กรุณาตรวจ P&L manually")`
+  - **HTTP error:** ถ้า expected>0 + HTTP non-2xx → showToast + console.error
+  - Backwards compat: return type ยังเป็น `number` (count of deleted rows) → 8 callers ไม่ต้อง refactor
+- **Clean .catch() dead code** 3 จุด (voidJv ไม่ throw — handle ภายในตัว):
+  - [modules/delivery_invoices.js:315](modules/delivery_invoices.js:315) (bulk cancel)
+  - [modules/delivery_invoices.js:416](modules/delivery_invoices.js:416) (single cancel)
+  - [modules/receipts.js:773](modules/receipts.js:773) (preview cancel)
+
+### ผลกระทบต่อ user
+- ❌ ของเดิม: cancel แล้วเห็น success — JV ค้าง — P&L รายงานรายได้ซ้ำเงียบๆ — ผิดบัญชี
+- ✅ ใหม่: ถ้า RLS DELETE block → user เห็น toast แดง "⚠️ JV ลบไม่ได้ — ตรวจ P&L manually" + console.error → catch ปัญหาทันที
+
+### Risk
+- ปกติ DELETE policy ของ `journal_entries` ผ่านได้สำหรับ authenticated → trigger toast นี้ = sign ของ RLS misconfiguration (good signal)
+- Pre-check เพิ่ม 1 round trip ต่อ cancel — overhead ~100-200ms (acceptable)
+
+### Test plan
+1. Ctrl+Shift+R → build 228
+2. ออกใบเสร็จ + ยกเลิก → ดู console — ต้องเห็น `[auto_post] voided N JV(s) for receipts#X` (N = จำนวนจริง)
+3. ถ้าเคยมี RLS issue → จะเห็น toast แดง + console.error แทน silent fail
+
+---
+
 ## 5.43.23 (build 227) — 2026-05-12 🩹 Phase 89.15a — Hotfix: `window.APP_BUILD` ยัง undefined หลัง 89.15
 
 ### ปัญหา (user verify ใน Console)

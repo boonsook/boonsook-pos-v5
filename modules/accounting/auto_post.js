@@ -78,32 +78,58 @@ async function _getValidCoaCodes() {
  * ใช้ pattern DELETE + repost — ง่ายกว่า in-place update
  * เรียกก่อน postJournalForX(...) ตอน edit existing source row
  *
- * @returns {Promise<number>} จำนวน entries ที่ถูกลบ
+ * Phase 89.16 (M1): pre-check + silent-fail detection
+ *   เดิม: RLS DELETE policy block → return 0 silent → user เห็น "ยกเลิกเรียบร้อย"
+ *         แต่ JV ยังอยู่ → P&L นับรายได้ซ้ำ = double-revenue
+ *   ใหม่: query count ก่อน DELETE → ถ้า expected>0 แต่ deleted=0 → toast ERROR + console.error
+ *
+ * @param {string} sourceTable - "sales" | "receipts" | "delivery_invoices" | "service_jobs"
+ * @param {string|number} sourceId
+ * @returns {Promise<number>} จำนวน entries ที่ถูกลบจริง
  */
 export async function voidJvForSource(sourceTable, sourceId) {
   if (!sourceTable || !sourceId) return 0;
   const cfg = window.SUPABASE_CONFIG;
-  // Phase 89.4: ใช้ _authFetch → auto 401 retry
   const headers = { "Prefer": "return=representation" };
+  const baseUrl = `${cfg.url}/rest/v1/journal_entries?source_table=eq.${encodeURIComponent(sourceTable)}&source_id=eq.${sourceId}`;
+
   try {
+    // Phase 89.16: pre-check ว่ามี JV เหลือกี่ entry — เพื่อจับ silent fail หลัง DELETE
+    let expectedCount = 0;
+    try {
+      const checkR = await _authFetch(`${baseUrl}&select=id`, { headers: { "Prefer": "count=exact" } });
+      if (checkR.ok) {
+        const rows = await checkR.json().catch(() => []);
+        expectedCount = Array.isArray(rows) ? rows.length : 0;
+      }
+    } catch(e) { /* pre-check failure not fatal — fall through to DELETE */ }
+
     // DELETE — lines จะถูกลบอัตโนมัติเพราะ FK ON DELETE CASCADE
-    const r = await _authFetch(`${cfg.url}/rest/v1/journal_entries?source_table=eq.${encodeURIComponent(sourceTable)}&source_id=eq.${sourceId}`, {
-      method: "DELETE",
-      headers
-    });
+    const r = await _authFetch(baseUrl, { method: "DELETE", headers });
     if (!r.ok) {
-      console.warn(`[auto_post] failed to void JV for ${sourceTable}#${sourceId}:`, r.status);
+      console.error(`[auto_post] voidJV HTTP ${r.status} for ${sourceTable}#${sourceId} (expected ${expectedCount})`);
+      if (expectedCount > 0) {
+        window.App?.showToast?.(`⚠️ ลบ JV ของ ${sourceTable}#${sourceId} ไม่ได้ (HTTP ${r.status}) — กรุณาตรวจ P&L manually`);
+      }
       return 0;
     }
+
     const deleted = await r.json().catch(() => []);
     const count = Array.isArray(deleted) ? deleted.length : 0;
+
+    if (expectedCount > 0 && count === 0) {
+      // Silent fail — RLS DELETE policy block (ส่ง 2xx แต่ rows ที่ลบ = 0)
+      console.error(`[auto_post] voidJV silent fail: ${sourceTable}#${sourceId} — expected ${expectedCount} rows, RLS deleted 0`);
+      window.App?.showToast?.(`⚠️ JV ของ ${sourceTable}#${sourceId} (${expectedCount} entry) ลบไม่ได้ (RLS อาจบล็อค) — ตรวจ P&L manually`);
+      return 0;
+    }
+
     if (count > 0) {
-      // Phase 89.3a: clearer log — caller จะ re-post หรือ delete ก็แล้วแต่ใคร context
       console.info(`[auto_post] voided ${count} JV(s) for ${sourceTable}#${sourceId}`);
     }
     return count;
   } catch(e) {
-    console.warn(`[auto_post] void JV error:`, e?.message);
+    console.error(`[auto_post] voidJV exception ${sourceTable}#${sourceId}:`, e?.message);
     return 0;
   }
 }

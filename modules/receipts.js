@@ -770,7 +770,8 @@ function renderReceiptPreview(container) {
     try {
       await window._appXhrPatch?.("receipts", { status: "cancelled" }, "id", r.id);
       // Phase 89.1: void JV ของใบเสร็จที่ยกเลิก (กัน double-revenue ใน P&L)
-      await voidJvForSource("receipts", r.id).catch(err => console.warn("[rc preview cancel] void JV", err));
+      // Phase 89.16: voidJv handles silent-fail + toast เอง — ไม่ต้องใส่ .catch
+      await voidJvForSource("receipts", r.id);
       // Phase 89.6: restore delivery_invoice status → "pending" (เปิดใบเสร็จใหม่ได้)
       if (r.delivery_invoice_id) {
         await window._appXhrPatch?.("delivery_invoices", { status: "pending" }, "id", r.delivery_invoice_id)
