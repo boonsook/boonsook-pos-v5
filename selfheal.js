@@ -9,14 +9,17 @@
 //  window.APP_BUILD always undefined → error_reporter build = null)
 // ═══════════════════════════════════════════════════════════
 
+// Phase 89.15a: read APP_BUILD synchronously BEFORE the async IIFE.
+// document.currentScript can be null inside async functions on some browsers
+// (engine continues parsing other scripts before the async first-tick runs).
+// querySelector fallback guarantees we find the tag.
+var __SCRIPT_TAG = document.currentScript || document.querySelector('script[data-app-build]');
+var __APP_BUILD  = parseInt(__SCRIPT_TAG && __SCRIPT_TAG.dataset && __SCRIPT_TAG.dataset.appBuild || '0', 10);
+window.APP_BUILD = __APP_BUILD;
+
 (async function selfHeal() {
   try {
-    var SCRIPT_TAG = document.currentScript;
-    var APP_BUILD = parseInt(SCRIPT_TAG && SCRIPT_TAG.dataset && SCRIPT_TAG.dataset.appBuild || '0', 10);
-
-    // ★ Phase 89.15: expose global ทันที — ทุก module ที่อ่าน window.APP_BUILD จะได้ค่าจริง
-    window.APP_BUILD = APP_BUILD;
-
+    var APP_BUILD = __APP_BUILD;
     var STUCK_BUILDS_BEFORE = 47; // builds before this มี immutable-cache bug
     var stored = parseInt(localStorage.getItem('bsk_app_build') || '0', 10);
     var justRecovered = sessionStorage.getItem('bsk_just_recovered') === '1';

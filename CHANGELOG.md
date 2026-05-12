@@ -7,6 +7,26 @@
 
 ---
 
+## 5.43.23 (build 227) — 2026-05-12 🩹 Phase 89.15a — Hotfix: `window.APP_BUILD` ยัง undefined หลัง 89.15
+
+### ปัญหา (user verify ใน Console)
+- Phase 89.15 อ้างว่า fix `window.APP_BUILD` bug — แต่ `window.APP_BUILD` ใน Chrome console ยังเป็น `undefined`
+- Root cause: `document.currentScript` ใน **async IIFE** อาจ return `null` ใน browser ที่ก่อน first-tick ของ async function เกิดขึ้น script tag ปัจจุบันอาจ "completed parsing" แล้ว → currentScript = null → `dataset.appBuild` = undefined → `parseInt(undefined||'0')` = 0 (แต่ใน edge case ผ่าน try/catch silent → window.APP_BUILD ยัง undefined)
+
+### Fix
+- [selfheal.js](selfheal.js) — แยก **sync APP_BUILD setter** ออกจาก async IIFE:
+  - sync IIFE (top of file) — `document.currentScript || querySelector('script[data-app-build]')` → set `window.APP_BUILD` ทันทีตอน script load
+  - async IIFE (cache recovery) — รันถัดมา + ใช้ `__APP_BUILD` ที่ sync part set ไว้แล้ว
+- `querySelector` fallback = robust ต่อ browser ที่ currentScript flaky ใน async context
+
+### Test plan
+1. Ctrl+Shift+R
+2. Console: `window.APP_BUILD` → ต้องเห็น **`227`** (ไม่ใช่ `undefined`)
+3. Settings → "เกี่ยวกับระบบ" → build 227
+4. (regression) cache recovery + SW banner ยังทำงาน
+
+---
+
 ## 5.43.22 (build 226) — 2026-05-12 🔐 Phase 89.15 — CSP drop script-src `unsafe-inline` (M4) + bonus APP_BUILD global fix
 
 ### ปัญหา (จาก audit)
