@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v232 (2026-05-13): Phase 89.19 — M5 XSS hardening (products onerror + staff onclick)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v232';
+// v233 (2026-05-13): Phase 89.20 — Code-split first-load (lazy-load 18 admin/service modules, ~550KB)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v233';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

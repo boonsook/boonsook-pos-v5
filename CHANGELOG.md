@@ -7,6 +7,45 @@
 
 ---
 
+## 5.43.29 (build 233) — 2026-05-13 ⚡ Phase 89.20 — Code-split first-load (~550KB shifted to on-demand)
+
+### Refactor — lazy-load admin/service-only page modules
+**[main.js](main.js)** — 4 จุด:
+1. ลบ static imports 18 modules (9 service+admin + 9 accounting)
+2. เพิ่ม `_lazyMod` Map + `_lazyImport()` (cache promise per path — load ครั้งเดียวต่อ session)
+3. เพิ่ม `LAZY_ROUTES` map + `_renderLazy()` dispatcher
+4. `async showRoute()` + `if (await _renderLazy(route, ctx)) return;` ที่หัว dispatcher
+5. Logout — `clearCustomerDashboardState` เรียกเฉพาะถ้า module loaded แล้ว (no force-load)
+
+### Lazy modules (18 ตัว, ~550KB รวม)
+**Service/Admin heavy (9):**
+- `customer_dashboard.js` (72KB), `solar.js` (46KB), `ac_install.js` (77KB)
+- `error_codes.js` (124KB), `error_codes_fridge.js` (35KB), `error_codes_washer.js` (34KB)
+- `payroll.js` (46KB), `ai_sales.js` (66KB), `ac_shop.js` (44KB)
+
+**Accounting (9):**
+- `accounting/journals.js`, `journal_form.js`, `coa.js`, `backfill.js`
+- `trial_balance.js`, `profit_loss.js`, `balance_sheet.js`, `opening_balance.js`
+- `export_bundle.js`, `periods.js`
+- (`auto_post.js` ยัง eager — ใช้ใน POS checkout flow)
+
+### Test
+- 71/71 pass — node syntax check ผ่าน
+- ไม่มี stale render* references
+
+### ผลกระทบ user
+- ✅ First load ลด ~550KB JS (จาก 252KB main.js + 1.13MB modules → main bundle เล็กลง)
+- ✅ Page transition ครั้งแรกของ lazy route → +50-200ms loading (browser cache หลังจากนั้น)
+- ✅ ทุก route ครั้งที่ 2+ ใน session เร็วเท่าเดิม (promise cache)
+
+### Smoke test หลัง deploy
+1. กดเข้าหน้า "ใบงานช่าง → ข้อมูลรหัสช่าง (error codes)" — โหลดช้านิดครั้งแรก, เร็วครั้งต่อไป
+2. กดเข้าหน้า "บัญชี → สมุดรายวัน" → ทุก accounting subpage โหลดเฉพาะตอนเข้า
+3. Network tab — main.js?v=233 size ลดลง ~30-40% เทียบ build 232
+4. Logout → ไม่มี error console
+
+---
+
 ## 5.43.28 (build 232) — 2026-05-13 🔒 Phase 89.19 — M5 XSS hardening (products + staff)
 
 ### 2 จุด refactor — เลิกใช้ JS template injection ผ่าน inline HTML attribute

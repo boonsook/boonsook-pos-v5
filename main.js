@@ -16,15 +16,12 @@ import { renderCalendarPage } from "./modules/calendar.js";
 import { renderLoyaltyPage } from "./modules/loyalty.js";
 import { renderLineNotifySettings, sendLineNotify, notifyLowStock, notifyNewOrder, notifyJobDone } from "./modules/line_notify.js";
 import { renderPermissionMatrix, hasPermission } from "./modules/permission_matrix.js";
-import { renderCustomerDashboard, clearCustomerDashboardState } from "./modules/customer_dashboard.js";
+// Phase 89.20: customer_dashboard lazy — clearCustomerDashboardState called only if loaded (see logout)
 import { renderBtuCalculatorPage } from "./modules/btu_calculator.js";
 import { renderServiceRequestPage } from "./modules/service_request.js";
-import { renderSolarPage } from "./modules/solar.js";
-import { renderAcInstallPage } from "./modules/ac_install.js";
+// Phase 89.20: solar, ac_install lazy
 import { renderServiceFormPage, SERVICE_TYPES } from "./modules/service_form.js";
-import { renderErrorCodesPage } from "./modules/error_codes.js";
-import { renderErrorCodesFridgePage } from "./modules/error_codes_fridge.js";
-import { renderErrorCodesWasherPage } from "./modules/error_codes_washer.js";
+// Phase 89.20: error_codes (124KB), error_codes_fridge (35KB), error_codes_washer (34KB) lazy
 import { renderStockValuePage } from "./modules/stock_value.js";
 import { renderDeadStockPage } from "./modules/dead_stock.js";
 import { renderStockCountPage } from "./modules/stock_count.js";
@@ -40,29 +37,11 @@ import { renderTasksPage, checkOverdueTasksAndNotify } from "./modules/tasks.js"
 import { renderAuditLogPage } from "./modules/audit_log.js";
 // Phase 71: departments management
 import { renderDepartmentsPage } from "./modules/departments.js";
-// Phase 72: staff payroll
-import { renderPayrollPage } from "./modules/payroll.js";
-// Phase 73: payroll overview dashboard
+// Phase 89.20: payroll, ai_sales, ac_shop lazy
 import { renderPayrollOverviewPage } from "./modules/payroll_overview.js";
 import { renderExpenseOverviewPage } from "./modules/expense_overview.js";
-// Phase 88.0: accounting foundation (สมุดรายวัน + ผังบัญชี)
-import { renderJournalsPage } from "./modules/accounting/journals.js";
-import { renderJournalFormPage } from "./modules/accounting/journal_form.js";
-import { renderCoaPage } from "./modules/accounting/coa.js";
-// Phase 88.1b: backfill JV ย้อนหลัง
-import { renderBackfillPage } from "./modules/accounting/backfill.js";
-// Phase 88.2: Trial Balance report
-import { renderTrialBalancePage } from "./modules/accounting/trial_balance.js";
-// Phase 88.3: P&L (กำไรขาดทุน)
-import { renderProfitLossPage } from "./modules/accounting/profit_loss.js";
-// Phase 88.4: Balance Sheet (งบดุล)
-import { renderBalanceSheetPage } from "./modules/accounting/balance_sheet.js";
-// Phase 88.5: Opening Balance wizard + Export bundle
-import { renderOpeningBalancePage } from "./modules/accounting/opening_balance.js";
-import { renderExportBundlePage }   from "./modules/accounting/export_bundle.js";
-// Phase 88.19: Period Close
-import { renderPeriodsPage }        from "./modules/accounting/periods.js";
-// Phase 88.1: auto-posting JV จาก sales/expenses
+// Phase 89.20: accounting/* (9 modules) — all lazy (admin only, ~167KB combined)
+// Phase 88.1: auto-posting JV จาก sales/expenses — eager (used in checkout flow)
 import { postJournalForSale, postJournalForExpense, postJournalForServiceJob, voidJvForSource } from "./modules/accounting/auto_post.js";
 import { renderProfitByProductPage } from "./modules/profit_by_product.js";
 import { renderBirthdaysPage, checkTodayBirthdaysAndNotify } from "./modules/birthdays.js";
@@ -70,14 +49,58 @@ import { renderQuoteTemplatesPage } from "./modules/quote_templates.js";
 import { renderSerialsPage } from "./modules/serials.js";
 import { renderWarrantyReportPage, checkWarrantyExpiringAndNotify } from "./modules/warranty_report.js";
 import { mountHelpButton, setHelpContext } from "./modules/help_tutor.js";
-import { renderAiSalesPage } from "./modules/ai_sales.js";
-import { renderAcShopPage } from "./modules/ac_shop.js";
 import "./modules/doc-override.js";
 import { isValidPhone, isValidEmail, getUserFriendlyError, validateFile } from "./modules/validators.js";
 import { atomicDecrementStock } from "./modules/stock_cas.js";
 import { installErrorReporter } from "./modules/error_reporter.js";
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 89.20 — Lazy module loader (code-split for admin/service-only routes)
+//    เลื่อน 550KB+ (9 service+admin + 9 accounting) ออกจาก first-load
+//    cache promise per path → load ครั้งเดียวต่อ module ตลอด session
+// ═══════════════════════════════════════════════════════════
+const _lazyMod = new Map();
+function _lazyImport(path) {
+  if (!_lazyMod.has(path)) _lazyMod.set(path, import(path));
+  return _lazyMod.get(path);
+}
+const LAZY_ROUTES = {
+  customer_dashboard:         ["./modules/customer_dashboard.js",         "renderCustomerDashboard"],
+  solar:                      ["./modules/solar.js",                       "renderSolarPage"],
+  ac_install:                 ["./modules/ac_install.js",                  "renderAcInstallPage"],
+  error_codes:                ["./modules/error_codes.js",                 "renderErrorCodesPage"],
+  error_codes_fridge:         ["./modules/error_codes_fridge.js",          "renderErrorCodesFridgePage"],
+  error_codes_washer:         ["./modules/error_codes_washer.js",          "renderErrorCodesWasherPage"],
+  payroll:                    ["./modules/payroll.js",                     "renderPayrollPage"],
+  ai_sales:                   ["./modules/ai_sales.js",                    "renderAiSalesPage"],
+  ac_shop:                    ["./modules/ac_shop.js",                     "renderAcShopPage"],
+  accounting_journals:        ["./modules/accounting/journals.js",         "renderJournalsPage"],
+  accounting_journal_new:     ["./modules/accounting/journal_form.js",     "renderJournalFormPage"],
+  accounting_coa:             ["./modules/accounting/coa.js",              "renderCoaPage"],
+  accounting_backfill:        ["./modules/accounting/backfill.js",         "renderBackfillPage"],
+  accounting_trial_balance:   ["./modules/accounting/trial_balance.js",    "renderTrialBalancePage"],
+  accounting_profit_loss:     ["./modules/accounting/profit_loss.js",      "renderProfitLossPage"],
+  accounting_balance_sheet:   ["./modules/accounting/balance_sheet.js",    "renderBalanceSheetPage"],
+  accounting_opening_balance: ["./modules/accounting/opening_balance.js",  "renderOpeningBalancePage"],
+  accounting_export_bundle:   ["./modules/accounting/export_bundle.js",    "renderExportBundlePage"],
+  accounting_periods:         ["./modules/accounting/periods.js",          "renderPeriodsPage"],
+};
+async function _renderLazy(route, ctx) {
+  const def = LAZY_ROUTES[route];
+  if (!def) return false;
+  try {
+    const mod = await _lazyImport(def[0]);
+    const fn = mod[def[1]];
+    if (typeof fn === "function") fn(ctx);
+    else console.error(`[lazy] ${def[0]} missing export ${def[1]}`);
+  } catch(e) {
+    console.error(`[lazy] failed loading ${def[0]}:`, e);
+    try { showToast?.(`โหลดหน้านี้ไม่สำเร็จ — ลองรีเฟรช`); } catch(_){}
+  }
+  return true;
+}
 
 // ═══════════════════════════════════════════════════════════
 //  IMAGE COMPRESSOR — บีบอัดรูปก่อนอัปโหลด (ลดจาก 3-5MB → 200-500KB)
@@ -1012,7 +1035,7 @@ const ROUTE_GROUP = {
   ...Object.fromEntries(SERVICE_FORM_ROUTES.map(r => [r, "service"]))
 };
 
-function showRoute(route){
+async function showRoute(route){
   // Role-based access control
   if (!canAccessPage(route)) {
     const fallback = allowedPages()[0] || "dashboard";
@@ -1125,6 +1148,9 @@ function showRoute(route){
   // Lazy render on navigate
   const ctx = { state, money, addToCart, changeQty, removeFromCart, openProductDrawer, checkout, openReceiptDrawer, showRoute, openCustomerDrawer, openQuotationDrawer, openServiceJobDrawer, loadAllData, loadReceipt, ROLE_LABELS, currentRole, requireAdmin, requireAdminOrSales, showToast, saveStoreInfo, savePaymentInfo, loadUsers, changeRole, openAddUserDrawer, hasPermission: (key) => hasPermission(key, { state, currentRole }), renderLineNotifySettings, renderPermissionMatrix, sendLineNotify };
 
+  // Phase 89.20: dynamic-import dispatch for admin/service-only routes (550KB+ shifted off first-load)
+  if (await _renderLazy(route, ctx)) return;
+
   if (route === "dashboard") renderDashboard(ctx);
   if (route === "pos") renderPosPage(ctx);
   if (route === "products") renderProductsPage(ctx);
@@ -1140,19 +1166,15 @@ function showRoute(route){
   if (route === "stock_movements") renderStockMovementsPage(ctx);
   if (route === "calendar") renderCalendarPage(ctx);
   if (route === "loyalty") renderLoyaltyPage(ctx);
-  if (route === "customer_dashboard") renderCustomerDashboard(ctx);
+  // customer_dashboard, solar, ac_install — lazy (LAZY_ROUTES)
   if (route === "btu_calculator") renderBtuCalculatorPage(ctx);
   if (route === "service_request") renderServiceRequestPage(ctx);
-  if (route === "solar") renderSolarPage(ctx);
-  if (route === "ac_install") renderAcInstallPage(ctx);
   // Phase 45 — service form (9 ประเภท: repair_ac, clean_ac, move_ac, satellite, repair_fridge, repair_washer, cctv, repair_tv, other)
   if (SERVICE_FORM_ROUTES.includes(route)) {
     const serviceType = route.replace(/^service_/, "");
     renderServiceFormPage(ctx, serviceType);
   }
-  if (route === "error_codes") renderErrorCodesPage(ctx);
-  if (route === "error_codes_fridge") renderErrorCodesFridgePage(ctx);
-  if (route === "error_codes_washer") renderErrorCodesWasherPage(ctx);
+  // error_codes, error_codes_fridge, error_codes_washer — lazy (LAZY_ROUTES)
   if (route === "stock_value") renderStockValuePage(ctx);
   if (route === "dead_stock") renderDeadStockPage(ctx);
   if (route === "stock_count") renderStockCountPage(ctx);
@@ -1169,30 +1191,12 @@ function showRoute(route){
   if (route === "quote_templates") renderQuoteTemplatesPage(ctx);
   if (route === "serials") renderSerialsPage(ctx);
   if (route === "warranty_report") renderWarrantyReportPage(ctx);
-  if (route === "ai_sales") renderAiSalesPage(ctx);
-  if (route === "ac_shop") renderAcShopPage(ctx);
+  // ai_sales, ac_shop, payroll — lazy (LAZY_ROUTES)
   if (route === "audit_log") renderAuditLogPage(ctx);
   if (route === "departments") renderDepartmentsPage(ctx);
-  if (route === "payroll") renderPayrollPage(ctx);
   if (route === "payroll_overview") renderPayrollOverviewPage(ctx);
   if (route === "expense_overview") renderExpenseOverviewPage(ctx);
-  // Phase 88.0 — accounting
-  if (route === "accounting_journals") renderJournalsPage(ctx);
-  if (route === "accounting_journal_new") renderJournalFormPage(ctx);
-  if (route === "accounting_coa") renderCoaPage(ctx);
-  // Phase 88.1b — backfill
-  if (route === "accounting_backfill") renderBackfillPage(ctx);
-  // Phase 88.2 — Trial Balance report
-  if (route === "accounting_trial_balance") renderTrialBalancePage(ctx);
-  // Phase 88.3 — P&L
-  if (route === "accounting_profit_loss") renderProfitLossPage(ctx);
-  // Phase 88.4 — Balance Sheet
-  if (route === "accounting_balance_sheet") renderBalanceSheetPage(ctx);
-  // Phase 88.5 — Opening Balance + Export bundle
-  if (route === "accounting_opening_balance") renderOpeningBalancePage(ctx);
-  // Phase 88.19 — Period Close
-  if (route === "accounting_periods") renderPeriodsPage(ctx);
-  if (route === "accounting_export_bundle")   renderExportBundlePage(ctx);
+  // Phase 88.0 — accounting/* (9 modules) — all lazy (LAZY_ROUTES)
 
   // Warehouse sub-pages — reuse products page with warehouse filter
   if (WH_ROUTE_MAP[route]) {
@@ -1368,7 +1372,12 @@ async function logout(){
   state.cart = []; saveCart();
   window._sbAccessToken = null;
   // Phase 45.10 (B5-1): clear module state ด้วย (กัน cross-login leak)
-  try { clearCustomerDashboardState(); } catch(e){ console.warn("[logout] clearCustomerDashboardState", e); }
+  // Phase 89.20: customer_dashboard lazy — clear state only if module actually loaded (no-op if user never opened it)
+  const _custDashPath = "./modules/customer_dashboard.js";
+  if (_lazyMod.has(_custDashPath)) {
+    try { (await _lazyMod.get(_custDashPath)).clearCustomerDashboardState(); }
+    catch(e){ console.warn("[logout] clearCustomerDashboardState", e); }
+  }
   try { clearPosState(); } catch(e){ console.warn("[logout] clearPosState", e); }
   // ★ Force UI กลับหน้า login
   $("authScreen")?.classList.remove("hidden");
