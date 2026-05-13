@@ -7,6 +7,30 @@
 
 ---
 
+## 5.43.28 (build 232) — 2026-05-13 🔒 Phase 89.19 — M5 XSS hardening (products + staff)
+
+### 2 จุด refactor — เลิกใช้ JS template injection ผ่าน inline HTML attribute
+**products.js getProductAvatar** ([products.js:98-108](modules/products.js:98))
+- เดิม: `onerror="this.style.display='none';this.parentElement.innerHTML='${escHtml(letter)}'..."` — JS string ภายใน HTML attribute ผ่าน `${escHtml(...)}` interpolation
+  - single char ผ่าน escHtml ไม่ exploit ตรง ๆ แต่ pattern เปราะ (สามชั้น escape: JS-in-HTML-in-template)
+  - block CSP M4 path (drop `script-src 'unsafe-inline'`)
+- ใหม่: CSS layering — letter span absolute underneath, img absolute บนทับ. `onerror="this.remove()"` constant (no interpolation)
+- [style.css:741+](style.css:741): เพิ่ม `.prod-avatar-img`, `.prod-avatar-letter`, `.prod-avatar-photo` overlay rules
+
+**staff.js openChangePINModal** ([staff.js:355](modules/staff.js:355))
+- เดิม: `onclick="window.__savePIN('${staffId}')"` — staffId จาก DB interpolate ลง inline JS
+- ใหม่: `addEventListener('click', savePIN)` หลัง modal render — staffId capture ผ่าน closure, ไม่ต้อง global function
+
+### Test
+- 71/71 pass (no regression)
+
+### ผลกระทบ user
+- ✅ ปิด XSS surface ที่ HANDOFF backlog M5 ระบุไว้
+- ✅ Avatar fallback ยังทำงานเหมือนเดิม (letter โผล่เมื่อ img โหลดไม่ขึ้น)
+- ✅ ลด inline JS interpolation จุดเปราะ → ปูทาง CSP M4 (drop unsafe-inline)
+
+---
+
 ## 5.43.27 (build 231) — 2026-05-13 🧪 Phase 89.18 — Audit batch + Test coverage hot-paths
 
 ### 3 bugs จาก full audit (4 ด้าน: security/correctness/architecture/performance)

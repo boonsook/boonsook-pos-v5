@@ -352,7 +352,7 @@ async function openChangePINModal(staffId, staffName) {
         <button onclick="window.__staffCloseModal()"
           style="padding:9px 18px;border:1px solid #ddd;border-radius:8px;
                  background:#fff;cursor:pointer;font-size:14px">ยกเลิก</button>
-        <button id="pin-save-btn" onclick="window.__savePIN('${staffId}')"
+        <button id="pin-save-btn"
           style="padding:9px 20px;border:none;border-radius:8px;
                  background:#27ae60;color:#fff;cursor:pointer;
                  font-size:14px;font-weight:500">💾 บันทึก PIN</button>
@@ -361,17 +361,19 @@ async function openChangePINModal(staffId, staffName) {
 
   showModal();
   window.__staffCloseModal = closeModal;
-  window.__savePIN = async (id) => {
+  // Phase 89.19 (M5): bind ผ่าน addEventListener — เลิก onclick="...'${staffId}'..." (template injection surface)
+  const savePIN = async () => {
     const np = document.getElementById('pin-new').value;
     const cp = document.getElementById('pin-conf').value;
     const errEl = document.getElementById('pin-err');
     if (!/^\d{4}$/.test(np)) return showErr(errEl, 'PIN ต้องเป็นตัวเลข 4 หลัก');
     if (np !== cp) return showErr(errEl, 'PIN ทั้งสองช่องไม่ตรงกัน');
-    const { error } = await sb.from('staff').update({ pin: np }).eq('id', id);
+    const { error } = await sb.from('staff').update({ pin: np }).eq('id', staffId);
     if (error) return showErr(errEl, `ผิดพลาด: ${error.message}`);
     closeModal();
     window.App?.showToast?.(`✅ เปลี่ยน PIN ของ ${staffName} เรียบร้อย`);
   };
+  document.getElementById('pin-save-btn')?.addEventListener('click', savePIN);
 }
 
 // ── Modal helpers ─────────────────────────────────────────

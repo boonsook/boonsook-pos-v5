@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v231 (2026-05-13): Phase 89.18 — Audit batch (refunds TZ + loyalty XSS + SW precache CSS)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v231';
+// v232 (2026-05-13): Phase 89.19 — M5 XSS hardening (products onerror + staff onclick)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v232';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
