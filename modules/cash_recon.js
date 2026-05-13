@@ -22,6 +22,29 @@ const DENOMINATIONS = [
   { value: 1,    label: "1",     color: "#6b7280" }
 ];
 
+// Phase 89.18: pure helper สำหรับ unit test — แยก business logic ออกจาก DOM render
+// dateFn injection allows test ใช้ deterministic date conversion
+export function computeCashRecon({ state, date, dateFn = dateBkk }) {
+  const sales = (state.sales || []).filter(s =>
+    !(s.note || "").includes("[ลบแล้ว]") &&
+    dateFn(s.created_at) === date
+  );
+  const cashSales = sales.filter(s =>
+    (s.payment_method || "").includes("เงินสด") || s.payment_method === "cash"
+  );
+  const cashIn = cashSales.reduce((sum, s) => sum + Number(s.total_amount || 0), 0);
+  const transferSales = sales.filter(s => !cashSales.includes(s));
+  const transferIn = transferSales.reduce((sum, s) => sum + Number(s.total_amount || 0), 0);
+
+  const expenses = (state.expenses || []).filter(e => dateFn(e.expense_date) === date);
+  const cashExpenses = expenses.filter(e =>
+    !e.payment_method || e.payment_method === "cash" || (e.payment_method || "").includes("เงินสด")
+  );
+  const cashOut = cashExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
+
+  return { sales, cashSales, cashIn, transferSales, transferIn, expenses, cashExpenses, cashOut };
+}
+
 // State สำหรับวันที่เลือก (default = วันนี้ — Phase 89.9 H11: BKK time, ไม่ใช่ UTC)
 let _crDate = todayBkk();
 let _crDenoms = {}; // { value: count }
@@ -38,23 +61,9 @@ export function renderCashReconPage(ctx) {
   const openingCash = Number(saved?.opening || 0);
   const expectedCounted = Number(saved?.counted || 0);
 
-  // คำนวณยอดเงินสดเข้า-ออก จาก sales + expenses ของวันที่เลือก
-  // Phase 89.17 (M3): ใช้ dateBkk() แทน .slice(0,10) — กัน TZ mismatch
-  //   เดิม: created_at/expense_date เป็น timestamptz (UTC) → slice(0,10) = UTC date
-  //         _crDate = BKK date (Phase 89.9 fix แล้ว) — เทียบกัน → 22:00-23:59 BKK ตก UTC วันก่อน
-  //   ใหม่: dateBkk() แปลง timestamp → BKK date ก่อน compare → ตรงทุก hour ของวัน
-  const sales = (state.sales || []).filter(s =>
-    !(s.note || "").includes("[ลบแล้ว]") &&
-    dateBkk(s.created_at) === _crDate
-  );
-  const cashSales = sales.filter(s => (s.payment_method || "").includes("เงินสด") || s.payment_method === "cash");
-  const cashIn = cashSales.reduce((sum, s) => sum + Number(s.total_amount || 0), 0);
-  const transferSales = sales.filter(s => !cashSales.includes(s));
-  const transferIn = transferSales.reduce((sum, s) => sum + Number(s.total_amount || 0), 0);
-
-  const expenses = (state.expenses || []).filter(e => dateBkk(e.expense_date) === _crDate);
-  const cashExpenses = expenses.filter(e => !e.payment_method || e.payment_method === "cash" || (e.payment_method || "").includes("เงินสด"));
-  const cashOut = cashExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
+  // Phase 89.18: ใช้ computeCashRecon pure helper (unit-tested)
+  const recon = computeCashRecon({ state, date: _crDate });
+  const { sales, cashSales, cashIn, transferSales, transferIn, expenses, cashExpenses, cashOut } = recon;
 
   const expected = openingCash + cashIn - cashOut;
 

@@ -7,7 +7,7 @@
 
 ---
 
-## 5.43.27 (build 231) — 2026-05-13 🔍 Phase 89.18 — Audit batch (TZ + XSS + SW precache)
+## 5.43.27 (build 231) — 2026-05-13 🧪 Phase 89.18 — Audit batch + Test coverage hot-paths
 
 ### 3 bugs จาก full audit (4 ด้าน: security/correctness/architecture/performance)
 **Refunds TZ filter** ([refunds.js:42-43](modules/refunds.js:42))
@@ -23,12 +23,38 @@
 - Fix: เพิ่ม `phase4-design-system.css`, `phase4-components.css`, `doc-print.css`, `boot.js`, `selfheal.js`, `manifest.json`
 
 ### Test
-- 33/33 pass (no regression)
+- 71/71 pass (+38 tests ใหม่ครอบ hot-paths)
+
+### Test coverage hot-paths (Phase 4 ของ backlog)
+**[tests/cash_recon.test.js](tests/cash_recon.test.js)** — 10 tests
+- M3 TZ filter: late-night BKK sale (22:30, 00:30) ตรงวัน
+- payment method classification (เงินสด / cash / transfer / โอน / บัตร)
+- expense filter + null payment_method = cash legacy
+- deleted-marker filter ([ลบแล้ว])
+- amount string coercion
+
+**[tests/auto_post.test.js](tests/auto_post.test.js)** — 13 tests
+- M1 voidJvForSource silent-fail detection (RLS block → toast warn)
+- pre-check resilience (network error ไม่ block DELETE)
+- URL injection guard (sourceTable encoded)
+- _isAfterEffective effective date guard (2026-05-01 cutoff)
+
+**[tests/pos.test.js](tests/pos.test.js)** — 15 tests
+- calcVAT inclusive/exclusive math (7%, 10%)
+- VAT rounding drift (subtotal + vat === total)
+- round2 edge: strings, null, NaN, negatives, float precision
+- disabled VAT short-circuit
+
+### Refactor (no behavior change)
+- `cash_recon.js`: แตก `computeCashRecon()` pure helper ออกจาก renderCashReconPage — DOM render เรียก helper เดิม
+- `auto_post.js`: export `_isAfterEffective`
+- `pos.js`: export `round2`, `calcVAT`
 
 ### ผลกระทบ user
 - ✅ Refund report "30 วัน" / "90 วัน" รวมข้อมูลครบช่วงต้นวัน
 - ✅ ปิด stored XSS surface ใน loyalty history (note free text)
 - ✅ Offline mode สไตล์ไม่พังอีก (PWA install ใช้งานได้จริง)
+- ✅ Hot-path regression จะถูกจับโดย CI ก่อน ship (กัน Phase 89.13/89.16/89.17 repeat)
 
 ---
 
