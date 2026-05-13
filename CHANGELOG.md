@@ -7,6 +7,43 @@
 
 ---
 
+## 5.43.25 (build 229) — 2026-05-12 🚨 Phase 89.15b — Hotfix CSP regression + UI refresh bug
+
+### 2 ปัญหาที่ user แจ้ง
+
+**1. CSP block inline event handlers** (regression ของ M4 Phase 89.15 — build 226)
+- Console: `Executing inline event handler violates CSP directive: script-src 'self' ...` (16 errors)
+- Root cause: ผม drop `'unsafe-inline'` จาก `script-src` แต่ไม่ได้ inventory `onclick=...`, `onchange=...`, `onerror=...` ใน HTML strings ที่ JS modules render ผ่าน `innerHTML`/template literal
+- ผล: ปุ่ม / handler บางตัวใน modules ใช้ไม่ได้ (silently blocked)
+
+**2. UI refresh bug** — กดเก็บเงิน → DB + JV update ถูกต้อง แต่ status ค้าง "รออนุมัติ" ใน UI
+- Root cause: [receipts.js](modules/receipts.js) — `ctx.loadAllData()` fire-and-forget (ไม่ await) → `renderReceiptsPage()` รันด้วย state เก่า → display stale
+- User workaround เดิม: กด F5
+
+### Fix
+- **[_headers](_headers)** — restore `'unsafe-inline'` ใน `script-src` + `script-src-elem` (rollback M4) จนกว่าจะ refactor inline handlers ทั้งหมด
+- **[modules/receipts.js](modules/receipts.js)** — 4 paths ของ status change (bulk cancel/delete + single primary/fallback) เปลี่ยน `.catch()` fire-and-forget → `try { await loadAllData() } catch` → render ด้วย state ใหม่
+- Build bump 228 → 229 (4 sub-items)
+
+### Implications + recovery plan สำหรับ M4
+- M4 (drop unsafe-inline) **ยังไม่ complete** — ต้องเก็บไว้ทำใหม่หลัง refactor inline handlers
+- เพิ่ม task ใหม่: "Inventory + refactor `on*=` HTML attributes ใน modules → `addEventListener`" (Phase 5 หรือก่อนนั้น)
+- Grep target: `onclick=`, `onchange=`, `onerror=`, `onload=`, `oninput=`, `onsubmit=` ใน `modules/**/*.js`
+- หลัง refactor + ทดสอบครบ — drop unsafe-inline ใหม่อย่าง confident
+
+### Test plan
+1. Ctrl+Shift+R → build 229
+2. Console — ต้องไม่มี "CSP violation" สีแดงอีก
+3. กดเก็บเงิน 1 ใบ → status เปลี่ยนเป็น "ชำระแล้ว" **ทันที** (ไม่ต้อง F5)
+4. กดยกเลิกใบเสร็จ → status เปลี่ยนเป็น "ที่ยกเลิก" ทันที + ใบส่งสินค้ากลับ "รอดำเนินการ"
+
+### ตามจริง — ผมขอโทษ
+Phase 89.15 ผม drop unsafe-inline โดยไม่ inventory inline handlers ใน modules ก่อน → ผมก็เห็น 121 inline styles แล้วเตือนตัวเอง drop ของ style-src แต่ดันไม่ขยายไปคิด script-src ของ `on*=` event handlers (ที่กระจายมากกว่า inline `<script>` 2 จุด)
+
+Lesson: ก่อน drop CSP keyword — ต้อง grep **ทุก pattern ที่ keyword นั้นอนุญาต** (inline script + inline event handler + inline style + javascript: URL) ไม่ใช่แค่จุด explicit ที่เห็น
+
+---
+
 ## 5.43.24 (build 228) — 2026-05-12 💰 Phase 89.16 (M1) — voidJvForSource silent-fail detection (double-revenue risk)
 
 ### ปัญหา (จาก audit)

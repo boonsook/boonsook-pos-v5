@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v228 (2026-05-12): Phase 89.16 (M1) — voidJvForSource silent-fail detection (pre-check + toast on RLS-block)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v228';
+// v229 (2026-05-12): Phase 89.15b — Rollback CSP unsafe-inline (M4 regression) + UI refresh fix (await loadAllData)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v229';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

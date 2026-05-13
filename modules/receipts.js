@@ -371,8 +371,8 @@ export function renderReceiptsPage(ctx) {
     }
     _selectedIds.clear();
     window.App?.showToast?.(`ยกเลิกสำเร็จ ${ok}${fail ? `, ล้มเหลว ${fail}` : ''}`);
-    // Phase 45.11: non-blocking reload
-    if (ctx.loadAllData) ctx.loadAllData().catch(e => console.warn("[rc] reload", e));
+    // Phase 89.15b: await reload BEFORE render — เดิม fire-and-forget = UI stale หลัง bulk cancel
+    try { if (ctx.loadAllData) await ctx.loadAllData(); } catch(e) { console.warn("[rc] reload", e); }
     renderReceiptsPage(_ctx);
   });
 
@@ -414,8 +414,8 @@ export function renderReceiptsPage(ctx) {
     }
     _selectedIds.clear();
     window.App?.showToast?.(`ลบสำเร็จ ${ok}${fail ? `, ล้มเหลว ${fail} (RLS บล็อค?)` : ''}`);
-    // Phase 45.11: non-blocking reload
-    if (ctx.loadAllData) ctx.loadAllData().catch(e => console.warn("[rc] reload", e));
+    // Phase 89.15b: await reload BEFORE render — กัน UI stale หลัง bulk delete
+    try { if (ctx.loadAllData) await ctx.loadAllData(); } catch(e) { console.warn("[rc] reload", e); }
     renderReceiptsPage(_ctx);
   });
 
@@ -490,7 +490,8 @@ export function renderReceiptsPage(ctx) {
           }
         }
         // Phase 45.11: non-blocking reload
-    if (ctx.loadAllData) ctx.loadAllData().catch(e => console.warn("[rc] reload", e));
+    // Phase 89.15b: await reload BEFORE render — เดิม fire-and-forget → render ใช้ state เก่า → status ค้างใน UI
+    try { if (ctx.loadAllData) await ctx.loadAllData(); } catch(e) { console.warn("[rc] reload", e); }
         renderReceiptsPage(_ctx);
       } else {
         // Supabase client fallback
@@ -515,8 +516,8 @@ export function renderReceiptsPage(ctx) {
               }
             }
           }
-          // Phase 45.11: non-blocking reload
-    if (ctx.loadAllData) ctx.loadAllData().catch(e => console.warn("[rc] reload", e));
+          // Phase 89.15b: await reload BEFORE render — fallback path เดียวกับ primary
+          try { if (ctx.loadAllData) await ctx.loadAllData(); } catch(e) { console.warn("[rc] reload", e); }
           renderReceiptsPage(_ctx);
         } else {
           throw new Error(error.message);
