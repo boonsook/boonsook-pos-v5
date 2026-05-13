@@ -5,7 +5,7 @@
 // ═══════════════════════════════════════════════════════════
 import { renderSkeleton, renderEmpty, renderError } from "./ui_states.js";
 
-import { escHtml } from "./utils.js";
+import { escHtml, addDaysBkk } from "./utils.js";
 function money(n) {
   return new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n || 0));
 }
@@ -39,8 +39,9 @@ export async function renderRefundsPage(ctx) {
   const cfg = window.SUPABASE_CONFIG;
   const accessToken = window._sbAccessToken || cfg.anonKey;
   let cutoff = "";
-  if (_rfFilter === "30d") { const d = new Date(); d.setDate(d.getDate()-30); cutoff = `&created_at=gte.${d.toISOString()}`; }
-  else if (_rfFilter === "90d") { const d = new Date(); d.setDate(d.getDate()-90); cutoff = `&created_at=gte.${d.toISOString()}`; }
+  // Phase 89.18: ใช้ BKK midnight แทน UTC toISOString — เดิม filter 30 วันตก ~7-14 ชม. ของวันต้น
+  if (_rfFilter === "30d") { cutoff = `&created_at=gte.${addDaysBkk(-30)}T00:00:00%2B07:00`; }
+  else if (_rfFilter === "90d") { cutoff = `&created_at=gte.${addDaysBkk(-90)}T00:00:00%2B07:00`; }
 
   try {
     const res = await fetch(cfg.url + "/rest/v1/refunds?select=*" + cutoff + "&order=created_at.desc&limit=200", {

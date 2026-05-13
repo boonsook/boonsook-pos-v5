@@ -7,6 +7,31 @@
 
 ---
 
+## 5.43.27 (build 231) — 2026-05-13 🔍 Phase 89.18 — Audit batch (TZ + XSS + SW precache)
+
+### 3 bugs จาก full audit (4 ด้าน: security/correctness/architecture/performance)
+**Refunds TZ filter** ([refunds.js:42-43](modules/refunds.js:42))
+- เดิม: `d.toISOString()` UTC → filter 30 วันที่ปุ่ม "30 วัน" ตก ~7-14 ชม. ของวันต้นใน Asia/Bangkok
+- Fix: ใช้ `addDaysBkk(-30) + 'T00:00:00%2B07:00'` — start-of-day BKK ตรง
+
+**Loyalty history stored XSS** ([loyalty.js:563-571](modules/loyalty.js:563))
+- เดิม: `t.note` + `t.ref_type` + `t.ref_id` interpolate ลง innerHTML โดยไม่ escape — note เป็น free text จาก staff
+- Fix: ใช้ `escHtml()` ครอบทั้ง 3 fields
+
+**Service Worker precache ขาด CSS** ([sw.js:7-13](sw.js:7))
+- เดิม: precache แค่ `style.css` — offline ทำให้สไตล์ phase4 / doc-print หายหมด
+- Fix: เพิ่ม `phase4-design-system.css`, `phase4-components.css`, `doc-print.css`, `boot.js`, `selfheal.js`, `manifest.json`
+
+### Test
+- 33/33 pass (no regression)
+
+### ผลกระทบ user
+- ✅ Refund report "30 วัน" / "90 วัน" รวมข้อมูลครบช่วงต้นวัน
+- ✅ ปิด stored XSS surface ใน loyalty history (note free text)
+- ✅ Offline mode สไตล์ไม่พังอีก (PWA install ใช้งานได้จริง)
+
+---
+
 ## 5.43.26 (build 230) — 2026-05-12 🛡️ Phase 89.17 — Reliability batch (M2 + M3 + L2)
 
 ### 3 bugs จาก audit
