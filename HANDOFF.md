@@ -1,8 +1,65 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 12 พฤษภาคม 2026 (Phase 89.13 — Critical regression fix batch)
-**Version:** 5.43.18 (build 222) — Phase 89.13 (5 critical/high regression fixes)
-**Previous:** 5.43.17 (build 221) — Phase 89.12 (Error tracking via Supabase error_log)
+**อัปเดตล่าสุด:** 12 พฤษภาคม 2026 (Phase 89.17 — Reliability batch M2+M3+L2)
+**Version:** 5.43.26 (build 230) — Phase 89.17
+**Previous:** 5.43.25 (build 229) — Phase 89.15b (CSP rollback + UI refresh hotfix)
+
+---
+
+## 🗂️ Sprint Production Plan — สรุปสถานะ (12 พ.ค. 2026)
+
+User insisted "เอาตามจริง ไม่ชอบคนโกหก" → ผมเขียน honest sprint plan + เริ่มลุย. ครบ 7 phases ใน 1 วัน (89.13 → 89.17).
+
+### Production state ปัจจุบัน
+- **Build live:** 230 (verified `window.APP_BUILD === 230`)
+- **Tests:** 33/33 pass
+- **Migration SQL ที่รันไป:**
+  - `supabase-phase89-13b-fix-invoiced-status.sql` ✅ (rows fixed)
+  - `supabase-phase89-14-error-log-rate-limit.sql` ✅ (PG trigger active)
+- **No SQL pending**
+
+### Sprint progress
+| Issue | Phase | Status | File |
+|-------|-------|--------|------|
+| **C1** receipts.js `.catch` dead | 89.13 | ✅ verified | receipts.js |
+| **C2** sw.js CACHE_NAME stuck v206 | 89.13 | ✅ verified | sw.js |
+| **C3** error_reporter dedup race | 89.13 | ✅ | error_reporter.js |
+| **H1** JWT refresh single-flight | 89.13 | ✅ | main.js |
+| **H3** beforeSend throw loop | 89.13 | ✅ (covered by C3) | error_reporter.js |
+| **?v=** main.js cache buster stuck 218 | 89.13a hotfix | ✅ verified | index.html |
+| **enum typo** "invoiced" not in delivery_invoices.status | 89.13b hotfix | ✅ verified | receipts.js + SQL migration |
+| **M6** Auth-gate Gemini/SlipOK APIs | 89.14 | ✅ live | functions/_middleware.js |
+| **L4** Redact URL PII in error_log | 89.14 | ✅ live | error_reporter.js |
+| **M7** error_log spam protection | 89.14 | ✅ live + SQL ran | functions/api/log-error.js + SQL |
+| **M4 part 1** drop script-src unsafe-inline | 89.15 → rollback 89.15b | ⚠️ **PARTIAL** — selfheal/boot externalized but unsafe-inline restored | _headers + selfheal.js + boot.js |
+| **APP_BUILD global** (bonus bug from M4 work) | 89.15 + 89.15a hotfix | ✅ verified | selfheal.js (sync setter + querySelector fallback) |
+| **CSP regression** + **UI refresh after status change** | 89.15b hotfix | ✅ verified | _headers (rollback) + receipts.js (await loadAllData) |
+| **M1** voidJvForSource silent fail (double-revenue) | 89.16 | ✅ verified | auto_post.js (pre-check + toast) |
+| **M2** products.stock CAS divergence | 89.17 | ✅ live (just deployed) | main.js:3200 |
+| **M3** cash_recon.js TZ filter | 89.17 | ✅ live | cash_recon.js:42,51 |
+| **L2** stock_cas null === 0 retry forever | 89.17 | ✅ live | stock_cas.js:52 |
+
+### ⏳ Backlog ที่เหลือ
+| ID | Description | Severity | Estimate |
+|----|-------------|----------|----------|
+| **Phase 1.5** | Inventory + refactor inline `on*=` HTML event handlers in modules → addEventListener (pre-req to re-attempt M4 unsafe-inline drop) | Medium effort | ~1-2 days |
+| **M5** | `products.js:100` inline `onerror` XSS surface (escape pattern เปราะ) | Low–Med | ~30 min |
+| **Phase 4** | Unit tests for auto_post.js + pos.js checkout + receipts cancel + cash_recon | Medium | ~3-5 days |
+| **Phase 5** | Refactor HANDOFF.md (261KB → archive Phase 1-80) + CI auto-bump build | Low | ~1 day |
+| **M4 part 2** | Drop `style-src 'unsafe-inline'` (refactor 121 inline styles) | High effort | ~4-6 hours |
+
+### Memory rules อัพเดทใหม่ในรอบนี้ (สำหรับ session ใหม่)
+- `feedback_version_display_sync.md` — **4 sub-items** ที่ต้อง bump ทุก build (เดิมบอก 3, เพิ่ม `main.js?v=`)
+- `feedback_cross_check_schema.md` (ขยาย):
+  - **Verify enum VALUE** ก่อน PATCH (grep STATUS_LABELS) — ไม่ trust comment
+  - **Inventory ALL patterns ก่อน drop CSP keyword** — inline script + inline event handlers + javascript: URLs + inline styles
+- `feedback_autonomous_edits.md` (ขยาย) — **Anti-rapid-fire push:** ห้าม push commit ที่ 2 ติดกันถ้า commit ที่ 1 ยังไม่ verify (ยกเว้น hotfix regression)
+
+### บันทึกบทเรียนจาก session นี้ (ผมพลาดเอง)
+1. Phase 89.13 audit — เจอ pattern bug (.catch dead) แต่ไม่ verify enum value → propagate "invoiced" typo (Phase 89.6 ของเดิม) → ต้อง 89.13b hotfix
+2. Phase 89.13a — ลืม bump `main.js?v=` แม้ memory rule บอกชัด — ผม "อ่านผ่าน" → user แจ้ง regression
+3. Phase 89.15 — drop CSP `unsafe-inline` โดยไม่ inventory inline event handlers → 16 CSP violations + ปุ่มพัง → 89.15b emergency rollback
+4. Pattern: **rapid-fire push 5 builds ใน 1 ชม** → user เหนื่อย verify → memory rule "anti-rapid-fire" + WIP commit pattern
 
 ---
 
