@@ -49,7 +49,15 @@ export async function atomicDecrementStock({
       if (!Array.isArray(rows) || rows.length === 0) {
         return { ok: false, error: table + " row not found (id=" + rowId + ")" };
       }
-      before = Number(rows[0][field] || 0);
+      // Phase 89.17 (L2): distinguish null from 0
+      //   เดิม: `rows[0][field] || 0` → null treated as 0 → CAS PATCH `?field=eq.0` →
+      //         ถ้า DB จริง null → 0 rows match → retry forever
+      //   ใหม่: null/undefined field = uninitialized data → fail fast แทน infinite retry
+      const rawValue = rows[0][field];
+      if (rawValue == null) {
+        return { ok: false, error: `${table}.${field} is null (uninitialized) — admin should set initial value` };
+      }
+      before = Number(rawValue);
     } catch (e) {
       return { ok: false, error: "fetch error: " + (e?.message || String(e)) };
     }

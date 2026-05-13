@@ -7,6 +7,32 @@
 
 ---
 
+## 5.43.26 (build 230) — 2026-05-12 🛡️ Phase 89.17 — Reliability batch (M2 + M3 + L2)
+
+### 3 bugs จาก audit
+**M2 — `products.stock` CAS divergence** ([main.js:3200](main.js:3200))
+- เดิม: ถ้า `warehouse_stock` CAS fail → ยังรัน `products.stock` CAS ต่อ → 2 fields diverge (warehouse=X, products=X-qty) → ขายซ้ำได้ + retry over-deduct
+- Fix: `skipProductsCas = stocks.length > 0 && !dec.ok` → guard products CAS ถ้า warehouse fail (กัน divergence). กรณีไม่มี warehouse (legacy) ยังลด products เหมือนเดิม
+
+**M3 — `cash_recon.js` filter TZ mismatch** ([cash_recon.js:42, 51](modules/cash_recon.js:42))
+- เดิม: `String(s.created_at).slice(0,10) === _crDate` — `created_at` UTC vs `_crDate` BKK (Phase 89.9 fix) → ตอน 22:00-23:59 BKK ตก UTC วันก่อน → ขายเงินสดตกหายจาก cash recon
+- Fix: ใช้ `dateBkk(timestamp)` helper จาก [utils.js](modules/utils.js) — แปลง timestamptz → BKK date ก่อน compare → ตรงทุก hour
+- ครอบ sales + expenses (2 filters)
+
+**L2 — `stock_cas.js` null === 0** ([stock_cas.js:52](modules/stock_cas.js:52))
+- เดิม: `Number(rows[0][field] || 0)` → field=null treated as 0 → CAS PATCH `?field=eq.0` → DB null ไม่ match → retry forever → CAS contention error (false alarm)
+- Fix: explicit `if (rawValue == null) return { ok:false, error: "...uninitialized" }` — fail fast แทน infinite retry
+
+### Test
+- 33/33 pass (existing tests). Null case for stock_cas ครอบโดย bad-args/row-not-found tests indirectly — สามารถเพิ่ม test เฉพาะ null ใน Phase 4 ทีหลัง
+
+### ผลกระทบ user
+- ✅ Stock fields (warehouse vs products) จะไม่ diverge อีก
+- ✅ Cash reconciliation รวมยอดถูกแม้ขายช่วงดึก (22:00-23:59 BKK)
+- ✅ ถ้า field null → user ได้ error ที่ชัดเจน + actionable แทน "CAS contention" สับสน
+
+---
+
 ## 5.43.25 (build 229) — 2026-05-12 🚨 Phase 89.15b — Hotfix CSP regression + UI refresh bug
 
 ### 2 ปัญหาที่ user แจ้ง

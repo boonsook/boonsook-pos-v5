@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v229 (2026-05-12): Phase 89.15b — Rollback CSP unsafe-inline (M4 regression) + UI refresh fix (await loadAllData)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v229';
+// v230 (2026-05-12): Phase 89.17 — Reliability batch (M2 stock CAS divergence + M3 cash_recon TZ + L2 null=0 retry)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v230';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

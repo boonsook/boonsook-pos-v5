@@ -39,16 +39,20 @@ export function renderCashReconPage(ctx) {
   const expectedCounted = Number(saved?.counted || 0);
 
   // คำนวณยอดเงินสดเข้า-ออก จาก sales + expenses ของวันที่เลือก
+  // Phase 89.17 (M3): ใช้ dateBkk() แทน .slice(0,10) — กัน TZ mismatch
+  //   เดิม: created_at/expense_date เป็น timestamptz (UTC) → slice(0,10) = UTC date
+  //         _crDate = BKK date (Phase 89.9 fix แล้ว) — เทียบกัน → 22:00-23:59 BKK ตก UTC วันก่อน
+  //   ใหม่: dateBkk() แปลง timestamp → BKK date ก่อน compare → ตรงทุก hour ของวัน
   const sales = (state.sales || []).filter(s =>
     !(s.note || "").includes("[ลบแล้ว]") &&
-    String(s.created_at || "").slice(0, 10) === _crDate
+    dateBkk(s.created_at) === _crDate
   );
   const cashSales = sales.filter(s => (s.payment_method || "").includes("เงินสด") || s.payment_method === "cash");
   const cashIn = cashSales.reduce((sum, s) => sum + Number(s.total_amount || 0), 0);
   const transferSales = sales.filter(s => !cashSales.includes(s));
   const transferIn = transferSales.reduce((sum, s) => sum + Number(s.total_amount || 0), 0);
 
-  const expenses = (state.expenses || []).filter(e => String(e.expense_date || "").slice(0, 10) === _crDate);
+  const expenses = (state.expenses || []).filter(e => dateBkk(e.expense_date) === _crDate);
   const cashExpenses = expenses.filter(e => !e.payment_method || e.payment_method === "cash" || (e.payment_method || "").includes("เงินสด"));
   const cashOut = cashExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
 

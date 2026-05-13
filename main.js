@@ -3197,14 +3197,26 @@ async function _deductStockForSaleItem({ product, qty, orderNo }) {
 
   // อัพเดท products.stock legacy field — สำคัญเพราะ UI ดู field นี้ตอนเลือก "ทั้งหมด"
   // Phase 89.9 H10: ใช้ CAS เช่นกัน (มี race condition แบบเดียวกับ warehouse_stock)
-  const dec2 = await _atomicDecrementStock("products", product.id, qty);
-  const curStock = dec2.ok ? dec2.before : Number(product.stock || 0);
-  const newStock = dec2.ok ? dec2.after : (curStock - qty);
-  if (!dec2.ok) {
-    console.warn("[deductStock] products.stock CAS failed:", dec2.error);
-    showToast("⚠️ อัพเดทสต็อกสินค้าไม่สำเร็จ: " + dec2.error);
+  // Phase 89.17 (M2): ข้าม products.stock CAS ถ้า warehouse_stock CAS fail
+  //   เดิม: warehouse fail → products ยังลด → 2 fields diverge (warehouse=X, products=X-qty)
+  //   ใหม่: warehouse fail → skip products (legacy mirror ของ warehouse — ตัวเดิมก็ทำให้ตรง)
+  //   หมายเหตุ: stocks.length === 0 (ไม่มี warehouse) → ยัง CAS products ตามเดิม (fallback legacy)
+  let curStock, newStock;
+  const skipProductsCas = stocks.length > 0 && !dec.ok;
+  if (skipProductsCas) {
+    console.warn(`[deductStock] skip products.stock CAS (warehouse CAS failed — กัน 2 fields diverge)`);
+    curStock = Number(product.stock || 0);
+    newStock = curStock; // ไม่เปลี่ยน — ให้ user retry หรือ admin sync manually
   } else {
-    product.stock = newStock; // sync local cache
+    const dec2 = await _atomicDecrementStock("products", product.id, qty);
+    curStock = dec2.ok ? dec2.before : Number(product.stock || 0);
+    newStock = dec2.ok ? dec2.after : (curStock - qty);
+    if (!dec2.ok) {
+      console.warn("[deductStock] products.stock CAS failed:", dec2.error);
+      showToast("⚠️ อัพเดทสต็อกสินค้าไม่สำเร็จ: " + dec2.error);
+    } else {
+      product.stock = newStock; // sync local cache
+    }
   }
 
   if (stocks.length === 0) {
