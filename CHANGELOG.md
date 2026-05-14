@@ -7,6 +7,44 @@
 
 ---
 
+## 5.43.32 — DB migration (no build bump) — 2026-05-14 🩹 Phase 89.25 — Fix JV RLS for POS auto-post
+
+### Bug จาก smoke test build 236
+boonsuk admin1 (role: ช่าง) login → POS sale ฿10.00 → bill บันทึกได้, แต่ console error:
+```
+[auto_post] entry insert failed: HTTP 403
+{"code":"42501","message":"new row violates row-level security policy for table journal_entries"}
+```
+
+### Root cause
+- Phase 88.0 (`accounting-foundation.sql`) ตั้ง `je_admin` FOR ALL → admin เท่านั้น
+- Phase 88.1a-fix (`hotfix-rls.sql`) ตั้งใจ split policy ให้ INSERT ผ่านได้ถ้ามี source_table+source_id
+- **แต่ไฟล์ hotfix-rls.sql ไม่ได้รัน / ถูก revert / production ยังอยู่ที่ Phase 88.0**
+- ผล: technician POS sale → JV insert ตก RLS → P&L ขาดยอด
+
+### Fix
+**[supabase-phase89-25-fix-je-rls-pos.sql](supabase-phase89-25-fix-je-rls-pos.sql)** — re-apply 88.1a-fix policy แบบ targeted + idempotent
+- `journal_entries` — split: SELECT/UPDATE/DELETE admin-only, INSERT allow `source_table+source_id` (auto-post)
+- `journal_lines` — split: เหมือนกัน + INSERT check EXISTS journal_entries source
+- `account_mapping` — SELECT เปิด authenticated (client ต้องอ่าน mapping ก่อน decide debit/credit)
+- `NOTIFY pgrst 'reload schema'` ปิดท้าย
+
+### ⚠️ User action required (รัน 1 ครั้ง)
+1. Supabase Dashboard → SQL Editor → paste `supabase-phase89-25-fix-je-rls-pos.sql` → Run
+2. ตรวจ verify query ปลายไฟล์: ต้องได้ 10 rows (policies ที่ active)
+3. ลอง POS sale อีกครั้ง (login as ช่าง) → console ไม่ควรมี HTTP 403 อีก
+4. เช็คใน Accounting → สมุดรายวัน → JV ของ sale ใหม่ต้องโผล่
+
+### Re-run safe
+ทุก DROP ใช้ IF EXISTS — รันซ้ำได้ไม่ crash
+
+### ผลกระทบ user
+- ✅ Technician/sales role → POS auto-post JV ทำงาน → P&L ตรง
+- ✅ Admin permissions ไม่เปลี่ยน
+- ✅ Manual JV (no source) ยังจำกัด admin เหมือนเดิม
+
+---
+
 ## 5.43.32 (build 236) — 2026-05-14 👤 Phase 89.24 — Non-admin sees own sales only
 
 ### User request
