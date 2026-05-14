@@ -14,7 +14,7 @@ export function renderSettingsStore(el, ctx, goBack, navigate) {
 
   el.innerHTML = `
     <div class="set-header">
-      <button class="set-back" onclick="document.dispatchEvent(new CustomEvent('navigate-settings', {detail: 'main'}))">← ย้อนกลับ</button>
+      <button class="set-back" id="store-back-btn">← ย้อนกลับ</button>
       <h2>ข้อมูลร้านค้า</h2>
     </div>
     <div class="set-content">
@@ -40,10 +40,15 @@ export function renderSettingsStore(el, ctx, goBack, navigate) {
 
       <div style="display:flex;gap:10px">
         <button id="saveStoreBtn" class="btn btn-primary" style="flex:1">บันทึก</button>
-        <button class="btn btn-secondary" style="flex:1" onclick="document.dispatchEvent(new CustomEvent('navigate-settings', {detail: 'main'}))">ยกเลิก</button>
+        <button id="store-cancel-btn" class="btn btn-secondary" style="flex:1">ยกเลิก</button>
       </div>
     </div>
   `;
+
+  // Phase 89.23: nav buttons ผ่าน addEventListener (เลิก inline onclick="document.dispatchEvent(...)")
+  const navMain = () => document.dispatchEvent(new CustomEvent('navigate-settings', { detail: 'main' }));
+  document.getElementById('store-back-btn')?.addEventListener('click', navMain);
+  document.getElementById('store-cancel-btn')?.addEventListener('click', navMain);
 
   // Event listeners
   document.getElementById('saveStoreBtn')?.addEventListener('click', async (e) => {

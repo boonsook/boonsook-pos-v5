@@ -229,7 +229,7 @@ export function renderLoyaltyPage(ctx) {
         <div style="background: white; border-radius: 8px; margin: 50px auto 20px; max-width: 600px; max-height: calc(100vh - 80px); overflow-y: auto; padding-bottom: 20px;">
           <div style="padding: 20px; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center;">
             <h3 id="loyalty-history-title" style="margin: 0;">ประวัติแต้ม</h3>
-            <button onclick="document.getElementById('loyalty-history-modal').style.display='none'" style="background: none; border: none; font-size: 20px; cursor: pointer; color: #999;">✕</button>
+            <button id="loyalty-history-close" style="background: none; border: none; font-size: 20px; cursor: pointer; color: #999;">✕</button>
           </div>
           <div id="loyalty-history-content" style="padding: 20px;"></div>
         </div>
@@ -238,6 +238,12 @@ export function renderLoyaltyPage(ctx) {
   `;
 
   container.innerHTML = html;
+
+  // Phase 89.23: history modal close button (was inline onclick)
+  document.getElementById('loyalty-history-close')?.addEventListener('click', () => {
+    const m = document.getElementById('loyalty-history-modal');
+    if (m) m.style.display = 'none';
+  });
 
   // Tab switching
   document.querySelectorAll('.loyalty-tab-btn').forEach(btn => {

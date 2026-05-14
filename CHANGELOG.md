@@ -7,6 +7,49 @@
 
 ---
 
+## 5.43.31 (build 235) — 2026-05-14 🧹 Phase 89.23 — Inline handler sweep iter #1
+
+### Refactor — 13 inline `on*=` handlers → `addEventListener` (CSP M4 pre-req)
+Convert event handlers from inline HTML attribute to programmatic binding (no behavior change):
+
+**[loyalty.js](modules/loyalty.js)** — 1 handler
+- history modal close (`id=loyalty-history-close`) — เลิก `onclick="document.getElementById(...).style.display='none'"`
+
+**[staff.js](modules/staff.js)** — 4 handlers
+- 4 × `<button class="staff-modal-close-btn">` — single `querySelectorAll` + addEventListener loop
+- เลิก global `window.__staffCloseModal` (ใน edit modal + PIN modal)
+
+**[auth.js](modules/auth.js)** — 3 handlers
+- chip login/logout indicator (id=`__auth-chip-login` / `__auth-chip-logout`)
+- "← เลือกคนอื่น" button (id=`__staff-list-back`)
+- เลิก inline `onclick="window.__authLogout && window.__authLogout()"` pattern
+- Bonus: escHtml ครอบ `staff.name` ใน chip render (defense-in-depth)
+
+**[expenses.js](modules/expenses.js)** — 2 handlers
+- AutoKey OCR error state — 2 × "← กลับ" button (id=`ak-back-btn-1`, `ak-back-btn-2`)
+
+**[settings/store.js](modules/settings/store.js)** — 2 handlers
+- "← ย้อนกลับ" + "ยกเลิก" → shared `navMain` handler
+
+**[accounting/backfill.js](modules/accounting/backfill.js)** — 1 handler
+- "📒 สมุดรายวัน" link (id=`bf-go-journals`)
+
+**[accounting/opening_balance.js](modules/accounting/opening_balance.js)** — 2 handlers
+- 2 × success-screen nav link (id=`ob-go-journals`, `ob-go-balance`)
+
+### เหลือใน sweep รอบหน้า (ไม่กระทบ M4)
+- 7 × `onerror="this.style.display='none'"` / `this.src='./icons/logo.svg'` — constant strings, ไม่มี interpolation, ไม่ block CSP M4 ถ้า declare `style-src` ผ่อนผัน
+- 1 × `products.js:1329` — inside print preview popup (separate document context)
+
+### Test
+- 71/71 pass — node syntax check ผ่าน 7 ไฟล์
+
+### ผลกระทบ user
+- ✅ ฟังก์ชั่นเหมือนเดิม 100% — pure refactor
+- ✅ ปลด CSP M4 path — เหลือแค่ const-only inline handlers + popup context
+
+---
+
 ## docs (no build bump) — 2026-05-13 📚 Phase 89.22 — HANDOFF archive Phase 1-75
 
 ### Refactor — split HANDOFF.md (261 KB) into 2 files

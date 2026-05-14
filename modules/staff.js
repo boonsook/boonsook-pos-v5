@@ -220,7 +220,7 @@ async function openModal(staffId = null) {
       <h3 style="margin:0;font-size:16px;font-weight:600">
         ${existing ? '✏️ แก้ไขพนักงาน' : '➕ เพิ่มพนักงานใหม่'}
       </h3>
-      <button onclick="window.__staffCloseModal()"
+      <button class="staff-modal-close-btn"
         style="background:none;border:none;font-size:18px;cursor:pointer;color:#aaa;
                padding:2px 6px;border-radius:4px">✕</button>
     </div>
@@ -260,7 +260,7 @@ async function openModal(staffId = null) {
                                border:1px solid #fcc"></div>
 
       <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:4px">
-        <button type="button" onclick="window.__staffCloseModal()"
+        <button type="button" class="staff-modal-close-btn"
           style="padding:9px 18px;border:1px solid #ddd;border-radius:8px;
                  background:#fff;cursor:pointer;font-size:14px">ยกเลิก</button>
         <button type="submit" id="sf-submit"
@@ -274,7 +274,10 @@ async function openModal(staffId = null) {
 
   showModal();
 
-  window.__staffCloseModal = closeModal;
+  // Phase 89.23: ผูก close button ผ่าน addEventListener — เลิก window.__staffCloseModal global
+  document.querySelectorAll('.staff-modal-close-btn').forEach(b =>
+    b.addEventListener('click', closeModal)
+  );
 
   document.getElementById('staff-form').addEventListener('submit', async e => {
     e.preventDefault();
@@ -330,7 +333,7 @@ async function openChangePINModal(staffId, staffName) {
     <div style="padding:20px 22px;border-bottom:1px solid #eee;
                 display:flex;justify-content:space-between;align-items:center">
       <h3 style="margin:0;font-size:16px;font-weight:600">🔑 เปลี่ยน PIN</h3>
-      <button onclick="window.__staffCloseModal()"
+      <button class="staff-modal-close-btn"
         style="background:none;border:none;font-size:18px;cursor:pointer;color:#aaa">✕</button>
     </div>
     <div style="padding:20px 22px">
@@ -349,7 +352,7 @@ async function openChangePINModal(staffId, staffName) {
       </div>
       <div id="pin-err" style="color:#e74c3c;font-size:13px;display:none;margin-bottom:10px"></div>
       <div style="display:flex;gap:10px;justify-content:flex-end">
-        <button onclick="window.__staffCloseModal()"
+        <button class="staff-modal-close-btn"
           style="padding:9px 18px;border:1px solid #ddd;border-radius:8px;
                  background:#fff;cursor:pointer;font-size:14px">ยกเลิก</button>
         <button id="pin-save-btn"
@@ -360,7 +363,10 @@ async function openChangePINModal(staffId, staffName) {
     </div>`;
 
   showModal();
-  window.__staffCloseModal = closeModal;
+  // Phase 89.23: ผูก close button ผ่าน addEventListener — เลิก window.__staffCloseModal global
+  document.querySelectorAll('.staff-modal-close-btn').forEach(b =>
+    b.addEventListener('click', closeModal)
+  );
   // Phase 89.19 (M5): bind ผ่าน addEventListener — เลิก onclick="...'${staffId}'..." (template injection surface)
   const savePIN = async () => {
     const np = document.getElementById('pin-new').value;

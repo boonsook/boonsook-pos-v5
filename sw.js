@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v234 (2026-05-13): Phase 89.21 — Code-split iteration #2 (25 more modules lazy, ~540KB extra)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v234';
+// v235 (2026-05-14): Phase 89.23 — Inline handler sweep iter #1 (13 handlers → addEventListener)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v235';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

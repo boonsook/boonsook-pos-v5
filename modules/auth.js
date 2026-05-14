@@ -120,21 +120,27 @@ function _renderIndicator() {
   const staff = getCurrentStaff();
   if (staff) {
     el.innerHTML = `
-      <span class="staff-chip" title="คลิกเพื่อออกจากระบบ"
-            onclick="window.__authLogout && window.__authLogout()"
+      <span id="__auth-chip-logout" class="staff-chip" title="คลิกเพื่อออกจากระบบ"
             style="display:inline-flex;align-items:center;gap:5px;
                    font-size:12px;cursor:pointer;padding:3px 8px;
                    border-radius:12px;border:1px solid #ddd;background:#fafafa">
-        ${ROLE_EMOJI[staff.role] || '👤'} ${staff.name}
+        ${ROLE_EMOJI[staff.role] || '👤'} ${escHtml(staff.name)}
         <span style="color:#aaa;font-size:11px">ออก</span>
       </span>`;
+    // Phase 89.23: bind chips ผ่าน addEventListener (เลิก inline onclick)
+    document.getElementById('__auth-chip-logout')?.addEventListener('click', () => {
+      window.__authLogout && window.__authLogout();
+    });
   } else {
     el.innerHTML = `
-      <span onclick="window.__authLogin && window.__authLogin()"
+      <span id="__auth-chip-login"
             style="font-size:12px;cursor:pointer;color:#e74c3c;padding:3px 8px;
                    border-radius:12px;border:1px solid #fcc;background:#fff9f9">
         🔑 เข้าสู่ระบบ
       </span>`;
+    document.getElementById('__auth-chip-login')?.addEventListener('click', () => {
+      window.__authLogin && window.__authLogin();
+    });
   }
 }
 
@@ -224,7 +230,7 @@ export function showStaffLogin() {
             PIN ไม่ถูกต้อง กรุณาลองใหม่
           </div>
 
-          <button onclick="__showStaffList()"
+          <button id="__staff-list-back"
             style="width:100%;margin-top:12px;background:none;border:none;
                    color:#aaa;font-size:12px;cursor:pointer;padding:6px 0">
             ← เลือกคนอื่น
@@ -247,7 +253,8 @@ export function showStaffLogin() {
       document.getElementById('__pinsec').style.display = 'none';
       updateDots();
     }
-    window.__showStaffList = showStaffList;
+    // Phase 89.23: bind "เลือกคนอื่น" button ผ่าน addEventListener (เลิก inline onclick="__showStaffList()")
+    document.getElementById('__staff-list-back')?.addEventListener('click', showStaffList);
 
     function showPinPad(staff) {
       selected = staff;
