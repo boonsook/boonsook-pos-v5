@@ -1,14 +1,21 @@
 // Boonsook POS V5 Service Worker
-// v230 (2026-05-12): Phase 89.17 — Reliability batch (M2 stock CAS divergence + M3 cash_recon TZ + L2 null=0 retry)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v230';
+// v234 (2026-05-13): Phase 89.21 — Code-split iteration #2 (25 more modules lazy, ~540KB extra)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v234';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
+// Phase 89.18: เพิ่ม CSS ที่ index.html อ้างถึง — เดิม offline สไตล์พังเพราะ precache ตก
 const PRECACHE_URLS = [
   './',
   './index.html',
   './style.css',
+  './phase4-design-system.css',
+  './phase4-components.css',
+  './doc-print.css',
   './main.js',
+  './boot.js',
+  './selfheal.js',
+  './manifest.json',
   './icons/logo.svg'
 ];
 

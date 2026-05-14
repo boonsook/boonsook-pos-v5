@@ -7,6 +7,178 @@
 
 ---
 
+## docs (no build bump) — 2026-05-13 📚 Phase 89.22 — HANDOFF archive Phase 1-75
+
+### Refactor — split HANDOFF.md (261 KB) into 2 files
+- **[HANDOFF.md](HANDOFF.md)** (now 149 KB, -43%): keep Phase 80+ + reference sections (config, schema, gotchas, cheat sheet)
+- **[HANDOFF_ARCHIVE.md](HANDOFF_ARCHIVE.md)** (new, 123 KB): Phase 1 → 75 history (2,045 lines)
+- Cross-link both ways
+
+### ผลกระทบ
+- ✅ ลด context load สำหรับ next session (active handoff = HANDOFF.md เท่านั้น)
+- ✅ ไม่กระทบ runtime / build — pure doc reorg
+- ✅ Phase history ยังครบ — แค่อยู่คนละไฟล์
+
+---
+
+## 5.43.30 (build 234) — 2026-05-13 ⚡ Phase 89.21 — Code-split iteration #2 (+25 modules, ~540KB extra)
+
+### Refactor — extend LAZY_ROUTES table จาก 19 → 44 routes (pattern เดิมจาก 89.20)
+**[main.js](main.js)** — เพิ่ม 25 routes ใน LAZY_ROUTES + ลบ 25 static imports + ลบ 25 dispatcher `if` lines
+
+### Lazy modules ใหม่ (25 ตัว, ~540KB รวม)
+**Admin reports + ops (10):**
+- `receipts.js` (77KB), `delivery_invoices.js` (57KB), `expenses.js` (53KB)
+- `profit_report.js`, `audit_log.js`, `departments.js`
+- `payroll_overview.js`, `expense_overview.js`, `profit_by_product.js`, `quote_templates.js`
+
+**Stock ops (5):** `stock_value`, `dead_stock`, `stock_count`, `stock_in_wizard`, `serials`
+
+**Finance/customer (5):** `cash_recon`, `loyalty`, `recurring_expenses`, `credit_tracker`, `refunds`
+
+**Reports (3):** `top_customers`, `sales_heatmap`, `calendar`
+
+**Utility (2):** `btu_calculator`, `service_request`
+
+### Eager modules ที่เหลือ (landing/boot-critical)
+- `dashboard`, `pos`, `products`, `sales`, `customers`, `quotations`, `service_jobs`, `settings`
+- `stock_movements` (operations frequent)
+- `service_form` (SERVICE_TYPES used at module-eval)
+- `tasks`, `birthdays`, `warranty_report` (boot-time check functions)
+- `line_notify`, `permission_matrix`, `help_tutor`, `validators`, `auth`, `stock_cas`, `error_reporter` (shared infra)
+- `accounting/auto_post.js` (used in POS checkout flow)
+
+### Test
+- 71/71 pass — node syntax check ✅
+- ไม่มี stale render* identifiers
+
+### ผลกระทบ user
+- ✅ First load ลดเพิ่มอีก ~540KB (สะสมจาก 89.20 → ~1.1MB shifted off first-load)
+- ✅ main.js shrink: 252KB → ประมาณ 70-80KB (estimated)
+- ✅ Page เพิ่งเข้าครั้งแรก → +50-200ms loading; cache หลังจากนั้น
+
+### Smoke test หลัง deploy
+1. **Footer** เห็น `5.43.30 (build 234)`
+2. **Network tab** — main.js?v=234 ขนาดเล็กกว่า 232 มาก (60-70% reduction expected)
+3. **Eager routes** (dashboard/pos/products/sales) → ยังโหลดเร็วเหมือนเดิม
+4. **Lazy routes** (เช่น receipts, expenses, calendar, cash_recon) → ครั้งแรก network show เอ็กซ์ตร้า request, ครั้งที่ 2 เร็ว
+
+---
+
+## 5.43.29 (build 233) — 2026-05-13 ⚡ Phase 89.20 — Code-split first-load (~550KB shifted to on-demand)
+
+### Refactor — lazy-load admin/service-only page modules
+**[main.js](main.js)** — 4 จุด:
+1. ลบ static imports 18 modules (9 service+admin + 9 accounting)
+2. เพิ่ม `_lazyMod` Map + `_lazyImport()` (cache promise per path — load ครั้งเดียวต่อ session)
+3. เพิ่ม `LAZY_ROUTES` map + `_renderLazy()` dispatcher
+4. `async showRoute()` + `if (await _renderLazy(route, ctx)) return;` ที่หัว dispatcher
+5. Logout — `clearCustomerDashboardState` เรียกเฉพาะถ้า module loaded แล้ว (no force-load)
+
+### Lazy modules (18 ตัว, ~550KB รวม)
+**Service/Admin heavy (9):**
+- `customer_dashboard.js` (72KB), `solar.js` (46KB), `ac_install.js` (77KB)
+- `error_codes.js` (124KB), `error_codes_fridge.js` (35KB), `error_codes_washer.js` (34KB)
+- `payroll.js` (46KB), `ai_sales.js` (66KB), `ac_shop.js` (44KB)
+
+**Accounting (9):**
+- `accounting/journals.js`, `journal_form.js`, `coa.js`, `backfill.js`
+- `trial_balance.js`, `profit_loss.js`, `balance_sheet.js`, `opening_balance.js`
+- `export_bundle.js`, `periods.js`
+- (`auto_post.js` ยัง eager — ใช้ใน POS checkout flow)
+
+### Test
+- 71/71 pass — node syntax check ผ่าน
+- ไม่มี stale render* references
+
+### ผลกระทบ user
+- ✅ First load ลด ~550KB JS (จาก 252KB main.js + 1.13MB modules → main bundle เล็กลง)
+- ✅ Page transition ครั้งแรกของ lazy route → +50-200ms loading (browser cache หลังจากนั้น)
+- ✅ ทุก route ครั้งที่ 2+ ใน session เร็วเท่าเดิม (promise cache)
+
+### Smoke test หลัง deploy
+1. กดเข้าหน้า "ใบงานช่าง → ข้อมูลรหัสช่าง (error codes)" — โหลดช้านิดครั้งแรก, เร็วครั้งต่อไป
+2. กดเข้าหน้า "บัญชี → สมุดรายวัน" → ทุก accounting subpage โหลดเฉพาะตอนเข้า
+3. Network tab — main.js?v=233 size ลดลง ~30-40% เทียบ build 232
+4. Logout → ไม่มี error console
+
+---
+
+## 5.43.28 (build 232) — 2026-05-13 🔒 Phase 89.19 — M5 XSS hardening (products + staff)
+
+### 2 จุด refactor — เลิกใช้ JS template injection ผ่าน inline HTML attribute
+**products.js getProductAvatar** ([products.js:98-108](modules/products.js:98))
+- เดิม: `onerror="this.style.display='none';this.parentElement.innerHTML='${escHtml(letter)}'..."` — JS string ภายใน HTML attribute ผ่าน `${escHtml(...)}` interpolation
+  - single char ผ่าน escHtml ไม่ exploit ตรง ๆ แต่ pattern เปราะ (สามชั้น escape: JS-in-HTML-in-template)
+  - block CSP M4 path (drop `script-src 'unsafe-inline'`)
+- ใหม่: CSS layering — letter span absolute underneath, img absolute บนทับ. `onerror="this.remove()"` constant (no interpolation)
+- [style.css:741+](style.css:741): เพิ่ม `.prod-avatar-img`, `.prod-avatar-letter`, `.prod-avatar-photo` overlay rules
+
+**staff.js openChangePINModal** ([staff.js:355](modules/staff.js:355))
+- เดิม: `onclick="window.__savePIN('${staffId}')"` — staffId จาก DB interpolate ลง inline JS
+- ใหม่: `addEventListener('click', savePIN)` หลัง modal render — staffId capture ผ่าน closure, ไม่ต้อง global function
+
+### Test
+- 71/71 pass (no regression)
+
+### ผลกระทบ user
+- ✅ ปิด XSS surface ที่ HANDOFF backlog M5 ระบุไว้
+- ✅ Avatar fallback ยังทำงานเหมือนเดิม (letter โผล่เมื่อ img โหลดไม่ขึ้น)
+- ✅ ลด inline JS interpolation จุดเปราะ → ปูทาง CSP M4 (drop unsafe-inline)
+
+---
+
+## 5.43.27 (build 231) — 2026-05-13 🧪 Phase 89.18 — Audit batch + Test coverage hot-paths
+
+### 3 bugs จาก full audit (4 ด้าน: security/correctness/architecture/performance)
+**Refunds TZ filter** ([refunds.js:42-43](modules/refunds.js:42))
+- เดิม: `d.toISOString()` UTC → filter 30 วันที่ปุ่ม "30 วัน" ตก ~7-14 ชม. ของวันต้นใน Asia/Bangkok
+- Fix: ใช้ `addDaysBkk(-30) + 'T00:00:00%2B07:00'` — start-of-day BKK ตรง
+
+**Loyalty history stored XSS** ([loyalty.js:563-571](modules/loyalty.js:563))
+- เดิม: `t.note` + `t.ref_type` + `t.ref_id` interpolate ลง innerHTML โดยไม่ escape — note เป็น free text จาก staff
+- Fix: ใช้ `escHtml()` ครอบทั้ง 3 fields
+
+**Service Worker precache ขาด CSS** ([sw.js:7-13](sw.js:7))
+- เดิม: precache แค่ `style.css` — offline ทำให้สไตล์ phase4 / doc-print หายหมด
+- Fix: เพิ่ม `phase4-design-system.css`, `phase4-components.css`, `doc-print.css`, `boot.js`, `selfheal.js`, `manifest.json`
+
+### Test
+- 71/71 pass (+38 tests ใหม่ครอบ hot-paths)
+
+### Test coverage hot-paths (Phase 4 ของ backlog)
+**[tests/cash_recon.test.js](tests/cash_recon.test.js)** — 10 tests
+- M3 TZ filter: late-night BKK sale (22:30, 00:30) ตรงวัน
+- payment method classification (เงินสด / cash / transfer / โอน / บัตร)
+- expense filter + null payment_method = cash legacy
+- deleted-marker filter ([ลบแล้ว])
+- amount string coercion
+
+**[tests/auto_post.test.js](tests/auto_post.test.js)** — 13 tests
+- M1 voidJvForSource silent-fail detection (RLS block → toast warn)
+- pre-check resilience (network error ไม่ block DELETE)
+- URL injection guard (sourceTable encoded)
+- _isAfterEffective effective date guard (2026-05-01 cutoff)
+
+**[tests/pos.test.js](tests/pos.test.js)** — 15 tests
+- calcVAT inclusive/exclusive math (7%, 10%)
+- VAT rounding drift (subtotal + vat === total)
+- round2 edge: strings, null, NaN, negatives, float precision
+- disabled VAT short-circuit
+
+### Refactor (no behavior change)
+- `cash_recon.js`: แตก `computeCashRecon()` pure helper ออกจาก renderCashReconPage — DOM render เรียก helper เดิม
+- `auto_post.js`: export `_isAfterEffective`
+- `pos.js`: export `round2`, `calcVAT`
+
+### ผลกระทบ user
+- ✅ Refund report "30 วัน" / "90 วัน" รวมข้อมูลครบช่วงต้นวัน
+- ✅ ปิด stored XSS surface ใน loyalty history (note free text)
+- ✅ Offline mode สไตล์ไม่พังอีก (PWA install ใช้งานได้จริง)
+- ✅ Hot-path regression จะถูกจับโดย CI ก่อน ship (กัน Phase 89.13/89.16/89.17 repeat)
+
+---
+
 ## 5.43.26 (build 230) — 2026-05-12 🛡️ Phase 89.17 — Reliability batch (M2 + M3 + L2)
 
 ### 3 bugs จาก audit

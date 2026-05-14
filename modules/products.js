@@ -95,9 +95,18 @@ function getLetterAvatar(name) {
 }
 
 // ★ ใช้รูปสินค้า (image_url) ถ้ามี ไม่งั้น fallback letter avatar
+// Phase 89.19 (M5): refactor — letter อยู่ underneath, img layered on top
+//   เดิม: onerror="...innerHTML='${escHtml(letter)}'..." — JS string ใน HTML attr ผ่าน template ${...}
+//         single char ผ่าน escHtml ไม่ exploitable ตรง ๆ แต่ pattern เปราะ + breaks CSP M4
+//   ใหม่: letter render เป็น background layer, img absolute บนทับ, onerror constant (this.remove())
+//         data ทั้งหมดถูก escHtml — ไม่มี interpolation ภายใน inline JS
 function getProductAvatar(p) {
   const img = String(p?.image_url || "").trim();
-  if (img) return `<div class="prod-avatar" style="background:#fff;padding:0;overflow:hidden"><img src="${escHtml(img)}" alt="" style="width:100%;height:100%;object-fit:cover" onerror="this.style.display='none';this.parentElement.style.background='${getAvatarColor(p.name)}';this.parentElement.innerHTML='${escHtml(String(p.name || '?').trim().charAt(0).toUpperCase())}'" /></div>`;
+  if (img) {
+    const letter = String(p?.name || "?").trim().charAt(0).toUpperCase();
+    const color = getAvatarColor(p?.name);
+    return `<div class="prod-avatar prod-avatar-img" style="background:${color}"><span class="prod-avatar-letter">${escHtml(letter)}</span><img src="${escHtml(img)}" alt="" class="prod-avatar-photo" onerror="this.remove()" /></div>`;
+  }
   return getLetterAvatar(p.name);
 }
 

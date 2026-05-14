@@ -560,7 +560,11 @@ function showPointHistory(customerId, loyaltyPoints, customers, ctx) {
       const rowBg = idx % 2 === 0 ? 'white' : '#fafafa';
       const typeLabel = t.type === 'earn' ? 'เพิ่มแต้ม' : 'แลกแต้ม';
       const typeColor = t.type === 'earn' ? '#52c41a' : '#ff4d4f';
-      const refLabel = t.ref_id ? `${t.ref_type} #${t.ref_id}` : t.ref_type || '-';
+      // Phase 89.18: escape ref_type / ref_id / note (stored XSS surface — note เป็น free text)
+      const refType = escHtml(t.ref_type || '');
+      const refId = escHtml(t.ref_id || '');
+      const refLabel = t.ref_id ? `${refType} #${refId}` : (refType || '-');
+      const note = t.note ? escHtml(t.note) : '-';
 
       content += `
         <tr style="background: ${rowBg}; border-bottom: 1px solid #eee;">
@@ -568,7 +572,7 @@ function showPointHistory(customerId, loyaltyPoints, customers, ctx) {
           <td style="padding: 10px; text-align: left; color: ${typeColor}; font-weight: bold;">${typeLabel}</td>
           <td style="padding: 10px; text-align: right; color: ${typeColor}; font-weight: bold;">${t.points.toLocaleString('th-TH')}</td>
           <td style="padding: 10px; text-align: left; font-size: 12px; color: #666;">${refLabel}</td>
-          <td style="padding: 10px; text-align: left; font-size: 12px; color: #666;">${t.note || '-'}</td>
+          <td style="padding: 10px; text-align: left; font-size: 12px; color: #666;">${note}</td>
         </tr>
       `;
     });

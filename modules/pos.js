@@ -68,7 +68,8 @@ let selectedBankIdx = 0;
 // Phase 89.2: helper round-to-2-decimals
 // กัน float drift: 0.1 + 0.2 = 0.30000000000000004 → round2(...) = 0.3
 // ═══════════════════════════════════════════════════════════
-function round2(n) {
+// Phase 89.18: export for unit test
+export function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
@@ -80,7 +81,8 @@ function round2(n) {
  * @param {object} paymentInfo - state.paymentInfo
  * @returns {{subtotal:number, vat:number, total:number, rate:number, enabled:boolean, mode:string}}
  */
-function calcVAT(amount, paymentInfo) {
+// Phase 89.18: export for unit test
+export function calcVAT(amount, paymentInfo) {
   const rate = Number(paymentInfo?.vatRate || 0);
   const enabled = !!paymentInfo?.vatEnabled && rate > 0;
   if (!enabled) {

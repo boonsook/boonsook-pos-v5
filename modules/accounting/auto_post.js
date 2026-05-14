@@ -153,7 +153,8 @@ async function _getMappings() {
   }
 }
 
-function _isAfterEffective(dateStr) {
+// Phase 89.18: export สำหรับ unit test
+export function _isAfterEffective(dateStr) {
   if (!dateStr) return false;
   return String(dateStr).slice(0, 10) >= ACCOUNTING_EFFECTIVE_DATE;
 }
