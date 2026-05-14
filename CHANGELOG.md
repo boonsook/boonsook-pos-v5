@@ -7,6 +7,20 @@
 
 ---
 
+## docs (no build bump) — 2026-05-13 📚 Phase 89.22 — HANDOFF archive Phase 1-75
+
+### Refactor — split HANDOFF.md (261 KB) into 2 files
+- **[HANDOFF.md](HANDOFF.md)** (now 149 KB, -43%): keep Phase 80+ + reference sections (config, schema, gotchas, cheat sheet)
+- **[HANDOFF_ARCHIVE.md](HANDOFF_ARCHIVE.md)** (new, 123 KB): Phase 1 → 75 history (2,045 lines)
+- Cross-link both ways
+
+### ผลกระทบ
+- ✅ ลด context load สำหรับ next session (active handoff = HANDOFF.md เท่านั้น)
+- ✅ ไม่กระทบ runtime / build — pure doc reorg
+- ✅ Phase history ยังครบ — แค่อยู่คนละไฟล์
+
+---
+
 ## 5.43.30 (build 234) — 2026-05-13 ⚡ Phase 89.21 — Code-split iteration #2 (+25 modules, ~540KB extra)
 
 ### Refactor — extend LAZY_ROUTES table จาก 19 → 44 routes (pattern เดิมจาก 89.20)
