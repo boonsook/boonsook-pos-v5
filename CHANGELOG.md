@@ -7,6 +7,40 @@
 
 ---
 
+## 5.43.32 — Audit query (no build bump) — 2026-05-14 🔍 Phase 89.26 — Audit missing JVs
+
+### Purpose
+หลังรัน Phase 89.25 RLS fix แล้ว bills/expenses ใหม่จะลง JV ได้. **แต่ rows ที่ขายไปก่อนหน้าตอน RLS block อยู่ → JV ตกหล่น → P&L ขาด**
+
+### File
+**[supabase-phase89-26-audit-missing-jvs.sql](supabase-phase89-26-audit-missing-jvs.sql)** — read-only audit (4 queries)
+1. **Count + revenue** ของ rows ที่ JV ขาด ทุก source (sales/expenses/receipts/delivery_invoices/service_jobs)
+2. **Sample 20** sales ล่าสุดที่ตก JV — พร้อม `created_by` + role
+3. **Sample 10** expenses ที่ตก
+4. **Date range coverage** — earliest/latest missing → ใช้ตั้ง backfill range
+
+### ⚠️ ไม่ได้ทำ SQL backfill (เพราะ Backfill UI ดีกว่า)
+- **Backfill UI** ([modules/accounting/backfill.js](modules/accounting/backfill.js)) เรียก `postJournalForSale` ของ auto_post.js ตรง ๆ → ครอบ:
+  - `account_mapping` config (cash/transfer → COA codes ต่างกัน)
+  - `doc_no` sequence generation (SV202605####)
+  - VAT inclusive/exclusive (Phase 88.21)
+  - `period_locked` trigger check (Phase 88.19)
+  - Balanced Dr=Cr check
+- **Pure-SQL backfill** ต้อง replicate logic ทั้งหมด → high risk ของ subtle bug + drift
+
+### Workflow แนะนำ
+1. รัน Phase 89.25 RLS fix SQL → POS auto-post หาย 403
+2. ลอง POS sale 1 บิลทดสอบ → console clean
+3. รัน Phase 89.26 audit SQL → ดู count + date range ของ rows ที่ตก
+4. **Login as admin** → Accounting → "Backfill JV ย้อนหลัง"
+5. ติ๊ก source ที่ missing_count > 0 + ตั้ง date range
+6. กด "ดูรายการที่จะ process" → preview → "เริ่ม Backfill"
+7. รอ JV ถูกสร้าง (idempotent — รันซ้ำได้)
+8. รัน audit SQL อีกครั้ง → ทุก count = 0
+9. Accounting → Trial Balance / P&L → ตัวเลขกลับมาตรง
+
+---
+
 ## 5.43.32 — DB migration (no build bump) — 2026-05-14 🩹 Phase 89.25 — Fix JV RLS for POS auto-post
 
 ### Bug จาก smoke test build 236
