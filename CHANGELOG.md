@@ -7,6 +7,50 @@
 
 ---
 
+## 5.43.30 (build 234) — 2026-05-13 ⚡ Phase 89.21 — Code-split iteration #2 (+25 modules, ~540KB extra)
+
+### Refactor — extend LAZY_ROUTES table จาก 19 → 44 routes (pattern เดิมจาก 89.20)
+**[main.js](main.js)** — เพิ่ม 25 routes ใน LAZY_ROUTES + ลบ 25 static imports + ลบ 25 dispatcher `if` lines
+
+### Lazy modules ใหม่ (25 ตัว, ~540KB รวม)
+**Admin reports + ops (10):**
+- `receipts.js` (77KB), `delivery_invoices.js` (57KB), `expenses.js` (53KB)
+- `profit_report.js`, `audit_log.js`, `departments.js`
+- `payroll_overview.js`, `expense_overview.js`, `profit_by_product.js`, `quote_templates.js`
+
+**Stock ops (5):** `stock_value`, `dead_stock`, `stock_count`, `stock_in_wizard`, `serials`
+
+**Finance/customer (5):** `cash_recon`, `loyalty`, `recurring_expenses`, `credit_tracker`, `refunds`
+
+**Reports (3):** `top_customers`, `sales_heatmap`, `calendar`
+
+**Utility (2):** `btu_calculator`, `service_request`
+
+### Eager modules ที่เหลือ (landing/boot-critical)
+- `dashboard`, `pos`, `products`, `sales`, `customers`, `quotations`, `service_jobs`, `settings`
+- `stock_movements` (operations frequent)
+- `service_form` (SERVICE_TYPES used at module-eval)
+- `tasks`, `birthdays`, `warranty_report` (boot-time check functions)
+- `line_notify`, `permission_matrix`, `help_tutor`, `validators`, `auth`, `stock_cas`, `error_reporter` (shared infra)
+- `accounting/auto_post.js` (used in POS checkout flow)
+
+### Test
+- 71/71 pass — node syntax check ✅
+- ไม่มี stale render* identifiers
+
+### ผลกระทบ user
+- ✅ First load ลดเพิ่มอีก ~540KB (สะสมจาก 89.20 → ~1.1MB shifted off first-load)
+- ✅ main.js shrink: 252KB → ประมาณ 70-80KB (estimated)
+- ✅ Page เพิ่งเข้าครั้งแรก → +50-200ms loading; cache หลังจากนั้น
+
+### Smoke test หลัง deploy
+1. **Footer** เห็น `5.43.30 (build 234)`
+2. **Network tab** — main.js?v=234 ขนาดเล็กกว่า 232 มาก (60-70% reduction expected)
+3. **Eager routes** (dashboard/pos/products/sales) → ยังโหลดเร็วเหมือนเดิม
+4. **Lazy routes** (เช่น receipts, expenses, calendar, cash_recon) → ครั้งแรก network show เอ็กซ์ตร้า request, ครั้งที่ 2 เร็ว
+
+---
+
 ## 5.43.29 (build 233) — 2026-05-13 ⚡ Phase 89.20 — Code-split first-load (~550KB shifted to on-demand)
 
 ### Refactor — lazy-load admin/service-only page modules

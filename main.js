@@ -7,46 +7,28 @@ import { renderCustomersPage } from "./modules/customers.js";
 import { renderQuotationsPage } from "./modules/quotations.js";
 import { renderServiceJobsPage } from "./modules/service_jobs.js";
 import { renderSettingsPage } from "./modules/settings/index.js";
-import { renderDeliveryInvoicesPage } from "./modules/delivery_invoices.js";
-import { renderReceiptsPage } from "./modules/receipts.js";
-import { renderExpensesPage } from "./modules/expenses.js";
-import { renderProfitReportPage } from "./modules/profit_report.js";
+// Phase 89.20/89.21: delivery_invoices, receipts, expenses lazy
 import { renderStockMovementsPage } from "./modules/stock_movements.js";
-import { renderCalendarPage } from "./modules/calendar.js";
-import { renderLoyaltyPage } from "./modules/loyalty.js";
+// Phase 89.21: profit_report, calendar, loyalty lazy
 import { renderLineNotifySettings, sendLineNotify, notifyLowStock, notifyNewOrder, notifyJobDone } from "./modules/line_notify.js";
 import { renderPermissionMatrix, hasPermission } from "./modules/permission_matrix.js";
 // Phase 89.20: customer_dashboard lazy — clearCustomerDashboardState called only if loaded (see logout)
-import { renderBtuCalculatorPage } from "./modules/btu_calculator.js";
-import { renderServiceRequestPage } from "./modules/service_request.js";
+// Phase 89.21: btu_calculator, service_request lazy
 // Phase 89.20: solar, ac_install lazy
 import { renderServiceFormPage, SERVICE_TYPES } from "./modules/service_form.js";
 // Phase 89.20: error_codes (124KB), error_codes_fridge (35KB), error_codes_washer (34KB) lazy
-import { renderStockValuePage } from "./modules/stock_value.js";
-import { renderDeadStockPage } from "./modules/dead_stock.js";
-import { renderStockCountPage } from "./modules/stock_count.js";
-import { renderStockInWizardPage } from "./modules/stock_in_wizard.js";
-import { renderCashReconPage } from "./modules/cash_recon.js";
-import { renderTopCustomersPage } from "./modules/top_customers.js";
-import { renderSalesHeatmapPage } from "./modules/sales_heatmap.js";
-import { renderRecurringExpensesPage } from "./modules/recurring_expenses.js";
-import { renderCreditTrackerPage } from "./modules/credit_tracker.js";
-import { renderRefundsPage } from "./modules/refunds.js";
+// Phase 89.21: stock_value, dead_stock, stock_count, stock_in_wizard, cash_recon lazy
+// Phase 89.21: top_customers, sales_heatmap, recurring_expenses, credit_tracker, refunds lazy
 import { renderTasksPage, checkOverdueTasksAndNotify } from "./modules/tasks.js";
 // Phase 57: audit log viewer
-import { renderAuditLogPage } from "./modules/audit_log.js";
-// Phase 71: departments management
-import { renderDepartmentsPage } from "./modules/departments.js";
+// Phase 89.21: audit_log, departments lazy
 // Phase 89.20: payroll, ai_sales, ac_shop lazy
-import { renderPayrollOverviewPage } from "./modules/payroll_overview.js";
-import { renderExpenseOverviewPage } from "./modules/expense_overview.js";
+// Phase 89.21: payroll_overview, expense_overview lazy
 // Phase 89.20: accounting/* (9 modules) — all lazy (admin only, ~167KB combined)
 // Phase 88.1: auto-posting JV จาก sales/expenses — eager (used in checkout flow)
 import { postJournalForSale, postJournalForExpense, postJournalForServiceJob, voidJvForSource } from "./modules/accounting/auto_post.js";
-import { renderProfitByProductPage } from "./modules/profit_by_product.js";
+// Phase 89.21: profit_by_product, quote_templates, serials lazy
 import { renderBirthdaysPage, checkTodayBirthdaysAndNotify } from "./modules/birthdays.js";
-import { renderQuoteTemplatesPage } from "./modules/quote_templates.js";
-import { renderSerialsPage } from "./modules/serials.js";
 import { renderWarrantyReportPage, checkWarrantyExpiringAndNotify } from "./modules/warranty_report.js";
 import { mountHelpButton, setHelpContext } from "./modules/help_tutor.js";
 import "./modules/doc-override.js";
@@ -67,6 +49,7 @@ function _lazyImport(path) {
   return _lazyMod.get(path);
 }
 const LAZY_ROUTES = {
+  // Phase 89.20 — Service/admin heavy (9)
   customer_dashboard:         ["./modules/customer_dashboard.js",         "renderCustomerDashboard"],
   solar:                      ["./modules/solar.js",                       "renderSolarPage"],
   ac_install:                 ["./modules/ac_install.js",                  "renderAcInstallPage"],
@@ -76,6 +59,7 @@ const LAZY_ROUTES = {
   payroll:                    ["./modules/payroll.js",                     "renderPayrollPage"],
   ai_sales:                   ["./modules/ai_sales.js",                    "renderAiSalesPage"],
   ac_shop:                    ["./modules/ac_shop.js",                     "renderAcShopPage"],
+  // Phase 89.20 — Accounting (9)
   accounting_journals:        ["./modules/accounting/journals.js",         "renderJournalsPage"],
   accounting_journal_new:     ["./modules/accounting/journal_form.js",     "renderJournalFormPage"],
   accounting_coa:             ["./modules/accounting/coa.js",              "renderCoaPage"],
@@ -86,6 +70,32 @@ const LAZY_ROUTES = {
   accounting_opening_balance: ["./modules/accounting/opening_balance.js",  "renderOpeningBalancePage"],
   accounting_export_bundle:   ["./modules/accounting/export_bundle.js",    "renderExportBundlePage"],
   accounting_periods:         ["./modules/accounting/periods.js",          "renderPeriodsPage"],
+  // Phase 89.21 — Iteration #2 (admin reports + stock ops + finance)
+  delivery_invoices:          ["./modules/delivery_invoices.js",           "renderDeliveryInvoicesPage"],
+  receipts:                   ["./modules/receipts.js",                    "renderReceiptsPage"],
+  expenses:                   ["./modules/expenses.js",                    "renderExpensesPage"],
+  profit_report:              ["./modules/profit_report.js",               "renderProfitReportPage"],
+  calendar:                   ["./modules/calendar.js",                    "renderCalendarPage"],
+  loyalty:                    ["./modules/loyalty.js",                     "renderLoyaltyPage"],
+  btu_calculator:             ["./modules/btu_calculator.js",              "renderBtuCalculatorPage"],
+  service_request:            ["./modules/service_request.js",             "renderServiceRequestPage"],
+  stock_value:                ["./modules/stock_value.js",                 "renderStockValuePage"],
+  dead_stock:                 ["./modules/dead_stock.js",                  "renderDeadStockPage"],
+  stock_count:                ["./modules/stock_count.js",                 "renderStockCountPage"],
+  stock_in_wizard:            ["./modules/stock_in_wizard.js",             "renderStockInWizardPage"],
+  cash_recon:                 ["./modules/cash_recon.js",                  "renderCashReconPage"],
+  top_customers:              ["./modules/top_customers.js",               "renderTopCustomersPage"],
+  sales_heatmap:              ["./modules/sales_heatmap.js",               "renderSalesHeatmapPage"],
+  recurring_expenses:         ["./modules/recurring_expenses.js",          "renderRecurringExpensesPage"],
+  credit_tracker:             ["./modules/credit_tracker.js",              "renderCreditTrackerPage"],
+  refunds:                    ["./modules/refunds.js",                     "renderRefundsPage"],
+  audit_log:                  ["./modules/audit_log.js",                   "renderAuditLogPage"],
+  departments:                ["./modules/departments.js",                 "renderDepartmentsPage"],
+  payroll_overview:           ["./modules/payroll_overview.js",            "renderPayrollOverviewPage"],
+  expense_overview:           ["./modules/expense_overview.js",            "renderExpenseOverviewPage"],
+  profit_by_product:          ["./modules/profit_by_product.js",           "renderProfitByProductPage"],
+  quote_templates:            ["./modules/quote_templates.js",             "renderQuoteTemplatesPage"],
+  serials:                    ["./modules/serials.js",                     "renderSerialsPage"],
 };
 async function _renderLazy(route, ctx) {
   const def = LAZY_ROUTES[route];
@@ -1151,6 +1161,7 @@ async function showRoute(route){
   // Phase 89.20: dynamic-import dispatch for admin/service-only routes (550KB+ shifted off first-load)
   if (await _renderLazy(route, ctx)) return;
 
+  // Eager routes (landing-critical + boot deps)
   if (route === "dashboard") renderDashboard(ctx);
   if (route === "pos") renderPosPage(ctx);
   if (route === "products") renderProductsPage(ctx);
@@ -1159,44 +1170,16 @@ async function showRoute(route){
   if (route === "quotations") renderQuotationsPage(ctx);
   if (route === "service_jobs") renderServiceJobsPage(ctx);
   if (route === "settings") renderSettingsPage(ctx);
-  if (route === "delivery_invoices") renderDeliveryInvoicesPage(ctx);
-  if (route === "receipts") renderReceiptsPage(ctx);
-  if (route === "expenses") renderExpensesPage(ctx);
-  if (route === "profit_report") renderProfitReportPage(ctx);
   if (route === "stock_movements") renderStockMovementsPage(ctx);
-  if (route === "calendar") renderCalendarPage(ctx);
-  if (route === "loyalty") renderLoyaltyPage(ctx);
-  // customer_dashboard, solar, ac_install — lazy (LAZY_ROUTES)
-  if (route === "btu_calculator") renderBtuCalculatorPage(ctx);
-  if (route === "service_request") renderServiceRequestPage(ctx);
-  // Phase 45 — service form (9 ประเภท: repair_ac, clean_ac, move_ac, satellite, repair_fridge, repair_washer, cctv, repair_tv, other)
+  if (route === "tasks") renderTasksPage(ctx);
+  if (route === "birthdays") renderBirthdaysPage(ctx);
+  if (route === "warranty_report") renderWarrantyReportPage(ctx);
+  // Phase 45 — service form (9 ประเภท) — eager (SERVICE_TYPES used at module-eval time)
   if (SERVICE_FORM_ROUTES.includes(route)) {
     const serviceType = route.replace(/^service_/, "");
     renderServiceFormPage(ctx, serviceType);
   }
-  // error_codes, error_codes_fridge, error_codes_washer — lazy (LAZY_ROUTES)
-  if (route === "stock_value") renderStockValuePage(ctx);
-  if (route === "dead_stock") renderDeadStockPage(ctx);
-  if (route === "stock_count") renderStockCountPage(ctx);
-  if (route === "stock_in_wizard") renderStockInWizardPage(ctx);
-  if (route === "cash_recon") renderCashReconPage(ctx);
-  if (route === "top_customers") renderTopCustomersPage(ctx);
-  if (route === "sales_heatmap") renderSalesHeatmapPage(ctx);
-  if (route === "recurring_expenses") renderRecurringExpensesPage(ctx);
-  if (route === "credit_tracker") renderCreditTrackerPage(ctx);
-  if (route === "refunds") renderRefundsPage(ctx);
-  if (route === "tasks") renderTasksPage(ctx);
-  if (route === "profit_by_product") renderProfitByProductPage(ctx);
-  if (route === "birthdays") renderBirthdaysPage(ctx);
-  if (route === "quote_templates") renderQuoteTemplatesPage(ctx);
-  if (route === "serials") renderSerialsPage(ctx);
-  if (route === "warranty_report") renderWarrantyReportPage(ctx);
-  // ai_sales, ac_shop, payroll — lazy (LAZY_ROUTES)
-  if (route === "audit_log") renderAuditLogPage(ctx);
-  if (route === "departments") renderDepartmentsPage(ctx);
-  if (route === "payroll_overview") renderPayrollOverviewPage(ctx);
-  if (route === "expense_overview") renderExpenseOverviewPage(ctx);
-  // Phase 88.0 — accounting/* (9 modules) — all lazy (LAZY_ROUTES)
+  // All other routes handled by LAZY_ROUTES → _renderLazy() at top of dispatcher
 
   // Warehouse sub-pages — reuse products page with warehouse filter
   if (WH_ROUTE_MAP[route]) {

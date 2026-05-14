@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v233 (2026-05-13): Phase 89.20 — Code-split first-load (lazy-load 18 admin/service modules, ~550KB)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v233';
+// v234 (2026-05-13): Phase 89.21 — Code-split iteration #2 (25 more modules lazy, ~540KB extra)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v234';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
