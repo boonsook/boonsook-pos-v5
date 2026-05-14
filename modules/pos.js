@@ -143,8 +143,12 @@ function renderPosView(ctx) {
   //  HOME — แบนเนอร์ยอดขายวันนี้ + ปุ่มเมนู
   // ═══════════════════════════════════════════════════════
   if (posView === "home") {
+    // Phase 89.24: non-admin เห็นเฉพาะ sales ของตัวเอง — admin เห็นรวมทุกคน
+    const isAdmin = (state.profile?.role === "admin");
+    const myId = state.currentUser?.id || null;
     const todaySales = (state.sales || []).filter(s => {
       if ((s.note || "").includes("[ลบแล้ว]")) return false;
+      if (!isAdmin && myId && s.created_by && String(s.created_by) !== String(myId)) return false;
       const d = new Date(s.created_at);
       const today = new Date();
       return d.toDateString() === today.toDateString();
@@ -167,7 +171,7 @@ function renderPosView(ctx) {
           </div>
           <button id="posSalesHistory" class="pos-history-btn">🕒 ประวัติการขาย ›</button>
         </div>
-        <div class="pos-banner-label">วันนี้ขายได้</div>
+        <div class="pos-banner-label">วันนี้ขายได้${isAdmin ? "" : " <span style=\"font-size:11px;font-weight:500;opacity:.85;background:rgba(255,255,255,.22);padding:2px 8px;border-radius:10px;margin-left:6px\">เฉพาะของคุณ</span>"}</div>
         <div class="pos-banner-amount">฿${moneyNum(todayTotal)}</div>
         <div class="pos-banner-count">จาก ${todaySales.length} ออเดอร์</div>
       </div>

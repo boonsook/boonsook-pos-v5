@@ -7,6 +7,38 @@
 
 ---
 
+## 5.43.32 (build 236) — 2026-05-14 👤 Phase 89.24 — Non-admin sees own sales only
+
+### User request
+จากภาพ smoke test build 234 — admin1 (role: ช่าง) login → POS home แสดง "วันนี้ขายได้ ฿10.00" แต่ ฿10 นั่นเป็นของคนอื่นที่ test. user request: "หน้า staff ควรเห็นงานขายของหน้าตัวเอง แยกออกมา"
+
+### Filter — เฉพาะ role ≠ admin
+**[modules/pos.js](modules/pos.js)** — POS home banner ("วันนี้ขายได้")
+- เดิม: `(state.sales).filter(s => !deleted && d.toDateString() === today)` → ทุก seller
+- ใหม่: เพิ่ม `if (!isAdmin && myId && s.created_by && s.created_by !== myId) return false`
+- + badge "เฉพาะของคุณ" บน label (non-admin เห็น)
+
+**[modules/sales.js](modules/sales.js)** — Sales list page ("รายการขายล่าสุด")
+- เดิม: filter เฉพาะ "[ลบแล้ว]"
+- ใหม่: เพิ่มเงื่อนไข created_by === myId สำหรับ non-admin
+- + badge "เฉพาะของคุณ" บน h3 (non-admin เห็น)
+
+### Logic
+- `isAdmin = state.profile?.role === "admin"` → ดูทุกคน
+- `myId = state.currentUser?.id` → uuid ของ user ปัจจุบัน
+- `s.created_by === myId` → filter (ใช้ String coerce กัน type mismatch)
+
+### Test
+- 71/71 pass — node syntax check ทั้ง 2 ไฟล์
+
+### ผลกระทบ user
+- ✅ Technician/sales login → POS home + Sales list เห็นเฉพาะของตัวเอง (ลด confusion)
+- ✅ Admin ยังเห็นทุกคนเหมือนเดิม (ไม่กระทบ reports)
+- ✅ Badge "เฉพาะของคุณ" บอกชัดว่าทำไมตัวเลขน้อยกว่าที่คิด
+- ⚠️ Cash recon, Receipts, Delivery invoices, Profit report — **ไม่ filter** (เป็น business documents ต้อง pool รวม)
+
+---
+
 ## 5.43.31 (build 235) — 2026-05-14 🧹 Phase 89.23 — Inline handler sweep iter #1
 
 ### Refactor — 13 inline `on*=` handlers → `addEventListener` (CSP M4 pre-req)

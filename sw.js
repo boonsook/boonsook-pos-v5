@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v235 (2026-05-14): Phase 89.23 — Inline handler sweep iter #1 (13 handlers → addEventListener)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v235';
+// v236 (2026-05-14): Phase 89.24 — Non-admin sees own sales only (POS banner + sales list)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v236';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

@@ -21,9 +21,15 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
   const signal = _salesAbort.signal;
 
   const isAdmin = (state.profile?.role === "admin");
+  const myId = state.currentUser?.id || null;
   // ★ ซ่อนรายการที่ soft-delete แล้ว (เช็ค note มี [ลบแล้ว])
+  // ★ Phase 89.24: non-admin เห็นเฉพาะ sales ที่ตัวเองสร้าง (created_by === myId) — admin เห็นทุกคน
   // ★ FIX: ป้องกัน crash ถ้า state.sales เป็น null/undefined
-  const visibleSales = (state.sales || []).filter(s => !(s.note || "").includes("[ลบแล้ว]"));
+  const visibleSales = (state.sales || []).filter(s => {
+    if ((s.note || "").includes("[ลบแล้ว]")) return false;
+    if (!isAdmin && myId && s.created_by && String(s.created_by) !== String(myId)) return false;
+    return true;
+  });
 
   // ★ Pagination
   const totalPages = Math.max(1, Math.ceil(visibleSales.length / SALES_PAGE_SIZE));
@@ -42,7 +48,7 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
   document.getElementById("page-sales").innerHTML = `
     <div class="panel">
       <div class="row">
-        <h3 style="margin:0">รายการขายล่าสุด</h3>
+        <h3 style="margin:0">รายการขายล่าสุด${isAdmin ? "" : " <span style=\"font-size:11px;font-weight:600;color:#0284c7;background:#e0f2fe;padding:2px 8px;border-radius:10px;margin-left:6px;vertical-align:middle\">เฉพาะของคุณ</span>"}</h3>
         <div style="display:flex;gap:6px">
           <button id="exportSalesXlsxBtn" class="btn light" title="ส่งออก Excel สำหรับทำบัญชี">📊 Excel</button>
           <button id="refreshSalesBtn" class="btn light">รีโหลด</button>
