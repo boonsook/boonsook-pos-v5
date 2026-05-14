@@ -345,9 +345,15 @@ async function _onRun() {
           </div>
         </details>
       ` : ''}
-      <div style="margin-top:10px;font-size:12px;color:#64748b">→ ไป <a href="#" onclick="event.preventDefault();document.querySelector('[data-route=accounting_journals]')?.click()" style="color:#0284c7;font-weight:700">📒 สมุดรายวัน</a> เพื่อตรวจ JV ที่สร้างใหม่</div>
+      <div style="margin-top:10px;font-size:12px;color:#64748b">→ ไป <a href="#" id="bf-go-journals" style="color:#0284c7;font-weight:700">📒 สมุดรายวัน</a> เพื่อตรวจ JV ที่สร้างใหม่</div>
     </div>
   `;
+
+  // Phase 89.23: bind nav link ผ่าน addEventListener
+  document.getElementById("bf-go-journals")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    document.querySelector('[data-route=accounting_journals]')?.click();
+  });
 
   _running = false;
   if (btnRun) { btnRun.disabled = false; btnRun.textContent = "⚡ เริ่ม Backfill"; }

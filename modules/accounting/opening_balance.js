@@ -259,11 +259,20 @@ async function _onSubmit() {
         <div style="font-size:13px;line-height:1.7">
           เลขที่: <b>${docNo}</b><br>
           ${lines.length} รายการ · Dr = Cr = ${money(totalDebit)}<br>
-          → ดูใน <a href="#" onclick="event.preventDefault();document.querySelector('[data-route=accounting_journals]')?.click()" style="color:#0284c7;font-weight:700">📒 สมุดรายวัน</a> หรือ
-          <a href="#" onclick="event.preventDefault();document.querySelector('[data-route=accounting_balance_sheet]')?.click()" style="color:#0284c7;font-weight:700">🏦 งบดุล</a> (ตัวเลขจะเป็นบวกแล้ว)
+          → ดูใน <a href="#" id="ob-go-journals" style="color:#0284c7;font-weight:700">📒 สมุดรายวัน</a> หรือ
+          <a href="#" id="ob-go-balance" style="color:#0284c7;font-weight:700">🏦 งบดุล</a> (ตัวเลขจะเป็นบวกแล้ว)
         </div>
       </div>
     `);
+    // Phase 89.23: bind nav links ผ่าน addEventListener (เลิก inline onclick)
+    document.getElementById("ob-go-journals")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      document.querySelector('[data-route=accounting_journals]')?.click();
+    });
+    document.getElementById("ob-go-balance")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      document.querySelector('[data-route=accounting_balance_sheet]')?.click();
+    });
     _ctx?.showToast?.("บันทึกยอดยกมาแล้ว ✅");
 
     // Reset form

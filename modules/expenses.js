@@ -711,7 +711,11 @@ function _openAutoKeyModal(ctx) {
              AI ใช้เวลานานเกินไป — ลองรูปเล็กลง / ภาพชัดขึ้น / เครือข่ายเร็วขึ้น`
           : `<b>❌ Server ตอบไม่ใช่ JSON</b><br>HTTP ${r.status} · ${escHtml(ct)}<br><small>raw: ${escHtml(raw.slice(0, 150))}</small>`;
         document.getElementById("akResult").innerHTML = `<div style="padding:14px;background:#fef2f2;border:1px solid #fecaca;border-radius:10px;color:#991b1b;font-size:13px;line-height:1.6">${friendly}</div>
-        <button onclick="document.getElementById('akStep2').style.display='block';document.getElementById('akStep4').style.display='none'" style="margin-top:10px;padding:10px;width:100%;background:#f1f5f9;border:none;border-radius:8px;cursor:pointer;font-size:13px">← กลับ</button>`;
+        <button id="ak-back-btn-1" style="margin-top:10px;padding:10px;width:100%;background:#f1f5f9;border:none;border-radius:8px;cursor:pointer;font-size:13px">← กลับ</button>`;
+        document.getElementById("ak-back-btn-1")?.addEventListener("click", () => {
+          document.getElementById("akStep2").style.display = "block";
+          document.getElementById("akStep4").style.display = "none";
+        });
         return;
       }
       document.getElementById("akStep3").style.display = "none";
@@ -721,7 +725,11 @@ function _openAutoKeyModal(ctx) {
           : "❌ " + (j.error || "วิเคราะห์ไม่สำเร็จ");
         document.getElementById("akStep4").style.display = "block";
         document.getElementById("akResult").innerHTML = `<div style="padding:14px;background:#fef2f2;border:1px solid #fecaca;border-radius:10px;color:#991b1b;font-size:13px">${errMsg}${j.detail ? '<br><small>'+escHtml(String(j.detail).slice(0,200))+'</small>' : ''}</div>
-          <button onclick="document.getElementById('akStep2').style.display='block';document.getElementById('akStep4').style.display='none'" style="margin-top:10px;padding:10px;width:100%;background:#f1f5f9;border:none;border-radius:8px;cursor:pointer;font-size:13px">← กลับไปลองใหม่</button>`;
+          <button id="ak-back-btn-2" style="margin-top:10px;padding:10px;width:100%;background:#f1f5f9;border:none;border-radius:8px;cursor:pointer;font-size:13px">← กลับไปลองใหม่</button>`;
+        document.getElementById("ak-back-btn-2")?.addEventListener("click", () => {
+          document.getElementById("akStep2").style.display = "block";
+          document.getElementById("akStep4").style.display = "none";
+        });
         return;
       }
       _showParsedResult(ctx, m, _imageDataUrl, j.data);
