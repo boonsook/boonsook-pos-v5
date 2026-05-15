@@ -7,6 +7,93 @@
 
 ---
 
+## 5.43.35 (build 239) — 2026-05-15 🐛 Phase 89.29 — JV gaps fix (audit C2+C3+C4)
+
+### Audit findings (Critical)
+3 ช่องโหว่บัญชีที่ทำให้ Balance Sheet / P&L ไม่ตรง DB:
+
+| # | จุด | บัค | ผลกระทบ |
+|---|----|-----|--------|
+| **C2** | `credit_tracker.js:248-276` | รับชำระลูกหนี้ → ไม่ post JV | A/R ใน BS ค้างถาวร, ลูกหนี้ไม่ตัด |
+| **C3** | `refunds.js:343-410` | บันทึก refund → ไม่ post JV | รายได้ใน P&L เกินจริง (ไม่หักยอดคืน) |
+| **C4** | `expenses.js:522-526` | แก้รายจ่าย (PATCH) → ไม่ void+repost JV | P&L ไม่ตรง DB ทุกครั้งที่แก้ amount |
+
+### SQL migration ต้องรัน (ที่ Supabase Dashboard SQL Editor)
+**`supabase-phase89-29-jv-gaps.sql`** — ก่อน deploy build 239
+- Seed account `4110` "รับคืนสินค้า/ส่วนลดจ่าย" (contra-revenue)
+- Seed mapping `refund_cash` (Dr 4110 / Cr 1110)
+- Seed mapping `refund_transfer` (Dr 4110 / Cr 1130)
+- Note: `credit_payment` reuse `receipt_payment`/`receipt_transfer` (Dr Cash/Bank / Cr 1200) — ไม่ต้องเพิ่ม mapping
+
+### New auto_post functions
+- **[modules/accounting/auto_post.js](modules/accounting/auto_post.js)** — เพิ่ม 2 functions:
+  - `postJournalForCreditPayment(payment)` — Dr 1110/1130 / Cr 1200 (ตัด A/R)
+  - `postJournalForRefund(refund)` — Dr 4110 / Cr 1110/1130
+
+### Module changes
+- **`modules/credit_tracker.js:250-300`** — INSERT credit_payments ใช้ `return=representation` → call `postJournalForCreditPayment` หลัง PATCH sales สำเร็จ. + Audit M1 fix: เช็ค `r.ok` ทั้ง step 1 และ step 2 → กัน DB inconsistent
+- **`modules/refunds.js:377-415`** — INSERT refunds ใช้ `return=representation` → call `postJournalForRefund` หลัง insert + restock
+- **`modules/expenses.js:522-535`** — Edit expense: void JV เดิม (`voidJvForSource("expenses", id)`) → PATCH → repost JV ด้วย payload ใหม่. Same pattern as sale soft-delete
+
+### Test
+- **87/87 pass** (เดิม + ไม่ break)
+- New JV functions follow existing pattern (`postJournalForReceipt`, `postJournalForExpense`) — pattern test coverage shared
+
+### ผลกระทบ user
+- ✅ **Balance Sheet ลูกหนี้ตรงจริง** หลังรับชำระ — A/R ลดลงตามยอดเก็บ
+- ✅ **P&L ตรงจริง** หลังคืนเงิน — รายได้ขาย หัก ยอดคืน = ยอดสุทธิ
+- ✅ **แก้รายจ่าย** ไม่ทำให้ P&L เพี้ยน — JV ใหม่แทน JV เก่า
+- ✅ Trial Balance / Profit & Loss / Balance Sheet สอดคล้อง DB หลัง deploy
+
+### Smoke test หลัง deploy
+1. **C2:** ขายเครดิต ฿1,000 → รับชำระบางส่วน ฿400 → เปิด accounting/journals → ต้องมี JV RV ใหม่ Dr 1110 ฿400 / Cr 1200 ฿400
+2. **C3:** บันทึก refund ฿200 → เปิด journals → ต้องมี JV Dr 4110 ฿200 / Cr 1110 ฿200
+3. **C4:** เพิ่มรายจ่าย ฿500 → แก้เป็น ฿700 → เปิด journals → JV เดิม ฿500 หาย, JV ใหม่ ฿700 มา
+4. Trial Balance สมดุล (Dr = Cr) ทุกกรณี
+
+### Audit ที่ยังเหลือ
+- **High:** H1/H2/H3 XSS + H5 doc_no race + H6 lazy + H7 service close JV
+- **Med/Low:** M1 (done!), M2 birthdays TZ, M3 stock CAS, M4 dead_stock TZ, S5-S8 + 4 รายการ
+- **SQL pending:** `phase89-25` (RLS) + `phase89-26` (audit) + `phase89-29` (this) ต้องรันที่ Supabase
+
+---
+
+## 5.43.34 (build 238) — 2026-05-15 🐛 Phase 89.28 — Dashboard TZ fix (audit M4)
+
+### User-visible bug
+หน้า "ภาพรวมบริษัท" แสดง **"วันนี้ขายได้ ฿0.00 จาก 0 ออเดอร์"** ทั้งที่หน้าแคชเชียร์เห็น **฿65 จาก 3 บิล** (เวลา 06:28-06:37 BKK)
+
+### Root cause
+`created_at` ใน DB เป็น **timestamptz UTC**. POS home ใช้ `Date.toDateString()` (TZ-aware) → ✅ ส่วน dashboard ใช้ `created_at.slice(0,10)` → ได้ UTC date string. บิลตอน 06:37 BKK = 23:37 UTC วันก่อน → slice ได้ "2026-05-14" แต่ `todayKey()` (browser local BKK) = "2026-05-15" → ไม่ match → ฿0.
+
+ตรงกับ audit **M4** ที่ flag ไว้: "modules/dashboard.js:23,184-195,243-244,270 ใช้ slice(0,10) เป็น 'today' เทียบ created_at (UTC) → ช่วง 17:00-23:59 BKK วันนี้แสดงผิด"
+
+### Fix
+- [modules/dashboard.js](modules/dashboard.js) — ใช้ `dateBkk(x.created_at)` จาก utils.js แทน `slice(0,10)` ทุกจุดที่เทียบ `created_at`/`scheduled_at` กับ "today"/"period" key
+- 12 จุดในไฟล์ครอบคลุม: `_renderTodayAndAlerts`, `filterByPeriod`, `filterByMonths`, hero todaySales/todayWebOrders, monthSales, recentSales, panel bucket filters (revenueBar, paymentBar, jobStatus), chart 12-month, daily summary timer, `_last7DaysSeries`, `monthsAgoKey`, `buildTimeBuckets`
+- `todayKey()` + `weekAgoKey()` แก้ให้ delegate ไป `todayBkk()`/`dateBkk()` — กันบราวเซอร์ที่ TZ ไม่ใช่ BKK (เดิมพึ่ง `toLocaleDateString("en-CA")` ที่ใช้ local TZ ของ browser)
+
+### Test
+- **87/87 pass** (87 = 79 + 8 ใหม่ใน `tests/tz_today_filter.test.js`)
+- Cover: 06:37 BKK boundary case, 17:00 UTC boundary, midnight UTC, null/invalid, Date object input, regression vs old logic (assert old logic returns 0 sales, new returns 3)
+
+### ผลกระทบ user
+- ✅ Dashboard hero "วันนี้ขายได้" ตรงกับ POS แคชเชียร์
+- ✅ Sparkline 7d / chart 12-month / period stats / panel bucket = ใช้ BKK day grouping ทั้งหมด
+- ✅ Service jobs "วันนี้และที่ต้องดู" ตรงกับ scheduled day จริง (BKK)
+- ✅ Daily summary LINE notify ที่ admin trigger 22:00 ใช้ BKK day
+
+### Audit ที่ยังเหลือ
+- C2/C3/C4 (JV gaps), H1/H2/H3 XSS, H5 race, H6 lazy, H7 service close JV, M1/M2/M3 + 10 รายการ
+- SQL `phase89-25` + `phase89-26` ยังต้องรันที่ Supabase
+
+### Smoke test
+1. **Admin** → ภาพรวมบริษัท → "วันนี้ขายได้" ต้อง = ที่ POS เห็น
+2. ทำขาย 1 บิลตอน 23:30 BKK (16:30 UTC) → refresh dashboard → ยังคงนับเป็นวันนั้น (ไม่ใช่วันถัดไป)
+3. ทำขายตอน 06:00 BKK → dashboard hero ขึ้นเป็นยอดวันนี้ทันที (เดิม 00:00-06:59 BKK แสดงเป็นยอดเมื่อวาน)
+
+---
+
 ## 5.43.33 (build 237) — 2026-05-15 🐛 Phase 89.27 — Sales filter completeness (C1+H4 audit fix)
 
 ### Audit findings (3-agent parallel review)

@@ -1,8 +1,8 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 15 พฤษภาคม 2026 (Phase 89.27 — Sales filter completeness, audit C1+H4)
-**Version:** 5.43.33 (build 237) — Phase 89.27
-**Previous:** 5.43.32 (build 236) — Phase 89.24/25/26 (non-admin sales filter + JV RLS + audit SQL)
+**อัปเดตล่าสุด:** 15 พฤษภาคม 2026 (Phase 89.29 — JV gaps fix, audit C2+C3+C4)
+**Version:** 5.43.35 (build 239) — Phase 89.29
+**Previous:** 5.43.34 (build 238) — Phase 89.28 (dashboard TZ fix — M4)
 
 ---
 
@@ -11,8 +11,9 @@
 Last session: full audit 3-agent → 4 Critical + 7 High + 8 Medium. User เลือก fix batch แรก (C1+H4 — Phase 89.24 ต่อ).
 
 ### Production state ปัจจุบัน
-- **Build live:** 237 (`window.APP_BUILD === 237`)
-- **Tests:** 79/79 pass (8 ใหม่จาก sales_filter.test.js)
+- **Build live:** 239 (`window.APP_BUILD === 239`)
+- **Tests:** 87/87 pass
+- **SQL pending (user run):** `supabase-phase89-29-jv-gaps.sql` — ก่อน deploy build 239 จะทำให้ refund JV ทำงาน
 - **Migration SQL ที่รันไป:**
   - `supabase-phase89-13b-fix-invoiced-status.sql` ✅
   - `supabase-phase89-14-error-log-rate-limit.sql` ✅
@@ -25,9 +26,9 @@ Last session: full audit 3-agent → 4 Critical + 7 High + 8 Medium. User เล
 |----|-------------|----------|--------|
 | ~~**C1**~~ | Phase 89.24 filter ค้ำเพดาน .limit(50) | Critical | ✅ Phase 89.27 |
 | ~~**H4**~~ | 4 หน้า report เห็นยอดคนอื่น | High | ✅ Phase 89.27 |
-| **C2** | credit_tracker.js:248 รับชำระเครดิตไม่ post JV | Critical | ⏳ |
-| **C3** | refunds.js:343 ไม่ post JV (Sales Returns) | Critical | ⏳ |
-| **C4** | expenses.js:522 PATCH ไม่ void+repost JV | Critical | ⏳ |
+| ~~**C2**~~ | credit_tracker.js:248 รับชำระเครดิตไม่ post JV | Critical | ✅ Phase 89.29 |
+| ~~**C3**~~ | refunds.js:343 ไม่ post JV (Sales Returns) | Critical | ✅ Phase 89.29 |
+| ~~**C4**~~ | expenses.js:522 PATCH ไม่ void+repost JV | Critical | ✅ Phase 89.29 |
 | **H1 XSS** | service_jobs.js:191 slip URL attribute breakout | High | ⏳ |
 | **H2 XSS** | customer_dashboard.js:291 product image_url CSS injection | High | ⏳ |
 | **H3 XSS** | quotations.js:651/684 search dropdown ไม่ escHtml | High | ⏳ |
@@ -35,13 +36,20 @@ Last session: full audit 3-agent → 4 Critical + 7 High + 8 Medium. User เล
 | **H6** | main.js:46 _lazyImport cache rejected promise → sticky fail | High | ⏳ |
 | **H7** | customer_dashboard.js:692 ลูกค้ายืนยันปิดงาน ไม่ post JV | High | ⏳ |
 
-### Phase 89.27 sprint progress (เสร็จ session นี้)
+### Phase 89.27 + 89.28 sprint progress (เสร็จ session นี้)
 | Issue | Phase | Status | File |
 |-------|-------|--------|------|
 | **C1** Phase 89.24 filter ค้ำเพดาน .limit(50) | 89.27 | ✅ live | main.js:1450 + utils.js |
 | **H4** 4 หน้า report ไม่ filter ตาม 89.24 | 89.27 | ✅ live | dashboard.js + profit_report.js + top_customers.js + sales_heatmap.js |
 | **Daily LINE summary leak** | 89.27 | ✅ admin-only gate | dashboard.js:1101 |
 | **8 unit tests** sales filter | 89.27 | ✅ 79/79 pass | tests/sales_filter.test.js |
+| **M4** Dashboard TZ bug — slice(0,10) UTC vs todayKey BKK | 89.28 | ✅ live | dashboard.js (12 จุด) |
+| **8 unit tests** TZ today filter regression | 89.28 | ✅ 87/87 pass | tests/tz_today_filter.test.js |
+| **C2** Credit payment ไม่ post JV → A/R ค้าง | 89.29 | ✅ live | credit_tracker.js + auto_post.js |
+| **C3** Refund ไม่ post JV → P&L รายได้เกิน | 89.29 | ✅ live | refunds.js + auto_post.js |
+| **C4** Edit expense ไม่ void+repost JV → P&L stale | 89.29 | ✅ live | expenses.js |
+| **M1** credit_payments step 1 ไม่ check r.ok | 89.29 (bundle) | ✅ live | credit_tracker.js |
+| **SQL migration** seed 4110 + refund mappings | 89.29 | ⏳ user run | supabase-phase89-29-jv-gaps.sql |
 
 ### Sprint progress
 | Issue | Phase | Status | File |

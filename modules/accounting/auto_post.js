@@ -622,3 +622,109 @@ export async function postJournalForDeliveryInvoice(invoice) {
     ]
   });
 }
+
+
+// ═══════════════════════════════════════════════════════════
+// Public: Credit payment → JV (Phase 89.29 — audit C2 fix)
+// ═══════════════════════════════════════════════════════════
+/**
+ * เรียกหลัง INSERT credit_payments (รับชำระลูกหนี้บางส่วน/ทั้งหมด).
+ * Dr 1110 (เงินสด) หรือ 1130 (เงินฝาก) / Cr 1200 (ลูกหนี้การค้า)
+ *
+ * Audit C2: เดิม credit_tracker PATCH sales.credit_paid_amount เฉยๆ
+ *           → A/R ใน Balance Sheet ค้างถาวร. ตอนนี้ post JV ตัด A/R ด้วย.
+ *
+ * @param {object} payment - row จาก credit_payments หลัง insert
+ *   ต้องมี: id, sale_id, customer_id, amount, payment_method, note?, paid_at?
+ */
+export async function postJournalForCreditPayment(payment) {
+  if (!payment?.id || !payment?.amount) return null;
+  const amount = Number(payment.amount);
+  if (amount < 0.01) return null;
+
+  const docDate = payment.paid_at ? dateBkk(payment.paid_at)
+                                  : payment.created_at ? dateBkk(payment.created_at)
+                                                       : todayBkk();
+  if (!_isAfterEffective(docDate)) {
+    console.info("[auto_post] credit payment before effective date, skip:", docDate);
+    return null;
+  }
+
+  const mappings = await _getMappings();
+  const pm = String(payment.payment_method || "").toLowerCase();
+  // Reuse receipt mappings — same Dr/Cr structure (Dr Cash/Bank / Cr A/R 1200)
+  let mappingKey = "receipt_payment";
+  if (/transfer|โอน|qr|bank/.test(pm)) mappingKey = "receipt_transfer";
+
+  const mapping = mappings[mappingKey];
+  if (!mapping?.debit_account_code || !mapping?.credit_account_code) {
+    console.warn("[auto_post] no mapping for credit_payment:", mappingKey);
+    return null;
+  }
+
+  const saleRef = payment.sale_order_no || (payment.sale_id ? `#${payment.sale_id}` : "");
+  const desc = `ชำระลูกหนี้ ${saleRef} — ${payment.customer_name || ''}`.trim();
+
+  return _postJournal({
+    sourceTable: "credit_payments",
+    sourceId: payment.id,
+    docType: "RV",
+    docDate,
+    description: desc,
+    lines: [
+      { account_code: mapping.debit_account_code,  debit: amount, credit: 0,      description: desc },
+      { account_code: mapping.credit_account_code, debit: 0,      credit: amount, description: desc }
+    ]
+  });
+}
+
+
+// ═══════════════════════════════════════════════════════════
+// Public: Refund → JV (Phase 89.29 — audit C3 fix)
+// ═══════════════════════════════════════════════════════════
+/**
+ * เรียกหลัง INSERT refunds.
+ * Dr 4110 (รับคืน/ส่วนลดจ่าย — contra-revenue) / Cr 1110/1130 (Cash/Bank ออก)
+ *
+ * Audit C3: เดิม refund ไม่ post JV → P&L รายได้เกินจริง
+ *
+ * @param {object} refund - row จาก refunds หลัง insert
+ *   ต้องมี: id, refund_no, sale_id, customer_id, customer_name, refund_amount,
+ *           refund_method, created_at?
+ */
+export async function postJournalForRefund(refund) {
+  if (!refund?.id || !refund?.refund_amount) return null;
+  const amount = Number(refund.refund_amount);
+  if (amount < 0.01) return null;
+
+  const docDate = refund.created_at ? dateBkk(refund.created_at) : todayBkk();
+  if (!_isAfterEffective(docDate)) {
+    console.info("[auto_post] refund before effective date, skip:", docDate);
+    return null;
+  }
+
+  const mappings = await _getMappings();
+  const pm = String(refund.refund_method || "").toLowerCase();
+  let mappingKey = "refund_cash";
+  if (/transfer|โอน|qr|bank/.test(pm)) mappingKey = "refund_transfer";
+
+  const mapping = mappings[mappingKey];
+  if (!mapping?.debit_account_code || !mapping?.credit_account_code) {
+    console.warn("[auto_post] no mapping for refund:", mappingKey, "— run supabase-phase89-29-jv-gaps.sql");
+    return null;
+  }
+
+  const desc = `คืน ${refund.refund_no || '#' + refund.id} — ${refund.customer_name || ''}`.trim();
+
+  return _postJournal({
+    sourceTable: "refunds",
+    sourceId: refund.id,
+    docType: "JV",
+    docDate,
+    description: desc,
+    lines: [
+      { account_code: mapping.debit_account_code,  debit: amount, credit: 0,      description: desc },
+      { account_code: mapping.credit_account_code, debit: 0,      credit: amount, description: desc }
+    ]
+  });
+}

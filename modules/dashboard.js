@@ -1,6 +1,7 @@
 
 // Phase 89.27: role-aware sales filter (extends Phase 89.24 to dashboard)
-import { visibleSalesForRole, isAdminProfile } from "./utils.js";
+// Phase 89.28: BKK timezone for "today" comparisons — fix UTC slice giving wrong date 17:00-23:59 BKK
+import { visibleSalesForRole, isAdminProfile, todayBkk, dateBkk } from "./utils.js";
 
 let salesChart = null;
 // ★ Pro panel chart instances
@@ -22,21 +23,22 @@ let _panelRange = {
 };
 
 // Phase 58 (A3+B1): "วันนี้และที่ต้องดู" — combined daily agenda + alerts
+// Phase 89.28: BKK-time "today" — กัน slice(0,10) UTC → ช่วง 17:00-23:59 BKK ตี = วันถัดไป UTC
 function _renderTodayAndAlerts(state) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayBkk();
   const now = Date.now();
   const in7d = today; // for due-date checks
 
   // 1) Today's service jobs
   const todayJobs = (state.serviceJobs || [])
     .filter(j => !(j.status === "cancelled" && (j.note || "").includes("[ลบแล้ว]")))
-    .filter(j => String(j.scheduled_at || j.due_date || "").slice(0, 10) === today
-              || String(j.created_at || "").slice(0, 10) === today);
+    .filter(j => dateBkk(j.scheduled_at || j.due_date) === today
+              || dateBkk(j.created_at) === today);
 
   // 2) Overdue service jobs
   const overdueJobs = (state.serviceJobs || [])
     .filter(j => !["done", "delivered", "closed", "cancelled"].includes(j.status))
-    .filter(j => j.scheduled_at && String(j.scheduled_at).slice(0, 10) < today);
+    .filter(j => j.scheduled_at && dateBkk(j.scheduled_at) < today);
 
   // 3) Quotations expiring within 3 days
   const expSoon = (state.quotations || []).filter(q => {
@@ -147,17 +149,18 @@ function _sparkline7d(values, color) {
   </svg>`;
 }
 function _last7DaysSeries(items, dateKey, valKey) {
+  // Phase 89.28: ใช้ BKK timezone — เดิม toISOString().slice(0,10) ใช้ UTC → เพี้ยน ช่วง 17:00-23:59 BKK
   const days = [];
   const today = new Date();
   for (let i = 6; i >= 0; i--) {
     const d = new Date();
     d.setDate(today.getDate() - i);
-    days.push(d.toISOString().slice(0, 10));
+    days.push(dateBkk(d));
   }
   return days.map(day =>
     (items || [])
       .filter(it => !(it.note || "").includes("[ลบแล้ว]"))
-      .filter(it => String(it[dateKey] || "").slice(0, 10) === day)
+      .filter(it => dateBkk(it[dateKey]) === day)
       .reduce((sum, it) => sum + Number(it[valKey] || 0), 0)
   );
 }
@@ -169,8 +172,9 @@ function moneyShort(n){
   if(v >= 1e3) return (v/1e3).toFixed(1)+"K";
   return v.toLocaleString("th-TH");
 }
-function todayKey(){return new Date().toLocaleDateString("en-CA");}
-function weekAgoKey(){const d=new Date();d.setDate(d.getDate()-7);return d.toLocaleDateString("en-CA");}
+// Phase 89.28: ใช้ todayBkk() (Asia/Bangkok) แทน toLocaleDateString — กัน browser TZ drift บนเครื่องที่ไม่ใช่ BKK
+function todayKey(){return todayBkk();}
+function weekAgoKey(){const d=new Date();d.setDate(d.getDate()-7);return dateBkk(d);}
 function monthStartKey(){return todayKey().slice(0,7)+"-01";}
 function yearStartKey(){return todayKey().slice(0,4)+"-01-01";}
 
@@ -178,24 +182,27 @@ function yearStartKey(){return todayKey().slice(0,4)+"-01-01";}
 function monthsAgoKey(n) {
   const d = new Date();
   d.setMonth(d.getMonth() - n);
-  return d.toLocaleDateString("en-CA");
+  return dateBkk(d);
 }
 
 function filterByPeriod(arr, dateField, period) {
   const today = todayKey();
+  // Phase 89.28: dateBkk(...) convert UTC timestamptz → BKK YYYY-MM-DD ก่อนเทียบ
+  // ป้องกัน sales/jobs ของวันนี้ที่ created 00:00-06:59 BKK (= UTC 17:00-23:59 วันก่อน) ตกหาย
   switch(period) {
-    case "today": return arr.filter(x => String(x[dateField]||"").slice(0,10) === today);
-    case "week":  return arr.filter(x => String(x[dateField]||"").slice(0,10) >= weekAgoKey());
-    case "month": return arr.filter(x => String(x[dateField]||"").slice(0,7) === today.slice(0,7));
-    case "year":  return arr.filter(x => String(x[dateField]||"").slice(0,4) === today.slice(0,4));
+    case "today": return arr.filter(x => dateBkk(x[dateField]) === today);
+    case "week":  return arr.filter(x => dateBkk(x[dateField]) >= weekAgoKey());
+    case "month": return arr.filter(x => dateBkk(x[dateField]).slice(0,7) === today.slice(0,7));
+    case "year":  return arr.filter(x => dateBkk(x[dateField]).slice(0,4) === today.slice(0,4));
     default: return arr;
   }
 }
 
 // ★ กรองตามหน้าต่างเดือน (N months ago → today)
+// Phase 89.28: dateBkk เพื่อเทียบกับ cutoff (BKK)
 function filterByMonths(arr, dateField, months) {
   const cutoff = monthsAgoKey(months);
-  return arr.filter(x => String(x[dateField]||"").slice(0,10) >= cutoff);
+  return arr.filter(x => dateBkk(x[dateField]) >= cutoff);
 }
 
 // ★ สีหลัก 8 โทนฟ้า-ม่วง สำหรับ donut ยอดขาย (FlowAccount blue palette)
@@ -243,14 +250,15 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
   const periodExpenseTotal = periodExpenses.reduce((s,x)=>s+Number(x.amount||0),0);
 
   // ─── วันนี้ (สำหรับ hero) ───
-  const todaySales = allSales.filter(s => String(s.created_at||"").slice(0,10) === today);
-  const todayWebOrders = webOrders.filter(j => String(j.created_at||"").slice(0,10) === today);
+  // Phase 89.28: dateBkk(...) แทน slice(0,10) เพื่อ TZ-correct (UTC timestamptz → BKK วันนี้)
+  const todaySales = allSales.filter(s => dateBkk(s.created_at) === today);
+  const todayWebOrders = webOrders.filter(j => dateBkk(j.created_at) === today);
   const todayRevenue = todaySales.reduce((s,x)=>s+Number(x.total_amount||0),0) + todayWebOrders.reduce((s,x)=>s+Number(x.total_cost||0),0);
   const todayOrderCount = todaySales.length + todayWebOrders.length;
 
   // ─── สรุปรวม ───
-  const monthSales = allSales.filter(s => String(s.created_at||"").slice(0,7) === thisMonth);
-  const monthWebOrders = webOrders.filter(j => String(j.created_at||"").slice(0,7) === thisMonth);
+  const monthSales = allSales.filter(s => dateBkk(s.created_at).slice(0,7) === thisMonth);
+  const monthWebOrders = webOrders.filter(j => dateBkk(j.created_at).slice(0,7) === thisMonth);
   const monthRevenue = monthSales.reduce((s,x)=>s+Number(x.total_amount||0),0) + monthWebOrders.reduce((s,x)=>s+Number(x.total_cost||0),0);
   const monthExpenseTotal = expenses.filter(e => String(e.expense_date||"").slice(0,7) === thisMonth).reduce((s,x)=>s+Number(x.amount||0),0);
   const monthNetProfit = monthRevenue - monthExpenseTotal;
@@ -269,8 +277,9 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
   }).sort((a, b) => Number(a.stock || 0) - Number(b.stock || 0));
 
   // ★ Top 5 สินค้าขายดี (30 วันล่าสุด)
-  const last30Key = (() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toLocaleDateString("en-CA"); })();
-  const recentSales = allSales.filter(s => String(s.created_at || "").slice(0, 10) >= last30Key);
+  // Phase 89.28: dateBkk เทียบกับ cutoff BKK
+  const last30Key = (() => { const d = new Date(); d.setDate(d.getDate() - 30); return dateBkk(d); })();
+  const recentSales = allSales.filter(s => dateBkk(s.created_at) >= last30Key);
   const salesMap = new Map();
   (state.saleItems || []).forEach(it => {
     const saleExists = recentSales.some(s => String(s.id) === String(it.sale_id));
@@ -830,8 +839,8 @@ function buildTimeBuckets(months) {
       const end   = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
       buckets.push({
         label: start.toLocaleDateString("th-TH", { month: "short", year: "2-digit" }),
-        startKey: start.toLocaleDateString("en-CA"),
-        endKey:   end.toLocaleDateString("en-CA"),
+        startKey: dateBkk(start),
+        endKey:   dateBkk(end),
       });
     }
   } else {
@@ -843,8 +852,8 @@ function buildTimeBuckets(months) {
       const end   = new Date(now); end.setDate(end.getDate()   - i * 7 + 1);
       buckets.push({
         label: `${start.getDate()}/${start.getMonth() + 1}`,
-        startKey: start.toLocaleDateString("en-CA"),
-        endKey:   end.toLocaleDateString("en-CA"),
+        startKey: dateBkk(start),
+        endKey:   dateBkk(end),
       });
     }
   }
@@ -917,8 +926,9 @@ function renderRevenueBarPanel(allSales, webOrders) {
 
   buckets.forEach(({ startKey, endKey }) => {
     const inBucket = (k) => k >= startKey && k < endKey;
-    const bkSales = allSales.filter(s => inBucket(String(s.created_at||"").slice(0,10)));
-    const bkWeb   = webOrders.filter(j => inBucket(String(j.created_at||"").slice(0,10)));
+    // Phase 89.28: dateBkk(...) convert UTC → BKK ก่อนเทียบ bucket
+    const bkSales = allSales.filter(s => inBucket(dateBkk(s.created_at)));
+    const bkWeb   = webOrders.filter(j => inBucket(dateBkk(j.created_at)));
     const salesRev = bkSales.reduce((s,x) => s + Number(x.total_amount||0), 0);
     // web orders ที่ status = delivered/closed/done ถือว่าเก็บเงินแล้ว, pending/progress ยังไม่ได้เก็บ
     const webCollected = bkWeb.filter(j => ["delivered","closed","done"].includes(j.status)).reduce((s,x) => s + Number(x.total_cost||0), 0);
@@ -1084,9 +1094,10 @@ function renderChart(sales) {
   const now = new Date();
   for (let i=11;i>=0;i--) {
     const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
-    const key = d.toLocaleDateString("en-CA").slice(0,7);
+    const key = dateBkk(d).slice(0,7);
     labels.push(d.toLocaleDateString("th-TH", {month:"short", year:"numeric"}));
-    values.push(sales.filter(s => String(s.created_at||"").slice(0,7) === key).reduce((sum,s)=>sum+Number(s.total_amount||0),0));
+    // Phase 89.28: dateBkk(created_at) → ปี-เดือน ใน BKK
+    values.push(sales.filter(s => dateBkk(s.created_at).slice(0,7) === key).reduce((sum,s)=>sum+Number(s.total_amount||0),0));
   }
   const canvas = document.getElementById("salesChart");
   if (!canvas) return;
@@ -1123,7 +1134,8 @@ function setupDailySummaryTimer(state, sendLineNotify) {
   _dailySummaryTimer = setTimeout(() => {
     // ส่งสรุปยอด
     const today = todayKey();
-    const todaySalesArr = (state.sales||[]).filter(s => !(s.note||"").includes("[ลบแล้ว]") && String(s.created_at||"").slice(0,10) === today);
+    // Phase 89.28: dateBkk(created_at) เทียบ today BKK
+    const todaySalesArr = (state.sales||[]).filter(s => !(s.note||"").includes("[ลบแล้ว]") && dateBkk(s.created_at) === today);
     const revenue = todaySalesArr.reduce((s,x)=>s+Number(x.total_amount||0),0);
     const orders = todaySalesArr.length;
     const expenses = (state.expenses||[]).filter(e => String(e.expense_date||"").slice(0,10) === today);
