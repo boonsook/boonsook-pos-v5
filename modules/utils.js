@@ -88,6 +88,34 @@ export function round2(n) {
 }
 
 // ═══════════════════════════════════════════════════════════
+//  Phase 89.27: Role-based sales filter (extends Phase 89.24)
+//  Admin → see all sales (company-wide).
+//  Non-admin → see only sales where created_by === currentUser.id.
+//  Always excludes soft-deleted ([ลบแล้ว]).
+//
+//  NOTE: Phase 89.24 originally filtered only in pos.js + sales.js.
+//  C1 audit: client filter ran AFTER server .limit(50) → busy days
+//  crowded out non-admin's own rows → "วันนี้ขายได้ ฿0" misleading.
+//  Fix combo: (a) server-side .eq("created_by", myId) in loadAllData
+//  for non-admin, (b) this helper as defense-in-depth + uniform filter
+//  for dashboard/profit_report/top_customers/sales_heatmap.
+// ═══════════════════════════════════════════════════════════
+export function isAdminProfile(profile) {
+  return profile?.role === "admin";
+}
+
+export function visibleSalesForRole(sales, profile, currentUser) {
+  const isAdmin = isAdminProfile(profile);
+  const myId = currentUser?.id || null;
+  return (sales || []).filter(s => {
+    if ((s.note || "").includes("[ลบแล้ว]")) return false;
+    if (isAdmin) return true;
+    if (myId && s.created_by && String(s.created_by) !== String(myId)) return false;
+    return true;
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
 //  Phase 89.1: Bangkok-timezone date helpers (Asia/Bangkok = UTC+7)
 //  ป้องกัน off-by-1: เดิม `new Date().toISOString().slice(0,10)` คืน UTC
 //  → ตี 1 ไทย (UTC 18:00 วันก่อนหน้า) ได้วันที่ "เมื่อวาน" → JV ลง period ผิด

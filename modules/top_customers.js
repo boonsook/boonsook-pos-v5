@@ -4,7 +4,7 @@
 // ═══════════════════════════════════════════════════════════
 import { renderEmpty } from "./ui_states.js";
 
-import { escHtml } from "./utils.js";
+import { escHtml, visibleSalesForRole } from "./utils.js";
 function money(n) {
   return new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n || 0));
 }
@@ -36,9 +36,8 @@ export function renderTopCustomersPage(ctx) {
     cutoffKey = today.toISOString().slice(0, 4) + "-01-01";
   }
 
-  // ── กรอง sales ในช่วง ──
-  const sales = (state.sales || [])
-    .filter(s => !(s.note || "").includes("[ลบแล้ว]"))
+  // ── กรอง sales ในช่วง + non-admin เห็นเฉพาะของตัวเอง (Phase 89.27) ──
+  const sales = visibleSalesForRole(state.sales, state.profile, state.currentUser)
     .filter(s => !cutoffKey || String(s.created_at || "").slice(0, 10) >= cutoffKey);
 
   // ── Group by customer (ใช้ customer_id ก่อน, fallback customer_name) ──

@@ -2,7 +2,7 @@
 function money(n){return new Intl.NumberFormat("th-TH",{style:"currency",currency:"THB",minimumFractionDigits:2}).format(Number(n||0));}
 function moneyNum(n){return new Intl.NumberFormat("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(n||0));}
 
-import { escHtml } from "./utils.js";
+import { escHtml, visibleSalesForRole, isAdminProfile } from "./utils.js";
 // Phase 88.1a: auto-post JV หลังบันทึกการขาย (fire-and-forget)
 import { postJournalForSale } from "./accounting/auto_post.js";
 
@@ -143,16 +143,15 @@ function renderPosView(ctx) {
   //  HOME — แบนเนอร์ยอดขายวันนี้ + ปุ่มเมนู
   // ═══════════════════════════════════════════════════════
   if (posView === "home") {
-    // Phase 89.24: non-admin เห็นเฉพาะ sales ของตัวเอง — admin เห็นรวมทุกคน
-    const isAdmin = (state.profile?.role === "admin");
-    const myId = state.currentUser?.id || null;
-    const todaySales = (state.sales || []).filter(s => {
-      if ((s.note || "").includes("[ลบแล้ว]")) return false;
-      if (!isAdmin && myId && s.created_by && String(s.created_by) !== String(myId)) return false;
-      const d = new Date(s.created_at);
-      const today = new Date();
-      return d.toDateString() === today.toDateString();
-    });
+    // Phase 89.24 / 89.27: non-admin เห็นเฉพาะ sales ของตัวเอง — admin เห็นรวมทุกคน
+    // Server-side filter + visibleSalesForRole = defense-in-depth (helper เป็น no-op สำหรับ non-admin data)
+    const isAdmin = isAdminProfile(state.profile);
+    const todaySales = visibleSalesForRole(state.sales, state.profile, state.currentUser)
+      .filter(s => {
+        const d = new Date(s.created_at);
+        const today = new Date();
+        return d.toDateString() === today.toDateString();
+      });
     const todayTotal = todaySales.reduce((s,i)=>s+Number(i.total_amount||0),0);
 
     // ★ Phase 36 — Recent sales for "อัพเดทล่าสุด" feed (5 ล่าสุด)

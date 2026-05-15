@@ -3,7 +3,7 @@
 //  ช่วยรู้ว่าเวลาไหนขายดี → จัดพนักงาน + เปิดร้านได้ตรงจังหวะ
 // ═══════════════════════════════════════════════════════════
 
-import { escHtml } from "./utils.js";
+import { escHtml, visibleSalesForRole } from "./utils.js";
 function money(n) {
   return new Intl.NumberFormat("th-TH", { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(Number(n || 0));
 }
@@ -34,8 +34,8 @@ export function renderSalesHeatmapPage(ctx) {
     cutoffKey = new Date().toISOString().slice(0, 4) + "-01-01";
   }
 
-  const sales = (state.sales || [])
-    .filter(s => !(s.note || "").includes("[ลบแล้ว]"))
+  // Phase 89.27: non-admin เห็นเฉพาะของตัวเอง (sales role ที่เข้าหน้านี้)
+  const sales = visibleSalesForRole(state.sales, state.profile, state.currentUser)
     .filter(s => !cutoffKey || String(s.created_at || "").slice(0, 10) >= cutoffKey);
 
   // ── Build matrix [day][hour] ──

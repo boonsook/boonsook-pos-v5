@@ -1,3 +1,6 @@
+// Phase 89.27: role-aware sales filter (extends Phase 89.24)
+import { visibleSalesForRole } from "./utils.js";
+
 export function renderProfitReportPage(ctx) {
   const { state, money, showToast, loadAllData, currentRole, requireAdmin } = ctx;
 
@@ -69,12 +72,12 @@ export function renderProfitReportPage(ctx) {
       let totalRevenue = 0;
       let totalCost = 0;
 
-      // Filter sales by date range (★ กรอง soft-deleted ออก)
-      const salesInRange = (state.sales || []).filter(sale => {
-        if ((sale.note || "").includes("[ลบแล้ว]")) return false;
-        const saleTime = new Date(sale.created_at).getTime();
-        return saleTime >= fromTs && saleTime <= toTs;
-      });
+      // Filter sales by date range (★ กรอง soft-deleted + non-admin เห็นเฉพาะของตัวเอง — Phase 89.27)
+      const salesInRange = visibleSalesForRole(state.sales, state.profile, state.currentUser)
+        .filter(sale => {
+          const saleTime = new Date(sale.created_at).getTime();
+          return saleTime >= fromTs && saleTime <= toTs;
+        });
 
       // Get sale IDs to fetch items
       const saleIds = salesInRange.map(s => s.id).filter(Boolean);
@@ -314,10 +317,10 @@ export function renderProfitReportPage(ctx) {
       });
     }
 
-    // Calculate monthly data from all sales (★ กรอง soft-deleted ออก)
+    // Calculate monthly data from all sales (★ กรอง soft-deleted + non-admin เห็นเฉพาะของตัวเอง — Phase 89.27)
     const fromTs = new Date(fromDate + "T00:00:00").getTime();
     const toTs = new Date(toDate + "T23:59:59").getTime();
-    const activeSales = (state.sales || []).filter(s => !(s.note || "").includes("[ลบแล้ว]"));
+    const activeSales = visibleSalesForRole(state.sales, state.profile, state.currentUser);
 
     activeSales.forEach(sale => {
       const saleDate = new Date(sale.created_at);

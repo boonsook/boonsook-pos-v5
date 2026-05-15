@@ -7,6 +7,52 @@
 
 ---
 
+## 5.43.33 (build 237) — 2026-05-15 🐛 Phase 89.27 — Sales filter completeness (C1+H4 audit fix)
+
+### Audit findings (3-agent parallel review)
+หลังรัน multi-angle audit เจอ **C1 Critical** (Phase 89.24 filter ไม่ทำงานจริง) + **H4 High** (4 หน้า report เห็นยอดของคนอื่น)
+
+### C1: Phase 89.24 filter ค้ำเพดาน .limit(50)
+- **Bug:** [main.js:1450](main.js:1450) ดึง 50 sales ล่าสุดของทุก user → client filter `created_by === myId` ตัดทีหลัง → ช่วงร้านยุ่ง 50 rows ของ admin/คนอื่นเต็มหน้าต่าง → ช่าง/sales เห็น **"วันนี้ขายได้ ฿0"** ทั้งที่ขายได้จริง
+- **Fix:** server-side filter — non-admin → `.or("created_by.eq.<myId>,created_by.is.null")` ที่ Supabase query → ส่ง 50 rows ของตัวเอง (+ legacy NULL) มาแน่นอน
+- Banner "เฉพาะของคุณ" ยังคงเหมือนเดิม (ทั้ง POS home + sales list)
+
+### H4: 4 หน้า report ยังไม่ filter ตาม 89.24
+- **dashboard.js** — hero "วันนี้ขายได้", overdueCredit, sparkline 7d, main chart
+- **profit_report.js** — salesInRange + monthly activeSales
+- **top_customers.js** — ranking by customer
+- **sales_heatmap.js** — day×hour matrix
+- **Fix:** ทุกจุดเรียก `visibleSalesForRole(sales, profile, currentUser)` (helper ใหม่ใน utils.js)
+
+### Helper — `visibleSalesForRole(sales, profile, currentUser)`
+- **[modules/utils.js](modules/utils.js)** — extract logic + central place
+- Idempotent บน server-filtered data (defense-in-depth)
+- ตรงกับ Phase 89.24 semantics: legacy NULL `created_by` ยังเห็นได้ (admin/non-admin)
+- 8 unit tests ใน `tests/sales_filter.test.js`
+
+### Daily summary LINE notify → admin-only
+- [modules/dashboard.js:1101](modules/dashboard.js:1101) `setupDailySummaryTimer` — เพิ่ม guard `if (!isAdmin) return;`
+- ป้องกัน sales role ที่ login ตอน 22:00 ส่งสรุปยอด LINE ที่มีแค่ data ของตัวเอง (ลวง)
+
+### Test
+- **79/79 pass** (เดิม 71 + 8 ใหม่จาก sales_filter.test.js)
+- Cover: admin/sales/technician roles, NULL created_by, mismatch, idempotency
+
+### ผลกระทบ user
+- ✅ ช่าง/sales เห็นยอด "วันนี้ขายได้" ตรงตามจริง — ไม่ขึ้น ฿0 ลวง
+- ✅ Dashboard hero แสดง badge "เฉพาะของคุณ" ตอน non-admin
+- ✅ Profit report / Top customers / Sales heatmap ตอน sales role = personal performance
+- ✅ Admin ไม่เปลี่ยน — ยังเห็นรวมทุกคนเหมือนเดิม
+
+### Smoke test หลัง deploy
+1. **Login as admin** → Dashboard → hero ไม่มี badge "เฉพาะของคุณ" → "วันนี้ขายได้" = ทุกคน
+2. **Login as ช่าง** (technician) → POS home → "เฉพาะของคุณ" badge → ยอด = ของตัวเอง (ลอง check ใน ครั้งที่ admin1 ใช้ build 236 เห็น ฿0)
+3. **Login as sales** → Dashboard → hero "เฉพาะของคุณ" + Profit report = ของตัวเองเท่านั้น
+4. **22:00 sales user logged in** → ไม่ส่ง LINE summary (admin เท่านั้น)
+5. Network tab — `?or=(created_by.eq...,created_by.is.null)` ใน sales query ตอน non-admin
+
+---
+
 ## 5.43.32 — Audit query (no build bump) — 2026-05-14 🔍 Phase 89.26 — Audit missing JVs
 
 ### Purpose

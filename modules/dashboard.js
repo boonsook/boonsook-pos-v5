@@ -1,4 +1,7 @@
 
+// Phase 89.27: role-aware sales filter (extends Phase 89.24 to dashboard)
+import { visibleSalesForRole, isAdminProfile } from "./utils.js";
+
 let salesChart = null;
 // ★ Pro panel chart instances
 let salesByProductChart = null;
@@ -43,8 +46,8 @@ function _renderTodayAndAlerts(state) {
   });
 
   // 4) Overdue credit (sales is_credit + due_date < today + not paid)
-  const overdueCredit = (state.sales || [])
-    .filter(s => !(s.note || "").includes("[ลบแล้ว]"))
+  // Phase 89.27: visibleSalesForRole = soft-delete + role filter (non-admin sees own sales only)
+  const overdueCredit = visibleSalesForRole(state.sales, state.profile, state.currentUser)
     .filter(s => s.is_credit)
     .filter(s => {
       const total = Number(s.total_amount || 0);
@@ -216,8 +219,8 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
   const today = todayKey();
   const thisMonth = today.slice(0,7);
 
-  // ★ กรองรายการขายที่ soft-delete แล้วออกก่อนคำนวณทุกอย่าง
-  const allSales = (state.sales || []).filter(s => !(s.note || "").includes("[ลบแล้ว]"));
+  // ★ กรองรายการขายที่ soft-delete + non-admin เห็นเฉพาะของตัวเอง (Phase 89.27)
+  const allSales = visibleSalesForRole(state.sales, state.profile, state.currentUser);
 
   // ★ ออเดอร์จากเว็บ (service_jobs ที่เป็นคำสั่งซื้อสินค้า) — รวมทุกสถานะยกเว้นยกเลิก
   const webOrders = (state.serviceJobs || []).filter(j =>
@@ -322,7 +325,7 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
               <button id="sendDailySummaryBtn" class="btn light" style="font-size:12px" title="ส่งสรุปยอดขายวันนี้ทางไลน์">📩 สรุปยอดไลน์</button>
             </div>
           </div>
-          <div style="margin-top:18px;font-size:20px;">วันนี้ขายได้</div>
+          <div style="margin-top:18px;font-size:20px;">วันนี้ขายได้${isAdminProfile(state.profile) ? "" : " <span style=\"font-size:11px;font-weight:600;background:rgba(255,255,255,.22);padding:2px 8px;border-radius:10px;margin-left:6px;vertical-align:middle\">เฉพาะของคุณ</span>"}</div>
           <div class="hero-amount">${money(todayRevenue)}</div>
           <div class="hero-sub">จาก ${todayOrderCount} ออเดอร์ ${todayWebOrders.length > 0 ? `(🛒 เว็บ ${todayWebOrders.length})` : ''}</div>
           <div class="hero-status">${lowStock.length ? `⚠ สินค้าใกล้หมด ${lowStock.length} รายการ` : "เชื่อมต่อฐานข้อมูลแล้ว"}</div>
@@ -380,7 +383,7 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
         <div class="stat-label">💰 ยอดขาย ${PERIOD_LABELS[_dashPeriod]}</div>
         <div class="stat-value" style="color:#0284c7">${money(periodRevenue)}</div>
         <div style="font-size:11px;color:#94a3b8;margin-top:2px">${periodOrders} ออเดอร์${periodWebOrders.length > 0 ? ` (🛒 ${periodWebOrders.length} จากเว็บ)` : ''}</div>
-        ${_sparkline7d(_last7DaysSeries(state.sales, "created_at", "total_amount"), "#0284c7")}
+        ${_sparkline7d(_last7DaysSeries(allSales, "created_at", "total_amount"), "#0284c7")}
         <div style="font-size:10px;color:#94a3b8;text-align:right;margin-top:-2px">7 วันล่าสุด</div>
       </div>
       <div class="stat-card" style="border-left:4px solid #ef4444">
@@ -779,7 +782,7 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
     }
   }));
 
-  renderChart((state.sales||[]).filter(s => !(s.note||"").includes("[ลบแล้ว]")));
+  renderChart(allSales);
 
   // ★ Pro panels render
   renderProPanels({ allSales, webOrders, expenses, serviceJobs: (state.serviceJobs||[]) });
@@ -1101,6 +1104,9 @@ let _dailySummaryTimer = null;
 function setupDailySummaryTimer(state, sendLineNotify) {
   if (_dailySummaryTimer) clearTimeout(_dailySummaryTimer);
   if (!sendLineNotify) return;
+  // Phase 89.27: daily summary คือ company-wide LINE message → admin-only.
+  // กัน non-admin session ส่ง summary ที่มี data เฉพาะของตัวเอง (ลวง)
+  if (!isAdminProfile(state.profile)) return;
 
   const now = new Date();
   const target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 22, 0, 0);
