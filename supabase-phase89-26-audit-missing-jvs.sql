@@ -59,9 +59,10 @@ missing_expenses AS (
     )
 ),
 missing_receipts AS (
-  SELECT r.id, r.receipt_date, r.total_amount, r.status
+  -- receipts table: ไม่มี receipt_date — ใช้ paid_at สำหรับ paid receipts (เพราะ JV เกิดตอน paid)
+  SELECT r.id, r.paid_at::date AS doc_date, COALESCE(r.grand_total, r.total_amount) AS total_amount, r.status
   FROM receipts r, effective e
-  WHERE r.receipt_date >= e.cutoff
+  WHERE COALESCE(r.paid_at::date, r.created_at::date) >= e.cutoff
     AND r.status = 'paid'
     AND NOT EXISTS (
       SELECT 1 FROM existing_jv j
@@ -69,7 +70,7 @@ missing_receipts AS (
     )
 ),
 missing_invoices AS (
-  SELECT i.id, i.created_at, i.total_amount, i.status
+  SELECT i.id, i.created_at, COALESCE(i.grand_total, i.total_amount) AS total_amount, i.status
   FROM delivery_invoices i, effective e
   WHERE i.created_at::date >= e.cutoff
     AND NOT EXISTS (
@@ -78,7 +79,8 @@ missing_invoices AS (
     )
 ),
 missing_jobs AS (
-  SELECT j.id, j.created_at, j.total_charge, j.status
+  -- service_jobs: column = total_cost (ไม่ใช่ total_charge)
+  SELECT j.id, j.created_at, j.total_cost AS total_amount, j.status
   FROM service_jobs j, effective e
   WHERE j.created_at::date >= e.cutoff
     AND j.status IN ('done', 'delivered', 'closed')
@@ -92,7 +94,7 @@ SELECT
 UNION ALL SELECT 'expenses',          COUNT(*)::int, COALESCE(SUM(amount), 0)::numeric        FROM missing_expenses
 UNION ALL SELECT 'receipts (paid)',   COUNT(*)::int, COALESCE(SUM(total_amount), 0)::numeric  FROM missing_receipts
 UNION ALL SELECT 'delivery_invoices', COUNT(*)::int, COALESCE(SUM(total_amount), 0)::numeric  FROM missing_invoices
-UNION ALL SELECT 'service_jobs',      COUNT(*)::int, COALESCE(SUM(total_charge), 0)::numeric  FROM missing_jobs;
+UNION ALL SELECT 'service_jobs',      COUNT(*)::int, COALESCE(SUM(total_amount), 0)::numeric  FROM missing_jobs;
 
 
 -- ───────────────────────────────────────────────────────────
