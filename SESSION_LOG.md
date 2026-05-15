@@ -3,7 +3,7 @@
 **ไฟล์นี้คือ "session continuity"** — ใช้เปิด session ใหม่แล้วลุยต่อได้เลย
 เปิดอ่านไฟล์นี้ก่อน HANDOFF.md / CHANGELOG.md เสมอ
 
-**Last update:** 15 พฤษภาคม 2026 (Session: Phase 89.27-89.29 audit batches)
+**Last update:** 15 พฤษภาคม 2026 (Session: Phase 89.30 XSS batch + PR #12 merged)
 
 ---
 
@@ -11,11 +11,11 @@
 
 | Item | Value |
 |------|-------|
-| **main HEAD** | `65f291e` Merge PR #11 — Phase 89.28 recovered + 89.29 (build 239) |
-| **Branch ของ session** | `claude/review-app-Ae6bG` — sync กับ main + 1 hotfix commit (`ed202b2`) |
-| **Build live (เมื่อ deploy)** | 239 |
-| **Tests** | **87/87 pass** (`npm test`) |
-| **Version** | 5.43.35 |
+| **main HEAD** | `b90156c` Merge PR #12 — Phase 89.26 SQL hotfixes + SESSION_LOG.md (no build bump) |
+| **Branch ของ session** | `claude/fix-error-handling-P5cEB` — ahead of main with Phase 89.30 (XSS batch, build 240) |
+| **Build (next deploy)** | 240 |
+| **Tests** | **94/94 pass** (`npm test`) — 7 ใหม่ใน xss_regression.test.js |
+| **Version** | 5.43.36 |
 
 ### วิธี verify state ใน session ใหม่
 
@@ -47,7 +47,8 @@ grep -E "build [0-9]+" modules/settings/pages.js sw.js index.html
 | 6 | (no bump) | `ed202b2` | **89.26 hotfix #1** SQL column names | supabase-phase89-26 (receipt_date → paid_at, total_charge → total_cost) | PR #12 |
 | 7 | (no bump) | `26c7b61` | **docs** SESSION_LOG.md + HANDOFF pointer | new SESSION_LOG.md (295 lines) | PR #12 |
 | 8 | (no bump) | `3b71d2b` | **89.26 hotfix #2** receipts column ที่ถูกต้องคือ `paid_date` (ไม่ใช่ `paid_at`) | supabase-phase89-26 | PR #12 amend |
-| 9 | (no bump) | (this push) | **89.26 hotfix #3** type cast `bigint = text` ใน Section 2/3/4 (`j.source_id::text = X.id::text`) | supabase-phase89-26 | PR #12 amend |
+| 9 | (no bump) | `0ee94b6` | **89.26 hotfix #3** type cast `bigint = text` ใน Section 2/3/4 (`j.source_id::text = X.id::text`) | supabase-phase89-26 | PR #12 (merged `b90156c`) |
+| 10 | 240 | (this push) | **89.30** XSS hardening batch (H1+H2+H3+S6+S7) | service_jobs (slip URL escape), customer_dashboard (CSS url() strip + warranty escape, both render sites), quotations (search dropdowns escape sku/phone/company), quote_templates (e.message escape), tests/xss_regression.test.js (7 tests), style.css cache buster | (new PR) |
 
 ---
 
@@ -57,15 +58,13 @@ grep -E "build [0-9]+" modules/settings/pages.js sw.js index.html
 
 | ลำดับ | ไฟล์ | Run? | ผล / notes |
 |------|------|------|--------|
-| 1 | `supabase-phase89-25-fix-je-rls-pos.sql` | ✅ DONE | 10 policies created (je_* × 4, jl_* × 4, am_* × 2) — verified screenshot |
-| 2 | `supabase-phase89-26-audit-missing-jvs.sql` | 🐛 **RERUN** | 3 errors เจอเป็นรอบ: <br>① `receipt_date` ไม่มี — แก้แล้วใน `ed202b2` <br>② `paid_at` ไม่มี (PG hint: `paid_date`) — แก้แล้วใน `3b71d2b` <br>③ `bigint = text` operator (Section 2/3/4 ขาด `::text` ฝั่ง `j.source_id`) — แก้รอบนี้ <br>**user ต้องใช้ฉบับล่าสุดจาก repo** (PR #12 ล่าสุด) |
-| 3 | `supabase-phase89-29-jv-gaps.sql` | ⏳ pending | seed account 4110 + refund_cash + refund_transfer mappings. **ต้องรันก่อนใช้ refund** ไม่งั้น refund JV จะ fail silent |
+| 1 | `supabase-phase89-25-fix-je-rls-pos.sql` | ✅ DONE | 10 policies created (je_* × 4, jl_* × 4, am_* × 2) |
+| 2 | `supabase-phase89-26-audit-missing-jvs.sql` | ✅ DONE | After 3 hotfixes (`ed202b2`+`3b71d2b`+`0ee94b6`). Audit แสดง 6 missing sales (14 พ.ค.) → backfilled via admin UI (6/7 created, 1 skip, 0 fail) |
+| 3 | `supabase-phase89-29-jv-gaps.sql` | ✅ DONE | Verified: account_4110 + mapping_refund_cash + mapping_refund_transfer ทั้ง 3 row = 1 |
 
-### ⚠️ Important — hotfix `ed202b2` ยังไม่ merged เข้า main
+### ✅ PR #12 merged (`b90156c`)
 
-Branch `claude/review-app-Ae6bG` มี `ed202b2` (SQL hotfix) แต่ main ยังเป็น `65f291e` (มี SQL ที่บัค).
-
-Action: เมื่อ session ใหม่เปิด → ถ้า user ยังไม่ได้รัน SQL #26 → เปิด PR เล็กๆ merge `ed202b2` เข้า main (1 ไฟล์, ไม่ต้อง build bump)
+SQL hotfix #1+#2+#3 + SESSION_LOG.md อยู่ใน main แล้ว. Audit SQL #26 รันผ่านทุก section หลัง backfill 6 missing JV (14 พ.ค. 2026) สำเร็จ + SQL #29 (refund mappings) รันแล้ว.
 
 ---
 
@@ -85,13 +84,23 @@ Action: เมื่อ session ใหม่เปิด → ถ้า user ย�
 | **C4** | Critical | `expenses.js:522-526` | 89.29 | ✅ void+repost JV |
 | **M1** | Medium (bundled) | `credit_tracker.js:250` step 1 r.ok | 89.29 | ✅ check r.ok ทั้ง 2 step |
 
-### ⏳ TODO — 9 findings ที่เหลือ
+### ✅ DONE — Phase 89.30 (XSS batch, build 240)
+
+| ID | Severity | File | Fix |
+|----|----------|------|-----|
+| **H1** | High | `service_jobs.js:191` | ✅ `escHtml(slipUrl)` ใน `href=` + `src=` |
+| **H2** | High | `customer_dashboard.js:285, 730` | ✅ strip `'` `)` `\` + `escHtml()` ใน CSS `url('...')` (apply ทั้ง 2 render sites) |
+| **H3** | High | `quotations.js:651, 684` | ✅ `escHtml(p.sku)`, `escHtml(c.phone)`, `escHtml(c.company)` |
+| **S6** | Medium | `customer_dashboard.js:300, 744` | ✅ `escHtml(p.w_install/w_parts/w_comp)` (ทั้ง 2 sites) |
+| **S7** | Medium | `quote_templates.js:37` | ✅ `escHtml(e.message)` |
+| **Style cache** | Low | `index.html:12` | ✅ `style.css?v=21` → `?v=240` |
+
+Plus: `tests/xss_regression.test.js` — 7 tests (94/94 pass)
+
+### ⏳ TODO — 8 findings ที่เหลือ
 
 | ID | Severity | File:Line | Notes |
 |----|----------|-----------|-------|
-| **H1** | High | `service_jobs.js:191` | XSS slip URL — `sanitizeUrl()` คืน raw string → quote escape attribute. Fix: `escHtml(slipUrl)` ใน `href=` + `src=` |
-| **H2** | High | `customer_dashboard.js:291, 735` | XSS CSS `url('${imgUrl}')` — DB image_url breakout. Fix: `escHtml(imgUrl)` + strip `'` `)` |
-| **H3** | High | `quotations.js:651, 684` | XSS search dropdowns — `p.sku`, `c.phone`, `c.company` ไม่ escape. Fix: wrap ทุก field ด้วย `escHtml()` |
 | **H5** | High | `auto_post.js:202-244` | doc_no UNIQUE race → JV ใบที่ 2 หาย. Fix: ก่อน return null บน 409 → re-fetch ดู source_id มี JV ไหม → ไม่มี → retry seq+1 (max 3) |
 | **H6** | High | `main.js:46-50` | `_lazyImport` cache rejected promise ถาวร → user ติดหน้าจน reload. Fix: `_lazyMod.delete(path)` ใน `.catch` |
 | **H7** | High | `customer_dashboard.js:692` | ลูกค้ายืนยันปิดงาน → ไม่ post JV. Fix: เรียก `postJournalForServiceJob(currentJob)` หลัง PATCH สำเร็จ |
@@ -99,10 +108,7 @@ Action: เมื่อ session ใหม่เปิด → ถ้า user ย�
 | **M3** | Medium | `main.js:3279-3293` | `_revertStockForSale` non-CAS → lost update ขณะ admin ลบ sale + concurrent decrement. Fix: ใช้ `atomicDecrementStock` กับ qty ติดลบ |
 | **M4 (dead_stock)** | Medium | `dead_stock.js:30,41,56,199` | Similar to dashboard — `slice(0,10)` UTC. Fix: `dateBkk()` แทน |
 | **S5** | Medium | `functions/api/log-error.js:84` | รับ spoofed `user_id` → audit log ปลอม. Fix: drop client `user_id`, derive จาก JWT |
-| **S6** | Medium | `customer_dashboard.js:300, 744` | XSS warranty fields. Fix: `escHtml(p.w_install)` etc. |
-| **S7** | Medium | `quote_templates.js:37` | XSS `e.message` ใน innerHTML. Fix: `escHtml(e.message)` |
 | **S8** | Medium | `modules/settings/payment.js:163` | SlipOK key in localStorage plaintext — exfiltrable via XSS. Fix: server-side storage, treat as compromised on XSS |
-| **Style cache** | Low | `index.html:12` | `style.css?v=21` ค้าง — Phase 89.19 เพิ่ม rules ไม่ bump → returning users cache เก่า. Fix: bump `?v=239` |
 | **N1 (new)** | Medium | `modules/accounting/auto_post.js:544` | `receipt.paid_at` ไม่มีจริงใน DB (column = `paid_date`) → docDate fallback ไป `created_at` → JV ใช้วันสร้างใบเสร็จแทนวันรับเงินจริง. Fix: `receipt.paid_date \|\| receipt.created_at` + พิจารณา DB schema rename เพื่อ consistency |
 
 ---
