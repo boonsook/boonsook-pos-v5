@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v237 (2026-05-15): Phase 89.27 — Sales filter completeness (C1+H4 audit fix)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v237';
+// v238 (2026-05-15): Phase 89.28 — Dashboard TZ fix (audit M4) — created_at UTC slice → dateBkk
+const CACHE_NAME = 'boonsook-pos-v5-cache-v238';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

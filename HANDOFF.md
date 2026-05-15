@@ -1,8 +1,8 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 15 พฤษภาคม 2026 (Phase 89.27 — Sales filter completeness, audit C1+H4)
-**Version:** 5.43.33 (build 237) — Phase 89.27
-**Previous:** 5.43.32 (build 236) — Phase 89.24/25/26 (non-admin sales filter + JV RLS + audit SQL)
+**อัปเดตล่าสุด:** 15 พฤษภาคม 2026 (Phase 89.28 — Dashboard TZ fix, audit M4)
+**Version:** 5.43.34 (build 238) — Phase 89.28
+**Previous:** 5.43.33 (build 237) — Phase 89.27 (sales filter completeness — C1+H4)
 
 ---
 
@@ -11,8 +11,8 @@
 Last session: full audit 3-agent → 4 Critical + 7 High + 8 Medium. User เลือก fix batch แรก (C1+H4 — Phase 89.24 ต่อ).
 
 ### Production state ปัจจุบัน
-- **Build live:** 237 (`window.APP_BUILD === 237`)
-- **Tests:** 79/79 pass (8 ใหม่จาก sales_filter.test.js)
+- **Build live:** 238 (`window.APP_BUILD === 238`)
+- **Tests:** 87/87 pass (8 ใหม่จาก tz_today_filter.test.js — Phase 89.28)
 - **Migration SQL ที่รันไป:**
   - `supabase-phase89-13b-fix-invoiced-status.sql` ✅
   - `supabase-phase89-14-error-log-rate-limit.sql` ✅
@@ -35,13 +35,15 @@ Last session: full audit 3-agent → 4 Critical + 7 High + 8 Medium. User เล
 | **H6** | main.js:46 _lazyImport cache rejected promise → sticky fail | High | ⏳ |
 | **H7** | customer_dashboard.js:692 ลูกค้ายืนยันปิดงาน ไม่ post JV | High | ⏳ |
 
-### Phase 89.27 sprint progress (เสร็จ session นี้)
+### Phase 89.27 + 89.28 sprint progress (เสร็จ session นี้)
 | Issue | Phase | Status | File |
 |-------|-------|--------|------|
 | **C1** Phase 89.24 filter ค้ำเพดาน .limit(50) | 89.27 | ✅ live | main.js:1450 + utils.js |
 | **H4** 4 หน้า report ไม่ filter ตาม 89.24 | 89.27 | ✅ live | dashboard.js + profit_report.js + top_customers.js + sales_heatmap.js |
 | **Daily LINE summary leak** | 89.27 | ✅ admin-only gate | dashboard.js:1101 |
 | **8 unit tests** sales filter | 89.27 | ✅ 79/79 pass | tests/sales_filter.test.js |
+| **M4** Dashboard TZ bug — slice(0,10) UTC vs todayKey BKK | 89.28 | ✅ live | dashboard.js (12 จุด) |
+| **8 unit tests** TZ today filter regression | 89.28 | ✅ 87/87 pass | tests/tz_today_filter.test.js |
 
 ### Sprint progress
 | Issue | Phase | Status | File |

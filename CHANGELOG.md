@@ -7,6 +7,42 @@
 
 ---
 
+## 5.43.34 (build 238) — 2026-05-15 🐛 Phase 89.28 — Dashboard TZ fix (audit M4)
+
+### User-visible bug
+หน้า "ภาพรวมบริษัท" แสดง **"วันนี้ขายได้ ฿0.00 จาก 0 ออเดอร์"** ทั้งที่หน้าแคชเชียร์เห็น **฿65 จาก 3 บิล** (เวลา 06:28-06:37 BKK)
+
+### Root cause
+`created_at` ใน DB เป็น **timestamptz UTC**. POS home ใช้ `Date.toDateString()` (TZ-aware) → ✅ ส่วน dashboard ใช้ `created_at.slice(0,10)` → ได้ UTC date string. บิลตอน 06:37 BKK = 23:37 UTC วันก่อน → slice ได้ "2026-05-14" แต่ `todayKey()` (browser local BKK) = "2026-05-15" → ไม่ match → ฿0.
+
+ตรงกับ audit **M4** ที่ flag ไว้: "modules/dashboard.js:23,184-195,243-244,270 ใช้ slice(0,10) เป็น 'today' เทียบ created_at (UTC) → ช่วง 17:00-23:59 BKK วันนี้แสดงผิด"
+
+### Fix
+- [modules/dashboard.js](modules/dashboard.js) — ใช้ `dateBkk(x.created_at)` จาก utils.js แทน `slice(0,10)` ทุกจุดที่เทียบ `created_at`/`scheduled_at` กับ "today"/"period" key
+- 12 จุดในไฟล์ครอบคลุม: `_renderTodayAndAlerts`, `filterByPeriod`, `filterByMonths`, hero todaySales/todayWebOrders, monthSales, recentSales, panel bucket filters (revenueBar, paymentBar, jobStatus), chart 12-month, daily summary timer, `_last7DaysSeries`, `monthsAgoKey`, `buildTimeBuckets`
+- `todayKey()` + `weekAgoKey()` แก้ให้ delegate ไป `todayBkk()`/`dateBkk()` — กันบราวเซอร์ที่ TZ ไม่ใช่ BKK (เดิมพึ่ง `toLocaleDateString("en-CA")` ที่ใช้ local TZ ของ browser)
+
+### Test
+- **87/87 pass** (87 = 79 + 8 ใหม่ใน `tests/tz_today_filter.test.js`)
+- Cover: 06:37 BKK boundary case, 17:00 UTC boundary, midnight UTC, null/invalid, Date object input, regression vs old logic (assert old logic returns 0 sales, new returns 3)
+
+### ผลกระทบ user
+- ✅ Dashboard hero "วันนี้ขายได้" ตรงกับ POS แคชเชียร์
+- ✅ Sparkline 7d / chart 12-month / period stats / panel bucket = ใช้ BKK day grouping ทั้งหมด
+- ✅ Service jobs "วันนี้และที่ต้องดู" ตรงกับ scheduled day จริง (BKK)
+- ✅ Daily summary LINE notify ที่ admin trigger 22:00 ใช้ BKK day
+
+### Audit ที่ยังเหลือ
+- C2/C3/C4 (JV gaps), H1/H2/H3 XSS, H5 race, H6 lazy, H7 service close JV, M1/M2/M3 + 10 รายการ
+- SQL `phase89-25` + `phase89-26` ยังต้องรันที่ Supabase
+
+### Smoke test
+1. **Admin** → ภาพรวมบริษัท → "วันนี้ขายได้" ต้อง = ที่ POS เห็น
+2. ทำขาย 1 บิลตอน 23:30 BKK (16:30 UTC) → refresh dashboard → ยังคงนับเป็นวันนั้น (ไม่ใช่วันถัดไป)
+3. ทำขายตอน 06:00 BKK → dashboard hero ขึ้นเป็นยอดวันนี้ทันที (เดิม 00:00-06:59 BKK แสดงเป็นยอดเมื่อวาน)
+
+---
+
 ## 5.43.33 (build 237) — 2026-05-15 🐛 Phase 89.27 — Sales filter completeness (C1+H4 audit fix)
 
 ### Audit findings (3-agent parallel review)
