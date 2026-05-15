@@ -44,7 +44,9 @@ grep -E "build [0-9]+" modules/settings/pages.js sw.js index.html
 | 3 | — | merge | PR #10 merged into main | (merged only 89.27 due to head-SHA race) | merged `48a6d94` |
 | 4 | 239 | `cbaeb14` | **89.29** JV gaps (C2+C3+C4+M1) | auto_post.js +2 functions + credit_tracker/refunds/expenses + SQL phase89-29 | #11 |
 | 5 | — | merge | PR #11 merged | (recovered 89.28 + new 89.29) | merged `65f291e` |
-| 6 | (no bump) | `ed202b2` | **89.26 hotfix** SQL column names | supabase-phase89-26 (receipt_date → paid_at, total_charge → total_cost) | pending — not yet PR'd |
+| 6 | (no bump) | `ed202b2` | **89.26 hotfix #1** SQL column names | supabase-phase89-26 (receipt_date → paid_at, total_charge → total_cost) | PR #12 |
+| 7 | (no bump) | `26c7b61` | **docs** SESSION_LOG.md + HANDOFF pointer | new SESSION_LOG.md (295 lines) | PR #12 |
+| 8 | (no bump) | (TBD) | **89.26 hotfix #2** receipts column ที่ถูกต้องคือ `paid_date` (ไม่ใช่ `paid_at`) | supabase-phase89-26 | PR #12 amend |
 
 ---
 
@@ -55,7 +57,7 @@ grep -E "build [0-9]+" modules/settings/pages.js sw.js index.html
 | ลำดับ | ไฟล์ | Run? | ผล / notes |
 |------|------|------|--------|
 | 1 | `supabase-phase89-25-fix-je-rls-pos.sql` | ✅ DONE | 10 policies created (je_* × 4, jl_* × 4, am_* × 2) — verified screenshot |
-| 2 | `supabase-phase89-26-audit-missing-jvs.sql` | 🐛 **RERUN** | เดิม error `42703 column r.receipt_date does not exist` — ผม commit `ed202b2` แก้แล้ว → user **ต้อง git pull แล้ว rerun** หรือ copy ฉบับใหม่จาก repo |
+| 2 | `supabase-phase89-26-audit-missing-jvs.sql` | 🐛 **RERUN** | 2 column errors เจอเป็นรอบ: <br>① `receipt_date` ไม่มี — แก้แล้วใน `ed202b2` <br>② `paid_at` ไม่มี (PG hint: `paid_date`) — แก้รอบนี้ <br>**user ต้องใช้ฉบับล่าสุดจาก repo** (PR #12 ล่าสุด) |
 | 3 | `supabase-phase89-29-jv-gaps.sql` | ⏳ pending | seed account 4110 + refund_cash + refund_transfer mappings. **ต้องรันก่อนใช้ refund** ไม่งั้น refund JV จะ fail silent |
 
 ### ⚠️ Important — hotfix `ed202b2` ยังไม่ merged เข้า main
@@ -100,6 +102,7 @@ Action: เมื่อ session ใหม่เปิด → ถ้า user ย�
 | **S7** | Medium | `quote_templates.js:37` | XSS `e.message` ใน innerHTML. Fix: `escHtml(e.message)` |
 | **S8** | Medium | `modules/settings/payment.js:163` | SlipOK key in localStorage plaintext — exfiltrable via XSS. Fix: server-side storage, treat as compromised on XSS |
 | **Style cache** | Low | `index.html:12` | `style.css?v=21` ค้าง — Phase 89.19 เพิ่ม rules ไม่ bump → returning users cache เก่า. Fix: bump `?v=239` |
+| **N1 (new)** | Medium | `modules/accounting/auto_post.js:544` | `receipt.paid_at` ไม่มีจริงใน DB (column = `paid_date`) → docDate fallback ไป `created_at` → JV ใช้วันสร้างใบเสร็จแทนวันรับเงินจริง. Fix: `receipt.paid_date \|\| receipt.created_at` + พิจารณา DB schema rename เพื่อ consistency |
 
 ---
 

@@ -59,10 +59,10 @@ missing_expenses AS (
     )
 ),
 missing_receipts AS (
-  -- receipts table: ไม่มี receipt_date — ใช้ paid_at สำหรับ paid receipts (เพราะ JV เกิดตอน paid)
-  SELECT r.id, r.paid_at::date AS doc_date, COALESCE(r.grand_total, r.total_amount) AS total_amount, r.status
+  -- receipts table: column = paid_date (ไม่ใช่ paid_at หรือ receipt_date) — ใช้สำหรับ paid receipts
+  SELECT r.id, r.paid_date AS doc_date, COALESCE(r.grand_total, r.total_amount) AS total_amount, r.status
   FROM receipts r, effective e
-  WHERE COALESCE(r.paid_at::date, r.created_at::date) >= e.cutoff
+  WHERE COALESCE(r.paid_date, r.created_at::date) >= e.cutoff
     AND r.status = 'paid'
     AND NOT EXISTS (
       SELECT 1 FROM existing_jv j
