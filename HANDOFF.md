@@ -1,5 +1,7 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
+> 🆕 **เปิด session ใหม่? อ่าน [`SESSION_LOG.md`](SESSION_LOG.md) ก่อน** — มี state snapshot, push history, SQL tracker, audit progress, และ step-by-step plan สำหรับ batch ถัดไป
+
 **อัปเดตล่าสุด:** 15 พฤษภาคม 2026 (Phase 89.29 — JV gaps fix, audit C2+C3+C4)
 **Version:** 5.43.35 (build 239) — Phase 89.29
 **Previous:** 5.43.34 (build 238) — Phase 89.28 (dashboard TZ fix — M4)
