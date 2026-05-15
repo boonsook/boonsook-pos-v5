@@ -1445,9 +1445,18 @@ async function loadAllData(){
   try {
     // ★ Phase 1: โหลดข้อมูลหลักพร้อมกันด้วย Promise.allSettled (เร็วกว่าเดิม 3-5x)
     const sb = state.supabase;
+    // Phase 89.27 (C1 fix): server-side sales filter for non-admin — เดิม client filter หลัง .limit(50)
+    // → busy day admin/คนอื่นเต็ม 50 rows → ช่าง/sales เห็น 0 บิล. ตอนนี้ filter ที่ DB.
+    // .or() เพื่อรองรับ legacy NULL created_by (Phase 89.24 semantics).
+    const _isAdmin = (state.profile?.role === "admin");
+    const _myId = state.currentUser?.id || null;
+    let salesQuery = sb.from("sales").select("*").order("created_at",{ascending:false}).limit(50);
+    if (!_isAdmin && _myId) {
+      salesQuery = salesQuery.or(`created_by.eq.${_myId},created_by.is.null`);
+    }
     const [rProducts, rSales, rCustomers, rQuotations, rServiceJobs, rDeliveryInvoices, rReceipts, rWarehouses, rWhStock] = await Promise.allSettled([
       sb.from("products").select("*").order("id",{ascending:false}),
-      sb.from("sales").select("*").order("created_at",{ascending:false}).limit(50),
+      salesQuery,
       sb.from("customers").select("*").order("id",{ascending:false}),
       sb.from("quotations").select("*").order("id",{ascending:false}).limit(50),
       sb.from("service_jobs").select("*").order("id",{ascending:false}).limit(50),

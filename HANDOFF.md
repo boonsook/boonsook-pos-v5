@@ -1,22 +1,47 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**อัปเดตล่าสุด:** 12 พฤษภาคม 2026 (Phase 89.17 — Reliability batch M2+M3+L2)
-**Version:** 5.43.26 (build 230) — Phase 89.17
-**Previous:** 5.43.25 (build 229) — Phase 89.15b (CSP rollback + UI refresh hotfix)
+**อัปเดตล่าสุด:** 15 พฤษภาคม 2026 (Phase 89.27 — Sales filter completeness, audit C1+H4)
+**Version:** 5.43.33 (build 237) — Phase 89.27
+**Previous:** 5.43.32 (build 236) — Phase 89.24/25/26 (non-admin sales filter + JV RLS + audit SQL)
 
 ---
 
-## 🗂️ Sprint Production Plan — สรุปสถานะ (12 พ.ค. 2026)
+## 🗂️ Sprint Production Plan — สรุปสถานะ (15 พ.ค. 2026)
 
-User insisted "เอาตามจริง ไม่ชอบคนโกหก" → ผมเขียน honest sprint plan + เริ่มลุย. ครบ 7 phases ใน 1 วัน (89.13 → 89.17).
+Last session: full audit 3-agent → 4 Critical + 7 High + 8 Medium. User เลือก fix batch แรก (C1+H4 — Phase 89.24 ต่อ).
 
 ### Production state ปัจจุบัน
-- **Build live:** 230 (verified `window.APP_BUILD === 230`)
-- **Tests:** 33/33 pass
+- **Build live:** 237 (`window.APP_BUILD === 237`)
+- **Tests:** 79/79 pass (8 ใหม่จาก sales_filter.test.js)
 - **Migration SQL ที่รันไป:**
-  - `supabase-phase89-13b-fix-invoiced-status.sql` ✅ (rows fixed)
-  - `supabase-phase89-14-error-log-rate-limit.sql` ✅ (PG trigger active)
-- **No SQL pending**
+  - `supabase-phase89-13b-fix-invoiced-status.sql` ✅
+  - `supabase-phase89-14-error-log-rate-limit.sql` ✅
+- **SQL pending (user action required):**
+  - `supabase-phase89-25-fix-je-rls-pos.sql` — fix RLS for POS auto-post JV
+  - `supabase-phase89-26-audit-missing-jvs.sql` — read-only audit (run after 25)
+
+### Audit batch outstanding (Phase 89.27 batch แรก เสร็จ — 9 รายการเหลือ)
+| ID | Description | Severity | Status |
+|----|-------------|----------|--------|
+| ~~**C1**~~ | Phase 89.24 filter ค้ำเพดาน .limit(50) | Critical | ✅ Phase 89.27 |
+| ~~**H4**~~ | 4 หน้า report เห็นยอดคนอื่น | High | ✅ Phase 89.27 |
+| **C2** | credit_tracker.js:248 รับชำระเครดิตไม่ post JV | Critical | ⏳ |
+| **C3** | refunds.js:343 ไม่ post JV (Sales Returns) | Critical | ⏳ |
+| **C4** | expenses.js:522 PATCH ไม่ void+repost JV | Critical | ⏳ |
+| **H1 XSS** | service_jobs.js:191 slip URL attribute breakout | High | ⏳ |
+| **H2 XSS** | customer_dashboard.js:291 product image_url CSS injection | High | ⏳ |
+| **H3 XSS** | quotations.js:651/684 search dropdown ไม่ escHtml | High | ⏳ |
+| **H5** | auto_post.js:202 doc_no UNIQUE race → JV ใบที่ 2 หาย | High | ⏳ |
+| **H6** | main.js:46 _lazyImport cache rejected promise → sticky fail | High | ⏳ |
+| **H7** | customer_dashboard.js:692 ลูกค้ายืนยันปิดงาน ไม่ post JV | High | ⏳ |
+
+### Phase 89.27 sprint progress (เสร็จ session นี้)
+| Issue | Phase | Status | File |
+|-------|-------|--------|------|
+| **C1** Phase 89.24 filter ค้ำเพดาน .limit(50) | 89.27 | ✅ live | main.js:1450 + utils.js |
+| **H4** 4 หน้า report ไม่ filter ตาม 89.24 | 89.27 | ✅ live | dashboard.js + profit_report.js + top_customers.js + sales_heatmap.js |
+| **Daily LINE summary leak** | 89.27 | ✅ admin-only gate | dashboard.js:1101 |
+| **8 unit tests** sales filter | 89.27 | ✅ 79/79 pass | tests/sales_filter.test.js |
 
 ### Sprint progress
 | Issue | Phase | Status | File |

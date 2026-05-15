@@ -2,6 +2,7 @@
 import { renderEmpty } from "./ui_states.js";
 // Phase 89.3: void JV + revert stock ตอนลบ POS sale (ป้องกัน P&L นับรายได้เกินจริง)
 import { voidJvForSource } from "./accounting/auto_post.js";
+import { visibleSalesForRole, isAdminProfile } from "./utils.js";
 
 function money(n){return new Intl.NumberFormat("th-TH",{style:"currency",currency:"THB",minimumFractionDigits:2}).format(Number(n||0));}
 const escHtml = (s) => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
@@ -20,16 +21,10 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
   _salesAbort = new AbortController();
   const signal = _salesAbort.signal;
 
-  const isAdmin = (state.profile?.role === "admin");
-  const myId = state.currentUser?.id || null;
-  // ★ ซ่อนรายการที่ soft-delete แล้ว (เช็ค note มี [ลบแล้ว])
-  // ★ Phase 89.24: non-admin เห็นเฉพาะ sales ที่ตัวเองสร้าง (created_by === myId) — admin เห็นทุกคน
-  // ★ FIX: ป้องกัน crash ถ้า state.sales เป็น null/undefined
-  const visibleSales = (state.sales || []).filter(s => {
-    if ((s.note || "").includes("[ลบแล้ว]")) return false;
-    if (!isAdmin && myId && s.created_by && String(s.created_by) !== String(myId)) return false;
-    return true;
-  });
+  const isAdmin = isAdminProfile(state.profile);
+  // ★ Phase 89.24 / 89.27: non-admin เห็นเฉพาะ sales ของตัวเอง — admin เห็นทุกคน
+  // Server-side filter + visibleSalesForRole = defense-in-depth (idempotent บน server-filtered data)
+  const visibleSales = visibleSalesForRole(state.sales, state.profile, state.currentUser);
 
   // ★ Pagination
   const totalPages = Math.max(1, Math.ceil(visibleSales.length / SALES_PAGE_SIZE));
