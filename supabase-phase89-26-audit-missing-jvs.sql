@@ -114,7 +114,7 @@ WHERE s.created_at::date >= '2026-05-01'
   AND NOT (s.note ILIKE '%[ลบแล้ว]%')
   AND NOT EXISTS (
     SELECT 1 FROM journal_entries j
-    WHERE j.source_table = 'sales' AND j.source_id = s.id::text
+    WHERE j.source_table = 'sales' AND j.source_id::text = s.id::text
   )
 ORDER BY s.created_at DESC
 LIMIT 20;
@@ -134,7 +134,7 @@ FROM expenses x
 WHERE x.expense_date >= '2026-05-01'
   AND NOT EXISTS (
     SELECT 1 FROM journal_entries j
-    WHERE j.source_table = 'expenses' AND j.source_id = x.id::text
+    WHERE j.source_table = 'expenses' AND j.source_id::text = x.id::text
   )
 ORDER BY x.expense_date DESC
 LIMIT 10;
@@ -152,7 +152,7 @@ WHERE s.created_at::date >= '2026-05-01'
   AND NOT (s.note ILIKE '%[ลบแล้ว]%')
   AND NOT EXISTS (
     SELECT 1 FROM journal_entries j
-    WHERE j.source_table = 'sales' AND j.source_id = s.id::text
+    WHERE j.source_table = 'sales' AND j.source_id::text = s.id::text
   );
 
 

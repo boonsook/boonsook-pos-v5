@@ -46,7 +46,8 @@ grep -E "build [0-9]+" modules/settings/pages.js sw.js index.html
 | 5 | — | merge | PR #11 merged | (recovered 89.28 + new 89.29) | merged `65f291e` |
 | 6 | (no bump) | `ed202b2` | **89.26 hotfix #1** SQL column names | supabase-phase89-26 (receipt_date → paid_at, total_charge → total_cost) | PR #12 |
 | 7 | (no bump) | `26c7b61` | **docs** SESSION_LOG.md + HANDOFF pointer | new SESSION_LOG.md (295 lines) | PR #12 |
-| 8 | (no bump) | (TBD) | **89.26 hotfix #2** receipts column ที่ถูกต้องคือ `paid_date` (ไม่ใช่ `paid_at`) | supabase-phase89-26 | PR #12 amend |
+| 8 | (no bump) | `3b71d2b` | **89.26 hotfix #2** receipts column ที่ถูกต้องคือ `paid_date` (ไม่ใช่ `paid_at`) | supabase-phase89-26 | PR #12 amend |
+| 9 | (no bump) | (this push) | **89.26 hotfix #3** type cast `bigint = text` ใน Section 2/3/4 (`j.source_id::text = X.id::text`) | supabase-phase89-26 | PR #12 amend |
 
 ---
 
@@ -57,7 +58,7 @@ grep -E "build [0-9]+" modules/settings/pages.js sw.js index.html
 | ลำดับ | ไฟล์ | Run? | ผล / notes |
 |------|------|------|--------|
 | 1 | `supabase-phase89-25-fix-je-rls-pos.sql` | ✅ DONE | 10 policies created (je_* × 4, jl_* × 4, am_* × 2) — verified screenshot |
-| 2 | `supabase-phase89-26-audit-missing-jvs.sql` | 🐛 **RERUN** | 2 column errors เจอเป็นรอบ: <br>① `receipt_date` ไม่มี — แก้แล้วใน `ed202b2` <br>② `paid_at` ไม่มี (PG hint: `paid_date`) — แก้รอบนี้ <br>**user ต้องใช้ฉบับล่าสุดจาก repo** (PR #12 ล่าสุด) |
+| 2 | `supabase-phase89-26-audit-missing-jvs.sql` | 🐛 **RERUN** | 3 errors เจอเป็นรอบ: <br>① `receipt_date` ไม่มี — แก้แล้วใน `ed202b2` <br>② `paid_at` ไม่มี (PG hint: `paid_date`) — แก้แล้วใน `3b71d2b` <br>③ `bigint = text` operator (Section 2/3/4 ขาด `::text` ฝั่ง `j.source_id`) — แก้รอบนี้ <br>**user ต้องใช้ฉบับล่าสุดจาก repo** (PR #12 ล่าสุด) |
 | 3 | `supabase-phase89-29-jv-gaps.sql` | ⏳ pending | seed account 4110 + refund_cash + refund_transfer mappings. **ต้องรันก่อนใช้ refund** ไม่งั้น refund JV จะ fail silent |
 
 ### ⚠️ Important — hotfix `ed202b2` ยังไม่ merged เข้า main
