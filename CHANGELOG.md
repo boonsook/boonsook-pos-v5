@@ -7,6 +7,57 @@
 
 ---
 
+## 5.43.35 (build 239) — 2026-05-15 🐛 Phase 89.29 — JV gaps fix (audit C2+C3+C4)
+
+### Audit findings (Critical)
+3 ช่องโหว่บัญชีที่ทำให้ Balance Sheet / P&L ไม่ตรง DB:
+
+| # | จุด | บัค | ผลกระทบ |
+|---|----|-----|--------|
+| **C2** | `credit_tracker.js:248-276` | รับชำระลูกหนี้ → ไม่ post JV | A/R ใน BS ค้างถาวร, ลูกหนี้ไม่ตัด |
+| **C3** | `refunds.js:343-410` | บันทึก refund → ไม่ post JV | รายได้ใน P&L เกินจริง (ไม่หักยอดคืน) |
+| **C4** | `expenses.js:522-526` | แก้รายจ่าย (PATCH) → ไม่ void+repost JV | P&L ไม่ตรง DB ทุกครั้งที่แก้ amount |
+
+### SQL migration ต้องรัน (ที่ Supabase Dashboard SQL Editor)
+**`supabase-phase89-29-jv-gaps.sql`** — ก่อน deploy build 239
+- Seed account `4110` "รับคืนสินค้า/ส่วนลดจ่าย" (contra-revenue)
+- Seed mapping `refund_cash` (Dr 4110 / Cr 1110)
+- Seed mapping `refund_transfer` (Dr 4110 / Cr 1130)
+- Note: `credit_payment` reuse `receipt_payment`/`receipt_transfer` (Dr Cash/Bank / Cr 1200) — ไม่ต้องเพิ่ม mapping
+
+### New auto_post functions
+- **[modules/accounting/auto_post.js](modules/accounting/auto_post.js)** — เพิ่ม 2 functions:
+  - `postJournalForCreditPayment(payment)` — Dr 1110/1130 / Cr 1200 (ตัด A/R)
+  - `postJournalForRefund(refund)` — Dr 4110 / Cr 1110/1130
+
+### Module changes
+- **`modules/credit_tracker.js:250-300`** — INSERT credit_payments ใช้ `return=representation` → call `postJournalForCreditPayment` หลัง PATCH sales สำเร็จ. + Audit M1 fix: เช็ค `r.ok` ทั้ง step 1 และ step 2 → กัน DB inconsistent
+- **`modules/refunds.js:377-415`** — INSERT refunds ใช้ `return=representation` → call `postJournalForRefund` หลัง insert + restock
+- **`modules/expenses.js:522-535`** — Edit expense: void JV เดิม (`voidJvForSource("expenses", id)`) → PATCH → repost JV ด้วย payload ใหม่. Same pattern as sale soft-delete
+
+### Test
+- **87/87 pass** (เดิม + ไม่ break)
+- New JV functions follow existing pattern (`postJournalForReceipt`, `postJournalForExpense`) — pattern test coverage shared
+
+### ผลกระทบ user
+- ✅ **Balance Sheet ลูกหนี้ตรงจริง** หลังรับชำระ — A/R ลดลงตามยอดเก็บ
+- ✅ **P&L ตรงจริง** หลังคืนเงิน — รายได้ขาย หัก ยอดคืน = ยอดสุทธิ
+- ✅ **แก้รายจ่าย** ไม่ทำให้ P&L เพี้ยน — JV ใหม่แทน JV เก่า
+- ✅ Trial Balance / Profit & Loss / Balance Sheet สอดคล้อง DB หลัง deploy
+
+### Smoke test หลัง deploy
+1. **C2:** ขายเครดิต ฿1,000 → รับชำระบางส่วน ฿400 → เปิด accounting/journals → ต้องมี JV RV ใหม่ Dr 1110 ฿400 / Cr 1200 ฿400
+2. **C3:** บันทึก refund ฿200 → เปิด journals → ต้องมี JV Dr 4110 ฿200 / Cr 1110 ฿200
+3. **C4:** เพิ่มรายจ่าย ฿500 → แก้เป็น ฿700 → เปิด journals → JV เดิม ฿500 หาย, JV ใหม่ ฿700 มา
+4. Trial Balance สมดุล (Dr = Cr) ทุกกรณี
+
+### Audit ที่ยังเหลือ
+- **High:** H1/H2/H3 XSS + H5 doc_no race + H6 lazy + H7 service close JV
+- **Med/Low:** M1 (done!), M2 birthdays TZ, M3 stock CAS, M4 dead_stock TZ, S5-S8 + 4 รายการ
+- **SQL pending:** `phase89-25` (RLS) + `phase89-26` (audit) + `phase89-29` (this) ต้องรันที่ Supabase
+
+---
+
 ## 5.43.34 (build 238) — 2026-05-15 🐛 Phase 89.28 — Dashboard TZ fix (audit M4)
 
 ### User-visible bug

@@ -4,6 +4,8 @@
 //  Phase 46.7 — adopt ui_states (skeleton/empty/error)
 // ═══════════════════════════════════════════════════════════
 import { renderSkeleton, renderEmpty, renderError } from "./ui_states.js";
+// Phase 89.29 (audit C3): post JV เมื่อบันทึก refund → Dr 4110 Sales Returns / Cr Cash/Bank
+import { postJournalForRefund } from "./accounting/auto_post.js";
 
 import { escHtml, addDaysBkk } from "./utils.js";
 function money(n) {
@@ -375,12 +377,15 @@ function openRefundModal(ctx) {
       };
 
       // 1) INSERT refund
+      // Phase 89.29: return=representation เพื่อเอา id ไป post JV (audit C3)
       const r = await fetch(cfg.url + "/rest/v1/refunds", {
         method: "POST",
-        headers: { "Content-Type":"application/json","apikey":cfg.anonKey,"Authorization":"Bearer "+accessToken,"Prefer":"return=minimal" },
+        headers: { "Content-Type":"application/json","apikey":cfg.anonKey,"Authorization":"Bearer "+accessToken,"Prefer":"return=representation" },
         body: JSON.stringify(payload)
       });
       if (!r.ok) throw new Error("บันทึก refund ไม่สำเร็จ");
+      const insertedRows = await r.json().catch(() => []);
+      const insertedRefund = Array.isArray(insertedRows) ? insertedRows[0] : insertedRows;
 
       // 2) คืนสต็อกถ้าเลือก
       if (restock) {
@@ -397,6 +402,13 @@ function openRefundModal(ctx) {
             });
           } catch(e) { console.warn("[refund restock]", e); }
         }
+      }
+
+      // 3) Phase 89.29 (audit C3): post JV — Dr 4110 Sales Returns / Cr 1110/1130
+      // fire-and-forget — failed JV ไม่ block UX, จะมี log + admin backfill ได้
+      if (insertedRefund?.id) {
+        postJournalForRefund(insertedRefund)
+          .catch(e => console.warn("[refunds] auto-post JV failed:", e?.message));
       }
 
       modal.remove();

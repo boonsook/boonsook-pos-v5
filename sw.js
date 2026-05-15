@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v238 (2026-05-15): Phase 89.28 — Dashboard TZ fix (audit M4) — created_at UTC slice → dateBkk
-const CACHE_NAME = 'boonsook-pos-v5-cache-v238';
+// v239 (2026-05-15): Phase 89.29 — JV gaps fix (audit C2+C3+C4) — credit payment, refund, expense edit all post JV now
+const CACHE_NAME = 'boonsook-pos-v5-cache-v239';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

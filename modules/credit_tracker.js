@@ -4,6 +4,8 @@
 //  Phase 47 — adopt ui_states empty
 // ═══════════════════════════════════════════════════════════
 import { renderEmpty } from "./ui_states.js";
+// Phase 89.29 (audit C2): post JV เมื่อรับชำระลูกหนี้ → ตัด A/R 1200
+import { postJournalForCreditPayment } from "./accounting/auto_post.js";
 
 import { escHtml } from "./utils.js";
 function money(n) {
@@ -247,13 +249,15 @@ function openReceivePaymentModal(ctx, sale) {
 
     try {
       // 1. INSERT credit_payments record
-      await fetch(cfg.url + "/rest/v1/credit_payments", {
+      // Phase 89.29: return=representation เพื่อเอา id ไป post JV (audit C2)
+      // Phase 89.29 (audit M1): เช็ค r.ok กัน step 2 รันต่อเมื่อ step 1 fail → DB inconsistent
+      const insertR = await fetch(cfg.url + "/rest/v1/credit_payments", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "apikey": cfg.anonKey,
           "Authorization": "Bearer " + accessToken,
-          "Prefer": "return=minimal"
+          "Prefer": "return=representation"
         },
         body: JSON.stringify({
           sale_id: sale.id,
@@ -263,17 +267,37 @@ function openReceivePaymentModal(ctx, sale) {
           note: note || null
         })
       });
+      if (!insertR.ok) {
+        const errBody = await insertR.text().catch(() => "");
+        throw new Error(`บันทึก credit_payments ไม่สำเร็จ (HTTP ${insertR.status}) ${errBody.slice(0, 200)}`);
+      }
+      const insertedRows = await insertR.json().catch(() => []);
+      const insertedPayment = Array.isArray(insertedRows) ? insertedRows[0] : insertedRows;
 
       // 2. UPDATE sales: เพิ่ม credit_paid_amount + check ถ้าครบ → set credit_paid_at
       const newPaid = sale._paid + amount;
       const isFullyPaid = (sale._total - newPaid) <= 0.01;
       const patch = { credit_paid_amount: newPaid };
       if (isFullyPaid) patch.credit_paid_at = new Date().toISOString();
-      await fetch(cfg.url + "/rest/v1/sales?id=eq." + sale.id, {
+      const patchR = await fetch(cfg.url + "/rest/v1/sales?id=eq." + sale.id, {
         method: "PATCH",
         headers: { "Content-Type":"application/json","apikey":cfg.anonKey,"Authorization":"Bearer "+accessToken,"Prefer":"return=minimal" },
         body: JSON.stringify(patch)
       });
+      if (!patchR.ok) {
+        const errBody = await patchR.text().catch(() => "");
+        throw new Error(`อัปเดต sales ไม่สำเร็จ (HTTP ${patchR.status}) ${errBody.slice(0, 200)}`);
+      }
+
+      // 3. Phase 89.29 (audit C2): post JV — Dr Cash/Bank / Cr 1200 (A/R)
+      // fire-and-forget เพื่อไม่ block UX. ใส่ saleRef เพื่อให้ description มี order_no
+      if (insertedPayment?.id) {
+        postJournalForCreditPayment({
+          ...insertedPayment,
+          sale_order_no: sale.order_no,
+          customer_name: sale.customer_name
+        }).catch(e => console.warn("[credit_tracker] auto-post JV failed:", e?.message));
+      }
 
       modal.remove();
       ctx.showToast?.(`✓ รับชำระ ฿${money(amount)} ${isFullyPaid ? '— ครบแล้ว 🎉' : ''}`);

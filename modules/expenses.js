@@ -6,7 +6,7 @@ import { renderEmpty } from "./ui_states.js";
 // Phase 70 (D3): Excel export
 import { exportToExcel, todaySuffix } from "./utils.js";
 // Phase 88.1a: auto-post JV ตอนบันทึก expense
-import { postJournalForExpense } from "./accounting/auto_post.js";
+import { postJournalForExpense, voidJvForSource } from "./accounting/auto_post.js";
 
 function money(n){ return new Intl.NumberFormat("th-TH",{style:"currency",currency:"THB",minimumFractionDigits:2}).format(Number(n||0)); }
 function dateTH(d){ if(!d) return "-"; try{ return new Date(d).toLocaleDateString("th-TH",{year:"numeric",month:"short",day:"numeric"}); }catch(e){ return d; } }
@@ -521,8 +521,16 @@ function bindAddFormEvents() {
 
     try {
       if (_editingExpenseId) {
-        const res = await window._appXhrPatch?.("expenses", payload, "id", _editingExpenseId);
+        // Phase 89.29 (audit C4): edit expense → void old JV + repost ด้วยข้อมูลใหม่
+        // เดิม PATCH expense แต่ JV เดิมค้าง → P&L ไม่ตรง DB
+        const editId = _editingExpenseId;
+        await voidJvForSource("expenses", editId).catch(e =>
+          console.warn("[expenses] voidJV before edit failed:", e?.message));
+        const res = await window._appXhrPatch?.("expenses", payload, "id", editId);
         if (res && res.ok === false) throw new Error(res.error?.message || "update failed");
+        // repost JV ด้วย amount/category/method ใหม่. fire-and-forget.
+        postJournalForExpense({ id: editId, ...payload })
+          .catch(e => console.warn("[expenses] repost JV after edit failed:", e?.message));
         _ctx.showToast("อัปเดตรายจ่ายเรียบร้อย", "success");
       } else {
         // ★ Phase 88.1a: ขอ returnData เพื่อเอา id ไป auto-post JV
