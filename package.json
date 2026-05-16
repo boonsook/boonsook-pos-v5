@@ -5,9 +5,20 @@
   "description": "Boonsook POS PRO V5 — Thai POS PWA",
   "type": "module",
   "scripts": {
-    "test": "node --test tests/*.test.js"
+    "test": "node --test tests/*.test.js",
+    "lint": "eslint . --max-warnings=99999",
+    "lint:strict": "eslint .",
+    "lint:errors": "eslint . --quiet",
+    "lint:fix": "eslint . --fix",
+    "test:e2e": "playwright test",
+    "verify": "npm run lint && npm test && npm run test:e2e"
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.60.0",
+    "eslint": "^10.4.0"
   }
 }
