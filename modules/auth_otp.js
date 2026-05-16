@@ -173,7 +173,7 @@ export function createOtpAuth(deps) {
       if (!fakePassword) throw new Error("ไม่ได้รับ authPassword จาก server");
 
       // ลอง sign in ก่อน
-      let { error: loginErr } = await state.supabase.auth.signInWithPassword({ email: fakeEmail, password: fakePassword });
+      const { error: loginErr } = await state.supabase.auth.signInWithPassword({ email: fakeEmail, password: fakePassword });
 
       if (loginErr) {
         // อาจมีบัญชีอยู่แล้วแต่ password (nonce) เปลี่ยน → ลอง update password ก่อน login

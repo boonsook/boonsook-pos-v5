@@ -231,7 +231,7 @@ const AC_CATALOG = [
 function matchCatalog(rawBTU, budget, priority) {
   const recBTU = recommendBTU(rawBTU);
   const range = [recBTU - 4000, recBTU + 4000];
-  let items = AC_CATALOG.filter(a => a.btu >= range[0] && a.btu <= range[1] && a.p <= budget);
+  const items = AC_CATALOG.filter(a => a.btu >= range[0] && a.btu <= range[1] && a.p <= budget);
 
   // Sort by priority
   if (priority === "cheap") items.sort((a,b) => a.p - b.p);
@@ -545,7 +545,7 @@ export function renderAiSalesPage(ctx) {
     const prefillName = user.full_name || user.user_metadata?.full_name || "";
     const prefillPhone = user.phone || user.user_metadata?.phone || "";
 
-    let formHtml = `
+    const formHtml = `
       <div id="orderForm${fid}" style="background:#fefce8;border:1px solid #fde68a;border-radius:12px;padding:14px;margin-bottom:4px">
         <div style="font-weight:700;color:#92400e;font-size:14px;margin-bottom:8px">📋 กรอกข้อมูลเพื่อสั่งซื้อ</div>
         <div style="font-size:13px;color:#78350f;margin-bottom:10px;padding:8px;background:#fff;border-radius:8px;border:1px solid #fde68a">
@@ -643,7 +643,7 @@ export function renderAiSalesPage(ctx) {
                   setTimeout(() => { formBubble.style.display = "none"; }, 350);
                 }
               }, 1200);
-              let successHtml = `
+              const successHtml = `
                 <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:14px">
                   <div style="font-weight:700;color:#166534;font-size:15px;margin-bottom:8px">✅ สั่งซื้อเรียบร้อยแล้วครับ!</div>
                   <div style="font-size:13px;color:#15803d;line-height:1.8">

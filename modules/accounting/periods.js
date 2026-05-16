@@ -90,7 +90,7 @@ async function lockPeriod(year, month) {
 
   let url = `${cfg.url}/rest/v1/accounting_periods`;
   let method = "POST";
-  let headers = {
+  const headers = {
     "Content-Type": "application/json",
     "apikey": cfg.anonKey,
     "Authorization": "Bearer " + token,

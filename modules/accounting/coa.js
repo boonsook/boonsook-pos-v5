@@ -20,7 +20,7 @@ const TYPE_LABEL = {
 };
 
 let _coa = [];
-let _expandedTypes = new Set(["asset", "liability", "equity", "income", "expense"]);
+const _expandedTypes = new Set(["asset", "liability", "equity", "income", "expense"]);
 
 export async function renderCoaPage(ctx) {
   const container = document.getElementById("page-accounting_coa");

@@ -476,7 +476,7 @@ export function renderCalendarPage(ctx) {
    * Main render function
    */
   function render() {
-    let html = `
+    const html = `
       <div style="
         padding: 16px;
         max-width: 1000px;
