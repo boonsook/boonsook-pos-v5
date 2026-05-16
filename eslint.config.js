@@ -86,6 +86,9 @@ const BROWSER_GLOBALS = {
   WheelEvent: "readonly", DragEvent: "readonly", ClipboardEvent: "readonly",
   AbortController: "readonly", AbortSignal: "readonly",
 
+  // Clipboard API (Phase 89.34 — main.js ClipboardItem write)
+  ClipboardItem: "readonly",
+
   // DOM
   Element: "readonly", HTMLElement: "readonly",
   HTMLDivElement: "readonly", HTMLInputElement: "readonly",
@@ -135,6 +138,7 @@ const CDN_GLOBALS = {
   XLSX: "readonly",
   JsBarcode: "readonly",
   Html5Qrcode: "readonly", Html5QrcodeScanner: "readonly",
+  html2canvas: "readonly",       // Phase 89.34 — CDN: receipts/quotations PDF capture
   // Anthropic / app-level globals set ใน main.js
   APP_BUILD: "writable",
   _appAuthFetch: "readonly", _appConfirm: "readonly",
@@ -143,6 +147,7 @@ const CDN_GLOBALS = {
   _swSaving: "writable", _printerDevice: "writable", _printerType: "writable",
   _crDate: "writable",
   SUPABASE_CONFIG: "readonly",
+  showToast: "readonly",         // Phase 89.34 — defined as top-level function in main.js (window.showToast)
 };
 
 export default [
@@ -237,6 +242,7 @@ export default [
         URL: "readonly", URLSearchParams: "readonly",
         TextEncoder: "readonly", TextDecoder: "readonly",
         fetch: "readonly", Headers: "readonly", Response: "readonly", Request: "readonly",
+        window: "writable",     // Phase 89.34 — tests set `globalThis.window = {...}` then read via `window.X`
       },
     },
     rules: {
@@ -283,6 +289,10 @@ export default [
         TextEncoder: "readonly", TextDecoder: "readonly",
         ReadableStream: "readonly", WritableStream: "readonly",
         FormData: "readonly", Blob: "readonly", File: "readonly",
+        // Phase 89.34 — Cloudflare Workers runtime timers + abort (parse-receipt.js, verify-slip.js)
+        setTimeout: "readonly", clearTimeout: "readonly",
+        setInterval: "readonly", clearInterval: "readonly",
+        AbortController: "readonly", AbortSignal: "readonly",
       },
     },
     rules: {
