@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v239 (2026-05-15): Phase 89.29 — JV gaps fix (audit C2+C3+C4) — credit payment, refund, expense edit all post JV now
-const CACHE_NAME = 'boonsook-pos-v5-cache-v239';
+// v240 (2026-05-15): Phase 89.30 — XSS hardening batch (H1+H2+H3+S6+S7) — slip URL, CSS url() injection, search dropdowns, warranty fields, error.message
+const CACHE_NAME = 'boonsook-pos-v5-cache-v240';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

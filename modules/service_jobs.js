@@ -188,7 +188,7 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
             const slipUrl = sanitizeUrl(slipUrlMatch?.[1] || "");
             const slipStatus = (j.note || "").includes("SLIP_OK") ? "✅ ตรวจแล้ว" : (j.note || "").includes("SLIP_PENDING") ? "⏳ รอตรวจ" : "";
             if (slipUrl) {
-              slipImgHtml = `<div style="margin-top:8px"><a href="${slipUrl}" target="_blank" title="ดูสลิป"><img src="${slipUrl}" style="max-width:80px;max-height:80px;border-radius:8px;border:2px solid #0284c7;object-fit:cover;cursor:pointer" onerror="this.style.display='none'" /></a>${slipStatus ? `<div style="font-size:11px;font-weight:700;color:#0284c7;margin-top:2px">${slipStatus}</div>` : ""}</div>`;
+              slipImgHtml = `<div style="margin-top:8px"><a href="${escHtml(slipUrl)}" target="_blank" title="ดูสลิป"><img src="${escHtml(slipUrl)}" style="max-width:80px;max-height:80px;border-radius:8px;border:2px solid #0284c7;object-fit:cover;cursor:pointer" onerror="this.style.display='none'" /></a>${slipStatus ? `<div style="font-size:11px;font-weight:700;color:#0284c7;margin-top:2px">${slipStatus}</div>` : ""}</div>`;
             } else if (slipStatus) {
               slipImgHtml = `<div style="font-size:12px;color:#92400e;font-weight:700;margin-top:6px">📎 ${slipStatus} (ไม่มี URL สลิป)</div>`;
             }

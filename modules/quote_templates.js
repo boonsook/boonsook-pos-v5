@@ -34,7 +34,7 @@ export async function renderQuoteTemplatesPage(ctx) {
     }
     _qtList = await res.json();
   } catch (e) {
-    container.innerHTML = `<div style="color:#dc2626;text-align:center;padding:30px">โหลดไม่สำเร็จ: ${e.message}</div>`;
+    container.innerHTML = `<div style="color:#dc2626;text-align:center;padding:30px">โหลดไม่สำเร็จ: ${escHtml(e.message)}</div>`;
     return;
   }
 

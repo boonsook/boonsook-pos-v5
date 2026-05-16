@@ -283,12 +283,12 @@ export function renderCustomerDashboard(ctx) {
       ) : `
       <div id="custProductGrid" class="cust-product-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px">
         ${filteredProducts.map(p => {
-          const imgUrl = p.image_url || p.img || "";
+          const imgUrl = String(p.image_url || p.img || "").replace(/['\)\\]/g, '');
           const inCart = _custCart.find(c => c.id === p.id);
           const btuLabel = p.btu ? Number(p.btu).toLocaleString() + ' BTU' : '';
           return `
           <div style="background:#fff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;transition:.15s;cursor:pointer" data-view-product="${p.id}">
-            <div style="height:80px;background:${imgUrl ? `url('${imgUrl}') center/cover` : 'linear-gradient(135deg,#e0f2fe,#bae6fd)'};display:flex;align-items:center;justify-content:center;position:relative">
+            <div style="height:80px;background:${imgUrl ? `url('${escHtml(imgUrl)}') center/cover` : 'linear-gradient(135deg,#e0f2fe,#bae6fd)'};display:flex;align-items:center;justify-content:center;position:relative">
               ${!imgUrl ? `<span style="font-size:32px">❄️</span>` : ''}
               ${btuLabel ? `<div style="position:absolute;top:6px;right:6px;background:rgba(2,132,199,.9);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px">${btuLabel}</div>` : ''}
             </div>
@@ -297,7 +297,7 @@ export function renderCustomerDashboard(ctx) {
               <div style="font-size:14px;font-weight:900;color:#1f2937;margin-bottom:4px">${escHtml(p.sku || '')}</div>
               <div style="font-size:17px;font-weight:900;color:#0284c7">${money(p.price)}</div>
               <div style="font-size:10px;color:#10b981;font-weight:600">รวมติดตั้ง</div>
-              ${p.w_install || p.w_parts || p.w_comp ? `<div style="font-size:9px;color:#94a3b8;margin-top:2px;line-height:1.3">${[p.w_install ? 'ติดตั้ง ' + p.w_install : '', p.w_parts ? 'อะไหล่ ' + p.w_parts : '', p.w_comp ? 'คอมฯ ' + p.w_comp : ''].filter(Boolean).join(' | ')}</div>` : ''}
+              ${p.w_install || p.w_parts || p.w_comp ? `<div style="font-size:9px;color:#94a3b8;margin-top:2px;line-height:1.3">${[p.w_install ? 'ติดตั้ง ' + escHtml(p.w_install) : '', p.w_parts ? 'อะไหล่ ' + escHtml(p.w_parts) : '', p.w_comp ? 'คอมฯ ' + escHtml(p.w_comp) : ''].filter(Boolean).join(' | ')}</div>` : ''}
               <button data-add-cart="${p.id}" style="width:100%;margin-top:8px;padding:8px;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;
                 background:${inCart ? '#10b981' : p.stock > 0 ? '#0284c7' : '#f59e0b'};color:#fff">
                 ${inCart ? `✓ ในตะกร้า (${inCart.qty})` : p.stock > 0 ? '🛒 เพิ่มลงตะกร้า' : '📞 สั่งจอง'}
@@ -727,12 +727,12 @@ export function renderCustomerDashboard(ctx) {
       const gridEl = container.querySelector("#custProductGrid");
       if (gridEl) {
         gridEl.innerHTML = fp.length > 0 ? fp.map(p => {
-          const imgUrl = p.image_url || p.img || "";
+          const imgUrl = String(p.image_url || p.img || "").replace(/['\)\\]/g, '');
           const inCart = _custCart.find(c => c.id === p.id);
           const btuLabel = p.btu ? Number(p.btu).toLocaleString() + ' BTU' : '';
           return `
           <div style="background:#fff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;transition:.15s;cursor:pointer" data-view-product="${p.id}">
-            <div style="height:80px;background:${imgUrl ? `url('${imgUrl}') center/cover` : 'linear-gradient(135deg,#e0f2fe,#bae6fd)'};display:flex;align-items:center;justify-content:center;position:relative">
+            <div style="height:80px;background:${imgUrl ? `url('${escHtml(imgUrl)}') center/cover` : 'linear-gradient(135deg,#e0f2fe,#bae6fd)'};display:flex;align-items:center;justify-content:center;position:relative">
               ${!imgUrl ? `<span style="font-size:32px">❄️</span>` : ''}
               ${btuLabel ? `<div style="position:absolute;top:6px;right:6px;background:rgba(2,132,199,.9);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px">${btuLabel}</div>` : ''}
             </div>
@@ -741,7 +741,7 @@ export function renderCustomerDashboard(ctx) {
               <div style="font-size:14px;font-weight:900;color:#1f2937;margin-bottom:4px">${escHtml(p.sku || '')}</div>
               <div style="font-size:17px;font-weight:900;color:#0284c7">${money(p.price)}</div>
               <div style="font-size:10px;color:#10b981;font-weight:600">รวมติดตั้ง</div>
-              ${p.w_install || p.w_parts || p.w_comp ? `<div style="font-size:9px;color:#94a3b8;margin-top:2px;line-height:1.3">${[p.w_install ? 'ติดตั้ง ' + p.w_install : '', p.w_parts ? 'อะไหล่ ' + p.w_parts : '', p.w_comp ? 'คอมฯ ' + p.w_comp : ''].filter(Boolean).join(' | ')}</div>` : ''}
+              ${p.w_install || p.w_parts || p.w_comp ? `<div style="font-size:9px;color:#94a3b8;margin-top:2px;line-height:1.3">${[p.w_install ? 'ติดตั้ง ' + escHtml(p.w_install) : '', p.w_parts ? 'อะไหล่ ' + escHtml(p.w_parts) : '', p.w_comp ? 'คอมฯ ' + escHtml(p.w_comp) : ''].filter(Boolean).join(' | ')}</div>` : ''}
               <button data-add-cart="${p.id}" style="width:100%;margin-top:8px;padding:8px;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;
                 background:${inCart ? '#10b981' : p.stock > 0 ? '#0284c7' : '#f59e0b'};color:#fff">
                 ${inCart ? `✓ ในตะกร้า (${inCart.qty})` : p.stock > 0 ? '🛒 เพิ่มลงตะกร้า' : '📞 สั่งจอง'}

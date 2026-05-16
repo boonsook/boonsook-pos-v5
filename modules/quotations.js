@@ -648,7 +648,7 @@ function bindFormEvents(container, customers, products) {
         dropdown.innerHTML = matches.map(p => `
           <div class="qt-dd-item" data-pid="${p.id}">
             <span style="font-weight:700">${escHtml(p.name)}</span>
-            <span class="sku">${p.sku||''} &bull; ${money(p.price)}</span>
+            <span class="sku">${escHtml(p.sku||'')} &bull; ${money(p.price)}</span>
           </div>
         `).join("");
       }
@@ -681,7 +681,7 @@ function bindFormEvents(container, customers, products) {
       custDD.innerHTML = matches.map(c => `
         <div class="qt-dd-item" data-cid="${c.id}">
           <span style="font-weight:700">${escHtml(c.name)}</span>
-          <span class="sku">${c.phone||''} ${c.company ? '&bull; '+c.company : ''}</span>
+          <span class="sku">${escHtml(c.phone||'')} ${c.company ? '&bull; '+escHtml(c.company) : ''}</span>
         </div>
       `).join("");
       custDD?.classList.remove("hidden");
