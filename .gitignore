@@ -33,3 +33,12 @@ build/
 
 # Claude Code worktrees
 .claude/
+
+# Test / lint artifacts
+test-results/
+playwright-report/
+lint-errors*.txt
+node-server.*
+
+# Local session backups (HANDOFF/OVERNIGHT/etc.)
+*_local_backup.md
