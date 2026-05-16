@@ -341,7 +341,7 @@ export function renderAiSalesPage(ctx) {
   const { state, money, showToast, showRoute } = ctx;
 
   let chatHistory = [];
-  let step = 0;
+  let _step = 0;
   let answers = {};
 
   container.innerHTML = `
@@ -404,7 +404,7 @@ export function renderAiSalesPage(ctx) {
     });
   }
 
-  function showNumberInput(placeholder, onSubmit) {
+  function _showNumberInput(placeholder, onSubmit) {
     choicesDiv.innerHTML = "";
     const input = document.createElement("input");
     input.type = "number";
@@ -453,7 +453,7 @@ export function renderAiSalesPage(ctx) {
   // ═══ CONVERSATION STEPS ═══
 
   function startConversation() {
-    step = 0; answers = {}; chatHistory = []; chatBox.innerHTML = "";
+    _step = 0; answers = {}; chatHistory = []; chatBox.innerHTML = "";
     restartDiv.classList.add("hidden");
 
     addBubble("สวัสดีครับ! 👋 ผม AI ผู้ช่วยขายแอร์ของร้านบุญสุข");

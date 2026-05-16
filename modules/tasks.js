@@ -25,7 +25,7 @@ const RELATED_LABELS = {
 };
 
 export async function renderTasksPage(ctx) {
-  const { state, showToast } = ctx;
+  const { state: _state, showToast: _showToast } = ctx;
   const container = document.getElementById("page-tasks");
   if (!container) return;
 

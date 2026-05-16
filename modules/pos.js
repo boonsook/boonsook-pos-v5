@@ -1061,13 +1061,13 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
     if (proofUrl && proofUrl.startsWith("http")) noteParts.push(`สลิป: ${proofUrl}`);
 
     // ★ Phase 88.20: ถ้าโอนเงิน + เลือกบัญชี → ใส่ COA + ชื่อบัญชี ใน note (ใช้ตอน post JV)
-    let bankCoaCode = "";
+    let _bankCoaCode = "";
     if (paymentMethod === "โอนเงิน" || paymentMethod === "QR พร้อมเพย์") {
       const allBanks = state.paymentInfo?.banks || [];
       const validBanks = allBanks.filter(b => b.bankName || b.bankAccount);
       const activeBank = validBanks[selectedBankIdx];
       if (activeBank?.coaCode) {
-        bankCoaCode = activeBank.coaCode;
+        _bankCoaCode = activeBank.coaCode;
         noteParts.push(`BANK_COA:${activeBank.coaCode}`);
         noteParts.push(`🏦 ${activeBank.bankName}${activeBank.bankAccount ? ' (' + activeBank.bankAccount + ')' : ''}`);
       }

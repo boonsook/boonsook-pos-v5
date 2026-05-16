@@ -437,7 +437,7 @@ function renderInvoicePreview(container) {
   const subtotal   = Number(inv.total_amount || 0);
   const discPct    = Number(inv.discount_pct || 0);
   const discAmount = Number(inv.discount_amount || 0);
-  const afterDisc  = Number(inv.after_discount || subtotal);
+  const _afterDisc = Number(inv.after_discount || subtotal);
   const whtChecked = inv.withholding_tax || false;
   const whtPct     = Number(inv.wht_pct || 3);
   const whtAmount  = Number(inv.wht_amount || 0);

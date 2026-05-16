@@ -21,7 +21,7 @@ function moneyShort(n) {
 let _ctFilter = "open"; // open | paid | overdue | all
 
 export function renderCreditTrackerPage(ctx) {
-  const { state, showToast } = ctx;
+  const { state, showToast: _showToast } = ctx;
   const container = document.getElementById("page-credit_tracker");
   if (!container) return;
 

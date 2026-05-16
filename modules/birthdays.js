@@ -13,7 +13,7 @@ const THAI_MONTHS_SHORT = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","�
 let _bdMonthFilter = (new Date().getMonth() + 1); // default = current month
 
 export function renderBirthdaysPage(ctx) {
-  const { state, showToast } = ctx;
+  const { state, showToast: _showToast } = ctx;
   const container = document.getElementById("page-birthdays");
   if (!container) return;
 

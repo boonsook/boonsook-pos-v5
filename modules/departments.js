@@ -10,7 +10,7 @@ let _profiles = [];
 const _editingId = null;
 
 export async function renderDepartmentsPage(ctx) {
-  const { state, showToast, requireAdmin } = ctx;
+  const { state, showToast: _showToast, requireAdmin } = ctx;
   const container = document.getElementById("page-departments");
   if (!container) return;
 

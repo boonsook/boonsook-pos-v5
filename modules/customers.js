@@ -251,7 +251,7 @@ function renderPageNumbers(current, total) {
 //  IMPORT FROM EXCEL (Robust — auto-detect header row)
 // ═══════════════════════════════════════════════════════════
 async function importFromExcel(file, ctx) {
-  const { state } = ctx;
+  const { state: _state } = ctx;
   window.App?.showToast?.("กำลังนำเข้า...");
 
   try {

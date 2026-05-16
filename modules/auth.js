@@ -210,7 +210,7 @@ export function showStaffLogin() {
 
           <!-- Dots -->
           <div style="display:flex;gap:10px;justify-content:center;margin-bottom:16px">
-            ${[0,1,2,3].map(i =>
+            ${[0,1,2,3].map(_i =>
               `<div class="__dot" style="width:14px;height:14px;border-radius:50%;
                                         border:2px solid #ddd;background:transparent;
                                         transition:all 0.1s"></div>`

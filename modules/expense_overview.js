@@ -3,7 +3,7 @@
 //  Dashboard charts (Chart.js) — donut by category + bar by month
 //  + stats cards + top expenses
 // ═══════════════════════════════════════════════════════════
-import { renderSkeleton, renderEmpty, renderError } from "./ui_states.js";
+import { renderSkeleton, renderError } from "./ui_states.js";
 import { escHtml } from "./utils.js";
 
 let _data = [];
@@ -32,7 +32,7 @@ let _donutChart = null;
 let _barChart = null;
 
 export async function renderExpenseOverviewPage(ctx) {
-  const { state, requireAdmin } = ctx;
+  const { state: _state, requireAdmin } = ctx;
   const container = document.getElementById("page-expense_overview");
   if (!container) return;
 
