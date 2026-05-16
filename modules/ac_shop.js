@@ -305,7 +305,7 @@ export function renderAcShopPage(ctx) {
     const query = searchInput.value.trim().toLowerCase();
     const sort = sortSelect.value;
 
-    let items = AC_CATALOG.filter(a => {
+    const items = AC_CATALOG.filter(a => {
       if (brand && !a.s.startsWith(brand)) return false;
       if (btuRange) {
         const bv = Number(btuRange);

@@ -9,8 +9,8 @@ import { postJournalForServiceJob } from "./accounting/auto_post.js";
 
 // Module-level state
 let _items = [];           // [{product_id, name, qty, unit_price, line_total, warehouse_id, warehouse_name}]
-let _showPicker = false;
-let _pickerSearch = "";
+const _showPicker = false;
+const _pickerSearch = "";
 let _lastSavedJob = null;  // ถ้ามีค่า → form อยู่ใน read-only (lock items, edit ได้แค่ note)
 
 const escHtml = (s) => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
@@ -1147,7 +1147,7 @@ function _openTransferModal(ctx) {
   }).filter(x => x.homeStock > 0);
 
   let chosenProduct = null;
-  let chosenWh = mobileWhList[0]; // default first mobile
+  const chosenWh = mobileWhList[0]; // default first mobile
 
   const renderList = (search) => {
     const q = (search || "").toLowerCase().trim();
@@ -1286,7 +1286,7 @@ function _openTransferModal(ctx) {
         String(w.product_id) === String(chosenProduct.p.id) && String(w.warehouse_id) === String(homeWh.id)
       );
       if (homeWs) homeWs.stock = Math.max(0, Number(homeWs.stock || 0) - qty);
-      let targetWs = (state.warehouseStock || []).find(w =>
+      const targetWs = (state.warehouseStock || []).find(w =>
         String(w.product_id) === String(chosenProduct.p.id) && String(w.warehouse_id) === String(targetWhId)
       );
       if (targetWs) targetWs.stock = Number(targetWs.stock || 0) + qty;

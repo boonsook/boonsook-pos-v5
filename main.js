@@ -253,7 +253,7 @@ function xhrPost(table, payload, opts = {}, _isRetry = false) {
         }
         resolve({ ok: true, data: Array.isArray(data) ? data[0] : data, error: null });
       } else {
-        let errBody = xhr.responseText;
+        const errBody = xhr.responseText;
         let msg = "HTTP " + xhr.status;
         try {
           const parsed = JSON.parse(errBody);
@@ -3382,7 +3382,7 @@ async function _applyStockMovement({ productId, warehouseId, movementType, qty, 
   // Phase 45.3: schema ใช้ created_by uuid → ต้องส่ง user uuid (auth.users.id) ไม่ใช่ email
   const creatorUuid = state.currentUser?.id || null;
 
-  let ws = warehouseId ? (state.warehouseStock || []).find(w =>
+  const ws = warehouseId ? (state.warehouseStock || []).find(w =>
     String(w.product_id) === String(productId) && String(w.warehouse_id) === String(warehouseId)
   ) : null;
 
