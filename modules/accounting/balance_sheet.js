@@ -26,7 +26,7 @@ let _loading = false;
 
 function money(n) { return new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n || 0)); }
 function escHtml(s) { const d = document.createElement("div"); d.textContent = String(s ?? ""); return d.innerHTML; }
-function pad2(n) { return String(n).padStart(2, "0"); }
+function _pad2(n) { return String(n).padStart(2, "0"); }
 function fmtMoney(n) {
   const v = Number(n || 0);
   if (v < 0) return `(${money(-v)})`;

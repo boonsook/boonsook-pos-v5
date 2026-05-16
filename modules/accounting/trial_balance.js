@@ -382,7 +382,7 @@ function _onExport() {
     _ctx?.showToast?.("ยังไม่มีข้อมูล — กดดูรายงานก่อน", "error");
     return;
   }
-  const { range, accounts, total } = _result;
+  const { range, accounts: _accounts, total } = _result;
   const rows = [];
   ACCOUNT_TYPE_ORDER.forEach(t => {
     const items = (_result.byType[t] || []);
