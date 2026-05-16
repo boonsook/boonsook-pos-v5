@@ -551,7 +551,7 @@ function startTour() {
     openStepsModal();
     return;
   }
-  let idx = 0;
+  const idx = 0;
   showTourStep(tour, idx);
 }
 

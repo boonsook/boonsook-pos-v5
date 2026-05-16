@@ -127,7 +127,7 @@ export function renderErrorExplorer(cfg) {
       return;
     }
 
-    let results = [];
+    const results = [];
 
     if (brand) {
       const codes = db[brand] || {};

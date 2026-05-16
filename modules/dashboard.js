@@ -14,7 +14,7 @@ let jobStatusChart = null;
 let _dashPeriod = "today"; // today | week | month | year (hero-level)
 
 // ★ Per-panel date range (months) — FlowAccount-style dropdown per panel
-let _panelRange = {
+const _panelRange = {
   salesByProduct: 3,
   revenueBar: 3,
   expenseDonut: 3,

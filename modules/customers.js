@@ -236,7 +236,7 @@ function renderView(ctx) {
 }
 
 function renderPageNumbers(current, total) {
-  let pages = [];
+  const pages = [];
   const range = 2;
   for (let i = Math.max(1, current-range); i <= Math.min(total, current+range); i++) {
     pages.push(i);
