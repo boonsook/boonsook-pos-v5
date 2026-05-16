@@ -3160,6 +3160,8 @@ async function _deductStockForSaleItem({ product, qty, orderNo }) {
     String(ws.product_id) === String(product.id) && Number(ws.stock || 0) > 0
   );
 
+  // Phase 89.35: hoist dec outside if-block so skipProductsCas (below) can read it
+  let dec = null;
   if (stocks.length > 0) {
     stocks.sort((a, b) => {
       const nameA = (state.warehouses.find(w => w.id === a.warehouse_id)?.name || "");
@@ -3173,7 +3175,7 @@ async function _deductStockForSaleItem({ product, qty, orderNo }) {
     const whName = state.warehouses.find(w => w.id === ws.warehouse_id)?.name || "?";
 
     // Phase 89.9 H10: atomic CAS decrement (กัน 2 checkout พร้อมกันตัดสต็อกซ้ำ)
-    const dec = await _atomicDecrementStock("warehouse_stock", ws.id, qty);
+    dec = await _atomicDecrementStock("warehouse_stock", ws.id, qty);
     const before = dec.ok ? dec.before : Number(ws.stock || 0);
     const after = dec.ok ? dec.after : (before - qty);
 
@@ -3203,7 +3205,7 @@ async function _deductStockForSaleItem({ product, qty, orderNo }) {
   //   ใหม่: warehouse fail → skip products (legacy mirror ของ warehouse — ตัวเดิมก็ทำให้ตรง)
   //   หมายเหตุ: stocks.length === 0 (ไม่มี warehouse) → ยัง CAS products ตามเดิม (fallback legacy)
   let curStock, newStock;
-  const skipProductsCas = stocks.length > 0 && !dec.ok;
+  const skipProductsCas = stocks.length > 0 && !dec?.ok;
   if (skipProductsCas) {
     console.warn(`[deductStock] skip products.stock CAS (warehouse CAS failed — กัน 2 fields diverge)`);
     curStock = Number(product.stock || 0);
