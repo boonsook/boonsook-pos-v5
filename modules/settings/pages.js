@@ -415,13 +415,19 @@ export function renderSettingsLogoPage(el, ctx, goBack) {
       const ext = (file.name.split('.').pop() || 'png').toLowerCase();
       const fileName = `logo.${ext}`;
 
-      const { error: uploadErr } = await ctx?.state?.supabase?.storage
+      // Phase 89.31 lint: guard ถ้า supabase หรือ storage undefined → early return + toast
+      const _storage = ctx?.state?.supabase?.storage;
+      if (!_storage) {
+        ctx?.showToast?.('Supabase storage ยังไม่ initialize', 'warn');
+        return;
+      }
+      const { error: uploadErr } = await _storage
         .from('store-assets')
         .upload(fileName, file, { upsert: true, cacheControl: '60' });
 
       if (uploadErr) throw uploadErr;
 
-      const { data } = ctx?.state?.supabase?.storage
+      const { data } = _storage
         .from('store-assets')
         .getPublicUrl(fileName);
 
