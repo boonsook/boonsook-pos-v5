@@ -127,7 +127,7 @@ function openTemplateEditor(ctx, t) {
   const { state } = ctx;
   document.getElementById("qtModal")?.remove();
   const isEdit = !!t;
-  let _items = Array.isArray(t?.items_json) ? [...t.items_json] : [];
+  const _items = Array.isArray(t?.items_json) ? [...t.items_json] : [];
 
   const modal = document.createElement("div");
   modal.id = "qtModal";

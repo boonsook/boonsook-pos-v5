@@ -1079,7 +1079,7 @@ function _wireMultiPayPanel(r) {
   if (!btn || !panel || !rowsEl) return;
 
   // local state — load from r.payments or seed with single row from payment_method
-  let rows = Array.isArray(r.payments) && r.payments.length
+  const rows = Array.isArray(r.payments) && r.payments.length
     ? r.payments.map(p => ({ method: p.method || "cash", amount: Number(p.amount || 0), ref: p.ref || "" }))
     : (r.payment_method
         ? [{ method: r.payment_method, amount: Number(r.grand_total || 0), ref: "" }]

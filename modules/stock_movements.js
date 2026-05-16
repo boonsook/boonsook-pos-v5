@@ -81,7 +81,7 @@ export function renderStockMovementsPage(ctx) {
     }[c]));
   }
 
-  let html = `
+  const html = `
     <div class="panel">
       <h2>ประวัติเคลื่อนไหวสต็อก</h2>
 

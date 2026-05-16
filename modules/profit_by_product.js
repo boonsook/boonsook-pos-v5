@@ -67,7 +67,7 @@ export function renderProfitByProductPage(ctx) {
     g.profit += profit;
   });
 
-  let list = [...map.values()].map(g => ({
+  const list = [...map.values()].map(g => ({
     ...g,
     margin: g.revenue > 0 ? (g.profit / g.revenue * 100) : 0,
     avgPrice: g.qty > 0 ? g.revenue / g.qty : 0,

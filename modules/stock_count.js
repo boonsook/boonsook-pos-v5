@@ -10,7 +10,7 @@ function money(n) {
 
 // state ภายใน module
 let _scWarehouseId = null;     // คลังที่กำลังนับ
-let _scCounts = new Map();      // product_id → counted_qty (ภายใน session)
+const _scCounts = new Map();      // product_id → counted_qty (ภายใน session)
 let _scScanner = null;          // html5 qrcode instance
 // Phase 82: dedup scan — กันลูปนับเพิ่มไม่หยุด
 let _scLastScanCode = null;

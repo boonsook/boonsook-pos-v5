@@ -70,7 +70,7 @@ let currentSort = "name_asc";
 let viewMode = "list"; // list | grid
 let selectedWarehouse = "all"; // "all" or warehouse id
 let bulkMode = false; // ★ Bulk edit mode
-let bulkSelected = new Set(); // ★ product ids
+const bulkSelected = new Set(); // ★ product ids
 let quickFilter = ""; // ★ "no_cost" | "no_barcode" | ""
 // Phase 68 (B3): tag filter — null = no filter, string = filter by tag name
 let currentTagFilter = null;
@@ -959,7 +959,7 @@ function renderProductItem(p, mode, state) {
 }
 
 function renderPageNumbers(current, total) {
-  let pages = [];
+  const pages = [];
   const range = 2;
   for (let i = Math.max(1, current - range); i <= Math.min(total, current + range); i++) {
     pages.push(i);
@@ -2072,7 +2072,7 @@ async function openCategoryManagerDialog(ctx) {
   }
   const customOrder = _loadCategoryOrder();
   const rank = new Map(customOrder.map((c, i) => [c, i]));
-  let categories = [...catMap.entries()]
+  const categories = [...catMap.entries()]
     .map(([name, count]) => ({ name, count }))
     .sort((a, b) => {
       const ra = rank.has(a.name) ? rank.get(a.name) : 9999;
