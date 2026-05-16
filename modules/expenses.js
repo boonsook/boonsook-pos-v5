@@ -382,7 +382,17 @@ function bindFilterEvents() {
   document.getElementById("expAutoKeyBtn")?.addEventListener("click", () => _openAutoKeyModal(_ctx));
 
   // Phase 70 (D3): Export filtered expenses to Excel
+  // Phase 89.35 (Bug 2): recompute the filter inside the handler — `filtered`
+  // from renderExpensesPage() is out of scope here, which silently broke
+  // export since Phase 70.
   document.getElementById("expExportBtn")?.addEventListener("click", () => {
+    const expenses = _ctx?.state?.expenses || [];
+    let filtered = [...expenses];
+    if (_filterFromDate) filtered = filtered.filter(e => String(e.expense_date || "") >= _filterFromDate);
+    if (_filterToDate)   filtered = filtered.filter(e => String(e.expense_date || "") <= _filterToDate);
+    if (_filterCategory) filtered = filtered.filter(e => e.category === _filterCategory);
+    filtered.sort((a, b) => new Date(b.expense_date) - new Date(a.expense_date));
+
     const rows = filtered.map(e => ({
       "วันที่": (e.expense_date || e.created_at || "").slice(0, 10),
       "หมวด": e.category || "",
