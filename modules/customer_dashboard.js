@@ -283,7 +283,7 @@ export function renderCustomerDashboard(ctx) {
       ) : `
       <div id="custProductGrid" class="cust-product-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px">
         ${filteredProducts.map(p => {
-          const imgUrl = String(p.image_url || p.img || "").replace(/['\)\\]/g, '');
+          const imgUrl = String(p.image_url || p.img || "").replace(/['\\)]/g, '');
           const inCart = _custCart.find(c => c.id === p.id);
           const btuLabel = p.btu ? Number(p.btu).toLocaleString() + ' BTU' : '';
           return `
@@ -727,7 +727,7 @@ export function renderCustomerDashboard(ctx) {
       const gridEl = container.querySelector("#custProductGrid");
       if (gridEl) {
         gridEl.innerHTML = fp.length > 0 ? fp.map(p => {
-          const imgUrl = String(p.image_url || p.img || "").replace(/['\)\\]/g, '');
+          const imgUrl = String(p.image_url || p.img || "").replace(/['\\)]/g, '');
           const inCart = _custCart.find(c => c.id === p.id);
           const btuLabel = p.btu ? Number(p.btu).toLocaleString() + ' BTU' : '';
           return `

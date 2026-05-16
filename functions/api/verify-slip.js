@@ -193,7 +193,7 @@ export async function onRequestPost(context) {
       const normalizeName = (s) => String(s || "")
         .toLowerCase()
         .replace(/^(ร้าน|บริษัท|หจก\.?|บจ\.?|บมจ\.?|จำกัด|มณี\s*shop|mn\s*shop)\s*/gi, "")
-        .replace(/[\(\)\[\]]/g, " ")  // unwrap brackets — keep content
+        .replace(/[()[\]]/g, " ")  // unwrap brackets — keep content
         .replace(/\b(scb|kbank|krungthai|bbl|ttb|kkp|gsb|baac|tisco|uob|mha|bay|cimb)\b/gi, "")
         .replace(/\s+/g, " ")
         .trim();

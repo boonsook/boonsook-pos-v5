@@ -437,7 +437,7 @@ function _onPrint() {
     <h1>📊 รายงานยอดทดลอง — ${escHtml(_result.range.label)}</h1>
     <div style="font-size:11px;color:#64748b">${_result.range.from} → ${_result.range.to} · ${_result.accounts.length} บัญชี · พิมพ์เมื่อ ${new Date().toLocaleString("th-TH")}</div>
     ${printable.innerHTML.replace(/<button[\s\S]*?<\/button>/g, "")}
-    <script>setTimeout(() => window.print(), 250)<\/script>
+    <script>setTimeout(() => window.print(), 250)</script>
     </body></html>`);
   w.document.close();
 }
