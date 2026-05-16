@@ -138,7 +138,7 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
   }, { signal });
 
   /* ── ลบรายการขาย (admin only) ── */
-  document.querySelectorAll("[data-del-sale]").forEach(btn => btn.addEventListener("click", async (e) => {  // eslint-disable-line
+  document.querySelectorAll("[data-del-sale]").forEach(btn => btn.addEventListener("click", async (e) => {
     e.stopPropagation();
     const saleId = Number(btn.dataset.delSale);
     // ★ FIX: ป้องกัน NaN

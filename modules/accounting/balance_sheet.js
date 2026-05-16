@@ -333,7 +333,7 @@ function _onPrint() {
     <h1>🏦 งบดุล (Balance Sheet) — ณ ${escHtml(_result.asOfDate)}</h1>
     <div style="font-size:11px;color:#64748b">รวมตั้งแต่ ${ACCOUNTING_EFFECTIVE_DATE} → ${_result.asOfDate} · พิมพ์เมื่อ ${new Date().toLocaleString("th-TH")}</div>
     ${printable.innerHTML.replace(/<button[\s\S]*?<\/button>/g, "")}
-    <script>setTimeout(() => window.print(), 250)<\/script>
+    <script>setTimeout(() => window.print(), 250)</script>
     </body></html>`);
   w.document.close();
 }

@@ -1269,7 +1269,7 @@ export function openBarcodePrintWindow(items) {
 <head>
 <meta charset="UTF-8" />
 <title>พิมพ์บาร์โค้ด — ${stickers.length} ป้าย (50×30mm)</title>
-<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"><\/script>
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
 <style>
   * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   body { font-family: 'Prompt', system-ui, -apple-system, sans-serif; margin: 0; padding: 0; background: #eef2f7; color: #0f172a; }
@@ -1396,7 +1396,7 @@ ${stickers.map(s => `
     // รอ barcodes render ก่อน auto-trigger print dialog
     setTimeout(function() { window.print(); }, 600);
   });
-<\/script>
+</script>
 </body>
 </html>`;
 
@@ -2480,7 +2480,7 @@ async function showQrModal({ title, subtitle, text, showPrint = false, productNa
       w.document.write(`<!DOCTYPE html><html><head><title>QR ${escHtml(productName)}</title>
 <style>body{margin:0;padding:24px;text-align:center;font-family:sans-serif}img{width:220px;height:220px}p{margin:8px 0 0;font-family:monospace;font-size:12px}@media print{body{padding:0}}</style>
 </head><body><img src="${dataUrl}" /><p>${escHtml(productName || "")}</p><p>${escHtml(text)}</p>
-<script>setTimeout(()=>{window.print();setTimeout(()=>window.close(),300)},200)<\/script>
+<script>setTimeout(()=>{window.print();setTimeout(()=>window.close(),300)},200)</script>
 </body></html>`);
       w.document.close();
     });

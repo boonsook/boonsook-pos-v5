@@ -184,7 +184,7 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
           // ★ แสดงรูปสลิปฝั่ง admin (ดึง URL จาก note ที่มี SLIP_URL:)
           let slipImgHtml = "";
           if (isWebOrder) {
-            const slipUrlMatch = (j.note || "").match(/SLIP_URL:(https?:\/\/[^\|]+)/);
+            const slipUrlMatch = (j.note || "").match(/SLIP_URL:(https?:\/\/[^|]+)/);
             const slipUrl = sanitizeUrl(slipUrlMatch?.[1] || "");
             const slipStatus = (j.note || "").includes("SLIP_OK") ? "✅ ตรวจแล้ว" : (j.note || "").includes("SLIP_PENDING") ? "⏳ รอตรวจ" : "";
             if (slipUrl) {
