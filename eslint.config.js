@@ -2,7 +2,8 @@
 // Strategy: legacy adoption mode
 //   - Real-bug rules = "error" (block CI: no-eval, no-async-promise-executor, etc.)
 //   - Style/cleanup = "warn" (visible but ไม่ fail)
-//   - no-undef = "warn" (codebase ใช้ browser globals หลายตัวที่ list ไม่หมด)
+//   - no-undef = "error" ใน browser modules (Phase 89.35: count = 0 → promoted from warn)
+//   - no-undef = "warn"  ใน tests / functions / sw / scripts (smaller scope, lower risk)
 //
 // Goal: 0 errors, warnings ปล่อยทยอยแก้
 
@@ -201,7 +202,7 @@ export default [
 
       // ── Style / cleanup (warn — visible แต่ ไม่ block CI) ──
       "no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrors: "none" }],
-      "no-undef": "warn",        // legacy codebase — กลับมาเป็น error ใน Phase 2
+      "no-undef": "error",       // Phase 89.35 — count reached 0; block CI on future regressions
       "prefer-const": "warn",
       "no-empty": ["warn", { allowEmptyCatch: true }],
       "no-useless-escape": "warn",
