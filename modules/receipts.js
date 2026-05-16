@@ -541,7 +541,7 @@ function renderReceiptPreview(container) {
   const subtotal   = Number(r.total_amount || 0);
   const discPct    = Number(r.discount_pct || 0);
   const discAmount = Number(r.discount_amount || 0);
-  const afterDisc  = Number(r.after_discount || subtotal);
+  const _afterDisc = Number(r.after_discount || subtotal);
   const whtChecked = r.withholding_tax || false;
   const whtPct     = Number(r.wht_pct || 3);
   const whtAmount  = Number(r.wht_amount || 0);
@@ -1055,7 +1055,7 @@ const PAY_METHOD_OPTIONS = [
   { value: "other",    label: "🏷️ อื่นๆ" }
 ];
 
-function _renderMultiPayRows(rows, grandTotal) {
+function _renderMultiPayRows(rows, _grandTotal) {
   return rows.map((row, idx) => `
     <div class="rc-mp-row" data-idx="${idx}" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
       <select class="rc-mp-method" style="padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;min-width:120px">
