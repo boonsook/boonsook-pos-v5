@@ -4,7 +4,7 @@
 //  ปิดร้าน: นับเงินจริง → เทียบกับยอดที่ระบบคำนวณ → ดูผลต่าง
 // ═══════════════════════════════════════════════════════════
 
-import { escHtml, todayBkk, dateBkk } from "./utils.js";
+import { todayBkk, dateBkk } from "./utils.js";
 function money(n) {
   return new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n || 0));
 }
@@ -63,7 +63,7 @@ export function renderCashReconPage(ctx) {
 
   // Phase 89.18: ใช้ computeCashRecon pure helper (unit-tested)
   const recon = computeCashRecon({ state, date: _crDate });
-  const { sales, cashSales, cashIn, transferSales, transferIn, expenses, cashExpenses, cashOut } = recon;
+  const { sales: _sales, cashSales, cashIn, transferSales: _transferSales, transferIn, expenses: _expenses, cashExpenses, cashOut } = recon;
 
   const expected = openingCash + cashIn - cashOut;
 
@@ -196,7 +196,7 @@ export function renderCashReconPage(ctx) {
     renderCashReconPage(ctx);
   });
 
-  container.querySelectorAll(".cr-denom").forEach(inp => inp.addEventListener("input", (e) => {
+  container.querySelectorAll(".cr-denom").forEach(inp => inp.addEventListener("input", (_e) => {
     const val = Number(inp.dataset.val);
     const count = parseInt(inp.value, 10) || 0;
     _crDenoms[val] = count;

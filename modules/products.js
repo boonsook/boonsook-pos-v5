@@ -15,7 +15,7 @@ const _appConfirm = (msg) => {
 import * as BTPrinter from "./bt_printer.js";
 
 // ═══ ประเภทสินค้า (เหมือน FlowAccount) ═══
-const PRODUCT_TYPES = {
+const _PRODUCT_TYPES = {
   all:       { label: "แสดงทั้งหมด", icon: "" },
   service:   { label: "บริการ",         icon: "🔧" },
   non_stock: { label: "สินค้าไม่นับสต็อก", icon: "📦" },
@@ -44,7 +44,7 @@ function detectProductType(p) {
 // เคลียร์ cache เมื่อ import/delete ใหม่
 function clearTypeCache() { _typeCache.clear(); }
 
-const PRODUCT_CATEGORIES = {
+const _PRODUCT_CATEGORIES = {
   all:     { label: "ทั้งหมด", icon: "" },
   instock: { label: "พร้อมขาย", icon: "🟢" },
   low:     { label: "ใกล้หมด", icon: "🟡" },
@@ -674,7 +674,7 @@ function renderView(ctx) {
   });
 
   // ★ Bulk select per item
-  el.querySelectorAll(".prod-bulk-cb").forEach(cb => cb.addEventListener("change", (e) => {
+  el.querySelectorAll(".prod-bulk-cb").forEach(cb => cb.addEventListener("change", (_e) => {
     const pid = String(cb.dataset.pid);
     if (cb.checked) bulkSelected.add(pid); else bulkSelected.delete(pid);
     renderView(ctx);
@@ -1086,7 +1086,7 @@ function handleScanResult(code, ctx) {
 //  IMPORT FROM EXCEL
 // ═══════════════════════════════════════════════════════════
 async function importProducts(file, ctx) {
-  const { state } = ctx;
+  const { state: _state } = ctx;
   window.App?.showToast?.("กำลังนำเข้าสินค้า...");
 
   try {
@@ -1157,7 +1157,7 @@ async function importProducts(file, ctx) {
       if (!name) { failed++; continue; }
 
       const category = getVal(row, COL.category);
-      const unit = getVal(row, COL.unit);
+      const _unit = getVal(row, COL.unit);
 
       // ★ จำแนกประเภทอัตโนมัติจาก category/name
       const cleanText = (name + " " + category).replace(/[\u200b\u200c\u200d\ufeff\u00ad]/g, "").toLowerCase();
@@ -1968,7 +1968,7 @@ async function bulkSetCategory(ctx) {
   if (window.App?.loadAllData) await window.App.loadAllData();
 }
 
-async function bulkSetType(ctx) {
+async function bulkSetType(_ctx) {
   if (bulkSelected.size === 0) return;
   const choice = prompt(
     `เปลี่ยนประเภทสำหรับ ${bulkSelected.size} สินค้า:\n\n1 = สินค้านับสต็อก\n2 = ไม่นับสต็อก\n3 = บริการ`,
@@ -1982,7 +1982,7 @@ async function bulkSetType(ctx) {
   if (window.App?.loadAllData) await window.App.loadAllData();
 }
 
-async function bulkDelete(ctx) {
+async function bulkDelete(_ctx) {
   if (bulkSelected.size === 0) return;
   if (!(await _appConfirm(`⚠️ ลบสินค้าที่เลือก ${bulkSelected.size} รายการ?\n\nกู้คืนไม่ได้!`))) return;
   if (!(await _appConfirm(`ยืนยันอีกครั้ง: ลบ ${bulkSelected.size} รายการ?`))) return;
