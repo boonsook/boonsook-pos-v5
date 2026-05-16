@@ -2,7 +2,7 @@
 import { visibleSalesForRole } from "./utils.js";
 
 export function renderProfitReportPage(ctx) {
-  const { state, money, showToast, loadAllData, currentRole, requireAdmin } = ctx;
+  const { state, money, showToast, loadAllData: _loadAllData, currentRole: _currentRole, requireAdmin: _requireAdmin } = ctx;
 
   const container = document.getElementById("page-profit_report");
   if (!container) return;
@@ -405,11 +405,11 @@ function formatMonthLabel(date) {
   return `${months[date.getMonth()]} ${date.getFullYear() + 543}`;
 }
 
-function money(n) {
+function _money(n) {
   return new Intl.NumberFormat("th-TH", { style: "currency", currency: "THB", minimumFractionDigits: 2 }).format(Number(n || 0));
 }
 
-function num(n) {
+function _num(n) {
   return new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n || 0));
 }
 
