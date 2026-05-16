@@ -173,7 +173,7 @@ export function renderLoyaltyPage(ctx) {
 
   const isAdmin = currentRole === 'admin' || currentRole === 'super_admin';
 
-  let html = `
+  const html = `
     <div style="padding: 20px;">
       <h1 style="margin-bottom: 30px;">สะสมแต้มลูกค้า (Loyalty Points)</h1>
 
@@ -290,7 +290,7 @@ function renderSummaryTab(loyaltyPoints, customers, settings, ctx) {
   const pointsPerValue = Number(settings.points_value || 0);
   const pointsValue = Number(settings.points_value || 0);
 
-  let rows = Object.entries(customerPointsMap)
+  const rows = Object.entries(customerPointsMap)
     .map(([customerId, points]) => {
       const customer = customers.find(c => c.id === customerId);
       const remaining = points.earned - points.redeemed;
@@ -352,7 +352,7 @@ function renderSummaryTab(loyaltyPoints, customers, settings, ctx) {
     </table>
   `;
 
-  let html = searchHtml + tableHtml;
+  const html = searchHtml + tableHtml;
 
   // Will add event listeners after this function returns
   setTimeout(() => {

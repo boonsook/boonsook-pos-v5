@@ -22,7 +22,7 @@ const moneyShort = (n) => {
 // Chart instances — destroy before re-render to prevent leaks
 let _donutChart = null;
 let _barChart = null;
-let _trendChart = null;
+const _trendChart = null;
 
 export async function renderPayrollOverviewPage(ctx) {
   const { state, showToast, requireAdmin } = ctx;
