@@ -2,7 +2,7 @@
 import { renderEmpty } from "./ui_states.js";
 
 export function renderStockMovementsPage(ctx) {
-  const { state, money, showToast, loadAllData, currentRole, requireAdmin } = ctx;
+  const { state, money: _money, showToast, loadAllData, currentRole: _currentRole, requireAdmin: _requireAdmin } = ctx;
 
   // Formatting helper
   function dateTH(d) {
