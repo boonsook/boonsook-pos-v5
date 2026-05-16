@@ -12,7 +12,7 @@ let _wrThreshold = 30;  // days
 let _wrData = null;
 
 export async function renderWarrantyReportPage(ctx) {
-  const { state, showToast } = ctx;
+  const { state: _state, showToast: _showToast } = ctx;
   const container = document.getElementById("page-warranty_report");
   if (!container) return;
 

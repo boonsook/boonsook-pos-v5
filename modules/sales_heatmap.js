@@ -20,7 +20,7 @@ let _shPeriod = "90d"; // 30d | 90d | year | all
 let _shMetric = "revenue"; // revenue | bills
 
 export function renderSalesHeatmapPage(ctx) {
-  const { state, showToast } = ctx;
+  const { state, showToast: _showToast } = ctx;
   const container = document.getElementById("page-sales_heatmap");
   if (!container) return;
 

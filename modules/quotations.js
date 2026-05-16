@@ -863,7 +863,7 @@ function renderQuotationPreview(container) {
   const subtotal     = Number(q.total_amount || 0);
   const discPct      = Number(q.discount_pct || 0);
   const discAmount   = Number(q.discount_amount || 0);
-  const afterDisc    = Number(q.after_discount || subtotal);
+  const _afterDisc   = Number(q.after_discount || subtotal);
   const whtChecked   = q.withholding_tax || false;
   const whtPct       = Number(q.wht_pct || 3);
   const whtAmount    = Number(q.wht_amount || 0);

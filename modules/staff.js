@@ -4,7 +4,7 @@
 // เข้าถึงผ่าน #staff (admin only)
 // ============================================================
 
-import { isAdmin, getPermLevel, showAccessDenied } from './auth.js';
+import { isAdmin, showAccessDenied } from './auth.js';
 
 const ROLE_LABEL = { admin: 'Admin', staff: 'พนักงานขาย', technician: 'ช่างซ่อม' };
 const ROLE_COLOR = { admin: '#e74c3c', staff: '#3498db', technician: '#27ae60' };

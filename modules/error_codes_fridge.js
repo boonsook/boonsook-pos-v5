@@ -192,7 +192,7 @@ const FRIDGE_DB = {
   }
 };
 
-export function renderErrorCodesFridgePage(ctx) {
+export function renderErrorCodesFridgePage(_ctx) {
   renderErrorExplorer({
     containerId: "page-error_codes_fridge",
     db: FRIDGE_DB,

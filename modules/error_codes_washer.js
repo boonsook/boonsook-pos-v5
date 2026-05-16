@@ -227,7 +227,7 @@ const WASHER_DB = {
   }
 };
 
-export function renderErrorCodesWasherPage(ctx) {
+export function renderErrorCodesWasherPage(_ctx) {
   renderErrorExplorer({
     containerId: "page-error_codes_washer",
     db: WASHER_DB,

@@ -630,7 +630,7 @@ export const BRAND_META = {
 
 import { renderErrorExplorer } from "./error_codes_shared.js";
 
-export function renderErrorCodesPage(ctx) {
+export function renderErrorCodesPage(_ctx) {
   renderErrorExplorer({
     containerId: "page-error_codes",
     db: ERROR_DB,

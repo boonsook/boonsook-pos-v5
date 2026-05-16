@@ -1,5 +1,3 @@
-import { escHtml } from "./utils.js";
-
 export function renderSettingsPermissions(el, ctx, goBack) {
   el.innerHTML = `
     <div class="set-subpage">
