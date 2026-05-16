@@ -146,6 +146,9 @@ function _renderIndicator() {
 
 // ── PIN Login Modal ───────────────────────────────────────
 export function showStaffLogin() {
+  // TODO Phase 89.32+: refactor → wrap async logic ใน IIFE inside (resolve) executor
+  // ตอนนี้ปล่อยไว้เพราะ flow PIN login เปราะ + ทำงานปกติมานาน
+  // eslint-disable-next-line no-async-promise-executor
   return new Promise(async (resolve) => {
     const sb = window._supabase;
 
