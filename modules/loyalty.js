@@ -100,7 +100,7 @@ export function earnPoints(customerId, amount, refType, refId, ctx) {
  * Redeem points
  */
 export function redeemPoints(customerId, points, note, ctx) {
-  const { state, showToast, loadAllData, requireAdmin } = ctx;
+  const { state, showToast, loadAllData, requireAdmin: _requireAdmin } = ctx;
   const settings = state.loyaltySettings || {};
 
   if (!settings.is_active) {
@@ -144,7 +144,7 @@ export function redeemPoints(customerId, points, note, ctx) {
  * Main loyalty page renderer
  */
 export function renderLoyaltyPage(ctx) {
-  const { state, money: moneyFn, showToast, loadAllData, currentRole, requireAdmin } = ctx;
+  const { state, money: _moneyFn, showToast: _showToast, loadAllData: _loadAllData, currentRole, requireAdmin: _requireAdmin } = ctx;
 
   const container = document.getElementById("page-loyalty");
   if (!container) return;
@@ -287,7 +287,7 @@ function renderSummaryTab(loyaltyPoints, customers, settings, ctx) {
     }
   });
 
-  const pointsPerValue = Number(settings.points_value || 0);
+  const _pointsPerValue = Number(settings.points_value || 0);
   const pointsValue = Number(settings.points_value || 0);
 
   const rows = Object.entries(customerPointsMap)
@@ -532,7 +532,7 @@ function renderManualTab(customers, ctx) {
   return html;
 }
 
-function showPointHistory(customerId, loyaltyPoints, customers, ctx) {
+function showPointHistory(customerId, loyaltyPoints, customers, _ctx) {
   const customer = customers.find(c => c.id === customerId);
   const customerName = customer?.name || `ลูกค้า #${customerId}`;
 
