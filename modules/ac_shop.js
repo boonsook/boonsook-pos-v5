@@ -213,8 +213,8 @@ const AC_CATALOG = [
 ];
 
 const BRANDS = [...new Set(AC_CATALOG.map(a => a.s.split(" ")[0]))];
-const SERIES = [...new Set(AC_CATALOG.map(a => a.s))];
-const BTU_OPTIONS = [...new Set(AC_CATALOG.map(a => a.btu))].sort((a,b) => a - b);
+const _SERIES = [...new Set(AC_CATALOG.map(a => a.s))];
+const _BTU_OPTIONS = [...new Set(AC_CATALOG.map(a => a.btu))].sort((a,b) => a - b);
 
 function money(n) { return "฿" + Number(n).toLocaleString(); }
 
@@ -388,7 +388,7 @@ export function renderAcShopPage(ctx) {
 
   // ═══ ORDER FORM (inline modal) ═══
   let _shopFormSeq = 0;
-  function showShopOrderForm(prod, triggerBtn) {
+  function showShopOrderForm(prod, _triggerBtn) {
     const fid = ++_shopFormSeq;
     const prodName = prod.s + " " + prod.m;
 
