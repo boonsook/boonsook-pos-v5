@@ -4,13 +4,13 @@
 // ═══════════════════════════════════════════════════════════
 
 import { escHtml } from "./utils.js";
-function money(n) {
+function _money(n) {
   return new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n || 0));
 }
 
 // state ภายใน module
 let _scWarehouseId = null;     // คลังที่กำลังนับ
-let _scCounts = new Map();      // product_id → counted_qty (ภายใน session)
+const _scCounts = new Map();      // product_id → counted_qty (ภายใน session)
 let _scScanner = null;          // html5 qrcode instance
 // Phase 82: dedup scan — กันลูปนับเพิ่มไม่หยุด
 let _scLastScanCode = null;
@@ -21,7 +21,7 @@ let _scAddInProgress = false;
 let _scSaving = false;
 
 export function renderStockCountPage(ctx) {
-  const { state, showToast } = ctx;
+  const { state, showToast: _showToast } = ctx;
   const container = document.getElementById("page-stock_count");
   if (!container) return;
 
@@ -278,16 +278,16 @@ function renderCountedList(state) {
     </div>
   `;
 
-  listEl.querySelectorAll(".sc-remove-btn").forEach(btn => btn.addEventListener("click", (e) => {
+  listEl.querySelectorAll(".sc-remove-btn").forEach(btn => btn.addEventListener("click", (_e) => {
     const pid = btn.dataset.pid;
     _scCounts.delete(String(pid));
     renderCountedList(state);
     // Update progress
-    const cnt = _scCounts.size;
-    const totalProducts = (state.products || []).filter(p =>
+    const _cnt = _scCounts.size;
+    const _totalProducts = (state.products || []).filter(p =>
       p.product_type !== "service" && p.product_type !== "non_stock"
     ).length;
-    const counterEl = document.querySelector("#page-stock_count label[for], #page-stock_count .stat-label");
+    const _counterEl = document.querySelector("#page-stock_count label[for], #page-stock_count .stat-label");
   }));
 }
 
@@ -342,7 +342,7 @@ async function openScanner(ctx) {
   }
 }
 
-async function closeScanner(ctx) {
+async function closeScanner(_ctx) {
   await stopScannerHard();
 }
 

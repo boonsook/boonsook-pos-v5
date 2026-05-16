@@ -541,7 +541,7 @@ function renderReceiptPreview(container) {
   const subtotal   = Number(r.total_amount || 0);
   const discPct    = Number(r.discount_pct || 0);
   const discAmount = Number(r.discount_amount || 0);
-  const afterDisc  = Number(r.after_discount || subtotal);
+  const _afterDisc = Number(r.after_discount || subtotal);
   const whtChecked = r.withholding_tax || false;
   const whtPct     = Number(r.wht_pct || 3);
   const whtAmount  = Number(r.wht_amount || 0);
@@ -1055,7 +1055,7 @@ const PAY_METHOD_OPTIONS = [
   { value: "other",    label: "🏷️ อื่นๆ" }
 ];
 
-function _renderMultiPayRows(rows, grandTotal) {
+function _renderMultiPayRows(rows, _grandTotal) {
   return rows.map((row, idx) => `
     <div class="rc-mp-row" data-idx="${idx}" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
       <select class="rc-mp-method" style="padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;min-width:120px">
@@ -1079,7 +1079,7 @@ function _wireMultiPayPanel(r) {
   if (!btn || !panel || !rowsEl) return;
 
   // local state — load from r.payments or seed with single row from payment_method
-  let rows = Array.isArray(r.payments) && r.payments.length
+  const rows = Array.isArray(r.payments) && r.payments.length
     ? r.payments.map(p => ({ method: p.method || "cash", amount: Number(p.amount || 0), ref: p.ref || "" }))
     : (r.payment_method
         ? [{ method: r.payment_method, amount: Number(r.grand_total || 0), ref: "" }]

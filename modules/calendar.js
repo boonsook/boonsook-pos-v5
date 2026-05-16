@@ -1,5 +1,5 @@
 export function renderCalendarPage(ctx) {
-  const { state, showToast, showRoute, openServiceJobDrawer } = ctx;
+  const { state, showToast: _showToast, showRoute, openServiceJobDrawer } = ctx;
   const pageContainer = document.getElementById("page-calendar");
 
   if (!pageContainer) {
@@ -210,7 +210,7 @@ export function renderCalendarPage(ctx) {
     }
 
     // Next month's days (grayed out)
-    const totalCells = document.querySelectorAll(".calendar-day").length + firstDay + daysInMonth;
+    const _totalCells = document.querySelectorAll(".calendar-day").length + firstDay + daysInMonth;
     const remainingCells = 42 - (firstDay + daysInMonth);
     for (let day = 1; day <= remainingCells; day++) {
       calendarHtml += `
@@ -476,7 +476,7 @@ export function renderCalendarPage(ctx) {
    * Main render function
    */
   function render() {
-    let html = `
+    const html = `
       <div style="
         padding: 16px;
         max-width: 1000px;

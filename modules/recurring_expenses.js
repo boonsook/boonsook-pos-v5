@@ -15,7 +15,7 @@ const FREQ_LABELS = { monthly: "ทุกเดือน", weekly: "ทุกส
 let _reList = []; // local cache
 
 export async function renderRecurringExpensesPage(ctx) {
-  const { state, showToast } = ctx;
+  const { state: _state, showToast: _showToast } = ctx;
   const container = document.getElementById("page-recurring_expenses");
   if (!container) return;
 

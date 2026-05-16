@@ -41,7 +41,7 @@ export async function renderJournalsPage(ctx) {
   const container = document.getElementById("page-accounting_journals");
   if (!container) return;
 
-  const { state, showToast } = ctx;
+  const { state: _state, showToast: _showToast } = ctx;
   const cfg = window.SUPABASE_CONFIG;
   const token = window._sbAccessToken || cfg.anonKey;
 
@@ -268,7 +268,7 @@ async function _fetchSourceRow(entry, headers) {
   } catch(_) { return null; }
 }
 
-function _renderJvDrawerBody(entry, lines, coaMap, sourceRow, ctx) {
+function _renderJvDrawerBody(entry, lines, coaMap, sourceRow, _ctx) {
   const body = document.getElementById("jvDrawerBody");
   if (!body) return;
 

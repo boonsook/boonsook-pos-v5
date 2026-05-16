@@ -236,7 +236,7 @@ function renderView(ctx) {
 }
 
 function renderPageNumbers(current, total) {
-  let pages = [];
+  const pages = [];
   const range = 2;
   for (let i = Math.max(1, current-range); i <= Math.min(total, current+range); i++) {
     pages.push(i);
@@ -251,7 +251,7 @@ function renderPageNumbers(current, total) {
 //  IMPORT FROM EXCEL (Robust — auto-detect header row)
 // ═══════════════════════════════════════════════════════════
 async function importFromExcel(file, ctx) {
-  const { state } = ctx;
+  const { state: _state } = ctx;
   window.App?.showToast?.("กำลังนำเข้า...");
 
   try {

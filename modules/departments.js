@@ -7,10 +7,10 @@ import { escHtml } from "./utils.js";
 
 let _depts = [];
 let _profiles = [];
-let _editingId = null;
+const _editingId = null;
 
 export async function renderDepartmentsPage(ctx) {
-  const { state, showToast, requireAdmin } = ctx;
+  const { state, showToast: _showToast, requireAdmin } = ctx;
   const container = document.getElementById("page-departments");
   if (!container) return;
 

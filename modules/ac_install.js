@@ -9,8 +9,8 @@ import { postJournalForServiceJob } from "./accounting/auto_post.js";
 
 // Module-level state
 let _items = [];           // [{product_id, name, qty, unit_price, line_total, warehouse_id, warehouse_name}]
-let _showPicker = false;
-let _pickerSearch = "";
+const _showPicker = false;
+const _pickerSearch = "";
 let _lastSavedJob = null;  // ถ้ามีค่า → form อยู่ใน read-only (lock items, edit ได้แค่ note)
 
 const escHtml = (s) => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
@@ -907,7 +907,7 @@ function _openItemPicker(ctx, container, updateTotal) {
 //  Phase 41 — After-save actions: ใบเสร็จ + ส่ง LINE + สร้างใบใหม่
 // ═══════════════════════════════════════════════════════════
 function _renderAfterSaveActions(container, ctx) {
-  const { state, money, showToast } = ctx;
+  const { state: _state, money: _money, showToast: _showToast } = ctx;
   const el = container.querySelector("#acAfterSave");
   if (!el || !_lastSavedJob) return;
   el.innerHTML = `
@@ -935,7 +935,7 @@ function _renderAfterSaveActions(container, ctx) {
 // ═══════════════════════════════════════════════════════════
 //  Receipt preview (HTML modal — print-ready)
 // ═══════════════════════════════════════════════════════════
-function _openReceiptPreview(ctx, container) {
+function _openReceiptPreview(ctx, _container) {
   const { state, money } = ctx;
   if (!_lastSavedJob) return;
   const job = _lastSavedJob;
@@ -1123,7 +1123,7 @@ function _pickMobileWarehouse(mobileStocks, productName) {
 //  ใช้โดยทั้ง ac_install + service_form (export ผ่าน window)
 // ═══════════════════════════════════════════════════════════
 function _openTransferModal(ctx) {
-  const { state, money, showToast } = ctx;
+  const { state, money: _money, showToast } = ctx;
   document.getElementById("acTransferModal")?.remove();
 
   const homeWh = _getHomeWarehouse(state);
@@ -1147,7 +1147,7 @@ function _openTransferModal(ctx) {
   }).filter(x => x.homeStock > 0);
 
   let chosenProduct = null;
-  let chosenWh = mobileWhList[0]; // default first mobile
+  const _chosenWh = mobileWhList[0]; // default first mobile
 
   const renderList = (search) => {
     const q = (search || "").toLowerCase().trim();
@@ -1161,7 +1161,7 @@ function _openTransferModal(ctx) {
     }
     return filtered.slice(0, 50).map(({ p, homeStock }) => {
       const mobileStocks = _getMobileStocks(p, state);
-      const inMobileTotal = mobileStocks.reduce((s, m) => s + m.stock, 0);
+      const _inMobileTotal = mobileStocks.reduce((s, m) => s + m.stock, 0);
       const mobileBadges = mobileWhList.map(w => {
         const stk = mobileStocks.find(m => String(m.warehouse_id) === String(w.id))?.stock || 0;
         return `<span style="background:#dbeafe;color:#1e40af;padding:2px 6px;border-radius:6px;font-size:10px;font-weight:700">🚐 ${escHtml(w.name)}: ${stk}</span>`;
@@ -1286,7 +1286,7 @@ function _openTransferModal(ctx) {
         String(w.product_id) === String(chosenProduct.p.id) && String(w.warehouse_id) === String(homeWh.id)
       );
       if (homeWs) homeWs.stock = Math.max(0, Number(homeWs.stock || 0) - qty);
-      let targetWs = (state.warehouseStock || []).find(w =>
+      const targetWs = (state.warehouseStock || []).find(w =>
         String(w.product_id) === String(chosenProduct.p.id) && String(w.warehouse_id) === String(targetWhId)
       );
       if (targetWs) targetWs.stock = Number(targetWs.stock || 0) + qty;

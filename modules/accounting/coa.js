@@ -9,7 +9,7 @@
 import { renderEmpty } from "../ui_states.js";
 
 const escHtml = (s) => String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
-const escAttr = (s) => String(s ?? "").replace(/&/g,"&amp;").replace(/"/g,"&quot;");
+const _escAttr = (s) => String(s ?? "").replace(/&/g,"&amp;").replace(/"/g,"&quot;");
 
 const TYPE_LABEL = {
   asset:     { th: "สินทรัพย์",    icon: "💰", color: "#0284c7" },
@@ -20,13 +20,13 @@ const TYPE_LABEL = {
 };
 
 let _coa = [];
-let _expandedTypes = new Set(["asset", "liability", "equity", "income", "expense"]);
+const _expandedTypes = new Set(["asset", "liability", "equity", "income", "expense"]);
 
 export async function renderCoaPage(ctx) {
   const container = document.getElementById("page-accounting_coa");
   if (!container) return;
 
-  const { showToast } = ctx;
+  const { showToast: _showToast } = ctx;
   const cfg = window.SUPABASE_CONFIG;
   const token = window._sbAccessToken || cfg.anonKey;
 
@@ -158,7 +158,7 @@ export async function renderCoaPage(ctx) {
   document.getElementById("coaExportBtn")?.addEventListener("click", () => _exportCoa(ctx));
 
   // Track expanded types
-  container.querySelectorAll("[data-coa-type]").forEach(d => d.addEventListener("toggle", (ev) => {
+  container.querySelectorAll("[data-coa-type]").forEach(d => d.addEventListener("toggle", (_ev) => {
     const t = d.dataset.coaType;
     if (d.open) _expandedTypes.add(t);
     else _expandedTypes.delete(t);

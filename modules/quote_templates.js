@@ -11,7 +11,7 @@ function money(n) {
 let _qtList = [];
 
 export async function renderQuoteTemplatesPage(ctx) {
-  const { state, showToast } = ctx;
+  const { state: _state, showToast: _showToast } = ctx;
   const container = document.getElementById("page-quote_templates");
   if (!container) return;
 
@@ -124,10 +124,10 @@ export async function renderQuoteTemplatesPage(ctx) {
 }
 
 function openTemplateEditor(ctx, t) {
-  const { state } = ctx;
+  const { state: _state } = ctx;
   document.getElementById("qtModal")?.remove();
   const isEdit = !!t;
-  let _items = Array.isArray(t?.items_json) ? [...t.items_json] : [];
+  const _items = Array.isArray(t?.items_json) ? [...t.items_json] : [];
 
   const modal = document.createElement("div");
   modal.id = "qtModal";

@@ -45,7 +45,7 @@ export function installErrorReporter({
   }
 
   const sent = new Set();
-  let stats = { sent: 0, dedupped: 0, dropped: 0 };
+  const stats = { sent: 0, dedupped: 0, dropped: 0 };
 
   function fingerprint(message, source) {
     const s = String(message || "") + "|" + String(source || "");

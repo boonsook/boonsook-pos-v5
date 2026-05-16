@@ -1,7 +1,7 @@
 // ═══════════════════════════════════════════════════════════
 //  CUSTOMER DASHBOARD — หน้าหลักลูกค้า: ร้านค้าออนไลน์ + ตะกร้า + ประวัติ + แต้ม
 // ═══════════════════════════════════════════════════════════
-import { isValidPhone, getUserFriendlyError, validateFile } from "./validators.js";
+import { isValidPhone, validateFile } from "./validators.js";
 import { renderEmpty, renderSkeleton } from "./ui_states.js";
 // Phase 87.1 — product detail modal
 import { openProductDetail } from "./product_detail_modal.js";
@@ -10,7 +10,7 @@ let _custCart = JSON.parse(localStorage.getItem("bsk_cust_cart") || "[]");
 let _custTab = "shop"; // shop | cart | orders | jobs | points
 let _custCategory = "all";
 let _custSearch = "";
-let _acCatalog = null; // ★ แคชแคตตาล็อกแอร์
+const _acCatalog = null; // ★ แคชแคตตาล็อกแอร์
 let _custSlipData = null; // ★ base64 ของสลิปที่แนบ
 let _custSlipVerified = false; // ★ ผ่านการตรวจสอบหรือยัง
 let _custSlipResult = null; // ★ ผลตรวจสลิป
@@ -107,7 +107,7 @@ async function _verifySlip(base64Data, expectedAmount) {
     });
 
     if (!resp.ok) {
-      const errText = await resp.text().catch(() => "");
+      const _errText = await resp.text().catch(() => "");
       return { valid: false, error: "api_error", message: "API Error: " + resp.status };
     }
 
@@ -135,7 +135,7 @@ async function _verifySlip(base64Data, expectedAmount) {
 }
 
 export function renderCustomerDashboard(ctx) {
-  const { state, showRoute, showToast } = ctx;
+  const { state, showRoute: _showRoute, showToast } = ctx;
   const container = document.getElementById("page-customer_dashboard");
   if (!container) return;
 
@@ -417,7 +417,7 @@ export function renderCustomerDashboard(ctx) {
             // ★ บัญชีธนาคาร
             if (banks.length > 0) {
               html += '<div style="display:grid;gap:8px">';
-              banks.forEach(function(bank, idx) {
+              banks.forEach(function(bank, _idx) {
                 if (!bank.bankName && !bank.bankAccount) return;
                 html += '<div style="padding:12px;background:linear-gradient(135deg,#eff6ff,#dbeafe);border-radius:12px;border:1px solid #bfdbfe">';
                 html += '<div style="font-size:13px;font-weight:700;color:#1e40af;margin-bottom:6px">🏦 ' + escHtml(bank.bankName || "ธนาคาร") + '</div>';
@@ -674,7 +674,7 @@ export function renderCustomerDashboard(ctx) {
   }));
 
   // ★ ปุ่ม "ยืนยันปิดงาน" ในแท็บงานของฉัน — ลูกค้ายืนยันว่าช่างส่งงานเรียบร้อย
-  container.querySelectorAll(".cust-confirm-btn").forEach(btn => btn.addEventListener("click", async (e) => {
+  container.querySelectorAll(".cust-confirm-btn").forEach(btn => btn.addEventListener("click", async (_e) => {
     const jobId = btn.dataset.jobId;
     if (!jobId) return;
     if (!(await window.App?.confirm?.("ยืนยันว่าช่างส่งงานเรียบร้อยแล้วใช่ไหมครับ?\nหลังจากยืนยันแล้วงานจะถูกปิดและแจ้งไปที่แอดมิน"))) return;

@@ -3,7 +3,7 @@
 //  Dashboard charts (Chart.js) — donut by category + bar by week
 //  + stats cards + top earners
 // ═══════════════════════════════════════════════════════════
-import { renderSkeleton, renderEmpty, renderError } from "./ui_states.js";
+import { renderSkeleton, renderError } from "./ui_states.js";
 import { escHtml } from "./utils.js";
 
 let _data = [];        // staff_payroll rows in selected range
@@ -22,10 +22,10 @@ const moneyShort = (n) => {
 // Chart instances — destroy before re-render to prevent leaks
 let _donutChart = null;
 let _barChart = null;
-let _trendChart = null;
+const _trendChart = null;
 
 export async function renderPayrollOverviewPage(ctx) {
-  const { state, showToast, requireAdmin } = ctx;
+  const { state: _state, showToast: _showToast, requireAdmin } = ctx;
   const container = document.getElementById("page-payroll_overview");
   if (!container) return;
 

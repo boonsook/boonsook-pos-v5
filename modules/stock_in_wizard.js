@@ -23,7 +23,7 @@ let _swAddInProgress = false;
 let _swSaving = false;
 
 export function renderStockInWizardPage(ctx) {
-  const { state, showToast } = ctx;
+  const { state, showToast: _showToast } = ctx;
   const container = document.getElementById("page-stock_in_wizard");
   if (!container) return;
 
@@ -383,7 +383,7 @@ async function openScanner(ctx) {
   }
 }
 
-async function closeScanner(ctx) {
+async function closeScanner(_ctx) {
   await stopScannerHard();
 }
 

@@ -525,7 +525,7 @@
     if (!m) return null;
     const phone = m[0].replace(/\D/g, "");
     if (phone.length < 9 || phone.length > 10) return null;
-    let rest = String(txt).replace(m[0], " ").replace(/[,;|]+/g, " ").replace(/\s+/g, " ").trim();
+    const rest = String(txt).replace(m[0], " ").replace(/[,;|]+/g, " ").replace(/\s+/g, " ").trim();
     if (!rest) return { phone, name: null, address: null };
     const parts = rest.split(/\s+/);
     const first = parts[0];

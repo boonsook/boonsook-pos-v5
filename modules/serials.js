@@ -21,7 +21,7 @@ let _srScanSessionId = 0;
 let _srScannerCleanup = null;
 
 export async function renderSerialsPage(ctx) {
-  const { state, showToast } = ctx;
+  const { state: _state, showToast: _showToast } = ctx;
   const container = document.getElementById("page-serials");
   if (!container) return;
 
@@ -340,7 +340,7 @@ async function updateStatus(ctx, id, newStatus) {
 // Phase 23 — Barcode/QR Scanner
 // ใช้ BarcodeDetector API (Chrome/Edge/Android) — fallback แสดง camera + manual entry
 // ═══════════════════════════════════════════════════════════
-export async function openBarcodeScanner(onDetected, ctx) {
+export async function openBarcodeScanner(onDetected, _ctx) {
   _srScannerCleanup?.();
   _srScannerCleanup = null;
   document.getElementById("snScanModal")?.remove();

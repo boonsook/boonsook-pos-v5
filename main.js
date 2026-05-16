@@ -10,7 +10,7 @@ import { renderSettingsPage } from "./modules/settings/index.js";
 // Phase 89.20/89.21: delivery_invoices, receipts, expenses lazy
 import { renderStockMovementsPage } from "./modules/stock_movements.js";
 // Phase 89.21: profit_report, calendar, loyalty lazy
-import { renderLineNotifySettings, sendLineNotify, notifyLowStock, notifyNewOrder, notifyJobDone } from "./modules/line_notify.js";
+import { renderLineNotifySettings, sendLineNotify } from "./modules/line_notify.js";
 import { renderPermissionMatrix, hasPermission } from "./modules/permission_matrix.js";
 // Phase 89.20: customer_dashboard lazy — clearCustomerDashboardState called only if loaded (see logout)
 // Phase 89.21: btu_calculator, service_request lazy
@@ -26,7 +26,7 @@ import { renderTasksPage, checkOverdueTasksAndNotify } from "./modules/tasks.js"
 // Phase 89.21: payroll_overview, expense_overview lazy
 // Phase 89.20: accounting/* (9 modules) — all lazy (admin only, ~167KB combined)
 // Phase 88.1: auto-posting JV จาก sales/expenses — eager (used in checkout flow)
-import { postJournalForSale, postJournalForExpense, postJournalForServiceJob, voidJvForSource } from "./modules/accounting/auto_post.js";
+import { postJournalForSale, postJournalForServiceJob, voidJvForSource } from "./modules/accounting/auto_post.js";
 // Phase 89.21: profit_by_product, quote_templates, serials lazy
 import { renderBirthdaysPage, checkTodayBirthdaysAndNotify } from "./modules/birthdays.js";
 import { renderWarrantyReportPage, checkWarrantyExpiringAndNotify } from "./modules/warranty_report.js";
@@ -253,7 +253,7 @@ function xhrPost(table, payload, opts = {}, _isRetry = false) {
         }
         resolve({ ok: true, data: Array.isArray(data) ? data[0] : data, error: null });
       } else {
-        let errBody = xhr.responseText;
+        const errBody = xhr.responseText;
         let msg = "HTTP " + xhr.status;
         try {
           const parsed = JSON.parse(errBody);
@@ -581,7 +581,7 @@ window._appShareDoc = async function(docElementId, docName) {
 
       // ── LINE / Facebook / แชร์อื่นๆ → ส่ง PDF ผ่าน native share ──
       if (t==="line"||t==="fb"||t==="native") {
-        const appName = {line:"LINE",fb:"Messenger",native:"แอปอื่น"}[t];
+        const _appName = {line:"LINE",fb:"Messenger",native:"แอปอื่น"}[t];
         if (!_pdfBlob) { setStatus("กำลังสร้าง PDF รอสักครู่..."); return; }
         const pdfFile = getPdfFile();
         let shared = false;
@@ -994,8 +994,8 @@ function _processToast(){
 }
 function setText(id, text){ const el=$(id); if(el) el.textContent = text; } // ✅ textContent = auto-escape
 function setHtml(id, html){ const el=$(id); if(el) el.innerHTML = html; } // ⚠️ ต้อง escapeHtml() dynamic data ก่อนส่ง
-function setSafeHtml(id, html){ const el=$(id); if(el) el.innerHTML = html; } // alias ชัดเจนว่าผ่าน escapeHtml แล้ว
-function isLowStock(product){ return Number(product.stock||0) <= Number(product.min_stock||0); }
+function _setSafeHtml(id, html){ const el=$(id); if(el) el.innerHTML = html; } // alias ชัดเจนว่าผ่าน escapeHtml แล้ว
+function _isLowStock(product){ return Number(product.stock||0) <= Number(product.min_stock||0); }
 
 // ═══════════════════════════════════════════════════════════
 //  ROLE-BASED ACCESS CONTROL (4 กลุ่ม)
@@ -2549,7 +2549,7 @@ async function saveCustomer(){
 //  QUOTATION — Now handled by quotations.js module
 //  openQuotationDrawer just navigates to quotations page form
 // ═══════════════════════════════════════════════════════════
-function openQuotationDrawer(doc=null){
+function openQuotationDrawer(_doc=null){
   // Navigate to quotations page — the module handles the form internally
   showRoute("quotations");
 }
@@ -3382,7 +3382,7 @@ async function _applyStockMovement({ productId, warehouseId, movementType, qty, 
   // Phase 45.3: schema ใช้ created_by uuid → ต้องส่ง user uuid (auth.users.id) ไม่ใช่ email
   const creatorUuid = state.currentUser?.id || null;
 
-  let ws = warehouseId ? (state.warehouseStock || []).find(w =>
+  const ws = warehouseId ? (state.warehouseStock || []).find(w =>
     String(w.product_id) === String(productId) && String(w.warehouse_id) === String(warehouseId)
   ) : null;
 

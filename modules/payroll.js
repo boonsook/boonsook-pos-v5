@@ -22,7 +22,7 @@ const moneyShort = (n) => {
 };
 
 export async function renderPayrollPage(ctx) {
-  const { state, showToast, requireAdmin } = ctx;
+  const { state: _state, showToast: _showToast, requireAdmin } = ctx;
   const container = document.getElementById("page-payroll");
   if (!container) return;
 

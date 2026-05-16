@@ -79,7 +79,7 @@ export function renderTopCustomersPage(ctx) {
   });
 
   // ── Sort ──
-  let list = [...map.values()].map(g => ({
+  const list = [...map.values()].map(g => ({
     ...g,
     avg: g.bills > 0 ? g.revenue / g.bills : 0
   }));

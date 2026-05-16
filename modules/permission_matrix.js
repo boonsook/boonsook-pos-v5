@@ -180,7 +180,7 @@ async function handlePermissionChange(ctx, role, permKey, allowed, showToast, ch
   if (checkbox) checkbox.disabled = true;
 
   try {
-    let permission = state.permissions.find(
+    const permission = state.permissions.find(
       p => p.role === role && p.permission_key === permKey
     );
 

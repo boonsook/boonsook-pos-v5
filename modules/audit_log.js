@@ -33,7 +33,7 @@ let _logs = [];
 let _filterAction = "all";
 
 export async function renderAuditLogPage(ctx) {
-  const { state, showToast, requireAdmin } = ctx;
+  const { state: _state, showToast: _showToast, requireAdmin } = ctx;
   const container = document.getElementById("page-audit_log");
   if (!container) return;
 

@@ -8,7 +8,7 @@ import { escHtml } from './utils.js';
  * Render Store Info page
  * Extract from: renderStoreInfo() function lines 166-211
  */
-export function renderSettingsStore(el, ctx, goBack, navigate) {
+export function renderSettingsStore(el, ctx, _goBack, _navigate) {
   const { state, showToast, saveStoreInfo } = ctx;
   const storeInfo = state.storeInfo || {};
 

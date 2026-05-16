@@ -33,7 +33,7 @@ function xhrPostPOS(table, payload, returnData = false) {
         }
         resolve({ ok: true, data: Array.isArray(data) ? data[0] : data, error: null });
       } else {
-        let errBody = xhr.responseText;
+        const errBody = xhr.responseText;
         let msg = "HTTP " + xhr.status;
         try {
           const parsed = JSON.parse(errBody);
@@ -1056,18 +1056,18 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
     // ★ ใช้ลูกค้าที่เลือก (ถ้ามี)
     const custName = _posCustomer?.name || "ลูกค้าทั่วไป";
     const custPhone = _posCustomer?.phone || "";
-    let noteParts = [];
+    const noteParts = [];
     if (custPhone) noteParts.push(`📞 ${custPhone}`);
     if (proofUrl && proofUrl.startsWith("http")) noteParts.push(`สลิป: ${proofUrl}`);
 
     // ★ Phase 88.20: ถ้าโอนเงิน + เลือกบัญชี → ใส่ COA + ชื่อบัญชี ใน note (ใช้ตอน post JV)
-    let bankCoaCode = "";
+    let _bankCoaCode = "";
     if (paymentMethod === "โอนเงิน" || paymentMethod === "QR พร้อมเพย์") {
       const allBanks = state.paymentInfo?.banks || [];
       const validBanks = allBanks.filter(b => b.bankName || b.bankAccount);
       const activeBank = validBanks[selectedBankIdx];
       if (activeBank?.coaCode) {
-        bankCoaCode = activeBank.coaCode;
+        _bankCoaCode = activeBank.coaCode;
         noteParts.push(`BANK_COA:${activeBank.coaCode}`);
         noteParts.push(`🏦 ${activeBank.bankName}${activeBank.bankAccount ? ' (' + activeBank.bankAccount + ')' : ''}`);
       }
@@ -1506,7 +1506,7 @@ function openCustomerPicker(ctx) {
 
       // ★ แจ้งเตือน VIP / ห้ามเครดิต / ระวัง
       const tags = cust?.tags || [];
-      let alerts = [];
+      const alerts = [];
       if (tags.includes("VIP")) alerts.push("🌟 ลูกค้า VIP");
       if (tags.includes("ห้ามเครดิต")) alerts.push("🚫 ห้ามขายเงินเชื่อ");
       if (tags.includes("ระวัง")) alerts.push("⚠️ ระวัง — ดู notes");

@@ -11,7 +11,7 @@
  * @param {HTMLElement} container - Container element to render into (optional)
  */
 export function renderLineNotifySettings(ctx, targetContainer) {
-  const { state, showToast } = ctx;
+  const { state, showToast: _showToast } = ctx;
 
   // Get or create settings from state
   const settings = state.lineNotifySettings || {

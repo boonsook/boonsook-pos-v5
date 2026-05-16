@@ -31,7 +31,7 @@ const REFUND_METHODS = {
 const REASON_PRESETS = ["สินค้าชำรุด/เสีย", "เคลมประกัน", "ลูกค้าไม่พอใจ", "สั่งผิดรุ่น", "ส่งผิด", "อื่นๆ"];
 
 export async function renderRefundsPage(ctx) {
-  const { state, showToast } = ctx;
+  const { state: _state, showToast: _showToast } = ctx;
   const container = document.getElementById("page-refunds");
   if (!container) return;
 

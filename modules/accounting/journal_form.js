@@ -36,7 +36,7 @@ export async function renderJournalFormPage(ctx) {
   const container = document.getElementById("page-accounting_journal_new");
   if (!container) return;
 
-  const { state, showToast } = ctx;
+  const { state: _state, showToast: _showToast } = ctx;
   const cfg = window.SUPABASE_CONFIG;
   const token = window._sbAccessToken || cfg.anonKey;
 

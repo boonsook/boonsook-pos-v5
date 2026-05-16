@@ -14,7 +14,7 @@ let jobStatusChart = null;
 let _dashPeriod = "today"; // today | week | month | year (hero-level)
 
 // ★ Per-panel date range (months) — FlowAccount-style dropdown per panel
-let _panelRange = {
+const _panelRange = {
   salesByProduct: 3,
   revenueBar: 3,
   expenseDonut: 3,
@@ -27,7 +27,7 @@ let _panelRange = {
 function _renderTodayAndAlerts(state) {
   const today = todayBkk();
   const now = Date.now();
-  const in7d = today; // for due-date checks
+  const _in7d = today; // for due-date checks
 
   // 1) Today's service jobs
   const todayJobs = (state.serviceJobs || [])
@@ -175,8 +175,8 @@ function moneyShort(n){
 // Phase 89.28: ใช้ todayBkk() (Asia/Bangkok) แทน toLocaleDateString — กัน browser TZ drift บนเครื่องที่ไม่ใช่ BKK
 function todayKey(){return todayBkk();}
 function weekAgoKey(){const d=new Date();d.setDate(d.getDate()-7);return dateBkk(d);}
-function monthStartKey(){return todayKey().slice(0,7)+"-01";}
-function yearStartKey(){return todayKey().slice(0,4)+"-01-01";}
+function _monthStartKey(){return todayKey().slice(0,7)+"-01";}
+function _yearStartKey(){return todayKey().slice(0,4)+"-01-01";}
 
 // ★ คืนคีย์วันที่ (YYYY-MM-DD) ของ N เดือนที่แล้ว (วันเดียวกัน)
 function monthsAgoKey(n) {
@@ -242,7 +242,7 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
   const periodRevenue = periodSales.reduce((s,x)=>s+Number(x.total_amount||0),0) + periodWebOrders.reduce((s,x)=>s+Number(x.total_cost||0),0);
   const periodOrders = periodSales.length + periodWebOrders.length;
   const periodProfit = periodSales.reduce((s,x)=>s+Number(x.gross_profit||0),0);
-  const periodCost = periodSales.reduce((s,x)=>s+Number(x.total_cost||0),0);
+  const _periodCost = periodSales.reduce((s,x)=>s+Number(x.total_cost||0),0);
 
   // ─── ข้อมูลค่าใช้จ่ายตามช่วงเวลา ───
   const expenses = state.expenses || [];
@@ -797,7 +797,7 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
   renderProPanels({ allSales, webOrders, expenses, serviceJobs: (state.serviceJobs||[]) });
 
   // Event listeners for per-panel date range dropdowns
-  document.querySelectorAll(".pro-range-select").forEach(sel => sel.addEventListener("change", (e) => {
+  document.querySelectorAll(".pro-range-select").forEach(sel => sel.addEventListener("change", (_e) => {
     const key = sel.dataset.panel;
     _panelRange[key] = Number(sel.value);
     // Re-render only the affected panel (เร็วกว่า re-render ทั้งหน้า)
