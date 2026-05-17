@@ -402,7 +402,7 @@ function bindFilterEvents() {
       "หมายเหตุ": e.note || ""
     }));
     const ok = exportToExcel(`รายจ่าย_${todaySuffix()}.xlsx`, rows, "Expenses");
-    if (ok) showToast?.(`ดาวน์โหลด ${rows.length} รายการแล้ว`);
+    if (ok) _ctx?.showToast?.(`ดาวน์โหลด ${rows.length} รายการแล้ว`);
   });
 }
 
