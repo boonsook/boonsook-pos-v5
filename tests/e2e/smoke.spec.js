@@ -140,4 +140,28 @@ test.describe("Smoke — build version sync", () => {
       expect(Number(srcMatch[1]), "selfheal ?v= ต้อง = data-app-build").toBe(Number(attrMatch[1]));
     }
   });
+
+  test("ALL build-tracking ?v= refs match data-app-build (no stale cache)", async ({ page }) => {
+    const html = await (await page.request.get("/index.html")).text();
+    const appBuildMatch = html.match(/data-app-build=["'](\d+)["']/);
+    expect(appBuildMatch, "data-app-build attribute not found").toBeTruthy();
+    const build = Number(appBuildMatch[1]);
+
+    // Build-tracking group: selfheal, main, boot, style.css
+    // (independent cadence: doc-print.css?v=1, phase4-*.css, supabase-config, ai-chat-widget — skip)
+    const trackingPatterns = [
+      /selfheal\.js\?v=(\d+)/,
+      /main\.js\?v=(\d+)/,
+      /boot\.js\?v=(\d+)/,
+      /style\.css\?v=(\d+)/,
+    ];
+
+    for (const pattern of trackingPatterns) {
+      const match = html.match(pattern);
+      if (match) {
+        const version = Number(match[1]);
+        expect(version, `${pattern.source} version ${version} must match data-app-build ${build}`).toBe(build);
+      }
+    }
+  });
 });
