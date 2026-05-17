@@ -167,7 +167,7 @@ async function sendChunked(charac, data) {
       await charac.writeValue(slice);
     }
     // delay เล็กๆ เพื่อ buffer ไม่ overrun
-    await new Promise(r => setTimeout(r, 30));
+    await new Promise(r => { setTimeout(r, 30); });
   }
 }
 
@@ -182,7 +182,7 @@ export async function printLabels(labels) {
     const cmd = buildTSPL(lb);
     await sendChunked(charac, cmd);
     // delay ระหว่าง label เพื่อให้ printer print เสร็จก่อน
-    await new Promise(r => setTimeout(r, 200));
+    await new Promise(r => { setTimeout(r, 200); });
   }
 }
 

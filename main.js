@@ -914,7 +914,7 @@ async function saveStoreInfo(data = null) {
   // 🔄 Try Supabase (optional, 3s timeout so UI never hangs on stalled network/RLS)
   if (!state.supabase) return;
   try {
-    const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error("supabase timeout")), 3000));
+    const timeout = new Promise((_, rej) => { setTimeout(() => rej(new Error("supabase timeout")), 3000); });
     const save = state.supabase
       .from('app_settings')
       .upsert({ key: 'store_info', value: state.storeInfo }, { onConflict: 'key' });
@@ -931,7 +931,7 @@ async function savePaymentInfo() {
   localStorage.setItem("bsk_payment_info", JSON.stringify(state.paymentInfo));
   if (!state.supabase) return;
   try {
-    const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error("supabase timeout")), 3000));
+    const timeout = new Promise((_, rej) => { setTimeout(() => rej(new Error("supabase timeout")), 3000); });
     const save = state.supabase
       .from('app_settings')
       .upsert({ key: 'payment_info', value: state.paymentInfo }, { onConflict: 'key' });
@@ -947,7 +947,7 @@ async function savePaymentInfo() {
 async function loadAppSettings() {
   if (!state.supabase) return;
   try {
-    const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error("supabase timeout")), 4000));
+    const timeout = new Promise((_, rej) => { setTimeout(() => rej(new Error("supabase timeout")), 4000); });
     const fetch = state.supabase.from('app_settings').select('key,value').in('key', ['store_info','payment_info']);
     const { data, error } = await Promise.race([fetch, timeout]);
     if (error) { console.warn('[loadAppSettings] warn:', error.message); return; }
@@ -1397,7 +1397,7 @@ async function afterLogin(){
       localStorage.removeItem("bsk_login_destination");
       window.location.hash = savedHash;
       // Wait for hash to update, then continue
-      await new Promise(r => setTimeout(r, 100));
+      await new Promise(r => { setTimeout(r, 100); });
     }
   } catch(e){ console.warn("[afterLogin] restore hash failed", e); }
 
@@ -3998,7 +3998,7 @@ async function addNewUser(){
     // ★ ALWAYS update profiles (เดิมเช็คเฉพาะ role !== sales — ทำให้ sales user ไม่มีชื่อ)
     if (signUpResult.userId) {
       // รอให้ trigger สร้าง profile row ก่อน (Supabase มี trigger handle_new_user)
-      await new Promise(r => setTimeout(r, 800));
+      await new Promise(r => { setTimeout(r, 800); });
       try {
         const patchPayload = { full_name: fullName };
         if (role && role !== "sales") patchPayload.role = role;
@@ -4006,7 +4006,7 @@ async function addNewUser(){
         if (!res.ok) console.warn("[addNewUser] PATCH profiles failed:", res.error);
         // ★ ถ้า PATCH ไม่สำเร็จ (อาจ trigger ยังไม่สร้าง row) → ลอง UPSERT
         if (!res.ok) {
-          await new Promise(r => setTimeout(r, 600));
+          await new Promise(r => { setTimeout(r, 600); });
           await fetch(cfg.url + "/rest/v1/profiles", {
             method: "POST",
             headers: {

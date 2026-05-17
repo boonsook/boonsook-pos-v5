@@ -292,7 +292,7 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
     // ★ Safety timeout กัน hang
     const withTimeout = (p, ms, label) => Promise.race([
       p,
-      new Promise((_, rej) => setTimeout(() => rej(new Error(label + " timeout " + ms + "ms")), ms))
+      new Promise((_, rej) => { setTimeout(() => rej(new Error(label + " timeout " + ms + "ms")), ms); })
     ]);
 
     try {
