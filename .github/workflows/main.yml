@@ -19,7 +19,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy . --project-name=boonsook-pos-v5 --commit-dirty=true
+          command: pages deploy . --project-name=boonsook-pos-v5 --commit-dirty=true --commit-message="Deploy ${{ github.sha }}"
 
   docker:
     runs-on: ubuntu-latest
