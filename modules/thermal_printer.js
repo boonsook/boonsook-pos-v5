@@ -95,7 +95,7 @@ async function sendToPrinter(data) {
     for (let i = 0; i < bytes.length; i += CHUNK) {
       const chunk = bytes.slice(i, i + CHUNK);
       await _printerDevice.writeValue(chunk);
-      await new Promise((r) => setTimeout(r, 50));
+      await new Promise((r) => { setTimeout(r, 50); });
     }
   }
 }

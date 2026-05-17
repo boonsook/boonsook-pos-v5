@@ -154,7 +154,7 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
     // ★ Safety timeout: ถ้า network/Supabase hang → หลุด 20 วินาที auto-reset
     const withTimeout = (p, ms, label) => Promise.race([
       p,
-      new Promise((_, rej) => setTimeout(() => rej(new Error(label + " timeout " + ms + "ms")), ms))
+      new Promise((_, rej) => { setTimeout(() => rej(new Error(label + " timeout " + ms + "ms")), ms); })
     ]);
 
     try {

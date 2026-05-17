@@ -143,7 +143,7 @@ export function renderSettingsAbout(el, ctx, goBack) {
       const reg = await navigator.serviceWorker.getRegistration();
       if (reg) {
         try { await reg.update(); } catch(e) { console.warn("reg.update fail", e); }
-        await new Promise(r => setTimeout(r, 1500));
+        await new Promise(r => { setTimeout(r, 1500); });
       }
 
       // Step 3: ตัดสินใจ
@@ -158,13 +158,13 @@ export function renderSettingsAbout(el, ctx, goBack) {
         if (hasWaiting) {
           try { reg.waiting.postMessage({ type: 'SKIP_WAITING' }); } catch(e){}
         }
-        await new Promise(r => setTimeout(r, 800));
+        await new Promise(r => { setTimeout(r, 800); });
         hardReload();
       } else if (hasWaiting) {
         // SW waiting แต่ build เท่าเดิม — apply เงียบๆ ไม่ต้องบอกว่ามี version ใหม่
         setStatus("🔄 กำลัง apply Service Worker ใหม่...", "#0284c7");
         try { reg.waiting.postMessage({ type: 'SKIP_WAITING' }); } catch(e){}
-        await new Promise(r => setTimeout(r, 800));
+        await new Promise(r => { setTimeout(r, 800); });
         hardReload();
       } else if (hasInstalling) {
         setStatus("⏳ กำลังดาวน์โหลดเวอร์ชันใหม่... รอ 5 วินาทีแล้วกดอีกครั้ง", "#f59e0b");
@@ -257,7 +257,7 @@ export function renderSettingsAbout(el, ctx, goBack) {
     try {
       await nukeEverything(setStatus);
       setStatus("✅ ล้างหมดแล้ว — กำลัง reload เวอร์ชันใหม่...", "#059669");
-      await new Promise(r => setTimeout(r, 800));
+      await new Promise(r => { setTimeout(r, 800); });
       hardReload();
     } catch (e) {
       setStatus("❌ ผิดพลาด: " + (e?.message || e), "#dc2626");
