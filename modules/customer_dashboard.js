@@ -3,6 +3,7 @@
 // ═══════════════════════════════════════════════════════════
 import { isValidPhone, validateFile } from "./validators.js";
 import { renderEmpty, renderSkeleton } from "./ui_states.js";
+import { createInflightGuard } from "./_inflight_guard.js";
 // Phase 87.1 — product detail modal
 import { openProductDetail } from "./product_detail_modal.js";
 
@@ -15,6 +16,8 @@ let _custSlipData = null; // ★ base64 ของสลิปที่แนบ
 let _custSlipVerified = false; // ★ ผ่านการตรวจสอบหรือยัง
 let _custSlipResult = null; // ★ ผลตรวจสลิป
 let _custSlipUrl = null;  // ★ URL สลิปที่ upload ไป Supabase Storage แล้ว
+// Phase 89.41: single-flight guard prevents customer-checkout double-click race
+const _custCheckoutGuard = createInflightGuard();
 
 function saveCustCart() {
   try { localStorage.setItem("bsk_cust_cart", JSON.stringify(_custCart)); } catch(e){}
@@ -980,6 +983,7 @@ export function renderCustomerDashboard(ctx) {
 
   // Checkout
   container.querySelector("#custCheckoutBtn")?.addEventListener("click", async () => {
+    return _custCheckoutGuard.run(async () => {
     if (_custCart.length === 0) return showToast("ตะกร้าว่าง");
 
     // ★ อ่านค่าจากฟอร์มข้อมูลจัดส่ง
@@ -1101,8 +1105,12 @@ export function renderCustomerDashboard(ctx) {
         try { window.shareViaLINE(lineMsg); } catch (_) { /* ignore */ }
       }
 
+      // Phase 89.41: race is prevented by _custCheckoutGuard single-flight
+      // (no concurrent invocation can reach this point — ESLint can't see runtime locks)
+      // eslint-disable-next-line require-atomic-updates
       _custCart = [];
       saveCustCart();
+      // eslint-disable-next-line require-atomic-updates
       _custSlipData = null; _custSlipVerified = false; _custSlipResult = null; _custSlipUrl = null;
 
       // ★ แสดงหน้ายืนยันตามวิธีชำระเงิน
@@ -1128,5 +1136,6 @@ export function renderCustomerDashboard(ctx) {
         btn2.textContent = "🛒 ยืนยันสั่งซื้อ";
       }
     }
+    });
   });
 }
