@@ -35,6 +35,7 @@ import "./modules/doc-override.js";
 import { isValidPhone, isValidEmail, getUserFriendlyError, validateFile } from "./modules/validators.js";
 import { atomicDecrementStock } from "./modules/stock_cas.js";
 import { installErrorReporter } from "./modules/error_reporter.js";
+import { createInflightGuard } from "./modules/_inflight_guard.js";
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -3638,7 +3639,12 @@ function _openSerialBatchModal({ saleId, items, customerId, customerName }) {
   });
 }
 
+// Phase 89.41: single-flight guard prevents double-click race
+// (2nd checkout() call while 1st await is pending returns immediately, no-op)
+const _checkoutGuard = createInflightGuard();
+
 async function checkout(){
+  return _checkoutGuard.run(async () => {
   if (!state.cart.length) return showToast("ยังไม่มีสินค้าในบิล");
   const subtotal = state.cart.reduce((s,i)=>s+i.qty*i.price, 0);
   const paid = Number($("paidAmount")?.value || 0);
@@ -3693,6 +3699,8 @@ async function checkout(){
   }
 
   await loadReceipt(saleId);
+  // Phase 89.41: race is prevented by _checkoutGuard single-flight (no concurrent invocation can reach this line)
+  // eslint-disable-next-line require-atomic-updates
   state.cart = [];
   saveCart();
   // Phase 45.11: openReceiptDrawer ใช้ state.lastReceipt (set โดย loadReceipt) — ไม่ต้องรอ loadAllData
@@ -3712,6 +3720,7 @@ async function checkout(){
 
   // ═══ Line Notify: แจ้งขาย + เตือนสต็อกใกล้หมด ═══
   _notifySaleToLine({ orderNo, cartSnapshot: salePayload, items: state.lastReceipt?.items || [] }).catch(e => console.warn("[lineNotify sale] skipped:", e?.message));
+  });
 }
 
 // ★ ส่ง Line Notify ให้เจ้าของร้าน — รายการขาย + เตือนสต็อกใกล้หมด
