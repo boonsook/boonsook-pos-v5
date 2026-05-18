@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v240 (2026-05-15): Phase 89.30 — XSS hardening batch (H1+H2+H3+S6+S7) — slip URL, CSS url() injection, search dropdowns, warranty fields, error.message
-const CACHE_NAME = 'boonsook-pos-v5-cache-v241';
+// v242 (2026-05-18): Phase 89.41 — HIGH_RISK race fixes (single-flight guard) — POS + customer checkout double-click prevention
+const CACHE_NAME = 'boonsook-pos-v5-cache-v242';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
