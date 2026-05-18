@@ -74,3 +74,45 @@ test("createInflightGuard: 3-way burst → only first runs, others silently skip
   assert.equal(results[1], undefined);
   assert.equal(results[2], undefined);
 });
+
+// Phase 89.41 — Site 2 specific regression: customer dashboard uses its OWN
+// guard instance, independent from main.js POS checkout. A POS checkout in
+// progress must not block a parallel customer-page checkout, and vice versa.
+test("createInflightGuard: separate guards are independent (POS vs customer checkout)", async () => {
+  const posGuard = createInflightGuard();
+  const custGuard = createInflightGuard();
+  let posRuns = 0;
+  let custRuns = 0;
+  const posWork = () => new Promise((res) => setTimeout(() => { posRuns++; res("pos-" + posRuns); }, 30));
+  const custWork = () => new Promise((res) => setTimeout(() => { custRuns++; res("cust-" + custRuns); }, 30));
+  // Both checkouts kicked off simultaneously — must BOTH complete (different guards)
+  const [posR, custR] = await Promise.all([posGuard.run(posWork), custGuard.run(custWork)]);
+  assert.equal(posRuns, 1);
+  assert.equal(custRuns, 1);
+  assert.equal(posR, "pos-1");
+  assert.equal(custR, "cust-1");
+  // But each guard still single-flights within its own scope
+  const [posR2, posR2b] = await Promise.all([posGuard.run(posWork), posGuard.run(posWork)]);
+  assert.equal(posRuns, 2, "posGuard re-arms after first call resolved");
+  assert.equal(posR2, "pos-2");
+  assert.equal(posR2b, undefined, "concurrent posGuard call still skipped");
+});
+
+// Phase 89.41 — Site 2 panic-click scenario: customer rapidly taps "สั่งซื้อ"
+// 5x within a second while the LINE notify + service_job insert chain is
+// awaiting (~500ms typical). Only the first call must perform the work.
+test("createInflightGuard: 5-way panic burst (customer dashboard scenario)", async () => {
+  const guard = createInflightGuard();
+  let runs = 0;
+  const slowWork = () => new Promise((res) => setTimeout(() => { runs++; res(runs); }, 50));
+  const results = await Promise.all([
+    guard.run(slowWork),
+    guard.run(slowWork),
+    guard.run(slowWork),
+    guard.run(slowWork),
+    guard.run(slowWork),
+  ]);
+  assert.equal(runs, 1, "panic-click x5 → 1 service_job committed only");
+  assert.equal(results.filter((r) => r === undefined).length, 4, "4 concurrent calls returned undefined");
+  assert.equal(results.filter((r) => r === 1).length, 1, "exactly 1 call received the fn return value");
+});
