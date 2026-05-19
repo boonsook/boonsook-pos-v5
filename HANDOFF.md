@@ -3,13 +3,56 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 19 พฤษภาคม 2026 (Phase 91.1 — POS checkout auto-earn loyalty points, build 253)
-**Version:** 5.44.0 (build 253) — Phase 91.1 (**NEW FEATURE**: minor bump — POS auto-earn loyalty wired)
-**Previous:** 5.43.48 (build 252) — Phase 90.13 (history modal listener leak)
+**อัปเดตล่าสุด:** 19 พฤษภาคม 2026 (Phase 91.2 HOTFIX — earn formula divide-not-multiply, build 254)
+**Version:** 5.44.1 (build 254) — Phase 91.2 (🔥 hotfix: 500 baht at rate 100 was earning 50,000 not 5)
+**Previous:** 5.44.0 (build 253) — Phase 91.1 (POS auto-earn — shipped with wrong formula 💥)
 
 ---
 
-## ⭐ Phase 91.1 — POS checkout auto-earn loyalty points (this session) [NEW FEATURE]
+## 🔥 Phase 91.2 HOTFIX — Earn formula (this session)
+
+Production build 253 ส่ง point ผิด x10,000 — user สมาชิก `jeerasuk` กระโดดจาก 600 → 50,600 หลัง sale 500 บาท
+
+**Root cause:** column DB ชื่อ `points_per_baht` แต่ UI label คือ "ทุกกี่บาทได้ 1 แต้ม" = ค่าเป็น **BAHT-per-point** (ตัวหาร) — แต่ `loyalty.js:79` คูณ (`floor(amount * rate)`) แทนหาร. ชื่อ var `pointsPerBaht` หลอกตามชื่อ column → คูณ 500 × 100 = 50,000
+
+**Fix:** centralize formula ใน exported helper:
+```js
+export function calcEarnPoints(amount, settings) {
+  const bahtPerPoint = Number(settings?.points_per_baht || 0);
+  const spendAmount = Number(amount || 0);
+  if (!settings?.is_active || bahtPerPoint <= 0 || spendAmount <= 0) return 0;
+  return Math.floor(spendAmount / bahtPerPoint);
+}
+```
+`earnPoints()` เรียก helper นี้แทน inline math — manual + auto-earn paths drift จากกันไม่ได้อีก
+
+**Cleanup:** user อาจอยากลบ row เกินใน loyalty_points table:
+```sql
+-- ดู records ที่ผิดก่อนลบ (build 253 era, 19 พ.ค.)
+SELECT * FROM loyalty_points
+WHERE type='earn' AND points > 1000 AND created_at >= '2026-05-19';
+-- ถ้าตรงตามที่คาด:
+DELETE FROM loyalty_points
+WHERE type='earn' AND points > 1000 AND created_at >= '2026-05-19';
+```
+แล้ว NOTIFY pgrst, 'reload schema'; ไม่จำเป็น (ไม่ใช่ ALTER TABLE)
+
+**Tests (14 unit, `tests/loyalty_calc_earn_points.test.js`):**
+- The bug: 500 + rate 100 = 5 (NEVER 50000) — explicit anti-regression
+- Boundary: 99 → 0, 100 → 1, 1000 → 10
+- Floor semantics: 549.99 → 5
+- Null/undefined/empty settings → 0
+- is_active false / rate 0 / negative amount → 0
+- String coercion (DB returns strings sometimes)
+- Rate 1 → 1:1, rate 50 → double rate
+- Integration: earnPoints mock posts records.points = 5 (NEVER 50000)
+- Integration: below-threshold = 0 POST calls (no DB write)
+
+Real behavior tests (not source-level grep) — formula cannot silently drift back
+
+---
+
+## ⭐ Phase 91.1 — POS checkout auto-earn loyalty points [NEW FEATURE]
 
 `earnPoints()` ใน `modules/loyalty.js` มีอยู่แต่ไม่มี caller ตั้งแต่ Phase 90.8 — feature gap ที่ flag ไว้. ตอนนี้ pos.js checkout success path เรียก earnPoints อัตโนมัติเมื่อมีลูกค้าใน `_posCustomer` + ระบบแต้มเปิด + อัตราตั้งค่าแล้ว
 

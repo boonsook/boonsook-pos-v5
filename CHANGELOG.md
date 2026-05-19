@@ -7,6 +7,83 @@
 
 ---
 
+## 5.44.1 (build 254) — 2026-05-19 🔥 Phase 91.2 HOTFIX — Earn formula divide-not-multiply
+
+### Severity
+**CRITICAL** — production build 253 ทำให้ลูกค้าได้แต้มเกินจริง 10,000 เท่า. ตัวอย่าง: `jeerasuk` ปิดบิล 500 บาท + ตั้ง "ทุก 100 บาท = 1 แต้ม" → ได้แต้ม 50,000 (ที่ถูกคือ 5). กระทบทุก sale ตั้งแต่ build 253 deploy
+
+### Root cause
+column DB ชื่อ `points_per_baht` แต่ UI label เขียน "ทุกกี่บาทได้ 1 แต้ม" → ค่าเก็บคือ **บาท-ต่อ-แต้ม** (ตัวหาร) ไม่ใช่ **แต้ม-ต่อ-บาท** (ตัวคูณ). `modules/loyalty.js:79` คำนวณคูณตามชื่อ var:
+```js
+const pointsToAdd = Math.floor(Number(amount || 0) * pointsPerBaht);
+//                                                 ^ ผิด — ต้องเป็น /
+```
+500 × 100 = **50,000** ที่ถูกควรเป็น 500 / 100 = **5**
+
+### Fix
+Export helper รวมศูนย์ใน `modules/loyalty.js`:
+```js
+export function calcEarnPoints(amount, settings) {
+  const bahtPerPoint = Number(settings?.points_per_baht || 0);
+  const spendAmount = Number(amount || 0);
+  if (!settings?.is_active || bahtPerPoint <= 0 || spendAmount <= 0) return 0;
+  return Math.floor(spendAmount / bahtPerPoint);
+}
+```
+`earnPoints()` เรียก `calcEarnPoints(amount, settings)` แทน inline math. Future caller (เช่น POS preview pill, customer self-service page) ก็เรียก helper เดียวกัน — drift จากกันไม่ได้
+
+### Cleanup ข้อมูลเสีย
+Records ผิดถูก insert ตั้งแต่ build 253 deploy. User อาจอยากลบมือ:
+```sql
+-- ดูก่อนลบ
+SELECT id, customer_id, points, ref_id, created_at
+FROM loyalty_points
+WHERE type='earn'
+  AND points > 1000
+  AND created_at >= '2026-05-19';
+
+-- ถ้าตรงตามคาด:
+DELETE FROM loyalty_points
+WHERE type='earn'
+  AND points > 1000
+  AND created_at >= '2026-05-19';
+```
+จากนั้น Loyalty → สรุปแต้ม จะแสดงยอดถูกหลัง reload
+
+### Build sync
+- `selfheal.js?v=254`, `main.js?v=254`, `boot.js?v=254`, `style.css?v=254`
+- `data-app-build="254"` ใน index.html
+- `sw.js` CACHE_NAME `v253` → `v254`
+- `modules/settings/pages.js` Version `5.44.0` → **5.44.1** (patch — bug fix), build `253` → `254`
+
+### Test
+- เพิ่ม `tests/loyalty_calc_earn_points.test.js` — **14 unit tests, real behavior (ไม่ใช่ source-level)**:
+  1. **Anti-regression**: 500 baht @ rate 100 = 5 (**NEVER 50000**) — explicit
+  2. Boundary: 99 → 0, 100 → 1, 1000 → 10
+  3. Floor: 549, 599.99 → 5
+  4. Defensive null/undefined/empty settings → 0
+  5. `is_active=false` → 0, rate ≤ 0 → 0, amount ≤ 0 → 0
+  6. String coercion (Supabase อาจคืน string สำหรับ numeric column)
+  7. Rate 1 → 1:1, rate 50 → 2x earning
+  8. **Integration**: earnPoints mock — posted record.points = 5 (NEVER 50000) สำหรับ 500/100
+  9. **Integration**: amount < threshold → 0 POST calls (ไม่เขียน DB row เสียทรัพยากร RLS)
+- `npm run verify` ผ่านครบ: lint + **182 unit** (เดิม 168 +14) + 11 e2e
+
+### How to test (manual smoke after deploy)
+1. Ctrl+Shift+R → version **5.44.1 (build 254)**
+2. (Optional) cleanup ข้อมูลเสีย via SQL ข้างบน
+3. Loyalty settings: ตั้ง "ทุก 100 บาท = 1 แต้ม" + เปิดใช้งาน
+4. POS → เลือกลูกค้า test → ปิดบิล 500 บาท
+   - ✅ Expected: toast **`บันทึกแต้ม 5 แต้มสำหรับลูกค้า`** (ไม่ใช่ 50,000)
+5. POS → ปิดบิล 99 บาท → ไม่มี earn toast (floor 99/100 = 0)
+6. POS → ปิดบิล 1000 บาท → toast `บันทึกแต้ม 10 แต้ม`
+7. Loyalty → สรุปแต้ม → ยอด customer = 5 + 10 = 15 (จาก test 4 + 6)
+
+### Lesson
+**Misleading column name = silent bug.** column ชื่อ `points_per_baht` สื่อ "rate of points-per-baht" → invite multiplication. แต่ UI semantic = "baht-per-point" (divisor). Fix: ใช้ helper รวมศูนย์ + ตั้งชื่อ var ตรงกับความหมายจริง (`bahtPerPoint`) แม้ column DB ยังเป็นชื่อเดิม (rename ต้อง migration)
+
+---
+
 ## 5.44.0 (build 253) — 2026-05-19 ⭐ Phase 91.1 — POS checkout auto-earn loyalty points [NEW FEATURE]
 
 ### What's new

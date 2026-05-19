@@ -58,6 +58,31 @@ export function getCustomerPoints(customerId, ctx) {
 }
 
 /**
+ * Phase 91.2 HOTFIX: Calculate points earned for a given spend amount.
+ *
+ * The DB column is misleadingly named `points_per_baht`, but the UI label is
+ * "ทุกกี่บาทได้ 1 แต้ม" — so the stored value is actually BAHT-PER-POINT (the
+ * divisor). A rate of 100 means "every 100 baht spent = 1 point". The earn
+ * formula is therefore `floor(amount / bahtPerPoint)`, NOT `floor(amount * rate)`.
+ *
+ * Build 253 had the wrong formula (multiplication) — a 500-baht sale at rate 100
+ * credited 50,000 points instead of 5. This helper centralizes the correct
+ * formula so manual + auto-earn paths can never drift apart again.
+ *
+ * Returns 0 when loyalty is off, rate is unconfigured, or amount is non-positive.
+ *
+ * @param {number} amount spend (e.g. sale.actualTotal — what customer paid)
+ * @param {object} settings state.loyaltySettings — uses { is_active, points_per_baht }
+ * @returns {number} integer points to award (>= 0)
+ */
+export function calcEarnPoints(amount, settings) {
+  const bahtPerPoint = Number(settings?.points_per_baht || 0);
+  const spendAmount = Number(amount || 0);
+  if (!settings?.is_active || bahtPerPoint <= 0 || spendAmount <= 0) return 0;
+  return Math.floor(spendAmount / bahtPerPoint);
+}
+
+/**
  * Add points from a sale
  */
 export async function earnPoints(customerId, amount, refType, refId, ctx) {
@@ -70,13 +95,15 @@ export async function earnPoints(customerId, amount, refType, refId, ctx) {
     return { ok: false, error: { message: "ระบบแต้มไม่เปิดใช้งาน" } };
   }
 
-  const pointsPerBaht = Number(settings.points_per_baht || 0);
-  if (pointsPerBaht <= 0) {
+  const bahtPerPoint = Number(settings.points_per_baht || 0);
+  if (bahtPerPoint <= 0) {
     if (showToast) showToast("ยังไม่ตั้งค่าอัตราแต้ม", "warning");
     return { ok: false, error: { message: "ยังไม่ตั้งค่าอัตราแต้ม" } };
   }
 
-  const pointsToAdd = Math.floor(Number(amount || 0) * pointsPerBaht);
+  // Phase 91.2 HOTFIX: was `floor(amount * pointsPerBaht)` — wrong direction.
+  // 500 baht at rate 100 should earn 5 points, not 50,000.
+  const pointsToAdd = calcEarnPoints(amount, settings);
 
   if (pointsToAdd <= 0) return { ok: false, error: { message: "amount เล็กเกินไป" } };
 
