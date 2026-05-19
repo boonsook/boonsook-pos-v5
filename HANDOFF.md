@@ -3,13 +3,35 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 20 พฤษภาคม 2026 (Phase 92.2 — extract logo source resolver, build 258)
-**Version:** 5.44.5 (build 258) — Phase 92.2 (extract `getAppLogo()` to `modules/branding.js`, zero-behavior)
-**Previous:** 5.44.4 (build 257) — Phase 92.1 (extract `updateAppLogos()`)
+**อัปเดตล่าสุด:** 20 พฤษภาคม 2026 (Phase 92.3 — extract + harden logo Supabase sync, build 259)
+**Version:** 5.44.6 (build 259) — Phase 92.3 (extract `syncAppLogo()` to `modules/branding.js` + AbortController timeout)
+**Previous:** 5.44.5 (build 258) — Phase 92.2 (extract `getAppLogo()`)
 
 ---
 
-## 🧱 Phase 92.2 — extract logo source resolver (this session)
+## 🧱 Phase 92.3 — extract + harden logo Supabase sync (this session)
+
+Continues Phase 92.1/92.2. **Behavior-preserving extraction + a small intentional hardening** (network timeout).
+
+### Change
+- `modules/branding.js` gains `syncAppLogo({ config, accessToken, storageRef, fetchImpl, timeoutMs, onUpdated, logger })` — pulls the logo from the Supabase Storage `store-assets` bucket (raw REST list), builds the cache-busted public URL, and caches it to localStorage only when stale (no overwrite of a matching user data: URI). All I/O injected → pure & testable.
+- **Hardening** (the inline original had neither): the list `fetch` now runs under an `AbortController` timeout (default 8s) so a stalled network can't hang it, and failures are logged via the injected `logger.warn` instead of being silently swallowed. localStorage cache still serves the logo on failure → UI never breaks.
+- `main.js` — `window._appSyncLogo` is now a wrapper calling `_syncAppLogoImpl({ config: window.SUPABASE_CONFIG, accessToken: window._sbAccessToken, onUpdated: () => updateAppLogos() })`. Boot caller unchanged.
+- `tests/branding_sync_app_logo.test.js` — 14 tests (9 behavioral, 2 hardening, 3 source-level), no network/window.
+
+### Smoke-log clarification
+The console line `Supabase save failed (using localStorage): supabase timeout` seen during 92.2 smoke is from **`saveStoreInfo()`** (a *save* path that already has a 3s `Promise.race` timeout) — working as designed. It is NOT `_appSyncLogo`. 92.3 hardens the separate *pull* path, which previously had no timeout at all.
+
+### Logo decomposition — COMPLETE
+All three logo concerns now live in `modules/branding.js`: `updateAppLogos` (92.1, DOM paint), `getAppLogo` (92.2, resolver), `syncAppLogo` (92.3, Supabase pull). `main.js` keeps only thin wrappers binding live globals.
+
+### Build
+- 258 → 259; version 5.44.5 → **5.44.6** (patch — refactor + harden)
+- `npm run verify`: lint + **236 unit** (222 → 236, +14) + 11 e2e
+
+---
+
+## 🧱 Phase 92.2 — extract logo source resolver
 
 Pure refactor — **zero behavior change**. Second extraction from `main.js`, continues Phase 92.1.
 

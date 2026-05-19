@@ -12,9 +12,10 @@ import { renderStockMovementsPage } from "./modules/stock_movements.js";
 // Phase 89.21: profit_report, calendar, loyalty lazy
 import { renderLineNotifySettings, sendLineNotify } from "./modules/line_notify.js";
 import { renderPermissionMatrix, hasPermission } from "./modules/permission_matrix.js";
-// Phase 92.1/92.2: extracted DOM-paint + logo-source resolver from main.js.
-// _appSyncLogo stays in main.js for now — it couples to SUPABASE_CONFIG + token.
-import { updateAppLogos as _updateAppLogosImpl, getAppLogo as _getAppLogoImpl } from "./modules/branding.js";
+// Phase 92.1/92.2/92.3: extracted DOM-paint + logo-source resolver + Supabase
+// Storage pull from main.js. main.js keeps thin wrappers that bind live globals
+// (state / SUPABASE_CONFIG / token) so all call sites are unchanged.
+import { updateAppLogos as _updateAppLogosImpl, getAppLogo as _getAppLogoImpl, syncAppLogo as _syncAppLogoImpl } from "./modules/branding.js";
 // Phase 89.20: customer_dashboard lazy — clearCustomerDashboardState called only if loaded (see logout)
 // Phase 89.21: btu_calculator, service_request lazy
 // Phase 89.20: solar, ac_install lazy
@@ -400,31 +401,15 @@ window._appGetLogo = function() {
 };
 
 // ★ Sync logo จาก Supabase Storage → localStorage (เรียกตอน boot)
+// Phase 92.3: pull logic moved to modules/branding.js (syncAppLogo, now with an
+// AbortController timeout + logged failures). This wrapper binds the live config
+// + token so callers keep working unchanged.
 window._appSyncLogo = async function() {
-  try {
-    const cfg = window.SUPABASE_CONFIG;
-    if (!cfg) return;
-    // ลองหาไฟล์โลโก้ใน storage
-    const token = window._sbAccessToken || cfg.anonKey;
-    const listResp = await fetch(cfg.url + "/storage/v1/object/list/store-assets", {
-      method: "POST",
-      headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token, "Content-Type": "application/json" },
-      body: JSON.stringify({ prefix: "logo", limit: 5 })
-    });
-    if (!listResp.ok) return;
-    const files = await listResp.json();
-    const logoFile = files.find(f => f.name && f.name.startsWith("logo."));
-    if (logoFile) {
-      const publicUrl = cfg.url + "/storage/v1/object/public/store-assets/" + logoFile.name + "?t=" + new Date(logoFile.updated_at || logoFile.created_at).getTime();
-      const currentLogo = localStorage.getItem("bsk_store_logo") || "";
-      // อัปเดตเฉพาะเมื่อยังไม่มี หรือ URL เปลี่ยน
-      if (!currentLogo || !currentLogo.startsWith("data:") || localStorage.getItem("bsk_store_logo_url") !== publicUrl) {
-        localStorage.setItem("bsk_store_logo", publicUrl);
-        localStorage.setItem("bsk_store_logo_url", publicUrl);
-        if (typeof updateAppLogos === "function") updateAppLogos();
-      }
-    }
-  } catch(e) { /* offline — ใช้ localStorage cache */ }
+  return _syncAppLogoImpl({
+    config: window.SUPABASE_CONFIG,
+    accessToken: window._sbAccessToken,
+    onUpdated: () => { if (typeof updateAppLogos === "function") updateAppLogos(); },
+  });
 };
 
 // ★ Lazy loader สำหรับ html2canvas (~350KB) — โหลดเฉพาะตอนใช้งาน Share/PDF

@@ -7,6 +7,51 @@
 
 ---
 
+## 5.44.6 (build 259) — 2026-05-20 🧱 Phase 92.3 — extract + harden logo Supabase sync
+
+### Goal
+ต่อจาก 92.2 — แยก `_appSyncLogo` (pull โลโก้จาก Supabase Storage) ออกจาก `main.js` ไป `modules/branding.js` **พร้อม harden** timeout
+
+### Change
+**ย้าย logic pull โลโก้ ไป `modules/branding.js` เป็น `syncAppLogo({ config, accessToken, storageRef, fetchImpl, timeoutMs, onUpdated, logger })`**
+
+- รักษา flow เดิม byte-identical: POST storage list `store-assets` (prefix "logo") → หา `logo.*` → สร้าง public URL (cache-bust `?t=`) → เขียน localStorage + repaint **เฉพาะเมื่อ cache stale** (ไม่ทับ data: URI ที่ URL ตรงกันอยู่)
+- **HARDEN** (2 จุด — ของเดิมไม่มี):
+  1. list fetch ห่อด้วย `AbortController` timeout (default 8s) — เดิมใช้ raw `fetch` ไม่มี timeout → network ค้างได้เงียบๆ
+  2. failure (offline / abort / non-OK) log ผ่าน injected `logger.warn` แทนการกลืน error เงียบ — localStorage cache ยังเสิร์ฟโลโก้ได้ตามเดิม UI ไม่พัง
+- `main.js`: import `syncAppLogo as _syncAppLogoImpl`; `window._appSyncLogo` body 26 บรรทัด → wrapper เรียก `_syncAppLogoImpl({ config: window.SUPABASE_CONFIG, accessToken: window._sbAccessToken, onUpdated: () => updateAppLogos() })` — boot caller (L4660) ไม่เปลี่ยน
+
+### หมายเหตุ smoke เดิม
+console `Supabase save failed (using localStorage): supabase timeout` มาจาก **`saveStoreInfo()`** (คนละ path — save, มี 3s timeout อยู่แล้ว) ไม่ใช่ `_appSyncLogo` — ทำงานถูกแล้ว (localStorage fallback). 92.3 hardening แก้คนละจุด (pull path ที่ไม่เคยมี timeout)
+
+### Build sync
+- `selfheal.js?v=259`, `main.js?v=259`, `boot.js?v=259`, `style.css?v=259`, `data-app-build="259"`
+- `sw.js` CACHE_NAME `v258` → `v259`
+- `modules/settings/pages.js` Version `5.44.5` → **5.44.6**, build `258` → `259`
+
+### Test
+- ใหม่ `tests/branding_sync_app_logo.test.js` — **14 tests, 2 layers** (no network, no window):
+  - **Behavioral** (9): happy path cache+repaint, header apikey/Bearer token + anonKey fallback, no config/fetch/storage → false, non-OK → no write, no `logo.*` → no write, dedup data: URI ตรง URL → skip, URL ต่าง → refresh, non-data → refresh
+  - **Hardening** (2): fetch reject → caught + logged + false (no throw); stalled fetch → abort ด้วย timeoutMs + logged (ไม่ค้าง)
+  - **Source-level** (3): branding.js export `syncAppLogo`, main.js ไม่มี inline `storage/v1/object/list/store-assets` แล้ว, wrapper `window._appSyncLogo` delegate `_syncAppLogoImpl`
+- `npm run verify`: lint + **236 unit** (222 → 236, +14) + 11 e2e
+
+### How to test (manual smoke)
+1. Ctrl+Shift+R → version **5.44.6 (build 259)**
+2. Boot ปกติ → โลโก้มาจาก Supabase/localStorage ตามเดิม (sidebar/auth/docs)
+3. Network ช้า/offline ตอน boot → ไม่ค้าง, ใช้ localStorage cache, console เห็น `[syncAppLogo] sync skipped` (ของใหม่ — ไม่ใช่ error)
+4. Upload logo ใหม่ → cross-device sync ผ่าน storage ตามเดิม
+
+### Phase 92 roadmap (เหลือ)
+1. ~~92.1 updateAppLogos~~ ✅ / ~~92.2 getAppLogo~~ ✅ / ~~92.3 syncAppLogo~~ ✅ — logo logic แยกออกจาก main.js ครบแล้ว
+2. **92.4** — `loadHtml2Canvas` lazy loader → `modules/lazy_libs.js`
+3. **92.5+** — boot IIFE / sidebar / auth
+
+### Lesson recorded
+smoke log อาจชี้คนละ function กับที่คิด — `Supabase save failed` = save path (มี timeout), แต่ pull path (`_appSyncLogo`) ต่างหากที่ไม่มี timeout. ตรวจ stack/ข้อความให้ตรง function ก่อน harden
+
+---
+
 ## 5.44.5 (build 258) — 2026-05-20 🧱 Phase 92.2 — extract logo source resolver (zero-behavior)
 
 ### Goal
