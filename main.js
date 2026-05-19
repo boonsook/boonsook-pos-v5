@@ -1290,8 +1290,10 @@ async function initSupabase(){
 
   const { data:{session} } = await state.supabase.auth.getSession();
   if (session?.user) {
+    /* eslint-disable require-atomic-updates -- LOW_RISK: L6 init-time only (boot getSession, runs once at app start) */
     state.currentUser = session.user;
     window._sbAccessToken = session.access_token; // ★ CRITICAL: เก็บ token
+    /* eslint-enable require-atomic-updates */
     if (state._recoveryMode) {
       showSetPasswordScreen();
       window.dispatchEvent(new Event("bsk-app-ready"));
@@ -1352,9 +1354,11 @@ const { requestOtp, verifyOtp } = createOtpAuth({ state, $, setText, showToast }
 async function logout(){
   try { await state.supabase.auth.signOut(); } catch(e) { console.warn("signOut error:", e); }
   // ★ Force clear ทุกอย่างแม้ signOut ล้มเหลว
+  /* eslint-disable require-atomic-updates -- LOW_RISK: L1 user-event (logout button — sequential after signOut, single click per session) */
   state.currentUser = null;
   state.profile = null;
   state.cart = []; saveCart();
+  /* eslint-enable require-atomic-updates */
   window._sbAccessToken = null;
   // Phase 45.10 (B5-1): clear module state ด้วย (กัน cross-login leak)
   // Phase 89.20: customer_dashboard lazy — clear state only if module actually loaded (no-op if user never opened it)
@@ -1382,6 +1386,7 @@ async function logout(){
 
 async function loadProfile(){
   const { data, error } = await state.supabase.from("profiles").select("id, full_name, role").eq("id", state.currentUser.id).single();
+  // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L1 user-event (loadProfile awaited from afterLogin, single login flow)
   state.profile = error ? { full_name: state.currentUser.email, role: "sales" } : data;
   setText("dbStatus", error ? "เชื่อมต่อแล้ว แต่ไม่พบ profile" : "เชื่อมต่อฐานข้อมูลแล้ว");
 }
@@ -1804,10 +1809,12 @@ async function openDrawerScanner() {
 
   await stopDrawerScannerHard();
   area.classList.remove("hidden");
+  // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L2 single-device singleton (drawer scanner — 1 camera per session)
   videoEl.innerHTML = "";
   if (resultEl) resultEl.innerHTML = "";
 
   if (typeof Html5Qrcode === "undefined") {
+    // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L2 single-device singleton (drawer scanner — 1 camera per session)
     videoEl.innerHTML = '<div style="padding:16px;text-align:center;color:#94a3b8">ไม่พบไลบรารี Scanner</div>';
     return;
   }
@@ -2708,6 +2715,7 @@ async function _generateShareToken(job) {
       throw new Error("HTTP " + r.status);
     }
     const updated = await r.json();
+    // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L1 user-event (create share button — single click per job row)
     job.share_token = (Array.isArray(updated) ? updated[0]?.share_token : updated?.share_token) || token;
     // update local state
     const idx = (state.serviceJobs || []).findIndex(j => j.id === job.id);
@@ -2729,6 +2737,7 @@ async function _revokeShareToken(job) {
       body: JSON.stringify({ share_token: null })
     });
     if (!r.ok) throw new Error("HTTP " + r.status);
+    // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L1 user-event (revoke share button — single click per job row)
     job.share_token = null;
     const idx = (state.serviceJobs || []).findIndex(j => j.id === job.id);
     if (idx >= 0) state.serviceJobs[idx].share_token = null;
@@ -3789,6 +3798,7 @@ async function loadReceipt(saleId){
   const saleData = await state.supabase.from("sales").select("*").eq("id", saleId).single();
   const itemsData = await state.supabase.from("sale_items").select("*").eq("sale_id", saleId).order("id",{ascending:true});
   if (saleData.error || itemsData.error) return;
+  // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L1 user-event (sequential await loadReceipt(saleId) after checkout, single sale per flow)
   state.lastReceipt = { ...saleData.data, items: itemsData.data || [] };
   saveReceipt();
   renderReceiptDrawer();
@@ -3949,6 +3959,7 @@ async function loadUsers(){
   if (result.error) {
     result = await state.supabase.from("profiles").select("*").order("created_at");
   }
+  // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L1 user-event (admin loadUsers — single admin click)
   state.allProfiles = result.data || [];
 }
 async function changeRole(userId, newRole){
