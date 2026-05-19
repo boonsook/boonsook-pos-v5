@@ -43,10 +43,22 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 //  Phase 89.20 — Lazy module loader (code-split for admin/service-only routes)
 //    เลื่อน 550KB+ (9 service+admin + 9 accounting) ออกจาก first-load
 //    cache promise per path → load ครั้งเดียวต่อ module ตลอด session
+//
+//  Phase 90.7 — Append ?v=APP_BUILD to the import() URL so the browser's
+//  ES module registry treats each build as a separate URL (otherwise a
+//  soft refresh from build N → N+1 keeps the old parsed module in memory
+//  because the URL string '/modules/X.js' is identical across builds —
+//  see tests/lazy_import_cache_bust.test.js for the full scenario).
+//  The session Map is still keyed on the bare path so per-session dedup
+//  works; only across deploys do we re-fetch.
 // ═══════════════════════════════════════════════════════════
 const _lazyMod = new Map();
+function _bustedUrl(path) {
+  const build = (typeof window !== "undefined" && window.APP_BUILD) || "dev";
+  return path + (path.includes("?") ? "&" : "?") + "v=" + build;
+}
 function _lazyImport(path) {
-  if (!_lazyMod.has(path)) _lazyMod.set(path, import(path));
+  if (!_lazyMod.has(path)) _lazyMod.set(path, import(_bustedUrl(path)));
   return _lazyMod.get(path);
 }
 const LAZY_ROUTES = {
@@ -1713,7 +1725,8 @@ async function _mountServiceJobTagWidget(job) {
   if (!activeEl || !presetsEl) return;
   if (inputEl) { const ni = inputEl.cloneNode(true); inputEl.parentNode.replaceChild(ni, inputEl); }
   if (addBtn)  { const nb = addBtn.cloneNode(true); addBtn.parentNode.replaceChild(nb, addBtn); }
-  const { mountTagWidget, SERVICE_TAG_PRESETS } = await import("./modules/utils.js");
+  // Phase 90.7: ?v=APP_BUILD so a soft refresh into a new build doesn't reuse the previously parsed utils module
+  const { mountTagWidget, SERVICE_TAG_PRESETS } = await import(_bustedUrl("./modules/utils.js"));
   _serviceJobTagWidget = mountTagWidget({
     activeEl, presetsEl,
     inputEl: $("serviceTagInput"),
@@ -1734,7 +1747,8 @@ async function _mountProductTagWidget(product) {
   // Reset input + button (re-cloning to drop old listeners)
   if (inputEl) { const ni = inputEl.cloneNode(true); inputEl.parentNode.replaceChild(ni, inputEl); }
   if (addBtn)  { const nb = addBtn.cloneNode(true); addBtn.parentNode.replaceChild(nb, addBtn); }
-  const { mountTagWidget, PRODUCT_TAG_PRESETS } = await import("./modules/utils.js");
+  // Phase 90.7: ?v=APP_BUILD cache-bust (see _bustedUrl)
+  const { mountTagWidget, PRODUCT_TAG_PRESETS } = await import(_bustedUrl("./modules/utils.js"));
   _productTagWidget = mountTagWidget({
     activeEl,
     presetsEl,
@@ -1820,7 +1834,8 @@ async function openDrawerScanner() {
   }
 
   // Phase 64: shared scanner config (1D barcodes + QR)
-  import("./modules/utils.js").then(({ getScannerConfig }) => {
+  // Phase 90.7: ?v=APP_BUILD cache-bust
+  import(_bustedUrl("./modules/utils.js")).then(({ getScannerConfig }) => {
     const { ctorOpts, startConfig } = getScannerConfig();
     try {
       const sessionId = ++_drawerScanSessionId;
@@ -2271,7 +2286,8 @@ async function _renderCustomerNotesTimeline(customer) {
     if (!text) return;
     btn.disabled = true; btn.textContent = "⏳";
     try {
-      const { logActivity } = await import("./modules/utils.js");
+      // Phase 90.7: ?v=APP_BUILD cache-bust
+      const { logActivity } = await import(_bustedUrl("./modules/utils.js"));
       await logActivity("customer_note", {
         entityType: "customer",
         entityId: customer.id,
@@ -3784,7 +3800,8 @@ async function _notifySaleToLine({ orderNo, cartSnapshot, items }) {
     }
 
     const message = lines.join("\n");
-    const { sendLineNotify } = await import("./modules/line_notify.js");
+    // Phase 90.7: ?v=APP_BUILD cache-bust
+    const { sendLineNotify } = await import(_bustedUrl("./modules/line_notify.js"));
     await sendLineNotify(message, { state, showToast }, "default");
   } catch (e) {
     console.warn("[_notifySaleToLine] error:", e?.message || e);
