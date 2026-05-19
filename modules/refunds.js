@@ -411,16 +411,21 @@ function openRefundModal(ctx) {
           .catch(e => console.warn("[refunds] auto-post JV failed:", e?.message));
       }
 
-      // 4) Phase 91.3 — reverse loyalty auto-earn (fire-and-forget, idempotent).
+      // 4) Phase 91.3 + 91.4 — reverse loyalty auto-earn (fire-and-forget, idempotent).
       // Helper is silent on: no customer / no earn record / already reversed.
       // Caps reverse at customer's remaining balance so the total never goes negative.
       // Helper failure must NEVER fail the refund flow — wrap in try and console.warn.
+      //
+      // Phase 91.4: removed the `&& _selectedSale?.customer_id` pre-check. sales.customer_id
+      // may be missing/null on some rows even when the earn record exists (the column was
+      // an opt-in extension; pos.js only inserts it if present). The helper itself resolves
+      // customer_id from the earn record when not supplied — let it decide.
       try {
-        if (_selectedSale?.id && _selectedSale?.customer_id) {
+        if (_selectedSale?.id) {
           import('./loyalty.js?v=' + (window.APP_BUILD || 'dev'))
             .then(m => m.reverseEarnedPointsForSale(_selectedSale.id, {
               state: window.App?.state,
-              customerId: _selectedSale.customer_id,
+              customerId: _selectedSale.customer_id || null,
               refundId: insertedRefund?.id || null,
             }))
             .then(res => {

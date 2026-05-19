@@ -235,27 +235,38 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
           sideEffects.push("⚠️ revert stock exception");
         }
 
-        // (c) Phase 91.3 — reverse loyalty auto-earn. Helper is silent on no-customer /
-        // no-earn / already-reversed and caps the reverse at the customer's remaining
-        // balance. Helper failures must NEVER fail the delete flow.
+        // (c) Phase 91.3 + 91.4 — reverse loyalty auto-earn. Helper is silent on
+        // no-earn / already-reversed and caps reverse at customer.remaining (no
+        // negative balance). Helper failures must NEVER fail the delete flow.
+        //
+        // Phase 91.4: removed the `if (targetSale?.customer_id)` pre-check.
+        // sales.customer_id can be missing/null even when the earn record exists
+        // (column is an opt-in extension; pos.js only includes it when present).
+        // The helper falls back to earn.customer_id when options.customerId is null.
         try {
           const mod = await import("./loyalty.js?v=" + (window.APP_BUILD || "dev"));
           const targetSale = (state.sales || []).find(s => String(s.id) === String(saleId));
-          if (targetSale?.customer_id) {
-            const res = await mod.reverseEarnedPointsForSale(saleId, {
-              state,
-              customerId: targetSale.customer_id,
-            });
-            if (res?.ok) {
-              const cappedNote = res.capped ? `/${res.totalEarned}` : "";
-              sideEffects.push(`คืนแต้ม ${res.reversed}${cappedNote}`);
-            } else if (res?.skipped) {
-              // expected silent skip — log only
-              console.log("[sales delete] loyalty reverse skipped:", res.reason);
-            } else {
-              console.warn("[sales delete] loyalty reverse failed:", res?.reason);
-              sideEffects.push("⚠️ reverse loyalty fail");
-            }
+          // Diagnostic — visible in DevTools so the next smoke explains itself
+          console.log("[sales delete] loyalty reverse attempt:", {
+            saleId,
+            saleCustomerId: targetSale?.customer_id ?? null,
+            earnCount: (state.loyaltyPoints || [])
+              .filter(t => t.type === "earn" && t.ref_type === "sale" && String(t.ref_id) === String(saleId))
+              .length,
+          });
+          const res = await mod.reverseEarnedPointsForSale(saleId, {
+            state,
+            customerId: targetSale?.customer_id || null,
+          });
+          if (res?.ok) {
+            const cappedNote = res.capped ? `/${res.totalEarned}` : "";
+            sideEffects.push(`คืนแต้ม ${res.reversed}${cappedNote}`);
+          } else if (res?.skipped) {
+            // expected silent skip (no earn / already reversed / remaining=0) — log only
+            console.log("[sales delete] loyalty reverse skipped:", res.reason);
+          } else {
+            console.warn("[sales delete] loyalty reverse failed:", res?.reason);
+            sideEffects.push("⚠️ reverse loyalty fail");
           }
         } catch (e) {
           console.warn("[sales delete] loyalty reverse exception:", e?.message);

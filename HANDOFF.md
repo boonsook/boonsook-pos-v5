@@ -3,13 +3,43 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 19 พฤษภาคม 2026 (Phase 91.3 — Refund/cancel reverse loyalty earn, build 255)
-**Version:** 5.44.2 (build 255) — Phase 91.3 (idempotent reverse helper wired into refund + sale soft-delete)
-**Previous:** 5.44.1 (build 254) — Phase 91.2 HOTFIX (earn formula divide-not-multiply)
+**อัปเดตล่าสุด:** 19 พฤษภาคม 2026 (Phase 91.4 HOTFIX — wiring gate removed, build 256)
+**Version:** 5.44.3 (build 256) — Phase 91.4 (🔥 hotfix: sale-row customer_id pre-check blocked the helper in build 255)
+**Previous:** 5.44.2 (build 255) — Phase 91.3 (reverse helper shipped — but didn't fire on real data)
 
 ---
 
-## ↩️ Phase 91.3 — Refund/cancel reverse loyalty earn (this session)
+## 🔥 Phase 91.4 HOTFIX — Reverse-loyalty wiring gate (this session)
+
+Build 255 (Phase 91.3) shipped a working helper but ineffective wiring. Real prod data hit a guard that silently no-op'd the reverse.
+
+**Symptom:** sale #143 → POS auto-earn worked (jeerasuk +5). User deletes sale → `[auto_post] voided 1 JV(s) for sales#143` logged but loyalty summary unchanged.
+
+**Root cause:** both `modules/refunds.js` (L419) and `modules/sales.js` (L244) pre-gated the helper on the SALE-row's `customer_id`:
+```js
+if (targetSale?.customer_id) {   // ← blocked when column null/missing
+  await mod.reverseEarnedPointsForSale(...);
+}
+```
+`sales.customer_id` is an opt-in column (pos.js comment line 1119: "ถ้ามี customer_id field ในตาราง — ใส่ด้วย"). When absent or null, the gate skipped silently — no log, no toast, no record. But the helper itself is designed to fall back to `earn_record.customer_id` (loyalty_points always has it since Phase 91.1).
+
+**Fix:**
+- Remove the customer_id pre-check from both wiring sites; pass `customerId: ... || null` and let the helper decide
+- Add diagnostic `console.log("[sales delete] loyalty reverse attempt:", { saleId, saleCustomerId, earnCount })` to sales.js so the next smoke can self-diagnose without source dive
+- 4 new tests in `tests/loyalty_reverse_sale.test.js`:
+  - Helper resolves customer_id from earn record when `customerId: null` (real call shape from post-91.4 wiring)
+  - Same with `customerId` key omitted
+  - Source-level: `refunds.js` must not gate on `_selectedSale?.customer_id`
+  - Source-level: `sales.js` must not gate on `targetSale?.customer_id` (strips comments first — earlier false positive caught my own explainer)
+
+`npm run verify` clean: lint + **204 unit** (200 → 204, +4) + 11 e2e
+
+### Lesson recorded
+**Wiring guards must not be stricter than the helper's own contract.** The helper said "customer_id optional, I'll resolve from earn record." The wiring said "no customer_id, refuse." Result: helper logic intended to handle the edge case was unreachable. Rule: at the call site, gate only on the inputs the helper *requires* (here: saleId), and let the helper decide on the optional ones.
+
+---
+
+## ↩️ Phase 91.3 — Refund/cancel reverse loyalty earn (previous push)
 
 Phase 91.1 wired auto-earn but didn't claw back when a sale was refunded or soft-deleted → over-credit risk. Phase 91.3 closes that gap with an idempotent helper called from both reverse paths.
 

@@ -297,3 +297,89 @@ test("reverseEarnedPointsForSale: returns failure (ok:false, skipped:false) when
     assert.equal(xhr.captured.length, 1, "still attempted the insert (xhr was called) — failure is from server side");
   } finally { xhr.restore(); }
 });
+
+// ─── Phase 91.4 hotfix regression ───
+// Phase 91.3 wired the helper from refunds.js + sales.js but gated the call on
+// the SALE row's customer_id. That sale-row column is an opt-in schema extension
+// — pos.js only sends customer_id if `_posCustomer?.id` was truthy at insert
+// time AND the column exists. Some prod environments don't have it, so the
+// guard skipped the call entirely. The helper itself was always designed to
+// recover customer_id from the earn record — this test pins that behavior
+// down with a real call shape (customerId omitted / null).
+test("Phase 91.4: helper resolves customer_id from earn record when caller passes null", async () => {
+  // Mirror the real call from modules/sales.js with the post-91.4 wiring:
+  //   reverseEarnedPointsForSale(saleId, { state, customerId: targetSale?.customer_id || null })
+  // where targetSale is the sale row from state.sales — here we simulate the
+  // bad case (sale row exists but customer_id column missing/null).
+  const state = { loyaltyPoints: [
+    // Earn record HAS customer_id (loyalty_points.customer_id always populated since Phase 91.1)
+    earnRow({ id: 1, customerId: 42, points: 5, saleId: 143 }),
+  ]};
+  const xhr = installMockXhr();
+  try {
+    const res = await reverseEarnedPointsForSale(143, {
+      state,
+      customerId: null, // ← Phase 91.3 wiring would have GATED off this, never calling helper
+    });
+    assert.equal(res.ok, true, "helper must succeed by reading customer_id from the earn record");
+    assert.equal(res.reversed, 5);
+    assert.equal(xhr.captured.length, 1);
+    assert.equal(xhr.captured[0].record.customer_id, 42, "reverse record must carry the customer_id from the earn row");
+  } finally { xhr.restore(); }
+});
+
+test("Phase 91.4: undefined customerId (option key omitted) also works — helper falls back", async () => {
+  const state = { loyaltyPoints: [
+    earnRow({ id: 1, customerId: 42, points: 5, saleId: 143 }),
+  ]};
+  const xhr = installMockXhr();
+  try {
+    const res = await reverseEarnedPointsForSale(143, { state });
+    assert.equal(res.ok, true);
+    assert.equal(xhr.captured[0].record.customer_id, 42);
+  } finally { xhr.restore(); }
+});
+
+// ─── Source-level pin: wiring must NOT pre-gate on customer_id ───
+// This catches a regression where someone re-introduces the pre-check.
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+const __dirname2 = path.dirname(fileURLToPath(import.meta.url));
+const refundsSrc = readFileSync(path.join(__dirname2, "..", "modules", "refunds.js"), "utf8");
+const salesSrc   = readFileSync(path.join(__dirname2, "..", "modules", "sales.js"),   "utf8");
+
+// Strip JS line + block comments so the regex below can't false-match against
+// "Phase 91.4: removed the `if (...)`..." explainer comments in the source.
+function stripComments(src) {
+  return src
+    .replace(/\/\/[^\n]*/g, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "");
+}
+
+test("Phase 91.4: refunds.js wiring must NOT gate on _selectedSale.customer_id (helper resolves it)", () => {
+  const code = stripComments(refundsSrc);
+  // The buggy pre-check looked like `if (... && _selectedSale?.customer_id)` — reject that shape.
+  assert.ok(
+    !/&&\s*_selectedSale\?\.customer_id\s*\)/.test(code),
+    "refunds.js must not gate the helper call on _selectedSale.customer_id (passing it as a value is fine, gating is the bug)"
+  );
+  // Confirm the helper IS still being called (otherwise the gate is moot).
+  assert.ok(
+    /reverseEarnedPointsForSale\(/.test(code),
+    "refunds.js must still call reverseEarnedPointsForSale (otherwise nothing to test)"
+  );
+});
+
+test("Phase 91.4: sales.js wiring must NOT gate on targetSale.customer_id (helper resolves it)", () => {
+  const code = stripComments(salesSrc);
+  // Buggy pre-check shape: `if (targetSale?.customer_id) { ... }`.
+  assert.ok(
+    !/if\s*\(\s*targetSale\?\.customer_id\s*\)/.test(code),
+    "sales.js must not gate the helper call on targetSale.customer_id — that was the Phase 91.4 hotfix"
+  );
+  assert.ok(
+    /reverseEarnedPointsForSale\(/.test(code),
+    "sales.js must still call reverseEarnedPointsForSale (otherwise nothing to test)"
+  );
+});

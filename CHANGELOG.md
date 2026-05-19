@@ -7,6 +7,65 @@
 
 ---
 
+## 5.44.3 (build 256) — 2026-05-19 🔥 Phase 91.4 HOTFIX — Reverse-loyalty wiring pre-gate removed
+
+### Symptom (build 255 smoke fail)
+- sale #143, BSK-1779196282363, customer jeerasuk, amount 500
+- POS auto-earn worked → jeerasuk +5
+- User กดลบ sale จาก "รายการขาย" → console: `[auto_post] voided 1 JV(s) for sales#143` ขึ้นปกติ
+- **Loyalty summary ไม่ลด** (610/100/510 → ยังเป็น 610/100/510)
+- Expected: 605/100/505 (หรือใน schema เรา: 610/105/505 — แต้มหายอย่างน้อย -5 จาก remaining)
+
+### Root cause
+Phase 91.3 wiring ใน `modules/refunds.js` L419 และ `modules/sales.js` L244 ใส่ pre-gate บน sale-row `customer_id`:
+```js
+if (targetSale?.customer_id) {           // ← guard
+  await mod.reverseEarnedPointsForSale(...);
+}
+```
+แต่ `sales.customer_id` เป็น opt-in column — pos.js comment L1119: "ถ้ามี customer_id field ในตาราง — ใส่ด้วย (รองรับ schema ที่ extend แล้ว)". ถ้า column ไม่มี / มีแต่ null สำหรับ row นี้ → guard pass false → helper ไม่ถูกเรียก → ไม่มี log ไม่มี toast ไม่มี DB record → user ไม่เห็นอะไรเปลี่ยน
+
+แต่ใน Phase 91.3 helper ออกแบบให้ resolve customer_id จาก earn record (`loyalty_points.customer_id` มีเสมอตั้งแต่ Phase 91.1):
+```js
+const customerId = optCustomerId != null ? optCustomerId : earnRecords[0].customer_id;
+```
+ตัว guard ของ wiring strict กว่า contract ของ helper → fallback path ใช้งานไม่ได้
+
+### Fix
+- `modules/refunds.js` — ลบ `&& _selectedSale?.customer_id` จาก guard. ผ่าน `customerId: _selectedSale.customer_id || null` ให้ helper
+- `modules/sales.js` — ลบ `if (targetSale?.customer_id) { ... }` wrapper. ผ่าน `customerId: targetSale?.customer_id || null`
+- เพิ่ม diagnostic `console.log("[sales delete] loyalty reverse attempt:", { saleId, saleCustomerId, earnCount })` ก่อน helper — smoke ครั้งต่อจะ self-diagnose ใน DevTools
+
+### Build sync
+- `selfheal.js?v=256`, `main.js?v=256`, `boot.js?v=256`, `style.css?v=256`
+- `data-app-build="256"` ใน index.html
+- `sw.js` CACHE_NAME `v255` → `v256`
+- `modules/settings/pages.js` Version `5.44.2` → **5.44.3** (patch — wiring fix), build `255` → `256`
+
+### Test
+- เพิ่ม 4 unit tests ใน `tests/loyalty_reverse_sale.test.js`:
+  1. **Behavioral**: `reverseEarnedPointsForSale(143, { state, customerId: null })` → helper resolves customer_id จาก earn record → reverse 5 ออกมาถูกต้อง พร้อม customer_id ใน record
+  2. **Behavioral**: option key `customerId` ละไว้ (undefined) → fallback ทำงานเหมือนกัน
+  3. **Source-level**: `modules/refunds.js` ห้ามมี `&& _selectedSale?.customer_id` ใน guard (strip comments ก่อนเช็ค กัน false positive จาก explainer)
+  4. **Source-level**: `modules/sales.js` ห้ามมี `if (targetSale?.customer_id)` wrapper
+- `npm run verify` ผ่านครบ: lint + **204 unit** (เดิม 200 +4) + 11 e2e
+
+### How to test (manual smoke)
+1. Ctrl+Shift+R → version **5.44.3 (build 256)**
+2. POS → เลือก jeerasuk → ขาย 500 → +5 (jeerasuk Y+5)
+3. รายการขาย POS → ลบบิลนี้
+4. DevTools Console จะมี: `[sales delete] loyalty reverse attempt: {saleId, saleCustomerId: <null หรือเลข>, earnCount: 1}` — แสดง earn record ถูกเจอ
+5. ตามด้วย: `[sales delete] loyalty reverse skipped` (ถ้าซ้ำ) หรือไม่มี (ถ้า reverse ครั้งแรก)
+6. Toast: `ลบรายการขายเรียบร้อย ✅ (... คืนแต้ม 5)` — มี `คืนแต้ม` ใน sideEffectsMsg
+7. Loyalty summary jeerasuk: lower by 5 (remaining ลด -5 ตามที่คาด)
+
+### Lesson recorded
+**Wiring guards ห้าม strict กว่า contract ของ helper.** Helper บอก "customer_id optional, ฉันจะ resolve จาก earn record" แต่ wiring บอก "ไม่มี customer_id → ปฏิเสธ" → branch ของ helper ที่จัดการ edge case นี้ unreachable. Rule: ที่ call site, gate เฉพาะ inputs ที่ helper REQUIRE (here: `saleId`) และปล่อยให้ helper ตัดสินใจสิ่งที่ optional
+
+→ บันทึก `feedback_wiring_guard_too_strict.md` ใน memory
+
+---
+
 ## 5.44.2 (build 255) — 2026-05-19 ↩️ Phase 91.3 — Refund/cancel reverse loyalty auto-earn
 
 ### Goal
