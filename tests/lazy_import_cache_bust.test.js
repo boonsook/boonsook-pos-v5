@@ -65,14 +65,31 @@ test("_lazyImport must cache-bust the import URL with window.APP_BUILD", () => {
     !/\bimport\(\s*path\s*\)/.test(fnBody),
     "_lazyImport must NOT call import(path) without a cache-bust query — that's the Phase 90.7 bug"
   );
-  // The fix: APP_BUILD must appear in the URL passed to import()
+  // The fix: the URL passed to import() must come from a cache-busting source.
+  // Either _lazyImport itself contains APP_BUILD, or it delegates to a helper
+  // (e.g. _bustedUrl) that does. Both are acceptable — what matters is that
+  // the URL string passed to import() varies per build.
+  const usesAppBuildDirectly = /APP_BUILD/.test(fnBody);
+  const usesHelper = /_bustedUrl\(/.test(fnBody);
   assert.ok(
-    /APP_BUILD/.test(fnBody),
-    "_lazyImport must reference window.APP_BUILD when building the import URL"
+    usesAppBuildDirectly || usesHelper,
+    "_lazyImport must reference window.APP_BUILD (directly or via a helper like _bustedUrl) when building the import URL"
+  );
+});
+
+test("the cache-bust helper (or _lazyImport itself) must read window.APP_BUILD", () => {
+  // If _lazyImport delegates to _bustedUrl, the helper must read APP_BUILD.
+  // If _lazyImport inlines, APP_BUILD must be in its own body (covered above).
+  const lazyBody = extractFn(mainSrc, "_lazyImport") || "";
+  const helperBody = extractFn(mainSrc, "_bustedUrl") || "";
+  const combined = lazyBody + "\n" + helperBody;
+  assert.ok(
+    /window\.APP_BUILD|APP_BUILD/.test(combined),
+    "the cache-busting code path must reference window.APP_BUILD (selfheal.js sets this from data-app-build)"
   );
   assert.ok(
-    /import\([^)]*v=/.test(fnBody) || /import\([^)]*\?v/.test(fnBody),
-    "_lazyImport's import() call must include a ?v= query string"
+    /\?v=|"v="|'v='|`v=/.test(combined),
+    "the cache-busting code path must emit a ?v= query parameter on the import URL"
   );
 });
 
