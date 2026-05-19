@@ -3,7 +3,7 @@
 **ไฟล์นี้คือ "session continuity"** — ใช้เปิด session ใหม่แล้วลุยต่อได้เลย
 เปิดอ่านไฟล์นี้ก่อน HANDOFF.md / CHANGELOG.md เสมอ
 
-**Last update:** 15 พฤษภาคม 2026 (Session: Phase 89.30 XSS batch + PR #12 merged)
+**Last update:** 19 พฤษภาคม 2026 (Session: Phase 90.4–91.1 loyalty bug onion + POS auto-earn)
 
 ---
 
@@ -11,11 +11,25 @@
 
 | Item | Value |
 |------|-------|
-| **main HEAD** | `b90156c` Merge PR #12 — Phase 89.26 SQL hotfixes + SESSION_LOG.md (no build bump) |
-| **Branch ของ session** | `claude/fix-error-handling-P5cEB` — ahead of main with Phase 89.30 (XSS batch, build 240) |
-| **Build (next deploy)** | 240 |
-| **Tests** | **94/94 pass** (`npm test`) — 7 ใหม่ใน xss_regression.test.js |
-| **Version** | 5.43.36 |
+| **main HEAD** | `35b3408` Phase 91.1 POS checkout auto-earn loyalty points (build 253) |
+| **Branch** | `main` (direct push — งานเล็ก ตามที่ user grant) |
+| **Build live** | **253** ที่ `boonsook-pos-v5.pages.dev` (canonical — ไม่ใช่ www.boonsook.com) |
+| **Tests** | **168/168 unit** + **11/11 e2e** pass (`npm run verify`) |
+| **Version** | 5.44.0 (minor bump from 5.43.x — Phase 91.1 = new feature) |
+| **Lint** | clean (warnings ≤ 9 ที่เหลือจาก Phase 89.x) |
+
+### Phase 90.x audit closures
+| Audit ID | Status | Phase | Build |
+|----------|--------|-------|-------|
+| A1 settings save runtime guard | ✅ closed | 90.12 | 251 |
+| B1 history modal listener leak | ✅ closed | 90.13 | 252 |
+| Manual tab role gate | ⏳ deferred — product decision | — | — |
+
+### Phase 91 backlog (loyalty over-credit risk)
+- **Refund reversal** — refund ตอนนี้ไม่ลบ earn record → ลูกค้าได้แต้มฟรีหลัง refund
+- **Sale soft-delete reversal** — admin ลบ sale ก็ไม่ลบ earn record → over-credit เหมือนกัน
+
+ต้อง wire reverse-record (`redeemPoints` หรือ DELETE row) ใน `modules/refunds.js` + sale void path
 
 ### วิธี verify state ใน session ใหม่
 
@@ -49,6 +63,39 @@ grep -E "build [0-9]+" modules/settings/pages.js sw.js index.html
 | 8 | (no bump) | `3b71d2b` | **89.26 hotfix #2** receipts column ที่ถูกต้องคือ `paid_date` (ไม่ใช่ `paid_at`) | supabase-phase89-26 | PR #12 amend |
 | 9 | (no bump) | `0ee94b6` | **89.26 hotfix #3** type cast `bigint = text` ใน Section 2/3/4 (`j.source_id::text = X.id::text`) | supabase-phase89-26 | PR #12 (merged `b90156c`) |
 | 10 | 240 | (this push) | **89.30** XSS hardening batch (H1+H2+H3+S6+S7) | service_jobs (slip URL escape), customer_dashboard (CSS url() strip + warranty escape, both render sites), quotations (search dropdowns escape sku/phone/company), quote_templates (e.message escape), tests/xss_regression.test.js (7 tests), style.css cache buster | (new PR) |
+
+---
+
+## 📜 Push history — Session 19 พฤษภาคม 2026 (Phase 90.4 → 91.1)
+
+> Loyalty bug onion 6 layers ปิดทีละชั้น (90.4→90.13) แล้วต่อด้วย Phase 91.1 feature add (POS auto-earn). ทุก push เป็น direct-to-main (งานเล็ก, user grant push permission). หลัง push ทุกครั้งมี: lint + 145–168 unit + 11 e2e pass + `boonsook-pos-v5.pages.dev` live-verify build number ก่อนรายงาน.
+
+| # | Build | Commit | Phase | สรุปสั้น | Tests added |
+|---|-------|--------|-------|----------|-------------|
+| 1 | 244 | `89e8871` (PR #28) | **90.4** loyalty.js renderSettingsTab no-unreachable | setTimeout อยู่หลัง `return html` → click handler ไม่ถูก attach. ย้าย setTimeout มาก่อน return | (existing) |
+| 2 | 244 | `7233e68` (PR #29) | **90.4** bundle: settings save + currentRole bug | currentRole เป็น function ต้องเรียก `()` (เคย compare function reference vs string = false ตลอด) | `loyalty_admin_check.test.js` |
+| 3 | (no bump) | `cc80f90` (PR #30) | **90.4 + 90.5** chore | e2e/lint cleanup batch | — |
+| 4 | 245 | `a919c00` (PR #31) | **90.6** loyalty settings save XHR signature | `_appXhrPatch(restUrl, payload, callback)` ผิด → ที่ถูกคือ `(table, payload, eqCol, eqVal)` Promise-based + POST fallback | `loyalty_settings_save.test.js` |
+| 5 | 246 | `36a5b16` (PR #32) | **90.7** lazy import ESM cache bust | `import('./loyalty.js')` ไม่มี `?v=` → browser ESM registry serve module เก่าถึง build 244 + ปิดบิลต่อ. Fix: `_bustedUrl(path)` ใน main.js เพิ่ม `?v=APP_BUILD` | `lazy_import_cache_bust.test.js` |
+| 6 | 247 | `11c5af0` | **90.8** loyalty XHR helper signatures (3 sites) | `earnPoints` / `redeemPoints` / manual-earn handler เรียก `_appXhrPost('/api/loyalty-points', rec, cb)` — REST path ผิด + callback ทิ้ง (xhrPost คืน Promise) | — (existing covers) |
+| 7 | 248 | `208d797` | **90.9** redeem clear-form regression | 90.8 ทำ redeemPoints เป็น async แต่ยังคืน void → manual handler clear form มั่วๆ ทั้งสำเร็จ/ล้มเหลว. Fix: คืน `{ok, error}` ทุก exit, clear เฉพาะ r?.ok | — (existing) |
+| 8 | 249 | `7340636` | **90.10** customer_id type mismatch | `customers.id` = bigint (number) แต่ `<select>.value` คืน string. `1 === "1"` = false → getCustomerPoints คืน 0 ตลอด → "แต้มไม่พอแลก" ผิดเสมอ. Fix: cast `String()` 4 จุดที่จุด compare | — (existing) |
+| 9 | 250 | `cc6a542` | **90.11** boot.js periodic + visibilitychange SW update | Long session ติด build เก่าจน user reload เอง. Fix: `setInterval(reg.update, 10min)` + `visibilitychange` → `reg.update()`. ไม่ auto-reload — แค่ trigger เพื่อให้ banner เด้ง | `boot_periodic_sw_update.test.js` (6) |
+| 10 | 251 | `4c22dd1` | **90.12** settings save runtime admin guard (A1) | Defense-in-depth: เพิ่ม `if (!requireAdmin?.()) { toast; return }` ก่อน xhrPatch/Post call จริง — กัน mid-session role downgrade / DevTools injection | `loyalty_settings_admin_guard.test.js` (5) |
+| 11 | 252 | `d19655d` | **90.13** history modal listener leak (B1) | `showPointHistory` ผูก click listener ทุกครั้งที่เปิด → N stacked. Fix: ย้าย listener ไปผูกครั้งเดียวใน `renderLoyaltyPage` L262 | `loyalty_history_modal_listener.test.js` (4) |
+| 12 | 253 | `35b3408` | **91.1 ⭐ NEW FEATURE** POS checkout auto-earn loyalty | `earnPoints()` มีอยู่ตั้งแต่ 90.8 แต่ไม่มี caller. Wire ใน pos.js: capture `_earnCustomerId` ก่อน state-reset, fire-and-forget dynamic import กับ ?v=APP_BUILD หลัง postJournalForSale, gate `_earnCustomerId && is_active && points_per_baht>0`. Version minor bump 5.43.48 → 5.44.0 | `pos_loyalty_auto_earn.test.js` (8) |
+
+**Cumulative session (10 commits, 1 day):**
+- Build: 243 → **253** (10 bumps across 6 phases)
+- Unit tests: 145 → **168** (+23 จาก 6 ไฟล์ใหม่)
+- Loyalty flow: settings save / manual earn / manual redeem / history modal / POS auto-earn = ทุกอย่างใช้งานได้แล้ว
+- Bug onion: 6 ชั้น ปิดทุกชั้น (`renderSettingsTab dead code` → `currentRole function-ref bug` → `XHR signature wrong` → `ESM cache stale` → `signature wrong 3 จุดอื่น` → `async return shape ไม่ใช่ void` → `bigint vs string compare` → ฯลฯ)
+
+### Memory rules บันทึกใหม่
+- `feedback_async_refactor_return_shape.md` — sync→async ต้อง revisit caller; ถ้า caller ตัดสินใจ UX ต้องคืน `{ok,error}` ไม่ใช่ void
+- `feedback_id_type_mismatch.md` — bigint vs select.value; cast String() ที่จุด compare
+- `feedback_narrow_scope.md` — audit เจอหลาย issue ก็จริง แต่ user เลือกทำทีละข้อ
+- `reference_canonical_prod_url.md` — `boonsook-pos-v5.pages.dev` = canonical; `www.boonsook.com` = parked placeholder
 
 ---
 
