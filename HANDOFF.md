@@ -3,13 +3,34 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 19 พฤษภาคม 2026 (Phase 92.1 — main.js decomposition first cut, build 257)
-**Version:** 5.44.4 (build 257) — Phase 92.1 (extract `updateAppLogos()` to `modules/branding.js`, zero-behavior)
-**Previous:** 5.44.3 (build 256) — 🏁 Loyalty audit CLOSED (Phase 91.4)
+**อัปเดตล่าสุด:** 20 พฤษภาคม 2026 (Phase 92.2 — extract logo source resolver, build 258)
+**Version:** 5.44.5 (build 258) — Phase 92.2 (extract `getAppLogo()` to `modules/branding.js`, zero-behavior)
+**Previous:** 5.44.4 (build 257) — Phase 92.1 (extract `updateAppLogos()`)
 
 ---
 
-## 🧱 Phase 92.1 — main.js decomposition first cut (this session)
+## 🧱 Phase 92.2 — extract logo source resolver (this session)
+
+Pure refactor — **zero behavior change**. Second extraction from `main.js`, continues Phase 92.1.
+
+### Change
+- `modules/branding.js` gains a second export `getAppLogo({ stateRef, storageRef, defaultLogo })` — the priority chain `state.storeInfo?.logoUrl || localStorage["bsk_store_logo"] || "./icons/logo.svg"`, byte-identical to the old inline `_appGetLogo`. `state` + storage are injected → pure & testable.
+- `main.js`:
+  - Imports `getAppLogo as _getAppLogoImpl` alongside `updateAppLogos`
+  - `window._appGetLogo` is now a 1-line wrapper `return _getAppLogoImpl({ stateRef: state })` that binds the live `state`
+  - All `window._appGetLogo()` callers (pos, dashboard, payroll, receipts, quotations, delivery_invoices) unchanged
+- `tests/branding_update_app_logos.test.js` — +8 (10 → 18): 5 behavioral (priority order, fall-through, custom default, null storage), 3 source-level (export present, no inline chain in main.js, wrapper preserved)
+
+### Intentionally NOT extracted (flagged for 92.3)
+- `window._appSyncLogo` — async, fetches from Supabase Storage using `SUPABASE_CONFIG` + `_sbAccessToken`. Needs config + token injected
+
+### Build
+- 257 → 258; version 5.44.4 → **5.44.5** (patch — refactor)
+- `npm run verify`: lint + **222 unit** (214 → 222, +8) + 11 e2e
+
+---
+
+## 🧱 Phase 92.1 — main.js decomposition first cut
 
 Pure refactor — **zero behavior change**. First extraction from the 4,600+ line `main.js` boot file.
 

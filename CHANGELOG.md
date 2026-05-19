@@ -7,6 +7,54 @@
 
 ---
 
+## 5.44.5 (build 258) — 2026-05-20 🧱 Phase 92.2 — extract logo source resolver (zero-behavior)
+
+### Goal
+ต่อจาก 92.1 — แยก **logo source resolver** (`_appGetLogo`) ออกจาก `main.js` ไป `modules/branding.js` แบบ refactor-only, ห้ามเปลี่ยน behavior
+
+### Change
+**ย้าย logic resolve โลโก้ ออกไป `modules/branding.js` เป็น `getAppLogo({ stateRef, storageRef, defaultLogo })`**
+
+- `modules/branding.js` เพิ่ม export ที่สอง:
+  ```js
+  getAppLogo({ stateRef, storageRef = localStorage, defaultLogo = "./icons/logo.svg" })
+  ```
+  รักษา priority chain เดิม byte-identical: `state.storeInfo?.logoUrl || localStorage["bsk_store_logo"] || default` (ใช้ `||` → empty/null falls through เหมือนเดิม). `state` + `storage` ถูก inject → pure + testable
+- `main.js`:
+  - import `getAppLogo as _getAppLogoImpl` เพิ่มจาก branding.js
+  - `window._appGetLogo` body 3 บรรทัด → wrapper 1 บรรทัด `return _getAppLogoImpl({ stateRef: state });` — bind live `state`
+  - call sites ทั้งหมด (pos / dashboard / payroll / receipts / quotations / delivery_invoices ผ่าน `window._appGetLogo()`) ทำงานเหมือนเดิม **0 behavior surface เปลี่ยน**
+
+### ยังไม่แตะ (flag ไว้ 92.3)
+- `window._appSyncLogo` — async, fetch จาก Supabase Storage ผ่าน `SUPABASE_CONFIG` + `_sbAccessToken` — ต้อง inject config + token ก่อน
+
+### Build sync
+- `selfheal.js?v=258`, `main.js?v=258`, `boot.js?v=258`, `style.css?v=258`, `data-app-build="258"`
+- `sw.js` CACHE_NAME `v257` → `v258`
+- `modules/settings/pages.js` Version `5.44.4` → **5.44.5** (patch — refactor), build `257` → `258`
+
+### Test
+- ขยาย `tests/branding_update_app_logos.test.js` (+8 → 18 รวม):
+  - **Behavioral** (5): storeInfo.logoUrl ชนะ, fall-through ไป localStorage เมื่อ storeInfo ว่าง/null/empty, fall-through ไป default, custom defaultLogo, null storageRef ไม่ throw
+  - **Source-level** (3): branding.js export `getAppLogo`, main.js ไม่มี inline chain `storeInfo.logoUrl || localStorage.getItem("bsk_store_logo")` แล้ว, wrapper `window._appGetLogo` ยังอยู่ + delegate `_getAppLogoImpl({ stateRef: state })`
+
+### How to test (manual smoke)
+1. Ctrl+Shift+R → version **5.44.5 (build 258)**
+2. Settings → โลโก้ใน sidebar + profile ต้องเหมือนเดิม
+3. เอกสาร (ใบเสร็จ / ใบเสนอราคา / ใบส่งของ) → โลโก้บนหัวเอกสารต้องมา (call ผ่าน `window._appGetLogo()`)
+4. Upload logo ใหม่ → ทุกจุดอัปเดต (Phase 36 flow)
+5. โหมด offline (ไม่มี storeInfo จาก DB) → ยังเห็นโลโก้จาก localStorage cache
+
+### Phase 92 roadmap (เหลือ)
+1. ~~92.1 updateAppLogos~~ ✅ / ~~92.2 getAppLogo~~ ✅
+2. **92.3** — Extract `_appSyncLogo` (inject `SUPABASE_CONFIG` + token)
+3. **92.4** — `loadHtml2Canvas` lazy loader → `modules/lazy_libs.js`
+
+### Lesson recorded
+ไม่มี — pattern ตรงตาม 92.1 (small extraction, inject globals, zero-behavior, behavioral + source-level tests)
+
+---
+
 ## 5.44.4 (build 257) — 2026-05-19 🧱 Phase 92.1 — main.js decomposition first cut (zero-behavior)
 
 ### Goal

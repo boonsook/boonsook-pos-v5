@@ -6,11 +6,15 @@
 //  network. Caller supplies the logo source via `getLogo()` so this stays
 //  testable without `window`.
 //
-//  Phase 92 backlog (intentionally NOT extracted in 92.1 — they couple to
-//  global state and SUPABASE_CONFIG):
-//    - window._appGetLogo   (reads state.storeInfo.logoUrl + localStorage)
-//    - window._appSyncLogo  (fetches from Supabase storage, async)
-//  These will be follow-up extractions once we agree on the seam.
+//  Phase 92.2 adds the logo *source resolver* (getAppLogo) — the priority
+//  chain state.storeInfo.logoUrl > localStorage > default. State + storage are
+//  injected so it stays pure; main.js keeps a `window._appGetLogo` wrapper that
+//  binds the live `state`.
+//
+//  Phase 92 backlog (intentionally NOT extracted yet — couples to network):
+//    - window._appSyncLogo  (fetches from Supabase storage, async — needs
+//                            SUPABASE_CONFIG + access token injected)
+//  This will be a follow-up extraction once we agree on the seam.
 // ═══════════════════════════════════════════════════════════
 
 /**
@@ -53,4 +57,30 @@ export function updateAppLogos({
   // Favicon (เฉพาะ data: URI — http URL จะไม่ override)
   const favicon = documentRef.querySelector('link[rel="icon"]');
   if (favicon && typeof logo === "string" && logo.startsWith("data:")) favicon.href = logo;
+}
+
+/**
+ * Resolve the current store logo URL.
+ *
+ * Byte-identical to the original main.js `window._appGetLogo`:
+ *   state.storeInfo.logoUrl  (DB-synced, highest priority)
+ *     ?? localStorage["bsk_store_logo"]  (offline cache)
+ *       ?? "./icons/logo.svg"            (bundled default)
+ * Resolution uses `||`, so empty-string / null / undefined at any tier falls
+ * through to the next — exactly as before.
+ *
+ * @param {object}        [opts]
+ * @param {object}        [opts.stateRef] — the app `state` object (reads `.storeInfo.logoUrl`)
+ * @param {Storage|null}  [opts.storageRef=localStorage] — storage backend (reads "bsk_store_logo")
+ * @param {string}        [opts.defaultLogo="./icons/logo.svg"] — final fallback
+ * @returns {string} the resolved logo URL
+ */
+export function getAppLogo({
+  stateRef = undefined,
+  storageRef = typeof localStorage !== "undefined" ? localStorage : null,
+  defaultLogo = "./icons/logo.svg",
+} = {}) {
+  return stateRef?.storeInfo?.logoUrl
+    || storageRef?.getItem("bsk_store_logo")
+    || defaultLogo;
 }

@@ -12,9 +12,9 @@ import { renderStockMovementsPage } from "./modules/stock_movements.js";
 // Phase 89.21: profit_report, calendar, loyalty lazy
 import { renderLineNotifySettings, sendLineNotify } from "./modules/line_notify.js";
 import { renderPermissionMatrix, hasPermission } from "./modules/permission_matrix.js";
-// Phase 92.1: extracted DOM-paint logic from main.js to keep the boot file under control.
-// _appGetLogo / _appSyncLogo stay in main.js for now — they couple to state + SUPABASE_CONFIG.
-import { updateAppLogos as _updateAppLogosImpl } from "./modules/branding.js";
+// Phase 92.1/92.2: extracted DOM-paint + logo-source resolver from main.js.
+// _appSyncLogo stays in main.js for now — it couples to SUPABASE_CONFIG + token.
+import { updateAppLogos as _updateAppLogosImpl, getAppLogo as _getAppLogoImpl } from "./modules/branding.js";
 // Phase 89.20: customer_dashboard lazy — clearCustomerDashboardState called only if loaded (see logout)
 // Phase 89.21: btu_calculator, service_request lazy
 // Phase 89.20: solar, ac_install lazy
@@ -393,10 +393,10 @@ window._appValidators = { isValidPhone, isValidEmail, getUserFriendlyError, vali
 
 // ★ Get store logo — ใช้ได้จากทุก module ผ่าน window._appGetLogo()
 // Phase 36: priority storeInfo.logoUrl (DB sync) → localStorage (cache) → default
+// Phase 92.2: resolver moved to modules/branding.js (getAppLogo). This thin
+// wrapper binds the live `state` so all call sites keep working unchanged.
 window._appGetLogo = function() {
-  return state.storeInfo?.logoUrl
-    || localStorage.getItem("bsk_store_logo")
-    || "./icons/logo.svg";
+  return _getAppLogoImpl({ stateRef: state });
 };
 
 // ★ Sync logo จาก Supabase Storage → localStorage (เรียกตอน boot)

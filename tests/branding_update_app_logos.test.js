@@ -18,7 +18,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-import { updateAppLogos } from "../modules/branding.js";
+import { updateAppLogos, getAppLogo } from "../modules/branding.js";
 
 // ── Minimal Document stub ──────────────────────────────────────────────
 // Just enough surface for updateAppLogos: querySelector, querySelectorAll.
@@ -103,6 +103,48 @@ test("updateAppLogos: paints all .auth-logo-img elements (multi-element selector
   assert.equal(doc.elements.authB.src, "https://cdn/logo.png");
 });
 
+// ── Phase 92.2: getAppLogo resolver — priority chain pinned ────────────────
+// Mirrors the original main.js _appGetLogo exactly:
+//   state.storeInfo.logoUrl > localStorage["bsk_store_logo"] > "./icons/logo.svg"
+function makeStubStorage(map = {}) {
+  return { getItem: (k) => (k in map ? map[k] : null) };
+}
+
+test("getAppLogo: state.storeInfo.logoUrl wins (highest priority)", () => {
+  const logo = getAppLogo({
+    stateRef: { storeInfo: { logoUrl: "https://db/logo.png" } },
+    storageRef: makeStubStorage({ bsk_store_logo: "data:image/png;base64,cache" }),
+  });
+  assert.equal(logo, "https://db/logo.png");
+});
+
+test("getAppLogo: falls back to localStorage when no storeInfo logoUrl", () => {
+  // Empty/missing storeInfo → use the cached storage value
+  for (const stateRef of [undefined, {}, { storeInfo: null }, { storeInfo: { logoUrl: "" } }]) {
+    const logo = getAppLogo({
+      stateRef,
+      storageRef: makeStubStorage({ bsk_store_logo: "data:cached" }),
+    });
+    assert.equal(logo, "data:cached", `stateRef=${JSON.stringify(stateRef)} must fall through to storage`);
+  }
+});
+
+test("getAppLogo: falls back to default when neither state nor storage has a logo", () => {
+  const logo = getAppLogo({ stateRef: {}, storageRef: makeStubStorage() });
+  assert.equal(logo, "./icons/logo.svg");
+});
+
+test("getAppLogo: custom defaultLogo is honored", () => {
+  const logo = getAppLogo({ stateRef: {}, storageRef: makeStubStorage(), defaultLogo: "./logo.svg" });
+  assert.equal(logo, "./logo.svg");
+});
+
+test("getAppLogo: null storageRef is safe (no localStorage in env)", () => {
+  // Optional-chaining on storageRef must not throw when storage is absent
+  const logo = getAppLogo({ stateRef: {}, storageRef: null });
+  assert.equal(logo, "./icons/logo.svg");
+});
+
 // ── Source-level: extraction is real, main.js no longer inlines DOM paint ──
 const __dirname2 = path.dirname(fileURLToPath(import.meta.url));
 const mainSrc = readFileSync(path.join(__dirname2, "..", "main.js"), "utf8");
@@ -119,6 +161,36 @@ test("Phase 92.1: modules/branding.js must export updateAppLogos", () => {
   assert.ok(
     /export\s+function\s+updateAppLogos\s*\(/.test(brandingSrc),
     "modules/branding.js must export function updateAppLogos"
+  );
+});
+
+test("Phase 92.2: modules/branding.js must export getAppLogo", () => {
+  assert.ok(
+    /export\s+function\s+getAppLogo\s*\(/.test(brandingSrc),
+    "modules/branding.js must export function getAppLogo"
+  );
+});
+
+test("Phase 92.2: main.js must NOT still inline the logo resolution chain", () => {
+  // The original body read state.storeInfo?.logoUrl then localStorage. The
+  // wrapper now delegates to _getAppLogoImpl; main.js must not read the
+  // "bsk_store_logo" key directly inside _appGetLogo anymore.
+  assert.ok(
+    !/state\.storeInfo\?\.logoUrl\s*\n?\s*\|\|\s*localStorage\.getItem\(\s*["']bsk_store_logo["']/.test(mainSrc),
+    "main.js must not inline the storeInfo.logoUrl || localStorage chain (branding.getAppLogo owns it)"
+  );
+});
+
+test("Phase 92.2: main.js's _appGetLogo wrapper must remain (preserves window._appGetLogo)", () => {
+  // Many modules call window._appGetLogo() (pos, dashboard, payroll, receipts,
+  // quotations, delivery_invoices). The wrapper binding live `state` must stay.
+  assert.ok(
+    /window\._appGetLogo\s*=\s*function/.test(mainSrc),
+    "main.js must keep window._appGetLogo as a wrapper"
+  );
+  assert.ok(
+    /_getAppLogoImpl\(\s*\{\s*stateRef:\s*state\s*\}\s*\)/.test(mainSrc),
+    "main.js wrapper must delegate to _getAppLogoImpl({ stateRef: state })"
   );
 });
 
