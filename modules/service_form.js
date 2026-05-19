@@ -589,6 +589,7 @@ export function renderServiceFormPage(ctx, serviceType) {
         showToast?.("⚠️ ใบงาน save แล้ว แต่ตัดสต็อก/โอนบางรายการล้มเหลว — ตรวจ Console");
       }
 
+      // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L1 user-event (single save button per service form)
       st.lastSavedJob = {
         id: jobId,
         jobNo,
