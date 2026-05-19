@@ -1,10 +1,148 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-> 🆕 **เปิด session ใหม่? อ่าน [`SESSION_LOG.md`](SESSION_LOG.md) ก่อน** — มี state snapshot, push history, SQL tracker, audit progress, และ step-by-step plan สำหรับ batch ถัดไป
+> 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
+> 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 15 พฤษภาคม 2026 (Phase 89.29 — JV gaps fix, audit C2+C3+C4)
-**Version:** 5.43.35 (build 239) — Phase 89.29
-**Previous:** 5.43.34 (build 238) — Phase 89.28 (dashboard TZ fix — M4)
+**อัปเดตล่าสุด:** 19 พฤษภาคม 2026 (Phase 89.41-89.44 — Race-condition resolution 4/4 COMPLETE)
+**Version:** 5.43.39 (build 243) — Phase 89.42 (last build bump; 89.43/89.44 silence-only)
+**Previous:** 5.43.38 (build 242) — Phase 89.41 (HIGH_RISK race fixes — single-flight guard helper)
+
+> 🏆 **Milestone reached (19 พ.ค.):** `require-atomic-updates` rule fully resolved across all 138 sites from Phase 89.40 audit. Lint warnings 361 → **9** (-97%) cumulative since 89.31.
+
+---
+
+## 🏆 Sprint Plan — Phase 89.36-89.44 COMPLETE + Phase 90.x Roadmap
+
+> **Status:** Race-condition resolution **4/4 buckets RESOLVED** (138/138 sites). Sprint window 17-19 พ.ค. closed คลีน — **0 user intervention ระหว่าง autonomous batches**.
+> **Methodology proven:** audit → bucket by risk → execute per bucket (TDD for HIGH/MED, silence for FALSE/LOW)
+> **Reference prompts (production-ready templates):** `CLAUDE_CODE_PROMPT_89_{32,33,34,35,35b,36-39,40_AUDIT,41,42,43,44}.md`
+
+---
+
+### ✅ Phase 89.36-89.44 — Completed (17-19 พ.ค. 2026)
+
+| Phase | PR | Build | Type | Impact |
+|-------|----|----|------|--------|
+| 89.36-89.39 | #20 | 241→242 | Mega-batch | Smoke + CF deploy + CI + executor-return cleanup |
+| **89.40** | #21 | (audit only) | Audit | 138 warnings categorize: 6 HIGH / 6 MED / 83 FALSE / 43 LOW |
+| **89.41** | #23 | 242 | Logic fix + TDD | HIGH_RISK race — `_inflight_guard.js` helper + POS/customer checkout |
+| **89.44** | #24 | (no bump) | Silence batch | 83 FALSE_POSITIVE silenced (G/A/E/F/C/B categories) |
+| **89.42** | #25 | 243 | Logic fix + TDD | MEDIUM_RISK — receipts multi-pay + POS quickPay + OTP verify guards |
+| **89.43** | #26 | (no bump) | Silence batch | 43 LOW_RISK silenced (L1-L6 categories) — **milestone close** |
+
+**Cumulative Phase 89.31 → 89.44:**
+- Lint errors: 51,227 → **0** (-100%)
+- Lint warnings: 361 → **9** (-97%)
+- Unit tests: 33 → **126** (+93)
+- E2E smoke: 0 → **11**
+- Real bugs fixed: **3** (`dec` hoist + `filtered` scope + `showToast` undeclared)
+- Race conditions guarded: **12 sites** (single-flight guards) + **126 sites** documented (silence + reason)
+
+---
+
+### 🎯 Immediate next — Phase 90.x Roadmap (optional)
+
+**ที่เหลือ 9 warnings = different rules (NOT race-condition):**
+
+| Phase | Rule | Count | Files | Type | Estimated |
+|-------|------|------:|-------|------|----------|
+| **90.1** | `no-misleading-character-class` | 5 | products.js | Audit Thai regex — emoji/charclass patterns | 30 min |
+| **90.2** | `no-control-regex` | 2 | bt_printer.js | ESC/POS control bytes — likely intentional, silence + comment | 10 min |
+| **90.3** | `no-irregular-whitespace` | 1 | accounting/coa.js | Thai whitespace in comment — fix or silence | 5 min |
+| **90.4** | `no-unreachable` | 1 | loyalty.js:417 | **Possibly real bug** — dead code branch, audit ก่อน | 15-30 min |
+
+**Recommended order:** 90.4 ก่อน (potential real bug) → 90.1 (audit) → 90.2 + 90.3 (silence batch)
+
+**Or accept as acceptable noise** — ทั้ง 9 ตัวเป็น style/syntax-level, ไม่กระทบ correctness. Decision ขึ้นกับ aesthetics vs. effort.
+
+---
+
+### 🔧 Tech debt — Higher risk (เก็บไว้ Phase 91+)
+
+1. **Re-enable `no-async-promise-executor`** — refactor `modules/auth.js` `showStaffLogin` Promise pattern (PIN login flow เปราะ — ต้อง regression test ก่อน)
+2. **C8 coverage report** — target ≥ 30% (ใช้ตรวจว่าเขียน test ครอบคลุมไหม)
+3. **E2E login flow test** — ต้อง Supabase test project (out-of-scope ของ current sandbox)
+4. **Promote `no-promise-executor-return` warn → error** — pattern เสร็จแล้ว Phase 89.36-89.39
+
+---
+
+### 🛡️ Long-term — CSP hardening continued (Phase 92+)
+
+1. **M4 part 2** — drop `style-src 'unsafe-inline'` (refactor 121 inline styles → CSS classes)
+   - Prerequisite: ครบ Phase 89.23+ inline handler sweep iter
+2. **Inline handler sweep iter #2 + #3** — continue from Phase 89.23 iter #1 (13 handlers → addEventListener)
+3. **Re-attempt drop script-src `'unsafe-inline'`** — หลัง inline handlers ล้างหมด (จาก Phase 89.15b rollback lesson)
+
+---
+
+### 📝 Backlog (low priority — เก็บไว้)
+
+- **Hot-path unit tests:** เพิ่ม coverage ของ auto_post.js + pos.js checkout + receipts cancel + cash_recon (126 → 160+)
+- **HANDOFF.md refactor:** archive Phase 1-80 (currently ~260KB) + CI auto-bump build
+- **Audit Panasonic error codes** — `modules/error_codes.js` H33/H58/H98/H99 commented dupe keys (จาก Phase 89.31 cleanup) — ต้อง user verify service manual ก่อน
+
+---
+
+### 🏁 Definition of Done — Sprint 89.x **CLOSED** (Phase 89.50 target exceeded)
+
+หลัง Phase 89.43 merged เข้า main:
+- ✅ Lint warnings ≤ 50 — **achieved 9** (original target 50, exceeded by 41)
+- ✅ Unit tests ≥ 120 — **achieved 126**
+- ✅ Race-condition resolution 138/138 — **achieved**
+- ✅ Re-enable `no-undef` rule — **achieved Phase 89.35**
+- ✅ CI: lint + test + e2e ทุก PR — **achieved Phase 89.36-89.39**
+- ⏳ E2E coverage: login + checkout + JV post (real flows) — **needs Supabase test project**
+- ⏳ CSP: drop unsafe-inline — **Phase 92+**
+- ⏳ Re-enable `no-async-promise-executor` — **Phase 91+**
+
+**Next milestone:** Phase 90 audit ของ 9 warnings ที่เหลือ, OR jump to Phase 91/92 ถ้า user prioritize tech debt/CSP มากกว่า aesthetic cleanup.
+
+---
+
+## 📚 Phase 89.30-89.44 — Session Summary (16-19 พ.ค.)
+
+สรุปสิ่งที่ทำใน 4 วัน sprint (16, 17, 18, 19 พ.ค. 2026):
+
+| Phase | PR | Build | Impact |
+|-------|----|----|--------|
+| 89.30 | (previous session) | 240 | XSS hardening batch H1+H2+H3+S6+S7 |
+| **89.31** | #14 | (no bump — tooling) | ESLint flat config + Playwright + 3-gate verify, errors **51,227→0** |
+| **89.32** | #15 | (no bump — cleanup) | prefer-const + unused vars, warnings 361→207 |
+| **89.33** | #16 | (no bump — cleanup) | no-useless-escape + eslint-disable, warnings 207→193 |
+| **89.34** | #17 | (no bump — config) | no-undef sweep + 2 bugs discovered, warnings 193→164 |
+| **89.35** | #18 | 240 | **Fix 2 real bugs** (dec hoist + Excel export filter) + no-undef → error |
+| **89.35b** | #19 | **240→241** | Hotfix showToast undeclared + bump 240→241 (full ?v= sync) + empty commit retrigger |
+| **89.36-89.39** | #20 | **241→242** | Mega-batch: smoke ?v= scan + CF deploy commit-message override + CI lint/e2e + no-promise-executor-return |
+| **89.40** | #21 | (audit only) | 138 require-atomic-updates categorized — 6 HIGH / 6 MED / 83 FALSE / 43 LOW |
+| **89.41** | #23 | 242 | **HIGH_RISK fix** — `_inflight_guard.js` helper + POS checkout + customer dashboard checkout (TDD, 7 helper tests) |
+| **89.44** | #24 | (no bump) | **FALSE_POSITIVE silence batch** — 83 entries with G/A/E/F/C/B reason categories |
+| **89.42** | #25 | **242→243** | **MEDIUM_RISK fix** — receipts multi-pay + POS quickPay (replace window._checkoutRunning) + OTP verify/request guards (TDD, 23 new tests) |
+| **89.43** | #26 | (no bump) | **LOW_RISK silence batch** — 43 entries with L1-L6 reason categories. **Closes race-condition 4/4 🏆** |
+
+**Cumulative Phase 89.30 → 89.44 (4 days):**
+- Errors: 51,227 → **0** (-100%)
+- Warnings: 361 → **9** (-97%) ✨
+- Unit tests: 33 → **126** (+93)
+- E2E smoke: 0 → **11**
+- Real bugs fixed: 3 + 12 race-protection sites guarded
+- Race conditions resolved: **138/138** (100%)
+- Autonomous batches: **11** (89.32-89.44 ทุกตัว), 0 user intervention ระหว่าง batch
+- Production builds: **240 → 243** (4 builds across 4 days)
+
+**Documentation files (production-ready prompt templates):**
+- `CLAUDE_SESSION_HANDOFF.md` — Claude session continuity (อ่านก่อนเริ่ม)
+- `CLAUDE_CODE_WORKFLOW.md` — autonomous loop guide
+- `SETUP_TOOLING.md` — ESLint + Playwright setup steps (done)
+- `AUDIT_REPORT_89_40.md` — race-condition categorization (138 entries, 4 buckets)
+- 10+ phase prompt templates: `CLAUDE_CODE_PROMPT_89_{32,33,34,35,35b,36-39_BATCH,40_AUDIT,41,42,43,44}.md`
+- `SESSION_SUMMARY_2026-05-16.md` — daily recap
+
+**Memory rules บันทึก (ใน CLAUDE_SESSION_HANDOFF.md):**
+- `Cloudflare deploy pattern` — ไม่มีปุ่ม Retry deployment, ใช้ empty commit ASCII-only retrigger (Phase 89.35b verified)
+- `Phase 89.13a regression x3` — bump ALL `?v=N` refs (selfheal + main + boot + style.css)
+- `Optional chaining ?.() ≠ undeclared protection` — root identifier ต้องอยู่ใน lexical scope
+- `Bug Onion` — fix แรกอาจเปิดเผย bug ชั้นที่ 2 → manual smoke test ทุกครั้งหลัง logic fix
+- `Audit-driven 4-bucket workflow` (Phase 89.40-89.44 proven) — categorize once, execute per bucket: TDD for HIGH/MED, silence+reason for FALSE/LOW. Helper modules (e.g. `_inflight_guard.js`) ที่สร้างใน HIGH phase reuse ได้ใน MED phase.
 
 ---
 
