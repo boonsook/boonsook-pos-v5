@@ -7,6 +7,42 @@
 
 ---
 
+## 5.43.48 (build 252) — 2026-05-19 🧹 Phase 90.13 — Loyalty history modal listener leak (Phase 90.11 audit B1)
+
+### Bug shape
+`modules/loyalty.js` → `showPointHistory(...)` ผูก `modal.addEventListener('click', ...)` ทุกครั้งที่ user เปิด modal ประวัติแต้ม. เปิด 10 ครั้ง = 10 listeners ซ้อนกันบน element เดียว. Action ด้านในเป็น idempotent (`display = 'none'`) → ปุ่มกดยังทำงาน, ไม่มี UX bug — แต่เป็น DOM listener leak จริง. ถ้า future refactor เพิ่ม logic ใน handler นี้ (เช่น analytics ping) จะยิง N ครั้ง
+
+### Fix
+- `renderLoyaltyPage` (L253-263) ผูก click-outside listener ครั้งเดียวพร้อม close-button binding ที่มีอยู่
+- `showPointHistory` ตอนนี้แค่ `modal.style.display = 'block'` — ไม่ผูก listener อีก
+- Comment ทั้งสองจุดอ้างถึง Phase 90.13 เพื่อให้ future maintainer เข้าใจ pattern
+
+### Build sync
+- `selfheal.js?v=252`, `main.js?v=252`, `boot.js?v=252`, `style.css?v=252`
+- `data-app-build="252"` ใน index.html
+- `sw.js` CACHE_NAME `v251` → `v252`
+- `modules/settings/pages.js` Version `5.43.47` → `5.43.48`, build `251` → `252`
+
+### Test
+- เพิ่ม `tests/loyalty_history_modal_listener.test.js` — 4 source-level assertions:
+  1. `showPointHistory` **ไม่** เรียก `modal.addEventListener` (strip comments ก่อนเช็ค กัน false positive จาก explainer)
+  2. `renderLoyaltyPage` มี click listener บน `#loyalty-history-modal` พร้อม `e.target === this` gate (กัน child click ปิด modal)
+  3. Handler ตั้ง `display = 'none'` หลัง guard
+  4. Phase 89.23 close-button binding ยังอยู่ (scoped fix ไม่กระทบของเดิม)
+- `npm run verify` ผ่านครบ: lint + 160 unit (เดิม 156 +4) + 11 e2e
+
+### How to test (manual smoke)
+1. Ctrl+Shift+R → version แสดง 5.43.48 (build 252)
+2. หน้า Loyalty → tab "สรุปแต้ม" → กดดู history ของลูกค้าคนหนึ่ง → modal เปิด
+3. ปิดด้วยปุ่ม ✕ → ปิดด้วยคลิกพื้นหลัง (overlay สีดำใส) → กดเปิด-ปิดสลับ ≥ 5 ครั้ง
+4. เปิด DevTools → Elements → เลือก `#loyalty-history-modal` → Event Listeners panel → click ควรมี **1 listener** เท่านั้น (ไม่ใช่ N ตามจำนวนครั้งที่เปิด)
+5. Verify ทุกการเปิด-ปิดยังทำงานปกติ (close button + คลิกพื้นหลัง + click ใน content ไม่ปิด)
+
+### What's still deferred
+- Manual tab role gate — product decision (sales granting/redeeming = store value), user ยังไม่ได้ขอ
+
+---
+
 ## 5.43.47 (build 251) — 2026-05-19 🔐 Phase 90.12 — Loyalty settings save runtime admin guard (defense-in-depth)
 
 ### Goal

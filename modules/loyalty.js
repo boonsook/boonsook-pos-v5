@@ -256,6 +256,13 @@ export function renderLoyaltyPage(ctx) {
     if (m) m.style.display = 'none';
   });
 
+  // Phase 90.13: history modal close-on-background-click — bound ONCE here.
+  // Was previously re-bound inside showPointHistory on every open → stacked
+  // listeners (idempotent action, but real memory leak on long sessions).
+  document.getElementById('loyalty-history-modal')?.addEventListener('click', function(e) {
+    if (e.target === this) this.style.display = 'none';
+  });
+
   // Tab switching
   document.querySelectorAll('.loyalty-tab-btn').forEach(btn => {
     btn.addEventListener('click', function() {
@@ -640,9 +647,6 @@ function showPointHistory(customerId, loyaltyPoints, customers, _ctx) {
 
   const modal = document.getElementById('loyalty-history-modal');
   if (modal) modal.style.display = 'block';
-
-  // Close modal on background click
-  modal?.addEventListener('click', function(e) {
-    if (e.target === this) this.style.display = 'none';
-  });
+  // Phase 90.13: close-on-background-click listener is bound ONCE in renderLoyaltyPage,
+  // not here — preventing N stacked listeners after N opens.
 }

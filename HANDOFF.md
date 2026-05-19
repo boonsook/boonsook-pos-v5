@@ -3,13 +3,27 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 19 พฤษภาคม 2026 (Phase 90.12 — Loyalty settings save runtime admin guard, build 251)
-**Version:** 5.43.47 (build 251) — Phase 90.12 (defense-in-depth requireAdmin gate on save handler)
-**Previous:** 5.43.46 (build 250) — Phase 90.11 (boot.js periodic + visibilitychange SW update)
+**อัปเดตล่าสุด:** 19 พฤษภาคม 2026 (Phase 90.13 — Loyalty history modal listener leak fix, build 252)
+**Version:** 5.43.48 (build 252) — Phase 90.13 (modal click-outside listener bound once, not per-open)
+**Previous:** 5.43.47 (build 251) — Phase 90.12 (defense-in-depth requireAdmin gate)
 
 ---
 
-## 🔐 Phase 90.12 — Loyalty settings save runtime admin guard (this session)
+## 🧹 Phase 90.13 — Loyalty history modal click-outside listener leak (this session)
+
+`showPointHistory()` ใน `modules/loyalty.js` เคย `modal?.addEventListener('click', ...)` ทุกครั้งที่เปิด modal → เปิด N ครั้ง = N stacked listeners บน element เดียว. Action เป็น idempotent (`display = 'none'`) — UX ไม่พัง — แต่เป็น DOM listener leak จริงที่โตตามการใช้งาน. ถ้า future refactor เพิ่ม logic ใน handler นี้ จะยิง N ครั้ง
+
+### Fix
+- ย้าย listener ไปผูกครั้งเดียวใน `renderLoyaltyPage` (ข้างๆ Phase 89.23 close-button binding ที่ L253-257)
+- `showPointHistory` แค่ toggle `display:block` — ไม่ผูก listener อีกแล้ว
+- `tests/loyalty_history_modal_listener.test.js` — 4 source-level assertions (showPointHistory ไม่ผูก listener, renderLoyaltyPage ผูกครั้งเดียว, gate ด้วย `e.target === this`, ยังคงปิด modal ด้วย `display:none`, close-button binding ยังอยู่)
+
+### Audit ที่เหลือ
+- Manual tab role gate — product decision, ยังรอ user direction
+
+---
+
+## 🔐 Phase 90.12 — Loyalty settings save runtime admin guard
 
 `modules/loyalty.js` save handler now starts with `if (!requireAdmin?.()) { showToast('สิทธิ์ไม่พอ — เฉพาะผู้ดูแลระบบเท่านั้น', 'error'); return; }`. UI gating at render time (L230) still hides the tab content from non-admins, but a runtime check inside the handler closes the gap when:
 - A role is downgraded mid-session (stale DOM still holds the wired-up button)
