@@ -3,9 +3,38 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 19 พฤษภาคม 2026 (🏁 Loyalty audit CLOSED — Phase 91.4 build 256 / 5.44.3)
-**Version:** 5.44.3 (build 256) — Phase 91.4 (wiring gate removed; production smoke passed)
-**Previous:** 5.44.2 (build 255) — Phase 91.3 (helper shipped — 91.4 closed the wiring gap)
+**อัปเดตล่าสุด:** 19 พฤษภาคม 2026 (Phase 92.1 — main.js decomposition first cut, build 257)
+**Version:** 5.44.4 (build 257) — Phase 92.1 (extract `updateAppLogos()` to `modules/branding.js`, zero-behavior)
+**Previous:** 5.44.3 (build 256) — 🏁 Loyalty audit CLOSED (Phase 91.4)
+
+---
+
+## 🧱 Phase 92.1 — main.js decomposition first cut (this session)
+
+Pure refactor — **zero behavior change**. First extraction from the 4,600+ line `main.js` boot file.
+
+### Change
+- New `modules/branding.js` exports `updateAppLogos({ documentRef, getLogo })` — paints store logo into sidebar / auth / profile / spinner / favicon slots. Pure DOM, injectable seam.
+- `main.js`:
+  - Imports the extracted helper at the top with other module imports
+  - Replaces the 16-line inline body (was L4658-4673) with a 3-line wrapper that calls `_updateAppLogosImpl({ documentRef: document, getLogo: () => window._appGetLogo?.() })`
+  - Wrapper keeps the SAME closure identity → `window.updateAppLogos`, `window.App.updateAppLogos`, and the 4 internal call sites at L421/L975/L4687 all work unchanged
+- `tests/branding_update_app_logos.test.js` — 10 assertions:
+  - Behavioral with a hand-rolled minimal Document stub: paints every slot, http URL skips favicon, data: URI overrides favicon, no-op on null doc / empty logo, all `.auth-logo-img` nodes painted (not just first)
+  - Source-level: main.js imports from `./modules/branding.js`, branding.js exports the helper, main.js no longer inlines any branding selector (`.sidebar-logo-img`, `.auth-logo-img`, etc.), wrapper function preserved
+
+### Intentionally NOT extracted in 92.1
+Couple to globals — flagged for 92.2 / 92.3:
+- `window._appGetLogo` — reads `state.storeInfo.logoUrl` + `localStorage`. Needs `state` injected
+- `window._appSyncLogo` — async, fetches from Supabase Storage using `SUPABASE_CONFIG` + `_sbAccessToken`. Needs config + token injected
+
+### Out-of-scope finds (flagged, not touched per Phase 92.1 scope guard)
+- `loadAppSettings` (L965+) calls `updateAppLogos()` via `typeof` check — could simplify to direct call now, but that's behavior-adjacent. Phase 92.x candidate
+- `boot` IIFE (L4678+) at the very bottom — natural candidate for `modules/boot.js` once dependencies decouple
+
+### Build
+- 256 → 257; version 5.44.3 → **5.44.4** (patch — refactor)
+- `npm run verify`: lint + **214 unit** (204 → 214, +10) + 11 e2e all green
 
 ---
 

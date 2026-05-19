@@ -12,6 +12,9 @@ import { renderStockMovementsPage } from "./modules/stock_movements.js";
 // Phase 89.21: profit_report, calendar, loyalty lazy
 import { renderLineNotifySettings, sendLineNotify } from "./modules/line_notify.js";
 import { renderPermissionMatrix, hasPermission } from "./modules/permission_matrix.js";
+// Phase 92.1: extracted DOM-paint logic from main.js to keep the boot file under control.
+// _appGetLogo / _appSyncLogo stay in main.js for now — they couple to state + SUPABASE_CONFIG.
+import { updateAppLogos as _updateAppLogosImpl } from "./modules/branding.js";
 // Phase 89.20: customer_dashboard lazy — clearCustomerDashboardState called only if loaded (see logout)
 // Phase 89.21: btu_calculator, service_request lazy
 // Phase 89.20: solar, ac_install lazy
@@ -4655,22 +4658,10 @@ window.App = {
 // ═══════════════════════════════════════════════════════════
 
 // ★ อัปเดตโลโก้ใน HTML ทุกจุด (sidebar, auth, favicon) จาก state.storeInfo + localStorage
+// Phase 92.1: body extracted to modules/branding.js. Local wrapper preserves the existing
+// closure identity used by call sites at L421/L975/L4687 and by window.App.updateAppLogos.
 function updateAppLogos() {
-  const logo = window._appGetLogo();
-  // Sidebar logo
-  const sidebarLogo = document.querySelector(".sidebar-logo-img");
-  if (sidebarLogo) sidebarLogo.src = logo;
-  // Auth/Login logo (มี 2 จุด: login screen + set password screen)
-  document.querySelectorAll(".auth-logo-img").forEach(el => { el.src = logo; });
-  // Settings profile avatar
-  const profileLogo = document.querySelector(".set-profile-logo");
-  if (profileLogo) profileLogo.src = logo;
-  // Spinner logo (loading overlay)
-  const spinnerLogo = document.querySelector(".spinner-logo");
-  if (spinnerLogo) spinnerLogo.src = logo;
-  // Favicon (เฉพาะ data: URI — http URL จะไม่ override)
-  const favicon = document.querySelector('link[rel="icon"]');
-  if (favicon && logo.startsWith("data:")) favicon.href = logo;
+  _updateAppLogosImpl({ documentRef: document, getLogo: () => window._appGetLogo?.() });
 }
 // Expose ให้ modules อื่นเรียกได้ (Phase 36 — settings/pages.js logo upload)
 window.updateAppLogos = updateAppLogos;

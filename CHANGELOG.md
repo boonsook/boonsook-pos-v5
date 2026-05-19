@@ -7,6 +7,74 @@
 
 ---
 
+## 5.44.4 (build 257) — 2026-05-19 🧱 Phase 92.1 — main.js decomposition first cut (zero-behavior)
+
+### Goal
+เริ่มแยก `main.js` (4,600+ บรรทัด) แบบปลอดภัยที่สุด — refactor-only, ห้ามเปลี่ยน behavior, revert ง่าย
+
+### Change
+**ย้ายเฉพาะ `updateAppLogos()` (DOM painter ล้วน) ออกไป `modules/branding.js`**
+
+- ใหม่: `modules/branding.js` มี export เดียว
+  ```js
+  updateAppLogos({ documentRef = document, getLogo = () => window._appGetLogo?.() })
+  ```
+  Logic ตรง byte-identical กับ main.js L4658-4673 เดิม — paint .sidebar-logo-img / .auth-logo-img / .set-profile-logo / .spinner-logo / favicon (เฉพาะ data: URI)
+- `main.js`:
+  - เพิ่ม `import { updateAppLogos as _updateAppLogosImpl } from "./modules/branding.js";` กับ imports อื่น
+  - แทนที่ body 16 บรรทัด ด้วย wrapper 3 บรรทัด — wrapper เรียก `_updateAppLogosImpl({...})` ผ่าน document + getLogo
+  - Wrapper รักษา closure identity → `window.updateAppLogos`, `window.App.updateAppLogos`, และ 4 call sites ภายใน (L421/L975/L4687) ทำงานเหมือนเดิม **0 byte ของ behavior surface เปลี่ยน**
+
+### ไม่แตะใน 92.1 (flag ไว้สำหรับ 92.2/92.3)
+- `window._appGetLogo` — couple กับ `state.storeInfo.logoUrl` + localStorage
+- `window._appSyncLogo` — couple กับ `SUPABASE_CONFIG` + `_sbAccessToken` (async network)
+ทั้งคู่ต้อง design seam สำหรับ inject state + config ก่อนค่อยย้าย
+
+### Out-of-scope finds (flag, ไม่แก้ปน per scope guard)
+- `loadAppSettings` (L965+) เรียก `updateAppLogos()` ผ่าน `typeof === "function"` check — ตอนนี้ guarantee แล้วว่ามี → simplify เป็น direct call ได้, แต่ถือเป็น behavior-adjacent. Phase 92.x candidate
+- `boot` IIFE ที่ท้ายไฟล์ — candidate ธรรมชาติสำหรับ `modules/boot.js` หลัง dependency เดิมๆ ย้ายออกหมด
+
+### Build sync
+- `selfheal.js?v=257`, `main.js?v=257`, `boot.js?v=257`, `style.css?v=257`
+- `data-app-build="257"` ใน index.html
+- `sw.js` CACHE_NAME `v256` → `v257`
+- `modules/settings/pages.js` Version `5.44.3` → **5.44.4** (patch — refactor), build `256` → `257`
+
+### Test
+- เพิ่ม `tests/branding_update_app_logos.test.js` — **10 unit tests, 2 layers**:
+  - **Behavioral** (6 tests, minimal Document stub):
+    1. Paints every slot (sidebar / profile / spinner / 2 auth elements)
+    2. Favicon **เฉพาะ** `data:` URI — http URL ไม่แตะ (กัน spurious fetch — original behavior)
+    3. Missing favicon element OK — ไม่ throw
+    4. Empty/null/undefined/false logo → no-op (defensive)
+    5. Null documentRef → no-op (Node test env without document)
+    6. `querySelectorAll('.auth-logo-img')` paint ทุก element ไม่ใช่แค่ตัวแรก (multi-element selector pin)
+  - **Source-level** (4 tests):
+    7. main.js มี `import ... from "./modules/branding.js"`
+    8. branding.js มี `export function updateAppLogos(`
+    9. main.js **ไม่มี** inline `querySelector('.sidebar-logo-img'|'.auth-logo-img'|'.set-profile-logo'|'.spinner-logo')` แล้ว — กัน regression
+   10. main.js ยังคงมี `function updateAppLogos()` wrapper + `window.updateAppLogos = updateAppLogos` — preserves contract
+- `npm run verify` ผ่านครบ: lint + **214 unit** (เดิม 204 +10) + 11 e2e
+
+### How to test (manual smoke)
+1. Ctrl+Shift+R → version **5.44.4 (build 257)**
+2. Settings → ดูโลโก้ใน sidebar (มุมบนซ้าย) + profile section
+3. Logout → login → ดูโลโก้ในหน้า auth/login
+4. Loading overlay ตอน boot → ดูโลโก้ใน spinner
+5. Favicon ใน browser tab — ต้องเหมือนเดิม (ถ้าเป็น http URL → ใช้ default static favicon; ถ้าเป็น data: URI → override)
+6. Settings → upload logo ใหม่ → ทุกจุดต้องอัปเดตทันที (Phase 36 flow ผ่าน `window.updateAppLogos`)
+
+### Phase 92 roadmap (suggested next cuts in order of safety)
+1. **Phase 92.2** — Extract `_appGetLogo` to `modules/branding.js` (inject `state`, keep `window._appGetLogo` wrapper)
+2. **Phase 92.3** — Extract `_appSyncLogo` to `modules/branding.js` (inject `state` + `SUPABASE_CONFIG`)
+3. **Phase 92.4** — Extract `loadHtml2Canvas` lazy loader → `modules/lazy_libs.js`
+4. **Phase 92.5+** — Auth/profile boot → `modules/boot/auth.js`; sidebar/navigation → `modules/sidebar.js`; etc.
+
+### Lesson recorded
+ไม่มี — pattern ตรงตามที่ user สั่ง (small extraction, zero-behavior, ทดสอบ behavioral + source-level, defer ส่วนที่ couple กับ globals)
+
+---
+
 ## 5.44.3 (build 256) — 2026-05-19 🔥 Phase 91.4 HOTFIX — Reverse-loyalty wiring pre-gate removed
 
 ### Symptom (build 255 smoke fail)

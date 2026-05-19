@@ -1,11 +1,11 @@
 // Boonsook POS V5 Service Worker
+// v257 (2026-05-19): Phase 92.1 — Extracted updateAppLogos() from main.js to modules/branding.js (zero-behavior refactor). _appGetLogo / _appSyncLogo stay in main.js for now (couple to state/SUPABASE_CONFIG). Window.App + window.updateAppLogos contracts preserved via thin wrapper.
 // v256 (2026-05-19): Phase 91.4 HOTFIX — refund/cancel reverse-loyalty wiring was gated on sale-row customer_id (opt-in column). Helper auto-resolves from earn record — removed the pre-check. Added diagnostic log so future smoke explains itself.
 // v255 (2026-05-19): Phase 91.3 — Refund/cancel reverse loyalty auto-earn. Idempotent helper inserts type='redeem' + ref_type='sale_reverse'. Caps at remaining (no negative balance). Wired into modules/refunds.js (after JV post) and modules/sales.js soft-delete (alongside void JV + revert stock).
 // v254 (2026-05-19): Phase 91.2 HOTFIX — earn formula was multiplying instead of dividing (500 baht at rate 100 = 50000 pts not 5). Centralized to calcEarnPoints(amount, settings) = floor(amount / bahtPerPoint).
 // v253 (2026-05-19): Phase 91.1 — POS checkout auto-earn loyalty points (fire-and-forget after sale insert; gated on customer + is_active + points_per_baht; amount = actualTotal)
 // v252 (2026-05-19): Phase 90.13 — Loyalty history modal click-outside listener leak: bind once in renderLoyaltyPage instead of re-attach on every showPointHistory call
-// v251 (2026-05-19): Phase 90.12 — Loyalty settings save runtime requireAdmin guard (defense-in-depth; UI already gates content render but mid-session role downgrade or DOM injection now refused with toast)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v256';
+const CACHE_NAME = 'boonsook-pos-v5-cache-v257';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
