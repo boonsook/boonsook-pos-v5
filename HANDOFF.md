@@ -3,13 +3,34 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 19 พฤษภาคม 2026 (Phase 90.11 — boot.js periodic + visibilitychange SW update, build 250)
-**Version:** 5.43.46 (build 250) — Phase 90.11 (long-session update UX hardening — no auto-reload)
-**Previous:** 5.43.45 (build 249) — Phase 90.10 (loyalty customer_id type mismatch)
+**อัปเดตล่าสุด:** 19 พฤษภาคม 2026 (Phase 90.12 — Loyalty settings save runtime admin guard, build 251)
+**Version:** 5.43.47 (build 251) — Phase 90.12 (defense-in-depth requireAdmin gate on save handler)
+**Previous:** 5.43.46 (build 250) — Phase 90.11 (boot.js periodic + visibilitychange SW update)
 
 ---
 
-## 🔄 Phase 90.11 — Update UX hardening (this session)
+## 🔐 Phase 90.12 — Loyalty settings save runtime admin guard (this session)
+
+`modules/loyalty.js` save handler now starts with `if (!requireAdmin?.()) { showToast('สิทธิ์ไม่พอ — เฉพาะผู้ดูแลระบบเท่านั้น', 'error'); return; }`. UI gating at render time (L230) still hides the tab content from non-admins, but a runtime check inside the handler closes the gap when:
+- A role is downgraded mid-session (stale DOM still holds the wired-up button)
+- DevTools / extension injects a click directly
+- Future refactor accidentally drops the render-time gate
+
+Supabase RLS is the real gate. This is defense-in-depth + a clean user-visible refusal instead of a server-side error toast.
+
+- `renderLoyaltyPage` destructure: `requireAdmin: _requireAdmin` → `requireAdmin` (dropped unused-prefix)
+- `renderSettingsTab` now receives + uses `requireAdmin` from ctx
+- `tests/loyalty_settings_admin_guard.test.js` — 5 source-level assertions (destructure clean, guard called with parens, guard before write, early-return, toast on refusal)
+- `npm run verify` clean
+- Build 250 → 251
+
+### Audit findings still deferred
+- B1 history modal click-outside listener leak — low risk
+- Manual tab role gate — product decision, awaiting user
+
+---
+
+## 🔄 Phase 90.11 — Update UX hardening
 
 `boot.js` now triggers `reg.update()` on a 10-min interval and on tab `visibilitychange` → visible. Existing watch-for-update / SKIP_WAITING / controllerchange flow is unchanged — the banner UX still owns reload. No auto-reload was added. Long-lived sessions (cashier leaves app open all day) now have multiple chances to see the update banner without manual reload.
 

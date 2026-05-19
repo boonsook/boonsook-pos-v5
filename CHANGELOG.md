@@ -7,6 +7,58 @@
 
 ---
 
+## 5.43.47 (build 251) — 2026-05-19 🔐 Phase 90.12 — Loyalty settings save runtime admin guard (defense-in-depth)
+
+### Goal
+ปิด audit finding A1 จาก Phase 90.11 — save handler ของ loyalty settings ไม่มี runtime guard. UI gate ที่ render time (L230 `${isAdmin ? renderSettingsTab(...) : 'block message'}`) ป้องกัน non-admin เห็นปุ่มอยู่แล้ว แต่ถ้า:
+- Role โดน downgrade กลางคัน → DOM ยังคงปุ่ม save พร้อม handler
+- DevTools / extension inject click ตรงๆ
+- Refactor ในอนาคตเผลอลบ render-time gate
+
+→ handler เก่าจะยอม save ให้ (จนกว่า Supabase RLS จะ reject — แต่ user เห็น error toast แบบไม่เป็นมิตร)
+
+### Change (`modules/loyalty.js`)
+1. `renderLoyaltyPage` destructure: `requireAdmin: _requireAdmin` → `requireAdmin` (เลิก unused-prefix เพราะใช้แล้ว)
+2. `renderSettingsTab` destructure: เพิ่ม `requireAdmin` รับจาก ctx
+3. Save click handler บรรทัดแรก:
+```js
+if (!requireAdmin?.()) {
+  if (showToast) showToast('สิทธิ์ไม่พอ — เฉพาะผู้ดูแลระบบเท่านั้น', 'error');
+  return;
+}
+```
+
+Real gate ยังเป็น Supabase RLS — ตัวนี้คือ defense-in-depth + ข้อความ refusal ที่ user-friendly แทน HTTP error
+
+### Build sync
+- `selfheal.js?v=251`, `main.js?v=251`, `boot.js?v=251`, `style.css?v=251`
+- `data-app-build="251"` ใน index.html
+- `sw.js` CACHE_NAME `v250` → `v251`
+- `modules/settings/pages.js` Version `5.43.46` → `5.43.47`, build `250` → `251`
+
+### Test
+- เพิ่ม `tests/loyalty_settings_admin_guard.test.js` — 5 source-level assertions:
+  1. `renderSettingsTab` destructure `requireAdmin` (ไม่ใช่ `_requireAdmin`)
+  2. Save handler invoke `requireAdmin?.()` หรือ `requireAdmin()` (ไม่ใช่แค่ bare reference)
+  3. Guard call site อยู่ก่อน `await window._appXhrPatch/_appXhrPost(...)` actual call (กัน "decoration, not enforcement")
+  4. Guard branch มี `return` (early-return ไม่ใช่ fall-through)
+  5. Refusal branch มี `showToast` (ไม่ silent)
+- `npm run verify` ผ่านครบ: lint + 156 unit (เดิม 151 +5) + 11 e2e
+
+### How to test (manual smoke)
+1. Login เป็น admin → Loyalty → ตั้งค่า → แก้ค่า → กดบันทึก → toast "บันทึกการตั้งค่าสำเร็จ" (พฤติกรรมเดิม)
+2. **Edge case test (เลียนแบบ DevTools injection):**
+   - Login เป็น admin → เปิด Loyalty → ตั้งค่า tab
+   - Console: `window.App.state.profile.role = 'sales'` (เลียนแบบ role downgrade กลางคัน)
+   - กดบันทึก → ต้องได้ toast `สิทธิ์ไม่พอ — เฉพาะผู้ดูแลระบบเท่านั้น` + ไม่มี network request ออกไป
+3. Login เป็น sales → Loyalty → ตั้งค่า tab → เห็น "เฉพาะผู้ดูแลระบบเท่านั้น" (render-time gate เดิมยังทำงาน — ไม่เห็นปุ่มด้วยซ้ำ)
+
+### What's still deferred
+- B1: history modal click-outside listener leak (`showPointHistory` L631) — low risk
+- Manual tab role gate — product decision (sales granting/redeeming = store value), user ยังไม่ได้ขอ
+
+---
+
 ## 5.43.46 (build 250) — 2026-05-19 🔄 Phase 90.11 — Update UX hardening (periodic + visibilitychange SW update)
 
 ### Goal

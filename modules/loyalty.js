@@ -152,7 +152,8 @@ export async function redeemPoints(customerId, points, note, ctx) {
  * Main loyalty page renderer
  */
 export function renderLoyaltyPage(ctx) {
-  const { state, money: _moneyFn, showToast: _showToast, loadAllData: _loadAllData, currentRole, requireAdmin: _requireAdmin } = ctx;
+  // Phase 90.12: requireAdmin is now used at the settings save handler (defense-in-depth).
+  const { state, money: _moneyFn, showToast: _showToast, loadAllData: _loadAllData, currentRole, requireAdmin } = ctx;
 
   const container = document.getElementById("page-loyalty");
   if (!container) return;
@@ -390,7 +391,11 @@ function renderSummaryTab(loyaltyPoints, customers, settings, ctx) {
 }
 
 function renderSettingsTab(settings, ctx) {
-  const { showToast, loadAllData } = ctx;
+  // Phase 90.12: requireAdmin used at the save handler as defense-in-depth.
+  // The tab content is already gated by isAdmin at render time (renderLoyaltyPage L230),
+  // but a runtime check here catches edge cases: a role downgrade mid-session
+  // where stale DOM still has the save button, or DevTools injection.
+  const { showToast, loadAllData, requireAdmin } = ctx;
 
   const html = `
     <div style="max-width: 500px; padding: 20px; background: #f9f9f9; border-radius: 8px;">
@@ -431,6 +436,15 @@ function renderSettingsTab(settings, ctx) {
   // with a REST URL + Express-style callback (silently ignored — settings never saved).
   setTimeout(() => {
     document.getElementById('loyalty-save-settings')?.addEventListener('click', async function() {
+      // Phase 90.12: runtime admin guard. Settings tab content is already gated at render
+      // time, but if a role was downgraded mid-session (or this handler is reached via
+      // DevTools/injection), refuse the write. Supabase RLS is the real gate; this is
+      // defense-in-depth + user-visible feedback.
+      if (!requireAdmin?.()) {
+        if (showToast) showToast('สิทธิ์ไม่พอ — เฉพาะผู้ดูแลระบบเท่านั้น', 'error');
+        return;
+      }
+
       const newSettings = {
         // Note: no 'id' field — that's the WHERE-clause value for PATCH (4th arg below),
         // and for POST inserts the server generates it. Including it would block POST.
