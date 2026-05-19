@@ -171,7 +171,9 @@ export function renderLoyaltyPage(ctx) {
   const totalRemaining = totalEarned - totalRedeemed;
   const totalValue = totalRemaining * Number(settings.points_value || 0);
 
-  const isAdmin = currentRole === 'admin' || currentRole === 'super_admin';
+  // Phase 90.4 Bug 2: currentRole is a function (main.js:1022) — must call it
+  // (was comparing function reference vs string -> always false -> admins blocked from Settings tab)
+  const isAdmin = currentRole() === 'admin' || currentRole() === 'super_admin';
 
   const html = `
     <div style="padding: 20px;">
