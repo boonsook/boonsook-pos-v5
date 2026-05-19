@@ -171,6 +171,7 @@ async function refreshAccessToken() {
         return false;
       }
       if (data?.session?.access_token) {
+        // eslint-disable-next-line require-atomic-updates -- G: single-flight guard via _refreshInflight (Phase 89.13)
         window._sbAccessToken = data.session.access_token;
         console.info("[token-refresh] OK — token rotated");
         return true;
@@ -1468,6 +1469,7 @@ async function loadAllData(){
     ]);
 
     const val = (r, fallback = []) => r.status === "fulfilled" ? (r.value.data || fallback) : fallback;
+    /* eslint-disable require-atomic-updates -- G: all 9 state assigns protected by _isLoading entry-guard at loadAllData() (main.js:1443) */
     state.products          = val(rProducts);
     state.sales             = val(rSales);
     state.customers         = val(rCustomers);
@@ -1477,6 +1479,7 @@ async function loadAllData(){
     state.receipts          = val(rReceipts);
     state.warehouses        = val(rWarehouses);
     state.warehouseStock    = val(rWhStock);
+    /* eslint-enable require-atomic-updates */
 
     // ★ Auto-seed warehouses ถ้ายังไม่มี
     if (state.warehouses.length === 0) {
@@ -1488,6 +1491,7 @@ async function loadAllData(){
         ];
         const { data: inserted, error: whErr } = await sb.from("warehouses").insert(defaultWarehouses).select();
         if (!whErr && inserted) {
+          // eslint-disable-next-line require-atomic-updates -- G: protected by _isLoading entry-guard at loadAllData() (main.js:1443)
           state.warehouses = inserted;
           console.info("[main] Auto-created warehouses:", inserted.map(w => w.name).join(", "));
         } else {
@@ -1506,12 +1510,14 @@ async function loadAllData(){
       sb.from("line_notify_settings").select("*").limit(1)
     ]);
 
+    /* eslint-disable require-atomic-updates -- G: all 6 state assigns protected by _isLoading entry-guard at loadAllData() (main.js:1443) */
     state.expenses           = val(rExpenses);
     state.stockMovements     = val(rStockMov);
     state.loyaltyPoints      = val(rLoyalty);
     state.loyaltySettings    = (val(rLoySetting))[0] || null;
     state.permissions        = val(rPerms);
     state.lineNotifySettings = (val(rLineNotify))[0] || null;
+    /* eslint-enable require-atomic-updates */
 
     // ★ Sync cart with actual stock
     const _negOk = (function(){ try { return JSON.parse(localStorage.getItem("bsk_product_settings") || '{}').allowNegativeStock !== false; } catch(e){ return true; } })();
@@ -1555,6 +1561,7 @@ async function loadAllData(){
   } catch(e) {
     showToast("โหลดข้อมูลไม่สำเร็จ: " + (e.message || e));
   } finally {
+    // eslint-disable-next-line require-atomic-updates -- G: _isLoading lock release in finally (correct lock pattern, entry guard at loadAllData() line 1443)
     _isLoading = false; // ★ ปลดล็อคเสมอ
   }
 }
@@ -2011,6 +2018,7 @@ async function saveProduct(){
   } else {
     const res = await xhrPost("products", payload, { returnData: true });
     if (!res.ok) return showToast(res.error?.message || "บันทึกสินค้าไม่สำเร็จ");
+    // eslint-disable-next-line require-atomic-updates -- C: local productId reassign in sequential product save
     productId = res.data?.id;
   }
 
@@ -2262,6 +2270,7 @@ async function _renderCustomerNotesTimeline(customer) {
         entityId: customer.id,
         summary: text
       });
+      // eslint-disable-next-line require-atomic-updates -- A: UI input reset, single note-save button per click
       input.value = "";
       await loadAndRender();
       showToast("บันทึกโน้ตแล้ว");
@@ -3184,6 +3193,7 @@ async function _deductStockForSaleItem({ product, qty, orderNo }) {
       console.error("[deductStock] warehouse_stock CAS failed:", dec.error);
       showToast("⚠️ ตัดสต็อกคลังไม่สำเร็จ: " + dec.error);
     } else {
+      // eslint-disable-next-line require-atomic-updates -- A: local cache sync after CAS-protected mutation (Phase 89.9 H10)
       ws.stock = after; // sync local cache เพื่อ render ถัดไป
       console.debug(`[deductStock] ${product.name}: ${whName} ${before} → ${after} (qty ${qty}, atomic)`);
     }
@@ -3219,6 +3229,7 @@ async function _deductStockForSaleItem({ product, qty, orderNo }) {
       console.warn("[deductStock] products.stock CAS failed:", dec2.error);
       showToast("⚠️ อัพเดทสต็อกสินค้าไม่สำเร็จ: " + dec2.error);
     } else {
+      // eslint-disable-next-line require-atomic-updates -- A: local cache sync after CAS-protected mutation (Phase 89.9 H10)
       product.stock = newStock; // sync local cache
     }
   }
@@ -4386,6 +4397,7 @@ function bindStaticEvents(){
       showToast("เกิดข้อผิดพลาด: " + (err?.message || err));
     } finally {
       if (btn) { btn.disabled = false; btn.textContent = "📤 อัพโหลดรูป"; }
+      // eslint-disable-next-line require-atomic-updates -- A: UI file input reset, single upload handler per click
       e.target.value = ""; // reset เพื่อให้เลือกไฟล์เดิมซ้ำได้
     }
   });
@@ -4446,10 +4458,12 @@ function bindStaticEvents(){
     // ทั้ง 2 inputs ใช้ handler เดียวกัน
     $(`service${which}File`)?.addEventListener("change", async (e) => {
       await _handleServicePhotoUpload(which, e.target.files?.[0]);
+      // eslint-disable-next-line require-atomic-updates -- A: UI file input reset, single upload handler per click
       e.target.value = "";
     });
     $(`service${which}GalleryFile`)?.addEventListener("change", async (e) => {
       await _handleServicePhotoUpload(which, e.target.files?.[0]);
+      // eslint-disable-next-line require-atomic-updates -- A: UI file input reset, single upload handler per click
       e.target.value = "";
     });
   });
