@@ -271,6 +271,7 @@ async function _loadAndRender() {
     console.error("[trial_balance] load failed:", e);
     panel.innerHTML = `<div style="padding:14px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;color:#991b1b">❌ ${escHtml(e.message || String(e))}</div>`;
   } finally {
+    // eslint-disable-next-line require-atomic-updates -- G: _loading lock release (entry guard at trial_balance.js:259)
     _loading = false;
   }
 }

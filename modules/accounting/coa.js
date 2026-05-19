@@ -153,6 +153,7 @@ export async function renderCoaPage(ctx) {
     const file = ev.target.files[0];
     if (!file) return;
     await _importCoa(ctx, file);
+    // eslint-disable-next-line require-atomic-updates -- A: UI file input reset after CSV import, single upload handler per click
     ev.target.value = "";
   });
   document.getElementById("coaExportBtn")?.addEventListener("click", () => _exportCoa(ctx));

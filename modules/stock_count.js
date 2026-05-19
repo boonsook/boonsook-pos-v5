@@ -430,6 +430,7 @@ async function applyAllAdjustments(ctx) {
     renderStockCountPage(ctx);
   }
   } finally {
+    // eslint-disable-next-line require-atomic-updates -- G: _scSaving lock release (entry guard at stock_count.js:368)
     _scSaving = false;
   }
 }
