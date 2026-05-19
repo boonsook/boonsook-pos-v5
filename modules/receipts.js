@@ -853,6 +853,7 @@ function renderReceiptPreview(container) {
     } catch (e) {
       console.error("[receipts edit date] error:", e);
       _ctx.showToast("❌ แก้วันที่ไม่สำเร็จ: " + (e.message || e));
+      // eslint-disable-next-line require-atomic-updates -- A: UI rollback in catch (sequential error path, single admin user)
       ev.target.value = (r.created_at || "").slice(0,10);
     }
   });
@@ -1167,8 +1168,10 @@ function _wireMultiPayPanel(r) {
     } catch (e) {
       console.error("[multi-pay save]", e);
       window.App?.showToast?.("❌ บันทึกไม่สำเร็จ — รัน supabase-phase69-multi-payment.sql ก่อน", "error");
+      /* eslint-disable require-atomic-updates -- A: UI rollback in catch (sequential error path) */
       saveBtn.disabled = false;
       saveBtn.textContent = orig;
+      /* eslint-enable require-atomic-updates */
     }
   });
 

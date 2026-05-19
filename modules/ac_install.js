@@ -453,6 +453,7 @@ export function renderAcInstallPage(ctx) {
 
       // ถ้ามี transfer ที่ต้องทำ → แสดง App.confirm (Phase 43.3 — แทน native confirm)
       if (transfersNeeded.length > 0) {
+        // eslint-disable-next-line require-atomic-updates -- G: saveBtn entry-guard (ac_install.js:340) gates concurrent save handler
         statusEl.textContent = "🚐 รอ user ตอบ confirm dialog...";
         const summary = transfersNeeded.map(t =>
           `${t.productName}: โอน ${t.qty} ชิ้น (${t.fromWhName} → ${t.toWhName})`
@@ -463,6 +464,7 @@ export function renderAcInstallPage(ctx) {
           throw new Error("ยกเลิกการบันทึก — โอนสต็อกขึ้นรถก่อนแล้วลองใหม่");
         }
       }
+      // eslint-disable-next-line require-atomic-updates -- G: saveBtn entry-guard (ac_install.js:340) gates concurrent save handler
       statusEl.textContent = "💾 กำลังบันทึกใบงาน...";
 
       const desc = [
@@ -529,6 +531,7 @@ export function renderAcInstallPage(ctx) {
       } catch(e) { console.warn("[ac_install] state update fail", e); }
 
       // ★ Phase 43: Auto-transfer (ถ้ามี) → ตัดสต็อก
+      // eslint-disable-next-line require-atomic-updates -- G: saveBtn entry-guard (ac_install.js:340) gates concurrent save handler
       statusEl.textContent = "🔄 กำลังโอน/ตัดสต็อก...";
       let stockOpsFailed = false;
       try {
@@ -601,6 +604,7 @@ export function renderAcInstallPage(ctx) {
         total: net
       };
 
+      // eslint-disable-next-line require-atomic-updates -- G: saveBtn entry-guard (ac_install.js:340) gates concurrent save handler
       statusEl.innerHTML = `<div style="text-align:center;color:#059669;font-weight:700">✅ บันทึกใบงานติดตั้งสำเร็จ!${jobNo ? ` (เลขที่ ${escHtml(jobNo)})` : ""}</div>`;
       showToast("บันทึกสำเร็จ!");
 
@@ -622,6 +626,7 @@ export function renderAcInstallPage(ctx) {
       _renderAfterSaveActions(container, ctx);
     } catch (e) {
       console.error("[ac_install save] error:", e);
+      // eslint-disable-next-line require-atomic-updates -- G: saveBtn entry-guard (ac_install.js:340) gates concurrent save handler — catch path
       statusEl.textContent = "เกิดข้อผิดพลาด: " + e.message;
     } finally {
       clearTimeout(_saveTimeout);

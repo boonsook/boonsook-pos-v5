@@ -681,8 +681,10 @@ export function renderCustomerDashboard(ctx) {
     const jobId = btn.dataset.jobId;
     if (!jobId) return;
     if (!(await window.App?.confirm?.("ยืนยันว่าช่างส่งงานเรียบร้อยแล้วใช่ไหมครับ?\nหลังจากยืนยันแล้วงานจะถูกปิดและแจ้งไปที่แอดมิน"))) return;
+    /* eslint-disable require-atomic-updates -- A: UI feedback set BEFORE try block (sequential, single click handler) */
     btn.disabled = true;
     btn.textContent = "กำลังยืนยัน...";
+    /* eslint-enable require-atomic-updates */
     try {
       const xhrPatch = window._appXhrPatch;
       if (!xhrPatch) throw new Error("xhrPatch not available");
@@ -700,8 +702,10 @@ export function renderCustomerDashboard(ctx) {
       renderCustomerDashboard(ctx);
     } catch (err) {
       showToast("เกิดข้อผิดพลาด: " + (err.message || err));
+      /* eslint-disable require-atomic-updates -- A: UI rollback in catch (sequential error path, single click handler) */
       btn.disabled = false;
       btn.textContent = "✓ ยืนยันปิดงาน";
+      /* eslint-enable require-atomic-updates */
     }
   }));
 
