@@ -852,6 +852,7 @@ function renderReceiptPreview(container) {
     try {
       const res = await window._appXhrPatch?.("receipts", { created_at: isoDate }, "id", r.id);
       if (res && res.ok === false) throw new Error(res.error?.message || "patch failed");
+      // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L4 doc-edit handler (date input change, single admin)
       r.created_at = isoDate;
       document.querySelectorAll("#rcDocPreview [id^='rcDateCell']").forEach(el => {
         if (rcShowDate?.checked) el.textContent = dateTH(isoDate);
@@ -873,6 +874,7 @@ function renderReceiptPreview(container) {
     try {
       const res = await window._appXhrPatch?.("receipts", { payment_method: newMethod }, "id", r.id);
       if (res && res.ok === false) throw new Error(res.error?.message || "patch failed");
+      // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L4 doc-edit handler (paymethod dropdown change, single admin)
       r.payment_method = newMethod;
       _ctx.showToast("อัปเดตวิธีชำระเรียบร้อย ✓");
       // Re-render preview เพื่อให้ checkboxes แสดง ✓ ตรงตำแหน่งที่เลือก
@@ -881,6 +883,7 @@ function renderReceiptPreview(container) {
       console.error("[receipts edit pay method] error:", e);
       _ctx.showToast("❌ อัปเดตไม่สำเร็จ: " + (e.message || e));
       // rollback dropdown
+      // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L4 doc-edit handler (paymethod rollback, single admin)
       r.payment_method = prevMethod;
       for (const opt of ev.target.options) {
         opt.selected = (opt.value === "cash" && _payIs(prevMethod,'cash')) ||
