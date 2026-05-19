@@ -30,6 +30,8 @@ import {
   isOtpCooldownActive, getOtpRemaining,
   disableOtpButtons, setOtpCooldown, clearOtpCooldown
 } from "./otp_cooldown.js";
+// Phase 89.42: single-flight guards for OTP request + verify (double-tap protection)
+import { createInflightGuard } from "./_inflight_guard.js";
 
 /**
  * @param {object} deps
@@ -46,8 +48,15 @@ export function createOtpAuth(deps) {
   // { phone, name, hash, expiresAt, authPassword, attempts }
   let _pendingOtp = null;
 
+  // Phase 89.42 — Site 3 fix: independent single-flight guards prevent double-tap
+  // races on both flows (verify burns 5-attempt quota; request hits 429 rate-limit).
+  // Independent because refreshing SMS while typing OTP is a legitimate concurrent use.
+  const _requestOtpGuard = createInflightGuard();
+  const _verifyOtpGuard = createInflightGuard();
+
   // ─── Step 1: send OTP via SMS / web fallback ──────────────
   async function requestOtp() {
+    return _requestOtpGuard.run(async () => {
     // ★ Phase 85.3 — guard cooldown (Phase 17 rate limiter spam protection)
     if (isOtpCooldownActive()) {
       showToast("โปรดรออีก " + getOtpRemaining() + " วินาทีก่อนขอ OTP ใหม่");
@@ -118,11 +127,13 @@ export function createOtpAuth(deps) {
         clearOtpCooldown();
       }
     }
+    });
   }
 
 
   // ─── Step 2: verify OTP + signIn / signUp ─────────────────
   async function verifyOtp() {
+    return _verifyOtpGuard.run(async () => {
     const code = $("otpCode")?.value.trim();
     if (!code || code.length < 6) return showToast("กรุณากรอกรหัส OTP 6 หลัก");
 
@@ -155,6 +166,8 @@ export function createOtpAuth(deps) {
       if (!verifyRes.ok || !verifyData.ok) {
         return showToast(verifyData.error || "รหัส OTP ไม่ถูกต้อง");
       }
+      // Phase 89.42: race prevented by _verifyOtpGuard single-flight (no concurrent invocation can reach this line)
+      // eslint-disable-next-line require-atomic-updates -- protected by _verifyOtpGuard single-flight (Phase 89.42)
       _pendingOtp.authPassword = verifyData.authPassword;
     } catch (e) {
       return showToast("ตรวจสอบ OTP ไม่สำเร็จ: " + e.message);
@@ -216,6 +229,7 @@ export function createOtpAuth(deps) {
         await state.supabase.auth.signInWithPassword({ email: fakeEmail, password: fakePassword });
       }
 
+      // eslint-disable-next-line require-atomic-updates -- protected by _verifyOtpGuard single-flight (Phase 89.42)
       _pendingOtp = null;
       showToast("เข้าสู่ระบบสำเร็จ! 🎉");
       setText("otpStatus", "เข้าสู่ระบบสำเร็จ!");
@@ -225,6 +239,7 @@ export function createOtpAuth(deps) {
       setText("otpStatus", "เข้าสู่ระบบไม่สำเร็จ: " + e.message);
       showToast("❌ " + e.message);
     }
+    });
   }
 
 
