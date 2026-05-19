@@ -3,13 +3,58 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 19 พฤษภาคม 2026 (Phase 91.4 HOTFIX — wiring gate removed, build 256)
-**Version:** 5.44.3 (build 256) — Phase 91.4 (🔥 hotfix: sale-row customer_id pre-check blocked the helper in build 255)
-**Previous:** 5.44.2 (build 255) — Phase 91.3 (reverse helper shipped — but didn't fire on real data)
+**อัปเดตล่าสุด:** 19 พฤษภาคม 2026 (🏁 Loyalty audit CLOSED — Phase 91.4 build 256 / 5.44.3)
+**Version:** 5.44.3 (build 256) — Phase 91.4 (wiring gate removed; production smoke passed)
+**Previous:** 5.44.2 (build 255) — Phase 91.3 (helper shipped — 91.4 closed the wiring gap)
 
 ---
 
-## 🔥 Phase 91.4 HOTFIX — Reverse-loyalty wiring gate (this session)
+## 🏁 Loyalty audit & feature work — CLOSED
+
+> **Canonical prod URL:** [boonsook-pos-v5.pages.dev](https://boonsook-pos-v5.pages.dev) (per [[reference-canonical-prod-url]]) — www.boonsook.com is a parked placeholder, do not use it for build verification.
+>
+> **Status snapshot (19 พ.ค. 2026):** build **256** live, version **5.44.3**, `npm run verify` clean (lint + 204 unit + 11 e2e), production manual smoke passed.
+
+### Loyalty flow — verified end-to-end on production
+| Capability | Status | Closed in |
+|------------|--------|-----------|
+| Settings save (admin) | ✅ works | 90.4 + 90.6 |
+| Settings save runtime requireAdmin guard (defense-in-depth) | ✅ added | 90.12 |
+| Manual earn (admin form) | ✅ works | 90.8 + 90.9 |
+| Manual redeem (admin form) | ✅ works | 90.8 + 90.9 |
+| Customer lookup with bigint vs `<select>.value` string | ✅ fixed via `String()` both sides | 90.10 |
+| History modal click-outside listener leak | ✅ bound once, not per open | 90.13 |
+| Service-worker periodic + visibilitychange update polling | ✅ added (no auto-reload) | 90.11 |
+| **POS auto-earn on sale checkout** | ✅ works (500 + rate 100 → +5; no customer → no points) | 91.1 |
+| **Earn formula** | ✅ `floor(amount / bahtPerPoint)`; the 50,000-point bug from inverted multiplication is fixed and locked by unit tests | 91.2 |
+| **Refund + sale-delete/cancel reverse loyalty** | ✅ insert `type='redeem' + ref_type='sale_reverse' + ref_id=saleId`; idempotent (`hasReversedLoyaltyForSale`); caps at remaining; helper failure never blocks main flow | 91.3 + 91.4 |
+| Smoke verified | ✅ sale #143 earn 5 + sale_reverse 5; sale #144 earn 5 + sale_reverse 5; summary stays consistent | — |
+
+### Audit closure summary
+**Closed in Phase 90.x → 91.4:**
+- A1 settings save runtime admin guard (90.12)
+- B1 history modal click-outside listener leak (90.13)
+- POS checkout auto-earn loyalty (91.1)
+- Earn formula direction bug — `floor(amount / bahtPerPoint)` (91.2)
+- Sale delete / cancel reverse loyalty (91.3 wiring + 91.4 hotfix)
+- SW update polling for long sessions (90.11)
+
+**Deferred (intentionally, not blocking):**
+- **Manual tab role gate** — product decision (sales granting/redeeming points = store value). Awaiting user direction on whether non-admin should be able to use the manual tab at all
+- **`main.js` decomposition** — 6,000+ LOC monolith. Roll to **Phase 92** (no behavior change, structure-only)
+- **DB hardening: unique constraint for sale earn/reverse idempotency** — currently idempotent via client-side check (`hasReversedLoyaltyForSale` scans `state.loyaltyPoints`). A DB-level UNIQUE on `(customer_id, ref_type, ref_id)` for `ref_type IN ('sale','sale_reverse')` would be a defense-in-depth. Roll to **Phase 93** (RLS + constraints hardening for `loyalty_points`)
+- **Refund partial-quantity reverse** — current implementation reverses the FULL earn on refund regardless of how many items the user chose to refund. If business needs partial refunds → partial point claw-back, roll to **Phase 94**
+
+### Suggested next phases
+| Phase | Focus | Risk | Notes |
+|-------|-------|------|-------|
+| **92** | `main.js` decomposition (structure-only) | Low (behavior unchanged) | Pull lazy-router, XHR helpers, role helpers, state setup into separate files. Tests guard the surface |
+| **93** | DB constraints + RLS hardening for `loyalty_points` | Medium (touches SQL + RLS) | UNIQUE `(customer_id, ref_type, ref_id)` for `ref_type IN ('sale','sale_reverse','redemption')`; review RLS rules for non-admin insert |
+| **94** | Refund partial-quantity loyalty reverse | Medium (business policy) | Only if business needs partial refunds → partial point claw-back. Helper would compute `reverseAmount = round(earned * refundedQty/totalQty)` |
+
+---
+
+## 🔥 Phase 91.4 HOTFIX — Reverse-loyalty wiring gate (detail)
 
 Build 255 (Phase 91.3) shipped a working helper but ineffective wiring. Real prod data hit a guard that silently no-op'd the reverse.
 

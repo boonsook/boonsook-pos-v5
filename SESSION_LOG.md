@@ -3,7 +3,7 @@
 **ไฟล์นี้คือ "session continuity"** — ใช้เปิด session ใหม่แล้วลุยต่อได้เลย
 เปิดอ่านไฟล์นี้ก่อน HANDOFF.md / CHANGELOG.md เสมอ
 
-**Last update:** 19 พฤษภาคม 2026 (Session: Phase 90.4–91.1 loyalty bug onion + POS auto-earn)
+**Last update:** 19 พฤษภาคม 2026 (🏁 Loyalty audit & feature work CLOSED — Phase 90.4–91.4)
 
 ---
 
@@ -11,25 +11,43 @@
 
 | Item | Value |
 |------|-------|
-| **main HEAD** | `35b3408` Phase 91.1 POS checkout auto-earn loyalty points (build 253) |
-| **Branch** | `main` (direct push — งานเล็ก ตามที่ user grant) |
-| **Build live** | **253** ที่ `boonsook-pos-v5.pages.dev` (canonical — ไม่ใช่ www.boonsook.com) |
-| **Tests** | **168/168 unit** + **11/11 e2e** pass (`npm run verify`) |
-| **Version** | 5.44.0 (minor bump from 5.43.x — Phase 91.1 = new feature) |
-| **Lint** | clean (warnings ≤ 9 ที่เหลือจาก Phase 89.x) |
+| **main HEAD** | `e1c40c3` Phase 91.4 hotfix — remove customer_id pre-check from reverse wiring (build 256) |
+| **Branch** | `main` (direct push — autonomous per user grant) |
+| **Canonical prod URL** | **`boonsook-pos-v5.pages.dev`** (per [[reference-canonical-prod-url]]) — `www.boonsook.com` = parked placeholder |
+| **Build live** | **256** verified live |
+| **Tests** | **204/204 unit** + **11/11 e2e** pass (`npm run verify`) |
+| **Version** | 5.44.3 (Phase 91.4 patch — wiring fix) |
+| **Lint** | clean |
 
-### Phase 90.x audit closures
+### 🏁 Loyalty audit closures — all milestones
 | Audit ID | Status | Phase | Build |
 |----------|--------|-------|-------|
-| A1 settings save runtime guard | ✅ closed | 90.12 | 251 |
-| B1 history modal listener leak | ✅ closed | 90.13 | 252 |
-| Manual tab role gate | ⏳ deferred — product decision | — | — |
+| A1 settings save runtime admin guard | ✅ closed | 90.12 | 251 |
+| B1 history modal click-outside listener leak | ✅ closed | 90.13 | 252 |
+| POS checkout auto-earn loyalty | ✅ shipped | 91.1 | 253 |
+| Earn formula direction bug (10000× over-credit) | ✅ hotfixed | 91.2 | 254 |
+| Refund + sale-delete loyalty reverse (helper + wiring) | ✅ shipped + hotfixed | 91.3 + 91.4 | 255 + 256 |
+| SW periodic + visibilitychange update polling | ✅ added | 90.11 | 250 |
 
-### Phase 91 backlog (loyalty over-credit risk)
-- **Refund reversal** — refund ตอนนี้ไม่ลบ earn record → ลูกค้าได้แต้มฟรีหลัง refund
-- **Sale soft-delete reversal** — admin ลบ sale ก็ไม่ลบ earn record → over-credit เหมือนกัน
+### Production smoke verified (19 พ.ค. 2026)
+- POS sale 500 + rate 100 → earn +5 ✓
+- No customer on sale → no points ✓
+- sale #143 / #144 delete → `sale_reverse` row inserted, remaining decreased -5 ✓
+- Idempotency (refund + cancel of same sale) → skip on second call, no double claw-back ✓
+- Helper failures (network / RLS) → main flow not blocked ✓
 
-ต้อง wire reverse-record (`redeemPoints` หรือ DELETE row) ใน `modules/refunds.js` + sale void path
+### Deferred (intentionally — flagged in HANDOFF + this section)
+| Item | Why deferred |
+|------|--------------|
+| **Manual tab role gate** | Product decision: should non-admin (sales role) be allowed to grant/redeem points? Awaiting user direction |
+| **`main.js` decomposition** | 6,000+ LOC monolith. Roll to Phase 92 — structure-only, no behavior change |
+| **DB constraints + RLS hardening for `loyalty_points`** | Currently idempotent at JS layer. Adding UNIQUE `(customer_id, ref_type, ref_id)` would be defense-in-depth. Roll to Phase 93 |
+| **Refund partial-quantity loyalty reverse** | Current implementation reverses full earn regardless of refunded item count. Roll to Phase 94 if business needs partial |
+
+### Suggested next phases (in priority order)
+1. **Phase 92** — `main.js` decomposition (low risk, behavior-preserving)
+2. **Phase 93** — DB constraints + RLS hardening for `loyalty_points` (medium — touches SQL)
+3. **Phase 94** — Refund partial-quantity loyalty reverse (only if business needs)
 
 ### วิธี verify state ใน session ใหม่
 
@@ -84,18 +102,31 @@ grep -E "build [0-9]+" modules/settings/pages.js sw.js index.html
 | 10 | 251 | `4c22dd1` | **90.12** settings save runtime admin guard (A1) | Defense-in-depth: เพิ่ม `if (!requireAdmin?.()) { toast; return }` ก่อน xhrPatch/Post call จริง — กัน mid-session role downgrade / DevTools injection | `loyalty_settings_admin_guard.test.js` (5) |
 | 11 | 252 | `d19655d` | **90.13** history modal listener leak (B1) | `showPointHistory` ผูก click listener ทุกครั้งที่เปิด → N stacked. Fix: ย้าย listener ไปผูกครั้งเดียวใน `renderLoyaltyPage` L262 | `loyalty_history_modal_listener.test.js` (4) |
 | 12 | 253 | `35b3408` | **91.1 ⭐ NEW FEATURE** POS checkout auto-earn loyalty | `earnPoints()` มีอยู่ตั้งแต่ 90.8 แต่ไม่มี caller. Wire ใน pos.js: capture `_earnCustomerId` ก่อน state-reset, fire-and-forget dynamic import กับ ?v=APP_BUILD หลัง postJournalForSale, gate `_earnCustomerId && is_active && points_per_baht>0`. Version minor bump 5.43.48 → 5.44.0 | `pos_loyalty_auto_earn.test.js` (8) |
+| 13 | (docs) | `4769f9c` | **docs** SESSION_LOG.md refresh through 91.1 | header + push history + memory rules pointer | — |
+| 14 | 254 | `33c0a27` | **91.2 🔥 HOTFIX** Earn formula divide-not-multiply | column `points_per_baht` ชื่อหลอก — semantic จริง = **baht-per-point** (divisor). `floor(amount * rate)` ทำให้ 500 บาท + rate 100 = **50,000 แต้ม** (×10,000). Centralized to `calcEarnPoints(amount, settings) = floor(amount / bahtPerPoint)`. Version 5.44.0 → 5.44.1 | `loyalty_calc_earn_points.test.js` (14) — anti-regression explicit "500/100 = 5 NEVER 50000" |
+| 15 | 255 | `da933b1` | **91.3 ↩️ FEATURE** Refund/cancel reverse loyalty (helper + wiring) | Idempotent `reverseEarnedPointsForSale` + `hasReversedLoyaltyForSale` + `getSaleEarnedPoints`. Record shape: `type='redeem' + ref_type='sale_reverse' + ref_id=saleId`. Cap ที่ remaining (ไม่ติดลบ). Wire `modules/refunds.js` + `modules/sales.js` soft-delete. Version 5.44.1 → 5.44.2 | `loyalty_reverse_sale.test.js` (18) |
+| 16 | 256 | `e1c40c3` | **91.4 🔥 HOTFIX** Wiring pre-gate on customer_id removed | Phase 91.3 wiring guarded ทั้ง 2 จุดบน `targetSale?.customer_id` — opt-in column, ถ้า null → guard skip silently. Helper เองออกแบบให้ resolve customer_id จาก earn record. ลบ pre-gate ทั้ง 2 จุด + diagnostic `console.log("[sales delete] loyalty reverse attempt:", {...})`. Version 5.44.2 → 5.44.3 | `loyalty_reverse_sale.test.js` +4 = 22 — strip comments ก่อน source-level assert |
 
-**Cumulative session (10 commits, 1 day):**
-- Build: 243 → **253** (10 bumps across 6 phases)
-- Unit tests: 145 → **168** (+23 จาก 6 ไฟล์ใหม่)
-- Loyalty flow: settings save / manual earn / manual redeem / history modal / POS auto-earn = ทุกอย่างใช้งานได้แล้ว
-- Bug onion: 6 ชั้น ปิดทุกชั้น (`renderSettingsTab dead code` → `currentRole function-ref bug` → `XHR signature wrong` → `ESM cache stale` → `signature wrong 3 จุดอื่น` → `async return shape ไม่ใช่ void` → `bigint vs string compare` → ฯลฯ)
+**Cumulative session (16 commits, 1 day — 19 พ.ค. 2026):**
+- Build: 243 → **256** (12 production bumps + 4 docs/no-bump commits)
+- Unit tests: 145 → **204** (+59 จาก 8 ไฟล์ใหม่)
+- Version: 5.43.39 → **5.44.3** (1 minor + 3 patches)
+- Loyalty bug onion 6 ชั้น (90.4–90.13) ปิด → ต่อด้วย Phase 91 feature add (91.1) + 2 hotfixes (91.2 formula + 91.4 wiring gate)
+- Audit closures: A1, B1, POS auto-earn, formula bug, sale delete/cancel reverse, SW polling = **ครบทุกตัวที่อยู่ใน scope**
+- Deferred (ตัดสินใจร่วม): manual tab role gate (product), main.js decomposition (Phase 92), DB hardening (Phase 93), refund partial-quantity (Phase 94)
 
-### Memory rules บันทึกใหม่
-- `feedback_async_refactor_return_shape.md` — sync→async ต้อง revisit caller; ถ้า caller ตัดสินใจ UX ต้องคืน `{ok,error}` ไม่ใช่ void
-- `feedback_id_type_mismatch.md` — bigint vs select.value; cast String() ที่จุด compare
+### Memory rules บันทึกใหม่ในวันนี้ (5 rules)
+- `feedback_async_refactor_return_shape.md` — sync→async ต้อง revisit caller; callee คืน `{ok,error}` ไม่ใช่ void
+- `feedback_id_type_mismatch.md` — bigint vs `<select>.value`; cast `String()` ที่จุด compare
 - `feedback_narrow_scope.md` — audit เจอหลาย issue ก็จริง แต่ user เลือกทำทีละข้อ
-- `reference_canonical_prod_url.md` — `boonsook-pos-v5.pages.dev` = canonical; `www.boonsook.com` = parked placeholder
+- `reference_canonical_prod_url.md` — `boonsook-pos-v5.pages.dev` = canonical
+- `feedback_wiring_guard_too_strict.md` — wiring pre-check ห้าม strict กว่า helper contract
+
+### Operational pattern proven ใน session นี้
+- Direct push to main (autonomous per user grant) — 12 production builds, 0 PR review needed
+- ทุก push: `npm run verify` (lint + unit + e2e) → push → poll `boonsook-pos-v5.pages.dev` ทุก 15s จนเห็น `data-app-build="<new>"` → curl module file verify code reach prod
+- Diagnostic `console.log` วาง strategic จุด (เช่น sales.js Phase 91.4) → smoke ครั้งต่อ self-diagnose ใน DevTools โดยไม่ต้อง source dive
+- HANDOFF.md + CHANGELOG.md อัปเดตทุก push (ไม่ batch) — SESSION_LOG.md อัปเดตเป็นช่วง
 
 ---
 
