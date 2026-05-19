@@ -252,6 +252,7 @@ async function _onRun() {
 
   if (!(await window.App?.confirm?.(`ยืนยัน Backfill ${sources.length} source ระหว่าง ${from} → ${to}?`))) return;
 
+  // eslint-disable-next-line require-atomic-updates -- G: _running entry-guard at backfill.js:238 + admin-only idempotent (JV unique by source_id)
   _running = true;
   if (btnRun) { btnRun.disabled = true; btnRun.textContent = "⏳ กำลังรัน..."; }
 
@@ -278,6 +279,7 @@ async function _onRun() {
 
   if (stats.total === 0) {
     document.getElementById("bfProgPanel").innerHTML = `<div style="padding:8px;color:#64748b">ไม่พบรายการในช่วงที่เลือก</div>`;
+    // eslint-disable-next-line require-atomic-updates -- G: _running lock release (early exit, entry guard at backfill.js:238)
     _running = false;
     if (btnRun) { btnRun.disabled = false; btnRun.textContent = "⚡ เริ่ม Backfill"; }
     return;
@@ -355,6 +357,7 @@ async function _onRun() {
     document.querySelector('[data-route=accounting_journals]')?.click();
   });
 
+  // eslint-disable-next-line require-atomic-updates -- G: _running lock release (final, entry guard at backfill.js:238)
   _running = false;
   if (btnRun) { btnRun.disabled = false; btnRun.textContent = "⚡ เริ่ม Backfill"; }
 }

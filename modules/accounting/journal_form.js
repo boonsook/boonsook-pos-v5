@@ -48,6 +48,7 @@ export async function renderJournalFormPage(ctx) {
         headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token }
       });
       if (!resp.ok) throw new Error("HTTP " + resp.status);
+      // eslint-disable-next-line require-atomic-updates -- F: idempotent COA load on form open (concurrent loads = same data)
       _coa = await resp.json();
     } catch(err) {
       console.error("[journal form] load COA:", err);

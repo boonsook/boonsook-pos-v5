@@ -65,6 +65,7 @@ async function _getValidCoaCodes() {
     });
     if (!r.ok) throw new Error("HTTP " + r.status);
     const arr = await r.json();
+    // eslint-disable-next-line require-atomic-updates -- F: idempotent COA cache (concurrent fetch = same data set)
     _coaCache = new Set(arr.map(a => String(a.code)));
     return _coaCache;
   } catch(e) {
@@ -144,6 +145,7 @@ async function _getMappings() {
     });
     if (!r.ok) throw new Error("HTTP " + r.status);
     const arr = await r.json();
+    // eslint-disable-next-line require-atomic-updates -- F: idempotent account mapping cache (concurrent fetch = same data)
     _mappingCache = {};
     arr.forEach(m => { _mappingCache[m.mapping_key] = m; });
     return _mappingCache;

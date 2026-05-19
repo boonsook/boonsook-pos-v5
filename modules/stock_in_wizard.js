@@ -471,6 +471,7 @@ async function saveAll(ctx) {
       renderStockInWizardPage(ctx);
     }
   } finally {
+    // eslint-disable-next-line require-atomic-updates -- G: _swSaving lock release (entry guard at stock_in_wizard.js:409)
     _swSaving = false;
   }
 }

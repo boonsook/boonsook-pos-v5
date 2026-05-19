@@ -1017,6 +1017,7 @@ function renderQuotationPreview(container) {
     } catch (e) {
       console.error("[quotations edit date] error:", e);
       _ctx.showToast("❌ แก้วันที่ไม่สำเร็จ: " + (e.message || e));
+      // eslint-disable-next-line require-atomic-updates -- A: UI rollback in catch (sequential error path, single admin)
       ev.target.value = (q.created_at || "").slice(0,10);
     }
   });

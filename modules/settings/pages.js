@@ -227,6 +227,7 @@ export function renderSettingsAbout(el, ctx, goBack) {
     const file = e.target.files?.[0];
     if (!file) return;
     const ok = await window.App?.confirm?.("ยืนยันกู้คืน config จากไฟล์นี้? ข้อมูลปัจจุบัน (logo, payment info ฯลฯ) จะถูกทับด้วยข้อมูลในไฟล์");
+    // eslint-disable-next-line require-atomic-updates -- A: UI file input reset, single restore handler per click
     if (!ok) { e.target.value = ""; return; }
     try {
       const text = await file.text();
@@ -245,6 +246,7 @@ export function renderSettingsAbout(el, ctx, goBack) {
     } catch (e2) {
       setBk("❌ กู้คืนไม่สำเร็จ: " + (e2?.message || e2), "#dc2626");
     } finally {
+      // eslint-disable-next-line require-atomic-updates -- A: UI file input reset in finally, single restore handler per click
       e.target.value = "";
     }
   });
@@ -447,6 +449,7 @@ export function renderSettingsLogoPage(el, ctx, goBack) {
         ctx?.showToast?.('อัพโหลดโลโก้สำเร็จ ✅ (sync เข้า DB แล้ว)', 'success');
         const preview = document.querySelector('.logo-preview img');
         if (preview) preview.src = urlWithBust;
+        // eslint-disable-next-line require-atomic-updates -- A: UI file input reset after logo upload, single upload handler per click
         fileInput.value = '';
 
         // อัปเดต logo ใน sidebar/auth/favicon ทุกจุด

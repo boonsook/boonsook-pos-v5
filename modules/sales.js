@@ -146,8 +146,10 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
     const saleNo = btn.dataset.delSaleNo || "";
     if (!(await window.App?.confirm?.(`ลบรายการขาย "${saleNo}" ?\nลบแล้วไม่สามารถกู้คืนได้`))) return;
 
+    /* eslint-disable require-atomic-updates -- A: UI feedback before async (sequential, single click handler per row) */
     btn.disabled = true;
     btn.textContent = "กำลังลบ...";
+    /* eslint-enable require-atomic-updates */
 
     const newNote = "[ลบแล้ว] ลบโดยแอดมิน " + new Date().toLocaleString("th-TH");
 
