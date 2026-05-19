@@ -37,8 +37,11 @@ export function getCustomerPoints(customerId, ctx) {
   let totalEarned = 0;
   let totalRedeemed = 0;
 
+  // Phase 90.10: cast both sides — customers.id is bigint (number from DB) but
+  // <select>.value (and Object.entries keys) are strings. `1 === "1"` is false.
+  const cidStr = String(customerId);
   transactions.forEach(t => {
-    if (t.customer_id === customerId) {
+    if (String(t.customer_id) === cidStr) {
       if (t.type === 'earn') {
         totalEarned += Number(t.points || 0);
       } else if (t.type === 'redeem') {
@@ -299,7 +302,8 @@ function renderSummaryTab(loyaltyPoints, customers, settings, ctx) {
 
   const rows = Object.entries(customerPointsMap)
     .map(([customerId, points]) => {
-      const customer = customers.find(c => c.id === customerId);
+      // Phase 90.10: customerId here is an Object.entries key (always string) but c.id is bigint (number).
+      const customer = customers.find(c => String(c.id) === String(customerId));
       const remaining = points.earned - points.redeemed;
       const value = remaining * pointsValue;
 
@@ -559,11 +563,13 @@ function renderManualTab(customers, ctx) {
 }
 
 function showPointHistory(customerId, loyaltyPoints, customers, _ctx) {
-  const customer = customers.find(c => c.id === customerId);
+  // Phase 90.10: same id-type-mismatch fix as getCustomerPoints (bigint vs string).
+  const cidStr = String(customerId);
+  const customer = customers.find(c => String(c.id) === cidStr);
   const customerName = customer?.name || `ลูกค้า #${customerId}`;
 
   const transactions = loyaltyPoints
-    .filter(t => t.customer_id === customerId)
+    .filter(t => String(t.customer_id) === cidStr)
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
   const title = document.getElementById('loyalty-history-title');

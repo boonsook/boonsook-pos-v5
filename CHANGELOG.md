@@ -7,6 +7,54 @@
 
 ---
 
+## 5.43.45 (build 249) — 2026-05-19 🐛 Phase 90.10 — Loyalty customer_id type mismatch (bigint vs string)
+
+### Symptom (manual smoke on build 248)
+- Phase 90.9 fix verified: form ไม่ clear เมื่อ redeem fail ✓
+- แต่ redeem ลูกค้า `jeerasuk` 100 แต้ม → ยัง toast `แต้มไม่พอแลก` ทั้งที่เพิ่งกด "เพิ่มแต้ม" ให้ลูกค้าคนเดียวกันสำเร็จก่อนหน้านี้
+
+### Root cause
+DB column `customers.id` = `bigint` (number ใน JS) แต่ `<select>.value` คืน **string เสมอ** (DOM API spec). `getCustomerPoints` ใช้ `===`:
+```js
+if (t.customer_id === customerId) { ... }  // 1 === "1" → false ตลอดกาล
+```
+→ `customerPoints.remaining` = 0 → "แต้มไม่พอแลก" ไม่ว่าจะมีแต้มจริงเท่าไหร่
+
+อาการพ่วงที่ user อาจไม่ได้ report: summary tab + history modal ใช้ `customers.find(c => c.id === customerId)` แบบเดียวกัน → แสดง `ลูกค้า #N` แทนชื่อจริง
+
+### Fix
+แก้ 4 จุดใน `modules/loyalty.js` — cast `String(...)` ทั้งสองข้างของ `===`:
+- L41 `getCustomerPoints` — comparison หลักที่ block redeem
+- L302 summary tab `customers.find` — แสดงชื่อใน list
+- L562 `showPointHistory` — แสดงชื่อใน modal title
+- L566 `showPointHistory` — filter transactions
+
+ไม่แตะ insert side (L81/128/526 ที่ทำ `customer_id: customerId`) เพราะ PostgREST coerce string → bigint อัตโนมัติ. JS strict equality เท่านั้นที่จุกจิก
+
+### Build sync
+- `selfheal.js?v=249`, `main.js?v=249`, `boot.js?v=249`, `style.css?v=249`
+- `data-app-build="249"` ใน index.html
+- `sw.js` CACHE_NAME `v248` → `v249`
+- `modules/settings/pages.js` Version `5.43.44` → `5.43.45`, build `248` → `249`
+
+### Test
+- 145/145 unit tests pass
+- Lint clean บนไฟล์ที่แก้
+
+### How to test (manual smoke)
+1. Ctrl+Shift+R → version แสดง 5.43.45 (build 249)
+2. หน้า สะสมแต้ม → tab "สรุปแต้ม"
+   - ✅ Expected: ลูกค้าที่มีแต้มแสดง **ชื่อจริง** (เช่น "jeerasuk") ไม่ใช่ `ลูกค้า #N`
+3. tab "เพิ่ม/แลกแต้มด้วยตนเอง" → เลือก `jeerasuk` + "แลกแต้ม" + ใส่จำนวน ≤ ที่มี + บันทึก
+   - ✅ Expected: toast `แลกแต้ม N แต้ม สำเร็จ` + ฟอร์ม clear + summary refresh
+   - ❌ Build 248 ก่อนหน้า: toast `แต้มไม่พอแลก` (false negative)
+4. กดดู history ของลูกค้าใน summary tab → ✅ modal แสดงรายการ earn/redeem ครบ + title แสดงชื่อจริง
+
+### Lesson
+DOM `<select>.value` คืน `string` เสมอ. ถ้า DB column เป็น `bigint` → `===` จะ false ตลอด. Cast `String(...)` ที่จุด compare ทั้งสองข้าง (cast ที่ boundary เสี่ยงพลาดเพราะมีหลาย boundary: DOM, JSON, Object.entries)
+
+---
+
 ## 5.43.44 (build 248) — 2026-05-19 🐛 Phase 90.9 — Loyalty manual redeem regression (form clears on failure)
 
 ### Symptom (manual smoke on build 247)

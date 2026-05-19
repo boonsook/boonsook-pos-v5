@@ -3,15 +3,15 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 19 พฤษภาคม 2026 (Phase 90.9 — Loyalty manual redeem clear-form regression fix, build 248)
-**Version:** 5.43.44 (build 248) — Phase 90.9 (redeemPoints/earnPoints return {ok}; manual tab clears only on success)
-**Previous:** 5.43.43 (build 247) — Phase 90.8 (loyalty XHR signature fix batch, 3 sites)
+**อัปเดตล่าสุด:** 19 พฤษภาคม 2026 (Phase 90.10 — Loyalty customer_id type mismatch fix, build 249)
+**Version:** 5.43.45 (build 249) — Phase 90.10 (String() both sides of customer_id comparison — bigint vs select.value)
+**Previous:** 5.43.44 (build 248) — Phase 90.9 (redeemPoints/earnPoints return {ok}; manual tab clears only on success)
 
 ---
 
-## 🔥 Phase 90.4 – 90.9 — Loyalty bug onion (5 layers) **CLOSED**
+## 🔥 Phase 90.4 – 90.10 — Loyalty bug onion (6 layers) **CLOSED**
 
-> ปุ่ม "บันทึกการตั้งค่า" + "เพิ่มแต้ม/แลกแต้ม" ใน Loyalty page เงียบสนิทมานาน — fix 5 ชั้น 6 phases, build 243 → 248.
+> ปุ่ม "บันทึกการตั้งค่า" + "เพิ่ม/แลกแต้ม" ใน Loyalty page เงียบสนิทมานาน — fix 6 ชั้น 7 phases, build 243 → 249.
 
 | Phase | PR | Build | Layer | Root cause |
 |-------|----|-------|-------|------------|
@@ -20,9 +20,22 @@
 | 90.6 | #31 | 244→245 | 2: signature | settings save เรียก `_appXhrPatch(restUrl, payload, callback)` — ผิดสัญญา (จริงคือ `(table, payload, eqCol, eqVal) → Promise`) |
 | 90.7 | #32 | 245→246 | 3: ESM cache | `main.js _lazyImport()` ไม่ใส่ `?v=APP_BUILD` ใน `import()` → browser ESM registry serve module 244-era ต่อ ถึงแม้ network คืนไฟล์ใหม่ |
 | 90.8 | (prev) | 246→247 | 4: same signature bug 3 จุดอื่น | `earnPoints` / `redeemPoints` / manual-earn handler เรียก `_appXhrPost('/api/loyalty-points', rec, cb)` — REST path ผิด + callback ถูกทิ้ง |
-| **90.9** | (this) | **247→248** | **5: silent regression จาก 90.8** | หลัง 90.8 ทำ `redeemPoints` เป็น `async` แต่ยังคืน `void` ทุก path — manual handler clear form มั่วๆ ทั้งกรณีสำเร็จ/ล้มเหลว (user แลก 100 แต้มที่มี 0 → toast "แต้มไม่พอแลก" แต่ฟอร์มถูก clear) |
+| 90.9 | (prev) | 247→248 | 5: silent regression จาก 90.8 | `redeemPoints` async แต่คืน `void` — manual handler clear form มั่วๆ ทั้งกรณีสำเร็จ/ล้มเหลว |
+| **90.10** | (this) | **248→249** | **6: ID type mismatch** | `customers.id` คือ `bigint` (number ใน JS) แต่ `<select>.value` คืน string เสมอ — `t.customer_id === customerId` = `1 === "1"` = false → `getCustomerPoints` คืน 0 เสมอ → "แต้มไม่พอแลก" ทั้งที่ลูกค้ามีแต้ม |
 
-### Phase 90.9 fixes (this session)
+### Phase 90.10 fixes (this session)
+- `modules/loyalty.js:41` `getCustomerPoints` — เปรียบเทียบด้วย `String(t.customer_id) === String(customerId)`
+- `modules/loyalty.js:302` summary tab `customers.find(c => c.id === customerId)` — เคยมีปัญหาเดียวกัน (Object.entries key เป็น string, c.id เป็น number) → fallback แสดง `ลูกค้า #N` แทนชื่อจริง
+- `modules/loyalty.js:561-566` `showPointHistory` — 2 จุดเดียวกัน, cast `String()` ทั้งคู่
+- **ไม่แตะ insert side** (line 81/128/526) — PostgREST coerce string → bigint อัตโนมัติ ตอน INSERT/PATCH; แค่ comparison side ที่ JS strict equality bite
+
+### Lessons (เพิ่ม)
+- **DOM `<select>.value` คืน string เสมอ** — แม้ `<option value="${c.id}">` ส่ง number ก็ตาม. ถ้า column DB เป็น bigint → `===` จะ false ตลอด
+- **`Object.entries(obj)` คืน key เป็น string เสมอ** — แม้ original key เป็น number key (e.g. when JS coerces) ก็ผ่าน `String(...)`. Trap เดียวกัน
+- **Cast ที่จุด compare ดีกว่า cast ที่ boundary** — เพราะ boundary มีหลายจุด (DOM, JSON parse, Object.entries) แต่ compare มีน้อยกว่า + อ่านเข้าใจง่ายว่าทำไม
+- **PostgREST insert ใจกว้างกว่า JS compare** — `bigint` column รับ `"2"` แล้ว coerce. JS `===` ไม่. นี่คือเหตุที่ insert side ไม่ต้องแก้ — แต่ read side ต้อง
+
+### Phase 90.9 fixes (previous session — context)
 - `modules/loyalty.js` — `earnPoints` + `redeemPoints` ทุก exit path คืน `{ok, error}` (mirror xhrPost shape) — early-return paths (`!is_active`, `< minRedeem`, `< remaining`, etc.) เคยคืน `void` → callers แยกผลไม่ได้
 - `modules/loyalty.js` — manual tab redeem branch ใช้ `const r = await redeemPoints(...); if (r?.ok) { clear form }` — เคย clear ไม่มีเงื่อนไข
 - earn branch ใน manual tab ใช้ `r?.ok` ของ xhrPost อยู่แล้วตั้งแต่ 90.8 — pattern consistent ทั้ง 2 branch
