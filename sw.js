@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v243 (2026-05-19): Phase 89.42 — MEDIUM_RISK race fixes — receipts multi-pay + POS quickPay + OTP verify/request single-flight guards
-const CACHE_NAME = 'boonsook-pos-v5-cache-v243';
+// v244 (2026-05-19): Phase 90.4 — Real bug fix — loyalty settings save handler order (setTimeout was unreachable after return -> click handler never attached)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v244';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

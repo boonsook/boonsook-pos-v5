@@ -381,7 +381,7 @@ function renderSummaryTab(loyaltyPoints, customers, settings, ctx) {
 function renderSettingsTab(settings, ctx) {
   const { showToast, loadAllData } = ctx;
 
-  return `
+  const html = `
     <div style="max-width: 500px; padding: 20px; background: #f9f9f9; border-radius: 8px;">
       <h3 style="margin-bottom: 20px; margin-top: 0;">ตั้งค่าระบบแต้ม</h3>
 
@@ -413,7 +413,8 @@ function renderSettingsTab(settings, ctx) {
     </div>
   `;
 
-  // Will be handled after render
+  // Phase 90.4: setTimeout was previously AFTER return -> unreachable -> click handler never attached.
+  // Now attaches before returning html (matches the working pattern at renderSummaryTab line 358).
   setTimeout(() => {
     document.getElementById('loyalty-save-settings')?.addEventListener('click', function() {
       const newSettings = {
@@ -435,6 +436,8 @@ function renderSettingsTab(settings, ctx) {
       });
     });
   }, 0);
+
+  return html;
 }
 
 function renderManualTab(customers, ctx) {
