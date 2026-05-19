@@ -1330,6 +1330,7 @@ async function initScanner(ctx) {
     });
   } catch(e) {
     _posScannerActive = false;
+    // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L2 scanner UI singleton (catch path, 1 camera per session)
     scanArea.innerHTML = '<div class="sku" style="text-align:center;padding:40px">ไม่สามารถเปิดกล้องได้</div>';
   }
 }

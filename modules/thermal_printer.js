@@ -110,8 +110,10 @@ export async function disconnectPrinter() {
     } else if (_printerType === "bluetooth" && _printerDevice) {
       // BLE disconnect
     }
+    /* eslint-disable require-atomic-updates -- LOW_RISK: L2 single-device singleton (thermal printer disconnect, 1 device per session) */
     _printerDevice = null;
     _printerType = null;
+    /* eslint-enable require-atomic-updates */
     return true;
   } catch (err) {
     console.error("Disconnect Error:", err);

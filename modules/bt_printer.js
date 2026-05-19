@@ -41,6 +41,7 @@ export async function connectPrinter() {
 
   // ขอ pair — acceptAllDevices: true เพื่อให้เห็นทุกอุปกรณ์ BLE ในรัศมี
   // (filter โดย namePrefix อาจ miss ถ้าเครื่องชื่อต่างจากที่คาด)
+  // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L2 single-device singleton (BT printer pair, 1 device per session)
   _device = await navigator.bluetooth.requestDevice({
     acceptAllDevices: true,
     optionalServices: BT_PRINTER_SERVICES
@@ -67,6 +68,7 @@ export async function connectPrinter() {
 
   // หา writable characteristic
   const chars = await service.getCharacteristics();
+  // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L2 single-device singleton (BT printer connect flow)
   _writeChar = chars.find(c => c.properties.write || c.properties.writeWithoutResponse);
   if (!_writeChar) {
     throw new Error("ไม่พบ writable characteristic");
