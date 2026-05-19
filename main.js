@@ -16,6 +16,8 @@ import { renderPermissionMatrix, hasPermission } from "./modules/permission_matr
 // Storage pull from main.js. main.js keeps thin wrappers that bind live globals
 // (state / SUPABASE_CONFIG / token) so all call sites are unchanged.
 import { updateAppLogos as _updateAppLogosImpl, getAppLogo as _getAppLogoImpl, syncAppLogo as _syncAppLogoImpl } from "./modules/branding.js";
+// Phase 92.4: html2canvas lazy loader extracted to modules/lazy_libs.js.
+import { loadHtml2Canvas as _loadHtml2CanvasImpl } from "./modules/lazy_libs.js";
 // Phase 89.20: customer_dashboard lazy — clearCustomerDashboardState called only if loaded (see logout)
 // Phase 89.21: btu_calculator, service_request lazy
 // Phase 89.20: solar, ac_install lazy
@@ -413,15 +415,10 @@ window._appSyncLogo = async function() {
 };
 
 // ★ Lazy loader สำหรับ html2canvas (~350KB) — โหลดเฉพาะตอนใช้งาน Share/PDF
+// Phase 92.4: loader moved to modules/lazy_libs.js. This thin wrapper preserves
+// the local _loadHtml2Canvas() call site (window._appShareDoc) + behavior.
 function _loadHtml2Canvas() {
-  return new Promise((resolve) => {
-    if (window.html2canvas) { resolve(true); return; }
-    const s = document.createElement("script");
-    s.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
-    s.onload = () => resolve(true);
-    s.onerror = () => resolve(false);
-    document.head.appendChild(s);
-  });
+  return _loadHtml2CanvasImpl({ windowRef: window, documentRef: document });
 }
 
 // ★ Share document function — แชร์เป็น PDF เหมือน FlowAccount

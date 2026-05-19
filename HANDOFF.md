@@ -3,13 +3,33 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 20 พฤษภาคม 2026 (Phase 92.3 — extract + harden logo Supabase sync, build 259)
-**Version:** 5.44.6 (build 259) — Phase 92.3 (extract `syncAppLogo()` to `modules/branding.js` + AbortController timeout)
-**Previous:** 5.44.5 (build 258) — Phase 92.2 (extract `getAppLogo()`)
+**อัปเดตล่าสุด:** 20 พฤษภาคม 2026 (Phase 92.4 — extract html2canvas lazy loader, build 260)
+**Version:** 5.44.7 (build 260) — Phase 92.4 (extract `loadHtml2Canvas()` to new `modules/lazy_libs.js`)
+**Previous:** 5.44.6 (build 259) — Phase 92.3 (extract `syncAppLogo()` + harden)
 
 ---
 
-## 🧱 Phase 92.3 — extract + harden logo Supabase sync (this session)
+## 🧱 Phase 92.4 — extract html2canvas lazy loader (this session)
+
+Continues the `main.js` decomposition. Behavior-preserving extraction (one tiny diagnostic log added).
+
+### Change
+- New `modules/lazy_libs.js` — home for lazy third-party script loaders. Exports `loadHtml2Canvas({ windowRef, documentRef, scriptUrl, logger })` + `HTML2CANVAS_CDN_URL` constant.
+- Contract identical to the inline original: resolves `true` if `window.html2canvas` already present (idempotent, no duplicate inject); else appends `<script>`, resolves `true` on load / `false` on error; never rejects.
+- Only addition: a `logger.warn` on the error path (was silent) — doesn't change the resolve contract or control flow.
+- `main.js` — `_loadHtml2Canvas()` is now a 1-line wrapper calling `_loadHtml2CanvasImpl({ windowRef: window, documentRef: document })`. Sole caller (`window._appShareDoc`) unchanged. `_loadHtml2Canvas` was main.js-private (not on window), single call site.
+- `tests/lazy_libs_load_html2canvas.test.js` — 10 tests (6 behavioral, 4 source-level), no browser.
+
+### Build
+- 259 → 260; version 5.44.6 → **5.44.7** (patch — refactor)
+- `npm run verify`: lint + **246 unit** (236 → 246, +10) + 11 e2e
+
+### main.js decomposition progress
+`modules/branding.js` (logo: updateAppLogos/getAppLogo/syncAppLogo) + `modules/lazy_libs.js` (loadHtml2Canvas) now own what used to be inline. Remaining big chunks in main.js: the Share/PDF overlay (`_appShareDoc`), boot IIFE, sidebar/nav, auth/profile boot.
+
+---
+
+## 🧱 Phase 92.3 — extract + harden logo Supabase sync
 
 Continues Phase 92.1/92.2. **Behavior-preserving extraction + a small intentional hardening** (network timeout).
 

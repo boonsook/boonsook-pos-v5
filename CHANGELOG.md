@@ -7,6 +7,48 @@
 
 ---
 
+## 5.44.7 (build 260) — 2026-05-20 🧱 Phase 92.4 — extract html2canvas lazy loader
+
+### Goal
+ต่อจาก 92.3 — แยก `_loadHtml2Canvas` (lazy-load html2canvas ~350KB) ออกจาก `main.js` ไป module ใหม่ `modules/lazy_libs.js` แบบ behavior-preserving
+
+### Change
+**ย้าย loader ไป `modules/lazy_libs.js` เป็น `loadHtml2Canvas({ windowRef, documentRef, scriptUrl, logger })`**
+
+- รักษา contract เดิม: resolve `true` ทันทีถ้า `window.html2canvas` มีอยู่แล้ว (idempotent ไม่ inject ซ้ำ) / inject `<script>` → `onload` resolve true, `onerror` resolve false / **ไม่เคย reject**
+- export `HTML2CANVAS_CDN_URL` (pin 1.4.1 cdnjs) แยกเป็น constant
+- เพิ่มจุดเดียวจากเดิม: `logger.warn` ตอน script โหลด fail (เดิมเงียบ) — **ไม่เปลี่ยน** resolve contract / control flow แค่ surface CDN/offline failure ให้ debug ง่ายขึ้น
+- `main.js`: import `loadHtml2Canvas as _loadHtml2CanvasImpl`; `_loadHtml2Canvas()` body 9 บรรทัด → wrapper 1 บรรทัด เรียก `_loadHtml2CanvasImpl({ windowRef: window, documentRef: document })`. caller เดียว (`window._appShareDoc` L488) ไม่เปลี่ยน
+
+### Scope note
+`_loadHtml2Canvas` เป็น function private ใน main.js (ไม่อยู่บน window), มี caller เดียว. modules อื่น (delivery_invoices/quotations/receipts) แค่เช็ค `window.html2canvas` — พึ่ง share flow โหลดให้ → ไม่กระทบ
+
+### Build sync
+- `selfheal.js?v=260`, `main.js?v=260`, `boot.js?v=260`, `style.css?v=260`, `data-app-build="260"`
+- `sw.js` CACHE_NAME `v259` → `v260`
+- `modules/settings/pages.js` Version `5.44.6` → **5.44.7**, build `259` → `260`
+
+### Test
+- ใหม่ `tests/lazy_libs_load_html2canvas.test.js` — **10 tests, 2 layers** (no browser):
+  - **Behavioral** (6): already-loaded → true + no script (idempotent), inject + src + append → onload true, onerror → false + log once, custom scriptUrl, null documentRef → false (no throw), `HTML2CANVAS_CDN_URL` pin 1.4.1
+  - **Source-level** (4): lazy_libs.js export loadHtml2Canvas, main.js import จาก `./modules/lazy_libs.js`, main.js ไม่มี inline cdnjs html2canvas URL แล้ว, wrapper `_loadHtml2Canvas` delegate `_loadHtml2CanvasImpl`
+- `npm run verify`: lint + **246 unit** (236 → 246, +10) + 11 e2e
+
+### How to test (manual smoke)
+1. Ctrl+Shift+R → version **5.44.7 (build 260)**
+2. เปิดเอกสาร (ใบเสร็จ/ใบเสนอราคา/ใบส่งของ) → กดแชร์/PDF → html2canvas โหลด + สร้าง PDF ได้ตามเดิม
+3. แชร์ครั้งที่ 2 → ไม่โหลด script ซ้ำ (idempotent)
+4. (option) offline → กดแชร์ → ไม่ crash, console เห็น `[loadHtml2Canvas] failed to load` (ของใหม่)
+
+### Phase 92 roadmap (เหลือ)
+1. ~~92.1~~ ✅ ~~92.2~~ ✅ ~~92.3~~ ✅ logo decomposition / ~~92.4~~ ✅ lazy_libs
+2. **92.5+** — boot IIFE → `modules/boot.js`; sidebar/navigation → `modules/sidebar.js`; auth/profile boot
+
+### Lesson recorded
+ไม่มี — extract เรียบ, caller เดียว, contract ชัด (เพิ่มแค่ logger.warn บน fail path ที่ flag ไว้แล้ว)
+
+---
+
 ## 5.44.6 (build 259) — 2026-05-20 🧱 Phase 92.3 — extract + harden logo Supabase sync
 
 ### Goal
