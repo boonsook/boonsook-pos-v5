@@ -3,13 +3,44 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 19 พฤษภาคม 2026 (Phase 90.13 — Loyalty history modal listener leak fix, build 252)
-**Version:** 5.43.48 (build 252) — Phase 90.13 (modal click-outside listener bound once, not per-open)
-**Previous:** 5.43.47 (build 251) — Phase 90.12 (defense-in-depth requireAdmin gate)
+**อัปเดตล่าสุด:** 19 พฤษภาคม 2026 (Phase 91.1 — POS checkout auto-earn loyalty points, build 253)
+**Version:** 5.44.0 (build 253) — Phase 91.1 (**NEW FEATURE**: minor bump — POS auto-earn loyalty wired)
+**Previous:** 5.43.48 (build 252) — Phase 90.13 (history modal listener leak)
 
 ---
 
-## 🧹 Phase 90.13 — Loyalty history modal click-outside listener leak (this session)
+## ⭐ Phase 91.1 — POS checkout auto-earn loyalty points (this session) [NEW FEATURE]
+
+`earnPoints()` ใน `modules/loyalty.js` มีอยู่แต่ไม่มี caller ตั้งแต่ Phase 90.8 — feature gap ที่ flag ไว้. ตอนนี้ pos.js checkout success path เรียก earnPoints อัตโนมัติเมื่อมีลูกค้าใน `_posCustomer` + ระบบแต้มเปิด + อัตราตั้งค่าแล้ว
+
+### Change (`modules/pos.js`)
+1. **Capture site** หลัง `saleId` validate (L1135-): `const _earnCustomerId = _posCustomer?.id || null; const _earnAmount = actualTotal;` — ก่อน state-reset block ที่ null `_posCustomer`
+2. **Fire-and-forget call site** หลัง `postJournalForSale` (L1218-): dynamic `import('./loyalty.js?v=' + APP_BUILD)` (Phase 90.7 cache-bust pattern) แล้วเรียก `earnPoints(_earnCustomerId, _earnAmount, 'sale', saleId, ctx)`
+3. **Guard** ที่ call site: เรียกเฉพาะเมื่อ `_earnCustomerId && state.loyaltySettings?.is_active && Number(state.loyaltySettings?.points_per_baht || 0) > 0` — silent skip ทุกกรณีที่ไม่ตรงเงื่อนไข (กัน toast "ระบบแต้มไม่เปิดใช้งาน" รั่วออกมาทุกบิล)
+4. Amount basis = `actualTotal` (post-discount + VAT — ยอดที่ลูกค้าจ่ายจริง). refType = `'sale'`, refId = `saleId`
+5. ctx ให้ `loadAllData: window.App?.loadAllData` — earnPoints success path จะ refresh state เพื่อให้ summary tab อัปเดตทันที (POS เองเรียก loadAllData ไปก่อนแล้ว 1 ครั้ง = duplicate refresh ยอมรับได้)
+
+### Out of scope
+- **Refund/cancel reversal** — ยังไม่ wire. ถ้า user refund / soft-delete sale หลังบ้าน → earn record ยังคา (over-credit ลูกค้า). Backlog: ใส่ `redeemPoints` call ใน refund/cancel flow ด้วย refType `'refund_reverse'` + negative points หรือ DELETE row
+- **Manual tab role gate** — ยังเป็น product decision
+
+### Tests (8 source-level assertions, `tests/pos_loyalty_auto_earn.test.js`)
+1. Capture: `_earnCustomerId = _posCustomer?.id` + `_earnAmount = actualTotal`
+2. Capture is AFTER `xhrPostPOS("sales", ...)`
+3. Capture is BEFORE post-checkout reset (`_posCustomer = null; // เคลียร์ลูกค้าหลังจบบิล`)
+4. Guard checks all 3: `_earnCustomerId` + `is_active` + `points_per_baht`
+5. Call signature `.earnPoints(_earnCustomerId, _earnAmount, 'sale', saleId, ctx)`
+6. Dynamic import URL has `?v=APP_BUILD` cache-bust
+7. No `await` on the import chain (fire-and-forget)
+8. `.catch` with `console.warn` (no silent swallow)
+
+### Build
+- 252 → 253; version 5.43.48 → **5.44.0** (minor bump — new feature)
+- `npm run verify`: lint + 168 unit + 11 e2e all green
+
+---
+
+## 🧹 Phase 90.13 — Loyalty history modal click-outside listener leak
 
 `showPointHistory()` ใน `modules/loyalty.js` เคย `modal?.addEventListener('click', ...)` ทุกครั้งที่เปิด modal → เปิด N ครั้ง = N stacked listeners บน element เดียว. Action เป็น idempotent (`display = 'none'`) — UX ไม่พัง — แต่เป็น DOM listener leak จริงที่โตตามการใช้งาน. ถ้า future refactor เพิ่ม logic ใน handler นี้ จะยิง N ครั้ง
 

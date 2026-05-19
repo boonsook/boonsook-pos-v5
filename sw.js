@@ -1,11 +1,11 @@
 // Boonsook POS V5 Service Worker
+// v253 (2026-05-19): Phase 91.1 — POS checkout auto-earn loyalty points (fire-and-forget after sale insert; gated on customer + is_active + points_per_baht; amount = actualTotal)
 // v252 (2026-05-19): Phase 90.13 — Loyalty history modal click-outside listener leak: bind once in renderLoyaltyPage instead of re-attach on every showPointHistory call
 // v251 (2026-05-19): Phase 90.12 — Loyalty settings save runtime requireAdmin guard (defense-in-depth; UI already gates content render but mid-session role downgrade or DOM injection now refused with toast)
 // v250 (2026-05-19): Phase 90.11 — boot.js periodic + visibilitychange SW update (long sessions no longer sit on old build until manual reload). No auto-reload added — banner UX unchanged.
 // v249 (2026-05-19): Phase 90.10 — Loyalty customer_id type mismatch: cast both sides to String() (bigint DB vs select.value string)
 // v248 (2026-05-19): Phase 90.9 — Loyalty manual redeem clear-form regression: redeemPoints/earnPoints now return {ok,error}; manual tab clears form only on r?.ok
-// v247 (2026-05-19): Phase 90.8 — Loyalty XHR helper signatures: earn/redeem/manual-earn now use 'loyalty_points' table + Promise pattern (was 404 + ignored callback)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v252';
+const CACHE_NAME = 'boonsook-pos-v5-cache-v253';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

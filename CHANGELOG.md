@@ -7,6 +7,61 @@
 
 ---
 
+## 5.44.0 (build 253) — 2026-05-19 ⭐ Phase 91.1 — POS checkout auto-earn loyalty points [NEW FEATURE]
+
+### What's new
+ปิดบิล POS → ระบบเพิ่มแต้มสะสมให้ลูกค้าอัตโนมัติ. ก่อนหน้านี้แม้ระบบแต้มเปิดใช้งานและตั้งอัตราไว้ ก็ต้อง admin ไปแท็บ "เพิ่ม/แลกแต้มด้วยตนเอง" ใส่แต้มเอง
+
+### กติกาที่ใช้
+- **เพิ่มแต้มก็ต่อเมื่อ** มีลูกค้าใน slip (`_posCustomer.id` ตั้งจาก ✚ เลือก/เพิ่มลูกค้า) + ระบบแต้มเปิด (`loyaltySettings.is_active`) + ตั้งอัตรา (`points_per_baht > 0`)
+- **Amount** = ยอดที่ลูกค้าจ่ายจริง (`actualTotal` — รวม VAT, หักส่วนลดแล้ว). ตัวอย่าง: ตั้ง "ทุก 100 บาทได้ 1 แต้ม" + บิล 1,500 บาท → ได้ 15 แต้ม (`Math.floor(1500 * 0.01)`)
+- **Silent skip** ทุกกรณีที่ไม่ตรงเงื่อนไข — ไม่มี toast รบกวนคนขายตอน loyalty ปิด
+- **Fire-and-forget** — ไม่ block UI. ถ้า earn ล้มเหลว (เน็ตหลุด, etc.) เข้า console.warn ไม่กระทบ flow ปิดบิล
+
+### Trace
+- earn record มี `ref_type='sale'` + `ref_id=<saleId>` → เปิดดูใน Loyalty → tab สรุปแต้ม → ปุ่ม history ของลูกค้า → ตารางจะแสดงรายการ "เพิ่มแต้ม N — sale #<saleId>"
+
+### Out of scope (รอ phase ถัดไป)
+- **Refund/cancel reversal** — ถ้า user refund หรือ soft-delete sale → earn record ยังคา = over-credit. ต้อง wire reverse-record (`redeemPoints` หรือ DELETE row) ใน `modules/refunds.js` + sale void path
+- **Manual tab role gate** — sales กดเพิ่ม/แลกได้อยู่ (product decision)
+
+### Change
+- `modules/pos.js`:
+  - หลัง `saleId` validate: capture `_earnCustomerId = _posCustomer?.id` + `_earnAmount = actualTotal` (ต้องจับก่อน state-reset เคลียร์ `_posCustomer`)
+  - หลัง `postJournalForSale(...).catch(...)`: เพิ่ม fire-and-forget block ที่ dynamic import `./loyalty.js?v=APP_BUILD` แล้วเรียก `m.earnPoints(_earnCustomerId, _earnAmount, 'sale', saleId, ctx)` กับ ctx ที่มี state + showToast + loadAllData
+
+### Build sync
+- `selfheal.js?v=253`, `main.js?v=253`, `boot.js?v=253`, `style.css?v=253`
+- `data-app-build="253"` ใน index.html
+- `sw.js` CACHE_NAME `v252` → `v253`
+- `modules/settings/pages.js` Version `5.43.48` → **5.44.0** (minor bump — new feature, ไม่ใช่ patch fix), build `252` → `253`
+
+### Test
+- เพิ่ม `tests/pos_loyalty_auto_earn.test.js` — 8 source-level assertions:
+  1. Capture: `_earnCustomerId = _posCustomer?.id` + `_earnAmount = actualTotal`
+  2. Capture หลัง `xhrPostPOS("sales", ...)` (ต้องมี saleId ก่อน)
+  3. Capture ก่อน `_posCustomer = null` ในส่วน post-checkout reset (anchor ด้วย comment "เคลียร์ลูกค้าหลังจบบิล")
+  4. Guard มีครบ 3 เงื่อนไข (`_earnCustomerId` + `is_active` + `points_per_baht`)
+  5. Call signature ตรง: `.earnPoints(_earnCustomerId, _earnAmount, 'sale', saleId, ctx)`
+  6. Dynamic import URL มี `?v=APP_BUILD` cache-bust (Phase 90.7 invariant)
+  7. ไม่มี `await` บน import chain (fire-and-forget, pattern เดียวกับ postJournalForSale)
+  8. `.catch` log ด้วย `console.warn` — ไม่ silent swallow
+- `npm run verify` ผ่านครบ: lint + **168 unit** (เดิม 160 +8) + 11 e2e
+
+### How to test (manual smoke)
+1. Ctrl+Shift+R → version แสดง **5.44.0 (build 253)**
+2. **Setup once:** Login เป็น admin → Loyalty → ตั้งค่า → เปิด "เปิดใช้งานระบบแต้ม" + ตั้ง "ทุกกี่บาทได้ 1 แต้ม" (เช่น 100) + บันทึก
+3. **Happy path:** ไปหน้า POS → กด ✚ เลือกลูกค้า "jeerasuk" → ใส่สินค้า/ยอด 500 บาท → ปิดบิล
+   - ✅ Expected: toast "บันทึกการขายเรียบร้อย ✅" + toast "บันทึกแต้ม 5 แต้มสำหรับลูกค้า" (ตามมาหลัง JV/Line notify) + Loyalty → สรุปแต้ม จะเห็น jeerasuk เพิ่ม 5 แต้ม
+4. **Silent skip — ไม่เลือกลูกค้า:** ปิดบิลโดยไม่กดเลือกลูกค้า → toast "บันทึกการขายเรียบร้อย ✅" เท่านั้น ไม่มี toast แต้ม ไม่มี error
+5. **Silent skip — ปิดระบบแต้ม:** ไปปิด "เปิดใช้งานระบบแต้ม" → กลับไป POS → เลือกลูกค้า → ปิดบิล → toast ปกติ ไม่มี toast แต้ม
+6. **Trace:** Loyalty → tab สรุปแต้ม → กดประวัติของลูกค้า → modal แสดงรายการ "เพิ่มแต้ม N — sale #<id>"
+
+### Lesson recorded
+ไม่มี — pattern fire-and-forget + capture-before-reset + lazy import with cache-bust = pattern เดิมที่มีอยู่ในระบบ (postJournalForSale, line notify) แค่นำมา compose
+
+---
+
 ## 5.43.48 (build 252) — 2026-05-19 🧹 Phase 90.13 — Loyalty history modal listener leak (Phase 90.11 audit B1)
 
 ### Bug shape

@@ -1132,6 +1132,12 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
       return;
     }
 
+    // Phase 91.1: capture loyalty earn context BEFORE state reset clears _posCustomer at L1202.
+    // amount = actualTotal (post-discount + VAT — what the customer actually paid),
+    // refId = saleId so the earn record traces back to this sale.
+    const _earnCustomerId = _posCustomer?.id || null;
+    const _earnAmount = actualTotal;
+
     // ถ้ามีสินค้าในตะกร้า → บันทึก sale_items
     if (state.cart.length > 0) {
       for (const item of state.cart) {
@@ -1215,6 +1221,22 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
       id: saleId,
       created_at: new Date().toISOString()
     }).catch(e => console.warn("[pos] auto-post JV failed:", e?.message));
+
+    // ★ Phase 91.1 — auto-earn loyalty points for the customer (fire-and-forget).
+    // Silent skip when: no customer selected / loyalty system off / rate not configured.
+    // We use dynamic import with ?v=APP_BUILD cache-bust (matches main.js _bustedUrl pattern, Phase 90.7)
+    // so a new build doesn't serve a stale parsed module from the browser's ESM registry.
+    if (_earnCustomerId
+        && state.loyaltySettings?.is_active
+        && Number(state.loyaltySettings?.points_per_baht || 0) > 0) {
+      import('./loyalty.js?v=' + (window.APP_BUILD || 'dev'))
+        .then(m => m.earnPoints(_earnCustomerId, _earnAmount, 'sale', saleId, {
+          state,
+          showToast: window.App?.showToast,
+          loadAllData: window.App?.loadAllData,
+        }))
+        .catch(e => console.warn("[pos] loyalty earn failed:", e?.message));
+    }
 
     // ★ ส่ง Line Notify ให้เจ้าของ (async — ไม่รอ)
     try {
