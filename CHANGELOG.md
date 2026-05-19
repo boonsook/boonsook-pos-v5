@@ -7,6 +7,47 @@
 
 ---
 
+## 5.43.44 (build 248) — 2026-05-19 🐛 Phase 90.9 — Loyalty manual redeem regression (form clears on failure)
+
+### Symptom (manual smoke on build 247)
+1. หน้า สะสมแต้ม → แท็บ "เพิ่ม/แลกแต้มด้วยตนเอง"
+2. เลือกลูกค้า `jeerasuk` (มี 0 แต้ม) + เลือก "แลกแต้ม" + ใส่ 100
+3. กดบันทึก → toast `แต้มไม่พอแลก` (ถูกต้อง) แต่ ฟอร์ม clear customer + points (ผิด — user ต้องเลือก/พิมพ์ใหม่)
+
+### Root cause (regression จาก 90.8)
+Phase 90.8 ทำ `redeemPoints` เป็น `async` แล้วใส่ `await` ที่ manual handler. แต่ `redeemPoints` early-return paths (`!is_active`, `points < min_redeem`, `points > remaining`) ยังคืน `void` — manual handler แยกผลสำเร็จ/ล้มเหลวไม่ได้ → `clear form` ทำงาน unconditional หลัง await
+
+### Fix
+- `earnPoints` + `redeemPoints` ทุก exit path คืน `{ok, error}` แบบเดียวกับ xhrPost
+- Manual tab redeem branch: `const r = await redeemPoints(...); if (r?.ok) { clear form }`
+- Manual tab earn branch ใช้ `r?.ok` ของ xhrPost อยู่แล้วตั้งแต่ 90.8 — pattern consistent
+
+### Build sync
+- `selfheal.js?v=248`, `main.js?v=248`, `boot.js?v=248`, `style.css?v=248`
+- `data-app-build="248"` ใน index.html
+- `sw.js` CACHE_NAME `v247` → `v248`
+- `modules/settings/pages.js` Version `5.43.43` → `5.43.44`, build `247` → `248`
+
+### Test
+- 145/145 unit tests pass
+- Lint clean
+
+### How to test (manual smoke)
+1. Hard refresh (Ctrl+Shift+R) → version แสดง 5.43.44 (build 248)
+2. ไปหน้า สะสมแต้ม → แท็บ "เพิ่ม/แลกแต้มด้วยตนเอง"
+3. เลือกลูกค้าที่มี 0 แต้ม + "แลกแต้ม" + ใส่ 100 + บันทึก
+   - ✅ Expected: toast "แต้มไม่พอแลก" + **ฟอร์มเก็บค่าเดิม** (customer + points ยังอยู่)
+   - ❌ ก่อนหน้า: toast บอกถูก แต่ฟอร์ม clear → user ต้องกรอกใหม่
+4. เลือกลูกค้าที่มีแต้มพอ + ใส่จำนวนที่แลกได้ + บันทึก
+   - ✅ Expected: toast "แลกแต้ม N แต้ม สำเร็จ" + ฟอร์ม clear
+5. เลือก "เพิ่มแต้ม" + ใส่ 50 + บันทึก
+   - ✅ Expected: toast "เพิ่มแต้ม 50 แต้มสำเร็จ" + ฟอร์ม clear (พฤติกรรมเดียวกับ 90.8)
+
+### Lesson
+Async refactor ต้อง revisit caller ทุกตัว — ไม่ใช่แค่เพิ่ม `await`. ถ้า caller ใช้ผลในเชิง UX (clear form, toast, navigation) ต้องเปลี่ยน return signature ของ callee ให้ caller แยกแยะได้
+
+---
+
 ## 5.43.43 (build 247) — 2026-05-19 🐛 Phase 90.8 — Loyalty XHR helper signatures (audit + fix 3 sites)
 
 ### Audit

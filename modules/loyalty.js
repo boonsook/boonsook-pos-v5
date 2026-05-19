@@ -61,20 +61,21 @@ export async function earnPoints(customerId, amount, refType, refId, ctx) {
   const { state, showToast, loadAllData } = ctx;
   const settings = state.loyaltySettings || {};
 
+  // Phase 90.9: every exit path returns {ok, error} so callers (e.g. manual tab) can decide whether to clear UI.
   if (!settings.is_active) {
     if (showToast) showToast("ระบบแต้มไม่เปิดใช้งาน", "warning");
-    return;
+    return { ok: false, error: { message: "ระบบแต้มไม่เปิดใช้งาน" } };
   }
 
   const pointsPerBaht = Number(settings.points_per_baht || 0);
   if (pointsPerBaht <= 0) {
     if (showToast) showToast("ยังไม่ตั้งค่าอัตราแต้ม", "warning");
-    return;
+    return { ok: false, error: { message: "ยังไม่ตั้งค่าอัตราแต้ม" } };
   }
 
   const pointsToAdd = Math.floor(Number(amount || 0) * pointsPerBaht);
 
-  if (pointsToAdd <= 0) return;
+  if (pointsToAdd <= 0) return { ok: false, error: { message: "amount เล็กเกินไป" } };
 
   const newRecord = {
     customer_id: customerId,
@@ -91,9 +92,10 @@ export async function earnPoints(customerId, amount, refType, refId, ctx) {
   if (r?.ok) {
     if (showToast) showToast(`บันทึกแต้ม ${pointsToAdd} แต้มสำหรับลูกค้า`, "success");
     if (loadAllData) loadAllData();
-  } else {
-    if (showToast) showToast('บันทึกแต้มล้มเหลว: ' + (r?.error?.message || 'unknown'), "error");
+    return { ok: true, error: null };
   }
+  if (showToast) showToast('บันทึกแต้มล้มเหลว: ' + (r?.error?.message || 'unknown'), "error");
+  return { ok: false, error: r?.error || { message: "unknown" } };
 }
 
 /**
@@ -103,21 +105,23 @@ export async function redeemPoints(customerId, points, note, ctx) {
   const { state, showToast, loadAllData, requireAdmin: _requireAdmin } = ctx;
   const settings = state.loyaltySettings || {};
 
+  // Phase 90.9: every exit path returns {ok, error} so the manual tab handler can clear form only on success
+  // (previous bug: form cleared even when redeem failed early — "insufficient points", "below min_redeem", etc.).
   if (!settings.is_active) {
     if (showToast) showToast("ระบบแต้มไม่เปิดใช้งาน", "warning");
-    return;
+    return { ok: false, error: { message: "ระบบแต้มไม่เปิดใช้งาน" } };
   }
 
   const minRedeem = Number(settings.min_redeem || 0);
   if (Number(points || 0) < minRedeem) {
     if (showToast) showToast(`ต้องแลกอย่างน้อย ${minRedeem} แต้ม`, "warning");
-    return;
+    return { ok: false, error: { message: `ต้องแลกอย่างน้อย ${minRedeem} แต้ม` } };
   }
 
   const customerPoints = getCustomerPoints(customerId, ctx);
   if (customerPoints.remaining < Number(points || 0)) {
     if (showToast) showToast("แต้มไม่พอแลก", "error");
-    return;
+    return { ok: false, error: { message: "แต้มไม่พอแลก" } };
   }
 
   const newRecord = {
@@ -135,9 +139,10 @@ export async function redeemPoints(customerId, points, note, ctx) {
   if (r?.ok) {
     if (showToast) showToast(`แลกแต้ม ${points} แต้ม สำเร็จ`, "success");
     if (loadAllData) loadAllData();
-  } else {
-    if (showToast) showToast('แลกแต้มล้มเหลว: ' + (r?.error?.message || 'unknown'), "error");
+    return { ok: true, error: null };
   }
+  if (showToast) showToast('แลกแต้มล้มเหลว: ' + (r?.error?.message || 'unknown'), "error");
+  return { ok: false, error: r?.error || { message: "unknown" } };
 }
 
 /**
@@ -538,10 +543,14 @@ function renderManualTab(customers, ctx) {
           if (showToast) showToast('บันทึกล้มเหลว: ' + (r?.error?.message || 'unknown'), 'error');
         }
       } else {
-        await redeemPoints(customerId, points, note, ctx);
-        document.getElementById('loyalty-manual-customer').value = '';
-        document.getElementById('loyalty-manual-points').value = '0';
-        document.getElementById('loyalty-manual-note').value = '';
+        // Phase 90.9: only clear form on success — early returns ("แต้มไม่พอแลก", "ต้องแลกอย่างน้อย N",
+        // "ระบบแต้มไม่เปิดใช้งาน") now propagate {ok:false} so user keeps their input to correct it.
+        const r = await redeemPoints(customerId, points, note, ctx);
+        if (r?.ok) {
+          document.getElementById('loyalty-manual-customer').value = '';
+          document.getElementById('loyalty-manual-points').value = '0';
+          document.getElementById('loyalty-manual-note').value = '';
+        }
       }
     });
   }, 0);

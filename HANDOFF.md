@@ -3,15 +3,15 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 19 พฤษภาคม 2026 (Phase 90.8 — Loyalty XHR signature fix batch, build 247)
-**Version:** 5.43.43 (build 247) — Phase 90.8 (fix 3 broken `_appXhrPost` sites in loyalty.js)
-**Previous:** 5.43.42 (build 246) — Phase 90.7 (lazy-import cache bust hotfix)
+**อัปเดตล่าสุด:** 19 พฤษภาคม 2026 (Phase 90.9 — Loyalty manual redeem clear-form regression fix, build 248)
+**Version:** 5.43.44 (build 248) — Phase 90.9 (redeemPoints/earnPoints return {ok}; manual tab clears only on success)
+**Previous:** 5.43.43 (build 247) — Phase 90.8 (loyalty XHR signature fix batch, 3 sites)
 
 ---
 
-## 🔥 Phase 90.4 – 90.8 — Loyalty bug onion (4 layers) **CLOSED**
+## 🔥 Phase 90.4 – 90.9 — Loyalty bug onion (5 layers) **CLOSED**
 
-> ปุ่ม "บันทึกการตั้งค่า" + "เพิ่มแต้ม/แลกแต้ม" ใน Loyalty page เงียบสนิทมานาน — fix 4 ชั้น 5 phases, build 243 → 247.
+> ปุ่ม "บันทึกการตั้งค่า" + "เพิ่มแต้ม/แลกแต้ม" ใน Loyalty page เงียบสนิทมานาน — fix 5 ชั้น 6 phases, build 243 → 248.
 
 | Phase | PR | Build | Layer | Root cause |
 |-------|----|-------|-------|------------|
@@ -19,9 +19,19 @@
 | 90.5 | #30 (chore) | (no bump) | — | E2E/lint cleanup |
 | 90.6 | #31 | 244→245 | 2: signature | settings save เรียก `_appXhrPatch(restUrl, payload, callback)` — ผิดสัญญา (จริงคือ `(table, payload, eqCol, eqVal) → Promise`) |
 | 90.7 | #32 | 245→246 | 3: ESM cache | `main.js _lazyImport()` ไม่ใส่ `?v=APP_BUILD` ใน `import()` → browser ESM registry serve module 244-era ต่อ ถึงแม้ network คืนไฟล์ใหม่ |
-| **90.8** | (this) | **246→247** | **4: same signature bug 3 จุดอื่น** | `earnPoints` / `redeemPoints` / manual-earn handler ใน loyalty.js เรียก `_appXhrPost('/api/loyalty-points', rec, cb)` — REST path ผิด (xhrPost prefixes `/rest/v1/`) + callback ถูกทิ้ง (xhrPost คืน Promise) |
+| 90.8 | (prev) | 246→247 | 4: same signature bug 3 จุดอื่น | `earnPoints` / `redeemPoints` / manual-earn handler เรียก `_appXhrPost('/api/loyalty-points', rec, cb)` — REST path ผิด + callback ถูกทิ้ง |
+| **90.9** | (this) | **247→248** | **5: silent regression จาก 90.8** | หลัง 90.8 ทำ `redeemPoints` เป็น `async` แต่ยังคืน `void` ทุก path — manual handler clear form มั่วๆ ทั้งกรณีสำเร็จ/ล้มเหลว (user แลก 100 แต้มที่มี 0 → toast "แต้มไม่พอแลก" แต่ฟอร์มถูก clear) |
 
-### Phase 90.8 fixes (this session)
+### Phase 90.9 fixes (this session)
+- `modules/loyalty.js` — `earnPoints` + `redeemPoints` ทุก exit path คืน `{ok, error}` (mirror xhrPost shape) — early-return paths (`!is_active`, `< minRedeem`, `< remaining`, etc.) เคยคืน `void` → callers แยกผลไม่ได้
+- `modules/loyalty.js` — manual tab redeem branch ใช้ `const r = await redeemPoints(...); if (r?.ok) { clear form }` — เคย clear ไม่มีเงื่อนไข
+- earn branch ใน manual tab ใช้ `r?.ok` ของ xhrPost อยู่แล้วตั้งแต่ 90.8 — pattern consistent ทั้ง 2 branch
+
+### Lessons (เพิ่ม)
+- **Async refactor ต้อง revisit ทุก caller** — Phase 90.8 ทำ `redeemPoints` เป็น `async` แล้วใส่ `await` ที่ caller. แต่ caller ยังตั้งสมมติฐานเดิม (clear form unconditional) เพราะ return value type ไม่เปลี่ยน (ยังเป็น `void`/`Promise<void>`). Lesson: เปลี่ยน sync→async แล้วถ้า caller ใช้ผลลัพธ์ในเชิง UX ต้องเปลี่ยน return signature ด้วย ไม่ใช่แค่เพิ่ม `await`
+- **Form clear belongs to caller, not callee** — `redeemPoints` ไม่รู้ว่า caller จาก manual tab หรือ POS auto-redeem. คนเรียกเท่านั้นที่รู้ว่า input อยู่ใน DOM ไหน + ควร clear เมื่อไหร่. Pattern ถูก: callee คืน status, caller decide
+
+### Phase 90.8 fixes (previous session — context)
 - `modules/loyalty.js:60` `earnPoints` → `async`, ใช้ `await _appXhrPost('loyalty_points', rec)` (เคยเป็น dead code — ไม่มี caller, แต่ fix ไว้กัน feature gap ในอนาคต)
 - `modules/loyalty.js:102` `redeemPoints` → `async`, แก้ signature (เรียกจาก Manual tab line 540 — LIVE bug)
 - `modules/loyalty.js:501` manual-earn click listener → `async`, แก้ signature (LIVE bug)
