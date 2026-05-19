@@ -101,10 +101,26 @@ window.addEventListener('bsk-app-ready', hideLoadingOverlay);
     }
   });
 
+  // Phase 90.11: kick reg.update() periodically and on tab visibility change so
+  // long-lived sessions don't sit on an old build until the user reloads. We
+  // never reload here — we just trigger the SW update check; the existing
+  // watchForUpdate() → updatefound → showUpdateBanner() flow still owns the UX.
+  function startPeriodicUpdate(reg) {
+    var SW_UPDATE_INTERVAL_MS = 10 * 60 * 1000; // 10 min
+    setInterval(function () {
+      try { reg.update().catch(function () {}); } catch (e) { /* ignore */ }
+    }, SW_UPDATE_INTERVAL_MS);
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) return;
+      try { reg.update().catch(function () {}); } catch (e) { /* ignore */ }
+    });
+  }
+
   window.addEventListener('load', function () {
     navigator.serviceWorker.register('./sw.js').then(function (reg) {
       console.log('SW registered:', reg.scope);
       watchForUpdate(reg);
+      startPeriodicUpdate(reg);
     }).catch(function (err) {
       console.log('SW registration failed:', err);
     });

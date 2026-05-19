@@ -7,6 +7,50 @@
 
 ---
 
+## 5.43.46 (build 250) — 2026-05-19 🔄 Phase 90.11 — Update UX hardening (periodic + visibilitychange SW update)
+
+### Goal
+ลดโอกาส user ติด build เก่าตอนเปิดแอปทิ้งไว้นาน (เช่น cashier เปิดทั้งวัน). Update banner เดิมจะเด้งก็ต่อเมื่อมี `updatefound` event — ซึ่งจะ trigger เฉพาะตอนที่ browser ตัดสินใจ refetch sw.js หรือมี `reg.update()` call. ของเดิมเรียก `reg.update()` แค่ครั้งเดียวตอน register
+
+### Change (`boot.js`)
+เพิ่ม `startPeriodicUpdate(reg)` ที่เรียกจาก SW register `.then()` — ทำ 2 อย่าง:
+1. `setInterval(() => reg.update(), 10 * 60 * 1000)` — ทุก 10 นาที
+2. `document.addEventListener('visibilitychange', ...)` — เมื่อ tab กลับมา visible → `reg.update()`
+
+ทั้ง 2 path **ไม่ reload เอง** — แค่ trigger SW update check. ถ้ามี build ใหม่ flow เดิม (`updatefound` → installed → `showUpdateBanner` → user คลิก "อัปเดตเลย" → SKIP_WAITING → controllerchange → reload) จะทำงานต่อ. User ที่กำลังพิมพ์อยู่ไม่โดน yank
+
+### Edge cases handled
+- `reg.update()` คืน Promise — wrapped ด้วย `.catch(() => {})` กัน uncaught rejection (offline, browser throttle, etc.)
+- `visibilitychange` ยิงทั้งตอน hide + show — gated ด้วย `if (document.hidden) return` เพื่อ trigger เฉพาะตอนกลับมา visible
+
+### Build sync
+- `selfheal.js?v=250`, `main.js?v=250`, `boot.js?v=250`, `style.css?v=250`
+- `data-app-build="250"` ใน index.html
+- `sw.js` CACHE_NAME `v249` → `v250`
+- `modules/settings/pages.js` Version `5.43.45` → `5.43.46`, build `249` → `250`
+
+### Test
+- เพิ่ม `tests/boot_periodic_sw_update.test.js` — 6 source-level assertion (interval scheduled, visibility gated, no reload, errors swallowed, wired in)
+- `npm run verify` ผ่านครบ: lint clean + 151 unit + 11 e2e (รวม build version sync test ที่ validate 250 ทุก ?v=)
+
+### How to test (manual smoke — บ่อยขึ้นจริงๆ ต้องรอเวลา)
+1. Ctrl+Shift+R → version แสดง 5.43.46 (build 250)
+2. เปิด DevTools → Application → Service Workers → ดู timestamp ของ "Last updated"
+3. รอ ~10 นาที (หรือ Tab ออกไปทำอะไรอื่นแล้วกลับมา) → ดู Network tab จะเห็น GET sw.js ใหม่ + timestamp อัปเดต
+4. ถ้ามี build ใหม่ระหว่างที่เปิดแอปทิ้งไว้ → banner "🔄 มีเวอร์ชันใหม่ — คลิกเพื่อใช้งาน" จะเด้ง โดยไม่ต้อง reload
+
+### What this does NOT change
+- Auto-reload behavior — ยังคง user-initiated เท่านั้น (กดปุ่มในแบนเนอร์ หรือ Settings → ตรวจหาอัปเดต)
+- Manual update buttons ใน Settings ทำงานเหมือนเดิมครบ 3 ระดับ (check / hard refresh / nuke)
+- Watch-for-update + SKIP_WAITING + controllerchange — unchanged
+
+### Audit findings deferred (out of scope per user spec)
+- Settings save runtime requireAdmin guard (defense-in-depth) — defer
+- History modal listener leak — low risk, defer
+- Manual tab role gate — product decision, awaiting user direction
+
+---
+
 ## 5.43.45 (build 249) — 2026-05-19 🐛 Phase 90.10 — Loyalty customer_id type mismatch (bigint vs string)
 
 ### Symptom (manual smoke on build 248)

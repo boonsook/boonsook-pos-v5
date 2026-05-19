@@ -3,9 +3,25 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 19 พฤษภาคม 2026 (Phase 90.10 — Loyalty customer_id type mismatch fix, build 249)
-**Version:** 5.43.45 (build 249) — Phase 90.10 (String() both sides of customer_id comparison — bigint vs select.value)
-**Previous:** 5.43.44 (build 248) — Phase 90.9 (redeemPoints/earnPoints return {ok}; manual tab clears only on success)
+**อัปเดตล่าสุด:** 19 พฤษภาคม 2026 (Phase 90.11 — boot.js periodic + visibilitychange SW update, build 250)
+**Version:** 5.43.46 (build 250) — Phase 90.11 (long-session update UX hardening — no auto-reload)
+**Previous:** 5.43.45 (build 249) — Phase 90.10 (loyalty customer_id type mismatch)
+
+---
+
+## 🔄 Phase 90.11 — Update UX hardening (this session)
+
+`boot.js` now triggers `reg.update()` on a 10-min interval and on tab `visibilitychange` → visible. Existing watch-for-update / SKIP_WAITING / controllerchange flow is unchanged — the banner UX still owns reload. No auto-reload was added. Long-lived sessions (cashier leaves app open all day) now have multiple chances to see the update banner without manual reload.
+
+- `boot.js` — new `startPeriodicUpdate(reg)` called from SW register `.then()`
+- `tests/boot_periodic_sw_update.test.js` — 6 source-level assertions (interval scheduled, visibility gated, no reload, errors swallowed, wired in)
+- `npm run verify` clean: lint + 151 unit + 11 e2e
+- Build 249 → 250
+
+### Audit findings deferred (out of scope per user spec)
+- A1: settings save runtime `requireAdmin?.()` guard — defense-in-depth only (UI already gates content render). Save for later phase
+- B1: history modal click-outside listener leak in `showPointHistory` (L631) — fires harmlessly N times but accumulates. Low risk
+- Manual tab role gate — product decision (sales granting/redeeming points = store value). User has not asked
 
 ---
 
