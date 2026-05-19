@@ -49,15 +49,17 @@ test("renderSettingsTab: setTimeout MUST come BEFORE return (otherwise click han
   const fnBody = extractFn(loyaltySrc, "renderSettingsTab");
   assert.ok(fnBody, "renderSettingsTab function must exist in modules/loyalty.js");
 
-  const setTimeoutIdx = fnBody.indexOf("setTimeout(");
-  const returnIdx = fnBody.indexOf("return ");
+  // Statement-level matches only (^\s* after newline) — avoid false positives
+  // from the word "return" appearing inside comments or string literals.
+  const setTimeoutMatch = fnBody.match(/\n\s*setTimeout\(/);
+  const returnMatch = fnBody.match(/\n\s*return\s/);
 
-  assert.ok(setTimeoutIdx > 0, "renderSettingsTab must contain a setTimeout call (to attach click handler post-render)");
-  assert.ok(returnIdx > 0, "renderSettingsTab must contain a return statement");
+  assert.ok(setTimeoutMatch, "renderSettingsTab must contain a setTimeout statement (to attach click handler post-render)");
+  assert.ok(returnMatch, "renderSettingsTab must contain a return statement");
   assert.ok(
-    setTimeoutIdx < returnIdx,
-    `setTimeout (idx ${setTimeoutIdx}) must come BEFORE return (idx ${returnIdx}) — ` +
-      `otherwise the click handler at line ~418 is unreachable and " + ` +
+    setTimeoutMatch.index < returnMatch.index,
+    `setTimeout statement (idx ${setTimeoutMatch.index}) must come BEFORE return statement (idx ${returnMatch.index}) — ` +
+      `otherwise the click handler is unreachable and ` +
       `'บันทึกการตั้งค่า' silently fails (no-unreachable real bug from Phase 89.40 audit).`
   );
 });
