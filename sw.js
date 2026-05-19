@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v245 (2026-05-19): Phase 90.6 — Hotfix loyalty save xhrPatch signature (was passing REST URL + callback to a Promise-returning helper — saves silently failed on build 244)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v245';
+// v246 (2026-05-19): Phase 90.7 — Hotfix dynamic-import ESM cache (build 245 deployed but in-memory ESM registry kept old parsed modules — append ?v=APP_BUILD to import() URLs)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v246';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
