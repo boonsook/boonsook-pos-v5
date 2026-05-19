@@ -7,6 +7,84 @@
 
 ---
 
+## 5.44.2 (build 255) — 2026-05-19 ↩️ Phase 91.3 — Refund/cancel reverse loyalty auto-earn
+
+### Goal
+ปิด over-credit risk จาก Phase 91.1 — ถ้าบิลที่ได้แต้มอัตโนมัติถูก refund หรือ soft-delete ลูกค้ายังเก็บแต้มฟรี. Phase 91.3 ใส่ "claw back" idempotent ทั้ง 2 reverse path
+
+### Schema decision
+ใช้ schema เดิม **ไม่เพิ่ม `type` enum ใหม่** (ลดความเสี่ยง regression ต่อ summary/history/getCustomerPoints):
+```
+type      = 'redeem'         (existing — subtract path เดิม)
+ref_type  = 'sale_reverse'   (ค่าใหม่ — column เป็น text ไม่มี CHECK)
+ref_id    = <saleId>         (anchor idempotency เข้ากับ sale ต้นทาง)
+```
+`getCustomerPoints` หัก `redeem` ทุก row อยู่แล้ว → balance อัปเดตเอง. `ref_type` แยก auto-reverse จาก manual redeem ใน history modal ได้
+
+### Helper (`modules/loyalty.js`)
+3 functions ใหม่ที่ export ให้ caller ทุก reverse path เรียก:
+- `getSaleEarnedPoints(state, saleId, customerId?)` — sum earn ของ sale หนึ่ง
+- `hasReversedLoyaltyForSale(state, saleId, customerId?)` — idempotency probe
+- `reverseEarnedPointsForSale(saleId, { state, customerId?, refundId? })` — main entry
+
+Return shape:
+```js
+{ ok: true,  reversed: N, totalEarned: T, capped: boolean }
+{ ok: false, skipped: true,  reason: '...' }    // expected silent skip
+{ ok: false, skipped: false, reason: '...' }    // real failure
+```
+ไม่ throw — caller จัดการได้
+
+### Wiring (2 จุด)
+1. **`modules/refunds.js`** (~L412) — fire-and-forget หลัง `postJournalForRefund`. Dynamic import `./loyalty.js?v=APP_BUILD` (Phase 90.7 invariant). ผ่าน `state` + `customerId` + `refundId` ให้ helper. Toast `คืนแต้ม N แต้ม` ตอน success, มี `(จาก N)` suffix ถ้า capped
+2. **`modules/sales.js`** soft-delete (~L237) — side-effect (c) เคียงข้าง void JV + revert stock. ใช้ dynamic import เหมือนกัน. ค้นหา `customer_id` จาก `state.sales` ตาม `saleId`. ใส่ `คืนแต้ม N/T` เข้า sideEffectsMsg เดิม
+
+### Guarantees
+- **Idempotent**: scan `state.loyaltyPoints` หา row ที่มี `ref_type='sale_reverse'` + `ref_id=saleId` + `customer_id=cid` แล้ว skip ทันทีถ้ามี
+- **No negative balance**: cap reverse ที่ `min(earnedFromSale, customer.remaining)`. ถ้าลูกค้าใช้แต้มไปก่อนแล้ว note จะใส่ `(3 แต้มถูก redeem ไปแล้ว)`
+- **Silent skip** สำหรับ: ไม่มี `customer_id` ใน sale / ไม่เคย earn / remaining=0
+- **Main flow safe**: try/catch + console.warn. refund/cancel ปกติยังเสร็จเสมอแม้ loyalty layer fail (RLS, network, missing XHR)
+
+### Build sync
+- `selfheal.js?v=255`, `main.js?v=255`, `boot.js?v=255`, `style.css?v=255`
+- `data-app-build="255"` ใน index.html
+- `sw.js` CACHE_NAME `v254` → `v255`
+- `modules/settings/pages.js` Version `5.44.1` → **5.44.2** (patch — closes loyalty gap), build `254` → `255`
+
+### Tests
+- เพิ่ม `tests/loyalty_reverse_sale.test.js` — **18 unit tests with mocked `window._appXhrPost`**:
+  1-5. `getSaleEarnedPoints` — null guards, sale/customer filtering, redeem rows ignored, String() coerce
+  6-8. `hasReversedLoyaltyForSale` — true/false, distinguishes ref_type='sale_reverse' from manual `'redemption'`
+  9-10. Happy path: earn 5 → reverse 5, record shape ครบ, refundId append เข้า note
+  11. Idempotency: existing reverse row → skip + 0 xhr calls
+  12-13. Skips: no earn / no customer_id
+  14. **Cap**: earn 5 + redeem 3 → reverse 2, capped=true, note shows `2/5`
+  15. Skip when remaining=0 (used all)
+  16. Defense — negative remaining → skip (เผื่อ corrupt data)
+  17. Missing `window._appXhrPost` → `ok:false, skipped:false` (ไม่ throw)
+  18. RLS denied → `ok:false, skipped:false`, attempted insert
+- `npm run verify` ผ่านครบ: lint + **200 unit** (เดิม 182 +18) + 11 e2e
+
+### How to test (manual smoke)
+1. Ctrl+Shift+R → version แสดง **5.44.2 (build 255)**
+2. **Setup:** Loyalty settings → "ทุก 100 บาท = 1 แต้ม" + เปิด is_active
+3. **Round 1 (happy path):**
+   - POS → เลือก jeerasuk → ขาย 500 บาท → `+5 แต้ม` ✓
+   - Refunds → คืนบิลนี้ → ✅ toast `คืนแต้ม 5 แต้ม` + Loyalty summary jeerasuk -5
+   - History modal → row "เพิ่มแต้ม 5 — sale #X" + row "แลกแต้ม 5 — sale_reverse #X" คู่กัน
+4. **Round 2 (idempotency):** กดสั่ง refund บิลเดิมอีกครั้ง (ถ้า UX อนุญาต) → ✅ console log `loyalty reverse skipped: already reversed` (ไม่มี duplicate -5)
+5. **Round 3 (no customer):** ขายไม่เลือกลูกค้า → refund → ไม่มี loyalty side effect (silent skip)
+6. **Round 4 (cap behavior):**
+   - ขาย jeerasuk 500 → +5 (รวม remaining = X+5)
+   - Loyalty manual tab → redeem 3 แต้มของ jeerasuk
+   - Refund บิลนี้ → ✅ toast `คืนแต้ม N (จาก 5)` โดย N = remaining ที่เหลือ. History note ใส่ `(3 แต้มถูก redeem ไปแล้ว)`
+7. **Round 5 (sale soft-delete):** Sales tab → กดลบบิลที่มี loyalty earn → toast `ลบรายการขายเรียบร้อย ✅ (...คืนแต้ม 5)`
+
+### Lesson recorded
+ไม่มี — pattern เดียวกับ Phase 91.1 (fire-and-forget side-effect + Phase 90.7 ?v=APP_BUILD cache-bust + Phase 90.10 String() compare). Composition ของ pattern ที่มีอยู่
+
+---
+
 ## 5.44.1 (build 254) — 2026-05-19 🔥 Phase 91.2 HOTFIX — Earn formula divide-not-multiply
 
 ### Severity

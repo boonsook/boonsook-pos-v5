@@ -3,13 +3,60 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 19 พฤษภาคม 2026 (Phase 91.2 HOTFIX — earn formula divide-not-multiply, build 254)
-**Version:** 5.44.1 (build 254) — Phase 91.2 (🔥 hotfix: 500 baht at rate 100 was earning 50,000 not 5)
-**Previous:** 5.44.0 (build 253) — Phase 91.1 (POS auto-earn — shipped with wrong formula 💥)
+**อัปเดตล่าสุด:** 19 พฤษภาคม 2026 (Phase 91.3 — Refund/cancel reverse loyalty earn, build 255)
+**Version:** 5.44.2 (build 255) — Phase 91.3 (idempotent reverse helper wired into refund + sale soft-delete)
+**Previous:** 5.44.1 (build 254) — Phase 91.2 HOTFIX (earn formula divide-not-multiply)
 
 ---
 
-## 🔥 Phase 91.2 HOTFIX — Earn formula (this session)
+## ↩️ Phase 91.3 — Refund/cancel reverse loyalty earn (this session)
+
+Phase 91.1 wired auto-earn but didn't claw back when a sale was refunded or soft-deleted → over-credit risk. Phase 91.3 closes that gap with an idempotent helper called from both reverse paths.
+
+### Helper (`modules/loyalty.js`)
+- `getSaleEarnedPoints(state, saleId, customerId?)` — sum earn for a sale
+- `hasReversedLoyaltyForSale(state, saleId, customerId?)` — idempotency probe
+- `reverseEarnedPointsForSale(saleId, { state, customerId?, refundId? })` — main entry. Returns `{ ok, skipped?, reason?, reversed?, totalEarned?, capped? }`. Never throws.
+
+Record shape (stays within existing schema — no `type` enum change, no migration):
+```
+type     = 'redeem'
+ref_type = 'sale_reverse'
+ref_id   = <saleId>
+```
+`getCustomerPoints` already subtracts every `type='redeem'` row → balance updates automatically. `ref_type` distinguishes auto-reverse from manual redemption in history.
+
+### Wiring
+1. **`modules/refunds.js`** — fire-and-forget call right after `postJournalForRefund` (line ~412). Skip silently when sale has no `customer_id`. Toast `คืนแต้ม N แต้ม` on success, `(จาก N)` suffix when capped.
+2. **`modules/sales.js`** soft-delete — runs as side-effect (c) alongside void JV + revert stock (line ~237). Adds `คืนแต้ม N/T` to the existing summary toast. Errors logged but never fail the delete.
+
+### Guarantees
+- **Idempotent:** second refund of the same sale (or refund + soft-delete) skips on `reason: 'already reversed'` — never claws back twice
+- **Never negative:** caps reverse at `customer.remaining`. If customer already spent points elsewhere, only the available balance is clawed back; the cap is recorded in `note` (`คืน 2/5 (3 แต้มถูก redeem ไปแล้ว)`)
+- **Silent skips** for: no `customer_id` on sale, no earn record for the sale, remaining=0
+- **Main flow safe:** helper failures (RLS, network, missing XHR) log but never throw — refund/cancel itself completes
+
+### Tests (`tests/loyalty_reverse_sale.test.js` — 18 unit tests with mocked `window._appXhrPost`)
+- Happy path: earn 5 → reverse 5, record shape verified end-to-end
+- Idempotency: existing reverse row → skip, 0 POSTs
+- Skips: no earn, no customer_id, remaining=0
+- Cap: earn 5 + manual redeem 3 → reverse 2, `capped=true`, note shows `2/5`
+- Failure modes: missing XHR / RLS / network error → returns `{ ok:false, skipped:false }` without throwing
+- `getSaleEarnedPoints` / `hasReversedLoyaltyForSale` defensive coverage (Phase 90.10 bigint vs string)
+
+`npm run verify` clean: lint + **200 unit** (182 → 200, +18) + 11 e2e
+
+### Audit closures (Phase 90.x + 91.x)
+| Item | Status | Phase |
+|------|--------|-------|
+| A1 settings save runtime guard | ✅ | 90.12 |
+| B1 history modal listener leak | ✅ | 90.13 |
+| Refund/cancel loyalty reverse | ✅ | **91.3** |
+| Manual tab role gate | ⏳ deferred — product decision | — |
+
+---
+
+## 🔥 Phase 91.2 HOTFIX — Earn formula
 
 Production build 253 ส่ง point ผิด x10,000 — user สมาชิก `jeerasuk` กระโดดจาก 600 → 50,600 หลัง sale 500 บาท
 

@@ -235,6 +235,33 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
           sideEffects.push("⚠️ revert stock exception");
         }
 
+        // (c) Phase 91.3 — reverse loyalty auto-earn. Helper is silent on no-customer /
+        // no-earn / already-reversed and caps the reverse at the customer's remaining
+        // balance. Helper failures must NEVER fail the delete flow.
+        try {
+          const mod = await import("./loyalty.js?v=" + (window.APP_BUILD || "dev"));
+          const targetSale = (state.sales || []).find(s => String(s.id) === String(saleId));
+          if (targetSale?.customer_id) {
+            const res = await mod.reverseEarnedPointsForSale(saleId, {
+              state,
+              customerId: targetSale.customer_id,
+            });
+            if (res?.ok) {
+              const cappedNote = res.capped ? `/${res.totalEarned}` : "";
+              sideEffects.push(`คืนแต้ม ${res.reversed}${cappedNote}`);
+            } else if (res?.skipped) {
+              // expected silent skip — log only
+              console.log("[sales delete] loyalty reverse skipped:", res.reason);
+            } else {
+              console.warn("[sales delete] loyalty reverse failed:", res?.reason);
+              sideEffects.push("⚠️ reverse loyalty fail");
+            }
+          }
+        } catch (e) {
+          console.warn("[sales delete] loyalty reverse exception:", e?.message);
+          sideEffects.push("⚠️ reverse loyalty exception");
+        }
+
         const sideEffectsMsg = sideEffects.length ? ` (${sideEffects.join(", ")})` : "";
         if (showToast) showToast("ลบรายการขายเรียบร้อย ✅" + sideEffectsMsg);
         try { await withTimeout(loadAllData(), 10000, "loadAllData"); } catch(e) { console.warn("[sales delete] loadAllData timeout:", e.message); }

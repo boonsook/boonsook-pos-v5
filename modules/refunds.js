@@ -411,6 +411,34 @@ function openRefundModal(ctx) {
           .catch(e => console.warn("[refunds] auto-post JV failed:", e?.message));
       }
 
+      // 4) Phase 91.3 — reverse loyalty auto-earn (fire-and-forget, idempotent).
+      // Helper is silent on: no customer / no earn record / already reversed.
+      // Caps reverse at customer's remaining balance so the total never goes negative.
+      // Helper failure must NEVER fail the refund flow — wrap in try and console.warn.
+      try {
+        if (_selectedSale?.id && _selectedSale?.customer_id) {
+          import('./loyalty.js?v=' + (window.APP_BUILD || 'dev'))
+            .then(m => m.reverseEarnedPointsForSale(_selectedSale.id, {
+              state: window.App?.state,
+              customerId: _selectedSale.customer_id,
+              refundId: insertedRefund?.id || null,
+            }))
+            .then(res => {
+              if (res?.ok) {
+                const cappedNote = res.capped ? ` (จาก ${res.totalEarned})` : '';
+                ctx.showToast?.(`คืนแต้ม ${res.reversed} แต้ม${cappedNote}`, 'info');
+              } else if (res?.skipped) {
+                console.log("[refunds] loyalty reverse skipped:", res.reason);
+              } else {
+                console.warn("[refunds] loyalty reverse failed:", res?.reason, res?.error);
+              }
+            })
+            .catch(e => console.warn("[refunds] loyalty reverse threw:", e?.message));
+        }
+      } catch (e) {
+        console.warn("[refunds] loyalty reverse setup failed:", e?.message);
+      }
+
       modal.remove();
       ctx.showToast?.(`✓ บันทึกการคืน ${refundNo} • ฿${money(totalAmount)}`);
       if (window.App?.loadAllData) await window.App.loadAllData();

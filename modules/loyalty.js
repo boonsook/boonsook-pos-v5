@@ -82,6 +82,161 @@ export function calcEarnPoints(amount, settings) {
   return Math.floor(spendAmount / bahtPerPoint);
 }
 
+// ═════════════════════════════════════════════════════════════════════════
+//  Phase 91.3 — Refund/Cancel reverse helpers
+//
+//  When a sale that earned loyalty points is later refunded or soft-deleted,
+//  we insert a "reverse" record to claw back those points. To stay within
+//  the existing schema (no new `type` value, no migrations), we use:
+//    type      = 'redeem'         (existing — getCustomerPoints subtracts)
+//    ref_type  = 'sale_reverse'   (new value — column has no CHECK constraint)
+//    ref_id    = <saleId>         (anchors idempotency to the original sale)
+//
+//  Idempotency: before inserting, scan state.loyaltyPoints for an existing
+//  (customer_id, ref_type='sale_reverse', ref_id=saleId) row. If found, skip.
+//
+//  Cap behavior: if the customer already redeemed enough that `remaining`
+//  is below the original earn, cap the reverse at `remaining` so the balance
+//  never goes negative. Note explains the partial cap for the audit trail.
+// ═════════════════════════════════════════════════════════════════════════
+
+/** Sum points earned for one sale, optionally scoped by customer. Returns 0 if none. */
+export function getSaleEarnedPoints(state, saleId, customerId) {
+  if (!state || saleId == null) return 0;
+  const sidStr = String(saleId);
+  const cidStr = customerId == null ? null : String(customerId);
+  return (state.loyaltyPoints || [])
+    .filter(t =>
+      t.type === 'earn' &&
+      t.ref_type === 'sale' &&
+      String(t.ref_id) === sidStr &&
+      (cidStr === null || String(t.customer_id) === cidStr)
+    )
+    .reduce((sum, t) => sum + Number(t.points || 0), 0);
+}
+
+/** Has this sale already had its earn reversed? Used for idempotency. */
+export function hasReversedLoyaltyForSale(state, saleId, customerId) {
+  if (!state || saleId == null) return false;
+  const sidStr = String(saleId);
+  const cidStr = customerId == null ? null : String(customerId);
+  return (state.loyaltyPoints || []).some(t =>
+    t.type === 'redeem' &&
+    t.ref_type === 'sale_reverse' &&
+    String(t.ref_id) === sidStr &&
+    (cidStr === null || String(t.customer_id) === cidStr)
+  );
+}
+
+/** Customer's current loyalty remaining (earn − redeem) from in-memory state. */
+function customerRemainingFromState(state, customerId) {
+  if (!state || customerId == null) return 0;
+  const cidStr = String(customerId);
+  let earned = 0, redeemed = 0;
+  (state.loyaltyPoints || []).forEach(t => {
+    if (String(t.customer_id) !== cidStr) return;
+    if (t.type === 'earn') earned += Number(t.points || 0);
+    else if (t.type === 'redeem') redeemed += Number(t.points || 0);
+  });
+  return earned - redeemed;
+}
+
+/**
+ * Reverse the loyalty earn from a sale (called from refund + sale soft-delete).
+ *
+ * Returns one of:
+ *   { ok: true,  reversed: N, totalEarned: T, capped: bool }
+ *   { ok: false, skipped: true, reason: '...' }   — no-op (no earn / no customer / already reversed / nothing to cap)
+ *   { ok: false, skipped: false, reason: '...', error?: ... }  — real failure
+ *
+ * Never throws — caller can fire-and-forget and inspect the result if needed.
+ */
+export async function reverseEarnedPointsForSale(saleId, options = {}) {
+  const { state, customerId: optCustomerId = null, refundId = null } = options || {};
+
+  if (!state || saleId == null) {
+    return { ok: false, skipped: true, reason: 'missing state or saleId' };
+  }
+
+  const sidStr = String(saleId);
+  const loyaltyPoints = state.loyaltyPoints || [];
+
+  // Find earn records for this sale (any customer)
+  const earnRecords = loyaltyPoints.filter(t =>
+    t.type === 'earn' && t.ref_type === 'sale' && String(t.ref_id) === sidStr
+  );
+  if (earnRecords.length === 0) {
+    return { ok: false, skipped: true, reason: 'no earn records for this sale' };
+  }
+
+  // Resolve customer: prefer caller-supplied (refund knows it from sale row),
+  // fall back to the customer_id stored on the earn record.
+  const customerId = optCustomerId != null ? optCustomerId : earnRecords[0].customer_id;
+  if (customerId == null) {
+    return { ok: false, skipped: true, reason: 'no customer_id on earn record or in options' };
+  }
+
+  // Idempotency: already reversed?
+  if (hasReversedLoyaltyForSale(state, saleId, customerId)) {
+    return { ok: false, skipped: true, reason: 'already reversed' };
+  }
+
+  const totalEarned = earnRecords
+    .filter(t => String(t.customer_id) === String(customerId))
+    .reduce((sum, t) => sum + Number(t.points || 0), 0);
+  if (totalEarned <= 0) {
+    return { ok: false, skipped: true, reason: 'earn total is zero' };
+  }
+
+  // Cap at remaining so we never drive the balance negative.
+  const remaining = customerRemainingFromState(state, customerId);
+  const reverseAmount = Math.min(totalEarned, Math.max(remaining, 0));
+  const capped = reverseAmount < totalEarned;
+
+  if (reverseAmount <= 0) {
+    // Customer redeemed everything already — nothing to claw back.
+    return {
+      ok: false,
+      skipped: true,
+      reason: 'no remaining balance to reverse (customer redeemed all)',
+      totalEarned,
+      capped: true,
+    };
+  }
+
+  if (typeof window === 'undefined' || typeof window._appXhrPost !== 'function') {
+    return { ok: false, skipped: false, reason: 'window._appXhrPost not available' };
+  }
+
+  const baseNote = refundId
+    ? `คืนแต้มจากการคืนสินค้า refund #${refundId} (sale #${saleId})`
+    : `คืนแต้มจากการยกเลิกบิล #${saleId}`;
+  const note = capped
+    ? `${baseNote} — คืน ${reverseAmount}/${totalEarned} (${totalEarned - reverseAmount} แต้มถูก redeem ไปแล้ว)`
+    : baseNote;
+
+  const newRecord = {
+    customer_id: customerId,
+    type: 'redeem',
+    points: reverseAmount,
+    ref_type: 'sale_reverse',
+    ref_id: saleId,
+    note,
+    created_at: new Date().toISOString(),
+  };
+
+  const r = await window._appXhrPost('loyalty_points', newRecord);
+  if (!r?.ok) {
+    return {
+      ok: false,
+      skipped: false,
+      reason: r?.error?.message || 'insert failed',
+      error: r?.error || null,
+    };
+  }
+  return { ok: true, reversed: reverseAmount, totalEarned, capped };
+}
+
 /**
  * Add points from a sale
  */
