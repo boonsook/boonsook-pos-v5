@@ -57,7 +57,7 @@ export function getCustomerPoints(customerId, ctx) {
 /**
  * Add points from a sale
  */
-export function earnPoints(customerId, amount, refType, refId, ctx) {
+export async function earnPoints(customerId, amount, refType, refId, ctx) {
   const { state, showToast, loadAllData } = ctx;
   const settings = state.loyaltySettings || {};
 
@@ -86,20 +86,20 @@ export function earnPoints(customerId, amount, refType, refId, ctx) {
     created_at: new Date().toISOString(),
   };
 
-  window._appXhrPost('/api/loyalty-points', newRecord, (success) => {
-    if (success) {
-      if (showToast) showToast(`บันทึกแต้ม ${pointsToAdd} แต้มสำหรับลูกค้า`, "success");
-      if (loadAllData) loadAllData();
-    } else {
-      if (showToast) showToast("บันทึกแต้มล้มเหลว", "error");
-    }
-  });
+  // Phase 90.8: was _appXhrPost('/api/loyalty-points', rec, cb) — wrong URL (Supabase table name expected) + callback ignored (xhrPost returns a Promise).
+  const r = await window._appXhrPost('loyalty_points', newRecord);
+  if (r?.ok) {
+    if (showToast) showToast(`บันทึกแต้ม ${pointsToAdd} แต้มสำหรับลูกค้า`, "success");
+    if (loadAllData) loadAllData();
+  } else {
+    if (showToast) showToast('บันทึกแต้มล้มเหลว: ' + (r?.error?.message || 'unknown'), "error");
+  }
 }
 
 /**
  * Redeem points
  */
-export function redeemPoints(customerId, points, note, ctx) {
+export async function redeemPoints(customerId, points, note, ctx) {
   const { state, showToast, loadAllData, requireAdmin: _requireAdmin } = ctx;
   const settings = state.loyaltySettings || {};
 
@@ -130,14 +130,14 @@ export function redeemPoints(customerId, points, note, ctx) {
     created_at: new Date().toISOString(),
   };
 
-  window._appXhrPost('/api/loyalty-points', newRecord, (success) => {
-    if (success) {
-      if (showToast) showToast(`แลกแต้ม ${points} แต้ม สำเร็จ`, "success");
-      if (loadAllData) loadAllData();
-    } else {
-      if (showToast) showToast("แลกแต้มล้มเหลว", "error");
-    }
-  });
+  // Phase 90.8: same signature fix as earnPoints — table name + Promise pattern.
+  const r = await window._appXhrPost('loyalty_points', newRecord);
+  if (r?.ok) {
+    if (showToast) showToast(`แลกแต้ม ${points} แต้ม สำเร็จ`, "success");
+    if (loadAllData) loadAllData();
+  } else {
+    if (showToast) showToast('แลกแต้มล้มเหลว: ' + (r?.error?.message || 'unknown'), "error");
+  }
 }
 
 /**
@@ -498,7 +498,9 @@ function renderManualTab(customers, ctx) {
   `;
 
   setTimeout(() => {
-    document.getElementById('loyalty-manual-submit')?.addEventListener('click', function() {
+    // Phase 90.8: listener now async — earn branch awaits xhrPost (table name + Promise pattern),
+    // redeem branch awaits redeemPoints (now async too). Was silently failing: wrong REST path + ignored callback.
+    document.getElementById('loyalty-manual-submit')?.addEventListener('click', async function() {
       const customerId = document.getElementById('loyalty-manual-customer').value;
       const type = document.querySelector('input[name="loyalty-manual-type"]:checked').value;
       const points = Number(document.getElementById('loyalty-manual-points').value);
@@ -525,19 +527,18 @@ function renderManualTab(customers, ctx) {
           created_at: new Date().toISOString(),
         };
 
-        window._appXhrPost('/api/loyalty-points', newRecord, (success) => {
-          if (success) {
-            if (showToast) showToast(`เพิ่มแต้ม ${points} แต้มสำเร็จ`, 'success');
-            document.getElementById('loyalty-manual-customer').value = '';
-            document.getElementById('loyalty-manual-points').value = '0';
-            document.getElementById('loyalty-manual-note').value = '';
-            if (loadAllData) loadAllData();
-          } else {
-            if (showToast) showToast('บันทึกล้มเหลว', 'error');
-          }
-        });
+        const r = await window._appXhrPost('loyalty_points', newRecord);
+        if (r?.ok) {
+          if (showToast) showToast(`เพิ่มแต้ม ${points} แต้มสำเร็จ`, 'success');
+          document.getElementById('loyalty-manual-customer').value = '';
+          document.getElementById('loyalty-manual-points').value = '0';
+          document.getElementById('loyalty-manual-note').value = '';
+          if (loadAllData) loadAllData();
+        } else {
+          if (showToast) showToast('บันทึกล้มเหลว: ' + (r?.error?.message || 'unknown'), 'error');
+        }
       } else {
-        redeemPoints(customerId, points, note, ctx);
+        await redeemPoints(customerId, points, note, ctx);
         document.getElementById('loyalty-manual-customer').value = '';
         document.getElementById('loyalty-manual-points').value = '0';
         document.getElementById('loyalty-manual-note').value = '';

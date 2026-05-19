@@ -1,6 +1,7 @@
 // Boonsook POS V5 Service Worker
+// v247 (2026-05-19): Phase 90.8 — Loyalty XHR helper signatures: earn/redeem/manual-earn now use 'loyalty_points' table + Promise pattern (was 404 + ignored callback)
 // v246 (2026-05-19): Phase 90.7 — Hotfix dynamic-import ESM cache (build 245 deployed but in-memory ESM registry kept old parsed modules — append ?v=APP_BUILD to import() URLs)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v246';
+const CACHE_NAME = 'boonsook-pos-v5-cache-v247';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

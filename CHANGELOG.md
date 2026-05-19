@@ -7,6 +7,51 @@
 
 ---
 
+## 5.43.43 (build 247) — 2026-05-19 🐛 Phase 90.8 — Loyalty XHR helper signatures (audit + fix 3 sites)
+
+### Audit
+Phase 90.6 fix settings save แต่ใน `modules/loyalty.js` ยังมี 3 จุดใช้ signature เก่า — เกรปด้วย `_appXhr*` เจอ pattern เดียวกัน:
+- `earnPoints()` line 89 — dead code (ไม่มี caller) แต่ fix ไว้กัน future trap
+- `redeemPoints()` line 133 — LIVE (เรียกจาก Manual tab)
+- Manual-earn click handler line 528 — LIVE
+
+### Bug
+ทั้ง 3 จุดเรียก `window._appXhrPost('/api/loyalty-points', rec, callback)` ซึ่งผิด 2 ชั้น:
+1. arg 1 ต้องเป็นชื่อตาราง Supabase — `xhrPost` ต่อ URL เป็น `<sb>/rest/v1/<arg1>` → `/rest/v1//api/loyalty-points` = 404
+2. arg 3 คือ `opts = {}` ไม่ใช่ callback — `xhrPost` คืน Promise → callback ที่ส่งไปไม่เคยถูกเรียก → ไม่มี toast / ไม่ reload
+
+### Fix
+ทั้ง 3 จุดเปลี่ยนเป็น pattern เดียวกับ Phase 90.6 (`loyalty.js:437-440`):
+```js
+const r = await window._appXhrPost('loyalty_points', newRecord);
+if (r?.ok) { showToast?.(...); loadAllData?.(); }
+else { showToast?.('...ล้มเหลว: ' + r?.error?.message, 'error'); }
+```
+- `earnPoints` + `redeemPoints` ทั้งสอง export กลายเป็น `async`
+- Manual-earn click listener กลายเป็น `async function`
+
+### Build sync
+- `selfheal.js?v=247`, `main.js?v=247`, `boot.js?v=247`, `style.css?v=247`
+- `data-app-build="247"` ใน index.html
+- `sw.js` CACHE_NAME `v246` → `v247`
+- `modules/settings/pages.js` Version `5.43.42` → `5.43.43`, build `246` → `247`
+
+### Test
+- 145/145 unit tests pass (ไม่มี test ใหม่ — signature fix ตรงๆ, ใช้ pattern ที่ existing tests cover)
+- Lint clean บนไฟล์ที่แก้
+
+### How to test (manual smoke)
+1. Hard refresh (Ctrl+Shift+R) → version แสดง 5.43.43 (build 247)
+2. ไปหน้า สะสมแต้ม → แท็บ "เพิ่ม/แลกแต้มด้วยตนเอง"
+3. เลือกลูกค้า + เลือก "เพิ่มแต้ม" + ใส่จำนวน + กดบันทึก → ต้องเห็น toast "เพิ่มแต้ม N แต้มสำเร็จ" + ตารางใต้จะ refresh
+4. ทำซ้ำ เลือก "แลกแต้ม" → toast "แลกแต้ม N แต้ม สำเร็จ"
+5. ถ้า error → toast จะบอก reason จาก Supabase (ก่อนหน้านี้เงียบสนิท)
+
+### Feature gap flagged (out-of-scope)
+`earnPoints()` export แล้วไม่มี caller ใน repo — POS checkout ไม่ auto-earn loyalty points แม้ schema/UI พร้อม. ดู HANDOFF.md Phase 90.8 section
+
+---
+
 ## 5.43.35 (build 239) — 2026-05-15 🐛 Phase 89.29 — JV gaps fix (audit C2+C3+C4)
 
 ### Audit findings (Critical)

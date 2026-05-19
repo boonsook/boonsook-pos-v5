@@ -3,9 +3,41 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 19 พฤษภาคม 2026 (Phase 89.41-89.44 — Race-condition resolution 4/4 COMPLETE)
-**Version:** 5.43.39 (build 243) — Phase 89.42 (last build bump; 89.43/89.44 silence-only)
-**Previous:** 5.43.38 (build 242) — Phase 89.41 (HIGH_RISK race fixes — single-flight guard helper)
+**อัปเดตล่าสุด:** 19 พฤษภาคม 2026 (Phase 90.8 — Loyalty XHR signature fix batch, build 247)
+**Version:** 5.43.43 (build 247) — Phase 90.8 (fix 3 broken `_appXhrPost` sites in loyalty.js)
+**Previous:** 5.43.42 (build 246) — Phase 90.7 (lazy-import cache bust hotfix)
+
+---
+
+## 🔥 Phase 90.4 – 90.8 — Loyalty bug onion (4 layers) **CLOSED**
+
+> ปุ่ม "บันทึกการตั้งค่า" + "เพิ่มแต้ม/แลกแต้ม" ใน Loyalty page เงียบสนิทมานาน — fix 4 ชั้น 5 phases, build 243 → 247.
+
+| Phase | PR | Build | Layer | Root cause |
+|-------|----|-------|-------|------------|
+| 90.4 | #28+#29 | 243→244 | 1: dead code | `renderSettingsTab` มี `setTimeout(...).addEventListener` **หลัง** `return html` → handler ไม่ถูก attach |
+| 90.5 | #30 (chore) | (no bump) | — | E2E/lint cleanup |
+| 90.6 | #31 | 244→245 | 2: signature | settings save เรียก `_appXhrPatch(restUrl, payload, callback)` — ผิดสัญญา (จริงคือ `(table, payload, eqCol, eqVal) → Promise`) |
+| 90.7 | #32 | 245→246 | 3: ESM cache | `main.js _lazyImport()` ไม่ใส่ `?v=APP_BUILD` ใน `import()` → browser ESM registry serve module 244-era ต่อ ถึงแม้ network คืนไฟล์ใหม่ |
+| **90.8** | (this) | **246→247** | **4: same signature bug 3 จุดอื่น** | `earnPoints` / `redeemPoints` / manual-earn handler ใน loyalty.js เรียก `_appXhrPost('/api/loyalty-points', rec, cb)` — REST path ผิด (xhrPost prefixes `/rest/v1/`) + callback ถูกทิ้ง (xhrPost คืน Promise) |
+
+### Phase 90.8 fixes (this session)
+- `modules/loyalty.js:60` `earnPoints` → `async`, ใช้ `await _appXhrPost('loyalty_points', rec)` (เคยเป็น dead code — ไม่มี caller, แต่ fix ไว้กัน feature gap ในอนาคต)
+- `modules/loyalty.js:102` `redeemPoints` → `async`, แก้ signature (เรียกจาก Manual tab line 540 — LIVE bug)
+- `modules/loyalty.js:501` manual-earn click listener → `async`, แก้ signature (LIVE bug)
+- ทั้ง 3 จุดใช้ pattern เดียวกับ Phase 90.6 settings save: `if (r?.ok) { ... } else { showToast('...: ' + r?.error?.message) }`
+
+### Lessons (เพิ่มเติมจาก existing "Bug Onion" memory rule)
+- **Audit ทุก call site ของ helper ที่ผิด signature** — ไม่ใช่แค่จุดที่ user report. Phase 90.6 fix settings save, แต่ใน file เดียวกันมี 3 จุดอื่นใช้ pattern เดิม (สังเกตเพราะ comment Phase 90.6 ที่ line 420 บอก signature ที่ถูกต้อง → grep `_appXhr*` ใน loyalty.js เจอ mismatch)
+- **Dead exports = future trap** — `earnPoints` export แล้วไม่มี caller. ถ้า future session wire POS auto-earn จะหยิบโค้ดเสียไปใช้
+- **REST URL vs table name** — `_appXhrPost(table, payload, opts)` ไม่ใช่ Express fetch wrapper. arg 1 ต้องเป็นชื่อตาราง Supabase ตรงๆ. ใส่ `/api/...` = ได้ URL `/rest/v1//api/...` = 404
+
+### Feature gap (out-of-scope but flagged)
+- `earnPoints()` export แต่ไม่มี caller. POS checkout ไม่ auto-earn loyalty points. ถ้าจะเปิด feature นี้: เรียก `earnPoints(customerId, totalAfterTax, 'sale', saleId, ctx)` หลัง sale insert success ใน `modules/pos.js` checkout flow (และอย่าลืม refund path เรียก reverse-record `type:'redeem'` หรือ negative `points`).
+
+---
+
+## ✅ Phase 89.41-89.44 — Race-condition resolution 4/4 COMPLETE (ของเดิม)
 
 > 🏆 **Milestone reached (19 พ.ค.):** `require-atomic-updates` rule fully resolved across all 138 sites from Phase 89.40 audit. Lint warnings 361 → **9** (-97%) cumulative since 89.31.
 
