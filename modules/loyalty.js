@@ -417,10 +417,14 @@ function renderSettingsTab(settings, ctx) {
 
   // Phase 90.4: setTimeout was previously AFTER return -> unreachable -> click handler never attached.
   // Now attaches before returning html (matches the working pattern at renderSummaryTab line 358).
+  // Phase 90.6: save handler now uses the correct _appXhrPatch(table, payload, eqCol, eqVal)
+  // signature (Promise-based) + POST fallback for first-time setup. Was previously calling
+  // with a REST URL + Express-style callback (silently ignored — settings never saved).
   setTimeout(() => {
-    document.getElementById('loyalty-save-settings')?.addEventListener('click', function() {
+    document.getElementById('loyalty-save-settings')?.addEventListener('click', async function() {
       const newSettings = {
-        id: settings.id,
+        // Note: no 'id' field — that's the WHERE-clause value for PATCH (4th arg below),
+        // and for POST inserts the server generates it. Including it would block POST.
         points_per_baht: Number(document.getElementById('loyalty-points-per-baht').value),
         points_value: Number(document.getElementById('loyalty-points-value').value),
         min_redeem: Number(document.getElementById('loyalty-min-redeem').value),
@@ -428,14 +432,21 @@ function renderSettingsTab(settings, ctx) {
         updated_at: new Date().toISOString(),
       };
 
-      window._appXhrPatch(`/api/loyalty-settings/${settings.id}`, newSettings, (success) => {
-        if (success) {
-          if (showToast) showToast('บันทึกการตั้งค่าสำเร็จ', 'success');
-          if (loadAllData) loadAllData();
-        } else {
-          if (showToast) showToast('บันทึกการตั้งค่าล้มเหลว', 'error');
-        }
-      });
+      // PATCH if a row already exists, POST if first-time setup (mirrors modules/line_notify.js)
+      let saveResult = { ok: false, error: { message: 'API helpers unavailable' } };
+      if (settings.id && window._appXhrPatch) {
+        saveResult = await window._appXhrPatch('loyalty_settings', newSettings, 'id', settings.id);
+      } else if (window._appXhrPost) {
+        saveResult = await window._appXhrPost('loyalty_settings', newSettings);
+      }
+
+      if (saveResult?.ok) {
+        if (showToast) showToast('บันทึกการตั้งค่าสำเร็จ', 'success');
+        if (loadAllData) loadAllData();
+      } else {
+        const msg = saveResult?.error?.message || 'unknown';
+        if (showToast) showToast('บันทึกการตั้งค่าล้มเหลว: ' + msg, 'error');
+      }
     });
   }, 0);
 

@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v244 (2026-05-19): Phase 90.4 — Real bug fix — loyalty settings save handler order (setTimeout was unreachable after return -> click handler never attached)
-const CACHE_NAME = 'boonsook-pos-v5-cache-v244';
+// v245 (2026-05-19): Phase 90.6 — Hotfix loyalty save xhrPatch signature (was passing REST URL + callback to a Promise-returning helper — saves silently failed on build 244)
+const CACHE_NAME = 'boonsook-pos-v5-cache-v245';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
