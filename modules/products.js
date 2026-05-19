@@ -34,6 +34,7 @@ function detectProductType(p) {
   if (p.product_type && ["service","non_stock","stock"].includes(p.product_type)) {
     result = p.product_type;
   } else {
+    // eslint-disable-next-line no-misleading-character-class -- intentional: strip zero-width chars (\u200b ZWSP, \u200c ZWNJ, \u200d ZWJ, \ufeff BOM, \u00ad soft hyphen) before keyword match; we want each codepoint stripped individually, not paired
     const clean = s => (s||"").replace(/[\u200b\u200c\u200d\ufeff\u00ad]/g, "").toLowerCase();
     const text = clean(p.name) + " " + clean(p.category);
     if (SERVICE_KEYWORDS.some(kw => text.includes(kw.toLowerCase()))) result = "service";
@@ -1161,6 +1162,7 @@ async function importProducts(file, ctx) {
       const _unit = getVal(row, COL.unit);
 
       // ★ จำแนกประเภทอัตโนมัติจาก category/name
+      // eslint-disable-next-line no-misleading-character-class -- intentional: strip zero-width chars from imported CSV name+category before keyword match
       const cleanText = (name + " " + category).replace(/[\u200b\u200c\u200d\ufeff\u00ad]/g, "").toLowerCase();
       let product_type = "stock"; // default = นับสต็อก
       if (SERVICE_KEYWORDS.some(kw => cleanText.includes(kw.toLowerCase()))) {
@@ -2020,9 +2022,11 @@ function _normalizeCat(s) {
     .trim()
     .toLowerCase()
     .replace(/\s+/g, "")
+    // eslint-disable-next-line no-misleading-character-class -- intentional: strip zero-width chars (ZWSP/ZWNJ/ZWJ/BOM/soft-hyphen) from category text
     .replace(/[\u200b\u200c\u200d\ufeff\u00ad]/g, "") // zero-width chars
     .replace(/์/g, "") // การันต์
     .replace(/[่้๊๋]/g, "") // วรรณยุกต์
+    // eslint-disable-next-line no-misleading-character-class -- intentional Thai legacy normalization rule (preserved from upstream rule set; audit separately if changing)
     .replace(/[อ๊อ๋]/g, "อ")
     .replace(/โซล่า/g, "โซลาร์")
     .replace(/โซล่าร์/g, "โซลาร์");

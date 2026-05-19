@@ -1,8 +1,10 @@
-// Playwright config — Phase 89.14
+// Playwright config — Phase 89.14, webServer cross-platform from Phase 90.5
 // Smoke test สำหรับ Boonsook POS V5 PWA
 // Run: npx playwright test
 //
-// Local server: ใช้ python3 http.server (มากับ Ubuntu/macOS, ไม่ต้องลง deps)
+// Local server: scripts/static-server.js (Node built-ins only, zero npm deps,
+// works on Windows/macOS/Linux). Replaces `python3 -m http.server` which
+// failed on Windows machines that only have the Microsoft Store python stub.
 
 import { defineConfig, devices } from "@playwright/test";
 
@@ -33,8 +35,9 @@ export default defineConfig({
   ],
 
   webServer: {
-    // ใช้ python3 http.server แทน npm package เพื่อ keep zero runtime-dep
-    command: `python3 -m http.server ${PORT}`,
+    // Node-based static server (zero new npm deps). See scripts/static-server.js.
+    // Cross-platform: works on Windows / macOS / Linux without Python.
+    command: `node scripts/static-server.js ${PORT}`,
     port: PORT,
     reuseExistingServer: !process.env.CI,
     timeout: 10_000,

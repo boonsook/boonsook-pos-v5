@@ -99,6 +99,7 @@ export async function disconnect() {
 // ═══════════════════════════════════════════════════════════
 function sanitizeTsplText(value, maxLength) {
   return String(value || "")
+    // eslint-disable-next-line no-control-regex -- intentional: strip ASCII control chars from text before piping into TSPL printer command stream
     .replace(/[\x00-\x1F\x7F]/g, " ")
     .replace(/["\\]/g, "'")
     .replace(/\s+/g, " ")
@@ -108,6 +109,7 @@ function sanitizeTsplText(value, maxLength) {
 
 function sanitizeBarcode(value) {
   return String(value || "")
+    // eslint-disable-next-line no-control-regex -- intentional: strip ASCII control + space + DEL from barcode value before TSPL BARCODE command
     .replace(/[\x00-\x20\x7F"\\]/g, "")
     .replace(/[^0-9A-Za-z._-]/g, "")
     .slice(0, 48);

@@ -187,7 +187,8 @@ async function _importCoa(ctx, file) {
       const text = await file.text();
       const lines = text.split(/\r?\n/).filter(l => l.trim());
       if (lines.length < 2) throw new Error("ไฟล์ว่าง");
-      const header = _splitCsv(lines[0]).map(h => h.trim().toLowerCase().replace(/^﻿/, ""));
+      // Strip UTF-8 BOM (U+FEFF) that Excel often writes at start of CSV — written as escape so editors/linters don't see an invisible literal in the regex.
+      const header = _splitCsv(lines[0]).map(h => h.trim().toLowerCase().replace(/^\uFEFF/, ""));
       for (let i = 1; i < lines.length; i++) {
         const cols = _splitCsv(lines[i]);
         const obj = {};
