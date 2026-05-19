@@ -1,6 +1,6 @@
 // Boonsook POS V5 Service Worker
-// v242 (2026-05-18): Phase 89.41 — HIGH_RISK race fixes (single-flight guard) — POS + customer checkout double-click prevention
-const CACHE_NAME = 'boonsook-pos-v5-cache-v242';
+// v243 (2026-05-19): Phase 89.42 — MEDIUM_RISK race fixes — receipts multi-pay + POS quickPay + OTP verify/request single-flight guards
+const CACHE_NAME = 'boonsook-pos-v5-cache-v243';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
