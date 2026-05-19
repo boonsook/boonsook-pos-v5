@@ -354,6 +354,7 @@ export function renderSettingsAcCatalog(el, ctx, goBack, navigate) {
       console.error("[ac-catalog import]", err);
       if (statusEl) statusEl.innerHTML = `<span style="color:#ef4444">❌ ${escHtml(err.message)}</span>`;
     } finally {
+      // eslint-disable-next-line require-atomic-updates -- A: UI file input reset after import, single upload handler per click
       e.target.value = ""; // reset input ให้เลือกไฟล์เดิมซ้ำได้
     }
   });

@@ -39,6 +39,7 @@ export async function renderSerialsPage(ctx) {
   try {
     const res = await fetch(url, { headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + accessToken } });
     if (!res.ok) {
+      // eslint-disable-next-line require-atomic-updates -- A: UI render (single render per page open)
       container.innerHTML = renderError({
         message: "ตาราง product_serials ยังไม่มี",
         detail: "รัน supabase-rls-policies.sql ก่อน (HTTP " + res.status + ")",
@@ -50,6 +51,7 @@ export async function renderSerialsPage(ctx) {
     }
     _srResults = await res.json();
   } catch(e) {
+    // eslint-disable-next-line require-atomic-updates -- A: UI render in catch (single render per page open)
     container.innerHTML = renderError({
       message: "โหลดข้อมูลไม่สำเร็จ",
       detail: e?.message || String(e),
@@ -66,6 +68,7 @@ export async function renderSerialsPage(ctx) {
   const claimCount = _srResults.filter(s => s.status === "claimed").length;
   const expiredSoon = _srResults.filter(s => s.status === "active" && s.warranty_until && s.warranty_until < new Date(Date.now() + 30*24*60*60*1000).toISOString().slice(0,10)).length;
 
+  // eslint-disable-next-line require-atomic-updates -- A: UI render (single render per page open)
   container.innerHTML = `
     <div style="padding:8px">
       <div class="hero" style="text-align:center;padding:20px 16px;margin-bottom:16px;background:linear-gradient(135deg,#dbeafe,#dcfce7);border-radius:16px">

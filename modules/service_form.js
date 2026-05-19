@@ -232,6 +232,7 @@ export function renderServiceFormPage(ctx, serviceType) {
       });
       const j = await r.json();
       if (!j.ok) {
+        // eslint-disable-next-line require-atomic-updates -- E: single slip-verify per click (verify button)
         slipVerifyResult.innerHTML = `<div style="padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;color:#991b1b;font-size:12px">❌ ${escHtml(j.error || "verify fail")}${j.raw ? `<details style="margin-top:4px"><summary style="cursor:pointer">▼ raw</summary><pre style="font-size:10px;max-height:160px;overflow:auto;white-space:pre-wrap">${escHtml(j.raw)}</pre></details>` : ""}</div>`;
         return;
       }
@@ -240,6 +241,7 @@ export function renderServiceFormPage(ctx, serviceType) {
       const isSafe = v.is_safe === true;
       const warningsHtml = (v.warnings || []).map(w => `<div style="color:#b91c1c;font-size:11px">${escHtml(w)}</div>`).join("");
       const tampNote = d.tampering_note || (d.tampering_signs?.[0]) || "";
+      // eslint-disable-next-line require-atomic-updates -- E: single slip-verify per click (verify button)
       slipVerifyResult.innerHTML = `
         <div style="padding:10px;background:${isSafe ? '#f0fdf4' : '#fffbeb'};border:1px solid ${isSafe ? '#86efac' : '#fde68a'};border-radius:8px;font-size:12px">
           <div style="font-weight:700;color:${isSafe ? '#15803d' : '#92400e'};margin-bottom:6px">${isSafe ? '✅ ผ่านการตรวจสอบ' : '⚠️ ต้องตรวจเพิ่มเติม'}</div>
@@ -256,6 +258,7 @@ export function renderServiceFormPage(ctx, serviceType) {
         </div>
       `;
     } catch(e) {
+      // eslint-disable-next-line require-atomic-updates -- E: single slip-verify per click (error path)
       slipVerifyResult.innerHTML = `<div style="padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;color:#991b1b;font-size:12px">❌ ตรวจสลิปล้มเหลว: ${escHtml(e.message)}</div>`;
     }
   };

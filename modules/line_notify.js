@@ -235,8 +235,10 @@ function attachLineNotifyListeners(container, ctx, settings) {
     } catch (error) {
       showToast('❌ ข้อผิดพลาด: ' + ((error && error.message) || error), 'error');
     } finally {
+      /* eslint-disable require-atomic-updates -- A: UI re-enable in finally (sequential, single click handler) */
       testButton.disabled = false;
       testButton.textContent = originalText;
+      /* eslint-enable require-atomic-updates */
     }
   });
 
@@ -289,8 +291,10 @@ function attachLineNotifyListeners(container, ctx, settings) {
     } catch (error) {
       showToast('❌ ข้อผิดพลาด: ' + ((error && error.message) || error), 'error');
     } finally {
+      /* eslint-disable require-atomic-updates -- A: UI re-enable in finally (sequential, single click handler) */
       saveButton.disabled = false;
       saveButton.textContent = originalText;
+      /* eslint-enable require-atomic-updates */
     }
   });
 }

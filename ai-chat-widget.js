@@ -664,6 +664,7 @@
       loadingEl.remove();
       pushMsg("ai", "เชื่อมต่อ AI ไม่ได้ครับ ลองใหม่อีกครั้ง\n" + String(err?.message || err));
     } finally {
+      // eslint-disable-next-line require-atomic-updates -- G: widget loading flag in finally (send button disabled during inflight)
       state.loading = false;
       document.getElementById("bs-ai-send").disabled = false;
       input.focus();

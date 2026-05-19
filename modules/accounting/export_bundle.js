@@ -409,6 +409,7 @@ async function _onDownload() {
     console.error("[export_bundle] failed:", e);
     setStatus(`<div style="padding:12px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;color:#991b1b">❌ ${escHtml(e.message || String(e))}</div>`);
   } finally {
+    // eslint-disable-next-line require-atomic-updates -- G: _generating lock release (entry guard at export_bundle.js:352)
     _generating = false;
     if (btn) { btn.disabled = false; btn.textContent = "📦 ดาวน์โหลด Excel ชุดรายงาน (4 sheets)"; }
   }

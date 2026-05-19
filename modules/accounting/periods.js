@@ -63,6 +63,7 @@ async function fetchPeriodSummary(year, month) {
     net: revenue - expense,
     jvCount: ids.length
   };
+  // eslint-disable-next-line require-atomic-updates -- F: idempotent cache populate (concurrent fetch overwrites with same data)
   _summaryCache[cacheKey] = summary;
   return summary;
 }
@@ -294,8 +295,10 @@ export async function renderPeriodsPage(ctx) {
         await renderPeriodsPage(_ctx);
       } catch (e) {
         _ctx.showToast?.("ปิดงวดไม่สำเร็จ: " + e.message);
+        /* eslint-disable require-atomic-updates -- A: UI rollback in catch (sequential error path, single admin click) */
         btn.disabled = false;
         btn.textContent = "🔒 ปิดงวด";
+        /* eslint-enable require-atomic-updates */
       }
     });
   });
@@ -318,8 +321,10 @@ export async function renderPeriodsPage(ctx) {
         await renderPeriodsPage(_ctx);
       } catch (e) {
         _ctx.showToast?.("ปลดล็อกไม่สำเร็จ: " + e.message);
+        /* eslint-disable require-atomic-updates -- A: UI rollback in catch (sequential error path, single admin click) */
         btn.disabled = false;
         btn.textContent = "🔓 ปลดล็อก";
+        /* eslint-enable require-atomic-updates */
       }
     });
   });

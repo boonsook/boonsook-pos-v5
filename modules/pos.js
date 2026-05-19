@@ -725,6 +725,7 @@ function renderPosView(ctx) {
       }
 
       // ★ บีบอัดรูปก่อนอัปโหลด
+      // eslint-disable-next-line require-atomic-updates -- C: local file param reassign in upload flow (sequential)
       if (window._compressImage) file = await window._compressImage(file);
 
       const proofSection = document.getElementById("proofSection");

@@ -326,6 +326,7 @@ export function showStaffLogin() {
         pin = '';
         updateDots();
       } finally {
+        // eslint-disable-next-line require-atomic-updates -- G: _verifying lock release (entry guard at auth.js:346)
         _verifying = false; // ★ unlock
       }
     }
@@ -368,6 +369,7 @@ export async function initAuth() {
   _renderIndicator();
 
   // Expose logout/login ให้ header ใช้
+  // eslint-disable-next-line require-atomic-updates -- B: init-time assign in initAuth() (one-time)
   window.__authLogout = async () => {
     const staff = getCurrentStaff();
     if (!staff) return;

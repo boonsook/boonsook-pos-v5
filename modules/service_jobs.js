@@ -283,8 +283,10 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
     const jobName = btn.dataset.delName || "";
     if (!(await window.App?.confirm?.(`ลบใบรับงาน "${jobName.trim()}" ?`))) return;
 
+    /* eslint-disable require-atomic-updates -- A: UI feedback before async (sequential, single click handler per row) */
     btn.disabled = true;
     btn.textContent = "กำลังลบ...";
+    /* eslint-enable require-atomic-updates */
 
     const newNote = "[ลบแล้ว] ลบโดยแอดมิน " + new Date().toLocaleString("th-TH");
     const updatePayload = { status: "cancelled", note: newNote };

@@ -328,6 +328,7 @@ async function _loadAndRender() {
     console.error("[profit_loss] load failed:", e);
     panel.innerHTML = `<div style="padding:14px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;color:#991b1b">❌ ${escHtml(e.message || String(e))}</div>`;
   } finally {
+    // eslint-disable-next-line require-atomic-updates -- G: _loading lock release (entry guard at profit_loss.js:301)
     _loading = false;
   }
 }
