@@ -7,6 +7,13 @@ import { renderEmpty, renderSkeleton } from "./ui_states.js";
 import { logActivity, exportToExcel, todaySuffix } from "./utils.js";
 // Phase 88.1b: auto-post JV หลังรับชำระลูกหนี้ (fire-and-forget)
 import { postJournalForReceipt, voidJvForSource } from "./accounting/auto_post.js";
+// Phase 89.42: single-flight guard for multi-payment save (prevent double-click race)
+import { createInflightGuard } from "./_inflight_guard.js";
+
+// Phase 89.42 — Site 1 fix: rapid double-click on "บันทึก" in multi-pay drawer
+// could fire 2 PATCH /receipts with overlapping payloads (lost-update race).
+// Guard collapses concurrent invocations to a single PATCH.
+const _multiPayGuard = createInflightGuard();
 
 // share ใช้ window._appShareDoc จาก main.js
 
@@ -1139,7 +1146,7 @@ function _wireMultiPayPanel(r) {
     rows.push({ method: "cash", amount: suggested, ref: "" });
     reflect();
   });
-  saveBtn?.addEventListener("click", async () => {
+  saveBtn?.addEventListener("click", () => _multiPayGuard.run(async () => {
     const sum = rows.reduce((s, x) => s + Number(x.amount || 0), 0);
     if (Math.abs(grandTotal - sum) > 0.01) {
       window.App?.showToast?.("ผลรวมไม่ตรงกับยอดบิล", "error");
@@ -1160,8 +1167,11 @@ function _wireMultiPayPanel(r) {
       const patchBody = { payments };
       if (main) patchBody.payment_method = main.method;
       await window._appXhrPatch?.("receipts", patchBody, "id", r.id);
+      // Phase 89.42: race is prevented by _multiPayGuard single-flight (no concurrent invocation can reach this line)
+      /* eslint-disable require-atomic-updates -- protected by _multiPayGuard single-flight (Phase 89.42) */
       r.payments = payments;
       if (main) r.payment_method = main.method;
+      /* eslint-enable require-atomic-updates */
       window.App?.showToast?.("บันทึกการชำระเงินแล้ว ✅");
       // re-render preview to reflect new payment list in document body
       if (_ctx) renderReceiptsPage(_ctx);
@@ -1173,7 +1183,7 @@ function _wireMultiPayPanel(r) {
       saveBtn.textContent = orig;
       /* eslint-enable require-atomic-updates */
     }
-  });
+  }));
 
   // initial render so rows show even before user clicks (so they see existing data via toggle)
   reflect();
