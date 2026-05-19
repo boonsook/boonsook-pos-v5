@@ -318,11 +318,13 @@ export function showStaffLogin() {
           resolve(staffObj);
         } else {
           document.getElementById('__perr').style.display = 'block';
+          // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L1 user-event (PIN entry — protected by _verifying entry guard at line 346)
           pin = '';
           updateDots();
         }
       } catch (err) {
         console.error('[auth] verifyPin error:', err.message);
+        // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L1 user-event (PIN catch — protected by _verifying entry guard)
         pin = '';
         updateDots();
       } finally {

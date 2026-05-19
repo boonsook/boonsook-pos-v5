@@ -301,6 +301,7 @@ async function _save(ctx, status) {
 
   showToast(`✅ บันทึก ${docNo} สำเร็จ (${status === "approved" ? "อนุมัติ" : "ฉบับร่าง"})`);
   // Reset form
+  // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L3 module state reset after save (single form session)
   _lines = [{ account_code: "", debit: 0, credit: 0, description: "" }];
   location.hash = "accounting_journals";
 }

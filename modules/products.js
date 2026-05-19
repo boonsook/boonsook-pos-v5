@@ -1036,6 +1036,7 @@ async function openScanner(ctx) {
     });
   } catch (err) {
     _prodScannerActive = false;
+    // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L2 scanner UI singleton (catch path, 1 camera per session)
     scanArea.innerHTML = `<div style="padding:24px;text-align:center;color:var(--muted)">เกิดข้อผิดพลาด: ${escHtml(err && err.message || err)}</div>`;
   }
 }

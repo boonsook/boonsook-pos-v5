@@ -434,6 +434,7 @@ export async function openBarcodeScanner(onDetected, _ctx) {
             if (codes && codes.length > 0) {
               const code = codes[0].rawValue;
               if (code) {
+                // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L2 scanner UI singleton (single detector loop per session)
                 detected = true;
                 statusEl.textContent = "✓ เจอแล้ว: " + code;
                 cleanup();

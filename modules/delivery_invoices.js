@@ -633,6 +633,7 @@ function renderInvoicePreview(container) {
     try {
       const res = await window._appXhrPatch?.("delivery_invoices", { created_at: isoDate }, "id", inv.id);
       if (res && res.ok === false) throw new Error(res.error?.message || "patch failed");
+      // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L4 doc-edit handler (date input change, single admin)
       inv.created_at = isoDate;
       if (diShowDate?.checked && diDateCell) diDateCell.textContent = dateTH(isoDate);
       _ctx.showToast("อัปเดตวันที่เรียบร้อย ✓");
@@ -713,12 +714,14 @@ async function convertToReceipt(inv) {
     try {
       const resp = await fetch(cfg.url + "/rest/v1/delivery_invoice_items?delivery_invoice_id=eq." + inv.id + "&order=sort_order.asc",
         { headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token } });
+      // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L3 module state load (invoice gen flow, single button)
       _lineItems = ((await resp.json()) || []).map(i => ({
         product_id: i.product_id, item_name: i.item_name || "",
         qty: Number(i.qty||1), unit: i.unit || "ชิ้น",
         unit_price: Number(i.unit_price||0), discount_pct: Number(i.discount_pct||0),
         line_total: Number(i.line_total||0)
       }));
+    // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L3 module state reset (catch path, invoice gen flow)
     } catch(e) { _lineItems = []; }
   }
 

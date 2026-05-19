@@ -558,8 +558,10 @@ function bindAddFormEvents() {
       }
 
       _showAddForm = false;
+      /* eslint-disable require-atomic-updates -- LOW_RISK: L3 module state reset after save (single edit session) */
       _editingExpenseId = null;
       _pendingExpProofUrl = "";
+      /* eslint-enable require-atomic-updates */
       await _ctx.loadAllData?.();
       renderExpensesPage(_ctx);
     } catch (err) {

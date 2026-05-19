@@ -797,6 +797,7 @@ export function renderSolarPage(ctx) {
       }
 
       // Phase 88.13: เคลียร์ items + reset price (กรณี user save แล้วทำใบใหม่)
+      // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L3 module state reset after save (single save button per form)
       _solItems = [];
       _solRenderItemsList(container, money);
       updatePrice();

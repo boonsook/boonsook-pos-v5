@@ -241,11 +241,13 @@ export function renderAcInstallPage(ctx) {
     try {
       const r = await fetch("/api/verify-slip", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image: dataUrl, expected_amount: expectedAmount, expected_recipient: expectedRecipient }) });
       const j = await r.json();
+      // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L1 user-event (slip-verify button — last-wins UI acceptable)
       if (!j.ok) { slipResult.innerHTML = `<div style="padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;color:#991b1b;font-size:12px">❌ ${escHtml(j.error || "verify fail")}</div>`; return; }
       const d = j.data || {}, v = j.verification || {};
       const isSafe = v.is_safe === true;
       const wHtml = (v.warnings || []).map(w => `<div style="color:#b91c1c;font-size:11px">${escHtml(w)}</div>`).join("");
       const note = d.tampering_note || (d.tampering_signs?.[0]) || "";
+      // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L1 user-event (slip-verify button — last-wins UI acceptable)
       slipResult.innerHTML = `
         <div style="padding:10px;background:${isSafe?'#f0fdf4':'#fffbeb'};border:1px solid ${isSafe?'#86efac':'#fde68a'};border-radius:8px;font-size:12px">
           <div style="font-weight:700;color:${isSafe?'#15803d':'#92400e'};margin-bottom:6px">${isSafe?'✅ ผ่านการตรวจสอบ':'⚠️ ต้องตรวจเพิ่มเติม'}</div>
@@ -259,6 +261,7 @@ export function renderAcInstallPage(ctx) {
           ${wHtml}
           ${note?`<div style="font-size:10px;color:#92400e;margin-top:4px">• ${escHtml(note)}</div>`:''}
         </div>`;
+    // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L1 user-event (slip-verify catch — last-wins UI)
     } catch(e) { slipResult.innerHTML = `<div style="color:#dc2626;font-size:12px;padding:8px">❌ ${escHtml(e.message)}</div>`; }
   };
 

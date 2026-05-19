@@ -127,6 +127,7 @@ export function renderStockInWizardPage(ctx) {
   container.querySelector("#swClearBtn")?.addEventListener("click", async () => {
     if (_swRows.length === 0) return;
     if (!(await window.App?.confirm?.(`ล้างรายการรับเข้า ${_swRows.length} รายการ?`))) return;
+    // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L3 module state reset (wizard clear button, single user)
     _swRows = [];
     renderStockInWizardPage(ctx);
   });
