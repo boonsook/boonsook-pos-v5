@@ -58,6 +58,7 @@ export function createEmailAuth(deps) {
       if (error) throw error;
       // เคลียร์ hash ที่มี access_token ออก
       try { history.replaceState(null, "", window.location.pathname + window.location.search); } catch(e){}
+      // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L3 module state reset (recovery flow, single password set per session)
       state._recoveryMode = false;
       $("setPwNew").value = ""; $("setPwConfirm").value = "";
       $("setPasswordScreen")?.classList.add("hidden");
