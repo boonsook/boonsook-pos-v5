@@ -5,6 +5,13 @@ function moneyNum(n){return new Intl.NumberFormat("th-TH",{minimumFractionDigits
 import { escHtml, visibleSalesForRole, isAdminProfile } from "./utils.js";
 // Phase 88.1a: auto-post JV หลังบันทึกการขาย (fire-and-forget)
 import { postJournalForSale } from "./accounting/auto_post.js";
+// Phase 89.42: single-flight guard for POS checkout (replaces brittle window._checkoutRunning manual flag)
+import { createInflightGuard } from "./_inflight_guard.js";
+
+// Phase 89.42 — Site 2 fix: rapid double-tap on "เสร็จสิ้น" was relying on
+// window._checkoutRunning with 3 manual reset points (lines 1121, 1128, 1240).
+// Replaced with encapsulated guard whose finally{} guarantees release even on throw.
+const _posCheckoutGuard = createInflightGuard();
 
 // ★ XHR helper — delegate to window._appXhrPost when available
 function xhrPostPOS(table, payload, returnData = false) {
@@ -806,7 +813,7 @@ function renderPosView(ctx) {
     //   (เดิม handler set → doCheckout เห็นเป็น true → return ทันที → ปุ่มค้าง)
     document.getElementById("posConfirmWithProof")?.addEventListener("click", async (e) => {
       const btn = e.currentTarget;
-      if (btn.disabled || window._checkoutRunning) return;
+      if (btn.disabled || _posCheckoutGuard.isInflight) return;
       btn.disabled = true;
       btn.textContent = "⏳ กำลังบันทึก...";
       try {
@@ -822,7 +829,7 @@ function renderPosView(ctx) {
     // ─── ข้าม ไม่แนบสลิป ───
     document.getElementById("posConfirmNoProof")?.addEventListener("click", async (e) => {
       const btn = e.currentTarget;
-      if (btn.disabled || window._checkoutRunning) return;
+      if (btn.disabled || _posCheckoutGuard.isInflight) return;
       btn.disabled = true;
       btn.textContent = "⏳ กำลังบันทึก...";
       window._pendingProofUrl = "";
@@ -1043,10 +1050,8 @@ function updateCollectBtn() {
 //  CHECKOUT — บันทึกการขาย
 // ═══════════════════════════════════════════════════════════
 async function doCheckout(ctx, paymentMethod, paidAmount) {
-  // ★ ป้องกันกดซ้ำ
-  if (window._checkoutRunning) return;
-  window._checkoutRunning = true;
-
+  // Phase 89.42: single-flight guard replaces manual window._checkoutRunning (auto-release in finally even on throw)
+  return _posCheckoutGuard.run(async () => {
   const { state, openReceiptDrawer } = ctx;
   const amount = quickPayAmount || state.cart.reduce((s,i)=>s+i.qty*i.price,0);
 
@@ -1118,14 +1123,12 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
     if (!saleRes.ok) {
       window.App?.showToast?.("บันทึกการขายไม่สำเร็จ: " + (saleRes.error || "unknown"));
       window.App?.showToast?.(saleRes.error || "บันทึกไม่สำเร็จ");
-      window._checkoutRunning = false;
       return;
     }
 
     const saleId = saleRes.data?.id;
     if (!saleId) {
       window.App?.showToast?.("ไม่สามารถดึง ID การขายได้");
-      window._checkoutRunning = false;
       return;
     }
 
@@ -1189,12 +1192,15 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
     }
 
     // ★ เคลียร์ + กลับหน้า home เสมอ
+    // Phase 89.42: race prevented by _posCheckoutGuard single-flight (no concurrent invocation can reach this line)
+    /* eslint-disable require-atomic-updates -- protected by _posCheckoutGuard single-flight (Phase 89.42) */
     state.cart = [];
     localStorage.setItem("bsk_cart_v2", JSON.stringify(state.cart));
     numpadValue = "";
     quickPayAmount = 0;
     posView = "home";
     _posCustomer = null; // เคลียร์ลูกค้าหลังจบบิล
+    /* eslint-enable require-atomic-updates */
 
     window.App?.showToast?.("บันทึกการขายเรียบร้อย ✅");
     try { openReceiptDrawer(); } catch (e) { console.warn("openReceiptDrawer error:", e); }
@@ -1236,14 +1242,13 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
     window.App?.showToast?.("เกิดข้อผิดพลาด: " + (err.message || err));
     console.error("[pos doCheckout] error:", err);
   } finally {
-    // ★ reset guard + UI buttons เสมอ
-    window._checkoutRunning = false;
-    // Reset ปุ่มที่ถูก disable ไว้
+    // ★ reset UI buttons เสมอ (lock release handled by _posCheckoutGuard.finally)
     const confirmBtn = document.getElementById("posConfirmWithProof");
     const noProofBtn = document.getElementById("posConfirmNoProof");
     if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = "เสร็จสิ้น"; }
     if (noProofBtn) { noProofBtn.disabled = false; noProofBtn.textContent = "ข้าม ไม่แนบสลิป → เสร็จสิ้น"; }
   }
+  });
 }
 
 
