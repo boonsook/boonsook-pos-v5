@@ -7,6 +7,19 @@
 
 ---
 
+## 5.45.0 (build 263) — 2026-05-20 ♻️ Phase 92.7 — Extract `_appShareDoc` → `modules/share_doc.js`
+
+ต่อยอด decomposition 92.1-92.6 — ย้าย Share/PDF overlay (chunk ใหญ่สุดที่เหลือใน main.js) ออกเป็น module. Behavior byte-identical, refactor-only.
+
+- ย้าย Share/PDF overlay (~223 บรรทัด) จาก main.js → `modules/share_doc.js` เป็น `shareDoc({ docElementId, docName, documentRef, windowRef, loadHtml2Canvas, showToast, logger })`
+- main.js เก็บ thin `window._appShareDoc` wrapper bind live globals → 4 callers (delivery_invoices/doc-utils/quotations/receipts) ไม่แตะ
+- ทุก `document.`/`window.`/`navigator.`/`console.` + html2canvas loader route ผ่าน injected ref (global-leak guard PASS → กัน ReferenceError แบบ Phase 89.35)
+- Phase 92.5 fallback (html2canvas โหลดไม่ได้ → error + ปิด modal ได้) preserved; source pin ย้ายตามไป share_doc.js
+- main.js: 4690 → 4467 บรรทัด (−223); Tests: +10 (behavioral null-guard/modal-build/h2c-fail + source pins)
+
+**Build:** 262 → 263; version 5.44.9 → 5.45.0 (minor — new module)
+**Verify:** lint 0 errors + 263 unit + 11 e2e green
+
 ## 5.44.9 (build 262) — 2026-05-20 🛡️ Phase 92.6 — Share/PDF + Logo Sync hardening (3 review findings)
 
 จาก code review หลัง 92.5 — defensive hardening 3 จุดใน 2 module (refactor-only, ไม่เพิ่ม feature). TDD ทุกข้อ (test red ก่อน fix)
