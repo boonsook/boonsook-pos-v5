@@ -142,6 +142,8 @@ test("Phase 92.5: _headers CSP must actually allow the html2canvas host", () => 
 const __dirname2 = path.dirname(fileURLToPath(import.meta.url));
 const mainSrc = readFileSync(path.join(__dirname2, "..", "main.js"), "utf8");
 const lazySrc = readFileSync(path.join(__dirname2, "..", "modules", "lazy_libs.js"), "utf8");
+// Phase 92.7: the share/PDF flow moved out of main.js into modules/share_doc.js.
+const shareSrc = readFileSync(path.join(__dirname2, "..", "modules", "share_doc.js"), "utf8");
 
 test("Phase 92.4: modules/lazy_libs.js must export loadHtml2Canvas", () => {
   assert.ok(
@@ -166,16 +168,17 @@ test("Phase 92.4: main.js must NOT still inline the html2canvas CDN <script> inj
   );
 });
 
-test("Phase 92.5: _appShareDoc must handle a failed html2canvas load (no stuck modal)", () => {
+test("Phase 92.5: shareDoc must handle a failed html2canvas load (no stuck modal)", () => {
   // The share flow must capture loadHtml2Canvas()'s boolean result and bail out
   // with a user-facing message instead of leaving "กำลังสร้าง PDF..." forever.
+  // Phase 92.7: this flow now lives in modules/share_doc.js (injected loader).
   assert.ok(
-    /=\s*await\s+_loadHtml2Canvas\(\)/.test(mainSrc),
-    "main.js must capture the await _loadHtml2Canvas() return value (not ignore it)"
+    /=\s*await\s+loadHtml2Canvas\(\)/.test(shareSrc),
+    "share_doc.js must capture the await loadHtml2Canvas() return value (not ignore it)"
   );
   assert.ok(
-    /โหลดตัวสร้าง PDF ไม่สำเร็จ/.test(mainSrc),
-    "main.js must show a failure message when the PDF generator can't load"
+    /โหลดตัวสร้าง PDF ไม่สำเร็จ/.test(shareSrc),
+    "share_doc.js must show a failure message when the PDF generator can't load"
   );
 });
 
