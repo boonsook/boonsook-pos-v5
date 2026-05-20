@@ -3,13 +3,46 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 20 พฤษภาคม 2026 (Phase 92.7 — extract _appShareDoc → modules/share_doc.js, build 263)
-**Version:** 5.45.0 (build 263) — Phase 92.7 (Share/PDF overlay extraction; minor: new module)
-**Previous:** 5.44.9 (build 262) — Phase 92.6 (3 review findings: dedup, redundant repaint, CRLF)
+**อัปเดตล่าสุด:** 20 พฤษภาคม 2026 (Phase 92.8 — extract Thai-locale formatters → modules/utils.js, build 264)
+**Version:** 5.45.1 (build 264) — Phase 92.8 (formatter extraction; patch: refactor)
+**Previous:** 5.45.0 (build 263) — Phase 92.7 (Share/PDF overlay extraction; minor: new module)
 
 ---
 
-## ♻️ Phase 92.7 — Extract `_appShareDoc` → `modules/share_doc.js` (this session)
+## ♻️ Phase 92.8 — Extract Thai-locale formatters → `modules/utils.js` (this session)
+
+ต่อยอด decomposition 92.1-92.7. ย้าย 5 pure formatters ที่ยัง inline ใน main.js ไปรวมกับ shared utils.js (ที่มี escHtml/round2/todayBkk/dateBkk อยู่แล้ว). Refactor-only, byte-identical. **No push (awaiting user).**
+
+### What moved (main.js → modules/utils.js)
+- `money` (const arrow), `formatNumber`, `formatCurrency`, `formatDate`, `formatDateTime` — body byte-identical, แค่เติม `export`; วางไว้หลัง date helpers (todaySuffix) เพื่อ cohesion
+- main.js เพิ่ม `import { money, formatNumber, formatCurrency, formatDate, formatDateTime } from "./modules/utils.js";` (บรรทัดถัดจาก escHtml import)
+
+### Why utils.js (ไม่สร้าง module ใหม่)
+- มี date helpers (todayBkk/dateBkk) อยู่แล้ว → formatDate/formatDateTime ไปอยู่ด้วยกัน = cohesion
+- ตรงกับ pattern Phase 51 (escHtml dedup → utils.js); modules หลายตัว import จาก utils.js ตรงๆ อยู่แล้ว
+- `formatCurrency` เรียก `money` → ทั้งคู่ต้องอยู่ module เดียวกันเพื่อให้ internal call ทำงาน
+
+### Caller compatibility (ห้ามแตะ — verified)
+- `window.App` exports object (escapeHtml/formatNumber/formatCurrency/formatDate/formatDateTime) ไม่แตะ — ES import live binding ทำให้ object shorthand ทำงานเหมือนเดิม
+- 6 จุดที่เรียก `money(...)` ใน main.js ไม่แตะ call site
+- ไม่มี name collision ใน utils.js (ตรวจแล้ว) + ไม่มี module อื่น define formatNumber/formatDate ทับ
+
+### Build bump 263 → 264 (จำเป็น)
+- utils.js เป็น static import → browser/SW cache ตาม CACHE_NAME; ถ้าไม่ bump client เก่าอาจโหลด utils.js เก่า (ไม่มี formatters) คู่ main.js ใหม่ (ไม่มี inline) → ReferenceError
+- Files: index.html (style.css/selfheal/main.js/boot.js ?v=264 + data-app-build=264), sw.js CACHE_NAME v264, pages.js version 5.45.1 + build 264
+
+### Stats
+- main.js: 4467 → 4454 บรรทัด (−13); Tests: 263 → 275 (+12: 8 behavioral + 4 source-level pins)
+- Verify: lint 0 + 275 unit + 11 e2e green
+
+### Recommend ต่อ (Phase 92.9+)
+- DOM/form utils (fadeIn/fadeOut, showLoading/hideLoading, getFormData/validateForm/clearForm) → modules/dom_utils.js
+- XHR/API layer (xhrPost/Patch/Delete + appAuthFetch + refreshAccessToken) → modules/api.js
+- boot IIFE → modules/boot.js (capstone — main.js side-effect-free)
+
+---
+
+## ♻️ Phase 92.7 — Extract `_appShareDoc` → `modules/share_doc.js`
 
 ต่อยอด decomposition 92.1-92.6. ย้าย Share/PDF overlay (chunk ใหญ่สุดที่เหลือเป็นก้อนเดียวใน main.js, L426-644 ~223 บรรทัด) ออกเป็น module ใหม่. Behavior byte-identical, refactor-only. **No push (awaiting user).**
 

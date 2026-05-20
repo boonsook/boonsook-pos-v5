@@ -7,6 +7,20 @@
 
 ---
 
+## 5.45.1 (build 264) — 2026-05-20 ♻️ Phase 92.8 — Extract Thai-locale formatters → `modules/utils.js`
+
+ต่อยอด decomposition 92.1-92.7 — ย้าย pure formatters ไปรวมกับ shared utils (cohesion กับ escHtml/date helpers ที่มีอยู่). Refactor-only, byte-identical.
+
+- ย้าย `money` / `formatNumber` / `formatCurrency` / `formatDate` / `formatDateTime` จาก main.js → `modules/utils.js` (วางใกล้ todayBkk/dateBkk)
+- Pure functions (zero DOM/state/side-effect); main.js import กลับใช้ชื่อเดิม → `window.App` exports + 6 จุด `money()` ไม่แตะ call site เลย
+- Caller compat ผ่าน ES import live binding (pattern เดียวกับ escHtml dedup Phase 51); `formatCurrency` เรียก `money` ภายใน module เดียวกัน
+- main.js: 4467 → 4454 บรรทัด (−13); Tests: +12 (8 behavioral + 4 source-level pins)
+
+**Build:** 263 → 264; version 5.45.0 → 5.45.1 (patch — refactor)
+**Verify:** lint 0 + 275 unit + 11 e2e green
+
+---
+
 ## 5.45.0 (build 263) — 2026-05-20 ♻️ Phase 92.7 — Extract `_appShareDoc` → `modules/share_doc.js`
 
 ต่อยอด decomposition 92.1-92.6 — ย้าย Share/PDF overlay (chunk ใหญ่สุดที่เหลือใน main.js) ออกเป็น module. Behavior byte-identical, refactor-only.
