@@ -152,6 +152,26 @@ export function todaySuffix() {
 }
 
 // ═══════════════════════════════════════════════════════════
+//  Thai-locale formatters (Phase 92.8: extracted from main.js)
+//  Pure: zero DOM/state/side-effect. formatCurrency delegates to money.
+// ═══════════════════════════════════════════════════════════
+export const money = (n) => new Intl.NumberFormat("th-TH",{style:"currency",currency:"THB",minimumFractionDigits:2}).format(Number(n||0));
+export function formatNumber(n) { return new Intl.NumberFormat("th-TH").format(Number(n || 0)); }
+export function formatCurrency(n) { return money(n); }
+export function formatDate(d, opts) {
+  if (!d) return "-";
+  const date = d instanceof Date ? d : new Date(d);
+  if (isNaN(date)) return "-";
+  return date.toLocaleDateString("th-TH", opts || { year:"numeric", month:"short", day:"numeric" });
+}
+export function formatDateTime(d) {
+  if (!d) return "-";
+  const date = d instanceof Date ? d : new Date(d);
+  if (isNaN(date)) return "-";
+  return date.toLocaleString("th-TH", { year:"numeric", month:"short", day:"numeric", hour:"2-digit", minute:"2-digit" });
+}
+
+// ═══════════════════════════════════════════════════════════
 //  Phase 68: Tag presets for products + service_jobs
 //  (customers have their own preset list in main.js Phase 11)
 // ═══════════════════════════════════════════════════════════

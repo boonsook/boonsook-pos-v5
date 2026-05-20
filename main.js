@@ -486,12 +486,13 @@ const state = {
 //  HELPERS
 // ═══════════════════════════════════════════════════════════
 const $ = (id) => document.getElementById(id);
-const money = (n) => new Intl.NumberFormat("th-TH",{style:"currency",currency:"THB",minimumFractionDigits:2}).format(Number(n||0));
 
 // ═══ Phase 5: Utility Functions (2/4/2569) ═══
 
 // ★ XSS Protection — escapeHtml (Phase 51: dedup → use shared utils.js)
 import { escHtml as escapeHtml } from "./modules/utils.js";
+// ★ Phase 92.8 — Thai-locale formatters extracted to utils.js (caller compat via import binding)
+import { money, formatNumber, formatCurrency, formatDate, formatDateTime } from "./modules/utils.js";
 
 // ★ Phase 86.3 — email/password staff auth flow (extracted from main.js)
 import { createEmailAuth } from "./modules/auth_email.js";
@@ -499,21 +500,7 @@ import { createEmailAuth } from "./modules/auth_email.js";
 //   (auth_otp.js เป็นคน import api_utils + otp_cooldown — main.js ไม่ต้องใช้ตรงๆ แล้ว)
 import { createOtpAuth } from "./modules/auth_otp.js";
 
-// ★ Format helpers (Thai locale)
-function formatNumber(n) { return new Intl.NumberFormat("th-TH").format(Number(n || 0)); }
-function formatCurrency(n) { return money(n); }
-function formatDate(d, opts) {
-  if (!d) return "-";
-  const date = d instanceof Date ? d : new Date(d);
-  if (isNaN(date)) return "-";
-  return date.toLocaleDateString("th-TH", opts || { year:"numeric", month:"short", day:"numeric" });
-}
-function formatDateTime(d) {
-  if (!d) return "-";
-  const date = d instanceof Date ? d : new Date(d);
-  if (isNaN(date)) return "-";
-  return date.toLocaleString("th-TH", { year:"numeric", month:"short", day:"numeric", hour:"2-digit", minute:"2-digit" });
-}
+// ★ Format helpers (Thai locale) — Phase 92.8: moved to modules/utils.js (imported above)
 
 // ★ Form utilities
 function getFormData(formOrIds) {
