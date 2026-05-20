@@ -16,6 +16,13 @@
 export const HTML2CANVAS_CDN_URL =
   "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js";
 
+// Phase 92.6 (Issue 1): in-flight load promise, used to dedupe concurrent
+// callers (e.g. a double-clicked Share button) so only ONE <script> is injected.
+// Cleared once the load settles (success OR failure): after success the next
+// caller hits the `windowRef.html2canvas` early-return; after failure the next
+// caller is free to retry (network may have recovered).
+let _pendingH2c = null;
+
 /**
  * Lazily load html2canvas by injecting its CDN <script> once.
  *
@@ -30,6 +37,10 @@ export const HTML2CANVAS_CDN_URL =
  * error path (the original failed silently), surfacing CDN/offline failures
  * without changing the resolve contract or control flow.
  *
+ * Phase 92.6: concurrent callers that arrive while a load is in flight share the
+ * same promise (no duplicate <script>). The shared promise is cleared once it
+ * settles, so a later call retries after a failure / short-circuits after success.
+ *
  * @param {object}   [opts]
  * @param {Window}   [opts.windowRef=window] — checked for an existing html2canvas
  * @param {Document} [opts.documentRef=document] — script is created + appended here
@@ -43,16 +54,20 @@ export async function loadHtml2Canvas({
   scriptUrl = HTML2CANVAS_CDN_URL,
   logger = typeof console !== "undefined" ? console : null,
 } = {}) {
-  return new Promise((resolve) => {
-    if (windowRef?.html2canvas) { resolve(true); return; }
-    if (!documentRef) { resolve(false); return; }
+  if (windowRef?.html2canvas) { return true; }
+  if (!documentRef) { return false; }
+  // Dedupe concurrent callers — return the in-flight promise instead of injecting a 2nd <script>
+  if (_pendingH2c) return _pendingH2c;
+  _pendingH2c = new Promise((resolve) => {
     const s = documentRef.createElement("script");
     s.src = scriptUrl;
-    s.onload = () => resolve(true);
+    s.onload = () => { _pendingH2c = null; resolve(true); };
     s.onerror = () => {
       logger?.warn?.("[loadHtml2Canvas] failed to load (PDF/share will be unavailable):", scriptUrl);
+      _pendingH2c = null;  // reset so the next call can retry (network might recover)
       resolve(false);
     };
     documentRef.head.appendChild(s);
   });
+  return _pendingH2c;
 }
