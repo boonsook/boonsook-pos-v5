@@ -34,9 +34,9 @@
   1. [[feedback_smoke_log_wrong_function]] — console error ตอน smoke (92.2/92.3) มาจาก `saveStoreInfo` คนละ path กับ `_appSyncLogo` ที่กำลังแก้ — grep หา source จริงก่อน
   2. [[feedback_cdn_url_vs_csp]] — byte-identical extract เก็บ latent bug ไว้ (cdnjs URL ไม่ตรง CSP มาตั้งแต่ก่อน refactor); external-resource path ต้อง smoke จริง + เทียบ `_headers`
 
-### สถานะ ณ build 261
+### สถานะ ณ build 261 — ✅ Phase 92 arc (256→261) ปิดครบ
 - Production live build **261**, version **5.44.8**, `npm run verify` ผ่านครบ (lint 0 errors / 2 pre-existing warnings, 249 unit, 11 e2e)
-- Manual smoke Share/PDF: **รอ user ยืนยัน** (hotfix เพิ่ง deploy)
+- Manual smoke Share/PDF: **✅ user ยืนยันผ่านแล้ว** (20 พ.ค. 2026) — html2canvas โหลดจาก jsdelivr, สร้าง/แชร์ไฟล์ได้, ไม่ค้าง
 - งานที่ทำบน branch `claude/phase-89-45-final-warnings` แต่ push ตรง `origin/main` ทุก build (Cloudflare deploy จาก main)
 
 ### Phase 92 ถัดไป (ยังไม่เริ่ม)
