@@ -3,13 +3,50 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 20 พฤษภาคม 2026 (Phase 92.6 — Share/PDF + logo-sync hardening, build 262)
-**Version:** 5.44.9 (build 262) — Phase 92.6 (3 review findings: dedup, redundant repaint, CRLF)
-**Previous:** 5.44.8 (build 261) — Phase 92.5 (html2canvas CSP hotfix)
+**อัปเดตล่าสุด:** 20 พฤษภาคม 2026 (Phase 92.7 — extract _appShareDoc → modules/share_doc.js, build 263)
+**Version:** 5.45.0 (build 263) — Phase 92.7 (Share/PDF overlay extraction; minor: new module)
+**Previous:** 5.44.9 (build 262) — Phase 92.6 (3 review findings: dedup, redundant repaint, CRLF)
 
 ---
 
-## 🛡️ Phase 92.6 — Share/PDF + logo-sync hardening (this session)
+## ♻️ Phase 92.7 — Extract `_appShareDoc` → `modules/share_doc.js` (this session)
+
+ต่อยอด decomposition 92.1-92.6. ย้าย Share/PDF overlay (chunk ใหญ่สุดที่เหลือเป็นก้อนเดียวใน main.js, L426-644 ~223 บรรทัด) ออกเป็น module ใหม่. Behavior byte-identical, refactor-only. **No push (awaiting user).**
+
+### What moved
+- `window._appShareDoc` body → `export async function shareDoc({ docElementId, docName, documentRef, windowRef, loadHtml2Canvas, showToast, logger })` ใน `modules/share_doc.js` (239 บรรทัด)
+- main.js เก็บ thin `window._appShareDoc(docElementId, docName)` wrapper → delegate ไป `_shareDocImpl({...})` bind live `document`/`window`/`_loadHtml2Canvas`/`showToast`
+- HTML modal template + `forceA4Style` CSS + closure (`_canvas`/`_pdfBlob`/`_pdfUrl`) + jsPDF multi-page math + 8 share handlers (line/fb/email/native/pdf/save/copy/print) ย้ายมาทั้งก้อน byte-identical
+
+### Why DI (injected refs)
+- main.js เป็น ES module ที่รันใน browser เท่านั้น; แยก module ออกมาแล้ว inject `documentRef`/`windowRef` → unit-testable ใน Node + กัน global-leak (Lesson 89.35: bareword `document.` ใน module = ReferenceError ใน prod แต่ unit test ไม่ catch). Global-leak guard (grep) PASS — ทุก DOM/window/navigator/console + html2canvas loader route ผ่าน param.
+- `console.warn` → `logger?.warn?.()` (optional-chained, null-safe เมื่อไม่มี console)
+
+### Caller compatibility (ห้ามแตะ — verified)
+- delivery_invoices.js:649 / doc-utils.js:262 / quotations.js:1029 / receipts.js:900 — ทุกตัวเรียก `window._appShareDoc(string, string)`; wrapper signature คงเดิมเป๊ะ
+
+### Tests (+10 → 263 total)
+- Behavioral (stub doc/window): null-guard returns silently; overlay built + appended w/ 8 share-opt; Phase 92.5 fail-fallback fires on `loadHtml2Canvas()===false`; missing docEl no-throw
+- Source pins: export/import/wrapper shape; modal markup gone from main.js; no bareword `document.`/`navigator.`; 92.5 fallback string present
+- ⚠️ Phase 92.5 source pin ใน `tests/lazy_libs_load_html2canvas.test.js` ย้าย target จาก mainSrc → shareSrc (code ย้าย module — ไม่ใช่ behavior change)
+- **ไม่ unit test** native share / clipboard.write / window.open handlers (mock ROI ต่ำ) → ครอบด้วย source pin + manual smoke
+
+### Net
+- main.js: 4690 → 4467 บรรทัด (−223)
+- Build: 262 → 263; version 5.44.9 → 5.45.0 (minor — โครงสร้างเพิ่ม module)
+- main.js decomposition state: branding.js + lazy_libs.js + share_doc.js เป็นเจ้าของสิ่งที่เคย inline; เหลือ boot IIFE + sidebar/nav + state ใน main.js
+
+### ⚠️ Manual smoke REQUIRED post-deploy (share handlers ไม่มี unit test)
+หลัง build 263 live → Ctrl+Shift+R เช็ค 5.45.0; เปิด Quotation/Receipt/Delivery Invoice → แชร์ → modal + thumbnail + "✓ PDF A4 พร้อมแชร์"; ทดสอบ บันทึก PDF / บันทึกรูป / คัดลอกรูป / พิมพ์ / LINE-Messenger-Email / native share (มือถือ) / offline fallback; PDF layout = A4 ตรง logo+ตาราง+ยอดรวม+ลายเซ็นครบ
+
+### Recommend Phase 92.8+
+- boot IIFE → modules/boot.js (เล็กแต่ stateful)
+- doc-print.css / forceA4Style consolidation (CSS A4 ซ้ำซ้อน?)
+- sw.js:147 anomaly (?_t= ERR_CACHE_MISS) — สืบ + fix
+
+---
+
+## 🛡️ Phase 92.6 — Share/PDF + logo-sync hardening
 
 Defensive hardening from a post-92.5 code review — 3 small fixes in 2 modules, TDD (red→green) each. **No push (awaiting user).**
 
