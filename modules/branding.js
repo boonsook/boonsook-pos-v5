@@ -126,6 +126,9 @@ export async function syncAppLogo({
   const cfg = config;
   if (!cfg || !fetchImpl || !storageRef) return false;
   const token = accessToken || cfg.anonKey;
+  // Phase 92.6 (Issue 3): defense-in-depth — strip CR/LF so a compromised token
+  // can't inject extra HTTP headers (Supabase JWTs never contain these anyway).
+  const safeToken = String(token).replace(/[\r\n]/g, "");
 
   // Hardening: abort if the list request stalls (original fetch had no timeout).
   const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
@@ -133,7 +136,7 @@ export async function syncAppLogo({
   try {
     const listResp = await fetchImpl(cfg.url + "/storage/v1/object/list/store-assets", {
       method: "POST",
-      headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token, "Content-Type": "application/json" },
+      headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + safeToken, "Content-Type": "application/json" },
       body: JSON.stringify({ prefix: "logo", limit: 5 }),
       signal: controller ? controller.signal : undefined,
     });
