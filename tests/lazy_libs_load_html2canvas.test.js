@@ -83,6 +83,34 @@ test("loadHtml2Canvas: null documentRef → resolves false, no throw", async () 
   assert.equal(await loadHtml2Canvas({ windowRef: {}, documentRef: null }), false);
 });
 
+// ── Phase 92.6 Issue 1: concurrent dedup + retry-after-fail ────────────────
+test("loadHtml2Canvas: concurrent callers share the same in-flight promise (no duplicate <script>)", async () => {
+  const doc = makeStubDoc();
+  const winRef = {};
+  // 3 parallel calls before script settles
+  const p1 = loadHtml2Canvas({ windowRef: winRef, documentRef: doc });
+  const p2 = loadHtml2Canvas({ windowRef: winRef, documentRef: doc });
+  const p3 = loadHtml2Canvas({ windowRef: winRef, documentRef: doc });
+  assert.equal(doc.created.length, 1, "exactly 1 <script> must be injected for N concurrent callers");
+  doc.lastScript().onload();
+  assert.deepEqual(await Promise.all([p1, p2, p3]), [true, true, true]);
+});
+
+test("loadHtml2Canvas: after a failed load, the next call retries (pending promise is cleared)", async () => {
+  const doc = makeStubDoc();
+  const logger = makeLogger();
+  // First attempt fails
+  const p1 = loadHtml2Canvas({ windowRef: {}, documentRef: doc, logger });
+  doc.lastScript().onerror();
+  assert.equal(await p1, false);
+  // Second attempt must inject a NEW script (not return the cached failed promise)
+  const doc2Created = doc.created.length;
+  const p2 = loadHtml2Canvas({ windowRef: {}, documentRef: doc, logger });
+  assert.equal(doc.created.length, doc2Created + 1, "after failure, next call must retry (new <script>)");
+  doc.lastScript().onload();
+  assert.equal(await p2, true);
+});
+
 test("loadHtml2Canvas: HTML2CANVAS_CDN_URL is the pinned 1.4.1 jsdelivr build", () => {
   // Phase 92.5: cdnjs.cloudflare.com is blocked by the production CSP — must use
   // an allowed host (cdn.jsdelivr.net). See _headers script-src-elem.
