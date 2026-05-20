@@ -7,6 +7,39 @@
 
 ---
 
+## 5.44.9 (build 262) — 2026-05-20 🛡️ Phase 92.6 — Share/PDF + Logo Sync hardening (3 review findings)
+
+จาก code review หลัง 92.5 — defensive hardening 3 จุดใน 2 module (refactor-only, ไม่เพิ่ม feature). TDD ทุกข้อ (test red ก่อน fix)
+
+**Issue 1 — `loadHtml2Canvas` concurrent dedup** (`modules/lazy_libs.js`)
+- user double-click ปุ่ม Share ก่อน script โหลดเสร็จ → inject `<script>` ซ้ำ
+- Fix: module-level `_pendingH2c` cache promise ที่ in-flight → concurrent callers ใช้ promise เดียวกัน. clear เมื่อ settle ทั้ง success+failure (success → call ถัดไป short-circuit ที่ `window.html2canvas`; failure → retry ได้)
+- **หมายเหตุ:** prompt แนะนำให้ "ห้าม reset on success" แต่ตรวจแล้วว่า reset on success ก็ production-equivalent + กัน module-state leak ข้าม unit tests → user ยืนยันเลือกแบบ clear-on-success
+- Tests: +2 (concurrent dedup + retry-after-fail)
+
+**Issue 2 — `syncAppLogo` redundant repaint ทุก boot** (`modules/branding.js`)
+- เดิม condition key จาก `!startsWith("data:")` → user ที่ logo เป็น Supabase http URL จะ `setItem()` + `onUpdated()` (repaint DOM) + return true ทุก boot แม้ URL ไม่เปลี่ยน
+- Fix: early-exit เมื่อ `bsk_store_logo_url === publicUrl` (ดู URL ตรงพอ — ครอบ data: URI dedup case + ยัง refresh เมื่อ URL ต่างจริง)
+- Tests: +1 (skip when URL unchanged)
+
+**Issue 3 — `syncAppLogo` token CRLF (defense-in-depth)** (`modules/branding.js`)
+- `accessToken` concat ลง Authorization header ตรงๆ (Supabase JWT กันได้ใน prod แต่ปิด gap ราคา 1 บรรทัด)
+- Fix: `String(token).replace(/[\r\n]/g, "")` ก่อน inject
+- Tests: +1 (CRLF strip)
+
+**Build:** 261 → 262; version 5.44.8 → **5.44.9** (patch — hardening)
+**Verify:** lint 0 errors + **253 unit** (249 → 253, +4) + 11 e2e green
+**Scope guard:** แตะแค่ `modules/lazy_libs.js` + `modules/branding.js` + test 2 ไฟล์ + build-bump files. ไม่มี push (รอ user)
+
+### How to test (manual smoke หลัง deploy build 262)
+1. Ctrl+Shift+R → version **5.44.9 (build 262)**
+2. เปิดใบเสร็จ/ใบเสนอราคา → Share/PDF → สร้าง PDF ปกติ
+3. Double-click ปุ่ม Share รัวๆ → DevTools Elements เห็น `<script src*=html2canvas>` ตัวเดียว (ไม่ใช่ 2-3)
+4. (offline) Network=Offline → Share → toast "โหลดตัวสร้าง PDF ไม่สำเร็จ" + modal ปิดได้
+5. Boot 3 รอบ (user ที่ logo sync แล้ว) → Network ไม่มี Storage list call ซ้ำ / `bsk_store_logo_url` ไม่ rewrite ทุก boot
+
+---
+
 ## 🧭 สรุป build 256 → 261 (Phase 91.4 → 92.5)
 
 - **256** (5.44.3) — Phase 91.4: Loyalty audit CLOSED (baseline)

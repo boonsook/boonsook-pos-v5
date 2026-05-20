@@ -3,9 +3,29 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 20 พฤษภาคม 2026 (Phase 92.5 HOTFIX — html2canvas CSP fix, build 261)
-**Version:** 5.44.8 (build 261) — Phase 92.5 (html2canvas → jsdelivr; Share/PDF no longer hangs)
-**Previous:** 5.44.7 (build 260) — Phase 92.4 (extract `loadHtml2Canvas()`)
+**อัปเดตล่าสุด:** 20 พฤษภาคม 2026 (Phase 92.6 — Share/PDF + logo-sync hardening, build 262)
+**Version:** 5.44.9 (build 262) — Phase 92.6 (3 review findings: dedup, redundant repaint, CRLF)
+**Previous:** 5.44.8 (build 261) — Phase 92.5 (html2canvas CSP hotfix)
+
+---
+
+## 🛡️ Phase 92.6 — Share/PDF + logo-sync hardening (this session)
+
+Defensive hardening from a post-92.5 code review — 3 small fixes in 2 modules, TDD (red→green) each. **No push (awaiting user).**
+
+### Fixes
+- **Issue 1** (`modules/lazy_libs.js`) — `loadHtml2Canvas` now dedupes concurrent callers (double-clicked Share) via a module-level `_pendingH2c` in-flight promise → one `<script>` injection. Cleared on settle (success → next call short-circuits on `window.html2canvas`; failure → retries).
+  - ⚠️ Deviated from the prompt's "don't reset on success": keeping the promise leaked module state across unit tests (broke `onerror`/`custom scriptUrl`). Confirmed by running it, then **user approved clear-on-success** (production-equivalent — see [[feedback_cdn_url_vs_csp]] sibling). +2 tests.
+- **Issue 2** (`modules/branding.js`) — `syncAppLogo` early-exits when `bsk_store_logo_url === publicUrl`. Was repainting + re-`setItem` every boot for http-URL logos because the old condition keyed off `!startsWith("data:")`. +1 test.
+- **Issue 3** (`modules/branding.js`) — `syncAppLogo` strips CR/LF from `accessToken` before the Authorization header (defense-in-depth; Supabase JWTs are safe but cost is 1 line). +1 test.
+
+### Build
+- 261 → 262; version 5.44.8 → **5.44.9** (patch — hardening)
+- `npm run verify`: lint 0 errors (2 pre-existing warnings) + **253 unit** (249 → 253, +4) + 11 e2e
+- Commits: 3 test (red) + 3 fix + 1 build + 1 docs = 8, on branch `claude/phase-92-6-share-sync-hardening`
+
+### Pending
+- **NOT pushed** — awaiting user review/approval before merge to main + deploy. Manual smoke checklist in [`CHANGELOG.md`](CHANGELOG.md) 5.44.9 section.
 
 ---
 
