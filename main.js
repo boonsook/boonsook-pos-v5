@@ -45,6 +45,7 @@ import { atomicDecrementStock } from "./modules/stock_cas.js";
 import { installErrorReporter } from "./modules/error_reporter.js";
 import { createInflightGuard } from "./modules/_inflight_guard.js";
 import { createApi } from "./modules/api.js";
+import { runBoot } from "./modules/boot.js";
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -4233,14 +4234,14 @@ function updateAppLogos() {
 // Expose ให้ modules อื่นเรียกได้ (Phase 36 — settings/pages.js logo upload)
 window.updateAppLogos = updateAppLogos;
 
-(async function boot(){
-  initDarkMode();
-  bindStaticEvents();
-  updateAppLogos();
-  const ok = await initSupabase();
-  if (!ok) return;
-  if (!state.currentUser) return;
-  await afterLogin();
-  // Sync โลโก้จาก Supabase Storage (ทำ background ไม่ block)
-  window._appSyncLogo().then(() => { if (typeof updateAppLogos === "function") updateAppLogos(); });
-})();
+// Phase 92.10: boot orchestration moved to modules/boot.js. main.js no longer
+// self-invokes on load — runBoot binds live deps so ลำดับ + behavior เหมือนเดิม.
+runBoot({
+  initDarkMode,
+  bindStaticEvents,
+  updateAppLogos,
+  initSupabase,
+  afterLogin,
+  syncLogo: () => window._appSyncLogo(),
+  getCurrentUser: () => state.currentUser,
+});
