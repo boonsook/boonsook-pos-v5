@@ -143,6 +143,23 @@ test("syncAppLogo: non-data current logo always refreshes to server URL", async 
   assert.equal(storageRef.getItem("bsk_store_logo"), EXPECTED_URL);
 });
 
+// ── Phase 92.6 Issue 2: skip when stored URL already matches (no redundant repaint) ──
+test("syncAppLogo: same http URL already cached → skip (no redundant repaint)", async () => {
+  // BUG (pre-92.6): every boot for an http logo matching publicUrl still called
+  // onUpdated() + setItem() because the condition keyed off `!startsWith('data:')`.
+  const storageRef = makeStubStorage({
+    bsk_store_logo:     EXPECTED_URL,   // ← http URL (not data:)
+    bsk_store_logo_url: EXPECTED_URL,
+  });
+  let painted = 0;
+  const ok = await syncAppLogo({
+    config: CONFIG, storageRef, fetchImpl: fetchReturning([LOGO_FILE]),
+    onUpdated: () => { painted++; },
+  });
+  assert.equal(ok, false, "must skip when URL already matches");
+  assert.equal(painted, 0, "must NOT call onUpdated when nothing changed");
+});
+
 // ── Hardening: timeout + logged failures (no throw, cache still serves) ──────
 test("syncAppLogo: fetch rejection is caught, logged, returns false (no throw)", async () => {
   const logger = makeLogger();
