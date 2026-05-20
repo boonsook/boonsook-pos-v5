@@ -3,13 +3,53 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 20 พฤษภาคม 2026 (Phase 92.8 — extract Thai-locale formatters → modules/utils.js, build 264)
-**Version:** 5.45.1 (build 264) — Phase 92.8 (formatter extraction; patch: refactor)
-**Previous:** 5.45.0 (build 263) — Phase 92.7 (Share/PDF overlay extraction; minor: new module)
+**อัปเดตล่าสุด:** 20 พฤษภาคม 2026 (Phase 92.9 — extract XHR/API data layer → modules/api.js, build 265)
+**Version:** 5.46.0 (build 265) — Phase 92.9 (api-layer extraction; minor: new auth-critical module)
+**Previous:** 5.45.1 (build 264) — Phase 92.8 (formatter extraction; patch: refactor)
 
 ---
 
-## ♻️ Phase 92.8 — Extract Thai-locale formatters → `modules/utils.js` (this session)
+## ♻️ Phase 92.9 — Extract XHR/API data layer → `modules/api.js` (this session)
+
+ต่อยอด decomposition 92.1-92.8. ย้าย **data-access layer** (auth-critical) ที่ทุก data operation พึ่งพา. Refactor-only, byte-identical. **No push (awaiting user).**
+
+### What moved (main.js L178-395 → modules/api.js)
+- `_refreshInflight` (module-level guard) + `refreshAccessToken` (single-flight token rotation, 3s herd-absorb)
+- `appAuthFetch` (401-retry-with-refresh fetch wrapper) + `xhrPost` / `xhrPatch` / `xhrDelete` (XHR REST + 401 recursive retry)
+
+### Why factory `createApi({ windowRef })` (ไม่ใช่ plain exports)
+1. **Shared mutable** `_refreshInflight` — 5 functions ต้องเห็น guard เดียวกัน
+2. **Internal recursion** — appAuthFetch→refreshAccessToken; xhrPost/Patch/Delete→refreshAccessToken→recursive self with `_isRetry=true`
+3. **Positional `_isRetry` param** — เพิ่ม windowRef ต่อ function จะชน positional args ของ 13 callers + recursive retry
+→ factory inject `windowRef` ครั้งเดียวผ่าน closure แก้ทั้ง 3 ข้อ; 5 functions + `_refreshInflight` อยู่ closure เดียว
+
+### Caller compatibility (ห้ามแตะ — verified)
+- main.js destructure `{ refreshAccessToken, appAuthFetch, xhrPost, xhrPatch, xhrDelete } = createApi({ windowRef: window })` → bindings อยู่ใน module scope
+- ผูก `window._appRefreshAccessToken/_appAuthFetch/_appXhrPost/_appXhrPatch/_appXhrDelete` เดิม → 13 module callers (quotations/delivery_invoices/ฯลฯ) ไม่แตะ
+- main.js local callers (~30 จุด L1816+: products/customers/sales/stock/profiles) ใช้ destructured bindings ตรงๆ
+
+### Byte-identical — แก้แค่ global → windowRef.*
+| เดิม | ใหม่ |
+|------|------|
+| `window.SUPABASE_CONFIG` / `window._sbAccessToken` / `window.App` | `windowRef.*` |
+| `fetch(` | `windowRef.fetch(` |
+| `new XMLHttpRequest()` | `new windowRef.XMLHttpRequest()` |
+| `state.supabase` fallback (L183) | ตัดออก — `windowRef.App?.state?.supabase` พอ (window.App.state === state, verified L4422) |
+
+retry/refresh/single-flight setTimeout(3s)/headers/timeout(15000)/status-handling/JSON-guards/console logging — ไม่แตะ
+
+### Global-leak guard (auth-critical, A.5) — PASS
+`node --check` api.js+main.js OK; ทุก `window.`/`fetch(`/`new XMLHttpRequest`/`state.` ใน api.js เป็น comment หรือ `windowRef.*` (ไม่มี bareword leak)
+
+### Tests (+18 → 293 total)
+14 behavioral (appAuthFetch header inject + anonKey fallback + 401 retry single/double; refreshAccessToken false/rotate/single-flight; xhrPost 2xx/empty/4xx; xhrPatch RLS-blocked/2xx; xhrDelete 2xx/4xx) + 4 source pins (factory export, main.js wiring 5 wrappers, no inline defs, windowRef routing)
+
+### Manual smoke (REQUIRED post-merge+deploy — blast radius ใหญ่สุดในซีรีส์)
+หลัง build 265 live: Ctrl+Shift+R → 5.46.0 → **login** → **load** data (Dashboard/POS/สินค้า/ลูกค้า) → **create** (ขาย/ใบเสนอราคา) → **edit** (สินค้า/ลูกค้า) → **delete** → **token refresh** (ทิ้งจน token หมดอายุ/ลบ session ใน DevTools → ทำ action → refresh+retry เงียบ หรือ toast "Session หมดอายุ") → Console ไม่มี ReferenceError
+
+---
+
+## ♻️ Phase 92.8 — Extract Thai-locale formatters → `modules/utils.js`
 
 ต่อยอด decomposition 92.1-92.7. ย้าย 5 pure formatters ที่ยัง inline ใน main.js ไปรวมกับ shared utils.js (ที่มี escHtml/round2/todayBkk/dateBkk อยู่แล้ว). Refactor-only, byte-identical. **No push (awaiting user).**
 

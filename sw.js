@@ -8,11 +8,12 @@
 // v256 (2026-05-19): Phase 91.4 HOTFIX — refund/cancel reverse-loyalty wiring was gated on sale-row customer_id (opt-in column). Helper auto-resolves from earn record — removed the pre-check. Added diagnostic log so future smoke explains itself.
 // v255 (2026-05-19): Phase 91.3 — Refund/cancel reverse loyalty auto-earn. Idempotent helper inserts type='redeem' + ref_type='sale_reverse'. Caps at remaining (no negative balance). Wired into modules/refunds.js (after JV post) and modules/sales.js soft-delete (alongside void JV + revert stock).
 // v254 (2026-05-19): Phase 91.2 HOTFIX — earn formula was multiplying instead of dividing (500 baht at rate 100 = 50000 pts not 5). Centralized to calcEarnPoints(amount, settings) = floor(amount / bahtPerPoint).
+// v265 (2026-05-20): Phase 92.9 — extract XHR/API data layer (refreshAccessToken/appAuthFetch/xhrPost/xhrPatch/xhrDelete) to modules/api.js via createApi factory (closure preserves single-flight + 401-retry recursion; 13 callers via window._app* wrappers; byte-identical)
 // v264 (2026-05-20): Phase 92.8 — extract Thai-locale formatters (money/formatNumber/formatCurrency/formatDate/formatDateTime) to modules/utils.js (byte-identical; caller compat via import binding)
 // v263 (2026-05-20): Phase 92.7 — extract _appShareDoc Share/PDF overlay to modules/share_doc.js (thin window wrapper; behavior byte-identical)
 // v253 (2026-05-19): Phase 91.1 — POS checkout auto-earn loyalty points (fire-and-forget after sale insert; gated on customer + is_active + points_per_baht; amount = actualTotal)
 // v252 (2026-05-19): Phase 90.13 — Loyalty history modal click-outside listener leak: bind once in renderLoyaltyPage instead of re-attach on every showPointHistory call
-const CACHE_NAME = 'boonsook-pos-v5-cache-v264';
+const CACHE_NAME = 'boonsook-pos-v5-cache-v265';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

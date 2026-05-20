@@ -7,6 +7,21 @@
 
 ---
 
+## 5.46.0 (build 265) — 2026-05-20 ♻️ Phase 92.9 — Extract XHR/API data layer → `modules/api.js`
+
+ต่อยอด decomposition 92.1-92.8 — ย้าย **data-access layer** (auth-critical: token refresh + auth-fetch + XHR REST helpers) ที่ทุก data operation พึ่งพา. Refactor-only, byte-identical.
+
+- ย้าย `refreshAccessToken` / `appAuthFetch` / `xhrPost` / `xhrPatch` / `xhrDelete` + single-flight guard `_refreshInflight` จาก main.js → `modules/api.js`
+- **Factory `createApi({ windowRef })`** — closure เก็บ `_refreshInflight` + internal 401-retry recursion ให้ทำงานเหมือนเดิม (plain exports ทำไม่ได้เพราะมี shared mutable state + recursion + positional `_isRetry` param)
+- main.js destructure 5 functions ผูก `window._app*` wrappers เดิม → 13 module callers + main.js local callers ไม่แตะ
+- แก้แค่ global → `windowRef.*` (SUPABASE_CONFIG/_sbAccessToken/App/fetch/XMLHttpRequest); retry/refresh/headers/timeout/status/JSON-guards byte-identical
+- main.js: 4454 → 4247 บรรทัด (−207); Tests: +18 (14 behavioral + 4 source-level pins)
+
+**Build:** 264 → 265; version 5.45.1 → 5.46.0 (minor — new auth-critical module)
+**Verify:** lint 0 + 293 unit + 11 e2e green
+
+---
+
 ## 5.45.1 (build 264) — 2026-05-20 ♻️ Phase 92.8 — Extract Thai-locale formatters → `modules/utils.js`
 
 ต่อยอด decomposition 92.1-92.7 — ย้าย pure formatters ไปรวมกับ shared utils (cohesion กับ escHtml/date helpers ที่มีอยู่). Refactor-only, byte-identical.
