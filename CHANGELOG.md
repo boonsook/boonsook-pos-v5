@@ -7,6 +7,21 @@
 
 ---
 
+## 5.47.0 (build 266) — 2026-05-21 ♻️ Phase 92.10 CAPSTONE — Extract boot orchestration → `modules/boot.js`
+
+ปิด decomposition series 92.1-92.10 — ย้าย **boot IIFE** (self-invoking async ที่รันตอน main.js โหลด) ออกไป `modules/boot.js`. ผลลัพธ์: main.js เป็น **side-effect-free module** แล้ว (ไม่มี IIFE รันเองตอน import) → boot orchestration testable + module boundary สะอาด.
+
+- ย้าย boot IIFE → `export async function runBoot({...7 deps})` ใน `modules/boot.js`; main.js เรียก `runBoot({...})` (fire-and-forget) ที่ท้ายไฟล์แทน
+- **Dependency injection** — boot.js รับ deps (initDarkMode/bindStaticEvents/updateAppLogos/initSupabase/afterLogin/syncLogo/getCurrentUser) ผ่าน params → ไม่ import main.js (ตัด circular)
+- Byte-identical: ลำดับ 6 steps + early-return (`!ok`, `!currentUser`) + background `.then()` logo repaint เป๊ะเดิม; แก้แค่ `state.currentUser`→`getCurrentUser()`, `window._appSyncLogo()`→`syncLogo()`
+- ไม่แตะ `updateAppLogos` wrapper + `window.updateAppLogos`
+- Tests: +9 (5 behavioral: happy-path order / bail-no-supabase / bail-no-user / pre-steps-always / logo-repaint + 4 source pins)
+- **Series complete:** main.js 4690 → 4247 บรรทัด; modules แยก = branding · lazy_libs · share_doc · utils · api · boot
+
+**Build:** 265 → 266; version 5.46.0 → 5.47.0 (minor — new module + capstone)
+
+---
+
 ## 5.46.0 (build 265) — 2026-05-20 ♻️ Phase 92.9 — Extract XHR/API data layer → `modules/api.js`
 
 ต่อยอด decomposition 92.1-92.8 — ย้าย **data-access layer** (auth-critical: token refresh + auth-fetch + XHR REST helpers) ที่ทุก data operation พึ่งพา. Refactor-only, byte-identical.
