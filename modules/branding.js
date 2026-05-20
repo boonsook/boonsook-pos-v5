@@ -143,15 +143,16 @@ export async function syncAppLogo({
     if (!logoFile) return false;
 
     const publicUrl = cfg.url + "/storage/v1/object/public/store-assets/" + logoFile.name + "?t=" + new Date(logoFile.updated_at || logoFile.created_at).getTime();
-    const currentLogo = storageRef.getItem("bsk_store_logo") || "";
-    // อัปเดตเฉพาะเมื่อยังไม่มี หรือ URL เปลี่ยน (ไม่ทับ data: URI ที่ตรงกันอยู่แล้ว)
-    if (!currentLogo || !currentLogo.startsWith("data:") || storageRef.getItem("bsk_store_logo_url") !== publicUrl) {
-      storageRef.setItem("bsk_store_logo", publicUrl);
-      storageRef.setItem("bsk_store_logo_url", publicUrl);
-      if (typeof onUpdated === "function") onUpdated();
-      return true;
-    }
-    return false;
+    const storedUrl = storageRef.getItem("bsk_store_logo_url");
+    // Phase 92.6 (Issue 2): skip when the stored URL already matches what we'd write
+    // — no point repainting/re-setting identical values on every boot. Also preserves
+    // a user-uploaded data: URI whenever its matching server URL is already known.
+    if (storedUrl === publicUrl) return false;
+
+    storageRef.setItem("bsk_store_logo", publicUrl);
+    storageRef.setItem("bsk_store_logo_url", publicUrl);
+    if (typeof onUpdated === "function") onUpdated();
+    return true;
   } catch (e) {
     // offline / aborted / timeout — localStorage cache still serves the logo
     logger?.warn?.("[syncAppLogo] sync skipped (using localStorage cache):", e?.message || e);
