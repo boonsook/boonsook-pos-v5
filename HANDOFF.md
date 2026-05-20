@@ -9,6 +9,41 @@
 
 ---
 
+## 📦 สรุปรวบยอด build 256 → 261 (Phase 91.4 → 92.5)
+
+> Roll-up เปิดดูทีเดียวจบ — รายละเอียดเต็มของแต่ละ build อยู่ในส่วนถัดลงไป + [`CHANGELOG.md`](CHANGELOG.md)
+
+| Build | Version | Phase | สรุป | ประเภท |
+|------:|---------|-------|------|--------|
+| 256 | 5.44.3 | 91.4 | Loyalty audit CLOSED — refund/cancel reverse-loyalty wiring (baseline ก่อนเริ่ม decomposition) | hotfix/feat |
+| 257 | 5.44.4 | 92.1 | extract `updateAppLogos()` (DOM painter) → `modules/branding.js` | refactor |
+| 258 | 5.44.5 | 92.2 | extract `getAppLogo()` (logo resolver: storeInfo>localStorage>default) → `modules/branding.js` | refactor |
+| 259 | 5.44.6 | 92.3 | extract + **harden** `syncAppLogo()` (Supabase Storage pull) → `modules/branding.js` — เพิ่ม AbortController timeout + logged failure | refactor+harden |
+| 260 | 5.44.7 | 92.4 | extract `loadHtml2Canvas()` lazy loader → **new** `modules/lazy_libs.js` | refactor |
+| 261 | 5.44.8 | 92.5 | **HOTFIX** — html2canvas CDN `cdnjs.cloudflare.com` ถูก CSP บล็อก → Share/PDF ค้าง. เปลี่ยนเป็น `cdn.jsdelivr.net` + กัน modal ค้าง | hotfix |
+
+### ภาพรวม (build 257 → 261 = "Phase 92 main.js decomposition")
+- **เป้าหมาย:** แยก `main.js` (4,600+ บรรทัด) ออกเป็น module ทีละชิ้นแบบปลอดภัย — refactor-only, revert ง่าย, ทดสอบทุกชิ้น
+- **ผลลัพธ์:** logo logic + html2canvas loader ที่เคย inline ใน `main.js` ย้ายออกหมดแล้ว
+  - `modules/branding.js` — `updateAppLogos` (paint) + `getAppLogo` (resolve) + `syncAppLogo` (Supabase pull)
+  - `modules/lazy_libs.js` (ใหม่) — `loadHtml2Canvas` + `HTML2CANVAS_CDN_URL`
+  - `main.js` เหลือเพียง thin wrapper (`window._appGetLogo` / `window._appSyncLogo` / `_loadHtml2Canvas`) ที่ bind live globals → call sites ทุกที่ทำงานเหมือนเดิม
+- **Pattern ที่ใช้ทุก build:** extract → inject globals (state/config/storage/fetch/document) ให้ pure+testable → keep wrapper เดิมไว้ → test 2 layer (behavioral stub + source-level guard) → bump 4 touchpoints (index.html ?v=/data-app-build, sw.js CACHE_NAME, pages.js version) → verify (lint+unit+e2e) → push main → poll live build → manual smoke
+- **Test เพิ่มสุทธิ:** 204 → 249 unit (+45 ใน 5 builds), e2e คงที่ 11
+- **บทเรียน 2 ข้อ (บันทึก memory แล้ว):**
+  1. [[feedback_smoke_log_wrong_function]] — console error ตอน smoke (92.2/92.3) มาจาก `saveStoreInfo` คนละ path กับ `_appSyncLogo` ที่กำลังแก้ — grep หา source จริงก่อน
+  2. [[feedback_cdn_url_vs_csp]] — byte-identical extract เก็บ latent bug ไว้ (cdnjs URL ไม่ตรง CSP มาตั้งแต่ก่อน refactor); external-resource path ต้อง smoke จริง + เทียบ `_headers`
+
+### สถานะ ณ build 261
+- Production live build **261**, version **5.44.8**, `npm run verify` ผ่านครบ (lint 0 errors / 2 pre-existing warnings, 249 unit, 11 e2e)
+- Manual smoke Share/PDF: **รอ user ยืนยัน** (hotfix เพิ่ง deploy)
+- งานที่ทำบน branch `claude/phase-89-45-final-warnings` แต่ push ตรง `origin/main` ทุก build (Cloudflare deploy จาก main)
+
+### Phase 92 ถัดไป (ยังไม่เริ่ม)
+- 92.6+ — `_appShareDoc` (Share/PDF overlay ~130 บรรทัด), boot IIFE → `modules/boot.js`, sidebar/nav, auth/profile boot
+
+---
+
 ## 🚑 Phase 92.5 — HOTFIX: html2canvas blocked by CSP, Share/PDF stuck (this session)
 
 ### Symptom

@@ -7,6 +7,19 @@
 
 ---
 
+## 🧭 สรุป build 256 → 261 (Phase 91.4 → 92.5)
+
+- **256** (5.44.3) — Phase 91.4: Loyalty audit CLOSED (baseline)
+- **257** (5.44.4) — Phase 92.1 refactor: extract `updateAppLogos()` → `modules/branding.js`
+- **258** (5.44.5) — Phase 92.2 refactor: extract `getAppLogo()` → `modules/branding.js`
+- **259** (5.44.6) — Phase 92.3 refactor+harden: extract `syncAppLogo()` → `modules/branding.js` (+ AbortController timeout)
+- **260** (5.44.7) — Phase 92.4 refactor: extract `loadHtml2Canvas()` → new `modules/lazy_libs.js`
+- **261** (5.44.8) — Phase 92.5 🚑 hotfix: html2canvas CDN cdnjs → jsdelivr (CSP-allowed) + Share/PDF no longer hangs
+
+257→261 = "Phase 92 main.js decomposition" — logo logic + html2canvas loader ย้ายออกจาก `main.js` หมด, `main.js` เหลือ thin wrapper. Unit 204→249, e2e 11 คงที่. รายละเอียดต่อ build ดูด้านล่าง + [HANDOFF.md](HANDOFF.md).
+
+---
+
 ## 5.44.8 (build 261) — 2026-05-20 🚑 Phase 92.5 HOTFIX — html2canvas CDN blocked by CSP, Share/PDF stuck
 
 ### Symptom
