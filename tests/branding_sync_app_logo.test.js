@@ -86,6 +86,20 @@ test("syncAppLogo: Authorization falls back to anonKey when no access token", as
   assert.equal(fetchImpl.calls[0].opts.headers.Authorization, "Bearer anon-123");
 });
 
+// ── Phase 92.6 Issue 3: defense-in-depth — strip CRLF from the token ────────
+test("syncAppLogo: token with CRLF is stripped before being injected into Authorization header", async () => {
+  const fetchImpl = fetchReturning([LOGO_FILE]);
+  await syncAppLogo({
+    config: CONFIG,
+    accessToken: "evil-token\r\nX-Injected: yes",
+    storageRef: makeStubStorage(),
+    fetchImpl,
+  });
+  const auth = fetchImpl.calls[0].opts.headers.Authorization;
+  assert.equal(auth, "Bearer evil-tokenX-Injected: yes", "CRLF must be stripped (no header injection)");
+  assert.ok(!/\r|\n/.test(auth), "Authorization header must contain no CR or LF");
+});
+
 test("syncAppLogo: no config / fetch / storage → returns false, no fetch", async () => {
   const fetchImpl = fetchReturning([LOGO_FILE]);
   assert.equal(await syncAppLogo({ config: null, fetchImpl, storageRef: makeStubStorage() }), false);
