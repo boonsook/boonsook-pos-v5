@@ -3,13 +3,35 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 20 พฤษภาคม 2026 (Phase 92.4 — extract html2canvas lazy loader, build 260)
-**Version:** 5.44.7 (build 260) — Phase 92.4 (extract `loadHtml2Canvas()` to new `modules/lazy_libs.js`)
-**Previous:** 5.44.6 (build 259) — Phase 92.3 (extract `syncAppLogo()` + harden)
+**อัปเดตล่าสุด:** 20 พฤษภาคม 2026 (Phase 92.5 HOTFIX — html2canvas CSP fix, build 261)
+**Version:** 5.44.8 (build 261) — Phase 92.5 (html2canvas → jsdelivr; Share/PDF no longer hangs)
+**Previous:** 5.44.7 (build 260) — Phase 92.4 (extract `loadHtml2Canvas()`)
 
 ---
 
-## 🧱 Phase 92.4 — extract html2canvas lazy loader (this session)
+## 🚑 Phase 92.5 — HOTFIX: html2canvas blocked by CSP, Share/PDF stuck (this session)
+
+### Symptom
+Open a document → Share/LINE/PDF → modal stuck on "กำลังสร้าง PDF..." forever, no file. Console: html2canvas script from `cdnjs.cloudflare.com` violates CSP `script-src-elem`.
+
+### Root cause
+`HTML2CANVAS_CDN_URL` pointed at `cdnjs.cloudflare.com`, which the production CSP (`_headers`) does NOT allow (only jsdelivr / unpkg / sheetjs / esm.sh). This URL was the **original pre-92.4 value** — the extract was byte-identical, so it preserved a latent bug that surfaced during 92.4 smoke. Compounded by `_appShareDoc` ignoring the loader's boolean: when html2canvas didn't load, the PDF-build `if` was skipped with no else → infinite "กำลังสร้าง PDF...".
+
+### Fix
+- `modules/lazy_libs.js` — `HTML2CANVAS_CDN_URL` → `https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js`
+- `main.js` `_appShareDoc` — capture `_h2cReady = await _loadHtml2Canvas()`; on failure show red thumbnail message + `showToast("โหลดตัวสร้าง PDF ไม่สำเร็จ กรุณาลองใหม่")`, wire close + click-outside, and `return` (no stuck modal). Success path unchanged.
+- Tests (+3): URL pinned to jsdelivr, host must be CSP-allowed (never cdnjs), **cross-check against `_headers` CSP**, and source-level pin that `_appShareDoc` handles a failed load.
+
+### Build
+- 260 → 261; version 5.44.7 → **5.44.8** (patch — hotfix)
+- `npm run verify`: lint + **249 unit** (246 → 249) + 11 e2e
+
+### Lesson
+A byte-identical extract still carries the original's latent bugs. When smoke-testing an external-resource path (CDN/script inject), verify the URL host against the CSP `_headers` allowlist — not just the function contract.
+
+---
+
+## 🧱 Phase 92.4 — extract html2canvas lazy loader
 
 Continues the `main.js` decomposition. Behavior-preserving extraction (one tiny diagnostic log added).
 

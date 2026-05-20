@@ -10,8 +10,11 @@
 //  a real browser. main.js keeps a thin `_loadHtml2Canvas()` wrapper.
 // ═══════════════════════════════════════════════════════════
 
+// Must be a host allowed by the production CSP (script-src-elem in _headers):
+// cdn.jsdelivr.net / unpkg.com are allowed; cdnjs.cloudflare.com is NOT (it was
+// the original URL and got blocked → Share/PDF hung — Phase 92.5 hotfix).
 export const HTML2CANVAS_CDN_URL =
-  "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+  "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js";
 
 /**
  * Lazily load html2canvas by injecting its CDN <script> once.

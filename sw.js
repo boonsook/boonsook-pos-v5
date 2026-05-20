@@ -1,4 +1,5 @@
 // Boonsook POS V5 Service Worker
+// v261 (2026-05-20): Phase 92.5 HOTFIX — html2canvas CDN (cdnjs.cloudflare.com) was blocked by production CSP → Share/PDF stuck on "กำลังสร้าง PDF..." forever. Switched HTML2CANVAS_CDN_URL to cdn.jsdelivr.net (CSP-allowed). Also: _appShareDoc now captures loadHtml2Canvas() result + on failure shows a toast and closes cleanly instead of hanging.
 // v260 (2026-05-20): Phase 92.4 — Extracted html2canvas lazy loader _loadHtml2Canvas() from main.js to new modules/lazy_libs.js (loadHtml2Canvas). Resolve true/false contract preserved exactly; only addition is a logger.warn on CDN load failure (was silent). main.js keeps thin _loadHtml2Canvas() wrapper.
 // v259 (2026-05-20): Phase 92.3 — Extracted Supabase Storage logo pull _appSyncLogo() from main.js to modules/branding.js (syncAppLogo). HARDENED: list fetch now has an AbortController timeout (default 8s; original had none = could hang) + failures logged via injected logger instead of swallowed. localStorage cache still serves logo on failure. window._appSyncLogo kept as thin wrapper binding config+token.
 // v258 (2026-05-20): Phase 92.2 — Extracted logo source resolver getAppLogo() from main.js to modules/branding.js (zero-behavior refactor). Priority chain state.storeInfo.logoUrl > localStorage > default; state injected. window._appGetLogo kept as thin wrapper binding live state. _appSyncLogo still in main.js (couples to SUPABASE_CONFIG/token).
@@ -8,7 +9,7 @@
 // v254 (2026-05-19): Phase 91.2 HOTFIX — earn formula was multiplying instead of dividing (500 baht at rate 100 = 50000 pts not 5). Centralized to calcEarnPoints(amount, settings) = floor(amount / bahtPerPoint).
 // v253 (2026-05-19): Phase 91.1 — POS checkout auto-earn loyalty points (fire-and-forget after sale insert; gated on customer + is_active + points_per_baht; amount = actualTotal)
 // v252 (2026-05-19): Phase 90.13 — Loyalty history modal click-outside listener leak: bind once in renderLoyaltyPage instead of re-attach on every showPointHistory call
-const CACHE_NAME = 'boonsook-pos-v5-cache-v260';
+const CACHE_NAME = 'boonsook-pos-v5-cache-v261';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

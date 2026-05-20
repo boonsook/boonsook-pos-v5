@@ -83,11 +83,31 @@ test("loadHtml2Canvas: null documentRef → resolves false, no throw", async () 
   assert.equal(await loadHtml2Canvas({ windowRef: {}, documentRef: null }), false);
 });
 
-test("loadHtml2Canvas: HTML2CANVAS_CDN_URL is the pinned 1.4.1 cdnjs build", () => {
+test("loadHtml2Canvas: HTML2CANVAS_CDN_URL is the pinned 1.4.1 jsdelivr build", () => {
+  // Phase 92.5: cdnjs.cloudflare.com is blocked by the production CSP — must use
+  // an allowed host (cdn.jsdelivr.net). See _headers script-src-elem.
   assert.equal(
     HTML2CANVAS_CDN_URL,
-    "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"
+    "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"
   );
+});
+
+test("Phase 92.5: HTML2CANVAS_CDN_URL host is CSP-allowed (jsdelivr/unpkg), never cdnjs", () => {
+  const host = new URL(HTML2CANVAS_CDN_URL).host;
+  assert.ok(
+    host === "cdn.jsdelivr.net" || host === "unpkg.com",
+    `html2canvas host ${host} must be a CSP-allowed host (cdn.jsdelivr.net or unpkg.com)`
+  );
+  assert.notEqual(host, "cdnjs.cloudflare.com", "cdnjs is blocked by production CSP");
+});
+
+test("Phase 92.5: _headers CSP must actually allow the html2canvas host", () => {
+  const headers = readFileSync(path.join(__dirname2, "..", "_headers"), "utf8");
+  const host = new URL(HTML2CANVAS_CDN_URL).host;
+  const cspLine = headers.split("\n").find(l => l.includes("Content-Security-Policy")) || "";
+  // script-src-elem governs <script src> injection (what loadHtml2Canvas does)
+  assert.match(cspLine, /script-src-elem[^;]*\bhttps:\/\/cdn\.jsdelivr\.net\b/, "CSP script-src-elem must allow cdn.jsdelivr.net");
+  assert.ok(cspLine.includes(host), `CSP must list the html2canvas host ${host}`);
 });
 
 // ── Source-level ─────────────────────────────────────────────────────────
@@ -115,6 +135,19 @@ test("Phase 92.4: main.js must NOT still inline the html2canvas CDN <script> inj
   assert.ok(
     !/cdnjs\.cloudflare\.com\/ajax\/libs\/html2canvas/.test(mainSrc),
     "main.js must not inline the html2canvas cdnjs URL (lazy_libs owns it)"
+  );
+});
+
+test("Phase 92.5: _appShareDoc must handle a failed html2canvas load (no stuck modal)", () => {
+  // The share flow must capture loadHtml2Canvas()'s boolean result and bail out
+  // with a user-facing message instead of leaving "กำลังสร้าง PDF..." forever.
+  assert.ok(
+    /=\s*await\s+_loadHtml2Canvas\(\)/.test(mainSrc),
+    "main.js must capture the await _loadHtml2Canvas() return value (not ignore it)"
+  );
+  assert.ok(
+    /โหลดตัวสร้าง PDF ไม่สำเร็จ/.test(mainSrc),
+    "main.js must show a failure message when the PDF generator can't load"
   );
 });
 

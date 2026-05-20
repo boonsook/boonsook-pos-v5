@@ -482,7 +482,18 @@ window._appShareDoc = async function(docElementId, docName) {
   const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && window.innerWidth < 1024);
 
   // ★ Lazy load html2canvas ก่อนใช้
-  await _loadHtml2Canvas();
+  const _h2cReady = await _loadHtml2Canvas();
+
+  // Phase 92.5 hotfix: ถ้าโหลดตัวสร้าง PDF ไม่ได้ (CSP บล็อก / offline) อย่าปล่อย
+  // ให้ modal ค้างที่ "กำลังสร้าง PDF..." — แจ้ง user + ยังปิด modal ได้
+  if (!_h2cReady || !window.html2canvas) {
+    const thumb = document.getElementById("shareThumbnail");
+    if (thumb) thumb.innerHTML = '<div style="color:#dc2626;font-size:13px">โหลดตัวสร้าง PDF ไม่สำเร็จ กรุณาลองใหม่</div>';
+    showToast("โหลดตัวสร้าง PDF ไม่สำเร็จ กรุณาลองใหม่");
+    document.getElementById("shareCloseBtn")?.addEventListener("click", () => overlay.remove());
+    overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
+    return;
+  }
 
   // ── สร้าง PDF ขนาด A4 จริง (ไม่ใช้ responsive) ──
   if (docEl && window.html2canvas && window.jspdf) {

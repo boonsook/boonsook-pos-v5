@@ -7,6 +7,45 @@
 
 ---
 
+## 5.44.8 (build 261) — 2026-05-20 🚑 Phase 92.5 HOTFIX — html2canvas CDN blocked by CSP, Share/PDF stuck
+
+### Symptom
+เปิดเอกสาร (ใบเสนอราคา ฯลฯ) → กด Share/LINE/PDF → modal ค้างที่ "กำลังสร้าง PDF..." ตลอด ไม่มีไฟล์ออก. Console: `Loading the script 'https://cdnjs.cloudflare.com/.../html2canvas.min.js' violates Content Security Policy "script-src-elem ..."`
+
+### Root cause
+`HTML2CANVAS_CDN_URL` ชี้ไป `cdnjs.cloudflare.com` ซึ่ง **production CSP บล็อก** (script-src-elem อนุญาตเฉพาะ jsdelivr/unpkg/sheetjs/esm.sh). URL นี้เป็นค่า**เดิม**มาตั้งแต่ก่อน 92.4 (extract ไม่ได้เปลี่ยน) — share/PDF ผ่าน html2canvas พังเงียบมานานแล้ว เพิ่งเจอตอน smoke 92.4. ซ้ำร้าย `_appShareDoc` ไม่เช็ค return ของ loader → เมื่อ html2canvas โหลดไม่ได้ block สร้าง PDF ถูก skip ไม่มี else → ค้าง
+
+### Fix
+1. **`modules/lazy_libs.js`** — `HTML2CANVAS_CDN_URL` → `https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js` (CSP-allowed host)
+2. **`main.js` `_appShareDoc`** — capture `const _h2cReady = await _loadHtml2Canvas();` แล้วถ้า `!_h2cReady || !window.html2canvas`:
+   - เปลี่ยน thumbnail "กำลังสร้าง PDF..." → ข้อความ error สีแดง "โหลดตัวสร้าง PDF ไม่สำเร็จ กรุณาลองใหม่"
+   - `showToast("โหลดตัวสร้าง PDF ไม่สำเร็จ กรุณาลองใหม่")`
+   - ผูกปุ่มปิด + click-outside แล้ว `return` (ไม่ค้าง)
+3. behavior เมื่อโหลดสำเร็จ **ไม่เปลี่ยน**
+
+### Build sync
+- `selfheal.js?v=261`, `main.js?v=261`, `boot.js?v=261`, `style.css?v=261`, `data-app-build="261"`
+- `sw.js` CACHE_NAME `v260` → `v261`
+- `modules/settings/pages.js` Version `5.44.7` → **5.44.8**, build `260` → `261`
+
+### Test
+- `tests/lazy_libs_load_html2canvas.test.js` (13 tests, +3 net):
+  - URL pin → jsdelivr 1.4.1; host ∈ {jsdelivr, unpkg} ห้าม cdnjs; **cross-check `_headers` CSP จริงว่า allow host นั้น** (กัน regression URL↔CSP)
+  - source-level: `_appShareDoc` capture `await _loadHtml2Canvas()` return + มี failure message (กัน stuck modal กลับมา)
+- `npm run verify`: lint + **249 unit** (246 → 249) + 11 e2e
+
+### How to test (manual smoke หลัง deploy build 261)
+1. Hard refresh → version **5.44.8 (build 261)**
+2. เปิดใบเสนอราคา → กด Share/LINE/PDF → **ไม่มี CSP error**, html2canvas โหลดจาก jsdelivr, สร้าง PDF/thumbnail ได้
+3. กด "บันทึก PDF" → ได้ไฟล์; กด LINE/แชร์ → ดำเนินการต่อด้วยไฟล์ที่สร้าง
+4. กดซ้ำ → ไม่ inject script ซ้ำ, ไม่ค้าง
+5. (regression) ถ้าโหลด html2canvas ไม่ได้ → เห็น toast + modal ปิดได้ ไม่ค้าง
+
+### Lesson recorded
+extract แบบ byte-identical ก็ "preserve" bug เดิมได้ — URL ที่ pin มาตั้งแต่ก่อน refactor (cdnjs) ไม่ตรง CSP allowlist. Smoke external-resource path (CDN/script inject) ต้องเทียบกับ CSP `_headers` ด้วย ไม่ใช่แค่ contract ของฟังก์ชัน
+
+---
+
 ## 5.44.7 (build 260) — 2026-05-20 🧱 Phase 92.4 — extract html2canvas lazy loader
 
 ### Goal
