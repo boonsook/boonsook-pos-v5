@@ -3,13 +3,55 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 20 พฤษภาคม 2026 (Phase 92.9 — extract XHR/API data layer → modules/api.js, build 265)
-**Version:** 5.46.0 (build 265) — Phase 92.9 (api-layer extraction; minor: new auth-critical module)
-**Previous:** 5.45.1 (build 264) — Phase 92.8 (formatter extraction; patch: refactor)
+**อัปเดตล่าสุด:** 21 พฤษภาคม 2026 (Phase 92.10 CAPSTONE — extract boot orchestration → modules/boot.js, build 266)
+**Version:** 5.47.0 (build 266) — Phase 92.10 (boot capstone; minor: new module + main.js side-effect-free)
+**Previous:** 5.46.0 (build 265) — Phase 92.9 (api-layer extraction; minor: new auth-critical module)
 
 ---
 
-## ♻️ Phase 92.9 — Extract XHR/API data layer → `modules/api.js` (this session)
+## ♻️ Phase 92.10 CAPSTONE — Extract boot orchestration → `modules/boot.js` (this session)
+
+ปิด **decomposition series 92.1-92.10**. ย้าย boot IIFE (self-invoking async ที่รันตอน main.js โหลด) → `modules/boot.js`. ผลลัพธ์เชิงสถาปัตยกรรม: main.js เป็น **side-effect-free module** แล้ว — ไม่มี IIFE รันเองตอน import → boot orchestration testable + module boundary สะอาด. Refactor-only, byte-identical. **No push (awaiting user).**
+
+### What moved (main.js boot IIFE → modules/boot.js)
+- `(async function boot(){...})()` ท้าย main.js → `export async function runBoot({...7 deps})` ใน boot.js
+- main.js เรียก `runBoot({...})` (fire-and-forget, ไม่ await) ที่ตำแหน่งเดิม (หลัง updateAppLogos wrapper + window.App) — deps ทั้งหมด hoisted/defined แล้วตอนเรียก
+
+### Why dependency injection (ไม่ใช่ direct import)
+boot เรียก initSupabase/afterLogin/bindStaticEvents ที่อยู่ใน main.js. ถ้า boot.js import จาก main.js → **circular** (main.js import boot.js เพื่อ trigger ↔ boot.js import main.js เพื่อเรียก functions). Inject deps ผ่าน params → boot.js ไม่ต้อง import main.js เลย → ตัด circular + ลำดับ testable.
+
+### 7 injected deps (verified main.js scope)
+| dep | ที่มา | mapping |
+|-----|-------|---------|
+| `initDarkMode` / `bindStaticEvents` / `updateAppLogos` / `initSupabase` / `afterLogin` | function decls (hoisted) | ส่งชื่อตรงๆ |
+| `syncLogo` | `window._appSyncLogo` | `() => window._appSyncLogo()` |
+| `getCurrentUser` | `state.currentUser` | `() => state.currentUser` |
+
+### Byte-identical (ลำดับ + early-return เป๊ะเดิม)
+darkMode → static events → logo paint → `await initSupabase()` → `if(!ok) return` → `if(!getCurrentUser()) return` → `await afterLogin()` → background `syncLogo().then(repaint)`. แก้แค่ `state.currentUser`→`getCurrentUser()`, `window._appSyncLogo()`→`syncLogo()`.
+
+### ไม่แตะ (verified)
+- `updateAppLogos` wrapper (branding._updateAppLogosImpl) + `window.updateAppLogos` — เก็บใน main.js, ส่งเข้า runBoot ผ่าน param
+- dependencies เดิม (initDarkMode/bindStaticEvents/initSupabase/afterLogin) ใน main.js ไม่แตะ
+
+### Tests (+9)
+- Behavioral (5): happy-path order / bail-after-supabase-false (no afterLogin) / bail-no-current-user / pre-supabase-steps-always-run / logo-repaint-after-syncLogo
+- Source pins (4): boot.js exports runBoot · main.js imports+calls runBoot · main.js side-effect-free (no boot IIFE) · boot.js does NOT import main.js
+- หมายเหตุ: ปรับ test helper `makeDeps` ใช้ scenario knobs (`supabaseOk`/`currentUser`) แทน override ตรงๆ — กัน override ลบ `calls.push` (ที่ทำให้ bail-test assert ผิด); เจตนา test เดิมคงไว้
+
+### Decomposition series 92.1-92.10 — COMPLETE
+main.js: 4690 → 4247 บรรทัด (-443). Modules แยกออก: `branding.js` (logo) · `lazy_libs.js` (html2canvas) · `share_doc.js` (PDF/share) · `utils.js` (formatters) · `api.js` (XHR/auth data layer) · `boot.js` (orchestration). main.js = pure module definitions + window.App contract + thin wrappers, **side-effect-free**.
+
+### Manual smoke (REQUIRED post-deploy — boot = app entry point)
+1. Ctrl+Shift+R → version 5.47.0 (build 266)
+2. แอป boot ขึ้นปกติ — dark mode apply, sidebar/logo, login screen หรือ dashboard (ตาม session)
+3. Login flow — ถ้ายังไม่ login → login → afterLogin → dashboard โหลด (พิสูจน์ boot ordering)
+4. Logo sync background (ถ้ามี Supabase logo) → repaint
+5. DevTools Console → ไม่มี ReferenceError / boot ไม่ crash
+
+---
+
+## ♻️ Phase 92.9 — Extract XHR/API data layer → `modules/api.js`
 
 ต่อยอด decomposition 92.1-92.8. ย้าย **data-access layer** (auth-critical) ที่ทุก data operation พึ่งพา. Refactor-only, byte-identical. **No push (awaiting user).**
 
