@@ -24,10 +24,25 @@
 - **แก้:** `computeCashRecon` เพิ่ม `refunds = []` param + คืน `cashRefunds`/`cashRefundOut` (filter เฉพาะ refund_method=cash + วันที่เลือก, โอนคืนไม่กระทบเงินสด). `renderCashReconPage` fetch refunds ของวัน (REST, cache ต่อวันกัน refetch ทุก keystroke, async re-render) แล้ว pass เข้า + expected = opening + cashIn − cashOut − **cashRefundOut** + แสดง refund line ใน Step 2
 - **ไม่เปลี่ยน** existing recon math (cashIn/cashOut/transferIn) — แค่เพิ่มหัก cashRefundOut
 
+### 3. 🔧 [Review hardening] partial-failure safety (รับชำระหนี้)
+หลัง review: CAS แก้ lost-update แล้ว แต่ยังมี UX risk — ถ้า `credit_payments` insert สำเร็จ แล้ว CAS หรือ `credit_paid_at` PATCH fail → handler throw → user กดซ้ำ → **duplicate ledger row**. แก้:
+- แยก logic เป็น `processCreditPayment({...})` (exported, DI fetcher → unit-testable) คืน result object **ไม่ throw หลัง ledger insert**
+- **หลัง ledger insert สำเร็จ = committed** → `ok:true, retrySafe:false` เสมอ → handler **ไม่เปิดปุ่มให้กดซ้ำ** (กัน duplicate). เฉพาะ insert fail (`retrySafe:true`) เท่านั้นที่เปิดปุ่มใหม่
+- **CAS fail → reconcile จาก ledger SUM** (`reconcileCreditPaidFromLedger`): GET `credit_payments?sale_id&select=amount` → set `credit_paid_amount = SUM` (absolute, authoritative, self-healing — JS-only ไม่แตะ schema). ถ้า reconcile ก็ fail → `syncWarning` non-retry message + reload
+- **`credit_paid_at` = best-effort metadata** — ไม่ throw; fail แค่ตั้ง `syncWarning` ("สถานะครบชำระอาจต้องรีโหลด") + success path เดินต่อ + reload
+- handler แสดง `syncWarning` (warn toast) แทน success toast เมื่อ cache/status sync degraded
+
 ### Tests (TDD red→green)
 - `tests/atomic_add_field.test.js` (ใหม่, +5): increment / stale-retry / null-fail / contention-exhaust / non-finite-delta
 - `tests/cash_recon.test.js` (+1): cash refund หักจากลิ้นชัก (transfer refund + คนละวัน ไม่นับ)
-- Gates: lint 0/0 · unit 302 → 308 · e2e 11
+- `tests/credit_payment_partial_failure.test.js` (ใหม่, +6): happy / insert-fail-retrySafe / credit_paid_at-fail-after-CAS / CAS-fail+reconcile-ok / CAS-fail+reconcile-fail-nonretry / sync-throws-nonretry
+- Gates: lint 0/0 · unit 302 → 314 · e2e 11 (verify exit 0 end-to-end, no zombie 4173)
+
+### Remaining non-transaction risk (acknowledged)
+ระบบไม่มี DB transaction ข้าม ledger+cache (client REST + RLS, ไม่มี RPC). หลัง hardening:
+- **เงินไม่หาย:** `credit_payments` (source of truth) insert ครบ + ไม่ duplicate (no retry หลัง commit)
+- **cache (`sales.credit_paid_amount`) อาจ transient stale** ถ้า CAS+reconcile fail ทั้งคู่ (network ตายช่วงนั้น) → self-heal เมื่อรับชำระครั้งถัดไป (CAS อ่านค่าจริง) หรือ manual reload; user เห็น non-retry warning ชัดเจน
+- ไม่มี atomic rollback: ถ้าอยากปิด gap 100% ต้องทำ Postgres RPC (`receive_credit_payment` function) ที่ insert+update ใน transaction เดียว — นอก scope JS-only ของ phase นี้ (แนะนำพิจารณาถ้าต้องการ strict guarantee)
 
 ### Manual smoke (REQUIRED post-deploy — MONEY)
 1. Ctrl+Shift+R → 5.47.2 (build 268)

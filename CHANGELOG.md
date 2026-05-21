@@ -11,8 +11,9 @@
 
 - **fix(credit) [Blocking]:** รับชำระหนี้ (credit_tracker) เคยเขียน `credit_paid_amount` แบบ absolute จาก state ที่อาจ stale (read-modify-write) → 2 staff รับชำระบิลเดียวกันพร้อมกันเขียนทับกัน = payment หาย + ลูกหนี้ (A/R) เกินจริง. เปลี่ยนเป็น **CAS increment** (`atomicAddToField` ใหม่ใน stock_cas.js — refetch → PATCH `?credit_paid_amount=eq.{before}` → stale=retry; column NUMERIC ทำให้ eq match เป๊ะ). `credit_payments` ledger + JV posting ไม่แตะ
 - **fix(cash_recon) [Should-fix]:** กระทบยอดเงินสดเดิม**ไม่หัก cash refund** → คืนเงินสดทำให้ลิ้นชัก "ขาด" หลอกทุกรอบ. เพิ่ม `refunds` param + `cashRefundOut` (เฉพาะ refund_method=cash, เฉพาะวันที่เลือก); expected = opening + cashIn − cashOut − cashRefundOut. math เดิม (cashIn/cashOut/transferIn) ไม่เปลี่ยน
-- **JS-only** ไม่มี SQL migration (column เป็น NUMERIC → client CAS พอ); TDD ทั้ง 2 fixes (test red ก่อนแก้)
-- verify เขียวครบ (lint 0/0, unit 302 → 308, e2e 11)
+- **fix(credit) [review hardening]:** กัน duplicate ledger เมื่อ partial failure — แยก `processCreditPayment` (testable): หลัง credit_payments insert = committed → ไม่เปิดปุ่มให้กดซ้ำ. CAS fail → reconcile cache จาก ledger SUM (JS-only); `credit_paid_at` = best-effort (ไม่ throw); cache/status sync degraded → non-retry warning + reload
+- **JS-only** ไม่มี SQL migration (column เป็น NUMERIC → client CAS พอ); TDD ทุก fix (test red ก่อนแก้)
+- verify เขียวครบ exit 0 (lint 0/0, unit 302 → 314, e2e 11)
 
 **Build:** 267 → 268; version 5.47.1 → 5.47.2 (patch — money bug fix)
 

@@ -19,6 +19,130 @@ function moneyShort(n) {
   return v.toLocaleString("th-TH");
 }
 
+// Phase 92.12 (review hardening): reconcile sales.credit_paid_amount จาก ledger SUM
+//   ledger (credit_payments) = source of truth → set cache = SUM(amount) แบบ absolute
+//   self-healing/idempotent toward ledger truth — ใช้เป็น fallback เมื่อ CAS increment fail
+async function reconcileCreditPaidFromLedger({ fetcher, supabaseUrl, anonKey, accessToken, saleId }) {
+  try {
+    const idEnc = encodeURIComponent(String(saleId));
+    const auth = { "apikey": anonKey, "Authorization": "Bearer " + accessToken };
+    const r = await fetcher(supabaseUrl + "/rest/v1/credit_payments?sale_id=eq." + idEnc + "&select=amount", { headers: auth });
+    if (!r.ok) return { ok: false };
+    const rows = await r.json().catch(() => []);
+    if (!Array.isArray(rows)) return { ok: false };
+    const sum = round2(rows.reduce((s, x) => s + Number(x.amount || 0), 0));
+    const pr = await fetcher(supabaseUrl + "/rest/v1/sales?id=eq." + idEnc, {
+      method: "PATCH",
+      headers: { ...auth, "Content-Type": "application/json", "Prefer": "return=minimal" },
+      body: JSON.stringify({ credit_paid_amount: sum }),
+    });
+    if (!pr.ok) return { ok: false };
+    return { ok: true, sum };
+  } catch (_e) {
+    return { ok: false };
+  }
+}
+
+// Phase 92.12 (review hardening): partial-failure-safe credit payment (testable, DI fetcher)
+//   หลัง credit_payments insert สำเร็จ = ledger committed → ห้าม invite retry (กัน duplicate ledger row).
+//   - CAS increment cache; ถ้า CAS fail → reconcile cache จาก ledger SUM (authoritative, JS-only)
+//   - credit_paid_at = best-effort metadata (ไม่ throw, ไม่ทำให้ payment ทั้งก้อนดู fail)
+//   - คืน result object ให้ caller ตัดสินใจ UX — ไม่ throw หลัง ledger insert
+//   Return: { ok, ledgerInserted, retrySafe, payment, newPaid, fullyPaid, paidSynced, paidAtSet, syncWarning, error }
+export async function processCreditPayment({
+  fetcher, supabaseUrl, anonKey, accessToken,
+  sale, amount, method, note,
+  atomicAdd = atomicAddToField,
+  now = () => new Date().toISOString(),
+  logger = console,
+}) {
+  const headersJson = {
+    "Content-Type": "application/json",
+    "apikey": anonKey,
+    "Authorization": "Bearer " + accessToken,
+  };
+
+  // ── Step 1: INSERT credit_payments (ledger source of truth) ──
+  let payment;
+  try {
+    const insertR = await fetcher(supabaseUrl + "/rest/v1/credit_payments", {
+      method: "POST",
+      headers: { ...headersJson, "Prefer": "return=representation" },
+      body: JSON.stringify({
+        sale_id: sale.id,
+        customer_id: sale.customer_id || null,
+        amount,
+        payment_method: method,
+        note: note || null,
+      }),
+    });
+    if (!insertR.ok) {
+      const errBody = await insertR.text?.().catch(() => "");
+      // ledger ยังไม่ถูกเขียน → retry ปลอดภัย
+      return { ok: false, ledgerInserted: false, retrySafe: true,
+        error: `บันทึก credit_payments ไม่สำเร็จ (HTTP ${insertR.status}) ${String(errBody || "").slice(0, 200)}` };
+    }
+    const rows = await insertR.json().catch(() => []);
+    payment = Array.isArray(rows) ? rows[0] : rows;
+  } catch (e) {
+    return { ok: false, ledgerInserted: false, retrySafe: true,
+      error: "บันทึก credit_payments ไม่สำเร็จ: " + (e?.message || String(e)) };
+  }
+
+  // ── จากนี้ ledger committed แล้ว → ห้าม return retrySafe:true อีก (กัน duplicate) ──
+
+  // ── Step 2: sync cache credit_paid_amount (CAS → reconcile fallback) ──
+  let newPaid = round2(Number(sale._paid || 0) + Number(amount)); // fallback display ถ้า sync ล้ม
+  let paidSynced = false;
+  let syncWarning = null;
+  try {
+    const inc = await atomicAdd({
+      fetcher, supabaseUrl, anonKey, accessToken,
+      table: "sales", rowId: sale.id, field: "credit_paid_amount", delta: amount,
+    });
+    if (inc.ok) {
+      newPaid = round2(inc.after);
+      paidSynced = true;
+    } else {
+      const rec = await reconcileCreditPaidFromLedger({ fetcher, supabaseUrl, anonKey, accessToken, saleId: sale.id });
+      if (rec.ok) {
+        newPaid = round2(rec.sum);
+        paidSynced = true;
+        logger?.warn?.("[credit_tracker] CAS failed (" + inc.error + "), reconciled from ledger SUM=" + rec.sum);
+      } else {
+        syncWarning = "บันทึกรับชำระแล้ว ✓ แต่ยอดค้างยังไม่ sync — กรุณารีโหลด/ตรวจสอบก่อนกดซ้ำ";
+        logger?.warn?.("[credit_tracker] CAS + reconcile failed; ledger committed, cache stale (sale " + sale.id + ")");
+      }
+    }
+  } catch (e) {
+    syncWarning = "บันทึกรับชำระแล้ว ✓ แต่ยอดค้างยังไม่ sync — กรุณารีโหลด/ตรวจสอบก่อนกดซ้ำ";
+    logger?.warn?.("[credit_tracker] cache sync error: " + (e?.message || e));
+  }
+
+  const fullyPaid = (Number(sale._total || 0) - newPaid) <= 0.01;
+
+  // ── Step 3: credit_paid_at = best-effort metadata (ห้าม throw / ห้าม fail ทั้ง payment) ──
+  let paidAtSet = false;
+  if (fullyPaid && paidSynced) {
+    try {
+      const tsR = await fetcher(supabaseUrl + "/rest/v1/sales?id=eq." + encodeURIComponent(String(sale.id)), {
+        method: "PATCH",
+        headers: { ...headersJson, "Prefer": "return=minimal" },
+        body: JSON.stringify({ credit_paid_at: now() }),
+      });
+      paidAtSet = !!tsR.ok;
+    } catch (e) {
+      paidAtSet = false;
+      logger?.warn?.("[credit_tracker] credit_paid_at PATCH failed (best-effort): " + (e?.message || e));
+    }
+    if (!paidAtSet && !syncWarning) {
+      syncWarning = "รับชำระแล้ว ✓ แต่สถานะ \"ครบชำระ\" อาจต้องรีโหลด";
+    }
+  }
+
+  return { ok: true, ledgerInserted: true, retrySafe: false, payment, newPaid, fullyPaid, paidSynced, paidAtSet, syncWarning };
+}
+
 let _ctFilter = "open"; // open | paid | overdue | all
 
 export function renderCreditTrackerPage(ctx) {
@@ -248,76 +372,40 @@ function openReceivePaymentModal(ctx, sale) {
     const cfg = window.SUPABASE_CONFIG;
     const accessToken = window._sbAccessToken || cfg.anonKey;
 
-    try {
-      // 1. INSERT credit_payments record
-      // Phase 89.29: return=representation เพื่อเอา id ไป post JV (audit C2)
-      // Phase 89.29 (audit M1): เช็ค r.ok กัน step 2 รันต่อเมื่อ step 1 fail → DB inconsistent
-      const insertR = await fetch(cfg.url + "/rest/v1/credit_payments", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "apikey": cfg.anonKey,
-          "Authorization": "Bearer " + accessToken,
-          "Prefer": "return=representation"
-        },
-        body: JSON.stringify({
-          sale_id: sale.id,
-          customer_id: sale.customer_id || null,
-          amount,
-          payment_method: method,
-          note: note || null
-        })
-      });
-      if (!insertR.ok) {
-        const errBody = await insertR.text().catch(() => "");
-        throw new Error(`บันทึก credit_payments ไม่สำเร็จ (HTTP ${insertR.status}) ${errBody.slice(0, 200)}`);
-      }
-      const insertedRows = await insertR.json().catch(() => []);
-      const insertedPayment = Array.isArray(insertedRows) ? insertedRows[0] : insertedRows;
+    // Phase 92.12 (review hardening): partial-failure-safe flow.
+    //   processCreditPayment: insert ledger → CAS cache (reconcile จาก ledger SUM ถ้า CAS fail)
+    //     → credit_paid_at best-effort. หลัง ledger insert สำเร็จ จะคืน ok:true เสมอ
+    //     (retrySafe:false) → ห้ามเปิดปุ่มให้กดซ้ำ = กัน duplicate ledger row
+    const res = await processCreditPayment({
+      fetcher: fetch, supabaseUrl: cfg.url, anonKey: cfg.anonKey, accessToken,
+      sale, amount, method, note,
+    });
 
-      // 2. UPDATE sales: เพิ่ม credit_paid_amount แบบ atomic (CAS)
-      // Phase 92.12 (audit 4.1 Blocking): เดิม read-modify-write เขียน absolute value
-      //   จาก sale._paid (state อาจ stale) → 2 staff รับชำระบิลเดียวกันพร้อมกัน
-      //   เขียนทับกัน → payment หาย + A/R เกินจริง.
-      //   แก้: CAS increment (refetch DB → PATCH ?credit_paid_amount=eq.{before} → stale=retry)
-      //   column เป็น NUMERIC → eq precondition match เป๊ะ. ห้ามแตะ credit_payments ledger + JV
-      const inc = await atomicAddToField({
-        fetcher: fetch, supabaseUrl: cfg.url, anonKey: cfg.anonKey, accessToken,
-        table: "sales", rowId: sale.id, field: "credit_paid_amount", delta: amount,
-      });
-      if (!inc.ok) throw new Error("อัปเดตยอดชำระไม่สำเร็จ: " + inc.error);
-      const newPaid = round2(inc.after);  // after = ค่าจริงจาก DB หลัง increment
-      const isFullyPaid = (sale._total - newPaid) <= 0.01;
-      // ถ้าครบ → PATCH credit_paid_at แยก (idempotent timestamp, ไม่ critical race)
-      if (isFullyPaid) {
-        const tsR = await fetch(cfg.url + "/rest/v1/sales?id=eq." + sale.id, {
-          method: "PATCH",
-          headers: { "Content-Type":"application/json","apikey":cfg.anonKey,"Authorization":"Bearer "+accessToken,"Prefer":"return=minimal" },
-          body: JSON.stringify({ credit_paid_at: new Date().toISOString() })
-        });
-        if (!tsR.ok) {
-          const errBody = await tsR.text().catch(() => "");
-          throw new Error(`อัปเดต credit_paid_at ไม่สำเร็จ (HTTP ${tsR.status}) ${errBody.slice(0, 200)}`);
-        }
-      }
-
-      // 3. Phase 89.29 (audit C2): post JV — Dr Cash/Bank / Cr 1200 (A/R)
-      // fire-and-forget เพื่อไม่ block UX. ใส่ saleRef เพื่อให้ description มี order_no
-      if (insertedPayment?.id) {
-        postJournalForCreditPayment({
-          ...insertedPayment,
-          sale_order_no: sale.order_no,
-          customer_name: sale.customer_name
-        }).catch(e => console.warn("[credit_tracker] auto-post JV failed:", e?.message));
-      }
-
-      modal.remove();
-      ctx.showToast?.(`✓ รับชำระ ฿${money(amount)} ${isFullyPaid ? '— ครบแล้ว 🎉' : ''}`);
-      if (window.App?.loadAllData) await window.App.loadAllData();
-      renderCreditTrackerPage(ctx);
-    } catch (e) {
-      window.App?.showToast?.("ผิดพลาด: " + (e?.message || e), "error");
+    if (!res.ok) {
+      // ledger ยังไม่ถูกเขียน (retrySafe) → เปิดปุ่มให้กดใหม่ได้ ปลอดภัย
+      window.App?.showToast?.("ผิดพลาด: " + (res.error || "บันทึกไม่สำเร็จ"), "error");
       btn.disabled = false; btn.textContent = "💾 บันทึกการรับชำระ";
+      return;
     }
+
+    // ── ledger committed แล้ว → success path (ปุ่มไม่เปิดให้กดซ้ำ) ──
+    // post JV — Dr Cash/Bank / Cr 1200 (A/R) — fire-and-forget (Phase 89.29 audit C2)
+    if (res.payment?.id) {
+      postJournalForCreditPayment({
+        ...res.payment,
+        sale_order_no: sale.order_no,
+        customer_name: sale.customer_name
+      }).catch(e => console.warn("[credit_tracker] auto-post JV failed:", e?.message));
+    }
+
+    modal.remove();
+    if (res.syncWarning) {
+      // ledger ถูกแล้ว แต่ cache/status sync degraded → เตือนแบบ non-retry
+      window.App?.showToast?.(res.syncWarning, "warn");
+    } else {
+      ctx.showToast?.(`✓ รับชำระ ฿${money(amount)} ${res.fullyPaid ? '— ครบแล้ว 🎉' : ''}`);
+    }
+    if (window.App?.loadAllData) await window.App.loadAllData();
+    renderCreditTrackerPage(ctx);
   });
 }
