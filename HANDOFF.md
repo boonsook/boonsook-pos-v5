@@ -4,14 +4,17 @@
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
 **อัปเดตล่าสุด:** 21 พฤษภาคม 2026 (Phase 92.14 — money/accounting closure: round2 + verify-slip mismatch, build 270)
-**Version:** 5.47.4 (build 270) — Phase 92.14 (patch: round2 cart/refund + verify-slip is_safe hardening + RLS audit)
+**Version:** 5.47.4 (build 270) — Phase 92.14 ✅ **MERGED (PR #39) + DEPLOYED + SMOKE PASSED** (patch: round2 cart/refund + verify-slip is_safe hardening + RLS audit)
 **Previous:** 5.47.3 (build 269) — Phase 92.13 (patch: stock reverse constraint fix + JV RLS deferral handling + role docs)
+
+> 🟢 **สถานะ ณ ปัจจุบัน:** live = build 270 / v5.47.4, Phase 92.14 smoke ผ่านครบแล้ว. money/accounting should-fix ปิดหมด.
+> 🔵 **ค้างเดียว (อิสระจาก deploy):** รัน read-only verify query ปิดประเด็น journal_entries RLS — ดูท้าย section 92.14
 
 ---
 
 ## 💰 Phase 92.14 — Money/accounting closure (this session)
 
-ปิด should-fix ที่เหลือจาก money audit 4.1 แบบแคบ + TDD. **No push yet (awaiting user confirm).** ไม่แตะ SQL/RLS, ไม่แตะ proven paths (loyalty CAS, atomicDecrementStock, credit CAS, receipt open, SW).
+ปิด should-fix ที่เหลือจาก money audit 4.1 แบบแคบ + TDD. **✅ MERGED PR #39 + deploy build 270 + smoke PASSED (21 พ.ค. 2026).** ไม่แตะ SQL/RLS, ไม่แตะ proven paths (loyalty CAS, atomicDecrementStock, credit CAS, receipt open, SW).
 
 ### 1. round2 — cart total (pos.js) + refund total (refunds.js)
 - **pos.js:** มี 5 จุด inline `cart.reduce((s,i)=>s+i.qty*i.price,0)` ดิบ (display, quickPay default, checkout amount) → extract `export function cartSum(cart)` = `round2(Σ)` แทนทั้ง 5. checkout **write path** (total_amount/line_total/...) round2 อยู่แล้ว (Phase 89.2) — นี่คุม in-memory + เงินทอนที่โชว์ ไม่ให้ค้าง 0.30000000000000004
@@ -42,12 +45,12 @@
 ### Gates
 - lint 0/0 · unit 317 → 332 · e2e 11 · verify exit 0 (clean run)
 
-### Manual smoke after deploy (build 270)
-1. Ctrl+Shift+R → 5.47.4 (build 270)
-2. **Cash recon refund (ของจริง):** คืนเงินสด 1 รายการ → cash recon วันนั้น → "ควรมีในลิ้นชัก" ลดตามยอด refund (ไม่ false "ขาด") — ยืนยัน Phase 92.12 fix ทำงาน live
-3. Refund บิลที่มีราคาทศนิยม → `refund_amount` ตรงสตางค์ (ไม่มี ...0001)
-4. POS cart หลายชิ้นราคาทศนิยม → ยอด/เงินทอนสะอาด
-5. Verify slip ที่อ่านยอดไม่ได้ (รูปมัว) ในฟอร์มบริการ → ไม่ขึ้น "✅ ผ่าน" หลอก, ขึ้น "⚠️ ต้องตรวจ + ยืนยันยอดเอง"
+### Manual smoke after deploy (build 270) — ✅ PASSED (21 พ.ค. 2026)
+1. ✅ Ctrl+Shift+R → 5.47.4 (build 270)
+2. ✅ **Cash recon refund (ของจริง):** คืนเงินสด 1 รายการ → cash recon วันนั้น → "ควรมีในลิ้นชัก" ลดตามยอด refund (ไม่ false "ขาด") — ยืนยัน Phase 92.12 fix ทำงาน live
+3. ✅ Refund บิลที่มีราคาทศนิยม → `refund_amount` ตรงสตางค์ (ไม่มี ...0001)
+4. ✅ POS cart หลายชิ้นราคาทศนิยม → ยอด/เงินทอนสะอาด
+5. ✅ Verify slip ที่อ่านยอดไม่ได้ (รูปมัว) ในฟอร์มบริการ → ไม่ขึ้น "✅ ผ่าน" หลอก, ขึ้น "⚠️ ต้องตรวจ + ยืนยันยอดเอง"
 
 ---
 
