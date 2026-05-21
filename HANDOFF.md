@@ -3,13 +3,60 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 21 พฤษภาคม 2026 (Phase 92.11 — fix silent "เปิดบิล" + verify health + version sync, build 267)
-**Version:** 5.47.1 (build 267) — Phase 92.11 (patch: receipt-open bug fix + lint 0/0 + package.json sync)
-**Previous:** 5.47.0 (build 266) — Phase 92.10 (boot capstone; minor: new module + main.js side-effect-free)
+**อัปเดตล่าสุด:** 21 พฤษภาคม 2026 (Phase 92.12 — money audit fixes: credit CAS + cash recon refund, build 268)
+**Version:** 5.47.2 (build 268) — Phase 92.12 (patch: money correctness — credit payment atomic + cash refund recon)
+**Previous:** 5.47.1 (build 267) — Phase 92.11 (patch: receipt-open bug fix + lint 0/0 + package.json sync)
 
 ---
 
-## 🐛 Phase 92.11 — Fix silent "เปิดบิล" + verify health + version sync (this session)
+## 💰 Phase 92.12 — Money audit fixes (this session)
+
+จาก money audit (CLAUDE.md 4.1): money handling แข็งแรง (round2 centralized, VAT correct, double-entry balance, loyalty idempotent — verified) แต่เจอ **1 Blocking + 1 Should-fix**. แก้แบบ **JS-only ไม่มี SQL migration** (column NUMERIC → client CAS พอ), TDD ทั้งคู่. **No push yet (awaiting user confirm — money path, production deploy).**
+
+### 1. 🔴 [Blocking] credit_tracker: รับชำระหนี้ non-atomic
+- **ปัญหา:** `credit_tracker.js:278` เดิม `const newPaid = sale._paid + amount; PATCH credit_paid_amount = newPaid` — read-modify-write เขียนค่า absolute จาก `sale._paid` (state อาจ stale). 2 staff รับชำระบิลเดียวกันพร้อมกัน → เขียนทับกัน → **payment หาย + A/R เกินจริง**. `credit_payments` ledger (source of truth) ครบ แต่ `sales.credit_paid_amount` (denormalized cache) drift
+- **แก้:** เพิ่ม generic CAS `atomicAddToField({...delta})` ใน `stock_cas.js` (โครงเดียวกับ `atomicDecrementStock` แต่ delta บวก/ลบได้, require `Number.isFinite`, after = before + delta, null field → fail fast). credit_tracker เรียก CAS แทน: refetch DB → PATCH `?credit_paid_amount=eq.{before}` → 0 rows = stale = retry (max 3). `newPaid = round2(inc.after)` = ค่าจริงหลัง increment. ถ้า fully paid → PATCH `credit_paid_at` แยก (idempotent timestamp, ไม่ critical race)
+- **ไม่แตะ:** `atomicDecrementStock` (stock checkout ใช้), `credit_payments` insert (ledger), `postJournalForCreditPayment` JV (double-entry, fire-and-forget)
+- **column verified NUMERIC** → eq precondition match เป๊ะ (ไม่ใช่ float8 ที่ precision เพี้ยน)
+
+### 2. 🟡 [Should-fix] cash_recon: cash refund ไม่ถูกหักจากลิ้นชัก
+- **ปัญหา:** `computeCashRecon` เดิม expected = opening + cashIn − cashOut แต่**ไม่หัก cash refund** → คืนเงินสดทำให้ลิ้นชักขาดโดยไม่มีบันทึก = false "ขาด" ทุกรอบ. `refunds` ไม่อยู่ใน state กลาง
+- **แก้:** `computeCashRecon` เพิ่ม `refunds = []` param + คืน `cashRefunds`/`cashRefundOut` (filter เฉพาะ refund_method=cash + วันที่เลือก, โอนคืนไม่กระทบเงินสด). `renderCashReconPage` fetch refunds ของวัน (REST, cache ต่อวันกัน refetch ทุก keystroke, async re-render) แล้ว pass เข้า + expected = opening + cashIn − cashOut − **cashRefundOut** + แสดง refund line ใน Step 2
+- **ไม่เปลี่ยน** existing recon math (cashIn/cashOut/transferIn) — แค่เพิ่มหัก cashRefundOut
+
+### 3. 🔧 [Review hardening] partial-failure safety (รับชำระหนี้)
+หลัง review: CAS แก้ lost-update แล้ว แต่ยังมี UX risk — ถ้า `credit_payments` insert สำเร็จ แล้ว CAS หรือ `credit_paid_at` PATCH fail → handler throw → user กดซ้ำ → **duplicate ledger row**. แก้:
+- แยก logic เป็น `processCreditPayment({...})` (exported, DI fetcher → unit-testable) คืน result object **ไม่ throw หลัง ledger insert**
+- **หลัง ledger insert สำเร็จ = committed** → `ok:true, retrySafe:false` เสมอ → handler **ไม่เปิดปุ่มให้กดซ้ำ** (กัน duplicate). เฉพาะ insert fail (`retrySafe:true`) เท่านั้นที่เปิดปุ่มใหม่
+- **CAS fail → reconcile จาก ledger SUM** (`reconcileCreditPaidFromLedger`): GET `credit_payments?sale_id&select=amount` → set `credit_paid_amount = SUM` (absolute, authoritative, self-healing — JS-only ไม่แตะ schema). ถ้า reconcile ก็ fail → `syncWarning` non-retry message + reload
+- **`credit_paid_at` = best-effort metadata** — ไม่ throw; fail แค่ตั้ง `syncWarning` ("สถานะครบชำระอาจต้องรีโหลด") + success path เดินต่อ + reload
+- handler แสดง `syncWarning` (warn toast) แทน success toast เมื่อ cache/status sync degraded
+
+### Tests (TDD red→green)
+- `tests/atomic_add_field.test.js` (ใหม่, +5): increment / stale-retry / null-fail / contention-exhaust / non-finite-delta
+- `tests/cash_recon.test.js` (+1): cash refund หักจากลิ้นชัก (transfer refund + คนละวัน ไม่นับ)
+- `tests/credit_payment_partial_failure.test.js` (ใหม่, +6): happy / insert-fail-retrySafe / credit_paid_at-fail-after-CAS / CAS-fail+reconcile-ok / CAS-fail+reconcile-fail-nonretry / sync-throws-nonretry
+- Gates: lint 0/0 · unit 302 → 314 · e2e 11 (verify exit 0 end-to-end, no zombie 4173)
+
+### Remaining non-transaction risk (acknowledged)
+ระบบไม่มี DB transaction ข้าม ledger+cache (client REST + RLS, ไม่มี RPC). หลัง hardening:
+- **เงินไม่หาย:** `credit_payments` (source of truth) insert ครบ + ไม่ duplicate (no retry หลัง commit)
+- **cache (`sales.credit_paid_amount`) อาจ transient stale** ถ้า CAS+reconcile fail ทั้งคู่ (network ตายช่วงนั้น) → self-heal เมื่อรับชำระครั้งถัดไป (CAS อ่านค่าจริง) หรือ manual reload; user เห็น non-retry warning ชัดเจน
+- ไม่มี atomic rollback: ถ้าอยากปิด gap 100% ต้องทำ Postgres RPC (`receive_credit_payment` function) ที่ insert+update ใน transaction เดียว — นอก scope JS-only ของ phase นี้ (แนะนำพิจารณาถ้าต้องการ strict guarantee)
+
+### Manual smoke (REQUIRED post-deploy — MONEY)
+1. Ctrl+Shift+R → 5.47.2 (build 268)
+2. รับชำระหนี้บางส่วน → credit_paid ถูก + JV ลง + (ถ้าครบ) ขึ้น "ครบแล้ว"
+3. **Concurrent (proof CAS):** เปิดบิลเชื่อเดียวกัน 2 แท็บ → รับชำระพร้อมกัน → credit_payments 2 rows + credit_paid_amount = SUM (ไม่หาย)
+4. คืนเงินสด → cash recon วันนั้น → expected ลดตาม refund (ไม่ false "ขาด")
+5. Console ไม่มี ReferenceError
+
+### Next: Phase 92.13 (audit 4.1 should-fix ที่เหลือ)
+- 🟡 refunds round2 + pos.js cart round2 + verify-slip mismatch confirm
+
+---
+
+## 🐛 Phase 92.11 — Fix silent "เปิดบิล" + verify health + version sync (previous session)
 
 งาน health/cleanup หลัง build 266. **No push yet (awaiting user confirm — production deploy).**
 

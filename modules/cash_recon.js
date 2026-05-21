@@ -24,7 +24,7 @@ const DENOMINATIONS = [
 
 // Phase 89.18: pure helper สำหรับ unit test — แยก business logic ออกจาก DOM render
 // dateFn injection allows test ใช้ deterministic date conversion
-export function computeCashRecon({ state, date, dateFn = dateBkk }) {
+export function computeCashRecon({ state, date, refunds = [], dateFn = dateBkk }) {
   const sales = (state.sales || []).filter(s =>
     !(s.note || "").includes("[ลบแล้ว]") &&
     dateFn(s.created_at) === date
@@ -42,12 +42,46 @@ export function computeCashRecon({ state, date, dateFn = dateBkk }) {
   );
   const cashOut = cashExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
 
-  return { sales, cashSales, cashIn, transferSales, transferIn, expenses, cashExpenses, cashOut };
+  // Phase 92.12 (audit 4.1 Should-fix): หัก cash refunds ออกจากลิ้นชัก
+  //   เดิมไม่นับ refund → คืนเงินสดทำให้ลิ้นชักขาดโดยไม่มีบันทึก = false "ขาด" ทุกรอบ
+  //   เฉพาะ refund_method = cash (โอนคืนไม่กระทบเงินสด) และเฉพาะวันที่เลือก
+  const cashRefunds = (refunds || []).filter(r =>
+    dateFn(r.created_at) === date &&
+    ((r.refund_method || "").includes("เงินสด") || r.refund_method === "cash")
+  );
+  const cashRefundOut = cashRefunds.reduce((sum, r) => sum + Number(r.refund_amount || 0), 0);
+
+  return { sales, cashSales, cashIn, transferSales, transferIn, expenses, cashExpenses, cashOut, cashRefunds, cashRefundOut };
 }
 
 // State สำหรับวันที่เลือก (default = วันนี้ — Phase 89.9 H11: BKK time, ไม่ใช่ UTC)
 let _crDate = todayBkk();
 let _crDenoms = {}; // { value: count }
+// Phase 92.12: cash refunds สำหรับวันที่เลือก (fetch async, cache ต่อวัน — กัน refetch ทุก keystroke)
+let _crRefunds = [];
+let _crRefundsDate = null;
+
+// Phase 92.12: ดึง cash refunds ของวัน (BKK) สำหรับ recon — refunds ไม่อยู่ใน state กลาง
+async function fetchCashReconRefunds(date) {
+  try {
+    const cfg = window.SUPABASE_CONFIG;
+    if (!cfg?.url) return [];
+    const accessToken = window._sbAccessToken || cfg.anonKey;
+    const next = dateBkk(new Date(new Date(date + "T00:00:00+07:00").getTime() + 86400000));
+    const url = cfg.url + "/rest/v1/refunds?select=created_at,refund_method,refund_amount"
+      + "&created_at=gte." + date + "T00:00:00%2B07:00"
+      + "&created_at=lt." + next + "T00:00:00%2B07:00";
+    const res = await fetch(url, {
+      headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + accessToken },
+    });
+    if (!res.ok) return [];
+    const rows = await res.json().catch(() => []);
+    return Array.isArray(rows) ? rows : [];
+  } catch (e) {
+    console.warn("[cash_recon] fetch refunds failed:", e?.message);
+    return [];
+  }
+}
 
 export function renderCashReconPage(ctx) {
   const { state, showToast } = ctx;
@@ -61,11 +95,21 @@ export function renderCashReconPage(ctx) {
   const openingCash = Number(saved?.opening || 0);
   const expectedCounted = Number(saved?.counted || 0);
 
-  // Phase 89.18: ใช้ computeCashRecon pure helper (unit-tested)
-  const recon = computeCashRecon({ state, date: _crDate });
-  const { sales: _sales, cashSales, cashIn, transferSales: _transferSales, transferIn, expenses: _expenses, cashExpenses, cashOut } = recon;
+  // Phase 92.12: ดึง cash refunds ของวันที่เลือก (cache ต่อวัน) → re-render เมื่อมาถึง
+  if (_crRefundsDate !== _crDate) {
+    _crRefundsDate = _crDate;
+    _crRefunds = [];
+    fetchCashReconRefunds(_crDate).then(list => {
+      if (_crRefundsDate === _crDate) { _crRefunds = list; renderCashReconPage(ctx); }
+    });
+  }
 
-  const expected = openingCash + cashIn - cashOut;
+  // Phase 89.18: ใช้ computeCashRecon pure helper (unit-tested)
+  const recon = computeCashRecon({ state, date: _crDate, refunds: _crRefunds });
+  const { sales: _sales, cashSales, cashIn, transferSales: _transferSales, transferIn, expenses: _expenses, cashExpenses, cashOut, cashRefunds, cashRefundOut } = recon;
+
+  // Phase 92.12: หัก cash refunds ออกจากลิ้นชัก (audit 4.1 Should-fix)
+  const expected = openingCash + cashIn - cashOut - cashRefundOut;
 
   // ★ คำนวณ counted จาก denominations (ถ้ามี)
   const denomTotal = DENOMINATIONS.reduce((sum, d) => sum + d.value * (Number(_crDenoms[d.value]) || 0), 0);
@@ -116,6 +160,11 @@ export function renderCashReconPage(ctx) {
             <div style="font-size:11px;color:#64748b">📤 จ่ายเงินสดวันนี้ (${cashExpenses.length} รายการ)</div>
             <div style="font-size:18px;font-weight:700;color:#dc2626">- ฿${money(cashOut)}</div>
           </div>
+          ${cashRefundOut > 0 ? `
+          <div style="background:#fff;padding:10px;border-radius:8px">
+            <div style="font-size:11px;color:#64748b">↩️ คืนเงินสดวันนี้ (${cashRefunds.length} รายการ)</div>
+            <div style="font-size:18px;font-weight:700;color:#dc2626">- ฿${money(cashRefundOut)}</div>
+          </div>` : ''}
           <div style="background:#dbeafe;padding:10px;border-radius:8px;border:2px solid #0284c7">
             <div style="font-size:11px;color:#1e40af;font-weight:700">✓ ควรมีในลิ้นชัก</div>
             <div style="font-size:22px;font-weight:900;color:#0c4a6e">฿${money(expected)}</div>
