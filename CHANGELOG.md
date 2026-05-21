@@ -7,6 +7,18 @@
 
 ---
 
+## 5.47.4 (build 270) — 2026-05-21 💰 Phase 92.14 — Money/accounting closure (round2 + verify-slip)
+
+- **fix(money) [round2]:** ปิด float drift 2 จุดที่เหลือจาก money audit 4.1 — `pos.js` cart total (5 จุด inline reduce → `cartSum()` = round2) + `refunds.js` ยอดคืน (`refundTotal()` = round2 ก่อนลง DB `refund_amount` + JV). checkout write path round2 อยู่แล้ว
+- **fix(verify-slip) [mismatch confirm]:** แยก `buildSlipVerification` (pure, unit-tested) + harden — ถ้ามี expected_amount แต่อ่านยอดในสลิปไม่ได้ (≤0) → `is_safe=false` (เดิมเงียบ → โชว์ "✅ ผ่าน" หลอก) + เตือนให้ยืนยันยอดเอง. ทั้ง 3 ฟอร์มบริการ (ac_install/service_form/solar) ใช้ `is_safe` ร่วมกัน → mismatch โชว์ "⚠️ ต้องตรวจเพิ่มเติม" เชื่อถือได้
+- **audit(RLS):** journal_entries RLS — JS handle 403 graceful แล้ว (Phase 92.13); ยืนยัน "closed" ต้องรัน read-only verify query ใน prod (ดู HANDOFF) — ยังไม่รัน (รอ user)
+- **ไม่มี** SQL migration / ไม่แตะ proven paths (loyalty/CAS/credit/receipt/SW)
+- verify เขียว exit 0 (lint 0/0, unit 317 → 332, e2e 11)
+
+**Build:** 269 → 270; version 5.47.3 → 5.47.4 (patch — money correctness hardening)
+
+---
+
 ## 5.47.3 (build 269) — 2026-05-21 🐛 Phase 92.13 — Production smoke bugs (stock reverse type + JV RLS handling)
 
 - **fix(stock) [Blocking]:** ลบบิล POS แล้ว reverse สต็อกเคย insert `stock_movements.type = "return_sale"` → ละเมิด check constraint `stock_movements_type_check` (code 23514) → คืนสต็อกล้มเหลวเงียบ. แก้เป็น `type: "return"` (ค่าที่ flow คืนสินค้า/หน้า movement ใช้อยู่แล้ว, semantic เดียวกัน) + guard test สแกน main.js กันทุก stock_movements insert ใช้ type นอก allowed set

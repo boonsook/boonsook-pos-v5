@@ -7,6 +7,69 @@
 // Request: { image: "data:image/jpeg;base64,...", expected_amount?: number, expected_recipient?: string }
 // Response: { ok, data: { type, sender_name, recipient_name, amount, datetime, transaction_id, ... }, verification: { amount_match, tampering_score, warnings } }
 
+// ─── Verification builder (pure, unit-tested) — Phase 92.14 ───
+// สร้าง verification object + is_safe จากผล OCR + ค่าที่คาดหวัง
+// Hardening (audit 4.1 "mismatch confirm"): ถ้ามี expected_amount แต่
+//   อ่านยอดในสลิปไม่ได้ (amount<=0) → ห้ามตี is_safe=true (เดิมเงียบ → โชว์ "✅ ผ่าน" หลอก)
+//   → ลูกค้า/ช่างต้องยืนยันยอดเองก่อนรับชำระ
+export function buildSlipVerification(parsed, expectedAmount = 0, expectedRecipient = "") {
+  const p = parsed || {};
+  const verification = { warnings: [] };
+
+  if (p.is_slip === false) {
+    verification.warnings.push("⚠️ รูปนี้อาจไม่ใช่สลิปโอนเงิน");
+  }
+
+  const expAmt = Number(expectedAmount || 0);
+  const slipAmt = Number(p.amount || 0);
+  if (expAmt > 0) {
+    if (slipAmt > 0) {
+      const diff = Math.abs(expAmt - slipAmt);
+      verification.amount_match = diff < 0.01;
+      if (!verification.amount_match) {
+        verification.warnings.push(`⚠️ ยอดเงินไม่ตรง — สลิป ${slipAmt.toLocaleString()} ≠ คาด ${expAmt.toLocaleString()} (ผลต่าง ${diff.toLocaleString()})`);
+      }
+    } else {
+      // อ่านยอดไม่ได้ แต่มียอดที่คาดหวัง → ยืนยันไม่ได้ว่าตรง → ไม่ปลอดภัย
+      verification.amount_match = false;
+      verification.warnings.push(`⚠️ อ่านยอดในสลิปไม่ได้ — ยืนยันยอด ${expAmt.toLocaleString()} เองก่อนรับชำระ`);
+    }
+  }
+
+  const expRecip = String(expectedRecipient || "").trim();
+  if (expRecip && p.recipient_name) {
+    // ★ Smart name match — ลบคำนำหน้า/ปีกกา/ธนาคาร ก่อนเทียบ substring
+    const normalizeName = (s) => String(s || "")
+      .toLowerCase()
+      .replace(/^(ร้าน|บริษัท|หจก\.?|บจ\.?|บมจ\.?|จำกัด|มณี\s*shop|mn\s*shop)\s*/gi, "")
+      .replace(/[()[\]]/g, " ")  // unwrap brackets — keep content
+      .replace(/\b(scb|kbank|krungthai|bbl|ttb|kkp|gsb|baac|tisco|uob|mha|bay|cimb)\b/gi, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    const recipientNorm = normalizeName(p.recipient_name);
+    const expectedNorm  = normalizeName(expRecip);
+    // เทียบ substring ทั้ง 2 ทิศทาง — รองรับชื่อยาว/สั้นต่างกัน
+    verification.recipient_match = recipientNorm.length > 2 && expectedNorm.length > 2 && (
+      recipientNorm.includes(expectedNorm) ||
+      expectedNorm.includes(recipientNorm)
+    );
+    if (!verification.recipient_match) {
+      verification.warnings.push(`⚠️ ชื่อผู้รับไม่ตรง — สลิป "${p.recipient_name}" ≠ คาด "${expRecip}"`);
+    }
+  }
+
+  if (Number(p.tampering_score) >= 30) {
+    verification.warnings.push(`⚠️ ตรวจสัญญาณตัดต่อ — score ${p.tampering_score}/100`);
+  }
+  if (Number(p.confidence) < 50) {
+    verification.warnings.push(`⚠️ อ่านสลิปไม่ชัด — confidence ${p.confidence}/100 (รูปอาจมัว/แสงน้อย)`);
+  }
+
+  verification.is_safe = verification.warnings.length === 0 && p.is_slip === true;
+  return verification;
+}
+
 export async function onRequestPost(context) {
   const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
@@ -177,45 +240,7 @@ export async function onRequestPost(context) {
     }
 
     // ─── Verification: เปรียบเทียบกับค่าที่คาดหวัง ───
-    const verification = { warnings: [] };
-    if (parsed.is_slip === false) {
-      verification.warnings.push("⚠️ รูปนี้อาจไม่ใช่สลิปโอนเงิน");
-    }
-    if (expectedAmount > 0 && parsed.amount > 0) {
-      const diff = Math.abs(expectedAmount - parsed.amount);
-      verification.amount_match = diff < 0.01;
-      if (!verification.amount_match) {
-        verification.warnings.push(`⚠️ ยอดเงินไม่ตรง — สลิป ${parsed.amount.toLocaleString()} ≠ คาด ${expectedAmount.toLocaleString()} (ผลต่าง ${diff.toLocaleString()})`);
-      }
-    }
-    if (expectedRecipient && parsed.recipient_name) {
-      // ★ Smart name match — ลบคำนำหน้า/ปีกกา/ธนาคาร ก่อนเทียบ substring
-      const normalizeName = (s) => String(s || "")
-        .toLowerCase()
-        .replace(/^(ร้าน|บริษัท|หจก\.?|บจ\.?|บมจ\.?|จำกัด|มณี\s*shop|mn\s*shop)\s*/gi, "")
-        .replace(/[()[\]]/g, " ")  // unwrap brackets — keep content
-        .replace(/\b(scb|kbank|krungthai|bbl|ttb|kkp|gsb|baac|tisco|uob|mha|bay|cimb)\b/gi, "")
-        .replace(/\s+/g, " ")
-        .trim();
-
-      const recipientNorm = normalizeName(parsed.recipient_name);
-      const expectedNorm  = normalizeName(expectedRecipient);
-      // เทียบ substring ทั้ง 2 ทิศทาง — รองรับชื่อยาว/สั้นต่างกัน
-      verification.recipient_match = recipientNorm.length > 2 && expectedNorm.length > 2 && (
-        recipientNorm.includes(expectedNorm) ||
-        expectedNorm.includes(recipientNorm)
-      );
-      if (!verification.recipient_match) {
-        verification.warnings.push(`⚠️ ชื่อผู้รับไม่ตรง — สลิป "${parsed.recipient_name}" ≠ คาด "${expectedRecipient}"`);
-      }
-    }
-    if (parsed.tampering_score >= 30) {
-      verification.warnings.push(`⚠️ ตรวจสัญญาณตัดต่อ — score ${parsed.tampering_score}/100`);
-    }
-    if (parsed.confidence < 50) {
-      verification.warnings.push(`⚠️ อ่านสลิปไม่ชัด — confidence ${parsed.confidence}/100 (รูปอาจมัว/แสงน้อย)`);
-    }
-    verification.is_safe = verification.warnings.length === 0 && parsed.is_slip === true;
+    const verification = buildSlipVerification(parsed, expectedAmount, expectedRecipient);
 
     return new Response(JSON.stringify({
       ok: true,

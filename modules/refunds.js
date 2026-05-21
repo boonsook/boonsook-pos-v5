@@ -7,9 +7,15 @@ import { renderSkeleton, renderEmpty, renderError } from "./ui_states.js";
 // Phase 89.29 (audit C3): post JV เมื่อบันทึก refund → Dr 4110 Sales Returns / Cr Cash/Bank
 import { postJournalForRefund } from "./accounting/auto_post.js";
 
-import { escHtml, addDaysBkk } from "./utils.js";
+import { escHtml, addDaysBkk, round2 } from "./utils.js";
 function money(n) {
   return new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n || 0));
+}
+
+// Phase 92.14: round2 ยอดคืน — กัน float drift (Σ qty*unit_price) เข้า DB refund_amount
+//   เดิม reduce ดิบ → เช่น 3 × 33.30 = 99.90000000001 ลง refund_amount + JV ไม่ตรงสตางค์
+export function refundTotal(items) {
+  return round2((items || []).reduce((s, it) => s + Number(it.qty || 0) * Number(it.unit_price || 0), 0));
 }
 function moneyShort(n) {
   const v = Number(n || 0);
@@ -324,7 +330,7 @@ function openRefundModal(ctx) {
         <div style="width:90px;text-align:right;font-weight:700;color:#dc2626">฿${money(it.qty * it.unit_price)}</div>
       </div>
     `).join("");
-    const total = _refundItems.reduce((s, it) => s + it.qty * it.unit_price, 0);
+    const total = refundTotal(_refundItems);
     totalEl.textContent = "฿" + money(total);
 
     itemsListEl.querySelectorAll(".rf-item-qty").forEach(inp => inp.addEventListener("change", () => {
@@ -346,7 +352,7 @@ function openRefundModal(ctx) {
     if (!_selectedSale) return;
     const itemsToRefund = _refundItems.filter(it => it.qty > 0);
     if (itemsToRefund.length === 0) { window.App?.showToast?.("เลือกสินค้าที่คืนอย่างน้อย 1 รายการ + จำนวน > 0", "warn"); return; }
-    const totalAmount = itemsToRefund.reduce((s, it) => s + it.qty * it.unit_price, 0);
+    const totalAmount = refundTotal(itemsToRefund);
     const reason = modal.querySelector("#rfReasonSelect").value;
     const method = modal.querySelector("#rfMethodSelect").value;
     const restock = restockCb.checked;

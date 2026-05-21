@@ -3,13 +3,55 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 21 พฤษภาคม 2026 (Phase 92.13 — production smoke bugs: stock reverse type + JV RLS handling, build 269)
-**Version:** 5.47.3 (build 269) — Phase 92.13 (patch: stock reverse constraint fix + JV RLS deferral handling + role docs)
-**Previous:** 5.47.2 (build 268) — Phase 92.12 (patch: money correctness — credit payment atomic + cash refund recon)
+**อัปเดตล่าสุด:** 21 พฤษภาคม 2026 (Phase 92.14 — money/accounting closure: round2 + verify-slip mismatch, build 270)
+**Version:** 5.47.4 (build 270) — Phase 92.14 (patch: round2 cart/refund + verify-slip is_safe hardening + RLS audit)
+**Previous:** 5.47.3 (build 269) — Phase 92.13 (patch: stock reverse constraint fix + JV RLS deferral handling + role docs)
 
 ---
 
-## 🐛 Phase 92.13 — Production smoke bugs (this session)
+## 💰 Phase 92.14 — Money/accounting closure (this session)
+
+ปิด should-fix ที่เหลือจาก money audit 4.1 แบบแคบ + TDD. **No push yet (awaiting user confirm).** ไม่แตะ SQL/RLS, ไม่แตะ proven paths (loyalty CAS, atomicDecrementStock, credit CAS, receipt open, SW).
+
+### 1. round2 — cart total (pos.js) + refund total (refunds.js)
+- **pos.js:** มี 5 จุด inline `cart.reduce((s,i)=>s+i.qty*i.price,0)` ดิบ (display, quickPay default, checkout amount) → extract `export function cartSum(cart)` = `round2(Σ)` แทนทั้ง 5. checkout **write path** (total_amount/line_total/...) round2 อยู่แล้ว (Phase 89.2) — นี่คุม in-memory + เงินทอนที่โชว์ ไม่ให้ค้าง 0.30000000000000004
+- **refunds.js:** ยอดคืน reduce ดิบ → ลง DB `refund_amount` + JV (postJournalForRefund) ไม่ตรงสตางค์. extract `export function refundTotal(items)` = `round2(Σ)` ใช้ที่ preview (333) + actual write (355)
+- Tests: `tests/money_round2_helpers.test.js` (+7)
+
+### 2. verify-slip mismatch confirm (functions/api/verify-slip.js)
+- แยก verification block (เดิม inline ใน onRequestPost) → `export function buildSlipVerification(parsed, expectedAmount, expectedRecipient)` (pure → unit-test ได้)
+- **Hardening:** เดิมถ้ามี `expected_amount > 0` แต่ OCR อ่านยอดสลิปไม่ได้ (`amount ≤ 0`) → ไม่มี warning → `is_safe` อาจ true → 3 ฟอร์มโชว์ "✅ ผ่านการตรวจสอบ" **หลอก** ทั้งที่ไม่เคยเทียบยอด. แก้: กรณีนี้ `amount_match=false` + warning "อ่านยอดในสลิปไม่ได้ — ยืนยันยอด X เองก่อนรับชำระ" → `is_safe=false`
+- ผู้ใช้ร่วม: `ac_install.js` / `service_form.js` / `solar.js` ล้วน gate display ด้วย `v.is_safe === true` → fix เดียวคุมทั้ง 3 (ไม่ต้องแตะ 3 ไฟล์)
+- **ขอบเขต (จงใจ):** ยังเป็น advisory display — ไม่ได้ใส่ hard `confirm()` dialog บน save handler ของแต่ละฟอร์ม (จะกระจาย 3 ไฟล์ = เกิน scope/risk). is_safe ที่แม่นขึ้นทำให้ "⚠️ ต้องตรวจเพิ่มเติม" โชว์เชื่อถือได้ — ถ้าต้องการ dialog gate เป็น follow-up แคบ ๆ
+- Tests: `tests/verify_slip_verification.test.js` (+8)
+
+### 3. Audit — journal_entries RLS: closed หรือยัง?
+**สรุป: ยังยืนยัน 100% ไม่ได้จาก client code — ต้อง verify ฝั่ง prod DB (read-only).**
+- auto_post.js insert `journal_entries` ตรงจาก client (PostgREST). Policy `je_insert_auto` (phase89-25) อนุญาต non-accountant insert เมื่อ `source_table`+`source_id` ไม่ null. `postJournalForSale` ส่งครบ → ถ้า policy active = staff insert ผ่าน
+- Phase 92.13 เพิ่ม graceful handling: 403/42501 → warn "JV deferred" (ไม่ crash, sale ผ่าน). User รายงานเห็น `[auto_post] created...` ในรอบหลัง → **น่าจะ** policy active แล้ว (หรือ test เป็น accountant)
+- **Path-specific:** ผลขึ้นกับ role — accountant ผ่านเสมอ (is_accountant); non-accountant ผ่านเฉพาะ source-based path. ยืนยันว่าครบทุก role ต้องดู policy จริงใน prod
+- **🔵 แนะนำ verify (read-only, รอ user รัน — ห้าม apply เอง):**
+  ```sql
+  SELECT tablename, policyname, cmd FROM pg_policies
+  WHERE schemaname='public' AND tablename IN ('journal_entries','journal_lines','account_mapping')
+  ORDER BY tablename, cmd;   -- ต้องเห็น 10 rows (je_*×4, jl_*×4, am_*×2)
+  SELECT proname FROM pg_proc WHERE proname='is_accountant';  -- ต้องมี 1 row
+  ```
+  ถ้าครบ → RLS **closed**. ถ้าขาด → รัน `supabase-phase89-25-fix-je-rls-pos.sql` (มี verify query ท้ายไฟล์)
+
+### Gates
+- lint 0/0 · unit 317 → 332 · e2e 11 · verify exit 0 (clean run)
+
+### Manual smoke after deploy (build 270)
+1. Ctrl+Shift+R → 5.47.4 (build 270)
+2. **Cash recon refund (ของจริง):** คืนเงินสด 1 รายการ → cash recon วันนั้น → "ควรมีในลิ้นชัก" ลดตามยอด refund (ไม่ false "ขาด") — ยืนยัน Phase 92.12 fix ทำงาน live
+3. Refund บิลที่มีราคาทศนิยม → `refund_amount` ตรงสตางค์ (ไม่มี ...0001)
+4. POS cart หลายชิ้นราคาทศนิยม → ยอด/เงินทอนสะอาด
+5. Verify slip ที่อ่านยอดไม่ได้ (รูปมัว) ในฟอร์มบริการ → ไม่ขึ้น "✅ ผ่าน" หลอก, ขึ้น "⚠️ ต้องตรวจ + ยืนยันยอดเอง"
+
+---
+
+## 🐛 Phase 92.13 — Production smoke bugs (previous session)
 
 Build 268 live, user smoke tested. เจอ console errors จริง 2 จุด → fix. **No push yet (awaiting user confirm — production deploy).**
 
