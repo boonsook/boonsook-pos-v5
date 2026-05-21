@@ -7,6 +7,17 @@
 
 ---
 
+## 5.47.2 (build 268) — 2026-05-21 💰 Phase 92.12 — Money audit fixes (credit CAS + cash recon refund)
+
+- **fix(credit) [Blocking]:** รับชำระหนี้ (credit_tracker) เคยเขียน `credit_paid_amount` แบบ absolute จาก state ที่อาจ stale (read-modify-write) → 2 staff รับชำระบิลเดียวกันพร้อมกันเขียนทับกัน = payment หาย + ลูกหนี้ (A/R) เกินจริง. เปลี่ยนเป็น **CAS increment** (`atomicAddToField` ใหม่ใน stock_cas.js — refetch → PATCH `?credit_paid_amount=eq.{before}` → stale=retry; column NUMERIC ทำให้ eq match เป๊ะ). `credit_payments` ledger + JV posting ไม่แตะ
+- **fix(cash_recon) [Should-fix]:** กระทบยอดเงินสดเดิม**ไม่หัก cash refund** → คืนเงินสดทำให้ลิ้นชัก "ขาด" หลอกทุกรอบ. เพิ่ม `refunds` param + `cashRefundOut` (เฉพาะ refund_method=cash, เฉพาะวันที่เลือก); expected = opening + cashIn − cashOut − cashRefundOut. math เดิม (cashIn/cashOut/transferIn) ไม่เปลี่ยน
+- **JS-only** ไม่มี SQL migration (column เป็น NUMERIC → client CAS พอ); TDD ทั้ง 2 fixes (test red ก่อนแก้)
+- verify เขียวครบ (lint 0/0, unit 302 → 308, e2e 11)
+
+**Build:** 267 → 268; version 5.47.1 → 5.47.2 (patch — money bug fix)
+
+---
+
 ## 5.47.1 (build 267) — 2026-05-21 🐛 Phase 92.11 — Fix silent "เปิดบิล" + verify health + version sync
 
 - **fix(receipt):** ปุ่ม "เปิดบิล" (หน้ารายการขาย) เคยกดแล้วเงียบ — `loadReceipt` ใช้ Supabase JS client ที่ค้างบนมือถือ/throw เมื่อ client ยังไม่พร้อม. เปลี่ยนเป็น `fetch` + AbortController timeout 8s (pattern เดียวกับ pos.js) และคืน `{ok,error}` → caller toast เมื่อ fail + เปิด drawer เฉพาะตอนโหลดสำเร็จ
