@@ -7,7 +7,8 @@ import { renderEmpty } from "./ui_states.js";
 // Phase 89.29 (audit C2): post JV เมื่อรับชำระลูกหนี้ → ตัด A/R 1200
 import { postJournalForCreditPayment } from "./accounting/auto_post.js";
 
-import { escHtml } from "./utils.js";
+import { escHtml, round2 } from "./utils.js";
+import { atomicAddToField } from "./stock_cas.js";
 function money(n) {
   return new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n || 0));
 }
@@ -274,19 +275,30 @@ function openReceivePaymentModal(ctx, sale) {
       const insertedRows = await insertR.json().catch(() => []);
       const insertedPayment = Array.isArray(insertedRows) ? insertedRows[0] : insertedRows;
 
-      // 2. UPDATE sales: เพิ่ม credit_paid_amount + check ถ้าครบ → set credit_paid_at
-      const newPaid = sale._paid + amount;
-      const isFullyPaid = (sale._total - newPaid) <= 0.01;
-      const patch = { credit_paid_amount: newPaid };
-      if (isFullyPaid) patch.credit_paid_at = new Date().toISOString();
-      const patchR = await fetch(cfg.url + "/rest/v1/sales?id=eq." + sale.id, {
-        method: "PATCH",
-        headers: { "Content-Type":"application/json","apikey":cfg.anonKey,"Authorization":"Bearer "+accessToken,"Prefer":"return=minimal" },
-        body: JSON.stringify(patch)
+      // 2. UPDATE sales: เพิ่ม credit_paid_amount แบบ atomic (CAS)
+      // Phase 92.12 (audit 4.1 Blocking): เดิม read-modify-write เขียน absolute value
+      //   จาก sale._paid (state อาจ stale) → 2 staff รับชำระบิลเดียวกันพร้อมกัน
+      //   เขียนทับกัน → payment หาย + A/R เกินจริง.
+      //   แก้: CAS increment (refetch DB → PATCH ?credit_paid_amount=eq.{before} → stale=retry)
+      //   column เป็น NUMERIC → eq precondition match เป๊ะ. ห้ามแตะ credit_payments ledger + JV
+      const inc = await atomicAddToField({
+        fetcher: fetch, supabaseUrl: cfg.url, anonKey: cfg.anonKey, accessToken,
+        table: "sales", rowId: sale.id, field: "credit_paid_amount", delta: amount,
       });
-      if (!patchR.ok) {
-        const errBody = await patchR.text().catch(() => "");
-        throw new Error(`อัปเดต sales ไม่สำเร็จ (HTTP ${patchR.status}) ${errBody.slice(0, 200)}`);
+      if (!inc.ok) throw new Error("อัปเดตยอดชำระไม่สำเร็จ: " + inc.error);
+      const newPaid = round2(inc.after);  // after = ค่าจริงจาก DB หลัง increment
+      const isFullyPaid = (sale._total - newPaid) <= 0.01;
+      // ถ้าครบ → PATCH credit_paid_at แยก (idempotent timestamp, ไม่ critical race)
+      if (isFullyPaid) {
+        const tsR = await fetch(cfg.url + "/rest/v1/sales?id=eq." + sale.id, {
+          method: "PATCH",
+          headers: { "Content-Type":"application/json","apikey":cfg.anonKey,"Authorization":"Bearer "+accessToken,"Prefer":"return=minimal" },
+          body: JSON.stringify({ credit_paid_at: new Date().toISOString() })
+        });
+        if (!tsR.ok) {
+          const errBody = await tsR.text().catch(() => "");
+          throw new Error(`อัปเดต credit_paid_at ไม่สำเร็จ (HTTP ${tsR.status}) ${errBody.slice(0, 200)}`);
+        }
       }
 
       // 3. Phase 89.29 (audit C2): post JV — Dr Cash/Bank / Cr 1200 (A/R)
