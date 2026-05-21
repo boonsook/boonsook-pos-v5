@@ -127,9 +127,22 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
     _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, showToast });
   }, { signal }));
 
+  // Phase 92.11: เปิดบิล — เดิม await loadReceipt() แล้ว openReceiptDrawer() ตรง ๆ
+  // ถ้า loadReceipt throw/hang ปุ่มจะเงียบ (user report). ตอนนี้ loadReceipt คืน {ok,error}
+  // → toast เมื่อ fail + เปิด drawer เฉพาะตอนโหลดใบเสร็จสำเร็จเท่านั้น
   document.querySelectorAll("[data-sale-id]").forEach(btn => btn.addEventListener("click", async () => {
-    await loadReceipt(Number(btn.dataset.saleId));
-    openReceiptDrawer();
+    if (btn.disabled) return;
+    btn.disabled = true;
+    try {
+      const r = await loadReceipt(Number(btn.dataset.saleId));
+      if (r && r.ok === false) {
+        showToast?.("❌ เปิดบิลไม่สำเร็จ: " + (r.error?.message || "unknown"));
+        return;
+      }
+      openReceiptDrawer();
+    } finally {
+      if (btn.isConnected) btn.disabled = false;
+    }
   }, { signal }));
 
   /* ── Empty-state CTA (Phase 46.2): ไปหน้า POS ── */

@@ -1190,7 +1190,9 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
       const saleData = Array.isArray(saleRes2) ? saleRes2[0] : saleRes2;
       const itemsData = Array.isArray(itemsRes2) ? itemsRes2 : [];
       if (saleData) {
+        /* eslint-disable require-atomic-updates -- protected by _posCheckoutGuard single-flight (Phase 89.42): no concurrent checkout can interleave this assignment */
         state.lastReceipt = { ...saleData, items: itemsData };
+        /* eslint-enable require-atomic-updates */
         localStorage.setItem("bsk_last_receipt", JSON.stringify(state.lastReceipt));
       }
     } catch (receiptErr) {

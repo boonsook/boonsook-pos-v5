@@ -334,7 +334,11 @@ export async function redeemPoints(customerId, points, note, ctx) {
  * Main loyalty page renderer
  */
 export function renderLoyaltyPage(ctx) {
-  // Phase 90.12: requireAdmin is now used at the settings save handler (defense-in-depth).
+  // Phase 90.12 / 92.11: requireAdmin ถูก forward เข้า renderSettingsTab ผ่าน `ctx` ทั้งก้อน
+  // (ดู `renderSettingsTab(settings, ctx)` ด้านล่าง) ซึ่งใช้เป็น admin gate ที่ save handler.
+  // ต้อง destructure ด้วยชื่อจริง (ห้าม alias `_`) — guard test loyalty_settings_admin_guard
+  // ล็อกไว้ว่าห้ามลบ/rename. local binding เองไม่ถูกอ้างตรง ๆ → disable no-unused-vars ตรงนี้.
+  // eslint-disable-next-line no-unused-vars
   const { state, money: _moneyFn, showToast: _showToast, loadAllData: _loadAllData, currentRole, requireAdmin } = ctx;
 
   const container = document.getElementById("page-loyalty");

@@ -3,9 +3,38 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 21 พฤษภาคม 2026 (Phase 92.10 CAPSTONE — extract boot orchestration → modules/boot.js, build 266)
-**Version:** 5.47.0 (build 266) — Phase 92.10 (boot capstone; minor: new module + main.js side-effect-free)
-**Previous:** 5.46.0 (build 265) — Phase 92.9 (api-layer extraction; minor: new auth-critical module)
+**อัปเดตล่าสุด:** 21 พฤษภาคม 2026 (Phase 92.11 — fix silent "เปิดบิล" + verify health + version sync, build 267)
+**Version:** 5.47.1 (build 267) — Phase 92.11 (patch: receipt-open bug fix + lint 0/0 + package.json sync)
+**Previous:** 5.47.0 (build 266) — Phase 92.10 (boot capstone; minor: new module + main.js side-effect-free)
+
+---
+
+## 🐛 Phase 92.11 — Fix silent "เปิดบิล" + verify health + version sync (this session)
+
+งาน health/cleanup หลัง build 266. **No push yet (awaiting user confirm — production deploy).**
+
+### 1. ปุ่ม "เปิดบิล" กดแล้วเงียบ (รากของปัญหา = `loadReceipt`)
+- `loadReceipt(saleId)` เดิมใช้ `state.supabase.from(...).single()` — Supabase JS client **ค้างบนมือถือ** (pos.js receipt-load เลี่ยงไปแล้วด้วยเหตุนี้) + ถ้า `state.supabase` ยังไม่พร้อม → **throw** → ใน sales.js `await loadReceipt(); openReceiptDrawer();` เมื่อ throw แล้ว drawer ไม่เปิด = ปุ่มเงียบ. กรณี query error → `return` เงียบ ๆ ไม่มี toast
+- **แก้:** เขียน `loadReceipt` ใหม่เป็น `fetch` + `AbortController` timeout 8s (mirror pos.js:1176-1198) คืน `{ok, error}` (ตาม convention async-refactor-return-shape) — ไม่ throw, ไม่ hang
+- caller (sales.js "เปิดบิล" + customer drawer ใน main.js): เช็ค `r.ok === false` → `showToast` เตือน + เปิด drawer เฉพาะตอนสำเร็จ; ปุ่ม sales.js กัน double-click ด้วย `disabled` ใน finally
+- legacy checkout caller (main.js ~3308) ไม่แตะ — ignore return value, ไม่ regress
+- **ยังไม่ได้ verify บน device จริง** — โครงสร้างเหมือน pos.js receipt fetch ที่ใช้งานจริงบน prod แล้ว (RLS ผ่าน user token เดิม)
+
+### 2. Lint 2 → 0 warnings
+- `pos.js:1193` `state.lastReceipt` — ขยาย `eslint-disable require-atomic-updates` ครอบ assignment (อยู่ใน `_posCheckoutGuard.run()` single-flight อยู่แล้ว เหมือนบล็อกถัดไป)
+- `loyalty.js:340` `requireAdmin` — **false positive**: renderLoyaltyPage forward `ctx` ทั้งก้อนเข้า `renderSettingsTab(settings, ctx)` (admin gate อยู่ที่ save handler line ~634). local binding ไม่ถูกอ้างตรง ๆ แต่ guard test `loyalty_settings_admin_guard` ล็อกชื่อ `requireAdmin` ห้าม alias → ใช้ justified `eslint-disable-next-line no-unused-vars` (ไม่ revert เป็น `_` เพราะจะ fail guard test)
+
+### 3. e2e/verify health
+- รัน `npm run verify` จบครบ **17-20s** (ไม่ค้าง). อาการค้าง ~180s จาก audit = **zombie `static-server.js` ค้าง port 4173** จาก run ที่ถูก interrupt — ไม่ใช่ bug ของ config. ถ้าเจออีก: kill node ที่ถือ port 4173 แล้วรันใหม่ (`reuseExistingServer:true` local จะ reuse zombie ที่อาจค้าง)
+
+### 4. Version drift fix
+- `package.json` 5.43.42 → **5.47.1** (เดิม drift ห่างจาก UI/docs). bump build 266 → 267 ครบ 4 จุด: index.html (selfheal+data-app-build / main.js / boot.js / style.css `?v=267`) · sw.js `cache-v267` · pages.js (5.47.1 / build 267) · package.json
+
+### Verify (เขียวครบ)
+- lint **0 errors / 0 warnings** · unit **302 pass** · e2e **11 pass**
+
+### ไม่แตะ (product decision)
+- manual tab role gate ใน Loyalty (admin-only settings) — คงเดิม
 
 ---
 
