@@ -258,7 +258,17 @@ async function _postJournal(opts) {
     entryId = arr[0]?.id;
     if (!entryId) throw new Error("no id returned");
   } catch(e) {
-    console.error("[auto_post] entry insert failed:", e.message);
+    const msg = e?.message || String(e);
+    // Phase 92.13: distinguish RLS denial (403 / Postgres 42501) from real errors.
+    //   Source transaction (POS sale ฯลฯ) succeeded already — JV นี้ fire-and-forget.
+    //   403 = role นี้ถูก RLS block ที่ journal_entries → JV ถูก "เลื่อน" (ไม่ใช่ crash)
+    //   Real fix อยู่ฝั่ง DB: ต้องมี policy je_insert_auto/jl_insert_auto
+    //   (supabase-phase89-25-fix-je-rls-pos.sql) — ไม่ fake success ฝั่ง client
+    if (/\b403\b|42501|row-level security/i.test(msg)) {
+      console.warn(`[auto_post] JV deferred (RLS denied role) for ${sourceTable}#${sourceId} — source saved OK; verify je_insert_auto policy (supabase-phase89-25-fix-je-rls-pos.sql)`);
+    } else {
+      console.error("[auto_post] entry insert failed:", msg);
+    }
     return null;
   }
 
