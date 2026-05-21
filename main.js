@@ -2104,7 +2104,12 @@ function _renderCustomerPurchaseHistory(customer) {
       const id = card.dataset.custSaleId;
       if (!id) return;
       closeAllDrawers();
-      await loadReceipt(id);
+      // Phase 92.11: same fix as sales.js — เปิด drawer เฉพาะตอนโหลดใบเสร็จสำเร็จ
+      const r = await loadReceipt(id);
+      if (r && r.ok === false) {
+        showToast?.("❌ เปิดบิลไม่สำเร็จ: " + (r.error?.message || "unknown"));
+        return;
+      }
       openReceiptDrawer();
     });
   });
@@ -3383,13 +3388,43 @@ async function _notifySaleToLine({ orderNo, cartSnapshot, items }) {
 //  RECEIPT
 // ═══════════════════════════════════════════════════════════
 async function loadReceipt(saleId){
-  const saleData = await state.supabase.from("sales").select("*").eq("id", saleId).single();
-  const itemsData = await state.supabase.from("sale_items").select("*").eq("sale_id", saleId).order("id",{ascending:true});
-  if (saleData.error || itemsData.error) return;
-  // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L1 user-event (sequential await loadReceipt(saleId) after checkout, single sale per flow)
-  state.lastReceipt = { ...saleData.data, items: itemsData.data || [] };
-  saveReceipt();
-  renderReceiptDrawer();
+  // Phase 92.11: ใช้ fetch + AbortController timeout แทน Supabase JS client
+  // (client "ค้างบนมือถือ" — ดู pos.js receipt-load) และคืน {ok, error} ให้ caller
+  // ตัดสินใจ UX. เดิม: state.supabase null → throw → ปุ่ม "เปิดบิล" เงียบ;
+  // client hang → ปุ่มตายถาวร; query error → return เงียบ ๆ ไม่มี feedback.
+  try {
+    const cfg = window.SUPABASE_CONFIG;
+    if (!cfg?.url) return { ok: false, error: { message: "ยังไม่ได้ตั้งค่าการเชื่อมต่อ Supabase" } };
+    const tk = window._sbAccessToken || cfg.anonKey;
+    const hdrs = { "apikey": cfg.anonKey, "Authorization": "Bearer " + tk };
+    const ctrl = new AbortController();
+    const tmr = setTimeout(() => ctrl.abort(), 8000); // 8s timeout กัน hang บนมือถือ
+    let saleRes, itemsRes;
+    try {
+      [saleRes, itemsRes] = await Promise.all([
+        fetch(cfg.url + "/rest/v1/sales?id=eq." + encodeURIComponent(saleId) + "&select=*", { headers: hdrs, signal: ctrl.signal }).then(r => r.json()),
+        fetch(cfg.url + "/rest/v1/sale_items?sale_id=eq." + encodeURIComponent(saleId) + "&select=*&order=id.asc", { headers: hdrs, signal: ctrl.signal }).then(r => r.json())
+      ]);
+    } finally {
+      clearTimeout(tmr);
+    }
+    // PostgREST: select คืน array; error คืน object {code,message,...}
+    const saleData = Array.isArray(saleRes) ? saleRes[0] : null;
+    const itemsData = Array.isArray(itemsRes) ? itemsRes : [];
+    if (!saleData) {
+      const errObj = (saleRes && (saleRes.message || saleRes.code)) ? saleRes : { message: "ไม่พบใบเสร็จ" };
+      console.warn("[loadReceipt] no sale row:", errObj);
+      return { ok: false, error: errObj };
+    }
+    state.lastReceipt = { ...saleData, items: itemsData };
+    saveReceipt();
+    renderReceiptDrawer();
+    return { ok: true, error: null };
+  } catch (e) {
+    const aborted = e?.name === "AbortError";
+    console.warn("[loadReceipt] failed:", e?.message || e);
+    return { ok: false, error: { message: aborted ? "โหลดใบเสร็จช้าเกินไป (timeout)" : (e?.message || "โหลดใบเสร็จไม่สำเร็จ") } };
+  }
 }
 function openReceiptDrawer(){ renderReceiptDrawer(); openDrawer("receiptDrawer"); }
 function renderReceiptDrawer(){

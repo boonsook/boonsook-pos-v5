@@ -7,6 +7,18 @@
 
 ---
 
+## 5.47.1 (build 267) — 2026-05-21 🐛 Phase 92.11 — Fix silent "เปิดบิล" + verify health + version sync
+
+- **fix(receipt):** ปุ่ม "เปิดบิล" (หน้ารายการขาย) เคยกดแล้วเงียบ — `loadReceipt` ใช้ Supabase JS client ที่ค้างบนมือถือ/throw เมื่อ client ยังไม่พร้อม. เปลี่ยนเป็น `fetch` + AbortController timeout 8s (pattern เดียวกับ pos.js) และคืน `{ok,error}` → caller toast เมื่อ fail + เปิด drawer เฉพาะตอนโหลดสำเร็จ
+- ใช้ fix เดียวกันกับจุดเปิดบิลใน customer drawer (silent twin)
+- **lint:** เคลียร์ 2 warnings เหลือ 0 — pos.js `state.lastReceipt` (ขยาย eslint-disable ครอบ assignment ที่ guard ด้วย `_posCheckoutGuard` อยู่แล้ว) + loyalty.js `requireAdmin` (false positive: forward ผ่าน ctx ทั้งก้อนเข้า renderSettingsTab — guard test ล็อกชื่อไว้ → justified inline disable)
+- **chore(version):** sync `package.json` 5.43.42 → 5.47.1 (drift จากของจริงที่ ship อยู่)
+- ไม่มี behavior change กับ money/accounting/RLS; verify เขียวครบ (lint 0/0, unit 302, e2e 11)
+
+**Build:** 266 → 267; version 5.47.0 → 5.47.1 (patch — bug fix)
+
+---
+
 ## 5.47.0 (build 266) — 2026-05-21 ♻️ Phase 92.10 CAPSTONE — Extract boot orchestration → `modules/boot.js`
 
 ปิด decomposition series 92.1-92.10 — ย้าย **boot IIFE** (self-invoking async ที่รันตอน main.js โหลด) ออกไป `modules/boot.js`. ผลลัพธ์: main.js เป็น **side-effect-free module** แล้ว (ไม่มี IIFE รันเองตอน import) → boot orchestration testable + module boundary สะอาด.
