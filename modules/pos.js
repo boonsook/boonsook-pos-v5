@@ -80,6 +80,13 @@ export function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
+// Phase 92.14: cart subtotal helper — round2 ที่ source กัน float drift propagate
+//   (เดิม inline `cart.reduce((s,i)=>s+i.qty*i.price,0)` หลายจุด → ยอด/เงินทอนที่โชว์เพี้ยน
+//    เช่น 3 × 33.30 = 99.90000000001). checkout write path round2 อยู่แล้ว — นี่คุม in-memory/display
+export function cartSum(cart) {
+  return round2((cart || []).reduce((s, i) => s + Number(i.qty || 0) * Number(i.price || 0), 0));
+}
+
 // ═══════════════════════════════════════════════════════════
 // Phase 88.21: VAT helper — คำนวณ VAT จาก paymentInfo settings
 // ═══════════════════════════════════════════════════════════
@@ -137,7 +144,7 @@ export function renderPosPage({ state, addToCart, changeQty, removeFromCart, ope
 
 function renderPosView(ctx) {
   const { state } = ctx;
-  const cartTotal = state.cart.reduce((sum,i)=>sum+i.qty*i.price,0);
+  const cartTotal = cartSum(state.cart);
   const cartQty = state.cart.reduce((sum,i)=>sum+i.qty,0);
   const el = document.getElementById("page-pos");
 
@@ -885,7 +892,7 @@ function renderPosView(ctx) {
   //  PRODUCTS — เลือกสินค้า
   // ═══════════════════════════════════════════════════════
   } else if (posView === "products") {
-    const t = state.cart.reduce((s,i)=>s+i.qty*i.price,0);
+    const t = cartSum(state.cart);
     const q = state.cart.reduce((s,i)=>s+i.qty,0);
 
     el.innerHTML = `
@@ -920,7 +927,7 @@ function renderPosView(ctx) {
     }, { signal });
     document.getElementById("posStickyPayBtn")?.addEventListener("click", () => {
       if (state.cart.length === 0) { window.App?.showToast?.("ยังไม่มีสินค้าในบิล"); return; }
-      quickPayAmount = state.cart.reduce((s,i)=>s+i.qty*i.price,0);
+      quickPayAmount = cartSum(state.cart);
       posView = "payment-select"; renderPosView(ctx);
     }, { signal });
 
@@ -1053,7 +1060,7 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
   // Phase 89.42: single-flight guard replaces manual window._checkoutRunning (auto-release in finally even on throw)
   return _posCheckoutGuard.run(async () => {
   const { state, openReceiptDrawer } = ctx;
-  const amount = quickPayAmount || state.cart.reduce((s,i)=>s+i.qty*i.price,0);
+  const amount = quickPayAmount || cartSum(state.cart);
 
   try {
     const orderNo = "BSK-" + Date.now();
@@ -1300,7 +1307,7 @@ function bindProductSearch(state, ctx, signal) {
 }
 
 function updateStickyBar(state) {
-  const t = state.cart.reduce((s,i)=>s+i.qty*i.price,0);
+  const t = cartSum(state.cart);
   const q = state.cart.reduce((s,i)=>s+i.qty,0);
   const btn = document.getElementById("posStickyPayBtn");
   if (btn) btn.innerHTML = `${q} รายการ &nbsp;&nbsp; ฿${moneyNum(t)}`;
