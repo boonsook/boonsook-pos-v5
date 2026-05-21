@@ -152,3 +152,16 @@ test("date filter mismatch — sale on different day not counted", () => {
   assert.equal(r.cashIn, 100);
   assert.equal(r.sales.length, 1);
 });
+
+// Phase 92.12 (audit 4.1 Should-fix) — cash refunds must reduce the drawer
+test("computeCashRecon: subtracts cash refunds from drawer (not transfer refunds)", () => {
+  const state = { sales: [{ created_at: "2026-05-21", payment_method: "เงินสด", total_amount: 1000 }], expenses: [] };
+  const refunds = [
+    { created_at: "2026-05-21", refund_method: "cash", refund_amount: 200 },
+    { created_at: "2026-05-21", refund_method: "transfer", refund_amount: 500 },  // ต้องไม่หักจาก cash
+    { created_at: "2026-05-20", refund_method: "cash", refund_amount: 999 },       // คนละวัน ต้องไม่นับ
+  ];
+  const r = computeCashRecon({ state, date: "2026-05-21", refunds, dateFn: (d) => String(d).slice(0, 10) });
+  assert.equal(r.cashRefundOut, 200, "เฉพาะ cash refund วันนั้น");
+  assert.equal(r.cashIn, 1000);
+});
