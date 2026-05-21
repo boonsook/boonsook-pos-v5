@@ -7,6 +7,18 @@
 
 ---
 
+## 5.47.3 (build 269) — 2026-05-21 🐛 Phase 92.13 — Production smoke bugs (stock reverse type + JV RLS handling)
+
+- **fix(stock) [Blocking]:** ลบบิล POS แล้ว reverse สต็อกเคย insert `stock_movements.type = "return_sale"` → ละเมิด check constraint `stock_movements_type_check` (code 23514) → คืนสต็อกล้มเหลวเงียบ. แก้เป็น `type: "return"` (ค่าที่ flow คืนสินค้า/หน้า movement ใช้อยู่แล้ว, semantic เดียวกัน) + guard test สแกน main.js กันทุก stock_movements insert ใช้ type นอก allowed set
+- **fix(accounting) [handling]:** auto-post JV โดน RLS 403 (code 42501) ที่ `journal_entries` สำหรับ role ที่ไม่ใช่ accountant → เดิม log เป็น `console.error "entry insert failed"` ดูเหมือน crash. แยกเคส 403/42501 → log warn ชัดเจน "JV deferred (RLS) — sale saved OK" + ชี้ DB fix (`supabase-phase89-25-fix-je-rls-pos.sql`). **POS sale ไม่เคยถูก block** (fire-and-forget อยู่แล้ว); ไม่ fake success ฝั่ง client
+- **ℹ️ DB action required (ไม่ใช่ JS):** RLS 403 แก้จริงต้องยืนยัน policy `je_insert_auto`/`jl_insert_auto` มีอยู่ใน prod (SESSION_LOG ระบุ applied แล้วแต่ live ยัง 403 = discrepancy) — รัน/verify `supabase-phase89-25-fix-je-rls-pos.sql`
+- **doc:** credit payment page (`credit_tracker`) **ไม่ใช่ admin-only** — อยู่ใน `ROLE_PAGES.sales` + sidebar กลุ่ม "💰 การเงิน" → "💳 ลูกค้าค้างชำระ" (sub-item ที่ group ยุบอยู่)
+- verify เขียว exit 0 (lint 0/0, unit 314 → 317, e2e 11)
+
+**Build:** 268 → 269; version 5.47.2 → 5.47.3 (patch — production smoke bug fix)
+
+---
+
 ## 5.47.2 (build 268) — 2026-05-21 💰 Phase 92.12 — Money audit fixes (credit CAS + cash recon refund)
 
 - **fix(credit) [Blocking]:** รับชำระหนี้ (credit_tracker) เคยเขียน `credit_paid_amount` แบบ absolute จาก state ที่อาจ stale (read-modify-write) → 2 staff รับชำระบิลเดียวกันพร้อมกันเขียนทับกัน = payment หาย + ลูกหนี้ (A/R) เกินจริง. เปลี่ยนเป็น **CAS increment** (`atomicAddToField` ใหม่ใน stock_cas.js — refetch → PATCH `?credit_paid_amount=eq.{before}` → stale=retry; column NUMERIC ทำให้ eq match เป๊ะ). `credit_payments` ledger + JV posting ไม่แตะ

@@ -2917,9 +2917,11 @@ async function _revertStockForSale({ saleId, orderNo }) {
       if (!pr2.ok) errors.push(`${product.name}: products.stock fail`);
 
       // 2d. log return movement
+      // Phase 92.13: type "return_sale" ละเมิด stock_movements_type_check (23514) → ใช้ "return"
+      //   (semantic เดียวกัน: สต็อกคืนกลับคลัง; เป็นค่าที่ flow คืนสินค้า/หน้า movement ใช้อยู่แล้ว)
       await xhrPost("stock_movements", {
         product_id: product.id,
-        type: "return_sale",
+        type: "return",
         qty: qty,
         note: `คืนสต็อกจากลบ POS ${orderNo || '#' + saleId} — คลัง: ${whName} +${qty}`,
         created_by: creatorUuid

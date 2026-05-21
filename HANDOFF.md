@@ -3,13 +3,52 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 21 พฤษภาคม 2026 (Phase 92.12 — money audit fixes: credit CAS + cash recon refund, build 268)
-**Version:** 5.47.2 (build 268) — Phase 92.12 (patch: money correctness — credit payment atomic + cash refund recon)
-**Previous:** 5.47.1 (build 267) — Phase 92.11 (patch: receipt-open bug fix + lint 0/0 + package.json sync)
+**อัปเดตล่าสุด:** 21 พฤษภาคม 2026 (Phase 92.13 — production smoke bugs: stock reverse type + JV RLS handling, build 269)
+**Version:** 5.47.3 (build 269) — Phase 92.13 (patch: stock reverse constraint fix + JV RLS deferral handling + role docs)
+**Previous:** 5.47.2 (build 268) — Phase 92.12 (patch: money correctness — credit payment atomic + cash refund recon)
 
 ---
 
-## 💰 Phase 92.12 — Money audit fixes (this session)
+## 🐛 Phase 92.13 — Production smoke bugs (this session)
+
+Build 268 live, user smoke tested. เจอ console errors จริง 2 จุด → fix. **No push yet (awaiting user confirm — production deploy).**
+
+### Task A — journal_entries RLS 403 (auto-post JV)
+- **อาการ:** `[auto_post] entry insert failed: HTTP 403 code 42501 ... row-level security policy for table "journal_entries"`
+- **วินิจฉัย:** auto_post.js POST `journal_entries` ตรงจาก client (PostgREST). RLS policy `je_insert_auto` (อนุญาต non-accountant insert เมื่อ source_table+source_id ไม่ null) **ไม่มีใน prod** ทั้งที่ `postJournalForSale` ส่ง source ครบ → 403. นี่คือ **DB state issue แก้ JS-only ไม่ได้** (bypass RLS = fake success → ห้าม)
+- **POS sale ไม่เคยถูก block:** `postJournalForSale({...}).catch(...)` ใน pos.js เป็น fire-and-forget; `_postJournal` catch แล้ว return null. sale บันทึกสำเร็จเสมอ
+- **JS hardening (build นี้):** แยกเคส 403/42501 ออกจาก error ทั่วไป → `console.warn` ข้อความชัด "JV deferred (RLS) — source saved OK; verify je_insert_auto policy" แทน `console.error "entry insert failed"` ที่ดูเหมือน crash. ไม่เปลี่ยน return (ยัง null = ไม่ fake)
+- **🔴 DB ACTION (ต้องทำฝั่ง Supabase, ไม่ใช่ deploy นี้):** รัน/verify `supabase-phase89-25-fix-je-rls-pos.sql` ใน prod SQL editor. **discrepancy:** SESSION_LOG line 139 ระบุ `✅ DONE (10 policies created)` แต่ live ยัง 403 → policy อาจถูก revert/หายจาก prod หรือ apply ผิด project. ไฟล์มี verify query (SELECT pg_policies) ท้ายไฟล์ — รันแล้วต้องเห็น 10 rows (je_*×4, jl_*×4, am_*×2). เช็ค `public.is_accountant()` ว่ายังมีอยู่ด้วย
+
+### Task B — stock_movements type constraint บน sale delete (Blocking, fixed)
+- **อาการ:** `[xhrPost] stock_movements ERROR: code 23514 ... check constraint "stock_movements_type_check"` ตอนลบบิล
+- **สาเหตุ:** `_revertStockForSale` (main.js ~2920) insert `type: "return_sale"` — ไม่อยู่ใน allowed set ของ constraint. allowed types (จาก flow ที่ทำงานได้): `in/out/adjust/transfer/sale/return` (constraint ไม่อยู่ใน tracked SQL — มาจาก migration เก่า)
+- **แก้:** `return_sale` → `return` (semantic เดียวกัน = สต็อกคืนกลับคลัง; refund restock ก็ใช้ `return` อยู่แล้ว) — main.js เท่านั้น, ไม่แตะ checkout decrement (`sale`) / transfer (`transfer`)
+- **Regression test:** `tests/stock_movement_type_guard.test.js` (+3) — สแกน main.js: ทุก `xhrPost("stock_movements", {type})` ต้องอยู่ใน allowed set + ห้ามมี `return_sale` + reverse block ต้องใช้ `return`
+
+### Task C — role/menu audit (credit payment page)
+- **ข้อสรุป: ไม่ใช่ admin-only / ไม่ได้ hidden.** `credit_tracker`:
+  - อยู่ใน `ROLE_PAGES.sales` (main.js:596) → sales role เข้าถึงได้
+  - มี sidebar nav button: `index.html:275` กลุ่ม "💰 การเงิน" (data-group="finance") → "💳 ลูกค้าค้างชำระ" (sub-item)
+  - main.js:786 แสดง/ซ่อน nav-btn ตาม ROLE_PAGES → sales เห็นปุ่มนี้
+- **ทำไม user ไม่เห็น:** เป็น sub-item ใน group "การเงิน" ที่ยุบอยู่ (ต้องกดขยายกลุ่มก่อน) — เป็น UX discoverability ไม่ใช่ bug/permission
+- **วิธี test Phase 92.12 credit flow (staff):** login sales → sidebar → ขยาย "💰 การเงิน" → "💳 ลูกค้าค้างชำระ" → เลือกบิลเชื่อที่ยังค้าง → "💰 รับชำระ"
+
+### Gates
+- lint 0/0 · unit 314 → 317 · e2e 11 · verify exit 0 (clean run)
+
+### Manual smoke after deploy (build 269)
+1. Staff POS cash sale → ไม่มี console error ใหม่ (JV 403 ถ้ายังไม่รัน SQL จะขึ้น warn "JV deferred" — ไม่ใช่ error/crash, sale ผ่าน)
+2. ลบ/refund บิล → ไม่มี stock_movements 23514, สต็อกคืนกลับ
+3. Journal: ถ้ารัน phase89-25 SQL แล้ว → JV ลงจริง (console.info "✅ created"); ถ้ายังไม่รัน → warn "JV deferred" ชัดเจน ไม่มี success หลอก
+
+### Recommend next
+- รัน `supabase-phase89-25-fix-je-rls-pos.sql` ใน prod (Task A real fix) → JV auto-post กลับมาทำงานสำหรับ staff
+- ถ้า JV เคยพลาดช่วง 403 → ใช้ accounting backfill UI re-post
+
+---
+
+## 💰 Phase 92.12 — Money audit fixes (previous session)
 
 จาก money audit (CLAUDE.md 4.1): money handling แข็งแรง (round2 centralized, VAT correct, double-entry balance, loyalty idempotent — verified) แต่เจอ **1 Blocking + 1 Should-fix**. แก้แบบ **JS-only ไม่มี SQL migration** (column NUMERIC → client CAS พอ), TDD ทั้งคู่. **No push yet (awaiting user confirm — money path, production deploy).**
 
