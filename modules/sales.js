@@ -2,6 +2,8 @@
 import { renderEmpty } from "./ui_states.js";
 // Phase 89.3: void JV + revert stock ตอนลบ POS sale (ป้องกัน P&L นับรายได้เกินจริง)
 import { voidJvForSource } from "./accounting/auto_post.js";
+// Phase 92.17: forward accounting trace — บิล POS → JV (read-only lookup)
+import { findJournalForSale, renderSaleTraceBadge } from "./accounting/sale_trace.js";
 import { visibleSalesForRole, isAdminProfile } from "./utils.js";
 
 function money(n){return new Intl.NumberFormat("th-TH",{style:"currency",currency:"THB",minimumFractionDigits:2}).format(Number(n||0));}
@@ -60,8 +62,9 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
               </div>
               <div style="text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:6px">
                 <div style="font-weight:900;color:#0284c7">${money(s.total_amount)}</div>
-                <div style="display:flex;gap:6px">
+                <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
                   <button class="btn light" data-sale-id="${s.id}">เปิดบิล</button>
+                  <button class="btn light" data-acct-trace="${s.id}" title="ตรวจ/เปิดเอกสารบัญชีของบิลนี้" style="font-size:12px;padding:4px 10px">📒 บัญชี</button>
                   ${isAdmin ? `<button class="btn" data-del-sale="${s.id}" data-del-sale-no="${escHtml(s.order_no || '')}" style="background:#ef4444;color:#fff;font-size:12px;padding:4px 10px;border-radius:8px;border:none;cursor:pointer">🗑️ ลบ</button>` : ''}
                 </div>
               </div>
@@ -143,6 +146,34 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
     } finally {
       if (btn.isConnected) btn.disabled = false;
     }
+  }, { signal }));
+
+  /* ── Phase 92.17: accounting trace — on-demand lookup JV ของบิล ── */
+  document.querySelectorAll("[data-acct-trace]").forEach(btn => btn.addEventListener("click", async () => {
+    if (btn.disabled) return;
+    const saleId = Number(btn.dataset.acctTrace);
+    if (!saleId || isNaN(saleId)) { showToast?.("ไม่พบ ID รายการขาย"); return; }
+    btn.disabled = true;
+    const orig = btn.textContent;
+    btn.textContent = "⏳";
+    let res;
+    try {
+      res = await findJournalForSale(saleId);
+    } catch (e) {
+      console.warn("[sales acct-trace] lookup error:", e?.message);
+      res = { ok: false, found: false, status: "error", entry: null };
+    }
+    // แทนปุ่มด้วย badge — found = กดไปสมุดรายวันได้, missing/error = ข้อความชัด (ไม่เงียบ)
+    const wrap = document.createElement("span");
+    wrap.innerHTML = renderSaleTraceBadge(res, { compact: true });
+    const badgeEl = wrap.firstElementChild;
+    if (!badgeEl) { btn.disabled = false; btn.textContent = orig; return; }
+    if (badgeEl.classList.contains("sale-acct-trace")) {
+      const goto = () => window.App?.showRoute?.(badgeEl.dataset.acctRoute);
+      badgeEl.addEventListener("click", goto, { signal });
+      badgeEl.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); goto(); } }, { signal });
+    }
+    btn.replaceWith(badgeEl);
   }, { signal }));
 
   /* ── Empty-state CTA (Phase 46.2): ไปหน้า POS ── */

@@ -1,4 +1,5 @@
 // Boonsook POS V5 Service Worker
+// v273 (2026-05-22): Phase 92.17 — forward accounting trace. New read-only helper modules/accounting/sale_trace.js (findJournalForSale by source_table='sales'+source_id; renderSaleTraceBadge). Wired into sales list (on-demand "📒 บัญชี" button) + receipt drawer (เอกสารบัญชี section). found→กดไปสมุดรายวัน; missing→"ยังไม่ลงบัญชี"; error→ไม่เงียบ. No posting/auto_post/money/RLS/SQL change.
 // v272 (2026-05-22): Phase 92.16 — console noise audit. Demoted 3 expected "loyalty reverse skipped/attempt" diagnostics from console.log to console.info (sales.js x2, refunds.js x1). No money/stock/JV/loyalty behavior change; logging only. auto_post created/voided + loadAllData-timeout-after-committed-delete were already at correct levels.
 // v271 (2026-05-22): Phase 92.15 — sale delete refresh resilience. After a committed soft-delete, modules/sales.js now mirrors the [ลบแล้ว] note into local state.sales + re-renders immediately, so the row disappears even if the background loadAllData() times out (timeout downgraded to warning-only). No money/stock/JV/loyalty side-effect change.
 // v262 (2026-05-20): Phase 92.6 hardening (3 review findings) — (1) loadHtml2Canvas dedupes concurrent callers via in-flight promise cache (no duplicate <script> on double-click Share); (2) syncAppLogo early-exits when stored logo URL already matches (no redundant boot repaint/setItem); (3) syncAppLogo strips CR/LF from accessToken before Authorization header (defense-in-depth). modules/lazy_libs.js + modules/branding.js only.
@@ -16,7 +17,7 @@
 // v263 (2026-05-20): Phase 92.7 — extract _appShareDoc Share/PDF overlay to modules/share_doc.js (thin window wrapper; behavior byte-identical)
 // v253 (2026-05-19): Phase 91.1 — POS checkout auto-earn loyalty points (fire-and-forget after sale insert; gated on customer + is_active + points_per_baht; amount = actualTotal)
 // v252 (2026-05-19): Phase 90.13 — Loyalty history modal click-outside listener leak: bind once in renderLoyaltyPage instead of re-attach on every showPointHistory call
-const CACHE_NAME = 'boonsook-pos-v5-cache-v272';
+const CACHE_NAME = 'boonsook-pos-v5-cache-v273';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
