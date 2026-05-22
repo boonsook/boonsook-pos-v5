@@ -3,12 +3,31 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 21 พฤษภาคม 2026 (Phase 92.14 — money/accounting closure: round2 + verify-slip mismatch, build 270)
-**Version:** 5.47.4 (build 270) — Phase 92.14 ✅ **MERGED (PR #39) + DEPLOYED + SMOKE PASSED** (patch: round2 cart/refund + verify-slip is_safe hardening + RLS audit)
-**Previous:** 5.47.3 (build 269) — Phase 92.13 (patch: stock reverse constraint fix + JV RLS deferral handling + role docs)
+**อัปเดตล่าสุด:** 22 พฤษภาคม 2026 (Phase 92.15 — sale delete refresh resilience, build 271)
+**Version:** 5.47.5 (build 271) — Phase 92.15 🚧 **PR OPEN** (patch: optimistic local note mirror + re-render หลัง committed soft-delete; loadAllData timeout = warning-only)
+**Previous:** 5.47.4 (build 270) — Phase 92.14 ✅ MERGED (PR #39) + DEPLOYED + SMOKE PASSED (round2 cart/refund + verify-slip is_safe + RLS audit)
 
-> 🟢 **สถานะ ณ ปัจจุบัน:** live = build 270 / v5.47.4, Phase 92.14 smoke ผ่านครบแล้ว. money/accounting should-fix ปิดหมด.
+> 🟢 **สถานะ ณ ปัจจุบัน:** live = build 270 / v5.47.4. Phase 92.15 อยู่บน branch (รอ merge + deploy build 271).
 > 🔵 **ค้างเดียว (อิสระจาก deploy):** รัน read-only verify query ปิดประเด็น journal_entries RLS — ดูท้าย section 92.14
+
+---
+
+## 🗑️ Phase 92.15 — Sale delete refresh resilience (this session)
+
+อาการเดิม: ลบบิลในหน้า "รายการขาย" (admin) เป็น **soft-delete** — PATCH `sales.note = "[ลบแล้ว] ..."`. List ซ่อนแถวที่ลบผ่าน `visibleSalesForRole()` (`utils.js:111` filter `note.includes("[ลบแล้ว]")`). แต่ handler เดิม (`modules/sales.js`) **ไม่แตะ `state.sales` ในเครื่องเลย** — พึ่ง `await loadAllData()` ดึงใหม่จาก server เพื่อให้แถวหาย. ถ้า `loadAllData()` timeout (เน็ตช้า) → `state.sales` ไม่ refresh → **แถวที่ลบยังค้างจอ ทั้งที่ toast ขึ้น "ลบรายการขายเรียบร้อย ✅"** (งง).
+
+### สิ่งที่แก้ (`modules/sales.js`, หลัง side-effects เสร็จ ก่อน background reload)
+- เติม optimistic update — `localSale.note = newNote` (mirror สิ่งที่ server PATCH ทำเป๊ะ) → `_renderSalesView(...)` ซ้ำทันที → แถวหายเลยเพราะ `visibleSalesForRole()` กรอง `[ลบแล้ว]`
+- เลือก **set-note** ไม่ใช่ splice ทิ้ง — เพื่อให้ consumer อื่นที่ filter `[ลบแล้ว]` (P&L/report `main.js:2040, 3826`) consistent ไม่ว่า reload จะสำเร็จหรือไม่
+- `loadAllData()` หลัง committed delete = best-effort จริง — log warn `"loadAllData timeout after committed delete"` แทน, แถวไม่เด้งกลับ
+- `finally` reset ปุ่ม safe อยู่แล้ว: หลัง re-render ปุ่มเก่าหลุด DOM → `btn.isConnected === false` → ไม่ไป reset node เก่า
+
+### ขอบเขต (จงใจ)
+- **ไม่แตะ** money/stock/JV/loyalty side-effect (void JV / revert stock / reverse loyalty คงเดิมทุกบรรทัด) — แก้เฉพาะ local state mirror + re-render ของ list view
+- delete fail จริง (0 rows / RLS) ยัง throw → outer catch → toast error เหมือนเดิม (แยกจาก refresh timeout ชัดเจน)
+
+### Gates
+- `npm run verify` เขียว exit 0 (lint 0/0, unit 332, e2e 11)
 
 ---
 
