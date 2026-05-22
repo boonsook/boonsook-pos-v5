@@ -7,6 +7,20 @@
 
 ---
 
+## 5.47.7 (build 273) — 2026-05-22 🔗 Phase 92.17 — Accounting trace links (POS sale → JV)
+
+- **feat(accounting) [trace]:** บิล POS เห็นได้แล้วว่า "ลงบัญชีหรือยัง" — helper ใหม่ `modules/accounting/sale_trace.js` (`findJournalForSale`, `renderSaleTraceBadge`) ค้น JV ด้วย key หลัก `source_table='sales' + source_id=sale.id` (read-only, ไม่สร้าง/ไม่แก้ journal)
+- **feat(sales) [list]:** หน้า "รายการขาย" เพิ่มปุ่ม **📒 บัญชี** ต่อแถว — กดแล้ว lookup on-demand → เจอ = แสดงเลข `SV...` กดไปสมุดรายวันได้; ไม่เจอ = **"ยังไม่ลงบัญชี"**; error = "ตรวจบัญชีไม่ได้" (ไม่เงียบ)
+- **feat(receipt) [drawer]:** ใบเสร็จที่เปิดอยู่เพิ่ม section **เอกสารบัญชี** — แสดงสถานะ/เลข SV + คลิกไปสมุดรายวัน (ปิด drawer + นำทาง)
+- **ไม่แตะ** posting / auto_post / money / RLS / SQL — เพิ่มเฉพาะ read-only lookup + UI; doc_no/description ใช้เป็น label เท่านั้น (ไม่ใช่ key)
+- test ใหม่ `sale_trace.test.js` (found/missing/error/invalid + badge click-target + XSS escape) — unit 332 → 342
+- verify เขียว exit 0 (lint 0/0, unit 342, e2e 11)
+- **defer → Phase 92.18:** trace link ในหน้า Audit Log (delete_sale)
+
+**Build:** 272 → 273; version 5.47.6 → 5.47.7 (minor feature — accounting trace, additive)
+
+---
+
 ## 5.47.6 (build 272) — 2026-05-22 🔍 Phase 92.16 — Console noise audit
 
 - **chore(logging):** audit console output จาก smoke flows หลัก แล้วแยกเป็น SAFE_NOISE / ACTIONABLE_LOW / BUG (ตารางเต็มใน HANDOFF) — **ไม่เจอ bug จริง**

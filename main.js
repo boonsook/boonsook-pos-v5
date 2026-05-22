@@ -35,6 +35,7 @@ import { renderTasksPage, checkOverdueTasksAndNotify } from "./modules/tasks.js"
 // Phase 89.20: accounting/* (9 modules) — all lazy (admin only, ~167KB combined)
 // Phase 88.1: auto-posting JV จาก sales/expenses — eager (used in checkout flow)
 import { postJournalForSale, postJournalForServiceJob, voidJvForSource } from "./modules/accounting/auto_post.js";
+import { findJournalForSale, renderSaleTraceBadge } from "./modules/accounting/sale_trace.js";
 // Phase 89.21: profit_by_product, quote_templates, serials lazy
 import { renderBirthdaysPage, checkTodayBirthdaysAndNotify } from "./modules/birthdays.js";
 import { renderWarrantyReportPage, checkWarrantyExpiringAndNotify } from "./modules/warranty_report.js";
@@ -3493,7 +3494,35 @@ function renderReceiptDrawer(){
     <div class="row"><div>รวม</div><div style="font-weight:900;font-size:20px">${money(lastSale.total_amount)}</div></div>
     <div class="row mt16"><div>รับเงิน</div><div>${money(lastSale.paid_amount)}</div></div>
     <div class="row mt16"><div>เงินทอน</div><div>${money(lastSale.change_amount)}</div></div>
+    <hr>
+    <div class="row mt16" style="align-items:center"><div>เอกสารบัญชี</div>
+      <div id="receiptAcctTrace" style="text-align:right">
+        <span style="font-size:12px;color:#94a3b8">⏳ กำลังตรวจสอบ...</span>
+      </div>
+    </div>
   `);
+  // Phase 92.17: forward accounting trace — fetch JV ของบิลนี้แล้วเติม section (async, single sale)
+  _fillReceiptAcctTrace(lastSale);
+}
+
+// แสดงสถานะเอกสารบัญชีในใบเสร็จที่เปิดอยู่ — found → กดไปสมุดรายวัน, missing/error → ข้อความชัด
+async function _fillReceiptAcctTrace(sale){
+  let res;
+  try {
+    res = await findJournalForSale(sale);
+  } catch (e) {
+    console.warn("[receipt acct-trace] lookup error:", e?.message);
+    res = { ok:false, found:false, status:"error", entry:null };
+  }
+  const slot = document.getElementById("receiptAcctTrace");
+  if (!slot) return; // drawer ถูกปิด/เปลี่ยนบิลไปแล้ว
+  slot.innerHTML = renderSaleTraceBadge(res);
+  const badgeEl = slot.querySelector(".sale-acct-trace");
+  if (badgeEl) {
+    const goto = () => { closeAllDrawers(); showRoute(badgeEl.dataset.acctRoute); };
+    badgeEl.addEventListener("click", goto);
+    badgeEl.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); goto(); } });
+  }
 }
 function printLastReceipt(){
   if (!state.lastReceipt) return showToast("ยังไม่มีบิลล่าสุด");

@@ -3,12 +3,42 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 22 พฤษภาคม 2026 (Phase 92.16 — console noise audit, build 272)
-**Version:** 5.47.6 (build 272) — Phase 92.16 🚧 **PR OPEN** (audit + demote 3 expected diagnostics log→info; no bug found; no money/stock/JV/loyalty change)
-**Previous:** 5.47.5 (build 271) — Phase 92.15 ✅ MERGED (PR #40) (sale delete refresh resilience)
+**อัปเดตล่าสุด:** 22 พฤษภาคม 2026 (Phase 92.17 — accounting trace links, build 273)
+**Version:** 5.47.7 (build 273) — Phase 92.17 🚧 **PR OPEN** (forward accounting trace: sale list + receipt drawer → JV; read-only; no posting/money/RLS/SQL change)
+**Previous:** 5.47.6 (build 272) — Phase 92.16 ✅ MERGED (PR #41) + DEPLOYED (console noise audit; demote 3 diagnostics log→info)
 
-> 🟢 **สถานะ ณ ปัจจุบัน:** Phase 92.16 อยู่บน branch (รอ merge + deploy build 272).
+> 🟢 **สถานะ ณ ปัจจุบัน:** Phase 92.17 อยู่บน branch (รอ merge + deploy build 273).
 > 🔵 **ค้างเดียว (อิสระจาก deploy):** รัน read-only verify query ปิดประเด็น journal_entries RLS — ดูท้าย section 92.14
+> 📌 **Defer → Phase 92.18:** accounting trace link ในหน้า Audit Log (delete_sale rows) — ยังไม่ทำในเฟสนี้ตามที่ user เลือก scope 1+2
+
+---
+
+## 🔗 Phase 92.17 — Accounting trace links (POS sale → JV) (this session)
+
+**ปัญหาเดิม:** ระบบ auto_post สร้าง JV (`SV — ขาย`) ให้ทุก POS sale อยู่แล้ว แต่ฝั่ง user-facing **ไม่เห็น linkage** — หน้ารายการขายเห็นแค่เลขบิล BSK-..., ใบเสร็จไม่มี "เอกสารบัญชี" → user เข้าใจว่า "ไม่ลิงก์กับบัญชี" ทั้งที่ลิงก์อยู่ใน DB.
+
+### Reliable key (Task A — audit ก่อนลงมือ)
+- **Canonical 1:1:** `journal_entries.source_table='sales'` + `source_id=sale.id` (บังคับ unique ด้วย partial index `idx_je_source_unique`, ดู `auto_post.js:13`)
+- `doc_no` (`SV{YYYY}{MM}{####}`) / `description` (`ขาย POS {order_no} — {customer}`) = **label เท่านั้น ห้ามใช้เป็น key**
+- **Reverse link มีอยู่แล้ว:** หน้าสมุดรายวัน `journals.js` มี JV drawer → source row (`SOURCE_LABELS`, `_fetchSourceRow`) — เฟสนี้เพิ่ม **forward** (sale → JV) ที่ขาด
+- **ข้อจำกัด:** journal entries **ไม่ได้อยู่ใน `state`** (loadAllData ไม่ดึง) → helper ต้อง fetch REST on-demand
+
+### สิ่งที่เพิ่ม (read-only, additive)
+- **helper ใหม่ `modules/accounting/sale_trace.js`:**
+  - `findJournalForSale(sale, {fetch,cfg,token})` → `{ok, found, status:'found'|'missing'|'error'|'invalid', entry, error}` — fetch JV ด้วย key หลัก (inject fetch ได้สำหรับ test); ไม่ throw ทุก path
+  - `renderSaleTraceBadge(result, {compact})` → HTML string (escaped); found = `.sale-acct-trace` + `data-acct-route="accounting_journals"` + `data-jv-id` (click target), missing = "ยังไม่ลงบัญชี", error = "ตรวจบัญชีไม่ได้" — **ทุกสถานะมีข้อความ ไม่เงียบ**
+- **Surface 1 — sales list (`modules/sales.js`):** ปุ่ม **📒 บัญชี** ต่อแถว → on-demand lookup → แทนปุ่มด้วย badge; found = กด/Enter ไป `showRoute("accounting_journals")`
+- **Surface 2 — receipt drawer (`main.js` `renderReceiptDrawer` + `_fillReceiptAcctTrace`):** section "เอกสารบัญชี" + placeholder "⏳ กำลังตรวจสอบ..." → async fill; found click = `closeAllDrawers()` + นำทาง
+
+### ขอบเขต (จงใจ)
+- **ไม่แตะ** posting / `auto_post` / money / stock / loyalty / RLS / SQL — เพิ่มแค่ read-only lookup + UI
+- on-demand fetch (ไม่ดึง 200 JV ตอน render list) — online-only view, offline = badge "ตรวจบัญชีไม่ได้" (ไม่ crash)
+
+### Tests (`tests/sale_trace.test.js`, 10 ตัว)
+found / missing / error(403+throw) / invalid(no id, no fetch) + badge click-target (route+jv-id) + missing-not-silent + XSS escape doc_no. Inject fetch mock — ไม่แตะ network จริง.
+
+### Gates
+- `npm run verify` เขียว exit 0 (lint 0/0, unit **342** (332→+10), e2e 11 รวม build-version-sync)
 
 ---
 
