@@ -1,4 +1,5 @@
 // Boonsook POS V5 Service Worker
+// v274 (2026-05-22): Phase 92.18 — audit-log accounting trace for deleted POS sales. (1) sales.js soft-delete now writes a best-effort logActivity('delete_sale', entityType:'sale', entityId:saleId) — never fails the delete. (2) audit_log.js shows a "📒 ดูบัญชี" button on sale-deletion rows → on-demand findJournalForSale (source_table='sales'+source_id) → found=กดไปสมุดรายวัน / missing="ยังไม่ลงบัญชี" / error="ตรวจบัญชีไม่ได้". Sale id taken ONLY from entity_type==='sale'+entity_id (no guessing). No posting/auto_post/money/stock/loyalty/RLS/SQL change.
 // v273 (2026-05-22): Phase 92.17 — forward accounting trace. New read-only helper modules/accounting/sale_trace.js (findJournalForSale by source_table='sales'+source_id; renderSaleTraceBadge). Wired into sales list (on-demand "📒 บัญชี" button) + receipt drawer (เอกสารบัญชี section). found→กดไปสมุดรายวัน; missing→"ยังไม่ลงบัญชี"; error→ไม่เงียบ. No posting/auto_post/money/RLS/SQL change.
 // v272 (2026-05-22): Phase 92.16 — console noise audit. Demoted 3 expected "loyalty reverse skipped/attempt" diagnostics from console.log to console.info (sales.js x2, refunds.js x1). No money/stock/JV/loyalty behavior change; logging only. auto_post created/voided + loadAllData-timeout-after-committed-delete were already at correct levels.
 // v271 (2026-05-22): Phase 92.15 — sale delete refresh resilience. After a committed soft-delete, modules/sales.js now mirrors the [ลบแล้ว] note into local state.sales + re-renders immediately, so the row disappears even if the background loadAllData() times out (timeout downgraded to warning-only). No money/stock/JV/loyalty side-effect change.
@@ -17,7 +18,7 @@
 // v263 (2026-05-20): Phase 92.7 — extract _appShareDoc Share/PDF overlay to modules/share_doc.js (thin window wrapper; behavior byte-identical)
 // v253 (2026-05-19): Phase 91.1 — POS checkout auto-earn loyalty points (fire-and-forget after sale insert; gated on customer + is_active + points_per_baht; amount = actualTotal)
 // v252 (2026-05-19): Phase 90.13 — Loyalty history modal click-outside listener leak: bind once in renderLoyaltyPage instead of re-attach on every showPointHistory call
-const CACHE_NAME = 'boonsook-pos-v5-cache-v273';
+const CACHE_NAME = 'boonsook-pos-v5-cache-v274';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

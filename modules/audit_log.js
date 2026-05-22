@@ -4,6 +4,8 @@
 // ═══════════════════════════════════════════════════════════
 import { renderSkeleton, renderEmpty, renderError } from "./ui_states.js";
 import { escHtml } from "./utils.js";
+// Phase 92.18: forward accounting trace สำหรับ log การลบบิลขาย (read-only, reuse 92.17 helper)
+import { findJournalForSale, renderSaleTraceBadge, saleIdFromAuditLog } from "./accounting/sale_trace.js";
 
 const ACTION_META = {
   delete_sale:        { icon: "🗑️", color: "#dc2626", label: "ลบบิลขาย" },
@@ -123,6 +125,7 @@ export async function renderAuditLogPage(ctx) {
                       &nbsp;•&nbsp; 📅 ${_formatDate(l.created_at)}
                       ${l.entity_type ? ` &nbsp;•&nbsp; ${escHtml(l.entity_type)}${l.entity_id ? ` #${escHtml(l.entity_id)}` : ''}` : ''}
                     </div>
+                    ${saleIdFromAuditLog(l) ? `<div style="margin-top:6px"><button class="al-acct-trace" data-acct-sale-id="${escHtml(saleIdFromAuditLog(l))}" title="ตรวจ/เปิดเอกสารบัญชีของบิลที่ถูกลบ" style="font-size:11px;padding:3px 10px;border-radius:8px;border:1px solid #cbd5e1;background:#fff;cursor:pointer">📒 ดูบัญชี</button></div>` : ''}
                   </div>
                 </div>
               `;
@@ -140,4 +143,32 @@ export async function renderAuditLogPage(ctx) {
       renderAuditLogPage(ctx);
     });
   });
+
+  // Phase 92.18: accounting trace — on-demand lookup JV ของบิลที่ถูกลบ (read-only)
+  container.querySelectorAll(".al-acct-trace").forEach(btn => btn.addEventListener("click", async () => {
+    if (btn.disabled) return;
+    const saleId = btn.dataset.acctSaleId;
+    if (!saleId) return;
+    btn.disabled = true;
+    const orig = btn.textContent;
+    btn.textContent = "⏳";
+    let res;
+    try {
+      res = await findJournalForSale(saleId);
+    } catch (e) {
+      console.warn("[audit-log acct-trace] lookup error:", e?.message);
+      res = { ok: false, found: false, status: "error", entry: null };
+    }
+    // แทนปุ่มด้วย badge — found=กดไปสมุดรายวัน, missing="ยังไม่ลงบัญชี", error="ตรวจบัญชีไม่ได้" (ไม่เงียบ)
+    const wrap = document.createElement("span");
+    wrap.innerHTML = renderSaleTraceBadge(res, { compact: true });
+    const badgeEl = wrap.firstElementChild;
+    if (!badgeEl) { btn.disabled = false; btn.textContent = orig; return; }
+    if (badgeEl.classList.contains("sale-acct-trace")) {
+      const goto = () => window.App?.showRoute?.(badgeEl.dataset.acctRoute);
+      badgeEl.addEventListener("click", goto);
+      badgeEl.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); goto(); } });
+    }
+    btn.replaceWith(badgeEl);
+  }));
 }

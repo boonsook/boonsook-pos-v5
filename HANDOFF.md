@@ -3,13 +3,36 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 22 พฤษภาคม 2026 (Phase 92.17 — accounting trace links, build 273)
-**Version:** 5.47.7 (build 273) — Phase 92.17 ✅ **MERGED (PR #42) + DEPLOYED + SMOKE PASSED** (forward accounting trace: sale list + receipt drawer → JV; read-only; no posting/money/RLS/SQL change)
-**Previous:** 5.47.6 (build 272) — Phase 92.16 ✅ MERGED (PR #41) + DEPLOYED (console noise audit; demote 3 diagnostics log→info)
+**อัปเดตล่าสุด:** 22 พฤษภาคม 2026 (Phase 92.18 — audit-log accounting trace, build 274)
+**Version:** 5.47.8 (build 274) — Phase 92.18 🚧 **PR OPEN** (audit-log trace สำหรับลบบิลขาย: เพิ่ม delete_sale log + ปุ่มดูบัญชีในหน้า Audit Log; read-only; no posting/money/RLS/SQL change)
+**Previous:** 5.47.7 (build 273) — Phase 92.17 ✅ MERGED (PR #42) + DEPLOYED + SMOKE PASSED (forward accounting trace: sale list + receipt drawer → JV)
 
-> 🟢 **สถานะ ณ ปัจจุบัน:** live = build 273 / v5.47.7. Phase 92.17 deploy แล้ว + smoke ผ่าน (About 273, ปุ่ม 📒 บัญชี, กดไปสมุดรายวัน, receipt section, "ยังไม่ลงบัญชี" ไม่เงียบ, console ไม่มี error ใหม่).
+> 🟢 **สถานะ ณ ปัจจุบัน:** live = build 273 / v5.47.7. Phase 92.18 อยู่บน branch (รอ merge + deploy build 274).
 > 🔵 **ค้างเดียว (อิสระจาก deploy):** รัน read-only verify query ปิดประเด็น journal_entries RLS — ดูท้าย section 92.14
-> 📌 **Defer → Phase 92.18:** accounting trace link ในหน้า Audit Log (delete_sale rows) — ยังไม่ทำในเฟสนี้ตามที่ user เลือก scope 1+2
+
+---
+
+## 📒 Phase 92.18 — Audit Log accounting trace (deleted POS sales) (this session)
+
+**Task A finding (สำคัญ):** mission เดิมสมมติว่ามี row `delete_sale` ใน Audit Log ให้ติด trace — **แต่ trace ทั้ง repo + git history แล้ว `sales.js` soft-delete ไม่เคยเรียก `logActivity` เลย** → ไม่มี row นั้นจริง. deletion logs ที่มี (delete_receipt/invoice/quotation) ล้วน key คนละ entity (receipts/delivery_invoices) ไม่ใช่ `source_table='sales'`. รายงาน user → เลือก **"เพิ่ม delete_sale log ก่อน แล้ว trace"**.
+
+### สิ่งที่เพิ่ม (read-only trace + 1 best-effort log write)
+- **`modules/sales.js`** (soft-delete commit, หลัง toast): เขียน `logActivity("delete_sale", { entityType:"sale", entityId:saleId, summary, metadata:{bill_no,customer_id,customer_name,total_amount} })` — **best-effort**: ห่อ `try{}` + logActivity กลืน error เอง → log fail **ไม่ทำให้การลบ fail**. ไม่ await-block flow สำคัญ
+- **`modules/accounting/sale_trace.js`**: เพิ่ม `saleIdFromAuditLog(row)` — คืน sale id เฉพาะเมื่อ `entity_type==='sale' && entity_id` (string); อย่างอื่น → null. **ห้ามเดา** จาก summary/doc_no/customer/amount
+- **`modules/audit_log.js`**: row ที่ `saleIdFromAuditLog()` คืนค่า → ปุ่ม **📒 ดูบัญชี** → on-demand `findJournalForSale` (reuse 92.17) → แทนปุ่มด้วย badge; found = กด/Enter ไป `showRoute("accounting_journals")`; missing/error = ข้อความชัด ไม่เงียบ
+
+### ขอบเขต (จงใจ)
+- **ไม่แตะ** posting / `auto_post` / stock / loyalty / money math / RLS / SQL — JV lookup เป็น read-only; key = `source_table='sales' + source_id`
+- delete_sale log เป็น **additive write** ที่ mirror pattern ของ `delete_receipt` ที่มีอยู่แล้ว (utils.js `logActivity`)
+
+### Tests (`tests/sale_trace.test.js`, +8 = 18 ตัว)
+`saleIdFromAuditLog`: sale-row→id / receipt-row→null / missing-id→null / summary-only(no entity_type)→null / garbage→null. trace flow: log→found / missing→"ยังไม่ลงบัญชี" / error→"ตรวจบัญชีไม่ได้" (no throw).
+
+### Gates
+- `npm run verify` เขียว exit 0 (lint 0/0, unit **350** (342→+8), e2e 11)
+
+### หมายเหตุ smoke
+delete_sale log **เริ่มเขียนตั้งแต่ build 274** → บิลที่ลบ**ก่อน** deploy 274 จะไม่มี row ใน Audit Log (เป็นปกติ). ต้องลบบิลใหม่หลัง deploy ถึงจะเห็นปุ่ม 📒 ดูบัญชี
 
 ---
 
