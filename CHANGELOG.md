@@ -7,6 +7,17 @@
 
 ---
 
+## 5.47.5 (build 271) — 2026-05-22 🗑️ Phase 92.15 — Sale delete refresh resilience
+
+- **fix(sales) [UX]:** ลบบิลสำเร็จ (soft-delete PATCH `note = [ลบแล้ว]`) แล้ว mirror note ลง `state.sales` ในเครื่อง + re-render list ทันที — แถวที่ลบหายเลย ไม่ต้องรอ `loadAllData()`
+- **fix(sales) [resilience]:** `loadAllData()` หลัง committed delete เป็น **best-effort (warning-only)** — ถ้า timeout/เน็ตช้า แถวที่ลบไม่ "เด้งกลับ" มาอีก (เดิม: toast ขึ้น "ลบเรียบร้อย ✅" แต่แถวค้างจอ)
+- **ไม่มี** การเปลี่ยน money/stock/JV/loyalty side-effect — แก้เฉพาะ local state + re-render ของ list view
+- verify เขียว exit 0 (lint 0/0, unit 332, e2e 11)
+
+**Build:** 270 → 271; version 5.47.4 → 5.47.5 (patch — sale delete refresh UX)
+
+---
+
 ## 5.47.4 (build 270) — 2026-05-21 💰 Phase 92.14 — Money/accounting closure (round2 + verify-slip)
 
 - **fix(money) [round2]:** ปิด float drift 2 จุดที่เหลือจาก money audit 4.1 — `pos.js` cart total (5 จุด inline reduce → `cartSum()` = round2) + `refunds.js` ยอดคืน (`refundTotal()` = round2 ก่อนลง DB `refund_amount` + JV). checkout write path round2 อยู่แล้ว
