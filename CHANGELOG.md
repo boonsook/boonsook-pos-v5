@@ -7,7 +7,7 @@
 
 ---
 
-## 5.47.7 (build 273) — 2026-05-22 🔗 Phase 92.17 — Accounting trace links (POS sale → JV)
+## 5.47.7 (build 273) — 2026-05-22 🔗 Phase 92.17 — Accounting trace links (POS sale → JV) ✅ MERGED (#42) + DEPLOYED + SMOKE PASSED
 
 - **feat(accounting) [trace]:** บิล POS เห็นได้แล้วว่า "ลงบัญชีหรือยัง" — helper ใหม่ `modules/accounting/sale_trace.js` (`findJournalForSale`, `renderSaleTraceBadge`) ค้น JV ด้วย key หลัก `source_table='sales' + source_id=sale.id` (read-only, ไม่สร้าง/ไม่แก้ journal)
 - **feat(sales) [list]:** หน้า "รายการขาย" เพิ่มปุ่ม **📒 บัญชี** ต่อแถว — กดแล้ว lookup on-demand → เจอ = แสดงเลข `SV...` กดไปสมุดรายวันได้; ไม่เจอ = **"ยังไม่ลงบัญชี"**; error = "ตรวจบัญชีไม่ได้" (ไม่เงียบ)
