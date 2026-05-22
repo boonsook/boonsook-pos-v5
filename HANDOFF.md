@@ -4,11 +4,14 @@
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
 **อัปเดตล่าสุด:** 22 พฤษภาคม 2026 (Phase 92.18 — audit-log accounting trace, build 274)
-**Version:** 5.47.8 (build 274) — Phase 92.18 🚧 **PR OPEN** (audit-log trace สำหรับลบบิลขาย: เพิ่ม delete_sale log + ปุ่มดูบัญชีในหน้า Audit Log; read-only; no posting/money/RLS/SQL change)
+**Version:** 5.47.8 (build 274) — Phase 92.18 ✅ **MERGED (PR #45, `6ea14d4`) + DEPLOYED + SMOKE PASSED** (audit-log trace สำหรับลบบิลขาย: เพิ่ม delete_sale log + ปุ่มดูบัญชีในหน้า Audit Log; read-only; no posting/money/RLS/SQL change)
 **Previous:** 5.47.7 (build 273) — Phase 92.17 ✅ MERGED (PR #42) + DEPLOYED + SMOKE PASSED (forward accounting trace: sale list + receipt drawer → JV)
 
-> 🟢 **สถานะ ณ ปัจจุบัน:** live = build 273 / v5.47.7. Phase 92.18 อยู่บน branch (รอ merge + deploy build 274).
-> 🔵 **ค้างเดียว (อิสระจาก deploy):** รัน read-only verify query ปิดประเด็น journal_entries RLS — ดูท้าย section 92.14
+> 🟢 **สถานะ ณ ปัจจุบัน:** live = build 274 / v5.47.8 (Phase 92.18 merged #45 + deployed + smoke ผ่านครบ 7 ข้อ, 22 พ.ค. 2026).
+> 🔵 **ค้าง (อิสระจาก deploy):**
+> 1. รัน read-only verify query ปิดประเด็น journal_entries RLS — ดูท้าย section 92.14
+> 2. **CI deprecation (low, เก็บไว้พิจารณา):** GH Actions เตือน `actions/checkout@v4` + `wrangler-action@v3` รันบน Node 20 → จะถูกบังคับเป็น Node 24 หลัง 2 มิ.ย. 2026 ยังไม่กระทบตอนนี้ ควร bump action versions สักเฟส
+> 3. **UX follow-up (nit, ถ้าจะทำ):** ปุ่ม 📒 trace ทั้ง 3 surface (sales list / receipt drawer / audit log) ตอนกดไป `showRoute("accounting_journals")` หน้ารายวันเฉย ๆ ยังไม่เปิด drawer ของ JV ใบนั้นตรง ๆ — มี `data-jv-id` พร้อมแล้ว ถ้าจะ deep-link ควรทำพร้อมกันทั้ง 3 surface
 
 ---
 

@@ -7,7 +7,7 @@
 
 ---
 
-## 5.47.8 (build 274) — 2026-05-22 📒 Phase 92.18 — Audit Log accounting trace (deleted POS sales)
+## 5.47.8 (build 274) — 2026-05-22 📒 Phase 92.18 — Audit Log accounting trace (deleted POS sales) ✅ MERGED (#45) + DEPLOYED + SMOKE PASSED
 
 - **feat(sales) [audit]:** soft-delete บิลขายตอนนี้บันทึก `logActivity("delete_sale", {entityType:"sale", entityId:saleId, ...})` แบบ **best-effort** (มี bill_no/customer/total ใน summary+metadata) — ถ้า log fail การลบบิล**ไม่ fail** (ห่อ try + logActivity กลืน error อยู่แล้ว). เดิม POS sale deletion ไม่ทิ้งร่องรอยใน Audit Log เลย
 - **feat(audit_log) [trace]:** row การลบบิลขาย (entity_type='sale') มีปุ่ม **📒 ดูบัญชี** → on-demand `findJournalForSale` ด้วย key `source_table='sales' + source_id=entity_id` → เจอ = แสดง `SV...` กดไปสมุดรายวันได้; ไม่เจอ = **"ยังไม่ลงบัญชี"**; error = "ตรวจบัญชีไม่ได้" (ไม่เงียบ/ไม่ crash)
