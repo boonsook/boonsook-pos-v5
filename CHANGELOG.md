@@ -7,6 +7,19 @@
 
 ---
 
+## 5.47.8 (build 274) — 2026-05-22 📒 Phase 92.18 — Audit Log accounting trace (deleted POS sales)
+
+- **feat(sales) [audit]:** soft-delete บิลขายตอนนี้บันทึก `logActivity("delete_sale", {entityType:"sale", entityId:saleId, ...})` แบบ **best-effort** (มี bill_no/customer/total ใน summary+metadata) — ถ้า log fail การลบบิล**ไม่ fail** (ห่อ try + logActivity กลืน error อยู่แล้ว). เดิม POS sale deletion ไม่ทิ้งร่องรอยใน Audit Log เลย
+- **feat(audit_log) [trace]:** row การลบบิลขาย (entity_type='sale') มีปุ่ม **📒 ดูบัญชี** → on-demand `findJournalForSale` ด้วย key `source_table='sales' + source_id=entity_id` → เจอ = แสดง `SV...` กดไปสมุดรายวันได้; ไม่เจอ = **"ยังไม่ลงบัญชี"**; error = "ตรวจบัญชีไม่ได้" (ไม่เงียบ/ไม่ crash)
+- **safe id extraction:** `saleIdFromAuditLog()` ใช้เฉพาะ `entity_type==='sale' + entity_id` — **ห้ามเดา** จาก summary/doc_no/customer/amount (มี test ยืนยัน receipt-row/summary-only → null)
+- **ไม่แตะ** posting / auto_post / stock / loyalty / money math / RLS / SQL — reuse helper 92.17 (read-only lookup)
+- test เพิ่มใน `sale_trace.test.js` (saleIdFromAuditLog + trace flow found/missing/error/no-crash) — unit 342 → 350
+- verify เขียว exit 0 (lint 0/0, unit 350, e2e 11)
+
+**Build:** 273 → 274; version 5.47.7 → 5.47.8 (minor feature — audit-log trace, additive)
+
+---
+
 ## 5.47.7 (build 273) — 2026-05-22 🔗 Phase 92.17 — Accounting trace links (POS sale → JV) ✅ MERGED (#42) + DEPLOYED + SMOKE PASSED
 
 - **feat(accounting) [trace]:** บิล POS เห็นได้แล้วว่า "ลงบัญชีหรือยัง" — helper ใหม่ `modules/accounting/sale_trace.js` (`findJournalForSale`, `renderSaleTraceBadge`) ค้น JV ด้วย key หลัก `source_table='sales' + source_id=sale.id` (read-only, ไม่สร้าง/ไม่แก้ journal)

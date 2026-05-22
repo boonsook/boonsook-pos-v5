@@ -68,6 +68,20 @@ export async function findJournalForSale(sale, opts = {}) {
   }
 }
 
+/**
+ * หา sale id จาก audit log row อย่างปลอดภัย (Phase 92.18)
+ * ★ ใช้เฉพาะ structured field: entity_type==='sale' + entity_id เท่านั้น
+ *   ห้ามเดาจาก summary / doc_no / customer / amount (กัน match ผิดบิล)
+ * @param {object} row - activity_log row
+ * @returns {string|null} sale id (string) หรือ null ถ้าไม่ใช่ sale หรือไม่มี id
+ */
+export function saleIdFromAuditLog(row) {
+  if (row && row.entity_type === "sale" && row.entity_id != null && row.entity_id !== "") {
+    return String(row.entity_id);
+  }
+  return null;
+}
+
 const _JV_STATUS_LABEL = {
   approved: "ลงบัญชีแล้ว",
   draft:    "ฉบับร่าง",

@@ -4,7 +4,7 @@ import { renderEmpty } from "./ui_states.js";
 import { voidJvForSource } from "./accounting/auto_post.js";
 // Phase 92.17: forward accounting trace — บิล POS → JV (read-only lookup)
 import { findJournalForSale, renderSaleTraceBadge } from "./accounting/sale_trace.js";
-import { visibleSalesForRole, isAdminProfile } from "./utils.js";
+import { visibleSalesForRole, isAdminProfile, logActivity } from "./utils.js";
 
 function money(n){return new Intl.NumberFormat("th-TH",{style:"currency",currency:"THB",minimumFractionDigits:2}).format(Number(n||0));}
 const escHtml = (s) => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
@@ -320,6 +320,26 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
 
         const sideEffectsMsg = sideEffects.length ? ` (${sideEffects.join(", ")})` : "";
         if (showToast) showToast("ลบรายการขายเรียบร้อย ✅" + sideEffectsMsg);
+
+        // Phase 92.18: audit log (best-effort) — บันทึกการลบบิลขายพร้อม sale id เพื่อให้
+        // หน้า Audit Log แสดง accounting trace ได้ (entity_type='sale' + entity_id=saleId).
+        // ★ ต้องไม่ทำให้การลบ fail ถ้า log fail — logActivity กลืน error อยู่แล้ว + ห่อ try กันเหนียว
+        try {
+          const deletedSale = (state.sales || []).find(s => String(s.id) === String(saleId));
+          logActivity("delete_sale", {
+            entityType: "sale",
+            entityId: saleId,
+            summary: `ลบบิลขาย ${saleNo || "#" + saleId}`
+              + (deletedSale?.customer_name ? ` (${deletedSale.customer_name})` : "")
+              + (deletedSale?.total_amount != null ? ` ${Number(deletedSale.total_amount).toLocaleString("th-TH")} บาท` : ""),
+            metadata: {
+              bill_no: saleNo || null,
+              customer_id: deletedSale?.customer_id ?? null,
+              customer_name: deletedSale?.customer_name ?? null,
+              total_amount: deletedSale?.total_amount ?? null,
+            },
+          });
+        } catch (_e) { /* best-effort — ห้าม block การลบ */ }
 
         // ★ Optimistic update: mirror the server soft-delete in local state so the
         // row disappears immediately — even if the background reload below times out.

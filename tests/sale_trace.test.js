@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-const { findJournalForSale, renderSaleTraceBadge, JOURNAL_ROUTE } =
+const { findJournalForSale, renderSaleTraceBadge, JOURNAL_ROUTE, saleIdFromAuditLog } =
   await import("../modules/accounting/sale_trace.js");
 
 const CFG = { url: "https://example.supabase.co", anonKey: "anon-xxx" };
@@ -98,4 +98,61 @@ test("renderSaleTraceBadge — escapes doc_no (XSS-safe)", () => {
   const html = renderSaleTraceBadge({ found: true, entry: { id: 1, doc_no: '<img src=x onerror=alert(1)>', status: "approved" } });
   assert.doesNotMatch(html, /<img/);
   assert.match(html, /&lt;img/);
+});
+
+// ── saleIdFromAuditLog (Phase 92.18 — safe sale id extraction, no guessing) ──
+
+test("saleIdFromAuditLog — delete_sale row w/ entity_type 'sale' → returns id (string)", () => {
+  assert.equal(saleIdFromAuditLog({ action: "delete_sale", entity_type: "sale", entity_id: 143 }), "143");
+  assert.equal(saleIdFromAuditLog({ action: "delete_sale", entity_type: "sale", entity_id: "143" }), "143");
+});
+
+test("saleIdFromAuditLog — receipt deletion (entity_type 'receipt') → null (not a sale key)", () => {
+  // receipt JV is source_table='receipts' — must NOT be looked up with sales key
+  assert.equal(saleIdFromAuditLog({ action: "delete_receipt", entity_type: "receipt", entity_id: 9 }), null);
+});
+
+test("saleIdFromAuditLog — missing entity_id → null", () => {
+  assert.equal(saleIdFromAuditLog({ action: "delete_sale", entity_type: "sale", entity_id: null }), null);
+  assert.equal(saleIdFromAuditLog({ action: "delete_sale", entity_type: "sale", entity_id: "" }), null);
+  assert.equal(saleIdFromAuditLog({ action: "delete_sale", entity_type: "sale" }), null);
+});
+
+test("saleIdFromAuditLog — NEVER guesses from summary/bill_no (no entity_type) → null", () => {
+  assert.equal(saleIdFromAuditLog({ action: "delete_sale", summary: "ลบบิลขาย BSK-00123 (5000 บาท)", metadata: { bill_no: "BSK-00123" } }), null);
+});
+
+test("saleIdFromAuditLog — null/garbage input → null, no throw", () => {
+  assert.equal(saleIdFromAuditLog(null), null);
+  assert.equal(saleIdFromAuditLog(undefined), null);
+  assert.equal(saleIdFromAuditLog({}), null);
+});
+
+// ── end-to-end: a delete_sale log row → trace lookup (found/missing/error, no crash) ──
+
+test("audit-log trace flow — sale id from log → findJournalForSale FOUND", async () => {
+  const row = { action: "delete_sale", entity_type: "sale", entity_id: 77 };
+  const saleId = saleIdFromAuditLog(row);
+  assert.equal(saleId, "77");
+  const fetchMock = async (url) => {
+    assert.match(url, /source_table=eq\.sales&source_id=eq\.77/);
+    return makeRes(200, [{ id: 9, doc_no: "SV2026050077", status: "approved" }]);
+  };
+  const res = await findJournalForSale(saleId, { fetch: fetchMock, cfg: CFG, token: "jwt" });
+  assert.equal(res.found, true);
+  assert.match(renderSaleTraceBadge(res, { compact: true }), /SV2026050077/);
+});
+
+test("audit-log trace flow — MISSING JV → 'ยังไม่ลงบัญชี', no crash", async () => {
+  const saleId = saleIdFromAuditLog({ entity_type: "sale", entity_id: 5 });
+  const res = await findJournalForSale(saleId, { fetch: async () => makeRes(200, []), cfg: CFG, token: "jwt" });
+  assert.equal(res.status, "missing");
+  assert.match(renderSaleTraceBadge(res, { compact: true }), /ยังไม่ลงบัญชี/);
+});
+
+test("audit-log trace flow — fetch error → 'ตรวจบัญชีไม่ได้', never throws", async () => {
+  const saleId = saleIdFromAuditLog({ entity_type: "sale", entity_id: 5 });
+  const res = await findJournalForSale(saleId, { fetch: async () => { throw new Error("offline"); }, cfg: CFG, token: "jwt" });
+  assert.equal(res.ok, false);
+  assert.match(renderSaleTraceBadge(res, { compact: true }), /ตรวจบัญชีไม่ได้/);
 });
