@@ -288,7 +288,17 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
 
         const sideEffectsMsg = sideEffects.length ? ` (${sideEffects.join(", ")})` : "";
         if (showToast) showToast("ลบรายการขายเรียบร้อย ✅" + sideEffectsMsg);
-        try { await withTimeout(loadAllData(), 10000, "loadAllData"); } catch(e) { console.warn("[sales delete] loadAllData timeout:", e.message); }
+
+        // ★ Optimistic update: mirror the server soft-delete in local state so the
+        // row disappears immediately — even if the background reload below times out.
+        // visibleSalesForRole() hides notes containing "[ลบแล้ว]", so setting the note
+        // here matches exactly what loadAllData() would fetch back from the server.
+        const localSale = (state.sales || []).find(s => String(s.id) === String(saleId));
+        if (localSale) localSale.note = newNote;
+        _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, showToast });
+
+        // Best-effort background refresh — a timeout here must NOT undo the committed delete
+        try { await withTimeout(loadAllData(), 10000, "loadAllData"); } catch(e) { console.warn("[sales delete] loadAllData timeout after committed delete:", e.message); }
       } else {
         throw new Error("ลบไม่ได้ — อาจต้องเพิ่ม UPDATE policy ที่ Supabase สำหรับตาราง sales");
       }
