@@ -4,10 +4,10 @@
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
 **อัปเดตล่าสุด:** 22 พฤษภาคม 2026 (Phase 92.17 — accounting trace links, build 273)
-**Version:** 5.47.7 (build 273) — Phase 92.17 🚧 **PR OPEN** (forward accounting trace: sale list + receipt drawer → JV; read-only; no posting/money/RLS/SQL change)
+**Version:** 5.47.7 (build 273) — Phase 92.17 ✅ **MERGED (PR #42) + DEPLOYED + SMOKE PASSED** (forward accounting trace: sale list + receipt drawer → JV; read-only; no posting/money/RLS/SQL change)
 **Previous:** 5.47.6 (build 272) — Phase 92.16 ✅ MERGED (PR #41) + DEPLOYED (console noise audit; demote 3 diagnostics log→info)
 
-> 🟢 **สถานะ ณ ปัจจุบัน:** Phase 92.17 อยู่บน branch (รอ merge + deploy build 273).
+> 🟢 **สถานะ ณ ปัจจุบัน:** live = build 273 / v5.47.7. Phase 92.17 deploy แล้ว + smoke ผ่าน (About 273, ปุ่ม 📒 บัญชี, กดไปสมุดรายวัน, receipt section, "ยังไม่ลงบัญชี" ไม่เงียบ, console ไม่มี error ใหม่).
 > 🔵 **ค้างเดียว (อิสระจาก deploy):** รัน read-only verify query ปิดประเด็น journal_entries RLS — ดูท้าย section 92.14
 > 📌 **Defer → Phase 92.18:** accounting trace link ในหน้า Audit Log (delete_sale rows) — ยังไม่ทำในเฟสนี้ตามที่ user เลือก scope 1+2
 
