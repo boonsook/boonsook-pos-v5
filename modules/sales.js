@@ -259,8 +259,9 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
         try {
           const mod = await import("./loyalty.js?v=" + (window.APP_BUILD || "dev"));
           const targetSale = (state.sales || []).find(s => String(s.id) === String(saleId));
-          // Diagnostic — visible in DevTools so the next smoke explains itself
-          console.log("[sales delete] loyalty reverse attempt:", {
+          // Diagnostic — visible in DevTools so the next smoke explains itself.
+          // info-level: this is an expected per-delete trace, not a problem.
+          console.info("[sales delete] loyalty reverse attempt:", {
             saleId,
             saleCustomerId: targetSale?.customer_id ?? null,
             earnCount: (state.loyaltyPoints || [])
@@ -275,8 +276,8 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
             const cappedNote = res.capped ? `/${res.totalEarned}` : "";
             sideEffects.push(`คืนแต้ม ${res.reversed}${cappedNote}`);
           } else if (res?.skipped) {
-            // expected silent skip (no earn / already reversed / remaining=0) — log only
-            console.log("[sales delete] loyalty reverse skipped:", res.reason);
+            // expected silent skip (no earn / already reversed / remaining=0) — info, not a fault
+            console.info("[sales delete] loyalty reverse skipped:", res.reason);
           } else {
             console.warn("[sales delete] loyalty reverse failed:", res?.reason);
             sideEffects.push("⚠️ reverse loyalty fail");

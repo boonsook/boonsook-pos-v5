@@ -3,12 +3,56 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 22 พฤษภาคม 2026 (Phase 92.15 — sale delete refresh resilience, build 271)
-**Version:** 5.47.5 (build 271) — Phase 92.15 🚧 **PR OPEN** (patch: optimistic local note mirror + re-render หลัง committed soft-delete; loadAllData timeout = warning-only)
-**Previous:** 5.47.4 (build 270) — Phase 92.14 ✅ MERGED (PR #39) + DEPLOYED + SMOKE PASSED (round2 cart/refund + verify-slip is_safe + RLS audit)
+**อัปเดตล่าสุด:** 22 พฤษภาคม 2026 (Phase 92.16 — console noise audit, build 272)
+**Version:** 5.47.6 (build 272) — Phase 92.16 🚧 **PR OPEN** (audit + demote 3 expected diagnostics log→info; no bug found; no money/stock/JV/loyalty change)
+**Previous:** 5.47.5 (build 271) — Phase 92.15 ✅ MERGED (PR #40) (sale delete refresh resilience)
 
-> 🟢 **สถานะ ณ ปัจจุบัน:** live = build 270 / v5.47.4. Phase 92.15 อยู่บน branch (รอ merge + deploy build 271).
+> 🟢 **สถานะ ณ ปัจจุบัน:** Phase 92.16 อยู่บน branch (รอ merge + deploy build 272).
 > 🔵 **ค้างเดียว (อิสระจาก deploy):** รัน read-only verify query ปิดประเด็น journal_entries RLS — ดูท้าย section 92.14
+
+---
+
+## 🔍 Phase 92.16 — Console noise audit (this session)
+
+**เป้าหมาย:** audit สิ่งที่ขึ้นใน DevTools Console จาก smoke flows หลัก แล้วแยก SAFE_NOISE / ACTIONABLE_LOW / BUG — **สรุป: ไม่เจอ bug จริง** ในเส้นทางที่ตรวจ.
+
+### ตาราง classification (Task A)
+
+| Console text | Source file:line | Level (เดิม → ใหม่) | Classification | Action |
+|---|---|---|---|---|
+| `Could not find window.__TAURI_METADATA__` | external lib (ไม่มีใน source เรา) | warn (lib) | **SAFE_NOISE** | document only — เป็น Tauri-env detection ของ lib ภายนอก, browser-only, แก้ที่โค้ดเราไม่ได้ |
+| `Service Worker was updated because "Update on reload" was checked` | Chrome DevTools | info (browser) | **SAFE_NOISE** | document only — DevTools setting ของผู้ใช้ ไม่ใช่โค้ดเรา |
+| `Deleting old cache: boonsook-pos-v5-cache-v<N>` | `sw.js:64` | `console.log` | **SAFE_NOISE** | keep — SW cache cleanup ปกติตอน activate (เห็นทุก build bump) |
+| `[auto_post] ✅ created <doc> ...` | `accounting/auto_post.js:316` | `console.info` ✅ | **SAFE_NOISE** | already info — ไม่แตะ |
+| `[auto_post] voided N JV(s) for ...` | `accounting/auto_post.js:129` | `console.info` ✅ | **SAFE_NOISE** | already info — ไม่แตะ |
+| `[sales delete] loyalty reverse attempt: {...}` | `sales.js:263` | `console.log` → `console.info` | **ACTIONABLE_LOW** | demote — trace ที่คาดไว้ทุกครั้งที่ลบ ไม่ใช่ปัญหา |
+| `[sales delete] loyalty reverse skipped: <reason>` | `sales.js:279` | `console.log` → `console.info` | **ACTIONABLE_LOW** | demote — expected no-op (no earn / already reversed / remaining=0) |
+| `[refunds] loyalty reverse skipped: <reason>` | `refunds.js:442` | `console.log` → `console.info` | **ACTIONABLE_LOW** | demote — เหมือน sales path เพื่อ consistency |
+| `[sales delete] loadAllData timeout after committed delete: ...` | `sales.js:301` | `console.warn` ✅ | **SAFE_NOISE** | keep warn — Phase 92.15 ระบุชัดว่า delete commit สำเร็จแล้ว, แถวไม่เด้งกลับ; warn เหมาะแล้ว |
+| `[sales delete] loyalty reverse failed/exception` | `sales.js:281,285` | `console.warn` | (correct) | keep — real failure path ต้องเห็น |
+
+**Real failure logs ที่ "คงไว้เป็น warn/error โดยตั้งใจ"** (ห้าม demote): `[auto_post] unbalanced/entry insert failed/rollback FAILED/voidJV silent fail` (`auto_post.js`), `[refunds] loyalty reverse failed/threw` (`refunds.js:444,447`), `[sales delete] error` (`sales.js:306`). พวกนี้คือสัญญาณบั๊กจริง — ต้องดังไว้.
+
+### สิ่งที่แก้ (Task B — logging only)
+- `sales.js:263` loyalty reverse **attempt** diagnostic: `console.log` → `console.info`
+- `sales.js:279` loyalty reverse **skipped**: `console.log` → `console.info`
+- `refunds.js:442` loyalty reverse **skipped**: `console.log` → `console.info`
+
+### ขอบเขต (จงใจ)
+- **ไม่แตะ** money / POS checkout / stock CAS / JV / loyalty side-effect — เปลี่ยนแค่ระดับ log ของ 3 บรรทัดที่เป็น expected no-op
+- **ไม่** blanket-monkeypatch console, **ไม่** ลบ diagnostic ที่มีประโยชน์, **ไม่** กลบ error จริง
+- ไม่มี SQL / ไม่ install package / ไม่ refactor กว้าง
+
+### Known browser-only warnings (document — ไม่ต้องแก้)
+- `Could not find window.__TAURI_METADATA__` — จาก lib ภายนอก, ปกติบนเว็บ (ดู `CLAUDE_SESSION_HANDOFF.md:158`)
+- `Service Worker was updated because "Update on reload" was checked` — DevTools setting ของผู้ใช้
+- `Deleting old cache: ...v<N>` — SW activate cleanup ปกติ (เห็นทุกครั้งที่ build เลื่อน)
+
+### Gates
+- `npm run verify` เขียว exit 0 (lint 0/0, unit 332, e2e 11 — รวม build-version-sync checks)
+
+### Test note (Task C)
+ไม่เพิ่ม test — เป็น log-level change ล้วน ไม่กระทบ return shape / behavior; ไม่มี test เดิม assert ข้อความ log เหล่านี้ (ตรวจแล้ว).
 
 ---
 

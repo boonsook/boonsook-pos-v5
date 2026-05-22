@@ -439,7 +439,7 @@ function openRefundModal(ctx) {
                 const cappedNote = res.capped ? ` (จาก ${res.totalEarned})` : '';
                 ctx.showToast?.(`คืนแต้ม ${res.reversed} แต้ม${cappedNote}`, 'info');
               } else if (res?.skipped) {
-                console.log("[refunds] loyalty reverse skipped:", res.reason);
+                console.info("[refunds] loyalty reverse skipped:", res.reason);
               } else {
                 console.warn("[refunds] loyalty reverse failed:", res?.reason, res?.error);
               }

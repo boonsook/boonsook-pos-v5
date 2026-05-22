@@ -7,6 +7,19 @@
 
 ---
 
+## 5.47.6 (build 272) — 2026-05-22 🔍 Phase 92.16 — Console noise audit
+
+- **chore(logging):** audit console output จาก smoke flows หลัก แล้วแยกเป็น SAFE_NOISE / ACTIONABLE_LOW / BUG (ตารางเต็มใน HANDOFF) — **ไม่เจอ bug จริง**
+- **chore(logging):** demote 3 expected diagnostics จาก `console.log` → `console.info` (เป็น no-op ที่คาดไว้ ไม่ใช่ความผิดพลาด): `sales.js` loyalty reverse attempt + skipped, `refunds.js` loyalty reverse skipped
+- ยืนยันของเดิมถูกต้องอยู่แล้ว: `[auto_post] created/voided` = `console.info` แล้ว; `loadAllData timeout after committed delete` = `console.warn` ที่ระบุชัดว่า delete commit สำเร็จแล้ว (Phase 92.15)
+- `Could not find window.__TAURI_METADATA__` = warning จาก external lib (ไม่ใช่โค้ดเรา) — browser-only, harmless, document only
+- **ไม่มี** การเปลี่ยน money/stock/JV/loyalty behavior — แก้เฉพาะ log level
+- verify เขียว exit 0 (lint 0/0, unit 332, e2e 11)
+
+**Build:** 271 → 272; version 5.47.5 → 5.47.6 (patch — logging clarity only)
+
+---
+
 ## 5.47.5 (build 271) — 2026-05-22 🗑️ Phase 92.15 — Sale delete refresh resilience
 
 - **fix(sales) [UX]:** ลบบิลสำเร็จ (soft-delete PATCH `note = [ลบแล้ว]`) แล้ว mirror note ลง `state.sales` ในเครื่อง + re-render list ทันที — แถวที่ลบหายเลย ไม่ต้องรอ `loadAllData()`
