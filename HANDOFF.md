@@ -3,14 +3,50 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 24 พฤษภาคม 2026 (Phase 92.14 verify ✅ CLOSED — RLS audit complete; Phase 92.19 deployed)
-**Version:** 5.47.8 (build 274) — Phase 92.19 ✅ **MERGED (PR #47) + DEPLOY GREEN** (CI-only chore: checkout v4→v5, setup-node v4→v5, wrangler-action v3→v4, setup-buildx v3→v4; ปิด 2 มิ.ย. 2026 deadline; no runtime/build change, live = 274 ตามเดิม)
-**Previous:** 5.47.8 (build 274) — Phase 92.18 ✅ MERGED (PR #45) + DEPLOYED + SMOKE PASSED (audit-log trace สำหรับลบบิลขาย)
+**อัปเดตล่าสุด:** 24 พฤษภาคม 2026 (Phase 92.20 — JV drawer deep-link จาก 3 surfaces, build 275)
+**Version:** 5.47.9 (build 275) — Phase 92.20 (UX feature: ปุ่ม 📒 ทั้ง 3 surface กดแล้วเปิด JV drawer ทันที; additive helper `navigateToJv` + `setPendingJvId`; no posting/money/RLS/SQL change)
+**Previous:** 5.47.8 (build 274) — Phase 92.19 ✅ MERGED (PR #47) + Phase 92.14 verify ✅ CLOSED (PR #49)
 
-> 🟢 **สถานะ ณ ปัจจุบัน:** live = build 274 / v5.47.8 (Phase 92.19 merged #47 + deploy เขียวบน Node 24-ready actions, 24 พ.ค. 2026). Phase 92.18 trace ของเก่ายัง intact. **Phase 92.14 verify run บน prod 24 พ.ค. = RLS closed ตามที่ Phase 89.25 ตั้งใจ.**
+> 🟢 **สถานะ ณ ปัจจุบัน:** Phase 92.20 พร้อม push (lint 0/0, unit 356, e2e จะรันใน CI). Phase 92.14 RLS verify CLOSED. Phase 92.19 CI deploy GREEN. Live = build 274 (จะขึ้นเป็น 275 หลัง PR merge).
 > 🔵 **ค้าง (อิสระจาก deploy):**
-> 1. **UX follow-up (nit, ถ้าจะทำ):** ปุ่ม 📒 trace ทั้ง 3 surface (sales list / receipt drawer / audit log) ตอนกดไป `showRoute("accounting_journals")` หน้ารายวันเฉย ๆ ยังไม่เปิด drawer ของ JV ใบนั้นตรง ๆ — มี `data-jv-id` พร้อมแล้ว ถ้าจะ deep-link ควรทำพร้อมกันทั้ง 3 surface
-> 2. **Possible race-condition annotations** (GH scanner เตือน [modules/sales.js:170](modules/sales.js:170), [modules/audit_log.js:166](modules/audit_log.js:166) — code จาก 92.17/92.18) — `btn.disabled`/`btn.textContent` หลัง await; ผลกระทบจริงต่ำ (one-shot click + replaceWith) แต่ถ้ามีเฟส harden ค่อยพิจารณา cache btn ref/ใช้ controller token
+> 1. **Possible race-condition annotations** (GH scanner เตือน [modules/sales.js:170](modules/sales.js:170), [modules/audit_log.js:166](modules/audit_log.js:166) — code จาก 92.17/92.18) — `btn.disabled`/`btn.textContent` หลัง await; ผลกระทบจริงต่ำ (one-shot click + replaceWith) แต่ถ้ามีเฟส harden ค่อยพิจารณา cache btn ref/ใช้ controller token
+
+---
+
+## 🔗 Phase 92.20 — JV drawer deep-link from 3 trace surfaces (this session)
+
+**ปัญหาเดิม:** Phase 92.17/92.18 เพิ่มปุ่ม 📒 trace ใน 3 surface (sales list / receipt drawer / audit log) — กดแล้วไปหน้าสมุดรายวันเฉย ๆ ผู้ใช้ต้องเลื่อนหา JV เอง. มี `data-jv-id` พร้อมใน badge อยู่แล้วแต่ยังไม่ใช้.
+
+### สิ่งที่เพิ่ม (4 ไฟล์ core + 1 test)
+- **`modules/accounting/journals.js`:**
+  - export ใหม่ `setPendingJvId(id)` — 1-shot module-level state สำหรับ deep-link target
+  - หลัง `renderJournalsPage` fetch entries สำเร็จ → consume pending → `queueMicrotask(_openJvDrawer)`; ถ้า id ไม่อยู่ใน 200 entries ล่าสุด → `console.info` แล้วผ่าน (ไม่ crash)
+  - error path เพิ่ม clear `_pendingOpenJvId = null` → กัน stale consume ถ้า user navigate ออก/กลับมาทีหลัง
+- **`modules/accounting/sale_trace.js`:** export ใหม่ `navigateToJv(jvId, opts)` async — dynamic import `journals.js` (lazy, ไม่ดึง 167KB accounting bundle เข้า eager path) → `setPendingJvId` → `showRoute("accounting_journals")`. inject `showRoute`/`importModule` ได้สำหรับ test. fallback ถ้า import ล้ม = navigate ปกติ
+- **Wire 3 surfaces:**
+  - `modules/sales.js` — badge click `goto` ใช้ `navigateToJv(badgeEl.dataset.jvId)`
+  - `main.js` `_fillReceiptAcctTrace` — `goto` = `closeAllDrawers(); navigateToJv(...)` (ปิด receipt drawer ก่อน)
+  - `modules/audit_log.js` — `goto` = `navigateToJv(badgeEl.dataset.jvId)`
+
+### ขอบเขต (จงใจ)
+- **ไม่แตะ** posting / `auto_post` / money / stock / loyalty / RLS / SQL — เพิ่มเฉพาะ navigation glue + 1 read-only consume hook
+- **No URL state** (ไม่ใช่ `#accounting_journals?jv=42`) — เพราะ pending เป็น 1-shot click intent, ไม่ใช่ shareable link
+- **`badgeEl.dataset.jvId` มีอยู่แล้ว** (Phase 92.17 ตั้งไว้ใน `renderSaleTraceBadge`) — diff ไม่แตะ badge HTML
+- guard ใน `_openJvDrawer` มีอยู่แล้ว (`document.getElementById("jvDrawer")?.remove()`) — ไม่ open ซ้อน
+
+### Tests (`tests/sale_trace.test.js`, +6 = 24 ตัว)
+`navigateToJv`: happy path (set pending + showRoute) / string id pass-through / null+empty+undefined → false / no router → false / import fail → ยัง navigate / setPendingJvId missing → ไม่ throw. inject mock — ไม่แตะ DOM/network จริง.
+
+### Version sync (4 จุด)
+- `index.html`: `data-app-build="275"`, `main.js?v=275`, `boot.js?v=275`, `selfheal.js?v=275`, `style.css?v=275`
+- `sw.js`: `CACHE_NAME = 'boonsook-pos-v5-cache-v275'` + comment v275
+- `package.json`: `5.47.8 → 5.47.9`
+- `modules/settings/pages.js:195`: dynamic (`window.APP_BUILD`) → auto pickup
+
+### Gates
+- `npm run lint:errors` exit 0 (clean)
+- `npm test` = **356/356** (เดิม 350 + 6 ใหม่)
+- e2e จะรันใน CI
 
 ---
 

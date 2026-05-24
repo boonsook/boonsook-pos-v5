@@ -3,7 +3,8 @@ import { renderEmpty } from "./ui_states.js";
 // Phase 89.3: void JV + revert stock ตอนลบ POS sale (ป้องกัน P&L นับรายได้เกินจริง)
 import { voidJvForSource } from "./accounting/auto_post.js";
 // Phase 92.17: forward accounting trace — บิล POS → JV (read-only lookup)
-import { findJournalForSale, renderSaleTraceBadge } from "./accounting/sale_trace.js";
+// Phase 92.20: navigateToJv = deep-link เปิด JV drawer ทันทีจาก surface
+import { findJournalForSale, renderSaleTraceBadge, navigateToJv } from "./accounting/sale_trace.js";
 import { visibleSalesForRole, isAdminProfile, logActivity } from "./utils.js";
 
 function money(n){return new Intl.NumberFormat("th-TH",{style:"currency",currency:"THB",minimumFractionDigits:2}).format(Number(n||0));}
@@ -169,7 +170,8 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
     const badgeEl = wrap.firstElementChild;
     if (!badgeEl) { btn.disabled = false; btn.textContent = orig; return; }
     if (badgeEl.classList.contains("sale-acct-trace")) {
-      const goto = () => window.App?.showRoute?.(badgeEl.dataset.acctRoute);
+      // Phase 92.20: deep-link → เปิด JV drawer ทันทีหลังนำทาง (ไม่ใช่แค่ไปหน้ารายวันเฉย ๆ)
+      const goto = () => navigateToJv(badgeEl.dataset.jvId);
       badgeEl.addEventListener("click", goto, { signal });
       badgeEl.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); goto(); } }, { signal });
     }
