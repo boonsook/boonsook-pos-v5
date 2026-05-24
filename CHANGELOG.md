@@ -7,6 +7,18 @@
 
 ---
 
+## 5.48.3 (build 280) — 2026-05-24 🐛 Phase 92.22c — Fix admin sidebar missing "🕒 ลงเวลาทำงาน"
+
+- **fix(main) [Blocking]:** ปุ่ม "🕒 ลงเวลาทำงาน" ไม่โผล่ใน sidebar ของ admin — เพราะ `ALL_ROUTES` (main.js:595) เป็น **static list** (ไม่ใช่ `Object.keys(LAZY_ROUTES)`) → admin allowedPages ไม่มี `time_clock` → sidebar JS ซ่อนปุ่มเงียบ ๆ
+- **Root cause:** Phase 92.22 ผมเพิ่ม `time_clock` ใน `LAZY_ROUTES` + `ROLE_PAGES.sales/technician` (ที่ระบุ list explicit) แต่ลืม `ALL_ROUTES` ที่ admin ใช้ — admin จะเข้าหน้าได้ผ่าน URL `#time_clock` ตรง ๆ ก็ได้ แต่ sidebar ไม่แสดงปุ่ม
+- **แก้:** เพิ่ม `"time_clock"` ใน `ALL_ROUTES` array (1 บรรทัด) — admin เห็นปุ่ม sidebar
+- **ไม่กระทบ** sales/technician — มี route ใน ROLE_PAGES อยู่แล้วตั้งแต่ 92.22
+- verify เขียว exit 0 (lint 0/0, unit 380)
+
+**Build:** 279 → 280; version 5.48.2 → 5.48.3 (patch — sidebar visibility)
+
+---
+
 ## 5.48.2 (build 279) — 2026-05-24 🏷️ Phase 92.22b — Fix About page version display drift
 
 - **fix(settings/pages) [user-visible]:** หน้า "เกี่ยวกับระบบ" (About) แสดง **Version: 5.47.8** + **build 274** มาตั้งแต่ Phase 92.18 — drift 5 phases (92.19/92.20/92.21/92.22/92.22-hotfix). ปุ่ม "ตรวจหาอัปเดต" บอก build 278 ถูก แต่ header ของ About เก่า → user งง
