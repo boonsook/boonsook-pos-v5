@@ -3,9 +3,9 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 24 พฤษภาคม 2026 (Phase 92.26 — Payroll OT auto-fill, build 285)
-**Version:** 5.51.0 (build 285) — Phase 92.26 (modal payroll เพิ่ม section ดึงจาก Time Clock → คำนวณค่า OT × rate × multiplier → เติมช่อง ค่าล่วงเวลา)
-**Previous:** 5.50.1 (build 284) — Phase 92.25b — shift hours Settings (PR #59)
+**อัปเดตล่าสุด:** 24 พฤษภาคม 2026 (Phase 92.24 — GPS geo-fence, build 286)
+**Version:** 5.52.0 (build 286) — Phase 92.24 (Settings → ตำแหน่งร้าน GPS + Haversine warn ถ้าเกินรัศมี — ไม่ block, record ยังถูกบันทึก พร้อม distance_m)
+**Previous:** 5.51.0 (build 285) — Phase 92.26 — Payroll OT auto-fill (PR #60)
 
 > 🟢 **สถานะ ณ ปัจจุบัน:** Phase 92.25 พร้อม push (lint 0/0, unit 393). **ไม่ต้องรัน SQL migration** — ใช้ schema เดิมจาก Phase 92.22e
 > 🔵 **ค้าง (อิสระจาก deploy):**

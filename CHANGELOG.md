@@ -7,6 +7,21 @@
 
 ---
 
+## 5.52.0 (build 286) — 2026-05-24 📍 Phase 92.24 — GPS geo-fence
+
+- **feat(settings/store):** section ใหม่ "📍 ตำแหน่งร้าน (GPS)" — input **Lat/Lng/รัศมี** + ปุ่ม **📍 ใช้ตำแหน่งปัจจุบัน** (Geolocation API)
+- **feat(time_clock) [GPS]:** ตอนพนักงานลงเวลาเข้า/ออก — ระบบขอ GPS จากเบราว์เซอร์ (ถ้าตั้ง geofence ใน Settings) → คำนวณระยะ Haversine จากร้าน → บันทึกใน `clock_in_lat/lng/distance_m` / `clock_out_lat/lng/distance_m`
+- **Warn (ไม่ block):** ถ้าอยู่นอกรัศมี → toast `⚠️ คุณอยู่ห่างร้าน Xm (เกิน Ym) — บันทึกแล้วแต่ระบบจะ flag` (record ยังถูกบันทึก ไม่ขัดงาน — admin ตรวจทีหลังจาก distance_m)
+- **เว้นว่าง = ปิด feature** — ไม่ตั้ง Lat/Lng ใน Settings → ระบบไม่ขอ GPS, ไม่บันทึก, ไม่ warn
+- **Pure helpers ใหม่:** `haversineMeters(lat1,lng1,lat2,lng2)` + `geofenceFromState(state)` + `getCurrentPosition({timeoutMs:8000})` (silent fail if denied/unsupported)
+- **ไม่แตะ DB** — schema reserve cols จาก Phase 92.22 (`clock_in/out_lat/lng/distance_m`) ใช้ได้ทันที
+- Tests +9 (haversine: 0m, 1° lat at equator, 1° lng, cos rule at 60° lat, invalid args; geofenceFromState: default/custom/missing/partial/invalid radius). Unit 398 → **409**
+- verify เขียว exit 0 (lint 0/0)
+
+**Build:** 285 → 286; version 5.51.0 → 5.52.0 (minor — feature ใหม่ user-visible)
+
+---
+
 ## 5.51.0 (build 285) — 2026-05-24 💰 Phase 92.26 — Payroll integration (OT auto-fill จาก Time Clock)
 
 - **feat(payroll) [integration]:** modal เพิ่ม/แก้รายการเงินเดือน — เพิ่ม section **"🕒 ดึงจาก Time Clock"**
