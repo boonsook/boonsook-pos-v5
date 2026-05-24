@@ -3,9 +3,17 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 24 พฤษภาคม 2026 (Phase 92.24 — GPS geo-fence, build 286)
-**Version:** 5.52.0 (build 286) — Phase 92.24 (Settings → ตำแหน่งร้าน GPS + Haversine warn ถ้าเกินรัศมี — ไม่ block, record ยังถูกบันทึก พร้อม distance_m)
-**Previous:** 5.51.0 (build 285) — Phase 92.26 — Payroll OT auto-fill (PR #60)
+**อัปเดตล่าสุด:** 24 พฤษภาคม 2026 (Phase 92.27 — Offline queue, build 287) — **Time Clock series 92.22→92.27 COMPLETE** 🎊
+**Version:** 5.53.0 (build 287) — Phase 92.27 (IndexedDB queue + auto-sync + idempotency via client_uuid — เน็ตหลุดก็ลงเวลาได้ ไม่ขาดข้อมูล)
+**Previous:** 5.52.0 (build 286) — Phase 92.24 — GPS geo-fence (PR #61)
+
+> 🟢 **Time Clock feature ครบทุก aspect ตามที่ user ขอตั้งแต่ Phase 92.22:**
+> - ✅ Manager + Self-service flow (92.22 / 92.22e pivot)
+> - ✅ OT auto-detect (>17:00 + Settings shift hours) (92.25 / 92.25b)
+> - ✅ Admin edit + audit log (92.25)
+> - ✅ Payroll integration (auto-fill OT) (92.26)
+> - ✅ GPS geo-fence (92.24)
+> - ✅ Offline queue + auto-sync (92.27)
 
 > 🟢 **สถานะ ณ ปัจจุบัน:** Phase 92.25 พร้อม push (lint 0/0, unit 393). **ไม่ต้องรัน SQL migration** — ใช้ schema เดิมจาก Phase 92.22e
 > 🔵 **ค้าง (อิสระจาก deploy):**

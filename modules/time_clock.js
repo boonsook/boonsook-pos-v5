@@ -17,6 +17,8 @@
 
 import { renderSkeleton, renderEmpty, renderError } from "./ui_states.js";
 import { escHtml, exportToExcel, todaySuffix, logActivity } from "./utils.js";
+// Phase 92.27: offline queue (IndexedDB-backed)
+import * as OfflineQueue from "./_offline_queue.js";
 
 const TZ = "Asia/Bangkok";
 
@@ -310,7 +312,8 @@ async function _insertClockIn({ userId, source = "admin", note, clientUuid, gps 
     source,
     notes: note || null,
   };
-  if (clientUuid) body.client_uuid = clientUuid;
+  // Phase 92.27: client_uuid เป็น idempotency key (สร้างเสมอ ใช้ทั้ง online + offline)
+  body.client_uuid = clientUuid || OfflineQueue.generateClientUuid();
   // Phase 92.24: บันทึก GPS ถ้ามี + Haversine distance ถ้ามี geofence
   if (gps && Number.isFinite(gps.lat) && Number.isFinite(gps.lng)) {
     body.clock_in_lat = gps.lat;
@@ -319,20 +322,35 @@ async function _insertClockIn({ userId, source = "admin", note, clientUuid, gps 
       body.clock_in_distance_m = haversineMeters(geofence.lat, geofence.lng, gps.lat, gps.lng);
     }
   }
-  const r = await fetch(`${cfg.url}/rest/v1/staff_attendance`, {
-    method: "POST", headers, body: JSON.stringify(body),
-  });
-  if (!r.ok) {
-    // 23505 unique_violation = ผู้ใช้คนนี้ยังมี open session
-    if (r.status === 409) {
-      const err = new Error("ALREADY_OPEN");
-      err.code = "ALREADY_OPEN";
-      throw err;
+  try {
+    const r = await fetch(`${cfg.url}/rest/v1/staff_attendance`, {
+      method: "POST", headers, body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      if (r.status === 409) {
+        const err = new Error("ALREADY_OPEN");
+        err.code = "ALREADY_OPEN";
+        throw err;
+      }
+      const txt = await r.text().catch(() => "");
+      throw new Error(`HTTP ${r.status}: ${txt}`);
     }
-    const txt = await r.text().catch(() => "");
-    throw new Error(`HTTP ${r.status}: ${txt}`);
+    return r.json();
+  } catch (err) {
+    // Phase 92.27: offline → enqueue + return queued mock
+    if (OfflineQueue.isOfflineLike(err)) {
+      try {
+        await OfflineQueue.enqueue({ kind: "clockIn", payload: { body } });
+        const queued = new Error("QUEUED");
+        queued.code = "QUEUED";
+        throw queued;
+      } catch (e2) {
+        if (e2?.code === "QUEUED") throw e2;
+        // IDB ไม่พร้อม → throw original
+      }
+    }
+    throw err;
   }
-  return r.json();
 }
 
 /**
@@ -366,7 +384,6 @@ async function _patchClockOut({ id, gps = null, geofence = null }) {
   const cfg = window.SUPABASE_CONFIG;
   const headers = { ..._sbHeaders(), Prefer: "return=representation" };
   const patchBody = { clock_out_at: new Date().toISOString() };
-  // Phase 92.24
   if (gps && Number.isFinite(gps.lat) && Number.isFinite(gps.lng)) {
     patchBody.clock_out_lat = gps.lat;
     patchBody.clock_out_lng = gps.lng;
@@ -374,16 +391,75 @@ async function _patchClockOut({ id, gps = null, geofence = null }) {
       patchBody.clock_out_distance_m = haversineMeters(geofence.lat, geofence.lng, gps.lat, gps.lng);
     }
   }
-  const r = await fetch(`${cfg.url}/rest/v1/staff_attendance?id=eq.${encodeURIComponent(id)}`, {
-    method: "PATCH",
-    headers,
-    body: JSON.stringify(patchBody),
-  });
-  if (!r.ok) {
-    const txt = await r.text().catch(() => "");
-    throw new Error(`HTTP ${r.status}: ${txt}`);
+  try {
+    const r = await fetch(`${cfg.url}/rest/v1/staff_attendance?id=eq.${encodeURIComponent(id)}`, {
+      method: "PATCH", headers, body: JSON.stringify(patchBody),
+    });
+    if (!r.ok) {
+      const txt = await r.text().catch(() => "");
+      throw new Error(`HTTP ${r.status}: ${txt}`);
+    }
+    return r.json();
+  } catch (err) {
+    if (OfflineQueue.isOfflineLike(err)) {
+      try {
+        await OfflineQueue.enqueue({ kind: "clockOut", payload: { id, body: patchBody } });
+        const queued = new Error("QUEUED");
+        queued.code = "QUEUED";
+        throw queued;
+      } catch (e2) {
+        if (e2?.code === "QUEUED") throw e2;
+      }
+    }
+    throw err;
   }
-  return r.json();
+}
+
+/**
+ * Phase 92.27: drain queue → POST/PATCH ทุก item — เรียกตอน online กลับมา
+ * @returns {Promise<{ok:number, fail:number}>}
+ */
+export async function syncOfflineQueue() {
+  const cfg = window.SUPABASE_CONFIG;
+  if (!cfg) return { ok: 0, fail: 0 };
+  let items;
+  try { items = await OfflineQueue.listAll(); } catch { return { ok: 0, fail: 0 }; }
+  let ok = 0, fail = 0;
+  const headers = { ..._sbHeaders(), Prefer: "return=minimal" };
+  for (const it of items) {
+    try {
+      let resp;
+      if (it.kind === "clockIn") {
+        resp = await fetch(`${cfg.url}/rest/v1/staff_attendance`, {
+          method: "POST", headers, body: JSON.stringify(it.payload.body),
+        });
+      } else if (it.kind === "clockOut") {
+        resp = await fetch(`${cfg.url}/rest/v1/staff_attendance?id=eq.${encodeURIComponent(it.payload.id)}`, {
+          method: "PATCH", headers, body: JSON.stringify(it.payload.body),
+        });
+      } else {
+        await OfflineQueue.remove(it.id); // unknown kind → drop
+        continue;
+      }
+      // 409 = duplicate (idempotency) — treat as success, drop
+      if (resp.ok || resp.status === 409) {
+        await OfflineQueue.remove(it.id);
+        ok++;
+      } else {
+        await OfflineQueue.bumpAttempt(it.id);
+        fail++;
+      }
+    } catch (_e) {
+      await OfflineQueue.bumpAttempt(it.id);
+      fail++;
+    }
+  }
+  return { ok, fail };
+}
+
+/** count items ใน queue (สำหรับ UI) */
+export async function offlinePendingCount() {
+  try { return await OfflineQueue.count(); } catch { return 0; }
 }
 
 /**
@@ -466,6 +542,21 @@ export async function renderTimeClockPage(ctx) {
   const container = document.getElementById("page-time_clock");
   if (!container) return;
 
+  // Phase 92.27: auto-sync queue ครั้งแรกที่ render — ถ้า online + มี pending
+  // ใช้ flag กัน re-trigger ซ้อนตอน renderTimeClockPage เรียกซ้ำ (after toast)
+  if (typeof navigator !== "undefined" && navigator.onLine !== false && !window._tcSyncing) {
+    window._tcSyncing = true;
+    try {
+      const pending = await offlinePendingCount().catch(() => 0);
+      if (pending > 0) {
+        const { ok } = await syncOfflineQueue();
+        if (ok > 0) showToast?.(`📥 Sync auto: ✅ ${ok} record`);
+      }
+    } finally {
+      window._tcSyncing = false;
+    }
+  }
+
   container.innerHTML = renderSkeleton({ type: "table", count: 4 });
 
   const role = state?.profile?.role || "sales";
@@ -520,6 +611,8 @@ async function _renderManagerView(container, ctx) {
   const profiles = _staffProfiles(ctx.state);
   // Phase 92.25b: shift hours config (default 08-17, override จาก storeInfo)
   const shiftOpts = shiftHoursFromState(ctx.state);
+  // Phase 92.27: pending offline queue count
+  const pendingCount = await offlinePendingCount().catch(() => 0);
 
   const [openSessions, rangeRows] = await Promise.all([
     _fetchAttendance({ openOnly: true }),
@@ -591,6 +684,7 @@ async function _renderManagerView(container, ctx) {
     <div class="panel" style="padding:20px">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px">
         <h3 style="margin:0;flex:1">🕒 ลงเวลาทำงาน <span style="font-size:12px;color:#94a3b8;font-weight:400">(ผู้ดูแลระบบ)</span></h3>
+        ${pendingCount > 0 ? `<button id="tcSyncOfflineBtn" class="btn" style="background:#f59e0b;color:#fff;border:none;padding:6px 12px;border-radius:8px;cursor:pointer;font-size:12px;font-weight:700">📥 Sync ออฟไลน์ (${pendingCount})</button>` : ''}
         <button id="tcRefreshBtn" class="btn light" style="font-size:12px">🔄 รีเฟรช</button>
       </div>
 
@@ -666,6 +760,23 @@ async function _renderManagerView(container, ctx) {
   // ─── Bind events ───────────────────────────────────────────
   document.getElementById("tcRefreshBtn")?.addEventListener("click", () => renderTimeClockPage(ctx));
 
+  // Phase 92.27: manual sync button (visible when pending count > 0)
+  document.getElementById("tcSyncOfflineBtn")?.addEventListener("click", async (ev) => {
+    const btn = ev.currentTarget;
+    if (btn.disabled) return;
+    btn.disabled = true;
+    const orig = btn.textContent;
+    btn.textContent = "⏳ กำลัง sync...";
+    try {
+      const { ok, fail } = await syncOfflineQueue();
+      ctx.showToast?.(`📥 Sync: ✅ ${ok} • ❌ ${fail}`);
+      renderTimeClockPage(ctx);
+    } catch (e) {
+      ctx.showToast?.("Sync ไม่สำเร็จ: " + (e?.message || "unknown"));
+      if (btn.isConnected) { btn.disabled = false; btn.textContent = orig; }
+    }
+  });
+
   document.getElementById("tcClockInBtn")?.addEventListener("click", async (ev) => {
     const btn = ev.currentTarget;
     if (btn.disabled) return;
@@ -683,6 +794,9 @@ async function _renderManagerView(container, ctx) {
     } catch (e) {
       if (e?.code === "ALREADY_OPEN") {
         ctx.showToast?.("⚠️ ผู้ใช้คนนี้ยังมี session เปิดอยู่ — ต้องลงเวลาออกก่อน");
+      } else if (e?.code === "QUEUED") {
+        ctx.showToast?.("📥 ออฟไลน์ — เก็บคิวไว้ จะ sync เมื่อกลับมา online");
+        renderTimeClockPage(ctx);
       } else {
         ctx.showToast?.("บันทึกไม่สำเร็จ: " + (e?.message || "unknown"));
       }
@@ -703,7 +817,12 @@ async function _renderManagerView(container, ctx) {
       ctx.showToast?.("ลงเวลาออกเรียบร้อย ✅");
       renderTimeClockPage(ctx);
     } catch (e) {
-      ctx.showToast?.("บันทึกไม่สำเร็จ: " + (e?.message || "unknown"));
+      if (e?.code === "QUEUED") {
+        ctx.showToast?.("📥 ออฟไลน์ — เก็บคิวไว้ จะ sync เมื่อกลับมา online");
+        renderTimeClockPage(ctx);
+      } else {
+        ctx.showToast?.("บันทึกไม่สำเร็จ: " + (e?.message || "unknown"));
+      }
       if (btn.isConnected) { btn.disabled = false; btn.textContent = orig; }
     }
   }));
@@ -873,6 +992,9 @@ async function _renderSelfView(container, ctx) {
     } catch (e) {
       if (e?.code === "ALREADY_OPEN") {
         ctx.showToast?.("⚠️ คุณยังมี session เปิดอยู่ — ลงเวลาออกก่อน");
+      } else if (e?.code === "QUEUED") {
+        ctx.showToast?.("📥 ออฟไลน์ — เก็บคิวไว้ จะ sync เมื่อกลับมา online");
+        renderTimeClockPage(ctx);
       } else {
         ctx.showToast?.("บันทึกไม่สำเร็จ: " + (e?.message || "unknown"));
       }
@@ -892,7 +1014,12 @@ async function _renderSelfView(container, ctx) {
       ctx.showToast?.("ลงเวลาออกเรียบร้อย ✅");
       renderTimeClockPage(ctx);
     } catch (e) {
-      ctx.showToast?.("บันทึกไม่สำเร็จ: " + (e?.message || "unknown"));
+      if (e?.code === "QUEUED") {
+        ctx.showToast?.("📥 ออฟไลน์ — เก็บคิวไว้ จะ sync เมื่อกลับมา online");
+        renderTimeClockPage(ctx);
+      } else {
+        ctx.showToast?.("บันทึกไม่สำเร็จ: " + (e?.message || "unknown"));
+      }
       if (btn.isConnected) { btn.disabled = false; btn.textContent = orig; }
     }
   });
