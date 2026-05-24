@@ -477,7 +477,10 @@ async function _renderManagerView(container, ctx) {
       "source": r.source,
       "หมายเหตุ": r.notes || "",
     }));
-    exportToExcel?.(data, `attendance_${_mgrFilterFrom}_${_mgrFilterTo}_${todaySuffix?.() || ''}.csv`);
+    // ★ HOTFIX: exportToExcel signature คือ (filename, rows, sheetName) — filename มาก่อน
+    // เดิม `(data, filename)` ทำให้ xlsx เรียก json_to_sheet(filename) → string.forEach undefined → TypeError
+    const filename = `attendance_${_mgrFilterFrom}_${_mgrFilterTo}_${todaySuffix?.() || ''}.xlsx`;
+    exportToExcel?.(filename, data, "Attendance");
   });
 }
 
