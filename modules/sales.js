@@ -164,6 +164,10 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
       console.warn("[sales acct-trace] lookup error:", e?.message);
       res = { ok: false, found: false, status: "error", entry: null };
     }
+    // Phase 92.21: guard race — ถ้า list re-render ระหว่าง await แล้ว btn จะอยู่ orphan
+    // (signal AbortController ถูก trigger จาก parent — handler ก็ยัง run ต่อจน return)
+    // → mutate/replaceWith บน orphan = no-op หรือ throw; bail ทันที (badge ปุ่มใหม่จะมีโผล่หลัง re-render)
+    if (!btn.isConnected) return;
     // แทนปุ่มด้วย badge — found = กดไปสมุดรายวันได้, missing/error = ข้อความชัด (ไม่เงียบ)
     const wrap = document.createElement("span");
     wrap.innerHTML = renderSaleTraceBadge(res, { compact: true });

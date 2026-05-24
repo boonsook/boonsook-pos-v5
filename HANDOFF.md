@@ -3,17 +3,44 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 24 พฤษภาคม 2026 (Phase 92.20 — JV drawer deep-link จาก 3 surfaces, build 275)
-**Version:** 5.47.9 (build 275) — Phase 92.20 (UX feature: ปุ่ม 📒 ทั้ง 3 surface กดแล้วเปิด JV drawer ทันที; additive helper `navigateToJv` + `setPendingJvId`; no posting/money/RLS/SQL change)
-**Previous:** 5.47.8 (build 274) — Phase 92.19 ✅ MERGED (PR #47) + Phase 92.14 verify ✅ CLOSED (PR #49)
+**อัปเดตล่าสุด:** 24 พฤษภาคม 2026 (Phase 92.21 — guard race on async badge handlers, build 276)
+**Version:** 5.47.10 (build 276) — Phase 92.21 (defensive guard `!btn.isConnected` หลัง await ใน sales/audit_log; ปิด GH-scanner race-condition annotations; no behavior change)
+**Previous:** 5.47.9 (build 275) — Phase 92.20 — JV drawer deep-link จาก 3 surfaces (PR #50)
 
-> 🟢 **สถานะ ณ ปัจจุบัน:** Phase 92.20 พร้อม push (lint 0/0, unit 356, e2e จะรันใน CI). Phase 92.14 RLS verify CLOSED. Phase 92.19 CI deploy GREEN. Live = build 274 (จะขึ้นเป็น 275 หลัง PR merge).
-> 🔵 **ค้าง (อิสระจาก deploy):**
-> 1. **Possible race-condition annotations** (GH scanner เตือน [modules/sales.js:170](modules/sales.js:170), [modules/audit_log.js:166](modules/audit_log.js:166) — code จาก 92.17/92.18) — `btn.disabled`/`btn.textContent` หลัง await; ผลกระทบจริงต่ำ (one-shot click + replaceWith) แต่ถ้ามีเฟส harden ค่อยพิจารณา cache btn ref/ใช้ controller token
+> 🟢 **สถานะ ณ ปัจจุบัน:** Phase 92.21 พร้อม push (lint 0/0, unit 356). Live = build 275 (จะขึ้นเป็น 276 หลัง PR merge). **Outstanding ทั้งหมดในรอบ session นี้ปิดครบ** (CI Node-24 / RLS verify / JV deep-link / race guard).
+> 🔵 **ค้าง (อิสระจาก deploy):** _(ไม่มี — outstanding ทั้งหมดปิดในรอบ session นี้)_
 
 ---
 
-## 🔗 Phase 92.20 — JV drawer deep-link from 3 trace surfaces (this session)
+## 🛡️ Phase 92.21 — Guard race on async badge handlers (this session)
+
+**บริบท:** GH scanner (CodeQL) เตือนทุก PR build = "Possible race condition: `btn.disabled`/`btn.textContent` might be assigned based on an outdated state of `btn`" ที่ async badge click handlers ใน sales.js + audit_log.js (code จากเฟส 92.17/92.18). ผลกระทบจริงต่ำมาก (one-shot click + replaceWith) แต่ scanner รบกวน PR review ทุกรอบ + ถ้า list re-render ตอน `await findJournalForSale` pending = mutate orphan node (no-op) หรือ `btn.replaceWith()` throw silently.
+
+### สิ่งที่เพิ่ม (2 ไฟล์, +12/-2)
+- **`modules/sales.js`** (~line 167): ใส่ `if (!btn.isConnected) return;` หลัง try/catch ของ `await findJournalForSale(saleId)` — ก่อน `wrap.innerHTML = renderSaleTraceBadge(...)` + ก่อน `btn.replaceWith(badgeEl)`
+- **`modules/audit_log.js`** (~line 163): pattern เดียวกัน
+
+### ขอบเขต (จงใจ)
+- **No behavior change** สำหรับ flow ปกติ (non-racy) — guard ทำงานเฉพาะเคส list re-render ระหว่าง async lookup
+- **ไม่แตะ** logic ของ `findJournalForSale` / `renderSaleTraceBadge` / `navigateToJv`
+- pattern เดียวกับ "เปิดบิล" handler ที่ [modules/sales.js:147](modules/sales.js:147) (`if (btn.isConnected) btn.disabled = false;`) มีอยู่แล้ว = consistent
+
+### Tests
+ไม่เพิ่ม test ใหม่ — เป็น defensive guard ที่ test ยากใน jsdom (ต้อง simulate list re-render mid-await). Pattern verified แล้วใน production code [modules/sales.js:147](modules/sales.js:147)
+
+### Version sync (4 จุด)
+- `index.html`: `data-app-build="276"`, `main/boot/selfheal/style.css?v=276`
+- `sw.js`: `CACHE_NAME = 'boonsook-pos-v5-cache-v276'` + comment v276
+- `package.json`: `5.47.9 → 5.47.10`
+
+### Gates
+- `npm run lint:errors` exit 0 (clean)
+- `npm test` = **356/356** (ไม่เพิ่ม test ใหม่ — defensive guard)
+- e2e จะรันใน CI
+
+---
+
+## 🔗 Phase 92.20 — JV drawer deep-link from 3 trace surfaces (last session)
 
 **ปัญหาเดิม:** Phase 92.17/92.18 เพิ่มปุ่ม 📒 trace ใน 3 surface (sales list / receipt drawer / audit log) — กดแล้วไปหน้าสมุดรายวันเฉย ๆ ผู้ใช้ต้องเลื่อนหา JV เอง. มี `data-jv-id` พร้อมใน badge อยู่แล้วแต่ยังไม่ใช้.
 

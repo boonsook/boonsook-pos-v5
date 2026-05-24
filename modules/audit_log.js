@@ -160,6 +160,9 @@ export async function renderAuditLogPage(ctx) {
       console.warn("[audit-log acct-trace] lookup error:", e?.message);
       res = { ok: false, found: false, status: "error", entry: null };
     }
+    // Phase 92.21: guard race — ถ้า audit log re-render (filter เปลี่ยน) ระหว่าง await
+    // แล้ว btn จะอยู่ orphan → mutate/replaceWith = no-op หรือ throw; bail ทันที
+    if (!btn.isConnected) return;
     // แทนปุ่มด้วย badge — found=กดไปสมุดรายวัน, missing="ยังไม่ลงบัญชี", error="ตรวจบัญชีไม่ได้" (ไม่เงียบ)
     const wrap = document.createElement("span");
     wrap.innerHTML = renderSaleTraceBadge(res, { compact: true });
