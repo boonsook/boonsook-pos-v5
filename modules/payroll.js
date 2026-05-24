@@ -4,6 +4,8 @@
 // ═══════════════════════════════════════════════════════════
 import { renderSkeleton, renderEmpty, renderError } from "./ui_states.js";
 import { escHtml, exportToExcel, todaySuffix } from "./utils.js";
+// Phase 92.26: ดึงสรุป OT จาก Time Clock มาเติมในช่องค่าล่วงเวลา (auto-fill)
+import { fetchUserAttendanceSummary, shiftHoursFromState } from "./time_clock.js";
 
 let _payrolls = [];
 let _depts = [];
@@ -278,6 +280,29 @@ function _openPayrollModal(ctx, payroll) {
           </div>
         </div>
 
+        <!-- Phase 92.26: ดึงสรุป OT จาก Time Clock — auto-fill ค่าล่วงเวลา -->
+        <div id="prOtFromClockBox" style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:12px 14px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+            <div style="font-weight:700;color:#166534;font-size:13px">🕒 ดึงจาก Time Clock <span style="font-size:11px;font-weight:400;color:#15803d">(ของเดือนนี้)</span></div>
+            <button id="prFetchOtBtn" type="button" style="background:#16a34a;color:#fff;border:none;padding:6px 12px;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">📥 ดึงสรุป</button>
+          </div>
+          <div id="prOtSummary" style="margin-top:8px;font-size:12px;color:#15803d;min-height:18px">— กดปุ่ม "ดึงสรุป" หลังเลือกพนักงาน + เดือน —</div>
+          <div id="prOtCalcRow" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid #bbf7d0">
+            <div style="display:grid;grid-template-columns:repeat(2,1fr) auto;gap:8px;align-items:end">
+              <label>
+                <div style="font-size:11px;color:#15803d;font-weight:600;margin-bottom:3px">ค่า OT / ชม. (บาท)</div>
+                <input id="prOtRate" type="number" step="1" min="0" value="0" style="width:100%;padding:6px 8px;border:1px solid #bbf7d0;border-radius:6px;text-align:right" />
+              </label>
+              <label>
+                <div style="font-size:11px;color:#15803d;font-weight:600;margin-bottom:3px">ตัวคูณ (เช่น 1.5)</div>
+                <input id="prOtMult" type="number" step="0.1" min="0" value="1.5" style="width:100%;padding:6px 8px;border:1px solid #bbf7d0;border-radius:6px;text-align:right" />
+              </label>
+              <button id="prFillOtBtn" type="button" style="background:#15803d;color:#fff;border:none;padding:7px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700">→ เติม</button>
+            </div>
+            <div style="font-size:11px;color:#166534;margin-top:6px"><span id="prOtCalcText">—</span></div>
+          </div>
+        </div>
+
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px">
           <label style="display:block">
             <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:4px">เงินเดือน</div>
@@ -374,6 +399,79 @@ function _openPayrollModal(ctx, payroll) {
   });
   document.getElementById("prDailyRate")?.addEventListener("input", recalcDaily);
   document.getElementById("prDaysWorked")?.addEventListener("input", recalcDaily);
+
+  // Phase 92.26: ดึงสรุป OT จาก Time Clock + auto-fill ค่าล่วงเวลา
+  const fetchOtBtn = document.getElementById("prFetchOtBtn");
+  let _otSummary = null; // เก็บผลล่าสุดเพื่อให้ปุ่ม "เติม" คำนวณซ้ำได้
+  fetchOtBtn?.addEventListener("click", async () => {
+    if (fetchOtBtn.disabled) return;
+    const empId = document.getElementById("prEmp")?.value || "";
+    const periodInput = document.getElementById("prMonth")?.value || ""; // YYYY-MM
+    if (!empId) { _setOtSummaryError("เลือกพนักงานก่อน"); return; }
+    if (!periodInput) { _setOtSummaryError("เลือกรอบเดือนก่อน"); return; }
+    fetchOtBtn.disabled = true;
+    const orig = fetchOtBtn.textContent;
+    fetchOtBtn.textContent = "⏳ กำลังดึง...";
+    // คำนวณ from/to เดือนนั้น (Asia/Bangkok)
+    const fromDate = periodInput + "-01";
+    const [y, mo] = periodInput.split("-").map(Number);
+    const lastDay = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+    const toDate = `${periodInput}-${String(lastDay).padStart(2, "0")}`;
+    try {
+      const shiftOpts = shiftHoursFromState(ctx.state);
+      const summary = await fetchUserAttendanceSummary(empId, fromDate, toDate, shiftOpts);
+      _otSummary = summary;
+      if (summary.error === "NO_TABLE") {
+        _setOtSummaryError("⚠️ ยังไม่ได้ติดตั้ง schema Time Clock");
+      } else {
+        const el = document.getElementById("prOtSummary");
+        if (el) {
+          const openHint = summary.openCount > 0 ? ` <span style="color:#92400e">(+ ${summary.openCount} ยังไม่ออก)</span>` : "";
+          el.innerHTML = `✅ ${summary.records} record • ปกติ <strong>${summary.regular.toFixed(2)}</strong> ชม. • OT <strong style="color:#c2410c">${summary.ot.toFixed(2)}</strong> ชม. ${openHint}`;
+        }
+        // เปิด section คำนวณ + เดา rate จาก daily_rate ของพนักงาน (÷ 8 hr)
+        const calcRow = document.getElementById("prOtCalcRow");
+        if (calcRow) calcRow.style.display = "block";
+        const emp = _profiles.find(p => p.id === empId);
+        const dailyRate = Number(emp?.daily_rate || 0);
+        const guessRate = dailyRate > 0 ? Math.round(dailyRate / 8) : 0;
+        const rateInp = document.getElementById("prOtRate");
+        if (rateInp && Number(rateInp.value) === 0) rateInp.value = guessRate;
+        _recalcOtAmount();
+      }
+    } catch (e) {
+      _setOtSummaryError("ดึงไม่สำเร็จ: " + (e?.message || "unknown"));
+    } finally {
+      if (fetchOtBtn.isConnected) { fetchOtBtn.disabled = false; fetchOtBtn.textContent = orig; }
+    }
+  });
+
+  function _setOtSummaryError(msg) {
+    const el = document.getElementById("prOtSummary");
+    if (el) el.innerHTML = `<span style="color:#dc2626">${escHtml(msg)}</span>`;
+  }
+
+  function _recalcOtAmount() {
+    if (!_otSummary) return;
+    const rate = Number(document.getElementById("prOtRate")?.value || 0);
+    const mult = Number(document.getElementById("prOtMult")?.value || 1.5);
+    const amount = Math.round(_otSummary.ot * rate * mult * 100) / 100;
+    const el = document.getElementById("prOtCalcText");
+    if (el) el.textContent = `${_otSummary.ot.toFixed(2)} ชม. × ${rate} × ${mult} = ${amount.toFixed(2)} บาท`;
+    return amount;
+  }
+  document.getElementById("prOtRate")?.addEventListener("input", _recalcOtAmount);
+  document.getElementById("prOtMult")?.addEventListener("input", _recalcOtAmount);
+
+  document.getElementById("prFillOtBtn")?.addEventListener("click", () => {
+    const amount = _recalcOtAmount();
+    if (amount == null || !_otSummary) return;
+    const otInput = document.getElementById("prOT");
+    if (otInput) {
+      otInput.value = amount.toFixed(2);
+      otInput.dispatchEvent(new Event("input")); // trigger recalc total
+    }
+  });
 
   m.addEventListener("click", e => { if (e.target === m) m.remove(); });
   document.getElementById("prModalCancel")?.addEventListener("click", () => m.remove());
