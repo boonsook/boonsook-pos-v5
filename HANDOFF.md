@@ -3,15 +3,39 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 22 พฤษภาคม 2026 (Phase 92.18 — audit-log accounting trace, build 274)
-**Version:** 5.47.8 (build 274) — Phase 92.18 ✅ **MERGED (PR #45, `6ea14d4`) + DEPLOYED + SMOKE PASSED** (audit-log trace สำหรับลบบิลขาย: เพิ่ม delete_sale log + ปุ่มดูบัญชีในหน้า Audit Log; read-only; no posting/money/RLS/SQL change)
-**Previous:** 5.47.7 (build 273) — Phase 92.17 ✅ MERGED (PR #42) + DEPLOYED + SMOKE PASSED (forward accounting trace: sale list + receipt drawer → JV)
+**อัปเดตล่าสุด:** 24 พฤษภาคม 2026 (Phase 92.19 — bump GH Actions to Node 24-ready, CI-only)
+**Version:** 5.47.8 (build 274) — Phase 92.19 ✅ **MERGED (PR #47) + DEPLOY GREEN** (CI-only chore: checkout v4→v5, setup-node v4→v5, wrangler-action v3→v4, setup-buildx v3→v4; ปิด 2 มิ.ย. 2026 deadline; no runtime/build change, live = 274 ตามเดิม)
+**Previous:** 5.47.8 (build 274) — Phase 92.18 ✅ MERGED (PR #45) + DEPLOYED + SMOKE PASSED (audit-log trace สำหรับลบบิลขาย)
 
-> 🟢 **สถานะ ณ ปัจจุบัน:** live = build 274 / v5.47.8 (Phase 92.18 merged #45 + deployed + smoke ผ่านครบ 7 ข้อ, 22 พ.ค. 2026).
+> 🟢 **สถานะ ณ ปัจจุบัน:** live = build 274 / v5.47.8 (Phase 92.19 merged #47 + deploy เขียวบน Node 24-ready actions, 24 พ.ค. 2026). Phase 92.18 trace ของเก่ายัง intact.
 > 🔵 **ค้าง (อิสระจาก deploy):**
 > 1. รัน read-only verify query ปิดประเด็น journal_entries RLS — ดูท้าย section 92.14
-> 2. **CI deprecation (low, เก็บไว้พิจารณา):** GH Actions เตือน `actions/checkout@v4` + `wrangler-action@v3` รันบน Node 20 → จะถูกบังคับเป็น Node 24 หลัง 2 มิ.ย. 2026 ยังไม่กระทบตอนนี้ ควร bump action versions สักเฟส
-> 3. **UX follow-up (nit, ถ้าจะทำ):** ปุ่ม 📒 trace ทั้ง 3 surface (sales list / receipt drawer / audit log) ตอนกดไป `showRoute("accounting_journals")` หน้ารายวันเฉย ๆ ยังไม่เปิด drawer ของ JV ใบนั้นตรง ๆ — มี `data-jv-id` พร้อมแล้ว ถ้าจะ deep-link ควรทำพร้อมกันทั้ง 3 surface
+> 2. **UX follow-up (nit, ถ้าจะทำ):** ปุ่ม 📒 trace ทั้ง 3 surface (sales list / receipt drawer / audit log) ตอนกดไป `showRoute("accounting_journals")` หน้ารายวันเฉย ๆ ยังไม่เปิด drawer ของ JV ใบนั้นตรง ๆ — มี `data-jv-id` พร้อมแล้ว ถ้าจะ deep-link ควรทำพร้อมกันทั้ง 3 surface
+> 3. **Possible race-condition annotations** (GH scanner เตือน [modules/sales.js:170](modules/sales.js:170), [modules/audit_log.js:166](modules/audit_log.js:166) — code จาก 92.17/92.18) — `btn.disabled`/`btn.textContent` หลัง await; ผลกระทบจริงต่ำ (one-shot click + replaceWith) แต่ถ้ามีเฟส harden ค่อยพิจารณา cache btn ref/ใช้ controller token
+
+---
+
+## 🔧 Phase 92.19 — Bump GH Actions to Node 24-ready majors (this session)
+
+**บริบท:** HANDOFF 92.18 ระบุ "CI deprecation (low)" — GH Actions เตือนว่า `actions/checkout@v4` + `wrangler-action@v3` รัน Node 20 → จะถูกบังคับเป็น Node 24 หลัง **2 มิ.ย. 2026** (เหลือ ~9 วัน) ปล่อยไว้ = CI พังหลัง deadline → block merge/deploy
+
+### สิ่งที่เปลี่ยน (2 ไฟล์, 6 บรรทัด)
+- `.github/workflows/test.yml`: `actions/checkout@v4 → @v5`, `actions/setup-node@v4 → @v5`
+- `.github/workflows/main.yml`: `actions/checkout@v4 → @v5` (x2), `cloudflare/wrangler-action@v3 → @v4`, `docker/setup-buildx-action@v3 → @v4`
+
+### Risk / scope (จงใจ)
+- **CI-only** — ไม่แตะ runtime/app code, ไม่ bump APP_BUILD/version/SW cache (live ยัง build 274 ตามเดิม)
+- **Minimum bump** = เลือก major แรกของแต่ละ action ที่ใช้ Node 24 (ไม่ jump ไป v6/v4.1) เพื่อจำกัด blast radius + rollback ง่าย
+- `wrangler-action@v4` inputs `apiToken`/`accountId`/`command` = identical, `pages deploy` = unchanged (verified จาก official README)
+- **wrangler binary default เป็น v4** (จากเดิม v3) — `pages deploy` รองรับเต็มในทั้งสอง major. ถ้าพบ regression สามารถ pin `wranglerVersion: "3"` กลับได้
+- ไม่แตะ `actions/setup-node` version input (`node-version: "20"` ยังเดิม — `setup-node@v5` action ใช้ Node 24 ภายใน, แต่ runtime project ยัง pin Node 20 ตาม `package.json.engines`)
+
+### Gates
+- `npm run lint:errors` = clean (0 errors) บน local
+- `npm test` = **350/350 pass** บน local
+- CI `Tests` workflow บน PR branch = ✅ success (verify job + e2e 11)
+- CI `Tests` + `Deploy to Cloudflare Pages` บน main หลัง merge = ✅ success ทั้งคู่ (Deploy in 30s, Docker build in 14s — wrangler v4 deploy สำเร็จ first try)
+- Live smoke: `data-app-build="274"`, `main.js?v=274`, `style.css?v=274`, SW `cache-v274` = ตรงตามก่อน merge (ไม่เปลี่ยน — ตามที่ตั้งใจ)
 
 ---
 
