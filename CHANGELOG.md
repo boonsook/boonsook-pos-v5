@@ -7,6 +7,30 @@
 
 ---
 
+## 5.50.0 (build 283) — 2026-05-24 ⏰ Phase 92.25 — OT auto-detect + Admin edit (กะ 08:00-17:00)
+
+- **feat(time_clock) [OT]:** กำหนดกะมาตรฐาน **08:00-17:00** (hardcode รอบนี้) — เวลานอกกะ = OT auto-detect ทันที
+  - เข้า 08:00 ออก 19:00 → ปกติ 9.0 + **OT 2.0** ชม.
+  - เข้า 07:00 ออก 17:00 → ปกติ 9.0 + **OT 1.0** (ก่อนเข้างาน)
+  - เข้า 09:00 ออก 16:00 → ปกติ 7.0 + OT 0
+- **feat(time_clock) [Admin edit]:** ปุ่ม **✏️** ต่อแถวในรายงาน → modal แก้ไข
+  - input datetime-local สำหรับ `clock_in_at` + `clock_out_at` (Bangkok TZ)
+  - textarea หมายเหตุ
+  - Validation: เวลาออกต้องหลังเวลาเข้า
+  - PATCH staff_attendance + **best-effort `logActivity("edit_attendance", ...)`** → audit trail ใน activity_log table (action, entity, summary, metadata.old/new)
+- **Manager report:** เพิ่ม 3 columns — **ปกติ / OT (highlight สีส้ม) / รวม** + sub-total ที่ header section
+- **Self-service week summary:** แสดงแยก 3 ค่า — ปกติ + OT + รวม + ตารางประวัติเพิ่ม column OT
+- **Export Excel:** เพิ่ม 3 columns (ปกติ, OT, รวม)
+- **Pure helpers ใหม่:** `computeRegularOT(row, {startHour:8, endHour:17})` + `sumRegularOT(rows)` + `isoToBangkokInput` + `bangkokInputToIso` (Bangkok TZ conversion สำหรับ datetime-local input)
+- **ไม่หัก break** เที่ยง — ระบบเก็บแค่ clock in/out (payroll จัดการเอง). Settings page (เปลี่ยนชั่วโมงกะ) deferred — hardcode ก่อน
+- **ไม่ต้องรัน SQL migration** — schema เดิมจาก Phase 92.22e พอ
+- tests เพิ่ม +15 (computeRegularOT 12 cases รวม edge: ก่อนเข้า, หลังออก, ครอบ, สั้น, custom shift, นาที, null, corrupted + sumRegularOT 2 + open session). Unit 378 → **393**
+- verify เขียว exit 0 (lint 0/0)
+
+**Build:** 282 → 283; version 5.49.0 → 5.50.0 (minor — user-visible feature: OT calc + admin edit)
+
+---
+
 ## 5.49.0 (build 282) — 2026-05-24 🔄 Phase 92.22e — Pivot Time Clock from staff → profiles
 
 > ⚠️ **DB migration required:** ผู้ดูแลระบบต้องรัน [`supabase-phase92-22e-use-profiles.sql`](supabase-phase92-22e-use-profiles.sql) ใน Supabase SQL Editor ก่อนใช้งานหน้านี้ — ★ **migration นี้ DELETE test data ของ Phase 92.22 (2 records ของ "เจ้าของร้าน")** เป็น breaking change schema

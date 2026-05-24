@@ -3,17 +3,16 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 24 พฤษภาคม 2026 (Phase 92.22e — pivot Time Clock to profiles, build 282)
-**Version:** 5.49.0 (build 282) — Phase 92.22e (refactor: dropdown ดึงจาก state.allProfiles แทน staff; user_id แทน staff_id ใน DB; self-service ใช้ auth.uid() ตรง ๆ ไม่ต้อง email auto-claim)
-**Previous:** 5.48.4 (build 281) — Phase 92.22d — Export CSV signature fix (PR #56)
+**อัปเดตล่าสุด:** 24 พฤษภาคม 2026 (Phase 92.25 — OT auto-detect + Admin edit, build 283)
+**Version:** 5.50.0 (build 283) — Phase 92.25 (กะมาตรฐาน 08:00-17:00 hardcode; เกินกะ=OT auto; admin ✏️ แก้ไขเวลาเข้า/ออก/หมายเหตุ + audit log)
+**Previous:** 5.49.0 (build 282) — Phase 92.22e — pivot to profiles (PR #57)
 
-> 🟡 **สถานะ ณ ปัจจุบัน:** Phase 92.22+92.23 พร้อม push (lint 0/0, unit 380). **ต้องรัน SQL migration ก่อนใช้งานหน้า** — รายละเอียดท้าย section 92.22.
+> 🟢 **สถานะ ณ ปัจจุบัน:** Phase 92.25 พร้อม push (lint 0/0, unit 393). **ไม่ต้องรัน SQL migration** — ใช้ schema เดิมจาก Phase 92.22e
 > 🔵 **ค้าง (อิสระจาก deploy):**
-> 1. **SQL migration ยังไม่รัน** — admin ต้อง paste `supabase-phase92-22-time-clock.sql` ใน Supabase SQL Editor (กล่อง error ในหน้าจะบอก)
-> 2. **Phase 92.24** — GPS geo-fence (cols พร้อมใน schema แล้ว)
-> 3. **Phase 92.25** — Admin edit time entry + OT auto-detect (>8 hrs/day)
-> 4. **Phase 92.26** — Payroll integration (`payroll.ot_hours/ot_amount` link กับ `staff_attendance`)
-> 5. **Phase 92.27** — Offline queue (IndexedDB + idempotency via `client_uuid` ที่ schema มีให้)
+> 1. **Phase 92.24** — GPS geo-fence (schema cols พร้อม)
+> 2. **Phase 92.26** — Payroll integration (auto-fill `payroll.ot_hours/ot_amount` จาก `staff_attendance`)
+> 3. **Phase 92.27** — Offline queue (IndexedDB + idempotency via `client_uuid` ที่ schema มีให้)
+> 4. **Settings page (ถ้าจะทำ):** เปลี่ยนชั่วโมงกะมาตรฐาน (รอบนี้ hardcode 08-17 ใน computeRegularOT — ถ้าต้องการให้กำหนดเองค่อยเพิ่ม settings เฟสหลัง)
 
 ---
 

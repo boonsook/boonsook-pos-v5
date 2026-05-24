@@ -16,7 +16,7 @@
 // ═══════════════════════════════════════════════════════════
 
 import { renderSkeleton, renderEmpty, renderError } from "./ui_states.js";
-import { escHtml, exportToExcel, todaySuffix } from "./utils.js";
+import { escHtml, exportToExcel, todaySuffix, logActivity } from "./utils.js";
 
 const TZ = "Asia/Bangkok";
 
@@ -72,6 +72,57 @@ export function workHours(row) {
 }
 
 /**
+ * คำนวณแยก ชม. ปกติ + ชม. OT จาก 1 record (Phase 92.25)
+ *
+ * Rules (Boonsook กะมาตรฐาน 08:00-17:00):
+ *   - ก่อน startHour (08:00) → OT
+ *   - startHour - endHour (08:00-17:00) → ปกติ
+ *   - หลัง endHour (17:00) → OT
+ *
+ * ★ ไม่หัก break เที่ยง — ระบบเก็บแค่ clock in/out, payroll จัดการแยก
+ *
+ * @param {{clock_in_at:string|null, clock_out_at:string|null, work_date?:string}} row
+ * @param {object} [opts]
+ * @param {number} [opts.startHour=8]
+ * @param {number} [opts.endHour=17]
+ * @returns {{regular:number, ot:number, total:number}} ชม. ปัด 2 ตำแหน่ง
+ */
+export function computeRegularOT(row, opts = {}) {
+  const ZERO = { regular: 0, ot: 0, total: 0 };
+  if (!row?.clock_in_at || !row?.clock_out_at) return ZERO;
+  const inMs  = new Date(row.clock_in_at).getTime();
+  const outMs = new Date(row.clock_out_at).getTime();
+  if (!isFinite(inMs) || !isFinite(outMs) || outMs <= inMs) return ZERO;
+
+  const startHour = Number.isFinite(opts.startHour) ? opts.startHour : 8;
+  const endHour   = Number.isFinite(opts.endHour)   ? opts.endHour   : 17;
+
+  // หา boundary 08:00 / 17:00 ของวันใน Asia/Bangkok (UTC+7 ตลอด ไม่มี DST)
+  const workDate = row.work_date || workDateBangkok(row.clock_in_at);
+  const startMs = _bangkokDateAtHour(workDate, startHour);
+  const endMs   = _bangkokDateAtHour(workDate, endHour);
+
+  // regular = overlap ของ [in,out] กับ [start,end]
+  const regMs = Math.max(0, Math.min(outMs, endMs) - Math.max(inMs, startMs));
+  // ot = ส่วนนอก [start,end] แต่ใน [in,out]
+  const otBefore = Math.max(0, Math.min(outMs, startMs) - inMs);
+  const otAfter  = Math.max(0, outMs - Math.max(inMs, endMs));
+  const otMs = otBefore + otAfter;
+
+  return {
+    regular: Math.round((regMs / 3600000) * 100) / 100,
+    ot:      Math.round((otMs  / 3600000) * 100) / 100,
+    total:   Math.round(((regMs + otMs) / 3600000) * 100) / 100,
+  };
+}
+
+/** epoch ms ของ "workDate เวลา H:00:00 ใน Asia/Bangkok" (UTC+7 ตลอด) */
+function _bangkokDateAtHour(workDate, hour) {
+  const hh = String(Math.max(0, Math.min(23, Math.floor(hour)))).padStart(2, "0");
+  return new Date(`${workDate}T${hh}:00:00+07:00`).getTime();
+}
+
+/**
  * State ของ session ปัจจุบันจาก list rows (เรียงใหม่ → เก่า)
  * @returns {"open"|"closed"|"none"}
  */
@@ -90,6 +141,26 @@ export function sumWorkHours(rows) {
   let total = 0;
   for (const r of rows) total += workHours(r);
   return Math.round(total * 100) / 100;
+}
+
+/**
+ * Aggregate regular + OT จาก rows (Phase 92.25)
+ * @returns {{regular:number, ot:number, total:number}}
+ */
+export function sumRegularOT(rows, opts) {
+  const acc = { regular: 0, ot: 0, total: 0 };
+  if (!Array.isArray(rows)) return acc;
+  for (const r of rows) {
+    const x = computeRegularOT(r, opts);
+    acc.regular += x.regular;
+    acc.ot      += x.ot;
+    acc.total   += x.total;
+  }
+  return {
+    regular: Math.round(acc.regular * 100) / 100,
+    ot:      Math.round(acc.ot      * 100) / 100,
+    total:   Math.round(acc.total   * 100) / 100,
+  };
 }
 
 /**
@@ -190,10 +261,56 @@ async function _patchClockOut({ id }) {
   return r.json();
 }
 
+/**
+ * Phase 92.25: admin edit a single attendance row
+ * @param {number} id - staff_attendance.id
+ * @param {object} body - subset { clock_in_at?, clock_out_at?, notes? }
+ */
+async function _patchAttendance(id, body) {
+  const cfg = window.SUPABASE_CONFIG;
+  const headers = { ..._sbHeaders(), Prefer: "return=representation" };
+  const r = await fetch(`${cfg.url}/rest/v1/staff_attendance?id=eq.${encodeURIComponent(id)}`, {
+    method: "PATCH", headers, body: JSON.stringify(body),
+  });
+  if (!r.ok) {
+    const txt = await r.text().catch(() => "");
+    throw new Error(`HTTP ${r.status}: ${txt}`);
+  }
+  return r.json();
+}
+
 function _authUserId() {
   return window.App?.state?.currentUser?.id
     || window.currentUser?.id
     || null;
+}
+
+// ─── Phase 92.25 helpers: datetime conversion (Bangkok ↔ ISO) ───────
+
+/**
+ * DB ISO (UTC) → input datetime-local string ใน Asia/Bangkok
+ * @param {string|null} iso - "2026-05-24T04:20:00.000Z"
+ * @returns {string} "2026-05-24T11:20" (Bangkok local) หรือ "" ถ้า null
+ */
+export function isoToBangkokInput(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (!isFinite(d.getTime())) return "";
+  // sv-SE format = "YYYY-MM-DD HH:mm:ss" — clean ไม่มี comma
+  return d.toLocaleString("sv-SE", { timeZone: "Asia/Bangkok" })
+    .replace(" ", "T").slice(0, 16);
+}
+
+/**
+ * input datetime-local (assume Bangkok) → UTC ISO string สำหรับ DB
+ * @param {string} localStr - "2026-05-24T11:20"
+ * @returns {string|null}   - "2026-05-24T04:20:00.000Z"
+ */
+export function bangkokInputToIso(localStr) {
+  if (!localStr || typeof localStr !== "string") return null;
+  // Bangkok = UTC+7 ตลอด (ไม่มี DST)
+  const iso = new Date(localStr.length === 16 ? localStr + ":00+07:00" : localStr + "+07:00").toISOString();
+  return iso;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -301,19 +418,28 @@ async function _renderManagerView(container, ctx) {
   const reportRows = rangeRows.map(r => {
     const p = profMap[r.user_id];
     const name = profileDisplayName(p);
-    const hrs = workHours(r);
+    const { regular, ot, total } = computeRegularOT(r);
+    const stillOpen = r.clock_out_at == null;
+    const otCell = stillOpen
+      ? '<span style="color:#94a3b8">—</span>'
+      : (ot > 0
+        ? `<span style="color:#ea580c;font-weight:700">${ot.toFixed(2)}</span>`
+        : `<span style="color:#cbd5e1">0.00</span>`);
     return `
       <tr style="border-bottom:1px solid #f1f5f9">
         <td style="padding:8px 10px">${escHtml(r.work_date)}</td>
         <td style="padding:8px 10px">${escHtml(name)}</td>
         <td style="padding:8px 10px">${timeBangkok(r.clock_in_at)}</td>
         <td style="padding:8px 10px">${timeBangkok(r.clock_out_at)}</td>
-        <td style="padding:8px 10px;text-align:right;font-weight:600">${hrs ? hrs.toFixed(2) : '<span style="color:#94a3b8">— ยังไม่ออก —</span>'}</td>
+        <td style="padding:8px 10px;text-align:right;font-weight:600">${stillOpen ? '<span style="color:#94a3b8">—</span>' : regular.toFixed(2)}</td>
+        <td style="padding:8px 10px;text-align:right">${otCell}</td>
+        <td style="padding:8px 10px;text-align:right;font-weight:700;color:#0f172a">${stillOpen ? '<span style="color:#10b981;font-weight:500">กำลังทำ</span>' : total.toFixed(2)}</td>
         <td style="padding:8px 10px;font-size:11px;color:#64748b">${escHtml(r.source)}</td>
+        <td style="padding:8px 10px;text-align:center"><button class="btn light" data-edit-att-id="${escHtml(String(r.id))}" title="แก้ไขเวลา" style="font-size:11px;padding:4px 10px">✏️</button></td>
       </tr>`;
   }).join("");
 
-  const totalHrs = sumWorkHours(rangeRows);
+  const sumOT = sumRegularOT(rangeRows);
 
   container.innerHTML = `
     <div class="panel" style="padding:20px">
@@ -343,8 +469,12 @@ async function _renderManagerView(container, ctx) {
       <!-- Section 3: รายงาน -->
       <div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
-          <div style="font-weight:700;font-size:14px;flex:1">📊 รายงาน</div>
-          <span style="font-size:11px;color:#64748b">รวม ${totalHrs.toFixed(2)} ชม. (${rangeRows.length} record)</span>
+          <div style="font-weight:700;font-size:14px;flex:1">📊 รายงาน <span style="font-size:11px;color:#94a3b8;font-weight:400">(กะ 08:00-17:00 — เกินเป็น OT)</span></div>
+          <span style="font-size:11px;color:#64748b">
+            ปกติ <strong style="color:#0f172a">${sumOT.regular.toFixed(2)}</strong> +
+            OT <strong style="color:#ea580c">${sumOT.ot.toFixed(2)}</strong> =
+            <strong style="color:#0f172a">${sumOT.total.toFixed(2)}</strong> ชม. (${rangeRows.length} record)
+          </span>
           <button id="tcExportBtn" class="btn light" style="font-size:12px">📥 Export</button>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
@@ -365,12 +495,15 @@ async function _renderManagerView(container, ctx) {
                 <th style="padding:9px 10px;text-align:left">ผู้ใช้</th>
                 <th style="padding:9px 10px;text-align:left;width:80px">เข้า</th>
                 <th style="padding:9px 10px;text-align:left;width:80px">ออก</th>
-                <th style="padding:9px 10px;text-align:right;width:100px">ชม.</th>
-                <th style="padding:9px 10px;text-align:left;width:80px">source</th>
+                <th style="padding:9px 10px;text-align:right;width:80px">ปกติ</th>
+                <th style="padding:9px 10px;text-align:right;width:80px;color:#ea580c">OT</th>
+                <th style="padding:9px 10px;text-align:right;width:80px">รวม</th>
+                <th style="padding:9px 10px;text-align:left;width:70px">source</th>
+                <th style="padding:9px 10px;text-align:center;width:50px"></th>
               </tr>
             </thead>
             <tbody>
-              ${reportRows || `<tr><td colspan="6" style="padding:0">${renderEmpty({
+              ${reportRows || `<tr><td colspan="9" style="padding:0">${renderEmpty({
                 icon: "📅",
                 title: "ไม่มีรายการในช่วงนี้",
                 message: "ลองขยายช่วงวันที่หรือเปลี่ยนตัวกรอง",
@@ -434,16 +567,29 @@ async function _renderManagerView(container, ctx) {
     renderTimeClockPage(ctx);
   });
 
+  // Phase 92.25: admin edit row → open modal
+  document.querySelectorAll("[data-edit-att-id]").forEach(btn => btn.addEventListener("click", () => {
+    const id = btn.dataset.editAttId;
+    const row = rangeRows.find(r => String(r.id) === String(id));
+    if (!row) { ctx.showToast?.("ไม่พบรายการ"); return; }
+    _openEditAttendanceModal(row, profMap, ctx);
+  }));
+
   document.getElementById("tcExportBtn")?.addEventListener("click", () => {
-    const data = rangeRows.map(r => ({
-      "วันที่": r.work_date,
-      "ผู้ใช้": profileDisplayName(profMap[r.user_id]),
-      "เข้างาน": timeBangkok(r.clock_in_at),
-      "ออกงาน": timeBangkok(r.clock_out_at),
-      "ชม.": workHours(r),
-      "source": r.source,
-      "หมายเหตุ": r.notes || "",
-    }));
+    const data = rangeRows.map(r => {
+      const { regular, ot, total } = computeRegularOT(r);
+      return {
+        "วันที่": r.work_date,
+        "ผู้ใช้": profileDisplayName(profMap[r.user_id]),
+        "เข้างาน": timeBangkok(r.clock_in_at),
+        "ออกงาน": timeBangkok(r.clock_out_at),
+        "ปกติ (ชม.)": regular,
+        "OT (ชม.)": ot,
+        "รวม (ชม.)": total,
+        "source": r.source,
+        "หมายเหตุ": r.notes || "",
+      };
+    });
     const filename = `attendance_${_mgrFilterFrom}_${_mgrFilterTo}_${todaySuffix?.() || ''}.xlsx`;
     exportToExcel?.(filename, data, "Attendance");
   });
@@ -479,19 +625,27 @@ async function _renderSelfView(container, ctx) {
 
   const state = clockState(rows);
   const open = state === "open" ? rows[0] : null;
-  const weekHrs = sumWorkHours(rows.filter(r => r.clock_out_at != null));
+  const closedRows = rows.filter(r => r.clock_out_at != null);
+  const weekSummary = sumRegularOT(closedRows);
   const myName = profileDisplayName(me);
   const myRoleTh = ROLE_LABEL_TH[me.role] || me.role || "-";
 
   const historyRows = rows.length
-    ? rows.map(r => `
+    ? rows.map(r => {
+        const stillOpen = r.clock_out_at == null;
+        const { regular, ot, total } = computeRegularOT(r);
+        const otCell = stillOpen ? '—' : (ot > 0 ? `<span style="color:#ea580c;font-weight:700">${ot.toFixed(2)}</span>` : `<span style="color:#cbd5e1">0.00</span>`);
+        return `
         <tr style="border-bottom:1px solid #f1f5f9">
           <td style="padding:8px 10px">${escHtml(r.work_date)}</td>
           <td style="padding:8px 10px">${timeBangkok(r.clock_in_at)}</td>
           <td style="padding:8px 10px">${timeBangkok(r.clock_out_at)}</td>
-          <td style="padding:8px 10px;text-align:right;font-weight:600">${r.clock_out_at ? workHours(r).toFixed(2) : '<span style="color:#10b981">กำลังทำ</span>'}</td>
-        </tr>`).join("")
-    : `<tr><td colspan="4" style="padding:24px;text-align:center;color:#94a3b8">ยังไม่มีประวัติในสัปดาห์นี้</td></tr>`;
+          <td style="padding:8px 10px;text-align:right">${stillOpen ? '<span style="color:#10b981">กำลังทำ</span>' : regular.toFixed(2)}</td>
+          <td style="padding:8px 10px;text-align:right">${otCell}</td>
+          <td style="padding:8px 10px;text-align:right;font-weight:700">${stillOpen ? '—' : total.toFixed(2)}</td>
+        </tr>`;
+      }).join("")
+    : `<tr><td colspan="6" style="padding:24px;text-align:center;color:#94a3b8">ยังไม่มีประวัติในสัปดาห์นี้</td></tr>`;
 
   container.innerHTML = `
     <div class="panel" style="padding:20px;max-width:680px;margin:0 auto">
@@ -516,8 +670,21 @@ async function _renderSelfView(container, ctx) {
       `}
 
       <div style="background:#f8fafc;border-radius:10px;padding:12px;margin-bottom:14px;text-align:center">
-        <div style="font-size:11px;color:#64748b">ชั่วโมงทำงานสัปดาห์นี้ (7 วันล่าสุด)</div>
-        <div style="font-size:22px;font-weight:800;color:#0f172a">${weekHrs.toFixed(2)} <span style="font-size:14px;color:#64748b;font-weight:400">ชม.</span></div>
+        <div style="font-size:11px;color:#64748b">สรุปสัปดาห์นี้ (7 วันล่าสุด) — กะ 08:00-17:00</div>
+        <div style="display:flex;justify-content:center;gap:20px;margin-top:8px;flex-wrap:wrap">
+          <div>
+            <div style="font-size:10px;color:#94a3b8">ปกติ</div>
+            <div style="font-size:18px;font-weight:800;color:#0f172a">${weekSummary.regular.toFixed(2)}</div>
+          </div>
+          <div>
+            <div style="font-size:10px;color:#ea580c">OT</div>
+            <div style="font-size:18px;font-weight:800;color:#ea580c">${weekSummary.ot.toFixed(2)}</div>
+          </div>
+          <div>
+            <div style="font-size:10px;color:#94a3b8">รวม</div>
+            <div style="font-size:18px;font-weight:800;color:#0284c7">${weekSummary.total.toFixed(2)}</div>
+          </div>
+        </div>
       </div>
 
       <div>
@@ -529,7 +696,9 @@ async function _renderSelfView(container, ctx) {
                 <th style="padding:9px 10px;text-align:left">วันที่</th>
                 <th style="padding:9px 10px;text-align:left">เข้า</th>
                 <th style="padding:9px 10px;text-align:left">ออก</th>
-                <th style="padding:9px 10px;text-align:right">ชม.</th>
+                <th style="padding:9px 10px;text-align:right">ปกติ</th>
+                <th style="padding:9px 10px;text-align:right;color:#ea580c">OT</th>
+                <th style="padding:9px 10px;text-align:right">รวม</th>
               </tr>
             </thead>
             <tbody>${historyRows}</tbody>
@@ -573,6 +742,117 @@ async function _renderSelfView(container, ctx) {
     } catch (e) {
       ctx.showToast?.("บันทึกไม่สำเร็จ: " + (e?.message || "unknown"));
       if (btn.isConnected) { btn.disabled = false; btn.textContent = orig; }
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 92.25: Admin edit attendance modal
+// ═══════════════════════════════════════════════════════════
+
+function _openEditAttendanceModal(row, profMap, ctx) {
+  // กัน modal ซ้อน
+  document.getElementById("tcEditModal")?.remove();
+
+  const p = profMap[row.user_id];
+  const userName = profileDisplayName(p);
+  const inputIn  = isoToBangkokInput(row.clock_in_at);
+  const inputOut = isoToBangkokInput(row.clock_out_at);
+
+  const modal = document.createElement("div");
+  modal.id = "tcEditModal";
+  modal.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px";
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:14px;width:100%;max-width:480px;box-shadow:0 10px 40px rgba(0,0,0,.2);overflow:hidden">
+      <div style="padding:16px 20px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div style="font-size:11px;color:#64748b">แก้ไขเวลา</div>
+          <div style="font-weight:800;font-size:16px;color:#0284c7">👤 ${escHtml(userName)}</div>
+          <div style="font-size:12px;color:#64748b">${escHtml(row.work_date)}</div>
+        </div>
+        <button id="tcEditCloseBtn" style="background:#f1f5f9;border:none;width:34px;height:34px;border-radius:8px;cursor:pointer;font-size:18px">×</button>
+      </div>
+      <div style="padding:18px 20px;display:flex;flex-direction:column;gap:14px">
+        <div>
+          <label style="font-size:12px;font-weight:600;color:#475569;display:block;margin-bottom:4px">⏰ เวลาเข้า (Asia/Bangkok)</label>
+          <input type="datetime-local" id="tcEditIn" value="${escHtml(inputIn)}" required style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px" />
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:600;color:#475569;display:block;margin-bottom:4px">🏃 เวลาออก (เว้นว่าง = ยังไม่ออก)</label>
+          <input type="datetime-local" id="tcEditOut" value="${escHtml(inputOut)}" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px" />
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:600;color:#475569;display:block;margin-bottom:4px">📝 หมายเหตุ (ถ้ามี)</label>
+          <textarea id="tcEditNotes" rows="2" placeholder="เช่น แก้ไขเพราะลืมลงเวลาออก" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;resize:vertical">${escHtml(row.notes || "")}</textarea>
+        </div>
+        <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:10px;font-size:11px;color:#92400e">
+          ⚠️ การแก้ไขจะถูกบันทึกใน Audit Log (action=<code>edit_attendance</code>)
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px">
+          <button id="tcEditCancelBtn" class="btn light" style="padding:9px 18px;font-size:13px">ยกเลิก</button>
+          <button id="tcEditSaveBtn" class="btn primary" style="padding:9px 20px;font-size:13px;font-weight:600">💾 บันทึก</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  // close handlers
+  const close = () => modal.remove();
+  modal.addEventListener("click", e => { if (e.target === modal) close(); });
+  document.getElementById("tcEditCloseBtn")?.addEventListener("click", close);
+  document.getElementById("tcEditCancelBtn")?.addEventListener("click", close);
+
+  document.getElementById("tcEditSaveBtn")?.addEventListener("click", async (ev) => {
+    const saveBtn = ev.currentTarget;
+    if (saveBtn.disabled) return;
+    const inputInVal  = document.getElementById("tcEditIn")?.value || "";
+    const inputOutVal = document.getElementById("tcEditOut")?.value || "";
+    const notesVal    = document.getElementById("tcEditNotes")?.value?.trim() || "";
+
+    if (!inputInVal) { ctx.showToast?.("ต้องระบุเวลาเข้างาน"); return; }
+    const newIn  = bangkokInputToIso(inputInVal);
+    const newOut = inputOutVal ? bangkokInputToIso(inputOutVal) : null;
+    if (newOut && new Date(newOut).getTime() <= new Date(newIn).getTime()) {
+      ctx.showToast?.("⚠️ เวลาออกต้องหลังเวลาเข้า");
+      return;
+    }
+
+    saveBtn.disabled = true;
+    const orig = saveBtn.textContent;
+    saveBtn.textContent = "⏳ กำลังบันทึก...";
+
+    // เก็บค่าเก่า + ใหม่สำหรับ audit log
+    const oldVals = {
+      clock_in_at:  row.clock_in_at,
+      clock_out_at: row.clock_out_at,
+      notes:        row.notes || null,
+    };
+    const newVals = {
+      clock_in_at:  newIn,
+      clock_out_at: newOut,
+      notes:        notesVal || null,
+    };
+
+    try {
+      await _patchAttendance(row.id, newVals);
+
+      // Audit log — best-effort, ห้ามทำให้ save fail
+      try {
+        await logActivity("edit_attendance", {
+          entityType: "staff_attendance",
+          entityId: row.id,
+          summary: `แก้ไขเวลาของ ${userName} วันที่ ${row.work_date}`,
+          metadata: { user_id: row.user_id, work_date: row.work_date, old: oldVals, new: newVals },
+        });
+      } catch (_e) { /* swallow */ }
+
+      ctx.showToast?.("บันทึกการแก้ไขเรียบร้อย ✅");
+      close();
+      renderTimeClockPage(ctx);
+    } catch (e) {
+      ctx.showToast?.("บันทึกไม่สำเร็จ: " + (e?.message || "unknown"));
+      if (saveBtn.isConnected) { saveBtn.disabled = false; saveBtn.textContent = orig; }
     }
   });
 }
