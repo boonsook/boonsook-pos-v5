@@ -7,6 +7,18 @@
 
 ---
 
+## 5.53.1 (build 288) — 2026-05-24 🐛 Phase 92.27b HOTFIX — Time Clock dropdown ว่าง
+
+- **fix(time_clock) [Blocking]:** dropdown ใน Manager view แสดง "— ยังไม่มีผู้ใช้ในระบบ —" + ตารางรายงานแสดง user เป็น "—" ทั้งที่ระบบมี 4 user accounts
+- **Root cause:** `state.allProfiles` ถูก load โดย `loadUsers()` ใน main.js ที่ guard ด้วย `requireAdmin()` + trigger เฉพาะตอนเปิด **Settings → ตั้งค่าผู้ใช้งาน**. ถ้า admin เข้า Time Clock ตรง ๆ (โดยไม่เคยเปิด Settings users) → `state.allProfiles` ว่าง → `_staffProfiles(state)` คืน `[]` → dropdown + profMap ว่าง
+- **แก้:** เพิ่ม `_ensureProfilesLoaded(state)` helper — ถ้า `state.allProfiles` ว่าง → fetch จาก `profiles_with_email` VIEW (fallback `profiles` table). เรียกตอนเริ่ม `_renderManagerView` + `_renderSelfView` (best-effort, silent fail). RLS จะ filter เองถ้า role ไม่มีสิทธิ์อ่าน
+- **ไม่แตะ DB / behavior อื่น** — แค่ load data เพิ่มถ้าจำเป็น
+- verify เขียว exit 0 (lint 0/0, unit 416 ไม่เปลี่ยน)
+
+**Build:** 287 → 288; version 5.53.0 → 5.53.1 (patch — blocking UI bug)
+
+---
+
 ## 5.53.0 (build 287) — 2026-05-24 📥 Phase 92.27 — Offline queue (IndexedDB) — เฟสสุดท้ายของ Time Clock series
 
 - **feat(time_clock) [resilience]:** ถ้าเน็ตหลุดตอนกดลงเวลา → ระบบเก็บไว้ใน **IndexedDB queue** + แสดง toast `📥 ออฟไลน์ — เก็บคิวไว้ จะ sync เมื่อกลับมา online` (ไม่ block, ไม่ขาดข้อมูล)

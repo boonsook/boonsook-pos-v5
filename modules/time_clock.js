@@ -259,10 +259,38 @@ function _sbHeaders() {
 
 /**
  * คืน list of profiles ที่ทำงานในร้าน (filter ลูกค้าออก)
- * ★ ใช้ state.allProfiles ตรง ๆ (already loaded ใน boot) — ไม่ต้อง fetch ใหม่
+ * Phase 92.27b: ลบ assumption ว่า state.allProfiles loaded — โหลดเองถ้าว่าง
  */
 function _staffProfiles(state) {
   return (state?.allProfiles || []).filter(p => p && p.role && p.role !== "customer");
+}
+
+/**
+ * Phase 92.27b: ensure state.allProfiles loaded — เพราะ loadUsers() ใน main.js
+ * trigger เฉพาะตอนเปิด Settings → ตั้งค่าผู้ใช้งาน. Time Clock ต้องโหลดเอง
+ * ถ้าไม่ได้ผ่านหน้านั้นมาก่อน. RLS จะ filter เองถ้า role ไม่มีสิทธิ์
+ */
+async function _ensureProfilesLoaded(state) {
+  if (Array.isArray(state?.allProfiles) && state.allProfiles.length > 0) return;
+  const cfg = window.SUPABASE_CONFIG;
+  if (!cfg?.url) return;
+  // ลอง view ที่มี email ก่อน (ถ้ายังไม่ได้รัน SQL ใหม่ fallback profiles)
+  try {
+    let r = await fetch(`${cfg.url}/rest/v1/profiles_with_email?select=*&order=created_at`, {
+      headers: _sbHeaders(),
+    });
+    if (!r.ok) {
+      r = await fetch(`${cfg.url}/rest/v1/profiles?select=*&order=created_at`, {
+        headers: _sbHeaders(),
+      });
+    }
+    if (r.ok) {
+      const data = await r.json();
+      if (state) state.allProfiles = Array.isArray(data) ? data : [];
+    }
+  } catch (_e) {
+    // silent — ถ้า fetch fail ใช้ array ว่างต่อ (UI จะแสดง "ยังไม่มีผู้ใช้")
+  }
 }
 
 /**
@@ -608,6 +636,9 @@ let _mgrFilterTo   = workDateBangkok();
 let _mgrFilterUser = "all";
 
 async function _renderManagerView(container, ctx) {
+  // Phase 92.27b: ensure profiles loaded ก่อน — fix bug ที่ dropdown ว่าง
+  // ถ้า admin ไม่เคยเปิด Settings → ตั้งค่าผู้ใช้งาน
+  await _ensureProfilesLoaded(ctx.state);
   const profiles = _staffProfiles(ctx.state);
   // Phase 92.25b: shift hours config (default 08-17, override จาก storeInfo)
   const shiftOpts = shiftHoursFromState(ctx.state);
@@ -867,6 +898,8 @@ async function _renderManagerView(container, ctx) {
 // ═══════════════════════════════════════════════════════════
 
 async function _renderSelfView(container, ctx) {
+  // Phase 92.27b: ensure profiles loaded (best-effort — self view fallback ใช้ state.profile)
+  await _ensureProfilesLoaded(ctx.state);
   // Phase 92.25b: shift hours config (default 08-17, override จาก storeInfo)
   const shiftOpts = shiftHoursFromState(ctx.state);
   const userId = _authUserId();
