@@ -50,9 +50,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_staff_user_id_unique
 --  2) staff_attendance: ตารางหลัก
 -- ═══════════════════════════════════════════════════════════
 
+-- ★ HOTFIX: staff.id ใน Boonsook prod = uuid (สร้างผ่าน Supabase Dashboard ไม่ใช่ migration)
+-- ดังนั้น staff_id ต้องเป็น uuid (กัน error 42804 ตอน FK)
 CREATE TABLE IF NOT EXISTS public.staff_attendance (
   id              bigserial PRIMARY KEY,
-  staff_id        bigint NOT NULL REFERENCES public.staff(id) ON DELETE RESTRICT,
+  staff_id        uuid NOT NULL REFERENCES public.staff(id) ON DELETE RESTRICT,
 
   -- เวลา (เก็บเป็น timestamptz UTC, แสดงผลแปลง Asia/Bangkok ฝั่ง client)
   work_date       date NOT NULL,                       -- วันที่ทำงาน (Asia/Bangkok)

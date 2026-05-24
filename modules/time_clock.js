@@ -422,7 +422,8 @@ async function _renderManagerView(container, ctx) {
   document.getElementById("tcClockInBtn")?.addEventListener("click", async (ev) => {
     const btn = ev.currentTarget;
     if (btn.disabled) return;
-    const staffId = Number(document.getElementById("tcStaffSelect")?.value);
+    // ★ HOTFIX: staff.id เป็น uuid string — ห้าม Number() (จะเป็น NaN)
+    const staffId = document.getElementById("tcStaffSelect")?.value?.trim() || "";
     const note = document.getElementById("tcNoteInput")?.value?.trim() || null;
     if (!staffId) { ctx.showToast?.("เลือกพนักงานก่อน"); return; }
     btn.disabled = true;
