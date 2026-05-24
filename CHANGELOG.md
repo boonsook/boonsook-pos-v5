@@ -7,6 +7,31 @@
 
 ---
 
+## 5.49.0 (build 282) — 2026-05-24 🔄 Phase 92.22e — Pivot Time Clock from staff → profiles
+
+> ⚠️ **DB migration required:** ผู้ดูแลระบบต้องรัน [`supabase-phase92-22e-use-profiles.sql`](supabase-phase92-22e-use-profiles.sql) ใน Supabase SQL Editor ก่อนใช้งานหน้านี้ — ★ **migration นี้ DELETE test data ของ Phase 92.22 (2 records ของ "เจ้าของร้าน")** เป็น breaking change schema
+
+- **refactor(time_clock) [Pivot]:** User ชี้ว่า Settings → ตั้งค่าผู้ใช้งาน มี **4 user accounts** (gangboo / boonsuk admin1 / sompong / passamon) แต่ Time Clock dropdown ของ Phase 92.22 ดึงจาก `staff` table ที่มีแค่ 1 row → ใช้ไม่ได้กับทุกคน. User เลือก option "Profiles" → refactor ครบทั้ง stack
+- **DB schema change** ([`supabase-phase92-22e-use-profiles.sql`](supabase-phase92-22e-use-profiles.sql)):
+  - `staff_attendance.staff_id (uuid → staff.id)` → **`user_id (uuid → auth.users.id)`**
+  - DELETE FROM staff_attendance (ล้าง test data Phase 92.22)
+  - Indexes rename: `idx_attendance_user_date`, `idx_attendance_one_open_session_user`
+  - RLS policies simpler: `user_id = auth.uid()` (ไม่ต้อง EXISTS subquery บน staff)
+- **modules/time_clock.js fully rewritten:**
+  - `_staffProfiles(state)` ใช้ `state.allProfiles` (already loaded) filter `role !== 'customer'`
+  - body insert + URL filter: `user_id` (ไม่ใช่ staff_id)
+  - Self-service: ใช้ `auth.uid()` ตรง ๆ — **ไม่ต้อง email auto-claim** เพราะ `profile.id = auth.uid()`
+  - Manager dropdown แสดง full_name + role badge (ภาษาไทย)
+  - ลบ `canAutoClaim`, `_findStaffByEmail`, `_claimStaff` (ไม่ใช้แล้ว)
+  - เพิ่ม `profileDisplayName(p)` — fallback `full_name > email prefix > 'ผู้ใช้ใหม่'` (mirror users.js)
+- **modules/staff.js revert:** ลบช่อง "อีเมล" ใน add/edit modal — ไม่จำเป็นแล้ว (`staff.email` + `staff.user_id` ที่ Phase 92.22 เพิ่มยังอยู่ใน DB แต่ Time Clock ไม่ใช้ → dead columns ปลอดภัย)
+- **Tests:** ตัด `canAutoClaim` 7 ตัว / เพิ่ม `profileDisplayName` 5 ตัว. Unit 380 → **378**
+- verify เขียว exit 0 (lint 0/0, unit 378)
+
+**Build:** 281 → 282; version 5.48.4 → 5.49.0 (minor — schema pivot ทำให้ Time Clock ใช้งานได้ครบทุก user)
+
+---
+
 ## 5.48.4 (build 281) — 2026-05-24 🐛 Phase 92.22d — Fix Export CSV TypeError in time_clock
 
 - **fix(time_clock) [Blocking on Export]:** กด "📥 Export CSV" ในหน้าลงเวลาทำงาน → `TypeError: r.forEach is not a function` (xlsx.full.min.js:24). User clock-in/out flow ไม่กระทบ — bug เฉพาะ Export

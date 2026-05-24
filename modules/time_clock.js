@@ -1,26 +1,32 @@
 // ═══════════════════════════════════════════════════════════
-//  modules/time_clock.js — ลงเวลาเข้า-ออกงาน (Phase 92.22 + 92.23)
+//  modules/time_clock.js — ลงเวลาเข้า-ออกงาน (Phase 92.22 + 92.22e)
 //
-//  Role-based render:
-//    - admin/accountant → Manager view: dropdown เลือก staff + ปุ่มเข้า/ออก
-//      + active sessions card + history table + export CSV
-//    - sales/technician (linked to staff via user_id) → Self-service view:
-//      ปุ่มเข้า/ออกของตัวเอง + week history
-//    - role อื่น / staff ไม่ link → กล่องแจ้งว่ายังไม่มีสิทธิ์/รอ admin link
+//  Phase 92.22e: pivot จาก staff → profiles (auth.users)
+//    - dropdown = state.allProfiles (filter role≠customer)
+//    - clock-in stores user_id (auth.uid), ไม่ใช่ staff_id
+//    - self-service ทำงานทันทีสำหรับ user ที่ login (ไม่ต้อง auto-claim email)
 //
-//  DB: ต้องรัน supabase-phase92-22-time-clock.sql ก่อนใช้
-//      (staff_attendance table + staff.user_id/email + RLS policies)
+//  Role-based render (จาก state.profile.role):
+//    - admin       → Manager view: dropdown ทุก user (admin/sales/technician)
+//                    + active sessions card + history report + Export
+//    - sales/tech  → Self-service view: ปุ่มเข้า/ออกของตัวเอง + week history
 //
-//  Auto-claim flow (Phase 92.23):
-//    - user login (เช่น sales role) ครั้งแรก → page นี้ตรวจ
-//      staff WHERE email=auth.email() AND user_id IS NULL → PATCH user_id=auth.uid()
-//    - ครั้งถัดไป staff WHERE user_id=auth.uid() = link แล้ว → self-service view
+//  DB: ต้องรัน supabase-phase92-22e-use-profiles.sql ก่อนใช้
+//      (ALTER staff_attendance: staff_id → user_id; RECREATE indexes/policies)
 // ═══════════════════════════════════════════════════════════
 
 import { renderSkeleton, renderEmpty, renderError } from "./ui_states.js";
 import { escHtml, exportToExcel, todaySuffix } from "./utils.js";
 
 const TZ = "Asia/Bangkok";
+
+// role labels (mirror main.js ROLE_LABELS)
+const ROLE_LABEL_TH = {
+  admin:      "ผู้ดูแลระบบ",
+  technician: "ช่าง",
+  sales:      "พนักงานขาย",
+  customer:   "ลูกค้า",
+};
 
 // ═══════════════════════════════════════════════════════════
 //  Pure helpers (testable, no DOM/network)
@@ -33,20 +39,18 @@ const TZ = "Asia/Bangkok";
  */
 export function workDateBangkok(d) {
   const date = d ? new Date(d) : new Date();
-  // toLocaleDateString ใน th-TH-u-ca-gregory + Asia/Bangkok ให้ปฏิทินสากล + tz ถูก
   return date.toLocaleDateString("en-CA", { timeZone: TZ });
-  // en-CA → "2026-05-24" format โดย default
 }
 
 /**
  * แปลง timestamp เป็น HH:mm (Asia/Bangkok) สำหรับแสดงผล
  * @param {string|Date|null} ts
- * @returns {string} "08:15" หรือ "-" ถ้า null
+ * @returns {string} "08:15" หรือ "-" ถ้า null/invalid
  */
 export function timeBangkok(ts) {
   if (!ts) return "-";
   const d = new Date(ts);
-  if (!isFinite(d.getTime())) return "-"; // Invalid Date guard (Date ctor doesn't throw)
+  if (!isFinite(d.getTime())) return "-";
   try {
     return d.toLocaleTimeString("en-GB", {
       timeZone: TZ, hour: "2-digit", minute: "2-digit"
@@ -69,8 +73,7 @@ export function workHours(row) {
 
 /**
  * State ของ session ปัจจุบันจาก list rows (เรียงใหม่ → เก่า)
- * @param {Array} rows
- * @returns {"open"|"closed"|"none"} open=กำลังเข้าอยู่, closed=ออกแล้ว, none=ยังไม่เคยลง
+ * @returns {"open"|"closed"|"none"}
  */
 export function clockState(rows) {
   if (!Array.isArray(rows) || rows.length === 0) return "none";
@@ -81,8 +84,6 @@ export function clockState(rows) {
 
 /**
  * Sum ชั่วโมงทั้งหมดจาก rows (ใช้กับ week summary)
- * @param {Array} rows
- * @returns {number}
  */
 export function sumWorkHours(rows) {
   if (!Array.isArray(rows)) return 0;
@@ -92,19 +93,16 @@ export function sumWorkHours(rows) {
 }
 
 /**
- * Eligibility ของการ auto-claim staff row ผ่าน email
- * Phase 92.23: ถ้า user login แล้ว แต่ staff row ยังไม่มี user_id → claim ได้
- * @param {{email:string|null, user_id:string|null}} staffRow
- * @param {{email:string|null, id:string|null}} authUser
- * @returns {boolean}
+ * แสดงชื่อ user เป็น display name — full_name > email prefix > "ผู้ใช้ใหม่"
+ * (mirror logic จาก modules/settings/users.js สำหรับ consistency)
+ * @param {{full_name?:string|null, email?:string|null}} profile
+ * @returns {string}
  */
-export function canAutoClaim(staffRow, authUser) {
-  if (!staffRow || !authUser) return false;
-  if (staffRow.user_id) return false; // claim แล้ว
-  if (!authUser.id) return false;
-  if (!staffRow.email || !authUser.email) return false;
-  return String(staffRow.email).trim().toLowerCase()
-    === String(authUser.email).trim().toLowerCase();
+export function profileDisplayName(profile) {
+  if (!profile) return "—";
+  if (profile.full_name && String(profile.full_name).trim()) return String(profile.full_name).trim();
+  if (profile.email) return String(profile.email).split("@")[0];
+  return "ผู้ใช้ใหม่";
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -121,19 +119,18 @@ function _sbHeaders() {
   };
 }
 
-async function _fetchStaffList() {
-  const cfg = window.SUPABASE_CONFIG;
-  const r = await fetch(`${cfg.url}/rest/v1/staff?select=id,name,phone,role,is_active,user_id,email&is_active=eq.true&order=name.asc`, {
-    headers: _sbHeaders(),
-  });
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  return r.json();
+/**
+ * คืน list of profiles ที่ทำงานในร้าน (filter ลูกค้าออก)
+ * ★ ใช้ state.allProfiles ตรง ๆ (already loaded ใน boot) — ไม่ต้อง fetch ใหม่
+ */
+function _staffProfiles(state) {
+  return (state?.allProfiles || []).filter(p => p && p.role && p.role !== "customer");
 }
 
-async function _fetchAttendance({ staffId, fromDate, toDate, openOnly } = {}) {
+async function _fetchAttendance({ userId, fromDate, toDate, openOnly } = {}) {
   const cfg = window.SUPABASE_CONFIG;
   const parts = ["select=*", "order=clock_in_at.desc"];
-  if (staffId)  parts.push(`staff_id=eq.${encodeURIComponent(staffId)}`);
+  if (userId)   parts.push(`user_id=eq.${encodeURIComponent(userId)}`);
   if (fromDate) parts.push(`work_date=gte.${encodeURIComponent(fromDate)}`);
   if (toDate)   parts.push(`work_date=lte.${encodeURIComponent(toDate)}`);
   if (openOnly) parts.push(`clock_out_at=is.null`);
@@ -143,7 +140,6 @@ async function _fetchAttendance({ staffId, fromDate, toDate, openOnly } = {}) {
   });
   if (!r.ok) {
     if (r.status === 404 || r.status === 400) {
-      // table ยังไม่มี → migration ไม่ได้ run
       const err = new Error("NO_TABLE");
       err.code = "NO_TABLE";
       throw err;
@@ -153,11 +149,11 @@ async function _fetchAttendance({ staffId, fromDate, toDate, openOnly } = {}) {
   return r.json();
 }
 
-async function _insertClockIn({ staffId, source = "admin", note, clientUuid }) {
+async function _insertClockIn({ userId, source = "admin", note, clientUuid }) {
   const cfg = window.SUPABASE_CONFIG;
   const headers = { ..._sbHeaders(), Prefer: "return=representation" };
   const body = {
-    staff_id: staffId,
+    user_id: userId,
     work_date: workDateBangkok(),
     source,
     notes: note || null,
@@ -167,7 +163,7 @@ async function _insertClockIn({ staffId, source = "admin", note, clientUuid }) {
     method: "POST", headers, body: JSON.stringify(body),
   });
   if (!r.ok) {
-    // 23505 = unique violation (มี open session อยู่แล้ว)
+    // 23505 unique_violation = ผู้ใช้คนนี้ยังมี open session
     if (r.status === 409) {
       const err = new Error("ALREADY_OPEN");
       err.code = "ALREADY_OPEN";
@@ -194,48 +190,9 @@ async function _patchClockOut({ id }) {
   return r.json();
 }
 
-async function _findMyStaff() {
-  const cfg = window.SUPABASE_CONFIG;
-  const r = await fetch(`${cfg.url}/rest/v1/staff?select=*&user_id=eq.${encodeURIComponent(_authUserId() || "00000000-0000-0000-0000-000000000000")}&limit=1`, {
-    headers: _sbHeaders(),
-  });
-  if (!r.ok) return null;
-  const arr = await r.json();
-  return Array.isArray(arr) && arr[0] ? arr[0] : null;
-}
-
-async function _findStaffByEmail(email) {
-  if (!email) return null;
-  const cfg = window.SUPABASE_CONFIG;
-  const r = await fetch(`${cfg.url}/rest/v1/staff?select=*&email=eq.${encodeURIComponent(email)}&user_id=is.null&limit=1`, {
-    headers: _sbHeaders(),
-  });
-  if (!r.ok) return null;
-  const arr = await r.json();
-  return Array.isArray(arr) && arr[0] ? arr[0] : null;
-}
-
-async function _claimStaff(staffId) {
-  const cfg = window.SUPABASE_CONFIG;
-  const r = await fetch(`${cfg.url}/rest/v1/staff?id=eq.${encodeURIComponent(staffId)}&user_id=is.null`, {
-    method: "PATCH",
-    headers: { ..._sbHeaders(), Prefer: "return=representation" },
-    body: JSON.stringify({ user_id: _authUserId() }),
-  });
-  if (!r.ok) return null;
-  const arr = await r.json();
-  return Array.isArray(arr) && arr[0] ? arr[0] : null;
-}
-
 function _authUserId() {
   return window.App?.state?.currentUser?.id
     || window.currentUser?.id
-    || null;
-}
-
-function _authEmail() {
-  return window.App?.state?.currentUser?.email
-    || window.currentUser?.email
     || null;
 }
 
@@ -244,13 +201,13 @@ function _authEmail() {
 // ═══════════════════════════════════════════════════════════
 
 export async function renderTimeClockPage(ctx) {
-  const { state: _state, showToast } = ctx;
+  const { state, showToast } = ctx;
   const container = document.getElementById("page-time_clock");
   if (!container) return;
 
   container.innerHTML = renderSkeleton({ type: "table", count: 4 });
 
-  const role = _state?.profile?.role || "sales";
+  const role = state?.profile?.role || "sales";
   const isAdmin = role === "admin";
 
   try {
@@ -266,7 +223,7 @@ export async function renderTimeClockPage(ctx) {
           <h3 style="margin:0 0 12px">🕒 ลงเวลาทำงาน</h3>
           ${renderError({
             message: "ยังไม่ได้ติดตั้ง schema",
-            detail: "ผู้ดูแลระบบต้องรันไฟล์ <code>supabase-phase92-22-time-clock.sql</code> ใน Supabase SQL Editor ก่อนใช้งานหน้านี้",
+            detail: "ผู้ดูแลระบบต้องรันไฟล์ <code>supabase-phase92-22-time-clock.sql</code> และ <code>supabase-phase92-22e-use-profiles.sql</code> ใน Supabase SQL Editor ก่อนใช้งาน",
             retryLabel: "ลองอีกครั้ง",
             retryId: "tcRetryBtn",
           })}
@@ -296,43 +253,54 @@ export async function renderTimeClockPage(ctx) {
 
 let _mgrFilterFrom = workDateBangkok();
 let _mgrFilterTo   = workDateBangkok();
-let _mgrFilterStaff = "all";
+let _mgrFilterUser = "all";
 
 async function _renderManagerView(container, ctx) {
-  const [staffList, openSessions, rangeRows] = await Promise.all([
-    _fetchStaffList(),
+  const profiles = _staffProfiles(ctx.state);
+
+  const [openSessions, rangeRows] = await Promise.all([
     _fetchAttendance({ openOnly: true }),
-    _fetchAttendance({ fromDate: _mgrFilterFrom, toDate: _mgrFilterTo,
-      staffId: _mgrFilterStaff !== "all" ? _mgrFilterStaff : null }),
+    _fetchAttendance({
+      fromDate: _mgrFilterFrom,
+      toDate: _mgrFilterTo,
+      userId: _mgrFilterUser !== "all" ? _mgrFilterUser : null,
+    }),
   ]);
 
-  const staffMap = {};
-  staffList.forEach(s => { staffMap[s.id] = s; });
+  // map id → profile (เพื่อแสดงชื่อใน rows)
+  const profMap = {};
+  profiles.forEach(p => { profMap[p.id] = p; });
 
   const openCard = openSessions.length
     ? openSessions.map(s => {
-        const name = staffMap[s.staff_id]?.name || `#${s.staff_id}`;
+        const p = profMap[s.user_id];
+        const name = profileDisplayName(p);
+        const roleTh = ROLE_LABEL_TH[p?.role] || p?.role || "";
         return `
           <div class="tc-open-row" style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;margin-bottom:8px">
             <div>
-              <div style="font-weight:700;color:#065f46">👤 ${escHtml(name)}</div>
+              <div style="font-weight:700;color:#065f46">👤 ${escHtml(name)} ${roleTh ? `<span style="font-size:11px;color:#047857;font-weight:500">· ${escHtml(roleTh)}</span>` : ''}</div>
               <div style="font-size:12px;color:#047857">เข้างาน ${timeBangkok(s.clock_in_at)} • ${escHtml(s.source)}</div>
             </div>
             <button class="btn" data-clock-out-id="${s.id}" style="background:#ef4444;color:#fff;border:none;padding:6px 14px;border-radius:8px;cursor:pointer;font-weight:600">🏃 ลงเวลาออก</button>
           </div>`;
       }).join("")
-    : `<div style="text-align:center;color:#94a3b8;padding:20px;font-size:13px">— ยังไม่มีพนักงานเข้างาน —</div>`;
+    : `<div style="text-align:center;color:#94a3b8;padding:20px;font-size:13px">— ยังไม่มีผู้ใช้เข้างาน —</div>`;
 
-  const staffOptions = staffList.map(s =>
-    `<option value="${s.id}">${escHtml(s.name)} ${s.role ? `(${escHtml(s.role)})` : ''}</option>`
-  ).join("");
+  const userOptions = profiles.map(p => {
+    const name = profileDisplayName(p);
+    const roleTh = ROLE_LABEL_TH[p.role] || p.role;
+    return `<option value="${escHtml(p.id)}">${escHtml(name)} (${escHtml(roleTh)})</option>`;
+  }).join("");
 
-  const filterStaffOptions = `<option value="all">ทุกคน</option>` + staffList.map(s =>
-    `<option value="${s.id}" ${String(_mgrFilterStaff) === String(s.id) ? 'selected' : ''}>${escHtml(s.name)}</option>`
-  ).join("");
+  const filterUserOptions = `<option value="all">ทุกคน</option>` + profiles.map(p => {
+    const name = profileDisplayName(p);
+    return `<option value="${escHtml(p.id)}" ${String(_mgrFilterUser) === String(p.id) ? 'selected' : ''}>${escHtml(name)}</option>`;
+  }).join("");
 
   const reportRows = rangeRows.map(r => {
-    const name = staffMap[r.staff_id]?.name || `#${r.staff_id}`;
+    const p = profMap[r.user_id];
+    const name = profileDisplayName(p);
     const hrs = workHours(r);
     return `
       <tr style="border-bottom:1px solid #f1f5f9">
@@ -362,10 +330,10 @@ async function _renderManagerView(container, ctx) {
 
       <!-- Section 2: ลงเวลาเข้างาน -->
       <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px;margin-bottom:18px">
-        <div style="font-weight:700;font-size:14px;margin-bottom:10px">➕ ลงเวลาเข้างาน (กดให้พนักงาน)</div>
+        <div style="font-weight:700;font-size:14px;margin-bottom:10px">➕ ลงเวลาเข้างาน (กดให้ผู้ใช้)</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-          <select id="tcStaffSelect" style="flex:1;min-width:200px;padding:8px 10px;border-radius:8px;border:1px solid #cbd5e1">
-            ${staffOptions}
+          <select id="tcUserSelect" style="flex:1;min-width:200px;padding:8px 10px;border-radius:8px;border:1px solid #cbd5e1">
+            ${userOptions || '<option value="">— ยังไม่มีผู้ใช้ในระบบ —</option>'}
           </select>
           <input id="tcNoteInput" placeholder="หมายเหตุ (ถ้ามี)" style="flex:1;min-width:160px;padding:8px 10px;border-radius:8px;border:1px solid #cbd5e1" />
           <button id="tcClockInBtn" class="btn primary" style="padding:8px 18px">✅ บันทึกเข้างาน</button>
@@ -377,15 +345,15 @@ async function _renderManagerView(container, ctx) {
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
           <div style="font-weight:700;font-size:14px;flex:1">📊 รายงาน</div>
           <span style="font-size:11px;color:#64748b">รวม ${totalHrs.toFixed(2)} ชม. (${rangeRows.length} record)</span>
-          <button id="tcExportBtn" class="btn light" style="font-size:12px">📥 Export CSV</button>
+          <button id="tcExportBtn" class="btn light" style="font-size:12px">📥 Export</button>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
           <label style="font-size:12px;color:#64748b">จาก</label>
           <input type="date" id="tcFilterFrom" value="${escHtml(_mgrFilterFrom)}" style="padding:6px 8px;border-radius:6px;border:1px solid #cbd5e1" />
           <label style="font-size:12px;color:#64748b">ถึง</label>
           <input type="date" id="tcFilterTo" value="${escHtml(_mgrFilterTo)}" style="padding:6px 8px;border-radius:6px;border:1px solid #cbd5e1" />
-          <select id="tcFilterStaff" style="padding:6px 10px;border-radius:6px;border:1px solid #cbd5e1">
-            ${filterStaffOptions}
+          <select id="tcFilterUser" style="padding:6px 10px;border-radius:6px;border:1px solid #cbd5e1">
+            ${filterUserOptions}
           </select>
           <button id="tcApplyFilter" class="btn light" style="font-size:12px">🔍 ค้นหา</button>
         </div>
@@ -394,7 +362,7 @@ async function _renderManagerView(container, ctx) {
             <thead>
               <tr style="background:#f1f5f9;border-bottom:2px solid #e2e8f0">
                 <th style="padding:9px 10px;text-align:left;width:100px">วันที่</th>
-                <th style="padding:9px 10px;text-align:left">พนักงาน</th>
+                <th style="padding:9px 10px;text-align:left">ผู้ใช้</th>
                 <th style="padding:9px 10px;text-align:left;width:80px">เข้า</th>
                 <th style="padding:9px 10px;text-align:left;width:80px">ออก</th>
                 <th style="padding:9px 10px;text-align:right;width:100px">ชม.</th>
@@ -422,20 +390,19 @@ async function _renderManagerView(container, ctx) {
   document.getElementById("tcClockInBtn")?.addEventListener("click", async (ev) => {
     const btn = ev.currentTarget;
     if (btn.disabled) return;
-    // ★ HOTFIX: staff.id เป็น uuid string — ห้าม Number() (จะเป็น NaN)
-    const staffId = document.getElementById("tcStaffSelect")?.value?.trim() || "";
+    const userId = document.getElementById("tcUserSelect")?.value?.trim() || "";
     const note = document.getElementById("tcNoteInput")?.value?.trim() || null;
-    if (!staffId) { ctx.showToast?.("เลือกพนักงานก่อน"); return; }
+    if (!userId) { ctx.showToast?.("เลือกผู้ใช้ก่อน"); return; }
     btn.disabled = true;
     const orig = btn.textContent;
     btn.textContent = "⏳ บันทึก...";
     try {
-      await _insertClockIn({ staffId, source: "admin", note });
+      await _insertClockIn({ userId, source: "admin", note });
       ctx.showToast?.("ลงเวลาเข้างานเรียบร้อย ✅");
       renderTimeClockPage(ctx);
     } catch (e) {
       if (e?.code === "ALREADY_OPEN") {
-        ctx.showToast?.("⚠️ พนักงานคนนี้ยังมี session เปิดอยู่ — ต้องลงเวลาออกก่อน");
+        ctx.showToast?.("⚠️ ผู้ใช้คนนี้ยังมี session เปิดอยู่ — ต้องลงเวลาออกก่อน");
       } else {
         ctx.showToast?.("บันทึกไม่สำเร็จ: " + (e?.message || "unknown"));
       }
@@ -463,75 +430,58 @@ async function _renderManagerView(container, ctx) {
   document.getElementById("tcApplyFilter")?.addEventListener("click", () => {
     _mgrFilterFrom = document.getElementById("tcFilterFrom")?.value || _mgrFilterFrom;
     _mgrFilterTo   = document.getElementById("tcFilterTo")?.value   || _mgrFilterTo;
-    _mgrFilterStaff = document.getElementById("tcFilterStaff")?.value || "all";
+    _mgrFilterUser = document.getElementById("tcFilterUser")?.value || "all";
     renderTimeClockPage(ctx);
   });
 
   document.getElementById("tcExportBtn")?.addEventListener("click", () => {
     const data = rangeRows.map(r => ({
       "วันที่": r.work_date,
-      "พนักงาน": staffMap[r.staff_id]?.name || `#${r.staff_id}`,
+      "ผู้ใช้": profileDisplayName(profMap[r.user_id]),
       "เข้างาน": timeBangkok(r.clock_in_at),
       "ออกงาน": timeBangkok(r.clock_out_at),
       "ชม.": workHours(r),
       "source": r.source,
       "หมายเหตุ": r.notes || "",
     }));
-    // ★ HOTFIX: exportToExcel signature คือ (filename, rows, sheetName) — filename มาก่อน
-    // เดิม `(data, filename)` ทำให้ xlsx เรียก json_to_sheet(filename) → string.forEach undefined → TypeError
     const filename = `attendance_${_mgrFilterFrom}_${_mgrFilterTo}_${todaySuffix?.() || ''}.xlsx`;
     exportToExcel?.(filename, data, "Attendance");
   });
 }
 
 // ═══════════════════════════════════════════════════════════
-//  Self-service view (sales/technician + linked staff)
+//  Self-service view (sales/technician — ของตัวเอง)
 // ═══════════════════════════════════════════════════════════
 
-/**
- * หา staff row ของ user ปัจจุบัน — ถ้ายังไม่ link พยายาม auto-claim ผ่าน email
- * @returns {Promise<object|null>} staff row หรือ null ถ้าไม่ผูกได้
- */
-async function _resolveStaffForCurrentUser(ctx) {
-  const direct = await _findMyStaff();
-  if (direct) return direct;
-
-  // Auto-claim (Phase 92.23) — ค้น staff ที่ email ตรงกับ auth user + ยังไม่มี user_id
-  const email = _authEmail();
-  if (!email) return null;
-  const candidate = await _findStaffByEmail(email);
-  if (!candidate || !canAutoClaim(candidate, { email, id: _authUserId() })) return null;
-  const claimed = await _claimStaff(candidate.id);
-  if (claimed) {
-    ctx?.showToast?.("✅ ผูกบัญชีกับพนักงาน " + claimed.name + " แล้ว");
-  }
-  return claimed || null;
-}
-
 async function _renderSelfView(container, ctx) {
-  // 1) หา staff row (ลอง direct lookup + auto-claim ใน 1 helper)
-  const me = await _resolveStaffForCurrentUser(ctx);
-
-  if (!me) {
+  const userId = _authUserId();
+  if (!userId) {
     container.innerHTML = `
       <div class="panel" style="padding:24px;max-width:520px;margin:0 auto">
         <h3 style="margin:0 0 12px">🕒 ลงเวลาทำงาน</h3>
         <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:10px;padding:14px;color:#92400e;font-size:14px">
-          <div style="font-weight:700;margin-bottom:6px">⚠️ ยังไม่มีสิทธิ์ใช้งาน</div>
-          <div>บัญชีของคุณ (${escHtml(_authEmail() || '-')}) ยังไม่ผูกกับพนักงานคนใด — ติดต่อผู้ดูแลระบบให้ตั้งค่า email ของคุณในข้อมูลพนักงานก่อน</div>
+          <div style="font-weight:700;margin-bottom:6px">⚠️ ยังไม่ได้ login</div>
+          <div>กรุณา login ก่อนใช้งานหน้านี้</div>
         </div>
       </div>`;
     return;
   }
 
-  // 3) Fetch attendance ของตัวเอง 7 วันล่าสุด
+  // หา profile ของตัวเอง (จาก state — ไม่ fetch)
+  const me = (ctx.state?.allProfiles || []).find(p => p.id === userId)
+    || ctx.state?.profile
+    || { id: userId, email: ctx.state?.currentUser?.email || "" };
+
+  // Fetch attendance ของตัวเอง 7 วันล่าสุด
   const today = workDateBangkok();
   const weekAgo = workDateBangkok(new Date(Date.now() - 7 * 24 * 3600 * 1000));
-  const rows = await _fetchAttendance({ staffId: me.id, fromDate: weekAgo, toDate: today });
+  const rows = await _fetchAttendance({ userId, fromDate: weekAgo, toDate: today });
 
   const state = clockState(rows);
   const open = state === "open" ? rows[0] : null;
   const weekHrs = sumWorkHours(rows.filter(r => r.clock_out_at != null));
+  const myName = profileDisplayName(me);
+  const myRoleTh = ROLE_LABEL_TH[me.role] || me.role || "-";
 
   const historyRows = rows.length
     ? rows.map(r => `
@@ -546,9 +496,9 @@ async function _renderSelfView(container, ctx) {
   container.innerHTML = `
     <div class="panel" style="padding:20px;max-width:680px;margin:0 auto">
       <div style="text-align:center;margin-bottom:18px">
-        <div style="font-size:11px;color:#94a3b8">พนักงาน</div>
-        <div style="font-size:20px;font-weight:800;color:#0284c7">👤 ${escHtml(me.name)}</div>
-        <div style="font-size:12px;color:#64748b">${escHtml(me.role || '-')}${me.phone ? ' • ' + escHtml(me.phone) : ''}</div>
+        <div style="font-size:11px;color:#94a3b8">ผู้ใช้งาน</div>
+        <div style="font-size:20px;font-weight:800;color:#0284c7">👤 ${escHtml(myName)}</div>
+        <div style="font-size:12px;color:#64748b">${escHtml(myRoleTh)}${me.email ? ' • ' + escHtml(me.email) : ''}</div>
       </div>
 
       ${state === "open" ? `
@@ -597,7 +547,7 @@ async function _renderSelfView(container, ctx) {
     const orig = btn.textContent;
     btn.textContent = "⏳ บันทึก...";
     try {
-      await _insertClockIn({ staffId: me.id, source: "self" });
+      await _insertClockIn({ userId, source: "self" });
       ctx.showToast?.("ลงเวลาเข้างานเรียบร้อย ✅");
       renderTimeClockPage(ctx);
     } catch (e) {

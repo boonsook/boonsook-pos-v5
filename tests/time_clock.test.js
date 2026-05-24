@@ -1,6 +1,6 @@
-// Phase 92.22 — Unit tests for modules/time_clock.js pure helpers
+// Phase 92.22 + 92.22e — Unit tests for modules/time_clock.js pure helpers
 // Covers: workDateBangkok (TZ correctness), timeBangkok, workHours,
-//         clockState, sumWorkHours, canAutoClaim (case-insensitive, null-safe)
+//         clockState, sumWorkHours, profileDisplayName (fallback chain)
 // Run: npm test
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -11,7 +11,7 @@ const {
   workHours,
   clockState,
   sumWorkHours,
-  canAutoClaim,
+  profileDisplayName,
 } = await import("../modules/time_clock.js");
 
 // ── workDateBangkok ─────────────────────────────────────────
@@ -130,46 +130,27 @@ test("sumWorkHours — non-array → 0 (defensive)", () => {
   assert.equal(sumWorkHours({}), 0);
 });
 
-// ── canAutoClaim (Phase 92.23) ──────────────────────────────
+// ── profileDisplayName (Phase 92.22e) ───────────────────────
 
-test("canAutoClaim — matching email + no existing user_id → true", () => {
-  const staff = { email: "somchai@example.com", user_id: null };
-  const auth  = { email: "somchai@example.com", id: "abc-123" };
-  assert.equal(canAutoClaim(staff, auth), true);
+test("profileDisplayName — full_name present → use it (trimmed)", () => {
+  assert.equal(profileDisplayName({ full_name: "  สมชาย ใจดี  ", email: "s@x.com" }), "สมชาย ใจดี");
 });
 
-test("canAutoClaim — case-insensitive + trim", () => {
-  const staff = { email: "  Somchai@Example.com  ", user_id: null };
-  const auth  = { email: "SOMCHAI@example.com", id: "abc-123" };
-  assert.equal(canAutoClaim(staff, auth), true);
+test("profileDisplayName — empty full_name → fall back to email prefix", () => {
+  assert.equal(profileDisplayName({ full_name: "", email: "john.doe@example.com" }), "john.doe");
+  assert.equal(profileDisplayName({ full_name: "   ", email: "alice@example.com" }), "alice");
 });
 
-test("canAutoClaim — staff already claimed (user_id set) → false (no re-claim)", () => {
-  const staff = { email: "somchai@example.com", user_id: "old-user" };
-  const auth  = { email: "somchai@example.com", id: "new-user" };
-  assert.equal(canAutoClaim(staff, auth), false);
+test("profileDisplayName — only email → email prefix", () => {
+  assert.equal(profileDisplayName({ email: "bob@example.com" }), "bob");
 });
 
-test("canAutoClaim — email mismatch → false", () => {
-  const staff = { email: "somchai@example.com", user_id: null };
-  const auth  = { email: "other@example.com", id: "abc-123" };
-  assert.equal(canAutoClaim(staff, auth), false);
+test("profileDisplayName — no full_name + no email → 'ผู้ใช้ใหม่'", () => {
+  assert.equal(profileDisplayName({}), "ผู้ใช้ใหม่");
+  assert.equal(profileDisplayName({ full_name: null, email: null }), "ผู้ใช้ใหม่");
 });
 
-test("canAutoClaim — missing email on either side → false", () => {
-  assert.equal(canAutoClaim({ email: null, user_id: null }, { email: "x@y.com", id: "a" }), false);
-  assert.equal(canAutoClaim({ email: "x@y.com", user_id: null }, { email: null, id: "a" }), false);
-  assert.equal(canAutoClaim({ email: "", user_id: null }, { email: "x@y.com", id: "a" }), false);
-});
-
-test("canAutoClaim — missing auth.id → false (cannot claim without target user)", () => {
-  const staff = { email: "x@y.com", user_id: null };
-  const auth  = { email: "x@y.com", id: null };
-  assert.equal(canAutoClaim(staff, auth), false);
-});
-
-test("canAutoClaim — null inputs → false (never throws)", () => {
-  assert.equal(canAutoClaim(null, null), false);
-  assert.equal(canAutoClaim(null, { email: "x@y.com", id: "a" }), false);
-  assert.equal(canAutoClaim({ email: "x@y.com", user_id: null }, null), false);
+test("profileDisplayName — null/undefined profile → '—' (never crash)", () => {
+  assert.equal(profileDisplayName(null), "—");
+  assert.equal(profileDisplayName(undefined), "—");
 });
