@@ -3,9 +3,9 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 24 พฤษภาคม 2026 (Phase 92.25b — Settings shift hours, build 284)
-**Version:** 5.50.1 (build 284) — Phase 92.25b (Settings → ข้อมูลร้านค้า เพิ่ม "ชั่วโมงทำงานกะ" ให้ admin ตั้งเอง — Time Clock OT calc อ่านจาก storeInfo, default 08-17)
-**Previous:** 5.50.0 (build 283) — Phase 92.25 — OT + Admin edit (PR #58)
+**อัปเดตล่าสุด:** 24 พฤษภาคม 2026 (Phase 92.26 — Payroll OT auto-fill, build 285)
+**Version:** 5.51.0 (build 285) — Phase 92.26 (modal payroll เพิ่ม section ดึงจาก Time Clock → คำนวณค่า OT × rate × multiplier → เติมช่อง ค่าล่วงเวลา)
+**Previous:** 5.50.1 (build 284) — Phase 92.25b — shift hours Settings (PR #59)
 
 > 🟢 **สถานะ ณ ปัจจุบัน:** Phase 92.25 พร้อม push (lint 0/0, unit 393). **ไม่ต้องรัน SQL migration** — ใช้ schema เดิมจาก Phase 92.22e
 > 🔵 **ค้าง (อิสระจาก deploy):**

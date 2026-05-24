@@ -262,6 +262,33 @@ async function _insertClockIn({ userId, source = "admin", note, clientUuid }) {
   return r.json();
 }
 
+/**
+ * Phase 92.26: ดึงสรุป attendance ของ user หนึ่งคนใน period (สำหรับ payroll integration)
+ * @param {string} userId - auth.users.id
+ * @param {string} fromDate - YYYY-MM-DD
+ * @param {string} toDate   - YYYY-MM-DD
+ * @param {object} [shiftOpts] - {startHour, endHour}
+ * @returns {Promise<{regular:number, ot:number, total:number, records:number, openCount:number}>}
+ */
+export async function fetchUserAttendanceSummary(userId, fromDate, toDate, shiftOpts) {
+  if (!userId || !fromDate || !toDate) {
+    return { regular: 0, ot: 0, total: 0, records: 0, openCount: 0 };
+  }
+  let rows;
+  try {
+    rows = await _fetchAttendance({ userId, fromDate, toDate });
+  } catch (e) {
+    if (e?.code === "NO_TABLE") {
+      return { regular: 0, ot: 0, total: 0, records: 0, openCount: 0, error: "NO_TABLE" };
+    }
+    throw e;
+  }
+  const closed = rows.filter(r => r.clock_out_at != null);
+  const openCount = rows.length - closed.length;
+  const sum = sumRegularOT(closed, shiftOpts);
+  return { ...sum, records: closed.length, openCount };
+}
+
 async function _patchClockOut({ id }) {
   const cfg = window.SUPABASE_CONFIG;
   const headers = { ..._sbHeaders(), Prefer: "return=representation" };

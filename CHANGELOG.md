@@ -7,6 +7,22 @@
 
 ---
 
+## 5.51.0 (build 285) — 2026-05-24 💰 Phase 92.26 — Payroll integration (OT auto-fill จาก Time Clock)
+
+- **feat(payroll) [integration]:** modal เพิ่ม/แก้รายการเงินเดือน — เพิ่ม section **"🕒 ดึงจาก Time Clock"**
+- กดปุ่ม **📥 ดึงสรุป** หลังเลือกพนักงาน + รอบเดือน → fetch attendance รวม regular/OT ชม. ในเดือนนั้น (Asia/Bangkok, ใช้ shift hours จาก storeInfo)
+- แสดงสรุป: `✅ X record • ปกติ 0.00 ชม. • OT 0.00 ชม.` (+ hint ถ้ามี open session ยังไม่ออก)
+- คำนวณ: **ค่า OT/ชม. × ตัวคูณ (default 1.5) = บาท** → ปุ่ม "→ เติม" ลงช่อง "ค่าล่วงเวลา" ตรงๆ (auto-trigger recalc total)
+- เดา rate จาก `daily_rate÷8` ถ้าพนักงานมี — admin override ได้
+- **feat(time_clock) [helper]:** export `fetchUserAttendanceSummary(userId, fromDate, toDate, shiftOpts)` → `{regular, ot, total, records, openCount}` — reuse `_fetchAttendance` + `sumRegularOT`, graceful `NO_TABLE` error
+- **ไม่แตะ DB** — payroll table มี field `overtime` (บาท) อยู่แล้ว, ใช้ field เดิม
+- ไม่กระทบ flow บันทึก/calc รวมสุทธิ — แค่ช่วยกรอกตัวเลข
+- verify เขียว exit 0 (lint 0/0, unit 398)
+
+**Build:** 284 → 285; version 5.50.1 → 5.51.0 (minor — feature ใหม่)
+
+---
+
 ## 5.50.1 (build 284) — 2026-05-24 ⚙️ Phase 92.25b — Settings page ชั่วโมงทำงานกะ
 
 - **feat(settings/store) [UI]:** เพิ่ม section "🕒 ชั่วโมงทำงาน" ในหน้า ตั้งค่า → ข้อมูลร้านค้า — admin ตั้ง startHour/endHour เอง (default 08-17)
