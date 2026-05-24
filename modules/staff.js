@@ -239,6 +239,13 @@ async function openModal(staffId = null) {
           style="${inputStyle()}">
       </div>
       <div>
+        <label class="field-label">อีเมล (สำหรับ self-service ลงเวลา)</label>
+        <input type="email" id="sf-email" value="${escHtml(existing?.email||'')}"
+          placeholder="เช่น somchai@example.com"
+          style="${inputStyle()}">
+        <div style="font-size:11px;color:#aaa;margin-top:4px">Phase 92.23: ใส่อีเมลตรงกับบัญชี Supabase Auth ของพนักงาน → ระบบจะผูกอัตโนมัติเมื่อ login ครั้งแรก เพื่อใช้หน้าลงเวลา</div>
+      </div>
+      <div>
         <label class="field-label">บทบาท *</label>
         <select id="sf-role" style="${inputStyle()}">
           <option value="staff"      ${existing?.role==='staff'      ?'selected':''}>👤 พนักงานขาย — pos, ลูกค้า, เอกสาร</option>
@@ -283,6 +290,7 @@ async function openModal(staffId = null) {
     e.preventDefault();
     const name  = document.getElementById('sf-name').value.trim();
     const phone = document.getElementById('sf-phone').value.trim();
+    const email = document.getElementById('sf-email')?.value.trim() || '';
     const role  = document.getElementById('sf-role').value;
     const pin   = document.getElementById('sf-pin')?.value || null;
     const errEl = document.getElementById('sf-err');
@@ -291,13 +299,14 @@ async function openModal(staffId = null) {
     if (!name) return showErr(errEl, 'กรุณาใส่ชื่อพนักงาน');
     if (!existing && !pin) return showErr(errEl, 'กรุณาใส่ PIN');
     if (pin && !/^\d{4}$/.test(pin)) return showErr(errEl, 'PIN ต้องเป็นตัวเลข 4 หลักเท่านั้น');
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return showErr(errEl, 'รูปแบบอีเมลไม่ถูกต้อง');
 
     errEl.style.display = 'none';
     const btn = document.getElementById('sf-submit');
     btn.disabled = true;
     btn.textContent = 'กำลังบันทึก...';
 
-    const payload = { name, phone: phone || null, role };
+    const payload = { name, phone: phone || null, role, email: email || null };
     if (pin) payload.pin = pin;
 
     try {

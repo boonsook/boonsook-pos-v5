@@ -7,6 +7,25 @@
 
 ---
 
+## 5.48.0 (build 277) — 2026-05-24 🕒 Phase 92.22+92.23 — Time Clock (Foundation + Self-service)
+
+> ⚠️ **DB migration required:** ผู้ดูแลระบบต้องรัน [`supabase-phase92-22-time-clock.sql`](supabase-phase92-22-time-clock.sql) ใน Supabase SQL Editor ก่อนใช้งานหน้านี้ (รายละเอียดใน HANDOFF section 92.22)
+
+- **feat(time_clock) [HR]:** เมนูใหม่ **🕒 ลงเวลาทำงาน** ใต้กลุ่ม "บุคลากร / HR"
+- **Manager view (admin):** dropdown เลือกพนักงาน + ปุ่ม "บันทึกเข้างาน" + การ์ด "กำลังทำงานอยู่" พร้อมปุ่มลงเวลาออก + รายงานช่วงวันที่ + filter พนักงาน + Export CSV
+- **Self-service view (sales/technician ที่ผูก auth):** ปุ่มเข้า/ออกของตัวเอง + สรุปชั่วโมงสัปดาห์นี้ + ประวัติ 7 วันล่าสุด
+- **Auto-claim (Phase 92.23):** admin set `staff.email` ตรงกับบัญชี Supabase Auth → user login ครั้งแรก → ระบบ PATCH `staff.user_id = auth.uid()` อัตโนมัติ → next visit เห็น self-service view
+- **DB:** ใหม่ `staff_attendance` (work_date, clock_in_at, clock_out_at, GPS cols reserve สำหรับ 92.24, client_uuid สำหรับ 92.27 idempotency, source admin/self/queued) + `staff.user_id` + `staff.email` + RLS (admin all / staff self ผ่าน user_id) + partial unique index กัน "open session ซ้อน" 1 staff
+- **Constraints:** 1 staff = มี open session ได้ครั้งละ 1 (DB enforced); email format check ฝั่ง client + UNIQUE บน lower(email)
+- **Graceful fallback:** ถ้า table ยังไม่มี (admin ยังไม่รัน SQL) → หน้าโชว์ error card ชัดเจน "ต้องรัน migration ก่อน" + ปุ่ม retry
+- **ขอบเขต Phase นี้:** ไม่แตะ posting / payroll math / GPS / offline — schema reserve cols ไว้ให้ Phase 92.24-27 ใช้ต่อ
+- **ไฟล์:** new `modules/time_clock.js` (~480 lines), `supabase-phase92-22-time-clock.sql`, `tests/time_clock.test.js` (+24); edit `main.js` (LAZY_ROUTES + ROLE_PAGES.sales/technician เพิ่ม time_clock), `index.html` (sidebar + page section), `modules/staff.js` (email field ใน add/edit modal)
+- verify เขียว exit 0 (lint 0/0, unit **380** (356→+24))
+
+**Build:** 276 → 277; version 5.47.10 → 5.48.0 (minor — feature ใหม่ ไม่ทำ breaking change)
+
+---
+
 ## 5.47.10 (build 276) — 2026-05-24 🛡️ Phase 92.21 — Guard race on async badge handlers
 
 - **fix(sales,audit_log) [scanner]:** ใส่ `if (!btn.isConnected) return;` หลัง `await findJournalForSale` ทั้ง 2 handler — ถ้า list re-render ระหว่าง await แล้ว btn จะอยู่ orphan, handler bail ทันทีก่อน mutate/replaceWith
