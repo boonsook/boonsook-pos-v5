@@ -12,7 +12,20 @@ const {
   clockState,
   sumWorkHours,
   profileDisplayName,
+  computeRegularOT,
+  sumRegularOT,
 } = await import("../modules/time_clock.js");
+
+// Helper: สร้าง row จาก Bangkok local hours (เลข int)
+// e.g. row("2026-05-24", 8, 17) → clock_in 08:00 BKK, clock_out 17:00 BKK
+function row(workDate, inH, outH) {
+  const pad = (h) => String(h).padStart(2, "0");
+  return {
+    work_date: workDate,
+    clock_in_at:  `${workDate}T${pad(inH)}:00:00+07:00`,
+    clock_out_at: `${workDate}T${pad(outH)}:00:00+07:00`,
+  };
+}
 
 // ── workDateBangkok ─────────────────────────────────────────
 
@@ -153,4 +166,99 @@ test("profileDisplayName — no full_name + no email → 'ผู้ใช้ใ�
 test("profileDisplayName — null/undefined profile → '—' (never crash)", () => {
   assert.equal(profileDisplayName(null), "—");
   assert.equal(profileDisplayName(undefined), "—");
+});
+
+// ── computeRegularOT (Phase 92.25) ──────────────────────────
+
+test("computeRegularOT — เข้า 08:00 ออก 17:00 (กะเต็มพอดี) → regular 9, ot 0", () => {
+  assert.deepEqual(computeRegularOT(row("2026-05-24", 8, 17)), { regular: 9, ot: 0, total: 9 });
+});
+
+test("computeRegularOT — เข้า 09:00 ออก 16:00 (มาสาย เลิกก่อน) → regular 7, ot 0", () => {
+  assert.deepEqual(computeRegularOT(row("2026-05-24", 9, 16)), { regular: 7, ot: 0, total: 7 });
+});
+
+test("computeRegularOT — เข้า 08:00 ออก 19:00 → regular 9 + OT 2 ชม. (หลังเลิกงาน)", () => {
+  assert.deepEqual(computeRegularOT(row("2026-05-24", 8, 19)), { regular: 9, ot: 2, total: 11 });
+});
+
+test("computeRegularOT — เข้า 07:00 ออก 17:00 → regular 9 + OT 1 (ก่อนเข้างาน)", () => {
+  assert.deepEqual(computeRegularOT(row("2026-05-24", 7, 17)), { regular: 9, ot: 1, total: 10 });
+});
+
+test("computeRegularOT — เข้า 07:00 ออก 19:00 → regular 9 + OT 3 (1 ก่อน + 2 หลัง)", () => {
+  assert.deepEqual(computeRegularOT(row("2026-05-24", 7, 19)), { regular: 9, ot: 3, total: 12 });
+});
+
+test("computeRegularOT — เข้า 18:00 ออก 22:00 (ทำเฉพาะนอกกะ) → regular 0 + OT 4", () => {
+  assert.deepEqual(computeRegularOT(row("2026-05-24", 18, 22)), { regular: 0, ot: 4, total: 4 });
+});
+
+test("computeRegularOT — เข้า 04:00 ออก 07:00 (ทำเช้ามืดก่อนกะ) → regular 0 + OT 3", () => {
+  assert.deepEqual(computeRegularOT(row("2026-05-24", 4, 7)), { regular: 0, ot: 3, total: 3 });
+});
+
+test("computeRegularOT — เข้า 10:00 ออก 12:00 (มาช่วงสั้น) → regular 2 + OT 0", () => {
+  assert.deepEqual(computeRegularOT(row("2026-05-24", 10, 12)), { regular: 2, ot: 0, total: 2 });
+});
+
+test("computeRegularOT — clock_out null (กำลังทำงาน) → ทุกค่า 0", () => {
+  assert.deepEqual(computeRegularOT({ work_date: "2026-05-24", clock_in_at: "2026-05-24T08:00:00+07:00", clock_out_at: null }),
+    { regular: 0, ot: 0, total: 0 });
+});
+
+test("computeRegularOT — null/missing row → ทุกค่า 0 (ไม่ NaN)", () => {
+  assert.deepEqual(computeRegularOT(null), { regular: 0, ot: 0, total: 0 });
+  assert.deepEqual(computeRegularOT(undefined), { regular: 0, ot: 0, total: 0 });
+  assert.deepEqual(computeRegularOT({}), { regular: 0, ot: 0, total: 0 });
+});
+
+test("computeRegularOT — clock_out ก่อน clock_in (data corruption) → ทุกค่า 0", () => {
+  const r = {
+    work_date: "2026-05-24",
+    clock_in_at:  "2026-05-24T17:00:00+07:00",
+    clock_out_at: "2026-05-24T08:00:00+07:00",
+  };
+  assert.deepEqual(computeRegularOT(r), { regular: 0, ot: 0, total: 0 });
+});
+
+test("computeRegularOT — custom shift hours (เช่น 06-15) → ปรับ regular ตาม opts", () => {
+  // เข้า 06:00 ออก 15:00 + shift 06-15 → regular 9 ot 0
+  assert.deepEqual(computeRegularOT(row("2026-05-24", 6, 15), { startHour: 6, endHour: 15 }),
+    { regular: 9, ot: 0, total: 9 });
+  // เข้า 06:00 ออก 17:00 + shift 06-15 → regular 9 + OT 2 (หลัง 15:00)
+  assert.deepEqual(computeRegularOT(row("2026-05-24", 6, 17), { startHour: 6, endHour: 15 }),
+    { regular: 9, ot: 2, total: 11 });
+});
+
+test("computeRegularOT — นาที (8:30-17:15) → ปัด 2 ตำแหน่ง", () => {
+  const r = {
+    work_date: "2026-05-24",
+    clock_in_at:  "2026-05-24T08:30:00+07:00",
+    clock_out_at: "2026-05-24T17:15:00+07:00",
+  };
+  // regular = 17:00 - 8:30 = 8.5 hr
+  // ot = 17:15 - 17:00 = 0.25 hr
+  // total = 8.75
+  assert.deepEqual(computeRegularOT(r), { regular: 8.5, ot: 0.25, total: 8.75 });
+});
+
+// ── sumRegularOT ────────────────────────────────────────────
+
+test("sumRegularOT — รวม 2 records (regular + OT)", () => {
+  const rows = [
+    row("2026-05-24", 8, 19),  // reg 9 + ot 2
+    row("2026-05-23", 9, 17),  // reg 8 + ot 0
+  ];
+  assert.deepEqual(sumRegularOT(rows), { regular: 17, ot: 2, total: 19 });
+});
+
+test("sumRegularOT — มี open session (ไม่นับ) + non-array → 0", () => {
+  const rows = [
+    row("2026-05-24", 8, 17),  // reg 9
+    { work_date: "2026-05-23", clock_in_at: "2026-05-23T08:00:00+07:00", clock_out_at: null }, // 0
+  ];
+  assert.deepEqual(sumRegularOT(rows), { regular: 9, ot: 0, total: 9 });
+  assert.deepEqual(sumRegularOT(null), { regular: 0, ot: 0, total: 0 });
+  assert.deepEqual(sumRegularOT([]), { regular: 0, ot: 0, total: 0 });
 });
