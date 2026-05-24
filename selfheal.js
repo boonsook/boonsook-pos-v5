@@ -17,6 +17,12 @@ var __SCRIPT_TAG = document.currentScript || document.querySelector('script[data
 var __APP_BUILD  = parseInt(__SCRIPT_TAG && __SCRIPT_TAG.dataset && __SCRIPT_TAG.dataset.appBuild || '0', 10);
 window.APP_BUILD = __APP_BUILD;
 
+// Phase 92.22b: also expose APP_VERSION from data-app-version so the About
+// page can read it dynamically — no more hardcoded "Version: 5.x.x" missed
+// during version bumps. Falls back to '' if attribute missing (graceful).
+var __APP_VERSION = (__SCRIPT_TAG && __SCRIPT_TAG.dataset && __SCRIPT_TAG.dataset.appVersion) || '';
+window.APP_VERSION = __APP_VERSION;
+
 (async function selfHeal() {
   try {
     var APP_BUILD = __APP_BUILD;

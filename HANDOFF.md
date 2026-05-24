@@ -3,9 +3,9 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 24 พฤษภาคม 2026 (Phase 92.22 HOTFIX — uuid type fix, build 278)
-**Version:** 5.48.1 (build 278) — Phase 92.22 HOTFIX (`staff.id` ใน prod เป็น uuid ไม่ใช่ bigint → แก้ FK ใน SQL + remove Number() cast ใน JS dropdown handler)
-**Previous:** 5.48.0 (build 277) — Phase 92.22+92.23 — Time Clock Foundation + Self-service (PR #52)
+**อัปเดตล่าสุด:** 24 พฤษภาคม 2026 (Phase 92.22b — fix About version display drift, build 279)
+**Version:** 5.48.2 (build 279) — Phase 92.22b (About page hardcoded 5.47.8/build 274 since 92.18 → dynamic from window.APP_VERSION+APP_BUILD; selfheal.js sets both from data-app-version+data-app-build attributes)
+**Previous:** 5.48.1 (build 278) — Phase 92.22 HOTFIX — uuid type fix (PR #53)
 
 > 🟡 **สถานะ ณ ปัจจุบัน:** Phase 92.22+92.23 พร้อม push (lint 0/0, unit 380). **ต้องรัน SQL migration ก่อนใช้งานหน้า** — รายละเอียดท้าย section 92.22.
 > 🔵 **ค้าง (อิสระจาก deploy):**
@@ -17,7 +17,33 @@
 
 ---
 
-## 🐛 Phase 92.22 HOTFIX — uuid type mismatch (this session)
+## 🏷️ Phase 92.22b — Fix About page version display drift (this session)
+
+**ปัญหา:** หน้า "เกี่ยวกับระบบ" (Settings → About) แสดง `Version: 5.47.8` + `Release: May 2026 (build 274)` ทั้งที่ live = 5.48.1/278. ปุ่ม "ตรวจหาอัปเดต" บอก build 278 ถูก — แต่ header ของ About card แสดงเลขเก่า → user งง.
+
+**Root cause:** [modules/settings/pages.js:25-26](modules/settings/pages.js:25) hardcode `<div>Version: 5.47.8</div>` + `<div>Release: May 2026 (build 274)</div>` — ค้างมาตั้งแต่ Phase 92.18 ผ่าน 5 phases (92.19/92.20/92.21/92.22/92.22-hotfix) ที่ผม **ลืม bump 5th sub-item**. Memory `feedback_version_display_sync.md` เคยเตือนเรื่องนี้แล้ว — บทเรียนที่ลืม.
+
+### สิ่งที่แก้ (3 ไฟล์, +12/-6)
+- **`selfheal.js`:** เพิ่ม `window.APP_VERSION` (mirror pattern ของ `window.APP_BUILD` ที่มีอยู่แล้ว) — read จาก `data-app-version` attribute ของ script tag
+- **`index.html`:** `<script src="./selfheal.js?v=279" data-app-build="279" data-app-version="5.48.2">` — 2 attrs (build + version)
+- **`modules/settings/pages.js`:** render `${window.APP_VERSION}` + `${window.APP_BUILD}` ผ่าน `escHtml` — fallback "-" ถ้า global ไม่ set
+
+### ขอบเขต (จงใจ)
+- **No behavior change** อื่น — แค่ render text ให้ตรงกับ build จริง
+- **ไม่แตะ** money / DB / RLS / time_clock (ของก่อน) — pure UI display
+- **Version-sync checklist กลับมา 4 จุด** (ไม่ใช่ 5) — pages.js auto-pickup จาก global, ไม่ต้องแก้ทุก phase อีก
+
+### Lesson logged
+4-sub-item checklist (APP_BUILD + main.js?v= + sw.js + pages.js) ที่ memory เตือน — pages.js เป็นจุดที่ลืมง่ายสุดเพราะอยู่ใน sub-module. แก้ refactor ให้ dynamic = ปิดถาวร. ถ้ามี version text hardcoded ที่อื่นในอนาคต ใช้ `window.APP_VERSION` / `window.APP_BUILD` ทันที.
+
+### Gates
+- `npm run lint:errors` exit 0 (clean)
+- `npm test` = **380/380** (ไม่เปลี่ยน — UI text เปลี่ยน)
+- e2e ผ่าน CI
+
+---
+
+## 🐛 Phase 92.22 HOTFIX — uuid type mismatch (last session)
 
 **Root cause:** ผมเขียน SQL migration โดย assume `staff.id` เป็น bigint (เพราะ `customers.id`, `sales.id`, products tables ใน repo ทุกตัวเป็น bigserial) — **แต่ `staff.id` ใน prod เป็น uuid** (table ถูกสร้างผ่าน Supabase Dashboard ก่อนหน้านี้ ไม่ผ่าน migration script ใน repo). Postgres reject ตอน CREATE TABLE ด้วย error 42804.
 
