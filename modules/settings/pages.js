@@ -9,6 +9,10 @@ import { escHtml } from './utils.js';
  * Render About page
  */
 export function renderSettingsAbout(el, ctx, goBack) {
+  // Phase 92.22b: dynamic version/build from window globals set by selfheal.js
+  // — ไม่ hardcode → ไม่มี risk ลืม bump 5.x.x หรือ build N ใน About page ตอนปล่อย phase ใหม่
+  const _ver = (typeof window !== 'undefined' && window.APP_VERSION) || '-';
+  const _build = (typeof window !== 'undefined' && window.APP_BUILD) || '-';
   el.innerHTML = `
     <div class="set-subpage">
       <div class="set-subpage-header">
@@ -22,8 +26,8 @@ export function renderSettingsAbout(el, ctx, goBack) {
           <div style="font-size:12px;color:#64748b">ระบบจัดการร้านค้าอิเล็กทรอนิกส์แบบครบวงจร</div>
         </div>
         <div style="display:grid;gap:6px;font-size:13px;color:#334155">
-          <div><strong>Version:</strong> 5.47.8</div>
-          <div><strong>Release:</strong> May 2026 (build 274)</div>
+          <div><strong>Version:</strong> ${escHtml(String(_ver))}</div>
+          <div><strong>Build:</strong> ${escHtml(String(_build))}</div>
           <div><strong>Developer:</strong> Boonsook Electronics</div>
           <div><strong>Contact:</strong> gangboo@gmail.com</div>
         </div>

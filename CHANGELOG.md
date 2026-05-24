@@ -7,6 +7,22 @@
 
 ---
 
+## 5.48.2 (build 279) — 2026-05-24 🏷️ Phase 92.22b — Fix About page version display drift
+
+- **fix(settings/pages) [user-visible]:** หน้า "เกี่ยวกับระบบ" (About) แสดง **Version: 5.47.8** + **build 274** มาตั้งแต่ Phase 92.18 — drift 5 phases (92.19/92.20/92.21/92.22/92.22-hotfix). ปุ่ม "ตรวจหาอัปเดต" บอก build 278 ถูก แต่ header ของ About เก่า → user งง
+- **Root cause:** [modules/settings/pages.js:25-26](modules/settings/pages.js:25) hardcode `<div>Version: 5.47.8</div>` + `<div>Release: May 2026 (build 274)</div>` — เคยอยู่ใน 4-sub-item version-sync checklist แต่ผมลืมตอน 92.19+ ทำไม่ครบ 5 จุด
+- **แก้ถาวร (dynamic):**
+  - `selfheal.js`: เพิ่ม `window.APP_VERSION` (จาก `data-app-version` attribute) คู่กับที่มี `window.APP_BUILD` อยู่แล้ว
+  - `index.html`: `<script src="./selfheal.js" data-app-build="279" data-app-version="5.48.2">` — bump 2 attr แทน 1
+  - `pages.js`: render `${window.APP_VERSION}` + `${window.APP_BUILD}` (escHtml ปลอดภัย, fallback `-`)
+- **ผลลัพธ์:** version-sync 4-sub-items เดิมยังครอบ pages.js โดยอัตโนมัติ — ไม่ต้อง bump 5 จุด, ไม่มี risk ลืม About page อีก
+- **ไม่แตะ** money / DB / RLS / posting — เป็น UI text + boot-time globals
+- verify เขียว exit 0 (lint 0/0, unit 380 ไม่เปลี่ยน)
+
+**Build:** 278 → 279; version 5.48.1 → 5.48.2 (patch — UI display fix)
+
+---
+
 ## 5.48.1 (build 278) — 2026-05-24 🐛 Phase 92.22 HOTFIX — uuid type mismatch (staff.id)
 
 - **fix(sql) [Blocking]:** `supabase-phase92-22-time-clock.sql` ใช้ `staff_id bigint` ผูก `staff.id` — แต่ staff ใน prod เป็น **uuid** (สร้างผ่าน Supabase Dashboard ไม่ใช่ migration script ใน repo) → Postgres reject ตอน CREATE TABLE ด้วย error `42804: foreign key constraint cannot be implemented: incompatible types bigint and uuid` → migration ล้มเหลว, table ไม่ถูกสร้าง
