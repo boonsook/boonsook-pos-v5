@@ -14,6 +14,7 @@ const {
   profileDisplayName,
   computeRegularOT,
   sumRegularOT,
+  shiftHoursFromState,
 } = await import("../modules/time_clock.js");
 
 // Helper: สร้าง row จาก Bangkok local hours (เลข int)
@@ -261,4 +262,33 @@ test("sumRegularOT — มี open session (ไม่นับ) + non-array → 
   assert.deepEqual(sumRegularOT(rows), { regular: 9, ot: 0, total: 9 });
   assert.deepEqual(sumRegularOT(null), { regular: 0, ot: 0, total: 0 });
   assert.deepEqual(sumRegularOT([]), { regular: 0, ot: 0, total: 0 });
+});
+
+// ── shiftHoursFromState (Phase 92.25b) ──────────────────────
+
+test("shiftHoursFromState — storeInfo มี shiftStartHour/EndHour → ใช้ค่านั้น", () => {
+  const state = { storeInfo: { shiftStartHour: 9, shiftEndHour: 18 } };
+  assert.deepEqual(shiftHoursFromState(state), { startHour: 9, endHour: 18 });
+});
+
+test("shiftHoursFromState — ไม่มี storeInfo → default 8/17", () => {
+  assert.deepEqual(shiftHoursFromState(null), { startHour: 8, endHour: 17 });
+  assert.deepEqual(shiftHoursFromState(undefined), { startHour: 8, endHour: 17 });
+  assert.deepEqual(shiftHoursFromState({}), { startHour: 8, endHour: 17 });
+  assert.deepEqual(shiftHoursFromState({ storeInfo: {} }), { startHour: 8, endHour: 17 });
+});
+
+test("shiftHoursFromState — invalid values (NaN, นอก 0-23) → fallback 8/17", () => {
+  assert.deepEqual(shiftHoursFromState({ storeInfo: { shiftStartHour: -1, shiftEndHour: 99 } }), { startHour: 8, endHour: 17 });
+  assert.deepEqual(shiftHoursFromState({ storeInfo: { shiftStartHour: "abc", shiftEndHour: 17 } }), { startHour: 8, endHour: 17 });
+});
+
+test("shiftHoursFromState — start >= end (config ผิด) → fallback 8/17", () => {
+  assert.deepEqual(shiftHoursFromState({ storeInfo: { shiftStartHour: 17, shiftEndHour: 8 } }), { startHour: 8, endHour: 17 });
+  assert.deepEqual(shiftHoursFromState({ storeInfo: { shiftStartHour: 10, shiftEndHour: 10 } }), { startHour: 8, endHour: 17 });
+});
+
+test("shiftHoursFromState — string number ก็รับได้ (จาก HTML input)", () => {
+  const state = { storeInfo: { shiftStartHour: "7", shiftEndHour: "16" } };
+  assert.deepEqual(shiftHoursFromState(state), { startHour: 7, endHour: 16 });
 });
