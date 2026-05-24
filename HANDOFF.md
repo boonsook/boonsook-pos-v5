@@ -3,15 +3,14 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 24 พฤษภาคม 2026 (Phase 92.19 — bump GH Actions to Node 24-ready, CI-only)
+**อัปเดตล่าสุด:** 24 พฤษภาคม 2026 (Phase 92.14 verify ✅ CLOSED — RLS audit complete; Phase 92.19 deployed)
 **Version:** 5.47.8 (build 274) — Phase 92.19 ✅ **MERGED (PR #47) + DEPLOY GREEN** (CI-only chore: checkout v4→v5, setup-node v4→v5, wrangler-action v3→v4, setup-buildx v3→v4; ปิด 2 มิ.ย. 2026 deadline; no runtime/build change, live = 274 ตามเดิม)
 **Previous:** 5.47.8 (build 274) — Phase 92.18 ✅ MERGED (PR #45) + DEPLOYED + SMOKE PASSED (audit-log trace สำหรับลบบิลขาย)
 
-> 🟢 **สถานะ ณ ปัจจุบัน:** live = build 274 / v5.47.8 (Phase 92.19 merged #47 + deploy เขียวบน Node 24-ready actions, 24 พ.ค. 2026). Phase 92.18 trace ของเก่ายัง intact.
+> 🟢 **สถานะ ณ ปัจจุบัน:** live = build 274 / v5.47.8 (Phase 92.19 merged #47 + deploy เขียวบน Node 24-ready actions, 24 พ.ค. 2026). Phase 92.18 trace ของเก่ายัง intact. **Phase 92.14 verify run บน prod 24 พ.ค. = RLS closed ตามที่ Phase 89.25 ตั้งใจ.**
 > 🔵 **ค้าง (อิสระจาก deploy):**
-> 1. รัน read-only verify query ปิดประเด็น journal_entries RLS — ดูท้าย section 92.14
-> 2. **UX follow-up (nit, ถ้าจะทำ):** ปุ่ม 📒 trace ทั้ง 3 surface (sales list / receipt drawer / audit log) ตอนกดไป `showRoute("accounting_journals")` หน้ารายวันเฉย ๆ ยังไม่เปิด drawer ของ JV ใบนั้นตรง ๆ — มี `data-jv-id` พร้อมแล้ว ถ้าจะ deep-link ควรทำพร้อมกันทั้ง 3 surface
-> 3. **Possible race-condition annotations** (GH scanner เตือน [modules/sales.js:170](modules/sales.js:170), [modules/audit_log.js:166](modules/audit_log.js:166) — code จาก 92.17/92.18) — `btn.disabled`/`btn.textContent` หลัง await; ผลกระทบจริงต่ำ (one-shot click + replaceWith) แต่ถ้ามีเฟส harden ค่อยพิจารณา cache btn ref/ใช้ controller token
+> 1. **UX follow-up (nit, ถ้าจะทำ):** ปุ่ม 📒 trace ทั้ง 3 surface (sales list / receipt drawer / audit log) ตอนกดไป `showRoute("accounting_journals")` หน้ารายวันเฉย ๆ ยังไม่เปิด drawer ของ JV ใบนั้นตรง ๆ — มี `data-jv-id` พร้อมแล้ว ถ้าจะ deep-link ควรทำพร้อมกันทั้ง 3 surface
+> 2. **Possible race-condition annotations** (GH scanner เตือน [modules/sales.js:170](modules/sales.js:170), [modules/audit_log.js:166](modules/audit_log.js:166) — code จาก 92.17/92.18) — `btn.disabled`/`btn.textContent` หลัง await; ผลกระทบจริงต่ำ (one-shot click + replaceWith) แต่ถ้ามีเฟส harden ค่อยพิจารณา cache btn ref/ใช้ controller token
 
 ---
 
@@ -172,18 +171,14 @@ found / missing / error(403+throw) / invalid(no id, no fetch) + badge click-targ
 - Tests: `tests/verify_slip_verification.test.js` (+8)
 
 ### 3. Audit — journal_entries RLS: closed หรือยัง?
-**สรุป: ยังยืนยัน 100% ไม่ได้จาก client code — ต้อง verify ฝั่ง prod DB (read-only).**
+**✅ CLOSED — verified on prod 24 พ.ค. 2026** (3 read-only queries, user รันใน Supabase SQL Editor)
 - auto_post.js insert `journal_entries` ตรงจาก client (PostgREST). Policy `je_insert_auto` (phase89-25) อนุญาต non-accountant insert เมื่อ `source_table`+`source_id` ไม่ null. `postJournalForSale` ส่งครบ → ถ้า policy active = staff insert ผ่าน
-- Phase 92.13 เพิ่ม graceful handling: 403/42501 → warn "JV deferred" (ไม่ crash, sale ผ่าน). User รายงานเห็น `[auto_post] created...` ในรอบหลัง → **น่าจะ** policy active แล้ว (หรือ test เป็น accountant)
-- **Path-specific:** ผลขึ้นกับ role — accountant ผ่านเสมอ (is_accountant); non-accountant ผ่านเฉพาะ source-based path. ยืนยันว่าครบทุก role ต้องดู policy จริงใน prod
-- **🔵 แนะนำ verify (read-only, รอ user รัน — ห้าม apply เอง):**
-  ```sql
-  SELECT tablename, policyname, cmd FROM pg_policies
-  WHERE schemaname='public' AND tablename IN ('journal_entries','journal_lines','account_mapping')
-  ORDER BY tablename, cmd;   -- ต้องเห็น 10 rows (je_*×4, jl_*×4, am_*×2)
-  SELECT proname FROM pg_proc WHERE proname='is_accountant';  -- ต้องมี 1 row
-  ```
-  ถ้าครบ → RLS **closed**. ถ้าขาด → รัน `supabase-phase89-25-fix-je-rls-pos.sql` (มี verify query ท้ายไฟล์)
+- Phase 92.13 เพิ่ม graceful handling: 403/42501 → warn "JV deferred" (ไม่ crash, sale ผ่าน). User รายงานเห็น `[auto_post] created...` ในรอบหลัง → policy active confirmed
+- **Verify evidence (24 พ.ค. 2026, prod Supabase):**
+  - **Q1** `pg_policies` บน 3 tables → **10 rows ครบ:** `je_select/update/delete/insert_auto`, `jl_select/update/delete/insert_auto`, `am_select/write` (ทั้ง 2 `*_insert_auto` มี `has CHECK` clause ตามที่ Phase 89.25 ตั้งใจ)
+  - **Q2** `is_accountant()` function → 1 row, `returns=boolean` (function ที่ policy USING/CHECK เรียกใช้ มีจริง)
+  - **Q3** `pg_class.relrowsecurity` บน 3 tables → 3 rows, `rls_enabled=true` ทุกตัว (`rls_forced=false` ปกติ — owner bypass ได้)
+- **สรุป:** non-accountant role (cashier/sales/technician) สามารถ auto-post JV ได้ตราบใดที่ส่ง `source_table` + `source_id` ครบ; HTTP 403 ที่เคยเห็นตอนรอบ Phase 92.13 น่าจะเป็น session test ที่ role ไม่ตรงเงื่อนไข — ไม่ใช่ DB state issue
 
 ### Gates
 - lint 0/0 · unit 317 → 332 · e2e 11 · verify exit 0 (clean run)
