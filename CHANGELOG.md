@@ -7,6 +7,26 @@
 
 ---
 
+## 5.53.0 (build 287) — 2026-05-24 📥 Phase 92.27 — Offline queue (IndexedDB) — เฟสสุดท้ายของ Time Clock series
+
+- **feat(time_clock) [resilience]:** ถ้าเน็ตหลุดตอนกดลงเวลา → ระบบเก็บไว้ใน **IndexedDB queue** + แสดง toast `📥 ออฟไลน์ — เก็บคิวไว้ จะ sync เมื่อกลับมา online` (ไม่ block, ไม่ขาดข้อมูล)
+- **Auto-sync:** ตอนเข้าหน้า Time Clock + online + มี pending → drain queue อัตโนมัติ (toast `📥 Sync auto: ✅ N record`)
+- **Manual sync:** Manager view แสดงปุ่ม **📥 Sync ออฟไลน์ (N)** สีส้มเมื่อ pending > 0 — กดเพื่อ retry
+- **Idempotency:** clock-in ทุกครั้งสร้าง `client_uuid` (crypto.randomUUID) → DB partial UNIQUE กัน duplicate insert ตอน sync รัน 2 รอบ (409 → success-drop)
+- **modules/_offline_queue.js** ใหม่: IndexedDB wrapper (`boonsook-offline-queue` DB, `queue` store, auto-increment id) + 6 helpers (`openQueue, enqueue, listAll, remove, bumpAttempt, count, clear`) + 2 pure helpers (`isOfflineLike, generateClientUuid`)
+- **modules/time_clock.js**:
+  - `_insertClockIn` + `_patchClockOut` — wrap fetch ใน try/catch → ถ้า `isOfflineLike(err)` → `OfflineQueue.enqueue` + throw `code:"QUEUED"`
+  - handlers จับ `QUEUED` → toast + re-render (ไม่ throw error generic)
+  - export `syncOfflineQueue()` — drain ทุก item, 409 = drop (idempotency win), fail = bumpAttempt
+  - export `offlinePendingCount()` — สำหรับ UI badge
+- **ไม่แตะ DB** — schema reserve `client_uuid` มาตั้งแต่ Phase 92.22 ใช้ได้ทันที
+- Tests +7 (isOfflineLike: TypeError/network/generic/null + generateClientUuid: v4 shape/uniqueness/100 unique). Unit 409 → **416**
+- verify เขียว exit 0 (lint 0/0)
+
+**Build:** 286 → 287; version 5.52.0 → 5.53.0 (minor — resilience feature ใหม่)
+
+---
+
 ## 5.52.0 (build 286) — 2026-05-24 📍 Phase 92.24 — GPS geo-fence
 
 - **feat(settings/store):** section ใหม่ "📍 ตำแหน่งร้าน (GPS)" — input **Lat/Lng/รัศมี** + ปุ่ม **📍 ใช้ตำแหน่งปัจจุบัน** (Geolocation API)
