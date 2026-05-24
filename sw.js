@@ -1,4 +1,5 @@
 // Boonsook POS V5 Service Worker
+// v276 (2026-05-24): Phase 92.21 — guard race-condition on async badge click handlers. Adds `if (!btn.isConnected) return;` after the await in two acct-trace handlers (modules/sales.js line ~167, modules/audit_log.js line ~163) so that if the list re-renders while findJournalForSale is pending, the handler bails before mutating/replacing the orphan button. Closes the GH-scanner "Possible race condition: btn.disabled/textContent might be assigned based on an outdated state of btn" annotations. No behavior change for the normal (non-racy) flow. No tests changed (unit still 356).
 // v275 (2026-05-24): Phase 92.20 — JV drawer deep-link from 3 trace surfaces. New navigateToJv(jvId) in sale_trace.js: dynamic-imports journals.js → setPendingJvId() → showRoute('accounting_journals') → journals.js consumes pending after entries load → _openJvDrawer of that JV opens automatically. Wired into sales list, receipt drawer (closeAllDrawers first), and audit log. 1-shot pending (cleared on consume + on fetch error). No posting/auto_post/money/stock/loyalty/RLS/SQL change. Tests +6 (unit 356).
 // v274 (2026-05-22): Phase 92.18 — audit-log accounting trace for deleted POS sales. (1) sales.js soft-delete now writes a best-effort logActivity('delete_sale', entityType:'sale', entityId:saleId) — never fails the delete. (2) audit_log.js shows a "📒 ดูบัญชี" button on sale-deletion rows → on-demand findJournalForSale (source_table='sales'+source_id) → found=กดไปสมุดรายวัน / missing="ยังไม่ลงบัญชี" / error="ตรวจบัญชีไม่ได้". Sale id taken ONLY from entity_type==='sale'+entity_id (no guessing). No posting/auto_post/money/stock/loyalty/RLS/SQL change.
 // v273 (2026-05-22): Phase 92.17 — forward accounting trace. New read-only helper modules/accounting/sale_trace.js (findJournalForSale by source_table='sales'+source_id; renderSaleTraceBadge). Wired into sales list (on-demand "📒 บัญชี" button) + receipt drawer (เอกสารบัญชี section). found→กดไปสมุดรายวัน; missing→"ยังไม่ลงบัญชี"; error→ไม่เงียบ. No posting/auto_post/money/RLS/SQL change.
@@ -19,7 +20,7 @@
 // v263 (2026-05-20): Phase 92.7 — extract _appShareDoc Share/PDF overlay to modules/share_doc.js (thin window wrapper; behavior byte-identical)
 // v253 (2026-05-19): Phase 91.1 — POS checkout auto-earn loyalty points (fire-and-forget after sale insert; gated on customer + is_active + points_per_baht; amount = actualTotal)
 // v252 (2026-05-19): Phase 90.13 — Loyalty history modal click-outside listener leak: bind once in renderLoyaltyPage instead of re-attach on every showPointHistory call
-const CACHE_NAME = 'boonsook-pos-v5-cache-v275';
+const CACHE_NAME = 'boonsook-pos-v5-cache-v276';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

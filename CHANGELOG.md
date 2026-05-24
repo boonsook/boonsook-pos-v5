@@ -7,6 +7,19 @@
 
 ---
 
+## 5.47.10 (build 276) — 2026-05-24 🛡️ Phase 92.21 — Guard race on async badge handlers
+
+- **fix(sales,audit_log) [scanner]:** ใส่ `if (!btn.isConnected) return;` หลัง `await findJournalForSale` ทั้ง 2 handler — ถ้า list re-render ระหว่าง await แล้ว btn จะอยู่ orphan, handler bail ทันทีก่อน mutate/replaceWith
+- ปิด GH-scanner annotation "Possible race condition: `btn.disabled`/`btn.textContent` might be assigned based on an outdated state of `btn`" ที่เคยเตือนใน [modules/sales.js](modules/sales.js) + [modules/audit_log.js](modules/audit_log.js)
+- **ไม่มี behavior change** สำหรับ flow ปกติ (non-racy) — guard ทำงานเฉพาะกรณี list re-render ระหว่าง async lookup (ก่อนหน้านี้ mutate/replaceWith orphan = no-op หรือ throw silently)
+- pattern เดียวกับ "เปิดบิล" handler ที่ [modules/sales.js:147](modules/sales.js:147) มีอยู่แล้ว
+- **ไม่แตะ** posting / auto_post / money / stock / loyalty / RLS / SQL — pure DOM-safety guard
+- verify เขียว exit 0 (lint 0/0, unit 356 ไม่เปลี่ยน — เป็น defensive guard, test ไม่ใช่ behavior)
+
+**Build:** 275 → 276; version 5.47.9 → 5.47.10 (patch — scanner cleanup, defensive)
+
+---
+
 ## 5.47.9 (build 275) — 2026-05-24 🔗 Phase 92.20 — JV drawer deep-link (3 surfaces)
 
 - **feat(accounting) [deep-link]:** ปุ่ม **📒 บัญชี** ทั้ง 3 surface (รายการขาย / ใบเสร็จ / Audit Log) — กดแล้ว**เปิด JV drawer ของบิลใบนั้นทันที** (เดิมไปหน้าสมุดรายวันเปล่า ต้องเลื่อนหา/คลิกเอง)
