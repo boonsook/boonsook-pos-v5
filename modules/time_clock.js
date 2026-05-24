@@ -484,24 +484,29 @@ async function _renderManagerView(container, ctx) {
 //  Self-service view (sales/technician + linked staff)
 // ═══════════════════════════════════════════════════════════
 
-async function _renderSelfView(container, ctx) {
-  // 1) หา staff row ของ user คนนี้
-  let me = await _findMyStaff();
+/**
+ * หา staff row ของ user ปัจจุบัน — ถ้ายังไม่ link พยายาม auto-claim ผ่าน email
+ * @returns {Promise<object|null>} staff row หรือ null ถ้าไม่ผูกได้
+ */
+async function _resolveStaffForCurrentUser(ctx) {
+  const direct = await _findMyStaff();
+  if (direct) return direct;
 
-  // 2) Auto-claim (Phase 92.23) — ถ้ายังไม่ link แต่มี staff row ที่ email ตรง
-  if (!me) {
-    const email = _authEmail();
-    if (email) {
-      const candidate = await _findStaffByEmail(email);
-      if (candidate && canAutoClaim(candidate, { email, id: _authUserId() })) {
-        const claimed = await _claimStaff(candidate.id);
-        if (claimed) {
-          me = claimed;
-          ctx.showToast?.("✅ ผูกบัญชีกับพนักงาน " + claimed.name + " แล้ว");
-        }
-      }
-    }
+  // Auto-claim (Phase 92.23) — ค้น staff ที่ email ตรงกับ auth user + ยังไม่มี user_id
+  const email = _authEmail();
+  if (!email) return null;
+  const candidate = await _findStaffByEmail(email);
+  if (!candidate || !canAutoClaim(candidate, { email, id: _authUserId() })) return null;
+  const claimed = await _claimStaff(candidate.id);
+  if (claimed) {
+    ctx?.showToast?.("✅ ผูกบัญชีกับพนักงาน " + claimed.name + " แล้ว");
   }
+  return claimed || null;
+}
+
+async function _renderSelfView(container, ctx) {
+  // 1) หา staff row (ลอง direct lookup + auto-claim ใน 1 helper)
+  const me = await _resolveStaffForCurrentUser(ctx);
 
   if (!me) {
     container.innerHTML = `
