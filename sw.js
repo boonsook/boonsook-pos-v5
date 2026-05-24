@@ -1,4 +1,5 @@
 // Boonsook POS V5 Service Worker
+// v281 (2026-05-24): Phase 92.22d — fix Export CSV TypeError in time_clock manager view. exportToExcel signature is (filename, rows, sheetName) but time_clock.js was calling (data, filename) — swapped. xlsx.json_to_sheet(filename) treated the filename string as rows, then tried filename.forEach() → "r.forEach is not a function". Now matches the pattern used by payroll/expenses/delivery_invoices/accounting modules. Also changed extension .csv → .xlsx to match what XLSX.writeFile produces. Lint 0/0, unit 380.
 // v280 (2026-05-24): Phase 92.22c — fix admin sidebar missing "🕒 ลงเวลาทำงาน". main.js ALL_ROUTES (admin allowedPages) didn't include "time_clock" — I only added it to ROLE_PAGES.sales/technician but admin gets ALL_ROUTES which is a static list, not Object.keys(LAZY_ROUTES). Sidebar JS hid the button silently. Adds "time_clock" to ALL_ROUTES so admin sees the menu. No behavior change for non-admin (already had the route in their ROLE_PAGES). Lint 0/0, unit 380.
 // v279 (2026-05-24): Phase 92.22b — fix About page version display drift. Previously modules/settings/pages.js hardcoded "Version: 5.47.8" / "Release: May 2026 (build 274)" — was last bumped at Phase 92.18 and never updated through 92.19/92.20/92.21/92.22/92.22-hotfix (5 phases drift). Now dynamic: index.html adds data-app-version="5.48.2" to selfheal.js script tag, selfheal.js exposes window.APP_VERSION (mirror of APP_BUILD pattern), pages.js reads both globals + escHtml. Version sync 4 sub-items kept the same — pages.js no longer counts as a 5th item to bump manually. Lint 0/0, unit 380.
 // v278 (2026-05-24): Phase 92.22 HOTFIX — staff.id in prod is uuid (not bigint as initially assumed). Fixes (1) supabase-phase92-22-time-clock.sql: staff_attendance.staff_id changed bigint -> uuid (closes Postgres error 42804 "foreign key constraint cannot be implemented: incompatible types bigint and uuid"). (2) modules/time_clock.js: remove Number() cast on tcStaffSelect.value (would yield NaN for uuid) — use trim()/string passthrough. attendance.id stays bigserial; clock-out-id Number() cast unchanged. SQL re-run safe (IF NOT EXISTS). No unit test change needed (tests use pure helpers). Lint 0/0, unit 380.
@@ -24,7 +25,7 @@
 // v263 (2026-05-20): Phase 92.7 — extract _appShareDoc Share/PDF overlay to modules/share_doc.js (thin window wrapper; behavior byte-identical)
 // v253 (2026-05-19): Phase 91.1 — POS checkout auto-earn loyalty points (fire-and-forget after sale insert; gated on customer + is_active + points_per_baht; amount = actualTotal)
 // v252 (2026-05-19): Phase 90.13 — Loyalty history modal click-outside listener leak: bind once in renderLoyaltyPage instead of re-attach on every showPointHistory call
-const CACHE_NAME = 'boonsook-pos-v5-cache-v280';
+const CACHE_NAME = 'boonsook-pos-v5-cache-v281';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

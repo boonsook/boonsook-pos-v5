@@ -7,6 +7,18 @@
 
 ---
 
+## 5.48.4 (build 281) — 2026-05-24 🐛 Phase 92.22d — Fix Export CSV TypeError in time_clock
+
+- **fix(time_clock) [Blocking on Export]:** กด "📥 Export CSV" ในหน้าลงเวลาทำงาน → `TypeError: r.forEach is not a function` (xlsx.full.min.js:24). User clock-in/out flow ไม่กระทบ — bug เฉพาะ Export
+- **Root cause:** `exportToExcel(filename, rows, sheetName)` (utils.js:60) — filename มาเป็น arg แรก. ผมเขียน `exportToExcel(data, filename)` กลับด้าน → `XLSX.utils.json_to_sheet(filename)` ได้ string มาแทน array → `filename.forEach()` undefined → throw
+- **แก้:** สลับ args ตามที่ payroll/expenses/delivery_invoices/accounting modules ทุกตัวใช้: `exportToExcel(filename, rows, "Attendance")`. เปลี่ยน extension `.csv` → `.xlsx` ให้ตรงกับที่ `XLSX.writeFile` produce ออกมาจริง
+- audit แล้วเป็น only call site ที่ผิด — ไม่กระทบ caller อื่นใน repo (ทุกตัวเดิมถูกอยู่แล้ว)
+- verify เขียว exit 0 (lint 0/0, unit 380)
+
+**Build:** 280 → 281; version 5.48.3 → 5.48.4 (patch — Export CSV fix)
+
+---
+
 ## 5.48.3 (build 280) — 2026-05-24 🐛 Phase 92.22c — Fix admin sidebar missing "🕒 ลงเวลาทำงาน"
 
 - **fix(main) [Blocking]:** ปุ่ม "🕒 ลงเวลาทำงาน" ไม่โผล่ใน sidebar ของ admin — เพราะ `ALL_ROUTES` (main.js:595) เป็น **static list** (ไม่ใช่ `Object.keys(LAZY_ROUTES)`) → admin allowedPages ไม่มี `time_clock` → sidebar JS ซ่อนปุ่มเงียบ ๆ
