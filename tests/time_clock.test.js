@@ -15,6 +15,8 @@ const {
   computeRegularOT,
   sumRegularOT,
   shiftHoursFromState,
+  haversineMeters,
+  geofenceFromState,
 } = await import("../modules/time_clock.js");
 
 // Helper: สร้าง row จาก Bangkok local hours (เลข int)
@@ -291,4 +293,67 @@ test("shiftHoursFromState — start >= end (config ผิด) → fallback 8/17"
 test("shiftHoursFromState — string number ก็รับได้ (จาก HTML input)", () => {
   const state = { storeInfo: { shiftStartHour: "7", shiftEndHour: "16" } };
   assert.deepEqual(shiftHoursFromState(state), { startHour: 7, endHour: 16 });
+});
+
+// ── haversineMeters (Phase 92.24) ───────────────────────────
+
+test("haversineMeters — 2 จุดเดียวกัน → 0 เมตร", () => {
+  assert.equal(haversineMeters(14.948, 103.481, 14.948, 103.481), 0);
+});
+
+test("haversineMeters — 1° latitude at equator = ~111.32 km (Earth circumference standard)", () => {
+  // 1° latitude = ~111.32 km ใช้ทุก longitude
+  const d = haversineMeters(0, 0, 1, 0);
+  assert.ok(d > 110000 && d < 112000, `Expected ~111.32km, got ${d}m`);
+});
+
+test("haversineMeters — 1° longitude at equator = ~111.32 km", () => {
+  const d = haversineMeters(0, 0, 0, 1);
+  assert.ok(d > 110000 && d < 112000, `Expected ~111.32km, got ${d}m`);
+});
+
+test("haversineMeters — 1° longitude at lat=60° = ~55.8 km (cos rule)", () => {
+  // ที่ latitude 60° → 1° lng = 111.32 × cos(60°) = ~55.66 km
+  const d = haversineMeters(60, 0, 60, 1);
+  assert.ok(d > 54000 && d < 57000, `Expected ~55.8km, got ${d}m`);
+});
+
+test("haversineMeters — 1 เมตร (lat diff 0.000009°) → ~1m", () => {
+  const d = haversineMeters(14.948, 103.481, 14.948009, 103.481);
+  assert.ok(d === 1 || d === 0, `Expected ~1m got ${d}m`);
+});
+
+test("haversineMeters — invalid args (NaN, null, string) → 0", () => {
+  assert.equal(haversineMeters(NaN, 0, 0, 0), 0);
+  assert.equal(haversineMeters(0, 0, null, 0), 0);
+  assert.equal(haversineMeters("abc", 0, 0, 0), 0);
+});
+
+// ── geofenceFromState (Phase 92.24) ─────────────────────────
+
+test("geofenceFromState — มี shopLat/Lng → return config + default radius 200m", () => {
+  const state = { storeInfo: { shopLat: 14.948, shopLng: 103.481 } };
+  assert.deepEqual(geofenceFromState(state), { lat: 14.948, lng: 103.481, radiusM: 200 });
+});
+
+test("geofenceFromState — custom radius", () => {
+  const state = { storeInfo: { shopLat: 14.948, shopLng: 103.481, geofenceRadiusM: 500 } };
+  assert.deepEqual(geofenceFromState(state), { lat: 14.948, lng: 103.481, radiusM: 500 });
+});
+
+test("geofenceFromState — ไม่มี lat/lng (เว้นว่าง) → null (= ปิด feature)", () => {
+  assert.equal(geofenceFromState({}), null);
+  assert.equal(geofenceFromState({ storeInfo: {} }), null);
+  assert.equal(geofenceFromState({ storeInfo: { shopLat: null, shopLng: null } }), null);
+  assert.equal(geofenceFromState(null), null);
+});
+
+test("geofenceFromState — partial config (lat only / lng only) → null", () => {
+  assert.equal(geofenceFromState({ storeInfo: { shopLat: 14.948 } }), null);
+  assert.equal(geofenceFromState({ storeInfo: { shopLng: 103.481 } }), null);
+});
+
+test("geofenceFromState — invalid radius → fallback 200m", () => {
+  assert.equal(geofenceFromState({ storeInfo: { shopLat: 14.948, shopLng: 103.481, geofenceRadiusM: -50 } }).radiusM, 200);
+  assert.equal(geofenceFromState({ storeInfo: { shopLat: 14.948, shopLng: 103.481, geofenceRadiusM: "abc" } }).radiusM, 200);
 });

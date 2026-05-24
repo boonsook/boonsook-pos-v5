@@ -123,6 +123,71 @@ function _bangkokDateAtHour(workDate, hour) {
 }
 
 /**
+ * Haversine distance ระหว่าง 2 จุด lat/lng (ผลลัพธ์เป็นเมตร) — Phase 92.24
+ * @param {number} lat1
+ * @param {number} lng1
+ * @param {number} lat2
+ * @param {number} lng2
+ * @returns {number} ระยะทาง (เมตร) ปัด 0 ตำแหน่ง — 0 ถ้า input ผิด
+ */
+export function haversineMeters(lat1, lng1, lat2, lng2) {
+  const n1 = Number(lat1), n2 = Number(lng1), n3 = Number(lat2), n4 = Number(lng2);
+  if (![n1, n2, n3, n4].every(Number.isFinite)) return 0;
+  const R = 6371000; // Earth radius (m)
+  const toRad = (d) => d * Math.PI / 180;
+  const dLat = toRad(n3 - n1);
+  const dLng = toRad(n4 - n2);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(n1)) * Math.cos(toRad(n3)) * Math.sin(dLng / 2) ** 2;
+  return Math.round(2 * R * Math.asin(Math.sqrt(a)));
+}
+
+/**
+ * อ่าน geofence config จาก storeInfo — Phase 92.24
+ * @returns {{lat:number|null, lng:number|null, radiusM:number}|null}
+ *   - null ถ้าไม่มี shopLat/shopLng ตั้งไว้ (geo-fence ปิด)
+ *   - radiusM default 200m ถ้าไม่ตั้ง
+ */
+export function geofenceFromState(state) {
+  const info = state?.storeInfo || {};
+  // ★ Number(null) = 0 (falsey not infinite-check), ต้องตรวจ explicit ก่อน
+  if (info.shopLat == null || info.shopLng == null || info.shopLat === "" || info.shopLng === "") return null;
+  const lat = Number(info.shopLat);
+  const lng = Number(info.shopLng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  const radiusRaw = Number(info.geofenceRadiusM);
+  const radiusM = (Number.isFinite(radiusRaw) && radiusRaw > 0) ? radiusRaw : 200;
+  return { lat, lng, radiusM };
+}
+
+/**
+ * ขอ geolocation ปัจจุบัน (browser Geolocation API) — Phase 92.24
+ * @param {object} [opts]
+ * @param {number} [opts.timeoutMs=8000]
+ * @returns {Promise<{lat:number, lng:number, accuracy:number}|null>} null ถ้า user ปฏิเสธ/ไม่รองรับ/timeout
+ */
+export async function getCurrentPosition(opts = {}) {
+  if (typeof navigator === "undefined" || !navigator.geolocation) return null;
+  const timeoutMs = Number.isFinite(opts.timeoutMs) ? opts.timeoutMs : 8000;
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (val) => { if (!done) { done = true; resolve(val); } };
+    const timer = setTimeout(() => finish(null), timeoutMs);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        clearTimeout(timer);
+        finish({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracy: Math.round(pos.coords.accuracy || 0),
+        });
+      },
+      () => { clearTimeout(timer); finish(null); },
+      { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 60000 }
+    );
+  });
+}
+
+/**
  * State ของ session ปัจจุบันจาก list rows (เรียงใหม่ → เก่า)
  * @returns {"open"|"closed"|"none"}
  */
@@ -236,7 +301,7 @@ async function _fetchAttendance({ userId, fromDate, toDate, openOnly } = {}) {
   return r.json();
 }
 
-async function _insertClockIn({ userId, source = "admin", note, clientUuid }) {
+async function _insertClockIn({ userId, source = "admin", note, clientUuid, gps = null, geofence = null }) {
   const cfg = window.SUPABASE_CONFIG;
   const headers = { ..._sbHeaders(), Prefer: "return=representation" };
   const body = {
@@ -246,6 +311,14 @@ async function _insertClockIn({ userId, source = "admin", note, clientUuid }) {
     notes: note || null,
   };
   if (clientUuid) body.client_uuid = clientUuid;
+  // Phase 92.24: บันทึก GPS ถ้ามี + Haversine distance ถ้ามี geofence
+  if (gps && Number.isFinite(gps.lat) && Number.isFinite(gps.lng)) {
+    body.clock_in_lat = gps.lat;
+    body.clock_in_lng = gps.lng;
+    if (geofence) {
+      body.clock_in_distance_m = haversineMeters(geofence.lat, geofence.lng, gps.lat, gps.lng);
+    }
+  }
   const r = await fetch(`${cfg.url}/rest/v1/staff_attendance`, {
     method: "POST", headers, body: JSON.stringify(body),
   });
@@ -289,13 +362,22 @@ export async function fetchUserAttendanceSummary(userId, fromDate, toDate, shift
   return { ...sum, records: closed.length, openCount };
 }
 
-async function _patchClockOut({ id }) {
+async function _patchClockOut({ id, gps = null, geofence = null }) {
   const cfg = window.SUPABASE_CONFIG;
   const headers = { ..._sbHeaders(), Prefer: "return=representation" };
+  const patchBody = { clock_out_at: new Date().toISOString() };
+  // Phase 92.24
+  if (gps && Number.isFinite(gps.lat) && Number.isFinite(gps.lng)) {
+    patchBody.clock_out_lat = gps.lat;
+    patchBody.clock_out_lng = gps.lng;
+    if (geofence) {
+      patchBody.clock_out_distance_m = haversineMeters(geofence.lat, geofence.lng, gps.lat, gps.lng);
+    }
+  }
   const r = await fetch(`${cfg.url}/rest/v1/staff_attendance?id=eq.${encodeURIComponent(id)}`, {
     method: "PATCH",
     headers,
-    body: JSON.stringify({ clock_out_at: new Date().toISOString() }),
+    body: JSON.stringify(patchBody),
   });
   if (!r.ok) {
     const txt = await r.text().catch(() => "");
@@ -326,6 +408,25 @@ function _authUserId() {
   return window.App?.state?.currentUser?.id
     || window.currentUser?.id
     || null;
+}
+
+/**
+ * Phase 92.24: capture GPS + warn ถ้าเกิน geofence radius (ไม่ block)
+ * @returns {Promise<{gps:object|null, geofence:object|null}>}
+ */
+async function _captureGpsAndWarn(ctx) {
+  const geofence = geofenceFromState(ctx?.state);
+  if (!geofence) return { gps: null, geofence: null }; // ไม่ได้ตั้ง geofence → skip
+  const gps = await getCurrentPosition();
+  if (!gps) {
+    ctx?.showToast?.("⚠️ ไม่สามารถดึงตำแหน่งได้ — บันทึกโดยไม่มี GPS");
+    return { gps: null, geofence };
+  }
+  const dist = haversineMeters(geofence.lat, geofence.lng, gps.lat, gps.lng);
+  if (dist > geofence.radiusM) {
+    ctx?.showToast?.(`⚠️ คุณอยู่ห่างร้าน ${dist}m (เกิน ${geofence.radiusM}m) — บันทึกแล้วแต่ระบบจะ flag`);
+  }
+  return { gps, geofence };
 }
 
 // ─── Phase 92.25 helpers: datetime conversion (Bangkok ↔ ISO) ───────
@@ -575,7 +676,8 @@ async function _renderManagerView(container, ctx) {
     const orig = btn.textContent;
     btn.textContent = "⏳ บันทึก...";
     try {
-      await _insertClockIn({ userId, source: "admin", note });
+      const { gps, geofence } = await _captureGpsAndWarn(ctx);
+      await _insertClockIn({ userId, source: "admin", note, gps, geofence });
       ctx.showToast?.("ลงเวลาเข้างานเรียบร้อย ✅");
       renderTimeClockPage(ctx);
     } catch (e) {
@@ -596,7 +698,8 @@ async function _renderManagerView(container, ctx) {
     const orig = btn.textContent;
     btn.textContent = "⏳";
     try {
-      await _patchClockOut({ id });
+      const { gps, geofence } = await _captureGpsAndWarn(ctx);
+      await _patchClockOut({ id, gps, geofence });
       ctx.showToast?.("ลงเวลาออกเรียบร้อย ✅");
       renderTimeClockPage(ctx);
     } catch (e) {
@@ -763,7 +866,8 @@ async function _renderSelfView(container, ctx) {
     const orig = btn.textContent;
     btn.textContent = "⏳ บันทึก...";
     try {
-      await _insertClockIn({ userId, source: "self" });
+      const { gps, geofence } = await _captureGpsAndWarn(ctx);
+      await _insertClockIn({ userId, source: "self", gps, geofence });
       ctx.showToast?.("ลงเวลาเข้างานเรียบร้อย ✅");
       renderTimeClockPage(ctx);
     } catch (e) {
@@ -783,7 +887,8 @@ async function _renderSelfView(container, ctx) {
     const orig = btn.textContent;
     btn.textContent = "⏳ บันทึก...";
     try {
-      await _patchClockOut({ id: open.id });
+      const { gps: gpsOut, geofence: gfOut } = await _captureGpsAndWarn(ctx);
+      await _patchClockOut({ id: open.id, gps: gpsOut, geofence: gfOut });
       ctx.showToast?.("ลงเวลาออกเรียบร้อย ✅");
       renderTimeClockPage(ctx);
     } catch (e) {
