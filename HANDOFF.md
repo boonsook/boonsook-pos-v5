@@ -3,9 +3,9 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 24 พฤษภาคม 2026 (Phase 92.22b — fix About version display drift, build 279)
-**Version:** 5.48.2 (build 279) — Phase 92.22b (About page hardcoded 5.47.8/build 274 since 92.18 → dynamic from window.APP_VERSION+APP_BUILD; selfheal.js sets both from data-app-version+data-app-build attributes)
-**Previous:** 5.48.1 (build 278) — Phase 92.22 HOTFIX — uuid type fix (PR #53)
+**อัปเดตล่าสุด:** 24 พฤษภาคม 2026 (Phase 92.22c — fix admin sidebar missing 🕒 ลงเวลาทำงาน, build 280)
+**Version:** 5.48.3 (build 280) — Phase 92.22c (admin ALL_ROUTES ไม่มี `time_clock` → sidebar ซ่อนปุ่ม. แก้ ALL_ROUTES list)
+**Previous:** 5.48.2 (build 279) — Phase 92.22b — About page dynamic version (PR #54)
 
 > 🟡 **สถานะ ณ ปัจจุบัน:** Phase 92.22+92.23 พร้อม push (lint 0/0, unit 380). **ต้องรัน SQL migration ก่อนใช้งานหน้า** — รายละเอียดท้าย section 92.22.
 > 🔵 **ค้าง (อิสระจาก deploy):**
