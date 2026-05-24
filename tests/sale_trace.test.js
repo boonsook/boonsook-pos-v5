@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-const { findJournalForSale, renderSaleTraceBadge, JOURNAL_ROUTE, saleIdFromAuditLog } =
+const { findJournalForSale, renderSaleTraceBadge, JOURNAL_ROUTE, saleIdFromAuditLog, navigateToJv } =
   await import("../modules/accounting/sale_trace.js");
 
 const CFG = { url: "https://example.supabase.co", anonKey: "anon-xxx" };
@@ -155,4 +155,66 @@ test("audit-log trace flow — fetch error → 'ตรวจบัญชีไ�
   const res = await findJournalForSale(saleId, { fetch: async () => { throw new Error("offline"); }, cfg: CFG, token: "jwt" });
   assert.equal(res.ok, false);
   assert.match(renderSaleTraceBadge(res, { compact: true }), /ตรวจบัญชีไม่ได้/);
+});
+
+// ── navigateToJv (Phase 92.20 deep-link) ─────────────────────
+
+test("navigateToJv — happy path: set pending id + call showRoute(accounting_journals)", async () => {
+  const calls = { setPendingJvId: [], showRoute: [] };
+  const fakeMod = { setPendingJvId: (id) => calls.setPendingJvId.push(id) };
+  const ok = await navigateToJv(42, {
+    showRoute: (r) => calls.showRoute.push(r),
+    importModule: async () => fakeMod,
+  });
+  assert.equal(ok, true);
+  assert.deepEqual(calls.setPendingJvId, [42]);
+  assert.deepEqual(calls.showRoute, [JOURNAL_ROUTE]); // ★ ใช้ route constant เดิม ไม่ hardcode
+});
+
+test("navigateToJv — string id (data attribute) ก็ใช้ได้ — ไม่ cast เป็น number", async () => {
+  const got = { id: null, route: null };
+  const ok = await navigateToJv("123", {
+    showRoute: (r) => { got.route = r; },
+    importModule: async () => ({ setPendingJvId: (id) => { got.id = id; } }),
+  });
+  assert.equal(ok, true);
+  assert.equal(got.id, "123"); // pass-through ให้ journals.js cast เอง (String() ฝั่งโน้น)
+  assert.equal(got.route, "accounting_journals");
+});
+
+test("navigateToJv — null/empty id → false, no navigate", async () => {
+  let routed = false;
+  const opts = { showRoute: () => { routed = true; }, importModule: async () => ({ setPendingJvId: () => {} }) };
+  assert.equal(await navigateToJv(null, opts), false);
+  assert.equal(await navigateToJv("", opts), false);
+  assert.equal(await navigateToJv(undefined, opts), false);
+  assert.equal(routed, false);
+});
+
+test("navigateToJv — no showRoute available → false (ไม่ throw, ไม่ silent crash)", async () => {
+  // ไม่ inject showRoute + window.App ไม่มี (jsdom env) → ต้องคืน false ไม่ throw
+  const ok = await navigateToJv(7, { importModule: async () => ({ setPendingJvId: () => {} }) });
+  assert.equal(ok, false);
+});
+
+test("navigateToJv — journals module import fail → ยัง navigate (fallback, ไม่ crash)", async () => {
+  // ถ้า dynamic import ล้ม (offline/CSP) → ไม่ deep-link แต่ navigate ปกติ ห้าม block
+  let routed = null;
+  const ok = await navigateToJv(99, {
+    showRoute: (r) => { routed = r; },
+    importModule: async () => { throw new Error("module load fail"); },
+  });
+  assert.equal(ok, true); // navigate ผ่าน
+  assert.equal(routed, JOURNAL_ROUTE);
+});
+
+test("navigateToJv — setPendingJvId optional (mod ไม่มี method) → ไม่ throw", async () => {
+  // กันกรณี future refactor — sale_trace.js ต้อง tolerant
+  let routed = null;
+  const ok = await navigateToJv(8, {
+    showRoute: (r) => { routed = r; },
+    importModule: async () => ({}), // ไม่มี setPendingJvId
+  });
+  assert.equal(ok, true);
+  assert.equal(routed, JOURNAL_ROUTE);
 });

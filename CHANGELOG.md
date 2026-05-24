@@ -7,6 +7,20 @@
 
 ---
 
+## 5.47.9 (build 275) — 2026-05-24 🔗 Phase 92.20 — JV drawer deep-link (3 surfaces)
+
+- **feat(accounting) [deep-link]:** ปุ่ม **📒 บัญชี** ทั้ง 3 surface (รายการขาย / ใบเสร็จ / Audit Log) — กดแล้ว**เปิด JV drawer ของบิลใบนั้นทันที** (เดิมไปหน้าสมุดรายวันเปล่า ต้องเลื่อนหา/คลิกเอง)
+- **feat(sale_trace) [helper]:** `navigateToJv(jvId, opts)` ใหม่ — dynamic import `journals.js` → `setPendingJvId(jvId)` → `showRoute("accounting_journals")` → renderJournalsPage หลังโหลด entries เสร็จ → consume pending → `_openJvDrawer` อัตโนมัติ (1-shot, clear ทั้งตอน consume + ตอน fetch error)
+- **feat(journals) [API]:** export `setPendingJvId(id)` ใหม่ + consume logic ที่ปลาย `renderJournalsPage`; queueMicrotask กัน DOM bind ยังไม่เสร็จ; ถ้า JV id ไม่อยู่ใน 200 ล่าสุด → log info แล้วผ่าน (drawer ไม่เปิด) ไม่ crash
+- **safe fallback:** ถ้า dynamic import `journals.js` ล้ม (offline/CSP) → navigate ปกติแทน deep-link (ผู้ใช้เห็นหน้ารายวัน, เลื่อนหา JV เองได้) — ไม่ block
+- **ไม่แตะ** posting / auto_post / money / stock / loyalty / RLS / SQL — เพิ่มเฉพาะ navigation glue + 1 read-only consume hook
+- test เพิ่ม 6 ตัวใน `sale_trace.test.js` (happy/string-id/null/no-router/import-fail/no-method) — unit 350 → 356
+- verify เขียว exit 0 (lint 0/0, unit 356)
+
+**Build:** 274 → 275; version 5.47.8 → 5.47.9 (minor feature — UX deep-link, additive)
+
+---
+
 ## 5.47.8 (build 274) — 2026-05-22 📒 Phase 92.18 — Audit Log accounting trace (deleted POS sales) ✅ MERGED (#45) + DEPLOYED + SMOKE PASSED
 
 - **feat(sales) [audit]:** soft-delete บิลขายตอนนี้บันทึก `logActivity("delete_sale", {entityType:"sale", entityId:saleId, ...})` แบบ **best-effort** (มี bill_no/customer/total ใน summary+metadata) — ถ้า log fail การลบบิล**ไม่ fail** (ห่อ try + logActivity กลืน error อยู่แล้ว). เดิม POS sale deletion ไม่ทิ้งร่องรอยใน Audit Log เลย

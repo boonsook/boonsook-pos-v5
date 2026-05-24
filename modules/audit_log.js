@@ -5,7 +5,8 @@
 import { renderSkeleton, renderEmpty, renderError } from "./ui_states.js";
 import { escHtml } from "./utils.js";
 // Phase 92.18: forward accounting trace สำหรับ log การลบบิลขาย (read-only, reuse 92.17 helper)
-import { findJournalForSale, renderSaleTraceBadge, saleIdFromAuditLog } from "./accounting/sale_trace.js";
+// Phase 92.20: navigateToJv = deep-link เปิด JV drawer ทันที
+import { findJournalForSale, renderSaleTraceBadge, saleIdFromAuditLog, navigateToJv } from "./accounting/sale_trace.js";
 
 const ACTION_META = {
   delete_sale:        { icon: "🗑️", color: "#dc2626", label: "ลบบิลขาย" },
@@ -165,7 +166,8 @@ export async function renderAuditLogPage(ctx) {
     const badgeEl = wrap.firstElementChild;
     if (!badgeEl) { btn.disabled = false; btn.textContent = orig; return; }
     if (badgeEl.classList.contains("sale-acct-trace")) {
-      const goto = () => window.App?.showRoute?.(badgeEl.dataset.acctRoute);
+      // Phase 92.20: deep-link → เปิด JV drawer ของบิลที่ถูกลบทันที (ไม่ใช่แค่ไปหน้ารายวัน)
+      const goto = () => navigateToJv(badgeEl.dataset.jvId);
       badgeEl.addEventListener("click", goto);
       badgeEl.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); goto(); } });
     }

@@ -82,6 +82,45 @@ export function saleIdFromAuditLog(row) {
   return null;
 }
 
+/**
+ * Deep-link → เปิดสมุดรายวันแล้วเปิด JV drawer ของใบที่ระบุทันที (Phase 92.20)
+ *
+ * Flow:
+ *   1) dynamic import journals.js (lazy — ไม่ดึง 167KB accounting bundle เข้า eager path)
+ *   2) setPendingJvId(jvId) — journals.js เก็บไว้รอ consume
+ *   3) showRoute("accounting_journals") — main.js render หน้าสมุดรายวัน
+ *   4) renderJournalsPage หลัง fetch entries เสร็จ → consume pending → _openJvDrawer
+ *
+ * ปลอดภัย: ถ้า journals.js โหลดไม่ได้ (offline/CSP) → fallback แค่ navigate เฉย ๆ
+ *
+ * @param {number|string|null} jvId - JV entry id จาก badgeEl.dataset.jvId
+ * @param {object} [opts]
+ * @param {function} [opts.showRoute] - inject ได้สำหรับ test (default: window.App.showRoute)
+ * @param {function} [opts.importModule] - inject ได้สำหรับ test (default: () => import(...))
+ * @returns {Promise<boolean>} true = ได้ส่งคำสั่ง navigate, false = invalid id / no router
+ */
+export async function navigateToJv(jvId, opts = {}) {
+  if (jvId == null || jvId === "") return false;
+
+  const showRoute = opts.showRoute
+    || (typeof window !== "undefined" ? window.App?.showRoute : null);
+  if (typeof showRoute !== "function") return false;
+
+  // 1) บอก journals.js ให้เปิด drawer ตอน render ครั้งหน้า — ห่อ try กัน load fail block navigate
+  const importMod = opts.importModule || (() => import("./journals.js"));
+  try {
+    const mod = await importMod();
+    mod?.setPendingJvId?.(jvId);
+  } catch (e) {
+    // fallback: ไม่ deep-link แต่ navigate ปกติ — user เห็นหน้ารายวัน, เลื่อนหา JV เองได้
+    console.warn("[jv-deep-link] cannot load journals module:", e?.message);
+  }
+
+  // 2) navigate — main.js route handler lazy-load journals.js (cached จากข้อ 1)
+  showRoute(JOURNAL_ROUTE);
+  return true;
+}
+
 const _JV_STATUS_LABEL = {
   approved: "ลงบัญชีแล้ว",
   draft:    "ฉบับร่าง",

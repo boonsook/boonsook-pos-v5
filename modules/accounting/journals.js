@@ -37,6 +37,19 @@ let _filterStatus = "all";          // all | draft | approved | void
 let _filterDocType = "all";          // all | JV | PV | SV | RV | CV | AJ | OB
 let _entries = [];                   // cached after fetch
 
+// Phase 92.20: deep-link target — surface (sales list / receipt / audit log) ตั้งค่าก่อน
+// navigate มาที่ route นี้ → consume + auto-open drawer ของ JV ใบนั้น (1-shot)
+let _pendingOpenJvId = null;
+
+/**
+ * ตั้ง id ของ JV ที่จะให้ renderJournalsPage รอบหน้าเปิด drawer ให้ทันทีหลัง load entries
+ * (1-shot — ถูก clear หลัง consume; ไม่ persist ข้าม navigate)
+ * @param {number|string|null} id - JV entry id (จาก data-jv-id ของ sale-acct-trace badge)
+ */
+export function setPendingJvId(id) {
+  _pendingOpenJvId = (id == null || id === "") ? null : id;
+}
+
 export async function renderJournalsPage(ctx) {
   const container = document.getElementById("page-accounting_journals");
   if (!container) return;
@@ -63,6 +76,9 @@ export async function renderJournalsPage(ctx) {
     _entries = await resp.json();
   } catch(err) {
     console.error("[journals] fetch error:", err);
+    // Phase 92.20: load fail → clear pending deep-link (ถ้ามี) เพื่อกัน stale consume
+    // เมื่อ user ออกจากหน้า/refresh แล้วกลับมาทีหลังโดยไม่ได้คลิก surface อีกครั้ง
+    _pendingOpenJvId = null;
     container.innerHTML = `
       <div class="panel">
         <div class="row"><h3 style="margin:0">📒 สมุดรายวัน</h3></div>
@@ -190,6 +206,20 @@ export async function renderJournalsPage(ctx) {
     const entry = _entries.find(e => e.id === id);
     if (entry) _openJvDrawer(entry, ctx);
   }));
+
+  // ★ Phase 92.20: deep-link consume — surface ตั้ง pending id ก่อน navigate
+  //   → entries โหลดเสร็จแล้วเปิด drawer ของ JV ใบนั้นทันที (1-shot)
+  if (_pendingOpenJvId != null) {
+    const want = String(_pendingOpenJvId);
+    _pendingOpenJvId = null; // 1-shot — clear ก่อน open กัน re-entry
+    const target = _entries.find(e => String(e.id) === want);
+    if (target) {
+      // queueMicrotask → ให้ DOM bind events เสร็จก่อน (drawer overlay อยู่บน body, ไม่ขัดกัน)
+      queueMicrotask(() => _openJvDrawer(target, ctx));
+    } else {
+      console.info("[journals deep-link] JV id", want, "not in first 200 entries — drawer ไม่เปิด");
+    }
+  }
 }
 
 
