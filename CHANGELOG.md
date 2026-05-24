@@ -7,6 +7,19 @@
 
 ---
 
+## 5.50.1 (build 284) — 2026-05-24 ⚙️ Phase 92.25b — Settings page ชั่วโมงทำงานกะ
+
+- **feat(settings/store) [UI]:** เพิ่ม section "🕒 ชั่วโมงทำงาน" ในหน้า ตั้งค่า → ข้อมูลร้านค้า — admin ตั้ง startHour/endHour เอง (default 08-17)
+- **feat(time_clock) [helper]:** ใหม่ `shiftHoursFromState(state)` อ่านจาก `state.storeInfo.shiftStartHour/EndHour` พร้อม fallback default 8/17 ถ้าไม่ตั้ง/ผิดรูป (NaN, นอก 0-23, start≥end). ส่งเป็น opts ให้ทุก `computeRegularOT` + `sumRegularOT` ใน manager/self-service/export
+- **Header แสดงช่วงกะ:** Manager report "(กะ HH:00-HH:00 — เกินเป็น OT)" + self-service "สรุปสัปดาห์นี้ — กะ HH:00-HH:00" ตามที่ตั้งใน Settings
+- **ไม่แตะ DB schema** — `storeInfo` persist ผ่าน `app_settings` JSON ที่มีอยู่แล้ว
+- Tests +5 (shiftHoursFromState: default fallback / invalid values / inverted start≥end / string number / null state). Unit 393 → **398**
+- verify เขียว exit 0 (lint 0/0)
+
+**Build:** 283 → 284; version 5.50.0 → 5.50.1 (patch — additive config)
+
+---
+
 ## 5.50.0 (build 283) — 2026-05-24 ⏰ Phase 92.25 — OT auto-detect + Admin edit (กะ 08:00-17:00)
 
 - **feat(time_clock) [OT]:** กำหนดกะมาตรฐาน **08:00-17:00** (hardcode รอบนี้) — เวลานอกกะ = OT auto-detect ทันที

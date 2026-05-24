@@ -198,6 +198,22 @@ function _staffProfiles(state) {
   return (state?.allProfiles || []).filter(p => p && p.role && p.role !== "customer");
 }
 
+/**
+ * อ่าน shift hours config จาก state.storeInfo (Phase 92.25b)
+ * Default 08:00-17:00 ถ้ายังไม่ตั้งใน Settings
+ * @param {object} state
+ * @returns {{startHour:number, endHour:number}}
+ */
+export function shiftHoursFromState(state) {
+  const info = state?.storeInfo || {};
+  const startRaw = Number(info.shiftStartHour);
+  const endRaw   = Number(info.shiftEndHour);
+  const start = (Number.isFinite(startRaw) && startRaw >= 0 && startRaw <= 23) ? startRaw : 8;
+  const end   = (Number.isFinite(endRaw)   && endRaw   >= 0 && endRaw   <= 23) ? endRaw   : 17;
+  // ถ้า start >= end (ตั้งผิด/ยังไม่ตั้ง) → fallback 8/17 กัน computeRegularOT คำนวณพลาด
+  return (start < end) ? { startHour: start, endHour: end } : { startHour: 8, endHour: 17 };
+}
+
 async function _fetchAttendance({ userId, fromDate, toDate, openOnly } = {}) {
   const cfg = window.SUPABASE_CONFIG;
   const parts = ["select=*", "order=clock_in_at.desc"];
@@ -374,6 +390,8 @@ let _mgrFilterUser = "all";
 
 async function _renderManagerView(container, ctx) {
   const profiles = _staffProfiles(ctx.state);
+  // Phase 92.25b: shift hours config (default 08-17, override จาก storeInfo)
+  const shiftOpts = shiftHoursFromState(ctx.state);
 
   const [openSessions, rangeRows] = await Promise.all([
     _fetchAttendance({ openOnly: true }),
@@ -418,7 +436,7 @@ async function _renderManagerView(container, ctx) {
   const reportRows = rangeRows.map(r => {
     const p = profMap[r.user_id];
     const name = profileDisplayName(p);
-    const { regular, ot, total } = computeRegularOT(r);
+    const { regular, ot, total } = computeRegularOT(r, shiftOpts);
     const stillOpen = r.clock_out_at == null;
     const otCell = stillOpen
       ? '<span style="color:#94a3b8">—</span>'
@@ -439,7 +457,7 @@ async function _renderManagerView(container, ctx) {
       </tr>`;
   }).join("");
 
-  const sumOT = sumRegularOT(rangeRows);
+  const sumOT = sumRegularOT(rangeRows, shiftOpts);
 
   container.innerHTML = `
     <div class="panel" style="padding:20px">
@@ -469,7 +487,7 @@ async function _renderManagerView(container, ctx) {
       <!-- Section 3: รายงาน -->
       <div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
-          <div style="font-weight:700;font-size:14px;flex:1">📊 รายงาน <span style="font-size:11px;color:#94a3b8;font-weight:400">(กะ 08:00-17:00 — เกินเป็น OT)</span></div>
+          <div style="font-weight:700;font-size:14px;flex:1">📊 รายงาน <span style="font-size:11px;color:#94a3b8;font-weight:400">(กะ ${String(shiftOpts.startHour).padStart(2,'0')}:00-${String(shiftOpts.endHour).padStart(2,'0')}:00 — เกินเป็น OT)</span></div>
           <span style="font-size:11px;color:#64748b">
             ปกติ <strong style="color:#0f172a">${sumOT.regular.toFixed(2)}</strong> +
             OT <strong style="color:#ea580c">${sumOT.ot.toFixed(2)}</strong> =
@@ -577,7 +595,7 @@ async function _renderManagerView(container, ctx) {
 
   document.getElementById("tcExportBtn")?.addEventListener("click", () => {
     const data = rangeRows.map(r => {
-      const { regular, ot, total } = computeRegularOT(r);
+      const { regular, ot, total } = computeRegularOT(r, shiftOpts);
       return {
         "วันที่": r.work_date,
         "ผู้ใช้": profileDisplayName(profMap[r.user_id]),
@@ -600,6 +618,8 @@ async function _renderManagerView(container, ctx) {
 // ═══════════════════════════════════════════════════════════
 
 async function _renderSelfView(container, ctx) {
+  // Phase 92.25b: shift hours config (default 08-17, override จาก storeInfo)
+  const shiftOpts = shiftHoursFromState(ctx.state);
   const userId = _authUserId();
   if (!userId) {
     container.innerHTML = `
@@ -626,14 +646,14 @@ async function _renderSelfView(container, ctx) {
   const state = clockState(rows);
   const open = state === "open" ? rows[0] : null;
   const closedRows = rows.filter(r => r.clock_out_at != null);
-  const weekSummary = sumRegularOT(closedRows);
+  const weekSummary = sumRegularOT(closedRows, shiftOpts);
   const myName = profileDisplayName(me);
   const myRoleTh = ROLE_LABEL_TH[me.role] || me.role || "-";
 
   const historyRows = rows.length
     ? rows.map(r => {
         const stillOpen = r.clock_out_at == null;
-        const { regular, ot, total } = computeRegularOT(r);
+        const { regular, ot, total } = computeRegularOT(r, shiftOpts);
         const otCell = stillOpen ? '—' : (ot > 0 ? `<span style="color:#ea580c;font-weight:700">${ot.toFixed(2)}</span>` : `<span style="color:#cbd5e1">0.00</span>`);
         return `
         <tr style="border-bottom:1px solid #f1f5f9">
@@ -670,7 +690,7 @@ async function _renderSelfView(container, ctx) {
       `}
 
       <div style="background:#f8fafc;border-radius:10px;padding:12px;margin-bottom:14px;text-align:center">
-        <div style="font-size:11px;color:#64748b">สรุปสัปดาห์นี้ (7 วันล่าสุด) — กะ 08:00-17:00</div>
+        <div style="font-size:11px;color:#64748b">สรุปสัปดาห์นี้ (7 วันล่าสุด) — กะ ${String(shiftOpts.startHour).padStart(2,'0')}:00-${String(shiftOpts.endHour).padStart(2,'0')}:00</div>
         <div style="display:flex;justify-content:center;gap:20px;margin-top:8px;flex-wrap:wrap">
           <div>
             <div style="font-size:10px;color:#94a3b8">ปกติ</div>
