@@ -3,9 +3,9 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 24 พฤษภาคม 2026 (Phase 92.22+92.23 — Time Clock Foundation + Self-service, build 277)
-**Version:** 5.48.0 (build 277) — Phase 92.22+92.23 (ระบบลงเวลาเข้า-ออกงาน: manager flow + self-service flow + auto-claim by email; ต้องรัน SQL migration ก่อนใช้)
-**Previous:** 5.47.10 (build 276) — Phase 92.21 — guard race on async badge handlers (PR #51)
+**อัปเดตล่าสุด:** 24 พฤษภาคม 2026 (Phase 92.22 HOTFIX — uuid type fix, build 278)
+**Version:** 5.48.1 (build 278) — Phase 92.22 HOTFIX (`staff.id` ใน prod เป็น uuid ไม่ใช่ bigint → แก้ FK ใน SQL + remove Number() cast ใน JS dropdown handler)
+**Previous:** 5.48.0 (build 277) — Phase 92.22+92.23 — Time Clock Foundation + Self-service (PR #52)
 
 > 🟡 **สถานะ ณ ปัจจุบัน:** Phase 92.22+92.23 พร้อม push (lint 0/0, unit 380). **ต้องรัน SQL migration ก่อนใช้งานหน้า** — รายละเอียดท้าย section 92.22.
 > 🔵 **ค้าง (อิสระจาก deploy):**
@@ -17,7 +17,35 @@
 
 ---
 
-## 🕒 Phase 92.22+92.23 — Time Clock Foundation + Self-service (this session)
+## 🐛 Phase 92.22 HOTFIX — uuid type mismatch (this session)
+
+**Root cause:** ผมเขียน SQL migration โดย assume `staff.id` เป็น bigint (เพราะ `customers.id`, `sales.id`, products tables ใน repo ทุกตัวเป็น bigserial) — **แต่ `staff.id` ใน prod เป็น uuid** (table ถูกสร้างผ่าน Supabase Dashboard ก่อนหน้านี้ ไม่ผ่าน migration script ใน repo). Postgres reject ตอน CREATE TABLE ด้วย error 42804.
+
+### สิ่งที่แก้
+- **`supabase-phase92-22-time-clock.sql`:** `staff_id bigint` → `staff_id uuid` (1 บรรทัด) + comment เตือน
+- **`modules/time_clock.js:425`:** `Number(tcStaffSelect.value)` → `value?.trim() || ""` (uuid string passthrough; Number() เปลี่ยน uuid → NaN)
+
+### ที่ตรวจแล้วไม่เปลี่ยน
+- `_findMyStaff` query by `auth.uid()` — uuid match uuid อยู่แล้ว
+- `_fetchAttendance` URL `staff_id=eq.${encodeURIComponent(staffId)}` — รับ uuid string
+- `staffMap[s.staff_id]` — string key OK
+- `data-clock-out-id` + `Number(btn.dataset.clockOutId)` — attendance.id = bigserial → Number() ยังถูก
+- compare `String(_mgrFilterStaff) === String(s.id)` — string compare อยู่แล้ว
+
+### Re-run instructions
+- SQL migration เดิมที่รันไปครึ่งทาง (ALTER staff สำเร็จ + CREATE TABLE fail) → **safe to re-run**
+  - ALTER จะเป็น no-op (column มีแล้ว — IF NOT EXISTS)
+  - CREATE TABLE staff_attendance รอบนี้จะสำเร็จ (uuid match)
+  - Indexes + policies + verify queries จะรันต่อจากจุดที่ค้าง
+
+### บทเรียน — บันทึกเป็น memory
+- ก่อนเขียน FK ต่อ table ที่ไม่ได้สร้างใน repo migration → **ตรวจ type ใน Supabase Dashboard / `information_schema.columns` ก่อน**
+- อย่า assume type จากดู JS module ที่ใช้ sb client (type-agnostic)
+- `feedback_id_type_mismatch` memory เตือนเรื่อง customers.id แล้ว — บทเรียนนี้ต่อยอด: ตรวจทุก FK target
+
+---
+
+## 🕒 Phase 92.22+92.23 — Time Clock Foundation + Self-service (last session)
 
 **บริบท:** user ขอระบบลงเวลาเข้า-ออกงาน (clock-in/clock-out) เลือกแบบ "ครบเครื่อง" 4 มิติ (mixed manager+self / GPS / full scope / offline queue) → แตกเป็น 6 phases (92.22-92.27). เฟสนี้ครอบ **Foundation + Self-service** (92.22+92.23) — manager flow ใช้งานได้ทันทีหลัง SQL apply + self-service เปิดให้ staff ที่ผูกบัญชี Supabase Auth.
 

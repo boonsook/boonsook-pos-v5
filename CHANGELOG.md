@@ -7,6 +7,20 @@
 
 ---
 
+## 5.48.1 (build 278) — 2026-05-24 🐛 Phase 92.22 HOTFIX — uuid type mismatch (staff.id)
+
+- **fix(sql) [Blocking]:** `supabase-phase92-22-time-clock.sql` ใช้ `staff_id bigint` ผูก `staff.id` — แต่ staff ใน prod เป็น **uuid** (สร้างผ่าน Supabase Dashboard ไม่ใช่ migration script ใน repo) → Postgres reject ตอน CREATE TABLE ด้วย error `42804: foreign key constraint cannot be implemented: incompatible types bigint and uuid` → migration ล้มเหลว, table ไม่ถูกสร้าง
+- **แก้:** เปลี่ยน `staff_attendance.staff_id` จาก `bigint` → **`uuid`** (FK พอดี + RLS subquery ที่ใช้ `s.id = staff_attendance.staff_id` ก็ match) — re-run SQL ปลอดภัย (IF NOT EXISTS / IF EXISTS ทั้งหมด)
+- **fix(time_clock.js) [Blocking]:** `Number(document.getElementById("tcStaffSelect")?.value)` ทำให้ uuid string → `NaN` → manager กดบันทึกเข้างานไม่สำเร็จ. แก้เป็น `value?.trim() || ""` (string passthrough). `attendance.id` ยังเป็น bigserial → Number() cast บน `data-clock-out-id` คงเดิม
+- **ที่ไม่เปลี่ยน:** `_findMyStaff` query by `auth.uid()` (uuid match uuid อยู่แล้ว), `_fetchAttendance` URL `staff_id=eq.${...}` (encodeURIComponent รับ uuid string), `staffMap[s.staff_id]` (string key OK)
+- **Root cause:** ผม assume type จาก `modules/staff.js` (ใช้ sb client = type-agnostic) แทนที่จะ verify ใน Supabase Dashboard ก่อน — บันทึกเป็นบทเรียน [feedback_id_type_mismatch](feedback_id_type_mismatch)
+- ไม่มี behavior change กับ users ที่ยังรัน SQL ไม่ผ่าน (เพิ่งเริ่ม); สำหรับ users ที่ apply ส่วนแรกแล้ว (ALTER staff add user_id+email สำเร็จ) — re-run SQL ตัวใหม่ → ALTER เป็น no-op + CREATE TABLE สำเร็จ
+- verify เขียว exit 0 (lint 0/0, unit 380 ไม่เปลี่ยน — เป็น SQL fix + 1 line JS)
+
+**Build:** 277 → 278; version 5.48.0 → 5.48.1 (patch — hotfix SQL + JS cast)
+
+---
+
 ## 5.48.0 (build 277) — 2026-05-24 🕒 Phase 92.22+92.23 — Time Clock (Foundation + Self-service)
 
 > ⚠️ **DB migration required:** ผู้ดูแลระบบต้องรัน [`supabase-phase92-22-time-clock.sql`](supabase-phase92-22-time-clock.sql) ใน Supabase SQL Editor ก่อนใช้งานหน้านี้ (รายละเอียดใน HANDOFF section 92.22)
