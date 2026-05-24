@@ -3,12 +3,97 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 24 พฤษภาคม 2026 (Phase 92.21 — guard race on async badge handlers, build 276)
-**Version:** 5.47.10 (build 276) — Phase 92.21 (defensive guard `!btn.isConnected` หลัง await ใน sales/audit_log; ปิด GH-scanner race-condition annotations; no behavior change)
-**Previous:** 5.47.9 (build 275) — Phase 92.20 — JV drawer deep-link จาก 3 surfaces (PR #50)
+**อัปเดตล่าสุด:** 24 พฤษภาคม 2026 (Phase 92.22+92.23 — Time Clock Foundation + Self-service, build 277)
+**Version:** 5.48.0 (build 277) — Phase 92.22+92.23 (ระบบลงเวลาเข้า-ออกงาน: manager flow + self-service flow + auto-claim by email; ต้องรัน SQL migration ก่อนใช้)
+**Previous:** 5.47.10 (build 276) — Phase 92.21 — guard race on async badge handlers (PR #51)
 
-> 🟢 **สถานะ ณ ปัจจุบัน:** Phase 92.21 พร้อม push (lint 0/0, unit 356). Live = build 275 (จะขึ้นเป็น 276 หลัง PR merge). **Outstanding ทั้งหมดในรอบ session นี้ปิดครบ** (CI Node-24 / RLS verify / JV deep-link / race guard).
-> 🔵 **ค้าง (อิสระจาก deploy):** _(ไม่มี — outstanding ทั้งหมดปิดในรอบ session นี้)_
+> 🟡 **สถานะ ณ ปัจจุบัน:** Phase 92.22+92.23 พร้อม push (lint 0/0, unit 380). **ต้องรัน SQL migration ก่อนใช้งานหน้า** — รายละเอียดท้าย section 92.22.
+> 🔵 **ค้าง (อิสระจาก deploy):**
+> 1. **SQL migration ยังไม่รัน** — admin ต้อง paste `supabase-phase92-22-time-clock.sql` ใน Supabase SQL Editor (กล่อง error ในหน้าจะบอก)
+> 2. **Phase 92.24** — GPS geo-fence (cols พร้อมใน schema แล้ว)
+> 3. **Phase 92.25** — Admin edit time entry + OT auto-detect (>8 hrs/day)
+> 4. **Phase 92.26** — Payroll integration (`payroll.ot_hours/ot_amount` link กับ `staff_attendance`)
+> 5. **Phase 92.27** — Offline queue (IndexedDB + idempotency via `client_uuid` ที่ schema มีให้)
+
+---
+
+## 🕒 Phase 92.22+92.23 — Time Clock Foundation + Self-service (this session)
+
+**บริบท:** user ขอระบบลงเวลาเข้า-ออกงาน (clock-in/clock-out) เลือกแบบ "ครบเครื่อง" 4 มิติ (mixed manager+self / GPS / full scope / offline queue) → แตกเป็น 6 phases (92.22-92.27). เฟสนี้ครอบ **Foundation + Self-service** (92.22+92.23) — manager flow ใช้งานได้ทันทีหลัง SQL apply + self-service เปิดให้ staff ที่ผูกบัญชี Supabase Auth.
+
+### สิ่งที่เพิ่ม
+
+**1) DB migration** [`supabase-phase92-22-time-clock.sql`](supabase-phase92-22-time-clock.sql) (~170 lines):
+- `ALTER TABLE staff`: เพิ่ม `user_id uuid REFERENCES auth.users(id)` + `email text` (case-insensitive UNIQUE)
+- `CREATE TABLE staff_attendance` — fields ครบสำหรับ phases ต่อ:
+  - `id, staff_id, work_date, clock_in_at, clock_out_at`
+  - GPS reserve (Phase 92.24): `clock_in_lat/lng/distance_m`, `clock_out_lat/lng/distance_m`
+  - Idempotency (Phase 92.27): `client_uuid` (partial UNIQUE)
+  - Source tracker: `source CHECK IN ('admin','self','queued')`
+  - Audit: `notes`, `created_by`, `created_at`, `updated_at` (trigger auto-bump)
+- **Indexes:**
+  - `idx_attendance_staff_date` (staff_id, work_date DESC) — query history
+  - `idx_attendance_one_open_session` UNIQUE WHERE `clock_out_at IS NULL` — ★ กัน 2 open sessions/staff
+  - `idx_attendance_client_uuid` UNIQUE WHERE NOT NULL — idempotency
+- **RLS:** 4 policies (admin all / staff self ผ่าน user_id link)
+- `NOTIFY pgrst, 'reload schema'` + verify queries ที่ท้ายไฟล์ (5 จุด)
+
+**2) `modules/time_clock.js`** (~480 lines):
+- Pure helpers (testable): `workDateBangkok` (Asia/Bangkok), `timeBangkok`, `workHours`, `clockState`, `sumWorkHours`, `canAutoClaim` (case-insensitive + null-safe)
+- `renderTimeClockPage(ctx)` → fork by role:
+  - **Manager view** (admin): active sessions card + clock-in form (dropdown staff) + report tab (date range filter + staff filter + Export CSV)
+  - **Self-service view** (sales/technician + linked): clock in/out ของตัวเอง + week summary + 7-day history
+- **Auto-claim flow:** user ที่ยังไม่มี staff link → query `staff WHERE email=auth.email() AND user_id IS NULL` → PATCH `user_id=auth.uid()` (one-shot)
+- **Graceful errors:** HTTP 404/400 (table ไม่มี) → `NO_TABLE` error → UI โชว์ "ยังไม่ได้ติดตั้ง schema" + ปุ่ม retry
+- **Race guards:** `if (btn.isConnected)` หลัง await ทุก mutation (เรียนรู้จาก Phase 92.21)
+- REST fetch ตรง (ไม่ใช่ supabase-js client) — เป็น pattern เดียวกับ `payroll.js` / `sale_trace.js`
+
+**3) Wire 4 ที่:**
+- `main.js` `LAZY_ROUTES.time_clock` + `ROLE_PAGES.sales/technician` (admin มี ALL_ROUTES อยู่แล้ว)
+- `index.html` sidebar button (ใต้ HR group) + `<section id="page-time_clock">`
+- `modules/staff.js` add/edit modal: เพิ่มช่อง **อีเมล** + format validation + payload `email`
+
+**4) Tests** [`tests/sale_trace.test.js`](tests/sale_trace.test.js) ใหม่ +24 ตัว:
+- `workDateBangkok` — TZ correctness (UTC midnight crossover → Bangkok next day)
+- `timeBangkok` — null/invalid date → "-" (no Invalid Date string leak)
+- `workHours` — both/null/reversed/missing → 0 ปลอดภัย
+- `clockState` — open/closed/none
+- `sumWorkHours` — sum + ignore open sessions
+- `canAutoClaim` — happy/case-insensitive/already-claimed/mismatch/null-inputs (7 ตัว — กัน auth bypass)
+
+### ขอบเขต (จงใจ — เก็บไว้ Phase ต่อ)
+- ❌ **ไม่แตะ** posting / payroll math / accounting / RLS อื่นใด
+- ❌ **ไม่บังคับ GPS** — schema reserve cols ไว้ Phase 92.24 จะมาเปิดใช้
+- ❌ **ไม่ทำ offline queue** — schema มี `client_uuid` ให้แล้ว Phase 92.27 จะใช้
+- ❌ **ไม่ทำ OT calc** — Phase 92.25
+- ❌ **ไม่ link payroll** — Phase 92.26
+
+### Decision log
+- **Manager + Self รวมใน module เดียว** (ไม่แยก 2 ไฟล์) — render fork ตาม role; deps + utils ใช้ร่วมกัน, DRY
+- **Auto-claim เลือก email match แทน admin invite** — ไม่ต้อง backend extra (Cloudflare Function) + ทำงานในขอบเขต Supabase RLS
+- **REST fetch ไม่ใช้ sb client** — pattern ใหม่ใน accounting/* / sale_trace.js (consistent)
+- **Email UNIQUE บน `lower(email)`** — กัน confusing "JOHN@ex.com" ≠ "john@ex.com"
+
+### ⚠️ SQL Apply Instructions (admin ต้องทำหลัง deploy)
+1. Supabase Dashboard → SQL Editor → New query
+2. Copy ทั้งไฟล์ [`supabase-phase92-22-time-clock.sql`](supabase-phase92-22-time-clock.sql) → Paste → **Run**
+3. ตรวจ result panels ของ verify queries ท้ายไฟล์ (5 ตาราง):
+   - (a) staff: 2 columns ใหม่ (email, user_id)
+   - (b) staff_attendance: 16 columns
+   - (c) Indexes: 5 ตัว (idx_attendance_*, idx_staff_email_unique, idx_staff_user_id_unique)
+   - (d) Policies: 4 ตัว (att_select_admin_or_self, att_insert_..., att_update_..., att_delete_admin)
+   - (e) RLS enabled: true
+4. **Re-run safe** — ใช้ `IF EXISTS`/`IF NOT EXISTS`/`DROP IF EXISTS` ทุกตัว
+5. หลังรัน → กลับมาที่หน้า "ลงเวลาทำงาน" → กดปุ่ม retry (ถ้า error card ขึ้น) หรือรีโหลด
+
+### Gates
+- `npm run lint:errors` exit 0 (clean)
+- `npm test` = **380/380** (เดิม 356 + 24 ใหม่)
+- e2e จะรันใน CI
+
+---
+
+## 🛡️ Phase 92.21 — Guard race on async badge handlers (last session)
 
 ---
 
