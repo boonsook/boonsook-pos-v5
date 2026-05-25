@@ -14,6 +14,12 @@ const {
   rowActionLabel,
   roleChipMeta,
   alertActionFor,
+  // Phase 92.30
+  formatDistanceLabel,
+  groupAttendanceLast7Days,
+  employeePayrollSummary,
+  buildEmployeeModalSummary,
+  modalTabFor,
 } = await import("../modules/hr_overview.js");
 
 // ── classifyAttendanceStatus ────────────────────────────────
@@ -394,4 +400,169 @@ test("alertActionFor — offline_pending → time_clock (sync)", () => {
 test("alertActionFor — kind ที่ไม่รู้จัก → null (safe — render ไม่ใส่ปุ่ม)", () => {
   assert.equal(alertActionFor("unknown_kind"), null);
   assert.equal(alertActionFor(null), null);
+});
+
+// ── Phase 92.30: formatDistanceLabel ────────────────────────
+
+test("formatDistanceLabel — null/undefined/empty → '—'", () => {
+  assert.equal(formatDistanceLabel(null), "—");
+  assert.equal(formatDistanceLabel(undefined), "—");
+  assert.equal(formatDistanceLabel(""), "—");
+  assert.equal(formatDistanceLabel("abc"), "—");
+});
+
+test("formatDistanceLabel — ไม่มี radius → แค่ระยะ ม.", () => {
+  assert.equal(formatDistanceLabel(123), "123 ม.");
+  assert.equal(formatDistanceLabel(123.7), "124 ม."); // round
+});
+
+test("formatDistanceLabel — มี radius และ ใน/นอกพื้นที่", () => {
+  assert.equal(formatDistanceLabel(150, 200), "150 ม. (ในพื้นที่)");
+  assert.equal(formatDistanceLabel(350, 200), "350 ม. (นอกพื้นที่)");
+  assert.equal(formatDistanceLabel(200, 200), "200 ม. (ในพื้นที่)"); // = radius = ใน
+});
+
+test("formatDistanceLabel — radius invalid → ละเลย radius", () => {
+  assert.equal(formatDistanceLabel(150, 0), "150 ม.");
+  assert.equal(formatDistanceLabel(150, -5), "150 ม.");
+  assert.equal(formatDistanceLabel(150, NaN), "150 ม.");
+});
+
+// ── Phase 92.30: groupAttendanceLast7Days ───────────────────
+
+test("groupAttendanceLast7Days — todayDate ว่าง/ผิด → []", () => {
+  assert.deepEqual(groupAttendanceLast7Days([], ""), []);
+  assert.deepEqual(groupAttendanceLast7Days([], null), []);
+  assert.deepEqual(groupAttendanceLast7Days([], "not-a-date"), []);
+});
+
+test("groupAttendanceLast7Days — คืน 7 entries เสมอ เรียงใหม่→เก่า", () => {
+  const out = groupAttendanceLast7Days([], "2026-05-26");
+  assert.equal(out.length, 7);
+  assert.equal(out[0].date, "2026-05-26");
+  assert.equal(out[6].date, "2026-05-20");
+  for (const day of out) assert.deepEqual(day.attendance, []);
+});
+
+test("groupAttendanceLast7Days — group rows ตาม work_date ถูกต้อง", () => {
+  const rows = [
+    { id: 1, work_date: "2026-05-26", clock_in_at: "x" },
+    { id: 2, work_date: "2026-05-26", clock_in_at: "y" },
+    { id: 3, work_date: "2026-05-24", clock_in_at: "z" },
+    { id: 4, work_date: "2026-05-19", clock_in_at: "old" }, // outside 7-day window
+  ];
+  const out = groupAttendanceLast7Days(rows, "2026-05-26");
+  assert.equal(out[0].attendance.length, 2);
+  assert.equal(out[2].date, "2026-05-24");
+  assert.equal(out[2].attendance.length, 1);
+  assert.equal(out[1].attendance.length, 0);
+  // row id 4 (2026-05-19) อยู่นอก 7-day window (out[6] = 2026-05-20) → ไม่ปรากฏใน output
+  const allDates = out.map(o => o.date);
+  assert.ok(!allDates.includes("2026-05-19"));
+});
+
+test("groupAttendanceLast7Days — รับ input ที่ไม่ใช่ array สำหรับ rows → 7 entries ว่าง", () => {
+  const out = groupAttendanceLast7Days(null, "2026-05-26");
+  assert.equal(out.length, 7);
+  for (const day of out) assert.deepEqual(day.attendance, []);
+});
+
+// ── Phase 92.30: employeePayrollSummary ─────────────────────
+
+test("employeePayrollSummary — input ว่าง / profile ไม่มี id → null", () => {
+  assert.equal(employeePayrollSummary([], null), null);
+  assert.equal(employeePayrollSummary(null, { id: "u1" }), null);
+  assert.equal(employeePayrollSummary([], {}), null);
+});
+
+test("employeePayrollSummary — ไม่พบ employee_id ตรง → null", () => {
+  const payrolls = [{ employee_id: "u2", base_salary: 10000 }];
+  assert.equal(employeePayrollSummary(payrolls, { id: "u1" }), null);
+});
+
+test("employeePayrollSummary — รวม base+ot+welfare+bonus+commission-deductions ถ้า total_amount หาย", () => {
+  const payrolls = [{
+    id: 5, employee_id: "u1", period_month: "2026-05-01",
+    base_salary: 20000, overtime: 1500, welfare: 500, bonus: 1000, commission: 800, deductions: 300,
+  }];
+  const s = employeePayrollSummary(payrolls, { id: "u1" });
+  assert.equal(s.total_amount, 23500); // 20000+1500+500+1000+800-300
+  assert.equal(s.paid_at, null);
+});
+
+test("employeePayrollSummary — ใช้ total_amount จาก DB ถ้ามี (ไม่คำนวณซ้ำ)", () => {
+  const payrolls = [{
+    id: 6, employee_id: "u1", base_salary: 20000, total_amount: 99999, paid_at: "2026-05-25T03:00:00Z",
+  }];
+  const s = employeePayrollSummary(payrolls, { id: "u1" });
+  assert.equal(s.total_amount, 99999);
+  assert.equal(s.paid_at, "2026-05-25T03:00:00Z");
+});
+
+test("employeePayrollSummary — string vs uuid compare (defensive cast)", () => {
+  const payrolls = [{ employee_id: 7, base_salary: 1 }];
+  const s = employeePayrollSummary(payrolls, { id: "7" });
+  assert.ok(s);
+  assert.equal(s.base_salary, 1);
+});
+
+// ── Phase 92.30: buildEmployeeModalSummary ──────────────────
+
+test("buildEmployeeModalSummary — รวม profile + att + ot ถูกต้อง", () => {
+  const s = buildEmployeeModalSummary({
+    profile: { id: "u1", full_name: "นภดล", email: "n@x.com", role: "sales" },
+    todayAtt: { clock_in_at: "2026-05-26T01:00:00Z", clock_out_at: null, clock_in_distance_m: 120, notes: "มาสาย" },
+    todayOt: { regular: 4.5, ot: 1.2, total: 5.7 },
+    status: "working",
+    dept: { name: "ขาย" },
+    radiusM: 200,
+  });
+  assert.equal(s.userId, "u1");
+  assert.equal(s.name, "นภดล");
+  assert.equal(s.email, "n@x.com");
+  assert.equal(s.role, "sales");
+  assert.equal(s.department, "ขาย");
+  assert.equal(s.status, "working");
+  assert.equal(s.regularHours, 4.5);
+  assert.equal(s.otHours, 1.2);
+  assert.equal(s.clockInDistance, 120);
+  assert.equal(s.radiusM, 200);
+  assert.equal(s.notes, "มาสาย");
+});
+
+test("buildEmployeeModalSummary — input ว่างทั้งหมด → fallback ค่า default", () => {
+  const s = buildEmployeeModalSummary({});
+  assert.equal(s.userId, null);
+  assert.equal(s.department, "—");
+  assert.equal(s.status, "not_in");
+  assert.equal(s.regularHours, 0);
+  assert.equal(s.otHours, 0);
+  assert.equal(s.clockInAt, null);
+  assert.equal(s.radiusM, null);
+});
+
+test("buildEmployeeModalSummary — fallback display name ถ้าไม่มี full_name", () => {
+  const s = buildEmployeeModalSummary({ profile: { id: "u2", email: "abc@x.com" } });
+  assert.equal(s.name, "abc"); // profileDisplayName fallback to email prefix
+});
+
+// ── Phase 92.30: modalTabFor ────────────────────────────────
+
+test("modalTabFor — valid key → คืน key เดิม", () => {
+  assert.equal(modalTabFor("today"), "today");
+  assert.equal(modalTabFor("week"), "week");
+  assert.equal(modalTabFor("payroll"), "payroll");
+});
+
+test("modalTabFor — invalid key → fallback (default 'today')", () => {
+  assert.equal(modalTabFor("invalid"), "today");
+  assert.equal(modalTabFor(null), "today");
+  assert.equal(modalTabFor(""), "today");
+  assert.equal(modalTabFor(123), "today");
+});
+
+test("modalTabFor — custom validKeys + fallback", () => {
+  assert.equal(modalTabFor("payroll", ["today", "week"]), "today"); // payroll ไม่อยู่ในรายการ
+  assert.equal(modalTabFor("week", ["today", "week"]), "week");
+  assert.equal(modalTabFor("bad", ["today", "week"], "week"), "week");
 });

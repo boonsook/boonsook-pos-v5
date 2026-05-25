@@ -285,6 +285,136 @@ export function alertActionFor(kind) {
 }
 
 // ═══════════════════════════════════════════════════════════
+//  Phase 92.30 — Employee drill-down modal helpers (pure)
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Phase 92.30: format ระยะ GPS เป็นภาษาคน + ระบุใน/นอกพื้นที่ ถ้ามี radius
+ * @param {number|string|null|undefined} distance_m
+ * @param {number|null} [radiusM] - ถ้าตั้ง > 0 → เพิ่ม label "ในพื้นที่" / "นอกพื้นที่"
+ * @returns {string} "—" ถ้าไม่มีข้อมูล / "120 ม." / "350 ม. (นอกพื้นที่)"
+ */
+export function formatDistanceLabel(distance_m, radiusM) {
+  if (distance_m == null || distance_m === "") return "—";
+  const d = Number(distance_m);
+  if (!Number.isFinite(d)) return "—";
+  const dStr = Math.round(d) + " ม.";
+  const r = Number(radiusM);
+  if (Number.isFinite(r) && r > 0) {
+    return d > r ? `${dStr} (นอกพื้นที่)` : `${dStr} (ในพื้นที่)`;
+  }
+  return dStr;
+}
+
+/**
+ * Phase 92.30: group attendance rows เป็น 7 entries (วันนี้ + 6 ก่อนหน้า)
+ * เรียงใหม่ → เก่า. วันที่ไม่มี attendance จะมี attendance: []
+ * @param {Array<object>} rows - staff_attendance rows ของ user 1 คน
+ * @param {string} todayDate - "YYYY-MM-DD" (Bangkok)
+ * @returns {Array<{date:string, attendance:Array<object>}>}
+ */
+export function groupAttendanceLast7Days(rows, todayDate) {
+  if (!todayDate || typeof todayDate !== "string") return [];
+  const byDate = new Map();
+  if (Array.isArray(rows)) {
+    for (const r of rows) {
+      if (!r?.work_date) continue;
+      const key = String(r.work_date).slice(0, 10);
+      if (!byDate.has(key)) byDate.set(key, []);
+      byDate.get(key).push(r);
+    }
+  }
+  const out = [];
+  const baseT = new Date(todayDate + "T00:00:00+07:00").getTime();
+  if (!Number.isFinite(baseT)) return [];
+  for (let i = 0; i < 7; i++) {
+    const dKey = new Date(baseT - i * 86400000).toLocaleDateString("en-CA", { timeZone: TZ });
+    out.push({ date: dKey, attendance: byDate.get(dKey) || [] });
+  }
+  return out;
+}
+
+/**
+ * Phase 92.30: หา payroll ของ profile คนนี้ในรายการ payrolls เดือนปัจจุบัน
+ * Match: payroll.employee_id === profile.id (string compare safe)
+ * @param {Array<object>} payrolls
+ * @param {object|null} profile
+ * @returns {object|null} {id, base_salary, overtime, welfare, bonus, commission, deductions, total_amount, paid_at, ...}
+ */
+export function employeePayrollSummary(payrolls, profile) {
+  if (!Array.isArray(payrolls) || !profile?.id) return null;
+  const pid = String(profile.id);
+  const found = payrolls.find(p => p && String(p.employee_id) === pid);
+  if (!found) return null;
+  const base = Number(found.base_salary || 0);
+  const ot   = Number(found.overtime    || 0);
+  const wel  = Number(found.welfare     || 0);
+  const bon  = Number(found.bonus       || 0);
+  const com  = Number(found.commission  || 0);
+  const ded  = Number(found.deductions  || 0);
+  const computedTotal = base + ot + wel + bon + com - ded;
+  const totalRaw = Number(found.total_amount);
+  const total = Number.isFinite(totalRaw) ? totalRaw : computedTotal;
+  return {
+    id: found.id,
+    period_month: found.period_month || null,
+    base_salary: base,
+    overtime: ot,
+    welfare: wel,
+    bonus: bon,
+    commission: com,
+    deductions: ded,
+    total_amount: total,
+    paid_at: found.paid_at || null,
+    payment_method: found.payment_method || null,
+    note: found.note || null,
+  };
+}
+
+/**
+ * Phase 92.30: รวมข้อมูล summary สำหรับ modal header — presentation-ready
+ * @param {object} input
+ * @returns {object}
+ */
+export function buildEmployeeModalSummary(input = {}) {
+  const profile = input.profile || {};
+  const att = input.todayAtt || null;
+  const ot  = input.todayOt || { regular: 0, ot: 0, total: 0 };
+  return {
+    userId: profile.id || null,
+    name: profileDisplayName(profile),
+    email: profile.email || "",
+    role: profile.role || "",
+    department: input.dept?.name || "—",
+    status: input.status || "not_in",
+    clockInAt:  att?.clock_in_at  || null,
+    clockOutAt: att?.clock_out_at || null,
+    regularHours: Number(ot.regular || 0),
+    otHours: Number(ot.ot || 0),
+    totalHours: Number(ot.total || 0),
+    notes: att?.notes || "",
+    clockInDistance:  att?.clock_in_distance_m  ?? null,
+    clockOutDistance: att?.clock_out_distance_m ?? null,
+    radiusM: Number.isFinite(Number(input.radiusM)) ? Number(input.radiusM) : null,
+  };
+}
+
+/**
+ * Phase 92.30: validate tab key — กัน key แปลก ๆ จาก URL/state นอก
+ * @param {string} key
+ * @param {Array<string>} [validKeys] - default ["today","week","payroll"]
+ * @param {string} [fallback="today"]
+ * @returns {string}
+ */
+export function modalTabFor(key, validKeys, fallback = "today") {
+  const allowed = (Array.isArray(validKeys) && validKeys.length > 0)
+    ? validKeys
+    : ["today", "week", "payroll"];
+  if (typeof key === "string" && allowed.includes(key)) return key;
+  return allowed.includes(fallback) ? fallback : allowed[0];
+}
+
+// ═══════════════════════════════════════════════════════════
 //  REST helpers (เฉพาะ GET, read-only)
 // ═══════════════════════════════════════════════════════════
 
@@ -346,6 +476,27 @@ async function _fetchHrData(today, monthKey) {
   };
 
   return { profiles, departments, attendanceToday, attendanceMonth, payrolls, errors };
+}
+
+/**
+ * Phase 92.30: ดึง attendance ของ user 1 คนใน range (lazy, สำหรับ modal week tab)
+ * @param {string} userId
+ * @param {string} fromDate - "YYYY-MM-DD"
+ * @param {string} toDate   - "YYYY-MM-DD"
+ * @returns {Promise<Array<object>>} - throw ถ้า HTTP error
+ */
+async function _fetchUserAttendanceRange(userId, fromDate, toDate) {
+  const cfg = window.SUPABASE_CONFIG;
+  if (!cfg?.url || !userId) return [];
+  const headers = _sbHeaders();
+  const url = `${cfg.url}/rest/v1/staff_attendance?select=*`
+    + `&user_id=eq.${encodeURIComponent(userId)}`
+    + `&work_date=gte.${encodeURIComponent(fromDate)}`
+    + `&work_date=lte.${encodeURIComponent(toDate)}`
+    + `&order=clock_in_at.desc&limit=200`;
+  const r = await fetch(url, { headers });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -452,8 +603,10 @@ function _renderTbody(rows, deptMap) {
     const worked = ot.total > 0 ? HOURS(ot.total) : "—";
     const otCell = ot.ot > 0 ? `<span style="color:#ea580c;font-weight:700">${HOURS(ot.ot)}</span>` : "—";
     const action = rowActionLabel(status);
+    // Phase 92.30: row คลิกได้เพื่อเปิด drill-down modal — ปุ่ม action ไม่ถูก row click กิน
+    const userId = p.id || "";
     return `
-      <tr style="border-bottom:1px solid #f1f5f9">
+      <tr class="hr-row-employee" data-hr-employee="${escHtml(userId)}" style="border-bottom:1px solid #f1f5f9;cursor:pointer" title="คลิกเพื่อดูรายละเอียดพนักงาน">
         <td style="padding:8px 14px">
           <div style="font-weight:700;color:#0f172a">${escHtml(profileDisplayName(p))}</div>
           ${p.email ? `<div style="font-size:11px;color:#64748b">${escHtml(p.email)}</div>` : ""}
@@ -473,6 +626,243 @@ function _renderTbody(rows, deptMap) {
       </tr>
     `;
   }).join("");
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 92.30: Employee modal — UI render helpers
+// ═══════════════════════════════════════════════════════════
+
+const MODAL_TABS = [
+  { key: "today",   label: "📍 วันนี้"        },
+  { key: "week",    label: "📅 7 วันล่าสุด"    },
+  { key: "payroll", label: "💰 เงินเดือน"     },
+];
+
+function _formatMonthTh(yyyymmdd) {
+  if (!yyyymmdd) return "—";
+  try {
+    return new Date(String(yyyymmdd).slice(0, 10) + "T00:00:00+07:00")
+      .toLocaleDateString("th-TH", { timeZone: TZ, year: "numeric", month: "long" });
+  } catch { return "—"; }
+}
+
+function _formatDateTh(yyyymmdd) {
+  if (!yyyymmdd) return "—";
+  try {
+    return new Date(yyyymmdd + "T00:00:00+07:00")
+      .toLocaleDateString("th-TH", { timeZone: TZ, weekday: "short", day: "numeric", month: "short" });
+  } catch { return yyyymmdd; }
+}
+
+function _renderModalSummaryHeader(summary) {
+  const sc = _statusChip(summary.status);
+  const roleChip = _roleChip(summary.role);
+  const inT  = summary.clockInAt  ? timeBangkok(summary.clockInAt)  : "—";
+  const outT = summary.clockOutAt ? timeBangkok(summary.clockOutAt) : "—";
+  return `
+    <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:flex-start;padding:18px 20px;border-bottom:1px solid #f1f5f9;background:linear-gradient(135deg,#f8fafc,#fff)">
+      <div style="flex:1;min-width:200px">
+        <div style="font-size:20px;font-weight:900;color:#0f172a;line-height:1.2;margin-bottom:6px">${escHtml(summary.name)}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px">
+          ${roleChip}
+          <span style="font-size:12px;color:#475569">·</span>
+          <span style="font-size:12px;color:#475569">${escHtml(summary.department)}</span>
+        </div>
+        ${summary.email ? `<div style="font-size:11px;color:#64748b;word-break:break-all">${escHtml(summary.email)}</div>` : ""}
+      </div>
+      <button id="hrModalClose" aria-label="ปิด" style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;background:#fff;color:#475569;font-size:14px;cursor:pointer;flex-shrink:0">✕</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;padding:14px 20px;border-bottom:1px solid #f1f5f9;background:#fafbfc">
+      <div>
+        <div style="font-size:10px;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">สถานะวันนี้</div>
+        <div>${sc}</div>
+      </div>
+      <div>
+        <div style="font-size:10px;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">เข้า</div>
+        <div style="font-weight:700;color:#0f172a;font-variant-numeric:tabular-nums">${escHtml(inT)}</div>
+      </div>
+      <div>
+        <div style="font-size:10px;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">ออก</div>
+        <div style="font-weight:700;color:#0f172a;font-variant-numeric:tabular-nums">${escHtml(outT)}</div>
+      </div>
+      <div>
+        <div style="font-size:10px;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">ปกติ / OT (ชม.)</div>
+        <div style="font-weight:700;color:#0f172a;font-variant-numeric:tabular-nums">
+          ${HOURS(summary.regularHours)} / <span style="color:${summary.otHours > 0 ? '#ea580c' : '#0f172a'}">${HOURS(summary.otHours)}</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function _renderModalTabBar(activeTab) {
+  return `<div style="display:flex;border-bottom:1px solid #f1f5f9;background:#fff;overflow-x:auto">
+    ${MODAL_TABS.map(t => {
+      const isActive = t.key === activeTab;
+      return `<button class="hr-modal-tab" data-hr-tab="${escHtml(t.key)}" style="padding:12px 18px;background:transparent;border:none;border-bottom:3px solid ${isActive ? '#0284c7' : 'transparent'};color:${isActive ? '#0284c7' : '#475569'};font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap">${escHtml(t.label)}</button>`;
+    }).join("")}
+  </div>`;
+}
+
+function _renderTabToday(summary) {
+  const inT  = summary.clockInAt  ? timeBangkok(summary.clockInAt)  : "—";
+  const outT = summary.clockOutAt ? timeBangkok(summary.clockOutAt) : "—";
+  const inDist  = formatDistanceLabel(summary.clockInDistance,  summary.radiusM);
+  const outDist = formatDistanceLabel(summary.clockOutDistance, summary.radiusM);
+  const hasGps  = summary.clockInDistance != null || summary.clockOutDistance != null;
+  if (summary.status === "not_in") {
+    return `<div style="padding:30px 20px;text-align:center;color:#475569;font-size:13px">
+      <div style="font-size:36px;margin-bottom:8px;opacity:.7">🛌</div>
+      ยังไม่ได้ลงเวลาเข้างานวันนี้
+      <div style="margin-top:14px"><button class="hr-modal-route-btn" data-hr-action="time_clock" style="padding:8px 16px;border:1px solid #0284c7;border-radius:8px;background:#0284c7;color:#fff;font-size:12px;font-weight:700;cursor:pointer">▶️ ลงเวลาให้พนักงาน</button></div>
+    </div>`;
+  }
+  return `
+    <div style="padding:16px 20px;display:flex;flex-direction:column;gap:12px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px">
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px">
+          <div style="font-size:10px;color:#64748b;font-weight:700;text-transform:uppercase;margin-bottom:4px">เวลาเข้า</div>
+          <div style="font-size:18px;font-weight:900;color:#0f172a;font-variant-numeric:tabular-nums">${escHtml(inT)}</div>
+          ${hasGps ? `<div style="font-size:11px;color:#475569;margin-top:3px">${escHtml(inDist)}</div>` : ""}
+        </div>
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px">
+          <div style="font-size:10px;color:#64748b;font-weight:700;text-transform:uppercase;margin-bottom:4px">เวลาออก</div>
+          <div style="font-size:18px;font-weight:900;color:${summary.status === 'working' || summary.status === 'abnormal' ? '#ea580c' : '#0f172a'};font-variant-numeric:tabular-nums">${escHtml(outT)}</div>
+          ${hasGps ? `<div style="font-size:11px;color:#475569;margin-top:3px">${escHtml(outDist)}</div>` : ""}
+        </div>
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px">
+          <div style="font-size:10px;color:#64748b;font-weight:700;text-transform:uppercase;margin-bottom:4px">ปกติ / OT / รวม (ชม.)</div>
+          <div style="font-size:18px;font-weight:900;color:#0f172a;font-variant-numeric:tabular-nums">
+            ${HOURS(summary.regularHours)} / <span style="color:${summary.otHours > 0 ? '#ea580c' : '#0f172a'}">${HOURS(summary.otHours)}</span> / ${HOURS(summary.totalHours)}
+          </div>
+        </div>
+      </div>
+      ${summary.notes ? `<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:10px 12px;font-size:12px;color:#78350f">📝 ${escHtml(summary.notes)}</div>` : ""}
+    </div>
+  `;
+}
+
+function _renderTabWeek(weekState, shiftOpts) {
+  // weekState: { status: "idle"|"loading"|"loaded"|"error", rows: [], error: string|null, today: "YYYY-MM-DD" }
+  if (weekState.status === "loading") {
+    return `<div style="padding:24px 20px;text-align:center;color:#64748b;font-size:13px">⏳ กำลังโหลด...</div>`;
+  }
+  if (weekState.status === "error") {
+    return `<div style="padding:18px 20px">
+      <div style="background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:10px;padding:10px 12px;font-size:12px">
+        ⚠️ โหลดประวัติไม่สำเร็จ: ${escHtml(weekState.error || "")}
+      </div>
+    </div>`;
+  }
+  const grouped = groupAttendanceLast7Days(weekState.rows, weekState.today);
+  // Aggregate week total
+  const allClosed = (weekState.rows || []).filter(r => r?.clock_in_at && r?.clock_out_at);
+  const weekSum = sumRegularOT(allClosed, shiftOpts);
+  return `
+    <div style="padding:16px 20px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
+        <div style="font-size:13px;color:#475569">รวม 7 วัน: <strong style="color:#0f172a">${HOURS(weekSum.regular)}</strong> ชม. ปกติ · <strong style="color:${weekSum.ot > 0 ? '#ea580c' : '#0f172a'}">${HOURS(weekSum.ot)}</strong> OT · รวม <strong>${HOURS(weekSum.total)}</strong></div>
+      </div>
+      <div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:10px">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:560px">
+          <thead style="background:#f8fafc">
+            <tr>
+              <th style="padding:8px 12px;text-align:left;font-weight:700;color:#475569">วัน</th>
+              <th style="padding:8px 12px;text-align:center;font-weight:700;color:#475569">เข้า</th>
+              <th style="padding:8px 12px;text-align:center;font-weight:700;color:#475569">ออก</th>
+              <th style="padding:8px 12px;text-align:right;font-weight:700;color:#475569">ปกติ</th>
+              <th style="padding:8px 12px;text-align:right;font-weight:700;color:#475569">OT</th>
+              <th style="padding:8px 12px;text-align:left;font-weight:700;color:#475569">notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${grouped.map(({ date, attendance }) => {
+              if (attendance.length === 0) {
+                return `<tr style="border-top:1px solid #f1f5f9">
+                  <td style="padding:6px 12px;color:#0f172a">${escHtml(_formatDateTh(date))}</td>
+                  <td colspan="5" style="padding:6px 12px;color:#94a3b8;font-style:italic">ไม่มีบันทึก</td>
+                </tr>`;
+              }
+              return attendance.map(r => {
+                const inT  = r.clock_in_at  ? timeBangkok(r.clock_in_at)  : "—";
+                const outT = r.clock_out_at ? timeBangkok(r.clock_out_at) : "—";
+                const ot   = computeRegularOT(r, shiftOpts);
+                const isOpen = r.clock_in_at && !r.clock_out_at;
+                const bg = isOpen ? "#fff7ed" : "transparent"; // open session highlight
+                return `<tr style="border-top:1px solid #f1f5f9;background:${bg}">
+                  <td style="padding:6px 12px;color:#0f172a">${escHtml(_formatDateTh(date))}${isOpen ? ' <span style="color:#ea580c;font-size:10px;font-weight:700">(open)</span>' : ''}</td>
+                  <td style="padding:6px 12px;text-align:center;font-variant-numeric:tabular-nums">${escHtml(inT)}</td>
+                  <td style="padding:6px 12px;text-align:center;font-variant-numeric:tabular-nums">${escHtml(outT)}</td>
+                  <td style="padding:6px 12px;text-align:right;font-variant-numeric:tabular-nums">${ot.regular > 0 ? HOURS(ot.regular) : "—"}</td>
+                  <td style="padding:6px 12px;text-align:right;font-variant-numeric:tabular-nums;${ot.ot > 0 ? 'color:#ea580c;font-weight:700' : ''}">${ot.ot > 0 ? HOURS(ot.ot) : "—"}</td>
+                  <td style="padding:6px 12px;color:#475569;font-size:11px">${escHtml(r.notes || "")}</td>
+                </tr>`;
+              }).join("");
+            }).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function _renderTabPayroll(payrollSummary) {
+  if (!payrollSummary) {
+    return `<div style="padding:30px 20px;text-align:center;color:#475569;font-size:13px">
+      <div style="font-size:36px;margin-bottom:8px;opacity:.7">💸</div>
+      ยังไม่มีรายการเงินเดือนของพนักงานคนนี้ในเดือนนี้
+      <div style="margin-top:14px"><button class="hr-modal-route-btn" data-hr-action="payroll" style="padding:8px 16px;border:1px solid #16a34a;border-radius:8px;background:#16a34a;color:#fff;font-size:12px;font-weight:700;cursor:pointer">+ เพิ่มรายการเงินเดือน</button></div>
+    </div>`;
+  }
+  const periodTh = _formatMonthTh(payrollSummary.period_month);
+  const paid = !!payrollSummary.paid_at;
+  const paidChipBg     = paid ? "#dcfce7" : "#fff7ed";
+  const paidChipFg     = paid ? "#166534" : "#9a3412";
+  const paidChipBorder = paid ? "#86efac" : "#fdba74";
+  const paidLabel      = paid ? "✓ ชำระแล้ว" : "⏳ ยังไม่ชำระ";
+  return `
+    <div style="padding:16px 20px;display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+        <div style="font-size:13px;color:#475569">รอบ <strong style="color:#0f172a">${escHtml(periodTh)}</strong></div>
+        <span style="display:inline-block;padding:4px 12px;border-radius:999px;background:${paidChipBg};color:${paidChipFg};border:1px solid ${paidChipBorder};font-size:11px;font-weight:700">${escHtml(paidLabel)}</span>
+      </div>
+      <div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden">
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <tbody>
+            ${[
+              ["เงินเดือนพื้นฐาน", payrollSummary.base_salary, false],
+              ["ค่าล่วงเวลา (OT)",   payrollSummary.overtime,    false],
+              ["สวัสดิการ",          payrollSummary.welfare,     false],
+              ["โบนัส",              payrollSummary.bonus,       false],
+              ["คอมมิชชั่น",         payrollSummary.commission,  false],
+              ["หัก",                payrollSummary.deductions,  true],
+            ].map(([label, amount, isDeduction]) => `
+              <tr style="border-bottom:1px solid #f1f5f9">
+                <td style="padding:8px 12px;color:#475569">${escHtml(label)}</td>
+                <td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums;${isDeduction ? 'color:#dc2626' : 'color:#0f172a'}">${isDeduction && Number(amount) > 0 ? '-' : ''}${MONEY(amount)}</td>
+              </tr>
+            `).join("")}
+            <tr style="background:#f8fafc">
+              <td style="padding:10px 12px;font-weight:800;color:#0f172a">รวมสุทธิ</td>
+              <td style="padding:10px 12px;text-align:right;font-variant-numeric:tabular-nums;font-weight:900;color:#0284c7;font-size:16px">${MONEY(payrollSummary.total_amount)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      ${payrollSummary.paid_at ? `<div style="font-size:11px;color:#475569">วันที่จ่าย: ${escHtml(new Date(payrollSummary.paid_at).toLocaleString("th-TH", { timeZone: TZ, year:"numeric", month:"short", day:"numeric", hour:"2-digit", minute:"2-digit" }))}${payrollSummary.payment_method ? ` · ${escHtml(payrollSummary.payment_method)}` : ""}</div>` : ""}
+      ${payrollSummary.note ? `<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:10px 12px;font-size:12px;color:#78350f">📝 ${escHtml(payrollSummary.note)}</div>` : ""}
+      <div><button class="hr-modal-route-btn" data-hr-action="payroll" style="padding:8px 16px;border:1px solid #16a34a;border-radius:8px;background:#fff;color:#16a34a;font-size:12px;font-weight:700;cursor:pointer">💰 ไปจัดการในหน้า Payroll →</button></div>
+    </div>
+  `;
+}
+
+function _renderModalBody(activeTab, payload) {
+  switch (activeTab) {
+    case "week":    return _renderTabWeek(payload.weekState, payload.shiftOpts);
+    case "payroll": return _renderTabPayroll(payload.payrollSummary);
+    case "today":
+    default:        return _renderTabToday(payload.summary);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -656,6 +1046,9 @@ export async function renderHrOverviewPage(ctx) {
       </div>
 
     </div>
+
+    <!-- Phase 92.30: Employee drill-down modal (hidden initially) -->
+    <div id="hrEmployeeModal" style="display:none;position:fixed;inset:0;z-index:9999"></div>
   `;
 
   // ── Bind events ───────────────────────────────────────────
@@ -726,5 +1119,127 @@ export async function renderHrOverviewPage(ctx) {
     } catch (e) {
       showToast?.("Export ผิดพลาด: " + (e?.message || e));
     }
+  });
+
+  // ═══════════════════════════════════════════════════════════
+  //  Phase 92.30: Employee drill-down modal — open/close/tabs/lazy fetch
+  // ═══════════════════════════════════════════════════════════
+
+  const modalRoot = document.getElementById("hrEmployeeModal");
+  let activeUserId = null;
+  let activeTab = "today";
+  const weekCache = new Map(); // userId → { status, rows, error, today }
+  let escHandler = null;
+
+  function _closeModal() {
+    if (!modalRoot) return;
+    activeUserId = null;
+    modalRoot.style.display = "none";
+    modalRoot.innerHTML = "";
+    document.body.style.overflow = "";
+    if (escHandler) {
+      window.removeEventListener("keydown", escHandler);
+      escHandler = null;
+    }
+  }
+
+  function _renderModal() {
+    if (!modalRoot || !activeUserId) return;
+    const found = rows.find(r => String(r.profile.id) === String(activeUserId));
+    if (!found) { _closeModal(); return; }
+    const dept = found.profile.department_id ? deptMap.get(String(found.profile.department_id)) : null;
+    const summary = buildEmployeeModalSummary({
+      profile: found.profile,
+      todayAtt: found.att,
+      todayOt: found.ot,
+      status: found.status,
+      dept,
+      radiusM: geofence?.radiusM ?? null,
+    });
+    const payrollSummary = employeePayrollSummary(data.payrolls, found.profile);
+    const weekState = weekCache.get(activeUserId) || { status: "idle", rows: [], error: null, today };
+
+    modalRoot.innerHTML = `
+      <div id="hrModalBackdrop" style="position:absolute;inset:0;background:rgba(15,23,42,.55);backdrop-filter:blur(2px)"></div>
+      <div role="dialog" aria-modal="true" aria-label="รายละเอียดพนักงาน" style="position:relative;max-width:860px;width:calc(100% - 24px);max-height:calc(100vh - 24px);margin:12px auto;background:#fff;border-radius:16px;box-shadow:0 20px 50px rgba(15,23,42,.25);display:flex;flex-direction:column;overflow:hidden">
+        ${_renderModalSummaryHeader(summary)}
+        ${_renderModalTabBar(activeTab)}
+        <div id="hrModalBody" style="flex:1;overflow-y:auto;min-height:200px">
+          ${_renderModalBody(activeTab, { summary, weekState, shiftOpts, payrollSummary })}
+        </div>
+        <div style="padding:10px 20px;border-top:1px solid #f1f5f9;background:#fafbfc;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+          <div style="font-size:11px;color:#94a3b8">${escHtml(rowActionLabel(found.status).label === "ลงเวลา" ? "ยังไม่ลงเวลาเข้างาน" : "")}</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="hr-modal-route-btn" data-hr-action="time_clock" style="padding:8px 14px;border:1px solid #0284c7;border-radius:8px;background:#fff;color:#0284c7;font-size:12px;font-weight:700;cursor:pointer">🕒 ไป Time Clock</button>
+            <button id="hrModalCloseBottom" style="padding:8px 14px;border:1px solid #e2e8f0;border-radius:8px;background:#fff;color:#475569;font-size:12px;font-weight:700;cursor:pointer">ปิด</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // ── Bind modal events ────────────────────────────────────
+    modalRoot.querySelector("#hrModalClose")?.addEventListener("click", _closeModal);
+    modalRoot.querySelector("#hrModalCloseBottom")?.addEventListener("click", _closeModal);
+    modalRoot.querySelector("#hrModalBackdrop")?.addEventListener("click", _closeModal);
+
+    // Tabs
+    modalRoot.querySelectorAll(".hr-modal-tab").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const next = modalTabFor(btn.getAttribute("data-hr-tab"));
+        if (next === activeTab) return;
+        activeTab = next;
+        // ถ้าเข้า "week" และยังไม่โหลด → fetch
+        if (activeTab === "week" && (!weekCache.has(activeUserId) || weekCache.get(activeUserId).status === "idle")) {
+          weekCache.set(activeUserId, { status: "loading", rows: [], error: null, today });
+          _renderModal();
+          // คำนวณช่วง 7 วัน (รวมวันนี้)
+          const baseT = new Date(today + "T00:00:00+07:00").getTime();
+          const fromDate = new Date(baseT - 6 * 86400000).toLocaleDateString("en-CA", { timeZone: TZ });
+          try {
+            const r = await _fetchUserAttendanceRange(activeUserId, fromDate, today);
+            weekCache.set(activeUserId, { status: "loaded", rows: r, error: null, today });
+          } catch (e) {
+            weekCache.set(activeUserId, { status: "error", rows: [], error: e?.message || String(e), today });
+          }
+          // ตรวจว่า user ยังไม่ปิด modal / ไม่เปลี่ยน tab ก่อน rerender
+          if (activeUserId && activeTab === "week") _renderModal();
+          return;
+        }
+        _renderModal();
+      });
+    });
+
+    // Route buttons inside modal — close modal then navigate
+    modalRoot.querySelectorAll(".hr-modal-route-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const route = btn.getAttribute("data-hr-action");
+        _closeModal();
+        if (route && typeof showRoute === "function") showRoute(route);
+      });
+    });
+  }
+
+  function _openModal(userId) {
+    if (!modalRoot || !userId) return;
+    const exists = rows.find(r => String(r.profile.id) === String(userId));
+    if (!exists) return;
+    activeUserId = String(userId);
+    activeTab = "today";
+    modalRoot.style.display = "block";
+    document.body.style.overflow = "hidden";
+    _renderModal();
+    // Esc handler — bind only while open
+    escHandler = (ev) => { if (ev.key === "Escape") _closeModal(); };
+    window.addEventListener("keydown", escHandler);
+  }
+
+  // Row click → open modal (delegation); skip if user clicked the row action button or any element with data-hr-action
+  container.addEventListener("click", (ev) => {
+    if (ev.target.closest("[data-hr-action]")) return;
+    if (ev.target.closest("button")) return;
+    const row = ev.target.closest("[data-hr-employee]");
+    if (!row || !container.contains(row)) return;
+    const userId = row.getAttribute("data-hr-employee");
+    if (userId) _openModal(userId);
   });
 }

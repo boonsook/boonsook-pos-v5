@@ -7,6 +7,25 @@
 
 ---
 
+## 5.55.0 (build 291) — 2026-05-26 👤 Phase 92.30 — HR Employee Drill-down Modal
+
+- **feat(hr_overview) [drill-down]:** คลิกแถวพนักงานใน "สถานะพนักงานวันนี้" → เปิด **modal รายละเอียดพนักงาน** (max-width 860px, mobile responsive, Esc + backdrop คลิกเพื่อปิด, body scroll lock, `role="dialog"` + `aria-modal`)
+- **Modal header:** ชื่อ · role chip · แผนก · email · status chip + mini-KPI (เข้า/ออก/ปกติ/OT) วันนี้
+- **3 tabs:**
+  - **📍 วันนี้** — clock in/out + ปกติ/OT/รวม cards + GPS distance พร้อมป้าย "ในพื้นที่/นอกพื้นที่" (ถ้ามี geofence) + notes; ถ้าสถานะ `not_in` → empty state + ปุ่ม "▶️ ลงเวลาให้พนักงาน" ไป Time Clock
+  - **📅 7 วันล่าสุด** — **lazy fetch** ตอนเข้า tab (cache per `userId`) → tableจัดกลุ่ม 7 entries (วันนี้ + 6 ก่อนหน้า) เรียงใหม่→เก่า · open session ไฮไลต์ส้ม · header summary รวม ปกติ/OT/รวม 7 วัน · graceful error ถ้า fetch fail
+  - **💰 เงินเดือน** — base/ot/welfare/bonus/commission/deductions/total + paid/unpaid chip + วันที่จ่าย + payment method + note + ปุ่มไปหน้า Payroll; ถ้ายังไม่มี payroll → empty state + ปุ่ม "+ เพิ่มรายการเงินเดือน"
+- **Footer:** ปุ่ม "🕒 ไป Time Clock" + ปุ่ม "ปิด"
+- **Row click delegation:** skip ถ้าผู้ใช้คลิก `[data-hr-action]` / `<button>` (ปุ่มในแถวยังทำงานเหมือนเดิม) · ไม่มี inline `onclick`
+- **Pure helpers ใหม่ (test-friendly):** `formatDistanceLabel` (radius-aware), `groupAttendanceLast7Days` (เรียงใหม่→เก่า, fill-7), `employeePayrollSummary` (match `employee_id === profile.id`, รวม base+ot+wel+bon+com-ded ถ้า total หาย), `buildEmployeeModalSummary` (presentation-ready), `modalTabFor` (validate tab key)
+- **ไม่แตะ DB schema / RLS / money math / payroll/time_clock write behavior** — read-only drill-down เท่านั้น (1 fetch endpoint ใหม่: `staff_attendance` filter by user_id 7 วัน)
+- Tests +19 (formatDistanceLabel 4 + groupAttendanceLast7Days 4 + employeePayrollSummary 5 + buildEmployeeModalSummary 3 + modalTabFor 3). Unit **459 → 478**
+- verify เขียว: lint:errors 0/0, e2e 11/11
+
+**Build:** 290 → 291; version 5.54.1 → 5.55.0 (minor — feature UX ใหม่)
+
+---
+
 ## 5.54.1 (build 290) — 2026-05-26 ✨ Phase 92.29 — HR Overview polish + filters + actionable alerts
 
 - **feat(hr_overview) [filter]:** เพิ่ม **filter bar** เหนือตารางสถานะวันนี้ — 5 ปุ่ม segmented (ทั้งหมด / ยังไม่เข้า / กำลังทำงาน / ออกแล้ว / ต้องตรวจสอบ) แสดง count ในปุ่ม · filter in-memory ไม่ refetch DB · default = ทั้งหมด · empty state เมื่อ filter แล้วไม่มีข้อมูล

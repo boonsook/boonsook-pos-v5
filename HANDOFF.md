@@ -3,9 +3,80 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 26 พฤษภาคม 2026 (Phase 92.29 — HR Overview polish + filters + actionable alerts, build 290)
-**Version:** 5.54.1 (build 290) — Phase 92.29 (HR Overview polish)
-**Previous:** 5.54.0 (build 289) — Phase 92.28 (HR Overview dashboard)
+**อัปเดตล่าสุด:** 26 พฤษภาคม 2026 (Phase 92.30 — HR Employee drill-down Modal, build 291)
+**Version:** 5.55.0 (build 291) — Phase 92.30 (Employee drill-down modal)
+**Previous:** 5.54.1 (build 290) — Phase 92.29 (HR Overview polish)
+
+---
+
+## 👤 Phase 92.30 — HR Employee Drill-down Modal (this session)
+
+**บริบท:** ต่อจาก Phase 92.29 (HR Overview polish) — user ขอ modal รายละเอียดพนักงานเมื่อคลิกแถว เพื่อให้ admin ดูประวัติได้ในที่เดียวโดยไม่ต้องออกจากหน้า. 3 tabs: วันนี้ / 7 วันล่าสุด / เงินเดือน. Read-only ทั้งหมด.
+
+### สิ่งที่เพิ่ม
+
+**1) Pure helpers ใหม่ใน [`modules/hr_overview.js`](modules/hr_overview.js)** (export ครบ, test-friendly):
+- `formatDistanceLabel(distance_m, radiusM)` → "—" / "120 ม." / "350 ม. (นอกพื้นที่)" — radius-aware
+- `groupAttendanceLast7Days(rows, todayDate)` → `[{date, attendance[]}]` × 7 (วันนี้ + 6 ก่อนหน้า, เรียงใหม่→เก่า, fill empty days)
+- `employeePayrollSummary(payrolls, profile)` → object หรือ `null` — match `String(p.employee_id) === String(profile.id)`, รวม base+ot+wel+bon+com-ded ถ้า `total_amount` หาย
+- `buildEmployeeModalSummary(input)` → header object (name/role/dept/status/clockIn-Out/regular/ot/total/distances/notes/radius)
+- `modalTabFor(key, validKeys, fallback)` → string (validate ป้องกัน injection)
+
+**2) REST helper ใหม่ (lazy, modal-only)**
+- `_fetchUserAttendanceRange(userId, fromDate, toDate)` — `staff_attendance?user_id=eq.X&work_date=gte.Y&lte.Z` (limit 200)
+
+**3) UI / interaction**
+- Modal HTML container: `<div id="hrEmployeeModal" style="display:none;position:fixed;inset:0;z-index:9999">` ใน `container.innerHTML` (hidden by default)
+- **Row คลิกได้:** `<tr class="hr-row-employee" data-hr-employee="${userId}" cursor:pointer>` + title tooltip
+- **Event delegation row click:** skip ถ้า `ev.target.closest("[data-hr-action]")` หรือ `closest("button")` → ปุ่ม action ในแถวไม่ถูก row click ทับ
+- **Modal lifecycle:**
+  - `_openModal(userId)` → set `activeUserId` + `activeTab="today"` + display:block + lock body scroll + bind Esc
+  - `_closeModal()` → null state + display:none + restore scroll + unbind Esc
+  - `_renderModal()` → header + tab bar + body + footer (re-render on tab switch)
+- **Tabs:**
+  - `today` → reuse data จาก HR Overview rows (instant)
+  - `week` → lazy fetch (cache per userId) → `groupAttendanceLast7Days` → table 7 วัน + open session highlight + summary footer
+  - `payroll` → `employeePayrollSummary` (reuse data.payrolls) → table 6 หมวด + total + paid chip + payment date/method + note + ปุ่มไป Payroll
+- **Closes:** `#hrModalClose` (✕ มุมขวาบน), `#hrModalCloseBottom` (ปุ่มล่าง), `#hrModalBackdrop` (คลิกพื้นหลัง), Esc key
+
+**4) Safety**
+- Admin only (inherit จาก `requireAdmin()` ของ HR Overview)
+- `escHtml` ทุก output (name, email, dept, notes, payment_method, date strings, error message)
+- Read-only — ไม่มี mutation ที่ใด
+- Graceful error: week tab fetch fail → ไม่ crash, แสดง error banner ในตาราง
+- ไม่แตะ DB schema / RLS / money math / payroll/time_clock write behavior
+- ไม่เพิ่ม dependency ใหม่
+
+**5) Tests (+19)** [`tests/hr_overview.test.js`](tests/hr_overview.test.js):
+- `formatDistanceLabel`: null/empty/invalid / no-radius (round) / radius in-out / radius invalid skip
+- `groupAttendanceLast7Days`: empty todayDate / always 7 entries / group by work_date / outside-window excluded / non-array rows
+- `employeePayrollSummary`: empty/no-id null / no-match null / computed total fallback / use total_amount from DB / string-uuid cast
+- `buildEmployeeModalSummary`: full fields / empty input fallback / display name email-prefix fallback
+- `modalTabFor`: valid keys passthrough / invalid → 'today' / custom validKeys + fallback
+
+### ขอบเขต (จงใจตามข้อห้าม)
+- **Audit tab ยังไม่ทำ** (per user instruction: "optional, ใส่ follow-up ถ้าไม่ชัวร์") — ค้างเป็น follow-up เพราะ `activity_log` ใช้ entity_id แบบ generic ต้องตัดสินใจ schema query ก่อน (user_id อาจอยู่ใน metadata JSON ไม่ใช่ column ตรง)
+- ไม่มี inline `onclick` — event delegation ทั้งหมด
+- ไม่ refactor logic เดิม (filter bar / KPI / alerts) — additive ทั้งหมด
+
+### Gates
+- `npm run lint:errors` exit 0 (clean)
+- `npm test` = **478/478** (เพิ่ม 19 จาก 459)
+- `npm run test:e2e` = **11/11** (build sync ผ่าน)
+
+### Version sync (4 sub-items + sw.js comment)
+- `package.json`: 5.54.1 → **5.55.0** (minor)
+- `index.html`: `style.css?v=290→291`, `selfheal.js?v=290→291` + `data-app-build="291"` + `data-app-version="5.55.0"`, `main.js?v=290→291`, `boot.js?v=290→291`
+- `sw.js`: `CACHE_NAME = 'boonsook-pos-v5-cache-v291'` + comment line
+
+### Follow-ups (ถ้าผู้ใช้เลือกทำต่อ)
+- **Audit tab** — ตัดสินใจ schema query ของ `activity_log` ก่อน (user_id อาจอยู่ใน `metadata` JSON column → ต้อง JSONB query) แล้วเพิ่ม tab + helper `buildEmployeeAuditQuery`
+- **Department / role filter** ที่หน้า HR Overview — เพิ่ม second-row filter (dept dropdown + role toggle)
+- **Leave management** — ตัดสินใจ schema (`staff_leaves` ตารางใหม่ vs `staff_attendance.leave_type` flag) ก่อนทำ UI
+- **Late rule** — ตั้งกฎใน Settings (เช่น `clock_in_at > shiftStartHour + 15 min = late`) → ขึ้นเป็น exception ใน HR Overview + chip ใน modal วันนี้
+- **Edit attendance ใน modal** — ตอนนี้ปุ่มในตาราง 7 วันยังไม่มี edit; admin edit ต้องไปหน้า Time Clock (มี modal แก้อยู่แล้วใน Phase 92.25)
+
+---
 
 ---
 
