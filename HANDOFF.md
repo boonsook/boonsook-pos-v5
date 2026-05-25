@@ -3,9 +3,76 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 26 พฤษภาคม 2026 (Phase 92.28 — HR Center / ภาพรวม HR, build 289)
-**Version:** 5.54.0 (build 289) — Phase 92.28 (HR Overview dashboard)
-**Previous:** 5.53.1 (build 288) — Phase 92.27b HOTFIX time_clock dropdown
+**อัปเดตล่าสุด:** 26 พฤษภาคม 2026 (Phase 92.29 — HR Overview polish + filters + actionable alerts, build 290)
+**Version:** 5.54.1 (build 290) — Phase 92.29 (HR Overview polish)
+**Previous:** 5.54.0 (build 289) — Phase 92.28 (HR Overview dashboard)
+
+---
+
+## ✨ Phase 92.29 — HR Overview polish + filters + actionable alerts (this session)
+
+**บริบท:** ต่อจาก Phase 92.28 (HR Overview MVP) — user ขอ polish ให้ใช้งานจริงระดับมืออาชีพ: filter ตาราง, action จาก alert, visual polish (role chip / status wording), row action dynamic ตาม status, payroll shortcut, quick actions reorder. **Additive only** — ไม่รื้อ behavior เดิม.
+
+### สิ่งที่เพิ่ม
+
+**1) Pure helpers ใหม่ใน [`modules/hr_overview.js`](modules/hr_overview.js)** (test-friendly, export ครบ):
+- `countStatusBuckets(rows)` → `{all, not_in, working, out, abnormal}` — สำหรับ count บนปุ่ม filter
+- `filterRowsByStatus(rows, status)` → rows ที่ filter แล้ว (graceful: "all"/unknown → คืนทั้งหมด)
+- `rowActionLabel(status)` → `{label, icon, color}` — dynamic ตาม status
+- `roleChipMeta(role)` → `{label, bg, fg, border}` — admin ม่วง / sales ฟ้า / technician เขียว
+- `alertActionFor(kind)` → `{label, route} | null` — mapping kind → route ที่จะนำทาง
+
+**2) UI changes**
+- **Filter bar** (segmented buttons) เหนือตาราง — แสดง count ในแต่ละปุ่ม, default "all", click → re-render `tbody` เท่านั้น (ไม่ refetch)
+- **Role chip** ในคอลัมน์ "แผนก / role" — แทน text เปล่า
+- **Status wording:** `abnormal` "ผิดปกติ" → **"ต้องตรวจสอบ"** (ทั้ง chip, filter button, Export sheet)
+- **Row action button** — label/icon/สี dynamic:
+  - `not_in` → "▶️ ลงเวลา" (ฟ้า)
+  - `working` → "⏱️ จัดการเวลา" (ส้ม)
+  - `abnormal` → "⚠️ จัดการเวลา" (แดง)
+  - `out` → "👁️ ดูเวลา" (เทา)
+  - ทุกปุ่มไป `time_clock` route เหมือนเดิม
+- **Alert action buttons** — ปุ่มขวาสุดของแต่ละ alert: stale/geofence/offline → Time Clock, unpaid_payroll → Payroll
+- **KPI clickable** — Payroll card คลิกได้เมื่อ `payrollUnpaid > 0`, Offline Queue card คลิกได้เมื่อมี pending (keyboard: Enter/Space)
+- **Quick actions reorder + label สั้น:** ลงเวลา / เงินเดือน / ภาพรวมเงินเดือน / แผนก / ประวัติ / Export (Export ยังเป็น primary green)
+
+**3) Event delegation pattern**
+- `container.addEventListener("click", ...)` — จับ `[data-hr-action]` ทุกตัว (KPI card, alert button, row button, quick action) → `showRoute(route)`
+- `hrFilterBar` มี listener แยกสำหรับ `.hr-filter-btn` — ไม่ navigate, แค่ update local state + re-render `hrTbody`
+- `hrExportBtn` ใช้ filter ปัจจุบัน + filename suffix (`_working`, `_not_in`, ฯลฯ)
+- **ไม่มี inline `onclick`** ที่ไหนเลย — ตามข้อห้าม
+
+**4) Tests (+21)** [`tests/hr_overview.test.js`](tests/hr_overview.test.js):
+- `countStatusBuckets`: empty / non-array / mixed counts / weird status counted in `all` only
+- `filterRowsByStatus`: "all"/empty/undefined → copy / filter exact / unknown → all / non-array → `[]`
+- `rowActionLabel`: not_in / working+abnormal / out / unknown+null+undefined fallback
+- `roleChipMeta`: 4 known roles TH labels / distinct colors / unknown role label = string passthrough / null/undefined → "—"
+- `alertActionFor`: 4 known kinds → correct route / unknown+null → null
+
+### ขอบเขต (จงใจตามข้อห้าม)
+- **ไม่แตะ DB / RLS / money math / payroll / time_clock behavior** — pure UI polish + additive helpers
+- ไม่เพิ่ม dependency ใหม่ (`dependencies: {}` คงเดิม)
+- ไม่มี inline `onclick` — event delegation ทั้งหมด
+- `escHtml` ทุก output จาก DB (profile name, email, dept name)
+- ถ้า fetch บางตาราง fail → ยังแสดง warning banner เดิม + ตัวเลขที่โหลดได้ (ไม่ crash)
+
+### Gates
+- `npm run lint:errors` exit 0 (clean)
+- `npm test` = **459/459** (เพิ่ม 21 จาก 438)
+- `npm run test:e2e` = **11/11** (build sync ผ่าน)
+
+### Version sync (4 sub-items + sw.js comment)
+- `package.json`: 5.54.0 → **5.54.1** (patch)
+- `index.html`: `style.css?v=289→290`, `selfheal.js?v=289→290` + `data-app-build="290"` + `data-app-version="5.54.1"`, `main.js?v=289→290`, `boot.js?v=289→290`
+- `sw.js`: `CACHE_NAME = 'boonsook-pos-v5-cache-v290'` + comment line
+
+### Follow-ups (ถ้าผู้ใช้เลือกทำต่อ)
+- **Drill-down modal รายพนักงาน** — คลิกชื่อ/แถว → modal แสดง history 7 วัน + payroll history (ปัจจุบันคลิก row action ไปหน้า Time Clock เลย)
+- **Filter ตามแผนก/role** — เพิ่มอีกแถว filter (department dropdown + role chip toggle)
+- **Leave / วันลา** — ต้องตัดสินใจ schema (ตาราง `staff_leaves` หรือ `staff_attendance.leave_type`) ก่อน
+- **KPI "มาสาย"** — ต้องตั้งกฎเวลามาสายใน Settings ก่อน (เช่น clock_in_at > shiftStartHour + 15 min = late)
+
+---
 
 ---
 

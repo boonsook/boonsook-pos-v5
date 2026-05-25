@@ -7,6 +7,26 @@
 
 ---
 
+## 5.54.1 (build 290) — 2026-05-26 ✨ Phase 92.29 — HR Overview polish + filters + actionable alerts
+
+- **feat(hr_overview) [filter]:** เพิ่ม **filter bar** เหนือตารางสถานะวันนี้ — 5 ปุ่ม segmented (ทั้งหมด / ยังไม่เข้า / กำลังทำงาน / ออกแล้ว / ต้องตรวจสอบ) แสดง count ในปุ่ม · filter in-memory ไม่ refetch DB · default = ทั้งหมด · empty state เมื่อ filter แล้วไม่มีข้อมูล
+- **feat(hr_overview) [polish]:**
+  - Role เป็น **chip สี** ในตาราง: admin = ม่วง, sales = ฟ้า, technician = เขียว, อื่น ๆ = เทา
+  - Status wording: `abnormal` "ผิดปกติ" → **"ต้องตรวจสอบ"** (ทั้งใน chip / filter button / Export)
+- **feat(hr_overview) [actionable]:** ทุก alert ใน "สิ่งที่ต้องจัดการวันนี้" มีปุ่มไป route ที่เกี่ยว — `stale_session`/`geofence_out`/`offline_pending` → Time Clock, `unpaid_payroll` → Payroll (ใช้ event delegation, ไม่มี inline onclick)
+- **feat(hr_overview) [row action]:** ปุ่มในแต่ละแถว label dynamic ตาม status — `not_in` = "▶️ ลงเวลา", `working`/`abnormal` = "⏱️ จัดการเวลา", `out` = "👁️ ดูเวลา" (ทุกปุ่มไป `time_clock` route เหมือนเดิม) + สีปุ่มสะท้อน severity
+- **feat(hr_overview) [shortcut]:** KPI card **Payroll** คลิกได้เมื่อมีค้าง (`payrollUnpaid > 0`) → Payroll · KPI **Offline Queue** คลิกได้เมื่อ pending > 0 → Time Clock · keyboard accessible (Enter/Space)
+- **feat(hr_overview) [quick actions]:** เรียงใหม่ + label สั้น — ลงเวลา / เงินเดือน / ภาพรวมเงินเดือน / แผนก / ประวัติ / Export
+- **Export Excel:** export ตาม `activeFilter` ปัจจุบัน — filename suffix `_status` (เช่น `hr_overview_2026-05-26_working.xlsx`) เพื่อให้ชัดเจน
+- **Pure helpers ใหม่ (test-friendly):** `countStatusBuckets`, `filterRowsByStatus`, `rowActionLabel`, `roleChipMeta`, `alertActionFor`
+- **ไม่แตะ DB / RLS / money math / payroll / time_clock behavior** — pure UI polish + additive helpers
+- Tests +21 (countStatusBuckets 4 + filterRowsByStatus 4 + rowActionLabel 4 + roleChipMeta 4 + alertActionFor 5). Unit **438 → 459**
+- verify เขียว: lint:errors 0/0, e2e 11/11
+
+**Build:** 289 → 290; version 5.54.0 → 5.54.1 (patch — UX polish)
+
+---
+
 ## 5.54.0 (build 289) — 2026-05-26 📊 Phase 92.28 — ภาพรวม HR / HR Center
 
 - **feat(hr) [dashboard]:** หน้าใหม่ **📊 ภาพรวม HR** ใน sidebar กลุ่ม "บุคลากร / HR" (ก่อน "ตั้งค่าแผนก") — read-only dashboard สำหรับ admin เพื่อเห็นสถานะ HR ทั้งระบบในหน้าเดียว

@@ -9,6 +9,11 @@ const {
   aggregateHrKpi,
   detectExceptions,
   indexAttendanceByUser,
+  countStatusBuckets,
+  filterRowsByStatus,
+  rowActionLabel,
+  roleChipMeta,
+  alertActionFor,
 } = await import("../modules/hr_overview.js");
 
 // ── classifyAttendanceStatus ────────────────────────────────
@@ -242,4 +247,151 @@ test("indexAttendanceByUser — input ที่ไม่ใช่ array → Map 
   assert.equal(indexAttendanceByUser(null).size, 0);
   assert.equal(indexAttendanceByUser(undefined).size, 0);
   assert.equal(indexAttendanceByUser({}).size, 0);
+});
+
+// ── Phase 92.29: countStatusBuckets ────────────────────────
+
+test("countStatusBuckets — input ว่าง → ทุกค่าเป็น 0", () => {
+  const b = countStatusBuckets([]);
+  assert.deepEqual(b, { all: 0, not_in: 0, working: 0, out: 0, abnormal: 0 });
+});
+
+test("countStatusBuckets — input ที่ไม่ใช่ array → ทุกค่าเป็น 0", () => {
+  assert.deepEqual(countStatusBuckets(null), { all: 0, not_in: 0, working: 0, out: 0, abnormal: 0 });
+  assert.deepEqual(countStatusBuckets(undefined), { all: 0, not_in: 0, working: 0, out: 0, abnormal: 0 });
+});
+
+test("countStatusBuckets — mixed statuses นับถูกต้อง", () => {
+  const b = countStatusBuckets([
+    { status: "working" }, { status: "working" }, { status: "working" },
+    { status: "out" }, { status: "out" },
+    { status: "not_in" },
+    { status: "abnormal" },
+  ]);
+  assert.equal(b.all, 7);
+  assert.equal(b.working, 3);
+  assert.equal(b.out, 2);
+  assert.equal(b.not_in, 1);
+  assert.equal(b.abnormal, 1);
+});
+
+test("countStatusBuckets — status แปลก ๆ ไม่นับเข้า bucket แต่นับ all", () => {
+  const b = countStatusBuckets([
+    { status: "weird" }, { status: null }, { status: "working" },
+  ]);
+  assert.equal(b.all, 3);
+  assert.equal(b.working, 1);
+  assert.equal(b.not_in, 0);
+});
+
+// ── Phase 92.29: filterRowsByStatus ─────────────────────────
+
+test("filterRowsByStatus — 'all' หรือว่าง → คืน rows ทั้งหมด (copy)", () => {
+  const rows = [{ status: "working" }, { status: "out" }];
+  const a = filterRowsByStatus(rows, "all");
+  assert.equal(a.length, 2);
+  assert.notStrictEqual(a, rows); // คนละ array (slice)
+  assert.equal(filterRowsByStatus(rows, "").length, 2);
+  assert.equal(filterRowsByStatus(rows, undefined).length, 2);
+});
+
+test("filterRowsByStatus — filter status ถูกต้อง", () => {
+  const rows = [
+    { id: 1, status: "working" },
+    { id: 2, status: "out" },
+    { id: 3, status: "working" },
+    { id: 4, status: "abnormal" },
+  ];
+  const w = filterRowsByStatus(rows, "working");
+  assert.equal(w.length, 2);
+  assert.deepEqual(w.map(r => r.id), [1, 3]);
+});
+
+test("filterRowsByStatus — status ไม่รู้จัก → คืนทั้งหมด (graceful)", () => {
+  const rows = [{ status: "working" }, { status: "out" }];
+  const r = filterRowsByStatus(rows, "unknown_status");
+  assert.equal(r.length, 2);
+});
+
+test("filterRowsByStatus — input ที่ไม่ใช่ array → []", () => {
+  assert.deepEqual(filterRowsByStatus(null, "all"), []);
+  assert.deepEqual(filterRowsByStatus(undefined, "working"), []);
+});
+
+// ── Phase 92.29: rowActionLabel ─────────────────────────────
+
+test("rowActionLabel — not_in → 'ลงเวลา'", () => {
+  const a = rowActionLabel("not_in");
+  assert.equal(a.label, "ลงเวลา");
+  assert.equal(typeof a.icon, "string");
+  assert.equal(typeof a.color, "string");
+});
+
+test("rowActionLabel — working/abnormal → 'จัดการเวลา'", () => {
+  assert.equal(rowActionLabel("working").label, "จัดการเวลา");
+  assert.equal(rowActionLabel("abnormal").label, "จัดการเวลา");
+});
+
+test("rowActionLabel — out → 'ดูเวลา'", () => {
+  assert.equal(rowActionLabel("out").label, "ดูเวลา");
+});
+
+test("rowActionLabel — unknown / null → 'ดูเวลา' (fallback safe)", () => {
+  assert.equal(rowActionLabel("unknown").label, "ดูเวลา");
+  assert.equal(rowActionLabel(null).label, "ดูเวลา");
+  assert.equal(rowActionLabel(undefined).label, "ดูเวลา");
+});
+
+// ── Phase 92.29: roleChipMeta ───────────────────────────────
+
+test("roleChipMeta — admin/sales/technician/customer มี label TH", () => {
+  assert.equal(roleChipMeta("admin").label, "ผู้ดูแลระบบ");
+  assert.equal(roleChipMeta("sales").label, "พนักงานขาย");
+  assert.equal(roleChipMeta("technician").label, "ช่าง");
+  assert.equal(roleChipMeta("customer").label, "ลูกค้า");
+});
+
+test("roleChipMeta — admin/sales/technician มีสีต่างกัน (visual distinction)", () => {
+  const a = roleChipMeta("admin").bg;
+  const s = roleChipMeta("sales").bg;
+  const t = roleChipMeta("technician").bg;
+  assert.notEqual(a, s);
+  assert.notEqual(s, t);
+  assert.notEqual(a, t);
+});
+
+test("roleChipMeta — role แปลก → fallback มี bg/fg/border (ไม่ crash) + label = role string", () => {
+  const m = roleChipMeta("manager");
+  assert.equal(m.label, "manager");
+  assert.ok(m.bg && m.fg && m.border);
+});
+
+test("roleChipMeta — null/undefined role → label '—'", () => {
+  assert.equal(roleChipMeta(null).label, "—");
+  assert.equal(roleChipMeta(undefined).label, "—");
+});
+
+// ── Phase 92.29: alertActionFor ─────────────────────────────
+
+test("alertActionFor — stale_session → time_clock", () => {
+  const a = alertActionFor("stale_session");
+  assert.equal(a.route, "time_clock");
+  assert.match(a.label, /Time Clock/);
+});
+
+test("alertActionFor — geofence_out → time_clock", () => {
+  assert.equal(alertActionFor("geofence_out").route, "time_clock");
+});
+
+test("alertActionFor — unpaid_payroll → payroll", () => {
+  assert.equal(alertActionFor("unpaid_payroll").route, "payroll");
+});
+
+test("alertActionFor — offline_pending → time_clock (sync)", () => {
+  assert.equal(alertActionFor("offline_pending").route, "time_clock");
+});
+
+test("alertActionFor — kind ที่ไม่รู้จัก → null (safe — render ไม่ใส่ปุ่ม)", () => {
+  assert.equal(alertActionFor("unknown_kind"), null);
+  assert.equal(alertActionFor(null), null);
 });
