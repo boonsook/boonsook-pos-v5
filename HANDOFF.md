@@ -3,9 +3,75 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 24 พฤษภาคม 2026 (Phase 92.27b HOTFIX — load allProfiles ถ้าว่าง, build 288)
-**Version:** 5.53.1 (build 288) — Phase 92.27b (fix dropdown ว่างเมื่อ admin ไม่เคยเปิด Settings → ตั้งค่าผู้ใช้งาน → time_clock.js โหลด profiles เอง)
-**Previous:** 5.53.0 (build 287) — Phase 92.27 — Offline queue (PR #62)
+**อัปเดตล่าสุด:** 26 พฤษภาคม 2026 (Phase 92.28 — HR Center / ภาพรวม HR, build 289)
+**Version:** 5.54.0 (build 289) — Phase 92.28 (HR Overview dashboard)
+**Previous:** 5.53.1 (build 288) — Phase 92.27b HOTFIX time_clock dropdown
+
+---
+
+## 📊 Phase 92.28 — HR Center / ภาพรวม HR (this session)
+
+**บริบท:** user ขอ HR Overview เพื่อรวมข้อมูล Time Clock + Payroll + Departments + Profiles เป็นศูนย์กลางให้ admin เห็นสถานะพนักงาน/การลงเวลา/เงินเดือน/exceptions ในหน้าเดียว ต่อยอดจากระบบที่ทำเสร็จแล้ว (ไม่สร้าง SQL ใหม่ ไม่แตะ behavior เดิม).
+
+### สิ่งที่เพิ่ม
+
+**1) modules/hr_overview.js** (ใหม่, ~440 บรรทัด) — read-only dashboard
+- **Pure helpers (test-friendly):**
+  - `classifyAttendanceStatus(row, {now, staleHours=14})` → `"not_in" | "working" | "out" | "abnormal"`
+  - `aggregateHrKpi({profiles, attendanceToday, attendanceMonth, payrollsThisMonth, shiftOpts, offlinePending})` → KPI object
+  - `detectExceptions({attendanceToday, payrollsThisMonth, offlinePending, geofence, opts})` → list of `{kind, severity, message, userId, refId}` — kinds: `stale_session`/`geofence_out`/`unpaid_payroll`/`offline_pending`
+  - `indexAttendanceByUser(rows)` → `Map<user_id, latest row>` (priority: open > closed > newest clock_in)
+- **UI structure:**
+  - Header (วันที่ TH + กะปัจจุบัน) + ปุ่ม ⟳ รีเฟรช
+  - KPI grid responsive `auto-fit minmax(180px,1fr)` — 5–6 cards
+  - Section "🛎️ สิ่งที่ต้องจัดการวันนี้" — empty state ✅ ถ้าไม่มี
+  - Table "🧑‍💼 สถานะพนักงานวันนี้" — sort `working → abnormal → out → not_in` แล้วตามชื่อ TH
+  - Section "⚡ Quick actions" — 5 ปุ่มเปลี่ยน route + Export Excel
+- **Reuse จาก time_clock.js:** `workDateBangkok`, `timeBangkok`, `computeRegularOT`, `sumRegularOT`, `shiftHoursFromState`, `profileDisplayName`, `offlinePendingCount`
+- **REST queries (5 ขนาน):**
+  - `profiles_with_email` (fallback `profiles`) — filter role≠customer
+  - `departments?is_active=eq.true`
+  - `staff_attendance?work_date=eq.${today}` (today)
+  - `staff_attendance?work_date=gte.${monthStart}&lt.${monthEnd}` (เดือน, limit 2000)
+  - `staff_payroll?period_month` ของเดือนปัจจุบัน
+
+**2) Routing + sidebar**
+- `index.html`: sidebar HR group เพิ่มปุ่ม **📊 ภาพรวม HR** ก่อน "ตั้งค่าแผนก" + `<section id="page-hr_overview">`
+- `main.js`:
+  - `ALL_ROUTES` เพิ่ม `hr_overview` → admin เข้าได้ (ROLE_PAGES.admin = ALL_ROUTES); sales/technician/customer ไม่มีใน ROLE_PAGES → sidebar auto-hide
+  - `LAZY_ROUTES.hr_overview = ["./modules/hr_overview.js", "renderHrOverviewPage"]`
+  - page title `"ภาพรวม HR"`
+
+**3) Tests (+22)** [`tests/hr_overview.test.js`](tests/hr_overview.test.js):
+- classifyAttendanceStatus: null/working/out/abnormal/staleHours custom/clock_out-without-in
+- aggregateHrKpi: empty/presentToday distinct/OT calc closed-only/payroll counts+amounts/offlinePending normalize
+- detectExceptions: empty/stale_session/geofence in+out/no-geofence-skip/unpaid count/offline_pending/multi-issue order
+- indexAttendanceByUser: open prio/newest clock_in/skip no-user_id/non-array
+
+### ขอบเขต (จงใจ)
+- **No DB change** — schema reserve จาก phase 92.22+92.22e+92.24 ใช้ได้ทันที
+- **No money/time_clock/payroll/RLS change** — pure additive read-only dashboard
+- **Admin only** — guard ฝั่ง client (UX) + RLS เป็นด่านความปลอดภัยจริง
+- ไม่แตะ utils_formatters, ui_states — ใช้ของเดิม
+- ไม่ขอ GPS ในหน้านี้ — แค่อ่าน `distance_m` ที่ time_clock บันทึกไว้
+
+### Gates
+- `npm run lint:errors` exit 0 (clean)
+- `npm test` = **438/438** (เดิม 416 + 22 ใหม่)
+- `npm run test:e2e` = **11/11** (build sync ผ่าน)
+
+### Version sync (4 sub-items + sw.js comment)
+- `package.json`: 5.53.1 → **5.54.0**
+- `index.html`: `style.css?v=288→289`, `selfheal.js?v=288→289` + `data-app-build="289"` + `data-app-version="5.54.0"`, `main.js?v=288→289`, `boot.js?v=288→289`
+- `sw.js`: `CACHE_NAME = 'boonsook-pos-v5-cache-v289'` + บรรทัดเปลี่ยนแปลงเพิ่ม
+
+### Follow-ups (ถ้าผู้ใช้เลือกทำ)
+- เพิ่ม drill-down: คลิกพนักงาน → modal แสดง history 7 วัน + payroll history
+- เพิ่ม filter: เลือกแผนก / role
+- KPI "ขาด/มาสาย" (ต้องตั้งกฎเวลามาสายใน Settings ก่อน)
+- "วันหยุด/ลา" (ยังไม่มีตารางในระบบ — ต้องตัดสินใจ schema)
+
+---
 
 > 🟢 **Time Clock feature ครบทุก aspect ตามที่ user ขอตั้งแต่ Phase 92.22:**
 > - ✅ Manager + Self-service flow (92.22 / 92.22e pivot)

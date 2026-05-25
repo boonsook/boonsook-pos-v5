@@ -118,6 +118,8 @@ const LAZY_ROUTES = {
   payroll_overview:           ["./modules/payroll_overview.js",            "renderPayrollOverviewPage"],
   // Phase 92.22 — ลงเวลาทำงาน (admin manager flow + self-service)
   time_clock:                 ["./modules/time_clock.js",                  "renderTimeClockPage"],
+  // Phase 92.28 — ภาพรวม HR (read-only dashboard, admin only)
+  hr_overview:                ["./modules/hr_overview.js",                 "renderHrOverviewPage"],
   expense_overview:           ["./modules/expense_overview.js",            "renderExpenseOverviewPage"],
   profit_by_product:          ["./modules/profit_by_product.js",           "renderProfitByProductPage"],
   quote_templates:            ["./modules/quote_templates.js",             "renderQuoteTemplatesPage"],
@@ -592,7 +594,7 @@ function _isLowStock(product){ return Number(product.stock||0) <= Number(product
 const SERVICE_FORM_TYPES = ["repair_ac","clean_ac","move_ac","satellite","repair_fridge","repair_washer","cctv","repair_tv","other"];
 const SERVICE_FORM_ROUTES = SERVICE_FORM_TYPES.map(t => "service_" + t);
 
-const ALL_ROUTES = ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","quote_templates","service_jobs","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","refunds","tasks","profit_by_product","birthdays","serials","warranty_report","calendar","loyalty","customer_dashboard","btu_calculator","service_request","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop","audit_log","departments","payroll","payroll_overview","expense_overview","accounting_journals","accounting_journal_new","accounting_coa","accounting_backfill","accounting_trial_balance","accounting_profit_loss","accounting_balance_sheet","accounting_opening_balance","accounting_export_bundle","accounting_periods","time_clock", ...SERVICE_FORM_ROUTES];
+const ALL_ROUTES = ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","quote_templates","service_jobs","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","refunds","tasks","profit_by_product","birthdays","serials","warranty_report","calendar","loyalty","customer_dashboard","btu_calculator","service_request","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop","audit_log","hr_overview","departments","payroll","payroll_overview","expense_overview","accounting_journals","accounting_journal_new","accounting_coa","accounting_backfill","accounting_trial_balance","accounting_profit_loss","accounting_balance_sheet","accounting_opening_balance","accounting_export_bundle","accounting_periods","time_clock", ...SERVICE_FORM_ROUTES];
 const ROLE_PAGES = {
   admin:      ALL_ROUTES,
   technician: ["customer_dashboard","pos","sales","service_jobs","calendar","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop","time_clock", ...SERVICE_FORM_ROUTES],
@@ -734,6 +736,7 @@ async function showRoute(route){
     accounting_export_bundle:"Export ชุดรายงานบัญชี",
     accounting_periods:"🔒 ปิดงวดบัญชี (Period Close)",
     ac_shop:"แอร์ใหม่พร้อมติดตั้ง",
+    hr_overview:"ภาพรวม HR",
     // Phase 45 — service form titles (9 ประเภท)
     ...Object.fromEntries(SERVICE_FORM_TYPES.map(t => ["service_" + t, `${SERVICE_TYPES[t].icon} ใบงาน${SERVICE_TYPES[t].label}`]))
   };

@@ -7,6 +7,26 @@
 
 ---
 
+## 5.54.0 (build 289) — 2026-05-26 📊 Phase 92.28 — ภาพรวม HR / HR Center
+
+- **feat(hr) [dashboard]:** หน้าใหม่ **📊 ภาพรวม HR** ใน sidebar กลุ่ม "บุคลากร / HR" (ก่อน "ตั้งค่าแผนก") — read-only dashboard สำหรับ admin เพื่อเห็นสถานะ HR ทั้งระบบในหน้าเดียว
+- **modules/hr_overview.js** ใหม่:
+  - **KPI cards:** พนักงานทั้งหมด · เข้างานวันนี้ (X/Total %) · ยังไม่ลงเวลาออก · OT เดือนนี้ · Payroll เดือนนี้ (จ่าย/ค้าง พร้อมยอดเงิน) · Offline Queue (เฉพาะเมื่อ > 0)
+  - **🛎️ สิ่งที่ต้องจัดการวันนี้:** alert chips แยก severity — `stale_session` (ลืม clock-out > 14 ชม., high), `geofence_out` (เข้า/ออกนอกพื้นที่, medium), `unpaid_payroll` (medium), `offline_pending` (low)
+  - **ตารางสถานะพนักงานวันนี้:** เรียงตามสถานะ (working → abnormal → out → not_in) — คอลัมน์ พนักงาน · แผนก/role · เข้า · ออก · ชม.ทำงาน · OT · status chip · action ไป Time Clock
+  - **Quick actions:** ไป Time Clock / Payroll / Departments / Payroll Overview / Audit Log + **Export Excel** สรุปวันนี้
+- **Pure helpers (test-friendly):** `classifyAttendanceStatus`, `aggregateHrKpi`, `detectExceptions`, `indexAttendanceByUser`
+- **Reuse helpers จาก time_clock.js** ทั้งหมด: `workDateBangkok`, `timeBangkok`, `computeRegularOT`, `sumRegularOT`, `shiftHoursFromState`, `profileDisplayName`, `offlinePendingCount` — ไม่ duplicate logic
+- **Route + admin gate:** `main.js` เพิ่ม `hr_overview` ใน `ALL_ROUTES` (admin only via `ROLE_PAGES.admin`), `LAZY_ROUTES`, page title — sales/technician/customer ไม่เห็นเมนู (sidebar auto-hide ตาม allowedPages)
+- **ไม่แตะ DB schema / RLS / money math / payroll / time_clock behavior** — เป็น dashboard อ่านอย่างเดียว: GET `profiles_with_email` (fallback `profiles`), `departments`, `staff_attendance` (today + month), `staff_payroll` (current month)
+- **Safety:** `requireAdmin()` guard ฝั่ง client (UX) + RLS เป็นด่านความปลอดภัยจริง · `escHtml` ทุก output · error state เมื่อ fetch fail (ไม่ crash)
+- Tests +22 (classifyAttendanceStatus: 6, aggregateHrKpi: 5, detectExceptions: 7, indexAttendanceByUser: 4). Unit **416 → 438**
+- verify เขียว: lint:errors 0/0, e2e 11/11 (build sync passes)
+
+**Build:** 288 → 289; version 5.53.1 → 5.54.0 (minor — feature dashboard ใหม่)
+
+---
+
 ## 5.53.1 (build 288) — 2026-05-24 🐛 Phase 92.27b HOTFIX — Time Clock dropdown ว่าง
 
 - **fix(time_clock) [Blocking]:** dropdown ใน Manager view แสดง "— ยังไม่มีผู้ใช้ในระบบ —" + ตารางรายงานแสดง user เป็น "—" ทั้งที่ระบบมี 4 user accounts
