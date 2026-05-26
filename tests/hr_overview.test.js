@@ -409,6 +409,26 @@ test("alertActionFor — kind ที่ไม่รู้จัก → null (saf
   assert.equal(alertActionFor(null), null);
 });
 
+// Phase 92.32: pending_leaves integration
+test("alertActionFor — pending_leaves → leave_management route", () => {
+  const a = alertActionFor("pending_leaves");
+  assert.equal(a.route, "leave_management");
+  assert.match(a.label, /อนุมัติ/);
+});
+
+test("detectExceptions — pendingLeaves > 0 → pending_leaves alert (medium)", () => {
+  const exs = detectExceptions({ pendingLeaves: 3 });
+  const pl = exs.filter(e => e.kind === "pending_leaves");
+  assert.equal(pl.length, 1);
+  assert.equal(pl[0].severity, "medium");
+  assert.match(pl[0].message, /3 รายการ/);
+});
+
+test("detectExceptions — pendingLeaves 0/undefined → ไม่มี alert (graceful)", () => {
+  assert.equal(detectExceptions({}).filter(e => e.kind === "pending_leaves").length, 0);
+  assert.equal(detectExceptions({ pendingLeaves: 0 }).filter(e => e.kind === "pending_leaves").length, 0);
+});
+
 // ── Phase 92.30: formatDistanceLabel ────────────────────────
 
 test("formatDistanceLabel — null/undefined/empty → '—'", () => {

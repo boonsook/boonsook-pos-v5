@@ -180,6 +180,17 @@ export function detectExceptions(input = {}) {
     });
   }
 
+  // Phase 92.32: pending leave requests (graceful — 0 ถ้าตาราง staff_leaves ยังไม่มี)
+  const pendingLeaves = Number.isFinite(input.pendingLeaves) ? input.pendingLeaves : 0;
+  if (pendingLeaves > 0) {
+    out.push({
+      kind: "pending_leaves",
+      severity: "medium",
+      message: `คำขอลารออนุมัติ ${pendingLeaves} รายการ`,
+      refId: null,
+    });
+  }
+
   return out;
 }
 
@@ -280,6 +291,7 @@ export function alertActionFor(kind) {
     case "geofence_out":    return { label: "ตรวจรายการลงเวลา", route: "time_clock" };
     case "unpaid_payroll":  return { label: "ไปจ่ายเงินเดือน",   route: "payroll" };
     case "offline_pending": return { label: "ไป Sync",           route: "time_clock" };
+    case "pending_leaves":  return { label: "ไปอนุมัติ",         route: "leave_management" };
     default:                return null;
   }
 }
@@ -1137,6 +1149,13 @@ export async function renderHrOverviewPage(ctx) {
 
   const offlinePending = await offlinePendingCount().catch(() => 0);
 
+  // Phase 92.32: lightweight pending leave count — graceful (ตาราง staff_leaves อาจยังไม่มี)
+  let pendingLeaves = 0;
+  try {
+    const lmMod = await import("./leave_management.js");
+    pendingLeaves = await lmMod.fetchPendingLeaveCount();
+  } catch (_e) { /* silent — module หรือ table ยังไม่พร้อม */ }
+
   const info = state?.storeInfo || {};
   const geofence = (info.shopLat != null && info.shopLng != null && info.shopLat !== "" && info.shopLng !== "")
     ? { radiusM: (Number.isFinite(Number(info.geofenceRadiusM)) && Number(info.geofenceRadiusM) > 0) ? Number(info.geofenceRadiusM) : 200 }
@@ -1156,6 +1175,7 @@ export async function renderHrOverviewPage(ctx) {
     payrollsThisMonth: data.payrolls,
     offlinePending,
     geofence,
+    pendingLeaves,
   });
 
   const attIdx = indexAttendanceByUser(data.attendanceToday);

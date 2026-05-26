@@ -3,9 +3,120 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 26 พฤษภาคม 2026 (Phase 92.31 — HR Overview Department/Role Filters, build 292)
-**Version:** 5.55.1 (build 292) — Phase 92.31 (Dept/Role filters)
-**Previous:** 5.55.0 (build 291) — Phase 92.30 (Employee drill-down modal)
+**อัปเดตล่าสุด:** 26 พฤษภาคม 2026 (Phase 92.32 — Leave Management Foundation, build 293)
+**Version:** 5.56.0 (build 293) — Phase 92.32 (Leave management foundation)
+**Previous:** 5.55.1 (build 292) — Phase 92.31 (Dept/Role filters)
+
+> ⚠️ **SQL ต้องรัน:** [`supabase-phase92-32-leave-management.sql`](supabase-phase92-32-leave-management.sql) — ก่อนรันฟีเจอร์ "วันลา" ทำงาน graceful (UI แสดง error state + HR Overview ไม่ขึ้น alert leave).
+
+---
+
+## 🌴 Phase 92.32 — Leave Management Foundation (this session)
+
+**บริบท:** ต่อจาก Phase 92.31 (HR dept/role filters) — user ขอ Leave Management foundation: SQL ใหม่ + UI หน้าใหม่ + HR Overview integration แบบเบา ๆ. **เฟสนี้ไม่หัก payroll ตาม leave** (follow-up).
+
+### สิ่งที่เพิ่ม
+
+**1) SQL migration** [`supabase-phase92-32-leave-management.sql`](supabase-phase92-32-leave-management.sql) (~160 บรรทัด):
+- `CREATE TABLE staff_leaves` พร้อม 4 CHECK constraints (leave_type, status, end>=start, days>0)
+- 5 indexes (user_id, status, start_date, end_date, created_at DESC)
+- `_bump_staff_leaves_updated_at()` trigger
+- 4 RLS policies:
+  - `leaves_select_admin_or_self` — admin all / user own
+  - `leaves_insert_admin_or_self_pending` — non-admin insert ได้เฉพาะ `status='pending'` ของตัวเอง
+  - `leaves_update_admin_or_self_pending` — non-admin update ได้เฉพาะของตัวเอง **ที่ยัง pending** → กลายเป็น pending หรือ cancelled (ไม่สามารถ approve/reject ตัวเอง)
+  - `leaves_delete_admin` — admin only
+- `NOTIFY pgrst, 'reload schema'`
+- 6 verify queries (table+columns / constraints / indexes / policies / trigger / row count)
+- **Re-run safe** (CREATE TABLE IF NOT EXISTS + DROP POLICY IF EXISTS + CREATE OR REPLACE FUNCTION)
+- ★ Additive only — ไม่แตะ staff_attendance / staff_payroll / profiles / departments / RLS เก่า
+
+**2) modules/leave_management.js** ใหม่ (~620 บรรทัด):
+- **Pure helpers (export ครบ):**
+  - `calcLeaveDays(start, end)` — inclusive (วันเดียว = 1)
+  - `leaveTypeLabel(type)` → `{label, icon, bg, fg, border}` — sick/personal/vacation/unpaid/other + fallback
+  - `leaveStatusMeta(status)` → `{label, bg, fg, border}` — pending/approved/rejected/cancelled + fallback
+  - `filterLeaves(rows, {month, status, leaveType, userId})` — month overlap (start<=monthEnd AND end>=monthStart)
+  - `summarizeLeaves(rows, month?)` → `{pending, approved, rejected, cancelled, total, approvedDays}`
+  - `canEditLeave(row, currentUserId, role)` — admin all · non-admin own pending only
+  - `canReviewLeave(row, role)` — admin + pending only (กัน double-review)
+  - `fetchPendingLeaveCount()` — graceful 0 ถ้าตารางยังไม่มี (สำหรับ HR Overview)
+- **UI:**
+  - Header (Admin view / ของฉัน) + ปุ่ม ⟳ รีเฟรช + + ขอลา
+  - KPI 4 cards (responsive)
+  - Filter bar: เดือน (input type=month + ปุ่ม "ทุกเดือน") + status select + type select + Export
+  - Table 8 columns (พนักงาน, ประเภท chip, ช่วงวันที่, วัน, เหตุผล, status chip, ผู้พิจารณา + note, action buttons)
+  - Row action: approve/reject (admin+pending) · cancel (non-admin own pending) · delete (admin)
+  - Form modal: dropdown พนักงาน (admin) · type · start/end + auto-calc days · reason · validation
+  - Review flow: prompt() เก็บ `review_note` + confirm ก่อน PATCH
+- **REST helpers:** `_fetchLeaves`, `_insertLeave`, `_patchLeave`, `_ensureProfilesLoaded` — graceful HTTP error
+- **Defense-in-depth:** non-admin client filter ทับ RLS แม้ RLS เป็นด่านจริง
+
+**3) Routing + sidebar**
+- `index.html` sidebar HR group: ปุ่ม `🌴 วันลา` หลัง `🕒 ลงเวลาทำงาน` + `<section id="page-leave_management">`
+- `main.js`:
+  - `ALL_ROUTES` เพิ่ม `leave_management`
+  - `ROLE_PAGES.technician` + `ROLE_PAGES.sales` เพิ่ม `leave_management` (admin ได้ผ่าน ALL_ROUTES)
+  - `LAZY_ROUTES.leave_management = ["./modules/leave_management.js", "renderLeaveManagementPage"]`
+  - page title `"วันลา"`
+
+**4) HR Overview integration** (additive)
+- `detectExceptions` รับ field ใหม่ `pendingLeaves` → push alert `kind: "pending_leaves"` (medium severity) เมื่อ > 0
+- `alertActionFor("pending_leaves")` → `{label: "ไปอนุมัติ", route: "leave_management"}`
+- `renderHrOverviewPage`: dynamic-import `leave_management.js` แล้วเรียก `fetchPendingLeaveCount()` (silent fail ถ้าตารางยังไม่มี → 0 → ไม่ขึ้น alert)
+- **ไม่เปลี่ยน:** attendance/payroll calculation, KPI cards, filter bar เดิม
+
+### ขอบเขต (จงใจ — ตามข้อห้าม)
+- **เฟสนี้ leave ไม่ลด attendance/payroll** — admin ดูได้ในหน้าใหม่ + เห็น alert ใน HR Overview · การหัก/ไม่หักจะตัดสินใจในเฟสถัดไป
+- ไม่ mark พนักงาน leave เป็นสถานะใน HR Overview status table (follow-up)
+- Confirm ใช้ `window.confirm()` แทน custom modal เพื่อ minimal + เชื่อถือได้ (เปลี่ยนเป็น custom modal ในเฟสถัดไปได้)
+- ไม่แตะ payroll/time_clock write behavior, money math, RLS เก่า
+- ไม่เพิ่ม dependency
+- escape HTML ทุก output จาก DB (display name, email, reason, review_note)
+- ใช้ event delegation (tbody listener) ไม่มี inline onclick
+
+### Gates
+- `npm run lint:errors` exit 0 (clean)
+- `npm test` = **536/536** (เพิ่ม 32 จาก 504)
+- `npm run test:e2e` = **11/11** (build sync ผ่าน)
+- `npm audit --audit-level=moderate` = **0 vulnerabilities**
+
+### Version sync (4 sub-items + sw.js comment)
+- `package.json`: 5.55.1 → **5.56.0** (minor — feature + SQL)
+- `index.html`: `style.css?v=292→293`, `selfheal.js?v=292→293` + `data-app-build="293"` + `data-app-version="5.56.0"`, `main.js?v=292→293`, `boot.js?v=292→293`
+- `sw.js`: `CACHE_NAME = 'boonsook-pos-v5-cache-v293'` + comment line
+
+### วิธี smoke test (หลัง deploy + รัน SQL)
+1. เปิด Supabase Dashboard → SQL Editor → รัน `supabase-phase92-32-leave-management.sql`
+2. ตรวจ verify queries: table+columns (15) / constraints (4) / indexes (5+PK) / policies (4) / trigger (1) / row count (0)
+3. เปิด `https://boonsook-pos-v5.pages.dev/` (Ctrl+Shift+R)
+4. **Admin checklist:**
+   - [ ] เห็นเมนู **🌴 วันลา** ใน HR group
+   - [ ] KPI 4 cards โหลด (รออนุมัติ/อนุมัติแล้ว/ปฏิเสธ/รวมวัน)
+   - [ ] กด **+ ขอลา** → form modal เปิด → เลือกพนักงาน → ส่งคำขอ → row ปรากฏใน table
+   - [ ] กด **✓ อนุมัติ** ที่ row pending → prompt note → confirm → status chip เปลี่ยนเป็น "อนุมัติแล้ว"
+   - [ ] กด **✕ ปฏิเสธ** → flow เดียวกัน, status = "ปฏิเสธ"
+   - [ ] เปลี่ยน filter เดือน/status/type → table+KPI update
+   - [ ] Export Excel → ไฟล์ดาวน์โหลด
+   - [ ] กลับไป **📊 ภาพรวม HR** → ใน "🛎️ สิ่งที่ต้องจัดการวันนี้" เห็น alert "คำขอลารออนุมัติ N รายการ" + ปุ่ม "ไปอนุมัติ →" นำทางกลับ "วันลา"
+5. **Non-admin checklist (sales/technician):**
+   - [ ] เห็นเมนู **🌴 วันลา** เหมือนกัน
+   - [ ] หน้าแสดง "ของฉัน" — เห็นเฉพาะของตัวเอง (RLS server-side)
+   - [ ] กด **+ ขอลา** → form ไม่มี dropdown พนักงาน (user_id auto-set)
+   - [ ] กด **ยกเลิก** ที่ row pending ของตัวเอง → status = "ยกเลิก"
+   - [ ] ไม่เห็นปุ่ม ✓/✕ approve/reject (admin only)
+   - [ ] ไม่เห็นปุ่ม 🗑️ delete
+
+### Follow-ups (ค้างจงใจ — รออนุมัติเฟสถัดไป)
+- **หัก/ไม่หัก payroll ตาม leave type** — ต้องตัดสินใจกฎ (เช่น unpaid → หักจาก daily_rate × days_count, vacation → ไม่หัก) → ค่อยทำเฟส 92.33
+- **Calendar leave view** — มุมมองปฏิทินรวม leave ของทั้งทีม (อาจใช้ `modules/calendar.js` ที่มีอยู่แล้ว)
+- **Leave balance ต่อปี** — quota per user (vacation 10 วัน/ปี, sick 30 วัน/ปี) + ตรวจตอนสร้างคำขอ
+- **เชื่อม Time Clock** — วันลา approved → แสดงในตาราง HR Overview "สถานะวันนี้" เป็น chip "ลาป่วย/ลากิจ/พักร้อน" แทน "ยังไม่เข้า"
+- **Audit tab ใน employee modal** (ค้างจาก 92.30) — schema query `activity_log` decision
+- **Late rule** (ค้างจาก 92.29) — กฎเวลามาสายใน Settings
+- **Edit attendance ใน modal 7-วัน tab** (ค้างจาก 92.30) — inline edit ใน drill-down
+
+---
 
 ---
 

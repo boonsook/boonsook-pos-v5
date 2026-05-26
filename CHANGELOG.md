@@ -7,6 +7,39 @@
 
 ---
 
+## 5.56.0 (build 293) — 2026-05-26 🌴 Phase 92.32 — Leave Management Foundation
+
+> ⚠️ **ต้องรัน SQL ก่อนใช้:** เปิด Supabase Dashboard → SQL Editor → รัน [`supabase-phase92-32-leave-management.sql`](supabase-phase92-32-leave-management.sql) ก่อน. ฟีเจอร์ทำงาน graceful ก่อนรัน (แสดง error state ที่หน้า "วันลา" + HR Overview ไม่ขึ้น alert leave) — ไม่มี crash.
+
+- **feat(leave) [foundation]:** ระบบจัดการ "วันลา / Leave Management" — เมนูใหม่ใน HR group **🌴 วันลา**
+- **DB migration** `supabase-phase92-32-leave-management.sql` — additive only:
+  - ตาราง `staff_leaves` (id, user_id uuid→auth.users, leave_type, start_date, end_date, days_count numeric(6,2), reason, status, reviewed_by, reviewed_at, review_note, created_by, created_at, updated_at)
+  - 4 CHECK constraints (leave_type IN ภาวะที่ระบุ, status IN, end>=start, days>0)
+  - 5 indexes (user_id, status, start_date, end_date, created_at desc)
+  - `updated_at` trigger (auto-bump)
+  - 4 RLS policies: **admin** ทำได้ทุกอย่าง · **non-admin** SELECT/INSERT own pending · UPDATE own pending → pending/cancelled · DELETE admin only
+  - NOTIFY pgrst + verify queries
+- **modules/leave_management.js** ใหม่ — admin + self view (role-aware):
+  - KPI cards: รออนุมัติ / อนุมัติแล้ว / ปฏิเสธ / รวมวันที่อนุมัติ (filter by เดือน)
+  - Filters: เดือน (date picker + "ทุกเดือน") + สถานะ + ประเภทลา
+  - Table: พนักงาน · ประเภท chip สี · ช่วงวันที่ · วัน · เหตุผล · status chip · ผู้พิจารณา · action (approve/reject/cancel/delete)
+  - Form modal: dropdown พนักงาน (admin only) · leave_type · start/end + auto-calc days (แก้ได้ครึ่งวัน) · reason
+  - Approve/reject ผ่าน prompt() เก็บ `review_note` + confirm ก่อน mutation ทุกครั้ง
+  - Export Excel ตาม filter ปัจจุบัน
+- **Pure helpers (test-friendly):** `calcLeaveDays`, `leaveTypeLabel`, `leaveStatusMeta`, `filterLeaves`, `summarizeLeaves`, `canEditLeave`, `canReviewLeave` + `fetchPendingLeaveCount` (graceful)
+- **HR Overview integration:**
+  - `detectExceptions` รับ `pendingLeaves` → alert "คำขอลารออนุมัติ N รายการ" (medium severity)
+  - `alertActionFor("pending_leaves")` → route `leave_management`
+  - `fetchPendingLeaveCount()` graceful 0 ถ้าตารางยังไม่มี (ไม่ crash, ไม่แสดง alert)
+- **ROLE_PAGES:** admin + sales + technician เข้าได้ (RLS server-side คุม self-scope สำหรับ non-admin)
+- **Safety:** ไม่แตะ payroll/time_clock write behavior, money math, RLS เก่า · ไม่เพิ่ม dep · ไม่มี inline `onclick` · escape HTML ทุกค่า · confirm ก่อน approve/reject/cancel/delete · graceful HTTP error
+- Tests +32 (leave_management 29: calcLeaveDays 4 + labels 6 + filterLeaves 8 + summary 3 + canEdit 5 + canReview 4 · hr_overview pending_leaves integration 3). Unit **504 → 536**
+- verify เขียว: lint:errors 0/0 · e2e 11/11 · `npm audit --audit-level=moderate` = **0 vulnerabilities**
+
+**Build:** 292 → 293; version 5.55.1 → 5.56.0 (minor — feature ใหม่ + SQL migration)
+
+---
+
 ## 5.55.1 (build 292) — 2026-05-26 🔎 Phase 92.31 — HR Overview Department/Role Filters
 
 - **feat(hr_overview) [filter]:** เพิ่ม **secondary filter bar** ที่ทำงานร่วมกับ status filter เดิม
