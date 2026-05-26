@@ -3,9 +3,77 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 26 พฤษภาคม 2026 (Phase 92.30 — HR Employee drill-down Modal, build 291)
-**Version:** 5.55.0 (build 291) — Phase 92.30 (Employee drill-down modal)
-**Previous:** 5.54.1 (build 290) — Phase 92.29 (HR Overview polish)
+**อัปเดตล่าสุด:** 26 พฤษภาคม 2026 (Phase 92.31 — HR Overview Department/Role Filters, build 292)
+**Version:** 5.55.1 (build 292) — Phase 92.31 (Dept/Role filters)
+**Previous:** 5.55.0 (build 291) — Phase 92.30 (Employee drill-down modal)
+
+---
+
+## 🔎 Phase 92.31 — HR Overview Department/Role Filters (this session)
+
+**บริบท:** ต่อจาก Phase 92.30 (Employee modal) — user ขอ filter แผนก + role เพิ่ม เพื่อให้ admin ตัดมุมมองให้แคบลงได้เร็ว (เช่น "เฉพาะแผนกช่าง role technician สถานะกำลังทำงาน"). Filter ทำงาน **in-memory** ไม่ refetch DB, KPI ด้านบนยังเป็นทั้งองค์กร (option A), ตารางและ summary สะท้อน filter.
+
+### สิ่งที่เพิ่ม
+
+**1) Pure helpers ใหม่ (export ครบ, test-friendly)**
+- `filterHrRows(rows, {status, departmentId, role})` — รวม 3 filter พร้อมกัน · safe cast `String(did ?? "")` · `__none__` = unassigned, `__all__` = ทั้งหมด · `role:"other"` = ไม่ใช่ admin/sales/technician
+- `countDepartmentBuckets(rows)` → `Map<deptId|"__none__", number>` · key เก็บเป็น string เสมอ
+- `countRoleBuckets(rows)` → `{all, admin, sales, technician, other}`
+- `isDefaultHrFilters(filters)` → boolean (สำหรับซ่อน/แสดงปุ่ม "ล้างตัวกรอง")
+- `filterSummaryLabel(filters, total, filtered, departments)` → "แสดง 1 จาก 5 คน · แผนก: ช่าง · Role: Technician · สถานะ: กำลังทำงาน"
+- `buildHrExportFilename(today, filters)` → "hr_overview_2026-05-26_dept-12_role-technician_working.xlsx" · sanitize: `[\\/:*?"<>|\x00-\x1f]` + whitespace + collapse `_+` + length cap 200 ก่อน `.xlsx`
+
+**2) UI / interaction**
+- เพิ่ม section secondary filter bar ระหว่าง status bar กับ tbody:
+  - `_renderDeptDropdown(activeDept, departments, deptCounts)` — `<select>` มี options ทุกแผนก (count ในวงเล็บ) + "ไม่ระบุแผนก" ท้ายสุด
+  - `_renderRoleChips(activeRole, roleCounts)` — segmented buttons + count badges · ซ่อน bucket ที่ว่างยกเว้น "all" และ active
+  - ปุ่ม `#hrClearFiltersBtn` ขวาสุด (เฉพาะเมื่อ filter ไม่ default)
+- เพิ่ม summary bar (`#hrSummaryBar`) เหนือตาราง
+- **Cascade re-render** (`_rerenderFilters()` ภายใน scope):
+  - dept counts = ใช้ rows ทั้งหมด (ไม่ขึ้นกับ filter อื่น)
+  - role counts = filter rows ตาม dept ก่อน (ไม่รวม role+status)
+  - status counts = filter rows ตาม dept+role ก่อน
+  - visible rows = filter ครบทั้ง 3 axes
+- Trigger re-render:
+  - status chip click
+  - dept select change
+  - role chip click
+  - "ล้างตัวกรอง" → reset ทั้ง 3 axes
+- Event delegation อยู่ที่ `secondaryBarEl` — listen `change` (dropdown) + `click` (chips/clear) แยกกัน
+
+**3) Export Excel** — ใช้ `filterHrRows` ดึง visible rows + `buildHrExportFilename` เพื่อสร้าง filename suffix ตาม filter
+
+**4) Empty state** — เปลี่ยนข้อความใน `_renderTbody` จาก "ไม่มีพนักงานในสถานะที่เลือก" → **"ไม่พบพนักงานตามตัวกรองนี้"** เพราะตอนนี้ filter เป็น multi-axis
+
+**5) Modal** — ทำงานเหมือนเดิม · row click delegation ตรวจ `closest("[data-hr-action]")` + `closest("button")` ก่อน → ปุ่ม clear / dropdown / role chip ไม่ trigger modal เพราะเป็น `<button>` หรือ `<select>`
+
+### ขอบเขต (จงใจตามข้อห้าม)
+- **ไม่แตะ DB schema / RLS / money math / payroll/time_clock write behavior**
+- ไม่ refetch DB เมื่อเปลี่ยน filter — ใช้ rows ที่โหลดแล้วใน memory
+- ไม่เพิ่ม dependency ใหม่ (`dependencies: {}` คงเดิม)
+- ไม่มี inline `onclick` — event delegation ทั้งหมด
+- `escHtml` ทุก output จาก DB (dept name, dept id, role label)
+- ถ้า `departments` โหลดไม่ได้ → dropdown ยังมี "ทุกแผนก" + "ไม่ระบุแผนก" ใช้งานได้
+
+### Gates
+- `npm run lint:errors` exit 0 (clean)
+- `npm test` = **504/504** (เพิ่ม 26 จาก 478)
+- `npm run test:e2e` = **11/11** (build sync ผ่าน)
+- `npm audit --audit-level=moderate` = **0 vulnerabilities**
+
+### Version sync (4 sub-items + sw.js comment)
+- `package.json`: 5.55.0 → **5.55.1** (patch)
+- `index.html`: `style.css?v=291→292`, `selfheal.js?v=291→292` + `data-app-build="292"` + `data-app-version="5.55.1"`, `main.js?v=291→292`, `boot.js?v=291→292`
+- `sw.js`: `CACHE_NAME = 'boonsook-pos-v5-cache-v292'` + comment line
+
+### Follow-ups (ค้างจงใจจาก phase ก่อนหน้า + ใหม่)
+- **Audit tab ใน employee modal** — ต้องตัดสินใจ schema query ของ `activity_log` ก่อน (user_id อาจอยู่ใน `metadata` JSON ไม่ใช่ column ตรง)
+- **Leave management** — ต้องเลือก schema (ตาราง `staff_leaves` vs flag `staff_attendance.leave_type`)
+- **Late rule** — ตั้งกฎใน Settings (เช่น `clock_in_at > shiftStartHour + 15 min = late`) → ขึ้นเป็น exception ใน HR Overview + chip ใน modal
+- **Edit attendance ใน modal 7-วัน tab** — ตอนนี้ admin edit ต้องไปหน้า Time Clock (มี modal แก้อยู่แล้ว Phase 92.25)
+- **KPI ที่ตอบ filter (Option B)** — ถ้า user เปลี่ยนใจอยากให้ KPI ปรับตาม filter ค่อย flag
+
+---
 
 ---
 

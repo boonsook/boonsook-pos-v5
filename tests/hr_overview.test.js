@@ -20,6 +20,13 @@ const {
   employeePayrollSummary,
   buildEmployeeModalSummary,
   modalTabFor,
+  // Phase 92.31
+  filterHrRows,
+  countDepartmentBuckets,
+  countRoleBuckets,
+  isDefaultHrFilters,
+  filterSummaryLabel,
+  buildHrExportFilename,
 } = await import("../modules/hr_overview.js");
 
 // ── classifyAttendanceStatus ────────────────────────────────
@@ -565,4 +572,188 @@ test("modalTabFor — custom validKeys + fallback", () => {
   assert.equal(modalTabFor("payroll", ["today", "week"]), "today"); // payroll ไม่อยู่ในรายการ
   assert.equal(modalTabFor("week", ["today", "week"]), "week");
   assert.equal(modalTabFor("bad", ["today", "week"], "week"), "week");
+});
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 92.31 — Department/Role filter helpers
+// ═══════════════════════════════════════════════════════════
+
+const SAMPLE_ROWS = [
+  { status: "working",  profile: { id: "u1", role: "admin",      department_id: 1    } },
+  { status: "out",      profile: { id: "u2", role: "sales",      department_id: 2    } },
+  { status: "working",  profile: { id: "u3", role: "technician", department_id: 2    } },
+  { status: "not_in",   profile: { id: "u4", role: "technician", department_id: null } }, // unassigned
+  { status: "abnormal", profile: { id: "u5", role: "manager",    department_id: 1    } }, // other role
+];
+
+// ── filterHrRows ──────────────────────────────────────────
+
+test("filterHrRows — default filters → คืน rows ทั้งหมด", () => {
+  assert.equal(filterHrRows(SAMPLE_ROWS, {}).length, 5);
+  assert.equal(filterHrRows(SAMPLE_ROWS, { status: "all", departmentId: "__all__", role: "all" }).length, 5);
+});
+
+test("filterHrRows — status + dept + role combined", () => {
+  // dept=2, role=technician, status=working → u3 only
+  const out = filterHrRows(SAMPLE_ROWS, { status: "working", departmentId: "2", role: "technician" });
+  assert.equal(out.length, 1);
+  assert.equal(out[0].profile.id, "u3");
+});
+
+test("filterHrRows — department '__none__' = unassigned only", () => {
+  const out = filterHrRows(SAMPLE_ROWS, { departmentId: "__none__" });
+  assert.equal(out.length, 1);
+  assert.equal(out[0].profile.id, "u4");
+});
+
+test("filterHrRows — role 'other' = ไม่ใช่ admin/sales/technician", () => {
+  const out = filterHrRows(SAMPLE_ROWS, { role: "other" });
+  assert.equal(out.length, 1);
+  assert.equal(out[0].profile.id, "u5"); // role="manager"
+});
+
+test("filterHrRows — dept id string vs number safe compare", () => {
+  // department_id เป็น number 1 — filter ด้วย string "1" ต้องเจอ
+  const out = filterHrRows(SAMPLE_ROWS, { departmentId: "1" });
+  assert.equal(out.length, 2);
+  assert.deepEqual(out.map(r => r.profile.id).sort(), ["u1", "u5"]);
+});
+
+test("filterHrRows — empty result เมื่อ filter ไม่มี match", () => {
+  const out = filterHrRows(SAMPLE_ROWS, { departmentId: "999" });
+  assert.equal(out.length, 0);
+});
+
+test("filterHrRows — non-array → []", () => {
+  assert.deepEqual(filterHrRows(null, { status: "all" }), []);
+  assert.deepEqual(filterHrRows(undefined, {}), []);
+});
+
+// ── countDepartmentBuckets ────────────────────────────────
+
+test("countDepartmentBuckets — รวม __none__ และ dept keys", () => {
+  const m = countDepartmentBuckets(SAMPLE_ROWS);
+  assert.equal(m.get("__none__"), 1); // u4
+  assert.equal(m.get("1"), 2);        // u1, u5
+  assert.equal(m.get("2"), 2);        // u2, u3
+});
+
+test("countDepartmentBuckets — empty / non-array → มี __none__:0 เท่านั้น", () => {
+  const m = countDepartmentBuckets([]);
+  assert.equal(m.get("__none__"), 0);
+  assert.equal(m.size, 1);
+  assert.equal(countDepartmentBuckets(null).get("__none__"), 0);
+});
+
+test("countDepartmentBuckets — department_id เป็นค่า falsey (null/empty string) → __none__", () => {
+  const rows = [
+    { profile: { department_id: null } },
+    { profile: { department_id: "" } },
+    { profile: { department_id: undefined } },
+  ];
+  assert.equal(countDepartmentBuckets(rows).get("__none__"), 3);
+});
+
+// ── countRoleBuckets ──────────────────────────────────────
+
+test("countRoleBuckets — แยก known + other", () => {
+  const r = countRoleBuckets(SAMPLE_ROWS);
+  assert.equal(r.all, 5);
+  assert.equal(r.admin, 1);
+  assert.equal(r.sales, 1);
+  assert.equal(r.technician, 2);
+  assert.equal(r.other, 1); // u5
+});
+
+test("countRoleBuckets — empty / non-array", () => {
+  assert.deepEqual(countRoleBuckets([]),    { all: 0, admin: 0, sales: 0, technician: 0, other: 0 });
+  assert.deepEqual(countRoleBuckets(null),  { all: 0, admin: 0, sales: 0, technician: 0, other: 0 });
+});
+
+test("countRoleBuckets — role เป็น null/empty → other", () => {
+  const r = countRoleBuckets([{ profile: { role: null } }, { profile: { role: "" } }, { profile: {} }]);
+  assert.equal(r.other, 3);
+});
+
+// ── isDefaultHrFilters ────────────────────────────────────
+
+test("isDefaultHrFilters — null/undefined → true", () => {
+  assert.equal(isDefaultHrFilters(null), true);
+  assert.equal(isDefaultHrFilters(undefined), true);
+  assert.equal(isDefaultHrFilters({}), true);
+});
+
+test("isDefaultHrFilters — all defaults → true", () => {
+  assert.equal(isDefaultHrFilters({ status: "all", departmentId: "__all__", role: "all" }), true);
+});
+
+test("isDefaultHrFilters — bất any non-default → false", () => {
+  assert.equal(isDefaultHrFilters({ status: "working" }), false);
+  assert.equal(isDefaultHrFilters({ departmentId: "5" }), false);
+  assert.equal(isDefaultHrFilters({ role: "admin" }), false);
+  assert.equal(isDefaultHrFilters({ departmentId: "__none__" }), false);
+});
+
+// ── filterSummaryLabel ────────────────────────────────────
+
+test("filterSummaryLabel — default filters → แสดงเฉพาะ count", () => {
+  const s = filterSummaryLabel({}, 10, 10, []);
+  assert.equal(s, "แสดง 10 จาก 10 คน");
+});
+
+test("filterSummaryLabel — dept + role + status รวมเข้าด้วยกัน", () => {
+  const depts = [{ id: 2, name: "ช่าง" }];
+  const s = filterSummaryLabel(
+    { status: "working", departmentId: "2", role: "technician" },
+    5, 1, depts
+  );
+  assert.match(s, /แสดง 1 จาก 5 คน/);
+  assert.match(s, /แผนก: ช่าง/);
+  assert.match(s, /Role: Technician/);
+  assert.match(s, /สถานะ: กำลังทำงาน/);
+});
+
+test("filterSummaryLabel — dept '__none__' → 'ไม่ระบุแผนก'", () => {
+  const s = filterSummaryLabel({ departmentId: "__none__" }, 4, 1, []);
+  assert.match(s, /แผนก: ไม่ระบุแผนก/);
+});
+
+test("filterSummaryLabel — dept id ไม่พบใน departments → fallback ใช้ id string", () => {
+  const s = filterSummaryLabel({ departmentId: "99" }, 4, 0, [{ id: 2, name: "ช่าง" }]);
+  assert.match(s, /แผนก: 99/);
+});
+
+// ── buildHrExportFilename ─────────────────────────────────
+
+test("buildHrExportFilename — default filters → suffix 'all'", () => {
+  assert.equal(buildHrExportFilename("2026-05-26", {}), "hr_overview_2026-05-26_all.xlsx");
+});
+
+test("buildHrExportFilename — รวม dept + role + status", () => {
+  const fn = buildHrExportFilename("2026-05-26", { departmentId: "12", role: "technician", status: "working" });
+  assert.equal(fn, "hr_overview_2026-05-26_dept-12_role-technician_working.xlsx");
+});
+
+test("buildHrExportFilename — dept '__none__' → 'dept-none'", () => {
+  const fn = buildHrExportFilename("2026-05-26", { departmentId: "__none__" });
+  assert.equal(fn, "hr_overview_2026-05-26_dept-none.xlsx");
+});
+
+test("buildHrExportFilename — sanitize ตัวอักษรอันตรายใน dept id", () => {
+  // dept id ที่มี / \ : * ? " < > | → ถูกแทนด้วย _
+  const fn = buildHrExportFilename("2026-05-26", { departmentId: "a/b\\c:d*e?f" });
+  assert.ok(!/[\\/:*?"<>|]/.test(fn), "filename ต้องไม่มี path separators / illegal chars");
+  assert.match(fn, /^hr_overview_2026-05-26_dept-/);
+  assert.match(fn, /\.xlsx$/);
+});
+
+test("buildHrExportFilename — today ว่าง → fallback 'today'", () => {
+  const fn = buildHrExportFilename("", { status: "working" });
+  assert.match(fn, /^hr_overview_today_working\.xlsx$/);
+});
+
+test("buildHrExportFilename — sanitize control chars + collapse underscores", () => {
+  const fn = buildHrExportFilename("2026-05-26", { departmentId: "x  \t y" });
+  assert.ok(!/\s/.test(fn), "filename ต้องไม่มี whitespace");
+  assert.ok(!/__/.test(fn), "filename ต้องไม่มี __ ซ้อน");
 });

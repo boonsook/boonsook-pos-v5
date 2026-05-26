@@ -7,6 +7,30 @@
 
 ---
 
+## 5.55.1 (build 292) — 2026-05-26 🔎 Phase 92.31 — HR Overview Department/Role Filters
+
+- **feat(hr_overview) [filter]:** เพิ่ม **secondary filter bar** ที่ทำงานร่วมกับ status filter เดิม
+  - **Department dropdown:** "ทุกแผนก" + แต่ละแผนก (พร้อม count) + **"ไม่ระบุแผนก"** สำหรับ profile ที่ไม่มี `department_id`
+  - **Role chips:** ทั้งหมด / Admin / Sales / Technician / **อื่น ๆ** — ซ่อน bucket ที่ว่างยกเว้น "all" และ active
+  - **ปุ่ม ✕ ล้างตัวกรอง** แสดงเฉพาะเมื่อ filter ใดไม่ใช่ default
+- **feat(hr_overview) [cascade counts]:** ตัวเลขใน chips สะท้อนสถานะจริงตามลำดับ
+  - dept counts = ใช้ rows ทั้งหมด
+  - role counts = หลัง dept filter
+  - status counts = หลัง dept + role filter
+- **feat(hr_overview) [summary]:** ข้อความเหนือตาราง: **"แสดง X จาก Y คน · แผนก: Z · Role: W · สถานะ: V"** (ซ่อน segment ที่เป็น default)
+- **feat(hr_overview) [empty state]:** ข้อความเปลี่ยนเป็น **"ไม่พบพนักงานตามตัวกรองนี้"** เพื่อสะท้อน multi-filter
+- **feat(hr_overview) [export]:** filename ใช้ `buildHrExportFilename` สร้าง suffix เช่น `hr_overview_2026-05-26_dept-12_role-technician_working.xlsx` — **sanitize ตัวอักษรอันตราย** (`\/:*?"<>|` + control chars + whitespace + double underscore)
+- **KPI ด้านบน:** ยังแสดงตัวเลขทั้งองค์กรเหมือนเดิม (Option A — ไม่ทำให้สับสน) — filter แสดงผลที่ตารางเท่านั้น
+- **Modal employee drill-down:** ทำงานเหมือนเดิม (คลิกแถวที่ filter แล้วก็ยังเปิด modal ได้ปกติ)
+- **Pure helpers ใหม่ (test-friendly):** `filterHrRows`, `countDepartmentBuckets`, `countRoleBuckets`, `isDefaultHrFilters`, `filterSummaryLabel`, `buildHrExportFilename`
+- **ไม่แตะ DB schema / RLS / money math / payroll/time_clock write behavior** — pure UI filter + helpers · ไม่ refetch DB · ไม่เพิ่ม dependency
+- Tests +26 (filterHrRows 7 · countDept 3 · countRole 3 · isDefault 3 · summary 4 · filename 6). Unit **478 → 504**
+- verify เขียว: lint:errors 0/0 · e2e 11/11 · `npm audit --audit-level=moderate` = **0 vulnerabilities**
+
+**Build:** 291 → 292; version 5.55.0 → 5.55.1 (patch — UX filter)
+
+---
+
 ## 5.55.0 (build 291) — 2026-05-26 👤 Phase 92.30 — HR Employee Drill-down Modal
 
 - **feat(hr_overview) [drill-down]:** คลิกแถวพนักงานใน "สถานะพนักงานวันนี้" → เปิด **modal รายละเอียดพนักงาน** (max-width 860px, mobile responsive, Esc + backdrop คลิกเพื่อปิด, body scroll lock, `role="dialog"` + `aria-modal`)

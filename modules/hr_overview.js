@@ -415,6 +415,176 @@ export function modalTabFor(key, validKeys, fallback = "today") {
 }
 
 // ═══════════════════════════════════════════════════════════
+//  Phase 92.31 — Department/Role filter helpers (pure)
+// ═══════════════════════════════════════════════════════════
+
+const KNOWN_ROLES = ["admin", "sales", "technician"];
+
+/**
+ * Phase 92.31: filter rows ตาม status + departmentId + role พร้อมกัน
+ *
+ * @param {Array<{profile:object, status:string}>} rows
+ * @param {object} [filters]
+ * @param {"all"|"not_in"|"working"|"out"|"abnormal"|string} [filters.status="all"]
+ * @param {"__all__"|"__none__"|string} [filters.departmentId="__all__"]
+ * @param {"all"|"admin"|"sales"|"technician"|"other"|string} [filters.role="all"]
+ * @returns {Array}
+ */
+export function filterHrRows(rows, filters = {}) {
+  if (!Array.isArray(rows)) return [];
+  const status = filters.status || "all";
+  const dept   = filters.departmentId || "__all__";
+  const role   = filters.role || "all";
+  return rows.filter(r => {
+    // status
+    if (status !== "all") {
+      const s = r?.status;
+      if (s !== status) return false;
+    }
+    // department
+    const did = r?.profile?.department_id;
+    if (dept === "__none__") {
+      if (did != null && did !== "") return false;
+    } else if (dept !== "__all__") {
+      if (String(did ?? "") !== String(dept)) return false;
+    }
+    // role
+    if (role !== "all") {
+      const rl = r?.profile?.role || "";
+      if (role === "other") {
+        if (KNOWN_ROLES.includes(rl)) return false;
+      } else if (rl !== role) {
+        return false;
+      }
+    }
+    return true;
+  });
+}
+
+/**
+ * Phase 92.31: count rows per department_id (key = String(dept.id) หรือ "__none__")
+ * @param {Array<{profile:object}>} rows
+ * @returns {Map<string, number>}
+ */
+export function countDepartmentBuckets(rows) {
+  const m = new Map();
+  m.set("__none__", 0);
+  if (!Array.isArray(rows)) return m;
+  for (const r of rows) {
+    const did = r?.profile?.department_id;
+    if (did == null || did === "") {
+      m.set("__none__", (m.get("__none__") || 0) + 1);
+    } else {
+      const key = String(did);
+      m.set(key, (m.get(key) || 0) + 1);
+    }
+  }
+  return m;
+}
+
+/**
+ * Phase 92.31: count rows per role bucket
+ * @param {Array<{profile:object}>} rows
+ * @returns {{all:number, admin:number, sales:number, technician:number, other:number}}
+ */
+export function countRoleBuckets(rows) {
+  const acc = { all: 0, admin: 0, sales: 0, technician: 0, other: 0 };
+  if (!Array.isArray(rows)) return acc;
+  for (const r of rows) {
+    acc.all += 1;
+    const rl = r?.profile?.role || "";
+    if (KNOWN_ROLES.includes(rl)) acc[rl] += 1;
+    else acc.other += 1;
+  }
+  return acc;
+}
+
+/**
+ * Phase 92.31: เช็คว่า filter set เป็น default ทั้งหมดหรือไม่ (สำหรับซ่อนปุ่ม "ล้างตัวกรอง")
+ * @param {{status?:string, departmentId?:string, role?:string}|null|undefined} filters
+ * @returns {boolean}
+ */
+export function isDefaultHrFilters(filters) {
+  if (!filters) return true;
+  const statusOk = !filters.status || filters.status === "all";
+  const deptOk   = !filters.departmentId || filters.departmentId === "__all__";
+  const roleOk   = !filters.role || filters.role === "all";
+  return statusOk && deptOk && roleOk;
+}
+
+/**
+ * Phase 92.31: format summary label เหนือตาราง
+ * "แสดง X จาก Y คน · แผนก: ช่าง · Role: Technician · สถานะ: กำลังทำงาน"
+ * @param {object} filters
+ * @param {number} totalCount
+ * @param {number} filteredCount
+ * @param {Array<{id:any,name?:string}>} [departments]
+ * @returns {string}
+ */
+export function filterSummaryLabel(filters, totalCount, filteredCount, departments) {
+  const total = Number.isFinite(totalCount) ? totalCount : 0;
+  const shown = Number.isFinite(filteredCount) ? filteredCount : 0;
+  const parts = [`แสดง ${shown} จาก ${total} คน`];
+
+  const dept = filters?.departmentId || "__all__";
+  if (dept === "__none__") {
+    parts.push("แผนก: ไม่ระบุแผนก");
+  } else if (dept !== "__all__") {
+    const found = Array.isArray(departments)
+      ? departments.find(d => String(d?.id) === String(dept))
+      : null;
+    parts.push("แผนก: " + (found?.name || dept));
+  }
+
+  const role = filters?.role || "all";
+  if (role !== "all") {
+    const ROLE_TH = { admin: "Admin", sales: "Sales", technician: "Technician", other: "อื่น ๆ" };
+    parts.push("Role: " + (ROLE_TH[role] || role));
+  }
+
+  const status = filters?.status || "all";
+  if (status !== "all") {
+    const STATUS_TH = { not_in: "ยังไม่เข้า", working: "กำลังทำงาน", out: "ออกแล้ว", abnormal: "ต้องตรวจสอบ" };
+    parts.push("สถานะ: " + (STATUS_TH[status] || status));
+  }
+
+  return parts.join(" · ");
+}
+
+/**
+ * Phase 92.31: build export filename — sanitize unsafe chars + length cap
+ * Returns e.g. "hr_overview_2026-05-26_dept-12_role-technician_working.xlsx"
+ * @param {string} today - "YYYY-MM-DD"
+ * @param {object} filters
+ * @returns {string}
+ */
+export function buildHrExportFilename(today, filters) {
+  // sanitize: remove path separators + Windows-illegal chars + control + collapse
+  const safe = (s) => String(s == null ? "" : s)
+    .replace(/[\\/:*?"<>|\x00-\x1f]+/g, "_")
+    .replace(/\s+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
+
+  const todaySafe = safe(today) || "today";
+  const parts = [];
+  const dept = filters?.departmentId || "__all__";
+  if (dept === "__none__") parts.push("dept-none");
+  else if (dept !== "__all__") parts.push("dept-" + safe(dept));
+
+  const role = filters?.role || "all";
+  if (role !== "all") parts.push("role-" + safe(role));
+
+  const status = filters?.status || "all";
+  if (status !== "all") parts.push(safe(status));
+
+  const suffix = parts.length === 0 ? "all" : parts.join("_");
+  let base = `hr_overview_${todaySafe}_${suffix}`;
+  if (base.length > 200) base = base.slice(0, 200);
+  return base + ".xlsx";
+}
+
+// ═══════════════════════════════════════════════════════════
 //  REST helpers (เฉพาะ GET, read-only)
 // ═══════════════════════════════════════════════════════════
 
@@ -592,7 +762,7 @@ function _renderTbody(rows, deptMap) {
   if (rows.length === 0) {
     return `<tr><td colspan="8" style="padding:24px 14px;text-align:center;color:#64748b;font-size:13px">
       <div style="font-size:32px;margin-bottom:6px;opacity:.6">🔍</div>
-      ไม่มีพนักงานในสถานะที่เลือก
+      ไม่พบพนักงานตามตัวกรองนี้
     </td></tr>`;
   }
   return rows.map(({ profile: p, att, status, ot }) => {
@@ -866,6 +1036,67 @@ function _renderModalBody(activeTab, payload) {
 }
 
 // ═══════════════════════════════════════════════════════════
+//  Phase 92.31: Secondary filter bar (department + role + clear)
+// ═══════════════════════════════════════════════════════════
+
+const ROLE_FILTER_ORDER = [
+  { key: "all",        label: "ทั้งหมด"   },
+  { key: "admin",      label: "Admin"       },
+  { key: "sales",      label: "Sales"       },
+  { key: "technician", label: "Technician"  },
+  { key: "other",      label: "อื่น ๆ"      },
+];
+
+function _renderDeptDropdown(activeDept, departments, deptCounts) {
+  const opts = [];
+  opts.push(`<option value="__all__"${activeDept === "__all__" ? " selected" : ""}>ทุกแผนก</option>`);
+  if (Array.isArray(departments)) {
+    for (const d of departments) {
+      if (!d?.id) continue;
+      const cnt = deptCounts?.get(String(d.id)) || 0;
+      const selected = String(activeDept) === String(d.id) ? " selected" : "";
+      opts.push(`<option value="${escHtml(String(d.id))}"${selected}>${escHtml(d.name || "(ไม่มีชื่อ)")} (${NUM_TH(cnt)})</option>`);
+    }
+  }
+  const noneCnt = deptCounts?.get("__none__") || 0;
+  opts.push(`<option value="__none__"${activeDept === "__none__" ? " selected" : ""}>ไม่ระบุแผนก (${NUM_TH(noneCnt)})</option>`);
+  return `<select id="hrDeptSelect" style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#0f172a;font-size:12px;font-weight:700;cursor:pointer;max-width:100%">${opts.join("")}</select>`;
+}
+
+function _renderRoleChips(activeRole, roleCounts) {
+  return ROLE_FILTER_ORDER.map(r => {
+    const isActive = r.key === activeRole;
+    const cnt = roleCounts?.[r.key] || 0;
+    if (cnt === 0 && r.key !== "all" && !isActive) return ""; // ซ่อนถ้าไม่มีคนใน bucket นี้ (ยกเว้น "all" และ active)
+    const bg = isActive ? "#0f172a" : "#fff";
+    const fg = isActive ? "#fff"    : "#475569";
+    const bd = isActive ? "#0f172a" : "#e2e8f0";
+    return `<button class="hr-role-btn" data-hr-role="${escHtml(r.key)}" style="padding:5px 10px;border:1px solid ${bd};border-radius:999px;background:${bg};color:${fg};font-size:11px;font-weight:700;cursor:pointer">
+      ${escHtml(r.label)}
+      <span style="margin-left:5px;padding:0 6px;border-radius:999px;background:${isActive ? 'rgba(255,255,255,.2)' : '#f1f5f9'};color:${isActive ? '#fff' : '#0f172a'};font-size:10px;font-weight:800">${NUM_TH(cnt)}</span>
+    </button>`;
+  }).join("");
+}
+
+function _renderSecondaryFilterBar(activeDept, activeRole, departments, deptCounts, roleCounts, isDefault) {
+  return `<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:10px 14px;border-bottom:1px solid #f1f5f9;background:#fff">
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+      <span style="font-size:11px;color:#64748b;font-weight:700">แผนก:</span>
+      ${_renderDeptDropdown(activeDept, departments, deptCounts)}
+    </div>
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+      <span style="font-size:11px;color:#64748b;font-weight:700">Role:</span>
+      <div style="display:flex;flex-wrap:wrap;gap:4px">${_renderRoleChips(activeRole, roleCounts)}</div>
+    </div>
+    ${!isDefault ? `<button id="hrClearFiltersBtn" style="margin-left:auto;padding:5px 10px;border:1px solid #fca5a5;border-radius:8px;background:#fff;color:#991b1b;font-size:11px;font-weight:700;cursor:pointer">✕ ล้างตัวกรอง</button>` : ""}
+  </div>`;
+}
+
+function _renderFilterSummary(label) {
+  return `<div style="padding:8px 14px;border-bottom:1px solid #f1f5f9;background:#fafbfc;font-size:12px;color:#475569">${escHtml(label)}</div>`;
+}
+
+// ═══════════════════════════════════════════════════════════
 //  Render
 // ═══════════════════════════════════════════════════════════
 
@@ -945,10 +1176,21 @@ export async function renderHrOverviewPage(ctx) {
     return (a.profile.full_name || "").localeCompare(b.profile.full_name || "", "th");
   });
 
-  const buckets = countStatusBuckets(rows);
-
-  // Filter state (in-memory) — default "all"
+  // Phase 92.31: filter state (status + departmentId + role) — default = all
   let activeFilter = "all";
+  let activeDept = "__all__";
+  let activeRole = "all";
+
+  // Initial cascade counts: dept = all rows · role = filter by dept · status = filter by dept+role
+  const initialFilteredByDept = filterHrRows(rows, { departmentId: activeDept });
+  const initialFilteredByDeptRole = filterHrRows(rows, { departmentId: activeDept, role: activeRole });
+  const initialDeptCounts = countDepartmentBuckets(rows);
+  const initialRoleCounts = countRoleBuckets(initialFilteredByDept);
+  const buckets = countStatusBuckets(initialFilteredByDeptRole);
+  const initialSummary = filterSummaryLabel(
+    { status: activeFilter, departmentId: activeDept, role: activeRole },
+    rows.length, rows.length, data.departments
+  );
 
   // ── Render HTML ───────────────────────────────────────────
   const todayTh = new Date(today + "T00:00:00+07:00").toLocaleDateString("th-TH", {
@@ -1010,6 +1252,8 @@ export async function renderHrOverviewPage(ctx) {
           ? renderEmpty({ icon: "👥", title: "ยังไม่มีพนักงานในระบบ", message: "เพิ่มพนักงานที่ ตั้งค่า → ตั้งค่าผู้ใช้งาน" })
           : `
           <div id="hrFilterBar">${_filterBar(buckets, activeFilter)}</div>
+          <div id="hrSecondaryBar">${_renderSecondaryFilterBar(activeDept, activeRole, data.departments, initialDeptCounts, initialRoleCounts, isDefaultHrFilters({status:activeFilter, departmentId:activeDept, role:activeRole}))}</div>
+          <div id="hrSummaryBar">${_renderFilterSummary(initialSummary)}</div>
           <div style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:680px">
             <thead style="background:#f8fafc">
@@ -1025,7 +1269,7 @@ export async function renderHrOverviewPage(ctx) {
               </tr>
             </thead>
             <tbody id="hrTbody">
-              ${_renderTbody(filterRowsByStatus(rows, activeFilter), deptMap)}
+              ${_renderTbody(filterHrRows(rows, { status: activeFilter, departmentId: activeDept, role: activeRole }), deptMap)}
             </tbody>
           </table>
           </div>`
@@ -1076,9 +1320,32 @@ export async function renderHrOverviewPage(ctx) {
     });
   });
 
-  // Filter buttons (in-memory, no refetch)
-  const filterBarEl = document.getElementById("hrFilterBar");
-  const tbodyEl = document.getElementById("hrTbody");
+  // Phase 92.31: cascade re-render — dept counts = ทุก rows, role counts = หลัง dept, status counts = หลัง dept+role
+  const filterBarEl    = document.getElementById("hrFilterBar");
+  const secondaryBarEl = document.getElementById("hrSecondaryBar");
+  const summaryBarEl   = document.getElementById("hrSummaryBar");
+  const tbodyEl        = document.getElementById("hrTbody");
+
+  function _rerenderFilters() {
+    if (!filterBarEl || !tbodyEl) return;
+    const filters = { status: activeFilter, departmentId: activeDept, role: activeRole };
+    const filteredByDept     = filterHrRows(rows, { departmentId: activeDept });
+    const filteredByDeptRole = filterHrRows(rows, { departmentId: activeDept, role: activeRole });
+    const visible            = filterHrRows(rows, filters);
+    const deptCounts   = countDepartmentBuckets(rows);
+    const roleCounts   = countRoleBuckets(filteredByDept);
+    const statusCounts = countStatusBuckets(filteredByDeptRole);
+    filterBarEl.innerHTML    = _filterBar(statusCounts, activeFilter);
+    if (secondaryBarEl) secondaryBarEl.innerHTML = _renderSecondaryFilterBar(
+      activeDept, activeRole, data.departments, deptCounts, roleCounts, isDefaultHrFilters(filters)
+    );
+    if (summaryBarEl) summaryBarEl.innerHTML = _renderFilterSummary(
+      filterSummaryLabel(filters, rows.length, visible.length, data.departments)
+    );
+    tbodyEl.innerHTML = _renderTbody(visible, deptMap);
+  }
+
+  // Status filter chips
   if (filterBarEl && tbodyEl) {
     filterBarEl.addEventListener("click", (ev) => {
       const btn = ev.target.closest(".hr-filter-btn");
@@ -1086,19 +1353,43 @@ export async function renderHrOverviewPage(ctx) {
       const next = btn.getAttribute("data-hr-filter") || "all";
       if (next === activeFilter) return;
       activeFilter = next;
-      // re-render filter bar (to update active styles + counts unchanged)
-      filterBarEl.innerHTML = _filterBar(buckets, activeFilter);
-      // re-render tbody only
-      const filtered = filterRowsByStatus(rows, activeFilter);
-      tbodyEl.innerHTML = _renderTbody(filtered, deptMap);
+      _rerenderFilters();
+    });
+  }
+
+  // Secondary bar: dept dropdown + role chips + clear
+  if (secondaryBarEl) {
+    secondaryBarEl.addEventListener("change", (ev) => {
+      const sel = ev.target.closest("#hrDeptSelect");
+      if (!sel) return;
+      const next = sel.value || "__all__";
+      if (next === activeDept) return;
+      activeDept = next;
+      _rerenderFilters();
+    });
+    secondaryBarEl.addEventListener("click", (ev) => {
+      const roleBtn = ev.target.closest(".hr-role-btn");
+      if (roleBtn) {
+        const next = roleBtn.getAttribute("data-hr-role") || "all";
+        if (next === activeRole) return;
+        activeRole = next;
+        _rerenderFilters();
+        return;
+      }
+      if (ev.target.closest("#hrClearFiltersBtn")) {
+        activeFilter = "all";
+        activeDept   = "__all__";
+        activeRole   = "all";
+        _rerenderFilters();
+      }
     });
   }
 
   document.getElementById("hrExportBtn")?.addEventListener("click", async () => {
     try {
       const utilsMod = await import("./utils.js");
-      // Export ใช้ rows ตาม activeFilter ปัจจุบัน (เพื่อให้ตรงกับสิ่งที่เห็น)
-      const exportSource = filterRowsByStatus(rows, activeFilter);
+      const filters = { status: activeFilter, departmentId: activeDept, role: activeRole };
+      const exportSource = filterHrRows(rows, filters);
       const exportRows = exportSource.map(({ profile: p, att, status, ot }) => {
         const dept = p.department_id ? deptMap.get(String(p.department_id)) : null;
         return {
@@ -1113,8 +1404,8 @@ export async function renderHrOverviewPage(ctx) {
           "สถานะ": STATUS_META[status]?.label || status,
         };
       });
-      const suffix = activeFilter === "all" ? "" : "_" + activeFilter;
-      const ok = utilsMod.exportToExcel(`hr_overview_${today}${suffix}.xlsx`, exportRows, "HR Overview");
+      const filename = buildHrExportFilename(today, filters);
+      const ok = utilsMod.exportToExcel(filename, exportRows, "HR Overview");
       if (ok) showToast?.("📥 Export สำเร็จ"); else showToast?.("ไม่สามารถ Export ได้ (XLSX ยังไม่โหลด)");
     } catch (e) {
       showToast?.("Export ผิดพลาด: " + (e?.message || e));
