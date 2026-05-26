@@ -3,15 +3,147 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 26 พฤษภาคม 2026 (Phase 92.39b — Calendar Dense Day "+N รายการ" verification, build 304)
-**Version:** 5.62.1 (build 304) — Phase 92.39b (dense day verification release — no behavior change)
-**Previous:** 5.62.0 (build 303) — Phase 92.39 (mobile agenda + dense day polish + bottom sheet)
+**อัปเดตล่าสุด:** 26 พฤษภาคม 2026 (Phase 92.39c — HOTFIX popover visibility/position, build 305)
+**Version:** 5.62.2 (build 305) — Phase 92.39c (popover viewport-clipping hotfix)
+**Previous:** 5.62.1 (build 304) — Phase 92.39b (dense day verification release)
 
-> ✅ **ไม่มี SQL ใหม่ในเฟส 92.36–92.39b** (additive code only).
+> ✅ **ไม่มี SQL ใหม่ในเฟส 92.36–92.39c** (additive code only).
 
 ---
 
-## 🧪 Phase 92.39b — Calendar Dense Day "+N รายการ" verification (this session)
+## 🧯 Phase 92.39c — HOTFIX popover visibility/position (this session)
+
+**บริบท:** หลัง 92.39b verify pipeline ผ่าน source-level test แล้ว user ทดสอบจริง — คลิก "+N รายการ" → backdrop เปิด แต่ day-list popover **ไม่อยู่ใน viewport** โดยเฉพาะตอน DevTools เปิด/viewport เตี้ย.
+
+### Root cause
+
+```
+#lmPopover (display:none → block, position:fixed inset:0, z-index:9998)
+  ├── #lmPopBackdrop (position:absolute inset:0)         ← ไม่มี z-index
+  └── .lm-pop-dialog (position:relative, margin:60px auto, overflow:hidden)
+                     ← max-width:420px width:calc(100%-32px)
+                     ← ไม่มี max-height, ไม่มี flex center
+```
+
+ปัญหา:
+- Container `display:block` → ใช้ document flow → dialog ตามหลัง backdrop ใน DOM order
+- Dialog `margin:60px auto` center horizontal เฉพาะ — vertical 60px from top
+- **ไม่มี max-height** → content สูงเกิน `100vh - 60px` ทะลุล่างจอ
+- Container `overflow:visible` (default) → ไม่ scroll
+- DevTools เปิด viewport เตี้ย/แคบ → ตกขอบเห็นชัด
+
+### สิ่งที่แก้ ([`modules/leave_management.js`](modules/leave_management.js))
+
+**1) Container `#lmPopover` flex layout (CSS attribute selector):**
+
+```css
+#lmPopover[style*="display:block"] {
+  display: flex !important;
+  align-items: flex-start;
+  justify-content: center;
+  overflow-y: auto;
+  padding: 48px 16px;
+}
+@media (max-width: 768px) {
+  #lmPopover[style*="display:block"] {
+    align-items: stretch;
+    padding: 0;
+    overflow: hidden;
+  }
+}
+```
+
+- ใช้ attribute selector `[style*="display:block"]` (กับ/ไม่มี space) → flex layout เมื่อ JS toggle เปิด popover
+- Desktop: padding 48px 16px ให้ breathing room + scroll ถ้า dialog สูง
+- Mobile: stretch + zero padding → bottom sheet เต็มจอ
+
+**2) `.lm-pop-dialog` desktop:**
+
+```css
+.lm-pop-dialog {
+  position: relative;
+  max-width: 420px;
+  width: 100%;
+  margin: 0;                       /* flex center แล้ว ไม่ต้อง margin */
+  max-height: calc(100vh - 96px);  /* กัน dialog ขยายเกินจอ */
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: ...;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 1;
+}
+.lm-pop-dialog > .lm-pop-body { flex: 1 1 auto; overflow-y: auto; }
+```
+
+- Dialog เป็น `display:flex flex-direction:column` → header pinned + body scroll
+- `max-height: calc(100vh - 96px)` → ไม่ทะลุจอ
+- Inner `.lm-pop-body` ใช้ `flex:1 1 auto; overflow-y:auto` → scroll content เฉพาะ body
+- Mobile (≤768px): `max-height: 85vh` (เพิ่มจาก 80vh — ใช้พื้นที่มากขึ้น)
+
+**3) z-index hierarchy:**
+
+- Backdrop: `z-index: 0` (inline style)
+- Dialog: `z-index: 1` (ใน class rule)
+- Container: `z-index: 9998` (เดิม)
+
+**4) `.lm-pop-body` class:**
+
+- เพิ่มใน inner content div ของ `_renderLeavePopover` + `_renderDayListPopover`
+- รับ flex+scroll rule จาก dialog selector → content scroll ภายใน, header pinned
+
+**5) Focus management:**
+
+- `setTimeout(() => pop.querySelector("#lmPopClose")?.focus(), 0)` หลัง open
+- ใช้ทั้ง 2 popover types
+- Benefits: a11y (keyboard nav) + visual confirmation ว่า popover visible + Esc key ทำงานทันที
+
+### Regression check ✅
+
+- Calendar event chip click → leave details popover ทำงานเหมือนเดิม (logic ไม่แตะ — เฉพาะ layout)
+- Dense day "+N รายการ" → day-list popover ทำงานเหมือนเดิม (logic ไม่แตะ)
+- Esc + backdrop close ยังทำงาน (handlers เดิม)
+- Mobile bottom sheet (≤768px) — slide-up animation + grabber bar ยังทำงาน
+- Edit quota warning (92.38c) ไม่แตะ
+- Calendar mobile agenda (92.39) ไม่แตะ
+
+### Tests +5 source-level
+
+[`tests/leave_management.test.js`](tests/leave_management.test.js):
+- `#lmPopover` container ใช้ flex layout via attribute selector + mobile override
+- `.lm-pop-dialog` desktop มี `max-height: calc(100vh - ...)` + `flex-direction: column` + inner scroll
+- z-index hierarchy: backdrop z-index:0 + dialog z-index:1 explicit
+- ทั้ง 2 popover types ใช้ `class="lm-pop-body"` ใน inner content
+- Focus close button หลัง open (a11y + visibility confirm) ทั้ง 2 popover types
+
+### Gates
+
+- `npm run lint:errors` exit 0
+- `npm test` = **651/651** (646 + 5)
+- `npm run test:e2e -- --reporter=line` = **11/11**
+- `npm audit --audit-level=moderate` = **0 vulnerabilities**
+
+### Version sync
+
+- `package.json`: 5.62.1 → **5.62.2** (patch hotfix)
+- `index.html`: ?v=304→305, data-app-build="305", data-app-version="5.62.2"
+- `sw.js`: cache v304→v305 + v305 comment line
+
+### Smoke test (manual)
+
+1. Production Ctrl+Shift+R → APP_BUILD=305
+2. หน้าวันลา → ปฏิทิน → คลิก "+N รายการ" บน cell ที่มี events ≥ 4
+3. day-list popover ต้องเปิดที่ **กลางจอ desktop** หรือ **ตรงจาก bottom mobile** — มองเห็นชัด
+4. กด Esc → ปิด (focus อยู่ที่ close button → keyboard ได้ทันที)
+5. คลิก backdrop → ปิด
+6. **เปิด DevTools บีบ viewport** ให้สูง ~400px → popover ยังเห็นได้ (scroll ภายใน body ได้)
+7. Mobile (≤768px) → bottom sheet slide-up จากด้านล่าง + grabber bar + ไม่มี horizontal overflow
+8. ทดสอบ event click chip ปกติ → leave details popover ก็ทำงานเหมือนกัน (same .lm-pop-dialog rules)
+
+---
+
+## 🧪 Phase 92.39b — Calendar Dense Day "+N รายการ" verification
 
 **บริบท:** Production scenario เดิม (sompong 2 events/day) ไม่เคย trigger overflow branch — cap=3 ไม่เกิน. User ขอ verify ว่าเมื่อมี dense day (4+ events วันเดียว) flow ทำงานครบ:
 1. Desktop cell แสดง 3 events + "+N รายการ"

@@ -1195,7 +1195,23 @@ function _renderLeavePopover(leave, profileMap, currentUserId, role) {
   }
   return `
     <style>
-      .lm-pop-dialog { position:relative; max-width:420px; width:calc(100% - 32px); margin:60px auto; background:#fff; border-radius:14px; box-shadow:0 18px 40px rgba(15,23,42,.25); overflow:hidden; }
+      /* Phase 92.39c: dialog flex-centered ใน container; max-height + inner scroll กัน content ล้น */
+      .lm-pop-dialog {
+        position: relative;
+        max-width: 420px;
+        width: 100%;
+        margin: 0;
+        max-height: calc(100vh - 96px);
+        background: #fff;
+        border-radius: 14px;
+        box-shadow: 0 18px 40px rgba(15,23,42,.25);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        z-index: 1;
+      }
+      .lm-pop-dialog > * { flex-shrink: 0; }
+      .lm-pop-dialog > .lm-pop-body { flex: 1 1 auto; overflow-y: auto; }
       @media (max-width: 768px) {
         /* bottom sheet: slide-up จากด้านล่าง, เต็มกว้าง, มุมโค้งบน */
         .lm-pop-dialog {
@@ -1203,14 +1219,14 @@ function _renderLeavePopover(leave, profileMap, currentUserId, role) {
           max-width: 100%; width: 100%;
           margin: 0;
           border-radius: 16px 16px 0 0;
-          max-height: 80vh; overflow-y: auto;
+          max-height: 85vh;
           animation: lmPopSlideUp 200ms ease-out;
         }
         .lm-pop-grabber { display: block !important; }
       }
       @keyframes lmPopSlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
     </style>
-    <div id="lmPopBackdrop" style="position:absolute;inset:0;background:rgba(15,23,42,.45);backdrop-filter:blur(2px)"></div>
+    <div id="lmPopBackdrop" style="position:absolute;inset:0;background:rgba(15,23,42,.45);backdrop-filter:blur(2px);z-index:0"></div>
     <div role="dialog" aria-modal="true" class="lm-pop-dialog">
       <div class="lm-pop-grabber" style="display:none;text-align:center;padding:6px 0 0">
         <div style="width:36px;height:4px;border-radius:2px;background:#cbd5e1;margin:0 auto"></div>
@@ -1219,7 +1235,7 @@ function _renderLeavePopover(leave, profileMap, currentUserId, role) {
         <div style="font-size:15px;font-weight:800;color:${meta.fg}">${escHtml(meta.icon + " " + name)}</div>
         <button id="lmPopClose" aria-label="ปิด" style="padding:4px 10px;border:1px solid ${meta.border};border-radius:6px;background:#fff;color:${meta.fg};font-size:13px;cursor:pointer">✕</button>
       </div>
-      <div style="padding:14px;display:flex;flex-direction:column;gap:10px">
+      <div class="lm-pop-body" style="padding:14px;display:flex;flex-direction:column;gap:10px">
         <div style="font-size:14px;color:#0f172a">
           <strong>${escHtml(meta.label)}</strong> · ${escHtml(dateRange)} (${escHtml(String(leave.days_count || 0))} วัน)
         </div>
@@ -1246,7 +1262,7 @@ function _renderDayListPopover(dateStr, events, profileMap) {
   const label = `วัน${dowLabel} ${dayNum} ${monthShort} ${year + 543}`; // พ.ศ.
   const rows = events.map(ev => _calendarEventChip(ev, profileMap, dateStr)).join("");
   return `
-    <div id="lmPopBackdrop" style="position:absolute;inset:0;background:rgba(15,23,42,.45);backdrop-filter:blur(2px)"></div>
+    <div id="lmPopBackdrop" style="position:absolute;inset:0;background:rgba(15,23,42,.45);backdrop-filter:blur(2px);z-index:0"></div>
     <div role="dialog" aria-modal="true" class="lm-pop-dialog">
       <div class="lm-pop-grabber" style="display:none;text-align:center;padding:6px 0 0">
         <div style="width:36px;height:4px;border-radius:2px;background:#cbd5e1;margin:0 auto"></div>
@@ -1255,7 +1271,7 @@ function _renderDayListPopover(dateStr, events, profileMap) {
         <div style="font-size:15px;font-weight:800;color:#0f172a">📅 ${escHtml(label)}</div>
         <button id="lmPopClose" aria-label="ปิด" style="padding:4px 10px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;color:#475569;font-size:13px;cursor:pointer">✕</button>
       </div>
-      <div style="padding:12px;display:flex;flex-direction:column;gap:6px;max-height:60vh;overflow-y:auto">
+      <div class="lm-pop-body" style="padding:12px;display:flex;flex-direction:column;gap:6px">
         ${rows}
         <div style="font-size:11px;color:#64748b;margin-top:4px;text-align:center">คลิกรายการเพื่อดูรายละเอียด</div>
       </div>
@@ -1633,7 +1649,26 @@ export async function renderLeaveManagementPage(ctx) {
       <!-- Form / review modals (hidden initially) -->
       <div id="lmModal" style="display:none;position:fixed;inset:0;z-index:9999"></div>
       <!-- Phase 92.38: calendar event popover -->
-      <div id="lmPopover" style="display:none;position:fixed;inset:0;z-index:9998"></div>
+      <!-- Phase 92.39c: container ใช้ flex centering + overflow-y:auto กัน dialog ตกขอบ viewport เตี้ย/แคบ -->
+      <div id="lmPopover" class="lm-pop-container" style="display:none;position:fixed;inset:0;z-index:9998"></div>
+      <style>
+        /* Phase 92.39c: เปิดเมื่อ container display=block ผ่าน inline JS — แต่ใช้ flex layout */
+        #lmPopover[style*="display:block"], #lmPopover[style*="display: block"] {
+          display: flex !important;
+          align-items: flex-start;
+          justify-content: center;
+          overflow-y: auto;
+          padding: 48px 16px;
+        }
+        @media (max-width: 768px) {
+          /* Mobile: bottom sheet — ลด padding, align ปลายล่าง */
+          #lmPopover[style*="display:block"], #lmPopover[style*="display: block"] {
+            align-items: stretch;
+            padding: 0;
+            overflow: hidden;
+          }
+        }
+      </style>
     `;
 
     // ── Bind events ─────────────────────────────────────────
@@ -1815,6 +1850,8 @@ export async function renderLeaveManagementPage(ctx) {
     pop.querySelector(".lm-pop-cancel") ?.addEventListener("click", async () => { _closePopover(); await _doCancel(leave.id); });
     pop.querySelector(".lm-pop-delete") ?.addEventListener("click", async () => { _closePopover(); await _doDelete(leave.id); });
     pop.querySelector(".lm-pop-edit")   ?.addEventListener("click", () => { _closePopover(); _openFormModal(leave); });
+    // Phase 92.39c: focus close button → ยืนยัน popover visible + ช่วย a11y (Esc/keyboard nav)
+    setTimeout(() => pop.querySelector("#lmPopClose")?.focus(), 0);
   }
 
   function _openDayListPopover(dateStr, filtered) {
@@ -1838,6 +1875,8 @@ export async function renderLeaveManagementPage(ctx) {
         setTimeout(() => _openLeavePopover(leave), 0);
       }
     }));
+    // Phase 92.39c: focus close button → ยืนยัน popover visible + ช่วย a11y
+    setTimeout(() => pop.querySelector("#lmPopClose")?.focus(), 0);
   }
 
   async function _doExport(rowsToExport) {

@@ -1284,6 +1284,61 @@ test("source: popover Esc + backdrop close (ทั้ง 2 popover types)", asyn
   assert.match(src, /lmPopBackdrop[\s\S]{0,200}?addEventListener\(["']click["']/);
 });
 
+// ── Phase 92.39c: popover visibility/positioning ───────────
+
+test("source: #lmPopover container ใช้ flex layout (รับ display=block จาก JS แล้ว flex centered)", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  // attribute selector match display:block (with/without space) → flex layout
+  assert.match(src, /#lmPopover\[style\*=["']display:block["']\][\s\S]{0,200}?display:\s*flex/);
+  assert.match(src, /align-items:\s*flex-start/);
+  assert.match(src, /justify-content:\s*center/);
+  assert.match(src, /overflow-y:\s*auto/);
+  // mobile override: align-items: stretch + padding:0
+  assert.match(src, /@media \(max-width: 768px\)[\s\S]{0,400}?align-items:\s*stretch/);
+});
+
+test("source: .lm-pop-dialog desktop มี max-height calc(100vh - ...) + flex column + inner scroll", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  assert.match(src, /\.lm-pop-dialog[\s\S]{0,400}?max-height:\s*calc\(100vh\s*-\s*\d+px\)/);
+  assert.match(src, /\.lm-pop-dialog[\s\S]{0,400}?display:\s*flex[\s\S]{0,200}?flex-direction:\s*column/);
+  // inner body scrollable via .lm-pop-body
+  assert.match(src, /\.lm-pop-dialog\s*>\s*\.lm-pop-body[\s\S]{0,200}?overflow-y:\s*auto/);
+});
+
+test("source: backdrop z-index:0 + dialog z-index:1 (explicit hierarchy)", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  // backdrop inline style มี z-index:0 (กัน dialog ถูก stack ใต้)
+  assert.match(src, /id="lmPopBackdrop"[\s\S]{0,200}?z-index:\s*0/);
+  // dialog class มี z-index:1
+  assert.match(src, /\.lm-pop-dialog[\s\S]{0,400}?z-index:\s*1/);
+});
+
+test("source: ทั้ง 2 popover types ใช้ class lm-pop-body ใน content (รับ inner scroll จาก dialog rule)", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  // _renderLeavePopover body
+  assert.match(src, /function _renderLeavePopover[\s\S]*?class="lm-pop-body"/);
+  // _renderDayListPopover body
+  assert.match(src, /function _renderDayListPopover[\s\S]*?class="lm-pop-body"/);
+});
+
+test("source: focus close button หลัง open popover (a11y + visibility confirm)", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  // _openLeavePopover focus close
+  assert.match(src, /function _openLeavePopover[\s\S]*?querySelector\(["']#lmPopClose["']\)\?\.focus\(\)/);
+  // _openDayListPopover focus close
+  assert.match(src, /function _openDayListPopover[\s\S]*?querySelector\(["']#lmPopClose["']\)\?\.focus\(\)/);
+});
+
 // ── formatAgendaDateLabel ───────────────────────────────
 
 test("formatAgendaDateLabel — เคสปกติ produce 'วันXX D เดือน'", () => {

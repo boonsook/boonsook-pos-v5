@@ -7,6 +7,25 @@
 
 ---
 
+## 5.62.2 (build 305) — 2026-05-26 🧯 Phase 92.39c — HOTFIX popover visibility/position
+
+- **fix(leave/popover) [viewport-clipping]:** คลิก "+N รายการ" → backdrop เปิด แต่ day-list popover อาจตกขอบจอ
+  - สาเหตุ: `#lmPopover` ใช้ `display:block` + `.lm-pop-dialog` ใช้ `position:relative; margin:60px auto` → ไม่มี flex centering, ไม่มี max-height, content สูงเกินขอบจอ = ทะลุล่าง + container `overflow:visible` ไม่ scroll
+- **แก้:**
+  - `#lmPopover` (selector `[style*="display:block"]`) → `display:flex; align-items:flex-start; justify-content:center; overflow-y:auto; padding:48px 16px` (desktop)
+  - Mobile (≤768px): `align-items:stretch; padding:0; overflow:hidden` เพื่อให้ bottom sheet เต็มจอ
+  - `.lm-pop-dialog` desktop: `max-height: calc(100vh - 96px); display:flex; flex-direction:column; z-index:1`
+  - `.lm-pop-body` class ใน inner content ของทั้ง `_renderLeavePopover` + `_renderDayListPopover` → `flex:1 1 auto; overflow-y:auto` (inner scroll ไม่ทำ dialog ขยาย)
+  - Backdrop explicit `z-index:0` (กัน dialog ถูก stack ใต้)
+  - Focus close button หลัง open ผ่าน `setTimeout` — a11y + ยืนยัน popover visible
+- **ไม่แตะ:** behavior อื่น — เฉพาะ layout/visibility
+- Tests +5 source-level (container flex, dialog max-height, z-index hierarchy, body class, focus). Unit **646 → 651**
+- verify เขียว: lint:errors 0/0 · unit 651/651 · e2e 11/11 · audit 0
+
+**Build:** 304 → 305; version 5.62.1 → 5.62.2 (patch hotfix — no behavior change, no SQL)
+
+---
+
 ## 5.62.1 (build 304) — 2026-05-26 🧪 Phase 92.39b — Calendar Dense Day "+N รายการ" verification
 
 - **test(leave/calendar) [dense-day-edges]:** เพิ่ม edge tests สำหรับ `limitCalendarDayEvents`:
