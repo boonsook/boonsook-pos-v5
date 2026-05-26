@@ -3,11 +3,50 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 26 พฤษภาคม 2026 (Phase 92.38 — Calendar Leave View, build 300)
-**Version:** 5.61.0 (build 300) — Phase 92.38 (calendar leave view + popover)
-**Previous:** 5.60.0 (build 299) — Phase 92.37 (payroll save audit + reopen guard UX)
+**อัปเดตล่าสุด:** 26 พฤษภาคม 2026 (Phase 92.38b — HOTFIX TZ-dependent calendar helpers, build 301)
+**Version:** 5.61.1 (build 301) — Phase 92.38b (CI TZ parity hotfix)
+**Previous:** 5.61.0 (build 300) — Phase 92.38 (calendar leave view + popover)
 
-> ✅ **ไม่มี SQL ใหม่ในเฟส 92.36–92.38** (additive code only). ใช้ตาราง + policies จาก Phase 92.35 — ถ้ายังไม่ได้รัน [`supabase-phase92-35-leave-policies-balances.sql`](supabase-phase92-35-leave-policies-balances.sql) → UI ใช้ค่า default + paid leave decision ยังทำงาน (graceful: ถ้าไม่มี balance ถือว่า paid ทั้งหมด · unpaid logic ยังหักปกติ).
+> ✅ **ไม่มี SQL ใหม่ในเฟส 92.36–92.38b** (additive code only).
+
+---
+
+## 🧯 Phase 92.38b — HOTFIX TZ-dependent calendar helpers (this session)
+
+**บริบท:** push 92.38 → Cloudflare Pages deploy success (live build 300) แต่ GitHub Actions Tests workflow **fail** ที่ 2 tests:
+- `expandLeaveRangeToMonthDays — leave ข้ามเดือน → clip เฉพาะวันใน month ที่ดู`
+- `getCalendarMonthGrid — first cell คือ Sunday ของสัปดาห์ที่มี 1 ของเดือน`
+
+Local Windows (TZ=Bangkok) ผ่าน 615/615; CI Linux (TZ=UTC) fail 2 → CI parity issue ที่ผมพลาด
+
+### สาเหตุ
+
+- `getCalendarMonthGrid`: ใช้ `first.getDay()` → method `Date.getDay()` อ่าน DOW ตาม **local TZ ของ environment** ไม่ใช่ Bangkok
+  - UTC env: `2026-05-01T00:00:00+07:00` ⇄ `2026-04-30T17:00:00Z` → `getDay()` = 4 (Thu) ใน UTC, ควรเป็น 5 (Fri) ใน Bangkok
+- `expandLeaveRangeToMonthDays`: ใช้ `nextMonth.setMonth(getMonth()+1)` + `toLocaleDateString` — เสี่ยง parity ในเงื่อนไข specific
+
+### สิ่งที่แก้ ([`modules/leave_management.js`](modules/leave_management.js))
+
+เพิ่ม 3 internal helpers pure epoch math:
+- `_bkkMidnightMs(yyyyMmDd)` = `Date.parse(s + "T00:00:00+07:00")` — UTC ms ของ Bangkok midnight
+- `_bkkDateStr(ms)` = shift `ms + 7*3600*1000` แล้ว format `getUTCFullYear/Month/Date` → YYYY-MM-DD
+- `_bkkDow(ms)` = `((floor((ms + 7h)/86400000) % 7) + 4) % 7` — 1970-01-01 = Thu reference
+
+แทนที่ใน 2 helpers:
+- `expandLeaveRangeToMonthDays`: month end exclusive คำนวณจาก year+month next (ไม่ใช้ `setMonth`); loop ใช้ `_bkkDateStr` แทน `toLocaleDateString`
+- `getCalendarMonthGrid`: `firstDow` ใช้ `_bkkDow`; loop 42 cells ใช้ index math + `_bkkDateStr` แทน `cursor.setDate()`; dayNum extract จาก dateStr.slice(8,10) แทน `Date.getDate()`
+
+### ตรวจสอบ
+
+- Local Windows Bangkok TZ: unit **615/615**
+- Simulated CI: `$env:TZ='UTC'; node --test tests/leave_management.test.js` → **108/108**
+- Lint clean, audit 0
+
+### Version sync
+
+- `package.json`: 5.61.0 → **5.61.1** (patch hotfix)
+- `index.html`: ?v=300→301, data-app-build="301", data-app-version="5.61.1"
+- `sw.js`: cache v300→v301 + v301 comment line
 
 ---
 

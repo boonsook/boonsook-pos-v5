@@ -176,7 +176,30 @@ export function canReviewLeave(row, role) {
 //  - getCalendarMonthGrid(month) → { weeks: [[{dateStr,inMonth,isWeekend,isToday,dayNum}...]], monthLabel }
 //
 //  ทั้งหมดคิดบน Asia/Bangkok และทำงาน pure (ไม่อ่าน DB / DOM)
+//  ★ ห้ามใช้ Date.getDay()/setDate() เพราะอ่าน local TZ ของ environment
+//    (CI Linux = UTC ทำให้ผลต่างจาก local Bangkok) — ใช้ epoch math แทน
 // ═══════════════════════════════════════════════════════════
+
+// Internal: timestamp (UTC ms) ของ Bangkok midnight ใน YYYY-MM-DD
+function _bkkMidnightMs(yyyyMmDd) {
+  return Date.parse(yyyyMmDd + "T00:00:00+07:00");
+}
+// Internal: YYYY-MM-DD ของ timestamp ใน Bangkok TZ — pure (ไม่พึ่ง env locale)
+function _bkkDateStr(ms) {
+  // Bangkok = UTC+7 → shift then format UTC components
+  const d = new Date(ms + 7 * 3600 * 1000);
+  const yyyy = d.getUTCFullYear();
+  const mm   = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const dd   = String(d.getUTCDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+// Internal: day-of-week (Sun=0..Sat=6) ของ timestamp ใน Bangkok TZ
+function _bkkDow(ms) {
+  // 1970-01-01 = Thursday (DOW 4 in JS Sunday=0 convention)
+  // Bangkok epoch day: 0 = 1970-01-01 Bangkok midnight
+  const bkkDay = Math.floor((ms + 7 * 3600 * 1000) / 86400000);
+  return ((bkkDay % 7) + 4) % 7;
+}
 
 /**
  * Phase 92.38: clamp helper — return YYYY-MM-DD strings ของ leave ที่ overlap เดือนที่กำหนด
@@ -189,19 +212,23 @@ export function expandLeaveRangeToMonthDays(leave, month) {
   const s = String(leave.start_date || "").slice(0, 10);
   const e = String(leave.end_date   || "").slice(0, 10);
   if (!s || !e) return [];
-  const sT = new Date(s + "T00:00:00+07:00").getTime();
-  const eT = new Date(e + "T00:00:00+07:00").getTime();
+  const sT = _bkkMidnightMs(s);
+  const eT = _bkkMidnightMs(e);
   if (!Number.isFinite(sT) || !Number.isFinite(eT) || eT < sT) return [];
 
   // Clamp to month if provided
   let lo = sT, hi = eT;
   const m = String(month || "").slice(0, 7);
   if (/^\d{4}-\d{2}$/.test(m)) {
-    const mStart = new Date(m + "-01T00:00:00+07:00").getTime();
-    // last day of month (exclusive next month start)
-    const nextMonth = new Date(m + "-01T00:00:00+07:00");
-    nextMonth.setMonth(nextMonth.getMonth() + 1);
-    const mEndExclusive = nextMonth.getTime();
+    const [yStr, moStr] = m.split("-");
+    const year = Number(yStr);
+    const mon  = Number(moStr); // 1-12
+    if (!(mon >= 1 && mon <= 12)) return [];
+    const mStart = _bkkMidnightMs(m + "-01");
+    // last day of month: 1st of next month minus 1 day
+    const nextY = mon === 12 ? year + 1 : year;
+    const nextM = mon === 12 ? 1 : mon + 1;
+    const mEndExclusive = _bkkMidnightMs(`${nextY}-${String(nextM).padStart(2,"0")}-01`);
     if (eT < mStart) return [];
     if (sT >= mEndExclusive) return [];
     lo = Math.max(sT, mStart);
@@ -209,7 +236,7 @@ export function expandLeaveRangeToMonthDays(leave, month) {
   }
   const out = [];
   for (let t = lo; t <= hi; t += 86400000) {
-    out.push(new Date(t).toLocaleDateString("en-CA", { timeZone: TZ }));
+    out.push(_bkkDateStr(t));
   }
   return out;
 }
@@ -257,37 +284,35 @@ export function getCalendarMonthGrid(month, todayStr) {
   const monthNum = Number(moStr);
   if (!(monthNum >= 1 && monthNum <= 12)) return { weeks: [], monthLabel: "", year: 0, monthNum: 0 };
 
-  // 1st of month at Bangkok midnight
-  const first = new Date(m + "-01T00:00:00+07:00");
-  // Sunday = 0, … Saturday = 6
-  const firstDow = first.getDay();
+  // 1st of month at Bangkok midnight — pure epoch math (avoid env-locale Date methods)
+  const firstMs = _bkkMidnightMs(m + "-01");
+  const firstDow = _bkkDow(firstMs); // Sun=0..Sat=6 (Bangkok TZ)
 
   // Start grid on Sunday of first row (may include trailing days from prev month)
-  const gridStart = new Date(first.getTime());
-  gridStart.setDate(gridStart.getDate() - firstDow);
+  const gridStartMs = firstMs - firstDow * 86400000;
 
-  const today = todayStr || new Date().toLocaleDateString("en-CA", { timeZone: TZ });
+  const today = todayStr || _bkkDateStr(Date.now());
 
   const weeks = [];
-  let cursor = new Date(gridStart.getTime());
   for (let w = 0; w < 6; w++) {
     const row = [];
     for (let d = 0; d < 7; d++) {
-      const dateStr = cursor.toLocaleDateString("en-CA", { timeZone: TZ });
+      const ms = gridStartMs + (w * 7 + d) * 86400000;
+      const dateStr = _bkkDateStr(ms);
       const cellMonthStr = dateStr.slice(0, 7);
       row.push({
         dateStr,
-        dayNum: cursor.getDate(),
+        dayNum: Number(dateStr.slice(8, 10)),
         inMonth: cellMonthStr === m,
         isWeekend: d === 0 || d === 6,
         isToday: dateStr === today,
       });
-      cursor.setDate(cursor.getDate() + 1);
     }
     weeks.push(row);
   }
 
-  const monthLabel = first.toLocaleDateString("th-TH", { timeZone: TZ, year: "numeric", month: "long" });
+  // Month label — toLocaleDateString safe here เพราะมี timeZone option และเรียกครั้งเดียว
+  const monthLabel = new Date(firstMs).toLocaleDateString("th-TH", { timeZone: TZ, year: "numeric", month: "long" });
   return { weeks, monthLabel, year, monthNum };
 }
 

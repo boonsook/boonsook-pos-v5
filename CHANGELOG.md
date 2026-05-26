@@ -7,6 +7,24 @@
 
 ---
 
+## 5.61.1 (build 301) — 2026-05-26 🧯 Phase 92.38b — HOTFIX TZ-dependent calendar helpers
+
+- **fix(leave/calendar) [ci-tz-parity]:** CI Linux (TZ=UTC) ทำให้ 2 unit tests fail
+  - `expandLeaveRangeToMonthDays — leave ข้ามเดือน → clip` และ `getCalendarMonthGrid — first cell คือ Sunday` (ผ่านบน local Bangkok TZ แต่ fail บน CI)
+  - สาเหตุ: ใช้ `Date.getDay()` / `Date.setDate()` / `toLocaleDateString({timeZone: ...})` ที่อ่าน local TZ ของ environment
+- **แก้:** เพิ่ม internal helpers pure epoch math:
+  - `_bkkMidnightMs(yyyyMmDd)` = `Date.parse(s + "T00:00:00+07:00")`
+  - `_bkkDateStr(ms)` = format UTC components หลัง shift +7h
+  - `_bkkDow(ms)` = epoch day + 4 offset (1970-01-01 = Thu)
+- ใช้ helpers ใหม่ใน `expandLeaveRangeToMonthDays` + `getCalendarMonthGrid` แทน Date method ที่พึ่ง local TZ
+- **ไม่กระทบ behavior:** local Bangkok TZ ยังผ่าน 615/615 · Simulated UTC env (`$env:TZ='UTC'`) ผ่าน 108/108 ใน leave_management tests
+- ไม่แตะ UI / payroll / SQL / RLS / Leave foundation
+- verify เขียว: lint:errors 0/0 · unit 615/615 · audit 0
+
+**Build:** 300 → 301; version 5.61.0 → 5.61.1 (patch hotfix — CI parity, no SQL)
+
+---
+
 ## 5.61.0 (build 300) — 2026-05-26 📅 Phase 92.38 — Calendar Leave View
 
 - **feat(leave) [calendar-view]:** หน้า "วันลา" รองรับ 2 มุมมอง (ตาราง/ปฏิทิน) toggle ใน filter bar — default ตาราง
