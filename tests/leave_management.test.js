@@ -32,6 +32,10 @@ const {
   expandLeaveRangeToMonthDays,
   groupLeavesByDate,
   getCalendarMonthGrid,
+  // Phase 92.39
+  groupCalendarAgendaDays,
+  limitCalendarDayEvents,
+  formatAgendaDateLabel,
 } = await import("../modules/leave_management.js");
 
 // ── calcLeaveDays ───────────────────────────────────────────
@@ -1074,4 +1078,112 @@ test("calcBalancesForUser — number id vs string id compare loosely (cross-type
   // ส่ง excludeLeaveId เป็น string "42" → ต้อง match number 42
   const after = calcBalancesForUser({ userId: "u1", year: 2026, leaves, policies: _policies92c, excludeLeaveId: "42" });
   assert.equal(after.get("vacation").used, 0);
+});
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 92.39 — Mobile Agenda + Dense Day helpers
+// ═══════════════════════════════════════════════════════════
+
+// ── groupCalendarAgendaDays ──────────────────────────────
+
+test("groupCalendarAgendaDays — array sorted ascending + เฉพาะวันที่มี events", () => {
+  const arr = groupCalendarAgendaDays([
+    { id: 3, start_date: "2026-05-30", end_date: "2026-05-30" },
+    { id: 1, start_date: "2026-05-01", end_date: "2026-05-01" },
+    { id: 2, start_date: "2026-05-15", end_date: "2026-05-15" },
+  ], "2026-05");
+  assert.equal(arr.length, 3);
+  assert.deepEqual(arr.map(x => x.dateStr), ["2026-05-01", "2026-05-15", "2026-05-30"]);
+  // dow info ครบ
+  for (const item of arr) {
+    assert.ok(typeof item.dowLabel === "string" && item.dowLabel.length > 0);
+    assert.ok(item.dowIndex >= 0 && item.dowIndex <= 6);
+    assert.ok(item.dayNum > 0);
+    assert.equal(typeof item.monthShort, "string");
+  }
+});
+
+test("groupCalendarAgendaDays — leave หลายคนวันเดียวกัน → events stacked", () => {
+  const arr = groupCalendarAgendaDays([
+    { id: 1, user_id: "u1", start_date: "2026-05-14", end_date: "2026-05-14" },
+    { id: 2, user_id: "u2", start_date: "2026-05-14", end_date: "2026-05-14" },
+    { id: 3, user_id: "u3", start_date: "2026-05-14", end_date: "2026-05-14" },
+  ], "2026-05");
+  assert.equal(arr.length, 1);
+  assert.equal(arr[0].events.length, 3);
+});
+
+test("groupCalendarAgendaDays — leave หลายวัน → expanded เป็น dailyitems", () => {
+  const arr = groupCalendarAgendaDays([
+    { id: 99, start_date: "2026-05-14", end_date: "2026-05-16" },
+  ], "2026-05");
+  assert.equal(arr.length, 3);
+  for (const item of arr) {
+    assert.equal(item.events.length, 1);
+    assert.equal(item.events[0].id, 99);
+  }
+});
+
+test("groupCalendarAgendaDays — empty/null safe", () => {
+  assert.deepEqual(groupCalendarAgendaDays(null), []);
+  assert.deepEqual(groupCalendarAgendaDays([]), []);
+  assert.deepEqual(groupCalendarAgendaDays(undefined), []);
+});
+
+// ── limitCalendarDayEvents ───────────────────────────────
+
+test("limitCalendarDayEvents — events <= maxVisible → visible เต็ม overflow=0", () => {
+  const r1 = limitCalendarDayEvents([{}, {}, {}], 3);
+  assert.equal(r1.visible.length, 3);
+  assert.equal(r1.overflowCount, 0);
+  const r2 = limitCalendarDayEvents([{}, {}], 3);
+  assert.equal(r2.visible.length, 2);
+  assert.equal(r2.overflowCount, 0);
+});
+
+test("limitCalendarDayEvents — events > maxVisible → ตัด + count ส่วนเกิน", () => {
+  const events = [{a:1}, {a:2}, {a:3}, {a:4}, {a:5}];
+  const r = limitCalendarDayEvents(events, 3);
+  assert.equal(r.visible.length, 3);
+  assert.equal(r.visible[0].a, 1);
+  assert.equal(r.visible[2].a, 3);
+  assert.equal(r.overflowCount, 2);
+});
+
+test("limitCalendarDayEvents — maxVisible invalid → default 3", () => {
+  const events = [{}, {}, {}, {}, {}];
+  assert.equal(limitCalendarDayEvents(events).overflowCount, 2);
+  assert.equal(limitCalendarDayEvents(events, 0).overflowCount, 2);
+  assert.equal(limitCalendarDayEvents(events, -5).overflowCount, 2);
+  assert.equal(limitCalendarDayEvents(events, "x").overflowCount, 2);
+});
+
+test("limitCalendarDayEvents — non-array → visible เปล่า", () => {
+  assert.deepEqual(limitCalendarDayEvents(null), { visible: [], overflowCount: 0 });
+  assert.deepEqual(limitCalendarDayEvents(undefined), { visible: [], overflowCount: 0 });
+});
+
+// ── formatAgendaDateLabel ───────────────────────────────
+
+test("formatAgendaDateLabel — เคสปกติ produce 'วันXX D เดือน'", () => {
+  // 14 พ.ค. 2026 = Thursday
+  const s = formatAgendaDateLabel("2026-05-14");
+  assert.match(s, /^วัน(พุธ|พฤหัสบดี|ศุกร์|จันทร์|อังคาร|เสาร์|อาทิตย์) 14 พ\.ค\.$/);
+});
+
+test("formatAgendaDateLabel — invalid → empty string", () => {
+  assert.equal(formatAgendaDateLabel(""), "");
+  assert.equal(formatAgendaDateLabel("not-a-date"), "");
+  assert.equal(formatAgendaDateLabel(null), "");
+  assert.equal(formatAgendaDateLabel(undefined), "");
+  assert.equal(formatAgendaDateLabel("2026-13-99"), "");
+});
+
+test("formatAgendaDateLabel — รองรับทุก month short label", () => {
+  const months = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+  for (let i = 0; i < 12; i++) {
+    const mm = String(i + 1).padStart(2, "0");
+    const out = formatAgendaDateLabel(`2026-${mm}-15`);
+    assert.ok(out.endsWith(months[i]), `expected ends with ${months[i]} got "${out}"`);
+  }
 });

@@ -3,15 +3,108 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 26 พฤษภาคม 2026 (Phase 92.38c — HOTFIX leave edit quota warning double-count, build 302)
-**Version:** 5.61.2 (build 302) — Phase 92.38c (edit quota warning exclude current record)
-**Previous:** 5.61.1 (build 301) — Phase 92.38b (CI TZ parity hotfix)
+**อัปเดตล่าสุด:** 26 พฤษภาคม 2026 (Phase 92.39 — Leave Calendar Mobile Agenda + Dense Day Polish, build 303)
+**Version:** 5.62.0 (build 303) — Phase 92.39 (mobile agenda + dense day polish + bottom sheet)
+**Previous:** 5.61.2 (build 302) — Phase 92.38c (edit quota warning exclude current record)
 
-> ✅ **ไม่มี SQL ใหม่ในเฟส 92.36–92.38c** (additive code only).
+> ✅ **ไม่มี SQL ใหม่ในเฟส 92.36–92.39** (additive code only).
 
 ---
 
-## 🧯 Phase 92.38c — HOTFIX leave edit quota warning double-count (this session)
+## 📱 Phase 92.39 — Leave Calendar Mobile Agenda + Dense Day Polish (this session)
+
+**บริบท:** ต่อจาก 92.38c. Calendar Leave View ใช้งานได้แล้วบน desktop แต่ user feedback:
+- บนมือถือ grid 7-col แน่นเกิน อ่านยาก / horizontal overflow
+- วันที่มี leave หลายคน cell ขยายสูง ทำ grid แตก
+- popover detail บนมือถือไม่ฟิตจอ + ไม่มี Esc
+
+### Pure helpers ใหม่ ([`modules/leave_management.js`](modules/leave_management.js))
+
+- `groupCalendarAgendaDays(leaves, month)` → array of `{dateStr, dayNum, dowIndex, dowLabel, monthShort, events}` (เฉพาะวันที่มี events, sorted ascending) — wrap `groupLeavesByDate` + เติม dow info ครบ พร้อม render
+- `limitCalendarDayEvents(events, maxVisible)` → `{visible, overflowCount}` — split events เป็น visible (default cap 3) + count ส่วนเกิน
+- `formatAgendaDateLabel(dateStr)` → "วันพุธ 14 พ.ค." (Asia/Bangkok, pure epoch math จาก 92.38b)
+
+### UI changes
+
+**Desktop month grid (`_renderCalendarMonthGrid`):**
+- ใช้ `limitCalendarDayEvents(events, _CAL_DESKTOP_MAX_VISIBLE = 3)` แทน `events.slice(0, 3)` inline
+- Overflow → ปุ่ม `"+N รายการ"` (เปลี่ยนจาก "+N เพิ่มเติม") → day-list popover
+- Cell `max-height: 140px` (เดิมไม่มี max) — กัน grid แตก
+- `min-height` ปรับเป็น 96px (เดิม 88px) อ่านง่ายขึ้น
+
+**Mobile agenda (`_renderCalendarAgenda`):**
+- ใช้ `groupCalendarAgendaDays` + `formatAgendaDateLabel` แทน inline `toLocaleDateString`/`Date.getDay()`
+- Empty state ปรับ: icon ใหญ่ขึ้น + sub-hint "ลองเปลี่ยนเดือน · สถานะ · หรือประเภทใน filter ด้านบน"
+- Header padding + font-size ใหญ่ขึ้นเล็กน้อย อ่านง่ายบนมือถือ
+
+**Responsive section (`_renderCalendarSection`):**
+- Breakpoint `max-width: 720px` → `768px` (สอดคล้อง tablet portrait)
+- Mobile chip override: `font-size: 12px; padding: 5px 8px` (ใหญ่กว่า desktop chip 10px)
+
+**Popover (`_renderLeavePopover` / `_renderDayListPopover`):**
+- Desktop: centered modal เดิม (`max-width: 420px`, `margin: 60px auto`)
+- Mobile (≤768px) bottom sheet:
+  - `position: fixed; left: 0; right: 0; bottom: 0`
+  - `border-radius: 16px 16px 0 0` (มุมโค้งบน)
+  - `max-height: 80vh; overflow-y: auto`
+  - Slide-up animation 200ms ease-out
+  - Grabber bar (`.lm-pop-grabber`) แสดงด้านบนเฉพาะ mobile
+- ปุ่ม action + font ใหญ่ขึ้น (8px→10px padding, 12px→13px font) — tap target ผ่าน Apple 44pt guideline
+
+**Esc key:**
+- `_registerPopoverEsc` register on open (`_openLeavePopover` / `_openDayListPopover`)
+- `_closePopover` unregister — กัน listener leak ตอน rerender
+
+### Regression check ✅
+
+- Leave Balance / Quota Phase 92.35 — ไม่กระทบ (ไม่แตะ `calcBalancesForUser` หรือ `_renderBalanceSection`)
+- Paid Leave Policy 92.36 + payroll save 92.37 + edit quota warning 92.38c — ไม่กระทบ
+- Calendar desktop chip rendering — ใช้ `_calendarEventChip` เดิม
+- Edit leave modal — ไม่แตะ form layout / submit / `_refreshQuotaWarn`
+- Time Clock build 295 — ไม่แตะ
+- Helpers pure epoch math จาก 92.38b — ยังใช้ `_bkkMidnightMs`/`_bkkDateStr`/`_bkkDow` เดิม
+- ไม่มี SQL / RLS ใหม่
+
+### Tests +11
+
+[`tests/leave_management.test.js`](tests/leave_management.test.js):
+- `groupCalendarAgendaDays`: sorted ascending + dow info / หลายคนวันเดียวกัน stack / leave หลายวัน expand / empty/null safe (4 tests)
+- `limitCalendarDayEvents`: events ≤ cap full / events > cap split + count / invalid cap fallback 3 / non-array safe (4 tests)
+- `formatAgendaDateLabel`: format ปกติ "วัน{dow} D {month-short}" / invalid → "" / ครอบ 12 เดือนไทย (3 tests)
+
+### Gates
+
+- `npm run lint:errors` exit 0 (clean)
+- `npm test` = **633/633** (622 + 11)
+- `npm run test:e2e -- --reporter=line` = **11/11**
+- `npm audit --audit-level=moderate` = **0 vulnerabilities**
+
+### Version sync
+
+- `package.json`: 5.61.2 → **5.62.0** (minor — UX polish + new helpers)
+- `index.html`: ?v=302→303, data-app-build="303", data-app-version="5.62.0"
+- `sw.js`: cache v302→v303 + v303 comment line
+
+### Smoke test (manual)
+
+**Desktop:**
+1. Production (Ctrl+Shift+R) → APP_BUILD=303
+2. หน้าวันลา → ปฏิทิน → พ.ค. 2026
+3. วันที่ 14–25 มี chips ของ sompong "(ต่อ)" — แสดง 3 อันแรก + "+N รายการ" (ถ้ามี leave คนอื่นซ้อน) → คลิกเปิด day list popover (centered modal, max-width 420px)
+4. Click chip → leave popover (centered) — ปุ่ม edit/delete ตาม role
+5. กด Esc → ปิด popover
+
+**Mobile (DevTools → 390×844 iPhone 12 Pro หรือเล็กกว่า 768px):**
+1. หน้าวันลา → ปฏิทิน → agenda list (ไม่ใช่ grid 7-col)
+2. ไม่มี horizontal overflow — chips แสดงในกล่องวันต่อวัน
+3. Header แต่ละวัน: "วันXX D เดือน · วันนี้?" + count "N รายการ"
+4. แตะ chip → bottom sheet เปิด slide-up จากด้านล่าง + มี grabber bar
+5. แตะ backdrop หรือ Esc (ถ้ามีคีย์บอร์ดต่อ) → ปิด
+6. ลอง filter status = "ปฏิเสธ" + ไม่มี record → empty state ใหญ่ "ไม่มีรายการลาในเดือนนี้" + hint
+
+---
+
+## 🧯 Phase 92.38c — HOTFIX leave edit quota warning double-count
 
 **บริบท:** Production smoke หลัง build 301 — sompong มี vacation approved รวม 12 วัน (เกิน quota 10 = 2 วัน). เปิด edit modal ของ record 2 วัน → quota warning แสดง **"เกิน quota 4 วัน"** ทั้งที่ควรเป็น 2; เปิด edit record 10 วัน → **"เกิน quota 12 วัน"** ทั้งที่ควรเป็น 2 → record เดิมถูกนับซ้ำ.
 

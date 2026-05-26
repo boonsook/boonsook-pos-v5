@@ -7,6 +7,22 @@
 
 ---
 
+## 5.62.0 (build 303) — 2026-05-26 📱 Phase 92.39 — Leave Calendar Mobile Agenda + Dense Day Polish
+
+- **feat(leave/calendar) [mobile-agenda]:** breakpoint 720→768px; mobile agenda empty state ดีขึ้น (icon ใหญ่ + sub-hint)
+- **feat(leave/calendar) [dense-day]:** desktop cell cap = 3 events (ผ่าน `limitCalendarDayEvents`); overflow → "+N รายการ" → day-list popover; cell `max-height: 140px` กัน grid แตก; chip truncate `text-overflow:ellipsis`
+- **feat(leave/popover) [bottom-sheet]:** mobile popover (≤768px) เป็น bottom sheet — `position:fixed bottom:0`, full-width, slide-up animation, max-height 80vh, grabber bar; desktop ยัง centered modal เดิม
+- **feat(leave/popover) [esc-close]:** Esc key ปิด popover ได้ (register on open, unregister on close — กัน listener leak)
+- **3 pure helpers ใหม่:** `groupCalendarAgendaDays` (Map → array + dow info) · `limitCalendarDayEvents` ({visible, overflowCount}) · `formatAgendaDateLabel` ("วันพุธ 14 พ.ค.")
+- **refactor:** `_renderCalendarMonthGrid` / `_renderCalendarAgenda` / `_renderDayListPopover` ใช้ pure helpers (test ได้ทั้งหมด, ลบ inline logic)
+- **ไม่แตะ:** SQL / RLS / Payroll flow / Balance / Quota warning (build 302) / Time Clock / desktop chip rendering / edit modal
+- Tests +11 (group 4 + limit 4 + format 3). Unit **622 → 633**
+- verify เขียว: lint:errors 0/0 · unit 633/633 · e2e 11/11 · `npm audit --audit-level=moderate` = **0 vulnerabilities**
+
+**Build:** 302 → 303; version 5.61.2 → 5.62.0 (minor — UI/UX polish + new helpers, no SQL)
+
+---
+
 ## 5.61.2 (build 302) — 2026-05-26 🧯 Phase 92.38c — HOTFIX Leave edit quota warning double-count
 
 - **fix(leave/quota-warn) [edit-exclude-self]:** quota warning ใน edit leave modal นับ record ตัวเองซ้ำ
