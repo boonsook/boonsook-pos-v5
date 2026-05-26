@@ -7,6 +7,25 @@
 
 ---
 
+## 5.62.3 (build 306) — 2026-05-26 🧯 Phase 92.39d — HOTFIX dense day popover invisible (CSS scope bug)
+
+- **fix(leave/popover) [css-scope]:** Phase 92.39c ยังไม่แก้ root cause — คลิก "+N รายการ" backdrop เปิด แต่ day-list dialog content **invisible**
+  - สาเหตุจริง: `.lm-pop-dialog`/`.lm-pop-body` CSS rules ถูก inject ผ่าน inline style tag ใน `_renderLeavePopover` template literal เท่านั้น → `_renderDayListPopover` ใช้ class เดียวกันแต่ render โดยไม่ inject CSS → dialog ใช้ browser default → no width/max-height/background → **invisible** (เห็นแค่ backdrop blur)
+- **แก้:**
+  - ย้าย `.lm-pop-dialog`/`.lm-pop-body` CSS rules จาก `_renderLeavePopover` template ไปอยู่ใน container scope (style tag หลัง `#lmPopover`) → render ครั้งเดียวต่อ `_rerender` → CSS available ตอน popover ใดเปิดก็ตาม
+  - **DRY refactor:** รวม `_openLeavePopover` + `_openDayListPopover` ใช้ shared `_openPopover(html, kind, bindActions)`:
+    - Guard empty content (console.warn + `return false` ถ้า html ว่าง)
+    - Sanity check ว่ามี `.lm-pop-dialog` markup ใน html (กัน scope bug ซ้ำ)
+    - Inject + `display:block` + focus close + register Esc + backdrop click → shared logic
+    - kind-specific bind actions ผ่าน callback parameter
+- **ไม่แตะ:** behavior — เฉพาะ CSS scope + open function refactor
+- Tests +6 source-level (no inline style in popover templates / container CSS รวม dialog rules / `_openPopover` guard + DRY / day list output structure). Unit **651 → 655** (net +4 หลังตัด focus duplicate test)
+- verify เขียว: lint:errors 0/0 · unit 655/655 · e2e 11/11 · audit 0
+
+**Build:** 305 → 306; version 5.62.2 → 5.62.3 (patch hotfix — root cause fix, no SQL)
+
+---
+
 ## 5.62.2 (build 305) — 2026-05-26 🧯 Phase 92.39c — HOTFIX popover visibility/position
 
 - **fix(leave/popover) [viewport-clipping]:** คลิก "+N รายการ" → backdrop เปิด แต่ day-list popover อาจตกขอบจอ

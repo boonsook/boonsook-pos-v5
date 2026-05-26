@@ -3,15 +3,156 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 26 พฤษภาคม 2026 (Phase 92.39c — HOTFIX popover visibility/position, build 305)
-**Version:** 5.62.2 (build 305) — Phase 92.39c (popover viewport-clipping hotfix)
-**Previous:** 5.62.1 (build 304) — Phase 92.39b (dense day verification release)
+**อัปเดตล่าสุด:** 26 พฤษภาคม 2026 (Phase 92.39d — HOTFIX dense day popover invisible CSS scope, build 306)
+**Version:** 5.62.3 (build 306) — Phase 92.39d (CSS scope bug + DRY _openPopover)
+**Previous:** 5.62.2 (build 305) — Phase 92.39c (popover viewport-clipping — แต่ยังไม่แก้ scope bug)
 
-> ✅ **ไม่มี SQL ใหม่ในเฟส 92.36–92.39c** (additive code only).
+> ✅ **ไม่มี SQL ใหม่ในเฟส 92.36–92.39d** (additive code only).
 
 ---
 
-## 🧯 Phase 92.39c — HOTFIX popover visibility/position (this session)
+## 🧯 Phase 92.39d — HOTFIX dense day popover invisible (CSS scope bug) (this session)
+
+**บริบท:** หลัง 92.39c (build 305) user smoke test production พบ:
+- About = 5.62.2 / build 305 (SW + cache ตรง — ไม่ใช่ stale)
+- คลิก "+1 รายการ" ใน Calendar dense day → backdrop/blur เปิดจริง
+- **แต่ day-list dialog content invisible** — ดูเหมือนเปิดแค่ overlay เปล่า
+
+92.39c แก้ container layout (flex centered + overflow-y:auto + max-height) — แต่ไม่ใช่ root cause.
+
+### Root cause
+
+```js
+// _renderLeavePopover template literal:
+return `
+  <style>
+    .lm-pop-dialog { max-height: ...; flex column; background:#fff; ... }
+    .lm-pop-body { flex:1; overflow-y:auto; }
+  </style>
+  <div id="lmPopBackdrop"></div>
+  <div class="lm-pop-dialog">...</div>
+`;
+
+// _renderDayListPopover template literal:
+return `
+  <div id="lmPopBackdrop"></div>
+  <div class="lm-pop-dialog">...</div>   // ← ใช้ class แต่ <style> ไม่ inject!
+`;
+```
+
+- `<style>` block อยู่ใน `_renderLeavePopover` template เท่านั้น
+- คลิก chip event → `_openLeavePopover` → render template + inject `<style>` → dialog visible ✓
+- คลิก "+N รายการ" → `_openDayListPopover` → render template โดย**ไม่มี `<style>`** → dialog ใช้ browser default → ไม่มี width/background/max-height → **invisible**
+
+### สิ่งที่แก้
+
+**1) ย้าย CSS rules ไปอยู่ใน container scope (shared, render once)**
+
+[`modules/leave_management.js`](modules/leave_management.js) ใน `_rerender`:
+```html
+<div id="lmPopover" ... ></div>
+<style>
+  /* Container layout (92.39c) */
+  #lmPopover[style*="display:block"] { display: flex !important; ... }
+
+  /* Phase 92.39d: dialog rules ย้ายมาที่นี่ — ใช้ทั้ง 2 popover types */
+  .lm-pop-dialog { max-height: calc(100vh - 96px); display:flex; flex-direction:column; ... }
+  .lm-pop-dialog > .lm-pop-body { flex:1 1 auto; overflow-y:auto; }
+  @media (max-width: 768px) {
+    .lm-pop-dialog { position:fixed; bottom:0; ... bottom sheet }
+  }
+</style>
+```
+
+- ลบ `<style>` block ออกจาก `_renderLeavePopover` (CSS ย้ายไป shared scope แล้ว)
+- `_renderDayListPopover` ไม่ต้องเพิ่มอะไร — รับ CSS จาก container scope ทันที
+
+**2) DRY refactor: `_openPopover(html, kind, bindActions)`**
+
+```js
+function _openPopover(html, kind, bindActions) {
+  const pop = document.getElementById("lmPopover");
+  if (!pop) return false;
+  const content = String(html || "").trim();
+  if (!content) {
+    console.warn(`[leave_management] _openPopover(${kind}): empty content — refusing to open`);
+    return false;
+  }
+  // sanity: ห้าม inject html ที่ขาด dialog markup (กัน scope bug ซ้ำ)
+  if (!content.includes("lm-pop-dialog")) {
+    console.warn(`[leave_management] _openPopover(${kind}): missing .lm-pop-dialog markup`);
+    return false;
+  }
+  pop.innerHTML = content;
+  pop.style.display = "block";
+  document.body.style.overflow = "hidden";
+  _registerPopoverEsc();
+  pop.querySelector("#lmPopClose")?.addEventListener("click", _closePopover);
+  pop.querySelector("#lmPopBackdrop")?.addEventListener("click", _closePopover);
+  if (typeof bindActions === "function") {
+    try { bindActions(pop); } catch (_e) {}
+  }
+  setTimeout(() => pop.querySelector("#lmPopClose")?.focus(), 0);
+  return true;
+}
+```
+
+- Guard: empty content → console.warn + return false (ไม่เปิด backdrop ถ้าไม่มี dialog)
+- Sanity: html ต้องมี `.lm-pop-dialog` substring → กันคนเพิ่ม popover ใหม่แต่ลืม class
+- Shared: display, focus, Esc, backdrop click → ลด duplicate code
+- kind-specific bind actions ผ่าน callback parameter
+
+`_openLeavePopover` + `_openDayListPopover` ตอนนี้สั้นมาก — แค่ render html + เรียก `_openPopover` พร้อม bind callback.
+
+### Regression check ✅
+
+- Calendar event chip click → leave details popover ใช้ `_openPopover("leave", ...)` — bind approve/reject/cancel/edit/delete actions ตาม role
+- Dense day "+N รายการ" → day-list popover ใช้ `_openPopover("dayList", ...)` — bind event chip click (chained leave details)
+- Esc + backdrop close — logic เดียวกันใน `_openPopover` (shared)
+- Mobile bottom sheet (≤768px) — CSS rules ใน container scope ทำงานเหมือนเดิม
+- Payroll/Balance/Quota/edit-modal — ไม่กระทบ
+
+### Tests +6 source-level
+
+[`tests/leave_management.test.js`](tests/leave_management.test.js):
+- `_renderLeavePopover` template ไม่มี `<style>` block (CSS ย้ายไป container scope)
+- `_renderDayListPopover` ไม่มี `<style>` block (เคย/ยังเป็นเช่นนั้น)
+- Container scope `<style>` มี `.lm-pop-dialog` rules + `max-height: calc(100vh - ...)` + inner body scroll + mobile bottom sheet override
+- `_openPopover` shared function: guard empty content + sanity check `.lm-pop-dialog` + `innerHTML` + `display:block`
+- `_openLeavePopover` + `_openDayListPopover` ใช้ `_openPopover("leave"|"dayList", ...)` (DRY)
+- `_renderDayListPopover` output มี `#lmPopBackdrop` + `class="lm-pop-dialog"` + `class="lm-pop-body"` + `id="lmPopClose"` + `events.map(_calendarEventChip)`
+
+### Gates
+
+- `npm run lint:errors` exit 0
+- `npm test` = **655/655** (651 + 4 net หลังตัด focus duplicate)
+- `npm run test:e2e -- --reporter=line` = **11/11**
+- `npm audit --audit-level=moderate` = **0 vulnerabilities**
+
+### Version sync
+
+- `package.json`: 5.62.2 → **5.62.3** (patch hotfix — root cause fix)
+- `index.html`: ?v=305→306, data-app-build="306", data-app-version="5.62.3"
+- `sw.js`: cache v305→v306 + v306 comment line
+
+### Smoke test (manual)
+
+1. Production Ctrl+Shift+R → APP_BUILD=306
+2. Calendar dense day → คลิก "+N รายการ"
+3. **day-list dialog ต้องเห็นเต็มที่** — width 420px, background ขาว, header สีฟ้า "📅 วันXX D เดือน YYYY"
+4. คลิก event ใน list → ปิด day-list → เปิด leave details popover (chained)
+5. กด Esc / คลิก backdrop → ปิด
+6. เปิด DevTools บีบ viewport → popover ยังเห็นได้ (max-height + inner scroll)
+7. Mobile ≤768px → bottom sheet slide-up + grabber
+8. F12 → Console → ถ้า `_openPopover` ถูกเรียกด้วย empty content จะเห็น `console.warn` (debug aid)
+
+### Lessons learned
+
+> Template literal ที่มี `<style>` tag จะ inject CSS เฉพาะตอน template นั้น render — ถ้ามีหลาย entry points (functions) ใช้ class เดียวกัน ต้อง share CSS scope (container) หรือ duplicate inline ใน ทุก entry point. ถ้า inject ใน entry เดียวจะเจอ bug แบบ 92.39c → 92.39d.
+
+---
+
+## 🧯 Phase 92.39c — HOTFIX popover visibility/position
 
 **บริบท:** หลัง 92.39b verify pipeline ผ่าน source-level test แล้ว user ทดสอบจริง — คลิก "+N รายการ" → backdrop เปิด แต่ day-list popover **ไม่อยู่ใน viewport** โดยเฉพาะตอน DevTools เปิด/viewport เตี้ย.
 

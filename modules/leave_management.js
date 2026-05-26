@@ -1193,39 +1193,9 @@ function _renderLeavePopover(leave, profileMap, currentUserId, role) {
     actions.push(`<button class="lm-pop-edit"   data-lm-id="${escHtml(String(leave.id))}" style="padding:8px 12px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;color:#0f172a;font-size:13px;font-weight:700;cursor:pointer">✏️ แก้ไข</button>`);
     actions.push(`<button class="lm-pop-delete" data-lm-id="${escHtml(String(leave.id))}" style="padding:8px 12px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;color:#dc2626;font-size:13px;font-weight:700;cursor:pointer">🗑️ ลบ</button>`);
   }
+  // Phase 92.39d: ไม่มี inline CSS block ใน template literal แล้ว — rules ของ .lm-pop-dialog/.lm-pop-body
+  // ถูก inject ใน container scope ของ _rerender (render ครั้งเดียว) ใช้ร่วมกันทั้ง 2 popover types
   return `
-    <style>
-      /* Phase 92.39c: dialog flex-centered ใน container; max-height + inner scroll กัน content ล้น */
-      .lm-pop-dialog {
-        position: relative;
-        max-width: 420px;
-        width: 100%;
-        margin: 0;
-        max-height: calc(100vh - 96px);
-        background: #fff;
-        border-radius: 14px;
-        box-shadow: 0 18px 40px rgba(15,23,42,.25);
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-        z-index: 1;
-      }
-      .lm-pop-dialog > * { flex-shrink: 0; }
-      .lm-pop-dialog > .lm-pop-body { flex: 1 1 auto; overflow-y: auto; }
-      @media (max-width: 768px) {
-        /* bottom sheet: slide-up จากด้านล่าง, เต็มกว้าง, มุมโค้งบน */
-        .lm-pop-dialog {
-          position: fixed; left: 0; right: 0; bottom: 0; top: auto;
-          max-width: 100%; width: 100%;
-          margin: 0;
-          border-radius: 16px 16px 0 0;
-          max-height: 85vh;
-          animation: lmPopSlideUp 200ms ease-out;
-        }
-        .lm-pop-grabber { display: block !important; }
-      }
-      @keyframes lmPopSlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
-    </style>
     <div id="lmPopBackdrop" style="position:absolute;inset:0;background:rgba(15,23,42,.45);backdrop-filter:blur(2px);z-index:0"></div>
     <div role="dialog" aria-modal="true" class="lm-pop-dialog">
       <div class="lm-pop-grabber" style="display:none;text-align:center;padding:6px 0 0">
@@ -1650,6 +1620,8 @@ export async function renderLeaveManagementPage(ctx) {
       <div id="lmModal" style="display:none;position:fixed;inset:0;z-index:9999"></div>
       <!-- Phase 92.38: calendar event popover -->
       <!-- Phase 92.39c: container ใช้ flex centering + overflow-y:auto กัน dialog ตกขอบ viewport เตี้ย/แคบ -->
+      <!-- Phase 92.39d: รวม .lm-pop-dialog/.lm-pop-body CSS มาที่ container scope (ก่อนหน้าอยู่ใน _renderLeavePopover template
+           → ไม่ inject ตอน _renderDayListPopover → dialog invisible). ตอนนี้ทุก popover share CSS scope เดียว. -->
       <div id="lmPopover" class="lm-pop-container" style="display:none;position:fixed;inset:0;z-index:9998"></div>
       <style>
         /* Phase 92.39c: เปิดเมื่อ container display=block ผ่าน inline JS — แต่ใช้ flex layout */
@@ -1660,6 +1632,23 @@ export async function renderLeaveManagementPage(ctx) {
           overflow-y: auto;
           padding: 48px 16px;
         }
+        /* Phase 92.39d: dialog rules (ใช้ทั้ง leave details + day list popover) */
+        .lm-pop-dialog {
+          position: relative;
+          max-width: 420px;
+          width: 100%;
+          margin: 0;
+          max-height: calc(100vh - 96px);
+          background: #fff;
+          border-radius: 14px;
+          box-shadow: 0 18px 40px rgba(15,23,42,.25);
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+          z-index: 1;
+        }
+        .lm-pop-dialog > * { flex-shrink: 0; }
+        .lm-pop-dialog > .lm-pop-body { flex: 1 1 auto; overflow-y: auto; }
         @media (max-width: 768px) {
           /* Mobile: bottom sheet — ลด padding, align ปลายล่าง */
           #lmPopover[style*="display:block"], #lmPopover[style*="display: block"] {
@@ -1667,7 +1656,17 @@ export async function renderLeaveManagementPage(ctx) {
             padding: 0;
             overflow: hidden;
           }
+          .lm-pop-dialog {
+            position: fixed; left: 0; right: 0; bottom: 0; top: auto;
+            max-width: 100%; width: 100%;
+            margin: 0;
+            border-radius: 16px 16px 0 0;
+            max-height: 85vh;
+            animation: lmPopSlideUp 200ms ease-out;
+          }
+          .lm-pop-grabber { display: block !important; }
         }
+        @keyframes lmPopSlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
       </style>
     `;
 
@@ -1835,48 +1834,73 @@ export async function renderLeaveManagementPage(ctx) {
     document.addEventListener("keydown", _popoverEscHandler);
   }
 
-  function _openLeavePopover(leave) {
+  /**
+   * Phase 92.39d: shared open popover — guard empty content + inject + display + focus + Esc
+   *   - ห้าม inject HTML ว่าง (ป้องกัน backdrop เปิดโดยไม่มี dialog)
+   *   - ห้าม render ถ้าไม่มี .lm-pop-dialog ใน html (sanity check)
+   *   - bindBackdropClose / kind ใช้ทั้ง leave detail + day list
+   *
+   * @param {string} html - innerHTML สำหรับ #lmPopover (ต้องมี #lmPopBackdrop + .lm-pop-dialog)
+   * @param {string} kind - "leave" | "dayList" (ใช้ใน console.warn เท่านั้น)
+   * @param {(pop: HTMLElement) => void} [bindActions] - hook สำหรับ bind action buttons ของ kind นี้
+   * @returns {boolean} true ถ้า open สำเร็จ, false ถ้า guard reject
+   */
+  function _openPopover(html, kind, bindActions) {
     const pop = document.getElementById("lmPopover");
-    if (!pop || !leave) return;
+    if (!pop) return false;
+    const content = String(html || "").trim();
+    if (!content) {
+      // eslint-disable-next-line no-console
+      console.warn(`[leave_management] _openPopover(${kind}): empty content — refusing to open`);
+      return false;
+    }
+    // sanity: dialog markup ต้องมี (กัน CSS scope bug แบบ 92.39c)
+    if (!content.includes("lm-pop-dialog")) {
+      // eslint-disable-next-line no-console
+      console.warn(`[leave_management] _openPopover(${kind}): missing .lm-pop-dialog markup`);
+      return false;
+    }
+    pop.innerHTML = content;
     pop.style.display = "block";
     document.body.style.overflow = "hidden";
-    pop.innerHTML = _renderLeavePopover(leave, profileMap, currentUserId, role);
     _registerPopoverEsc();
     pop.querySelector("#lmPopClose")?.addEventListener("click", _closePopover);
     pop.querySelector("#lmPopBackdrop")?.addEventListener("click", _closePopover);
-    // role-based actions inside popover
-    pop.querySelector(".lm-pop-approve")?.addEventListener("click", async () => { _closePopover(); await _doReview(leave.id, "approved"); });
-    pop.querySelector(".lm-pop-reject") ?.addEventListener("click", async () => { _closePopover(); await _doReview(leave.id, "rejected"); });
-    pop.querySelector(".lm-pop-cancel") ?.addEventListener("click", async () => { _closePopover(); await _doCancel(leave.id); });
-    pop.querySelector(".lm-pop-delete") ?.addEventListener("click", async () => { _closePopover(); await _doDelete(leave.id); });
-    pop.querySelector(".lm-pop-edit")   ?.addEventListener("click", () => { _closePopover(); _openFormModal(leave); });
-    // Phase 92.39c: focus close button → ยืนยัน popover visible + ช่วย a11y (Esc/keyboard nav)
+    if (typeof bindActions === "function") {
+      try { bindActions(pop); } catch (_e) { /* swallow — open ยัง valid */ }
+    }
+    // focus close button → ยืนยัน popover visible + a11y
     setTimeout(() => pop.querySelector("#lmPopClose")?.focus(), 0);
+    return true;
+  }
+
+  function _openLeavePopover(leave) {
+    if (!leave) return;
+    const html = _renderLeavePopover(leave, profileMap, currentUserId, role);
+    _openPopover(html, "leave", (pop) => {
+      pop.querySelector(".lm-pop-approve")?.addEventListener("click", async () => { _closePopover(); await _doReview(leave.id, "approved"); });
+      pop.querySelector(".lm-pop-reject") ?.addEventListener("click", async () => { _closePopover(); await _doReview(leave.id, "rejected"); });
+      pop.querySelector(".lm-pop-cancel") ?.addEventListener("click", async () => { _closePopover(); await _doCancel(leave.id); });
+      pop.querySelector(".lm-pop-delete") ?.addEventListener("click", async () => { _closePopover(); await _doDelete(leave.id); });
+      pop.querySelector(".lm-pop-edit")   ?.addEventListener("click", () => { _closePopover(); _openFormModal(leave); });
+    });
   }
 
   function _openDayListPopover(dateStr, filtered) {
-    const pop = document.getElementById("lmPopover");
-    if (!pop) return;
     const byDate = groupLeavesByDate(filtered, activeMonth);
     const evs = byDate.get(dateStr) || [];
-    pop.style.display = "block";
-    document.body.style.overflow = "hidden";
-    pop.innerHTML = _renderDayListPopover(dateStr, evs, profileMap);
-    _registerPopoverEsc();
-    pop.querySelector("#lmPopClose")?.addEventListener("click", _closePopover);
-    pop.querySelector("#lmPopBackdrop")?.addEventListener("click", _closePopover);
-    // คลิก event ใน list → close แล้ว open leave details popover
-    pop.querySelectorAll(".lm-cal-event").forEach(btn => btn.addEventListener("click", (ev) => {
-      const id = ev.currentTarget.getAttribute("data-lm-id");
-      const leave = _findLeave(id);
-      if (leave) {
-        _closePopover();
-        // chained — render Leave popover ทันที
-        setTimeout(() => _openLeavePopover(leave), 0);
-      }
-    }));
-    // Phase 92.39c: focus close button → ยืนยัน popover visible + ช่วย a11y
-    setTimeout(() => pop.querySelector("#lmPopClose")?.focus(), 0);
+    const html = _renderDayListPopover(dateStr, evs, profileMap);
+    _openPopover(html, "dayList", (pop) => {
+      // คลิก event ใน list → close แล้ว open leave details popover (chained)
+      pop.querySelectorAll(".lm-cal-event").forEach(btn => btn.addEventListener("click", (ev) => {
+        const id = ev.currentTarget.getAttribute("data-lm-id");
+        const leave = _findLeave(id);
+        if (leave) {
+          _closePopover();
+          setTimeout(() => _openLeavePopover(leave), 0);
+        }
+      }));
+    });
   }
 
   async function _doExport(rowsToExport) {

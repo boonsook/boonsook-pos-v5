@@ -1333,10 +1333,76 @@ test("source: focus close button หลัง open popover (a11y + visibility co
   const fs = await import("node:fs");
   const path = await import("node:path");
   const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
-  // _openLeavePopover focus close
-  assert.match(src, /function _openLeavePopover[\s\S]*?querySelector\(["']#lmPopClose["']\)\?\.focus\(\)/);
-  // _openDayListPopover focus close
-  assert.match(src, /function _openDayListPopover[\s\S]*?querySelector\(["']#lmPopClose["']\)\?\.focus\(\)/);
+  // Phase 92.39d: focus close logic ย้ายไปอยู่ใน _openPopover (shared)
+  assert.match(src, /function _openPopover[\s\S]*?querySelector\(["']#lmPopClose["']\)\?\.focus\(\)/);
+});
+
+// ── Phase 92.39d: popover content scope + unified open function ──
+
+test("source: .lm-pop-dialog CSS rules อยู่ใน container scope (ไม่อยู่ใน _renderLeavePopover template)", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  // _renderLeavePopover ต้อง NOT มี <style> block — CSS อยู่ container scope แทน
+  const renderLeaveBody = src.match(/function _renderLeavePopover[\s\S]*?^}/m)?.[0] || "";
+  assert.ok(!/<style>/.test(renderLeaveBody), "_renderLeavePopover ต้องไม่มี <style> block (CSS ย้ายไป container scope แล้ว)");
+  // _renderDayListPopover ก็ต้องไม่มีเช่นกัน (เคยไม่มีอยู่แล้วใน 92.39c — verify ว่ายังไม่ regression)
+  const renderDayBody = src.match(/function _renderDayListPopover[\s\S]*?^}/m)?.[0] || "";
+  assert.ok(!/<style>/.test(renderDayBody), "_renderDayListPopover ต้องไม่มี <style> block");
+});
+
+test("source: container scope <style> ใน _rerender มี .lm-pop-dialog rules ครบ (CSS ทำงานทั้ง 2 popover types)", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  // หา style block ที่ตามหลัง #lmPopover (container scope)
+  const m = src.match(/id="lmPopover"[\s\S]*?<style>([\s\S]*?)<\/style>/);
+  assert.ok(m, "ต้องมี <style> block หลัง #lmPopover container");
+  const css = m[1];
+  // ต้องมี dialog rules
+  assert.match(css, /\.lm-pop-dialog\s*\{/, "container scope CSS ต้องมี .lm-pop-dialog rule");
+  assert.match(css, /max-height:\s*calc\(100vh\s*-\s*\d+px\)/, "ต้องมี max-height calc");
+  assert.match(css, /\.lm-pop-dialog\s*>\s*\.lm-pop-body[\s\S]{0,200}?overflow-y:\s*auto/, "ต้องมี inner body scroll rule");
+  // mobile bottom sheet
+  assert.match(css, /@media \(max-width: 768px\)[\s\S]*?\.lm-pop-dialog[\s\S]*?bottom:\s*0/, "ต้องมี mobile bottom sheet override");
+});
+
+test("source: _openPopover shared function — guard empty content + sanity check .lm-pop-dialog", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  // _openPopover exists
+  assert.match(src, /function _openPopover\(html,\s*kind,\s*bindActions\)/);
+  // empty content guard — ไม่เปิด backdrop ถ้า content ว่าง
+  assert.match(src, /function _openPopover[\s\S]*?if \(!content\)/);
+  assert.match(src, /function _openPopover[\s\S]*?console\.warn[\s\S]{0,200}?empty content/);
+  // sanity check ว่ามี dialog markup (กัน scope bug)
+  assert.match(src, /function _openPopover[\s\S]*?content\.includes\(["']lm-pop-dialog["']\)/);
+  // set innerHTML + display:block หลัง guard
+  assert.match(src, /function _openPopover[\s\S]*?pop\.innerHTML = content[\s\S]{0,200}?pop\.style\.display = ["']block["']/);
+});
+
+test("source: _openLeavePopover และ _openDayListPopover ใช้ _openPopover (DRY)", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  assert.match(src, /function _openLeavePopover[\s\S]*?_openPopover\(html,\s*["']leave["']/);
+  assert.match(src, /function _openDayListPopover[\s\S]*?_openPopover\(html,\s*["']dayList["']/);
+});
+
+test("_renderDayListPopover output มี .lm-pop-dialog markup + #lmPopBackdrop (visible structure)", async () => {
+  // Source-level: ตรวจ template literal output รวม markup ที่จำเป็น (กัน 92.39c bug ที่ dialog ไม่มี styling)
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  const body = src.match(/function _renderDayListPopover[\s\S]*?^}/m)?.[0] || "";
+  assert.ok(body.length > 0, "ต้องหา _renderDayListPopover พบ");
+  assert.match(body, /id="lmPopBackdrop"/, "ต้องมี backdrop");
+  assert.match(body, /class="lm-pop-dialog"/, "ต้องมี dialog ที่ใช้ class .lm-pop-dialog");
+  assert.match(body, /class="lm-pop-body"/, "ต้องมี body wrapper class .lm-pop-body");
+  assert.match(body, /id="lmPopClose"/, "ต้องมีปุ่มปิด");
+  // events.map → render chip
+  assert.match(body, /events\.map\([\s\S]{0,200}?_calendarEventChip/);
 });
 
 // ── formatAgendaDateLabel ───────────────────────────────
