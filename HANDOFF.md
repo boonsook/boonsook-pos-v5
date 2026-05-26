@@ -3,11 +3,50 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 26 พฤษภาคม 2026 (Phase 92.36 — Paid Leave Policy → Payroll Decision, build 297)
-**Version:** 5.59.0 (build 297) — Phase 92.36 (paid leave policy decision)
-**Previous:** 5.58.0 (build 296) — Phase 92.35 (Leave quota foundation)
+**อัปเดตล่าสุด:** 26 พฤษภาคม 2026 (Phase 92.36b — Payroll leave apply idempotency hotfix, build 298)
+**Version:** 5.59.1 (build 298) — Phase 92.36b (payroll leave apply idempotency)
+**Previous:** 5.59.0 (build 297) — Phase 92.36 (paid leave policy decision)
 
 > ✅ **ไม่มี SQL ใหม่ในเฟส 92.36** (additive code only). ใช้ตาราง + policies จาก Phase 92.35 — ถ้ายังไม่ได้รัน [`supabase-phase92-35-leave-policies-balances.sql`](supabase-phase92-35-leave-policies-balances.sql) → UI ใช้ค่า default + paid leave decision ยังทำงาน (graceful: ถ้าไม่มี balance ถือว่า paid ทั้งหมด · unpaid logic ยังหักปกติ).
+
+---
+
+## 🧯 Phase 92.36b — Payroll leave apply idempotency hotfix (this session)
+
+**บริบท:** Production smoke หลัง Phase 92.36 เจอว่าเคสพักร้อนเกิน quota 2 วัน คำนวณแนะนำหัก `฿800` ถูกต้อง แต่ถ้ากดปุ่ม "→ เติมลงช่องหัก" ซ้ำ ช่อง `หัก (-)` ถูกบวกซ้ำเป็น `฿1600` และสุทธิกลายเป็นติดลบ ทั้งที่ note มี marker `หักลา 2 วัน (เกิน quota 2)` แล้ว.
+
+### สาเหตุ
+
+- Guard เดิมใน [`modules/payroll.js`](modules/payroll.js) ใช้ exact `curNote.includes(marker)`
+- ถ้า marker format drift เช่น `2` vs `2.00` หรือ note ถูก normalize ต่างกันเล็กน้อย guard อาจไม่ match แล้วบวกยอดซ้ำ
+
+### สิ่งที่แก้
+
+- [`modules/leave_management.js`](modules/leave_management.js)
+  - เพิ่ม pure helper `hasLeaveDeductionNoteMarker(note, marker)`
+  - เช็ค exact marker ก่อน แล้ว fallback regex `/หักลา\s+\d+(?:\.\d+)?\s*วัน/`
+  - หลักการ: ถ้า note มี marker "หักลา ... วัน" อยู่แล้ว ถือว่า leave deduction applied แล้ว ห้ามบวกซ้ำ
+- [`modules/payroll.js`](modules/payroll.js)
+  - ปุ่ม "→ เติมลงช่องหัก" เปลี่ยนจาก `curNote.includes(marker)` เป็น `hasLeaveDeductionNoteMarker(curNote, marker)`
+- [`tests/leave_management.test.js`](tests/leave_management.test.js)
+  - เพิ่ม test เคส marker drift (`หักลา 2 วัน` vs `หักลา 2.00 วัน`) ต้อง detect เป็น applied
+- Version/cache sync:
+  - `package.json`: 5.59.0 → **5.59.1**
+  - `index.html`: `?v=297→298`, `data-app-build="298"`, `data-app-version="5.59.1"`
+  - `sw.js`: cache `v297→v298` + comment
+
+### Smoke หลัง deploy
+
+- เปิด Payroll modal เคสเดิมที่มี note `หักลา 2 วัน (เกิน quota 2)` และช่องหัก `800`
+- กด "ดึงสรุปวันลา" แล้วกด "→ เติมลงช่องหัก" ซ้ำ
+- Expected: ช่อง `หัก (-)` ยังเป็น `800`, ไม่กลายเป็น `1600`, และขึ้นข้อความเติมแล้วก่อนหน้านี้
+
+### Gates
+
+- `npm run lint:errors` = 0/0
+- `npm test` = **590/590**
+- `npm run test:e2e -- --reporter=line` = **11/11**
+- `npm audit --audit-level=moderate` = **0 vulnerabilities**
 
 ---
 

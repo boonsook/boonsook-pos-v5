@@ -19,6 +19,7 @@ import {
   // Phase 92.36: paid leave policy decision (advisory)
   decidePayrollLeaveImpact,
   leaveDeductionNoteMarker,
+  hasLeaveDeductionNoteMarker,
 } from "./leave_management.js";
 
 let _payrolls = [];
@@ -748,7 +749,7 @@ function _openPayrollModal(ctx, payroll) {
 
     // idempotent guard: ถ้า marker ตัวนี้อยู่ใน note แล้ว → ไม่บวกซ้ำ
     const curNote = (noteInp?.value || "").trim();
-    if (marker && curNote.includes(marker)) {
+    if (hasLeaveDeductionNoteMarker(curNote, marker)) {
       _setLeaveSummary("✓ เติมแล้วก่อนหน้านี้ (idempotent — ไม่บวกซ้ำ)");
       _hideLeaveApplyRow();
       return;

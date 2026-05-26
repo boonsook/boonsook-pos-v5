@@ -7,6 +7,20 @@
 
 ---
 
+## 5.59.1 (build 298) — 2026-05-26 🧯 Phase 92.36b — Payroll leave apply idempotency hotfix
+
+- **fix(payroll) [leave-deduction-idempotent]:** ปุ่ม "→ เติมลงช่องหัก" ใน Payroll modal กันกดซ้ำแบบ robust ขึ้น
+  - Production smoke เจอว่า exact `note.includes(marker)` ยังหลุดได้ ทำให้ `หัก (-)` บวกซ้ำจาก `800 → 1600`
+  - เพิ่ม `hasLeaveDeductionNoteMarker(note, marker)` ตรวจ pattern `หักลา ... วัน` ใน note ก่อนบวกยอดเสมอ แม้เลข/format marker จะต่างกัน (`2` vs `2.00`)
+  - ถ้าเคยเติม leave deduction แล้ว → แจ้ง "เติมแล้วก่อนหน้านี้" และไม่บวกซ้ำ
+- **ไม่แตะ:** payroll math / daily-rate logic / leave policy decision / DB / RLS / SQL / auto-deduction behavior
+- Tests +1 (idempotency marker drift). Unit **589 → 590**
+- verify เขียว: lint:errors 0/0 · unit 590/590 · e2e 11/11 · `npm audit --audit-level=moderate` = **0 vulnerabilities**
+
+**Build:** 297 → 298; version 5.59.0 → 5.59.1 (patch hotfix — no SQL)
+
+---
+
 ## 5.59.0 (build 297) — 2026-05-26 🧮 Phase 92.36 — Paid Leave Policy → Payroll Decision
 
 - **feat(payroll) [policy decision]:** Payroll modal ปุ่ม "ดึงสรุปวันลา" ตอนนี้คำนวณ "policy breakdown" ตาม quota รายปี + แสดง 5 cards: ✅ Paid (in quota) · ⚠️ เกิน quota · 💸 ลาไม่รับค่าจ้าง · 📌 อื่น ๆ · → แนะนำหักรวม

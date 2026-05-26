@@ -27,6 +27,7 @@ const {
   // Phase 92.36
   decidePayrollLeaveImpact,
   leaveDeductionNoteMarker,
+  hasLeaveDeductionNoteMarker,
 } = await import("../modules/leave_management.js");
 
 // ── calcLeaveDays ───────────────────────────────────────────
@@ -739,4 +740,13 @@ test("leaveDeductionNoteMarker — apply ซ้ำตรวจ idempotent ผ่
   // ถ้าสร้าง marker จาก decision เดียวกัน → string เดิม → caller skip ได้
   const marker2 = leaveDeductionNoteMarker(decision);
   assert.equal(marker, marker2);
+});
+
+test("hasLeaveDeductionNoteMarker — จับ marker เดิมแม้ format เลขต่างกัน กันกดเติมซ้ำ", () => {
+  const exact = "หักลา 2 วัน (เกิน quota 2)";
+  assert.equal(hasLeaveDeductionNoteMarker(exact, exact), true);
+  assert.equal(hasLeaveDeductionNoteMarker("หักลา 2.00 วัน (เกิน quota 2.00)", exact), true);
+  assert.equal(hasLeaveDeductionNoteMarker("note อื่น · หักลา 2 วัน (เกิน quota 2)", "หักลา 2.00 วัน (เกิน quota 2.00)"), true);
+  assert.equal(hasLeaveDeductionNoteMarker("manual note ไม่มี marker", exact), false);
+  assert.equal(hasLeaveDeductionNoteMarker("", exact), false);
 });

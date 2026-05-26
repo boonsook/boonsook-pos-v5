@@ -380,6 +380,21 @@ export function leaveDeductionNoteMarker(decision) {
   return `หักลา ${d} วัน${tail}`;
 }
 
+/**
+ * Phase 92.36b: robust idempotency guard for payroll leave deduction notes.
+ * Exact marker matching was too brittle across number formatting (2 vs 2.00)
+ * and manual note edits, so treat any existing "หักลา ... วัน" marker as applied.
+ * @param {string} note
+ * @param {string} marker
+ * @returns {boolean}
+ */
+export function hasLeaveDeductionNoteMarker(note, marker = "") {
+  const text = String(note || "").trim();
+  if (!text) return false;
+  if (marker && text.includes(marker)) return true;
+  return /หักลา\s+\d+(?:\.\d+)?\s*วัน/.test(text);
+}
+
 // ═══════════════════════════════════════════════════════════
 //  Phase 92.35 — Leave Policy + Balance/Quota helpers (pure)
 // ═══════════════════════════════════════════════════════════
