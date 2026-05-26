@@ -38,7 +38,8 @@
 // v263 (2026-05-20): Phase 92.7 — extract _appShareDoc Share/PDF overlay to modules/share_doc.js (thin window wrapper; behavior byte-identical)
 // v253 (2026-05-19): Phase 91.1 — POS checkout auto-earn loyalty points (fire-and-forget after sale insert; gated on customer + is_active + points_per_baht; amount = actualTotal)
 // v252 (2026-05-19): Phase 90.13 — Loyalty history modal click-outside listener leak: bind once in renderLoyaltyPage instead of re-attach on every showPointHistory call
-const CACHE_NAME = 'boonsook-pos-v5-cache-v294';
+// v295 (2026-05-26): Fix Time Clock self-service responsive layout. Desktop now uses a wider operational shell; mobile uses a single-column layout with table scrolling contained inside the history block. No DB or attendance logic changes.
+const CACHE_NAME = 'boonsook-pos-v5-cache-v295';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

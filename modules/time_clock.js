@@ -950,49 +950,51 @@ async function _renderSelfView(container, ctx) {
     : `<tr><td colspan="6" style="padding:24px;text-align:center;color:#94a3b8">ยังไม่มีประวัติในสัปดาห์นี้</td></tr>`;
 
   container.innerHTML = `
-    <div class="panel" style="padding:20px;max-width:680px;margin:0 auto">
-      <div style="text-align:center;margin-bottom:18px">
-        <div style="font-size:11px;color:#94a3b8">ผู้ใช้งาน</div>
-        <div style="font-size:20px;font-weight:800;color:#0284c7">👤 ${escHtml(myName)}</div>
-        <div style="font-size:12px;color:#64748b">${escHtml(myRoleTh)}${me.email ? ' • ' + escHtml(me.email) : ''}</div>
+    <div class="tc-self-shell">
+      <div class="tc-self-profile">
+        <div class="tc-self-profile-main">
+          <div class="tc-self-profile-label">ผู้ใช้งาน</div>
+          <div class="tc-self-profile-name">👤 ${escHtml(myName)}</div>
+          <div class="tc-self-profile-sub">${escHtml(myRoleTh)}${me.email ? ' • ' + escHtml(me.email) : ''}</div>
+        </div>
       </div>
 
       ${state === "open" ? `
-        <div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:14px;padding:18px;text-align:center;margin-bottom:14px">
-          <div style="font-size:11px;color:#047857;font-weight:600">⏱️ กำลังทำงานอยู่</div>
-          <div style="font-size:28px;font-weight:800;color:#065f46;font-family:monospace;margin:6px 0">เข้างาน ${timeBangkok(open.clock_in_at)}</div>
-          <button id="tcSelfClockOut" class="btn" style="background:#ef4444;color:#fff;border:none;padding:12px 32px;font-size:16px;border-radius:10px;cursor:pointer;font-weight:700">🏃 ลงเวลาออก</button>
+        <div class="tc-self-action-card tc-self-action-card--open">
+          <div class="tc-self-action-title">⏱️ กำลังทำงานอยู่</div>
+          <div class="tc-self-action-state">เข้างาน ${timeBangkok(open.clock_in_at)}</div>
+          <button id="tcSelfClockOut" class="btn tc-self-action-btn tc-self-action-btn--out">🏃 ลงเวลาออก</button>
         </div>
       ` : `
-        <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:14px;padding:18px;text-align:center;margin-bottom:14px">
-          <div style="font-size:11px;color:#1e40af;font-weight:600">วันนี้</div>
-          <div style="font-size:14px;color:#3b82f6;margin:6px 0">${state === "closed" ? "ลงเวลาออกแล้ว — ต้องการเข้าใหม่?" : "ยังไม่ลงเวลาเข้าวันนี้"}</div>
-          <button id="tcSelfClockIn" class="btn primary" style="padding:12px 32px;font-size:16px;border-radius:10px;font-weight:700">✅ ลงเวลาเข้างาน</button>
+        <div class="tc-self-action-card tc-self-action-card--closed">
+          <div class="tc-self-action-title">วันนี้</div>
+          <div class="tc-self-action-state">${state === "closed" ? "ลงเวลาออกแล้ว — ต้องการเข้าใหม่?" : "ยังไม่ลงเวลาเข้าวันนี้"}</div>
+          <button id="tcSelfClockIn" class="btn primary tc-self-action-btn">✅ ลงเวลาเข้างาน</button>
         </div>
       `}
 
-      <div style="background:#f8fafc;border-radius:10px;padding:12px;margin-bottom:14px;text-align:center">
-        <div style="font-size:11px;color:#64748b">สรุปสัปดาห์นี้ (7 วันล่าสุด) — กะ ${String(shiftOpts.startHour).padStart(2,'0')}:00-${String(shiftOpts.endHour).padStart(2,'0')}:00</div>
-        <div style="display:flex;justify-content:center;gap:20px;margin-top:8px;flex-wrap:wrap">
-          <div>
-            <div style="font-size:10px;color:#94a3b8">ปกติ</div>
-            <div style="font-size:18px;font-weight:800;color:#0f172a">${weekSummary.regular.toFixed(2)}</div>
+      <div class="tc-self-summary">
+        <div class="tc-self-summary-title">สรุปสัปดาห์นี้ (7 วันล่าสุด) — กะ ${String(shiftOpts.startHour).padStart(2,'0')}:00-${String(shiftOpts.endHour).padStart(2,'0')}:00</div>
+        <div class="tc-self-summary-metrics">
+          <div class="tc-self-metric">
+            <div class="tc-self-metric-label">ปกติ</div>
+            <div class="tc-self-metric-value">${weekSummary.regular.toFixed(2)}</div>
           </div>
-          <div>
-            <div style="font-size:10px;color:#ea580c">OT</div>
-            <div style="font-size:18px;font-weight:800;color:#ea580c">${weekSummary.ot.toFixed(2)}</div>
+          <div class="tc-self-metric">
+            <div class="tc-self-metric-label tc-self-metric-label--ot">OT</div>
+            <div class="tc-self-metric-value tc-self-metric-value--ot">${weekSummary.ot.toFixed(2)}</div>
           </div>
-          <div>
-            <div style="font-size:10px;color:#94a3b8">รวม</div>
-            <div style="font-size:18px;font-weight:800;color:#0284c7">${weekSummary.total.toFixed(2)}</div>
+          <div class="tc-self-metric">
+            <div class="tc-self-metric-label">รวม</div>
+            <div class="tc-self-metric-value tc-self-metric-value--total">${weekSummary.total.toFixed(2)}</div>
           </div>
         </div>
       </div>
 
-      <div>
-        <div style="font-weight:700;font-size:14px;margin-bottom:8px">📅 ประวัติ 7 วันล่าสุด</div>
-        <div style="overflow-x:auto">
-          <table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff;border-radius:8px;overflow:hidden">
+      <div class="tc-self-history">
+        <div class="tc-self-history-title">📅 ประวัติ 7 วันล่าสุด</div>
+        <div class="tc-self-history-wrap">
+          <table class="tc-self-history-table">
             <thead>
               <tr style="background:#f1f5f9;border-bottom:2px solid #e2e8f0">
                 <th style="padding:9px 10px;text-align:left">วันที่</th>

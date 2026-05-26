@@ -3,11 +3,38 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 26 พฤษภาคม 2026 (Phase 92.33 — Leave → Payroll Integration, build 294)
-**Version:** 5.57.0 (build 294) — Phase 92.33 (Leave→Payroll advisory)
-**Previous:** 5.56.0 (build 293) — Phase 92.32 (Leave foundation)
+**อัปเดตล่าสุด:** 26 พฤษภาคม 2026 (Phase 92.34 — Time Clock responsive fix, build 295)
+**Version:** 5.57.1 (build 295) — Phase 92.34 (Time Clock self responsive)
+**Previous:** 5.57.0 (build 294) — Phase 92.33 (Leave→Payroll advisory)
 
 > ⚠️ **SQL ที่ต้องรัน** (จาก 92.32, ยังจำเป็น): [`supabase-phase92-32-leave-management.sql`](supabase-phase92-32-leave-management.sql) — ก่อนเริ่มใช้ปุ่ม "ดึงสรุปวันลา" ใน Payroll modal. ก่อนรัน → ปุ่มยังกดได้แต่แสดง warning + ไม่ crash. **เฟส 92.33 ไม่มี SQL ใหม่** (additive code only).
+
+---
+
+## 🕒 Phase 92.34 — Time Clock self-service responsive fix (this session)
+
+**บริบท:** user แจ้งว่า mobile หน้า “ลงเวลาทำงาน” ล้นขวาหนัก แต่ desktop กลับเล็กเกินไปกลางจอ. สาเหตุหลักคือ `_renderSelfView()` ใน `modules/time_clock.js` ใช้ inline `max-width:680px` และ table/card sizing ที่เหมาะกับ desktop card เดียว ไม่ใช่ responsive layout.
+
+### สิ่งที่แก้
+
+- `modules/time_clock.js`
+  - เปลี่ยน self view markup เป็น class-based: `tc-self-shell`, `tc-self-profile`, `tc-self-action-card`, `tc-self-summary`, `tc-self-history`
+  - คง ID ปุ่มเดิม `tcSelfClockIn` / `tcSelfClockOut` เพื่อไม่กระทบ event handlers
+  - ไม่แตะ flow ลงเวลา, offline queue, GPS/geofence, OT calculation
+- `style.css`
+  - Desktop: shell กว้าง `min(1120px, 100%)`, top area เป็น profile + action card, summary/history เต็มความกว้าง
+  - Mobile: single column, จำกัด `max-width:100%`, ปุ่มเต็มความกว้าง, table history scroll เฉพาะใน wrapper
+  - เลี่ยง global `.panel table { min-width:760px }` เพราะ self view ไม่ใช้ `.panel` outer แล้ว
+- Version/cache sync:
+  - `package.json`: 5.57.0 → **5.57.1**
+  - `index.html`: `?v=294→295`, `data-app-build="295"`, `data-app-version="5.57.1"`
+  - `sw.js`: cache `v294→v295` + comment
+
+### Smoke checklist
+
+- Mobile Time Clock: content no longer overflows page; only history table can scroll horizontally inside its block. Playwright check: viewport/body/page = 390px, table wrapper = 344px client / 520px scroll.
+- Desktop Time Clock: no longer tiny 680px card in the middle of large screen. Playwright check: shell width = 1120px at 1440px viewport.
+- Attendance behavior unchanged. Gates: lint:errors 0/0, unit 548/548, e2e 11/11, audit moderate 0 vulnerabilities.
 
 ---
 

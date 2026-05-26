@@ -1586,8 +1586,230 @@ aside.drawer { position: fixed; top: 0; right: 0; }
 .confirm-actions { display: flex; gap: 10px; justify-content: flex-end; }
 [data-theme="dark"] .confirm-card { background: var(--surface); color: var(--text); }
 
+/* Time Clock self-service layout */
+.tc-self-shell {
+  width: min(1120px, 100%);
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
+  gap: 16px;
+  align-items: start;
+}
+.tc-self-shell > * { min-width: 0; }
+.tc-self-profile,
+.tc-self-action-card,
+.tc-self-summary,
+.tc-self-history {
+  background: #fff;
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+.tc-self-profile {
+  border-radius: 22px;
+  padding: 20px 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.tc-self-profile-main { min-width: 0; }
+.tc-self-profile-label {
+  font-size: 12px;
+  color: #94a3b8;
+  font-weight: 700;
+}
+.tc-self-profile-name {
+  margin-top: 4px;
+  color: var(--primary2);
+  font-size: 24px;
+  font-weight: 900;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.tc-self-profile-sub {
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.tc-self-action-card {
+  border-radius: 22px;
+  padding: 22px;
+  text-align: center;
+}
+.tc-self-action-card--open {
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+}
+.tc-self-action-card--closed {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+.tc-self-action-title {
+  color: #1e40af;
+  font-size: 12px;
+  font-weight: 800;
+}
+.tc-self-action-card--open .tc-self-action-title { color: #047857; }
+.tc-self-action-state {
+  margin: 8px auto 14px;
+  color: #3b82f6;
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+.tc-self-action-card--open .tc-self-action-state {
+  color: #065f46;
+  font-family: monospace;
+  font-size: 26px;
+}
+.tc-self-action-btn {
+  width: min(320px, 100%);
+  min-height: 48px;
+  padding: 12px 20px;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 800;
+  white-space: normal;
+}
+.tc-self-action-btn--out {
+  background: #ef4444;
+  color: #fff;
+  border: none;
+}
+.tc-self-summary {
+  grid-column: 1 / -1;
+  border-radius: 18px;
+  padding: 16px;
+  text-align: center;
+}
+.tc-self-summary-title {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+.tc-self-summary-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+.tc-self-metric {
+  min-width: 0;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 10px 8px;
+}
+.tc-self-metric-label {
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 800;
+}
+.tc-self-metric-label--ot { color: #ea580c; }
+.tc-self-metric-value {
+  margin-top: 3px;
+  color: #0f172a;
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 1.1;
+}
+.tc-self-metric-value--ot { color: #ea580c; }
+.tc-self-metric-value--total { color: var(--primary2); }
+.tc-self-history {
+  grid-column: 1 / -1;
+  border-radius: 22px;
+  padding: 18px 20px 20px;
+}
+.tc-self-history-title {
+  margin-bottom: 10px;
+  color: #0f172a;
+  font-size: 16px;
+  font-weight: 900;
+}
+.tc-self-history-wrap {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.tc-self-history-table {
+  width: 100%;
+  min-width: 640px;
+  border-collapse: collapse;
+  background: #fff;
+  border-radius: 10px;
+  overflow: hidden;
+  font-size: 13px;
+}
+.tc-self-history-table th,
+.tc-self-history-table td {
+  white-space: nowrap;
+}
+
 /* ═══ Phase 79.2: Mobile fixes สำหรับหน้าใหม่ (payroll/expense_overview/departments) ═══ */
 @media (max-width: 768px) {
+  #page-time_clock { overflow-x: hidden; }
+  .tc-self-shell {
+    width: 100%;
+    max-width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+  .tc-self-profile,
+  .tc-self-action-card,
+  .tc-self-summary,
+  .tc-self-history {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+  .tc-self-profile {
+    border-radius: 18px;
+    padding: 14px;
+  }
+  .tc-self-profile-name { font-size: 20px; }
+  .tc-self-profile-sub { font-size: 12px; }
+  .tc-self-action-card {
+    border-radius: 18px;
+    padding: 14px;
+  }
+  .tc-self-action-state {
+    margin: 6px auto 12px;
+    font-size: 15px;
+  }
+  .tc-self-action-card--open .tc-self-action-state { font-size: 21px; }
+  .tc-self-action-btn {
+    width: 100%;
+    min-width: 0;
+    padding: 12px 14px;
+    font-size: 15px;
+  }
+  .tc-self-summary {
+    grid-column: auto;
+    border-radius: 16px;
+    padding: 12px;
+  }
+  .tc-self-summary-metrics {
+    gap: 6px;
+    margin-top: 10px;
+  }
+  .tc-self-metric {
+    border-radius: 10px;
+    padding: 8px 4px;
+  }
+  .tc-self-metric-value { font-size: 18px; }
+  .tc-self-history {
+    border-radius: 18px;
+    padding: 14px 12px 16px;
+  }
+  .tc-self-history-title { font-size: 15px; }
+  .tc-self-history-table {
+    min-width: 520px;
+    font-size: 12px;
+  }
+
   /* Hero ที่ใช้ inline style (h2 + emoji) — ลด padding + font บน mobile */
   .hero h2 { font-size: 18px !important; word-break: break-word; line-height: 1.3; }
   .hero p { font-size: 11px !important; line-height: 1.4; }
@@ -1617,4 +1839,3 @@ aside.drawer { position: fixed; top: 0; right: 0; }
     gap: 8px;
   }
 }
-

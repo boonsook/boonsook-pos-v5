@@ -7,6 +7,19 @@
 
 ---
 
+## 5.57.1 (build 295) — 2026-05-26 🕒 Phase 92.34 — Time Clock responsive fix
+
+- **fix(time-clock) [self-responsive]:** หน้า “ลงเวลาทำงาน” ของพนักงานปรับจาก inline fixed card เป็น layout class-based (`tc-self-*`)
+  - Desktop: ขยายจากการ์ดแคบกลางจอเป็น shell กว้างขึ้น พร้อม profile/action/summary/history ที่ใช้พื้นที่จอได้สมเหตุสมผล
+  - Mobile: เปลี่ยนเป็น single column, จำกัดความกว้างทุก section, ปุ่มเต็มความกว้าง และให้ตารางประวัติ scroll ภายในกรอบแทนการดันทั้งหน้าออกขวา
+- **ไม่แตะ** attendance logic / OT math / payroll / DB schema / RLS / API behavior
+- **Version sync:** `style.css/main/selfheal/boot ?v=295`, `data-app-build="295"`, `data-app-version="5.57.1"`, SW cache `v295`
+- verify เขียว: lint:errors 0/0 · unit 548/548 · e2e 11/11 · audit moderate 0 vulnerabilities · Playwright overflow check: mobile body/page 390px, table scroll เฉพาะ wrapper, desktop shell 1120px
+
+**Build:** 294 → 295; version 5.57.0 → 5.57.1 (patch — responsive UI fix)
+
+---
+
 ## 5.57.0 (build 294) — 2026-05-26 💸 Phase 92.33 — Leave → Payroll Integration (advisory + optional apply)
 
 - **feat(payroll) [leave-integration]:** Payroll modal เพิ่ม section ใหม่ **🌴 วันลาในรอบเดือน** (สีส้ม, ก่อน Time Clock section)
