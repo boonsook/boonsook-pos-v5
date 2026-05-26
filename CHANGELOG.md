@@ -7,6 +7,29 @@
 
 ---
 
+## 5.58.0 (build 296) — 2026-05-26 💼 Phase 92.35 — Leave Policy + Balance/Quota Foundation
+
+> ⚠️ **ต้องรัน SQL ก่อนใช้:** [`supabase-phase92-35-leave-policies-balances.sql`](supabase-phase92-35-leave-policies-balances.sql) — ก่อนรัน UI fallback ไป default policies + แสดงป้าย "ใช้ค่า default" (ไม่ crash)
+
+- **feat(leave) [quota foundation]:** ตาราง `leave_policies` + `staff_leave_overrides` รองรับ quota รายปีต่อ leave_type พร้อม per-user override
+  - Seed defaults: vacation **10**, sick **30**, personal **3**, unpaid **null** (ไม่นับ quota), other **null**
+  - RLS: policies → ทุก authenticated user อ่านได้ + admin write · overrides → admin all + user อ่านของตัวเอง
+  - 4 CHECK + 2 indexes + 2 updated_at triggers + 8 RLS policies + NOTIFY + verify · Re-run safe
+- **feat(leave) [UI balance section]:** หน้า "🌴 วันลา" เพิ่ม **"💼 Balance / Quota (year)"** ใต้ KPI
+  - Non-admin: balance ของตัวเอง · Admin: dropdown เลือกพนักงาน
+  - 5 cards (vacation/sick/personal/unpaid/other) — used/quota + pending + remaining + chip สี (เขียว/ส้ม/แดง)
+  - ป้าย "ใช้ค่า default" เมื่อ policies ยังไม่อยู่ใน DB
+- **feat(leave) [form warning]:** Form modal "ขอลา" → ป้ายส้ม "⚠️ จะเกิน quota X วัน" (advisory) เมื่อ projected used+pending+new จะเกิน · ไม่ block submit
+- **feat(payroll) [year balance]:** ปุ่ม "ดึงสรุปวันลา" ใน Payroll modal เพิ่ม **balance ทั้งปี advisory** ของพนักงาน · vacation/sick/personal **ยังไม่หักเงิน** · unpaid logic เดิม (suggest deduction + apply)
+- **Pure helpers ใหม่ (test-friendly):** `defaultLeavePolicies` · `effectiveQuotaForUser` (override > policy > default) · `calcLeaveBalance` (used/pending/remaining/overQuota/willExceed) · `calcBalancesForUser` (per type, filter ปี, overlap) · `isOverQuotaWarning` · `formatBalanceLabel` · `fetchLeavePolicies` · `fetchLeaveOverridesForUser` (graceful NO_TABLE)
+- **ไม่แตะ:** money math เดิม / staff_leaves write logic / payroll save / RLS เก่า / Time Clock self responsive (build 295) ไม่ regression / dep ใหม่
+- Tests +28 (defaultPolicies 1 + effectiveQuota 6 + calcBalance 5 + calcBalancesForUser 4 + isOverQuotaWarning 4 + formatBalanceLabel 5 + fetch 3). Unit **548 → 576**
+- verify เขียว: lint:errors 0/0 · e2e 11/11 · `npm audit --audit-level=moderate` = **0 vulnerabilities**
+
+**Build:** 295 → 296; version 5.57.1 → 5.58.0 (minor — feature + SQL migration)
+
+---
+
 ## 5.57.1 (build 295) — 2026-05-26 🕒 Phase 92.34 — Time Clock responsive fix
 
 - **fix(time-clock) [self-responsive]:** หน้า “ลงเวลาทำงาน” ของพนักงานปรับจาก inline fixed card เป็น layout class-based (`tc-self-*`)

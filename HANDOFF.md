@@ -3,9 +3,84 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 26 พฤษภาคม 2026 (Phase 92.34 — Time Clock responsive fix, build 295)
-**Version:** 5.57.1 (build 295) — Phase 92.34 (Time Clock self responsive)
-**Previous:** 5.57.0 (build 294) — Phase 92.33 (Leave→Payroll advisory)
+**อัปเดตล่าสุด:** 26 พฤษภาคม 2026 (Phase 92.35 — Leave Policy + Balance/Quota Foundation, build 296)
+**Version:** 5.58.0 (build 296) — Phase 92.35 (Leave quota foundation)
+**Previous:** 5.57.1 (build 295) — Phase 92.34 (Time Clock self responsive)
+
+> ⚠️ **SQL ที่ต้องรัน (Phase 92.35):** [`supabase-phase92-35-leave-policies-balances.sql`](supabase-phase92-35-leave-policies-balances.sql) — เพิ่ม `leave_policies` + `staff_leave_overrides` + seed defaults. Re-run safe. ก่อนรัน → UI fallback ไป default policies + ป้าย "ใช้ค่า default" (ไม่ crash).
+
+---
+
+## 💼 Phase 92.35 — Leave Policy + Balance/Quota Foundation (this session)
+
+**บริบท:** ต่อจาก Phase 92.33 (Leave→Payroll advisory) — user ขอ quota/balance พื้นฐาน: ทำเฟส foundation ก่อน (ตาราง + helpers + UI balance + form warning + payroll advisory display). **เฟสนี้ยังไม่เปลี่ยน money math** — vacation/sick/personal ยังแสดงเฉย ๆ ไม่หักเงิน. unpaid logic เดิม (Phase 92.33) ยังใช้.
+
+### สิ่งที่เพิ่ม
+
+**1) SQL migration** [`supabase-phase92-35-leave-policies-balances.sql`](supabase-phase92-35-leave-policies-balances.sql) — additive only:
+- `leave_policies` (PK=`leave_type`, `annual_quota` numeric(6,2), `tracks_balance` bool, ...)
+  - Seed 5 rows: vacation 10, sick 30, personal 3, unpaid null, other null · `ON CONFLICT DO NOTHING` re-run safe
+- `staff_leave_overrides` (id, user_id uuid, leave_type, annual_quota, effective_year, ...) + `UNIQUE(user_id,leave_type,effective_year)`
+- 4 CHECK + 2 indexes + 2 updated_at triggers
+- 8 RLS policies (4 per table):
+  - **leave_policies**: ทุก authenticated SELECT (UI ของ user ต้องอ่าน quota ของตัวเองได้) · admin write
+  - **staff_leave_overrides**: admin all · user SELECT own
+- `NOTIFY pgrst` + 6 verify queries
+
+**2) Pure helpers** [`modules/leave_management.js`](modules/leave_management.js) (test-friendly):
+- `defaultLeavePolicies()` — in-code fallback
+- `effectiveQuotaForUser({userId, leaveType, year, policies, overrides})` → priority **override > policy > default**
+- `calcLeaveBalance({quota, approvedDays, pendingDays})` → `{quota, used, pending, remaining, overQuota, willExceed}`
+- `calcBalancesForUser({...})` → `Map<leave_type, balance>` — filter ปี ด้วย overlap, skip rejected/cancelled, ปัด 2 ตำแหน่ง
+- `isOverQuotaWarning` · `formatBalanceLabel`
+- `fetchLeavePolicies` / `fetchLeaveOverridesForUser` — graceful return shape
+
+**3) UI หน้าวันลา**
+- Section "💼 Balance / Quota (year)" ใต้ KPI — admin มี dropdown เลือกพนักงาน, non-admin ของตัวเอง
+- 5 cards พร้อม chip สี + source label
+- Form modal `#lmFormQuotaWarn` advisory (recompute on user/type/days change · ไม่ block submit)
+
+**4) Payroll modal integration**
+- ปุ่ม "ดึงสรุปวันลา" → render advisory balance ทั้งปีของ user (5 cards) ใน `#prLeaveBalance`
+- vacation/sick/personal ยังไม่หักเงิน · unpaid logic เดิม
+
+**5) Safety**
+- ไม่แตะ money math / staff_leaves write / payroll save / RLS เก่า
+- ★ Time Clock self responsive (build 295) **ไม่ regression** — แตะแค่ leave_management.js + payroll.js + SQL
+- ไม่เพิ่ม dep · escape HTML · event delegation · graceful HTTP/NO_TABLE
+- form warning เป็น advisory ไม่ block
+
+### Gates
+- `npm run lint:errors` exit 0 (clean)
+- `npm test` = **576/576** (เพิ่ม 28 จาก 548)
+- `npm run test:e2e` = **11/11** (รอบแรก fail 1 ก่อน sync index.html — แก้แล้วผ่าน)
+- `npm audit --audit-level=moderate` = **0 vulnerabilities**
+
+### Version sync (4 sub-items + sw.js comment)
+- `package.json`: 5.57.1 → **5.58.0**
+- `index.html`: `style.css?v=295→296`, `selfheal.js?v=295→296` + `data-app-build="296"` + `data-app-version="5.58.0"`, `main.js?v=295→296`, `boot.js?v=295→296`
+- `sw.js`: `CACHE_NAME = 'boonsook-pos-v5-cache-v296'` + v296 + v295 comment lines
+
+### Smoke test (manual)
+1. **รัน SQL ก่อน:** Phase 92.32 (ถ้ายัง) + Phase 92.35 → ตรวจ 6 verify queries
+2. เปิด `https://boonsook-pos-v5.pages.dev/` (Ctrl+Shift+R)
+3. **Admin:** เข้า "🌴 วันลา" → เห็น "💼 Balance / Quota (2026)" + dropdown · ลองสร้างคำขอที่จะเกิน quota → เห็นป้ายส้ม advisory · อนุมัติแล้ว balance update · "💰 รายการเงินเดือน" → กด "ดึงสรุปวันลา" เห็น 5 cards balance ทั้งปี
+4. **Non-admin:** เห็น balance ของตัวเอง · ขอลาเกิน quota → ป้าย advisory · ส่งได้
+5. **Graceful** (ก่อนรัน SQL): UI แสดง 5 cards + ป้าย "ใช้ค่า default" สีส้ม (ไม่ crash)
+6. **Regression check:** Time Clock self responsive (build 295) — mobile 390px ไม่ล้น · desktop 1440px shell ~1120px
+
+### Follow-ups (ค้างจงใจ — ลำดับแนะนำ)
+| ลำดับ | ค้าง | บริบท |
+|---|---|---|
+| 1 | Admin manage policies UI | "ตั้งค่า → Leave Policy" ให้ admin แก้ quota default ผ่าน UI |
+| 2 | Per-user override UI | สร้าง `staff_leave_overrides` ผ่าน UI |
+| 3 | Paid leave policy ต่อ leave_type | ตัดสินใจ vacation/sick/personal เกิน quota → หักเงิน |
+| 4 | Calendar leave view | ใช้ `modules/calendar.js` |
+| 5 | Payslip รายละเอียดวันลา | section ในใบจ่ายเงินเดือน |
+| 6 | เชื่อม Time Clock → leave | approved leave → chip ใน HR Overview status table |
+| - | Audit tab modal (ค้างจาก 92.30) · Late rule (ค้างจาก 92.29) · Edit attendance modal 7-วัน (ค้างจาก 92.30) | |
+
+---
 
 > ⚠️ **SQL ที่ต้องรัน** (จาก 92.32, ยังจำเป็น): [`supabase-phase92-32-leave-management.sql`](supabase-phase92-32-leave-management.sql) — ก่อนเริ่มใช้ปุ่ม "ดึงสรุปวันลา" ใน Payroll modal. ก่อนรัน → ปุ่มยังกดได้แต่แสดง warning + ไม่ crash. **เฟส 92.33 ไม่มี SQL ใหม่** (additive code only).
 

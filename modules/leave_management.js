@@ -246,8 +246,295 @@ export function calcUnpaidLeaveDeduction(input = {}) {
 }
 
 // ═══════════════════════════════════════════════════════════
+//  Phase 92.35 — Leave Policy + Balance/Quota helpers (pure)
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Phase 92.35: fallback default ถ้า leave_policies ยังไม่มีในระบบ (graceful)
+ * @returns {Array<{leave_type:string, annual_quota:number|null, tracks_balance:boolean, description:string}>}
+ */
+export function defaultLeavePolicies() {
+  return [
+    { leave_type: "vacation", annual_quota: 10,   tracks_balance: true,  description: "พักร้อน — เริ่มต้น 10 วัน/ปี" },
+    { leave_type: "sick",     annual_quota: 30,   tracks_balance: true,  description: "ลาป่วย — เริ่มต้น 30 วัน/ปี" },
+    { leave_type: "personal", annual_quota: 3,    tracks_balance: true,  description: "ลากิจ — เริ่มต้น 3 วัน/ปี" },
+    { leave_type: "unpaid",   annual_quota: null, tracks_balance: false, description: "ลาไม่รับค่าจ้าง — ไม่นับ quota" },
+    { leave_type: "other",    annual_quota: null, tracks_balance: false, description: "อื่น ๆ — ไม่นับ quota" },
+  ];
+}
+
+/**
+ * Phase 92.35: หา quota ที่ effective สำหรับ user 1 คนใน type+year นั้น ๆ
+ * Priority: override > policy default > undefined (treat as unlimited)
+ *
+ * @param {object} input
+ * @param {string} input.userId
+ * @param {string} input.leaveType
+ * @param {number} input.year
+ * @param {Array<object>} input.policies          - rows จาก leave_policies
+ * @param {Array<object>} [input.overrides=[]]    - rows จาก staff_leave_overrides
+ * @returns {{quota:number|null, tracksBalance:boolean, source:"override"|"policy"|"default", policyExists:boolean}}
+ *   quota: null = ไม่จำกัด / ไม่นับ
+ *   tracksBalance: false → แสดงเฉย ๆ ไม่เตือนเกิน
+ */
+export function effectiveQuotaForUser(input = {}) {
+  const userId    = input.userId;
+  const leaveType = input.leaveType;
+  const year      = Number(input.year);
+  const policies  = Array.isArray(input.policies)  ? input.policies  : [];
+  const overrides = Array.isArray(input.overrides) ? input.overrides : [];
+
+  // 1) Override priority (user+type+year exact match)
+  if (userId && Number.isFinite(year)) {
+    const ov = overrides.find(o => o
+      && String(o.user_id) === String(userId)
+      && o.leave_type === leaveType
+      && Number(o.effective_year) === year
+    );
+    if (ov) {
+      // tracks_balance ใช้ของ policy ที่เกี่ยวข้อง (override ไม่เก็บ flag)
+      const pol = policies.find(p => p?.leave_type === leaveType);
+      const tracksBalance = pol ? !!pol.tracks_balance : (ov.annual_quota != null);
+      const quotaRaw = ov.annual_quota;
+      const quota = (quotaRaw == null) ? null : Number(quotaRaw);
+      return {
+        quota: Number.isFinite(quota) ? quota : null,
+        tracksBalance,
+        source: "override",
+        policyExists: !!pol,
+      };
+    }
+  }
+
+  // 2) Policy default
+  const pol = policies.find(p => p?.leave_type === leaveType);
+  if (pol) {
+    const quotaRaw = pol.annual_quota;
+    const quota = (quotaRaw == null) ? null : Number(quotaRaw);
+    return {
+      quota: Number.isFinite(quota) ? quota : null,
+      tracksBalance: !!pol.tracks_balance,
+      source: "policy",
+      policyExists: true,
+    };
+  }
+
+  // 3) Fallback to in-code defaults
+  const fallback = defaultLeavePolicies().find(p => p.leave_type === leaveType);
+  if (fallback) {
+    return {
+      quota: fallback.annual_quota,
+      tracksBalance: fallback.tracks_balance,
+      source: "default",
+      policyExists: false,
+    };
+  }
+
+  return { quota: null, tracksBalance: false, source: "default", policyExists: false };
+}
+
+/**
+ * Phase 92.35: คำนวณ balance สำหรับ leave_type 1 ตัว
+ * @param {object} input
+ * @param {number|null} input.quota       - ถ้า null = ไม่จำกัด
+ * @param {number} input.approvedDays
+ * @param {number} input.pendingDays
+ * @returns {{quota:number|null, used:number, pending:number, remaining:number|null, overQuota:boolean, willExceed:boolean}}
+ *   remaining = quota - used (null ถ้า unlimited)
+ *   overQuota: used > quota
+ *   willExceed: used + pending > quota (warning level — pending จะทำให้เกิน)
+ */
+export function calcLeaveBalance(input = {}) {
+  const round2 = (n) => Math.round(n * 100) / 100;
+  const quotaRaw = input.quota;
+  const used     = Math.max(0, Number(input.approvedDays) || 0);
+  const pending  = Math.max(0, Number(input.pendingDays)  || 0);
+
+  if (quotaRaw == null || !Number.isFinite(Number(quotaRaw))) {
+    // unlimited / ไม่นับ quota
+    return {
+      quota: null,
+      used: round2(used),
+      pending: round2(pending),
+      remaining: null,
+      overQuota: false,
+      willExceed: false,
+    };
+  }
+  const quota = Number(quotaRaw);
+  return {
+    quota: round2(quota),
+    used: round2(used),
+    pending: round2(pending),
+    remaining: round2(quota - used),
+    overQuota: used > quota,
+    willExceed: (used + pending) > quota,
+  };
+}
+
+/**
+ * Phase 92.35: รวม balance ของ user 1 คน ครอบทุก leave_type
+ * @param {object} input
+ * @param {string} input.userId
+ * @param {number} input.year                 - เช่น 2026
+ * @param {Array<object>} input.leaves        - staff_leaves ของ user คนนี้ (caller filter มาแล้ว)
+ * @param {Array<object>} input.policies
+ * @param {Array<object>} [input.overrides=[]]
+ * @returns {Map<string, object>} leave_type → balance + quotaMeta
+ */
+export function calcBalancesForUser(input = {}) {
+  const userId    = input.userId;
+  const year      = Number(input.year);
+  const leaves    = Array.isArray(input.leaves)    ? input.leaves    : [];
+  const policies  = Array.isArray(input.policies)  ? input.policies  : [];
+  const overrides = Array.isArray(input.overrides) ? input.overrides : [];
+
+  // นับวัน per type per status — filter เฉพาะ leave ที่อยู่ในปีนี้ (อิง start_date หรือ overlap)
+  const yearStart = `${year}-01-01`;
+  const yearEndExc = `${year + 1}-01-01`;
+  const isInYear = (r) => {
+    const s = String(r?.start_date || "").slice(0, 10);
+    const e = String(r?.end_date   || "").slice(0, 10);
+    if (!s || !e) return false;
+    // overlap ปีนี้: start < yearEndExc AND end >= yearStart
+    return s < yearEndExc && e >= yearStart;
+  };
+
+  const acc = {}; // type → {approvedDays, pendingDays}
+  for (const r of leaves) {
+    if (!r || !r.leave_type) continue;
+    if (!isInYear(r)) continue;
+    const days = Number(r.days_count || 0);
+    if (!Number.isFinite(days) || days <= 0) continue;
+    if (!acc[r.leave_type]) acc[r.leave_type] = { approvedDays: 0, pendingDays: 0 };
+    if (r.status === "approved") acc[r.leave_type].approvedDays += days;
+    else if (r.status === "pending") acc[r.leave_type].pendingDays += days;
+    // rejected/cancelled ไม่นับ
+  }
+
+  // สร้าง result ครอบทุก leave_type ที่อยู่ใน policies (รวม unpaid/other ที่อาจ tracks_balance=false)
+  const allTypes = Array.from(new Set([
+    ...policies.map(p => p?.leave_type).filter(Boolean),
+    ...defaultLeavePolicies().map(p => p.leave_type),
+    ...Object.keys(acc),
+  ]));
+
+  const out = new Map();
+  for (const t of allTypes) {
+    const q = effectiveQuotaForUser({ userId, leaveType: t, year, policies, overrides });
+    const usage = acc[t] || { approvedDays: 0, pendingDays: 0 };
+    const balance = calcLeaveBalance({
+      quota: q.quota,
+      approvedDays: usage.approvedDays,
+      pendingDays:  usage.pendingDays,
+    });
+    out.set(t, {
+      leaveType: t,
+      quota: balance.quota,
+      tracksBalance: q.tracksBalance,
+      source: q.source,
+      used: balance.used,
+      pending: balance.pending,
+      remaining: balance.remaining,
+      overQuota: balance.overQuota,
+      willExceed: balance.willExceed,
+    });
+  }
+  return out;
+}
+
+/**
+ * Phase 92.35: เช็คว่าจะแสดง warning เกิน quota หรือไม่
+ *   - tracks_balance = false → ไม่เตือน
+ *   - quota = null/unlimited → ไม่เตือน
+ *   - overQuota หรือ willExceed → warning
+ * @param {object} balance - row ที่ calcBalancesForUser คืน
+ * @returns {boolean}
+ */
+export function isOverQuotaWarning(balance) {
+  if (!balance) return false;
+  if (!balance.tracksBalance) return false;
+  if (balance.quota == null) return false;
+  return !!(balance.overQuota || balance.willExceed);
+}
+
+/**
+ * Phase 92.35: format label สำหรับ balance row
+ *   มี quota:    "5/10 + รอ 2 = เหลือ 3 วัน"   (หรือ "เกิน X วัน" ถ้า overQuota)
+ *   unlimited:   "ใช้ 5 + รอ 2 (ไม่นับ quota)"
+ * @param {object} balance
+ * @returns {string}
+ */
+export function formatBalanceLabel(balance) {
+  if (!balance) return "—";
+  const used    = Number(balance.used    || 0);
+  const pending = Number(balance.pending || 0);
+  if (balance.quota == null) {
+    const pendingPart = pending > 0 ? ` + รอ ${pending}` : "";
+    return `ใช้ ${used}${pendingPart} (ไม่นับ quota)`;
+  }
+  const quota = Number(balance.quota);
+  const remaining = quota - used;
+  const pendingPart = pending > 0 ? ` + รอ ${pending}` : "";
+  if (balance.overQuota) {
+    return `${used}/${quota}${pendingPart} (เกิน ${used - quota} วัน)`;
+  }
+  return `${used}/${quota}${pendingPart} = เหลือ ${remaining} วัน`;
+}
+
+// ═══════════════════════════════════════════════════════════
 //  Phase 92.33 — Network helper สำหรับ Payroll integration
 // ═══════════════════════════════════════════════════════════
+
+/**
+ * Phase 92.35: fetch leave_policies (graceful — fallback ไป default ถ้าตารางยังไม่มี)
+ * @returns {Promise<{ok:true, rows:Array} | {ok:false, code:"NO_TABLE"|"HTTP"|"NO_CONFIG", message:string}>}
+ */
+export async function fetchLeavePolicies() {
+  const cfg = (typeof window !== "undefined") ? window.SUPABASE_CONFIG : null;
+  if (!cfg?.url) return { ok: false, code: "NO_CONFIG", message: "ไม่มี SUPABASE_CONFIG" };
+  try {
+    const r = await fetch(`${cfg.url}/rest/v1/leave_policies?select=*&order=leave_type.asc`, {
+      headers: _sbHeaders(),
+    });
+    if (!r.ok) {
+      if (r.status === 404 || r.status === 400) {
+        return { ok: false, code: "NO_TABLE", message: `HTTP ${r.status}` };
+      }
+      return { ok: false, code: "HTTP", message: `HTTP ${r.status}` };
+    }
+    const rows = await r.json();
+    return { ok: true, rows: Array.isArray(rows) ? rows : [] };
+  } catch (e) {
+    return { ok: false, code: "HTTP", message: e?.message || String(e) };
+  }
+}
+
+/**
+ * Phase 92.35: fetch staff_leave_overrides ของ user 1 คน (RLS ก็ filter เพิ่มเองฝั่ง server)
+ * @param {string} userId
+ * @param {number} [year] - filter เฉพาะปีนี้ (ถ้าใส่)
+ * @returns {Promise<{ok:true, rows:Array} | {ok:false, code:string, message:string}>}
+ */
+export async function fetchLeaveOverridesForUser(userId, year) {
+  if (!userId) return { ok: false, code: "BAD_INPUT", message: "missing userId" };
+  const cfg = (typeof window !== "undefined") ? window.SUPABASE_CONFIG : null;
+  if (!cfg?.url) return { ok: false, code: "NO_CONFIG", message: "ไม่มี SUPABASE_CONFIG" };
+  try {
+    let url = `${cfg.url}/rest/v1/staff_leave_overrides?select=*&user_id=eq.${encodeURIComponent(userId)}`;
+    if (Number.isFinite(Number(year))) url += `&effective_year=eq.${encodeURIComponent(Number(year))}`;
+    url += `&order=leave_type.asc&limit=50`;
+    const r = await fetch(url, { headers: _sbHeaders() });
+    if (!r.ok) {
+      if (r.status === 404 || r.status === 400) return { ok: false, code: "NO_TABLE", message: `HTTP ${r.status}` };
+      return { ok: false, code: "HTTP", message: `HTTP ${r.status}` };
+    }
+    const rows = await r.json();
+    return { ok: true, rows: Array.isArray(rows) ? rows : [] };
+  } catch (e) {
+    return { ok: false, code: "HTTP", message: e?.message || String(e) };
+  }
+}
 
 /**
  * Phase 92.33: fetch approved leaves ของ user 1 คนใน period (overlap query)
@@ -451,6 +738,98 @@ function _profileOptions(profiles, selectedId) {
   }).join("");
 }
 
+// ─── Phase 92.35: Balance / Quota UI helpers ─────────────────
+
+const BALANCE_TYPE_ORDER = ["vacation", "sick", "personal", "unpaid", "other"];
+
+function _balanceChip(balance) {
+  // unlimited / ไม่นับ quota
+  if (!balance || !balance.tracksBalance || balance.quota == null) {
+    return { bg: "#f1f5f9", fg: "#475569", border: "#cbd5e1", icon: "—" };
+  }
+  if (balance.overQuota)  return { bg: "#fee2e2", fg: "#991b1b", border: "#fca5a5", icon: "⛔" };
+  if (balance.willExceed) return { bg: "#fff7ed", fg: "#9a3412", border: "#fdba74", icon: "⚠️" };
+  if (balance.used > 0)   return { bg: "#dcfce7", fg: "#166534", border: "#86efac", icon: "✓"  };
+  return { bg: "#eff6ff", fg: "#1e40af", border: "#93c5fd", icon: "○" };
+}
+
+function _renderBalanceCard(balance) {
+  const meta = leaveTypeLabel(balance.leaveType);
+  const chip = _balanceChip(balance);
+  const quotaLabel = (balance.quota == null) ? "—" : NUM_TH(balance.quota);
+  const remainingLabel = (balance.remaining == null) ? "—" : NUM_TH(balance.remaining);
+  return `
+    <div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:6px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
+        <div style="font-size:12px;font-weight:700;color:${meta.fg};display:inline-flex;align-items:center;gap:4px">
+          <span>${escHtml(meta.icon)}</span>
+          <span>${escHtml(meta.label)}</span>
+        </div>
+        <span style="display:inline-block;padding:1px 6px;border-radius:999px;background:${chip.bg};color:${chip.fg};border:1px solid ${chip.border};font-size:10px;font-weight:800">${escHtml(chip.icon)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:4px">
+        <div style="font-size:11px;color:#64748b">ใช้/quota</div>
+        <div style="font-size:14px;font-weight:800;color:#0f172a;font-variant-numeric:tabular-nums">${NUM_TH(balance.used)} / ${quotaLabel}</div>
+      </div>
+      ${balance.pending > 0 ? `<div style="display:flex;justify-content:space-between;font-size:11px;color:#9a3412"><span>รออนุมัติ</span><span style="font-variant-numeric:tabular-nums">+ ${NUM_TH(balance.pending)}</span></div>` : ""}
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:4px;padding-top:4px;border-top:1px dashed #f1f5f9">
+        <div style="font-size:11px;color:#64748b">เหลือ</div>
+        <div style="font-size:13px;font-weight:800;color:${balance.overQuota ? '#dc2626' : balance.willExceed ? '#ea580c' : '#16a34a'};font-variant-numeric:tabular-nums">${remainingLabel}</div>
+      </div>
+    </div>
+  `;
+}
+
+function _renderBalanceSection({ role, balanceUserId, balanceMap, profiles, policiesSource, year }) {
+  const showSelector = role === "admin" && Array.isArray(profiles) && profiles.length > 0;
+  const staffProfiles = (profiles || []).filter(p => p && p.role !== "customer");
+  const selectedProfile = balanceUserId ? staffProfiles.find(p => String(p.id) === String(balanceUserId)) : null;
+  const selectedName = selectedProfile ? profileDisplayName(selectedProfile) : "—";
+  const policiesNote = policiesSource === "default"
+    ? `<span style="font-size:11px;color:#9a3412;background:#fff7ed;border:1px solid #fdba74;border-radius:6px;padding:1px 8px">ใช้ค่า default (รัน supabase-phase92-35-leave-policies-balances.sql เพื่อตั้งค่าใน DB)</span>`
+    : `<span style="font-size:11px;color:#475569">policies จาก DB</span>`;
+
+  const cards = BALANCE_TYPE_ORDER
+    .map(t => balanceMap?.get?.(t))
+    .filter(Boolean);
+
+  // ถ้าไม่มีพนักงาน → แสดง empty state
+  if (!balanceUserId) {
+    return `
+      <div style="background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:14px 16px">
+        <div style="font-size:14px;font-weight:800;color:#0f172a;margin-bottom:6px">💼 Balance / Quota (${escHtml(String(year))})</div>
+        <div style="font-size:12px;color:#64748b">ยังไม่มีพนักงานให้เลือก</div>
+      </div>
+    `;
+  }
+
+  return `
+    <div style="background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px">
+        <div>
+          <div style="font-size:14px;font-weight:800;color:#0f172a">💼 Balance / Quota (${escHtml(String(year))})</div>
+          <div style="font-size:11px;color:#64748b;margin-top:2px">${escHtml(selectedName)} · ${policiesNote}</div>
+        </div>
+        ${showSelector ? `
+          <select id="lmBalanceUser" style="padding:5px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:12px;max-width:100%">
+            ${staffProfiles.map(p => {
+              const sel = String(p.id) === String(balanceUserId) ? " selected" : "";
+              const label = profileDisplayName(p) + (p.email ? ` (${p.email})` : "");
+              return `<option value="${escHtml(String(p.id))}"${sel}>${escHtml(label)}</option>`;
+            }).join("")}
+          </select>
+        ` : ""}
+      </div>
+      ${cards.length === 0
+        ? `<div style="font-size:12px;color:#64748b">ยังไม่มี policy / ข้อมูล leave</div>`
+        : `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px">
+            ${cards.map(b => _renderBalanceCard(b)).join("")}
+          </div>`
+      }
+    </div>
+  `;
+}
+
 function _confirmDialog(message) {
   // ★ ใช้ window.confirm() เป็น fallback ที่เร็ว+เชื่อถือได้ (มีในทุกเบราว์เซอร์)
   // ตามคำขอ user: "approve/reject/cancel ต้อง confirm ก่อน"
@@ -515,9 +894,40 @@ export async function renderLeaveManagementPage(ctx) {
   const profileMap = new Map();
   for (const p of profiles) if (p?.id) profileMap.set(String(p.id), p);
 
+  // Phase 92.35: โหลด policies (graceful — fallback ไป defaults) + overrides ของผู้ที่ดู balance อยู่
+  const currentYear = new Date().toLocaleDateString("en-CA", { timeZone: TZ }).slice(0, 4);
+  let policies = defaultLeavePolicies();
+  let policiesSource = "default";
+  try {
+    const pRes = await fetchLeavePolicies();
+    if (pRes.ok && pRes.rows.length > 0) {
+      policies = pRes.rows;
+      policiesSource = "db";
+    } else if (!pRes.ok && pRes.code !== "NO_TABLE") {
+      // log แต่ไม่ block
+      // eslint-disable-next-line no-console
+      console.warn("[leave_management] fetchLeavePolicies fail:", pRes);
+    }
+  } catch (_e) { /* silent */ }
+
   let activeMonth  = _currentMonthKey();
   let activeStatus = "all";
   let activeType   = "all";
+  let balanceUserId = role === "admin"
+    ? (profiles.find(p => p && p.role !== "customer")?.id || currentUserId || null)
+    : currentUserId;
+  let balanceOverrides = []; // เปลี่ยนตาม balanceUserId
+
+  async function _loadOverridesForBalance() {
+    if (!balanceUserId) { balanceOverrides = []; return; }
+    try {
+      const oRes = await fetchLeaveOverridesForUser(balanceUserId, Number(currentYear));
+      balanceOverrides = (oRes.ok && Array.isArray(oRes.rows)) ? oRes.rows : [];
+    } catch (_e) {
+      balanceOverrides = [];
+    }
+  }
+  await _loadOverridesForBalance();
 
   function _rerender() {
     const summary = summarizeLeaves(leaves, activeMonth);
@@ -531,6 +941,14 @@ export async function renderLeaveManagementPage(ctx) {
     const monthTh = activeMonth ? new Date(activeMonth + "-01T00:00:00+07:00").toLocaleDateString("th-TH", {
       timeZone: TZ, year: "numeric", month: "long"
     }) : "ทุกเดือน";
+
+    // Phase 92.35: คำนวณ balance ของ user ที่เลือก (admin) / ของตัวเอง (non-admin)
+    const balanceLeaves = balanceUserId
+      ? leaves.filter(r => String(r.user_id) === String(balanceUserId))
+      : [];
+    const balanceMap = balanceUserId
+      ? calcBalancesForUser({ userId: balanceUserId, year: Number(currentYear), leaves: balanceLeaves, policies, overrides: balanceOverrides })
+      : new Map();
 
     container.innerHTML = `
       <div style="padding:8px;display:flex;flex-direction:column;gap:14px">
@@ -554,6 +972,16 @@ export async function renderLeaveManagementPage(ctx) {
           ${_kpiCard({ label: "ปฏิเสธ",         value: NUM_TH(summary.rejected),     sub: escHtml(monthTh),  color: "#dc2626", icon: "✕"  })}
           ${_kpiCard({ label: "รวมวันที่อนุมัติ", value: NUM_TH(summary.approvedDays), sub: escHtml(monthTh),  color: "#0284c7", icon: "📅" })}
         </div>
+
+        <!-- Phase 92.35: Balance / Quota section -->
+        ${_renderBalanceSection({
+          role,
+          balanceUserId,
+          balanceMap,
+          profiles,
+          policiesSource,
+          year: Number(currentYear),
+        })}
 
         <!-- Filters + table -->
         <div style="background:#fff;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden">
@@ -633,6 +1061,15 @@ export async function renderLeaveManagementPage(ctx) {
 
     document.getElementById("lmCreateBtn")?.addEventListener("click", () => _openFormModal(null));
     document.getElementById("lmExportBtn")?.addEventListener("click", () => _doExport(filtered));
+
+    // Phase 92.35: เปลี่ยน user สำหรับ balance section (admin only)
+    document.getElementById("lmBalanceUser")?.addEventListener("change", async (ev) => {
+      const next = ev.target.value || null;
+      if (!next || next === balanceUserId) return;
+      balanceUserId = next;
+      await _loadOverridesForBalance();
+      _rerender();
+    });
 
     // Row action delegation
     const tbody = document.getElementById("lmTbody");
@@ -787,6 +1224,9 @@ export async function renderLeaveManagementPage(ctx) {
             <textarea id="lmFormReason" rows="2" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;margin-top:4px;font-size:13px;resize:vertical">${escHtml(existing?.reason || "")}</textarea>
           </label>
 
+          <!-- Phase 92.35: quota warning (advisory) -->
+          <div id="lmFormQuotaWarn" style="display:none;background:#fff7ed;border:1px solid #fdba74;color:#9a3412;padding:8px 12px;border-radius:8px;font-size:12px"></div>
+
           <div id="lmFormError" style="display:none;background:#fef2f2;border:1px solid #fecaca;color:#991b1b;padding:8px 12px;border-radius:8px;font-size:12px"></div>
 
           <div style="display:flex;justify-content:flex-end;gap:8px;padding-top:8px;border-top:1px solid #f1f5f9">
@@ -814,9 +1254,43 @@ export async function renderLeaveManagementPage(ctx) {
     const recalc = () => {
       const d = calcLeaveDays(startInput.value, endInput.value);
       if (d > 0) daysInput.value = String(d);
+      _refreshQuotaWarn();
     };
     startInput?.addEventListener("change", recalc);
     endInput?.addEventListener("change", recalc);
+
+    // Phase 92.35: quota warning (advisory — ไม่ block submit)
+    const quotaWarnBox = modal.querySelector("#lmFormQuotaWarn");
+    function _refreshQuotaWarn() {
+      if (!quotaWarnBox) return;
+      const uid = modal.querySelector("#lmFormUser")?.value || currentUserId || "";
+      const lt  = modal.querySelector("#lmFormType")?.value || "";
+      const newDays = Number(daysInput?.value || 0);
+      if (!uid || !lt || !(newDays > 0)) { quotaWarnBox.style.display = "none"; return; }
+      // ใช้ leaves ที่ load แล้วใน scope renderLeaveManagementPage (admin = all leaves, non-admin = own)
+      const userLeaves = leaves.filter(r => String(r.user_id) === String(uid));
+      const bMap = calcBalancesForUser({
+        userId: uid, year: Number(currentYear), leaves: userLeaves, policies, overrides: balanceOverrides
+      });
+      const b = bMap.get(lt);
+      if (!b || !b.tracksBalance || b.quota == null) { quotaWarnBox.style.display = "none"; return; }
+      // projected: used + pending + newDays (ถ้า existing → ลบ existing.days_count ที่นับเข้าไปแล้วใน leaves)
+      const existingDays = existing && existing.status === "pending" && String(existing.user_id) === String(uid) && existing.leave_type === lt
+        ? Number(existing.days_count || 0) : 0;
+      const projectedPending = (b.pending - existingDays) + newDays;
+      const projectedTotal = b.used + projectedPending;
+      const overBy = projectedTotal - b.quota;
+      if (overBy > 0) {
+        quotaWarnBox.innerHTML = `⚠️ จะเกิน quota <strong>${overBy.toFixed(2)}</strong> วัน (${leaveTypeLabel(lt).label}: ใช้แล้ว ${b.used}/${b.quota}, รออนุมัติรวมคำขอนี้ ${projectedPending.toFixed(2)} วัน) — ส่งได้ แต่ admin ต้องอนุมัติด้วยดุลพินิจ`;
+        quotaWarnBox.style.display = "block";
+      } else {
+        quotaWarnBox.style.display = "none";
+      }
+    }
+    modal.querySelector("#lmFormUser")?.addEventListener("change", _refreshQuotaWarn);
+    modal.querySelector("#lmFormType")?.addEventListener("change", _refreshQuotaWarn);
+    daysInput?.addEventListener("input", _refreshQuotaWarn);
+    _refreshQuotaWarn(); // initial check
 
     modal.querySelector("#lmForm")?.addEventListener("submit", async (ev) => {
       ev.preventDefault();

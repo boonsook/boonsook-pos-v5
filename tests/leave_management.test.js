@@ -15,6 +15,15 @@ const {
   summarizeApprovedLeavesForPayroll,
   calcUnpaidLeaveDeduction,
   fetchApprovedLeavesForUser,
+  // Phase 92.35
+  defaultLeavePolicies,
+  effectiveQuotaForUser,
+  calcLeaveBalance,
+  calcBalancesForUser,
+  isOverQuotaWarning,
+  formatBalanceLabel,
+  fetchLeavePolicies,
+  fetchLeaveOverridesForUser,
 } = await import("../modules/leave_management.js");
 
 // ── calcLeaveDays ───────────────────────────────────────────
@@ -310,6 +319,238 @@ test("fetchApprovedLeavesForUser — missing args → BAD_INPUT (no fetch)", asy
 test("fetchApprovedLeavesForUser — ไม่มี SUPABASE_CONFIG → NO_CONFIG", async () => {
   // node test env: ไม่มี window.SUPABASE_CONFIG
   const r = await fetchApprovedLeavesForUser("u1", "2026-05-01", "2026-05-31");
+  assert.equal(r.ok, false);
+  assert.equal(r.code, "NO_CONFIG");
+});
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 92.35 — Leave Policy + Balance/Quota helpers
+// ═══════════════════════════════════════════════════════════
+
+// ── defaultLeavePolicies ────────────────────────────────────
+
+test("defaultLeavePolicies — มี 5 types ครบ + quota ตามที่ออกแบบ", () => {
+  const p = defaultLeavePolicies();
+  assert.equal(p.length, 5);
+  const v = p.find(x => x.leave_type === "vacation");
+  const s = p.find(x => x.leave_type === "sick");
+  const ps = p.find(x => x.leave_type === "personal");
+  const u = p.find(x => x.leave_type === "unpaid");
+  const o = p.find(x => x.leave_type === "other");
+  assert.equal(v.annual_quota, 10);
+  assert.equal(s.annual_quota, 30);
+  assert.equal(ps.annual_quota, 3);
+  assert.equal(u.annual_quota, null);
+  assert.equal(o.annual_quota, null);
+  assert.equal(v.tracks_balance, true);
+  assert.equal(u.tracks_balance, false);
+  assert.equal(o.tracks_balance, false);
+});
+
+// ── effectiveQuotaForUser ───────────────────────────────────
+
+test("effectiveQuotaForUser — override priority over policy", () => {
+  const policies = defaultLeavePolicies();
+  const overrides = [{ user_id: "u1", leave_type: "vacation", effective_year: 2026, annual_quota: 15 }];
+  const r = effectiveQuotaForUser({ userId: "u1", leaveType: "vacation", year: 2026, policies, overrides });
+  assert.equal(r.quota, 15);
+  assert.equal(r.source, "override");
+  assert.equal(r.tracksBalance, true); // ใช้ policy flag
+});
+
+test("effectiveQuotaForUser — fallback policy ถ้าไม่มี override match", () => {
+  const policies = defaultLeavePolicies();
+  const r = effectiveQuotaForUser({ userId: "u1", leaveType: "sick", year: 2026, policies, overrides: [] });
+  assert.equal(r.quota, 30);
+  assert.equal(r.source, "policy");
+});
+
+test("effectiveQuotaForUser — override ปี/user ไม่ตรง → ไม่ใช้", () => {
+  const policies = defaultLeavePolicies();
+  const overrides = [
+    { user_id: "u2", leave_type: "vacation", effective_year: 2026, annual_quota: 99 }, // ผิด user
+    { user_id: "u1", leave_type: "vacation", effective_year: 2025, annual_quota: 99 }, // ผิดปี
+  ];
+  const r = effectiveQuotaForUser({ userId: "u1", leaveType: "vacation", year: 2026, policies, overrides });
+  assert.equal(r.source, "policy");
+  assert.equal(r.quota, 10);
+});
+
+test("effectiveQuotaForUser — override quota=null → unlimited", () => {
+  const policies = defaultLeavePolicies();
+  const overrides = [{ user_id: "u1", leave_type: "vacation", effective_year: 2026, annual_quota: null }];
+  const r = effectiveQuotaForUser({ userId: "u1", leaveType: "vacation", year: 2026, policies, overrides });
+  assert.equal(r.quota, null);
+  assert.equal(r.source, "override");
+});
+
+test("effectiveQuotaForUser — ไม่มี policy ใน input → fallback in-code default", () => {
+  const r = effectiveQuotaForUser({ userId: "u1", leaveType: "vacation", year: 2026, policies: [], overrides: [] });
+  assert.equal(r.source, "default");
+  assert.equal(r.quota, 10);
+  assert.equal(r.policyExists, false);
+});
+
+test("effectiveQuotaForUser — leave_type unknown → quota null + tracksBalance false", () => {
+  const r = effectiveQuotaForUser({ userId: "u1", leaveType: "weird", year: 2026, policies: [], overrides: [] });
+  assert.equal(r.quota, null);
+  assert.equal(r.tracksBalance, false);
+});
+
+// ── calcLeaveBalance ────────────────────────────────────────
+
+test("calcLeaveBalance — quota null → unlimited (remaining=null)", () => {
+  const b = calcLeaveBalance({ quota: null, approvedDays: 5, pendingDays: 2 });
+  assert.equal(b.quota, null);
+  assert.equal(b.remaining, null);
+  assert.equal(b.used, 5);
+  assert.equal(b.pending, 2);
+  assert.equal(b.overQuota, false);
+  assert.equal(b.willExceed, false);
+});
+
+test("calcLeaveBalance — quota>used → remaining + ไม่ over", () => {
+  const b = calcLeaveBalance({ quota: 10, approvedDays: 3, pendingDays: 2 });
+  assert.equal(b.remaining, 7);
+  assert.equal(b.overQuota, false);
+  assert.equal(b.willExceed, false);
+});
+
+test("calcLeaveBalance — used + pending จะเกิน → willExceed=true แต่ยังไม่ overQuota", () => {
+  const b = calcLeaveBalance({ quota: 10, approvedDays: 8, pendingDays: 5 });
+  assert.equal(b.used, 8);
+  assert.equal(b.pending, 5);
+  assert.equal(b.remaining, 2);
+  assert.equal(b.overQuota, false); // used (8) <= quota (10)
+  assert.equal(b.willExceed, true); // 8+5 > 10
+});
+
+test("calcLeaveBalance — used > quota → overQuota=true", () => {
+  const b = calcLeaveBalance({ quota: 10, approvedDays: 12, pendingDays: 0 });
+  assert.equal(b.overQuota, true);
+  assert.equal(b.remaining, -2);
+});
+
+test("calcLeaveBalance — negative/NaN input → clamp ไป 0", () => {
+  const b = calcLeaveBalance({ quota: 10, approvedDays: -5, pendingDays: NaN });
+  assert.equal(b.used, 0);
+  assert.equal(b.pending, 0);
+  assert.equal(b.remaining, 10);
+});
+
+// ── calcBalancesForUser ─────────────────────────────────────
+
+const POLICIES_FIX = defaultLeavePolicies();
+
+test("calcBalancesForUser — แยก approved/pending + filter ปี", () => {
+  const leaves = [
+    { user_id: "u1", leave_type: "vacation", status: "approved",  start_date: "2026-03-01", end_date: "2026-03-03", days_count: 3 },
+    { user_id: "u1", leave_type: "vacation", status: "pending",   start_date: "2026-08-10", end_date: "2026-08-12", days_count: 3 },
+    { user_id: "u1", leave_type: "sick",     status: "approved",  start_date: "2026-05-05", end_date: "2026-05-05", days_count: 1 },
+    { user_id: "u1", leave_type: "vacation", status: "rejected",  start_date: "2026-06-01", end_date: "2026-06-01", days_count: 1 }, // skip
+    { user_id: "u1", leave_type: "vacation", status: "approved",  start_date: "2025-12-31", end_date: "2025-12-31", days_count: 1 }, // skip ปีอื่น
+  ];
+  const map = calcBalancesForUser({ userId: "u1", year: 2026, leaves, policies: POLICIES_FIX, overrides: [] });
+  const vac = map.get("vacation");
+  assert.equal(vac.used, 3);
+  assert.equal(vac.pending, 3);
+  assert.equal(vac.remaining, 7); // 10 - 3
+  assert.equal(vac.willExceed, false); // 3+3=6 ≤ 10
+  const sick = map.get("sick");
+  assert.equal(sick.used, 1);
+  assert.equal(sick.pending, 0);
+});
+
+test("calcBalancesForUser — overlap ข้ามปี (start Dec 2025 end Jan 2026) → นับใน 2026", () => {
+  const leaves = [
+    { user_id: "u1", leave_type: "vacation", status: "approved", start_date: "2025-12-30", end_date: "2026-01-02", days_count: 4 },
+  ];
+  const map = calcBalancesForUser({ userId: "u1", year: 2026, leaves, policies: POLICIES_FIX, overrides: [] });
+  assert.equal(map.get("vacation").used, 4);
+});
+
+test("calcBalancesForUser — override quota ใช้ทับ policy", () => {
+  const leaves = [{ user_id: "u1", leave_type: "personal", status: "approved", start_date: "2026-01-01", end_date: "2026-01-03", days_count: 3 }];
+  const overrides = [{ user_id: "u1", leave_type: "personal", effective_year: 2026, annual_quota: 5 }];
+  const map = calcBalancesForUser({ userId: "u1", year: 2026, leaves, policies: POLICIES_FIX, overrides });
+  const p = map.get("personal");
+  assert.equal(p.quota, 5);
+  assert.equal(p.remaining, 2);
+});
+
+test("calcBalancesForUser — unpaid ไม่นับ quota (tracksBalance=false)", () => {
+  const leaves = [{ user_id: "u1", leave_type: "unpaid", status: "approved", start_date: "2026-05-01", end_date: "2026-05-05", days_count: 5 }];
+  const map = calcBalancesForUser({ userId: "u1", year: 2026, leaves, policies: POLICIES_FIX, overrides: [] });
+  const u = map.get("unpaid");
+  assert.equal(u.tracksBalance, false);
+  assert.equal(u.quota, null);
+  assert.equal(u.remaining, null);
+  assert.equal(u.used, 5);
+});
+
+// ── isOverQuotaWarning ──────────────────────────────────────
+
+test("isOverQuotaWarning — over/willExceed → true (ถ้า tracksBalance + quota set)", () => {
+  assert.equal(isOverQuotaWarning({ tracksBalance: true, quota: 10, overQuota: true, willExceed: false }), true);
+  assert.equal(isOverQuotaWarning({ tracksBalance: true, quota: 10, overQuota: false, willExceed: true }), true);
+});
+
+test("isOverQuotaWarning — tracksBalance=false → false (เช่น unpaid)", () => {
+  assert.equal(isOverQuotaWarning({ tracksBalance: false, quota: null, overQuota: false, willExceed: false }), false);
+});
+
+test("isOverQuotaWarning — quota=null → false (unlimited)", () => {
+  assert.equal(isOverQuotaWarning({ tracksBalance: true, quota: null, overQuota: false, willExceed: false }), false);
+});
+
+test("isOverQuotaWarning — null/undefined → false", () => {
+  assert.equal(isOverQuotaWarning(null), false);
+  assert.equal(isOverQuotaWarning(undefined), false);
+});
+
+// ── formatBalanceLabel ──────────────────────────────────────
+
+test("formatBalanceLabel — มี quota + ใช้ปกติ → 'X/Y = เหลือ Z วัน'", () => {
+  const s = formatBalanceLabel({ quota: 10, used: 3, pending: 0, overQuota: false });
+  assert.match(s, /3\/10/);
+  assert.match(s, /เหลือ 7/);
+});
+
+test("formatBalanceLabel — มี pending → '+ รอ N'", () => {
+  const s = formatBalanceLabel({ quota: 10, used: 3, pending: 2, overQuota: false });
+  assert.match(s, /\+ รอ 2/);
+});
+
+test("formatBalanceLabel — overQuota → 'เกิน N วัน'", () => {
+  const s = formatBalanceLabel({ quota: 10, used: 13, pending: 0, overQuota: true });
+  assert.match(s, /เกิน 3 วัน/);
+});
+
+test("formatBalanceLabel — quota null (unlimited) → 'ไม่นับ quota'", () => {
+  const s = formatBalanceLabel({ quota: null, used: 5, pending: 2 });
+  assert.match(s, /ไม่นับ quota/);
+});
+
+test("formatBalanceLabel — null → '—'", () => {
+  assert.equal(formatBalanceLabel(null), "—");
+});
+
+// ── fetch helpers (graceful) ────────────────────────────────
+
+test("fetchLeavePolicies — node env ไม่มี SUPABASE_CONFIG → NO_CONFIG", async () => {
+  const r = await fetchLeavePolicies();
+  assert.equal(r.ok, false);
+  assert.equal(r.code, "NO_CONFIG");
+});
+
+test("fetchLeaveOverridesForUser — missing userId → BAD_INPUT", async () => {
+  const r = await fetchLeaveOverridesForUser("");
+  assert.equal(r.ok, false);
+  assert.equal(r.code, "BAD_INPUT");
+});
+
+test("fetchLeaveOverridesForUser — ไม่มี config → NO_CONFIG", async () => {
+  const r = await fetchLeaveOverridesForUser("u1", 2026);
   assert.equal(r.ok, false);
   assert.equal(r.code, "NO_CONFIG");
 });
