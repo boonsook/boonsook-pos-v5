@@ -1130,8 +1130,11 @@ function _calendarEventChip(leave, profileMap, dateStr) {
   // ถ้า leave หลายวัน + dateStr ไม่ใช่วันแรก → suffix "(ต่อ)"
   const isContinuation = String(leave.start_date || "").slice(0, 10) !== dateStr;
   const contSuffix = isContinuation ? " (ต่อ)" : "";
+  // Phase 92.40b: aria-label สำหรับ screen reader + ย้ำว่ากดได้
+  const ariaSummary = `เปิดรายละเอียดคำขอลา ${name} ประเภท${meta.label} สถานะ${stMeta.label}${contSuffix}`;
   return `<button type="button" class="lm-cal-event" data-lm-id="${escHtml(String(leave.id))}"
     title="${escHtml(name)} · ${escHtml(meta.label)} · ${escHtml(stMeta.label)}"
+    aria-label="${escHtml(ariaSummary)}"
     style="display:block;width:100%;text-align:left;padding:2px 5px;margin:1px 0;border:1px ${borderStyle} ${meta.border};border-radius:5px;background:${meta.bg};color:${meta.fg};font-size:10px;font-weight:700;cursor:pointer;line-height:1.3;opacity:${opacity};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
     <span>${escHtml(meta.icon)}</span> <span>${escHtml(name)}</span>${escHtml(contSuffix)}
   </button>`;
@@ -1219,6 +1222,8 @@ function _renderCalendarSection(filtered, month, profileMap, todayStr) {
         .lm-cal-event { font-size: 12px !important; padding: 5px 8px !important; }
       }
       .lm-cal-event:hover { transform: translateY(-1px); filter: brightness(1.05); }
+      /* Phase 92.40b: focus-visible affordance — keyboard/screen reader users เห็นชัดว่ากดได้ */
+      .lm-cal-event:focus-visible { outline: 2px solid #0284c7; outline-offset: 2px; }
     </style>
     <div class="lm-cal-desktop">${_renderCalendarMonthGrid(filtered, month, profileMap, todayStr)}</div>
     <div class="lm-cal-mobile">${_renderCalendarAgenda(filtered, month, profileMap, todayStr)}</div>
@@ -1313,7 +1318,7 @@ function _renderDayListPopover(dateStr, events, profileMap) {
       </div>
       <div class="lm-pop-body" style="padding:12px;display:flex;flex-direction:column;gap:6px">
         ${rows}
-        <div style="font-size:11px;color:#64748b;margin-top:4px;text-align:center">คลิกรายการเพื่อดูรายละเอียด</div>
+        <div class="lm-day-hint" aria-hidden="true" style="font-size:11px;color:#94a3b8;margin-top:4px;text-align:center;cursor:default;user-select:none;font-style:italic">เลือกรายการด้านบนเพื่อเปิดรายละเอียด</div>
       </div>
     </div>
   `;

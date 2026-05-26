@@ -1631,3 +1631,45 @@ test("source: _renderLeavePopover แสดง email + role (ถ้ามี) �
   // header รวม email + role
   assert.match(body, /p\?\.email[\s\S]{0,200}?p\?\.role/, "ต้องเช็ค p?.email + p?.role");
 });
+
+// ── Phase 92.40b: day-list hint copy + chip a11y ──
+
+test("source: day-list popover ไม่มี hint copy เก่า 'คลิกรายการเพื่อดูรายละเอียด' แล้ว", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  assert.ok(!/คลิกรายการเพื่อดูรายละเอียด/.test(src),
+    "hint copy เก่าทำให้ user เข้าใจผิดว่ากดได้ — ห้ามมีใน source แล้ว");
+});
+
+test("source: day-list popover มี hint copy ใหม่ + class lm-day-hint + aria-hidden + style help", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  const body = src.match(/function _renderDayListPopover[\s\S]*?^}/m)?.[0] || "";
+  assert.ok(body.length > 0, "ต้องเจอ _renderDayListPopover");
+  assert.match(body, /เลือกรายการด้านบนเพื่อเปิดรายละเอียด/, "ต้องมี hint copy ใหม่");
+  assert.match(body, /class="lm-day-hint"/, "hint ต้องมี class lm-day-hint");
+  assert.match(body, /aria-hidden="true"/, "hint ต้อง aria-hidden=true (เป็นแค่ helper text)");
+  assert.match(body, /cursor:\s*default/, "hint ต้อง cursor:default (ไม่หลอกว่ากดได้)");
+  assert.match(body, /user-select:\s*none/, "hint ต้อง user-select:none (เป็น UI text ไม่ใช่ data)");
+});
+
+test("source: _calendarEventChip มี aria-label ระบุชื่อ+ประเภท+สถานะ + cursor:pointer ยังอยู่ (clickable)", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  const body = src.match(/function _calendarEventChip[\s\S]*?^}/m)?.[0] || "";
+  assert.ok(body.length > 0, "ต้องเจอ _calendarEventChip");
+  assert.match(body, /aria-label="\$\{escHtml\(ariaSummary\)\}"/, "ต้องมี aria-label dynamic");
+  assert.match(body, /เปิดรายละเอียดคำขอลา/, "aria summary text ต้องสื่อความหมาย");
+  assert.match(body, /cursor:\s*pointer/, "chip ยังต้อง clickable (cursor:pointer)");
+});
+
+test("source: .lm-cal-event มี :focus-visible affordance (keyboard/SR users เห็นว่ากดได้)", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  assert.match(src, /\.lm-cal-event:focus-visible\s*\{[\s\S]{0,200}?outline:/,
+    "ต้องมี .lm-cal-event:focus-visible rule");
+});

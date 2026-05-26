@@ -7,6 +7,21 @@
 
 ---
 
+## 5.62.5 (build 308) — 2026-05-27 🧯 Phase 92.40b — HOTFIX day-list hint copy not clickable
+
+- **fix(leave/day-list) [misleading-copy]:** hint ใต้ day-list popover "คลิกรายการเพื่อดูรายละเอียด" ทำให้ user คิดว่า hint เป็นปุ่มกดได้ (แต่จริง ๆ ต้องกด event item ด้านบน)
+- **แก้:**
+  - เปลี่ยน copy: "คลิกรายการเพื่อดูรายละเอียด" → **"เลือกรายการด้านบนเพื่อเปิดรายละเอียด"** — ชัดเจนว่าเป็น instruction ไม่ใช่ action
+  - Style เป็น help text: `color:#94a3b8` (อ่อนลง), `cursor:default`, `user-select:none`, `font-style:italic`, `class="lm-day-hint"` + `aria-hidden="true"`
+  - **เสริม a11y ของ event chip** (UX upside): เพิ่ม `aria-label="เปิดรายละเอียดคำขอลา {name} ประเภท{type} สถานะ{status}"` + `.lm-cal-event:focus-visible { outline:2px solid #0284c7 }` → keyboard/screen reader users เห็นว่ากดได้
+- **ไม่แตะ:** event click flow / behavior อื่น
+- Tests +4 source-level (no old hint copy / new copy + class + aria + style / chip aria-label + cursor:pointer / focus-visible rule). Unit **676 → 680**
+- verify เขียว: lint:errors 0/0 · unit 680/680 · e2e 11/11 · audit 0
+
+**Build:** 307 → 308; version 5.62.4 → 5.62.5 (patch hotfix — UX copy/affordance)
+
+---
+
 ## 5.62.4 (build 307) — 2026-05-27 ✨ Phase 92.40 — Leave Calendar Event Detail Actions Polish
 
 - **feat(leave/calendar) [actions]:** popover รายละเอียดของ event ใน Calendar ใช้ helper เดียวเป็น single source of truth + ขยาย detail/UX
