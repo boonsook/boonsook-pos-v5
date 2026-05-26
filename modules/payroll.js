@@ -10,13 +10,15 @@ import { fetchUserAttendanceSummary, shiftHoursFromState } from "./time_clock.js
 import {
   fetchApprovedLeavesForUser,
   summarizeApprovedLeavesForPayroll,
-  calcUnpaidLeaveDeduction,
   // Phase 92.35: quota helpers (graceful)
   fetchLeavePolicies,
   fetchLeaveOverridesForUser,
   calcBalancesForUser,
   defaultLeavePolicies,
   formatBalanceLabel,
+  // Phase 92.36: paid leave policy decision (advisory)
+  decidePayrollLeaveImpact,
+  leaveDeductionNoteMarker,
 } from "./leave_management.js";
 
 let _payrolls = [];
@@ -292,18 +294,26 @@ function _openPayrollModal(ctx, payroll) {
           </div>
         </div>
 
-        <!-- Phase 92.33: ดึงสรุปวันลาในรอบเดือน — advisory + manual apply -->
+        <!-- Phase 92.33 / 92.36: ดึงสรุปวันลาในรอบเดือน — policy-based advisory + manual apply -->
         <div id="prLeaveBox" style="background:#fff7ed;border:1px solid #fdba74;border-radius:10px;padding:12px 14px">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
             <div style="font-weight:700;color:#9a3412;font-size:13px">🌴 วันลาในรอบเดือน <span style="font-size:11px;font-weight:400;color:#c2410c">(ของเดือนนี้)</span></div>
             <button id="prFetchLeaveBtn" type="button" style="background:#ea580c;color:#fff;border:none;padding:6px 12px;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">📥 ดึงสรุปวันลา</button>
           </div>
           <div id="prLeaveSummary" style="margin-top:8px;font-size:12px;color:#9a3412;min-height:18px">— กดปุ่ม "ดึงสรุปวันลา" หลังเลือกพนักงาน + เดือน —</div>
+
+          <!-- Phase 92.36: policy-based breakdown (paid / over quota / unpaid) -->
+          <div id="prLeavePolicyRow" style="display:none;margin-top:8px;padding-top:8px;border-top:1px dashed #fdba74">
+            <div style="font-size:11px;color:#7c2d12;font-weight:700;margin-bottom:6px">🧮 Policy breakdown (advisory — admin ต้องกดยืนยันเอง):</div>
+            <div id="prLeavePolicyBreakdown" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:6px;font-size:11px"></div>
+          </div>
+
           <!-- Phase 92.35: balance/quota usage (advisory — ดูภาพรวมทั้งปี) -->
           <div id="prLeaveBalanceRow" style="display:none;margin-top:8px;padding-top:8px;border-top:1px dashed #fdba74">
-            <div style="font-size:11px;color:#7c2d12;font-weight:700;margin-bottom:6px">📊 ทั้งปี (advisory — ไม่หักเงินเฟสนี้):</div>
+            <div style="font-size:11px;color:#7c2d12;font-weight:700;margin-bottom:6px">📊 ทั้งปี (advisory — ใช้ตัดสินใจหักเงิน):</div>
             <div id="prLeaveBalance" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:6px;font-size:11px"></div>
           </div>
+
           <div id="prLeaveApplyRow" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid #fdba74">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
               <div style="font-size:12px;color:#7c2d12">
@@ -312,6 +322,7 @@ function _openPayrollModal(ctx, payroll) {
               </div>
               <button id="prFillLeaveBtn" type="button" style="background:#dc2626;color:#fff;border:none;padding:7px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700">→ เติมลงช่องหัก</button>
             </div>
+            <div style="font-size:10px;color:#9a3412;margin-top:4px;font-style:italic">★ ปุ่มนี้เป็นการ "แนะนำ" ไม่หักเงินอัตโนมัติ — admin ตรวจช่องหัก/หมายเหตุก่อนบันทึก</div>
           </div>
         </div>
 
@@ -508,11 +519,11 @@ function _openPayrollModal(ctx, payroll) {
     }
   });
 
-  // ─── Phase 92.33: ดึงสรุปวันลา approved + advisory deduction ─────
+  // ─── Phase 92.33 / 92.36: ดึงสรุปวันลา + policy decision (paid/over/unpaid) ─────
   const fetchLeaveBtn = document.getElementById("prFetchLeaveBtn");
-  let _leaveSuggestedAmount = 0;
-  let _leaveSuggestedSource = "";
-  let _leaveSuggestedUnpaidDays = 0;
+  let _leaveDecision = null;     // ผลล่าสุดจาก decidePayrollLeaveImpact
+  let _leaveBalanceMap = null;   // Map ทั้งปี — ใช้ recompute เมื่อ rate/salary เปลี่ยน
+  let _leaveMonthSummary = null; // monthSummary จาก summarizeApprovedLeavesForPayroll
 
   function _setLeaveSummary(html, isError) {
     const el = document.getElementById("prLeaveSummary");
@@ -524,8 +535,7 @@ function _openPayrollModal(ctx, payroll) {
   function _hideLeaveApplyRow() {
     const row = document.getElementById("prLeaveApplyRow");
     if (row) row.style.display = "none";
-    _leaveSuggestedAmount = 0;
-    _leaveSuggestedUnpaidDays = 0;
+    _leaveDecision = null;
   }
 
   function _hideLeaveBalanceRow() {
@@ -533,20 +543,42 @@ function _openPayrollModal(ctx, payroll) {
     if (row) row.style.display = "none";
   }
 
-  // Phase 92.35: render balance ทั้งปีของพนักงาน + ปีที่อิงจาก periodInput
-  async function _renderYearBalance(empId, periodInput) {
-    const balanceBox = document.getElementById("prLeaveBalance");
-    const balanceRow = document.getElementById("prLeaveBalanceRow");
-    if (!balanceBox || !balanceRow) return;
+  function _hideLeavePolicyRow() {
+    const row = document.getElementById("prLeavePolicyRow");
+    if (row) row.style.display = "none";
+  }
+
+  // Phase 92.36: render policy breakdown cards (paid / over / unpaid / other)
+  function _renderPolicyBreakdown(decision) {
+    const row = document.getElementById("prLeavePolicyRow");
+    const box = document.getElementById("prLeavePolicyBreakdown");
+    if (!row || !box || !decision) return;
+    const cells = [];
+    const pushCell = (label, days, color) => {
+      cells.push(`<div style="background:#fff;border:1px solid #fdba74;border-radius:8px;padding:6px 8px">
+        <div style="font-size:10px;color:#9a3412;font-weight:700">${escHtml(label)}</div>
+        <div style="font-size:14px;color:${color};font-weight:800;font-variant-numeric:tabular-nums">${Number(days).toLocaleString("th-TH")} วัน</div>
+      </div>`);
+    };
+    pushCell("✅ Paid (in quota)",   decision.paidWithinQuotaDays, "#16a34a");
+    pushCell("⚠️ เกิน quota",        decision.overQuotaDays,       decision.overQuotaDays > 0 ? "#ea580c" : "#94a3b8");
+    pushCell("💸 ลาไม่รับค่าจ้าง",   decision.unpaidDays,          decision.unpaidDays    > 0 ? "#dc2626" : "#94a3b8");
+    pushCell("📌 อื่น ๆ (ไม่หัก)",   decision.otherDays,           "#475569");
+    pushCell("→ แนะนำหักรวม",        decision.deductibleDays,      decision.deductibleDays > 0 ? "#dc2626" : "#94a3b8");
+    box.innerHTML = cells.join("");
+    row.style.display = "block";
+  }
+
+  // Phase 92.36: load balance map ทั้งปี + return ให้ caller เอาไปใช้ตัดสินใจ
+  async function _loadYearBalance(empId, periodInput) {
     const yearStr = (periodInput || "").slice(0, 4);
     const year = Number(yearStr);
-    if (!Number.isFinite(year)) { balanceRow.style.display = "none"; return; }
+    if (!Number.isFinite(year)) return { ok: false, map: null, year: null };
     try {
       const cfg = window.SUPABASE_CONFIG;
-      if (!cfg?.url) { balanceRow.style.display = "none"; return; }
+      if (!cfg?.url) return { ok: false, map: null, year };
       const token = window._sbAccessToken || cfg.anonKey;
       const headers = { apikey: cfg.anonKey, Authorization: "Bearer " + token };
-      // fetch ปีนั้น ๆ ของ user (รวมทุก status เพื่อแยก approved/pending)
       const yearStart = `${year}-01-01`;
       const yearEnd   = `${year}-12-31`;
       const url = `${cfg.url}/rest/v1/staff_leaves?select=*`
@@ -562,56 +594,75 @@ function _openPayrollModal(ctx, payroll) {
       const policies = (polRes && polRes.ok && polRes.rows.length > 0) ? polRes.rows : defaultLeavePolicies();
       const overrides = (ovrRes && ovrRes.ok && Array.isArray(ovrRes.rows)) ? ovrRes.rows : [];
       const bMap = calcBalancesForUser({ userId: empId, year, leaves: leavesRes, policies, overrides });
-      const order = ["vacation", "sick", "personal", "unpaid", "other"];
-      const cells = order
-        .map(t => bMap.get(t))
-        .filter(b => b)
-        .map(b => {
-          const overOrWarn = b.overQuota ? "#dc2626" : b.willExceed ? "#ea580c" : "#7c2d12";
-          const label = formatBalanceLabel(b);
-          const typeLabel = ({
-            vacation: "🌴 พักร้อน",
-            sick: "🤒 ป่วย",
-            personal: "📝 กิจ",
-            unpaid: "💸 ไม่รับค่าจ้าง",
-            other: "📌 อื่น ๆ",
-          })[b.leaveType] || b.leaveType;
-          return `<div style="background:#fff;border:1px solid #fdba74;border-radius:8px;padding:6px 8px">
-            <div style="font-weight:700;color:${overOrWarn};font-size:11px">${escHtml(typeLabel)}</div>
-            <div style="color:#7c2d12;font-size:11px;margin-top:2px">${escHtml(label)}</div>
-          </div>`;
-        });
-      balanceBox.innerHTML = cells.join("") || `<div style="color:#9a3412">ไม่มีข้อมูล policy</div>`;
-      balanceRow.style.display = "block";
+      return { ok: true, map: bMap, year };
     } catch (_e) {
-      balanceRow.style.display = "none";
+      return { ok: false, map: null, year };
     }
   }
 
-  function _refreshLeaveSuggestion() {
-    // recompute suggestion ตาม base_salary / daily_rate ปัจจุบัน (ที่อาจถูก auto-fill จาก daily mode)
-    if (_leaveSuggestedUnpaidDays <= 0) { _hideLeaveApplyRow(); return; }
+  function _renderBalanceSection(bMap) {
+    const balanceBox = document.getElementById("prLeaveBalance");
+    const balanceRow = document.getElementById("prLeaveBalanceRow");
+    if (!balanceBox || !balanceRow) return;
+    if (!bMap) { balanceRow.style.display = "none"; return; }
+    const order = ["vacation", "sick", "personal", "unpaid", "other"];
+    const cells = order
+      .map(t => bMap.get(t))
+      .filter(b => b)
+      .map(b => {
+        const overOrWarn = b.overQuota ? "#dc2626" : b.willExceed ? "#ea580c" : "#7c2d12";
+        const label = formatBalanceLabel(b);
+        const typeLabel = ({
+          vacation: "🌴 พักร้อน",
+          sick: "🤒 ป่วย",
+          personal: "📝 กิจ",
+          unpaid: "💸 ไม่รับค่าจ้าง",
+          other: "📌 อื่น ๆ",
+        })[b.leaveType] || b.leaveType;
+        return `<div style="background:#fff;border:1px solid #fdba74;border-radius:8px;padding:6px 8px">
+          <div style="font-weight:700;color:${overOrWarn};font-size:11px">${escHtml(typeLabel)}</div>
+          <div style="color:#7c2d12;font-size:11px;margin-top:2px">${escHtml(label)}</div>
+        </div>`;
+      });
+    balanceBox.innerHTML = cells.join("") || `<div style="color:#9a3412">ไม่มีข้อมูล policy</div>`;
+    balanceRow.style.display = "block";
+  }
+
+  // Recompute decision ตาม rate/salary ปัจจุบัน (เรียกเมื่อ admin แก้ base/dailyRate หลัง fetch)
+  function _refreshLeaveDecision() {
+    if (!_leaveMonthSummary) { _hideLeaveApplyRow(); return; }
     const empId = document.getElementById("prEmp")?.value || "";
     const emp = _profiles.find(p => p.id === empId);
     const dailyOn   = document.getElementById("prDailyToggle")?.checked;
     const dailyInp  = Number(document.getElementById("prDailyRate")?.value || 0);
     const dailyRate = dailyOn && dailyInp > 0 ? dailyInp : Number(emp?.daily_rate || 0);
     const baseSal   = Number(document.getElementById("prBase")?.value || 0);
-    const amount = calcUnpaidLeaveDeduction({
-      unpaidDays: _leaveSuggestedUnpaidDays,
+    const decision = decidePayrollLeaveImpact({
+      monthSummary: _leaveMonthSummary,
+      balances:     _leaveBalanceMap,
       dailyRate,
-      baseSalary: baseSal,
+      baseSalary:   baseSal,
     });
-    _leaveSuggestedAmount = amount;
-    _leaveSuggestedSource = dailyRate > 0
-      ? `(${_leaveSuggestedUnpaidDays} วัน × ฿${dailyRate.toLocaleString("th-TH")}/วัน)`
+    _leaveDecision = decision;
+    _renderPolicyBreakdown(decision);
+
+    if (decision.deductibleDays <= 0 || decision.suggestedDeduction <= 0) {
+      _hideLeaveApplyRow();
+      return;
+    }
+    const segs = [];
+    if (decision.unpaidDays    > 0) segs.push(`${decision.unpaidDays} ไม่รับค่าจ้าง`);
+    if (decision.overQuotaDays > 0) segs.push(`${decision.overQuotaDays} เกิน quota`);
+    const ratePart = dailyRate > 0
+      ? `× ฿${dailyRate.toLocaleString("th-TH")}/วัน`
       : baseSal > 0
-        ? `(${_leaveSuggestedUnpaidDays} วัน × เงินเดือน÷30)`
-        : "(ไม่มี daily rate/เงินเดือน — ฿0)";
+        ? `× เงินเดือน÷30`
+        : `(ไม่มี rate/เงินเดือน)`;
+    const sourceText = `(${decision.deductibleDays} วัน [${segs.join(" + ")}] ${ratePart})`;
     const amtEl = document.getElementById("prLeaveSuggestDed");
     const srcEl = document.getElementById("prLeaveSuggestSource");
-    if (amtEl) amtEl.textContent = money(amount);
-    if (srcEl) srcEl.textContent = _leaveSuggestedSource;
+    if (amtEl) amtEl.textContent = money(decision.suggestedDeduction);
+    if (srcEl) srcEl.textContent = sourceText;
     const row = document.getElementById("prLeaveApplyRow");
     if (row) row.style.display = "block";
   }
@@ -631,82 +682,94 @@ function _openPayrollModal(ctx, payroll) {
     const lastDay = new Date(Date.UTC(y, mo, 0)).getUTCDate();
     const toDate = `${periodInput}-${String(lastDay).padStart(2, "0")}`;
     try {
-      const res = await fetchApprovedLeavesForUser(empId, fromDate, toDate);
-      if (!res.ok) {
-        if (res.code === "NO_TABLE") {
+      // โหลด period leaves + year balance ขนาน (Phase 92.36)
+      const [periodRes, balanceRes] = await Promise.all([
+        fetchApprovedLeavesForUser(empId, fromDate, toDate),
+        _loadYearBalance(empId, periodInput),
+      ]);
+      if (!periodRes.ok) {
+        if (periodRes.code === "NO_TABLE") {
           _setLeaveSummary("⚠️ ยังไม่ได้ติดตั้งตารางวันลา (รัน supabase-phase92-32-leave-management.sql)", true);
         } else {
-          _setLeaveSummary("ดึงไม่สำเร็จ: " + (res.message || res.code || "unknown"), true);
+          _setLeaveSummary("ดึงไม่สำเร็จ: " + (periodRes.message || periodRes.code || "unknown"), true);
         }
         _hideLeaveApplyRow();
         _hideLeaveBalanceRow();
+        _hideLeavePolicyRow();
+        _leaveBalanceMap = null;
+        _leaveMonthSummary = null;
         return;
       }
-      const summary = summarizeApprovedLeavesForPayroll(res.rows);
-      // Phase 92.35: โหลด balance ทั้งปี (graceful — แสดงเสมอแม้เดือนนี้ไม่มี leave)
-      _renderYearBalance(empId, periodInput);
+      _leaveBalanceMap   = balanceRes.ok ? balanceRes.map : null;
+      _leaveMonthSummary = summarizeApprovedLeavesForPayroll(periodRes.rows);
+      _renderBalanceSection(_leaveBalanceMap);
 
-      if (summary.records === 0) {
+      if (_leaveMonthSummary.records === 0) {
         _setLeaveSummary("ไม่มีวันลาอนุมัติในรอบนี้");
         _hideLeaveApplyRow();
+        _hideLeavePolicyRow();
         return;
       }
-      // แสดง breakdown
+
+      // แสดง summary เดือนนี้
       const parts = [];
-      parts.push(`✅ ${summary.records} record · รวม <strong>${summary.totalApprovedDays}</strong> วัน`);
+      parts.push(`✅ ${_leaveMonthSummary.records} record · รวม <strong>${_leaveMonthSummary.totalApprovedDays}</strong> วัน`);
       const breakdown = [];
-      if (summary.sickDays     > 0) breakdown.push(`🤒 ป่วย ${summary.sickDays}`);
-      if (summary.personalDays > 0) breakdown.push(`📝 กิจ ${summary.personalDays}`);
-      if (summary.vacationDays > 0) breakdown.push(`🌴 พักร้อน ${summary.vacationDays}`);
-      if (summary.unpaidDays   > 0) breakdown.push(`<strong style="color:#dc2626">💸 ไม่รับค่าจ้าง ${summary.unpaidDays}</strong>`);
-      if (summary.otherDays    > 0) breakdown.push(`📌 อื่น ๆ ${summary.otherDays}`);
+      if (_leaveMonthSummary.sickDays     > 0) breakdown.push(`🤒 ป่วย ${_leaveMonthSummary.sickDays}`);
+      if (_leaveMonthSummary.personalDays > 0) breakdown.push(`📝 กิจ ${_leaveMonthSummary.personalDays}`);
+      if (_leaveMonthSummary.vacationDays > 0) breakdown.push(`🌴 พักร้อน ${_leaveMonthSummary.vacationDays}`);
+      if (_leaveMonthSummary.unpaidDays   > 0) breakdown.push(`<strong style="color:#dc2626">💸 ไม่รับค่าจ้าง ${_leaveMonthSummary.unpaidDays}</strong>`);
+      if (_leaveMonthSummary.otherDays    > 0) breakdown.push(`📌 อื่น ๆ ${_leaveMonthSummary.otherDays}`);
       if (breakdown.length > 0) parts.push(breakdown.join(" · "));
       _setLeaveSummary(parts.join("<br>"));
 
-      // suggest deduction เฉพาะถ้ามี unpaid
-      if (summary.unpaidDays > 0) {
-        _leaveSuggestedUnpaidDays = summary.unpaidDays;
-        _refreshLeaveSuggestion();
-      } else {
-        _hideLeaveApplyRow();
-      }
+      // คำนวณ decision (Phase 92.36)
+      _refreshLeaveDecision();
     } catch (e) {
       _setLeaveSummary("ดึงไม่สำเร็จ: " + (e?.message || "unknown"), true);
       _hideLeaveApplyRow();
+      _hideLeavePolicyRow();
+      _leaveBalanceMap = null;
+      _leaveMonthSummary = null;
     } finally {
       if (fetchLeaveBtn.isConnected) { fetchLeaveBtn.disabled = false; fetchLeaveBtn.textContent = orig; }
     }
   });
 
-  // เติม unpaid leave deduction ลงช่อง prDed (additive, ไม่ทับค่าเดิม) + ต่อ note
+  // Phase 92.36: เติม unpaid + overQuota deduction ลงช่อง prDed (additive, idempotent ผ่าน marker)
   document.getElementById("prFillLeaveBtn")?.addEventListener("click", () => {
-    if (_leaveSuggestedAmount <= 0 || _leaveSuggestedUnpaidDays <= 0) return;
+    const d = _leaveDecision;
+    if (!d || d.suggestedDeduction <= 0 || d.deductibleDays <= 0) return;
     const dedInp  = document.getElementById("prDed");
     const noteInp = document.getElementById("prNote");
     if (!dedInp) return;
+    const marker = leaveDeductionNoteMarker(d);
     const current = Number(dedInp.value || 0);
-    const next = Math.round((current + _leaveSuggestedAmount) * 100) / 100;
+
+    // idempotent guard: ถ้า marker ตัวนี้อยู่ใน note แล้ว → ไม่บวกซ้ำ
+    const curNote = (noteInp?.value || "").trim();
+    if (marker && curNote.includes(marker)) {
+      _setLeaveSummary("✓ เติมแล้วก่อนหน้านี้ (idempotent — ไม่บวกซ้ำ)");
+      _hideLeaveApplyRow();
+      return;
+    }
+
+    const next = Math.round((current + d.suggestedDeduction) * 100) / 100;
     dedInp.value = next.toFixed(2);
     dedInp.dispatchEvent(new Event("input")); // trigger recalc total
 
-    // ต่อ note (idempotent — ถ้ามี marker เดิม ไม่ append ซ้ำ)
-    if (noteInp) {
-      const marker = `หักลาไม่รับค่าจ้าง ${_leaveSuggestedUnpaidDays} วัน`;
-      const cur = (noteInp.value || "").trim();
-      if (!cur.includes(marker)) {
-        noteInp.value = cur ? `${cur} · ${marker}` : marker;
-      }
+    if (noteInp && marker) {
+      noteInp.value = curNote ? `${curNote} · ${marker}` : marker;
     }
 
-    // ปิด apply row หลังเติม (กันกดซ้ำเผลอเติม double)
     _hideLeaveApplyRow();
-    _setLeaveSummary("✓ เติมหัก ฿" + _leaveSuggestedAmount.toFixed(2) + " แล้ว — ตรวจช่องหัก/หมายเหตุก่อนบันทึก");
+    _setLeaveSummary("✓ เติมหัก ฿" + d.suggestedDeduction.toFixed(2) + " แล้ว — ตรวจช่องหัก/หมายเหตุก่อนบันทึก");
   });
 
-  // ถ้า admin แก้ base_salary หรือ daily_rate ภายหลัง → recompute suggestion ทันที
+  // ถ้า admin แก้ base_salary หรือ daily_rate ภายหลัง → recompute decision ทันที
   ["prBase","prDailyRate","prDailyToggle"].forEach(id => {
-    document.getElementById(id)?.addEventListener("input", _refreshLeaveSuggestion);
-    document.getElementById(id)?.addEventListener("change", _refreshLeaveSuggestion);
+    document.getElementById(id)?.addEventListener("input", _refreshLeaveDecision);
+    document.getElementById(id)?.addEventListener("change", _refreshLeaveDecision);
   });
 
   m.addEventListener("click", e => { if (e.target === m) m.remove(); });

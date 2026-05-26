@@ -7,6 +7,25 @@
 
 ---
 
+## 5.59.0 (build 297) — 2026-05-26 🧮 Phase 92.36 — Paid Leave Policy → Payroll Decision
+
+- **feat(payroll) [policy decision]:** Payroll modal ปุ่ม "ดึงสรุปวันลา" ตอนนี้คำนวณ "policy breakdown" ตาม quota รายปี + แสดง 5 cards: ✅ Paid (in quota) · ⚠️ เกิน quota · 💸 ลาไม่รับค่าจ้าง · 📌 อื่น ๆ · → แนะนำหักรวม
+  - vacation/sick/personal **ภายใน quota → ไม่หัก** (paid leave)
+  - ส่วนที่เกิน quota → **แนะนำ** หักเฉพาะวันที่เกิน (advisory)
+  - unpaid → แนะนำหักทั้งหมดเหมือนเดิม
+  - other → ไม่หัก (info only)
+- **feat(payroll) [apply button]:** ปุ่ม "→ เติมลงช่องหัก" รวม unpaid + over-quota เป็นยอดเดียว — idempotent ผ่าน combined marker ใน note (`หักลา N วัน (ไม่รับค่าจ้าง U, เกิน quota O)`) — กดซ้ำไม่บวกซ้ำ
+- **UX:** copy ชัดว่า "แนะนำ" ไม่ใช่หักอัตโนมัติ + ข้อความ italic ใต้ปุ่ม apply
+- **Pure helpers ใหม่:** `decidePayrollLeaveImpact({monthSummary, balances, dailyRate, baseSalary})` → returns paid/over/unpaid/other days + suggestedDeduction + perType breakdown · `leaveDeductionNoteMarker(decision)` → string marker สำหรับ idempotent check
+- **Graceful:** ถ้ายังไม่มี SQL/policy หรือ balance fetch fail → balances=null → tracked types treat เป็น paid ทั้งหมด (ไม่ crash, unpaid logic ยังหักปกติ)
+- **ไม่แตะ:** Leave Balance UI (92.35) / Time Clock self responsive (92.34) / staff_leaves write / payroll save / RLS เก่า / dep ใหม่
+- Tests +13 (decidePayrollLeaveImpact 8 + leaveDeductionNoteMarker 5). Unit **576 → 589**
+- verify เขียว: lint:errors 0/0 · e2e 11/11 · `npm audit --audit-level=moderate` = **0 vulnerabilities**
+
+**Build:** 296 → 297; version 5.58.0 → 5.59.0 (minor — feature, no SQL)
+
+---
+
 ## 5.58.0 (build 296) — 2026-05-26 💼 Phase 92.35 — Leave Policy + Balance/Quota Foundation
 
 > ⚠️ **ต้องรัน SQL ก่อนใช้:** [`supabase-phase92-35-leave-policies-balances.sql`](supabase-phase92-35-leave-policies-balances.sql) — ก่อนรัน UI fallback ไป default policies + แสดงป้าย "ใช้ค่า default" (ไม่ crash)

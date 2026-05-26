@@ -24,6 +24,9 @@ const {
   formatBalanceLabel,
   fetchLeavePolicies,
   fetchLeaveOverridesForUser,
+  // Phase 92.36
+  decidePayrollLeaveImpact,
+  leaveDeductionNoteMarker,
 } = await import("../modules/leave_management.js");
 
 // ── calcLeaveDays ───────────────────────────────────────────
@@ -553,4 +556,187 @@ test("fetchLeaveOverridesForUser — ไม่มี config → NO_CONFIG", asyn
   const r = await fetchLeaveOverridesForUser("u1", 2026);
   assert.equal(r.ok, false);
   assert.equal(r.code, "NO_CONFIG");
+});
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 92.36 — Paid Leave Policy → Payroll Decision
+// ═══════════════════════════════════════════════════════════
+
+// helper: สร้าง balance map ที่จำลอง calcBalancesForUser output
+function _mkBalances({ vacationQuota = 10, vacationUsed = 0, sickQuota = 30, sickUsed = 0, personalQuota = 3, personalUsed = 0 } = {}) {
+  const map = new Map();
+  map.set("vacation", { leaveType: "vacation", quota: vacationQuota, used: vacationUsed, pending: 0, remaining: vacationQuota - vacationUsed, tracksBalance: true, overQuota: vacationUsed > vacationQuota, willExceed: false });
+  map.set("sick",     { leaveType: "sick",     quota: sickQuota,     used: sickUsed,     pending: 0, remaining: sickQuota - sickUsed,         tracksBalance: true, overQuota: sickUsed > sickQuota,         willExceed: false });
+  map.set("personal", { leaveType: "personal", quota: personalQuota, used: personalUsed, pending: 0, remaining: personalQuota - personalUsed, tracksBalance: true, overQuota: personalUsed > personalQuota, willExceed: false });
+  map.set("unpaid",   { leaveType: "unpaid",   quota: null,          used: 0,            pending: 0, remaining: null,                          tracksBalance: false, overQuota: false, willExceed: false });
+  map.set("other",    { leaveType: "other",    quota: null,          used: 0,            pending: 0, remaining: null,                          tracksBalance: false, overQuota: false, willExceed: false });
+  return map;
+}
+
+// ── ภายใน quota → paid (ไม่หัก) ─────────────────────────────
+
+test("decidePayrollLeaveImpact — vacation/sick/personal ภายใน quota → ไม่หัก (paid)", () => {
+  // ก่อนเดือนนี้ใช้ vacation 0, ในเดือนนี้ใช้ 3 → annualUsed=3, headroom=10 → paid 3, over 0
+  const balances = _mkBalances({ vacationUsed: 3, sickUsed: 1, personalUsed: 0 });
+  const monthSummary = {
+    vacationDays: 3,
+    sickDays:     1,
+    personalDays: 0,
+    unpaidDays:   0,
+    otherDays:    0,
+    totalApprovedDays: 4,
+    records: 2,
+  };
+  const d = decidePayrollLeaveImpact({ monthSummary, balances, dailyRate: 500, baseSalary: 0 });
+  assert.equal(d.paidWithinQuotaDays, 4);
+  assert.equal(d.overQuotaDays, 0);
+  assert.equal(d.unpaidDays, 0);
+  assert.equal(d.deductibleDays, 0);
+  assert.equal(d.suggestedDeduction, 0);
+});
+
+// ── เกิน quota → แนะนำหักเฉพาะวันที่เกิน ────────────────────
+
+test("decidePayrollLeaveImpact — เกิน quota → แนะนำหักเฉพาะวันเกิน (split paid/over)", () => {
+  // vacation quota=10, used (annual incl. เดือนนี้) = 12, monthDays = 5
+  //   → usedBefore = 12 - 5 = 7, headroom = 10 - 7 = 3
+  //   → paid = min(5, 3) = 3, over = 5 - 3 = 2
+  const balances = _mkBalances({ vacationUsed: 12 });
+  const monthSummary = { vacationDays: 5, sickDays: 0, personalDays: 0, unpaidDays: 0, otherDays: 0, totalApprovedDays: 5, records: 1 };
+  const d = decidePayrollLeaveImpact({ monthSummary, balances, dailyRate: 500, baseSalary: 0 });
+  assert.equal(d.paidWithinQuotaDays, 3);
+  assert.equal(d.overQuotaDays, 2);
+  assert.equal(d.deductibleDays, 2);
+  assert.equal(d.suggestedDeduction, 1000); // 2 × 500
+  assert.equal(d.perType.vacation.paid, 3);
+  assert.equal(d.perType.vacation.over, 2);
+});
+
+test("decidePayrollLeaveImpact — ใช้เต็ม quota แล้วก่อนเดือนนี้ → ทุกวันในเดือนนี้ over", () => {
+  // personal quota=3, used=5 (ปีนี้รวมเดือนนี้), monthDays=2
+  //   → usedBefore=3, headroom=0 → over=2
+  const balances = _mkBalances({ personalUsed: 5 });
+  const monthSummary = { vacationDays: 0, sickDays: 0, personalDays: 2, unpaidDays: 0, otherDays: 0, totalApprovedDays: 2, records: 1 };
+  const d = decidePayrollLeaveImpact({ monthSummary, balances, dailyRate: 1000, baseSalary: 0 });
+  assert.equal(d.paidWithinQuotaDays, 0);
+  assert.equal(d.overQuotaDays, 2);
+  assert.equal(d.suggestedDeduction, 2000);
+});
+
+// ── unpaid → หักทั้งหมด ────────────────────────────────────
+
+test("decidePayrollLeaveImpact — unpaid → หักทั้งหมด (ไม่กระทบ quota)", () => {
+  const balances = _mkBalances();
+  const monthSummary = { vacationDays: 0, sickDays: 0, personalDays: 0, unpaidDays: 4, otherDays: 0, totalApprovedDays: 4, records: 1 };
+  const d = decidePayrollLeaveImpact({ monthSummary, balances, dailyRate: 500, baseSalary: 0 });
+  assert.equal(d.paidWithinQuotaDays, 0);
+  assert.equal(d.overQuotaDays, 0);
+  assert.equal(d.unpaidDays, 4);
+  assert.equal(d.deductibleDays, 4);
+  assert.equal(d.suggestedDeduction, 2000); // 4 × 500
+});
+
+test("decidePayrollLeaveImpact — unpaid fallback baseSalary÷30 ถ้าไม่มี dailyRate", () => {
+  const balances = _mkBalances();
+  const monthSummary = { vacationDays: 0, sickDays: 0, personalDays: 0, unpaidDays: 3, otherDays: 0, totalApprovedDays: 3, records: 1 };
+  const d = decidePayrollLeaveImpact({ monthSummary, balances, dailyRate: 0, baseSalary: 30000 });
+  assert.equal(d.suggestedDeduction, 3000); // 30000/30 × 3
+});
+
+// ── mixed types ────────────────────────────────────────────
+
+test("decidePayrollLeaveImpact — mixed: vacation in-quota + personal over + unpaid + other", () => {
+  // vacation: used annual=2, monthDays=2 → usedBefore=0, headroom=10, paid=2, over=0
+  // personal: used annual=4, monthDays=2 → usedBefore=2, headroom=1, paid=1, over=1
+  // unpaid: 2 → หักทั้งหมด
+  // other: 1.5 → info only ไม่หัก
+  const balances = _mkBalances({ vacationUsed: 2, personalUsed: 4 });
+  const monthSummary = {
+    vacationDays: 2,
+    sickDays:     0,
+    personalDays: 2,
+    unpaidDays:   2,
+    otherDays:    1.5,
+    totalApprovedDays: 7.5,
+    records: 4,
+  };
+  const d = decidePayrollLeaveImpact({ monthSummary, balances, dailyRate: 500, baseSalary: 0 });
+  assert.equal(d.paidWithinQuotaDays, 3); // 2 vacation + 1 personal
+  assert.equal(d.overQuotaDays, 1);       // 1 personal over
+  assert.equal(d.unpaidDays, 2);
+  assert.equal(d.otherDays, 1.5);
+  assert.equal(d.deductibleDays, 3);      // unpaid 2 + over 1
+  assert.equal(d.suggestedDeduction, 1500); // 3 × 500
+  assert.equal(d.perType.vacation.paid, 2);
+  assert.equal(d.perType.vacation.over, 0);
+  assert.equal(d.perType.personal.paid, 1);
+  assert.equal(d.perType.personal.over, 1);
+});
+
+// ── graceful (no balance) ──────────────────────────────────
+
+test("decidePayrollLeaveImpact — ไม่มี balance map → tracked types treat เป็น paid ทั้งหมด (graceful)", () => {
+  // ถ้ายังไม่ได้รัน SQL หรือ fetch fail → balances=null → vacation/sick/personal ถือว่า paid (ไม่หัก)
+  // unpaid ยังหักปกติ
+  const monthSummary = { vacationDays: 5, sickDays: 0, personalDays: 0, unpaidDays: 1, otherDays: 0, totalApprovedDays: 6, records: 2 };
+  const d = decidePayrollLeaveImpact({ monthSummary, balances: null, dailyRate: 500, baseSalary: 0 });
+  assert.equal(d.hasBalanceData, false);
+  assert.equal(d.paidWithinQuotaDays, 5); // vacation paid (no quota data)
+  assert.equal(d.overQuotaDays, 0);
+  assert.equal(d.unpaidDays, 1);
+  assert.equal(d.suggestedDeduction, 500); // 1 × 500
+});
+
+test("decidePayrollLeaveImpact — balance.tracksBalance=false (เช่น unpaid bucket) → paid", () => {
+  // ถ้า policy ตั้ง vacation tracksBalance=false (เหมือน unpaid) → ไม่ใช้ quota → paid ทั้งหมด
+  const map = new Map();
+  map.set("vacation", { leaveType: "vacation", quota: null, used: 0, pending: 0, remaining: null, tracksBalance: false, overQuota: false, willExceed: false });
+  const d = decidePayrollLeaveImpact({
+    monthSummary: { vacationDays: 5, sickDays: 0, personalDays: 0, unpaidDays: 0, otherDays: 0, totalApprovedDays: 5, records: 1 },
+    balances: map,
+    dailyRate: 500,
+    baseSalary: 0,
+  });
+  assert.equal(d.paidWithinQuotaDays, 5);
+  assert.equal(d.overQuotaDays, 0);
+  assert.equal(d.suggestedDeduction, 0);
+});
+
+// ── leaveDeductionNoteMarker (idempotent helper) ────────────
+
+test("leaveDeductionNoteMarker — ไม่มี deduction → empty string", () => {
+  assert.equal(leaveDeductionNoteMarker(null), "");
+  assert.equal(leaveDeductionNoteMarker({ deductibleDays: 0, unpaidDays: 0, overQuotaDays: 0 }), "");
+});
+
+test("leaveDeductionNoteMarker — เฉพาะ unpaid → 'หักลา N วัน (ไม่รับค่าจ้าง N)'", () => {
+  const m = leaveDeductionNoteMarker({ deductibleDays: 3, unpaidDays: 3, overQuotaDays: 0 });
+  assert.match(m, /หักลา 3 วัน/);
+  assert.match(m, /ไม่รับค่าจ้าง 3/);
+});
+
+test("leaveDeductionNoteMarker — เฉพาะ over → 'หักลา N วัน (เกิน quota N)'", () => {
+  const m = leaveDeductionNoteMarker({ deductibleDays: 2, unpaidDays: 0, overQuotaDays: 2 });
+  assert.match(m, /หักลา 2 วัน/);
+  assert.match(m, /เกิน quota 2/);
+});
+
+test("leaveDeductionNoteMarker — mixed → มีทั้ง 2 segments", () => {
+  const m = leaveDeductionNoteMarker({ deductibleDays: 5, unpaidDays: 3, overQuotaDays: 2 });
+  assert.match(m, /หักลา 5 วัน/);
+  assert.match(m, /ไม่รับค่าจ้าง 3/);
+  assert.match(m, /เกิน quota 2/);
+});
+
+test("leaveDeductionNoteMarker — apply ซ้ำตรวจ idempotent ผ่าน note.includes(marker)", () => {
+  // จำลอง flow: apply ครั้งแรก → note ได้ marker A
+  //              ถ้ารัน decision เดิม + apply อีกครั้ง → marker เดียวกัน → caller skip
+  const decision = { deductibleDays: 4, unpaidDays: 1, overQuotaDays: 3 };
+  const marker = leaveDeductionNoteMarker(decision);
+  const noteAfterFirst = `OT เพิ่ม · ${marker}`;
+  // idempotent guard: note ที่มี marker แล้ว → ไม่บวกซ้ำ
+  assert.ok(noteAfterFirst.includes(marker), "marker should be in note");
+  // ถ้าสร้าง marker จาก decision เดียวกัน → string เดิม → caller skip ได้
+  const marker2 = leaveDeductionNoteMarker(decision);
+  assert.equal(marker, marker2);
 });

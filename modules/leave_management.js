@@ -246,6 +246,141 @@ export function calcUnpaidLeaveDeduction(input = {}) {
 }
 
 // ═══════════════════════════════════════════════════════════
+//  Phase 92.36 — Paid Leave Policy → Payroll Decision
+//
+//  Rule (advisory only — admin ต้องกด apply เอง):
+//    - vacation/sick/personal ที่อยู่ใน quota รายปี → paid (ไม่หัก)
+//    - ส่วนที่เกิน quota รายปี (only those days) → แนะนำหัก
+//    - unpaid → แนะนำหักทั้งหมด
+//    - other → แสดงเฉย ๆ (ไม่หัก)
+//
+//  ใช้ balance ทั้งปีจาก calcBalancesForUser มาคำนวณ "headroom" ที่เหลือ
+//  ก่อนถึงเดือนนี้ → จับว่าส่วนไหน paid / over.
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Phase 92.36: ตัดสินใจ payroll impact ของวันลาเดือนนั้น ๆ ตาม policy
+ *
+ * Inputs:
+ *   monthSummary - ผลจาก summarizeApprovedLeavesForPayroll (เฉพาะเดือนนั้น)
+ *   balances     - Map<leave_type, balance> จาก calcBalancesForUser (ทั้งปี รวมเดือนนี้)
+ *                  ⚠️ balance.used รวม approved ของเดือนนี้ด้วย — helper จะลบออกเพื่อหา usedBefore
+ *   dailyRate    - ใช้สำหรับคำนวณ suggestedDeduction (priority 1)
+ *   baseSalary   - fallback (÷ 30) ถ้าไม่มี dailyRate
+ *
+ * Output:
+ *   {
+ *     paidWithinQuotaDays,  // รวมวัน vacation/sick/personal ที่อยู่ใน quota (paid)
+ *     overQuotaDays,        // ส่วนที่เกิน quota (advisory deduction)
+ *     unpaidDays,           // ลาไม่รับค่าจ้าง (advisory deduction)
+ *     otherDays,            // other (info only — ไม่หัก)
+ *     deductibleDays,       // = unpaidDays + overQuotaDays
+ *     suggestedDeduction,   // เงินที่แนะนำหัก (ปัด 2 ตำแหน่ง)
+ *     perType: { vacation:{monthDays,paid,over,quota,used}, sick:{...}, personal:{...} },
+ *     hasBalanceData,       // true ถ้ามี balance map (false → policy graceful fallback: paid ทั้งหมด)
+ *   }
+ *
+ * @param {object} input
+ * @returns {object}
+ */
+export function decidePayrollLeaveImpact(input = {}) {
+  const round2 = (n) => Math.round(n * 100) / 100;
+  const monthSummary = input.monthSummary || {};
+  const balances     = input.balances; // Map | undefined
+  const dailyRate    = Number(input.dailyRate)  || 0;
+  const baseSalary   = Number(input.baseSalary) || 0;
+  const hasBalanceData = !!(balances && typeof balances.get === "function");
+
+  const tracked = [
+    { key: "vacation", monthKey: "vacationDays" },
+    { key: "sick",     monthKey: "sickDays"     },
+    { key: "personal", monthKey: "personalDays" },
+  ];
+
+  let paidTotal = 0;
+  let overTotal = 0;
+  const perType = {};
+
+  for (const { key, monthKey } of tracked) {
+    const monthDays = Math.max(0, Number(monthSummary[monthKey]) || 0);
+    if (monthDays <= 0) {
+      perType[key] = { monthDays: 0, paid: 0, over: 0, quota: null, used: 0 };
+      continue;
+    }
+    const b = hasBalanceData ? balances.get(key) : null;
+    // ไม่มี balance / tracks_balance=false / quota=null → treat ทั้งหมดเป็น paid
+    if (!b || !b.tracksBalance || b.quota == null) {
+      paidTotal += monthDays;
+      perType[key] = {
+        monthDays: round2(monthDays),
+        paid:      round2(monthDays),
+        over:      0,
+        quota:     b ? b.quota : null,
+        used:      Number(b?.used) || monthDays,
+      };
+      continue;
+    }
+    const quota      = Number(b.quota) || 0;
+    const annualUsed = Math.max(0, Number(b.used) || 0);
+    // ก่อนเดือนนี้ใช้ไปแล้วเท่าไหร่ (annualUsed รวม approved เดือนนี้)
+    const usedBefore = Math.max(0, annualUsed - monthDays);
+    const headroom   = Math.max(0, quota - usedBefore);
+    const paid       = Math.min(monthDays, headroom);
+    const over       = Math.max(0, monthDays - paid);
+    paidTotal += paid;
+    overTotal += over;
+    perType[key] = {
+      monthDays: round2(monthDays),
+      paid:      round2(paid),
+      over:      round2(over),
+      quota:     round2(quota),
+      used:      round2(annualUsed),
+    };
+  }
+
+  const unpaidDays = Math.max(0, Number(monthSummary.unpaidDays) || 0);
+  const otherDays  = Math.max(0, Number(monthSummary.otherDays)  || 0);
+  const deductibleDays = round2(unpaidDays + overTotal);
+
+  const suggestedDeduction = calcUnpaidLeaveDeduction({
+    unpaidDays: deductibleDays,
+    dailyRate,
+    baseSalary,
+  });
+
+  return {
+    paidWithinQuotaDays: round2(paidTotal),
+    overQuotaDays:       round2(overTotal),
+    unpaidDays:          round2(unpaidDays),
+    otherDays:           round2(otherDays),
+    deductibleDays,
+    suggestedDeduction,
+    perType,
+    hasBalanceData,
+  };
+}
+
+/**
+ * Phase 92.36: marker สำหรับใส่ใน note ของ payroll (idempotent check)
+ *   - "หักลา <deductibleDays> วัน (ไม่รับค่าจ้าง <U>, เกิน quota <O>)"
+ *   - ถ้า unpaid=0 หรือ over=0 → ลด segment
+ * @param {object} decision - ผลจาก decidePayrollLeaveImpact
+ * @returns {string} marker (empty string ถ้าไม่มีอะไรหัก)
+ */
+export function leaveDeductionNoteMarker(decision) {
+  if (!decision) return "";
+  const u = Math.max(0, Number(decision.unpaidDays)    || 0);
+  const o = Math.max(0, Number(decision.overQuotaDays) || 0);
+  const d = Math.max(0, Number(decision.deductibleDays) || 0);
+  if (d <= 0) return "";
+  const segs = [];
+  if (u > 0) segs.push(`ไม่รับค่าจ้าง ${u}`);
+  if (o > 0) segs.push(`เกิน quota ${o}`);
+  const tail = segs.length > 0 ? ` (${segs.join(", ")})` : "";
+  return `หักลา ${d} วัน${tail}`;
+}
+
+// ═══════════════════════════════════════════════════════════
 //  Phase 92.35 — Leave Policy + Balance/Quota helpers (pure)
 // ═══════════════════════════════════════════════════════════
 

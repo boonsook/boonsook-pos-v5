@@ -3,15 +3,85 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 26 พฤษภาคม 2026 (Phase 92.35 — Leave Policy + Balance/Quota Foundation, build 296)
-**Version:** 5.58.0 (build 296) — Phase 92.35 (Leave quota foundation)
-**Previous:** 5.57.1 (build 295) — Phase 92.34 (Time Clock self responsive)
+**อัปเดตล่าสุด:** 26 พฤษภาคม 2026 (Phase 92.36 — Paid Leave Policy → Payroll Decision, build 297)
+**Version:** 5.59.0 (build 297) — Phase 92.36 (paid leave policy decision)
+**Previous:** 5.58.0 (build 296) — Phase 92.35 (Leave quota foundation)
 
-> ⚠️ **SQL ที่ต้องรัน (Phase 92.35):** [`supabase-phase92-35-leave-policies-balances.sql`](supabase-phase92-35-leave-policies-balances.sql) — เพิ่ม `leave_policies` + `staff_leave_overrides` + seed defaults. Re-run safe. ก่อนรัน → UI fallback ไป default policies + ป้าย "ใช้ค่า default" (ไม่ crash).
+> ✅ **ไม่มี SQL ใหม่ในเฟส 92.36** (additive code only). ใช้ตาราง + policies จาก Phase 92.35 — ถ้ายังไม่ได้รัน [`supabase-phase92-35-leave-policies-balances.sql`](supabase-phase92-35-leave-policies-balances.sql) → UI ใช้ค่า default + paid leave decision ยังทำงาน (graceful: ถ้าไม่มี balance ถือว่า paid ทั้งหมด · unpaid logic ยังหักปกติ).
 
 ---
 
-## 💼 Phase 92.35 — Leave Policy + Balance/Quota Foundation (this session)
+## 🧮 Phase 92.36 — Paid Leave Policy → Payroll Decision (this session)
+
+**บริบท:** ต่อจาก Phase 92.35 (Leave Policy + Balance foundation) — ระบบรู้ quota รายปีแล้ว แต่ยังไม่ตัดสินใจว่าวันลา vacation/sick/personal ที่เกิน quota ควรหักหรือไม่. เฟสนี้เพิ่ม **policy decision helper** + **Payroll modal breakdown** + **Apply ที่รวม unpaid + over-quota** เป็นปุ่มเดียว (idempotent).
+
+**Policy rule (advisory only — admin ต้องกดยืนยันเอง):**
+- vacation/sick/personal **ภายใน quota → paid** (ไม่หัก)
+- ส่วนที่เกิน quota → **แนะนำ** หักเฉพาะวันที่เกิน (advisory)
+- unpaid → แนะนำหักทั้งหมด
+- other → info only (ไม่หัก)
+
+### สิ่งที่เพิ่ม
+
+**1) Pure helpers** [`modules/leave_management.js`](modules/leave_management.js) (test-friendly):
+- `decidePayrollLeaveImpact({monthSummary, balances, dailyRate, baseSalary})` → returns `{paidWithinQuotaDays, overQuotaDays, unpaidDays, otherDays, deductibleDays, suggestedDeduction, perType, hasBalanceData}`
+  - หลักการคำนวณ "over": `usedBefore = balance.used - monthDays` (balance.used รวมเดือนนี้แล้ว) → `headroom = quota - usedBefore` → `paid = min(monthDays, headroom)` · `over = monthDays - paid`
+  - ถ้า `balances=null` หรือ `tracksBalance=false` หรือ `quota=null` → tracked types treat เป็น paid ทั้งหมด (graceful)
+- `leaveDeductionNoteMarker(decision)` → string marker `หักลา <D> วัน (ไม่รับค่าจ้าง U, เกิน quota O)` สำหรับ idempotent check ใน note
+
+**2) Payroll modal** [`modules/payroll.js`](modules/payroll.js)
+- ปุ่ม "📥 ดึงสรุปวันลา" ตอนนี้ **await ทั้ง period leaves + year balance ขนาน** แล้วคำนวณ decision
+- เพิ่ม section "🧮 Policy breakdown (advisory)" — 5 cards: ✅ Paid · ⚠️ เกิน quota · 💸 ไม่รับค่าจ้าง · 📌 อื่น ๆ · → แนะนำหักรวม
+- ปุ่ม "→ เติมลงช่องหัก" รวม unpaid + over-quota เป็นยอดเดียว · idempotent ผ่าน combined marker ใน note (ถ้า marker เดิมอยู่ใน note → toast แจ้ง + ไม่บวกซ้ำ)
+- ข้อความ italic ใต้ปุ่ม apply: "★ ปุ่มนี้เป็นการ 'แนะนำ' ไม่หักเงินอัตโนมัติ — admin ตรวจช่องหัก/หมายเหตุก่อนบันทึก"
+- recompute decision ทันทีเมื่อ admin แก้ base/dailyRate/dailyToggle (event listeners เดิม) → suggestedDeduction อัปเดต real-time
+
+**3) Safety / non-regression**
+- ★ Leave Balance UI (build 296) **ไม่ regression** — `_loadYearBalance` + `_renderBalanceSection` แยกออกจาก decision logic
+- ★ Time Clock self responsive (build 295) **ไม่ regression** — แตะแค่ leave_management.js + payroll.js
+- ไม่แตะ money math / staff_leaves write / payroll save / RLS / dep ใหม่
+- ลบ unused import `calcUnpaidLeaveDeduction` ใน payroll.js (decidePayrollLeaveImpact เรียกภายในแล้ว)
+
+### Gates
+- `npm run lint:errors` exit 0 (clean)
+- `npm test` = **589/589** (เพิ่ม 13 จาก 576: decide 8 + marker 5)
+- `npm run test:e2e` = **11/11** (รอบแรก fail style.css?v=296 มิตรงกับ data-app-build 297 — แก้แล้วผ่าน)
+- `npm audit --audit-level=moderate` = **0 vulnerabilities**
+
+### Version sync (4 sub-items + sw.js comment)
+- `package.json`: 5.58.0 → **5.59.0**
+- `index.html`: `style.css?v=296→297`, `selfheal.js?v=296→297` + `data-app-build="297"` + `data-app-version="5.59.0"`, `main.js?v=296→297`, `boot.js?v=296→297`
+- `sw.js`: `CACHE_NAME = 'boonsook-pos-v5-cache-v297'` + v297 + v296 comment lines
+
+### Smoke test (manual)
+1. **ไม่ต้องรัน SQL ใหม่** — ใช้ตารางจาก 92.32 + 92.35
+2. เปิด `https://boonsook-pos-v5.pages.dev/` (Ctrl+Shift+R) → ตรวจ APP_BUILD=297
+3. **Admin → "💰 รายการเงินเดือน":**
+   - เพิ่ม/แก้ → เลือกพนักงานที่มีวันลา approved ในเดือนนั้น → กด "📥 ดึงสรุปวันลา"
+   - ต้องเห็น **🧮 Policy breakdown** (5 cards) ใต้ summary และ **📊 ทั้งปี** balance (5 cards)
+   - **เคส A** (ภายใน quota): พนักงานใช้ vacation 3 วันในเดือน ปียังเหลือ 7 → Paid=3, เกิน=0, แนะนำหัก=0 → apply row ซ่อน
+   - **เคส B** (เกิน quota): พนักงานใช้ vacation 12 วันสะสมทั้งปี เดือนนี้ 5 วัน → Paid=3, เกิน=2, แนะนำหัก = 2 × dailyRate
+   - **เคส C** (unpaid อย่างเดียว): unpaid 4 วัน → แนะนำหัก = 4 × dailyRate
+   - **เคส D** (mixed): vacation 2 + personal 2 + unpaid 2 + other 1.5 (สมมติ personal เกิน 1 วัน) → Paid=3, เกิน=1, ไม่รับ=2, อื่นๆ=1.5, deductible=3
+   - กด "→ เติมลงช่องหัก" → ช่อง "หัก (-)" บวกตามที่แนะนำ + note ได้ marker · กดซ้ำ → toast "เติมแล้วก่อนหน้านี้ (idempotent)"
+4. **Graceful** (ก่อนรัน Phase 92.35 SQL): balance map = default policies → ทำงานเหมือน Phase 92.35 (UI label "ใช้ค่า default")
+5. **Regression check:**
+   - หน้า "🌴 วันลา" (Phase 92.35) → balance section ยังแสดงปกติ
+   - หน้า "🕒 ลงเวลาทำงาน" mobile/desktop (build 295) — ไม่แตะ
+
+### Follow-ups (ค้างจงใจ — ลำดับแนะนำ)
+| ลำดับ | ค้าง | บริบท |
+|---|---|---|
+| 1 | Admin manage policies UI | "ตั้งค่า → Leave Policy" ให้ admin แก้ quota default ผ่าน UI |
+| 2 | Per-user override UI | สร้าง `staff_leave_overrides` ผ่าน UI |
+| 3 | Calendar leave view | ใช้ `modules/calendar.js` |
+| 4 | Payslip รายละเอียดวันลา | section ในใบจ่ายเงินเดือน — เอา perType จาก decision มาแสดง |
+| 5 | เชื่อม Time Clock → leave | approved leave → chip ใน HR Overview status table |
+| - | Audit tab modal (ค้างจาก 92.30) · Late rule (ค้างจาก 92.29) · Edit attendance modal 7-วัน (ค้างจาก 92.30) | |
+
+---
+
+## 💼 Phase 92.35 — Leave Policy + Balance/Quota Foundation
 
 **บริบท:** ต่อจาก Phase 92.33 (Leave→Payroll advisory) — user ขอ quota/balance พื้นฐาน: ทำเฟส foundation ก่อน (ตาราง + helpers + UI balance + form warning + payroll advisory display). **เฟสนี้ยังไม่เปลี่ยน money math** — vacation/sick/personal ยังแสดงเฉย ๆ ไม่หักเงิน. unpaid logic เดิม (Phase 92.33) ยังใช้.
 

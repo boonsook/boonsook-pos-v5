@@ -41,7 +41,9 @@
 // v253 (2026-05-19): Phase 91.1 — POS checkout auto-earn loyalty points (fire-and-forget after sale insert; gated on customer + is_active + points_per_baht; amount = actualTotal)
 // v252 (2026-05-19): Phase 90.13 — Loyalty history modal click-outside listener leak: bind once in renderLoyaltyPage instead of re-attach on every showPointHistory call
 // v295 (2026-05-26): Fix Time Clock self-service responsive layout. Desktop now uses a wider operational shell; mobile uses a single-column layout with table scrolling contained inside the history block. No DB or attendance logic changes.
-const CACHE_NAME = 'boonsook-pos-v5-cache-v296';
+// v296 (2026-05-26): Phase 92.35 — Leave Policy + Balance/Quota foundation. Adds leave_policies + staff_leave_overrides tables, pure helpers (effectiveQuota/calcBalance/calcBalancesForUser), UI balance section on Leave page, form warning advisory, payroll year-balance preview. No money math change.
+// v297 (2026-05-26): Phase 92.36 — Paid Leave Policy → Payroll Decision. Adds decidePayrollLeaveImpact + leaveDeductionNoteMarker pure helpers; Payroll modal now shows policy breakdown (paid/over/unpaid/other) and Apply fills deduction = unpaid + over-quota (advisory; idempotent via marker). vacation/sick/personal within quota stay paid.
+const CACHE_NAME = 'boonsook-pos-v5-cache-v297';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
