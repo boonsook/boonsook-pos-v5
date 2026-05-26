@@ -36,6 +36,9 @@ const {
   groupCalendarAgendaDays,
   limitCalendarDayEvents,
   formatAgendaDateLabel,
+  // Phase 92.40
+  calendarDetailActionsFor,
+  formatReviewedAt,
 } = await import("../modules/leave_management.js");
 
 // ── calcLeaveDays ───────────────────────────────────────────
@@ -1428,4 +1431,203 @@ test("formatAgendaDateLabel — รองรับทุก month short label", 
     const out = formatAgendaDateLabel(`2026-${mm}-15`);
     assert.ok(out.endsWith(months[i]), `expected ends with ${months[i]} got "${out}"`);
   }
+});
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 92.40 — Calendar Event Detail Actions Polish
+// ═══════════════════════════════════════════════════════════
+
+const _kindsOf = (descriptors) => descriptors.map(d => d.kind);
+
+test("calendarDetailActionsFor — null leave → []", () => {
+  assert.deepEqual(calendarDetailActionsFor(null, "u1", "admin"), []);
+});
+
+test("calendarDetailActionsFor — admin + pending → approve/reject/edit/delete/viewInTable", () => {
+  const leave = { id: "1", user_id: "u2", status: "pending", leave_type: "sick" };
+  const kinds = _kindsOf(calendarDetailActionsFor(leave, "uAdmin", "admin"));
+  assert.deepEqual(kinds, ["approve", "reject", "edit", "delete", "viewInTable"]);
+});
+
+test("calendarDetailActionsFor — admin + approved → edit/delete/viewInTable (ไม่มี approve/reject)", () => {
+  const leave = { id: "1", user_id: "u2", status: "approved", leave_type: "sick" };
+  const kinds = _kindsOf(calendarDetailActionsFor(leave, "uAdmin", "admin"));
+  assert.deepEqual(kinds, ["edit", "delete", "viewInTable"]);
+});
+
+test("calendarDetailActionsFor — admin + rejected/cancelled → edit/delete/viewInTable", () => {
+  for (const status of ["rejected", "cancelled"]) {
+    const leave = { id: "1", user_id: "u2", status, leave_type: "sick" };
+    const kinds = _kindsOf(calendarDetailActionsFor(leave, "uAdmin", "admin"));
+    assert.deepEqual(kinds, ["edit", "delete", "viewInTable"], `status=${status}`);
+  }
+});
+
+test("calendarDetailActionsFor — non-admin own + pending → cancel/viewInTable", () => {
+  const leave = { id: "1", user_id: "u1", status: "pending", leave_type: "sick" };
+  const kinds = _kindsOf(calendarDetailActionsFor(leave, "u1", "sales"));
+  assert.deepEqual(kinds, ["cancel", "viewInTable"]);
+});
+
+test("calendarDetailActionsFor — non-admin own + approved → viewInTable only (ไม่มี admin actions)", () => {
+  const leave = { id: "1", user_id: "u1", status: "approved", leave_type: "sick" };
+  const kinds = _kindsOf(calendarDetailActionsFor(leave, "u1", "sales"));
+  assert.deepEqual(kinds, ["viewInTable"]);
+});
+
+test("calendarDetailActionsFor — non-admin OTHER pending → viewInTable only (ไม่เห็น cancel ของคนอื่น)", () => {
+  const leave = { id: "1", user_id: "u2", status: "pending", leave_type: "sick" };
+  const kinds = _kindsOf(calendarDetailActionsFor(leave, "u1", "sales"));
+  assert.deepEqual(kinds, ["viewInTable"]);
+});
+
+test("calendarDetailActionsFor — non-admin role technician/customer behaves เหมือน sales (เปรียบเทียบ sales/admin)", () => {
+  const leave = { id: "1", user_id: "u1", status: "pending", leave_type: "sick" };
+  for (const role of ["sales", "technician", "customer"]) {
+    const kinds = _kindsOf(calendarDetailActionsFor(leave, "u1", role));
+    assert.deepEqual(kinds, ["cancel", "viewInTable"], `role=${role}`);
+  }
+});
+
+test("calendarDetailActionsFor — descriptors มี label + style + ไม่มี kind ซ้ำ + viewInTable last", () => {
+  const leave = { id: "1", user_id: "u2", status: "pending", leave_type: "sick" };
+  const ds = calendarDetailActionsFor(leave, "uAdmin", "admin");
+  for (const d of ds) {
+    assert.ok(typeof d.kind === "string" && d.kind.length > 0);
+    assert.ok(typeof d.label === "string" && d.label.length > 0);
+    assert.ok(typeof d.style === "string" && d.style.length > 0);
+  }
+  const kinds = ds.map(d => d.kind);
+  assert.equal(new Set(kinds).size, kinds.length, "kinds ต้อง unique");
+  assert.equal(kinds[kinds.length - 1], "viewInTable", "viewInTable ต้องอยู่ท้ายเสมอ");
+});
+
+// ── formatReviewedAt ───────────────────────────────────────
+
+test("formatReviewedAt — null/empty/undefined → ''", () => {
+  assert.equal(formatReviewedAt(null), "");
+  assert.equal(formatReviewedAt(undefined), "");
+  assert.equal(formatReviewedAt(""), "");
+});
+
+test("formatReviewedAt — invalid ISO → ''", () => {
+  assert.equal(formatReviewedAt("not-a-date"), "");
+  assert.equal(formatReviewedAt("2026-99-99T99:99:99Z"), "");
+});
+
+test("formatReviewedAt — valid ISO → th-TH short with day/month/year/hour/minute", () => {
+  // 2026-05-27 07:30 UTC = 14:30 Bangkok
+  const out = formatReviewedAt("2026-05-27T07:30:00Z");
+  assert.ok(out.length > 0, "ต้องไม่ใช่ empty");
+  assert.match(out, /พ\.?ค\.?/, "ต้องมีเดือนไทย พ.ค.");
+  // hour:minute (อาจมี space/non-breaking — ใช้ \s? และ \D เพื่อรองรับ ICU variations)
+  assert.match(out, /14[:.]30/, "ต้องมีเวลา 14:30 หรือ 14.30");
+});
+
+// ── Source-level smoke (wiring) ────────────────────────────
+
+test("source: _renderLeavePopover ใช้ calendarDetailActionsFor + formatReviewedAt (driver จาก helper)", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  const body = src.match(/function _renderLeavePopover[\s\S]*?^}/m)?.[0] || "";
+  assert.ok(body.length > 0, "ต้องเจอ function _renderLeavePopover");
+  assert.match(body, /calendarDetailActionsFor\(/, "ต้องเรียก calendarDetailActionsFor");
+  assert.match(body, /formatReviewedAt\(/, "ต้องเรียก formatReviewedAt");
+  assert.match(body, /id="lmPopError"/, "ต้องมี error banner div");
+  // ทุก action class ต้องสามารถ generate ได้จาก descriptor (มี class mapping)
+  assert.match(src, /_actionClassFor\(/, "ต้องมี helper _actionClassFor");
+  assert.match(src, /lm-pop-view-in-table/, "ต้องมี class lm-pop-view-in-table");
+});
+
+test("source: _openLeavePopover bind lm-pop-view-in-table → _jumpToTableRow + ใช้ _runPopoverAction (await before close)", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  const body = src.match(/function _openLeavePopover[\s\S]*?^ {2}}/m)?.[0] || "";
+  assert.ok(body.length > 0, "ต้องเจอ _openLeavePopover");
+  assert.match(body, /lm-pop-view-in-table[\s\S]{0,200}?_jumpToTableRow/, "ต้อง bind view-in-table → _jumpToTableRow");
+  assert.match(body, /_runPopoverAction\(/, "approve/reject/cancel/delete ต้องผ่าน _runPopoverAction (error stays open)");
+  // ห้ามมี pattern เดิม "_closePopover(); await _doReview" — ปิดก่อน await = bug ที่ 92.40 แก้
+  assert.ok(!/_closePopover\(\);\s*await\s+_doReview/.test(body), "ห้าม close ก่อน await action (regression guard 92.40)");
+  assert.ok(!/_closePopover\(\);\s*await\s+_doCancel/.test(body), "ห้าม close ก่อน await _doCancel");
+  assert.ok(!/_closePopover\(\);\s*await\s+_doDelete/.test(body), "ห้าม close ก่อน await _doDelete");
+});
+
+test("source: _runPopoverAction ปิด popover เฉพาะตอน result.ok + แสดง error banner ตอน fail", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  assert.match(src, /async function _runPopoverAction/, "ต้องมี _runPopoverAction");
+  const body = src.match(/async function _runPopoverAction[\s\S]*?^ {2}}/m)?.[0] || "";
+  assert.match(body, /result\?\.ok/, "เช็ค result.ok");
+  assert.match(body, /_closePopover\(\)/, "ปิด popover ตอน success");
+  assert.match(body, /_setPopoverError\(/, "เรียก _setPopoverError ตอน fail");
+});
+
+test("source: _do(Review|Cancel|Delete) คืน {ok, error} — caller-friendly result shape", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  // หา signature + return shapes ของแต่ละ function
+  for (const fn of ["_doReview", "_doCancel", "_doDelete"]) {
+    const m = src.match(new RegExp(`async function ${fn}[\\s\\S]*?^  }`, "m"));
+    assert.ok(m, `ต้องเจอ ${fn}`);
+    const body = m[0];
+    assert.match(body, /return \{ ok: true \}/, `${fn} ต้องคืน {ok:true} ตอนสำเร็จ`);
+    assert.match(body, /return \{ ok: false[\s\S]{0,100}?error/, `${fn} ต้องคืน {ok:false,error:...} ตอน fail`);
+  }
+});
+
+test("source: _renderTbody ใส่ data-lm-id บน <tr> (เพื่อ scroll/highlight ได้)", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  const body = src.match(/function _renderTbody[\s\S]*?^ {2}\}\.join\(""\);/m)?.[0]
+    || src.match(/function _renderTbody[\s\S]*?^}/m)?.[0] || "";
+  assert.ok(body.length > 0, "ต้องเจอ _renderTbody");
+  assert.match(body, /<tr data-lm-id="\$\{escHtml\(String\(r\.id\)\)\}"/, "ทุก <tr> ต้องมี data-lm-id");
+});
+
+test("source: container scope <style> มี @keyframes lmRowHighlight + .lm-row-highlight rule", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  const m = src.match(/id="lmPopover"[\s\S]*?<style>([\s\S]*?)<\/style>/);
+  assert.ok(m, "ต้องเจอ container scope <style>");
+  const css = m[1];
+  assert.match(css, /@keyframes\s+lmRowHighlight/, "ต้องมี @keyframes lmRowHighlight");
+  assert.match(css, /\.lm-row-highlight\s*\{[\s\S]{0,200}?animation:\s*lmRowHighlight/, "ต้องมี .lm-row-highlight rule ที่ใช้ animation");
+});
+
+test("source: _jumpToTableRow + _scrollAndHighlightRow — switch view, confirm filter, scroll, highlight", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  // _jumpToTableRow
+  const jBody = src.match(/function _jumpToTableRow[\s\S]*?^ {2}}/m)?.[0] || "";
+  assert.ok(jBody.length > 0, "ต้องเจอ _jumpToTableRow");
+  assert.match(jBody, /filterLeaves\(/, "ต้องเช็ค filter ปัจจุบัน");
+  assert.match(jBody, /window\.confirm\(/, "ต้องถาม confirm ตอน row ตก filter");
+  assert.match(jBody, /activeView\s*=\s*["']table["']/, "ต้อง switch ไป table view");
+  assert.match(jBody, /_closePopover\(\)/, "ต้องปิด popover");
+  assert.match(jBody, /_rerender\(\)/, "ต้อง rerender");
+  assert.match(jBody, /_scrollAndHighlightRow\(/, "ต้องเรียก _scrollAndHighlightRow");
+  // _scrollAndHighlightRow
+  const sBody = src.match(/function _scrollAndHighlightRow[\s\S]*?^ {2}}/m)?.[0] || "";
+  assert.ok(sBody.length > 0, "ต้องเจอ _scrollAndHighlightRow");
+  assert.match(sBody, /tr\[data-lm-id=/, "ต้องเลือก <tr> ตาม data-lm-id");
+  assert.match(sBody, /scrollIntoView/, "ต้องเรียก scrollIntoView");
+  assert.match(sBody, /classList\.add\(["']lm-row-highlight["']\)/, "ต้อง add highlight class");
+  assert.match(sBody, /setTimeout\([\s\S]{0,150}?classList\.remove/, "ต้อง remove class หลัง timeout");
+});
+
+test("source: _renderLeavePopover แสดง email + role (ถ้ามี) ใน header", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  const body = src.match(/function _renderLeavePopover[\s\S]*?^}/m)?.[0] || "";
+  assert.ok(body.length > 0, "ต้องเจอ _renderLeavePopover");
+  // header รวม email + role
+  assert.match(body, /p\?\.email[\s\S]{0,200}?p\?\.role/, "ต้องเช็ค p?.email + p?.role");
 });

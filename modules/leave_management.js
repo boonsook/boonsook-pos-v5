@@ -168,6 +168,61 @@ export function canReviewLeave(row, role) {
   return row.status === "pending";
 }
 
+/**
+ * Phase 92.40: pure descriptor ของ action buttons สำหรับ calendar event detail popover
+ * - reuse canEditLeave + canReviewLeave (business rule เดียวทั้งระบบ)
+ * - viewInTable มีเสมอ (ทุก role) เพื่อ navigate กลับ table
+ *
+ * @param {object} leave
+ * @param {string} currentUserId
+ * @param {string} role
+ * @returns {Array<{kind:string,label:string,style:string}>}
+ *   kind: "approve"|"reject"|"cancel"|"edit"|"delete"|"viewInTable"
+ */
+export function calendarDetailActionsFor(leave, currentUserId, role) {
+  if (!leave) return [];
+  const out = [];
+  if (canReviewLeave(leave, role)) {
+    out.push({ kind: "approve", label: "✓ อนุมัติ", style: "primary" });
+    out.push({ kind: "reject",  label: "✕ ปฏิเสธ", style: "danger-outline" });
+  }
+  if (canEditLeave(leave, currentUserId, role)
+      && role !== "admin" && leave.status === "pending") {
+    out.push({ kind: "cancel", label: "ยกเลิก", style: "secondary" });
+  }
+  if (role === "admin") {
+    out.push({ kind: "edit",   label: "✏️ แก้ไข", style: "secondary" });
+    out.push({ kind: "delete", label: "🗑️ ลบ",   style: "danger-outline" });
+  }
+  out.push({ kind: "viewInTable", label: "📋 ดูในตาราง", style: "secondary" });
+  return out;
+}
+
+/**
+ * Phase 92.40: format ISO timestamp (e.g. leave.reviewed_at) เป็น th-TH short
+ *   "27 พ.ค. 14:30" — ใช้ใน leave detail popover
+ *
+ * @param {string|null|undefined} iso
+ * @returns {string} empty string ถ้า invalid/empty
+ */
+export function formatReviewedAt(iso) {
+  if (!iso) return "";
+  try {
+    const d = new Date(iso);
+    if (!Number.isFinite(d.getTime())) return "";
+    return d.toLocaleString("th-TH", {
+      timeZone: TZ,
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch (_e) {
+    return "";
+  }
+}
+
 // ═══════════════════════════════════════════════════════════
 //  Phase 92.38 — Calendar Leave View helpers (pure, testable)
 //
@@ -1172,6 +1227,21 @@ function _renderCalendarSection(filtered, month, profileMap, todayStr) {
 
 // Phase 92.38: leave details popover — แสดงเมื่อ click event chip
 // Phase 92.39: responsive — desktop = centered modal, mobile (≤768px) = bottom sheet
+// Phase 92.40: action descriptor (kind) → button class + inline style
+function _actionStyle(style) {
+  switch (style) {
+    case "primary":        return "border:1px solid #16a34a;background:#16a34a;color:#fff";
+    case "danger-outline": return "border:1px solid #dc2626;background:#fff;color:#dc2626";
+    case "secondary":      // fallthrough
+    default:               return "border:1px solid #e2e8f0;background:#fff;color:#475569";
+  }
+}
+function _actionClassFor(kind) {
+  // kind: approve|reject|cancel|edit|delete|viewInTable
+  if (kind === "viewInTable") return "lm-pop-view-in-table";
+  return `lm-pop-${kind}`;
+}
+
 function _renderLeavePopover(leave, profileMap, currentUserId, role) {
   if (!leave) return "";
   const meta = leaveTypeLabel(leave.leave_type);
@@ -1179,20 +1249,15 @@ function _renderLeavePopover(leave, profileMap, currentUserId, role) {
   const p = profileMap.get(String(leave.user_id));
   const name = p ? profileDisplayName(p) : "—";
   const dateRange = _formatDateRange(leave.start_date, leave.end_date);
-  const editable   = canEditLeave(leave, currentUserId, role);
-  const reviewable = canReviewLeave(leave, role);
-  const actions = [];
-  if (reviewable) {
-    actions.push(`<button class="lm-pop-approve" data-lm-id="${escHtml(String(leave.id))}" style="padding:8px 12px;border:1px solid #16a34a;border-radius:6px;background:#16a34a;color:#fff;font-size:13px;font-weight:700;cursor:pointer">✓ อนุมัติ</button>`);
-    actions.push(`<button class="lm-pop-reject"  data-lm-id="${escHtml(String(leave.id))}" style="padding:8px 12px;border:1px solid #dc2626;border-radius:6px;background:#fff;color:#dc2626;font-size:13px;font-weight:700;cursor:pointer">✕ ปฏิเสธ</button>`);
-  }
-  if (editable && role !== "admin" && leave.status === "pending") {
-    actions.push(`<button class="lm-pop-cancel" data-lm-id="${escHtml(String(leave.id))}" style="padding:8px 12px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;color:#475569;font-size:13px;font-weight:700;cursor:pointer">ยกเลิก</button>`);
-  }
-  if (role === "admin") {
-    actions.push(`<button class="lm-pop-edit"   data-lm-id="${escHtml(String(leave.id))}" style="padding:8px 12px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;color:#0f172a;font-size:13px;font-weight:700;cursor:pointer">✏️ แก้ไข</button>`);
-    actions.push(`<button class="lm-pop-delete" data-lm-id="${escHtml(String(leave.id))}" style="padding:8px 12px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;color:#dc2626;font-size:13px;font-weight:700;cursor:pointer">🗑️ ลบ</button>`);
-  }
+  // Phase 92.40: drive actions จาก pure helper (testable, single source of truth)
+  const descriptors = calendarDetailActionsFor(leave, currentUserId, role);
+  const actions = descriptors.map(d =>
+    `<button class="${_actionClassFor(d.kind)}" data-lm-id="${escHtml(String(leave.id))}" style="padding:8px 12px;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;${_actionStyle(d.style)}">${escHtml(d.label)}</button>`
+  );
+  // Phase 92.40: reviewer info (ถ้ามี)
+  const reviewer = leave.reviewed_by ? profileMap.get(String(leave.reviewed_by)) : null;
+  const reviewerName = reviewer ? profileDisplayName(reviewer) : "";
+  const reviewedAtTh = formatReviewedAt(leave.reviewed_at);
   // Phase 92.39d: ไม่มี inline CSS block ใน template literal แล้ว — rules ของ .lm-pop-dialog/.lm-pop-body
   // ถูก inject ใน container scope ของ _rerender (render ครั้งเดียว) ใช้ร่วมกันทั้ง 2 popover types
   return `
@@ -1201,9 +1266,12 @@ function _renderLeavePopover(leave, profileMap, currentUserId, role) {
       <div class="lm-pop-grabber" style="display:none;text-align:center;padding:6px 0 0">
         <div style="width:36px;height:4px;border-radius:2px;background:#cbd5e1;margin:0 auto"></div>
       </div>
-      <div style="padding:12px 14px;background:${meta.bg};border-bottom:1px solid ${meta.border};display:flex;justify-content:space-between;align-items:center;gap:8px">
-        <div style="font-size:15px;font-weight:800;color:${meta.fg}">${escHtml(meta.icon + " " + name)}</div>
-        <button id="lmPopClose" aria-label="ปิด" style="padding:4px 10px;border:1px solid ${meta.border};border-radius:6px;background:#fff;color:${meta.fg};font-size:13px;cursor:pointer">✕</button>
+      <div style="padding:12px 14px;background:${meta.bg};border-bottom:1px solid ${meta.border};display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:15px;font-weight:800;color:${meta.fg};overflow:hidden;text-overflow:ellipsis">${escHtml(meta.icon + " " + name)}</div>
+          ${p?.email || p?.role ? `<div style="font-size:11px;color:${meta.fg};opacity:.85;margin-top:2px;overflow:hidden;text-overflow:ellipsis">${escHtml([p?.email, p?.role].filter(Boolean).join(" · "))}</div>` : ""}
+        </div>
+        <button id="lmPopClose" aria-label="ปิด" style="padding:4px 10px;border:1px solid ${meta.border};border-radius:6px;background:#fff;color:${meta.fg};font-size:13px;cursor:pointer;flex-shrink:0">✕</button>
       </div>
       <div class="lm-pop-body" style="padding:14px;display:flex;flex-direction:column;gap:10px">
         <div style="font-size:14px;color:#0f172a">
@@ -1211,7 +1279,9 @@ function _renderLeavePopover(leave, profileMap, currentUserId, role) {
         </div>
         <div style="font-size:13px">สถานะ: <span style="display:inline-block;padding:2px 8px;border-radius:6px;background:${stMeta.bg};color:${stMeta.fg};border:1px solid ${stMeta.border};font-weight:700">${escHtml(stMeta.label)}</span></div>
         ${leave.reason ? `<div style="font-size:13px;color:#475569"><strong>เหตุผล:</strong> ${escHtml(leave.reason)}</div>` : ""}
+        ${reviewerName || reviewedAtTh ? `<div style="font-size:12px;color:#475569"><strong>ผู้พิจารณา:</strong> ${escHtml(reviewerName || "—")}${reviewedAtTh ? ` · ${escHtml(reviewedAtTh)}` : ""}</div>` : ""}
         ${leave.review_note ? `<div style="font-size:13px;color:#475569;font-style:italic"><strong>หมายเหตุพิจารณา:</strong> "${escHtml(leave.review_note)}"</div>` : ""}
+        <div id="lmPopError" role="alert" style="display:none;background:#fef2f2;border:1px solid #fecaca;color:#991b1b;padding:8px 12px;border-radius:8px;font-size:12px"></div>
         ${actions.length > 0 ? `<div style="display:flex;flex-wrap:wrap;gap:8px;padding-top:8px;border-top:1px solid #f1f5f9;margin-top:4px">${actions.join("")}</div>` : ""}
       </div>
     </div>
@@ -1273,7 +1343,7 @@ function _renderTbody(rows, profileMap, currentUserId, role) {
       actions.push(`<button class="lm-row-delete" data-lm-id="${escHtml(String(r.id))}" style="padding:4px 8px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;color:#dc2626;font-size:11px;font-weight:700;cursor:pointer">🗑️</button>`);
     }
     return `
-      <tr style="border-bottom:1px solid #f1f5f9">
+      <tr data-lm-id="${escHtml(String(r.id))}" style="border-bottom:1px solid #f1f5f9">
         <td style="padding:8px 14px">
           <div style="font-weight:700;color:#0f172a">${escHtml(p ? profileDisplayName(p) : "—")}</div>
           ${p?.email ? `<div style="font-size:11px;color:#64748b">${escHtml(p.email)}</div>` : ""}
@@ -1667,6 +1737,13 @@ export async function renderLeaveManagementPage(ctx) {
           .lm-pop-grabber { display: block !important; }
         }
         @keyframes lmPopSlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+        /* Phase 92.40: row highlight สำหรับ "ดูในตาราง" navigation จาก calendar popover */
+        @keyframes lmRowHighlight {
+          0%   { background-color: #fef3c7; }
+          70%  { background-color: #fef3c7; }
+          100% { background-color: transparent; }
+        }
+        #lmTbody tr.lm-row-highlight { animation: lmRowHighlight 2.5s ease-out; }
       </style>
     `;
 
@@ -1752,14 +1829,16 @@ export async function renderLeaveManagementPage(ctx) {
     return leaves.find(r => String(r.id) === String(id)) || null;
   }
 
+  // Phase 92.40: คืน {ok,error} แทน void — caller (popover) ตัดสินใจ UX (error banner vs ปิด);
+  // showToast ยังเรียกในที่เดิม (ทำงานเหมือนก่อนหน้าสำหรับ table row delegation)
   async function _doReview(id, decision) {
     const row = _findLeave(id);
-    if (!row) return;
-    if (!canReviewLeave(row, role)) { showToast?.("ไม่มีสิทธิ์"); return; }
+    if (!row) return { ok: false, error: "ไม่พบรายการ" };
+    if (!canReviewLeave(row, role)) { showToast?.("ไม่มีสิทธิ์"); return { ok: false, error: "ไม่มีสิทธิ์" }; }
     const decisionLabel = decision === "approved" ? "อนุมัติ" : "ปฏิเสธ";
     const note = window.prompt(`หมายเหตุ (optional) สำหรับการ${decisionLabel}คำขอนี้:`);
-    if (note === null) return; // user pressed cancel
-    if (!_confirmDialog(`ยืนยัน${decisionLabel}คำขอลานี้?`)) return;
+    if (note === null) return { ok: false, error: "ยกเลิก" }; // user pressed cancel — silent
+    if (!_confirmDialog(`ยืนยัน${decisionLabel}คำขอลานี้?`)) return { ok: false, error: "ยกเลิก" };
     try {
       const patch = {
         status: decision,
@@ -1773,30 +1852,36 @@ export async function renderLeaveManagementPage(ctx) {
       if (i >= 0 && Array.isArray(updated) && updated[0]) leaves[i] = updated[0];
       showToast?.(`✓ ${decisionLabel}เรียบร้อย`);
       _rerender();
+      return { ok: true };
     } catch (e) {
-      showToast?.("ผิดพลาด: " + (e?.message || e));
+      const msg = "ผิดพลาด: " + (e?.message || e);
+      showToast?.(msg);
+      return { ok: false, error: msg };
     }
   }
 
   async function _doCancel(id) {
     const row = _findLeave(id);
-    if (!row) return;
-    if (!canEditLeave(row, currentUserId, role)) { showToast?.("ไม่มีสิทธิ์"); return; }
-    if (!_confirmDialog("ยกเลิกคำขอลานี้?")) return;
+    if (!row) return { ok: false, error: "ไม่พบรายการ" };
+    if (!canEditLeave(row, currentUserId, role)) { showToast?.("ไม่มีสิทธิ์"); return { ok: false, error: "ไม่มีสิทธิ์" }; }
+    if (!_confirmDialog("ยกเลิกคำขอลานี้?")) return { ok: false, error: "ยกเลิก" };
     try {
       const updated = await _patchLeave(row.id, { status: "cancelled" });
       const i = leaves.findIndex(r => String(r.id) === String(row.id));
       if (i >= 0 && Array.isArray(updated) && updated[0]) leaves[i] = updated[0];
       showToast?.("ยกเลิกเรียบร้อย");
       _rerender();
+      return { ok: true };
     } catch (e) {
-      showToast?.("ผิดพลาด: " + (e?.message || e));
+      const msg = "ผิดพลาด: " + (e?.message || e);
+      showToast?.(msg);
+      return { ok: false, error: msg };
     }
   }
 
   async function _doDelete(id) {
-    if (role !== "admin") { showToast?.("เฉพาะ admin"); return; }
-    if (!_confirmDialog("ลบรายการนี้ถาวร? (ไม่สามารถ undo ได้)")) return;
+    if (role !== "admin") { showToast?.("เฉพาะ admin"); return { ok: false, error: "เฉพาะ admin" }; }
+    if (!_confirmDialog("ลบรายการนี้ถาวร? (ไม่สามารถ undo ได้)")) return { ok: false, error: "ยกเลิก" };
     try {
       const cfg = window.SUPABASE_CONFIG;
       const r = await fetch(`${cfg.url}/rest/v1/staff_leaves?id=eq.${encodeURIComponent(id)}`, {
@@ -1806,8 +1891,11 @@ export async function renderLeaveManagementPage(ctx) {
       leaves = leaves.filter(x => String(x.id) !== String(id));
       showToast?.("ลบเรียบร้อย");
       _rerender();
+      return { ok: true };
     } catch (e) {
-      showToast?.("ผิดพลาด: " + (e?.message || e));
+      const msg = "ผิดพลาด: " + (e?.message || e);
+      showToast?.(msg);
+      return { ok: false, error: msg };
     }
   }
 
@@ -1874,16 +1962,96 @@ export async function renderLeaveManagementPage(ctx) {
     return true;
   }
 
+  // Phase 92.40: state แชร์สำหรับ popover busy guard
+  let _popoverActionBusy = false;
+
+  function _setPopoverError(msg) {
+    const pop = document.getElementById("lmPopover");
+    const banner = pop?.querySelector("#lmPopError");
+    if (!banner) return;
+    if (msg) {
+      banner.textContent = String(msg);
+      banner.style.display = "block";
+    } else {
+      banner.textContent = "";
+      banner.style.display = "none";
+    }
+  }
+
+  /**
+   * Phase 92.40: หลัง mutation จาก popover — ปิดเฉพาะตอน success;
+   * ถ้า fail → ค้าง popover + แสดง error banner ใน body
+   *
+   * Note: _do* แสดง confirm prompt ภายใน — ผู้ใช้กด cancel จะคืน {ok:false,error:"ยกเลิก"}.
+   * เราถือว่าเป็น expected silent path (ไม่แสดง banner) — เฉพาะ error อื่นเท่านั้นที่ขึ้น banner.
+   */
+  async function _runPopoverAction(actionFn) {
+    if (_popoverActionBusy) return;
+    _popoverActionBusy = true;
+    _setPopoverError("");
+    try {
+      const result = await actionFn();
+      if (result?.ok) {
+        _closePopover();
+      } else if (result && result.error && result.error !== "ยกเลิก") {
+        _setPopoverError(result.error);
+      }
+    } finally {
+      _popoverActionBusy = false;
+    }
+  }
+
   function _openLeavePopover(leave) {
     if (!leave) return;
     const html = _renderLeavePopover(leave, profileMap, currentUserId, role);
     _openPopover(html, "leave", (pop) => {
-      pop.querySelector(".lm-pop-approve")?.addEventListener("click", async () => { _closePopover(); await _doReview(leave.id, "approved"); });
-      pop.querySelector(".lm-pop-reject") ?.addEventListener("click", async () => { _closePopover(); await _doReview(leave.id, "rejected"); });
-      pop.querySelector(".lm-pop-cancel") ?.addEventListener("click", async () => { _closePopover(); await _doCancel(leave.id); });
-      pop.querySelector(".lm-pop-delete") ?.addEventListener("click", async () => { _closePopover(); await _doDelete(leave.id); });
+      pop.querySelector(".lm-pop-approve")?.addEventListener("click", () => _runPopoverAction(() => _doReview(leave.id, "approved")));
+      pop.querySelector(".lm-pop-reject") ?.addEventListener("click", () => _runPopoverAction(() => _doReview(leave.id, "rejected")));
+      pop.querySelector(".lm-pop-cancel") ?.addEventListener("click", () => _runPopoverAction(() => _doCancel(leave.id)));
+      pop.querySelector(".lm-pop-delete") ?.addEventListener("click", () => _runPopoverAction(() => _doDelete(leave.id)));
       pop.querySelector(".lm-pop-edit")   ?.addEventListener("click", () => { _closePopover(); _openFormModal(leave); });
+      pop.querySelector(".lm-pop-view-in-table")?.addEventListener("click", () => _jumpToTableRow(leave.id));
     });
+  }
+
+  // Phase 92.40: switch table view + scroll/highlight row; ถ้าตก filter ปัจจุบัน confirm + reset
+  function _jumpToTableRow(id) {
+    const row = _findLeave(id);
+    if (!row) return;
+    const filtered = filterLeaves(leaves, {
+      month: activeMonth,
+      status: activeStatus,
+      leaveType: activeType,
+    });
+    const inFilter = filtered.some(r => String(r.id) === String(id));
+    if (!inFilter) {
+      const ok = (typeof window !== "undefined" && typeof window.confirm === "function")
+        ? window.confirm("รายการนี้อยู่นอก filter ปัจจุบัน — ล้าง filter เพื่อแสดง?")
+        : true;
+      if (!ok) return;
+      activeStatus = "all";
+      activeType = "all";
+      // month ตั้งให้คลุม row.start_date เพื่อให้แน่ใจว่ามองเห็น
+      activeMonth = String(row.start_date || "").slice(0, 7) || "";
+    }
+    if (activeView !== "table") activeView = "table";
+    _closePopover();
+    _rerender();
+    // หลัง rerender DOM ใหม่ — scroll + highlight (defer 1 tick)
+    setTimeout(() => _scrollAndHighlightRow(id), 0);
+  }
+
+  function _scrollAndHighlightRow(id) {
+    const tbody = document.getElementById("lmTbody");
+    if (!tbody) return;
+    const safeId = (typeof CSS !== "undefined" && typeof CSS.escape === "function")
+      ? CSS.escape(String(id))
+      : String(id).replace(/"/g, '\\"');
+    const tr = tbody.querySelector(`tr[data-lm-id="${safeId}"]`);
+    if (!tr) return;
+    try { tr.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (_e) { /* old browsers */ }
+    tr.classList.add("lm-row-highlight");
+    setTimeout(() => tr.classList.remove("lm-row-highlight"), 2500);
   }
 
   function _openDayListPopover(dateStr, filtered) {

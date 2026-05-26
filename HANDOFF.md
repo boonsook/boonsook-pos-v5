@@ -3,15 +3,113 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 26 พฤษภาคม 2026 (Phase 92.39d — HOTFIX dense day popover invisible CSS scope, build 306)
-**Version:** 5.62.3 (build 306) — Phase 92.39d (CSS scope bug + DRY _openPopover)
-**Previous:** 5.62.2 (build 305) — Phase 92.39c (popover viewport-clipping — แต่ยังไม่แก้ scope bug)
+**อัปเดตล่าสุด:** 27 พฤษภาคม 2026 (Phase 92.40 — Leave Calendar Event Detail Actions Polish, build 307)
+**Version:** 5.62.4 (build 307) — Phase 92.40 (helper extract + email/reviewer detail + "ดูในตาราง" + error-stays-open)
+**Previous:** 5.62.3 (build 306) — Phase 92.39d (CSS scope bug + DRY _openPopover)
 
-> ✅ **ไม่มี SQL ใหม่ในเฟส 92.36–92.39d** (additive code only).
+> ✅ **ไม่มี SQL ใหม่ในเฟส 92.36–92.40** (additive code only).
 
 ---
 
-## 🧯 Phase 92.39d — HOTFIX dense day popover invisible (CSS scope bug) (this session)
+## ✨ Phase 92.40 — Leave Calendar Event Detail Actions Polish (this session)
+
+**บริบท:** หลัง 92.39d (build 306) day-list popover visible แล้ว · calendar event detail popover ทำงาน แต่:
+- detail ขาด — ไม่มี email, ไม่มีผู้อนุมัติ (name + เวลา)
+- ไม่มีทางออกจาก popover ไปดู row เต็มในตาราง
+- error UX ไม่ปลอดภัย — `_doReview/_doCancel/_doDelete` close popover **ก่อน** await action → ถ้า fail user เห็นแค่ toast แล้วต้องเปิดใหม่
+- action logic ซ้ำใน 3 จุด (table row, popover template, future) — เสี่ยง drift / hard to test
+
+### สิ่งที่ทำ
+
+**1) Pure helper ใหม่ `calendarDetailActionsFor(leave, currentUserId, role)`** ([`modules/leave_management.js`](modules/leave_management.js))
+- คืน descriptor array `{kind, label, style}` — single source of truth สำหรับ popover actions
+- Reuse `canEditLeave` + `canReviewLeave` (ไม่สร้าง rule ใหม่)
+- Matrix:
+  - admin + pending → `approve`/`reject`/`edit`/`delete`/`viewInTable`
+  - admin + approved|rejected|cancelled → `edit`/`delete`/`viewInTable`
+  - non-admin own + pending → `cancel`/`viewInTable`
+  - non-admin own + non-pending → `viewInTable` only
+  - non-admin OTHER (currentUserId ≠ leave.user_id) → `viewInTable` only
+
+**2) `_renderLeavePopover` เสริม detail copy + driver จาก helper**
+- Header: `<div>` email + role ใต้ name (`p?.email` · `p?.role`) ใช้ truncate ellipsis
+- Body: บรรทัด "ผู้พิจารณา: ชื่อ · 27 พ.ค. 14:30" (helper ใหม่ `formatReviewedAt(iso)` th-TH short Asia/Bangkok)
+- Body: inline error banner `<div id="lmPopError" role="alert">` (hidden by default)
+- Actions: loop จาก `calendarDetailActionsFor(...)` → button class `lm-pop-{kind}` (kind viewInTable → `lm-pop-view-in-table`)
+- Style mapping: `primary` (green filled) / `danger-outline` (red outline) / `secondary` (slate outline)
+
+**3) Error-stays-open refactor**
+- `_doReview`/`_doCancel`/`_doDelete` คืน `{ok:true}` หรือ `{ok:false, error}` แทน void
+- `_runPopoverAction(actionFn)` wrapper: busy-guard กัน double-click + await action ก่อน → `_closePopover()` เฉพาะตอน `result.ok`; ถ้า fail (`error` ≠ "ยกเลิก") → `_setPopoverError(msg)` แสดง banner
+- showToast ยังเรียกทั้ง flow เดิม (table row delegation ไม่เปลี่ยน) + flow ใหม่ (popover เพิ่ม inline banner)
+- **Regression guard test:** ห้ามมี pattern เดิม `_closePopover(); await _doReview` (ปิดก่อน await = bug ที่ phase นี้แก้)
+
+**4) "ดูในตาราง" navigation**
+- `_jumpToTableRow(id)`:
+  - เช็คว่า row อยู่ใน `filterLeaves(leaves, {month, status, leaveType})` ปัจจุบันหรือไม่
+  - ถ้าตก filter → `window.confirm("รายการนี้อยู่นอก filter ปัจจุบัน — ล้าง filter เพื่อแสดง?")` → ตกลง = reset `activeStatus="all"; activeType="all"; activeMonth=row.start_date.slice(0,7)` (re-scope ให้ครอบคลุม row)
+  - ถ้า `activeView !== "table"` → set `"table"`
+  - `_closePopover()` + `_rerender()` + `setTimeout(scrollAndHighlight, 0)`
+- `_scrollAndHighlightRow(id)`:
+  - `tbody.querySelector('tr[data-lm-id="..."]')` ใช้ `CSS.escape` กัน injection
+  - `scrollIntoView({behavior: "smooth", block: "center"})` + `classList.add("lm-row-highlight")` + setTimeout remove 2.5s
+- `_renderTbody`: เพิ่ม `data-lm-id="${escHtml(String(r.id))}"` บน `<tr>` (anchor)
+- CSS ใน container scope: `@keyframes lmRowHighlight { 0%/70% bg #fef3c7 → 100% transparent }` + `#lmTbody tr.lm-row-highlight { animation: lmRowHighlight 2.5s ease-out }`
+
+### Re-uses (ไม่สร้างใหม่)
+
+- `canEditLeave` (modules/leave_management.js:151), `canReviewLeave` (:165) — business rule กลาง
+- `_rerender()` — central rerender ที่ sync KPI + balance + table + calendar (action handler ไม่ต้องเพิ่ม sync logic)
+- `filterLeaves`, `_findLeave`, `_patchLeave`, `_openPopover`, `_closePopover` — pipeline เดิม
+- `escHtml`, `profileDisplayName`, `leaveTypeLabel`, `leaveStatusMeta`, `_formatDateRange` — utils
+
+### Tests +21 source
+
+[`tests/leave_management.test.js`](tests/leave_management.test.js):
+- `calendarDetailActionsFor` 8 tests (null leave, admin pending/approved/rejected/cancelled, non-admin own pending/approved, non-admin OTHER, role variants sales/technician/customer, descriptor shape + uniqueness + viewInTable last)
+- `formatReviewedAt` 3 tests (null/empty/undefined, invalid ISO, valid → th-TH short with พ.ค. + 14:30)
+- Source-level 10 (popover ใช้ helper + formatReviewedAt + error banner; openLeavePopover bind viewInTable + ใช้ `_runPopoverAction` + ไม่ pre-close ก่อน await; `_runPopoverAction` ปิดเฉพาะ ok + แสดง error fail; `_do*` คืน `{ok, error}`; `_renderTbody` มี data-lm-id; container scope CSS มี keyframes + .lm-row-highlight; `_jumpToTableRow` + `_scrollAndHighlightRow` flow; header แสดง email+role)
+
+Unit **655 → 676** (+21)
+
+### Gates ✅
+
+- `npm run lint:errors` exit 0
+- `npm test` = **676/676**
+- `npm run test:e2e -- --reporter=line` = **11/11**
+- `npm audit --audit-level=moderate` = **0 vulnerabilities**
+
+### Version sync
+
+- `package.json`: 5.62.3 → **5.62.4** (minor — user-facing feature)
+- `index.html`: ?v=306→307 ทุก src + `data-app-build="307"` + `data-app-version="5.62.4"`
+- `sw.js`: cache v306→v307 + comment v307
+
+### Smoke test (manual)
+
+1. Production Ctrl+Shift+R → APP_BUILD=307
+2. Calendar view → คลิก event pending → admin เห็น approve/reject/edit/delete/viewInTable
+3. กด approve → prompt note → confirm → popover ปิด + table/KPI/balance refresh
+4. คลิก event approved → เห็น email/role ใต้ชื่อ + "ผู้พิจารณา: ชื่อ · เวลา" + ปุ่ม edit/delete/viewInTable
+5. กด "📋 ดูในตาราง" → switch view + scroll/highlight row 2.5s
+6. ตั้ง filter status=cancelled → คลิก approved event → กด "ดูในตาราง" → confirm prompt → reset filter + jump
+7. Non-admin → คลิก own pending → cancel + viewInTable
+8. Non-admin → คลิก own approved → viewInTable only (no admin actions)
+9. Force fail (offline/RLS deny) → popover ค้าง + error banner ขึ้น + กดใหม่ได้
+10. Mobile ≤768px → bottom sheet ไม่ล้น + scroll detail ได้ + email row truncate
+
+### Regression check ✅
+
+- +N day-list popover (build 306) ยังเปิดได้ + chained leave detail
+- Esc / backdrop click ปิดได้
+- Mobile agenda render เหมือนเดิม
+- Edit quota warning exclude current (build 302) ยังถูก
+- Payroll leave deduction flow ไม่กระทบ
+- Table row approve/reject/cancel/delete flow เดิมยังใช้ได้
+
+---
+
+## 🧯 Phase 92.39d — HOTFIX dense day popover invisible (CSS scope bug)
 
 **บริบท:** หลัง 92.39c (build 305) user smoke test production พบ:
 - About = 5.62.2 / build 305 (SW + cache ตรง — ไม่ใช่ stale)

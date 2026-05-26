@@ -7,6 +7,27 @@
 
 ---
 
+## 5.62.4 (build 307) — 2026-05-27 ✨ Phase 92.40 — Leave Calendar Event Detail Actions Polish
+
+- **feat(leave/calendar) [actions]:** popover รายละเอียดของ event ใน Calendar ใช้ helper เดียวเป็น single source of truth + ขยาย detail/UX
+  - `calendarDetailActionsFor(leave, currentUserId, role)` — pure helper คืน descriptor array `{kind, label, style}` (test ได้, reuse `canEditLeave` + `canReviewLeave` ไม่สร้าง rule ใหม่)
+    - admin pending: `approve`/`reject`/`edit`/`delete`/`viewInTable`
+    - admin non-pending: `edit`/`delete`/`viewInTable`
+    - non-admin own pending: `cancel`/`viewInTable`
+    - non-admin อื่น ๆ: `viewInTable` เท่านั้น (ไม่เห็น admin actions)
+  - `_renderLeavePopover` เสริม: header แสดง email + role ใต้ชื่อ, body เพิ่มบรรทัด "ผู้พิจารณา: ... · 27 พ.ค. 14:30" (helper `formatReviewedAt` Asia/Bangkok), inline error banner `#lmPopError`
+- **feat(leave/calendar) [navigate]:** ปุ่ม "📋 ดูในตาราง" ทุก role → `_jumpToTableRow`: switch view → scroll + highlight row 2.5s (`@keyframes lmRowHighlight`)
+  - ถ้า row อยู่นอก filter ปัจจุบัน → `window.confirm` ก่อน reset (status=all, type=all, month=row.start_date) — ไม่ทำให้ user เสีย state โดยไม่รู้ตัว
+  - `<tr data-lm-id="...">` ใน `_renderTbody` เป็น anchor สำหรับ `querySelector`
+- **fix(leave/calendar) [error-stays-open]:** `_doReview`/`_doCancel`/`_doDelete` คืน `{ok, error}` แทน void; `_openLeavePopover` ใช้ `_runPopoverAction` wrapper — await **ก่อน** close → success ค่อยปิด, fail ค้าง popover + แสดง banner + busy-guard กัน double-click
+- **ไม่แตะ:** SQL/RLS, payroll leave deduction, balance/quota, table row UI/handlers (เพิ่มเฉพาะ `data-lm-id`)
+- Tests +21 (`calendarDetailActionsFor` 8 role/status matrices + `formatReviewedAt` 3 + source-level 10). Unit **655 → 676**
+- verify เขียว: lint:errors 0/0 · unit 676/676 · e2e 11/11 · audit 0
+
+**Build:** 306 → 307; version 5.62.3 → 5.62.4 (minor — feature)
+
+---
+
 ## 5.62.3 (build 306) — 2026-05-26 🧯 Phase 92.39d — HOTFIX dense day popover invisible (CSS scope bug)
 
 - **fix(leave/popover) [css-scope]:** Phase 92.39c ยังไม่แก้ root cause — คลิก "+N รายการ" backdrop เปิด แต่ day-list dialog content **invisible**
