@@ -323,6 +323,8 @@ function _openPayrollModal(ctx, payroll) {
               </div>
               <button id="prFillLeaveBtn" type="button" style="background:#dc2626;color:#fff;border:none;padding:7px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700">→ เติมลงช่องหัก</button>
             </div>
+            <!-- Phase 92.37: info เมื่อ note มี marker หักลาอยู่แล้ว (idempotent guard) -->
+            <div id="prLeaveApplyInfo" style="display:none;margin-top:6px;padding:6px 8px;background:#fef3c7;border:1px solid #fde68a;border-radius:6px;font-size:11px;color:#78350f;font-weight:600"></div>
             <div style="font-size:10px;color:#9a3412;margin-top:4px;font-style:italic">★ ปุ่มนี้เป็นการ "แนะนำ" ไม่หักเงินอัตโนมัติ — admin ตรวจช่องหัก/หมายเหตุก่อนบันทึก</div>
           </div>
         </div>
@@ -629,6 +631,36 @@ function _openPayrollModal(ctx, payroll) {
     balanceRow.style.display = "block";
   }
 
+  // Phase 92.37: helper ปรับ state ปุ่ม "เติมลงช่องหัก" ตามว่า note มี marker อยู่แล้วหรือยัง
+  //   - applied=true  → disable + label "✓ เติมแล้ว" + แสดง info "ตรวจพบรายการหักวันลาแล้ว"
+  //   - applied=false → enable + label เดิม + ซ่อน info
+  function _setLeaveApplyButtonState(applied, suggestedAmount) {
+    const btn = document.getElementById("prFillLeaveBtn");
+    const info = document.getElementById("prLeaveApplyInfo");
+    if (btn) {
+      if (applied) {
+        btn.disabled = true;
+        btn.textContent = "✓ เติมแล้ว";
+        btn.style.background = "#94a3b8";
+        btn.style.cursor = "not-allowed";
+      } else {
+        btn.disabled = false;
+        btn.textContent = "→ เติมลงช่องหัก";
+        btn.style.background = "#dc2626";
+        btn.style.cursor = "pointer";
+      }
+    }
+    if (info) {
+      if (applied) {
+        const amt = Number(suggestedAmount) > 0 ? ` ฿${Number(suggestedAmount).toFixed(2)}` : "";
+        info.innerHTML = `ⓘ ตรวจพบรายการหักวันลาแล้ว (เติม${amt} ไว้แล้ว — แก้ช่องหัก/หมายเหตุก่อนบันทึก)`;
+        info.style.display = "block";
+      } else {
+        info.style.display = "none";
+      }
+    }
+  }
+
   // Recompute decision ตาม rate/salary ปัจจุบัน (เรียกเมื่อ admin แก้ base/dailyRate หลัง fetch)
   function _refreshLeaveDecision() {
     if (!_leaveMonthSummary) { _hideLeaveApplyRow(); return; }
@@ -666,6 +698,12 @@ function _openPayrollModal(ctx, payroll) {
     if (srcEl) srcEl.textContent = sourceText;
     const row = document.getElementById("prLeaveApplyRow");
     if (row) row.style.display = "block";
+
+    // Phase 92.37: ถ้า note ของ record เดิมมี marker หักลาอยู่แล้ว → guard ปุ่ม apply (disable + แจ้ง)
+    const curNote = (document.getElementById("prNote")?.value || "").trim();
+    const marker  = leaveDeductionNoteMarker(decision);
+    const already = hasLeaveDeductionNoteMarker(curNote, marker);
+    _setLeaveApplyButtonState(already, decision.suggestedDeduction);
   }
 
   fetchLeaveBtn?.addEventListener("click", async () => {
@@ -738,6 +776,7 @@ function _openPayrollModal(ctx, payroll) {
   });
 
   // Phase 92.36: เติม unpaid + overQuota deduction ลงช่อง prDed (additive, idempotent ผ่าน marker)
+  // Phase 92.37: หลัง apply ไม่ซ่อน row — เปลี่ยน state ปุ่มเป็น "✓ เติมแล้ว" disabled + แสดง info
   document.getElementById("prFillLeaveBtn")?.addEventListener("click", () => {
     const d = _leaveDecision;
     if (!d || d.suggestedDeduction <= 0 || d.deductibleDays <= 0) return;
@@ -751,7 +790,7 @@ function _openPayrollModal(ctx, payroll) {
     const curNote = (noteInp?.value || "").trim();
     if (hasLeaveDeductionNoteMarker(curNote, marker)) {
       _setLeaveSummary("✓ เติมแล้วก่อนหน้านี้ (idempotent — ไม่บวกซ้ำ)");
-      _hideLeaveApplyRow();
+      _setLeaveApplyButtonState(true, d.suggestedDeduction);
       return;
     }
 
@@ -763,12 +802,13 @@ function _openPayrollModal(ctx, payroll) {
       noteInp.value = curNote ? `${curNote} · ${marker}` : marker;
     }
 
-    _hideLeaveApplyRow();
     _setLeaveSummary("✓ เติมหัก ฿" + d.suggestedDeduction.toFixed(2) + " แล้ว — ตรวจช่องหัก/หมายเหตุก่อนบันทึก");
+    _setLeaveApplyButtonState(true, d.suggestedDeduction);
   });
 
   // ถ้า admin แก้ base_salary หรือ daily_rate ภายหลัง → recompute decision ทันที
-  ["prBase","prDailyRate","prDailyToggle"].forEach(id => {
+  // Phase 92.37: prNote ก็ trigger ด้วย — admin ลบ marker ออก = ปุ่ม apply กลับมา active
+  ["prBase","prDailyRate","prDailyToggle","prNote"].forEach(id => {
     document.getElementById(id)?.addEventListener("input", _refreshLeaveDecision);
     document.getElementById(id)?.addEventListener("change", _refreshLeaveDecision);
   });

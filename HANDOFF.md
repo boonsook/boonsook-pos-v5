@@ -3,15 +3,82 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 26 พฤษภาคม 2026 (Phase 92.36b — Payroll leave apply idempotency hotfix, build 298)
-**Version:** 5.59.1 (build 298) — Phase 92.36b (payroll leave apply idempotency)
-**Previous:** 5.59.0 (build 297) — Phase 92.36 (paid leave policy decision)
+**อัปเดตล่าสุด:** 26 พฤษภาคม 2026 (Phase 92.37 — Payroll Save + Leave Deduction Finalization Audit, build 299)
+**Version:** 5.60.0 (build 299) — Phase 92.37 (payroll save audit + reopen guard UX)
+**Previous:** 5.59.1 (build 298) — Phase 92.36b (payroll leave apply idempotency hotfix)
 
-> ✅ **ไม่มี SQL ใหม่ในเฟส 92.36** (additive code only). ใช้ตาราง + policies จาก Phase 92.35 — ถ้ายังไม่ได้รัน [`supabase-phase92-35-leave-policies-balances.sql`](supabase-phase92-35-leave-policies-balances.sql) → UI ใช้ค่า default + paid leave decision ยังทำงาน (graceful: ถ้าไม่มี balance ถือว่า paid ทั้งหมด · unpaid logic ยังหักปกติ).
+> ✅ **ไม่มี SQL ใหม่ในเฟส 92.36–92.37** (additive code only). ใช้ตาราง + policies จาก Phase 92.35 — ถ้ายังไม่ได้รัน [`supabase-phase92-35-leave-policies-balances.sql`](supabase-phase92-35-leave-policies-balances.sql) → UI ใช้ค่า default + paid leave decision ยังทำงาน (graceful: ถ้าไม่มี balance ถือว่า paid ทั้งหมด · unpaid logic ยังหักปกติ).
 
 ---
 
-## 🧯 Phase 92.36b — Payroll leave apply idempotency hotfix (this session)
+## 🧮 Phase 92.37 — Payroll Save + Leave Deduction Finalization Audit (this session)
+
+**บริบท:** ต่อจาก 92.36b (idempotency hotfix) — production smoke เคส sompong พักร้อน 12 วัน, quota 10, เกิน 2 วัน, daily rate 400 → แนะนำหัก ฿800 → ช่อง `หัก (-)` = `฿800` → สุทธิ = `฿400`. ปุ่ม "เติมลงช่องหัก" กดซ้ำไม่บวกซ้ำแล้ว (จาก 92.36b) แต่ยังเหลือ gap UX:
+1. กด "ดึงสรุปวันลา" ซ้ำหลังเปิดรายการเดิม → ปุ่ม apply ยังโผล่ทุกครั้ง → admin ไม่รู้ว่า "เคยเติมไปแล้ว"
+2. หลังกด apply แล้ว row ถูก hide → admin ตรวจไม่ทันว่าเติมไปจริง
+3. ไม่มี warning info ที่ชัดเจนว่ามีรายการหักวันลาแล้ว
+
+### Audit (Goal 1) — save flow ผ่านครบ ✅
+
+- `_savePayroll` ใน [`modules/payroll.js`](modules/payroll.js) อ่าน `deductions`/`note` ตรงจาก DOM inputs → ส่ง PATCH/POST ไป staff_payroll ตรง ๆ — **ไม่มี mutation/override**
+- `total_amount` คำนวณฝั่ง DB (generated/trigger) — payload ไม่ส่ง field นี้, ให้ DB ตัดสินจาก base+ot+welfare+bonus+commission − deductions
+- เปิด modal edit รายการเดิม → `value="${Number(payroll?.deductions || 0)}"` + `escHtml(payroll?.note || '')` ตรงๆ — ค่าเดิม survive ครบ
+- กด "ดึงสรุปวันลา" ซ้ำ + apply ซ้ำ → `hasLeaveDeductionNoteMarker(curNote, marker)` จับ marker เดิมใน note → ปฏิเสธการบวกซ้ำ (จาก 92.36b)
+
+### UX hardening (Goal 2-3) — guards + visual state
+
+[`modules/payroll.js`](modules/payroll.js):
+- เพิ่ม `prLeaveApplyInfo` element (yellow box) ใต้ปุ่ม apply
+- เพิ่ม `_setLeaveApplyButtonState(applied, suggestedAmount)`:
+  - `applied=true` → ปุ่ม disabled, label `✓ เติมแล้ว`, สีเทา (#94a3b8), cursor not-allowed + info แสดง `ⓘ ตรวจพบรายการหักวันลาแล้ว (เติม ฿X ไว้แล้ว — แก้ช่องหัก/หมายเหตุก่อนบันทึก)`
+  - `applied=false` → ปุ่ม active, label `→ เติมลงช่องหัก`, สีแดง + ซ่อน info
+- `_refreshLeaveDecision`: หลังคำนวณ decision + render breakdown → ตรวจ `hasLeaveDeductionNoteMarker(curNote, marker)` แล้วเรียก `_setLeaveApplyButtonState(already, suggestedDeduction)` — guard ทำงานทันทีตอน reopen + กด "ดึงสรุปวันลา"
+- `prFillLeaveBtn` click handler: หลัง apply สำเร็จ → เรียก `_setLeaveApplyButtonState(true, ...)` แทน `_hideLeaveApplyRow()` — apply row ไม่ซ่อน, admin เห็น breakdown + state ปุ่มชัด
+- Live recompute: เพิ่ม `prNote` ใน listener list (`prBase`/`prDailyRate`/`prDailyToggle`/`prNote`) → admin ลบ marker จาก note → ปุ่ม apply กลับมา active ทันที (ไม่ต้อง re-fetch)
+
+### Tests (Goal 4)
+
+[`tests/leave_management.test.js`](tests/leave_management.test.js) — เพิ่ม 5 test:
+- `hasLeaveDeductionNoteMarker — เคส smoke จริง: หัก 2 วันเกิน quota, reopen รายการเดิม` (round-trip note → reopen guard)
+- `hasLeaveDeductionNoteMarker — เคส decimal และตัวเลขมีเศษ` (`0.5`, `1.50`, `10` วัน)
+- `hasLeaveDeductionNoteMarker — manual note ที่ไม่มี marker pattern → allow apply` (`ลาป่วย 5 วัน` ไม่ match, `หักลา 2 ครั้ง` ไม่ match)
+- `hasLeaveDeductionNoteMarker — null/undefined/whitespace-only safety`
+- `hasLeaveDeductionNoteMarker — exact marker priority over regex fallback`
+
+### Regression check ✅
+
+- ไม่แตะ payroll save payload shape / money math / DB / RLS / SQL / auto-deduction
+- Leave Balance Phase 92.35 + Paid Leave Policy 92.36 + Time Clock responsive build 295 ไม่ regression — แตะเฉพาะ UI guard ใน payroll modal
+
+### Gates
+
+- `npm run lint:errors` exit 0 (clean)
+- `npm test` = **595/595** (590 + 5 ใหม่)
+- `npm run test:e2e -- --reporter=line` = **11/11**
+- `npm audit --audit-level=moderate` = **0 vulnerabilities**
+
+### Version sync (4 sub-items)
+
+- `package.json`: 5.59.1 → **5.60.0** (minor — UX behavior change)
+- `index.html`: `style.css?v=298→299`, `selfheal.js?v=298→299` + `data-app-build="299"` + `data-app-version="5.60.0"`, `main.js?v=298→299`, `boot.js?v=298→299`
+- `sw.js`: `CACHE_NAME = 'boonsook-pos-v5-cache-v299'` + v299 + v298 comment lines
+
+### Smoke test (manual)
+
+1. **ไม่ต้องรัน SQL ใหม่** — ใช้ตาราง 92.32 + 92.35
+2. Production (Ctrl+Shift+R) → APP_BUILD=299
+3. Admin → 💰 รายการเงินเดือน → เปิดรายการ sompong พฤษภาคม 2026
+4. ช่อง `หัก (-)` = `800`, note มี marker `หักลา 2 วัน (เกิน quota 2)` ✓
+5. กด "📥 ดึงสรุปวันลา" อีกครั้ง → policy breakdown แสดง: ✅ Paid 10 · ⚠️ Over 2 · → แนะนำหักรวม ฿800
+6. ตรวจปุ่ม `→ เติมลงช่องหัก` → ควร **disabled** + label `✓ เติมแล้ว` + info แสดง `ⓘ ตรวจพบรายการหักวันลาแล้ว ...`
+7. ลบ marker `· หักลา 2 วัน (เกิน quota 2)` ออกจาก note → ปุ่มกลับมา active
+8. กดปุ่ม apply → ช่อง `หัก (-)` คงเป็น `800` (ไม่บวกเป็น `1600`) + ปุ่ม disabled + info แสดงอีกครั้ง
+9. กด `+ บันทึก` → success
+10. เปิดรายการเดิมอีกครั้ง → `deductions=800`, สุทธิยังถูก, note marker ยังอยู่ ✓
+
+---
+
+## 🧯 Phase 92.36b — Payroll leave apply idempotency hotfix
 
 **บริบท:** Production smoke หลัง Phase 92.36 เจอว่าเคสพักร้อนเกิน quota 2 วัน คำนวณแนะนำหัก `฿800` ถูกต้อง แต่ถ้ากดปุ่ม "→ เติมลงช่องหัก" ซ้ำ ช่อง `หัก (-)` ถูกบวกซ้ำเป็น `฿1600` และสุทธิกลายเป็นติดลบ ทั้งที่ note มี marker `หักลา 2 วัน (เกิน quota 2)` แล้ว.
 

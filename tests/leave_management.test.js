@@ -750,3 +750,51 @@ test("hasLeaveDeductionNoteMarker — จับ marker เดิมแม้ for
   assert.equal(hasLeaveDeductionNoteMarker("manual note ไม่มี marker", exact), false);
   assert.equal(hasLeaveDeductionNoteMarker("", exact), false);
 });
+
+// ── Phase 92.37: idempotency edge cases (reopen + manual notes) ──
+
+test("hasLeaveDeductionNoteMarker — เคส smoke จริง: หัก 2 วันเกิน quota, reopen รายการเดิม", () => {
+  // simulate save round-trip: ครั้งแรก apply → note ได้ marker → save → reopen → guard ต้องจับ
+  const decision = { deductibleDays: 2, unpaidDays: 0, overQuotaDays: 2 };
+  const marker = leaveDeductionNoteMarker(decision); // "หักลา 2 วัน (เกิน quota 2)"
+  // round-trip ปกติ: note บันทึกตรงๆ ใน DB
+  assert.equal(hasLeaveDeductionNoteMarker(marker, marker), true);
+  // ผู้ใช้แก้ note ต่อ: เติมข้อความหลัง marker
+  assert.equal(hasLeaveDeductionNoteMarker(`${marker} · ตรวจสอบโดย admin`, marker), true);
+  // ผู้ใช้แก้ note ต่อ: เติมข้อความก่อน marker
+  assert.equal(hasLeaveDeductionNoteMarker(`OT ส่วนเพิ่ม · ${marker}`, marker), true);
+});
+
+test("hasLeaveDeductionNoteMarker — เคส decimal และตัวเลขมีเศษ", () => {
+  // marker เลขทศนิยม (เช่น ลาครึ่งวัน)
+  assert.equal(hasLeaveDeductionNoteMarker("หักลา 0.5 วัน (ไม่รับค่าจ้าง 0.5)", ""), true);
+  assert.equal(hasLeaveDeductionNoteMarker("หักลา 1.50 วัน", ""), true);
+  // เลขจำนวนเต็มหลายหลัก
+  assert.equal(hasLeaveDeductionNoteMarker("หักลา 10 วัน", ""), true);
+});
+
+test("hasLeaveDeductionNoteMarker — manual note ที่ไม่มี marker pattern → allow apply", () => {
+  // admin พิมพ์ note เอง: ต้อง apply ได้ปกติ (regex ไม่ match)
+  assert.equal(hasLeaveDeductionNoteMarker("ลาป่วย 5 วัน", ""), false);     // คำว่า "ลาป่วย" ไม่ใช่ "หักลา"
+  assert.equal(hasLeaveDeductionNoteMarker("วันลาเดือนนี้ 3 วัน", ""), false);
+  assert.equal(hasLeaveDeductionNoteMarker("note เปล่า ๆ ไม่มีคำว่าหัก", ""), false);
+  // marker pattern ขาด "วัน" → ไม่ match
+  assert.equal(hasLeaveDeductionNoteMarker("หักลา 2 ครั้ง", ""), false);
+});
+
+test("hasLeaveDeductionNoteMarker — null/undefined/whitespace-only safety", () => {
+  assert.equal(hasLeaveDeductionNoteMarker(null), false);
+  assert.equal(hasLeaveDeductionNoteMarker(undefined), false);
+  assert.equal(hasLeaveDeductionNoteMarker("   "), false);
+  assert.equal(hasLeaveDeductionNoteMarker("\n\t"), false);
+});
+
+test("hasLeaveDeductionNoteMarker — exact marker priority over regex fallback", () => {
+  // ถ้า marker ตรงเป๊ะ → return true (priority 1)
+  const exactMarker = "หักลา 2 วัน (เกิน quota 2)";
+  assert.equal(hasLeaveDeductionNoteMarker(exactMarker, exactMarker), true);
+  // ถ้า marker เป็น empty string → fall back ไป regex
+  assert.equal(hasLeaveDeductionNoteMarker(exactMarker, ""), true);
+  // regex match ต้องครอบรูปแบบ "หักลา <digits> วัน" — เกิน quota X อยู่หรือไม่ก็ได้
+  assert.equal(hasLeaveDeductionNoteMarker("หักลา 5 วัน (ไม่รับค่าจ้าง 5)", ""), true);
+});

@@ -7,6 +7,22 @@
 
 ---
 
+## 5.60.0 (build 299) — 2026-05-26 🧮 Phase 92.37 — Payroll Save + Leave Deduction Finalization Audit
+
+- **audit(payroll) [save-flow]:** ตรวจ flow หลังกด "+ บันทึก" ใน Payroll modal — `deductions`, `total_amount` และ `note` (รวม marker `หักลา N วัน`) ถูก persist ตามที่คาด · reopen รายการเดิมแล้วค่าไม่หาย
+- **feat(payroll) [reopen-guard]:** กด "ดึงสรุปวันลา" ซ้ำหลังเปิดรายการเดิม — ระบบตรวจ marker ใน `prNote` ก่อนแสดงปุ่ม apply
+  - ถ้ามี marker อยู่แล้ว → ปุ่ม `→ เติมลงช่องหัก` กลายเป็น disabled + label `✓ เติมแล้ว` (สีเทา)
+  - แสดง info แบบ `ⓘ ตรวจพบรายการหักวันลาแล้ว (เติม ฿X ไว้แล้ว — แก้ช่องหัก/หมายเหตุก่อนบันทึก)`
+  - apply row ยังเห็น policy breakdown อยู่ (ไม่ซ่อนเร็วเกินไป)
+- **feat(payroll) [live-guard]:** `_refreshLeaveDecision` re-evaluate marker presence เมื่อ admin แก้ `prBase`/`prDailyRate`/`prDailyToggle`/`prNote` → ลบ marker จาก note ปุ่ม apply กลับมา active
+- **ไม่แตะ:** payroll math / daily-rate logic / leave policy decision / save payload shape / DB / RLS / SQL / auto-deduction behavior
+- Tests +5 (idempotency edge cases: smoke roundtrip, decimal markers, manual notes without marker, null/whitespace safety, exact-vs-regex priority). Unit **590 → 595**
+- verify เขียว: lint:errors 0/0 · unit 595/595 · e2e 11/11 · `npm audit --audit-level=moderate` = **0 vulnerabilities**
+
+**Build:** 298 → 299; version 5.59.1 → 5.60.0 (minor — UX behavior change, no SQL)
+
+---
+
 ## 5.59.1 (build 298) — 2026-05-26 🧯 Phase 92.36b — Payroll leave apply idempotency hotfix
 
 - **fix(payroll) [leave-deduction-idempotent]:** ปุ่ม "→ เติมลงช่องหัก" ใน Payroll modal กันกดซ้ำแบบ robust ขึ้น
