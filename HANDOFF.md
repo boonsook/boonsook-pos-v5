@@ -3,15 +3,112 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 26 พฤษภาคม 2026 (Phase 92.37 — Payroll Save + Leave Deduction Finalization Audit, build 299)
-**Version:** 5.60.0 (build 299) — Phase 92.37 (payroll save audit + reopen guard UX)
-**Previous:** 5.59.1 (build 298) — Phase 92.36b (payroll leave apply idempotency hotfix)
+**อัปเดตล่าสุด:** 26 พฤษภาคม 2026 (Phase 92.38 — Calendar Leave View, build 300)
+**Version:** 5.61.0 (build 300) — Phase 92.38 (calendar leave view + popover)
+**Previous:** 5.60.0 (build 299) — Phase 92.37 (payroll save audit + reopen guard UX)
 
-> ✅ **ไม่มี SQL ใหม่ในเฟส 92.36–92.37** (additive code only). ใช้ตาราง + policies จาก Phase 92.35 — ถ้ายังไม่ได้รัน [`supabase-phase92-35-leave-policies-balances.sql`](supabase-phase92-35-leave-policies-balances.sql) → UI ใช้ค่า default + paid leave decision ยังทำงาน (graceful: ถ้าไม่มี balance ถือว่า paid ทั้งหมด · unpaid logic ยังหักปกติ).
+> ✅ **ไม่มี SQL ใหม่ในเฟส 92.36–92.38** (additive code only). ใช้ตาราง + policies จาก Phase 92.35 — ถ้ายังไม่ได้รัน [`supabase-phase92-35-leave-policies-balances.sql`](supabase-phase92-35-leave-policies-balances.sql) → UI ใช้ค่า default + paid leave decision ยังทำงาน (graceful: ถ้าไม่มี balance ถือว่า paid ทั้งหมด · unpaid logic ยังหักปกติ).
 
 ---
 
-## 🧮 Phase 92.37 — Payroll Save + Leave Deduction Finalization Audit (this session)
+## 📅 Phase 92.38 — Calendar Leave View (this session)
+
+**บริบท:** ต่อจาก 92.37. หน้า "วันลา" ใน production มีตารางอย่างเดียว — admin/พนักงานไม่เห็น overview ของวันลา/บรรยากาศเดือนนั้น ๆ ในแบบ visual. เฟสนี้เพิ่ม **Calendar view** เป็นมุมมองทางเลือก (table ยังเป็น default คงเดิม) — ดูภาพรวมเดือนได้, click event เปิด popover พร้อม action ตาม role.
+
+### Pure helpers (test-friendly, Asia/Bangkok)
+
+[`modules/leave_management.js`](modules/leave_management.js):
+- `expandLeaveRangeToMonthDays(leave, month)` — return array YYYY-MM-DD ที่ overlap month นั้น; clip ที่ขอบเดือน (leave ข้ามเดือนแสดงเฉพาะวัน in-month); empty month → ใช้ทั้งช่วง
+- `groupLeavesByDate(leaves, month)` — Map<YYYY-MM-DD, Array<leave>> เรียง key ascending; leave หลายวันกระจายอยู่หลาย key; หลายคนวันเดียวกัน stack ใน key เดียว
+- `getCalendarMonthGrid(month, todayStr?)` — { weeks: [6 × 7 cells], monthLabel, year, monthNum }; first cell = Sunday ของแถวที่มีวันที่ 1; cell มี `{ dateStr, dayNum, inMonth, isWeekend, isToday }`; รองรับ leap year; invalid month → weeks=[]
+
+### UI changes — `renderLeaveManagementPage`
+
+- เพิ่ม state `activeView = "table"` (default คงเดิม)
+- Filter bar เพิ่มปุ่ม toggle 2 ตัว: 📋 ตาราง / 📅 ปฏิทิน — active state = พื้นน้ำเงิน, inactive = ขาว
+- เมื่อ `activeView === "calendar"` → render `_renderCalendarSection(filtered, activeMonth, profileMap, today)`
+- เมื่อ `activeView === "table"` → render table เดิม (ไม่เปลี่ยน)
+
+### Desktop month grid (`_renderCalendarMonthGrid`)
+
+- 7-col grid (อา–เสาร์, Sun-first ตาม Thai POS convention)
+- 6 rows × 7 cells (เริ่ม Sunday ของสัปดาห์ที่มี 1 ของเดือน)
+- Cell ละ row แสดง:
+  - dayNum + "วันนี้" chip (ถ้า isToday)
+  - Event chips ≤ 3 ตัว (ใช้ `_calendarEventChip`): icon ประเภท + ชื่อพนักงาน + suffix "(ต่อ)" ถ้าวันที่ไม่ใช่ start_date
+  - Overflow > 3 → ปุ่ม "+ N เพิ่มเติม" → day-list popover
+- Visual cues:
+  - Today = bg เหลือง + border ส้ม
+  - In-month = white, out-month = grey
+  - Weekend (Sun/Sat) = day color แดง
+  - Status pending = dashed border, rejected/cancelled = opacity 0.55, approved = solid
+
+### Mobile agenda (`_renderCalendarAgenda`, ≤720px)
+
+- CSS-driven responsive (`@media (max-width: 720px)`)
+- Group เฉพาะวันที่มี event (ไม่แสดงวันว่าง)
+- แต่ละ block: dow label ไทย (วันพุธ/วันศุกร์/...) + count + chips ของวันนั้น
+- ถ้าไม่มี event ในเดือน → empty state 📭 "ไม่มีรายการลาในเดือนนี้"
+
+### Click interaction (popover)
+
+[`#lmPopover`] container ใหม่ใน DOM:
+- Click chip → `_openLeavePopover(leave)`:
+  - แสดง: icon ประเภท + ชื่อพนักงาน + label ประเภท + date range + จำนวนวัน + status chip + reason + review_note
+  - ปุ่ม action ตาม role (ใช้ `canEditLeave`/`canReviewLeave` guard เดิม):
+    - admin: ✓ อนุมัติ / ✕ ปฏิเสธ (ถ้า pending) · ✏️ แก้ไข / 🗑️ ลบ
+    - non-admin: ยกเลิก (เฉพาะ row ของตัวเอง + pending)
+- Click "+N เพิ่มเติม" → `_openDayListPopover(dateStr)` — list ทุก leave ในวันนั้น → click row → chained popover (leave details)
+- Backdrop click / ปุ่ม ✕ → close
+
+### Integration กับ filters เดิม
+
+- View toggle ใช้ `month`/`status`/`type` filter เดียวกัน (state ใน `_rerender` scope)
+- เปลี่ยน month → calendar re-render with new grid
+- เปลี่ยน status/type → events ที่ผ่าน filter เท่านั้นแสดงใน calendar
+- Export, KPI cards, Balance section, Create form — ใช้ flow เดิม ไม่กระทบ
+
+### Regression check ✅
+
+- Leave Balance / Quota Phase 92.35 — ไม่กระทบ (`_renderBalanceSection` แยกจาก calendar)
+- Paid Leave Policy decision Phase 92.36 (payroll modal) — ไม่กระทบ (คนละ module flow)
+- Payroll save audit Phase 92.37 — ไม่กระทบ (ไม่แตะ payroll.js)
+- Time Clock responsive build 295 — ไม่กระทบ (แตะเฉพาะ leave_management.js)
+- ไม่แตะ DB schema / RLS / SQL / payroll math / time_clock
+- Non-admin ยังเห็นเฉพาะของตัวเอง (client filter line 1040 + RLS server-side)
+
+### Gates
+
+- `npm run lint:errors` exit 0 (clean)
+- `npm test` = **615/615** (595 + 20 ใหม่)
+- `npm run test:e2e -- --reporter=line` = **11/11**
+- `npm audit --audit-level=moderate` = **0 vulnerabilities**
+
+### Version sync (4 sub-items)
+
+- `package.json`: 5.60.0 → **5.61.0** (minor — UI addition)
+- `index.html`: `style.css?v=299→300`, `selfheal.js?v=299→300` + `data-app-build="300"` + `data-app-version="5.61.0"`, `main.js?v=299→300`, `boot.js?v=299→300`
+- `sw.js`: `CACHE_NAME = 'boonsook-pos-v5-cache-v300'` + v300 + v299 comment lines
+
+### Smoke test (manual)
+
+1. **ไม่ต้องรัน SQL ใหม่** — ใช้ตาราง 92.32 + 92.35
+2. Production (Ctrl+Shift+R) → APP_BUILD=300
+3. **Admin → 🌴 วันลา → เลือกเดือน พฤษภาคม 2026**
+4. Default = ตาราง — ตรวจปุ่ม toggle อยู่บน filter bar (📋 ตาราง / 📅 ปฏิทิน)
+5. กด **📅 ปฏิทิน** → ควรเห็น 7-col grid:
+   - sompong พักร้อน 14–25 พ.ค. (12 วัน) → chips สีฟ้า 🌴 บนวันที่ 14 + วันที่ 15–25 มี chip "(ต่อ)"
+   - วันนี้ (26 พ.ค.) cell มี border ส้ม + chip "วันนี้"
+6. **filter ประเภท = "พักร้อน"** → ยังเห็น chips ของ sompong (ประเภทอื่นหาย)
+7. **filter สถานะ = "อนุมัติแล้ว"** → ถ้า sompong approved → solid border; rejected/cancelled หาย
+8. **click chip** → popover แสดง: 🌴 sompong, "พักร้อน · 2026-05-14 → 2026-05-25 (12 วัน)", สถานะ ✅ อนุมัติแล้ว, reason ถ้ามี, ปุ่ม ✏️ แก้ไข / 🗑️ ลบ (admin)
+9. ปิด popover (✕ หรือ click backdrop)
+10. **mobile view** (resize browser ≤720px หรือเปิดบนมือถือ) → calendar เป็น agenda list — group เฉพาะวันที่มี event, dow label ไทย ("วันพุธ 14 พ.ค.")
+11. กด **📋 ตาราง** → กลับมา table view เดิม — filters ยังคง state เดิม
+
+---
+
+## 🧮 Phase 92.37 — Payroll Save + Leave Deduction Finalization Audit
 
 **บริบท:** ต่อจาก 92.36b (idempotency hotfix) — production smoke เคส sompong พักร้อน 12 วัน, quota 10, เกิน 2 วัน, daily rate 400 → แนะนำหัก ฿800 → ช่อง `หัก (-)` = `฿800` → สุทธิ = `฿400`. ปุ่ม "เติมลงช่องหัก" กดซ้ำไม่บวกซ้ำแล้ว (จาก 92.36b) แต่ยังเหลือ gap UX:
 1. กด "ดึงสรุปวันลา" ซ้ำหลังเปิดรายการเดิม → ปุ่ม apply ยังโผล่ทุกครั้ง → admin ไม่รู้ว่า "เคยเติมไปแล้ว"

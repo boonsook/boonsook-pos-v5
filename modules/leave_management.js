@@ -169,6 +169,129 @@ export function canReviewLeave(row, role) {
 }
 
 // ═══════════════════════════════════════════════════════════
+//  Phase 92.38 — Calendar Leave View helpers (pure, testable)
+//
+//  - expandLeaveRangeToMonthDays(leave, month) → array of YYYY-MM-DD ที่ overlap month นั้น
+//  - groupLeavesByDate(leaves, month) → Map<YYYY-MM-DD, Array<leave>>
+//  - getCalendarMonthGrid(month) → { weeks: [[{dateStr,inMonth,isWeekend,isToday,dayNum}...]], monthLabel }
+//
+//  ทั้งหมดคิดบน Asia/Bangkok และทำงาน pure (ไม่อ่าน DB / DOM)
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Phase 92.38: clamp helper — return YYYY-MM-DD strings ของ leave ที่ overlap เดือนที่กำหนด
+ * @param {object} leave - row ที่มี start_date + end_date (YYYY-MM-DD)
+ * @param {string} month - "YYYY-MM" (ถ้า empty/invalid → return all days ของ leave)
+ * @returns {Array<string>} sorted unique YYYY-MM-DD
+ */
+export function expandLeaveRangeToMonthDays(leave, month) {
+  if (!leave) return [];
+  const s = String(leave.start_date || "").slice(0, 10);
+  const e = String(leave.end_date   || "").slice(0, 10);
+  if (!s || !e) return [];
+  const sT = new Date(s + "T00:00:00+07:00").getTime();
+  const eT = new Date(e + "T00:00:00+07:00").getTime();
+  if (!Number.isFinite(sT) || !Number.isFinite(eT) || eT < sT) return [];
+
+  // Clamp to month if provided
+  let lo = sT, hi = eT;
+  const m = String(month || "").slice(0, 7);
+  if (/^\d{4}-\d{2}$/.test(m)) {
+    const mStart = new Date(m + "-01T00:00:00+07:00").getTime();
+    // last day of month (exclusive next month start)
+    const nextMonth = new Date(m + "-01T00:00:00+07:00");
+    nextMonth.setMonth(nextMonth.getMonth() + 1);
+    const mEndExclusive = nextMonth.getTime();
+    if (eT < mStart) return [];
+    if (sT >= mEndExclusive) return [];
+    lo = Math.max(sT, mStart);
+    hi = Math.min(eT, mEndExclusive - 86400000);
+  }
+  const out = [];
+  for (let t = lo; t <= hi; t += 86400000) {
+    out.push(new Date(t).toLocaleDateString("en-CA", { timeZone: TZ }));
+  }
+  return out;
+}
+
+/**
+ * Phase 92.38: group leaves เป็น Map<YYYY-MM-DD, Array<leave>> สำหรับ render calendar
+ * - ไม่ filter เอง — caller ต้อง filter ผ่าน filterLeaves ก่อน (status/type/etc.)
+ * - leave 1 row จะ appear ในหลาย date keys ตามช่วง overlap month
+ *
+ * @param {Array<object>} leaves
+ * @param {string} [month] - "YYYY-MM" filter clip; ถ้า empty → ใช้ทั้งช่วงของแต่ละ leave (อาจกระจายข้ามเดือน)
+ * @returns {Map<string, Array<object>>} sorted by date key
+ */
+export function groupLeavesByDate(leaves, month) {
+  const out = new Map();
+  if (!Array.isArray(leaves)) return out;
+  for (const r of leaves) {
+    if (!r) continue;
+    const days = expandLeaveRangeToMonthDays(r, month);
+    for (const d of days) {
+      if (!out.has(d)) out.set(d, []);
+      out.get(d).push(r);
+    }
+  }
+  // Return new sorted Map (Map preserves insertion order)
+  const sorted = new Map();
+  Array.from(out.keys()).sort().forEach(k => sorted.set(k, out.get(k)));
+  return sorted;
+}
+
+/**
+ * Phase 92.38: render-ready calendar grid สำหรับ month
+ * - 6 weeks × 7 days (Sunday-first to match Thai POS convention)
+ * - แต่ละ cell: { dateStr, dayNum, inMonth, isWeekend, isToday }
+ *
+ * @param {string} month - "YYYY-MM"
+ * @param {string} [todayStr] - "YYYY-MM-DD" (default = today in Bangkok)
+ * @returns {{weeks: Array<Array<object>>, monthLabel: string, year: number, monthNum: number}}
+ */
+export function getCalendarMonthGrid(month, todayStr) {
+  const m = String(month || "").slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(m)) return { weeks: [], monthLabel: "", year: 0, monthNum: 0 };
+  const [yStr, moStr] = m.split("-");
+  const year = Number(yStr);
+  const monthNum = Number(moStr);
+  if (!(monthNum >= 1 && monthNum <= 12)) return { weeks: [], monthLabel: "", year: 0, monthNum: 0 };
+
+  // 1st of month at Bangkok midnight
+  const first = new Date(m + "-01T00:00:00+07:00");
+  // Sunday = 0, … Saturday = 6
+  const firstDow = first.getDay();
+
+  // Start grid on Sunday of first row (may include trailing days from prev month)
+  const gridStart = new Date(first.getTime());
+  gridStart.setDate(gridStart.getDate() - firstDow);
+
+  const today = todayStr || new Date().toLocaleDateString("en-CA", { timeZone: TZ });
+
+  const weeks = [];
+  let cursor = new Date(gridStart.getTime());
+  for (let w = 0; w < 6; w++) {
+    const row = [];
+    for (let d = 0; d < 7; d++) {
+      const dateStr = cursor.toLocaleDateString("en-CA", { timeZone: TZ });
+      const cellMonthStr = dateStr.slice(0, 7);
+      row.push({
+        dateStr,
+        dayNum: cursor.getDate(),
+        inMonth: cellMonthStr === m,
+        isWeekend: d === 0 || d === 6,
+        isToday: dateStr === today,
+      });
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    weeks.push(row);
+  }
+
+  const monthLabel = first.toLocaleDateString("th-TH", { timeZone: TZ, year: "numeric", month: "long" });
+  return { weeks, monthLabel, year, monthNum };
+}
+
+// ═══════════════════════════════════════════════════════════
 //  Phase 92.33 — Leave → Payroll integration helpers (pure)
 // ═══════════════════════════════════════════════════════════
 
@@ -830,6 +953,173 @@ function _formatDateRange(s, e) {
   return `${sStr} → ${eStr}`;
 }
 
+// ─── Phase 92.38: Calendar Leave View ────────────────────────
+
+const _DOW_TH = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"]; // Sun-first
+const _DOW_TH_FULL = ["อาทิตย์", "จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์"];
+
+// แสดง chip สั้น ๆ ของ leave 1 row ใน cell calendar (desktop) / agenda (mobile)
+function _calendarEventChip(leave, profileMap, dateStr) {
+  const meta = leaveTypeLabel(leave.leave_type);
+  const stMeta = leaveStatusMeta(leave.status);
+  const p = profileMap.get(String(leave.user_id));
+  const name = p ? profileDisplayName(p) : "—";
+  // visual cue: rejected/cancelled → จาง; pending → border dashed; approved → solid
+  const opacity = (leave.status === "rejected" || leave.status === "cancelled") ? "0.55" : "1";
+  const borderStyle = leave.status === "pending" ? "dashed" : "solid";
+  // ถ้า leave หลายวัน + dateStr ไม่ใช่วันแรก → suffix "(ต่อ)"
+  const isContinuation = String(leave.start_date || "").slice(0, 10) !== dateStr;
+  const contSuffix = isContinuation ? " (ต่อ)" : "";
+  return `<button type="button" class="lm-cal-event" data-lm-id="${escHtml(String(leave.id))}"
+    title="${escHtml(name)} · ${escHtml(meta.label)} · ${escHtml(stMeta.label)}"
+    style="display:block;width:100%;text-align:left;padding:2px 5px;margin:1px 0;border:1px ${borderStyle} ${meta.border};border-radius:5px;background:${meta.bg};color:${meta.fg};font-size:10px;font-weight:700;cursor:pointer;line-height:1.3;opacity:${opacity};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+    <span>${escHtml(meta.icon)}</span> <span>${escHtml(name)}</span>${escHtml(contSuffix)}
+  </button>`;
+}
+
+// Desktop month grid (7-col)
+function _renderCalendarMonthGrid(filtered, month, profileMap, todayStr) {
+  const grid = getCalendarMonthGrid(month, todayStr);
+  if (!grid.weeks.length) {
+    return `<div style="padding:24px;text-align:center;color:#64748b;font-size:13px">เลือกเดือนเพื่อดูปฏิทิน</div>`;
+  }
+  const byDate = groupLeavesByDate(filtered, month);
+  const header = _DOW_TH.map((d, i) => `<div style="padding:8px 6px;text-align:center;font-size:11px;font-weight:800;color:${i===0||i===6?'#dc2626':'#475569'};background:#f8fafc;border-bottom:1px solid #e2e8f0">${escHtml(d)}</div>`).join("");
+  const rows = grid.weeks.map(week => week.map(cell => {
+    const events = byDate.get(cell.dateStr) || [];
+    const cellBg = cell.isToday ? "#fef3c7" : cell.inMonth ? "#fff" : "#fafbfc";
+    const dayColor = !cell.inMonth ? "#cbd5e1" : (cell.isWeekend ? "#dc2626" : "#0f172a");
+    const todayBorder = cell.isToday ? "2px solid #f59e0b" : "1px solid #e2e8f0";
+    // show เฉพาะ 3 events แรก + "+N" overflow
+    const visibleEvents = events.slice(0, 3).map(ev => _calendarEventChip(ev, profileMap, cell.dateStr)).join("");
+    const overflowChip = events.length > 3
+      ? `<button type="button" class="lm-cal-more" data-lm-date="${escHtml(cell.dateStr)}" style="display:block;width:100%;padding:2px 5px;margin:1px 0;border:1px dashed #94a3b8;border-radius:5px;background:#f1f5f9;color:#475569;font-size:10px;font-weight:700;cursor:pointer">+ ${events.length - 3} เพิ่มเติม</button>`
+      : "";
+    return `<div style="min-height:88px;padding:4px 5px 6px;border:${todayBorder};background:${cellBg};display:flex;flex-direction:column;gap:1px;overflow:hidden">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:4px;margin-bottom:2px">
+        <span style="font-size:11px;font-weight:800;color:${dayColor}">${escHtml(String(cell.dayNum))}</span>
+        ${cell.isToday ? `<span style="font-size:9px;color:#92400e;background:#fbbf24;padding:0 4px;border-radius:4px;font-weight:800">วันนี้</span>` : ""}
+      </div>
+      ${visibleEvents}${overflowChip}
+    </div>`;
+  }).join("")).join("");
+  return `
+    <div class="lm-cal-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:1px;background:#e2e8f0;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden">
+      ${header}
+      ${rows}
+    </div>
+  `;
+}
+
+// Mobile agenda list — group เฉพาะวันที่มี events
+function _renderCalendarAgenda(filtered, month, profileMap, todayStr) {
+  const byDate = groupLeavesByDate(filtered, month);
+  if (byDate.size === 0) {
+    return `<div style="padding:24px 14px;text-align:center;color:#64748b;font-size:13px">
+      <div style="font-size:32px;margin-bottom:6px;opacity:.6">📭</div>
+      ไม่มีรายการลาในเดือนนี้
+    </div>`;
+  }
+  const today = todayStr || new Date().toLocaleDateString("en-CA", { timeZone: TZ });
+  const blocks = Array.from(byDate.entries()).map(([dateStr, evs]) => {
+    const d = new Date(dateStr + "T00:00:00+07:00");
+    const dow = d.getDay();
+    const dowLabel = _DOW_TH_FULL[dow] || "";
+    const dateLabel = d.toLocaleDateString("th-TH", { timeZone: TZ, day: "numeric", month: "short" });
+    const isToday = dateStr === today;
+    const headerBg = isToday ? "#fef3c7" : "#f8fafc";
+    const headerColor = isToday ? "#92400e" : (dow === 0 || dow === 6 ? "#dc2626" : "#0f172a");
+    const evRows = evs.map(ev => _calendarEventChip(ev, profileMap, dateStr)).join("");
+    return `<div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden">
+      <div style="padding:6px 10px;background:${headerBg};border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;gap:6px">
+        <span style="font-size:12px;font-weight:800;color:${headerColor}">${escHtml("วัน" + dowLabel + " " + dateLabel)}${isToday ? " · วันนี้" : ""}</span>
+        <span style="font-size:11px;color:#64748b">${evs.length} รายการ</span>
+      </div>
+      <div style="padding:6px 8px;display:flex;flex-direction:column;gap:2px">${evRows}</div>
+    </div>`;
+  }).join("");
+  return `<div style="display:flex;flex-direction:column;gap:10px">${blocks}</div>`;
+}
+
+function _renderCalendarSection(filtered, month, profileMap, todayStr) {
+  // Render both views; CSS-driven responsive (desktop = grid only / mobile = agenda only)
+  return `
+    <style>
+      .lm-cal-desktop { display: block; }
+      .lm-cal-mobile  { display: none; }
+      @media (max-width: 720px) {
+        .lm-cal-desktop { display: none; }
+        .lm-cal-mobile  { display: block; }
+      }
+      .lm-cal-event:hover { transform: translateY(-1px); filter: brightness(1.05); }
+    </style>
+    <div class="lm-cal-desktop">${_renderCalendarMonthGrid(filtered, month, profileMap, todayStr)}</div>
+    <div class="lm-cal-mobile">${_renderCalendarAgenda(filtered, month, profileMap, todayStr)}</div>
+  `;
+}
+
+// Phase 92.38: leave details popover — แสดงเมื่อ click event chip
+function _renderLeavePopover(leave, profileMap, currentUserId, role) {
+  if (!leave) return "";
+  const meta = leaveTypeLabel(leave.leave_type);
+  const stMeta = leaveStatusMeta(leave.status);
+  const p = profileMap.get(String(leave.user_id));
+  const name = p ? profileDisplayName(p) : "—";
+  const dateRange = _formatDateRange(leave.start_date, leave.end_date);
+  const editable   = canEditLeave(leave, currentUserId, role);
+  const reviewable = canReviewLeave(leave, role);
+  const actions = [];
+  if (reviewable) {
+    actions.push(`<button class="lm-pop-approve" data-lm-id="${escHtml(String(leave.id))}" style="padding:6px 10px;border:1px solid #16a34a;border-radius:6px;background:#16a34a;color:#fff;font-size:12px;font-weight:700;cursor:pointer">✓ อนุมัติ</button>`);
+    actions.push(`<button class="lm-pop-reject"  data-lm-id="${escHtml(String(leave.id))}" style="padding:6px 10px;border:1px solid #dc2626;border-radius:6px;background:#fff;color:#dc2626;font-size:12px;font-weight:700;cursor:pointer">✕ ปฏิเสธ</button>`);
+  }
+  if (editable && role !== "admin" && leave.status === "pending") {
+    actions.push(`<button class="lm-pop-cancel" data-lm-id="${escHtml(String(leave.id))}" style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;color:#475569;font-size:12px;font-weight:700;cursor:pointer">ยกเลิก</button>`);
+  }
+  if (role === "admin") {
+    actions.push(`<button class="lm-pop-edit"   data-lm-id="${escHtml(String(leave.id))}" style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;color:#0f172a;font-size:12px;font-weight:700;cursor:pointer">✏️ แก้ไข</button>`);
+    actions.push(`<button class="lm-pop-delete" data-lm-id="${escHtml(String(leave.id))}" style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;color:#dc2626;font-size:12px;font-weight:700;cursor:pointer">🗑️ ลบ</button>`);
+  }
+  return `
+    <div id="lmPopBackdrop" style="position:absolute;inset:0;background:rgba(15,23,42,.45);backdrop-filter:blur(2px)"></div>
+    <div role="dialog" aria-modal="true" style="position:relative;max-width:420px;width:calc(100% - 32px);margin:60px auto;background:#fff;border-radius:14px;box-shadow:0 18px 40px rgba(15,23,42,.25);overflow:hidden">
+      <div style="padding:12px 14px;background:${meta.bg};border-bottom:1px solid ${meta.border};display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <div style="font-size:14px;font-weight:800;color:${meta.fg}">${escHtml(meta.icon + " " + name)}</div>
+        <button id="lmPopClose" aria-label="ปิด" style="padding:3px 8px;border:1px solid ${meta.border};border-radius:6px;background:#fff;color:${meta.fg};font-size:12px;cursor:pointer">✕</button>
+      </div>
+      <div style="padding:14px;display:flex;flex-direction:column;gap:8px">
+        <div style="font-size:13px;color:#0f172a">
+          <strong>${escHtml(meta.label)}</strong> · ${escHtml(dateRange)} (${escHtml(String(leave.days_count || 0))} วัน)
+        </div>
+        <div style="font-size:12px">สถานะ: <span style="display:inline-block;padding:1px 8px;border-radius:6px;background:${stMeta.bg};color:${stMeta.fg};border:1px solid ${stMeta.border};font-weight:700">${escHtml(stMeta.label)}</span></div>
+        ${leave.reason ? `<div style="font-size:12px;color:#475569"><strong>เหตุผล:</strong> ${escHtml(leave.reason)}</div>` : ""}
+        ${leave.review_note ? `<div style="font-size:12px;color:#475569;font-style:italic"><strong>หมายเหตุพิจารณา:</strong> "${escHtml(leave.review_note)}"</div>` : ""}
+        ${actions.length > 0 ? `<div style="display:flex;flex-wrap:wrap;gap:6px;padding-top:6px;border-top:1px solid #f1f5f9;margin-top:4px">${actions.join("")}</div>` : ""}
+      </div>
+    </div>
+  `;
+}
+
+// Phase 92.38: dialog แสดงรายการทั้งหมดของวันที่ผู้ใช้คลิก "+ N เพิ่มเติม"
+function _renderDayListPopover(dateStr, events, profileMap) {
+  const d = new Date(dateStr + "T00:00:00+07:00");
+  const label = d.toLocaleDateString("th-TH", { timeZone: TZ, day: "numeric", month: "long", year: "numeric" });
+  const rows = events.map(ev => _calendarEventChip(ev, profileMap, dateStr)).join("");
+  return `
+    <div id="lmPopBackdrop" style="position:absolute;inset:0;background:rgba(15,23,42,.45);backdrop-filter:blur(2px)"></div>
+    <div role="dialog" aria-modal="true" style="position:relative;max-width:420px;width:calc(100% - 32px);margin:60px auto;background:#fff;border-radius:14px;box-shadow:0 18px 40px rgba(15,23,42,.25);overflow:hidden">
+      <div style="padding:12px 14px;background:#f8fafc;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <div style="font-size:14px;font-weight:800;color:#0f172a">📅 ${escHtml(label)}</div>
+        <button id="lmPopClose" aria-label="ปิด" style="padding:3px 8px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;color:#475569;font-size:12px;cursor:pointer">✕</button>
+      </div>
+      <div style="padding:12px;display:flex;flex-direction:column;gap:6px;max-height:60vh;overflow-y:auto">
+        ${rows}
+        <div style="font-size:11px;color:#64748b;margin-top:4px">คลิกรายการเพื่อดูรายละเอียด</div>
+      </div>
+    </div>
+  `;
+}
+
 function _renderTbody(rows, profileMap, currentUserId, role) {
   if (rows.length === 0) {
     return `<tr><td colspan="8" style="padding:24px 14px;text-align:center;color:#64748b;font-size:13px">
@@ -1063,6 +1353,7 @@ export async function renderLeaveManagementPage(ctx) {
   let activeMonth  = _currentMonthKey();
   let activeStatus = "all";
   let activeType   = "all";
+  let activeView   = "table"; // Phase 92.38: "table" | "calendar"
   let balanceUserId = role === "admin"
     ? (profiles.find(p => p && p.role !== "customer")?.id || currentUserId || null)
     : currentUserId;
@@ -1155,38 +1446,51 @@ export async function renderLeaveManagementPage(ctx) {
                 ${LEAVE_TYPES.map(t => `<option value="${escHtml(t)}"${activeType === t ? " selected" : ""}>${escHtml(leaveTypeLabel(t).label)}</option>`).join("")}
               </select>
             </div>
-            <button id="lmExportBtn" style="margin-left:auto;padding:6px 12px;border:1px solid #16a34a;border-radius:8px;background:#fff;color:#16a34a;font-size:11px;font-weight:700;cursor:pointer">📥 Export</button>
+            <!-- Phase 92.38: view toggle (table / calendar) -->
+            <div style="display:flex;align-items:center;gap:0;margin-left:auto;border:1px solid #cbd5e1;border-radius:8px;overflow:hidden">
+              <button id="lmViewTable" type="button" style="padding:5px 10px;border:none;background:${activeView==="table"?"#0284c7":"#fff"};color:${activeView==="table"?"#fff":"#475569"};font-size:11px;font-weight:700;cursor:pointer">📋 ตาราง</button>
+              <button id="lmViewCalendar" type="button" style="padding:5px 10px;border:none;border-left:1px solid #cbd5e1;background:${activeView==="calendar"?"#0284c7":"#fff"};color:${activeView==="calendar"?"#fff":"#475569"};font-size:11px;font-weight:700;cursor:pointer">📅 ปฏิทิน</button>
+            </div>
+            <button id="lmExportBtn" style="padding:6px 12px;border:1px solid #16a34a;border-radius:8px;background:#fff;color:#16a34a;font-size:11px;font-weight:700;cursor:pointer">📥 Export</button>
           </div>
 
           <div style="padding:8px 14px;border-bottom:1px solid #f1f5f9;background:#fff;font-size:12px;color:#475569">
-            แสดง ${NUM_TH(filtered.length)} จาก ${NUM_TH(leaves.length)} รายการ
+            แสดง ${NUM_TH(filtered.length)} จาก ${NUM_TH(leaves.length)} รายการ${activeView==="calendar"?" · มุมมองปฏิทิน":""}
           </div>
 
-          <div style="overflow-x:auto">
-            <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:840px">
-              <thead style="background:#f8fafc">
-                <tr>
-                  <th style="padding:10px 14px;text-align:left;font-weight:700;color:#475569">พนักงาน</th>
-                  <th style="padding:10px 14px;text-align:left;font-weight:700;color:#475569">ประเภท</th>
-                  <th style="padding:10px 14px;text-align:left;font-weight:700;color:#475569">ช่วงวันที่</th>
-                  <th style="padding:10px 14px;text-align:right;font-weight:700;color:#475569">วัน</th>
-                  <th style="padding:10px 14px;text-align:left;font-weight:700;color:#475569">เหตุผล</th>
-                  <th style="padding:10px 14px;text-align:left;font-weight:700;color:#475569">สถานะ</th>
-                  <th style="padding:10px 14px;text-align:left;font-weight:700;color:#475569">ผู้พิจารณา</th>
-                  <th style="padding:10px 14px;text-align:right;font-weight:700;color:#475569">Action</th>
-                </tr>
-              </thead>
-              <tbody id="lmTbody">
-                ${_renderTbody(filtered, profileMap, currentUserId, role)}
-              </tbody>
-            </table>
-          </div>
+          ${activeView === "calendar" ? `
+            <div id="lmCalendar" style="padding:10px 12px">
+              ${_renderCalendarSection(filtered, activeMonth, profileMap, new Date().toLocaleDateString("en-CA", { timeZone: TZ }))}
+            </div>
+          ` : `
+            <div style="overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:840px">
+                <thead style="background:#f8fafc">
+                  <tr>
+                    <th style="padding:10px 14px;text-align:left;font-weight:700;color:#475569">พนักงาน</th>
+                    <th style="padding:10px 14px;text-align:left;font-weight:700;color:#475569">ประเภท</th>
+                    <th style="padding:10px 14px;text-align:left;font-weight:700;color:#475569">ช่วงวันที่</th>
+                    <th style="padding:10px 14px;text-align:right;font-weight:700;color:#475569">วัน</th>
+                    <th style="padding:10px 14px;text-align:left;font-weight:700;color:#475569">เหตุผล</th>
+                    <th style="padding:10px 14px;text-align:left;font-weight:700;color:#475569">สถานะ</th>
+                    <th style="padding:10px 14px;text-align:left;font-weight:700;color:#475569">ผู้พิจารณา</th>
+                    <th style="padding:10px 14px;text-align:right;font-weight:700;color:#475569">Action</th>
+                  </tr>
+                </thead>
+                <tbody id="lmTbody">
+                  ${_renderTbody(filtered, profileMap, currentUserId, role)}
+                </tbody>
+              </table>
+            </div>
+          `}
         </div>
 
       </div>
 
       <!-- Form / review modals (hidden initially) -->
       <div id="lmModal" style="display:none;position:fixed;inset:0;z-index:9999"></div>
+      <!-- Phase 92.38: calendar event popover -->
+      <div id="lmPopover" style="display:none;position:fixed;inset:0;z-index:9998"></div>
     `;
 
     // ── Bind events ─────────────────────────────────────────
@@ -1232,6 +1536,36 @@ export async function renderLeaveManagementPage(ctx) {
       if (rejectBtn)  return _doReview(rejectBtn.getAttribute("data-lm-id"),  "rejected");
       if (cancelBtn)  return _doCancel(cancelBtn.getAttribute("data-lm-id"));
       if (deleteBtn)  return _doDelete(deleteBtn.getAttribute("data-lm-id"));
+    });
+
+    // Phase 92.38: view toggle
+    document.getElementById("lmViewTable")?.addEventListener("click", () => {
+      if (activeView === "table") return;
+      activeView = "table";
+      _rerender();
+    });
+    document.getElementById("lmViewCalendar")?.addEventListener("click", () => {
+      if (activeView === "calendar") return;
+      activeView = "calendar";
+      _rerender();
+    });
+
+    // Phase 92.38: calendar event delegation — chip click → popover; "+N เพิ่มเติม" → day list
+    const calRoot = document.getElementById("lmCalendar");
+    calRoot?.addEventListener("click", (ev) => {
+      const evBtn  = ev.target.closest(".lm-cal-event");
+      const moreBtn = ev.target.closest(".lm-cal-more");
+      if (evBtn) {
+        const id = evBtn.getAttribute("data-lm-id");
+        const leave = _findLeave(id);
+        if (leave) _openLeavePopover(leave);
+        return;
+      }
+      if (moreBtn) {
+        const dateStr = moreBtn.getAttribute("data-lm-date");
+        if (dateStr) _openDayListPopover(dateStr, filtered);
+        return;
+      }
     });
   }
 
@@ -1298,6 +1632,54 @@ export async function renderLeaveManagementPage(ctx) {
     } catch (e) {
       showToast?.("ผิดพลาด: " + (e?.message || e));
     }
+  }
+
+  // ─── Phase 92.38: popover handlers ─────────────────────────
+
+  function _closePopover() {
+    const pop = document.getElementById("lmPopover");
+    if (!pop) return;
+    pop.style.display = "none";
+    pop.innerHTML = "";
+    document.body.style.overflow = "";
+  }
+
+  function _openLeavePopover(leave) {
+    const pop = document.getElementById("lmPopover");
+    if (!pop || !leave) return;
+    pop.style.display = "block";
+    document.body.style.overflow = "hidden";
+    pop.innerHTML = _renderLeavePopover(leave, profileMap, currentUserId, role);
+    pop.querySelector("#lmPopClose")?.addEventListener("click", _closePopover);
+    pop.querySelector("#lmPopBackdrop")?.addEventListener("click", _closePopover);
+    // role-based actions inside popover
+    pop.querySelector(".lm-pop-approve")?.addEventListener("click", async () => { _closePopover(); await _doReview(leave.id, "approved"); });
+    pop.querySelector(".lm-pop-reject") ?.addEventListener("click", async () => { _closePopover(); await _doReview(leave.id, "rejected"); });
+    pop.querySelector(".lm-pop-cancel") ?.addEventListener("click", async () => { _closePopover(); await _doCancel(leave.id); });
+    pop.querySelector(".lm-pop-delete") ?.addEventListener("click", async () => { _closePopover(); await _doDelete(leave.id); });
+    pop.querySelector(".lm-pop-edit")   ?.addEventListener("click", () => { _closePopover(); _openFormModal(leave); });
+  }
+
+  function _openDayListPopover(dateStr, filtered) {
+    const pop = document.getElementById("lmPopover");
+    if (!pop) return;
+    const byDate = groupLeavesByDate(filtered, activeMonth);
+    const evs = byDate.get(dateStr) || [];
+    pop.style.display = "block";
+    document.body.style.overflow = "hidden";
+    pop.innerHTML = _renderDayListPopover(dateStr, evs, profileMap);
+    pop.querySelector("#lmPopClose")?.addEventListener("click", _closePopover);
+    pop.querySelector("#lmPopBackdrop")?.addEventListener("click", _closePopover);
+    // คลิก event ใน list → close แล้ว open leave details popover
+    pop.querySelectorAll(".lm-cal-event").forEach(btn => btn.addEventListener("click", (ev) => {
+      const id = ev.currentTarget.getAttribute("data-lm-id");
+      const leave = _findLeave(id);
+      if (leave) {
+        _closePopover();
+        // chained — render Leave popover ทันที
+        setTimeout(() => _openLeavePopover(leave), 0);
+      }
+    }));
   }
 
   async function _doExport(rowsToExport) {

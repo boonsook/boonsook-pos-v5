@@ -7,6 +7,23 @@
 
 ---
 
+## 5.61.0 (build 300) — 2026-05-26 📅 Phase 92.38 — Calendar Leave View
+
+- **feat(leave) [calendar-view]:** หน้า "วันลา" รองรับ 2 มุมมอง (ตาราง/ปฏิทิน) toggle ใน filter bar — default ตาราง
+- **desktop:** 7-col grid (อา–เสาร์, Sun-first), 6 แถว, event chips สีตามประเภท (พักร้อน/ป่วย/กิจ/ไม่รับค่าจ้าง/อื่นๆ)
+  - pending = dashed border · rejected/cancelled = faded · today highlight (เหลือง) · weekend = แดง · overflow >3 → "+N เพิ่มเติม" → day list popover
+- **mobile (≤720px):** agenda list รายวัน group เฉพาะวันที่มี event + day-of-week label ไทย
+- **interaction:** click chip → popover รายละเอียด + ปุ่ม approve/reject/cancel/edit/delete ตาม role (canEditLeave/canReviewLeave guard เดิม)
+- **multi-day:** leave หลายวัน expand เป็นรายวัน + suffix "(ต่อ)" บนวันที่ไม่ใช่วันเริ่ม · leave ข้ามเดือน clip เฉพาะวัน in-month
+- **ไม่แตะ:** DB schema / RLS / payroll flow / Leave Balance helpers / Leave foundation / Time Clock
+- 3 pure helpers ใหม่: `expandLeaveRangeToMonthDays` · `groupLeavesByDate` · `getCalendarMonthGrid` (Asia/Bangkok)
+- Tests +20 (expand 7 + group 6 + grid 7 — edge: ข้ามเดือน, leap year, weekend col, today, overflow). Unit **595 → 615**
+- verify เขียว: lint:errors 0/0 · unit 615/615 · e2e 11/11 · `npm audit --audit-level=moderate` = **0 vulnerabilities**
+
+**Build:** 299 → 300; version 5.60.0 → 5.61.0 (minor — UI addition, no SQL)
+
+---
+
 ## 5.60.0 (build 299) — 2026-05-26 🧮 Phase 92.37 — Payroll Save + Leave Deduction Finalization Audit
 
 - **audit(payroll) [save-flow]:** ตรวจ flow หลังกด "+ บันทึก" ใน Payroll modal — `deductions`, `total_amount` และ `note` (รวม marker `หักลา N วัน`) ถูก persist ตามที่คาด · reopen รายการเดิมแล้วค่าไม่หาย

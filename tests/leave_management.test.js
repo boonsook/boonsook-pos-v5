@@ -28,6 +28,10 @@ const {
   decidePayrollLeaveImpact,
   leaveDeductionNoteMarker,
   hasLeaveDeductionNoteMarker,
+  // Phase 92.38
+  expandLeaveRangeToMonthDays,
+  groupLeavesByDate,
+  getCalendarMonthGrid,
 } = await import("../modules/leave_management.js");
 
 // ── calcLeaveDays ───────────────────────────────────────────
@@ -797,4 +801,190 @@ test("hasLeaveDeductionNoteMarker — exact marker priority over regex fallback"
   assert.equal(hasLeaveDeductionNoteMarker(exactMarker, ""), true);
   // regex match ต้องครอบรูปแบบ "หักลา <digits> วัน" — เกิน quota X อยู่หรือไม่ก็ได้
   assert.equal(hasLeaveDeductionNoteMarker("หักลา 5 วัน (ไม่รับค่าจ้าง 5)", ""), true);
+});
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 92.38 — Calendar Leave View pure helpers
+// ═══════════════════════════════════════════════════════════
+
+// ── expandLeaveRangeToMonthDays ──────────────────────────
+
+test("expandLeaveRangeToMonthDays — leave 1 วัน ใน month นั้น → array 1 item", () => {
+  const days = expandLeaveRangeToMonthDays(
+    { start_date: "2026-05-14", end_date: "2026-05-14" },
+    "2026-05"
+  );
+  assert.deepEqual(days, ["2026-05-14"]);
+});
+
+test("expandLeaveRangeToMonthDays — leave หลายวันใน month เดียว → array contiguous", () => {
+  const days = expandLeaveRangeToMonthDays(
+    { start_date: "2026-05-14", end_date: "2026-05-16" },
+    "2026-05"
+  );
+  assert.deepEqual(days, ["2026-05-14", "2026-05-15", "2026-05-16"]);
+});
+
+test("expandLeaveRangeToMonthDays — leave 12 วัน (sompong พักร้อน) → array 12 items", () => {
+  const days = expandLeaveRangeToMonthDays(
+    { start_date: "2026-05-14", end_date: "2026-05-25" },
+    "2026-05"
+  );
+  assert.equal(days.length, 12);
+  assert.equal(days[0], "2026-05-14");
+  assert.equal(days[11], "2026-05-25");
+});
+
+test("expandLeaveRangeToMonthDays — leave ข้ามเดือน → clip เฉพาะวันใน month ที่ดู", () => {
+  // 28 เม.ย. – 5 พ.ค. — ดูเดือน พ.ค. → ได้แค่ 1–5
+  const may = expandLeaveRangeToMonthDays(
+    { start_date: "2026-04-28", end_date: "2026-05-05" },
+    "2026-05"
+  );
+  assert.deepEqual(may, ["2026-05-01", "2026-05-02", "2026-05-03", "2026-05-04", "2026-05-05"]);
+  // ดูเดือน เม.ย. → ได้แค่ 28–30
+  const apr = expandLeaveRangeToMonthDays(
+    { start_date: "2026-04-28", end_date: "2026-05-05" },
+    "2026-04"
+  );
+  assert.deepEqual(apr, ["2026-04-28", "2026-04-29", "2026-04-30"]);
+});
+
+test("expandLeaveRangeToMonthDays — leave อยู่นอก month → empty", () => {
+  const days = expandLeaveRangeToMonthDays(
+    { start_date: "2026-03-01", end_date: "2026-03-10" },
+    "2026-05"
+  );
+  assert.deepEqual(days, []);
+});
+
+test("expandLeaveRangeToMonthDays — ไม่ระบุ month → ใช้ทั้งช่วงของ leave", () => {
+  const days = expandLeaveRangeToMonthDays(
+    { start_date: "2026-04-28", end_date: "2026-05-05" }
+  );
+  assert.equal(days.length, 8);
+  assert.equal(days[0], "2026-04-28");
+  assert.equal(days[7], "2026-05-05");
+});
+
+test("expandLeaveRangeToMonthDays — null/invalid/missing dates → []", () => {
+  assert.deepEqual(expandLeaveRangeToMonthDays(null), []);
+  assert.deepEqual(expandLeaveRangeToMonthDays({}), []);
+  assert.deepEqual(expandLeaveRangeToMonthDays({ start_date: "2026-05-14" }), []);
+  assert.deepEqual(expandLeaveRangeToMonthDays({ start_date: "2026-05-20", end_date: "2026-05-10" }), []);
+});
+
+// ── groupLeavesByDate ────────────────────────────────────
+
+test("groupLeavesByDate — multi-leave คนละวัน → key คนละวัน", () => {
+  const m = groupLeavesByDate([
+    { id: 1, start_date: "2026-05-14", end_date: "2026-05-14", status: "approved" },
+    { id: 2, start_date: "2026-05-15", end_date: "2026-05-15", status: "pending"  },
+  ], "2026-05");
+  assert.equal(m.size, 2);
+  assert.equal(m.get("2026-05-14").length, 1);
+  assert.equal(m.get("2026-05-15").length, 1);
+});
+
+test("groupLeavesByDate — หลายคนลาวันเดียวกัน → stack ใน key เดียว", () => {
+  const m = groupLeavesByDate([
+    { id: 1, start_date: "2026-05-14", end_date: "2026-05-14", user_id: "u1" },
+    { id: 2, start_date: "2026-05-14", end_date: "2026-05-14", user_id: "u2" },
+    { id: 3, start_date: "2026-05-14", end_date: "2026-05-14", user_id: "u3" },
+  ], "2026-05");
+  assert.equal(m.size, 1);
+  assert.equal(m.get("2026-05-14").length, 3);
+});
+
+test("groupLeavesByDate — leave หลายวัน → row เดียวกระจายอยู่หลาย key", () => {
+  const m = groupLeavesByDate([
+    { id: 99, start_date: "2026-05-14", end_date: "2026-05-16" },
+  ], "2026-05");
+  assert.equal(m.size, 3);
+  for (const d of ["2026-05-14", "2026-05-15", "2026-05-16"]) {
+    assert.equal(m.get(d).length, 1);
+    assert.equal(m.get(d)[0].id, 99);
+  }
+});
+
+test("groupLeavesByDate — empty/non-array → empty Map", () => {
+  assert.equal(groupLeavesByDate(null).size, 0);
+  assert.equal(groupLeavesByDate([]).size, 0);
+  assert.equal(groupLeavesByDate(undefined).size, 0);
+});
+
+test("groupLeavesByDate — leave นอก month → ไม่อยู่ใน map", () => {
+  const m = groupLeavesByDate([
+    { id: 1, start_date: "2026-03-01", end_date: "2026-03-05" },
+    { id: 2, start_date: "2026-05-14", end_date: "2026-05-14" },
+  ], "2026-05");
+  assert.equal(m.size, 1);
+  assert.ok(m.has("2026-05-14"));
+  assert.ok(!m.has("2026-03-01"));
+});
+
+test("groupLeavesByDate — key เรียงตามวันที่ ascending", () => {
+  const m = groupLeavesByDate([
+    { id: 3, start_date: "2026-05-30", end_date: "2026-05-30" },
+    { id: 1, start_date: "2026-05-01", end_date: "2026-05-01" },
+    { id: 2, start_date: "2026-05-15", end_date: "2026-05-15" },
+  ], "2026-05");
+  assert.deepEqual(Array.from(m.keys()), ["2026-05-01", "2026-05-15", "2026-05-30"]);
+});
+
+// ── getCalendarMonthGrid ─────────────────────────────────
+
+test("getCalendarMonthGrid — 2026-05 → 6 weeks × 7 cells", () => {
+  const g = getCalendarMonthGrid("2026-05", "2026-05-26");
+  assert.equal(g.weeks.length, 6);
+  for (const w of g.weeks) assert.equal(w.length, 7);
+  assert.equal(g.year, 2026);
+  assert.equal(g.monthNum, 5);
+});
+
+test("getCalendarMonthGrid — first cell คือ Sunday ของสัปดาห์ที่มี 1 ของเดือน", () => {
+  // 1 พ.ค. 2026 = Friday → grid เริ่ม Sun 26 เม.ย.
+  const g = getCalendarMonthGrid("2026-05");
+  const first = g.weeks[0][0];
+  assert.equal(first.dateStr, "2026-04-26");
+  assert.equal(first.inMonth, false);
+  assert.equal(first.dayNum, 26);
+});
+
+test("getCalendarMonthGrid — แยก inMonth ถูก (วันก่อน/หลังเดือนนั้น)", () => {
+  const g = getCalendarMonthGrid("2026-05");
+  // หา cell ของวันที่ 1 พ.ค. + 31 พ.ค. + cell อื่น ๆ
+  let inMonthCount = 0;
+  for (const w of g.weeks) for (const c of w) if (c.inMonth) inMonthCount += 1;
+  assert.equal(inMonthCount, 31); // พ.ค. มี 31 วัน
+});
+
+test("getCalendarMonthGrid — isToday ตรงเฉพาะ cell ของ todayStr ที่ส่งมา", () => {
+  const g = getCalendarMonthGrid("2026-05", "2026-05-26");
+  let todays = 0;
+  for (const w of g.weeks) for (const c of w) if (c.isToday) todays += 1;
+  assert.equal(todays, 1);
+});
+
+test("getCalendarMonthGrid — isWeekend ถูกต้อง (Sun=col0, Sat=col6)", () => {
+  const g = getCalendarMonthGrid("2026-05");
+  for (const w of g.weeks) {
+    assert.equal(w[0].isWeekend, true,  "Sunday");
+    assert.equal(w[6].isWeekend, true,  "Saturday");
+    assert.equal(w[1].isWeekend, false, "Monday");
+    assert.equal(w[5].isWeekend, false, "Friday");
+  }
+});
+
+test("getCalendarMonthGrid — leap year (กุมภา 2024 = 29 วัน) inMonth=29", () => {
+  const g = getCalendarMonthGrid("2024-02");
+  let inMonthCount = 0;
+  for (const w of g.weeks) for (const c of w) if (c.inMonth) inMonthCount += 1;
+  assert.equal(inMonthCount, 29);
+});
+
+test("getCalendarMonthGrid — invalid month → weeks เปล่า ไม่ throw", () => {
+  assert.deepEqual(getCalendarMonthGrid("").weeks, []);
+  assert.deepEqual(getCalendarMonthGrid("invalid").weeks, []);
+  assert.deepEqual(getCalendarMonthGrid("2026-13").weeks, []); // bad month
 });
