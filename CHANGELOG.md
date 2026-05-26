@@ -7,6 +7,24 @@
 
 ---
 
+## 5.62.6 (build 309) — 2026-05-27 ✨ Phase 92.41 — HR Overview Click-through Navigation
+
+- **feat(hr_overview) [click-through]:** ขยาย KPI cards 5 ใบหลักให้ drill-down ไปหน้าเกี่ยวข้องผ่าน pure helper `kpiClickRouteFor(kind)`
+  - **เดิม:** เฉพาะ Payroll (เฉพาะตอน unpaid > 0) + Offline Queue คลิกได้
+  - **ใหม่:** ทุกใบคลิกได้ (รวม Payroll 0/0 — drill-down ดีกว่า disable เงียบ)
+  - Mapping: `total_staff → departments`, `present_today / open_sessions / offline_pending → time_clock`, `ot_month → payroll_overview`, `payroll → payroll`
+  - Destination pages default = วันนี้/เดือนปัจจุบันอยู่แล้ว → ไม่ต้องส่ง filter ข้ามหน้า (lean)
+- **feat(hr_overview) [a11y]:** `_kpiCard` เพิ่ม `aria-label` dynamic ("label — value — sub (เปิดเพื่อจัดการ)") + `role="button"` + `tabindex="0"` + small chevron `›` แทน text ลอย "คลิกเพื่อจัดการ →" (UX: 5 ใบ noisy)
+- **feat(hr_overview) [affordance]:** Container `<style>` rules ใหม่ — `.hr-kpi-card:hover` (translateY -1px + shadow + border darken), `:focus-visible` outline 2px solid #0284c7, `.hr-row-employee:hover` + `:focus-within`
+- **feat(hr_overview) [modal]:** Employee drill-down modal footer เพิ่มปุ่ม **"💰 ไป Payroll"** คู่กับ "🕒 ไป Time Clock" (data-hr-action delegation เดิม close modal then navigate)
+- **ไม่แตะ:** SQL/RLS, payroll math, leave deduction, time clock helpers, employee modal logic, filter state ข้ามหน้า
+- Tests +11 (`kpiClickRouteFor` 6 mappings + valid-route sanity + 4 source-level wiring). Unit **680 → 691**
+- verify เขียว: lint:errors 0/0 · unit 691/691 · e2e 11/11 · audit 0
+
+**Build:** 308 → 309; version 5.62.5 → 5.62.6 (minor — feature)
+
+---
+
 ## 5.62.5 (build 308) — 2026-05-27 🧯 Phase 92.40b — HOTFIX day-list hint copy not clickable
 
 - **fix(leave/day-list) [misleading-copy]:** hint ใต้ day-list popover "คลิกรายการเพื่อดูรายละเอียด" ทำให้ user คิดว่า hint เป็นปุ่มกดได้ (แต่จริง ๆ ต้องกด event item ด้านบน)

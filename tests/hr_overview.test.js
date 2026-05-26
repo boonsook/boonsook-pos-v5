@@ -27,6 +27,8 @@ const {
   isDefaultHrFilters,
   filterSummaryLabel,
   buildHrExportFilename,
+  // Phase 92.41
+  kpiClickRouteFor,
 } = await import("../modules/hr_overview.js");
 
 // ── classifyAttendanceStatus ────────────────────────────────
@@ -776,4 +778,109 @@ test("buildHrExportFilename — sanitize control chars + collapse underscores", 
   const fn = buildHrExportFilename("2026-05-26", { departmentId: "x  \t y" });
   assert.ok(!/\s/.test(fn), "filename ต้องไม่มี whitespace");
   assert.ok(!/__/.test(fn), "filename ต้องไม่มี __ ซ้อน");
+});
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 92.41 — KPI click-through navigation
+// ═══════════════════════════════════════════════════════════
+
+test("kpiClickRouteFor — total_staff → departments", () => {
+  assert.equal(kpiClickRouteFor("total_staff"), "departments");
+});
+
+test("kpiClickRouteFor — present_today + open_sessions + offline_pending → time_clock", () => {
+  assert.equal(kpiClickRouteFor("present_today"), "time_clock");
+  assert.equal(kpiClickRouteFor("open_sessions"), "time_clock");
+  assert.equal(kpiClickRouteFor("offline_pending"), "time_clock");
+});
+
+test("kpiClickRouteFor — ot_month → payroll_overview", () => {
+  assert.equal(kpiClickRouteFor("ot_month"), "payroll_overview");
+});
+
+test("kpiClickRouteFor — payroll → payroll (clickable แม้ paid=0/0)", () => {
+  // Phase 92.41 decision: payroll card คลิกได้เสมอ — drill-down ไปจัดการที่หน้า payroll
+  // ดีกว่า disable เงียบ ๆ ตอน 0/0
+  assert.equal(kpiClickRouteFor("payroll"), "payroll");
+});
+
+test("kpiClickRouteFor — unknown kind → null", () => {
+  assert.equal(kpiClickRouteFor("nonexistent"), null);
+  assert.equal(kpiClickRouteFor(""), null);
+  assert.equal(kpiClickRouteFor(undefined), null);
+  assert.equal(kpiClickRouteFor(null), null);
+});
+
+test("kpiClickRouteFor + alertActionFor — ทุก kind คืน route ที่มีอยู่จริงในระบบ (sanity)", () => {
+  const validRoutes = new Set([
+    "time_clock", "payroll", "payroll_overview", "leave_management",
+    "departments", "audit_log", "hr_overview", "settings",
+  ]);
+  for (const k of ["total_staff", "present_today", "open_sessions", "ot_month", "payroll", "offline_pending"]) {
+    const r = kpiClickRouteFor(k);
+    assert.ok(validRoutes.has(r), `kpi kind=${k} → route=${r} ต้องเป็น valid route`);
+  }
+  for (const k of ["stale_session", "geofence_out", "unpaid_payroll", "offline_pending", "pending_leaves"]) {
+    const a = alertActionFor(k);
+    assert.ok(a && validRoutes.has(a.route), `alert kind=${k} → route=${a?.route} ต้องเป็น valid route`);
+  }
+});
+
+// ── Source-level wiring (Phase 92.41) ──────────────────────
+
+test("source: KPI 5 ใบหลัก ทุกใบส่ง clickRoute ผ่าน kpiClickRouteFor", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/hr_overview.js"), "utf8");
+  // ใน container.innerHTML ต้องเรียก kpiClickRouteFor สำหรับทั้ง 5 kinds
+  for (const kind of ["total_staff", "present_today", "open_sessions", "ot_month", "payroll"]) {
+    const re = new RegExp(`kpiClickRouteFor\\(["']${kind}["']\\)`);
+    assert.match(src, re, `ต้องมี kpiClickRouteFor("${kind}") ใน KPI card`);
+  }
+  // offline_pending (conditional) — ก็ใช้ helper เหมือนกัน
+  assert.match(src, /kpiClickRouteFor\(["']offline_pending["']\)/, "offline_pending KPI ต้องใช้ helper");
+});
+
+test("source: _kpiCard มี aria-label dynamic เมื่อ clickable + ไม่มี text ลอย 'คลิกเพื่อจัดการ →' แล้ว", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/hr_overview.js"), "utf8");
+  const body = src.match(/function _kpiCard[\s\S]*?^}/m)?.[0] || "";
+  assert.ok(body.length > 0, "ต้องเจอ _kpiCard");
+  assert.match(body, /aria-label="\$\{escHtml\(/, "ต้องมี dynamic aria-label เมื่อ clickRoute มีค่า");
+  assert.match(body, /role="button"/, "ต้องมี role=button");
+  assert.match(body, /tabindex="0"/, "ต้องมี tabindex=0 (focusable)");
+  // ห้ามมี text ลอย "คลิกเพื่อจัดการ →" แล้ว — ใช้ affordance + aria-label พอ
+  assert.ok(!/คลิกเพื่อจัดการ\s*→/.test(body), "ห้ามมี text ลอย 'คลิกเพื่อจัดการ →' (UX: ใช้ affordance + aria แทน)");
+});
+
+test("source: container scope <style> มี .hr-kpi-card:hover + :focus-visible + .hr-row-employee:hover (affordance)", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/hr_overview.js"), "utf8");
+  // ใน container.innerHTML ต้องมี <style> รวม rules
+  const m = src.match(/container\.innerHTML\s*=\s*`[\s\S]*?<style>([\s\S]*?)<\/style>/);
+  assert.ok(m, "ต้องมี <style> block ใน container.innerHTML");
+  const css = m[1];
+  assert.match(css, /\.hr-kpi-card:hover/, "ต้องมี .hr-kpi-card:hover rule");
+  assert.match(css, /\.hr-kpi-card:focus-visible[\s\S]{0,200}?outline:/, "ต้องมี focus-visible outline");
+  assert.match(css, /\.hr-row-employee:hover/, "row hover rule");
+});
+
+test("source: employee modal มีปุ่ม 'ไป Payroll' (data-hr-action=payroll) คู่กับ 'ไป Time Clock'", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/hr_overview.js"), "utf8");
+  // modal footer — เป็นภาพรวมไม่ใช่ตำแหน่งเดียว ใช้ string match
+  assert.match(src, /data-hr-action="time_clock"[\s\S]{0,400}?🕒/, "ปุ่ม time_clock ต้องยังอยู่ (regression guard)");
+  assert.match(src, /class="hr-modal-route-btn"\s+data-hr-action="payroll"/, "ต้องเพิ่มปุ่ม payroll ใน modal");
+});
+
+test("source: row click delegation ยังกัน button targets (skip data-hr-action + skip button)", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/hr_overview.js"), "utf8");
+  // row click handler ใช้ closest("[data-hr-action]") + closest("button") เป็น early-return
+  assert.match(src, /ev\.target\.closest\(["']\[data-hr-action\]["']\)/, "row click ต้อง skip data-hr-action target");
+  assert.match(src, /ev\.target\.closest\(["']button["']\)/, "row click ต้อง skip button target");
 });

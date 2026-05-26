@@ -3,15 +3,120 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 27 พฤษภาคม 2026 (Phase 92.40 — Leave Calendar Event Detail Actions Polish, build 307)
-**Version:** 5.62.4 (build 307) — Phase 92.40 (helper extract + email/reviewer detail + "ดูในตาราง" + error-stays-open)
-**Previous:** 5.62.3 (build 306) — Phase 92.39d (CSS scope bug + DRY _openPopover)
+**อัปเดตล่าสุด:** 27 พฤษภาคม 2026 (Phase 92.41 — HR Overview Click-through Navigation, build 309)
+**Version:** 5.62.6 (build 309) — Phase 92.41 (KPI drill-down + a11y + Payroll button ใน modal)
+**Previous:** 5.62.5 (build 308) — Phase 92.40b (day-list hint copy + chip a11y)
+**Pre-prev:** 5.62.4 (build 307) — Phase 92.40 (Leave Calendar event detail polish)
 
-> ✅ **ไม่มี SQL ใหม่ในเฟส 92.36–92.40** (additive code only).
+> ✅ **ไม่มี SQL ใหม่ในเฟส 92.36–92.41** (additive code only).
 
 ---
 
-## ✨ Phase 92.40 — Leave Calendar Event Detail Actions Polish (this session)
+## ✨ Phase 92.41 — HR Overview Click-through Navigation (this session)
+
+**บริบท:** หน้า HR Overview มี infrastructure click-through อยู่แล้ว (`hr-kpi-card` + `data-hr-action` + delegation + keyboard handler) แต่ใช้กับเฉพาะ Payroll (conditional `unpaid > 0`) + Offline Queue. KPI cards 4 ใบหลัก (พนักงานทั้งหมด/เข้างานวันนี้/ยังไม่ลงเวลาออก/OT) ยังเป็น static — user ไม่มีทาง drill-down ต่อ. งานเฟสนี้ขยายให้ครบทุกใบ + ปรับ a11y/affordance + เพิ่ม "ไป Payroll" ใน employee modal.
+
+### สิ่งที่ทำ
+
+**1) Pure helper ใหม่ `kpiClickRouteFor(kind)`** ([`modules/hr_overview.js`](modules/hr_overview.js))
+- คืน route id ตาม kind (testable, no DOM/state):
+  - `total_staff` → `departments` (ดูพนักงานรวมตามแผนก)
+  - `present_today` → `time_clock` (default = วันนี้)
+  - `open_sessions` → `time_clock` (จัดการ session ค้าง)
+  - `ot_month` → `payroll_overview` (OT รายเดือน รวมที่นี่)
+  - `payroll` → `payroll` (จัดการ row ต่อ)
+  - `offline_pending` → `time_clock` (sync queue)
+  - unknown → `null`
+- Destination pages default = วันนี้/เดือนปัจจุบันอยู่แล้ว → **ไม่ต้องส่ง filter ข้ามหน้า** (lean)
+
+**2) KPI cards 5 ใบหลัก + Offline Queue ใช้ helper**
+- เดิม: `clickRoute: payrollClickable` (= `unpaid > 0 ? "payroll" : null`) → unpaid=0 disable เงียบ
+- ใหม่: `clickRoute: kpiClickRouteFor(kind)` ทุกใบ → Payroll 0/0 ก็คลิกได้ (drill-down ดีกว่า disable)
+- ลบตัวแปร `payrollClickable` ออก (ไม่ใช้แล้ว)
+
+**3) `_kpiCard` a11y + affordance redesign**
+- เพิ่ม `aria-label="label — value — sub (เปิดเพื่อจัดการ)"` dynamic เมื่อ clickable
+- ใช้ chevron icon `›` (small, color #0284c7) ใน header row แทน text ลอย "คลิกเพื่อจัดการ →" ที่อยู่ท้าย card
+- **เหตุผล UX:** เดิม 1 card มี text นั้น 1 ครั้ง — พอ 5 ใบคลิกได้ก็เห็น 5 ครั้ง = noisy. Affordance (cursor + hover + chevron + aria) ก็พอแล้ว
+- `role="button"` + `tabindex="0"` ยังคงเดิม → keyboard นาวิเกตได้
+
+**4) Container scope `<style>` ใหม่**
+```css
+.hr-kpi-card { transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease; }
+.hr-kpi-card:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(15,23,42,.08); border-color: #cbd5e1; }
+.hr-kpi-card:focus-visible { outline: 2px solid #0284c7; outline-offset: 2px; }
+.hr-row-employee:hover { background-color: #f8fafc; }
+.hr-row-employee:focus-within { outline: 2px solid #0284c7; outline-offset: -2px; }
+```
+
+**5) Employee drill-down modal footer เพิ่มปุ่ม Payroll**
+- เดิม: ปุ่ม "🕒 ไป Time Clock" + "ปิด"
+- ใหม่: + "💰 ไป Payroll" (`class="hr-modal-route-btn"` + `data-hr-action="payroll"`)
+- ใช้ delegation เดิม (`hr-modal-route-btn` → close modal + `showRoute(route)`)
+
+### Re-uses (ไม่สร้างใหม่)
+
+- `_kpiCard` infrastructure (`data-hr-action`, `hr-kpi-card` class, role/tabindex)
+- Container-level event delegation (line 1322 — `closest("[data-hr-action]")` → `showRoute(route)`)
+- Keyboard handler สำหรับ KPI cards (line 1359 — Enter/Space)
+- Row click delegation (line 1574 — `closest("[data-hr-action]")` early return → กัน row click ชน button)
+- Modal route button delegation (line 1550 — close + navigate)
+- `alertActionFor` (5 kinds: stale_session/geofence_out/unpaid_payroll/offline_pending/pending_leaves) — ไม่แตะ (ทำงานครบแล้ว)
+
+### Tests +11 source
+
+[`tests/hr_overview.test.js`](tests/hr_overview.test.js):
+- `kpiClickRouteFor` 6 tests (total_staff, present_today/open_sessions/offline_pending, ot_month, payroll, unknown→null)
+- valid-route sanity (cross-check kpi + alert routes กับ allowlist `time_clock/payroll/payroll_overview/leave_management/departments/audit_log/hr_overview/settings`)
+- Source-level 4:
+  - KPI 5 ใบหลักทุกใบส่ง `kpiClickRouteFor("kind")` (+ offline_pending conditional)
+  - `_kpiCard` มี aria-label dynamic + role=button + tabindex=0 + ไม่มี text "คลิกเพื่อจัดการ →" แล้ว
+  - container `<style>` มี `.hr-kpi-card:hover` + `:focus-visible` outline + `.hr-row-employee:hover`
+  - modal มีปุ่ม `data-hr-action="payroll"` คู่กับ time_clock (regression guard)
+  - row click delegation ยัง skip data-hr-action + button targets
+
+Unit **680 → 691** (+11)
+
+### Gates ✅
+
+- `npm run lint:errors` exit 0
+- `npm test` = **691/691**
+- `npm run test:e2e -- --reporter=line` = **11/11**
+- `npm audit --audit-level=moderate` = **0 vulnerabilities**
+
+### Version sync
+
+- `package.json`: 5.62.5 → **5.62.6** (minor — feature)
+- `index.html`: ?v=308→309 ทุก src + `data-app-build="309"` + `data-app-version="5.62.6"`
+- `sw.js`: cache v308→v309 + comment v309
+
+### Smoke test (manual)
+
+1. Production Ctrl+Shift+R → APP_BUILD=309
+2. เข้าหน้า HR Overview (admin)
+3. KPI 5 ใบหลัก — เห็น chevron `›` มุมขวา + cursor pointer + hover lift
+4. คลิก "พนักงานทั้งหมด" → ไป `departments`
+5. คลิก "เข้างานวันนี้" / "ยังไม่ลงเวลาออก" → ไป `time_clock`
+6. คลิก "OT เดือนนี้" → ไป `payroll_overview`
+7. คลิก "Payroll เดือนนี้" → ไป `payroll` (แม้ paid=0/0 ก็คลิกได้)
+8. Keyboard Tab ไป KPI card → เห็น focus ring ฟ้า → Enter/Space → navigate
+9. คลิก row พนักงาน → modal เปิด → footer มี "🕒 ไป Time Clock" + **"💰 ไป Payroll"** + "ปิด"
+10. กด "ไป Payroll" → modal ปิด + ไปหน้า payroll
+11. Row hover → bg #f8fafc (subtle)
+12. Alerts ยังคลิกได้ตามเดิม (unpaid_payroll/pending_leaves/stale_session/geofence_out/offline_pending)
+
+### Regression check ✅
+
+- HR Overview filters (status/dept/role) + cascade rerender เดิม
+- Employee modal tabs (วันนี้/7 วันล่าสุด/เงินเดือน) + close (Esc/backdrop/bottom) เดิม
+- Row click → modal เดิม (skip button + data-hr-action target)
+- Alerts → route mapping เดิม (5 kinds)
+- Time Clock responsive ไม่กระทบ
+- Leave Calendar / Payroll leave deduction ไม่กระทบ
+
+---
+
+## ✨ Phase 92.40 — Leave Calendar Event Detail Actions Polish
 
 **บริบท:** หลัง 92.39d (build 306) day-list popover visible แล้ว · calendar event detail popover ทำงาน แต่:
 - detail ขาด — ไม่มี email, ไม่มีผู้อนุมัติ (name + เวลา)

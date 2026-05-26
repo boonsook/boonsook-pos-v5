@@ -296,6 +296,26 @@ export function alertActionFor(kind) {
   }
 }
 
+/**
+ * Phase 92.41: KPI kind → route สำหรับ click-through navigation
+ *   ทำให้ KPI card ทุกใบใน HR Overview drill-down ไปหน้าที่เกี่ยวข้องได้
+ *   (route default จะรับ filter "วันนี้/เดือนปัจจุบัน" ของหน้านั้นเอง — ไม่ต้องส่ง filter ข้ามหน้า)
+ *
+ * @param {string} kind - "total_staff"|"present_today"|"open_sessions"|"ot_month"|"payroll"|"offline_pending"
+ * @returns {string|null} route id หรือ null ถ้า kind ไม่รู้จัก
+ */
+export function kpiClickRouteFor(kind) {
+  switch (kind) {
+    case "total_staff":     return "departments";        // ดูพนักงานรวมตามแผนก
+    case "present_today":   return "time_clock";         // หน้า Time Clock default = วันนี้
+    case "open_sessions":   return "time_clock";         // session ค้างจัดการที่ Time Clock
+    case "ot_month":        return "payroll_overview";   // OT รายเดือน รวมใน Payroll Overview
+    case "payroll":         return "payroll";            // จัดการ payroll แต่ละ row
+    case "offline_pending": return "time_clock";         // sync queue ที่ Time Clock
+    default:                return null;
+  }
+}
+
 // ═══════════════════════════════════════════════════════════
 //  Phase 92.30 — Employee drill-down modal helpers (pure)
 // ═══════════════════════════════════════════════════════════
@@ -718,16 +738,22 @@ function _roleChip(role) {
 
 function _kpiCard({ label, value, sub, color, icon, clickRoute }) {
   const c = color || "#0284c7";
-  const clickAttrs = clickRoute ? ` class="hr-kpi-card" data-hr-action="${escHtml(clickRoute)}" role="button" tabindex="0" style="cursor:pointer"` : "";
+  // Phase 92.41: aria-label สื่อความหมายแทน inline text ที่เคยมี (UX: 5 ใบ noisy)
+  const ariaSummary = clickRoute ? ` aria-label="${escHtml(label + " — " + value + (sub ? " — " + sub : "") + " (เปิดเพื่อจัดการ)")}"` : "";
   const baseStyle = "background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:14px 16px;min-width:0";
-  return `<div${clickAttrs} style="${baseStyle}${clickRoute ? ';transition:transform .1s ease' : ''}">
+  const interactive = clickRoute
+    ? ` class="hr-kpi-card" data-hr-action="${escHtml(clickRoute)}" role="button" tabindex="0"${ariaSummary} style="${baseStyle};cursor:pointer"`
+    : ` style="${baseStyle}"`;
+  return `<div${interactive}>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
       <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.5px">${escHtml(label)}</div>
-      ${icon ? `<div style="font-size:18px;opacity:.7">${escHtml(icon)}</div>` : ""}
+      <div style="display:flex;align-items:center;gap:4px">
+        ${icon ? `<div style="font-size:18px;opacity:.7">${escHtml(icon)}</div>` : ""}
+        ${clickRoute ? `<div aria-hidden="true" style="font-size:14px;color:#0284c7;font-weight:800;line-height:1">›</div>` : ""}
+      </div>
     </div>
     <div style="font-size:24px;font-weight:900;color:${c};line-height:1.1">${escHtml(value)}</div>
     ${sub ? `<div style="font-size:11px;color:#64748b;margin-top:4px">${escHtml(sub)}</div>` : ""}
-    ${clickRoute ? `<div style="font-size:10px;color:#0284c7;margin-top:6px;font-weight:700">คลิกเพื่อจัดการ →</div>` : ""}
   </div>`;
 }
 
@@ -1226,10 +1252,18 @@ export async function renderHrOverviewPage(ctx) {
       </div>`
     : "";
 
-  // KPI Payroll clickable เฉพาะเมื่อมีค้าง
-  const payrollClickable = kpi.payrollUnpaid > 0 ? "payroll" : null;
+  // Phase 92.41: KPI cards ทุกใบคลิกได้ — drill-down ไปหน้าเดิม ใช้ pure helper kpiClickRouteFor
+  // (Payroll ตอน 0/0 ก็คลิกได้ — ไปดูรายละเอียดหน้า payroll หรือสร้างใหม่ดีกว่า disable แล้วเงียบ)
 
   container.innerHTML = `
+    <style>
+      /* Phase 92.41: KPI card click-through affordance + a11y */
+      .hr-kpi-card { transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease; }
+      .hr-kpi-card:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(15,23,42,.08); border-color: #cbd5e1; }
+      .hr-kpi-card:focus-visible { outline: 2px solid #0284c7; outline-offset: 2px; }
+      .hr-row-employee:hover { background-color: #f8fafc; }
+      .hr-row-employee:focus-within { outline: 2px solid #0284c7; outline-offset: -2px; }
+    </style>
     <div style="padding:8px;display:flex;flex-direction:column;gap:14px">
 
       <!-- Header -->
@@ -1245,12 +1279,12 @@ export async function renderHrOverviewPage(ctx) {
 
       <!-- KPI cards -->
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
-        ${_kpiCard({ label: "พนักงานทั้งหมด", value: NUM_TH(kpi.totalStaff), sub: `${data.departments.length} แผนก`, color: "#0f172a", icon: "👥" })}
-        ${_kpiCard({ label: "เข้างานวันนี้", value: NUM_TH(kpi.presentToday) + "/" + NUM_TH(kpi.totalStaff), sub: kpi.totalStaff > 0 ? Math.round((kpi.presentToday / kpi.totalStaff) * 100) + "%" : "—", color: "#0284c7", icon: "🟢" })}
-        ${_kpiCard({ label: "ยังไม่ลงเวลาออก", value: NUM_TH(kpi.openSessions), sub: kpi.openSessions > 0 ? "session เปิดอยู่" : "ไม่มีค้าง", color: kpi.openSessions > 0 ? "#ea580c" : "#16a34a", icon: "🕒" })}
-        ${_kpiCard({ label: "OT เดือนนี้", value: HOURS(kpi.otHoursMonth) + " ชม.", sub: escHtml(monthTh), color: kpi.otHoursMonth > 0 ? "#ea580c" : "#0f172a", icon: "⏱️" })}
-        ${_kpiCard({ label: "Payroll เดือนนี้", value: NUM_TH(kpi.payrollPaid) + "/" + NUM_TH(kpi.payrollTotal), sub: "จ่าย " + MONEY(kpi.payrollPaidAmount) + " · ค้าง " + MONEY(kpi.payrollUnpaidAmount), color: kpi.payrollUnpaid > 0 ? "#ea580c" : "#16a34a", icon: "💰", clickRoute: payrollClickable })}
-        ${kpi.offlinePending > 0 ? _kpiCard({ label: "Offline Queue", value: NUM_TH(kpi.offlinePending), sub: "รอ sync", color: "#7c3aed", icon: "📥", clickRoute: "time_clock" }) : ""}
+        ${_kpiCard({ label: "พนักงานทั้งหมด", value: NUM_TH(kpi.totalStaff), sub: `${data.departments.length} แผนก`, color: "#0f172a", icon: "👥", clickRoute: kpiClickRouteFor("total_staff") })}
+        ${_kpiCard({ label: "เข้างานวันนี้", value: NUM_TH(kpi.presentToday) + "/" + NUM_TH(kpi.totalStaff), sub: kpi.totalStaff > 0 ? Math.round((kpi.presentToday / kpi.totalStaff) * 100) + "%" : "—", color: "#0284c7", icon: "🟢", clickRoute: kpiClickRouteFor("present_today") })}
+        ${_kpiCard({ label: "ยังไม่ลงเวลาออก", value: NUM_TH(kpi.openSessions), sub: kpi.openSessions > 0 ? "session เปิดอยู่" : "ไม่มีค้าง", color: kpi.openSessions > 0 ? "#ea580c" : "#16a34a", icon: "🕒", clickRoute: kpiClickRouteFor("open_sessions") })}
+        ${_kpiCard({ label: "OT เดือนนี้", value: HOURS(kpi.otHoursMonth) + " ชม.", sub: escHtml(monthTh), color: kpi.otHoursMonth > 0 ? "#ea580c" : "#0f172a", icon: "⏱️", clickRoute: kpiClickRouteFor("ot_month") })}
+        ${_kpiCard({ label: "Payroll เดือนนี้", value: NUM_TH(kpi.payrollPaid) + "/" + NUM_TH(kpi.payrollTotal), sub: "จ่าย " + MONEY(kpi.payrollPaidAmount) + " · ค้าง " + MONEY(kpi.payrollUnpaidAmount), color: kpi.payrollUnpaid > 0 ? "#ea580c" : "#16a34a", icon: "💰", clickRoute: kpiClickRouteFor("payroll") })}
+        ${kpi.offlinePending > 0 ? _kpiCard({ label: "Offline Queue", value: NUM_TH(kpi.offlinePending), sub: "รอ sync", color: "#7c3aed", icon: "📥", clickRoute: kpiClickRouteFor("offline_pending") }) : ""}
       </div>
 
       <!-- Alerts -->
@@ -1482,6 +1516,7 @@ export async function renderHrOverviewPage(ctx) {
           <div style="font-size:11px;color:#94a3b8">${escHtml(rowActionLabel(found.status).label === "ลงเวลา" ? "ยังไม่ลงเวลาเข้างาน" : "")}</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button class="hr-modal-route-btn" data-hr-action="time_clock" style="padding:8px 14px;border:1px solid #0284c7;border-radius:8px;background:#fff;color:#0284c7;font-size:12px;font-weight:700;cursor:pointer">🕒 ไป Time Clock</button>
+            <button class="hr-modal-route-btn" data-hr-action="payroll" style="padding:8px 14px;border:1px solid #16a34a;border-radius:8px;background:#fff;color:#16a34a;font-size:12px;font-weight:700;cursor:pointer">💰 ไป Payroll</button>
             <button id="hrModalCloseBottom" style="padding:8px 14px;border:1px solid #e2e8f0;border-radius:8px;background:#fff;color:#475569;font-size:12px;font-weight:700;cursor:pointer">ปิด</button>
           </div>
         </div>
