@@ -7,6 +7,25 @@
 
 ---
 
+## 5.61.2 (build 302) — 2026-05-26 🧯 Phase 92.38c — HOTFIX Leave edit quota warning double-count
+
+- **fix(leave/quota-warn) [edit-exclude-self]:** quota warning ใน edit leave modal นับ record ตัวเองซ้ำ
+  - sompong vacation approved 2+10 = 12/10 → edit record 2 วัน → warning "เกิน quota 4 วัน" (ควรเป็น 2)
+  - edit record 10 วัน → warning "เกิน quota 12 วัน" (ควรเป็น 2)
+  - สาเหตุ: logic เดิมลบเฉพาะ `existing.days_count` ของ `status === "pending"` — **approved record ถูกนับซ้ำใน `b.used`**
+- **แก้:** `calcBalancesForUser` รับ optional `excludeLeaveId` (param ใหม่)
+  - filter row นี้ออกก่อนนับ (ทั้ง approved + pending) · cross-type id compare (string ↔ number safe)
+  - `_refreshQuotaWarn` ใน form modal ส่ง `excludeLeaveId: existing?.id` ตอน edit
+  - calc delta ถูกเมื่อเปลี่ยน days (2→5 = +3, 10→8 = -2) หรือเปลี่ยน leave_type bucket
+  - Create mode (existing=null → excludeLeaveId=undefined) → behavior เดิม (no-op)
+- **ไม่แตะ:** SQL / RLS / Calendar view / Payroll decision / Balance render — เฉพาะ quota warning ใน leave form modal
+- Tests +7 (edit approved 2/10, edit pending, change bucket, non-existent id, undef/null/empty, number/string id). Unit **615 → 622**
+- verify เขียว: lint:errors 0/0 · unit 622/622 · audit 0
+
+**Build:** 301 → 302; version 5.61.1 → 5.61.2 (patch hotfix — no SQL)
+
+---
+
 ## 5.61.1 (build 301) — 2026-05-26 🧯 Phase 92.38b — HOTFIX TZ-dependent calendar helpers
 
 - **fix(leave/calendar) [ci-tz-parity]:** CI Linux (TZ=UTC) ทำให้ 2 unit tests fail

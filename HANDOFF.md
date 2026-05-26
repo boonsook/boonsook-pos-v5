@@ -3,11 +3,104 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 26 พฤษภาคม 2026 (Phase 92.38b — HOTFIX TZ-dependent calendar helpers, build 301)
-**Version:** 5.61.1 (build 301) — Phase 92.38b (CI TZ parity hotfix)
-**Previous:** 5.61.0 (build 300) — Phase 92.38 (calendar leave view + popover)
+**อัปเดตล่าสุด:** 26 พฤษภาคม 2026 (Phase 92.38c — HOTFIX leave edit quota warning double-count, build 302)
+**Version:** 5.61.2 (build 302) — Phase 92.38c (edit quota warning exclude current record)
+**Previous:** 5.61.1 (build 301) — Phase 92.38b (CI TZ parity hotfix)
 
-> ✅ **ไม่มี SQL ใหม่ในเฟส 92.36–92.38b** (additive code only).
+> ✅ **ไม่มี SQL ใหม่ในเฟส 92.36–92.38c** (additive code only).
+
+---
+
+## 🧯 Phase 92.38c — HOTFIX leave edit quota warning double-count (this session)
+
+**บริบท:** Production smoke หลัง build 301 — sompong มี vacation approved รวม 12 วัน (เกิน quota 10 = 2 วัน). เปิด edit modal ของ record 2 วัน → quota warning แสดง **"เกิน quota 4 วัน"** ทั้งที่ควรเป็น 2; เปิด edit record 10 วัน → **"เกิน quota 12 วัน"** ทั้งที่ควรเป็น 2 → record เดิมถูกนับซ้ำ.
+
+### สาเหตุ ([`modules/leave_management.js`](modules/leave_management.js) line ~1835)
+
+```js
+const existingDays = existing && existing.status === "pending" && ... ? Number(existing.days_count || 0) : 0;
+const projectedPending = (b.pending - existingDays) + newDays;
+const projectedTotal = b.used + projectedPending;
+```
+
+- ลบเฉพาะ `existing.days_count` เมื่อ `status === "pending"` → **approved record ไม่ถูก exclude**
+- `b.used` มาจาก `calcBalancesForUser` ที่นับทุก approved row (รวม record ที่กำลัง edit)
+- ผลลัพธ์: ผู้ใช้กรอก `newDays = 2` แล้วถูกบวกเข้า `b.used = 12` → projected = 14 → overBy = 4
+- ที่แย่กว่า: ถ้าเปลี่ยน leave_type → bucket ใหม่นับ record เดิมในประเภทเก่าอยู่ดี
+
+### สิ่งที่แก้
+
+**1) `calcBalancesForUser` — เพิ่ม optional `excludeLeaveId` param**
+
+- filter `leaves.filter(r => String(r.id) !== String(excludeId))` ก่อนนับ
+- ทำงาน ทั้ง approved + pending (ไม่จำกัด status)
+- compare loose แบบ string (ป้องกัน mismatch ระหว่าง `bigint` ใน DB กับ string จาก DOM)
+- `excludeLeaveId === undefined/null/""` → no-op (create mode behavior คงเดิม)
+
+**2) `_refreshQuotaWarn` ใน form modal**
+
+- ส่ง `excludeLeaveId: existing?.id` ตอนเรียก `calcBalancesForUser`
+- ลบ logic `existingDays`-pending-only ออก
+- `projectedPending = b.pending + newDays` (b ที่ exclude record นี้แล้ว)
+- `projectedTotal = b.used + projectedPending`
+- `overBy = projectedTotal - b.quota`
+
+### Expected behavior หลังแก้
+
+- edit record approved 2 วัน → `b.used` (หลัง exclude) = 10, `+ newDays = 2` → projected 12 → overBy 2 (ถูกต้อง)
+- edit record approved 10 วัน → `b.used` (หลัง exclude) = 2, `+ newDays = 10` → projected 12 → overBy 2 (ถูกต้อง)
+- เปลี่ยน days 2 → 5: `b.used = 10` + `newDays = 5` → projected 15 → overBy 5 (delta +3 ถูก)
+- เปลี่ยน days 10 → 8: `b.used = 2` + `newDays = 8` → projected 10 → overBy 0 (ถูกต้อง ลดลง)
+- เปลี่ยน leave_type vacation → sick: bucket ใหม่ filter exclude id เดียวกัน → sick bucket ไม่ได้รับผลกระทบ
+- เปลี่ยน employee: balance ของ user คนใหม่ filter exclude id เดียวกัน — ไม่มี match ก็ no-op
+
+### Regression check ✅
+
+- Balance / Quota cards (หน้า Leave) ยังนับ DB จริงเหมือนเดิม (`calcBalancesForUser` เรียกจาก `_rerender` ไม่ส่ง `excludeLeaveId`)
+- Payroll decision Phase 92.36 — `decidePayrollLeaveImpact` ไม่ใช้ `excludeLeaveId` → ไม่กระทบ
+- Calendar view Phase 92.38 — ไม่แตะ
+- Time Clock build 295 — ไม่แตะ
+- ไม่มี SQL/RLS ใหม่
+
+### Tests +7
+
+[`tests/leave_management.test.js`](tests/leave_management.test.js):
+- `edit approved 2 วัน` — exclude id แล้ว used ลดลง 2 (overQuota=false)
+- `edit approved 10 วัน` — exclude id แล้ว used ลดลง 10
+- `edit pending` — exclude id ลด pending (used คงเดิม)
+- `เปลี่ยน leave_type bucket` — exclude vacation → sick bucket ไม่กระทบ
+- `excludeLeaveId ที่ไม่มีจริง` → no-op
+- `create mode (undefined/null/empty)` → behavior เดิม
+- `number id vs string id` cross-type compare safety
+
+### Gates
+
+- `npm run lint:errors` exit 0
+- `npm test` = **622/622** (615 + 7)
+- `npm run test:e2e -- --reporter=line` = **11/11**
+- `npm audit --audit-level=moderate` = **0 vulnerabilities**
+
+### Version sync
+
+- `package.json`: 5.61.1 → **5.61.2** (patch hotfix)
+- `index.html`: ?v=301→302, data-app-build="302", data-app-version="5.61.2"
+- `sw.js`: cache v301→v302 + v302 comment line
+
+### Smoke test (manual)
+
+1. Production (Ctrl+Shift+R) → APP_BUILD=302
+2. เปิด หน้า "วันลา" → Calendar
+3. คลิก event sompong 2 วัน → กด "✏️ แก้ไข" → modal เปิดด้วยค่าเดิม
+4. quota warning ต้องบอกว่า "เกิน quota 2 วัน" (ไม่ใช่ 4) — เพราะ record นี้ถูก exclude ก่อนคำนวณ
+5. เปลี่ยน days = 5 → warning เปลี่ยนเป็น "เกิน quota 5 วัน" (delta +3 จาก baseline 10/10)
+6. เปลี่ยน days = 8 → warning หาย หรือเป็น "เกิน 0" (baseline 10/10 + 8 - 10 = 8 → wait)
+
+   _แก้ exposition: หลัง exclude 2 record (ที่กำลัง edit) → baseline used = 10 (record อื่น) → + days 8 → projected 18 → over 8._
+
+   ★ **Correction:** หลัง exclude record 2 วัน → baseline used = 10 (จาก record 10 วันที่ยังคงอยู่). กรอก newDays = 8 → projected = 10 + 8 = 18 → over 8 วัน.
+
+   _ตัวอย่างจริงๆ ในข้อ 6:_ ถ้า user มี record อื่นใน vacation ที่ approved 10 + กำลัง edit record 2 → exclude 2 → baseline 10. ใส่ days = 0 ไม่ได้ (validation), days = 1 → over 1. ถ้าต้องการ over=0 → days = 0 หรือ ลบ record อีกอันก่อน
+7. กดยกเลิก หรือ บันทึก — submit insert ใหม่ (ไม่ใช่ update — ดู existing form submit logic)
 
 ---
 

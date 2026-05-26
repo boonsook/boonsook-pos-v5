@@ -988,3 +988,90 @@ test("getCalendarMonthGrid — invalid month → weeks เปล่า ไม่
   assert.deepEqual(getCalendarMonthGrid("invalid").weeks, []);
   assert.deepEqual(getCalendarMonthGrid("2026-13").weeks, []); // bad month
 });
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 92.38c — calcBalancesForUser with excludeLeaveId
+//  (edit modal: ห้ามนับ record ปัจจุบันซ้ำใน used/pending)
+// ═══════════════════════════════════════════════════════════
+
+const _policies92c = [
+  { leave_type: "vacation", annual_quota: 10, tracks_balance: true },
+  { leave_type: "sick",     annual_quota: 30, tracks_balance: true },
+  { leave_type: "personal", annual_quota: 3,  tracks_balance: true },
+  { leave_type: "unpaid",   annual_quota: null, tracks_balance: false },
+];
+
+test("calcBalancesForUser — edit approved 2 วัน: exclude id แล้ว used ลดลง 2", () => {
+  const leaves = [
+    { id: "a", user_id: "u1", leave_type: "vacation", status: "approved", start_date: "2026-05-01", end_date: "2026-05-02", days_count: 2 },
+    { id: "b", user_id: "u1", leave_type: "vacation", status: "approved", start_date: "2026-06-01", end_date: "2026-06-10", days_count: 10 },
+  ];
+  // ไม่ exclude — used = 12 (เกิน quota 10 = 2)
+  const before = calcBalancesForUser({ userId: "u1", year: 2026, leaves, policies: _policies92c });
+  assert.equal(before.get("vacation").used, 12);
+  assert.equal(before.get("vacation").overQuota, true);
+  // exclude id="a" (2 วัน) — used ควรเหลือ 10 (พอดี quota)
+  const after = calcBalancesForUser({ userId: "u1", year: 2026, leaves, policies: _policies92c, excludeLeaveId: "a" });
+  assert.equal(after.get("vacation").used, 10);
+  assert.equal(after.get("vacation").overQuota, false);
+});
+
+test("calcBalancesForUser — edit approved 10 วัน: exclude id แล้ว used ลดลง 10", () => {
+  const leaves = [
+    { id: "a", user_id: "u1", leave_type: "vacation", status: "approved", start_date: "2026-05-01", end_date: "2026-05-02", days_count: 2 },
+    { id: "b", user_id: "u1", leave_type: "vacation", status: "approved", start_date: "2026-06-01", end_date: "2026-06-10", days_count: 10 },
+  ];
+  const after = calcBalancesForUser({ userId: "u1", year: 2026, leaves, policies: _policies92c, excludeLeaveId: "b" });
+  assert.equal(after.get("vacation").used, 2);
+  assert.equal(after.get("vacation").overQuota, false);
+});
+
+test("calcBalancesForUser — edit pending: exclude id ลด pending ไม่ใช่ used", () => {
+  const leaves = [
+    { id: "p1", user_id: "u1", leave_type: "vacation", status: "pending",  start_date: "2026-07-01", end_date: "2026-07-03", days_count: 3 },
+    { id: "a1", user_id: "u1", leave_type: "vacation", status: "approved", start_date: "2026-05-01", end_date: "2026-05-02", days_count: 2 },
+  ];
+  const after = calcBalancesForUser({ userId: "u1", year: 2026, leaves, policies: _policies92c, excludeLeaveId: "p1" });
+  assert.equal(after.get("vacation").used, 2);     // approved ยังนับอยู่
+  assert.equal(after.get("vacation").pending, 0); // pending ที่ exclude หายไป
+});
+
+test("calcBalancesForUser — เปลี่ยน leave_type bucket: exclude vacation → ไม่กระทบ sick bucket", () => {
+  const leaves = [
+    { id: "v1", user_id: "u1", leave_type: "vacation", status: "approved", start_date: "2026-05-01", end_date: "2026-05-02", days_count: 2 },
+    { id: "s1", user_id: "u1", leave_type: "sick",     status: "approved", start_date: "2026-04-01", end_date: "2026-04-01", days_count: 1 },
+  ];
+  // exclude v1 → vacation used = 0, sick used ยังเป็น 1
+  const after = calcBalancesForUser({ userId: "u1", year: 2026, leaves, policies: _policies92c, excludeLeaveId: "v1" });
+  assert.equal(after.get("vacation").used, 0);
+  assert.equal(after.get("sick").used, 1);
+});
+
+test("calcBalancesForUser — excludeLeaveId ที่ไม่มีจริง → behavior เหมือนเดิม (no-op)", () => {
+  const leaves = [
+    { id: "a", user_id: "u1", leave_type: "vacation", status: "approved", start_date: "2026-05-01", end_date: "2026-05-02", days_count: 2 },
+  ];
+  const without = calcBalancesForUser({ userId: "u1", year: 2026, leaves, policies: _policies92c });
+  const withBad = calcBalancesForUser({ userId: "u1", year: 2026, leaves, policies: _policies92c, excludeLeaveId: "non-existent-id" });
+  assert.equal(without.get("vacation").used, withBad.get("vacation").used);
+});
+
+test("calcBalancesForUser — create mode (excludeLeaveId undefined/null/empty) → ไม่เปลี่ยน behavior", () => {
+  const leaves = [
+    { id: "a", user_id: "u1", leave_type: "vacation", status: "approved", start_date: "2026-05-01", end_date: "2026-05-02", days_count: 2 },
+  ];
+  const base = calcBalancesForUser({ userId: "u1", year: 2026, leaves, policies: _policies92c });
+  assert.equal(calcBalancesForUser({ userId: "u1", year: 2026, leaves, policies: _policies92c, excludeLeaveId: undefined }).get("vacation").used, base.get("vacation").used);
+  assert.equal(calcBalancesForUser({ userId: "u1", year: 2026, leaves, policies: _policies92c, excludeLeaveId: null }).get("vacation").used, base.get("vacation").used);
+  assert.equal(calcBalancesForUser({ userId: "u1", year: 2026, leaves, policies: _policies92c, excludeLeaveId: "" }).get("vacation").used, base.get("vacation").used);
+});
+
+test("calcBalancesForUser — number id vs string id compare loosely (cross-type safety)", () => {
+  // staff_leaves.id ใน prod อาจเป็น bigint (number) → exclude ต้อง compare แบบ string
+  const leaves = [
+    { id: 42, user_id: "u1", leave_type: "vacation", status: "approved", start_date: "2026-05-01", end_date: "2026-05-02", days_count: 2 },
+  ];
+  // ส่ง excludeLeaveId เป็น string "42" → ต้อง match number 42
+  const after = calcBalancesForUser({ userId: "u1", year: 2026, leaves, policies: _policies92c, excludeLeaveId: "42" });
+  assert.equal(after.get("vacation").used, 0);
+});

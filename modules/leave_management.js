@@ -672,20 +672,28 @@ export function calcLeaveBalance(input = {}) {
 
 /**
  * Phase 92.35: รวม balance ของ user 1 คน ครอบทุก leave_type
+ * Phase 92.38c: รับ optional excludeLeaveId — filter ออก row นี้ก่อนนับ
+ *   ใช้ใน edit modal เพื่อไม่นับ record ที่กำลังแก้เข้า used/pending ซ้ำ
  * @param {object} input
  * @param {string} input.userId
  * @param {number} input.year                 - เช่น 2026
  * @param {Array<object>} input.leaves        - staff_leaves ของ user คนนี้ (caller filter มาแล้ว)
  * @param {Array<object>} input.policies
  * @param {Array<object>} [input.overrides=[]]
+ * @param {string|number} [input.excludeLeaveId] - Phase 92.38c: ถ้ามี filter ออกก่อนนับ
  * @returns {Map<string, object>} leave_type → balance + quotaMeta
  */
 export function calcBalancesForUser(input = {}) {
   const userId    = input.userId;
   const year      = Number(input.year);
-  const leaves    = Array.isArray(input.leaves)    ? input.leaves    : [];
+  const rawLeaves = Array.isArray(input.leaves)    ? input.leaves    : [];
   const policies  = Array.isArray(input.policies)  ? input.policies  : [];
   const overrides = Array.isArray(input.overrides) ? input.overrides : [];
+  // Phase 92.38c: exclude row ที่กำลัง edit (กัน double-count) — ทำงานทั้ง approved + pending
+  const excludeId = input.excludeLeaveId;
+  const leaves = (excludeId !== undefined && excludeId !== null && excludeId !== "")
+    ? rawLeaves.filter(r => String(r?.id) !== String(excludeId))
+    : rawLeaves;
 
   // นับวัน per type per status — filter เฉพาะ leave ที่อยู่ในปีนี้ (อิง start_date หรือ overlap)
   const yearStart = `${year}-01-01`;
@@ -1817,6 +1825,9 @@ export async function renderLeaveManagementPage(ctx) {
     endInput?.addEventListener("change", recalc);
 
     // Phase 92.35: quota warning (advisory — ไม่ block submit)
+    // Phase 92.38c: ตอน edit → exclude current record id เพื่อไม่นับ used/pending ซ้ำ
+    //   เดิม logic เก่าลบเฉพาะ pending (approved record ถูกนับซ้ำใน b.used) — เป็นบั๊ก
+    //   ใหม่: ใช้ calcBalancesForUser({ excludeLeaveId: existing.id }) แล้วบวก newDays ตามปกติ
     const quotaWarnBox = modal.querySelector("#lmFormQuotaWarn");
     function _refreshQuotaWarn() {
       if (!quotaWarnBox) return;
@@ -1827,14 +1838,18 @@ export async function renderLeaveManagementPage(ctx) {
       // ใช้ leaves ที่ load แล้วใน scope renderLeaveManagementPage (admin = all leaves, non-admin = own)
       const userLeaves = leaves.filter(r => String(r.user_id) === String(uid));
       const bMap = calcBalancesForUser({
-        userId: uid, year: Number(currentYear), leaves: userLeaves, policies, overrides: balanceOverrides
+        userId: uid,
+        year: Number(currentYear),
+        leaves: userLeaves,
+        policies,
+        overrides: balanceOverrides,
+        // Phase 92.38c: filter ออก row ปัจจุบันก่อนคำนวณ (กัน double-count)
+        excludeLeaveId: existing?.id,
       });
       const b = bMap.get(lt);
       if (!b || !b.tracksBalance || b.quota == null) { quotaWarnBox.style.display = "none"; return; }
-      // projected: used + pending + newDays (ถ้า existing → ลบ existing.days_count ที่นับเข้าไปแล้วใน leaves)
-      const existingDays = existing && existing.status === "pending" && String(existing.user_id) === String(uid) && existing.leave_type === lt
-        ? Number(existing.days_count || 0) : 0;
-      const projectedPending = (b.pending - existingDays) + newDays;
+      // projected: balance (ที่ exclude record นี้แล้ว) + newDays เป็น pending ใหม่
+      const projectedPending = b.pending + newDays;
       const projectedTotal = b.used + projectedPending;
       const overBy = projectedTotal - b.quota;
       if (overBy > 0) {
