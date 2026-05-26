@@ -169,6 +169,124 @@ export function canReviewLeave(row, role) {
 }
 
 // ═══════════════════════════════════════════════════════════
+//  Phase 92.33 — Leave → Payroll integration helpers (pure)
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Phase 92.33: สรุปวันลา approved สำหรับใช้ใน Payroll modal
+ * @param {Array<object>} leaves - approved leaves ของพนักงาน 1 คนในเดือน (caller filter มาแล้ว)
+ * @returns {{totalApprovedDays:number, unpaidDays:number, sickDays:number, personalDays:number, vacationDays:number, otherDays:number, records:number}}
+ */
+export function summarizeApprovedLeavesForPayroll(leaves) {
+  const acc = {
+    totalApprovedDays: 0,
+    unpaidDays: 0,
+    sickDays: 0,
+    personalDays: 0,
+    vacationDays: 0,
+    otherDays: 0,
+    records: 0,
+  };
+  if (!Array.isArray(leaves)) return acc;
+  for (const r of leaves) {
+    if (!r || r.status !== "approved") continue;
+    const days = Number(r.days_count || 0);
+    if (!Number.isFinite(days) || days <= 0) continue;
+    acc.records += 1;
+    acc.totalApprovedDays += days;
+    switch (r.leave_type) {
+      case "unpaid":   acc.unpaidDays   += days; break;
+      case "sick":     acc.sickDays     += days; break;
+      case "personal": acc.personalDays += days; break;
+      case "vacation": acc.vacationDays += days; break;
+      default:         acc.otherDays    += days; break;
+    }
+  }
+  const round2 = (n) => Math.round(n * 100) / 100;
+  acc.totalApprovedDays = round2(acc.totalApprovedDays);
+  acc.unpaidDays        = round2(acc.unpaidDays);
+  acc.sickDays          = round2(acc.sickDays);
+  acc.personalDays      = round2(acc.personalDays);
+  acc.vacationDays      = round2(acc.vacationDays);
+  acc.otherDays         = round2(acc.otherDays);
+  return acc;
+}
+
+/**
+ * Phase 92.33: คำนวณเงินที่ควรหัก (suggested) จากวันลา "unpaid" (ลาไม่รับค่าจ้าง)
+ *
+ * Rule:
+ *   - ถ้ามี dailyRate > 0 → unpaidDays * dailyRate
+ *   - ถ้าไม่มี dailyRate แต่มี baseSalary > 0 → baseSalary / 30 * unpaidDays
+ *   - invalid/zero → 0
+ *   - ปัด 2 ตำแหน่งทศนิยม (money math safe)
+ *
+ * ★ Advisory only — admin ต้องกดปุ่ม apply เอง (ไม่ auto-mutate)
+ *
+ * @param {object} input
+ * @param {number} input.unpaidDays
+ * @param {number} [input.dailyRate]   - priority 1
+ * @param {number} [input.baseSalary]  - priority 2 (÷ 30)
+ * @returns {number} ปัด 2 ตำแหน่ง (0 ถ้า input ผิด/ไม่มีข้อมูล)
+ */
+export function calcUnpaidLeaveDeduction(input = {}) {
+  const days = Number(input.unpaidDays);
+  if (!Number.isFinite(days) || days <= 0) return 0;
+  const dailyRate  = Number(input.dailyRate);
+  const baseSalary = Number(input.baseSalary);
+  let amount = 0;
+  if (Number.isFinite(dailyRate) && dailyRate > 0) {
+    amount = days * dailyRate;
+  } else if (Number.isFinite(baseSalary) && baseSalary > 0) {
+    amount = (baseSalary / 30) * days;
+  } else {
+    return 0;
+  }
+  return Math.round(amount * 100) / 100;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 92.33 — Network helper สำหรับ Payroll integration
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Phase 92.33: fetch approved leaves ของ user 1 คนใน period (overlap query)
+ * Overlap rule: start_date <= toDate AND end_date >= fromDate
+ *
+ * @param {string} userId
+ * @param {string} fromDate - "YYYY-MM-DD"
+ * @param {string} toDate   - "YYYY-MM-DD"
+ * @returns {Promise<{ok:true, rows:Array} | {ok:false, code:"NO_TABLE"|"BAD_INPUT"|"HTTP", message:string}>}
+ *   graceful — ไม่ throw, return shape ที่ caller branch ได้
+ */
+export async function fetchApprovedLeavesForUser(userId, fromDate, toDate) {
+  if (!userId || !fromDate || !toDate) {
+    return { ok: false, code: "BAD_INPUT", message: "missing args" };
+  }
+  const cfg = (typeof window !== "undefined") ? window.SUPABASE_CONFIG : null;
+  if (!cfg?.url) return { ok: false, code: "NO_CONFIG", message: "ไม่มี SUPABASE_CONFIG" };
+  try {
+    const url = `${cfg.url}/rest/v1/staff_leaves?select=*`
+      + `&user_id=eq.${encodeURIComponent(userId)}`
+      + `&status=eq.approved`
+      + `&start_date=lte.${encodeURIComponent(toDate)}`
+      + `&end_date=gte.${encodeURIComponent(fromDate)}`
+      + `&order=start_date.asc&limit=200`;
+    const r = await fetch(url, { headers: _sbHeaders() });
+    if (!r.ok) {
+      if (r.status === 404 || r.status === 400) {
+        return { ok: false, code: "NO_TABLE", message: `HTTP ${r.status}` };
+      }
+      return { ok: false, code: "HTTP", message: `HTTP ${r.status}` };
+    }
+    const rows = await r.json();
+    return { ok: true, rows: Array.isArray(rows) ? rows : [] };
+  } catch (e) {
+    return { ok: false, code: "HTTP", message: e?.message || String(e) };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
 //  REST helpers (Supabase PostgREST)
 // ═══════════════════════════════════════════════════════════
 

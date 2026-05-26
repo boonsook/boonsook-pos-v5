@@ -6,6 +6,12 @@ import { renderSkeleton, renderEmpty, renderError } from "./ui_states.js";
 import { escHtml, exportToExcel, todaySuffix } from "./utils.js";
 // Phase 92.26: ดึงสรุป OT จาก Time Clock มาเติมในช่องค่าล่วงเวลา (auto-fill)
 import { fetchUserAttendanceSummary, shiftHoursFromState } from "./time_clock.js";
+// Phase 92.33: ดึงวันลา approved + suggest deduction (advisory)
+import {
+  fetchApprovedLeavesForUser,
+  summarizeApprovedLeavesForPayroll,
+  calcUnpaidLeaveDeduction,
+} from "./leave_management.js";
 
 let _payrolls = [];
 let _depts = [];
@@ -280,6 +286,24 @@ function _openPayrollModal(ctx, payroll) {
           </div>
         </div>
 
+        <!-- Phase 92.33: ดึงสรุปวันลาในรอบเดือน — advisory + manual apply -->
+        <div id="prLeaveBox" style="background:#fff7ed;border:1px solid #fdba74;border-radius:10px;padding:12px 14px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+            <div style="font-weight:700;color:#9a3412;font-size:13px">🌴 วันลาในรอบเดือน <span style="font-size:11px;font-weight:400;color:#c2410c">(ของเดือนนี้)</span></div>
+            <button id="prFetchLeaveBtn" type="button" style="background:#ea580c;color:#fff;border:none;padding:6px 12px;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">📥 ดึงสรุปวันลา</button>
+          </div>
+          <div id="prLeaveSummary" style="margin-top:8px;font-size:12px;color:#9a3412;min-height:18px">— กดปุ่ม "ดึงสรุปวันลา" หลังเลือกพนักงาน + เดือน —</div>
+          <div id="prLeaveApplyRow" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid #fdba74">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+              <div style="font-size:12px;color:#7c2d12">
+                แนะนำหัก: <strong id="prLeaveSuggestDed" style="color:#dc2626">฿0.00</strong>
+                <span id="prLeaveSuggestSource" style="font-size:11px;color:#9a3412">—</span>
+              </div>
+              <button id="prFillLeaveBtn" type="button" style="background:#dc2626;color:#fff;border:none;padding:7px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700">→ เติมลงช่องหัก</button>
+            </div>
+          </div>
+        </div>
+
         <!-- Phase 92.26: ดึงสรุป OT จาก Time Clock — auto-fill ค่าล่วงเวลา -->
         <div id="prOtFromClockBox" style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:12px 14px">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
@@ -471,6 +495,143 @@ function _openPayrollModal(ctx, payroll) {
       otInput.value = amount.toFixed(2);
       otInput.dispatchEvent(new Event("input")); // trigger recalc total
     }
+  });
+
+  // ─── Phase 92.33: ดึงสรุปวันลา approved + advisory deduction ─────
+  const fetchLeaveBtn = document.getElementById("prFetchLeaveBtn");
+  let _leaveSuggestedAmount = 0;
+  let _leaveSuggestedSource = "";
+  let _leaveSuggestedUnpaidDays = 0;
+
+  function _setLeaveSummary(html, isError) {
+    const el = document.getElementById("prLeaveSummary");
+    if (el) el.innerHTML = isError
+      ? `<span style="color:#dc2626">${html}</span>`
+      : html;
+  }
+
+  function _hideLeaveApplyRow() {
+    const row = document.getElementById("prLeaveApplyRow");
+    if (row) row.style.display = "none";
+    _leaveSuggestedAmount = 0;
+    _leaveSuggestedUnpaidDays = 0;
+  }
+
+  function _refreshLeaveSuggestion() {
+    // recompute suggestion ตาม base_salary / daily_rate ปัจจุบัน (ที่อาจถูก auto-fill จาก daily mode)
+    if (_leaveSuggestedUnpaidDays <= 0) { _hideLeaveApplyRow(); return; }
+    const empId = document.getElementById("prEmp")?.value || "";
+    const emp = _profiles.find(p => p.id === empId);
+    const dailyOn   = document.getElementById("prDailyToggle")?.checked;
+    const dailyInp  = Number(document.getElementById("prDailyRate")?.value || 0);
+    const dailyRate = dailyOn && dailyInp > 0 ? dailyInp : Number(emp?.daily_rate || 0);
+    const baseSal   = Number(document.getElementById("prBase")?.value || 0);
+    const amount = calcUnpaidLeaveDeduction({
+      unpaidDays: _leaveSuggestedUnpaidDays,
+      dailyRate,
+      baseSalary: baseSal,
+    });
+    _leaveSuggestedAmount = amount;
+    _leaveSuggestedSource = dailyRate > 0
+      ? `(${_leaveSuggestedUnpaidDays} วัน × ฿${dailyRate.toLocaleString("th-TH")}/วัน)`
+      : baseSal > 0
+        ? `(${_leaveSuggestedUnpaidDays} วัน × เงินเดือน÷30)`
+        : "(ไม่มี daily rate/เงินเดือน — ฿0)";
+    const amtEl = document.getElementById("prLeaveSuggestDed");
+    const srcEl = document.getElementById("prLeaveSuggestSource");
+    if (amtEl) amtEl.textContent = money(amount);
+    if (srcEl) srcEl.textContent = _leaveSuggestedSource;
+    const row = document.getElementById("prLeaveApplyRow");
+    if (row) row.style.display = "block";
+  }
+
+  fetchLeaveBtn?.addEventListener("click", async () => {
+    if (fetchLeaveBtn.disabled) return;
+    const empId = document.getElementById("prEmp")?.value || "";
+    const periodInput = document.getElementById("prMonth")?.value || "";
+    if (!empId)       { _setLeaveSummary("เลือกพนักงานก่อน", true); return; }
+    if (!periodInput) { _setLeaveSummary("เลือกรอบเดือนก่อน", true); return; }
+    fetchLeaveBtn.disabled = true;
+    const orig = fetchLeaveBtn.textContent;
+    fetchLeaveBtn.textContent = "⏳ กำลังดึง...";
+    // คำนวณ from/to เดือนนั้น
+    const fromDate = periodInput + "-01";
+    const [y, mo] = periodInput.split("-").map(Number);
+    const lastDay = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+    const toDate = `${periodInput}-${String(lastDay).padStart(2, "0")}`;
+    try {
+      const res = await fetchApprovedLeavesForUser(empId, fromDate, toDate);
+      if (!res.ok) {
+        if (res.code === "NO_TABLE") {
+          _setLeaveSummary("⚠️ ยังไม่ได้ติดตั้งตารางวันลา (รัน supabase-phase92-32-leave-management.sql)", true);
+        } else {
+          _setLeaveSummary("ดึงไม่สำเร็จ: " + (res.message || res.code || "unknown"), true);
+        }
+        _hideLeaveApplyRow();
+        return;
+      }
+      const summary = summarizeApprovedLeavesForPayroll(res.rows);
+      if (summary.records === 0) {
+        _setLeaveSummary("ไม่มีวันลาอนุมัติในรอบนี้");
+        _hideLeaveApplyRow();
+        return;
+      }
+      // แสดง breakdown
+      const parts = [];
+      parts.push(`✅ ${summary.records} record · รวม <strong>${summary.totalApprovedDays}</strong> วัน`);
+      const breakdown = [];
+      if (summary.sickDays     > 0) breakdown.push(`🤒 ป่วย ${summary.sickDays}`);
+      if (summary.personalDays > 0) breakdown.push(`📝 กิจ ${summary.personalDays}`);
+      if (summary.vacationDays > 0) breakdown.push(`🌴 พักร้อน ${summary.vacationDays}`);
+      if (summary.unpaidDays   > 0) breakdown.push(`<strong style="color:#dc2626">💸 ไม่รับค่าจ้าง ${summary.unpaidDays}</strong>`);
+      if (summary.otherDays    > 0) breakdown.push(`📌 อื่น ๆ ${summary.otherDays}`);
+      if (breakdown.length > 0) parts.push(breakdown.join(" · "));
+      _setLeaveSummary(parts.join("<br>"));
+
+      // suggest deduction เฉพาะถ้ามี unpaid
+      if (summary.unpaidDays > 0) {
+        _leaveSuggestedUnpaidDays = summary.unpaidDays;
+        _refreshLeaveSuggestion();
+      } else {
+        _hideLeaveApplyRow();
+      }
+    } catch (e) {
+      _setLeaveSummary("ดึงไม่สำเร็จ: " + (e?.message || "unknown"), true);
+      _hideLeaveApplyRow();
+    } finally {
+      if (fetchLeaveBtn.isConnected) { fetchLeaveBtn.disabled = false; fetchLeaveBtn.textContent = orig; }
+    }
+  });
+
+  // เติม unpaid leave deduction ลงช่อง prDed (additive, ไม่ทับค่าเดิม) + ต่อ note
+  document.getElementById("prFillLeaveBtn")?.addEventListener("click", () => {
+    if (_leaveSuggestedAmount <= 0 || _leaveSuggestedUnpaidDays <= 0) return;
+    const dedInp  = document.getElementById("prDed");
+    const noteInp = document.getElementById("prNote");
+    if (!dedInp) return;
+    const current = Number(dedInp.value || 0);
+    const next = Math.round((current + _leaveSuggestedAmount) * 100) / 100;
+    dedInp.value = next.toFixed(2);
+    dedInp.dispatchEvent(new Event("input")); // trigger recalc total
+
+    // ต่อ note (idempotent — ถ้ามี marker เดิม ไม่ append ซ้ำ)
+    if (noteInp) {
+      const marker = `หักลาไม่รับค่าจ้าง ${_leaveSuggestedUnpaidDays} วัน`;
+      const cur = (noteInp.value || "").trim();
+      if (!cur.includes(marker)) {
+        noteInp.value = cur ? `${cur} · ${marker}` : marker;
+      }
+    }
+
+    // ปิด apply row หลังเติม (กันกดซ้ำเผลอเติม double)
+    _hideLeaveApplyRow();
+    _setLeaveSummary("✓ เติมหัก ฿" + _leaveSuggestedAmount.toFixed(2) + " แล้ว — ตรวจช่องหัก/หมายเหตุก่อนบันทึก");
+  });
+
+  // ถ้า admin แก้ base_salary หรือ daily_rate ภายหลัง → recompute suggestion ทันที
+  ["prBase","prDailyRate","prDailyToggle"].forEach(id => {
+    document.getElementById(id)?.addEventListener("input", _refreshLeaveSuggestion);
+    document.getElementById(id)?.addEventListener("change", _refreshLeaveSuggestion);
   });
 
   m.addEventListener("click", e => { if (e.target === m) m.remove(); });

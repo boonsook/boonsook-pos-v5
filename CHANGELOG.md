@@ -7,6 +7,28 @@
 
 ---
 
+## 5.57.0 (build 294) — 2026-05-26 💸 Phase 92.33 — Leave → Payroll Integration (advisory + optional apply)
+
+- **feat(payroll) [leave-integration]:** Payroll modal เพิ่ม section ใหม่ **🌴 วันลาในรอบเดือน** (สีส้ม, ก่อน Time Clock section)
+  - ปุ่ม **📥 ดึงสรุปวันลา** — fetch approved leaves ของพนักงาน+เดือนนั้น (overlap query: `start_date <= toDate AND end_date >= fromDate`)
+  - แสดง breakdown by leave_type: ป่วย / กิจ / พักร้อน / **ไม่รับค่าจ้าง** (ตัวหนาสีแดง) / อื่น ๆ
+  - ถ้ามี **unpaidDays > 0** → คำนวณ suggested deduction + ป้าย "แนะนำหัก: ฿X (N วัน × daily_rate)" หรือ "N วัน × เงินเดือน÷30" ตามที่หาได้
+  - ปุ่ม **→ เติมลงช่องหัก** — **additive** (บวกค่าเดิม ไม่ทับ) + ต่อ note "หักลาไม่รับค่าจ้าง N วัน" (idempotent กันต่อซ้ำ) + trigger recalc total อัตโนมัติ
+  - recompute suggestion เมื่อแก้ `base_salary` / `daily_rate` / `daily_toggle` ภายหลัง
+- **Pure helpers ใหม่ใน leave_management.js (test-friendly):**
+  - `summarizeApprovedLeavesForPayroll(leaves)` → `{totalApprovedDays, unpaidDays, sickDays, personalDays, vacationDays, otherDays, records}` — skip non-approved + invalid days + ปัด 2 ตำแหน่ง
+  - `calcUnpaidLeaveDeduction({unpaidDays, dailyRate, baseSalary})` → dailyRate priority 1, baseSalary÷30 fallback, ปัด 2 ตำแหน่ง, invalid → 0
+  - `fetchApprovedLeavesForUser(userId, fromDate, toDate)` → **graceful** return shape `{ok:true,rows}` หรือ `{ok:false,code:NO_TABLE|BAD_INPUT|NO_CONFIG|HTTP, message}` (ไม่ throw)
+- **★ Advisory only — ไม่ auto-mutate:** admin ต้องกด apply เอง · vacation/sick/personal แสดงข้อมูลเฉย ๆ ไม่หักเงิน · เฟสนี้ไม่บังคับ save อัตโนมัติ
+- **Graceful ก่อนรัน SQL:** ถ้าตาราง `staff_leaves` ยังไม่มี → warning "⚠️ ยังไม่ได้ติดตั้งตารางวันลา (รัน supabase-phase92-32-leave-management.sql)" ไม่ crash modal
+- **ไม่แตะ DB schema / RLS / money math เดิม / payroll save logic / dep ใหม่**
+- Tests +12 (summarizeApprovedLeavesForPayroll 5 + calcUnpaidLeaveDeduction 5 + fetchApprovedLeavesForUser 2). Unit **536 → 548**
+- verify เขียว: lint:errors 0/0 · e2e 11/11 · `npm audit --audit-level=moderate` = **0 vulnerabilities**
+
+**Build:** 293 → 294; version 5.56.0 → 5.57.0 (minor — HR/payroll integration feature)
+
+---
+
 ## 5.56.0 (build 293) — 2026-05-26 🌴 Phase 92.32 — Leave Management Foundation
 
 > ⚠️ **ต้องรัน SQL ก่อนใช้:** เปิด Supabase Dashboard → SQL Editor → รัน [`supabase-phase92-32-leave-management.sql`](supabase-phase92-32-leave-management.sql) ก่อน. ฟีเจอร์ทำงาน graceful ก่อนรัน (แสดง error state ที่หน้า "วันลา" + HR Overview ไม่ขึ้น alert leave) — ไม่มี crash.

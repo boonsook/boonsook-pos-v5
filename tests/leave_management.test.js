@@ -11,6 +11,10 @@ const {
   summarizeLeaves,
   canEditLeave,
   canReviewLeave,
+  // Phase 92.33
+  summarizeApprovedLeavesForPayroll,
+  calcUnpaidLeaveDeduction,
+  fetchApprovedLeavesForUser,
 } = await import("../modules/leave_management.js");
 
 // ── calcLeaveDays ───────────────────────────────────────────
@@ -190,4 +194,122 @@ test("canReviewLeave — admin + status อื่น → false (กัน double
 
 test("canReviewLeave — null row → false", () => {
   assert.equal(canReviewLeave(null, "admin"), false);
+});
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 92.33 — Leave → Payroll integration helpers
+// ═══════════════════════════════════════════════════════════
+
+// ── summarizeApprovedLeavesForPayroll ───────────────────────
+
+test("summarizeApprovedLeavesForPayroll — input ว่าง/non-array → ทุกค่า 0", () => {
+  const zero = { totalApprovedDays:0, unpaidDays:0, sickDays:0, personalDays:0, vacationDays:0, otherDays:0, records:0 };
+  assert.deepEqual(summarizeApprovedLeavesForPayroll([]), zero);
+  assert.deepEqual(summarizeApprovedLeavesForPayroll(null), zero);
+});
+
+test("summarizeApprovedLeavesForPayroll — แยก by leave_type ถูก", () => {
+  const rows = [
+    { status: "approved", leave_type: "sick",     days_count: 2 },
+    { status: "approved", leave_type: "personal", days_count: 1 },
+    { status: "approved", leave_type: "vacation", days_count: 5 },
+    { status: "approved", leave_type: "unpaid",   days_count: 3 },
+    { status: "approved", leave_type: "other",    days_count: 0.5 },
+  ];
+  const s = summarizeApprovedLeavesForPayroll(rows);
+  assert.equal(s.records, 5);
+  assert.equal(s.totalApprovedDays, 11.5);
+  assert.equal(s.sickDays, 2);
+  assert.equal(s.personalDays, 1);
+  assert.equal(s.vacationDays, 5);
+  assert.equal(s.unpaidDays, 3);
+  assert.equal(s.otherDays, 0.5);
+});
+
+test("summarizeApprovedLeavesForPayroll — skip non-approved + invalid days", () => {
+  const rows = [
+    { status: "approved",  leave_type: "unpaid", days_count: 2 },
+    { status: "pending",   leave_type: "unpaid", days_count: 5 }, // skip
+    { status: "rejected",  leave_type: "unpaid", days_count: 3 }, // skip
+    { status: "cancelled", leave_type: "unpaid", days_count: 4 }, // skip
+    { status: "approved",  leave_type: "unpaid", days_count: 0 }, // skip (days<=0)
+    { status: "approved",  leave_type: "unpaid", days_count: -1 }, // skip
+    { status: "approved",  leave_type: "unpaid", days_count: "abc" }, // skip (NaN)
+  ];
+  const s = summarizeApprovedLeavesForPayroll(rows);
+  assert.equal(s.records, 1);
+  assert.equal(s.unpaidDays, 2);
+});
+
+test("summarizeApprovedLeavesForPayroll — leave_type unknown → otherDays bucket", () => {
+  const rows = [{ status: "approved", leave_type: "weird_type", days_count: 1.5 }];
+  const s = summarizeApprovedLeavesForPayroll(rows);
+  assert.equal(s.otherDays, 1.5);
+  assert.equal(s.totalApprovedDays, 1.5);
+});
+
+test("summarizeApprovedLeavesForPayroll — ปัด 2 ตำแหน่ง (กัน float drift)", () => {
+  const rows = [
+    { status: "approved", leave_type: "sick", days_count: 0.1 },
+    { status: "approved", leave_type: "sick", days_count: 0.2 },
+  ];
+  const s = summarizeApprovedLeavesForPayroll(rows);
+  // 0.1 + 0.2 = 0.30000000000000004 → ต้องปัดเป็น 0.3
+  assert.equal(s.sickDays, 0.3);
+  assert.equal(s.totalApprovedDays, 0.3);
+});
+
+// ── calcUnpaidLeaveDeduction ───────────────────────────────
+
+test("calcUnpaidLeaveDeduction — dailyRate priority 1: days × rate", () => {
+  const amt = calcUnpaidLeaveDeduction({ unpaidDays: 3, dailyRate: 500, baseSalary: 30000 });
+  assert.equal(amt, 1500); // 3 × 500
+});
+
+test("calcUnpaidLeaveDeduction — fallback baseSalary/30 ถ้าไม่มี dailyRate", () => {
+  const amt = calcUnpaidLeaveDeduction({ unpaidDays: 3, baseSalary: 30000 });
+  assert.equal(amt, 3000); // 30000/30 × 3
+});
+
+test("calcUnpaidLeaveDeduction — invalid → 0", () => {
+  assert.equal(calcUnpaidLeaveDeduction({}), 0);
+  assert.equal(calcUnpaidLeaveDeduction({ unpaidDays: 0, dailyRate: 500 }), 0);
+  assert.equal(calcUnpaidLeaveDeduction({ unpaidDays: -1, dailyRate: 500 }), 0);
+  assert.equal(calcUnpaidLeaveDeduction({ unpaidDays: 3 }), 0); // no rate, no base
+  assert.equal(calcUnpaidLeaveDeduction({ unpaidDays: 3, dailyRate: 0, baseSalary: 0 }), 0);
+  assert.equal(calcUnpaidLeaveDeduction({ unpaidDays: "abc", dailyRate: 500 }), 0);
+});
+
+test("calcUnpaidLeaveDeduction — ปัด 2 ตำแหน่ง (money safe)", () => {
+  // 30000 / 30 = 1000.0 — ดี
+  // แต่ baseSalary=31000 / 30 = 1033.3333... × 1.5 (ครึ่งวัน) → ต้องปัด
+  const amt = calcUnpaidLeaveDeduction({ unpaidDays: 1.5, baseSalary: 31000 });
+  assert.equal(amt, 1550); // (31000/30) * 1.5 = 1550 exactly
+  const amt2 = calcUnpaidLeaveDeduction({ unpaidDays: 1, baseSalary: 31000 });
+  assert.equal(amt2, 1033.33); // 31000/30 = 1033.3333... → ปัดเป็น 1033.33
+});
+
+test("calcUnpaidLeaveDeduction — dailyRate < 0 → fallback baseSalary", () => {
+  // negative dailyRate ไม่ใช่ "valid > 0" → ข้ามไปใช้ baseSalary
+  const amt = calcUnpaidLeaveDeduction({ unpaidDays: 2, dailyRate: -100, baseSalary: 30000 });
+  assert.equal(amt, 2000); // 30000/30 × 2
+});
+
+// ── fetchApprovedLeavesForUser ─────────────────────────────
+
+test("fetchApprovedLeavesForUser — missing args → BAD_INPUT (no fetch)", async () => {
+  const r1 = await fetchApprovedLeavesForUser("", "2026-05-01", "2026-05-31");
+  assert.equal(r1.ok, false);
+  assert.equal(r1.code, "BAD_INPUT");
+  const r2 = await fetchApprovedLeavesForUser("u1", "", "2026-05-31");
+  assert.equal(r2.code, "BAD_INPUT");
+  const r3 = await fetchApprovedLeavesForUser("u1", "2026-05-01", null);
+  assert.equal(r3.code, "BAD_INPUT");
+});
+
+test("fetchApprovedLeavesForUser — ไม่มี SUPABASE_CONFIG → NO_CONFIG", async () => {
+  // node test env: ไม่มี window.SUPABASE_CONFIG
+  const r = await fetchApprovedLeavesForUser("u1", "2026-05-01", "2026-05-31");
+  assert.equal(r.ok, false);
+  assert.equal(r.code, "NO_CONFIG");
 });

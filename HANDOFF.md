@@ -3,11 +3,110 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 26 พฤษภาคม 2026 (Phase 92.32 — Leave Management Foundation, build 293)
-**Version:** 5.56.0 (build 293) — Phase 92.32 (Leave management foundation)
-**Previous:** 5.55.1 (build 292) — Phase 92.31 (Dept/Role filters)
+**อัปเดตล่าสุด:** 26 พฤษภาคม 2026 (Phase 92.33 — Leave → Payroll Integration, build 294)
+**Version:** 5.57.0 (build 294) — Phase 92.33 (Leave→Payroll advisory)
+**Previous:** 5.56.0 (build 293) — Phase 92.32 (Leave foundation)
 
-> ⚠️ **SQL ต้องรัน:** [`supabase-phase92-32-leave-management.sql`](supabase-phase92-32-leave-management.sql) — ก่อนรันฟีเจอร์ "วันลา" ทำงาน graceful (UI แสดง error state + HR Overview ไม่ขึ้น alert leave).
+> ⚠️ **SQL ที่ต้องรัน** (จาก 92.32, ยังจำเป็น): [`supabase-phase92-32-leave-management.sql`](supabase-phase92-32-leave-management.sql) — ก่อนเริ่มใช้ปุ่ม "ดึงสรุปวันลา" ใน Payroll modal. ก่อนรัน → ปุ่มยังกดได้แต่แสดง warning + ไม่ crash. **เฟส 92.33 ไม่มี SQL ใหม่** (additive code only).
+
+---
+
+## 💸 Phase 92.33 — Leave → Payroll Integration (this session)
+
+**บริบท:** ต่อจาก Phase 92.32 (Leave foundation) — user ขอเชื่อม leave เข้า payroll **แบบ advisory + optional apply** — ดึงสรุปได้, คำนวณ suggested deduction ของ `unpaid` leave ได้, แต่ admin ต้องกด apply เอง. vacation/sick/personal **แสดงข้อมูลเฉย ๆ** ไม่หักเงินในเฟสนี้.
+
+### สิ่งที่เพิ่ม
+
+**1) Pure helpers ใหม่ใน [`modules/leave_management.js`](modules/leave_management.js) (export ครบ)**
+- `summarizeApprovedLeavesForPayroll(leaves)` → `{totalApprovedDays, unpaidDays, sickDays, personalDays, vacationDays, otherDays, records}`
+  - skip non-approved status / invalid days_count (≤0, NaN)
+  - leave_type unknown → `otherDays` bucket
+  - ปัด 2 ตำแหน่งทุก field (กัน float drift 0.1+0.2)
+- `calcUnpaidLeaveDeduction({unpaidDays, dailyRate, baseSalary})` → number (ปัด 2 ตำแหน่ง)
+  - priority 1: `unpaidDays × dailyRate` (ต้อง dailyRate > 0)
+  - priority 2: `(baseSalary / 30) × unpaidDays` (ต้อง baseSalary > 0)
+  - invalid (days≤0, NaN, ไม่มี rate/base) → 0
+- `fetchApprovedLeavesForUser(userId, fromDate, toDate)` — **graceful** REST helper:
+  - URL: `staff_leaves?status=eq.approved&user_id=eq.X&start_date=lte.Y&end_date=gte.Z&order=start_date.asc&limit=200`
+  - return shape: `{ok:true, rows}` หรือ `{ok:false, code, message}` — code: `BAD_INPUT` / `NO_CONFIG` / `NO_TABLE` (HTTP 400/404) / `HTTP`
+  - ★ **ไม่ throw** — caller branch ได้ตาม code
+
+**2) Payroll modal UX** [`modules/payroll.js`](modules/payroll.js)
+- import 3 helpers จาก `./leave_management.js`
+- เพิ่ม HTML block ใหม่ใน modal **ก่อน Time Clock section** (ที่ Phase 92.26 เพิ่ม):
+  - ขอบสีส้ม + title "🌴 วันลาในรอบเดือน"
+  - ปุ่ม **📥 ดึงสรุปวันลา**
+  - `#prLeaveSummary` placeholder
+  - `#prLeaveApplyRow` (hidden by default): แสดง suggested deduction + source description + ปุ่ม "→ เติมลงช่องหัก"
+- Handlers (5 new):
+  - `prFetchLeaveBtn` click → calc from/to ของเดือนนั้น → `fetchApprovedLeavesForUser` → branch on `ok`/`code`
+  - `_setLeaveSummary(html, isError)` — text/HTML in summary box
+  - `_hideLeaveApplyRow()` — reset apply state
+  - `_refreshLeaveSuggestion()` — recompute amount + source label
+  - `prFillLeaveBtn` click → **additive** (`current + amount`) + ต่อ note "หักลาไม่รับค่าจ้าง N วัน" (idempotent — skip ถ้ามี marker อยู่แล้ว) + trigger recalc total + hide apply row + show success
+  - Listen `prBase` / `prDailyRate` / `prDailyToggle` changes → re-call `_refreshLeaveSuggestion` (ถ้า admin แก้ฐานเงินเดือนหลังดึงสรุป)
+- Summary breakdown แสดงเฉพาะ bucket ที่ > 0 + `unpaidDays` ตัวหนาสีแดง
+
+**3) Safety**
+- ★ ไม่ auto-mutate — admin ต้องกด "เติม" เอง
+- ★ vacation/sick/personal/other แสดงข้อมูลแต่ไม่หักเงิน (เฟสถัดไป)
+- additive ที่ `deductions` — ไม่ทับค่าเดิม, ป้องกัน double-apply ด้วยการ hide apply row หลังเติม
+- graceful NO_TABLE → warning message (ไม่ crash modal)
+- `escHtml` ทุก output ที่มี user data
+- ไม่แตะ DB schema / RLS / money math เดิม / payroll save logic / dep ใหม่
+- ไม่มี inline `onclick` — bind ผ่าน `addEventListener`
+
+**4) Tests (+12)** [`tests/leave_management.test.js`](tests/leave_management.test.js):
+- `summarizeApprovedLeavesForPayroll`: empty/null → zero / breakdown by 5 types / skip non-approved+invalid / unknown→other / float drift round
+- `calcUnpaidLeaveDeduction`: dailyRate priority / baseSalary÷30 fallback / invalid→0 (5 cases) / round 2 decimals / negative dailyRate → fallback
+- `fetchApprovedLeavesForUser`: missing args → `BAD_INPUT` / no config → `NO_CONFIG` (node test env)
+
+### ขอบเขต (จงใจ — ตามข้อห้าม)
+- ★ Advisory only — admin ต้องกด apply เอง · ไม่ auto-mutate · ไม่ auto-save
+- ไม่หัก vacation/sick/personal — ต้องตัดสินใจ paid leave policy ในเฟสถัดไป
+- ไม่แก้ DB schema (ไม่เพิ่ม `note_metadata` หรือ JSON detail) — เก็บ note เป็น text เดิม
+- ไม่แตะ Payroll save / paid logic
+- ไม่ refetch HR Overview / Leave Management — fetch แค่ตอนกดปุ่มใน modal
+
+### Gates
+- `npm run lint:errors` exit 0 (clean)
+- `npm test` = **548/548** (เพิ่ม 12 จาก 536)
+- `npm run test:e2e` = **11/11** (ครั้งแรก 10/11 flaky `APP_BUILD is set` — เคลียร์ใน rerun)
+- `npm audit --audit-level=moderate` = **0 vulnerabilities**
+
+### Version sync (4 sub-items + sw.js comment)
+- `package.json`: 5.56.0 → **5.57.0** (minor)
+- `index.html`: `style.css?v=293→294`, `selfheal.js?v=293→294` + `data-app-build="294"` + `data-app-version="5.57.0"`, `main.js?v=293→294`, `boot.js?v=293→294`
+- `sw.js`: `CACHE_NAME = 'boonsook-pos-v5-cache-v294'` + comment line
+
+### วิธี smoke test
+1. ตรวจว่ารัน SQL จาก Phase 92.32 แล้ว (`supabase-phase92-32-leave-management.sql`) — ถ้ายัง: ปุ่ม "ดึงสรุปวันลา" จะแสดง warning แทน crash
+2. **สร้าง approved unpaid leave** สำหรับพนักงาน 1 คน:
+   - ไปที่ **🌴 วันลา** → กด "+ ขอลา" → เลือกพนักงาน · ประเภท `ลาไม่รับเงิน` · ช่วงวันที่ในเดือนปัจจุบัน (เช่น 2 วัน) → ส่งคำขอ
+   - กด **✓ อนุมัติ** ที่ row pending → status = "อนุมัติแล้ว"
+3. ไปที่ **💰 รายการเงินเดือน** → กด "+ เพิ่มรายการเงินเดือน" หรือเปิดของพนักงานคนนั้น
+4. **Test checklist:**
+   - [ ] เห็น section สีส้ม "🌴 วันลาในรอบเดือน" ก่อน Time Clock section
+   - [ ] กด "📥 ดึงสรุปวันลา" → แสดง breakdown รวมถึง "💸 ไม่รับค่าจ้าง 2" ตัวหนาแดง
+   - [ ] แถวล่างแสดง "แนะนำหัก: ฿X" + source ("(2 วัน × ฿Y/วัน)" หรือ "(2 วัน × เงินเดือน÷30)")
+   - [ ] กรอก base_salary 30,000 → "แนะนำหัก" คำนวณใหม่ทันที (`30000/30 × 2 = 2000`)
+   - [ ] กด "→ เติมลงช่องหัก" → ช่อง "หัก (-)" เพิ่ม 2,000 (ถ้าเดิม 0 → 2000.00) + ช่องหมายเหตุได้ "หักลาไม่รับค่าจ้าง 2 วัน" + รวมสุทธิ recalc ทันที
+   - [ ] apply row หาย → กดปุ่มซ้ำไม่ทำให้ deductions เพิ่มซ้ำ
+   - [ ] กด save payroll → บันทึกสำเร็จ
+5. **Graceful test** (ถ้ายังไม่รัน SQL Phase 92.32):
+   - [ ] กด "ดึงสรุปวันลา" → แสดง "⚠️ ยังไม่ได้ติดตั้งตารางวันลา" สีแดง · modal ยังใช้งานได้
+
+### Follow-ups (ค้างจงใจ — ลำดับแนะนำ)
+- **Paid leave policy ต่อ leave_type** — กฎหัก/ไม่หัก vacation/sick/personal (เช่น vacation 10 วัน/ปีฟรี, เกิน → หัก; sick 30 วัน/ปีฟรี) — ต้องเพิ่ม `leave_quotas` ตารางหรือ Settings
+- **Leave balance/quota ต่อปี** — quota per user + check ตอนสร้าง pending request
+- **Calendar leave view** — มุมมองปฏิทินรวม leave ของทีม (ใช้ `modules/calendar.js`)
+- **Payslip แสดงรายละเอียดวันลา** — section ในใบจ่ายเงินเดือนที่ list approved leaves ในรอบนั้น
+- **เชื่อม Time Clock → leave** (ค้างจาก 92.32) — approved leave → chip ใน HR Overview "สถานะวันนี้"
+- **Audit tab ใน employee modal** (ค้างจาก 92.30) — schema query `activity_log`
+- **Late rule** (ค้างจาก 92.29) — กฎเวลามาสาย
+- **Edit attendance ใน modal 7-วัน tab** (ค้างจาก 92.30)
+
+---
 
 ---
 
