@@ -1163,6 +1163,127 @@ test("limitCalendarDayEvents — non-array → visible เปล่า", () => {
   assert.deepEqual(limitCalendarDayEvents(undefined), { visible: [], overflowCount: 0 });
 });
 
+// ── Phase 92.39b: dense day edge cases (verification) ──
+
+test("limitCalendarDayEvents — 0 events → ทั้ง visible ทั้ง overflow เป็น 0/empty (ไม่ render chip)", () => {
+  const r = limitCalendarDayEvents([], 3);
+  assert.equal(r.visible.length, 0);
+  assert.equal(r.overflowCount, 0);
+  assert.ok(Array.isArray(r.visible));
+});
+
+test("limitCalendarDayEvents — events.length === cap (boundary) → visible เต็ม overflow=0", () => {
+  // boundary case: ถ้า === cap ต้องไม่ trigger overflow
+  const events = [{id:1}, {id:2}, {id:3}];
+  const r = limitCalendarDayEvents(events, 3);
+  assert.equal(r.visible.length, 3);
+  assert.equal(r.overflowCount, 0);
+});
+
+test("limitCalendarDayEvents — events.length === cap + 1 → visible cap + overflow 1", () => {
+  // off-by-one check: just over the boundary
+  const events = [{id:1}, {id:2}, {id:3}, {id:4}];
+  const r = limitCalendarDayEvents(events, 3);
+  assert.equal(r.visible.length, 3);
+  assert.equal(r.overflowCount, 1);
+  assert.equal(r.visible[2].id, 3); // last visible = 3rd item
+});
+
+test("limitCalendarDayEvents — dense day production-like (5 events 1 วัน, cap 3) → ตรง spec", () => {
+  // sompong scenario: 5 leave events ในวันเดียวกัน → cap=3 → "+2 รายการ"
+  const events = Array.from({length: 5}, (_, i) => ({ id: i + 1, user_id: `u${i+1}` }));
+  const r = limitCalendarDayEvents(events, 3);
+  assert.equal(r.visible.length, 3);
+  assert.equal(r.overflowCount, 2);
+  // ลำดับ preserve — first 3 IDs = 1, 2, 3
+  assert.deepEqual(r.visible.map(e => e.id), [1, 2, 3]);
+});
+
+test("limitCalendarDayEvents — cap = 2 (tighter) → 5 events → 2 visible + 3 overflow", () => {
+  const events = [1,2,3,4,5].map(id => ({ id }));
+  const r = limitCalendarDayEvents(events, 2);
+  assert.equal(r.visible.length, 2);
+  assert.equal(r.overflowCount, 3);
+});
+
+test("limitCalendarDayEvents — visible ไม่กลายเป็น reference ของ events เดิม (immutability)", () => {
+  // กัน bug: caller mutate visible แล้ว events เดิมเปลี่ยน
+  const events = [{id:1}, {id:2}];
+  const r = limitCalendarDayEvents(events, 3);
+  r.visible.push({id:99});
+  assert.equal(events.length, 2, "original events array should not change");
+});
+
+// ── Phase 92.39b: source-level wiring tests for "+N รายการ" flow ──
+
+test("source: leave_management.js มี overflow chip template '+ N รายการ' + class lm-cal-more + data-lm-date", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  // (1) overflow chip text "รายการ" ใน button template
+  assert.match(src, /\$\{overflowCount\} รายการ/, "overflow chip ต้องใช้ template literal ${overflowCount} รายการ");
+  // (2) class lm-cal-more — wire กับ event handler
+  assert.match(src, /class="lm-cal-more"/, "overflow chip ต้องมี class lm-cal-more");
+  // (3) data-lm-date attribute สำหรับเก็บ dateStr
+  assert.match(src, /data-lm-date="\$\{escHtml\(cell\.dateStr\)\}"/, "overflow chip ต้องมี data-lm-date=escHtml(cell.dateStr)");
+});
+
+test("source: limitCalendarDayEvents ถูกเรียกใน _renderCalendarMonthGrid ด้วย _CAL_DESKTOP_MAX_VISIBLE", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  assert.match(src, /const \{ visible, overflowCount \} = limitCalendarDayEvents\(events, _CAL_DESKTOP_MAX_VISIBLE\)/);
+  assert.match(src, /_CAL_DESKTOP_MAX_VISIBLE\s*=\s*3/);
+});
+
+test("source: calendar click delegation มี lm-cal-more handler ที่เรียก _openDayListPopover", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  // closest('.lm-cal-more') ตรวจ + เรียก _openDayListPopover พร้อม dateStr + filtered
+  assert.match(src, /ev\.target\.closest\(["']\.lm-cal-more["']\)/);
+  assert.match(src, /_openDayListPopover\(dateStr,\s*filtered\)/);
+});
+
+test("source: _openDayListPopover อ่าน byDate.get(dateStr) → ส่งให้ _renderDayListPopover ครบ events", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  // _openDayListPopover ใช้ groupLeavesByDate(filtered, activeMonth) แล้ว byDate.get(dateStr)
+  assert.match(src, /function _openDayListPopover[\s\S]*?groupLeavesByDate\(filtered,\s*activeMonth\)/);
+  assert.match(src, /function _openDayListPopover[\s\S]*?byDate\.get\(dateStr\)/);
+  // ใช้ _renderDayListPopover() เพื่อ render content
+  assert.match(src, /function _openDayListPopover[\s\S]*?_renderDayListPopover\(dateStr,\s*evs,\s*profileMap\)/);
+});
+
+test("source: _renderDayListPopover renders all events ผ่าน _calendarEventChip", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  // map events array → _calendarEventChip (เหมือน cell desktop)
+  assert.match(src, /function _renderDayListPopover[\s\S]*?events\.map\(ev =>\s*_calendarEventChip\(ev, profileMap, dateStr\)\)/);
+});
+
+test("source: day list popover event click → close + chained open leave details popover", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  // ใน _openDayListPopover binding: pop.querySelectorAll('.lm-cal-event').forEach(... _openLeavePopover ...)
+  assert.match(src, /function _openDayListPopover[\s\S]*?querySelectorAll\(["']\.lm-cal-event["']\)/);
+  assert.match(src, /function _openDayListPopover[\s\S]*?setTimeout\(\(\) => _openLeavePopover\(leave\), 0\)/);
+});
+
+test("source: popover Esc + backdrop close (ทั้ง 2 popover types)", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  // Esc handler — register on open
+  assert.match(src, /_registerPopoverEsc/);
+  assert.match(src, /ev\.key === ["']Escape["']/);
+  // backdrop close (#lmPopBackdrop)
+  assert.match(src, /lmPopBackdrop[\s\S]{0,200}?addEventListener\(["']click["']/);
+});
+
 // ── formatAgendaDateLabel ───────────────────────────────
 
 test("formatAgendaDateLabel — เคสปกติ produce 'วันXX D เดือน'", () => {

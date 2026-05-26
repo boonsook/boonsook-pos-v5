@@ -7,6 +7,31 @@
 
 ---
 
+## 5.62.1 (build 304) — 2026-05-26 🧪 Phase 92.39b — Calendar Dense Day "+N รายการ" verification
+
+- **test(leave/calendar) [dense-day-edges]:** เพิ่ม edge tests สำหรับ `limitCalendarDayEvents`:
+  - 0 events → visible=[] overflow=0 (ไม่ render chip)
+  - boundary `events.length === cap` → visible เต็ม overflow=0
+  - `events.length === cap+1` → off-by-one check (visible cap, overflow 1)
+  - 5 events dense scenario (cap=3) → 3 visible + 2 overflow + ลำดับ preserve
+  - cap=2 tighter → 5 events → 2 visible + 3 overflow
+  - immutability: `visible.push()` ไม่กระทบ events เดิม
+- **test(leave/calendar) [source-wiring]:** verify end-to-end pipeline:
+  - Template "+ ${overflowCount} รายการ" + class `lm-cal-more` + `data-lm-date="${escHtml(cell.dateStr)}"`
+  - `_renderCalendarMonthGrid` เรียก `limitCalendarDayEvents(events, _CAL_DESKTOP_MAX_VISIBLE)` กับ cap=3
+  - Click delegation: `closest('.lm-cal-more')` → `_openDayListPopover(dateStr, filtered)`
+  - `_openDayListPopover` flow: `groupLeavesByDate(filtered, activeMonth)` → `byDate.get(dateStr)` → `_renderDayListPopover(dateStr, evs, profileMap)`
+  - `_renderDayListPopover` map events → `_calendarEventChip` (เหมือน cell desktop)
+  - Chained: click event ใน popover → close → `setTimeout(_openLeavePopover(leave), 0)`
+  - Esc key + backdrop close ทำงานทั้ง 2 popover types
+- **ผลลัพธ์:** pipeline verified ไม่มี bug → pure verification release (ไม่แตะ behavior)
+- Tests +13 (7 helper edges + 6 source-level). Unit **633 → 646**
+- verify เขียว: lint:errors 0/0 · unit 646/646 · e2e 11/11 · audit 0
+
+**Build:** 303 → 304; version 5.62.0 → 5.62.1 (patch verification release — no behavior change, no SQL)
+
+---
+
 ## 5.62.0 (build 303) — 2026-05-26 📱 Phase 92.39 — Leave Calendar Mobile Agenda + Dense Day Polish
 
 - **feat(leave/calendar) [mobile-agenda]:** breakpoint 720→768px; mobile agenda empty state ดีขึ้น (icon ใหญ่ + sub-hint)

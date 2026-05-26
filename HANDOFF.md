@@ -3,15 +3,91 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 26 พฤษภาคม 2026 (Phase 92.39 — Leave Calendar Mobile Agenda + Dense Day Polish, build 303)
-**Version:** 5.62.0 (build 303) — Phase 92.39 (mobile agenda + dense day polish + bottom sheet)
-**Previous:** 5.61.2 (build 302) — Phase 92.38c (edit quota warning exclude current record)
+**อัปเดตล่าสุด:** 26 พฤษภาคม 2026 (Phase 92.39b — Calendar Dense Day "+N รายการ" verification, build 304)
+**Version:** 5.62.1 (build 304) — Phase 92.39b (dense day verification release — no behavior change)
+**Previous:** 5.62.0 (build 303) — Phase 92.39 (mobile agenda + dense day polish + bottom sheet)
 
-> ✅ **ไม่มี SQL ใหม่ในเฟส 92.36–92.39** (additive code only).
+> ✅ **ไม่มี SQL ใหม่ในเฟส 92.36–92.39b** (additive code only).
 
 ---
 
-## 📱 Phase 92.39 — Leave Calendar Mobile Agenda + Dense Day Polish (this session)
+## 🧪 Phase 92.39b — Calendar Dense Day "+N รายการ" verification (this session)
+
+**บริบท:** Production scenario เดิม (sompong 2 events/day) ไม่เคย trigger overflow branch — cap=3 ไม่เกิน. User ขอ verify ว่าเมื่อมี dense day (4+ events วันเดียว) flow ทำงานครบ:
+1. Desktop cell แสดง 3 events + "+N รายการ"
+2. Click "+N รายการ" → day-list popover แสดง events ทั้งหมด
+3. Click event ใน popover → chained leave details popover
+4. Esc / backdrop close
+5. Mobile agenda ไม่ล้น
+
+**ผลลัพธ์:** ทั้ง pipeline verified ไม่มี bug → **test-only release** (ไม่แตะ behavior).
+
+### Verification approach
+
+แทนที่จะ mock dense data ใน DB → ใช้ 2 levels of testing:
+
+**1) Unit edge tests** (`limitCalendarDayEvents` 7 cases):
+- `[], cap=3` → visible=[] overflow=0 (no chip)
+- `events.length === cap` → boundary, no overflow
+- `events.length === cap+1` → off-by-one (cap visible, 1 overflow)
+- `5 events, cap=3` → 3 visible + 2 overflow + ลำดับ preserve
+- `5 events, cap=2` → tighter scenario (2 visible + 3 overflow)
+- immutability: `visible.push()` ไม่กระทบ events เดิม
+- existing: ≤ cap, > cap, invalid cap, non-array
+
+**2) Source-level integration tests** (6 tests) — อ่าน leave_management.js raw → assert wiring:
+
+| Assert | Pattern |
+|---|---|
+| Overflow chip template | `+ ${overflowCount} รายการ` |
+| Chip class | `class="lm-cal-more"` |
+| Chip data attr | `data-lm-date="${escHtml(cell.dateStr)}"` |
+| Cap constant | `_CAL_DESKTOP_MAX_VISIBLE = 3` |
+| Helper call | `limitCalendarDayEvents(events, _CAL_DESKTOP_MAX_VISIBLE)` |
+| Click delegation | `ev.target.closest(".lm-cal-more")` → `_openDayListPopover(dateStr, filtered)` |
+| Popover read | `groupLeavesByDate(filtered, activeMonth)` → `byDate.get(dateStr)` |
+| Popover render | `events.map(ev => _calendarEventChip(ev, profileMap, dateStr))` |
+| Chained click | `_openLeavePopover` ใน popover event click handler |
+| Esc + backdrop | `_registerPopoverEsc` + `#lmPopBackdrop` addEventListener `click` |
+
+### Regression check ✅
+
+- ไม่แตะ render code (เฉพาะเพิ่ม tests) — production behavior identical กับ build 303
+- ไม่มี SQL / RLS ใหม่
+- Edit quota warning build 302 ✓
+- Filters / table view ✓
+- Mobile agenda ✓
+
+### Gates
+
+- `npm run lint:errors` exit 0
+- `npm test` = **646/646** (633 + 13)
+- `npm run test:e2e -- --reporter=line` = **11/11**
+- `npm audit --audit-level=moderate` = **0 vulnerabilities**
+
+### Version sync
+
+- `package.json`: 5.62.0 → **5.62.1** (patch — test-only release)
+- `index.html`: ?v=303→304, data-app-build="304", data-app-version="5.62.1"
+- `sw.js`: cache v303→v304 + v304 comment line
+
+### Smoke test (manual)
+
+★ ต้องมี dense data ก่อน — ผู้ใช้สร้าง 4+ leave events ในวันเดียวกัน (วันที่ 26 พ.ค. ตัวอย่าง)
+
+1. Production (Ctrl+Shift+R) → APP_BUILD=304
+2. หน้าวันลา → ปฏิทิน → วันที่ 26 พ.ค.
+3. ต้องเห็น chip 3 ตัว (cap=3) + ปุ่ม "+N รายการ" สีเทาดำ dashed border
+4. คลิก "+N รายการ" → popover เปิด (desktop = centered modal / mobile = bottom sheet)
+5. ต้องเห็น events ครบทั้งหมดของวันนั้น (รวม visible + overflow)
+6. คลิก event ใด event หนึ่งใน popover → ปิด popover เก่า → เปิด leave details popover (chained)
+7. กด Esc → ปิด popover ทันที (ทั้ง 2 types)
+8. คลิก backdrop → ปิด popover
+9. Mobile (resize ≤768px) → agenda list แสดง events ทั้งหมดในวันนั้น แบบ list ลงล่าง ไม่จำกัด cap
+
+---
+
+## 📱 Phase 92.39 — Leave Calendar Mobile Agenda + Dense Day Polish
 
 **บริบท:** ต่อจาก 92.38c. Calendar Leave View ใช้งานได้แล้วบน desktop แต่ user feedback:
 - บนมือถือ grid 7-col แน่นเกิน อ่านยาก / horizontal overflow
