@@ -7,6 +7,24 @@
 
 ---
 
+## 5.62.8 (build 311) — 2026-05-27 🧯 Phase 92.41c — HOTFIX Leave Page Pending Alert/KPI Sync
+
+- **fix(leave/kpi) [month-scope-mismatch]:** หน้า "วันลา" KPI "รออนุมัติ" แสดง 0 ทั้งที่ HR Overview เห็น alert "คำขอลารออนุมัติ 1 รายการ" + Balance card เห็น pending +3
+- **Root cause:** KPI value ใช้ `summary.pending` จาก `summarizeLeaves(leaves, activeMonth)` ที่ filter ด้วย `activeMonth` → pending leaves ที่ `start_date` นอกเดือนนี้ถูกตัดออก. แต่ KPI sub label = **"ทุกเดือน"** (สื่อว่าไม่ filter month) → mismatch.
+- **แก้:**
+  - Pure helper ใหม่ `countPendingLeaves(rows)` — นับ pending ทั้งหมด **ไม่ filter month**
+  - Pure helper ใหม่ `pendingLeaveAlertMeta(count, role)` — return `{count, message, actionLabel}` ถ้า `role === "admin"` + `count > 0`, null อื่น ๆ
+  - `_rerender`: คำนวณ `pendingTotal = countPendingLeaves(leaves)` → ใช้เป็น value ของ KPI "รออนุมัติ" (ตรงกับ "ทุกเดือน" label + ตรงกับ HR Overview)
+  - Render admin alert chip **"⏳ คำขอลารออนุมัติ X รายการ — [ดูรายการรออนุมัติ →]"** ใต้ KPI cards (เฉพาะ admin + pendingTotal > 0)
+  - Click alert → `activeStatus="pending"` + `activeMonth=""` (clear) + `activeView="table"` + rerender + scroll table
+- **ไม่แตะ:** `summarizeLeaves` signature (existing tests ผ่าน), payroll, balance/quota, calendar, idempotency
+- Tests +10 (countPendingLeaves 3 cases + pendingLeaveAlertMeta 3 cases + filterLeaves status=all regression + 4 source-level wiring/regression). Unit **695 → 705**
+- verify เขียว: lint:errors 0/0 · unit 705/705 · e2e 11/11 · audit 0
+
+**Build:** 310 → 311; version 5.62.7 → 5.62.8 (patch hotfix — KPI/alert sync)
+
+---
+
 ## 5.62.7 (build 310) — 2026-05-27 🧯 Phase 92.41b — HOTFIX Payroll Leave Deduction Wrong Daily Rate
 
 - **fix(payroll/leave) [wrong-rate-26-baht]:** production scenario:

@@ -39,6 +39,9 @@ const {
   // Phase 92.40
   calendarDetailActionsFor,
   formatReviewedAt,
+  // Phase 92.41c
+  countPendingLeaves,
+  pendingLeaveAlertMeta,
 } = await import("../modules/leave_management.js");
 
 // ── calcLeaveDays ───────────────────────────────────────────
@@ -1665,6 +1668,115 @@ test("calcUnpaidLeaveDeduction — dailyRate priority > baseSalary (regression g
   // ทั้งสองมา → dailyRate ชนะ; ไม่ใช่ ÷30 หรือ avg
   const out = calcUnpaidLeaveDeduction({ unpaidDays: 2, dailyRate: 400, baseSalary: 5200 });
   assert.equal(out, 800);
+});
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 92.41c — HOTFIX: Leave page pending KPI/alert sync
+// ═══════════════════════════════════════════════════════════
+
+test("countPendingLeaves — count ทุก pending ไม่ filter month", () => {
+  const rows = [
+    { status: "pending",   start_date: "2026-05-15", end_date: "2026-05-16" },
+    { status: "pending",   start_date: "2026-06-10", end_date: "2026-06-10" }, // next month
+    { status: "approved",  start_date: "2026-05-01", end_date: "2026-05-01" },
+    { status: "rejected",  start_date: "2026-05-02", end_date: "2026-05-02" },
+    { status: "cancelled", start_date: "2026-05-03", end_date: "2026-05-03" },
+  ];
+  assert.equal(countPendingLeaves(rows), 2, "ต้องนับทั้ง pending ของเดือนนี้ + เดือนถัดไป");
+});
+
+test("countPendingLeaves — null/undefined/empty → 0", () => {
+  assert.equal(countPendingLeaves(null), 0);
+  assert.equal(countPendingLeaves(undefined), 0);
+  assert.equal(countPendingLeaves([]), 0);
+});
+
+test("countPendingLeaves — differ จาก summarizeLeaves(rows, month).pending — regression guard ของ HOTFIX", () => {
+  // ถ้า user สร้าง pending leave สำหรับเดือนถัดไป + ดู KPI ของเดือนปัจจุบัน
+  //   summarizeLeaves(month=2026-05).pending = 0 (filter month กรองออก)
+  //   countPendingLeaves(rows) = 1 (ไม่ filter)
+  // → KPI ต้องใช้ countPendingLeaves สำหรับ "รออนุมัติ (ทุกเดือน)"
+  const rows = [{ status: "pending", start_date: "2026-06-10", end_date: "2026-06-10" }];
+  const s = summarizeLeaves(rows, "2026-05");
+  assert.equal(s.pending, 0, "month-filter ตัด pending เดือนถัดไปออก (expected)");
+  assert.equal(countPendingLeaves(rows), 1, "countPendingLeaves ไม่ตัด → ยังเห็น");
+});
+
+test("pendingLeaveAlertMeta — admin + count > 0 → return meta", () => {
+  const m = pendingLeaveAlertMeta(3, "admin");
+  assert.ok(m, "ต้องคืน meta");
+  assert.equal(m.count, 3);
+  assert.match(m.message, /คำขอลารออนุมัติ 3 รายการ/);
+  assert.ok(m.actionLabel && m.actionLabel.length > 0);
+});
+
+test("pendingLeaveAlertMeta — non-admin → null (เห็นเฉพาะ admin)", () => {
+  assert.equal(pendingLeaveAlertMeta(5, "sales"), null);
+  assert.equal(pendingLeaveAlertMeta(5, "technician"), null);
+  assert.equal(pendingLeaveAlertMeta(5, "customer"), null);
+  assert.equal(pendingLeaveAlertMeta(5, "owner"), null);
+});
+
+test("pendingLeaveAlertMeta — count=0 → null (ไม่ render alert ถ้าไม่มี pending)", () => {
+  assert.equal(pendingLeaveAlertMeta(0, "admin"), null);
+  assert.equal(pendingLeaveAlertMeta(null, "admin"), null);
+  assert.equal(pendingLeaveAlertMeta(undefined, "admin"), null);
+  assert.equal(pendingLeaveAlertMeta(NaN, "admin"), null);
+});
+
+test("filterLeaves — status=all รวม pending (regression guard)", () => {
+  const rows = [
+    { status: "pending",   start_date: "2026-05-15", end_date: "2026-05-15", days_count: 1, user_id: "u1", leave_type: "sick" },
+    { status: "approved",  start_date: "2026-05-15", end_date: "2026-05-15", days_count: 1, user_id: "u1", leave_type: "sick" },
+    { status: "cancelled", start_date: "2026-05-15", end_date: "2026-05-15", days_count: 1, user_id: "u1", leave_type: "sick" },
+  ];
+  // status default = "all" → ทุก row
+  const out = filterLeaves(rows, { month: "2026-05" });
+  assert.equal(out.length, 3, "status=all (default) ต้องรวมทั้ง pending/approved/cancelled");
+  assert.ok(out.some(r => r.status === "pending"), "ต้องมี pending ใน result");
+});
+
+test("source: _rerender ใช้ countPendingLeaves สำหรับ KPI รออนุมัติ + ส่ง pendingTotal เป็นค่า", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  // _rerender body ต้องเรียก countPendingLeaves
+  assert.match(src, /function _rerender[\s\S]{0,500}?countPendingLeaves\(leaves\)/,
+    "_rerender ต้องคำนวณ pendingTotal จาก countPendingLeaves(leaves)");
+  // KPI "รออนุมัติ" ต้องใช้ pendingTotal (ไม่ใช่ summary.pending ที่ filter month)
+  assert.match(src, /label:\s*["']รออนุมัติ["'][\s\S]{0,200}?NUM_TH\(pendingTotal\)/,
+    "KPI รออนุมัติ value ต้องใช้ pendingTotal");
+  // ห้ามใช้ summary.pending ใน KPI label "รออนุมัติ" (regression guard)
+  assert.ok(!/label:\s*["']รออนุมัติ["'][\s\S]{0,200}?NUM_TH\(summary\.pending\)/.test(src),
+    "KPI รออนุมัติ ห้ามใช้ summary.pending แล้ว (เดิม filter month → bug 92.41c)");
+});
+
+test("source: _rerender render admin pending alert + bind lmPendingAlertBtn click", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  // alert template uses pendingAlert variable
+  assert.match(src, /pendingLeaveAlertMeta\(pendingTotal,\s*role\)/, "ต้องเรียก helper สำหรับ alert meta");
+  assert.match(src, /id="lmPendingAlertBtn"/, "ต้องมีปุ่ม alert");
+  assert.match(src, /pendingAlert\s*\?\s*`/, "render ผ่าน conditional");
+  // bind handler: set activeStatus + clear month + rerender + scroll
+  const handler = src.match(/lmPendingAlertBtn["']\)\?\.addEventListener\(["']click["'],\s*\(\)\s*=>\s*\{[\s\S]{0,400}?\}\)/);
+  assert.ok(handler, "ต้อง bind click handler");
+  const body = handler[0];
+  assert.match(body, /activeStatus\s*=\s*["']pending["']/, "set status=pending");
+  assert.match(body, /activeMonth\s*=\s*["']{2}/, "clear month filter");
+  assert.match(body, /activeView\s*=\s*["']table["']/, "switch to table view");
+  assert.match(body, /_rerender\(\)/, "rerender");
+  assert.match(body, /scrollIntoView/, "scroll table");
+});
+
+test("source: form submit success ยัง trigger _rerender (regression guard)", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  // หลัง insert ต้องมี leaves.unshift + closeModal + _rerender
+  assert.match(src, /leaves\.unshift\(inserted\[0\]\)[\s\S]{0,300}?_rerender\(\)/,
+    "หลัง insert ต้อง unshift + rerender");
 });
 
 test("source: payroll.js _refreshLeaveDecision ไม่ fallback ไป emp.daily_rate แล้ว (Phase 92.41b)", async () => {

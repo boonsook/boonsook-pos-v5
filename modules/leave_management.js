@@ -140,6 +140,40 @@ export function summarizeLeaves(rows, month) {
 }
 
 /**
+ * Phase 92.41c: นับ pending leaves ทั้งหมด (ไม่ filter month) — สำหรับ alert/KPI ที่ scope "ทุกเดือน"
+ *   - summarizeLeaves(rows, month) จะนับเฉพาะ month — ทำให้ pending leaves ของเดือนถัดไปหายไป
+ *   - helper นี้คืน count ของทุก pending → ตรงกับ HR Overview alert + KPI sub label "ทุกเดือน"
+ *
+ * @param {Array<object>} rows
+ * @returns {number}
+ */
+export function countPendingLeaves(rows) {
+  if (!Array.isArray(rows)) return 0;
+  let n = 0;
+  for (const r of rows) if (r?.status === "pending") n += 1;
+  return n;
+}
+
+/**
+ * Phase 92.41c: descriptor ของ pending alert chip — แสดงเฉพาะ admin + pendingCount > 0
+ *   - กดแล้ว set status filter = pending + clear month filter (ให้เห็นทุก pending)
+ *
+ * @param {number} pendingCount
+ * @param {string} role
+ * @returns {{count:number,message:string,actionLabel:string}|null} null = ไม่ต้อง render
+ */
+export function pendingLeaveAlertMeta(pendingCount, role) {
+  if (role !== "admin") return null;
+  const n = Number(pendingCount);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return {
+    count: n,
+    message: `คำขอลารออนุมัติ ${n} รายการ`,
+    actionLabel: "ดูรายการรออนุมัติ",
+  };
+}
+
+/**
  * เช็คสิทธิ์แก้/cancel leave row
  *   admin → แก้ได้ทุก row
  *   non-admin → เฉพาะ row ของตัวเองที่ยัง pending (matches RLS policy)
@@ -1576,6 +1610,10 @@ export async function renderLeaveManagementPage(ctx) {
 
   function _rerender() {
     const summary = summarizeLeaves(leaves, activeMonth);
+    // Phase 92.41c: pending count ทั้งหมด (ไม่ filter month) — สำหรับ KPI "รออนุมัติ" + alert
+    // เหตุ: summary.pending filter ด้วย activeMonth → pending ของเดือนถัดไปหายไป → KPI=0 แต่ HR Overview ยังเห็น
+    const pendingTotal = countPendingLeaves(leaves);
+    const pendingAlert = pendingLeaveAlertMeta(pendingTotal, role);
     const filtered = filterLeaves(leaves, {
       month: activeMonth,
       status: activeStatus,
@@ -1612,11 +1650,20 @@ export async function renderLeaveManagementPage(ctx) {
 
         <!-- KPI cards -->
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
-          ${_kpiCard({ label: "รออนุมัติ",       value: NUM_TH(summary.pending),      sub: "ทุกเดือน",        color: summary.pending > 0 ? "#ea580c" : "#0f172a", icon: "⏳" })}
+          ${_kpiCard({ label: "รออนุมัติ",       value: NUM_TH(pendingTotal),         sub: "ทุกเดือน",        color: pendingTotal > 0 ? "#ea580c" : "#0f172a", icon: "⏳" })}
           ${_kpiCard({ label: "อนุมัติแล้ว",     value: NUM_TH(summary.approved),     sub: escHtml(monthTh),  color: "#16a34a", icon: "✅" })}
           ${_kpiCard({ label: "ปฏิเสธ",         value: NUM_TH(summary.rejected),     sub: escHtml(monthTh),  color: "#dc2626", icon: "✕"  })}
           ${_kpiCard({ label: "รวมวันที่อนุมัติ", value: NUM_TH(summary.approvedDays), sub: escHtml(monthTh),  color: "#0284c7", icon: "📅" })}
         </div>
+
+        <!-- Phase 92.41c: admin pending alert chip (กดเพื่อ filter status=pending + clear month) -->
+        ${pendingAlert ? `
+          <div role="alert" style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#fff7ed;border:1px solid #fdba74;border-radius:12px;color:#9a3412">
+            <div style="font-size:18px;flex-shrink:0">⏳</div>
+            <div style="flex:1;min-width:0;font-size:13px;font-weight:700">${escHtml(pendingAlert.message)}</div>
+            <button id="lmPendingAlertBtn" type="button" style="padding:6px 12px;border:1px solid #fdba74;border-radius:8px;background:#fff;color:#9a3412;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0">${escHtml(pendingAlert.actionLabel)} →</button>
+          </div>
+        ` : ""}
 
         <!-- Phase 92.35: Balance / Quota section -->
         ${_renderBalanceSection({
@@ -1754,6 +1801,17 @@ export async function renderLeaveManagementPage(ctx) {
 
     // ── Bind events ─────────────────────────────────────────
     document.getElementById("lmRefreshBtn")?.addEventListener("click", () => renderLeaveManagementPage(ctx));
+
+    // Phase 92.41c: pending alert click → filter status=pending + clear month (เห็นทุก pending) + scroll table
+    document.getElementById("lmPendingAlertBtn")?.addEventListener("click", () => {
+      activeStatus = "pending";
+      activeMonth = "";
+      activeView = "table";
+      _rerender();
+      setTimeout(() => {
+        document.getElementById("lmTbody")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 0);
+    });
 
     document.getElementById("lmMonth")?.addEventListener("change", (ev) => {
       activeMonth = ev.target.value || "";
