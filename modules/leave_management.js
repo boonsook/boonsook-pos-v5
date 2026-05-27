@@ -174,6 +174,37 @@ export function pendingLeaveAlertMeta(pendingCount, role) {
 }
 
 /**
+ * Phase 92.42: KPI card click → filter action descriptor
+ *   - pending (sub label = "ทุกเดือน") → clear month + switch table (เพื่อ approve/reject สะดวก)
+ *   - approved/rejected/approvedDays (sub label = monthTh) → keep month + keep view
+ *
+ * @param {string} kind - "pending"|"approved"|"rejected"|"approvedDays"
+ * @returns {{status:string,clearMonth:boolean,switchTable:boolean}|null}
+ */
+export function kpiFilterActionFor(kind) {
+  switch (kind) {
+    case "pending":      return { status: "pending",  clearMonth: true,  switchTable: true  };
+    case "approved":     return { status: "approved", clearMonth: false, switchTable: false };
+    case "rejected":     return { status: "rejected", clearMonth: false, switchTable: false };
+    case "approvedDays": return { status: "approved", clearMonth: false, switchTable: false };
+    default:             return null;
+  }
+}
+
+/**
+ * Phase 92.42: Balance card click → filter by leave_type
+ *   - balance scope = ทั้งปี → clear month เพื่อให้ table แสดงทุก row ของ type นั้น
+ *   - status = "all" (เห็นทั้ง pending/approved/rejected ของ type นั้น)
+ *
+ * @param {string} leaveType
+ * @returns {{leaveType:string,clearMonth:boolean,resetStatus:boolean}|null}
+ */
+export function balanceFilterActionFor(leaveType) {
+  if (!LEAVE_TYPES.includes(leaveType)) return null;
+  return { leaveType, clearMonth: true, resetStatus: true };
+}
+
+/**
  * เช็คสิทธิ์แก้/cancel leave row
  *   admin → แก้ได้ทุก row
  *   non-admin → เฉพาะ row ของตัวเองที่ยัง pending (matches RLS policy)
@@ -1127,12 +1158,20 @@ function _typeChip(type) {
   return `<span style="display:inline-block;padding:2px 8px;border-radius:6px;background:${m.bg};color:${m.fg};border:1px solid ${m.border};font-size:11px;font-weight:700">${escHtml(m.icon + " " + m.label)}</span>`;
 }
 
-function _kpiCard({ label, value, sub, color, icon }) {
+function _kpiCard({ label, value, sub, color, icon, clickKind }) {
   const c = color || "#0284c7";
-  return `<div style="background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:14px 16px;min-width:0">
+  // Phase 92.42: clickable variant — drill-down ภายในหน้าวันลา (filter status)
+  const baseStyle = "background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:14px 16px;min-width:0";
+  const interactive = clickKind
+    ? ` class="lm-kpi-card" data-lm-kpi-kind="${escHtml(clickKind)}" role="button" tabindex="0" aria-label="${escHtml(label + " — " + value + (sub ? " — " + sub : "") + " (เปิดเพื่อกรองรายการ)")}" style="${baseStyle};cursor:pointer"`
+    : ` style="${baseStyle}"`;
+  return `<div${interactive}>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
       <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.5px">${escHtml(label)}</div>
-      ${icon ? `<div style="font-size:18px;opacity:.7">${escHtml(icon)}</div>` : ""}
+      <div style="display:flex;align-items:center;gap:4px">
+        ${icon ? `<div style="font-size:18px;opacity:.7">${escHtml(icon)}</div>` : ""}
+        ${clickKind ? `<div aria-hidden="true" style="font-size:14px;color:#0284c7;font-weight:800;line-height:1">›</div>` : ""}
+      </div>
     </div>
     <div style="font-size:24px;font-weight:900;color:${c};line-height:1.1">${escHtml(value)}</div>
     ${sub ? `<div style="font-size:11px;color:#64748b;margin-top:4px">${escHtml(sub)}</div>` : ""}
@@ -1436,14 +1475,19 @@ function _renderBalanceCard(balance) {
   const chip = _balanceChip(balance);
   const quotaLabel = (balance.quota == null) ? "—" : NUM_TH(balance.quota);
   const remainingLabel = (balance.remaining == null) ? "—" : NUM_TH(balance.remaining);
+  // Phase 92.42: balance card clickable → filter table/calendar by leave_type
+  const ariaLabel = `${meta.label} — ใช้ ${NUM_TH(balance.used)} จาก ${quotaLabel} — เหลือ ${remainingLabel} (เปิดเพื่อดูรายการ${meta.label})`;
   return `
-    <div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:6px">
+    <div class="lm-balance-card" data-lm-balance-type="${escHtml(String(balance.leaveType))}" role="button" tabindex="0" aria-label="${escHtml(ariaLabel)}" style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;cursor:pointer">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
         <div style="font-size:12px;font-weight:700;color:${meta.fg};display:inline-flex;align-items:center;gap:4px">
           <span>${escHtml(meta.icon)}</span>
           <span>${escHtml(meta.label)}</span>
         </div>
-        <span style="display:inline-block;padding:1px 6px;border-radius:999px;background:${chip.bg};color:${chip.fg};border:1px solid ${chip.border};font-size:10px;font-weight:800">${escHtml(chip.icon)}</span>
+        <div style="display:flex;align-items:center;gap:4px">
+          <span style="display:inline-block;padding:1px 6px;border-radius:999px;background:${chip.bg};color:${chip.fg};border:1px solid ${chip.border};font-size:10px;font-weight:800">${escHtml(chip.icon)}</span>
+          <span aria-hidden="true" style="font-size:12px;color:#0284c7;font-weight:800;line-height:1">›</span>
+        </div>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:4px">
         <div style="font-size:11px;color:#64748b">ใช้/quota</div>
@@ -1650,10 +1694,10 @@ export async function renderLeaveManagementPage(ctx) {
 
         <!-- KPI cards -->
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
-          ${_kpiCard({ label: "รออนุมัติ",       value: NUM_TH(pendingTotal),         sub: "ทุกเดือน",        color: pendingTotal > 0 ? "#ea580c" : "#0f172a", icon: "⏳" })}
-          ${_kpiCard({ label: "อนุมัติแล้ว",     value: NUM_TH(summary.approved),     sub: escHtml(monthTh),  color: "#16a34a", icon: "✅" })}
-          ${_kpiCard({ label: "ปฏิเสธ",         value: NUM_TH(summary.rejected),     sub: escHtml(monthTh),  color: "#dc2626", icon: "✕"  })}
-          ${_kpiCard({ label: "รวมวันที่อนุมัติ", value: NUM_TH(summary.approvedDays), sub: escHtml(monthTh),  color: "#0284c7", icon: "📅" })}
+          ${_kpiCard({ label: "รออนุมัติ",       value: NUM_TH(pendingTotal),         sub: "ทุกเดือน",        color: pendingTotal > 0 ? "#ea580c" : "#0f172a", icon: "⏳", clickKind: "pending" })}
+          ${_kpiCard({ label: "อนุมัติแล้ว",     value: NUM_TH(summary.approved),     sub: escHtml(monthTh),  color: "#16a34a", icon: "✅", clickKind: "approved" })}
+          ${_kpiCard({ label: "ปฏิเสธ",         value: NUM_TH(summary.rejected),     sub: escHtml(monthTh),  color: "#dc2626", icon: "✕",  clickKind: "rejected" })}
+          ${_kpiCard({ label: "รวมวันที่อนุมัติ", value: NUM_TH(summary.approvedDays), sub: escHtml(monthTh),  color: "#0284c7", icon: "📅", clickKind: "approvedDays" })}
         </div>
 
         <!-- Phase 92.41c: admin pending alert chip (กดเพื่อ filter status=pending + clear month) -->
@@ -1796,6 +1840,10 @@ export async function renderLeaveManagementPage(ctx) {
           100% { background-color: transparent; }
         }
         #lmTbody tr.lm-row-highlight { animation: lmRowHighlight 2.5s ease-out; }
+        /* Phase 92.42: KPI + Balance card click-through affordance */
+        .lm-kpi-card, .lm-balance-card { transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease; }
+        .lm-kpi-card:hover, .lm-balance-card:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(15,23,42,.08); border-color: #cbd5e1; }
+        .lm-kpi-card:focus-visible, .lm-balance-card:focus-visible { outline: 2px solid #0284c7; outline-offset: 2px; }
       </style>
     `;
 
@@ -1811,6 +1859,50 @@ export async function renderLeaveManagementPage(ctx) {
       setTimeout(() => {
         document.getElementById("lmTbody")?.scrollIntoView({ behavior: "smooth", block: "start" });
       }, 0);
+    });
+
+    // Phase 92.42: KPI card click → filter status (via kpiFilterActionFor)
+    const _scrollToResults = () => {
+      setTimeout(() => {
+        const el = activeView === "table"
+          ? document.getElementById("lmTbody")
+          : document.getElementById("lmCalendar");
+        el?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 0);
+    };
+    const _applyKpiKind = (kind) => {
+      const action = kpiFilterActionFor(kind);
+      if (!action) return;
+      activeStatus = action.status;
+      if (action.clearMonth) activeMonth = "";
+      if (action.switchTable) activeView = "table";
+      _rerender();
+      _scrollToResults();
+    };
+    container.querySelectorAll(".lm-kpi-card[data-lm-kpi-kind]").forEach(card => {
+      const kind = card.getAttribute("data-lm-kpi-kind");
+      card.addEventListener("click", () => _applyKpiKind(kind));
+      card.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); _applyKpiKind(kind); }
+      });
+    });
+
+    // Phase 92.42: Balance card click → filter leave_type (via balanceFilterActionFor)
+    const _applyBalanceType = (leaveType) => {
+      const action = balanceFilterActionFor(leaveType);
+      if (!action) return;
+      activeType = action.leaveType;
+      if (action.resetStatus) activeStatus = "all";
+      if (action.clearMonth) activeMonth = "";
+      _rerender();
+      _scrollToResults();
+    };
+    container.querySelectorAll(".lm-balance-card[data-lm-balance-type]").forEach(card => {
+      const lt = card.getAttribute("data-lm-balance-type");
+      card.addEventListener("click", () => _applyBalanceType(lt));
+      card.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); _applyBalanceType(lt); }
+      });
     });
 
     document.getElementById("lmMonth")?.addEventListener("change", (ev) => {

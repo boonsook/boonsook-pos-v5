@@ -42,6 +42,9 @@ const {
   // Phase 92.41c
   countPendingLeaves,
   pendingLeaveAlertMeta,
+  // Phase 92.42
+  kpiFilterActionFor,
+  balanceFilterActionFor,
 } = await import("../modules/leave_management.js");
 
 // ── calcLeaveDays ───────────────────────────────────────────
@@ -1777,6 +1780,133 @@ test("source: form submit success ยัง trigger _rerender (regression guard)
   // หลัง insert ต้องมี leaves.unshift + closeModal + _rerender
   assert.match(src, /leaves\.unshift\(inserted\[0\]\)[\s\S]{0,300}?_rerender\(\)/,
     "หลัง insert ต้อง unshift + rerender");
+});
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 92.42 — Leave page click-through cards (internal navigation)
+// ═══════════════════════════════════════════════════════════
+
+test("kpiFilterActionFor — pending → status=pending + clearMonth + switchTable", () => {
+  const a = kpiFilterActionFor("pending");
+  assert.equal(a.status, "pending");
+  assert.equal(a.clearMonth, true, "pending sub label = ทุกเดือน → clearMonth");
+  assert.equal(a.switchTable, true, "pending → switch table for easy approve/reject");
+});
+
+test("kpiFilterActionFor — approved/rejected → keep month + keep view (label = monthTh)", () => {
+  for (const kind of ["approved", "rejected"]) {
+    const a = kpiFilterActionFor(kind);
+    assert.equal(a.status, kind, `${kind} → status=${kind}`);
+    assert.equal(a.clearMonth, false, `${kind} sub label = monthTh → keep month`);
+    assert.equal(a.switchTable, false, `${kind} → keep current view`);
+  }
+});
+
+test("kpiFilterActionFor — approvedDays alias of approved", () => {
+  const a = kpiFilterActionFor("approvedDays");
+  assert.equal(a.status, "approved", "approvedDays = days count → still filter approved");
+});
+
+test("kpiFilterActionFor — unknown kind → null", () => {
+  assert.equal(kpiFilterActionFor("nonexistent"), null);
+  assert.equal(kpiFilterActionFor(""), null);
+  assert.equal(kpiFilterActionFor(null), null);
+  assert.equal(kpiFilterActionFor(undefined), null);
+});
+
+test("balanceFilterActionFor — รู้จัก leave_type ทุก type ใน LEAVE_TYPES", () => {
+  for (const t of ["vacation", "sick", "personal", "unpaid", "other"]) {
+    const a = balanceFilterActionFor(t);
+    assert.ok(a, `${t} → ต้องคืน action`);
+    assert.equal(a.leaveType, t);
+    assert.equal(a.clearMonth, true, "balance scope = ทั้งปี → clear month");
+    assert.equal(a.resetStatus, true, "เห็นทั้ง pending/approved/rejected ของ type นี้");
+  }
+});
+
+test("balanceFilterActionFor — invalid type → null", () => {
+  assert.equal(balanceFilterActionFor("weird"), null);
+  assert.equal(balanceFilterActionFor(""), null);
+  assert.equal(balanceFilterActionFor(null), null);
+  assert.equal(balanceFilterActionFor(undefined), null);
+});
+
+// ── Source-level wiring (Phase 92.42) ──────────────────────
+
+test("source: KPI 4 ใบหลักทุกใบส่ง clickKind ผ่าน _kpiCard", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  for (const kind of ["pending", "approved", "rejected", "approvedDays"]) {
+    const re = new RegExp(`clickKind:\\s*["']${kind}["']`);
+    assert.match(src, re, `ต้องมี clickKind: "${kind}" ใน KPI card`);
+  }
+});
+
+test("source: _kpiCard มี data-lm-kpi-kind + role=button + aria-label + chevron เมื่อ clickKind", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  const body = src.match(/function _kpiCard[\s\S]*?^}/m)?.[0] || "";
+  assert.ok(body.length > 0, "ต้องเจอ _kpiCard");
+  assert.match(body, /data-lm-kpi-kind=/, "ต้องมี data-lm-kpi-kind attribute");
+  assert.match(body, /role="button"/, "ต้องมี role=button");
+  assert.match(body, /tabindex="0"/, "ต้องมี tabindex=0");
+  assert.match(body, /aria-label="\$\{escHtml\(/, "ต้องมี dynamic aria-label");
+  // chevron icon เมื่อ clickKind
+  assert.match(body, /clickKind\s*\?\s*`[\s\S]{0,200}?›/, "ต้องมี chevron icon");
+});
+
+test("source: _renderBalanceCard wrapper เป็น .lm-balance-card + data-lm-balance-type + role=button", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  const body = src.match(/function _renderBalanceCard[\s\S]*?^}/m)?.[0] || "";
+  assert.ok(body.length > 0, "ต้องเจอ _renderBalanceCard");
+  assert.match(body, /class="lm-balance-card"/, "ต้องมี class lm-balance-card");
+  assert.match(body, /data-lm-balance-type=/, "ต้องมี data-lm-balance-type");
+  assert.match(body, /role="button"/, "role=button");
+  assert.match(body, /tabindex="0"/, "tabindex=0");
+  assert.match(body, /aria-label=/, "aria-label");
+  // chevron
+  assert.match(body, /›/, "ต้องมี chevron");
+});
+
+test("source: container <style> มี .lm-kpi-card:hover + .lm-balance-card:hover + :focus-visible", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  assert.match(src, /\.lm-kpi-card[\s\S]{0,200}?\.lm-balance-card[\s\S]{0,200}?hover/, "ต้องมี hover rules ทั้ง 2 cards");
+  assert.match(src, /\.lm-kpi-card:focus-visible[\s\S]{0,200}?outline:|\.lm-balance-card:focus-visible[\s\S]{0,200}?outline:/, "ต้องมี focus-visible outline");
+});
+
+test("source: _rerender bind .lm-kpi-card click → kpiFilterActionFor + activeStatus/Month/View", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  assert.match(src, /querySelectorAll\(["']\.lm-kpi-card\[data-lm-kpi-kind\]["']\)/, "ต้อง querySelectorAll KPI cards");
+  assert.match(src, /kpiFilterActionFor\(/, "ต้องเรียก kpiFilterActionFor");
+  assert.match(src, /_applyKpiKind/, "ต้องมี _applyKpiKind handler");
+  // keyboard
+  assert.match(src, /addEventListener\(["']keydown["'],\s*\(ev\)\s*=>\s*\{[\s\S]{0,200}?Enter["']\s*\|\|\s*ev\.key\s*===\s*["'] ["']/, "ต้องรองรับ keyboard (Enter/Space)");
+});
+
+test("source: _rerender bind .lm-balance-card click → balanceFilterActionFor + activeType", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  assert.match(src, /querySelectorAll\(["']\.lm-balance-card\[data-lm-balance-type\]["']\)/, "ต้อง querySelectorAll Balance cards");
+  assert.match(src, /balanceFilterActionFor\(/, "ต้องเรียก balanceFilterActionFor");
+  assert.match(src, /activeType\s*=\s*action\.leaveType/, "ต้อง set activeType จาก action");
+});
+
+test("source: pending alert ยังทำงาน (regression guard Phase 92.41c)", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  // alert button binding ยังอยู่
+  assert.match(src, /id="lmPendingAlertBtn"/, "alert button ยังต้องมี");
+  assert.match(src, /getElementById\(["']lmPendingAlertBtn["']\)\?\.addEventListener/, "ยัง bind click");
 });
 
 test("source: payroll.js _refreshLeaveDecision ไม่ fallback ไป emp.daily_rate แล้ว (Phase 92.41b)", async () => {

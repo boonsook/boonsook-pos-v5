@@ -7,6 +7,29 @@
 
 ---
 
+## 5.62.9 (build 312) — 2026-05-27 ✨ Phase 92.42 — Leave Page Click-through Cards / Internal Navigation
+
+- **feat(leave/cards) [click-through]:** ทำ KPI + Balance cards ในหน้า "วันลา" คลิกได้ — drill-down ภายในหน้า (filter, ไม่เปลี่ยน route)
+- **Pure helpers ใหม่:**
+  - `kpiFilterActionFor(kind)` → `{status, clearMonth, switchTable}`
+    - `pending` → clearMonth + switchTable (sub label = "ทุกเดือน" + ให้ admin approve/reject ได้สะดวก)
+    - `approved`/`rejected`/`approvedDays` → keep month + keep view (sub label = monthTh)
+  - `balanceFilterActionFor(leaveType)` → `{leaveType, clearMonth, resetStatus}` (5 types ใน `LEAVE_TYPES`)
+    - balance scope = ทั้งปี → clear month + reset status=all เห็นทุก row ของ type นั้น
+- **`_kpiCard`:** เพิ่ม `clickKind` param → wrapper เป็น `class="lm-kpi-card"` + `data-lm-kpi-kind` + `role="button"` + `tabindex="0"` + `aria-label` dynamic + chevron `›`
+- **`_renderBalanceCard`:** wrapper เป็น `class="lm-balance-card"` + `data-lm-balance-type` + `role="button"` + `tabindex="0"` + `aria-label` + chevron `›`
+- **Container `<style>`:** `.lm-kpi-card:hover` + `.lm-balance-card:hover` (translateY -1px + shadow + border darken) + `:focus-visible` outline 2px solid #0284c7
+- **Wiring `_rerender`:**
+  - `.lm-kpi-card[data-lm-kpi-kind]` click + Enter/Space → `kpiFilterActionFor(kind)` → set activeStatus/Month/View + rerender + scroll to lmTbody/lmCalendar
+  - `.lm-balance-card[data-lm-balance-type]` click + Enter/Space → `balanceFilterActionFor(type)` → set activeType + clear month + reset status + rerender + scroll
+- **ไม่แตะ:** route navigation (filter ภายในเท่านั้น), pending alert (Phase 92.41c ยังทำงาน), SQL/payroll/balance calc/calendar logic/event chip/popover
+- Tests +11 (kpi 4 mappings + balance 2 + 5 source-level wiring/regression). Unit **705 → 718** (+13 รวม assertions)
+- verify เขียว: lint:errors 0/0 · unit 718/718 · e2e 11/11 · audit 0
+
+**Build:** 311 → 312; version 5.62.8 → 5.62.9 (minor — feature)
+
+---
+
 ## 5.62.8 (build 311) — 2026-05-27 🧯 Phase 92.41c — HOTFIX Leave Page Pending Alert/KPI Sync
 
 - **fix(leave/kpi) [month-scope-mismatch]:** หน้า "วันลา" KPI "รออนุมัติ" แสดง 0 ทั้งที่ HR Overview เห็น alert "คำขอลารออนุมัติ 1 รายการ" + Balance card เห็น pending +3

@@ -1,6 +1,6 @@
 {
   "name": "boonsook-pos-v5",
-  "version": "5.62.8",
+  "version": "5.62.9",
   "private": true,
   "description": "Boonsook POS PRO V5 — Thai POS PWA",
   "type": "module",
