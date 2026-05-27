@@ -7,6 +7,55 @@
 
 ---
 
+## 5.63.1 (build 314) — 2026-05-27 🔗 Phase 92.44 — Payroll Payment Journal Visibility
+
+- **fix(payroll/accounting) [missing-pv]:** หลังจ่าย payroll หน้า "บัญชี → สมุดรายวัน" ไม่มีรายการให้ตรวจ — PV ขาด → ปิดงวด/audit smoke ผ่านไม่ได้
+- **Root cause:** `_markPaid` สร้างแค่ expense row (Phase 76, `#payroll-{id}` tag) แต่ไม่มีใครเรียก `postJournalForExpense` ตามมา → ไม่มี PV journal เกิดขึ้น
+
+### New export: `postJournalForPayroll(payroll, paidAt, paymentMethod, opts)`
+- **ไฟล์:** `modules/accounting/auto_post.js`
+- **Source marker:** `source_table="staff_payroll"`, `source_id=payroll.id` (direct path — ไม่ผ่าน expense)
+- **Doc type:** `"PV"` (จ่าย)
+- **Mapping:** ใช้ `payroll_salary` ที่มีอยู่แล้ว (Dr 5200 / Cr 1110 default)
+- **Override credit:** `transfer/โอน/bank/cheque` → 1130 (เงินฝากธนาคาร)
+- **Description format ตาม spec:** `"จ่ายเงินเดือน — {employeeName} — {periodLabel}"` (เช่น `"จ่ายเงินเดือน — sompong — พฤษภาคม 2569"`)
+- **Idempotency:** ผ่าน `_postJournal` core ที่มี unique partial index `(source_table, source_id)` อยู่แล้ว → กดจ่ายซ้ำ = 409 = ไม่สร้างซ้ำ
+- **Period lock + RLS handling:** ผ่าน core เดิม
+
+### Wire-up
+- **`_markPaid`:** หลัง `_createSalaryExpense` → lazy import + call `postJournalForPayroll({ ...payroll, paid_at: paidAt, payment_method: method }, paidAt, method, { employeeName, periodLabel })`
+  - Silent fail — payroll paid + expense ลงไปแล้ว ไม่ block UX; admin re-post manually ทีหลังได้
+- **`_deletePayroll`:** ถ้า paid → `voidJvForSource("staff_payroll", id)` **ก่อน** DELETE expense + DELETE payroll
+  - Idempotent — voidJV silent ถ้าไม่มี
+  - เก็บ `reversedJournal` count → audit metadata `reversed_journal_count`
+  - Toast: `"ลบ payroll + ย้อนรายจ่าย + JV {count} แล้ว ✅"`
+
+### ไม่แตะ
+- SQL schema — unique index `idx_je_source_unique` มีอยู่แล้วใน Phase 88 (รองรับ `source_table="staff_payroll"`)
+- Payroll math formula (Phase 92.41b dailyRate fix อยู่)
+- audit_log `payroll_pay`/`payroll_delete` (Phase 92.43 B4) — ทำงานเหมือนเดิม + เพิ่ม `reversed_journal_count` ใน metadata
+- Expense row creation (Phase 76 `#payroll-{id}` tag) — ยังสร้างเหมือนเดิม (สำหรับ expense list view)
+- Leave Calendar / HR Overview (Phase 92.40-42)
+
+### Tests +6 source-level (`tests/payroll.test.js`)
+- `postJournalForPayroll` export + source_table="staff_payroll" + PV doc + payroll_salary mapping + description format + transfer override
+- ผ่าน `_postJournal` core (idempotency เดิม)
+- `_markPaid` เรียก + ส่ง employeeName/periodLabel + lazy import
+- `_deletePayroll` เรียก `voidJvForSource("staff_payroll", id)` + `reversed_journal_count` ใน audit
+- Zero amount guard
+- Uses `dateBkk` (B2 regression guard — ห้าม UTC slice)
+- Unit **738 → 744**
+
+### Gates ✅
+- `npm run lint:errors` exit 0
+- `npm test` = **744/744**
+- `npm run test:e2e -- --reporter=line` = **11/11**
+- `npm audit --audit-level=moderate` = **0 vulnerabilities**
+
+**Build:** 313 → 314; version 5.63.0 → 5.63.1 (patch — visibility/journal link, ไม่เปลี่ยน schema/math)
+
+---
+
 ## 5.63.0 (build 313) — 2026-05-27 🛡️ Phase 92.43 — Payroll/Accounting Audit Hardening (B1-B4)
 
 > **MINOR bump 5.62→5.63** — behavior change ใหญ่ในด้าน accounting/audit ก่อนใช้ปิดงวดจริง

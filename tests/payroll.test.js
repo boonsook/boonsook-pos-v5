@@ -195,6 +195,86 @@ test("source: _doCancel + _doDelete มี logActivity", async () => {
   assert.match(dBody, /const before = _findLeave\(id\)/, "ต้องเก็บ snapshot ก่อนลบ (audit)");
 });
 
+// ═══════════════════════════════════════════════════════════
+//  Phase 92.44 — Payroll Payment Journal Visibility
+// ═══════════════════════════════════════════════════════════
+
+test("source: auto_post.js exports postJournalForPayroll with staff_payroll source + PV doc", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/accounting/auto_post.js"), "utf8");
+  // export มีจริง
+  assert.match(src, /export\s+async\s+function\s+postJournalForPayroll/, "ต้อง export postJournalForPayroll");
+  const body = src.match(/export\s+async\s+function\s+postJournalForPayroll[\s\S]*?^}/m)?.[0] || "";
+  assert.ok(body.length > 0);
+  // source_table = "staff_payroll" + docType = "PV"
+  assert.match(body, /sourceTable:\s*["']staff_payroll["']/, "source_table ต้องเป็น staff_payroll");
+  assert.match(body, /docType:\s*["']PV["']/, "docType ต้องเป็น PV");
+  // ใช้ payroll_salary mapping ที่มีอยู่
+  assert.match(body, /mappings\[["']payroll_salary["']\]/, "ต้องใช้ payroll_salary mapping");
+  // description format ตาม spec: "จ่ายเงินเดือน — {name} — {period}"
+  assert.match(body, /จ่ายเงินเดือน — \$\{empName\}/, "description format ตาม spec");
+  // override credit account ถ้า transfer
+  assert.match(body, /transfer\|โอน\|bank/, "ต้อง override credit ถ้าโอน");
+});
+
+test("source: postJournalForPayroll ผ่าน _postJournal core (idempotent via unique index)", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/accounting/auto_post.js"), "utf8");
+  const body = src.match(/export\s+async\s+function\s+postJournalForPayroll[\s\S]*?^}/m)?.[0] || "";
+  assert.match(body, /return\s+_postJournal\(/, "ต้องเรียก _postJournal core (มี idempotency + period check + RLS handling อยู่แล้ว)");
+  // unique index บน (source_table, source_id) อยู่ใน _postJournal — ไม่ต้องเช็คเอง
+});
+
+test("source: _markPaid เรียก postJournalForPayroll หลัง expense insert", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/payroll.js"), "utf8");
+  const body = src.match(/async function _markPaid[\s\S]*?^}/m)?.[0] || "";
+  assert.ok(body.length > 0);
+  assert.match(body, /postJournalForPayroll\(/, "ต้องเรียก postJournalForPayroll");
+  // pass employeeName + periodLabel
+  assert.match(body, /employeeName:\s*empName/, "ส่ง employeeName เพื่อ description");
+  // periodLabel อาจเป็น { periodLabel } shorthand หรือ { periodLabel: periodLabel } explicit
+  assert.match(body, /periodLabel(\s*:\s*periodLabel)?\s*[},]/, "ส่ง periodLabel เพื่อ description");
+  // lazy import เพื่อกัน cycle / lazy loading
+  assert.match(body, /await import\(["']\.\/accounting\/auto_post\.js["']\)/, "lazy import auto_post.js");
+});
+
+test("source: _deletePayroll เรียก voidJvForSource('staff_payroll', id) ก่อน DELETE", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/payroll.js"), "utf8");
+  const body = src.match(/async function _deletePayroll[\s\S]*?^}/m)?.[0] || "";
+  assert.ok(body.length > 0);
+  assert.match(body, /voidJvForSource\(["']staff_payroll["']/, "ต้อง void JV โดย staff_payroll source");
+  // เก็บ reversedJournal count
+  assert.match(body, /reversedJournal/, "ต้องเก็บ count ของ JV ที่ลบ (สำหรับ audit)");
+  // audit log includes reversed_journal_count
+  assert.match(body, /reversed_journal_count/, "audit metadata ต้องมี reversed_journal_count");
+});
+
+test("source: postJournalForPayroll สำหรับ payroll ที่ total_amount=0 → return null (no zero JV)", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/accounting/auto_post.js"), "utf8");
+  const body = src.match(/export\s+async\s+function\s+postJournalForPayroll[\s\S]*?^}/m)?.[0] || "";
+  // guard: amount < 0.01 → return null
+  assert.match(body, /amount\s*<\s*0\.01[\s\S]{0,100}?return null/, "ต้อง guard zero amount");
+  // guard: missing payroll.id หรือ total_amount → return null
+  assert.match(body, /payroll\?\.id[\s\S]{0,100}?return null/, "ต้อง guard missing id");
+});
+
+test("source: postJournalForPayroll ใช้ dateBkk ไม่ใช่ UTC slice (B2 regression guard)", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/accounting/auto_post.js"), "utf8");
+  const body = src.match(/export\s+async\s+function\s+postJournalForPayroll[\s\S]*?^}/m)?.[0] || "";
+  assert.match(body, /docDate\s*=\s*dateBkk\(/, "ต้องใช้ dateBkk");
+  assert.ok(!/docDate.*\.toISOString\(\)\.slice\(0,\s*10\)/.test(body), "ห้ามใช้ ISO slice (UTC bug)");
+});
+
 test("source: _askReviewNote modal มี OK + Cancel buttons + textarea", async () => {
   const fs = await import("node:fs");
   const path = await import("node:path");

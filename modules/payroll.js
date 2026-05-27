@@ -989,7 +989,17 @@ async function _deletePayroll(ctx, id) {
   const token = window._sbAccessToken;
   const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token };
   let reversedExpense = false;
+  let reversedJournal = 0;
   try {
+    // Phase 92.44: reverse journal PV ก่อน (idempotent — voidJvForSource silent ถ้าไม่มี)
+    if (guard.requiresReverse) {
+      try {
+        const { voidJvForSource } = await import("./accounting/auto_post.js");
+        reversedJournal = await voidJvForSource("staff_payroll", id);
+      } catch (e) {
+        console.warn("[payroll] reverse journal failed", e?.message);
+      }
+    }
     // Reverse linked expense ก่อน (idempotent — ถ้าไม่มี ก็ไม่มีอะไรลบ)
     if (guard.requiresReverse && guard.expenseTag) {
       const delExp = await fetch(
@@ -1011,10 +1021,11 @@ async function _deletePayroll(ctx, id) {
     logActivity("payroll_delete", {
       entityType: "staff_payroll",
       entityId: id,
-      summary: `ลบ payroll ${payroll?.employee_id || id}${guard.requiresReverse ? " + ย้อนรายจ่าย" : ""}`,
+      summary: `ลบ payroll ${payroll?.employee_id || id}${guard.requiresReverse ? " + ย้อนรายจ่าย + JV" : ""}`,
       metadata: {
         was_paid: !!payroll?.paid_at,
         reversed_expense: reversedExpense,
+        reversed_journal_count: reversedJournal,
         expense_tag: guard.expenseTag,
         before: payroll ? {
           employee_id: payroll.employee_id,
@@ -1025,10 +1036,10 @@ async function _deletePayroll(ctx, id) {
         } : null,
       },
     });
-    ctx.showToast?.(guard.requiresReverse && reversedExpense
-      ? "ลบ payroll + ย้อนรายจ่ายแล้ว ✅"
+    ctx.showToast?.(guard.requiresReverse && (reversedExpense || reversedJournal > 0)
+      ? `ลบ payroll + ย้อนรายจ่าย${reversedJournal > 0 ? " + JV " + reversedJournal : ""}แล้ว ✅`
       : guard.requiresReverse
-        ? "ลบ payroll แล้ว — แต่ย้อนรายจ่ายไม่สำเร็จ ตรวจหน้าค่าใช้จ่าย"
+        ? "ลบ payroll แล้ว — แต่ย้อนรายจ่าย/JV ไม่สำเร็จ ตรวจหน้าค่าใช้จ่าย/สมุดรายวัน"
         : "ลบแล้ว");
     if (ctx.loadAllData) await ctx.loadAllData();
     renderPayrollPage(ctx);
@@ -1064,6 +1075,23 @@ async function _markPaid(ctx, id) {
       } catch (e) {
         console.warn("auto-expense fail", e);
         ctx.showToast?.("จ่ายแล้ว แต่บันทึกรายจ่ายอัตโนมัติไม่สำเร็จ");
+      }
+      // Phase 92.44: ลง journal PV (สมุดรายวัน) ให้ admin/บัญชีตรวจสอบได้
+      // source_table=staff_payroll → idempotent + reversible ตอนลบ payroll
+      try {
+        const { postJournalForPayroll } = await import("./accounting/auto_post.js");
+        const emp = _profiles.find(x => x.id === payroll.employee_id);
+        const empName = emp?.full_name || "(พนักงาน)";
+        const periodLabel = new Date(payroll.period_month).toLocaleDateString("th-TH", { year: "numeric", month: "long" });
+        await postJournalForPayroll(
+          { ...payroll, paid_at: paidAt, payment_method: method },
+          paidAt,
+          method,
+          { employeeName: empName, periodLabel }
+        );
+      } catch (e) {
+        console.warn("auto-journal payroll fail", e);
+        // ไม่ block — payroll paid + expense ลงแล้ว, JV ตามมาทีหลังได้ (admin re-post manually)
       }
     }
     // Phase 92.43 (B4): audit log

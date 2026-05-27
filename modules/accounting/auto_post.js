@@ -479,6 +479,69 @@ export async function postJournalForExpense(expense) {
 
 
 // ═══════════════════════════════════════════════════════════
+// Public: Payroll payment → JV (Phase 92.44)
+//   - direct path (ไม่ผ่าน expense) → source_table="staff_payroll", source_id=payroll.id
+//   - docType="PV" (จ่าย)
+//   - ใช้ payroll_salary mapping ที่มีอยู่แล้ว (Dr 5200 / Cr 1110 default)
+//   - idempotent: unique partial index บน (source_table, source_id) → กด pay ซ้ำไม่สร้างซ้ำ
+//   - description: "จ่ายเงินเดือน — {employeeName} — {periodLabel}"
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * @param {object} payroll - row staff_payroll (ต้องมี id, total_amount)
+ * @param {string|Date} paidAt - timestamp ของการจ่าย (ใช้ dateBkk → docDate)
+ * @param {string} [paymentMethod] - cash|transfer|cheque (override credit account ถ้าโอน)
+ * @param {object} [opts]
+ * @param {string} [opts.employeeName] - ใช้ใน description
+ * @param {string} [opts.periodLabel] - "พฤษภาคม 2569" หรือคล้าย ๆ
+ * @returns {Promise<number|null>} entry_id ถ้า post ใหม่, null ถ้า idempotency hit/ปิด period/error
+ */
+export async function postJournalForPayroll(payroll, paidAt, paymentMethod, opts = {}) {
+  if (!payroll?.id || !payroll?.total_amount) return null;
+  const amount = Number(payroll.total_amount);
+  if (!Number.isFinite(amount) || amount < 0.01) return null;
+
+  const docDate = dateBkk(paidAt || new Date()) || todayBkk();
+  if (!_isAfterEffective(docDate)) {
+    console.info("[auto_post] payroll before effective date, skip:", docDate);
+    return null;
+  }
+
+  const mappings = await _getMappings();
+  const mapping = mappings["payroll_salary"];
+  if (!mapping?.debit_account_code || !mapping?.credit_account_code) {
+    console.warn("[auto_post] no mapping for payroll_salary — รัน supabase mapping ก่อน");
+    return null;
+  }
+
+  // ★ Override credit account ถ้าจ่ายผ่านธนาคาร (ไม่ใช่เงินสด)
+  let creditAccount = mapping.credit_account_code;
+  const pm = String(paymentMethod || "").toLowerCase();
+  if (/transfer|โอน|bank/.test(pm)) creditAccount = "1130"; // เงินฝากธนาคาร
+  else if (/cheque|เช็ค/.test(pm))   creditAccount = "1130"; // เช็ค → ตัดจากธนาคาร
+
+  const empName = (opts.employeeName || "พนักงาน").toString().trim();
+  const periodLabel = (opts.periodLabel || "").toString().trim();
+  // Format ตาม spec user: "จ่ายเงินเดือน — {employee_name} — {period_label}"
+  const desc = periodLabel
+    ? `จ่ายเงินเดือน — ${empName} — ${periodLabel}`
+    : `จ่ายเงินเดือน — ${empName}`;
+
+  return _postJournal({
+    sourceTable: "staff_payroll",
+    sourceId: payroll.id,
+    docType: "PV",
+    docDate,
+    description: desc,
+    lines: [
+      { account_code: mapping.debit_account_code, debit: amount, credit: 0,      description: desc },
+      { account_code: creditAccount,              debit: 0,      credit: amount, description: desc }
+    ]
+  });
+}
+
+
+// ═══════════════════════════════════════════════════════════
 // Public: Service job → JV (Phase 88.1b — stub for now, full impl. next session)
 // ═══════════════════════════════════════════════════════════
 /**
