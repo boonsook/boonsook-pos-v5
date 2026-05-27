@@ -1622,6 +1622,66 @@ test("source: _jumpToTableRow + _scrollAndHighlightRow — switch view, confirm 
   assert.match(sBody, /setTimeout\([\s\S]{0,150}?classList\.remove/, "ต้อง remove class หลัง timeout");
 });
 
+// ═══════════════════════════════════════════════════════════
+//  Phase 92.41b — HOTFIX: payroll leave deduction wrong daily rate
+//  Production bug: workDays=13 + dailyRate=400 + overQuotaDays=2 → showed ฿26 (= 2 × 13)
+//                  คาดหวัง: ฿800 (= 2 × 400) — bug มาจาก fallback ไป emp.daily_rate (stale=13)
+//                  ใน payroll.js _refreshLeaveDecision ตอน input rate ว่าง/0
+// ═══════════════════════════════════════════════════════════
+
+test("decidePayrollLeaveImpact — HOTFIX 92.41b: workDays=13 dailyRate=400 overQuota=2 → suggested=800 (NOT 26)", () => {
+  // Production reproducer: vacation over quota by 2 days, daily rate 400 from input, base 5200 (=13×400)
+  // ห้ามคำนวณเป็น 2 × workDays(13) — ต้อง 2 × dailyRate(400)
+  const balances = new Map();
+  balances.set("vacation", { tracksBalance: true, quota: 0, used: 2 }); // 2 over quota (used=2, quota=0)
+  const monthSummary = {
+    vacationDays: 2, sickDays: 0, personalDays: 0,
+    unpaidDays: 0, otherDays: 0, totalApprovedDays: 2, records: 1,
+  };
+  const d = decidePayrollLeaveImpact({
+    monthSummary, balances,
+    dailyRate: 400,     // ค่าจ้าง/วัน
+    baseSalary: 5200,   // 13 × 400 (workDays auto-computed)
+  });
+  assert.equal(d.overQuotaDays, 2, "over quota ต้องเป็น 2");
+  assert.equal(d.deductibleDays, 2, "deductible = over quota (ไม่มี unpaid)");
+  assert.equal(d.suggestedDeduction, 800, "ต้องเป็น 2 × 400 = 800 (ไม่ใช่ 2 × 13 = 26)");
+  // safety: ห้ามได้ค่า ฿26 (= workDays × overQuotaDays)
+  assert.notEqual(d.suggestedDeduction, 26, "regression guard: ห้ามใช้ workDays=13 เป็น rate");
+});
+
+test("decidePayrollLeaveImpact — dailyRate=0 + baseSalary=5200 → fallback ÷30 (ไม่ใช่ ÷workDays)", () => {
+  // ถ้า user ปิด daily mode (dailyRate=0) ส่งมา helper → ต้อง fallback ไป baseSalary÷30
+  // (ไม่ใช่ baseSalary÷workDays หรือ math อื่น)
+  const balances = new Map();
+  balances.set("vacation", { tracksBalance: true, quota: 0, used: 2 });
+  const monthSummary = { vacationDays: 2, sickDays: 0, personalDays: 0, unpaidDays: 0, otherDays: 0, totalApprovedDays: 2, records: 1 };
+  const d = decidePayrollLeaveImpact({ monthSummary, balances, dailyRate: 0, baseSalary: 5200 });
+  // 5200 / 30 × 2 = 346.666... ปัด 2 ตำแหน่ง = 346.67
+  assert.equal(d.suggestedDeduction, 346.67, "fallback ต้องใช้ baseSalary÷30 ไม่ใช่ formula อื่น");
+});
+
+test("calcUnpaidLeaveDeduction — dailyRate priority > baseSalary (regression guard)", () => {
+  // ทั้งสองมา → dailyRate ชนะ; ไม่ใช่ ÷30 หรือ avg
+  const out = calcUnpaidLeaveDeduction({ unpaidDays: 2, dailyRate: 400, baseSalary: 5200 });
+  assert.equal(out, 800);
+});
+
+test("source: payroll.js _refreshLeaveDecision ไม่ fallback ไป emp.daily_rate แล้ว (Phase 92.41b)", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/payroll.js"), "utf8");
+  const body = src.match(/function _refreshLeaveDecision[\s\S]*?^ {2}}/m)?.[0] || "";
+  assert.ok(body.length > 0, "ต้องเจอ _refreshLeaveDecision");
+  // ห้ามมี fallback ไป emp?.daily_rate ใน ternary หา dailyRate
+  assert.ok(!/dailyRate\s*=\s*[\s\S]{0,200}?emp\?\.daily_rate/.test(body),
+    "_refreshLeaveDecision ต้องไม่ fallback ไป emp.daily_rate (stale risk — bug 92.41b)");
+  // ต้องอ่านจาก prDailyRate (ค่าจ้าง/วัน) เท่านั้น — ไม่ใช่ prDaysWorked (จำนวนวันทำงาน)
+  assert.match(body, /document\.getElementById\(["']prDailyRate["']\)/, "ต้องอ่านจาก prDailyRate");
+  assert.ok(!/document\.getElementById\(["']prDaysWorked["']\)[\s\S]{0,200}?dailyRate/.test(body),
+    "ห้ามอ่าน prDaysWorked แล้วใช้เป็น dailyRate (mapping swap guard)");
+});
+
 test("source: _renderLeavePopover แสดง email + role (ถ้ามี) ใน header", async () => {
   const fs = await import("node:fs");
   const path = await import("node:path");

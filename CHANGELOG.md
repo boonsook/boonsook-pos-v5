@@ -7,6 +7,31 @@
 
 ---
 
+## 5.62.7 (build 310) — 2026-05-27 🧯 Phase 92.41b — HOTFIX Payroll Leave Deduction Wrong Daily Rate
+
+- **fix(payroll/leave) [wrong-rate-26-baht]:** production scenario:
+  - เปิดคำนวณค่าจ้างรายวัน, จำนวนวันทำงาน=13, ค่าจ้าง/วัน=400, เงินเดือน=5200 ถูก
+  - Leave over quota = 2 วัน ถูก
+  - แต่ suggested deduction แสดง **฿26** (= 2 × 13) — ผิด ควรเป็น **฿800** (= 2 × 400)
+- **Root cause:** `_refreshLeaveDecision` ใน `modules/payroll.js` ternary:
+  ```js
+  const dailyRate = dailyOn && dailyInp > 0 ? dailyInp : Number(emp?.daily_rate || 0);
+  ```
+  ตอน `dailyInp` ว่างชั่วคราว / race / 0 → fallback ไปอ่าน `emp.daily_rate` จาก profiles
+  ถ้าค่าใน DB เป็น 13 (เช่นเคยบันทึก hourly rate ผิดที่) → ใช้เป็น dailyRate ทันที = bug 26 บาท
+- **แก้:** ลบ fallback `emp.daily_rate` ออก → `dailyRate = dailyOn && dailyInp > 0 ? dailyInp : 0`
+  - ส่ง 0 ให้ helper `decidePayrollLeaveImpact` → ตก fallback ไป `baseSalary÷30` อย่างเดียว (predictable)
+  - profile rate ไม่มาเกี่ยว → ห้าม stale value ส่งผลกับ payroll period นี้
+- **Mapping guard:** เพิ่ม source-level test ห้าม swap `prDailyRate` (ค่าจ้าง/วัน) ↔ `prDaysWorked` (จำนวนวันทำงาน)
+- **Helper ไม่แตะ:** `decidePayrollLeaveImpact` + `calcUnpaidLeaveDeduction` คืน 800 ถูกอยู่แล้วถ้า dailyRate=400 ส่งมา — bug อยู่ที่ call site ของ payroll.js
+- **ไม่แตะ:** payroll math, save flow, leave balance, idempotency marker
+- Tests +4 (regression 13/400/2 → 800 · dailyRate=0 fallback ÷30 → 346.67 · helper priority dailyRate > baseSalary · source guard no-fallback). Unit **691 → 695**
+- verify เขียว: lint:errors 0/0 · unit 695/695 · e2e 11/11 · audit 0
+
+**Build:** 309 → 310; version 5.62.6 → 5.62.7 (patch hotfix — money math correctness)
+
+---
+
 ## 5.62.6 (build 309) — 2026-05-27 ✨ Phase 92.41 — HR Overview Click-through Navigation
 
 - **feat(hr_overview) [click-through]:** ขยาย KPI cards 5 ใบหลักให้ drill-down ไปหน้าเกี่ยวข้องผ่าน pure helper `kpiClickRouteFor(kind)`

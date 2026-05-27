@@ -662,13 +662,20 @@ function _openPayrollModal(ctx, payroll) {
   }
 
   // Recompute decision ตาม rate/salary ปัจจุบัน (เรียกเมื่อ admin แก้ base/dailyRate หลัง fetch)
+  // Phase 92.41b HOTFIX: dailyRate ต้องอ่านจากช่อง "ค่าจ้าง/วัน" (prDailyRate) เท่านั้น
+  //   - ห้ามสลับกับช่อง "จำนวนวันทำงาน" (prDaysWorked) — ต่างหน้าที่กัน
+  //   - ห้าม fallback ไป emp.daily_rate ใน profile (อาจ stale/ผิด เช่น เคยใส่ hourly rate ผิด)
+  //   - ถ้า daily mode OFF หรือ rate ว่าง → ส่ง dailyRate=0 ให้ helper ตก fallback ไป baseSalary÷30
+  //
+  // เหตุของ HOTFIX: production เจอเคส emp.daily_rate=13 (เก่า/ผิด) ทำให้ดูเหมือน
+  //   suggestedDeduction = 2 × 13 = ฿26 ทั้งที่ user กรอก 400 ใน input → ควรเป็น 2 × 400 = ฿800
   function _refreshLeaveDecision() {
     if (!_leaveMonthSummary) { _hideLeaveApplyRow(); return; }
-    const empId = document.getElementById("prEmp")?.value || "";
-    const emp = _profiles.find(p => p.id === empId);
     const dailyOn   = document.getElementById("prDailyToggle")?.checked;
     const dailyInp  = Number(document.getElementById("prDailyRate")?.value || 0);
-    const dailyRate = dailyOn && dailyInp > 0 ? dailyInp : Number(emp?.daily_rate || 0);
+    // ★ ใช้ dailyInp ก็ต่อเมื่อ daily mode ON และ user กรอกค่า > 0 ใน "ค่าจ้าง/วัน" เท่านั้น
+    //   อย่างอื่น = 0 (helper จะ fallback ไป baseSalary÷30 ภายในตัวเอง)
+    const dailyRate = dailyOn && dailyInp > 0 ? dailyInp : 0;
     const baseSal   = Number(document.getElementById("prBase")?.value || 0);
     const decision = decidePayrollLeaveImpact({
       monthSummary: _leaveMonthSummary,
