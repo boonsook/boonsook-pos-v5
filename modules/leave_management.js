@@ -23,7 +23,7 @@
 // ═══════════════════════════════════════════════════════════
 
 import { renderSkeleton, renderEmpty, renderError } from "./ui_states.js";
-import { escHtml, exportToExcel, todaySuffix } from "./utils.js";
+import { escHtml, exportToExcel, todaySuffix, logActivity } from "./utils.js";
 import { profileDisplayName } from "./time_clock.js";
 
 const TZ = "Asia/Bangkok";
@@ -1561,6 +1561,39 @@ function _confirmDialog(message) {
     : true;
 }
 
+/**
+ * Phase 92.43: replace window.prompt — iOS PWA standalone บางครั้งไม่แสดง prompt
+ *   custom modal: title, optional textarea, OK + Cancel
+ *   returns Promise<string|null> — null = user cancel
+ */
+function _askReviewNote(decisionLabel) {
+  return new Promise(resolve => {
+    document.getElementById("lmReviewNoteModal")?.remove();
+    const m = document.createElement("div");
+    m.id = "lmReviewNoteModal";
+    m.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:10001;display:flex;align-items:center;justify-content:center;padding:20px";
+    m.innerHTML = `
+      <div role="dialog" aria-modal="true" aria-label="หมายเหตุพิจารณา" style="background:#fff;border-radius:14px;max-width:420px;width:100%;padding:18px 20px">
+        <h3 style="margin:0 0 4px;font-size:16px;color:#0f172a">📝 หมายเหตุการ${escHtml(decisionLabel)}</h3>
+        <div style="font-size:12px;color:#64748b;margin-bottom:12px">เว้นว่างได้ — บันทึกเพื่อ audit trail</div>
+        <textarea id="lmReviewNoteInput" rows="3" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;resize:vertical;font-family:inherit"></textarea>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+          <button id="lmReviewNoteCancel" type="button" style="padding:8px 14px;background:#f1f5f9;color:#475569;border:none;border-radius:8px;cursor:pointer;font-size:13px">ยกเลิก</button>
+          <button id="lmReviewNoteOK" type="button" style="padding:8px 18px;background:#0284c7;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700">ดำเนินการ${escHtml(decisionLabel)}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(m);
+    const close = (val) => { m.remove(); resolve(val); };
+    document.getElementById("lmReviewNoteCancel")?.addEventListener("click", () => close(null));
+    document.getElementById("lmReviewNoteOK")?.addEventListener("click", () => {
+      const txt = (document.getElementById("lmReviewNoteInput")?.value || "").trim();
+      close(txt); // empty string OK — caller จะ treat เป็น "no note"
+    });
+    m.addEventListener("click", e => { if (e.target === m) close(null); });
+    setTimeout(() => document.getElementById("lmReviewNoteInput")?.focus(), 50);
+  });
+}
+
 // ═══════════════════════════════════════════════════════════
 //  Render entry point
 // ═══════════════════════════════════════════════════════════
@@ -1991,7 +2024,8 @@ export async function renderLeaveManagementPage(ctx) {
     if (!row) return { ok: false, error: "ไม่พบรายการ" };
     if (!canReviewLeave(row, role)) { showToast?.("ไม่มีสิทธิ์"); return { ok: false, error: "ไม่มีสิทธิ์" }; }
     const decisionLabel = decision === "approved" ? "อนุมัติ" : "ปฏิเสธ";
-    const note = window.prompt(`หมายเหตุ (optional) สำหรับการ${decisionLabel}คำขอนี้:`);
+    // Phase 92.43: replace window.prompt → custom modal (iOS PWA safe)
+    const note = await _askReviewNote(decisionLabel);
     if (note === null) return { ok: false, error: "ยกเลิก" }; // user pressed cancel — silent
     if (!_confirmDialog(`ยืนยัน${decisionLabel}คำขอลานี้?`)) return { ok: false, error: "ยกเลิก" };
     try {
@@ -2005,6 +2039,19 @@ export async function renderLeaveManagementPage(ctx) {
       // อัปเดต local cache
       const i = leaves.findIndex(r => String(r.id) === String(row.id));
       if (i >= 0 && Array.isArray(updated) && updated[0]) leaves[i] = updated[0];
+      // Phase 92.43 (B4): audit log
+      logActivity(decision === "approved" ? "leave_approve" : "leave_reject", {
+        entityType: "staff_leaves",
+        entityId: row.id,
+        summary: `${decisionLabel}คำขอลา ${row.user_id} ${row.leave_type} ${row.start_date}→${row.end_date}`,
+        metadata: {
+          before: { status: row.status, reviewed_by: row.reviewed_by, reviewed_at: row.reviewed_at },
+          after:  { status: decision, reviewed_by: currentUserId, reviewed_at: patch.reviewed_at },
+          review_note: patch.review_note,
+          leave_type: row.leave_type,
+          days_count: Number(row.days_count || 0),
+        },
+      });
       showToast?.(`✓ ${decisionLabel}เรียบร้อย`);
       _rerender();
       return { ok: true };
@@ -2024,6 +2071,18 @@ export async function renderLeaveManagementPage(ctx) {
       const updated = await _patchLeave(row.id, { status: "cancelled" });
       const i = leaves.findIndex(r => String(r.id) === String(row.id));
       if (i >= 0 && Array.isArray(updated) && updated[0]) leaves[i] = updated[0];
+      // Phase 92.43 (B4): audit log
+      logActivity("leave_cancel", {
+        entityType: "staff_leaves",
+        entityId: row.id,
+        summary: `ยกเลิกคำขอลา ${row.user_id} ${row.leave_type} ${row.start_date}→${row.end_date}`,
+        metadata: {
+          before: { status: row.status },
+          after:  { status: "cancelled" },
+          leave_type: row.leave_type,
+          days_count: Number(row.days_count || 0),
+        },
+      });
       showToast?.("ยกเลิกเรียบร้อย");
       _rerender();
       return { ok: true };
@@ -2037,6 +2096,8 @@ export async function renderLeaveManagementPage(ctx) {
   async function _doDelete(id) {
     if (role !== "admin") { showToast?.("เฉพาะ admin"); return { ok: false, error: "เฉพาะ admin" }; }
     if (!_confirmDialog("ลบรายการนี้ถาวร? (ไม่สามารถ undo ได้)")) return { ok: false, error: "ยกเลิก" };
+    // เก็บข้อมูลก่อนลบ — สำหรับ audit
+    const before = _findLeave(id);
     try {
       const cfg = window.SUPABASE_CONFIG;
       const r = await fetch(`${cfg.url}/rest/v1/staff_leaves?id=eq.${encodeURIComponent(id)}`, {
@@ -2044,6 +2105,23 @@ export async function renderLeaveManagementPage(ctx) {
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       leaves = leaves.filter(x => String(x.id) !== String(id));
+      // Phase 92.43 (B4): audit log — record snapshot ก่อนลบ
+      logActivity("leave_delete", {
+        entityType: "staff_leaves",
+        entityId: id,
+        summary: `ลบคำขอลา ${before?.user_id || "?"} ${before?.leave_type || ""} ${before?.start_date || ""}→${before?.end_date || ""}`,
+        metadata: {
+          before: before ? {
+            user_id: before.user_id,
+            status: before.status,
+            leave_type: before.leave_type,
+            start_date: before.start_date,
+            end_date: before.end_date,
+            days_count: Number(before.days_count || 0),
+            reason: before.reason || null,
+          } : null,
+        },
+      });
       showToast?.("ลบเรียบร้อย");
       _rerender();
       return { ok: true };

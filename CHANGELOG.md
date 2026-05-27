@@ -7,6 +7,66 @@
 
 ---
 
+## 5.63.0 (build 313) — 2026-05-27 🛡️ Phase 92.43 — Payroll/Accounting Audit Hardening (B1-B4)
+
+> **MINOR bump 5.62→5.63** — behavior change ใหญ่ในด้าน accounting/audit ก่อนใช้ปิดงวดจริง
+
+### B1 — total_amount persistence (no more NULL)
+- `_savePayroll` payload ส่ง `total_amount` ผ่าน pure helper ใหม่ `computePayrollTotal(payroll)` ทุกครั้ง
+- Formula: `round2(base_salary + overtime + welfare + bonus + commission - deductions)`
+- ฝั่ง app คำนวณเอง — ถ้า DB มี trigger/generated column ก็ยอมรับค่าที่ส่ง
+
+### B2 — paid expense_date timezone fix (off-by-1 ตอนเที่ยงคืน-06:59 ไทย)
+- Pure helper ใหม่ `expenseDateForPaidPayroll(when?)` wrap `dateBkk()` (Asia/Bangkok)
+- `_createSalaryExpense` เปลี่ยน `expense_date: paidAt.slice(0,10)` (UTC) → `expenseDateForPaidPayroll(paidAt)` (BKK)
+- เคสที่กระทบ: จ่าย payroll ตอน 00:00-06:59 ไทย (UTC 17:00-23:59 previous day) → expense_date เคยตกเป็นวันเมื่อวาน → period ผิด
+
+### B3 — paid payroll delete reverses linked expense (no orphans)
+- Pure helper ใหม่ `canDeletePayroll(payroll)` → `{allowed, requiresReverse, expenseTag, reason}`
+- `_deletePayroll`:
+  - ถ้า paid → confirm บอกชัด "รายจ่ายที่เชื่อมอยู่จะถูกลบด้วย"
+  - DELETE expense by `note ilike "%#payroll-{id}%"` ก่อน (idempotent — ถ้าไม่มี = no-op)
+  - แล้วค่อย DELETE payroll
+  - เก็บ `reversedExpense` flag ใน audit metadata
+- `_markPaid` idempotency guard — payroll.paid_at มีอยู่แล้ว → skip (กันกดซ้ำ)
+
+### B4 — Audit trail via `logActivity` (Phase 57)
+- เพิ่ม logActivity calls ทั้ง 7 mutations:
+  - **payroll_create / payroll_update** — metadata: `{before, after, employee_id, period_month, total_amount}`
+  - **payroll_pay** — metadata: `{payment_method, paid_at, expense_date_bkk, total_amount, expense_tag}`
+  - **payroll_delete** — metadata: `{was_paid, reversed_expense, expense_tag, before snapshot}`
+  - **leave_approve / leave_reject** — metadata: `{before:{status,reviewed_by,reviewed_at}, after, review_note, leave_type, days_count}`
+  - **leave_cancel** — metadata: `{before, after, leave_type, days_count}`
+  - **leave_delete** — metadata: `{before snapshot}` (เก็บก่อน DELETE)
+
+### iOS PWA safe: `window.prompt` → custom modal
+- `_doReview` ใน leave_management.js ใช้ `_askReviewNote(decisionLabel)` (textarea + OK/Cancel + ESC/backdrop close)
+- Pattern เดียวกับ `_askPaymentMethod` (Phase 75) — iOS PWA standalone บางครั้งไม่แสดง prompt → modal safe ทุก device
+- Role=dialog + aria-modal=true (a11y)
+
+### ไม่แตะ
+- SQL/RLS schema — ฝั่ง app handle total_amount
+- payroll math formula (Phase 92.41b dailyRate fix ยังอยู่)
+- Leave Calendar UI / popover (Phase 92.40-92.42)
+- HR Overview navigation (Phase 92.41)
+
+### Tests +24 (ไฟล์ใหม่ `tests/payroll.test.js`)
+- `computePayrollTotal` 5 (formula / production scenario / round / missing / negative)
+- `expenseDateForPaidPayroll` 5 (03:00/23:59/00:01 BKK + ISO string + default now)
+- `canDeletePayroll` 3 (unpaid / paid / no-id)
+- Source-level 11 (payload total_amount / expense_date helper / no paidAt.slice / reverse expense / audit calls / idempotency / no window.prompt / askReviewNote modal a11y)
+- Unit **718 → 738** (+20 net หลังลบ duplicates)
+
+### Gates ✅
+- `npm run lint:errors` exit 0
+- `npm test` = **738/738**
+- `npm run test:e2e -- --reporter=line` = **11/11**
+- `npm audit --audit-level=moderate` = **0 vulnerabilities**
+
+**Build:** 312 → 313; version 5.62.9 → 5.63.0 (minor — accounting/audit behavior change)
+
+---
+
 ## 5.62.9 (build 312) — 2026-05-27 ✨ Phase 92.42 — Leave Page Click-through Cards / Internal Navigation
 
 - **feat(leave/cards) [click-through]:** ทำ KPI + Balance cards ในหน้า "วันลา" คลิกได้ — drill-down ภายในหน้า (filter, ไม่เปลี่ยน route)

@@ -3,7 +3,7 @@
 //  CRUD per employee per month + total = base + ot + welfare + bonus + commission - deductions
 // ═══════════════════════════════════════════════════════════
 import { renderSkeleton, renderEmpty, renderError } from "./ui_states.js";
-import { escHtml, exportToExcel, todaySuffix } from "./utils.js";
+import { escHtml, exportToExcel, todaySuffix, dateBkk, logActivity } from "./utils.js";
 // Phase 92.26: ดึงสรุป OT จาก Time Clock มาเติมในช่องค่าล่วงเวลา (auto-fill)
 import { fetchUserAttendanceSummary, shiftHoursFromState } from "./time_clock.js";
 // Phase 92.33: ดึงวันลา approved + suggest deduction (advisory)
@@ -21,6 +21,60 @@ import {
   leaveDeductionNoteMarker,
   hasLeaveDeductionNoteMarker,
 } from "./leave_management.js";
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 92.43 — Pure helpers (testable, no DOM/network)
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * คำนวณ total_amount ของ payroll row (B1)
+ *   formula: base_salary + overtime + welfare + bonus + commission - deductions
+ *   ปัด 2 ตำแหน่งทศนิยม (money math safe)
+ * @param {object} input
+ * @returns {number}
+ */
+export function computePayrollTotal(input) {
+  const i = input || {};
+  const round2 = n => Math.round(n * 100) / 100;
+  const base = Number(i.base_salary) || 0;
+  const ot   = Number(i.overtime)    || 0;
+  const wel  = Number(i.welfare)     || 0;
+  const bon  = Number(i.bonus)       || 0;
+  const com  = Number(i.commission)  || 0;
+  const ded  = Number(i.deductions)  || 0;
+  return round2(base + ot + wel + bon + com - ded);
+}
+
+/**
+ * เลือก expense_date สำหรับ payroll ที่ mark paid (B2)
+ *   ★ ใช้ Bangkok TZ — กัน off-by-1 ตอนเที่ยงคืน-06:59 ไทย (UTC 17:00-23:59 วันก่อน)
+ * @param {Date|string} [when] - default = now
+ * @returns {string} "YYYY-MM-DD" Bangkok local
+ */
+export function expenseDateForPaidPayroll(when) {
+  return dateBkk(when || new Date());
+}
+
+/**
+ * Guard: ตรวจว่า payroll สามารถลบได้หรือไม่ + ต้อง reverse expense ไหม (B3)
+ * @param {object} payroll
+ * @returns {{allowed:boolean, requiresReverse:boolean, expenseTag:string|null, reason:string}}
+ */
+export function canDeletePayroll(payroll) {
+  if (!payroll || !payroll.id) {
+    return { allowed: false, requiresReverse: false, expenseTag: null, reason: "ไม่พบรายการ" };
+  }
+  const tag = "#payroll-" + String(payroll.id);
+  if (payroll.paid_at) {
+    return {
+      allowed: true,
+      requiresReverse: true,
+      expenseTag: tag,
+      reason: `รายการนี้จ่ายแล้ว — รายจ่ายที่เชื่อมอยู่ (${tag}) จะถูกลบด้วย`,
+    };
+  }
+  return { allowed: true, requiresReverse: false, expenseTag: tag, reason: "" };
+}
 
 let _payrolls = [];
 let _depts = [];
@@ -856,6 +910,9 @@ async function _savePayroll(ctx, existing) {
     daily_rate:  dailyRate,
     note:        (document.getElementById("prNote")?.value || "").trim() || null
   };
+  // Phase 92.43 (B1): persist total_amount ทุกครั้ง — ห้ามปล่อย NULL
+  // (ฝั่ง app คำนวณเอง; ถ้า DB มี trigger/generated column ก็ยังยอมรับค่าที่ส่งมาเหมือนเดิม)
+  payload.total_amount = computePayrollTotal(payload);
 
   const cfg = window.SUPABASE_CONFIG;
   const token = window._sbAccessToken;
@@ -878,6 +935,32 @@ async function _savePayroll(ctx, existing) {
       if (txt.includes("uq_staff_payroll") || txt.includes("23505")) throw new Error("พนักงานนี้มีรายการเงินเดือนเดือนนี้แล้ว — แก้ไขรายการเดิมแทน");
       throw new Error("HTTP " + resp.status + " " + txt.slice(0, 200));
     }
+    // Phase 92.43 (B4): audit log — silent fail
+    const isUpdate = !!existing?.id;
+    logActivity(isUpdate ? "payroll_update" : "payroll_create", {
+      entityType: "staff_payroll",
+      entityId: existing?.id || null,
+      summary: `${isUpdate ? "แก้ไข" : "เพิ่ม"} payroll ${employee_id} เดือน ${periodInput} — รวม ${payload.total_amount}`,
+      metadata: {
+        employee_id,
+        period_month: payload.period_month,
+        total_amount: payload.total_amount,
+        before: existing ? {
+          base_salary: Number(existing.base_salary || 0),
+          total_amount: Number(existing.total_amount || 0),
+          deductions: Number(existing.deductions || 0),
+        } : null,
+        after: {
+          base_salary: payload.base_salary,
+          overtime: payload.overtime,
+          welfare: payload.welfare,
+          bonus: payload.bonus,
+          commission: payload.commission,
+          deductions: payload.deductions,
+          total_amount: payload.total_amount,
+        },
+      },
+    });
     document.getElementById("prModal")?.remove();
     ctx.showToast?.(existing ? "แก้ไขรายการเงินเดือนแล้ว" : "เพิ่มรายการเงินเดือนแล้ว");
     renderPayrollPage(ctx);
@@ -888,17 +971,66 @@ async function _savePayroll(ctx, existing) {
   }
 }
 
+// Phase 92.43 (B3): ลบ payroll + reverse expense ที่เชื่อมอยู่ (ถ้า paid แล้ว)
+//   - กัน orphan expense — ลบ expense by #payroll-{id} tag ก่อน แล้วค่อยลบ payroll
+//   - idempotent: ลบ expense ที่ไม่มี → no-op (DELETE filter โดย note tag)
 async function _deletePayroll(ctx, id) {
-  if (!(await window.App?.confirm?.("ลบรายการเงินเดือนนี้?"))) return;
+  const payroll = _payrolls.find(p => String(p.id) === String(id));
+  const guard = canDeletePayroll(payroll);
+  if (!guard.allowed) {
+    ctx.showToast?.(guard.reason || "ไม่สามารถลบรายการนี้ได้");
+    return;
+  }
+  const confirmMsg = guard.requiresReverse
+    ? `⚠️ ${guard.reason}\n\nดำเนินการลบ payroll + ย้อนรายการรายจ่าย?`
+    : "ลบรายการเงินเดือนนี้?";
+  if (!(await window.App?.confirm?.(confirmMsg))) return;
   const cfg = window.SUPABASE_CONFIG;
   const token = window._sbAccessToken;
+  const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token };
+  let reversedExpense = false;
   try {
+    // Reverse linked expense ก่อน (idempotent — ถ้าไม่มี ก็ไม่มีอะไรลบ)
+    if (guard.requiresReverse && guard.expenseTag) {
+      const delExp = await fetch(
+        cfg.url + "/rest/v1/expenses?note=ilike." + encodeURIComponent("%" + guard.expenseTag + "%"),
+        { method: "DELETE", headers }
+      );
+      if (!delExp.ok && delExp.status !== 404) {
+        console.warn("[payroll] reverse expense failed HTTP", delExp.status);
+        // ไม่ throw — ให้ลบ payroll ต่อ แต่แจ้ง user หลัง action
+      } else {
+        reversedExpense = true;
+      }
+    }
     const resp = await fetch(cfg.url + "/rest/v1/staff_payroll?id=eq." + id, {
-      method: "DELETE",
-      headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token }
+      method: "DELETE", headers,
     });
     if (!resp.ok) throw new Error("HTTP " + resp.status);
-    ctx.showToast?.("ลบแล้ว");
+    // Phase 92.43 (B4): audit log — บันทึกข้อมูลก่อนลบ + reverse status
+    logActivity("payroll_delete", {
+      entityType: "staff_payroll",
+      entityId: id,
+      summary: `ลบ payroll ${payroll?.employee_id || id}${guard.requiresReverse ? " + ย้อนรายจ่าย" : ""}`,
+      metadata: {
+        was_paid: !!payroll?.paid_at,
+        reversed_expense: reversedExpense,
+        expense_tag: guard.expenseTag,
+        before: payroll ? {
+          employee_id: payroll.employee_id,
+          period_month: payroll.period_month,
+          total_amount: Number(payroll.total_amount || 0),
+          paid_at: payroll.paid_at || null,
+          payment_method: payroll.payment_method || null,
+        } : null,
+      },
+    });
+    ctx.showToast?.(guard.requiresReverse && reversedExpense
+      ? "ลบ payroll + ย้อนรายจ่ายแล้ว ✅"
+      : guard.requiresReverse
+        ? "ลบ payroll แล้ว — แต่ย้อนรายจ่ายไม่สำเร็จ ตรวจหน้าค่าใช้จ่าย"
+        : "ลบแล้ว");
+    if (ctx.loadAllData) await ctx.loadAllData();
     renderPayrollPage(ctx);
   } catch(e) {
     ctx.showToast?.("ลบไม่สำเร็จ: " + (e.message || e));
@@ -906,6 +1038,11 @@ async function _deletePayroll(ctx, id) {
 }
 
 async function _markPaid(ctx, id) {
+  const payroll = _payrolls.find(p => String(p.id) === String(id));
+  if (payroll?.paid_at) {
+    ctx.showToast?.("รายการนี้จ่ายแล้ว (idempotent guard) — ไม่ทำซ้ำ");
+    return;
+  }
   const method = await _askPaymentMethod();
   if (!method) return;
   const cfg = window.SUPABASE_CONFIG;
@@ -920,7 +1057,7 @@ async function _markPaid(ctx, id) {
     if (!resp.ok) throw new Error("HTTP " + resp.status);
 
     // Phase 76: Auto-create expense in salary category — link via "#payroll-{id}" pattern
-    const payroll = _payrolls.find(p => String(p.id) === String(id));
+    // Phase 92.43 (B2): expense_date ใช้ Bangkok date — กัน off-by-1 ตอนเที่ยงคืน-06:59 ไทย
     if (payroll) {
       try {
         await _createSalaryExpense(cfg, headers, payroll, paidAt, method);
@@ -929,6 +1066,19 @@ async function _markPaid(ctx, id) {
         ctx.showToast?.("จ่ายแล้ว แต่บันทึกรายจ่ายอัตโนมัติไม่สำเร็จ");
       }
     }
+    // Phase 92.43 (B4): audit log
+    logActivity("payroll_pay", {
+      entityType: "staff_payroll",
+      entityId: id,
+      summary: `จ่าย payroll ${payroll?.employee_id || id} — ${method} — ${expenseDateForPaidPayroll(paidAt)}`,
+      metadata: {
+        payment_method: method,
+        paid_at: paidAt,
+        expense_date_bkk: expenseDateForPaidPayroll(paidAt),
+        total_amount: Number(payroll?.total_amount || 0),
+        expense_tag: "#payroll-" + id,
+      },
+    });
     ctx.showToast?.("บันทึกการจ่าย + ลงรายจ่ายเงินเดือนแล้ว ✅");
     if (ctx.loadAllData) await ctx.loadAllData();
     renderPayrollPage(ctx);
@@ -951,7 +1101,8 @@ async function _createSalaryExpense(cfg, headers, payroll, paidAt, method) {
   const empName = emp?.full_name || "(พนักงาน)";
   const periodTH = new Date(payroll.period_month).toLocaleDateString("th-TH", { year: "numeric", month: "long" });
   const payload = {
-    expense_date: paidAt.slice(0, 10),
+    // Phase 92.43 (B2): Bangkok date — กัน UTC off-by-1 ตอน 00:00-06:59 ไทย
+    expense_date: expenseDateForPaidPayroll(paidAt),
     category: "salary",
     description: `จ่ายเงินเดือน ${empName} — ${periodTH}`,
     amount: Number(payroll.total_amount || 0),
