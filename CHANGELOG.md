@@ -7,6 +7,23 @@
 
 ---
 
+## 5.64.0 (build 315) — 2026-05-28 🔒 Phase 92.45 — Leave SQL/RLS Hardening + Audit Enforcement
+
+- **feat(security/leave) [S3 closed]:** ปิดช่อง spoof reviewer fields ฝั่ง DB — defense-in-depth ทับ RLS เดิม
+- **SQL:** `supabase-phase92-45-leave-hardening.sql`
+  - BEFORE INSERT trigger `_guard_staff_leaves_insert` — non-admin POST: บังคับ `user_id=auth.uid()`, `status='pending'`, ล้าง `reviewed_by/_at/_note` (กัน spoof ผ่าน payload ที่ผ่าน RLS เดิม)
+  - BEFORE UPDATE trigger `_guard_staff_leaves_update` — non-admin: preserve OLD reviewer/user_id/leave_type/created_by + RAISE EXCEPTION ถ้าพยายามแก้ status ออกนอก pending/cancelled หรือยุ่ง row terminal; admin: auto-set `reviewed_by=auth.uid()` + `reviewed_at=now()` ตอน approve/reject
+  - RPC `public.review_staff_leave(p_leave_id, p_status, p_note)` — admin-only clean path (status whitelist + GRANT EXECUTE authenticated)
+- **Client (`modules/leave_management.js`):**
+  - `_doReview` ใช้ RPC แทน `_patchLeave` — เลิกส่ง `reviewed_by`/`reviewed_at` จาก client (server-trusted)
+  - Form submit แยก branch: existing → `_patchLeave(safe fields)` + `leave_update` audit; insert → `leave_create` audit
+  - Safe fields whitelist สำหรับ edit: `leave_type/start_date/end_date/days_count/reason` (ห้าม `status/reviewed_*/user_id/created_by`)
+- **Audit:** +`leave_create` +`leave_update` (เพิ่มจาก approve/reject/cancel/delete เดิม)
+- **Tests:** +8 source-level (RPC helper + _doReview switch + audit metadata server-trusted + form branch + safe-fields whitelist + create/update audit + SQL trigger/RPC structure)
+- **Gates:** lint 0 / unit 760/760 / e2e 11/11 / audit moderate 0
+
+---
+
 ## 5.63.1 (build 314) — 2026-05-27 🔗 Phase 92.44 — Payroll Payment Journal Visibility
 
 - **fix(payroll/accounting) [missing-pv]:** หลังจ่าย payroll หน้า "บัญชี → สมุดรายวัน" ไม่มีรายการให้ตรวจ — PV ขาด → ปิดงวด/audit smoke ผ่านไม่ได้

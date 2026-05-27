@@ -3,16 +3,145 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 27 พฤษภาคม 2026 (Phase 92.41 — HR Overview Click-through Navigation, build 309)
-**Version:** 5.62.6 (build 309) — Phase 92.41 (KPI drill-down + a11y + Payroll button ใน modal)
-**Previous:** 5.62.5 (build 308) — Phase 92.40b (day-list hint copy + chip a11y)
-**Pre-prev:** 5.62.4 (build 307) — Phase 92.40 (Leave Calendar event detail polish)
+**อัปเดตล่าสุด:** 28 พฤษภาคม 2026 (Phase 92.45 — Leave SQL/RLS Hardening + Audit Enforcement, build 315)
+**Version:** 5.64.0 (build 315) — Phase 92.45 (S3 closed: DB triggers + review RPC + leave_create/update audit)
+**Previous:** 5.63.1 (build 314) — Phase 92.44 (Payroll Payment Journal Visibility)
+**Pre-prev:** 5.63.0 (build 313) — Phase 92.43 (Payroll/Accounting Audit Hardening B1-B4)
 
-> ✅ **ไม่มี SQL ใหม่ในเฟส 92.36–92.41** (additive code only).
+> 🆕 **SQL ใหม่ในเฟส 92.45:** `supabase-phase92-45-leave-hardening.sql` (rerun-safe, defense-in-depth ไม่แตะ RLS เดิม)
 
 ---
 
-## ✨ Phase 92.41 — HR Overview Click-through Navigation (this session)
+## 🔒 Phase 92.45 — Leave SQL/RLS Hardening + Audit Enforcement (this session)
+
+**บริบท / S3 ที่ปิด:**
+audit เดิมพบช่องโหว่ "non-admin spoof reviewer fields" — RLS Phase 92.32 เช็คแค่ `status='pending'` + `user_id=auth.uid()` แต่ไม่ได้ lock column `reviewed_by/_at/_note` → non-admin POST/PATCH `{user_id:self, status:'pending', reviewed_by:'<spoofed-admin-uuid>', reviewed_at:'now'}` ผ่าน RLS เดิมได้
+
+นอกจากนั้น `_doReview` เดิม set `reviewed_by: currentUserId` + `reviewed_at: new Date().toISOString()` ฝั่ง client → spoofable + clock-skew prone
+
+### สิ่งที่ทำ
+
+**1) SQL trigger + RPC ([`supabase-phase92-45-leave-hardening.sql`](supabase-phase92-45-leave-hardening.sql))**
+
+- **BEFORE INSERT trigger `_guard_staff_leaves_insert`** — non-admin: force `user_id=auth.uid()`, `status='pending'`, `reviewed_by/_at/_note=NULL`, `created_by=auth.uid()` (silent strip — ไม่ throw เพื่อ UX ไม่พัง)
+- **BEFORE UPDATE trigger `_guard_staff_leaves_update`**:
+  - non-admin: preserve OLD `user_id/leave_type/created_by/reviewed_by/_at/_note` + RAISE EXCEPTION ถ้า `NEW.status NOT IN ('pending','cancelled')` หรือ `OLD.status IN ('approved','rejected','cancelled')` (ห้ามแก้ row terminal)
+  - admin: ตอน `status` เปลี่ยนเป็น approved/rejected → auto `NEW.reviewed_by=auth.uid()` + `NEW.reviewed_at=now()`; ตอน revert ไป pending/cancelled → ล้าง reviewer trail
+- **RPC `public.review_staff_leave(p_leave_id, p_status, p_note)`** — SECURITY INVOKER + admin guard (`is_accountant()`) + status whitelist (`approved/rejected/cancelled`) + คืน updated `jsonb` row → trigger จัดการ reviewer ให้เอง
+- **GRANT EXECUTE TO authenticated** + `NOTIFY pgrst 'reload schema'` + 5 VERIFY queries
+- Rerun-safe: `CREATE OR REPLACE` / `DROP TRIGGER IF EXISTS` / `DROP FUNCTION IF EXISTS`
+
+**2) Client hardening ([`modules/leave_management.js`](modules/leave_management.js))**
+
+- เพิ่ม helper `_callReviewRpc(leaveId, status, note)` → POST `/rest/v1/rpc/review_staff_leave` body `{p_leave_id, p_status, p_note}`
+- `_doReview` switch: เลิกส่ง `reviewed_by/_at` จาก client → เรียก `_callReviewRpc` → audit metadata `after.reviewed_*` อ่านจาก RPC response (server-trusted)
+- Form submit branches:
+  - `existing && existing.id != null` → **EDIT path**: `_patchLeave(existing.id, {leave_type, start_date, end_date, days_count, reason})` (safe fields whitelist — ไม่ส่ง status/reviewed_*/user_id/created_by) + `leave_update` audit (before/after diff)
+  - ไม่มี existing → **CREATE path**: `_insertLeave(body)` + `leave_create` audit (key fields)
+- เดิม edit submit ก็เรียก `_insertLeave` (สร้าง row ใหม่แทน update) → bug แอบฟ้องไม่เคยเจอ — แก้ในเฟสนี้
+
+**3) Audit log (utils.js `logActivity`)**
+
+ครอบ leave actions ครบ 6 ตัว:
+- `leave_create` (ใหม่ — เฟสนี้)
+- `leave_update` (ใหม่ — เฟสนี้)
+- `leave_approve` / `leave_reject` (เดิม Phase 92.43 B4)
+- `leave_cancel` / `leave_delete` (เดิม Phase 92.43 B4)
+
+Metadata: `before/after`, `leave_type`, `days_count`, `reviewed_by/_at` (จาก RPC response)
+
+### Re-uses (ไม่สร้างใหม่)
+
+- RLS policies เดิม Phase 92.32 ทั้ง 4 ตัว (`leaves_select_admin_or_self` / `leaves_insert_admin_or_self_pending` / `leaves_update_admin_or_self_pending` / `leaves_delete_admin`) — trigger เป็น defense-in-depth ทับ
+- `is_accountant()` helper (Phase 88) สำหรับ guard ทั้ง trigger + RPC
+- `logActivity` (Phase 57) สำหรับ audit log
+- `_patchLeave` / `_insertLeave` helper เดิม
+- `_runPopoverAction` wrapper สำหรับ error UX (popover stays open on RPC fail)
+- Form modal layout + quota warning (Phase 92.35)
+
+### Tests +8 source-level
+
+[`tests/leave_management.test.js`](tests/leave_management.test.js):
+- `_callReviewRpc` signature + endpoint `/rpc/review_staff_leave` + payload shape
+- `_doReview` ใช้ `_callReviewRpc` แทน `_patchLeave` + ไม่ส่ง `reviewed_by: currentUserId` / `reviewed_at: new Date()...` (regression guard)
+- audit metadata `after.reviewed_*` อ่านจาก `updatedRow?.reviewed_*` (RPC response)
+- Form submit branch on `existing.id` → `_patchLeave` vs `_insertLeave`
+- Edit PATCH body safe-fields whitelist (ห้ามมี `status/reviewed_*/user_id/created_by`)
+- `leave_create` audit ใน insert path success + metadata keys ครบ
+- `leave_update` audit ใน edit path success + before/after diff
+- SQL file `supabase-phase92-45-leave-hardening.sql` มี trigger functions + bindings + RPC + GRANT + NOTIFY
+
+Unit **752 → 760** (+8)
+
+### Gates ✅
+
+- `npm run lint:errors` exit 0
+- `npm test` = **760/760**
+- `npm run test:e2e -- --reporter=line` = **11/11**
+- `npm audit --audit-level=moderate` = **0 vulnerabilities**
+
+### Version sync (4 sub-items ครบ)
+
+- `package.json`: 5.63.1 → **5.64.0** (security minor)
+- `index.html`: `?v=314→315` × 4 src (style.css/selfheal.js/main.js/boot.js) + `data-app-build="315"` + `data-app-version="5.64.0"`
+- `sw.js`: `cache-v314→v315` + comment v315
+
+### Manual smoke (โปรดทำหลัง deploy)
+
+**1. รัน SQL ก่อน** — Supabase Dashboard → SQL Editor → paste `supabase-phase92-45-leave-hardening.sql` → Run → ตรวจ VERIFY queries ที่ท้ายไฟล์
+- (a) Triggers — Expected: 3 ตัว (`trg_staff_leaves_updated_at` + `trg_staff_leaves_guard_insert` + `trg_staff_leaves_guard_update`)
+- (b) Functions — Expected: `_bump_staff_leaves_updated_at` + `_guard_staff_leaves_insert` + `_guard_staff_leaves_update` + `review_staff_leave`
+- (c) RPC grant — Expected: `review_staff_leave` มี EXECUTE สำหรับ `authenticated`
+- (d) RLS policies เดิม — Expected: 4 ตัว (ไม่ถูกแตะ)
+
+**2. Production Ctrl+Shift+R → APP_BUILD=315**
+
+**3. Login admin:**
+- สร้าง leave ให้พนักงาน → approve/reject/cancel ได้ผ่าน RPC (network tab: POST `/rest/v1/rpc/review_staff_leave`)
+- ตรวจ `audit_log` table — มี action `leave_create/leave_update/leave_approve/leave_reject/leave_cancel/leave_delete` ครบ
+- หลัง approve → `reviewed_by` = admin uuid, `reviewed_at` = server timestamp (ไม่ใช่ client clock)
+
+**4. Login sales/technician:**
+- สร้าง leave ของตัวเอง → status='pending' (trigger บังคับ)
+- ไม่เห็นปุ่ม approve/reject ของคนอื่น (UI guard)
+- **เทส spoof:** เปิด DevTools console → ลอง:
+  ```js
+  // pretend non-admin POST + spoof reviewer
+  fetch(window.SUPABASE_CONFIG.url + "/rest/v1/staff_leaves", {
+    method: "POST",
+    headers: { apikey: window.SUPABASE_CONFIG.anonKey,
+               Authorization: "Bearer " + window._sbAccessToken,
+               "Content-Type":"application/json",
+               Prefer:"return=representation" },
+    body: JSON.stringify({
+      user_id: "OTHER_USER_UUID",  // not self
+      leave_type: "vacation",
+      start_date: "2026-06-01", end_date: "2026-06-01", days_count: 1,
+      status: "approved",           // spoof
+      reviewed_by: "FAKE_ADMIN_UUID", reviewed_at: "2026-06-01T00:00:00Z"
+    })
+  }).then(r=>r.json()).then(console.log);
+  ```
+  - **ผลที่คาด:** row ถูกสร้าง แต่ DB silently strip → ได้ `user_id=auth.uid()`, `status='pending'`, `reviewed_by=null`, `reviewed_at=null` (RLS เดิม + trigger ทำงานพร้อมกัน — RLS อาจ block ถ้า user_id !== auth.uid())
+- ลอง PATCH spoof reviewed_by ของ row ตัวเอง → trigger preserve OLD value (ลอง SELECT แล้ว reviewed_by ยังเป็น NULL)
+- ลอง PATCH status='approved' ของ row ตัวเอง → trigger RAISE EXCEPTION 42501
+
+**5. กลับ admin:**
+- เห็น pending leave → approve → KPI/Balance/Calendar update ถูก
+- approve ผ่าน RPC: ตรวจ network tab POST `/rest/v1/rpc/review_staff_leave` body `{p_leave_id, p_status, p_note}`
+
+**6. Regression:**
+- Leave Calendar / Page click-through (92.42) ยังใช้ได้
+- Balance/Quota (92.35) ยังนับถูก
+- Payroll paid/journal/reverse (92.43–92.44) ไม่กระทบ
+- HR Overview pending leave alert ยังขึ้นถูก
+- Form edit (existing) → update row จริง (ไม่สร้าง duplicate แล้ว)
+
+> ⚠️ **หมายเหตุ:** sections ด้านล่างนี้สำหรับเฟส 92.41 และก่อนหน้า — เฟส 92.42 (Leave page click-through cards), 92.43 (Payroll/Accounting audit hardening B1-B4), 92.44 (Payroll payment journal visibility) ไม่ได้อัปเดต HANDOFF section แยก ดูรายละเอียดที่ commit message + CHANGELOG.md
+
+---
+
+## ✨ Phase 92.41 — HR Overview Click-through Navigation (older session)
 
 **บริบท:** หน้า HR Overview มี infrastructure click-through อยู่แล้ว (`hr-kpi-card` + `data-hr-action` + delegation + keyboard handler) แต่ใช้กับเฉพาะ Payroll (conditional `unpaid > 0`) + Offline Queue. KPI cards 4 ใบหลัก (พนักงานทั้งหมด/เข้างานวันนี้/ยังไม่ลงเวลาออก/OT) ยังเป็น static — user ไม่มีทาง drill-down ต่อ. งานเฟสนี้ขยายให้ครบทุกใบ + ปรับ a11y/affordance + เพิ่ม "ไป Payroll" ใน employee modal.
 

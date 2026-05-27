@@ -1777,9 +1777,11 @@ test("source: form submit success ยัง trigger _rerender (regression guard)
   const fs = await import("node:fs");
   const path = await import("node:path");
   const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
-  // หลัง insert ต้องมี leaves.unshift + closeModal + _rerender
-  assert.match(src, /leaves\.unshift\(inserted\[0\]\)[\s\S]{0,300}?_rerender\(\)/,
-    "หลัง insert ต้อง unshift + rerender");
+  // Phase 92.45 refactor: insert path wraps row ใน insertedRow var ก่อน unshift + _rerender อยู่หลัง branch
+  // ตรวจว่า insert success → push เข้า local cache + rerender ยังทำงาน
+  assert.match(src, /leaves\.unshift\(insertedRow\)/, "insert success ต้อง push เข้า local cache");
+  const formSubmit = src.match(/modal\.querySelector\("#lmForm"\)\?\.addEventListener\("submit",[\s\S]*?\}\);\s*\}/)?.[0] || "";
+  assert.match(formSubmit, /closeModal\(\);\s*_rerender\(\);/, "submit success ต้อง closeModal + _rerender");
 });
 
 // ═══════════════════════════════════════════════════════════
@@ -1974,4 +1976,148 @@ test("source: .lm-cal-event มี :focus-visible affordance (keyboard/SR users 
   const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
   assert.match(src, /\.lm-cal-event:focus-visible\s*\{[\s\S]{0,200}?outline:/,
     "ต้องมี .lm-cal-event:focus-visible rule");
+});
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 92.45 — Leave SQL/RLS Hardening + Audit Enforcement
+// ═══════════════════════════════════════════════════════════
+
+test("source: Phase 92.45 — _callReviewRpc helper hits /rpc/review_staff_leave with admin-only payload", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  const body = src.match(/async function _callReviewRpc[\s\S]*?^}/m)?.[0] || "";
+  assert.ok(body.length > 0, "ต้องมี helper _callReviewRpc");
+  assert.match(body, /\/rest\/v1\/rpc\/review_staff_leave/, "ต้องเรียก PostgREST RPC endpoint");
+  assert.match(body, /method:\s*["']POST["']/, "RPC ต้อง POST");
+  assert.match(body, /p_leave_id/, "ต้องส่ง p_leave_id");
+  assert.match(body, /p_status/, "ต้องส่ง p_status");
+  assert.match(body, /p_note/, "ต้องส่ง p_note");
+});
+
+test("source: Phase 92.45 — _doReview ใช้ _callReviewRpc แทน _patchLeave + ไม่ส่ง reviewed_by/reviewed_at จาก client", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  const body = src.match(/async function _doReview[\s\S]*?^ {2}}/m)?.[0] || "";
+  assert.ok(body.length > 0, "ต้องเจอ _doReview");
+  assert.match(body, /_callReviewRpc\(/, "_doReview ต้องเรียก _callReviewRpc (RPC path)");
+  // กัน regression: client ห้าม set reviewed_by/reviewed_at ใน patch อีกแล้ว — server เป็นคน set
+  assert.ok(!/reviewed_by:\s*currentUserId/.test(body),
+    "_doReview ต้องไม่ส่ง reviewed_by: currentUserId แล้ว (server-side trigger จัดการ)");
+  assert.ok(!/reviewed_at:\s*new Date\(\)\.toISOString\(\)/.test(body),
+    "_doReview ต้องไม่ส่ง reviewed_at: client clock แล้ว (server-side trigger ใช้ now())");
+  // ห้าม fallback กลับไป _patchLeave สำหรับ review path
+  assert.ok(!/_patchLeave\(\s*row\.id\s*,\s*\{[\s\S]{0,200}?reviewed_by/.test(body),
+    "_doReview ห้าม _patchLeave({ reviewed_by ... }) (RPC only)");
+});
+
+test("source: Phase 92.45 — _doReview audit metadata ใช้ค่า reviewed_by/reviewed_at จาก RPC response (server-trusted)", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  const body = src.match(/async function _doReview[\s\S]*?^ {2}}/m)?.[0] || "";
+  assert.match(body, /updatedRow\?\.reviewed_by/, "audit after.reviewed_by ต้องอ่านจาก RPC response");
+  assert.match(body, /updatedRow\?\.reviewed_at/, "audit after.reviewed_at ต้องอ่านจาก RPC response");
+  // approve/reject action ยังต้อง audit อยู่ (regression guard 92.43 B4)
+  assert.match(body, /logActivity\(decision === "approved" \? "leave_approve" : "leave_reject"/,
+    "audit log ของ approve/reject ต้องยังอยู่");
+});
+
+test("source: Phase 92.45 — form submit branches on existing → PATCH edit path", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  const formSubmit = src.match(/modal\.querySelector\("#lmForm"\)\?\.addEventListener\("submit",[\s\S]*?\}\);\s*\}/)?.[0] || "";
+  assert.ok(formSubmit.length > 0, "ต้องเจอ form submit handler");
+  assert.match(formSubmit, /if\s*\(\s*existing\s*&&\s*existing\.id\s*!=\s*null\s*\)/,
+    "submit ต้อง branch ตาม existing.id");
+  assert.match(formSubmit, /_patchLeave\(\s*existing\.id\s*,\s*patch\s*\)/,
+    "edit path ต้องเรียก _patchLeave(existing.id, patch)");
+  assert.match(formSubmit, /_insertLeave\(body\)/, "create path ยังต้องเรียก _insertLeave");
+});
+
+test("source: Phase 92.45 — edit PATCH body ห้ามมี status/reviewed_*/user_id/created_by (safe fields only)", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  // จับ block ของ patch object ใน edit path
+  const patchBlock = src.match(/\/\/ Phase 92\.45: EDIT path[\s\S]*?const patch = \{([\s\S]*?)\};/)?.[1] || "";
+  assert.ok(patchBlock.length > 0, "ต้องเจอ patch object ใน edit path");
+  // safe fields ต้องมี
+  for (const f of ["leave_type", "start_date", "end_date", "days_count", "reason"]) {
+    assert.match(patchBlock, new RegExp(`${f}\\s*:`), `patch ต้องมี ${f}`);
+  }
+  // dangerous fields ห้ามมี
+  for (const bad of ["status", "reviewed_by", "reviewed_at", "review_note", "user_id", "created_by"]) {
+    assert.ok(!new RegExp(`${bad}\\s*:`).test(patchBlock),
+      `patch ห้ามมี ${bad} (server-side trigger + RPC จัดการ)`);
+  }
+});
+
+test("source: Phase 92.45 — leave_create audit ใน insert path success", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  const formSubmit = src.match(/modal\.querySelector\("#lmForm"\)\?\.addEventListener\("submit",[\s\S]*?\}\);\s*\}/)?.[0] || "";
+  assert.match(formSubmit, /logActivity\(\s*"leave_create"/, "create path ต้อง logActivity('leave_create', ...)");
+  // metadata ต้องมี key fields
+  const auditBlock = formSubmit.match(/logActivity\(\s*"leave_create"[\s\S]*?\}\);/)?.[0] || "";
+  for (const k of ["user_id", "leave_type", "start_date", "end_date", "days_count", "status"]) {
+    assert.match(auditBlock, new RegExp(`${k}\\s*:`), `leave_create metadata ต้องมี ${k}`);
+  }
+});
+
+test("source: Phase 92.45 — leave_update audit ใน edit path success + before/after diff", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/leave_management.js"), "utf8");
+  const formSubmit = src.match(/modal\.querySelector\("#lmForm"\)\?\.addEventListener\("submit",[\s\S]*?\}\);\s*\}/)?.[0] || "";
+  assert.match(formSubmit, /logActivity\(\s*"leave_update"/, "edit path ต้อง logActivity('leave_update', ...)");
+  const auditBlock = formSubmit.match(/logActivity\(\s*"leave_update"[\s\S]*?\}\);/)?.[0] || "";
+  assert.match(auditBlock, /before:\s*\{/, "metadata ต้องมี before:");
+  assert.match(auditBlock, /after:\s*\{/, "metadata ต้องมี after:");
+  // before ต้องอ้าง existing.* (snapshot ก่อน mutate)
+  assert.match(auditBlock, /existing\.leave_type/, "before ต้อง snapshot existing.leave_type");
+});
+
+test("source: Phase 92.45 SQL — trigger + RPC ต้องอยู่ใน supabase-phase92-45 file", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("supabase-phase92-45-leave-hardening.sql"), "utf8");
+  // trigger functions
+  assert.match(src, /CREATE OR REPLACE FUNCTION public\._guard_staff_leaves_insert/,
+    "ต้องมี _guard_staff_leaves_insert trigger function");
+  assert.match(src, /CREATE OR REPLACE FUNCTION public\._guard_staff_leaves_update/,
+    "ต้องมี _guard_staff_leaves_update trigger function");
+  // trigger bindings
+  assert.match(src, /CREATE TRIGGER trg_staff_leaves_guard_insert[\s\S]{0,200}?BEFORE INSERT/,
+    "ต้องมี BEFORE INSERT trigger binding");
+  assert.match(src, /CREATE TRIGGER trg_staff_leaves_guard_update[\s\S]{0,200}?BEFORE UPDATE/,
+    "ต้องมี BEFORE UPDATE trigger binding");
+  // non-admin guard — ห้ามตั้ง reviewed_by ใน INSERT
+  assert.match(src, /IF NOT public\.is_accountant\(\)[\s\S]{0,500}?NEW\.reviewed_by\s*:=\s*NULL/,
+    "INSERT trigger ต้อง strip reviewed_by เมื่อ non-admin");
+  // non-admin UPDATE — ห้ามแก้ status เป็น approved/rejected
+  assert.match(src, /NEW\.status NOT IN \('pending','cancelled'\)/,
+    "UPDATE trigger ต้อง restrict non-admin status ให้แค่ pending/cancelled");
+  // admin auto-set reviewer
+  assert.match(src, /NEW\.reviewed_by\s*:=\s*auth\.uid\(\)/,
+    "admin path ต้อง auto-set reviewed_by = auth.uid()");
+  assert.match(src, /NEW\.reviewed_at\s*:=\s*now\(\)/,
+    "admin path ต้อง auto-set reviewed_at = now()");
+  // RPC function
+  assert.match(src, /CREATE OR REPLACE FUNCTION public\.review_staff_leave\(\s*p_leave_id bigint,\s*p_status\s+text,\s*p_note\s+text/,
+    "ต้องมี RPC review_staff_leave(bigint,text,text)");
+  // RPC admin guard
+  assert.match(src, /review_staff_leave[\s\S]{0,800}?IF NOT public\.is_accountant\(\)/,
+    "RPC ต้อง guard admin-only");
+  // RPC status whitelist
+  assert.match(src, /p_status NOT IN \('approved','rejected','cancelled'\)/,
+    "RPC ต้องเช็ค p_status whitelist");
+  // GRANT EXECUTE
+  assert.match(src, /GRANT EXECUTE ON FUNCTION public\.review_staff_leave[\s\S]{0,100}?TO authenticated/,
+    "ต้อง GRANT EXECUTE ให้ authenticated");
+  // schema reload
+  assert.match(src, /NOTIFY pgrst, 'reload schema'/, "ต้อง NOTIFY pgrst reload");
 });

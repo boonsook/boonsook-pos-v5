@@ -1142,6 +1142,28 @@ async function _patchLeave(id, patch) {
   return r.json();
 }
 
+// Phase 92.45: RPC review_staff_leave — admin-only path. DB trigger จะ set reviewed_by/reviewed_at เอง
+// คืน updated row (jsonb) — ใช้ replace local cache เพื่อ render ทันที
+async function _callReviewRpc(leaveId, status, note) {
+  const cfg = window.SUPABASE_CONFIG;
+  if (!cfg?.url) throw new Error("ไม่มี SUPABASE_CONFIG");
+  const r = await fetch(`${cfg.url}/rest/v1/rpc/review_staff_leave`, {
+    method: "POST",
+    headers: _sbHeaders(),
+    body: JSON.stringify({
+      p_leave_id: leaveId,
+      p_status: status,
+      p_note: note || null,
+    }),
+  });
+  if (!r.ok) {
+    const txt = await r.text().catch(() => "");
+    // 403 = is_accountant() guard, 404 = row not found, 400 = invalid status
+    throw new Error(`HTTP ${r.status}: ${txt.slice(0, 200)}`);
+  }
+  return r.json(); // jsonb row
+}
+
 // ═══════════════════════════════════════════════════════════
 //  UI helpers
 // ═══════════════════════════════════════════════════════════
@@ -2029,25 +2051,22 @@ export async function renderLeaveManagementPage(ctx) {
     if (note === null) return { ok: false, error: "ยกเลิก" }; // user pressed cancel — silent
     if (!_confirmDialog(`ยืนยัน${decisionLabel}คำขอลานี้?`)) return { ok: false, error: "ยกเลิก" };
     try {
-      const patch = {
-        status: decision,
-        reviewed_by: currentUserId,
-        reviewed_at: new Date().toISOString(),
-        review_note: note.trim() || null,
-      };
-      const updated = await _patchLeave(row.id, patch);
-      // อัปเดต local cache
+      // Phase 92.45: ใช้ RPC review_staff_leave — DB trigger จะ set reviewed_by/reviewed_at เอง
+      // (กัน non-admin spoof + audit ยึด server timestamp)
+      const cleanNote = note.trim() || null;
+      const updatedRow = await _callReviewRpc(row.id, decision, cleanNote);
+      // อัปเดต local cache (RPC คืน jsonb เป็น single row, ไม่ใช่ array)
       const i = leaves.findIndex(r => String(r.id) === String(row.id));
-      if (i >= 0 && Array.isArray(updated) && updated[0]) leaves[i] = updated[0];
-      // Phase 92.43 (B4): audit log
+      if (i >= 0 && updatedRow && typeof updatedRow === "object") leaves[i] = updatedRow;
+      // Phase 92.43 (B4): audit log — after ใช้ค่าที่ DB คืนจริง (กัน clock skew + spoof)
       logActivity(decision === "approved" ? "leave_approve" : "leave_reject", {
         entityType: "staff_leaves",
         entityId: row.id,
         summary: `${decisionLabel}คำขอลา ${row.user_id} ${row.leave_type} ${row.start_date}→${row.end_date}`,
         metadata: {
           before: { status: row.status, reviewed_by: row.reviewed_by, reviewed_at: row.reviewed_at },
-          after:  { status: decision, reviewed_by: currentUserId, reviewed_at: patch.reviewed_at },
-          review_note: patch.review_note,
+          after:  { status: decision, reviewed_by: updatedRow?.reviewed_by ?? null, reviewed_at: updatedRow?.reviewed_at ?? null },
+          review_note: cleanNote,
           leave_type: row.leave_type,
           days_count: Number(row.days_count || 0),
         },
@@ -2472,27 +2491,86 @@ export async function renderLeaveManagementPage(ctx) {
       if (endDate < startDate) { errBox.textContent = "วันที่สิ้นสุดต้อง >= วันที่เริ่ม"; errBox.style.display = "block"; return; }
       if (!(daysVal > 0)) { errBox.textContent = "จำนวนวันต้องมากกว่า 0"; errBox.style.display = "block"; return; }
 
-      const body = {
-        user_id: userIdVal,
-        leave_type: leaveType,
-        start_date: startDate,
-        end_date: endDate,
-        days_count: daysVal,
-        reason: reason || null,
-        status: "pending",
-        created_by: currentUserId,
-      };
-
       const submitBtn = modal.querySelector("#lmFormSubmit");
       submitBtn.disabled = true;
       const orig = submitBtn.textContent;
       submitBtn.textContent = "⏳ กำลังบันทึก...";
       try {
-        const inserted = await _insertLeave(body);
-        if (Array.isArray(inserted) && inserted[0]) {
-          leaves.unshift(inserted[0]);
+        if (existing && existing.id != null) {
+          // Phase 92.45: EDIT path — PATCH เฉพาะ safe fields (ไม่ส่ง status/reviewed_*/created_by/user_id)
+          // DB trigger ป้องกัน non-admin spoof อยู่อีกชั้น — นี่คือฝั่ง client เพิ่ม UX hygiene
+          const patch = {
+            leave_type: leaveType,
+            start_date: startDate,
+            end_date: endDate,
+            days_count: daysVal,
+            reason: reason || null,
+          };
+          const updated = await _patchLeave(existing.id, patch);
+          const idx = leaves.findIndex(r => String(r.id) === String(existing.id));
+          if (idx >= 0 && Array.isArray(updated) && updated[0]) leaves[idx] = updated[0];
+          // Phase 92.45 audit: leave_update — before/after diff (ไม่รวม sensitive fields)
+          const after = (Array.isArray(updated) && updated[0]) ? updated[0] : patch;
+          logActivity("leave_update", {
+            entityType: "staff_leaves",
+            entityId: existing.id,
+            summary: `แก้คำขอลา ${existing.user_id} ${existing.leave_type} ${existing.start_date}→${existing.end_date}`,
+            metadata: {
+              before: {
+                leave_type: existing.leave_type,
+                start_date: existing.start_date,
+                end_date: existing.end_date,
+                days_count: Number(existing.days_count || 0),
+                reason: existing.reason || null,
+                status: existing.status,
+              },
+              after: {
+                leave_type: after.leave_type,
+                start_date: after.start_date,
+                end_date: after.end_date,
+                days_count: Number(after.days_count || 0),
+                reason: after.reason || null,
+                status: after.status,
+              },
+            },
+          });
+          showToast?.("✓ บันทึกการแก้ไขเรียบร้อย");
+        } else {
+          // CREATE path — non-admin: trigger จะบังคับ user_id/status เอง
+          // admin: ส่ง status='pending' ตามเดิม (trigger ไม่ override admin)
+          const body = {
+            user_id: userIdVal,
+            leave_type: leaveType,
+            start_date: startDate,
+            end_date: endDate,
+            days_count: daysVal,
+            reason: reason || null,
+            status: "pending",
+            created_by: currentUserId,
+          };
+          const inserted = await _insertLeave(body);
+          let insertedRow = null;
+          if (Array.isArray(inserted) && inserted[0]) {
+            insertedRow = inserted[0];
+            leaves.unshift(insertedRow);
+          }
+          // Phase 92.45 audit: leave_create — เก็บ leave_id + key fields
+          logActivity("leave_create", {
+            entityType: "staff_leaves",
+            entityId: insertedRow?.id ?? null,
+            summary: `สร้างคำขอลา ${insertedRow?.user_id || userIdVal} ${leaveType} ${startDate}→${endDate}`,
+            metadata: {
+              user_id: insertedRow?.user_id || userIdVal,
+              leave_type: leaveType,
+              start_date: startDate,
+              end_date: endDate,
+              days_count: daysVal,
+              status: insertedRow?.status || "pending",
+              reason: reason || null,
+            },
+          });
+          showToast?.("✓ บันทึกคำขอลาเรียบร้อย");
         }
-        showToast?.("✓ บันทึกคำขอลาเรียบร้อย");
         closeModal();
         _rerender();
       } catch (e) {
