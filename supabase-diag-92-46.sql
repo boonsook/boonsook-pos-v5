@@ -1,181 +1,84 @@
 -- ═══════════════════════════════════════════════════════════
---  Diagnostic ONLY — Phase 92.46 journal_entries RLS check
---  NO DDL — read-only inspection.
+--  Phase 92.46b — Diagnostic ONLY (v2 — read-only inspection)
 --
---  How to use:
---    1. Supabase Dashboard → SQL Editor → paste ทั้งไฟล์ → Run
---    2. SQL Editor จะ return 3 result sets:
---       (A) Pass/fail table — สแกน column "verdict" หา FAIL
---       (B) je_insert_auto WITH CHECK expression — เห็นทั้ง expression เต็ม
---       (C) All policies on journal_entries — เห็นทุกตัวที่ active
---    3. Paste ทั้งสาม results มาให้ Claude — โดยเฉพาะแถวที่ verdict='FAIL'
+--  Apply: Supabase Dashboard → SQL Editor → paste ทั้งไฟล์ → Run
+--  Output: 5 result tabs (A)(B)(C)(D)(E) — paste กลับมาให้ Claude วิเคราะห์
+--
+--  Most likely suspects (PostgreSQL RLS combine = PERMISSIVE OR + RESTRICTIVE AND):
+--    #1 RESTRICTIVE policy ค้าง → ตรวจ (A) column polpermissive
+--    #2 Table-level GRANT INSERT หาย → ตรวจ (B)
+--    #3 Policy role target mismatch → ตรวจ (A) column roles
+--    #4 FORCE RLS + owner mismatch → ตรวจ (C)
+--    #5 is_accountant() logic ผิด → ตรวจ (D)
 -- ═══════════════════════════════════════════════════════════
 
 
 -- ═══════════════════════════════════════════════════════════
---  (A) Consolidated pass/fail table — 11 checks
+--  (A) ALL policies on journal_entries + journal_lines
+--      ★ MOST LIKELY SUSPECT — สแกน column polpermissive
+--        false = RESTRICTIVE policy (AND-combined → block sales)
 -- ═══════════════════════════════════════════════════════════
-WITH
-  je_pol AS (
-    SELECT * FROM pg_policy
-    WHERE polrelid = 'public.journal_entries'::regclass
-      AND polname  = 'je_insert_auto'
-  ),
-  je_class AS (
-    SELECT relrowsecurity AS rls_on,
-           relforcerowsecurity AS rls_forced
-    FROM pg_class
-    WHERE oid = 'public.journal_entries'::regclass
-  ),
-  je_with_check AS (
-    SELECT pg_get_expr(polwithcheck, polrelid) AS expr
-    FROM je_pol
-  ),
-  je_roles AS (
-    SELECT array_to_string(
-             ARRAY(SELECT rolname FROM pg_roles WHERE oid = ANY(polroles)),
-             ','
-           ) AS role_list
-    FROM je_pol
-  ),
-  restrictive_count AS (
-    SELECT count(*) AS n
-    FROM pg_policy
-    WHERE polrelid = 'public.journal_entries'::regclass
-      AND polpermissive = false
-  ),
-  has_je_insert_grant AS (
-    SELECT count(*) AS n
-    FROM information_schema.role_table_grants
-    WHERE table_schema='public' AND table_name='journal_entries'
-      AND grantee='authenticated' AND privilege_type='INSERT'
-  ),
-  has_jl_insert_grant AS (
-    SELECT count(*) AS n
-    FROM information_schema.role_table_grants
-    WHERE table_schema='public' AND table_name='journal_lines'
-      AND grantee='authenticated' AND privilege_type='INSERT'
-  ),
-  has_je_seq_grant AS (
-    SELECT count(*) AS n
-    FROM information_schema.role_usage_grants
-    WHERE object_schema='public' AND object_name='journal_entries_id_seq'
-      AND grantee='authenticated'
-  ),
-  has_jl_seq_grant AS (
-    SELECT count(*) AS n
-    FROM information_schema.role_usage_grants
-    WHERE object_schema='public' AND object_name='journal_lines_id_seq'
-      AND grantee='authenticated'
-  ),
-  has_is_accountant_fn AS (
-    SELECT count(*) AS n
-    FROM pg_proc
-    WHERE proname='is_accountant' AND pronamespace='public'::regnamespace
-  )
-SELECT 1::int AS ord,
-       'je_insert_auto policy exists'::text                       AS check_name,
-       'policy present'::text                                      AS expected,
-       COALESCE((SELECT polname FROM je_pol)::text, 'MISSING')     AS actual,
-       CASE WHEN (SELECT count(*) FROM je_pol) = 1
-            THEN 'PASS' ELSE 'FAIL' END                            AS verdict
-UNION ALL
-SELECT 2,
-       'je_insert_auto is PERMISSIVE',
-       'true (PERMISSIVE)',
-       COALESCE((SELECT polpermissive::text FROM je_pol), 'N/A'),
-       CASE WHEN (SELECT polpermissive FROM je_pol) = true
-            THEN 'PASS' ELSE 'FAIL' END
-UNION ALL
-SELECT 3,
-       'je_insert_auto target role = authenticated',
-       'authenticated',
-       COALESCE((SELECT role_list FROM je_roles), 'N/A'),
-       CASE WHEN (SELECT role_list FROM je_roles) LIKE '%authenticated%'
-            THEN 'PASS' ELSE 'FAIL' END
-UNION ALL
-SELECT 4,
-       'je_insert_auto WITH CHECK contains ''sales'' (whitelist)',
-       'expression contains ''sales''',
-       COALESCE(
-         CASE WHEN (SELECT expr FROM je_with_check) LIKE '%''sales''%'
-              THEN 'YES (whitelist active)' ELSE 'NO whitelist found' END,
-         'N/A — no policy'),
-       CASE WHEN (SELECT expr FROM je_with_check) LIKE '%''sales''%'
-            THEN 'PASS' ELSE 'FAIL' END
-UNION ALL
-SELECT 5,
-       'journal_entries RLS enabled',
-       'true',
-       (SELECT rls_on::text FROM je_class),
-       CASE WHEN (SELECT rls_on FROM je_class) = true
-            THEN 'PASS' ELSE 'FAIL' END
-UNION ALL
-SELECT 6,
-       'journal_entries RLS NOT FORCED',
-       'false',
-       (SELECT rls_forced::text FROM je_class),
-       CASE WHEN (SELECT rls_forced FROM je_class) = false
-            THEN 'PASS' ELSE 'FAIL' END
-UNION ALL
-SELECT 7,
-       'NO restrictive policy on journal_entries',
-       '0 restrictive policies',
-       (SELECT n::text FROM restrictive_count) || ' restrictive',
-       CASE WHEN (SELECT n FROM restrictive_count) = 0
-            THEN 'PASS' ELSE 'FAIL' END
-UNION ALL
-SELECT 8,
-       'authenticated has INSERT on journal_entries',
-       'INSERT grant exists',
-       CASE WHEN (SELECT n FROM has_je_insert_grant) > 0 THEN 'YES' ELSE 'MISSING' END,
-       CASE WHEN (SELECT n FROM has_je_insert_grant) > 0 THEN 'PASS' ELSE 'FAIL' END
-UNION ALL
-SELECT 9,
-       'authenticated has INSERT on journal_lines',
-       'INSERT grant exists',
-       CASE WHEN (SELECT n FROM has_jl_insert_grant) > 0 THEN 'YES' ELSE 'MISSING' END,
-       CASE WHEN (SELECT n FROM has_jl_insert_grant) > 0 THEN 'PASS' ELSE 'FAIL' END
-UNION ALL
-SELECT 10,
-       'authenticated has USAGE on journal_entries_id_seq',
-       'USAGE grant exists',
-       CASE WHEN (SELECT n FROM has_je_seq_grant) > 0 THEN 'YES' ELSE 'MISSING' END,
-       CASE WHEN (SELECT n FROM has_je_seq_grant) > 0 THEN 'PASS' ELSE 'FAIL' END
-UNION ALL
-SELECT 11,
-       'authenticated has USAGE on journal_lines_id_seq',
-       'USAGE grant exists',
-       CASE WHEN (SELECT n FROM has_jl_seq_grant) > 0 THEN 'YES' ELSE 'MISSING' END,
-       CASE WHEN (SELECT n FROM has_jl_seq_grant) > 0 THEN 'PASS' ELSE 'FAIL' END
-UNION ALL
-SELECT 12,
-       'is_accountant() function exists',
-       'function present',
-       CASE WHEN (SELECT n FROM has_is_accountant_fn) > 0 THEN 'YES' ELSE 'MISSING' END,
-       CASE WHEN (SELECT n FROM has_is_accountant_fn) > 0 THEN 'PASS' ELSE 'FAIL' END
-ORDER BY ord;
+SELECT n.nspname                                  AS schema,
+       c.relname                                  AS table_name,
+       p.polname,
+       p.polcmd,
+       p.polpermissive,                                  -- ★ false = RESTRICTIVE
+       p.polroles::regrole[]                      AS roles,
+       pg_get_expr(p.polqual,      p.polrelid)    AS using_expr,
+       pg_get_expr(p.polwithcheck, p.polrelid)    AS check_expr
+FROM pg_policy p
+JOIN pg_class     c ON c.oid = p.polrelid
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = 'public'
+  AND c.relname IN ('journal_entries', 'journal_lines')
+ORDER BY c.relname, p.polpermissive ASC, p.polname;
+-- Expected: polpermissive=true ทุก row
+-- หาเจอ polpermissive=false = root cause #1
 
 
 -- ═══════════════════════════════════════════════════════════
---  (B) Full je_insert_auto WITH CHECK expression (inspect verbatim)
+--  (B) Table-level GRANTs — authenticated/anon/PUBLIC
 -- ═══════════════════════════════════════════════════════════
-SELECT pg_get_expr(polwithcheck, polrelid) AS je_insert_auto_with_check_expression
-FROM pg_policy
-WHERE polrelid = 'public.journal_entries'::regclass
-  AND polname  = 'je_insert_auto';
+SELECT table_name, grantee, privilege_type, is_grantable
+FROM information_schema.role_table_grants
+WHERE table_schema = 'public'
+  AND table_name IN ('journal_entries', 'journal_lines')
+  AND grantee IN ('authenticated', 'anon', 'PUBLIC')
+ORDER BY table_name, grantee, privilege_type;
+-- Expected: authenticated มี INSERT + SELECT บนทั้ง 2 ตาราง
+-- ถ้าไม่มี INSERT → root cause #2 (GRANT หาย → 403 ก่อนเข้า RLS)
 
 
 -- ═══════════════════════════════════════════════════════════
---  (C) ALL policies on journal_entries (in case of hidden ones)
+--  (C) FORCE RLS flag + table owner
 -- ═══════════════════════════════════════════════════════════
-SELECT polname                                                AS name,
-       polcmd::text                                            AS cmd,
-       polpermissive                                           AS is_permissive,
-       array_to_string(
-         ARRAY(SELECT rolname FROM pg_roles WHERE oid = ANY(polroles)),
-         ','
-       )                                                       AS roles
-FROM pg_policy
-WHERE polrelid = 'public.journal_entries'::regclass
-ORDER BY polcmd, polname;
+SELECT n.nspname                                   AS schema,
+       c.relname                                   AS table_name,
+       c.relrowsecurity                            AS rls_enabled,
+       c.relforcerowsecurity                       AS rls_forced,
+       pg_get_userbyid(c.relowner)                 AS owner
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = 'public'
+  AND c.relname IN ('journal_entries', 'journal_lines');
+-- Expected: rls_enabled=t, owner=postgres (or service_role)
+-- rls_forced=t + admin owner → admin path อาจมี edge case (sales ไม่กระทบ)
+
+
+-- ═══════════════════════════════════════════════════════════
+--  (D) is_accountant() function — full definition
+-- ═══════════════════════════════════════════════════════════
+SELECT pg_get_functiondef('public.is_accountant'::regproc);
+-- ตรวจว่า function อ้าง claim/role ตรงกับ JWT ที่ Supabase Auth ส่งมา
+-- (เช่น auth.uid() vs auth.role() vs profile.role)
+
+
+-- ═══════════════════════════════════════════════════════════
+--  (E) Admin session context (sanity)
+--      sales session probe ต้องดูที่ console log ของ app/script แทน
+-- ═══════════════════════════════════════════════════════════
+SELECT 'admin_session'                                         AS who,
+       current_user,
+       current_setting('request.jwt.claims', true)::jsonb      AS jwt;
+-- Expected: current_user = postgres/supabase_admin
+-- jwt อาจเป็น NULL ใน SQL Editor (no JWT context) — OK
