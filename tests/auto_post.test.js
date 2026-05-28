@@ -177,3 +177,103 @@ process.on("beforeExit", () => {
   console.error = _origErr;
   console.info = _origInfo;
 });
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 92.46 — Auto-Journal RLS Re-apply + Tighten + Integrity Views
+// ═══════════════════════════════════════════════════════════
+
+test("source: Phase 92.46 SQL — re-applies je_insert_auto + jl_insert_auto policies (rerun-safe)", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("supabase-phase92-46-je-rls-rerun-and-tighten.sql"), "utf8");
+  // DROP IF EXISTS pattern (rerun-safe)
+  assert.match(src, /DROP POLICY IF EXISTS "je_admin"\s+ON public\.journal_entries/);
+  assert.match(src, /DROP POLICY IF EXISTS "je_insert_auto"\s+ON public\.journal_entries/);
+  assert.match(src, /DROP POLICY IF EXISTS "jl_insert_auto"\s+ON public\.journal_lines/);
+  // CREATE policies
+  assert.match(src, /CREATE POLICY "je_select"[\s\S]{0,200}?FOR SELECT TO authenticated/);
+  assert.match(src, /CREATE POLICY "je_insert_auto"[\s\S]{0,200}?FOR INSERT TO authenticated/);
+  assert.match(src, /CREATE POLICY "jl_insert_auto"[\s\S]{0,200}?FOR INSERT TO authenticated/);
+});
+
+test("source: Phase 92.46 SQL — je_insert_auto WITH CHECK ต้องมี source_table whitelist 8 ตัว", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("supabase-phase92-46-je-rls-rerun-and-tighten.sql"), "utf8");
+  // จับ block ของ je_insert_auto WITH CHECK
+  const m = src.match(/CREATE POLICY "je_insert_auto"[\s\S]*?WITH CHECK\s*\(([\s\S]*?)\);/);
+  assert.ok(m, "ต้องเจอ je_insert_auto WITH CHECK clause");
+  const clause = m[1];
+  // is_accountant() OR
+  assert.match(clause, /public\.is_accountant\(\)/, "ต้องมี is_accountant() bypass");
+  assert.match(clause, /source_table IS NOT NULL/, "ต้องเช็ค source_table IS NOT NULL");
+  assert.match(clause, /source_id\s+IS NOT NULL/, "ต้องเช็ค source_id IS NOT NULL");
+  // Whitelist 8 ตัวที่ auto_post.js ใช้จริง
+  for (const t of ["sales", "expenses", "staff_payroll", "service_jobs", "receipts", "delivery_invoices", "credit_payments", "refunds"]) {
+    assert.match(clause, new RegExp(`'${t}'`), `whitelist ต้องมี '${t}'`);
+  }
+});
+
+test("source: Phase 92.46 SQL — jl_insert_auto WITH CHECK validate parent entry whitelist", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("supabase-phase92-46-je-rls-rerun-and-tighten.sql"), "utf8");
+  const m = src.match(/CREATE POLICY "jl_insert_auto"[\s\S]*?WITH CHECK\s*\(([\s\S]*?)\);/);
+  assert.ok(m, "ต้องเจอ jl_insert_auto WITH CHECK");
+  const clause = m[1];
+  assert.match(clause, /EXISTS \(\s*SELECT 1 FROM public\.journal_entries/, "ต้อง EXISTS subquery บน journal_entries");
+  assert.match(clause, /je\.source_table IN \(/, "subquery ต้องเช็ค source_table whitelist");
+  // sanity 2 ตัวอย่าง
+  assert.match(clause, /'sales'/);
+  assert.match(clause, /'staff_payroll'/);
+});
+
+test("source: Phase 92.46 SQL — 3 integrity views (sales/expenses/payroll without journal)", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("supabase-phase92-46-je-rls-rerun-and-tighten.sql"), "utf8");
+  // 3 VIEWs
+  for (const v of ["vw_sales_without_journal", "vw_expenses_without_journal", "vw_payroll_without_journal"]) {
+    assert.match(src, new RegExp(`CREATE OR REPLACE VIEW public\\.${v}\\b`), `ต้องมี view ${v}`);
+  }
+  // payroll view ต้อง filter paid_at IS NOT NULL (กัน unpaid payroll ถูกนับเป็น orphan)
+  const payrollView = src.match(/CREATE OR REPLACE VIEW public\.vw_payroll_without_journal\s+AS([\s\S]*?);/)?.[1] || "";
+  assert.match(payrollView, /WHERE p\.paid_at IS NOT NULL/, "payroll view ต้องนับเฉพาะ paid (paid_at IS NOT NULL)");
+  // ใช้ NOT EXISTS pattern กัน join cartesian
+  assert.match(payrollView, /NOT EXISTS \(/);
+});
+
+test("source: Phase 92.46 SQL — RPC accounting_integrity_summary admin-only + GRANT authenticated + NOTIFY", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("supabase-phase92-46-je-rls-rerun-and-tighten.sql"), "utf8");
+  // Function exists
+  assert.match(src, /CREATE OR REPLACE FUNCTION public\.accounting_integrity_summary\(\)/);
+  assert.match(src, /RETURNS jsonb/);
+  // Admin guard
+  assert.match(src, /accounting_integrity_summary[\s\S]{0,800}?IF NOT public\.is_accountant\(\)/, "RPC ต้อง guard admin-only");
+  // jsonb_build_object includes 3 view counts + checked_at
+  assert.match(src, /'sales_without_journal'/, "summary ต้องมี sales_without_journal key");
+  assert.match(src, /'expenses_without_journal'/);
+  assert.match(src, /'payroll_without_journal'/);
+  assert.match(src, /'checked_at'/);
+  // GRANT
+  assert.match(src, /GRANT EXECUTE ON FUNCTION public\.accounting_integrity_summary\(\)[\s\S]{0,100}?TO authenticated/);
+  // NOTIFY pgrst
+  assert.match(src, /NOTIFY pgrst, 'reload schema'/);
+});
+
+test("source: Phase 92.46 SQL — whitelist ตรงกับ sourceTable ที่ auto_post.js ใช้จริง (drift guard)", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const sql = fs.readFileSync(path.resolve("supabase-phase92-46-je-rls-rerun-and-tighten.sql"), "utf8");
+  const js  = fs.readFileSync(path.resolve("modules/accounting/auto_post.js"), "utf8");
+  // ดึง sourceTable: "..." จาก JS
+  const jsTables = new Set();
+  for (const m of js.matchAll(/sourceTable:\s*"([a-z_]+)"/g)) jsTables.add(m[1]);
+  assert.ok(jsTables.size >= 6, `auto_post.js ต้องมีอย่างน้อย 6 sourceTable values, เจอ ${jsTables.size}`);
+  // ทุก sourceTable ใน JS ต้องอยู่ใน SQL whitelist
+  for (const t of jsTables) {
+    assert.match(sql, new RegExp(`'${t}'`), `SQL whitelist ขาด '${t}' ที่ auto_post.js ใช้`);
+  }
+});

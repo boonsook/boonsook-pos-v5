@@ -7,6 +7,21 @@
 
 ---
 
+## 5.64.0 (build 315 — no client bump) — 2026-05-28 🔧 Phase 92.46 — Auto-Journal RLS Re-apply + Tighten + Integrity Views (SQL-only)
+
+- **fix(accounting/rls):** ปิด incident "`auto_post_jv deferred (RLS denied role) for sales#155`" — re-apply + tighten `je_insert_auto`/`jl_insert_auto` policies
+- **SQL:** [`supabase-phase92-46-je-rls-rerun-and-tighten.sql`](supabase-phase92-46-je-rls-rerun-and-tighten.sql) (rerun-safe)
+  - Re-applies phase89-25 policies (defense vs. "policy never applied/was reverted" — likely root cause)
+  - Tightens WITH CHECK: non-admin INSERT ต้อง `source_table` IN whitelist 8 ตัว (sales/expenses/staff_payroll/service_jobs/receipts/delivery_invoices/credit_payments/refunds)
+  - Adds 3 diagnostic VIEWs (`vw_sales_without_journal`, `vw_expenses_without_journal`, `vw_payroll_without_journal`) — admin only via base table RLS
+  - Adds RPC `accounting_integrity_summary()` admin-only — counts (groundwork สำหรับ Phase 92.47 dashboard)
+- **Tests:** +6 source-level (SQL structure + whitelist drift guard vs. auto_post.js sourceTable values)
+- **Gates:** lint 0 / unit 758/758 / e2e 11/11 / audit 0
+- **No client code change** → APP_BUILD ยัง 315 / version ยัง 5.64.0
+- **⚠️ Action required (user):** Supabase Dashboard → SQL Editor → paste SQL → Run → smoke ตาม [INCIDENT_NOTES.md](INCIDENT_NOTES.md)
+
+---
+
 ## 5.64.0 (build 315) — 2026-05-28 🔒 Phase 92.45 — Leave SQL/RLS Hardening + Audit Enforcement
 
 - **feat(security/leave) [S3 closed]:** ปิดช่อง spoof reviewer fields ฝั่ง DB — defense-in-depth ทับ RLS เดิม
