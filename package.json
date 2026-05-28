@@ -11,7 +11,9 @@
     "lint:errors": "eslint . --quiet",
     "lint:fix": "eslint . --fix",
     "test:e2e": "playwright test",
-    "verify": "npm run lint && npm test && npm run test:e2e"
+    "verify": "npm run lint && npm test && npm run test:e2e",
+    "verify:security": "node scripts/leave_spoof_test.js",
+    "verify:accounting": "node scripts/accounting_integrity_smoke.js"
   },
   "engines": {
     "node": ">=20"

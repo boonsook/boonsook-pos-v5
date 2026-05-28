@@ -14,10 +14,15 @@
 - **Action required (user):**
   1. Supabase Dashboard → SQL Editor → paste `supabase-phase92-46-je-rls-rerun-and-tighten.sql` → Run
   2. ตรวจ VERIFY queries (a)-(d) ที่ท้ายไฟล์ — Expected: 9 policies / `je_insert_auto` WITH CHECK มี whitelist / 3 views / RPC EXECUTE authenticated
-  3. Login **sales** role → POS sale ฿10 → ตรวจ console
+  3. **Automated smoke (recommended):** `npm run verify:accounting`
+     - Requires `.env` (cp `.env.example` → `.env` + fill test account creds)
+     - Tests: admin RPC works · sales create sale+journal · whitelist guard · non-whitelist reject · no-source reject · 3 views accessible · non-admin RPC reject
+     - Output: matrix + `✅ ALL PASS` หรือ `❌ FAIL` per scenario
+     - Cleanup: ลบ test rows ที่สร้าง (order_no/doc_no LIKE 'TEST-92-46-%')
+  4. **Manual smoke (alternative):** Login **sales** role → POS sale ฿10 → ตรวจ console
      - **Expected:** ไม่มี `auto_post_jv deferred (RLS denied role)` แล้ว
      - **Expected:** หน้า "บัญชี → สมุดรายวัน" filter doc_type=SV ต้องเห็น journal ของ sale นั้น
-  4. Login admin → SQL Editor → `SELECT public.accounting_integrity_summary();` — ดู counts ทั้ง 3 ตาราง
+  5. **Manual SQL verify:** Login admin → SQL Editor → `SELECT public.accounting_integrity_summary();` — ดู counts ทั้ง 3 ตาราง
      - ถ้า `sales_without_journal > 0` แสดงว่ามี orphan สะสมไว้ (backfill ต้องรอ Phase 92.47 dashboard หรือ admin login + re-trigger postJournalForSale ผ่าน UI เดิม)
 
 ### Why this fixes it
