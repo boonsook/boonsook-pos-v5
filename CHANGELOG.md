@@ -7,6 +7,26 @@
 
 ---
 
+## 5.64.0 (build 315 — no client bump) — 2026-05-28 🛠️ Phase 92.47 — Orphan Journal Backfill Tool (script-only)
+
+- **feat(accounting/backfill) [orphan-recovery]:** เครื่องมือ backfill journal entries สำหรับ sales/expenses ที่ไม่มี JV (root cause: Phase 92.46 RLS bug — sales role ถูก deny insert journal_entries; 92.46 ปิด root cause แต่ orphan เก่าค้าง)
+- **Audit ก่อนเริ่ม:** 107 sales + 3 expenses ไม่มี JV (เม.ย. 85, พ.ค. 25) — payroll 0 (92.44 wire ใหม่ครอบทัน)
+- **ขอบเขตจริง:** เม.ย. = intentional skip (ก่อน `ACCOUNTING_EFFECTIVE_DATE=2026-05-01` = test data); พ.ค. ~25 rows = real backfill
+- **`scripts/backfill_orphan_journals.js`** + **`npm run backfill:orphans`**
+  - Strategy: **window shim + reuse `auto_post.js`** (ไม่ replicate logic — กัน drift จาก mapping/VAT/BANK_COA override)
+  - Auth admin (`.env` เดียวกับ verify scripts) → fetch from `vw_sales_without_journal` / `vw_expenses_without_journal` → loop `postJournalForSale/Expense(row)`
+  - Before+after `accounting_integrity_summary()` snapshot → diff
+  - Flags: `--dry-run`, `--sales-only`, `--expenses-only`
+  - Exit: 0 success / 1 partial fail / 2 fatal
+  - Idempotent (re-run safe — unique partial index `(source_table, source_id)` ของ JV)
+- **ไม่แตะ:** auto_post.js (zero browser regression), SQL schema, client UI, effective date
+- **Tests +19** (`tests/backfill_orphan_journals.test.js`): summarizeResults 4 / formatSummaryLine 2 / source-level guards 13 (window shim order, pathToFileURL Windows-safe, resetMappingCache, flags, integrity snapshot before+after, exit codes, main guarded, npm script registered)
+- **Gates:** lint:errors 0/0 · unit **758 → 777** · e2e ไม่กระทบ · audit 0
+- **No client code change** → APP_BUILD ยัง 315 / version ยัง 5.64.0
+- **⚠️ Action required (user):** ดู HANDOFF — DRY-RUN ก่อน LIVE
+
+---
+
 ## 5.64.0 (build 315 — no client bump) — 2026-05-28 🔧 Phase 92.46 — Auto-Journal RLS Re-apply + Tighten + Integrity Views (SQL-only)
 
 - **fix(accounting/rls):** ปิด incident "`auto_post_jv deferred (RLS denied role) for sales#155`" — re-apply + tighten `je_insert_auto`/`jl_insert_auto` policies

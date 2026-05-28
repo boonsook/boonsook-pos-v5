@@ -3,16 +3,123 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 28 พฤษภาคม 2026 (Phase 92.45 — Leave SQL/RLS Hardening + Audit Enforcement, build 315)
-**Version:** 5.64.0 (build 315) — Phase 92.45 (S3 closed: DB triggers + review RPC + leave_create/update audit)
-**Previous:** 5.63.1 (build 314) — Phase 92.44 (Payroll Payment Journal Visibility)
-**Pre-prev:** 5.63.0 (build 313) — Phase 92.43 (Payroll/Accounting Audit Hardening B1-B4)
+**อัปเดตล่าสุด:** 28 พฤษภาคม 2026 (Phase 92.47 — Orphan Journal Backfill Tool, build 315 — no client bump)
+**Version:** 5.64.0 (build 315) — Phase 92.47 (script-only — backfill 92.46 RLS-orphaned JV)
+**Previous:** 5.64.0 (build 315) — Phase 92.46 (Auto-Journal RLS Re-apply + Tighten + Integrity Views)
+**Pre-prev:** 5.64.0 (build 315) — Phase 92.45 (Leave SQL/RLS Hardening + Audit Enforcement)
 
-> 🆕 **SQL ใหม่ในเฟส 92.45:** `supabase-phase92-45-leave-hardening.sql` (rerun-safe, defense-in-depth ไม่แตะ RLS เดิม)
+> 🆕 **ไม่มี SQL ใหม่ในเฟส 92.47** (script-only — ใช้ views + RPC ของ 92.46)
 
 ---
 
-## 🔒 Phase 92.45 — Leave SQL/RLS Hardening + Audit Enforcement (this session)
+## 🛠️ Phase 92.47 — Orphan Journal Backfill Tool (this session)
+
+**บริบท:**
+หลัง Phase 92.46 apply (RLS re-apply + integrity views), audit พบ orphans สะสม:
+- 107 sales ไม่มี JV (เม.ย. 84, พ.ค. 23)
+- 3 expenses ไม่มี JV (เม.ย. 1, พ.ค. 2)
+- 0 payroll orphans (Phase 92.44 wire ใหม่ ครอบทัน)
+
+→ Root cause: RLS bug ที่ Phase 92.46 เพิ่งปิด — sales role ถูก deny insert journal_entries
+→ 92.46 ปิด root cause แล้ว แต่ orphan ในอดีตยังต้อง backfill
+
+**ขอบเขตจริง (หลัง pre-effective filter):**
+- เม.ย. 2026 (84+1 = 85 rows) → **intentional skip** (ก่อน `ACCOUNTING_EFFECTIVE_DATE=2026-05-01` = test data)
+- พ.ค. 2026 (23+2 = 25 rows) → **real backfill targets**
+
+### สิ่งที่ทำ
+
+**1) `scripts/backfill_orphan_journals.js` — Node script**
+
+Strategy: **window shim + reuse `auto_post.js` logic** (ไม่ replicate กัน drift)
+
+```js
+// Set up before import — auto_post.js ใช้ window globals ตอนรัน
+globalThis.window = {
+  SUPABASE_CONFIG: { url, anonKey },
+  _sbAccessToken: admin.token,
+  showToast: (m) => console.log("  [toast]", m),
+};
+
+// Dynamic import (ต้องหลัง shim)
+const { postJournalForSale, postJournalForExpense, resetMappingCache } =
+  await import(pathToFileURL(autoPostPath).href);
+resetMappingCache(); // ใช้ admin token fetch mappings ใหม่
+```
+
+Flow:
+1. Auth admin (ใช้ `.env` เดียวกับ verify scripts — ADMIN_EMAIL/ADMIN_PASSWORD)
+2. Before snapshot: `SELECT public.accounting_integrity_summary()`
+3. Sales loop: `vw_sales_without_journal` → fetch full row → `postJournalForSale(row)`
+4. Expenses loop: เช่นเดียวกัน
+5. After snapshot + diff print
+6. Summary: posted / skipped (pre-effective + duplicate) / failed counts
+
+Flags:
+- `--dry-run` → preview (ไม่ insert) — print "WOULD post" + date/amount
+- `--sales-only` / `--expenses-only` → scope filter
+
+Exit codes:
+- 0 = success (รวมกรณี 0 orphans ตอนเริ่ม)
+- 1 = some rows failed
+- 2 = fatal (auth/network/import/env error)
+
+**2) npm script entry**
+
+```json
+"backfill:orphans": "node scripts/backfill_orphan_journals.js"
+```
+
+**3) Test +19** (`tests/backfill_orphan_journals.test.js`)
+
+Pure helpers:
+- `summarizeResults` (empty / mixed / dry-run / unknown status) ×4
+- `formatSummaryLine` (all counts / zero counts) ×2
+
+Source-level guards:
+- `pathToFileURL` ใช้ (Windows-safe import URL)
+- Window shim มา BEFORE `auto_post` import (order critical)
+- Shim has `SUPABASE_CONFIG` + `_sbAccessToken` (used by `_authFetch` fallback)
+- `resetMappingCache()` ถูกเรียก (กัน stale anon mappings)
+- `--dry-run` / `--sales-only` / `--expenses-only` flags supported
+- Imports `postJournalForSale` + `postJournalForExpense` (ไม่ replicate)
+- View names ตรงกับ Phase 92.46 SQL (`vw_sales_without_journal` etc.)
+- `getIntegritySummary` เรียก ≥2 ครั้ง (before + after snapshot)
+- Exit codes 0/1/2 ครบ
+- `main()` guarded ด้วย `import.meta.url === pathToFileURL(process.argv[1])` (test import ไม่ trigger network)
+- README mentions `ACCOUNTING_EFFECTIVE_DATE` / pre-effective skip (anti-surprise)
+- `package.json` register `backfill:orphans` correctly
+
+Unit total: **758 → 777** (+19)
+
+### ไม่แตะ
+- `auto_post.js` (zero risk to existing browser flow)
+- SQL schema (ใช้ views + RPC ของ 92.46)
+- Client UI (script-only — Phase 92.48 จะทำ dashboard UI ถ้า user อยาก permanent tool)
+- Effective date logic (ยอมรับ April skip — เป็น intentional design)
+
+### Action required (user)
+1. ตรวจ `.env` มี `ADMIN_EMAIL` + `ADMIN_PASSWORD` (role='admin')
+2. **DRY-RUN ก่อน:** `npm run backfill:orphans -- --dry-run`
+   - ดู list orphans + date + amount — verify scope ตามคาด
+   - Expected: ~25 "WOULD post" + ~85 "skipped pre-effective" (auto_post จะ filter)
+3. **LIVE:** `npm run backfill:orphans`
+   - ใช้เวลา ~30-60 วินาที (110 HTTP calls)
+   - Expected: 23-25 posted + 85 skipped pre-effective + 0 failed
+4. Verify: `SELECT public.accounting_integrity_summary();` — ควรเห็น sales/expenses orphans ลดลงเหลือ 85+1=86 (พ.ค. เคลียร์, เม.ย. คงไว้เพราะ pre-effective)
+5. หน้า "บัญชี > สมุดรายวัน" filter `doc_type=SV` — เห็น JV ของ sale พ.ค. 2026 ครบ
+
+### Gates ✅
+- `npm run lint:errors` exit 0
+- `npm test` = **777/777** (was 758 + 19 new = correct)
+- `npm run test:e2e` ไม่กระทบ (script ไม่เกี่ยว e2e)
+- `npm audit --audit-level=moderate` = 0 vulnerabilities
+
+**Build:** 315 (no bump — script-only, no client/SW change)
+
+---
+
+## 🔒 Phase 92.45 — Leave SQL/RLS Hardening + Audit Enforcement
 
 **บริบท / S3 ที่ปิด:**
 audit เดิมพบช่องโหว่ "non-admin spoof reviewer fields" — RLS Phase 92.32 เช็คแค่ `status='pending'` + `user_id=auth.uid()` แต่ไม่ได้ lock column `reviewed_by/_at/_note` → non-admin POST/PATCH `{user_id:self, status:'pending', reviewed_by:'<spoofed-admin-uuid>', reviewed_at:'now'}` ผ่าน RLS เดิมได้
