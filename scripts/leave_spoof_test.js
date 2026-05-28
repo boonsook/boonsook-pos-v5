@@ -87,8 +87,14 @@ async function deleteRow(adminToken, id) {
   return fetch(`${URL}/rest/v1/staff_leaves?id=eq.${id}`, { method: "DELETE", headers: H(adminToken) });
 }
 
+// Bangkok date + offset days (handles month/year overflow)
+function bkkDate(offsetDays = 0) {
+  const t = new Date(Date.now() + offsetDays * 86400000);
+  return t.toLocaleDateString("en-CA", { timeZone: "Asia/Bangkok" });
+}
+
 async function adminInsertPending(adminToken, naUserId, dayOffset, reason) {
-  const date = `2026-05-${String(28 + dayOffset).padStart(2, "0")}`;
+  const date = bkkDate(dayOffset);
   const r = await fetch(`${URL}/rest/v1/staff_leaves`, {
     method: "POST",
     headers: H(adminToken, { Prefer: "return=representation" }),
