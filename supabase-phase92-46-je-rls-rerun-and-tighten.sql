@@ -150,13 +150,17 @@ CREATE POLICY "am_write" ON public.account_mapping
 --      ที่ admin มีอยู่แล้วผ่าน is_accountant() หรือ legacy policies)
 -- ═══════════════════════════════════════════════════════════
 
+-- ★ Cast ทั้งสองข้างเป็น text — journal_entries.source_id เป็น bigint
+--   แต่ cast :text ทำให้ comparison ทำงานได้ทุก source table type (bigint/uuid/text)
+--   admin-diagnostic view (ไม่ใช่ hot path) — index lost ก็ยอม
+
 CREATE OR REPLACE VIEW public.vw_sales_without_journal AS
 SELECT s.id, s.created_at
 FROM public.sales s
 WHERE NOT EXISTS (
   SELECT 1 FROM public.journal_entries je
-  WHERE je.source_table = 'sales'
-    AND je.source_id    = s.id::text
+  WHERE je.source_table     = 'sales'
+    AND je.source_id::text  = s.id::text
 );
 COMMENT ON VIEW public.vw_sales_without_journal IS
   'Phase 92.46: sales rows ไม่มี SV journal — admin backfill target';
@@ -167,8 +171,8 @@ SELECT e.id, e.created_at
 FROM public.expenses e
 WHERE NOT EXISTS (
   SELECT 1 FROM public.journal_entries je
-  WHERE je.source_table = 'expenses'
-    AND je.source_id    = e.id::text
+  WHERE je.source_table     = 'expenses'
+    AND je.source_id::text  = e.id::text
 );
 COMMENT ON VIEW public.vw_expenses_without_journal IS
   'Phase 92.46: expenses ไม่มี JV/PV journal';
@@ -180,8 +184,8 @@ FROM public.staff_payroll p
 WHERE p.paid_at IS NOT NULL
   AND NOT EXISTS (
     SELECT 1 FROM public.journal_entries je
-    WHERE je.source_table = 'staff_payroll'
-      AND je.source_id    = p.id::text
+    WHERE je.source_table     = 'staff_payroll'
+      AND je.source_id::text  = p.id::text
   );
 COMMENT ON VIEW public.vw_payroll_without_journal IS
   'Phase 92.46: paid payroll ไม่มี PV journal — Phase 92.44 wire ใหม่, ก่อนหน้าอาจ orphan';
