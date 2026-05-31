@@ -7,6 +7,13 @@
 
 ---
 
+## 5.64.0 (build 315 — no client bump) — 2026-06-01 🛠️ Phase 92.47 — Expense export date filter (TZ off-by-1)
+
+- **fix(expenses) [export-empty]:** default date filter ของหน้ารายจ่ายใช้ `toISOString()` (UTC) → เช้าวันที่ 1 เวลาไทย (เช่น 06:37 ICT = 23:37 UTC วันก่อน) ทำให้ from/to ยุบเป็นวันสุดท้ายของเดือนก่อน → export ได้ผลว่าง (fallback "ไม่มีข้อมูล")
+- เปลี่ยนเป็น `todayBkk()` (Asia/Bangkok helper Phase 89.1) ทุกจุด: default filter from/to + thisMonth, clear-filter handler, `_getFormValueDate()` (form default off-by-1 เป็น "เมื่อวาน" ตอนเช้า), OCR result date
+- **test:** `expenses_export_filter.test.js` freeze clock → deterministic (เดิมผ่านเฉพาะเดือน พ.ค. 2026)
+- **Gates:** lint:errors 0/0 · unit 777/777 · ไม่แตะ `exportToExcel` fallback (ใช้ร่วมหลายโมดูล)
+
 ## 5.64.0 (build 315 — no client bump) — 2026-05-28 🛠️ Phase 92.47 — Orphan Journal Backfill Tool (script-only)
 
 - **feat(accounting/backfill) [orphan-recovery]:** เครื่องมือ backfill journal entries สำหรับ sales/expenses ที่ไม่มี JV (root cause: Phase 92.46 RLS bug — sales role ถูก deny insert journal_entries; 92.46 ปิด root cause แต่ orphan เก่าค้าง)

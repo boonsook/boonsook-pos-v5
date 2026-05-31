@@ -83,8 +83,21 @@ function makeCtx(expenses) {
   };
 }
 
+// Freeze the clock to a fixed instant so the "current month" default date
+// filter is deterministic regardless of when the suite runs. Without this the
+// test only passes during May 2026 (the month the sample data is dated in).
+// Asia/Bangkok noon → the UTC/local off-by-1 cannot shift the date.
+const FIXED_NOW = new Date("2026-05-16T12:00:00+07:00");
+const _RealDate = Date;
+globalThis.Date = class extends _RealDate {
+  constructor(...args) {
+    if (args.length === 0) super(FIXED_NOW.getTime());
+    else super(...args);
+  }
+  static now() { return FIXED_NOW.getTime(); }
+};
+
 // Sample data — all dated in May 2026 so default filter (current month) keeps them.
-const today = new Date("2026-05-16T12:00:00+07:00");
 const sampleExpenses = [
   { id: 1, expense_date: "2026-05-01", category: "fuel",      amount: 100, description: "A", payment_method: "cash" },
   { id: 2, expense_date: "2026-05-02", category: "materials", amount: 200, description: "B", payment_method: "transfer" },

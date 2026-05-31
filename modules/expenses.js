@@ -4,7 +4,7 @@
 // ═══════════════════════════════════════════════════════════
 import { renderEmpty } from "./ui_states.js";
 // Phase 70 (D3): Excel export
-import { exportToExcel, todaySuffix } from "./utils.js";
+import { exportToExcel, todaySuffix, todayBkk } from "./utils.js";
 // Phase 88.1a: auto-post JV ตอนบันทึก expense
 import { postJournalForExpense, voidJvForSource } from "./accounting/auto_post.js";
 
@@ -46,17 +46,19 @@ export function renderExpensesPage(ctx) {
   if (!container) return;
 
   // Initialize date filters if not set
-  const now = new Date();
-  const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-  if (!_filterFromDate) _filterFromDate = firstDay.toISOString().split('T')[0];
-  if (!_filterToDate) _filterToDate = now.toISOString().split('T')[0];
+  // Phase 92.47: ใช้ Bangkok date (todayBkk) แทน toISOString() (UTC)
+  // เดิม: เช้าวันที่ 1 เวลาไทย → UTC ถอยเป็นวันสุดท้ายของเดือนก่อน → filter window ยุบ
+  const todayStr = todayBkk();                 // "YYYY-MM-DD" (Asia/Bangkok)
+  const firstDayStr = todayStr.slice(0, 7) + "-01";
+  if (!_filterFromDate) _filterFromDate = firstDayStr;
+  if (!_filterToDate) _filterToDate = todayStr;
 
   const expenses = ctx.state.expenses || [];
   // ★ กรอง soft-deleted sales ออกก่อนคำนวณรายรับ
   const sales = (ctx.state.sales || []).filter(s => !(s.note || "").includes("[ลบแล้ว]"));
 
   // Calculate summary values
-  const thisMonth = now.toISOString().split('T')[0].slice(0, 7);
+  const thisMonth = todayStr.slice(0, 7);
   const monthExpenses = expenses
     .filter(e => String(e.expense_date || "").slice(0, 7) === thisMonth)
     .reduce((sum, e) => sum + Number(e.amount || 0), 0);
@@ -289,7 +291,7 @@ function _getFormValueDate() {
     const exp = _ctx.state.expenses.find(e => e.id === _editingExpenseId);
     if (exp) return String(exp.expense_date || "").split("T")[0];
   }
-  return new Date().toISOString().split('T')[0];
+  return todayBkk();   // Phase 92.47: Bangkok date (เดิม UTC → form default เป็นเมื่อวานตอนเช้า)
 }
 
 function _getFormValueCategory() {
@@ -361,10 +363,10 @@ function bindFilterEvents() {
   });
 
   document.getElementById("expFilterClearBtn")?.addEventListener("click", () => {
-    const now = new Date();
-    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-    _filterFromDate = firstDay.toISOString().split('T')[0];
-    _filterToDate = now.toISOString().split('T')[0];
+    // Phase 92.47: Bangkok date (เดิม toISOString = UTC → off-by-1 เช้าวันที่ 1)
+    const todayStr = todayBkk();
+    _filterFromDate = todayStr.slice(0, 7) + "-01";
+    _filterToDate = todayStr;
     _filterCategory = "";
     renderExpensesPage(_ctx);
   });
@@ -789,7 +791,7 @@ function _showParsedResult(ctx, modal, imageDataUrl, data) {
   const d = data || {};
   document.getElementById("akStep4").style.display = "block";
   const resultEl = document.getElementById("akResult");
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayBkk();   // Phase 92.47: Bangkok date (เดิม UTC slice)
   resultEl.innerHTML = `
     <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:#15803d">
       ✓ AI อ่านได้แล้ว — ตรวจสอบและแก้ไขก่อนบันทึก
