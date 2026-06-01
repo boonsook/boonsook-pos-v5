@@ -358,6 +358,73 @@ export function buildMonthlyHrReport(input = {}) {
 }
 
 /**
+ * Phase 92.55: Timesheet รายคน — daily grid ของพนักงาน 1 คน ในช่วงวันที่ (read-only, pure)
+ * 1 แถว/วัน: เข้า(เร็วสุด) · ออก(ช้าสุด) · ชม.ปกติ/OT(รวมทุก session) · สถานะตรงเวลา · notes
+ * @param {object} input
+ * @param {Array} input.rows - staff_attendance ของ user คนเดียว
+ * @param {string} input.fromDate - YYYY-MM-DD
+ * @param {string} input.toDate   - YYYY-MM-DD
+ * @param {{startHour,endHour}} input.shiftOpts
+ * @param {{lateGraceMinutes,earlyLeaveGraceMinutes}} input.attendanceRules
+ * @returns {{days:Array, totals:object}}
+ */
+export function buildEmployeeTimesheet(input = {}) {
+  const rows = Array.isArray(input.rows) ? input.rows : [];
+  const fromDate = input.fromDate, toDate = input.toDate;
+  const shiftOpts = input.shiftOpts || { startHour: 8, endHour: 17 };
+  const rules = input.attendanceRules || { lateGraceMinutes: 15, earlyLeaveGraceMinutes: 15 };
+  const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+  const zeroTotals = { daysWorked: 0, regularHours: 0, otHours: 0, lateCount: 0, earlyLeaveCount: 0 };
+  if (!fromDate || !toDate) return { days: [], totals: { ...zeroTotals } };
+
+  const byDate = new Map();
+  for (const r of rows) {
+    if (!r?.work_date) continue;
+    const k = String(r.work_date).slice(0, 10);
+    if (!byDate.has(k)) byDate.set(k, []);
+    byDate.get(k).push(r);
+  }
+
+  const startT = new Date(fromDate + "T00:00:00+07:00").getTime();
+  const endT = new Date(toDate + "T00:00:00+07:00").getTime();
+  if (!Number.isFinite(startT) || !Number.isFinite(endT) || endT < startT) return { days: [], totals: { ...zeroTotals } };
+
+  const days = [];
+  const totals = { ...zeroTotals };
+  for (let t = startT; t <= endT; t += 86400000) {
+    const date = new Date(t).toLocaleDateString("en-CA", { timeZone: TZ });
+    const sessions = (byDate.get(date) || []).filter(s => s.clock_in_at);
+    if (sessions.length === 0) {
+      days.push({ date, hasData: false, clockIn: null, clockOut: null, regularHours: 0, otHours: 0, open: false, punc: { status: "none", lateMinutes: 0, earlyLeaveMinutes: 0 }, notes: "" });
+      continue;
+    }
+    let earliestIn = null, latestOut = null, anyOpen = false, regSum = 0, otSum = 0;
+    const notes = [];
+    for (const s of sessions) {
+      if (!earliestIn || new Date(s.clock_in_at) < new Date(earliestIn)) earliestIn = s.clock_in_at;
+      if (s.clock_out_at) {
+        if (!latestOut || new Date(s.clock_out_at) > new Date(latestOut)) latestOut = s.clock_out_at;
+      } else { anyOpen = true; }
+      const o = computeRegularOT(s, shiftOpts);
+      regSum += o.regular; otSum += o.ot;
+      if (s.notes) notes.push(s.notes);
+    }
+    const clockOut = anyOpen ? null : latestOut;
+    const punc = classifyPunctuality({ work_date: date, clock_in_at: earliestIn, clock_out_at: clockOut }, shiftOpts, rules);
+    const regularHours = round2(regSum), otHours = round2(otSum);
+    days.push({ date, hasData: true, clockIn: earliestIn, clockOut, regularHours, otHours, open: anyOpen, punc, notes: notes.join(" · ") });
+    totals.daysWorked += 1;
+    totals.regularHours += regularHours;
+    totals.otHours += otHours;
+    if (punc.status === "late" || punc.status === "late_and_early_leave") totals.lateCount += 1;
+    if (punc.status === "early_leave" || punc.status === "late_and_early_leave") totals.earlyLeaveCount += 1;
+  }
+  totals.regularHours = round2(totals.regularHours);
+  totals.otHours = round2(totals.otHours);
+  return { days, totals };
+}
+
+/**
  * ตรวจหา exceptions ที่ admin ต้องจัดการ — สำหรับ section "สิ่งที่ต้องจัดการวันนี้"
  */
 export function detectExceptions(input = {}) {
@@ -735,7 +802,7 @@ export function buildEmployeeModalSummary(input = {}) {
 export function modalTabFor(key, validKeys, fallback = "today") {
   const allowed = (Array.isArray(validKeys) && validKeys.length > 0)
     ? validKeys
-    : ["today", "week", "payroll"];
+    : ["today", "week", "timesheet", "payroll"];
   if (typeof key === "string" && allowed.includes(key)) return key;
   return allowed.includes(fallback) ? fallback : allowed[0];
 }
@@ -1410,9 +1477,10 @@ function _renderTbody(rows, deptMap) {
 // ═══════════════════════════════════════════════════════════
 
 const MODAL_TABS = [
-  { key: "today",   label: "📍 วันนี้"        },
-  { key: "week",    label: "📅 7 วันล่าสุด"    },
-  { key: "payroll", label: "💰 เงินเดือน"     },
+  { key: "today",     label: "📍 วันนี้"        },
+  { key: "week",      label: "📅 7 วันล่าสุด"    },
+  { key: "timesheet", label: "🗓️ Timesheet"     },
+  { key: "payroll",   label: "💰 เงินเดือน"     },
 ];
 
 function _formatMonthTh(yyyymmdd) {
@@ -1583,6 +1651,58 @@ function _renderTabWeek(weekState, shiftOpts) {
   `;
 }
 
+// Phase 92.55: Timesheet tab — daily grid ของพนักงาน (เดือนปัจจุบัน month-to-date)
+function _renderTabTimesheet(tsState, shiftOpts, rules) {
+  if (!tsState || tsState.status === "idle" || tsState.status === "loading") {
+    return `<div style="padding:24px 20px;text-align:center;color:#64748b;font-size:13px">⏳ กำลังโหลด Timesheet...</div>`;
+  }
+  if (tsState.status === "error") {
+    return `<div style="padding:18px 20px"><div style="background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:10px;padding:10px 12px;font-size:12px">⚠️ โหลด Timesheet ไม่สำเร็จ: ${escHtml(tsState.error || "")}</div></div>`;
+  }
+  const ts = buildEmployeeTimesheet({ rows: tsState.rows, fromDate: tsState.fromDate, toDate: tsState.toDate, shiftOpts, attendanceRules: rules });
+  const t = ts.totals;
+  const body = ts.days.map(d => {
+    if (!d.hasData) {
+      return `<tr style="border-top:1px solid #f1f5f9">
+        <td style="padding:6px 12px;color:#0f172a">${escHtml(_formatDateTh(d.date))}</td>
+        <td colspan="5" style="padding:6px 12px;color:#94a3b8;font-style:italic">ไม่มีบันทึก</td>
+      </tr>`;
+    }
+    const bg = d.open ? "#fff7ed" : "transparent";
+    return `<tr style="border-top:1px solid #f1f5f9;background:${bg}">
+      <td style="padding:6px 12px;color:#0f172a">${escHtml(_formatDateTh(d.date))}${d.open ? ' <span style="color:#ea580c;font-size:10px;font-weight:700">(open)</span>' : ''}</td>
+      <td style="padding:6px 12px;text-align:center;font-variant-numeric:tabular-nums">${escHtml(d.clockIn ? timeBangkok(d.clockIn) : "—")}</td>
+      <td style="padding:6px 12px;text-align:center;font-variant-numeric:tabular-nums">${escHtml(d.clockOut ? timeBangkok(d.clockOut) : "—")}</td>
+      <td style="padding:6px 12px;text-align:right;font-variant-numeric:tabular-nums">${d.regularHours > 0 ? HOURS(d.regularHours) : "—"}</td>
+      <td style="padding:6px 12px;text-align:right;font-variant-numeric:tabular-nums;${d.otHours > 0 ? 'color:#ea580c;font-weight:700' : ''}">${d.otHours > 0 ? HOURS(d.otHours) : "—"}</td>
+      <td style="padding:6px 12px">${_puncChip(d.punc) || '<span style="color:#cbd5e1">—</span>'}</td>
+    </tr>`;
+  }).join("");
+  return `
+    <div style="padding:16px 20px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
+        <div style="font-size:13px;color:#475569">${escHtml(_formatDateTh(tsState.fromDate))} – ${escHtml(_formatDateTh(tsState.toDate))}</div>
+        <div style="font-size:12px;color:#475569">ทำงาน <strong style="color:#0f172a">${NUM_TH(t.daysWorked)}</strong> วัน · ปกติ <strong>${HOURS(t.regularHours)}</strong> · OT <strong style="color:${t.otHours > 0 ? '#ea580c' : '#0f172a'}">${HOURS(t.otHours)}</strong> · สาย <strong style="color:#92400e">${NUM_TH(t.lateCount)}</strong> · ออกก่อน <strong style="color:#92400e">${NUM_TH(t.earlyLeaveCount)}</strong></div>
+      </div>
+      <div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:10px">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:560px">
+          <thead style="background:#f8fafc">
+            <tr>
+              <th style="padding:8px 12px;text-align:left;font-weight:700;color:#475569">วัน</th>
+              <th style="padding:8px 12px;text-align:center;font-weight:700;color:#475569">เข้า</th>
+              <th style="padding:8px 12px;text-align:center;font-weight:700;color:#475569">ออก</th>
+              <th style="padding:8px 12px;text-align:right;font-weight:700;color:#475569">ปกติ</th>
+              <th style="padding:8px 12px;text-align:right;font-weight:700;color:#475569">OT</th>
+              <th style="padding:8px 12px;text-align:left;font-weight:700;color:#475569">สถานะ</th>
+            </tr>
+          </thead>
+          <tbody>${body}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
 function _renderTabPayroll(payrollSummary) {
   if (!payrollSummary) {
     return `<div style="padding:30px 20px;text-align:center;color:#475569;font-size:13px">
@@ -1635,10 +1755,11 @@ function _renderTabPayroll(payrollSummary) {
 
 function _renderModalBody(activeTab, payload) {
   switch (activeTab) {
-    case "week":    return _renderTabWeek(payload.weekState, payload.shiftOpts);
-    case "payroll": return _renderTabPayroll(payload.payrollSummary);
+    case "week":      return _renderTabWeek(payload.weekState, payload.shiftOpts);
+    case "timesheet": return _renderTabTimesheet(payload.timesheetState, payload.shiftOpts, payload.attendanceRules);
+    case "payroll":   return _renderTabPayroll(payload.payrollSummary);
     case "today":
-    default:        return _renderTabToday(payload.summary);
+    default:          return _renderTabToday(payload.summary);
   }
 }
 
@@ -2211,6 +2332,7 @@ export async function renderHrOverviewPage(ctx) {
   let activeUserId = null;
   let activeTab = "today";
   const weekCache = new Map(); // userId → { status, rows, error, today }
+  const timesheetCache = new Map(); // Phase 92.55: userId → { status, rows, error, fromDate, toDate }
   let escHandler = null;
 
   function _closeModal() {
@@ -2241,6 +2363,7 @@ export async function renderHrOverviewPage(ctx) {
     });
     const payrollSummary = employeePayrollSummary(data.payrolls, found.profile);
     const weekState = weekCache.get(activeUserId) || { status: "idle", rows: [], error: null, today };
+    const timesheetState = timesheetCache.get(activeUserId) || { status: "idle", rows: [], error: null, fromDate: `${monthKey}-01`, toDate: today };
 
     modalRoot.innerHTML = `
       <div id="hrModalBackdrop" style="position:absolute;inset:0;background:rgba(15,23,42,.55);backdrop-filter:blur(2px)"></div>
@@ -2248,7 +2371,7 @@ export async function renderHrOverviewPage(ctx) {
         ${_renderModalSummaryHeader(summary)}
         ${_renderModalTabBar(activeTab)}
         <div id="hrModalBody" style="flex:1;overflow-y:auto;min-height:200px">
-          ${_renderModalBody(activeTab, { summary, weekState, shiftOpts, payrollSummary })}
+          ${_renderModalBody(activeTab, { summary, weekState, timesheetState, attendanceRules: punctRules, shiftOpts, payrollSummary })}
         </div>
         <div style="padding:10px 20px;border-top:1px solid #f1f5f9;background:#fafbfc;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
           <div style="font-size:11px;color:#94a3b8">${escHtml(rowActionLabel(found.status).label === "ลงเวลา" ? "ยังไม่ลงเวลาเข้างาน" : "")}</div>
@@ -2287,6 +2410,20 @@ export async function renderHrOverviewPage(ctx) {
           }
           // ตรวจว่า user ยังไม่ปิด modal / ไม่เปลี่ยน tab ก่อน rerender
           if (activeUserId && activeTab === "week") _renderModal();
+          return;
+        }
+        // Phase 92.55: เข้า "timesheet" และยังไม่โหลด → fetch เดือนปัจจุบัน (month-to-date)
+        if (activeTab === "timesheet" && (!timesheetCache.has(activeUserId) || timesheetCache.get(activeUserId).status === "idle")) {
+          const fromDate = `${monthKey}-01`;
+          timesheetCache.set(activeUserId, { status: "loading", rows: [], error: null, fromDate, toDate: today });
+          _renderModal();
+          try {
+            const r = await _fetchUserAttendanceRange(activeUserId, fromDate, today);
+            timesheetCache.set(activeUserId, { status: "loaded", rows: r, error: null, fromDate, toDate: today });
+          } catch (e) {
+            timesheetCache.set(activeUserId, { status: "error", rows: [], error: e?.message || String(e), fromDate, toDate: today });
+          }
+          if (activeUserId && activeTab === "timesheet") _renderModal();
           return;
         }
         _renderModal();

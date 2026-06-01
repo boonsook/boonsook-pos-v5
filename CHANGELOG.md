@@ -7,6 +7,12 @@
 
 ---
 
+## 5.64.0 (build 325) — 2026-06-01 Phase 92.55 — Timesheet รายคน
+
+- **feat(hr):** `buildEmployeeTimesheet()` pure helper — daily grid ของพนักงาน 1 คน: 1 แถว/วัน (เข้าเร็วสุด/ออกช้าสุด/ชม.ปกติ+OT รวมทุก session/สถานะตรงเวลา/notes) + totals (วันทำงาน/ปกติ/OT/สาย/ออกก่อน)
+- **feat(hr):** เพิ่ม tab "🗓️ Timesheet" ใน employee drill-down modal — lazy-fetch เดือนปัจจุบัน (month-to-date) + cache; รวม session หลายครั้ง/วัน, แสดงวันว่างเป็น "ไม่มีบันทึก"
+- **read-only:** reuse `_fetchUserAttendanceRange` + `computeRegularOT` + `classifyPunctuality` · ไม่แตะ SQL/RLS/payroll/accounting · **test:** +4 `hr_overview.test.js` · **pwa-cache:** bump 324→325
+
 ## 5.64.0 (build 324) — 2026-06-01 Phase 92.54 — HR report date-range picker + re-fetch
 
 - **feat(hr):** รายงาน HR เลือกช่วงวันที่เองได้ (date-range จาก/ถึง + ปุ่มค้นหา) — `_fetchReportRange(from,to)` ดึง staff_attendance + staff_leaves เฉพาะช่วง แล้ว rebuild + re-render เฉพาะ `#hrReportSection` (loading state + rebind) ไม่ re-fetch ทั้งหน้า

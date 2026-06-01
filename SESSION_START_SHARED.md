@@ -1,6 +1,6 @@
 # Boonsook POS V5 - Shared Session Start
 
-Last updated: 2026-06-01 (Phase 92.54 — HR report date-range picker, build 324)
+Last updated: 2026-06-01 (Phase 92.55 — Timesheet รายคน, build 325)
 
 Purpose: this is the common first-read note for Codex, Claude, or any next agent opening a fresh session on this project. Read this before changing files so both teams start from the same facts.
 
@@ -25,6 +25,12 @@ Purpose: this is the common first-read note for Codex, Claude, or any next agent
 - Supabase project URL used by verification scripts: `https://rwmmjljelpcpwohwiplu.supabase.co`
 
 ## Current Truth As Of 2026-06-01
+
+Phase 92.55 Timesheet รายคน is implemented and deployed (build 325).
+
+- New pure helper `buildEmployeeTimesheet()` in `modules/hr_overview.js` produces a per-employee daily grid (one row per day: earliest in / latest out / summed regular+OT / punctuality status / notes) plus totals.
+- New "🗓️ Timesheet" tab in the employee drill-down modal, lazy-fetching the current month (month-to-date) via `_fetchUserAttendanceRange` + a `timesheetCache` (mirrors the existing week tab). Read-only; no SQL/RLS/payroll/accounting change.
+- HR roadmap in progress: 92.55 Timesheet (done) → 92.56 department report → 92.57 PDF/print. A separate period-close-readiness branch (cef6b98) will renumber to ≥92.58.
 
 Phase 92.54 HR report date-range picker is implemented and deployed (build 324).
 
@@ -165,9 +171,9 @@ Use `npm.cmd` on Windows PowerShell because plain `npm` may be blocked by script
 
 If opening a new session with no new user request:
 
-1. Verify the live app build markers on `boonsook-pos-v5.pages.dev` if deployment freshness matters: `data-app-build="324"`, `main.js?v=324`, `style.css?v=324`, `boot.js?v=324`, and `sw.js` cache `v324`.
+1. Verify the live app build markers on `boonsook-pos-v5.pages.dev` if deployment freshness matters: `data-app-build="325"`, `main.js?v=325`, `style.css?v=325`, `boot.js?v=325`, and `sw.js` cache `v325`.
 2. If the user wants a project monitor automation, use this file as the source-of-truth prompt context.
 
 ## Short Human Summary
 
-Latest app build is 324 on `main`. Phase 92.54 adds a from/to date-range picker to the Monthly HR report (re-fetches only that range, re-renders only the report section). Phase 92.53 adds the Monthly HR report (one row per employee: days worked / hours / OT / late / early-leave / leave days, with Excel export) in HR Overview — read-only. Phase 92.52 adds HR punctuality follow-ups (period summary + Excel columns, self-view chips, dashboard "พนักงานมาสายบ่อย", grace-change audit log) — informational only. Phase 92.51 (Codex) adds the Period Close Checklist (accounting, read-only, build 321). Phase 92.50 adds the HR executive dashboard; Phase 92.49 adds HR late/early-leave attendance exception rules. All client-only, no payroll/leave/accounting/RLS/SQL impact. Phase 92.48 adds the accounting integrity status panel and hotfixes the orphan fetch to `select=*`. Expense export timezone bug is fixed and delivered through later PWA cache bumps. JE REST RLS is fixed and live-verified after SQL apply. Remaining accounting orphan counts are currently understood as intentional/non-actionable skips, not an active failure. Start new work from `git status`, avoid touching unrelated user work, and verify with `npm.cmd` commands on Windows.
+Latest app build is 325 on `main`. Phase 92.55 adds a per-employee Timesheet tab (daily in/out/hours/punctuality for the month) in the HR employee modal. Phase 92.54 adds a from/to date-range picker to the Monthly HR report (re-fetches only that range, re-renders only the report section). Phase 92.53 adds the Monthly HR report (one row per employee: days worked / hours / OT / late / early-leave / leave days, with Excel export) in HR Overview — read-only. Phase 92.52 adds HR punctuality follow-ups (period summary + Excel columns, self-view chips, dashboard "พนักงานมาสายบ่อย", grace-change audit log) — informational only. Phase 92.51 (Codex) adds the Period Close Checklist (accounting, read-only, build 321). Phase 92.50 adds the HR executive dashboard; Phase 92.49 adds HR late/early-leave attendance exception rules. All client-only, no payroll/leave/accounting/RLS/SQL impact. Phase 92.48 adds the accounting integrity status panel and hotfixes the orphan fetch to `select=*`. Expense export timezone bug is fixed and delivered through later PWA cache bumps. JE REST RLS is fixed and live-verified after SQL apply. Remaining accounting orphan counts are currently understood as intentional/non-actionable skips, not an active failure. Start new work from `git status`, avoid touching unrelated user work, and verify with `npm.cmd` commands on Windows.

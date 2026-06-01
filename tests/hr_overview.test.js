@@ -30,6 +30,8 @@ const {
   buildHrDashboardMetrics,
   // Phase 92.53
   buildMonthlyHrReport,
+  // Phase 92.55
+  buildEmployeeTimesheet,
   // Phase 92.41
   kpiClickRouteFor,
 } = await import("../modules/hr_overview.js");
@@ -1185,4 +1187,69 @@ test("source: _fetchReportRange ดึง attendance+leaves ตามช่ว�
   assert.match(fn, /staff_attendance\?select=\*&work_date=gte\./, "fetch attendance ตามช่วง");
   assert.match(fn, /staff_leaves\?select=\*&start_date=gte\./, "fetch leaves ตามช่วง");
   assert.match(fn, /leaveRes\.ok \? await leaveRes\.json\(\) : \[\]/, "leaves graceful (ตารางไม่มีก็ไม่ crash)");
+});
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 92.55 — buildEmployeeTimesheet (Timesheet รายคน)
+// ═══════════════════════════════════════════════════════════
+
+test("buildEmployeeTimesheet — daily grid + วันว่าง + totals + punctuality", () => {
+  const SH = { startHour: 8, endHour: 17 };
+  const RU = { lateGraceMinutes: 15, earlyLeaveGraceMinutes: 15 };
+  const att = (d, inHM, outHM, notes) => ({
+    work_date: d, clock_in_at: `${d}T${inHM}:00+07:00`,
+    clock_out_at: outHM ? `${d}T${outHM}:00+07:00` : null, notes: notes || null,
+  });
+  const ts = buildEmployeeTimesheet({
+    fromDate: "2026-06-01", toDate: "2026-06-03",
+    shiftOpts: SH, attendanceRules: RU,
+    rows: [
+      att("2026-06-01", "08:00", "17:00"),  // on_time, 9 ชม.
+      att("2026-06-03", "09:00", "16:00", "ไปธุระ"), // สาย 60 + ออกก่อน 60
+      // 2026-06-02 ไม่มีบันทึก
+    ],
+  });
+  assert.equal(ts.days.length, 3);
+  assert.equal(ts.days[0].hasData, true);
+  assert.equal(ts.days[0].punc.status, "on_time");
+  assert.equal(ts.days[1].hasData, false);  // 06-02 ว่าง
+  assert.equal(ts.days[2].punc.status, "late_and_early_leave");
+  assert.equal(ts.days[2].notes, "ไปธุระ");
+  assert.equal(ts.totals.daysWorked, 2);
+  assert.equal(ts.totals.lateCount, 1);
+  assert.equal(ts.totals.earlyLeaveCount, 1);
+  assert.equal(ts.totals.regularHours, 16); // 9 (08-17) + 7 (09-16)
+});
+
+test("buildEmployeeTimesheet — หลาย session ใน 1 วัน → รวมชม. + เข้าเร็วสุด/ออกช้าสุด", () => {
+  const SH = { startHour: 8, endHour: 17 };
+  const ts = buildEmployeeTimesheet({
+    fromDate: "2026-06-01", toDate: "2026-06-01",
+    shiftOpts: SH, attendanceRules: { lateGraceMinutes: 15, earlyLeaveGraceMinutes: 15 },
+    rows: [
+      { work_date: "2026-06-01", clock_in_at: "2026-06-01T08:00:00+07:00", clock_out_at: "2026-06-01T12:00:00+07:00" },
+      { work_date: "2026-06-01", clock_in_at: "2026-06-01T13:00:00+07:00", clock_out_at: "2026-06-01T17:00:00+07:00" },
+    ],
+  });
+  const d = ts.days[0];
+  assert.equal(d.regularHours, 8);   // 4 + 4
+  assert.equal(timeOf(d.clockIn), "08:00");
+  assert.equal(timeOf(d.clockOut), "17:00");
+  function timeOf(iso) { return new Date(iso).toLocaleTimeString("en-GB", { timeZone: "Asia/Bangkok", hour: "2-digit", minute: "2-digit" }); }
+});
+
+test("buildEmployeeTimesheet — ไม่มี from/to หรือช่วงกลับด้าน → days ว่าง", () => {
+  assert.deepEqual(buildEmployeeTimesheet({ rows: [] }).days, []);
+  assert.deepEqual(buildEmployeeTimesheet({ fromDate: "2026-06-10", toDate: "2026-06-01", rows: [] }).days, []);
+});
+
+test("source: Timesheet tab wired ใน employee modal (Phase 92.55)", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/hr_overview.js"), "utf8");
+  assert.match(src, /key: "timesheet"/, "MODAL_TABS ต้องมี timesheet");
+  assert.match(src, /function _renderTabTimesheet/, "ต้องมี _renderTabTimesheet");
+  assert.match(src, /case "timesheet":\s*return _renderTabTimesheet/, "_renderModalBody ต้อง route timesheet");
+  assert.match(src, /timesheetCache/, "ต้องมี lazy cache");
+  assert.match(src, /activeTab === "timesheet"/, "ต้องมี lazy fetch branch");
 });

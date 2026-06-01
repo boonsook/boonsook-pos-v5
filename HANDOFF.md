@@ -3,12 +3,28 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 1 มิถุนายน 2026 (Phase 92.54 — HR report date-range picker, build 324)
-**Version:** 5.64.0 (build 324) — Phase 92.54 (รายงาน HR เลือกช่วงวันที่ + re-fetch — client-only, no SQL)
-**Previous:** 5.64.0 (build 323) — Phase 92.53 (Monthly HR report รวมต่อพนักงาน)
-**Pre-prev:** 5.64.0 (build 322) — Phase 92.52 (punctuality follow-ups) · build 321 = 92.51 (Period Close, Codex)
+**อัปเดตล่าสุด:** 1 มิถุนายน 2026 (Phase 92.55 — Timesheet รายคน, build 325)
+**Version:** 5.64.0 (build 325) — Phase 92.55 (Timesheet รายคน ใน employee modal — client-only, no SQL)
+**Previous:** 5.64.0 (build 324) — Phase 92.54 (HR report date-range picker)
+**Pre-prev:** 5.64.0 (build 323) — Phase 92.53 (Monthly HR report) · 322 = 92.52 · 321 = 92.51 Period Close (Codex)
 
-> 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.54** (client-side read-only — fetch เฉพาะช่วงที่เลือก ไม่ refetch ทั้งหน้า)
+> 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.55** (client-side read-only — lazy fetch attendance รายเดือนต่อคน)
+> 📌 **Roadmap HR:** 92.55 Timesheet (นี้) → 92.56 รายงานระดับแผนก → 92.57 Export PDF/พิมพ์ · period-close-readiness branch (cef6b98) จะ renumber ≥92.58
+
+---
+
+## 🛠️ Phase 92.55 — Timesheet รายคน (this session)
+
+**เป้าหมาย:** ดูตารางเวลารายวันของพนักงาน 1 คน (drill-down)
+
+**สิ่งที่ทำ:**
+- `modules/hr_overview.js`:
+  - `buildEmployeeTimesheet({rows, fromDate, toDate, shiftOpts, attendanceRules})` (exported, pure) → `{days[], totals}` · iterate ทุกวันในช่วง, group attendance ตาม work_date, 1 แถว/วัน (เข้าเร็วสุด/ออกช้าสุด/รวม regular+OT ทุก session/punctuality บน synthesized day row/notes รวม) · วันไม่มีบันทึก = `hasData:false`
+  - tab "🗓️ Timesheet" ใน employee modal (MODAL_TABS + modalTabFor + _renderTabTimesheet + _renderModalBody case) · lazy-fetch เดือนปัจจุบัน (`${monthKey}-01`..today) ผ่าน `_fetchUserAttendanceRange` + `timesheetCache` (mirror week-tab pattern)
+
+**Behavior preserved:** ไม่แตะ payroll/leave/accounting · reuse `_fetchUserAttendanceRange` เดิม (limit 200 พอสำหรับ 1 เดือน) · week/payroll tab เดิมไม่เปลี่ยน
+
+**Gate:** lint 0 · unit 831 (+4) · e2e build-sync 325 · build 324→325
 
 ---
 
