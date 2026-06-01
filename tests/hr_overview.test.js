@@ -34,6 +34,8 @@ const {
   buildEmployeeTimesheet,
   // Phase 92.56
   buildDepartmentReport,
+  // Phase 92.57
+  buildHrReportPrintHtml,
   // Phase 92.41
   kpiClickRouteFor,
 } = await import("../modules/hr_overview.js");
@@ -1300,4 +1302,48 @@ test("source: department report table + export wired (Phase 92.56)", async () =>
   assert.match(src, /สรุปตามแผนก/, "ต้อง render dept table");
   assert.match(src, /id="hrDeptReportExportBtn"/, "ต้องมีปุ่ม export แผนก");
   assert.match(src, /getElementById\("hrDeptReportExportBtn"\)/, "ต้อง bind export แผนก");
+});
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 92.57 — buildHrReportPrintHtml (พิมพ์ / PDF)
+// ═══════════════════════════════════════════════════════════
+
+test("buildHrReportPrintHtml — มี title/ช่วง/ตารางพนักงาน+แผนก + auto print + escape", () => {
+  const html = buildHrReportPrintHtml({
+    from: "2026-06-01", to: "2026-06-30",
+    storeName: "ร้าน <b>ทดสอบ</b>",
+    generatedAt: "1 มิ.ย. 2026 17:00",
+    employeeRows: [
+      { name: "สมชาย <x>", department: "ขาย", daysWorked: 20, regularHours: 160, otHours: 5, lateCount: 2, lateMinutes: 50, earlyLeaveCount: 1, leaveDays: 1 },
+    ],
+    empTotals: { employees: 1, daysWorked: 20, regularHours: 160, otHours: 5, lateCount: 2, earlyLeaveCount: 1, leaveDays: 1 },
+    deptRows: [{ department: "ขาย", headcount: 1, daysWorked: 20, regularHours: 160, otHours: 5, lateCount: 2, earlyLeaveCount: 1, leaveDays: 1 }],
+    deptTotals: { departments: 1, headcount: 1 },
+  });
+  assert.match(html, /^<!doctype html>/i);
+  assert.match(html, /รายงาน HR/);
+  assert.match(html, /2026-06-01 ถึง 2026-06-30/);
+  assert.match(html, /สรุปต่อพนักงาน/);
+  assert.match(html, /สรุปตามแผนก/);
+  assert.match(html, /onload="window\.print\(\)"/, "auto print");
+  // XSS: ค่าที่มี < > ต้องถูก escape (ไม่หลุดเป็น tag จริง)
+  assert.ok(!html.includes("<b>ทดสอบ</b>"), "store name ต้องถูก escape");
+  assert.ok(!html.includes("สมชาย <x>"), "ชื่อต้องถูก escape");
+  assert.match(html, /สมชาย &lt;x&gt;/);
+});
+
+test("buildHrReportPrintHtml — ไม่มีพนักงาน → ข้อความว่าง + ไม่มี dept section", () => {
+  const html = buildHrReportPrintHtml({ from: "2026-06-01", to: "2026-06-30", employeeRows: [], deptRows: [] });
+  assert.match(html, /ไม่มีข้อมูลในช่วงนี้/);
+  assert.ok(!html.includes("สรุปตามแผนก"), "ไม่มีแผนก → ไม่ render dept section");
+});
+
+test("source: print button + buildHrReportPrintHtml wired (Phase 92.57)", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/hr_overview.js"), "utf8");
+  assert.match(src, /function buildHrReportPrintHtml/, "ต้องมี helper");
+  assert.match(src, /id="hrReportPrintBtn"/, "ต้องมีปุ่มพิมพ์");
+  assert.match(src, /getElementById\("hrReportPrintBtn"\)/, "ต้อง bind ปุ่มพิมพ์");
+  assert.match(src, /window\.open\(""/, "ต้องเปิดหน้าต่างพิมพ์");
 });

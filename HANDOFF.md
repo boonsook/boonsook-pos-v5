@@ -3,13 +3,25 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 1 มิถุนายน 2026 (Phase 92.56 — รายงานระดับแผนก, build 326)
-**Version:** 5.64.0 (build 326) — Phase 92.56 (รายงานระดับแผนก ในรายงาน HR — client-only, no SQL)
-**Previous:** 5.64.0 (build 325) — Phase 92.55 (Timesheet รายคน)
-**Pre-prev:** 5.64.0 (build 324) — Phase 92.54 (HR report date-range) · 323 = 92.53 · 322 = 92.52 · 321 = 92.51 (Codex)
+**อัปเดตล่าสุด:** 1 มิถุนายน 2026 (Phase 92.57 — Export PDF/พิมพ์รายงาน, build 327)
+**Version:** 5.64.0 (build 327) — Phase 92.57 (พิมพ์/PDF รายงาน HR — browser-native, no dep, no SQL)
+**Previous:** 5.64.0 (build 326) — Phase 92.56 (รายงานระดับแผนก)
+**Pre-prev:** 5.64.0 (build 325) — Phase 92.55 (Timesheet) · 324 = 92.54 · 323 = 92.53 · 322 = 92.52 · 321 = 92.51 (Codex)
 
-> 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.56** (client-side read-only — aggregate rows เดิม ไม่ fetch เพิ่ม)
-> 📌 **Roadmap HR:** 92.55 Timesheet ✓ → 92.56 รายงานระดับแผนก ✓ (นี้) → **92.57 Export PDF/พิมพ์ (ถัดไป)** · period-close-readiness branch (cef6b98) จะ renumber ≥92.58
+> 🆕 **ไม่มี SQL/RLS/schema/dependency change ในเฟส 92.57** (browser print ล้วน)
+> 📌 **Roadmap HR เสร็จครบ 3 ข้อ:** 92.55 Timesheet ✓ · 92.56 รายงานระดับแผนก ✓ · 92.57 Export PDF/พิมพ์ ✓ · period-close-readiness branch (cef6b98) จะ renumber ≥92.58
+
+---
+
+## 🛠️ Phase 92.57 — Export PDF / พิมพ์รายงาน HR (this session)
+
+**สิ่งที่ทำ:**
+- `modules/hr_overview.js`:
+  - `buildHrReportPrintHtml({from, to, employeeRows, empTotals, deptRows, deptTotals, storeName, generatedAt})` (exported, pure) → standalone HTML doc + print CSS + `<body onload="window.print()">`; `escHtml` ทุกค่า (กัน XSS)
+  - ปุ่ม "🖨️ พิมพ์ / PDF" ในรายงาน HR → `window.open("","_blank")` + `document.write(html)` + `close()`/`focus()` (auto-print); guard popup-blocked → toast
+- **No dependency** — browser-native print, user เลือก "Save as PDF" เองได้ (เลี่ยง jsPDF/dep ตาม CLAUDE.md)
+
+**Gate:** lint 0 · unit 837 (+3) · e2e build-sync 327 · build 326→327
 
 ---
 

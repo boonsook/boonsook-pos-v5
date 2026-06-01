@@ -7,6 +7,12 @@
 
 ---
 
+## 5.64.0 (build 327) — 2026-06-01 Phase 92.57 — Export PDF / พิมพ์รายงาน HR
+
+- **feat(hr):** ปุ่ม "🖨️ พิมพ์ / PDF" ในรายงาน HR — เปิดหน้าพิมพ์ (browser-native print → Save as PDF ได้) ครอบทั้งตารางพนักงาน + สรุปแผนก + totals + ช่วงวันที่ + เวลาพิมพ์
+- **feat(hr):** `buildHrReportPrintHtml()` pure helper — สร้าง HTML doc พร้อม print CSS + auto `window.print()` · escape ทุกค่า (กัน XSS)
+- **no dependency:** ใช้ browser print ล้วน ไม่เพิ่ม lib · read-only · ไม่แตะ SQL/RLS/payroll/accounting · **test:** +3 `hr_overview.test.js` · **pwa-cache:** bump 326→327
+
 ## 5.64.0 (build 326) — 2026-06-01 Phase 92.56 — รายงานระดับแผนก
 
 - **feat(hr):** `buildDepartmentReport()` pure helper — รวม per-employee report ตามแผนก (จำนวนคน/วันทำงาน/ชม.ปกติ/OT/มาสาย/ออกก่อน/ลา) + totals

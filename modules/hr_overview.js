@@ -463,6 +463,89 @@ export function buildDepartmentReport(rows) {
 }
 
 /**
+ * Phase 92.57: สร้าง HTML สำหรับพิมพ์/บันทึก PDF (browser-native print) — pure, ไม่มี dependency
+ * @param {object} input
+ * @param {string} input.from - YYYY-MM-DD
+ * @param {string} input.to   - YYYY-MM-DD
+ * @param {Array} input.employeeRows - report.rows
+ * @param {object} input.empTotals   - report.totals
+ * @param {Array} input.deptRows      - dept.rows
+ * @param {object} input.deptTotals   - dept.totals
+ * @param {string} [input.storeName]
+ * @param {string} [input.generatedAt] - ข้อความเวลาที่สร้าง (ส่งเข้ามาเพื่อ testable)
+ * @returns {string} HTML document เต็ม (auto window.print() onload)
+ */
+export function buildHrReportPrintHtml(input = {}) {
+  const from = input.from || "";
+  const to = input.to || "";
+  const empRows = Array.isArray(input.employeeRows) ? input.employeeRows : [];
+  const empT = input.empTotals || { employees: 0, daysWorked: 0, regularHours: 0, otHours: 0, lateCount: 0, earlyLeaveCount: 0, leaveDays: 0 };
+  const deptRows = Array.isArray(input.deptRows) ? input.deptRows : [];
+  const storeName = input.storeName || "Boonsook POS";
+  const generatedAt = input.generatedAt || "";
+  const num = (n) => Number(n || 0).toLocaleString("th-TH");
+  const hrs = (n) => (Math.round(Number(n || 0) * 10) / 10).toFixed(1);
+
+  const empBody = empRows.length === 0
+    ? `<tr><td colspan="8" style="text-align:center;color:#888">ไม่มีข้อมูลในช่วงนี้</td></tr>`
+    : empRows.map(r => `<tr>
+        <td>${escHtml(r.name)}<div class="sub">${escHtml(r.department || "")}</div></td>
+        <td class="r">${num(r.daysWorked)}</td>
+        <td class="r">${hrs(r.regularHours)}</td>
+        <td class="r">${hrs(r.otHours)}</td>
+        <td class="r">${num(r.lateCount)}${r.lateMinutes ? ` (${num(r.lateMinutes)}น)` : ""}</td>
+        <td class="r">${num(r.earlyLeaveCount)}</td>
+        <td class="r">${r.leaveDays ? num(r.leaveDays) : "–"}</td>
+      </tr>`).join("");
+
+  const deptBody = deptRows.map(d => `<tr>
+        <td>${escHtml(d.department)}</td>
+        <td class="r">${num(d.headcount)}</td>
+        <td class="r">${num(d.daysWorked)}</td>
+        <td class="r">${hrs(d.regularHours)}</td>
+        <td class="r">${hrs(d.otHours)}</td>
+        <td class="r">${num(d.lateCount)}</td>
+        <td class="r">${d.leaveDays ? num(d.leaveDays) : "–"}</td>
+      </tr>`).join("");
+
+  return `<!doctype html><html lang="th"><head><meta charset="utf-8" />
+<title>รายงาน HR ${escHtml(from)} - ${escHtml(to)}</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: "Sarabun", "TH Sarabun New", system-ui, sans-serif; color: #1a1a1a; margin: 24px; font-size: 13px; }
+  h1 { font-size: 20px; margin: 0 0 2px; }
+  h2 { font-size: 15px; margin: 18px 0 6px; }
+  .meta { color: #555; font-size: 12px; margin-bottom: 12px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+  th, td { border: 1px solid #cbd5e1; padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { background: #f1f5f9; font-weight: 700; }
+  td.r, th.r { text-align: right; font-variant-numeric: tabular-nums; }
+  tfoot td { font-weight: 800; background: #f8fafc; }
+  .sub { color: #777; font-size: 10px; }
+  .foot { margin-top: 16px; color: #888; font-size: 11px; text-align: right; }
+  @media print { body { margin: 0; } @page { margin: 14mm; } button { display: none; } }
+</style></head><body onload="window.print()">
+  <h1>รายงาน HR — ${escHtml(storeName)}</h1>
+  <div class="meta">ช่วงวันที่ ${escHtml(from)} ถึง ${escHtml(to)}${generatedAt ? ` · พิมพ์เมื่อ ${escHtml(generatedAt)}` : ""}</div>
+
+  <h2>สรุปต่อพนักงาน</h2>
+  <table>
+    <thead><tr><th>พนักงาน</th><th class="r">วันทำงาน</th><th class="r">ปกติ(ชม.)</th><th class="r">OT</th><th class="r">มาสาย</th><th class="r">ออกก่อน</th><th class="r">ลา(วัน)</th></tr></thead>
+    <tbody>${empBody}</tbody>
+    ${empRows.length > 0 ? `<tfoot><tr><td>รวม ${num(empT.employees)} คน</td><td class="r">${num(empT.daysWorked)}</td><td class="r">${hrs(empT.regularHours)}</td><td class="r">${hrs(empT.otHours)}</td><td class="r">${num(empT.lateCount)}</td><td class="r">${num(empT.earlyLeaveCount)}</td><td class="r">${num(empT.leaveDays)}</td></tr></tfoot>` : ""}
+  </table>
+
+  ${deptRows.length > 0 ? `<h2>สรุปตามแผนก</h2>
+  <table>
+    <thead><tr><th>แผนก</th><th class="r">คน</th><th class="r">วันทำงาน</th><th class="r">ปกติ(ชม.)</th><th class="r">OT</th><th class="r">มาสาย</th><th class="r">ลา(วัน)</th></tr></thead>
+    <tbody>${deptBody}</tbody>
+  </table>` : ""}
+
+  <div class="foot">Boonsook POS V5 · รายงานสร้างอัตโนมัติ</div>
+</body></html>`;
+}
+
+/**
  * ตรวจหา exceptions ที่ admin ต้องจัดการ — สำหรับ section "สิ่งที่ต้องจัดการวันนี้"
  */
 export function detectExceptions(input = {}) {
@@ -1353,6 +1436,7 @@ function _renderMonthlyHrReport(report, opts = {}) {
           <input type="date" id="hrReportTo" value="${escHtml(to)}" style="padding:5px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px" />
           <button id="hrReportSearchBtn" ${loading ? "disabled" : ""} style="padding:6px 12px;border:1px solid #0284c7;border-radius:6px;background:#0284c7;color:#fff;font-size:12px;font-weight:700;cursor:pointer">🔍 ค้นหา</button>
           <button id="hrReportExportBtn" ${loading || rows.length === 0 ? "disabled" : ""} style="padding:6px 12px;border:1px solid #16a34a;border-radius:6px;background:${loading || rows.length === 0 ? '#94a3b8' : '#16a34a'};color:#fff;font-size:12px;font-weight:700;cursor:pointer">📥 Export</button>
+          <button id="hrReportPrintBtn" ${loading || rows.length === 0 ? "disabled" : ""} style="padding:6px 12px;border:1px solid #475569;border-radius:6px;background:${loading || rows.length === 0 ? '#94a3b8' : '#475569'};color:#fff;font-size:12px;font-weight:700;cursor:pointer">🖨️ พิมพ์ / PDF</button>
         </div>
       </div>
       <div style="overflow-x:auto">
@@ -2415,6 +2499,29 @@ export async function renderHrOverviewPage(ctx) {
         if (ok) showToast?.("📥 Export รายงานแผนกสำเร็จ"); else showToast?.("ไม่สามารถ Export ได้ (XLSX ยังไม่โหลด)");
       } catch (e) {
         showToast?.("Export ผิดพลาด: " + (e?.message || e));
+      }
+    });
+
+    // Phase 92.57: พิมพ์ / บันทึก PDF (browser-native print)
+    document.getElementById("hrReportPrintBtn")?.addEventListener("click", () => {
+      if ((monthlyReport?.rows || []).length === 0) return;
+      try {
+        const dept = buildDepartmentReport(monthlyReport.rows);
+        const generatedAt = new Date().toLocaleString("th-TH", { timeZone: TZ, dateStyle: "medium", timeStyle: "short" });
+        const html = buildHrReportPrintHtml({
+          from: reportFrom, to: reportTo,
+          employeeRows: monthlyReport.rows, empTotals: monthlyReport.totals,
+          deptRows: dept.rows, deptTotals: dept.totals,
+          storeName: state?.storeInfo?.name || "Boonsook POS",
+          generatedAt,
+        });
+        const win = window.open("", "_blank");
+        if (!win) { showToast?.("⚠️ เบราว์เซอร์บล็อก popup — อนุญาตแล้วลองใหม่"); return; }
+        win.document.write(html);
+        win.document.close();
+        win.focus();
+      } catch (e) {
+        showToast?.("พิมพ์ไม่สำเร็จ: " + (e?.message || e));
       }
     });
   }
