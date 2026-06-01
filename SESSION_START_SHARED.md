@@ -1,6 +1,6 @@
 # Boonsook POS V5 - Shared Session Start
 
-Last updated: 2026-06-01 (Phase 92.60 — HR premium UI/UX, build 330)
+Last updated: 2026-06-01 (Phase 92.61 — Refund over-refund cap, build 331)
 
 Purpose: this is the common first-read note for Codex, Claude, or any next agent opening a fresh session on this project. Read this before changing files so both teams start from the same facts.
 
@@ -25,6 +25,12 @@ Purpose: this is the common first-read note for Codex, Claude, or any next agent
 - Supabase project URL used by verification scripts: `https://rwmmjljelpcpwohwiplu.supabase.co`
 
 ## Current Truth As Of 2026-06-01
+
+Phase 92.61 Refund over-/double-refund cap is implemented and deployed (build 331).
+
+- Finance audit found the refund modal set max refundable qty to the original sale qty every time (no subtraction of prior refunds) → a bill could be fully refunded repeatedly, leaking money + stock + reversing JE.
+- Fix (modules/refunds.js, client guard): new pure helpers `computeRefundableItems` (max = original − already-refunded, matched by product_id / name fallback) and `validateRefundWithinRemaining`; the modal now fetches the bill's prior refunds, caps each line, shows "คืนแล้ว N", disables fully-refunded lines, and re-validates before insert. +11 tests.
+- NOTE: this is a client-side guard. True enforcement needs a DB trigger/RLS (SQL follow-up, not yet done). This was audit finding #1 of a larger finance audit (remaining: recurring-expense JV + idempotency, VAT float drift, profit_report XSS/TZ, payroll JV error logging, period-lock trigger verification).
 
 Phase 92.60 HR Overview premium UI/UX is implemented and deployed (build 330). (Codex shipped 92.58 POS money audit + 92.59 period-close gate in parallel; HR UI renumbered 92.58→92.60 and rebased on build 329.)
 
@@ -188,9 +194,9 @@ Use `npm.cmd` on Windows PowerShell because plain `npm` may be blocked by script
 
 If opening a new session with no new user request:
 
-1. Verify the live app build markers on `boonsook-pos-v5.pages.dev` if deployment freshness matters: `data-app-build="330"`, `main.js?v=330`, `style.css?v=330`, `boot.js?v=330`, and `sw.js` cache `v330`.
+1. Verify the live app build markers on `boonsook-pos-v5.pages.dev` if deployment freshness matters: `data-app-build="331"`, `main.js?v=331`, `style.css?v=331`, `boot.js?v=331`, and `sw.js` cache `v331`.
 2. If the user wants a project monitor automation, use this file as the source-of-truth prompt context.
 
 ## Short Human Summary
 
-Latest app build is 330 on `main`. Phase 92.60 is a premium visual refresh of the HR Overview page (gradients, layered shadows, refined cards) — visual-only. Phase 92.59 (Codex) adds a period-close readiness gate (accounting); Phase 92.58 (Codex) POS money audit fixes. Phase 92.57 adds a "พิมพ์ / PDF" button (browser-native print) to the HR report. Phase 92.56 adds a department-level summary table (+ export) to the HR report section. Phase 92.55 adds a per-employee Timesheet tab (daily in/out/hours/punctuality for the month) in the HR employee modal. Phase 92.54 adds a from/to date-range picker to the Monthly HR report (re-fetches only that range, re-renders only the report section). Phase 92.53 adds the Monthly HR report (one row per employee: days worked / hours / OT / late / early-leave / leave days, with Excel export) in HR Overview — read-only. Phase 92.52 adds HR punctuality follow-ups (period summary + Excel columns, self-view chips, dashboard "พนักงานมาสายบ่อย", grace-change audit log) — informational only. Phase 92.51 (Codex) adds the Period Close Checklist (accounting, read-only, build 321). Phase 92.50 adds the HR executive dashboard; Phase 92.49 adds HR late/early-leave attendance exception rules. All client-only, no payroll/leave/accounting/RLS/SQL impact. Phase 92.48 adds the accounting integrity status panel and hotfixes the orphan fetch to `select=*`. Expense export timezone bug is fixed and delivered through later PWA cache bumps. JE REST RLS is fixed and live-verified after SQL apply. Remaining accounting orphan counts are currently understood as intentional/non-actionable skips, not an active failure. Start new work from `git status`, avoid touching unrelated user work, and verify with `npm.cmd` commands on Windows.
+Latest app build is 331 on `main`. Phase 92.61 fixes a refund over-/double-refund money+stock leak (client-side cap; SQL enforcement is a follow-up) — from a finance audit. Phase 92.60 is a premium visual refresh of the HR Overview page — visual-only. Phase 92.59 (Codex) adds a period-close readiness gate (accounting); Phase 92.58 (Codex) POS money audit fixes. Phase 92.57 adds a "พิมพ์ / PDF" button (browser-native print) to the HR report. Phase 92.56 adds a department-level summary table (+ export) to the HR report section. Phase 92.55 adds a per-employee Timesheet tab (daily in/out/hours/punctuality for the month) in the HR employee modal. Phase 92.54 adds a from/to date-range picker to the Monthly HR report (re-fetches only that range, re-renders only the report section). Phase 92.53 adds the Monthly HR report (one row per employee: days worked / hours / OT / late / early-leave / leave days, with Excel export) in HR Overview — read-only. Phase 92.52 adds HR punctuality follow-ups (period summary + Excel columns, self-view chips, dashboard "พนักงานมาสายบ่อย", grace-change audit log) — informational only. Phase 92.51 (Codex) adds the Period Close Checklist (accounting, read-only, build 321). Phase 92.50 adds the HR executive dashboard; Phase 92.49 adds HR late/early-leave attendance exception rules. All client-only, no payroll/leave/accounting/RLS/SQL impact. Phase 92.48 adds the accounting integrity status panel and hotfixes the orphan fetch to `select=*`. Expense export timezone bug is fixed and delivered through later PWA cache bumps. JE REST RLS is fixed and live-verified after SQL apply. Remaining accounting orphan counts are currently understood as intentional/non-actionable skips, not an active failure. Start new work from `git status`, avoid touching unrelated user work, and verify with `npm.cmd` commands on Windows.

@@ -3,17 +3,36 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 1 มิถุนายน 2026 (Phase 92.60 — HR premium UI/UX, build 330)
-**Version:** 5.64.0 (build 330) — Phase 92.60 (HR Overview premium UI/UX — visual-only, no SQL)
-**Previous:** 5.64.0 (build 329) — Phase 92.59 (Period-close readiness gate — accounting, Codex) · 328 = 92.58 (POS money audit, Codex)
-**Pre-prev:** 5.64.0 (build 327) — 92.57 (Export PDF) · 326 = 92.56 · 325 = 92.55 · 324 = 92.54 · 321 = 92.51 (Codex)
+**อัปเดตล่าสุด:** 1 มิถุนายน 2026 (Phase 92.61 — Refund คืนซ้ำ/คืนเกิน fix, build 331)
+**Version:** 5.64.0 (build 331) — Phase 92.61 (refund over/double-refund cap — audit fix #1, client guard, no SQL)
+**Previous:** 5.64.0 (build 330) — Phase 92.60 (HR premium UI/UX)
+**Pre-prev:** 5.64.0 (build 329) — 92.59 period-close (Codex) · 328 = 92.58 POS audit (Codex) · 327 = 92.57 (Export PDF)
 
-> 🆕 **ไม่มี SQL/RLS/schema/dependency change ในเฟส 92.60** (visual-only — แก้ scoped `<style>` + inline ของ hr_overview.js)
-> ⚠️ **Phase number:** renumber 92.58→92.60 (Codex ใช้ 92.58 POS audit + 92.59 period-close parallel) · rebase บน Codex 92.59/build 329
+> 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.61** (client-side guard; server-side enforcement = SQL follow-up ที่ยังไม่ทำ)
+> 📌 **Finance audit roadmap (จาก audit รอบนี้):** #1 refund cap ✓ (นี้) → #2 recurring expense JV → #3 recurring idempotency → #4 VAT float drift → #5 profit_report XSS → #6 TZ (profit/recurring) → #7 PromptPay QR (verify usage) → #8 payroll JV error log · + verify period-lock DB trigger
 
 ---
 
-## 🛠️ Phase 92.60 — HR Overview Premium UI/UX (this session)
+## 🛠️ Phase 92.61 — Refund Over-/Double-Refund Cap (this session, audit fix #1)
+
+**บริบท:** audit หน้าการเงินเจอ — refund modal ตั้ง `max_qty = sale_items.qty` ทุกครั้ง ไม่หักของที่คืนไปแล้ว → เปิดคืนเต็มบิลซ้ำได้ → เงิน+สต็อก+JE รั่ว (loyalty กันแล้ว แต่ amount/stock/JV ไม่กัน)
+
+**สิ่งที่ทำ (modules/refunds.js):**
+- `computeRefundableItems(saleItems, priorRefunds)` (exported, pure) → `max_qty = qty เดิม − Σ qty ที่คืนแล้ว`; จับคู่ด้วย `product_id` (fallback ชื่อ ถ้า id null), parse `items_json` ได้ทั้ง object + JSON string, cap `refundedQty` ไม่เกิน qty เดิม (max_qty ไม่ติดลบ)
+- `validateRefundWithinRemaining(itemsToRefund, saleItems, priorRefunds)` (exported, pure) → guard ตอน save
+- `_fetchRefundsForSale(saleId)` → GET refunds เดิมของบิล (`sale_id=eq.`)
+- sale-select handler (async): fetch prior → `computeRefundableItems` → renderItems แสดง "คืนแล้ว N / ครบ" + disable ช่องคืนครบ + ปิดปุ่มถ้าคืนครบทั้งบิล
+- save handler: re-fetch + `validateRefundWithinRemaining` ก่อน insert → block + toast ถ้าเกิน (กัน race / modal ค้าง)
+
+**Behavior preserved:** flow refund ปกติ (เลือกบิล→เลือกจำนวน→คืน) เหมือนเดิม · loyalty/stock/JV reversal เดิมไม่แตะ · ไม่มี schema change
+
+**Gate:** lint 0 · unit 843 (+11 `refunds_cap.test.js`) · e2e build-sync 331 · build 330→331
+
+**⚠️ ยังเหลือ:** server-side enforcement (DB trigger/RLS กันคืนเกินจริง ๆ) — client guard นี้กัน UX ปกติได้ แต่ตามหลัก CLAUDE.md เส้นแบ่งจริงคือ DB → เป็น SQL follow-up
+
+---
+
+## 🛠️ Phase 92.60 — HR Overview Premium UI/UX (prev session)
 
 **เป้าหมาย:** ทำหน้า HR ให้ "ดูหรู ดูแพง" ตามที่ user ขอ — visual refresh ล้วน
 

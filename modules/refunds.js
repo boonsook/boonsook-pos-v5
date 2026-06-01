@@ -17,6 +17,78 @@ function money(n) {
 export function refundTotal(items) {
   return round2((items || []).reduce((s, it) => s + Number(it.qty || 0) * Number(it.unit_price || 0), 0));
 }
+
+// Phase 92.61: คีย์จับคู่รายการ (product_id ถ้ามี, ไม่งั้น fallback ชื่อ) — กันคืนซ้ำ/คืนเกิน
+function _refundKey(pid, name) {
+  return (pid != null && pid !== "") ? `p:${pid}` : `n:${String(name || "").trim()}`;
+}
+
+/**
+ * Phase 92.61: คำนวณจำนวนที่ "ยังคืนได้" ต่อรายการ = qty เดิม − qty ที่เคยคืนไปแล้วของบิลนี้
+ * กัน over-refund / double-refund (เปิด modal คืนเต็มบิลซ้ำ ๆ)
+ * @param {Array} saleItems - sale_items ของบิล [{product_id, product_name, qty, unit_price}]
+ * @param {Array} priorRefunds - refunds เดิมของบิลนี้ [{items_json:[{product_id,name,qty}]}]
+ * @returns {Array} [{product_id, name, qty:0, originalQty, refundedQty, max_qty(remaining), unit_price, restock}]
+ */
+export function computeRefundableItems(saleItems, priorRefunds) {
+  const refunded = new Map();
+  for (const rf of (priorRefunds || [])) {
+    let items = rf?.items_json;
+    if (typeof items === "string") { try { items = JSON.parse(items); } catch { items = []; } }
+    for (const it of (items || [])) {
+      const k = _refundKey(it.product_id, it.name);
+      refunded.set(k, (refunded.get(k) || 0) + Number(it.qty || 0));
+    }
+  }
+  return (saleItems || []).map(it => {
+    const k = _refundKey(it.product_id, it.product_name);
+    const originalQty = Number(it.qty || 0);
+    const refundedQty = Math.min(originalQty, refunded.get(k) || 0);
+    return {
+      product_id: it.product_id || null,
+      name: it.product_name || "",
+      qty: 0,
+      originalQty,
+      refundedQty,
+      max_qty: Math.max(0, originalQty - refundedQty),
+      unit_price: Number(it.unit_price || 0),
+      restock: true,
+    };
+  });
+}
+
+/**
+ * Phase 92.61: ตรวจว่า items ที่จะคืน ไม่เกินจำนวนที่เหลือ (เทียบกับ refunds เดิม) — guard ตอน save
+ * @returns {{ok:boolean, offending?:string}}
+ */
+export function validateRefundWithinRemaining(itemsToRefund, saleItems, priorRefunds) {
+  const remaining = new Map();
+  for (const r of computeRefundableItems(saleItems, priorRefunds)) {
+    remaining.set(_refundKey(r.product_id, r.name), r.max_qty);
+  }
+  for (const it of (itemsToRefund || [])) {
+    const k = _refundKey(it.product_id, it.name);
+    const rem = remaining.get(k) ?? 0;
+    if (Number(it.qty || 0) > rem) {
+      return { ok: false, offending: it.name || k };
+    }
+  }
+  return { ok: true };
+}
+
+// Phase 92.61: ดึง refunds เดิมทั้งหมดของบิลนี้ (เพื่อหักจำนวนที่คืนแล้ว)
+async function _fetchRefundsForSale(saleId) {
+  const cfg = window.SUPABASE_CONFIG;
+  if (!cfg?.url || saleId == null) return [];
+  const accessToken = window._sbAccessToken || cfg.anonKey;
+  try {
+    const r = await fetch(cfg.url + "/rest/v1/refunds?select=items_json&sale_id=eq." + encodeURIComponent(saleId), {
+      headers: { apikey: cfg.anonKey, Authorization: "Bearer " + accessToken }
+    });
+    if (!r.ok) return [];
+    return await r.json().catch(() => []);
+  } catch { return []; }
+}
 function moneyShort(n) {
   const v = Number(n || 0);
   if (v >= 1e6) return (v/1e6).toFixed(2) + "M";
@@ -297,22 +369,20 @@ function openRefundModal(ctx) {
       </div>
     `).join("") || `<div style="padding:14px;text-align:center;color:#94a3b8">ไม่พบบิล</div>`;
 
-    listEl.querySelectorAll(".rf-sale-pick").forEach(item => item.addEventListener("click", () => {
+    listEl.querySelectorAll(".rf-sale-pick").forEach(item => item.addEventListener("click", async () => {
       _selectedSale = recentSales.find(s => String(s.id) === String(item.dataset.id));
       const items = (state.saleItems || []).filter(it => String(it.sale_id) === String(_selectedSale.id));
-      _refundItems = items.map(it => ({
-        product_id: it.product_id || null,
-        name: it.product_name || "",
-        qty: 0, // user เลือกเอง — เริ่มที่ 0
-        max_qty: Number(it.qty || 0),
-        unit_price: Number(it.unit_price || 0),
-        restock: true
-      }));
+      // Phase 92.61: หักจำนวนที่เคยคืนไปแล้วของบิลนี้ ออกจาก max_qty (กันคืนซ้ำ/คืนเกิน)
+      const priorRefunds = await _fetchRefundsForSale(_selectedSale.id);
+      _refundItems = computeRefundableItems(items, priorRefunds);
       renderItems();
       itemsSection.style.display = "block";
       detailsSection.style.display = "block";
-      saveBtn.disabled = false;
-      saveBtn.style.opacity = "1";
+      // ถ้าทุกรายการคืนครบแล้ว → ปิดปุ่มบันทึก
+      const anyRemaining = _refundItems.some(it => it.max_qty > 0);
+      saveBtn.disabled = !anyRemaining;
+      saveBtn.style.opacity = anyRemaining ? "1" : "0.5";
+      if (!anyRemaining) window.App?.showToast?.("บิลนี้คืนครบทุกรายการแล้ว", "warn");
     }));
   }
   renderSales();
@@ -320,16 +390,22 @@ function openRefundModal(ctx) {
   searchInp.addEventListener("input", (e) => renderSales(e.target.value));
 
   function renderItems() {
-    itemsListEl.innerHTML = _refundItems.map((it, idx) => `
-      <div style="display:flex;align-items:center;gap:8px;padding:6px 4px;border-bottom:1px solid #e5e7eb">
+    itemsListEl.innerHTML = _refundItems.map((it, idx) => {
+      const fully = it.max_qty <= 0;
+      // Phase 92.61: แสดงจำนวนที่คืนไปแล้ว + สถานะคืนครบ
+      const refundedNote = it.refundedQty > 0
+        ? ` • <span style="color:#b45309">คืนแล้ว ${it.refundedQty}${fully ? ' (ครบ)' : ''}</span>`
+        : "";
+      return `
+      <div style="display:flex;align-items:center;gap:8px;padding:6px 4px;border-bottom:1px solid #e5e7eb;${fully ? 'opacity:.55' : ''}">
         <div style="flex:1">
           <div style="font-weight:600;font-size:13px">${escHtml(it.name)}</div>
-          <div style="font-size:11px;color:#64748b">฿${money(it.unit_price)} × max ${it.max_qty}</div>
+          <div style="font-size:11px;color:#64748b">฿${money(it.unit_price)} × คืนได้อีก ${it.max_qty}${refundedNote}</div>
         </div>
-        <input type="number" class="rf-item-qty" data-idx="${idx}" min="0" max="${it.max_qty}" step="1" value="${it.qty}" style="width:70px;padding:4px;border:1px solid #cbd5e1;border-radius:6px;text-align:center;font-weight:700" />
+        <input type="number" class="rf-item-qty" data-idx="${idx}" min="0" max="${it.max_qty}" step="1" value="${it.qty}" ${fully ? "disabled" : ""} style="width:70px;padding:4px;border:1px solid #cbd5e1;border-radius:6px;text-align:center;font-weight:700${fully ? ';background:#f1f5f9' : ''}" />
         <div style="width:90px;text-align:right;font-weight:700;color:#dc2626">฿${money(it.qty * it.unit_price)}</div>
-      </div>
-    `).join("");
+      </div>`;
+    }).join("");
     const total = refundTotal(_refundItems);
     totalEl.textContent = "฿" + money(total);
 
@@ -367,6 +443,15 @@ function openRefundModal(ctx) {
     const accessToken = window._sbAccessToken || cfg.anonKey;
 
     try {
+      // Phase 92.61: re-validate กับ refunds เดิม ณ ตอนกดบันทึก (กัน race / เปิด modal ค้าง) — authoritative
+      const saleItemsNow = (state.saleItems || []).filter(it => String(it.sale_id) === String(_selectedSale.id));
+      const priorNow = await _fetchRefundsForSale(_selectedSale.id);
+      const chk = validateRefundWithinRemaining(itemsToRefund, saleItemsNow, priorNow);
+      if (!chk.ok) {
+        window.App?.showToast?.(`คืนเกินจำนวนที่เหลือ: ${chk.offending} — รีเฟรชแล้วลองใหม่`, "error");
+        saveBtn.disabled = false; saveBtn.textContent = "💾 บันทึกการคืน";
+        return;
+      }
       const refundNo = "RF-" + Date.now();
       const payload = {
         refund_no: refundNo,
