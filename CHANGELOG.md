@@ -7,6 +7,11 @@
 
 ---
 
+## 5.64.0 (build 328) — 2026-06-01 Phase 92.58 — POS money audit fixes (S2+S3)
+
+- **fix(pos):** checkout เตือนชัดเมื่อ `sale_items` บางรายการ insert ไม่สำเร็จ (toast + error log; เดิม console.error เงียบ → บิลบันทึกแต่รายการขาด = COGS/สต็อก/รายงานเพี้ยน) [S2]
+- **fix(stock):** `_applyStockMovement` (manual in/out/return/sale) ใช้ atomic CAS (`atomicAddToField`) แทน read-modify-write บน cache → กัน lost-update/oversell ตอนทำพร้อมกัน; `adjust` คงเดิม [S3] · จาก read-only money audit · build 327→328
+
 ## 5.64.0 (build 327) — 2026-06-01 Phase 92.57 — Export PDF / พิมพ์รายงาน HR
 
 - **feat(hr):** ปุ่ม "🖨️ พิมพ์ / PDF" ในรายงาน HR — เปิดหน้าพิมพ์ (browser-native print → Save as PDF ได้) ครอบทั้งตารางพนักงาน + สรุปแผนก + totals + ช่วงวันที่ + เวลาพิมพ์

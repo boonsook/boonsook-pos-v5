@@ -42,7 +42,7 @@ import { renderWarrantyReportPage, checkWarrantyExpiringAndNotify } from "./modu
 import { mountHelpButton, setHelpContext } from "./modules/help_tutor.js";
 import "./modules/doc-override.js";
 import { isValidPhone, isValidEmail, getUserFriendlyError, validateFile } from "./modules/validators.js";
-import { atomicDecrementStock } from "./modules/stock_cas.js";
+import { atomicDecrementStock, atomicAddToField } from "./modules/stock_cas.js";
 import { installErrorReporter } from "./modules/error_reporter.js";
 import { createInflightGuard } from "./modules/_inflight_guard.js";
 import { createApi } from "./modules/api.js";
@@ -2767,6 +2767,19 @@ async function _atomicDecrementStock(table, rowId, qty, field = "stock", maxRetr
   });
 }
 
+// Phase 92.5x (audit S3): atomic +/- delta wrapper (reuse stock_cas atomicAddToField) — กัน lost update ใน manual stock moves
+async function _atomicAddStock(table, rowId, delta, field = "stock", maxRetries = 3) {
+  const cfg = window.SUPABASE_CONFIG;
+  if (!cfg) return { ok: false, error: "missing SUPABASE_CONFIG" };
+  return atomicAddToField({
+    fetcher: fetch,
+    supabaseUrl: cfg.url,
+    anonKey: cfg.anonKey,
+    accessToken: window._sbAccessToken || cfg.anonKey,
+    table, rowId, field, delta, maxRetries,
+  });
+}
+
 async function _deductStockForSaleItem({ product, qty, orderNo }) {
   if (!product || !qty || qty <= 0) return;
   // ข้าม service / non_stock
@@ -3013,28 +3026,45 @@ async function _applyStockMovement({ productId, warehouseId, movementType, qty, 
     String(w.product_id) === String(productId) && String(w.warehouse_id) === String(warehouseId)
   ) : null;
 
+  // ★ audit S3: delta moves (in/out/return/sale) ใช้ atomic CAS กัน lost update เหมือน POS/credit path.
+  //   adjust = ตั้งค่าใหม่ absolute (manual override) → ใช้ set ตรง (ไม่ใช่ delta) คงเดิม
+  const isAdjust = movementType === "adjust";
+  const delta = (movementType === "in" || movementType === "return") ? qty
+              : (movementType === "out" || movementType === "sale") ? -qty
+              : 0;
   const before = Number(ws?.stock || 0);
-  let after = before;
-  if (movementType === "in" || movementType === "return") after = before + qty;
-  else if (movementType === "out" || movementType === "sale") after = before - qty;
-  else if (movementType === "adjust") after = qty; // qty is the new target
+  let after = isAdjust ? qty : before + delta;  // best-effort สำหรับ audit note (CAS คืนค่าจริงด้านล่าง)
 
   try {
     if (warehouseId) {
-      if (ws?.id) await xhrPatch("warehouse_stock", { stock: after }, "id", ws.id);
-      else await xhrPost("warehouse_stock", { product_id: productId, warehouse_id: warehouseId, stock: after, min_stock: 0 });
+      if (ws?.id) {
+        if (isAdjust) {
+          await xhrPatch("warehouse_stock", { stock: after }, "id", ws.id);
+        } else {
+          const dec = await _atomicAddStock("warehouse_stock", ws.id, delta);
+          if (dec.ok) {
+            after = dec.after;
+            ws.stock = after;
+          } else {
+            console.warn("[applyStockMovement] warehouse_stock CAS failed:", dec.error);
+          }
+        }
+      } else {
+        await xhrPost("warehouse_stock", { product_id: productId, warehouse_id: warehouseId, stock: after, min_stock: 0 });
+      }
     }
 
-    // Legacy products.stock — recompute as sum of warehouse_stock หลัง update
-    // ทำแบบง่าย: delta = after - before → products.stock += delta
+    // Legacy products.stock mirror — delta → CAS, adjust → recompute+set
     try {
       const prod = (state.products || []).find(p => String(p.id) === String(productId));
       if (prod && warehouseId) {
-        const delta = after - before;
-        const newProdStock = Number(prod.stock || 0) + delta;
-        const r = await xhrPatch("products", { stock: newProdStock }, "id", productId);
-        if (!r?.ok) {
-          console.warn("[applyStockMovement] products.stock recompute failed:", r?.error);
+        if (isAdjust) {
+          const newProdStock = Number(prod.stock || 0) + (after - before);
+          const r = await xhrPatch("products", { stock: newProdStock }, "id", productId);
+          if (!r?.ok) console.warn("[applyStockMovement] products.stock recompute failed:", r?.error);
+        } else {
+          const pdec = await _atomicAddStock("products", productId, delta);
+          if (!pdec.ok) console.warn("[applyStockMovement] products.stock CAS failed:", pdec.error);
         }
       }
     } catch(e){

@@ -1147,6 +1147,7 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
 
     // ถ้ามีสินค้าในตะกร้า → บันทึก sale_items
     if (state.cart.length > 0) {
+      const failedItems = [];  // ★ audit S2: เก็บรายการที่บันทึกไม่สำเร็จ → เตือน admin (เดิมกลืน console.error เงียบ)
       for (const item of state.cart) {
         const prodRef = state.products.find(x => x.id === item.id);
         const itemPayload = {
@@ -1168,6 +1169,7 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
         }
         if (!itemRes.ok) {
           console.error("[POS] sale_items failed:", itemRes.error);
+          failedItems.push(item.name || item.product_name || `#${item.id}`);
         }
 
         // ★ ตัดสต็อก — ใช้ smart deduct (รองรับ bundle Phase 18)
@@ -1177,6 +1179,11 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
             await fn({ product: prodRef, qty: Number(item.qty) || 0, orderNo });
           }
         } catch(e) { console.warn("[POS] deduct stock failed:", e?.message || e); }
+      }
+      // ★ audit S2: บิลบันทึกแล้วแต่บางรายการขาด → เตือนชัด (เดิมแค่ console.error → COGS/สต็อก/รายงานเพี้ยนเงียบ)
+      if (failedItems.length > 0) {
+        console.error("[POS] sale_items incomplete:", { orderNo, saleId, failedItems });
+        window.App?.showToast?.(`⚠️ บิล ${orderNo}: บันทึกรายการสินค้าไม่สำเร็จ ${failedItems.length} รายการ (${failedItems.slice(0, 3).join(", ")}${failedItems.length > 3 ? "…" : ""}) — โปรดตรวจ/เพิ่มในบิลนี้เอง`);
       }
     }
 
