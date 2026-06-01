@@ -3,13 +3,26 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 1 มิถุนายน 2026 (Phase 92.62 — รายจ่ายประจำ JV+idempotency+TZ, build 332)
-**Version:** 5.64.0 (build 332) — Phase 92.62 (recurring expense audit fixes #2/#3/#6 — client, no SQL)
-**Previous:** 5.64.0 (build 331) — Phase 92.61 (refund cap #1 + 92.61b SQL guard applied)
-**Pre-prev:** 5.64.0 (build 330) — 92.60 HR UI · 329 = 92.59 period-close (Codex) · 328 = 92.58 POS (Codex)
+**อัปเดตล่าสุด:** 1 มิถุนายน 2026 (Phase 92.63 — finance audit quick wins #5/#6b/#8, build 333)
+**Version:** 5.64.0 (build 333) — Phase 92.63 (profit_report XSS + profit TZ + payroll fail-log — client, no SQL)
+**Previous:** 5.64.0 (build 332) — Phase 92.62 (recurring expense JV/idempotency/TZ)
+**Pre-prev:** 5.64.0 (build 331) — 92.61 refund cap (+SQL guard ✓) · 330 = 92.60 HR UI · 329 = 92.59/328 = 92.58 (Codex)
 
-> 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.62** (client-side; ใช้ note tag เป็น idempotency key)
-> 📌 **Finance audit roadmap:** #1 refund cap ✓ (+SQL guard ✓) · #2 recurring JV ✓ · #3 recurring idempotency ✓ · #6 recurring TZ ✓ (นี้) → **เหลือ: #4 VAT float drift · #5 profit_report XSS · #6 (profit_report/profit_by_product TZ) · #7 PromptPay QR verify · #8 payroll JV error log · verify period-lock DB trigger**
+> 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.63** (client-side)
+> 📌 **Finance audit roadmap:** #1 refund ✓✓ · #2 recurring JV ✓ · #3 recurring idem ✓ · #6 recurring TZ ✓ · **#5 profit XSS ✓ · #6b profit TZ ✓ · #8 payroll fail-log ✓** (นี้) → **เหลือ: #4 VAT float drift (auto_post — ระวังสุด) · #7 PromptPay QR (verify usage ก่อน) · verify period-lock DB trigger**
+
+---
+
+## 🛠️ Phase 92.63 — Finance Audit Quick Wins (#5 XSS / #6b TZ / #8 log)
+
+**สิ่งที่ทำ:**
+- **#5 (security)** `modules/profit_report.js` — import `escHtml`; wrap `${escHtml(p.productName)}` (ตารางสินค้า) + `${escHtml(c.category)}` (ตารางค่าใช้จ่าย) → ปิด stored-XSS จากชื่อสินค้า/หมวดที่มาจาก DB
+- **#6b (TZ)** profit_report default range → `addDaysBkk(-30)`/`todayBkk()` (ถอด `formatDateForInput` local-TZ); `modules/profit_by_product.js` cutoff (30d/เดือน/ปี) → `todayBkk()`/`addDaysBkk()` แทน `toISOString()` UTC
+- **#8 (audit)** `modules/payroll.js` — catch ของ `_createSalaryExpense` + `postJournalForPayroll` เพิ่ม `logActivity('payroll_expense_failed'/'payroll_journal_failed', {error, paid_at, method, employee_id})` (best-effort) → failed money side-effect ตามรอยใน audit log ได้
+
+**Behavior preserved:** ไม่แตะ money math/formula · profit_report month-bucketing (saleDate.getMonth() local) ยังคงเดิม (ICT device ถูกต้อง — residual ความเสี่ยงต่ำ) · ไม่มี schema change
+
+**Gate:** lint 0 · unit 856 (+4 `finance_audit_92_63.test.js`) · e2e build-sync 333 · build 332→333
 
 ---
 

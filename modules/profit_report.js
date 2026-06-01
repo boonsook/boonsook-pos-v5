@@ -1,5 +1,6 @@
 // Phase 89.27: role-aware sales filter (extends Phase 89.24)
-import { visibleSalesForRole } from "./utils.js";
+// Phase 92.63: escHtml (กัน stored-XSS ชื่อสินค้า/หมวด) + Bangkok TZ default range
+import { visibleSalesForRole, escHtml, todayBkk, addDaysBkk } from "./utils.js";
 
 export function renderProfitReportPage(ctx) {
   const { state, money, showToast, loadAllData: _loadAllData, currentRole: _currentRole, requireAdmin: _requireAdmin } = ctx;
@@ -44,11 +45,9 @@ export function renderProfitReportPage(ctx) {
     </div>
   `;
 
-  // Set default dates (last 30 days)
-  const today = new Date();
-  const thirtyDaysAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
-  document.getElementById("profit_from_date").value = formatDateForInput(thirtyDaysAgo);
-  document.getElementById("profit_to_date").value = formatDateForInput(today);
+  // Set default dates (last 30 days) — Phase 92.63: Bangkok TZ (เดิม new Date() local → drift บน non-ICT device)
+  document.getElementById("profit_from_date").value = addDaysBkk(-30);
+  document.getElementById("profit_to_date").value = todayBkk();
 
   // Load initial report
   loadProfitReport();
@@ -221,7 +220,7 @@ export function renderProfitReportPage(ctx) {
         <tbody>
           ${products_with_profit.map(p => `
             <tr style="border-bottom: 1px solid #f3f4f6;">
-              <td style="padding: 8px;">${p.productName}</td>
+              <td style="padding: 8px;">${escHtml(p.productName)}</td>
               <td style="text-align: right; padding: 8px;">${money(p.totalSale)}</td>
               <td style="text-align: right; padding: 8px;">${money(p.totalCost)}</td>
               <td style="text-align: right; padding: 8px; color: #22c55e;">${money(p.profit)}</td>
@@ -282,7 +281,7 @@ export function renderProfitReportPage(ctx) {
             const color = colors[i % colors.length];
             return `
               <tr style="border-bottom: 1px solid #f3f4f6;">
-                <td style="padding: 8px;">${c.category}</td>
+                <td style="padding: 8px;">${escHtml(c.category)}</td>
                 <td style="text-align: right; padding: 8px;">${money(c.amount)}</td>
                 <td style="text-align: right; padding: 8px;">${pct(c.pct)}</td>
                 <td style="padding: 8px;">
@@ -393,12 +392,7 @@ export function renderProfitReportPage(ctx) {
 }
 
 // Helper functions
-function formatDateForInput(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
+// (formatDateForInput removed in 92.63 — default range ใช้ todayBkk/addDaysBkk แทน)
 
 function formatMonthLabel(date) {
   const months = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];

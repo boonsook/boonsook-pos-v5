@@ -1075,6 +1075,14 @@ async function _markPaid(ctx, id) {
       } catch (e) {
         console.warn("auto-expense fail", e);
         ctx.showToast?.("จ่ายแล้ว แต่บันทึกรายจ่ายอัตโนมัติไม่สำเร็จ");
+        // Phase 92.63: trace failed money side-effect ใน audit log (เดิมแค่ console → ตามรอยไม่ได้)
+        try {
+          logActivity("payroll_expense_failed", {
+            entityType: "staff_payroll", entityId: id,
+            summary: `payroll ${id} จ่ายแล้วแต่สร้างรายจ่ายอัตโนมัติไม่สำเร็จ — ต้องสร้าง expense เองในหน้ารายจ่าย`,
+            metadata: { error: String(e?.message || e), paid_at: paidAt, payment_method: method, employee_id: payroll?.employee_id },
+          });
+        } catch (_e) { /* swallow */ }
       }
       // Phase 92.44: ลง journal PV (สมุดรายวัน) ให้ admin/บัญชีตรวจสอบได้
       // source_table=staff_payroll → idempotent + reversible ตอนลบ payroll
@@ -1092,6 +1100,14 @@ async function _markPaid(ctx, id) {
       } catch (e) {
         console.warn("auto-journal payroll fail", e);
         // ไม่ block — payroll paid + expense ลงแล้ว, JV ตามมาทีหลังได้ (admin re-post manually)
+        // Phase 92.63: trace ใน audit log → P&L/cash อาจ understated จนกว่าจะ re-post
+        try {
+          logActivity("payroll_journal_failed", {
+            entityType: "staff_payroll", entityId: id,
+            summary: `payroll ${id} จ่ายแล้วแต่ลงสมุดรายวัน (JV) ไม่สำเร็จ — admin ต้อง re-post ที่หน้าบัญชี`,
+            metadata: { error: String(e?.message || e), paid_at: paidAt, payment_method: method, employee_id: payroll?.employee_id },
+          });
+        } catch (_e) { /* swallow */ }
       }
     }
     // Phase 92.43 (B4): audit log

@@ -5,7 +5,7 @@
 // ═══════════════════════════════════════════════════════════
 import { renderEmpty } from "./ui_states.js";
 
-import { escHtml } from "./utils.js";
+import { escHtml, todayBkk, addDaysBkk } from "./utils.js";
 function money(n) {
   return new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n || 0));
 }
@@ -24,12 +24,12 @@ export function renderProfitByProductPage(ctx) {
   const container = document.getElementById("page-profit_by_product");
   if (!container) return;
 
-  // Cutoff
+  // Cutoff — Phase 92.63: Bangkok TZ (เดิม toISOString = UTC → cutoff เพี้ยน ±1 วันช่วงเที่ยงคืน-06:59)
   let cutoffKey = "";
-  const today = new Date();
-  if (_ppPeriod === "30d") { const d = new Date(); d.setDate(d.getDate()-30); cutoffKey = d.toISOString().slice(0,10); }
-  else if (_ppPeriod === "month") { cutoffKey = today.toISOString().slice(0,7) + "-01"; }
-  else if (_ppPeriod === "year") { cutoffKey = today.toISOString().slice(0,4) + "-01-01"; }
+  const today = todayBkk(); // "YYYY-MM-DD" Asia/Bangkok
+  if (_ppPeriod === "30d") { cutoffKey = addDaysBkk(-30); }
+  else if (_ppPeriod === "month") { cutoffKey = today.slice(0,7) + "-01"; }
+  else if (_ppPeriod === "year") { cutoffKey = today.slice(0,4) + "-01-01"; }
 
   const validSales = (state.sales || [])
     .filter(s => !(s.note || "").includes("[ลบแล้ว]"))

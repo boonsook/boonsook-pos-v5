@@ -7,6 +7,13 @@
 
 ---
 
+## 5.64.0 (build 333) — 2026-06-01 Phase 92.63 — Finance audit quick wins (#5 XSS / #6b TZ / #8 log)
+
+- **fix(security):** profit_report.js escape ชื่อสินค้า + หมวดหมู่ (เดิม render ดิบ = stored-XSS) [#5]
+- **fix(tz):** profit_report (ช่วงวันที่ default) + profit_by_product (cutoff 30d/เดือน/ปี) ใช้ `todayBkk()`/`addDaysBkk()` แทน UTC `new Date()`/`toISOString()` → กัน off-by-1 [#6b]
+- **fix(audit):** payroll จ่ายแล้วแต่ auto-expense/auto-JV ล้มเหลว → ลง `logActivity('payroll_expense_failed'/'payroll_journal_failed')` ใน audit log (เดิมแค่ console → ตามรอย P&L/cash drift ไม่ได้) [#8]
+- **test:** +4 `finance_audit_92_63.test.js` · **pwa-cache:** bump 332→333
+
 ## 5.64.0 (build 332) — 2026-06-01 Phase 92.62 — รายจ่ายประจำ: JV + idempotency + TZ (audit #2/#3/#6)
 
 - **fix(accounting):** generate รายจ่ายประจำ → **auto-post JV** (เหมือน expenses ปกติ) → ค่าเช่า/น้ำไฟเข้าสมุดบัญชีคู่ (เดิมไม่ลง → P&L/Trial Balance ไม่ตรง)
