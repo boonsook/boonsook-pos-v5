@@ -7,6 +7,11 @@
 
 ---
 
+## 5.64.0 (build 329) — 2026-06-01 Phase 92.59 — Period-close readiness gate (accounting)
+
+- **feat(accounting):** หน้า "ปิดงวดบัญชี" (periods.js) เพิ่ม **close-readiness gate ตามมาตรฐาน**: การ์ดแต่ละเดือนโชว์ ⚖️Dr=Cr · 📋บิลมี JE ครบ · 🧹orphan-JV; ปุ่มปิดงวดเตือน (soft-close) ถ้ายังไม่พร้อม → ตรวจ+ปิดที่เดียวกัน
+- **refactor:** ยุบหน้า "เช็คก่อนปิดงวด" (เดิม 92.51) เข้า periods.js → ปลด route/menu + ลบ `period_close.js` · reuse trial-balance/`_classifyOrphan` (no drift) · read-only · build 328→329
+
 ## 5.64.0 (build 328) — 2026-06-01 Phase 92.58 — POS money audit fixes (S2+S3)
 
 - **fix(pos):** checkout เตือนชัดเมื่อ `sale_items` บางรายการ insert ไม่สำเร็จ (toast + error log; เดิม console.error เงียบ → บิลบันทึกแต่รายการขาด = COGS/สต็อก/รายงานเพี้ยน) [S2]

@@ -3,7 +3,15 @@
 //
 //  ปิดงวดเดือน → กัน user แก้/สร้าง JV ในงวดนั้น
 //  Trigger ระดับ DB กันอีกชั้น (defense in depth)
+//
+//  Phase 92.53: + close-readiness gate (มาตรฐาน month-end close: ตรวจครบก่อนล็อก)
+//    Dr=Cr · completeness (บิลมี JE ครบ) · orphan JV (JE ที่ source ถูกลบ)
 // ═══════════════════════════════════════════════════════════
+
+import { _classifyOrphan, INTEGRITY_CATS } from "./backfill.js";
+
+// non-HR source tables ที่ auto_post สร้าง JE (ไม่รวม staff_payroll = HR domain)
+const READINESS_JV_SOURCES = ["sales", "expenses", "receipts", "delivery_invoices", "service_jobs", "credit_payments", "refunds"];
 
 let _ctx = null;
 let _periods = [];        // cache จาก fetchPeriods()
@@ -44,28 +52,86 @@ async function fetchPeriodSummary(year, month) {
   const entries = await (await fetch(entriesUrl, { headers })).json();
   const ids = entries.map(e => e.id);
 
-  let revenue = 0, expense = 0;
+  let revenue = 0, expense = 0, totalDr = 0, totalCr = 0;
   if (ids.length) {
     const linesUrl = `${cfg.url}/rest/v1/journal_lines?select=account_code,debit,credit&entry_id=in.(${ids.join(",")})`;
     const lines = await (await fetch(linesUrl, { headers })).json();
     lines.forEach(l => {
       const code = String(l.account_code || "");
+      const dr = Number(l.debit || 0), cr = Number(l.credit || 0);
+      totalDr += dr; totalCr += cr;
       // Revenue: 4xxx (Cr - Dr)
-      if (code.startsWith("4")) revenue += Number(l.credit || 0) - Number(l.debit || 0);
+      if (code.startsWith("4")) revenue += cr - dr;
       // Expense: 5xxx (Dr - Cr)
-      if (code.startsWith("5")) expense += Number(l.debit || 0) - Number(l.credit || 0);
+      if (code.startsWith("5")) expense += dr - cr;
     });
   }
 
+  // ★ Phase 92.53: Dr=Cr balance check (accounting close-readiness) — reuses the lines already fetched, no extra request
+  const drCrDiff = totalDr - totalCr;
   const summary = {
     revenue,
     expense,
     net: revenue - expense,
-    jvCount: ids.length
+    jvCount: ids.length,
+    totalDr, totalCr, drCrDiff,
+    balanced: Math.abs(drCrDiff) < 0.01
   };
   // eslint-disable-next-line require-atomic-updates -- F: idempotent cache populate (concurrent fetch overwrites with same data)
   _summaryCache[cacheKey] = summary;
   return summary;
+}
+
+// ★ Phase 92.53: close-readiness — completeness (source ในเดือนที่ยังไม่มี JE) + orphan JV (JE ที่ source ถูกลบ).
+//   Read-only · reuse _classifyOrphan (กฎ actionable เดียวกับ auto_post — ไม่ drift) · fail-safe (query พลาด → ไม่ false-alarm)
+async function fetchCloseReadiness(year, month, fromDate, toDate) {
+  const cfg = window.SUPABASE_CONFIG;
+  const token = window._sbAccessToken || cfg.anonKey;
+  const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token };
+  // exclusive next-day สำหรับ filter created_at (timestamptz)
+  const nd = new Date(fromDate + "T00:00:00Z");
+  nd.setUTCMonth(nd.getUTCMonth() + 1);
+  const toNext = nd.toISOString().slice(0, 10);
+
+  let orphanSrc = 0, orphanJV = 0;
+
+  // (a) completeness: ขาย/รายจ่ายในเดือนที่ยังไม่มี JE (actionable)
+  for (const key of ["sales", "expenses"]) {
+    const cat = INTEGRITY_CATS.find(c => c.key === key);
+    try {
+      const vr = await fetch(`${cfg.url}/rest/v1/${cat.view}?select=id&created_at=gte.${fromDate}&created_at=lt.${toNext}`, { headers });
+      if (!vr.ok) continue;
+      const ids = (await vr.json()).map(x => x.id);
+      if (!ids.length) continue;
+      const rr = await fetch(`${cfg.url}/rest/v1/${cat.table}?id=in.(${ids.join(",")})&select=${cat.sel}`, { headers });
+      if (!rr.ok) continue;
+      for (const row of await rr.json()) {
+        if (_classifyOrphan(cat, row).bucket === "actionable") orphanSrc++;
+      }
+    } catch (_e) { /* fail-safe: ข้าม ไม่ false-alarm */ }
+  }
+
+  // (b) orphan JV: JE (approved) ในเดือน ที่ source row ถูกลบไปแล้ว (เฉพาะ non-HR sources)
+  try {
+    const jr = await fetch(`${cfg.url}/rest/v1/journal_entries?select=source_table,source_id&doc_date=gte.${fromDate}&doc_date=lte.${toDate}&status=eq.approved&source_table=in.(${READINESS_JV_SOURCES.join(",")})&source_id=not.is.null`, { headers });
+    if (jr.ok) {
+      const jes = await jr.json();
+      const byTable = {};
+      for (const j of jes) {
+        if (!byTable[j.source_table]) byTable[j.source_table] = [];
+        byTable[j.source_table].push(String(j.source_id));
+      }
+      for (const table of Object.keys(byTable)) {
+        const uniq = [...new Set(byTable[table])];
+        const er = await fetch(`${cfg.url}/rest/v1/${table}?id=in.(${uniq.join(",")})&select=id`, { headers });
+        // fail-safe: ถ้าเช็คไม่ได้ → ถือว่ามีอยู่ครบ (ไม่ false-alarm)
+        const exist = er.ok ? new Set((await er.json()).map(r => String(r.id))) : new Set(uniq);
+        for (const sid of uniq) if (!exist.has(sid)) orphanJV++;
+      }
+    }
+  } catch (_e) { /* fail-safe */ }
+
+  return { orphanSrc, orphanJV, ready: orphanSrc === 0 && orphanJV === 0 };
 }
 
 async function lockPeriod(year, month) {
@@ -177,11 +243,19 @@ export async function renderPeriodsPage(ctx) {
 
   // คำนวณ summary ทุกเดือนของ active year (parallel)
   const summaries = {};
+  const readiness = {};
   await Promise.all(
     Array.from({ length: 12 }, (_, i) => i + 1).map(async (m) => {
       try {
         summaries[m] = await fetchPeriodSummary(_activeYear, m);
+        if (summaries[m].jvCount > 0) {
+          const fromDate = `${_activeYear}-${String(m).padStart(2, "0")}-01`;
+          const lastDay = new Date(_activeYear, m, 0).getDate();
+          const toDate = `${_activeYear}-${String(m).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+          readiness[m] = await fetchCloseReadiness(_activeYear, m, fromDate, toDate);
+        }
       } catch (e) {
+        // eslint-disable-next-line require-atomic-updates -- fallback write (distinct key summaries[m]) in catch; no cross-iteration race
         summaries[m] = { revenue: 0, expense: 0, net: 0, jvCount: 0 };
       }
     })
@@ -211,6 +285,7 @@ export async function renderPeriodsPage(ctx) {
           const period = _periods.find(p => p.year === _activeYear && p.month === m);
           const isLocked = period?.status === "locked";
           const summary = summaries[m] || { revenue: 0, expense: 0, net: 0, jvCount: 0 };
+          const rd = readiness[m] || null;
           const hasData = summary.jvCount > 0;
           const monthLabel = MONTHS_TH[m - 1];
 
@@ -230,6 +305,8 @@ export async function renderPeriodsPage(ctx) {
                   <div>ค่าใช้จ่าย: <b style="color:#ef4444">${money(summary.expense)}</b></div>
                   <div>${summary.net >= 0 ? '✅ กำไร' : '⚠️ ขาดทุน'}: <b style="color:${summary.net >= 0 ? '#10b981' : '#ef4444'}">${money(Math.abs(summary.net))}</b></div>
                   <div style="color:#64748b;margin-top:4px">JV ${summary.jvCount} รายการ</div>
+                  <div style="margin-top:4px;font-weight:600;color:${summary.balanced ? '#166534' : '#b91c1c'}">${summary.balanced ? '⚖️ Dr=Cr บาลานซ์ ✅' : `⚖️ Dr≠Cr ⚠️ ต่าง ฿${money(Math.abs(summary.drCrDiff))}`}</div>
+                  ${rd ? `<div style="margin-top:2px;font-weight:600;color:${rd.orphanSrc === 0 ? '#166534' : '#b91c1c'}">${rd.orphanSrc === 0 ? '📋 บิลมี JE ครบ ✅' : `📋 ค้าง ${rd.orphanSrc} บิลไม่มี JE ⚠️`}</div>${rd.orphanJV > 0 ? `<div style="margin-top:2px;font-weight:600;color:#b91c1c">🧹 orphan JV ${rd.orphanJV} (source ถูกลบ) ⚠️</div>` : ''}` : ''}
                 </div>
               ` : `
                 <div style="font-size:11px;color:#94a3b8;font-style:italic">ไม่มีรายการในเดือนนี้</div>
@@ -278,13 +355,22 @@ export async function renderPeriodsPage(ctx) {
       const y = parseInt(btn.dataset.y, 10);
       const m = parseInt(btn.dataset.m, 10);
       const summary = summaries[m];
+      // ★ Phase 92.53: close-readiness gate — warn (soft-close) ถ้ายังไม่พร้อมก่อนล็อก
+      const rd = readiness[m] || null;
+      const issues = [];
+      if (!summary.balanced) issues.push(`Dr≠Cr ต่าง ฿${money(Math.abs(summary.drCrDiff))}`);
+      if (rd && rd.orphanSrc > 0) issues.push(`${rd.orphanSrc} บิลยังไม่มี JE`);
+      if (rd && rd.orphanJV > 0) issues.push(`orphan JV ${rd.orphanJV} รายการ`);
+      const warn = issues.length ? `\n🔴 เตือน: งวดนี้ยังไม่พร้อม — ${issues.join(" · ")} (ควรแก้ก่อนปิด)\n` : '';
       const msg = `ยืนยันปิดงวด ${MONTHS_TH[m-1]} ${y}?\n\n` +
         `📊 Summary:\n` +
         `  รายได้: ${money(summary.revenue)}\n` +
         `  ค่าใช้จ่าย: ${money(summary.expense)}\n` +
         `  ${summary.net >= 0 ? 'กำไร' : 'ขาดทุน'}: ${money(Math.abs(summary.net))}\n` +
-        `  JV ${summary.jvCount} รายการ\n\n` +
-        `⚠️ หลังปิดงวด — ห้ามแก้/สร้าง JV ในงวดนี้ (เว้นแต่ปลดล็อก)`;
+        `  JV ${summary.jvCount} รายการ\n` +
+        `  ${issues.length === 0 ? '✅ พร้อมปิด (Dr=Cr · บิลครบ)' : '⚠️ มีข้อค้าง'}\n` +
+        warn +
+        `\n⚠️ หลังปิดงวด — ห้ามแก้/สร้าง JV ในงวดนี้ (เว้นแต่ปลดล็อก)`;
       if (!confirm(msg)) return;
 
       btn.disabled = true;

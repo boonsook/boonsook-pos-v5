@@ -9,7 +9,7 @@
   <link rel="icon" type="image/svg+xml" href="./icons/logo.svg" />
   <link rel="manifest" href="./manifest.json" />
   <link rel="apple-touch-icon" href="./icons/logo.svg" />
-  <link rel="stylesheet" href="./style.css?v=328" />
+  <link rel="stylesheet" href="./style.css?v=329" />
   <link rel="stylesheet" href="./doc-print.css?v=1" />
   <!-- ✨ Phase 4: Design System & Components (30/3/2569) -->
   <link rel="stylesheet" href="./phase4-design-system.css?v=1" />
@@ -193,7 +193,6 @@
           <button class="nav-btn sub" data-route="accounting_balance_sheet">🏦 งบดุล</button>
           <button class="nav-btn sub" data-route="accounting_opening_balance">📥 ลงยอดยกมา</button>
           <button class="nav-btn sub" data-route="accounting_export_bundle">📦 Export ชุดรายงาน</button>
-          <button class="nav-btn sub" data-route="accounting_period_close">🧾 เช็คก่อนปิดงวด</button>
           <button class="nav-btn sub" data-route="accounting_periods">🔒 ปิดงวดบัญชี</button>
           <button class="nav-btn sub" data-route="accounting_backfill">⏪ Backfill ย้อนหลัง</button>
         </div>
@@ -363,7 +362,6 @@
       <section id="page-accounting_opening_balance" class="page hidden"></section>
       <section id="page-accounting_export_bundle" class="page hidden"></section>
       <section id="page-accounting_periods" class="page hidden"></section>
-      <section id="page-accounting_period_close" class="page hidden"></section>
       <section id="page-pos" class="page hidden"></section>
       <section id="page-products" class="page hidden"></section>
       <section id="page-wh_kunkhao" class="page hidden"></section>
@@ -821,10 +819,10 @@
        ทำงานก่อน main.js โหลด → ป้องกัน user เห็น version display เก่า
        Phase 89.15: ย้ายออกไป external file + set window.APP_BUILD ให้ pages.js/main.js อ่านได้
        (CSP drop script-src 'unsafe-inline') -->
-  <script src="./selfheal.js?v=328" data-app-build="328" data-app-version="5.64.0"></script>
-  <script type="module" src="./main.js?v=328"></script>
+  <script src="./selfheal.js?v=329" data-app-build="329" data-app-version="5.64.0"></script>
+  <script type="module" src="./main.js?v=329"></script>
   <!-- Phase 89.15: externalized loading overlay + SW update banner (was inline script — drop CSP unsafe-inline) -->
-  <script src="./boot.js?v=328"></script>
+  <script src="./boot.js?v=329"></script>
 
   <!-- AI Assistant Chat Widget (Phase 1) -->
   <script src="./ai-chat-widget.js?v=5"></script>

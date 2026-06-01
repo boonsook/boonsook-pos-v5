@@ -3,10 +3,10 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 1 มิถุนายน 2026 (Phase 92.58 — POS money audit fixes S2+S3, build 328)
-**Version:** 5.64.0 (build 328) — Phase 92.58 (sale_items error surfacing + atomic CAS manual stock — POS/accounting, Codex)
-**Previous:** 5.64.0 (build 327) — Phase 92.57 (Export PDF/พิมพ์รายงาน HR — HR team)
-**Pre-prev:** 5.64.0 (build 326) — 92.56 (แผนก) · 325 = 92.55 (Timesheet) · 324 = 92.54 · 323 = 92.53 (period-close, ยังรอ merge เป็น 92.59) · 321 = 92.51 (Codex)
+**อัปเดตล่าสุด:** 1 มิถุนายน 2026 (Phase 92.59 — Period-close readiness gate [accounting], build 329)
+**Version:** 5.64.0 (build 329) — Phase 92.59 (close-readiness ในหน้าปิดงวดบัญชี: Dr=Cr/บิลครบ/orphan-JV + soft-gate · ยุบหน้าเช็คก่อนปิดงวดเข้ามา · accounting read-only, Codex)
+**Previous:** 5.64.0 (build 328) — Phase 92.58 (POS money audit S2+S3 — Codex) · 327 = 92.57 (Export PDF — HR)
+**Pre-prev:** 5.64.0 (build 326) — 92.56 (แผนก) · 325 = 92.55 (Timesheet) · 324 = 92.54 · 321 = 92.51 (Codex)
 
 > 🆕 **ไม่มี SQL/RLS/schema/dependency change ในเฟส 92.57** (browser print ล้วน)
 > 📌 **Roadmap HR เสร็จครบ 3 ข้อ:** 92.55 Timesheet ✓ · 92.56 รายงานระดับแผนก ✓ · 92.57 Export PDF/พิมพ์ ✓ · period-close-readiness branch (cef6b98) จะ renumber ≥92.58
