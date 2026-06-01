@@ -29,7 +29,7 @@
 **Gate:** lint 0 · unit 843 (+11 `refunds_cap.test.js`) · e2e build-sync 331 · build 330→331
 
 **✅ server-side guard (92.61b):** เพิ่มไฟล์ `supabase-phase92-61b-refund-guard.sql` แล้ว — BEFORE INSERT trigger `trg_guard_refunds_insert` + function `_guard_refunds_insert()` บน `refunds`: รวม qty ใหม่ (NEW.items_json) + ที่คืนแล้ว (refunds เดิม sale_id เดียวกัน) เทียบ sale_items ต่อ product_id → เกิน = RAISE EXCEPTION (ERRCODE 23514). ทุก role, SECURITY INVOKER (auth_all read policies พอ), NOTIFY pgrst reload, rerun-safe. ตรวจเฉพาะ product_id != null (custom item ปล่อย — client จับคู่ชื่อให้).
-> **⚠️ PENDING APPLY:** ต้องเอา `supabase-phase92-61b-refund-guard.sql` ไปรันใน **Supabase SQL Editor** เอง (Claude รัน DDL ไม่ได้ — creds เป็น anon/user) แล้วรัน VERIFY (a)(b) + smoke (c)(d) ท้ายไฟล์ · จนกว่าจะ apply = ยังพึ่ง client guard อย่างเดียว
+> **✅ APPLIED:** gangboo รัน `supabase-phase92-61b-refund-guard.sql` ใน Supabase SQL Editor แล้ว (2026-06-01) → trigger `trg_guard_refunds_insert` live ใน DB · refund over/double-refund ถูกกันทั้ง client (92.61) + server (92.61b) แล้ว · (ตรวจ DDL ฝั่ง Claude ไม่ได้เพราะ anon creds — อิง user confirm + VERIFY queries)
 
 ---
 
