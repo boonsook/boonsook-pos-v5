@@ -3,13 +3,32 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 1 มิถุนายน 2026 (Phase 92.59 — Period-close readiness gate [accounting], build 329)
-**Version:** 5.64.0 (build 329) — Phase 92.59 (close-readiness ในหน้าปิดงวดบัญชี: Dr=Cr/บิลครบ/orphan-JV + soft-gate · ยุบหน้าเช็คก่อนปิดงวดเข้ามา · accounting read-only, Codex)
-**Previous:** 5.64.0 (build 328) — Phase 92.58 (POS money audit S2+S3 — Codex) · 327 = 92.57 (Export PDF — HR)
-**Pre-prev:** 5.64.0 (build 326) — 92.56 (แผนก) · 325 = 92.55 (Timesheet) · 324 = 92.54 · 321 = 92.51 (Codex)
+**อัปเดตล่าสุด:** 1 มิถุนายน 2026 (Phase 92.60 — HR premium UI/UX, build 330)
+**Version:** 5.64.0 (build 330) — Phase 92.60 (HR Overview premium UI/UX — visual-only, no SQL)
+**Previous:** 5.64.0 (build 329) — Phase 92.59 (Period-close readiness gate — accounting, Codex) · 328 = 92.58 (POS money audit, Codex)
+**Pre-prev:** 5.64.0 (build 327) — 92.57 (Export PDF) · 326 = 92.56 · 325 = 92.55 · 324 = 92.54 · 321 = 92.51 (Codex)
 
-> 🆕 **ไม่มี SQL/RLS/schema/dependency change ในเฟส 92.57** (browser print ล้วน)
-> 📌 **Roadmap HR เสร็จครบ 3 ข้อ:** 92.55 Timesheet ✓ · 92.56 รายงานระดับแผนก ✓ · 92.57 Export PDF/พิมพ์ ✓ · period-close-readiness branch (cef6b98) จะ renumber ≥92.58
+> 🆕 **ไม่มี SQL/RLS/schema/dependency change ในเฟส 92.60** (visual-only — แก้ scoped `<style>` + inline ของ hr_overview.js)
+> ⚠️ **Phase number:** renumber 92.58→92.60 (Codex ใช้ 92.58 POS audit + 92.59 period-close parallel) · rebase บน Codex 92.59/build 329
+
+---
+
+## 🛠️ Phase 92.60 — HR Overview Premium UI/UX (this session)
+
+**เป้าหมาย:** ทำหน้า HR ให้ "ดูหรู ดูแพง" ตามที่ user ขอ — visual refresh ล้วน
+
+**สิ่งที่ทำ (modules/hr_overview.js, CSS only):**
+- `.hr-page` page gradient background + font-smoothing (เพิ่ม class ที่ root wrapper)
+- KPI cards + section panels ทุกใบ: border `#eceff6` + layered shadow + radius 16px (replace_all `border:1px solid #e2e8f0;border-radius:14px`)
+- `.hrx-hero` gradient surface + `.hrx-hero h2` gradient-clip title + `.hrx-eyebrow` pill + benefits chips โค้งมน
+- `.hrx-toolbar` navy→indigo gradient + glassy chips (backdrop-blur)
+- `.hrx-mini-card`/`.hrx-panel` premium + hover lift; `.hrx-mini-icon` radius 13
+- bar/donut/vbar gradients → indigo→violet (#4f46e5→#7c3aed); `.hrx-info-card` refined
+- KPI hover lift แรงขึ้น + focus ring indigo
+
+**Behavior preserved:** โครงสร้าง HTML/คลาส/logic เดิมทั้งหมด · ไม่แตะ data fetch/SQL/RLS/payroll · unit 837 ผ่านเท่าเดิม (ไม่มี test ใหม่ — visual)
+
+**Gate:** lint 0 · unit 837 · e2e build-sync 330 · build 329→330 (rebased บน Codex 92.59/329)
 
 ---
 

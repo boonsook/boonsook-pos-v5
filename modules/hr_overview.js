@@ -1253,7 +1253,7 @@ function _kpiCard({ label, value, sub, color, icon, clickRoute }) {
   const c = color || "#0284c7";
   // Phase 92.41: aria-label สื่อความหมายแทน inline text ที่เคยมี (UX: 5 ใบ noisy)
   const ariaSummary = clickRoute ? ` aria-label="${escHtml(label + " — " + value + (sub ? " — " + sub : "") + " (เปิดเพื่อจัดการ)")}"` : "";
-  const baseStyle = "background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:14px 16px;min-width:0";
+  const baseStyle = "background:#fff;border:1px solid #eceff6;border-radius:16px;box-shadow:0 1px 2px rgba(16,24,64,.04),0 12px 30px -20px rgba(16,24,64,.16);padding:14px 16px;min-width:0";
   const interactive = clickRoute
     ? ` class="hr-kpi-card" data-hr-action="${escHtml(clickRoute)}" role="button" tabindex="0"${ariaSummary} style="${baseStyle};cursor:pointer"`
     : ` style="${baseStyle}"`;
@@ -1426,7 +1426,7 @@ function _renderMonthlyHrReport(report, opts = {}) {
         <td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums">${r.leaveDays > 0 ? NUM_TH(r.leaveDays) : "—"}</td>
       </tr>`).join("");
   return `
-    <div style="background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:0;overflow:hidden">
+    <div style="background:#fff;border:1px solid #eceff6;border-radius:16px;box-shadow:0 1px 2px rgba(16,24,64,.04),0 12px 30px -20px rgba(16,24,64,.16);padding:0;overflow:hidden">
       <div style="padding:12px 14px;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
         <div style="font-size:14px;font-weight:800;color:#0f172a">📋 รายงาน HR ตามช่วงวันที่</div>
         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
@@ -2142,35 +2142,41 @@ export async function renderHrOverviewPage(ctx) {
 
   container.innerHTML = `
     <style>
-      /* Phase 92.41: KPI card click-through affordance + a11y */
-      .hr-kpi-card { transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease; }
-      .hr-kpi-card:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(15,23,42,.08); border-color: #cbd5e1; }
-      .hr-kpi-card:focus-visible { outline: 2px solid #0284c7; outline-offset: 2px; }
-      .hr-row-employee:hover { background-color: #f8fafc; }
-      .hr-row-employee:focus-within { outline: 2px solid #0284c7; outline-offset: -2px; }
+      /* Phase 92.58: premium HR look */
+      .hr-page { background:linear-gradient(180deg,#f6f8fd 0%,#eef1f8 100%); border-radius:20px; -webkit-font-smoothing:antialiased; }
+      .hr-page h2, .hr-page h3 { letter-spacing:-.01em; }
+      /* KPI card click-through affordance + a11y (premium hover lift) */
+      .hr-kpi-card { transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
+      .hr-kpi-card:hover { transform: translateY(-3px); box-shadow: 0 1px 2px rgba(16,24,64,.05), 0 22px 44px -22px rgba(79,70,229,.35); border-color: #dcd9f8; }
+      .hr-kpi-card:focus-visible { outline: 2px solid #6366f1; outline-offset: 2px; }
+      .hr-row-employee { transition: background-color .12s ease; }
+      .hr-row-employee:hover { background-color: #f5f7ff; }
+      .hr-row-employee:focus-within { outline: 2px solid #6366f1; outline-offset: -2px; }
       .hrx-dashboard { display:flex; flex-direction:column; gap:12px; }
-      .hrx-hero { display:grid; grid-template-columns:minmax(0,1fr) 300px; gap:16px; align-items:stretch; background:#fff; border:1px solid #dbe4f0; border-radius:16px; padding:20px; }
-      .hrx-eyebrow { font-size:12px; font-weight:900; color:#1d4ed8; letter-spacing:.08em; }
-      .hrx-hero h2 { margin:3px 0 4px; font-size:28px; color:#0f172a; line-height:1.15; }
-      .hrx-hero p { margin:0; color:#475569; font-size:13px; }
-      .hrx-benefits { display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }
-      .hrx-benefits span { border:1px solid #e2e8f0; background:#f8fafc; color:#0f172a; border-radius:8px; padding:7px 10px; font-size:12px; font-weight:700; }
-      .hrx-note { border:1px solid #bfdbfe; background:#f8fbff; border-radius:12px; padding:12px 14px; color:#172554; font-size:12px; }
+      .hrx-hero { display:grid; grid-template-columns:minmax(0,1fr) 300px; gap:18px; align-items:stretch; background:linear-gradient(135deg,#ffffff 0%,#f5f6ff 55%,#eef0ff 100%); border:1px solid #e6e8f6; border-radius:22px; padding:26px; box-shadow:0 1px 2px rgba(16,24,64,.04), 0 24px 50px -28px rgba(79,70,229,.32); }
+      .hrx-eyebrow { display:inline-block; font-size:11px; font-weight:900; color:#4338ca; letter-spacing:.14em; background:linear-gradient(135deg,#eef2ff,#f3f0ff); border:1px solid #e0e7ff; padding:4px 11px; border-radius:999px; }
+      .hrx-hero h2 { margin:10px 0 5px; font-size:30px; font-weight:900; letter-spacing:-.02em; line-height:1.12; background:linear-gradient(120deg,#0f172a 0%,#4338ca 70%,#7c3aed 100%); -webkit-background-clip:text; background-clip:text; color:transparent; }
+      .hrx-hero p { margin:0; color:#475569; font-size:13px; line-height:1.6; }
+      .hrx-benefits { display:flex; flex-wrap:wrap; gap:8px; margin-top:16px; }
+      .hrx-benefits span { border:1px solid #e6e8f6; background:#fff; color:#334155; border-radius:999px; padding:7px 13px; font-size:12px; font-weight:700; box-shadow:0 1px 2px rgba(16,24,64,.05); }
+      .hrx-note { border:1px solid #e0e7ff; background:linear-gradient(160deg,#fbfcff,#f3f4ff); border-radius:16px; padding:14px 16px; color:#1e1b4b; font-size:12px; box-shadow:inset 0 1px 0 rgba(255,255,255,.6); }
       .hrx-note strong { display:block; margin-bottom:6px; font-size:13px; }
       .hrx-note ul { margin:0; padding-left:18px; display:flex; flex-direction:column; gap:5px; }
-      .hrx-toolbar { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; background:#10194f; color:#fff; border-radius:14px; padding:12px; }
-      .hrx-toolbar div { background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.16); border-radius:10px; padding:8px 10px; min-width:0; }
-      .hrx-toolbar strong { display:block; font-size:11px; opacity:.75; margin-bottom:2px; }
+      .hrx-toolbar { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; background:linear-gradient(135deg,#0b1437 0%,#1e1b4b 55%,#312e81 100%); color:#fff; border-radius:18px; padding:14px; box-shadow:0 20px 44px -22px rgba(49,46,129,.75); }
+      .hrx-toolbar div { background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.14); border-radius:12px; padding:9px 12px; min-width:0; backdrop-filter:blur(4px); }
+      .hrx-toolbar strong { display:block; font-size:11px; opacity:.7; margin-bottom:2px; letter-spacing:.04em; }
       .hrx-toolbar span { display:block; font-size:13px; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
       .hrx-mini-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; }
-      .hrx-mini-card { background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:12px; display:flex; gap:10px; align-items:center; min-width:0; }
-      .hrx-mini-icon { width:42px; height:42px; border-radius:10px; display:grid; place-items:center; font-size:20px; flex-shrink:0; }
+      .hrx-mini-card { background:linear-gradient(180deg,#ffffff,#fbfcff); border:1px solid #eceff6; border-radius:16px; padding:14px; display:flex; gap:11px; align-items:center; min-width:0; box-shadow:0 1px 2px rgba(16,24,64,.04); transition:transform .16s ease, box-shadow .16s ease; }
+      .hrx-mini-card:hover { transform:translateY(-2px); box-shadow:0 18px 36px -20px rgba(16,24,64,.28); }
+      .hrx-mini-icon { width:46px; height:46px; border-radius:13px; display:grid; place-items:center; font-size:21px; flex-shrink:0; box-shadow:inset 0 0 0 1px rgba(255,255,255,.5); }
       .hrx-mini-copy { min-width:0; }
-      .hrx-mini-label { color:#475569; font-size:12px; font-weight:800; }
-      .hrx-mini-value { font-size:24px; line-height:1.1; font-weight:950; margin-top:2px; }
+      .hrx-mini-label { color:#475569; font-size:12px; font-weight:800; letter-spacing:.01em; }
+      .hrx-mini-value { font-size:25px; line-height:1.1; font-weight:950; margin-top:2px; letter-spacing:-.02em; }
       .hrx-mini-sub { color:#64748b; font-size:11px; margin-top:3px; }
-      .hrx-grid-3 { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
-      .hrx-panel { background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:14px; min-width:0; }
+      .hrx-grid-3 { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
+      .hrx-panel { background:linear-gradient(180deg,#ffffff,#fcfdff); border:1px solid #eceff6; border-radius:16px; padding:16px; min-width:0; box-shadow:0 1px 2px rgba(16,24,64,.04), 0 14px 32px -22px rgba(16,24,64,.2); transition:transform .16s ease, box-shadow .16s ease; }
+      .hrx-panel:hover { transform:translateY(-2px); box-shadow:0 1px 2px rgba(16,24,64,.05), 0 20px 40px -22px rgba(16,24,64,.26); }
       .hrx-panel-head { display:flex; justify-content:space-between; gap:8px; align-items:center; margin-bottom:12px; }
       .hrx-panel-head h3 { margin:0; color:#0f172a; font-size:14px; }
       .hrx-panel-head span { color:#64748b; font-size:11px; font-weight:800; }
@@ -2178,7 +2184,7 @@ export async function renderHrOverviewPage(ctx) {
       .hrx-bar-row { display:grid; grid-template-columns:88px minmax(60px,1fr) 44px; gap:8px; align-items:center; font-size:12px; }
       .hrx-bar-label { color:#334155; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
       .hrx-bar-track { height:12px; border-radius:999px; background:#eef2f7; overflow:hidden; }
-      .hrx-bar-track span { display:block; height:100%; border-radius:999px; background:linear-gradient(90deg,#2563eb,#38bdf8); }
+      .hrx-bar-track span { display:block; height:100%; border-radius:999px; background:linear-gradient(90deg,#4f46e5,#7c3aed); }
       .hrx-bar-value { text-align:right; color:#0f172a; font-weight:900; font-variant-numeric:tabular-nums; }
       .hrx-donut-wrap { display:grid; grid-template-columns:112px minmax(0,1fr); gap:14px; align-items:center; }
       .hrx-donut { width:112px; height:112px; border-radius:50%; display:grid; place-items:center; position:relative; }
@@ -2193,7 +2199,7 @@ export async function renderHrOverviewPage(ctx) {
       .hrx-vbar-item { flex:1; min-width:0; display:flex; flex-direction:column; align-items:center; gap:5px; height:100%; }
       .hrx-vbar-value { font-size:11px; font-weight:900; color:#0f172a; }
       .hrx-vbar { flex:1; width:100%; max-width:32px; border-radius:9px; background:#eef2f7; display:flex; align-items:end; overflow:hidden; }
-      .hrx-vbar span { width:100%; background:linear-gradient(180deg,#38bdf8,#2563eb); border-radius:9px 9px 0 0; }
+      .hrx-vbar span { width:100%; background:linear-gradient(180deg,#7c3aed,#4f46e5); border-radius:9px 9px 0 0; }
       .hrx-vbar-label { font-size:10px; color:#64748b; white-space:nowrap; }
       .hrx-table-wrap { overflow-x:auto; }
       .hrx-table { width:100%; border-collapse:collapse; font-size:12px; min-width:320px; }
@@ -2201,7 +2207,7 @@ export async function renderHrOverviewPage(ctx) {
       .hrx-table th { color:#475569; background:#f8fafc; font-weight:900; }
       .hrx-empty { min-height:96px; display:grid; place-items:center; text-align:center; color:#64748b; font-size:12px; background:#f8fafc; border:1px dashed #cbd5e1; border-radius:10px; padding:12px; }
       .hrx-info-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
-      .hrx-info-card { border:1px solid #e2e8f0; border-radius:12px; padding:14px; background:#fbfdff; }
+      .hrx-info-card { border:1px solid #eceff6; border-radius:16px; padding:16px; background:linear-gradient(160deg,#fbfcff,#f4f6ff); box-shadow:0 1px 2px rgba(16,24,64,.04); }
       .hrx-info-card h3 { margin:0 0 8px; color:#0f172a; font-size:14px; }
       .hrx-info-card p { margin:0; color:#475569; font-size:12px; line-height:1.55; }
       @media (max-width: 920px) {
@@ -2215,7 +2221,7 @@ export async function renderHrOverviewPage(ctx) {
         .hrx-donut-wrap { grid-template-columns:1fr; justify-items:center; }
       }
     </style>
-    <div style="padding:8px;display:flex;flex-direction:column;gap:14px">
+    <div class="hr-page" style="padding:14px;display:flex;flex-direction:column;gap:16px">
 
       <!-- Header -->
       <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:10px;padding:6px 2px">
@@ -2241,7 +2247,7 @@ export async function renderHrOverviewPage(ctx) {
       </div>
 
       <!-- Alerts -->
-      <div style="background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:14px 16px">
+      <div style="background:#fff;border:1px solid #eceff6;border-radius:16px;box-shadow:0 1px 2px rgba(16,24,64,.04),0 12px 30px -20px rgba(16,24,64,.16);padding:14px 16px">
         <div style="font-size:14px;font-weight:800;color:#0f172a;margin-bottom:10px">🛎️ สิ่งที่ต้องจัดการวันนี้</div>
         ${exceptions.length === 0
           ? `<div style="font-size:13px;color:#16a34a;padding:8px 0">✅ ไม่มีรายการต้องจัดการ — ระบบเรียบร้อยดี</div>`
@@ -2250,7 +2256,7 @@ export async function renderHrOverviewPage(ctx) {
       </div>
 
       <!-- Today's Attendance Table -->
-      <div style="background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:0;overflow:hidden">
+      <div style="background:#fff;border:1px solid #eceff6;border-radius:16px;box-shadow:0 1px 2px rgba(16,24,64,.04),0 12px 30px -20px rgba(16,24,64,.16);padding:0;overflow:hidden">
         <div style="padding:12px 14px;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
           <div style="font-size:14px;font-weight:800;color:#0f172a">🧑‍💼 สถานะพนักงานวันนี้ (${NUM_TH(rows.length)})</div>
           <div style="font-size:11px;color:#64748b">เรียงตามสถานะ</div>
@@ -2287,7 +2293,7 @@ export async function renderHrOverviewPage(ctx) {
       <div id="hrReportSection">${_renderMonthlyHrReport(monthlyReport, { from: reportFrom, to: reportTo })}</div>
 
       <!-- Quick actions (Phase 92.29: reordered + concise labels) -->
-      <div style="background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:14px 16px">
+      <div style="background:#fff;border:1px solid #eceff6;border-radius:16px;box-shadow:0 1px 2px rgba(16,24,64,.04),0 12px 30px -20px rgba(16,24,64,.16);padding:14px 16px">
         <div style="font-size:14px;font-weight:800;color:#0f172a;margin-bottom:10px">⚡ Quick actions</div>
         <div style="display:flex;flex-wrap:wrap;gap:8px">
           ${_quickActionBtn("time_clock",        "🕒 ลงเวลา",        "#0284c7")}

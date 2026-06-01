@@ -7,6 +7,11 @@
 
 ---
 
+## 5.64.0 (build 330) — 2026-06-01 Phase 92.60 — HR Overview premium UI/UX
+
+- **style(hr):** ปรับหน้า HR ให้ดูพรีเมียม — พื้นหลัง gradient, hero gradient + title gradient-clip + eyebrow pill, toolbar navy→indigo glassy, การ์ด/พาเนล shadow ซ้อนชั้น + มุมโค้ง 16px + hover ยกตัว, แท่ง/โดนัทกราฟ indigo→violet, ผิวการ์ดทุกใบ refined
+- **visual-only:** ไม่เปลี่ยนโครงสร้าง/คลาส/logic — ไม่แตะ data/SQL/RLS/payroll (CSS อยู่ใน scoped `<style>` ของ hr_overview.js) · renumber 92.58→92.60 (Codex ใช้ 92.58/92.59) · **pwa-cache:** bump 329→330
+
 ## 5.64.0 (build 329) — 2026-06-01 Phase 92.59 — Period-close readiness gate (accounting)
 
 - **feat(accounting):** หน้า "ปิดงวดบัญชี" (periods.js) เพิ่ม **close-readiness gate ตามมาตรฐาน**: การ์ดแต่ละเดือนโชว์ ⚖️Dr=Cr · 📋บิลมี JE ครบ · 🧹orphan-JV; ปุ่มปิดงวดเตือน (soft-close) ถ้ายังไม่พร้อม → ตรวจ+ปิดที่เดียวกัน
