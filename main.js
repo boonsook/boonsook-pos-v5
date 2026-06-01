@@ -94,6 +94,7 @@ const LAZY_ROUTES = {
   accounting_opening_balance: ["./modules/accounting/opening_balance.js",  "renderOpeningBalancePage"],
   accounting_export_bundle:   ["./modules/accounting/export_bundle.js",    "renderExportBundlePage"],
   accounting_periods:         ["./modules/accounting/periods.js",          "renderPeriodsPage"],
+  accounting_period_close:    ["./modules/accounting/period_close.js",     "renderPeriodClosePage"],
   // Phase 89.21 — Iteration #2 (admin reports + stock ops + finance)
   delivery_invoices:          ["./modules/delivery_invoices.js",           "renderDeliveryInvoicesPage"],
   receipts:                   ["./modules/receipts.js",                    "renderReceiptsPage"],

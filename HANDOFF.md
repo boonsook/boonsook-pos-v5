@@ -3,10 +3,10 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 1 มิถุนายน 2026 (Phase 92.50 — HR executive dashboard detail view, build 320)
-**Version:** 5.64.0 (build 320) — Phase 92.50 (หน้า HR Dashboard รายละเอียดครบ — client-only, no SQL)
-**Previous:** 5.64.0 (build 319) — Phase 92.49 (มาสาย/ออกก่อนเวลา — client-only, no SQL)
-**Pre-prev:** 5.64.0 (build 318) — Phase 92.48 (integrity panel + hotfix select=*)
+**อัปเดตล่าสุด:** 1 มิถุนายน 2026 (Phase 92.51 — Period Close Checklist [accounting], build 321)
+**Version:** 5.64.0 (build 321) — Phase 92.51 (หน้าเช็คก่อนปิดงวด — accounting read-only, reuse trial_balance/_classifyOrphan, no SQL · rebased บน HR 92.50)
+**Previous:** 5.64.0 (build 320) — Phase 92.50 (HR executive dashboard — HR team)
+**Pre-prev:** 5.64.0 (build 319) — Phase 92.49 (มาสาย/ออกก่อนเวลา — HR team) · build 318 = 92.48 (integrity panel + select=* hotfix)
 
 > 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.50** (client-side read-only ทั้งหมด — เพิ่ม dashboard เหนือ HR Overview เดิม)
 

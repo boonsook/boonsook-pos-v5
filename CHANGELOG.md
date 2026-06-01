@@ -7,6 +7,11 @@
 
 ---
 
+## 5.64.0 (build 321) — 2026-06-01 Phase 92.51 — Period Close Checklist (accounting)
+
+- **feat(accounting):** หน้าใหม่ "🧾 เช็คก่อนปิดงวด" (เมนูบัญชี · route `accounting_period_close`) — checklist read-only ก่อนปิดงวด: เดบิต=เครดิต (reuse trial_balance), ขาย/รายจ่ายทุกบิลมี JE รายเดือน (reuse `_classifyOrphan`), สถานะงวด · ส่วน HR (payroll/leave) defer ให้ทีม HR
+- **note:** phase เลื่อน 92.49→92.51 (ทีม HR ใช้ 92.49/92.50) · **pwa-cache:** rebase บน HR build 320 → bump 321 · **test:** +4 `period_close.test.js`
+
 ## 5.64.0 (build 320) — 2026-06-01 Phase 92.50 — HR executive dashboard detail view
 
 - **feat(hr):** HR Overview เพิ่ม dashboard รายละเอียดครบแบบตัวอย่าง: hero/benefits, context filter strip, KPI cards, chart แยกแผนก, donut แยกตำแหน่ง, สถานะลงเวลาวันนี้, แนวโน้มคนลงเวลา, สรุปวันลา, ตารางสัญญา/ทดลองงานใกล้ครบ และ notes แหล่งข้อมูล

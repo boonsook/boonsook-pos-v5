@@ -75,7 +75,8 @@ function getDateRange() {
 }
 
 // ─── Data fetch ───
-async function fetchTrialBalanceData(from, to) {
+// Phase 92.49: exported for reuse by period_close.js (Dr=Cr readiness check) — no logic drift
+export async function fetchTrialBalanceData(from, to) {
   const cfg = window.SUPABASE_CONFIG;
   const token = window._sbAccessToken || cfg.anonKey;
   const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token };
@@ -109,7 +110,7 @@ async function fetchTrialBalanceData(from, to) {
   return { lines: linesAll, coa };
 }
 
-function aggregate(lines, coa) {
+export function aggregate(lines, coa) {
   const coaMap = {};
   coa.forEach(a => { coaMap[a.code] = a; });
 
