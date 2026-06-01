@@ -1,6 +1,6 @@
 # Boonsook POS V5 - Shared Session Start
 
-Last updated: 2026-06-01 07:35 ICT
+Last updated: 2026-06-01 13:45 ICT
 
 Purpose: this is the common first-read note for Codex, Claude, or any next agent opening a fresh session on this project. Read this before changing files so both teams start from the same facts.
 
@@ -10,10 +10,14 @@ Purpose: this is the common first-read note for Codex, Claude, or any next agent
 - Workspace: `C:\Users\Lenovo E14 Gen4\Documents\boonsuk v5\boonsook-pos-v5-github`
 - Main app version: `5.64.0`
 - Latest pushed commits seen:
+  - `3b4072b` `fix(92.48): integrity panel orphan fetch uses select=* (build 318)`
+  - `71ef2ba` `fix(92.48): bump boot.js + style.css ?v= to 317 (build-sync smoke)`
+  - `50ec7dd` `feat(92.48): accounting integrity status panel on backfill page`
+  - `6e33358` `docs(ops): align Codex guardrail docs with project`
+  - `d0d2b2f` `chore(92.47b): bump PWA cache and add shared ops notes`
   - `cb6dbf0` `docs(92.46c): close JE REST RLS incident - verified + applied SQL`
   - `a11bc9a` `fix(92.47): expense export date filter - use Bangkok TZ not UTC`
-  - `f858008` `diag(92.46b): DECISIVE INSERT test (DB vs REST/cache)`
-- Git push range reported successful: `f858008..cb6dbf0`
+- Git push range previously reported successful: `f858008..cb6dbf0`
 - GitHub Actions reported successful:
   - Tests workflow: success
   - Deploy to Cloudflare Pages: success
@@ -22,7 +26,23 @@ Purpose: this is the common first-read note for Codex, Claude, or any next agent
 
 ## Current Truth As Of 2026-06-01
 
-Phase 92.47 expense export date filter is fixed and committed.
+Phase 92.48 accounting integrity status panel is shipped.
+
+- Commit: `50ec7dd`
+- Adds an accounting integrity status panel on the backfill page (`modules/accounting/backfill.js`).
+- Reuses `accounting_integrity_summary()` and the `vw_*_without_journal` views.
+- Buckets orphan rows into actionable vs intentionally skipped so stable legacy/test rows are not treated as an active failure.
+- Hotfix commit: `3b4072b`
+  - Changed orphan-row fetch to `select=*`.
+  - Reason: build 317 selected `grand_total` from `sales`, but `sales` has no `grand_total` column, causing PostgREST 400 and classifying 85 sales rows as unknown.
+  - Build/cache bumped from 317 to 318.
+- Verification recorded in repo history:
+  - `tests/accounting_integrity_panel.test.js` added
+  - lint clean
+  - build bumped from 316 to 318 through the Phase 92.48 commits
+- Commit `71ef2ba` completed build-sync by bumping `boot.js?v=` and `style.css?v=` to 317.
+
+Phase 92.47 expense export date filter is fixed and shipped.
 
 - Root cause was UTC date usage in `modules/expenses.js`.
 - The fix uses Bangkok-date behavior for default filters and form/OCR dates.
@@ -31,7 +51,7 @@ Phase 92.47 expense export date filter is fixed and committed.
   - `node --test tests/expenses_export_filter.test.js` passed `3/3`
   - `node --test tests/*.test.js` passed `777/777`
   - `npm run lint:errors` passed
-- Deploy note: code is on the server after successful Cloudflare deploy, but this fix did not bump `APP_BUILD`, `sw.js` cache, or `main.js?v=...`. Users with an old PWA/service-worker cache may need `Ctrl+Shift+R` or the next build bump before they receive the changed `expenses.js`.
+- Build/cache delivery note: Phase 92.47 initially shipped without a client bump, then Phase 92.47b/92.48 bumped PWA build/cache. Current local and live build markers are 318.
 
 Phase 92.46c accounting JE REST RLS is fixed, SQL was applied in Supabase, and verification passed.
 
@@ -60,21 +80,17 @@ Backfill decision:
   - zero-amount sale row
   - remaining counts such as `sales_without_journal=85` are treated as stable intentional/non-actionable state unless new evidence appears.
 
-## Dirty Worktree Notes
+## Current Worktree Notes
 
-Do not assume every untracked/modified file is yours.
+As of 2026-06-01 13:45 ICT, `git status --short --branch` showed `main...origin/main` with only this `SESSION_START_SHARED.md` documentation update modified.
 
-Known status seen after the latest commits:
+The previous local artifact files are now committed:
 
-- `package.json` modified locally because it contains the `verify:je` script line.
-- Untracked helper/docs files may exist from previous sessions:
-  - `SKILL.md`
-  - `WORK_CONTINUATION_RUNBOOK.md`
-  - `project-patterns.md`
-  - `scripts/diag_je_rest.js`
-  - `scripts/verify_je_fix.js`
-
-Treat these as session artifacts unless the user asks to commit or clean them. Do not revert them without explicit permission.
+- `SKILL.md`
+- `WORK_CONTINUATION_RUNBOOK.md`
+- `project-patterns.md`
+- `scripts/diag_je_rest.js`
+- `scripts/verify_je_fix.js`
 
 ## Start-Of-Session Checklist
 
@@ -112,10 +128,9 @@ Use `npm.cmd` on Windows PowerShell because plain `npm` may be blocked by script
 
 If opening a new session with no new user request:
 
-1. Confirm whether users need immediate PWA cache relief for the expense export fix. If yes, consider a proper build/cache bump touching the normal build/version files.
-2. Confirm whether the local `package.json` / script helper files should be committed, left local, or cleaned.
-3. If the user wants a project monitor automation, use this file as the source-of-truth prompt context.
+1. Verify the live app build markers on `boonsook-pos-v5.pages.dev` if deployment freshness matters: `data-app-build="318"`, `main.js?v=318`, `style.css?v=318`, `boot.js?v=318`, and `sw.js` cache `v318`.
+2. If the user wants a project monitor automation, use this file as the source-of-truth prompt context.
 
 ## Short Human Summary
 
-Expense export timezone bug is fixed, pushed, and CI/deploy passed, with a PWA cache caveat because no build/cache bump was included. JE REST RLS is fixed, pushed, and live-verified after SQL apply. Remaining accounting orphan counts are currently understood as intentional/non-actionable skips, not an active failure. Start new work from `git status`, avoid touching unrelated session artifacts, and verify with `npm.cmd` commands on Windows.
+Latest app build is 318 on `main...origin/main` and live Cloudflare markers also show 318. Phase 92.48 adds the accounting integrity status panel and hotfixes the orphan fetch to `select=*`. Expense export timezone bug is fixed and delivered through later PWA cache bumps. JE REST RLS is fixed and live-verified after SQL apply. Remaining accounting orphan counts are currently understood as intentional/non-actionable skips, not an active failure. Start new work from `git status`, avoid touching unrelated user work, and verify with `npm.cmd` commands on Windows.
