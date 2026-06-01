@@ -7,6 +7,12 @@
 
 ---
 
+## 5.64.0 (build 316) — 2026-06-01 Phase 92.47b — PWA cache bump + shared session notes
+
+- **fix(pwa-cache):** bumped `APP_BUILD` / asset query strings / `sw.js` `CACHE_NAME` from 315 to 316 so deployed clients can receive the Phase 92.47 expense export Bangkok-TZ fix without relying on manual hard refresh.
+- **docs/ops:** added `SESSION_START_SHARED.md` as the shared first-read note for Codex/Claude sessions and pointed older handoff/runbook files at it.
+- **ops(accounting):** committed JE REST RLS verification helpers (`verify:je`, `diag_je_rest`) for repeatable live checks after the Phase 92.46c SQL fix.
+
 ## 5.64.0 (build 315 — no client bump) — 2026-06-01 🛠️ Phase 92.47 — Expense export date filter (TZ off-by-1)
 
 - **fix(expenses) [export-empty]:** default date filter ของหน้ารายจ่ายใช้ `toISOString()` (UTC) → เช้าวันที่ 1 เวลาไทย (เช่น 06:37 ICT = 23:37 UTC วันก่อน) ทำให้ from/to ยุบเป็นวันสุดท้ายของเดือนก่อน → export ได้ผลว่าง (fallback "ไม่มีข้อมูล")

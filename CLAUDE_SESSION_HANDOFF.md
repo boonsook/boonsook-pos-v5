@@ -1,3 +1,7 @@
+# Current Shared Start Note
+
+This file is historical context from an older Claude workflow. For the current shared Codex/Claude project state, read `SESSION_START_SHARED.md` first.
+
 # CLAUDE_SESSION_HANDOFF — อ่านที่นี่ก่อนเริ่ม session ใหม่
 
 > **For Claude (next session / future-me):** อ่านไฟล์นี้ **ก่อน** ทำงาน — มี context ครบที่จำเป็น

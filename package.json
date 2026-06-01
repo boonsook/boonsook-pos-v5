@@ -14,6 +14,7 @@
     "verify": "npm run lint && npm test && npm run test:e2e",
     "verify:security": "node scripts/leave_spoof_test.js",
     "verify:accounting": "node scripts/accounting_integrity_smoke.js",
+    "verify:je": "node scripts/verify_je_fix.js",
     "backfill:orphans": "node scripts/backfill_orphan_journals.js"
   },
   "engines": {
