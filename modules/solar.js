@@ -506,11 +506,19 @@ export function renderSolarPage(ctx) {
 
   const _verifySolSlip = async (dataUrl) => {
     if (!slipResult) return;
+    // ★ Phase 92.66: /api/verify-slip อยู่ใน REQUIRE_AUTH_ENDPOINTS — ต้องแนบ Supabase JWT ของ staff ที่ login
+    //   (anonKey เป็น sb_publishable_... ไม่ใช่ JWT → verifyAuthToken reject = 401). ไม่มี token/หมดอายุ → ขอ login ใหม่
+    const _slipToken = window._sbAccessToken;
+    const _slipAuthErrHtml = `<div style="padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;color:#991b1b;font-size:12px">🔒 ต้องเข้าสู่ระบบก่อนตรวจสลิป — เซสชันหมดอายุหรือยังไม่ได้ล็อกอิน กรุณาเข้าสู่ระบบใหม่แล้วลองอีกครั้ง</div>`;
+    if (!_slipToken) { slipResult.innerHTML = _slipAuthErrHtml; return; }
     slipResult.innerHTML = `<div style="padding:10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;color:#1e40af;font-size:12px">🤖 AI กำลังตรวจสลิป...</div>`;
     const expectedAmount = Number(container.querySelector("#solPriceSummary")?.textContent?.match(/[\d,]+/)?.[0]?.replace(/,/g,"") || 0);
     const expectedRecipient = (state?.profile?.shop_name || state?.storeInfo?.name || "บุญสุข").trim();
     try {
-      const r = await fetch("/api/verify-slip", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image: dataUrl, expected_amount: expectedAmount, expected_recipient: expectedRecipient }) });
+      const r = await fetch("/api/verify-slip", { method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + _slipToken }, body: JSON.stringify({ image: dataUrl, expected_amount: expectedAmount, expected_recipient: expectedRecipient }) });
+      // 401 = token หมดอายุ/ถูกเพิกถอนระหว่างทาง → ขอ login ใหม่ แทน error กว้าง ๆ
+      // eslint-disable-next-line require-atomic-updates -- E: single slip-verify per click (auth re-login)
+      if (r.status === 401) { slipResult.innerHTML = _slipAuthErrHtml; return; }
       const j = await r.json();
       // eslint-disable-next-line require-atomic-updates -- E: single slip-verify per click (verify button)
       if (!j.ok) { slipResult.innerHTML = `<div style="color:#dc2626;font-size:12px;padding:8px">❌ ${escHtml(j.error || "verify fail")}</div>`; return; }

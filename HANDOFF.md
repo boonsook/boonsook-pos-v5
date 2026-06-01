@@ -3,14 +3,35 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 1 มิถุนายน 2026 (Phase 92.65 — AutoKey parse-receipt 401 auth fix, build 335)
-**Version:** 5.65.0 (build 335) — Phase 92.65 (AutoKey แนบ Supabase JWT — client only, no SQL)
-**Previous:** 5.64.0 (build 334) — Phase 92.64 (VAT split Dr=Cr rounding — accounting, no SQL)
-**Pre-prev:** build 333 = 92.63 (profit XSS/TZ + payroll log) · 332 = 92.62 recurring · 331 = 92.61 refund (+SQL ✓) · 330 = 92.60
+**อัปเดตล่าสุด:** 1 มิถุนายน 2026 (Phase 92.66 — verify-slip 401 auth fix, build 336)
+**Version:** 5.65.0 (build 336) — Phase 92.66 (verify-slip แนบ Supabase JWT × 4 caller — client only, no SQL)
+**Previous:** 5.65.0 (build 335) — Phase 92.65 (AutoKey แนบ Supabase JWT — client only, no SQL)
+**Pre-prev:** build 334 = 92.64 (VAT split Dr=Cr) · 333 = 92.63 (profit XSS/TZ + payroll log) · 332 = 92.62 recurring · 331 = 92.61 refund (+SQL ✓)
 
 > 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.64** (client helper เท่านั้น)
 > 🏁 **FINANCE AUDIT CLOSED ที่ build 334** — ครบทุกข้อ: #1✓✓ #2✓ #3✓ #4✓ #5✓ #6✓ #6b✓ #7✓(dead code ลบแล้ว) #8✓ #9✓
 > ✅ **#9 period-lock DB trigger VERIFIED** (gangboo query DB, 2026-06-01): `journal_entries` → trigger `trg_check_period_locked` → function `check_period_not_locked` → insert เข้า period ที่ locked ถูกกันที่ DB จริง (เส้นแบ่งความปลอดภัยตาม CLAUDE.md 4.3)
+
+---
+
+## 🛠️ Phase 92.66 — verify-slip (SlipOK) 401 Auth Fix (follow-up ของ 92.65)
+
+**Root cause:** `/api/verify-slip` อยู่ใน `REQUIRE_AUTH_ENDPOINTS` (functions/_middleware.js, Phase 89.14) → middleware `verifyAuthToken` ต้องการ Supabase JWT (3-part) ใน `Authorization: Bearer`. caller "🤖 ตรวจสลิป" **ทั้ง 4 จุด** ยิงแบบมีแค่ `Content-Type` ไม่มี token → โดน 401 ก่อนถึง SlipOK = ฟีเจอร์ตรวจสลิปการโอน (verify การโอนเงินของลูกค้า) พังทั้งหมด นี่คือ follow-up ที่ Phase 92.65 ระบุไว้ (pattern เดียวกับ AutoKey เป๊ะ)
+
+**caller ที่แก้ (เพิ่ม token guard + `Authorization: Bearer window._sbAccessToken` + จับ 401):**
+- `main.js` `_verifySlip` (service drawer, line ~2505)
+- `modules/service_form.js` `_doVerifySlip` (line ~227)
+- `modules/ac_install.js` `_verifyAcSlip` (line ~242)
+- `modules/solar.js` `_verifySolSlip` (line ~513)
+
+**สิ่งที่ทำ (ต่อ caller):**
+- อ่าน `window._sbAccessToken` **ตอนเรียก verify** (กันทั้ง path ปุ่ม "ตรวจ AI" + auto-verify ตอน payment=โอน/QR) → ไม่มี token → guard แสดง "เข้าสู่ระบบก่อนตรวจสลิป" ก่อนยิง (ไม่เปลือง SlipOK quota)
+- แนบ `Authorization: Bearer <token>` ใน fetch · server ตอบ **401** (token หมดอายุ/เพิกถอนระหว่างทาง) → จับแยกแสดง "เข้าสู่ระบบใหม่" แทน `❌ Unauthorized: ...` กว้าง ๆ
+- **ไม่ fallback `|| cfg.anonKey`** — anonKey = `sb_publishable_...` ไม่ใช่ JWT → `verifyAuthToken` reject (`parts.length !== 3`) = 401 อยู่ดี (pattern เดียวกับ `ai-chat-widget.js` / `line_notify.js` / AutoKey 92.65)
+
+**Behavior preserved:** flow upload สลิป (ใช้ anonKey storage upload — ถูกต้อง, คนละ endpoint) / preview / auto-verify / ปุ่มตรวจซ้ำ / แสดงผล verification เดิม · ไม่แตะ `functions/api/verify-slip.js` (server) · ไม่มี SQL/RLS
+
+**Gate:** lint:errors 0 · unit 893 (+24 `verify_slip_auth.test.js`: source-guard × 4 call site) · build 335→336
 
 ---
 
@@ -23,7 +44,7 @@
 - ไม่มี token → `_akShowAuthError()` guard ก่อนยิง (ไม่เปลือง Gemini quota) · server ตอบ **401** (token หมดอายุ/เพิกถอน) → จับแยกแสดง "เข้าสู่ระบบใหม่" แทน "Server ตอบไม่ใช่ JSON" กว้าง ๆ
 - **ไม่ fallback `|| cfg.anonKey`** — anonKey = `sb_publishable_...` ไม่ใช่ JWT → `verifyAuthToken` reject (`parts.length !== 3`) = 401 อยู่ดี (pattern เดียวกับ `ai-chat-widget.js` / `line_notify.js` ที่ยิง require-auth endpoint)
 
-**⚠️ Related (ยังไม่แก้ — out of scope):** `/api/verify-slip` ก็อยู่ใน `REQUIRE_AUTH_ENDPOINTS` เหมือนกัน แต่ caller (`ac_install.js:242`, `solar.js:513`, `service_form.js`, `main.js:2505`) ยังยิงแบบไม่มี token → SlipOK verify น่าจะโดน 401 เช่นกัน (Phase 89.14 เปลี่ยน middleware แต่ caller ไม่ถูกอัปเดต). แยกเป็น follow-up — pattern แก้เหมือนกันเป๊ะ
+**✅ Related (แก้แล้วใน Phase 92.66):** `/api/verify-slip` ก็อยู่ใน `REQUIRE_AUTH_ENDPOINTS` เหมือนกัน — caller ทั้ง 4 (`main.js:2505`, `service_form.js:227`, `ac_install.js:242`, `solar.js:513`) เดิมยิงแบบไม่มี token → 401 เช่นกัน → แก้ครบใน Phase 92.66 (build 336) ด้วย pattern เดียวกัน (ดูหัวข้อด้านบน)
 
 **Behavior preserved:** flow OCR/parse/แสดงผล/back-button เดิม · ไม่แตะ `functions/api/parse-receipt.js` (server) · ไม่มี SQL/RLS
 
