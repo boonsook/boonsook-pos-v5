@@ -7,6 +7,12 @@
 
 ---
 
+## 5.65.0 (build 336) — 2026-06-01 Phase 92.66 — verify-slip (SlipOK) 401 auth fix (follow-up 92.65)
+
+- **fix(payment):** ปุ่ม/auto "🤖 ตรวจสลิป" ใน 4 หน้า (main.js drawer, service_form, ac_install, solar) ยิง `/api/verify-slip` แบบไม่มี token → middleware (`REQUIRE_AUTH_ENDPOINTS`) ตอบ 401 ก่อนถึง SlipOK = ตรวจสลิปการโอนพังทุกหน้า
+- **fix:** แต่ละ caller แนบ `Authorization: Bearer window._sbAccessToken` (อ่านตอนเรียก) · ไม่มี token/หมดอายุ → guard ก่อนยิง + จับ 401 แสดง "เข้าสู่ระบบใหม่" แทน error กว้าง · ไม่ fallback anonKey (publishable key ไม่ใช่ JWT → 401 อยู่ดี)
+- **test:** +24 `verify_slip_auth.test.js` (source-guard × 4 call site: Bearer / _sbAccessToken / no-anonKey / no-token guard / 401 / re-login) · **pwa-cache:** bump 335→336
+
 ## 5.65.0 (build 335) — 2026-06-01 Phase 92.65 — AutoKey (parse-receipt) 401 auth fix
 
 - **fix(expenses):** ปุ่ม "🔍 ให้ AI วิเคราะห์ใบเสร็จ" (AutoKey) ยิง `/api/parse-receipt` แบบไม่มี token → middleware (`REQUIRE_AUTH_ENDPOINTS`) ตอบ 401 ก่อนถึง Gemini = ฟีเจอร์พังทั้งหมด
