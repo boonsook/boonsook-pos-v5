@@ -7,6 +7,12 @@
 
 ---
 
+## 5.64.0 (build 323) — 2026-06-01 Phase 92.53 — Monthly HR report (รายงานรวมรายเดือน ต่อพนักงาน)
+
+- **feat(hr):** `buildMonthlyHrReport()` pure helper — สรุป 1 แถว/คน ในเดือน: วันทำงาน · ชม.ปกติ · OT · มาสาย(ครั้ง+นาที) · ออกก่อน · วันลา(อนุมัติ) + totals
+- **feat(hr):** section "📋 รายงาน HR รายเดือน" ใน HR Overview (เดือนปัจจุบัน) + ปุ่ม Export Excel (`hr_report_<month>.xlsx`)
+- **read-only:** reuse `sumRegularOT` + `summarizePunctuality` + ข้อมูลที่โหลดอยู่แล้ว — ไม่ fetch เพิ่ม ไม่แตะ payroll/accounting/RLS/schema · **test:** +8 `hr_overview.test.js` · **pwa-cache:** bump 322→323
+
 ## 5.64.0 (build 322) — 2026-06-01 Phase 92.52 — HR attendance exception follow-ups
 
 - **feat(hr):** `summarizePunctuality(rows, shift, opts)` pure helper + สรุปความตรงต่อเวลาช่วงที่กรอง + คอลัมน์ punctuality (สถานะตรงเวลา/นาทีสาย/นาทีออกก่อน) ใน Excel export หน้า Time Clock (manager)

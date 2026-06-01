@@ -3,17 +3,33 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 1 มิถุนายน 2026 (Phase 92.52 — HR attendance exception follow-ups, build 322)
-**Version:** 5.64.0 (build 322) — Phase 92.52 (punctuality report/chip/dashboard/audit — client-only, no SQL)
-**Previous:** 5.64.0 (build 321) — Phase 92.51 (Period Close Checklist — accounting read-only, Codex)
-**Pre-prev:** 5.64.0 (build 320) — Phase 92.50 (HR executive dashboard) · build 319 = 92.49 (มาสาย/ออกก่อนเวลา)
+**อัปเดตล่าสุด:** 1 มิถุนายน 2026 (Phase 92.53 — Monthly HR report, build 323)
+**Version:** 5.64.0 (build 323) — Phase 92.53 (รายงาน HR รายเดือน รวมต่อพนักงาน — client-only, no SQL)
+**Previous:** 5.64.0 (build 322) — Phase 92.52 (punctuality report/chip/dashboard/audit)
+**Pre-prev:** 5.64.0 (build 321) — Phase 92.51 (Period Close Checklist — Codex) · build 320 = 92.50 (HR dashboard)
 
-> 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.52** (client-side ทั้งหมด — ต่อยอด punctuality helper ของ 92.49)
-> ⚠️ **Phase number collision:** Codex ใช้ 92.51 (Period Close) parallel — งาน HR follow-ups เลยเลื่อนเป็น **92.52 / build 322** (rebase บน Codex 92.51/321)
+> 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.53** (client-side read-only — reuse ข้อมูลที่ HR Overview โหลดอยู่แล้ว)
 
 ---
 
-## 🛠️ Phase 92.52 — HR Attendance Exception Follow-ups (this session)
+## 🛠️ Phase 92.53 — Monthly HR Report (this session)
+
+**เป้าหมาย:** รายงาน HR รายเดือน รวมต่อพนักงาน (user เลือก option A) — ตารางสรุป 1 แถว/คน + Excel export
+
+**สิ่งที่ทำ:**
+- `modules/hr_overview.js`:
+  - `buildMonthlyHrReport({profiles, attendanceMonth, leaves, shiftOpts, attendanceRules, deptNameById})` (exported, pure) → `{rows[], totals}` · per-row: daysWorked (distinct work_date), regularHours/otHours (`sumRegularOT`), lateCount/lateMinutes + earlyLeaveCount/earlyLeaveMinutes (`summarizePunctuality`), leaveDays (staff_leaves status=approved)
+  - `_renderMonthlyHrReport(report, monthTh)` — section ใหม่ใต้ตารางสถานะวันนี้ (เหนือ Quick actions) + tfoot totals + ปุ่ม `hrReportExportBtn`
+  - Export Excel `hr_report_<monthKey>.xlsx` (11 คอลัมน์)
+- ใช้เดือนปัจจุบัน (monthKey เดียวกับ dashboard) — ไม่มี date-picker/fetch เพิ่ม (v1)
+
+**Behavior preserved:** ไม่แตะ payroll/leave calc/accounting/RLS · ไม่ fetch เพิ่ม (reuse `data.attendanceMonth`/`data.leaves`/`data.profiles`)
+
+**Gate:** lint 0 · unit 826 (+8) · e2e build-sync 323 · build 322→323
+
+---
+
+## 🛠️ Phase 92.52 — HR Attendance Exception Follow-ups (prev session)
 
 **เป้าหมาย:** ต่อยอด punctuality (92.49) ครบ 5 จุดที่ user สั่ง "ทำทั้งหมด"
 

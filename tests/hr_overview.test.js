@@ -28,6 +28,8 @@ const {
   filterSummaryLabel,
   buildHrExportFilename,
   buildHrDashboardMetrics,
+  // Phase 92.53
+  buildMonthlyHrReport,
   // Phase 92.41
   kpiClickRouteFor,
 } = await import("../modules/hr_overview.js");
@@ -1082,4 +1084,84 @@ test("source: HR export มีคอลัมน์ punctuality (สถานะ
   assert.match(src, /"สถานะตรงเวลา":/, "export ต้องมีคอลัมน์ สถานะตรงเวลา");
   assert.match(src, /"นาทีสาย":/, "export ต้องมีคอลัมน์ นาทีสาย");
   assert.match(src, /"นาทีออกก่อน":/, "export ต้องมีคอลัมน์ นาทีออกก่อน");
+});
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 92.53 — buildMonthlyHrReport (รายงาน HR รายเดือน รวมต่อพนักงาน)
+// ═══════════════════════════════════════════════════════════
+
+test("buildMonthlyHrReport — รวม วันทำงาน/ชม./OT/สาย/ออกก่อน/ลา ต่อคน + totals", () => {
+  const SH = { startHour: 8, endHour: 17 };
+  const RU = { lateGraceMinutes: 15, earlyLeaveGraceMinutes: 15 };
+  const att = (uid, d, inHM, outHM) => ({
+    user_id: uid, work_date: d,
+    clock_in_at: `${d}T${inHM}:00+07:00`,
+    clock_out_at: outHM ? `${d}T${outHM}:00+07:00` : null,
+  });
+  const report = buildMonthlyHrReport({
+    profiles: [
+      { id: "u1", full_name: "สมชาย", role: "sales", department_id: 1 },
+      { id: "u2", full_name: "สมหญิง", role: "technician", department_id: 2 },
+    ],
+    deptNameById: new Map([["1", "ขาย"], ["2", "ช่าง"]]),
+    shiftOpts: SH,
+    attendanceRules: RU,
+    attendanceMonth: [
+      att("u1", "2026-06-01", "08:00", "17:00"), // ตรงเวลา 9 ชม.
+      att("u1", "2026-06-02", "09:00", "17:00"), // สาย 60 น. (regular 8 ชม.)
+      att("u2", "2026-06-01", "08:00", "16:00"), // ออกก่อน 60 น.
+    ],
+    leaves: [
+      { user_id: "u1", days_count: 1, status: "approved" },
+      { user_id: "u2", days_count: 2, status: "pending" }, // ไม่นับ (ยังไม่อนุมัติ)
+    ],
+  });
+
+  const u1 = report.rows.find(r => r.userId === "u1");
+  const u2 = report.rows.find(r => r.userId === "u2");
+  assert.equal(u1.daysWorked, 2);
+  assert.equal(u1.regularHours, 17);     // 9 + 8
+  assert.equal(u1.lateCount, 1);
+  assert.equal(u1.lateMinutes, 60);
+  assert.equal(u1.leaveDays, 1);
+  assert.equal(u1.department, "ขาย");
+  assert.equal(u2.earlyLeaveCount, 1);
+  assert.equal(u2.earlyLeaveMinutes, 60);
+  assert.equal(u2.leaveDays, 0);          // pending ไม่นับ
+  // totals
+  assert.equal(report.totals.employees, 2);
+  assert.equal(report.totals.daysWorked, 3);
+  assert.equal(report.totals.lateCount, 1);
+  assert.equal(report.totals.earlyLeaveCount, 1);
+  assert.equal(report.totals.leaveDays, 1);
+});
+
+test("buildMonthlyHrReport — ไม่มีพนักงาน → rows ว่าง + totals ศูนย์", () => {
+  const r = buildMonthlyHrReport({ profiles: [], attendanceMonth: [], leaves: [] });
+  assert.deepEqual(r.rows, []);
+  assert.equal(r.totals.employees, 0);
+  assert.equal(r.totals.daysWorked, 0);
+});
+
+test("buildMonthlyHrReport — พนักงานไม่มี attendance → ค่าเป็น 0 (ไม่ crash)", () => {
+  const r = buildMonthlyHrReport({
+    profiles: [{ id: "u9", full_name: "ว่าง", role: "sales" }],
+    attendanceMonth: [],
+    leaves: [],
+    shiftOpts: { startHour: 8, endHour: 17 },
+    attendanceRules: { lateGraceMinutes: 15, earlyLeaveGraceMinutes: 15 },
+  });
+  assert.equal(r.rows[0].daysWorked, 0);
+  assert.equal(r.rows[0].regularHours, 0);
+  assert.equal(r.rows[0].lateCount, 0);
+  assert.equal(r.rows[0].department, "—");
+});
+
+test("source: HR Overview render เรียก _renderMonthlyHrReport + ปุ่ม export รายงาน", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/hr_overview.js"), "utf8");
+  assert.match(src, /_renderMonthlyHrReport\(monthlyReport, monthTh\)/, "ต้อง render report section");
+  assert.match(src, /id="hrReportExportBtn"/, "ต้องมีปุ่ม export รายงาน");
+  assert.match(src, /getElementById\("hrReportExportBtn"\)/, "ต้อง bind export รายงาน");
 });

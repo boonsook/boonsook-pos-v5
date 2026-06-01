@@ -33,6 +33,8 @@ import {
   classifyPunctuality,
   attendanceRulesFromState,
   punctualityChipMeta,
+  // Phase 92.53: monthly HR report aggregation
+  summarizePunctuality,
 } from "./time_clock.js";
 
 const TZ = "Asia/Bangkok";
@@ -277,6 +279,82 @@ export function buildHrDashboardMetrics(input = {}) {
     unpaidPayroll,
     monthlyPunctuality,
   };
+}
+
+/**
+ * Phase 92.53: รายงาน HR รายเดือน รวมต่อพนักงาน (read-only, pure)
+ * รวม attendance (วันทำงาน/ชม.ปกติ/OT) + punctuality (มาสาย/ออกก่อน) + วันลา(อนุมัติ) ต่อคน
+ * ใช้ข้อมูลที่ HR Overview โหลดอยู่แล้ว — ไม่ fetch เพิ่ม ไม่แตะ payroll calc
+ * @param {object} input
+ * @param {Array} input.profiles
+ * @param {Array} input.attendanceMonth - staff_attendance ของเดือน
+ * @param {Array} input.leaves          - staff_leaves ของเดือน
+ * @param {{startHour:number,endHour:number}} input.shiftOpts
+ * @param {{lateGraceMinutes:number,earlyLeaveGraceMinutes:number}} input.attendanceRules
+ * @param {Map<string,string>} [input.deptNameById] - id → ชื่อแผนก
+ * @returns {{rows:Array, totals:object}}
+ */
+export function buildMonthlyHrReport(input = {}) {
+  const profiles = Array.isArray(input.profiles) ? input.profiles : [];
+  const attendanceMonth = Array.isArray(input.attendanceMonth) ? input.attendanceMonth : [];
+  const leaves = Array.isArray(input.leaves) ? input.leaves : [];
+  const shiftOpts = input.shiftOpts || { startHour: 8, endHour: 17 };
+  const rules = input.attendanceRules || { lateGraceMinutes: 15, earlyLeaveGraceMinutes: 15 };
+  const deptNameById = input.deptNameById instanceof Map ? input.deptNameById : new Map();
+  const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
+  const attByUser = new Map();
+  for (const r of attendanceMonth) {
+    if (!r?.user_id) continue;
+    const uid = String(r.user_id);
+    if (!attByUser.has(uid)) attByUser.set(uid, []);
+    attByUser.get(uid).push(r);
+  }
+  // วันลา — นับเฉพาะที่อนุมัติแล้ว (มี status) ต่อ user
+  const leaveDaysByUser = new Map();
+  for (const l of leaves) {
+    if (l?.user_id == null) continue;
+    const status = String(l?.status || "").toLowerCase();
+    if (status && status !== "approved") continue;
+    const uid = String(l.user_id);
+    const d = Number(l?.days_count || 0);
+    leaveDaysByUser.set(uid, (leaveDaysByUser.get(uid) || 0) + (Number.isFinite(d) ? d : 0));
+  }
+
+  const rows = profiles.map(p => {
+    const uid = String(p.id);
+    const userRows = attByUser.get(uid) || [];
+    const distinctDays = new Set(userRows.filter(r => r.clock_in_at).map(r => String(r.work_date).slice(0, 10)));
+    const ot = sumRegularOT(userRows.filter(r => r.clock_out_at), shiftOpts);
+    const punc = summarizePunctuality(userRows, shiftOpts, rules);
+    return {
+      userId: uid,
+      name: profileDisplayName(p),
+      role: p.role || "",
+      department: (p.department_id != null && p.department_id !== "") ? (deptNameById.get(String(p.department_id)) || "—") : "—",
+      daysWorked: distinctDays.size,
+      regularHours: ot.regular,
+      otHours: ot.ot,
+      lateCount: punc.late + punc.lateAndEarly,
+      lateMinutes: punc.totalLateMinutes,
+      earlyLeaveCount: punc.earlyLeave + punc.lateAndEarly,
+      earlyLeaveMinutes: punc.totalEarlyLeaveMinutes,
+      leaveDays: leaveDaysByUser.get(uid) || 0,
+    };
+  });
+  rows.sort((a, b) => a.name.localeCompare(b.name, "th"));
+
+  const totals = rows.reduce((t, r) => ({
+    employees: t.employees + 1,
+    daysWorked: t.daysWorked + r.daysWorked,
+    regularHours: round2(t.regularHours + r.regularHours),
+    otHours: round2(t.otHours + r.otHours),
+    lateCount: t.lateCount + r.lateCount,
+    earlyLeaveCount: t.earlyLeaveCount + r.earlyLeaveCount,
+    leaveDays: round2(t.leaveDays + r.leaveDays),
+  }), { employees: 0, daysWorked: 0, regularHours: 0, otHours: 0, lateCount: 0, earlyLeaveCount: 0, leaveDays: 0 });
+
+  return { rows, totals };
 }
 
 /**
@@ -1082,6 +1160,58 @@ function _hrDashTopLate(mp) {
   </table></div>`;
 }
 
+// Phase 92.53: render รายงาน HR รายเดือน รวมต่อพนักงาน
+function _renderMonthlyHrReport(report, monthTh) {
+  const rows = report?.rows || [];
+  const t = report?.totals || { employees: 0, daysWorked: 0, regularHours: 0, otHours: 0, lateCount: 0, earlyLeaveCount: 0, leaveDays: 0 };
+  const body = rows.length === 0
+    ? `<tr><td colspan="8" style="padding:20px;text-align:center;color:#94a3b8">ยังไม่มีข้อมูลในเดือนนี้</td></tr>`
+    : rows.map(r => `<tr style="border-bottom:1px solid #f1f5f9">
+        <td style="padding:8px 12px">
+          <div style="font-weight:700;color:#0f172a">${escHtml(r.name)}</div>
+          <div style="font-size:11px;color:#64748b">${escHtml(r.department)} · ${escHtml(roleChipMeta(r.role).label)}</div>
+        </td>
+        <td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums">${NUM_TH(r.daysWorked)}</td>
+        <td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums">${HOURS(r.regularHours)}</td>
+        <td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums;${r.otHours > 0 ? 'color:#ea580c;font-weight:700' : 'color:#cbd5e1'}">${HOURS(r.otHours)}</td>
+        <td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums;${r.lateCount > 0 ? 'color:#92400e;font-weight:700' : 'color:#cbd5e1'}">${r.lateCount > 0 ? `${NUM_TH(r.lateCount)} (${NUM_TH(r.lateMinutes)}น)` : "0"}</td>
+        <td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums;${r.earlyLeaveCount > 0 ? 'color:#92400e;font-weight:700' : 'color:#cbd5e1'}">${r.earlyLeaveCount > 0 ? `${NUM_TH(r.earlyLeaveCount)} (${NUM_TH(r.earlyLeaveMinutes)}น)` : "0"}</td>
+        <td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums">${r.leaveDays > 0 ? NUM_TH(r.leaveDays) : "—"}</td>
+      </tr>`).join("");
+  return `
+    <div style="background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:0;overflow:hidden">
+      <div style="padding:12px 14px;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+        <div style="font-size:14px;font-weight:800;color:#0f172a">📋 รายงาน HR รายเดือน <span style="font-size:12px;color:#64748b;font-weight:400">(${escHtml(monthTh)})</span></div>
+        <button id="hrReportExportBtn" style="padding:7px 12px;border:1px solid #16a34a;border-radius:8px;background:#16a34a;color:#fff;font-size:12px;font-weight:700;cursor:pointer">📥 Export รายงาน</button>
+      </div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:640px">
+          <thead style="background:#f8fafc">
+            <tr>
+              <th style="padding:10px 12px;text-align:left;font-weight:700;color:#475569">พนักงาน</th>
+              <th style="padding:10px 12px;text-align:right;font-weight:700;color:#475569">วันทำงาน</th>
+              <th style="padding:10px 12px;text-align:right;font-weight:700;color:#475569">ปกติ (ชม.)</th>
+              <th style="padding:10px 12px;text-align:right;font-weight:700;color:#475569">OT (ชม.)</th>
+              <th style="padding:10px 12px;text-align:right;font-weight:700;color:#475569">มาสาย</th>
+              <th style="padding:10px 12px;text-align:right;font-weight:700;color:#475569">ออกก่อน</th>
+              <th style="padding:10px 12px;text-align:right;font-weight:700;color:#475569">ลา (วัน)</th>
+            </tr>
+          </thead>
+          <tbody>${body}</tbody>
+          ${rows.length > 0 ? `<tfoot><tr style="background:#f8fafc;border-top:2px solid #e2e8f0;font-weight:800">
+            <td style="padding:10px 12px;color:#0f172a">รวม ${NUM_TH(t.employees)} คน</td>
+            <td style="padding:10px 12px;text-align:right">${NUM_TH(t.daysWorked)}</td>
+            <td style="padding:10px 12px;text-align:right">${HOURS(t.regularHours)}</td>
+            <td style="padding:10px 12px;text-align:right;color:#ea580c">${HOURS(t.otHours)}</td>
+            <td style="padding:10px 12px;text-align:right;color:#92400e">${NUM_TH(t.lateCount)}</td>
+            <td style="padding:10px 12px;text-align:right;color:#92400e">${NUM_TH(t.earlyLeaveCount)}</td>
+            <td style="padding:10px 12px;text-align:right">${NUM_TH(t.leaveDays)}</td>
+          </tr></tfoot>` : ""}
+        </table>
+      </div>
+    </div>`;
+}
+
 function _renderHrExecutiveDashboard(metrics, { monthTh, todayTh, departments, activeDept, activeRole }) {
   const statusItems = [
     { label: "เข้างานแล้ว", count: metrics.statusCounts.working + metrics.statusCounts.out, pct: _rangePct(metrics.statusCounts.working + metrics.statusCounts.out, metrics.total) },
@@ -1619,6 +1749,18 @@ export async function renderHrOverviewPage(ctx) {
   const deptMap = new Map();
   for (const d of data.departments) deptMap.set(String(d.id), d);
 
+  // Phase 92.53: รายงาน HR รายเดือน รวมต่อพนักงาน (เดือนปัจจุบัน)
+  const deptNameById = new Map();
+  for (const d of data.departments) deptNameById.set(String(d.id), d.name || "—");
+  const monthlyReport = buildMonthlyHrReport({
+    profiles: data.profiles,
+    attendanceMonth: data.attendanceMonth,
+    leaves: data.leaves,
+    shiftOpts,
+    attendanceRules: punctRules,
+    deptNameById,
+  });
+
   const rows = data.profiles.map(p => {
     const att = attIdx.get(p.id) || null;
     const status = classifyAttendanceStatus(att);
@@ -1827,6 +1969,9 @@ export async function renderHrOverviewPage(ctx) {
         }
       </div>
 
+      <!-- Phase 92.53: รายงาน HR รายเดือน รวมต่อพนักงาน -->
+      ${_renderMonthlyHrReport(monthlyReport, monthTh)}
+
       <!-- Quick actions (Phase 92.29: reordered + concise labels) -->
       <div style="background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:14px 16px">
         <div style="font-size:14px;font-weight:800;color:#0f172a;margin-bottom:10px">⚡ Quick actions</div>
@@ -1962,6 +2107,31 @@ export async function renderHrOverviewPage(ctx) {
       const filename = buildHrExportFilename(today, filters);
       const ok = utilsMod.exportToExcel(filename, exportRows, "HR Overview");
       if (ok) showToast?.("📥 Export สำเร็จ"); else showToast?.("ไม่สามารถ Export ได้ (XLSX ยังไม่โหลด)");
+    } catch (e) {
+      showToast?.("Export ผิดพลาด: " + (e?.message || e));
+    }
+  });
+
+  // Phase 92.53: Export รายงาน HR รายเดือน รวมต่อพนักงาน
+  document.getElementById("hrReportExportBtn")?.addEventListener("click", async () => {
+    try {
+      const utilsMod = await import("./utils.js");
+      const exportRows = (monthlyReport?.rows || []).map(r => ({
+        "พนักงาน": r.name,
+        "แผนก": r.department,
+        "Role": roleChipMeta(r.role).label,
+        "วันทำงาน": r.daysWorked,
+        "ชม. ปกติ": r.regularHours,
+        "OT (ชม.)": r.otHours,
+        "มาสาย (ครั้ง)": r.lateCount,
+        "นาทีสายรวม": r.lateMinutes,
+        "ออกก่อน (ครั้ง)": r.earlyLeaveCount,
+        "นาทีออกก่อนรวม": r.earlyLeaveMinutes,
+        "ลา (วัน)": r.leaveDays,
+      }));
+      const filename = `hr_report_${monthKey}.xlsx`;
+      const ok = utilsMod.exportToExcel(filename, exportRows, "HR Report");
+      if (ok) showToast?.("📥 Export รายงานสำเร็จ"); else showToast?.("ไม่สามารถ Export ได้ (XLSX ยังไม่โหลด)");
     } catch (e) {
       showToast?.("Export ผิดพลาด: " + (e?.message || e));
     }

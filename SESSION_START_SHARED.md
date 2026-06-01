@@ -1,6 +1,6 @@
 # Boonsook POS V5 - Shared Session Start
 
-Last updated: 2026-06-01 (Phase 92.52 — HR attendance exception follow-ups, build 322)
+Last updated: 2026-06-01 (Phase 92.53 — Monthly HR report, build 323)
 
 Purpose: this is the common first-read note for Codex, Claude, or any next agent opening a fresh session on this project. Read this before changing files so both teams start from the same facts.
 
@@ -25,6 +25,12 @@ Purpose: this is the common first-read note for Codex, Claude, or any next agent
 - Supabase project URL used by verification scripts: `https://rwmmjljelpcpwohwiplu.supabase.co`
 
 ## Current Truth As Of 2026-06-01
+
+Phase 92.53 Monthly HR report is implemented and deployed (build 323).
+
+- New pure helper `buildMonthlyHrReport()` in `modules/hr_overview.js` aggregates one row per employee for the current month: days worked, regular/OT hours, late count+minutes, early-leave count+minutes, approved leave days, plus totals.
+- New "📋 รายงาน HR รายเดือน" section in HR Overview (between today's table and Quick actions) with an Excel export button (`hr_report_<monthKey>.xlsx`).
+- Read-only: reuses already-fetched data (profiles/attendanceMonth/leaves) + `sumRegularOT`/`summarizePunctuality`. No extra fetch, no SQL/RLS/payroll/accounting change.
 
 Phase 92.52 HR attendance exception follow-ups is implemented and deployed (build 322). NOTE: Codex shipped Phase 92.51 = Period Close Checklist (accounting, build 321) in parallel; HR follow-ups were renumbered 92.51→92.52 and rebased on top of it.
 
@@ -154,9 +160,9 @@ Use `npm.cmd` on Windows PowerShell because plain `npm` may be blocked by script
 
 If opening a new session with no new user request:
 
-1. Verify the live app build markers on `boonsook-pos-v5.pages.dev` if deployment freshness matters: `data-app-build="322"`, `main.js?v=322`, `style.css?v=322`, `boot.js?v=322`, and `sw.js` cache `v322`.
+1. Verify the live app build markers on `boonsook-pos-v5.pages.dev` if deployment freshness matters: `data-app-build="323"`, `main.js?v=323`, `style.css?v=323`, `boot.js?v=323`, and `sw.js` cache `v323`.
 2. If the user wants a project monitor automation, use this file as the source-of-truth prompt context.
 
 ## Short Human Summary
 
-Latest app build is 322 on `main`. Phase 92.52 adds HR punctuality follow-ups (period summary + Excel columns, self-view chips, dashboard "พนักงานมาสายบ่อย", grace-change audit log) — informational only. Phase 92.51 (Codex) adds the Period Close Checklist (accounting, read-only, build 321). Phase 92.50 adds the HR executive dashboard; Phase 92.49 adds HR late/early-leave attendance exception rules. All client-only, no payroll/leave/accounting/RLS/SQL impact. Phase 92.48 adds the accounting integrity status panel and hotfixes the orphan fetch to `select=*`. Expense export timezone bug is fixed and delivered through later PWA cache bumps. JE REST RLS is fixed and live-verified after SQL apply. Remaining accounting orphan counts are currently understood as intentional/non-actionable skips, not an active failure. Start new work from `git status`, avoid touching unrelated user work, and verify with `npm.cmd` commands on Windows.
+Latest app build is 323 on `main`. Phase 92.53 adds the Monthly HR report (one row per employee: days worked / hours / OT / late / early-leave / leave days, with Excel export) in HR Overview — read-only. Phase 92.52 adds HR punctuality follow-ups (period summary + Excel columns, self-view chips, dashboard "พนักงานมาสายบ่อย", grace-change audit log) — informational only. Phase 92.51 (Codex) adds the Period Close Checklist (accounting, read-only, build 321). Phase 92.50 adds the HR executive dashboard; Phase 92.49 adds HR late/early-leave attendance exception rules. All client-only, no payroll/leave/accounting/RLS/SQL impact. Phase 92.48 adds the accounting integrity status panel and hotfixes the orphan fetch to `select=*`. Expense export timezone bug is fixed and delivered through later PWA cache bumps. JE REST RLS is fixed and live-verified after SQL apply. Remaining accounting orphan counts are currently understood as intentional/non-actionable skips, not an active failure. Start new work from `git status`, avoid touching unrelated user work, and verify with `npm.cmd` commands on Windows.
