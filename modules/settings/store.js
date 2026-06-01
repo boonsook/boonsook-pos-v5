@@ -3,6 +3,8 @@
 // ═══════════════════════════════════════════════════════════
 
 import { escHtml } from './utils.js';
+// Phase 92.51: audit trail เมื่อกฎเวลาเข้างาน/กะ เปลี่ยน (กระทบการตัดสินพนักงาน)
+import { logActivity } from '../utils.js';
 
 /**
  * Render Store Info page
@@ -172,6 +174,16 @@ export function renderSettingsStore(el, ctx, _goBack, _navigate) {
       geofenceRadiusM: radius
     };
     
+    // Phase 92.51: ตรวจว่ากฎเวลา/กะ เปลี่ยนไหม (เทียบกับค่าเดิมก่อน save) — สำหรับ audit
+    const ruleBefore = {
+      shiftStartHour: storeInfo.shiftStartHour ?? 8,
+      shiftEndHour: storeInfo.shiftEndHour ?? 17,
+      lateGraceMinutes: storeInfo.lateGraceMinutes ?? 15,
+      earlyLeaveGraceMinutes: storeInfo.earlyLeaveGraceMinutes ?? 15,
+    };
+    const ruleAfter = { shiftStartHour: safeStart, shiftEndHour: safeEnd, lateGraceMinutes, earlyLeaveGraceMinutes };
+    const attendanceRulesChanged = JSON.stringify(ruleBefore) !== JSON.stringify(ruleAfter);
+
     // ✅ Quick localStorage save
     if (typeof saveStoreInfo === 'function') {
       try {
@@ -179,7 +191,18 @@ export function renderSettingsStore(el, ctx, _goBack, _navigate) {
       } catch (err) {
         // save error (localStorage still OK)
       }
-      
+
+      // Phase 92.51: audit log เฉพาะเมื่อกฎเวลา/กะ เปลี่ยน (best-effort — ห้ามทำให้ save fail)
+      if (attendanceRulesChanged) {
+        try {
+          await logActivity('attendance_rules_update', {
+            entityType: 'store_info',
+            summary: 'แก้กฎเวลาเข้างาน/กะ (late/early grace)',
+            metadata: { before: ruleBefore, after: ruleAfter },
+          });
+        } catch (_e) { /* swallow */ }
+      }
+
       // ✅ Show success immediately (no re-render)
       showToast?.('บันทึกข้อมูลร้านค้าสำเร็จ ✅', 'success');
       btn.disabled = false;

@@ -21,6 +21,8 @@ const {
   classifyPunctuality,
   attendanceRulesFromState,
   punctualityChipMeta,
+  // Phase 92.51: punctuality summary
+  summarizePunctuality,
 } = await import("../modules/time_clock.js");
 
 // Helper: สร้าง row จาก Bangkok local hours (เลข int)
@@ -487,4 +489,44 @@ test("punctualityChipMeta — late chip มีนาทีในข้อคว�
 
 test("punctualityChipMeta — on_time → 'ตรงเวลา'", () => {
   assert.equal(punctualityChipMeta({ status: "on_time" }).label, "ตรงเวลา");
+});
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 92.51 — summarizePunctuality
+// ═══════════════════════════════════════════════════════════
+
+test("summarizePunctuality — empty / non-array → zeros", () => {
+  const z = summarizePunctuality([], SHIFT, {});
+  assert.equal(z.total, 0);
+  assert.equal(z.late, 0);
+  assert.equal(z.totalLateMinutes, 0);
+  assert.deepEqual(summarizePunctuality(null, SHIFT, {}).total, 0);
+});
+
+test("summarizePunctuality — นับ status + รวมนาที ถูกต้อง", () => {
+  const rows = [
+    rowHM("2026-06-01", 8, 0, 17, 0),    // on_time
+    rowHM("2026-06-01", 8, 25, 17, 0),   // late 25
+    rowHM("2026-06-01", 8, 0, 16, 0),    // early_leave 60
+    rowHM("2026-06-01", 8, 40, 16, 0),   // late_and_early_leave (40 / 60)
+    rowHM("2026-06-01", 8, 30, null, null), // missing_clock_out (late 30)
+  ];
+  const s = summarizePunctuality(rows, SHIFT, { lateGraceMinutes: 15, earlyLeaveGraceMinutes: 15 });
+  assert.equal(s.total, 5);
+  assert.equal(s.onTime, 1);
+  assert.equal(s.late, 1);
+  assert.equal(s.earlyLeave, 1);
+  assert.equal(s.lateAndEarly, 1);
+  assert.equal(s.missingClockOut, 1);
+  // late minutes: 0 + 25 + 0 + 40 + 30 = 95
+  assert.equal(s.totalLateMinutes, 95);
+  // early minutes: 0 + 0 + 60 + 60 + 0 = 120
+  assert.equal(s.totalEarlyLeaveMinutes, 120);
+});
+
+test("summarizePunctuality — invalid shift → ทุก row เป็น none", () => {
+  const rows = [rowHM("2026-06-01", 9, 0, 17, 0)];
+  const s = summarizePunctuality(rows, null, {});
+  assert.equal(s.none, 1);
+  assert.equal(s.late, 0);
 });

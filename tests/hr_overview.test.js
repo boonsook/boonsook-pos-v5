@@ -1015,3 +1015,71 @@ test("buildHrDashboardMetrics — รวม KPI / แผนก / role / punctual
   assert.equal(metrics.pendingLeaves, 4);
   assert.equal(metrics.payrollCoverage, 50);
 });
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 92.51 — monthly punctuality (top late) + dashboard wiring
+// ═══════════════════════════════════════════════════════════
+
+test("buildHrDashboardMetrics — monthlyPunctuality top late นับ + เรียงถูก (ส่ง shiftOpts+rules)", () => {
+  const att = (uid, d, hm) => ({ user_id: uid, work_date: d, clock_in_at: `${d}T${hm}:00+07:00`, clock_out_at: `${d}T17:00:00+07:00` });
+  const metrics = buildHrDashboardMetrics({
+    today: "2026-06-15",
+    monthKey: "2026-06",
+    profiles: [{ id: "u1", full_name: "สาย ก." }, { id: "u2", full_name: "ตรง ข." }],
+    rows: [],
+    shiftOpts: { startHour: 8, endHour: 17 },
+    attendanceRules: { lateGraceMinutes: 15, earlyLeaveGraceMinutes: 15 },
+    attendanceMonth: [
+      att("u1", "2026-06-01", "08:40"), // late
+      att("u1", "2026-06-02", "08:30"), // late
+      att("u1", "2026-06-03", "09:00"), // late
+      att("u2", "2026-06-01", "08:05"), // on time (within grace) → ไม่นับ
+      att("u2", "2026-06-02", "08:50"), // late
+    ],
+  });
+  const mp = metrics.monthlyPunctuality;
+  assert.equal(mp.lateOccurrences, 4);
+  assert.equal(mp.topLate[0].userId, "u1");      // สายมากสุด → อันดับ 1
+  assert.equal(mp.topLate[0].lateCount, 3);
+  assert.equal(mp.topLate[0].name, "สาย ก.");
+  assert.equal(mp.frequentLateCount, 1);          // u1 สาย ≥3 ครั้ง
+});
+
+test("buildHrDashboardMetrics — ไม่ส่ง shiftOpts/rules → monthlyPunctuality ว่าง (preserve)", () => {
+  const metrics = buildHrDashboardMetrics({
+    today: "2026-06-15", monthKey: "2026-06",
+    profiles: [{ id: "u1" }],
+    attendanceMonth: [{ user_id: "u1", work_date: "2026-06-01", clock_in_at: "2026-06-01T09:00:00+07:00" }],
+  });
+  assert.equal(metrics.monthlyPunctuality.lateOccurrences, 0);
+  assert.deepEqual(metrics.monthlyPunctuality.topLate, []);
+});
+
+// ── Source-level wiring (Phase 92.51) ──────────────────────
+
+test("source: dashboard เรนเดอร์ panel 'พนักงานมาสายบ่อย' + _hrDashTopLate wired", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/hr_overview.js"), "utf8");
+  assert.match(src, /function _hrDashTopLate/, "ต้องมี _hrDashTopLate helper");
+  assert.match(src, /_hrDashTopLate\(metrics\.monthlyPunctuality\)/, "dashboard ต้องเรียก _hrDashTopLate");
+  assert.match(src, /พนักงานมาสายบ่อย/, "ต้องมี panel title มาสายบ่อย");
+});
+
+test("source: buildHrDashboardMetrics ถูกส่ง shiftOpts + attendanceRules", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/hr_overview.js"), "utf8");
+  const call = src.match(/buildHrDashboardMetrics\(\{[\s\S]*?\}\);/)?.[0] || "";
+  assert.match(call, /shiftOpts/, "ต้องส่ง shiftOpts");
+  assert.match(call, /attendanceRules:\s*punctRules/, "ต้องส่ง attendanceRules");
+});
+
+test("source: HR export มีคอลัมน์ punctuality (สถานะตรงเวลา/นาทีสาย/นาทีออกก่อน)", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/hr_overview.js"), "utf8");
+  assert.match(src, /"สถานะตรงเวลา":/, "export ต้องมีคอลัมน์ สถานะตรงเวลา");
+  assert.match(src, /"นาทีสาย":/, "export ต้องมีคอลัมน์ นาทีสาย");
+  assert.match(src, /"นาทีออกก่อน":/, "export ต้องมีคอลัมน์ นาทีออกก่อน");
+});

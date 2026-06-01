@@ -7,6 +7,15 @@
 
 ---
 
+## 5.64.0 (build 322) — 2026-06-01 Phase 92.52 — HR attendance exception follow-ups
+
+- **feat(hr):** `summarizePunctuality(rows, shift, opts)` pure helper + สรุปความตรงต่อเวลาช่วงที่กรอง + คอลัมน์ punctuality (สถานะตรงเวลา/นาทีสาย/นาทีออกก่อน) ใน Excel export หน้า Time Clock (manager)
+- **feat(hr):** chip มาสาย/ออกก่อน/ตรงเวลา ในประวัติ Time Clock ฝั่งพนักงาน (self-view)
+- **feat(hr):** HR Overview export เพิ่มคอลัมน์ punctuality
+- **feat(hr):** executive dashboard เพิ่ม panel "พนักงานมาสายบ่อย (เดือนนี้)" — `buildHrDashboardMetrics.monthlyPunctuality` (top-late + flag ≥3 ครั้ง) จาก attendance รายเดือน
+- **feat(settings):** audit log `attendance_rules_update` เมื่อ grace/กะ เปลี่ยน (best-effort, ไม่ทำให้ save fail)
+- **note:** phase เลื่อน 92.51→92.52 (Codex ใช้ 92.51 = Period Close) · **ไม่กระทบ:** payroll / OT / leave / accounting / JE RLS · ไม่มี SQL/schema change · **test:** +6 `time_clock.test.js` · +6 `hr_overview.test.js` · **pwa-cache:** bump 321→322
+
 ## 5.64.0 (build 321) — 2026-06-01 Phase 92.51 — Period Close Checklist (accounting)
 
 - **feat(accounting):** หน้าใหม่ "🧾 เช็คก่อนปิดงวด" (เมนูบัญชี · route `accounting_period_close`) — checklist read-only ก่อนปิดงวด: เดบิต=เครดิต (reuse trial_balance), ขาย/รายจ่ายทุกบิลมี JE รายเดือน (reuse `_classifyOrphan`), สถานะงวด · ส่วน HR (payroll/leave) defer ให้ทีม HR

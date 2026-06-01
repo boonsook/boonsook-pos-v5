@@ -196,6 +196,34 @@ export function buildHrDashboardMetrics(input = {}) {
     if (s === "on_time") punctuality.onTime += 1;
   }
 
+  // Phase 92.51: monthly punctuality per user (top late / มาสายบ่อย) — ต้องส่ง shiftOpts + attendanceRules
+  const shiftOpts = input.shiftOpts || null;
+  const attendanceRules = input.attendanceRules || null;
+  const monthlyPunctuality = { lateOccurrences: 0, frequentLateCount: 0, topLate: [] };
+  if (shiftOpts && attendanceRules) {
+    const graceLate = (Number.isFinite(attendanceRules.lateGraceMinutes) && attendanceRules.lateGraceMinutes >= 0) ? attendanceRules.lateGraceMinutes : 15;
+    const nameById = new Map(profiles.map(p => [String(p.id), profileDisplayName(p)]));
+    const perUser = new Map(); // uid -> { lateCount, totalLateMinutes }
+    for (const r of attendanceMonth) {
+      if (!r?.clock_in_at || !r?.user_id) continue;
+      const pc = classifyPunctuality(r, shiftOpts, {
+        lateGraceMinutes: attendanceRules.lateGraceMinutes,
+        earlyLeaveGraceMinutes: attendanceRules.earlyLeaveGraceMinutes,
+      });
+      if (pc.lateMinutes <= graceLate) continue; // นับเฉพาะที่สายเกิน grace (รวม missing_clock_out ที่เข้าสาย)
+      const uid = String(r.user_id);
+      const cur = perUser.get(uid) || { lateCount: 0, totalLateMinutes: 0 };
+      cur.lateCount += 1;
+      cur.totalLateMinutes += pc.lateMinutes || 0;
+      perUser.set(uid, cur);
+      monthlyPunctuality.lateOccurrences += 1;
+    }
+    monthlyPunctuality.topLate = Array.from(perUser, ([uid, v]) => ({
+      userId: uid, name: nameById.get(uid) || "—", lateCount: v.lateCount, totalLateMinutes: v.totalLateMinutes,
+    })).sort((a, b) => b.lateCount - a.lateCount || b.totalLateMinutes - a.totalLateMinutes).slice(0, 5);
+    monthlyPunctuality.frequentLateCount = Array.from(perUser.values()).filter(v => v.lateCount >= 3).length;
+  }
+
   const attendanceByDate = new Map();
   for (const r of attendanceMonth) {
     if (!r?.work_date || !r?.user_id || !r?.clock_in_at) continue;
@@ -247,6 +275,7 @@ export function buildHrDashboardMetrics(input = {}) {
     pendingLeaves: Number(input.pendingLeaves || 0),
     payrollCoverage,
     unpaidPayroll,
+    monthlyPunctuality,
   };
 }
 
@@ -1037,6 +1066,22 @@ function _hrDashContractTable(items) {
   </table></div>`;
 }
 
+// Phase 92.51: top late employees this month (มาสายบ่อย)
+function _hrDashTopLate(mp) {
+  const items = (mp && Array.isArray(mp.topLate)) ? mp.topLate : [];
+  if (!items.length) return `<div class="hrx-empty">ไม่มีพนักงานมาสายในเดือนนี้ 🎉</div>`;
+  return `<div class="hrx-table-wrap"><table class="hrx-table">
+    <thead><tr><th>ชื่อ-สกุล</th><th style="text-align:center">จำนวนครั้ง</th><th style="text-align:right">รวม (นาที)</th></tr></thead>
+    <tbody>
+      ${items.map(x => `<tr>
+        <td>${escHtml(x.name)}${x.lateCount >= 3 ? ' <span style="color:#dc2626;font-size:10px;font-weight:800">●</span>' : ''}</td>
+        <td style="text-align:center;font-weight:800;color:${x.lateCount >= 3 ? '#dc2626' : '#92400e'}">${NUM_TH(x.lateCount)}</td>
+        <td style="text-align:right;font-variant-numeric:tabular-nums">${NUM_TH(x.totalLateMinutes)}</td>
+      </tr>`).join("")}
+    </tbody>
+  </table></div>`;
+}
+
 function _renderHrExecutiveDashboard(metrics, { monthTh, todayTh, departments, activeDept, activeRole }) {
   const statusItems = [
     { label: "เข้างานแล้ว", count: metrics.statusCounts.working + metrics.statusCounts.out, pct: _rangePct(metrics.statusCounts.working + metrics.statusCounts.out, metrics.total) },
@@ -1101,6 +1146,10 @@ function _renderHrExecutiveDashboard(metrics, { monthTh, todayTh, departments, a
       ${_hrDashPanel("แนวโน้มคนลงเวลาในเดือนนี้", _hrDashRecentAttendance(metrics.recentAttendance), "8 วันล่าสุด")}
       ${_hrDashPanel("การลาแยกตามประเภท", _hrDashBars(leaveItems, { usePct: true }), `รออนุมัติ ${NUM_TH(metrics.pendingLeaves)}`)}
       ${_hrDashPanel("พนักงานที่ใกล้ครบสัญญา/ทดลองงาน", _hrDashContractTable(metrics.contractSoon))}
+    </div>
+
+    <div class="hrx-grid-3">
+      ${_hrDashPanel("พนักงานมาสายบ่อย (เดือนนี้)", _hrDashTopLate(metrics.monthlyPunctuality), (metrics.monthlyPunctuality && metrics.monthlyPunctuality.frequentLateCount > 0) ? `${NUM_TH(metrics.monthlyPunctuality.frequentLateCount)} คนสาย ≥3 ครั้ง` : "")}
     </div>
 
     <div class="hrx-info-grid">
@@ -1613,6 +1662,9 @@ export async function renderHrOverviewPage(ctx) {
     pendingLeaves,
     today,
     monthKey,
+    // Phase 92.51: enable monthly punctuality (top late)
+    shiftOpts,
+    attendanceRules: punctRules,
   });
 
   // ── Render HTML ───────────────────────────────────────────
@@ -1889,7 +1941,7 @@ export async function renderHrOverviewPage(ctx) {
       const utilsMod = await import("./utils.js");
       const filters = { status: activeFilter, departmentId: activeDept, role: activeRole };
       const exportSource = filterHrRows(rows, filters);
-      const exportRows = exportSource.map(({ profile: p, att, status, ot }) => {
+      const exportRows = exportSource.map(({ profile: p, att, status, ot, punc }) => {
         const dept = p.department_id ? deptMap.get(String(p.department_id)) : null;
         return {
           "พนักงาน": profileDisplayName(p),
@@ -1901,6 +1953,10 @@ export async function renderHrOverviewPage(ctx) {
           "ชม. ทำงาน": ot.total,
           "OT": ot.ot,
           "สถานะ": STATUS_META[status]?.label || status,
+          // Phase 92.51: punctuality columns
+          "สถานะตรงเวลา": punctualityChipMeta(punc)?.label || "—",
+          "นาทีสาย": punc?.lateMinutes || 0,
+          "นาทีออกก่อน": punc?.earlyLeaveMinutes || 0,
         };
       });
       const filename = buildHrExportFilename(today, filters);

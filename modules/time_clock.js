@@ -233,6 +233,37 @@ export function punctualityChipMeta(punc) {
 }
 
 /**
+ * สรุปความตรงต่อเวลาจาก attendance rows หลายรายการในช่วงเวลา (Phase 92.51)
+ * นับเป็นจำนวน "ครั้ง" (1 row = 1 วันทำงานปกติ) + รวมนาที — informational
+ * @param {Array<object>} rows
+ * @param {{startHour:number, endHour:number}} shift
+ * @param {object} [opts] - {lateGraceMinutes, earlyLeaveGraceMinutes}
+ * @returns {{total:number, onTime:number, late:number, earlyLeave:number, lateAndEarly:number, missingClockOut:number, none:number, totalLateMinutes:number, totalEarlyLeaveMinutes:number}}
+ */
+export function summarizePunctuality(rows, shift, opts = {}) {
+  const acc = {
+    total: 0, onTime: 0, late: 0, earlyLeave: 0, lateAndEarly: 0,
+    missingClockOut: 0, none: 0, totalLateMinutes: 0, totalEarlyLeaveMinutes: 0,
+  };
+  if (!Array.isArray(rows)) return acc;
+  for (const r of rows) {
+    const p = classifyPunctuality(r, shift, opts);
+    acc.total += 1;
+    switch (p.status) {
+      case "on_time":              acc.onTime += 1; break;
+      case "late":                 acc.late += 1; break;
+      case "early_leave":          acc.earlyLeave += 1; break;
+      case "late_and_early_leave": acc.lateAndEarly += 1; break;
+      case "missing_clock_out":    acc.missingClockOut += 1; break;
+      default:                     acc.none += 1;
+    }
+    acc.totalLateMinutes      += Number(p.lateMinutes) || 0;
+    acc.totalEarlyLeaveMinutes += Number(p.earlyLeaveMinutes) || 0;
+  }
+  return acc;
+}
+
+/**
  * Haversine distance ระหว่าง 2 จุด lat/lng (ผลลัพธ์เป็นเมตร) — Phase 92.24
  * @param {number} lat1
  * @param {number} lng1
@@ -825,6 +856,8 @@ async function _renderManagerView(container, ctx) {
   }).join("");
 
   const sumOT = sumRegularOT(rangeRows, shiftOpts);
+  // Phase 92.51: punctuality summary สำหรับช่วงที่กรอง (informational)
+  const punctSummary = summarizePunctuality(rangeRows, shiftOpts, punctRules);
 
   container.innerHTML = `
     <div class="panel" style="padding:20px">
@@ -862,6 +895,14 @@ async function _renderManagerView(container, ctx) {
             <strong style="color:#0f172a">${sumOT.total.toFixed(2)}</strong> ชม. (${rangeRows.length} record)
           </span>
           <button id="tcExportBtn" class="btn light" style="font-size:12px">📥 Export</button>
+        </div>
+        <!-- Phase 92.51: สรุปความตรงต่อเวลาในช่วงนี้ (informational) -->
+        <div style="font-size:11px;color:#64748b;margin-bottom:10px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+          <span>⏱️ ความตรงต่อเวลา:</span>
+          <span style="color:#166534;font-weight:700">ตรงเวลา ${punctSummary.onTime}</span>
+          <span style="color:#92400e;font-weight:700">มาสาย ${punctSummary.late + punctSummary.lateAndEarly}${punctSummary.totalLateMinutes > 0 ? ` (รวม ${punctSummary.totalLateMinutes} นาที)` : ''}</span>
+          <span style="color:#92400e;font-weight:700">ออกก่อน ${punctSummary.earlyLeave + punctSummary.lateAndEarly}${punctSummary.totalEarlyLeaveMinutes > 0 ? ` (รวม ${punctSummary.totalEarlyLeaveMinutes} นาที)` : ''}</span>
+          ${punctSummary.missingClockOut > 0 ? `<span style="color:#3730a3;font-weight:700">ยังไม่ลงออก ${punctSummary.missingClockOut}</span>` : ''}
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
           <label style="font-size:12px;color:#64748b">จาก</label>
@@ -991,6 +1032,8 @@ async function _renderManagerView(container, ctx) {
   document.getElementById("tcExportBtn")?.addEventListener("click", () => {
     const data = rangeRows.map(r => {
       const { regular, ot, total } = computeRegularOT(r, shiftOpts);
+      // Phase 92.51: punctuality columns (informational)
+      const punc = classifyPunctuality(r, shiftOpts, punctRules);
       return {
         "วันที่": r.work_date,
         "ผู้ใช้": profileDisplayName(profMap[r.user_id]),
@@ -999,6 +1042,9 @@ async function _renderManagerView(container, ctx) {
         "ปกติ (ชม.)": regular,
         "OT (ชม.)": ot,
         "รวม (ชม.)": total,
+        "สถานะตรงเวลา": punctualityChipMeta(punc)?.label || "—",
+        "นาทีสาย": punc.lateMinutes,
+        "นาทีออกก่อน": punc.earlyLeaveMinutes,
         "source": r.source,
         "หมายเหตุ": r.notes || "",
       };
@@ -1017,6 +1063,8 @@ async function _renderSelfView(container, ctx) {
   await _ensureProfilesLoaded(ctx.state);
   // Phase 92.25b: shift hours config (default 08-17, override จาก storeInfo)
   const shiftOpts = shiftHoursFromState(ctx.state);
+  // Phase 92.51: punctuality rules (informational chip ในประวัติของตัวเอง)
+  const punctRules = attendanceRulesFromState(ctx.state);
   const userId = _authUserId();
   if (!userId) {
     container.innerHTML = `
@@ -1052,9 +1100,14 @@ async function _renderSelfView(container, ctx) {
         const stillOpen = r.clock_out_at == null;
         const { regular, ot, total } = computeRegularOT(r, shiftOpts);
         const otCell = stillOpen ? '—' : (ot > 0 ? `<span style="color:#ea580c;font-weight:700">${ot.toFixed(2)}</span>` : `<span style="color:#cbd5e1">0.00</span>`);
+        // Phase 92.51: punctuality chip ของตัวเอง (informational)
+        const puncMeta = punctualityChipMeta(classifyPunctuality(r, shiftOpts, punctRules));
+        const puncChip = puncMeta
+          ? `<div style="margin-top:3px"><span style="display:inline-block;padding:1px 8px;border-radius:999px;background:${puncMeta.bg};color:${puncMeta.fg};border:1px solid ${puncMeta.border};font-size:10px;font-weight:700">${escHtml(puncMeta.label)}</span></div>`
+          : "";
         return `
         <tr style="border-bottom:1px solid #f1f5f9">
-          <td style="padding:8px 10px">${escHtml(r.work_date)}</td>
+          <td style="padding:8px 10px">${escHtml(r.work_date)}${puncChip}</td>
           <td style="padding:8px 10px">${timeBangkok(r.clock_in_at)}</td>
           <td style="padding:8px 10px">${timeBangkok(r.clock_out_at)}</td>
           <td style="padding:8px 10px;text-align:right">${stillOpen ? '<span style="color:#10b981">กำลังทำ</span>' : regular.toFixed(2)}</td>

@@ -1,6 +1,6 @@
 # Boonsook POS V5 - Shared Session Start
 
-Last updated: 2026-06-01 (Phase 92.50 — HR executive dashboard detail view, build 320)
+Last updated: 2026-06-01 (Phase 92.52 — HR attendance exception follow-ups, build 322)
 
 Purpose: this is the common first-read note for Codex, Claude, or any next agent opening a fresh session on this project. Read this before changing files so both teams start from the same facts.
 
@@ -25,6 +25,14 @@ Purpose: this is the common first-read note for Codex, Claude, or any next agent
 - Supabase project URL used by verification scripts: `https://rwmmjljelpcpwohwiplu.supabase.co`
 
 ## Current Truth As Of 2026-06-01
+
+Phase 92.52 HR attendance exception follow-ups is implemented and deployed (build 322). NOTE: Codex shipped Phase 92.51 = Period Close Checklist (accounting, build 321) in parallel; HR follow-ups were renumbered 92.51→92.52 and rebased on top of it.
+
+- Builds on the 92.49 punctuality helpers. All client-side, read-only over existing data. No SQL/RLS/schema/payroll/accounting change.
+- `modules/time_clock.js`: new pure `summarizePunctuality(rows, shift, opts)`; manager report shows a period punctuality summary + 3 Excel columns (สถานะตรงเวลา/นาทีสาย/นาทีออกก่อน); self-view history shows punctuality chips.
+- `modules/hr_overview.js`: HR export gains 3 punctuality columns; `buildHrDashboardMetrics` accepts `shiftOpts`+`attendanceRules` (additive) and returns `monthlyPunctuality` (top-late + frequentLate ≥3), rendered as the "พนักงานมาสายบ่อย" dashboard panel.
+- `modules/settings/store.js`: best-effort `logActivity('attendance_rules_update', {before, after})` when grace/shift values change.
+- Note: Codex was building Phase 92.50 (and later 92.51 Period Close) in parallel; 92.49+92.50 committed together in `1cc586c` (build 320), Codex's 92.51 Period Close = build 321, HR follow-ups = build 322 (this commit). Verified: lint 0, unit 818, e2e 11 (build-sync 322).
 
 Phase 92.50 HR executive dashboard detail view is implemented locally (build 320).
 
@@ -146,9 +154,9 @@ Use `npm.cmd` on Windows PowerShell because plain `npm` may be blocked by script
 
 If opening a new session with no new user request:
 
-1. Verify the live app build markers on `boonsook-pos-v5.pages.dev` if deployment freshness matters: `data-app-build="319"`, `main.js?v=319`, `style.css?v=319`, `boot.js?v=319`, and `sw.js` cache `v319`.
+1. Verify the live app build markers on `boonsook-pos-v5.pages.dev` if deployment freshness matters: `data-app-build="322"`, `main.js?v=322`, `style.css?v=322`, `boot.js?v=322`, and `sw.js` cache `v322`.
 2. If the user wants a project monitor automation, use this file as the source-of-truth prompt context.
 
 ## Short Human Summary
 
-Latest app build is 319 on `main`. Phase 92.49 adds HR late/early-leave attendance exception rules (informational only — no payroll/leave/accounting/RLS/SQL impact). Phase 92.48 adds the accounting integrity status panel and hotfixes the orphan fetch to `select=*`. Expense export timezone bug is fixed and delivered through later PWA cache bumps. JE REST RLS is fixed and live-verified after SQL apply. Remaining accounting orphan counts are currently understood as intentional/non-actionable skips, not an active failure. Start new work from `git status`, avoid touching unrelated user work, and verify with `npm.cmd` commands on Windows.
+Latest app build is 322 on `main`. Phase 92.52 adds HR punctuality follow-ups (period summary + Excel columns, self-view chips, dashboard "พนักงานมาสายบ่อย", grace-change audit log) — informational only. Phase 92.51 (Codex) adds the Period Close Checklist (accounting, read-only, build 321). Phase 92.50 adds the HR executive dashboard; Phase 92.49 adds HR late/early-leave attendance exception rules. All client-only, no payroll/leave/accounting/RLS/SQL impact. Phase 92.48 adds the accounting integrity status panel and hotfixes the orphan fetch to `select=*`. Expense export timezone bug is fixed and delivered through later PWA cache bumps. JE REST RLS is fixed and live-verified after SQL apply. Remaining accounting orphan counts are currently understood as intentional/non-actionable skips, not an active failure. Start new work from `git status`, avoid touching unrelated user work, and verify with `npm.cmd` commands on Windows.
