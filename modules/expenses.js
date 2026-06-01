@@ -708,17 +708,37 @@ function _openAutoKeyModal(ctx) {
   fileInp.addEventListener("change", onPick);
   fileCamInp.addEventListener("change", onPick);
 
+  // ★ Phase 17 middleware: /api/parse-receipt อยู่ใน REQUIRE_AUTH_ENDPOINTS — ต้องแนบ Supabase JWT
+  //   ของ staff ที่ login (anonKey เป็น publishable key ไม่ใช่ JWT → จะโดน 401). ถ้าไม่มี token/หมดอายุ
+  //   แสดงข้อความให้เข้าสู่ระบบใหม่ แทน error กว้าง ๆ ที่อ่านไม่รู้เรื่อง
+  const _akShowAuthError = () => {
+    document.getElementById("akStep2").style.display = "none";
+    document.getElementById("akStep3").style.display = "none";
+    document.getElementById("akStep4").style.display = "block";
+    document.getElementById("akResult").innerHTML = `<div style="padding:14px;background:#fef2f2;border:1px solid #fecaca;border-radius:10px;color:#991b1b;font-size:13px;line-height:1.6"><b>🔒 ต้องเข้าสู่ระบบก่อนใช้ AutoKey</b><br>เซสชันหมดอายุหรือยังไม่ได้ล็อกอิน — กรุณาเข้าสู่ระบบใหม่แล้วลองวิเคราะห์อีกครั้ง</div>
+      <button id="ak-back-btn-auth" style="margin-top:10px;padding:10px;width:100%;background:#f1f5f9;border:none;border-radius:8px;cursor:pointer;font-size:13px">← กลับ</button>`;
+    document.getElementById("ak-back-btn-auth")?.addEventListener("click", () => {
+      document.getElementById("akStep2").style.display = "block";
+      document.getElementById("akStep4").style.display = "none";
+    });
+  };
+
   document.getElementById("akAnalyzeBtn")?.addEventListener("click", async () => {
     if (!_imageDataUrl) return;
+    // อ่าน token ตอนกด (เผื่อ refresh ระหว่างเปิด modal) — ไม่มี token = ไม่ต้องยิงให้เสีย quota
+    const _akToken = window._sbAccessToken;
+    if (!_akToken) { _akShowAuthError(); return; }
     document.getElementById("akStep2").style.display = "none";
     document.getElementById("akStep3").style.display = "block";
     try {
       const r = await fetch("/api/parse-receipt", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        headers: { "Content-Type": "application/json", "Accept": "application/json", "Authorization": "Bearer " + _akToken },
         body: JSON.stringify({ image: _imageDataUrl }),
         cache: "no-store"
       });
+      // 401 = token หมดอายุ/ถูกเพิกถอนระหว่างทาง → ให้ login ใหม่ แทน "Server ตอบไม่ใช่ JSON"
+      if (r.status === 401) { _akShowAuthError(); return; }
       const ct = r.headers.get("content-type") || "";
       const raw = await r.text();
       let j;

@@ -7,6 +7,12 @@
 
 ---
 
+## 5.65.0 (build 335) — 2026-06-01 Phase 92.65 — AutoKey (parse-receipt) 401 auth fix
+
+- **fix(expenses):** ปุ่ม "🔍 ให้ AI วิเคราะห์ใบเสร็จ" (AutoKey) ยิง `/api/parse-receipt` แบบไม่มี token → middleware (`REQUIRE_AUTH_ENDPOINTS`) ตอบ 401 ก่อนถึง Gemini = ฟีเจอร์พังทั้งหมด
+- **fix:** แนบ `Authorization: Bearer window._sbAccessToken` (อ่านตอนกด) · ไม่มี token/หมดอายุ → guard + จับ 401 แสดง "เข้าสู่ระบบใหม่" แทน error กว้าง · ไม่ fallback anonKey (publishable key ไม่ใช่ JWT → จะ 401 อยู่ดี)
+- **test:** +6 `expenses_autokey_auth.test.js` (source-guard: Bearer / _sbAccessToken / no-anonKey / 401 / re-login) · **pwa-cache:** bump 334→335
+
 ## 🏁 Finance Audit — CLOSED ที่ build 334 (2026-06-01)
 
 ปิดครบ 9 ข้อ: refund over-refund (client+DB trigger), recurring expense JV + idempotency, VAT split Dr=Cr, profit_report XSS, recurring/profit TZ, payroll fail→audit log, PromptPay dead-code removed, **period-lock DB trigger verified** (`journal_entries` → `trg_check_period_locked` → `check_period_not_locked`). ไม่มี item ค้าง
