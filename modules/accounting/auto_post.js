@@ -19,7 +19,20 @@
 //  Pre-req: รัน supabase-phase88-auto-post.sql ก่อนใช้
 // ═══════════════════════════════════════════════════════════
 
-import { dateBkk, todayBkk } from "../utils.js";
+import { dateBkk, todayBkk, round2 } from "../utils.js";
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 92.64: VAT split balancer (pure, testable)
+//  ปัญหาเดิม: VAT split ใช้ sale.subtotal_before_vat + sale.vat_amount ที่ปัดเศษแยกกัน
+//  → subtotal + vat อาจ ≠ total → JV Dr≠Cr (drift ≤0.01 = TB เพี้ยน, >0.01 = JV ถูก reject เงียบ)
+//  วิธีแก้: anchor ที่ total (ยอดที่ลูกค้าจ่าย) → vat = round2, subtotal = round2(total - vat)
+//  → subtotal + vat === total เป๊ะเสมอ (residual เศษเข้า revenue line — ถูกหลักบัญชี)
+// ═══════════════════════════════════════════════════════════
+export function splitSaleVatLines(total, vatAmount) {
+  const t = round2(total);
+  const v = round2(vatAmount);
+  return { total: t, vat: v, subtotal: round2(t - v) };
+}
 
 // Phase 89.4: auth-fetch helper สำหรับ critical write ops
 // ใช้ window._appAuthFetch (auto 401 retry) — fallback ราฟ fetch + manual headers ถ้า main.js ยังไม่ init
@@ -376,6 +389,8 @@ export async function postJournalForSale(sale) {
   const subtotalBeforeVat = Number(sale.subtotal_before_vat || 0) || (amount - vatAmount);
 
   if (vatAmount > 0.01 && subtotalBeforeVat > 0.01) {
+    // Phase 92.64: derive ให้ Dr === Cr เป๊ะ (subtotal := total - vat, ทั้งคู่ round2)
+    const v = splitSaleVatLines(amount, vatAmount);
     return _postJournal({
       sourceTable: "sales",
       sourceId: sale.id,
@@ -383,9 +398,9 @@ export async function postJournalForSale(sale) {
       docDate,
       description: desc,
       lines: [
-        { account_code: debitAccount,                 debit: amount,            credit: 0,                  description: desc },
-        { account_code: mapping.credit_account_code,  debit: 0,                  credit: subtotalBeforeVat,  description: desc + " (รายได้ก่อน VAT)" },
-        { account_code: "2170",                       debit: 0,                  credit: vatAmount,          description: desc + ` (VAT ${sale.vat_rate || 7}%)` }
+        { account_code: debitAccount,                 debit: v.total, credit: 0,          description: desc },
+        { account_code: mapping.credit_account_code,  debit: 0,       credit: v.subtotal, description: desc + " (รายได้ก่อน VAT)" },
+        { account_code: "2170",                       debit: 0,       credit: v.vat,      description: desc + ` (VAT ${sale.vat_rate || 7}%)` }
       ]
     });
   }

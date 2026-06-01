@@ -7,6 +7,12 @@
 
 ---
 
+## 5.64.0 (build 334) — 2026-06-01 Phase 92.64 — Balance sale VAT journal split (audit #4)
+
+- **fix(accounting):** VAT split ของ sale JV เดิมใช้ `subtotal_before_vat` + `vat_amount` ที่ปัดเศษแยกกัน → Dr≠Cr (drift >0.01 = JV ถูก reject เงียบ revenue หาย, ≤0.01 = Trial Balance เพี้ยนสะสม)
+- **helper:** `splitSaleVatLines(total, vatAmount)` (pure) — anchor ที่ total, `vat=round2`, `subtotal=round2(total-vat)` → Dr(total) === Cr(subtotal+vat) ภายใน satang เสมอ (residual เข้า revenue line — ถูกหลักบัญชี)
+- **scope:** เฉพาะ VAT-split block ใน `postJournalForSale` · ไม่แตะ COA/formula/refund/expense/payroll · **test:** +7 `auto_post.test.js` (inclusive/exclusive/drift/edge/2-line/refund regression) · **pwa-cache:** bump 333→334
+
 ## 5.64.0 (build 333) — 2026-06-01 Phase 92.63 — Finance audit quick wins (#5 XSS / #6b TZ / #8 log)
 
 - **fix(security):** profit_report.js escape ชื่อสินค้า + หมวดหมู่ (เดิม render ดิบ = stored-XSS) [#5]

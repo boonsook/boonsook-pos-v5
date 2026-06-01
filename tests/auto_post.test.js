@@ -3,6 +3,7 @@
 // Run: npm test
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
+import { round2 } from "../modules/utils.js";
 
 // Setup global window before importing auto_post (module reads window at call-time, not import-time)
 globalThis.window = {
@@ -18,7 +19,7 @@ const _origInfo = console.info;
 console.error = () => {};
 console.info = () => {};
 
-const { voidJvForSource, _isAfterEffective } = await import("../modules/accounting/auto_post.js");
+const { voidJvForSource, _isAfterEffective, splitSaleVatLines } = await import("../modules/accounting/auto_post.js");
 
 function makeRes(status, body) {
   return {
@@ -276,4 +277,70 @@ test("source: Phase 92.46 SQL — whitelist ตรงกับ sourceTable ท�
   for (const t of jsTables) {
     assert.match(sql, new RegExp(`'${t}'`), `SQL whitelist ขาด '${t}' ที่ auto_post.js ใช้`);
   }
+});
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 92.64 — VAT split balance (splitSaleVatLines)
+// ═══════════════════════════════════════════════════════════
+
+// balance = Cr (subtotal+vat) ตรงกับ Dr (total) ภายใน satang — ใช้ round2 กัน float epsilon
+const balanced = (v) => assert.equal(round2(v.subtotal + v.vat), v.total);
+
+test("splitSaleVatLines — inclusive 7%: total=100, vat=6.54 → subtotal=93.46, Σcredit=100", () => {
+  const v = splitSaleVatLines(100, 6.54);
+  assert.equal(v.total, 100);
+  assert.equal(v.vat, 6.54);
+  assert.equal(v.subtotal, 93.46);
+  balanced(v); // Dr === Cr
+});
+
+test("splitSaleVatLines — exclusive/basic: total=107, vat=7 → subtotal=100, Σcredit=107", () => {
+  const v = splitSaleVatLines(107, 7);
+  assert.equal(v.subtotal, 100);
+  balanced(v);
+});
+
+test("splitSaleVatLines — drift case: total=100, vat=6.5421 → vat=6.54, subtotal=93.46, sum=100 (เดิมพัง)", () => {
+  const v = splitSaleVatLines(100, 6.5421);
+  assert.equal(v.vat, 6.54);
+  assert.equal(v.subtotal, 93.46);
+  balanced(v); // ไม่ drift อีก
+});
+
+test("splitSaleVatLines — tiny/rounding edge: total=99.99, vat=6.54 → subtotal=93.45, sum=99.99", () => {
+  const v = splitSaleVatLines(99.99, 6.54);
+  assert.equal(v.subtotal, 93.45);
+  balanced(v); // 93.45 + 6.54 (float = 99.990000001) → round2 = 99.99 = total
+});
+
+test("splitSaleVatLines — float-noisy input ยัง balance ภายใน satang (total≈100.01, vat=6.54)", () => {
+  const v = splitSaleVatLines(100.1 - 0.09, 6.54); // ~100.01
+  balanced(v);
+  assert.ok(Math.abs((v.subtotal + v.vat) - v.total) < 0.01, "ต้อง balance ภายใน 0.01 (ผ่าน guard เสมอ)");
+});
+
+test("source: postJournalForSale VAT split ใช้ splitSaleVatLines + balance guard ยังอยู่", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/accounting/auto_post.js"), "utf8");
+  // ใช้ helper ใน VAT split (ไม่ใช้ subtotalBeforeVat/vatAmount ดิบใน lines แล้ว)
+  assert.match(src, /const v = splitSaleVatLines\(amount, vatAmount\)/, "VAT split ต้องเรียก helper");
+  assert.match(src, /credit: v\.subtotal/, "Cr revenue = v.subtotal (derived)");
+  assert.match(src, /credit: v\.vat/, "Cr VAT = v.vat");
+  assert.match(src, /debit: v\.total/, "Dr = v.total");
+  // balance guard ใน _postJournal ยังอยู่
+  assert.match(src, /Math\.abs\(totalDebit - totalCredit\) > 0\.01/, "balance guard ต้องคงอยู่");
+});
+
+test("source: vatAmount=0 ยังใช้ 2-line path เดิม (Dr=Cr=amount) + refund ยัง Dr4110/Cr balanced", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/accounting/auto_post.js"), "utf8");
+  // 2-line sale path เดิม (ไม่มี VAT) ยังอยู่ — ใช้ marker ที่ stable (ไม่พึ่ง multi-space)
+  assert.match(src, /ไม่มี VAT — JV ปกติ 2 บรรทัด/, "comment 2-line path เดิมต้องคงอยู่");
+  assert.match(src, /debit: amount, credit: 0,/, "non-VAT Dr line = amount ยังอยู่");
+  assert.match(src, /credit: amount, description: desc/, "non-VAT Cr line = amount ยังอยู่");
+  // refund: Dr 4110 / Cr cash — ไม่ถูกแตะ (2-line, balanced)
+  assert.match(src, /Dr 4110/, "refund mapping doc comment ยังอยู่");
+  assert.match(src, /postJournalForRefund/, "refund function ยังอยู่");
 });

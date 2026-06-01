@@ -3,13 +3,28 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 1 มิถุนายน 2026 (Phase 92.63 — finance audit quick wins #5/#6b/#8, build 333)
-**Version:** 5.64.0 (build 333) — Phase 92.63 (profit_report XSS + profit TZ + payroll fail-log — client, no SQL)
-**Previous:** 5.64.0 (build 332) — Phase 92.62 (recurring expense JV/idempotency/TZ)
-**Pre-prev:** 5.64.0 (build 331) — 92.61 refund cap (+SQL guard ✓) · 330 = 92.60 HR UI · 329 = 92.59/328 = 92.58 (Codex)
+**อัปเดตล่าสุด:** 1 มิถุนายน 2026 (Phase 92.64 — balance sale VAT journal split, build 334)
+**Version:** 5.64.0 (build 334) — Phase 92.64 (VAT split Dr=Cr rounding — accounting, no SQL)
+**Previous:** 5.64.0 (build 333) — Phase 92.63 (profit XSS/TZ + payroll fail-log)
+**Pre-prev:** 5.64.0 (build 332) — 92.62 recurring · 331 = 92.61 refund (+SQL ✓) · 330 = 92.60 · e2e/dead-code: smoke esm.sh allowlist + ลบ payment_gateway.js (no build bump)
 
-> 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.63** (client-side)
-> 📌 **Finance audit roadmap:** #1 refund ✓✓ · #2 recurring JV ✓ · #3 recurring idem ✓ · #6 recurring TZ ✓ · **#5 profit XSS ✓ · #6b profit TZ ✓ · #8 payroll fail-log ✓** (นี้) → **เหลือ: #4 VAT float drift (auto_post — ระวังสุด) · #7 PromptPay QR (verify usage ก่อน) · verify period-lock DB trigger**
+> 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.64** (client helper เท่านั้น)
+> 📌 **Finance audit roadmap:** #1✓✓ #2✓ #3✓ #5✓ #6✓ #6b✓ #8✓ · **#4 VAT split ✓** (นี้) · #7 PromptPay = dead code (ลบ payment_gateway.js แล้ว) → **เหลือ: verify period-lock DB trigger มีจริงใน Supabase** (รายการสุดท้าย)
+
+---
+
+## 🛠️ Phase 92.64 — Balance Sale VAT Journal Split (audit #4)
+
+**Root cause:** `postJournalForSale` VAT split (auto_post.js) ใช้ Dr=`total`, Cr=`subtotal_before_vat`(DB) + `vat_amount`(DB) ที่ปัดเศษแยกกัน → ผลรวมอาจ ≠ total → `_postJournal` balance guard (tol 0.01): drift >0.01 reject JV เงียบ (revenue หาย), ≤0.01 ผ่านแต่ TB เพี้ยนสะสม
+
+**สิ่งที่ทำ (modules/accounting/auto_post.js):**
+- `import round2` จาก `../utils.js`
+- `splitSaleVatLines(total, vatAmount)` (exported, pure) → `{total:round2(total), vat:round2(vatAmount), subtotal:round2(total-vat)}` → Dr(total)===Cr(subtotal+vat) ภายใน satang เสมอ (residual เศษเข้า revenue line)
+- VAT-split block ใช้ helper: Dr `v.total` / Cr revenue `v.subtotal` / Cr 2170 `v.vat` (เลิกเชื่อ sale.subtotal_before_vat)
+
+**Behavior preserved:** path ไม่มี VAT (2-line Dr=Cr=amount) เดิม · refund/expense/payroll/service/delivery (2-line) ไม่แตะ · COA mapping/formula ไม่เปลี่ยน · balance guard คงอยู่ · ไม่มี SQL
+
+**Gate:** lint 0 · unit 863 (+7 auto_post.test.js: inclusive/exclusive/drift/edge/2-line/refund-regression) · e2e 11 · build 333→334
 
 ---
 

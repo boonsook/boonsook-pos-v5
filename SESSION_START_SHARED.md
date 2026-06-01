@@ -1,6 +1,6 @@
 # Boonsook POS V5 - Shared Session Start
 
-Last updated: 2026-06-01 (Phase 92.63 — finance audit quick wins #5/#6b/#8, build 333)
+Last updated: 2026-06-01 (Phase 92.64 — balance sale VAT journal split, build 334)
 
 Purpose: this is the common first-read note for Codex, Claude, or any next agent opening a fresh session on this project. Read this before changing files so both teams start from the same facts.
 
@@ -25,6 +25,13 @@ Purpose: this is the common first-read note for Codex, Claude, or any next agent
 - Supabase project URL used by verification scripts: `https://rwmmjljelpcpwohwiplu.supabase.co`
 
 ## Current Truth As Of 2026-06-01
+
+Phase 92.64 balances the sale VAT journal split (build 334).
+
+- Finance audit #4: the sale VAT-split JE used `subtotal_before_vat` + `vat_amount` rounded independently, so Dr (total) could differ from Cr (subtotal+vat) — a >0.01 drift made `_postJournal` silently reject the JE (lost revenue), ≤0.01 accumulated trial-balance error.
+- Fix (modules/accounting/auto_post.js): new pure `splitSaleVatLines(total, vatAmount)` anchors on `total`, sets `vat=round2(vatAmount)`, derives `subtotal=round2(total-vat)` → Dr===Cr within a satang every time. Only the VAT-split block in `postJournalForSale` changed; non-VAT/refund/expense/payroll JEs (2-line Dr=Cr) untouched. +7 tests.
+- Also done this session (no build bump): e2e smoke now allowlists transient esm.sh 503; dead module `payment_gateway.js` removed.
+- Finance-audit REMAINING: only "verify the period-lock DB trigger actually exists in Supabase" is left (#7 PromptPay was dead code, now removed).
 
 Phase 92.63 finance-audit quick wins are implemented and deployed (build 333).
 
@@ -204,9 +211,9 @@ Use `npm.cmd` on Windows PowerShell because plain `npm` may be blocked by script
 
 If opening a new session with no new user request:
 
-1. Verify the live app build markers on `boonsook-pos-v5.pages.dev` if deployment freshness matters: `data-app-build="333"`, `main.js?v=333`, `style.css?v=333`, `boot.js?v=333`, and `sw.js` cache `v333`.
+1. Verify the live app build markers on `boonsook-pos-v5.pages.dev` if deployment freshness matters: `data-app-build="334"`, `main.js?v=334`, `style.css?v=334`, `boot.js?v=334`, and `sw.js` cache `v334`.
 2. If the user wants a project monitor automation, use this file as the source-of-truth prompt context.
 
 ## Short Human Summary
 
-Latest app build is 333 on `main`. Phase 92.63 fixes finance-audit quick wins (profit_report stored-XSS, profit reports UTC→Bangkok TZ, payroll failed-side-effect audit logging). Phase 92.62 fixes recurring-expense bugs (missing JV, duplicate generation, UTC timezone). Phase 92.61 fixes a refund over-/double-refund money+stock leak (client cap + applied DB trigger). Phase 92.60 is a premium visual refresh of the HR Overview page — visual-only. Phase 92.59 (Codex) adds a period-close readiness gate (accounting); Phase 92.58 (Codex) POS money audit fixes. Phase 92.57 adds a "พิมพ์ / PDF" button (browser-native print) to the HR report. Phase 92.56 adds a department-level summary table (+ export) to the HR report section. Phase 92.55 adds a per-employee Timesheet tab (daily in/out/hours/punctuality for the month) in the HR employee modal. Phase 92.54 adds a from/to date-range picker to the Monthly HR report (re-fetches only that range, re-renders only the report section). Phase 92.53 adds the Monthly HR report (one row per employee: days worked / hours / OT / late / early-leave / leave days, with Excel export) in HR Overview — read-only. Phase 92.52 adds HR punctuality follow-ups (period summary + Excel columns, self-view chips, dashboard "พนักงานมาสายบ่อย", grace-change audit log) — informational only. Phase 92.51 (Codex) adds the Period Close Checklist (accounting, read-only, build 321). Phase 92.50 adds the HR executive dashboard; Phase 92.49 adds HR late/early-leave attendance exception rules. All client-only, no payroll/leave/accounting/RLS/SQL impact. Phase 92.48 adds the accounting integrity status panel and hotfixes the orphan fetch to `select=*`. Expense export timezone bug is fixed and delivered through later PWA cache bumps. JE REST RLS is fixed and live-verified after SQL apply. Remaining accounting orphan counts are currently understood as intentional/non-actionable skips, not an active failure. Start new work from `git status`, avoid touching unrelated user work, and verify with `npm.cmd` commands on Windows.
+Latest app build is 334 on `main`. Phase 92.64 balances the sale VAT journal split (Dr=Cr rounding via splitSaleVatLines). Phase 92.63 fixes finance-audit quick wins (profit_report stored-XSS, profit reports UTC→Bangkok TZ, payroll failed-side-effect audit logging). Phase 92.62 fixes recurring-expense bugs (missing JV, duplicate generation, UTC timezone). Phase 92.61 fixes a refund over-/double-refund money+stock leak (client cap + applied DB trigger). Phase 92.60 is a premium visual refresh of the HR Overview page — visual-only. Phase 92.59 (Codex) adds a period-close readiness gate (accounting); Phase 92.58 (Codex) POS money audit fixes. Phase 92.57 adds a "พิมพ์ / PDF" button (browser-native print) to the HR report. Phase 92.56 adds a department-level summary table (+ export) to the HR report section. Phase 92.55 adds a per-employee Timesheet tab (daily in/out/hours/punctuality for the month) in the HR employee modal. Phase 92.54 adds a from/to date-range picker to the Monthly HR report (re-fetches only that range, re-renders only the report section). Phase 92.53 adds the Monthly HR report (one row per employee: days worked / hours / OT / late / early-leave / leave days, with Excel export) in HR Overview — read-only. Phase 92.52 adds HR punctuality follow-ups (period summary + Excel columns, self-view chips, dashboard "พนักงานมาสายบ่อย", grace-change audit log) — informational only. Phase 92.51 (Codex) adds the Period Close Checklist (accounting, read-only, build 321). Phase 92.50 adds the HR executive dashboard; Phase 92.49 adds HR late/early-leave attendance exception rules. All client-only, no payroll/leave/accounting/RLS/SQL impact. Phase 92.48 adds the accounting integrity status panel and hotfixes the orphan fetch to `select=*`. Expense export timezone bug is fixed and delivered through later PWA cache bumps. JE REST RLS is fixed and live-verified after SQL apply. Remaining accounting orphan counts are currently understood as intentional/non-actionable skips, not an active failure. Start new work from `git status`, avoid touching unrelated user work, and verify with `npm.cmd` commands on Windows.
