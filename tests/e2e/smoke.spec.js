@@ -14,6 +14,10 @@ const CONSOLE_ALLOW = [
   // CDN ถูก block ใน CI sandbox (ออก internet ไม่ได้)
   /Failed to load resource.*cdn/i,
   /net::ERR_/i,
+  // Phase 92.63b: Supabase client โหลดจาก https://esm.sh/@supabase/supabase-js@2 (main.js)
+  //   — esm.sh 503/timeout ชั่วคราว = external CDN/network noise ไม่ใช่ app crash
+  //   (local probe ไม่มี 503, prod build 333 ใช้งานปกติ)
+  /esm\.sh/i,
   // Chart.js / xlsx CDN integrity ถ้าไม่โหลด
   /integrity/i,
 ];
