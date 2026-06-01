@@ -7,6 +7,11 @@
 
 ---
 
+## 5.64.0 (build 318) — 2026-06-01 Phase 92.48 hotfix — integrity panel sales fetch
+
+- **fix(accounting):** การ์ด integrity ดึง orphan row ด้วย `select=*` — เดิม sales select มี `grand_total` ที่ sales ไม่มีคอลัมน์ → PostgREST 400 → 85 รายการขึ้น "classify ไม่ได้" 🟡; ตอนนี้ classify ได้ → 🟢 (รายจ่ายไม่โดนเพราะ select แค่คอลัมน์ที่มีจริง)
+- **pwa-cache:** bump 317→318
+
 ## 5.64.0 (build 317) — 2026-06-01 Phase 92.48 — Accounting Integrity status panel
 
 - **feat(accounting):** การ์ด "🩺 สถานะความครบของบัญชี" บนหน้า Backfill — เรียก `accounting_integrity_summary()` + แยก orphan เป็น actionable vs ข้าม (test ก่อน go-live / ฿0) ด้วย `_classifyOrphan` (mirror `auto_post._isAfterEffective`+amount → ไม่ drift) กัน raw count หลอกตา (85 → actionable 0)

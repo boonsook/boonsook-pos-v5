@@ -29,6 +29,8 @@ Audit (dry-run `backfill_orphan_journals.js`) ยืนยัน orphan ที�
 
 **Gate:** +8 `tests/accounting_integrity_panel.test.js` (node --test ผ่าน) · eslint clean (0/0) · build 316→317 (backfill.js = lazy module)
 
+**Hotfix (build 318):** orphan fetch เปลี่ยนเป็น `select=*` — เดิม sales select ระบุ `grand_total` (sales ไม่มีคอลัมน์นี้ มีแต่ quotations/receipts) → PostgREST 400 → การ์ดขึ้น 🟡 "85 classify ไม่ได้". เจอจาก **user eyeball** (unit test mock row ตรง ๆ เลยไม่จับ select-column bug = integration gap). `select=*` พิสูจน์แล้วใช้ได้ (dry-run backfill ใช้ pattern เดียวกันสำเร็จ)
+
 **ยังไม่ทำ (ถ้าต่อ):** ปุ่ม backfill ในตัวการ์ด (ตอนนี้ชี้ไปเครื่องมือเดิมด้านล่าง) · Phase 92.49 Month Close checklist
 
 ---

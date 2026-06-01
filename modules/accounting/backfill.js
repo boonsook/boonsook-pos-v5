@@ -39,11 +39,11 @@ const SOURCES = [
 //   docDate/amount field extraction matches postJournalForSale/Expense/Payroll.
 export const INTEGRITY_CATS = [
   { key: "sales",    label: "🛒 การขาย",    table: "sales",         view: "vw_sales_without_journal",    countKey: "sales_without_journal",
-    sel: "id,created_at,total_amount,grand_total", docDate: r => r.created_at,                     amount: r => (r.total_amount ?? r.grand_total) },
+    sel: "*", docDate: r => r.created_at,                     amount: r => (r.total_amount ?? r.grand_total) },
   { key: "expenses", label: "💸 รายจ่าย",   table: "expenses",      view: "vw_expenses_without_journal", countKey: "expenses_without_journal",
-    sel: "id,created_at,expense_date,amount",      docDate: r => (r.expense_date || r.created_at), amount: r => r.amount },
+    sel: "*",      docDate: r => (r.expense_date || r.created_at), amount: r => r.amount },
   { key: "payroll",  label: "👷 เงินเดือน", table: "staff_payroll", view: "vw_payroll_without_journal",   countKey: "payroll_without_journal",
-    sel: "id,created_at,paid_at,total_amount",     docDate: r => (r.paid_at || r.created_at),      amount: r => r.total_amount },
+    sel: "*",     docDate: r => (r.paid_at || r.created_at),      amount: r => r.total_amount },
 ];
 
 function escHtml(s) { const d = document.createElement("div"); d.textContent = String(s ?? ""); return d.innerHTML; }
