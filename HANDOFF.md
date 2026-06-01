@@ -3,16 +3,37 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 28 พฤษภาคม 2026 (Phase 92.47 — Orphan Journal Backfill Tool, build 315 — no client bump)
-**Version:** 5.64.0 (build 315) — Phase 92.47 (script-only — backfill 92.46 RLS-orphaned JV)
-**Previous:** 5.64.0 (build 315) — Phase 92.46 (Auto-Journal RLS Re-apply + Tighten + Integrity Views)
-**Pre-prev:** 5.64.0 (build 315) — Phase 92.45 (Leave SQL/RLS Hardening + Audit Enforcement)
+**อัปเดตล่าสุด:** 1 มิถุนายน 2026 (Phase 92.48 — Accounting Integrity status panel, build 317)
+**Version:** 5.64.0 (build 317) — Phase 92.48 (integrity panel บนหน้า Backfill — client-side bucketing, no SQL)
+**Previous:** 5.64.0 (build 316) — Phase 92.47b (PWA cache bump + shared session notes)
+**Pre-prev:** 5.64.0 (build 315) — Phase 92.46c/92.47 (JE REST RLS closed + expense export TZ fix)
 
 > 🆕 **ไม่มี SQL ใหม่ในเฟส 92.47** (script-only — ใช้ views + RPC ของ 92.46)
 
 ---
 
-## 🛠️ Phase 92.47 — Orphan Journal Backfill Tool (this session)
+## 🛠️ Phase 92.48 — Accounting Integrity Status Panel (this session)
+
+**บริบท:**
+Audit (dry-run `backfill_orphan_journals.js`) ยืนยัน orphan ที่เหลือ = test data ทั้งหมด → **actionable จริง = 0**:
+- Sales 85 = 84 เม.ย. (ก่อน 2026-05-01) + 1 พ.ค. (฿0) · Expenses 1 = เม.ย. ฿1,000 · Payroll 0
+
+แต่ `accounting_integrity_summary()` RPC คืน **raw count = 85** → ถ้าโชว์ดิบ ๆ admin จะตกใจทั้งที่ไม่มีรายการจริงค้าง
+
+**สิ่งที่ทำ:**
+- `modules/accounting/backfill.js` — เพิ่มการ์ด integrity ด้านบน (host เดิม ไม่เพิ่ม route/menu): RPC summary → ดึง `vw_*_without_journal` ids → fetch row (date+amount) → `_classifyOrphan` แยก actionable/skipped → 🟢/🔴/🟡
+- `_classifyOrphan(cat, row)` (exported) — **mirror auto_post เป๊ะ**: `import { _isAfterEffective }` + `dateBkk`; pre-effective หรือ amount<=0 = skipped, else actionable (ไม่ duplicate logic = กัน drift)
+- field ต่อ source ตรง auto_post: sales=`created_at`/`total_amount??grand_total` · expenses=`expense_date`/`amount` · payroll=`paid_at`/`total_amount`
+
+**Approach:** client-side bucketing (option B) — **ไม่แตะ SQL** (ใช้ RPC/views ของ 92.46) → ไม่ต้อง apply อะไรใน Supabase
+
+**Gate:** +8 `tests/accounting_integrity_panel.test.js` (node --test ผ่าน) · eslint clean (0/0) · build 316→317 (backfill.js = lazy module)
+
+**ยังไม่ทำ (ถ้าต่อ):** ปุ่ม backfill ในตัวการ์ด (ตอนนี้ชี้ไปเครื่องมือเดิมด้านล่าง) · Phase 92.49 Month Close checklist
+
+---
+
+## 🛠️ Phase 92.47 — Orphan Journal Backfill Tool (previous session)
 
 **บริบท:**
 หลัง Phase 92.46 apply (RLS re-apply + integrity views), audit พบ orphans สะสม:

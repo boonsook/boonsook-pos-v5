@@ -7,6 +7,11 @@
 
 ---
 
+## 5.64.0 (build 317) — 2026-06-01 Phase 92.48 — Accounting Integrity status panel
+
+- **feat(accounting):** การ์ด "🩺 สถานะความครบของบัญชี" บนหน้า Backfill — เรียก `accounting_integrity_summary()` + แยก orphan เป็น actionable vs ข้าม (test ก่อน go-live / ฿0) ด้วย `_classifyOrphan` (mirror `auto_post._isAfterEffective`+amount → ไม่ drift) กัน raw count หลอกตา (85 → actionable 0)
+- **pwa-cache:** bump build 316→317 (backfill.js = lazy module) · **test:** +8 `accounting_integrity_panel.test.js`
+
 ## 5.64.0 (build 316) — 2026-06-01 Phase 92.47b — PWA cache bump + shared session notes
 
 - **fix(pwa-cache):** bumped `APP_BUILD` / asset query strings / `sw.js` `CACHE_NAME` from 315 to 316 so deployed clients can receive the Phase 92.47 expense export Bangkok-TZ fix without relying on manual hard refresh.

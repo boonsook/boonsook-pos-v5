@@ -18,7 +18,8 @@ import {
   postJournalForExpense,
   postJournalForReceipt,
   postJournalForServiceJob,
-  postJournalForDeliveryInvoice
+  postJournalForDeliveryInvoice,
+  _isAfterEffective
 } from "./auto_post.js";
 import { todayBkk, dateBkk } from "../utils.js";
 
@@ -31,6 +32,18 @@ const SOURCES = [
   { key: "delivery_invoices",  label: "🧾 ใบส่งสินค้า (B2B)",     table: "delivery_invoices",  dateField: "created_at",   docType: "SV" },
   { key: "receipts",           label: "💰 ใบเสร็จ (paid)",        table: "receipts",           dateField: "receipt_date", docType: "RV" },
   { key: "service_jobs",       label: "🔧 งานช่าง (closed)",      table: "service_jobs",       dateField: "created_at",   docType: "SV" }
+];
+
+// ★ Phase 92.48: Accounting Integrity — classify orphans (no JE) into actionable vs intentionally-skipped.
+//   Mirrors auto_post "should post" rule EXACTLY (imports _isAfterEffective) → zero drift.
+//   docDate/amount field extraction matches postJournalForSale/Expense/Payroll.
+export const INTEGRITY_CATS = [
+  { key: "sales",    label: "🛒 การขาย",    table: "sales",         view: "vw_sales_without_journal",    countKey: "sales_without_journal",
+    sel: "id,created_at,total_amount,grand_total", docDate: r => r.created_at,                     amount: r => (r.total_amount ?? r.grand_total) },
+  { key: "expenses", label: "💸 รายจ่าย",   table: "expenses",      view: "vw_expenses_without_journal", countKey: "expenses_without_journal",
+    sel: "id,created_at,expense_date,amount",      docDate: r => (r.expense_date || r.created_at), amount: r => r.amount },
+  { key: "payroll",  label: "👷 เงินเดือน", table: "staff_payroll", view: "vw_payroll_without_journal",   countKey: "payroll_without_journal",
+    sel: "id,created_at,paid_at,total_amount",     docDate: r => (r.paid_at || r.created_at),      amount: r => r.total_amount },
 ];
 
 function escHtml(s) { const d = document.createElement("div"); d.textContent = String(s ?? ""); return d.innerHTML; }
@@ -55,6 +68,15 @@ export function renderBackfillPage(ctx) {
           <h2 style="margin:0;font-size:20px;color:#0f172a">Backfill รายการบัญชีย้อนหลัง</h2>
           <div style="font-size:12px;color:#64748b">สร้าง JV จาก ขาย/รายจ่าย/ใบเสร็จ/งานช่าง ที่บันทึกก่อน Phase 88.1a deploy — ทำให้ trial balance ครบจริง</div>
         </div>
+      </div>
+
+      <!-- ★ Phase 92.48: Integrity status (actionable vs intentionally-skipped) -->
+      <div id="bfIntegrityCard" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px;margin-bottom:14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px">
+          <div style="font-weight:700;color:#0f172a">🩺 สถานะความครบของบัญชี (Integrity)</div>
+          <button id="bfIntegrityRefresh" class="btn light" style="font-size:12px;padding:4px 10px">🔄 ตรวจใหม่</button>
+        </div>
+        <div id="bfIntegrityPanel"><div style="color:#64748b;font-size:13px">⏳ กำลังตรวจ...</div></div>
       </div>
 
       <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:10px;padding:12px;margin-bottom:14px;font-size:12px;color:#78350f;line-height:1.7">
@@ -109,6 +131,10 @@ export function renderBackfillPage(ctx) {
 
   document.getElementById("bfPreviewBtn")?.addEventListener("click", _onPreview);
   document.getElementById("bfRunBtn")?.addEventListener("click", _onRun);
+
+  // Phase 92.48: integrity status panel — auto-load + refresh button
+  document.getElementById("bfIntegrityRefresh")?.addEventListener("click", _loadIntegrityStatus);
+  _loadIntegrityStatus();
 }
 
 function _selectedSources() {
@@ -360,4 +386,116 @@ async function _onRun() {
   // eslint-disable-next-line require-atomic-updates -- G: _running lock release (final, entry guard at backfill.js:238)
   _running = false;
   if (btnRun) { btnRun.disabled = false; btnRun.textContent = "⚡ เริ่ม Backfill"; }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 92.48: Accounting Integrity status panel
+//  Reuses accounting_integrity_summary() RPC + vw_*_without_journal views.
+//  Buckets each orphan via _classifyOrphan (mirrors auto_post) so the raw
+//  count (which includes pre-effective test data + ฿0 rows) isn't alarming.
+// ═══════════════════════════════════════════════════════════
+
+function _fmtAmt(n) { return Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 }); }
+
+// Classify one orphan source row. Mirrors postJournalForSale/Expense/Payroll skip rules:
+//   - pre-effective docDate (Bangkok) → auto_post skips      → "skipped"
+//   - amount <= 0 / falsy             → auto_post returns null → "skipped"
+//   - else                            → auto_post would post   → "actionable"
+export function _classifyOrphan(cat, row) {
+  const amt = Number(cat.amount(row)) || 0;
+  const dRaw = cat.docDate(row);
+  const docDate = dRaw ? dateBkk(dRaw) : todayBkk();
+  if (!_isAfterEffective(docDate)) return { bucket: "skipped", reason: "pre-effective" };
+  if (amt <= 0) return { bucket: "skipped", reason: "zero-amount" };
+  return { bucket: "actionable", amount: amt };
+}
+
+async function _fetchRowsByIds(cat, ids, headers, cfg) {
+  const out = [];
+  const CHUNK = 100;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const chunk = ids.slice(i, i + CHUNK);
+    try {
+      const r = await fetch(`${cfg.url}/rest/v1/${cat.table}?id=in.(${chunk.join(",")})&select=${cat.sel}`, { headers });
+      if (r.ok) out.push(...(await r.json()));
+    } catch (_) { /* skip chunk on error — counted as unknown below */ }
+  }
+  return out;
+}
+
+async function _loadIntegrityStatus() {
+  const panel = document.getElementById("bfIntegrityPanel");
+  if (!panel) return;
+  panel.innerHTML = `<div style="color:#64748b;font-size:13px">⏳ กำลังตรวจ...</div>`;
+
+  const cfg = window.SUPABASE_CONFIG;
+  const token = window._sbAccessToken || cfg.anonKey;
+  const headers = { apikey: cfg.anonKey, Authorization: "Bearer " + token };
+
+  // 1) RPC summary (admin-only) — raw counts
+  let summary;
+  try {
+    const r = await fetch(`${cfg.url}/rest/v1/rpc/accounting_integrity_summary`, {
+      method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: "{}"
+    });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    summary = await r.json();
+  } catch (e) {
+    panel.innerHTML = `<div style="padding:10px;background:#fef3c7;border:1px solid #fde68a;border-radius:8px;color:#78350f;font-size:12px">ตรวจสถานะไม่ได้: ${escHtml(e.message)} — ต้องเป็น admin/accountant</div>`;
+    return;
+  }
+
+  // 2) classify orphans per category
+  const cats = [];
+  for (const cat of INTEGRITY_CATS) {
+    const raw = Number(summary[cat.countKey]) || 0;
+    const actionable = [];
+    let skipped = 0, unknown = 0;
+    if (raw > 0) {
+      let ids = [];
+      try {
+        const idsRes = await fetch(`${cfg.url}/rest/v1/${cat.view}?select=id`, { headers });
+        if (idsRes.ok) ids = (await idsRes.json()).map(x => x.id);
+      } catch (_) { /* ids empty */ }
+      const rows = ids.length ? await _fetchRowsByIds(cat, ids, headers, cfg) : [];
+      for (const row of rows) {
+        const c = _classifyOrphan(cat, row);
+        if (c.bucket === "actionable") actionable.push({ id: row.id, amount: c.amount });
+        else skipped++;
+      }
+      unknown = Math.max(0, ids.length - rows.length);
+    }
+    cats.push({ key: cat.key, label: cat.label, raw, actionable, skipped, unknown });
+  }
+
+  // 3) render
+  const totalActionable = cats.reduce((s, c) => s + c.actionable.length, 0);
+  const totalUnknown = cats.reduce((s, c) => s + c.unknown, 0);
+  const checked = summary.checked_at ? String(summary.checked_at).slice(0, 16).replace("T", " ") : "";
+
+  const chips = cats.map(c => `
+    <div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;font-size:12px">
+      <div style="color:#475569;font-weight:600">${escHtml(c.label)}</div>
+      <div style="color:#94a3b8">ไม่มี JE: <b style="color:#0f172a">${c.raw.toLocaleString()}</b></div>
+      <div style="color:${c.actionable.length ? "#dc2626" : "#16a34a"}">ต้องแก้: <b>${c.actionable.length.toLocaleString()}</b> · ข้าม: ${c.skipped.toLocaleString()}${c.unknown ? ` · ?: ${c.unknown}` : ""}</div>
+    </div>`).join("");
+
+  let head;
+  if (totalActionable === 0 && totalUnknown === 0) {
+    head = `<div style="padding:10px 12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;color:#166534;font-weight:700">🟢 ธุรกรรมจริงมี JE ครบ — ไม่มีรายการค้างที่ต้อง backfill</div>
+            <div style="font-size:12px;color:#64748b;margin-top:6px">รายการที่ "ไม่มี JE" ที่เหลือเป็น test/ก่อน go-live (ก่อน 2026-05-01) หรือยอด ฿0 — ระบบข้ามถูกต้อง</div>`;
+  } else if (totalActionable > 0) {
+    const list = cats.filter(c => c.actionable.length).map(c =>
+      `<div style="margin-top:4px"><b>${escHtml(c.label)}</b>: ${c.actionable.slice(0, 30).map(a => `#${escHtml(a.id)} (฿${_fmtAmt(a.amount)})`).join(", ")}${c.actionable.length > 30 ? ` … +${c.actionable.length - 30}` : ""}</div>`
+    ).join("");
+    head = `<div style="padding:10px 12px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;color:#991b1b;font-weight:700">🔴 พบ ${totalActionable.toLocaleString()} รายการจริงที่ควรมี JE แต่ยังไม่มี</div>
+            <div style="font-size:12px;color:#7f1d1d;margin-top:6px">${list}</div>
+            <div style="font-size:12px;color:#64748b;margin-top:6px">→ ใช้เครื่องมือ Backfill ด้านล่าง: เลือก source ที่เกี่ยว + ครอบช่วงวันที่ของรายการ แล้วกด "เริ่ม Backfill"</div>`;
+  } else {
+    head = `<div style="padding:10px 12px;background:#fef3c7;border:1px solid #fde68a;border-radius:8px;color:#78350f;font-weight:700">🟡 ตรวจได้บางส่วน — มี ${totalUnknown.toLocaleString()} รายการที่ classify ไม่ได้ (ลองกด "ตรวจใหม่")</div>`;
+  }
+
+  panel.innerHTML = `${head}
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:10px">${chips}</div>
+    ${checked ? `<div style="font-size:11px;color:#94a3b8;margin-top:8px">ตรวจเมื่อ ${escHtml(checked)} (เวลา DB · UTC)</div>` : ""}`;
 }
