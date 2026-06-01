@@ -5706,3 +5706,49 @@ git reset --hard HEAD~1
 
 _อัปเดต: Claude (Opus 4.7) — session 22-23 เม.ย. 2026_
 _Total commits this session: 30+_
+# 2026-05-29 Correction - Phase 92.46b Not Fully Closed
+
+Phase 92.46b accounting auto-journal should not be treated as fully closed yet.
+
+Latest state:
+
+- DB direct SQL Editor simulation as sales/authenticated can insert `journal_entries` successfully.
+- `npm run verify:accounting` still fails A2 with REST JE HTTP 403.
+- A2b orphan count still drifts, so production REST path is not verified.
+
+Next owner should restart Supabase API/PostgREST, wait 1-2 minutes, then rerun `npm run verify:accounting`.
+
+If A2 still returns 403 after restart, investigate REST project/JWT/env mismatch before changing DB policy again.
+# 2026-05-29 Correction - Phase 92.46 Is Not Fully Closed
+
+Build 315 / v5.64.0 remains the latest known live app. No UI/client change is required for this correction.
+
+Important correction:
+- Phase 92.46/92.46b should remain OPEN for accounting REST smoke.
+- Direct DB sales/authenticated insert into `public.journal_entries` passes.
+- REST/PostgREST smoke still fails: `npm run verify:accounting` A2 returns HTTP 403 / code `42501`.
+- A2b still fails because the smoke-created sale becomes an orphan when journal creation is blocked.
+
+Handoff instruction:
+- Next operator should restart Supabase API/PostgREST, wait 1-2 minutes, then run `npm run verify:accounting`.
+- If A2/A2b pass after restart, complete final orphan backfill and update `INCIDENT_NOTES.md`.
+- If A2/A2b still fail, treat this as REST/runtime mismatch, not a generic SQL policy rewrite. Verify `.env` Supabase URL, anon key, JWT freshness, and payload parity with the direct DB insert test.
+
+Do not mark accounting root cause closed until A1-A6 all pass.
+
+# 2026-06-01 - CLOSED - Phase 92.46c JE REST RLS fixed and verified
+
+Accounting auto-journal REST path is now CLOSED. A1-A6 all pass. Full detail in `INCIDENT_NOTES.md` (2026-06-01 entry).
+
+Root cause (empirical, via `scripts/diag_je_rest.js`): the INSERT always worked (non-admin `return=minimal` = 201). The 403 came from the **SELECT-back** that `return=representation`/`headers-only` triggers — `je_select` was admin-only, so non-admin could not read its own just-inserted row, and the same policy blocked `jl_insert_auto`'s `EXISTS` subquery for lines.
+
+Fix: `supabase-phase92-46c-je-rls-final.sql` (applied in Supabase SQL Editor 2026-06-01) adds PERMISSIVE `je_select_auto` for `authenticated`, scoped to auto-post sources (sales/expenses/service_jobs/receipts/delivery_invoices/credit_payments/refunds), `staff_payroll` excluded, line detail still admin-only. Additive — does not touch `auto_post.js`, insert whitelist, or period-close. Includes `NOTIFY pgrst, 'reload schema'`.
+
+Verified 2026-06-01:
+- `node scripts/diag_je_rest.js`: non-admin representation + headers-only now 201 (was 403).
+- `npm run verify:accounting`: ALL PASS, A2=201, A2b 85->85 no drift, A3/A4 still 403.
+- `npm run verify:je`: entry+lines 201/201, exit 0.
+
+Backfill NOT run — dry-run + `auto_post.js` confirm 0 actionable rows. Remaining orphans (`sales_without_journal=85`, `expenses=1`, `payroll=0`) are all intentional skips: pre-effective April test data (`< 2026-05-01`) and one zero-amount May sale. Real May orphans were backfilled in a prior session. Live backfill would be a no-op.
+
+No client/UI change. APP_BUILD stays 315 / v5.64.0.
