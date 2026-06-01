@@ -7,6 +7,13 @@
 
 ---
 
+## 5.64.0 (build 332) — 2026-06-01 Phase 92.62 — รายจ่ายประจำ: JV + idempotency + TZ (audit #2/#3/#6)
+
+- **fix(accounting):** generate รายจ่ายประจำ → **auto-post JV** (เหมือน expenses ปกติ) → ค่าเช่า/น้ำไฟเข้าสมุดบัญชีคู่ (เดิมไม่ลง → P&L/Trial Balance ไม่ตรง)
+- **fix(recurring):** กันสร้างซ้ำ — tag `#recur-{id}-{งวด}` ใน note + pre-check ก่อน insert + in-flight guard (เดิม PATCH next_due พลาดแล้วกดซ้ำ = รายจ่ายซ้ำ)
+- **fix(tz):** ใช้ `todayBkk()` แทน UTC ทุกจุด (expense_date/overdue/form) + `_calcNextDue` เขียนใหม่เป็น pure date math (deterministic ไม่ขึ้น runtime TZ)
+- **test:** +9 `recurring_expenses.test.js` · **pwa-cache:** bump 331→332
+
 ## 5.64.0 (build 331) — 2026-06-01 Phase 92.61 — Refund คืนซ้ำ/คืนเกิน (audit fix #1)
 
 - **fix(refunds):** กันคืนซ้ำ/คืนเกิน — เปิด modal คืนบิลเดิมจะหัก "จำนวนที่คืนไปแล้ว" ออกจาก max ต่อรายการ (`computeRefundableItems`) + แสดง "คืนแล้ว N / ครบ" + disable ช่องที่คืนครบ + re-validate ก่อนบันทึก (`validateRefundWithinRemaining`) → กันเงิน+สต็อก+JE รั่ว

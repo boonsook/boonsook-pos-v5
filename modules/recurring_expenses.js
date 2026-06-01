@@ -5,14 +5,22 @@
 // ═══════════════════════════════════════════════════════════
 import { renderSkeleton, renderEmpty, renderError } from "./ui_states.js";
 
-import { escHtml } from "./utils.js";
+import { escHtml, todayBkk } from "./utils.js";
+// Phase 92.62: auto-post JV เมื่อ generate รายจ่ายประจำ (เหมือน expenses.js) — กัน books mismatch
+import { postJournalForExpense } from "./accounting/auto_post.js";
 function money(n) {
   return new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n || 0));
+}
+
+// Phase 92.62: tag กันสร้างซ้ำต่อ recurring+งวด (idempotency key ใน expenses.note)
+export function recurringExpenseTag(id, periodKey) {
+  return `#recur-${id}-${periodKey}`;
 }
 
 const FREQ_LABELS = { monthly: "ทุกเดือน", weekly: "ทุกสัปดาห์", yearly: "ทุกปี" };
 
 let _reList = []; // local cache
+let _reGenBusy = false; // Phase 92.62: in-flight guard กันกด generate ซ้ำ (race)
 
 export async function renderRecurringExpensesPage(ctx) {
   const { state: _state, showToast: _showToast } = ctx;
@@ -57,8 +65,8 @@ export async function renderRecurringExpensesPage(ctx) {
     + active.filter(r => r.frequency === "weekly").reduce((s, r) => s + Number(r.amount || 0) * 4.33, 0)
     + active.filter(r => r.frequency === "yearly").reduce((s, r) => s + Number(r.amount || 0) / 12, 0);
 
-  // หา items ที่ครบกำหนดวันนี้/อดีต
-  const today = new Date().toISOString().slice(0, 10);
+  // หา items ที่ครบกำหนดวันนี้/อดีต — Phase 92.62: Bangkok TZ (เดิม UTC → overdue เพี้ยน ±1 วัน)
+  const today = todayBkk();
   const overdue = active.filter(r => r.next_due && r.next_due <= today);
 
   container.innerHTML = `
@@ -173,7 +181,7 @@ export async function renderRecurringExpensesPage(ctx) {
 function openEditModal(ctx, r) {
   document.getElementById("reEditModal")?.remove();
   const isEdit = !!r;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayBkk(); // Phase 92.62: Bangkok TZ (form default date)
   const defaultDay = (new Date()).getDate();
 
   const modal = document.createElement("div");
@@ -301,64 +309,115 @@ async function deleteRecurring(ctx, id) {
   renderRecurringExpensesPage(ctx);
 }
 
-function _calcNextDue(r, fromDate) {
-  const d = new Date(fromDate);
-  if (r.frequency === "monthly") {
-    d.setMonth(d.getMonth() + 1);
-    if (r.day_of_month) d.setDate(Math.min(r.day_of_month, 28));
-  } else if (r.frequency === "weekly") {
-    d.setDate(d.getDate() + 7);
-  } else if (r.frequency === "yearly") {
-    d.setFullYear(d.getFullYear() + 1);
+// Phase 92.62: คำนวณ next_due แบบ pure integer/UTC (deterministic, ไม่ขึ้นกับ runtime TZ)
+// เดิมใช้ Date setters (.setMonth/.setDate) ซึ่งทำงานบน local-TZ → ผลเพี้ยนข้าม TZ
+export function _calcNextDue(r, fromDate) {
+  const pad = (n) => String(n).padStart(2, "0");
+  const [y, m, d] = String(fromDate).slice(0, 10).split("-").map(Number);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return String(fromDate).slice(0, 10);
+  if (r.frequency === "weekly") {
+    const nd = new Date(Date.UTC(y, m - 1, d) + 7 * 86400000);
+    return `${nd.getUTCFullYear()}-${pad(nd.getUTCMonth() + 1)}-${pad(nd.getUTCDate())}`;
   }
-  return d.toISOString().slice(0, 10);
+  if (r.frequency === "yearly") {
+    return `${y + 1}-${pad(m)}-${pad(d)}`;
+  }
+  // monthly (default): +1 เดือน, clamp วันที่ ≤ 28 (กัน month overflow + ตรงกับ day_of_month clamp เดิม)
+  let ny = y, nm = m + 1;
+  if (nm > 12) { nm = 1; ny += 1; }
+  const day = Math.min(r.day_of_month ? Number(r.day_of_month) : d, 28);
+  return `${ny}-${pad(nm)}-${pad(day)}`;
 }
 
 async function generateOne(ctx, id) {
+  if (_reGenBusy) return;
   const r = _reList.find(x => String(x.id) === String(id));
   if (!r) return;
-  await _createExpenseFromRecurring(ctx, r);
-  ctx.showToast?.(`✓ สร้าง expense ${r.name} ฿${money(r.amount)}`);
+  _reGenBusy = true;
+  try {
+    const result = await _createExpenseFromRecurring(ctx, r);
+    ctx.showToast?.(result === "exists"
+      ? `งวดนี้สร้างไปแล้ว — ข้าม (${r.name})`
+      : `✓ สร้าง expense ${r.name} ฿${money(r.amount)}`);
+  } finally {
+    _reGenBusy = false;
+  }
   renderRecurringExpensesPage(ctx);
 }
 
 async function generateAllOverdue(ctx, overdue) {
+  if (_reGenBusy) return;
   if (!(await window.App?.confirm?.(`สร้าง expense ${overdue.length} รายการเลย?`))) return;
-  let ok = 0;
-  for (const r of overdue) {
-    const result = await _createExpenseFromRecurring(ctx, r);
-    if (result) ok++;
+  _reGenBusy = true;
+  let ok = 0, skipped = 0;
+  try {
+    for (const r of overdue) {
+      const result = await _createExpenseFromRecurring(ctx, r);
+      if (result === "exists") skipped++;
+      else if (result) ok++;
+    }
+  } finally {
+    _reGenBusy = false;
   }
-  ctx.showToast?.(`✓ สร้างเสร็จ ${ok}/${overdue.length}`);
+  ctx.showToast?.(`✓ สร้างเสร็จ ${ok}/${overdue.length}${skipped ? ` (ข้ามซ้ำ ${skipped})` : ""}`);
   renderRecurringExpensesPage(ctx);
+}
+
+// Phase 92.62: เช็คว่า expense ของ recurring+งวดนี้ถูกสร้างไปแล้วหรือยัง (idempotency)
+async function _recurringExpenseExists(cfg, accessToken, tag) {
+  try {
+    const url = cfg.url + "/rest/v1/expenses?select=id&limit=1&note=ilike.*" + encodeURIComponent(tag) + "*";
+    const r = await fetch(url, { headers: { apikey: cfg.anonKey, Authorization: "Bearer " + accessToken } });
+    if (!r.ok) return false; // เช็คไม่ได้ → ปล่อยให้สร้าง (กัน false-positive บล็อก)
+    const rows = await r.json().catch(() => []);
+    return Array.isArray(rows) && rows.length > 0;
+  } catch { return false; }
 }
 
 async function _createExpenseFromRecurring(ctx, r) {
   const cfg = window.SUPABASE_CONFIG;
   const accessToken = window._sbAccessToken || cfg.anonKey;
-  const today = new Date().toISOString().slice(0, 10);
-  const expensePayload = {
-    description: r.name + (r.note ? ` — ${r.note}` : ""),
-    category: r.category || "อื่นๆ",
-    amount: Number(r.amount),
-    expense_date: today,
-    payment_method: "cash",
-    note: `[Auto] รายจ่ายประจำ: ${r.name}`
-  };
-  try {
-    const res = await fetch(cfg.url + "/rest/v1/expenses", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "apikey": cfg.anonKey,
-        "Authorization": "Bearer " + accessToken,
-        "Prefer": "return=minimal"
-      },
-      body: JSON.stringify(expensePayload)
-    });
-    if (!res.ok) throw new Error("HTTP " + res.status);
+  const today = todayBkk(); // Phase 92.62: Bangkok TZ (เดิม UTC toISOString → off-by-1 ช่วงเที่ยงคืน)
+  const periodKey = r.next_due || today;          // งวดที่กำลังสร้าง (stable ต่อ due)
+  const tag = recurringExpenseTag(r.id, periodKey);
 
-    // อัพเดท recurring: last_generated + next_due
+  try {
+    // #3 idempotency: ถ้ามี expense ของ recurring+งวดนี้แล้ว → ข้าม insert (กัน duplicate / PATCH พลาดแล้วกดซ้ำ)
+    const exists = await _recurringExpenseExists(cfg, accessToken, tag);
+    let createdStatus = true;
+    if (!exists) {
+      const expensePayload = {
+        description: r.name + (r.note ? ` — ${r.note}` : ""),
+        category: r.category || "อื่นๆ",
+        amount: Number(r.amount),
+        expense_date: today,
+        payment_method: "cash",
+        note: `[Auto] รายจ่ายประจำ: ${r.name} ${tag}`
+      };
+      // #2: return=representation เพื่อเอา id ไป auto-post JV
+      const res = await fetch(cfg.url + "/rest/v1/expenses", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": cfg.anonKey,
+          "Authorization": "Bearer " + accessToken,
+          "Prefer": "return=representation"
+        },
+        body: JSON.stringify(expensePayload)
+      });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const rows = await res.json().catch(() => []);
+      const inserted = Array.isArray(rows) ? rows[0] : rows;
+      // #2: auto-post JV (fire-and-forget เหมือน expenses.js) → ค่าเช่า/น้ำไฟเข้าสมุดบัญชีคู่
+      if (inserted?.id) {
+        postJournalForExpense(inserted)
+          .catch(e => console.warn("[recurring] auto-post JV failed:", e?.message));
+      }
+    } else {
+      createdStatus = "exists"; // มีอยู่แล้ว — ไม่ insert ซ้ำ แต่ยัง advance next_due ด้านล่าง (recover)
+    }
+
+    // อัพเดท recurring: last_generated + next_due (ทำเสมอ — recover ถ้า expense มีแล้วแต่ next_due ค้าง)
     const nextDue = _calcNextDue(r, today);
     await fetch(cfg.url + "/rest/v1/recurring_expenses?id=eq." + r.id, {
       method: "PATCH",
@@ -366,7 +425,7 @@ async function _createExpenseFromRecurring(ctx, r) {
       body: JSON.stringify({ last_generated: today, next_due: nextDue, updated_at: new Date().toISOString() })
     });
     if (window.App?.loadAllData) await window.App.loadAllData();
-    return true;
+    return createdStatus;
   } catch (e) {
     console.error("[recurring expense]", e);
     return false;

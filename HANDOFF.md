@@ -3,13 +3,26 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 1 มิถุนายน 2026 (Phase 92.61 — Refund คืนซ้ำ/คืนเกิน fix, build 331)
-**Version:** 5.64.0 (build 331) — Phase 92.61 (refund over/double-refund cap — audit fix #1, client guard, no SQL)
-**Previous:** 5.64.0 (build 330) — Phase 92.60 (HR premium UI/UX)
-**Pre-prev:** 5.64.0 (build 329) — 92.59 period-close (Codex) · 328 = 92.58 POS audit (Codex) · 327 = 92.57 (Export PDF)
+**อัปเดตล่าสุด:** 1 มิถุนายน 2026 (Phase 92.62 — รายจ่ายประจำ JV+idempotency+TZ, build 332)
+**Version:** 5.64.0 (build 332) — Phase 92.62 (recurring expense audit fixes #2/#3/#6 — client, no SQL)
+**Previous:** 5.64.0 (build 331) — Phase 92.61 (refund cap #1 + 92.61b SQL guard applied)
+**Pre-prev:** 5.64.0 (build 330) — 92.60 HR UI · 329 = 92.59 period-close (Codex) · 328 = 92.58 POS (Codex)
 
-> 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.61** (client-side guard; server-side enforcement = SQL follow-up ที่ยังไม่ทำ)
-> 📌 **Finance audit roadmap (จาก audit รอบนี้):** #1 refund cap ✓ (นี้) → #2 recurring expense JV → #3 recurring idempotency → #4 VAT float drift → #5 profit_report XSS → #6 TZ (profit/recurring) → #7 PromptPay QR (verify usage) → #8 payroll JV error log · + verify period-lock DB trigger
+> 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.62** (client-side; ใช้ note tag เป็น idempotency key)
+> 📌 **Finance audit roadmap:** #1 refund cap ✓ (+SQL guard ✓) · #2 recurring JV ✓ · #3 recurring idempotency ✓ · #6 recurring TZ ✓ (นี้) → **เหลือ: #4 VAT float drift · #5 profit_report XSS · #6 (profit_report/profit_by_product TZ) · #7 PromptPay QR verify · #8 payroll JV error log · verify period-lock DB trigger**
+
+---
+
+## 🛠️ Phase 92.62 — Recurring Expense: JV + Idempotency + TZ (audit #2/#3/#6)
+
+**สิ่งที่ทำ (modules/recurring_expenses.js):**
+- **#2 JV:** `import postJournalForExpense` · `_createExpenseFromRecurring` เปลี่ยน insert เป็น `return=representation` → เรียก `postJournalForExpense(inserted)` (fire-and-forget เหมือน expenses.js) → รายจ่ายประจำเข้าสมุดบัญชีคู่
+- **#3 idempotency:** `recurringExpenseTag(id, periodKey)` (exported) = `#recur-{id}-{next_due||today}` ใส่ใน note · `_recurringExpenseExists()` pre-check (note ilike) ก่อน insert → ถ้ามีแล้ว skip insert แต่ยัง advance next_due (recover) · `_reGenBusy` in-flight guard กัน double-click race · generateOne/All คืน "exists" เพื่อ toast แยก
+- **#6 TZ:** `todayBkk()` แทน UTC `toISOString().slice(0,10)` ทุกจุด (expense_date/overdue filter/form default) · `_calcNextDue` (exported) เขียนใหม่เป็น **pure integer/UTC math** (split YYYY-MM-DD → คำนวณ) deterministic ไม่ขึ้น runtime TZ; monthly clamp วัน ≤28
+
+**Behavior preserved:** generate flow เดิม (ปุ่ม 💸 สร้าง / สร้างทั้งหมด) · ไม่แตะ schema · expenses ปกติ/payroll JV เดิมไม่กระทบ
+
+**Gate:** lint 0 · unit 852 (+9 `recurring_expenses.test.js`) · e2e build-sync 332 · build 331→332
 
 ---
 
