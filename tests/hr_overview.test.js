@@ -1157,11 +1157,32 @@ test("buildMonthlyHrReport — พนักงานไม่มี attendance �
   assert.equal(r.rows[0].department, "—");
 });
 
-test("source: HR Overview render เรียก _renderMonthlyHrReport + ปุ่ม export รายงาน", async () => {
+test("source: HR Overview render report section + date-range controls + rebind (Phase 92.54)", async () => {
   const fs = await import("node:fs");
   const path = await import("node:path");
   const src = fs.readFileSync(path.resolve("modules/hr_overview.js"), "utf8");
-  assert.match(src, /_renderMonthlyHrReport\(monthlyReport, monthTh\)/, "ต้อง render report section");
-  assert.match(src, /id="hrReportExportBtn"/, "ต้องมีปุ่ม export รายงาน");
-  assert.match(src, /getElementById\("hrReportExportBtn"\)/, "ต้อง bind export รายงาน");
+  // section container + render call ด้วย {from,to}
+  assert.match(src, /id="hrReportSection"/, "ต้องมี section container");
+  assert.match(src, /_renderMonthlyHrReport\(monthlyReport, \{ from: reportFrom, to: reportTo \}\)/, "ต้อง render ด้วย from/to");
+  // date-range inputs + ปุ่ม
+  assert.match(src, /id="hrReportFrom"/, "ต้องมี input จาก");
+  assert.match(src, /id="hrReportTo"/, "ต้องมี input ถึง");
+  assert.match(src, /id="hrReportSearchBtn"/, "ต้องมีปุ่มค้นหา");
+  assert.match(src, /id="hrReportExportBtn"/, "ต้องมีปุ่ม export");
+  // re-fetch + re-build + re-render + re-bind
+  assert.match(src, /_fetchReportRange\(reportFrom, reportTo\)/, "ต้อง re-fetch ตามช่วง");
+  assert.match(src, /function _renderReportSection/, "ต้องมี re-render section");
+  assert.match(src, /function _bindReport/, "ต้อง rebind events หลัง re-render");
+  // export filename = ช่วงวันที่
+  assert.match(src, /hr_report_\$\{reportFrom\}_\$\{reportTo\}\.xlsx/, "filename = ช่วงวันที่");
+});
+
+test("source: _fetchReportRange ดึง attendance+leaves ตามช่วง (graceful leaves)", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/hr_overview.js"), "utf8");
+  const fn = src.match(/async function _fetchReportRange[\s\S]*?\n}/)?.[0] || "";
+  assert.match(fn, /staff_attendance\?select=\*&work_date=gte\./, "fetch attendance ตามช่วง");
+  assert.match(fn, /staff_leaves\?select=\*&start_date=gte\./, "fetch leaves ตามช่วง");
+  assert.match(fn, /leaveRes\.ok \? await leaveRes\.json\(\) : \[\]/, "leaves graceful (ตารางไม่มีก็ไม่ crash)");
 });

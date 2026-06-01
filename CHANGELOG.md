@@ -7,6 +7,12 @@
 
 ---
 
+## 5.64.0 (build 324) — 2026-06-01 Phase 92.54 — HR report date-range picker + re-fetch
+
+- **feat(hr):** รายงาน HR เลือกช่วงวันที่เองได้ (date-range จาก/ถึง + ปุ่มค้นหา) — `_fetchReportRange(from,to)` ดึง staff_attendance + staff_leaves เฉพาะช่วง แล้ว rebuild + re-render เฉพาะ `#hrReportSection` (loading state + rebind) ไม่ re-fetch ทั้งหน้า
+- **feat(hr):** Export filename ตามช่วง `hr_report_<from>_<to>.xlsx` · validate จาก ≤ ถึง
+- **read-only:** profiles/departments ใช้ใน memory · staff_leaves graceful · ไม่แตะ SQL/RLS/payroll/accounting · **test:** +2 source-level · **pwa-cache:** bump 323→324
+
 ## 5.64.0 (build 323) — 2026-06-01 Phase 92.53 — Monthly HR report (รายงานรวมรายเดือน ต่อพนักงาน)
 
 - **feat(hr):** `buildMonthlyHrReport()` pure helper — สรุป 1 แถว/คน ในเดือน: วันทำงาน · ชม.ปกติ · OT · มาสาย(ครั้ง+นาที) · ออกก่อน · วันลา(อนุมัติ) + totals

@@ -998,6 +998,27 @@ async function _fetchUserAttendanceRange(userId, fromDate, toDate) {
   return r.json();
 }
 
+/**
+ * Phase 92.54: ดึง attendance + leaves ตามช่วงวันที่ (สำหรับ Monthly HR report date-range)
+ * read-only — profiles/departments ใช้ที่โหลดแล้วใน memory
+ * @param {string} fromDate - YYYY-MM-DD
+ * @param {string} toDate   - YYYY-MM-DD
+ * @returns {Promise<{attendance:Array, leaves:Array}>}
+ */
+async function _fetchReportRange(fromDate, toDate) {
+  const cfg = window.SUPABASE_CONFIG;
+  if (!cfg?.url) throw new Error("ไม่มี SUPABASE_CONFIG");
+  const headers = _sbHeaders();
+  const [attRes, leaveRes] = await Promise.all([
+    fetch(`${cfg.url}/rest/v1/staff_attendance?select=*&work_date=gte.${encodeURIComponent(fromDate)}&work_date=lte.${encodeURIComponent(toDate)}&order=clock_in_at.desc&limit=5000`, { headers }),
+    fetch(`${cfg.url}/rest/v1/staff_leaves?select=*&start_date=gte.${encodeURIComponent(fromDate)}&start_date=lte.${encodeURIComponent(toDate)}&order=start_date.desc&limit=2000`, { headers }),
+  ]);
+  if (!attRes.ok) throw new Error(`HTTP ${attRes.status}`);
+  const attendance = await attRes.json();
+  const leaves = leaveRes.ok ? await leaveRes.json() : []; // staff_leaves graceful (ตารางอาจไม่มี)
+  return { attendance, leaves };
+}
+
 // ═══════════════════════════════════════════════════════════
 //  UI helpers
 // ═══════════════════════════════════════════════════════════
@@ -1161,11 +1182,16 @@ function _hrDashTopLate(mp) {
 }
 
 // Phase 92.53: render รายงาน HR รายเดือน รวมต่อพนักงาน
-function _renderMonthlyHrReport(report, monthTh) {
+function _renderMonthlyHrReport(report, opts = {}) {
   const rows = report?.rows || [];
   const t = report?.totals || { employees: 0, daysWorked: 0, regularHours: 0, otHours: 0, lateCount: 0, earlyLeaveCount: 0, leaveDays: 0 };
-  const body = rows.length === 0
-    ? `<tr><td colspan="8" style="padding:20px;text-align:center;color:#94a3b8">ยังไม่มีข้อมูลในเดือนนี้</td></tr>`
+  const from = opts.from || "";
+  const to = opts.to || "";
+  const loading = !!opts.loading;
+  const body = loading
+    ? `<tr><td colspan="8" style="padding:24px;text-align:center;color:#64748b">⏳ กำลังโหลดรายงาน...</td></tr>`
+    : rows.length === 0
+    ? `<tr><td colspan="8" style="padding:20px;text-align:center;color:#94a3b8">ไม่มีข้อมูลในช่วงที่เลือก</td></tr>`
     : rows.map(r => `<tr style="border-bottom:1px solid #f1f5f9">
         <td style="padding:8px 12px">
           <div style="font-weight:700;color:#0f172a">${escHtml(r.name)}</div>
@@ -1180,9 +1206,16 @@ function _renderMonthlyHrReport(report, monthTh) {
       </tr>`).join("");
   return `
     <div style="background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:0;overflow:hidden">
-      <div style="padding:12px 14px;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
-        <div style="font-size:14px;font-weight:800;color:#0f172a">📋 รายงาน HR รายเดือน <span style="font-size:12px;color:#64748b;font-weight:400">(${escHtml(monthTh)})</span></div>
-        <button id="hrReportExportBtn" style="padding:7px 12px;border:1px solid #16a34a;border-radius:8px;background:#16a34a;color:#fff;font-size:12px;font-weight:700;cursor:pointer">📥 Export รายงาน</button>
+      <div style="padding:12px 14px;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <div style="font-size:14px;font-weight:800;color:#0f172a">📋 รายงาน HR ตามช่วงวันที่</div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <label style="font-size:11px;color:#64748b">จาก</label>
+          <input type="date" id="hrReportFrom" value="${escHtml(from)}" style="padding:5px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px" />
+          <label style="font-size:11px;color:#64748b">ถึง</label>
+          <input type="date" id="hrReportTo" value="${escHtml(to)}" style="padding:5px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px" />
+          <button id="hrReportSearchBtn" ${loading ? "disabled" : ""} style="padding:6px 12px;border:1px solid #0284c7;border-radius:6px;background:#0284c7;color:#fff;font-size:12px;font-weight:700;cursor:pointer">🔍 ค้นหา</button>
+          <button id="hrReportExportBtn" ${loading || rows.length === 0 ? "disabled" : ""} style="padding:6px 12px;border:1px solid #16a34a;border-radius:6px;background:${loading || rows.length === 0 ? '#94a3b8' : '#16a34a'};color:#fff;font-size:12px;font-weight:700;cursor:pointer">📥 Export</button>
+        </div>
       </div>
       <div style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:640px">
@@ -1752,7 +1785,7 @@ export async function renderHrOverviewPage(ctx) {
   // Phase 92.53: รายงาน HR รายเดือน รวมต่อพนักงาน (เดือนปัจจุบัน)
   const deptNameById = new Map();
   for (const d of data.departments) deptNameById.set(String(d.id), d.name || "—");
-  const monthlyReport = buildMonthlyHrReport({
+  let monthlyReport = buildMonthlyHrReport({
     profiles: data.profiles,
     attendanceMonth: data.attendanceMonth,
     leaves: data.leaves,
@@ -1760,6 +1793,10 @@ export async function renderHrOverviewPage(ctx) {
     attendanceRules: punctRules,
     deptNameById,
   });
+  // Phase 92.54: date-range state — default = เดือนปัจจุบัน (1st .. สิ้นเดือน) ตรงกับ data ที่โหลดมาแล้ว
+  let reportFrom = `${monthKey}-01`;
+  let reportTo = new Date(new Date(_monthBounds(monthKey).endExclusive + "T00:00:00+07:00").getTime() - 86400000)
+    .toLocaleDateString("en-CA", { timeZone: TZ });
 
   const rows = data.profiles.map(p => {
     const att = attIdx.get(p.id) || null;
@@ -1970,7 +2007,7 @@ export async function renderHrOverviewPage(ctx) {
       </div>
 
       <!-- Phase 92.53: รายงาน HR รายเดือน รวมต่อพนักงาน -->
-      ${_renderMonthlyHrReport(monthlyReport, monthTh)}
+      <div id="hrReportSection">${_renderMonthlyHrReport(monthlyReport, { from: reportFrom, to: reportTo })}</div>
 
       <!-- Quick actions (Phase 92.29: reordered + concise labels) -->
       <div style="background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:14px 16px">
@@ -2112,30 +2149,59 @@ export async function renderHrOverviewPage(ctx) {
     }
   });
 
-  // Phase 92.53: Export รายงาน HR รายเดือน รวมต่อพนักงาน
-  document.getElementById("hrReportExportBtn")?.addEventListener("click", async () => {
-    try {
-      const utilsMod = await import("./utils.js");
-      const exportRows = (monthlyReport?.rows || []).map(r => ({
-        "พนักงาน": r.name,
-        "แผนก": r.department,
-        "Role": roleChipMeta(r.role).label,
-        "วันทำงาน": r.daysWorked,
-        "ชม. ปกติ": r.regularHours,
-        "OT (ชม.)": r.otHours,
-        "มาสาย (ครั้ง)": r.lateCount,
-        "นาทีสายรวม": r.lateMinutes,
-        "ออกก่อน (ครั้ง)": r.earlyLeaveCount,
-        "นาทีออกก่อนรวม": r.earlyLeaveMinutes,
-        "ลา (วัน)": r.leaveDays,
-      }));
-      const filename = `hr_report_${monthKey}.xlsx`;
-      const ok = utilsMod.exportToExcel(filename, exportRows, "HR Report");
-      if (ok) showToast?.("📥 Export รายงานสำเร็จ"); else showToast?.("ไม่สามารถ Export ได้ (XLSX ยังไม่โหลด)");
-    } catch (e) {
-      showToast?.("Export ผิดพลาด: " + (e?.message || e));
-    }
-  });
+  // Phase 92.53/92.54: รายงาน HR ตามช่วงวันที่ — re-render section + re-bind ทุกครั้ง
+  const reportSectionEl = document.getElementById("hrReportSection");
+  function _renderReportSection(loading) {
+    if (!reportSectionEl) return;
+    reportSectionEl.innerHTML = _renderMonthlyHrReport(monthlyReport, { from: reportFrom, to: reportTo, loading });
+    _bindReport();
+  }
+  function _bindReport() {
+    document.getElementById("hrReportSearchBtn")?.addEventListener("click", async () => {
+      const f = document.getElementById("hrReportFrom")?.value || reportFrom;
+      const to = document.getElementById("hrReportTo")?.value || reportTo;
+      if (!f || !to) { showToast?.("กรุณาเลือกช่วงวันที่"); return; }
+      if (f > to) { showToast?.("⚠️ วันเริ่มต้องไม่เกินวันสิ้นสุด"); return; }
+      reportFrom = f; reportTo = to;
+      _renderReportSection(true); // loading state
+      try {
+        const { attendance, leaves } = await _fetchReportRange(reportFrom, reportTo);
+        monthlyReport = buildMonthlyHrReport({
+          profiles: data.profiles, attendanceMonth: attendance, leaves,
+          shiftOpts, attendanceRules: punctRules, deptNameById,
+        });
+      } catch (e) {
+        showToast?.("โหลดรายงานไม่สำเร็จ: " + (e?.message || e));
+      }
+      _renderReportSection(false);
+    });
+
+    document.getElementById("hrReportExportBtn")?.addEventListener("click", async () => {
+      if ((monthlyReport?.rows || []).length === 0) return;
+      try {
+        const utilsMod = await import("./utils.js");
+        const exportRows = monthlyReport.rows.map(r => ({
+          "พนักงาน": r.name,
+          "แผนก": r.department,
+          "Role": roleChipMeta(r.role).label,
+          "วันทำงาน": r.daysWorked,
+          "ชม. ปกติ": r.regularHours,
+          "OT (ชม.)": r.otHours,
+          "มาสาย (ครั้ง)": r.lateCount,
+          "นาทีสายรวม": r.lateMinutes,
+          "ออกก่อน (ครั้ง)": r.earlyLeaveCount,
+          "นาทีออกก่อนรวม": r.earlyLeaveMinutes,
+          "ลา (วัน)": r.leaveDays,
+        }));
+        const filename = `hr_report_${reportFrom}_${reportTo}.xlsx`;
+        const ok = utilsMod.exportToExcel(filename, exportRows, "HR Report");
+        if (ok) showToast?.("📥 Export รายงานสำเร็จ"); else showToast?.("ไม่สามารถ Export ได้ (XLSX ยังไม่โหลด)");
+      } catch (e) {
+        showToast?.("Export ผิดพลาด: " + (e?.message || e));
+      }
+    });
+  }
+  _bindReport(); // initial bind
 
   // ═══════════════════════════════════════════════════════════
   //  Phase 92.30: Employee drill-down modal — open/close/tabs/lazy fetch

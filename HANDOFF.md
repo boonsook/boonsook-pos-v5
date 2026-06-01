@@ -3,16 +3,32 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 1 มิถุนายน 2026 (Phase 92.53 — Monthly HR report, build 323)
-**Version:** 5.64.0 (build 323) — Phase 92.53 (รายงาน HR รายเดือน รวมต่อพนักงาน — client-only, no SQL)
-**Previous:** 5.64.0 (build 322) — Phase 92.52 (punctuality report/chip/dashboard/audit)
-**Pre-prev:** 5.64.0 (build 321) — Phase 92.51 (Period Close Checklist — Codex) · build 320 = 92.50 (HR dashboard)
+**อัปเดตล่าสุด:** 1 มิถุนายน 2026 (Phase 92.54 — HR report date-range picker, build 324)
+**Version:** 5.64.0 (build 324) — Phase 92.54 (รายงาน HR เลือกช่วงวันที่ + re-fetch — client-only, no SQL)
+**Previous:** 5.64.0 (build 323) — Phase 92.53 (Monthly HR report รวมต่อพนักงาน)
+**Pre-prev:** 5.64.0 (build 322) — Phase 92.52 (punctuality follow-ups) · build 321 = 92.51 (Period Close, Codex)
 
-> 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.53** (client-side read-only — reuse ข้อมูลที่ HR Overview โหลดอยู่แล้ว)
+> 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.54** (client-side read-only — fetch เฉพาะช่วงที่เลือก ไม่ refetch ทั้งหน้า)
 
 ---
 
-## 🛠️ Phase 92.53 — Monthly HR Report (this session)
+## 🛠️ Phase 92.54 — HR Report Date-Range Picker + Re-fetch (this session)
+
+**เป้าหมาย:** ต่อยอด 92.53 ให้ผู้ใช้เลือกช่วงวันที่เองได้ (ไม่จำกัดเดือนปัจจุบัน)
+
+**สิ่งที่ทำ:**
+- `modules/hr_overview.js`:
+  - `_fetchReportRange(from, to)` — ดึง `staff_attendance` (work_date gte/lte) + `staff_leaves` (start_date gte/lte) เฉพาะช่วง (staff_leaves graceful)
+  - `_renderMonthlyHrReport(report, {from, to, loading})` — เพิ่ม date inputs (`hrReportFrom`/`hrReportTo`) + ปุ่มค้นหา (`hrReportSearchBtn`) + loading state; export ปุ่ม disabled ตอน loading/ว่าง
+  - closure ใน `renderHrOverviewPage`: `reportFrom`/`reportTo` (default = เดือนปัจจุบัน 1st..สิ้นเดือน, ใช้ data ที่โหลดแล้ว), `_renderReportSection(loading)` + `_bindReport()` → ค้นหา = fetch ช่วง → rebuild `buildMonthlyHrReport` → re-render เฉพาะ `#hrReportSection` + rebind
+  - Export filename = `hr_report_<from>_<to>.xlsx`; validate from ≤ to
+- **ไม่ refetch ทั้งหน้า** — profiles/departments ใช้ใน memory (data.profiles, deptNameById)
+
+**Gate:** lint 0 · unit 827 · e2e build-sync 324 · build 323→324
+
+---
+
+## 🛠️ Phase 92.53 — Monthly HR Report (prev session)
 
 **เป้าหมาย:** รายงาน HR รายเดือน รวมต่อพนักงาน (user เลือก option A) — ตารางสรุป 1 แถว/คน + Excel export
 
