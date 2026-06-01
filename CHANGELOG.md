@@ -7,6 +7,12 @@
 
 ---
 
+## 5.64.0 (build 326) — 2026-06-01 Phase 92.56 — รายงานระดับแผนก
+
+- **feat(hr):** `buildDepartmentReport()` pure helper — รวม per-employee report ตามแผนก (จำนวนคน/วันทำงาน/ชม.ปกติ/OT/มาสาย/ออกก่อน/ลา) + totals
+- **feat(hr):** ตาราง "🏢 สรุปตามแผนก" ใต้ตาราง per-employee ในรายงาน HR — ใช้ข้อมูลช่วงเดียวกัน (อัปเดตตาม date-range อัตโนมัติ) + ปุ่ม Export แผนก (`hr_dept_report_<from>_<to>.xlsx`)
+- **read-only:** aggregate จาก rows เดิม ไม่ fetch เพิ่ม · ไม่แตะ SQL/RLS/payroll/accounting · **test:** +3 `hr_overview.test.js` · **pwa-cache:** bump 325→326
+
 ## 5.64.0 (build 325) — 2026-06-01 Phase 92.55 — Timesheet รายคน
 
 - **feat(hr):** `buildEmployeeTimesheet()` pure helper — daily grid ของพนักงาน 1 คน: 1 แถว/วัน (เข้าเร็วสุด/ออกช้าสุด/ชม.ปกติ+OT รวมทุก session/สถานะตรงเวลา/notes) + totals (วันทำงาน/ปกติ/OT/สาย/ออกก่อน)

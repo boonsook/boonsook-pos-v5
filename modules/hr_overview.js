@@ -425,6 +425,44 @@ export function buildEmployeeTimesheet(input = {}) {
 }
 
 /**
+ * Phase 92.56: รายงานระดับแผนก — aggregate per-employee report rows ตามแผนก (read-only, pure)
+ * รับ rows จาก buildMonthlyHrReport (มี field department/daysWorked/regularHours/otHours/lateCount/earlyLeaveCount/leaveDays)
+ * @param {Array} rows
+ * @returns {{rows:Array, totals:object}}
+ */
+export function buildDepartmentReport(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+  const byDept = new Map();
+  for (const r of list) {
+    const key = r?.department || "—";
+    if (!byDept.has(key)) byDept.set(key, { department: key, headcount: 0, daysWorked: 0, regularHours: 0, otHours: 0, lateCount: 0, earlyLeaveCount: 0, leaveDays: 0 });
+    const d = byDept.get(key);
+    d.headcount += 1;
+    d.daysWorked += Number(r?.daysWorked || 0);
+    d.regularHours += Number(r?.regularHours || 0);
+    d.otHours += Number(r?.otHours || 0);
+    d.lateCount += Number(r?.lateCount || 0);
+    d.earlyLeaveCount += Number(r?.earlyLeaveCount || 0);
+    d.leaveDays += Number(r?.leaveDays || 0);
+  }
+  const deptRows = Array.from(byDept.values())
+    .map(d => ({ ...d, regularHours: round2(d.regularHours), otHours: round2(d.otHours), leaveDays: round2(d.leaveDays) }))
+    .sort((a, b) => b.headcount - a.headcount || a.department.localeCompare(b.department, "th"));
+  const totals = deptRows.reduce((acc, d) => ({
+    departments: acc.departments + 1,
+    headcount: acc.headcount + d.headcount,
+    daysWorked: acc.daysWorked + d.daysWorked,
+    regularHours: round2(acc.regularHours + d.regularHours),
+    otHours: round2(acc.otHours + d.otHours),
+    lateCount: acc.lateCount + d.lateCount,
+    earlyLeaveCount: acc.earlyLeaveCount + d.earlyLeaveCount,
+    leaveDays: round2(acc.leaveDays + d.leaveDays),
+  }), { departments: 0, headcount: 0, daysWorked: 0, regularHours: 0, otHours: 0, lateCount: 0, earlyLeaveCount: 0, leaveDays: 0 });
+  return { rows: deptRows, totals };
+}
+
+/**
  * ตรวจหา exceptions ที่ admin ต้องจัดการ — สำหรับ section "สิ่งที่ต้องจัดการวันนี้"
  */
 export function detectExceptions(input = {}) {
@@ -1255,6 +1293,39 @@ function _renderMonthlyHrReport(report, opts = {}) {
   const from = opts.from || "";
   const to = opts.to || "";
   const loading = !!opts.loading;
+  // Phase 92.56: department-level aggregate (จาก rows เดียวกัน)
+  const dept = buildDepartmentReport(rows);
+  const deptTable = (loading || rows.length === 0) ? "" : `
+      <div style="padding:12px 14px;border-top:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <div style="font-size:13px;font-weight:800;color:#0f172a">🏢 สรุปตามแผนก</div>
+        <button id="hrDeptReportExportBtn" style="padding:6px 12px;border:1px solid #7c3aed;border-radius:6px;background:#7c3aed;color:#fff;font-size:12px;font-weight:700;cursor:pointer">📥 Export แผนก</button>
+      </div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:600px">
+          <thead style="background:#faf5ff">
+            <tr>
+              <th style="padding:9px 12px;text-align:left;font-weight:700;color:#475569">แผนก</th>
+              <th style="padding:9px 12px;text-align:right;font-weight:700;color:#475569">คน</th>
+              <th style="padding:9px 12px;text-align:right;font-weight:700;color:#475569">วันทำงาน</th>
+              <th style="padding:9px 12px;text-align:right;font-weight:700;color:#475569">ปกติ (ชม.)</th>
+              <th style="padding:9px 12px;text-align:right;font-weight:700;color:#475569">OT (ชม.)</th>
+              <th style="padding:9px 12px;text-align:right;font-weight:700;color:#475569">มาสาย</th>
+              <th style="padding:9px 12px;text-align:right;font-weight:700;color:#475569">ลา (วัน)</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${dept.rows.map(d => `<tr style="border-bottom:1px solid #f1f5f9">
+              <td style="padding:8px 12px;font-weight:700;color:#0f172a">${escHtml(d.department)}</td>
+              <td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums">${NUM_TH(d.headcount)}</td>
+              <td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums">${NUM_TH(d.daysWorked)}</td>
+              <td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums">${HOURS(d.regularHours)}</td>
+              <td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums;${d.otHours > 0 ? 'color:#ea580c;font-weight:700' : 'color:#cbd5e1'}">${HOURS(d.otHours)}</td>
+              <td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums;${d.lateCount > 0 ? 'color:#92400e;font-weight:700' : 'color:#cbd5e1'}">${NUM_TH(d.lateCount)}</td>
+              <td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums">${d.leaveDays > 0 ? NUM_TH(d.leaveDays) : "—"}</td>
+            </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>`;
   const body = loading
     ? `<tr><td colspan="8" style="padding:24px;text-align:center;color:#64748b">⏳ กำลังโหลดรายงาน...</td></tr>`
     : rows.length === 0
@@ -1309,6 +1380,7 @@ function _renderMonthlyHrReport(report, opts = {}) {
           </tr></tfoot>` : ""}
         </table>
       </div>
+      ${deptTable}
     </div>`;
 }
 
@@ -2317,6 +2389,30 @@ export async function renderHrOverviewPage(ctx) {
         const filename = `hr_report_${reportFrom}_${reportTo}.xlsx`;
         const ok = utilsMod.exportToExcel(filename, exportRows, "HR Report");
         if (ok) showToast?.("📥 Export รายงานสำเร็จ"); else showToast?.("ไม่สามารถ Export ได้ (XLSX ยังไม่โหลด)");
+      } catch (e) {
+        showToast?.("Export ผิดพลาด: " + (e?.message || e));
+      }
+    });
+
+    // Phase 92.56: export รายงานระดับแผนก (จากข้อมูลช่วงเดียวกัน)
+    document.getElementById("hrDeptReportExportBtn")?.addEventListener("click", async () => {
+      if ((monthlyReport?.rows || []).length === 0) return;
+      try {
+        const utilsMod = await import("./utils.js");
+        const dept = buildDepartmentReport(monthlyReport.rows);
+        const exportRows = dept.rows.map(d => ({
+          "แผนก": d.department,
+          "จำนวนคน": d.headcount,
+          "รวมวันทำงาน": d.daysWorked,
+          "ชม. ปกติ": d.regularHours,
+          "OT (ชม.)": d.otHours,
+          "มาสาย (ครั้ง)": d.lateCount,
+          "ออกก่อน (ครั้ง)": d.earlyLeaveCount,
+          "ลา (วัน)": d.leaveDays,
+        }));
+        const filename = `hr_dept_report_${reportFrom}_${reportTo}.xlsx`;
+        const ok = utilsMod.exportToExcel(filename, exportRows, "HR Dept Report");
+        if (ok) showToast?.("📥 Export รายงานแผนกสำเร็จ"); else showToast?.("ไม่สามารถ Export ได้ (XLSX ยังไม่โหลด)");
       } catch (e) {
         showToast?.("Export ผิดพลาด: " + (e?.message || e));
       }

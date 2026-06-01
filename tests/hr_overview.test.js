@@ -32,6 +32,8 @@ const {
   buildMonthlyHrReport,
   // Phase 92.55
   buildEmployeeTimesheet,
+  // Phase 92.56
+  buildDepartmentReport,
   // Phase 92.41
   kpiClickRouteFor,
 } = await import("../modules/hr_overview.js");
@@ -1252,4 +1254,50 @@ test("source: Timesheet tab wired ใน employee modal (Phase 92.55)", async ()
   assert.match(src, /case "timesheet":\s*return _renderTabTimesheet/, "_renderModalBody ต้อง route timesheet");
   assert.match(src, /timesheetCache/, "ต้องมี lazy cache");
   assert.match(src, /activeTab === "timesheet"/, "ต้องมี lazy fetch branch");
+});
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 92.56 — buildDepartmentReport (รายงานระดับแผนก)
+// ═══════════════════════════════════════════════════════════
+
+test("buildDepartmentReport — aggregate ตามแผนก + totals + sort ตาม headcount", () => {
+  const rows = [
+    { department: "ขาย", daysWorked: 20, regularHours: 160, otHours: 5,  lateCount: 2, earlyLeaveCount: 1, leaveDays: 1 },
+    { department: "ขาย", daysWorked: 18, regularHours: 144, otHours: 0,  lateCount: 0, earlyLeaveCount: 0, leaveDays: 2 },
+    { department: "ช่าง", daysWorked: 22, regularHours: 176, otHours: 10, lateCount: 1, earlyLeaveCount: 0, leaveDays: 0 },
+  ];
+  const rep = buildDepartmentReport(rows);
+  assert.equal(rep.rows.length, 2);
+  assert.equal(rep.rows[0].department, "ขาย");      // 2 คน → อันดับ 1
+  assert.equal(rep.rows[0].headcount, 2);
+  assert.equal(rep.rows[0].daysWorked, 38);
+  assert.equal(rep.rows[0].regularHours, 304);
+  assert.equal(rep.rows[0].otHours, 5);
+  assert.equal(rep.rows[0].lateCount, 2);
+  assert.equal(rep.rows[0].leaveDays, 3);
+  assert.equal(rep.rows[1].department, "ช่าง");
+  assert.equal(rep.rows[1].headcount, 1);
+  // totals
+  assert.equal(rep.totals.departments, 2);
+  assert.equal(rep.totals.headcount, 3);
+  assert.equal(rep.totals.otHours, 15);
+  assert.equal(rep.totals.leaveDays, 3);
+});
+
+test("buildDepartmentReport — ไม่มีแผนก → bucket '—'; input ว่าง → rows ว่าง", () => {
+  const rep = buildDepartmentReport([{ department: "—", daysWorked: 5, regularHours: 40, otHours: 0, lateCount: 0, earlyLeaveCount: 0, leaveDays: 0 }]);
+  assert.equal(rep.rows[0].department, "—");
+  assert.equal(rep.rows[0].headcount, 1);
+  assert.deepEqual(buildDepartmentReport([]).rows, []);
+  assert.equal(buildDepartmentReport(null).totals.headcount, 0);
+});
+
+test("source: department report table + export wired (Phase 92.56)", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/hr_overview.js"), "utf8");
+  assert.match(src, /function buildDepartmentReport/, "ต้องมี helper");
+  assert.match(src, /สรุปตามแผนก/, "ต้อง render dept table");
+  assert.match(src, /id="hrDeptReportExportBtn"/, "ต้องมีปุ่ม export แผนก");
+  assert.match(src, /getElementById\("hrDeptReportExportBtn"\)/, "ต้อง bind export แผนก");
 });

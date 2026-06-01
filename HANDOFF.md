@@ -3,13 +3,26 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 1 มิถุนายน 2026 (Phase 92.55 — Timesheet รายคน, build 325)
-**Version:** 5.64.0 (build 325) — Phase 92.55 (Timesheet รายคน ใน employee modal — client-only, no SQL)
-**Previous:** 5.64.0 (build 324) — Phase 92.54 (HR report date-range picker)
-**Pre-prev:** 5.64.0 (build 323) — Phase 92.53 (Monthly HR report) · 322 = 92.52 · 321 = 92.51 Period Close (Codex)
+**อัปเดตล่าสุด:** 1 มิถุนายน 2026 (Phase 92.56 — รายงานระดับแผนก, build 326)
+**Version:** 5.64.0 (build 326) — Phase 92.56 (รายงานระดับแผนก ในรายงาน HR — client-only, no SQL)
+**Previous:** 5.64.0 (build 325) — Phase 92.55 (Timesheet รายคน)
+**Pre-prev:** 5.64.0 (build 324) — Phase 92.54 (HR report date-range) · 323 = 92.53 · 322 = 92.52 · 321 = 92.51 (Codex)
 
-> 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.55** (client-side read-only — lazy fetch attendance รายเดือนต่อคน)
-> 📌 **Roadmap HR:** 92.55 Timesheet (นี้) → 92.56 รายงานระดับแผนก → 92.57 Export PDF/พิมพ์ · period-close-readiness branch (cef6b98) จะ renumber ≥92.58
+> 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.56** (client-side read-only — aggregate rows เดิม ไม่ fetch เพิ่ม)
+> 📌 **Roadmap HR:** 92.55 Timesheet ✓ → 92.56 รายงานระดับแผนก ✓ (นี้) → **92.57 Export PDF/พิมพ์ (ถัดไป)** · period-close-readiness branch (cef6b98) จะ renumber ≥92.58
+
+---
+
+## 🛠️ Phase 92.56 — รายงานระดับแผนก (this session)
+
+**สิ่งที่ทำ:**
+- `modules/hr_overview.js`:
+  - `buildDepartmentReport(rows)` (exported, pure) → group per-employee report rows (จาก `buildMonthlyHrReport`) ตาม `department` → `{rows:[{department, headcount, daysWorked, regularHours, otHours, lateCount, earlyLeaveCount, leaveDays}], totals}` · sort headcount desc · bucket "—" สำหรับไม่ระบุแผนก
+  - render ตาราง "🏢 สรุปตามแผนก" ใน `_renderMonthlyHrReport` (ใต้ตาราง per-employee, ใช้ `report.rows` เดียวกัน → อัปเดตตาม date-range อัตโนมัติ) + ปุ่ม `hrDeptReportExportBtn` → `hr_dept_report_<from>_<to>.xlsx` (bind ใน `_bindReport`)
+
+**Behavior preserved:** ไม่ fetch เพิ่ม (aggregate client-side) · per-employee report/date-range/timesheet เดิมไม่เปลี่ยน
+
+**Gate:** lint 0 · unit 834 (+3) · e2e build-sync 326 · build 325→326
 
 ---
 
