@@ -26,12 +26,14 @@ Purpose: this is the common first-read note for Codex, Claude, or any next agent
 
 ## Current Truth As Of 2026-06-01
 
+**FINANCE AUDIT CLOSED at build 334.** All 9 findings resolved (refund over-refund guard client+DB, recurring-expense JV + idempotency, VAT split Dr=Cr rounding, profit_report XSS, recurring + profit TZ, payroll failed-side-effect audit logging, PromptPay dead-code removed) and the period-lock DB trigger is verified present: table `journal_entries` → trigger `trg_check_period_locked` → function `check_period_not_locked` (confirmed via DB query by gangboo, 2026-06-01) — posting into a locked period is blocked at the DB.
+
 Phase 92.64 balances the sale VAT journal split (build 334).
 
 - Finance audit #4: the sale VAT-split JE used `subtotal_before_vat` + `vat_amount` rounded independently, so Dr (total) could differ from Cr (subtotal+vat) — a >0.01 drift made `_postJournal` silently reject the JE (lost revenue), ≤0.01 accumulated trial-balance error.
 - Fix (modules/accounting/auto_post.js): new pure `splitSaleVatLines(total, vatAmount)` anchors on `total`, sets `vat=round2(vatAmount)`, derives `subtotal=round2(total-vat)` → Dr===Cr within a satang every time. Only the VAT-split block in `postJournalForSale` changed; non-VAT/refund/expense/payroll JEs (2-line Dr=Cr) untouched. +7 tests.
 - Also done this session (no build bump): e2e smoke now allowlists transient esm.sh 503; dead module `payment_gateway.js` removed.
-- Finance-audit REMAINING: only "verify the period-lock DB trigger actually exists in Supabase" is left (#7 PromptPay was dead code, now removed).
+- Finance-audit REMAINING: none — closed at build 334 (period-lock trigger verified; #7 PromptPay dead code removed).
 
 Phase 92.63 finance-audit quick wins are implemented and deployed (build 333).
 

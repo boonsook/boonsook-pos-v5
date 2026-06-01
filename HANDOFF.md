@@ -9,7 +9,8 @@
 **Pre-prev:** 5.64.0 (build 332) — 92.62 recurring · 331 = 92.61 refund (+SQL ✓) · 330 = 92.60 · e2e/dead-code: smoke esm.sh allowlist + ลบ payment_gateway.js (no build bump)
 
 > 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.64** (client helper เท่านั้น)
-> 📌 **Finance audit roadmap:** #1✓✓ #2✓ #3✓ #5✓ #6✓ #6b✓ #8✓ · **#4 VAT split ✓** (นี้) · #7 PromptPay = dead code (ลบ payment_gateway.js แล้ว) → **เหลือ: verify period-lock DB trigger มีจริงใน Supabase** (รายการสุดท้าย)
+> 🏁 **FINANCE AUDIT CLOSED ที่ build 334** — ครบทุกข้อ: #1✓✓ #2✓ #3✓ #4✓ #5✓ #6✓ #6b✓ #7✓(dead code ลบแล้ว) #8✓ #9✓
+> ✅ **#9 period-lock DB trigger VERIFIED** (gangboo query DB, 2026-06-01): `journal_entries` → trigger `trg_check_period_locked` → function `check_period_not_locked` → insert เข้า period ที่ locked ถูกกันที่ DB จริง (เส้นแบ่งความปลอดภัยตาม CLAUDE.md 4.3)
 
 ---
 

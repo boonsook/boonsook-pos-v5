@@ -7,6 +7,10 @@
 
 ---
 
+## 🏁 Finance Audit — CLOSED ที่ build 334 (2026-06-01)
+
+ปิดครบ 9 ข้อ: refund over-refund (client+DB trigger), recurring expense JV + idempotency, VAT split Dr=Cr, profit_report XSS, recurring/profit TZ, payroll fail→audit log, PromptPay dead-code removed, **period-lock DB trigger verified** (`journal_entries` → `trg_check_period_locked` → `check_period_not_locked`). ไม่มี item ค้าง
+
 ## 5.64.0 (build 334) — 2026-06-01 Phase 92.64 — Balance sale VAT journal split (audit #4)
 
 - **fix(accounting):** VAT split ของ sale JV เดิมใช้ `subtotal_before_vat` + `vat_amount` ที่ปัดเศษแยกกัน → Dr≠Cr (drift >0.01 = JV ถูก reject เงียบ revenue หาย, ≤0.01 = Trial Balance เพี้ยนสะสม)
