@@ -27,6 +27,7 @@ const {
   isDefaultHrFilters,
   filterSummaryLabel,
   buildHrExportFilename,
+  buildHrDashboardMetrics,
   // Phase 92.41
   kpiClickRouteFor,
 } = await import("../modules/hr_overview.js");
@@ -883,4 +884,134 @@ test("source: row click delegation ยังกัน button targets (skip data-
   // row click handler ใช้ closest("[data-hr-action]") + closest("button") เป็น early-return
   assert.match(src, /ev\.target\.closest\(["']\[data-hr-action\]["']\)/, "row click ต้อง skip data-hr-action target");
   assert.match(src, /ev\.target\.closest\(["']button["']\)/, "row click ต้อง skip button target");
+});
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 92.49 — detectExceptions late / early-leave counting
+// ═══════════════════════════════════════════════════════════
+
+const _SHIFT = { startHour: 8, endHour: 17 };
+const _RULES = { lateGraceMinutes: 15, earlyLeaveGraceMinutes: 15 };
+
+function _att(userId, inHM, outHM) {
+  const d = "2026-06-01";
+  const mk = (hm) => hm == null ? null : `${d}T${hm}:00+07:00`;
+  return { id: userId, user_id: userId, work_date: d, clock_in_at: mk(inHM), clock_out_at: mk(outHM) };
+}
+
+test("detectExceptions — ไม่ส่ง shiftOpts/rules → ไม่มี late/early (preserve behavior เดิม)", () => {
+  const ex = detectExceptions({
+    attendanceToday: [_att("u1", "08:40", "16:00")],
+  });
+  assert.equal(ex.some(e => e.kind === "late_arrivals"), false);
+  assert.equal(ex.some(e => e.kind === "early_leaves"), false);
+});
+
+test("detectExceptions — นับ late ถูก (08:40 = สาย, 08:10 = ภายใน grace)", () => {
+  const ex = detectExceptions({
+    attendanceToday: [
+      _att("u1", "08:40", "17:00"), // late
+      _att("u2", "08:10", "17:00"), // on time (within grace)
+      _att("u3", "08:00", "17:00"), // on time
+    ],
+    shiftOpts: _SHIFT,
+    attendanceRules: _RULES,
+  });
+  const late = ex.find(e => e.kind === "late_arrivals");
+  assert.ok(late, "ต้องมี late_arrivals");
+  assert.match(late.message, /1 คน/);
+});
+
+test("detectExceptions — นับ early_leave ถูก (ออก 16:00 = ก่อนเวลา)", () => {
+  const ex = detectExceptions({
+    attendanceToday: [
+      _att("u1", "08:00", "16:00"), // early leave
+      _att("u2", "08:00", "16:50"), // within grace → ok
+    ],
+    shiftOpts: _SHIFT,
+    attendanceRules: _RULES,
+  });
+  const early = ex.find(e => e.kind === "early_leaves");
+  assert.ok(early, "ต้องมี early_leaves");
+  assert.match(early.message, /1 คน/);
+});
+
+test("detectExceptions — late_and_early_leave นับทั้ง late และ early (คนเดียวกัน)", () => {
+  const ex = detectExceptions({
+    attendanceToday: [_att("u1", "08:40", "16:00")],
+    shiftOpts: _SHIFT,
+    attendanceRules: _RULES,
+  });
+  const late  = ex.find(e => e.kind === "late_arrivals");
+  const early = ex.find(e => e.kind === "early_leaves");
+  assert.match(late.message,  /1 คน/);
+  assert.match(early.message, /1 คน/);
+});
+
+test("detectExceptions — missing clock_out ไม่นับ early_leave", () => {
+  const ex = detectExceptions({
+    attendanceToday: [_att("u1", "08:40", null)], // late, ยังไม่ออก
+    shiftOpts: _SHIFT,
+    attendanceRules: _RULES,
+  });
+  assert.ok(ex.find(e => e.kind === "late_arrivals"), "late ยังนับได้");
+  assert.equal(ex.some(e => e.kind === "early_leaves"), false);
+});
+
+test("detectExceptions — ทุกคนตรงเวลา → ไม่มี late/early exception", () => {
+  const ex = detectExceptions({
+    attendanceToday: [_att("u1", "08:00", "17:00"), _att("u2", "08:05", "17:00")],
+    shiftOpts: _SHIFT,
+    attendanceRules: _RULES,
+  });
+  assert.equal(ex.some(e => e.kind === "late_arrivals"), false);
+  assert.equal(ex.some(e => e.kind === "early_leaves"), false);
+});
+
+test("alertActionFor — late_arrivals / early_leaves → route time_clock", () => {
+  assert.equal(alertActionFor("late_arrivals").route, "time_clock");
+  assert.equal(alertActionFor("early_leaves").route, "time_clock");
+});
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 92.50 — executive HR dashboard metrics
+// ═══════════════════════════════════════════════════════════
+
+test("buildHrDashboardMetrics — รวม KPI / แผนก / role / punctuality จากข้อมูลจริง", () => {
+  const metrics = buildHrDashboardMetrics({
+    today: "2026-06-15",
+    monthKey: "2026-06",
+    departments: [{ id: 1, name: "ขาย" }, { id: 2, name: "ช่าง" }],
+    profiles: [
+      { id: "u1", full_name: "A", role: "sales", department_id: 1, hire_date: "2026-06-03", employment_type: "permanent" },
+      { id: "u2", full_name: "B", role: "technician", department_id: 2, employment_type: "temporary" },
+      { id: "u3", full_name: "C", role: "sales", department_id: 1, status: "resigned" },
+    ],
+    rows: [
+      { profile: { id: "u1" }, status: "working", punc: { status: "late", lateMinutes: 25 } },
+      { profile: { id: "u2" }, status: "out", punc: { status: "early_leave", earlyLeaveMinutes: 30 } },
+    ],
+    attendanceMonth: [
+      { user_id: "u1", work_date: "2026-06-14", clock_in_at: "2026-06-14T08:00:00+07:00" },
+      { user_id: "u2", work_date: "2026-06-14", clock_in_at: "2026-06-14T08:00:00+07:00" },
+      { user_id: "u1", work_date: "2026-06-15", clock_in_at: "2026-06-15T08:00:00+07:00" },
+    ],
+    payrolls: [{ paid_at: "2026-06-15" }, { paid_at: null }],
+    leaves: [{ leave_type: "sick", days_count: 2 }, { leave_type: "personal", days_count: 1 }],
+    pendingLeaves: 4,
+  });
+
+  assert.equal(metrics.total, 3);
+  assert.equal(metrics.active, 2);
+  assert.equal(metrics.permanent, 1);
+  assert.equal(metrics.temporary, 1);
+  assert.equal(metrics.newThisMonth, 1);
+  assert.equal(metrics.resigned, 1);
+  assert.equal(metrics.punctuality.late, 1);
+  assert.equal(metrics.punctuality.early, 1);
+  assert.equal(metrics.departmentBreakdown[0].label, "ขาย");
+  assert.equal(metrics.recentAttendance.at(-1).count, 1);
+  assert.equal(metrics.leaveBreakdown[0].label, "sick");
+  assert.equal(metrics.pendingLeaves, 4);
+  assert.equal(metrics.payrollCoverage, 50);
 });

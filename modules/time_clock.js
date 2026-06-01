@@ -124,6 +124,114 @@ function _bangkokDateAtHour(workDate, hour) {
   return new Date(`${workDate}T${hh}:00:00+07:00`).getTime();
 }
 
+// ═══════════════════════════════════════════════════════════
+//  Phase 92.49: Attendance punctuality (มาสาย / ออกก่อนเวลา)
+//  Pure + informational เท่านั้น — ไม่แตะ payroll / OT / leave
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * อ่านกฎเวลาเข้างานจาก state.storeInfo (Phase 92.49)
+ * เก็บใน storeInfo pattern เดิม (เหมือน shiftStartHour/geofenceRadiusM) — ไม่มี schema change
+ * @param {object} state
+ * @returns {{lateGraceMinutes:number, earlyLeaveGraceMinutes:number}}
+ *   default 15 / 15 นาที ถ้ายังไม่ตั้งใน Settings
+ */
+export function attendanceRulesFromState(state) {
+  const info = state?.storeInfo || {};
+  const lateRaw  = Number(info.lateGraceMinutes);
+  const earlyRaw = Number(info.earlyLeaveGraceMinutes);
+  const lateGraceMinutes      = (Number.isFinite(lateRaw)  && lateRaw  >= 0) ? Math.floor(lateRaw)  : 15;
+  const earlyLeaveGraceMinutes = (Number.isFinite(earlyRaw) && earlyRaw >= 0) ? Math.floor(earlyRaw) : 15;
+  return { lateGraceMinutes, earlyLeaveGraceMinutes };
+}
+
+/**
+ * จัดประเภทความตรงต่อเวลาของ attendance row 1 รายการ (Phase 92.49)
+ *
+ * เทียบ clock_in_at กับเวลาเริ่มกะ + clock_out_at กับเวลาเลิกกะ ของ work_date
+ * ใน Asia/Bangkok (UTC+7 ตลอด ไม่มี DST) — ไม่ใช้ UTC toISOString ทำ business date
+ *
+ * lateMinutes / earlyLeaveMinutes คืนค่า "ดิบ" (นาทีหลังเริ่มกะ / ก่อนเลิกกะ)
+ * เสมอเมื่อคำนวณได้ ส่วน status ตัดสินด้วย grace (เกิน grace ถึงนับเป็นสาย/ออกก่อน)
+ *
+ * @param {{clock_in_at:string|null, clock_out_at:string|null, work_date?:string}|null} row
+ * @param {{startHour:number, endHour:number}} shift - เช่นผลจาก shiftHoursFromState()
+ * @param {object} [opts]
+ * @param {number} [opts.lateGraceMinutes=15]
+ * @param {number} [opts.earlyLeaveGraceMinutes=15]
+ * @returns {{status:"on_time"|"late"|"early_leave"|"late_and_early_leave"|"missing_clock_out"|"none", lateMinutes:number, earlyLeaveMinutes:number}}
+ */
+export function classifyPunctuality(row, shift, opts = {}) {
+  const NONE = { status: "none", lateMinutes: 0, earlyLeaveMinutes: 0 };
+  if (!row || !row.clock_in_at) return NONE;
+
+  const startHour = Number(shift?.startHour);
+  const endHour   = Number(shift?.endHour);
+  if (!Number.isFinite(startHour) || !Number.isFinite(endHour)) return NONE;
+
+  const inMs = new Date(row.clock_in_at).getTime();
+  if (!Number.isFinite(inMs)) return NONE;
+
+  const workDate = row.work_date || workDateBangkok(row.clock_in_at);
+  const startMs = _bangkokDateAtHour(workDate, startHour);
+  const endMs   = _bangkokDateAtHour(workDate, endHour);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return NONE;
+
+  const lateGrace  = (Number.isFinite(opts.lateGraceMinutes)      && opts.lateGraceMinutes      >= 0) ? opts.lateGraceMinutes      : 15;
+  const earlyGrace = (Number.isFinite(opts.earlyLeaveGraceMinutes) && opts.earlyLeaveGraceMinutes >= 0) ? opts.earlyLeaveGraceMinutes : 15;
+
+  const lateMinutes = Math.max(0, Math.round((inMs - startMs) / 60000));
+
+  // ยังไม่ลงเวลาออก → รายงาน lateMinutes ได้ แต่ตัดสิน early ไม่ได้
+  if (!row.clock_out_at) {
+    return { status: "missing_clock_out", lateMinutes, earlyLeaveMinutes: 0 };
+  }
+
+  const outMs = new Date(row.clock_out_at).getTime();
+  if (!Number.isFinite(outMs)) {
+    return { status: "missing_clock_out", lateMinutes, earlyLeaveMinutes: 0 };
+  }
+
+  const earlyLeaveMinutes = Math.max(0, Math.round((endMs - outMs) / 60000));
+
+  const isLate  = lateMinutes  > lateGrace;
+  const isEarly = earlyLeaveMinutes > earlyGrace;
+
+  let status;
+  if (isLate && isEarly)      status = "late_and_early_leave";
+  else if (isLate)            status = "late";
+  else if (isEarly)           status = "early_leave";
+  else                        status = "on_time";
+
+  return { status, lateMinutes, earlyLeaveMinutes };
+}
+
+/**
+ * meta สำหรับ chip แสดงสถานะ punctuality (Phase 92.49) — pure, label ภาษาไทย
+ * @param {{status:string, lateMinutes?:number, earlyLeaveMinutes?:number}|null} punc
+ * @returns {{label:string, bg:string, fg:string, border:string}|null}
+ *   null ถ้า status = none/unknown (ไม่ต้องแสดง chip)
+ */
+export function punctualityChipMeta(punc) {
+  const p = punc || {};
+  const lm = Number(p.lateMinutes) || 0;
+  const em = Number(p.earlyLeaveMinutes) || 0;
+  switch (p.status) {
+    case "on_time":
+      return { label: "ตรงเวลา", bg: "#dcfce7", fg: "#166534", border: "#86efac" };
+    case "late":
+      return { label: `มาสาย ${lm} นาที`, bg: "#fef3c7", fg: "#92400e", border: "#fde68a" };
+    case "early_leave":
+      return { label: `ออกก่อน ${em} นาที`, bg: "#fef3c7", fg: "#92400e", border: "#fde68a" };
+    case "late_and_early_leave":
+      return { label: `สาย ${lm} น. + ออกก่อน ${em} น.`, bg: "#fee2e2", fg: "#991b1b", border: "#fca5a5" };
+    case "missing_clock_out":
+      return { label: "ยังไม่ลงเวลาออก", bg: "#e0e7ff", fg: "#3730a3", border: "#c7d2fe" };
+    default:
+      return null;
+  }
+}
+
 /**
  * Haversine distance ระหว่าง 2 จุด lat/lng (ผลลัพธ์เป็นเมตร) — Phase 92.24
  * @param {number} lat1
@@ -642,6 +750,8 @@ async function _renderManagerView(container, ctx) {
   const profiles = _staffProfiles(ctx.state);
   // Phase 92.25b: shift hours config (default 08-17, override จาก storeInfo)
   const shiftOpts = shiftHoursFromState(ctx.state);
+  // Phase 92.49: late / early-leave grace rules (informational chip only)
+  const punctRules = attendanceRulesFromState(ctx.state);
   // Phase 92.27: pending offline queue count
   const pendingCount = await offlinePendingCount().catch(() => 0);
 
@@ -695,10 +805,15 @@ async function _renderManagerView(container, ctx) {
       : (ot > 0
         ? `<span style="color:#ea580c;font-weight:700">${ot.toFixed(2)}</span>`
         : `<span style="color:#cbd5e1">0.00</span>`);
+    // Phase 92.49: punctuality chip (informational — ไม่ block / ไม่กระทบ payroll)
+    const puncMeta = punctualityChipMeta(classifyPunctuality(r, shiftOpts, punctRules));
+    const puncChip = puncMeta
+      ? `<div style="margin-top:3px"><span style="display:inline-block;padding:1px 8px;border-radius:999px;background:${puncMeta.bg};color:${puncMeta.fg};border:1px solid ${puncMeta.border};font-size:10px;font-weight:700">${escHtml(puncMeta.label)}</span></div>`
+      : "";
     return `
       <tr style="border-bottom:1px solid #f1f5f9">
         <td style="padding:8px 10px">${escHtml(r.work_date)}</td>
-        <td style="padding:8px 10px">${escHtml(name)}</td>
+        <td style="padding:8px 10px">${escHtml(name)}${puncChip}</td>
         <td style="padding:8px 10px">${timeBangkok(r.clock_in_at)}</td>
         <td style="padding:8px 10px">${timeBangkok(r.clock_out_at)}</td>
         <td style="padding:8px 10px;text-align:right;font-weight:600">${stillOpen ? '<span style="color:#94a3b8">—</span>' : regular.toFixed(2)}</td>

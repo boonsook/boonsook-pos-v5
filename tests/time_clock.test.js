@@ -17,6 +17,10 @@ const {
   shiftHoursFromState,
   haversineMeters,
   geofenceFromState,
+  // Phase 92.49: attendance punctuality
+  classifyPunctuality,
+  attendanceRulesFromState,
+  punctualityChipMeta,
 } = await import("../modules/time_clock.js");
 
 // Helper: สร้าง row จาก Bangkok local hours (เลข int)
@@ -356,4 +360,131 @@ test("geofenceFromState — partial config (lat only / lng only) → null", () =
 test("geofenceFromState — invalid radius → fallback 200m", () => {
   assert.equal(geofenceFromState({ storeInfo: { shopLat: 14.948, shopLng: 103.481, geofenceRadiusM: -50 } }).radiusM, 200);
   assert.equal(geofenceFromState({ storeInfo: { shopLat: 14.948, shopLng: 103.481, geofenceRadiusM: "abc" } }).radiusM, 200);
+});
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 92.49 — classifyPunctuality / attendanceRulesFromState / punctualityChipMeta
+// ═══════════════════════════════════════════════════════════
+
+const SHIFT = { startHour: 8, endHour: 17 };
+
+// helper: row with explicit Bangkok HH:mm in/out
+function rowHM(workDate, inH, inM, outH, outM) {
+  const pad = (n) => String(n).padStart(2, "0");
+  const inAt  = `${workDate}T${pad(inH)}:${pad(inM)}:00+07:00`;
+  const outAt = (outH == null) ? null : `${workDate}T${pad(outH)}:${pad(outM)}:00+07:00`;
+  return { work_date: workDate, clock_in_at: inAt, clock_out_at: outAt };
+}
+
+test("classifyPunctuality — เข้าตรงเวลา 08:00 ออก 17:00 → on_time, 0/0", () => {
+  const p = classifyPunctuality(rowHM("2026-06-01", 8, 0, 17, 0), SHIFT, {});
+  assert.equal(p.status, "on_time");
+  assert.equal(p.lateMinutes, 0);
+  assert.equal(p.earlyLeaveMinutes, 0);
+});
+
+test("classifyPunctuality — เข้าภายใน grace (08:10, grace 15) → on_time แต่ lateMinutes=10", () => {
+  const p = classifyPunctuality(rowHM("2026-06-01", 8, 10, 17, 0), SHIFT, { lateGraceMinutes: 15, earlyLeaveGraceMinutes: 15 });
+  assert.equal(p.status, "on_time");
+  assert.equal(p.lateMinutes, 10);
+  assert.equal(p.earlyLeaveMinutes, 0);
+});
+
+test("classifyPunctuality — มาสายเกิน grace (08:25, grace 15) → late, lateMinutes=25", () => {
+  const p = classifyPunctuality(rowHM("2026-06-01", 8, 25, 17, 0), SHIFT, { lateGraceMinutes: 15, earlyLeaveGraceMinutes: 15 });
+  assert.equal(p.status, "late");
+  assert.equal(p.lateMinutes, 25);
+  assert.equal(p.earlyLeaveMinutes, 0);
+});
+
+test("classifyPunctuality — ออกก่อนเวลา (ออก 16:30, grace 15) → early_leave, earlyLeaveMinutes=30", () => {
+  const p = classifyPunctuality(rowHM("2026-06-01", 8, 0, 16, 30), SHIFT, { lateGraceMinutes: 15, earlyLeaveGraceMinutes: 15 });
+  assert.equal(p.status, "early_leave");
+  assert.equal(p.lateMinutes, 0);
+  assert.equal(p.earlyLeaveMinutes, 30);
+});
+
+test("classifyPunctuality — มาสาย + ออกก่อน → late_and_early_leave", () => {
+  const p = classifyPunctuality(rowHM("2026-06-01", 8, 40, 16, 0), SHIFT, { lateGraceMinutes: 15, earlyLeaveGraceMinutes: 15 });
+  assert.equal(p.status, "late_and_early_leave");
+  assert.equal(p.lateMinutes, 40);
+  assert.equal(p.earlyLeaveMinutes, 60);
+});
+
+test("classifyPunctuality — ยังไม่ clock out → missing_clock_out (lateMinutes รายงานได้)", () => {
+  const p = classifyPunctuality(rowHM("2026-06-01", 8, 30, null, null), SHIFT, { lateGraceMinutes: 15 });
+  assert.equal(p.status, "missing_clock_out");
+  assert.equal(p.lateMinutes, 30);
+  assert.equal(p.earlyLeaveMinutes, 0);
+});
+
+test("classifyPunctuality — early-leave grace ผ่อนผัน (ออก 16:50, grace 15) → on_time", () => {
+  const p = classifyPunctuality(rowHM("2026-06-01", 8, 0, 16, 50), SHIFT, { lateGraceMinutes: 15, earlyLeaveGraceMinutes: 15 });
+  assert.equal(p.status, "on_time");
+  assert.equal(p.earlyLeaveMinutes, 10);
+});
+
+test("classifyPunctuality — invalid/missing shift → none", () => {
+  assert.equal(classifyPunctuality(rowHM("2026-06-01", 8, 0, 17, 0), null, {}).status, "none");
+  assert.equal(classifyPunctuality(rowHM("2026-06-01", 8, 0, 17, 0), {}, {}).status, "none");
+  assert.equal(classifyPunctuality(rowHM("2026-06-01", 8, 0, 17, 0), { startHour: "x", endHour: "y" }, {}).status, "none");
+});
+
+test("classifyPunctuality — null row / no clock_in_at → none", () => {
+  assert.equal(classifyPunctuality(null, SHIFT, {}).status, "none");
+  assert.equal(classifyPunctuality({ clock_out_at: "2026-06-01T10:00:00+07:00" }, SHIFT, {}).status, "none");
+});
+
+test("classifyPunctuality — grace 0 → เข้าสาย 1 นาทีก็เป็น late", () => {
+  const p = classifyPunctuality(rowHM("2026-06-01", 8, 1, 17, 0), SHIFT, { lateGraceMinutes: 0, earlyLeaveGraceMinutes: 0 });
+  assert.equal(p.status, "late");
+  assert.equal(p.lateMinutes, 1);
+});
+
+test("classifyPunctuality — เข้าก่อนกะ (07:30) ไม่นับ late (lateMinutes=0)", () => {
+  const p = classifyPunctuality(rowHM("2026-06-01", 7, 30, 17, 0), SHIFT, {});
+  assert.equal(p.status, "on_time");
+  assert.equal(p.lateMinutes, 0);
+});
+
+// ── attendanceRulesFromState ────────────────────────────────
+
+test("attendanceRulesFromState — default 15/15 เมื่อไม่ตั้ง", () => {
+  assert.deepEqual(attendanceRulesFromState({}), { lateGraceMinutes: 15, earlyLeaveGraceMinutes: 15 });
+  assert.deepEqual(attendanceRulesFromState({ storeInfo: {} }), { lateGraceMinutes: 15, earlyLeaveGraceMinutes: 15 });
+  assert.deepEqual(attendanceRulesFromState(null), { lateGraceMinutes: 15, earlyLeaveGraceMinutes: 15 });
+});
+
+test("attendanceRulesFromState — อ่านค่าจาก storeInfo + floor", () => {
+  assert.deepEqual(
+    attendanceRulesFromState({ storeInfo: { lateGraceMinutes: 10, earlyLeaveGraceMinutes: 0 } }),
+    { lateGraceMinutes: 10, earlyLeaveGraceMinutes: 0 }
+  );
+  assert.deepEqual(
+    attendanceRulesFromState({ storeInfo: { lateGraceMinutes: 7.9, earlyLeaveGraceMinutes: 5.5 } }),
+    { lateGraceMinutes: 7, earlyLeaveGraceMinutes: 5 }
+  );
+});
+
+test("attendanceRulesFromState — ค่าติดลบ/ไม่ใช่ตัวเลข → fallback 15", () => {
+  assert.deepEqual(
+    attendanceRulesFromState({ storeInfo: { lateGraceMinutes: -5, earlyLeaveGraceMinutes: "abc" } }),
+    { lateGraceMinutes: 15, earlyLeaveGraceMinutes: 15 }
+  );
+});
+
+// ── punctualityChipMeta ─────────────────────────────────────
+
+test("punctualityChipMeta — none → null (ไม่แสดง chip)", () => {
+  assert.equal(punctualityChipMeta({ status: "none" }), null);
+  assert.equal(punctualityChipMeta(null), null);
+});
+
+test("punctualityChipMeta — late chip มีนาทีในข้อความ", () => {
+  const m = punctualityChipMeta({ status: "late", lateMinutes: 25, earlyLeaveMinutes: 0 });
+  assert.match(m.label, /มาสาย 25 นาที/);
+});
+
+test("punctualityChipMeta — on_time → 'ตรงเวลา'", () => {
+  assert.equal(punctualityChipMeta({ status: "on_time" }).label, "ตรงเวลา");
 });

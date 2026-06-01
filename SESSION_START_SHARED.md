@@ -1,6 +1,6 @@
 # Boonsook POS V5 - Shared Session Start
 
-Last updated: 2026-06-01 13:45 ICT
+Last updated: 2026-06-01 (Phase 92.50 — HR executive dashboard detail view, build 320)
 
 Purpose: this is the common first-read note for Codex, Claude, or any next agent opening a fresh session on this project. Read this before changing files so both teams start from the same facts.
 
@@ -25,6 +25,24 @@ Purpose: this is the common first-read note for Codex, Claude, or any next agent
 - Supabase project URL used by verification scripts: `https://rwmmjljelpcpwohwiplu.supabase.co`
 
 ## Current Truth As Of 2026-06-01
+
+Phase 92.50 HR executive dashboard detail view is implemented locally (build 320).
+
+- `modules/hr_overview.js` now renders a full dashboard-style section above the existing HR operational table: hero/benefits, context filters, KPI cards, department bars, role donut, attendance status, recent attendance trend, leave breakdown, contract/probation watchlist, and data-source notes.
+- New pure helper: `buildHrDashboardMetrics()` aggregates read-only HR metrics from profiles, departments, attendance, payroll, and leave rows.
+- `_fetchHrData()` adds a graceful `staff_leaves` read. If the table/RLS/network fails, the page shows the existing warning pattern and does not crash.
+- No SQL/RLS/schema change; no payroll/accounting/JE mutation.
+- Build/cache bumped 319 -> 320 across `index.html` and `sw.js`.
+
+Phase 92.49 HR attendance exception rules is implemented (build 319).
+
+- Adds late / early-leave classification using existing Time Clock + shift data. Informational only — does NOT block clock-in/out and does NOT touch payroll, OT, leave, accounting, or JE RLS.
+- New pure helpers in `modules/time_clock.js` (exported, tested): `classifyPunctuality(row, shift, opts)` returning `{status, lateMinutes, earlyLeaveMinutes}` with statuses `on_time|late|early_leave|late_and_early_leave|missing_clock_out|none`; `attendanceRulesFromState(state)` reading `lateGraceMinutes`/`earlyLeaveGraceMinutes` (default 15/15) from `storeInfo`; `punctualityChipMeta(punc)`.
+- `modules/hr_overview.js`: late/early chips in the today table + drill-down modal, plus aggregated `late_arrivals`/`early_leaves` alerts (gated on passing `shiftOpts`+`attendanceRules` so old behavior/tests are preserved).
+- `modules/time_clock.js` manager report shows the chip per row.
+- `modules/settings/store.js`: new grace-minute inputs (validate >= 0, clamp 0–240) stored in `storeInfo`. NO SQL/RLS/schema change.
+- Verification: `npm.cmd run lint:errors` clean; `npm.cmd test` 809 pass (+25 new); `npm.cmd run verify` e2e 11 pass including build-sync smoke.
+- Build/cache bumped 318 -> 319 across `index.html` (data-app-build + selfheal/main/boot/style.css `?v=`) and `sw.js` (`cache-v319` + version marker).
 
 Phase 92.48 accounting integrity status panel is shipped.
 
@@ -128,9 +146,9 @@ Use `npm.cmd` on Windows PowerShell because plain `npm` may be blocked by script
 
 If opening a new session with no new user request:
 
-1. Verify the live app build markers on `boonsook-pos-v5.pages.dev` if deployment freshness matters: `data-app-build="318"`, `main.js?v=318`, `style.css?v=318`, `boot.js?v=318`, and `sw.js` cache `v318`.
+1. Verify the live app build markers on `boonsook-pos-v5.pages.dev` if deployment freshness matters: `data-app-build="319"`, `main.js?v=319`, `style.css?v=319`, `boot.js?v=319`, and `sw.js` cache `v319`.
 2. If the user wants a project monitor automation, use this file as the source-of-truth prompt context.
 
 ## Short Human Summary
 
-Latest app build is 318 on `main...origin/main` and live Cloudflare markers also show 318. Phase 92.48 adds the accounting integrity status panel and hotfixes the orphan fetch to `select=*`. Expense export timezone bug is fixed and delivered through later PWA cache bumps. JE REST RLS is fixed and live-verified after SQL apply. Remaining accounting orphan counts are currently understood as intentional/non-actionable skips, not an active failure. Start new work from `git status`, avoid touching unrelated user work, and verify with `npm.cmd` commands on Windows.
+Latest app build is 319 on `main`. Phase 92.49 adds HR late/early-leave attendance exception rules (informational only — no payroll/leave/accounting/RLS/SQL impact). Phase 92.48 adds the accounting integrity status panel and hotfixes the orphan fetch to `select=*`. Expense export timezone bug is fixed and delivered through later PWA cache bumps. JE REST RLS is fixed and live-verified after SQL apply. Remaining accounting orphan counts are currently understood as intentional/non-actionable skips, not an active failure. Start new work from `git status`, avoid touching unrelated user work, and verify with `npm.cmd` commands on Windows.

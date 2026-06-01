@@ -3,12 +3,46 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 1 มิถุนายน 2026 (Phase 92.48 — Accounting Integrity status panel, build 317)
-**Version:** 5.64.0 (build 317) — Phase 92.48 (integrity panel บนหน้า Backfill — client-side bucketing, no SQL)
-**Previous:** 5.64.0 (build 316) — Phase 92.47b (PWA cache bump + shared session notes)
-**Pre-prev:** 5.64.0 (build 315) — Phase 92.46c/92.47 (JE REST RLS closed + expense export TZ fix)
+**อัปเดตล่าสุด:** 1 มิถุนายน 2026 (Phase 92.50 — HR executive dashboard detail view, build 320)
+**Version:** 5.64.0 (build 320) — Phase 92.50 (หน้า HR Dashboard รายละเอียดครบ — client-only, no SQL)
+**Previous:** 5.64.0 (build 319) — Phase 92.49 (มาสาย/ออกก่อนเวลา — client-only, no SQL)
+**Pre-prev:** 5.64.0 (build 318) — Phase 92.48 (integrity panel + hotfix select=*)
 
-> 🆕 **ไม่มี SQL ใหม่ในเฟส 92.47** (script-only — ใช้ views + RPC ของ 92.46)
+> 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.50** (client-side read-only ทั้งหมด — เพิ่ม dashboard เหนือ HR Overview เดิม)
+
+---
+
+## 🛠️ Phase 92.50 — HR Executive Dashboard Detail View (this session)
+
+**เป้าหมาย:** ยกระดับหน้า HR Overview ให้มี dashboard รายละเอียดครบตามภาพตัวอย่าง โดยยังคงตาราง/alert/quick actions เดิมไว้ด้านล่าง
+
+**สิ่งที่ทำ:**
+- `modules/hr_overview.js` — เพิ่ม `buildHrDashboardMetrics()` สำหรับรวม KPI แบบ read-only จาก profiles/departments/staff_attendance/staff_payroll/staff_leaves
+- เพิ่ม section dashboard ใหม่: hero + benefits, context filter strip, KPI cards, chart แยกแผนก, donut แยกตำแหน่ง, สถานะลงเวลาวันนี้, แนวโน้มลงเวลา 8 วันล่าสุด, สรุปวันลา, ตารางสัญญา/ทดลองงานใกล้ครบ และ info cards แหล่งข้อมูล
+- `_fetchHrData()` fetch `staff_leaves` แบบ graceful; ถ้า RLS/table มีปัญหา dashboard ยังไม่ crash และมี warning banner เหมือนตารางอื่น
+- `tests/hr_overview.test.js` — เพิ่ม coverage สำหรับ `buildHrDashboardMetrics`
+- `index.html`/`sw.js` — bump build 319→320
+
+**ไม่แตะ:** SQL/RLS/schema, payroll calculation, accounting, JE, Time Clock write flow
+
+---
+
+## 🛠️ Phase 92.49 — HR Late / Attendance Exception Rules (this session)
+
+**เป้าหมาย:** ใช้ข้อมูล Time Clock + กะ ที่มีอยู่ → ตีสถานะ "มาสาย / ออกก่อนเวลา" ให้ HR เห็นชัด (informational, ไม่ block)
+
+**สิ่งที่ทำ:**
+- `modules/time_clock.js` — pure helpers ใหม่ (exported):
+  - `classifyPunctuality(row, shift, opts)` → `{status, lateMinutes, earlyLeaveMinutes}` · status = `on_time`|`late`|`early_leave`|`late_and_early_leave`|`missing_clock_out`|`none` · เทียบ clock_in/out กับเวลาเริ่ม/เลิกกะ บน Asia/Bangkok (ใช้ `_bangkokDateAtHour` เดิม ไม่ใช่ UTC toISOString) · lateMinutes/earlyLeaveMinutes คืนค่าดิบเสมอ, grace ตัดสินแค่ status
+  - `attendanceRulesFromState(state)` → `{lateGraceMinutes, earlyLeaveGraceMinutes}` default 15/15 จาก `storeInfo` (pattern เดียวกับ `shiftHoursFromState`/geofence)
+  - `punctualityChipMeta(punc)` → label ภาษาไทย + สี (null ถ้า none)
+  - manager report row เพิ่ม chip (ใต้ชื่อ user) — ไม่เพิ่มคอลัมน์ (colspan เดิม)
+- `modules/hr_overview.js` — import 3 helper ข้างบน · rows มี field `punc` · `_renderTbody` chip ใต้ status chip · drill-down modal header แสดง chip (`buildEmployeeModalSummary.punctuality`) · `detectExceptions` รับ `shiftOpts`+`attendanceRules` → push alert รวม `late_arrivals`/`early_leaves` (นับเป็นจำนวนคน, dedupe ตาม user; late นับจาก `lateMinutes > grace` รวม missing_clock_out) · `alertActionFor` map 2 kind ใหม่ → route `time_clock`
+- `modules/settings/store.js` — เพิ่มช่อง "ผ่อนผันเข้าสาย/ออกก่อน (นาที)" ใน section กะ · validate >= 0 (clamp 0–240, default 15) · save เข้า storeInfo
+
+**Behavior preserved:** `detectExceptions` ถ้าไม่ส่ง `shiftOpts`+`attendanceRules` → ไม่มี late/early (test เดิมไม่พัง) · ไม่แตะ payroll/OT/leave/accounting/JE RLS · clock-in/out flow เดิมไม่เปลี่ยน
+
+**Gate:** lint 0 errors · unit 809 ผ่าน (+18 time_clock, +7 hr_overview) · e2e 11 ผ่าน (build-sync smoke เขียว) · build 318→319 (index.html ×4 ?v + data-app-build, sw.js cache-v319 + marker)
 
 ---
 

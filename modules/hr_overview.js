@@ -29,6 +29,10 @@ import {
   sumRegularOT,
   profileDisplayName,
   offlinePendingCount,
+  // Phase 92.49: attendance punctuality (มาสาย / ออกก่อนเวลา)
+  classifyPunctuality,
+  attendanceRulesFromState,
+  punctualityChipMeta,
 } from "./time_clock.js";
 
 const TZ = "Asia/Bangkok";
@@ -105,6 +109,147 @@ export function aggregateHrKpi(input = {}) {
   };
 }
 
+function _profileDate(p, keys) {
+  for (const k of keys) {
+    const v = p?.[k];
+    if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v)) return v.slice(0, 10);
+  }
+  return null;
+}
+
+function _profileText(p, keys) {
+  for (const k of keys) {
+    const v = p?.[k];
+    if (v != null && String(v).trim() !== "") return String(v).trim();
+  }
+  return "";
+}
+
+function _rangePct(value, total) {
+  const v = Number(value || 0);
+  const t = Number(total || 0);
+  if (!Number.isFinite(v) || !Number.isFinite(t) || t <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round((v / t) * 1000) / 10));
+}
+
+/**
+ * Phase 92.50: presentation metrics for the executive HR dashboard.
+ * Read-only: built from profiles / departments / attendance / payroll / leave rows already fetched.
+ */
+export function buildHrDashboardMetrics(input = {}) {
+  const profiles = Array.isArray(input.profiles) ? input.profiles : [];
+  const rows = Array.isArray(input.rows) ? input.rows : [];
+  const departments = Array.isArray(input.departments) ? input.departments : [];
+  const attendanceMonth = Array.isArray(input.attendanceMonth) ? input.attendanceMonth : [];
+  const payrolls = Array.isArray(input.payrolls) ? input.payrolls : [];
+  const leaves = Array.isArray(input.leaves) ? input.leaves : [];
+  const today = input.today || workDateBangkok();
+  const monthKey = input.monthKey || today.slice(0, 7);
+
+  const total = profiles.length;
+  const activeProfiles = profiles.filter(p => {
+    const s = _profileText(p, ["employment_status", "status", "staff_status"]).toLowerCase();
+    return !["resigned", "terminated", "inactive", "ออกแล้ว", "ลาออก"].includes(s);
+  });
+  const active = activeProfiles.length;
+  const resigned = Math.max(0, total - active);
+
+  const employmentText = (p) => _profileText(p, ["employee_type", "employment_type", "staff_type", "contract_type"]).toLowerCase();
+  const temporary = activeProfiles.filter(p => /temp|temporary|contract|part|ชั่วคราว|สัญญา/.test(employmentText(p))).length;
+  const permanent = Math.max(0, active - temporary);
+
+  const monthStart = `${monthKey}-01`;
+  const monthEndDate = new Date(monthStart + "T00:00:00+07:00");
+  monthEndDate.setMonth(monthEndDate.getMonth() + 1);
+  const monthEnd = monthEndDate.toLocaleDateString("en-CA", { timeZone: TZ });
+  const newThisMonth = profiles.filter(p => {
+    const d = _profileDate(p, ["hire_date", "start_date", "joined_at", "created_at"]);
+    return d && d >= monthStart && d < monthEnd;
+  }).length;
+
+  const deptNameById = new Map(departments.map(d => [String(d.id), d.name || "ไม่ระบุแผนก"]));
+  const deptCounts = new Map();
+  for (const p of activeProfiles) {
+    const key = p.department_id != null && p.department_id !== "" ? String(p.department_id) : "__none__";
+    const label = key === "__none__" ? "ไม่ระบุแผนก" : (deptNameById.get(key) || "ไม่ระบุแผนก");
+    deptCounts.set(label, (deptCounts.get(label) || 0) + 1);
+  }
+  const departmentBreakdown = Array.from(deptCounts, ([label, count]) => ({ label, count, pct: _rangePct(count, active || total) }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "th"))
+    .slice(0, 7);
+
+  const roleCounts = new Map();
+  for (const p of activeProfiles) {
+    const meta = roleChipMeta(p.role);
+    roleCounts.set(meta.label, (roleCounts.get(meta.label) || 0) + 1);
+  }
+  const roleBreakdown = Array.from(roleCounts, ([label, count]) => ({ label, count, pct: _rangePct(count, active || total) }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "th"));
+
+  const statusCounts = countStatusBuckets(rows);
+  const punctuality = { late: 0, early: 0, missingOut: 0, onTime: 0 };
+  for (const r of rows) {
+    const s = r?.punc?.status;
+    if (s === "late" || s === "late_and_early_leave") punctuality.late += 1;
+    if (s === "early_leave" || s === "late_and_early_leave") punctuality.early += 1;
+    if (s === "missing_clock_out") punctuality.missingOut += 1;
+    if (s === "on_time") punctuality.onTime += 1;
+  }
+
+  const attendanceByDate = new Map();
+  for (const r of attendanceMonth) {
+    if (!r?.work_date || !r?.user_id || !r?.clock_in_at) continue;
+    const key = String(r.work_date).slice(0, 10);
+    if (!attendanceByDate.has(key)) attendanceByDate.set(key, new Set());
+    attendanceByDate.get(key).add(r.user_id);
+  }
+  const recentAttendance = Array.from(attendanceByDate, ([date, set]) => ({ date, count: set.size }))
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(-8)
+    .map(d => ({ ...d, pct: _rangePct(d.count, active || total) }));
+
+  const leaveCounts = new Map();
+  for (const l of leaves) {
+    const label = String(l?.leave_type || "other");
+    const days = Number(l?.days_count || 0);
+    leaveCounts.set(label, (leaveCounts.get(label) || 0) + (Number.isFinite(days) ? days : 0));
+  }
+  const leaveBreakdown = Array.from(leaveCounts, ([label, count]) => ({ label, count, pct: _rangePct(count, Math.max(1, Array.from(leaveCounts.values()).reduce((s, n) => s + Number(n || 0), 0))) }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5);
+
+  const contractSoon = activeProfiles
+    .map(p => ({ profile: p, endDate: _profileDate(p, ["contract_end_date", "contract_until", "probation_end_date", "end_date"]) }))
+    .filter(x => x.endDate && x.endDate >= today)
+    .sort((a, b) => a.endDate.localeCompare(b.endDate))
+    .slice(0, 5);
+
+  const unpaidPayroll = payrolls.filter(p => !p?.paid_at).length;
+  const paidPayroll = payrolls.filter(p => p?.paid_at).length;
+  const payrollCoverage = _rangePct(paidPayroll, payrolls.length);
+  const turnoverRate = _rangePct(resigned, Math.max(total, 1));
+
+  return {
+    total,
+    active,
+    permanent,
+    temporary,
+    newThisMonth,
+    resigned,
+    turnoverRate,
+    statusCounts,
+    punctuality,
+    departmentBreakdown,
+    roleBreakdown,
+    recentAttendance,
+    leaveBreakdown,
+    contractSoon,
+    pendingLeaves: Number(input.pendingLeaves || 0),
+    payrollCoverage,
+    unpaidPayroll,
+  };
+}
+
 /**
  * ตรวจหา exceptions ที่ admin ต้องจัดการ — สำหรับ section "สิ่งที่ต้องจัดการวันนี้"
  */
@@ -158,6 +303,44 @@ export function detectExceptions(input = {}) {
           refId: r.id,
         });
       }
+    }
+  }
+
+  // Phase 92.49: late / early-leave exceptions — เฉพาะเมื่อส่ง shiftOpts + attendanceRules
+  // (ไม่ส่ง → ข้าม เพื่อ preserve behavior เดิม). นับเป็นจำนวนคน (dedupe ตาม user)
+  const shiftOpts = input.shiftOpts || null;
+  const rules     = input.attendanceRules || null;
+  if (shiftOpts && rules) {
+    const graceLate = (Number.isFinite(rules.lateGraceMinutes) && rules.lateGraceMinutes >= 0) ? rules.lateGraceMinutes : 15;
+    const lateUsers  = new Set();
+    const earlyUsers = new Set();
+    for (const r of attendanceToday) {
+      if (!r?.clock_in_at) continue;
+      const punc = classifyPunctuality(r, shiftOpts, {
+        lateGraceMinutes: rules.lateGraceMinutes,
+        earlyLeaveGraceMinutes: rules.earlyLeaveGraceMinutes,
+      });
+      const uid = r.user_id ?? r.id;
+      // late นับจาก lateMinutes เกิน grace — รวม missing_clock_out (เข้าสายแต่ยังไม่ออก ก็ยังสาย)
+      if (punc.lateMinutes > graceLate) lateUsers.add(uid);
+      // early_leave นับเฉพาะที่ลงเวลาออกแล้ว (status early_leave / late_and_early_leave)
+      if (punc.status === "early_leave" || punc.status === "late_and_early_leave") earlyUsers.add(uid);
+    }
+    if (lateUsers.size > 0) {
+      out.push({
+        kind: "late_arrivals",
+        severity: "low",
+        message: `มาสายวันนี้ ${lateUsers.size} คน`,
+        refId: null,
+      });
+    }
+    if (earlyUsers.size > 0) {
+      out.push({
+        kind: "early_leaves",
+        severity: "low",
+        message: `ออกก่อนเวลาวันนี้ ${earlyUsers.size} คน`,
+        refId: null,
+      });
     }
   }
 
@@ -292,6 +475,8 @@ export function alertActionFor(kind) {
     case "unpaid_payroll":  return { label: "ไปจ่ายเงินเดือน",   route: "payroll" };
     case "offline_pending": return { label: "ไป Sync",           route: "time_clock" };
     case "pending_leaves":  return { label: "ไปอนุมัติ",         route: "leave_management" };
+    case "late_arrivals":   return { label: "ดูเวลาเข้า-ออก",    route: "time_clock" };
+    case "early_leaves":    return { label: "ดูเวลาเข้า-ออก",    route: "time_clock" };
     default:                return null;
   }
 }
@@ -428,6 +613,8 @@ export function buildEmployeeModalSummary(input = {}) {
     clockInDistance:  att?.clock_in_distance_m  ?? null,
     clockOutDistance: att?.clock_out_distance_m ?? null,
     radiusM: Number.isFinite(Number(input.radiusM)) ? Number(input.radiusM) : null,
+    // Phase 92.49: punctuality (มาสาย / ออกก่อนเวลา) — informational
+    punctuality: input.punc || { status: "none", lateMinutes: 0, earlyLeaveMinutes: 0 },
   };
 }
 
@@ -652,9 +839,10 @@ async function _fetchHrData(today, monthKey) {
     fetch(`${cfg.url}/rest/v1/staff_attendance?select=*&work_date=eq.${encodeURIComponent(today)}&order=clock_in_at.desc`, { headers }),
     fetch(`${cfg.url}/rest/v1/staff_attendance?select=*&work_date=gte.${encodeURIComponent(monthStart)}&work_date=lt.${encodeURIComponent(monthEnd)}&order=clock_in_at.desc&limit=2000`, { headers }),
     fetch(`${cfg.url}/rest/v1/staff_payroll?select=*&period_month=gte.${encodeURIComponent(monthStart)}&period_month=lt.${encodeURIComponent(monthEnd)}&order=period_month.desc`, { headers }),
+    fetch(`${cfg.url}/rest/v1/staff_leaves?select=*&start_date=gte.${encodeURIComponent(monthStart)}&start_date=lt.${encodeURIComponent(monthEnd)}&order=start_date.desc&limit=1000`, { headers }),
   ];
 
-  const [pRes0, dRes, attTodayRes, attMonthRes, payRes] = await Promise.all(requests);
+  const [pRes0, dRes, attTodayRes, attMonthRes, payRes, leaveRes] = await Promise.all(requests);
 
   let pRes = pRes0;
   if (!pRes.ok) {
@@ -666,6 +854,7 @@ async function _fetchHrData(today, monthKey) {
   const attendanceToday = attTodayRes.ok ? await attTodayRes.json() : [];
   const attendanceMonth = attMonthRes.ok ? await attMonthRes.json() : [];
   const payrolls        = payRes.ok ? await payRes.json() : [];
+  const leaves          = leaveRes.ok ? await leaveRes.json() : [];
 
   const profiles = profilesAll.filter(p => p && p.role && p.role !== "customer");
 
@@ -675,9 +864,10 @@ async function _fetchHrData(today, monthKey) {
     attendanceToday: !attTodayRes.ok,
     attendanceMonth: !attMonthRes.ok,
     payrolls: !payRes.ok,
+    leaves: !leaveRes.ok,
   };
 
-  return { profiles, departments, attendanceToday, attendanceMonth, payrolls, errors };
+  return { profiles, departments, attendanceToday, attendanceMonth, payrolls, leaves, errors };
 }
 
 /**
@@ -736,6 +926,13 @@ function _roleChip(role) {
   return `<span style="display:inline-block;padding:2px 8px;border-radius:6px;background:${meta.bg};color:${meta.fg};border:1px solid ${meta.border};font-size:11px;font-weight:700">${escHtml(meta.label)}</span>`;
 }
 
+// Phase 92.49: punctuality chip (มาสาย / ออกก่อนเวลา) — "" ถ้าไม่มีข้อมูล
+function _puncChip(punc) {
+  const meta = punctualityChipMeta(punc);
+  if (!meta) return "";
+  return `<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:${meta.bg};color:${meta.fg};border:1px solid ${meta.border};font-size:10px;font-weight:700">${escHtml(meta.label)}</span>`;
+}
+
 function _kpiCard({ label, value, sub, color, icon, clickRoute }) {
   const c = color || "#0284c7";
   // Phase 92.41: aria-label สื่อความหมายแทน inline text ที่เคยมี (UX: 5 ใบ noisy)
@@ -754,6 +951,163 @@ function _kpiCard({ label, value, sub, color, icon, clickRoute }) {
     </div>
     <div style="font-size:24px;font-weight:900;color:${c};line-height:1.1">${escHtml(value)}</div>
     ${sub ? `<div style="font-size:11px;color:#64748b;margin-top:4px">${escHtml(sub)}</div>` : ""}
+  </div>`;
+}
+
+function _hrDashMiniCard({ label, value, sub, color = "#0f172a", icon = "" }) {
+  return `<div class="hrx-mini-card">
+    <div class="hrx-mini-icon" style="color:${color};background:${color}12">${escHtml(icon)}</div>
+    <div class="hrx-mini-copy">
+      <div class="hrx-mini-label">${escHtml(label)}</div>
+      <div class="hrx-mini-value" style="color:${color}">${escHtml(value)}</div>
+      ${sub ? `<div class="hrx-mini-sub">${escHtml(sub)}</div>` : ""}
+    </div>
+  </div>`;
+}
+
+function _hrDashPanel(title, body, extra = "") {
+  return `<section class="hrx-panel">
+    <div class="hrx-panel-head">
+      <h3>${escHtml(title)}</h3>
+      ${extra ? `<span>${escHtml(extra)}</span>` : ""}
+    </div>
+    ${body}
+  </section>`;
+}
+
+function _hrDashBars(items, opts = {}) {
+  if (!items.length) return `<div class="hrx-empty">ยังไม่มีข้อมูลสำหรับกราฟนี้</div>`;
+  const max = Math.max(1, ...items.map(x => Number(x.count || 0)));
+  return `<div class="hrx-bars">
+    ${items.map(x => {
+      const pct = opts.usePct ? Number(x.pct || 0) : _rangePct(x.count, max);
+      return `<div class="hrx-bar-row">
+        <div class="hrx-bar-label">${escHtml(x.label)}</div>
+        <div class="hrx-bar-track"><span style="width:${Math.max(3, pct)}%"></span></div>
+        <div class="hrx-bar-value">${escHtml(NUM_TH(x.count))}</div>
+      </div>`;
+    }).join("")}
+  </div>`;
+}
+
+function _hrDashDonut(items) {
+  if (!items.length) return `<div class="hrx-empty">ยังไม่มีข้อมูลสำหรับสัดส่วนนี้</div>`;
+  const colors = ["#2563eb", "#ec4899", "#f59e0b", "#10b981", "#7c3aed"];
+  let cursor = 0;
+  const parts = items.map((x, i) => {
+    const start = cursor;
+    cursor += Number(x.pct || 0);
+    return `${colors[i % colors.length]} ${start}% ${cursor}%`;
+  }).join(", ");
+  return `<div class="hrx-donut-wrap">
+    <div class="hrx-donut" style="background:conic-gradient(${parts})"><span>${NUM_TH(items.reduce((s, x) => s + Number(x.count || 0), 0))}</span></div>
+    <div class="hrx-legend">
+      ${items.map((x, i) => `<div><i style="background:${colors[i % colors.length]}"></i><span>${escHtml(x.label)}</span><b>${NUM_TH(x.count)} (${x.pct}%)</b></div>`).join("")}
+    </div>
+  </div>`;
+}
+
+function _hrDashRecentAttendance(items) {
+  if (!items.length) return `<div class="hrx-empty">ยังไม่มีข้อมูลลงเวลารายวันในเดือนนี้</div>`;
+  const max = Math.max(1, ...items.map(x => Number(x.count || 0)));
+  return `<div class="hrx-vertical-bars">
+    ${items.map(x => {
+      const pct = _rangePct(x.count, max);
+      const label = new Date(x.date + "T00:00:00+07:00").toLocaleDateString("th-TH", { timeZone: TZ, day: "numeric", month: "short" });
+      return `<div class="hrx-vbar-item">
+        <div class="hrx-vbar-value">${NUM_TH(x.count)}</div>
+        <div class="hrx-vbar"><span style="height:${Math.max(8, pct)}%"></span></div>
+        <div class="hrx-vbar-label">${escHtml(label)}</div>
+      </div>`;
+    }).join("")}
+  </div>`;
+}
+
+function _hrDashContractTable(items) {
+  if (!items.length) return `<div class="hrx-empty">ยังไม่มีสัญญา/ทดลองงานที่ใกล้ครบกำหนด</div>`;
+  return `<div class="hrx-table-wrap"><table class="hrx-table">
+    <thead><tr><th>ชื่อ-สกุล</th><th>ตำแหน่ง</th><th>ครบกำหนด</th></tr></thead>
+    <tbody>
+      ${items.map(x => `<tr>
+        <td>${escHtml(profileDisplayName(x.profile))}</td>
+        <td>${escHtml(roleChipMeta(x.profile?.role).label)}</td>
+        <td>${escHtml(new Date(x.endDate + "T00:00:00+07:00").toLocaleDateString("th-TH", { timeZone: TZ, day:"2-digit", month:"2-digit", year:"numeric" }))}</td>
+      </tr>`).join("")}
+    </tbody>
+  </table></div>`;
+}
+
+function _renderHrExecutiveDashboard(metrics, { monthTh, todayTh, departments, activeDept, activeRole }) {
+  const statusItems = [
+    { label: "เข้างานแล้ว", count: metrics.statusCounts.working + metrics.statusCounts.out, pct: _rangePct(metrics.statusCounts.working + metrics.statusCounts.out, metrics.total) },
+    { label: "กำลังทำงาน", count: metrics.statusCounts.working, pct: _rangePct(metrics.statusCounts.working, metrics.total) },
+    { label: "ออกแล้ว", count: metrics.statusCounts.out, pct: _rangePct(metrics.statusCounts.out, metrics.total) },
+    { label: "ยังไม่เข้า", count: metrics.statusCounts.not_in, pct: _rangePct(metrics.statusCounts.not_in, metrics.total) },
+    { label: "ต้องตรวจสอบ", count: metrics.statusCounts.abnormal, pct: _rangePct(metrics.statusCounts.abnormal, metrics.total) },
+  ];
+  const leaveItems = metrics.leaveBreakdown.map(x => ({ ...x, label: {
+    sick: "ลาป่วย",
+    personal: "ลากิจ",
+    vacation: "ลาพักร้อน",
+    unpaid: "ไม่รับค่าจ้าง",
+    other: "อื่น ๆ",
+  }[x.label] || x.label }));
+
+  return `<div class="hrx-dashboard">
+    <div class="hrx-hero">
+      <div>
+        <div class="hrx-eyebrow">HR DASHBOARD</div>
+        <h2>ภาพรวมข้อมูลบุคลากร</h2>
+        <p>รวมจำนวนพนักงาน การลงเวลา วันลา เงินเดือน และสัญญาที่ต้องติดตามจากข้อมูลจริงในระบบ</p>
+        <div class="hrx-benefits">
+          <span>ดูข้อมูลแบบ Real-time</span>
+          <span>ช่วยวิเคราะห์และตัดสินใจ</span>
+          <span>ติดตาม KPI ด้านบุคลากร</span>
+          <span>รองรับตัวกรองข้อมูล</span>
+        </div>
+      </div>
+      <div class="hrx-note">
+        <strong>ประโยชน์</strong>
+        <ul>
+          <li>ผู้บริหารเห็นภาพรวมบุคลากรได้ทันที</li>
+          <li>ติดตามการลา การลงเวลา และ payroll ค้างจ่าย</li>
+          <li>ช่วยวางแผนกำลังคนและงบประมาณ</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="hrx-toolbar">
+      <div><strong>ช่วงข้อมูล</strong><span>${escHtml(monthTh)}</span></div>
+      <div><strong>อัปเดต</strong><span>${escHtml(todayTh)}</span></div>
+      <div><strong>แผนก</strong><span>${escHtml(activeDept === "__all__" ? "ทุกแผนก" : (departments.find(d => String(d.id) === String(activeDept))?.name || "ไม่ระบุ"))}</span></div>
+      <div><strong>ตำแหน่ง</strong><span>${escHtml(activeRole === "all" ? "ทุกตำแหน่ง" : activeRole)}</span></div>
+    </div>
+
+    <div class="hrx-mini-grid">
+      ${_hrDashMiniCard({ label: "พนักงานทั้งหมด", value: `${NUM_TH(metrics.total)} คน`, sub: `${NUM_TH(metrics.active)} active`, color: "#2563eb", icon: "👥" })}
+      ${_hrDashMiniCard({ label: "พนักงานประจำ", value: `${NUM_TH(metrics.permanent)} คน`, sub: `${_rangePct(metrics.permanent, metrics.active)}% ของ active`, color: "#16a34a", icon: "✅" })}
+      ${_hrDashMiniCard({ label: "พนักงานชั่วคราว", value: `${NUM_TH(metrics.temporary)} คน`, sub: `${_rangePct(metrics.temporary, metrics.active)}% ของ active`, color: "#f97316", icon: "⏱" })}
+      ${_hrDashMiniCard({ label: "พนักงานเข้าใหม่", value: `${NUM_TH(metrics.newThisMonth)} คน`, sub: "เดือนนี้", color: "#7c3aed", icon: "➕" })}
+      ${_hrDashMiniCard({ label: "Turnover", value: `${metrics.turnoverRate}%`, sub: `${NUM_TH(metrics.resigned)} คนออก/ไม่ active`, color: metrics.turnoverRate > 8 ? "#dc2626" : "#0f766e", icon: "↪" })}
+    </div>
+
+    <div class="hrx-grid-3">
+      ${_hrDashPanel("จำนวนพนักงาน แยกตามแผนก", _hrDashBars(metrics.departmentBreakdown))}
+      ${_hrDashPanel("สัดส่วนพนักงาน แยกตามตำแหน่ง", _hrDashDonut(metrics.roleBreakdown))}
+      ${_hrDashPanel("สถานะการลงเวลาวันนี้", _hrDashBars(statusItems, { usePct: true }))}
+    </div>
+
+    <div class="hrx-grid-3">
+      ${_hrDashPanel("แนวโน้มคนลงเวลาในเดือนนี้", _hrDashRecentAttendance(metrics.recentAttendance), "8 วันล่าสุด")}
+      ${_hrDashPanel("การลาแยกตามประเภท", _hrDashBars(leaveItems, { usePct: true }), `รออนุมัติ ${NUM_TH(metrics.pendingLeaves)}`)}
+      ${_hrDashPanel("พนักงานที่ใกล้ครบสัญญา/ทดลองงาน", _hrDashContractTable(metrics.contractSoon))}
+    </div>
+
+    <div class="hrx-info-grid">
+      <div class="hrx-info-card"><h3>KPIs สำคัญใน Dashboard</h3><p>จำนวนพนักงาน, สถานะลงเวลา, การลา, payroll coverage, turnover และสัญญาที่ต้องติดตาม</p></div>
+      <div class="hrx-info-card"><h3>ตัวกรองข้อมูล</h3><p>ช่วงเดือนปัจจุบัน, แผนก, ตำแหน่ง และสถานะพนักงานจาก filter เดิมของ HR Overview</p></div>
+      <div class="hrx-info-card"><h3>แหล่งข้อมูล</h3><p>Profiles, Departments, Staff Attendance, Staff Payroll และ Staff Leaves ผ่าน Supabase REST</p></div>
+    </div>
   </div>`;
 }
 
@@ -803,7 +1157,7 @@ function _renderTbody(rows, deptMap) {
       ไม่พบพนักงานตามตัวกรองนี้
     </td></tr>`;
   }
-  return rows.map(({ profile: p, att, status, ot }) => {
+  return rows.map(({ profile: p, att, status, ot, punc }) => {
     const dept = p.department_id ? deptMap.get(String(p.department_id)) : null;
     const deptName = dept?.name || "—";
     const inT  = att?.clock_in_at  ? timeBangkok(att.clock_in_at)  : "—";
@@ -827,7 +1181,10 @@ function _renderTbody(rows, deptMap) {
         <td style="padding:8px 14px;text-align:center;font-variant-numeric:tabular-nums">${escHtml(outT)}</td>
         <td style="padding:8px 14px;text-align:right;font-variant-numeric:tabular-nums">${escHtml(worked)}</td>
         <td style="padding:8px 14px;text-align:right;font-variant-numeric:tabular-nums">${otCell}</td>
-        <td style="padding:8px 14px;text-align:center">${_statusChip(status)}</td>
+        <td style="padding:8px 14px;text-align:center">
+          ${_statusChip(status)}
+          ${punc && punc.status && punc.status !== "none" ? `<div style="margin-top:4px">${_puncChip(punc)}</div>` : ""}
+        </td>
         <td style="padding:8px 14px;text-align:center">
           <button class="hr-row-action" data-hr-action="time_clock" style="padding:4px 10px;border:1px solid ${action.color};border-radius:8px;background:#fff;font-size:11px;cursor:pointer;color:${action.color};font-weight:700;white-space:nowrap">${escHtml(action.icon + " " + action.label)}</button>
         </td>
@@ -883,7 +1240,7 @@ function _renderModalSummaryHeader(summary) {
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;padding:14px 20px;border-bottom:1px solid #f1f5f9;background:#fafbfc">
       <div>
         <div style="font-size:10px;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">สถานะวันนี้</div>
-        <div>${sc}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center">${sc}${_puncChip(summary.punctuality)}</div>
       </div>
       <div>
         <div style="font-size:10px;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">เข้า</div>
@@ -1158,6 +1515,8 @@ export async function renderHrOverviewPage(ctx) {
   const today = workDateBangkok();
   const monthKey = today.slice(0, 7);
   const shiftOpts = shiftHoursFromState(state);
+  // Phase 92.49: late / early-leave grace rules (storeInfo pattern เดิม)
+  const punctRules = attendanceRulesFromState(state);
 
   let data;
   try {
@@ -1202,6 +1561,9 @@ export async function renderHrOverviewPage(ctx) {
     offlinePending,
     geofence,
     pendingLeaves,
+    // Phase 92.49: เปิด late / early-leave counting
+    shiftOpts,
+    attendanceRules: punctRules,
   });
 
   const attIdx = indexAttendanceByUser(data.attendanceToday);
@@ -1212,7 +1574,11 @@ export async function renderHrOverviewPage(ctx) {
     const att = attIdx.get(p.id) || null;
     const status = classifyAttendanceStatus(att);
     const ot = att ? computeRegularOT(att, shiftOpts) : { regular: 0, ot: 0, total: 0 };
-    return { profile: p, att, status, ot };
+    // Phase 92.49: punctuality (informational chip) — ไม่กระทบ status/ot/payroll
+    const punc = att
+      ? classifyPunctuality(att, shiftOpts, punctRules)
+      : { status: "none", lateMinutes: 0, earlyLeaveMinutes: 0 };
+    return { profile: p, att, status, ot, punc };
   });
   const ORDER = { working: 0, abnormal: 1, out: 2, not_in: 3 };
   rows.sort((a, b) => {
@@ -1237,6 +1603,17 @@ export async function renderHrOverviewPage(ctx) {
     { status: activeFilter, departmentId: activeDept, role: activeRole },
     rows.length, rows.length, data.departments
   );
+  const dashboardMetrics = buildHrDashboardMetrics({
+    profiles: data.profiles,
+    rows,
+    departments: data.departments,
+    attendanceMonth: data.attendanceMonth,
+    payrolls: data.payrolls,
+    leaves: data.leaves,
+    pendingLeaves,
+    today,
+    monthKey,
+  });
 
   // ── Render HTML ───────────────────────────────────────────
   const todayTh = new Date(today + "T00:00:00+07:00").toLocaleDateString("th-TH", {
@@ -1246,7 +1623,7 @@ export async function renderHrOverviewPage(ctx) {
     timeZone: TZ, year: "numeric", month: "long"
   });
 
-  const errBanner = (data.errors.attendanceToday || data.errors.attendanceMonth || data.errors.payrolls)
+  const errBanner = (data.errors.attendanceToday || data.errors.attendanceMonth || data.errors.payrolls || data.errors.leaves)
     ? `<div style="background:#fff7ed;border:1px solid #fdba74;color:#9a3412;padding:8px 12px;border-radius:10px;font-size:12px;margin-bottom:12px">
         ⚠️ บางตารางโหลดไม่สำเร็จ (RLS / network) — ตัวเลขด้านล่างอาจไม่ครบ
       </div>`
@@ -1263,6 +1640,72 @@ export async function renderHrOverviewPage(ctx) {
       .hr-kpi-card:focus-visible { outline: 2px solid #0284c7; outline-offset: 2px; }
       .hr-row-employee:hover { background-color: #f8fafc; }
       .hr-row-employee:focus-within { outline: 2px solid #0284c7; outline-offset: -2px; }
+      .hrx-dashboard { display:flex; flex-direction:column; gap:12px; }
+      .hrx-hero { display:grid; grid-template-columns:minmax(0,1fr) 300px; gap:16px; align-items:stretch; background:#fff; border:1px solid #dbe4f0; border-radius:16px; padding:20px; }
+      .hrx-eyebrow { font-size:12px; font-weight:900; color:#1d4ed8; letter-spacing:.08em; }
+      .hrx-hero h2 { margin:3px 0 4px; font-size:28px; color:#0f172a; line-height:1.15; }
+      .hrx-hero p { margin:0; color:#475569; font-size:13px; }
+      .hrx-benefits { display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }
+      .hrx-benefits span { border:1px solid #e2e8f0; background:#f8fafc; color:#0f172a; border-radius:8px; padding:7px 10px; font-size:12px; font-weight:700; }
+      .hrx-note { border:1px solid #bfdbfe; background:#f8fbff; border-radius:12px; padding:12px 14px; color:#172554; font-size:12px; }
+      .hrx-note strong { display:block; margin-bottom:6px; font-size:13px; }
+      .hrx-note ul { margin:0; padding-left:18px; display:flex; flex-direction:column; gap:5px; }
+      .hrx-toolbar { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; background:#10194f; color:#fff; border-radius:14px; padding:12px; }
+      .hrx-toolbar div { background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.16); border-radius:10px; padding:8px 10px; min-width:0; }
+      .hrx-toolbar strong { display:block; font-size:11px; opacity:.75; margin-bottom:2px; }
+      .hrx-toolbar span { display:block; font-size:13px; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+      .hrx-mini-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; }
+      .hrx-mini-card { background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:12px; display:flex; gap:10px; align-items:center; min-width:0; }
+      .hrx-mini-icon { width:42px; height:42px; border-radius:10px; display:grid; place-items:center; font-size:20px; flex-shrink:0; }
+      .hrx-mini-copy { min-width:0; }
+      .hrx-mini-label { color:#475569; font-size:12px; font-weight:800; }
+      .hrx-mini-value { font-size:24px; line-height:1.1; font-weight:950; margin-top:2px; }
+      .hrx-mini-sub { color:#64748b; font-size:11px; margin-top:3px; }
+      .hrx-grid-3 { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+      .hrx-panel { background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:14px; min-width:0; }
+      .hrx-panel-head { display:flex; justify-content:space-between; gap:8px; align-items:center; margin-bottom:12px; }
+      .hrx-panel-head h3 { margin:0; color:#0f172a; font-size:14px; }
+      .hrx-panel-head span { color:#64748b; font-size:11px; font-weight:800; }
+      .hrx-bars { display:flex; flex-direction:column; gap:10px; }
+      .hrx-bar-row { display:grid; grid-template-columns:88px minmax(60px,1fr) 44px; gap:8px; align-items:center; font-size:12px; }
+      .hrx-bar-label { color:#334155; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .hrx-bar-track { height:12px; border-radius:999px; background:#eef2f7; overflow:hidden; }
+      .hrx-bar-track span { display:block; height:100%; border-radius:999px; background:linear-gradient(90deg,#2563eb,#38bdf8); }
+      .hrx-bar-value { text-align:right; color:#0f172a; font-weight:900; font-variant-numeric:tabular-nums; }
+      .hrx-donut-wrap { display:grid; grid-template-columns:112px minmax(0,1fr); gap:14px; align-items:center; }
+      .hrx-donut { width:112px; height:112px; border-radius:50%; display:grid; place-items:center; position:relative; }
+      .hrx-donut:after { content:""; position:absolute; inset:28px; background:#fff; border-radius:50%; }
+      .hrx-donut span { position:relative; z-index:1; font-size:22px; font-weight:950; color:#0f172a; }
+      .hrx-legend { display:flex; flex-direction:column; gap:8px; min-width:0; }
+      .hrx-legend div { display:grid; grid-template-columns:10px minmax(0,1fr) auto; gap:7px; align-items:center; font-size:12px; color:#475569; }
+      .hrx-legend i { width:10px; height:10px; border-radius:3px; }
+      .hrx-legend span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .hrx-legend b { color:#0f172a; font-size:11px; }
+      .hrx-vertical-bars { height:185px; display:flex; gap:10px; align-items:end; justify-content:space-between; padding-top:8px; }
+      .hrx-vbar-item { flex:1; min-width:0; display:flex; flex-direction:column; align-items:center; gap:5px; height:100%; }
+      .hrx-vbar-value { font-size:11px; font-weight:900; color:#0f172a; }
+      .hrx-vbar { flex:1; width:100%; max-width:32px; border-radius:9px; background:#eef2f7; display:flex; align-items:end; overflow:hidden; }
+      .hrx-vbar span { width:100%; background:linear-gradient(180deg,#38bdf8,#2563eb); border-radius:9px 9px 0 0; }
+      .hrx-vbar-label { font-size:10px; color:#64748b; white-space:nowrap; }
+      .hrx-table-wrap { overflow-x:auto; }
+      .hrx-table { width:100%; border-collapse:collapse; font-size:12px; min-width:320px; }
+      .hrx-table th, .hrx-table td { padding:8px 7px; border-bottom:1px solid #eef2f7; text-align:left; color:#334155; }
+      .hrx-table th { color:#475569; background:#f8fafc; font-weight:900; }
+      .hrx-empty { min-height:96px; display:grid; place-items:center; text-align:center; color:#64748b; font-size:12px; background:#f8fafc; border:1px dashed #cbd5e1; border-radius:10px; padding:12px; }
+      .hrx-info-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+      .hrx-info-card { border:1px solid #e2e8f0; border-radius:12px; padding:14px; background:#fbfdff; }
+      .hrx-info-card h3 { margin:0 0 8px; color:#0f172a; font-size:14px; }
+      .hrx-info-card p { margin:0; color:#475569; font-size:12px; line-height:1.55; }
+      @media (max-width: 920px) {
+        .hrx-hero, .hrx-grid-3, .hrx-info-grid { grid-template-columns:1fr; }
+        .hrx-toolbar { grid-template-columns:repeat(2,minmax(0,1fr)); }
+      }
+      @media (max-width: 560px) {
+        .hrx-hero { padding:14px; }
+        .hrx-hero h2 { font-size:22px; }
+        .hrx-toolbar { grid-template-columns:1fr; }
+        .hrx-donut-wrap { grid-template-columns:1fr; justify-items:center; }
+      }
     </style>
     <div style="padding:8px;display:flex;flex-direction:column;gap:14px">
 
@@ -1276,6 +1719,8 @@ export async function renderHrOverviewPage(ctx) {
       </div>
 
       ${errBanner}
+
+      ${_renderHrExecutiveDashboard(dashboardMetrics, { monthTh, todayTh, departments: data.departments, activeDept, activeRole })}
 
       <!-- KPI cards -->
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
@@ -1500,6 +1945,7 @@ export async function renderHrOverviewPage(ctx) {
       status: found.status,
       dept,
       radiusM: geofence?.radiusM ?? null,
+      punc: found.punc,
     });
     const payrollSummary = employeePayrollSummary(data.payrolls, found.profile);
     const weekState = weekCache.get(activeUserId) || { status: "idle", rows: [], error: null, today };

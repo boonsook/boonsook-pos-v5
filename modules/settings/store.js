@@ -52,6 +52,18 @@ export function renderSettingsStore(el, ctx, _goBack, _navigate) {
             <input type="number" min="0" max="23" step="1" id="storeShiftEnd" class="form-input" value="${escHtml(String(storeInfo.shiftEndHour ?? 17))}" />
           </div>
         </div>
+        <!-- Phase 92.49: late / early-leave grace (informational เท่านั้น — ไม่กระทบ payroll/OT) -->
+        <div style="font-size:11px;color:#075985;margin:12px 0 6px">เกณฑ์ผ่อนผัน (นาที) — ใช้ตีสถานะ "มาสาย / ออกก่อนเวลา" ในหน้า HR + ลงเวลา (ไม่กระทบการคำนวณเงินเดือน/OT)</div>
+        <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+          <div style="flex:1;min-width:120px">
+            <label class="form-label" style="font-size:12px">ผ่อนผันเข้าสาย (นาที)</label>
+            <input type="number" min="0" max="240" step="1" id="storeLateGrace" class="form-input" value="${escHtml(String(storeInfo.lateGraceMinutes ?? 15))}" />
+          </div>
+          <div style="flex:1;min-width:120px">
+            <label class="form-label" style="font-size:12px">ผ่อนผันออกก่อน (นาที)</label>
+            <input type="number" min="0" max="240" step="1" id="storeEarlyLeaveGrace" class="form-input" value="${escHtml(String(storeInfo.earlyLeaveGraceMinutes ?? 15))}" />
+          </div>
+        </div>
       </div>
 
       <!-- Phase 92.24: GPS geo-fence ของร้าน — ใช้ตอนพนักงานลงเวลา -->
@@ -132,6 +144,12 @@ export function renderSettingsStore(el, ctx, _goBack, _navigate) {
     const safeStart  = shiftStart < shiftEnd ? shiftStart : 8;
     const safeEnd    = shiftStart < shiftEnd ? shiftEnd   : 17;
 
+    // Phase 92.49: late / early-leave grace — validate ตัวเลข >= 0 (default 15, clamp 0-240)
+    const lateGraceRaw  = parseInt(document.getElementById('storeLateGrace')?.value, 10);
+    const earlyGraceRaw = parseInt(document.getElementById('storeEarlyLeaveGrace')?.value, 10);
+    const lateGraceMinutes      = (Number.isFinite(lateGraceRaw)  && lateGraceRaw  >= 0) ? Math.min(lateGraceRaw,  240) : 15;
+    const earlyLeaveGraceMinutes = (Number.isFinite(earlyGraceRaw) && earlyGraceRaw >= 0) ? Math.min(earlyGraceRaw, 240) : 15;
+
     // Phase 92.24: GPS geo-fence — null ถ้าเว้นว่าง (= ปิด feature)
     const latRaw    = parseFloat(document.getElementById('storeShopLat')?.value);
     const lngRaw    = parseFloat(document.getElementById('storeShopLng')?.value);
@@ -147,6 +165,8 @@ export function renderSettingsStore(el, ctx, _goBack, _navigate) {
       address: document.getElementById('storeAddress')?.value?.trim() || '',
       shiftStartHour: safeStart,
       shiftEndHour:   safeEnd,
+      lateGraceMinutes,
+      earlyLeaveGraceMinutes,
       shopLat,
       shopLng,
       geofenceRadiusM: radius

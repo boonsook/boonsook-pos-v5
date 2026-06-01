@@ -7,6 +7,20 @@
 
 ---
 
+## 5.64.0 (build 320) — 2026-06-01 Phase 92.50 — HR executive dashboard detail view
+
+- **feat(hr):** HR Overview เพิ่ม dashboard รายละเอียดครบแบบตัวอย่าง: hero/benefits, context filter strip, KPI cards, chart แยกแผนก, donut แยกตำแหน่ง, สถานะลงเวลาวันนี้, แนวโน้มคนลงเวลา, สรุปวันลา, ตารางสัญญา/ทดลองงานใกล้ครบ และ notes แหล่งข้อมูล
+- **read-only:** ใช้ข้อมูลเดิมจาก profiles/departments/staff_attendance/staff_payroll + fetch `staff_leaves` แบบ graceful; ไม่แตะ payroll/accounting/RLS/schema
+- **test/pwa-cache:** เพิ่ม `buildHrDashboardMetrics` test + bump 319→320 (`index.html` asset query strings + `sw.js` cache)
+
+## 5.64.0 (build 319) — 2026-06-01 Phase 92.49 — HR attendance exception rules
+
+- **feat(hr):** กฎ "มาสาย / ออกก่อนเวลา / attendance exception" — pure helper `classifyPunctuality(row, shift, opts)` ใน `time_clock.js` คืน `{status, lateMinutes, earlyLeaveMinutes}` (on_time / late / early_leave / late_and_early_leave / missing_clock_out / none) บน Asia/Bangkok
+- **feat(hr):** HR Overview เพิ่ม chip มาสาย/ออกก่อน ใน row + drill-down + alert รวม (late_arrivals / early_leaves); หน้า Time Clock (manager) แสดง chip ในรายงาน — **informational เท่านั้น ไม่ block clock-in/out**
+- **feat(settings):** ตั้งค่า `lateGraceMinutes` / `earlyLeaveGraceMinutes` (default 15, เก็บใน storeInfo pattern เดิม — ไม่มี SQL/schema change)
+- **ไม่กระทบ:** payroll / OT / leave / accounting / JE RLS
+- **test:** +18 `time_clock.test.js` (classifyPunctuality/rules/chip) · +7 `hr_overview.test.js` (exception counting) · **pwa-cache:** bump 318→319
+
 ## 5.64.0 (build 318) — 2026-06-01 Phase 92.48 hotfix — integrity panel sales fetch
 
 - **fix(accounting):** การ์ด integrity ดึง orphan row ด้วย `select=*` — เดิม sales select มี `grand_total` ที่ sales ไม่มีคอลัมน์ → PostgREST 400 → 85 รายการขึ้น "classify ไม่ได้" 🟡; ตอนนี้ classify ได้ → 🟢 (รายจ่ายไม่โดนเพราะ select แค่คอลัมน์ที่มีจริง)
