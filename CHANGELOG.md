@@ -10,7 +10,8 @@
 ## 5.64.0 (build 331) — 2026-06-01 Phase 92.61 — Refund คืนซ้ำ/คืนเกิน (audit fix #1)
 
 - **fix(refunds):** กันคืนซ้ำ/คืนเกิน — เปิด modal คืนบิลเดิมจะหัก "จำนวนที่คืนไปแล้ว" ออกจาก max ต่อรายการ (`computeRefundableItems`) + แสดง "คืนแล้ว N / ครบ" + disable ช่องที่คืนครบ + re-validate ก่อนบันทึก (`validateRefundWithinRemaining`) → กันเงิน+สต็อก+JE รั่ว
-- **scope:** client guard (จับคู่ด้วย product_id / fallback ชื่อ); server-side enforcement = SQL follow-up · **test:** +11 `refunds_cap.test.js` · **pwa-cache:** bump 330→331
+- **scope:** client guard (จับคู่ด้วย product_id / fallback ชื่อ) · **test:** +11 `refunds_cap.test.js` · **pwa-cache:** bump 330→331
+- **(92.61b) server-side guard:** เพิ่มไฟล์ `supabase-phase92-61b-refund-guard.sql` — BEFORE INSERT trigger `trg_guard_refunds_insert` บน `refunds` กันคืนเกิน qty เดิมระดับ DB (ทุก role, defense-in-depth) · **ต้องรันใน Supabase SQL Editor เอง** (ยังไม่ apply อัตโนมัติ) · ไม่ bump build (SQL-only)
 
 ## 5.64.0 (build 330) — 2026-06-01 Phase 92.60 — HR Overview premium UI/UX
 

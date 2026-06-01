@@ -30,7 +30,7 @@ Phase 92.61 Refund over-/double-refund cap is implemented and deployed (build 33
 
 - Finance audit found the refund modal set max refundable qty to the original sale qty every time (no subtraction of prior refunds) → a bill could be fully refunded repeatedly, leaking money + stock + reversing JE.
 - Fix (modules/refunds.js, client guard): new pure helpers `computeRefundableItems` (max = original − already-refunded, matched by product_id / name fallback) and `validateRefundWithinRemaining`; the modal now fetches the bill's prior refunds, caps each line, shows "คืนแล้ว N", disables fully-refunded lines, and re-validates before insert. +11 tests.
-- NOTE: this is a client-side guard. True enforcement needs a DB trigger/RLS (SQL follow-up, not yet done). This was audit finding #1 of a larger finance audit (remaining: recurring-expense JV + idempotency, VAT float drift, profit_report XSS/TZ, payroll JV error logging, period-lock trigger verification).
+- NOTE: this is a client-side guard. The matching DB-level guard is now written as `supabase-phase92-61b-refund-guard.sql` (BEFORE INSERT trigger on `refunds` rejecting over-refund per product_id) but is **PENDING manual apply in Supabase SQL Editor** (Claude can't run DDL). Until applied, only the client guard is active. This was audit finding #1 of a larger finance audit (remaining: recurring-expense JV + idempotency, VAT float drift, profit_report XSS/TZ, payroll JV error logging, period-lock trigger verification).
 
 Phase 92.60 HR Overview premium UI/UX is implemented and deployed (build 330). (Codex shipped 92.58 POS money audit + 92.59 period-close gate in parallel; HR UI renumbered 92.58→92.60 and rebased on build 329.)
 
