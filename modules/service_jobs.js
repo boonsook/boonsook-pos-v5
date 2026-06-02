@@ -2,6 +2,8 @@
 import { renderEmpty } from "./ui_states.js";
 // Phase 68 (B3): tag rendering + presets · Phase 70 (D3): Excel export
 import { renderTagBadge, SERVICE_TAG_PRESETS, exportToExcel, todaySuffix } from "./utils.js";
+// Phase 351: detect งานจากแคตตาล็อกแอร์ (read-only parse จาก note — ไม่แตะ schema/stock/POS)
+import { parseAirJobMeta, airBadgeHtml, airJobInfoHtml } from "./air_job_meta.js";
 
 const STATUS_LABELS = {
   pending:        "รอดำเนินการ",
@@ -147,6 +149,7 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
           const statusColor = STATUS_COLOR[status] || "#9ca3af";
           const typeLabel   = JOB_TYPE_LABELS[jobType] || "";
           const isWebOrder  = (j.sub_service || "").includes("สั่งซื้อ") || /^SH-(transfer|cod_cash|cod_transfer)\|/.test(j.note || "");
+          const airMeta     = parseAirJobMeta(j); // Phase 351 — งานจากแคตตาล็อกแอร์ (read-only)
 
           // ★ ถ้าเป็นออเดอร์จากเว็บ → parse รายการสินค้าจาก description + วิธีชำระ
           let orderItemsHtml = "";
@@ -206,9 +209,11 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
                     <span style="font-size:12px;color:${statusColor};font-weight:700;padding:2px 8px;border-radius:99px;background:${statusColor}15">${statusLabel}</span>
                     ${typeLabel ? `<span style="font-size:12px;color:#64748b">${typeLabel}</span>` : ''}
                     ${isWebOrder ? '<span style="font-size:11px;color:#10b981;font-weight:700;padding:2px 8px;border-radius:99px;background:#ecfdf5">🛒 ออเดอร์เว็บ</span>' : ''}
+                    ${airMeta.isAir ? airBadgeHtml(airMeta) : ''}
                     ${payBadgeHtml}
                     ${Array.isArray(j.tags) ? j.tags.map(t => renderTagBadge(t, SERVICE_TAG_PRESETS)).join("") : ""}
                   </div>
+                  ${airMeta.isAir ? airJobInfoHtml(airMeta) : ''}
                   ${orderItemsHtml}
                   ${orderTotalHtml}
                   ${slipImgHtml}

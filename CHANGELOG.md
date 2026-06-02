@@ -7,6 +7,13 @@
 
 ---
 
+## 5.66.0 (build 351) — 2026-06-02 Phase 351 service-job-air-source-visibility — เห็นงานจากแคตตาล็อกแอร์ในรายการงาน
+
+- **feat:** รายการงาน (งานช่าง admin + "งานของฉัน" ลูกค้า) แสดง **badge "🌬️ จากแคตตาล็อกแอร์ · สั่งจอง/สอบถามราคา"** + กล่องสรุป **รุ่น/BTU/ราคาเสนอ/นัดหมาย** — เจ้าของร้าน/ช่าง/ลูกค้าเห็นที่มางานชัด
+- **how:** ไฟล์ใหม่ `modules/air_job_meta.js` — `parseAirJobMeta(job)` **detect marker `source=air_catalog`** จาก `note` เดิม (best-effort regex, ไม่ crash ถ้าข้อมูลไม่ครบ) → `{isAir,intent,summary,btu,price,appointment}`; `airBadgeHtml`/`airJobInfoHtml` (escape XSS) — **READ-ONLY ไม่เพิ่ม DB column**
+- **wire:** `service_jobs.js` (การ์ดงานช่าง) + `customer_dashboard.js` แท็บ "งานของฉัน" · งานทั่วไป/ออเดอร์เว็บ ไม่โดน badge · ซ่อน raw note ที่มี marker ในแท็บลูกค้า (กล่องสรุปแสดงแทน — ไม่โชว์ `[source=air_catalog]` ดิบ)
+- **scope:** ❌ ไม่แตะ products/POS/cart/stock · ❌ ไม่ตัด/เพิ่ม stock · ❌ ไม่สร้างใบเสนอราคาอัตโนมัติ · ❌ ไม่แก้ SQL/schema · ❌ ไม่เปลี่ยน submit endpoint/workflow/สถานะงาน · ❌ ไม่กระทบ service_request ปกติ/quotation(346)/booking(347-350) · **filter chip เลื่อนเป็น phase ถัดไป** (ทำ badge/card ก่อน) · **test:** +8 `air_job_meta.test.js` + mobile/desktop smoke · **pwa-cache:** bump 350→351
+
 ## 5.66.0 (build 350) — 2026-06-02 Phase 350 service-request-air-form-polish — ขัดเกลา UX หน้าแจ้งงาน (เฉพาะมี air draft)
 
 - **ux:** ช่อง **วันที่/ช่วงเวลา** มี placeholder/aria ชัด ("เลือกวันที่สะดวก", "เลือกช่วงเวลา (ไม่ระบุก็ได้)") + hint *"ยังไม่ระบุก็ได้ — เจ้าหน้าที่จะติดต่อยืนยันเวลานัดหมายอีกครั้ง"* (เลิกดูเหมือนกรอบ error)

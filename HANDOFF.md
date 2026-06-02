@@ -3,9 +3,10 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase 350 service-request-air-form-polish — ขัดเกลา UX หน้าแจ้งงาน, build 350)
-**Version:** 5.66.0 (build 350) — Phase 350 service-request-air-form-polish (date hint / AI secondary / ลดข้อความซ้ำ / note textarea / confirmation; เฉพาะมี air draft, ไม่กระทบ flow ปกติ/POS/cart/quotation/SQL)
-**Previous:** 5.66.0 (build 349) — Phase 349 service-request-air-booking-polish (summary card + intent + prefill + นัดหมาย→note)
+**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase 351 service-job-air-source-visibility — badge งานจากแคตตาล็อกแอร์, build 351)
+**Version:** 5.66.0 (build 351) — Phase 351 service-job-air-source-visibility (badge+info งานแอร์ในรายการงาน, read-only parse note, ไม่แตะ stock/POS/cart/schema)
+**Previous:** 5.66.0 (build 350) — Phase 350 service-request-air-form-polish (date hint/AI secondary/ลดซ้ำ/note textarea/confirmation)
+**Pre-prev-1j:** 5.66.0 (build 349) — Phase 349 service-request-air-booking-polish (summary card + intent + prefill)
 **Pre-prev-1i:** 5.66.0 (build 348) — Phase 348 remove-customer-cart-tab
 **Pre-prev-1h:** 5.66.0 (build 347) — Phase 347 air-catalog-public-store-sync (storefront + booking flow)
 **Pre-prev-1g:** 5.66.0 (build 346) — Phase 346 air-catalog-to-quotation-draft (→ ใบเสนอราคา)
@@ -23,6 +24,30 @@
 > 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.64** (client helper เท่านั้น)
 > 🏁 **FINANCE AUDIT CLOSED ที่ build 334** — ครบทุกข้อ: #1✓✓ #2✓ #3✓ #4✓ #5✓ #6✓ #6b✓ #7✓(dead code ลบแล้ว) #8✓ #9✓
 > ✅ **#9 period-lock DB trigger VERIFIED** (gangboo query DB, 2026-06-01): `journal_entries` → trigger `trg_check_period_locked` → function `check_period_not_locked` → insert เข้า period ที่ locked ถูกกันที่ DB จริง (เส้นแบ่งความปลอดภัยตาม CLAUDE.md 4.3)
+
+---
+
+## 🛠️ Phase 351 service-job-air-source-visibility — เห็นงานจากแคตตาล็อกแอร์ในรายการงาน (build 351)
+
+**เป้าหมาย:** ฝั่งหลังบ้าน/รายการงาน — เจ้าของร้าน/ช่าง/ลูกค้าเห็นว่างานมาจาก "แคตตาล็อกแอร์" + รุ่น/BTU/ราคา/intent.
+
+**Scope/ข้อห้าม:** READ-ONLY — ❌ products/POS/cart/stock · ❌ เพิ่ม/ตัด stock · ❌ ใบเสนอราคาอัตโนมัติ · ❌ SQL/schema (ไม่เพิ่ม column) · ❌ เปลี่ยน submit/workflow/สถานะงาน · ❌ กระทบ service_request ปกติ/quotation(346)/booking(347-350).
+
+**วิธี parse `source=air_catalog`:** marker อยู่ใน `service_jobs.note` ที่ build 350 เขียน (`[source=air_catalog] {airType} {brand} {model} {btu} BTU · {ราคา} | สเปก.. | ประกัน.. | {note} | นัดหมาย {date} {ช่วงเวลา}`). ไฟล์ใหม่ **`modules/air_job_meta.js`**:
+- `parseAirJobMeta(job)` — `isAir = /source=air_catalog/.test(note)`; intent จาก description ("สอบถามราคา"→ask, อื่น→booking) หรือ note ("ต้องเช็คราคา"→ask); `summary` = ช่วงแรกหลัง marker จนถึง ` | ` (มี airType/brand/model/BTU/ราคา); `btu`/`price`/`appointment` regex. best-effort, ไม่ crash (null/undefined/ไม่ครบ → `{isAir:false}` หรือ field ว่าง).
+- `airBadgeHtml(meta)` = badge ฟ้า "🌬️ จากแคตตาล็อกแอร์ · {สั่งจอง|สอบถามราคา}"; `airJobInfoHtml(meta)` = กล่องสรุป (escape XSS).
+
+**Pages/route ที่เพิ่ม badge:**
+1. **`service_jobs.js`** (รายการงานช่าง admin) — `airMeta = parseAirJobMeta(j)`; badge ในแถว status + info box ในการ์ด. งานทั่วไป/ออเดอร์เว็บ (isWebOrder) ไม่โดน.
+2. **`customer_dashboard.js`** แท็บ "งานของฉัน" — badge ใต้ type label + info box; **ซ่อน raw `💬 note` block เมื่อ `airMeta.isAir`** (กล่องสรุปแสดงแทน — ไม่โชว์ `[source=air_catalog]` ดิบให้ลูกค้า).
+
+**Detail view (item 5):** กล่อง "รายการจากแคตตาล็อกแอร์" แสดง inline ในการ์ดรายการอยู่แล้ว (เห็นรุ่น/BTU/ราคา/นัดหมายโดยไม่ต้องเปิด) — ไม่แตะ edit drawer/workflow.
+
+**Filter chip (item 4):** **เลื่อนเป็น phase ถัดไป** ตามที่ spec อนุญาต (ทำ badge/card ก่อนให้ปลอดภัย).
+
+**ยืนยันไม่แตะ stock/POS/cart/schema:** air_job_meta ไม่มี fetch/localStorage/sessionStorage/SUPABASE_CONFIG/addToCart/.stock=/rest (guard); service_jobs/customer_dashboard เพิ่มแค่ display string จาก meta (ไม่แตะ mutation เดิม).
+
+**Verify:** lint:errors 0 · unit **981** (+8 `air_job_meta.test.js`: parse booking/ask · normal=no badge · malformed ไม่ crash · marker เฉพาะ note ไม่ใช่ description · badge/info render + XSS escape · air_job_meta read-only · service_jobs+customer_dashboard wired ไม่มี cart/stock/POS/quotation) · **smoke (temp, ลบแล้ว) mobile 390×844 + desktop:** air job → badge + info (รุ่น/BTU/ราคา/นัดหมาย) ทั้ง service_jobs + งานของฉัน; งานทั่วไปไม่มี badge (note ปกติคงอยู่); ไม่โชว์ marker ดิบ; ไม่มี h-overflow. **bump 350→351**.
 
 ---
 

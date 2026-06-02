@@ -9,6 +9,8 @@ import { openProductDetail } from "./product_detail_modal.js";
 // Phase 347 — หน้าร้านอ่านแคตตาล็อกแอร์ชุดเดียวกับหน้า "จัดการแคตตาล็อกแอร์" (แยกจากคลังจริง 100%)
 import { acTypeOf, acTypeLabel, AC_TYPES } from "./settings/ac-stock-form.js";
 import { pushAirBookingDraft } from "./ac_booking_draft.js";
+// Phase 351: badge "จากแคตตาล็อกแอร์" ในแท็บงานของฉัน (read-only parse จาก note)
+import { parseAirJobMeta, airBadgeHtml, airJobInfoHtml } from "./air_job_meta.js";
 
 let _custCart = JSON.parse(localStorage.getItem("bsk_cust_cart") || "[]");
 let _custTab = "shop"; // shop | cart | orders | jobs | points
@@ -657,6 +659,7 @@ export function renderCustomerDashboard(ctx) {
           const emoji = jobTypeEmoji[typeKey] || "🔧";
           const typeLabel2 = jobTypeLabel[typeKey] || "งานอื่นๆ";
           const desc = j.description || j.sub_service || "-";
+          const airMeta = parseAirJobMeta(j); // Phase 351 — งานจากแคตตาล็อกแอร์ (read-only)
           const priceText = j.total_cost ? money(j.total_cost) : "ประเมินหน้างาน";
           const createdStr = j.created_at ? new Date(j.created_at).toLocaleString("th-TH", { year:"numeric", month:"short", day:"numeric", hour:"2-digit", minute:"2-digit" }) : "";
 
@@ -688,7 +691,9 @@ export function renderCustomerDashboard(ctx) {
                 <div style="flex:1;min-width:0">
                   <div style="font-size:11px;color:#94a3b8;font-weight:700">${escHtml(j.job_no || "-")}</div>
                   <div style="font-size:15px;font-weight:800;color:#1f2937;margin-top:2px">${emoji} ${escHtml(typeLabel2)}</div>
+                  ${airMeta.isAir ? `<div style="margin-top:4px">${airBadgeHtml(airMeta)}</div>` : ''}
                   <div style="font-size:13px;color:#475569;margin-top:4px;word-wrap:break-word">${escHtml(desc)}</div>
+                  ${airMeta.isAir ? airJobInfoHtml(airMeta) : ''}
                 </div>
                 <div style="text-align:right;white-space:nowrap">
                   <div style="font-size:16px;font-weight:900;color:#0284c7">${priceText}</div>
@@ -712,7 +717,7 @@ export function renderCustomerDashboard(ctx) {
                   🎉 ปิดงานเรียบร้อยแล้ว — ขอบคุณที่ใช้บริการครับ
                 </div>
               ` : ''}
-              ${j.note && !/^SH-/.test(j.note) && !j.note.includes("[ลบแล้ว]") ? `
+              ${j.note && !/^SH-/.test(j.note) && !j.note.includes("[ลบแล้ว]") && !airMeta.isAir ? `
                 <div style="font-size:12px;color:#64748b;margin-top:8px;padding:8px 10px;background:#f8fafc;border-radius:8px;border-left:3px solid #0284c7">
                   💬 ${escHtml(j.note)}
                 </div>
