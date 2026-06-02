@@ -4,7 +4,8 @@ Last updated: 2026-06-02 (Phase 355 air-quotation-save-linkback — อ้าง
 
 Purpose: this is the common first-read note for Codex, Claude, or any next agent opening a fresh session on this project. Read this before changing files so both teams start from the same facts.
 
-> **ทีม implement / Claude:** เริ่มจาก [`IMPLEMENT_TEAM_PROTOCOL.md`](IMPLEMENT_TEAM_PROTOCOL.md) ก่อน — ต้องอ่าน + ทำตาม STEP 0–7 ก่อนลงมือ phase ใหม่ และต้อง **หยุดหลังจบ phase รอ owner/Codex review** เสมอ
+> **ทีม implement / Claude:** [`IMPLEMENT_TEAM_PROTOCOL.md`](IMPLEMENT_TEAM_PROTOCOL.md) คือ **canonical protocol** — อ่าน + ทำตามก่อนลงมือทุก phase (Read Order → Phase Start Checklist → Verification Gates → Required Final Report Format) ทำ **ทีละ phase** และ **หยุดหลังจบ phase รอ owner/Codex review** เสมอ
+> ⚠️ `CLAUDE_SESSION_HANDOFF.md` / `CLAUDE_CODE_PROMPT.md` / `CLAUDE_CODE_WORKFLOW.md` = **superseded** (redirect ไป protocol ข้างบนแล้ว) — อย่าใช้เป็น workflow หลัก
 
 ## Project Snapshot
 
