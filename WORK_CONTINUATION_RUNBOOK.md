@@ -1,6 +1,6 @@
 # Superseded Session Note - Read This First
 
-This runbook contains older historical context. For the current shared state between Codex and Claude sessions, read `SESSION_START_SHARED.md` first.
+This runbook contains older historical context. For the current process, read [`IMPLEMENT_TEAM_PROTOCOL.md`](IMPLEMENT_TEAM_PROTOCOL.md) (canonical protocol) then [`SESSION_START_SHARED.md`](SESSION_START_SHARED.md) first.
 
 ## Current Status as of 2026-06-01 (live)
 

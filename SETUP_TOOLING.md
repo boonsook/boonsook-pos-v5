@@ -249,6 +249,8 @@ gh pr create --fill --base main --title "Phase 89.14 prep: tooling (eslint + pla
 
 ## ส่วนที่ 5 — Update Claude Code prompt
 
+> ⚠️ **Superseded (historical, Phase 89.14):** `CLAUDE_CODE_PROMPT.md` เป็น redirect stub แล้ว — workflow/loop แบบ autonomous นี้เลิกใช้ canonical ปัจจุบันคือ [`IMPLEMENT_TEAM_PROTOCOL.md`](IMPLEMENT_TEAM_PROTOCOL.md) (ส่วนที่ 5 นี้เก็บไว้เป็นบันทึกประวัติเท่านั้น)
+
 หลัง tooling merge เข้า main แล้ว เปลี่ยน step "loop" ใน `CLAUDE_CODE_PROMPT.md`:
 
 ใน loop ของแต่ละบั๊ก เดิม:

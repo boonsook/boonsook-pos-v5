@@ -1,6 +1,6 @@
 # Boonsook POS Project Patterns
 
-Project-specific reference for agents working on Boonsook POS V5 — a Thai POS PWA written in vanilla JS (ES modules, no build step), backed by Supabase (Postgres + RLS) and Cloudflare Pages Functions. Load this when a task touches one of the areas below. `CLAUDE.md` is the authoritative guardrail spec; this file is the practical companion.
+Project-specific reference for agents working on Boonsook POS V5 — a Thai POS PWA written in vanilla JS (ES modules, no build step), backed by Supabase (Postgres + RLS) and Cloudflare Pages Functions. Load this when a task touches one of the areas below. [`IMPLEMENT_TEAM_PROTOCOL.md`](IMPLEMENT_TEAM_PROTOCOL.md) is the canonical session protocol (read it first); `CLAUDE.md` is the authoritative guardrail spec; this file is the practical companion.
 
 ## Highest-Risk Areas (verify hard, treat as blocking)
 

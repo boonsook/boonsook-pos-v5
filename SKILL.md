@@ -5,6 +5,8 @@ description: Guardrail workflow for fixing, reviewing, or modifying the Boonsook
 
 # Boonsook POS Guardrails
 
+> **Canonical protocol:** อ่าน [`IMPLEMENT_TEAM_PROTOCOL.md`](IMPLEMENT_TEAM_PROTOCOL.md) + [`SESSION_START_SHARED.md`](SESSION_START_SHARED.md) ก่อนเริ่มทุก session (ไฟล์นี้เป็น guardrail companion ไม่ใช่ session entrypoint)
+
 ## Operating Rule
 
 Treat this POS codebase as a live business tool. Prefer narrow, verified changes over clever broad rewrites. Before editing, build enough local context to name the expected behavior, current behavior, likely cause, and files to touch.
