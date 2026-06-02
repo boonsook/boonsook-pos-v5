@@ -136,3 +136,34 @@ test("customer-facing pages avoid the vague 'AI ช่วยกรอก' copy",
   assert.ok(!/custAiCta[\s\S]{0,300}AI ช่วยกรอก</.test(cd), "customer_dashboard CTA must not say bare 'AI ช่วยกรอก'");
   assert.ok(!/srAiBtn[\s\S]{0,300}AI ช่วยกรอก</.test(sr), "service_request button must not say bare 'AI ช่วยกรอก'");
 });
+
+// ── Sales-doc pages (ใบเสนอราคา/ใบส่ง/ใบเสร็จ) mobile layout cleanup ──────────
+test("sales-doc status tabs wrap into chips on mobile (no overlapping text)", () => {
+  // shared selectors for the three tab rows must wrap + drop the underline on mobile
+  assert.match(css, /\.qt-tabs,\s*\.di-tabs,\s*\.rc-tabs\s*\{[^}]*flex-wrap:\s*wrap\s*!important/s);
+  assert.match(css, /\.qt-tab-btn,\s*\.di-tab-btn,\s*\.rc-tab-btn\s*\{[^}]*border-radius:\s*999px\s*!important/s);
+  // buttons must not shrink (the root cause of the text overlap)
+  assert.match(css, /\.qt-tab-btn,\s*\.di-tab-btn,\s*\.rc-tab-btn\s*\{[^}]*flex:\s*0 0 auto/s);
+});
+
+test("all three sales-doc list tables use the shared .table-wrap (horizontal scroll, no clipping)", () => {
+  for (const file of ["modules/quotations.js", "modules/delivery_invoices.js", "modules/receipts.js"]) {
+    const src = fs.readFileSync(path.resolve(file), "utf8");
+    assert.match(src, /<div class="table-wrap"[^>]*>\s*<table class="doc-list-table">/,
+      `${file} must wrap doc-list-table in .table-wrap`);
+    assert.ok(!/<div style="overflow-x:auto;margin-top:12px">\s*<table class="doc-list-table">/.test(src),
+      `${file} must no longer use the bare inline overflow wrapper`);
+  }
+});
+
+test("floating help FAB (#bs-help-fab) is hidden on the sales-doc routes on mobile (not the AI FAB)", () => {
+  const m = css.match(/@media\s*\(max-width:\s*768px\)\s*\{[\s\S]*?\n\}/g) || [];
+  const hasHide = m.some(block =>
+    /body\[data-route="quotations"\] #bs-help-fab/.test(block) &&
+    /body\[data-route="delivery_invoices"\] #bs-help-fab/.test(block) &&
+    /body\[data-route="receipts"\] #bs-help-fab/.test(block) &&
+    /#bs-help-fab\s*\{\s*display:\s*none\s*!important/.test(block));
+  assert.ok(hasHide, "a mobile @media block must hide #bs-help-fab on quotations/delivery_invoices/receipts");
+  // must target the help FAB, NOT the AI assistant FAB
+  assert.ok(!/body\[data-route="quotations"\] #bs-ai-fab/.test(css), "must not touch the AI FAB (#bs-ai-fab)");
+});

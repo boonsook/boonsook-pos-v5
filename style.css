@@ -1414,6 +1414,31 @@ th { color: var(--muted); font-size: 12px; }
     font-size: 12px !important; padding: 4px !important;
   }
 
+  /* ─── Sales-doc status tabs (ใบเสนอราคา/ใบส่ง/ใบเสร็จ) → chip-wrap บนมือถือ ───
+     เดิม flex+overflow-x:auto แต่ปุ่มไม่มี flex-shrink:0 → บีบจนข้อความ nowrap ทับกัน
+     มือถือ: wrap เป็น chip ทุกอันเห็นครบ ไม่ทับ (desktop คงแบบ underline-tab เดิม) */
+  .qt-tabs, .di-tabs, .rc-tabs {
+    flex-wrap: wrap !important;
+    overflow-x: visible !important;
+    border-bottom: 0 !important;
+    gap: 6px !important;
+  }
+  .qt-tab-btn, .di-tab-btn, .rc-tab-btn {
+    flex: 0 0 auto;
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 999px !important;
+    background: #f8fafc !important;
+    padding: 7px 12px !important;
+    font-size: 12px !important;
+    margin-bottom: 0 !important;
+  }
+
+  /* ─── ซ่อน floating help (💡 #bs-help-fab) บนหน้าเอกสารขาย — กันทับ row ตาราง
+     (คนละปุ่มกับ AI assistant #bs-ai-fab — ไม่กระทบ flow build 340) ─── */
+  body[data-route="quotations"] #bs-help-fab,
+  body[data-route="delivery_invoices"] #bs-help-fab,
+  body[data-route="receipts"] #bs-help-fab { display: none !important; }
+
   /* ─── ฟอร์ม: grid 2 คอลัมน์ → 1 คอลัมน์ ─── */
   [style*="grid-template-columns:1fr 1fr"],
   [style*="grid-template-columns: 1fr 1fr"] {

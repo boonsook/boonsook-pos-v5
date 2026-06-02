@@ -7,6 +7,13 @@
 
 ---
 
+## 5.66.0 (build 341) — 2026-06-02 Phase sales-doc-mobile — แก้ layout overlap หน้าเอกสารขาย (มือถือ)
+
+- **fix(mobile):** status filter tabs ใบเสนอราคา/ใบส่ง/ใบเสร็จ (`.qt-tabs`/`.di-tabs`/`.rc-tabs`) เดิม flex+overflow-x:auto แต่ปุ่มไม่มี `flex-shrink:0` → บีบจนข้อความ nowrap ทับกัน → `@media ≤768px` wrap เป็น **chip** (`border-radius:999px`, `flex:0 0 auto`) เห็นครบทุกแท็บ ไม่ทับ (desktop คง underline-tab เดิม)
+- **fix(mobile):** `doc-list-table` wrapper เปลี่ยนจาก inline `overflow-x:auto` div → shared `.table-wrap` (มี `min-width:520px` + full-bleed) → scroll แนวนอนชัด เลขเอกสาร/สถานะ/ปุ่ม ไม่ถูกตัด/ทับ
+- **fix(mobile):** ซ่อน floating help 💡 (`#bs-help-fab`) บน route `quotations`/`delivery_invoices`/`receipts` (กันทับ row ตาราง) — คนละปุ่มกับ AI assistant `#bs-ai-fab` ไม่กระทบ flow build 340
+- **scope:** CSS + markup เท่านั้น — ไม่แตะ business/API/auth/accounting · **test:** +3 `mobile_layout_guard.test.js` · **pwa-cache:** bump 340→341
+
 ## 5.66.0 (build 340) — 2026-06-02 Phase mobile-layout follow-up #3 — AI entry UX (inline แทน FAB)
 
 - **fix/ux(mobile):** เลิกใช้ floating FAB บนมือถือทั้งหมด (`@media ≤768px { #bs-ai-fab { display:none !important } }`) — fixed FAB ลอยทับ input/select/textarea แม้ icon-only/route-gate → แทนด้วย **inline button ในเนื้อหา**

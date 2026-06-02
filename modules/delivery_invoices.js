@@ -178,7 +178,7 @@ export function renderDeliveryInvoicesPage(ctx) {
         .doc-list-table .row-actions button{font-size:11px;padding:5px 10px;border-radius:6px;border:none;cursor:pointer;font-weight:600;white-space:nowrap}
       </style>
 
-      <div style="overflow-x:auto;margin-top:12px">
+      <div class="table-wrap" style="margin-top:12px">
       <table class="doc-list-table">
         <thead>
           <tr>

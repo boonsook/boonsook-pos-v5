@@ -201,7 +201,7 @@ export function renderReceiptsPage(ctx) {
         @media(max-width:700px){.doc-list-table .hide-sm{display:none}.doc-list-table th,.doc-list-table td{padding:8px 6px;font-size:12px}}
       </style>
 
-      <div style="overflow-x:auto;margin-top:12px">
+      <div class="table-wrap" style="margin-top:12px">
       <table class="doc-list-table">
         <thead>
           <tr>
