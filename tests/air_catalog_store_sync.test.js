@@ -117,3 +117,34 @@ test("build 346 quotation draft flow still wired (not broken by 347)", () => {
   assert.ok(fs.existsSync(path.resolve("modules/ac_quotation_draft.js")), "ac_quotation_draft.js must still exist");
   assert.match(quotations, /import \{ consumeAirQuoteDrafts \} from "\.\/ac_quotation_draft\.js"/);
 });
+
+// ── Phase 348: cart tab removed from the customer storefront ──────────────────
+test("customer storefront nav has NO cart tab (flow = จอง/สอบถามราคา, not cart/checkout)", () => {
+  // the tab nav array must not list a cart tab
+  const navArr = dash.slice(dash.indexOf('{id:"shop"'), dash.indexOf("].map(t =>"));
+  assert.ok(!/\{id:"cart"/.test(navArr), "tab nav must not include the cart tab");
+  assert.match(navArr, /\{id:"shop"/);
+  assert.match(navArr, /\{id:"orders"/);
+  assert.match(navArr, /\{id:"jobs"/);
+  assert.match(navArr, /\{id:"points"/);
+});
+
+test("stale _custTab=cart is redirected to shop (dormant cart branch never renders)", () => {
+  assert.match(dash, /if \(_custTab === "cart"\) _custTab = "shop"/);
+});
+
+test("help FAB is hidden on the customer_dashboard route on mobile (not the AI FAB)", () => {
+  const css = fs.readFileSync(path.resolve("style.css"), "utf8");
+  const m = css.match(/@media\s*\(max-width:\s*768px\)\s*\{[\s\S]*?\n\}/g) || [];
+  assert.ok(m.some(b => /body\[data-route="customer_dashboard"\] #bs-help-fab\s*\{?[^}]*display:\s*none/.test(b)
+    || /body\[data-route="customer_dashboard"\] #bs-help-fab/.test(b) && /#bs-help-fab\s*\{\s*display:\s*none/.test(b)),
+    "must hide #bs-help-fab on customer_dashboard mobile");
+  assert.ok(!/body\[data-route="customer_dashboard"\] #bs-ai-fab/.test(css), "must not touch the AI FAB");
+});
+
+// ── system-wide POS / cart logic must NOT be removed ─────────────────────────
+test("global POS/cart logic is preserved (only the storefront tab was removed)", () => {
+  assert.ok(fs.existsSync(path.resolve("modules/pos.js")), "POS module must still exist");
+  // the dashboard's own cart helpers remain defined (dormant) — not ripped out
+  assert.match(dash, /function saveCustCart\(/);
+});

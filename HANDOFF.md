@@ -3,9 +3,10 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase 347 air-catalog-public-store-sync — หน้าร้านอ่านแคตตาล็อกแอร์ชุดเดียวกัน, build 347)
-**Version:** 5.66.0 (build 347) — Phase 347 air-catalog-public-store-sync (storefront sync + booking flow — แยกคลังจริง 100%, ไม่ addToCart/POS)
-**Previous:** 5.66.0 (build 346) — Phase 346 air-catalog-to-quotation-draft (sessionStorage bridge → ใบเสนอราคา)
+**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase 348 remove-customer-cart-tab-for-air-catalog — เอา tab ตะกร้าออก, build 348)
+**Version:** 5.66.0 (build 348) — Phase 348 remove-customer-cart-tab (หน้าร้านแอร์ = จอง/สอบถามราคา ไม่ใช่ cart/checkout; ไม่ลบ POS logic)
+**Previous:** 5.66.0 (build 347) — Phase 347 air-catalog-public-store-sync (storefront sync + booking flow)
+**Pre-prev-1g:** 5.66.0 (build 346) — Phase 346 air-catalog-to-quotation-draft (→ ใบเสนอราคา)
 **Pre-prev-1f:** 5.66.0 (build 345) — Phase air-catalog-not-real-stock-correction (wording ≠ สต็อกจริง)
 **Pre-prev-1e:** 5.66.0 (build 344) — Phase air-stock-manager-safe-step (แยก 3 ประเภท — localStorage)
 **Pre-prev-1d:** 5.66.0 (build 343) — Phase inventory-action-menu + category-collapse (UI/markup/CSS — สินค้า/คลัง)
@@ -20,6 +21,24 @@
 > 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.64** (client helper เท่านั้น)
 > 🏁 **FINANCE AUDIT CLOSED ที่ build 334** — ครบทุกข้อ: #1✓✓ #2✓ #3✓ #4✓ #5✓ #6✓ #6b✓ #7✓(dead code ลบแล้ว) #8✓ #9✓
 > ✅ **#9 period-lock DB trigger VERIFIED** (gangboo query DB, 2026-06-01): `journal_entries` → trigger `trg_check_period_locked` → function `check_period_not_locked` → insert เข้า period ที่ locked ถูกกันที่ DB จริง (เส้นแบ่งความปลอดภัยตาม CLAUDE.md 4.3)
+
+---
+
+## 🛠️ Phase 348 remove-customer-cart-tab-for-air-catalog — เอา tab "ตะกร้า" ออก (build 348)
+
+**เป้าหมาย:** หน้าร้าน/customer_dashboard เป็น flow **จอง/สอบถามราคา** (build 347) แต่ยังมี tab "🛒 ตะกร้า" → ลูกค้าเข้าใจผิดว่าซื้อทันที. เฟสนี้เอา tab ตะกร้า + cart/checkout wording ออกจากหน้าร้านแอร์.
+
+**Scope/ข้อห้าม:** ❌ ไม่ลบ cart/POS logic ทั่วระบบ · ❌ ไม่กระทบ POS/งานขายจริง · ❌ ไม่แตะ stock/products core/Supabase/SQL · ❌ ไม่กระทบ quotation draft (346)/booking draft (347).
+
+**Fix (customer_dashboard.js + style.css):**
+1. **ตัด `{id:"cart"}` ออกจาก tab nav array** → เหลือ ร้านค้า/ประวัติซื้อ/งานของฉัน/แต้มสะสม (ไม่มี cartCount badge แล้ว).
+2. **guard `if (_custTab === "cart") _custTab = "shop"`** ต้น render → สาขา `else if (_custTab==="cart")` (cart UI 393-558) + checkout handlers (839-1140) **คงไว้แต่ unreachable (dormant)** — ไม่ลบ (กัน regression + เคารพ "ห้ามลบ cart logic"). cartCount/cartTotal/saveCustCart/_custCart ยังถูกอ้างใน dead branch → ไม่มี unused-var.
+3. ปุ่มการ์ดยังเป็น `data-book` → `_book` (booking draft → service_request) จาก 347 — ไม่แตะ.
+4. **style.css @media≤768:** เพิ่ม `body[data-route="customer_dashboard"] #bs-help-fab { display:none }` (กัน help FAB ทับการ์ด) — รวมในบล็อกเดียวกับ products/wh_*. **คนละปุ่มกับ AI `#bs-ai-fab`** (build 340 มือถือซ่อน AI FAB อยู่แล้ว).
+
+**ยืนยันไม่กระทบ POS/cart จริง:** `modules/pos.js` ไม่แตะ (POS ใช้ cart ของตัวเอง คนละ store); customer_dashboard cart logic = dormant ไม่ถูกลบ; guard test ยืนยัน pos.js + saveCustCart ยังอยู่. `_custTab` ไม่ persist (default "shop") → ไม่มีทางเข้าสาขา cart.
+
+**Verify:** lint:errors 0 · unit **957** (+4: no cart tab in nav · _custTab guard · help-fab hide customer_dashboard mobile (ไม่แตะ AI FAB) · POS/cart logic preserved) · **smoke (temp, ลบแล้ว) mobile 390×844 + desktop:** tab ไม่มี cart, ไม่มีคำ ตะกร้า/เพิ่มลงตะกร้า/ชำระเงิน/คงเหลือ, กดสั่งจอง→service_request, `bsk_cust_cart` ว่าง, ไม่มี h-overflow. **bump 347→348**.
 
 ---
 

@@ -7,6 +7,14 @@
 
 ---
 
+## 5.66.0 (build 348) — 2026-06-02 Phase 348 remove-customer-cart-tab-for-air-catalog — เอา tab "ตะกร้า" ออกจากหน้าร้านแอร์
+
+- **ux:** เอา **tab "🛒 ตะกร้า"** ออกจาก customer dashboard (หน้าร้านแอร์ = flow **จอง/สอบถามราคา** ไม่ใช่ POS cart/checkout) — กันลูกค้าเข้าใจผิดว่าซื้อทันที · เหลือ tab: ร้านค้า / ประวัติซื้อ / งานของฉัน / แต้มสะสม
+- **safety:** guard `if (_custTab === "cart") _custTab = "shop"` → สาขา cart/checkout เดิม **คงไว้ (dormant) ไม่ render** (ไม่ลบ logic)
+- **ux:** ปุ่มการ์ดยังเป็น "📅 สั่งจอง" (พร้อมเสนอขาย) / "💬 สอบถามราคา" (ต้องเช็คราคา) → booking draft → service_request (build 347) — **ไม่ addToCart/saveCustCart/checkout/ตัด stock**
+- **ux(mobile):** ซ่อน floating help 💡 (`#bs-help-fab`) บน route `customer_dashboard` (กันทับการ์ด) — คนละปุ่มกับ AI `#bs-ai-fab`
+- **scope:** ❌ ไม่ลบ cart/POS logic ทั่วระบบ (`pos.js` + `saveCustCart` คงไว้) · ❌ ไม่กระทบ POS/งานขายจริง/stock/products/Supabase/SQL · ❌ ไม่กระทบ quotation draft (346) / booking draft (347) · **test:** +4 `air_catalog_store_sync.test.js` + mobile/desktop smoke · **pwa-cache:** bump 347→348
+
 ## 5.66.0 (build 347) — 2026-06-02 Phase 347 air-catalog-public-store-sync — หน้าร้านอ่านแคตตาล็อกแอร์ชุดเดียวกัน (สั่งจอง ไม่ใช่ตะกร้า)
 
 - **feat:** หน้าหลัก/customer dashboard แสดงรายการแอร์จาก **แคตตาล็อกชุดเดียวกัน** (`bsk_ac_catalog`) กับหน้า "จัดการแคตตาล็อกแอร์" — **แยกจากคลังจริง 100%**

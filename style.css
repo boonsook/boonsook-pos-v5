@@ -972,11 +972,12 @@ th { color: var(--muted); font-size: 12px; }
     margin-top: 6px !important;
   }
 
-  /* ซ่อน floating help 💡 บนหน้า สินค้า/คลัง (กันทับรายการ) — คนละปุ่มกับ AI #bs-ai-fab */
+  /* ซ่อน floating help 💡 บนหน้า สินค้า/คลัง + หน้าร้านลูกค้า (กันทับการ์ด) — คนละปุ่มกับ AI #bs-ai-fab */
   body[data-route="products"] #bs-help-fab,
   body[data-route="wh_kunkhao"] #bs-help-fab,
   body[data-route="wh_kundaeng"] #bs-help-fab,
-  body[data-route="wh_sikhon"] #bs-help-fab { display: none !important; }
+  body[data-route="wh_sikhon"] #bs-help-fab,
+  body[data-route="customer_dashboard"] #bs-help-fab { display: none !important; }
 }
 
 @media (max-width: 400px) {

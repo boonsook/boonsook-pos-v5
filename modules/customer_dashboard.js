@@ -145,6 +145,10 @@ export function renderCustomerDashboard(ctx) {
   const container = document.getElementById("page-customer_dashboard");
   if (!container) return;
 
+  // ★ Phase 348: tab "ตะกร้า" ถูกตัดออก (flow จอง/สอบถามราคา ไม่ใช่ cart/checkout)
+  //   guard: ถ้า _custTab ค้างเป็น "cart" (state เก่า/ลิงก์เก่า) → กลับไป "shop" เพื่อไม่ render สาขา cart ที่ปลดระวาง
+  if (_custTab === "cart") _custTab = "shop";
+
   const userEmail = state.currentUser?.email || "";
   const userPhone = userEmail.replace("@phone.boonsook.local", "");
   const userName = state.profile?.full_name || userPhone;
@@ -321,7 +325,7 @@ export function renderCustomerDashboard(ctx) {
     <div style="display:flex;gap:4px;background:#f1f5f9;border-radius:14px;padding:4px;position:sticky;top:0;z-index:10">
       ${[
         {id:"shop", icon:"🛍️", label:"ร้านค้า"},
-        {id:"cart", icon:"🛒", label:"ตะกร้า", badge: cartCount},
+        // ★ Phase 348: ตัด tab "ตะกร้า" ออก — หน้าร้านแอร์เป็น flow จอง/สอบถามราคา ไม่ใช่ POS cart/checkout
         {id:"orders", icon:"📋", label:"ประวัติซื้อ"},
         {id:"jobs", icon:"🔧", label:"งานของฉัน", badge: pendingConfirmCount},
         {id:"points", icon:"⭐", label:"แต้มสะสม"}
