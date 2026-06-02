@@ -1,6 +1,8 @@
 // ═══════════════════════════════════════════════════════════
 //  SERVICE REQUEST — ลูกค้าแจ้งซ่อม/บริการเอง
 // ═══════════════════════════════════════════════════════════
+// Phase 347: รับ "คำขอจอง" จากแคตตาล็อกแอร์ (หน้าร้าน) มา prefill — user ต้องกดส่งเอง
+import { consumeAirBookingDrafts } from "./ac_booking_draft.js";
 
 const SERVICE_TYPES = [
   "🔧 ซ่อมแอร์",
@@ -27,6 +29,11 @@ export function renderServiceRequestPage(ctx) {
 
   const escHtml = (s) => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 
+  // ★ Phase 347: consume booking draft จากแคตตาล็อกแอร์ (อ่านครั้งเดียวแล้วลบ — กันเติมซ้ำตอน reload)
+  let _booking = null;
+  try { const ds = consumeAirBookingDrafts(); if (ds && ds.length) _booking = ds[ds.length - 1]; }
+  catch (e) { console.warn("[service_request] booking draft consume failed:", e); }
+
   const typeOptions = SERVICE_TYPES.map(t => `<option value="${escHtml(t)}">${escHtml(t)}</option>`).join("");
 
   container.innerHTML = `
@@ -38,6 +45,11 @@ export function renderServiceRequestPage(ctx) {
 
     <div class="panel">
       <h3 style="color:var(--primary2);margin-bottom:12px">🛠️ แจ้งซ่อม / บริการ</h3>
+
+      ${_booking ? `<div style="margin-bottom:12px;padding:10px 12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;font-size:13px;color:#1e40af">
+        ${_booking.intent === "price_inquiry" ? "💬 สอบถามราคา" : "📅 สั่งจอง"}จากแคตตาล็อกแอร์: <b>${escHtml(_booking.brand)} ${escHtml(_booking.model)}</b>${_booking.btu ? ` (${Number(_booking.btu).toLocaleString()} BTU)` : ''}
+        <div style="font-size:11px;color:#64748b;margin-top:2px">ตรวจสอบรายละเอียดด้านล่าง แล้วกด "ส่งคำแจ้งซ่อม" เพื่อยืนยัน — <b>ยังไม่ได้ส่ง</b></div>
+      </div>` : ''}
 
       <button id="srAiBtn" type="button" aria-label="AI ช่วยแจ้งงาน"
         style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:14px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;border:none;border-radius:14px;padding:12px;font-size:14px;font-weight:800;cursor:pointer">
@@ -66,6 +78,19 @@ export function renderServiceRequestPage(ctx) {
 
     <div id="srStatus" class="hidden panel mt16"></div>
   `;
+
+  // ★ Phase 347: prefill ฟอร์มจาก booking draft (user ยังต้องกดส่งเอง — ไม่ auto-submit)
+  if (_booking) {
+    const sym = container.querySelector("#srSymptom");
+    const noteEl = container.querySelector("#srNote");
+    const typeSel = container.querySelector("#srType");
+    const label = _booking.intent === "price_inquiry" ? "สอบถามราคา" : "สนใจสั่งจอง / ติดตั้ง";
+    const priceStr = Number(_booking.offerPrice) > 0 ? ` (ราคาเสนอ ${Number(_booking.offerPrice).toLocaleString()} บาท)` : "";
+    const btuStr = Number(_booking.btu) > 0 ? ` ${Number(_booking.btu).toLocaleString()} BTU` : "";
+    if (sym) sym.value = `${label} ${_booking.airType} ${_booking.brand} ${_booking.model}${btuStr}${priceStr}\n[จากแคตตาล็อกแอร์ • source=air_catalog]`.trim();
+    if (noteEl) noteEl.value = `รุ่น ${_booking.model}`.trim();
+    if (typeSel) { const opt = [...typeSel.options].find(o => o.value.includes("ติดตั้งแอร์")); if (opt) typeSel.value = opt.value; }
+  }
 
   // Toggle custom type
   container.querySelector("#srAiBtn")?.addEventListener("click", () => window.BoonsookAI?.open());

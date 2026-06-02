@@ -71,7 +71,7 @@ export function openProductDetail(p, opts = {}) {
   // ลบ modal เก่าถ้ามี
   document.getElementById("pdm-overlay")?.remove();
 
-  const { onAddToCart, onReserve, inCart = false, inCartQty = 0 } = opts;
+  const { onAddToCart, onReserve, inCart = false, inCartQty = 0, reserveOnly = false, ctaLabel: ctaLabelOpt } = opts;
 
   // ─── Image (placeholder ถ้าไม่มี) ─────────────────────────
   const imgUrl = p.image_url || p.img || "";
@@ -132,8 +132,11 @@ export function openProductDetail(p, opts = {}) {
 
   // ─── CTA buttons ─────────────────────────────────────────
   const stockNum = Number(p.stock || 0);
-  const ctaLabel = inCart ? `✓ ในตะกร้า (${inCartQty})` : (stockNum > 0 ? "🛒 เพิ่มลงตะกร้า" : "📞 สั่งจอง");
-  const ctaBg = inCart ? "#10b981" : (stockNum > 0 ? "#0284c7" : "#f59e0b");
+  // Phase 347: reserveOnly = โหมดจอง/สอบถาม (สำหรับแคตตาล็อกแอร์หน้าร้าน — ไม่เกี่ยวตะกร้า/สต็อกจริง)
+  const ctaLabel = inCart ? `✓ ในตะกร้า (${inCartQty})`
+    : reserveOnly ? (ctaLabelOpt || "📅 สั่งจอง")
+    : (stockNum > 0 ? "🛒 เพิ่มลงตะกร้า" : "📞 สั่งจอง");
+  const ctaBg = inCart ? "#10b981" : (reserveOnly ? "#0284c7" : (stockNum > 0 ? "#0284c7" : "#f59e0b"));
 
   // ═══ Build modal HTML ═══════════════════════════════════
   const overlay = document.createElement("div");
@@ -202,7 +205,7 @@ export function openProductDetail(p, opts = {}) {
   });
 
   document.getElementById("pdmCtaBtn")?.addEventListener("click", () => {
-    if (stockNum > 0 && onAddToCart) {
+    if (!reserveOnly && stockNum > 0 && onAddToCart) {
       onAddToCart(p);
     } else if (onReserve) {
       onReserve(p);

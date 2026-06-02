@@ -3,9 +3,10 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase 346 air-catalog-to-quotation-draft — "นำไปเสนอราคา" → รายการร่าง, build 346)
-**Version:** 5.66.0 (build 346) — Phase 346 air-catalog-to-quotation-draft (sessionStorage bridge — ไม่สร้างเอกสารจริงอัตโนมัติ, ไม่แตะคลัง/POS/Supabase/cart)
-**Previous:** 5.66.0 (build 345) — Phase air-catalog-not-real-stock-correction (wording แคตตาล็อกทำราคา ≠ สต็อกจริง)
+**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase 347 air-catalog-public-store-sync — หน้าร้านอ่านแคตตาล็อกแอร์ชุดเดียวกัน, build 347)
+**Version:** 5.66.0 (build 347) — Phase 347 air-catalog-public-store-sync (storefront sync + booking flow — แยกคลังจริง 100%, ไม่ addToCart/POS)
+**Previous:** 5.66.0 (build 346) — Phase 346 air-catalog-to-quotation-draft (sessionStorage bridge → ใบเสนอราคา)
+**Pre-prev-1f:** 5.66.0 (build 345) — Phase air-catalog-not-real-stock-correction (wording ≠ สต็อกจริง)
 **Pre-prev-1e:** 5.66.0 (build 344) — Phase air-stock-manager-safe-step (แยก 3 ประเภท — localStorage)
 **Pre-prev-1d:** 5.66.0 (build 343) — Phase inventory-action-menu + category-collapse (UI/markup/CSS — สินค้า/คลัง)
 **Pre-prev-1c:** 5.66.0 (build 342) — Phase inventory-mobile-polish (UI/CSS safe wins — สินค้า/คลัง)
@@ -19,6 +20,26 @@
 > 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.64** (client helper เท่านั้น)
 > 🏁 **FINANCE AUDIT CLOSED ที่ build 334** — ครบทุกข้อ: #1✓✓ #2✓ #3✓ #4✓ #5✓ #6✓ #6b✓ #7✓(dead code ลบแล้ว) #8✓ #9✓
 > ✅ **#9 period-lock DB trigger VERIFIED** (gangboo query DB, 2026-06-01): `journal_entries` → trigger `trg_check_period_locked` → function `check_period_not_locked` → insert เข้า period ที่ locked ถูกกันที่ DB จริง (เส้นแบ่งความปลอดภัยตาม CLAUDE.md 4.3)
+
+---
+
+## 🛠️ Phase 347 air-catalog-public-store-sync — หน้าร้านอ่านแคตตาล็อกแอร์ชุดเดียวกัน (build 347)
+
+**เป้าหมาย:** หน้าหลัก/ร้านค้า (customer_dashboard) แสดงแอร์จาก **แคตตาล็อกชุดเดียวกับหน้าจัดการ** (`bsk_ac_catalog`) แต่**แยกจากคลังจริง 100%**; ปุ่ม "สั่งจอง" = booking/lead ไม่ใช่ addToCart/POS.
+
+**Source เดิมของหน้าร้าน:** customer_dashboard อ่าน `bsk_ac_catalog` อยู่แล้ว (line ~180) แต่ map เป็น "products" + เข้า **cart→checkout** (สร้าง service_jobs). ปุ่มเดิม: stock>0 → "🛒 เพิ่มลงตะกร้า" (addToCart), stock≤0 → "📞 สั่งจอง" (toast). filter เดิม = by brand (section).
+
+**Scope/ข้อห้าม:** ❌ ไม่ผูก products/POS · ❌ ไม่เพิ่ม/ตัด stock · ❌ ไม่รวมมูลค่า inventory · ❌ "สั่งจอง" ไม่ใช่ addToCart/POS · ❌ ไม่กระทบ quotation draft (346) · ไม่แตะ SQL.
+
+**Fix:**
+1. **customer_dashboard.js** — เพิ่ม `_acStatusOf` (price≤0→check, price>0&&stock>0→ready, อื่น→inactive); `visibleProducts` = products ที่ไม่ใช่ inactive (ซ่อน "เลิกขาย"). filter dropdown เปลี่ยนเป็น **ประเภทแอร์** (`p._acType` = `acTypeOf`, AC_TYPES 3 อัน) นับจาก visibleProducts. การ์ดใหม่ `_acCardHtml` (BTU/แบรนด์/รุ่น/ราคาเสนอ/รวมติดตั้ง/spec inverter·R32·warranty) ปุ่ม `data-book` → "📅 สั่งจอง"(ready)/"💬 สอบถามราคา"(check). **เลิกใช้ addToCart สำหรับ card แอร์** — ลบ `_addToCart`/`_reserve`/`data-add-cart`; เพิ่ม `_book`/`_bindBook`/`_openAcDetail`. notice "ราคาสำหรับเสนอขาย กรุณารอเจ้าหน้าที่ยืนยัน". **cart tab + checkout เดิมคงไว้ (dormant)** — ไม่มี path เพิ่มของเข้าตะกร้าแล้ว (follow-up: เอา tab ตะกร้าออกได้ภายหลัง).
+2. **ไฟล์ใหม่ `modules/ac_booking_draft.js`** — sessionStorage `bsk_air_booking_draft` (push/consume-once/peek). `_book` → `pushAirBookingDraft({source:"air_catalog",catalogId,airType,brand,model,btu,offerPrice,intent})` + `showRoute("service_request")`. **ไม่ addToCart/ไม่ตัด stock/ไม่ POS/ไม่ save**.
+3. **service_request.js** — `consumeAirBookingDrafts()` ต้น render (อ่านแล้วลบ) → prefill `#srSymptom` ("สนใจสั่งจอง/สอบถามราคา {airType} {brand} {model} {btu} BTU (ราคาเสนอ ...) [source=air_catalog]"), `#srNote`, `#srType`→ "❄️ ติดตั้งแอร์"; notice banner "ยังไม่ได้ส่ง". **submit เดิมไม่แตะ — user กดส่งเอง** (manual).
+4. **product_detail_modal.js** — opts `reserveOnly` + `ctaLabel`: โหมดจอง (ปุ่มเดียว → onReserve, ไม่มีตะกร้า). backward-compatible (caller เดิมไม่ส่ง = พฤติกรรมเดิม).
+
+**ยืนยันไม่แตะคลังจริง:** _book ไม่มี `_custCart`/addToCart/saveCustCart/`.stock=`; booking draft = sessionStorage (หายเมื่อปิดแท็บ); consume ใน service_request ไม่ POST (prefill เท่านั้น); customer_dashboard ไม่ import pos/stock_cas/products module; การ์ดไม่มีคำว่า สต็อก/คงเหลือ.
+
+**Verify:** lint:errors 0 · unit **953** (+11 `air_catalog_store_sync.test.js`: booking helper push/consume-once/sessionStorage-only · storefront อ่าน bsk_ac_catalog + filter by type · ซ่อน inactive · card data-book ไม่มี add-cart/คงเหลือ · disclaimer · _book no cart/stock/POS · ไม่ import products/POS · service_request consume+prefill ไม่ auto-submit · quotation draft 346 intact) · **flow smoke (temp, ลบแล้ว) mobile 390×844 + desktop:** storefront โหลด, การ์ดจาก catalog, filter ประเภททำงาน, ซ่อนเลิกขาย, กดสั่งจอง → service_request prefilled "ยังไม่ได้ส่ง", cart ว่าง, booking draft consumed, ไม่มี h-overflow. **bump 346→347**.
 
 ---
 

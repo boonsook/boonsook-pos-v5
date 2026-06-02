@@ -6,6 +6,9 @@ import { renderEmpty, renderSkeleton } from "./ui_states.js";
 import { createInflightGuard } from "./_inflight_guard.js";
 // Phase 87.1 — product detail modal
 import { openProductDetail } from "./product_detail_modal.js";
+// Phase 347 — หน้าร้านอ่านแคตตาล็อกแอร์ชุดเดียวกับหน้า "จัดการแคตตาล็อกแอร์" (แยกจากคลังจริง 100%)
+import { acTypeOf, acTypeLabel, AC_TYPES } from "./settings/ac-stock-form.js";
+import { pushAirBookingDraft } from "./ac_booking_draft.js";
 
 let _custCart = JSON.parse(localStorage.getItem("bsk_cust_cart") || "[]");
 let _custTab = "shop"; // shop | cart | orders | jobs | points
@@ -197,11 +200,96 @@ export function renderCustomerDashboard(ctx) {
     w_comp: c.w_comp,
     _isCatalog: true
   }));
-  const categories = [...new Set(catalog.map(c => c.section))];
+  // ★ Phase 347: air type + offer-status (catalog = "ทำราคา/เสนอขาย" ไม่ใช่สต็อกจริง)
+  //   field `stock` = สถานะเสนอขาย (>0 = เปิดเสนอขาย) — ไม่ใช่จำนวนในคลังจริง
+  const _acStatusOf = (p) => {
+    const price = Number(p.price || 0);
+    const offered = Number(p.stock || 0) > 0;
+    if (price <= 0) return "check";      // ต้องเช็คราคา
+    if (offered) return "ready";          // พร้อมเสนอขาย
+    return "inactive";                    // เลิกขาย/ยังไม่เปิดขาย — ไม่แสดงหน้าร้าน
+  };
+  products.forEach(p => { p._acType = acTypeOf(p); p._acStatus = _acStatusOf(p); });
+  // แสดงเฉพาะที่ไม่ใช่ "เลิกขาย" (พร้อมเสนอขาย + ต้องเช็คราคา)
+  const visibleProducts = products.filter(p => p._acStatus !== "inactive");
 
-  let filteredProducts = products;
-  if (_custCategory !== "all") filteredProducts = filteredProducts.filter(p => p.section === _custCategory);
-  if (_custSearch) filteredProducts = filteredProducts.filter(p => (p.name||"").toLowerCase().includes(_custSearch.toLowerCase()) || (p.sku||"").toLowerCase().includes(_custSearch.toLowerCase()) || String(p.btu||"").includes(_custSearch));
+  const _matchSearch = (p) => !_custSearch
+    || (p.name||"").toLowerCase().includes(_custSearch.toLowerCase())
+    || (p.sku||"").toLowerCase().includes(_custSearch.toLowerCase())
+    || String(p.btu||"").includes(_custSearch);
+
+  let filteredProducts = visibleProducts;
+  if (_custCategory !== "all") filteredProducts = filteredProducts.filter(p => p._acType === _custCategory);
+  filteredProducts = filteredProducts.filter(_matchSearch);
+
+  // ─── Storefront air card (booking flow — ไม่ใช่ตะกร้า/POS/สต็อกจริง) ───
+  const _acCardHtml = (p) => {
+    const imgUrl = String(p.image_url || p.img || "").replace(/['\\)]/g, '');
+    const btuLabel = p.btu ? Number(p.btu).toLocaleString() + ' BTU' : '';
+    const isCheck = p._acStatus === "check";
+    const bookLabel = isCheck ? '💬 สอบถามราคา' : '📅 สั่งจอง';
+    const bookBg = isCheck ? '#f59e0b' : '#0284c7';
+    const priceHtml = isCheck
+      ? `<div style="font-size:14px;font-weight:900;color:#b45309">ต้องเช็คราคา</div>`
+      : `<div style="font-size:17px;font-weight:900;color:#0284c7">${money(p.price)}</div><div style="font-size:10px;color:#10b981;font-weight:600">รวมติดตั้ง</div>`;
+    const specBits = [];
+    if (Array.isArray(p.features) && p.features.length) specBits.push(p.features.slice(0, 2).join(' · '));
+    else if (p.refrigerant) specBits.push('น้ำยา ' + p.refrigerant);
+    const warrantyBits = [p.w_install ? 'ติดตั้ง ' + p.w_install : '', p.w_parts ? 'อะไหล่ ' + p.w_parts : '', p.w_comp ? 'คอมฯ ' + p.w_comp : ''].filter(Boolean).join(' | ');
+    return `
+      <div style="background:#fff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;transition:.15s;cursor:pointer" data-view-product="${p.id}">
+        <div style="height:80px;background:${imgUrl ? `url('${escHtml(imgUrl)}') center/cover` : 'linear-gradient(135deg,#e0f2fe,#bae6fd)'};display:flex;align-items:center;justify-content:center;position:relative">
+          ${!imgUrl ? `<span style="font-size:32px">❄️</span>` : ''}
+          ${btuLabel ? `<div style="position:absolute;top:6px;right:6px;background:rgba(2,132,199,.9);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px">${btuLabel}</div>` : ''}
+        </div>
+        <div style="padding:10px">
+          <div style="font-size:10px;color:#0284c7;font-weight:700;margin-bottom:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(p.section || '')}</div>
+          <div style="font-size:14px;font-weight:900;color:#1f2937;margin-bottom:4px">${escHtml(p.sku || p.model || '')}</div>
+          ${priceHtml}
+          ${specBits.length ? `<div style="font-size:9px;color:#0369a1;font-weight:600;margin-top:2px;line-height:1.3">${escHtml(specBits.join(' · '))}</div>` : ''}
+          ${warrantyBits ? `<div style="font-size:9px;color:#94a3b8;margin-top:2px;line-height:1.3">${escHtml(warrantyBits)}</div>` : ''}
+          <button data-book="${p.id}" style="width:100%;margin-top:8px;padding:8px;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;background:${bookBg};color:#fff">
+            ${bookLabel}
+          </button>
+        </div>
+      </div>`;
+  };
+
+  // กด "สั่งจอง"/"สอบถามราคา" → เก็บ booking draft (sessionStorage) + ไปหน้าแจ้งงาน/บริการ
+  //   ❌ ไม่ addToCart · ❌ ไม่ตัด/เพิ่ม stock · ❌ ไม่ POS · ❌ ไม่สร้างคำขอจริงอัตโนมัติ
+  const _book = (product) => {
+    if (!product) return;
+    const isCheck = product._acStatus === "check";
+    pushAirBookingDraft({
+      source: "air_catalog",
+      catalogId: product.id ?? product.model,
+      airType: acTypeLabel(product._acType),
+      brand: product.section || "",
+      model: product.model || product.sku || "",
+      btu: Number(product.btu || 0),
+      offerPrice: Number(product.price || 0),
+      intent: isCheck ? "price_inquiry" : "booking"
+    });
+    if (showToast) showToast(isCheck ? 'พาไปหน้าสอบถามราคา 💬' : 'พาไปหน้าสั่งจอง / แจ้งงาน 📅');
+    if (_showRoute) _showRoute("service_request"); else window.location.hash = "service_request";
+  };
+  const _bindBook = (scope) => {
+    if (!scope) return;
+    scope.querySelectorAll("[data-book]").forEach(btn => btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      _book(visibleProducts.find(p => String(p.id) === String(btn.dataset.book)));
+    }));
+  };
+  // เปิด modal สเปก — โหมดจอง (reserveOnly) ไม่มีปุ่มตะกร้า, ปุ่มหลัก = สั่งจอง/สอบถามราคา → _book
+  const _openAcDetail = (product) => {
+    if (!product) return;
+    const isCheck = product._acStatus === "check";
+    openProductDetail(product, {
+      reserveOnly: true,
+      ctaLabel: isCheck ? '💬 สอบถามราคา' : '📅 สั่งจอง',
+      onReserve: _book
+    });
+  };
 
   const cartCount = _custCart.reduce((s,i) => s + i.qty, 0);
   const cartTotal = _custCart.reduce((s,i) => s + (i.price * i.qty), 0);
@@ -264,59 +352,41 @@ export function renderCustomerDashboard(ctx) {
         <input id="custSearchInput" type="text" placeholder="🔍 ค้นหาสินค้า..." value="${escHtml(_custSearch)}" style="width:100%;padding:12px 16px;border:2px solid #e2e8f0;border-radius:14px;font-size:14px;box-sizing:border-box" />
       </div>
 
-      <!-- Categories (dropdown) -->
+      <!-- Categories (dropdown) — ตามประเภทแอร์ (นับเฉพาะที่พร้อมเสนอขาย/สอบถามราคา) -->
       <div style="position:relative">
         <select id="custCatSelect" style="width:100%;padding:12px 40px 12px 16px;border:2px solid #e2e8f0;border-radius:14px;font-size:14px;font-weight:700;color:#0284c7;background:#fff;appearance:none;-webkit-appearance:none;cursor:pointer;box-sizing:border-box">
-          <option value="all" ${_custCategory==='all' ? 'selected' : ''}>🌬️ ทั้งหมด (${products.length} รุ่น)</option>
-          ${categories.map(c => {
-            const count = products.filter(p => p.section === c).length;
-            return `<option value="${escHtml(c)}" ${_custCategory===c ? 'selected' : ''}>${escHtml(c)} (${count})</option>`;
+          <option value="all" ${_custCategory==='all' ? 'selected' : ''}>🌬️ ทั้งหมด (${visibleProducts.length} รุ่น)</option>
+          ${AC_TYPES.map(t => {
+            const count = visibleProducts.filter(p => p._acType === t.key).length;
+            return `<option value="${t.key}" ${_custCategory===t.key ? 'selected' : ''}>${escHtml(t.icon + ' ' + t.label)} (${count})</option>`;
           }).join("")}
         </select>
         <div style="position:absolute;right:14px;top:50%;transform:translateY(-50%);pointer-events:none;font-size:14px;color:#94a3b8">▼</div>
       </div>
 
+      <!-- ★ Phase 347: แจ้งว่าราคานี้คือ "เสนอขาย" ไม่ใช่ราคาขายจริง -->
+      <div style="margin-top:6px;padding:8px 12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;font-size:11px;color:#1e40af;line-height:1.45">
+        ℹ️ ราคาสำหรับเสนอขาย กรุณารอเจ้าหน้าที่ยืนยันก่อนสั่งซื้อจริง
+      </div>
+
       <!-- Products Grid -->
-      ${products.length === 0 ? (
-        // Catalog ยังไม่โหลด → skeleton
+      ${visibleProducts.length === 0 ? (
+        // Catalog ยังไม่โหลด/ยังไม่มีรุ่นพร้อมเสนอขาย → skeleton (fallback ปลอดภัย)
         renderSkeleton({ type: "card-grid", count: 4 })
       ) : filteredProducts.length === 0 ? (
-        // Catalog โหลดแล้วแต่ filter ไม่เจอ → empty + ปุ่มล้าง filter
         renderEmpty({
           icon: "🔍",
           title: "ไม่พบสินค้า",
           message: _custSearch
-            ? `ไม่พบ "${escHtml(_custSearch)}" ในแคตตาล็อก ลองคำค้นใหม่หรือดูทุกหมวด`
-            : "ไม่มีสินค้าในหมวดนี้ ลองเลือกหมวดอื่น",
+            ? `ไม่พบ "${escHtml(_custSearch)}" ในแคตตาล็อก ลองคำค้นใหม่หรือดูทุกประเภท`
+            : "ไม่มีรุ่นในประเภทนี้ ลองเลือกประเภทอื่น",
           actionLabel: "ดูทั้งหมด",
           actionId: "custClearFilterBtn",
           actionStyle: "ghost"
         })
       ) : `
       <div id="custProductGrid" class="cust-product-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px">
-        ${filteredProducts.map(p => {
-          const imgUrl = String(p.image_url || p.img || "").replace(/['\\)]/g, '');
-          const inCart = _custCart.find(c => c.id === p.id);
-          const btuLabel = p.btu ? Number(p.btu).toLocaleString() + ' BTU' : '';
-          return `
-          <div style="background:#fff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;transition:.15s;cursor:pointer" data-view-product="${p.id}">
-            <div style="height:80px;background:${imgUrl ? `url('${escHtml(imgUrl)}') center/cover` : 'linear-gradient(135deg,#e0f2fe,#bae6fd)'};display:flex;align-items:center;justify-content:center;position:relative">
-              ${!imgUrl ? `<span style="font-size:32px">❄️</span>` : ''}
-              ${btuLabel ? `<div style="position:absolute;top:6px;right:6px;background:rgba(2,132,199,.9);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px">${btuLabel}</div>` : ''}
-            </div>
-            <div style="padding:10px">
-              <div style="font-size:10px;color:#0284c7;font-weight:700;margin-bottom:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(p.section || '')}</div>
-              <div style="font-size:14px;font-weight:900;color:#1f2937;margin-bottom:4px">${escHtml(p.sku || '')}</div>
-              <div style="font-size:17px;font-weight:900;color:#0284c7">${money(p.price)}</div>
-              <div style="font-size:10px;color:#10b981;font-weight:600">รวมติดตั้ง</div>
-              ${p.w_install || p.w_parts || p.w_comp ? `<div style="font-size:9px;color:#94a3b8;margin-top:2px;line-height:1.3">${[p.w_install ? 'ติดตั้ง ' + escHtml(p.w_install) : '', p.w_parts ? 'อะไหล่ ' + escHtml(p.w_parts) : '', p.w_comp ? 'คอมฯ ' + escHtml(p.w_comp) : ''].filter(Boolean).join(' | ')}</div>` : ''}
-              <button data-add-cart="${p.id}" style="width:100%;margin-top:8px;padding:8px;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;
-                background:${inCart ? '#10b981' : p.stock > 0 ? '#0284c7' : '#f59e0b'};color:#fff">
-                ${inCart ? `✓ ในตะกร้า (${inCart.qty})` : p.stock > 0 ? '🛒 เพิ่มลงตะกร้า' : '📞 สั่งจอง'}
-              </button>
-            </div>
-          </div>`;
-        }).join("")}
+        ${filteredProducts.map(_acCardHtml).join("")}
       </div>`}
     `;
 
@@ -736,94 +806,33 @@ export function renderCustomerDashboard(ctx) {
     _custSearch = e.target.value;
     clearTimeout(window._custSearchTimer);
     window._custSearchTimer = setTimeout(() => {
-      let fp = products;
-      if (_custCategory !== "all") fp = fp.filter(p => p.section === _custCategory);
-      if (_custSearch) fp = fp.filter(p => (p.name||"").toLowerCase().includes(_custSearch.toLowerCase()) || (p.sku||"").toLowerCase().includes(_custSearch.toLowerCase()) || String(p.btu||"").includes(_custSearch));
+      let fp = visibleProducts;
+      if (_custCategory !== "all") fp = fp.filter(p => p._acType === _custCategory);
+      fp = fp.filter(_matchSearch);
 
       const gridEl = container.querySelector("#custProductGrid");
       if (gridEl) {
-        gridEl.innerHTML = fp.length > 0 ? fp.map(p => {
-          const imgUrl = String(p.image_url || p.img || "").replace(/['\\)]/g, '');
-          const inCart = _custCart.find(c => c.id === p.id);
-          const btuLabel = p.btu ? Number(p.btu).toLocaleString() + ' BTU' : '';
-          return `
-          <div style="background:#fff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;transition:.15s;cursor:pointer" data-view-product="${p.id}">
-            <div style="height:80px;background:${imgUrl ? `url('${escHtml(imgUrl)}') center/cover` : 'linear-gradient(135deg,#e0f2fe,#bae6fd)'};display:flex;align-items:center;justify-content:center;position:relative">
-              ${!imgUrl ? `<span style="font-size:32px">❄️</span>` : ''}
-              ${btuLabel ? `<div style="position:absolute;top:6px;right:6px;background:rgba(2,132,199,.9);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px">${btuLabel}</div>` : ''}
-            </div>
-            <div style="padding:10px">
-              <div style="font-size:10px;color:#0284c7;font-weight:700;margin-bottom:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(p.section || '')}</div>
-              <div style="font-size:14px;font-weight:900;color:#1f2937;margin-bottom:4px">${escHtml(p.sku || '')}</div>
-              <div style="font-size:17px;font-weight:900;color:#0284c7">${money(p.price)}</div>
-              <div style="font-size:10px;color:#10b981;font-weight:600">รวมติดตั้ง</div>
-              ${p.w_install || p.w_parts || p.w_comp ? `<div style="font-size:9px;color:#94a3b8;margin-top:2px;line-height:1.3">${[p.w_install ? 'ติดตั้ง ' + escHtml(p.w_install) : '', p.w_parts ? 'อะไหล่ ' + escHtml(p.w_parts) : '', p.w_comp ? 'คอมฯ ' + escHtml(p.w_comp) : ''].filter(Boolean).join(' | ')}</div>` : ''}
-              <button data-add-cart="${p.id}" style="width:100%;margin-top:8px;padding:8px;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;
-                background:${inCart ? '#10b981' : p.stock > 0 ? '#0284c7' : '#f59e0b'};color:#fff">
-                ${inCart ? `✓ ในตะกร้า (${inCart.qty})` : p.stock > 0 ? '🛒 เพิ่มลงตะกร้า' : '📞 สั่งจอง'}
-              </button>
-            </div>
-          </div>`;
-        }).join("") : `<div style="grid-column:1/-1;text-align:center;padding:40px;color:#94a3b8"><div style="font-size:48px;margin-bottom:8px">🔍</div><div>ไม่พบสินค้า</div></div>`;
-        // rebind add-to-cart
-        gridEl.querySelectorAll("[data-add-cart]").forEach(btn => btn.addEventListener("click", (ev) => {
-          ev.stopPropagation();
-          const pid = Number(btn.dataset.addCart);
-          const product = products.find(pp => pp.id === pid);
-          if (!product) return;
-          const existing = _custCart.find(c => c.id === pid);
-          if (existing) { existing.qty++; } else { _custCart.push({ id: pid, name: product.name, price: Number(product.price||0), qty: 1 }); }
-          saveCustCart();
-          if (showToast) showToast(`เพิ่ม "${product.name}" ลงตะกร้า 🛒`);
-          renderCustomerDashboard(ctx);
+        gridEl.innerHTML = fp.length > 0
+          ? fp.map(_acCardHtml).join("")
+          : `<div style="grid-column:1/-1;text-align:center;padding:40px;color:#94a3b8"><div style="font-size:48px;margin-bottom:8px">🔍</div><div>ไม่พบสินค้า</div></div>`;
+        // rebind: booking (ไม่ใช่ตะกร้า) + เปิด detail modal
+        _bindBook(gridEl);
+        gridEl.querySelectorAll("[data-view-product]").forEach(card => card.addEventListener("click", (ev) => {
+          if (ev.target.closest("[data-book]")) return;
+          _openAcDetail(visibleProducts.find(p => String(p.id) === String(card.dataset.viewProduct)));
         }));
       }
     }, 200);
   });
 
-  // ★ Phase 87.1 — Open product detail modal on card click
-  const _addToCart = (product) => {
-    const existing = _custCart.find(c => c.id === product.id);
-    if (existing) {
-      if (existing.qty < Number(product.stock || 99)) {
-        existing.qty++;
-      } else {
-        return showToast("สินค้าหมดสต็อก");
-      }
-    } else {
-      _custCart.push({ id: product.id, name: product.name, price: Number(product.price || 0), qty: 1 });
-    }
-    saveCustCart();
-    if (showToast) showToast(`เพิ่ม "${product.name}" ลงตะกร้า 🛒`);
-    renderCustomerDashboard(ctx);
-  };
-  const _reserve = (product) => {
-    if (showToast) showToast(`📞 กรุณาติดต่อร้านเพื่อสั่งจอง "${product.name}"`);
-  };
-
+  // ★ Phase 347 — Open spec modal on card click (โหมดจอง — ไม่มีตะกร้า)
   container.querySelectorAll("[data-view-product]").forEach(card => card.addEventListener("click", (e) => {
-    // ไม่เปิด modal ถ้าคลิกที่ปุ่ม (data-add-cart) ภายใน card — ปล่อยให้ event bubble ของปุ่มทำงาน
-    if (e.target.closest("[data-add-cart]")) return;
-    const pid = Number(card.dataset.viewProduct);
-    const product = products.find(p => p.id === pid);
-    if (!product) return;
-    const inCartItem = _custCart.find(c => c.id === pid);
-    openProductDetail(product, {
-      onAddToCart: _addToCart,
-      onReserve: _reserve,
-      inCart: !!inCartItem,
-      inCartQty: inCartItem?.qty || 0
-    });
+    if (e.target.closest("[data-book]")) return; // ปล่อยให้ปุ่มจองทำงานเอง
+    _openAcDetail(visibleProducts.find(p => String(p.id) === String(card.dataset.viewProduct)));
   }));
 
-  // Add to cart (ปุ่มในการ์ด — มี stopPropagation กัน trigger card click)
-  container.querySelectorAll("[data-add-cart]").forEach(btn => btn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    const pid = Number(btn.dataset.addCart);
-    const product = products.find(p => p.id === pid);
-    if (!product) return;
-    _addToCart(product);
-  }));
+  // ★ Phase 347 — "สั่งจอง"/"สอบถามราคา" (ไม่ addToCart/ไม่แตะ stock/POS)
+  _bindBook(container);
 
   // Cart +/-/remove
   container.querySelectorAll("[data-cart-plus]").forEach(btn => btn.addEventListener("click", () => {
