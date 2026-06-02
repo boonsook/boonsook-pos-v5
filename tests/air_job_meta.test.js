@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 
-const { parseAirJobMeta, airBadgeHtml, airJobInfoHtml } = await import("../modules/air_job_meta.js");
+const { parseAirJobMeta, airBadgeHtml, airJobInfoHtml, airPriority, airPriorityBadgeHtml } = await import("../modules/air_job_meta.js");
 
 // note exactly as build 350 writes it (prefill + appointment appended at submit)
 const AIR_NOTE = "[source=air_catalog] แอร์ติดผนัง TCL วอลไทป์ MFS10 9,000 BTU · ราคาเสนอ 12,900 บาท | สเปก น้ำยา R32 | ประกัน ติดตั้ง 1 ปี | นัดหมาย 2026-06-10 ช่วงเช้า (09:00–12:00)";
@@ -73,7 +73,7 @@ test("air_job_meta is read-only (no network / storage / stock)", () => {
 
 test("service_jobs list shows the air badge (read-only) without stock/POS/quotation changes", () => {
   const sj = fs.readFileSync(path.resolve("modules/service_jobs.js"), "utf8");
-  assert.match(sj, /import \{ parseAirJobMeta, airBadgeHtml, airJobInfoHtml \} from "\.\/air_job_meta\.js"/);
+  assert.match(sj, /import \{[^}]*\bparseAirJobMeta\b[^}]*\bairBadgeHtml\b[^}]*\bairJobInfoHtml\b[^}]*\} from "\.\/air_job_meta\.js"/);
   assert.match(sj, /airMeta\.isAir \? airBadgeHtml\(airMeta\)/);
   assert.match(sj, /airMeta\.isAir \? airJobInfoHtml\(airMeta\)/);
   for (const banned of [/addToCart/, /\.stock\s*=/, /quotation/i, /from\(["']products["']\)/, /alter table/i]) {
@@ -85,4 +85,48 @@ test("customer dashboard 'งานของฉัน' shows the air badge", () 
   const cd = fs.readFileSync(path.resolve("modules/customer_dashboard.js"), "utf8");
   assert.match(cd, /import \{ parseAirJobMeta, airBadgeHtml, airJobInfoHtml \} from "\.\/air_job_meta\.js"/);
   assert.match(cd, /airMeta\.isAir \? `<div[^`]*airBadgeHtml\(airMeta\)/);
+});
+
+// ── Phase 352: priority derive ───────────────────────────────────────────────
+test("priority: appointment → มีวันนัดหมาย (highest)", () => {
+  const m = parseAirJobMeta({ note: AIR_NOTE, description: AIR_DESC });
+  assert.equal(airPriority(m).key, "scheduled");
+  assert.equal(airPriority(m).label, "มีวันนัดหมาย");
+});
+
+test("priority: booking w/o appointment → รอนัดหมาย; ask → รอยืนยันราคา", () => {
+  const booking = parseAirJobMeta({ note: "[source=air_catalog] แอร์ติดผนัง TCL MFS10 9,000 BTU · ราคาเสนอ 12,900 บาท", description: "จองติดตั้งแอร์ TCL MFS10" });
+  assert.equal(airPriority(booking).key, "await_schedule");
+  assert.equal(airPriority(booking).label, "รอนัดหมาย");
+  const ask = parseAirJobMeta({ note: "[source=air_catalog] แอร์ติดผนัง Mitsu ASK 12,000 BTU · ต้องเช็คราคา", description: "สอบถามราคาแอร์ Mitsu ASK" });
+  assert.equal(airPriority(ask).key, "await_price");
+  assert.equal(airPriority(ask).label, "รอยืนยันราคา");
+});
+
+test("priority: marker only / incomplete → รอตรวจสอบ ; non-air → null", () => {
+  assert.equal(airPriority(parseAirJobMeta({ note: "source=air_catalog" })).key, "review");
+  assert.equal(airPriority({ isAir: false }), null);
+  assert.equal(airPriorityBadgeHtml({ isAir: false }), "");
+  assert.match(airPriorityBadgeHtml(parseAirJobMeta({ note: AIR_NOTE })), /มีวันนัดหมาย/);
+});
+
+// ── Phase 352: service_jobs source filter ────────────────────────────────────
+test("service_jobs has an air/general source filter (read-only, no schema/stock/POS)", () => {
+  const sj = fs.readFileSync(path.resolve("modules/service_jobs.js"), "utf8");
+  assert.match(sj, /let _sjSourceFilter = "all"/);
+  // chips for all / air / general
+  assert.match(sj, /data-sj-source="\$\{key\}"/);
+  assert.match(sj, /srcChip\("air",[^)]*cAir\)/);
+  assert.match(sj, /srcChip\("general",[^)]*cGeneral\)/);
+  // filter applies via parseAirJobMeta
+  assert.match(sj, /_sjSourceFilter === "air"\)\s*jobs = jobs\.filter\(j => parseAirJobMeta\(j\)\.isAir\)/);
+  assert.match(sj, /_sjSourceFilter === "general"\)\s*jobs = jobs\.filter\(j => !parseAirJobMeta\(j\)\.isAir\)/);
+  // handler re-renders
+  assert.match(sj, /data-sj-source\]"\)\.forEach\(btn => btn\.addEventListener\("click"[\s\S]*?_sjSourceFilter = btn\.dataset\.sjSource/);
+  // priority badge rendered for air jobs
+  assert.match(sj, /airMeta\.isAir \? airPriorityBadgeHtml\(airMeta\)/);
+  // no stock/POS/cart/quotation/schema introduced
+  for (const banned of [/addToCart/, /\.stock\s*=/, /quotation/i, /from\(["']products["']\)/, /alter table/i]) {
+    assert.ok(!banned.test(sj), `service_jobs must not add ${banned}`);
+  }
 });

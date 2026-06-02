@@ -45,6 +45,26 @@ export function airBadgeHtml(meta) {
   return `<span style="display:inline-block;background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;white-space:nowrap">🌬️ จากแคตตาล็อกแอร์${intent}</span>`;
 }
 
+/**
+ * Phase 352: derive priority (สถานะที่ควรทำต่อ) จาก meta — read-only, ไม่แตะ status จริงของงาน
+ *   มีวันนัดหมาย (appointment) > รอตรวจสอบ (ข้อมูลไม่ครบ) > รอยืนยันราคา (ask) > รอนัดหมาย (booking)
+ * @returns {{key:string,label:string,color:string,bg:string}|null}
+ */
+export function airPriority(meta) {
+  if (!meta?.isAir) return null;
+  if (meta.appointment) return { key: "scheduled",      label: "มีวันนัดหมาย",  color: "#15803d", bg: "#dcfce7" };
+  if (!meta.summary)    return { key: "review",         label: "รอตรวจสอบ",     color: "#64748b", bg: "#f1f5f9" };
+  if (meta.intent === "ask") return { key: "await_price", label: "รอยืนยันราคา", color: "#b45309", bg: "#fef3c7" };
+  return { key: "await_schedule", label: "รอนัดหมาย", color: "#0369a1", bg: "#e0f2fe" };
+}
+
+/** badge priority เล็ก (อ่านอย่างเดียว) — "" ถ้าไม่ใช่งานแอร์ */
+export function airPriorityBadgeHtml(meta) {
+  const p = airPriority(meta);
+  if (!p) return "";
+  return `<span style="display:inline-block;background:${p.bg};color:${p.color};border:1px solid ${p.color}55;font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;white-space:nowrap">⏳ ${_esc(p.label)}</span>`;
+}
+
 /** กล่องข้อมูลรุ่น/BTU/ราคา/นัดหมาย (อ่านอย่างเดียว) สำหรับ card/detail */
 export function airJobInfoHtml(meta) {
   if (!meta?.isAir) return "";

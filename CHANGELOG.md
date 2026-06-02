@@ -7,6 +7,13 @@
 
 ---
 
+## 5.66.0 (build 352) — 2026-06-02 Phase 352 air-job-filter-and-priority — กรอง + priority งานจากแคตตาล็อกแอร์
+
+- **feat:** หน้า `service_jobs` เพิ่ม **filter ที่มา**: ทั้งหมด / 🌬️ จากแคตตาล็อกแอร์ / 🔧 งานทั่วไป (โชว์เมื่อมีงานแอร์อย่างน้อย 1) — ช่วยเจ้าของร้าน/ช่างหางานแอร์ได้เร็ว
+- **feat:** **priority badge** บนงานแอร์ (derive จาก note/intent/appointment เดิม): `มีวันนัดหมาย` (มี date/ช่วงเวลา) · `รอยืนยันราคา` (intent สอบถามราคา) · `รอนัดหมาย` (intent สั่งจอง) · `รอตรวจสอบ` (ข้อมูลไม่ครบ)
+- **how:** `air_job_meta.js` + `airPriority(meta)`/`airPriorityBadgeHtml` (READ-ONLY — ไม่แตะ status จริงของงาน); `service_jobs.js` `_sjSourceFilter` (all/air/general) filter ผ่าน `parseAirJobMeta().isAir`
+- **scope:** ❌ ไม่แก้ SQL/schema · ❌ ไม่แตะ stock/POS/cart/products · ❌ ไม่เปลี่ยน submit endpoint · ❌ ไม่กระทบงานทั่วไป (ไม่มี badge) · ❌ ไม่สร้างใบเสนอราคาอัตโนมัติ · **test:** +4 `air_job_meta.test.js` + mobile/desktop smoke · **pwa-cache:** bump 351→352
+
 ## 5.66.0 (build 351) — 2026-06-02 Phase 351 service-job-air-source-visibility — เห็นงานจากแคตตาล็อกแอร์ในรายการงาน
 
 - **feat:** รายการงาน (งานช่าง admin + "งานของฉัน" ลูกค้า) แสดง **badge "🌬️ จากแคตตาล็อกแอร์ · สั่งจอง/สอบถามราคา"** + กล่องสรุป **รุ่น/BTU/ราคาเสนอ/นัดหมาย** — เจ้าของร้าน/ช่าง/ลูกค้าเห็นที่มางานชัด

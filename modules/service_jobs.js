@@ -2,8 +2,8 @@
 import { renderEmpty } from "./ui_states.js";
 // Phase 68 (B3): tag rendering + presets · Phase 70 (D3): Excel export
 import { renderTagBadge, SERVICE_TAG_PRESETS, exportToExcel, todaySuffix } from "./utils.js";
-// Phase 351: detect งานจากแคตตาล็อกแอร์ (read-only parse จาก note — ไม่แตะ schema/stock/POS)
-import { parseAirJobMeta, airBadgeHtml, airJobInfoHtml } from "./air_job_meta.js";
+// Phase 351/352: detect งานจากแคตตาล็อกแอร์ + priority (read-only parse จาก note — ไม่แตะ schema/stock/POS)
+import { parseAirJobMeta, airBadgeHtml, airJobInfoHtml, airPriorityBadgeHtml } from "./air_job_meta.js";
 
 const STATUS_LABELS = {
   pending:        "รอดำเนินการ",
@@ -47,6 +47,7 @@ const sanitizeUrl = (url) => {
 // state อยู่ใน module-level — คงค่าระหว่าง re-render แต่ reset เมื่อ refresh page
 let _sjFilter = "open"; // default: ค้าง (เพราะคือ default workflow ของช่าง)
 let _sjTagFilter = null; // Phase 68: filter by tag
+let _sjSourceFilter = "all"; // Phase 352: all | air | general (กรองงานจากแคตตาล็อกแอร์)
 
 const OPEN_STATUSES = ["pending", "progress", "in_progress", "open"];
 const CLOSED_STATUSES = ["done", "delivered", "closed"];
@@ -76,6 +77,12 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
     jobs = jobs.filter(j => Array.isArray(j.tags) && j.tags.includes(_sjTagFilter));
   }
 
+  // Phase 352: source filter (จากแคตตาล็อกแอร์ / งานทั่วไป) — read-only detect จาก note marker
+  const cAir     = allJobs.filter(j => parseAirJobMeta(j).isAir).length;
+  const cGeneral = allJobs.length - cAir;
+  if (_sjSourceFilter === "air")          jobs = jobs.filter(j => parseAirJobMeta(j).isAir);
+  else if (_sjSourceFilter === "general") jobs = jobs.filter(j => !parseAirJobMeta(j).isAir);
+
   const chip = (key, label, count, activeColor) => {
     const isActive = _sjFilter === key;
     return `<button class="sj-filter-chip" data-sj-filter="${key}" style="padding:6px 14px;border-radius:18px;border:1px solid ${isActive ? activeColor : '#cbd5e1'};background:${isActive ? activeColor : '#fff'};color:${isActive ? '#fff' : '#475569'};cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap">${label}${count > 0 ? ` (${count})` : ''}</button>`;
@@ -98,6 +105,20 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
         ${chip("cancelled", "⚫ ยกเลิก",     cCancelled, "#64748b")}
         ${chip("all",       "ทั้งหมด",      cAll,       "#475569")}
       </div>
+      <!-- Phase 352: source filter (จากแคตตาล็อกแอร์ / งานทั่วไป) -->
+      ${cAir > 0 ? `
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center">
+        <span style="font-size:12px;color:#64748b;font-weight:600;margin-right:4px">ที่มา:</span>
+        ${(() => {
+          const srcChip = (key, label, count) => {
+            const isActive = _sjSourceFilter === key;
+            const c = key === "air" ? "#0369a1" : "#475569";
+            return `<button class="sj-source-chip" data-sj-source="${key}" style="padding:6px 14px;border-radius:18px;border:1px solid ${isActive ? c : '#cbd5e1'};background:${isActive ? c : '#fff'};color:${isActive ? '#fff' : '#475569'};cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap">${label}${count >= 0 ? ` (${count})` : ''}</button>`;
+          };
+          return srcChip("all", "ทั้งหมด", cAll) + srcChip("air", "🌬️ จากแคตตาล็อกแอร์", cAir) + srcChip("general", "🔧 งานทั่วไป", cGeneral);
+        })()}
+      </div>
+      ` : ''}
       <!-- Phase 68 (B3): Tag filter chips -->
       ${(() => {
         const tagCounts = {};
@@ -210,6 +231,7 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
                     ${typeLabel ? `<span style="font-size:12px;color:#64748b">${typeLabel}</span>` : ''}
                     ${isWebOrder ? '<span style="font-size:11px;color:#10b981;font-weight:700;padding:2px 8px;border-radius:99px;background:#ecfdf5">🛒 ออเดอร์เว็บ</span>' : ''}
                     ${airMeta.isAir ? airBadgeHtml(airMeta) : ''}
+                    ${airMeta.isAir ? airPriorityBadgeHtml(airMeta) : ''}
                     ${payBadgeHtml}
                     ${Array.isArray(j.tags) ? j.tags.map(t => renderTagBadge(t, SERVICE_TAG_PRESETS)).join("") : ""}
                   </div>
@@ -232,6 +254,12 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
   `;
 
   /* ── Phase 39 — Filter chips ── */
+  // Phase 352: source filter chips
+  document.querySelectorAll("[data-sj-source]").forEach(btn => btn.addEventListener("click", () => {
+    _sjSourceFilter = btn.dataset.sjSource;
+    renderServiceJobsPage({ state, openServiceJobDrawer, showToast, showRoute });
+  }));
+
   document.querySelectorAll("[data-sj-filter]").forEach(btn => btn.addEventListener("click", () => {
     _sjFilter = btn.dataset.sjFilter;
     renderServiceJobsPage({ state, openServiceJobDrawer, showToast, showRoute });

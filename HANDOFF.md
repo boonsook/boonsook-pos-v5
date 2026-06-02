@@ -3,9 +3,10 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase 351 service-job-air-source-visibility — badge งานจากแคตตาล็อกแอร์, build 351)
-**Version:** 5.66.0 (build 351) — Phase 351 service-job-air-source-visibility (badge+info งานแอร์ในรายการงาน, read-only parse note, ไม่แตะ stock/POS/cart/schema)
-**Previous:** 5.66.0 (build 350) — Phase 350 service-request-air-form-polish (date hint/AI secondary/ลดซ้ำ/note textarea/confirmation)
+**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase 352 air-job-filter-and-priority — filter+priority งานแอร์, build 352) · ⏸️ **STOP — รอ owner/Codex review ก่อนเริ่ม Phase 353**
+**Version:** 5.66.0 (build 352) — Phase 352 air-job-filter-and-priority (source filter + priority badge, read-only, ไม่แตะ schema/stock/POS/cart)
+**Previous:** 5.66.0 (build 351) — Phase 351 service-job-air-source-visibility (badge+info งานแอร์)
+**Pre-prev-1k:** 5.66.0 (build 350) — Phase 350 service-request-air-form-polish
 **Pre-prev-1j:** 5.66.0 (build 349) — Phase 349 service-request-air-booking-polish (summary card + intent + prefill)
 **Pre-prev-1i:** 5.66.0 (build 348) — Phase 348 remove-customer-cart-tab
 **Pre-prev-1h:** 5.66.0 (build 347) — Phase 347 air-catalog-public-store-sync (storefront + booking flow)
@@ -24,6 +25,24 @@
 > 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.64** (client helper เท่านั้น)
 > 🏁 **FINANCE AUDIT CLOSED ที่ build 334** — ครบทุกข้อ: #1✓✓ #2✓ #3✓ #4✓ #5✓ #6✓ #6b✓ #7✓(dead code ลบแล้ว) #8✓ #9✓
 > ✅ **#9 period-lock DB trigger VERIFIED** (gangboo query DB, 2026-06-01): `journal_entries` → trigger `trg_check_period_locked` → function `check_period_not_locked` → insert เข้า period ที่ locked ถูกกันที่ DB จริง (เส้นแบ่งความปลอดภัยตาม CLAUDE.md 4.3)
+
+---
+
+## 🛠️ Phase 352 air-job-filter-and-priority — กรอง + priority งานแอร์ (build 352)
+
+**เป้าหมาย:** เจ้าของร้าน/ช่างหา "งานจากแคตตาล็อกแอร์" ได้ง่าย + เห็นสถานะที่ควรทำต่อ (รอยืนยันราคา/รอนัดหมาย).
+
+**Scope/ข้อห้าม:** READ-ONLY — ❌ SQL/schema · ❌ stock/POS/cart/products · ❌ เปลี่ยน submit endpoint · ❌ กระทบงานทั่วไป · ❌ ใบเสนอราคาอัตโนมัติ.
+
+**Filter logic (`service_jobs.js`):** module state `_sjSourceFilter` (all|air|general); `cAir = count(parseAirJobMeta(j).isAir)`, `cGeneral = total − cAir`; apply หลัง status/tag filter (`air`→`filter(isAir)`, `general`→`filter(!isAir)`). chip row "ที่มา:" โชว์เมื่อ `cAir>0` (ทั้งหมด/🌬️จากแคตตาล็อกแอร์/🔧งานทั่วไป) + handler `[data-sj-source]` re-render. แยกอิสระจาก status filter เดิม (compose ได้).
+
+**Priority logic (`air_job_meta.js` `airPriority(meta)`):** ลำดับ — `appointment` มี → **มีวันนัดหมาย** (เขียว) > `!summary` (ข้อมูลไม่ครบ) → **รอตรวจสอบ** (เทา) > intent `ask` → **รอยืนยันราคา** (เหลือง) > intent `booking` → **รอนัดหมาย** (ฟ้า). `airPriorityBadgeHtml(meta)` → badge "⏳ {label}" ("" ถ้าไม่ใช่งานแอร์). แสดงในการ์ด service_jobs ข้าง air badge. **derive จากข้อมูลเดิม ไม่แตะ status จริงของงาน.**
+
+**ยืนยันไม่แตะ schema/stock/POS/cart:** air_job_meta read-only (guard เดิม); service_jobs เพิ่มแค่ filter (in-memory) + display badge — guard ตรวจไม่มี addToCart/.stock=/quotation/from("products")/alter table.
+
+**Verify:** lint:errors 0 · unit **985** (+4: priority appointment/booking/ask/incomplete · source filter chips+apply+handler+priority badge no-mutation) · **smoke (temp, ลบแล้ว) mobile 390×844 + desktop:** ที่มา-chip (air 2/general 1), priority "มีวันนัดหมาย"+"รอยืนยันราคา", filter air→ซ่อนงานทั่วไป, filter general→ซ่อนงานแอร์+ไม่มี priority badge, งานทั่วไปไม่มี badge, ไม่มี h-overflow. **bump 351→352.**
+
+> ⏸️ **STOP ที่ build 352** — owner สั่งหยุดรอ review ก่อนเริ่ม Phase 353.
 
 ---
 
