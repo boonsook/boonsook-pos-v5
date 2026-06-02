@@ -3,9 +3,10 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase air-catalog-not-real-stock-correction — wording แคตตาล็อกทำราคา ไม่ใช่สต็อกจริง, build 345)
-**Version:** 5.66.0 (build 345) — Phase air-catalog-not-real-stock-correction (wording/UI เท่านั้น — ไม่ผูก products/POS, ไม่นับ stock จริง, ไม่แตะ billing/cart/Supabase/SQL)
-**Previous:** 5.66.0 (build 344) — Phase air-stock-manager-safe-step (จัดการสต็อกแอร์ แยก 3 ประเภท — localStorage)
+**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase 346 air-catalog-to-quotation-draft — "นำไปเสนอราคา" → รายการร่าง, build 346)
+**Version:** 5.66.0 (build 346) — Phase 346 air-catalog-to-quotation-draft (sessionStorage bridge — ไม่สร้างเอกสารจริงอัตโนมัติ, ไม่แตะคลัง/POS/Supabase/cart)
+**Previous:** 5.66.0 (build 345) — Phase air-catalog-not-real-stock-correction (wording แคตตาล็อกทำราคา ≠ สต็อกจริง)
+**Pre-prev-1e:** 5.66.0 (build 344) — Phase air-stock-manager-safe-step (แยก 3 ประเภท — localStorage)
 **Pre-prev-1d:** 5.66.0 (build 343) — Phase inventory-action-menu + category-collapse (UI/markup/CSS — สินค้า/คลัง)
 **Pre-prev-1c:** 5.66.0 (build 342) — Phase inventory-mobile-polish (UI/CSS safe wins — สินค้า/คลัง)
 **Pre-prev-1b:** 5.66.0 (build 341) — Phase sales-doc-mobile (CSS/markup — เอกสารขาย)
@@ -18,6 +19,29 @@
 > 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.64** (client helper เท่านั้น)
 > 🏁 **FINANCE AUDIT CLOSED ที่ build 334** — ครบทุกข้อ: #1✓✓ #2✓ #3✓ #4✓ #5✓ #6✓ #6b✓ #7✓(dead code ลบแล้ว) #8✓ #9✓
 > ✅ **#9 period-lock DB trigger VERIFIED** (gangboo query DB, 2026-06-01): `journal_entries` → trigger `trg_check_period_locked` → function `check_period_not_locked` → insert เข้า period ที่ locked ถูกกันที่ DB จริง (เส้นแบ่งความปลอดภัยตาม CLAUDE.md 4.3)
+
+---
+
+## 🛠️ Phase 346 air-catalog-to-quotation-draft — "นำไปเสนอราคา" → รายการร่างในใบเสนอราคา (build 346)
+
+**เป้าหมาย:** ปุ่ม "นำไปเสนอราคา" (build 345 เป็น nav-only) ตอนนี้**ส่งข้อมูลรุ่นแอร์เป็น draft item** เข้าฟอร์มใบเสนอราคา. **ไม่สร้างใบเสนอราคาจริงอัตโนมัติ** + **ไม่แตะคลังจริง**.
+
+**Scope/ข้อห้าม:** ❌ ไม่เพิ่ม/ตัด stock จริง · ❌ ไม่ผูก products/POS/cart/billing/stock-core · ❌ ไม่ save Supabase จนกว่าผู้ใช้กดบันทึกเอง · ❌ ไม่แก้ SQL/schema · ❌ ไม่เปลี่ยน import/export format.
+
+**กลไก draft (ไฟล์ใหม่ `modules/ac_quotation_draft.js`):** bridge ผ่าน **sessionStorage** key `bsk_air_quote_draft`.
+- `pushAirQuoteDraft(item)` — append draft (source/catalogId/airType/brand/model/btu/offerPrice/estimatedCost/sku/note).
+- `consumeAirQuoteDrafts()` — **อ่านแล้วลบ** (consume-once) → กันเติมซ้ำตอน re-render/reload.
+- `peekAirQuoteDraftCount()`.
+
+**Flow:**
+1. `ac-catalog.js` ปุ่ม `data-ac-quote` → `pushAirQuoteDraft({...})` + toast "เพิ่มเป็นรายการร่าง..." + `showRoute("quotations")`.
+2. `quotations.js` `renderQuotationsPage` (ต้นฟังก์ชัน ก่อน clear block) → `consumeAirQuoteDrafts()`; ถ้ามี → `_editingId=null; _viewMode="form"; _lineItems = drafts.map(airDraftToLineItem); _airDraftNotice = n`.
+3. `airDraftToLineItem(d)` → `{product_id:null, item_name:"${airType} ${brand} ${model} ${btu} BTU"(+note), qty:1, unit:"เครื่อง", unit_price:offerPrice, line_total, _source:"air_catalog", _estCost, _catalogId}`. marker `_*` **in-memory เท่านั้น** — save (line ~810) เลือกเฉพาะ product_id/item_name/qty/unit/unit_price/discount_pct/line_total/sort_order → ไม่ persist marker, ไม่แตะ schema.
+4. ฟอร์มโชว์ notice "🌬️ มีรายการร่างจากแคตตาล็อกแอร์ N รายการ — ยังไม่ได้บันทึกเอกสาร". `_airDraftNotice` reset เป็น 0 เมื่อกลับ list (clear block).
+
+**ยืนยันไม่แตะคลังจริง:** quote handler ไม่เรียก addToCart/_appXhr/SUPABASE_CONFIG/products; consume block ไม่เรียก saveQuotationFull/xhrPost; draft อยู่ sessionStorage (หายเมื่อปิดแท็บ); estimatedCost เก็บเป็น trace ไม่เข้า quotation_items (ฟอร์มไม่มี cost column). existing save flow `qtSaveBtn→saveQuotationFull` ไม่แตะ.
+
+**Verify:** lint:errors 0 · unit **942** (+9 `air_catalog_quotation_draft.test.js`: push→sessionStorage · consume returns+clears+ไม่ re-consume · multi-push · estCost null · helper sessionStorage-only · quotations consume→form ไม่ auto-save · line item product_id:null · notice "ยังไม่ได้บันทึก" · existing save flow intact; + ac guard quote test = stage-draft+nav ไม่แตะ stock/cart) · **flow smoke (temp Playwright, ลบแล้ว) mobile 390×844 + desktop:** catalog → กด "นำไปเสนอราคา" → ฟอร์มเปิดพร้อม notice + line item "แอร์ติดผนัง TCL... MFS10 9,000 BTU", `state.quotations` ยัง 0 (ไม่ save), sessionStorage ถูก consume, render ซ้ำ (reload) ไม่เติม row เพิ่ม, ไม่มี h-overflow. **bump 345→346**.
 
 ---
 

@@ -1,6 +1,6 @@
 # Boonsook POS V5 - Shared Session Start
 
-Last updated: 2026-06-02 (Phase air-catalog-not-real-stock-correction — แคตตาล็อกทำราคา ≠ สต็อกจริง, build 345)
+Last updated: 2026-06-02 (Phase 346 air-catalog-to-quotation-draft — "นำไปเสนอราคา" → รายการร่าง, build 346)
 
 Purpose: this is the common first-read note for Codex, Claude, or any next agent opening a fresh session on this project. Read this before changing files so both teams start from the same facts.
 
@@ -8,7 +8,8 @@ Purpose: this is the common first-read note for Codex, Claude, or any next agent
 
 - Project: Boonsook POS V5 PRO, Thai POS PWA.
 - Workspace: `C:\Users\Lenovo E14 Gen4\Documents\boonsuk v5\boonsook-pos-v5-github`
-- Main app version: `5.66.0` (build 345)
+- Main app version: `5.66.0` (build 346)
+- 🆕 build 346 = air-catalog-to-quotation-draft: ปุ่ม "นำไปเสนอราคา" ในแคตตาล็อกแอร์ → ส่งรุ่นเป็น **draft item** เข้าฟอร์มใบเสนอราคา ผ่าน sessionStorage (`bsk_air_quote_draft`, ไฟล์ `modules/ac_quotation_draft.js` push/consume-once). **ไม่สร้างเอกสารจริงอัตโนมัติ** (user กดบันทึกเอง), ไม่แตะคลัง/POS/cart/Supabase/SQL. quotations.js consume draft ตอน render → เปิดฟอร์มใหม่ + notice "ยังไม่ได้บันทึกเอกสาร"; reload ไม่เติมซ้ำ.
 - ⚠️ **AC catalog = ไม่ใช่สต็อกจริง** (owner clarify): Settings → "จัดการแคตตาล็อกแอร์" คือชุดข้อมูลสำหรับ **ตั้งราคา/ทำใบเสนอราคา** เท่านั้น (localStorage `bsk_ac_catalog`, คนละ store กับ products/POS). field `stock` = "สถานะเสนอขาย" (>0=พร้อมเสนอขาย) ไม่ใช่จำนวนในคลัง. **ห้าม**ผูกเข้าคลัง products/รวมมูลค่าสต็อก/นับเป็น stock จริง.
 - 🆕 build 345 = air-catalog-not-real-stock-correction: แก้ wording (หัวข้อ "จัดการสต็อกแอร์"→"จัดการแคตตาล็อกแอร์" + subtitle; มีสต็อก/หมดสต็อก→พร้อมเสนอขาย/ยังไม่เปิดขาย; ลบ "คงเหลือ"; "+เพิ่มเข้าคลัง"→"นำไปเสนอราคา" nav-only; badge 3 สถานะ + ต้นทุน/กำไรประมาณการ). wording/UI เท่านั้น.
 - build 344 = air-stock-manager-safe-step: tab 3 ประเภท (แอร์ติดผนัง/แขวน/สี่ทิศทาง, `acTypeOf` fallback "wall") + ฟอร์มใหม่ `ac-stock-form.js`. NOTE: import ยัง overwrite ทั้งก้อน + ac_type/cost/sku/note ยังไม่อยู่ใน Excel (24 คอลัมน์เดิม) — รอบถัดไปค่อยเพิ่มคอลัมน์ + merge-by-id.

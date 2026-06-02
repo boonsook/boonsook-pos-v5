@@ -7,6 +7,8 @@ import { renderEmpty, renderSkeleton } from "./ui_states.js";
 import { logActivity, exportToExcel, todaySuffix, round2 } from "./utils.js";
 // Phase 88.18: auto-post JV ตอนออก invoice (B2B revenue)
 import { postJournalForDeliveryInvoice } from "./accounting/auto_post.js";
+// Phase 346: รับรายการร่างจากแคตตาล็อกแอร์ (sessionStorage bridge — ไม่สร้างเอกสารจริง)
+import { consumeAirQuoteDrafts } from "./ac_quotation_draft.js";
 
 // share ใช้ window._appShareDoc จาก main.js
 
@@ -57,6 +59,30 @@ let _editingId = null;
 let _viewMode = "list";    // list | form | preview
 let _tabFilter = "all";    // all | pending | approved | invoiced | receipted | cancelled
 let _selectedIds = new Set();
+let _airDraftNotice = 0;   // Phase 346: จำนวนรายการร่างจากแคตตาล็อกแอร์ที่เพิ่งเติม (โชว์ notice)
+
+// Phase 346: แปลง air-catalog draft → line item ของฟอร์มใบเสนอราคา
+//  marker `_source` ฯลฯ เป็น in-memory เท่านั้น (save เลือกเฉพาะ field คงที่ → ไม่ persist/ไม่แตะ schema)
+function airDraftToLineItem(d) {
+  const nameParts = [d.airType, d.brand, d.model].filter(Boolean).join(" ");
+  const btuStr = Number(d.btu) > 0 ? ` ${Number(d.btu).toLocaleString()} BTU` : "";
+  let item_name = (nameParts + btuStr).trim() || "รุ่นแอร์";
+  if (d.note) item_name += ` — ${d.note}`;
+  const price = Number(d.offerPrice || 0);
+  return {
+    product_id: null,
+    item_name,
+    qty: 1,
+    unit: "เครื่อง",
+    unit_price: price,
+    discount_pct: 0,
+    line_total: round2(1 * price),
+    _source: "air_catalog",        // trace/debug only
+    _catalogId: d.catalogId ?? null,
+    _airType: d.airType || "",
+    _estCost: (d.estimatedCost == null ? null : Number(d.estimatedCost))
+  };
+}
 
 // ═══════════════════════════════════════════════════════════
 //  RENDER — List Page
@@ -66,10 +92,25 @@ export function renderQuotationsPage(ctx) {
   const container = document.getElementById("page-quotations");
   if (!container) return;
 
+  // ★ Phase 346: ถ้ามีรายการร่างจากแคตตาล็อกแอร์ → consume (อ่านครั้งเดียวแล้วลบ) + เปิดฟอร์มร่าง
+  //   ไม่บันทึกเอกสารจริง — แค่ prefill ฟอร์มให้ user ตรวจแล้วกดบันทึกเอง.
+  //   ข้ามเฉพาะตอนกำลัง navigate ไป preview เอกสารอื่น (pendingId) — draft จะค้างใน sessionStorage แล้ว consume รอบถัดไป
+  if (!window._pendingQuotationPreviewId) {
+    let _airDrafts = [];
+    try { _airDrafts = consumeAirQuoteDrafts(); } catch (e) { console.warn("[quotations] air draft consume failed:", e); _airDrafts = []; }
+    if (Array.isArray(_airDrafts) && _airDrafts.length) {
+      _editingId = null;
+      _viewMode = "form";
+      _lineItems = _airDrafts.map(airDraftToLineItem);
+      _airDraftNotice = _airDrafts.length;
+    }
+  }
+
   // Phase 45.10 (B5-3): clear stale line items + selection
   if (!window._pendingQuotationPreviewId && _viewMode === "list") {
     _lineItems = [];
     _selectedIds.clear();
+    _airDraftNotice = 0;
   }
 
   // ★ ถ้าถูก trigger จากหน้าอื่น (เช่น delivery_invoice กด "อ้างอิง") → เปิด preview
@@ -453,6 +494,17 @@ function renderQuotationForm(container) {
         </div>
       </div>
     </div>
+
+    ${_airDraftNotice > 0 ? `
+    <!-- ★ Phase 346: notice รายการร่างจากแคตตาล็อกแอร์ (ยังไม่บันทึกเอกสาร) -->
+    <div class="panel mt16" style="background:#eff6ff;border:1px solid #bfdbfe;display:flex;gap:10px;align-items:flex-start">
+      <span style="font-size:20px;line-height:1">🌬️</span>
+      <div style="font-size:13px;color:#1e40af;line-height:1.5">
+        <b>มีรายการร่างจากแคตตาล็อกแอร์ ${_airDraftNotice} รายการ</b><br>
+        ตรวจสอบ/แก้ไขรายการด้านล่าง แล้วกด <b>"บันทึก"</b> เพื่อสร้างใบเสนอราคา — <b>ยังไม่ได้บันทึกเอกสาร</b>
+      </div>
+    </div>
+    ` : ''}
 
     <!-- Customer -->
     <div class="panel mt16">

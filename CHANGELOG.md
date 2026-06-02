@@ -7,6 +7,14 @@
 
 ---
 
+## 5.66.0 (build 346) — 2026-06-02 Phase 346 air-catalog-to-quotation-draft — "นำไปเสนอราคา" → รายการร่างในใบเสนอราคา
+
+- **feat:** กด **"นำไปเสนอราคา"** บน card รุ่นแอร์ → ส่งข้อมูลรุ่นเป็น **รายการร่าง** เข้าฟอร์มสร้างใบเสนอราคา (prefill) — **ไม่สร้างเอกสารจริงอัตโนมัติ** ผู้ใช้ต้องกด "บันทึก" เอง
+- **mechanism:** ไฟล์ใหม่ `modules/ac_quotation_draft.js` — bridge ผ่าน **sessionStorage** (`push` / `consume-once` / `peek`); หน้าใบเสนอราคา consume แล้ว clear → **reload ไม่เติมซ้ำ**
+- **ux:** หลังกดแสดง toast *"เพิ่มเป็นรายการร่างในใบเสนอราคาแล้ว"* + หน้าใบเสนอราคามี notice *"🌬️ มีรายการร่างจากแคตตาล็อกแอร์ N รายการ — ยังไม่ได้บันทึกเอกสาร"*
+- **mapping:** line item `[product_id:null]` ชื่อ = `${airType} ${brand} ${model} ${btu} BTU` (+ note), qty 1, ราคา = offerPrice, marker `_source:"air_catalog"`/`_estCost` (in-memory เท่านั้น — save เลือกเฉพาะ field คงที่ → ไม่ persist/ไม่แตะ schema)
+- **scope:** ❌ ไม่เพิ่ม/ตัด stock จริง · ❌ ไม่ผูก products/POS/cart/billing/stock-core · ❌ ไม่ save Supabase จนกว่าผู้ใช้กดเอง · ❌ ไม่แก้ SQL/schema · ❌ ไม่เปลี่ยน import/export format · existing quotation save flow (`qtSaveBtn`→`saveQuotationFull`) ไม่แตะ · **test:** +9 `air_catalog_quotation_draft.test.js` (behavioral push/consume-once + source guards) + mobile/desktop flow smoke · **pwa-cache:** bump 345→346
+
 ## 5.66.0 (build 345) — 2026-06-02 Phase air-catalog-not-real-stock-correction — แก้ wording ให้ชัดว่าเป็น "แคตตาล็อกทำราคา" ไม่ใช่สต็อกจริง
 
 - **context:** owner clarify — หน้าแอร์ชุดนี้คือ **แคตตาล็อกสำหรับตั้งราคา/ทำใบเสนอราคา ก่อนค่อยสั่งของเข้าคลังจริง** ไม่ใช่สต็อกจริงในร้าน

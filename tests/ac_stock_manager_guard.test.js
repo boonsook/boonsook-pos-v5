@@ -72,14 +72,18 @@ test("product card shows pricing fields and a 3-state offer badge", () => {
   assert.match(catalog, /'เลิกขาย'/);
 });
 
-// ── "นำไปเสนอราคา" navigates only — never touches real stock/cart/billing ────
-test("'นำไปเสนอราคา' is navigation-only (no stock/cart mutation)", () => {
+// ── "นำไปเสนอราคา" = stage a draft + navigate; never touches real stock/cart/billing ────
+test("'นำไปเสนอราคา' stages a draft + navigates (no stock/cart/Supabase mutation)", () => {
   assert.match(catalog, /data-ac-quote="\$\{c\.id\}"[^>]*>📝 นำไปเสนอราคา/);
-  const h = catalog.slice(catalog.indexOf('[data-ac-quote]'), catalog.indexOf('[data-ac-quote]') + 520);
-  assert.match(h, /showRoute\("quotations"\)|location\.hash\s*=\s*"quotations"/);
-  // the quote handler must NOT write to localStorage or set .stock
-  assert.ok(!/localStorage\.setItem/.test(h), "quote button must not persist anything");
-  assert.ok(!/\.stock\s*=/.test(h), "quote button must not mutate stock");
+  const start = catalog.indexOf('[data-ac-quote]');
+  const h = catalog.slice(start, start + 1100);
+  // stages a draft (Phase 346) then navigates to the quotations page
+  assert.match(h, /pushAirQuoteDraft\(/, "must stage an air-catalog draft");
+  assert.match(h, /showRoute\("quotations"\)|location\.hash\s*=\s*"quotations"/, "must navigate to quotations");
+  // must NOT touch real warehouse stock / cart / Supabase from this handler
+  assert.ok(!/localStorage\.setItem/.test(h), "quote handler must not write to localStorage (catalog/store)");
+  assert.ok(!/\.stock\s*=/.test(h), "quote handler must not mutate stock");
+  assert.ok(!/addToCart|_appXhr|from\(["']products["']\)/.test(h), "quote handler must not touch cart/POS/products");
 });
 
 // ── risky bulk button reworded, confirm kept ─────────────────────────────────
@@ -125,8 +129,9 @@ test("opening the form from a tab defaults the air type to that tab", () => {
 test("the air catalog is NOT wired to products/POS and touches no API/DB", () => {
   // localStorage key is its own store, never the products/POS pipeline
   assert.match(catalog, /bsk_ac_catalog/);
-  for (const banned of [/\/api\//, /from\(["']products["']\)/, /addToCart/, /_appXhr/, /supabase/i]) {
+  // match real USAGE (not explanatory comments that mention the word)
+  for (const banned of [/\/api\//, /from\(["']products["']\)/, /addToCart/, /_appXhr/, /SUPABASE_CONFIG/, /rest\/v1\//]) {
     assert.ok(!banned.test(catalog), `ac-catalog must not reference ${banned}`);
   }
-  assert.ok(!/\/api\//.test(form) && !/supabase|_appXhr|fetch\(/i.test(form), "form must not touch network/db");
+  assert.ok(!/\/api\//.test(form) && !/SUPABASE_CONFIG|_appXhr|fetch\(/.test(form), "form must not touch network/db");
 });

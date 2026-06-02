@@ -3,6 +3,8 @@ import { escHtml } from "./utils.js";
 import { openSpecEditor } from "./ac-spec-editor.js";
 // Phase air-stock-manager-safe-step — core add/edit form + air-type helpers
 import { openAcStockForm, AC_TYPES, acTypeOf, acTypeLabel } from "./ac-stock-form.js";
+// Phase 346 — ส่งรุ่นแอร์เป็นรายการร่างไปหน้าใบเสนอราคา (sessionStorage bridge — ไม่แตะคลัง/Supabase)
+import { pushAirQuoteDraft } from "../ac_quotation_draft.js";
 
 // ★ active air-type tab (module-level — คงค่าข้าม rerender) default = แอร์ติดผนัง
 let _acTab = "wall";
@@ -323,12 +325,27 @@ export function renderSettingsAcCatalog(el, ctx, goBack, navigate) {
     });
   }));
 
-  // ═══ ★ นำไปเสนอราคา — ไปหน้าใบเสนอราคา (navigation เท่านั้น — ไม่แตะคลัง/cart/billing) ═══
+  // ═══ ★ นำไปเสนอราคา — เก็บ draft (sessionStorage) แล้วไปหน้าใบเสนอราคา ═══
+  //   ไม่แตะคลัง/POS/Supabase/cart · ไม่สร้างเอกสารจริง — user ต้องกดบันทึกเองในหน้าใบเสนอราคา
   el.querySelectorAll("[data-ac-quote]").forEach(btn => btn.addEventListener("click", () => {
     const id = Number(btn.dataset.acQuote);
     const item = _readCatalog().find(c => Number(c.id) === id);
-    if (ctx?.showToast) ctx.showToast(`ไปที่หน้าใบเสนอราคา — เลือก "${item ? item.model : 'รุ่นนี้'}" เพิ่มได้เลย`);
-    // ไปหน้าใบเสนอราคา (ไม่ผูกสต็อก/ไม่ตัดคลัง — แคตตาล็อกนี้ใช้ทำราคาเท่านั้น)
+    if (item) {
+      pushAirQuoteDraft({
+        source: "air_catalog",
+        catalogId: item.id,
+        airType: acTypeLabel(acTypeOf(item)),
+        brand: item.section || "",
+        model: item.model || "",
+        btu: Number(item.btu || 0),
+        offerPrice: Number(item.price || 0),
+        estimatedCost: (item.cost !== undefined && item.cost !== null && item.cost !== "") ? Number(item.cost) : null,
+        sku: item.sku || item.barcode || "",
+        note: item.note || ""
+      });
+    }
+    if (ctx?.showToast) ctx.showToast(`เพิ่มเป็นรายการร่างในใบเสนอราคาแล้ว 📝`);
+    // ไปหน้าใบเสนอราคา (navigation — แคตตาล็อกนี้ใช้ทำราคาเท่านั้น ไม่ตัดคลัง)
     if (ctx?.showRoute) ctx.showRoute("quotations");
     else window.location.hash = "quotations";
   }));
