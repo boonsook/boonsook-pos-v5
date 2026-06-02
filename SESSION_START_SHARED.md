@@ -4,6 +4,8 @@ Last updated: 2026-06-02 (Phase 353 air-job-to-quotation-draft-action — ปุ
 
 Purpose: this is the common first-read note for Codex, Claude, or any next agent opening a fresh session on this project. Read this before changing files so both teams start from the same facts.
 
+> **ทีม implement / Claude:** เริ่มจาก [`IMPLEMENT_TEAM_PROTOCOL.md`](IMPLEMENT_TEAM_PROTOCOL.md) ก่อน — ต้องอ่าน + ทำตาม STEP 0–7 ก่อนลงมือ phase ใหม่ และต้อง **หยุดหลังจบ phase รอ owner/Codex review** เสมอ
+
 ## Project Snapshot
 
 - Project: Boonsook POS V5 PRO, Thai POS PWA.
