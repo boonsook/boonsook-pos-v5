@@ -7,6 +7,15 @@
 
 ---
 
+## 5.66.0 (build 344) — 2026-06-02 Phase air-stock-manager-safe-step — "จัดการแคตตาล็อกแอร์" → "จัดการสต็อกแอร์" (แยก 3 ประเภท)
+
+- **ux:** เปลี่ยนหัวหน้าเป็น **"จัดการสต็อกแอร์"** + เพิ่ม **tab 3 ประเภท**: แอร์ติดผนัง / แอร์แขวน / แอร์สี่ทิศทาง (label เมนู Settings ด้วย)
+- **ux:** สินค้าเดิมที่ยังไม่มี field ประเภท → **derive fallback เป็น "แอร์ติดผนัง"** ใน UI (`acTypeOf`) — **ไม่ migrate DB / ไม่แตะข้อมูลเดิม**
+- **ux:** summary cards (รุ่นทั้งหมด / แบรนด์-กลุ่ม / มีสต็อก / หมดสต็อก) scope ตาม tab + **product cards** (รุ่น/แบรนด์/BTU/ราคา/คงเหลือ/SKU/badge สถานะ + ปุ่ม `แก้ไข` / `+ เพิ่มเข้าคลัง` / `⋯` แก้สเปก)
+- **ux:** ปุ่มหลัก `+ เพิ่มรุ่นแอร์` / `📂 นำเข้า Excel` / `⋯ จัดการเพิ่มเติม` — **ย้ายปุ่มเสี่ยง "ตั้งสต็อก 5 เครื่องทุกรุ่น"** + export + reset + ล้างทั้งหมด เข้าเมนู (**confirm เดิมครบ**); import drop-zone → section รอง (ขั้นสูง)
+- **feat:** ฟอร์มเพิ่ม/แก้รุ่น (`ac-stock-form.js` ใหม่) — ประเภท/แบรนด์/รุ่น/BTU/ราคา/ต้นทุน/สต็อก/SKU/หมายเหตุ · เปิดจาก tab ไหน → default ประเภทตาม tab นั้น
+- **scope (safe step):** **localStorage (`bsk_ac_catalog`) เท่านั้น** — ไม่แตะ auth/API/DB schema/billing/cart/stock-core · **ไม่เปลี่ยน format import/export** (Excel/CSV คง 24 คอลัมน์เดิม; ฟิลด์ใหม่ ac_type/cost/sku/note ยังไม่อยู่ใน Excel รอบนี้) · **test:** +12 `ac_stock_manager_guard.test.js` (+ mobile/desktop render smoke) · **pwa-cache:** bump 343→344
+
 ## 5.66.0 (build 343) — 2026-06-02 Phase inventory-action-menu + category-collapse — จัดหน้า สินค้า/คลัง ให้โล่ง
 
 - **ux(mobile):** **Header action menu** — เหลือปุ่มหลัก `นำเข้า` / `+ เพิ่มสินค้า` + เมนู **"⋯ จัดการเพิ่มเติม"** (`<details>`); ย้าย `ส่งออก`/`สร้างบาร์โค้ด`/`พิมพ์บาร์โค้ด`/`จัดการหมวด`/`รวมหมวดซ้ำ`/`Bulk`/`ลบทั้งหมด` เข้าเมนู — `ลบทั้งหมด` อยู่**ท้ายเมนู** + **danger style** + เส้นคั่นกันกดพลาด (confirm เดิมครบ)

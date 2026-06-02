@@ -1,6 +1,17 @@
 import { escHtml } from "./utils.js";
 // Phase 87.2 — spec editor modal
 import { openSpecEditor } from "./ac-spec-editor.js";
+// Phase air-stock-manager-safe-step — core add/edit form + air-type helpers
+import { openAcStockForm, AC_TYPES, acTypeOf, acTypeLabel } from "./ac-stock-form.js";
+
+// ★ active air-type tab (module-level — คงค่าข้าม rerender) default = แอร์ติดผนัง
+let _acTab = "wall";
+
+/** อ่าน catalog ปัจจุบันจาก localStorage (fresh — กัน stale หลัง mutate) */
+function _readCatalog() {
+  try { return JSON.parse(localStorage.getItem("bsk_ac_catalog") || "[]"); }
+  catch (e) { console.warn("[settings/ac-catalog] parse failed:", e); return []; }
+}
 
 // ═══════════════════════════════════════════════════════════
 //  Phase 87.3 — Extended fields helpers (CSV/Excel ↔ catalog object)
@@ -106,119 +117,215 @@ function _fromImportRow(r, idx, pick) {
 }
 
 export function renderSettingsAcCatalog(el, ctx, goBack, navigate) {
-  let catalog = [];
-  try { catalog = JSON.parse(localStorage.getItem("bsk_ac_catalog") || "[]"); } catch(e){ console.warn("[settings/ac-catalog] parse failed:", e); }
-  const sections = [...new Set(catalog.map(c => c.section))];
+  const catalog = _readCatalog();
 
   // ★ self-rerender helper — เรียกหลังแก้ data ให้ UI refresh ทันที
   const rerender = () => renderSettingsAcCatalog(el, ctx, goBack, navigate);
+
+  // ★ ensure active tab valid
+  if (!AC_TYPES.some(t => t.key === _acTab)) _acTab = "wall";
+  // ★ จัดกลุ่มตามประเภทแอร์ (derive — ไม่ migrate; ของเดิมไม่มี ac_type → "wall")
+  const countByType = {};
+  AC_TYPES.forEach(t => { countByType[t.key] = 0; });
+  catalog.forEach(c => { countByType[acTypeOf(c)] = (countByType[acTypeOf(c)] || 0) + 1; });
+  const tabItems = catalog.filter(c => acTypeOf(c) === _acTab)
+    .sort((a, b) => String(a.section || "").localeCompare(String(b.section || ""), "th") || String(a.model || "").localeCompare(String(b.model || ""), "th"));
+  // summary (scope = active tab)
+  const sumModels = tabItems.length;
+  const sumBrands = [...new Set(tabItems.map(c => c.section).filter(Boolean))].length;
+  const sumInStock = tabItems.filter(c => Number(c.stock || 0) > 0).length;
+  const sumOutStock = tabItems.filter(c => Number(c.stock || 0) <= 0).length;
+  const activeLabel = acTypeLabel(_acTab);
 
   el.innerHTML = `
     <div class="set-subpage">
       <div class="set-subpage-header">
         <button class="set-back-btn" id="setBackBtn">←</button>
-        <h3 class="set-subpage-title">🌬️ จัดการแคตตาล็อกแอร์</h3>
+        <h3 class="set-subpage-title">🌬️ จัดการสต็อกแอร์</h3>
       </div>
 
-      <!-- Stats -->
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-bottom:16px">
-        <div style="background:#eff6ff;border-radius:12px;padding:12px;text-align:center">
-          <div style="font-size:22px;font-weight:900;color:#0284c7">${catalog.length}</div>
-          <div style="font-size:11px;color:#64748b">รุ่นทั้งหมด</div>
+      <!-- ★ Air-type tabs (3 ประเภท) -->
+      <div class="ac-type-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">
+        ${AC_TYPES.map(t => `
+          <button type="button" class="ac-type-tab" data-ac-tab="${t.key}" style="flex:1 1 auto;min-width:96px;padding:9px 10px;border-radius:12px;border:1px solid ${_acTab === t.key ? '#0284c7' : '#e2e8f0'};background:${_acTab === t.key ? '#0284c7' : '#fff'};color:${_acTab === t.key ? '#fff' : '#475569'};font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap">
+            ${t.icon} ${escHtml(t.label)} <span style="opacity:.7;font-weight:600">(${countByType[t.key] || 0})</span>
+          </button>
+        `).join("")}
+      </div>
+
+      <!-- Summary cards (scope = ${escHtml(activeLabel)}) -->
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px">
+        <div style="background:#eff6ff;border-radius:12px;padding:10px 6px;text-align:center">
+          <div style="font-size:20px;font-weight:900;color:#0284c7">${sumModels}</div>
+          <div style="font-size:10px;color:#64748b">รุ่นทั้งหมด</div>
         </div>
-        <div style="background:#ecfdf5;border-radius:12px;padding:12px;text-align:center">
-          <div style="font-size:22px;font-weight:900;color:#059669">${sections.length}</div>
-          <div style="font-size:11px;color:#64748b">แบรนด์/ประเภท</div>
+        <div style="background:#ecfdf5;border-radius:12px;padding:10px 6px;text-align:center">
+          <div style="font-size:20px;font-weight:900;color:#059669">${sumBrands}</div>
+          <div style="font-size:10px;color:#64748b">แบรนด์/กลุ่ม</div>
         </div>
-        <div style="background:#fef3c7;border-radius:12px;padding:12px;text-align:center">
-          <div style="font-size:22px;font-weight:900;color:#d97706">${catalog.filter(c => (c.stock||0) > 0).length}</div>
-          <div style="font-size:11px;color:#64748b">มีสต็อก</div>
+        <div style="background:#f0fdf4;border-radius:12px;padding:10px 6px;text-align:center">
+          <div style="font-size:20px;font-weight:900;color:#16a34a">${sumInStock}</div>
+          <div style="font-size:10px;color:#64748b">มีสต็อก</div>
+        </div>
+        <div style="background:#fef2f2;border-radius:12px;padding:10px 6px;text-align:center">
+          <div style="font-size:20px;font-weight:900;color:#dc2626">${sumOutStock}</div>
+          <div style="font-size:10px;color:#64748b">หมดสต็อก</div>
         </div>
       </div>
 
-      <!-- ★ Quick actions (stock + excel export) -->
-      ${catalog.length > 0 ? `
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;margin-bottom:12px">
-        <button id="acSetStock5Btn" class="btn" style="background:#f0fdf4;color:#059669;border:1px solid #86efac;padding:10px;font-weight:700">
-          📦 ตั้งสต็อก 5 เครื่องทุกรุ่น
-        </button>
-        <button id="acExportXlsxBtn" class="btn" style="background:#eff6ff;color:#0284c7;border:1px solid #93c5fd;padding:10px;font-weight:700">
-          📥 ดาวน์โหลด Excel (.xlsx)
-        </button>
-        <button id="acExportCsvBtn" class="btn" style="background:#f8fafc;color:#475569;border:1px solid #cbd5e1;padding:10px;font-weight:700">
-          📄 ดาวน์โหลด CSV
-        </button>
+      <!-- ★ Primary actions + "จัดการเพิ่มเติม" menu -->
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+        <button id="acAddModelBtn" class="btn primary" style="font-size:13px;padding:8px 14px;font-weight:700">+ เพิ่มรุ่นแอร์</button>
+        <button id="acImportQuickBtn" class="btn light" style="font-size:13px;padding:8px 12px">📂 นำเข้า Excel</button>
+        <details class="prod-more-menu">
+          <summary class="prod-more-trigger btn light" style="font-size:13px;padding:8px 12px">⋯ จัดการเพิ่มเติม</summary>
+          <div class="prod-more-panel">
+            <button id="acExportXlsxBtn" class="prod-more-item">📥 ดาวน์โหลด Excel (.xlsx)</button>
+            <button id="acExportCsvBtn" class="prod-more-item">📄 ดาวน์โหลด CSV</button>
+            <button id="acSetStock5Btn" class="prod-more-item" title="ตั้งสต็อกทุกรุ่นเป็น 5 เครื่อง">📦 ตั้งสต็อก 5 เครื่องทุกรุ่น</button>
+            <button id="acCatalogRefreshBtn" class="prod-more-item">🔄 โหลดจาก JSON (reset)</button>
+            <button id="acCatalogClearBtn" class="prod-more-item prod-more-danger">🗑️ ล้างแคตตาล็อกทั้งหมด</button>
+          </div>
+        </details>
       </div>
-      ` : ''}
 
-      <!-- CSV/Excel Import -->
-      <div class="set-form-card" style="border:2px dashed #0284c7;background:#f0f9ff">
-        <div style="text-align:center;padding:16px">
-          <div style="font-size:36px;margin-bottom:8px">📤</div>
-          <div style="font-size:15px;font-weight:700;color:#0284c7;margin-bottom:4px">อัปโหลดไฟล์ — Excel (.xlsx) หรือ CSV</div>
-          <div style="font-size:12px;color:#64748b;margin-bottom:12px">รองรับ <b>24 คอลัมน์</b> — พื้นฐาน 8 + สเปกขยาย 16 ฟิลด์</div>
-          <input type="file" id="acCatalogFileInput" accept=".csv,.xlsx,.xls" style="display:none" />
-          <button id="acCatalogImportBtn" class="btn primary" style="padding:10px 24px;font-size:14px">📂 เลือกไฟล์</button>
-          <div id="acCatalogImportStatus" style="margin-top:8px;font-size:13px;color:#64748b"></div>
-          <div style="margin-top:8px;font-size:11px;color:#94a3b8;line-height:1.7;text-align:left;max-width:520px;margin-left:auto;margin-right:auto">
-            💡 <b>Workflow:</b> ดาวน์โหลด .xlsx → กรอกสเปกใน Excel → อัปโหลดกลับ — ข้อมูลจะทับของเดิม<br>
-            🆕 <b>Phase 87.3</b> — ตอนนี้รองรับ extended fields:
-            <div style="margin:4px 0 0 8px;font-size:10px;color:#64748b">
-              <b>พื้นฐาน:</b> section, model, btu, price, w_install, w_parts, w_comp, stock<br>
-              <b>การตลาด:</b> description, features, badge_tags, image_url<br>
-              <b>เทคนิค:</b> seer, refrigerant, voltage, current_a, power_w<br>
-              <b>ขนาด:</b> indoor_dim, outdoor_dim, indoor_weight_kg, outdoor_weight_kg<br>
-              <b>เสียง+สี:</b> noise_indoor_db, noise_outdoor_db, color
+      <!-- ★ Product cards ของ tab ที่เลือก -->
+      <div style="font-size:14px;font-weight:900;color:#1f2937;margin-bottom:8px">${escHtml(activeLabel)} <span style="color:#94a3b8;font-weight:600">(${tabItems.length} รุ่น)</span></div>
+      ${tabItems.length > 0 ? `
+      <div class="ac-stock-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">
+        ${tabItems.map(c => {
+          const inStock = Number(c.stock || 0) > 0;
+          const hasSpec = !!(c.features || c.seer || c.description);
+          const code = c.sku || c.barcode || "";
+          return `
+          <div class="ac-stock-card" style="background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
+              <div style="min-width:0">
+                <div style="font-size:14px;font-weight:800;color:#0f172a;line-height:1.25">${escHtml(c.model || "-")}</div>
+                <div style="font-size:11px;color:#64748b;margin-top:1px">${escHtml(c.section || "-")}</div>
+              </div>
+              <span style="flex:0 0 auto;font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;background:${inStock ? '#dcfce7' : '#fee2e2'};color:${inStock ? '#15803d' : '#b91c1c'}">${inStock ? 'พร้อมส่ง' : 'หมดสต็อก'}</span>
             </div>
-            <div style="margin-top:4px;color:#10b981">
-              ℹ️ <b>features / badge_tags</b> ใส่หลายค่าได้ คั่นด้วย <code style="background:#fff;padding:1px 4px;border-radius:3px">|</code> หรือ <code style="background:#fff;padding:1px 4px;border-radius:3px">,</code>
-              <br>เช่น <code style="background:#fff;padding:1px 4px;border-radius:3px">Inverter | WiFi | Self-Cleaning</code>
+            <div style="display:flex;flex-wrap:wrap;gap:4px 10px;font-size:12px;color:#475569">
+              <span>❄️ ${Number(c.btu || 0).toLocaleString()} BTU</span>
+              <span style="font-weight:800;color:#0284c7">฿${Number(c.price || 0).toLocaleString()}</span>
+              <span>คงเหลือ <strong style="color:${inStock ? '#16a34a' : '#dc2626'}">${Number(c.stock || 0)}</strong></span>
+            </div>
+            ${code ? `<div style="font-size:11px;color:#94a3b8">SKU: ${escHtml(code)}</div>` : ''}
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;align-items:flex-start">
+              <button data-ac-edit="${c.id}" class="btn light" style="padding:6px 10px;font-size:12px;font-weight:700">✏️ แก้ไข</button>
+              <button data-ac-addstock="${c.id}" class="btn primary" style="padding:6px 10px;font-size:12px;font-weight:700">+ เพิ่มเข้าคลัง</button>
+              <details class="prod-card-menu">
+                <summary class="prod-cardmenu-trigger" title="เพิ่มเติม">⋯</summary>
+                <div class="prod-cardmenu-panel">
+                  <button class="prod-cardmenu-item" data-edit-spec="${c.id}">📋 ${hasSpec ? 'แก้สเปกเทคนิค' : 'เพิ่มสเปกเทคนิค'}</button>
+                </div>
+              </details>
+            </div>
+          </div>`;
+        }).join("")}
+      </div>
+      ` : `<div style="text-align:center;padding:28px 16px;color:#94a3b8;background:#fff;border:1px dashed #e2e8f0;border-radius:14px">
+            ยังไม่มีรุ่นในประเภท "${escHtml(activeLabel)}"<br>
+            <span style="font-size:12px">กด <b>+ เพิ่มรุ่นแอร์</b> เพื่อเริ่ม หรือ นำเข้า Excel</span>
+          </div>`}
+
+      <!-- ★ นำเข้า / ส่งออก (ขั้นสูง) — section รอง, format Excel/CSV เดิมไม่เปลี่ยน -->
+      <details style="margin-top:18px;background:#fff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden">
+        <summary style="padding:12px 14px;font-weight:700;font-size:13px;cursor:pointer;background:#f8fafc;color:#1f2937">📁 นำเข้า / ส่งออกไฟล์ (ขั้นสูง)</summary>
+        <div style="padding:14px">
+          <div style="text-align:center;padding:12px;border:2px dashed #0284c7;background:#f0f9ff;border-radius:12px">
+            <div style="font-size:30px;margin-bottom:6px">📤</div>
+            <div style="font-size:14px;font-weight:700;color:#0284c7;margin-bottom:4px">อัปโหลดไฟล์ — Excel (.xlsx) หรือ CSV</div>
+            <div style="font-size:12px;color:#64748b;margin-bottom:10px">รองรับ <b>24 คอลัมน์</b> — พื้นฐาน 8 + สเปกขยาย 16 ฟิลด์ (รูปแบบเดิม)</div>
+            <input type="file" id="acCatalogFileInput" accept=".csv,.xlsx,.xls" style="display:none" />
+            <button id="acCatalogImportBtn" class="btn primary" style="padding:9px 22px;font-size:14px">📂 เลือกไฟล์</button>
+            <div id="acCatalogImportStatus" style="margin-top:8px;font-size:13px;color:#64748b"></div>
+            <div style="margin-top:8px;font-size:11px;color:#94a3b8;line-height:1.7;text-align:left;max-width:520px;margin:8px auto 0">
+              💡 <b>Workflow:</b> ดาวน์โหลด .xlsx → กรอกสเปกใน Excel → อัปโหลดกลับ — ข้อมูลจะทับของเดิม<br>
+              <div style="margin:4px 0 0 8px;font-size:10px;color:#64748b">
+                <b>พื้นฐาน:</b> section, model, btu, price, w_install, w_parts, w_comp, stock<br>
+                <b>การตลาด:</b> description, features, badge_tags, image_url<br>
+                <b>เทคนิค:</b> seer, refrigerant, voltage, current_a, power_w<br>
+                <b>ขนาด:</b> indoor_dim, outdoor_dim, indoor_weight_kg, outdoor_weight_kg<br>
+                <b>เสียง+สี:</b> noise_indoor_db, noise_outdoor_db, color
+              </div>
+              <div style="margin-top:4px;color:#10b981">
+                ℹ️ <b>features / badge_tags</b> ใส่หลายค่าได้ คั่นด้วย <code style="background:#fff;padding:1px 4px;border-radius:3px">|</code> หรือ <code style="background:#fff;padding:1px 4px;border-radius:3px">,</code>
+              </div>
+              <div style="margin-top:6px;color:#94a3b8">ℹ️ ประเภทแอร์ / ต้นทุน / SKU / หมายเหตุ เป็นฟิลด์ใหม่ในแอป — ยังไม่อยู่ใน Excel รอบนี้ (จะเพิ่มรอบถัดไป)</div>
             </div>
           </div>
         </div>
-      </div>
-
-      <!-- Current catalog list (collapsed by section) -->
-      <div style="margin-top:16px">
-        <div style="font-size:15px;font-weight:900;color:#1f2937;margin-bottom:8px">📋 รายการปัจจุบัน (${catalog.length} รุ่น)</div>
-        ${sections.length > 0 ? sections.map(sec => {
-          const items = catalog.filter(c => c.section === sec);
-          return `
-          <details style="margin-bottom:6px;background:#fff;border-radius:10px;border:1px solid #e2e8f0;overflow:hidden">
-            <summary style="padding:10px 14px;font-weight:700;font-size:13px;cursor:pointer;background:#f8fafc;color:#1f2937">
-              ${escHtml(sec)} <span style="color:#94a3b8;font-weight:400">(${items.length} รุ่น)</span>
-            </summary>
-            <div style="padding:8px 14px">
-              ${items.map(c => {
-                const hasSpec = !!(c.features || c.seer || c.description);
-                return `
-                <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #f1f5f9;font-size:12px">
-                  <div style="flex:1;min-width:0">
-                    <span style="font-weight:700">${escHtml(c.model)}</span>
-                    <span style="color:#64748b;margin-left:6px">❄️ ${Number(c.btu||0).toLocaleString()} BTU</span>
-                    ${hasSpec ? '<span title="มีสเปกครบ" style="color:#10b981;margin-left:4px">📋</span>' : ''}
-                  </div>
-                  <div style="display:flex;align-items:center;gap:6px;text-align:right">
-                    <span style="font-weight:700;color:#0284c7">฿${Number(c.price||0).toLocaleString()}</span>
-                    <span style="color:${(c.stock||0) > 0 ? '#10b981' : '#ef4444'}">${(c.stock||0) > 0 ? '✅' + c.stock : '—'}</span>
-                    <button data-edit-spec="${c.id}" title="${hasSpec ? 'แก้สเปก' : 'เพิ่มสเปก'}" style="padding:3px 8px;border:1px solid ${hasSpec ? '#10b981' : '#cbd5e1'};border-radius:6px;background:${hasSpec ? '#ecfdf5' : '#fff'};color:${hasSpec ? '#065f46' : '#64748b'};cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap">✏️ ${hasSpec ? 'แก้' : '+ สเปก'}</button>
-                  </div>
-                </div>`;
-              }).join("")}
-            </div>
-          </details>`;
-        }).join("") : '<div style="text-align:center;padding:24px;color:#94a3b8">ยังไม่มีข้อมูลแคตตาล็อก — กรุณาอัปโหลดไฟล์</div>'}
-      </div>
-
-      <!-- Actions -->
-      <div style="display:grid;gap:8px;margin-top:16px">
-        <button id="acCatalogRefreshBtn" class="btn" style="background:#f1f5f9;color:#64748b;border:1px solid #e2e8f0;padding:10px">🔄 โหลดแคตตาล็อกจาก JSON ไฟล์ (reset)</button>
-        ${catalog.length > 0 ? `<button id="acCatalogClearBtn" class="btn" style="background:#fef2f2;color:#ef4444;border:1px solid #fca5a5;padding:10px">🗑️ ล้างแคตตาล็อกทั้งหมด</button>` : ''}
-      </div>
+      </details>
     </div>
   `;
 
   document.getElementById("setBackBtn")?.addEventListener("click", goBack);
+
+  // ═══ ★ Air-type tabs ═══
+  el.querySelectorAll("[data-ac-tab]").forEach(btn => btn.addEventListener("click", () => {
+    _acTab = btn.dataset.acTab;
+    rerender();
+  }));
+
+  // ═══ ★ Action menus (header "จัดการเพิ่มเติม" + per-card "⋯") — accordion ═══
+  el.querySelectorAll("details.prod-more-menu, details.prod-card-menu").forEach(d => {
+    d.addEventListener("toggle", () => {
+      if (!d.open) return;
+      el.querySelectorAll("details.prod-more-menu[open], details.prod-card-menu[open]").forEach(o => { if (o !== d) o.open = false; });
+    });
+  });
+
+  // ═══ ★ เพิ่มรุ่นแอร์ (default ประเภท = tab ปัจจุบัน) ═══
+  document.getElementById("acAddModelBtn")?.addEventListener("click", () => {
+    openAcStockForm(null, _acTab, (entry) => {
+      const list = _readCatalog();
+      const nextId = list.reduce((m, c) => Math.max(m, Number(c.id) || 0), 0) + 1;
+      entry.id = nextId;
+      list.push(entry);
+      localStorage.setItem("bsk_ac_catalog", JSON.stringify(list));
+      if (ctx?.showToast) ctx.showToast(`เพิ่มรุ่น ${entry.model} (${acTypeLabel(entry.ac_type)}) แล้ว ✅`);
+      _acTab = entry.ac_type;
+      rerender();
+    });
+  });
+
+  // ═══ ★ แก้ไขรุ่น (core form) ═══
+  el.querySelectorAll("[data-ac-edit]").forEach(btn => btn.addEventListener("click", () => {
+    const id = Number(btn.dataset.acEdit);
+    const list = _readCatalog();
+    const idx = list.findIndex(c => Number(c.id) === id);
+    if (idx < 0) return;
+    openAcStockForm(list[idx], acTypeOf(list[idx]), (entry) => {
+      list[idx] = { ...list[idx], ...entry };
+      localStorage.setItem("bsk_ac_catalog", JSON.stringify(list));
+      if (ctx?.showToast) ctx.showToast(`บันทึก ${entry.model} แล้ว ✅`);
+      rerender();
+    });
+  }));
+
+  // ═══ ★ เพิ่มเข้าคลัง (per-item stock add — prompt จำนวน, localStorage only) ═══
+  el.querySelectorAll("[data-ac-addstock]").forEach(btn => btn.addEventListener("click", () => {
+    const id = Number(btn.dataset.acAddstock);
+    const list = _readCatalog();
+    const idx = list.findIndex(c => Number(c.id) === id);
+    if (idx < 0) return;
+    const cur = Number(list[idx].stock || 0);
+    const ans = prompt(`เพิ่มจำนวนเข้าคลัง — ${list[idx].model}\nคงเหลือปัจจุบัน: ${cur} เครื่อง\n\nกรอกจำนวนที่จะเพิ่ม (ใส่ค่าติดลบเพื่อลด):`, "1");
+    if (ans === null) return;
+    const add = Number(String(ans).replace(/[^0-9.-]/g, ""));
+    if (!Number.isFinite(add) || add === 0) return;
+    list[idx].stock = Math.max(0, cur + add);
+    localStorage.setItem("bsk_ac_catalog", JSON.stringify(list));
+    if (ctx?.showToast) ctx.showToast(`${list[idx].model}: คงเหลือ ${list[idx].stock} เครื่อง ✅`);
+    rerender();
+  }));
+
+  // ═══ ★ ปุ่ม "นำเข้า Excel" หลัก → trigger file input เดิม (ไม่ซ้ำ logic) ═══
+  document.getElementById("acImportQuickBtn")?.addEventListener("click", () => {
+    document.getElementById("acCatalogFileInput")?.click();
+  });
 
   // ═══ ตั้งสต็อก 5 เครื่องทุกรุ่น ═══
   document.getElementById("acSetStock5Btn")?.addEventListener("click", async () => {

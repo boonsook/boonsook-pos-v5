@@ -3,9 +3,10 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase inventory-action-menu + category-collapse — จัดหน้า สินค้า/คลัง ให้โล่ง, build 343)
-**Version:** 5.66.0 (build 343) — Phase inventory-action-menu + category-collapse (UI/markup/CSS — ไม่แตะ stock/barcode/import-export/billing/auth/API; id/data-action/handler เดิมครบ)
-**Previous:** 5.66.0 (build 342) — Phase inventory-mobile-polish (UI/CSS safe wins — สินค้า/คลัง)
+**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase air-stock-manager-safe-step — จัดการสต็อกแอร์ แยก 3 ประเภท, build 344)
+**Version:** 5.66.0 (build 344) — Phase air-stock-manager-safe-step (UI/localStorage เท่านั้น — ไม่แตะ auth/API/DB/billing/import-export format)
+**Previous:** 5.66.0 (build 343) — Phase inventory-action-menu + category-collapse (UI/markup/CSS — สินค้า/คลัง)
+**Pre-prev-1c:** 5.66.0 (build 342) — Phase inventory-mobile-polish (UI/CSS safe wins — สินค้า/คลัง)
 **Pre-prev-1b:** 5.66.0 (build 341) — Phase sales-doc-mobile (CSS/markup — เอกสารขาย)
 **Pre-prev-1:** 5.66.0 (build 340) — Phase mobile-layout follow-up #3 (AI entry UX inline แทน FAB)
 **Pre-prev0:** 5.66.0 (build 339) — Phase mobile-layout follow-up #2 (ซ่อน AI FAB ตาม route บนมือถือ)
@@ -16,6 +17,27 @@
 > 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.64** (client helper เท่านั้น)
 > 🏁 **FINANCE AUDIT CLOSED ที่ build 334** — ครบทุกข้อ: #1✓✓ #2✓ #3✓ #4✓ #5✓ #6✓ #6b✓ #7✓(dead code ลบแล้ว) #8✓ #9✓
 > ✅ **#9 period-lock DB trigger VERIFIED** (gangboo query DB, 2026-06-01): `journal_entries` → trigger `trg_check_period_locked` → function `check_period_not_locked` → insert เข้า period ที่ locked ถูกกันที่ DB จริง (เส้นแบ่งความปลอดภัยตาม CLAUDE.md 4.3)
+
+---
+
+## 🛠️ Phase air-stock-manager-safe-step — จัดการสต็อกแอร์ แยก 3 ประเภท (build 344)
+
+**Scope (SAFE STEP):** ปรับ "จัดการแคตตาล็อกแอร์" (Settings → ac-catalog) เป็น **"จัดการสต็อกแอร์"** แยก 3 ประเภท. **localStorage (`bsk_ac_catalog`) เท่านั้น** — **ไม่แตะ** auth/API/DB schema/billing/cart/stock-core, **ไม่เปลี่ยน format import/export** (Excel/CSV คง 24 คอลัมน์เดิม), **ไม่ลบข้อมูลเดิม**, **ไม่ bulk-migrate**. หน้านี้แยกจากตาราง products/POS (คนละ store) — consumers (`customer_dashboard.js`, `main.js`) อ่าน field เดิมอย่างเดียว → เพิ่ม `ac_type` เป็น additive ปลอดภัย.
+
+**UX issue:** หน้าเดิมเป็น list grouped-by-brand + ปุ่มเสี่ยง "ตั้งสต็อก 5 เครื่องทุกรุ่น" เด่นโต่ง + ไม่มีฟอร์มเพิ่ม/แก้รุ่น (มีแต่ import + spec editor).
+
+**Fix:**
+1. **3 air-type tabs** — `AC_TYPES` (wall/ceiling/cassette = แอร์ติดผนัง/แอร์แขวน/แอร์สี่ทิศทาง) ใน `ac-stock-form.js`. `acTypeOf(c)` = `c.ac_type` ถ้าอยู่ใน 3 keys ไม่งั้น **fallback "wall"** → ข้อมูลเดิม (ไม่มี field) โผล่ใน "แอร์ติดผนัง" โดยไม่ migrate. tab state = module-level `_acTab` (default wall).
+2. **summary cards** (scope ตาม tab): รุ่นทั้งหมด/แบรนด์-กลุ่ม/มีสต็อก(stock>0)/หมดสต็อก(stock≤0).
+3. **product cards** ต่อ tab: รุ่น/แบรนด์(section)/BTU/ราคา/คงเหลือ/SKU/badge(พร้อมส่ง·หมดสต็อก) + ปุ่ม `แก้ไข`(data-ac-edit→core form) / `+ เพิ่มเข้าคลัง`(data-ac-addstock→prompt +N, localStorage) / `⋯`(data-edit-spec→spec editor เดิม).
+4. **header actions**: `+ เพิ่มรุ่นแอร์`(`#acAddModelBtn`) / `📂 นำเข้า Excel`(`#acImportQuickBtn`→trigger `#acCatalogFileInput` เดิม) / `⋯ จัดการเพิ่มเติม`(`.prod-more-menu` reuse build 343) ที่เก็บ: export xlsx/csv, **ตั้งสต็อก5 (เสี่ยง, confirm เดิม)**, refresh-JSON, ล้างทั้งหมด(danger). ทุก id/handler เดิม **ไม่แตะ** — แค่ย้ายที่.
+5. **import drop-zone** → section รอง `<details>` "นำเข้า/ส่งออกไฟล์ (ขั้นสูง)"; format เดิม, IDs เดิม (`acCatalogFileInput`/`acCatalogImportBtn`/`acCatalogImportStatus`).
+6. **`ac-stock-form.js` (ใหม่)** — modal core fields: ประเภท/แบรนด์/รุ่น/BTU/ราคา/ต้นทุน/สต็อก/SKU/หมายเหตุ. add → default ประเภท = tab ปัจจุบัน, id = max+1; edit → spread ของเดิมครบ (คงสเปกเทคนิค/ประกัน/รูป). `cost/sku/note/ac_type` = ฟิลด์ใหม่ใน localStorage.
+7. menu label "คลังสินค้า AC" → "จัดการสต็อกแอร์".
+
+**⚠️ Known limitation (ตั้งใจ — รอบถัดไป):** import ยัง **overwrite** catalog ทั้งก้อน (พฤติกรรมเดิม) + Excel/CSV ยังไม่มีคอลัมน์ ac_type/cost/sku/note → ถ้า user import ทับ ฟิลด์ใหม่จะหาย. รอบนี้ลูกค้าสั่ง "ห้ามแตะ import/export format". รอบหน้าค่อยเพิ่มคอลัมน์ + merge-by-id.
+
+**Verify:** lint:errors 0 · unit **931** (+12 `ac_stock_manager_guard.test.js`: 3 types+labels · acTypeOf fallback wall · rename · 3 tabs · summary · primary buttons · setStock5 ย้ายเข้าเมนู+confirm · import/export ids preserved · export 24-col ไม่เปลี่ยน · form 9 fields · default type ตาม tab · form no-API) · **render smoke (temp Playwright, ลบแล้ว):** mobile 390×844 + desktop 1280 — รีโหลด, 3 tabs, legacy→แอร์ติดผนัง, สลับ tab, +เพิ่มรุ่น default type ตาม tab, edit เปิดฟอร์ม, menu เปิด/ปิด, import section คงอยู่, ไม่มี h-overflow. **bump 343→344**.
 
 ---
 
