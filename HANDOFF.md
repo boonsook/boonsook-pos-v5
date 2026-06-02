@@ -3,9 +3,10 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase 348 remove-customer-cart-tab-for-air-catalog — เอา tab ตะกร้าออก, build 348)
-**Version:** 5.66.0 (build 348) — Phase 348 remove-customer-cart-tab (หน้าร้านแอร์ = จอง/สอบถามราคา ไม่ใช่ cart/checkout; ไม่ลบ POS logic)
-**Previous:** 5.66.0 (build 347) — Phase 347 air-catalog-public-store-sync (storefront sync + booking flow)
+**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase 349 service-request-air-booking-polish — หน้าแจ้งงานรับ booking แคตตาล็อกแอร์, build 349)
+**Version:** 5.66.0 (build 349) — Phase 349 service-request-air-booking-polish (summary card + intent-aware + prefill + นัดหมาย→note; ไม่แตะ stock/POS/cart/quotation/SQL)
+**Previous:** 5.66.0 (build 348) — Phase 348 remove-customer-cart-tab (เอา tab ตะกร้าออก)
+**Pre-prev-1h:** 5.66.0 (build 347) — Phase 347 air-catalog-public-store-sync (storefront + booking flow)
 **Pre-prev-1g:** 5.66.0 (build 346) — Phase 346 air-catalog-to-quotation-draft (→ ใบเสนอราคา)
 **Pre-prev-1f:** 5.66.0 (build 345) — Phase air-catalog-not-real-stock-correction (wording ≠ สต็อกจริง)
 **Pre-prev-1e:** 5.66.0 (build 344) — Phase air-stock-manager-safe-step (แยก 3 ประเภท — localStorage)
@@ -21,6 +22,29 @@
 > 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.64** (client helper เท่านั้น)
 > 🏁 **FINANCE AUDIT CLOSED ที่ build 334** — ครบทุกข้อ: #1✓✓ #2✓ #3✓ #4✓ #5✓ #6✓ #6b✓ #7✓(dead code ลบแล้ว) #8✓ #9✓
 > ✅ **#9 period-lock DB trigger VERIFIED** (gangboo query DB, 2026-06-01): `journal_entries` → trigger `trg_check_period_locked` → function `check_period_not_locked` → insert เข้า period ที่ locked ถูกกันที่ DB จริง (เส้นแบ่งความปลอดภัยตาม CLAUDE.md 4.3)
+
+---
+
+## 🛠️ Phase 349 service-request-air-booking-polish — หน้าแจ้งงานรับ booking แคตตาล็อกแอร์ (build 349)
+
+**เป้าหมาย:** ปรับ `service_request` (รับ booking draft จาก 347) ให้สวย/ชัด: แสดงว่ามาจาก "แคตตาล็อกแอร์" + ข้อมูลรุ่น/BTU/ราคา/ประเภท, intent-aware, นัดหมาย — ปลอดภัย.
+
+**Scope/ข้อห้าม:** ❌ ไม่แตะ stock/products/POS/cart · ❌ ไม่ตัดสต็อก/เพิ่มคลัง · ❌ ไม่สร้างใบเสนอราคาอัตโนมัติ · ❌ ไม่แก้ SQL/schema · ❌ ไม่กระทบ quotation draft (346)/booking (347/348).
+
+**Fix:**
+1. **`ac_booking_draft.js` + `customer_dashboard._book`** — booking draft พก `note`/`spec`/`warranty` เพิ่ม (additive; old drafts → "" ไม่ crash). 347/348 flow ไม่พัง.
+2. **`service_request.js`:**
+   - **consume-once** `consumeAirBookingDrafts()` (เดิม 347) — อ่านแล้วลบ → reload ไม่เติมซ้ำ; draft เสีย/ไม่มี → ไม่ crash (try/catch).
+   - **intent vars:** `_isAsk = intent !== "booking"` (รองรับ price_inquiry/ask_price), `_heading`, `_submitLabel`, `_priceTxt` (ราคาเสนอ | "ต้องเช็คราคา").
+   - **summary card** "🌬️ รายการจากแคตตาล็อกแอร์": ประเภท/แบรนด์·รุ่น/BTU/ราคา/ประกัน/สเปก + chip intent + disclaimer "ยังไม่ใช่การซื้อจริง...ยังไม่ได้ส่ง".
+   - **heading/ปุ่ม intent-aware:** booking→"📅 สั่งจอง/แจ้งติดตั้งแอร์" + "📨 ส่งคำขอจอง/แจ้งงาน"; ask→"💬 สอบถามราคาแอร์" + "📨 ส่งคำขอสอบถามราคา"; ไม่มี draft = เดิม "🛠️ แจ้งซ่อม/บริการ" + "📨 ส่งคำแจ้งซ่อม".
+   - **prefill:** `#srType`=ติดตั้งแอร์; `#srSymptom`=label+airType+brand+model+BTU+price+spec+`[source=air_catalog]`; `#srNote`=รุ่น+note+ประกัน.
+   - **นัดหมาย (ใหม่):** `#srPrefDate` (date) + `#srPrefTime` (select ช่วงเวลา) — **optional, map ลง `note` ตอน submit** (`finalNote = note + " | นัดหมาย <date> <time>"`) → **ไม่แก้ schema** (service_jobs ไม่มีคอลัมน์ appointment).
+   - **submit เดิมไม่เปลี่ยน:** manual click → POST `/rest/v1/service_jobs` (status pending, job_type=resolveJobType). ใช้ `finalNote` แทน `note`.
+
+**ยืนยันไม่แตะคลัง/POS/cart:** guard test — service_request ไม่มี addToCart/saveCustCart/_custCart/`.stock=`/quotation/`from("products")`; prefill/consume ไม่ POST (POST เฉพาะตอนกดปุ่ม); appointment ไป note ไม่ใช่คอลัมน์ใหม่.
+
+**Verify:** lint:errors 0 · unit **966** (+9 `service_request_air_booking.test.js`: draft พก note/spec/warranty · _book ส่งต่อ · consume not peek · summary card+disclaimer · intent label · prefill type/symptom/note · นัดหมาย→finalNote · no cart/stock/POS/quotation · submit flow intact) · **flow smoke (temp, ลบแล้ว) mobile 390×844 + desktop:** booking→card+ปุ่ม "ส่งคำขอจอง"+prefill source=air_catalog; ask(price=0)→"ต้องเช็คราคา"+"ส่งคำขอสอบถามราคา"; นัดหมาย fields มี; reload→card หาย (consumed); cart ว่าง; ไม่มี h-overflow. **bump 348→349**.
 
 ---
 

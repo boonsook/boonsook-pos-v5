@@ -272,7 +272,13 @@ export function renderCustomerDashboard(ctx) {
       model: product.model || product.sku || "",
       btu: Number(product.btu || 0),
       offerPrice: Number(product.price || 0),
-      intent: isCheck ? "price_inquiry" : "booking"
+      intent: isCheck ? "price_inquiry" : "booking",
+      // Phase 349: พก note/spec/warranty ไปแสดง+prefill หน้า service_request
+      note: product.note || "",
+      spec: (Array.isArray(product.features) && product.features.length)
+        ? product.features.slice(0, 3).join(', ')
+        : (product.refrigerant ? 'น้ำยา ' + product.refrigerant : ''),
+      warranty: [product.w_install ? 'ติดตั้ง ' + product.w_install : '', product.w_parts ? 'อะไหล่ ' + product.w_parts : '', product.w_comp ? 'คอมฯ ' + product.w_comp : ''].filter(Boolean).join(' | ')
     });
     if (showToast) showToast(isCheck ? 'พาไปหน้าสอบถามราคา 💬' : 'พาไปหน้าสั่งจอง / แจ้งงาน 📅');
     if (_showRoute) _showRoute("service_request"); else window.location.hash = "service_request";

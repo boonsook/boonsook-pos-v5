@@ -7,6 +7,14 @@
 
 ---
 
+## 5.66.0 (build 349) — 2026-06-02 Phase 349 service-request-air-booking-polish — หน้าแจ้งงานรับ booking จากแคตตาล็อกแอร์ให้ชัด
+
+- **ux:** หน้า `service_request` แสดง **กล่องสรุป "🌬️ รายการจากแคตตาล็อกแอร์"** — ประเภท / แบรนด์·รุ่น / BTU / ราคาเสนอ หรือ "ต้องเช็คราคา" / ประกัน / สเปก + chip intent (📅 สั่งจอง / 💬 สอบถามราคา) + disclaimer *"ยังไม่ใช่การซื้อจริง เจ้าหน้าที่จะยืนยันราคาและเวลานัดหมายอีกครั้ง — ยังไม่ได้ส่ง"*
+- **ux:** **intent-aware** — heading + ปุ่ม submit เปลี่ยนตาม intent: `booking` → "📨 ส่งคำขอจอง / แจ้งงาน" · `ask_price` → "📨 ส่งคำขอสอบถามราคา" (ใช้ submit flow เดิม)
+- **ux:** prefill ประเภทงาน=ติดตั้งแอร์ + รายละเอียด (airType/brand/model/BTU/ราคา/spec/`source=air_catalog`) + หมายเหตุ (รุ่น + note + ประกัน) · เพิ่มช่อง **นัดหมาย (วันที่ + ช่วงเวลา)** → map ลง `note` เดิม (**ไม่แก้ DB schema**)
+- **chore:** booking draft (`ac_booking_draft.js` + customer_dashboard `_book`) พก `note`/`spec`/`warranty` เพิ่ม (additive — old drafts ไม่ crash)
+- **scope:** ❌ ไม่แตะ stock/products/POS/cart · ❌ ไม่ตัดสต็อก/เพิ่มคลัง · ❌ ไม่สร้างใบเสนอราคาอัตโนมัติ · ❌ ไม่แก้ SQL/schema · ❌ ไม่กระทบ quotation draft (346)/booking (347/348) · submit = manual (POST service_jobs status pending เหมือนเดิม) · consume-once กัน reload เติมซ้ำ · **test:** +9 `service_request_air_booking.test.js` + mobile/desktop smoke · **pwa-cache:** bump 348→349
+
 ## 5.66.0 (build 348) — 2026-06-02 Phase 348 remove-customer-cart-tab-for-air-catalog — เอา tab "ตะกร้า" ออกจากหน้าร้านแอร์
 
 - **ux:** เอา **tab "🛒 ตะกร้า"** ออกจาก customer dashboard (หน้าร้านแอร์ = flow **จอง/สอบถามราคา** ไม่ใช่ POS cart/checkout) — กันลูกค้าเข้าใจผิดว่าซื้อทันที · เหลือ tab: ร้านค้า / ประวัติซื้อ / งานของฉัน / แต้มสะสม

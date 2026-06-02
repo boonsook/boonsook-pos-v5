@@ -31,7 +31,11 @@ export function pushAirBookingDraft(item) {
     model: item.model || "",
     btu: Number(item.btu || 0),
     offerPrice: Number(item.offerPrice || 0),
-    intent: item.intent === "price_inquiry" ? "price_inquiry" : "booking"
+    intent: item.intent === "price_inquiry" ? "price_inquiry" : "booking",
+    // Phase 349: พกข้อมูลเสริมไป prefill หน้า service_request (optional — old drafts ไม่มีก็ไม่ crash)
+    note: item.note || "",
+    spec: item.spec || "",
+    warranty: item.warranty || ""
   });
   try { sessionStorage.setItem(KEY, JSON.stringify(list)); }
   catch (e) { console.warn("[ac-booking-draft] save failed:", e); }
