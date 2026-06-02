@@ -94,6 +94,38 @@ function airDraftToLineItem(d) {
   };
 }
 
+// ═══ Phase 355: link-back อ้างอิงงานต้นทาง ลงใน note ตอน "บันทึกเอง" เท่านั้น ═══
+// marker นี้เป็นทั้งข้อความอ่านง่าย (ไทย) และตัวตรวจ dedup — ไม่ใช่ raw technical marker
+const AIR_JOB_NOTE_MARKER = "สร้างจากงานแอร์";
+
+// สร้างบรรทัดอ้างอิงงานต้นทาง — เฉพาะ draft ที่มาจากงานแอร์ (source=air_job)
+//  รูปแบบ: "สร้างจากงานแอร์: {เลขงาน} | {intent} | {แบรนด์ รุ่น BTU} | ราคาเสนอ {price} บาท"
+//  ไม่มี serviceJobId → fallback "สร้างจากงานแอร์จากแคตตาล็อก"; source อื่น → "" (ไม่อ้างอิง)
+export function buildAirJobNoteRef(meta) {
+  if (!meta || meta.source !== "air_job") return "";
+  const jobRef = meta.serviceJobNo || (meta.serviceJobId != null ? `#${meta.serviceJobId}` : "");
+  if (!jobRef) return AIR_JOB_NOTE_MARKER + "จากแคตตาล็อก";
+  const intentTxt = meta.intent === "ask" ? "สอบถามราคา"
+    : meta.intent === "booking" ? "สั่งจอง" : "";
+  const model = [meta.brand, meta.model].filter(Boolean).join(" ").trim();
+  const btu = Number(meta.btu) > 0 ? `${Number(meta.btu).toLocaleString()} BTU` : "";
+  const modelBtu = [model, btu].filter(Boolean).join(" ");
+  const price = Number(meta.offerPrice) > 0 ? `ราคาเสนอ ${Number(meta.offerPrice).toLocaleString()} บาท` : "";
+  return [`${AIR_JOB_NOTE_MARKER}: ${jobRef}`, intentTxt, modelBtu, price].filter(Boolean).join(" | ");
+}
+
+// append บรรทัดอ้างอิงเข้า note เดิมของผู้ใช้ — idempotent:
+//  - source != air_job หรือไม่มี meta → คืน note เดิม (ไม่แตะ)
+//  - note มี marker อยู่แล้ว (กด save ซ้ำ / แก้เอกสารเดิม) → ไม่ append ซ้ำ
+//  - มี note เดิม → ขึ้นบรรทัดใหม่ต่อท้าย (preserve ของผู้ใช้)
+export function appendAirJobNoteRef(existingNote, meta) {
+  const note = (existingNote || "").trim();
+  const ref = buildAirJobNoteRef(meta);
+  if (!ref) return note;
+  if (note.includes(AIR_JOB_NOTE_MARKER)) return note;
+  return note ? `${note}\n${ref}` : ref;
+}
+
 // ═══════════════════════════════════════════════════════════
 //  RENDER — List Page
 // ═══════════════════════════════════════════════════════════
@@ -855,7 +887,8 @@ async function saveQuotationFull() {
     ref_no: document.getElementById("qt_refNo")?.value?.trim() || "",
     salesperson: document.getElementById("qt_salesperson")?.value?.trim() || "",
     status: document.getElementById("qt_status")?.value || "pending",
-    note: document.getElementById("qt_note")?.value?.trim() || ""
+    // Phase 355: append อ้างอิงงานต้นทาง (air_job) ตอนกดบันทึกเองเท่านั้น — preserve note ผู้ใช้, ไม่ duplicate
+    note: appendAirJobNoteRef(document.getElementById("qt_note")?.value?.trim() || "", _airDraftMeta)
   };
 
   // Auto QT number
@@ -897,6 +930,7 @@ async function saveQuotationFull() {
 
   // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L3 module state reset after save (single edit session)
   _viewMode = "list"; _editingId = null; _lineItems = [];
+  _airDraftMeta = null;   // Phase 355: เคลียร์ meta หลังบันทึก → กด save อีกครั้งไม่ append อ้างอิงซ้ำ
   await _ctx.loadAllData();
   _ctx.showToast("บันทึกใบเสนอราคาแล้ว");
   renderQuotationsPage(_ctx);

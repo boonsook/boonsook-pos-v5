@@ -7,6 +7,13 @@
 
 ---
 
+## 5.66.0 (build 355) — 2026-06-02 Phase 355 air-quotation-save-linkback — อ้างอิงงานต้นทางลงใน note ตอนกดบันทึก
+
+- **feat:** กด **"บันทึก"** ใบเสนอราคาที่มาจากงานแอร์ (`source=air_job`) → append บรรทัดอ้างอิงงานต้นทางลงใน **note (field เดิม)** เพื่อ trace ได้ว่ามาจากงานแอร์ใด
+- **format:** `สร้างจากงานแอร์: {เลขงาน} | {สั่งจอง·สอบถามราคา} | {แบรนด์ รุ่น BTU} | ราคาเสนอ {price} บาท` (fallback **"สร้างจากงานแอร์จากแคตตาล็อก"** เมื่อไม่มี `serviceJobId`)
+- **safety:** inject เฉพาะตอน **กดบันทึกเอง** (ไม่ auto-save/ไม่ก่อนกด) · **preserve note เดิมของผู้ใช้** แล้ว append ต่อท้าย · **กัน duplicate** ด้วย marker check (กด save ซ้ำ / แก้เอกสารเดิม ไม่เพิ่มซ้ำ) + เคลียร์ `_airDraftMeta` หลังบันทึก
+- **scope:** ❌ ไม่เปลี่ยน service job status · ❌ ไม่ POST/PATCH `service_jobs` (ปุ่ม "ดูงานต้นทาง" ยัง navigation เท่านั้น) · ❌ ไม่แตะ stock/products/POS/cart · ❌ ไม่แก้ SQL/schema (ใช้ note เดิม) · ❌ ไม่เปลี่ยน save endpoint · ไม่กระทบ draft 346/action·polish 353-354 · `buildAirJobNoteRef`/`appendAirJobNoteRef` = pure exported helpers · **test:** +13 `air_quotation_save_linkback.test.js` + browser smoke · **pwa-cache:** bump 354→355
+
 ## 5.66.0 (build 354) — 2026-06-02 Phase 354 quotation-air-draft-polish — ขัดเกลาหน้าใบเสนอราคาตอนรับ draft จากงานแอร์
 
 - **ux:** banner **"รายการร่างจากงานแอร์"** + **source summary chips** (งานเลขที่ / intent สั่งจอง·สอบถามราคา / รุ่น·BTU·ราคา / 📅 นัดหมาย)

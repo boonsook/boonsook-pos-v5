@@ -3,9 +3,10 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase 354 quotation-air-draft-polish — ขัดเกลาใบเสนอราคารับ draft งานแอร์, build 354) · ⏸️ **STOP — รอ owner/Codex review ก่อนเริ่ม Phase 355**
-**Version:** 5.66.0 (build 354) — Phase 354 quotation-air-draft-polish (banner+source summary+back-to-job+price warning+customer hint; ไม่ save อัตโนมัติ/ไม่แตะ stock/POS/cart/schema)
-**Previous:** 5.66.0 (build 353) — Phase 353 air-job-to-quotation-draft-action (ปุ่ม→quotation draft)
+**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase 355 air-quotation-save-linkback — อ้างอิงงานต้นทางลงใน note ตอนกดบันทึก, build 355) · ⏸️ **STOP — รอ owner/Codex review ก่อนเริ่ม Phase 356**
+**Version:** 5.66.0 (build 355) — Phase 355 air-quotation-save-linkback (append อ้างอิงงานแอร์ลง note ตอนกดบันทึกเอง; preserve note เดิม + กัน duplicate; ไม่ save อัตโนมัติ/ไม่เปลี่ยน job status/ไม่แตะ stock/POS/cart/schema)
+**Previous:** 5.66.0 (build 354) — Phase 354 quotation-air-draft-polish (banner+source summary+back-to-job+price warning+customer hint)
+**Pre-prev-0:** 5.66.0 (build 353) — Phase 353 air-job-to-quotation-draft-action (ปุ่ม→quotation draft)
 **Pre-prev-1m:** 5.66.0 (build 352) — Phase 352 air-job-filter-and-priority
 **Pre-prev-1l:** 5.66.0 (build 351) — Phase 351 service-job-air-source-visibility
 **Pre-prev-1k:** 5.66.0 (build 350) — Phase 350 service-request-air-form-polish
@@ -27,6 +28,29 @@
 > 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.64** (client helper เท่านั้น)
 > 🏁 **FINANCE AUDIT CLOSED ที่ build 334** — ครบทุกข้อ: #1✓✓ #2✓ #3✓ #4✓ #5✓ #6✓ #6b✓ #7✓(dead code ลบแล้ว) #8✓ #9✓
 > ✅ **#9 period-lock DB trigger VERIFIED** (gangboo query DB, 2026-06-01): `journal_entries` → trigger `trg_check_period_locked` → function `check_period_not_locked` → insert เข้า period ที่ locked ถูกกันที่ DB จริง (เส้นแบ่งความปลอดภัยตาม CLAUDE.md 4.3)
+
+---
+
+## 🛠️ Phase 355 air-quotation-save-linkback — อ้างอิงงานต้นทางลงใน note ตอนกดบันทึก (build 355)
+
+**เป้าหมาย:** เมื่อกดบันทึกใบเสนอราคาที่มาจากงานแอร์ (`source=air_job`, build 353/354) → ฝังข้อมูลอ้างอิงงานต้นทางลงใน `note` (field เดิม) เพื่อ trace ได้ว่าเอกสารนี้สร้างมาจากงานแอร์ใด — โดยไม่เปลี่ยน workflow/status งานบริการ, ไม่ auto-save, ไม่แก้ schema.
+
+**Scope/ข้อห้าม:** ❌ save quotation อัตโนมัติ/ก่อนกดบันทึก · ❌ เปลี่ยน service job status · ❌ POST/PUT `service_jobs` · ❌ stock/products/POS/cart · ❌ SQL/schema · ❌ เปลี่ยน save endpoint · ❌ กระทบ draft 346 (catalog)/action·polish 353-354.
+
+**Fix (`modules/quotations.js` เท่านั้น):**
+1. **2 pure exported helpers** (testable):
+   - `buildAirJobNoteRef(meta)` — เฉพาะ `meta.source === "air_job"` → `สร้างจากงานแอร์: {serviceJobNo|#serviceJobId} | {สั่งจอง|สอบถามราคา} | {แบรนด์ รุ่น BTU} | ราคาเสนอ {price} บาท`. ไม่มี job id → fallback `"สร้างจากงานแอร์จากแคตตาล็อก"`. source อื่น (air_catalog/null) → `""`.
+   - `appendAirJobNoteRef(existingNote, meta)` — idempotent: source ไม่ใช่ air_job → คืน note เดิม; note มี marker `"สร้างจากงานแอร์"` อยู่แล้ว → ไม่ append ซ้ำ; มี note เดิม → ขึ้นบรรทัดใหม่ต่อท้าย (preserve ของผู้ใช้).
+2. **`saveQuotationFull` payload.note** = `appendAirJobNoteRef(qt_note.value.trim(), _airDraftMeta)` — inject **เฉพาะตอนกดบันทึกเอง** (เป็นจุดเดียวที่เขียน note).
+3. **reset `_airDraftMeta = null`** ใน post-save block → กด save อีกครั้งไม่ append ซ้ำ (คู่กับ marker-check = double-safe).
+
+**กลไกกัน duplicate:** marker `"สร้างจากงานแอร์"` เป็นทั้งข้อความอ่านง่าย (ไทย ไม่ใช่ raw technical) **และ** ตัวตรวจซ้ำ — (ก) แก้เอกสารเดิม: `openEditForm` ไม่ตั้ง `_airDraftMeta` (null) → ref="" → note ที่ load มา (มี marker อยู่แล้ว) คงเดิม. (ข) กด save ซ้ำในฟอร์มเดิม: `_airDraftMeta` ถูกเคลียร์หลัง save แรก + ถึงไม่เคลียร์ marker-check ก็กันอยู่.
+
+**ยืนยันไม่เปลี่ยน job status / ไม่แตะ stock·POS·cart·schema:** guard test — `quotations.js` ไม่มี `xhrPost("service_jobs"`/`xhrPatch("service_jobs"`/`rest/v1/service_jobs` (service_jobs ปรากฏแค่ `showRoute` navigation จาก build 354); ปุ่ม `qtBackToJob` ไม่มี status/save; ไม่มี addToCart/saveCustCart/_custCart/`.stock=`/`from("products")`; note ใช้ field เดิม (ไม่เพิ่มคอลัมน์/ไม่แก้ SQL).
+
+**Verify:** lint:errors 0 · unit **1010** (+13 `air_quotation_save_linkback.test.js`: format job no/intent/รุ่น·BTU/ราคา · `#id` เมื่อไม่มี serviceJobNo + ask→สอบถามราคา · fallback ไม่มี job id · source อื่น→"" · append note ว่าง · preserve+append note ผู้ใช้ · re-save ไม่ duplicate · แก้เอกสารเดิม meta=null คงเดิม · air_catalog ไม่แตะ · wiring saveQuotationFull+reset · inject manual-save เท่านั้น (consume block ไม่ save) · ไม่ POST/PATCH service_jobs · ไม่แตะ stock/POS/cart + ไม่เพิ่มคอลัมน์) · **browser smoke (temp chromium, ลบแล้ว):** `buildAirJobNoteRef`/`appendAirJobNoteRef` ใน browser จริง → number grouping (9,000/12,900), dedup, preserve, fallback, air_catalog untouched ตรงกับ unit. e2e 11/11 (build-sync ?v=355). **bump 354→355.**
+
+> ⏸️ **STOP ที่ build 355** — owner สั่งหยุดรอ review ก่อนเริ่ม Phase 356.
 
 ---
 
