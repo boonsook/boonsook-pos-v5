@@ -3,9 +3,10 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase 349 service-request-air-booking-polish — หน้าแจ้งงานรับ booking แคตตาล็อกแอร์, build 349)
-**Version:** 5.66.0 (build 349) — Phase 349 service-request-air-booking-polish (summary card + intent-aware + prefill + นัดหมาย→note; ไม่แตะ stock/POS/cart/quotation/SQL)
-**Previous:** 5.66.0 (build 348) — Phase 348 remove-customer-cart-tab (เอา tab ตะกร้าออก)
+**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase 350 service-request-air-form-polish — ขัดเกลา UX หน้าแจ้งงาน, build 350)
+**Version:** 5.66.0 (build 350) — Phase 350 service-request-air-form-polish (date hint / AI secondary / ลดข้อความซ้ำ / note textarea / confirmation; เฉพาะมี air draft, ไม่กระทบ flow ปกติ/POS/cart/quotation/SQL)
+**Previous:** 5.66.0 (build 349) — Phase 349 service-request-air-booking-polish (summary card + intent + prefill + นัดหมาย→note)
+**Pre-prev-1i:** 5.66.0 (build 348) — Phase 348 remove-customer-cart-tab
 **Pre-prev-1h:** 5.66.0 (build 347) — Phase 347 air-catalog-public-store-sync (storefront + booking flow)
 **Pre-prev-1g:** 5.66.0 (build 346) — Phase 346 air-catalog-to-quotation-draft (→ ใบเสนอราคา)
 **Pre-prev-1f:** 5.66.0 (build 345) — Phase air-catalog-not-real-stock-correction (wording ≠ สต็อกจริง)
@@ -22,6 +23,25 @@
 > 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.64** (client helper เท่านั้น)
 > 🏁 **FINANCE AUDIT CLOSED ที่ build 334** — ครบทุกข้อ: #1✓✓ #2✓ #3✓ #4✓ #5✓ #6✓ #6b✓ #7✓(dead code ลบแล้ว) #8✓ #9✓
 > ✅ **#9 period-lock DB trigger VERIFIED** (gangboo query DB, 2026-06-01): `journal_entries` → trigger `trg_check_period_locked` → function `check_period_not_locked` → insert เข้า period ที่ locked ถูกกันที่ DB จริง (เส้นแบ่งความปลอดภัยตาม CLAUDE.md 4.3)
+
+---
+
+## 🛠️ Phase 350 service-request-air-form-polish — ขัดเกลา UX หน้าแจ้งงาน (build 350)
+
+**เป้าหมาย:** จาก mobile screenshot 349 หน้า service_request ใช้ได้แล้วแต่มี UX ที่ควรปรับ (วันที่กรอบเปล่า, ปุ่ม AI แทรกกลาง flow, รายละเอียดซ้ำกล่องสรุป, หมายเหตุถูกตัด, ไม่มี confirmation ชัด). ปรับ **เฉพาะกรณีมี air_catalog draft** — ไม่กระทบ flow ปกติ.
+
+**Scope/ข้อห้าม:** ❌ products/POS/cart/stock · ❌ เพิ่ม/ตัด stock · ❌ ใบเสนอราคาอัตโนมัติ · ❌ SQL/schema · ❌ เปลี่ยน submit endpoint · ❌ กระทบ service_request ปกติ/quotation(346)/customer dashboard booking(347/348).
+
+**Fix (modules/service_request.js เท่านั้น):**
+1. **date/timeslot ชัด:** `#srPrefDate` ได้ `aria-label="เลือกวันที่สะดวก"`/title; `#srPrefTime` option แรก "เลือกช่วงเวลา (ไม่ระบุก็ได้)"; เพิ่ม hint "ยังไม่ระบุก็ได้ — เจ้าหน้าที่จะติดต่อยืนยันเวลานัดหมายอีกครั้ง".
+2. **AI button gating:** top button (เด่น) render เฉพาะ `!_isBooking`; เมื่อ `_isBooking` → secondary dashed link "🤖 หรือให้ AI ช่วยกรอกรายละเอียดแทน" ท้ายฟอร์ม (หลังปุ่ม submit). ทั้งคู่ใช้ id `srAiBtn` (render ทีละอัน) → handler `window.BoonsookAI.open()` เดิมผูกได้.
+3. **ลดข้อความซ้ำ:** prefill `#srSymptom` สั้น = `{จองติดตั้ง|สอบถามราคา}แอร์ {brand} {model} {btu}` (label "รายละเอียดเพิ่มเติม (ถ้ามี)"); ข้อมูลเต็ม (`[source=air_catalog] airType brand model BTU · ราคา` + spec + ประกัน + note) ย้ายไป `#srNote` ที่ submit ส่งจริง. (prefill ใช้ `if(sym && !sym.value)` กันทับที่ user พิมพ์).
+4. **note ไม่ตัด:** `#srNote` เปลี่ยน `input`→`textarea` rows=2 min-height 56px resize.
+5. **confirmation:** สำเร็จ → "✅ ส่งคำขอแล้ว! / เจ้าหน้าที่จะติดต่อกลับเพื่อยืนยันราคาและเวลานัดหมาย" (booking) + ปุ่ม `#srViewJobs` "📋 ดูงานของฉัน" → `ctx.showRoute("customer_dashboard")` (fallback hash). non-draft = wording เดิม. toast intent-aware.
+
+**submit เดิมไม่เปลี่ยน:** manual click → POST `/rest/v1/service_jobs` (status pending), ใช้ `finalNote` (note + นัดหมาย จาก 349). description=symptom (สั้น), note=ข้อมูลครบ → เจ้าหน้าที่เห็นครบ.
+
+**Verify:** lint:errors 0 · unit **973** (+7 `service_request_air_form_polish.test.js`: date hint/aria · AI gating (top !_isBooking / secondary _isBooking) · short symptom + source ใน note + label "รายละเอียดเพิ่มเติม" · note textarea min-height · confirmation+ดูงานของฉัน · submit endpoint+ไม่มี cart/stock/POS/quotation · normal flow ไม่กระทบ) · **flow smoke (temp, ลบแล้ว) mobile 390×844 + desktop:** booking→AI อยู่ท้าย (หลัง submit), date hint, symptom สั้น (<80, ไม่มี source ในช่อง), note textarea มี source=air_catalog, submit→confirmation "ส่งคำขอแล้ว"+ดูงานของฉัน, reload no-draft→top AI กลับมา, ไม่มี h-overflow. **bump 349→350**.
 
 ---
 

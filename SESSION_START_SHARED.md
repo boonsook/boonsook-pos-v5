@@ -1,6 +1,6 @@
 # Boonsook POS V5 - Shared Session Start
 
-Last updated: 2026-06-02 (Phase 349 service-request-air-booking-polish — หน้าแจ้งงานรับ booking แคตตาล็อกแอร์, build 349)
+Last updated: 2026-06-02 (Phase 350 service-request-air-form-polish — ขัดเกลา UX หน้าแจ้งงาน, build 350)
 
 Purpose: this is the common first-read note for Codex, Claude, or any next agent opening a fresh session on this project. Read this before changing files so both teams start from the same facts.
 
@@ -8,7 +8,8 @@ Purpose: this is the common first-read note for Codex, Claude, or any next agent
 
 - Project: Boonsook POS V5 PRO, Thai POS PWA.
 - Workspace: `C:\Users\Lenovo E14 Gen4\Documents\boonsuk v5\boonsook-pos-v5-github`
-- Main app version: `5.66.0` (build 349)
+- Main app version: `5.66.0` (build 350)
+- 🆕 build 350 = service-request-air-form-polish: ขัดเกลา UX หน้า service_request เฉพาะมี air_catalog draft — date/timeslot มี placeholder+hint ชัด; ปุ่ม AI ย้ายเป็น secondary ท้ายฟอร์ม (ไม่มี draft = เด่นบนสุดเดิม); รายละเอียด prefill สั้น + ข้อมูลครบ (source=air_catalog) ไปอยู่ note; หมายเหตุ input→textarea (ไม่ตัด); confirmation "ส่งคำขอแล้ว..." + ปุ่มดูงานของฉัน. submit endpoint เดิม. ไม่กระทบ flow ปกติ/POS/cart/quotation.
 - 🆕 build 349 = service-request-air-booking-polish: หน้า service_request รับ booking draft (347) → summary card "🌬️ รายการจากแคตตาล็อกแอร์" (ประเภท/รุ่น/BTU/ราคา/ประกัน/สเปก) + disclaimer "ยังไม่ใช่การซื้อจริง...ยังไม่ได้ส่ง"; intent-aware heading+ปุ่ม (จอง vs สอบถามราคา); prefill ประเภท/รายละเอียด/หมายเหตุ; ช่องนัดหมาย (วันที่+ช่วงเวลา)→map ลง note (ไม่แก้ schema); submit manual เดิม (POST service_jobs pending). booking draft พก note/spec/warranty เพิ่ม. ไม่แตะ stock/POS/cart/quotation.
 - 🆕 build 348 = remove-customer-cart-tab-for-air-catalog: เอา tab "🛒 ตะกร้า" ออกจาก customer_dashboard (หน้าร้านแอร์ = จอง/สอบถามราคา ไม่ใช่ cart/checkout). guard `_custTab==="cart"→"shop"` → สาขา cart/checkout เดิม dormant (ไม่ลบ). ปุ่มการ์ด สั่งจอง/สอบถามราคา → booking draft (347) ยังทำงาน. ซ่อน #bs-help-fab บน customer_dashboard มือถือ. **ไม่ลบ POS/cart logic ทั่วระบบ** (pos.js + saveCustCart คงไว้).
 - 🆕 build 347 = air-catalog-public-store-sync: หน้าร้าน/customer_dashboard แสดงแอร์จาก `bsk_ac_catalog` (ชุดเดียวกับหน้าจัดการ) แยกคลังจริง 100%. filter ตามประเภทแอร์, แสดงเฉพาะพร้อมเสนอขาย+ต้องเช็คราคา (ซ่อนเลิกขาย), ปุ่ม "📅 สั่งจอง"/"💬 สอบถามราคา" → `ac_booking_draft.js` (sessionStorage) + service_request prefill (user กดส่งเอง). **ไม่ addToCart/POS/ตัด stock**. cart tab เดิมเหลือ dormant (ไม่มี path เพิ่มของเข้าตะกร้าแล้ว — เอาออกได้ในเฟสถัดไป). product_detail_modal +opts reserveOnly/ctaLabel.

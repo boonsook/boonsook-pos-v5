@@ -77,10 +77,10 @@ export function renderServiceRequestPage(ctx) {
         </div>
       </div>` : ''}
 
-      <button id="srAiBtn" type="button" aria-label="AI ช่วยแจ้งงาน"
+      ${!_isBooking ? `<button id="srAiBtn" type="button" aria-label="AI ช่วยแจ้งงาน"
         style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:14px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;border:none;border-radius:14px;padding:12px;font-size:14px;font-weight:800;cursor:pointer">
         🤖 AI ช่วยแจ้งงาน / ลงคิวงาน
-      </button>
+      </button>` : ''}
 
       <label class="set-field-label">ประเภทงาน</label>
       <select id="srType">${typeOptions}</select>
@@ -97,12 +97,12 @@ export function renderServiceRequestPage(ctx) {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px">
         <div>
           <label class="set-field-label">📅 วันที่สะดวก</label>
-          <input type="date" id="srPrefDate" style="width:100%;border:1px solid var(--line);border-radius:14px;padding:11px;font:inherit;box-sizing:border-box" />
+          <input type="date" id="srPrefDate" aria-label="เลือกวันที่สะดวก" title="เลือกวันที่สะดวก (ไม่ระบุก็ได้)" style="width:100%;border:1px solid var(--line);border-radius:14px;padding:11px;font:inherit;box-sizing:border-box;color:#475569" />
         </div>
         <div>
           <label class="set-field-label">⏰ ช่วงเวลา</label>
           <select id="srPrefTime" style="width:100%;border:1px solid var(--line);border-radius:14px;padding:11px;font:inherit;box-sizing:border-box">
-            <option value="">— ไม่ระบุ —</option>
+            <option value="">เลือกช่วงเวลา (ไม่ระบุก็ได้)</option>
             <option value="ช่วงเช้า (09:00–12:00)">ช่วงเช้า (09:00–12:00)</option>
             <option value="ช่วงบ่าย (13:00–16:00)">ช่วงบ่าย (13:00–16:00)</option>
             <option value="ช่วงเย็น (16:00–18:00)">ช่วงเย็น (16:00–18:00)</option>
@@ -110,35 +110,43 @@ export function renderServiceRequestPage(ctx) {
           </select>
         </div>
       </div>
+      <div style="font-size:11px;color:#94a3b8;margin-top:4px">ยังไม่ระบุก็ได้ — เจ้าหน้าที่จะติดต่อยืนยันเวลานัดหมายอีกครั้ง</div>
 
-      <label class="set-field-label" style="margin-top:12px">⚡ ${_isBooking ? 'รายละเอียดงาน' : 'อาการเสีย / รายละเอียด'}</label>
-      <textarea id="srSymptom" placeholder="อธิบายอาการเสีย หรือรายละเอียดงานที่ต้องการ..." rows="4" style="width:100%;border:1px solid var(--line);border-radius:14px;padding:12px;font:inherit;resize:vertical"></textarea>
+      <label class="set-field-label" style="margin-top:12px">⚡ ${_isBooking ? 'รายละเอียดเพิ่มเติม (ถ้ามี)' : 'อาการเสีย / รายละเอียด'}</label>
+      <textarea id="srSymptom" placeholder="${_isBooking ? 'เช่น ขนาดห้อง จุดที่จะติดตั้ง งบประมาณ ฯลฯ' : 'อธิบายอาการเสีย หรือรายละเอียดงานที่ต้องการ...'}" rows="${_isBooking ? 3 : 4}" style="width:100%;border:1px solid var(--line);border-radius:14px;padding:12px;font:inherit;resize:vertical;min-height:${_isBooking ? 64 : 96}px"></textarea>
 
       <label class="set-field-label" style="margin-top:12px">📌 หมายเหตุ (ถ้ามี)</label>
-      <input type="text" id="srNote" placeholder="เช่น วันเวลาที่สะดวก, รุ่นเครื่อง..." />
+      <textarea id="srNote" placeholder="เช่น วันเวลาที่สะดวก, รุ่นเครื่อง..." rows="2" style="width:100%;border:1px solid var(--line);border-radius:14px;padding:12px;font:inherit;resize:vertical;min-height:56px"></textarea>
     </div>
 
     <button id="srSubmitBtn" class="set-save-btn" style="background:var(--success);box-shadow:0 8px 24px rgba(5,150,105,.25)">${_submitLabel}</button>
 
+    ${_isBooking ? `<button id="srAiBtn" type="button" aria-label="AI ช่วยกรอก"
+      style="width:100%;margin-top:10px;display:flex;align-items:center;justify-content:center;gap:6px;background:transparent;color:#7c3aed;border:1px dashed #c4b5fd;border-radius:12px;padding:9px;font-size:12px;font-weight:700;cursor:pointer">
+      🤖 หรือให้ AI ช่วยกรอกรายละเอียดแทน
+    </button>` : ''}
+
     <div id="srStatus" class="hidden panel mt16"></div>
   `;
 
-  // ★ Phase 347: prefill ฟอร์มจาก booking draft (user ยังต้องกดส่งเอง — ไม่ auto-submit)
+  // ★ Phase 347/350: prefill จาก booking draft (user กดส่งเอง — ไม่ auto-submit)
+  //   ลดความซ้ำ: "รายละเอียด" (description) สั้น — ข้อมูลรุ่นครบ + source=air_catalog เก็บใน note ที่ส่งเข้า DB
   if (_booking) {
     const sym = container.querySelector("#srSymptom");
     const noteEl = container.querySelector("#srNote");
     const typeSel = container.querySelector("#srType");
-    const label = _isAsk ? "สอบถามราคา" : "สนใจสั่งจอง / ติดตั้ง";
-    const priceStr = Number(_booking.offerPrice) > 0 ? ` ราคาเสนอ ${Number(_booking.offerPrice).toLocaleString()} บาท` : " (ต้องเช็คราคา)";
     const btuStr = Number(_booking.btu) > 0 ? ` ${Number(_booking.btu).toLocaleString()} BTU` : "";
-    const specStr = _booking.spec ? `\nสเปก: ${_booking.spec}` : "";
-    if (sym) sym.value = `${label} ${_booking.airType} ${_booking.brand} ${_booking.model}${btuStr}${priceStr}${specStr}\n[จากแคตตาล็อกแอร์ • source=air_catalog]`.trim();
-    if (noteEl) {
-      const noteBits = [`รุ่น ${_booking.model}`];
-      if (_booking.note) noteBits.push(_booking.note);
-      if (_booking.warranty) noteBits.push('ประกัน ' + _booking.warranty);
-      noteEl.value = noteBits.filter(Boolean).join(' | ');
+    const priceTxt = Number(_booking.offerPrice) > 0 ? `ราคาเสนอ ${Number(_booking.offerPrice).toLocaleString()} บาท` : "ต้องเช็คราคา";
+    // description (สั้น — กล่องสรุปด้านบนมีครบแล้ว) → ลูกค้าเติม "รายละเอียดเพิ่มเติม" เองได้
+    if (sym && !sym.value) {
+      sym.value = `${_isAsk ? 'สอบถามราคา' : 'จองติดตั้ง'}แอร์ ${_booking.brand} ${_booking.model}${btuStr}`.trim();
     }
+    // note (ข้อมูลครบสำหรับเจ้าหน้าที่ + trace marker) — submit เดิมส่ง field นี้
+    const noteBits = [`[source=air_catalog] ${_booking.airType} ${_booking.brand} ${_booking.model}${btuStr} · ${priceTxt}`];
+    if (_booking.spec) noteBits.push('สเปก ' + _booking.spec);
+    if (_booking.warranty) noteBits.push('ประกัน ' + _booking.warranty);
+    if (_booking.note) noteBits.push(_booking.note);
+    if (noteEl) noteEl.value = noteBits.filter(Boolean).join(' | ');
     if (typeSel) { const opt = [...typeSel.options].find(o => o.value.includes("ติดตั้งแอร์")); if (opt) typeSel.value = opt.value; }
   }
 
@@ -220,12 +228,22 @@ export function renderServiceRequestPage(ctx) {
 
       if (!resp.ok) throw new Error("HTTP " + resp.status);
 
+      // ★ Phase 350: confirmation ชัดเจน + ปุ่ม "ดูงานของฉัน" (ถ้า route พร้อม)
+      const okTitle = _isBooking ? "ส่งคำขอแล้ว!" : "แจ้งซ่อมสำเร็จ!";
+      const okMsg = _isBooking
+        ? "เจ้าหน้าที่จะติดต่อกลับเพื่อยืนยันราคาและเวลานัดหมาย"
+        : "ทางร้านจะติดต่อกลับเร็วๆ นี้ครับ";
       statusEl.innerHTML = `<div style="text-align:center;padding:8px">
         <div style="font-size:40px">✅</div>
-        <div style="font-weight:700;color:var(--success);margin-top:8px">แจ้งซ่อมสำเร็จ!</div>
-        <div class="sku">ทางร้านจะติดต่อกลับเร็วๆ นี้ครับ</div>
+        <div style="font-weight:700;color:var(--success);margin-top:8px">${okTitle}</div>
+        <div class="sku" style="margin-top:2px">${okMsg}</div>
+        <button id="srViewJobs" type="button" style="margin-top:12px;padding:9px 18px;border:1px solid #0284c7;border-radius:12px;background:#fff;color:#0284c7;font-size:13px;font-weight:700;cursor:pointer">📋 ดูงานของฉัน</button>
       </div>`;
-      showToast("แจ้งซ่อมสำเร็จ!");
+      container.querySelector("#srViewJobs")?.addEventListener("click", () => {
+        if (typeof ctx.showRoute === "function") ctx.showRoute("customer_dashboard");
+        else window.location.hash = "customer_dashboard";
+      });
+      showToast(_isBooking ? "ส่งคำขอแล้ว เจ้าหน้าที่จะติดต่อกลับ ✅" : "แจ้งซ่อมสำเร็จ!");
 
       // Reset form
       container.querySelector("#srSymptom").value = "";

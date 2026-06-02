@@ -7,6 +7,15 @@
 
 ---
 
+## 5.66.0 (build 350) — 2026-06-02 Phase 350 service-request-air-form-polish — ขัดเกลา UX หน้าแจ้งงาน (เฉพาะมี air draft)
+
+- **ux:** ช่อง **วันที่/ช่วงเวลา** มี placeholder/aria ชัด ("เลือกวันที่สะดวก", "เลือกช่วงเวลา (ไม่ระบุก็ได้)") + hint *"ยังไม่ระบุก็ได้ — เจ้าหน้าที่จะติดต่อยืนยันเวลานัดหมายอีกครั้ง"* (เลิกดูเหมือนกรอบ error)
+- **ux:** ปุ่ม **"AI ช่วยแจ้งงาน"** — เมื่อมี air draft: ย้ายเป็น **secondary link ท้ายฟอร์ม** (ไม่แทรกกลาง flow); ไม่มี draft: คงปุ่มเด่นบนสุดเดิม
+- **ux:** **ลดข้อความซ้ำ** — "รายละเอียดเพิ่มเติม" prefill สั้น (`จองติดตั้ง/สอบถามราคาแอร์ {brand} {model} {btu}`) ส่วนข้อมูลครบ (ประเภท/รุ่น/BTU/ราคา/สเปก/ประกัน/`source=air_catalog`) ย้ายไปอยู่ใน **หมายเหตุ** ที่ submit ส่งจริง
+- **ux:** ช่อง **หมายเหตุ** เปลี่ยน `input`→`textarea` (min-height 56px, resize) — ข้อความยาวไม่ถูกตัด
+- **ux:** **confirmation หลังส่ง** ชัดเจน: *"ส่งคำขอแล้ว! เจ้าหน้าที่จะติดต่อกลับเพื่อยืนยันราคาและเวลานัดหมาย"* + ปุ่ม **"📋 ดูงานของฉัน"** (→ customer_dashboard)
+- **scope:** UX เฉพาะกรณีมี air_catalog draft — ❌ ไม่กระทบ service_request ปกติ · ❌ ไม่แตะ products/POS/cart/stock/quotation · ❌ ไม่แก้ SQL/schema · ❌ ไม่เปลี่ยน submit endpoint (POST service_jobs pending เหมือนเดิม) · **test:** +7 `service_request_air_form_polish.test.js` + mobile/desktop smoke · **pwa-cache:** bump 349→350
+
 ## 5.66.0 (build 349) — 2026-06-02 Phase 349 service-request-air-booking-polish — หน้าแจ้งงานรับ booking จากแคตตาล็อกแอร์ให้ชัด
 
 - **ux:** หน้า `service_request` แสดง **กล่องสรุป "🌬️ รายการจากแคตตาล็อกแอร์"** — ประเภท / แบรนด์·รุ่น / BTU / ราคาเสนอ หรือ "ต้องเช็คราคา" / ประกัน / สเปก + chip intent (📅 สั่งจอง / 💬 สอบถามราคา) + disclaimer *"ยังไม่ใช่การซื้อจริง เจ้าหน้าที่จะยืนยันราคาและเวลานัดหมายอีกครั้ง — ยังไม่ได้ส่ง"*
