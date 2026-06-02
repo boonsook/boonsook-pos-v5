@@ -927,6 +927,63 @@ th { color: var(--muted); font-size: 12px; }
 }
 
 /* ═══════════════════════════════════════════════════════════
+   Phase inventory-mobile-polish — summary cards + filter wrap + card relayout
+   (UI/CSS เท่านั้น — ไม่แตะ wiring/logic/markup ปุ่ม)
+   ═══════════════════════════════════════════════════════════ */
+.prod-summary {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 14px 0 4px;
+}
+.prod-sum-card {
+  background: var(--bg); border: 1px solid var(--line); border-radius: 14px;
+  padding: 10px 6px; text-align: center;
+}
+.prod-sum-num { font-size: 22px; font-weight: 900; color: var(--primary2); line-height: 1.1; }
+.prod-sum-label { font-size: 11px; color: var(--muted); font-weight: 700; margin-top: 2px; white-space: nowrap; }
+.prod-sum-green  .prod-sum-num { color: #16a34a; }   /* พร้อมขาย = เขียว */
+.prod-sum-orange .prod-sum-num { color: #d97706; }   /* ใกล้หมด = ส้ม */
+.prod-sum-red    .prod-sum-num { color: #dc2626; }   /* หมดสต็อก = แดง */
+
+@media (max-width: 768px) {
+  .prod-summary { gap: 6px; }
+  .prod-sum-num { font-size: 19px; }
+  .prod-sum-label { font-size: 10px; }
+
+  /* filter/type tabs: wrap ให้เห็นครบ ไม่ scroll ซ่อน/บีบจนทับ (เดิม nowrap+overflow-x) */
+  .prod-filter-tabs, .prod-type-tabs {
+    flex-wrap: wrap !important;
+    overflow-x: visible !important;
+    white-space: normal !important;
+  }
+  .prod-tab, .prod-type-tab { flex: 0 0 auto; }
+
+  /* product card: ราคา/คงเหลือ คนละฝั่ง + ปุ่ม action ลงแถวของตัวเองเต็มกว้าง (ไม่ล้น/ทับ) */
+  .prod-list-right {
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    gap: 6px 12px !important;
+  }
+  .prod-list-price { flex: 1 1 auto; }
+  .prod-list-stock { flex: 0 0 auto; text-align: right; }
+  .prod-list-actions {
+    flex-basis: 100% !important;
+    flex-wrap: wrap !important;
+    justify-content: flex-end !important;
+    gap: 6px !important;
+    margin-top: 6px !important;
+  }
+
+  /* ซ่อน floating help 💡 บนหน้า สินค้า/คลัง (กันทับรายการ) — คนละปุ่มกับ AI #bs-ai-fab */
+  body[data-route="products"] #bs-help-fab,
+  body[data-route="wh_kunkhao"] #bs-help-fab,
+  body[data-route="wh_kundaeng"] #bs-help-fab,
+  body[data-route="wh_sikhon"] #bs-help-fab { display: none !important; }
+}
+
+@media (max-width: 400px) {
+  .prod-summary { grid-template-columns: repeat(2, 1fr); }   /* จอจิ๋ว → 2×2 */
+}
+
+/* ═══════════════════════════════════════════════════════════
    SETTINGS — FlowAccount Drill-Down Style
    ═══════════════════════════════════════════════════════════ */
 

@@ -1,6 +1,6 @@
 # Boonsook POS V5 - Shared Session Start
 
-Last updated: 2026-06-01 (Phase 92.66 — verify-slip 401 auth fix, build 336)
+Last updated: 2026-06-02 (Phase inventory-mobile-polish — สินค้า/คลัง mobile, build 342)
 
 Purpose: this is the common first-read note for Codex, Claude, or any next agent opening a fresh session on this project. Read this before changing files so both teams start from the same facts.
 
@@ -8,7 +8,8 @@ Purpose: this is the common first-read note for Codex, Claude, or any next agent
 
 - Project: Boonsook POS V5 PRO, Thai POS PWA.
 - Workspace: `C:\Users\Lenovo E14 Gen4\Documents\boonsuk v5\boonsook-pos-v5-github`
-- Main app version: `5.65.0` (build 336)
+- Main app version: `5.66.0` (build 342)
+- Recent mobile-UX line (builds 337–342, all CSS/markup — no business/API/auth/accounting): 337 overlap-4 (filter/sidebar/FAB/table) · 338 FAB icon-only · 339 FAB route-gate · 340 AI entry inline (no mobile floating FAB; service assistant `#bs-ai-fab` vs sales AI `ai_sales`/`ac_shop` แยกกัน) · 341 sales-doc (tabs chip-wrap + `.table-wrap` + hide `#bs-help-fab`) · 342 inventory-mobile-polish (summary cards + filter wrap + card relayout + hide `#bs-help-fab` on products/wh_*). NOTE: inventory action-menu reorg (header/per-card) ยังไม่ทำ — เลื่อนรอบหน้า
 - Latest pushed commits seen:
   - `3b4072b` `fix(92.48): integrity panel orphan fetch uses select=* (build 318)`
   - `71ef2ba` `fix(92.48): bump boot.js + style.css ?v= to 317 (build-sync smoke)`

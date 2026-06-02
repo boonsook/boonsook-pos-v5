@@ -7,6 +7,14 @@
 
 ---
 
+## 5.66.0 (build 342) — 2026-06-02 Phase inventory-mobile-polish — จัดหน้า สินค้า/คลัง บนมือถือ (safe wins)
+
+- **ux(mobile):** เพิ่ม **summary cards 4 ใบ** บนหน้า สินค้า/คลัง — 📦 ทั้งหมด / พร้อมขาย (เขียว) / ใกล้หมด (ส้ม) / หมดสต็อก (แดง) — derive จาก count ที่คำนวณไว้แล้ว (`countTypeAll`/`countInstock`/`countLow`/`countOut`) **ไม่มี query ใหม่**
+- **fix(mobile):** filter/type tabs (`.prod-filter-tabs`/`.prod-type-tabs`) `@media ≤768px` **wrap** แทน overflow-x scroll → เห็นทุกแท็บ ไม่ทับ/ไม่ถูกซ่อน
+- **fix(mobile):** product card — ราคา/คงเหลือ อยู่คนละฝั่ง + ปุ่ม action ลงแถวเต็มกว้างของตัวเอง (ไม่ล้น/ทับ)
+- **fix(mobile):** ซ่อน floating help 💡 (`#bs-help-fab`) บน route `products`/`wh_kunkhao`/`wh_kundaeng`/`wh_sikhon` (กันทับรายการ) — คนละปุ่มกับ AI `#bs-ai-fab`
+- **scope:** UI/CSS + 1 markup (summary) เท่านั้น — **ไม่แตะ** stock/barcode/import-export/billing/auth/API หรือ wiring ปุ่ม · action menu จริง (header/per-card) **เลื่อนรอบหน้า** · **test:** +3 `mobile_layout_guard.test.js` · **pwa-cache:** bump 341→342
+
 ## 5.66.0 (build 341) — 2026-06-02 Phase sales-doc-mobile — แก้ layout overlap หน้าเอกสารขาย (มือถือ)
 
 - **fix(mobile):** status filter tabs ใบเสนอราคา/ใบส่ง/ใบเสร็จ (`.qt-tabs`/`.di-tabs`/`.rc-tabs`) เดิม flex+overflow-x:auto แต่ปุ่มไม่มี `flex-shrink:0` → บีบจนข้อความ nowrap ทับกัน → `@media ≤768px` wrap เป็น **chip** (`border-radius:999px`, `flex:0 0 auto`) เห็นครบทุกแท็บ ไม่ทับ (desktop คง underline-tab เดิม)

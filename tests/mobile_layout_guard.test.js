@@ -167,3 +167,36 @@ test("floating help FAB (#bs-help-fab) is hidden on the sales-doc routes on mobi
   // must target the help FAB, NOT the AI assistant FAB
   assert.ok(!/body\[data-route="quotations"\] #bs-ai-fab/.test(css), "must not touch the AI FAB (#bs-ai-fab)");
 });
+
+// ── Inventory (สินค้า/คลัง) mobile polish — summary cards / filter wrap / card relayout / help-FAB ──
+test("inventory summary cards are rendered (derived from existing counts, no new query)", () => {
+  const prod = fs.readFileSync(path.resolve("modules/products.js"), "utf8");
+  assert.match(prod, /<div class="prod-summary">/, "products.js must render the summary card row");
+  // the four scannable counts come from already-computed variables
+  for (const v of ["countTypeAll", "countInstock", "countLow", "countOut"]) {
+    assert.match(prod, new RegExp(`prod-sum-num">\\$\\{${v}\\}`), `summary must use existing count ${v}`);
+  }
+  // status colors match the existing design (green/orange/red)
+  assert.match(css, /\.prod-sum-green\s+\.prod-sum-num\s*\{\s*color:\s*#16a34a/);
+  assert.match(css, /\.prod-sum-orange\s+\.prod-sum-num\s*\{\s*color:\s*#d97706/);
+  assert.match(css, /\.prod-sum-red\s+\.prod-sum-num\s*\{\s*color:\s*#dc2626/);
+});
+
+test("inventory mobile: filter/type tabs wrap (no hidden h-scroll) and card actions get their own row", () => {
+  const m = css.match(/@media\s*\(max-width:\s*768px\)\s*\{[\s\S]*?\n\}/g) || [];
+  const block = m.find(b => /\.prod-filter-tabs,\s*\.prod-type-tabs\s*\{[^}]*flex-wrap:\s*wrap\s*!important/s.test(b));
+  assert.ok(block, "a mobile block must wrap .prod-filter-tabs/.prod-type-tabs");
+  assert.match(block, /\.prod-list-actions\s*\{[^}]*flex-basis:\s*100%\s*!important/s,
+    "card action buttons must drop to their own full-width row on mobile");
+});
+
+test("inventory mobile: floating help FAB hidden on products + warehouse routes (not the AI FAB)", () => {
+  const m = css.match(/@media\s*\(max-width:\s*768px\)\s*\{[\s\S]*?\n\}/g) || [];
+  const hasHide = m.some(block =>
+    /body\[data-route="products"\] #bs-help-fab/.test(block) &&
+    /body\[data-route="wh_kunkhao"\] #bs-help-fab/.test(block) &&
+    /body\[data-route="wh_kundaeng"\] #bs-help-fab/.test(block) &&
+    /body\[data-route="wh_sikhon"\] #bs-help-fab/.test(block));
+  assert.ok(hasHide, "must hide #bs-help-fab on products/wh_* routes on mobile");
+  assert.ok(!/body\[data-route="products"\] #bs-ai-fab/.test(css), "must not touch the AI FAB on inventory");
+});

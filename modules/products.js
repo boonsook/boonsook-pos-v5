@@ -336,6 +336,15 @@ function renderView(ctx) {
         </div>
       </div>
 
+      ${products.length > 0 ? `
+      <!-- Summary cards (derive จาก count ที่คำนวณไว้แล้ว — ไม่มี query ใหม่) -->
+      <div class="prod-summary">
+        <div class="prod-sum-card"><div class="prod-sum-num">${countTypeAll}</div><div class="prod-sum-label">📦 ทั้งหมด</div></div>
+        <div class="prod-sum-card prod-sum-green"><div class="prod-sum-num">${countInstock}</div><div class="prod-sum-label">พร้อมขาย</div></div>
+        <div class="prod-sum-card prod-sum-orange"><div class="prod-sum-num">${countLow}</div><div class="prod-sum-label">ใกล้หมด</div></div>
+        <div class="prod-sum-card prod-sum-red"><div class="prod-sum-num">${countOut}</div><div class="prod-sum-label">หมดสต็อก</div></div>
+      </div>` : ''}
+
       ${products.length === 0 ? renderEmpty({
         icon: "📦",
         title: "ยังไม่มีสินค้า",

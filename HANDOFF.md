@@ -3,9 +3,10 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase sales-doc-mobile — แก้ layout overlap หน้าเอกสารขายบนมือถือ, build 341)
-**Version:** 5.66.0 (build 341) — Phase sales-doc-mobile (CSS/markup — ไม่แตะ business/API/auth/accounting)
-**Previous:** 5.66.0 (build 340) — Phase mobile-layout follow-up #3 (AI entry UX inline แทน FAB)
+**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase inventory-mobile-polish — จัดหน้า สินค้า/คลัง บนมือถือ safe wins, build 342)
+**Version:** 5.66.0 (build 342) — Phase inventory-mobile-polish (UI/CSS — ไม่แตะ stock/barcode/import-export/billing/auth/API/wiring)
+**Previous:** 5.66.0 (build 341) — Phase sales-doc-mobile (CSS/markup — เอกสารขาย)
+**Pre-prev-1:** 5.66.0 (build 340) — Phase mobile-layout follow-up #3 (AI entry UX inline แทน FAB)
 **Pre-prev0:** 5.66.0 (build 339) — Phase mobile-layout follow-up #2 (ซ่อน AI FAB ตาม route บนมือถือ)
 **Pre-prev:** 5.66.0 (build 338) — follow-up (FAB icon-only) · 337 = mobile-layout (overlap 4 จุด)
 **Pre-prev2:** 5.65.0 (build 336) — Phase 92.66 (verify-slip แนบ Supabase JWT × 4 caller — client only, no SQL)
@@ -14,6 +15,22 @@
 > 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.64** (client helper เท่านั้น)
 > 🏁 **FINANCE AUDIT CLOSED ที่ build 334** — ครบทุกข้อ: #1✓✓ #2✓ #3✓ #4✓ #5✓ #6✓ #6b✓ #7✓(dead code ลบแล้ว) #8✓ #9✓
 > ✅ **#9 period-lock DB trigger VERIFIED** (gangboo query DB, 2026-06-01): `journal_entries` → trigger `trg_check_period_locked` → function `check_period_not_locked` → insert เข้า period ที่ locked ถูกกันที่ DB จริง (เส้นแบ่งความปลอดภัยตาม CLAUDE.md 4.3)
+
+---
+
+## 🛠️ Phase inventory-mobile-polish — จัดหน้า สินค้า/คลัง บนมือถือ (safe wins, build 342)
+
+**Scope (ลูกค้ายืนยัน "safe wins ก่อน"):** UI/CSS เท่านั้น — **ไม่แตะ** stock/barcode/import-export/billing/auth/API หรือ **wiring ของปุ่ม** (`#prodImportBtn`/`#prodAddBtn`/`data-prod-*` ฯลฯ เดิมหมด). **action menu จริง** (header "จัดการเพิ่มเติม" + per-card "...") **เลื่อนรอบหน้า** เพราะต้องย้าย markup ของปุ่มที่ต่อ logic.
+
+**Root cause (ความรก):** 9 ปุ่ม header เรียงพรืด · filter 5 ชั้น (type/warehouse/status/tag/search/quick/category) · per-card 6 ปุ่ม action แน่น · help 💡 FAB ลอยทับรายการ.
+
+**Fix (modules/products.js + style.css):**
+1. **summary cards** — เพิ่มแถวการ์ด 4 ใบหลัง `.prod-header` (`products.length>0`): ทั้งหมด/พร้อมขาย(เขียว #16a34a)/ใกล้หมด(ส้ม #d97706)/หมดสต็อก(แดง #dc2626). ใช้ `countTypeAll`/`countInstock`/`countLow`/`countOut` ที่ `renderView` คำนวณอยู่แล้ว — **ไม่มี query ใหม่**. CSS `.prod-summary` grid 4-col (≤400px → 2×2).
+2. **filter wrap** — `@media≤768`: `.prod-filter-tabs`/`.prod-type-tabs` `flex-wrap:wrap !important` + `overflow-x:visible` (เดิม nowrap+scroll ซ่อนแท็บ) → เห็นครบ ไม่ทับ.
+3. **product card** — `@media≤768`: `.prod-list-right` wrap, price `flex:1`, stock ชิดขวา, `.prod-list-actions` `flex-basis:100%` (ลงแถวเต็มกว้างของตัวเอง ไม่ล้น/ทับ).
+4. **help FAB** — `@media≤768`: `body[data-route="products"|"wh_kunkhao"|"wh_kundaeng"|"wh_sikhon"] #bs-help-fab { display:none !important }`. **คนละปุ่มกับ AI `#bs-ai-fab`** (build 340) — guard เช็ค.
+
+**Verify:** lint:errors 0 · unit **913** (+3: summary derive/colors · tabs-wrap+actions-row · help-fab-hide ไม่แตะ AI) · Playwright @390×844: summary 4 ใบ in-viewport, status tabs wrap 2 แถว `overlap:false`, per-card action ไม่ overlap, `#bs-help-fab` none (products) vs flex (dashboard); desktop summary 4-col + help-fab flex ปกติ. **bump 341→342** (data-app-build + style/main/boot/selfheal `?v=342` + sw cache-v342; ai-chat-widget คง `?v=9`; semver 5.66.0).
 
 ---
 
