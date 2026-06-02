@@ -318,21 +318,27 @@ function renderView(ctx) {
           <h3 class="prod-title">สินค้า / คลัง</h3>
           <div class="sku">${escHtml(whName)} ${countTypeAll} รายการ</div>
         </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <div class="prod-header-actions" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
           <button id="prodImportBtn" class="btn light" style="font-size:12px;padding:6px 10px">นำเข้า</button>
-          <button id="prodExportBtn" class="btn light" style="font-size:12px;padding:6px 10px">ส่งออก</button>
-          <button id="prodGenAllBarcodesBtn" class="btn light" style="font-size:12px;padding:6px 10px" title="สร้างบาร์โค้ดให้สินค้านับสต็อกที่ยังไม่มี">สร้างบาร์โค้ด</button>
-          <button id="prodPrintBarcodesBtn" class="btn light" style="font-size:12px;padding:6px 10px" title="พิมพ์สติ๊กเกอร์บาร์โค้ดหลายตัว">🖨️ พิมพ์บาร์โค้ด</button>
-          <button id="prodManageCatBtn" class="btn light" style="font-size:12px;padding:6px 10px" title="จัดการหมวดหมู่ (เพิ่ม/ลบ/เปลี่ยนชื่อ/ย้ายตำแหน่ง)">🗂️ จัดการหมวด</button>
-          <button id="prodMergeCatBtn" class="btn light" style="font-size:12px;padding:6px 10px" title="ค้นหาและรวมหมวดหมู่ซ้ำ/ใกล้เคียง">🔗 รวมหมวดซ้ำ</button>
-          <button id="prodBulkModeBtn" class="btn light" style="font-size:12px;padding:6px 10px;${bulkMode ? 'background:#0284c7;color:#fff;border-color:#0284c7' : ''}" title="โหมดเลือกหลายรายการ">${bulkMode ? '✓ Bulk (เลือก ' + bulkSelected.size + ')' : '☑ Bulk'}</button>
-          <button id="prodDeleteAllBtn" class="btn light" style="font-size:12px;padding:6px 10px;color:#dc2626;border-color:#fca5a5" title="ลบสินค้าทั้งหมดเพื่อนำเข้าใหม่">ลบทั้งหมด</button>
           <button id="prodAddBtn" class="btn primary" style="font-size:12px;padding:6px 12px">${
             currentTypeFilter === 'service' ? '+ เพิ่มบริการ' :
             currentTypeFilter === 'non_stock' ? '+ เพิ่มสินค้าไม่นับสต็อก' :
             currentTypeFilter === 'stock' ? '+ เพิ่มสินค้านับสต็อก' :
             '+ เพิ่มสินค้า'
           }</button>
+          <!-- ★ ปุ่มรองย้ายเข้าเมนู "จัดการเพิ่มเติม" — id/handler เดิมครบ (แค่ย้ายที่) -->
+          <details class="prod-more-menu">
+            <summary class="prod-more-trigger btn light" style="font-size:12px;padding:6px 12px">⋯ จัดการเพิ่มเติม</summary>
+            <div class="prod-more-panel">
+              <button id="prodExportBtn" class="prod-more-item">⬇️ ส่งออก</button>
+              <button id="prodGenAllBarcodesBtn" class="prod-more-item" title="สร้างบาร์โค้ดให้สินค้านับสต็อกที่ยังไม่มี">🏷️ สร้างบาร์โค้ด</button>
+              <button id="prodPrintBarcodesBtn" class="prod-more-item" title="พิมพ์สติ๊กเกอร์บาร์โค้ดหลายตัว">🖨️ พิมพ์บาร์โค้ด</button>
+              <button id="prodManageCatBtn" class="prod-more-item" title="จัดการหมวดหมู่ (เพิ่ม/ลบ/เปลี่ยนชื่อ/ย้ายตำแหน่ง)">🗂️ จัดการหมวด</button>
+              <button id="prodMergeCatBtn" class="prod-more-item" title="ค้นหาและรวมหมวดหมู่ซ้ำ/ใกล้เคียง">🔗 รวมหมวดซ้ำ</button>
+              <button id="prodBulkModeBtn" class="prod-more-item${bulkMode ? ' prod-more-active' : ''}" title="โหมดเลือกหลายรายการ">${bulkMode ? '✓ Bulk (เลือก ' + bulkSelected.size + ')' : '☑ Bulk เลือกหลายรายการ'}</button>
+              <button id="prodDeleteAllBtn" class="prod-more-item prod-more-danger" title="ลบสินค้าทั้งหมดเพื่อนำเข้าใหม่">🗑️ ลบทั้งหมด</button>
+            </div>
+          </details>
         </div>
       </div>
 
@@ -491,16 +497,21 @@ function renderView(ctx) {
           return a[0].localeCompare(b[0], "th");
         });
         if (catList.length === 0) return '';
+        // ★ Mobile collapse: โชว์หมวดแรก ~CAT_CAP อัน ที่เหลือซ่อนใต้ "+ หมวดทั้งหมด"
+        //   (หมวดที่เลือกอยู่ติด is-active → CSS คงให้เห็นเสมอแม้อยู่นอก cap)
+        const CAT_CAP = 10;
+        const hasExtra = catList.length > CAT_CAP;
         return `
-        <div class="prod-category-bar" style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap;padding-bottom:6px">
-          <button class="prod-cat-chip" data-pcat="all" style="padding:6px 14px;border-radius:20px;border:1px solid ${currentCategory==='all'?'#0284c7':'#e2e8f0'};background:${currentCategory==='all'?'#0284c7':'#fff'};color:${currentCategory==='all'?'#fff':'#475569'};font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
+        <div class="prod-category-bar${hasExtra ? ' has-extra' : ''}" style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap;padding-bottom:6px">
+          <button class="prod-cat-chip${currentCategory==='all'?' is-active':''}" data-pcat="all" style="padding:6px 14px;border-radius:20px;border:1px solid ${currentCategory==='all'?'#0284c7':'#e2e8f0'};background:${currentCategory==='all'?'#0284c7':'#fff'};color:${currentCategory==='all'?'#fff':'#475569'};font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
             ทั้งหมด <span style="opacity:.7">(${base.length})</span>
           </button>
-          ${catList.map(([cat, n]) => `
-            <button class="prod-cat-chip" data-pcat="${escHtml(cat)}" style="padding:6px 14px;border-radius:20px;border:1px solid ${currentCategory===cat?'#0284c7':'#e2e8f0'};background:${currentCategory===cat?'#0284c7':'#fff'};color:${currentCategory===cat?'#fff':'#475569'};font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
+          ${catList.map(([cat, n], i) => `
+            <button class="prod-cat-chip${i >= CAT_CAP ? ' prod-cat-extra' : ''}${currentCategory===cat?' is-active':''}" data-pcat="${escHtml(cat)}" style="padding:6px 14px;border-radius:20px;border:1px solid ${currentCategory===cat?'#0284c7':'#e2e8f0'};background:${currentCategory===cat?'#0284c7':'#fff'};color:${currentCategory===cat?'#fff':'#475569'};font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
               ${escHtml(cat)} <span style="opacity:.7">(${n})</span>
             </button>
           `).join('')}
+          ${hasExtra ? `<button type="button" id="prodCatToggleBtn" class="prod-cat-toggle"><span class="cat-more-label">+ หมวดทั้งหมด (${catList.length})</span><span class="cat-less-label">− ย่อหมวด</span></button>` : ''}
           <button id="prodAddCatBtn" title="เพิ่มหมวดใหม่" style="padding:6px 14px;border-radius:20px;border:1px dashed #0284c7;background:#f0f9ff;color:#0284c7;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">
             + หมวดใหม่
           </button>
@@ -516,6 +527,13 @@ function renderView(ctx) {
           </div>
         ` : ''}
         `;
+      })()}
+
+      <!-- ★ ล้างตัวกรองทั้งหมด — โชว์เมื่อมี filter ใด ๆ active (เห็นชัด รีเซ็ตกลับทั้งหมดในคลิกเดียว) -->
+      ${(() => {
+        const anyFilter = currentCategory !== 'all' || currentFilter !== 'all' || !!quickFilter || currentTagFilter !== null || !!searchQuery;
+        if (!anyFilter) return '';
+        return `<div class="prod-clearfilter-row"><button type="button" id="prodClearAllFilters" class="prod-clearfilter-btn">✕ ล้างตัวกรองทั้งหมด</button></div>`;
       })()}
 
       <!-- Product List / Grid -->
@@ -582,6 +600,30 @@ function renderView(ctx) {
     currentPage = 1;
     renderView(ctx);
   }));
+
+  // ★ Action menus (header "จัดการเพิ่มเติม" + per-card "⋯") — accordion: เปิดได้ทีละอัน
+  el.querySelectorAll("details.prod-more-menu, details.prod-card-menu").forEach(d => {
+    d.addEventListener("toggle", () => {
+      if (!d.open) return;
+      el.querySelectorAll("details.prod-more-menu[open], details.prod-card-menu[open]").forEach(o => { if (o !== d) o.open = false; });
+    });
+  });
+
+  // ★ Category collapse toggle (มือถือ) — สลับ class อย่างเดียว ไม่ re-render (คงตำแหน่ง scroll)
+  el.querySelector("#prodCatToggleBtn")?.addEventListener("click", () => {
+    el.querySelector(".prod-category-bar")?.classList.toggle("cat-expanded");
+  });
+
+  // ★ ล้างตัวกรองทั้งหมด — รีเซ็ต category/status/quick/tag/search กลับค่าเริ่มต้น
+  el.querySelector("#prodClearAllFilters")?.addEventListener("click", () => {
+    currentCategory = "all";
+    currentFilter = "all";
+    quickFilter = "";
+    currentTagFilter = null;
+    searchQuery = "";
+    currentPage = 1;
+    renderView(ctx);
+  });
 
   // Phase 68 (B3): tag filter chips
   el.querySelectorAll("[data-tag-filter]").forEach(btn => btn.addEventListener("click", () => {
@@ -909,6 +951,17 @@ function renderProductItem(p, mode, state) {
     }
   }
 
+  // ★ Per-card action menu — เก็บปุ่มรองไว้ใต้ "⋯" (inline disclosure กัน clip จาก .prod-list/.panel overflow).
+  //   data-action / id เดิมครบ → event delegation เดิมทำงานต่อทุกปุ่ม. ปุ่มด่วน "+ บิล" อยู่นอกเมนู.
+  const _cardMenuItems = [
+    `<button class="prod-cardmenu-item" data-prod-edit="${p.id}">✏️ แก้ไข</button>`,
+    pType === "stock" ? `<button class="prod-cardmenu-item" data-prod-stockin="${p.id}" title="รับสต็อกเข้า">📦 รับสต็อก/กล่อง</button>` : '',
+    pType === "stock" && (p.barcode || p.sku) ? `<button class="prod-cardmenu-item" data-qr-prod="${p.id}" title="QR Code สินค้า">📱 QR code</button>` : '',
+    pType === "stock" && p.barcode ? `<button class="prod-cardmenu-item" data-prod-print="${p.id}" title="พิมพ์บาร์โค้ด">🖨️ พิมพ์บาร์โค้ด</button>` : '',
+    isAdmin ? `<button class="prod-cardmenu-item prod-cardmenu-danger" data-prod-del="${p.id}" title="ลบสินค้า">🗑️ ลบสินค้า</button>` : '',
+  ].filter(Boolean).join("");
+  const _cardMenu = `<details class="prod-card-menu"><summary class="prod-cardmenu-trigger" title="เพิ่มเติม">⋯</summary><div class="prod-cardmenu-panel">${_cardMenuItems}</div></details>`;
+
   if (mode === "grid") {
     return `
       <div class="prod-grid-card" style="${_bulkChecked ? 'background:#dbeafe;border:2px solid #0284c7' : ''}">
@@ -923,12 +976,8 @@ function renderProductItem(p, mode, state) {
         <div class="prod-grid-stock">คงเหลือ ${stock}${turnoverHint}</div>
         ${whBreakdown}
         <div class="prod-grid-actions">
-          <button class="btn light" style="padding:6px 10px;font-size:12px" data-prod-edit="${p.id}">แก้ไข</button>
           <button class="btn primary" style="padding:6px 10px;font-size:12px" data-prod-add="${p.id}">+ บิล</button>
-          ${pType === "stock" ? `<button class="btn light" style="padding:6px 8px;font-size:12px;color:#059669;border-color:#a7f3d0" data-prod-stockin="${p.id}" title="รับสต็อกเข้า">+📦</button>` : ''}
-          ${pType === "stock" && (p.barcode || p.sku) ? `<button class="btn light" style="padding:6px 8px;font-size:12px" data-qr-prod="${p.id}" title="QR Code สินค้า">📱</button>` : ''}
-          ${pType === "stock" && p.barcode ? `<button class="btn light" style="padding:6px 8px;font-size:12px" data-prod-print="${p.id}" title="พิมพ์บาร์โค้ด">🖨️</button>` : ''}
-          ${isAdmin ? `<button class="btn" style="padding:6px 8px;font-size:12px;background:#ef4444;color:#fff;border:none;border-radius:8px;cursor:pointer" data-prod-del="${p.id}" title="ลบสินค้า">🗑️</button>` : ''}
+          ${_cardMenu}
         </div>
       </div>
     `;
@@ -956,12 +1005,8 @@ function renderProductItem(p, mode, state) {
         ${pType !== "service" ? `<div class="prod-list-stock">คงเหลือ <strong>${stock}</strong>${turnoverHint}</div>` : ''}
         ${whBreakdown}
         <div class="prod-list-actions">
-          <button class="btn light" style="padding:6px 10px;font-size:12px" data-prod-edit="${p.id}">•••</button>
           <button class="btn primary" style="padding:6px 10px;font-size:12px" data-prod-add="${p.id}">+ บิล</button>
-          ${pType === "stock" ? `<button class="btn light" style="padding:6px 8px;font-size:12px;color:#059669;border-color:#a7f3d0" data-prod-stockin="${p.id}" title="รับสต็อกเข้า">+📦</button>` : ''}
-          ${pType === "stock" && (p.barcode || p.sku) ? `<button class="btn light" style="padding:6px 8px;font-size:12px" data-qr-prod="${p.id}" title="QR Code สินค้า">📱</button>` : ''}
-          ${pType === "stock" && p.barcode ? `<button class="btn light" style="padding:6px 8px;font-size:12px" data-prod-print="${p.id}" title="พิมพ์บาร์โค้ด">🖨️</button>` : ''}
-          ${isAdmin ? `<button class="btn" style="padding:6px 8px;font-size:12px;background:#ef4444;color:#fff;border:none;border-radius:8px;cursor:pointer" data-prod-del="${p.id}" title="ลบสินค้า">🗑️</button>` : ''}
+          ${_cardMenu}
         </div>
       </div>
     </div>

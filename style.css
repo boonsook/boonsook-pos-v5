@@ -984,6 +984,98 @@ th { color: var(--muted); font-size: 12px; }
 }
 
 /* ═══════════════════════════════════════════════════════════
+   Phase inventory-action-menu + category-collapse (build 343)
+   — ย้ายปุ่มรองเข้า action menu (header "จัดการเพิ่มเติม" + per-card "⋯")
+     + ย่อหมวดบนมือถือ. markup/id/handler เดิมครบ (ปุ่มแค่ย้ายที่).
+   เมนูใช้ <details> แบบ inline-flow กัน clip จาก .prod-list{overflow:hidden}
+   และ .panel{overflow-x:auto} (มือถือ) — panel ดันเนื้อหา ไม่ลอยทับ/ถูกตัด
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── Header "จัดการเพิ่มเติม" dropdown (desktop=absolute, มือถือ=inline) ── */
+.prod-more-menu { position: relative; display: inline-block; }
+.prod-more-menu > summary { list-style: none; cursor: pointer; user-select: none; white-space: nowrap; }
+.prod-more-menu > summary::-webkit-details-marker { display: none; }
+.prod-more-panel {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 40;
+  min-width: 224px; display: none; flex-direction: column; gap: 2px;
+  background: #fff; border: 1px solid var(--line); border-radius: 14px;
+  padding: 6px; box-shadow: 0 12px 32px rgba(15,23,42,.18);
+}
+.prod-more-menu[open] > .prod-more-panel { display: flex; }
+.prod-more-item {
+  text-align: left; border: none; background: transparent; cursor: pointer;
+  padding: 9px 12px; border-radius: 9px; font-size: 13px; font-weight: 600;
+  color: #334155; white-space: nowrap; width: 100%;
+}
+.prod-more-item:hover { background: var(--bg); }
+.prod-more-item.prod-more-active { background: #e0f2fe; color: #0369a1; }
+/* ลบทั้งหมด = ท้ายเมนูเสมอ + danger style (มีเส้นคั่นกันกดพลาด) */
+.prod-more-danger {
+  color: #dc2626; margin-top: 4px; padding-top: 11px;
+  border-top: 1px solid var(--line); border-radius: 0 0 9px 9px;
+}
+.prod-more-danger:hover { background: #fef2f2; }
+
+/* ── Per-card "⋯" menu (inline disclosure ทุก viewport — กัน clip) ── */
+.prod-card-menu { display: inline-block; }
+.prod-card-menu > summary {
+  list-style: none; cursor: pointer; user-select: none;
+  display: inline-grid; place-items: center;
+  width: 36px; height: 32px; border: 1px solid var(--line); border-radius: 8px;
+  background: #fff; font-size: 16px; font-weight: 800; color: #475569; line-height: 1;
+}
+.prod-card-menu > summary::-webkit-details-marker { display: none; }
+.prod-card-menu[open] > summary { background: var(--bg); border-color: #cbd5e1; }
+.prod-cardmenu-panel {
+  display: flex; flex-direction: column; gap: 2px; margin-top: 6px; min-width: 168px;
+  background: #fff; border: 1px solid var(--line); border-radius: 12px;
+  padding: 6px; box-shadow: 0 8px 20px rgba(15,23,42,.12);
+}
+.prod-cardmenu-item {
+  text-align: left; border: none; background: transparent; cursor: pointer;
+  padding: 9px 12px; border-radius: 8px; font-size: 13px; font-weight: 600;
+  color: #334155; white-space: nowrap; width: 100%;
+}
+.prod-cardmenu-item:hover { background: var(--bg); }
+.prod-cardmenu-danger { color: #dc2626; }
+.prod-cardmenu-danger:hover { background: #fef2f2; }
+/* actions row wrap → เมนูที่เปิดดันลงแถวของตัวเอง ไม่บีบ "+ บิล"
+   (align-items:flex-start กัน "+ บิล" ยืดสูงตามเมนูที่เปิด inline) */
+.prod-list-actions, .prod-grid-actions { flex-wrap: wrap; align-items: flex-start; }
+
+/* ── Category collapse + ปุ่มล้างตัวกรอง ── */
+.prod-cat-toggle {
+  display: none; align-items: center; gap: 4px;
+  padding: 6px 14px; border-radius: 20px; border: 1px dashed #94a3b8;
+  background: #f8fafc; color: #475569; font-size: 12px; font-weight: 700;
+  cursor: pointer; white-space: nowrap;
+}
+.prod-cat-toggle .cat-less-label { display: none; }
+.prod-category-bar.cat-expanded .prod-cat-toggle .cat-more-label { display: none; }
+.prod-category-bar.cat-expanded .prod-cat-toggle .cat-less-label { display: inline; }
+.prod-clearfilter-row { margin-top: 10px; }
+.prod-clearfilter-btn {
+  padding: 6px 14px; border-radius: 20px; border: 1px solid #fca5a5;
+  background: #fff5f5; color: #dc2626; font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.prod-clearfilter-btn:hover { background: #fee2e2; }
+
+@media (max-width: 768px) {
+  /* header actions: เลิก scroll ซ่อน (กัน dropdown ถูก clip) + wrap */
+  .prod-header > div:last-child { overflow: visible !important; flex-wrap: wrap !important; }
+  /* header dropdown: inline-flow เต็มแถว (กัน .panel overflow-x:auto clip บนมือถือ) */
+  .prod-more-menu { position: static; width: 100%; }
+  .prod-more-menu > summary { width: 100%; text-align: center; }
+  .prod-more-panel {
+    position: static; right: auto; min-width: 0; width: 100%;
+    margin-top: 6px; box-shadow: none;
+  }
+  /* category collapse: ซ่อนหมวดส่วนเกิน (ยกเว้นหมวดที่เลือกอยู่ .is-active) จนกดดู */
+  .prod-category-bar.has-extra .prod-cat-toggle { display: inline-flex; }
+  .prod-category-bar.has-extra:not(.cat-expanded) .prod-cat-extra:not(.is-active) { display: none !important; }
+}
+
+/* ═══════════════════════════════════════════════════════════
    SETTINGS — FlowAccount Drill-Down Style
    ═══════════════════════════════════════════════════════════ */
 

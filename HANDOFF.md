@@ -3,9 +3,10 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase inventory-mobile-polish — จัดหน้า สินค้า/คลัง บนมือถือ safe wins, build 342)
-**Version:** 5.66.0 (build 342) — Phase inventory-mobile-polish (UI/CSS — ไม่แตะ stock/barcode/import-export/billing/auth/API/wiring)
-**Previous:** 5.66.0 (build 341) — Phase sales-doc-mobile (CSS/markup — เอกสารขาย)
+**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase inventory-action-menu + category-collapse — จัดหน้า สินค้า/คลัง ให้โล่ง, build 343)
+**Version:** 5.66.0 (build 343) — Phase inventory-action-menu + category-collapse (UI/markup/CSS — ไม่แตะ stock/barcode/import-export/billing/auth/API; id/data-action/handler เดิมครบ)
+**Previous:** 5.66.0 (build 342) — Phase inventory-mobile-polish (UI/CSS safe wins — สินค้า/คลัง)
+**Pre-prev-1b:** 5.66.0 (build 341) — Phase sales-doc-mobile (CSS/markup — เอกสารขาย)
 **Pre-prev-1:** 5.66.0 (build 340) — Phase mobile-layout follow-up #3 (AI entry UX inline แทน FAB)
 **Pre-prev0:** 5.66.0 (build 339) — Phase mobile-layout follow-up #2 (ซ่อน AI FAB ตาม route บนมือถือ)
 **Pre-prev:** 5.66.0 (build 338) — follow-up (FAB icon-only) · 337 = mobile-layout (overlap 4 จุด)
@@ -15,6 +16,24 @@
 > 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.64** (client helper เท่านั้น)
 > 🏁 **FINANCE AUDIT CLOSED ที่ build 334** — ครบทุกข้อ: #1✓✓ #2✓ #3✓ #4✓ #5✓ #6✓ #6b✓ #7✓(dead code ลบแล้ว) #8✓ #9✓
 > ✅ **#9 period-lock DB trigger VERIFIED** (gangboo query DB, 2026-06-01): `journal_entries` → trigger `trg_check_period_locked` → function `check_period_not_locked` → insert เข้า period ที่ locked ถูกกันที่ DB จริง (เส้นแบ่งความปลอดภัยตาม CLAUDE.md 4.3)
+
+---
+
+## 🛠️ Phase inventory-action-menu + category-collapse — จัดหน้า สินค้า/คลัง ให้โล่ง (build 343)
+
+**Scope:** ต่อจาก 342 ที่ทำ safe wins — เฟสนี้ทำ **action menu จริง** ที่ 342 เลื่อนไว้ + category collapse. **UI/markup/CSS** เท่านั้น — ไม่แตะ stock/barcode/import-export/billing/auth/API/pricing. **`id`/`data-action`/handler เดิมครบทุกปุ่ม** (ย้าย markup เข้าเมนูเฉย ๆ — event binding by id / event-delegation by attr ยังหาเจอ).
+
+**Root cause (ความรก):** header 9 ปุ่มเรียงพรืด · per-card 4–6 ปุ่ม · หมวด 18+ อันดันรายการลงไกล.
+
+**Fix (modules/products.js + style.css):**
+1. **Header menu** — `.prod-header-actions` เหลือ `#prodImportBtn` + `#prodAddBtn` (primary) + `<details class="prod-more-menu">` "⋯ จัดการเพิ่มเติม". ย้ายเข้า panel: `#prodExportBtn`/`#prodGenAllBarcodesBtn`/`#prodPrintBarcodesBtn`/`#prodManageCatBtn`/`#prodMergeCatBtn`/`#prodBulkModeBtn`/`#prodDeleteAllBtn`. **`#prodDeleteAllBtn` = ปุ่มสุดท้าย** + class `prod-more-danger` (สีแดง + เส้นคั่นบน) → handler เดิม `deleteAllProducts(ctx)` (มี confirm) ไม่แตะ.
+2. **Per-card menu** — `renderProductItem` (grid+list) เหลือ `+ บิล` (`data-prod-add`) นอกเมนู + `<details class="prod-card-menu">` "⋯" ที่บรรจุ `data-prod-edit`/`data-prod-stockin`/`data-qr-prod`/`data-prod-print`/`data-prod-del` (เงื่อนไข stock/admin เดิม). delegation `el.querySelectorAll("[data-prod-*]")` ยังผูกได้.
+3. **Category collapse** — `CAT_CAP=10`. chip index ≥10 ติด class `prod-cat-extra`; chip ที่ตรง `currentCategory` ติด `is-active`; bar ติด `has-extra` ถ้า > CAP. ปุ่ม `#prodCatToggleBtn` (มี 2 label more/less). CSS `@media≤768`: `.prod-category-bar.has-extra:not(.cat-expanded) .prod-cat-extra:not(.is-active){display:none}` → ซ่อนส่วนเกินยกเว้นที่เลือก. toggle = `classList.toggle("cat-expanded")` (ไม่ re-render — คง scroll).
+4. **ล้างตัวกรองทั้งหมด** — `#prodClearAllFilters` โชว์เมื่อ `currentCategory!='all' || currentFilter!='all' || quickFilter || currentTagFilter || searchQuery`; handler reset ครบทุก dimension + `renderView`.
+
+**⚠️ ข้อควรระวัง (เหตุผลออกแบบ):** เมนูใช้ `<details>` **inline-flow** (panel เป็น block ดันเนื้อหา ไม่ใช่ `position:absolute`) เพราะ `.prod-list{overflow:hidden}` + `.panel{overflow-x:auto}` (มือถือ) จะ **clip** dropdown ที่ลอย. Header dropdown = absolute เฉพาะ desktop, inline บนมือถือ. accordion: เปิด details ตัวนึงปิดตัวอื่น (`toggle` listener).
+
+**Verify:** lint:errors 0 · unit **919** (+7: header-menu relocate · ลบทั้งหมด last+danger+confirm · card +บิล/⋯ · accordion+inline no-clip · category collapse · clear-filters) · e2e smoke 11 ✓ (build-sync 343) · **mobile smoke 390×844 (temp Playwright, ลบแล้ว):** header เหลือปุ่มหลัก, เมนูเปิด/ปิด, ลบทั้งหมดสีแดงท้ายเมนู, หมวดย่อโชว์ 10+หมวดที่เลือก, +บิลเด่น, ⋯เปิดเมนูได้, ไม่มี h-overflow. **bump 342→343** (data-app-build + style/main/boot/selfheal `?v=343` + sw cache-v343; semver 5.66.0).
 
 ---
 

@@ -200,3 +200,82 @@ test("inventory mobile: floating help FAB hidden on products + warehouse routes 
   assert.ok(hasHide, "must hide #bs-help-fab on products/wh_* routes on mobile");
   assert.ok(!/body\[data-route="products"\] #bs-ai-fab/.test(css), "must not touch the AI FAB on inventory");
 });
+
+// ── Inventory action-menu + category-collapse (build 343) ─────────────────────
+// Buttons were RELOCATED into <details> menus to declutter mobile. The contract:
+// every original id / data-action hook must still exist (wiring is by id/attr, so
+// moving markup must not drop handlers) — these guards lock that invariant.
+const prodJs = fs.readFileSync(path.resolve("modules/products.js"), "utf8");
+
+test("header secondary buttons live inside the 'จัดการเพิ่มเติม' <details> menu; primary stay out", () => {
+  // the menu container exists
+  assert.match(prodJs, /<details class="prod-more-menu">/, "header must use a <details class=prod-more-menu> menu");
+  const menu = prodJs.slice(prodJs.indexOf('<details class="prod-more-menu">'), prodJs.indexOf("</details>", prodJs.indexOf('class="prod-more-menu"')));
+  // every secondary button id moved INTO the menu (handlers bind by id → must persist)
+  for (const id of ["prodExportBtn", "prodGenAllBarcodesBtn", "prodPrintBarcodesBtn", "prodManageCatBtn", "prodMergeCatBtn", "prodBulkModeBtn", "prodDeleteAllBtn"]) {
+    assert.match(menu, new RegExp(`id="${id}"`), `#${id} must live inside the จัดการเพิ่มเติม menu`);
+  }
+  // primary actions stay visible (NOT inside the menu)
+  assert.ok(!new RegExp(`prod-more-panel[\\s\\S]*id="prodAddBtn"`).test(prodJs), "+ เพิ่มสินค้า must stay a visible primary button");
+});
+
+test("'ลบทั้งหมด' is the LAST menu item and carries danger styling + keeps its confirm handler", () => {
+  const menu = prodJs.slice(prodJs.indexOf('<details class="prod-more-menu">'), prodJs.indexOf("</details>", prodJs.indexOf('class="prod-more-menu"')));
+  // danger class + it is the final id in the panel
+  assert.match(menu, /id="prodDeleteAllBtn"[^>]*class="[^"]*prod-more-danger|class="[^"]*prod-more-danger[^"]*"[^>]*id="prodDeleteAllBtn"/);
+  const lastId = [...menu.matchAll(/id="(prod[A-Za-z]+Btn)"/g)].map(x => x[1]).pop();
+  assert.equal(lastId, "prodDeleteAllBtn", "ลบทั้งหมด must be the last button in the menu");
+  // danger color + a separator above it (กันกดพลาด)
+  assert.match(css, /\.prod-more-danger\s*\{[^}]*color:\s*#dc2626[^}]*border-top:\s*1px solid/s);
+  // handler unchanged: still wired to deleteAllProducts (which holds the confirm)
+  assert.match(prodJs, /#prodDeleteAllBtn"\)\?\.addEventListener\("click",\s*\(\)\s*=>\s*deleteAllProducts\(ctx\)\)/);
+});
+
+test("product card keeps '+ บิล' as a visible quick action; the rest move into a per-card '⋯' menu", () => {
+  // quick "+ บิล" button stays out of the menu, still data-prod-add
+  assert.match(prodJs, /data-prod-add="\$\{p\.id\}">\+ บิล<\/button>/);
+  // the per-card menu exists and holds the secondary data-actions (delegation binds by attr → must persist)
+  assert.match(prodJs, /<details class="prod-card-menu">/);
+  assert.match(prodJs, /class="prod-cardmenu-item"\s+data-prod-edit="\$\{p\.id\}"/);
+  assert.match(prodJs, /data-prod-stockin="\$\{p\.id\}"/);
+  assert.match(prodJs, /data-qr-prod="\$\{p\.id\}"/);
+  assert.match(prodJs, /data-prod-print="\$\{p\.id\}"/);
+  assert.match(prodJs, /class="prod-cardmenu-item prod-cardmenu-danger"\s+data-prod-del="\$\{p\.id\}"/);
+});
+
+test("menus open one-at-a-time (accordion) and are inline-flow so .prod-list/.panel overflow can't clip them", () => {
+  // accordion wiring: opening one closes the others
+  assert.match(prodJs, /details\.prod-more-menu\[open\],\s*details\.prod-card-menu\[open\]/);
+  // per-card panel is inline-flow (NOT position:absolute) — robust against overflow:hidden clipping
+  assert.match(css, /\.prod-cardmenu-panel\s*\{[^}]*margin-top:\s*6px/s);
+  assert.ok(!/\.prod-cardmenu-panel\s*\{[^}]*position:\s*absolute/s.test(css), "card menu panel must not be absolutely positioned (would be clipped)");
+  // header dropdown drops to inline-flow on mobile (where .panel gets overflow-x:auto)
+  const m = css.match(/@media\s*\(max-width:\s*768px\)\s*\{[\s\S]*?\n\}/g) || [];
+  assert.ok(m.some(b => /\.prod-more-panel\s*\{[^}]*position:\s*static/s.test(b)), "header panel must be static (inline) on mobile to avoid the .panel clip");
+});
+
+test("category collapse: only ~10 chips show on mobile, extras hide behind '+ หมวดทั้งหมด' (selected always visible)", () => {
+  // chips beyond the cap get .prod-cat-extra ; selected chip gets .is-active
+  assert.match(prodJs, /i >= CAT_CAP \? ' prod-cat-extra' : ''/);
+  assert.match(prodJs, /currentCategory===cat\?' is-active':''/);
+  // toggle button + has-extra flag
+  assert.match(prodJs, /id="prodCatToggleBtn"/);
+  assert.match(prodJs, /class="prod-category-bar\$\{hasExtra \? ' has-extra' : ''\}/);
+  // toggle is class-only (no re-render → keeps scroll/state)
+  assert.match(prodJs, /#prodCatToggleBtn"\)\?\.addEventListener\("click",\s*\(\)\s*=>\s*\{\s*el\.querySelector\("\.prod-category-bar"\)\?\.classList\.toggle\("cat-expanded"\)/);
+  // mobile CSS: hide extras unless expanded, but keep the active one visible
+  const m = css.match(/@media\s*\(max-width:\s*768px\)\s*\{[\s\S]*?\n\}/g) || [];
+  assert.ok(m.some(b => /\.prod-category-bar\.has-extra:not\(\.cat-expanded\)\s*\.prod-cat-extra:not\(\.is-active\)\s*\{\s*display:\s*none/.test(b)),
+    "collapsed mobile category bar must hide .prod-cat-extra except the .is-active selected chip");
+});
+
+test("'ล้างตัวกรองทั้งหมด' button appears when any filter is active and resets all filter state", () => {
+  assert.match(prodJs, /id="prodClearAllFilters"/);
+  // shown only when something is filtered
+  assert.match(prodJs, /const anyFilter = currentCategory !== 'all' \|\| currentFilter !== 'all' \|\| !!quickFilter \|\| currentTagFilter !== null \|\| !!searchQuery/);
+  // handler resets every filter dimension
+  const h = prodJs.slice(prodJs.indexOf('#prodClearAllFilters"'), prodJs.indexOf('#prodClearAllFilters"') + 320);
+  for (const reset of [/currentCategory = "all"/, /currentFilter = "all"/, /quickFilter = ""/, /currentTagFilter = null/, /searchQuery = ""/]) {
+    assert.match(h, reset);
+  }
+});

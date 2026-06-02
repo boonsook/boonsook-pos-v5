@@ -7,6 +7,14 @@
 
 ---
 
+## 5.66.0 (build 343) — 2026-06-02 Phase inventory-action-menu + category-collapse — จัดหน้า สินค้า/คลัง ให้โล่ง
+
+- **ux(mobile):** **Header action menu** — เหลือปุ่มหลัก `นำเข้า` / `+ เพิ่มสินค้า` + เมนู **"⋯ จัดการเพิ่มเติม"** (`<details>`); ย้าย `ส่งออก`/`สร้างบาร์โค้ด`/`พิมพ์บาร์โค้ด`/`จัดการหมวด`/`รวมหมวดซ้ำ`/`Bulk`/`ลบทั้งหมด` เข้าเมนู — `ลบทั้งหมด` อยู่**ท้ายเมนู** + **danger style** + เส้นคั่นกันกดพลาด (confirm เดิมครบ)
+- **ux(mobile):** **Product card action menu** — เหลือปุ่มด่วน **`+ บิล`**; ปุ่มอื่น (`แก้ไข`/`รับสต็อก`/`QR`/`พิมพ์`/`ลบ`) เข้าเมนู **"⋯"** ต่อ `data-action` เดิม
+- **ux(mobile):** **Category collapse** — โชว์ ~10 หมวดแรก ที่เหลือซ่อนใต้ **`+ หมวดทั้งหมด`** (toggle ไม่ re-render); **หมวดที่เลือกอยู่เห็นเสมอ** แม้อยู่นอก 10 อันแรก
+- **ux:** ปุ่ม **`✕ ล้างตัวกรองทั้งหมด`** โผล่เมื่อมี filter ใด ๆ active (รีเซ็ต category/status/quick/tag/search)
+- **scope:** UI/markup/CSS เท่านั้น — **ไม่แตะ** stock/barcode/import-export/billing/auth/API · **`id`/`data-action`/handler เดิมครบ** (ปุ่มแค่ย้ายที่ — wiring ไม่เปลี่ยน) · เมนูใช้ `<details>` inline-flow กัน clip จาก `.prod-list`/`.panel` overflow · **test:** +7 `mobile_layout_guard.test.js` (รวม mobile smoke 390×844) · **pwa-cache:** bump 342→343
+
 ## 5.66.0 (build 342) — 2026-06-02 Phase inventory-mobile-polish — จัดหน้า สินค้า/คลัง บนมือถือ (safe wins)
 
 - **ux(mobile):** เพิ่ม **summary cards 4 ใบ** บนหน้า สินค้า/คลัง — 📦 ทั้งหมด / พร้อมขาย (เขียว) / ใกล้หมด (ส้ม) / หมดสต็อก (แดง) — derive จาก count ที่คำนวณไว้แล้ว (`countTypeAll`/`countInstock`/`countLow`/`countOut`) **ไม่มี query ใหม่**
