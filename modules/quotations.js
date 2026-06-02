@@ -59,6 +59,7 @@ let _editingId = null;
 let _viewMode = "list";    // list | form | preview
 let _tabFilter = "all";    // all | pending | approved | invoiced | receipted | cancelled
 let _selectedIds = new Set();
+let _qtSaveInflight = false;   // Phase 356: กันกดปุ่ม "บันทึก" รัว/ดับเบิลคลิก → สร้างเอกสารซ้ำ
 let _airDraftNotice = 0;   // Phase 346: จำนวนรายการร่างจากแคตตาล็อกแอร์/งานแอร์ที่เพิ่งเติม (โชว์ notice)
 let _airDraftSource = "air_catalog";          // Phase 353: "air_catalog" | "air_job"
 let _airDraftCustomer = { name: "", phone: "" }; // Phase 353: prefill ลูกค้าจากงานแอร์ (ถ้ามี)
@@ -863,77 +864,91 @@ async function saveQuotationFull() {
   if (!customerName) return _ctx.showToast("กรอกชื่อลูกค้า");
   if (!_lineItems.length) return _ctx.showToast("เพิ่มรายการสินค้าอย่างน้อย 1 รายการ");
 
-  const subtotal   = _lineItems.reduce((s, i) => s + Number(i.line_total || 0), 0);
-  const discPct    = Number(document.getElementById("qt_discPct")?.value || 0);
-  const discAmount = subtotal * (discPct / 100);
-  const afterDisc  = subtotal - discAmount;
-  const whtChecked = document.getElementById("qt_wht")?.checked || false;
-  const whtPct     = Number(document.getElementById("qt_whtPct")?.value || 3);
-  const whtAmount  = whtChecked ? afterDisc * (whtPct / 100) : 0;
-  const grandTotal = afterDisc - whtAmount;
+  // Phase 356: inflight guard — กันกดปุ่ม "บันทึก" รัว/ดับเบิลคลิก (สร้างเอกสารซ้ำ).
+  //  set หลังผ่าน validation เบื้องต้น; reset ใน finally เสมอ (แม้ xhr/loadAllData fail).
+  if (_qtSaveInflight) return _ctx.showToast("กำลังบันทึก...");
+  _qtSaveInflight = true;
+  const _saveBtn = document.getElementById("qtSaveBtn");
+  if (_saveBtn) _saveBtn.disabled = true;
 
-  const payload = {
-    customer_name: customerName, customer: customerName,
-    customer_phone: document.getElementById("qt_customerPhone")?.value?.trim() || "",
-    customer_address: document.getElementById("qt_customerAddress")?.value?.trim() || "",
-    customer_tax_id: document.getElementById("qt_customerTaxId")?.value?.trim() || "",
-    qt_no: document.getElementById("qt_docNo")?.value?.trim() || "",
-    total_amount: subtotal, grand_total: grandTotal, amount: grandTotal,
-    discount_pct: discPct, discount_amount: discAmount, after_discount: afterDisc,
-    withholding_tax: whtChecked, wht_pct: whtPct, wht_amount: whtAmount,
-    payment_terms: document.getElementById("qt_payTerms")?.value || "เงินสด",
-    credit_days: Number(document.getElementById("qt_creditDays")?.value || 0),
-    project_name: document.getElementById("qt_project")?.value?.trim() || "",
-    ref_no: document.getElementById("qt_refNo")?.value?.trim() || "",
-    salesperson: document.getElementById("qt_salesperson")?.value?.trim() || "",
-    status: document.getElementById("qt_status")?.value || "pending",
-    // Phase 355: append อ้างอิงงานต้นทาง (air_job) ตอนกดบันทึกเองเท่านั้น — preserve note ผู้ใช้, ไม่ duplicate
-    note: appendAirJobNoteRef(document.getElementById("qt_note")?.value?.trim() || "", _airDraftMeta)
-  };
+  try {
+    const subtotal   = _lineItems.reduce((s, i) => s + Number(i.line_total || 0), 0);
+    const discPct    = Number(document.getElementById("qt_discPct")?.value || 0);
+    const discAmount = subtotal * (discPct / 100);
+    const afterDisc  = subtotal - discAmount;
+    const whtChecked = document.getElementById("qt_wht")?.checked || false;
+    const whtPct     = Number(document.getElementById("qt_whtPct")?.value || 3);
+    const whtAmount  = whtChecked ? afterDisc * (whtPct / 100) : 0;
+    const grandTotal = afterDisc - whtAmount;
 
-  // Auto QT number
-  if (!payload.qt_no) {
-    const now = new Date();
-    const ds = now.getFullYear() + String(now.getMonth()+1).padStart(2,"0") + String(now.getDate()).padStart(2,"0");
-    payload.qt_no = "QT" + ds + String((_ctx.state.quotations?.length||0)+1).padStart(3,"0");
-  }
+    const payload = {
+      customer_name: customerName, customer: customerName,
+      customer_phone: document.getElementById("qt_customerPhone")?.value?.trim() || "",
+      customer_address: document.getElementById("qt_customerAddress")?.value?.trim() || "",
+      customer_tax_id: document.getElementById("qt_customerTaxId")?.value?.trim() || "",
+      qt_no: document.getElementById("qt_docNo")?.value?.trim() || "",
+      total_amount: subtotal, grand_total: grandTotal, amount: grandTotal,
+      discount_pct: discPct, discount_amount: discAmount, after_discount: afterDisc,
+      withholding_tax: whtChecked, wht_pct: whtPct, wht_amount: whtAmount,
+      payment_terms: document.getElementById("qt_payTerms")?.value || "เงินสด",
+      credit_days: Number(document.getElementById("qt_creditDays")?.value || 0),
+      project_name: document.getElementById("qt_project")?.value?.trim() || "",
+      ref_no: document.getElementById("qt_refNo")?.value?.trim() || "",
+      salesperson: document.getElementById("qt_salesperson")?.value?.trim() || "",
+      status: document.getElementById("qt_status")?.value || "pending",
+      // Phase 355: append อ้างอิงงานต้นทาง (air_job) ตอนกดบันทึกเองเท่านั้น — preserve note ผู้ใช้, ไม่ duplicate
+      note: appendAirJobNoteRef(document.getElementById("qt_note")?.value?.trim() || "", _airDraftMeta)
+    };
 
-  _ctx.showToast("กำลังบันทึก...");
-  const xhrPost = window._appXhrPost;
-  const xhrPatch = window._appXhrPatch;
-  const xhrDelete = window._appXhrDelete;
-
-  let res, quotationId = _editingId;
-
-  if (quotationId) {
-    res = await xhrPatch("quotations", payload, "id", quotationId);
-    if (!res.ok) return _ctx.showToast(res.error?.message || "บันทึกไม่สำเร็จ");
-    await xhrDelete("quotation_items", "quotation_id", quotationId);
-  } else {
-    res = await xhrPost("quotations", payload, { returnData: true });
-    if (!res.ok) return _ctx.showToast(res.error?.message || "บันทึกไม่สำเร็จ");
-    quotationId = res.data?.id;
-  }
-
-  // Insert line items
-  if (quotationId && _lineItems.length) {
-    for (let i = 0; i < _lineItems.length; i++) {
-      const li = _lineItems[i];
-      await xhrPost("quotation_items", {
-        quotation_id: quotationId, product_id: li.product_id || null,
-        item_name: li.item_name, qty: li.qty, unit: li.unit || "ชิ้น",
-        unit_price: li.unit_price, discount_pct: li.discount_pct || 0,
-        line_total: li.line_total, sort_order: i + 1
-      });
+    // Auto QT number
+    if (!payload.qt_no) {
+      const now = new Date();
+      const ds = now.getFullYear() + String(now.getMonth()+1).padStart(2,"0") + String(now.getDate()).padStart(2,"0");
+      payload.qt_no = "QT" + ds + String((_ctx.state.quotations?.length||0)+1).padStart(3,"0");
     }
-  }
 
-  // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L3 module state reset after save (single edit session)
-  _viewMode = "list"; _editingId = null; _lineItems = [];
-  _airDraftMeta = null;   // Phase 355: เคลียร์ meta หลังบันทึก → กด save อีกครั้งไม่ append อ้างอิงซ้ำ
-  await _ctx.loadAllData();
-  _ctx.showToast("บันทึกใบเสนอราคาแล้ว");
-  renderQuotationsPage(_ctx);
+    _ctx.showToast("กำลังบันทึก...");
+    const xhrPost = window._appXhrPost;
+    const xhrPatch = window._appXhrPatch;
+    const xhrDelete = window._appXhrDelete;
+
+    let res, quotationId = _editingId;
+
+    if (quotationId) {
+      res = await xhrPatch("quotations", payload, "id", quotationId);
+      if (!res.ok) return _ctx.showToast(res.error?.message || "บันทึกไม่สำเร็จ");
+      await xhrDelete("quotation_items", "quotation_id", quotationId);
+    } else {
+      res = await xhrPost("quotations", payload, { returnData: true });
+      if (!res.ok) return _ctx.showToast(res.error?.message || "บันทึกไม่สำเร็จ");
+      quotationId = res.data?.id;
+    }
+
+    // Insert line items
+    if (quotationId && _lineItems.length) {
+      for (let i = 0; i < _lineItems.length; i++) {
+        const li = _lineItems[i];
+        await xhrPost("quotation_items", {
+          quotation_id: quotationId, product_id: li.product_id || null,
+          item_name: li.item_name, qty: li.qty, unit: li.unit || "ชิ้น",
+          unit_price: li.unit_price, discount_pct: li.discount_pct || 0,
+          line_total: li.line_total, sort_order: i + 1
+        });
+      }
+    }
+
+    // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L3 module state reset after save (single edit session)
+    _viewMode = "list"; _editingId = null; _lineItems = [];
+    _airDraftMeta = null;   // Phase 355: เคลียร์ meta หลังบันทึก → กด save อีกครั้งไม่ append อ้างอิงซ้ำ
+    await _ctx.loadAllData();
+    _ctx.showToast("บันทึกใบเสนอราคาแล้ว");
+    renderQuotationsPage(_ctx);
+  } finally {
+    // Phase 356: ปลดล็อก guard + เปิดปุ่มกลับเสมอ (re-query เพราะ DOM อาจถูก re-render หลัง save)
+    _qtSaveInflight = false;
+    const _btn = document.getElementById("qtSaveBtn");
+    if (_btn) _btn.disabled = false;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════

@@ -1,6 +1,6 @@
 # Boonsook POS V5 - Shared Session Start
 
-Last updated: 2026-06-02 (Phase 355 air-quotation-save-linkback — อ้างอิงงานต้นทางลงใน note ตอนกดบันทึก, build 355) · ⏸️ STOP รอ owner/Codex review ก่อน Phase 356
+Last updated: 2026-06-02 (Phase 356 quotation-save-inflight-guard — กันกดบันทึกใบเสนอราคารัว/ดับเบิลคลิก, build 356) · ⏸️ STOP รอ owner/Codex review ก่อน Phase 357
 
 Purpose: this is the common first-read note for Codex, Claude, or any next agent opening a fresh session on this project. Read this before changing files so both teams start from the same facts.
 
@@ -11,7 +11,8 @@ Purpose: this is the common first-read note for Codex, Claude, or any next agent
 
 - Project: Boonsook POS V5 PRO, Thai POS PWA.
 - Workspace: `C:\Users\Lenovo E14 Gen4\Documents\boonsuk v5\boonsook-pos-v5-github`
-- Main app version: `5.66.0` (build 355) · ⏸️ STOP — owner สั่งหยุดรอ review ก่อนเริ่ม Phase 356
+- Main app version: `5.66.0` (build 356) · ⏸️ STOP — owner สั่งหยุดรอ review ก่อนเริ่ม Phase 357
+- 🆕 build 356 = quotation-save-inflight-guard: กันกดปุ่ม "บันทึก" ใบเสนอราคารัว/ดับเบิลคลิก → สร้างเอกสารซ้ำ. `modules/quotations.js`: module flag `_qtSaveInflight` + ใน saveQuotationFull() เช็ค inflight (กดซ้ำ → toast "กำลังบันทึก..." + return), set true หลัง validation เบื้องต้น, disable ปุ่ม qtSaveBtn, try/finally reset flag+enable ปุ่มเสมอ (แม้ xhr/loadAllData fail). ไม่เปลี่ยน payload/endpoint/save semantics, ไม่เปลี่ยน service job status, ไม่ POST/PATCH service_jobs, ไม่แตะ stock/POS/cart/products/schema/SQL. Phase 355 note link-back ยังอยู่. +11 tests (unit 1021).
 - 🆕 build 355 = air-quotation-save-linkback: กดบันทึกใบเสนอราคาที่มาจากงานแอร์ (source=air_job) → append บรรทัดอ้างอิงงานต้นทางลงใน `note` (field เดิม) แบบ `สร้างจากงานแอร์: {เลขงาน} | {intent} | {แบรนด์ รุ่น BTU} | ราคาเสนอ {price} บาท` (fallback "สร้างจากงานแอร์จากแคตตาล็อก" เมื่อไม่มี serviceJobId). inject เฉพาะกดบันทึกเอง, preserve note เดิม, กัน duplicate (marker-check + เคลียร์ `_airDraftMeta` หลัง save). 2 pure exported helpers `buildAirJobNoteRef`/`appendAirJobNoteRef` (`modules/quotations.js`). ไม่ auto-save/ไม่เปลี่ยน service job status/ไม่ POST·PATCH service_jobs/ไม่แตะ stock/POS/cart/schema/save endpoint. +13 tests (unit 1010).
 - 🆕 build 354 = quotation-air-draft-polish: หน้า quotations ตอนรับ draft จากงานแอร์ (source=air_job) → banner "รายการร่างจากงานแอร์" + source summary chips (เลขงาน/intent/รุ่น·BTU·ราคา/นัดหมาย) + customer hint "เติมจากงานแจ้งบริการ" + ปุ่ม "ดูงานต้นทาง" (เฉพาะมี serviceJobId) + คำเตือน "ต้องกรอกราคา" ถ้าไม่มี offerPrice. ไม่ save/สร้างเลขเอกสารอัตโนมัติ, ไม่แตะ stock/POS/cart/schema/customer.
 - 🆕 build 353 = air-job-to-quotation-draft-action: งานแอร์ใน service_jobs มีปุ่ม "📝 ใบเสนอราคา" → pushAirQuoteDraft(source="air_job") → หน้า quotations เป็น draft (notice "รายการร่างจากงานแอร์", prefill ลูกค้า+line item). **ไม่ save อัตโนมัติ/ไม่สร้างเลขเอกสาร** (user กดบันทึกเอง). งานทั่วไปไม่มีปุ่ม. ac_quotation_draft.pushAirQuoteDraft generalize source/serviceJobId/customer (backward-compatible 346). ไม่แตะ stock/POS/cart/schema/workflow.

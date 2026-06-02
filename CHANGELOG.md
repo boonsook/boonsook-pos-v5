@@ -7,6 +7,12 @@
 
 ---
 
+## 5.66.0 (build 356) — 2026-06-02 Phase 356 quotation-save-inflight-guard — กันกดบันทึกใบเสนอราคารัว/ดับเบิลคลิก
+
+- **fix:** กดปุ่ม **"บันทึก"** ใบเสนอราคารัว/ดับเบิลคลิก (โดยเฉพาะ flow งานแอร์ build 353-355) เคยอาจสร้าง **เอกสารซ้ำ** เพราะ `saveQuotationFull` async ไม่มี inflight guard → กดก่อน `await xhrPost` รอบแรกเสร็จ = POST สองครั้ง
+- **how:** module flag `_qtSaveInflight` — เช็คตอนต้น (กดซ้ำ → toast "กำลังบันทึก..." แล้ว return), set true **หลังผ่าน validation เบื้องต้น**, disable ปุ่ม `qtSaveBtn`, ครอบด้วย **try/finally** reset flag + enable ปุ่มกลับเสมอ (แม้ xhr/loadAllData fail)
+- **scope:** ❌ ไม่เปลี่ยน payload/endpoint/save semantics เดิม · ❌ ไม่เปลี่ยน service job status · ❌ ไม่ POST/PATCH `service_jobs` · ❌ ไม่แตะ stock/POS/cart/products/schema/SQL · ❌ ไม่ auto-save (user กดเอง) · Phase 355 note link-back ยังอยู่ · **test:** +11 `quotation_save_inflight_guard.test.js` (unit 1021) · **pwa-cache:** bump 355→356
+
 ## 5.66.0 (build 355) — 2026-06-02 Phase 355 air-quotation-save-linkback — อ้างอิงงานต้นทางลงใน note ตอนกดบันทึก
 
 - **feat:** กด **"บันทึก"** ใบเสนอราคาที่มาจากงานแอร์ (`source=air_job`) → append บรรทัดอ้างอิงงานต้นทางลงใน **note (field เดิม)** เพื่อ trace ได้ว่ามาจากงานแอร์ใด

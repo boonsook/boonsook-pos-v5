@@ -4,9 +4,10 @@
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 > ⚠️ `CLAUDE_SESSION_HANDOFF.md` / `CLAUDE_CODE_PROMPT.md` / `CLAUDE_CODE_WORKFLOW.md` = **superseded** (historical) — เป็น redirect ไป `IMPLEMENT_TEAM_PROTOCOL.md` แล้ว อย่าใช้เป็น workflow หลัก
 
-**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase 355 air-quotation-save-linkback — อ้างอิงงานต้นทางลงใน note ตอนกดบันทึก, build 355) · ⏸️ **STOP — รอ owner/Codex review ก่อนเริ่ม Phase 356**
-**Version:** 5.66.0 (build 355) — Phase 355 air-quotation-save-linkback (append อ้างอิงงานแอร์ลง note ตอนกดบันทึกเอง; preserve note เดิม + กัน duplicate; ไม่ save อัตโนมัติ/ไม่เปลี่ยน job status/ไม่แตะ stock/POS/cart/schema)
-**Previous:** 5.66.0 (build 354) — Phase 354 quotation-air-draft-polish (banner+source summary+back-to-job+price warning+customer hint)
+**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase 356 quotation-save-inflight-guard — กันกดบันทึกใบเสนอราคารัว/ดับเบิลคลิก, build 356) · ⏸️ **STOP — รอ owner/Codex review ก่อนเริ่ม Phase 357**
+**Version:** 5.66.0 (build 356) — Phase 356 quotation-save-inflight-guard (module flag `_qtSaveInflight` + try/finally + disable ปุ่ม → กันสร้างเอกสารซ้ำ; ไม่เปลี่ยน save semantics/endpoint; ไม่แตะ service_jobs/stock/POS/cart/schema)
+**Previous:** 5.66.0 (build 355) — Phase 355 air-quotation-save-linkback (append อ้างอิงงานแอร์ลง note ตอนกดบันทึกเอง; preserve note เดิม + กัน duplicate)
+**Pre-prev-0:** 5.66.0 (build 354) — Phase 354 quotation-air-draft-polish (banner+source summary+back-to-job+price warning+customer hint)
 **Pre-prev-0:** 5.66.0 (build 353) — Phase 353 air-job-to-quotation-draft-action (ปุ่ม→quotation draft)
 **Pre-prev-1m:** 5.66.0 (build 352) — Phase 352 air-job-filter-and-priority
 **Pre-prev-1l:** 5.66.0 (build 351) — Phase 351 service-job-air-source-visibility
@@ -29,6 +30,32 @@
 > 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.64** (client helper เท่านั้น)
 > 🏁 **FINANCE AUDIT CLOSED ที่ build 334** — ครบทุกข้อ: #1✓✓ #2✓ #3✓ #4✓ #5✓ #6✓ #6b✓ #7✓(dead code ลบแล้ว) #8✓ #9✓
 > ✅ **#9 period-lock DB trigger VERIFIED** (gangboo query DB, 2026-06-01): `journal_entries` → trigger `trg_check_period_locked` → function `check_period_not_locked` → insert เข้า period ที่ locked ถูกกันที่ DB จริง (เส้นแบ่งความปลอดภัยตาม CLAUDE.md 4.3)
+
+---
+
+## 🛠️ Phase 356 quotation-save-inflight-guard — กันกดบันทึกใบเสนอราคารัว/ดับเบิลคลิก (build 356)
+
+**Root cause:** `saveQuotationFull` (`modules/quotations.js`) เป็น async ที่ไม่มี inflight guard — กดปุ่ม "บันทึก" รัว/ดับเบิลคลิกก่อน `await xhrPost("quotations")` รอบแรกเสร็จ → ทั้งสองครั้งอ่าน `_editingId=null` → POST เอกสารใหม่ **สองครั้ง** = ใบเสนอราคาซ้ำ (เด่นใน flow งานแอร์ build 353-355 ที่เปิดฟอร์ม draft มาให้กดบันทึก). เป็น known risk ที่ note ไว้ตั้งแต่ Phase 355.
+
+**เป้าหมาย:** กันสร้างเอกสารซ้ำจากการกดซ้ำ โดยไม่เปลี่ยน save semantics/endpoint และไม่แตะ flow อื่น.
+
+**Scope/ข้อห้าม:** ❌ เปลี่ยน payload/endpoint/save semantics · ❌ เปลี่ยน service job status · ❌ POST/PATCH `service_jobs` · ❌ stock/POS/cart/products/schema/SQL · ❌ auto-save (user กดเอง).
+
+**Fix (`modules/quotations.js` เท่านั้น):**
+1. module flag `let _qtSaveInflight = false` (ข้าง module state อื่น).
+2. ใน `saveQuotationFull()`:
+   - validation เบื้องต้นเดิม (ชื่อลูกค้า / line items) **อยู่นอก guard** → validation fail ไม่ล็อก flag.
+   - ถ้า `_qtSaveInflight` แล้ว → `return _ctx.showToast("กำลังบันทึก...")` (กันกดซ้ำ).
+   - set `_qtSaveInflight = true` + `qtSaveBtn.disabled = true` (ถ้าหา element ได้).
+   - ครอบ logic save ทั้งหมด (compute payload → xhrPost/xhrPatch → quotation_items → reset state → loadAllData → render) ด้วย **`try { ... } finally { ... }`**.
+   - `finally`: `_qtSaveInflight = false` + re-query `qtSaveBtn` แล้ว `disabled = false` เสมอ (DOM อาจถูก re-render หลัง save สำเร็จ; re-enable element ที่หายไป = no-op ปลอดภัยด้วย `?`).
+   - early-return เดิม (`!res.ok`) อยู่ใน try → finally ยัง reset flag/ปุ่มให้ (กดใหม่ได้หลัง error).
+
+**ยืนยันไม่แตะ save semantics/ของต้องห้าม:** payload/endpoint/auto-QT/quotation_items insert เดิมทุกตัว (แค่ย้ายเข้า try, ไม่แก้ค่า); Phase 355 `appendAirJobNoteRef(qt_note, _airDraftMeta)` ยังอยู่ในตำแหน่งเดิม; guard test ตรวจ `quotations.js` ไม่มี `xhrPost/xhrPatch("service_jobs"`/`rest/v1/service_jobs`/addToCart/saveCustCart/_custCart/`.stock=`/`from("products")`/`ALTER·CREATE TABLE`.
+
+**Verify:** lint:errors 0 · unit **1021** (+11 `quotation_save_inflight_guard.test.js`: module flag default false · early-return เมื่อ inflight · set flag หลัง validation · disable ปุ่มก่อน save · try/finally โครงสร้าง · finally reset flag+enable ปุ่ม · network save อยู่ใน try · Phase 355 link-back ยังอยู่ · auto-QT/items insert เดิม · ไม่แตะ service_jobs/stock/POS/cart/products · ไม่มี SQL DDL) · Phase 355 test เดิม **13/13** ยังผ่าน · e2e 11/11 (build-sync ?v=356) · **bump 355→356.**
+
+> ⏸️ **STOP ที่ build 356** — owner สั่งหยุดรอ review ก่อนเริ่ม Phase 357.
 
 ---
 
