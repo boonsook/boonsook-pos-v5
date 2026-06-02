@@ -207,11 +207,18 @@
     border-radius: 50px; cursor: pointer;
     box-shadow: 0 8px 24px rgba(26,35,50,0.35);
     font-size: 14px; font-weight: 600; font-family: inherit;
-    display: flex; align-items: center; gap: 8px;
+    /* ซ่อนเป็นค่าเริ่มต้นทุก route — โชว์เฉพาะ service flow บน desktop/tablet (allowlist ด้านล่าง);
+       มือถือไม่โชว์เลย (ใช้ inline button ในหัวฟอร์มแทน กัน FAB ลอยทับ input/select) */
+    display: none; align-items: center; gap: 8px;
     transition: transform 0.2s;
   }
   #bs-ai-fab:hover { transform: translateY(-2px); }
   #bs-ai-fab.hidden { display: none; }
+  /* แสดง FAB (service assistant) เฉพาะ service flow บน desktop/tablet.
+     :not(.hidden) → ปุ่มยังหายตอนเปิดแชท (open() เพิ่ม .hidden). ไม่รวม ai_sales/ac_shop = มี AI ขายของตัวเอง */
+  body[data-route="solar"] #bs-ai-fab:not(.hidden),
+  body[data-route="ac_install"] #bs-ai-fab:not(.hidden),
+  body[data-route^="service_"]:not([data-route="service_jobs"]) #bs-ai-fab:not(.hidden) { display: flex; }
   /* ★ ซ่อน FAB เมื่อมี drawer/modal เปิดอยู่ (กันบังปุ่มบันทึก)
      + Phase 84-CSS: ซ่อนตอน login screen (ทับ "สำหรับลูกค้า") + setPasswordScreen */
   body:has(#backdrop:not(.hidden)) #bs-ai-fab,
@@ -223,28 +230,17 @@
   body:has(#setPasswordScreen:not(.hidden)) #bs-ai-fab,
   body.sidebar-open #bs-ai-fab,
   body:has(#sidebar.open) #bs-ai-fab { display: none !important; }
-  /* มือถือ: ยก FAB ขึ้นเหนือ bottom nav (fixed bottom:0, สูง ~52px) กันทับ */
+  /* มือถือ: ไม่ใช้ floating FAB เลย — fixed FAB ลอยทับ input/select/textarea/content แม้ route-gate/icon-only
+     ก็ยังบังได้ (content scroll ผ่านหลัง FAB). ทุกหน้าใช้ inline button ในหัวฟอร์มแทน (ดู service_request/
+     service_form/ac_install/solar/customer_dashboard). desktop/tablet ยังมี FAB ตาม allowlist ด้านบน */
   @media (max-width: 768px) {
-    #bs-ai-fab { bottom: calc(72px + env(safe-area-inset-bottom, 0px)); right: 16px; padding: 12px 16px; }
-    /* ซ่อน FAB เป็นค่าเริ่มต้นบนมือถือ — fixed FAB ลอยทับ content (เช่นการ์ด สำรอง/กู้คืน หน้า Settings)
-       แม้เป็น icon-only. โชว์เฉพาะ route ที่ "กรอกงานจริง" ซึ่ง AI ช่วยกรอกมีประโยชน์.
-       (rule นี้ไม่มี !important → ยังถูก override ด้วยกฎซ่อนตอน drawer/sidebar/modal เปิดด้านบน) */
-    #bs-ai-fab { display: none; }
-    body[data-route="solar"] #bs-ai-fab,
-    body[data-route="ac_install"] #bs-ai-fab,
-    body[data-route="ai_sales"] #bs-ai-fab,
-    body[data-route="ac_shop"] #bs-ai-fab,
-    body[data-route^="service_"]:not([data-route="service_jobs"]) #bs-ai-fab { display: flex; }
+    #bs-ai-fab { display: none !important; }
   }
   @media (max-width: 480px) {
     #bs-ai-modal {
       right: 0; bottom: 0; width: 100vw; height: 100vh;
       border-radius: 0;
     }
-    /* จอเล็ก: FAB เป็น icon-only วงกลม (กันบังการ์ดเนื้อหา เช่น สำรอง/กู้คืน config)
-       label ซ่อน เหลือ aria-label/title สำหรับ a11y + tooltip */
-    #bs-ai-fab { padding: 0; width: 52px; height: 52px; border-radius: 50%; justify-content: center; gap: 0; font-size: 22px; }
-    #bs-ai-fab .bs-fab-label { display: none; }
   }
   `;
 
@@ -258,8 +254,8 @@
 
     const html = `
       <div id="bs-ai-backdrop"></div>
-      <button id="bs-ai-fab" aria-label="เปิด AI ผู้ช่วย" title="AI ช่วยกรอก">
-        <span>🤖</span> <span class="bs-fab-label">AI ช่วยกรอก</span>
+      <button id="bs-ai-fab" aria-label="เปิด AI ช่วยแจ้งงาน" title="AI ช่วยแจ้งงาน">
+        <span>🤖</span> <span class="bs-fab-label">AI ช่วยแจ้งงาน</span>
       </button>
       <div id="bs-ai-modal" role="dialog" aria-label="AI ผู้ช่วย">
         <div id="bs-ai-header">

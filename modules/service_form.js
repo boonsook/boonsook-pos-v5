@@ -94,6 +94,8 @@ export function renderServiceFormPage(ctx, serviceType) {
         <div style="flex:1;min-width:200px">
           <h3 style="color:var(--primary2);margin-bottom:4px">${cfg.icon} ใบงาน${escHtml(cfg.label)}</h3>
           <p class="sku" style="margin:0">กรอกข้อมูลลูกค้า + อุปกรณ์ที่ใช้ + ค่าแรง — บันทึกแล้วส่งใบเสร็จได้เลย</p>
+          <button id="svAiBtn" type="button" aria-label="AI ช่วยกรอกใบงานนี้"
+            style="margin-top:10px;display:inline-flex;align-items:center;gap:6px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;border:none;border-radius:12px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer">🤖 AI ช่วยกรอกใบงานนี้</button>
         </div>
         <button id="svTransferBtn" class="btn light" style="font-size:12px;padding:8px 12px;background:#dbeafe;color:#1e40af;border:1px solid #93c5fd;font-weight:700;white-space:nowrap" title="โอนสต็อกจากบ้านขึ้นรถก่อนเริ่มงาน">🔄 โอนสต็อก บ้าน→รถ</button>
       </div>
@@ -368,6 +370,7 @@ export function renderServiceFormPage(ctx, serviceType) {
   container.querySelectorAll("input[type=number]").forEach(el => el.addEventListener("input", updateTotal));
 
   container.querySelector("#svAddItemBtn")?.addEventListener("click", () => _openItemPicker(ctx, container, updateTotal, st));
+  container.querySelector("#svAiBtn")?.addEventListener("click", () => window.BoonsookAI?.open());
   _bindItemListEvents(container, updateTotal, money, st);
 
   // Phase 45.6 — โอนสต็อก บ้าน→รถ inline (ใช้ shared modal จาก ac_install.js)

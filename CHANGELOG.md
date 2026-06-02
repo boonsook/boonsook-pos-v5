@@ -7,6 +7,13 @@
 
 ---
 
+## 5.66.0 (build 340) — 2026-06-02 Phase mobile-layout follow-up #3 — AI entry UX (inline แทน FAB)
+
+- **fix/ux(mobile):** เลิกใช้ floating FAB บนมือถือทั้งหมด (`@media ≤768px { #bs-ai-fab { display:none !important } }`) — fixed FAB ลอยทับ input/select/textarea แม้ icon-only/route-gate → แทนด้วย **inline button ในเนื้อหา**
+- **ux:** เพิ่มทางเข้า AI ในflowงาน — `customer_dashboard` การ์ด CTA "🤖 ให้ AI ช่วยแจ้งงาน / ลงคิวงาน", `service_request` ปุ่ม "🤖 AI ช่วยแจ้งงาน / ลงคิวงาน", `service_form`/`ac_install`/`solar` ปุ่ม "🤖 AI ช่วยกรอกใบงานนี้" — ทุกปุ่ม reuse `window.BoonsookAI.open()` (ไม่แตะ flow/submit เดิม)
+- **ux:** desktop/tablet คง FAB เฉพาะ service flow (solar/ac_install/service_* ยกเว้น service_jobs); เอา service FAB ออกจาก `ai_sales`/`ac_shop` (มี AI ขายของตัวเองแล้ว) → แยกบทบาท "ช่วยแจ้งงาน" vs "ช่วยขายแอร์" ชัด
+- **scope:** UI/UX + CSS เท่านั้น — ไม่แตะ API/Auth/business/accounting/submit · **test:** +guards `mobile_layout_guard.test.js` · **pwa-cache:** bump 339→340
+
 ## 5.66.0 (build 339) — 2026-06-02 Phase mobile-layout follow-up #2 — ซ่อน AI FAB ตาม route (มือถือ)
 
 - **fix(mobile):** icon-only ยังไม่พอ — fixed FAB ลอยทับ content (content scroll ผ่านหลัง FAB ได้) → ซ่อน `#bs-ai-fab` **เป็นค่าเริ่มต้นบนมือถือ** (`@media ≤768px { display:none }`) แล้วโชว์เฉพาะ route ที่ "กรอกงานจริง": `solar` / `ac_install` / `ai_sales` / `ac_shop` / `service_*` (ยกเว้น `service_jobs` ที่เป็น list) → Settings/เพิ่มเติม/dashboard/expenses ไม่มี FAB บังการ์ด "สำรอง / กู้คืน config" อีก

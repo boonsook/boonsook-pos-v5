@@ -39,6 +39,11 @@ export function renderServiceRequestPage(ctx) {
     <div class="panel">
       <h3 style="color:var(--primary2);margin-bottom:12px">🛠️ แจ้งซ่อม / บริการ</h3>
 
+      <button id="srAiBtn" type="button" aria-label="AI ช่วยแจ้งงาน"
+        style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:14px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;border:none;border-radius:14px;padding:12px;font-size:14px;font-weight:800;cursor:pointer">
+        🤖 AI ช่วยแจ้งงาน / ลงคิวงาน
+      </button>
+
       <label class="set-field-label">ประเภทงาน</label>
       <select id="srType">${typeOptions}</select>
 
@@ -63,6 +68,8 @@ export function renderServiceRequestPage(ctx) {
   `;
 
   // Toggle custom type
+  container.querySelector("#srAiBtn")?.addEventListener("click", () => window.BoonsookAI?.open());
+
   const typeSelect = container.querySelector("#srType");
   const customWrap = container.querySelector("#srCustomTypeWrap");
   typeSelect.addEventListener("change", () => {

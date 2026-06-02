@@ -6,7 +6,7 @@
 //   (no business/API/accounting/auth logic touched):
 //     1. Expenses filter bar — label/input/buttons must not overlap (stack full-width on mobile)
 //     2. Mobile sidebar — must sit ABOVE the bottom nav and carry a clear body/backdrop state
-//     3. AI FAB — must clear the bottom nav and hide while the sidebar is open
+//     3. AI FAB — mobile uses inline buttons (no floating FAB); desktop FAB route-gated to service flow
 //     4. Tables in a panel — must scroll horizontally, not get clipped
 //   These are source-level assertions (the same guard style as the other *_guard tests):
 //   the layout lives in CSS / DOM-bound handlers, so we assert the invariants stay in source.
@@ -56,9 +56,25 @@ test("backdrop click and route change both close the sidebar", () => {
   assert.match(mainJs, /setText\("pageTitle"[^\n]*\);\s*\n\s*closeSidebar\(\);/);
 });
 
-// ── #3 AI FAB clears bottom nav + hides with sidebar ─────────────────────────
-test("AI FAB is raised above the bottom nav on mobile", () => {
-  assert.match(fab, /@media\s*\(max-width:\s*768px\)\s*\{\s*#bs-ai-fab\s*\{[^}]*bottom:\s*calc\(72px/s);
+// ── #3 AI FAB — mobile uses inline buttons; desktop FAB route-gated to service flow ──
+test("mobile: floating FAB is fully hidden (inline buttons replace it)", () => {
+  const m768 = fab.slice(fab.indexOf("@media (max-width: 768px)"), fab.indexOf("@media (max-width: 480px)"));
+  assert.match(m768, /#bs-ai-fab\s*\{\s*display:\s*none\s*!important\s*;?\s*\}/,
+    "on mobile the floating FAB must be display:none !important (no overlay over inputs)");
+});
+
+test("desktop/tablet FAB is route-gated to the service flow only (not sales pages)", () => {
+  // hidden by default for every route
+  assert.match(fab, /#bs-ai-fab\s*\{[^}]*display:\s*none;[^}]*\}/s, "base FAB must default to display:none");
+  // shown only on service flow, and :not(.hidden) so it disappears when the chat opens
+  assert.match(fab, /body\[data-route="solar"\] #bs-ai-fab:not\(\.hidden\)/);
+  assert.match(fab, /body\[data-route="ac_install"\] #bs-ai-fab:not\(\.hidden\)/);
+  assert.match(fab, /body\[data-route\^="service_"\]:not\(\[data-route="service_jobs"\]\) #bs-ai-fab:not\(\.hidden\)\s*\{\s*display:\s*flex/);
+  // sales pages keep their OWN AI — service FAB must NOT be allowlisted there
+  assert.ok(!/body\[data-route="ai_sales"\] #bs-ai-fab:not\(\.hidden\)\s*\{\s*display:\s*flex/.test(fab),
+    "ai_sales must not show the service FAB (it has its own sales AI)");
+  assert.ok(!/body\[data-route="ac_shop"\] #bs-ai-fab:not\(\.hidden\)\s*\{\s*display:\s*flex/.test(fab),
+    "ac_shop must not show the service FAB (it has its own ช่วยเลือก button)");
 });
 
 test("AI FAB is hidden while the sidebar is open", () => {
@@ -81,37 +97,42 @@ test("table-wrap scrolls horizontally and is width-capped so it never clips/over
   assert.match(expenses, /<div class="table-wrap">\s*<table class="exp-table"/);
 });
 
-// ── build 338 follow-up: FAB must not cover page cards on small screens ──────
-test("FAB collapses to an icon-only circle at <=480px (label hidden, a11y kept)", () => {
-  // label text is wrapped so CSS can hide it; aria-label + title remain for a11y/tooltip
-  assert.match(fab, /<button id="bs-ai-fab" aria-label="[^"]+" title="[^"]+">/);
-  assert.match(fab, /<span class="bs-fab-label">/);
-  const m480 = fab.slice(fab.indexOf("@media (max-width: 480px)"));
-  assert.match(m480, /#bs-ai-fab\s*\{[^}]*border-radius:\s*50%/s, "FAB must be circular at <=480px");
-  assert.match(m480, /#bs-ai-fab \.bs-fab-label\s*\{\s*display:\s*none/);
-});
-
-test("mobile .page has extra bottom padding so last card clears the FAB + bottom nav", () => {
+test("mobile .page has extra bottom padding so content clears the bottom nav", () => {
   // 768 block: >=150px ; 400 block: >=150px
   assert.match(css, /\.page\s*\{\s*padding:\s*12px 12px 160px/);
   assert.match(css, /\.page\s*\{\s*padding:\s*10px 10px 150px/);
 });
 
-// ── build 339 follow-up: FAB is route-gated on mobile (hidden except AI form pages) ──
+// ── AI entry UX: route state on <body> + inline buttons on the form/customer pages ──
 test("showRoute publishes the current route onto <body> for CSS to read", () => {
   // body.dataset.route is set right after state.currentRoute = route
   assert.match(mainJs, /state\.currentRoute\s*=\s*route;[\s\S]{0,200}?document\.body\.dataset\.route\s*=\s*route;/);
 });
 
-test("mobile FAB is hidden by default and shown only on AI form routes (Settings etc. stay clear)", () => {
-  const m768 = fab.slice(fab.indexOf("@media (max-width: 768px)"), fab.indexOf("@media (max-width: 480px)"));
-  // default: hidden on mobile
-  assert.match(m768, /#bs-ai-fab\s*\{\s*display:\s*none;?\s*\}/, "FAB must default to display:none on mobile");
-  // allowlist: shown on the real form-filling routes
-  assert.match(m768, /body\[data-route="solar"\] #bs-ai-fab/);
-  assert.match(m768, /body\[data-route="ac_install"\] #bs-ai-fab/);
-  assert.match(m768, /body\[data-route="ai_sales"\] #bs-ai-fab/);
-  assert.match(m768, /body\[data-route\^="service_"\]:not\(\[data-route="service_jobs"\]\) #bs-ai-fab\s*\{\s*display:\s*flex/);
-  // the show rule must NOT use !important (so drawer/sidebar !important hides still win)
-  assert.ok(!/display:\s*flex\s*!important/.test(m768), "allowlist show must not use !important");
+test("inline AI entry buttons exist and are wired to BoonsookAI.open on the right pages", () => {
+  const read = (p) => fs.readFileSync(path.resolve(p), "utf8");
+  const cases = [
+    // [file, button-id, expected label substring (customer vs work-order copy)]
+    ["modules/customer_dashboard.js", "custAiCta", "ช่วยแจ้งงาน"],
+    ["modules/service_request.js",    "srAiBtn",   "ช่วยแจ้งงาน"],
+    ["modules/service_form.js",       "svAiBtn",   "ช่วยกรอกใบงานนี้"],
+    ["modules/ac_install.js",         "acAiBtn",   "ช่วยกรอกใบงานนี้"],
+    ["modules/solar.js",              "solAiBtn",  "ช่วยกรอกใบงานนี้"],
+  ];
+  for (const [file, id, label] of cases) {
+    const src = read(file);
+    assert.match(src, new RegExp(`id="${id}"`), `${file} must render the inline AI button #${id}`);
+    assert.match(src, new RegExp(label), `${file} #${id} must use the customer/work-order copy "${label}"`);
+    // wiring: getElementById("id") or querySelector("#id"), then ?.addEventListener(click -> BoonsookAI.open)
+    assert.match(src, new RegExp(`${id}"\\)\\?\\.addEventListener\\("click",\\s*\\(\\)\\s*=>\\s*window\\.BoonsookAI\\?\\.open\\(\\)\\)`),
+      `${file} must wire #${id} to window.BoonsookAI?.open()`);
+  }
+});
+
+test("customer-facing pages avoid the vague 'AI ช่วยกรอก' copy", () => {
+  // customer_dashboard + service_request inline buttons use แจ้งงาน/ลงคิวงาน, not bare ช่วยกรอก
+  const cd = fs.readFileSync(path.resolve("modules/customer_dashboard.js"), "utf8");
+  const sr = fs.readFileSync(path.resolve("modules/service_request.js"), "utf8");
+  assert.ok(!/custAiCta[\s\S]{0,300}AI ช่วยกรอก</.test(cd), "customer_dashboard CTA must not say bare 'AI ช่วยกรอก'");
+  assert.ok(!/srAiBtn[\s\S]{0,300}AI ช่วยกรอก</.test(sr), "service_request button must not say bare 'AI ช่วยกรอก'");
 });

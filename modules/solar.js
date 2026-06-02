@@ -363,6 +363,8 @@ export function renderSolarPage(ctx) {
     <div class="panel">
       <h3 style="color:var(--primary2);margin-bottom:4px">☀️ งานโซล่าเซลล์</h3>
       <p class="sku">สร้างใบงาน/ใบเสนอราคางานโซล่าเซลล์</p>
+      <button id="solAiBtn" type="button" aria-label="AI ช่วยกรอกใบงานนี้"
+        style="margin-top:10px;display:inline-flex;align-items:center;gap:6px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;border:none;border-radius:12px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer">🤖 AI ช่วยกรอกใบงานนี้</button>
     </div>
 
     <!-- ประเภทงาน -->
@@ -486,6 +488,7 @@ export function renderSolarPage(ctx) {
   }
 
   // Events
+  container.querySelector("#solAiBtn")?.addEventListener("click", () => window.BoonsookAI?.open());
   container.querySelector("#solType").addEventListener("change", (e) => {
     container.querySelector("#solCustomTypeWrap").classList.toggle("hidden", !e.target.value.includes("อื่นๆ"));
   });

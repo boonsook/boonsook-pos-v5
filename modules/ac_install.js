@@ -106,6 +106,8 @@ export function renderAcInstallPage(ctx) {
         <div style="flex:1;min-width:200px">
           <h3 style="color:var(--primary2);margin-bottom:4px">🏗️ ใบงานติดตั้งแอร์</h3>
           <p class="sku" style="margin:0">เลือกรุ่นแอร์ + เพิ่มอุปกรณ์จากสต็อก + คำนวณราคา</p>
+          <button id="acAiBtn" type="button" aria-label="AI ช่วยกรอกใบงานนี้"
+            style="margin-top:10px;display:inline-flex;align-items:center;gap:6px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;border:none;border-radius:12px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer">🤖 AI ช่วยกรอกใบงานนี้</button>
         </div>
         <button id="acTransferBtn" class="btn light" style="font-size:12px;padding:8px 12px;background:#dbeafe;color:#1e40af;border:1px solid #93c5fd;font-weight:700;white-space:nowrap" title="โอนสต็อกจากบ้านขึ้นรถก่อนเริ่มงาน">🔄 โอนสต็อก บ้าน→รถ</button>
       </div>
@@ -223,6 +225,8 @@ export function renderAcInstallPage(ctx) {
 
   // ★ Phase 88.12: Slip upload + AI verify (port จาก service_form.js)
   let _slipUrl = "";
+  container.querySelector("#acAiBtn")?.addEventListener("click", () => window.BoonsookAI?.open());
+
   const slipCameraEl  = container.querySelector("#acSlipFile");
   const slipGalleryEl = container.querySelector("#acSlipGalleryFile");
   const slipCameraBtn = container.querySelector("#acSlipCameraBtn");

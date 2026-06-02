@@ -3,16 +3,37 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase mobile-layout follow-up #2 — ซ่อน AI FAB ตาม route บนมือถือ, build 339)
-**Version:** 5.66.0 (build 339) — Phase mobile-layout follow-up #2 (CSS + 1 บรรทัด body.dataset.route — ไม่แตะ business/API/accounting/auth/OCR)
-**Previous:** 5.66.0 (build 338) — Phase mobile-layout follow-up (FAB icon-only)
-**Pre-prev:** 5.66.0 (build 337) — Phase mobile-layout (แก้ overlap 4 จุด: filter/sidebar/FAB/table)
+**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase mobile-layout follow-up #3 — AI entry UX inline แทน FAB, build 340)
+**Version:** 5.66.0 (build 340) — Phase mobile-layout follow-up #3 (UI/UX + CSS — ไม่แตะ business/API/accounting/auth/OCR/submit)
+**Previous:** 5.66.0 (build 339) — Phase mobile-layout follow-up #2 (ซ่อน AI FAB ตาม route บนมือถือ)
+**Pre-prev:** 5.66.0 (build 338) — follow-up (FAB icon-only) · 337 = mobile-layout (overlap 4 จุด)
 **Pre-prev2:** 5.65.0 (build 336) — Phase 92.66 (verify-slip แนบ Supabase JWT × 4 caller — client only, no SQL)
 **Pre-prev:** build 335 = 92.65 (AutoKey JWT) · 334 = 92.64 (VAT split Dr=Cr) · 333 = 92.63 (profit XSS/TZ + payroll log) · 332 = 92.62 recurring · 331 = 92.61 refund (+SQL ✓)
 
 > 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.64** (client helper เท่านั้น)
 > 🏁 **FINANCE AUDIT CLOSED ที่ build 334** — ครบทุกข้อ: #1✓✓ #2✓ #3✓ #4✓ #5✓ #6✓ #6b✓ #7✓(dead code ลบแล้ว) #8✓ #9✓
 > ✅ **#9 period-lock DB trigger VERIFIED** (gangboo query DB, 2026-06-01): `journal_entries` → trigger `trg_check_period_locked` → function `check_period_not_locked` → insert เข้า period ที่ locked ถูกกันที่ DB จริง (เส้นแบ่งความปลอดภัยตาม CLAUDE.md 4.3)
+
+---
+
+## 🛠️ Phase mobile-layout follow-up #3 — AI entry UX: inline แทน floating FAB (build 340)
+
+**Issue หลัง build 338/339:** FAB ไม่ทับ bottom nav/settings แล้ว แต่ในหน้า service form (เช่น "ใบงานติดตั้งแอร์") FAB ยัง `position:fixed` ลอยทับ select/input. รากปัญหา: fixed FAB ลอยทับ content เสมอ (content scroll ผ่านหลังได้) — route-gate/icon-only/bottom-padding ไม่พอ.
+
+**UX decision (ลูกค้ายืนยัน: inline-only บนมือถือ):**
+- **มือถือ (≤768px):** ไม่มี floating FAB เลย → ใช้ **inline button ในเนื้อหา**
+- **Desktop/tablet:** คง FAB เฉพาะ **service flow** (solar / ac_install / service_* ยกเว้น service_jobs — service_request เข้าผ่าน prefix); **เอาออกจาก ai_sales / ac_shop** (มี AI ขายของตัวเอง — `ai_sales.js` หน้า AI ขาย, `ac_shop.js` ปุ่ม `shopGoAi` "ช่วยเลือก")
+- **แยกบทบาท copy:** ลูกค้า = "AI ช่วยแจ้งงาน / ลงคิวงาน"; ใบงานช่าง = "AI ช่วยกรอกใบงานนี้"; ขาย = ของเดิม "AI ช่วยขายแอร์"
+
+**สิ่งที่ทำ (UI/UX + CSS — ไม่แตะ API/Auth/business/submit):**
+- `ai-chat-widget.js`: FAB base `display:none` (เดิม flex) + allowlist `body[data-route="solar"|"ac_install"|^="service_"(:not service_jobs)] #bs-ai-fab:not(.hidden) { display:flex }` (desktop). `@media ≤768px { #bs-ai-fab { display:none !important } }`. ลบ icon-only/positioning rules เดิม (ไม่ใช้แล้ว). label FAB → "AI ช่วยแจ้งงาน".
+- inline buttons (ทุกปุ่ม `?.addEventListener("click", () => window.BoonsookAI?.open())`):
+  - `modules/customer_dashboard.js` `#custAiCta` — การ์ด CTA ระหว่าง hero กับ tab nav
+  - `modules/service_request.js` `#srAiBtn` — full-width ใต้ h3
+  - `modules/service_form.js` `#svAiBtn` · `modules/ac_install.js` `#acAiBtn` · `modules/solar.js` `#solAiBtn` — ในหัว panel ใต้คำอธิบาย
+- `BoonsookAI.open()` เดิมรับ 0 args + detect solar/service จาก visible page (greeting ต่างกัน) — reuse ตรง ๆ ไม่แก้ widget logic.
+
+**Verify:** lint:errors 0 · unit **907** (+guards: mobile FAB hidden / desktop route-gate ไม่รวม sales / inline buttons+wiring+copy) · Playwright @390×844: form มือถือ `fabDisplay none`, inline btn `position static` ไม่ overlap select; settings มือถือ FAB none; desktop ac_install FAB flex, settings/ai_sales none. **bump 339→340** (data-app-build + style/main/boot/selfheal `?v=340` + ai-chat-widget `?v=9` + sw cache-v340).
 
 ---
 

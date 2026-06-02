@@ -223,6 +223,12 @@ export function renderCustomerDashboard(ctx) {
       </div>
     </div>
 
+    <!-- ═══ AI CTA — ให้ลูกค้าแจ้งงาน/ลงคิวงานง่ายขึ้น (inline, ไม่ลอยทับ content) ═══ -->
+    <button id="custAiCta" type="button" aria-label="ให้ AI ช่วยแจ้งงาน ลงคิวงาน"
+      style="width:100%;display:flex;align-items:center;justify-content:center;gap:10px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;border:none;border-radius:16px;padding:14px;font-size:15px;font-weight:800;cursor:pointer;box-shadow:0 8px 20px rgba(124,58,237,.25)">
+      🤖 ให้ AI ช่วยแจ้งงาน / ลงคิวงาน
+    </button>
+
     <!-- ═══ TAB NAV ═══ -->
     <div style="display:flex;gap:4px;background:#f1f5f9;border-radius:14px;padding:4px;position:sticky;top:0;z-index:10">
       ${[
@@ -244,6 +250,9 @@ export function renderCustomerDashboard(ctx) {
     <!-- ═══ TAB CONTENT ═══ -->
     <div id="custTabContent"></div>
   `;
+
+  // AI ช่วยแจ้งงาน — reuse public widget (service assistant); ไม่แตะ flow/submit เดิม
+  document.getElementById("custAiCta")?.addEventListener("click", () => window.BoonsookAI?.open());
 
   const contentEl = document.getElementById("custTabContent");
 
