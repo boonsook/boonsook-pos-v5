@@ -1,6 +1,6 @@
 # Boonsook POS V5 - Shared Session Start
 
-Last updated: 2026-06-02 (Phase 352 air-job-filter-and-priority — filter+priority งานแอร์, build 352) · ⏸️ STOP รอ owner/Codex review ก่อน Phase 353
+Last updated: 2026-06-02 (Phase 353 air-job-to-quotation-draft-action — ปุ่มสร้างใบเสนอราคาจากงานแอร์, build 353) · ⏸️ STOP รอ owner/Codex review ก่อน Phase 354
 
 Purpose: this is the common first-read note for Codex, Claude, or any next agent opening a fresh session on this project. Read this before changing files so both teams start from the same facts.
 
@@ -8,7 +8,8 @@ Purpose: this is the common first-read note for Codex, Claude, or any next agent
 
 - Project: Boonsook POS V5 PRO, Thai POS PWA.
 - Workspace: `C:\Users\Lenovo E14 Gen4\Documents\boonsuk v5\boonsook-pos-v5-github`
-- Main app version: `5.66.0` (build 352) · ⏸️ STOP — owner สั่งหยุดรอ review ก่อนเริ่ม Phase 353
+- Main app version: `5.66.0` (build 353) · ⏸️ STOP — owner สั่งหยุดรอ review ก่อนเริ่ม Phase 354
+- 🆕 build 353 = air-job-to-quotation-draft-action: งานแอร์ใน service_jobs มีปุ่ม "📝 ใบเสนอราคา" → pushAirQuoteDraft(source="air_job") → หน้า quotations เป็น draft (notice "รายการร่างจากงานแอร์", prefill ลูกค้า+line item). **ไม่ save อัตโนมัติ/ไม่สร้างเลขเอกสาร** (user กดบันทึกเอง). งานทั่วไปไม่มีปุ่ม. ac_quotation_draft.pushAirQuoteDraft generalize source/serviceJobId/customer (backward-compatible 346). ไม่แตะ stock/POS/cart/schema/workflow.
 - 🆕 build 352 = air-job-filter-and-priority: service_jobs เพิ่ม filter "ที่มา:" (ทั้งหมด/จากแคตตาล็อกแอร์/งานทั่วไป) + priority badge (มีวันนัดหมาย/รอยืนยันราคา/รอนัดหมาย/รอตรวจสอบ) บนงานแอร์. air_job_meta.js +airPriority/airPriorityBadgeHtml (READ-ONLY derive จาก note marker; ไม่แตะ status จริง/schema/stock/POS/cart). งานทั่วไปไม่มี badge.
 - 🆕 build 351 = service-job-air-source-visibility: รายการงาน (service_jobs admin + "งานของฉัน" ลูกค้า) แสดง badge "🌬️ จากแคตตาล็อกแอร์ · สั่งจอง/สอบถามราคา" + กล่องสรุปรุ่น/BTU/ราคา/นัดหมาย. ไฟล์ใหม่ `modules/air_job_meta.js` (parseAirJobMeta — READ-ONLY detect marker `source=air_catalog` จาก note ที่ build 350 เขียน; ไม่เพิ่ม DB column). ไม่แตะ stock/POS/cart/schema/workflow. filter chip = phase ถัดไป.
 - 🆕 build 350 = service-request-air-form-polish: ขัดเกลา UX หน้า service_request เฉพาะมี air_catalog draft — date/timeslot มี placeholder+hint ชัด; ปุ่ม AI ย้ายเป็น secondary ท้ายฟอร์ม (ไม่มี draft = เด่นบนสุดเดิม); รายละเอียด prefill สั้น + ข้อมูลครบ (source=air_catalog) ไปอยู่ note; หมายเหตุ input→textarea (ไม่ตัด); confirmation "ส่งคำขอแล้ว..." + ปุ่มดูงานของฉัน. submit endpoint เดิม. ไม่กระทบ flow ปกติ/POS/cart/quotation.

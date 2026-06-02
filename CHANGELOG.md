@@ -7,6 +7,13 @@
 
 ---
 
+## 5.66.0 (build 353) — 2026-06-02 Phase 353 air-job-to-quotation-draft-action — ปุ่ม "สร้างใบเสนอราคา" จากงานแอร์
+
+- **feat:** งานจากแคตตาล็อกแอร์ในหน้า `service_jobs` มีปุ่ม **"📝 ใบเสนอราคา"** → ส่งข้อมูลงานไปหน้าใบเสนอราคาเป็น **draft** (ใช้ build 346 mechanism, `source="air_job"`) — งานทั่วไป**ไม่มี**ปุ่มนี้
+- **safety:** **ไม่ save quotation อัตโนมัติ · ไม่สร้างเลขเอกสาร** — user กด "บันทึก" เองในหน้าใบเสนอราคา · consume-once กัน reload เติมซ้ำ
+- **how:** `ac_quotation_draft.js` `pushAirQuoteDraft` รองรับ `source`/`originalSource`/`serviceJobId`/`customerName`/`customerPhone`/`summary`/`intent`/`appointment` (additive, backward-compatible build 346) · `quotations.js` แสดง notice **"รายการร่างจากงานแอร์"**, line item ใช้ summary, prefill ลูกค้า name/phone (เฉพาะสร้างใหม่)
+- **scope:** ❌ ไม่แตะ stock/products/POS/cart · ❌ ไม่ตัด/เพิ่ม stock · ❌ ไม่แก้ SQL/schema · ❌ ไม่เปลี่ยน workflow/status งาน · ❌ ไม่กระทบ quotation draft (346)/customer dashboard·service_request (347-350)/filter·priority (351-352) · **test:** +6 `air_job_quotation_draft.test.js` + mobile/desktop smoke · **pwa-cache:** bump 352→353
+
 ## 5.66.0 (build 352) — 2026-06-02 Phase 352 air-job-filter-and-priority — กรอง + priority งานจากแคตตาล็อกแอร์
 
 - **feat:** หน้า `service_jobs` เพิ่ม **filter ที่มา**: ทั้งหมด / 🌬️ จากแคตตาล็อกแอร์ / 🔧 งานทั่วไป (โชว์เมื่อมีงานแอร์อย่างน้อย 1) — ช่วยเจ้าของร้าน/ช่างหางานแอร์ได้เร็ว

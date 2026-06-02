@@ -19,12 +19,17 @@ function _read() {
   }
 }
 
-/** เก็บรุ่นแอร์เป็นรายการร่าง (append) — เรียกตอนกด "นำไปเสนอราคา" */
+/** เก็บรุ่นแอร์เป็นรายการร่าง (append) — เรียกตอนกด "นำไปเสนอราคา" / "สร้างใบเสนอราคา"
+ *  Phase 353: รองรับ source="air_job" (จาก service_jobs) เพิ่มเติมจาก "air_catalog" (build 346) — backward-compatible */
 export function pushAirQuoteDraft(item) {
   if (!item) return;
   const list = _read();
   list.push({
-    source: "air_catalog",
+    source: item.source || "air_catalog",
+    originalSource: item.originalSource || "",
+    serviceJobId: item.serviceJobId ?? null,
+    customerName: item.customerName || "",
+    customerPhone: item.customerPhone || "",
     catalogId: item.catalogId ?? item.id ?? null,
     airType: item.airType || "",
     brand: item.brand || "",
@@ -34,7 +39,10 @@ export function pushAirQuoteDraft(item) {
     estimatedCost: (item.estimatedCost === undefined || item.estimatedCost === null || item.estimatedCost === "")
       ? null : Number(item.estimatedCost),
     sku: item.sku || "",
-    note: item.note || ""
+    note: item.note || "",
+    summary: item.summary || "",     // Phase 353: บรรทัดสรุป (จากงานแอร์ที่ parse note)
+    intent: item.intent || "",
+    appointment: item.appointment || ""
   });
   try { sessionStorage.setItem(KEY, JSON.stringify(list)); }
   catch (e) { console.warn("[ac-quote-draft] save failed:", e); }

@@ -96,10 +96,11 @@ test("quotations page consumes the air draft into a fresh form (no auto-saved do
 });
 
 test("air draft maps to a custom (product_id:null) line item — not a real product/stock link", () => {
-  const fn = quotations.slice(quotations.indexOf("function airDraftToLineItem"), quotations.indexOf("function airDraftToLineItem") + 700);
+  const fn = quotations.slice(quotations.indexOf("function airDraftToLineItem"), quotations.indexOf("function airDraftToLineItem") + 1100);
   assert.match(fn, /product_id:\s*null/);
   assert.match(fn, /unit_price:\s*price/);
-  assert.match(fn, /_source:\s*"air_catalog"/);
+  // Phase 353: _source now passes through the draft source (defaults air_catalog)
+  assert.match(fn, /_source:\s*d\.source\s*\|\|\s*"air_catalog"/);
 });
 
 test("a clear notice tells the user the draft is NOT yet saved", () => {

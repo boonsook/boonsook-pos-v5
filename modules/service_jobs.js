@@ -4,6 +4,8 @@ import { renderEmpty } from "./ui_states.js";
 import { renderTagBadge, SERVICE_TAG_PRESETS, exportToExcel, todaySuffix } from "./utils.js";
 // Phase 351/352: detect งานจากแคตตาล็อกแอร์ + priority (read-only parse จาก note — ไม่แตะ schema/stock/POS)
 import { parseAirJobMeta, airBadgeHtml, airJobInfoHtml, airPriorityBadgeHtml } from "./air_job_meta.js";
+// Phase 353: ปุ่ม "สร้างใบเสนอราคา" → push draft (build 346 mechanism) → หน้า quotations (ไม่ save อัตโนมัติ)
+import { pushAirQuoteDraft } from "./ac_quotation_draft.js";
 
 const STATUS_LABELS = {
   pending:        "รอดำเนินการ",
@@ -241,6 +243,7 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
                   ${slipImgHtml}
                 </div>
                 <div style="display:flex;flex-direction:column;gap:6px;margin-left:8px;flex-shrink:0">
+                  ${airMeta.isAir ? `<button class="btn" data-air-quote="${j.id}" style="background:#0284c7;color:#fff;font-size:12px;padding:4px 10px;border-radius:8px;border:none;cursor:pointer;white-space:nowrap">📝 ใบเสนอราคา</button>` : ''}
                   <button class="btn light" data-job-id="${j.id}">แก้ไข</button>
                   <button class="btn" data-del-job="${j.id}" data-del-name="${escHtml((j.job_no || '') + ' ' + (j.customer_name || ''))}" style="background:#ef4444;color:#fff;font-size:12px;padding:4px 10px;border-radius:8px;border:none;cursor:pointer">🗑️ ลบ</button>
                 </div>
@@ -258,6 +261,30 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
   document.querySelectorAll("[data-sj-source]").forEach(btn => btn.addEventListener("click", () => {
     _sjSourceFilter = btn.dataset.sjSource;
     renderServiceJobsPage({ state, openServiceJobDrawer, showToast, showRoute });
+  }));
+
+  // Phase 353: "สร้างใบเสนอราคา" (งานแอร์เท่านั้น) → push draft (sessionStorage) + ไป quotations
+  //   ❌ ไม่ save quotation / ไม่สร้างเลขเอกสาร / ไม่แตะ stock/POS/cart / ไม่เปลี่ยนสถานะงาน
+  document.querySelectorAll("[data-air-quote]").forEach(btn => btn.addEventListener("click", () => {
+    const job = allJobs.find(j => String(j.id) === String(btn.dataset.airQuote));
+    if (!job) return;
+    const meta = parseAirJobMeta(job);
+    if (!meta.isAir) return;
+    pushAirQuoteDraft({
+      source: "air_job",
+      originalSource: "air_catalog",
+      serviceJobId: job.id,
+      customerName: job.customer_name || "",
+      customerPhone: job.customer_phone || "",
+      summary: meta.summary || (job.description || ""),
+      btu: Number(String(meta.btu || "").replace(/[^\d]/g, "")) || 0,
+      offerPrice: Number(String(meta.price || "").replace(/[^\d.]/g, "")) || 0,
+      intent: meta.intent || "",
+      appointment: meta.appointment || ""
+    });
+    showToast?.("เพิ่มเป็นรายการร่างในใบเสนอราคาแล้ว 📝");
+    if (typeof showRoute === "function") showRoute("quotations");
+    else window.location.hash = "quotations";
   }));
 
   document.querySelectorAll("[data-sj-filter]").forEach(btn => btn.addEventListener("click", () => {

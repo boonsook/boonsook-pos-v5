@@ -3,9 +3,10 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase 352 air-job-filter-and-priority — filter+priority งานแอร์, build 352) · ⏸️ **STOP — รอ owner/Codex review ก่อนเริ่ม Phase 353**
-**Version:** 5.66.0 (build 352) — Phase 352 air-job-filter-and-priority (source filter + priority badge, read-only, ไม่แตะ schema/stock/POS/cart)
-**Previous:** 5.66.0 (build 351) — Phase 351 service-job-air-source-visibility (badge+info งานแอร์)
+**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase 353 air-job-to-quotation-draft-action — ปุ่มสร้างใบเสนอราคาจากงานแอร์, build 353) · ⏸️ **STOP — รอ owner/Codex review ก่อนเริ่ม Phase 354**
+**Version:** 5.66.0 (build 353) — Phase 353 air-job-to-quotation-draft-action (ปุ่ม→quotation draft, ไม่ save อัตโนมัติ, ไม่แตะ stock/POS/cart/schema)
+**Previous:** 5.66.0 (build 352) — Phase 352 air-job-filter-and-priority (source filter + priority badge)
+**Pre-prev-1l:** 5.66.0 (build 351) — Phase 351 service-job-air-source-visibility
 **Pre-prev-1k:** 5.66.0 (build 350) — Phase 350 service-request-air-form-polish
 **Pre-prev-1j:** 5.66.0 (build 349) — Phase 349 service-request-air-booking-polish (summary card + intent + prefill)
 **Pre-prev-1i:** 5.66.0 (build 348) — Phase 348 remove-customer-cart-tab
@@ -25,6 +26,25 @@
 > 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.64** (client helper เท่านั้น)
 > 🏁 **FINANCE AUDIT CLOSED ที่ build 334** — ครบทุกข้อ: #1✓✓ #2✓ #3✓ #4✓ #5✓ #6✓ #6b✓ #7✓(dead code ลบแล้ว) #8✓ #9✓
 > ✅ **#9 period-lock DB trigger VERIFIED** (gangboo query DB, 2026-06-01): `journal_entries` → trigger `trg_check_period_locked` → function `check_period_not_locked` → insert เข้า period ที่ locked ถูกกันที่ DB จริง (เส้นแบ่งความปลอดภัยตาม CLAUDE.md 4.3)
+
+---
+
+## 🛠️ Phase 353 air-job-to-quotation-draft-action — ปุ่มสร้างใบเสนอราคาจากงานแอร์ (build 353)
+
+**เป้าหมาย:** ในงานจากแคตตาล็อกแอร์ (service_jobs) เพิ่มปุ่ม "สร้างใบเสนอราคา" → ส่ง draft ไปหน้าใบเสนอราคา (ไม่สร้างเอกสารจริงอัตโนมัติ).
+
+**Scope/ข้อห้าม:** ❌ save quotation อัตโนมัติ · ❌ สร้างเลขเอกสารอัตโนมัติ · ❌ stock/products/POS/cart · ❌ SQL/schema · ❌ เปลี่ยน workflow/status งาน · ❌ กระทบ quotation draft(346)/customer dashboard·service_request(347-350)/filter·priority(351-352).
+
+**Fix:**
+1. **`ac_quotation_draft.js`** — `pushAirQuoteDraft` generalize: รับ `item.source` (default "air_catalog") + เก็บ `originalSource/serviceJobId/customerName/customerPhone/summary/intent/appointment` เพิ่ม. **Additive, backward-compatible** — ac-catalog (346) เรียกแบบเดิมยังได้ source=air_catalog.
+2. **`service_jobs.js`** — import `pushAirQuoteDraft`; ปุ่ม `data-air-quote="${j.id}"` **เฉพาะ `airMeta.isAir`** (ใน action column ของการ์ด, สีฟ้า "📝 ใบเสนอราคา"); handler: `parseAirJobMeta(job)` → `pushAirQuoteDraft({source:"air_job", originalSource:"air_catalog", serviceJobId, customerName/Phone, summary, btu, offerPrice(parse จาก meta.price), intent, appointment})` + `showRoute("quotations")`. **ไม่เรียก saveQuotationFull/xhrPost/ไม่ตัด stock/ไม่เปลี่ยนสถานะงาน.** งานทั่วไปไม่มีปุ่ม.
+3. **`quotations.js`** — `airDraftToLineItem`: ถ้า `d.summary` (air_job) → item_name = summary ตัดส่วนราคา (`split("·")[0]`); else เดิม (air_catalog brand/model/btu). consume เก็บ `_airDraftSource`/`_airDraftCustomer`. notice = "รายการร่างจาก**งานแอร์**" เมื่อ source=air_job (ไม่งั้น "แคตตาล็อกแอร์"). prefill `qt_customerSearch`/`qt_customerPhone` จาก `_airDraftCustomer` **เฉพาะตอนสร้างใหม่** (`!isEdit`). consume-once + ไม่ auto-save (build 346 เดิม).
+
+**ยืนยันไม่ save อัตโนมัติ/ไม่แตะ stock/POS/cart/schema:** guard — handler air-quote ไม่มี saveQuotationFull/xhrPost/_appXhr/qt_no/addToCart/.stock=/rest; consume block ไม่ save; quotations เลขเอกสารยังว่าง (placeholder) จนกดบันทึก; draft = sessionStorage. smoke ยืนยัน `state.quotations.length===0` + `#qt_docNo` ว่าง หลังกดปุ่ม.
+
+**Verify:** lint:errors 0 · unit **991** (+6 `air_job_quotation_draft.test.js`: air_job draft round-trip + consume-once · 346 backward-compat source=air_catalog · ปุ่มเฉพาะ air job · handler stage+nav ไม่ save/ไม่แตะ stock · quotations summary line item + "งานแอร์" notice + customer prefill · ไม่ auto-save; + แก้ guard เดิม 346/351/352 ที่ pin ค่าเก่า) · **flow smoke (temp, ลบแล้ว) mobile 390×844 + desktop:** air job มีปุ่ม / general ไม่มี → กด → quotations form "งานแอร์" notice + line item MFS10 + customer prefill + เลขเอกสารว่าง + state.quotations=0 + draft consumed + ไม่มี h-overflow. **bump 352→353.**
+
+> ⏸️ **STOP ที่ build 353** — owner สั่งหยุดรอ review ก่อนเริ่ม Phase 354.
 
 ---
 

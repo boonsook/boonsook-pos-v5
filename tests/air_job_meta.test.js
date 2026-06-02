@@ -76,7 +76,7 @@ test("service_jobs list shows the air badge (read-only) without stock/POS/quotat
   assert.match(sj, /import \{[^}]*\bparseAirJobMeta\b[^}]*\bairBadgeHtml\b[^}]*\bairJobInfoHtml\b[^}]*\} from "\.\/air_job_meta\.js"/);
   assert.match(sj, /airMeta\.isAir \? airBadgeHtml\(airMeta\)/);
   assert.match(sj, /airMeta\.isAir \? airJobInfoHtml\(airMeta\)/);
-  for (const banned of [/addToCart/, /\.stock\s*=/, /quotation/i, /from\(["']products["']\)/, /alter table/i]) {
+  for (const banned of [/addToCart/, /\.stock\s*=/, /saveQuotationFull/, /from\(["']products["']\)/, /alter table/i]) {
     assert.ok(!banned.test(sj), `service_jobs must not add ${banned}`);
   }
 });
@@ -126,7 +126,7 @@ test("service_jobs has an air/general source filter (read-only, no schema/stock/
   // priority badge rendered for air jobs
   assert.match(sj, /airMeta\.isAir \? airPriorityBadgeHtml\(airMeta\)/);
   // no stock/POS/cart/quotation/schema introduced
-  for (const banned of [/addToCart/, /\.stock\s*=/, /quotation/i, /from\(["']products["']\)/, /alter table/i]) {
+  for (const banned of [/addToCart/, /\.stock\s*=/, /saveQuotationFull/, /from\(["']products["']\)/, /alter table/i]) {
     assert.ok(!banned.test(sj), `service_jobs must not add ${banned}`);
   }
 });

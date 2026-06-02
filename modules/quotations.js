@@ -59,15 +59,23 @@ let _editingId = null;
 let _viewMode = "list";    // list | form | preview
 let _tabFilter = "all";    // all | pending | approved | invoiced | receipted | cancelled
 let _selectedIds = new Set();
-let _airDraftNotice = 0;   // Phase 346: จำนวนรายการร่างจากแคตตาล็อกแอร์ที่เพิ่งเติม (โชว์ notice)
+let _airDraftNotice = 0;   // Phase 346: จำนวนรายการร่างจากแคตตาล็อกแอร์/งานแอร์ที่เพิ่งเติม (โชว์ notice)
+let _airDraftSource = "air_catalog";          // Phase 353: "air_catalog" | "air_job"
+let _airDraftCustomer = { name: "", phone: "" }; // Phase 353: prefill ลูกค้าจากงานแอร์ (ถ้ามี)
 
-// Phase 346: แปลง air-catalog draft → line item ของฟอร์มใบเสนอราคา
+// Phase 346/353: แปลง air draft → line item ของฟอร์มใบเสนอราคา
 //  marker `_source` ฯลฯ เป็น in-memory เท่านั้น (save เลือกเฉพาะ field คงที่ → ไม่ persist/ไม่แตะ schema)
 function airDraftToLineItem(d) {
-  const nameParts = [d.airType, d.brand, d.model].filter(Boolean).join(" ");
-  const btuStr = Number(d.btu) > 0 ? ` ${Number(d.btu).toLocaleString()} BTU` : "";
-  let item_name = (nameParts + btuStr).trim() || "รุ่นแอร์";
-  if (d.note) item_name += ` — ${d.note}`;
+  let item_name;
+  if (d.summary) {
+    // Phase 353 (air_job): ใช้บรรทัดสรุปจากงานแอร์ ตัดส่วนราคา (· ราคา...) ออก (ราคาไปอยู่ unit_price)
+    item_name = String(d.summary).split("·")[0].trim() || "รุ่นแอร์";
+  } else {
+    const nameParts = [d.airType, d.brand, d.model].filter(Boolean).join(" ");
+    const btuStr = Number(d.btu) > 0 ? ` ${Number(d.btu).toLocaleString()} BTU` : "";
+    item_name = (nameParts + btuStr).trim() || "รุ่นแอร์";
+    if (d.note) item_name += ` — ${d.note}`;
+  }
   const price = Number(d.offerPrice || 0);
   return {
     product_id: null,
@@ -77,7 +85,8 @@ function airDraftToLineItem(d) {
     unit_price: price,
     discount_pct: 0,
     line_total: round2(1 * price),
-    _source: "air_catalog",        // trace/debug only
+    _source: d.source || "air_catalog",   // trace/debug only
+    _serviceJobId: d.serviceJobId ?? null,
     _catalogId: d.catalogId ?? null,
     _airType: d.airType || "",
     _estCost: (d.estimatedCost == null ? null : Number(d.estimatedCost))
@@ -103,6 +112,9 @@ export function renderQuotationsPage(ctx) {
       _viewMode = "form";
       _lineItems = _airDrafts.map(airDraftToLineItem);
       _airDraftNotice = _airDrafts.length;
+      const first = _airDrafts[0] || {};
+      _airDraftSource = first.source === "air_job" ? "air_job" : "air_catalog";
+      _airDraftCustomer = { name: first.customerName || "", phone: first.customerPhone || "" };
     }
   }
 
@@ -111,6 +123,8 @@ export function renderQuotationsPage(ctx) {
     _lineItems = [];
     _selectedIds.clear();
     _airDraftNotice = 0;
+    _airDraftSource = "air_catalog";
+    _airDraftCustomer = { name: "", phone: "" };
   }
 
   // ★ ถ้าถูก trigger จากหน้าอื่น (เช่น delivery_invoice กด "อ้างอิง") → เปิด preview
@@ -465,8 +479,9 @@ function renderQuotationForm(container) {
   const grandTotal     = afterDisc - whtAmount;
 
   // Preserve form values during re-render
-  const prevCust = document.getElementById("qt_customerSearch")?.value ?? (editDoc?.customer_name || editDoc?.customer || '');
-  const prevPhone = document.getElementById("qt_customerPhone")?.value ?? (editDoc?.customer_phone || '');
+  // Phase 353: ถ้าเป็น draft จากงานแอร์ + มีข้อมูลลูกค้า → prefill (เฉพาะตอนสร้างใหม่ ไม่ทับตอนแก้ไข)
+  const prevCust = document.getElementById("qt_customerSearch")?.value ?? (editDoc?.customer_name || editDoc?.customer || (!isEdit && _airDraftCustomer.name) || '');
+  const prevPhone = document.getElementById("qt_customerPhone")?.value ?? (editDoc?.customer_phone || (!isEdit && _airDraftCustomer.phone) || '');
   const prevTaxId = document.getElementById("qt_customerTaxId")?.value ?? (editDoc?.customer_tax_id || '');
   const prevAddr = document.getElementById("qt_customerAddress")?.value ?? (editDoc?.customer_address || '');
   const prevDocNo = document.getElementById("qt_docNo")?.value ?? (editDoc?.qt_no || editDoc?.title || '');
@@ -496,11 +511,11 @@ function renderQuotationForm(container) {
     </div>
 
     ${_airDraftNotice > 0 ? `
-    <!-- ★ Phase 346: notice รายการร่างจากแคตตาล็อกแอร์ (ยังไม่บันทึกเอกสาร) -->
+    <!-- ★ Phase 346/353: notice รายการร่างจากแคตตาล็อกแอร์/งานแอร์ (ยังไม่บันทึกเอกสาร) -->
     <div class="panel mt16" style="background:#eff6ff;border:1px solid #bfdbfe;display:flex;gap:10px;align-items:flex-start">
       <span style="font-size:20px;line-height:1">🌬️</span>
       <div style="font-size:13px;color:#1e40af;line-height:1.5">
-        <b>มีรายการร่างจากแคตตาล็อกแอร์ ${_airDraftNotice} รายการ</b><br>
+        <b>มีรายการร่างจาก${_airDraftSource === "air_job" ? "งานแอร์" : "แคตตาล็อกแอร์"} ${_airDraftNotice} รายการ</b><br>
         ตรวจสอบ/แก้ไขรายการด้านล่าง แล้วกด <b>"บันทึก"</b> เพื่อสร้างใบเสนอราคา — <b>ยังไม่ได้บันทึกเอกสาร</b>
       </div>
     </div>
