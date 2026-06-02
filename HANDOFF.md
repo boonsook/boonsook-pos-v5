@@ -3,14 +3,28 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 1 มิถุนายน 2026 (Phase 92.66 — verify-slip 401 auth fix, build 336)
-**Version:** 5.65.0 (build 336) — Phase 92.66 (verify-slip แนบ Supabase JWT × 4 caller — client only, no SQL)
-**Previous:** 5.65.0 (build 335) — Phase 92.65 (AutoKey แนบ Supabase JWT — client only, no SQL)
-**Pre-prev:** build 334 = 92.64 (VAT split Dr=Cr) · 333 = 92.63 (profit XSS/TZ + payroll log) · 332 = 92.62 recurring · 331 = 92.61 refund (+SQL ✓)
+**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase mobile-layout — แก้ overlap 4 จุดบนมือถือ, build 337)
+**Version:** 5.66.0 (build 337) — Phase mobile-layout (CSS + DOM-state เท่านั้น — ไม่แตะ business/API/accounting/auth/OCR)
+**Previous:** 5.65.0 (build 336) — Phase 92.66 (verify-slip แนบ Supabase JWT × 4 caller — client only, no SQL)
+**Pre-prev:** build 335 = 92.65 (AutoKey JWT) · 334 = 92.64 (VAT split Dr=Cr) · 333 = 92.63 (profit XSS/TZ + payroll log) · 332 = 92.62 recurring · 331 = 92.61 refund (+SQL ✓)
 
 > 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.64** (client helper เท่านั้น)
 > 🏁 **FINANCE AUDIT CLOSED ที่ build 334** — ครบทุกข้อ: #1✓✓ #2✓ #3✓ #4✓ #5✓ #6✓ #6b✓ #7✓(dead code ลบแล้ว) #8✓ #9✓
 > ✅ **#9 period-lock DB trigger VERIFIED** (gangboo query DB, 2026-06-01): `journal_entries` → trigger `trg_check_period_locked` → function `check_period_not_locked` → insert เข้า period ที่ locked ถูกกันที่ DB จริง (เส้นแบ่งความปลอดภัยตาม CLAUDE.md 4.3)
+
+---
+
+## 🛠️ Phase mobile-layout — แก้ Mobile Overlap 4 จุด (390×844, build 337)
+
+**Scope:** CSS + DOM-state wiring เท่านั้น — **ไม่แตะ** business logic / API / accounting / auth / OCR. ทุก media rule อยู่ใน `@media (max-width:768px)` → desktop ไม่กระทบ.
+
+**Root cause + fix (4 จุด):**
+1. **Expenses filter bar ทับกัน** — `.row` (`justify-content:space-between`) + inline `min-width:200px` บน flex children → label/input/ปุ่มเบียดบนจอแคบ. **Fix:** เพิ่ม class `exp-filter-row` (`modules/expenses.js`) + mobile CSS → `> div { flex:1 1 100% !important; min-width:0 !important }` (field เต็มแถว) · `> .btn { flex:1 1 calc(50% - 8px) }` (ปุ่มแบ่งครึ่ง).
+2. **Sidebar ถูก bottom nav บัง + ไม่มี state** — `.sidebar` z-index **30** < `.mobile-nav` **40**; toggle เดิมแค่ `.open` ไม่มี backdrop/body class. **Fix:** `style.css` mobile `.sidebar { z-index:60 }` (เหนือ nav 40 + backdrop 50) + `body.sidebar-open { overflow:hidden }`. `main.js`: เพิ่ม `toggleSidebar()`/`closeSidebar()` → คุม `.open` + `body.sidebar-open` + โชว์/ซ่อน `#backdrop` (ซ่อนเฉพาะตอนไม่มี drawer ค้าง). wire `menuToggle`→toggle, backdrop click→`closeSidebar()+closeAllDrawers()`, route change→`closeSidebar()`.
+3. **AI FAB ทับ bottom nav + ไม่ซ่อนตอน sidebar เปิด** — `bottom:20px` ชนแถบล่าง ~52px. **Fix:** `ai-chat-widget.js` mobile `#bs-ai-fab { bottom:calc(72px + env(safe-area-inset-bottom)) }` + เพิ่ม `body.sidebar-open #bs-ai-fab` / `body:has(#sidebar.open) #bs-ai-fab` ใน hide list (และ backdrop ที่โชว์ตอน sidebar เปิดก็ทริกเกอร์ rule `body:has(#backdrop:not(.hidden))` เดิมอยู่แล้ว).
+4. **Tables ใน panel ถูก clip** — `.table-wrap` มี `overflow-x:auto` อยู่แล้ว แต่ขาดคุมความกว้าง. **Fix:** `.table-wrap { max-width:100% }` → scroll แนวนอนภายใน ไม่ดัน `.panel` (mobile `overflow-x:hidden`) ล้น. (expenses list table wrap อยู่แล้ว.)
+
+**Verify:** lint:errors 0 · unit **902** (+9 `mobile_layout_guard.test.js`: source guards z-order/state/FAB/filter/table) · Playwright @390×844 (real style.css): `fabClearsNav` true (772<801), filter groups `[340,340,340]`, `tableScrollable` true (360<792), `sidebarZ 60 > backdropZ 50 > navZ 40`, `fabHidden` true ตอน sidebar เปิด. **bump 336→337** (data-app-build + style/main/boot/selfheal `?v=337` + ai-chat-widget `?v=6` + sw cache-v337 + package 5.66.0 + data-app-version 5.66.0).
 
 ---
 

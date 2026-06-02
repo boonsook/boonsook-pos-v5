@@ -7,6 +7,14 @@
 
 ---
 
+## 5.66.0 (build 337) — 2026-06-02 Phase mobile-layout — แก้ overlap 4 จุดบนมือถือ (390×844)
+
+- **fix(mobile):** expenses filter bar — เพิ่ม `.exp-filter-row` → แต่ละ field (จากวันที่/ถึงวันที่/หมวดหมู่) เต็มแถว + ปุ่มแบ่งครึ่ง ไม่ทับกัน (เดิม inline `min-width:200px` เบียดบนจอแคบ)
+- **fix(mobile):** mobile sidebar — `z-index:60` (เหนือ bottom nav 40 + backdrop 50) + `toggleSidebar`/`closeSidebar` คุม `body.sidebar-open` + โชว์/ซ่อน backdrop (แตะ backdrop / เปลี่ยนหน้า = ปิด) → เปิดแล้วไม่ถูก nav บัง, ฉากหลัง dim ชัด, ล็อก scroll
+- **fix(mobile):** AI FAB — ยกขึ้น `bottom:calc(72px+safe-area)` บนมือถือ (พ้น bottom nav) + ซ่อนตอน sidebar เปิด (`body.sidebar-open`/`#sidebar.open`)
+- **fix(mobile):** tables ใน panel — `.table-wrap` คง `overflow-x:auto` + `max-width:100%` → scroll แนวนอนได้ ไม่ถูก clip
+- **scope:** CSS + DOM-state เท่านั้น — ไม่แตะ business/API/accounting/auth/OCR · **test:** +9 `mobile_layout_guard.test.js` · **pwa-cache:** bump 336→337
+
 ## 5.65.0 (build 336) — 2026-06-01 Phase 92.66 — verify-slip (SlipOK) 401 auth fix (follow-up 92.65)
 
 - **fix(payment):** ปุ่ม/auto "🤖 ตรวจสลิป" ใน 4 หน้า (main.js drawer, service_form, ac_install, solar) ยิง `/api/verify-slip` แบบไม่มี token → middleware (`REQUIRE_AUTH_ENDPOINTS`) ตอบ 401 ก่อนถึง SlipOK = ตรวจสลิปการโอนพังทุกหน้า
