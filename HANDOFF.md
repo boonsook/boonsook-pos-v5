@@ -3,14 +3,27 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase mobile-layout — แก้ overlap 4 จุดบนมือถือ, build 337)
-**Version:** 5.66.0 (build 337) — Phase mobile-layout (CSS + DOM-state เท่านั้น — ไม่แตะ business/API/accounting/auth/OCR)
-**Previous:** 5.65.0 (build 336) — Phase 92.66 (verify-slip แนบ Supabase JWT × 4 caller — client only, no SQL)
+**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase mobile-layout follow-up — AI FAB icon-only กันบังการ์ด Settings, build 338)
+**Version:** 5.66.0 (build 338) — Phase mobile-layout follow-up (CSS-only — ไม่แตะ business/API/accounting/auth/OCR)
+**Previous:** 5.66.0 (build 337) — Phase mobile-layout (แก้ overlap 4 จุด: filter/sidebar/FAB/table)
+**Pre-prev2:** 5.65.0 (build 336) — Phase 92.66 (verify-slip แนบ Supabase JWT × 4 caller — client only, no SQL)
 **Pre-prev:** build 335 = 92.65 (AutoKey JWT) · 334 = 92.64 (VAT split Dr=Cr) · 333 = 92.63 (profit XSS/TZ + payroll log) · 332 = 92.62 recurring · 331 = 92.61 refund (+SQL ✓)
 
 > 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.64** (client helper เท่านั้น)
 > 🏁 **FINANCE AUDIT CLOSED ที่ build 334** — ครบทุกข้อ: #1✓✓ #2✓ #3✓ #4✓ #5✓ #6✓ #6b✓ #7✓(dead code ลบแล้ว) #8✓ #9✓
 > ✅ **#9 period-lock DB trigger VERIFIED** (gangboo query DB, 2026-06-01): `journal_entries` → trigger `trg_check_period_locked` → function `check_period_not_locked` → insert เข้า period ที่ locked ถูกกันที่ DB จริง (เส้นแบ่งความปลอดภัยตาม CLAUDE.md 4.3)
+
+---
+
+## 🛠️ Phase mobile-layout follow-up — AI FAB icon-only กันบังการ์ด Settings (build 338)
+
+**Issue หลัง build 337:** AI FAB ไม่ทับ bottom nav แล้ว แต่ยัง **บังการ์ดเนื้อหา**หน้า Settings/เพิ่มเติม — โดยเฉพาะการ์ด "สำรอง / กู้คืน config" (FAB เป็น pill กว้างมีข้อความ "AI ช่วยกรอก" → กินพื้นที่มุมขวาล่าง).
+
+**Fix (CSS-only, ไม่แตะ API/Auth/business):**
+- `ai-chat-widget.js`: ห่อ label ใน `<span class="bs-fab-label">` + เพิ่ม `title="AI ช่วยกรอก"` (อ่านคู่ `aria-label="เปิด AI ผู้ช่วย"` เดิม). `@media (max-width:480px)` → `#bs-ai-fab { padding:0; width:52px; height:52px; border-radius:50%; gap:0; font-size:22px }` + `.bs-fab-label { display:none }` = **icon-only วงกลม** (เหลือ 🤖, label ซ่อนแต่ a11y/tooltip ยังอยู่).
+- `style.css`: `.page` mobile bottom padding 100→**160px** (`@media 768`) และ 100→150px (`@media 400`) → การ์ดท้ายหน้า scroll พ้น FAB (bottom ~72px + สูง) + bottom nav.
+
+**Verify:** lint:errors 0 · unit **904** (+2 guards: icon-only + page padding) · Playwright @390×844 (settings-like page): FAB `52×52 radius 50% labelHidden`, scroll สุด → การ์ด "สำรอง/กู้คืน" `cardBottom 596 < fabTop 720` (พ้น FAB), FAB ยังเหนือ nav. **bump 337→338** (data-app-build + style/main/boot/selfheal `?v=338` + ai-chat-widget `?v=7` + sw cache-v338; semver คง 5.66.0 — follow-up เฟสเดียวกัน).
 
 ---
 

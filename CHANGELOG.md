@@ -7,6 +7,12 @@
 
 ---
 
+## 5.66.0 (build 338) — 2026-06-02 Phase mobile-layout follow-up — AI FAB บังการ์ด Settings
+
+- **fix(mobile):** AI FAB ยังบังการ์ดเนื้อหาหน้า Settings/เพิ่มเติม (โดยเฉพาะ "สำรอง / กู้คืน config") → `@media max-width:480px` ทำ `#bs-ai-fab` เป็น **icon-only วงกลม 52px** (ซ่อน `.bs-fab-label` เหลือ 🤖 + คง `aria-label`/`title` สำหรับ a11y/tooltip)
+- **fix(mobile):** เพิ่ม `.page` bottom padding บนมือถือ 100→**160px** (จอ ≤400px → 150px) → การ์ดท้ายหน้า scroll พ้น FAB + bottom nav ได้
+- **scope:** CSS + markup label-wrap เท่านั้น — ไม่แตะ API/Auth/business · **test:** +2 `mobile_layout_guard.test.js` · **pwa-cache:** bump 337→338
+
 ## 5.66.0 (build 337) — 2026-06-02 Phase mobile-layout — แก้ overlap 4 จุดบนมือถือ (390×844)
 
 - **fix(mobile):** expenses filter bar — เพิ่ม `.exp-filter-row` → แต่ละ field (จากวันที่/ถึงวันที่/หมวดหมู่) เต็มแถว + ปุ่มแบ่งครึ่ง ไม่ทับกัน (เดิม inline `min-width:200px` เบียดบนจอแคบ)

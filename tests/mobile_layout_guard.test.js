@@ -80,3 +80,19 @@ test("table-wrap scrolls horizontally and is width-capped so it never clips/over
   // the expenses list table is wrapped
   assert.match(expenses, /<div class="table-wrap">\s*<table class="exp-table"/);
 });
+
+// ── build 338 follow-up: FAB must not cover page cards on small screens ──────
+test("FAB collapses to an icon-only circle at <=480px (label hidden, a11y kept)", () => {
+  // label text is wrapped so CSS can hide it; aria-label + title remain for a11y/tooltip
+  assert.match(fab, /<button id="bs-ai-fab" aria-label="[^"]+" title="[^"]+">/);
+  assert.match(fab, /<span class="bs-fab-label">/);
+  const m480 = fab.slice(fab.indexOf("@media (max-width: 480px)"));
+  assert.match(m480, /#bs-ai-fab\s*\{[^}]*border-radius:\s*50%/s, "FAB must be circular at <=480px");
+  assert.match(m480, /#bs-ai-fab \.bs-fab-label\s*\{\s*display:\s*none/);
+});
+
+test("mobile .page has extra bottom padding so last card clears the FAB + bottom nav", () => {
+  // 768 block: >=150px ; 400 block: >=150px
+  assert.match(css, /\.page\s*\{\s*padding:\s*12px 12px 160px/);
+  assert.match(css, /\.page\s*\{\s*padding:\s*10px 10px 150px/);
+});

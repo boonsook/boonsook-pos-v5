@@ -232,6 +232,10 @@
       right: 0; bottom: 0; width: 100vw; height: 100vh;
       border-radius: 0;
     }
+    /* จอเล็ก: FAB เป็น icon-only วงกลม (กันบังการ์ดเนื้อหา เช่น สำรอง/กู้คืน config)
+       label ซ่อน เหลือ aria-label/title สำหรับ a11y + tooltip */
+    #bs-ai-fab { padding: 0; width: 52px; height: 52px; border-radius: 50%; justify-content: center; gap: 0; font-size: 22px; }
+    #bs-ai-fab .bs-fab-label { display: none; }
   }
   `;
 
@@ -245,8 +249,8 @@
 
     const html = `
       <div id="bs-ai-backdrop"></div>
-      <button id="bs-ai-fab" aria-label="เปิด AI ผู้ช่วย">
-        <span>🤖</span> AI ช่วยกรอก
+      <button id="bs-ai-fab" aria-label="เปิด AI ผู้ช่วย" title="AI ช่วยกรอก">
+        <span>🤖</span> <span class="bs-fab-label">AI ช่วยกรอก</span>
       </button>
       <div id="bs-ai-modal" role="dialog" aria-label="AI ผู้ช่วย">
         <div id="bs-ai-header">
