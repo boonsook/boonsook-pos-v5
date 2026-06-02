@@ -3,9 +3,10 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase 353 air-job-to-quotation-draft-action — ปุ่มสร้างใบเสนอราคาจากงานแอร์, build 353) · ⏸️ **STOP — รอ owner/Codex review ก่อนเริ่ม Phase 354**
-**Version:** 5.66.0 (build 353) — Phase 353 air-job-to-quotation-draft-action (ปุ่ม→quotation draft, ไม่ save อัตโนมัติ, ไม่แตะ stock/POS/cart/schema)
-**Previous:** 5.66.0 (build 352) — Phase 352 air-job-filter-and-priority (source filter + priority badge)
+**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase 354 quotation-air-draft-polish — ขัดเกลาใบเสนอราคารับ draft งานแอร์, build 354) · ⏸️ **STOP — รอ owner/Codex review ก่อนเริ่ม Phase 355**
+**Version:** 5.66.0 (build 354) — Phase 354 quotation-air-draft-polish (banner+source summary+back-to-job+price warning+customer hint; ไม่ save อัตโนมัติ/ไม่แตะ stock/POS/cart/schema)
+**Previous:** 5.66.0 (build 353) — Phase 353 air-job-to-quotation-draft-action (ปุ่ม→quotation draft)
+**Pre-prev-1m:** 5.66.0 (build 352) — Phase 352 air-job-filter-and-priority
 **Pre-prev-1l:** 5.66.0 (build 351) — Phase 351 service-job-air-source-visibility
 **Pre-prev-1k:** 5.66.0 (build 350) — Phase 350 service-request-air-form-polish
 **Pre-prev-1j:** 5.66.0 (build 349) — Phase 349 service-request-air-booking-polish (summary card + intent + prefill)
@@ -26,6 +27,28 @@
 > 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.64** (client helper เท่านั้น)
 > 🏁 **FINANCE AUDIT CLOSED ที่ build 334** — ครบทุกข้อ: #1✓✓ #2✓ #3✓ #4✓ #5✓ #6✓ #6b✓ #7✓(dead code ลบแล้ว) #8✓ #9✓
 > ✅ **#9 period-lock DB trigger VERIFIED** (gangboo query DB, 2026-06-01): `journal_entries` → trigger `trg_check_period_locked` → function `check_period_not_locked` → insert เข้า period ที่ locked ถูกกันที่ DB จริง (เส้นแบ่งความปลอดภัยตาม CLAUDE.md 4.3)
+
+---
+
+## 🛠️ Phase 354 quotation-air-draft-polish — ขัดเกลาใบเสนอราคารับ draft จากงานแอร์ (build 354)
+
+**เป้าหมาย:** ปรับหน้า quotations ตอน consume draft `source=air_job` (build 353) ให้ชัด/ปลอดภัย: เห็นที่มางาน + ข้อมูลครบ + ทางกลับงานต้นทาง + ยังไม่ save จนกดเอง.
+
+**Scope/ข้อห้าม:** ❌ save quotation/สร้างเลขเอกสารอัตโนมัติ · ❌ stock/products/POS/cart · ❌ SQL/schema · ❌ เปลี่ยน save endpoint · ❌ กระทบ draft 346 (catalog)/service_jobs 351-353.
+
+**Fix (`quotations.js` + `ac_quotation_draft.js` + `service_jobs.js`):**
+1. module state `_airDraftMeta` = draft แรก (capture ตอน consume, reset ตอนกลับ list).
+2. **banner รวย:** `รายการร่างจาก{งานแอร์|แคตตาล็อกแอร์} N รายการ` + (air_job) source-summary chips: `งานเลขที่ {serviceJobNo}` / intent (`ask`→สอบถามราคา, `booking`→สั่งจอง) / `summary` (airType·brand·model·BTU·price) / `📅 {appointment}`.
+3. **price warning:** `priceMissing = isJob && !(offerPrice>0)` → แถบ "⚠️ ยังไม่มีราคา (ต้องเช็คราคา) — กรุณากรอกราคาก่อนส่งให้ลูกค้า" (line item ยังเป็น 0 แต่เตือน visible; **ไม่แตะ saveQuotationFull** — soft warn per spec "อย่างน้อยเตือนก่อน").
+4. **back-to-job:** ปุ่ม `#qtBackToJob` เฉพาะ `isJob && serviceJobId!=null` → `_ctx.showRoute("service_jobs")` (bindFormEvents). navigation เท่านั้น.
+5. **customer hint:** ใต้หัวข้อ "ข้อมูลลูกค้า" (เฉพาะ `!isEdit && air_job && customer.name`): "ℹ️ เติมจากงานแจ้งบริการ — ... ยังไม่บันทึกลูกค้าใหม่". prefill ใช้ `_airDraftCustomer` (build 353) — ไม่ insert customer.
+6. `ac_quotation_draft.pushAirQuoteDraft` + `service_jobs` handler ส่ง `serviceJobNo` เพิ่ม (additive).
+
+**ยืนยันไม่ save/ไม่แตะ stock:** guard — consume block + back-to-job ไม่มี saveQuotationFull/xhrPost/_appXhr/status/customers insert/addToCart/.stock=; เลขเอกสารว่างจนกดบันทึก (smoke: state.quotations=0, #qt_docNo="").
+
+**Verify:** lint:errors 0 · unit **997** (+7: serviceJobNo round-trip · banner source summary · back-to-job เฉพาะมี id + nav-only · price-missing warning · customer hint ไม่สร้าง customer · catalog 346 ยัง "แคตตาล็อกแอร์" + แก้ guard 353 ที่ pin notice เก่า) · **flow smoke (temp, ลบแล้ว) mobile 390×844 + desktop:** banner "งานแอร์"+chips(งานเลขที่/intent/นัดหมาย), customer hint+prefill, ready job ไม่มี warning / no-price job มี warning, ปุ่มดูงานต้นทาง nav→service_jobs, state.quotations=0 + docNo ว่าง, draft consumed, ไม่มี h-overflow. **bump 353→354.**
+
+> ⏸️ **STOP ที่ build 354** — owner สั่งหยุดรอ review ก่อนเริ่ม Phase 355.
 
 ---
 

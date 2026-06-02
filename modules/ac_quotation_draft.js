@@ -28,6 +28,7 @@ export function pushAirQuoteDraft(item) {
     source: item.source || "air_catalog",
     originalSource: item.originalSource || "",
     serviceJobId: item.serviceJobId ?? null,
+    serviceJobNo: item.serviceJobNo || "",
     customerName: item.customerName || "",
     customerPhone: item.customerPhone || "",
     catalogId: item.catalogId ?? item.id ?? null,

@@ -62,6 +62,7 @@ let _selectedIds = new Set();
 let _airDraftNotice = 0;   // Phase 346: จำนวนรายการร่างจากแคตตาล็อกแอร์/งานแอร์ที่เพิ่งเติม (โชว์ notice)
 let _airDraftSource = "air_catalog";          // Phase 353: "air_catalog" | "air_job"
 let _airDraftCustomer = { name: "", phone: "" }; // Phase 353: prefill ลูกค้าจากงานแอร์ (ถ้ามี)
+let _airDraftMeta = null;                     // Phase 354: draft แรก (โชว์ source summary + back-to-job)
 
 // Phase 346/353: แปลง air draft → line item ของฟอร์มใบเสนอราคา
 //  marker `_source` ฯลฯ เป็น in-memory เท่านั้น (save เลือกเฉพาะ field คงที่ → ไม่ persist/ไม่แตะ schema)
@@ -115,6 +116,7 @@ export function renderQuotationsPage(ctx) {
       const first = _airDrafts[0] || {};
       _airDraftSource = first.source === "air_job" ? "air_job" : "air_catalog";
       _airDraftCustomer = { name: first.customerName || "", phone: first.customerPhone || "" };
+      _airDraftMeta = first;
     }
   }
 
@@ -125,6 +127,7 @@ export function renderQuotationsPage(ctx) {
     _airDraftNotice = 0;
     _airDraftSource = "air_catalog";
     _airDraftCustomer = { name: "", phone: "" };
+    _airDraftMeta = null;
   }
 
   // ★ ถ้าถูก trigger จากหน้าอื่น (เช่น delivery_invoice กด "อ้างอิง") → เปิด preview
@@ -510,20 +513,39 @@ function renderQuotationForm(container) {
       </div>
     </div>
 
-    ${_airDraftNotice > 0 ? `
-    <!-- ★ Phase 346/353: notice รายการร่างจากแคตตาล็อกแอร์/งานแอร์ (ยังไม่บันทึกเอกสาร) -->
-    <div class="panel mt16" style="background:#eff6ff;border:1px solid #bfdbfe;display:flex;gap:10px;align-items:flex-start">
-      <span style="font-size:20px;line-height:1">🌬️</span>
-      <div style="font-size:13px;color:#1e40af;line-height:1.5">
-        <b>มีรายการร่างจาก${_airDraftSource === "air_job" ? "งานแอร์" : "แคตตาล็อกแอร์"} ${_airDraftNotice} รายการ</b><br>
-        ตรวจสอบ/แก้ไขรายการด้านล่าง แล้วกด <b>"บันทึก"</b> เพื่อสร้างใบเสนอราคา — <b>ยังไม่ได้บันทึกเอกสาร</b>
+    ${_airDraftNotice > 0 ? (() => {
+      const m = _airDraftMeta || {};
+      const isJob = _airDraftSource === "air_job";
+      const intentTxt = m.intent === "ask" ? "สอบถามราคา" : (m.intent === "booking" ? "สั่งจอง" : "");
+      const priceMissing = isJob && !(Number(m.offerPrice) > 0);
+      const chip = (t) => `<span style="display:inline-block;background:#dbeafe;color:#1e40af;font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;margin:2px 4px 0 0">${escHtml(t)}</span>`;
+      const chips = isJob ? [
+        m.serviceJobNo ? `งานเลขที่ ${m.serviceJobNo}` : (m.serviceJobId ? `งาน #${m.serviceJobId}` : ""),
+        intentTxt,
+        m.summary || "",
+        m.appointment ? `📅 ${m.appointment}` : ""
+      ].filter(Boolean).map(chip).join("") : "";
+      return `
+    <!-- ★ Phase 346/353/354: notice รายการร่างจากงานแอร์/แคตตาล็อกแอร์ (ยังไม่บันทึกเอกสาร) -->
+    <div class="panel mt16" style="background:#eff6ff;border:1px solid #bfdbfe">
+      <div style="display:flex;gap:10px;align-items:flex-start">
+        <span style="font-size:20px;line-height:1">🌬️</span>
+        <div style="flex:1;min-width:0;font-size:13px;color:#1e40af;line-height:1.5">
+          <b>รายการร่างจาก${isJob ? "งานแอร์" : "แคตตาล็อกแอร์"} ${_airDraftNotice} รายการ</b><br>
+          ตรวจสอบ/แก้ไขรายการด้านล่าง แล้วกด <b>"บันทึก"</b> เพื่อสร้างใบเสนอราคา — <b>ยังไม่ได้บันทึกเอกสาร</b>
+          ${chips ? `<div style="margin-top:6px">${chips}</div>` : ""}
+          ${priceMissing ? `<div style="margin-top:6px;color:#b45309;font-weight:700">⚠️ รายการนี้ยังไม่มีราคา (ต้องเช็คราคา) — กรุณากรอกราคาก่อนส่งให้ลูกค้า</div>` : ""}
+        </div>
+        ${isJob && (m.serviceJobId != null) ? `<button id="qtBackToJob" type="button" class="btn light" style="font-size:12px;padding:6px 10px;white-space:nowrap;flex-shrink:0">🔧 ดูงานต้นทาง</button>` : ""}
       </div>
     </div>
-    ` : ''}
+    `;
+    })() : ''}
 
     <!-- Customer -->
     <div class="panel mt16">
       <h4 style="margin:0 0 12px">ข้อมูลลูกค้า</h4>
+      ${(!isEdit && _airDraftSource === "air_job" && _airDraftCustomer.name) ? `<div style="font-size:11px;color:#0369a1;margin:-6px 0 8px">ℹ️ เติมจากงานแจ้งบริการ — ตรวจสอบ/แก้ไขได้ (ยังไม่บันทึกลูกค้าใหม่)</div>` : ''}
       <div class="stack">
         <div style="position:relative">
           <input id="qt_customerSearch" placeholder="ค้นหาลูกค้า หรือพิมพ์ชื่อใหม่..." value="${escHtml(prevCust)}" autocomplete="off" />
@@ -665,6 +687,11 @@ function renderQuotationForm(container) {
 function bindFormEvents(container, customers, products) {
   document.getElementById("qtBackBtn")?.addEventListener("click", () => {
     _viewMode = "list"; renderQuotationsPage(_ctx);
+  });
+  // ★ Phase 354: กลับไปดูงานต้นทาง (air_job) — navigation เท่านั้น ไม่เปลี่ยนสถานะงาน
+  document.getElementById("qtBackToJob")?.addEventListener("click", () => {
+    if (typeof _ctx?.showRoute === "function") _ctx.showRoute("service_jobs");
+    else window.location.hash = "service_jobs";
   });
   document.getElementById("qtSaveBtn")?.addEventListener("click", saveQuotationFull);
   document.getElementById("qtPreviewBtn")?.addEventListener("click", () => {

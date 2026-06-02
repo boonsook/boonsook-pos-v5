@@ -7,6 +7,14 @@
 
 ---
 
+## 5.66.0 (build 354) — 2026-06-02 Phase 354 quotation-air-draft-polish — ขัดเกลาหน้าใบเสนอราคาตอนรับ draft จากงานแอร์
+
+- **ux:** banner **"รายการร่างจากงานแอร์"** + **source summary chips** (งานเลขที่ / intent สั่งจอง·สอบถามราคา / รุ่น·BTU·ราคา / 📅 นัดหมาย)
+- **ux:** customer prefill + hint *"ℹ️ เติมจากงานแจ้งบริการ — ตรวจสอบ/แก้ไขได้ (ยังไม่บันทึกลูกค้าใหม่)"* — **ไม่สร้าง/ไม่ save customer อัตโนมัติ**
+- **ux:** ปุ่ม **"🔧 ดูงานต้นทาง"** (เฉพาะมี `serviceJobId`) → กลับหน้า `service_jobs` (navigation เท่านั้น — ไม่เปลี่ยนสถานะงาน)
+- **safety:** ถ้า draft ไม่มีราคา (ต้องเช็คราคา) → **คำเตือน "⚠️ ยังไม่มีราคา — กรุณากรอกราคาก่อนส่งให้ลูกค้า"** (ไม่ใส่ 0 หลอกว่าฟรี) · consume-once กัน reload เติมซ้ำ (เดิม)
+- **scope:** ❌ ไม่ save quotation/สร้างเลขเอกสารอัตโนมัติ · ❌ ไม่แตะ stock/products/POS/cart/schema · ❌ ไม่เปลี่ยน save endpoint · ❌ ไม่กระทบ draft 346 (catalog banner ยังเป็น "แคตตาล็อกแอร์")/filter·priority·action 351-353 · `ac_quotation_draft`+`service_jobs` ส่ง `serviceJobNo` เพิ่ม · **test:** +7 `air_job_quotation_draft.test.js` + mobile/desktop smoke · **pwa-cache:** bump 353→354
+
 ## 5.66.0 (build 353) — 2026-06-02 Phase 353 air-job-to-quotation-draft-action — ปุ่ม "สร้างใบเสนอราคา" จากงานแอร์
 
 - **feat:** งานจากแคตตาล็อกแอร์ในหน้า `service_jobs` มีปุ่ม **"📝 ใบเสนอราคา"** → ส่งข้อมูลงานไปหน้าใบเสนอราคาเป็น **draft** (ใช้ build 346 mechanism, `source="air_job"`) — งานทั่วไป**ไม่มี**ปุ่มนี้

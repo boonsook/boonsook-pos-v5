@@ -67,8 +67,9 @@ test("quotations maps an air_job draft (summary) to a line item, shows 'งา�
   // airDraftToLineItem uses d.summary for air_job
   assert.match(quo, /if \(d\.summary\) \{[\s\S]*?item_name = String\(d\.summary\)\.split\("·"\)\[0\]/);
   assert.match(quo, /_serviceJobId: d\.serviceJobId/);
-  // source-aware notice
-  assert.match(quo, /_airDraftSource === "air_job" \? "งานแอร์" : "แคตตาล็อกแอร์"/);
+  // source-aware notice (Phase 354: via isJob flag)
+  assert.match(quo, /isJob = _airDraftSource === "air_job"/);
+  assert.match(quo, /isJob \? "งานแอร์" : "แคตตาล็อกแอร์"/);
   // customer prefill from the air-job draft (new doc only)
   assert.match(quo, /!isEdit && _airDraftCustomer\.name/);
   assert.match(quo, /first\.source === "air_job" \? "air_job" : "air_catalog"/);
@@ -79,4 +80,53 @@ test("quotations does NOT auto-save on consuming the draft (manual save only)", 
   assert.ok(!/saveQuotationFull|xhrPost|_appXhr/.test(block), "consuming a draft must not auto-save");
   // manual save button still wired
   assert.match(quo, /getElementById\("qtSaveBtn"\)\?\.addEventListener\("click",\s*saveQuotationFull\)/);
+});
+
+// ── Phase 354: richer air_job banner / back-to-job / price warning / customer hint ──
+test("serviceJobNo round-trips through the draft", () => {
+  sessionStorage.clear();
+  pushAirQuoteDraft({ source: "air_job", serviceJobId: 11, serviceJobNo: "JOB-AIR1", offerPrice: 0 });
+  const d = consumeAirQuoteDrafts()[0];
+  assert.equal(d.serviceJobNo, "JOB-AIR1");
+  assert.equal(d.serviceJobId, 11);
+});
+
+test("air_job banner shows a source summary (job no / intent / summary / appointment)", () => {
+  assert.match(quo, /let _airDraftMeta = null/);
+  assert.match(quo, /_airDraftMeta = first/);
+  assert.match(quo, /รายการร่างจาก\$\{isJob \? "งานแอร์" : "แคตตาล็อกแอร์"\}/);
+  assert.match(quo, /งานเลขที่ \$\{m\.serviceJobNo\}/);
+  assert.match(quo, /m\.intent === "ask" \? "สอบถามราคา"/);
+  assert.match(quo, /m\.appointment \? `📅/);
+});
+
+test("back-to-source-job button shows only when serviceJobId exists, and only navigates", () => {
+  assert.match(quo, /isJob && \(m\.serviceJobId != null\) \? `<button id="qtBackToJob"/);
+  assert.match(quo, /getElementById\("qtBackToJob"\)\?\.addEventListener\("click"[\s\S]*?showRoute\("service_jobs"\)/);
+  // navigation only — must not mutate job status
+  const h = quo.slice(quo.indexOf('"qtBackToJob"'), quo.indexOf('"qtBackToJob"') + 300);
+  assert.ok(!/status|xhrPost|_appXhr|saveQuotationFull/.test(h), "back-to-job must not change status/save");
+});
+
+test("price-missing warning shows for air_job drafts without an offer price", () => {
+  assert.match(quo, /priceMissing = isJob && !\(Number\(m\.offerPrice\) > 0\)/);
+  assert.match(quo, /ยังไม่มีราคา \(ต้องเช็คราคา\) — กรุณากรอกราคา/);
+});
+
+test("customer prefill shows the 'เติมจากงานแจ้งบริการ' hint and does not auto-create a customer", () => {
+  assert.match(quo, /เติมจากงานแจ้งบริการ/);
+  // hint only on a NEW doc from an air_job draft
+  assert.match(quo, /!isEdit && _airDraftSource === "air_job" && _airDraftCustomer\.name/);
+  // no auto customer insert anywhere near the air-draft consume/form
+  const block = quo.slice(quo.indexOf("Phase 346: ถ้ามีรายการร่าง"), quo.indexOf("Phase 45.10 (B5-3)"));
+  assert.ok(!/from\(["']customers["']\)|insert.*customer/i.test(block), "must not auto-create a customer");
+});
+
+test("air_catalog (build 346) banner still says 'แคตตาล็อกแอร์' (not งานแอร์)", () => {
+  sessionStorage.clear();
+  pushAirQuoteDraft({ brand: "TCL", model: "MFS10", btu: 9000, offerPrice: 12900 });
+  const d = consumeAirQuoteDrafts()[0];
+  assert.equal(d.source, "air_catalog");
+  // banner branch keeps the catalog label for non-job source
+  assert.match(quo, /isJob \? "งานแอร์" : "แคตตาล็อกแอร์"/);
 });
