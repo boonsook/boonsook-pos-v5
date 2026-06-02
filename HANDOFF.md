@@ -1,7 +1,8 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-> 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
+> 🆕 **เปิด session ใหม่? อ่าน [`IMPLEMENT_TEAM_PROTOCOL.md`](IMPLEMENT_TEAM_PROTOCOL.md) ก่อน** (canonical protocol) แล้วตามด้วย [`SESSION_START_SHARED.md`](SESSION_START_SHARED.md) + ส่วนล่าสุดของ HANDOFF/CHANGELOG
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
+> ⚠️ `CLAUDE_SESSION_HANDOFF.md` / `CLAUDE_CODE_PROMPT.md` / `CLAUDE_CODE_WORKFLOW.md` = **superseded** (historical) — เป็น redirect ไป `IMPLEMENT_TEAM_PROTOCOL.md` แล้ว อย่าใช้เป็น workflow หลัก
 
 **อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase 355 air-quotation-save-linkback — อ้างอิงงานต้นทางลงใน note ตอนกดบันทึก, build 355) · ⏸️ **STOP — รอ owner/Codex review ก่อนเริ่ม Phase 356**
 **Version:** 5.66.0 (build 355) — Phase 355 air-quotation-save-linkback (append อ้างอิงงานแอร์ลง note ตอนกดบันทึกเอง; preserve note เดิม + กัน duplicate; ไม่ save อัตโนมัติ/ไม่เปลี่ยน job status/ไม่แตะ stock/POS/cart/schema)
@@ -3775,8 +3776,9 @@ Supabase RLS is the real gate. This is defense-in-depth + a clean user-visible r
 - Production builds: **240 → 243** (4 builds across 4 days)
 
 **Documentation files (production-ready prompt templates):**
-- `CLAUDE_SESSION_HANDOFF.md` — Claude session continuity (อ่านก่อนเริ่ม)
-- `CLAUDE_CODE_WORKFLOW.md` — autonomous loop guide
+> ⚠️ *(historical snapshot 2026-05-16)* — ปัจจุบัน 2 ไฟล์ล่างนี้ **superseded** แล้ว: entrypoint จริง = `IMPLEMENT_TEAM_PROTOCOL.md` (ทั้งคู่เหลือเป็น redirect)
+- `CLAUDE_SESSION_HANDOFF.md` — ~~Claude session continuity (อ่านก่อนเริ่ม)~~ → superseded
+- `CLAUDE_CODE_WORKFLOW.md` — ~~autonomous loop guide~~ → superseded
 - `SETUP_TOOLING.md` — ESLint + Playwright setup steps (done)
 - `AUDIT_REPORT_89_40.md` — race-condition categorization (138 entries, 4 buckets)
 - 10+ phase prompt templates: `CLAUDE_CODE_PROMPT_89_{32,33,34,35,35b,36-39_BATCH,40_AUDIT,41,42,43,44}.md`
