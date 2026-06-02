@@ -1,6 +1,6 @@
 # Boonsook POS V5 - Shared Session Start
 
-Last updated: 2026-06-01 (Phase 92.64 — balance sale VAT journal split, build 334)
+Last updated: 2026-06-01 (Phase 92.66 — verify-slip 401 auth fix, build 336)
 
 Purpose: this is the common first-read note for Codex, Claude, or any next agent opening a fresh session on this project. Read this before changing files so both teams start from the same facts.
 
@@ -8,7 +8,7 @@ Purpose: this is the common first-read note for Codex, Claude, or any next agent
 
 - Project: Boonsook POS V5 PRO, Thai POS PWA.
 - Workspace: `C:\Users\Lenovo E14 Gen4\Documents\boonsuk v5\boonsook-pos-v5-github`
-- Main app version: `5.64.0`
+- Main app version: `5.65.0` (build 336)
 - Latest pushed commits seen:
   - `3b4072b` `fix(92.48): integrity panel orphan fetch uses select=* (build 318)`
   - `71ef2ba` `fix(92.48): bump boot.js + style.css ?v= to 317 (build-sync smoke)`
@@ -27,6 +27,20 @@ Purpose: this is the common first-read note for Codex, Claude, or any next agent
 ## Current Truth As Of 2026-06-01
 
 **FINANCE AUDIT CLOSED at build 334.** All 9 findings resolved (refund over-refund guard client+DB, recurring-expense JV + idempotency, VAT split Dr=Cr rounding, profit_report XSS, recurring + profit TZ, payroll failed-side-effect audit logging, PromptPay dead-code removed) and the period-lock DB trigger is verified present: table `journal_entries` → trigger `trg_check_period_locked` → function `check_period_not_locked` (confirmed via DB query by gangboo, 2026-06-01) — posting into a locked period is blocked at the DB.
+
+**Auth follow-up (no SQL/runtime-logic change to servers): two client-side 401 fixes shipped after the audit closed.**
+
+Phase 92.66 fixes the verify-slip (SlipOK) 401 across all 4 call sites (build 336).
+
+- Root cause: `/api/verify-slip` is in `REQUIRE_AUTH_ENDPOINTS` (functions/_middleware.js, Phase 89.14); the global middleware's `verifyAuthToken` requires a real 3-part Supabase user JWT in `Authorization: Bearer`. The "🤖 ตรวจสลิป" callers all POSTed with only `Content-Type` (no token) → 401 before reaching SlipOK = transfer-slip verification broken on every page.
+- Fix: each caller now attaches `Authorization: Bearer window._sbAccessToken` (read at call time), guards the no-token case (fail fast + re-login prompt instead of a broad error), and catches 401 → "เข้าสู่ระบบใหม่". The 4 call sites closed: `main.js` `_verifySlip`, `modules/service_form.js` `_doVerifySlip`, `modules/ac_install.js` `_verifyAcSlip`, `modules/solar.js` `_verifySolSlip`.
+- No anonKey fallback — `anonKey`/publishable key (`sb_publishable_...`) is NOT a JWT, so `verifyAuthToken` rejects it (`parts.length !== 3`) = 401 anyway. Slip-image upload still uses anonKey storage (different endpoint, correct). Server `functions/api/verify-slip.js` untouched; no SQL/RLS. +24 tests `tests/verify_slip_auth.test.js` (source-guard × 4 call site). PWA cache 335→336.
+
+Phase 92.65 fixes the AutoKey (parse-receipt) 401 (build 335).
+
+- Root cause: `/api/parse-receipt` is in `REQUIRE_AUTH_ENDPOINTS` too; the AutoKey "🔍 ให้ AI วิเคราะห์ใบเสร็จ" button in `modules/expenses.js` (`_openAutoKeyModal`) POSTed with no header → 401 before reaching Gemini = AutoKey receipt scan broken.
+- Fix: attach `Authorization: Bearer window._sbAccessToken` (read on click), guard no-token (don't burn Gemini quota → show re-login), special-case 401. No anonKey fallback. Server `functions/api/parse-receipt.js` untouched; no SQL/RLS. +6 tests `tests/expenses_autokey_auth.test.js`. PWA cache 334→335.
+- Endpoint security is still correct: a no-token request to `/api/parse-receipt` or `/api/verify-slip` MUST get 401 — that is the intended behavior. To smoke-test OCR/slip for real you must be logged in as a real user first; an anon `curl` returning 401 is a PASS, not a regression.
 
 Phase 92.64 balances the sale VAT journal split (build 334).
 
