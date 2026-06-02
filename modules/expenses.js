@@ -112,7 +112,7 @@ export function renderExpensesPage(ctx) {
 
     <!-- Filter Bar -->
     <div class="panel mt16">
-      <div class="row" style="flex-wrap:wrap;gap:12px">
+      <div class="row exp-filter-row" style="flex-wrap:wrap;gap:12px">
         <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:200px">
           <label style="font-size:13px;color:var(--muted);font-weight:600">จากวันที่</label>
           <input id="expFilterFromDate" type="date" value="${_filterFromDate}" style="flex:1;min-width:100px" />

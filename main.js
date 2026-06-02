@@ -744,7 +744,7 @@ async function showRoute(route){
     ...Object.fromEntries(SERVICE_FORM_TYPES.map(t => ["service_" + t, `${SERVICE_TYPES[t].icon} ใบงาน${SERVICE_TYPES[t].label}`]))
   };
   setText("pageTitle", titles[route] || "Boonsook POS");
-  $("sidebar")?.classList.remove("open");
+  closeSidebar();
 
   // Phase 25 — update help tutor context on route change
   try { setHelpContext(route, titles[route] || route); } catch(e){}
@@ -846,6 +846,27 @@ function closeAllDrawers(){
   $("appShell")?.removeAttribute("aria-hidden");
   // Restore focus
   if (_drawerPreviousFocus) { _drawerPreviousFocus.focus(); _drawerPreviousFocus = null; }
+}
+
+// ── Mobile sidebar drawer (Phase mobile-layout) ──
+// เปิด sidebar บนมือถือต้อง: เลื่อนเข้า (.open) + ใส่ body.sidebar-open (lock scroll + ซ่อน AI FAB)
+// + โชว์ backdrop (dim ฉากหลัง, แตะปิดได้). z-index ของ sidebar (mobile) > bottom nav → ไม่ถูกบัง
+const _DRAWER_IDS = ["productDrawer","customerDrawer","serviceJobDrawer","receiptDrawer","addUserDrawer","expenseDrawer"];
+function _anyDrawerOpen(){
+  return _DRAWER_IDS.some(id => { const el = $(id); return el && !el.classList.contains("hidden"); });
+}
+function closeSidebar(){
+  $("sidebar")?.classList.remove("open");
+  document.body.classList.remove("sidebar-open");
+  // ซ่อน backdrop เฉพาะตอนไม่มี drawer อื่นเปิดค้าง (กันปิด backdrop ทับ drawer)
+  if (!_anyDrawerOpen()) $("backdrop")?.classList.add("hidden");
+}
+function toggleSidebar(){
+  const sb = $("sidebar"); if (!sb) return;
+  if (sb.classList.contains("open")) { closeSidebar(); return; }
+  sb.classList.add("open");
+  document.body.classList.add("sidebar-open");
+  $("backdrop")?.classList.remove("hidden");
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -3990,8 +4011,8 @@ function bindStaticEvents(){
   });
   $("logoutBtn")?.addEventListener("click", logout);
   $("refreshBtn")?.addEventListener("click", loadAllData);
-  $("menuToggle")?.addEventListener("click", () => $("sidebar")?.classList.toggle("open"));
-  $("backdrop")?.addEventListener("click", closeAllDrawers);
+  $("menuToggle")?.addEventListener("click", toggleSidebar);
+  $("backdrop")?.addEventListener("click", () => { closeSidebar(); closeAllDrawers(); });
   document.querySelectorAll("[data-close-drawer]").forEach(btn => btn.addEventListener("click", closeAllDrawers));
   document.querySelectorAll(".nav-btn[data-route], .mobile-nav-btn[data-route]").forEach(btn => btn.addEventListener("click", ()=>showRoute(btn.dataset.route)));
 

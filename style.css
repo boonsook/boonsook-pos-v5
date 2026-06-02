@@ -267,14 +267,23 @@ th { color: var(--muted); font-size: 12px; }
    ═══════════════════════════════════════════════════════════ */
 @media (max-width: 768px) {
   /* ── Hide sidebar, show mobile nav ── */
-  .sidebar { transform: translateX(-105%); transition: .25s; }
+  /* z-index 60 → เหนือ bottom nav (40) และ backdrop (50) เมื่อ .open */
+  .sidebar { transform: translateX(-105%); transition: .25s; z-index: 60; }
   .sidebar.open { transform: translateX(0); }
+  /* เปิด sidebar = ล็อก scroll ฉากหลัง (backdrop คุม dim + แตะปิด ดู main.js) */
+  body.sidebar-open { overflow: hidden; }
 
   .content { padding-left: 0; padding-bottom: 80px; max-width: 100vw; overflow-x: hidden; }
   .page { max-width: 100vw; overflow-x: hidden; overflow-wrap: anywhere; }
   .row { flex-wrap: wrap; }
   .panel, .card, .hero { max-width: 100%; overflow-x: hidden; }
   table { width: 100%; table-layout: auto; }
+  /* ── Expenses filter bar: แต่ละ field เต็มแถว (label+input ไม่เบียด), ปุ่มแบ่งครึ่ง ไม่ทับกัน ── */
+  .exp-filter-row { gap: 8px; }
+  .exp-filter-row > div { flex: 1 1 100% !important; min-width: 0 !important; }
+  .exp-filter-row > .btn { flex: 1 1 calc(50% - 8px); margin: 0; }
+  /* ── ตารางใน panel: คุมความกว้างให้ scroll แนวนอนภายใน ไม่ดัน panel ล้น ── */
+  .table-wrap { max-width: 100%; }
   .auth-card { max-width: 100%; }
   .mobile-only { display: inline-flex; }
 

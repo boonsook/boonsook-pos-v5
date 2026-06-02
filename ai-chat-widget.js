@@ -220,7 +220,13 @@
   body:has(#sm-modal:not(.sm-modal-hidden)) #bs-ai-fab,
   body:has(#sm-transfer-modal:not(.sm-modal-hidden)) #bs-ai-fab,
   body:has(#authScreen:not(.hidden)) #bs-ai-fab,
-  body:has(#setPasswordScreen:not(.hidden)) #bs-ai-fab { display: none !important; }
+  body:has(#setPasswordScreen:not(.hidden)) #bs-ai-fab,
+  body.sidebar-open #bs-ai-fab,
+  body:has(#sidebar.open) #bs-ai-fab { display: none !important; }
+  /* มือถือ: ยก FAB ขึ้นเหนือ bottom nav (fixed bottom:0, สูง ~52px) กันทับ */
+  @media (max-width: 768px) {
+    #bs-ai-fab { bottom: calc(72px + env(safe-area-inset-bottom, 0px)); right: 16px; padding: 12px 16px; }
+  }
   @media (max-width: 480px) {
     #bs-ai-modal {
       right: 0; bottom: 0; width: 100vw; height: 100vh;
