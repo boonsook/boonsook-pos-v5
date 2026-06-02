@@ -72,7 +72,7 @@ export function renderSettingsMainMenu(el, ctx, goBack, navigate) {
       </button>
       <button class="set-menu-item" data-action="navigate" data-target="ac-catalog">
         <span class="set-menu-icon">❄️</span>
-        <span class="set-menu-label">จัดการสต็อกแอร์</span>
+        <span class="set-menu-label">จัดการแคตตาล็อกแอร์</span>
         <span class="set-menu-arrow">›</span>
       </button>
       <button class="set-menu-item" data-action="navigate" data-target="line-notify">

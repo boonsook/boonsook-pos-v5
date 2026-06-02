@@ -4,7 +4,7 @@
 //
 //  ฟอร์มกรอกฟิลด์หลักของรุ่นแอร์ (แยกจาก ac-spec-editor.js ที่กรอกสเปกเทคนิค):
 //    ประเภทแอร์ (ac_type: wall|ceiling|cassette) · แบรนด์ (section) · รุ่น (model)
-//    BTU · ราคา (price) · ต้นทุน (cost) · จำนวนสต็อก (stock) · SKU/บาร์โค้ด (sku) · หมายเหตุ (note)
+//    BTU · ราคาเสนอ (price) · ต้นทุนประมาณการ (cost) · สถานะเสนอขาย (stock: >0=พร้อมเสนอขาย) · SKU (sku) · หมายเหตุ (note)
 //
 //  ⚠️ Safe step: localStorage เท่านั้น — ไม่แตะ DB/API/billing. ฟิลด์ใหม่ (ac_type/cost/sku/note)
 //     เก็บใน catalog object; ตอน edit จะ spread ของเดิมไว้ครบ (ไม่ทับสเปกเทคนิค/ประกัน).
@@ -105,18 +105,19 @@ export function openAcStockForm(product, defaultType, onSave) {
 
         <div class="acsf-grid-2" style="margin-top:12px">
           <div>
-            <label class="acsf-label">ราคาขาย (฿)</label>
+            <label class="acsf-label">ราคาขายเสนอ (฿)</label>
             <input type="number" id="acsfPrice" class="acsf-input" inputmode="numeric" placeholder="12900" value="${escAttr(cur.price ?? '')}" />
           </div>
           <div>
-            <label class="acsf-label">ต้นทุน (฿)</label>
+            <label class="acsf-label">ต้นทุนประมาณการ (฿)</label>
             <input type="number" id="acsfCost" class="acsf-input" inputmode="numeric" placeholder="เว้นว่างได้" value="${escAttr(cur.cost ?? '')}" />
           </div>
         </div>
 
         <div style="margin-top:12px">
-          <label class="acsf-label">จำนวนสต็อก (เครื่อง)</label>
+          <label class="acsf-label">สถานะเสนอขาย</label>
           <input type="number" id="acsfStock" class="acsf-input" inputmode="numeric" placeholder="0" value="${escAttr(cur.stock ?? '')}" />
+          <div style="font-size:11px;color:#94a3b8;margin-top:3px">ใส่มากกว่า 0 = <b>พร้อมเสนอขาย</b> · 0 = ยังไม่เปิดขาย (ไม่ใช่จำนวนสต็อกจริงในคลัง)</div>
         </div>
 
         <div style="margin-top:12px">

@@ -130,18 +130,22 @@ export function renderSettingsAcCatalog(el, ctx, goBack, navigate) {
   catalog.forEach(c => { countByType[acTypeOf(c)] = (countByType[acTypeOf(c)] || 0) + 1; });
   const tabItems = catalog.filter(c => acTypeOf(c) === _acTab)
     .sort((a, b) => String(a.section || "").localeCompare(String(b.section || ""), "th") || String(a.model || "").localeCompare(String(b.model || ""), "th"));
-  // summary (scope = active tab)
+  // summary (scope = active tab) — นี่คือ "แคตตาล็อกสำหรับทำราคา" ไม่ใช่สต็อกจริง
   const sumModels = tabItems.length;
   const sumBrands = [...new Set(tabItems.map(c => c.section).filter(Boolean))].length;
-  const sumInStock = tabItems.filter(c => Number(c.stock || 0) > 0).length;
-  const sumOutStock = tabItems.filter(c => Number(c.stock || 0) <= 0).length;
+  // หมายเหตุ: field `stock` ในแคตตาล็อกนี้ใช้เป็น "สถานะเสนอขาย" (>0 = เปิดเสนอขาย) — ไม่ใช่จำนวนในคลังจริง
+  const sumReady = tabItems.filter(c => Number(c.stock || 0) > 0).length;
+  const sumOff = tabItems.filter(c => Number(c.stock || 0) <= 0).length;
   const activeLabel = acTypeLabel(_acTab);
 
   el.innerHTML = `
     <div class="set-subpage">
       <div class="set-subpage-header">
         <button class="set-back-btn" id="setBackBtn">←</button>
-        <h3 class="set-subpage-title">🌬️ จัดการสต็อกแอร์</h3>
+        <h3 class="set-subpage-title">🌬️ จัดการแคตตาล็อกแอร์</h3>
+      </div>
+      <div style="margin:-4px 0 14px;padding:9px 12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;font-size:12px;color:#1e40af;line-height:1.5">
+        ℹ️ ใช้สำหรับตั้งราคาและเลือกสินค้าไปทำใบเสนอราคา — <b>ไม่ใช่สต็อกจริงในคลัง</b>
       </div>
 
       <!-- ★ Air-type tabs (3 ประเภท) -->
@@ -164,12 +168,12 @@ export function renderSettingsAcCatalog(el, ctx, goBack, navigate) {
           <div style="font-size:10px;color:#64748b">แบรนด์/กลุ่ม</div>
         </div>
         <div style="background:#f0fdf4;border-radius:12px;padding:10px 6px;text-align:center">
-          <div style="font-size:20px;font-weight:900;color:#16a34a">${sumInStock}</div>
-          <div style="font-size:10px;color:#64748b">มีสต็อก</div>
+          <div style="font-size:20px;font-weight:900;color:#16a34a">${sumReady}</div>
+          <div style="font-size:10px;color:#64748b">พร้อมเสนอขาย</div>
         </div>
-        <div style="background:#fef2f2;border-radius:12px;padding:10px 6px;text-align:center">
-          <div style="font-size:20px;font-weight:900;color:#dc2626">${sumOutStock}</div>
-          <div style="font-size:10px;color:#64748b">หมดสต็อก</div>
+        <div style="background:#f8fafc;border-radius:12px;padding:10px 6px;text-align:center">
+          <div style="font-size:20px;font-weight:900;color:#64748b">${sumOff}</div>
+          <div style="font-size:10px;color:#64748b">ยังไม่เปิดขาย</div>
         </div>
       </div>
 
@@ -182,7 +186,7 @@ export function renderSettingsAcCatalog(el, ctx, goBack, navigate) {
           <div class="prod-more-panel">
             <button id="acExportXlsxBtn" class="prod-more-item">📥 ดาวน์โหลด Excel (.xlsx)</button>
             <button id="acExportCsvBtn" class="prod-more-item">📄 ดาวน์โหลด CSV</button>
-            <button id="acSetStock5Btn" class="prod-more-item" title="ตั้งสต็อกทุกรุ่นเป็น 5 เครื่อง">📦 ตั้งสต็อก 5 เครื่องทุกรุ่น</button>
+            <button id="acSetStock5Btn" class="prod-more-item" title="ตั้งทุกรุ่นเป็น 'พร้อมเสนอขาย'">⚙️ ตั้งค่าเริ่มต้นแคตตาล็อก</button>
             <button id="acCatalogRefreshBtn" class="prod-more-item">🔄 โหลดจาก JSON (reset)</button>
             <button id="acCatalogClearBtn" class="prod-more-item prod-more-danger">🗑️ ล้างแคตตาล็อกทั้งหมด</button>
           </div>
@@ -194,9 +198,18 @@ export function renderSettingsAcCatalog(el, ctx, goBack, navigate) {
       ${tabItems.length > 0 ? `
       <div class="ac-stock-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">
         ${tabItems.map(c => {
-          const inStock = Number(c.stock || 0) > 0;
           const hasSpec = !!(c.features || c.seer || c.description);
           const code = c.sku || c.barcode || "";
+          const price = Number(c.price || 0);
+          const hasCost = c.cost !== undefined && c.cost !== null && c.cost !== "" && Number.isFinite(Number(c.cost));
+          const cost = hasCost ? Number(c.cost) : null;
+          const profit = (price > 0 && hasCost) ? (price - cost) : null;
+          const offered = Number(c.stock || 0) > 0;
+          // 3-state badge: ราคา? → ต้องเช็คราคา ; เปิดเสนอขาย → พร้อมเสนอขาย ; ปิด → เลิกขาย
+          const badge = price <= 0
+            ? { t: 'ต้องเช็คราคา', bg: '#fef3c7', fg: '#92400e' }
+            : (offered ? { t: 'พร้อมเสนอขาย', bg: '#dcfce7', fg: '#15803d' }
+                       : { t: 'เลิกขาย', bg: '#f1f5f9', fg: '#64748b' });
           return `
           <div class="ac-stock-card" style="background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:6px">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
@@ -204,17 +217,22 @@ export function renderSettingsAcCatalog(el, ctx, goBack, navigate) {
                 <div style="font-size:14px;font-weight:800;color:#0f172a;line-height:1.25">${escHtml(c.model || "-")}</div>
                 <div style="font-size:11px;color:#64748b;margin-top:1px">${escHtml(c.section || "-")}</div>
               </div>
-              <span style="flex:0 0 auto;font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;background:${inStock ? '#dcfce7' : '#fee2e2'};color:${inStock ? '#15803d' : '#b91c1c'}">${inStock ? 'พร้อมส่ง' : 'หมดสต็อก'}</span>
+              <span style="flex:0 0 auto;font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;background:${badge.bg};color:${badge.fg}">${badge.t}</span>
             </div>
             <div style="display:flex;flex-wrap:wrap;gap:4px 10px;font-size:12px;color:#475569">
               <span>❄️ ${Number(c.btu || 0).toLocaleString()} BTU</span>
-              <span style="font-weight:800;color:#0284c7">฿${Number(c.price || 0).toLocaleString()}</span>
-              <span>คงเหลือ <strong style="color:${inStock ? '#16a34a' : '#dc2626'}">${Number(c.stock || 0)}</strong></span>
+              <span style="font-weight:800;color:#0284c7">ราคาเสนอ ฿${price.toLocaleString()}</span>
             </div>
-            ${code ? `<div style="font-size:11px;color:#94a3b8">SKU: ${escHtml(code)}</div>` : ''}
+            ${(hasCost || profit !== null) ? `
+            <div style="display:flex;flex-wrap:wrap;gap:4px 10px;font-size:11px;color:#64748b">
+              ${hasCost ? `<span>ต้นทุนฯ ฿${cost.toLocaleString()}</span>` : ''}
+              ${profit !== null ? `<span>กำไรฯ <strong style="color:${profit >= 0 ? '#16a34a' : '#dc2626'}">฿${profit.toLocaleString()}</strong></span>` : ''}
+            </div>` : ''}
+            ${code ? `<div style="font-size:11px;color:#94a3b8">รหัสอ้างอิง: ${escHtml(code)}</div>` : ''}
+            ${c.note ? `<div style="font-size:11px;color:#94a3b8">📝 ${escHtml(c.note)}</div>` : ''}
             <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;align-items:flex-start">
               <button data-ac-edit="${c.id}" class="btn light" style="padding:6px 10px;font-size:12px;font-weight:700">✏️ แก้ไข</button>
-              <button data-ac-addstock="${c.id}" class="btn primary" style="padding:6px 10px;font-size:12px;font-weight:700">+ เพิ่มเข้าคลัง</button>
+              <button data-ac-quote="${c.id}" class="btn primary" style="padding:6px 10px;font-size:12px;font-weight:700">📝 นำไปเสนอราคา</button>
               <details class="prod-card-menu">
                 <summary class="prod-cardmenu-trigger" title="เพิ่มเติม">⋯</summary>
                 <div class="prod-cardmenu-panel">
@@ -305,21 +323,14 @@ export function renderSettingsAcCatalog(el, ctx, goBack, navigate) {
     });
   }));
 
-  // ═══ ★ เพิ่มเข้าคลัง (per-item stock add — prompt จำนวน, localStorage only) ═══
-  el.querySelectorAll("[data-ac-addstock]").forEach(btn => btn.addEventListener("click", () => {
-    const id = Number(btn.dataset.acAddstock);
-    const list = _readCatalog();
-    const idx = list.findIndex(c => Number(c.id) === id);
-    if (idx < 0) return;
-    const cur = Number(list[idx].stock || 0);
-    const ans = prompt(`เพิ่มจำนวนเข้าคลัง — ${list[idx].model}\nคงเหลือปัจจุบัน: ${cur} เครื่อง\n\nกรอกจำนวนที่จะเพิ่ม (ใส่ค่าติดลบเพื่อลด):`, "1");
-    if (ans === null) return;
-    const add = Number(String(ans).replace(/[^0-9.-]/g, ""));
-    if (!Number.isFinite(add) || add === 0) return;
-    list[idx].stock = Math.max(0, cur + add);
-    localStorage.setItem("bsk_ac_catalog", JSON.stringify(list));
-    if (ctx?.showToast) ctx.showToast(`${list[idx].model}: คงเหลือ ${list[idx].stock} เครื่อง ✅`);
-    rerender();
+  // ═══ ★ นำไปเสนอราคา — ไปหน้าใบเสนอราคา (navigation เท่านั้น — ไม่แตะคลัง/cart/billing) ═══
+  el.querySelectorAll("[data-ac-quote]").forEach(btn => btn.addEventListener("click", () => {
+    const id = Number(btn.dataset.acQuote);
+    const item = _readCatalog().find(c => Number(c.id) === id);
+    if (ctx?.showToast) ctx.showToast(`ไปที่หน้าใบเสนอราคา — เลือก "${item ? item.model : 'รุ่นนี้'}" เพิ่มได้เลย`);
+    // ไปหน้าใบเสนอราคา (ไม่ผูกสต็อก/ไม่ตัดคลัง — แคตตาล็อกนี้ใช้ทำราคาเท่านั้น)
+    if (ctx?.showRoute) ctx.showRoute("quotations");
+    else window.location.hash = "quotations";
   }));
 
   // ═══ ★ ปุ่ม "นำเข้า Excel" หลัก → trigger file input เดิม (ไม่ซ้ำ logic) ═══
@@ -327,12 +338,12 @@ export function renderSettingsAcCatalog(el, ctx, goBack, navigate) {
     document.getElementById("acCatalogFileInput")?.click();
   });
 
-  // ═══ ตั้งสต็อก 5 เครื่องทุกรุ่น ═══
+  // ═══ ตั้งค่าเริ่มต้นแคตตาล็อก — ทำให้ทุกรุ่นเป็น "พร้อมเสนอขาย" (ไม่ใช่สต็อกจริง) ═══
   document.getElementById("acSetStock5Btn")?.addEventListener("click", async () => {
-    if (!(await window.App?.confirm?.(`ตั้งสต็อก 5 เครื่องทุกรุ่น (${catalog.length} รุ่น)?\nทุกรุ่นจะแสดงว่า "พร้อมส่ง" ในหน้าลูกค้า`))) return;
-    const updated = catalog.map(c => ({ ...c, stock: 5 }));
+    if (!(await window.App?.confirm?.(`ตั้งค่าให้ทุกรุ่น (${catalog.length} รุ่น) เป็น "พร้อมเสนอขาย"?\n(แคตตาล็อกสำหรับทำราคา — ไม่ใช่สต็อกจริงในคลัง)`))) return;
+    const updated = catalog.map(c => ({ ...c, stock: Number(c.stock || 0) > 0 ? c.stock : 5 }));
     localStorage.setItem("bsk_ac_catalog", JSON.stringify(updated));
-    if (ctx?.showToast) ctx.showToast(`ตั้งสต็อก 5 เครื่องให้ ${updated.length} รุ่นแล้ว ✅`);
+    if (ctx?.showToast) ctx.showToast(`ตั้งค่าทุกรุ่นเป็น "พร้อมเสนอขาย" แล้ว ✅`);
     rerender();
   });
 

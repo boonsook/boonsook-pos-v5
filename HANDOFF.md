@@ -3,9 +3,10 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase air-stock-manager-safe-step — จัดการสต็อกแอร์ แยก 3 ประเภท, build 344)
-**Version:** 5.66.0 (build 344) — Phase air-stock-manager-safe-step (UI/localStorage เท่านั้น — ไม่แตะ auth/API/DB/billing/import-export format)
-**Previous:** 5.66.0 (build 343) — Phase inventory-action-menu + category-collapse (UI/markup/CSS — สินค้า/คลัง)
+**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase air-catalog-not-real-stock-correction — wording แคตตาล็อกทำราคา ไม่ใช่สต็อกจริง, build 345)
+**Version:** 5.66.0 (build 345) — Phase air-catalog-not-real-stock-correction (wording/UI เท่านั้น — ไม่ผูก products/POS, ไม่นับ stock จริง, ไม่แตะ billing/cart/Supabase/SQL)
+**Previous:** 5.66.0 (build 344) — Phase air-stock-manager-safe-step (จัดการสต็อกแอร์ แยก 3 ประเภท — localStorage)
+**Pre-prev-1d:** 5.66.0 (build 343) — Phase inventory-action-menu + category-collapse (UI/markup/CSS — สินค้า/คลัง)
 **Pre-prev-1c:** 5.66.0 (build 342) — Phase inventory-mobile-polish (UI/CSS safe wins — สินค้า/คลัง)
 **Pre-prev-1b:** 5.66.0 (build 341) — Phase sales-doc-mobile (CSS/markup — เอกสารขาย)
 **Pre-prev-1:** 5.66.0 (build 340) — Phase mobile-layout follow-up #3 (AI entry UX inline แทน FAB)
@@ -17,6 +18,25 @@
 > 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.64** (client helper เท่านั้น)
 > 🏁 **FINANCE AUDIT CLOSED ที่ build 334** — ครบทุกข้อ: #1✓✓ #2✓ #3✓ #4✓ #5✓ #6✓ #6b✓ #7✓(dead code ลบแล้ว) #8✓ #9✓
 > ✅ **#9 period-lock DB trigger VERIFIED** (gangboo query DB, 2026-06-01): `journal_entries` → trigger `trg_check_period_locked` → function `check_period_not_locked` → insert เข้า period ที่ locked ถูกกันที่ DB จริง (เส้นแบ่งความปลอดภัยตาม CLAUDE.md 4.3)
+
+---
+
+## 🛠️ Phase air-catalog-not-real-stock-correction — แคตตาล็อกทำราคา ≠ สต็อกจริง (build 345)
+
+**Context (owner clarify):** หน้าแอร์ (Settings → ac-catalog) **ไม่ใช่สต็อกจริงในร้าน** — เป็น **แคตตาล็อกสำหรับตั้งราคา/เลือกสินค้าไปทำใบเสนอราคา** ก่อนค่อยสั่งของหรือเพิ่มเข้าคลังจริงภายหลัง. build 344 ตั้งชื่อ "จัดการสต็อกแอร์" สื่อผิด → เฟสนี้แก้ wording.
+
+**Scope:** **wording/UI/UX เท่านั้น** — ❌ ไม่ผูก products/POS · ❌ ไม่รวมมูลค่าคลัง · ❌ ไม่นับ stock จริง · ❌ ไม่แตะ stock-core/billing/cart/Supabase/SQL · ❌ ไม่ migration. (ยังเป็น localStorage `bsk_ac_catalog` เดิม — คนละ store กับ products)
+
+**Fix (ac-catalog.js + ac-stock-form.js + menu.js):**
+1. หัวข้อ "จัดการสต็อกแอร์" → **"จัดการแคตตาล็อกแอร์"** + subtitle box "ใช้สำหรับตั้งราคา/ทำใบเสนอราคา — ไม่ใช่สต็อกจริงในคลัง" + menu label.
+2. wording: summary `มีสต็อก/หมดสต็อก` → `พร้อมเสนอขาย/ยังไม่เปิดขาย`; **ลบ "คงเหลือ"** จากการ์ด; ปุ่มเสี่ยง `ตั้งสต็อก 5 เครื่อง` → `ตั้งค่าเริ่มต้นแคตตาล็อก` (confirm เดิม, set พร้อมเสนอขาย); `+ เพิ่มเข้าคลัง` → `📝 นำไปเสนอราคา`.
+3. **`นำไปเสนอราคา` (`data-ac-quote`)** = navigation อย่างเดียว → `ctx.showRoute("quotations")` (fallback `location.hash`). **ไม่ตัดคลัง/ไม่ persist/ไม่แตะ cart** (เดิม `data-ac-addstock` prompt บวก stock — ลบทิ้งเพราะสื่อว่าเป็นคลังจริง).
+4. การ์ด: แบรนด์/รุ่น/BTU/**ราคาขายเสนอ**/**ต้นทุนประมาณการ**/**กำไรประมาณการ**(price−cost ถ้ามี cost)/รหัสอ้างอิง(sku)/หมายเหตุ + **badge 3 สถานะ**: `price≤0`→ต้องเช็คราคา(amber) · `price>0 && stock>0`→พร้อมเสนอขาย(green) · `price>0 && stock≤0`→เลิกขาย(gray).
+5. ฟอร์ม: `ราคาขาย`→`ราคาขายเสนอ`, `ต้นทุน`→`ต้นทุนประมาณการ`, `จำนวนสต็อก`→`สถานะเสนอขาย` (>0=พร้อมเสนอขาย; field key `stock` ภายในคงเดิม).
+
+**หมายเหตุ semantics:** field `stock` ในแคตตาล็อกนี้ถูก reframe เป็น **"สถานะเสนอขาย" (>0=เปิด)** ไม่ใช่จำนวนในคลัง — ไม่เปลี่ยน data key (กัน customer_dashboard ที่อ่าน `c.stock>0` เพื่อโชว์ "พร้อมส่ง" พัง). tabs 3 ประเภท + fallback "wall" + import/export 24-col คงเดิม.
+
+**Verify:** lint:errors 0 · unit **933** (14 `ac_stock_manager_guard.test.js`: rename+subtitle · misleading words removed (คงเหลือ/เพิ่มเข้าคลัง/มีสต็อก/หมดสต็อก/พร้อมส่ง) · offer wording · 3-state badge+cost/profit · นำไปเสนอราคา nav-only ไม่ mutate · setStock5 reworded+confirm · import/export ids · export 24-col · form fields · NOT wired to products/POS/API) · **mobile smoke 390×844 (temp, ลบแล้ว):** title+subtitle, badge 3 แบบ, กำไรฯแสดง, "นำไปเสนอราคา" → showRoute("quotations") + localStorage **ไม่เปลี่ยน**, ไม่มี h-overflow. **bump 344→345**.
 
 ---
 
