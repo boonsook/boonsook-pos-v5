@@ -3,15 +3,31 @@
 > 🆕 **เปิด session ใหม่? อ่าน [`CLAUDE_SESSION_HANDOFF.md`](CLAUDE_SESSION_HANDOFF.md) ก่อน** — มี state snapshot, capability limits, workflow patterns
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 
-**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase mobile-layout follow-up — AI FAB icon-only กันบังการ์ด Settings, build 338)
-**Version:** 5.66.0 (build 338) — Phase mobile-layout follow-up (CSS-only — ไม่แตะ business/API/accounting/auth/OCR)
-**Previous:** 5.66.0 (build 337) — Phase mobile-layout (แก้ overlap 4 จุด: filter/sidebar/FAB/table)
+**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase mobile-layout follow-up #2 — ซ่อน AI FAB ตาม route บนมือถือ, build 339)
+**Version:** 5.66.0 (build 339) — Phase mobile-layout follow-up #2 (CSS + 1 บรรทัด body.dataset.route — ไม่แตะ business/API/accounting/auth/OCR)
+**Previous:** 5.66.0 (build 338) — Phase mobile-layout follow-up (FAB icon-only)
+**Pre-prev:** 5.66.0 (build 337) — Phase mobile-layout (แก้ overlap 4 จุด: filter/sidebar/FAB/table)
 **Pre-prev2:** 5.65.0 (build 336) — Phase 92.66 (verify-slip แนบ Supabase JWT × 4 caller — client only, no SQL)
 **Pre-prev:** build 335 = 92.65 (AutoKey JWT) · 334 = 92.64 (VAT split Dr=Cr) · 333 = 92.63 (profit XSS/TZ + payroll log) · 332 = 92.62 recurring · 331 = 92.61 refund (+SQL ✓)
 
 > 🆕 **ไม่มี SQL/RLS/schema change ในเฟส 92.64** (client helper เท่านั้น)
 > 🏁 **FINANCE AUDIT CLOSED ที่ build 334** — ครบทุกข้อ: #1✓✓ #2✓ #3✓ #4✓ #5✓ #6✓ #6b✓ #7✓(dead code ลบแล้ว) #8✓ #9✓
 > ✅ **#9 period-lock DB trigger VERIFIED** (gangboo query DB, 2026-06-01): `journal_entries` → trigger `trg_check_period_locked` → function `check_period_not_locked` → insert เข้า period ที่ locked ถูกกันที่ DB จริง (เส้นแบ่งความปลอดภัยตาม CLAUDE.md 4.3)
+
+---
+
+## 🛠️ Phase mobile-layout follow-up #2 — ซ่อน AI FAB ตาม route บนมือถือ (build 339)
+
+**Issue หลัง build 338:** icon-only ช่วยให้เล็กลง แต่ `#bs-ai-fab` ยัง `position:fixed` มุมขวาล่าง → **ลอยทับ content** หน้า Settings/เพิ่มเติม (การ์ด "สำรอง / กู้คืน config") เพราะ content scroll ผ่าน**หลัง** fixed FAB ได้ (เพิ่ม bottom padding อย่างเดียวไม่พอ).
+
+**Fix (route-gated visibility — CSS + 1 บรรทัด DOM-state, ไม่แตะ API/Auth/business):**
+- `main.js` `showRoute(route)`: เพิ่ม `document.body.dataset.route = route;` (หลัง `state.currentRoute = route`) → เปิดเผย route ปัจจุบันบน `<body>` ทุกครั้งที่เปลี่ยนหน้า (รวม initial load).
+- `ai-chat-widget.js` `@media (max-width:768px)`: `#bs-ai-fab { display:none }` เป็นค่าเริ่มต้น + **allowlist** โชว์เฉพาะหน้ากรอกงานจริง:
+  `body[data-route="solar"|"ac_install"|"ai_sales"|"ac_shop"] #bs-ai-fab` และ `body[data-route^="service_"]:not([data-route="service_jobs"]) #bs-ai-fab` → `display:flex`.
+  (`service_request` + `service_<type>` ทั้ง 9 เข้าผ่าน prefix `service_`; `service_jobs` = list ถูกกัน). allowlist **ไม่ใช้ `!important`** → กฎซ่อนตอน drawer/sidebar/modal เปิด (ที่เป็น `!important`) ยัง override ได้ปกติ.
+- desktop ไม่กระทบ (อยู่ใน `@media ≤768px`).
+
+**Verify:** lint:errors 0 · unit **906** (+2 guards: body.dataset.route + route allowlist/no-important) · Playwright @390×844 ตรวจ computed `display` ต่อ route: hidden = dashboard/**settings**/expenses/**service_jobs**/customers · shown = service_request/service_repair_ac/solar/ac_install/ai_sales/ac_shop. **bump 338→339** (data-app-build + style/main/boot/selfheal `?v=339` + ai-chat-widget `?v=8` + sw cache-v339; semver คง 5.66.0).
 
 ---
 

@@ -661,6 +661,10 @@ async function showRoute(route){
 
   state.currentRoute = route;
 
+  // ★ Phase mobile-layout: เปิดเผย route ปัจจุบันบน <body> ให้ CSS อ้างได้
+  //   (ใช้คุมว่าจะโชว์ AI FAB บนมือถือเฉพาะหน้า "กรอกงานจริง" — กันบัง content หน้าอื่น เช่น Settings)
+  document.body.dataset.route = route;
+
   // ★ บันทึก route ล่าสุดไว้ใน localStorage + URL hash เพื่อกดรีเฟรชแล้วอยู่หน้าเดิม
   try { localStorage.setItem("bsk_last_route", route); } catch(e){}
   // ★ รักษา query string ไว้ใน hash (เช่น #products?cat=X&addNew=1)

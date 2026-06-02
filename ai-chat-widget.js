@@ -226,6 +226,15 @@
   /* มือถือ: ยก FAB ขึ้นเหนือ bottom nav (fixed bottom:0, สูง ~52px) กันทับ */
   @media (max-width: 768px) {
     #bs-ai-fab { bottom: calc(72px + env(safe-area-inset-bottom, 0px)); right: 16px; padding: 12px 16px; }
+    /* ซ่อน FAB เป็นค่าเริ่มต้นบนมือถือ — fixed FAB ลอยทับ content (เช่นการ์ด สำรอง/กู้คืน หน้า Settings)
+       แม้เป็น icon-only. โชว์เฉพาะ route ที่ "กรอกงานจริง" ซึ่ง AI ช่วยกรอกมีประโยชน์.
+       (rule นี้ไม่มี !important → ยังถูก override ด้วยกฎซ่อนตอน drawer/sidebar/modal เปิดด้านบน) */
+    #bs-ai-fab { display: none; }
+    body[data-route="solar"] #bs-ai-fab,
+    body[data-route="ac_install"] #bs-ai-fab,
+    body[data-route="ai_sales"] #bs-ai-fab,
+    body[data-route="ac_shop"] #bs-ai-fab,
+    body[data-route^="service_"]:not([data-route="service_jobs"]) #bs-ai-fab { display: flex; }
   }
   @media (max-width: 480px) {
     #bs-ai-modal {

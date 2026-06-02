@@ -7,6 +7,12 @@
 
 ---
 
+## 5.66.0 (build 339) — 2026-06-02 Phase mobile-layout follow-up #2 — ซ่อน AI FAB ตาม route (มือถือ)
+
+- **fix(mobile):** icon-only ยังไม่พอ — fixed FAB ลอยทับ content (content scroll ผ่านหลัง FAB ได้) → ซ่อน `#bs-ai-fab` **เป็นค่าเริ่มต้นบนมือถือ** (`@media ≤768px { display:none }`) แล้วโชว์เฉพาะ route ที่ "กรอกงานจริง": `solar` / `ac_install` / `ai_sales` / `ac_shop` / `service_*` (ยกเว้น `service_jobs` ที่เป็น list) → Settings/เพิ่มเติม/dashboard/expenses ไม่มี FAB บังการ์ด "สำรอง / กู้คืน config" อีก
+- **mechanism:** `main.js` `showRoute()` set `document.body.dataset.route = route` → CSS อ้าง `body[data-route="…"] #bs-ai-fab`. allowlist ไม่ใช้ `!important` → กฎซ่อนตอน drawer/sidebar/modal เปิดยัง override ได้
+- **scope:** CSS + 1 บรรทัด DOM-state เท่านั้น — ไม่แตะ API/Auth/business · **test:** +2 `mobile_layout_guard.test.js` · **pwa-cache:** bump 338→339
+
 ## 5.66.0 (build 338) — 2026-06-02 Phase mobile-layout follow-up — AI FAB บังการ์ด Settings
 
 - **fix(mobile):** AI FAB ยังบังการ์ดเนื้อหาหน้า Settings/เพิ่มเติม (โดยเฉพาะ "สำรอง / กู้คืน config") → `@media max-width:480px` ทำ `#bs-ai-fab` เป็น **icon-only วงกลม 52px** (ซ่อน `.bs-fab-label` เหลือ 🤖 + คง `aria-label`/`title` สำหรับ a11y/tooltip)

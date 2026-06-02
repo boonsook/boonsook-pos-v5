@@ -96,3 +96,22 @@ test("mobile .page has extra bottom padding so last card clears the FAB + bottom
   assert.match(css, /\.page\s*\{\s*padding:\s*12px 12px 160px/);
   assert.match(css, /\.page\s*\{\s*padding:\s*10px 10px 150px/);
 });
+
+// ── build 339 follow-up: FAB is route-gated on mobile (hidden except AI form pages) ──
+test("showRoute publishes the current route onto <body> for CSS to read", () => {
+  // body.dataset.route is set right after state.currentRoute = route
+  assert.match(mainJs, /state\.currentRoute\s*=\s*route;[\s\S]{0,200}?document\.body\.dataset\.route\s*=\s*route;/);
+});
+
+test("mobile FAB is hidden by default and shown only on AI form routes (Settings etc. stay clear)", () => {
+  const m768 = fab.slice(fab.indexOf("@media (max-width: 768px)"), fab.indexOf("@media (max-width: 480px)"));
+  // default: hidden on mobile
+  assert.match(m768, /#bs-ai-fab\s*\{\s*display:\s*none;?\s*\}/, "FAB must default to display:none on mobile");
+  // allowlist: shown on the real form-filling routes
+  assert.match(m768, /body\[data-route="solar"\] #bs-ai-fab/);
+  assert.match(m768, /body\[data-route="ac_install"\] #bs-ai-fab/);
+  assert.match(m768, /body\[data-route="ai_sales"\] #bs-ai-fab/);
+  assert.match(m768, /body\[data-route\^="service_"\]:not\(\[data-route="service_jobs"\]\) #bs-ai-fab\s*\{\s*display:\s*flex/);
+  // the show rule must NOT use !important (so drawer/sidebar !important hides still win)
+  assert.ok(!/display:\s*flex\s*!important/.test(m768), "allowlist show must not use !important");
+});
