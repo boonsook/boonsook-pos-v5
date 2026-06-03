@@ -209,4 +209,35 @@ test("layout source has no obvious horizontal-overflow hazards", () => {
   // drill-down modal must sit above bottom nav / FAB (z-index high, fixed overlay)
   assert.match(src, /\.team-modal\{[^}]*position:fixed/, "modal overlay is fixed");
   assert.match(src, /\.team-modal\{[^}]*z-index:9995/, "modal must layer above bottom nav/FAB");
+  // build 363: stats-bar CSS lives in the shared injected style block (not an inline <style>)
+  assert.match(src, /\.team-stats-bar\{/, "stats bar style must be in the shared block");
+  assert.match(src, /\.team-stats-chips\{[^}]*flex-wrap:wrap/, "stats chips must wrap");
+});
+
+// ── build 363: aggregate summary (read-only, reduce-only) ─────────────────────
+test("summarizeStats counts by status and sums amount for quotes only", () => {
+  assert.match(src, /function summarizeStats\(/, "has a pure summarizeStats helper");
+  assert.match(src, /byStatus/, "returns a byStatus breakdown");
+  assert.match(src, /String\(it\?\.status \|\| "-"\)\.toLowerCase\(\)/, "counts by lowercased status");
+  assert.match(src, /amountSum\s*=\s*type === "quote"\s*\?/, "amountSum only for quote, null otherwise");
+  // scope checks to the summarizeStats function body (up to first column-0 close brace)
+  const body = (src.match(/function summarizeStats\([\s\S]*?\n}/) || [""])[0];
+  assert.ok(body.includes(".reduce("), "summarizeStats uses reduce (read-only)");
+  assert.ok(!/\.sort\(|\.push\(|\.splice\(/.test(body), "summarizeStats must not sort/mutate");
+  assert.ok(!/(fetch|xhr|\.post\(|\.insert\()/.test(body), "summarizeStats must not fetch");
+});
+
+test("aggregate numbers always carry the ≤50 / not-whole-system label", () => {
+  assert.match(src, /≤50 ไม่ใช่ยอดทั้งระบบ/, "must label aggregates as loaded ≤50, not whole system");
+  assert.match(src, /function statsBarHtml\(/, "has a stats bar renderer");
+  assert.match(src, /statsBarHtml\(sorted, cat\.type\)/, "list stats bar is computed from the filtered+sorted list");
+  // no floating 'total sales' style label that implies a real system-wide total
+  assert.ok(!src.includes("ยอดขายทั้งหมด"), "must not show a misleading whole-system sales total");
+  assert.ok(!src.includes("ยอดขายรวมทั้งระบบ"), "must not imply a system-wide sales total");
+});
+
+test("markdown export includes the stats block with the ≤50 label", () => {
+  assert.match(src, /function mdStats\(/, "export has a markdown stats block");
+  assert.match(src, /สรุปสถานะ/, "summary lists status breakdown");
+  assert.match(src, /const stats = mdStats\(items, cat\.type\)/, "buildListSummary prepends the stats block");
 });

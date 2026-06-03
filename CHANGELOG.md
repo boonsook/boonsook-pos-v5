@@ -7,6 +7,13 @@
 
 ---
 
+## 5.66.0 (build 363) — 2026-06-03 Phase 363 team-center-aggregate-summary-readonly — สรุป aggregate (read-only)
+
+- **feat:** เพิ่ม pure helper `summarizeStats(items, type)` → `{byStatus, count, amountSum}` (reduce อ่านอย่างเดียว; `amountSum` เฉพาะ quote, type อื่น null)
+- **feat:** **stats bar** เหนือ list หมวดที่ผูกวันที่ (ใบเสนอราคา/งานบริการ) คิดจากรายการที่กรอง (search+date+sort): chips นับตามสถานะ (เรียง `statusRank`) + chip ยอดรวม(ที่กรอง) เฉพาะ quote + ป้ายบังคับ **"📊 จากรายการที่กรอง · ข้อมูลที่โหลดล่าสุด ≤50 ไม่ใช่ยอดทั้งระบบ"**; ไม่มีรายการ → ไม่โชว์ chip (ไม่ hardcode 0)
+- **feat:** markdown export (`buildListSummary`) มี stats block + ป้าย ≤50 เหนือรายการ; overview เพิ่ม mini status breakdown ของ quotations + ป้ายเดียวกัน
+- **scope:** CSS อยู่ใน shared style block (`.team-stats-bar`, wrap ได้) · ❌ fetch/POST/PATCH/PUT/DELETE · ❌ mutate state (reduce-only; sort เดิม clone `[...items]`) · ❌ POS/stock/accounting/payroll/service · admin-only · **test:** guard 18→21, unit 1042 · **pwa-cache:** bump 362→363
+
 ## 5.66.0 (build 362) — 2026-06-03 Phase 362 team-center-datepreset-input-clear — read-only UX fix
 
 - **fix:** กดปุ่ม date preset (วันนี้/7วัน/...) หลังพิมพ์ custom from/to → เคลียร์ค่าช่อง `#teamDateFrom`/`#teamDateTo` ใน DOM ด้วย (เดิม reset แค่ตัวแปร `_dateFrom`/`_dateTo` แต่ input ยังโชว์ค่าค้างเพราะ `refreshListBody` re-render เฉพาะ `#teamListBody`) — **cosmetic, การกรองเดิมถูกต้องอยู่แล้ว**

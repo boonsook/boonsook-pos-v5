@@ -4,9 +4,10 @@
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 > ⚠️ `CLAUDE_SESSION_HANDOFF.md` / `CLAUDE_CODE_PROMPT.md` / `CLAUDE_CODE_WORKFLOW.md` = **superseded** (historical) — เป็น redirect ไป `IMPLEMENT_TEAM_PROTOCOL.md` แล้ว อย่าใช้เป็น workflow หลัก
 
-**อัปเดตล่าสุด:** 3 มิถุนายน 2026 (Phase 362 team-center-datepreset-input-clear — read-only UX fix, build 362) · ⏸️ **STOP — รอ owner/Codex review ก่อนเริ่ม Phase 363**
-**Version:** 5.66.0 (build 362) — Phase 362 team-center-datepreset-input-clear (cosmetic fix: กด date preset แล้วเคลียร์ค่าช่อง custom from/to #teamDateFrom/#teamDateTo ใน DOM ด้วย — เดิม reset แค่ตัวแปร input เลยโชว์ค่าค้าง; ไม่แก้ logic filter/sort/search/export; read-only คงเดิม. guard 17→18, unit 1039)
-**Previous:** 5.66.0 (build 361) — Phase 361 team-center-date-range-and-export-readonly (date-range filter [preset+custom from/to] กรอง created_at ใน memory; overview recent groups; export Markdown → clipboard เท่านั้น; guard 17)
+**อัปเดตล่าสุด:** 3 มิถุนายน 2026 (Phase 363 team-center-aggregate-summary-readonly — สรุป aggregate read-only, build 363) · ⏸️ **STOP — รอ owner/Codex review ก่อนเริ่ม Phase 364**
+**Version:** 5.66.0 (build 363) — Phase 363 team-center-aggregate-summary-readonly (pure summarizeStats→{byStatus,count,amountSum[quote เท่านั้น]}; stats bar เหนือ list หมวด quote/job คิดจากรายการที่กรอง [search+date+sort] = chips นับตามสถานะ+ยอดรวม(ที่กรอง) quote + ป้ายบังคับ "≤50 ไม่ใช่ยอดทั้งระบบ"; markdown export มี stats block; overview mini breakdown ของ quotations + ป้ายเดียวกัน; ไม่มีรายการ→ไม่โชว์ chip. reduce-only ไม่ mutate; CSS ใน shared block. ❌ fetch/POST/PATCH/PUT/DELETE · ❌ POS/stock/accounting/payroll/service · admin-only. guard 18→21, unit 1042)
+**Previous:** 5.66.0 (build 362) — Phase 362 team-center-datepreset-input-clear (cosmetic: กด date preset แล้วเคลียร์ค่าช่อง custom from/to ใน DOM; guard 18)
+**Pre-prev-e0:** 5.66.0 (build 361) — Phase 361 team-center-date-range-and-export-readonly (date-range filter [preset+custom from/to] กรอง created_at ใน memory; overview recent groups; export Markdown → clipboard เท่านั้น; guard 17)
 **Pre-prev-d0:** 5.66.0 (build 360) — Phase 360 team-center-list-search-polish (search box + sort [clone ก่อน sort] + reorder cards + chips rows + prompt บริบท; guard 14)
 **Pre-prev-s0:** 5.66.0 (build 359) — Phase 359 team-center-owner-action-surface (filter chips + drill-down modal read-only + prompt generator clipboard; guard 12)
 **Pre-prev-u0:** 5.66.0 (build 358) — Phase 358 team-center-ui-polish-readonly (game/avatar board → owner dashboard ด้วย work cards จาก ctx.state; ลบ avatar/room/map; chat → "บันทึกย่อ/Draft"; layout overflow-safe; guard 9)

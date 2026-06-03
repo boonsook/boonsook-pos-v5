@@ -122,6 +122,21 @@ function amountOf(item, type) {
   return 0;
 }
 
+// ป้ายบังคับสำหรับทุกตัวเลข aggregate — ข้อมูลใน state เก็บแค่ ≤50 ล่าสุด ไม่ใช่ยอดทั้งระบบ
+const LOADED_LIMIT_NOTE = "ข้อมูลที่โหลดล่าสุด ≤50 ไม่ใช่ยอดทั้งระบบ";
+
+// pure: นับตามสถานะ + ยอดรวม (อ่านอย่างเดียว — reduce เท่านั้น, ห้าม sort/mutate)
+function summarizeStats(items, type) {
+  const list = items || [];
+  const byStatus = list.reduce((acc, it) => {
+    const k = String(it?.status || "-").toLowerCase();
+    acc[k] = (acc[k] || 0) + 1;
+    return acc;
+  }, {});
+  const amountSum = type === "quote" ? list.reduce((s, it) => s + quoteTotal(it), 0) : null;
+  return { byStatus, count: list.length, amountSum };
+}
+
 // clone ก่อน sort เสมอ — ห้าม mutate array เดิมใน state
 function sortItems(items, sort, type) {
   const arr = [...items];
@@ -241,6 +256,9 @@ function injectTeamCenterStyles() {
     .team-recent-h{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px;font-weight:900;color:#e2e8f0}
     .team-recent-h button{border:0;background:none;color:#7dd3fc;font-weight:800;font-size:11.5px;cursor:pointer;padding:0}
     .team-listbar{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+    .team-stats-bar{border:1px solid var(--tc-line);background:#06243a;border-radius:10px;padding:10px 12px;margin-bottom:10px;display:flex;flex-direction:column;gap:7px}
+    .team-stats-chips{display:flex;flex-wrap:wrap;gap:6px}
+    .team-stats-note{font-size:10.5px;font-weight:800;color:#fbbf24;line-height:1.35}
     .team-list{display:flex;flex-direction:column;gap:8px}
     .team-row{display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:1px solid var(--tc-line);background:#072133;border-radius:10px;padding:11px 13px;cursor:pointer;font:inherit;color:inherit;min-height:48px}
     .team-row:hover{border-color:rgba(56,189,248,.55);background:#082a40}
@@ -334,6 +352,23 @@ function chip(cls, text) {
   return `<span class="team-chip ${cls}">${escHtml(text)}</span>`;
 }
 
+// stats bar (อ่านอย่างเดียว) — chips นับตามสถานะ (เรียง statusRank) + ยอดรวมเฉพาะ quote + ป้าย ≤50
+// ไม่มีรายการ → คืน "" (ไม่โชว์ chip, ห้าม hardcode 0)
+function statsBarHtml(items, type, noteCtx) {
+  if (!items || items.length === 0) return "";
+  const { byStatus, amountSum } = summarizeStats(items, type);
+  const statusChips = Object.keys(byStatus)
+    .sort((a, b) => statusRank(a) - statusRank(b))
+    .map(k => chip("status", `${k}: ${byStatus[k]}`))
+    .join("");
+  const amountChip = (type === "quote" && amountSum !== null) ? chip("amount", `ยอดรวม(ที่กรอง) ${money(amountSum)}`) : "";
+  const ctxNote = noteCtx || "จากรายการที่กรอง";
+  return `<div class="team-stats-bar">
+      <div class="team-stats-chips">${statusChips}${amountChip}</div>
+      <div class="team-stats-note">📊 ${escHtml(ctxNote)} · ${escHtml(LOADED_LIMIT_NOTE)}</div>
+    </div>`;
+}
+
 // row รายการจริง
 function rowHtml(item, type, mini) {
   const id = String(item?.id ?? "-");
@@ -386,11 +421,24 @@ function contextLabel() {
   return bits.join(" · ");
 }
 
+// stats เป็น markdown (หัวของ summary) — บรรทัดสรุปสถานะ + ยอดรวม(ที่กรอง) เฉพาะ quote + ป้าย ≤50
+function mdStats(items, type) {
+  if (!items || items.length === 0) return "";
+  const { byStatus, amountSum } = summarizeStats(items, type);
+  const statusLine = Object.keys(byStatus)
+    .sort((a, b) => statusRank(a) - statusRank(b))
+    .map(k => `${k}: ${byStatus[k]}`)
+    .join(" · ");
+  const amountLine = (type === "quote" && amountSum !== null) ? `\n**ยอดรวม(ที่กรอง):** ${money(amountSum)}` : "";
+  return `**สรุปสถานะ:** ${statusLine}${amountLine}\n_📊 จากรายการที่กรอง · ${LOADED_LIMIT_NOTE}_\n\n`;
+}
+
 function buildListSummary(cat, items) {
   const head = `## ${cat.title} (${items.length} รายการ) — ${contextLabel()}`;
+  const stats = mdStats(items, cat.type);
   const body = items.slice(0, ROW_CAP).map(it => mdItemLine(it, cat.type)).join("\n");
   const more = items.length > ROW_CAP ? `\n_…แสดง ${ROW_CAP} จาก ${items.length}_` : "";
-  return `${head}\n${body || "- (ไม่มีรายการ)"}${more}\n\n_อ่านอย่างเดียวจากศูนย์ทีม AI — ไม่ใช่เอกสารทางการ_`;
+  return `${head}\n${stats}${body || "- (ไม่มีรายการ)"}${more}\n\n_อ่านอย่างเดียวจากศูนย์ทีม AI — ไม่ใช่เอกสารทางการ_`;
 }
 
 function buildOverviewSummary(state) {
@@ -457,6 +505,8 @@ function renderOverview(state) {
       }).join("")}
     </div>
 
+    ${quotes && quotes.length ? `<div class="team-section-title" style="margin-top:6px">🧾 ใบเสนอราคา — สรุปตามสถานะ</div>${statsBarHtml(quotes, "quote", "ใบเสนอราคาที่โหลด (ทุกสถานะ)")}` : ""}
+
     <div class="team-section-title" style="margin-top:6px">🕒 ล่าสุด <small>3 รายการล่าสุดต่อหมวด (อ่านอย่างเดียว)</small></div>
     <div class="team-recent-grid">
       ${groups.map(g => {
@@ -488,7 +538,10 @@ function renderListBody(state, key) {
   const shown = sorted.slice(0, ROW_CAP);
   const truncated = sorted.length > ROW_CAP;
   const summary = buildListSummary(cat, sorted);
+  // stats bar เฉพาะหมวดที่ผูกวันที่ (ใบเสนอราคา/งานบริการ) — คิดจาก sorted (ผ่าน search+date+sort แล้ว)
+  const statsBar = typeHasDate(cat.type) ? statsBarHtml(sorted, cat.type) : "";
   return `
+    ${statsBar}
     <div class="team-listbar">
       <span class="team-hint">แสดง ${shown.length} จาก ${sorted.length} รายการที่ตรงเงื่อนไข</span>
       <button type="button" class="team-link-btn" data-team-copy="${escHtml(summary)}">📋 คัดลอกสรุป (Markdown)</button>
