@@ -7,6 +7,13 @@
 
 ---
 
+## 5.66.0 (build 358) — 2026-06-03 Phase 358 team-center-ui-polish-readonly — ปรับ "ศูนย์ทีม AI" เป็น owner dashboard (ยัง read-only)
+
+- **ui:** เปลี่ยนหน้า **"ศูนย์ทีม AI"** จาก game/avatar board → **owner dashboard** ด้วย work cards จาก `ctx.state` จริง: รออนุมัติใบเสนอราคา / งานที่ต้องดู / งานบริการ-แจ้งซ่อม / **งานแอร์จากแคตตาล็อก** (reuse `parseAirJobMeta`) / ลูกค้า / สินค้า / เอกสารล่าสุด — กดการ์ด → `showRoute` ไปหน้าจริง
+- **honesty:** field ที่ไม่มีจริง → "ยังไม่มีข้อมูล" (ไม่ hardcode 0) · ลบ avatar/room/desk/map/dot ออกหมด · integration 6 ช่อง = placeholder **"ยังไม่เชื่อมต่อ · รอ owner อนุมัติ"** (ไม่มี OAuth/token/connector) · ผู้ช่วย AI = label **"ตัวอย่าง"** · Team Chat → **"บันทึกย่อ/Draft ในหน้านี้เท่านั้น"** (ไม่ส่งหา AI/ไม่ save DB)
+- **layout:** overflow-safe — auto-fill `minmax()` grids, `min-width:0`, `word-break`, `max-width:100%`, ไม่ใช้ `vw`, มี mobile breakpoint 640px
+- **scope:** ❌ ไม่ fetch/POST/PATCH/PUT/DELETE · ❌ ไม่ mutate state · ❌ ไม่แตะ POS/stock/accounting/service workflow · ❌ ไม่เปิด sales/customer · **test:** guard 8→9 (เพิ่ม layout-overflow), unit 1030 · **pwa-cache:** bump 357→358
+
 ## 5.66.0 (build 357) — 2026-06-03 Phase 357 team-center-readonly — หน้าใหม่ "ศูนย์ทีม AI" (admin-only, read-only)
 
 - **feat:** เพิ่มหน้า **"🧠 ศูนย์ทีม AI"** (route `team_center`, `modules/team_command_center.js`) — dashboard ภาพรวมทีมสำหรับเจ้าของ แบบ **read-only** ดึงตัวเลขจาก `ctx.state` ที่โหลดแล้วเท่านั้น (ใบเสนอราคารออนุมัติ / งานช่างเปิด / บิลวันนี้ / ลูกค้า / สินค้า)
