@@ -7,6 +7,11 @@
 
 ---
 
+## 5.66.0 (build 362) — 2026-06-03 Phase 362 team-center-datepreset-input-clear — read-only UX fix
+
+- **fix:** กดปุ่ม date preset (วันนี้/7วัน/...) หลังพิมพ์ custom from/to → เคลียร์ค่าช่อง `#teamDateFrom`/`#teamDateTo` ใน DOM ด้วย (เดิม reset แค่ตัวแปร `_dateFrom`/`_dateTo` แต่ input ยังโชว์ค่าค้างเพราะ `refreshListBody` re-render เฉพาะ `#teamListBody`) — **cosmetic, การกรองเดิมถูกต้องอยู่แล้ว**
+- **scope:** ไม่แก้ logic filter/sort/search/export · read-only คงเดิม · ❌ fetch/POST/PATCH/PUT/DELETE · ❌ mutate state · ❌ POS/stock/accounting/payroll/service · admin-only · **test:** +1 regression (guard 17→18), unit 1039 · **pwa-cache:** bump 361→362
+
 ## 5.66.0 (build 361) — 2026-06-03 Phase 361 team-center-date-range-and-export-readonly — เพิ่ม date-range + recent groups + export (read-only)
 
 - **feat:** **date-range filter** ในมุมมอง list หมวดที่ผูกวันที่ (ใบเสนอราคา/งานบริการ) — preset วันนี้/7วัน/30วัน/เดือนนี้/ทั้งหมด + custom from/to; กรองจาก `created_at` เดิมใน memory (`dateInRange` ใช้ `dateKeyBkk`), ไม่ fetch

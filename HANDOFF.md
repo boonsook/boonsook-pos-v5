@@ -4,9 +4,10 @@
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 > ⚠️ `CLAUDE_SESSION_HANDOFF.md` / `CLAUDE_CODE_PROMPT.md` / `CLAUDE_CODE_WORKFLOW.md` = **superseded** (historical) — เป็น redirect ไป `IMPLEMENT_TEAM_PROTOCOL.md` แล้ว อย่าใช้เป็น workflow หลัก
 
-**อัปเดตล่าสุด:** 3 มิถุนายน 2026 (Phase 361 team-center-date-range-and-export-readonly — เพิ่ม date-range/recent/export, build 361) · ⏸️ **STOP — รอ owner/Codex review ก่อนเริ่ม Phase 362**
-**Version:** 5.66.0 (build 361) — Phase 361 team-center-date-range-and-export-readonly (date-range filter [วันนี้/7วัน/30วัน/เดือนนี้/ทั้งหมด + custom from/to] กรองจาก created_at ใน memory เฉพาะหมวดใบเสนอราคา/งานบริการ; overview recent groups อ่านอย่างเดียว [งาน/เอกสาร/ลูกค้า/สินค้า ล่าสุด top3]; export Markdown buildListSummary/buildOverviewSummary → clipboard เท่านั้น ไม่สร้างไฟล์/ไม่ upload/ไม่ POST. drill-down ยัง read-only; sort clone [...items]. ❌ fetch/POST/PATCH/PUT/DELETE · ❌ mutate state · ❌ POS/stock/accounting/payroll/service · ไม่เปิด sales/customer. guard 14→17, unit 1038)
-**Previous:** 5.66.0 (build 360) — Phase 360 team-center-list-search-polish (search box + sort [clone ก่อน sort] + reorder cards + chips rows + prompt บริบท; guard 14)
+**อัปเดตล่าสุด:** 3 มิถุนายน 2026 (Phase 362 team-center-datepreset-input-clear — read-only UX fix, build 362) · ⏸️ **STOP — รอ owner/Codex review ก่อนเริ่ม Phase 363**
+**Version:** 5.66.0 (build 362) — Phase 362 team-center-datepreset-input-clear (cosmetic fix: กด date preset แล้วเคลียร์ค่าช่อง custom from/to #teamDateFrom/#teamDateTo ใน DOM ด้วย — เดิม reset แค่ตัวแปร input เลยโชว์ค่าค้าง; ไม่แก้ logic filter/sort/search/export; read-only คงเดิม. guard 17→18, unit 1039)
+**Previous:** 5.66.0 (build 361) — Phase 361 team-center-date-range-and-export-readonly (date-range filter [preset+custom from/to] กรอง created_at ใน memory; overview recent groups; export Markdown → clipboard เท่านั้น; guard 17)
+**Pre-prev-d0:** 5.66.0 (build 360) — Phase 360 team-center-list-search-polish (search box + sort [clone ก่อน sort] + reorder cards + chips rows + prompt บริบท; guard 14)
 **Pre-prev-s0:** 5.66.0 (build 359) — Phase 359 team-center-owner-action-surface (filter chips + drill-down modal read-only + prompt generator clipboard; guard 12)
 **Pre-prev-u0:** 5.66.0 (build 358) — Phase 358 team-center-ui-polish-readonly (game/avatar board → owner dashboard ด้วย work cards จาก ctx.state; ลบ avatar/room/map; chat → "บันทึกย่อ/Draft"; layout overflow-safe; guard 9)
 **Pre-prev-t0:** 5.66.0 (build 357) — Phase 357 team-center-readonly (หน้าใหม่ `team_center` admin-only + read-only dashboard; integration placeholder; agent concept; chat local draft; +8 guards)

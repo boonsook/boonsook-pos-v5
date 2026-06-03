@@ -135,6 +135,12 @@ test("date-range filter works in-memory from ctx.state created_at", () => {
   assert.ok(!/dateInRange[\s\S]{0,300}(fetch|xhr|\.post|\.insert)/.test(src), "date filter must not fetch");
 });
 
+// ── build 362: clicking a date preset clears the custom from/to inputs ────────
+test("clicking a date preset clears the custom from/to inputs", () => {
+  assert.match(src, /data-date-preset[\s\S]{0,260}teamDateFrom[\s\S]{0,40}\.value\s*=\s*""/,
+    "preset handler must clear the visible custom date inputs");
+});
+
 // ── recent groups (read-only) on the overview ─────────────────────────────────
 test("overview shows read-only recent groups for each category", () => {
   for (const g of ["งานล่าสุด", "เอกสารล่าสุด", "ลูกค้าล่าสุด", "สินค้าล่าสุด"]) {

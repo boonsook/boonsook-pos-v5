@@ -765,7 +765,12 @@ export function renderTeamCommandCenter(ctx) {
     const filterEl = e.target.closest("[data-filter]");
     if (filterEl) { _filter = filterEl.dataset.filter; _query = ""; _sort = "recent"; _datePreset = "all"; _dateFrom = ""; _dateTo = ""; renderView(); syncChips(); return; }
     const dateEl = e.target.closest("[data-date-preset]");
-    if (dateEl) { _datePreset = dateEl.dataset.datePreset; _dateFrom = ""; _dateTo = ""; refreshListBody(); syncDatePresets(); return; }
+    if (dateEl) {
+      _datePreset = dateEl.dataset.datePreset; _dateFrom = ""; _dateTo = "";
+      const dFrom = view.querySelector("#teamDateFrom"); if (dFrom) dFrom.value = "";
+      const dTo = view.querySelector("#teamDateTo"); if (dTo) dTo.value = "";
+      refreshListBody(); syncDatePresets(); return;
+    }
     const detailEl = e.target.closest("[data-detail]");
     if (detailEl) { openModal(detailEl.dataset.detail); return; }
     if (e.target.id === "teamModalOverlay" || e.target.closest("[data-modal-close]")) { closeModal(); return; }
