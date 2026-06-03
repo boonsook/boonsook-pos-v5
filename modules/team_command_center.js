@@ -82,6 +82,7 @@ const FILTERS = [
   { key: "all", label: "ทั้งหมด" },
   { key: "watch", label: "งานต้องดู" },
   { key: "approve", label: "รออนุมัติ" },
+  { key: "documents", label: "เอกสาร" },
   { key: "air", label: "งานแอร์" },
   { key: "customers", label: "ลูกค้า" },
   { key: "products", label: "สินค้า" },
@@ -119,6 +120,7 @@ function statusRank(s) {
 function amountOf(item, type) {
   if (type === "quote") return quoteTotal(item);
   if (type === "product") return Number(item?.price || 0);
+  if (type === "receipt" || type === "delivery") return Number(item?.grand_total || 0);
   return 0;
 }
 
@@ -145,6 +147,17 @@ function sortItems(items, sort, type) {
     case "amount": return arr.sort((a, b) => amountOf(b, type) - amountOf(a, type));
     case "status": return arr.sort((a, b) => statusRank(a?.status) - statusRank(b?.status) || tsOf(b?.created_at) - tsOf(a?.created_at));
     default:       return arr.sort((a, b) => tsOf(b?.created_at) - tsOf(a?.created_at)); // recent
+  }
+}
+
+// sort สำหรับ wrapper {it,type} ของหมวดเอกสารรวม — clone [...] ก่อนเสมอ, อ่าน w.it (ไม่ mutate)
+function sortDocs(wrappers, sort) {
+  const arr = [...wrappers];
+  switch (sort) {
+    case "oldest": return arr.sort((a, b) => tsOf(a.it?.created_at) - tsOf(b.it?.created_at));
+    case "amount": return arr.sort((a, b) => amountOf(b.it, b.type) - amountOf(a.it, a.type));
+    case "status": return arr.sort((a, b) => statusRank(a.it?.status) - statusRank(b.it?.status) || tsOf(b.it?.created_at) - tsOf(a.it?.created_at));
+    default:       return arr.sort((a, b) => tsOf(b.it?.created_at) - tsOf(a.it?.created_at)); // recent
   }
 }
 
@@ -184,6 +197,8 @@ function itemSearchText(item, type) {
     if (air?.isAir) parts.push("แอร์", "air", "air_catalog", air.btu, air.intentLabel, air.summary);
   } else if (type === "customer") parts.push(item?.name, item?.phone, item?.email);
   else if (type === "product") parts.push(item?.name, item?.sku, item?.barcode);
+  else if (type === "receipt") parts.push(item?.receipt_no, item?.customer_name);
+  else if (type === "delivery") parts.push(item?.inv_no, item?.customer_name);
   return parts.filter(Boolean).join(" ").toLowerCase();
 }
 
@@ -202,12 +217,13 @@ function categoryOf(state, key) {
     case "air":       return { type: "job",      title: "งานแอร์จากแคตตาล็อก",             items: serviceJobs ? airJobs(serviceJobs) : null };
     case "customers": return { type: "customer", title: "ลูกค้า",                          items: field(state, "customers") };
     case "products":  return { type: "product",  title: "สินค้า / คลัง",                   items: field(state, "products") };
+    case "documents": return { type: "documents", title: "เอกสาร (ใบเสนอราคา/ใบเสร็จ/ใบส่งของ)", items: mergeRecentDocs(state) };
     default:          return { type: "all", title: "ทั้งหมด", items: null };
   }
 }
 
-// date-range มีความหมายเฉพาะหมวดที่ผูกกับวันที่ (ใบเสนอราคา/งานบริการ)
-function typeHasDate(type) { return type === "quote" || type === "job"; }
+// date-range มีความหมายเฉพาะหมวดที่ผูกกับวันที่ (ใบเสนอราคา/งานบริการ/เอกสารรวม)
+function typeHasDate(type) { return type === "quote" || type === "job" || type === "documents"; }
 
 function findItem(state, type, id) {
   const key = { quote: "quotations", job: "serviceJobs", customer: "customers", product: "products", receipt: "receipts", delivery: "deliveryInvoices" }[type];
@@ -429,7 +445,54 @@ function mdItemLine(item, type) {
     return `- #${item.id ?? "-"} · ${item.customer_name || "-"} · ${item.status || "-"} · ${formatDate(item.created_at)}${air?.isAir ? " · 🌬️แอร์" : ""}`;
   }
   if (type === "customer") return `- ${item.name || "-"} · ${item.phone || "-"}`;
+  if (type === "receipt") return `- ${item.receipt_no || "#" + (item.id ?? "-")} · ${item.customer_name || "-"} · ${item.status || "-"} · ${money(Number(item.grand_total || 0))} · ${formatDate(item.created_at)}`;
+  if (type === "delivery") return `- ${item.inv_no || "#" + (item.id ?? "-")} · ${item.customer_name || "-"} · ${item.status || "-"} · ${money(Number(item.grand_total || 0))} · ${formatDate(item.created_at)}`;
   return `- ${item.name || "-"} · ${money(Number(item.price || 0))} · คงเหลือ ${item.stock ?? "-"}`;
+}
+
+const DOC_TYPE_LABEL = { quote: "ใบเสนอราคา", receipt: "ใบเสร็จ", delivery: "ใบส่งของ" };
+
+// นับตามชนิด + ตามสถานะ ของหมวดเอกสารรวม (อ่านอย่างเดียว reduce) — ไม่มี "ยอดรวม" ข้ามชนิด (หลอกตา)
+function summarizeDocs(wrappers) {
+  const list = wrappers || [];
+  const byType = list.reduce((acc, w) => { acc[w.type] = (acc[w.type] || 0) + 1; return acc; }, {});
+  const byStatus = list.reduce((acc, w) => {
+    const k = String(w.it?.status || "-").toLowerCase();
+    acc[k] = (acc[k] || 0) + 1;
+    return acc;
+  }, {});
+  return { byType, byStatus, count: list.length };
+}
+
+// stats bar หมวดเอกสารรวม — chips นับตามชนิด + นับตามสถานะ + ป้าย ≤50 ; ❌ ไม่มียอดรวมข้ามชนิด
+function docsStatsBarHtml(wrappers) {
+  if (!wrappers || wrappers.length === 0) return "";
+  const { byType, byStatus } = summarizeDocs(wrappers);
+  const typeChips = ["quote", "receipt", "delivery"]
+    .filter(t => byType[t])
+    .map(t => chip("source", `${DOC_TYPE_LABEL[t]}: ${byType[t]}`))
+    .join("");
+  const statusChips = Object.keys(byStatus)
+    .sort((a, b) => statusRank(a) - statusRank(b))
+    .map(k => chip("status", `${k}: ${byStatus[k]}`))
+    .join("");
+  return `<div class="team-stats-bar">
+      <div class="team-stats-chips">${typeChips}${statusChips}</div>
+      <div class="team-stats-note">📊 นับตามชนิด/สถานะของรายการที่กรอง · ${escHtml(LOADED_LIMIT_NOTE)} · ไม่รวมยอดข้ามชนิด (ข้อเสนอ≠เงินจริง)</div>
+    </div>`;
+}
+
+// markdown export หมวดเอกสารรวม — หัว: contextLabel + นับตามชนิด/สถานะ + ป้าย ≤50 ; body: mdItemLine
+function buildDocsSummary(wrappers) {
+  const list = wrappers || [];
+  const { byType, byStatus } = summarizeDocs(list);
+  const typeLine = ["quote", "receipt", "delivery"].filter(t => byType[t]).map(t => `${DOC_TYPE_LABEL[t]}: ${byType[t]}`).join(" · ");
+  const statusLine = Object.keys(byStatus).sort((a, b) => statusRank(a) - statusRank(b)).map(k => `${k}: ${byStatus[k]}`).join(" · ");
+  const head = `## เอกสาร (รวม) (${list.length} รายการ) — ${contextLabel()}`;
+  const stats = `**นับตามชนิด:** ${typeLine || "-"}\n**นับตามสถานะ:** ${statusLine || "-"}\n_📊 ${LOADED_LIMIT_NOTE} · ไม่รวมยอดข้ามชนิด_\n\n`;
+  const body = list.slice(0, ROW_CAP).map(w => mdItemLine(w.it, w.type)).join("\n");
+  const more = list.length > ROW_CAP ? `\n_…แสดง ${ROW_CAP} จาก ${list.length}_` : "";
+  return `${head}\n${stats}${body || "- (ไม่มีรายการ)"}${more}\n\n_อ่านอย่างเดียวจากศูนย์ทีม AI — ไม่ใช่เอกสารทางการ_`;
 }
 
 function contextLabel() {
@@ -536,7 +599,7 @@ function renderOverview(state) {
     <div class="team-section-title" style="margin-top:6px">🕒 ล่าสุด <small>3 รายการล่าสุดต่อหมวด (อ่านอย่างเดียว)</small></div>
     <div class="team-recent-grid">
       <div class="team-recent">
-        <div class="team-recent-h"><span>เอกสารล่าสุด</span><small style="color:var(--tc-muted);font-weight:700">ใบเสนอราคา/ใบเสร็จ/ใบส่งของ</small></div>
+        <div class="team-recent-h"><span>เอกสารล่าสุด</span><button type="button" data-filter="documents">ดูทั้งหมด →</button></div>
         ${docsInner}
       </div>
       ${groups.map(g => {
@@ -554,11 +617,36 @@ function renderOverview(state) {
   `;
 }
 
+// list body หมวดเอกสารรวม — wrappers {it,type}: search/date/sort อ่าน w.it (ไม่ mutate state)
+function renderDocsListBody(wrappers) {
+  const q = String(_query || "").trim().toLowerCase();
+  let working = q ? wrappers.filter(w => itemSearchText(w.it, w.type).includes(q)) : wrappers;
+  if (_datePreset !== "all" || _dateFrom || _dateTo) working = working.filter(w => dateInRange(w.it));
+  if (working.length === 0) return `<div class="team-empty">ไม่พบรายการตามคำค้น/ช่วงวันที่นี้</div>`;
+
+  const sorted = sortDocs(working, _sort);
+  const shown = sorted.slice(0, ROW_CAP);
+  const truncated = sorted.length > ROW_CAP;
+  const summary = buildDocsSummary(sorted);
+  return `
+    ${docsStatsBarHtml(sorted)}
+    <div class="team-listbar">
+      <span class="team-hint">แสดง ${shown.length} จาก ${sorted.length} รายการที่ตรงเงื่อนไข</span>
+      <button type="button" class="team-link-btn" data-team-copy="${escHtml(summary)}">📋 คัดลอกสรุป (Markdown)</button>
+    </div>
+    <div class="team-list">${shown.map(w => rowHtml(w.it, w.type)).join("")}</div>
+    ${truncated ? `<div class="team-hint">แสดง ${ROW_CAP} จาก ${sorted.length} รายการ — แคบคำค้น/ช่วงวันที่ หรือเปิดหน้าต้นทางเพื่อดูทั้งหมด</div>` : ""}
+  `;
+}
+
 // list body = search + date-range + sort applied (re-render เฉพาะส่วนนี้ตอน search/sort/date)
 function renderListBody(state, key) {
   const cat = categoryOf(state, key);
   if (cat.items === null) return `<div class="team-empty">ยังไม่มีข้อมูลในระบบ (ยังไม่ได้โหลด)</div>`;
   if (cat.items.length === 0) return `<div class="team-empty">ยังไม่มีรายการในหมวดนี้</div>`;
+
+  // หมวดเอกสารรวม: cat.items = wrappers {it,type} — pipeline แยก (อ่าน w.it), ไม่แตะ single-type path
+  if (key === "documents") return renderDocsListBody(cat.items);
 
   let working = searchItems(cat.items, cat.type, _query);
   if (typeHasDate(cat.type)) working = applyDateRange(working);

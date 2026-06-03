@@ -267,3 +267,40 @@ test("findItem + detailHtml route receipt→receipts and delivery→delivery_inv
   assert.match(src, /route = "receipts"/, "receipt drill-down navigates to receipts");
   assert.match(src, /route = "delivery_invoices"/, "delivery drill-down navigates to delivery_invoices");
 });
+
+// ── build 365: "เอกสาร" list category merges 3 doc types (read-only) ───────────
+test("filter + categoryOf expose a merged 'เอกสาร' (documents) category", () => {
+  assert.match(src, /\{ key: "documents", label: "เอกสาร" \}/, "filter has a documents category");
+  assert.match(src, /case "documents":\s*return \{ type: "documents"[\s\S]{0,120}mergeRecentDocs\(state\)/, "categoryOf documents uses mergeRecentDocs");
+  assert.match(src, /function typeHasDate\(type\)\s*\{[^}]*documents/, "documents has a date dimension");
+});
+
+test("pure helpers gained receipt+delivery branches (search/amount/markdown)", () => {
+  assert.match(src, /type === "receipt"\) parts\.push\(item\?\.receipt_no/, "itemSearchText receipt branch");
+  assert.match(src, /type === "delivery"\) parts\.push\(item\?\.inv_no/, "itemSearchText delivery branch");
+  assert.match(src, /type === "receipt" \|\| type === "delivery"\) return Number\(item\?\.grand_total/, "amountOf receipt/delivery uses grand_total");
+  assert.match(src, /if \(type === "receipt"\) return `- \$\{item\.receipt_no/, "mdItemLine receipt branch");
+  assert.match(src, /if \(type === "delivery"\) return `- \$\{item\.inv_no/, "mdItemLine delivery branch");
+});
+
+test("documents stats count by type+status with NO cross-type total (no mixed amountSum)", () => {
+  assert.match(src, /function summarizeDocs\(/, "has a docs summarizer (by type/status)");
+  assert.match(src, /function docsStatsBarHtml\(/, "has a docs stats bar");
+  // docs stats must label loaded-<=50 and must NOT show a single cross-type total
+  const docsBar = (src.match(/function docsStatsBarHtml\([\s\S]*?\n}/) || [""])[0];
+  assert.ok(docsBar.includes("LOADED_LIMIT_NOTE"), "docs stats carry the <=50 label");
+  assert.ok(!/amountSum|ยอดรวม/.test(docsBar), "docs stats must NOT sum amounts across doc types");
+  // markdown docs summary likewise has no cross-type total
+  const docsMd = (src.match(/function buildDocsSummary\([\s\S]*?\n}/) || [""])[0];
+  assert.ok(!/amountSum|ยอดรวม/.test(docsMd), "docs markdown must not show a cross-type total");
+  assert.ok(docsMd.includes("นับตามชนิด"), "docs markdown breaks down by type");
+});
+
+test("documents pipeline clones before sort and never mutates state arrays", () => {
+  assert.match(src, /function sortDocs\(/, "has a sortDocs helper");
+  const sd = (src.match(/function sortDocs\([\s\S]*?\n}/) || [""])[0];
+  assert.match(sd, /const arr = \[\.\.\.wrappers\]/, "sortDocs clones wrappers before sorting");
+  // wrappers are fresh {it,type} objects; never write a property onto a state object
+  assert.ok(!/\bw\.it\.\w+\s*=[^=]/.test(src), "must not write properties onto wrapped state objects");
+  assert.ok(!/renderDocsListBody[\s\S]{0,400}(fetch|xhr|\.post|\.insert)/.test(src), "docs list must not fetch");
+});

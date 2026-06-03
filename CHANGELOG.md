@@ -7,6 +7,13 @@
 
 ---
 
+## 5.66.0 (build 365) — 2026-06-04 Phase 365 team-center-documents-list-category-readonly — หมวด "เอกสาร" ในมุมมอง list (read-only)
+
+- **feat:** เพิ่ม filter category **"เอกสาร"** (วางหลัง "รออนุมัติ") ในมุมมอง list — รวม 3 ชนิด ใบเสนอราคา+ใบเสร็จ+ใบส่งของ (`categoryOf` case documents → `mergeRecentDocs` wrapper `{it,type}`); ใช้ **search / date-range / sort / export** ได้ครบ (pipeline แยก `renderDocsListBody` พก per-item type, อ่าน `w.it`)
+- **feat:** เติม branch receipt/delivery ใน pure helper เดิม: `itemSearchText` (receipt_no/inv_no), `amountOf` (grand_total), `mdItemLine`; `sortDocs` clone `[...wrappers]` ก่อน sort (ไม่ mutate); overview recent group "เอกสารล่าสุด" + ปุ่ม "ดูทั้งหมด" → documents
+- **honesty:** stats หมวดเอกสาร = **นับตามชนิด + นับตามสถานะ** + ป้าย ≤50 — **ไม่มี "ยอดรวม" ข้ามชนิด** (ข้อเสนอ ≠ เงินจริง = หลอกตา)
+- **scope:** single-type categories เดิมไม่กระทบ (path แยก) · drill-down read-only (receipt→receipts, delivery→delivery_invoices) · ❌ fetch/POST/PATCH/PUT/DELETE · ❌ mutate state · ❌ POS/stock/accounting/payroll/service · admin-only · **test:** guard 24→28, unit 1049, e2e 11 · **pwa-cache:** bump 364→365
+
 ## 5.66.0 (build 364) — 2026-06-03 Phase 364 team-center-recent-documents-merge-readonly — รวมเอกสารล่าสุดหลายชนิด (read-only)
 
 - **feat:** recent group **"เอกสารล่าสุด"** (overview) รวม 3 ชนิด: ใบเสนอราคา (quotations) + ใบเสร็จ (receipts) + ใบส่งของ (deliveryInvoices) — merge read-only (`mergeRecentDocs`: tag doc-type ต่อ item ผ่าน `.map`, spread, sort `created_at` desc บน array ใหม่ ไม่ mutate state), เอา top 3; แต่ละแถว: doc-type badge chip + เลขที่ (receipt_no/inv_no/#id) + ลูกค้า + ยอด + วันที่ + status chip
