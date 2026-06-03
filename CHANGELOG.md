@@ -7,6 +7,12 @@
 
 ---
 
+## 5.66.0 (build 364) — 2026-06-03 Phase 364 team-center-recent-documents-merge-readonly — รวมเอกสารล่าสุดหลายชนิด (read-only)
+
+- **feat:** recent group **"เอกสารล่าสุด"** (overview) รวม 3 ชนิด: ใบเสนอราคา (quotations) + ใบเสร็จ (receipts) + ใบส่งของ (deliveryInvoices) — merge read-only (`mergeRecentDocs`: tag doc-type ต่อ item ผ่าน `.map`, spread, sort `created_at` desc บน array ใหม่ ไม่ mutate state), เอา top 3; แต่ละแถว: doc-type badge chip + เลขที่ (receipt_no/inv_no/#id) + ลูกค้า + ยอด + วันที่ + status chip
+- **feat:** `rowHtml`/`findItem`/`detailHtml` รองรับชนิด **receipt** (→ route `receipts`) + **delivery** (→ route `delivery_invoices`) — drill-down read-only, ปุ่ม "ไปหน้าต้นทาง" navigate เท่านั้น; field ไม่มี → "—"
+- **scope:** ไม่ทำ stretch list-category (เลี่ยงความเสี่ยง refactor pipeline) · ❌ fetch/POST/PATCH/PUT/DELETE · ❌ mutate state · ❌ save/approve/submit/delete · ❌ POS/stock/accounting/payroll/service · admin-only · **test:** guard 21→24, unit 1045, e2e 11 · **pwa-cache:** bump 363→364
+
 ## 5.66.0 (build 363) — 2026-06-03 Phase 363 team-center-aggregate-summary-readonly — สรุป aggregate (read-only)
 
 - **feat:** เพิ่ม pure helper `summarizeStats(items, type)` → `{byStatus, count, amountSum}` (reduce อ่านอย่างเดียว; `amountSum` เฉพาะ quote, type อื่น null)

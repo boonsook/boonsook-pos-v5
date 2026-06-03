@@ -210,9 +210,21 @@ function categoryOf(state, key) {
 function typeHasDate(type) { return type === "quote" || type === "job"; }
 
 function findItem(state, type, id) {
-  const key = { quote: "quotations", job: "serviceJobs", customer: "customers", product: "products" }[type];
+  const key = { quote: "quotations", job: "serviceJobs", customer: "customers", product: "products", receipt: "receipts", delivery: "deliveryInvoices" }[type];
   const arr = field(state, key) || [];
   return arr.find(x => String(x?.id) === String(id)) || null;
+}
+
+// รวมเอกสารล่าสุด 3 ชนิด (read-only): tag doc-type ต่อ item, clone/spread, sort created_at desc
+// คืน null ถ้าทั้ง 3 field ไม่มีจริงใน state (ยังไม่โหลด) — ไม่ mutate state เลย
+function mergeRecentDocs(state) {
+  const tag = (arr, type) => (Array.isArray(arr) ? arr.map(it => ({ it, type })) : []);
+  const quotes = field(state, "quotations");
+  const receipts = field(state, "receipts");
+  const dinv = field(state, "deliveryInvoices");
+  if (quotes === null && receipts === null && dinv === null) return null;
+  const merged = [...tag(quotes, "quote"), ...tag(receipts, "receipt"), ...tag(dinv, "delivery")];
+  return merged.sort((a, b) => tsOf(b.it?.created_at) - tsOf(a.it?.created_at));
 }
 
 function injectTeamCenterStyles() {
@@ -376,7 +388,15 @@ function rowHtml(item, type, mini) {
   if (type === "quote") {
     title = `#${id}`;
     sub = item.customer_name || item.customer || "ไม่ระบุชื่อลูกค้า";
-    chips = chip("status", `สถานะ ${item.status || "-"}`) + chip("amount", money(quoteTotal(item))) + (item.created_at ? chip("date", formatDate(item.created_at)) : "");
+    chips = chip("source", "ใบเสนอราคา") + chip("status", `สถานะ ${item.status || "-"}`) + chip("amount", money(quoteTotal(item))) + (item.created_at ? chip("date", formatDate(item.created_at)) : "");
+  } else if (type === "receipt") {
+    title = item.receipt_no || `#${id}`;
+    sub = item.customer_name || "ไม่ระบุชื่อลูกค้า";
+    chips = chip("source", "ใบเสร็จ") + chip("status", `สถานะ ${item.status || "-"}`) + chip("amount", money(Number(item.grand_total || 0))) + (item.created_at ? chip("date", formatDate(item.created_at)) : "");
+  } else if (type === "delivery") {
+    title = item.inv_no || `#${id}`;
+    sub = item.customer_name || "ไม่ระบุชื่อลูกค้า";
+    chips = chip("source", "ใบส่งของ") + chip("status", `สถานะ ${item.status || "-"}`) + chip("amount", money(Number(item.grand_total || 0))) + (item.created_at ? chip("date", formatDate(item.created_at)) : "");
   } else if (type === "job") {
     const air = parseAirJobMeta(item);
     title = `#${id} · ${item.customer_name || "ไม่ระบุชื่อ"}`;
@@ -482,10 +502,16 @@ function renderOverview(state) {
   // recent groups (อ่านอย่างเดียว, top 3 ล่าสุดต่อหมวด)
   const groups = [
     { title: "งานล่าสุด", type: "job", key: "watch", arr: jobsField },
-    { title: "เอกสารล่าสุด", type: "quote", key: "approve", arr: quotes },
     { title: "ลูกค้าล่าสุด", type: "customer", key: "customers", arr: customers },
     { title: "สินค้าล่าสุด", type: "product", key: "products", arr: products },
   ];
+  // เอกสารล่าสุด = รวม 3 ชนิด (ใบเสนอราคา/ใบเสร็จ/ใบส่งของ) เรียงตามวันที่ (read-only merge)
+  const mergedDocs = mergeRecentDocs(state);
+  const docsInner = mergedDocs === null
+    ? `<div class="team-empty">${NA}</div>`
+    : (mergedDocs.length === 0
+      ? `<div class="team-empty">ยังไม่มีรายการ</div>`
+      : mergedDocs.slice(0, 3).map(d => rowHtml(d.it, d.type)).join(""));
 
   return `
     <div class="team-section-title">📋 งานที่ต้องจัดการ <small>กดการ์ดเพื่อดู/ค้นหา/เรียงรายการในหมวด</small>
@@ -509,6 +535,10 @@ function renderOverview(state) {
 
     <div class="team-section-title" style="margin-top:6px">🕒 ล่าสุด <small>3 รายการล่าสุดต่อหมวด (อ่านอย่างเดียว)</small></div>
     <div class="team-recent-grid">
+      <div class="team-recent">
+        <div class="team-recent-h"><span>เอกสารล่าสุด</span><small style="color:var(--tc-muted);font-weight:700">ใบเสนอราคา/ใบเสร็จ/ใบส่งของ</small></div>
+        ${docsInner}
+      </div>
       ${groups.map(g => {
         const inner = g.arr === null
           ? `<div class="team-empty">${NA}</div>`
@@ -615,6 +645,26 @@ function detailHtml(item, type) {
       kvRow("เบอร์", item.phone),
       kvRow("อีเมล", item.email),
       kvRow("รหัสลูกค้า", item.id),
+    ].join("");
+  } else if (type === "receipt") {
+    title = `ใบเสร็จ ${item.receipt_no || "#" + (item.id ?? "-")}`;
+    route = "receipts";
+    rows = [
+      kvRow("เลขที่", item.receipt_no),
+      kvRow("ลูกค้า", item.customer_name),
+      kvRow("สถานะ", item.status),
+      kvRow("วันที่", formatDate(item.created_at)),
+      kvRow("ยอดเงิน", money(Number(item.grand_total || 0))),
+    ].join("");
+  } else if (type === "delivery") {
+    title = `ใบส่งของ ${item.inv_no || "#" + (item.id ?? "-")}`;
+    route = "delivery_invoices";
+    rows = [
+      kvRow("เลขที่", item.inv_no),
+      kvRow("ลูกค้า", item.customer_name),
+      kvRow("สถานะ", item.status),
+      kvRow("วันที่", formatDate(item.created_at)),
+      kvRow("ยอดเงิน", money(Number(item.grand_total || 0))),
     ].join("");
   } else {
     title = escHtml(item.name || "สินค้า");

@@ -241,3 +241,29 @@ test("markdown export includes the stats block with the ≤50 label", () => {
   assert.match(src, /สรุปสถานะ/, "summary lists status breakdown");
   assert.match(src, /const stats = mdStats\(items, cat\.type\)/, "buildListSummary prepends the stats block");
 });
+
+// ── build 364: recent "เอกสารล่าสุด" merges quotations + receipts + delivery ──
+test("rowHtml renders receipt and delivery document types", () => {
+  assert.match(src, /type === "receipt"/, "rowHtml has a receipt branch");
+  assert.match(src, /type === "delivery"/, "rowHtml has a delivery branch");
+  assert.match(src, /item\.receipt_no/, "receipt row uses receipt_no");
+  assert.match(src, /item\.inv_no/, "delivery row uses inv_no");
+  // doc-type badges
+  assert.ok(src.includes("ใบเสร็จ") && src.includes("ใบส่งของ") && src.includes("ใบเสนอราคา"), "doc-type labels present");
+});
+
+test("recent documents group merges 3 doc types (not quote-only) without mutating state", () => {
+  assert.match(src, /function mergeRecentDocs\(/, "has a merge helper");
+  // tagged + spread merge, sorted on a fresh array — never a state array
+  assert.match(src, /\.\.\.tag\(quotes, "quote"\)[\s\S]{0,120}tag\(receipts, "receipt"\)[\s\S]{0,120}tag\(dinv, "delivery"\)/, "merges all three doc types");
+  assert.ok(!/(?:ctx\.)?state\.\w+\.(push|splice|sort|reverse)\(/.test(src), "must not mutate a state array");
+  // the docs recent group is rendered from the merged list, not a single quote category
+  assert.match(src, /mergedDocs\.slice\(0, 3\)\.map\(d => rowHtml\(d\.it, d\.type\)\)/, "docs group renders merged tagged items");
+});
+
+test("findItem + detailHtml route receipt→receipts and delivery→delivery_invoices", () => {
+  assert.match(src, /receipt:\s*"receipts"/, "findItem maps receipt to receipts");
+  assert.match(src, /delivery:\s*"deliveryInvoices"/, "findItem maps delivery to deliveryInvoices");
+  assert.match(src, /route = "receipts"/, "receipt drill-down navigates to receipts");
+  assert.match(src, /route = "delivery_invoices"/, "delivery drill-down navigates to delivery_invoices");
+});
