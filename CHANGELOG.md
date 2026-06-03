@@ -7,6 +7,12 @@
 
 ---
 
+## 5.66.0 (build 357) — 2026-06-03 Phase 357 team-center-readonly — หน้าใหม่ "ศูนย์ทีม AI" (admin-only, read-only)
+
+- **feat:** เพิ่มหน้า **"🧠 ศูนย์ทีม AI"** (route `team_center`, `modules/team_command_center.js`) — dashboard ภาพรวมทีมสำหรับเจ้าของ แบบ **read-only** ดึงตัวเลขจาก `ctx.state` ที่โหลดแล้วเท่านั้น (ใบเสนอราคารออนุมัติ / งานช่างเปิด / บิลวันนี้ / ลูกค้า / สินค้า)
+- **honesty:** field ที่ไม่มีจริงใน state (`tasks`/`auditLog`) แสดง **"—"/"ยังไม่มีข้อมูล"** ไม่ hardcode 0 หลอกตา · integration 6 ช่อง (Notion/Gmail/Drive/Meta/Google Ads/Codex) = placeholder **"ยังไม่เชื่อมต่อ · รอ owner อนุมัติ"** (ไม่มี live integration จริง) · agent 6 ตัว label **"ตัวอย่างบทบาททีม (concept)"**
+- **scope:** **admin-only** (ไม่อยู่ใน sales/customer role) · team chat = local draft (ไม่ save DB) · ปุ่ม = copy prompt / navigate เท่านั้น · ❌ ไม่ fetch · ❌ ไม่ POST/PATCH/PUT/DELETE · ❌ ไม่ mutate state · ❌ ไม่แตะ POS/stock/accounting/service workflow · **test:** +8 `team_center_readonly_guard.test.js` (unit 1029) · **pwa-cache:** bump 356→357
+
 ## 5.66.0 (build 356) — 2026-06-02 Phase 356 quotation-save-inflight-guard — กันกดบันทึกใบเสนอราคารัว/ดับเบิลคลิก
 
 - **fix:** กดปุ่ม **"บันทึก"** ใบเสนอราคารัว/ดับเบิลคลิก (โดยเฉพาะ flow งานแอร์ build 353-355) เคยอาจสร้าง **เอกสารซ้ำ** เพราะ `saveQuotationFull` async ไม่มี inflight guard → กดก่อน `await xhrPost` รอบแรกเสร็จ = POST สองครั้ง

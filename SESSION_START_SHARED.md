@@ -1,6 +1,6 @@
 # Boonsook POS V5 - Shared Session Start
 
-Last updated: 2026-06-02 (Phase 356 quotation-save-inflight-guard — กันกดบันทึกใบเสนอราคารัว/ดับเบิลคลิก, build 356) · ⏸️ STOP รอ owner/Codex review ก่อน Phase 357
+Last updated: 2026-06-03 (Phase 357 team-center-readonly — หน้าใหม่ "ศูนย์ทีม AI" admin-only/read-only, build 357) · ⏸️ STOP รอ owner/Codex review ก่อน Phase 358
 
 Purpose: this is the common first-read note for Codex, Claude, or any next agent opening a fresh session on this project. Read this before changing files so both teams start from the same facts.
 
@@ -11,7 +11,8 @@ Purpose: this is the common first-read note for Codex, Claude, or any next agent
 
 - Project: Boonsook POS V5 PRO, Thai POS PWA.
 - Workspace: `C:\Users\Lenovo E14 Gen4\Documents\boonsuk v5\boonsook-pos-v5-github`
-- Main app version: `5.66.0` (build 356) · ⏸️ STOP — owner สั่งหยุดรอ review ก่อนเริ่ม Phase 357
+- Main app version: `5.66.0` (build 357) · ⏸️ STOP — owner สั่งหยุดรอ review ก่อนเริ่ม Phase 358
+- 🆕 build 357 = team-center-readonly: หน้าใหม่ **"🧠 ศูนย์ทีม AI"** (route `team_center`, `modules/team_command_center.js`) = **admin-only + read-only** dashboard. ดึงตัวเลขจาก `ctx.state` ที่โหลดแล้วเท่านั้น (ใบเสนอราคารออนุมัติ/งานช่างเปิด/บิลวันนี้/ลูกค้า/สินค้า). field ที่ไม่มีจริง (`tasks`/`auditLog`) → แสดง "—"/"ยังไม่มีข้อมูล" **ไม่ hardcode 0**. integration 6 ช่อง (Notion/Gmail/Drive/Meta/Google Ads/Codex) = placeholder **"ยังไม่เชื่อมต่อ · รอ owner อนุมัติ"** — **ไม่มี live integration จริง** (ไม่ fetch/ไม่เรียก API ภายนอก). agent 6 ตัว = **"ตัวอย่างบทบาททีม (concept)"** ไม่ใช่ agent ทำงานจริง. team chat = **local draft** (ไม่ save DB). ปุ่ม = copy prompt / `ctx.showRoute` navigate เท่านั้น. ❌ ไม่ fetch · ❌ ไม่ POST/PATCH/PUT/DELETE · ❌ ไม่ mutate state · ❌ ไม่แตะ POS/stock/accounting/service workflow · ไม่เปิดให้ sales/customer. +8 read-only guards `team_center_readonly_guard.test.js` (unit 1029).
 - 🆕 build 356 = quotation-save-inflight-guard: กันกดปุ่ม "บันทึก" ใบเสนอราคารัว/ดับเบิลคลิก → สร้างเอกสารซ้ำ. `modules/quotations.js`: module flag `_qtSaveInflight` + ใน saveQuotationFull() เช็ค inflight (กดซ้ำ → toast "กำลังบันทึก..." + return), set true หลัง validation เบื้องต้น, disable ปุ่ม qtSaveBtn, try/finally reset flag+enable ปุ่มเสมอ (แม้ xhr/loadAllData fail). ไม่เปลี่ยน payload/endpoint/save semantics, ไม่เปลี่ยน service job status, ไม่ POST/PATCH service_jobs, ไม่แตะ stock/POS/cart/products/schema/SQL. Phase 355 note link-back ยังอยู่. +11 tests (unit 1021).
 - 🆕 build 355 = air-quotation-save-linkback: กดบันทึกใบเสนอราคาที่มาจากงานแอร์ (source=air_job) → append บรรทัดอ้างอิงงานต้นทางลงใน `note` (field เดิม) แบบ `สร้างจากงานแอร์: {เลขงาน} | {intent} | {แบรนด์ รุ่น BTU} | ราคาเสนอ {price} บาท` (fallback "สร้างจากงานแอร์จากแคตตาล็อก" เมื่อไม่มี serviceJobId). inject เฉพาะกดบันทึกเอง, preserve note เดิม, กัน duplicate (marker-check + เคลียร์ `_airDraftMeta` หลัง save). 2 pure exported helpers `buildAirJobNoteRef`/`appendAirJobNoteRef` (`modules/quotations.js`). ไม่ auto-save/ไม่เปลี่ยน service job status/ไม่ POST·PATCH service_jobs/ไม่แตะ stock/POS/cart/schema/save endpoint. +13 tests (unit 1010).
 - 🆕 build 354 = quotation-air-draft-polish: หน้า quotations ตอนรับ draft จากงานแอร์ (source=air_job) → banner "รายการร่างจากงานแอร์" + source summary chips (เลขงาน/intent/รุ่น·BTU·ราคา/นัดหมาย) + customer hint "เติมจากงานแจ้งบริการ" + ปุ่ม "ดูงานต้นทาง" (เฉพาะมี serviceJobId) + คำเตือน "ต้องกรอกราคา" ถ้าไม่มี offerPrice. ไม่ save/สร้างเลขเอกสารอัตโนมัติ, ไม่แตะ stock/POS/cart/schema/customer.

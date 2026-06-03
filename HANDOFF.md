@@ -4,9 +4,10 @@
 > 🆕 และ [`SESSION_LOG.md`](SESSION_LOG.md) — push history, SQL tracker, audit progress
 > ⚠️ `CLAUDE_SESSION_HANDOFF.md` / `CLAUDE_CODE_PROMPT.md` / `CLAUDE_CODE_WORKFLOW.md` = **superseded** (historical) — เป็น redirect ไป `IMPLEMENT_TEAM_PROTOCOL.md` แล้ว อย่าใช้เป็น workflow หลัก
 
-**อัปเดตล่าสุด:** 2 มิถุนายน 2026 (Phase 356 quotation-save-inflight-guard — กันกดบันทึกใบเสนอราคารัว/ดับเบิลคลิก, build 356) · ⏸️ **STOP — รอ owner/Codex review ก่อนเริ่ม Phase 357**
-**Version:** 5.66.0 (build 356) — Phase 356 quotation-save-inflight-guard (module flag `_qtSaveInflight` + try/finally + disable ปุ่ม → กันสร้างเอกสารซ้ำ; ไม่เปลี่ยน save semantics/endpoint; ไม่แตะ service_jobs/stock/POS/cart/schema)
-**Previous:** 5.66.0 (build 355) — Phase 355 air-quotation-save-linkback (append อ้างอิงงานแอร์ลง note ตอนกดบันทึกเอง; preserve note เดิม + กัน duplicate)
+**อัปเดตล่าสุด:** 3 มิถุนายน 2026 (Phase 357 team-center-readonly — หน้าใหม่ "ศูนย์ทีม AI" admin-only/read-only, build 357) · ⏸️ **STOP — รอ owner/Codex review ก่อนเริ่ม Phase 358**
+**Version:** 5.66.0 (build 357) — Phase 357 team-center-readonly (หน้า `team_center` = admin-only + read-only dashboard จาก ctx.state; field ที่ไม่มีจริงแสดง "—"/"ยังไม่มีข้อมูล" ไม่ hardcode 0; integration 6 ช่อง = placeholder "ยังไม่เชื่อมต่อ · รอ owner อนุมัติ" — **ไม่มี live integration จริง**; agent = "ตัวอย่างบทบาททีม" concept; team chat = local draft; ปุ่ม = copy/navigate. ❌ fetch/POST/PATCH/PUT/DELETE · ❌ mutate state · ❌ POS/stock/accounting/service · ไม่เปิด sales/customer. +8 guards)
+**Previous:** 5.66.0 (build 356) — Phase 356 quotation-save-inflight-guard (module flag `_qtSaveInflight` + try/finally + disable ปุ่ม → กันสร้างเอกสารซ้ำ; ไม่เปลี่ยน save semantics/endpoint; ไม่แตะ service_jobs/stock/POS/cart/schema)
+**Pre-prev-air0:** 5.66.0 (build 355) — Phase 355 air-quotation-save-linkback (append อ้างอิงงานแอร์ลง note ตอนกดบันทึกเอง; preserve note เดิม + กัน duplicate)
 **Pre-prev-0:** 5.66.0 (build 354) — Phase 354 quotation-air-draft-polish (banner+source summary+back-to-job+price warning+customer hint)
 **Pre-prev-0:** 5.66.0 (build 353) — Phase 353 air-job-to-quotation-draft-action (ปุ่ม→quotation draft)
 **Pre-prev-1m:** 5.66.0 (build 352) — Phase 352 air-job-filter-and-priority
