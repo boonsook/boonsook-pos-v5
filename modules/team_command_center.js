@@ -1,12 +1,13 @@
-// ศูนย์ทีม AI (Team Command Center) — build team-center-list-search-polish (360)
+// ศูนย์ทีม AI (Team Command Center) — build team-center-date-range-and-export-readonly (361)
 //
 // READ-ONLY OWNER REVIEW SURFACE — locked invariants (see tests/team_center_readonly_guard.test.js):
 //   - อ่านอย่างเดียว: ไม่ mutate ctx.state, ไม่ POST/PATCH/DELETE/PUT, ไม่ fetch ออก network
 //   - ไม่แตะ POS / stock / accounting / payroll / service workflow
-//   - filter / search / sort / drill-down ทำใน memory จาก ctx.state ที่โหลดมาแล้วเท่านั้น (ไม่ fetch เพิ่ม, ไม่ save query)
+//   - filter / search / sort / date-range / drill-down / export ทำใน memory จาก ctx.state ที่โหลดมาแล้วเท่านั้น
 //   - sort ต้อง clone array ก่อน (ห้าม mutate array เดิมใน state)
-//   - drill-down = read-only: ไม่มีปุ่ม save / approve / submit / delete จริง — มีแค่ ดูรายละเอียด / ไปหน้าต้นทาง / คัดลอก prompt / ปิด
-//   - prompt generator = สร้าง text draft ให้ copy เท่านั้น (ไม่ส่ง network / ไม่ save DB)
+//   - export = copy markdown/text เข้า clipboard เท่านั้น (ไม่สร้างไฟล์/ไม่ upload/ไม่ POST)
+//   - drill-down = read-only: ไม่มีปุ่ม save / approve / submit / delete จริง
+//   - prompt generator = สร้าง text draft ให้ copy เท่านั้น
 //   - field ที่ไม่มีจริง → "—" / "ยังไม่มีข้อมูล" (ห้าม hardcode 0 ให้เข้าใจผิด)
 //   - integration = placeholder "ยังไม่เชื่อมต่อ · รอ owner อนุมัติ" (ไม่มี OAuth/token/connector จริง)
 
@@ -14,9 +15,12 @@ import { escHtml, money, formatDate } from "./utils.js";
 import { parseAirJobMeta } from "./air_job_meta.js";
 
 const NA = "ยังไม่มีข้อมูล";
-let _filter = "all";   // หมวดที่เลือก (in-memory)
-let _query = "";        // คำค้น (in-memory, ไม่ save DB)
-let _sort = "recent";  // การเรียง (in-memory)
+let _filter = "all";       // หมวดที่เลือก (in-memory)
+let _query = "";            // คำค้น (in-memory, ไม่ save DB)
+let _sort = "recent";      // การเรียง (in-memory)
+let _datePreset = "all";   // ช่วงวันที่ (in-memory)
+let _dateFrom = "";         // custom from (YYYY-MM-DD)
+let _dateTo = "";           // custom to (YYYY-MM-DD)
 
 function todayKey() {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Bangkok" });
@@ -27,6 +31,14 @@ function dateKeyBkk(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   return date.toLocaleDateString("en-CA", { timeZone: "Asia/Bangkok" });
+}
+
+// เลื่อนวันจาก "วันนี้ (Asia/Bangkok)" ถอยหลัง N วัน → คืน YYYY-MM-DD (ไม่ reconvert TZ ซ้ำ)
+function shiftDayKey(days) {
+  const d = new Date(todayKey() + "T00:00:00");
+  d.setDate(d.getDate() - days);
+  const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), da = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${da}`;
 }
 
 function tsOf(value) {
@@ -82,9 +94,16 @@ const SORTS = [
   { key: "status", label: "สถานะ/ความสำคัญ" },
 ];
 
-const ROW_CAP = 50; // กันรายการยาวเกิน — แสดงคำเตือนเมื่อ truncate (ไม่ silent)
+const DATE_PRESETS = [
+  { key: "all", label: "ทั้งหมด" },
+  { key: "today", label: "วันนี้" },
+  { key: "7d", label: "7 วัน" },
+  { key: "30d", label: "30 วัน" },
+  { key: "month", label: "เดือนนี้" },
+];
 
-// rank ความสำคัญของสถานะ (เลขน้อย = สำคัญ/ต้องดูก่อน)
+const ROW_CAP = 50;
+
 const STATUS_RANK = {
   pending: 0, new: 0, รอ: 0,
   draft: 1, sent: 1, in_progress: 1, processing: 1, quoted: 1,
@@ -114,7 +133,33 @@ function sortItems(items, sort, type) {
   }
 }
 
-// ข้อความสำหรับค้นหา (อ่านจาก item ใน memory เท่านั้น)
+// date-range filter จาก field วันที่เดิม (created_at) ใน memory — ไม่มีวันที่ = ถูกกรองออกเมื่อมีช่วง
+function dateInRange(item) {
+  const useCustom = _dateFrom || _dateTo;
+  if (!useCustom && _datePreset === "all") return true;
+  const key = dateKeyBkk(item?.created_at);
+  if (!key) return false;
+  if (useCustom) {
+    if (_dateFrom && key < _dateFrom) return false;
+    if (_dateTo && key > _dateTo) return false;
+    return true;
+  }
+  const today = todayKey();
+  switch (_datePreset) {
+    case "today": return key === today;
+    case "7d":    return key >= shiftDayKey(6) && key <= today;
+    case "30d":   return key >= shiftDayKey(29) && key <= today;
+    case "month": return key.slice(0, 7) === today.slice(0, 7);
+    default:      return true;
+  }
+}
+
+function applyDateRange(items) {
+  if (_datePreset === "all" && !_dateFrom && !_dateTo) return items;
+  return items.filter(dateInRange);
+}
+
+// ค้นหาใน memory เท่านั้น
 function itemSearchText(item, type) {
   const parts = [item?.id, item?.status];
   if (type === "quote") parts.push(item?.customer_name, item?.customer);
@@ -133,7 +178,6 @@ function searchItems(items, type, query) {
   return items.filter(it => itemSearchText(it, type).includes(q));
 }
 
-// คืน {type, title, items|null} — items=null = field ไม่มีจริงใน state (ยังไม่โหลด)
 function categoryOf(state, key) {
   const quotations = field(state, "quotations");
   const serviceJobs = field(state, "serviceJobs");
@@ -146,6 +190,9 @@ function categoryOf(state, key) {
     default:          return { type: "all", title: "ทั้งหมด", items: null };
   }
 }
+
+// date-range มีความหมายเฉพาะหมวดที่ผูกกับวันที่ (ใบเสนอราคา/งานบริการ)
+function typeHasDate(type) { return type === "quote" || type === "job"; }
 
 function findItem(state, type, id) {
   const key = { quote: "quotations", job: "serviceJobs", customer: "customers", product: "products" }[type];
@@ -173,8 +220,14 @@ function injectTeamCenterStyles() {
     .team-controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 10px}
     .team-search{flex:1 1 220px;min-width:0;background:#082236;border:1px solid var(--tc-line);border-radius:8px;color:#e0f2fe;padding:9px 11px;font-size:13px}
     .team-sort{flex:0 0 auto;background:#082236;border:1px solid var(--tc-line);border-radius:8px;color:#e0f2fe;padding:9px 11px;font-size:13px;min-height:40px}
+    .team-daterow{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 10px}
+    .team-daterow-label{font-size:12px;font-weight:800;color:var(--tc-muted)}
+    .team-date-btn{border:1px solid var(--tc-line);background:#072133;color:#cbd5e1;border-radius:999px;padding:6px 11px;font-weight:800;font-size:12px;cursor:pointer;min-height:36px}
+    .team-date-btn.active{background:#0b65a7;color:#fff;border-color:rgba(56,189,248,.6)}
+    .team-date-in{background:#082236;border:1px solid var(--tc-line);border-radius:8px;color:#e0f2fe;padding:6px 9px;font-size:12px;min-height:36px;max-width:150px}
     .team-section-title{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin:0 0 10px;font-size:14px;font-weight:900;color:#e2e8f0}
     .team-section-title small{font-weight:700;font-size:11px;color:var(--tc-muted)}
+    .team-section-title .grow{flex:1 1 auto}
     .team-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
     .team-card{display:flex;flex-direction:column;gap:6px;border:1px solid var(--tc-line);background:linear-gradient(180deg,#0a2c44,#072133);border-radius:12px;padding:14px;text-align:left;cursor:pointer;font:inherit;color:inherit}
     .team-card:hover{border-color:rgba(56,189,248,.55)}
@@ -183,9 +236,15 @@ function injectTeamCenterStyles() {
     .team-card-num.na{font-size:15px;font-weight:800;color:#94a3b8}
     .team-card-sub{font-size:11.5px;color:var(--tc-muted);line-height:1.35}
     .team-card-go{margin-top:auto;align-self:flex-start;font-size:12px;font-weight:800;color:#7dd3fc}
+    .team-recent-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
+    .team-recent{border:1px solid var(--tc-line);background:#062235;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px}
+    .team-recent-h{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px;font-weight:900;color:#e2e8f0}
+    .team-recent-h button{border:0;background:none;color:#7dd3fc;font-weight:800;font-size:11.5px;cursor:pointer;padding:0}
+    .team-listbar{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px}
     .team-list{display:flex;flex-direction:column;gap:8px}
     .team-row{display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:1px solid var(--tc-line);background:#072133;border-radius:10px;padding:11px 13px;cursor:pointer;font:inherit;color:inherit;min-height:48px}
     .team-row:hover{border-color:rgba(56,189,248,.55);background:#082a40}
+    .team-row.mini{padding:8px 10px;min-height:auto}
     .team-row .rmain{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
     .team-row .rt{font-weight:800;font-size:13px;color:#f1f5f9;word-break:break-word}
     .team-row .rs{font-size:11.5px;color:var(--tc-muted);word-break:break-word}
@@ -240,6 +299,7 @@ function injectTeamCenterStyles() {
       .team-cards{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
       .team-card-num{font-size:26px}
       .team-sort{flex:1 1 100%}
+      .team-date-in{max-width:46%}
       .team-modal{padding:10px;align-items:flex-end}
       .team-modal-panel{max-height:calc(100vh - 20px)}
     }
@@ -270,7 +330,83 @@ function cardNumHtml(num) {
   return `<div class="team-card-num">${escHtml(String(num))}</div>`;
 }
 
-// overview cards — priority order: งานที่ต้องดู → รออนุมัติ → งานแอร์ → เอกสารล่าสุด → ลูกค้า → สินค้า
+function chip(cls, text) {
+  return `<span class="team-chip ${cls}">${escHtml(text)}</span>`;
+}
+
+// row รายการจริง
+function rowHtml(item, type, mini) {
+  const id = String(item?.id ?? "-");
+  let title = "", sub = "", chips = "";
+  if (type === "quote") {
+    title = `#${id}`;
+    sub = item.customer_name || item.customer || "ไม่ระบุชื่อลูกค้า";
+    chips = chip("status", `สถานะ ${item.status || "-"}`) + chip("amount", money(quoteTotal(item))) + (item.created_at ? chip("date", formatDate(item.created_at)) : "");
+  } else if (type === "job") {
+    const air = parseAirJobMeta(item);
+    title = `#${id} · ${item.customer_name || "ไม่ระบุชื่อ"}`;
+    sub = item.description ? String(item.description).slice(0, 80) : (item.customer_phone || "ไม่มีรายละเอียด");
+    chips = chip("status", `สถานะ ${item.status || "-"}`) + (item.created_at ? chip("date", formatDate(item.created_at)) : "") + (air?.isAir ? chip("source", "🌬️ แอร์จากแคตตาล็อก") : "");
+  } else if (type === "customer") {
+    title = item.name || "ไม่ระบุชื่อ";
+    sub = item.phone || "ไม่มีเบอร์";
+    chips = item.email ? chip("source", item.email) : "";
+  } else {
+    title = item.name || "ไม่ระบุชื่อ";
+    sub = `SKU ${item.sku || "-"}`;
+    chips = chip("amount", money(Number(item.price || 0))) + chip("status", `คงเหลือ ${item.stock ?? "—"}`);
+  }
+  return `<button type="button" class="team-row${mini ? " mini" : ""}" data-detail="${escHtml(type)}:${escHtml(id)}">
+    <span class="rmain">
+      <span class="rt">${escHtml(title)}</span>
+      <span class="rs">${escHtml(sub)}</span>
+      ${mini ? "" : `<span class="rchips">${chips}</span>`}
+    </span>
+    <span class="chev">${mini ? "›" : "ดูรายละเอียด ›"}</span>
+  </button>`;
+}
+
+// ── markdown export (read-only, copy → clipboard เท่านั้น) ────────────────────
+function mdItemLine(item, type) {
+  if (type === "quote") return `- #${item.id ?? "-"} · ${item.customer_name || item.customer || "-"} · ${item.status || "-"} · ${money(quoteTotal(item))} · ${formatDate(item.created_at)}`;
+  if (type === "job") {
+    const air = parseAirJobMeta(item);
+    return `- #${item.id ?? "-"} · ${item.customer_name || "-"} · ${item.status || "-"} · ${formatDate(item.created_at)}${air?.isAir ? " · 🌬️แอร์" : ""}`;
+  }
+  if (type === "customer") return `- ${item.name || "-"} · ${item.phone || "-"}`;
+  return `- ${item.name || "-"} · ${money(Number(item.price || 0))} · คงเหลือ ${item.stock ?? "-"}`;
+}
+
+function contextLabel() {
+  const bits = [];
+  if (_query.trim()) bits.push(`ค้นหา: ${_query.trim()}`);
+  if (_dateFrom || _dateTo) bits.push(`ช่วง: ${_dateFrom || "…"} ถึง ${_dateTo || "…"}`);
+  else if (_datePreset !== "all") bits.push(`ช่วง: ${(DATE_PRESETS.find(p => p.key === _datePreset) || {}).label || _datePreset}`);
+  bits.push(`เรียง: ${(SORTS.find(s => s.key === _sort) || {}).label || _sort}`);
+  return bits.join(" · ");
+}
+
+function buildListSummary(cat, items) {
+  const head = `## ${cat.title} (${items.length} รายการ) — ${contextLabel()}`;
+  const body = items.slice(0, ROW_CAP).map(it => mdItemLine(it, cat.type)).join("\n");
+  const more = items.length > ROW_CAP ? `\n_…แสดง ${ROW_CAP} จาก ${items.length}_` : "";
+  return `${head}\n${body || "- (ไม่มีรายการ)"}${more}\n\n_อ่านอย่างเดียวจากศูนย์ทีม AI — ไม่ใช่เอกสารทางการ_`;
+}
+
+function buildOverviewSummary(state) {
+  const quotes = field(state, "quotations");
+  const jobsField = field(state, "serviceJobs");
+  const lines = [
+    `- งานที่ต้องดู: ${jobsField ? openJobs(jobsField).length : NA}`,
+    `- รออนุมัติใบเสนอราคา: ${quotes ? pendingQuotes(quotes).length : NA}`,
+    `- งานแอร์จากแคตตาล็อก: ${jobsField ? airJobs(jobsField).length : NA}`,
+    `- ลูกค้า: ${countOrDash(field(state, "customers"))}`,
+    `- สินค้า: ${countOrDash(field(state, "products"))}`,
+  ];
+  return `## ศูนย์ทีม AI — สรุปภาพรวม (read-only)\n${lines.join("\n")}\n\n_คัดลอกจากศูนย์ทีม AI — ไม่ใช่เอกสารทางการ_`;
+}
+
+// overview: priority cards → recent groups
 function renderOverview(state) {
   const quotes = field(state, "quotations");
   const jobsField = field(state, "serviceJobs");
@@ -295,8 +431,19 @@ function renderOverview(state) {
     { label: "สินค้า / คลัง", num: products ? products.length : null, sub: "รายการสินค้าที่โหลดแล้ว", go: "products" },
   ];
 
+  // recent groups (อ่านอย่างเดียว, top 3 ล่าสุดต่อหมวด)
+  const groups = [
+    { title: "งานล่าสุด", type: "job", key: "watch", arr: jobsField },
+    { title: "เอกสารล่าสุด", type: "quote", key: "approve", arr: quotes },
+    { title: "ลูกค้าล่าสุด", type: "customer", key: "customers", arr: customers },
+    { title: "สินค้าล่าสุด", type: "product", key: "products", arr: products },
+  ];
+
   return `
-    <div class="team-section-title">📋 งานที่ต้องจัดการ <small>กดการ์ดเพื่อดู/ค้นหา/เรียงรายการในหมวด — ไม่มีข้อมูลจะแสดง "${NA}"</small></div>
+    <div class="team-section-title">📋 งานที่ต้องจัดการ <small>กดการ์ดเพื่อดู/ค้นหา/เรียงรายการในหมวด</small>
+      <span class="grow"></span>
+      <button type="button" class="team-link-btn" data-team-copy="${escHtml(buildOverviewSummary(state))}">📋 คัดลอกสรุปภาพรวม</button>
+    </div>
     <div class="team-cards">
       ${cards.map(c => {
         const attr = c.go ? `data-filter="${escHtml(c.go)}"` : `data-team-nav="${escHtml(c.nav)}"`;
@@ -309,67 +456,59 @@ function renderOverview(state) {
         </button>`;
       }).join("")}
     </div>
+
+    <div class="team-section-title" style="margin-top:6px">🕒 ล่าสุด <small>3 รายการล่าสุดต่อหมวด (อ่านอย่างเดียว)</small></div>
+    <div class="team-recent-grid">
+      ${groups.map(g => {
+        const inner = g.arr === null
+          ? `<div class="team-empty">${NA}</div>`
+          : (g.arr.length === 0
+            ? `<div class="team-empty">ยังไม่มีรายการ</div>`
+            : sortItems(g.arr, "recent", g.type).slice(0, 3).map(it => rowHtml(it, g.type, true)).join(""));
+        return `<div class="team-recent">
+          <div class="team-recent-h"><span>${escHtml(g.title)}</span><button type="button" data-filter="${escHtml(g.key)}">ดูทั้งหมด →</button></div>
+          ${inner}
+        </div>`;
+      }).join("")}
+    </div>
   `;
 }
 
-function chip(cls, text) {
-  return `<span class="team-chip ${cls}">${escHtml(text)}</span>`;
-}
-
-// row รายการจริง: title/เลขเอกสาร + subtitle + status/date/amount/source chips
-function rowHtml(item, type) {
-  const id = String(item?.id ?? "-");
-  let title = "", sub = "", chips = "";
-  if (type === "quote") {
-    title = `#${id}`;
-    sub = item.customer_name || item.customer || "ไม่ระบุชื่อลูกค้า";
-    chips = chip("status", `สถานะ ${item.status || "-"}`) + chip("amount", money(quoteTotal(item))) + (item.created_at ? chip("date", formatDate(item.created_at)) : "");
-  } else if (type === "job") {
-    const air = parseAirJobMeta(item);
-    title = `#${id} · ${item.customer_name || "ไม่ระบุชื่อ"}`;
-    sub = item.description ? String(item.description).slice(0, 80) : (item.customer_phone || "ไม่มีรายละเอียด");
-    chips = chip("status", `สถานะ ${item.status || "-"}`) + (item.created_at ? chip("date", formatDate(item.created_at)) : "") + (air?.isAir ? chip("source", "🌬️ แอร์จากแคตตาล็อก") : "");
-  } else if (type === "customer") {
-    title = item.name || "ไม่ระบุชื่อ";
-    sub = item.phone || "ไม่มีเบอร์";
-    chips = item.email ? chip("source", item.email) : "";
-  } else {
-    title = item.name || "ไม่ระบุชื่อ";
-    sub = `SKU ${item.sku || "-"}`;
-    chips = chip("amount", money(Number(item.price || 0))) + chip("status", `คงเหลือ ${item.stock ?? "—"}`);
-  }
-  return `<button type="button" class="team-row" data-detail="${escHtml(type)}:${escHtml(id)}">
-    <span class="rmain">
-      <span class="rt">${escHtml(title)}</span>
-      <span class="rs">${escHtml(sub)}</span>
-      <span class="rchips">${chips}</span>
-    </span>
-    <span class="chev">ดูรายละเอียด ›</span>
-  </button>`;
-}
-
-// list body = filtered + sorted rows (re-render เฉพาะส่วนนี้ตอน search/sort เพื่อคง focus ช่องค้นหา)
+// list body = search + date-range + sort applied (re-render เฉพาะส่วนนี้ตอน search/sort/date)
 function renderListBody(state, key) {
   const cat = categoryOf(state, key);
   if (cat.items === null) return `<div class="team-empty">ยังไม่มีข้อมูลในระบบ (ยังไม่ได้โหลด)</div>`;
   if (cat.items.length === 0) return `<div class="team-empty">ยังไม่มีรายการในหมวดนี้</div>`;
 
-  const searched = searchItems(cat.items, cat.type, _query);
-  if (searched.length === 0) return `<div class="team-empty">ไม่พบรายการตามคำค้นนี้</div>`;
+  let working = searchItems(cat.items, cat.type, _query);
+  if (typeHasDate(cat.type)) working = applyDateRange(working);
+  if (working.length === 0) return `<div class="team-empty">ไม่พบรายการตามคำค้น/ช่วงวันที่นี้</div>`;
 
-  const sorted = sortItems(searched, _sort, cat.type);
+  const sorted = sortItems(working, _sort, cat.type);
   const shown = sorted.slice(0, ROW_CAP);
   const truncated = sorted.length > ROW_CAP;
+  const summary = buildListSummary(cat, sorted);
   return `
+    <div class="team-listbar">
+      <span class="team-hint">แสดง ${shown.length} จาก ${sorted.length} รายการที่ตรงเงื่อนไข</span>
+      <button type="button" class="team-link-btn" data-team-copy="${escHtml(summary)}">📋 คัดลอกสรุป (Markdown)</button>
+    </div>
     <div class="team-list">${shown.map(it => rowHtml(it, cat.type)).join("")}</div>
-    ${truncated ? `<div class="team-hint">แสดง ${ROW_CAP} จาก ${sorted.length} รายการ — แคบคำค้นหรือเปิดหน้าต้นทางเพื่อดูทั้งหมด</div>` : ""}
+    ${truncated ? `<div class="team-hint">แสดง ${ROW_CAP} จาก ${sorted.length} รายการ — แคบคำค้น/ช่วงวันที่ หรือเปิดหน้าต้นทางเพื่อดูทั้งหมด</div>` : ""}
   `;
 }
 
-// list view = header + search/sort controls + list body
 function renderListView(state, key) {
   const cat = categoryOf(state, key);
   const total = Array.isArray(cat.items) ? cat.items.length : 0;
+  const showDate = typeHasDate(cat.type);
+  const dateRow = showDate ? `
+    <div class="team-daterow" id="teamDateRow">
+      <span class="team-daterow-label">ช่วงวันที่:</span>
+      ${DATE_PRESETS.map(p => `<button type="button" class="team-date-btn" data-date-preset="${escHtml(p.key)}">${escHtml(p.label)}</button>`).join("")}
+      <input class="team-date-in" type="date" id="teamDateFrom" value="${escHtml(_dateFrom)}" aria-label="จากวันที่" />
+      <input class="team-date-in" type="date" id="teamDateTo" value="${escHtml(_dateTo)}" aria-label="ถึงวันที่" />
+    </div>` : "";
   return `
     <div class="team-section-title">${escHtml(cat.title)} <small>${total} รายการ · กดแถวเพื่อดูรายละเอียด (read-only)</small></div>
     <div class="team-controls">
@@ -378,6 +517,7 @@ function renderListView(state, key) {
         ${SORTS.map(s => `<option value="${escHtml(s.key)}"${s.key === _sort ? " selected" : ""}>${escHtml(s.label)}</option>`).join("")}
       </select>
     </div>
+    ${dateRow}
     <div id="teamListBody">${renderListBody(state, key)}</div>
   `;
 }
@@ -478,9 +618,7 @@ export function renderTeamCommandCenter(ctx) {
   injectTeamCenterStyles();
 
   const state = ctx?.state || {};
-  _filter = "all";        // เริ่มที่ภาพรวมทุกครั้งที่เข้าหน้า
-  _query = "";
-  _sort = "recent";
+  _filter = "all"; _query = ""; _sort = "recent"; _datePreset = "all"; _dateFrom = ""; _dateTo = "";
 
   container.innerHTML = `
     <div class="team-center">
@@ -491,7 +629,7 @@ export function renderTeamCommandCenter(ctx) {
           <div>
             <div class="team-kicker">Owner Review</div>
             <h2>ศูนย์ทีม AI</h2>
-            <p>มุมมองอ่านอย่างเดียวสำหรับเจ้าของร้าน — กรอง ค้นหา เรียง ดูรายละเอียด และคัดลอก prompt ส่งให้ทีมทำต่อ (ไม่เปลี่ยนข้อมูลจริง)</p>
+            <p>มุมมองอ่านอย่างเดียวสำหรับเจ้าของร้าน — กรอง ค้นหา เลือกช่วงวันที่ ดูรายละเอียด และคัดลอกสรุป/prompt ส่งให้ทีม (ไม่เปลี่ยนข้อมูลจริง)</p>
           </div>
           <div class="team-badge">🔒 Read-only</div>
         </div>
@@ -562,13 +700,23 @@ export function renderTeamCommandCenter(ctx) {
   const input = container.querySelector("#teamCommandInput");
   const log = container.querySelector("#teamChatLog");
 
-  // wire search/sort listeners (เรียกหลัง renderView ที่สร้าง control ใหม่)
+  const refreshListBody = () => {
+    const body = view.querySelector("#teamListBody");
+    if (body) body.innerHTML = renderListBody(state, _filter);
+  };
+  const syncDatePresets = () => {
+    view.querySelectorAll("[data-date-preset]").forEach(b => b.classList.toggle("active", b.dataset.datePreset === _datePreset && !_dateFrom && !_dateTo));
+  };
   const wireListControls = () => {
     const search = view.querySelector("#teamSearch");
     const sortSel = view.querySelector("#teamSort");
-    const body = view.querySelector("#teamListBody");
-    if (search) search.oninput = () => { _query = search.value; if (body) body.innerHTML = renderListBody(state, _filter); };
-    if (sortSel) sortSel.onchange = () => { _sort = sortSel.value; if (body) body.innerHTML = renderListBody(state, _filter); };
+    const dFrom = view.querySelector("#teamDateFrom");
+    const dTo = view.querySelector("#teamDateTo");
+    if (search) search.oninput = () => { _query = search.value; refreshListBody(); };
+    if (sortSel) sortSel.onchange = () => { _sort = sortSel.value; refreshListBody(); };
+    if (dFrom) dFrom.onchange = () => { _dateFrom = dFrom.value; _datePreset = "custom"; refreshListBody(); syncDatePresets(); };
+    if (dTo) dTo.onchange = () => { _dateTo = dTo.value; _datePreset = "custom"; refreshListBody(); syncDatePresets(); };
+    syncDatePresets();
   };
 
   const renderView = () => {
@@ -615,7 +763,9 @@ export function renderTeamCommandCenter(ctx) {
   // event delegation (idempotent: ใช้ onclick assignment กันผูก listener ซ้ำตอน re-render route)
   container.onclick = (e) => {
     const filterEl = e.target.closest("[data-filter]");
-    if (filterEl) { _filter = filterEl.dataset.filter; _query = ""; _sort = "recent"; renderView(); syncChips(); return; }
+    if (filterEl) { _filter = filterEl.dataset.filter; _query = ""; _sort = "recent"; _datePreset = "all"; _dateFrom = ""; _dateTo = ""; renderView(); syncChips(); return; }
+    const dateEl = e.target.closest("[data-date-preset]");
+    if (dateEl) { _datePreset = dateEl.dataset.datePreset; _dateFrom = ""; _dateTo = ""; refreshListBody(); syncDatePresets(); return; }
     const detailEl = e.target.closest("[data-detail]");
     if (detailEl) { openModal(detailEl.dataset.detail); return; }
     if (e.target.id === "teamModalOverlay" || e.target.closest("[data-modal-close]")) { closeModal(); return; }

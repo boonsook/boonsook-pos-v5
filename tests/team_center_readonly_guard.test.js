@@ -1,4 +1,4 @@
-// Phase 357 readonly · 358 ui-polish · 359 action-surface · 360 list-search-sort
+// Phase 357 readonly · 358 ui-polish · 359 action-surface · 360 search-sort · 361 date-range+export
 // Run: node --test tests/team_center_readonly_guard.test.js
 //
 // Why this exists:
@@ -106,7 +106,7 @@ test("search works in-memory over ctx.state items only", () => {
   assert.match(src, /function searchItems\(/, "has an in-memory search");
   assert.match(src, /function itemSearchText\(/, "builds searchable text from item fields in memory");
   assert.match(src, /id="teamSearch"/, "renders a search input near the filter");
-  assert.match(src, /ไม่พบรายการตามคำค้นนี้/, "shows a no-results message");
+  assert.match(src, /ไม่พบรายการตามคำค้น/, "shows a no-results message");
   // search must not trigger any network call
   assert.ok(!/searchItems[\s\S]{0,300}(fetch|xhr|\.post|\.insert)/.test(src), "search must not fetch");
 });
@@ -121,6 +121,35 @@ test("sort clones the array before sorting (no in-place mutation of state)", () 
   for (const label of ["ล่าสุดก่อน", "เก่าสุดก่อน", "ยอดเงินมากก่อน", "สถานะ/ความสำคัญ"]) {
     assert.ok(src.includes(label), `sort option "${label}" must exist`);
   }
+});
+
+// ── date-range filter is in-memory over the existing date field ──────────────
+test("date-range filter works in-memory from ctx.state created_at", () => {
+  assert.match(src, /function dateInRange\(/, "has an in-memory date-range predicate");
+  assert.match(src, /dateKeyBkk\(item\?\.created_at\)/, "date filter reads the existing created_at field");
+  assert.match(src, /data-date-preset=/, "renders date preset controls");
+  for (const label of ["วันนี้", "7 วัน", "30 วัน", "เดือนนี้", "ทั้งหมด"]) {
+    assert.ok(src.includes(label), `date preset "${label}" must exist`);
+  }
+  // date filter must not fetch
+  assert.ok(!/dateInRange[\s\S]{0,300}(fetch|xhr|\.post|\.insert)/.test(src), "date filter must not fetch");
+});
+
+// ── recent groups (read-only) on the overview ─────────────────────────────────
+test("overview shows read-only recent groups for each category", () => {
+  for (const g of ["งานล่าสุด", "เอกสารล่าสุด", "ลูกค้าล่าสุด", "สินค้าล่าสุด"]) {
+    assert.ok(src.includes(g), `recent group "${g}" must exist`);
+  }
+});
+
+// ── export is copy-to-clipboard markdown only (no file / upload / POST) ────────
+test("export produces clipboard markdown only — no file/upload/server", () => {
+  assert.match(src, /function buildListSummary\(/, "has a list markdown summary builder");
+  assert.match(src, /function buildOverviewSummary\(/, "has an overview markdown summary builder");
+  assert.match(src, /คัดลอกสรุป/, "export is a copy-summary action");
+  // export must be wired to clipboard via data-team-copy, never a download/file/blob
+  assert.ok(!/URL\.createObjectURL|createObjectURL|new Blob\(|download=|\.click\(\)/.test(src), "must not create/download a file");
+  assert.ok(!/buildListSummary[\s\S]{0,300}(fetch|xhr|\.post|\.insert)/.test(src), "summary must not be uploaded");
 });
 
 // ── drill-down is read-only: no save/approve/submit/delete action, only copy/nav/close ─

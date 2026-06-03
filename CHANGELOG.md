@@ -7,6 +7,13 @@
 
 ---
 
+## 5.66.0 (build 361) — 2026-06-03 Phase 361 team-center-date-range-and-export-readonly — เพิ่ม date-range + recent groups + export (read-only)
+
+- **feat:** **date-range filter** ในมุมมอง list หมวดที่ผูกวันที่ (ใบเสนอราคา/งานบริการ) — preset วันนี้/7วัน/30วัน/เดือนนี้/ทั้งหมด + custom from/to; กรองจาก `created_at` เดิมใน memory (`dateInRange` ใช้ `dateKeyBkk`), ไม่ fetch
+- **feat:** **recent groups** บน overview (อ่านอย่างเดียว): งานล่าสุด / เอกสารล่าสุด / ลูกค้าล่าสุด / สินค้าล่าสุด (top 3, กดดูรายละเอียด / ดูทั้งหมด)
+- **feat:** **export Markdown** — `buildListSummary` (รายการปัจจุบันตาม filter/search/date/sort) + `buildOverviewSummary` (สรุปภาพรวม) → **คัดลอกเข้า clipboard เท่านั้น** (ไม่สร้างไฟล์/ไม่ upload/ไม่ POST)
+- **scope:** drill-down ยัง read-only (ไม่มี save/approve/submit/delete) · sort ยัง clone `[...items]` · date/search/sort/filter wrap ได้ · ❌ fetch/POST/PATCH/PUT/DELETE · ❌ mutate state · ❌ POS/stock/accounting/payroll/service · ❌ ไม่เปิด sales/customer · **test:** guard 14→17, unit 1038 · **pwa-cache:** bump 360→361
+
 ## 5.66.0 (build 360) — 2026-06-03 Phase 360 team-center-list-search-polish — เพิ่ม search/sort/list polish (read-only)
 
 - **feat:** **search box** ใต้ filter chips ในหน้า "ศูนย์ทีม AI" — ค้นจาก `ctx.state` ใน memory (เลขเอกสาร/ลูกค้า/สถานะ/source/รุ่น-BTU); ไม่ fetch/ไม่ save query; ไม่พบ → "ไม่พบรายการตามคำค้นนี้"
