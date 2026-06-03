@@ -1,19 +1,21 @@
-// Phase team-center-readonly (357) + team-center-ui-polish-readonly (358)
+// Phase 357 team-center-readonly · 358 ui-polish · 359 owner-action-surface
 // Run: node --test tests/team_center_readonly_guard.test.js
 //
 // Why this exists:
-//   "ศูนย์ทีม AI" (modules/team_command_center.js) is an OWNER-ONLY, READ-ONLY dashboard.
-//   Build 358 reshaped it from a game/avatar board into work cards, but the read-only +
-//   no-live-integration invariants must hold. These guards lock:
+//   "ศูนย์ทีม AI" (modules/team_command_center.js) is an OWNER-ONLY, READ-ONLY review surface.
+//   Build 359 added filter / drill-down / prompt-generator, but everything must stay read-only.
+//   These guards lock:
 //     - no network mutation (fetch/xhr POST/PATCH/DELETE/PUT, supabase insert/update/delete/upsert)
 //     - no state mutation (no assignment / in-place mutation of ctx.state arrays)
 //     - never touches POS/stock/accounting/service workflow helpers
 //     - missing state fields render "—"/"ยังไม่มีข้อมูล", NOT a misleading hardcoded 0
-//     - integrations are labelled "ยังไม่เชื่อมต่อ · รอ owner อนุมัติ" (not faked as connected)
-//     - AI assistants are framed as "ตัวอย่าง" concept, not real working agents
-//     - draft/notes panel is local-only (copy/navigate buttons only)
-//     - the route is admin-only (not in the sales role page list)
-//     - layout is overflow-safe (responsive grids, no viewport-width / huge fixed widths)
+//     - integrations labelled "ยังไม่เชื่อมต่อ · รอ owner อนุมัติ" (not faked as connected)
+//     - AI assistants framed as "ตัวอย่าง" concept, not real working agents
+//     - filter/drill-down work in-memory from ctx.state; no extra fetch
+//     - drill-down has NO save/approve/submit action — only copy-prompt / navigate / close
+//     - prompt generator produces clipboard text only
+//     - the route is admin-only (not in sales/customer role)
+//     - layout is overflow-safe (responsive grids, wrapping filter, modal above bottom nav)
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -55,7 +57,6 @@ test("uses dash/NA fallback for missing state fields (no misleading hardcoded 0)
   assert.ok(!/<strong>0<\/strong>/.test(src), "must not hardcode <strong>0</strong> in stat cards");
   assert.ok(!/team-card-num">0</.test(src), "must not hardcode a literal 0 card value");
   assert.match(src, /ยังไม่มีข้อมูล/, "NA label must exist for absent data");
-  // cards must be driven by null-able numbers (field present => count, absent => null => NA)
   assert.match(src, /num:\s*\w+\s*\?\s*\w+\.length\s*:\s*null/, "card numbers come from real arrays or null");
 });
 
@@ -63,7 +64,6 @@ test("uses dash/NA fallback for missing state fields (no misleading hardcoded 0)
 test("integrations are placeholders labelled ยังไม่เชื่อมต่อ · รอ owner อนุมัติ", () => {
   assert.match(src, /ยังไม่เชื่อมต่อ · รอ owner อนุมัติ/, "must show waiting-for-owner placeholder status");
   assert.match(src, /ยังไม่มี integration จริง/, "must state there is no real integration");
-  // none of these misleading 'looks-connected' tokens may appear
   for (const bad of [">Connected<", "<small>Connected", "Owner verified", "Secrets", "Production Release", "Locked", "Live Map", "OAuth token", "webhook"]) {
     assert.ok(!src.includes(bad), `must not show misleading/real-integration token "${bad}"`);
   }
@@ -73,7 +73,6 @@ test("integrations are placeholders labelled ยังไม่เชื่อ�
 test("AI assistants are labelled as example roles (concept), not live agents", () => {
   assert.match(src, /ตัวอย่างบทบาททีม/, "assistants must be framed as example roles");
   assert.match(src, /ยังไม่ใช่ agent ที่ทำงานจริง/, "must clarify assistants are not real/working");
-  // game-board / avatar artefacts from the old mock are gone
   for (const gone of ["team-avatar", "team-room", "team-desk", "team-map", "team-dot", "team-bubble"]) {
     assert.ok(!src.includes(gone), `de-gamified UI must not contain "${gone}"`);
   }
@@ -84,10 +83,43 @@ test("draft panel + quick buttons are copy-to-clipboard or navigation only", () 
   assert.match(src, /data-team-copy/, "copy buttons present");
   assert.match(src, /data-team-nav/, "nav buttons present");
   assert.match(src, /navigator\.clipboard\.writeText/, "copy uses clipboard");
-  assert.match(src, /ctx\?\.showRoute\?\.\(route\)/, "nav uses ctx.showRoute");
+  assert.match(src, /ctx\?\.showRoute\?\.\(/, "nav uses ctx.showRoute");
   assert.match(src, /บันทึก draft ในหน้านี้เท่านั้น/, "draft must be stated as local-only");
-  // draft handler only appends to the DOM log, never persists/sends
   assert.match(src, /insertAdjacentHTML\("beforeend"/, "draft is appended to local DOM log only");
+});
+
+// ── filter / segmented control works in-memory from ctx.state ─────────────────
+test("filter control has the 6 categories and reads only from ctx.state", () => {
+  for (const label of ["ทั้งหมด", "รออนุมัติ", "งานต้องดู", "งานแอร์", "ลูกค้า", "สินค้า"]) {
+    assert.ok(src.includes(label), `filter must include "${label}"`);
+  }
+  assert.match(src, /data-filter=/, "filter chips must carry data-filter");
+  // categories derive from field(state, ...) — no network call inside
+  assert.match(src, /function categoryOf\(state,/, "categoryOf reads from state");
+  assert.match(src, /field\(state,\s*"customers"\)/, "customers category from state");
+  assert.match(src, /field\(state,\s*"products"\)/, "products category from state");
+  assert.match(src, /ยังไม่มีรายการในหมวดนี้/, "empty state for a category with no rows");
+});
+
+// ── drill-down is read-only: no save/approve/submit action, only copy/nav/close ─
+test("drill-down detail panel has no real save/approve/submit action", () => {
+  // no write-action hooks
+  assert.ok(!/data-(approve|submit|save|post|delete)\b/.test(src), "no write-action data hooks in drill-down");
+  // no actionable button labelled approve/save/submit-to-server in Thai
+  assert.ok(!/>\s*[^<]*อนุมัติ[^<]*<\/button>/.test(src), "must not have an อนุมัติ (approve) button");
+  assert.ok(!/>\s*[^<]*บันทึกลง[^<]*<\/button>/.test(src), "must not have a save-to-DB button");
+  // modal closes locally + only copy/nav actions
+  assert.match(src, /data-modal-close/, "modal has a local close control");
+  assert.match(src, /function detailHtml\(/, "has a read-only detail renderer");
+  assert.match(src, /มุมมองอ่านอย่างเดียว — ไม่มีปุ่มบันทึก\/อนุมัติ\/ส่งจริง/, "modal states it is read-only");
+});
+
+// ── owner prompt generator produces clipboard text only ───────────────────────
+test("prompt generator builds a text draft delivered via clipboard only", () => {
+  assert.match(src, /function buildPrompt\(/, "has a prompt generator");
+  assert.match(src, /data-team-copy="\$\{escHtml\(prompt\)\}"/, "generated prompt is wired to a copy button");
+  // prompt is plain text, not sent anywhere
+  assert.ok(!/buildPrompt[\s\S]{0,400}(fetch|xhr|\.post|\.insert)/.test(src), "prompt must not be sent over network");
 });
 
 // ── route is admin-only (wired but NOT in sales/customer role list) ───────────
@@ -100,19 +132,20 @@ test("team_center route is admin-only (not granted to the sales role)", () => {
   assert.match(mainJs, /team_center:\s*\["\.\/modules\/team_command_center\.js",\s*"renderTeamCommandCenter"\]/, "lazy route must be wired");
 });
 
-// ── layout is overflow-safe (responsive, no viewport-width blowout) ───────────
+// ── layout is overflow-safe (responsive, wrapping filter, modal above nav) ────
 test("layout source has no obvious horizontal-overflow hazards", () => {
-  // responsive grids (auto-fill/auto-fit + minmax) instead of fixed wide columns
   assert.match(src, /minmax\(/, "grids must use minmax for responsiveness");
   assert.match(src, /repeat\(auto-(fill|fit)/, "card grids must auto-fill/auto-fit");
-  // container clips + caps width; children allowed to shrink
   assert.match(src, /\.team-center\{[^}]*overflow:hidden/, "container must clip overflow");
   assert.match(src, /max-width:100%/, "container must cap width at 100%");
   assert.match(src, /min-width:0/, "flex/grid children must be allowed to shrink (min-width:0)");
   assert.match(src, /word-break:break-word/, "long values must wrap, not overflow");
-  // no viewport-width units and no huge fixed pixel widths that ignore the container
   assert.ok(!/\d+vw/.test(src), "must not use vw widths (scrollbar overflow risk)");
   assert.ok(!/width:\s*\d{4,}px/.test(src), "must not use 4-digit fixed pixel widths");
-  // mobile breakpoint exists
   assert.match(src, /@media \(max-width:640px\)/, "must have a mobile breakpoint");
+  // filter chips must be able to wrap on narrow screens
+  assert.match(src, /\.team-filter\{[^}]*flex-wrap:wrap/, "filter row must wrap");
+  // drill-down modal must sit above bottom nav / FAB (z-index high, fixed overlay)
+  assert.match(src, /\.team-modal\{[^}]*position:fixed/, "modal overlay is fixed");
+  assert.match(src, /\.team-modal\{[^}]*z-index:9995/, "modal must layer above bottom nav/FAB");
 });

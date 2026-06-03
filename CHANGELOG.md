@@ -7,6 +7,15 @@
 
 ---
 
+## 5.66.0 (build 359) — 2026-06-03 Phase 359 team-center-owner-action-surface — เพิ่ม read-only action surface (filter/drill-down/prompt)
+
+- **feat:** หน้า **"ศูนย์ทีม AI"** เพิ่ม **filter chips** (ทั้งหมด/รออนุมัติ/งานต้องดู/งานแอร์/ลูกค้า/สินค้า) — กรองใน memory จาก `ctx.state` เท่านั้น (ไม่ fetch); หมวดว่าง → "ยังไม่มีรายการในหมวดนี้"
+- **feat:** **drill-down modal (read-only)** — กด row เปิด panel แสดง เลขเอกสาร/ลูกค้า/สถานะ/วันที่/ยอดเงิน/source เท่าที่มีจริง (ไม่มี → "—"); ปุ่มเฉพาะ **ไปหน้าต้นทาง (`showRoute`) / คัดลอก prompt / ปิด** — ไม่มี save/approve/submit จริง
+- **feat:** **owner prompt generator** (`buildPrompt`) สร้าง text draft ต่อรายการ → copy clipboard เท่านั้น (ไม่ส่ง network/ไม่ save DB)
+- **wording:** subtitle "มุมมองอ่านอย่างเดียวสำหรับเจ้าของร้าน" · Team Chat → "บันทึก Draft / Prompt" · integration คง "ยังไม่เชื่อมต่อ · รอ owner อนุมัติ"
+- **layout:** filter wrap ได้ · modal z-index 9995 เหนือ bottom nav/FAB · max-height + scroll บนมือถือ · reuse `money`/`formatDate`/`parseAirJobMeta`
+- **scope:** ❌ ไม่ fetch/POST/PATCH/PUT/DELETE · ❌ ไม่ mutate state · ❌ ไม่แตะ POS/stock/accounting/payroll/service · ❌ ไม่เปิด sales/customer · **test:** guard 9→12, unit 1033 · **pwa-cache:** bump 358→359
+
 ## 5.66.0 (build 358) — 2026-06-03 Phase 358 team-center-ui-polish-readonly — ปรับ "ศูนย์ทีม AI" เป็น owner dashboard (ยัง read-only)
 
 - **ui:** เปลี่ยนหน้า **"ศูนย์ทีม AI"** จาก game/avatar board → **owner dashboard** ด้วย work cards จาก `ctx.state` จริง: รออนุมัติใบเสนอราคา / งานที่ต้องดู / งานบริการ-แจ้งซ่อม / **งานแอร์จากแคตตาล็อก** (reuse `parseAirJobMeta`) / ลูกค้า / สินค้า / เอกสารล่าสุด — กดการ์ด → `showRoute` ไปหน้าจริง
