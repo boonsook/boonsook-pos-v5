@@ -1,4 +1,4 @@
-// Phase 357 team-center-readonly · 358 ui-polish · 359 owner-action-surface
+// Phase 357 readonly · 358 ui-polish · 359 action-surface · 360 list-search-sort
 // Run: node --test tests/team_center_readonly_guard.test.js
 //
 // Why this exists:
@@ -101,8 +101,30 @@ test("filter control has the 6 categories and reads only from ctx.state", () => 
   assert.match(src, /ยังไม่มีรายการในหมวดนี้/, "empty state for a category with no rows");
 });
 
-// ── drill-down is read-only: no save/approve/submit action, only copy/nav/close ─
-test("drill-down detail panel has no real save/approve/submit action", () => {
+// ── search filters in-memory from ctx.state (no fetch, no saved query) ────────
+test("search works in-memory over ctx.state items only", () => {
+  assert.match(src, /function searchItems\(/, "has an in-memory search");
+  assert.match(src, /function itemSearchText\(/, "builds searchable text from item fields in memory");
+  assert.match(src, /id="teamSearch"/, "renders a search input near the filter");
+  assert.match(src, /ไม่พบรายการตามคำค้นนี้/, "shows a no-results message");
+  // search must not trigger any network call
+  assert.ok(!/searchItems[\s\S]{0,300}(fetch|xhr|\.post|\.insert)/.test(src), "search must not fetch");
+});
+
+// ── sort is in-memory and clones the array (never mutates state) ──────────────
+test("sort clones the array before sorting (no in-place mutation of state)", () => {
+  assert.match(src, /function sortItems\(/, "has an in-memory sort");
+  assert.match(src, /const arr = \[\.\.\.items\]/, "sort must clone via spread before .sort()");
+  // the only .sort() calls operate on the cloned `arr`, never directly on a state array
+  assert.ok(!/(?:ctx\.)?state\.\w+\.sort\(/.test(src), "must not sort a state array in place");
+  assert.ok(!/\.items\.sort\(/.test(src), "must not sort category.items in place");
+  for (const label of ["ล่าสุดก่อน", "เก่าสุดก่อน", "ยอดเงินมากก่อน", "สถานะ/ความสำคัญ"]) {
+    assert.ok(src.includes(label), `sort option "${label}" must exist`);
+  }
+});
+
+// ── drill-down is read-only: no save/approve/submit/delete action, only copy/nav/close ─
+test("drill-down detail panel has no real save/approve/submit/delete action", () => {
   // no write-action hooks
   assert.ok(!/data-(approve|submit|save|post|delete)\b/.test(src), "no write-action data hooks in drill-down");
   // no actionable button labelled approve/save/submit-to-server in Thai
@@ -118,8 +140,11 @@ test("drill-down detail panel has no real save/approve/submit action", () => {
 test("prompt generator builds a text draft delivered via clipboard only", () => {
   assert.match(src, /function buildPrompt\(/, "has a prompt generator");
   assert.match(src, /data-team-copy="\$\{escHtml\(prompt\)\}"/, "generated prompt is wired to a copy button");
+  // prompt carries context (type tag + what to check)
+  assert.match(src, /\[ใบเสนอราคา\]|\[งานบริการ\]|\[ลูกค้า\]|\[สินค้า\]/, "prompt includes the item type for context");
+  assert.match(src, /ช่วยตรวจ|ช่วยเช็ค|ช่วยสรุป/, "prompt states what to check");
   // prompt is plain text, not sent anywhere
-  assert.ok(!/buildPrompt[\s\S]{0,400}(fetch|xhr|\.post|\.insert)/.test(src), "prompt must not be sent over network");
+  assert.ok(!/buildPrompt[\s\S]{0,500}(fetch|xhr|\.post|\.insert)/.test(src), "prompt must not be sent over network");
 });
 
 // ── route is admin-only (wired but NOT in sales/customer role list) ───────────
@@ -143,8 +168,9 @@ test("layout source has no obvious horizontal-overflow hazards", () => {
   assert.ok(!/\d+vw/.test(src), "must not use vw widths (scrollbar overflow risk)");
   assert.ok(!/width:\s*\d{4,}px/.test(src), "must not use 4-digit fixed pixel widths");
   assert.match(src, /@media \(max-width:640px\)/, "must have a mobile breakpoint");
-  // filter chips must be able to wrap on narrow screens
+  // filter chips + search/sort controls must be able to wrap on narrow screens
   assert.match(src, /\.team-filter\{[^}]*flex-wrap:wrap/, "filter row must wrap");
+  assert.match(src, /\.team-controls\{[^}]*flex-wrap:wrap/, "search/sort controls row must wrap");
   // drill-down modal must sit above bottom nav / FAB (z-index high, fixed overlay)
   assert.match(src, /\.team-modal\{[^}]*position:fixed/, "modal overlay is fixed");
   assert.match(src, /\.team-modal\{[^}]*z-index:9995/, "modal must layer above bottom nav/FAB");

@@ -7,6 +7,15 @@
 
 ---
 
+## 5.66.0 (build 360) — 2026-06-03 Phase 360 team-center-list-search-polish — เพิ่ม search/sort/list polish (read-only)
+
+- **feat:** **search box** ใต้ filter chips ในหน้า "ศูนย์ทีม AI" — ค้นจาก `ctx.state` ใน memory (เลขเอกสาร/ลูกค้า/สถานะ/source/รุ่น-BTU); ไม่ fetch/ไม่ save query; ไม่พบ → "ไม่พบรายการตามคำค้นนี้"
+- **feat:** **sort** (ล่าสุดก่อน / เก่าสุดก่อน / ยอดเงินมากก่อน / สถานะ-ความสำคัญ) — ทำใน memory, **clone array (`[...items]`) ก่อน sort เสมอ** ไม่ mutate state
+- **ui:** เรียง overview cards ใหม่ตาม priority (งานที่ต้องดู → รออนุมัติ → งานแอร์ → เอกสารล่าสุด → ลูกค้า → สินค้า); list rows แสดงเป็นรายการจริงขึ้น (title/เลขเอกสาร + subtitle + status/date/amount/source chips, กดแถว=ดูรายละเอียด)
+- **prompt:** prompt generator มีบริบทขึ้น (`[ประเภท]` + เลข/ลูกค้า/สถานะ + สิ่งที่ควรตรวจ) — ยัง clipboard/text draft เท่านั้น
+- **perf/ux:** re-render เฉพาะ `#teamListBody` ตอน search/sort (คง focus ช่องค้นหา); search/sort/filter wrap ได้
+- **scope:** drill-down ไม่มี save/approve/submit/delete · ❌ ไม่ fetch/POST/PATCH/PUT/DELETE · ❌ ไม่ mutate state · ❌ ไม่แตะ POS/stock/accounting/payroll/service · ❌ ไม่เปิด sales/customer · **test:** guard 12→14, unit 1035 · **pwa-cache:** bump 359→360
+
 ## 5.66.0 (build 359) — 2026-06-03 Phase 359 team-center-owner-action-surface — เพิ่ม read-only action surface (filter/drill-down/prompt)
 
 - **feat:** หน้า **"ศูนย์ทีม AI"** เพิ่ม **filter chips** (ทั้งหมด/รออนุมัติ/งานต้องดู/งานแอร์/ลูกค้า/สินค้า) — กรองใน memory จาก `ctx.state` เท่านั้น (ไม่ fetch); หมวดว่าง → "ยังไม่มีรายการในหมวดนี้"
