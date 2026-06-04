@@ -574,7 +574,9 @@ export function renderStockMovementsPage(ctx) {
           throw new Error('ระบบยังโหลดไม่เสร็จ — กรุณารีเฟรชหน้าเว็บ');
         }
         const res = await window._appApplyStockMovement({
-          productId, warehouseId, movementType, qty: quantity, note
+          // Phase 369: manual override — หน้านี้มี confirm เตือนติดลบ (~บรรทัด 565) อยู่แล้ว
+          //   = admin จงใจให้ติดลบได้ → ส่ง allowNegative:true (ข้าม floor 369)
+          productId, warehouseId, movementType, qty: quantity, note, allowNegative: true
         });
         if (res && res.ok) {
           showToast('บันทึกเคลื่อนไหวสต็อกสำเร็จ', 'success');

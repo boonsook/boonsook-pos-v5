@@ -7,6 +7,14 @@
 
 ---
 
+## 5.66.0 (build 369) — 2026-06-04 Phase 369 fix-applystockmovement-oversell-floor — floor out/sale ของ service-job auto-deduct
+
+- **fix (severity สูง — oversell/สต็อก §4.1/4.2):** `_applyStockMovement` (`main.js`; ใช้โดยฟอร์ม stock_movements + **service-job auto-deduct** ใน ac_install/service_form/solar ผ่าน `movementType:"out"`) เดิม out/sale ใช้ `_atomicAddStock(delta ติดลบ)` **ไม่มี floor** → floor 367(POS)/368(transfer) **ไม่ครอบเส้นนี้** → งานบริการตัดเกินสต็อก = **เขียนค่าติดลบเงียบ ๆ** (น่าจะต้นเหตุ `warehouse_stock` product 1809 = **-1**)
+- **how:** เพิ่ม param `allowNegative = false`. out/sale (default) ตัดผ่าน `_atomicDecrementStock` (floor 367 + CAS) ทั้ง `warehouse_stock` + `products` mirror — `dec.insufficient` → `return {ok:false, insufficient:true, error:"สต็อกคลังไม่พอ (เหลือ X)"}` **ทันทีก่อน** log `stock_movements` (ไม่ log หลอกว่าตัดสำเร็จ); ไม่มี ws row → `return "คลังนี้ไม่มีสินค้านี้ (สต็อก 0)"` **ห้าม insert row ติดลบ** (ขนานกับ transfer 368)
+- **how (override):** ฟอร์ม stock_movements ส่ง `allowNegative:true` (มี confirm "จะติดลบ — บันทึกต่อ?" อยู่แล้ว = admin จงใจ) → คง `_atomicAddStock`/insert เดิมทุกอย่าง. ac_install/service_form/solar **ไม่ต้องแก้** (พึ่ง default → floored; เช็ค `!r.ok → stockOpsFailed` อยู่แล้ว = fail-clean)
+- **scope:** ❌ ไม่แตะ `in`/`return` (additive เดิม) · `adjust` (absolute set เดิม) · `_deductStockForSaleItem` (POS) · `_transferWarehouseStock` (368) · `stock_cas.js` helper · CAS retry/race · return shape เดิม `{ok,error}` (เพิ่ม `insufficient` แบบ additive) · schema/RLS/SQL/POS/cart/accounting · **test:** +10 `apply_stock_movement_floor.test.js`, unit 1078, e2e 11 · **pwa-cache:** bump 368→369
+- **known risk:** manual override (`allowNegative`) ยังตั้งใจให้ติดลบได้; service-job ยัง **save ได้** แม้ deduct fail (การบล็อก save = P2 follow-up แยก); atomicity ข้าม 2 row ของ transfer ยัง client-side (368)
+
 ## 5.66.0 (build 368) — 2026-06-04 Phase 368 harden-warehouse-transfer-cas-floor — CAS+floor+rollback ตอนโอนสต็อกระหว่างคลัง
 
 - **fix (severity สูง — oversell/สต็อก §4.1/4.2):** `_transferWarehouseStock` (ปุ่ม "โอนบ้าน→รถ" ใน ac_install/service_form/solar + transfer modal หน้า stock_movements) เดิมใช้ **raw `xhrPatch` ทั้ง 2 ฝั่ง ไม่เช็ค `.ok`** — และเพราะ `xhrPost/xhrPatch` **resolve `{ok:false}` ไม่ throw** → `try/catch` จับ error ไม่ติด + **ไม่มี floor** → โอนเกินต้นทาง = **เขียนค่าติดลบ**, race, ปลายทางล้ม = **ของหาย**

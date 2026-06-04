@@ -3108,7 +3108,11 @@ async function _transferWarehouseStock({ productId, fromWarehouseId, toWarehouse
 }
 
 // ★ อัพเดทสต็อกใน warehouse — ใช้โดย stock_movements module (in/out/sale/return/adjust)
-async function _applyStockMovement({ productId, warehouseId, movementType, qty, note }) {
+// Phase 369: out/sale ตัดผ่าน floor (_atomicDecrementStock จาก 367) เป็น default — กัน
+//   service-job auto-deduct (ac_install/service_form/solar → "out") เขียนค่าติดลบ.
+//   allowNegative:true = manual override (หน้า stock_movements มี confirm เตือนติดลบแล้ว)
+//   → คงพฤติกรรมเดิม (admin จงใจให้ติดลบได้).
+async function _applyStockMovement({ productId, warehouseId, movementType, qty, note, allowNegative = false }) {
   if (!productId || qty <= 0 || !movementType) return { ok: false, error: "ข้อมูลไม่ครบ" };
   // Phase 45.3: schema ใช้ created_by uuid → ต้องส่ง user uuid (auth.users.id) ไม่ใช่ email
   const creatorUuid = state.currentUser?.id || null;
@@ -3120,8 +3124,9 @@ async function _applyStockMovement({ productId, warehouseId, movementType, qty, 
   // ★ audit S3: delta moves (in/out/return/sale) ใช้ atomic CAS กัน lost update เหมือน POS/credit path.
   //   adjust = ตั้งค่าใหม่ absolute (manual override) → ใช้ set ตรง (ไม่ใช่ delta) คงเดิม
   const isAdjust = movementType === "adjust";
+  const isOutFlow = (movementType === "out" || movementType === "sale");  // Phase 369: floored when !allowNegative
   const delta = (movementType === "in" || movementType === "return") ? qty
-              : (movementType === "out" || movementType === "sale") ? -qty
+              : isOutFlow ? -qty
               : 0;
   const before = Number(ws?.stock || 0);
   let after = isAdjust ? qty : before + delta;  // best-effort สำหรับ audit note (CAS คืนค่าจริงด้านล่าง)
@@ -3131,7 +3136,22 @@ async function _applyStockMovement({ productId, warehouseId, movementType, qty, 
       if (ws?.id) {
         if (isAdjust) {
           await xhrPatch("warehouse_stock", { stock: after }, "id", ws.id);
+        } else if (isOutFlow && !allowNegative) {
+          // Phase 369: floor — out/sale ตัดด้วย _atomicDecrementStock (กันติดลบ + CAS)
+          const dec = await _atomicDecrementStock("warehouse_stock", ws.id, qty);
+          if (dec.insufficient) {
+            // ❌ สต็อกไม่พอ → return ทันที "ก่อน" log stock_movements (ห้าม log หลอกว่าตัดสำเร็จ)
+            return { ok: false, insufficient: true, error: `สต็อกคลังไม่พอ (เหลือ ${dec.before})` };
+          }
+          if (dec.ok) {
+            after = dec.after;
+            ws.stock = after;
+          } else {
+            // ล้มแบบอื่น (ไม่ใช่ insufficient) → best-effort เดิม
+            console.warn("[applyStockMovement] warehouse_stock CAS failed:", dec.error);
+          }
         } else {
+          // in/return (delta>0) หรือ allowNegative out/sale (admin override) → คงพฤติกรรมเดิม
           const dec = await _atomicAddStock("warehouse_stock", ws.id, delta);
           if (dec.ok) {
             after = dec.after;
@@ -3141,11 +3161,18 @@ async function _applyStockMovement({ productId, warehouseId, movementType, qty, 
           }
         }
       } else {
+        // ไม่มี row ในคลังนี้ (สต็อก 0)
+        if (isOutFlow && !allowNegative) {
+          // Phase 369: ❌ ห้าม insert row stock ติดลบ (ขนานกับ transfer 368 "ไม่มี source row")
+          return { ok: false, insufficient: true, error: "คลังนี้ไม่มีสินค้านี้ (สต็อก 0)" };
+        }
+        // in/return (after>0) หรือ allowNegative out/sale (manual override ผ่าน confirm) → insert ตามเดิม
         await xhrPost("warehouse_stock", { product_id: productId, warehouse_id: warehouseId, stock: after, min_stock: 0 });
       }
     }
 
-    // Legacy products.stock mirror — delta → CAS, adjust → recompute+set
+    // Legacy products.stock mirror — delta → CAS, adjust → recompute+set, out/sale (!allowNegative) → floored
+    // best-effort: fail แค่ warn (ไม่ throw) — warehouse ตัดสำเร็จแล้ว ถ้า mirror ล้มก็ปล่อยตามเดิม
     try {
       const prod = (state.products || []).find(p => String(p.id) === String(productId));
       if (prod && warehouseId) {
@@ -3153,6 +3180,10 @@ async function _applyStockMovement({ productId, warehouseId, movementType, qty, 
           const newProdStock = Number(prod.stock || 0) + (after - before);
           const r = await xhrPatch("products", { stock: newProdStock }, "id", productId);
           if (!r?.ok) console.warn("[applyStockMovement] products.stock recompute failed:", r?.error);
+        } else if (isOutFlow && !allowNegative) {
+          // Phase 369: mirror ใช้ floor เหมือน warehouse (กันติดลบ)
+          const pdec = await _atomicDecrementStock("products", productId, qty);
+          if (!pdec.ok) console.warn("[applyStockMovement] products.stock floored decrement failed:", pdec.error);
         } else {
           const pdec = await _atomicAddStock("products", productId, delta);
           if (!pdec.ok) console.warn("[applyStockMovement] products.stock CAS failed:", pdec.error);
