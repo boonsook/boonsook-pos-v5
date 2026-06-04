@@ -2853,7 +2853,12 @@ async function _deductStockForSaleItem({ product, qty, orderNo }) {
 
     if (!dec.ok) {
       console.error("[deductStock] warehouse_stock CAS failed:", dec.error);
-      showToast("⚠️ ตัดสต็อกคลังไม่สำเร็จ: " + dec.error);
+      // Phase 367: insufficient = floor ที่ CAS กันขายเกินสต็อก (ติดลบ) → toast ชัด
+      if (dec.insufficient) {
+        showToast(`⚠️ สต็อกไม่พอ: ${product.name} (เหลือ ${dec.before})`);
+      } else {
+        showToast("⚠️ ตัดสต็อกคลังไม่สำเร็จ: " + dec.error);
+      }
     } else {
       // eslint-disable-next-line require-atomic-updates -- A: local cache sync after CAS-protected mutation (Phase 89.9 H10)
       ws.stock = after; // sync local cache เพื่อ render ถัดไป

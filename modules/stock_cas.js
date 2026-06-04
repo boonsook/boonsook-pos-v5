@@ -62,6 +62,21 @@ export async function atomicDecrementStock({
       return { ok: false, error: "fetch error: " + (e?.message || String(e)) };
     }
 
+    // Phase 367: floor at zero — last line of defense against oversell.
+    //   เดิม: after = before - qty โดยไม่เช็ค → ขายเกินสต็อก = เขียนค่าติดลบ
+    //         (พบจริง: warehouse_stock product 1809 = -1)
+    //   ใหม่: before < qty → ไม่ PATCH, ไม่เขียนติดลบ, คืน insufficient ให้ caller เตือน
+    //   หมายเหตุ: เช็คก่อน PATCH ทุก attempt — ถ้า CAS refetch รอบใหม่เจอ before ลด
+    //             ลงต่ำกว่า qty (มีคนตัดไปก่อน) ก็ fail insufficient แทน retry ต่อ
+    if (before < Number(qty)) {
+      return {
+        ok: false,
+        error: `insufficient ${field} (have ${before}, need ${qty})`,
+        insufficient: true,
+        before,
+      };
+    }
+
     const after = before - Number(qty);
 
     try {

@@ -249,6 +249,70 @@ test("PATCH WHERE clause includes &{field}=eq.{before} for atomic CAS", async ()
   assert.match(capturedPatchUrl, /&stock=eq\.15/);
 });
 
+// ═══ Phase 367: floor at zero — prevent oversell-negative ═══
+
+test("insufficient — before(1) < qty(2) → ok:false, insufficient, NO PATCH, no negative write", async () => {
+  const fetcher = mockFetcher([
+    makeRes(200, [{ stock: 1 }]),   // refetch only — must NOT reach PATCH
+  ]);
+  const r = await atomicDecrementStock({
+    ...baseCfg, fetcher, logger: silent,
+    table: "warehouse_stock", rowId: 1809, qty: 2,
+  });
+  assert.equal(r.ok, false);
+  assert.equal(r.insufficient, true);
+  assert.equal(r.before, 1);
+  assert.match(r.error, /insufficient stock \(have 1, need 2\)/);
+  // critical: only the refetch happened, no PATCH that would write -1
+  assert.equal(fetcher.calls.length, 1, "must NOT PATCH when before < qty");
+  assert.equal(fetcher.remaining(), 0);
+});
+
+test("sufficient — before(5) >= qty(2) → ok:true, after=3 (normal path unaffected)", async () => {
+  const fetcher = mockFetcher([
+    makeRes(200, [{ stock: 5 }]),
+    makeRes(200, [{ id: 1, stock: 3 }]),
+  ]);
+  const r = await atomicDecrementStock({
+    ...baseCfg, fetcher, logger: silent,
+    table: "warehouse_stock", rowId: 1, qty: 2,
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.before, 5);
+  assert.equal(r.after, 3);
+});
+
+test("exact — before===qty → ok:true, after=0 (sell out exactly allowed)", async () => {
+  const fetcher = mockFetcher([
+    makeRes(200, [{ stock: 2 }]),
+    makeRes(200, [{ id: 1, stock: 0 }]),
+  ]);
+  const r = await atomicDecrementStock({
+    ...baseCfg, fetcher, logger: silent,
+    table: "warehouse_stock", rowId: 1, qty: 2,
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.before, 2);
+  assert.equal(r.after, 0);
+});
+
+test("insufficient on CAS refetch — race dropped stock below qty mid-retry → fail insufficient, no negative PATCH", async () => {
+  const fetcher = mockFetcher([
+    makeRes(200, [{ stock: 3 }]),   // refetch #1: enough
+    makeRes(200, []),               // patch #1: CAS lost (someone else took it)
+    makeRes(200, [{ stock: 1 }]),   // refetch #2: now only 1 left, qty=2 → insufficient
+  ]);
+  const r = await atomicDecrementStock({
+    ...baseCfg, fetcher, logger: silent,
+    table: "warehouse_stock", rowId: 1, qty: 2,
+  });
+  assert.equal(r.ok, false);
+  assert.equal(r.insufficient, true);
+  assert.equal(r.before, 1);
+  // 1 refetch + 1 patch + 1 refetch = 3 calls; no 4th PATCH writing -1
+  assert.equal(fetcher.calls.length, 3, "must NOT PATCH negative on retry refetch");
+});
+
 test("logger.warn called on CAS retry, not on success", async () => {
   const warnings = [];
   const logger = { warn: (msg) => warnings.push(msg) };

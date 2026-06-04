@@ -7,6 +7,13 @@
 
 ---
 
+## 5.66.0 (build 367) — 2026-06-04 Phase 367 fix-stock-oversell-negative-guard — floor CAS decrement กันสต็อกติดลบ
+
+- **fix (severity สูง — oversell/สต็อก §4.1/4.2):** `atomicDecrementStock` เขียน `after = before - qty` **โดยไม่เช็ค before ≥ qty** → ขายเกินสต็อก = **เขียนค่าติดลบ** (พบจริง: `warehouse_stock` product 1809 = **-1**)
+- **how:** ใส่ **floor ที่ CAS เป็น last line of defense** — ก่อนคำนวณ `after` ทุก attempt ถ้า `before < qty` → `return { ok:false, insufficient:true, before, error:"insufficient ..." }` **ไม่ PATCH / ไม่เขียนติดลบ**. ถ้า CAS refetch รอบใหม่เจอ stock ต่ำกว่า qty (มีคนตัดไปก่อน) ก็ fail insufficient แทน retry ต่อ
+- **how (caller):** `_deductStockForSaleItem` (`main.js`): `dec.insufficient` → toast ชัด **"⚠️ สต็อกไม่พอ: {ชื่อ} (เหลือ X)"**; logic `skipProductsCas` เดิม (`stocks.length>0 && !dec.ok`) ครอบ products.stock อยู่แล้ว
+- **scope:** ❌ ไม่แตะ CAS retry/race เดิม · `atomicAddToField` (credit) · pre-checkout/cart/products↔warehouse sync (**Phase B แยก**) · schema/RLS/SQL (data fix ตัวติดลบ + CHECK constraint = **owner รันแยก**) · **test:** +4 `stock_cas.test.js` (20 total), unit 1061, e2e 11 · **pwa-cache:** bump 366→367
+
 ## 5.66.0 (build 366) — 2026-06-04 Phase 366 fix-loadalldata-1000-row-cap — แก้บั๊กโหลดได้แค่ 1000 แถว/ตาราง
 
 - **fix:** `loadAllData` เคยโหลดได้แค่ **1000 แถว/ตาราง** (PostgREST default `max-rows=1000`) → `products` ใน DB = 1075 แต่แอปโหลด 1000 = **หาย 75 ตัว** (ขายไม่ได้/นับผิด); `warehouse_stock` (สินค้า×คลัง) อาจหลายพัน → **stock เพี้ยน + "หมดสต็อก" พองปลอม**
