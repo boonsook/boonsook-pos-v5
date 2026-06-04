@@ -7,6 +7,14 @@
 
 ---
 
+## 5.66.0 (build 368) — 2026-06-04 Phase 368 harden-warehouse-transfer-cas-floor — CAS+floor+rollback ตอนโอนสต็อกระหว่างคลัง
+
+- **fix (severity สูง — oversell/สต็อก §4.1/4.2):** `_transferWarehouseStock` (ปุ่ม "โอนบ้าน→รถ" ใน ac_install/service_form/solar + transfer modal หน้า stock_movements) เดิมใช้ **raw `xhrPatch` ทั้ง 2 ฝั่ง ไม่เช็ค `.ok`** — และเพราะ `xhrPost/xhrPatch` **resolve `{ok:false}` ไม่ throw** → `try/catch` จับ error ไม่ติด + **ไม่มี floor** → โอนเกินต้นทาง = **เขียนค่าติดลบ**, race, ปลายทางล้ม = **ของหาย**
+- **how:** (0) normalize `transferQty = Number(qty)` ใช้ตลอด (กัน string "5"). (1) source → `_atomicDecrementStock` (floor จาก 367 กันติดลบ + CAS กัน race); ไม่มี source row → `"คลังต้นทางไม่มีสินค้านี้"` (**ห้ามสร้าง row ต้นทาง**); `!dec.ok` → `{ok:false, insufficient, error:"สต็อกต้นทางไม่พอ (เหลือ X)"}`. (2) target → มี id ใช้ `_atomicAddStock`; ไม่มี → `xhrPost(returnData:true)` แล้ว push row `{id:res.data.id,...}` เข้า cache (มี id จริง)
+- **how (atomicity):** (3) **rollback เฉพาะกรณี target ล้ม หลัง source ตัดสำเร็จ** → คืน source. (5) **log movement = best-effort** (try/catch) — log ล้ม → `warn` แต่ **ยัง `ok:true` ❌ ห้าม rollback** (rollback ตอน log ล้ม = source คืนแต่ target เพิ่มไปแล้ว = เพี้ยนหนักกว่าเดิม)
+- **scope:** ❌ ไม่แตะ `products.stock` (โอนระหว่างคลัง = ผลรวมไม่เปลี่ยน → ถูกแล้ว) · CAS internal · return shape เดิม `{ok,error}` (เพิ่ม `insufficient` เท่านั้น — caller ac_install/service_form/solar/stock_movements พึ่งอยู่) · schema/RLS/SQL/POS/cart/accounting/transfer UI (P2) · **test:** +8 `warehouse_transfer_cas.test.js`, unit 1069, e2e 11 · **pwa-cache:** bump 367→368
+- **known risk:** atomicity ข้าม 2 row ยัง best-effort client-side (robust จริง = DB RPC/transaction ภายหลัง)
+
 ## 5.66.0 (build 367) — 2026-06-04 Phase 367 fix-stock-oversell-negative-guard — floor CAS decrement กันสต็อกติดลบ
 
 - **fix (severity สูง — oversell/สต็อก §4.1/4.2):** `atomicDecrementStock` เขียน `after = before - qty` **โดยไม่เช็ค before ≥ qty** → ขายเกินสต็อก = **เขียนค่าติดลบ** (พบจริง: `warehouse_stock` product 1809 = **-1**)

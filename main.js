@@ -3003,6 +3003,12 @@ async function _revertStockForSale({ saleId, orderNo }) {
 window._appRevertStockForSale = _revertStockForSale;
 
 // ★ ย้ายสต็อกระหว่างคลัง — ใช้โดย stock_movements module
+// Phase 368: harden warehouse transfer — CAS + floor (source) + rollback (target-fail only).
+//   เดิม: raw xhrPatch ทั้ง 2 ฝั่ง, ไม่เช็ค .ok (xhrPost/xhrPatch resolve {ok:false} ไม่ throw →
+//         try/catch จับไม่ติด), ไม่มี floor → โอนเกินต้นทาง = เขียนติดลบ; target ล้ม = ของหาย.
+//   ใหม่: source ใช้ _atomicDecrementStock (floor จาก 367 กันติดลบ + CAS กัน race);
+//         target ใช้ _atomicAddStock / xhrPost(returnData); target ล้มหลัง source ตัดสำเร็จ → คืน source.
+//   ❌ ไม่แตะ products.stock (โอนระหว่างคลัง = ผลรวมไม่เปลี่ยน → ถูกแล้ว).
 async function _transferWarehouseStock({ productId, fromWarehouseId, toWarehouseId, qty, note }) {
   if (!productId || !fromWarehouseId || !toWarehouseId || qty <= 0) {
     return { ok: false, error: "ข้อมูลไม่ครบ" };
@@ -3011,52 +3017,94 @@ async function _transferWarehouseStock({ productId, fromWarehouseId, toWarehouse
     return { ok: false, error: "คลังต้นทาง/ปลายทาง ต้องไม่ซ้ำกัน" };
   }
 
+  // Phase 368: normalize qty ครั้งเดียว — ใช้ transferQty ตลอด (กัน string เช่น "5")
+  const transferQty = Number(qty);
+  if (!(transferQty > 0)) {
+    return { ok: false, error: "จำนวนไม่ถูกต้อง" };
+  }
+
   // Phase 45.3: stock_movements.created_by เป็น uuid
   const creatorUuid = state.currentUser?.id || null;
 
-  // หา source row
+  // ── 1. source — CAS + floor (Phase 368) ──
   const srcWs = (state.warehouseStock || []).find(w =>
     String(w.product_id) === String(productId) && String(w.warehouse_id) === String(fromWarehouseId)
   );
-  const srcBefore = Number(srcWs?.stock || 0);
-  const srcAfter = srcBefore - qty;
+  // ไม่มี source row (ไม่มีสินค้านี้ในคลังต้นทาง) → ห้ามสร้าง row ต้นทาง (กันติดลบ)
+  if (!srcWs?.id) {
+    return { ok: false, error: "คลังต้นทางไม่มีสินค้านี้" };
+  }
+  const dec = await _atomicDecrementStock("warehouse_stock", srcWs.id, transferQty);
+  if (!dec.ok) {
+    return {
+      ok: false,
+      insufficient: dec.insufficient,
+      error: dec.insufficient ? `สต็อกต้นทางไม่พอ (เหลือ ${dec.before})` : dec.error,
+    };
+  }
+  // source ตัดสำเร็จแล้ว — ตั้งแต่นี้ถ้า target ล้ม ต้อง rollback คืน source
 
-  // หา target row (ถ้าไม่มี จะ insert)
+  // ── 2. target — เพิ่ม (มี row → CAS add; ไม่มี → insert ขอ id กลับ) ──
   const tgtWs = (state.warehouseStock || []).find(w =>
     String(w.product_id) === String(productId) && String(w.warehouse_id) === String(toWarehouseId)
   );
-  const tgtBefore = Number(tgtWs?.stock || 0);
-  const tgtAfter = tgtBefore + qty;
+  let tgtAfter = null;
+  let newTgtRow = null;
+  if (tgtWs?.id) {
+    const add = await _atomicAddStock("warehouse_stock", tgtWs.id, transferQty);
+    if (!add.ok) {
+      // ── 3. rollback: target ล้มหลัง source ตัดสำเร็จ → คืน source ──
+      await _atomicAddStock("warehouse_stock", srcWs.id, transferQty);
+      return { ok: false, error: "โอนไม่สำเร็จ (คืนสต็อกต้นทางแล้ว)" };
+    }
+    tgtAfter = add.after;
+  } else {
+    const res = await xhrPost(
+      "warehouse_stock",
+      { product_id: productId, warehouse_id: toWarehouseId, stock: transferQty, min_stock: 0 },
+      { returnData: true }
+    );
+    if (!res.ok || !res.data?.id) {
+      // ── 3. rollback: insert ปลายทางล้มหลัง source ตัดสำเร็จ → คืน source ──
+      await _atomicAddStock("warehouse_stock", srcWs.id, transferQty);
+      return { ok: false, error: "โอนไม่สำเร็จ (คืนสต็อกต้นทางแล้ว)" };
+    }
+    // cache row ใหม่ต้องมี id จริงจาก DB (ไม่ใช่ row ไม่มี id)
+    newTgtRow = { id: res.data.id, product_id: productId, warehouse_id: toWarehouseId, stock: transferQty, min_stock: 0 };
+  }
 
+  // ── 4. sync cache หลัง source+target สำเร็จ ──
+  // eslint-disable-next-line require-atomic-updates -- local cache sync after CAS-protected mutation (Phase 368)
+  srcWs.stock = dec.after;
+  if (tgtWs?.id) {
+    // eslint-disable-next-line require-atomic-updates -- local cache sync after CAS-protected mutation (Phase 368)
+    tgtWs.stock = tgtAfter;
+  } else if (newTgtRow) {
+    state.warehouseStock.push(newTgtRow);
+  }
+
+  // ── 5. log movement = best-effort — ❌ ห้าม rollback ถ้า log ล้ม! ──
+  //   transfer สำเร็จไปแล้ว (source ตัด + target เพิ่มเรียบร้อย); rollback ตอนนี้ =
+  //   source คืนแต่ target ยังเพิ่ม = เพี้ยนหนักกว่าเดิม → log fail แค่ warn แล้วยัง ok:true
   try {
-    if (srcWs?.id) {
-      await xhrPatch("warehouse_stock", { stock: srcAfter }, "id", srcWs.id);
-    } else {
-      await xhrPost("warehouse_stock", { product_id: productId, warehouse_id: fromWarehouseId, stock: srcAfter, min_stock: 0 });
-    }
-
-    if (tgtWs?.id) {
-      await xhrPatch("warehouse_stock", { stock: tgtAfter }, "id", tgtWs.id);
-    } else {
-      await xhrPost("warehouse_stock", { product_id: productId, warehouse_id: toWarehouseId, stock: tgtAfter, min_stock: 0 });
-    }
-
     const fromName = state.warehouses.find(w => String(w.id) === String(fromWarehouseId))?.name || "?";
     const toName   = state.warehouses.find(w => String(w.id) === String(toWarehouseId))?.name || "?";
-
-    // Log 1 transfer movement
-    await xhrPost("stock_movements", {
+    const logRes = await xhrPost("stock_movements", {
       product_id: productId,
       type: "transfer",
-      qty: qty,
-      note: `โอนย้าย: ${fromName} → ${toName} | ${srcBefore}→${srcAfter}${note ? " — " + note : ""}`.slice(0, 200),
+      qty: transferQty,
+      note: `โอนย้าย: ${fromName} → ${toName} | ${dec.before}→${dec.after}${note ? " — " + note : ""}`.slice(0, 200),
       created_by: creatorUuid
     });
-
-    return { ok: true };
+    if (logRes && !logRes.ok) {
+      console.warn("[transferWarehouseStock] log movement failed (transfer ok):", logRes.error?.message);
+    }
   } catch (e) {
-    return { ok: false, error: e?.message || String(e) };
+    console.warn("[transferWarehouseStock] log movement threw (transfer ok):", e?.message || e);
   }
+
+  // ── 6. source + target สำเร็จ → ok (ไม่ว่า log จะสำเร็จหรือไม่) ──
+  return { ok: true };
 }
 
 // ★ อัพเดทสต็อกใน warehouse — ใช้โดย stock_movements module (in/out/sale/return/adjust)
