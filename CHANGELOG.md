@@ -7,6 +7,12 @@
 
 ---
 
+## 5.66.0 (build 366) — 2026-06-04 Phase 366 fix-loadalldata-1000-row-cap — แก้บั๊กโหลดได้แค่ 1000 แถว/ตาราง
+
+- **fix:** `loadAllData` เคยโหลดได้แค่ **1000 แถว/ตาราง** (PostgREST default `max-rows=1000`) → `products` ใน DB = 1075 แต่แอปโหลด 1000 = **หาย 75 ตัว** (ขายไม่ได้/นับผิด); `warehouse_stock` (สินค้า×คลัง) อาจหลายพัน → **stock เพี้ยน + "หมดสต็อก" พองปลอม**
+- **how:** ไฟล์ใหม่ `modules/fetch_paginated.js` — pure exported `fetchAllPaginated(queryFn, pageSize=1000)` วนโหลดด้วย `.range(from,to)` จนครบ (`data.length < pageSize` หรือว่าง → break; error → throw ไม่กลืน). `main.js` `loadAllData`: **products / customers / warehouse_stock** ใช้ helper; `warehouse_stock` **เพิ่ม stable `.order("id")` ก่อน `.range()`** (เดิมไม่มี order = ข้ามหน้าซ้ำ/หาย); helper คืน array ตรง ๆ → ใช้ `valArr` (paginated) vs `val` ({data})
+- **scope:** ❌ ไม่แตะ query `.limit(50)` เจตนา (sales/quotations/serviceJobs/receipts/deliveryInvoices) · ❌ schema/RLS/SQL/server config · ❌ stock-CAS/POS/cart/accounting/payroll logic · state shape เดิม (array, แค่ครบขึ้น) · **test:** +8 `load_all_pagination.test.js`, unit 1057, e2e 11 · **pwa-cache:** bump 365→366
+
 ## 5.66.0 (build 365) — 2026-06-04 Phase 365 team-center-documents-list-category-readonly — หมวด "เอกสาร" ในมุมมอง list (read-only)
 
 - **feat:** เพิ่ม filter category **"เอกสาร"** (วางหลัง "รออนุมัติ") ในมุมมอง list — รวม 3 ชนิด ใบเสนอราคา+ใบเสร็จ+ใบส่งของ (`categoryOf` case documents → `mergeRecentDocs` wrapper `{it,type}`); ใช้ **search / date-range / sort / export** ได้ครบ (pipeline แยก `renderDocsListBody` พก per-item type, อ่าน `w.it`)

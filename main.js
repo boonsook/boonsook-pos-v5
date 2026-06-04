@@ -1,5 +1,6 @@
 
 import { renderDashboard } from "./modules/dashboard.js";
+import { fetchAllPaginated } from "./modules/fetch_paginated.js";
 import { renderProductsPage } from "./modules/products.js";
 import { renderPosPage, clearPosState } from "./modules/pos.js";
 import { renderSalesPage } from "./modules/sales.js";
@@ -1079,29 +1080,34 @@ async function loadAllData(){
     if (!_isAdmin && _myId) {
       salesQuery = salesQuery.or(`created_by.eq.${_myId},created_by.is.null`);
     }
+    // Phase 366: products/customers/warehouse_stock โหลดครบทุกแถวด้วย .range() pagination
+    // (PostgREST default max-rows=1000 → select(*) เปล่าตัดที่ 1000). warehouse_stock เพิ่ม
+    // stable .order("id") ก่อน .range() — เดิมไม่มี order → ลำดับข้ามหน้าซ้ำ/หาย.
+    // helper คืน array ตรง ๆ (ไม่ใช่ {data}) → ใช้ valArr; ตาราง limit-50 (เจตนา) คงเดิม.
     const [rProducts, rSales, rCustomers, rQuotations, rServiceJobs, rDeliveryInvoices, rReceipts, rWarehouses, rWhStock] = await Promise.allSettled([
-      sb.from("products").select("*").order("id",{ascending:false}),
+      fetchAllPaginated((f,t) => sb.from("products").select("*").order("id",{ascending:false}).range(f,t)),
       salesQuery,
-      sb.from("customers").select("*").order("id",{ascending:false}),
+      fetchAllPaginated((f,t) => sb.from("customers").select("*").order("id",{ascending:false}).range(f,t)),
       sb.from("quotations").select("*").order("id",{ascending:false}).limit(50),
       sb.from("service_jobs").select("*").order("id",{ascending:false}).limit(50),
       sb.from("delivery_invoices").select("*").order("id",{ascending:false}).limit(50),
       sb.from("receipts").select("*").order("id",{ascending:false}).limit(50),
       sb.from("warehouses").select("*").order("sort_order",{ascending:true}),
-      sb.from("warehouse_stock").select("*")
+      fetchAllPaginated((f,t) => sb.from("warehouse_stock").select("*").order("id",{ascending:true}).range(f,t))
     ]);
 
     const val = (r, fallback = []) => r.status === "fulfilled" ? (r.value.data || fallback) : fallback;
+    const valArr = (r, fallback = []) => r.status === "fulfilled" ? (r.value || fallback) : fallback; // paginated helper คืน array ตรง ๆ
     /* eslint-disable require-atomic-updates -- G: all 9 state assigns protected by _isLoading entry-guard at loadAllData() (main.js:1443) */
-    state.products          = val(rProducts);
+    state.products          = valArr(rProducts);
     state.sales             = val(rSales);
-    state.customers         = val(rCustomers);
+    state.customers         = valArr(rCustomers);
     state.quotations        = val(rQuotations);
     state.serviceJobs       = val(rServiceJobs);
     state.deliveryInvoices  = val(rDeliveryInvoices);
     state.receipts          = val(rReceipts);
     state.warehouses        = val(rWarehouses);
-    state.warehouseStock    = val(rWhStock);
+    state.warehouseStock    = valArr(rWhStock);
     /* eslint-enable require-atomic-updates */
 
     // ★ Auto-seed warehouses ถ้ายังไม่มี
