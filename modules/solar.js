@@ -5,6 +5,7 @@
 // ═══════════════════════════════════════════════════════════
 
 import { postJournalForServiceJob } from "./accounting/auto_post.js";
+import { aggregateNeedByKey } from "./stock_precheck.js";
 
 const SOLAR_TYPES = [
   "💧 ติดตั้งปั๊มน้ำโซล่าเซลล์",
@@ -643,16 +644,22 @@ export function renderSolarPage(ctx) {
 
       // ★ Phase 88.13: เช็คก่อน save — ของในรถพอมั้ย? ถ้าไม่พอ + บ้านมี → confirm auto-transfer
       const transfersNeeded = [];
+      // Phase 372: รวม qty ต่อ (product+warehouse) — กันสินค้าเดียวกันหลาย line รวมเกินสต็อก (เดิมเช็คทีละ line)
+      const _needByKey = aggregateNeedByKey(fullItems);
+      const _checkedKeys = new Set();
       for (const it of fullItems) {
         if (!it.warehouse_id || !it.product_id) continue;
         const prod = (state.products || []).find(p => String(p.id) === String(it.product_id));
         if (!prod) continue;
+        const _aggKey = `${it.product_id}|${it.warehouse_id}`;
+        if (_checkedKeys.has(_aggKey)) continue; // เช็ค/โอน ครั้งเดียวต่อ key (ใช้ยอดรวม)
+        _checkedKeys.add(_aggKey);
         const ws = (state.warehouseStock || []).find(w =>
           String(w.product_id) === String(it.product_id) &&
           String(w.warehouse_id) === String(it.warehouse_id)
         );
         const stockAvail = Number(ws?.stock || 0);
-        const need = Number(it.qty || 0);
+        const need = _needByKey.get(_aggKey) || 0; // Phase 372: ยอดรวมต่อ key (เดิม = it.qty)
         if (stockAvail < need) {
           const isHome = homeWh && String(it.warehouse_id) === String(homeWh.id);
           if (isHome) {

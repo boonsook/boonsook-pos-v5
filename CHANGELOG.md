@@ -7,6 +7,12 @@
 
 ---
 
+## 5.66.0 (build 372) — 2026-06-05 Phase 372 service-job-precheck-aggregate — pre-check รวม qty ต่อสินค้า+คลัง (กันรวมเกินสต็อก)
+
+- **fix (stock §4.1/4.2):** pre-check ก่อน save ใน `ac_install`/`service_form`/`solar` เดิมวนเช็คทีละ line — ถ้าสินค้าเดียวกัน+คลังเดียวกันถูกแยกหลาย line ผลรวม qty เกินสต็อก แต่ละ line ผ่านเดี่ยว ๆ → หลุด pre-check → ใบงาน POST แล้ว deduct fail-clean (369) / โอนซ้ำ
+- **how:** helper pure `aggregateNeedByKey` (ไฟล์ใหม่ `modules/stock_precheck.js`) รวม qty ต่อ `product_id|warehouse_id`; loop dedup `_checkedKeys` (เช็ค/โอนครั้งเดียวต่อ key) + ใช้ยอดรวมแทน `it.qty` — single-line เหมือนเดิมเป๊ะ (กัน over-block regression); floor 367/369 ยังเป็น backstop
+- **scope:** ❌ ไม่แตะ Part 1 `isHome`→throw (370) · non-home throw · confirm-transfer dialog · deduct/transfer logic (369/368) · POST/JV/schema · **test:** +8 `service_job_precheck_aggregate_guard.test.js` (behavioral aggregator + wiring 3 ไฟล์), unit 1098, e2e 11 · **pwa-cache:** bump 371→372
+
 ## 5.66.0 (build 371) — 2026-06-05 Phase 371 revert-out-of-scope-stock-unresolved-flag — ถอด Part 2 (STOCK_UNRESOLVED flag) ที่เกินสเปก
 
 - **fix (scope correction):** Phase 370 ใส่ "Part 2" reconcile-flag (post-save PATCH `service_jobs` note += `⚠️[STOCK_UNRESOLVED]`) เข้ามาทั้งใน `ac_install`/`service_form`/`solar` + test ทั้งที่ owner สั่งให้ทำ **Part 1 อย่างเดียว** รอบนี้ → ถอด Part 2 ออกให้หมด
