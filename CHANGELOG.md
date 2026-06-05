@@ -7,6 +7,16 @@
 
 ---
 
+## 5.66.0 (build 375) — 2026-06-05 Phase 375 stock-deduct-reconcile-report — หน้า report read-only admin-only "ตามเก็บ" งานที่ตัดสต็อกไม่ครบ
+
+- **feat (read-only report):** หน้าใหม่ `stock_reconcile_report` (admin-only) surface service-job ที่ "น่าจะตัดสต็อกไม่ครบ" จาก post-save race (cache ผ่าน pre-check 370/372 แต่ DB CAS ไม่พอ → toast เตือนแต่ user อาจพลาด) ให้ admin ตรวจ/ตัดมือเอง — **heuristic best-effort ไม่ใช่ ledger เป๊ะ**
+- **detection:** per งานล่าสุด ≤50 — expected = `items_json` ที่ `product_id && warehouse_id && qty>0` **และ** product ไม่ใช่ `product_type` service/non_stock (lookup `state.products`); actual = `stock_movements` type `out` ที่ note contains `job_no`; flag เมื่อ expected product มี out-movement ไม่ครบจำนวน line
+- **กัน false-positive:** (1) กรอง service/non_stock ออก (ไม่ตัดสต็อก) (2) `state.stockMovements` ≤50 ไม่พอ → **fetch read-only** out-movements ตั้งแต่วันงานเก่าสุด (limit 2000); ได้ครบ limit / fetch ล้ม → state "ตรวจไม่ได้" (ไม่ flag มั่ว, ไม่ hardcode 0); งานไม่มี job_no → "ตรวจไม่ได้"
+- **read-only proof:** ไฟล์ไม่มี POST/PATCH/PUT/DELETE/rpc-write/xhr-write/insert/upsert · ไม่ mutate state (clone jobs ก่อน) · ไม่เรียก stock-mutation hook ใด · drill = ปุ่ม "ไปหน้างาน" (`showRoute('service_jobs')`) เท่านั้น · ป้าย honesty บังคับ
+- **scope:** wiring เฉพาะ LAZY_ROUTES / ALL_ROUTES (admin-only — ไม่อยู่ใน role อื่น) / page title + index.html page section + nav-btn (กลุ่มรายงาน) · ❌ ไม่แตะ schema/SQL/RLS/DB func/save path/deduct-transfer logic/POS/accounting · ไม่ auto-fix/ไม่ตัดย้อนหลัง
+- **verify:** lint:errors 0 · +17 tests `stock_reconcile_report_guard` · unit 1129 · e2e 11/11 · **pwa-cache:** bump 374→375
+- **known risk:** heuristic ไม่เป๊ะ 100% (จับคู่ note-string; งานเก่ากว่า window/ข้อมูลขาด → "ตรวจไม่ได้" ไม่ flag) — เป็น "ตัวช่วยตรวจ" ให้ admin ไม่ใช่บัญชี authoritative
+
 ## 5.66.0 (build 374) — 2026-06-05 Phase 374 wire-transfer-rpc — `_transferWarehouseStock` เรียก RPC atomic ก่อน (คง fallback ทางเดิม)
 
 - **feat (stock §4.1/4.2):** `_transferWarehouseStock` (`main.js`) เดิมโอนระหว่างคลังด้วย multi-xhr client-side (source CAS+floor / target add / rollback / log = best-effort) — atomicity ข้าม 2 row ไม่จริง (known-risk 368). ใหม่: **ลอง RPC atomic ก่อน** `POST /rest/v1/rpc/transfer_warehouse_stock` (DB func 373.5: source−/target+/log ใน 1 transaction + FOR UPDATE lock + rollback อัตโนมัติ)

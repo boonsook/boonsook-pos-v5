@@ -128,6 +128,8 @@ const LAZY_ROUTES = {
   profit_by_product:          ["./modules/profit_by_product.js",           "renderProfitByProductPage"],
   quote_templates:            ["./modules/quote_templates.js",             "renderQuoteTemplatesPage"],
   serials:                    ["./modules/serials.js",                     "renderSerialsPage"],
+  // Phase 375 — ตรวจสต็อกงานบริการ (ตามเก็บ) read-only report, admin-only
+  stock_reconcile_report:     ["./modules/stock_reconcile_report.js",      "renderStockReconcileReportPage"],
 };
 async function _renderLazy(route, ctx) {
   const def = LAZY_ROUTES[route];
@@ -598,7 +600,7 @@ function _isLowStock(product){ return Number(product.stock||0) <= Number(product
 const SERVICE_FORM_TYPES = ["repair_ac","clean_ac","move_ac","satellite","repair_fridge","repair_washer","cctv","repair_tv","other"];
 const SERVICE_FORM_ROUTES = SERVICE_FORM_TYPES.map(t => "service_" + t);
 
-const ALL_ROUTES = ["dashboard","team_center","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","quote_templates","service_jobs","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","refunds","tasks","profit_by_product","birthdays","serials","warranty_report","calendar","loyalty","customer_dashboard","btu_calculator","service_request","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop","audit_log","hr_overview","leave_management","departments","payroll","payroll_overview","expense_overview","accounting_journals","accounting_journal_new","accounting_coa","accounting_backfill","accounting_trial_balance","accounting_profit_loss","accounting_balance_sheet","accounting_opening_balance","accounting_export_bundle","accounting_periods","time_clock", ...SERVICE_FORM_ROUTES];
+const ALL_ROUTES = ["dashboard","team_center","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","quote_templates","service_jobs","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","refunds","tasks","profit_by_product","birthdays","serials","warranty_report","calendar","loyalty","customer_dashboard","btu_calculator","service_request","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop","audit_log","hr_overview","leave_management","departments","payroll","payroll_overview","expense_overview","accounting_journals","accounting_journal_new","accounting_coa","accounting_backfill","accounting_trial_balance","accounting_profit_loss","accounting_balance_sheet","accounting_opening_balance","accounting_export_bundle","accounting_periods","time_clock","stock_reconcile_report", ...SERVICE_FORM_ROUTES];
 const ROLE_PAGES = {
   admin:      ALL_ROUTES,
   technician: ["customer_dashboard","pos","sales","service_jobs","calendar","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop","time_clock","leave_management", ...SERVICE_FORM_ROUTES],
@@ -706,7 +708,7 @@ async function showRoute(route){
     customers:"ลูกค้า", quotations:"ใบเสนอราคา",
     service_jobs:"ใบรับงาน", settings:"ตั้งค่า",
     expenses:"รายรับ-รายจ่าย", profit_report:"รายงานกำไรขั้นต้น",
-    stock_movements:"ประวัติเคลื่อนไหวสต็อก", calendar:"ปฏิทินงานช่าง",
+    stock_movements:"ประวัติเคลื่อนไหวสต็อก", stock_reconcile_report:"ตรวจสต็อกงานบริการ (ตามเก็บ)", calendar:"ปฏิทินงานช่าง",
     loyalty:"สะสมแต้ม",
     customer_dashboard:"หน้าหลัก",
     btu_calculator:"คำนวณ BTU",
