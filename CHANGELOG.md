@@ -7,6 +7,14 @@
 
 ---
 
+## 5.66.0 (build 370) — 2026-06-05 Phase 370 service-job-block-save-on-insufficient — block save เมื่อคลังบ้านไม่พอ + flag reconcile
+
+- **fix (severity สูง — oversell/สต็อก §4.1/4.2):** pre-save stock check ใน `ac_install` / `service_form` / `solar` เดิม `if (isHome) continue;` ทำให้เคส **"user เลือกคลังบ้าน แล้วบ้านไม่พอ"** ถูกข้าม → ใบงานถูก POST → Phase 369 deduct fail-clean (ไม่เขียนติดลบ) แต่ผลคือ **"ใบงาน save แล้ว แต่สต็อกไม่ถูกตัด"** เตือนแค่ toast
+- **how (part 1, hard block):** `if (isHome) continue;` → `throw new Error("❌ {ชื่อ}: ของไม่พอ — คลังบ้านมี X, ต้องใช้ Y (เติมสต็อกก่อนบันทึก)")` — throw ถูก catch โดย save handler เดิม → statusEl โชว์ error + ปุ่ม re-enable (finally เดิม) → **ไม่มี POST** (ไม่เกิดใบงาน)
+- **how (part 2, best-effort reconcile):** ในบล็อก `stockOpsFailed` (race: cache ผ่าน pre-check แต่ DB CAS เจอไม่พอ หลัง save) → PATCH `service_jobs` note += `⚠️[STOCK_UNRESOLVED ตัดสต็อกไม่ครบ]` (slice 500) ด้วย config/token เดียวกับ POST ในไฟล์นั้น (ac_install/solar = `cfg`; service_form = `supaCfg`) — `try/catch`, PATCH ล้ม → `console.warn` เท่านั้น (**ไม่ throw / ไม่ rollback / ไม่ลบใบงาน**); ยังคง `showToast` เดิม
+- **scope:** ❌ ไม่แตะ non-home throw (mobile short + บ้านโอนไม่ไหว) · confirm-transfer dialog · deduct/transfer logic (369/368) · `_applyStockMovement`/`_atomicDecrementStock`/`stock_cas.js` · ลำดับ save→stock-ops (reorder) · POST payload/endpoint/status workflow/auto-post JV/quotation · schema/RLS/SQL/POS/cart/accounting · **test:** +12 `service_job_block_save_guard.test.js`, unit 1090, e2e 11 · **pwa-cache:** bump 369→370
+- **known risk:** race window เล็กลงแต่ไม่หมด (flag เป็น best-effort, PATCH เองก็ล้มได้ → warn); per-product aggregation ข้ามหลาย item ในใบเดียว = future; atomicity จริง (reorder/DB RPC) = future
+
 ## 5.66.0 (build 369) — 2026-06-04 Phase 369 fix-applystockmovement-oversell-floor — floor out/sale ของ service-job auto-deduct
 
 - **fix (severity สูง — oversell/สต็อก §4.1/4.2):** `_applyStockMovement` (`main.js`; ใช้โดยฟอร์ม stock_movements + **service-job auto-deduct** ใน ac_install/service_form/solar ผ่าน `movementType:"out"`) เดิม out/sale ใช้ `_atomicAddStock(delta ติดลบ)` **ไม่มี floor** → floor 367(POS)/368(transfer) **ไม่ครอบเส้นนี้** → งานบริการตัดเกินสต็อก = **เขียนค่าติดลบเงียบ ๆ** (น่าจะต้นเหตุ `warehouse_stock` product 1809 = **-1**)

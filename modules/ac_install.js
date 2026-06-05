@@ -447,7 +447,10 @@ export function renderAcInstallPage(ctx) {
           // ถ้า warehouse ที่เลือกเป็น home (โดย user เลือกเอง) → ตัดจากบ้านได้
           // (case นี้ไม่ค่อยเจอเพราะเรา re-pick เป็น mobile ข้างบนแล้ว — เก็บไว้เผื่อ edge case)
           const isHome = homeWh && String(it.warehouse_id) === String(homeWh.id);
-          if (isHome) continue;
+          if (isHome) {
+            // Phase 370: เลือกคลังบ้าน แต่บ้านไม่พอ → block save (เดิม continue = save แล้ว deduct fail เงียบ)
+            throw new Error(`❌ ${prod.name}: ของไม่พอ — คลังบ้านมี ${stockAvail}, ต้องใช้ ${need} (เติมสต็อกก่อนบันทึก)`);
+          }
           // ถ้าเลือก mobile แต่ไม่พอ → ต้องโอนจากบ้าน
           const homeStock = _getHomeStock(prod, state);
           const shortage = need - stockAvail;
@@ -604,6 +607,23 @@ export function renderAcInstallPage(ctx) {
 
       if (stockOpsFailed) {
         showToast?.("⚠️ ใบงาน save แล้ว แต่ตัดสต็อก/โอนบางรายการล้มเหลว — ตรวจ Console");
+        // Phase 370: flag ใบงานไว้ reconcile (best-effort) — ไม่ให้ deduct fail หลัง save "เงียบ"
+        if (jobId) {
+          try {
+            const flaggedNote = `${(record.note || "")} ⚠️[STOCK_UNRESOLVED ตัดสต็อกไม่ครบ]`.slice(0, 500);
+            const pr = await fetch(`${cfg.url}/rest/v1/service_jobs?id=eq.${jobId}`, {
+              method: "PATCH",
+              headers: {
+                "Content-Type": "application/json",
+                "apikey": cfg.anonKey,
+                "Authorization": `Bearer ${token}`,
+                "Prefer": "return=minimal"
+              },
+              body: JSON.stringify({ note: flaggedNote })
+            });
+            if (!pr.ok) console.warn("[ac_install] flag STOCK_UNRESOLVED failed:", pr.status);
+          } catch(e) { console.warn("[ac_install] flag STOCK_UNRESOLVED threw:", e?.message || e); }
+        }
       }
 
       // เก็บข้อมูลไว้สำหรับปุ่ม "ดูใบเสร็จ" / "ส่ง LINE"
