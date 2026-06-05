@@ -7,6 +7,15 @@
 
 ---
 
+## 5.66.0 (build 377) — 2026-06-05 Phase 378 hr-gps-unblock-permissions-policy (377-followup) — เปิด geolocation ใน Permissions-Policy
+
+- **fix (root cause ของ 377):** production `_headers` ตั้ง `Permissions-Policy: ... geolocation=() ...` → **browser block `navigator.geolocation` ตั้งแต่ก่อน app code รัน** → GPS self-clock (377) ใช้จริงไม่ได้ (Permissions Policy violation แทน permission prompt)
+- **change:** `geolocation=()` → `geolocation=(self)` ใน `_headers` (origin เดียวกันใช้ได้, cross-origin iframe ยังถูกปิด)
+- **ไม่แตะ (ตั้งใจคงเข้ม):** `microphone=()` · `payment=()` คงปิด · `camera=(self)`/`usb`/`bluetooth`/`serial` เดิม · CSP · X-Frame-Options · HSTS · Referrer-Policy ไม่แตะ
+- **scope:** header-only — ❌ ไม่ bump build (377 คงเดิม; `_headers` เป็น server header เสิร์ฟสด ไม่ใช่ cached asset) · ไม่แตะ SQL/RLS/schema/money/POS/cart/accounting/stock
+- **verify:** e2e guard ใหม่ยืนยัน `_headers` มี `geolocation=(self)` + ไม่มี `geolocation=()` + `microphone=()`/`payment=()` ยังปิด · e2e 12/12 · lint:errors 0 · unit 1145
+- **note:** ต้องรอ deploy → ตรวจ live response header `permissions-policy` มี `geolocation=(self)` แล้ว Settings → "ใช้ตำแหน่งปัจจุบัน" จะขึ้น browser permission prompt แทน policy violation
+
 ## 5.66.0 (build 377) — 2026-06-05 Phase 377 hr-gps-self-clock-enforcement — บังคับ GPS geofence ตอนพนักงานกดลงเวลาเอง
 
 - **fix (HR attendance integrity, medium):** เดิม (92.24) มี GPS config (`storeInfo.shopLat/shopLng/geofenceRadiusM`) แต่ **แค่ warn ไม่ block** — GPS หาย/อยู่นอกรัศมี ก็ยังลงเวลาได้ → self clock ไม่มี integrity จริง

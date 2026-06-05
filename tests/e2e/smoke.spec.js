@@ -85,6 +85,20 @@ test.describe("Smoke — static load", () => {
     expect(body, "CSP must have script-src directive").toMatch(/script-src[^;]+/i);
     expect(body, "CSP must have frame-ancestors 'none'").toMatch(/frame-ancestors\s+'none'/i);
   });
+
+  test("Permissions-Policy allows geolocation=(self) but keeps mic/payment locked (Phase 378)", async ({ page }) => {
+    // HR self clock (Phase 377) ต้องใช้ navigator.geolocation — Permissions-Policy ต้องอนุญาต self
+    // เดิม geolocation=() block ตั้งแต่ browser ก่อน app code รัน
+    const res = await page.request.get("/_headers");
+    expect(res.ok(), "_headers must be reachable").toBe(true);
+    const body = await res.text();
+    expect(body, "Permissions-Policy must be declared").toMatch(/Permissions-Policy:/i);
+    expect(body, "geolocation must be allowed for self").toMatch(/geolocation=\(self\)/i);
+    expect(body, "geolocation must NOT be fully blocked").not.toMatch(/geolocation=\(\)/i);
+    // อย่า relax ฟีเจอร์อ่อนไหวที่ตั้งใจปิด
+    expect(body, "microphone must stay disabled").toMatch(/microphone=\(\)/i);
+    expect(body, "payment must stay disabled").toMatch(/payment=\(\)/i);
+  });
 });
 
 test.describe("Smoke — critical modules", () => {
