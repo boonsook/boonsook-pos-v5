@@ -7,6 +7,16 @@
 
 ---
 
+## 5.66.0 (build 376) — 2026-06-05 Phase 376 reconcile-report-exclude-cancelled (375b) — report ข้ามงานยกเลิก/ลบ
+
+- **fix (false-positive):** report Phase 375 flag งานสถานะ `cancelled` ผิด (live: 5/5 ที่ flag = cancelled) — งานยกเลิก/ลบ ไม่ต้องตัดสต็อกอยู่แล้ว (found 0 = ถูกต้อง ไม่ใช่ปัญหา)
+- **how:** pure helper `isReportableJobStatus(status)` → `false` เมื่อ `status === "cancelled"` (case-insensitive + trim); `detectAllJobs` ข้ามงาน `!isReportable` ก่อนคิด expected/actual (เพิ่ม `cancelledSkipped` count) → cancelled ไม่เข้า flagged/unverifiable เลย
+- **ครอบ soft-delete:** soft-delete = `cancelled` + note `[ลบแล้ว]` → กรอง `status==="cancelled"` ครอบทั้งสองเคส (ไม่ต้องเช็ค `[ลบแล้ว]` แยก)
+- **label:** เพิ่ม "ไม่รวมงานที่ยกเลิก/ลบ (cancelled) — งานเหล่านั้นไม่ต้องตัดสต็อก" ใต้ scope note (โปร่งใสว่ากรองอะไรออก)
+- **คง invariant เดิมครบ:** read-only (ไม่ write/mutate state/fetch=GET) · admin gate · honesty labels · drill=showRoute · false-positive guards เดิม (service/non_stock filter · job_no ว่าง · data-incomplete)
+- **scope:** ❌ ไม่แตะ schema/SQL/RLS · save path · deduct/transfer logic · POS/accounting
+- **verify:** lint:errors 0 · +4 tests (isReportableJobStatus + cancelled-skip + active-still-flagged) `stock_reconcile_report_guard` (รวม 21) · unit 1133 · e2e 11/11 · **pwa-cache:** bump 375→376
+
 ## 5.66.0 (build 375) — 2026-06-05 Phase 375 stock-deduct-reconcile-report — หน้า report read-only admin-only "ตามเก็บ" งานที่ตัดสต็อกไม่ครบ
 
 - **feat (read-only report):** หน้าใหม่ `stock_reconcile_report` (admin-only) surface service-job ที่ "น่าจะตัดสต็อกไม่ครบ" จาก post-save race (cache ผ่าน pre-check 370/372 แต่ DB CAS ไม่พอ → toast เตือนแต่ user อาจพลาด) ให้ admin ตรวจ/ตัดมือเอง — **heuristic best-effort ไม่ใช่ ledger เป๊ะ**

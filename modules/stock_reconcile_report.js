@@ -74,18 +74,26 @@ export function detectJobDeductGaps({ job, outMovements, productsById }) {
   return { jobNo, expectedCount: expected.length, flagged: missing.length > 0, unverifiable: false, missing };
 }
 
-// ตรวจหลายงาน → { flagged:[{job,result}], unverifiable:[{job,result}], okCount }
+// Phase 376: งานที่ "ควรตัดสต็อก" — ข้าม cancelled (งานยกเลิก + soft-delete = cancelled + note "[ลบแล้ว]")
+//   งานยกเลิก/ลบ ไม่ต้องตัดสต็อก → found 0 เป็นเรื่องถูกต้อง ไม่ใช่ false-positive
+export function isReportableJobStatus(status) {
+  return String(status || "").trim().toLowerCase() !== "cancelled";
+}
+
+// ตรวจหลายงาน → { flagged:[{job,result}], unverifiable:[{job,result}], okCount, cancelledSkipped }
 export function detectAllJobs({ jobs, outMovements, productsById }) {
   const flagged = [], unverifiable = [];
-  let okCount = 0;
+  let okCount = 0, cancelledSkipped = 0;
   (Array.isArray(jobs) ? jobs : []).forEach(job => {
+    // Phase 376: ข้ามงาน cancelled/ลบ ก่อนคิด expected/actual (ไม่เข้า flagged/unverifiable)
+    if (!isReportableJobStatus(job?.status)) { cancelledSkipped++; return; }
     const result = detectJobDeductGaps({ job, outMovements, productsById });
     if (result.expectedCount === 0) return;          // ไม่มี stockable item → ข้าม
     if (result.unverifiable) unverifiable.push({ job, result });
     else if (result.flagged) flagged.push({ job, result });
     else okCount++;
   });
-  return { flagged, unverifiable, okCount };
+  return { flagged, unverifiable, okCount, cancelledSkipped };
 }
 
 // timestamp ของงาน (กำหนดช่วง fetch movement) — created_at ก่อน, fallback parse "JOB-<ts>"
@@ -109,6 +117,7 @@ export function jobTimestamp(job) {
 
 const HONESTY = "⚠️ heuristic best-effort — อิงการจับคู่ note + ข้อมูลที่โหลด · ไม่ใช่บัญชีเป๊ะ · admin ตรวจ/ตัดมือเอง";
 const SCOPE_NOTE = "ขอบเขต: งานบริการล่าสุด ≤50";
+const EXCLUDE_NOTE = "ไม่รวมงานที่ยกเลิก/ลบ (cancelled) — งานเหล่านั้นไม่ต้องตัดสต็อก";
 
 function shell(bodyHtml) {
   return `
@@ -118,7 +127,8 @@ function shell(bodyHtml) {
       </div>
       <h2 style="margin:0 0 4px;font-size:20px">📦 ตรวจสต็อกงานบริการ (ตามเก็บ)</h2>
       <div style="font-size:12px;color:#b45309;margin-bottom:2px">${escHtml(HONESTY)}</div>
-      <div style="font-size:12px;color:#64748b;margin-bottom:14px">${escHtml(SCOPE_NOTE)}</div>
+      <div style="font-size:12px;color:#64748b;margin-bottom:2px">${escHtml(SCOPE_NOTE)}</div>
+      <div style="font-size:12px;color:#64748b;margin-bottom:14px">${escHtml(EXCLUDE_NOTE)}</div>
       ${bodyHtml}
     </div>`;
 }

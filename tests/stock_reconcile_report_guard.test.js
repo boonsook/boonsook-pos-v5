@@ -15,7 +15,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   parseItems, buildProductsById, expectedStockableItems,
-  detectJobDeductGaps, detectAllJobs, jobTimestamp,
+  detectJobDeductGaps, detectAllJobs, jobTimestamp, isReportableJobStatus,
 } from "../modules/stock_reconcile_report.js";
 
 const SRC = fs.readFileSync(path.resolve("modules/stock_reconcile_report.js"), "utf8");
@@ -137,6 +137,46 @@ test("jobTimestamp prefers created_at, falls back to JOB-<ts>", () => {
   assert.equal(jobTimestamp({ job_no: "no-ts" }), 0);
 });
 
+// ── Phase 376: exclude cancelled / soft-deleted jobs ──
+
+test("isReportableJobStatus: cancelled → false, active statuses → true", () => {
+  assert.equal(isReportableJobStatus("cancelled"), false);
+  assert.equal(isReportableJobStatus("CANCELLED"), false, "case-insensitive");
+  assert.equal(isReportableJobStatus(" cancelled "), false, "trims whitespace");
+  for (const s of ["delivered", "pending", "in_progress", "pending_review", "done", "closed", "open"]) {
+    assert.equal(isReportableJobStatus(s), true, `${s} is reportable`);
+  }
+});
+
+test("isReportableJobStatus: empty/null → true (don't silently drop unknown)", () => {
+  assert.equal(isReportableJobStatus(""), true);
+  assert.equal(isReportableJobStatus(null), true);
+  assert.equal(isReportableJobStatus(undefined), true);
+});
+
+test("detectAllJobs skips cancelled jobs even when deduct is missing (no false-positive)", () => {
+  const items = [{ product_id: 100, warehouse_id: 1, qty: 1, name: "คอมเพรสเซอร์" }];
+  const jobs = [
+    job("JOB-CANCEL", items, { status: "cancelled" }),       // missing deduct but cancelled → skipped
+    job("JOB-DEL", items, { status: "cancelled", note: "[ลบแล้ว]" }), // soft-delete = cancelled → skipped
+    job("JOB-ACTIVE", items, { status: "delivered" }),        // missing deduct + active → flagged
+  ];
+  const d = detectAllJobs({ jobs, outMovements: [], productsById: byId });
+  assert.equal(d.cancelledSkipped, 2, "both cancelled + soft-deleted skipped");
+  assert.equal(d.flagged.length, 1, "only the active job is flagged");
+  assert.equal(d.flagged[0].result.jobNo, "JOB-ACTIVE");
+  assert.equal(d.unverifiable.length, 0, "cancelled never enters unverifiable either");
+});
+
+test("detectAllJobs still flags active job with missing deduct (regression of 375)", () => {
+  const items = [{ product_id: 100, warehouse_id: 1, qty: 1, name: "x" }];
+  const d = detectAllJobs({
+    jobs: [job("JOB-P", items, { status: "pending" })],
+    outMovements: [], productsById: byId,
+  });
+  assert.equal(d.flagged.length, 1);
+});
+
 // ── READ-ONLY invariant (source must contain no write verbs / mutations) ──
 
 test("source has NO write verbs (POST/PATCH/PUT/DELETE/rpc/insert/upsert)", () => {
@@ -162,6 +202,7 @@ test("honesty labels are present (heuristic + scope + incomplete state)", () => 
   assert.match(SRC, /ไม่ใช่บัญชีเป๊ะ/, "not-a-ledger disclaimer");
   assert.match(SRC, /งานบริการล่าสุด ≤50/, "scope label");
   assert.match(SRC, /ตรวจไม่ได้/, "data-incomplete state exists (no false-positive)");
+  assert.match(SRC, /ไม่รวมงานที่ยกเลิก\/ลบ/, "Phase 376: cancelled-exclusion label present");
 });
 
 test("drill action is navigation only (showRoute service_jobs), no stock-mutation hooks", () => {
