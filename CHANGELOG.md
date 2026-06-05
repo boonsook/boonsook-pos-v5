@@ -7,6 +7,14 @@
 
 ---
 
+## 5.66.0 (build 378) — 2026-06-06 Phase 378 store-settings-cloud-sync-feedback (HR GPS hardening A / #2) — แจ้ง error ชัดเมื่อ sync ค่าร้าน/GPS ขึ้นเซิร์ฟเวอร์ไม่สำเร็จ
+
+- **fix (HR GPS integrity, medium):** `saveStoreInfo` (main.js) เดิม Supabase upsert `app_settings(key='store_info')` error/timeout → `console.warn` เฉย แล้ว `return` (void); `store.js` save handler โชว์ "บันทึกสำเร็จ ✅" **เสมอ (unconditional)** → cloud-sync ล้มเงียบ. geofence เป็น operational (377) → sync ล้มเงียบ = staff devices ได้ค่า GPS เก่า / enforcement เพี้ยนโดยไม่มีใครรู้
+- **change:** `saveStoreInfo` คืน `{ ok:true, cloudSynced:boolean, error:string|null }` — ยังเซฟ localStorage **เสมอ ก่อน Supabase** + **❌ ไม่ throw** (ไม่ block offline; caller อื่นที่ ignore return ไม่กระทบ); `store.js` handler แตก branch: `cloudSynced:true`→success เดิม, `false`→⚠️ warning toast ชัด ("บันทึกในเครื่องแล้ว แต่ sync ขึ้นเซิร์ฟเวอร์ไม่สำเร็จ…") + ปุ่ม re-enable ใน `finally`
+- **scope:** ❌ ไม่แตะ `savePaymentInfo` / `loadAppSettings` / time_clock / enforcement / schema/SQL/RLS / `app_settings` key+payload · ไม่ block การ save (รอบนี้แค่ "แจ้งชัด")
+- **verify:** lint:errors 0 · +12 tests `store_settings_sync_guard` (behavioral: รัน source จริงของ `saveStoreInfo` ใน `node:vm` + source guard) · unit 1157 · e2e build-sync 3/3 · **pwa-cache:** bump 377→378
+- **naming note:** "Phase 378" ก่อนหน้าใน docs = permissions-policy 377-followup (header-only, build คง 377); อันนี้คือ build 378 จริง
+
 ## 5.66.0 (build 377) — 2026-06-05 Phase 378 hr-gps-unblock-permissions-policy (377-followup) — เปิด geolocation ใน Permissions-Policy
 
 - **fix (root cause ของ 377):** production `_headers` ตั้ง `Permissions-Policy: ... geolocation=() ...` → **browser block `navigator.geolocation` ตั้งแต่ก่อน app code รัน** → GPS self-clock (377) ใช้จริงไม่ได้ (Permissions Policy violation แทน permission prompt)
