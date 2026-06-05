@@ -7,6 +7,14 @@
 
 ---
 
+## 5.66.0 (build 374) — 2026-06-05 Phase 374 wire-transfer-rpc — `_transferWarehouseStock` เรียก RPC atomic ก่อน (คง fallback ทางเดิม)
+
+- **feat (stock §4.1/4.2):** `_transferWarehouseStock` (`main.js`) เดิมโอนระหว่างคลังด้วย multi-xhr client-side (source CAS+floor / target add / rollback / log = best-effort) — atomicity ข้าม 2 row ไม่จริง (known-risk 368). ใหม่: **ลอง RPC atomic ก่อน** `POST /rest/v1/rpc/transfer_warehouse_stock` (DB func 373.5: source−/target+/log ใน 1 transaction + FOR UPDATE lock + rollback อัตโนมัติ)
+- **how:** map jsonb ที่ func คืน — `{ok:true}` → sync cache (refetch 2 แถว `warehouse_stock` ที่กระทบ best-effort) → `return {ok:true}`; `{ok:false,insufficient,error}` → return ตรง ๆ (business result ถูกต้อง, **❌ ไม่ fallback**); RPC ใช้ไม่ได้จริง (HTTP 404 / PostgREST `PGRST202` / network throw) → **fallback ไป logic multi-xhr เดิมทั้งก้อน** (เก็บไว้เป็น path สำรอง กัน deploy เก่า/function หาย)
+- **scope:** ❌ ไม่ลบ logic multi-xhr เดิม · ไม่แตะ DB function · `_atomicDecrementStock`/`_atomicAddStock`/`stock_cas.js`/`_applyStockMovement`/`_deductStockForSaleItem` (POS) · `products.stock` (โอนระหว่างคลัง = ผลรวมเท่าเดิม) · 4 callers (ac_install/service_form/solar/stock_movements) · schema/SQL/RLS/POS/accounting · return shape `{ok,error,insufficient}` เดิมเป๊ะ
+- **verify:** lint:errors 0 · +10 tests `transfer_rpc_wiring_guard` · unit 1112 · e2e 11/11 (build-sync) · **pwa-cache:** bump 373→374 · ⚠️ **owner ต้อง smoke โอนจริงข้ามคลัง + เคสเกินสต็อก บน live ก่อน merge** (แตะ stock จริง)
+- **risk:** RPC จำกัด/scope ที่ DB; ถ้า env ไม่มี func จะ fallback ทางเดิมอัตโนมัติ (ปลอดภัย); cache refetch ล้ม = แค่ warn (DB ถูกแล้ว)
+
 ## 5.66.0 (build 373) — 2026-06-05 Phase 373 auth-pin-login-promise-executor-safe — เลิก async Promise executor ใน showStaffLogin
 
 - **fix (auth robustness):** `showStaffLogin` (`modules/auth.js`) เดิม `new Promise(async (resolve) => {...})` (suppressed `no-async-promise-executor`) — async executor กลืน error ตอน setup (staff load / modal build) เงียบ → promise ค้าง / login ค้าง

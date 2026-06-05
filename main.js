@@ -3002,7 +3002,43 @@ async function _revertStockForSale({ saleId, orderNo }) {
 }
 window._appRevertStockForSale = _revertStockForSale;
 
+// Phase 374: หลัง RPC atomic transfer สำเร็จ — RPC คืนแค่ {ok:true} ไม่คืน id/ค่าใหม่ →
+//   refetch 2 แถว warehouse_stock ที่กระทบ (source+target) แล้ว upsert เข้า state.warehouseStock
+//   (อัปเดต stock แถวเดิมตาม id / push แถว target ใหม่พร้อม id จริง).
+//   best-effort: refetch ล้ม → warn เฉย ๆ (โอนสำเร็จใน DB แล้ว ไม่ทำให้ผลโอน fail).
+async function _syncWarehouseRowsAfterTransfer(productId, fromWarehouseId, toWarehouseId) {
+  try {
+    const cfg = window.SUPABASE_CONFIG;
+    const token = window._sbAccessToken || cfg.anonKey;
+    const url = cfg.url + "/rest/v1/warehouse_stock?product_id=eq." + encodeURIComponent(productId)
+      + "&warehouse_id=in.(" + encodeURIComponent(fromWarehouseId) + "," + encodeURIComponent(toWarehouseId) + ")"
+      + "&select=id,product_id,warehouse_id,stock,min_stock";
+    const r = await fetch(url, { headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token } });
+    if (!r.ok) { console.warn("[transferWarehouseStock] cache refetch HTTP " + r.status + " (transfer ok)"); return; }
+    const rows = await r.json().catch(() => null);
+    if (!Array.isArray(rows)) return;
+    state.warehouseStock = state.warehouseStock || [];
+    for (const row of rows) {
+      if (!row?.id) continue;
+      const existing = state.warehouseStock.find(w => String(w.id) === String(row.id));
+      if (existing) {
+        existing.stock = row.stock;
+        existing.min_stock = row.min_stock;
+      } else {
+        state.warehouseStock.push({
+          id: row.id, product_id: row.product_id, warehouse_id: row.warehouse_id,
+          stock: row.stock, min_stock: row.min_stock
+        });
+      }
+    }
+  } catch (e) {
+    console.warn("[transferWarehouseStock] cache refetch threw (transfer ok):", e?.message || e);
+  }
+}
+
 // ★ ย้ายสต็อกระหว่างคลัง — ใช้โดย stock_movements module
+// Phase 374: ลอง RPC atomic (DB func transfer_warehouse_stock) ก่อน → atomicity จริงใน 1 tx;
+//   RPC ใช้ไม่ได้ (deploy เก่า/function หาย) → fallback ไป logic multi-xhr เดิม (best-effort) ด้านล่าง.
 // Phase 368: harden warehouse transfer — CAS + floor (source) + rollback (target-fail only).
 //   เดิม: raw xhrPatch ทั้ง 2 ฝั่ง, ไม่เช็ค .ok (xhrPost/xhrPatch resolve {ok:false} ไม่ throw →
 //         try/catch จับไม่ติด), ไม่มี floor → โอนเกินต้นทาง = เขียนติดลบ; target ล้ม = ของหาย.
@@ -3025,6 +3061,52 @@ async function _transferWarehouseStock({ productId, fromWarehouseId, toWarehouse
 
   // Phase 45.3: stock_movements.created_by เป็น uuid
   const creatorUuid = state.currentUser?.id || null;
+
+  // ── Phase 374: ลอง RPC atomic ก่อน ──
+  //   DB func public.transfer_warehouse_stock(): source−/target+/log movement ใน 1 transaction
+  //   + FOR UPDATE lock + rollback อัตโนมัติ → atomicity จริง (ดีกว่า multi-xhr client-side, known-risk 368).
+  //   func คืน jsonb เสมอ (HTTP 200): success {ok:true} · ไม่พอ {ok:false,insufficient:true,error} · อื่น {ok:false,error}.
+  //   RPC ใช้ไม่ได้จริง (HTTP 404 / PostgREST PGRST202 "function not found" / network throw) → fallback ทางเดิมด้านล่าง.
+  try {
+    const cfg = window.SUPABASE_CONFIG;
+    const token = window._sbAccessToken || cfg.anonKey;
+    const r = await fetch(cfg.url + "/rest/v1/rpc/transfer_warehouse_stock", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": cfg.anonKey,
+        "Authorization": "Bearer " + token,
+      },
+      body: JSON.stringify({
+        p_product_id: productId,
+        p_from_wh: fromWarehouseId,
+        p_to_wh: toWarehouseId,
+        p_qty: transferQty,
+        p_note: note || null,
+        p_created_by: creatorUuid,
+      }),
+    });
+    if (r.status === 404) throw new Error("rpc unavailable: HTTP 404");
+    const payload = await r.json().catch(() => null);
+    // PostgREST แจ้ง function ไม่พบด้วย code PGRST202 → RPC ใช้ไม่ได้ → fallback
+    if (payload && payload.code === "PGRST202") throw new Error("rpc unavailable: PGRST202");
+    // func คืน jsonb พร้อม HTTP 200 เสมอ; ถ้า !ok และไม่ใช่ 404/PGRST202 = RPC ใช้ไม่ได้ → fallback
+    if (!r.ok) throw new Error("rpc http " + r.status);
+    if (payload && payload.ok === true) {
+      // โอนสำเร็จใน DB แล้ว — sync cache (RPC ไม่คืน id/ค่าใหม่ → refetch 2 แถวที่กระทบ)
+      await _syncWarehouseRowsAfterTransfer(productId, fromWarehouseId, toWarehouseId);
+      return { ok: true };
+    }
+    if (payload && payload.ok === false) {
+      // business result ที่ถูกต้อง (เช่น สต็อกต้นทางไม่พอ) — ❌ อย่า fallback
+      return { ok: false, insufficient: !!payload.insufficient, error: payload.error || "โอนไม่สำเร็จ" };
+    }
+    // payload รูปไม่ตรง spec → ถือว่า RPC ใช้ไม่ได้ → fallback
+    throw new Error("rpc unexpected payload");
+  } catch (rpcErr) {
+    console.warn("[transferWarehouseStock] RPC unavailable → fallback to legacy multi-xhr:", rpcErr?.message || rpcErr);
+    // ตกลงมา = ใช้ logic multi-xhr เดิมด้านล่าง (best-effort, known-risk 368)
+  }
 
   // ── 1. source — CAS + floor (Phase 368) ──
   const srcWs = (state.warehouseStock || []).find(w =>
