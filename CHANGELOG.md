@@ -7,6 +7,13 @@
 
 ---
 
+## 5.66.0 (build 373) — 2026-06-05 Phase 373 auth-pin-login-promise-executor-safe — เลิก async Promise executor ใน showStaffLogin
+
+- **fix (auth robustness):** `showStaffLogin` (`modules/auth.js`) เดิม `new Promise(async (resolve) => {...})` (suppressed `no-async-promise-executor`) — async executor กลืน error ตอน setup (staff load / modal build) เงียบ → promise ค้าง / login ค้าง
+- **how:** executor เป็น sync `(resolve) =>` + async logic ใน IIFE `(async () => {...})().catch(err => console.error)` → error surface ไม่เงียบ; **คง resolve semantics เป๊ะ** (resolve เฉพาะ login สำเร็จ `verifyPin → resolve(staffObj)`; ไม่เพิ่ม `resolve(null)`); body ไม่แตะ (minimal-diff); ลบ TODO + eslint-disable
+- **verify:** lint:errors 0 (no-async-promise-executor หายโดยไม่ต้อง disable) · +4 tests `auth_pin_executor_guard` · unit 1102 · e2e 11 · branch CI green → merge ff → **owner smoke PIN login บน live 373 ผ่าน ✅**
+- **scope:** ❌ ไม่แตะ verifyPin / session insert / PIN logic / initAuth · **pwa-cache:** bump 372→373
+
 ## 5.66.0 (build 372) — 2026-06-05 Phase 372 service-job-precheck-aggregate — pre-check รวม qty ต่อสินค้า+คลัง (กันรวมเกินสต็อก)
 
 - **fix (stock §4.1/4.2):** pre-check ก่อน save ใน `ac_install`/`service_form`/`solar` เดิมวนเช็คทีละ line — ถ้าสินค้าเดียวกัน+คลังเดียวกันถูกแยกหลาย line ผลรวม qty เกินสต็อก แต่ละ line ผ่านเดี่ยว ๆ → หลุด pre-check → ใบงาน POST แล้ว deduct fail-clean (369) / โอนซ้ำ
