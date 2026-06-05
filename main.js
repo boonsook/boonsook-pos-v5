@@ -500,25 +500,35 @@ function applyDarkMode(on) {
 
 function saveCart(){ localStorage.setItem("bsk_cart_v2", JSON.stringify(state.cart)); }
 function saveReceipt(){ localStorage.setItem("bsk_last_receipt", JSON.stringify(state.lastReceipt)); }
+// Phase 378: คืนสถานะ cloud-sync ให้ caller แจ้ง user ได้ชัดเมื่อ sync ขึ้นเซิร์ฟเวอร์ไม่สำเร็จ
+//   return shape: { ok:true, cloudSynced:boolean, error:string|null }
+//   - ยังเซฟ localStorage เสมอ (ok:true) + ❌ ไม่ throw → ไม่ block offline / caller เดิมที่ ignore return ไม่กระทบ
 async function saveStoreInfo(data = null) {
   if (data) {
     state.storeInfo = { ...state.storeInfo, ...data };
   }
-  // ✅ Save to localStorage (primary storage — synchronous, always succeeds)
+  // ✅ Save to localStorage (primary storage — synchronous, always succeeds) — ก่อน Supabase เสมอ
   localStorage.setItem("bsk_store_info", JSON.stringify(state.storeInfo));
 
   // 🔄 Try Supabase (optional, 3s timeout so UI never hangs on stalled network/RLS)
-  if (!state.supabase) return;
+  if (!state.supabase) {
+    return { ok: true, cloudSynced: false, error: "ไม่ได้เชื่อมต่อเซิร์ฟเวอร์" };
+  }
   try {
     const timeout = new Promise((_, rej) => { setTimeout(() => rej(new Error("supabase timeout")), 3000); });
     const save = state.supabase
       .from('app_settings')
       .upsert({ key: 'store_info', value: state.storeInfo }, { onConflict: 'key' });
     const { error } = await Promise.race([save, timeout]);
-    if (error) console.warn('Supabase save warning:', error);
+    if (error) {
+      console.warn('Supabase save warning:', error);
+      return { ok: true, cloudSynced: false, error: error.message || String(error) };
+    }
+    return { ok: true, cloudSynced: true, error: null };
   } catch (err) {
     // Don't throw - localStorage already saved ✓
     console.warn('Supabase save failed (using localStorage):', err?.message || err);
+    return { ok: true, cloudSynced: false, error: err?.message || String(err) };
   }
 }
 // ★ savePaymentInfo — sync ทั้ง localStorage + Supabase (เหมือน saveStoreInfo)

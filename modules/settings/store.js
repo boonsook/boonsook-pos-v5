@@ -184,29 +184,39 @@ export function renderSettingsStore(el, ctx, _goBack, _navigate) {
     const ruleAfter = { shiftStartHour: safeStart, shiftEndHour: safeEnd, lateGraceMinutes, earlyLeaveGraceMinutes };
     const attendanceRulesChanged = JSON.stringify(ruleBefore) !== JSON.stringify(ruleAfter);
 
-    // ✅ Quick localStorage save
+    // ✅ Quick localStorage save (Phase 378: อ่าน cloud-sync status เพื่อแจ้ง user ชัดเมื่อ sync ล้ม)
     if (typeof saveStoreInfo === 'function') {
       try {
-        await saveStoreInfo(data);
+        // saveStoreInfo เซฟ localStorage เสมอ + ไม่ throw → คืน { ok, cloudSynced, error }
+        const result = await saveStoreInfo(data);
+
+        // Phase 92.51: audit log เฉพาะเมื่อกฎเวลา/กะ เปลี่ยน (best-effort — ห้ามทำให้ save fail)
+        if (attendanceRulesChanged) {
+          try {
+            await logActivity('attendance_rules_update', {
+              entityType: 'store_info',
+              summary: 'แก้กฎเวลาเข้างาน/กะ (late/early grace)',
+              metadata: { before: ruleBefore, after: ruleAfter },
+            });
+          } catch (_e) { /* swallow */ }
+        }
+
+        // Phase 378: ❌ ห้ามโชว์ success แบบ unconditional — แตกตามผล cloud-sync
+        if (result?.cloudSynced === true) {
+          showToast?.('บันทึกข้อมูลร้านค้าสำเร็จ ✅', 'success');
+        } else {
+          // เซฟ local แล้ว (ไม่หาย) แต่ sync ขึ้นเซิร์ฟเวอร์ไม่สำเร็จ → ค่า GPS/ร้านอาจไม่ทำงานข้ามอุปกรณ์
+          const why = result?.error ? ` (${result.error})` : '';
+          showToast?.(`⚠️ บันทึกในเครื่องแล้ว แต่ sync ขึ้นเซิร์ฟเวอร์ไม่สำเร็จ${why} — ตั้งค่า GPS/ร้านอาจไม่ทำงานข้ามอุปกรณ์ กรุณาตรวจเน็ตแล้วกดบันทึกใหม่`, 'error');
+        }
       } catch (err) {
-        // save error (localStorage still OK)
+        // saveStoreInfo ไม่ควร throw (เซฟ local เสมอ) — เผื่อกรณีไม่คาดคิดก็ยังแจ้งชัด ไม่กลืนเงียบ
+        const why = err?.message ? ` (${err.message})` : '';
+        showToast?.(`⚠️ บันทึกในเครื่องแล้ว แต่ sync ขึ้นเซิร์ฟเวอร์ไม่สำเร็จ${why} — กรุณาตรวจเน็ตแล้วกดบันทึกใหม่`, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = originalText;
       }
-
-      // Phase 92.51: audit log เฉพาะเมื่อกฎเวลา/กะ เปลี่ยน (best-effort — ห้ามทำให้ save fail)
-      if (attendanceRulesChanged) {
-        try {
-          await logActivity('attendance_rules_update', {
-            entityType: 'store_info',
-            summary: 'แก้กฎเวลาเข้างาน/กะ (late/early grace)',
-            metadata: { before: ruleBefore, after: ruleAfter },
-          });
-        } catch (_e) { /* swallow */ }
-      }
-
-      // ✅ Show success immediately (no re-render)
-      showToast?.('บันทึกข้อมูลร้านค้าสำเร็จ ✅', 'success');
-      btn.disabled = false;
-      btn.textContent = originalText;
     } else {
       showToast?.('ระบบยังพร้อม โปรดลองใหม่', 'error');
       btn.disabled = false;
