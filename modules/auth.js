@@ -146,10 +146,11 @@ function _renderIndicator() {
 
 // ── PIN Login Modal ───────────────────────────────────────
 export function showStaffLogin() {
-  // TODO Phase 89.32+: refactor → wrap async logic ใน IIFE inside (resolve) executor
-  // ตอนนี้ปล่อยไว้เพราะ flow PIN login เปราะ + ทำงานปกติมานาน
-  // eslint-disable-next-line no-async-promise-executor
-  return new Promise(async (resolve) => {
+  // Phase 373: executor เป็น sync + async logic ใน IIFE ข้างใน (แก้ no-async-promise-executor —
+  //   เดิม async executor ทำให้ error ตอน setup [staff load / modal build] ถูกกลืนเงียบ = promise ค้าง)
+  //   คง resolve semantics เดิมทุกอย่าง: resolve เฉพาะตอน login สำเร็จ (verifyPin → resolve(staffObj))
+  return new Promise((resolve) => {
+    (async () => {
     const sb = window._supabase;
 
     // ดึงรายชื่อพนักงานที่ active
@@ -362,6 +363,11 @@ export function showStaffLogin() {
           }
         }
       });
+    });
+    })().catch((err) => {
+      // Phase 373: setup (staff load / modal build) ล้ม → log แทน unhandled rejection เงียบ.
+      //   ไม่เรียก resolve → คง behavior เดิม (modal เป็น blocking; resolve เฉพาะ login สำเร็จ)
+      console.error("[auth] showStaffLogin setup failed:", err?.message || err);
     });
   });
 }
