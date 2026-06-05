@@ -4,6 +4,8 @@ Last updated: 2026-06-04 (Phase 369 fix-applystockmovement-oversell-floor — bu
 
 Purpose: this is the common first-read note for Codex, Claude, or any next agent opening a fresh session on this project. Read this before changing files so both teams start from the same facts.
 
+Prompt quality: read `PROMPT_PHASE_BRIEF_SKILL.md` before drafting, reviewing, or implementing a phase prompt. It defines the required order for baseline, scope, failure semantics, tests, build/docs, and STOP marker.
+
 > **ทีม implement / Claude:** [`IMPLEMENT_TEAM_PROTOCOL.md`](IMPLEMENT_TEAM_PROTOCOL.md) คือ **canonical protocol** — อ่าน + ทำตามก่อนลงมือทุก phase (Read Order → Phase Start Checklist → Verification Gates → Required Final Report Format) ทำ **ทีละ phase** และ **หยุดหลังจบ phase รอ owner/Codex review** เสมอ
 > ⚠️ `CLAUDE_SESSION_HANDOFF.md` / `CLAUDE_CODE_PROMPT.md` / `CLAUDE_CODE_WORKFLOW.md` = **superseded** (redirect ไป protocol ข้างบนแล้ว) — อย่าใช้เป็น workflow หลัก
 
@@ -246,6 +248,7 @@ Use `npm.cmd` on Windows PowerShell because plain `npm` may be blocked by script
 ## Operating Rules For Both Teams
 
 - This is a live business POS. Make narrow, verified changes.
+- For new phase prompts, use `PROMPT_PHASE_BRIEF_SKILL.md` before implementation.
 - Search before guessing. Prefer `rg`.
 - Preserve Thai UI copy unless the user explicitly asks to rewrite it.
 - Do not rename public IDs, localStorage keys, exported functions, cache names, event names, or DB policy names without tracing every usage.

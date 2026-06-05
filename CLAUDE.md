@@ -1,5 +1,7 @@
 # CLAUDE.md — Boonsook POS V5 · Project & Code Review Guide
 
+> Phase prompt quality: read [`PROMPT_PHASE_BRIEF_SKILL.md`](PROMPT_PHASE_BRIEF_SKILL.md) before drafting, reviewing, or implementing a phase prompt. It defines the baseline/scope/failure-semantics/test/report structure expected by the owner and Codex.
+
 > ไฟล์นี้ถูกอ่านโดย Claude ทุกครั้งที่รัน (รวมถึงตอนรีวิว PR อัตโนมัติ)
 > เป้าหมาย: ให้การรีวิวเข้มในจุดที่เสี่ยงเงิน/ข้อมูลจริง และปล่อยผ่านเรื่องจุกจิกที่ไม่ใช่บั๊ก
 > ภาษา: ตอบรีวิวเป็น **ภาษาไทย** ได้ (ศัพท์เทคนิคใช้ภาษาอังกฤษ) ให้สั้น ตรงจุด อ้าง `file:line` เสมอ

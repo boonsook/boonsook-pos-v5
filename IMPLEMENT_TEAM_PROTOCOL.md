@@ -4,8 +4,8 @@ This is the canonical operating protocol for the implementation team, including 
 
 Read this file before changing anything. Do one phase at a time. Stop after the phase and wait for owner/Codex review.
 
-Last updated: 2026-06-02
-Latest known app state: version 5.66.0, build 355.
+Last updated: 2026-06-05
+Latest known app state: version 5.66.0, build 369.
 
 ## Role
 
@@ -18,10 +18,11 @@ Your job is to implement the explicitly approved phase only. Do not invent the n
 At the start of every new session, read in this order:
 
 1. `IMPLEMENT_TEAM_PROTOCOL.md`
-2. `SESSION_START_SHARED.md`
-3. Latest relevant section of `HANDOFF.md`
-4. Latest relevant section of `CHANGELOG.md`
-5. `CLAUDE.md` for review/security guidance
+2. `PROMPT_PHASE_BRIEF_SKILL.md` when drafting or implementing from a phase prompt
+3. `SESSION_START_SHARED.md`
+4. Latest relevant section of `HANDOFF.md`
+5. Latest relevant section of `CHANGELOG.md`
+6. `CLAUDE.md` for review/security guidance
 
 Old Claude files such as `CLAUDE_CODE_PROMPT.md`, `CLAUDE_CODE_WORKFLOW.md`, and `CLAUDE_SESSION_HANDOFF.md` are historical only unless the owner explicitly says otherwise.
 
