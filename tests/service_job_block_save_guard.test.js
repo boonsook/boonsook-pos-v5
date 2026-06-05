@@ -1,4 +1,4 @@
-// Phase 370 service-job-block-save-on-insufficient
+// Phase 370 service-job-block-save-on-insufficient (Part 2 reverted in Phase 371)
 // Run: node --test tests/service_job_block_save_guard.test.js
 //
 // Why this exists:
@@ -7,9 +7,10 @@
 //   branch `if (isHome) continue;` skipped the case "user picked the HOME warehouse and home is
 //   short" — so the job got POSTed, the Phase 369 deduct failed-clean (no negative write), and the
 //   job was "saved but stock not deducted", warned only by a toast.
-//   Phase 370 part 1: turn that `continue` into a `throw` (hard block before POST).
-//   Phase 370 part 2: after save, if stock ops fail (race), best-effort flag the job note with
-//   STOCK_UNRESOLVED so the silent divergence is at least visible for reconcile.
+//   Phase 370 part 1 (KEPT): turn that `continue` into a `throw` (hard block before POST).
+//   Phase 370 part 2 (REVERTED in Phase 371 — out of scope, owner did not ask for it): the
+//   post-save best-effort STOCK_UNRESOLVED note-flag was removed; the stockOpsFailed block is back
+//   to its build-369 form (toast only). The 4th test per file now asserts that flag is ABSENT.
 //
 // These are closures inside large modules, so we assert on file source structure, scoped per file.
 
@@ -64,30 +65,19 @@ for (const { tag, file, homeStockHelper } of FILES) {
     assert.ok(src.includes(`${homeStockHelper}(prod, state)`), `${file}: ${homeStockHelper} must stay`);
   });
 
-  test(`${tag}: post-save STOCK_UNRESOLVED flag is best-effort (try/catch, no throw, keeps toast)`, () => {
-    // existing warn toast preserved
+  test(`${tag}: NO post-save reconcile flag (Phase 371 — Part 2 reverted, out of scope)`, () => {
+    // Phase 370 added a best-effort STOCK_UNRESOLVED note-flag (Part 2) that the owner did not
+    // ask for; Phase 371 removed it. The stockOpsFailed block must be back to build-369 form:
+    // just a toast, no PATCH-by-id of service_jobs.
+    assert.ok(!src.includes("STOCK_UNRESOLVED"), `${file}: STOCK_UNRESOLVED flag must be removed`);
     assert.ok(
-      src.includes("ใบงาน save แล้ว แต่ตัดสต็อก/โอนบางรายการล้มเหลว"),
-      `${file}: existing stockOpsFailed toast must stay`
+      !src.includes('service_jobs?id=eq.${jobId}'),
+      `${file}: no PATCH-by-id of service_jobs (Part 2 reverted)`
     );
-    // marker present
-    assert.ok(src.includes("STOCK_UNRESOLVED"), `${file}: STOCK_UNRESOLVED marker must be added`);
-    // PATCH the saved job (flag note by id)
-    assert.match(src, /method:\s*"PATCH"/, `${file}: flag must use PATCH`);
+    // the existing warn toast must stay (build-369 behavior)
     assert.ok(
-      src.includes('service_jobs?id=eq.${jobId}'),
-      `${file}: flag PATCH must target the saved jobId`
-    );
-    // best-effort: the flag block warns on failure, never throws/rolls back
-    assert.ok(
-      src.includes("flag STOCK_UNRESOLVED failed:") &&
-        src.includes("flag STOCK_UNRESOLVED threw:"),
-      `${file}: flag must be best-effort (console.warn on !ok and on throw)`
-    );
-    // no rollback/delete of the saved job in this phase
-    assert.ok(
-      !/DELETE[\s\S]{0,80}service_jobs\?id=eq\.\$\{jobId\}/.test(src),
-      `${file}: must not delete/rollback the saved job`
+      src.includes("ใบงาน save แล้ว แต่ตัดสต็อก"),
+      `${file}: stockOpsFailed toast must stay`
     );
   });
 }

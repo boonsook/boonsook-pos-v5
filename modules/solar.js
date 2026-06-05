@@ -791,23 +791,6 @@ export function renderSolarPage(ctx) {
 
       if (stockOpsFailed) {
         showToast?.("⚠️ ใบงาน save แล้ว แต่ตัดสต็อก/โอนบางรายการล้มเหลว — ตรวจ Console");
-        // Phase 370: flag ใบงานไว้ reconcile (best-effort) — ไม่ให้ deduct fail หลัง save "เงียบ"
-        if (jobId) {
-          try {
-            const flaggedNote = `${(record.note || "")} ⚠️[STOCK_UNRESOLVED ตัดสต็อกไม่ครบ]`.slice(0, 500);
-            const pr = await fetch(`${cfg.url}/rest/v1/service_jobs?id=eq.${jobId}`, {
-              method: "PATCH",
-              headers: {
-                "Content-Type": "application/json",
-                "apikey": cfg.anonKey,
-                "Authorization": `Bearer ${token}`,
-                "Prefer": "return=minimal"
-              },
-              body: JSON.stringify({ note: flaggedNote })
-            });
-            if (!pr.ok) console.warn("[solar] flag STOCK_UNRESOLVED failed:", pr.status);
-          } catch(e) { console.warn("[solar] flag STOCK_UNRESOLVED threw:", e?.message || e); }
-        }
       }
 
       statusEl.innerHTML = `<div style="text-align:center;color:var(--success);font-weight:700">✅ บันทึกงานโซล่าเซลล์สำเร็จ!${jobNo ? ` (${escHtml(jobNo)})` : ""}</div>`;

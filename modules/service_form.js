@@ -601,23 +601,6 @@ export function renderServiceFormPage(ctx, serviceType) {
 
       if (stockOpsFailed) {
         showToast?.("⚠️ ใบงาน save แล้ว แต่ตัดสต็อก/โอนบางรายการล้มเหลว — ตรวจ Console");
-        // Phase 370: flag ใบงานไว้ reconcile (best-effort) — ไม่ให้ deduct fail หลัง save "เงียบ"
-        if (jobId) {
-          try {
-            const flaggedNote = `${(record.note || "")} ⚠️[STOCK_UNRESOLVED ตัดสต็อกไม่ครบ]`.slice(0, 500);
-            const pr = await fetch(`${supaCfg.url}/rest/v1/service_jobs?id=eq.${jobId}`, {
-              method: "PATCH",
-              headers: {
-                "Content-Type": "application/json",
-                "apikey": supaCfg.anonKey,
-                "Authorization": `Bearer ${token}`,
-                "Prefer": "return=minimal"
-              },
-              body: JSON.stringify({ note: flaggedNote })
-            });
-            if (!pr.ok) console.warn("[service_form] flag STOCK_UNRESOLVED failed:", pr.status);
-          } catch(e) { console.warn("[service_form] flag STOCK_UNRESOLVED threw:", e?.message || e); }
-        }
       }
 
       // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L1 user-event (single save button per service form)

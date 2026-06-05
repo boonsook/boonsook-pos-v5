@@ -7,6 +7,13 @@
 
 ---
 
+## 5.66.0 (build 371) — 2026-06-05 Phase 371 revert-out-of-scope-stock-unresolved-flag — ถอด Part 2 (STOCK_UNRESOLVED flag) ที่เกินสเปก
+
+- **fix (scope correction):** Phase 370 ใส่ "Part 2" reconcile-flag (post-save PATCH `service_jobs` note += `⚠️[STOCK_UNRESOLVED]`) เข้ามาทั้งใน `ac_install`/`service_form`/`solar` + test ทั้งที่ owner สั่งให้ทำ **Part 1 อย่างเดียว** รอบนี้ → ถอด Part 2 ออกให้หมด
+- **how:** ลบ Part 2 block (คอมเมนต์ + `if (jobId) { try { ...PATCH... } catch {} }`) ออกจาก `if (stockOpsFailed)` ทั้ง 3 ไฟล์ → block กลับไปเหลือแค่ `showToast?.(...)` **byte-identical กับ build 369** (ยืนยันด้วย `git diff 67834c9 HEAD -- modules/*` เหลือเฉพาะ Part 1). test ตัว Part 2 พลิกเป็น **absence-assert** (กัน flag กลับมา)
+- **kept (ไม่แตะ):** Part 1 (`isHome` → `throw` block ก่อน POST) คงไว้ทั้ง 3 ไฟล์ · non-home throw · `transfersNeeded` · confirm-transfer dialog · deduct/transfer logic (369/368) · POST payload/endpoint/status/auto-post JV · POS/cart/accounting/schema/SQL
+- **note:** forward commit (build 371) — ❌ ไม่ใช้ `git revert e852c78` (จะลบ Part 1 ทิ้งด้วย) · **test:** `service_job_block_save_guard.test.js` 12 (Part 2 → absence), unit 1090, e2e 11 · **pwa-cache:** bump 370→371
+
 ## 5.66.0 (build 370) — 2026-06-05 Phase 370 service-job-block-save-on-insufficient — block save เมื่อคลังบ้านไม่พอ + flag reconcile
 
 - **fix (severity สูง — oversell/สต็อก §4.1/4.2):** pre-save stock check ใน `ac_install` / `service_form` / `solar` เดิม `if (isHome) continue;` ทำให้เคส **"user เลือกคลังบ้าน แล้วบ้านไม่พอ"** ถูกข้าม → ใบงานถูก POST → Phase 369 deduct fail-clean (ไม่เขียนติดลบ) แต่ผลคือ **"ใบงาน save แล้ว แต่สต็อกไม่ถูกตัด"** เตือนแค่ toast
