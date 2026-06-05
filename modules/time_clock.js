@@ -654,22 +654,58 @@ function _authUserId() {
 }
 
 /**
- * Phase 92.24: capture GPS + warn ถ้าเกิน geofence radius (ไม่ block)
+ * Phase 92.24 / Phase 377: capture GPS for a clock action.
+ * @param {object} ctx
+ * @param {object} [opts]
+ * @param {boolean} [opts.enforce=false]
+ *   - enforce=false (admin/manager path): warn-only — ดึง GPS ได้ก็ใส่, ไม่ได้/นอกรัศมีก็ยังบันทึก (พฤติกรรมเดิม 92.24)
+ *   - enforce=true (self path): **block** — ถ้ามี geofence แล้ว GPS หาย → throw "GPS_REQUIRED";
+ *     ถ้าอยู่นอกรัศมี → throw "GEOFENCE_OUTSIDE" (พร้อม distance/radius). throw เกิด "ก่อน" insert/patch
+ *     → ไม่มี attendance row และไม่ enqueue offline.
  * @returns {Promise<{gps:object|null, geofence:object|null}>}
+ * @throws {Error} (enforce=true) code "GPS_REQUIRED" | "GEOFENCE_OUTSIDE"
  */
-async function _captureGpsAndWarn(ctx) {
+export async function _captureGpsForClock(ctx, { enforce = false } = {}) {
   const geofence = geofenceFromState(ctx?.state);
-  if (!geofence) return { gps: null, geofence: null }; // ไม่ได้ตั้ง geofence → skip
+  if (!geofence) return { gps: null, geofence: null }; // ไม่ได้ตั้ง geofence → ทำงานได้โดยไม่ต้อง GPS (ทั้ง 2 โหมด)
   const gps = await getCurrentPosition();
+
+  if (!enforce) {
+    // ── warn-only (admin path / พฤติกรรมเดิม 92.24) ──
+    if (!gps) {
+      ctx?.showToast?.("⚠️ ไม่สามารถดึงตำแหน่งได้ — บันทึกโดยไม่มี GPS");
+      return { gps: null, geofence };
+    }
+    const dist = haversineMeters(geofence.lat, geofence.lng, gps.lat, gps.lng);
+    if (dist > geofence.radiusM) {
+      ctx?.showToast?.(`⚠️ คุณอยู่ห่างร้าน ${dist}m (เกิน ${geofence.radiusM}m) — บันทึกแล้วแต่ระบบจะ flag`);
+    }
+    return { gps, geofence };
+  }
+
+  // ── enforce=true (self path) — block ก่อนเขียน ──
   if (!gps) {
-    ctx?.showToast?.("⚠️ ไม่สามารถดึงตำแหน่งได้ — บันทึกโดยไม่มี GPS");
-    return { gps: null, geofence };
+    const err = new Error("ต้องเปิด GPS เพื่อบันทึกเวลาเข้า/ออก");
+    err.code = "GPS_REQUIRED";
+    throw err;
   }
   const dist = haversineMeters(geofence.lat, geofence.lng, gps.lat, gps.lng);
   if (dist > geofence.radiusM) {
-    ctx?.showToast?.(`⚠️ คุณอยู่ห่างร้าน ${dist}m (เกิน ${geofence.radiusM}m) — บันทึกแล้วแต่ระบบจะ flag`);
+    const err = new Error(`อยู่นอกพื้นที่ร้าน ${dist} ม. (กำหนด ${geofence.radiusM} ม.) — ไม่สามารถลงเวลาได้`);
+    err.code = "GEOFENCE_OUTSIDE";
+    err.distance = dist;
+    err.radius = geofence.radiusM;
+    throw err;
   }
   return { gps, geofence };
+}
+
+/**
+ * Phase 92.24: warn-only wrapper (admin/manager path) — คงพฤติกรรมเดิมเป๊ะ
+ * @returns {Promise<{gps:object|null, geofence:object|null}>}
+ */
+async function _captureGpsAndWarn(ctx) {
+  return _captureGpsForClock(ctx, { enforce: false });
 }
 
 // ─── Phase 92.25 helpers: datetime conversion (Bangkok ↔ ISO) ───────
@@ -1188,12 +1224,15 @@ async function _renderSelfView(container, ctx) {
     const orig = btn.textContent;
     btn.textContent = "⏳ บันทึก...";
     try {
-      const { gps, geofence } = await _captureGpsAndWarn(ctx);
+      // Phase 377: self path บังคับ GPS geofence (block ก่อนเขียน → ไม่มี row, ไม่ enqueue)
+      const { gps, geofence } = await _captureGpsForClock(ctx, { enforce: true });
       await _insertClockIn({ userId, source: "self", gps, geofence });
       ctx.showToast?.("ลงเวลาเข้างานเรียบร้อย ✅");
       renderTimeClockPage(ctx);
     } catch (e) {
-      if (e?.code === "ALREADY_OPEN") {
+      if (e?.code === "GPS_REQUIRED" || e?.code === "GEOFENCE_OUTSIDE") {
+        ctx.showToast?.(e.message);
+      } else if (e?.code === "ALREADY_OPEN") {
         ctx.showToast?.("⚠️ คุณยังมี session เปิดอยู่ — ลงเวลาออกก่อน");
       } else if (e?.code === "QUEUED") {
         ctx.showToast?.("📥 ออฟไลน์ — เก็บคิวไว้ จะ sync เมื่อกลับมา online");
@@ -1212,12 +1251,15 @@ async function _renderSelfView(container, ctx) {
     const orig = btn.textContent;
     btn.textContent = "⏳ บันทึก...";
     try {
-      const { gps: gpsOut, geofence: gfOut } = await _captureGpsAndWarn(ctx);
+      // Phase 377: self path บังคับ GPS geofence (block ก่อนเขียน → ไม่มี patch, ไม่ enqueue)
+      const { gps: gpsOut, geofence: gfOut } = await _captureGpsForClock(ctx, { enforce: true });
       await _patchClockOut({ id: open.id, gps: gpsOut, geofence: gfOut });
       ctx.showToast?.("ลงเวลาออกเรียบร้อย ✅");
       renderTimeClockPage(ctx);
     } catch (e) {
-      if (e?.code === "QUEUED") {
+      if (e?.code === "GPS_REQUIRED" || e?.code === "GEOFENCE_OUTSIDE") {
+        ctx.showToast?.(e.message);
+      } else if (e?.code === "QUEUED") {
         ctx.showToast?.("📥 ออฟไลน์ — เก็บคิวไว้ จะ sync เมื่อกลับมา online");
         renderTimeClockPage(ctx);
       } else {

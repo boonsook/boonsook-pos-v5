@@ -7,6 +7,18 @@
 
 ---
 
+## 5.66.0 (build 377) — 2026-06-05 Phase 377 hr-gps-self-clock-enforcement — บังคับ GPS geofence ตอนพนักงานกดลงเวลาเอง
+
+- **fix (HR attendance integrity, medium):** เดิม (92.24) มี GPS config (`storeInfo.shopLat/shopLng/geofenceRadiusM`) แต่ **แค่ warn ไม่ block** — GPS หาย/อยู่นอกรัศมี ก็ยังลงเวลาได้ → self clock ไม่มี integrity จริง
+- **how:** helper `_captureGpsForClock(ctx, { enforce })` ใน `modules/time_clock.js`:
+  - `enforce=false` (admin/manager `#tcClockInBtn` / `[data-clock-out-id]`) = **warn-only เดิมเป๊ะ** (ผ่าน wrapper `_captureGpsAndWarn`)
+  - `enforce=true` (self `#tcSelfClockIn` / `#tcSelfClockOut`): ไม่มี geofence → `{gps:null,geofence:null}` (ลงเวลาได้โดยไม่ต้อง GPS); มี geofence แต่ `getCurrentPosition()` คืน null → **throw `GPS_REQUIRED`**; อยู่นอกรัศมี → **throw `GEOFENCE_OUTSIDE`** (พร้อม distance/radius)
+- **block ก่อนเขียน:** throw เกิด **ก่อน** `_insertClockIn`/`_patchClockOut` → ไม่มี attendance row และ **ไม่ enqueue offline** (กันลงเวลานอกพื้นที่ผ่านคิว); self handler catch → `showToast` ข้อความชัด (no alert/confirm)
+- **schema:** verified live REST (HTTP 200) ว่า `staff_attendance` มี `clock_in/out_lat`, `clock_in/out_lng`, `clock_in/out_distance_m` อยู่แล้ว (92.24) — **ไม่สร้าง SQL**
+- **scope:** ❌ ไม่แตะ SQL/RLS/schema · staff_attendance schema · payroll/payroll_overview · POS/cart/stock/accounting · admin-edit-attendance modal · offline-queue logic (เดิม) · return/data shape เดิม
+- **verify:** lint:errors 0 · +12 tests `hr_gps_self_clock_guard` (behavioral navigator mock + source guard); time_clock(73)+hr_overview เดิมเขียว · unit 1145 · e2e 11/11 · **pwa-cache:** bump 376→377
+- **known risk:** browser GPS spoof ได้ (เปลี่ยนพิกัดผ่าน devtools/มือถือ) — anti-fraud จริงต้อง server-side / device policy ภายหลัง; phase นี้ปิดช่อง "ลืม/ไม่เปิด GPS" และ "อยู่นอกพื้นที่" เท่านั้น
+
 ## 5.66.0 (build 376) — 2026-06-05 Phase 376 reconcile-report-exclude-cancelled (375b) — report ข้ามงานยกเลิก/ลบ
 
 - **fix (false-positive):** report Phase 375 flag งานสถานะ `cancelled` ผิด (live: 5/5 ที่ flag = cancelled) — งานยกเลิก/ลบ ไม่ต้องตัดสต็อกอยู่แล้ว (found 0 = ถูกต้อง ไม่ใช่ปัญหา)
