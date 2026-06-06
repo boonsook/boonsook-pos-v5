@@ -53,3 +53,17 @@ export function serviceJobNoteWithReviewMarker(note, uiStatus) {
   if (base.includes(REVIEW_NOTE_MARKER)) return base;
   return base ? `${base} ${REVIEW_NOTE_MARKER}` : REVIEW_NOTE_MARKER;
 }
+
+/**
+ * Read-side: ใบงานนี้อยู่สถานะ "รออนุมัติ (ช่างส่ง)" ไหม
+ * (Phase 383: เพราะ status ถูก normalize เป็น pending แล้ว read-side ต้องดู marker ด้วย)
+ * - true ถ้า status === "pending_review" (รองรับ row เก่าก่อน hotfix)
+ * - true ถ้า status === "pending" และ note มี REVIEW_NOTE_MARKER (งานใหม่หลัง normalize)
+ * @param {{status?:string, note?:string}} job
+ * @returns {boolean}
+ */
+export function isServiceJobPendingReview(job) {
+  if (!job) return false;
+  if (job.status === "pending_review") return true;
+  return job.status === "pending" && typeof job.note === "string" && job.note.includes(REVIEW_NOTE_MARKER);
+}

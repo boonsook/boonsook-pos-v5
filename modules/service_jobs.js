@@ -6,6 +6,7 @@ import { renderTagBadge, SERVICE_TAG_PRESETS, exportToExcel, todaySuffix } from 
 import { parseAirJobMeta, airBadgeHtml, airJobInfoHtml, airPriorityBadgeHtml } from "./air_job_meta.js";
 // Phase 353: ปุ่ม "สร้างใบเสนอราคา" → push draft (build 346 mechanism) → หน้า quotations (ไม่ save อัตโนมัติ)
 import { pushAirQuoteDraft } from "./ac_quotation_draft.js";
+import { isServiceJobPendingReview } from "./service_status.js";
 
 const STATUS_LABELS = {
   pending:        "รอดำเนินการ",
@@ -53,7 +54,8 @@ let _sjSourceFilter = "all"; // Phase 352: all | air | general (กรองง�
 
 const OPEN_STATUSES = ["pending", "progress", "in_progress", "open"];
 const CLOSED_STATUSES = ["done", "delivered", "closed"];
-const REVIEW_STATUSES = ["pending_review"];
+// Phase 383: "รออนุมัติ" จับด้วย isServiceJobPendingReview (status pending_review เก่า หรือ pending+note marker ใหม่)
+// open = OPEN_STATUSES แต่ไม่ใช่ review (กันนับซ้ำ — pending+marker ไม่ควรขึ้นทั้ง open และ review)
 
 export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, showRoute }) {
   // ★ ซ่อนงานที่ถูกลบ (status = cancelled + note มีคำว่า [ลบแล้ว])
@@ -61,15 +63,15 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
 
   // Counts (เพื่อแสดงในแต่ละ chip)
   const cAll = allJobs.length;
-  const cOpen = allJobs.filter(j => OPEN_STATUSES.includes(j.status || "pending")).length;
-  const cReview = allJobs.filter(j => REVIEW_STATUSES.includes(j.status)).length;
+  const cOpen = allJobs.filter(j => OPEN_STATUSES.includes(j.status || "pending") && !isServiceJobPendingReview(j)).length;
+  const cReview = allJobs.filter(j => isServiceJobPendingReview(j)).length;
   const cClosed = allJobs.filter(j => CLOSED_STATUSES.includes(j.status)).length;
   const cCancelled = allJobs.filter(j => j.status === "cancelled").length;
 
   // Filter ตาม chip ที่เลือก
   let jobs;
-  if (_sjFilter === "open")           jobs = allJobs.filter(j => OPEN_STATUSES.includes(j.status || "pending"));
-  else if (_sjFilter === "review")    jobs = allJobs.filter(j => REVIEW_STATUSES.includes(j.status));
+  if (_sjFilter === "open")           jobs = allJobs.filter(j => OPEN_STATUSES.includes(j.status || "pending") && !isServiceJobPendingReview(j));
+  else if (_sjFilter === "review")    jobs = allJobs.filter(j => isServiceJobPendingReview(j));
   else if (_sjFilter === "closed")    jobs = allJobs.filter(j => CLOSED_STATUSES.includes(j.status));
   else if (_sjFilter === "cancelled") jobs = allJobs.filter(j => j.status === "cancelled");
   else                                jobs = allJobs; // "all"
@@ -168,8 +170,10 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
           const status      = j.status || "pending";
           const jobType     = j.job_type || "";
           const jobNo       = j.job_no || "";
-          const statusLabel = STATUS_LABELS[status] || status;
-          const statusColor = STATUS_COLOR[status] || "#9ca3af";
+          // Phase 383: pending+marker (และ pending_review เก่า) → แสดงเป็น "รออนุมัติ" ม่วง ไม่ใช่ "รอดำเนินการ"
+          const isReview    = isServiceJobPendingReview(j);
+          const statusLabel = isReview ? STATUS_LABELS.pending_review : (STATUS_LABELS[status] || status);
+          const statusColor = isReview ? STATUS_COLOR.pending_review : (STATUS_COLOR[status] || "#9ca3af");
           const typeLabel   = JOB_TYPE_LABELS[jobType] || "";
           const isWebOrder  = (j.sub_service || "").includes("สั่งซื้อ") || /^SH-(transfer|cod_cash|cod_transfer)\|/.test(j.note || "");
           const airMeta     = parseAirJobMeta(j); // Phase 351 — งานจากแคตตาล็อกแอร์ (read-only)
@@ -313,7 +317,7 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
       "ที่อยู่": j.customer_address || j.job_address || "",
       "ประเภทงาน": JOB_TYPE_LABELS[j.job_type] || j.job_type || "",
       "รายละเอียด": j.description || j.job_title || "",
-      "สถานะ": STATUS_LABELS[j.status] || j.status || "",
+      "สถานะ": isServiceJobPendingReview(j) ? STATUS_LABELS.pending_review : (STATUS_LABELS[j.status] || j.status || ""),
       "Tags": Array.isArray(j.tags) ? j.tags.join(", ") : "",
       "นัดติดตั้ง": (j.scheduled_at || "").slice(0, 16).replace("T", " "),
       "หมายเหตุ": j.note || ""

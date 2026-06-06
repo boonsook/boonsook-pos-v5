@@ -7,7 +7,7 @@ import { renderSalesPage } from "./modules/sales.js";
 import { renderCustomersPage } from "./modules/customers.js";
 import { renderQuotationsPage } from "./modules/quotations.js";
 import { renderServiceJobsPage } from "./modules/service_jobs.js";
-import { normalizeServiceJobStatus, serviceJobNoteWithReviewMarker } from "./modules/service_status.js";
+import { normalizeServiceJobStatus, serviceJobNoteWithReviewMarker, isServiceJobPendingReview } from "./modules/service_status.js";
 import { renderSettingsPage } from "./modules/settings/index.js";
 // Phase 89.20/89.21: delivery_invoices, receipts, expenses lazy
 import { renderStockMovementsPage } from "./modules/stock_movements.js";
@@ -2267,10 +2267,11 @@ function openServiceJobDrawer(job=null){
   $("servicePaymentMethod")?.addEventListener("change", _updateServiceSlipSection);
   _wireServiceSlipUpload();
 
-  // ★ Phase 88.12: Admin approve banner — แสดงเมื่อ status = pending_review
+  // ★ Phase 88.12: Admin approve banner — แสดงเมื่อ "รออนุมัติ"
+  // Phase 383: ใช้ isServiceJobPendingReview (status pending_review เก่า หรือ pending+note marker ใหม่)
   const approveBanner = document.getElementById("serviceApproveBanner");
   if (approveBanner) {
-    approveBanner.style.display = job?.status === "pending_review" ? "block" : "none";
+    approveBanner.style.display = isServiceJobPendingReview(job) ? "block" : "none";
   }
   // Wire approve button (idempotent — replace handler)
   const approveBtn = document.getElementById("serviceApproveBtn");

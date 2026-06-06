@@ -18,6 +18,7 @@ import path from "node:path";
 const {
   normalizeServiceJobStatus,
   serviceJobNoteWithReviewMarker,
+  isServiceJobPendingReview,
   VALID_SERVICE_JOB_STATUSES,
   REVIEW_NOTE_MARKER,
 } = await import("../modules/service_status.js");
@@ -28,6 +29,7 @@ const acSrc   = read("modules/ac_install.js");
 const svSrc   = read("modules/service_form.js");
 const solSrc  = read("modules/solar.js");
 const mainSrc = read("main.js");
+const sjSrc   = read("modules/service_jobs.js");
 
 // ── normalizeServiceJobStatus ───────────────────────────────────────────────
 test("normalize: pending_review → pending", () => {
@@ -122,6 +124,64 @@ test("main.js: reject flow ไม่ตั้ง serviceStatus = 'in_progress' �
     "main.js ต้องไม่ตั้ง serviceStatus = 'in_progress' (DB ไม่รับ)");
   assert.ok(/\$\("serviceStatus"\)\.value\s*=\s*["']progress["']/.test(mainSrc),
     "reject flow ต้องใช้ 'progress'");
+});
+
+// ── isServiceJobPendingReview (read-side, Phase 383 review follow-up) ────────
+test("isServiceJobPendingReview: legacy row status pending_review → true", () => {
+  assert.equal(isServiceJobPendingReview({ status: "pending_review" }), true);
+  assert.equal(isServiceJobPendingReview({ status: "pending_review", note: "" }), true);
+});
+
+test("isServiceJobPendingReview: pending + note marker → true (งานใหม่หลัง normalize)", () => {
+  assert.equal(isServiceJobPendingReview({ status: "pending", note: `งานล้างแอร์ ${REVIEW_NOTE_MARKER}` }), true);
+});
+
+test("isServiceJobPendingReview: pending ไม่มี marker → false", () => {
+  assert.equal(isServiceJobPendingReview({ status: "pending", note: "งานปกติ" }), false);
+  assert.equal(isServiceJobPendingReview({ status: "pending" }), false);
+});
+
+test("isServiceJobPendingReview: status อื่น → false", () => {
+  assert.equal(isServiceJobPendingReview({ status: "progress", note: REVIEW_NOTE_MARKER }), false);
+  assert.equal(isServiceJobPendingReview({ status: "delivered" }), false);
+  assert.equal(isServiceJobPendingReview(null), false);
+  assert.equal(isServiceJobPendingReview(undefined), false);
+});
+
+test("integration: note ที่ผ่าน serviceJobNoteWithReviewMarker → อ่านกลับเป็น review (pending)", () => {
+  const note = serviceJobNoteWithReviewMarker("งาน X", "pending_review");
+  assert.equal(isServiceJobPendingReview({ status: "pending", note }), true);
+});
+
+// ── service_jobs.js read-side wiring ────────────────────────────────────────
+test("service_jobs.js: import + ใช้ isServiceJobPendingReview ใน count/filter (ไม่ใช่ REVIEW_STATUSES ดิบ)", () => {
+  assert.ok(/import\s*\{[^}]*isServiceJobPendingReview[^}]*\}\s*from\s*["']\.\/service_status\.js["']/.test(sjSrc),
+    "ต้อง import isServiceJobPendingReview");
+  // cReview + review filter ต้องใช้ helper
+  assert.ok(/cReview\s*=\s*allJobs\.filter\(j\s*=>\s*isServiceJobPendingReview\(j\)\)/.test(sjSrc),
+    "cReview ต้องใช้ isServiceJobPendingReview");
+  assert.ok(/_sjFilter === "review"[\s\S]{0,80}isServiceJobPendingReview\(j\)/.test(sjSrc),
+    "review filter ต้องใช้ isServiceJobPendingReview");
+  // open ต้อง exclude review (กันนับซ้ำ)
+  assert.ok(/OPEN_STATUSES\.includes\([^)]*\)\s*&&\s*!isServiceJobPendingReview\(j\)/.test(sjSrc),
+    "open count/filter ต้อง exclude review (pending+marker ไม่ขึ้นทั้ง open และ review)");
+  // ไม่เหลือ REVIEW_STATUSES (ลบทิ้งแล้ว)
+  assert.ok(!/REVIEW_STATUSES/.test(sjSrc), "REVIEW_STATUSES เดิมต้องไม่เหลือ (แทนด้วย helper)");
+});
+
+test("service_jobs.js: status label/color ใช้ isReview → แสดง 'รออนุมัติ' สำหรับ pending+marker", () => {
+  assert.ok(/const\s+isReview\s*=\s*isServiceJobPendingReview\(j\)/.test(sjSrc), "ต้องมี isReview per-row");
+  assert.ok(/isReview\s*\?\s*STATUS_LABELS\.pending_review/.test(sjSrc), "label ต้องใช้ pending_review เมื่อ isReview");
+  assert.ok(/isReview\s*\?\s*STATUS_COLOR\.pending_review/.test(sjSrc), "color ต้องใช้ pending_review เมื่อ isReview");
+});
+
+test("main.js: approve banner ใช้ isServiceJobPendingReview ไม่ใช่ status === 'pending_review' ดิบ", () => {
+  assert.ok(/import\s*\{[^}]*isServiceJobPendingReview[^}]*\}\s*from\s*["']\.\/modules\/service_status\.js["']/.test(mainSrc),
+    "main.js ต้อง import isServiceJobPendingReview");
+  assert.ok(/approveBanner\.style\.display\s*=\s*isServiceJobPendingReview\(job\)/.test(mainSrc),
+    "approve banner ต้องใช้ helper");
+  assert.ok(!/approveBanner\.style\.display\s*=\s*job\?\.status === ["']pending_review["']/.test(mainSrc),
+    "approve banner ต้องไม่ใช้ status === 'pending_review' ดิบ");
 });
 
 test("scope: helper ใหม่ไม่มี write call / fetch (pure)", () => {
