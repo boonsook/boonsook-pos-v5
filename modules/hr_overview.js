@@ -110,6 +110,42 @@ export function gpsChipMeta(status, opts = {}) {
 }
 
 /**
+ * Phase 380: ตรวจ session "ค้างข้ามวัน" (clock_in มี + clock_out null + work_date < วันนี้)
+ *   — read-only display เท่านั้น ช่วย admin ไปตามปิดเอง กัน OT/ชม. under-count เงียบ
+ *   (open session ถูกตัดทิ้งใน OT calc → วันนั้น = 0 ชม.)
+ *   ❌ ไม่ทับ stale_session เดิม (detectExceptions จับเฉพาะ "วันนี้-open-นาน" ใน attendanceToday);
+ *      helper นี้จับเฉพาะ work_date < today ซึ่ง attendanceToday ไม่เห็น
+ * @param {Array<object>} attendanceMonth - rows เดือนปัจจุบัน (select=*) — อ่านอย่างเดียว ไม่ mutate
+ * @param {object} [opts]
+ * @param {string} [opts.today] - "YYYY-MM-DD" เขต Asia/Bangkok (default: workDateBangkok())
+ * @returns {Array<{kind,severity,message,userId,refId}>} exception-shaped (เข้า _alertRow เดิมได้)
+ */
+export function detectStuckCrossDaySessions(attendanceMonth, opts = {}) {
+  if (!Array.isArray(attendanceMonth)) return [];
+  const today = opts.today || workDateBangkok();
+  const todayMs = Date.parse(today + "T00:00:00Z");
+  const out = [];
+  for (const r of attendanceMonth) {
+    if (!r || !r.clock_in_at || r.clock_out_at != null) continue;
+    const wd = String(r.work_date || "").slice(0, 10);
+    if (!wd || !(wd < today)) continue; // เฉพาะข้ามวัน (วันนี้-open = งานของ detectExceptions)
+    const wdMs = Date.parse(wd + "T00:00:00Z");
+    const days = (Number.isFinite(todayMs) && Number.isFinite(wdMs))
+      ? Math.round((todayMs - wdMs) / 86400000)
+      : null;
+    const nTxt = days != null ? days : "?";
+    out.push({
+      kind: "stuck_session_crossday",
+      severity: "high",
+      message: `session ค้างข้ามวัน — เข้างาน ${wd} ยังไม่ลงเวลาออก (ค้าง ${nTxt} วัน)`,
+      userId: r.user_id,
+      refId: r.id,
+    });
+  }
+  return out;
+}
+
+/**
  * รวมสรุป KPI จาก dataset ดิบ — สำหรับการ์ดบนสุดของหน้า
  */
 export function aggregateHrKpi(input = {}) {
@@ -808,6 +844,7 @@ export function roleChipMeta(role) {
 export function alertActionFor(kind) {
   switch (kind) {
     case "stale_session":   return { label: "เปิด Time Clock",   route: "time_clock" };
+    case "stuck_session_crossday": return { label: "เปิด Time Clock", route: "time_clock" };
     case "geofence_out":    return { label: "ตรวจรายการลงเวลา", route: "time_clock" };
     case "unpaid_payroll":  return { label: "ไปจ่ายเงินเดือน",   route: "payroll" };
     case "offline_pending": return { label: "ไป Sync",           route: "time_clock" };
@@ -2103,6 +2140,10 @@ export async function renderHrOverviewPage(ctx) {
     shiftOpts,
     attendanceRules: punctRules,
   });
+
+  // Phase 380: session ค้างข้ามวัน (work_date < today, ยังไม่ลงเวลาออก) — read-only display
+  //   ครอบเฉพาะ "ในเดือนนี้" ตาม window attendanceMonth (loader เดิม); ข้ามเดือน = future
+  exceptions.push(...detectStuckCrossDaySessions(data.attendanceMonth, { today }));
 
   const attIdx = indexAttendanceByUser(data.attendanceToday);
   const deptMap = new Map();

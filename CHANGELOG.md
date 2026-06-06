@@ -7,6 +7,15 @@
 
 ---
 
+## 5.66.0 (build 380) — 2026-06-06 Phase 380 hr-overview-stuck-session-crossday (clock-out trap C2 · scope A read-only) — HR Overview โชว์ session ค้างข้ามวัน
+
+- **feat (HR display, medium):** HR Overview section "สิ่งที่ต้องจัดการวันนี้" เพิ่มรายการ "session ค้างข้ามวัน" — clock_in มี + clock_out null + work_date < วันนี้ → admin เห็นไปตามปิดเอง. กัน OT/ชม. under-count เงียบ (open session ถูกตัดทิ้งใน OT calc → วันนั้น = 0 ชม.)
+- **ช่องโหว่:** session ค้างข้ามวันอยู่ใน `attendanceMonth` แต่ **ไม่อยู่ใน `attendanceToday`** → `detectExceptions` (วน attendanceToday เท่านั้น) ไม่เห็น → ไม่ขึ้นที่ไหนเลย
+- **how:** pure helper exported `detectStuckCrossDaySessions(attendanceMonth, { today })` → `[{kind:"stuck_session_crossday",severity:"high",message:"session ค้างข้ามวัน — เข้างาน <date> ยังไม่ลงเวลาออก (ค้าง N วัน)",userId,refId}]` (null-safe, ไม่ mutate, จับเฉพาะ work_date < today = **ไม่ทับ stale_session เดิม**). renderHrOverviewPage `exceptions.push(...)` → แสดงผ่าน `_alertRow` เดิม; +`alertActionFor` case → ปุ่ม "เปิด Time Clock"
+- **read-only:** ❌ ไม่แก้สูตร OT/payroll (sumRegularOT/closedMonth/buildMonthlyHrReport) · ไม่แตะ clock enforcement (time_clock) · ไม่แตะ `detectExceptions` เดิม (helper แยก) · loader query (attendanceMonth select=*) · schema/SQL/RLS · DB write · mutate state/row · money/stock/POS/accounting
+- **verify:** lint:errors 0 · +15 tests `hr_stuck_session_guard` (behavioral + source/read-only guard) · unit 1193 · e2e build-sync 3/3 · **pwa-cache:** bump 379→380
+- **known limitation:** ครอบเฉพาะ "ในเดือนนี้" ตาม window `attendanceMonth`; session ค้างข้ามเดือน = future (ต้อง openOnly fetch แยก)
+
 ## 5.66.0 (build 379) — 2026-06-06 Phase 379 hr-overview-gps-exception-display (HR GPS hardening C / #5) — HR Overview โชว์ GPS น่าสงสัยวันนี้ (read-only)
 
 - **feat (HR display, medium):** HR Overview เพิ่ม chip "GPS น่าสงสัย" ต่อพนักงานในรายการวันนี้ — `📍 ไม่มี GPS` (clock_in_lat ว่าง) / `📍 นอกรัศมี Xม. (กำหนด Yม.)` (clock_in_distance_m > geofence radius). ช่วย admin เห็น record เก่า/admin clock (warn-only) ที่ Phase 377 enforcement ไม่ครอบ
