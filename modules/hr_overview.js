@@ -118,11 +118,13 @@ export function gpsChipMeta(status, opts = {}) {
  * @param {Array<object>} attendanceMonth - rows เดือนปัจจุบัน (select=*) — อ่านอย่างเดียว ไม่ mutate
  * @param {object} [opts]
  * @param {string} [opts.today] - "YYYY-MM-DD" เขต Asia/Bangkok (default: workDateBangkok())
+ * @param {Map<string,string>} [opts.nameById] - Phase 381: map String(user_id) → ชื่อ (ใส่ชื่อนำหน้า message); ไม่ส่ง = ไม่มี prefix (backward-compat)
  * @returns {Array<{kind,severity,message,userId,refId}>} exception-shaped (เข้า _alertRow เดิมได้)
  */
 export function detectStuckCrossDaySessions(attendanceMonth, opts = {}) {
   if (!Array.isArray(attendanceMonth)) return [];
   const today = opts.today || workDateBangkok();
+  const nameById = opts.nameById || null;
   const todayMs = Date.parse(today + "T00:00:00Z");
   const out = [];
   for (const r of attendanceMonth) {
@@ -134,10 +136,13 @@ export function detectStuckCrossDaySessions(attendanceMonth, opts = {}) {
       ? Math.round((todayMs - wdMs) / 86400000)
       : null;
     const nTxt = days != null ? days : "?";
+    // Phase 381: ใส่ชื่อพนักงานนำหน้าเมื่อมี nameById (escape ที่ _alertRow → ไม่ double-escape)
+    const nm = nameById ? (nameById.get(String(r.user_id)) || `พนักงาน #${r.user_id}`) : null;
+    const prefix = nm ? `${nm} · ` : "";
     out.push({
       kind: "stuck_session_crossday",
       severity: "high",
-      message: `session ค้างข้ามวัน — เข้างาน ${wd} ยังไม่ลงเวลาออก (ค้าง ${nTxt} วัน)`,
+      message: `${prefix}session ค้างข้ามวัน — เข้างาน ${wd} ยังไม่ลงเวลาออก (ค้าง ${nTxt} วัน)`,
       userId: r.user_id,
       refId: r.id,
     });
@@ -634,6 +639,8 @@ export function detectExceptions(input = {}) {
   const opts              = input.opts || {};
   const staleHours        = Number.isFinite(opts.staleHours) ? opts.staleHours : 14;
   const nowMs             = opts.now ? new Date(opts.now).getTime() : Date.now();
+  // Phase 381: ใส่ชื่อพนักงานนำหน้าเฉพาะ stale_session (kind อื่นคงข้อความเดิม); ไม่ส่ง = ไม่มี prefix (backward-compat)
+  const nameById          = input.nameById || null;
 
   const out = [];
 
@@ -643,10 +650,12 @@ export function detectExceptions(input = {}) {
     if (!Number.isFinite(inMs) || !Number.isFinite(nowMs)) continue;
     const elapsedH = (nowMs - inMs) / 3600000;
     if (elapsedH >= staleHours) {
+      const nm = nameById ? (nameById.get(String(r.user_id)) || `พนักงาน #${r.user_id}`) : null;
+      const prefix = nm ? `${nm} · ` : "";
       out.push({
         kind: "stale_session",
         severity: "high",
-        message: `session เปิดค้าง ${elapsedH.toFixed(1)} ชม. — น่าจะลืมกดออก`,
+        message: `${prefix}session เปิดค้าง ${elapsedH.toFixed(1)} ชม. — น่าจะลืมกดออก`,
         userId: r.user_id,
         refId: r.id,
       });
@@ -2130,6 +2139,9 @@ export async function renderHrOverviewPage(ctx) {
     offlinePending,
   });
 
+  // Phase 381: map user_id → ชื่อ สำหรับใส่ชื่อใน alert "session ค้าง" (stale + cross-day)
+  const nameById = new Map(data.profiles.map(p => [String(p.id), profileDisplayName(p)]));
+
   const exceptions = detectExceptions({
     attendanceToday: data.attendanceToday,
     payrollsThisMonth: data.payrolls,
@@ -2139,11 +2151,14 @@ export async function renderHrOverviewPage(ctx) {
     // Phase 92.49: เปิด late / early-leave counting
     shiftOpts,
     attendanceRules: punctRules,
+    // Phase 381: ใส่ชื่อใน stale_session message (kind อื่นไม่กระทบ)
+    nameById,
   });
 
   // Phase 380: session ค้างข้ามวัน (work_date < today, ยังไม่ลงเวลาออก) — read-only display
   //   ครอบเฉพาะ "ในเดือนนี้" ตาม window attendanceMonth (loader เดิม); ข้ามเดือน = future
-  exceptions.push(...detectStuckCrossDaySessions(data.attendanceMonth, { today }));
+  // Phase 381: ส่ง nameById → ใส่ชื่อพนักงานนำหน้า message
+  exceptions.push(...detectStuckCrossDaySessions(data.attendanceMonth, { today, nameById }));
 
   const attIdx = indexAttendanceByUser(data.attendanceToday);
   const deptMap = new Map();

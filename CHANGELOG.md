@@ -7,6 +7,14 @@
 
 ---
 
+## 5.66.0 (build 381) — 2026-06-06 Phase 381 hr-alert-staff-name — ใส่ชื่อพนักงานในกล่องแจ้งเตือน session ค้าง
+
+- **feat (HR display):** กล่องแจ้งเตือน session ค้าง (section "สิ่งที่ต้องจัดการวันนี้") ขึ้น **ชื่อพนักงานนำหน้า** → admin เห็นทันทีว่า *ใคร* ค้าง. ครอบ 2 kind: `stuck_session_crossday` (380, ค้างข้ามวัน) + `stale_session` (วันนี้-เปิดค้าง ≥14 ชม.)
+- **how:** renderHrOverviewPage สร้าง `nameById = new Map(data.profiles.map(p => [String(p.id), profileDisplayName(p)]))` ส่งเข้า 2 detector; แต่ละ detector ใส่ prefix `${ชื่อ} · ` **เฉพาะเมื่อมี nameById** (id ไม่อยู่ใน map → `พนักงาน #<id>`; ไม่ส่ง nameById → message เดิม ไม่มี prefix = backward-compat). escape ที่ `_alertRow` เดิม (ไม่ double-escape)
+- **read-only (แก้แค่ message string):** ❌ ไม่แตะ `_alertRow` signature/markup · alert kind อื่น (geofence_out/late/early/unpaid/offline — คงข้อความเดิมเป๊ะ) · OT/payroll calc · clock enforcement · loader query · detection logic (เงื่อนไข flag เดิม) · schema/SQL/RLS · DB write · mutate state/row
+- **verify:** lint:errors 0 · +7 tests (hr_stuck_session_guard รวม 22; ครอบ name prefix/fallback/backward-compat + stale ชื่อ + geofence_out ไม่มีชื่อ) · unit 1200 · e2e build-sync 3/3 · **pwa-cache:** bump 380→381
+- **known note:** `geofence_out` ยังไม่มีชื่อ (นอก scope; future ถ้าอยาก consistency ทุก kind)
+
 ## 5.66.0 (build 380) — 2026-06-06 Phase 380 hr-overview-stuck-session-crossday (clock-out trap C2 · scope A read-only) — HR Overview โชว์ session ค้างข้ามวัน
 
 - **feat (HR display, medium):** HR Overview section "สิ่งที่ต้องจัดการวันนี้" เพิ่มรายการ "session ค้างข้ามวัน" — clock_in มี + clock_out null + work_date < วันนี้ → admin เห็นไปตามปิดเอง. กัน OT/ชม. under-count เงียบ (open session ถูกตัดทิ้งใน OT calc → วันนั้น = 0 ชม.)

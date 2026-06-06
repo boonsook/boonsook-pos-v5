@@ -15,7 +15,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-const { detectStuckCrossDaySessions } = await import("../modules/hr_overview.js");
+const { detectStuckCrossDaySessions, detectExceptions } = await import("../modules/hr_overview.js");
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(path.join(__dirname, "..", "modules", "hr_overview.js"), "utf8");
@@ -94,8 +94,8 @@ test("work_date มี time suffix → ใช้แค่ 10 ตัวแรก 
 // ── wiring + scope guards (source-regex) ────────────────────────────────────
 test("renderHrOverviewPage merge ผล helper เข้า exceptions", () => {
   assert.ok(
-    /exceptions\.push\(\s*\.\.\.detectStuckCrossDaySessions\(\s*data\.attendanceMonth\s*,\s*\{\s*today\s*\}\s*\)\s*\)/.test(src),
-    "ต้อง exceptions.push(...detectStuckCrossDaySessions(data.attendanceMonth, { today }))"
+    /exceptions\.push\(\s*\.\.\.detectStuckCrossDaySessions\(\s*data\.attendanceMonth\s*,\s*\{\s*today\b[\s\S]*?\}\s*\)\s*\)/.test(src),
+    "ต้อง exceptions.push(...detectStuckCrossDaySessions(data.attendanceMonth, { today, ... }))"
   );
 });
 
@@ -129,4 +129,75 @@ test("read-only proof — helper ใหม่ไม่มี write call / ไม
 test("loader query เดิมไม่ถูกแตะ (attendanceMonth select=*)", () => {
   assert.ok(/staff_attendance\?select=\*[\s\S]{0,160}work_date=gte/.test(src),
     "attendanceMonth loader ต้องคง select=* + window เดิม");
+});
+
+// ── Phase 381: ชื่อพนักงานใน alert "session ค้าง" ──────────────────────────
+const Y = "2026-06-05"; // เมื่อวาน
+
+test("381 — detectStuckCrossDaySessions + nameById → message ขึ้นชื่อ + ' · ' ตรง userId", () => {
+  const rows = [{ id: 1, user_id: "u1", work_date: Y, clock_in_at: Y + "T01:00:00Z", clock_out_at: null }];
+  const nameById = new Map([["u1", "สมชาย ใจดี"]]);
+  const out = detectStuckCrossDaySessions(rows, { today: TODAY, nameById });
+  assert.equal(out.length, 1);
+  assert.match(out[0].message, /^สมชาย ใจดี · session ค้างข้ามวัน/);
+  assert.equal(out[0].userId, "u1");
+});
+
+test("381 — nameById ไม่มี id → fallback 'พนักงาน #<id>'", () => {
+  const rows = [{ id: 2, user_id: "u9", work_date: Y, clock_in_at: Y + "T01:00:00Z", clock_out_at: null }];
+  const out = detectStuckCrossDaySessions(rows, { today: TODAY, nameById: new Map() });
+  assert.match(out[0].message, /^พนักงาน #u9 · session ค้างข้ามวัน/);
+});
+
+test("381 — ไม่ส่ง nameById → message เดิม ไม่มี prefix (backward-compat)", () => {
+  const rows = [{ id: 3, user_id: "u1", work_date: Y, clock_in_at: Y + "T01:00:00Z", clock_out_at: null }];
+  const out = detectStuckCrossDaySessions(rows, { today: TODAY });
+  assert.ok(!out[0].message.includes(" · "), "ไม่มี nameById → ห้ามมี ' · ' prefix");
+  assert.match(out[0].message, /^session ค้างข้ามวัน/);
+});
+
+test("381 — detectExceptions + nameById → stale_session message ขึ้นชื่อ", () => {
+  // open session วันนี้ เปิดมานานเกิน staleHours → stale_session
+  const today = [{ id: 5, user_id: "u1", clock_in_at: "2026-06-06T00:00:00Z", clock_out_at: null }];
+  const out = detectExceptions({
+    attendanceToday: today,
+    nameById: new Map([["u1", "อรทัย"]]),
+    opts: { now: "2026-06-06T20:00:00Z", staleHours: 14 },
+  });
+  const stale = out.find(e => e.kind === "stale_session");
+  assert.ok(stale, "ต้องมี stale_session");
+  assert.match(stale.message, /^อรทัย · session เปิดค้าง/);
+});
+
+test("381 — detectExceptions: geofence_out (kind อื่น) ไม่มีชื่อ แม้ส่ง nameById", () => {
+  const today = [{ id: 6, user_id: "u1", clock_in_at: "2026-06-06T08:00:00Z", clock_out_at: null, clock_in_distance_m: 500 }];
+  const out = detectExceptions({
+    attendanceToday: today,
+    geofence: { radiusM: 200 },
+    nameById: new Map([["u1", "อรทัย"]]),
+    opts: { now: "2026-06-06T09:00:00Z" },
+  });
+  const geo = out.find(e => e.kind === "geofence_out");
+  assert.ok(geo, "ต้องมี geofence_out");
+  assert.ok(!geo.message.includes("อรทัย"), "geofence_out ต้องไม่มีชื่อ (นอก scope 381)");
+  assert.ok(!geo.message.includes(" · "), "geofence_out ต้องไม่มี name prefix");
+});
+
+test("381 — detectExceptions: ไม่ส่ง nameById → stale message เดิม (backward-compat)", () => {
+  const today = [{ id: 7, user_id: "u1", clock_in_at: "2026-06-06T00:00:00Z", clock_out_at: null }];
+  const out = detectExceptions({ attendanceToday: today, opts: { now: "2026-06-06T20:00:00Z", staleHours: 14 } });
+  const stale = out.find(e => e.kind === "stale_session");
+  assert.ok(stale && !stale.message.includes(" · "), "ไม่ส่ง nameById → ไม่มี prefix");
+});
+
+test("381 — render: สร้าง nameById จาก data.profiles + ส่งเข้าทั้งสอง detector", () => {
+  assert.ok(
+    /const\s+nameById\s*=\s*new Map\(\s*data\.profiles\.map\(/.test(src),
+    "ต้องสร้าง nameById จาก data.profiles.map"
+  );
+  assert.ok(/detectExceptions\(\{[\s\S]*?nameById[\s\S]*?\}\)/.test(src), "ต้องส่ง nameById เข้า detectExceptions");
+  assert.ok(
+    /detectStuckCrossDaySessions\(\s*data\.attendanceMonth\s*,\s*\{\s*today\s*,\s*nameById\s*\}\s*\)/.test(src),
+    "ต้องส่ง nameById เข้า detectStuckCrossDaySessions"
+  );
 });
