@@ -9,7 +9,7 @@
   <link rel="icon" type="image/svg+xml" href="./icons/logo.svg" />
   <link rel="manifest" href="./manifest.json" />
   <link rel="apple-touch-icon" href="./icons/logo.svg" />
-  <link rel="stylesheet" href="./style.css?v=383" />
+  <link rel="stylesheet" href="./style.css?v=384" />
   <link rel="stylesheet" href="./doc-print.css?v=1" />
   <!-- ✨ Phase 4: Design System & Components (30/3/2569) -->
   <link rel="stylesheet" href="./phase4-design-system.css?v=1" />
@@ -197,6 +197,7 @@
           <button class="nav-btn sub" data-route="accounting_export_bundle">📦 Export ชุดรายงาน</button>
           <button class="nav-btn sub" data-route="accounting_periods">🔒 ปิดงวดบัญชี</button>
           <button class="nav-btn sub" data-route="accounting_backfill">⏪ Backfill ย้อนหลัง</button>
+          <button class="nav-btn sub" data-route="service_reconcile">🧾 รายได้งานบริการเข้าบัญชี</button>
         </div>
       </div>
 
@@ -381,6 +382,7 @@
       <section id="page-profit_report" class="page hidden"></section>
       <section id="page-stock_movements" class="page hidden"></section>
       <section id="page-stock_reconcile_report" class="page hidden"></section>
+      <section id="page-service_reconcile" class="page hidden"></section>
       <section id="page-calendar" class="page hidden"></section>
       <section id="page-loyalty" class="page hidden"></section>
       <section id="page-customer_dashboard" class="page hidden"></section>
@@ -823,10 +825,10 @@
        ทำงานก่อน main.js โหลด → ป้องกัน user เห็น version display เก่า
        Phase 89.15: ย้ายออกไป external file + set window.APP_BUILD ให้ pages.js/main.js อ่านได้
        (CSP drop script-src 'unsafe-inline') -->
-  <script src="./selfheal.js?v=383" data-app-build="383" data-app-version="5.66.0"></script>
-  <script type="module" src="./main.js?v=383"></script>
+  <script src="./selfheal.js?v=384" data-app-build="384" data-app-version="5.66.0"></script>
+  <script type="module" src="./main.js?v=384"></script>
   <!-- Phase 89.15: externalized loading overlay + SW update banner (was inline script — drop CSP unsafe-inline) -->
-  <script src="./boot.js?v=383"></script>
+  <script src="./boot.js?v=384"></script>
 
   <!-- AI Assistant Chat Widget (Phase 1) -->
   <script src="./ai-chat-widget.js?v=9"></script>
