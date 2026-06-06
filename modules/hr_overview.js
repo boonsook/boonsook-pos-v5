@@ -110,6 +110,27 @@ export function gpsChipMeta(status, opts = {}) {
 }
 
 /**
+ * Phase 382: row นี้เป็น GPS exception ไหม (missing GPS / outside radius)
+ * @param {string} gpsStatus - ผลจาก classifyGpsStatus
+ * @returns {boolean}
+ */
+export function isGpsExceptionStatus(gpsStatus) {
+  return gpsStatus === "missing" || gpsStatus === "outside";
+}
+
+/**
+ * Phase 382: นับจำนวน row ที่เป็น GPS exception (สำหรับ badge ของ filter toggle)
+ * @param {Array<{gpsStatus?:string}>} rows
+ * @returns {number}
+ */
+export function countGpsExceptions(rows) {
+  if (!Array.isArray(rows)) return 0;
+  let n = 0;
+  for (const r of rows) if (isGpsExceptionStatus(r?.gpsStatus)) n++;
+  return n;
+}
+
+/**
  * Phase 380: ตรวจ session "ค้างข้ามวัน" (clock_in มี + clock_out null + work_date < วันนี้)
  *   — read-only display เท่านั้น ช่วย admin ไปตามปิดเอง กัน OT/ชม. under-count เงียบ
  *   (open session ถูกตัดทิ้งใน OT calc → วันนั้น = 0 ชม.)
@@ -1037,7 +1058,10 @@ export function filterHrRows(rows, filters = {}) {
   const status = filters.status || "all";
   const dept   = filters.departmentId || "__all__";
   const role   = filters.role || "all";
+  const gpsOnly = filters.gpsException === true; // Phase 382: orthogonal GPS-exception filter (default off = backward-compat)
   return rows.filter(r => {
+    // Phase 382: GPS exception (missing / outside) — orthogonal กับ status/dept/role
+    if (gpsOnly && !isGpsExceptionStatus(r?.gpsStatus)) return false;
     // status
     if (status !== "all") {
       const s = r?.status;
@@ -1671,6 +1695,20 @@ function _filterBar(buckets, activeKey) {
   </div>`;
 }
 
+// Phase 382: GPS-exception filter toggle (read-only) — แสดงเฉพาะเมื่อตั้ง geofence + คนเดียว (orthogonal)
+//   active → กรองเฉพาะ row gpsStatus missing/outside; badge = จำนวน exception ในมุมมองปัจจุบัน
+function _gpsFilterToggle(active, count) {
+  const bg = active ? "#991b1b" : "#fff";
+  const fg = active ? "#fff"    : "#991b1b";
+  const bd = active ? "#991b1b" : "#fca5a5";
+  return `<div style="display:flex;flex-wrap:wrap;gap:6px;padding:8px 14px;border-bottom:1px solid #f1f5f9;background:#fafbfc">
+    <button id="hrGpsToggleBtn" class="hr-gps-toggle" type="button" aria-pressed="${active ? "true" : "false"}" style="padding:6px 12px;border:1px solid ${bd};border-radius:999px;background:${bg};color:${fg};font-size:12px;font-weight:700;cursor:pointer">
+      📍 GPS น่าสงสัย
+      <span style="margin-left:6px;padding:1px 6px;border-radius:999px;background:${active ? 'rgba(255,255,255,.2)' : '#fee2e2'};color:${active ? '#fff' : '#991b1b'};font-size:10px;font-weight:800">${NUM_TH(count)}</span>
+    </button>
+  </div>`;
+}
+
 function _quickActionBtn(routeId, label, color, opts = {}) {
   const isPrimary = opts.primary;
   const bg = isPrimary ? color : "#fff";
@@ -2205,6 +2243,10 @@ export async function renderHrOverviewPage(ctx) {
   let activeFilter = "all";
   let activeDept = "__all__";
   let activeRole = "all";
+  // Phase 382: GPS-exception filter toggle (orthogonal) — default off; แสดง toggle เฉพาะเมื่อตั้ง geofence
+  let activeGpsOnly = false;
+  const showGpsFilter = !!geofence;
+  const initialGpsCount = countGpsExceptions(filterHrRows(rows, { status: activeFilter, departmentId: activeDept, role: activeRole }));
 
   // Initial cascade counts: dept = all rows · role = filter by dept · status = filter by dept+role
   const initialFilteredByDept = filterHrRows(rows, { departmentId: activeDept });
@@ -2374,6 +2416,7 @@ export async function renderHrOverviewPage(ctx) {
           : `
           <div id="hrFilterBar">${_filterBar(buckets, activeFilter)}</div>
           <div id="hrSecondaryBar">${_renderSecondaryFilterBar(activeDept, activeRole, data.departments, initialDeptCounts, initialRoleCounts, isDefaultHrFilters({status:activeFilter, departmentId:activeDept, role:activeRole}))}</div>
+          <div id="hrGpsFilterBar">${showGpsFilter ? _gpsFilterToggle(activeGpsOnly, initialGpsCount) : ""}</div>
           <div id="hrSummaryBar">${_renderFilterSummary(initialSummary)}</div>
           <div style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:680px">
@@ -2390,7 +2433,7 @@ export async function renderHrOverviewPage(ctx) {
               </tr>
             </thead>
             <tbody id="hrTbody">
-              ${_renderTbody(filterHrRows(rows, { status: activeFilter, departmentId: activeDept, role: activeRole }), deptMap)}
+              ${_renderTbody(filterHrRows(rows, { status: activeFilter, departmentId: activeDept, role: activeRole, gpsException: activeGpsOnly }), deptMap)}
             </tbody>
           </table>
           </div>`
@@ -2447,6 +2490,7 @@ export async function renderHrOverviewPage(ctx) {
   // Phase 92.31: cascade re-render — dept counts = ทุก rows, role counts = หลัง dept, status counts = หลัง dept+role
   const filterBarEl    = document.getElementById("hrFilterBar");
   const secondaryBarEl = document.getElementById("hrSecondaryBar");
+  const gpsBarEl       = document.getElementById("hrGpsFilterBar");
   const summaryBarEl   = document.getElementById("hrSummaryBar");
   const tbodyEl        = document.getElementById("hrTbody");
 
@@ -2455,7 +2499,10 @@ export async function renderHrOverviewPage(ctx) {
     const filters = { status: activeFilter, departmentId: activeDept, role: activeRole };
     const filteredByDept     = filterHrRows(rows, { departmentId: activeDept });
     const filteredByDeptRole = filterHrRows(rows, { departmentId: activeDept, role: activeRole });
-    const visible            = filterHrRows(rows, filters);
+    // Phase 382: base = status/dept/role (ไม่รวม gps) → ใช้นับ gpsCount; visible = ใส่ gps filter ทับ
+    const baseRows = filterHrRows(rows, filters);
+    const gpsCount = countGpsExceptions(baseRows);
+    const visible  = activeGpsOnly ? baseRows.filter(r => isGpsExceptionStatus(r?.gpsStatus)) : baseRows;
     const deptCounts   = countDepartmentBuckets(rows);
     const roleCounts   = countRoleBuckets(filteredByDept);
     const statusCounts = countStatusBuckets(filteredByDeptRole);
@@ -2463,6 +2510,7 @@ export async function renderHrOverviewPage(ctx) {
     if (secondaryBarEl) secondaryBarEl.innerHTML = _renderSecondaryFilterBar(
       activeDept, activeRole, data.departments, deptCounts, roleCounts, isDefaultHrFilters(filters)
     );
+    if (gpsBarEl) gpsBarEl.innerHTML = showGpsFilter ? _gpsFilterToggle(activeGpsOnly, gpsCount) : "";
     if (summaryBarEl) summaryBarEl.innerHTML = _renderFilterSummary(
       filterSummaryLabel(filters, rows.length, visible.length, data.departments)
     );
@@ -2504,15 +2552,26 @@ export async function renderHrOverviewPage(ctx) {
         activeFilter = "all";
         activeDept   = "__all__";
         activeRole   = "all";
+        activeGpsOnly = false; // Phase 382: clear รวม gps toggle
         _rerenderFilters();
       }
+    });
+  }
+
+  // Phase 382: GPS-exception filter toggle (orthogonal — compose กับ status/dept/role)
+  if (gpsBarEl) {
+    gpsBarEl.addEventListener("click", (ev) => {
+      if (!ev.target.closest("#hrGpsToggleBtn")) return;
+      activeGpsOnly = !activeGpsOnly;
+      _rerenderFilters();
     });
   }
 
   document.getElementById("hrExportBtn")?.addEventListener("click", async () => {
     try {
       const utilsMod = await import("./utils.js");
-      const filters = { status: activeFilter, departmentId: activeDept, role: activeRole };
+      // Phase 382: export ตามมุมมองที่เห็น (รวม gps toggle ด้วย)
+      const filters = { status: activeFilter, departmentId: activeDept, role: activeRole, gpsException: activeGpsOnly };
       const exportSource = filterHrRows(rows, filters);
       const exportRows = exportSource.map(({ profile: p, att, status, ot, punc }) => {
         const dept = p.department_id ? deptMap.get(String(p.department_id)) : null;

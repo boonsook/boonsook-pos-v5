@@ -7,6 +7,13 @@
 
 ---
 
+## 5.66.0 (build 382) — 2026-06-06 Phase 382 hr-overview-gps-exception-filter — toggle กรอง "GPS น่าสงสัย"
+
+- **feat (HR display):** HR Overview เพิ่ม toggle **"📍 GPS น่าสงสัย (N)"** (แยกจาก status bar, orthogonal) — กดแล้วกรองเฉพาะพนักงานที่ `gpsStatus` = missing/outside (จาก 379); compose กับ status/dept/role ได้; แสดงเฉพาะเมื่อตั้ง geofence; badge N = จำนวน exception ในมุมมองปัจจุบัน
+- **how:** helpers ใหม่ exported `isGpsExceptionStatus(s)` + `countGpsExceptions(rows)`; `filterHrRows` รับ `filters.gpsException` (กรองเมื่อ `=== true` เท่านั้น = backward-compat); render: `_gpsFilterToggle` + `#hrGpsFilterBar` + state `activeGpsOnly` + handler flip + clear-filters reset gps + export ตามมุมมองที่เห็น
+- **read-only (filter view เท่านั้น):** ❌ ไม่แตะ detection logic (detectExceptions/detectStuckCrossDaySessions) · loader query (select=*) · OT/payroll · clock enforcement · schema/SQL/RLS · DB write · mutate state/row · money/stock/POS/accounting
+- **verify:** lint:errors 0 · +14 tests `hr_gps_filter_guard` (predicate/count/filter compose/backward-compat + wiring/gating/read-only) · unit 1214 · e2e build-sync 3/3 · **pwa-cache:** bump 381→382
+
 ## 5.66.0 (build 381) — 2026-06-06 Phase 381 hr-alert-staff-name — ใส่ชื่อพนักงานในกล่องแจ้งเตือน session ค้าง
 
 - **feat (HR display):** กล่องแจ้งเตือน session ค้าง (section "สิ่งที่ต้องจัดการวันนี้") ขึ้น **ชื่อพนักงานนำหน้า** → admin เห็นทันทีว่า *ใคร* ค้าง. ครอบ 2 kind: `stuck_session_crossday` (380, ค้างข้ามวัน) + `stale_session` (วันนี้-เปิดค้าง ≥14 ชม.)
