@@ -11,6 +11,7 @@
 // Phase 88.1b+: auto-post JV หลัง save (fire-and-forget)
 import { postJournalForServiceJob } from "./accounting/auto_post.js";
 import { aggregateNeedByKey } from "./stock_precheck.js";
+import { normalizeServiceJobStatus, serviceJobNoteWithReviewMarker } from "./service_status.js";
 
 export const SERVICE_TYPES = {
   repair_ac:     { icon: "🔧", label: "ซ่อมแอร์",            job_type: "repair_ac",     defaultDesc: "อาการเสีย เช่น ไม่เย็น / มีน้ำหยด / เสียงดัง" },
@@ -503,8 +504,8 @@ export function renderServiceFormPage(ctx, serviceType) {
         job_type: cfg.job_type,
         description: desc,
         items_json: fullItems,
-        status: selectedStatus,
-        note: container.querySelector("#svNote").value.trim(),
+        status: normalizeServiceJobStatus(selectedStatus), // Phase 383: DB-safe (กัน 400 23514)
+        note: serviceJobNoteWithReviewMarker(container.querySelector("#svNote").value.trim(), selectedStatus),
         // ★ Phase 88.1b+: เก็บยอดสุทธิใน total_cost เพื่อให้ auto-post JV ใช้ได้
         total_cost: net,
         // ★ Phase 88.6: ถ้าปิดงานเลย → เก็บ payment + slip + closed_at

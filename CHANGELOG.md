@@ -7,6 +7,15 @@
 
 ---
 
+## 5.66.0 (build 383) — 2026-06-06 Phase 383 service-job-status-db-safe-hotfix (HIGH) — กัน 400 ตอนช่างบันทึกใบงาน
+
+- **fix (HIGH, production):** ช่างกดบันทึกใบงานแล้ว `POST service_jobs` ล้ม **HTTP 400 (23514)** เพราะ UI ส่ง `status` ที่ DB constraint `service_jobs_status_check` ไม่รับ (`pending_review` / `in_progress`) → ใบงานไม่ถูกสร้าง → หน้าใบรับงานไม่โชว์ + LINE notify ไม่ถูกเรียก (flow หยุดก่อน save)
+- **how:** `modules/service_status.js` ใหม่ (pure) — `normalizeServiceJobStatus(status)`: `pending_review→pending`, `in_progress→progress`, valid→คงเดิม, unknown/null/empty→`pending`; `serviceJobNoteWithReviewMarker(note, uiStatus)`: คง intent "รออนุมัติ" ผ่าน note marker `[รออนุมัติแอดมิน]` เมื่อ UI เลือก pending_review (กัน duplicate, ไม่ทำ save ล้ม)
+- **wire ทุก service_jobs write path:** `ac_install.js` / `service_form.js` / `solar.js` record.status + `main.js` saveServiceJob payload.status + reject flow (`in_progress`→`progress`). DB รับแค่ pending/progress/done/delivered/closed/cancelled
+- **ไม่แตะ:** SQL/RLS/schema/constraint · LINE notify implementation · stock/POS/accounting/payroll · JV path (accounting, dead เพราะ isClosure=[]) · UI option labels (คงไว้ — normalize ตอน save)
+- **verify:** lint:errors 0 · +23 tests `service_status_guard` (normalize mapping/default + marker + source wiring 4 paths + reject) · unit 1237 · e2e build-sync 3/3 · **pwa-cache:** bump 382→383
+- **known risk:** ถ้าต้องการสถานะ `pending_review` จริงใน DB ภายหลัง = schema decision แยก (เพิ่มค่าใน constraint + workflow) ไม่ใช่ hotfix นี้
+
 ## 5.66.0 (build 382) — 2026-06-06 Phase 382 hr-overview-gps-exception-filter — toggle กรอง "GPS น่าสงสัย"
 
 - **feat (HR display):** HR Overview เพิ่ม toggle **"📍 GPS น่าสงสัย (N)"** (แยกจาก status bar, orthogonal) — กดแล้วกรองเฉพาะพนักงานที่ `gpsStatus` = missing/outside (จาก 379); compose กับ status/dept/role ได้; แสดงเฉพาะเมื่อตั้ง geofence; badge N = จำนวน exception ในมุมมองปัจจุบัน

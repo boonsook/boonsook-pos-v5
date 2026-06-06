@@ -7,6 +7,7 @@
 
 import { postJournalForServiceJob } from "./accounting/auto_post.js";
 import { aggregateNeedByKey } from "./stock_precheck.js";
+import { normalizeServiceJobStatus, serviceJobNoteWithReviewMarker } from "./service_status.js";
 
 // Module-level state
 let _items = [];           // [{product_id, name, qty, unit_price, line_total, warehouse_id, warehouse_name}]
@@ -517,8 +518,8 @@ export function renderAcInstallPage(ctx) {
         job_type: "ac",
         description: desc,
         items_json: fullItems,
-        status: selectedStatus,
-        note: container.querySelector("#acNote").value.trim(),
+        status: normalizeServiceJobStatus(selectedStatus), // Phase 383: DB-safe (กัน 400 23514)
+        note: serviceJobNoteWithReviewMarker(container.querySelector("#acNote").value.trim(), selectedStatus),
         // Phase 88.12 — บัญชี
         total_cost: net,
         payment_method: paymentMethod || null,

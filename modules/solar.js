@@ -6,6 +6,7 @@
 
 import { postJournalForServiceJob } from "./accounting/auto_post.js";
 import { aggregateNeedByKey } from "./stock_precheck.js";
+import { normalizeServiceJobStatus, serviceJobNoteWithReviewMarker } from "./service_status.js";
 
 const SOLAR_TYPES = [
   "💧 ติดตั้งปั๊มน้ำโซล่าเซลล์",
@@ -704,8 +705,8 @@ export function renderSolarPage(ctx) {
         job_type: "solar",
         description: [`☀️ ${typeVal}`, detail, equipNote.length ? `อุปกรณ์: ${equipNote.join(" | ")}` : ""].filter(Boolean).join(" | "),
         items_json: fullItems,  // ★ Phase 88.13: เก็บ items ใน DB
-        status: selectedStatus,
-        note: `ค่าแรง: ฿${labor.toLocaleString()}${discount ? ` ส่วนลด: ฿${discount.toLocaleString()}` : ""}`,
+        status: normalizeServiceJobStatus(selectedStatus), // Phase 383: DB-safe (กัน 400 23514)
+        note: serviceJobNoteWithReviewMarker(`ค่าแรง: ฿${labor.toLocaleString()}${discount ? ` ส่วนลด: ฿${discount.toLocaleString()}` : ""}`, selectedStatus),
         // Phase 88.12 — บัญชี
         total_cost: net,
         payment_method: paymentMethod || null,

@@ -7,6 +7,7 @@ import { renderSalesPage } from "./modules/sales.js";
 import { renderCustomersPage } from "./modules/customers.js";
 import { renderQuotationsPage } from "./modules/quotations.js";
 import { renderServiceJobsPage } from "./modules/service_jobs.js";
+import { normalizeServiceJobStatus, serviceJobNoteWithReviewMarker } from "./modules/service_status.js";
 import { renderSettingsPage } from "./modules/settings/index.js";
 // Phase 89.20/89.21: delivery_invoices, receipts, expenses lazy
 import { renderStockMovementsPage } from "./modules/stock_movements.js";
@@ -2286,7 +2287,7 @@ function openServiceJobDrawer(job=null){
   if (rejectBtn) {
     const newReject = rejectBtn.cloneNode(true); rejectBtn.parentNode.replaceChild(newReject, rejectBtn);
     newReject.addEventListener("click", () => {
-      $("serviceStatus").value = "in_progress";  // ส่งกลับให้ช่างทำต่อ
+      $("serviceStatus").value = "progress";  // Phase 383: DB-safe (เดิม in_progress → 400); ส่งกลับให้ช่างทำต่อ
       showToast?.("เปลี่ยน status เป็น 'กำลังดำเนินการ' — กดบันทึกเพื่อส่งกลับ");
     });
   }
@@ -2623,8 +2624,8 @@ async function saveServiceJob(){
     customer_address: $("serviceAddress").value.trim(),
     description:      descVal,
     job_type:         $("serviceType").value,
-    status:           $("serviceStatus").value,
-    note:             $("serviceNote").value.trim(),
+    status:           normalizeServiceJobStatus($("serviceStatus").value), // Phase 383: DB-safe (กัน 400 23514)
+    note:             serviceJobNoteWithReviewMarker($("serviceNote").value.trim(), $("serviceStatus").value),
     photo_before:     $("serviceBeforeUrl")?.value?.trim() || null,
     photo_after:      $("serviceAfterUrl")?.value?.trim() || null,
     // Phase 88.8: บัญชี
