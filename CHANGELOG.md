@@ -7,6 +7,14 @@
 
 ---
 
+## 5.66.0 (build 379) — 2026-06-06 Phase 379 hr-overview-gps-exception-display (HR GPS hardening C / #5) — HR Overview โชว์ GPS น่าสงสัยวันนี้ (read-only)
+
+- **feat (HR display, medium):** HR Overview เพิ่ม chip "GPS น่าสงสัย" ต่อพนักงานในรายการวันนี้ — `📍 ไม่มี GPS` (clock_in_lat ว่าง) / `📍 นอกรัศมี Xม. (กำหนด Yม.)` (clock_in_distance_m > geofence radius). ช่วย admin เห็น record เก่า/admin clock (warn-only) ที่ Phase 377 enforcement ไม่ครอบ
+- **how:** pure helper exported `classifyGpsStatus(row, geofence)` → `na`/`missing`/`outside`/`inside` (null-safe; มี GPS แต่ distance non-finite → `inside` ลด noise) + `gpsChipMeta(status,{distanceM,radiusM})` → chip meta (inside/na → null). `renderHrOverviewPage` reuse `geofenceFromState(state)` (consolidate — เลิก inline parse ซ้ำที่ป้อน detectExceptions, radiusM เท่าเดิม); per-user row คำนวณ gpsStatus/gpsMeta; `_renderTbody` render `_gpsChip` ข้าง punctuality chip. โชว์เฉพาะ exception + เฉพาะเมื่อตั้ง geofence
+- **read-only:** ❌ ไม่ POST/PATCH/PUT/DELETE/upsert/rpc-write · ไม่ mutate state/row · ไม่แตะ time_clock logic / clock enforcement / attendance loader query (select=*) / payroll/OT/punctuality / status-present logic / SQL/RLS/schema / money/POS/stock/accounting
+- **verify:** lint:errors 0 · +21 tests `hr_gps_exception_guard` (behavioral classifyGpsStatus/gpsChipMeta + source/read-only guard) · unit 1178 · e2e build-sync 3/3 · **pwa-cache:** bump 378→379
+- **known risk:** browser GPS spoof ได้ — feature นี้เป็น display/audit signal ไม่ใช่ anti-fraud server-side
+
 ## 5.66.0 (build 378) — 2026-06-06 Phase 378 store-settings-cloud-sync-feedback (HR GPS hardening A / #2) — แจ้ง error ชัดเมื่อ sync ค่าร้าน/GPS ขึ้นเซิร์ฟเวอร์ไม่สำเร็จ
 
 - **fix (HR GPS integrity, medium):** `saveStoreInfo` (main.js) เดิม Supabase upsert `app_settings(key='store_info')` error/timeout → `console.warn` เฉย แล้ว `return` (void); `store.js` save handler โชว์ "บันทึกสำเร็จ ✅" **เสมอ (unconditional)** → cloud-sync ล้มเงียบ. geofence เป็น operational (377) → sync ล้มเงียบ = staff devices ได้ค่า GPS เก่า / enforcement เพี้ยนโดยไม่มีใครรู้

@@ -35,6 +35,8 @@ import {
   punctualityChipMeta,
   // Phase 92.53: monthly HR report aggregation
   summarizePunctuality,
+  // Phase 379: geofence config (read-only) — reuse, ไม่ parse ซ้ำใน hr_overview
+  geofenceFromState,
 } from "./time_clock.js";
 
 const TZ = "Asia/Bangkok";
@@ -65,6 +67,46 @@ export function classifyAttendanceStatus(row, opts = {}) {
   const elapsedH = (nowMs - inMs) / 3600000;
   if (elapsedH >= staleHours) return "abnormal";
   return "working";
+}
+
+/**
+ * Phase 379: ประเมินสถานะ GPS ของ attendance row (read-only — ไม่กระทบ logic ลงเวลา)
+ * ใช้กับ admin/record เก่าที่ enforcement (377) ไม่ครอบ — ช่วยให้ admin เห็น exception
+ * @param {object|null} row - attendance row (มี clock_in_lat, clock_in_distance_m)
+ * @param {{lat:number,lng:number,radiusM:number}|null} geofence - จาก geofenceFromState(state)
+ * @returns {"na"|"missing"|"outside"|"inside"}
+ */
+export function classifyGpsStatus(row, geofence) {
+  // ไม่ตั้ง geofence หรือไม่มี row → ไม่ประเมิน (ไม่โชว์ chip)
+  if (!geofence || !row) return "na";
+  const lat = row.clock_in_lat;
+  if (lat == null || lat === "") return "missing";
+  const dist = Number(row.clock_in_distance_m);
+  const radius = Number(geofence.radiusM);
+  // มีพิกัด GPS แต่คำนวณระยะ/รัศมีไม่ได้ (non-finite) → ถือว่า "inside" (ไม่ flag เป็น exception เพื่อลด noise; มี GPS แล้ว)
+  if (!Number.isFinite(dist) || !Number.isFinite(radius)) return "inside";
+  return dist > radius ? "outside" : "inside";
+}
+
+/**
+ * Phase 379: chip meta สำหรับ GPS exception — โชว์เฉพาะ missing/outside (inside/na → null)
+ * shape ใกล้เคียง punctualityChipMeta: { label, bg, fg, border }
+ * @param {string} status - ผลจาก classifyGpsStatus
+ * @param {object} [opts] - { distanceM, radiusM } สำหรับ label "outside"
+ * @returns {{label:string,bg:string,fg:string,border:string}|null}
+ */
+export function gpsChipMeta(status, opts = {}) {
+  if (status === "missing") {
+    return { label: "📍 ไม่มี GPS", bg: "#fff7ed", fg: "#9a3412", border: "#fed7aa" };
+  }
+  if (status === "outside") {
+    const d = Math.round(Number(opts.distanceM));
+    const r = Math.round(Number(opts.radiusM));
+    const dTxt = Number.isFinite(d) ? d : "—";
+    const rTxt = Number.isFinite(r) ? r : "—";
+    return { label: `📍 นอกรัศมี ${dTxt}ม. (กำหนด ${rTxt}ม.)`, bg: "#fee2e2", fg: "#991b1b", border: "#fca5a5" };
+  }
+  return null; // inside / na → ไม่โชว์ chip
 }
 
 /**
@@ -1249,6 +1291,12 @@ function _puncChip(punc) {
   return `<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:${meta.bg};color:${meta.fg};border:1px solid ${meta.border};font-size:10px;font-weight:700">${escHtml(meta.label)}</span>`;
 }
 
+// Phase 379: GPS exception chip (รับ meta จาก gpsChipMeta แล้ว) — "" ถ้าไม่มี exception
+function _gpsChip(meta) {
+  if (!meta) return "";
+  return `<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:${meta.bg};color:${meta.fg};border:1px solid ${meta.border};font-size:10px;font-weight:700">${escHtml(meta.label)}</span>`;
+}
+
 function _kpiCard({ label, value, sub, color, icon, clickRoute }) {
   const c = color || "#0284c7";
   // Phase 92.41: aria-label สื่อความหมายแทน inline text ที่เคยมี (UX: 5 ใบ noisy)
@@ -1592,7 +1640,7 @@ function _renderTbody(rows, deptMap) {
       ไม่พบพนักงานตามตัวกรองนี้
     </td></tr>`;
   }
-  return rows.map(({ profile: p, att, status, ot, punc }) => {
+  return rows.map(({ profile: p, att, status, ot, punc, gpsMeta }) => {
     const dept = p.department_id ? deptMap.get(String(p.department_id)) : null;
     const deptName = dept?.name || "—";
     const inT  = att?.clock_in_at  ? timeBangkok(att.clock_in_at)  : "—";
@@ -1619,6 +1667,7 @@ function _renderTbody(rows, deptMap) {
         <td style="padding:8px 14px;text-align:center">
           ${_statusChip(status)}
           ${punc && punc.status && punc.status !== "none" ? `<div style="margin-top:4px">${_puncChip(punc)}</div>` : ""}
+          ${gpsMeta ? `<div style="margin-top:4px">${_gpsChip(gpsMeta)}</div>` : ""}
         </td>
         <td style="padding:8px 14px;text-align:center">
           <button class="hr-row-action" data-hr-action="time_clock" style="padding:4px 10px;border:1px solid ${action.color};border-radius:8px;background:#fff;font-size:11px;cursor:pointer;color:${action.color};font-weight:700;white-space:nowrap">${escHtml(action.icon + " " + action.label)}</button>
@@ -2030,10 +2079,10 @@ export async function renderHrOverviewPage(ctx) {
     pendingLeaves = await lmMod.fetchPendingLeaveCount();
   } catch (_e) { /* silent — module หรือ table ยังไม่พร้อม */ }
 
-  const info = state?.storeInfo || {};
-  const geofence = (info.shopLat != null && info.shopLng != null && info.shopLat !== "" && info.shopLng !== "")
-    ? { radiusM: (Number.isFinite(Number(info.geofenceRadiusM)) && Number(info.geofenceRadiusM) > 0) ? Number(info.geofenceRadiusM) : 200 }
-    : null;
+  // Phase 379: geofence config (read-only) — ใช้ helper กลาง geofenceFromState (เลิก inline parse ซ้ำ)
+  //   null ถ้ายังไม่ตั้ง shopLat/Lng → detectExceptions ข้าม geofence_out + GPS chip ไม่ขึ้น
+  //   shape { lat, lng, radiusM } — detectExceptions อ่านแค่ radiusM (เท่าเดิม)
+  const geofence = geofenceFromState(state);
 
   const kpi = aggregateHrKpi({
     profiles: data.profiles,
@@ -2083,7 +2132,10 @@ export async function renderHrOverviewPage(ctx) {
     const punc = att
       ? classifyPunctuality(att, shiftOpts, punctRules)
       : { status: "none", lateMinutes: 0, earlyLeaveMinutes: 0 };
-    return { profile: p, att, status, ot, punc };
+    // Phase 379: GPS exception (read-only display) — ไม่กระทบ status/ot/payroll
+    const gpsStatus = classifyGpsStatus(att, geofence);
+    const gpsMeta = gpsChipMeta(gpsStatus, { distanceM: att?.clock_in_distance_m, radiusM: geofence?.radiusM });
+    return { profile: p, att, status, ot, punc, gpsStatus, gpsMeta };
   });
   const ORDER = { working: 0, abnormal: 1, out: 2, not_in: 3 };
   rows.sort((a, b) => {
