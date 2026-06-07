@@ -1,10 +1,10 @@
 
 :root {
-  --bg: #eef3f7;
+  --bg: #f3f5f8;                /* Phase 386: calmer neutral workspace gray (was #eef3f7) */
   --surface: #fff;
   --text: #0f172a;
   --muted: #64748b;
-  --line: #e2e8f0;
+  --line: #e5e7eb;             /* Phase 386: SaaS thin border (was #e2e8f0) */
   --primary: #0ea5e9;
   --primary2: #0284c7;
   --success: #059669;
@@ -12,7 +12,7 @@
   --warn: #f59e0b;
   --sidebar: #0f172a;
   --sidebar2: #082f49;
-  --shadow: 0 10px 30px rgba(15,23,42,.08);
+  --shadow: 0 1px 3px rgba(15,23,42,.08), 0 1px 2px rgba(15,23,42,.04);  /* Phase 386: subtle SaaS shadow (was 0 10px 30px) */
   --radius: 22px;
   --sidebar-w: 260px;
 }
@@ -2024,3 +2024,61 @@ aside.drawer { position: fixed; top: 0; right: 0; }
     gap: 8px;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   PHASE 386 — SaaS dashboard shell polish (build 386)
+   UI/UX visual layer ONLY — no logic, no JS touched. Direction: calm
+   FlowAccount-style business dashboard — tighter radii (8–12px), subtle
+   shadows, flatter header, cleaner sidebar/topbar. All colours come from
+   design tokens (var(--*)) so [data-theme="dark"] keeps working unchanged.
+   Appended last so these win on equal specificity; easy to review/revert.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Cards: tighter radius + subtle shadow (token-driven) ───────────────── */
+.stat-card,
+.card,
+.item-card {
+  border-radius: 12px;
+  box-shadow: var(--shadow);          /* now the subtle SaaS shadow token */
+  border-color: var(--line);
+}
+
+/* ── Dashboard header: flatten the marketing hero into a calm KPI panel ─── */
+.hero {
+  border-radius: 16px;
+  padding: 20px 22px;
+  /* calmer, lower-contrast gradient (was #38bdf8 → #0284c7, radius 26, heavy shadow) */
+  background: linear-gradient(135deg, #0ea5e9, #0284c7);
+  box-shadow: 0 1px 3px rgba(2,132,199,.20), 0 1px 2px rgba(2,132,199,.12);
+}
+.hero-amount { font-size: 34px; }     /* was 48px — less "marketing", more dashboard */
+.hero-sub    { font-size: 15px; }
+.hero-status { border-radius: 10px; }
+
+/* ── Sidebar: compact + clean active state (left accent bar, calm hover) ── */
+.nav-btn,
+.nav-group-toggle { border-radius: 10px; }
+.nav-btn { margin-top: 3px; padding: 9px 12px; }
+.nav-btn:hover            { background: rgba(14,165,233,.10); color: #fff; }
+.nav-btn.active {
+  background: rgba(14,165,233,.16);
+  box-shadow: inset 3px 0 0 var(--primary);   /* crisp left accent */
+  font-weight: 700;
+}
+.nav-btn.sub:hover,
+.nav-btn.sub.active { background: rgba(14,165,233,.12); }
+.user-box { border-radius: 12px; }
+
+/* ── Topbar: solid, crisp header with a systematic search field ────────── */
+.topbar {
+  background: rgba(255,255,255,.92);
+  border-bottom: 1px solid var(--line);
+}
+.desktop-search {
+  height: 40px;
+  border-radius: 10px;
+}
+.icon-btn { border-radius: 10px; box-shadow: var(--shadow); }
+
+/* ── Workspace: consistent page padding ────────────────────────────────── */
+.page { padding: 22px 22px 100px; }

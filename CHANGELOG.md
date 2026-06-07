@@ -7,6 +7,17 @@
 
 ---
 
+## 5.66.0 (build 386) — 2026-06-07 Phase 386 professional-saas-dashboard-shell-polish — UI/UX visual polish (ยังไม่ merge · รอ owner/Codex review)
+
+- **feat (ui, visual-only):** ยกหน้าตา app shell + หน้า "ภาพรวมบริษัท" ไปทาง business dashboard แบบ SaaS (FlowAccount tone) — calm/professional. **CSS เท่านั้น ไม่แตะ JS/logic เลย**
+- **how (`style.css`):** (1) token light-mode 3 ตัว — `--shadow` หนา `0 10px 30px` → subtle `0 1px 3px + 0 1px 2px`; `--bg` `#eef3f7` → neutral `#f3f5f8`; `--line` `#e2e8f0` → `#e5e7eb`. (2) append section "Phase 386" (scope ชัด, ปิดท้ายไฟล์ = ชนะ specificity, revert ง่าย): card/stat-card/item-card radius 20→**12px** + subtle shadow; hero flatten — gradient เบาลง, amount 48→**34px**, radius 26→16px, shadow เบา; sidebar nav radius 14→**10px** + active เป็น **left-accent bar** สะอาด + hover นิ่ง; topbar solid+crisp + search box height 40/radius 10; page padding สม่ำเสมอ. **ทุกสีใช้ `var(--token)` → `[data-theme="dark"]` ไม่พัง**
+- **read-only proof:** `modules/dashboard.js` ไม่ถูกแตะ (0 บรรทัด) — guard test ยืนยัน no fetch/xhr/supabase-write, no state mutation, ไม่อ้าง checkout/addToCart/decrementStock/autoPost/postJournal/loadAllData
+- **ไม่แตะ:** dashboard.js · POS/cart/sales save · stock/CAS/warehouse · accounting auto_post/JV/period/schema · service job · payroll/HR · API endpoints · SQL/RLS/schema · package.json version
+- **verify:** lint:errors **0** · +5 tests `dashboard_readonly_guard` (read-only + visual marker + build-bump sync) · unit **1268** · e2e **12/12** (รวม build-version-sync 3 ตัว) · **pwa-cache:** bump 384→386
+- **⚠️ NOTE:** branch นี้ตัดสดจาก `origin/main` (build 384) — **ไม่รวม Phase 385 journal-date-guard** (build 385 Part A committed + Part B SQL) ซึ่งเป็น branch บัญชี **pending แยกต่างหาก** (owner-gated)
+- **known risk:** เป็น polish phase แรก ยังไม่ครอบทุกหน้า · dashboard mobile 1-column stacking ของ inline grid (`style="grid-template-columns:repeat(4,1fr)"`) override ด้วย CSS ไม่ได้ถ้าไม่ใช้ `!important` → defer เป็น phase ถัดไป (กัน regression) · บางหน้าที่มี inline style เก่าอาจยังไม่เข้าชุด
+- **STOP:** ยังไม่ push main — รอ owner/Codex review
+
 ## 5.66.0 (build 383) — 2026-06-06 Phase 383 service-job-status-db-safe-hotfix (HIGH) — กัน 400 ตอนช่างบันทึกใบงาน
 
 - **fix (HIGH, production):** ช่างกดบันทึกใบงานแล้ว `POST service_jobs` ล้ม **HTTP 400 (23514)** เพราะ UI ส่ง `status` ที่ DB constraint `service_jobs_status_check` ไม่รับ (`pending_review` / `in_progress`) → ใบงานไม่ถูกสร้าง → หน้าใบรับงานไม่โชว์ + LINE notify ไม่ถูกเรียก (flow หยุดก่อน save)
