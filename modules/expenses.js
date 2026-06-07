@@ -594,6 +594,9 @@ function bindTableActions() {
       const exp = _ctx.state.expenses.find(e => e.id === expId);
       if (!exp) return;
       if (await window.App?.confirm?.(`ยืนยันการลบรายจ่าย "${exp.description}" หรือไม่?`)) {
+        // Phase 388: void JV ที่ auto-post ไว้ก่อนลบ ไม่งั้น JV ค้างเป็น orphan (ให้ตรงกับ sales/receipts/payroll)
+        await voidJvForSource("expenses", expId).catch(e =>
+          console.warn("[expenses] voidJV before delete failed:", e?.message));
         window._appXhrDelete?.("expenses", "id", expId);
         _ctx.showToast("ลบรายจ่ายเรียบร้อย", "success");
         _ctx.loadAllData?.();
