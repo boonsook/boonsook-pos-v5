@@ -80,6 +80,17 @@ export function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
+// ★ Phase 398: gross profit = subtotal (ex-VAT) − COGS (Σ ต้นทุน×จำนวน จาก products.cost = source เดียวกับ sale_items.unit_cost)
+//   คืน null ถ้าตะกร้าว่าง (quick-pay) — ไม่ inflate กำไร. ไม่แตะสูตรยอด/VAT — เพิ่ม field อย่างเดียว.
+export function _computeGrossProfit(cart, products, subtotal) {
+  if (!Array.isArray(cart) || cart.length === 0) return null;
+  const cogs = cart.reduce((s, it) => {
+    const p = (products || []).find(x => x.id === it.id);
+    return s + Number(p?.cost || 0) * (Number(it.qty) || 1);
+  }, 0);
+  return round2(Number(subtotal || 0) - cogs);
+}
+
 // Phase 92.14: cart subtotal helper — round2 ที่ source กัน float drift propagate
 //   (เดิม inline `cart.reduce((s,i)=>s+i.qty*i.price,0)` หลายจุด → ยอด/เงินทอนที่โชว์เพี้ยน
 //    เช่น 3 × 33.30 = 99.90000000001). checkout write path round2 อยู่แล้ว — นี่คุม in-memory/display
@@ -1104,12 +1115,17 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
     }
     // inclusive: amount = total อยู่แล้ว → ไม่ต้องแก้
 
+    // ★ Phase 398: gross profit = subtotal (ex-VAT) − COGS · null ถ้าตะกร้าว่าง (quick-pay)
+    const _saleSubtotal = round2(vatCalc.enabled ? vatCalc.subtotal : amount);  // = subtotal เดิม (ไม่เปลี่ยนค่า)
+    const _grossProfit = _computeGrossProfit(state.cart, state.products, _saleSubtotal);
+
     // Phase 89.2: round2 ทุก money field — กัน 0.30000000000000004 เข้า DB
     const salePayload = {
       order_no: orderNo,
       customer_name: custName,
       payment_method: paymentMethod,
-      subtotal: round2(vatCalc.enabled ? vatCalc.subtotal : amount),
+      subtotal: _saleSubtotal,
+      gross_profit: _grossProfit,
       total_amount: round2(actualTotal),
       paid_amount: round2(paidAmount || actualTotal),
       change_amount: round2(Math.max((paidAmount || actualTotal) - actualTotal, 0)),
@@ -1126,7 +1142,13 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
     // ★ ถ้ามี customer_id field ในตาราง — ใส่ด้วย (รองรับ schema ที่ extend แล้ว)
     if (_posCustomer?.id) salePayload.customer_id = _posCustomer.id;
 
-    const saleRes = await xhrPostPOS("sales", salePayload, true);
+    let saleRes = await xhrPostPOS("sales", salePayload, true);
+    // ★ Phase 398: defensive fallback — กัน checkout พังถ้า column gross_profit ยังไม่มีใน DB (ตัด field แล้ว retry)
+    if (!saleRes.ok && /column|gross_profit/i.test(saleRes.error || "")) {
+      const { gross_profit: _gp, ...legacy } = salePayload;
+      console.warn("[POS] sales gross_profit fallback (column missing)");
+      saleRes = await xhrPostPOS("sales", legacy, true);
+    }
     if (!saleRes.ok) {
       window.App?.showToast?.("บันทึกการขายไม่สำเร็จ: " + (saleRes.error || "unknown"));
       window.App?.showToast?.(saleRes.error || "บันทึกไม่สำเร็จ");
