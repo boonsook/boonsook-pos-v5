@@ -18,6 +18,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { findUnpostedServiceJobs, buildPostedRef } from "../modules/service_reconcile.js";
+import { _monthNeedsAttention, _readinessLinesHtml } from "../modules/accounting/periods.js";
 
 const SVC = fs.readFileSync(path.resolve("modules/service_reconcile.js"), "utf8");
 const PERIODS = fs.readFileSync(path.resolve("modules/accounting/periods.js"), "utf8");
@@ -119,6 +120,37 @@ test("fetchCloseReadiness body performs no write verbs", () => {
   assert.ok(body.length > 0, "found fetchCloseReadiness");
   assert.doesNotMatch(body, /method:\s*["'](POST|PATCH|PUT|DELETE)["']/, "readiness scan is GET-only");
   assert.match(body, /fetchServiceJVStatus\(\{ fromDate, toDate \}\)/, "readiness calls the shared month-scoped fetch");
+});
+
+// ── Codex re-review: a month with 0 JV but a service orphan must NOT look empty ─
+test("_monthNeedsAttention flags service-missing / unknown / orphans (even when jvCount=0)", () => {
+  assert.equal(_monthNeedsAttention({ orphanSrc: 0, orphanJV: 0, serviceMissing: 1, serviceUnknown: false }), true, "service missing → attention");
+  assert.equal(_monthNeedsAttention({ orphanSrc: 0, orphanJV: 0, serviceMissing: 0, serviceUnknown: true }), true, "service unknown → attention");
+  assert.equal(_monthNeedsAttention({ orphanSrc: 2, orphanJV: 0, serviceMissing: 0, serviceUnknown: false }), true, "bill orphan → attention");
+  assert.equal(_monthNeedsAttention({ orphanSrc: 0, orphanJV: 0, serviceMissing: 0, serviceUnknown: false }), false, "all clean → no attention");
+  assert.equal(_monthNeedsAttention(null), false, "no readiness → no attention");
+});
+
+test("_readinessLinesHtml shows a service warning (not all-clear) when service is missing/unknown", () => {
+  const missing = _readinessLinesHtml({ orphanSrc: 0, orphanJV: 0, serviceMissing: 1, serviceUnknown: false });
+  assert.match(missing, /งานบริการ 1 งานยังไม่เข้าบัญชี/, "renders service-missing warning");
+  assert.doesNotMatch(missing, /มี JE ครบ ✅/, "no misleading all-clear when service missing");
+  const unknown = _readinessLinesHtml({ orphanSrc: 0, orphanJV: 0, serviceMissing: 0, serviceUnknown: true });
+  assert.match(unknown, /ตรวจงานบริการไม่ได้ \(unknown\)/, "renders unknown warning");
+  assert.doesNotMatch(unknown, /มี JE ครบ ✅/, "unknown is not green");
+  const clear = _readinessLinesHtml({ orphanSrc: 0, orphanJV: 0, serviceMissing: 0, serviceUnknown: false });
+  assert.match(clear, /บิล \+ งานบริการมี JE ครบ ✅/, "all-clear only when everything verified clean");
+});
+
+test("Period Close computes readiness every non-future month + renders not-empty when service missing", () => {
+  // the old gate (`if (summaries[m].jvCount > 0) { ...fetchCloseReadiness }`) is gone
+  assert.doesNotMatch(PERIODS, /if \(summaries\[m\]\.jvCount > 0\)/, "readiness no longer gated on jvCount>0");
+  assert.match(PERIODS, /const isFuture =[\s\S]*?m > currentMonth/, "guards future months only");
+  assert.match(PERIODS, /if \(!isFuture\) \{[\s\S]*?fetchCloseReadiness/, "readiness runs for non-future months");
+  // a jvCount=0 month that needs attention renders the service warning, BEFORE the empty fallback
+  assert.match(PERIODS, /needsAttention \? `[\s\S]*?ยังไม่มี JV ในเดือนนี้[\s\S]*?ไม่มีรายการในเดือนนี้/,
+    "needsAttention branch (service warning) precedes the 'empty month' fallback");
+  assert.match(PERIODS, /needsAttention\s*=\s*_monthNeedsAttention\(rd\)/, "card uses _monthNeedsAttention");
 });
 
 // ── backfill integrity panel folds service-missing into the green/red verdict ─
