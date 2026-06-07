@@ -97,4 +97,8 @@ test("rendered user/store values are escaped", () => {
   assert.match(dash, /value: escapeHtml\(userRoleLabel\)/, "role label escaped");
   assert.match(dash, /alt="\$\{escapeHtml\(shopName\)\}"/, "shop name escaped in logo alt");
   assert.match(dash, /\$\{escapeHtml\(shopName\)\}<\/div>/, "shop name escaped in header name");
+  // Codex review: logo URL can come from storeInfo/localStorage → must escape the
+  // attribute value, never interpolate raw (attribute-breakout / XSS guard).
+  assert.match(dash, /src="\$\{escapeHtml\(logoSrc\)\}"/, "logo src must be escaped");
+  assert.ok(!/src="\$\{logoSrc\}"/.test(dash), "logo src must NOT interpolate raw logoSrc");
 });

@@ -252,7 +252,7 @@ function _dashHeader({ shopName, logoSrc, isAdmin }) {
   return `
     <div class="dash-header">
       <div class="dash-header-id">
-        <img class="dash-header-logo" src="${logoSrc}" alt="${escapeHtml(shopName)}" />
+        <img class="dash-header-logo" src="${escapeHtml(logoSrc)}" alt="${escapeHtml(shopName)}" />
         <div class="dash-header-meta">
           <div class="dash-header-name">${escapeHtml(shopName)}</div>
           <div class="dash-header-sub">ภาพรวมธุรกิจ${isAdmin ? "" : " · เฉพาะของคุณ"}</div>
