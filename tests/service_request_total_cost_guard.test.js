@@ -25,6 +25,17 @@ test("service_request POST record sends total_cost: 0 (number, never null/omitte
   assert.doesNotMatch(rec, /total_cost:\s*(null|""|undefined)/, "never null/empty/undefined");
 });
 
+// Phase 394: record columns must match the real service_jobs schema (live-verified 201)
+test("service_request record matches service_jobs schema (customer_address + job_no, no address/device_name)", () => {
+  const rec = (sreq.match(/const record = \{[\s\S]*?\n\s*\};/) || [""])[0];
+  assert.ok(rec.length > 0, "found the record literal");
+  assert.match(rec, /customer_address:/, "uses customer_address column");
+  assert.doesNotMatch(rec, /^\s*address:/m, "must NOT send a bare 'address' key (not a column)");
+  assert.match(rec, /job_no:\s*["'`]JOB-["'`]\s*\+\s*Date\.now\(\)/, "sends a job_no (NOT NULL) in the JOB-<ts> format");
+  assert.doesNotMatch(rec, /device_name:/, "must NOT send device_name (not a column)");
+  assert.match(rec, /sub_service:\s*typeVal/, "keeps the job type in sub_service");
+});
+
 test("ac_shop order POST sends a numeric total_cost (the order price prod.p)", () => {
   const od = (acshop.match(/const orderData = \{[\s\S]*?\n\s*\};/) || [""])[0];
   assert.ok(od.length > 0, "found orderData literal");
