@@ -2636,7 +2636,7 @@ async function saveServiceJob(){
     photo_before:     $("serviceBeforeUrl")?.value?.trim() || null,
     photo_after:      $("serviceAfterUrl")?.value?.trim() || null,
     // Phase 88.8: บัญชี
-    total_cost:       totalCostVal > 0 ? totalCostVal : null,
+    total_cost:       totalCostVal > 0 ? totalCostVal : 0,  // ★ Phase 393: 0 ไม่ null (service_jobs.total_cost = NOT NULL; auto_post gate >0 → 0 ไม่ mis-post)
     payment_method:   paymentMethodVal || null,
     // Phase 88.11: slip URL
     payment_slip_url: $("serviceSlipUrl")?.value?.trim() || null
