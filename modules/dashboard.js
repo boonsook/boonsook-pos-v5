@@ -245,6 +245,44 @@ const JOB_STATUS_LABELS = {
 const PERIOD_LABELS = { today:"วันนี้", week:"สัปดาห์นี้", month:"เดือนนี้", year:"ปีนี้" };
 const MONTH_RANGE_LABELS = { 3:"3 เดือน", 6:"6 เดือน", 12:"1 ปี" };
 
+// ═══ Phase 389 (UI draft) — presentational render helpers ═══
+// Pure string builders for the redesigned dashboard top section (business header +
+// KPI grid). Read-only: take already-computed values, return markup. No fetch/state.
+function _dashHeader({ shopName, logoSrc, isAdmin }) {
+  return `
+    <div class="dash-header">
+      <div class="dash-header-id">
+        <img class="dash-header-logo" src="${logoSrc}" alt="${escapeHtml(shopName)}" />
+        <div class="dash-header-meta">
+          <div class="dash-header-name">${escapeHtml(shopName)}</div>
+          <div class="dash-header-sub">ภาพรวมธุรกิจ${isAdmin ? "" : " · เฉพาะของคุณ"}</div>
+        </div>
+      </div>
+      <div class="dash-header-actions">
+        <button id="dashboardReceiptBtn" class="btn light">🧾 ดูบิลล่าสุด</button>
+        <button id="sendDailySummaryBtn" class="btn light" title="ส่งสรุปยอดขายวันนี้ทางไลน์">📩 สรุปยอดไลน์</button>
+      </div>
+    </div>`;
+}
+// One KPI card. `go` makes it a clickable nav card (dash-clickable[data-go]); `accent`
+// sets the left border colour; `spark` is optional sparkline markup; `small` shrinks
+// the value font (for text values like user name). Values must be pre-escaped by caller.
+function _kpiCard({ label, value, valueColor = "", sub = "", spark = "", accent = "", go = "", title = "", small = false }) {
+  const cls = "kpi-card" + (go ? " dash-clickable" : "");
+  const accentStyle = accent ? ` style="border-left-color:${accent}"` : "";
+  const goAttr = go ? ` data-go="${go}"` : "";
+  const titleAttr = title ? ` title="${title}"` : "";
+  const valStyle = valueColor ? ` style="color:${valueColor}"` : "";
+  const valCls = "kpi-value" + (small ? " kpi-value--sm" : "");
+  return `
+      <div class="${cls}"${goAttr}${titleAttr}${accentStyle}>
+        <div class="kpi-label">${label}</div>
+        <div class="${valCls}"${valStyle}>${value}</div>
+        ${sub ? `<div class="kpi-sub">${sub}</div>` : ""}
+        ${spark || ""}
+      </div>`;
+}
+
 export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineNotify, showToast }) {
   const today = todayKey();
   const thisMonth = today.slice(0,7);
@@ -345,107 +383,73 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
   });
 
   document.getElementById("page-dashboard").innerHTML = `
-    <!-- ═══ HERO ═══ -->
-    <div class="hero">
-      <div class="hero-grid">
-        <div>
-          <div class="hero-title-row">
-            <div class="shop-bubble"><img src="${window._appGetLogo ? window._appGetLogo() : './logo.svg'}" alt="บุญสุข" style="width:48px;height:48px;border-radius:12px;vertical-align:middle;margin-right:8px" />บุญสุข</div>
-            <div style="display:flex;gap:6px;flex-wrap:wrap">
-              <button id="dashboardReceiptBtn" class="btn light">ดูบิลล่าสุด</button>
-              <button id="sendDailySummaryBtn" class="btn light" style="font-size:12px" title="ส่งสรุปยอดขายวันนี้ทางไลน์">📩 สรุปยอดไลน์</button>
-            </div>
-          </div>
-          <div style="margin-top:18px;font-size:20px;">วันนี้ขายได้${isAdminProfile(state.profile) ? "" : " <span style=\"font-size:11px;font-weight:600;background:rgba(255,255,255,.22);padding:2px 8px;border-radius:10px;margin-left:6px;vertical-align:middle\">เฉพาะของคุณ</span>"}</div>
-          <div class="hero-amount">${money(todayRevenue)}</div>
-          <div class="hero-sub">จาก ${todayOrderCount} ออเดอร์ ${todayWebOrders.length > 0 ? `(🛒 เว็บ ${todayWebOrders.length})` : ''}</div>
-          <div class="hero-status">${lowStock.length ? `⚠ สินค้าใกล้หมด ${lowStock.length} รายการ` : "เชื่อมต่อฐานข้อมูลแล้ว"}</div>
-        </div>
-        <div class="stats-grid" style="grid-template-columns:repeat(2,1fr)">
-          ${(() => {
-            // ★ Phase 85.4 — defensive KPI fallbacks (กัน profile/products/jobs render ว่าง)
-            const ROLE_LABEL_TH = { admin: "ผู้ดูแลระบบ", sales: "พนักงานขาย", technician: "ช่าง", customer: "ลูกค้า" };
-            const userName = (state.profile?.full_name || "").trim()
-              || (state.currentUser?.email || "").split("@")[0]
-              || "ยังไม่ระบุ";
-            const userRoleKey = state.profile?.role || "";
-            const userRoleLabel = ROLE_LABEL_TH[userRoleKey] || userRoleKey || "ผู้ใช้";
-            const productCount = (state.products || []).length;
-            const jobsCount = activeJobs ?? 0;
-            // ★ Phase 85.5 — color:#0f172a เพื่อให้ตัวเลขมองเห็นบน card สีขาว
-            // (parent <div class="hero"> set color:#fff สำหรับ hero text → inherit ทำให้ตัวอักษรเป็นสีขาวมองไม่เห็น)
-            const valStyle = "color:#0f172a";
-            return `
-              <div class="stat-card dash-clickable" data-go="settings" title="ไปหน้าตั้งค่า">
-                <div class="stat-label" style="${valStyle}">👤 ผู้ใช้งาน</div>
-                <div class="stat-value" style="font-size:14px;min-height:20px;${valStyle}">${escapeHtml(userName)}</div>
-              </div>
-              <div class="stat-card dash-clickable" data-go="settings/permissions" title="ดูสิทธิ์ทั้งหมด">
-                <div class="stat-label" style="${valStyle}">🛡️ สิทธิ์</div>
-                <div class="stat-value" style="font-size:14px;min-height:20px;${valStyle}">${escapeHtml(userRoleLabel)}</div>
-              </div>
-              <div class="stat-card dash-clickable" data-go="products" title="ไปหน้าสินค้า">
-                <div class="stat-label" style="${valStyle}">📦 สินค้าทั้งหมด</div>
-                <div class="stat-value" style="min-height:24px;${valStyle}">${productCount.toLocaleString("th-TH")}</div>
-              </div>
-              <div class="stat-card dash-clickable" data-go="service_jobs" title="ไปหน้างานช่าง">
-                <div class="stat-label" style="${valStyle}">🔧 งานช่างค้าง</div>
-                <div class="stat-value" style="min-height:24px;${valStyle}">${jobsCount.toLocaleString("th-TH")}</div>
-              </div>`;
-          })()}
-        </div>
+    <!-- ═══ PHASE 389 (draft): BUSINESS HEADER ═══ -->
+    ${_dashHeader({
+      shopName: state.storeInfo?.name || "บุญสุข",
+      logoSrc: window._appGetLogo ? window._appGetLogo() : "./logo.svg",
+      isAdmin: isAdminProfile(state.profile),
+    })}
+
+    <!-- ═══ TODAY HIGHLIGHT (flat, no gradient hero) ═══ -->
+    <div class="dash-today">
+      <div class="dash-today-main">
+        <div class="dash-today-label">ยอดขายวันนี้${isAdminProfile(state.profile) ? "" : ` <span class="dash-badge">เฉพาะของคุณ</span>`}</div>
+        <div class="dash-today-amount">${money(todayRevenue)}</div>
+        <div class="dash-today-sub">จาก ${todayOrderCount} ออเดอร์${todayWebOrders.length > 0 ? ` · 🛒 เว็บ ${todayWebOrders.length}` : ''}</div>
       </div>
+      <div class="dash-today-status ${lowStock.length ? 'warn' : 'ok'}">${lowStock.length ? `⚠ สินค้าใกล้หมด ${lowStock.length} รายการ` : "✓ เชื่อมต่อฐานข้อมูลแล้ว"}</div>
     </div>
 
     <!-- ═══ PERIOD TABS ═══ -->
-    <div style="display:flex;gap:4px;background:#f1f5f9;border-radius:12px;padding:4px;flex-wrap:wrap">
+    <div class="dash-period-tabs">
       ${["today","week","month","year"].map(p => `
-        <button class="dash-period-btn" data-period="${p}" style="flex:1;padding:10px 8px;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;transition:.15s;
-          background:${_dashPeriod===p ? '#0284c7' : 'transparent'};
-          color:${_dashPeriod===p ? '#fff' : '#64748b'}">
-          ${PERIOD_LABELS[p]}
-        </button>
+        <button class="dash-period-btn ${_dashPeriod===p ? 'active' : ''}" data-period="${p}">${PERIOD_LABELS[p]}</button>
       `).join("")}
     </div>
 
-    <!-- ═══ PERIOD STATS (Phase 56: + 7d sparkline) ═══ -->
-    <div class="stats-grid" style="grid-template-columns:repeat(2,1fr)">
-      <div class="stat-card" style="border-left:4px solid #0284c7">
-        <div class="stat-label">💰 ยอดขาย ${PERIOD_LABELS[_dashPeriod]}</div>
-        <div class="stat-value" style="color:#0284c7">${money(periodRevenue)}</div>
-        <div style="font-size:11px;color:#94a3b8;margin-top:2px">${periodOrders} ออเดอร์${periodWebOrders.length > 0 ? ` (🛒 ${periodWebOrders.length} จากเว็บ)` : ''}</div>
-        ${_sparkline7d(_last7DaysSeries(allSales, "created_at", "total_amount"), "#0284c7")}
-        <div style="font-size:10px;color:#94a3b8;text-align:right;margin-top:-2px">7 วันล่าสุด</div>
-      </div>
-      <div class="stat-card" style="border-left:4px solid #ef4444">
-        <div class="stat-label">📤 ค่าใช้จ่าย ${PERIOD_LABELS[_dashPeriod]}</div>
-        <div class="stat-value" style="color:#ef4444">${money(periodExpenseTotal)}</div>
-        <div style="font-size:11px;color:#94a3b8;margin-top:2px">${periodExpenses.length} รายการ</div>
-        ${_sparkline7d(_last7DaysSeries(state.expenses, "expense_date", "amount"), "#ef4444")}
-        <div style="font-size:10px;color:#94a3b8;text-align:right;margin-top:-2px">7 วันล่าสุด</div>
-      </div>
-      <div class="stat-card" style="border-left:4px solid #10b981">
-        <div class="stat-label">📊 กำไรขั้นต้น ${PERIOD_LABELS[_dashPeriod]}</div>
-        <div class="stat-value" style="color:#10b981">${money(periodProfit)}</div>
-      </div>
-      <div class="stat-card" style="border-left:4px solid ${monthNetProfit >= 0 ? '#10b981' : '#ef4444'}">
-        <div class="stat-label">📈 กำไรสุทธิเดือนนี้</div>
-        <div class="stat-value" style="color:${monthNetProfit >= 0 ? '#10b981' : '#ef4444'}">${money(monthNetProfit)}</div>
-        <div style="font-size:11px;color:#94a3b8;margin-top:2px">รายได้ ${moneyShort(monthTotalIncome)} - จ่าย ${moneyShort(monthExpenseTotal)}</div>
-      </div>
+    <!-- ═══ KPI GRID — period money (Phase 56: + 7d sparkline) ═══ -->
+    <div class="kpi-grid">
+      ${_kpiCard({
+        accent: "#0284c7", label: `💰 ยอดขาย ${PERIOD_LABELS[_dashPeriod]}`, value: money(periodRevenue), valueColor: "#0284c7",
+        sub: `${periodOrders} ออเดอร์${periodWebOrders.length > 0 ? ` · 🛒 ${periodWebOrders.length} เว็บ` : ''}`,
+        spark: `${_sparkline7d(_last7DaysSeries(allSales, "created_at", "total_amount"), "#0284c7")}<div class="kpi-spark-cap">7 วันล่าสุด</div>`,
+      })}
+      ${_kpiCard({
+        accent: "#ef4444", label: `📤 ค่าใช้จ่าย ${PERIOD_LABELS[_dashPeriod]}`, value: money(periodExpenseTotal), valueColor: "#ef4444",
+        sub: `${periodExpenses.length} รายการ`,
+        spark: `${_sparkline7d(_last7DaysSeries(state.expenses, "expense_date", "amount"), "#ef4444")}<div class="kpi-spark-cap">7 วันล่าสุด</div>`,
+      })}
+      ${_kpiCard({ accent: "#10b981", label: `📊 กำไรขั้นต้น ${PERIOD_LABELS[_dashPeriod]}`, value: money(periodProfit), valueColor: "#10b981" })}
+      ${_kpiCard({
+        accent: monthNetProfit >= 0 ? "#10b981" : "#ef4444", label: "📈 กำไรสุทธิเดือนนี้",
+        value: money(monthNetProfit), valueColor: monthNetProfit >= 0 ? "#10b981" : "#ef4444",
+        sub: `รายได้ ${moneyShort(monthTotalIncome)} − จ่าย ${moneyShort(monthExpenseTotal)}`,
+      })}
     </div>
 
-    <!-- ═══ QUICK STATS ROW ═══ -->
-    <style>
-      .dash-clickable { cursor:pointer; transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease; }
-      .dash-clickable:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(2,132,199,0.15); border-color:#0284c7; }
-      .dash-clickable:active { transform: translateY(0); }
-    </style>
-    <div class="stats-grid" style="grid-template-columns:repeat(4,1fr)">
-      <div class="stat-card dash-clickable" data-go="receipts" title="ดูใบเสร็จ"><div class="stat-label">ยอดขายเดือนนี้</div><div class="stat-value" style="font-size:16px">${money(monthRevenue)}</div></div>
-      <div class="stat-card dash-clickable" data-go="customers" title="ไปหน้าลูกค้า"><div class="stat-label">ลูกค้าทั้งหมด</div><div class="stat-value" style="font-size:16px">${state.customers.length}</div></div>
-      <div class="stat-card dash-clickable" data-go="quotations" title="ไปหน้าใบเสนอราคา"><div class="stat-label">ใบเสนอราคา</div><div class="stat-value" style="font-size:16px">${state.quotations.length}</div></div>
-      <div class="stat-card dash-clickable" data-go="service_jobs" title="ไปหน้างานช่าง"><div class="stat-label">ออเดอร์แอร์ค้าง</div><div class="stat-value" style="font-size:16px;color:#f59e0b">${pendingOrders.length}</div></div>
+    <!-- ═══ KPI GRID — counts (clickable nav cards) ═══ -->
+    <div class="kpi-grid">
+      ${(() => {
+        // ★ Phase 85.4 — defensive KPI fallbacks (กัน profile/products/jobs render ว่าง)
+        const ROLE_LABEL_TH = { admin: "ผู้ดูแลระบบ", sales: "พนักงานขาย", technician: "ช่าง", customer: "ลูกค้า" };
+        const userName = (state.profile?.full_name || "").trim()
+          || (state.currentUser?.email || "").split("@")[0]
+          || "ยังไม่ระบุ";
+        const userRoleKey = state.profile?.role || "";
+        const userRoleLabel = ROLE_LABEL_TH[userRoleKey] || userRoleKey || "ผู้ใช้";
+        const productCount = (state.products || []).length;
+        const jobsCount = activeJobs ?? 0;
+        return [
+          _kpiCard({ go: "receipts", title: "ดูใบเสร็จ", label: "🧾 ยอดขายเดือนนี้", value: money(monthRevenue) }),
+          _kpiCard({ go: "customers", title: "ไปหน้าลูกค้า", label: "👥 ลูกค้าทั้งหมด", value: (state.customers || []).length.toLocaleString("th-TH") }),
+          _kpiCard({ go: "products", title: "ไปหน้าสินค้า", label: "📦 สินค้าทั้งหมด", value: productCount.toLocaleString("th-TH") }),
+          _kpiCard({ go: "service_jobs", title: "ไปหน้างานช่าง", label: "🔧 งานช่างค้าง", value: jobsCount.toLocaleString("th-TH") }),
+          _kpiCard({ go: "quotations", title: "ไปหน้าใบเสนอราคา", label: "📄 ใบเสนอราคา", value: (state.quotations || []).length.toLocaleString("th-TH") }),
+          _kpiCard({ go: "service_jobs", title: "ไปหน้างานช่าง", label: "🛒 ออเดอร์แอร์ค้าง", value: pendingOrders.length.toLocaleString("th-TH"), valueColor: "#f59e0b" }),
+          _kpiCard({ go: "settings", title: "ไปหน้าตั้งค่า", label: "👤 ผู้ใช้งาน", value: escapeHtml(userName), small: true }),
+          _kpiCard({ go: "settings/permissions", title: "ดูสิทธิ์ทั้งหมด", label: "🛡️ สิทธิ์", value: escapeHtml(userRoleLabel), small: true }),
+        ].join("");
+      })()}
     </div>
 
     ${_renderTodayAndAlerts(state)}

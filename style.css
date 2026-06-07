@@ -2082,3 +2082,78 @@ aside.drawer { position: fixed; top: 0; right: 0; }
 
 /* ── Workspace: consistent page padding ────────────────────────────────── */
 .page { padding: 22px 22px 100px; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   PHASE 389 (DRAFT) — structural dashboard redesign
+   Replaces the gradient "hero" with a flat business header + today highlight
+   + a unified KPI grid. UI-only, token-driven (dark-mode safe), class-based
+   (no inline grids) so cards stack cleanly on mobile. Appended last; pairs
+   with the modules/dashboard.js _dashHeader/_kpiCard render helpers.
+   NOTE: draft — build/index.html/sw.js NOT bumped until after Phase 388 merge.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Business header (flat card, no gradient) ──────────────────────────── */
+.dash-header {
+  display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  padding: 16px 18px; box-shadow: var(--shadow);
+}
+.dash-header-id { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.dash-header-logo { width: 46px; height: 46px; border-radius: 10px; flex-shrink: 0; object-fit: cover; }
+.dash-header-meta { min-width: 0; }
+.dash-header-name { font-size: 20px; font-weight: 800; color: var(--text); line-height: 1.2; }
+.dash-header-sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
+.dash-header-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ── Today highlight (flat, replaces marketing hero) ───────────────────── */
+.dash-today {
+  display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap;
+  background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--primary2);
+  border-radius: 12px; padding: 18px 20px; box-shadow: var(--shadow);
+}
+.dash-today-main { min-width: 0; }
+.dash-today-label { font-size: 14px; color: var(--muted); font-weight: 600; }
+.dash-today-amount { font-size: 34px; font-weight: 900; color: var(--primary2); line-height: 1.1; margin-top: 4px; overflow-wrap: anywhere; }
+.dash-today-sub { font-size: 13px; color: var(--muted); margin-top: 4px; }
+.dash-today-status { font-size: 12px; font-weight: 700; padding: 6px 12px; border-radius: 999px; white-space: nowrap; }
+.dash-today-status.ok { background: #ecfdf5; color: #047857; }
+.dash-today-status.warn { background: #fef2f2; color: #b91c1c; }
+.dash-badge { font-size: 11px; font-weight: 600; background: var(--bg); color: var(--muted); padding: 2px 8px; border-radius: 10px; margin-left: 6px; vertical-align: middle; }
+
+/* ── Period tabs (class-based; active via .active) ─────────────────────── */
+.dash-period-tabs { display: flex; gap: 4px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 4px; flex-wrap: wrap; }
+.dash-period-btn {
+  flex: 1; min-width: 72px; padding: 9px 8px; border: none; border-radius: 8px;
+  font-size: 13px; font-weight: 700; cursor: pointer; transition: .15s; background: transparent; color: var(--muted);
+}
+.dash-period-btn:hover { background: rgba(2,132,199,.08); color: var(--primary2); }
+.dash-period-btn.active { background: var(--primary2); color: #fff; }
+
+/* ── KPI grid (responsive, auto-fit → stacks on mobile, no inline grid) ── */
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.kpi-card {
+  background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--line);
+  border-radius: 12px; padding: 14px 16px; box-shadow: var(--shadow); min-width: 0;
+}
+.kpi-label { font-size: 13px; color: var(--muted); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kpi-value { font-size: 22px; font-weight: 800; color: var(--text); margin-top: 6px; line-height: 1.15; overflow-wrap: anywhere; }
+.kpi-value--sm { font-size: 15px; }
+.kpi-sub { font-size: 11px; color: var(--muted); margin-top: 3px; }
+.kpi-spark-cap { font-size: 10px; color: var(--muted); text-align: right; margin-top: -2px; }
+
+/* clickable nav cards (moved out of the dashboard.js inline <style>) */
+.dash-clickable { cursor: pointer; transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease; }
+.dash-clickable:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(2,132,199,0.15); border-color: var(--primary2); }
+.dash-clickable:active { transform: translateY(0); }
+
+/* ── App-shell business-app refinements (CSS-only; index.html untouched) ─ */
+.sidebar-head { padding-bottom: 14px; border-bottom: 1px solid rgba(255,255,255,.08); }
+.topbar .page-title { font-size: 18px; }
+
+/* ── Mobile: 2-up KPI grid, tighter highlight ──────────────────────────── */
+@media (max-width: 480px) {
+  .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .kpi-value { font-size: 18px; }
+  .dash-today-amount { font-size: 28px; }
+  .dash-today { padding: 14px 16px; }
+}
