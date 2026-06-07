@@ -7,6 +7,13 @@
 
 ---
 
+## 5.66.0 (build 388) — 2026-06-07 Phase 388 expense-delete-orphan-jv (HIGH · money path) — ลบรายจ่ายแล้ว void JV ด้วย
+
+- **fix (HIGH, money path §4.8):** ลบรายจ่ายในเมนูรายรับ-รายจ่าย เดิมเรียกแค่ `_appXhrDelete("expenses")` ไม่ void JV ที่ auto-post ไว้ → JV ค้างเป็น **orphan** ในงบการเงิน (เป็นต้นเหตุของ orphan แบบ PV2069/หลวงพี่ที่เพิ่งตามเก็บ)
+- **how (`expenses.js` delete handler):** `await voidJvForSource("expenses", id)` ก่อน `_appXhrDelete` (mirror edit flow ที่ void อยู่แล้ว; sales/receipts/delivery_invoices/payroll ก็ void ตอนลบเหมือนกัน — expenses เป็นตัวเดียวที่ตกหล่น)
+- **ไม่แตะ:** voidJvForSource/auto_post internals (แค่เรียก) · sales/receipts/payroll (ถูกอยู่แล้ว) · schema/RLS/SQL · POS/stock
+- **verify:** lint 0 · +3 tests `expense_delete_void_jv_guard` · unit 1292 · **pwa-cache:** bump 387→388
+
 ## 5.66.0 (build 387) — 2026-06-07 Phase 387 dashboard-net-profit-include-service-income — กำไรสุทธิ dashboard ตรง P&L
 
 - **fix:** "ภาพรวมบริษัท" กำไรสุทธิเดือนนี้ เดิมคิดจาก POS sales + web orders เท่านั้น → ไม่รวมรายได้งานบริการ (delivered/done/closed) ที่งบ P&L นับ → กำไรเพี้ยน (เคสจริง −1,478 vs P&L −978)
