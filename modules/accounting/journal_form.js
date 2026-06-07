@@ -11,6 +11,7 @@
 // ═══════════════════════════════════════════════════════════
 
 import { todayBkk } from "../utils.js";
+import { validateJournalDate, JOURNAL_DATE_ERRORS } from "./date_guard.js";
 
 const escHtml = (s) => String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 const escAttr = (s) => String(s ?? "").replace(/&/g,"&amp;").replace(/"/g,"&quot;");
@@ -223,6 +224,14 @@ async function _save(ctx, status) {
   const desc    = document.getElementById("jvDesc")?.value?.trim() || "";
 
   if (!docDate) return showToast("กรุณาเลือกวันที่");
+
+  // Phase 385: block out-of-range doc_date BEFORE doc_no generation.
+  // A year like 2069 would otherwise produce PV2069MM#### and drop the entry
+  // out of the current fiscal year's statements (see date_guard.js).
+  const _dateCheck = validateJournalDate(docDate, { today: todayBkk() });
+  if (!_dateCheck.ok) {
+    return showToast("⚠️ " + (JOURNAL_DATE_ERRORS[_dateCheck.code] || "วันที่ไม่ถูกต้อง"));
+  }
 
   // Validate lines
   const validLines = _lines.filter(l => l.account_code && (l.debit > 0 || l.credit > 0));
