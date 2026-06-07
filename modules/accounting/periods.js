@@ -9,6 +9,8 @@
 // ═══════════════════════════════════════════════════════════
 
 import { _classifyOrphan, INTEGRITY_CATS } from "./backfill.js";
+// Phase 390: รวม "งานบริการที่ปิดแล้วแต่ยังไม่มี JE" เข้า close-readiness (กันงวดเขียวทั้งที่รายได้บริการหาย)
+import { fetchServiceJVStatus } from "../service_reconcile.js";
 
 // non-HR source tables ที่ auto_post สร้าง JE (ไม่รวม staff_payroll = HR domain)
 const READINESS_JV_SOURCES = ["sales", "expenses", "receipts", "delivery_invoices", "service_jobs", "credit_payments", "refunds"];
@@ -22,6 +24,21 @@ const MONTHS_TH = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.",
 
 function escHtml(s) { const d = document.createElement("div"); d.textContent = String(s ?? ""); return d.innerHTML; }
 function money(n) { return new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n || 0)); }
+
+// Phase 390: readiness label แยกชัด — บิลครบ / orphan JV / งานบริการ missing / unknown.
+// แสดง "ครบ ✅" เฉพาะเมื่อทุกชั้นเขียว (รวม service + ไม่มี unknown) — กันงวดเขียวลวง.
+function _readinessLinesHtml(rd) {
+  if (!rd) return "";
+  const lines = [];
+  if (rd.orphanSrc > 0) lines.push(`<div style="margin-top:2px;font-weight:600;color:#b91c1c">📋 ค้าง ${rd.orphanSrc} บิลไม่มี JE ⚠️</div>`);
+  if (rd.orphanJV > 0) lines.push(`<div style="margin-top:2px;font-weight:600;color:#b91c1c">🧹 orphan JV ${rd.orphanJV} (source ถูกลบ) ⚠️</div>`);
+  if (rd.serviceMissing > 0) lines.push(`<div style="margin-top:2px;font-weight:600;color:#b91c1c">🔧 งานบริการ ${rd.serviceMissing} งานยังไม่เข้าบัญชี ⚠️</div>`);
+  if (rd.serviceUnknown) lines.push(`<div style="margin-top:2px;font-weight:600;color:#b45309">🔧 ตรวจงานบริการไม่ได้ (unknown) — ยังไม่ยืนยันว่าครบ ⚠️</div>`);
+  if (rd.orphanSrc === 0 && rd.orphanJV === 0 && rd.serviceMissing === 0 && !rd.serviceUnknown) {
+    lines.push(`<div style="margin-top:2px;font-weight:600;color:#166534">📋 บิล + งานบริการมี JE ครบ ✅</div>`);
+  }
+  return lines.join("");
+}
 
 // ───────────────────────────────────────────────────────────
 // API helpers
@@ -131,7 +148,20 @@ async function fetchCloseReadiness(year, month, fromDate, toDate) {
     }
   } catch (_e) { /* fail-safe */ }
 
-  return { orphanSrc, orphanJV, ready: orphanSrc === 0 && orphanJV === 0 };
+  // (c) Phase 390: service revenue completeness — งานบริการที่ปิดแล้วในเดือนนี้ ที่ยังไม่มี JE (จับด้วย source_id).
+  //     ★ ต่างจาก (a)/(b): fetch fail → serviceUnknown=true (ไม่เขียว) ไม่ใช่ fail-safe-green —
+  //       เพราะรายได้บริการที่หายคือบั๊กที่หน้านี้ต้องไม่ปิดเงียบ.
+  let serviceMissing = 0, serviceUnknown = false;
+  try {
+    const svc = await fetchServiceJVStatus({ fromDate, toDate });
+    if (svc.ok) serviceMissing = (svc.orphans || []).length;
+    else serviceUnknown = true;
+  } catch (_e) { serviceUnknown = true; }
+
+  return {
+    orphanSrc, orphanJV, serviceMissing, serviceUnknown,
+    ready: orphanSrc === 0 && orphanJV === 0 && serviceMissing === 0 && !serviceUnknown,
+  };
 }
 
 async function lockPeriod(year, month) {
@@ -306,7 +336,7 @@ export async function renderPeriodsPage(ctx) {
                   <div>${summary.net >= 0 ? '✅ กำไร' : '⚠️ ขาดทุน'}: <b style="color:${summary.net >= 0 ? '#10b981' : '#ef4444'}">${money(Math.abs(summary.net))}</b></div>
                   <div style="color:#64748b;margin-top:4px">JV ${summary.jvCount} รายการ</div>
                   <div style="margin-top:4px;font-weight:600;color:${summary.balanced ? '#166534' : '#b91c1c'}">${summary.balanced ? '⚖️ Dr=Cr บาลานซ์ ✅' : `⚖️ Dr≠Cr ⚠️ ต่าง ฿${money(Math.abs(summary.drCrDiff))}`}</div>
-                  ${rd ? `<div style="margin-top:2px;font-weight:600;color:${rd.orphanSrc === 0 ? '#166534' : '#b91c1c'}">${rd.orphanSrc === 0 ? '📋 บิลมี JE ครบ ✅' : `📋 ค้าง ${rd.orphanSrc} บิลไม่มี JE ⚠️`}</div>${rd.orphanJV > 0 ? `<div style="margin-top:2px;font-weight:600;color:#b91c1c">🧹 orphan JV ${rd.orphanJV} (source ถูกลบ) ⚠️</div>` : ''}` : ''}
+                  ${_readinessLinesHtml(rd)}
                 </div>
               ` : `
                 <div style="font-size:11px;color:#94a3b8;font-style:italic">ไม่มีรายการในเดือนนี้</div>
@@ -361,6 +391,8 @@ export async function renderPeriodsPage(ctx) {
       if (!summary.balanced) issues.push(`Dr≠Cr ต่าง ฿${money(Math.abs(summary.drCrDiff))}`);
       if (rd && rd.orphanSrc > 0) issues.push(`${rd.orphanSrc} บิลยังไม่มี JE`);
       if (rd && rd.orphanJV > 0) issues.push(`orphan JV ${rd.orphanJV} รายการ`);
+      if (rd && rd.serviceMissing > 0) issues.push(`งานบริการ ${rd.serviceMissing} งานยังไม่เข้าบัญชี`);
+      if (rd && rd.serviceUnknown) issues.push(`ตรวจงานบริการไม่ได้ (unknown)`);
       const warn = issues.length ? `\n🔴 เตือน: งวดนี้ยังไม่พร้อม — ${issues.join(" · ")} (ควรแก้ก่อนปิด)\n` : '';
       const msg = `ยืนยันปิดงวด ${MONTHS_TH[m-1]} ${y}?\n\n` +
         `📊 Summary:\n` +
@@ -368,7 +400,7 @@ export async function renderPeriodsPage(ctx) {
         `  ค่าใช้จ่าย: ${money(summary.expense)}\n` +
         `  ${summary.net >= 0 ? 'กำไร' : 'ขาดทุน'}: ${money(Math.abs(summary.net))}\n` +
         `  JV ${summary.jvCount} รายการ\n` +
-        `  ${issues.length === 0 ? '✅ พร้อมปิด (Dr=Cr · บิลครบ)' : '⚠️ มีข้อค้าง'}\n` +
+        `  ${issues.length === 0 ? '✅ พร้อมปิด (Dr=Cr · บิล + งานบริการครบ)' : '⚠️ มีข้อค้าง'}\n` +
         warn +
         `\n⚠️ หลังปิดงวด — ห้ามแก้/สร้าง JV ในงวดนี้ (เว้นแต่ปลดล็อก)`;
       if (!confirm(msg)) return;
