@@ -7,6 +7,19 @@
 
 ---
 
+## 5.66.0 (build 384) — 2026-06-06 Phase 384 service-autopost-reconcile (Part B) — ตามเก็บรายได้งานบริการที่ JE หายเงียบ
+
+- **fix (money path §4.8):** งานบริการที่ปิดแล้ว (delivered/done/closed) auto-post JV แบบ fire-and-forget ใน `service_form.js` → ถ้า post ล้ม = งาน delivered แต่ JE ไม่เกิด → **รายได้หายเงียบ** (เช่น หลวงพี่ JOB-1780732840014 ฿600)
+- **how:** หน้าใหม่ **admin-only** `service_reconcile` (`modules/service_reconcile.js`) — pure `findUnpostedServiceJobs(jobs, jeDescriptions, {effectiveDate})` flag งาน delivered/done/closed + total_cost>0 + created_at≥2026-05-01 (dateBkk) + `job_no`(JOB-\d+) ไม่อยู่ใน JE description → ปุ่ม "ส่งเข้าบัญชีอีกครั้ง" เรียก `postJournalForServiceJob` (idempotent: 409→null ไม่ double-post) → สำเร็จ=toast+refresh / null=toast เตือน+refresh; inflight guard + admin double-gate
+- **read-only fetch:** ดึง `journal_entries.description` ด้วย GET อย่างเดียว (re-post ผ่าน auto_post — ไม่ hand-roll JE insert)
+- **ไม่แตะ:** auto_post double-entry/mapping/COA/period-lock (แค่ "เรียก") · schema/RLS/SQL · `service_jobs.js` (ทีม 383) · `service_form.js` Part A surface (เลื่อน — รอ owner ตัดสิน Finding 1) · stock/POS/payroll/refund
+- **wiring:** LAZY_ROUTES + ALL_ROUTES (admin) + titles + index.html nav-btn (กลุ่มบัญชี) + section
+- **verify:** lint:errors 0 · +18 tests `service_reconcile_guard` (pure findUnpostedServiceJobs + idempotent re-post + read-only/no-forbidden-write guards) · unit 1263 · e2e 12/12 · **pwa-cache:** bump 383→384
+- **merged:** `0e2f6d3` ff (27f6077..0e2f6d3) → main · CI Tests+Deploy (Cloudflare) success · live build 384 verified
+- **known risk:** orphan view อิง `state.serviceJobs` (≤50 ล่าสุด) — งานเก่ากว่านั้นไม่โผล่ (มี honesty label); re-post คืน null รวม idempotency/period-lock/eff-date/สำเร็จจริง → toast เตือนกว้าง (ตรง Finding 1)
+- **next:** Part A surface (`service_form.js`) รอ owner ตัดสิน Finding 1 — `postJournalForServiceJob` ไม่เคย throw (failure/idempotency/eff-date คืน null หมด, auto_post.js:273-286) → "throw→เตือน, null→เงียบ" จะกลายเป็น ship no-op
+
+
 ## 5.66.0 (build 383) — 2026-06-06 Phase 383 service-job-status-db-safe-hotfix (HIGH) — กัน 400 ตอนช่างบันทึกใบงาน
 
 - **fix (HIGH, production):** ช่างกดบันทึกใบงานแล้ว `POST service_jobs` ล้ม **HTTP 400 (23514)** เพราะ UI ส่ง `status` ที่ DB constraint `service_jobs_status_check` ไม่รับ (`pending_review` / `in_progress`) → ใบงานไม่ถูกสร้าง → หน้าใบรับงานไม่โชว์ + LINE notify ไม่ถูกเรียก (flow หยุดก่อน save)

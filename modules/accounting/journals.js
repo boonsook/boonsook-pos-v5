@@ -6,6 +6,60 @@
 // ═══════════════════════════════════════════════════════════
 
 import { renderEmpty } from "../ui_states.js";
+import { findOutOfRangeEntries } from "./date_guard.js";
+import { todayBkk, isAdminProfile } from "../utils.js";
+
+// Phase 385: short Thai reason per validate code (compact table cell)
+const _DATE_REASON_TH = {
+  invalid_format: "รูปแบบวันที่ผิด",
+  future_year: "ปีเกินปัจจุบัน (เช่น พ.ศ./ค.ศ. สลับ)",
+  future_date: "ล่วงหน้าเกินวันนี้",
+  too_old: "เก่าเกินไป (ก่อน 2020)",
+};
+
+// Phase 385: read-only banner listing entries whose doc_date is out of range
+// (e.g. PV2069050001 year 2069). Admin-only. Does NOT mutate anything; the
+// "fix" action is deferred to the owner-gated Phase 385 Part B.
+function _renderBadDateBanner(entries, isAdmin) {
+  if (!isAdmin) return "";
+  const bad = findOutOfRangeEntries(entries, { today: todayBkk() });
+  if (!bad.length) return "";
+  const rows = bad.map(e => `
+    <tr style="border-bottom:1px solid #fee2e2">
+      <td style="padding:6px 8px;font-weight:700;color:#991b1b">${escHtml(e.doc_no || "—")}</td>
+      <td style="padding:6px 8px;font-family:monospace">${escHtml(e.doc_date || "—")}</td>
+      <td style="padding:6px 8px;text-align:right">${money(e.amount)}</td>
+      <td style="padding:6px 8px;color:#7f1d1d">${escHtml(_DATE_REASON_TH[e.code] || e.code)}</td>
+      <td style="padding:6px 8px;color:#475569">${escHtml((e.description || "").slice(0, 60))}</td>
+    </tr>`).join("");
+  return `
+    <div style="margin-top:12px;border:1px solid #fca5a5;background:#fef2f2;border-radius:10px;padding:12px 14px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:16px">⚠️</span>
+        <strong style="color:#991b1b;font-size:13px">พบ ${bad.length} รายการที่วันที่ผิดช่วง</strong>
+      </div>
+      <div style="font-size:11px;color:#7f1d1d;margin:4px 0 8px;line-height:1.5">
+        รายการเหล่านี้จะหลุดออกจากงบการเงินของงวดที่ถูกต้อง (เช่น ปี 2069 จะไม่ถูกนับในงบปีปัจจุบัน)
+        — ต้องแก้วันที่ผ่านการรีวิวของผู้ดูแลก่อน (Phase 385 Part B)
+      </div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;background:#fff;min-width:560px">
+          <thead><tr style="background:#fff1f2;text-align:left">
+            <th style="padding:6px 8px">เลขที่เอกสาร</th>
+            <th style="padding:6px 8px">วันที่ (ที่เก็บ)</th>
+            <th style="padding:6px 8px;text-align:right">ยอด</th>
+            <th style="padding:6px 8px">สาเหตุ</th>
+            <th style="padding:6px 8px">คำอธิบาย</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      <button disabled title="การแก้ไขต้องผ่าน owner review — Phase 385 Part B"
+        style="margin-top:8px;padding:6px 12px;border-radius:8px;border:1px solid #cbd5e1;background:#f1f5f9;color:#94a3b8;cursor:not-allowed;font-size:12px">
+        ✏️ แก้วันที่ (รอ owner review)
+      </button>
+    </div>`;
+}
 
 const escHtml = (s) => String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 function money(n) {
@@ -118,6 +172,8 @@ export async function renderJournalsPage(ctx) {
         <h3 style="margin:0">📒 สมุดรายวัน</h3>
         <button id="jvAddBtn" class="btn primary">+ บันทึกรายการบัญชี</button>
       </div>
+
+      ${_renderBadDateBanner(_entries, isAdminProfile(_state?.profile))}
 
       <!-- Status filter chips -->
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;align-items:center">
