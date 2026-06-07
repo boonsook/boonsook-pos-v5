@@ -22,6 +22,8 @@ import {
   _isAfterEffective
 } from "./auto_post.js";
 import { todayBkk, dateBkk } from "../utils.js";
+// Phase 390: รวม service_jobs missing-JV เข้า integrity panel (RPC summary ไม่ครอบ service_jobs)
+import { fetchServiceJVStatus } from "../service_reconcile.js";
 
 let _ctx = null;
 let _running = false;
@@ -468,9 +470,19 @@ async function _loadIntegrityStatus() {
     cats.push({ key: cat.key, label: cat.label, raw, actionable, skipped, unknown });
   }
 
+  // 2.5) Phase 390: service_jobs missing-JV — RPC summary/INTEGRITY_CATS ไม่ครอบ service_jobs.
+  //   ตรวจผ่าน detector เดียวกับ Service Reconcile (source_id match) เพื่อไม่ให้ภาพรวมเขียวลวง.
+  //   fetch fail → svcUnknown (นับเป็น unknown ไม่เขียว) ตรงกับ readiness ใน periods.js
+  let svcMissing = 0, svcUnknown = false;
+  try {
+    const svc = await fetchServiceJVStatus({});
+    if (svc.ok) svcMissing = (svc.orphans || []).length;
+    else svcUnknown = true;
+  } catch (_) { svcUnknown = true; }
+
   // 3) render
-  const totalActionable = cats.reduce((s, c) => s + c.actionable.length, 0);
-  const totalUnknown = cats.reduce((s, c) => s + c.unknown, 0);
+  const totalActionable = cats.reduce((s, c) => s + c.actionable.length, 0) + svcMissing;
+  const totalUnknown = cats.reduce((s, c) => s + c.unknown, 0) + (svcUnknown ? 1 : 0);
   const checked = summary.checked_at ? String(summary.checked_at).slice(0, 16).replace("T", " ") : "";
 
   const chips = cats.map(c => `
@@ -478,21 +490,34 @@ async function _loadIntegrityStatus() {
       <div style="color:#475569;font-weight:600">${escHtml(c.label)}</div>
       <div style="color:#94a3b8">ไม่มี JE: <b style="color:#0f172a">${c.raw.toLocaleString()}</b></div>
       <div style="color:${c.actionable.length ? "#dc2626" : "#16a34a"}">ต้องแก้: <b>${c.actionable.length.toLocaleString()}</b> · ข้าม: ${c.skipped.toLocaleString()}${c.unknown ? ` · ?: ${c.unknown}` : ""}</div>
-    </div>`).join("");
+    </div>`).join("")
+    // Phase 390: service_jobs chip (แยก เพราะมาคนละแหล่ง — ดู Service Reconcile สำหรับรายการ + ปุ่ม re-post)
+    + `
+    <div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;font-size:12px">
+      <div style="color:#475569;font-weight:600">🔧 งานช่าง (รายได้)</div>
+      <div style="color:#94a3b8">ตรวจด้วย source_id (Service Reconcile)</div>
+      <div style="color:${svcUnknown ? '#b45309' : (svcMissing ? '#dc2626' : '#16a34a')}">${svcUnknown ? 'ตรวจไม่ได้: ?' : `ยังไม่เข้าบัญชี: <b>${svcMissing.toLocaleString()}</b>`}</div>
+    </div>`;
+
+  // Phase 390: บรรทัดบอกว่า service_jobs ตรวจแยกจาก RPC summary — ดู Service Reconcile สำหรับรายการ + ปุ่ม re-post
+  const svcNote = `<div style="font-size:12px;color:#64748b;margin-top:6px">🔧 งานช่าง (รายได้บริการ) ตรวจแยกด้วย source_id — ${svcUnknown ? 'รอบนี้ <b>ตรวจไม่ได้</b> (unknown)' : (svcMissing ? `พบ <b style="color:#dc2626">${svcMissing.toLocaleString()}</b> งานยังไม่เข้าบัญชี` : 'ครบ')} · ดู/แก้ที่หน้า <b>“ตรวจรายได้งานบริการเข้าบัญชี”</b> (Service Reconcile)</div>`;
 
   let head;
   if (totalActionable === 0 && totalUnknown === 0) {
-    head = `<div style="padding:10px 12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;color:#166534;font-weight:700">🟢 ธุรกรรมจริงมี JE ครบ — ไม่มีรายการค้างที่ต้อง backfill</div>
-            <div style="font-size:12px;color:#64748b;margin-top:6px">รายการที่ "ไม่มี JE" ที่เหลือเป็น test/ก่อน go-live (ก่อน 2026-05-01) หรือยอด ฿0 — ระบบข้ามถูกต้อง</div>`;
+    head = `<div style="padding:10px 12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;color:#166534;font-weight:700">🟢 ธุรกรรมจริงมี JE ครบ — ไม่มีรายการค้างที่ต้อง backfill (รวมงานบริการ)</div>
+            <div style="font-size:12px;color:#64748b;margin-top:6px">รายการที่ "ไม่มี JE" ที่เหลือเป็น test/ก่อน go-live (ก่อน 2026-05-01) หรือยอด ฿0 — ระบบข้ามถูกต้อง</div>
+            ${svcNote}`;
   } else if (totalActionable > 0) {
     const list = cats.filter(c => c.actionable.length).map(c =>
       `<div style="margin-top:4px"><b>${escHtml(c.label)}</b>: ${c.actionable.slice(0, 30).map(a => `#${escHtml(a.id)} (฿${_fmtAmt(a.amount)})`).join(", ")}${c.actionable.length > 30 ? ` … +${c.actionable.length - 30}` : ""}</div>`
     ).join("");
-    head = `<div style="padding:10px 12px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;color:#991b1b;font-weight:700">🔴 พบ ${totalActionable.toLocaleString()} รายการจริงที่ควรมี JE แต่ยังไม่มี</div>
+    head = `<div style="padding:10px 12px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;color:#991b1b;font-weight:700">🔴 พบ ${totalActionable.toLocaleString()} รายการจริงที่ควรมี JE แต่ยังไม่มี${svcMissing ? ` (รวมงานบริการ ${svcMissing.toLocaleString()})` : ''}</div>
             <div style="font-size:12px;color:#7f1d1d;margin-top:6px">${list}</div>
-            <div style="font-size:12px;color:#64748b;margin-top:6px">→ ใช้เครื่องมือ Backfill ด้านล่าง: เลือก source ที่เกี่ยว + ครอบช่วงวันที่ของรายการ แล้วกด "เริ่ม Backfill"</div>`;
+            <div style="font-size:12px;color:#64748b;margin-top:6px">→ ใช้เครื่องมือ Backfill ด้านล่าง: เลือก source ที่เกี่ยว + ครอบช่วงวันที่ของรายการ แล้วกด "เริ่ม Backfill"</div>
+            ${svcNote}`;
   } else {
-    head = `<div style="padding:10px 12px;background:#fef3c7;border:1px solid #fde68a;border-radius:8px;color:#78350f;font-weight:700">🟡 ตรวจได้บางส่วน — มี ${totalUnknown.toLocaleString()} รายการที่ classify ไม่ได้ (ลองกด "ตรวจใหม่")</div>`;
+    head = `<div style="padding:10px 12px;background:#fef3c7;border:1px solid #fde68a;border-radius:8px;color:#78350f;font-weight:700">🟡 ตรวจได้บางส่วน — มี ${totalUnknown.toLocaleString()} รายการที่ classify ไม่ได้ (ลองกด "ตรวจใหม่")</div>
+            ${svcNote}`;
   }
 
   panel.innerHTML = `${head}

@@ -7,6 +7,16 @@
 
 ---
 
+## 5.66.0 (build 390) — 2026-06-07 Phase 390 accounting-readiness-service-scope-fix (HIGH · money-path visibility) — รวมรายได้งานบริการเข้าการตรวจความครบของบัญชี
+
+- **fix (HIGH, money-path visibility):** close-readiness (`periods.js`) + Backfill Integrity (`backfill.js`) เดิมตรวจแค่ sales/expenses/payroll → ขึ้นเขียว **"📋 บิลมี JE ครบ ✅"** ทั้งที่งานบริการปิดแล้วยังไม่มี JE (live: `JOB-1780732840014` หลวงพี่ ฿600 ส่งมอบ 6 มิ.ย. → หลุดจาก P&L มิ.ย.)
+- **service_reconcile.js:** `findUnpostedServiceJobs` จับคู่ **source_id เป็น primary** + job_no ใน description เป็น fallback (array signature เดิม backward-compat) · shared read-only `fetchServiceJVStatus({fromDate,toDate,effectiveDate})` ดึง `service_jobs` (date-scoped ไม่ใช่ state ≤50) + `journal_entries` source_id/description · UI บอกช่วงวันที่/จำนวนที่ดึง · ปุ่ม re-post เดิม (manual, idempotent)
+- **periods.js:** `fetchCloseReadiness` +`serviceMissing`/`serviceUnknown` (**fetch fail → unknown ไม่เขียว**) · ตรวจ readiness **ทุกเดือนที่ไม่ใช่อนาคต** (เลิก gate `jvCount>0`) · `_monthNeedsAttention` → เดือน JV=0 ที่มีงานบริการค้าง/unknown ไม่ขึ้น "ไม่มีรายการในเดือนนี้" แต่ขึ้น "⚠️ ต้องตรวจ" + warning · readiness label แยก (Dr=Cr / บิล / orphan JV / **งานบริการ** / unknown) · lock-gate เตือน service
+- **backfill.js:** integrity panel รวม service-missing เข้า actionable/unknown totals (ไม่เขียวทั้งระบบถ้า service ยังแดง) + chip + note ลิงก์ Service Reconcile
+- **read-only:** ❌ ไม่แตะ SQL/RLS/schema/RPC · auto_post double-entry/COA internals (แค่เรียก postJournalForServiceJob) · raw JE insert · POS/stock/payroll/Phase 388/389 · ไม่ auto-post/auto-click/ไม่แก้ข้อมูลจริงอัตโนมัติ
+- **verify:** lint:errors **0** · +14 tests `accounting_readiness_service_scope` + update `service_reconcile_guard` · unit **1306** · e2e **12/12** · **pwa-cache:** bump 388→**390** (ข้าม 389 — UI draft pending แยก)
+- **owner smoke (หลัง deploy + re-post JOB-1780732840014):** Service Reconcile เขียว · P&L มิ.ย. revenue 510→**1,110** / ขาดทุน 978→**378** · Period Close มิ.ย. not-ready→**ready** · ถ้ามี service missing ใหม่ Period Close ต้อง not-ready
+
 ## 5.66.0 (build 388) — 2026-06-07 Phase 388 expense-delete-orphan-jv (HIGH · money path) — ลบรายจ่ายแล้ว void JV ด้วย
 
 - **fix (HIGH, money path §4.8):** ลบรายจ่ายในเมนูรายรับ-รายจ่าย เดิมเรียกแค่ `_appXhrDelete("expenses")` ไม่ void JV ที่ auto-post ไว้ → JV ค้างเป็น **orphan** ในงบการเงิน (เป็นต้นเหตุของ orphan แบบ PV2069/หลวงพี่ที่เพิ่งตามเก็บ)
