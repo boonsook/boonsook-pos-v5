@@ -205,16 +205,19 @@ export function renderServiceRequestPage(ctx) {
       const token = (await state.supabase.auth.getSession())?.data?.session?.access_token || cfg.anonKey;
 
       const record = {
+        // ★ Phase 394: sync กับ schema จริง service_jobs (live-verified 201)
+        //   - job_no = NOT NULL (gen pattern เดียวกับ main.saveServiceJob/ai_sales)
+        //   - ใช้ customer_address (ไม่มีคอลัมน์ address) · เก็บชนิดงานที่ sub_service (ไม่มี device_name)
+        job_no: "JOB-" + Date.now(),
         customer_name: userName,
         customer_phone: customerPhone,
         job_type: resolveJobType(typeVal),
-        device_name: typeVal,
+        sub_service: typeVal,
         description: symptom,
-        address: address,
+        customer_address: address,
         note: finalNote,
         status: "pending",
-        // ★ Phase 393: service_jobs.total_cost = NOT NULL → งานแจ้งซ่อมไม่มีค่าแรงตายตัว
-        //   ใช้ 0 (number) = "ยังไม่คิดเงิน" ค่อยใส่ตอน quote/ปิดงาน (status pending + 0 → auto_post ไม่โพสต์ SV)
+        // ★ Phase 393: service_jobs.total_cost = NOT NULL → 0 (งานแจ้งซ่อมยังไม่คิดเงิน; pending+0 → auto_post ไม่โพสต์ SV)
         total_cost: 0,
         created_by: state.currentUser?.id
       };

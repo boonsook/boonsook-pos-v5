@@ -7,6 +7,20 @@
 
 ---
 
+## 5.66.0 (build 394) — 2026-06-07 Phase 394 service-request-schema-column-mismatch-hotfix (HIGH · service blocked) — sync record กับ schema service_jobs
+
+- **fix (HIGH, service):** หลัง 393 (total_cost) แก้แล้ว ฟอร์มแจ้งซ่อม `service_request.js` ยัง POST service_jobs ได้ **HTTP 400 เสมอ** เพราะ record ส่งคอลัมน์ผิด schema 3 จุด (live-probe verified):
+  - `address` → service_jobs ไม่มีคอลัมน์นี้ (ต้อง `customer_address`) — **PGRST204**
+  - `device_name` → ไม่มีคอลัมน์ — **PGRST204**
+  - ขาด `job_no` (NOT NULL) — **23502**
+- **fix (record literal เท่านั้น, ไม่แตะ schema):** `address`→`customer_address` · ลบ `device_name` (เก็บชนิดงานที่ `sub_service: typeVal`) · +`job_no: "JOB-"+Date.now()` (pattern เดียวกับ main/ai_sales) · คง `total_cost: 0` (จาก 393)
+- **proof:** record ใหม่ `{job_no, customer_name, customer_phone, job_type, sub_service, description, customer_address, note, status:pending, total_cost:0, created_by}` → POST **201** ✅
+- **audit ทุก POST service_jobs:** main/ai_sales/ac_shop/ac_install/solar/service_form/customer_dashboard ใช้ `customer_address` + `job_no` ถูก (มี data จริง) · `address:` ใน ac_install/service_form เป็น **local `_lastSavedJob` object** (ปุ่มใบเสร็จ/LINE) ไม่ใช่ DB write → ปลอดภัย
+- **scope:** ❌ ไม่แตะ SQL/schema/constraint (แก้ client ให้ตรง schema) · accounting/POS/stock/payroll · LINE env
+- **note:** แก้สมมติฐานผิดของ Phase 393 (เดา address valid เพราะ error เป็น total_cost — จริง PostgREST รายงาน NOT NULL ก่อน column-not-found)
+- **verify:** lint:errors **0** · +1 guard `service_request schema columns` (รวม service_request_total_cost_guard 5) · unit **1329** · e2e **12/12** · **pwa-cache:** bump 393→**394**
+- **owner smoke:** สร้าง "AI TEST" แจ้งซ่อม → save **201 เข้าใบรับงาน** + LINE queue · ลบงานทดสอบหลัง smoke
+
 ## 5.66.0 (build 393) — 2026-06-07 Phase 393 service-request-total-cost-notnull-hotfix (HIGH · service blocked) — กัน save ล้มจาก NOT NULL
 
 - **fix (HIGH, service):** สร้างงานแจ้งซ่อมจาก AI/หน้า service_request → save ล้ม `"null value in column total_cost of relation service_jobs violates not-null constraint"` → งานไม่เข้า DB/คิวเลย (**ต้นเหตุจริงของ "งานช่างหลุดคิว"** ที่ Phase 391 ทำให้ error โผล่แทน success ปลอม)
