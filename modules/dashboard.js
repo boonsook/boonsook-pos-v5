@@ -34,6 +34,37 @@ function _trendMonths(sales, expenses) {
   return [...set].sort().slice(-12);   // เดือนที่มีข้อมูลจริง สูงสุด 12 เดือนล่าสุด
 }
 
+// ★ Phase 397: rows "ธุรกรรมล่าสุด" (display read-only) — รายการขายล่าสุด ≤30 จาก state ที่โหลด
+//   role-filtered (visibleSalesForRole = soft-delete + non-admin เห็นเฉพาะของตัวเอง, กัน data leak)
+//   clone ก่อน sort (ห้าม mutate state.sales) · escapeHtml ทุกค่าที่มาจาก DB (XSS)
+function _recentTxnRows(state) {
+  const sales = visibleSalesForRole(state?.sales, state?.profile, state?.currentUser);
+  const recent = [...(Array.isArray(sales) ? sales : [])]
+    .sort((a, b) => new Date(b?.created_at || 0) - new Date(a?.created_at || 0))
+    .slice(0, 30);
+  if (recent.length === 0) {
+    return `<div style="text-align:center;padding:32px;color:#94a3b8;font-size:13px">ยังไม่มีธุรกรรม</div>`;
+  }
+  return recent.map(s => {
+    const dt = s?.created_at ? new Date(s.created_at).toLocaleString("th-TH", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "—";
+    const orderNo = escapeHtml(s?.order_no || "—");
+    const cust = escapeHtml(s?.customer_name || "—");
+    const channel = escapeHtml(String(s?.payment_method || "—"));
+    const amt = money(Number(s?.total_amount || 0));
+    const outstanding = Number(s?.total_amount || 0) - Number(s?.credit_paid_amount || 0);
+    const creditBadge = (s?.is_credit && outstanding > 0.01)
+      ? ` <span style="background:#fef3c7;color:#92400e;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px">เครดิต</span>` : "";
+    return `
+      <div style="display:grid;grid-template-columns:96px minmax(0,1fr) minmax(0,1fr) 80px 100px;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid #f1f5f9;font-size:12px">
+        <div style="color:#64748b;white-space:nowrap">${dt}</div>
+        <div style="font-weight:700;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${orderNo}</div>
+        <div style="color:#334155;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${cust}</div>
+        <div style="color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${channel}</div>
+        <div style="text-align:right;font-weight:800;color:#0284c7;white-space:nowrap">${amt}${creditBadge}</div>
+      </div>`;
+  }).join("");
+}
+
 
 let salesChart = null;
 // ★ Pro panel chart instances
@@ -692,6 +723,18 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
           </div>` : '<div class="sku" style="margin-top:8px">ยังไม่มีค่าใช้จ่าย</div>'}
           <button id="goExpensesBtn" style="margin-top:10px;width:100%;padding:8px;border:1px solid #e2e8f0;border-radius:10px;background:#fff;font-size:12px;font-weight:600;color:#64748b;cursor:pointer">ดูรายละเอียดทั้งหมด →</button>
         </div>
+    </div>
+
+    <!-- ═══ RECENT TRANSACTIONS (Phase 397): read-only, scrollable ═══ -->
+    <div class="panel">
+      <div class="row"><h3 style="margin:0">🧾 ธุรกรรมล่าสุด</h3></div>
+      <div style="font-size:11px;color:#94a3b8;margin:-2px 0 8px">รายการขายล่าสุด (สูงสุด ~50 ที่โหลด) — ไม่ใช่ทั้งระบบ</div>
+      <div style="max-height:360px;overflow-y:auto;overflow-x:auto">
+        <div style="display:grid;grid-template-columns:96px minmax(0,1fr) minmax(0,1fr) 80px 100px;gap:8px;padding:6px 10px;position:sticky;top:0;background:#f8fafc;font-size:11px;font-weight:700;color:#64748b;border-bottom:1px solid #e2e8f0">
+          <div>วันที่/เวลา</div><div>เลขที่บิล</div><div>ลูกค้า</div><div>ช่องทาง</div><div style="text-align:right">ยอด</div>
+        </div>
+        ${_recentTxnRows(state)}
+      </div>
     </div>
 
     <!-- ═══ ALERTS ═══ -->
