@@ -7,6 +7,17 @@
 
 ---
 
+## 5.66.0 (build 398) — 2026-06-07 Phase 398 fix-gross-profit-kpi (MONEY WRITE-PATH) — เขียน sales.gross_profit ตอน checkout
+
+- **fix (money write-path §4.1):** KPI **"กำไรขั้นต้น"** บน dashboard อ่าน `sales.gross_profit` ที่แอป**ไม่เคยเขียน** → แสดง **฿0 เสมอ** (dead metric, verified column 42703). แก้โดยคำนวณ + เขียนตอน checkout
+- **schema (owner ran already):** `ALTER TABLE sales ADD COLUMN IF NOT EXISTS gross_profit NUMERIC(14,2)` + `NOTIFY pgrst` (2026-06-07) — column verified มีจริง (REST คืน 42501 RLS, ไม่ใช่ PGRST204) · migration `supabase-phase398-gross-profit.sql` ใน commit เป็นหลักฐาน (ไม่รันซ้ำ)
+- **`modules/pos.js`:** pure `_computeGrossProfit(cart, products, subtotal)` = **subtotal(ex-VAT) − Σ(products.cost × qty)** [cost = source เดียวกับ `sale_items.unit_cost`] · **null ถ้าตะกร้าว่าง/quick-pay** (ไม่ inflate กำไร) · round2
+- **doCheckout:** เพิ่ม `gross_profit` ใน salePayload (subtotal เดิม**ไม่เปลี่ยนค่า** = `_saleSubtotal`) + **defensive fallback**: ถ้า POST sales fail ด้วย column error → ตัด gross_profit แล้ว retry (**กัน checkout พัง**)
+- **ไม่แตะ:** amount/VAT/total/paid/change/discount เดิม · stock CAS · loyalty earn · JV auto-post (gross_profit เป็น field เกินที่ JV ignore) · inflight guard · sale_items/unit_cost (source) · dashboard.js
+- **verify:** lint:errors **0** · +7 tests `pos_gross_profit` (สูตร 80/null/0-cost/VAT-ex + fallback wiring) · **multi_payment/quick_pay/checkout_inflight guards เดิมเขียว** · unit **1348** · e2e **12/12** · **pwa-cache:** bump 397→**398**
+- **known risk:** บิลเก่า gross_profit=null (backfill แยก = future) · product cost=0 → กำไรเกินจริง (data quality)
+- **manual smoke money-path:** ขายจริง 1 บิล (สินค้ามี cost) → checkout ไม่ error · quick-pay → ไม่พัง (null) · #dashboard "กำไรขั้นต้น" > 0 ตรง (ราคา−ต้นทุน) · DB: `select gross_profit from sales order by id desc limit 3` บิลใหม่ไม่ null
+
 ## 5.66.0 (build 397) — 2026-06-07 Phase 397 dashboard-recent-txn (display · read-only) — ตารางธุรกรรมล่าสุด แบบ scroll
 
 - **feat (dashboard, display read-only):** เพิ่มบล็อก **"🧾 ธุรกรรมล่าสุด"** บนหน้า dashboard — ตารางรายการขายล่าสุด (≤30) แบบ scroll (max-height 360px) · columns: วันที่/เวลา · เลขที่บิล · ลูกค้า · ช่องทาง · ยอด (+ badge "เครดิต")
