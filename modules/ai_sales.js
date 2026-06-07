@@ -3,6 +3,8 @@
 //  ระบบแนะนำแอร์อัจฉริยะ: ถาม-ตอบ → คำนวณ BTU → แนะนำรุ่น
 // ═══════════════════════════════════════════════════════════
 
+import { describeLineResult } from "./line_notify.js";  // Phase 391: handle LINE queue result (ไม่ swallow เงียบ)
+
 // Phase 45.14 (XSS fix): escape user-supplied data before innerHTML
 const escHtml = (s) => String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 
@@ -696,12 +698,14 @@ export function renderAiSalesPage(ctx) {
                 }, 100);
               }
 
-              // LINE notify (safe — fire & forget with .catch)
+              // LINE notify (queue) — ★ Phase 391: await + handle result (เลิก swallow เงียบ; LINE fail ไม่ทำให้ order fail แต่ต้องเตือนชัด)
               try {
                 if (typeof ctx?.sendLineNotify === "function") {
-                  Promise.resolve(ctx.sendLineNotify(`🛒 ออเดอร์ใหม่จาก AI Sales!\nเลขที่: ${jobNo}\nลูกค้า: ${cName}\nโทร: ${cPhone}\nที่อยู่: ${cAddr}\nสินค้า: ${prodName}\nราคา: ${prodPrice.toLocaleString()} บาท`, { state, showToast }, "queue")).catch(() => {});
+                  const lr = await ctx.sendLineNotify(`🛒 ออเดอร์ใหม่จาก AI Sales!\nเลขที่: ${jobNo}\nลูกค้า: ${cName}\nโทร: ${cPhone}\nที่อยู่: ${cAddr}\nสินค้า: ${prodName}\nราคา: ${prodPrice.toLocaleString()} บาท`, { state, showToast }, "queue");
+                  const d = describeLineResult(lr, { context: "LINE คิวงาน" });
+                  if (d) showToast(d.msg, d.type);
                 }
-              } catch(lineErr) { /* skip */ }
+              } catch(lineErr) { console.warn("[ai_sales] LINE notify failed:", lineErr); }
             } else {
               throw new Error(res?.error?.message || "insert failed");
             }

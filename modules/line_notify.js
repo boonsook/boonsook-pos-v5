@@ -366,11 +366,38 @@ export async function sendLineNotify(message, ctx, target) {
       return { ok: false, error: detail };
     }
 
-    return { ok: true };
+    // Phase 391: surface server's usedFallback (queue/done ตกไป LINE_USER_ID เพราะยังไม่ตั้งกลุ่ม)
+    return { ok: true, usedFallback: !!(result && result.usedFallback) };
   } catch (error) {
     console.error('LINE Notify network error:', error);
     return { ok: false, error: String((error && error.message) || error) };
   }
+}
+
+/**
+ * Phase 391: แปลงผลลัพธ์ของ sendLineNotify → ข้อความ toast ที่ "พูดความจริง"
+ * แยกชัด: ส่งสำเร็จ (เงียบ) / fallback ไป user / ปิด LINE / ยังไม่ตั้ง env / ส่งล้มเหลว.
+ * ใช้กับ flow ที่ job save สำเร็จแล้ว — LINE fail ต้องไม่ทำให้ job fail แต่ต้อง "ไม่หลอกว่าส่งแล้ว".
+ * @param {{ok?:boolean, usedFallback?:boolean, skipped?:boolean, reason?:string, configured?:boolean, error?:string}|null} result
+ * @param {{context?:string}} [opts] - context label (เช่น "LINE คิวงาน")
+ * @returns {{ msg:string, type:'info'|'warning' } | null}  null = ส่งสำเร็จปกติ ไม่ต้องเตือน
+ */
+export function describeLineResult(result, opts = {}) {
+  const ctx = opts.context || 'LINE คิวงาน';
+  if (!result) return null;
+  if (result.ok) {
+    if (result.usedFallback) {
+      return { msg: `บันทึกงานแล้ว ✅ — แต่ส่ง ${ctx} ไปที่ผู้ใช้ส่วนตัว (ยังไม่ได้ตั้งกลุ่มคิว LINE_GROUP_QUEUE)`, type: 'warning' };
+    }
+    return null; // ส่งเข้ากลุ่มสำเร็จ — ไม่ต้องเตือน
+  }
+  if (result.skipped && result.reason === 'disabled') {
+    return { msg: `บันทึกงานแล้ว ✅ — ไม่ได้ส่ง ${ctx} (ปิดการแจ้งเตือน LINE อยู่)`, type: 'info' };
+  }
+  if (result.configured === false) {
+    return { msg: `บันทึกงานแล้ว ✅ แต่ส่ง ${ctx} ไม่ได้: ยังไม่ตั้งค่า LINE บนเซิร์ฟเวอร์`, type: 'warning' };
+  }
+  return { msg: `บันทึกงานแล้ว ✅ แต่ส่ง ${ctx} ไม่สำเร็จ: ${result.error || 'ไม่ทราบสาเหตุ'}`, type: 'warning' };
 }
 
 /**
