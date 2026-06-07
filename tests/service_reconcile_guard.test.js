@@ -152,9 +152,11 @@ test("re-post goes through postJournalForServiceJob (idempotent), not a raw JE i
   assert.doesNotMatch(SRC, /rest\/v1\/journal_lines/i);
 });
 
-test("does NOT mutate service_jobs status or write service_jobs (no collision w/ team 383)", () => {
-  assert.doesNotMatch(SRC, /rest\/v1\/service_jobs/i);
-  assert.doesNotMatch(SRC, /\.status\s*=/);            // no status assignment
+test("reads service_jobs READ-ONLY (GET) and never writes it (no collision w/ team 383)", () => {
+  // Phase 390: service_reconcile now fetches service_jobs (GET, date-scoped) for completeness.
+  // That is read-only — it must never carry a write method, never assign .status, never use 383's normalizer.
+  assert.doesNotMatch(SRC, /service_jobs[^"'`]*["'`]\s*,\s*\{[^}]*method:\s*["'](POST|PATCH|PUT|DELETE)/i);
+  assert.doesNotMatch(SRC, /\.status\s*=[^=]/);          // no status assignment
   assert.doesNotMatch(SRC, /normalizeServiceJobStatus/); // not touching 383's status logic
 });
 

@@ -14,7 +14,7 @@
 //   - ไม่แก้ status ของ service_jobs (ไม่แตะ logic ทีม 383), ไม่ mutate state, ไม่แตะ stock/POS
 //   - effective date เดียวกับ auto_post (2026-05-01): งานก่อนวันนั้น auto_post จะ skip → ไม่ flag
 
-import { escHtml, dateBkk } from "./utils.js";
+import { escHtml, dateBkk, todayBkk } from "./utils.js";
 import { postJournalForServiceJob } from "./accounting/auto_post.js";
 
 // สถานะ "ปิดงาน = รับรู้รายได้" — ตรงกับ postJournalForServiceJob (auto_post.js)
@@ -43,16 +43,54 @@ export function extractPostedJobNos(jeDescriptions) {
 }
 
 /**
+ * แปลง journal_entries rows (source = service_jobs) → reference สำหรับจับคู่
+ * @param {Array<{source_id?:any, description?:string}>} jeRows
+ * @returns {{ sourceIds: Set<string>, descriptions: string[] }}
+ */
+export function buildPostedRef(jeRows) {
+  const sourceIds = new Set();
+  const descriptions = [];
+  (Array.isArray(jeRows) ? jeRows : []).forEach(r => {
+    if (!r) return;
+    if (r.source_id !== undefined && r.source_id !== null && String(r.source_id) !== "") {
+      sourceIds.add(String(r.source_id));
+    }
+    if (r.description != null) descriptions.push(r.description);
+  });
+  return { sourceIds, descriptions };
+}
+
+/**
  * หา service job ที่ "ควรมี JE แต่ยังไม่มี" (orphan รายได้)
- * @param {Array} jobs - state.serviceJobs (rows)
- * @param {Array<string>} jeDescriptions - description ของ journal_entries (source = service_jobs)
+ *
+ * `posted` รับได้ 2 รูปแบบ:
+ *   - object `{ sourceIds: Set|Array, descriptions?: Array, jobNos?: Set|Array }`
+ *     → จับคู่ด้วย **source_id เป็น primary** (จุดที่ auto_post เขียน source_id=job.id),
+ *       ใช้ job_no ใน description เป็น **fallback** เท่านั้น. มี source_id info แล้ว
+ *       → flag งานที่ไม่มี job_no ได้ (จับด้วย id)
+ *   - array `<string>` (legacy) → ถือเป็น JE descriptions, จับคู่ด้วย job_no อย่างเดียว;
+ *       งานที่ไม่มี job_no = ตรวจไม่ได้ → ไม่ flag (กัน false-positive แบบเดิม)
+ *
+ * @param {Array} jobs - service_jobs rows
+ * @param {object|Array<string>} posted
  * @param {object} [opts]
  * @param {string} [opts.effectiveDate] - YYYY-MM-DD (default 2026-05-01)
  * @returns {Array} jobs ที่เป็น orphan (ตามลำดับเดิม)
  */
-export function findUnpostedServiceJobs(jobs, jeDescriptions, opts = {}) {
+export function findUnpostedServiceJobs(jobs, posted, opts = {}) {
   const effectiveDate = opts.effectiveDate || DEFAULT_EFFECTIVE_DATE;
-  const posted = extractPostedJobNos(jeDescriptions);
+  let sourceIds, jobNos, hasSourceIds;
+  if (posted && !Array.isArray(posted) && typeof posted === "object") {
+    sourceIds = posted.sourceIds instanceof Set ? posted.sourceIds : new Set((posted.sourceIds || []).map(String));
+    jobNos = posted.jobNos instanceof Set ? posted.jobNos
+      : (Array.isArray(posted.jobNos) ? new Set(posted.jobNos) : extractPostedJobNos(posted.descriptions || []));
+    hasSourceIds = true;
+  } else {
+    // legacy: array of JE descriptions → fallback (job_no) matching only
+    sourceIds = new Set();
+    jobNos = extractPostedJobNos(Array.isArray(posted) ? posted : []);
+    hasSourceIds = false;
+  }
   const out = [];
   (Array.isArray(jobs) ? jobs : []).forEach(job => {
     if (!job) return;
@@ -61,14 +99,17 @@ export function findUnpostedServiceJobs(jobs, jeDescriptions, opts = {}) {
     // 2) ต้องมียอดเงิน > 0
     const amount = Number(job.total_cost);
     if (!Number.isFinite(amount) || amount <= 0) return;
-    // 3) ต้องมีเลขงานรูปแบบ JOB-\d+ (ใช้จับคู่กับ description) — ไม่มี = ตรวจไม่ได้ (ไม่ flag มั่ว)
+    // 3) primary match: มี JE ที่ source_id = job.id แล้ว → ไม่ orphan
+    if (sourceIds.has(String(job.id))) return;
     const jobNo = String(job.job_no || "").trim();
-    if (!JOB_NO_ONE.test(jobNo)) return;
-    // 4) ต้องจ่าย/ปิดหลัง effective date (ก่อนวันนั้น auto_post จะ skip อยู่แล้ว → re-post ไม่เกิด JE)
+    const hasValidJobNo = JOB_NO_ONE.test(jobNo);
+    // 4) ไม่มี source_id info (legacy) + ไม่มีเลขงาน = จับคู่ไม่ได้ → ไม่ flag (กัน false-positive)
+    if (!hasSourceIds && !hasValidJobNo) return;
+    // 5) ต้องปิดหลัง effective date (ก่อนวันนั้น auto_post จะ skip อยู่แล้ว → re-post ไม่เกิด JE)
     const docDate = job.created_at ? dateBkk(job.created_at) : "";
     if (!docDate || String(docDate).slice(0, 10) < effectiveDate) return;
-    // 5) ยังไม่มี JE ที่อ้างถึงเลขงานนี้
-    if (posted.has(jobNo)) return;
+    // 6) fallback: มี JE description อ้างถึงเลขงานนี้ → ถือว่าเข้าบัญชีแล้ว
+    if (hasValidJobNo && jobNos.has(jobNo)) return;
     out.push(job);
   });
   return out;
@@ -78,17 +119,23 @@ export function findUnpostedServiceJobs(jobs, jeDescriptions, opts = {}) {
 //  RENDER (admin-only)
 // ═══════════════════════════════════════════════════════════
 
-const HONESTY = "ตรวจจาก: งานบริการที่โหลดมา (ล่าสุด ≤50) เทียบ JE ในสมุดรายวัน — งานเก่ากว่านั้นไม่อยู่ในมุมมองนี้";
+const HONESTY = "ตรวจจาก: งานบริการที่ปิดแล้ว (ส่งมอบ/เสร็จ/ปิด) ตั้งแต่ effective date เทียบ JE ในสมุดรายวัน — จับคู่ด้วย source_id เป็นหลัก, เลขงานใน description เป็นตัวสำรอง";
 const SCOPE_NOTE = "เกณฑ์ orphan: ปิดงานแล้ว (ส่งมอบ/เสร็จ/ปิด) + มียอดเงิน + ยังไม่มีรายการบันทึกบัญชี (JE)";
+
+// บรรทัดบอก scope จริงที่ตรวจ (ช่วงวันที่ / จำนวนที่ดึงได้) — honesty ตามข้อมูลจริง
+function scanMeta(res) {
+  if (!res || !res.fromDate) return HONESTY;
+  return `ตรวจช่วง ${res.fromDate} → ${res.toDate} · ดึงงานปิดแล้ว ${res.jobsFetched ?? "?"} งาน · เทียบ JE ${res.jeFetched ?? "?"} รายการ (จับคู่ด้วย source_id หลัก, เลขงานใน description สำรอง)`;
+}
 
 let _repostInflight = false;   // กันกดซ้ำหลายปุ่มพร้อมกัน
 
-function shell(bodyHtml) {
+function shell(bodyHtml, metaText) {
   return `
     <div class="svc-recon" style="max-width:900px;margin:0 auto;padding:16px">
       <h2 style="margin:0 0 4px;font-size:20px">🧾 ตรวจรายได้งานบริการเข้าบัญชี</h2>
       <div style="font-size:12px;color:#64748b;margin-bottom:2px">${escHtml(SCOPE_NOTE)}</div>
-      <div style="font-size:12px;color:#b45309;margin-bottom:14px">⚠️ ${escHtml(HONESTY)}</div>
+      <div style="font-size:12px;color:#b45309;margin-bottom:14px">⚠️ ${escHtml(metaText || HONESTY)}</div>
       ${bodyHtml}
     </div>`;
 }
@@ -106,12 +153,12 @@ function incompleteHtml(reason) {
     </div>`);
 }
 
-function emptyHtml() {
+function emptyHtml(res) {
   return shell(`
     <div style="background:#ecfdf5;border:1px solid #34d399;border-radius:8px;padding:20px;text-align:center;color:#065f46">
       <div style="font-size:15px;font-weight:600;margin-bottom:6px">✅ ไม่พบงานปิดแล้วที่ยังไม่เข้าบัญชี</div>
-      <div style="font-size:13px">งานบริการที่ปิดแล้วในมุมมองนี้มีรายการบันทึกบัญชี (JE) ครบ</div>
-    </div>`);
+      <div style="font-size:13px">งานบริการที่ปิดแล้วในช่วงที่ตรวจมีรายการบันทึกบัญชี (JE) ครบ</div>
+    </div>`, scanMeta(res));
 }
 
 function fmtAmount(n) {
@@ -141,30 +188,56 @@ function orphanCardHtml(job) {
     </div>`;
 }
 
-function resultsHtml(orphans) {
+function resultsHtml(orphans, res) {
   const parts = [];
   parts.push(`<div style="font-weight:700;font-size:14px;color:#b91c1c;margin:6px 0 8px">🚩 งานปิดแล้วแต่ยังไม่เข้าบัญชี (${orphans.length})</div>`);
   parts.push(orphans.map(orphanCardHtml).join(""));
   parts.push(`<div style="font-size:12px;color:#94a3b8;margin-top:12px">กด "ส่งเข้าบัญชีอีกครั้ง" เพื่อสร้างรายการบันทึกบัญชี (JE) — ปลอดภัยถ้ามีอยู่แล้ว (ระบบกันซ้ำให้)</div>`);
-  return shell(parts.join(""));
+  return shell(parts.join(""), scanMeta(res));
 }
 
-// fetch description ของ journal_entries ที่ source = service_jobs (READ-ONLY GET)
-async function fetchServiceJobJeDescriptions() {
+/**
+ * READ-ONLY GET (ใช้ร่วมกัน: service_reconcile / periods readiness / backfill integrity)
+ * ดึง service_jobs (income status, ตาม date range) + journal_entries (source_id,description ของ service_jobs)
+ * → หา orphan ผ่าน findUnpostedServiceJobs (source_id เป็น primary match)
+ * เลิกพึ่ง state.serviceJobs (≤50) → ตรวจครบตามช่วงวันที่จริง
+ * @param {object} [opts] - { fromDate?, toDate? (YYYY-MM-DD), effectiveDate? }
+ * @returns {Promise<{ok:boolean, orphans?:Array, jobsFetched?:number, jeFetched?:number, fromDate?:string, toDate?:string, reason?:string}>}
+ */
+export async function fetchServiceJVStatus(opts = {}) {
   const cfg = typeof window !== "undefined" ? window.SUPABASE_CONFIG : null;
   if (!cfg?.url) return { ok: false, reason: "ไม่พบการตั้งค่าเซิร์ฟเวอร์" };
   const token = (typeof window !== "undefined" ? window._sbAccessToken : null) || cfg.anonKey;
   const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token };
-  const url = cfg.url + "/rest/v1/journal_entries?source_table=eq.service_jobs"
-    + "&select=description&order=id.desc&limit=5000";
+
+  const effectiveDate = opts.effectiveDate || DEFAULT_EFFECTIVE_DATE;
+  const fromDate = opts.fromDate || effectiveDate;     // inclusive (YYYY-MM-DD)
+  const toDate = opts.toDate || todayBkk();            // inclusive (YYYY-MM-DD)
+  // created_at = timestamptz → ใช้ exclusive next-day เป็น upper bound (กัน row วันสุดท้ายหลุด)
+  const nd = new Date(toDate + "T00:00:00Z");
+  nd.setUTCDate(nd.getUTCDate() + 1);
+  const toExclusive = nd.toISOString().slice(0, 10);
+
+  const statusList = SERVICE_INCOME_STATUSES.join(",");
+  const jobsUrl = cfg.url + "/rest/v1/service_jobs"
+    + "?select=id,job_no,customer_name,status,total_cost,created_at"
+    + `&status=in.(${statusList})`
+    + `&created_at=gte.${fromDate}&created_at=lt.${toExclusive}`
+    + "&order=created_at.desc&limit=5000";
+  const jeUrl = cfg.url + "/rest/v1/journal_entries"
+    + "?source_table=eq.service_jobs&select=source_id,description&order=id.desc&limit=5000";
+
   try {
-    const r = await fetch(url, { headers });
-    if (!r.ok) return { ok: false, reason: "ดึงข้อมูลสมุดรายวันไม่สำเร็จ (HTTP " + r.status + ")" };
-    const rows = await r.json().catch(() => null);
-    if (!Array.isArray(rows)) return { ok: false, reason: "ข้อมูลสมุดรายวันรูปแบบไม่ถูกต้อง" };
-    return { ok: true, descriptions: rows.map(x => x?.description) };
+    const [jobsRes, jeRes] = await Promise.all([fetch(jobsUrl, { headers }), fetch(jeUrl, { headers })]);
+    if (!jobsRes.ok) return { ok: false, reason: "ดึงงานบริการไม่สำเร็จ (HTTP " + jobsRes.status + ")", fromDate, toDate };
+    if (!jeRes.ok) return { ok: false, reason: "ดึงข้อมูลสมุดรายวันไม่สำเร็จ (HTTP " + jeRes.status + ")", fromDate, toDate };
+    const jobs = await jobsRes.json().catch(() => null);
+    const jeRows = await jeRes.json().catch(() => null);
+    if (!Array.isArray(jobs) || !Array.isArray(jeRows)) return { ok: false, reason: "ข้อมูลรูปแบบไม่ถูกต้อง", fromDate, toDate };
+    const orphans = findUnpostedServiceJobs(jobs, buildPostedRef(jeRows), { effectiveDate });
+    return { ok: true, orphans, jobsFetched: jobs.length, jeFetched: jeRows.length, fromDate, toDate };
   } catch (e) {
-    return { ok: false, reason: "เครือข่ายมีปัญหา: " + (e?.message || e) };
+    return { ok: false, reason: "เครือข่ายมีปัญหา: " + (e?.message || e), fromDate, toDate };
   }
 }
 
@@ -172,24 +245,21 @@ async function _loadAndRender(ctx, container) {
   if (!document.body.contains(container)) return;
   container.innerHTML = loadingHtml();
 
-  const state = ctx?.state || {};
-  const jobs = Array.isArray(state.serviceJobs) ? state.serviceJobs.slice() : [];  // clone กัน mutate
-
-  const res = await fetchServiceJobJeDescriptions();
+  const res = await fetchServiceJVStatus({ effectiveDate: DEFAULT_EFFECTIVE_DATE });
   if (!document.body.contains(container)) return;
   if (!res.ok) {
     container.innerHTML = incompleteHtml(res.reason || "ไม่ทราบสาเหตุ");
     return;
   }
 
-  const orphans = findUnpostedServiceJobs(jobs, res.descriptions);
+  const orphans = res.orphans || [];
   if (!orphans.length) {
-    container.innerHTML = emptyHtml();
+    container.innerHTML = emptyHtml(res);
     return;
   }
-  container.innerHTML = resultsHtml(orphans);
+  container.innerHTML = resultsHtml(orphans, res);
 
-  // bind ปุ่ม re-post
+  // bind ปุ่ม re-post (พฤติกรรมเดิม — ไม่ auto-click/auto-post)
   const byId = {};
   orphans.forEach(j => { byId[String(j.id)] = j; });
   container.querySelectorAll(".svc-recon-repost").forEach(btn => {
