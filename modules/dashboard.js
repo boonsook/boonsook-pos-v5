@@ -312,6 +312,10 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
   const todayWebOrders = webOrders.filter(j => dateBkk(j.created_at) === today);
   const todayRevenue = todaySales.reduce((s,x)=>s+Number(x.total_amount||0),0) + todayWebOrders.reduce((s,x)=>s+Number(x.total_cost||0),0);
   const todayOrderCount = todaySales.length + todayWebOrders.length;
+  // ★ Phase 395: รายได้รวมวันนี้ = POS + web + งานบริการ (delivered/done/closed) — นิยามเดียวกับ income_overview/P&L
+  //   *ไม่แก้* "ยอดขายวันนี้" (todayRevenue = POS+web) — แค่ "เพิ่ม" การ์ดรายได้รวม
+  const todayServiceIncome = sumServiceJobIncome(state.serviceJobs, j => dateBkk(j.created_at) === today);
+  const todayTotalIncome = todayRevenue + todayServiceIncome;
 
   // ─── สรุปรวม ───
   const monthSales = allSales.filter(s => dateBkk(s.created_at).slice(0,7) === thisMonth);
@@ -440,6 +444,7 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
         const productCount = (state.products || []).length;
         const jobsCount = activeJobs ?? 0;
         return [
+          _kpiCard({ go: "income_overview", title: "ดูภาพรวมรายได้", label: "📈 รายได้วันนี้ (รวมบริการ)", value: money(todayTotalIncome), valueColor: "#059669" }),
           _kpiCard({ go: "receipts", title: "ดูใบเสร็จ", label: "🧾 ยอดขายเดือนนี้", value: money(monthRevenue) }),
           _kpiCard({ go: "customers", title: "ไปหน้าลูกค้า", label: "👥 ลูกค้าทั้งหมด", value: (state.customers || []).length.toLocaleString("th-TH") }),
           _kpiCard({ go: "products", title: "ไปหน้าสินค้า", label: "📦 สินค้าทั้งหมด", value: productCount.toLocaleString("th-TH") }),

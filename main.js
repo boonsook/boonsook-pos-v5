@@ -126,6 +126,7 @@ const LAZY_ROUTES = {
   // Phase 92.32 — Leave Management (admin + self)
   leave_management:           ["./modules/leave_management.js",            "renderLeaveManagementPage"],
   expense_overview:           ["./modules/expense_overview.js",            "renderExpenseOverviewPage"],
+  income_overview:            ["./modules/income_overview.js",             "renderIncomeOverviewPage"],
   profit_by_product:          ["./modules/profit_by_product.js",           "renderProfitByProductPage"],
   quote_templates:            ["./modules/quote_templates.js",             "renderQuoteTemplatesPage"],
   serials:                    ["./modules/serials.js",                     "renderSerialsPage"],
@@ -613,7 +614,7 @@ function _isLowStock(product){ return Number(product.stock||0) <= Number(product
 const SERVICE_FORM_TYPES = ["repair_ac","clean_ac","move_ac","satellite","repair_fridge","repair_washer","cctv","repair_tv","other"];
 const SERVICE_FORM_ROUTES = SERVICE_FORM_TYPES.map(t => "service_" + t);
 
-const ALL_ROUTES = ["dashboard","team_center","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","quote_templates","service_jobs","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","refunds","tasks","profit_by_product","birthdays","serials","warranty_report","calendar","loyalty","customer_dashboard","btu_calculator","service_request","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop","audit_log","hr_overview","leave_management","departments","payroll","payroll_overview","expense_overview","accounting_journals","accounting_journal_new","accounting_coa","accounting_backfill","accounting_trial_balance","accounting_profit_loss","accounting_balance_sheet","accounting_opening_balance","accounting_export_bundle","accounting_periods","time_clock","stock_reconcile_report","service_reconcile", ...SERVICE_FORM_ROUTES];
+const ALL_ROUTES = ["dashboard","team_center","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","quote_templates","service_jobs","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","refunds","tasks","profit_by_product","birthdays","serials","warranty_report","calendar","loyalty","customer_dashboard","btu_calculator","service_request","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop","audit_log","hr_overview","leave_management","departments","payroll","payroll_overview","expense_overview","income_overview","accounting_journals","accounting_journal_new","accounting_coa","accounting_backfill","accounting_trial_balance","accounting_profit_loss","accounting_balance_sheet","accounting_opening_balance","accounting_export_bundle","accounting_periods","time_clock","stock_reconcile_report","service_reconcile", ...SERVICE_FORM_ROUTES];
 const ROLE_PAGES = {
   admin:      ALL_ROUTES,
   technician: ["customer_dashboard","pos","sales","service_jobs","calendar","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop","time_clock","leave_management", ...SERVICE_FORM_ROUTES],
@@ -721,6 +722,7 @@ async function showRoute(route){
     customers:"ลูกค้า", quotations:"ใบเสนอราคา",
     service_jobs:"ใบรับงาน", settings:"ตั้งค่า",
     expenses:"รายรับ-รายจ่าย", profit_report:"รายงานกำไรขั้นต้น",
+    expense_overview:"ภาพรวมรายจ่าย", income_overview:"ภาพรวมรายได้",
     stock_movements:"ประวัติเคลื่อนไหวสต็อก", stock_reconcile_report:"ตรวจสต็อกงานบริการ (ตามเก็บ)", service_reconcile:"ตรวจรายได้งานบริการเข้าบัญชี", calendar:"ปฏิทินงานช่าง",
     loyalty:"สะสมแต้ม",
     customer_dashboard:"หน้าหลัก",
