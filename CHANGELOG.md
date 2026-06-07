@@ -7,6 +7,20 @@
 
 ---
 
+## 5.66.0 (build 393) — 2026-06-07 Phase 393 service-request-total-cost-notnull-hotfix (HIGH · service blocked) — กัน save ล้มจาก NOT NULL
+
+- **fix (HIGH, service):** สร้างงานแจ้งซ่อมจาก AI/หน้า service_request → save ล้ม `"null value in column total_cost of relation service_jobs violates not-null constraint"` → งานไม่เข้า DB/คิวเลย (**ต้นเหตุจริงของ "งานช่างหลุดคิว"** ที่ Phase 391 ทำให้ error โผล่แทน success ปลอม)
+- **root cause:** `service_jobs.total_cost` เป็น NOT NULL แต่ `service_request.js` POST record **ไม่มี field total_cost** → null → ชน constraint
+- **fix (client-side, ไม่แตะ schema/constraint):** `service_request.js` +`total_cost: 0` (งานแจ้งซ่อม = ยังไม่คิดเงิน, ค่อยใส่ตอน quote/ปิดงาน)
+- **audit ทุก POST service_jobs (8 paths) — เจอเพิ่ม 2:**
+  - `ac_shop.js`: ขาด total_cost → +`total_cost: prod.p` (ราคาจริง เหมือนฝาแฝด ai_sales ที่ใช้ prodPrice)
+  - `main.saveServiceJob`: เดิม `total_cost: ... : null` (ส่ง null เมื่อค่าแรง=0) → แก้เป็น `: 0` (ปิด NOT NULL bug เดียวกัน — admin job ค่าแรง=0 เซฟได้)
+  - ai_sales / ac_install / solar / service_form / customer_dashboard: มี total_cost อยู่แล้ว ✓
+- **auto_post ไม่ mis-post:** gate ที่ delivered/done/closed + total_cost>0 → status pending + total_cost 0 → ไม่โพสต์ SV
+- **scope:** ❌ ไม่แตะ SQL/schema/constraint · accounting/auto_post · POS/stock/payroll
+- **verify:** lint:errors **0** · +4 tests `service_request_total_cost_guard` · unit **1328** · e2e **12/12** · **pwa-cache:** bump 392→**393**
+- **owner re-smoke:** สร้าง "AI TEST" ซ่อมทีวีจาก AI/แจ้งซ่อม → **save เข้าใบรับงานได้จริง** + เข้า LINE queue · ลบงานทดสอบหลัง smoke
+
 ## 5.66.0 (build 392) — 2026-06-07 Phase 391 ai-service-job-queue-line-hotfix (HIGH · service operation) — งานจาก AI เข้าคิว + รายงานผล LINE
 
 - **fix (HIGH, service):** งานจาก AI chat / AI Sales / แจ้งซ่อม "ลงแล้วไม่เข้าใบรับงาน/คิวงานช่าง + ไม่ส่งกลุ่ม LINE คิวงาน" — งานเข้า DB จริง (POST awaited) แต่ UI หลอกว่า success ตอน save fail + LINE คิวงาน fail เงียบ

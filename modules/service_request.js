@@ -213,6 +213,9 @@ export function renderServiceRequestPage(ctx) {
         address: address,
         note: finalNote,
         status: "pending",
+        // ★ Phase 393: service_jobs.total_cost = NOT NULL → งานแจ้งซ่อมไม่มีค่าแรงตายตัว
+        //   ใช้ 0 (number) = "ยังไม่คิดเงิน" ค่อยใส่ตอน quote/ปิดงาน (status pending + 0 → auto_post ไม่โพสต์ SV)
+        total_cost: 0,
         created_by: state.currentUser?.id
       };
 

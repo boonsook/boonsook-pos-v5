@@ -455,6 +455,8 @@ export function renderAcShopPage(ctx) {
         customer_name: cName,
         job_type: "ac",
         status: "pending",
+        // ★ Phase 393: service_jobs.total_cost = NOT NULL → ส่งราคาจริง (เหมือนฝาแฝด ai_sales ที่ใช้ prodPrice)
+        total_cost: prod.p,
         description: `สั่งซื้อแอร์ (หน้าร้าน): ${prodName}\nBTU: ${prod.btu.toLocaleString()}\nราคา: ${prod.p.toLocaleString()} บาท\n📞 เบอร์: ${cPhone}\n📍 ที่อยู่: ${cAddr}${cNote ? "\n📝 หมายเหตุ: " + cNote : ""}`,
         note: `AC Shop: ${prodName} | ราคา ${prod.p.toLocaleString()} บาท | โทร: ${cPhone}`,
         created_at: new Date().toISOString()
