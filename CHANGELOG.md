@@ -7,6 +7,17 @@
 
 ---
 
+## 5.66.0 (build 395) — 2026-06-07 Phase 395 income-overview-page + dashboard-today-income (feature · read-only) — หน้า "ภาพรวมรายได้" + การ์ดรายได้วันนี้
+
+- **feat (report, read-only):** เพิ่มหน้า **"ภาพรวมรายได้"** (`modules/income_overview.js`, คู่กับ ภาพรวมรายจ่าย) ในเมนู ภาพรวม/รายงาน + การ์ด **"รายได้วันนี้"** (รวมงานบริการ) ในหน้าภาพรวมบริษัท
+- **นิยาม "รายได้" = เดียวกับ dashboard/P&L:** POS sales + web orders + งานบริการ (delivered/done/closed) — **reuse** `sumServiceJobIncome`/`isWebOrderServiceJob`/`isServiceIncomeJob` จาก dashboard.js (single source of truth, กัน divergence แบบ Phase 387) ไม่คิดสูตรเอง
+- **income_overview.js (Part A):** อ่าน `ctx.state` เท่านั้น (read-only, ไม่ fetch/ไม่ mutate, admin-gated) · period today/เดือน/ปี · stat cards (รายได้รวม/POS/บริการ/เว็บ) · Chart.js donut ตามแหล่ง + bar รายเดือน · ยอดรวมเดือน = ที่ P&L/dashboard แสดง
+- **dashboard.js (Part B):** +`todayServiceIncome`/`todayTotalIncome` + การ์ด `_kpiCard` "รายได้วันนี้" (go:`income_overview`) — **ไม่แก้** "ยอดขายวันนี้" (todayRevenue=POS+web) แค่เพิ่มการ์ดรายได้รวม · dashboard ยัง read-only
+- **wire:** main.js LAZY_ROUTES + ALL_ROUTES(admin) + titles · index.html nav-btn (กลุ่มภาพรวม/รายงาน) + section
+- **scope:** ❌ ไม่แตะ money write/POS/cart/stock · accounting JV/auto_post · schema/SQL/RLS
+- **verify:** lint:errors **0** · +5 tests `income_overview_guard` (read-only + helper-reuse + wiring + dashboard card) · dashboard_readonly/income/ui guards เดิมเขียว · unit **1334** · e2e **12/12** · **pwa-cache:** bump 394→**395**
+- **owner smoke:** เปิด "ภาพรวมรายได้" → ยอดรวมเดือน = P&L (เช่น มิ.ย. 2,110) · การ์ด "รายได้วันนี้" รวมงานบริการถูก · ปุ่ม nav ไปหน้าใหม่ได้
+
 ## 5.66.0 (build 394) — 2026-06-07 Phase 394 service-request-schema-column-mismatch-hotfix (HIGH · service blocked) — sync record กับ schema service_jobs
 
 - **fix (HIGH, service):** หลัง 393 (total_cost) แก้แล้ว ฟอร์มแจ้งซ่อม `service_request.js` ยัง POST service_jobs ได้ **HTTP 400 เสมอ** เพราะ record ส่งคอลัมน์ผิด schema 3 จุด (live-probe verified):
