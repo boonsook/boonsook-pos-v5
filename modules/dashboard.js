@@ -25,6 +25,15 @@ export function sumServiceJobIncome(serviceJobs, dateMatch) {
     (isServiceIncomeJob(j) && !isWebOrderServiceJob(j) && dateMatch(j)) ? s + Number(j.total_cost || 0) : s, 0);
 }
 
+// ★ Phase 396: เดือน (YYYY-MM) ที่ "มีข้อมูลจริง" จาก sales/expenses ที่โหลดมา (cap 50/200 — ไม่ใช่ 12 เดือนเต็ม)
+//   ใช้ร่วมกัน: markup empty-check + renderChart (single source) · ไม่ mutate input (sort สำเนา)
+function _trendMonths(sales, expenses) {
+  const set = new Set();
+  (Array.isArray(sales) ? sales : []).forEach(s => { const k = s?.created_at ? dateBkk(s.created_at).slice(0, 7) : ""; if (k) set.add(k); });
+  (Array.isArray(expenses) ? expenses : []).forEach(e => { const k = String(e?.expense_date || "").slice(0, 7); if (k) set.add(k); });
+  return [...set].sort().slice(-12);   // เดือนที่มีข้อมูลจริง สูงสุด 12 เดือนล่าสุด
+}
+
 
 let salesChart = null;
 // ★ Pro panel chart instances
@@ -632,16 +641,17 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
       <div class="pro-chart-wrap" style="height:180px"><canvas id="jobStatusChart"></canvas></div>
     </div>
 
-    <!-- ═══ CHARTS + TOP PRODUCTS + EXPENSES (existing) ═══ -->
-    <div class="two-col">
-      <!-- กราฟยอดขาย -->
-      <div class="panel">
-        <div class="row"><h3 style="margin:0">กราฟยอดขาย 12 เดือน</h3><div class="muted">รายเดือน</div></div>
-        <div class="chart-wrap"><canvas id="salesChart"></canvas></div>
-      </div>
+    <!-- ═══ TREND (Phase 396): income vs expense line — full width ═══ -->
+    <div class="panel">
+      <div class="row"><h3 style="margin:0">📈 แนวโน้มรายได้ & ค่าใช้จ่าย</h3></div>
+      <div style="font-size:11px;color:#94a3b8;margin:-2px 0 8px">จากรายการล่าสุดที่โหลด (บิล ~50 / ค่าใช้จ่าย ~200) — ไม่ใช่ทั้งระบบ</div>
+      ${_trendMonths(allSales, expenses).length === 0
+        ? `<div style="text-align:center;padding:40px;color:#94a3b8;font-size:13px">ยังไม่มีข้อมูลพอแสดงแนวโน้ม</div>`
+        : `<div class="chart-wrap" style="height:260px"><canvas id="salesChart"></canvas></div>`}
+    </div>
 
-      <!-- สินค้าขายดีวันนี้ + ค่าใช้จ่ายเดือนนี้ -->
-      <div style="display:grid;gap:16px">
+    <!-- ═══ TOP PRODUCTS + EXPENSES (Phase 396: re-parented from two-col; เนื้อหาเดิมไม่เปลี่ยน) ═══ -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px">
         ${topProducts.length > 0 ? `
         <div class="panel">
           <h3 style="margin:0 0 10px 0">🏆 สินค้าขายดีวันนี้</h3>
@@ -682,7 +692,6 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
           </div>` : '<div class="sku" style="margin-top:8px">ยังไม่มีค่าใช้จ่าย</div>'}
           <button id="goExpensesBtn" style="margin-top:10px;width:100%;padding:8px;border:1px solid #e2e8f0;border-radius:10px;background:#fff;font-size:12px;font-weight:600;color:#64748b;cursor:pointer">ดูรายละเอียดทั้งหมด →</button>
         </div>
-      </div>
     </div>
 
     <!-- ═══ ALERTS ═══ -->
@@ -822,7 +831,7 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
     }
   }));
 
-  renderChart(allSales);
+  renderChart(allSales, expenses);
 
   // ★ Pro panels render
   renderProPanels({ allSales, webOrders, expenses, serviceJobs: (state.serviceJobs||[]) });
@@ -1119,25 +1128,26 @@ function renderJobStatusPanel(serviceJobs) {
 import { escHtml as escapeHtml } from "./utils.js";
 
 // ─── Chart ───
-function renderChart(sales) {
-  const labels = [];
-  const values = [];
-  const now = new Date();
-  for (let i=11;i>=0;i--) {
-    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
-    const key = dateBkk(d).slice(0,7);
-    labels.push(d.toLocaleDateString("th-TH", {month:"short", year:"numeric"}));
-    // Phase 89.28: dateBkk(created_at) → ปี-เดือน ใน BKK
-    values.push(sales.filter(s => dateBkk(s.created_at).slice(0,7) === key).reduce((sum,s)=>sum+Number(s.total_amount||0),0));
-  }
+// ★ Phase 396: line chart แนวโน้ม "รายได้" vs "ค่าใช้จ่าย" ตามเดือนที่มีข้อมูลจริง (full-width)
+function renderChart(sales, expenses) {
+  if (typeof Chart === "undefined") return;
   const canvas = document.getElementById("salesChart");
   if (!canvas) return;
+  const months = _trendMonths(sales, expenses);   // เดือนจริงเท่านั้น (ไม่ใช่ rolling 12 มีเดือนว่าง)
   // ★ Cleanup: destroy existing chart and set to null before creating new one
   if (salesChart) { salesChart.destroy(); salesChart = null; }
+  if (months.length === 0) return;   // empty-state แสดงใน markup แทน canvas
+  const labels = months.map(m => { const d = new Date(m + "-01"); return d.toLocaleDateString("th-TH", { month: "short", year: "2-digit" }); });
+  // Phase 89.28: dateBkk(created_at) → ปี-เดือน ใน BKK · NaN-safe (Number(...||0))
+  const incomeData = months.map(m => (Array.isArray(sales) ? sales : []).filter(s => s?.created_at && dateBkk(s.created_at).slice(0,7) === m).reduce((sum,s)=>sum+Number(s.total_amount||0),0));
+  const expenseData = months.map(m => (Array.isArray(expenses) ? expenses : []).filter(e => String(e?.expense_date||"").slice(0,7) === m).reduce((sum,e)=>sum+Number(e.amount||0),0));
   salesChart = new Chart(canvas, {
-    type:"bar",
-    data:{labels,datasets:[{label:"ยอดขาย",data:values,backgroundColor:"rgba(2,132,199,.6)",borderRadius:6}]},
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{ticks:{callback:v=>moneyShort(v)}}}}
+    type:"line",
+    data:{ labels, datasets:[
+      { label:"รายได้",     data:incomeData,  borderColor:"#0284c7", backgroundColor:"rgba(2,132,199,.08)", fill:true, tension:0.3, pointRadius:3, borderWidth:2 },
+      { label:"ค่าใช้จ่าย", data:expenseData, borderColor:"#ef4444", backgroundColor:"rgba(239,68,68,.08)",  fill:true, tension:0.3, pointRadius:3, borderWidth:2 }
+    ]},
+    options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{ display:true } }, scales:{ y:{ ticks:{ callback:v=>moneyShort(v) } } } }
   });
 }
 

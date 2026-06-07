@@ -7,6 +7,16 @@
 
 ---
 
+## 5.66.0 (build 396) — 2026-06-07 Phase 396 dashboard-trend-line (display · read-only) — กราฟเส้นแนวโน้มรายได้ vs ค่าใช้จ่าย เต็มความกว้าง
+
+- **feat (dashboard, display read-only):** แปลงกราฟ bar **"ยอดขาย 12 เดือน"** (dataset เดียว, label หลอกว่า "12 เดือน" ทั้งที่ data cap) → **line chart เต็มความกว้าง 2 เส้น**: "รายได้" (ฟ้า #0284c7) vs "ค่าใช้จ่าย" (แดง #ef4444) ตามเดือนที่มีข้อมูลจริง
+- **`renderChart(sales, expenses)`:** guard `typeof Chart` · helper `_trendMonths` (single source: markup empty-check + chart) bucket **เฉพาะเดือนที่มีข้อมูลจริง** จาก `state.sales`(cap ~50) + `state.expenses`(cap ~200) — sort **สำเนา** + slice(-12) (ไม่ mutate) · legend โชว์ 2 เส้น · y = moneyShort · empty-state ถ้าไม่มีเดือน
+- **markup:** ย้าย `#salesChart` ออกจาก `.two-col` → **panel full-width** + title "📈 แนวโน้มรายได้ & ค่าใช้จ่าย" + **caption ซื่อตรง** "จากรายการล่าสุดที่โหลด (บิล ~50 / ค่าใช้จ่าย ~200) — ไม่ใช่ทั้งระบบ" (เลิก label "12 เดือน" misleading) · top-products/expenses re-parent เป็น grid ของตัวเอง (เนื้อหาเดิมครบ)
+- **read-only ล้วน:** ❌ ไม่ fetch/network/RPC/write · ไม่ mutate state.sales/expenses · ไม่แตะ logic เงิน/สต็อก/บัญชี/schema/SQL · ไม่แตะ shared CSS `.two-col`/`.panel`/`.pro-*` · ไม่ย่อ sidebar · ไม่เพิ่ม dependency
+- **verify:** lint:errors **0** · +4 tests `dashboard_trend_chart` · dashboard_readonly/income/ui guards เดิมเขียว · unit **1338** · e2e **12/12** · **pwa-cache:** bump 395→**396**
+- **known risk:** กราฟแนวโน้มจำกัดที่ข้อมูล loaded (50/200) — caption ซื่อตรงแล้ว; true 12-month trend = phase ถัดไป (server-side RPC aggregate)
+- **manual smoke:** เปิด #dashboard (Ctrl+Shift+R) → line chart เต็มกว้าง 2 เส้น + legend + caption · panel สินค้าขายดี/ค่าใช้จ่ายเดือนนี้ ยังอยู่ · chart/tabs อื่นไม่พัง
+
 ## 5.66.0 (build 395) — 2026-06-07 Phase 395 income-overview-page + dashboard-today-income (feature · read-only) — หน้า "ภาพรวมรายได้" + การ์ดรายได้วันนี้
 
 - **feat (report, read-only):** เพิ่มหน้า **"ภาพรวมรายได้"** (`modules/income_overview.js`, คู่กับ ภาพรวมรายจ่าย) ในเมนู ภาพรวม/รายงาน + การ์ด **"รายได้วันนี้"** (รวมงานบริการ) ในหน้าภาพรวมบริษัท
