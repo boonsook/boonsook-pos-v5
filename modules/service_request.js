@@ -3,6 +3,7 @@
 // ═══════════════════════════════════════════════════════════
 // Phase 347: รับ "คำขอจอง" จากแคตตาล็อกแอร์ (หน้าร้าน) มา prefill — user ต้องกดส่งเอง
 import { consumeAirBookingDrafts } from "./ac_booking_draft.js";
+import { describeLineResult } from "./line_notify.js";
 
 const SERVICE_TYPES = [
   "🔧 ซ่อมแอร์",
@@ -228,6 +229,9 @@ export function renderServiceRequestPage(ctx) {
 
       if (!resp.ok) throw new Error("HTTP " + resp.status);
 
+      // ★ Phase 391: บอก AI chat widget ว่าบันทึกสำเร็จจริง (กัน success ปลอม เมื่อ widget click srSubmitBtn)
+      try { window.dispatchEvent(new CustomEvent("service-job:saved", { detail: { source: "service_request" } })); } catch (_) {}
+
       // ★ Phase 350: confirmation ชัดเจน + ปุ่ม "ดูงานของฉัน" (ถ้า route พร้อม)
       const okTitle = _isBooking ? "ส่งคำขอแล้ว!" : "แจ้งซ่อมสำเร็จ!";
       const okMsg = _isBooking
@@ -249,15 +253,25 @@ export function renderServiceRequestPage(ctx) {
       container.querySelector("#srSymptom").value = "";
       container.querySelector("#srNote").value = "";
 
-      // Send LINE notify if available — server-side token
+      // Send LINE notify — ★ Phase 391: ต้องส่งเข้า "queue" (กลุ่มคิวงาน) ไม่ใช่ default (LINE_USER_ID)
+      //   + await + handle result (LINE fail ต้องไม่ทำให้งาน fail แต่ต้องเตือนชัด ไม่หลอกว่าส่งแล้ว)
       if (typeof ctx.sendLineNotify === "function") {
-        ctx.sendLineNotify(
-          `✍️ ลูกค้าแจ้งซ่อม!\n🔧 ${typeVal}\n👤 ${userName} | 📞 ${customerPhone}\n📍 ${address || "-"}\n⚡ ${symptom.substring(0, 120)}`,
-          { state, showToast }
-        );
+        try {
+          const lr = await ctx.sendLineNotify(
+            `✍️ ลูกค้าแจ้งซ่อม!\n🔧 ${typeVal}\n👤 ${userName} | 📞 ${customerPhone}\n📍 ${address || "-"}\n⚡ ${symptom.substring(0, 120)}`,
+            { state, showToast },
+            "queue"
+          );
+          const d = describeLineResult(lr, { context: "LINE คิวงาน" });
+          if (d) showToast(d.msg, d.type);
+        } catch (lineErr) {
+          console.warn("[service_request] LINE notify failed:", lineErr);
+          showToast("แจ้งซ่อมสำเร็จ แต่ส่ง LINE คิวงานไม่สำเร็จ (network)", "warning");
+        }
       }
     } catch (e) {
       console.error("[service_request submit] error:", e);
+      try { window.dispatchEvent(new CustomEvent("service-job:save-failed", { detail: { reason: e.message, source: "service_request" } })); } catch (_) {}
       statusEl.textContent = "เกิดข้อผิดพลาด: " + e.message;
       showToast("แจ้งซ่อมไม่สำเร็จ");
     } finally {

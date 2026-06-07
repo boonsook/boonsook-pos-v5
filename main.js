@@ -12,7 +12,7 @@ import { renderSettingsPage } from "./modules/settings/index.js";
 // Phase 89.20/89.21: delivery_invoices, receipts, expenses lazy
 import { renderStockMovementsPage } from "./modules/stock_movements.js";
 // Phase 89.21: profit_report, calendar, loyalty lazy
-import { renderLineNotifySettings, sendLineNotify } from "./modules/line_notify.js";
+import { renderLineNotifySettings, sendLineNotify, describeLineResult } from "./modules/line_notify.js";
 import { renderPermissionMatrix, hasPermission } from "./modules/permission_matrix.js";
 // Phase 92.1/92.2/92.3: extracted DOM-paint + logo-source resolver + Supabase
 // Storage pull from main.js. main.js keeps thin wrappers that bind live globals
@@ -2617,6 +2617,10 @@ function _setServicePhotoPreview(which, url) {
   }
 }
 async function saveServiceJob(){
+  // ★ Phase 391: signal ผลการบันทึกจริง ให้ AI chat widget (กัน "success ปลอม" ตอน save fail)
+  const _signalSave = (ok, detail) => {
+    try { window.dispatchEvent(new CustomEvent(ok ? "service-job:saved" : "service-job:save-failed", { detail: detail || {} })); } catch (_) {}
+  };
   const descVal = $("serviceTitle").value.trim();
   // ★ Phase 88.8: ค่าแรง/ส่วนลด/total_cost/payment_method สำหรับลง JV
   const totalCostVal = Number($("serviceTotalCost")?.value || 0);
@@ -2642,8 +2646,9 @@ async function saveServiceJob(){
     try { payload.tags = _serviceJobTagWidget.getValue(); } catch(_){}
   }
   // ★ VALIDATE: ตรวจสอบข้อมูลก่อนส่ง
-  if (!payload.customer_name || !payload.description) return showToast("กรอกข้อมูลงานช่างให้ครบ");
+  if (!payload.customer_name || !payload.description) { _signalSave(false, { reason: "กรอกข้อมูลงานช่างให้ครบ" }); return showToast("กรอกข้อมูลงานช่างให้ครบ"); }
   if (payload.customer_phone && !isValidPhone(payload.customer_phone)) {
+    _signalSave(false, { reason: "เบอร์โทรลูกค้าไม่ถูกต้อง" });
     return showToast("เบอร์โทรลูกค้าไม่ถูกต้อง (ต้องมี 10 หลักขึ้นไป)");
   }
   let res;
@@ -2655,7 +2660,7 @@ async function saveServiceJob(){
     // ★ Phase 88.1b: ขอ returnData=true เพื่อเอา id กลับมา auto-post JV
     res = await xhrPost("service_jobs", payload, { returnData: true });
   }
-  if (!res.ok) return showToast(res.error?.message || "บันทึกงานช่างไม่สำเร็จ");
+  if (!res.ok) { _signalSave(false, { reason: res.error?.message || "บันทึกงานช่างไม่สำเร็จ" }); return showToast(res.error?.message || "บันทึกงานช่างไม่สำเร็จ"); }
 
   // Phase 45.9: optimistic update + background reload
   // เดิม `await loadAllData()` block 10-30s ทุกครั้งหลัง save (slow connection อาจถึง 2 นาที)
@@ -2667,6 +2672,13 @@ async function saveServiceJob(){
       state.serviceJobs = [res.data[0], ...(state.serviceJobs || [])];
     }
   } catch(e) { console.warn("[saveServiceJob] optimistic update fail", e); }
+
+  // ★ Phase 391: บอก AI chat widget ว่า "บันทึกสำเร็จจริง" (พร้อม job_no) ก่อน reset state
+  _signalSave(true, {
+    job_no: payload.job_no || (isNewJob ? "" : String(state.editingServiceJobId || "")),
+    id: state.editingServiceJobId || (Array.isArray(res.data) && res.data[0] && res.data[0].id) || null,
+    isNew: isNewJob
+  });
 
   closeAllDrawers();
   showToast("บันทึกงานช่างแล้ว");
@@ -2688,9 +2700,13 @@ async function saveServiceJob(){
         + "📍 " + (payload.customer_address || "-") + "\n"
         + "⚡ " + (payload.description || "").substring(0, 120) + "\n"
         + "📝 เลขที่: " + payload.job_no;
-      sendLineNotify(msg, { state, showToast }, "queue");
+      // ★ Phase 391: await + handle result — job save สำเร็จแล้ว (LINE fail ต้องไม่ทำให้ fail) แต่ต้องเตือนชัด ไม่หลอกว่าส่งแล้ว
+      const lr = await sendLineNotify(msg, { state, showToast }, "queue");
+      const d = describeLineResult(lr, { context: "LINE คิวงาน" });
+      if (d) showToast(d.msg, d.type);
     } catch (e) {
       console.warn("LINE notify (new service job) failed:", e);
+      showToast("บันทึกงานแล้ว แต่ส่ง LINE คิวงานไม่สำเร็จ (network)", "warning");
     }
   }
 

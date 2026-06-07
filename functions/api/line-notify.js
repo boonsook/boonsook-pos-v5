@@ -34,10 +34,17 @@ export async function onRequestPost(context) {
     // ★ เลือกปลายทางตาม target (มี fallback เป็น LINE_USER_ID เสมอ)
     const userId = context.env.LINE_USER_ID;
     let recipient = userId;
+    // Phase 391: usedFallback = boolean เท่านั้น (ไม่เปิดเผย id/secret) — แจ้ง client ว่า queue/done
+    //   ตกไปที่ LINE_USER_ID เพราะยังไม่ได้ตั้งกลุ่ม (LINE_GROUP_QUEUE / LINE_GROUP_DONE)
+    let usedFallback = false;
     if (target === "queue") {
-      recipient = context.env.LINE_GROUP_QUEUE || userId;
+      const grp = context.env.LINE_GROUP_QUEUE;
+      recipient = grp || userId;
+      usedFallback = !grp && !!userId;
     } else if (target === "done") {
-      recipient = context.env.LINE_GROUP_DONE || userId;
+      const grp = context.env.LINE_GROUP_DONE;
+      recipient = grp || userId;
+      usedFallback = !grp && !!userId;
     }
 
     if (!token || !recipient) {
@@ -78,6 +85,8 @@ export async function onRequestPost(context) {
     return new Response(JSON.stringify({
       ok: allOk,
       configured: true,
+      target,
+      usedFallback,
       results
     }), { status: allOk ? 200 : 502, headers: corsHeaders });
 

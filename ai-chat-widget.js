@@ -924,11 +924,9 @@
       pushMsg("ai", `✓ กรอกแบบฟอร์มให้แล้ว ${filled} ช่อง — กำลังบันทึกงานเข้าคิว...`);
       // รอ 600ms ให้ field update เสร็จก่อน click save
       setTimeout(() => {
-        const ok = autoSubmit();
-        if (ok) {
-          pushMsg("ai", "✅ บันทึกงานเรียบร้อย! งานเข้าคิวแล้วครับ 🎉");
-          setTimeout(() => close(), 1800);
-        }
+        const clicked = autoSubmit();
+        // ★ Phase 391: ห้ามโชว์ success ทันที — รอ signal จากการ save จริง (service-job:saved/save-failed)
+        if (clicked) waitForSaveResult();
       }, 600);
     } else {
       pushMsg(
@@ -936,6 +934,35 @@
         'ไม่พบช่องที่ตรงในหน้านี้ครับ กรุณาเปิดหน้า "แจ้งซ่อม/บริการ" ก่อน แล้วกดปุ่ม AI อีกครั้งนะครับ'
       );
     }
+  }
+
+  // ★ Phase 391: รอผลบันทึก "จริง" จาก save handler (CustomEvent) ก่อนบอกลูกค้าว่างานเข้าคิว
+  //   saved → success (+ เลขงาน) · save-failed → แจ้ง fail ให้แก้ · timeout 8s (เช่น solar ที่ยังไม่ส่ง signal)
+  //   → ข้อความ neutral "กรุณาตรวจสอบผล" ไม่ใช่ success ปลอม
+  function waitForSaveResult() {
+    let settled = false;
+    function cleanup() {
+      window.removeEventListener("service-job:saved", onSaved);
+      window.removeEventListener("service-job:save-failed", onFailed);
+      clearTimeout(timer);
+    }
+    function onSaved(e) {
+      if (settled) return; settled = true; cleanup();
+      const jobNo = e && e.detail && e.detail.job_no;
+      pushMsg("ai", `✅ บันทึกงานเรียบร้อย! งานเข้าคิวแล้วครับ${jobNo ? ` (เลขที่ ${jobNo})` : ""} 🎉`);
+      setTimeout(() => close(), 1800);
+    }
+    function onFailed(e) {
+      if (settled) return; settled = true; cleanup();
+      const reason = (e && e.detail && e.detail.reason) ? `: ${e.detail.reason}` : "";
+      pushMsg("ai", `⚠️ ยังบันทึกงานไม่สำเร็จ${reason} — กรุณาตรวจสอบข้อมูลในฟอร์มแล้วกด "บันทึก" อีกครั้งนะครับ`);
+    }
+    window.addEventListener("service-job:saved", onSaved);
+    window.addEventListener("service-job:save-failed", onFailed);
+    const timer = setTimeout(() => {
+      if (settled) return; settled = true; cleanup();
+      pushMsg("ai", 'กรอกข้อมูลให้แล้วครับ — กรุณากดปุ่ม "บันทึก" แล้วตรวจสอบว่างานเข้าคิวเรียบร้อยอีกครั้งนะครับ');
+    }, 8000);
   }
 
   // ---------- RESTART ----------
