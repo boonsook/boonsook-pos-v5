@@ -7,6 +7,16 @@
 
 ---
 
+## 5.66.0 (build 397) — 2026-06-07 Phase 397 dashboard-recent-txn (display · read-only) — ตารางธุรกรรมล่าสุด แบบ scroll
+
+- **feat (dashboard, display read-only):** เพิ่มบล็อก **"🧾 ธุรกรรมล่าสุด"** บนหน้า dashboard — ตารางรายการขายล่าสุด (≤30) แบบ scroll (max-height 360px) · columns: วันที่/เวลา · เลขที่บิล · ลูกค้า · ช่องทาง · ยอด (+ badge "เครดิต")
+- **helper `_recentTxnRows(state)`:** source = `visibleSalesForRole(state.sales, profile, currentUser)` (**role-filtered + soft-delete** — non-admin เห็นเฉพาะของตัวเอง, กัน data leak) · **clone ก่อน sort** `[...sales].sort(desc created_at).slice(0,30)` (ไม่ mutate state.sales) · **escapeHtml ทุกค่าจาก DB** (XSS: order_no/customer_name/payment_method) · empty-state "ยังไม่มีธุรกรรม"
+- **sub-label ซื่อตรง:** "รายการขายล่าสุด (สูงสุด ~50 ที่โหลด) — ไม่ใช่ทั้งระบบ" · แทรกหลัง top-products/expenses ก่อน ALERTS
+- **read-only ล้วน:** ❌ ไม่ fetch/network/RPC/write · ไม่ mutate state.sales · ไม่แตะ checkout/pos/logic เงิน/สต็อก/บัญชี/schema/SQL · ไม่แตะ trend(396)/charts/KPI/period tabs/sidebar/topbar/shared CSS · ไม่ alert/dependency
+- **verify:** lint:errors **0** · +3 tests `dashboard_recent_txn` · **xss_regression** + dashboard_readonly/income/ui/trend guards เดิมเขียว · unit **1341** · e2e **12/12** · **pwa-cache:** bump 396→**397**
+- **known risk:** ตาราง = รายการล่าสุด ≤50 ที่โหลด — label ซื่อตรงแล้ว (ไม่อ้างทั้งระบบ)
+- **manual smoke:** เปิด #dashboard (Ctrl+Shift+R) → ตาราง "ธุรกรรมล่าสุด" + scroll · ข้อมูลตรง · ไม่มี console error · trend/charts ไม่พัง
+
 ## 5.66.0 (build 396) — 2026-06-07 Phase 396 dashboard-trend-line (display · read-only) — กราฟเส้นแนวโน้มรายได้ vs ค่าใช้จ่าย เต็มความกว้าง
 
 - **feat (dashboard, display read-only):** แปลงกราฟ bar **"ยอดขาย 12 เดือน"** (dataset เดียว, label หลอกว่า "12 เดือน" ทั้งที่ data cap) → **line chart เต็มความกว้าง 2 เส้น**: "รายได้" (ฟ้า #0284c7) vs "ค่าใช้จ่าย" (แดง #ef4444) ตามเดือนที่มีข้อมูลจริง
