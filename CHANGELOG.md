@@ -7,6 +7,15 @@
 
 ---
 
+## 5.66.0 (build 387) — 2026-06-07 Phase 387 dashboard-net-profit-include-service-income — กำไรสุทธิ dashboard ตรง P&L
+
+- **fix:** "ภาพรวมบริษัท" กำไรสุทธิเดือนนี้ เดิมคิดจาก POS sales + web orders เท่านั้น → ไม่รวมรายได้งานบริการ (delivered/done/closed) ที่งบ P&L นับ → กำไรเพี้ยน (เคสจริง −1,478 vs P&L −978)
+- **how (dashboard.js · pure helpers):** isWebOrderServiceJob / isServiceIncomeJob / sumServiceJobIncome → monthServiceIncome (delivered/done/closed + total_cost>0, ไม่นับ web order ซ้ำ) + monthTotalIncome = monthRevenue + service → monthNetProfit ใช้ monthTotalIncome; การ์ด "ยอดขายเดือนนี้" คง monthRevenue (POS+web)
+- **read-only:** dashboard ยังไม่ fetch/mutate (ผ่าน dashboard_readonly_guard, build markers bump 386→387)
+- **ไม่แตะ:** POS/stock/accounting/JV/service write/schema
+- **verify:** lint 0 · +6 tests `dashboard_income_guard` · unit 1289 · **pwa-cache:** bump 386→387
+- **note:** หลัง fix กำไร dashboard มิ.ย. = −378 (นับงานบริการส่งมอบจริง 500+600); ยังต่าง P&L (−978) เพราะ JV ของ JOB-1780732840014 (หลวงพี่ 600) ยังเป็น orphan ไม่ถูกโพสต์ → re-post ผ่านหน้า "รายได้งานบริการเข้าบัญชี" แล้วทั้งคู่จะตรงที่ −378
+
 ## 5.66.0 (build 386) — 2026-06-07 Phase 386 professional-saas-dashboard-shell-polish — UI/UX visual polish (ยังไม่ merge · รอ owner/Codex review)
 
 - **feat (ui, visual-only):** ยกหน้าตา app shell + หน้า "ภาพรวมบริษัท" ไปทาง business dashboard แบบ SaaS (FlowAccount tone) — calm/professional. **CSS เท่านั้น ไม่แตะ JS/logic เลย**

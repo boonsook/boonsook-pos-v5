@@ -3,6 +3,29 @@
 // Phase 89.28: BKK timezone for "today" comparisons — fix UTC slice giving wrong date 17:00-23:59 BKK
 import { visibleSalesForRole, isAdminProfile, todayBkk, dateBkk } from "./utils.js";
 
+// ═══ Phase 387: dashboard income helpers (pure — ทำให้กำไรสุทธิตรงกับงบ P&L) ═══
+// web-order service jobs (คำสั่งซื้อสินค้าผ่านเว็บ) — predicate เดียวกับที่ใช้คิด revenue เดิม
+export function isWebOrderServiceJob(j) {
+  if (!j) return false;
+  return (((j.sub_service || "").includes("สั่งซื้อ")) || /^SH-(transfer|cod_cash|cod_transfer)\|/.test(j.note || ""))
+    && j.status !== "cancelled" && !j.deleted_at && !(j.note || "").includes("[ลบแล้ว]");
+}
+// งานบริการ/งานช่างที่เป็นรายได้ = ชุดเดียวกับที่ auto_post โพสต์เป็นรายได้ SV (delivered/done/closed + total_cost>0)
+export function isServiceIncomeJob(j) {
+  if (!j) return false;
+  const st = String(j.status || "").trim().toLowerCase();
+  return ["delivered", "done", "closed"].includes(st)
+    && Number(j.total_cost || 0) > 0
+    && !j.deleted_at && !(j.note || "").includes("[ลบแล้ว]");
+}
+// รวมรายได้งานบริการ (ไม่นับ web order ที่นับไปแล้ว) ของงานที่ผ่าน dateMatch
+export function sumServiceJobIncome(serviceJobs, dateMatch) {
+  if (!Array.isArray(serviceJobs)) return 0;
+  return serviceJobs.reduce((s, j) =>
+    (isServiceIncomeJob(j) && !isWebOrderServiceJob(j) && dateMatch(j)) ? s + Number(j.total_cost || 0) : s, 0);
+}
+
+
 let salesChart = null;
 // ★ Pro panel chart instances
 let salesByProductChart = null;
@@ -230,11 +253,7 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
   const allSales = visibleSalesForRole(state.sales, state.profile, state.currentUser);
 
   // ★ ออเดอร์จากเว็บ (service_jobs ที่เป็นคำสั่งซื้อสินค้า) — รวมทุกสถานะยกเว้นยกเลิก
-  const webOrders = (state.serviceJobs || []).filter(j =>
-    ((j.sub_service || "").includes("สั่งซื้อ") || /^SH-(transfer|cod_cash|cod_transfer)\|/.test(j.note || "")) &&
-    j.status !== "cancelled" &&
-    !j.deleted_at && !(j.note || "").includes("[ลบแล้ว]")
-  );
+  const webOrders = (state.serviceJobs || []).filter(isWebOrderServiceJob);
 
   // ─── ข้อมูลยอดขายตามช่วงเวลา ───
   const periodSales = filterByPeriod(allSales, "created_at", _dashPeriod);
@@ -261,7 +280,10 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
   const monthWebOrders = webOrders.filter(j => dateBkk(j.created_at).slice(0,7) === thisMonth);
   const monthRevenue = monthSales.reduce((s,x)=>s+Number(x.total_amount||0),0) + monthWebOrders.reduce((s,x)=>s+Number(x.total_cost||0),0);
   const monthExpenseTotal = expenses.filter(e => String(e.expense_date||"").slice(0,7) === thisMonth).reduce((s,x)=>s+Number(x.amount||0),0);
-  const monthNetProfit = monthRevenue - monthExpenseTotal;
+  // Phase 387: กำไรสุทธิต้องรวมรายได้งานบริการ (delivered/done/closed) ให้ตรงกับงบ P&L
+  const monthServiceIncome = sumServiceJobIncome(state.serviceJobs, j => dateBkk(j.created_at).slice(0,7) === thisMonth);
+  const monthTotalIncome = monthRevenue + monthServiceIncome;
+  const monthNetProfit = monthTotalIncome - monthExpenseTotal;
 
   // ★ นับเฉพาะสินค้านับสต็อกจริง (ไม่รวมบริการ / non-stock)
   const _isStockItem = (p) => {
@@ -409,7 +431,7 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
       <div class="stat-card" style="border-left:4px solid ${monthNetProfit >= 0 ? '#10b981' : '#ef4444'}">
         <div class="stat-label">📈 กำไรสุทธิเดือนนี้</div>
         <div class="stat-value" style="color:${monthNetProfit >= 0 ? '#10b981' : '#ef4444'}">${money(monthNetProfit)}</div>
-        <div style="font-size:11px;color:#94a3b8;margin-top:2px">ขาย ${moneyShort(monthRevenue)} - จ่าย ${moneyShort(monthExpenseTotal)}</div>
+        <div style="font-size:11px;color:#94a3b8;margin-top:2px">รายได้ ${moneyShort(monthTotalIncome)} - จ่าย ${moneyShort(monthExpenseTotal)}</div>
       </div>
     </div>
 
