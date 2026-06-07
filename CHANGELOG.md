@@ -7,6 +7,15 @@
 
 ---
 
+## 5.66.0 (build 391) — 2026-06-07 Phase 389 structural-dashboard-shell-redesign (UI/UX visual-only) — ยกหน้า "ภาพรวมบริษัท" เป็น business dashboard
+
+- **feat (ui, visual-only):** finalize ของ draft ที่ Codex approved — แทน **gradient marketing hero** ด้วย **flat business header** (`_dashHeader`) + today highlight + **KPI grid แบบ class-based** (`_kpiCard`) ใน `modules/dashboard.js`
+- **how:** presentation อยู่ใน `style.css` block "Phase 389" (token-driven → `[data-theme="dark"]` ไม่พัง · class-based ไม่มี inline grid → cards stack บนมือถือเอง) · header = โลโก้ + ชื่อร้าน + "ภาพรวมธุรกิจ" + ปุ่ม ดูบิล/สรุปไลน์ · KPI grid 2 แถว (เงิน: ยอดขาย/ค่าใช้จ่าย+sparkline/กำไรขั้นต้น/กำไรสุทธิ · นับ: receipts/customers/products/service_jobs/quotations/pending/user/role)
+- **read-only + hooks preserved:** dashboard.js ยังไม่ fetch/ไม่ mutate state · ทุก event hook ครบ (`dashboardReceiptBtn`/`sendDailySummaryBtn`, data-go nav 7 route, period tabs, low-stock, line-order, pro-range, chart canvas 6 ตัว) · escape `logoSrc`/`userName`/`shopName` (Codex fix)
+- **ไม่แตะ:** accounting/service_reconcile/periods/backfill · POS/cart/sales · stock/CAS · payroll/HR · SQL/RLS/schema/RPC · main.js logic
+- **verify:** lint:errors **0** · +9 tests `dashboard_ui_guard` · unit **1314** · e2e **12/12** · **pwa-cache:** bump 390→**391** · base = main build 390 (รวม Phase 390 accounting ครบ, merge สะอาดไม่ชน)
+- **visual smoke:** desktop 1440×900 + mobile 390×844 — cards radius 12px/เงาบาง/หัวแบน/sidebar active accent · ปุ่มเดิมกดได้ครบ · dark mode ไม่เพี้ยน · ไม่มี horizontal scroll
+
 ## 5.66.0 (build 390) — 2026-06-07 Phase 390 accounting-readiness-service-scope-fix (HIGH · money-path visibility) — รวมรายได้งานบริการเข้าการตรวจความครบของบัญชี
 
 - **fix (HIGH, money-path visibility):** close-readiness (`periods.js`) + Backfill Integrity (`backfill.js`) เดิมตรวจแค่ sales/expenses/payroll → ขึ้นเขียว **"📋 บิลมี JE ครบ ✅"** ทั้งที่งานบริการปิดแล้วยังไม่มี JE (live: `JOB-1780732840014` หลวงพี่ ฿600 ส่งมอบ 6 มิ.ย. → หลุดจาก P&L มิ.ย.)
