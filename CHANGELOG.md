@@ -7,6 +7,25 @@
 
 ---
 
+## 5.66.0 (build 386) — 2026-06-07 Phase 386 professional-saas-dashboard-shell-polish — UI/UX visual polish (ยังไม่ merge · รอ owner/Codex review)
+
+- **feat (ui, visual-only):** ยกหน้าตา app shell + หน้า "ภาพรวมบริษัท" ไปทาง business dashboard แบบ SaaS (FlowAccount tone) — calm/professional. **CSS เท่านั้น ไม่แตะ JS/logic เลย**
+- **how (`style.css`):** (1) token light-mode 3 ตัว — `--shadow` หนา `0 10px 30px` → subtle `0 1px 3px + 0 1px 2px`; `--bg` `#eef3f7` → neutral `#f3f5f8`; `--line` `#e2e8f0` → `#e5e7eb`. (2) append section "Phase 386" (scope ชัด, ปิดท้ายไฟล์ = ชนะ specificity, revert ง่าย): card/stat-card/item-card radius 20→**12px** + subtle shadow; hero flatten — gradient เบาลง, amount 48→**34px**, radius 26→16px, shadow เบา; sidebar nav radius 14→**10px** + active เป็น **left-accent bar** สะอาด + hover นิ่ง; topbar solid+crisp + search box height 40/radius 10; page padding สม่ำเสมอ. **ทุกสีใช้ `var(--token)` → `[data-theme="dark"]` ไม่พัง**
+- **read-only proof:** `modules/dashboard.js` ไม่ถูกแตะ (0 บรรทัด) — guard test ยืนยัน no fetch/xhr/supabase-write, no state mutation, ไม่อ้าง checkout/addToCart/decrementStock/autoPost/postJournal/loadAllData
+- **ไม่แตะ:** dashboard.js · POS/cart/sales save · stock/CAS/warehouse · accounting auto_post/JV/period/schema · service job · payroll/HR · API endpoints · SQL/RLS/schema · package.json version
+- **verify:** lint:errors **0** · +5 tests `dashboard_readonly_guard` (read-only + visual marker + build-bump sync) · unit **1268** · e2e **12/12** (รวม build-version-sync 3 ตัว) · **pwa-cache:** bump 384→386
+- **⚠️ NOTE:** branch นี้ตัดสดจาก `origin/main` (build 384) — **ไม่รวม Phase 385 journal-date-guard** (build 385 Part A committed + Part B SQL) ซึ่งเป็น branch บัญชี **pending แยกต่างหาก** (owner-gated)
+- **known risk:** เป็น polish phase แรก ยังไม่ครอบทุกหน้า · dashboard mobile 1-column stacking ของ inline grid (`style="grid-template-columns:repeat(4,1fr)"`) override ด้วย CSS ไม่ได้ถ้าไม่ใช้ `!important` → defer เป็น phase ถัดไป (กัน regression) · บางหน้าที่มี inline style เก่าอาจยังไม่เข้าชุด
+- **STOP:** ยังไม่ push main — รอ owner/Codex review
+
+## 5.66.0 (build 385) — 2026-06-07 Phase 385 journal-date-guard — กัน doc_date นอกช่วง + ลบบิลซ้ำ
+
+- **fix (money path):** กัน JE ที่ doc_date ปีนอกช่วง (เช่น 2069) ที่ทำให้รายการหลุดจากงบปีที่ถูกต้อง
+- **how (Part A):** `modules/accounting/date_guard.js` (pure) `validateJournalDate` + `findOutOfRangeEntries`; block ตอน save ใน `journal_form.js` + banner detector admin-only read-only ใน `journals.js`
+- **Part B (owner-gated · SQL):** PV2069050001 เป็นบิลซ้ำของ PV2026050003 (แมกซ์การ์ด invoice เดียวกัน ฿988) → ลบ expense #5 + JV ที่ผูก
+- **verify:** lint:errors 0 · +15 tests `journal_date_guard` · unit 1278 · **pwa-cache:** bump 384→385
+- **follow-up:** (1) ลบบิลในแอปไม่ลบ JV ผูก=orphan (2) หมวด "น้ำมันรถ" ไม่ map COA → 5900
+
 ## 5.66.0 (build 384) — 2026-06-06 Phase 384 service-autopost-reconcile (Part B) — ตามเก็บรายได้งานบริการที่ JE หายเงียบ
 
 - **fix (money path §4.8):** งานบริการที่ปิดแล้ว (delivered/done/closed) auto-post JV แบบ fire-and-forget ใน `service_form.js` → ถ้า post ล้ม = งาน delivered แต่ JE ไม่เกิด → **รายได้หายเงียบ** (เช่น หลวงพี่ JOB-1780732840014 ฿600)
