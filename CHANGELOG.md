@@ -7,6 +7,20 @@
 
 ---
 
+## 5.66.0 (build 392) — 2026-06-07 Phase 391 ai-service-job-queue-line-hotfix (HIGH · service operation) — งานจาก AI เข้าคิว + รายงานผล LINE
+
+- **fix (HIGH, service):** งานจาก AI chat / AI Sales / แจ้งซ่อม "ลงแล้วไม่เข้าใบรับงาน/คิวงานช่าง + ไม่ส่งกลุ่ม LINE คิวงาน" — งานเข้า DB จริง (POST awaited) แต่ UI หลอกว่า success ตอน save fail + LINE คิวงาน fail เงียบ
+- **RC1 (`ai-chat-widget.js`):** `finishFill` โชว์ "✅ งานเข้าคิวแล้ว 🎉" ทันทีหลัง click ปุ่ม **ไม่รอผล save** → แก้ด้วย `waitForSaveResult()` รอ CustomEvent `service-job:saved`/`service-job:save-failed` (timeout 8s → "กรุณากดบันทึก/ตรวจสอบผล" ไม่ใช่ success ปลอม)
+- **RC3 (`service_request.js`):** `sendLineNotify` ขาด arg `"queue"` → ไป LINE_USER_ID ไม่ใช่กลุ่มคิว → เพิ่ม target `"queue"` + await + handle result + dispatch saved/failed
+- **RC4 (`ai_sales.js`):** LINE queue เป็น `.catch(()=>{})` swallow → `await` + `describeLineResult`
+- **RC5 (`main.js` saveServiceJob):** queue LINE ไม่ await/ไม่ handle → `await` + handle + dispatch save signals (validation/!ok→failed, success→saved+job_no)
+- **`line_notify.js`:** pure `describeLineResult()` แยก disabled / not-configured / send-error / fell-back-to-user + surface `usedFallback`
+- **`functions/api/line-notify.js`:** return `usedFallback` boolean (ไม่เปิด secret) → client report queue→user fallback เมื่อยังไม่ตั้ง LINE_GROUP_QUEUE
+- **invariant:** job save สำเร็จแม้ LINE fail (LINE fail = warning ชัด ไม่ใช่ job fail)
+- **read-only/scope:** ❌ ไม่แตะ money/POS/stock/accounting/payroll/cart · SQL/RLS/schema/DB constraint · LINE env/config value จริง
+- **verify:** lint:errors **0** · +10 tests `ai_service_queue_line_guard` · unit **1324** · e2e **12/12** · **pwa-cache:** bump 391→**392**
+- **owner smoke (รออนุมัติสร้างงานทดสอบ):** สร้างงาน "AI TEST <เวลา>" → เข้าใบรับงาน + เข้า LINE_GROUP_QUEUE จริง · env ไม่ครบ/ปิด LINE → warning ชัด · save fail (เบอร์ผิด) → widget ขึ้น "ยังบันทึกไม่สำเร็จ" · ลบงานทดสอบหลัง smoke
+
 ## 5.66.0 (build 391) — 2026-06-07 Phase 389 structural-dashboard-shell-redesign (UI/UX visual-only) — ยกหน้า "ภาพรวมบริษัท" เป็น business dashboard
 
 - **feat (ui, visual-only):** finalize ของ draft ที่ Codex approved — แทน **gradient marketing hero** ด้วย **flat business header** (`_dashHeader`) + today highlight + **KPI grid แบบ class-based** (`_kpiCard`) ใน `modules/dashboard.js`
