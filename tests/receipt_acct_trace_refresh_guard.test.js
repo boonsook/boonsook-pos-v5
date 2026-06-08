@@ -1,15 +1,15 @@
 // tests/receipt_acct_trace_refresh_guard.test.js
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase 405 — รีเฟรชป้าย "เอกสารบัญชี" บนใบเสร็จหลัง auto_post (cosmetic · display-only)
+// Phase 405 — ป้าย "เอกสารบัญชี" บนใบเสร็จ auto-retry จน JV โผล่ (cosmetic · display-only)
 //
-// ROOT CAUSE (deterministic ordering): pos.js doCheckout เปิดใบเสร็จ (openReceiptDrawer)
-//   + ยิง lookup JV ก่อน postJournalForSale สร้าง JV → badge ค้าง "ยังไม่ลงบัญชี" ทุกบิล
-//   + badge เติมครั้งเดียวไม่ re-poll.
-// FIX: main.js _refreshReceiptAcctTrace(saleId) re-run lookup; pos.js post .then() เรียกหลัง
-//   JV ลงสำเร็จ (ห่อ try). post fail → ไม่ refresh (ยังเหลือง = honest); เปลี่ยนบิล/drawer ปิด → no-op.
+// ROOT CAUSE: ใบเสร็จที่เด้งตอนจบบิลยิง lookup JV (sale_trace 92.17) ก่อน postJournalForSale สร้าง JV
+//   (post อยู่หลัง `await loadAllData()` ใน pos.js doCheckout = JV เกิดช้าหลายวินาที) → lookup แรก "missing"
+//   → badge ค้าง "ยังไม่ลงบัญชี" ทั้งที่อีกแป๊บก็ลงบัญชี.
+// FIX (self-contained ใน main.js _fillReceiptAcctTrace — ไม่แตะ checkout flow): ถ้า "missing" → โชว์
+//   "กำลังลงบัญชี…" + retry lookup จนเจอ/ครบ MAX_RETRY; หยุดถ้าเปลี่ยนบิล/ปิด drawer; unposted จริง → คงเหลือง.
 //
-// กัน regress: ถ้าใครลบ refresh / ลบ id-guard / ลบ try / ลบ .catch / refresh ก่อน .then = test แดง.
-// ทั้งหมดเป็น source-wiring guard (ตัวจริงพึ่ง DOM+state — smoke จริงโดย owner ผ่าน preview).
+// กัน regress: ถ้าใครลบ retry / ทำ unbounded (setInterval / ไม่เช็ค attempt) / ลบ stop-guard / แตะ
+//   checkout flow / ทำให้ badge เขียน DB = test แดง. source-wiring guard (ตัวจริงพึ่ง DOM+timer → owner smoke).
 // ─────────────────────────────────────────────────────────────────────────────
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -34,46 +34,47 @@ function extractFn(src, name) {
   throw new Error(`unbalanced braces in ${name}`);
 }
 
-test("main.js _refreshReceiptAcctTrace: id-match guarded + re-run fill + ไม่ write", () => {
-  const fn = extractFn(mainJs, "_refreshReceiptAcctTrace");
-  // เทียบ id แบบ String ทั้งสองข้าง (กันรีเฟรชผิดบิล + type mismatch bigint/string)
-  assert.match(fn, /String\(\s*lr\.id\s*\)\s*!==\s*String\(\s*saleId\s*\)/,
-    "ต้อง guard ด้วย String(lr.id) !== String(saleId) — กันรีเฟรชผิดบิล");
-  // re-run read-only lookup fill
-  assert.match(fn, /_fillReceiptAcctTrace\s*\(/, "ต้องเรียก _fillReceiptAcctTrace (re-run lookup)");
-  // เช็ค slot/drawer ก่อน (no-op ถ้าใบเสร็จปิด)
+test("main.js _fillReceiptAcctTrace: retry เฉพาะ missing + bounded + recursive attempt+1", () => {
+  const fn = extractFn(mainJs, "_fillReceiptAcctTrace");
+  // retry เฉพาะตอน missing และ bounded ด้วย attempt < MAX_RETRY (กัน poll ไม่จบ)
+  assert.match(fn, /status\s*===\s*["']missing["']\s*&&\s*attempt\s*<\s*RECEIPT_TRACE_MAX_RETRY/,
+    "ต้อง retry เฉพาะ status==='missing' && attempt < RECEIPT_TRACE_MAX_RETRY");
+  // re-call ตัวเองด้วย attempt+1 (นับขึ้นจริง → จะถึง bound)
+  assert.match(fn, /_fillReceiptAcctTrace\(\s*sale\s*,\s*attempt\s*\+\s*1\s*\)/,
+    "retry ต้องเรียก _fillReceiptAcctTrace(sale, attempt+1)");
+  // ใช้ setTimeout (chain ที่หยุดเอง) — ห้าม setInterval (ไม่มีตัวหยุด → poll ค้าง)
+  assert.match(fn, /setTimeout\(/, "retry ต้องใช้ setTimeout");
+  assert.ok(!/setInterval/.test(fn), "ห้ามใช้ setInterval (ต้องหยุดเองเมื่อครบ/เจอ)");
+});
+
+test("main.js _fillReceiptAcctTrace: stop-guard กัน poll ผิดบิล/บิลที่ปิดแล้ว", () => {
+  const fn = extractFn(mainJs, "_fillReceiptAcctTrace");
+  // retry เฉพาะถ้ายังเป็นใบเสร็จเดิม (id ตรง, cast String กัน type mismatch)
+  assert.match(fn, /String\(\s*lr\.id\s*\)\s*===\s*String\(\s*sale\??\.id\s*\)/,
+    "retry ต้องเช็ค String(lr.id)===String(sale.id) — กัน poll ผิดบิล");
+  // และ drawer ยังเปิด (slot ยังอยู่)
   assert.match(fn, /getElementById\(\s*["']receiptAcctTrace["']\s*\)/,
-    "ต้องเช็ค #receiptAcctTrace (drawer เปิดอยู่) ก่อน refresh");
-  // display-only — ห้าม write/post/ตัดสต็อก
+    "retry ต้องเช็ค #receiptAcctTrace ยังอยู่ (drawer เปิด)");
+});
+
+test("main.js: retry bound เป็นค่าคงที่ (ไม่ poll ไม่จบ)", () => {
+  assert.match(mainJs, /const RECEIPT_TRACE_MAX_RETRY\s*=\s*\d+\s*;/, "ต้องมี const RECEIPT_TRACE_MAX_RETRY");
+  assert.match(mainJs, /const RECEIPT_TRACE_RETRY_MS\s*=\s*\d+\s*;/, "ต้องมี const RECEIPT_TRACE_RETRY_MS");
+});
+
+test("main.js _fillReceiptAcctTrace: display-only (ไม่ write/post/ตัดสต็อก)", () => {
+  const fn = extractFn(mainJs, "_fillReceiptAcctTrace");
   assert.ok(!/xhrPost|xhrPatch|postJournal|_applyStockMovement|deductStock/.test(fn),
-    "refresh ต้องเป็น display-only — ห้าม write/post/ตัดสต็อก");
+    "badge trace ต้องเป็น display-only — ห้าม write/post/ตัดสต็อก");
 });
 
-test("main.js expose window._appRefreshReceiptAcctTrace ให้ pos.js เรียกได้", () => {
-  assert.match(mainJs, /window\._appRefreshReceiptAcctTrace\s*=\s*_refreshReceiptAcctTrace\s*;/,
-    "ต้อง expose window._appRefreshReceiptAcctTrace = _refreshReceiptAcctTrace");
-});
-
-test("pos.js post-JV chain: refresh ใน .then() (หลัง JV สำเร็จ) + try + .catch เดิมคงอยู่", () => {
+test("pos.js: checkout flow ไม่ถูกแตะ (auto-post .catch เดิมคงอยู่ · ไม่มี refresh hook ใน money path)", () => {
   const idx = posJs.indexOf("postJournalForSale({");
   assert.ok(idx >= 0, "doCheckout ต้องเรียก postJournalForSale");
-  const region = posJs.slice(idx, idx + 900);
-
-  // .then() handler หลัง post สำเร็จ
-  assert.match(region, /\}\s*\)\s*\n?\s*(?:\/\/[^\n]*\n\s*)*\.then\(\s*\(\)\s*=>/,
-    "post(...) ต้องตามด้วย .then(() => ...) (refresh หลัง JV สำเร็จ)");
-  // refresh ห่อ try (error ห้ามหลุดเข้า flow การขาย)
-  assert.match(region, /try\s*\{\s*window\._appRefreshReceiptAcctTrace\?\.\(\s*saleId\s*\)/,
-    "refresh ต้องห่อ try { window._appRefreshReceiptAcctTrace?.(saleId) }");
-  // .catch เดิม (post fail → log) ต้องยังอยู่ → post fail = ไม่ refresh = ยังเหลือง (honest)
-  assert.match(region, /\.catch\(\s*e\s*=>\s*console\.warn\(\s*["']\[pos\] auto-post JV failed:/,
-    ".catch ของ auto-post (post fail → log, ไม่ refresh) ต้องคงอยู่");
-
-  // ลำดับ: post → .then(refresh) → .catch  (refresh ต้องอยู่หลัง .then ไม่ใช่เรียกตรงเสมอ)
-  const thenIdx = region.indexOf(".then(");
-  const refreshIdx = region.indexOf("_appRefreshReceiptAcctTrace");
-  const catchIdx = region.indexOf(".catch(");
-  assert.ok(thenIdx > 0 && refreshIdx > thenIdx,
-    "refresh ต้องอยู่ภายใน .then() (รันเฉพาะตอน JV โพสต์สำเร็จ)");
-  assert.ok(catchIdx > refreshIdx, ".catch ต้องตามหลัง .then(refresh)");
+  const region = posJs.slice(idx, idx + 500);
+  // post ยัง fire-and-forget + .catch เดิม — fix อยู่ใน display ล้วน ไม่ผูก checkout
+  assert.match(region, /\}\)\.catch\(\s*e\s*=>\s*console\.warn\(\s*["']\[pos\] auto-post JV failed:/,
+    ".catch ของ auto-post เดิมต้องคงอยู่ (checkout flow ไม่เปลี่ยน)");
+  assert.ok(!region.includes("_appRefreshReceiptAcctTrace") && !region.includes("ReceiptAcctTrace"),
+    "checkout flow (money path) ต้องไม่มี hook ของ badge — fix เป็น display-only ใน main.js");
 });

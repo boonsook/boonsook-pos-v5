@@ -3921,8 +3921,16 @@ function renderReceiptDrawer(){
   _fillReceiptAcctTrace(lastSale);
 }
 
+// ★ Phase 405: ใบเสร็จที่เด้งตอนจบบิลยิง lookup JV ก่อน auto_post สร้าง JV (postJournalForSale อยู่หลัง
+//   await loadAllData ใน doCheckout = JV เกิดช้าหลายวินาที) → lookup แรกได้ "missing" + badge ค้างเหลือง.
+//   แก้: ถ้า missing → โชว์ "กำลังลงบัญชี…" + retry lookup จน JV โผล่ (สูงสุด MAX_RETRY ครั้ง ทุก RETRY_MS)
+//   → badge เด้ง "ลงบัญชีแล้ว" เองไม่ต้องปิด-เปิด. หยุด retry ถ้าเปลี่ยนบิล/ปิด drawer.
+//   genuinely-unposted (before-effective/post fail) → ครบ retry → คงเหลือง (honest). display-only (read-only lookup).
+const RECEIPT_TRACE_MAX_RETRY = 6;
+const RECEIPT_TRACE_RETRY_MS = 1500;
+
 // แสดงสถานะเอกสารบัญชีในใบเสร็จที่เปิดอยู่ — found → กดไปสมุดรายวัน, missing/error → ข้อความชัด
-async function _fillReceiptAcctTrace(sale){
+async function _fillReceiptAcctTrace(sale, attempt = 0){
   let res;
   try {
     res = await findJournalForSale(sale);
@@ -3932,6 +3940,18 @@ async function _fillReceiptAcctTrace(sale){
   }
   const slot = document.getElementById("receiptAcctTrace");
   if (!slot) return; // drawer ถูกปิด/เปลี่ยนบิลไปแล้ว
+  // ★ Phase 405: JV ยังไม่ลง (auto_post กำลังทำงานหลังจบบิล) → โชว์ "กำลังลงบัญชี…" + retry จนเจอ/ครบ
+  if (res.status === "missing" && attempt < RECEIPT_TRACE_MAX_RETRY) {
+    slot.innerHTML = `<span style="font-size:12px;color:#94a3b8">⏳ กำลังลงบัญชี…</span>`;
+    setTimeout(() => {
+      const lr = state.lastReceipt;
+      // retry เฉพาะถ้ายังเป็นใบเสร็จเดิม + drawer ยังเปิด (กัน poll บิลที่ปิด/เปลี่ยนไปแล้ว)
+      if (lr && String(lr.id) === String(sale?.id) && document.getElementById("receiptAcctTrace")) {
+        _fillReceiptAcctTrace(sale, attempt + 1);
+      }
+    }, RECEIPT_TRACE_RETRY_MS);
+    return;
+  }
   slot.innerHTML = renderSaleTraceBadge(res);
   const badgeEl = slot.querySelector(".sale-acct-trace");
   if (badgeEl) {
@@ -3941,20 +3961,6 @@ async function _fillReceiptAcctTrace(sale){
     badgeEl.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); goto(); } });
   }
 }
-
-// ★ Phase 405: รีเฟรชป้ายเอกสารบัญชีบนใบเสร็จที่เปิดอยู่ (เรียกหลัง auto_post สร้าง JV เสร็จ).
-//   ใบเสร็จยิง lookup JV ตอนเปิด (pos.js doCheckout) — ก่อน postJournalForSale สร้าง JV — เลยค้าง
-//   "ยังไม่ลงบัญชี" + badge เติมครั้งเดียวไม่ re-poll. หลัง JV ลง เรียกตัวนี้ → ยิง lookup ใหม่ → "ลงบัญชีแล้ว".
-//   no-op (กันรีเฟรชผิดบิล) ถ้า: ไม่มี lastReceipt / ใบเสร็จปิด / เปลี่ยนไปดูบิลอื่น (id ไม่ตรง).
-//   display-only — ไม่แตะ posting/money/stock; แค่ re-run findJournalForSale (read-only lookup).
-function _refreshReceiptAcctTrace(saleId){
-  if (saleId == null || saleId === "") return;
-  const lr = state.lastReceipt;
-  if (!lr || String(lr.id) !== String(saleId)) return;        // เปลี่ยนบิล/ไม่มีบิล → ข้าม
-  if (!document.getElementById("receiptAcctTrace")) return;    // drawer ปิด → ข้าม (ไม่ยิง lookup ฟรี)
-  _fillReceiptAcctTrace(lr);
-}
-window._appRefreshReceiptAcctTrace = _refreshReceiptAcctTrace;
 
 function printLastReceipt(){
   if (!state.lastReceipt) return showToast("ยังไม่มีบิลล่าสุด");

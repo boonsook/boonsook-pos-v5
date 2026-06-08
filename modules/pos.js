@@ -1258,12 +1258,7 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
       ...salePayload,
       id: saleId,
       created_at: new Date().toISOString()
-    })
-      // ★ Phase 405: ใบเสร็จยิง lookup ป้ายบัญชีตอนเปิด — ก่อน JV นี้ถูกสร้าง — เลยค้าง "ยังไม่ลงบัญชี".
-      //   JV ลงสำเร็จแล้ว → รีเฟรชป้ายบนใบเสร็จบิลนี้ (ถ้ายังเปิดอยู่) → เด้งเป็น "ลงบัญชีแล้ว" เอง.
-      //   ห่อ try กัน error refresh หลุดเข้า flow การขาย (display-only ห้ามกระทบ checkout).
-      .then(() => { try { window._appRefreshReceiptAcctTrace?.(saleId); } catch (e) { console.warn("[pos] acct-trace refresh failed:", e?.message); } })
-      .catch(e => console.warn("[pos] auto-post JV failed:", e?.message));
+    }).catch(e => console.warn("[pos] auto-post JV failed:", e?.message));
 
     // ★ Phase 91.1 — auto-earn loyalty points for the customer (fire-and-forget).
     // Silent skip when: no customer selected / loyalty system off / rate not configured.
