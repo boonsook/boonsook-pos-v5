@@ -9,7 +9,7 @@
   <link rel="icon" type="image/svg+xml" href="./icons/logo.svg" />
   <link rel="manifest" href="./manifest.json" />
   <link rel="apple-touch-icon" href="./icons/logo.svg" />
-  <link rel="stylesheet" href="./style.css?v=401" />
+  <link rel="stylesheet" href="./style.css?v=402" />
   <link rel="stylesheet" href="./doc-print.css?v=1" />
   <!-- ✨ Phase 4: Design System & Components (30/3/2569) -->
   <link rel="stylesheet" href="./phase4-design-system.css?v=1" />
@@ -687,6 +687,17 @@
       <label for="serviceNote" class="sr-only">หมายเหตุ</label>
       <textarea id="serviceNote" rows="3" placeholder="หมายเหตุ / รายละเอียดเพิ่มเติม" aria-label="หมายเหตุ"></textarea>
 
+      <!-- 🔧 อุปกรณ์ที่ใช้ (จากสต็อก) — Phase 402 (deduct on save, งานใหม่เท่านั้น) -->
+      <div style="border:1px dashed #bfdbfe;border-radius:10px;padding:12px;background:#f0f9ff;margin-top:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+          <div style="font-size:12px;font-weight:700;color:#1e40af">🔧 อุปกรณ์ที่ใช้ (จากสต็อก)</div>
+          <button id="serviceAddEquipmentBtn" type="button" class="btn light" style="padding:4px 12px;font-size:12px">+ เพิ่มอุปกรณ์</button>
+        </div>
+        <div id="serviceEquipmentReadonlyNote" class="hidden" style="font-size:11px;color:#92400e;background:#fef3c7;border-radius:8px;padding:6px 10px;margin-bottom:6px">🔒 อุปกรณ์ถูกบันทึก/ตัดสต็อกแล้ว — แก้ไม่ได้ (กันตัดซ้ำ)</div>
+        <div id="serviceEquipmentList"></div>
+        <div id="serviceEquipmentTotal" style="text-align:right;font-size:12px;color:#1e40af;font-weight:700;margin-top:6px"></div>
+      </div>
+
       <!-- 💰 ค่าแรง + ปิดงาน (Phase 88.8) -->
       <div style="border:1px dashed #fde68a;border-radius:10px;padding:12px;background:#fffbeb;margin-top:12px">
         <div style="font-size:12px;font-weight:700;color:#78350f;margin-bottom:8px">💰 ค่าแรง / ปิดงาน (ส่งรายได้เข้าระบบบัญชี)</div>
@@ -839,10 +850,10 @@
        ทำงานก่อน main.js โหลด → ป้องกัน user เห็น version display เก่า
        Phase 89.15: ย้ายออกไป external file + set window.APP_BUILD ให้ pages.js/main.js อ่านได้
        (CSP drop script-src 'unsafe-inline') -->
-  <script src="./selfheal.js?v=401" data-app-build="401" data-app-version="5.66.0"></script>
-  <script type="module" src="./main.js?v=401"></script>
+  <script src="./selfheal.js?v=402" data-app-build="402" data-app-version="5.66.0"></script>
+  <script type="module" src="./main.js?v=402"></script>
   <!-- Phase 89.15: externalized loading overlay + SW update banner (was inline script — drop CSP unsafe-inline) -->
-  <script src="./boot.js?v=401"></script>
+  <script src="./boot.js?v=402"></script>
 
   <!-- AI Assistant Chat Widget (Phase 1) -->
   <script src="./ai-chat-widget.js?v=9"></script>
