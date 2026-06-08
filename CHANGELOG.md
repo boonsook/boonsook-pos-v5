@@ -7,6 +7,14 @@
 
 ---
 
+## 5.66.0 (build 402) — 2026-06-08 Phase 402 service-job-equipment-from-stock (MONEY/STOCK §4.1+§4.2) — อุปกรณ์จากคลังใน drawer งานช่าง
+
+- **feat (service/stock):** drawer "เพิ่มงานช่าง" เพิ่ม section **🔧 อุปกรณ์ที่ใช้ (จากสต็อก)** — picker เลือกสินค้า + คลังที่มีสต็อก + qty → **ตัดสต็อกตอนสร้างงานใหม่** ผ่าน `window._appApplyStockMovement` (CAS/floor) + precheck `aggregateNeedByKey` (สต็อกไม่พอ → บล็อก ไม่บันทึก/ไม่ตัด)
+- โมดูลใหม่ `modules/service_equipment.js` (deduct-only scope; import โดย main.js เท่านั้น — **ไม่แตะ service_form.js**) · `total_cost` รวมอุปกรณ์ (auto-post JV ใช้ค่านี้)
+- **กันตัดซ้ำ:** งานเดิม (มี items_json) → อุปกรณ์ **read-only** + ป้าย "ตัดสต็อกแล้ว แก้ไม่ได้" · ตัดเฉพาะงานใหม่
+- **invariant:** job insert สำเร็จก่อน → ค่อยตัด; ตัดบางตัว fail → ไม่ rollback (เตือน reconcile §4.8) · showToast ไม่ alert · +guard `service_job_equipment_guard.test.js`
+- known: แก้/คืนอะไหล่หลังบันทึก + auto-transfer บ้าน→รถ = future phase
+
 ## 5.66.0 (build 401) — 2026-06-08 Phase 401 mobile-fix-report-headers (layout/CSS-only) — header รายงานบัญชีไม่แตกแนวตั้งบนมือถือ
 
 - **fix (accounting/mobile):** header ของรายงานบัญชี **5 หน้า** (Trial Balance / P&L / Balance Sheet / Export Bundle / Opening Balance) — title ไทยแตกแนวตั้งบนจอ ~360px เพราะปุ่ม Excel/พิมพ์ ไม่ wrap ลงล่าง → บีบ title (Phase 400 audit พลาดจุดนี้)

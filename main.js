@@ -26,6 +26,8 @@ import { shareDoc as _shareDocImpl } from "./modules/share_doc.js";
 // Phase 89.21: btu_calculator, service_request lazy
 // Phase 89.20: solar, ac_install lazy
 import { renderServiceFormPage, SERVICE_TYPES } from "./modules/service_form.js";
+// Phase 402 (MONEY/STOCK §4.1+§4.2): อุปกรณ์จากสต็อกใน drawer งานช่าง (deduct on save, งานใหม่)
+import { equipmentTotal as _equipTotal, precheckEquipmentStock as _equipPrecheck, toItemsJson as _equipToItemsJson, deductEquipmentStock as _equipDeduct, optimisticDeduct as _equipOptimistic, renderEquipmentList as _equipRenderList, openEquipmentPicker as _equipOpenPicker } from "./modules/service_equipment.js";
 // Phase 89.20: error_codes (124KB), error_codes_fridge (35KB), error_codes_washer (34KB) lazy
 // Phase 89.21: stock_value, dead_stock, stock_count, stock_in_wizard, cash_recon lazy
 // Phase 89.21: top_customers, sales_heatmap, recurring_expenses, credit_tracker, refunds lazy
@@ -2257,6 +2259,10 @@ function openQuotationDrawer(_doc=null){
 // ═══════════════════════════════════════════════════════════
 //  SERVICE JOB DRAWER
 // ═══════════════════════════════════════════════════════════
+// Phase 402: อุปกรณ์ใน drawer งานช่าง — งานใหม่แก้ได้+ตัดสต็อกตอน save; งานเดิม (มี items_json) read-only กันตัดซ้ำ
+let _serviceDrawerItems = [];
+let _serviceDrawerEquipReadonly = false;
+
 function openServiceJobDrawer(job=null){
   state.editingServiceJobId = job?.id || null;
   // ★ เก็บสถานะเดิม ไว้ตรวจการเปลี่ยนเป็น "done" ตอน save
@@ -2273,27 +2279,81 @@ function openServiceJobDrawer(job=null){
   $("serviceStatus").value = job?.status || "pending";
   $("serviceNote").value = job?.note || "";
 
-  // ★ Phase 88.8: ค่าแรง / ส่วนลด / ยอดสุทธิ / วิธีรับเงิน — สำหรับลง JV
-  // ถ้า job เก่า (มี items_json) → คำนวณ items total + ใช้ existing total_cost
-  let _itemsTotal = 0;
-  if (job?.items_json && Array.isArray(job.items_json)) {
-    _itemsTotal = job.items_json.reduce((s, it) => s + Number(it.line_total || 0), 0);
-  }
-  // labor / discount เก็บใน hidden field — derived จาก total_cost - items_total เป็นอย่างน้อย
-  // (สำหรับ row เก่าที่ไม่มี labor/discount แยก)
+  // ★ Phase 88.8 / Phase 402: ค่าแรง / ส่วนลด / ยอดสุทธิ / อุปกรณ์ — สำหรับลง JV
+  // อุปกรณ์: งานเดิม (มี items_json) → read-only (ตัดสต็อกแล้ว กันตัดซ้ำ); งานใหม่ → เพิ่ม/ลบ + ตัดตอน save
+  const _hasExistingItems = !!(job?.items_json && Array.isArray(job.items_json) && job.items_json.length);
+  _serviceDrawerEquipReadonly = _hasExistingItems;
+  _serviceDrawerItems = _hasExistingItems ? job.items_json.map(it => ({ ...it })) : [];  // clone งานเดิม (display เฉย ๆ)
+  const _equipItemsTotal = () => _equipTotal(_serviceDrawerItems);
+
+  // labor / discount เก็บใน field — derived จาก total_cost - items_total เป็นอย่างน้อย (row เก่าไม่มี labor แยก)
   const existingTotal = Number(job?.total_cost || 0);
-  const existingLabor = Math.max(0, existingTotal - _itemsTotal);  // approximation
+  const existingLabor = Math.max(0, existingTotal - _equipItemsTotal());  // approximation
   $("serviceLabor").value = existingLabor || 0;
   $("serviceDiscount").value = 0;
   $("serviceTotalCost").value = existingTotal || 0;
   $("servicePaymentMethod").value = job?.payment_method || "";
-  // Auto-recalc ยอดสุทธิเวลาแก้ค่าแรง/ส่วนลด
+  // Auto-recalc ยอดสุทธิ (อุปกรณ์ + ค่าแรง − ส่วนลด)
   const _recalc = () => {
     const labor = Number($("serviceLabor")?.value || 0);
     const discount = Number($("serviceDiscount")?.value || 0);
-    const net = Math.max(0, _itemsTotal + labor - discount);
+    const net = Math.max(0, _equipItemsTotal() + labor - discount);
     $("serviceTotalCost").value = net;
   };
+  // render รายการอุปกรณ์ + รวมอุปกรณ์ + recalc ยอดสุทธิ
+  const _renderEquip = () => {
+    _equipRenderList($("serviceEquipmentList"), _serviceDrawerItems, { money, readOnly: _serviceDrawerEquipReadonly });
+    const totEl = $("serviceEquipmentTotal");
+    const t = _equipItemsTotal();
+    if (totEl) totEl.textContent = t > 0 ? `รวมอุปกรณ์ ${money(t)}` : "";
+    $("serviceEquipmentReadonlyNote")?.classList.toggle("hidden", !_serviceDrawerEquipReadonly);
+    const addBtn0 = $("serviceAddEquipmentBtn");
+    if (addBtn0) addBtn0.style.display = _serviceDrawerEquipReadonly ? "none" : "";
+    _recalc();
+  };
+  // wire qty/ลบ (งานใหม่เท่านั้น) — clone list node ทับ handler เดิม (idempotent ต่อการเปิด drawer ซ้ำ)
+  {
+    const listEl = $("serviceEquipmentList");
+    if (listEl) {
+      const fresh = listEl.cloneNode(false); listEl.parentNode.replaceChild(fresh, listEl);
+      if (!_serviceDrawerEquipReadonly) {
+        fresh.addEventListener("input", (e) => {
+          const idx = e.target?.dataset?.equipQty;
+          if (idx === undefined) return;
+          const i = Number(idx);
+          const qty = Math.max(1, parseInt(e.target.value) || 1);
+          _serviceDrawerItems[i].qty = qty;
+          _serviceDrawerItems[i].line_total = qty * Number(_serviceDrawerItems[i].unit_price || 0);
+          _renderEquip();
+        });
+        fresh.addEventListener("click", (e) => {
+          const btn = e.target.closest("[data-equip-del]");
+          if (!btn) return;
+          _serviceDrawerItems.splice(Number(btn.dataset.equipDel), 1);
+          _renderEquip();
+        });
+      }
+    }
+  }
+  // wire ปุ่ม "+ เพิ่มอุปกรณ์" (idempotent) — เปิด picker จากสต็อก
+  {
+    const addBtn = $("serviceAddEquipmentBtn");
+    if (addBtn) {
+      const fresh = addBtn.cloneNode(true); addBtn.parentNode.replaceChild(fresh, addBtn);
+      if (!_serviceDrawerEquipReadonly) {
+        fresh.addEventListener("click", () => {
+          _equipOpenPicker({ state, money, showToast }, (item) => {
+            const ex = _serviceDrawerItems.find(it =>
+              String(it.product_id) === String(item.product_id) && String(it.warehouse_id) === String(item.warehouse_id));
+            if (ex) { ex.qty = Number(ex.qty) + 1; ex.line_total = ex.qty * Number(ex.unit_price || 0); }
+            else _serviceDrawerItems.push(item);
+            _renderEquip();
+          });
+        });
+      }
+    }
+  }
+  _renderEquip();
   ["serviceLabor","serviceDiscount"].forEach(id => {
     $(id)?.addEventListener("input", _recalc, { once: false });
   });
@@ -2688,6 +2748,18 @@ async function saveServiceJob(){
   }
   let res;
   const isNewJob = !state.editingServiceJobId;
+  // ★ Phase 402 (MONEY/STOCK §4.1+§4.2): อุปกรณ์จากสต็อก — เฉพาะงานใหม่ (งานเดิม items read-only กันตัดซ้ำ)
+  const _equipItemsForSave = (isNewJob && !_serviceDrawerEquipReadonly) ? _equipToItemsJson(_serviceDrawerItems) : [];
+  if (_equipItemsForSave.length) {
+    // precheck: รวม qty ต่อ (product|warehouse) เทียบสต็อกจริง → ไม่พอ = บล็อก ไม่บันทึก/ไม่ตัด (floor กันติดลบ)
+    const pc = _equipPrecheck(_equipItemsForSave, state);
+    if (!pc.ok) {
+      const msg = "❌ สต็อกอุปกรณ์ไม่พอ: " + pc.shortages.map(s => `${s.name} (${s.warehouse_name}) ต้องใช้ ${s.need} เหลือ ${s.avail}`).join(" • ");
+      _signalSave(false, { reason: msg });
+      return showToast(msg);
+    }
+    payload.items_json = _equipItemsForSave;  // total_cost (serviceTotalCost) รวมอุปกรณ์อยู่แล้วผ่าน _recalc
+  }
   if (state.editingServiceJobId) {
     res = await xhrPatch("service_jobs", payload, "id", state.editingServiceJobId);
   } else {
@@ -2696,6 +2768,16 @@ async function saveServiceJob(){
     res = await xhrPost("service_jobs", payload, { returnData: true });
   }
   if (!res.ok) { _signalSave(false, { reason: res.error?.message || "บันทึกงานช่างไม่สำเร็จ" }); return showToast(res.error?.message || "บันทึกงานช่างไม่สำเร็จ"); }
+
+  // ★ Phase 402: ตัดสต็อกอุปกรณ์ — job insert สำเร็จก่อน → ค่อยตัด (invariant เหมือน service_form.js).
+  //   ตัดผ่าน window._appApplyStockMovement (out/CAS/floor); ตัดบางตัว fail → ไม่ rollback job (เตือน reconcile §4.8)
+  if (_equipItemsForSave.length) {
+    const { stockOpsFailed } = await _equipDeduct(_equipItemsForSave, payload.job_no || "", payload.customer_name);
+    _equipOptimistic(_equipItemsForSave, state);  // optimistic local (Phase 45.4) — ไม่ await loadAllData
+    if (stockOpsFailed) {
+      showToast("⚠️ บันทึกงานแล้ว แต่ตัดสต็อกอุปกรณ์บางรายการล้มเหลว — ตรวจ Console/สต็อก", "warning");
+    }
+  }
 
   // Phase 45.9: optimistic update + background reload
   // เดิม `await loadAllData()` block 10-30s ทุกครั้งหลัง save (slow connection อาจถึง 2 นาที)
