@@ -44,9 +44,12 @@ test("signature accepts allowNegative with default false", () => {
 });
 
 test("out/sale (default) decrements via floored _atomicDecrementStock, NOT _atomicAddStock", () => {
-  // warehouse + products mirror both go through the floor on the !allowNegative path
+  // warehouse (the truth) goes through the floor on the !allowNegative path
   assert.match(body, /_atomicDecrementStock\("warehouse_stock", ws\.id, qty\)/, "warehouse out/sale via floor");
-  assert.match(body, /_atomicDecrementStock\("products", productId, qty\)/, "products mirror out/sale via floor");
+  // Phase 403: the products.stock MIRROR was removed — products.stock is now derived from
+  // sum(warehouse_stock) by a DB trigger; _applyStockMovement does only an optimistic LOCAL recompute.
+  assert.ok(!/_atomicDecrementStock\("products"/.test(body), "no products.stock CAS in _applyStockMovement (trigger-derived)");
+  assert.ok(!/_atomicAddStock\("products"/.test(body), "no products.stock additive CAS in _applyStockMovement");
   // the floored branch is gated by isOutFlow && !allowNegative
   assert.match(body, /const isOutFlow = \(movementType === "out" \|\| movementType === "sale"\)/, "isOutFlow derived");
   assert.match(body, /else if \(isOutFlow && !allowNegative\)/, "floored branch gated on !allowNegative");
@@ -72,9 +75,9 @@ test("out/sale with no warehouse row (+!allowNegative) → fail, does NOT insert
 });
 
 test("allowNegative override preserves _atomicAddStock + the warehouse_stock insert path", () => {
-  // in/return AND admin-override out/sale still use the additive CAS (delta can be negative)
+  // in/return AND admin-override out/sale still use the additive CAS on warehouse_stock (the truth)
   assert.match(body, /_atomicAddStock\("warehouse_stock", ws\.id, delta\)/, "additive warehouse CAS preserved");
-  assert.match(body, /_atomicAddStock\("products", productId, delta\)/, "additive products CAS preserved");
+  // Phase 403: products.stock additive mirror removed (DB trigger keeps products.stock = sum)
   // the insert (used by in/return and by manual override out/sale) is kept
   assert.match(
     body,
@@ -83,12 +86,13 @@ test("allowNegative override preserves _atomicAddStock + the warehouse_stock ins
   );
 });
 
-test("'in'/'return' still additive; 'adjust' still absolute xhrPatch — untouched", () => {
+test("'in'/'return' still additive; 'adjust' still absolute xhrPatch on warehouse — untouched", () => {
   // delta is +qty for in/return
   assert.match(body, /\(movementType === "in" \|\| movementType === "return"\) \? qty/, "in/return delta = +qty");
-  // adjust still PATCHes an absolute value (not a delta) on both tables
+  // adjust still PATCHes an absolute value (not a delta) on warehouse_stock (the truth)
   assert.match(body, /xhrPatch\("warehouse_stock", \{ stock: after \}, "id", ws\.id\)/, "adjust warehouse absolute set");
-  assert.match(body, /xhrPatch\("products", \{ stock: newProdStock \}, "id", productId\)/, "adjust products recompute set");
+  // Phase 403: no products.stock PATCH here anymore — the trigger recomputes products.stock from sum
+  assert.ok(!/xhrPatch\("products"/.test(body), "no products.stock patch in _applyStockMovement (trigger-derived)");
 });
 
 test("return shape stays {ok,error} (+ additive insufficient) — callers depend on it", () => {

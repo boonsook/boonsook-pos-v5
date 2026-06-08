@@ -7,6 +7,15 @@
 
 ---
 
+## 5.66.0 (build 403) — 2026-06-08 Phase 403 stock-mirror-canonical-sync (MONEY/STOCK §4.2) — products.stock = sum(warehouse_stock) ผ่าน DB trigger
+
+- **fix (stock root):** `products.stock` (ยอดรวม derived) หลุด sync จาก `warehouse_stock` (truth) ได้ เพราะ `_applyStockMovement` เขียน 2 ตัวแยกกัน best-effort (Phase 402 smoke เจอ 6 ตัว −1) → ทำให้ products.stock เป็น **derived 100%**
+- **Part A (owner รัน SQL):** `supabase-phase403-stock-sync-trigger.sql` — trigger `AFTER insert/update/delete on warehouse_stock` → `products.stock = sum(warehouse_stock)` + backfill + NOTIFY pgrst
+- **⚠️ deploy order (ตอนร้านปิด):** deploy **build 403 ก่อน** → รัน trigger → รัน backfill → verify. (ห้ามอยู่สถานะ JS 402 เก่า + trigger live ตอนมีขาย = double-count; deploy 403 ก่อน = freeze ชั่วคราว กู้ได้ด้วย backfill)
+- **Part B (JS full-derived):** เอา products.stock direct-write ออกจาก `_applyStockMovement` mirror + POS deduct (warehouse branch) + revert (warehouse branch) → เหลือ optimistic local sum · **คง legacy write เฉพาะเคสไม่มี warehouse row** (trigger ไม่ fire)
+- **Part C (owner decision, ยังไม่ทำ):** ลบ/ยกเลิกงานช่างที่มีอุปกรณ์ ปัจจุบันไม่คืนสต็อก — ต้องการ reverse (return movement) ไหม = scope แยก
+- ❌ ไม่แตะ warehouse_stock CAS/floor (truth) · transfer sum-neutral · auto_post/JV · +guard `stock_mirror_canonical_guard.test.js`
+
 ## 5.66.0 (build 402) — 2026-06-08 Phase 402 service-job-equipment-from-stock (MONEY/STOCK §4.1+§4.2) — อุปกรณ์จากคลังใน drawer งานช่าง
 
 - **feat (service/stock):** drawer "เพิ่มงานช่าง" เพิ่ม section **🔧 อุปกรณ์ที่ใช้ (จากสต็อก)** — picker เลือกสินค้า + คลังที่มีสต็อก + qty → **ตัดสต็อกตอนสร้างงานใหม่** ผ่าน `window._appApplyStockMovement` (CAS/floor) + precheck `aggregateNeedByKey` (สต็อกไม่พอ → บล็อก ไม่บันทึก/ไม่ตัด)
