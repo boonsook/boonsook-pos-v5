@@ -4,6 +4,8 @@
 // ═══════════════════════════════════════════════════════════
 
 import { describeLineResult } from "./line_notify.js";  // Phase 391: handle LINE queue result (ไม่ swallow เงียบ)
+// Phase 404 (MONEY/STOCK §4.2): ยกเลิกงานที่มีอุปกรณ์ → คืนสต็อก (idempotent; AI order ไม่มี items_json = no-op)
+import { restoreServiceJobStock, STOCK_RETURNED_MARKER } from "./service_equipment.js";
 
 // Phase 45.14 (XSS fix): escape user-supplied data before innerHTML
 const escHtml = (s) => String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
@@ -673,7 +675,14 @@ export function renderAiSalesPage(ctx) {
                       cancelBtn.disabled = true;
                       cancelBtn.textContent = "⏳ กำลังยกเลิก...";
                       try {
-                        const cancelRes = await window._appXhrPatch("service_jobs", { status: "cancelled", note: orderData.note + " | ❌ ลูกค้ายกเลิก" }, "id", orderId);
+                        // ★ Phase 404: คืนสต็อกถ้าออเดอร์มีอุปกรณ์ (idempotent) — AI order ปัจจุบันไม่มี items_json = no-op
+                        let _cancelNote = orderData.note + " | ❌ ลูกค้ายกเลิก";
+                        try {
+                          const _r = await restoreServiceJobStock({ ...orderData, id: orderId });
+                          if (_r.restored) _cancelNote += " " + STOCK_RETURNED_MARKER;
+                          if (_r.errors?.length) showToast(`⚠️ ยกเลิกแล้ว แต่คืนสต็อกบางรายการไม่สำเร็จ (${_r.errors.length})`, "warning");
+                        } catch (re) { console.error("[ai_sales cancel] restore stock threw:", re); }
+                        const cancelRes = await window._appXhrPatch("service_jobs", { status: "cancelled", note: _cancelNote }, "id", orderId);
                         if (cancelRes?.ok) {
                           cancelBtn.textContent = "✅ ยกเลิกแล้ว";
                           cancelBtn.style.background = "#f3f4f6";
