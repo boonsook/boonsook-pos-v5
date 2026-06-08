@@ -273,7 +273,7 @@ export function renderExportBundlePage(ctx) {
     <div class="panel" style="max-width:880px">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
         <span style="font-size:30px">📦</span>
-        <div style="flex:1;min-width:200px">
+        <div class="rep-head-main">
           <h2 style="margin:0;font-size:20px;color:#0f172a">Export ชุดรายงานบัญชี</h2>
           <div style="font-size:12px;color:#64748b">Excel 1 ไฟล์ — 4 sheets (TB + P&L + BS + Journal) ส่งสำนักงานบัญชีได้ทันที</div>
         </div>

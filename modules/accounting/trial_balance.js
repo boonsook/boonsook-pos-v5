@@ -164,7 +164,7 @@ export function renderTrialBalancePage(ctx) {
     <div class="panel" style="max-width:1100px">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
         <span style="font-size:30px">📊</span>
-        <div style="flex:1;min-width:200px">
+        <div class="rep-head-main">
           <h2 style="margin:0;font-size:20px;color:#0f172a">รายงานยอดทดลอง (Trial Balance)</h2>
           <div style="font-size:12px;color:#64748b">รายงานหัวใจของบัญชี — Dr/Cr ทุกบัญชีในงวด · ตรวจ balance Dr = Cr</div>
         </div>

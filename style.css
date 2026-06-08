@@ -2211,3 +2211,8 @@ aside.drawer { position: fixed; top: 0; right: 0; }
 .ob-name{flex:1 1 auto;min-width:110px;color:#0f172a;font-size:13px}
 .ob-input{width:160px;flex:0 0 auto;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-family:monospace;text-align:right}
 @media (max-width:600px){ .ob-input{width:100%;flex:1 1 100%} }
+
+/* PHASE 401 — header รายงานบัญชี: title เต็มแถว + ปุ่ม Excel/พิมพ์ wrap ลงล่างบนมือถือ
+   (parent row มี flex-wrap:wrap อยู่แล้ว → ให้ title basis 100% บนจอแคบ → ปุ่มตกบรรทัดถัดไป) */
+.rep-head-main { flex: 1 1 auto; min-width: 200px; }
+@media (max-width: 600px){ .rep-head-main { flex: 1 1 100%; min-width: 0; } }

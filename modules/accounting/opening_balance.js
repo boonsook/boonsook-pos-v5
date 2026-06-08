@@ -48,7 +48,7 @@ export function renderOpeningBalancePage(ctx) {
     <div class="panel" style="max-width:900px">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
         <span style="font-size:30px">📥</span>
-        <div style="flex:1;min-width:200px">
+        <div class="rep-head-main">
           <h2 style="margin:0;font-size:20px;color:#0f172a">ลงยอดยกมา (Opening Balance)</h2>
           <div style="font-size:12px;color:#64748b">เริ่มต้นใช้ระบบ — ลงทุน + เงินสดเริ่มต้น + ลูกหนี้/เจ้าหนี้ คงค้าง · ลงวันที่ ${ACCOUNTING_EFFECTIVE_DATE}</div>
         </div>

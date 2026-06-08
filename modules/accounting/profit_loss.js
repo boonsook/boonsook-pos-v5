@@ -193,7 +193,7 @@ export function renderProfitLossPage(ctx) {
     <div class="panel" style="max-width:900px">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
         <span style="font-size:30px">📈</span>
-        <div style="flex:1;min-width:200px">
+        <div class="rep-head-main">
           <h2 style="margin:0;font-size:20px;color:#0f172a">งบกำไรขาดทุน (Profit &amp; Loss)</h2>
           <div style="font-size:12px;color:#64748b">รายได้ - ค่าใช้จ่าย = กำไร/ขาดทุนสุทธิ · ส่งสำนักงานบัญชีได้</div>
         </div>

@@ -7,6 +7,12 @@
 
 ---
 
+## 5.66.0 (build 401) — 2026-06-08 Phase 401 mobile-fix-report-headers (layout/CSS-only) — header รายงานบัญชีไม่แตกแนวตั้งบนมือถือ
+
+- **fix (accounting/mobile):** header ของรายงานบัญชี **5 หน้า** (Trial Balance / P&L / Balance Sheet / Export Bundle / Opening Balance) — title ไทยแตกแนวตั้งบนจอ ~360px เพราะปุ่ม Excel/พิมพ์ ไม่ wrap ลงล่าง → บีบ title (Phase 400 audit พลาดจุดนี้)
+- เปลี่ยน title div `<div style="flex:1;min-width:200px">` → class `.rep-head-main` + `@media≤600px` ให้ title basis 100% (min-width:0) → ปุ่มตกบรรทัดล่าง · desktop เหมือนเดิม
+- **layout-only:** ไม่แตะ logic รายงาน/Dr-Cr/balance/export/print/period · ตาราง · ปุ่ม id · +guard `report_header_mobile.test.js`
+
 ## 5.66.0 (build 400) — 2026-06-08 Phase 400 mobile-fix-vertical-text (layout-only) — แก้ข้อความแตกแนวตั้งบนมือถือ
 
 - **fix (ui/mobile):** หน้า **ยอดยกมา (Opening Balance)** — ชื่อบัญชีไทยแตก 1 ตัวอักษร/บรรทัดบนจอแคบ (~360px) เพราะ flex row ไม่ wrap + input fix 160px บีบชื่อ → แยกเป็น class `.ob-*` (flex-wrap + `.ob-name` min-width + `@media≤600px` input เต็มกว้าง)
