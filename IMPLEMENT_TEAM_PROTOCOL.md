@@ -37,6 +37,17 @@ Old Claude files such as `CLAUDE_CODE_PROMPT.md`, `CLAUDE_CODE_WORKFLOW.md`, and
 - Do not call work done until lint, tests, CI/deploy, and live/build checks are reported.
 - If scope is unclear, stop and ask.
 
+## 🔴 Iron Rules — Money/Stock/Cross-cutting (มี 2026-06-08, learned the hard way)
+
+มีกฎพวกนี้เพราะงานที่ "แก้จบ/ผ่านแล้ว" กลับมาพังซ้ำ — เสียเวลาวนแก้เป็นเดือน. **บังคับ** ทุกครั้งที่แตะเงิน, สต็อก, หรือ value/function ที่ใช้ร่วมหลายไฟล์ (เช่น `products.stock`, `warehouse_stock`, `total_cost`, `gross_profit`, การตัดสต็อก, checkout/save flow):
+
+1. **Grep ทุก writer/reader ก่อน — ห้าม reason จากไฟล์เดียว.** ก่อน spec/แก้ field หรือ function ที่ใช้ร่วม → `grep` ทั้ง repo หาทุกจุดที่เขียน/อ่านมัน แล้ว **list ออกมา**. (เคย: fix แก้ `products.stock` แค่ 2 ใน 4 จุด → ลืม grep อีก 2 จุด (POS) → ทำ POS ตัดสต็อกซ้ำทุกบิล — reviewer จับได้ก่อนพอดี.)
+2. **Derived value มี writer เดียว.** `products.stock = sum(warehouse_stock)` ฯลฯ ต้อง maintain ที่เดียว (DB trigger/RPC ดีสุด), ห้าม mirror แยกหลาย JS path. mirror แบบ best-effort = หลุด sync เงียบ ๆ.
+3. **Verify runtime จริง ไม่ใช่อ่านโค้ดนิ่ง.** UI/layout/behavior → render ที่ขนาดจริง (~360px มือถือ) หรือ smoke ของจริง — **ห้าม** สรุป "ปลอดภัย" จากค่าใน CSS/โค้ด. (เคย: `min-width:200px` ถูกตัดสินว่า safe โดยไม่ render → 5 หน้า report แตกบนมือถือ.)
+4. **Audit ของรอบ ๆ + ข้างใน helper ด้วย ไม่ใช่แค่ diff.** money/stock change → ตรวจ (ก) guard เดิมที่ป้องอยู่ (single-flight/inflight) (ข) internals ของ helper ที่เรียก. "shared/tested" ≠ ปลอดภัย. (เคย: saveServiceJob ไม่มี inflight guard → กดบันทึกรัว = double-submit → ตัดสต็อกซ้ำ.)
+5. **ล็อก invariant ด้วย guard test (กัน regression).** fix ยังไม่จบจนกว่ามี test ที่ **fail ถ้า behavior พัง**. นี่คือกฎที่หยุดวงจร "ผ่านแล้ว → พังอีก". source-regex: extract function body ก่อน (อย่า grep ทั้งไฟล์).
+6. **Money/stock = owner smoke ก่อน merge.** code review + unit test พิสูจน์ stock/เงินจริงไม่ได้. ใช้ preview deploy (`gh workflow run main.yml --ref <branch>` → preview URL, prod ไม่ขยับ) ให้ owner ลองข้อมูลจริงก่อน merge.
+
 ## Phase Start Checklist
 
 Before editing files, report:
