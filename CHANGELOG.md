@@ -7,6 +7,12 @@
 
 ---
 
+## 5.66.0 (build 400) — 2026-06-08 Phase 400 mobile-fix-vertical-text (layout-only) — แก้ข้อความแตกแนวตั้งบนมือถือ
+
+- **fix (ui/mobile):** หน้า **ยอดยกมา (Opening Balance)** — ชื่อบัญชีไทยแตก 1 ตัวอักษร/บรรทัดบนจอแคบ (~360px) เพราะ flex row ไม่ wrap + input fix 160px บีบชื่อ → แยกเป็น class `.ob-*` (flex-wrap + `.ob-name` min-width + `@media≤600px` input เต็มกว้าง)
+- **hardening:** หน้า **คืนสินค้า** panel "เหตุผลที่ลูกค้าคืนมากที่สุด" — เพิ่ม `flex-wrap` + min-width ให้ข้อความเหตุผล (bar 200px wrap ลงบรรทัดล่างเมื่อจอแคบ)
+- **layout-only:** ไม่แตะ logic ลงยอด/balance/JV (OB) · refund/total/pct (refunds) · คง input id `ob_${code}` + escHtml · +guard `mobile_row_layout.test.js`
+
 ## 5.66.0 (build 399) — 2026-06-08 Phase 399 topbar-notif-profile (display + navigation · READ-ONLY) — 🔔 แจ้งเตือน + 👤 เมนูโปรไฟล์
 
 - **feat (ui):** เพิ่มใน topbar-right → ปุ่ม **🔔 แจ้งเตือน** (badge = จำนวนสินค้าใกล้หมด/หมด) คลิกไปหน้าสินค้า + **👤 ชิปโปรไฟล์/เมนู** (ชื่อ+role, ⚙️ ตั้งค่า / 🚪 ออกจากระบบ)
