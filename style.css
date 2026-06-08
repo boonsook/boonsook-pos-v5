@@ -2157,3 +2157,46 @@ aside.drawer { position: fixed; top: 0; right: 0; }
   .dash-today-amount { font-size: 28px; }
   .dash-today { padding: 14px 16px; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   PHASE 399 — topbar notification bell + profile menu (global; token-driven)
+   ═══════════════════════════════════════════════════════════════════════ */
+.topbar-notif { position: relative; }
+.notif-badge {
+  position: absolute; top: 2px; right: 2px; min-width: 16px; height: 16px;
+  padding: 0 4px; border-radius: 999px; background: #ef4444; color: #fff;
+  font-size: 10px; font-weight: 800; line-height: 16px; text-align: center;
+  box-sizing: border-box; pointer-events: none;
+}
+.notif-badge.hidden { display: none; }
+
+.topbar-profile-wrap { position: relative; }
+.topbar-profile {
+  display: flex; align-items: center; gap: 8px; max-width: 200px;
+  height: 42px; padding: 0 12px; border: 1px solid var(--line);
+  border-radius: 10px; background: var(--surface); color: var(--text);
+  cursor: pointer; font-size: 13px; font-weight: 600; box-shadow: var(--shadow);
+}
+.topbar-profile:hover { border-color: var(--primary2); }
+.profile-avatar { font-size: 16px; line-height: 1; flex-shrink: 0; }
+.profile-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.profile-menu {
+  position: absolute; top: calc(100% + 6px); right: 0; min-width: 180px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 14px 40px rgba(15,23,42,.18); z-index: var(--z-dropdown, 1000);
+  padding: 6px; display: flex; flex-direction: column; gap: 2px;
+}
+.profile-menu.hidden { display: none; }
+.profile-menu-item {
+  width: 100%; text-align: left; border: none; background: transparent;
+  color: var(--text); padding: 9px 12px; border-radius: 8px; cursor: pointer;
+  font-size: 13px; font-weight: 600;
+}
+.profile-menu-item:hover { background: rgba(2,132,199,.08); color: var(--primary2); }
+
+/* mobile: ซ่อนชื่อยาว เหลือ avatar (กัน topbar ล้น) */
+@media (max-width: 560px) {
+  .profile-name { display: none; }
+  .topbar-profile { max-width: none; padding: 0 10px; }
+}
