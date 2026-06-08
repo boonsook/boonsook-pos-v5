@@ -64,11 +64,11 @@ export function renderOpeningBalancePage(ctx) {
         <div style="background:#0284c7;color:#fff;padding:10px 14px;border-radius:8px 8px 0 0;font-weight:700;font-size:14px">🟦 สินทรัพย์ที่ยกมา (Debit)</div>
         <div style="background:#fff;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px;padding:14px">
           ${ASSET_FIELDS.map(f => `
-            <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9">
-              <span style="font-size:20px;width:28px;text-align:center">${f.emoji}</span>
-              <span style="font-family:monospace;color:#475569;width:60px">${f.code}</span>
-              <span style="flex:1;color:#0f172a;font-size:13px">${escHtml(f.label)}</span>
-              <input type="number" id="ob_${f.code}" step="0.01" min="0" placeholder="0.00" style="width:160px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-family:monospace;text-align:right" />
+            <div class="ob-row">
+              <span class="ob-emoji">${f.emoji}</span>
+              <span class="ob-code">${f.code}</span>
+              <span class="ob-name">${escHtml(f.label)}</span>
+              <input type="number" id="ob_${f.code}" step="0.01" min="0" placeholder="0.00" class="ob-input" />
             </div>
           `).join("")}
         </div>
@@ -79,11 +79,11 @@ export function renderOpeningBalancePage(ctx) {
         <div style="background:#dc2626;color:#fff;padding:10px 14px;border-radius:8px 8px 0 0;font-weight:700;font-size:14px">🟥 หนี้สินที่ยกมา (Credit)</div>
         <div style="background:#fff;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px;padding:14px">
           ${LIABILITY_FIELDS.map(f => `
-            <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9">
-              <span style="font-size:20px;width:28px;text-align:center">${f.emoji}</span>
-              <span style="font-family:monospace;color:#475569;width:60px">${f.code}</span>
-              <span style="flex:1;color:#0f172a;font-size:13px">${escHtml(f.label)}</span>
-              <input type="number" id="ob_${f.code}" step="0.01" min="0" placeholder="0.00" style="width:160px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-family:monospace;text-align:right" />
+            <div class="ob-row">
+              <span class="ob-emoji">${f.emoji}</span>
+              <span class="ob-code">${f.code}</span>
+              <span class="ob-name">${escHtml(f.label)}</span>
+              <input type="number" id="ob_${f.code}" step="0.01" min="0" placeholder="0.00" class="ob-input" />
             </div>
           `).join("")}
         </div>
@@ -94,11 +94,11 @@ export function renderOpeningBalancePage(ctx) {
         <div style="background:#7c3aed;color:#fff;padding:10px 14px;border-radius:8px 8px 0 0;font-weight:700;font-size:14px">🟪 ส่วนของเจ้าของที่ยกมา (Credit)</div>
         <div style="background:#fff;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px;padding:14px">
           ${EQUITY_FIELDS.map(f => `
-            <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9">
-              <span style="font-size:20px;width:28px;text-align:center">${f.emoji}</span>
-              <span style="font-family:monospace;color:#475569;width:60px">${f.code}</span>
-              <span style="flex:1;color:#0f172a;font-size:13px">${escHtml(f.label)}</span>
-              <input type="number" id="ob_${f.code}" step="0.01" min="0" placeholder="0.00" style="width:160px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-family:monospace;text-align:right" />
+            <div class="ob-row">
+              <span class="ob-emoji">${f.emoji}</span>
+              <span class="ob-code">${f.code}</span>
+              <span class="ob-name">${escHtml(f.label)}</span>
+              <input type="number" id="ob_${f.code}" step="0.01" min="0" placeholder="0.00" class="ob-input" />
             </div>
           `).join("")}
         </div>

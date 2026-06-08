@@ -201,8 +201,8 @@ export async function renderRefundsPage(ctx) {
             ${topReasons.map(([r, n]) => {
               const pct = total > 0 ? (n/total*100).toFixed(0) : 0;
               return `
-                <div style="display:flex;align-items:center;gap:10px;font-size:13px">
-                  <div style="flex:1">${escHtml(r)}</div>
+                <div style="display:flex;align-items:center;gap:10px;font-size:13px;flex-wrap:wrap">
+                  <div style="flex:1 1 120px;min-width:120px">${escHtml(r)}</div>
                   <div style="width:200px;background:#e2e8f0;height:18px;border-radius:9px;overflow:hidden;position:relative">
                     <div style="background:linear-gradient(90deg,#dc2626,#f59e0b);width:${pct}%;height:100%"></div>
                     <span style="position:absolute;left:8px;top:0;color:#fff;font-size:11px;font-weight:700;line-height:18px;text-shadow:0 1px 2px rgba(0,0,0,.3)">${n} (${pct}%)</span>
