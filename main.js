@@ -2712,6 +2712,9 @@ function _setServicePhotoPreview(which, url) {
   }
 }
 async function saveServiceJob(){
+  // Phase 402 (addendum): ห่อด้วย single-flight guard — กดบันทึกซ้ำขณะ inflight = no-op
+  // (กัน double-submit → สร้างงานซ้ำ + ตัดสต็อกซ้ำ; release ใน finally ของ guard เสมอ)
+  return _serviceJobSaveGuard.run(async () => {
   // ★ Phase 391: signal ผลการบันทึกจริง ให้ AI chat widget (กัน "success ปลอม" ตอน save fail)
   const _signalSave = (ok, detail) => {
     try { window.dispatchEvent(new CustomEvent(ok ? "service-job:saved" : "service-job:save-failed", { detail: detail || {} })); } catch (_) {}
@@ -2888,6 +2891,7 @@ async function saveServiceJob(){
   }
   // ★ รีเซ็ต orig-status หลังบันทึก
   state.editingServiceJobOrigStatus = null;
+  }); // _serviceJobSaveGuard.run
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -3649,6 +3653,10 @@ function _openSerialBatchModal({ saleId, items, customerId, customerName }) {
 // Phase 89.41: single-flight guard prevents double-click race
 // (2nd checkout() call while 1st await is pending returns immediately, no-op)
 const _checkoutGuard = createInflightGuard();
+
+// Phase 402 (addendum): single-flight guard for saveServiceJob — กดบันทึกซ้ำตอน save ยัง inflight
+// = สร้างงานซ้ำ + ตัดสต็อกซ้ำ (double-deduct). guard นี้ปิดช่องนั้น (ตัวเดียวกับ POS checkout)
+const _serviceJobSaveGuard = createInflightGuard();
 
 async function checkout(){
   return _checkoutGuard.run(async () => {

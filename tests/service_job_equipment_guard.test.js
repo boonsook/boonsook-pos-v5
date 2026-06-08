@@ -117,3 +117,11 @@ test("editing job clones items read-only (no mutation of the original row)", () 
   assert.match(mainSrc, /_serviceDrawerEquipReadonly\s*=\s*_hasExistingItems/, "edit with items → readonly flag set");
   assert.match(mainSrc, /job\.items_json\.map\(it => \(\{ \.\.\.it \}\)\)/, "existing items are cloned, not referenced");
 });
+
+// ── Phase 402 addendum: single-flight guard closes the double-deduct window ──
+test("saveServiceJob is wrapped in a single-flight guard (no double-submit/deduct)", () => {
+  assert.match(mainSrc, /const _serviceJobSaveGuard = createInflightGuard\(\)/, "a dedicated inflight guard is created");
+  // the whole save body runs inside _serviceJobSaveGuard.run(...) → a 2nd click while inflight is a no-op
+  assert.match(mainSrc, /async function saveServiceJob\(\)\{[\s\S]{0,400}?return _serviceJobSaveGuard\.run\(async \(\) => \{/,
+    "saveServiceJob body is wrapped by _serviceJobSaveGuard.run");
+});

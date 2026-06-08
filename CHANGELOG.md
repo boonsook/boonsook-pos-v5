@@ -13,6 +13,7 @@
 - โมดูลใหม่ `modules/service_equipment.js` (deduct-only scope; import โดย main.js เท่านั้น — **ไม่แตะ service_form.js**) · `total_cost` รวมอุปกรณ์ (auto-post JV ใช้ค่านี้)
 - **กันตัดซ้ำ:** งานเดิม (มี items_json) → อุปกรณ์ **read-only** + ป้าย "ตัดสต็อกแล้ว แก้ไม่ได้" · ตัดเฉพาะงานใหม่
 - **invariant:** job insert สำเร็จก่อน → ค่อยตัด; ตัดบางตัว fail → ไม่ rollback (เตือน reconcile §4.8) · showToast ไม่ alert · +guard `service_job_equipment_guard.test.js`
+- **addendum (กัน double-deduct):** ห่อ `saveServiceJob` ด้วย `createInflightGuard()` (ตัวเดียวกับ POS checkout) — กดบันทึกซ้ำขณะ save inflight = no-op → ไม่สร้างงานซ้ำ/ไม่ตัดสต็อกซ้ำ
 - known: แก้/คืนอะไหล่หลังบันทึก + auto-transfer บ้าน→รถ = future phase
 
 ## 5.66.0 (build 401) — 2026-06-08 Phase 401 mobile-fix-report-headers (layout/CSS-only) — header รายงานบัญชีไม่แตกแนวตั้งบนมือถือ
