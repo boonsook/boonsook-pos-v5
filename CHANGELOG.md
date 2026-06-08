@@ -7,6 +7,13 @@
 
 ---
 
+## 5.66.0 (build 405) — 2026-06-08 Phase 405 receipt-acct-badge-refresh (cosmetic · display-only) — ป้าย "ลงบัญชี" บนใบเสร็จเด้งเองหลัง auto_post
+
+- **fix (display):** ป้าย "เอกสารบัญชี" บนใบเสร็จ POS ที่เด้งตอนจบบิลค้าง "ยังไม่ลงบัญชี" ทุกบิล ทั้งที่ลงบัญชีจริง — **ordering bug** (ไม่ใช่ data bug): `pos.js doCheckout` เปิดใบเสร็จ + ยิง lookup JV (`:1250`) **ก่อน** `postJournalForSale` สร้าง JV (`:1257`) + badge เติมครั้งเดียวไม่ re-poll
+- **fix self-contained ใน `main.js _fillReceiptAcctTrace`** (ไม่แตะ checkout flow — `pos.js` revert กลับเดิม): lookup แรก "missing" → โชว์ "⏳ กำลังลงบัญชี…" + **retry lookup** จน JV โผล่ (สูงสุด 6 ครั้ง ทุก 1.5 วิ) → badge เด้ง "ลงบัญชีแล้ว" เองไม่ต้องปิด-เปิด
+- หยุด retry ถ้าเปลี่ยนบิล (`String(lr.id)===String(sale.id)`) / ปิด drawer · unposted จริง → ครบ retry → คงเหลือง (honest)
+- ❌ ไม่แตะ posting/auto_post/JV/money/stock/checkout flow (`pos.js` ไม่เปลี่ยน) — display retry ล้วน (read-only lookup) · +guard `receipt_acct_trace_refresh_guard.test.js` · bump 404→405
+
 ## 5.66.0 (build 404) — 2026-06-08 Phase 404 service-job-cancel-restore-stock (MONEY/STOCK §4.2) — ยกเลิก/ลบงานช่าง = คืนสต็อก
 
 - **feat (service/stock):** งานช่างที่มีอุปกรณ์ (items_json) ตัดสต็อกตอนสร้าง (Phase 402) แต่ยกเลิก/ลบ **ไม่คืนสต็อก** → อุปกรณ์หายถาวร → เพิ่ม: cancel/delete งานที่มีอุปกรณ์ → **คืนสต็อก** (return movement) ผ่าน `_appApplyStockMovement("return")` → trigger 403 sync products.stock เอง
