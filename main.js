@@ -1214,30 +1214,63 @@ async function loadAllData(){
 
 function renderAll(){
   _updateLowStockBadge();
+  _updateNotifBell();    // ★ Phase 399: topbar 🔔
+  _updateProfileChip();  // ★ Phase 399: topbar 👤
   showRoute(state.currentRoute);
 }
 
 // ★ Low Stock Badge ใน sidebar — นับสินค้าที่สต็อก ≤ min_stock (และ > 0 = near / = 0 = out)
+// ★ Phase 399: single source นับสินค้าใกล้หมด/หมด — sidebar badge + topbar bell ใช้ร่วม (กันเลขเพี้ยน)
+function _countLowStockItems(products) {
+  return (products || []).filter(p => {
+    const t = p.product_type || _detectType(p);
+    if (t !== "stock") return false; // นับเฉพาะสินค้านับสต็อกจริง (ไม่รวมบริการ / non-stock)
+    const s = Number(p.stock || 0), m = Number(p.min_stock || 0);
+    return s <= 0 || (m > 0 && s <= m);
+  }).length;
+}
+
 function _updateLowStockBadge() {
   const badge = $("navLowStockBadge");
   if (!badge) return;
-  const products = (state.products || []).filter(p => {
-    const t = p.product_type || _detectType(p);
-    return t === "stock"; // นับเฉพาะสินค้านับสต็อกจริง (ไม่รวมบริการ / non-stock)
-  });
-  const lowOrOut = products.filter(p => {
-    const s = Number(p.stock || 0);
-    const m = Number(p.min_stock || 0);
-    return s <= 0 || (m > 0 && s <= m);
-  });
-  if (lowOrOut.length === 0) {
+  const count = _countLowStockItems(state.products);
+  if (count === 0) {
     badge.classList.add("hidden");
     badge.textContent = "";
   } else {
     badge.classList.remove("hidden");
-    badge.textContent = lowOrOut.length;
-    badge.title = `สต็อกใกล้หมด/หมด ${lowOrOut.length} รายการ`;
+    badge.textContent = count;
+    badge.title = `สต็อกใกล้หมด/หมด ${count} รายการ`;
   }
+}
+
+// ★ Phase 399: topbar 🔔 bell — badge นับ low-stock (helper เดียวกับ sidebar)
+function _updateNotifBell() {
+  const badge = $("notifBadge");
+  if (!badge) return;
+  const count = _countLowStockItems(state.products);
+  if (count === 0) {
+    badge.classList.add("hidden");
+    badge.textContent = "";
+  } else {
+    badge.classList.remove("hidden");
+    badge.textContent = count > 99 ? "99+" : count;
+  }
+  const bell = $("notifBell");
+  if (bell) bell.title = count === 0 ? "แจ้งเตือน" : `สต็อกใกล้หมด/หมด ${count} รายการ`;
+}
+
+// ★ Phase 399: topbar 👤 profile chip — ชื่อ/role (read-only; escapeHtml กัน XSS)
+function _updateProfileChip() {
+  const nameEl = $("profileName");
+  const avatarEl = $("profileAvatar");
+  const role = state.profile?.role || "";
+  const name = (state.profile?.full_name || "").trim()
+    || (state.currentUser?.email || "").split("@")[0]
+    || "ผู้ใช้";
+  if (nameEl) nameEl.innerHTML = escapeHtml(name);
+  const AVATAR = { admin: "🛡️", sales: "💼", technician: "🔧" };
+  if (avatarEl) avatarEl.textContent = AVATAR[role] || "👤";
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -4223,6 +4256,30 @@ function bindStaticEvents(){
   $("logoutBtn")?.addEventListener("click", logout);
   $("refreshBtn")?.addEventListener("click", loadAllData);
   $("menuToggle")?.addEventListener("click", toggleSidebar);
+  // ★ Phase 399: topbar 🔔 bell → ไปจัดการสต็อกใกล้หมด · 👤 profile menu (settings / logout)
+  $("notifBell")?.addEventListener("click", () => showRoute("products"));
+  {
+    const closeProfileMenu = () => {
+      $("profileMenu")?.classList.add("hidden");
+      $("profileChip")?.setAttribute("aria-expanded", "false");
+    };
+    $("profileChip")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const menu = $("profileMenu");
+      if (!menu) return;
+      const willOpen = menu.classList.contains("hidden");
+      menu.classList.toggle("hidden");
+      $("profileChip")?.setAttribute("aria-expanded", willOpen ? "true" : "false");
+    });
+    $("profileMenu")?.addEventListener("click", (e) => {
+      const item = e.target.closest(".profile-menu-item");
+      if (!item) return;
+      closeProfileMenu();
+      if (item.dataset.act === "settings") showRoute("settings");
+      else if (item.dataset.act === "logout") window.__authLogout?.();   // ★ reuse auth.js logout (ไม่เขียนเอง)
+    });
+    document.addEventListener("click", (e) => { if (!e.target.closest(".topbar-profile-wrap")) closeProfileMenu(); });
+  }
   $("backdrop")?.addEventListener("click", () => { closeSidebar(); closeAllDrawers(); });
   document.querySelectorAll("[data-close-drawer]").forEach(btn => btn.addEventListener("click", closeAllDrawers));
   document.querySelectorAll(".nav-btn[data-route], .mobile-nav-btn[data-route]").forEach(btn => btn.addEventListener("click", ()=>showRoute(btn.dataset.route)));

@@ -9,7 +9,7 @@
   <link rel="icon" type="image/svg+xml" href="./icons/logo.svg" />
   <link rel="manifest" href="./manifest.json" />
   <link rel="apple-touch-icon" href="./icons/logo.svg" />
-  <link rel="stylesheet" href="./style.css?v=398" />
+  <link rel="stylesheet" href="./style.css?v=399" />
   <link rel="stylesheet" href="./doc-print.css?v=1" />
   <!-- ✨ Phase 4: Design System & Components (30/3/2569) -->
   <link rel="stylesheet" href="./phase4-design-system.css?v=1" />
@@ -336,6 +336,18 @@
           <div class="global-search-wrap">
             <input class="form-input desktop-search" id="globalSearch" placeholder="🔍 ค้นหาสินค้า / ลูกค้า / บิล / ใบเสนอราคา" aria-label="ค้นหา" autocomplete="off" />
             <div id="globalSearchDropdown" class="global-search-dropdown hidden"></div>
+          </div>
+          <!-- ★ Phase 399: topbar notification bell + profile menu -->
+          <button id="notifBell" class="icon-btn topbar-notif" title="แจ้งเตือน">🔔<span id="notifBadge" class="notif-badge hidden"></span></button>
+          <div class="topbar-profile-wrap">
+            <button id="profileChip" class="topbar-profile" aria-haspopup="true" aria-expanded="false">
+              <span id="profileAvatar" class="profile-avatar">👤</span>
+              <span id="profileName" class="profile-name"></span>
+            </button>
+            <div id="profileMenu" class="profile-menu hidden" role="menu">
+              <button class="profile-menu-item" data-act="settings" role="menuitem">⚙️ ตั้งค่า</button>
+              <button class="profile-menu-item" data-act="logout" role="menuitem">🚪 ออกจากระบบ</button>
+            </div>
           </div>
           <button id="refreshBtn" class="icon-btn">⟳</button>
         </div>
@@ -827,10 +839,10 @@
        ทำงานก่อน main.js โหลด → ป้องกัน user เห็น version display เก่า
        Phase 89.15: ย้ายออกไป external file + set window.APP_BUILD ให้ pages.js/main.js อ่านได้
        (CSP drop script-src 'unsafe-inline') -->
-  <script src="./selfheal.js?v=398" data-app-build="398" data-app-version="5.66.0"></script>
-  <script type="module" src="./main.js?v=398"></script>
+  <script src="./selfheal.js?v=399" data-app-build="399" data-app-version="5.66.0"></script>
+  <script type="module" src="./main.js?v=399"></script>
   <!-- Phase 89.15: externalized loading overlay + SW update banner (was inline script — drop CSP unsafe-inline) -->
-  <script src="./boot.js?v=398"></script>
+  <script src="./boot.js?v=399"></script>
 
   <!-- AI Assistant Chat Widget (Phase 1) -->
   <script src="./ai-chat-widget.js?v=9"></script>

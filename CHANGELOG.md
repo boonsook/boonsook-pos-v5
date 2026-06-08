@@ -7,6 +7,13 @@
 
 ---
 
+## 5.66.0 (build 399) — 2026-06-08 Phase 399 topbar-notif-profile (display + navigation · READ-ONLY) — 🔔 แจ้งเตือน + 👤 เมนูโปรไฟล์
+
+- **feat (ui):** เพิ่มใน topbar-right → ปุ่ม **🔔 แจ้งเตือน** (badge = จำนวนสินค้าใกล้หมด/หมด) คลิกไปหน้าสินค้า + **👤 ชิปโปรไฟล์/เมนู** (ชื่อ+role, ⚙️ ตั้งค่า / 🚪 ออกจากระบบ)
+- **refactor:** แยก `_countLowStockItems()` เป็น **single source** ใช้ร่วมกันระหว่าง badge sidebar เดิม + bell ใหม่ → ตัวเลขไม่หลุดกัน
+- ชื่อโปรไฟล์ผ่าน `escapeHtml` (XSS), logout reuse `window.__authLogout()` (auth.js), CSS อยู่ใน style.css (global)
+- **read-only ล้วน:** ไม่ fetch/write · ไม่แตะ search/refresh/checkout/เงิน/สต็อก/บัญชี/schema · +guard `topbar_notif_profile.test.js`
+
 ## 5.66.0 (build 398) — 2026-06-07 Phase 398 fix-gross-profit-kpi (MONEY WRITE-PATH) — เขียน sales.gross_profit ตอน checkout
 
 - **fix (money write-path §4.1):** KPI **"กำไรขั้นต้น"** บน dashboard อ่าน `sales.gross_profit` ที่แอป**ไม่เคยเขียน** → แสดง **฿0 เสมอ** (dead metric, verified column 42703). แก้โดยคำนวณ + เขียนตอน checkout
