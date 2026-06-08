@@ -27,7 +27,7 @@ import { shareDoc as _shareDocImpl } from "./modules/share_doc.js";
 // Phase 89.20: solar, ac_install lazy
 import { renderServiceFormPage, SERVICE_TYPES } from "./modules/service_form.js";
 // Phase 402 (MONEY/STOCK §4.1+§4.2): อุปกรณ์จากสต็อกใน drawer งานช่าง (deduct on save, งานใหม่)
-import { equipmentTotal as _equipTotal, precheckEquipmentStock as _equipPrecheck, toItemsJson as _equipToItemsJson, deductEquipmentStock as _equipDeduct, optimisticDeduct as _equipOptimistic, renderEquipmentList as _equipRenderList, openEquipmentPicker as _equipOpenPicker } from "./modules/service_equipment.js";
+import { equipmentTotal as _equipTotal, precheckEquipmentStock as _equipPrecheck, toItemsJson as _equipToItemsJson, deductEquipmentStock as _equipDeduct, optimisticDeduct as _equipOptimistic, renderEquipmentList as _equipRenderList, openEquipmentPicker as _equipOpenPicker, restoreServiceJobStock as _equipRestoreStock, STOCK_RETURNED_MARKER as _STOCK_RETURNED_MARKER } from "./modules/service_equipment.js";
 // Phase 89.20: error_codes (124KB), error_codes_fridge (35KB), error_codes_washer (34KB) lazy
 // Phase 89.21: stock_value, dead_stock, stock_count, stock_in_wizard, cash_recon lazy
 // Phase 89.21: top_customers, sales_heatmap, recurring_expenses, credit_tracker, refunds lazy
@@ -2762,6 +2762,20 @@ async function saveServiceJob(){
       return showToast(msg);
     }
     payload.items_json = _equipItemsForSave;  // total_cost (serviceTotalCost) รวมอุปกรณ์อยู่แล้วผ่าน _recalc
+  }
+  // ★ Phase 404 (MONEY/STOCK §4.2): edit → cancelled (transition) → คืนสต็อกอุปกรณ์ (idempotent).
+  //   คืนผ่าน _appApplyStockMovement("return") → trigger 403 sync products.stock; marker กันคืนซ้ำ.
+  if (state.editingServiceJobId && payload.status === "cancelled" && state.editingServiceJobOrigStatus !== "cancelled") {
+    const _job = (state.serviceJobs || []).find(j => String(j.id) === String(state.editingServiceJobId));
+    if (_job) {
+      try {
+        const _r = await _equipRestoreStock(_job);
+        if (_r.restored && !String(payload.note || "").includes(_STOCK_RETURNED_MARKER)) {
+          payload.note = payload.note ? `${payload.note} ${_STOCK_RETURNED_MARKER}` : _STOCK_RETURNED_MARKER;
+        }
+        if (_r.errors?.length) showToast(`⚠️ คืนสต็อกอุปกรณ์บางรายการไม่สำเร็จ (${_r.errors.length}) — ตรวจ Console/สต็อก`, "warning");
+      } catch (re) { console.error("[saveServiceJob] restore stock threw:", re); }
+    }
   }
   if (state.editingServiceJobId) {
     res = await xhrPatch("service_jobs", payload, "id", state.editingServiceJobId);

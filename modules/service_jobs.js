@@ -7,6 +7,8 @@ import { parseAirJobMeta, airBadgeHtml, airJobInfoHtml, airPriorityBadgeHtml } f
 // Phase 353: ปุ่ม "สร้างใบเสนอราคา" → push draft (build 346 mechanism) → หน้า quotations (ไม่ save อัตโนมัติ)
 import { pushAirQuoteDraft } from "./ac_quotation_draft.js";
 import { isServiceJobPendingReview } from "./service_status.js";
+// Phase 404 (MONEY/STOCK §4.2): ลบ/ยกเลิกงานที่มีอุปกรณ์ → คืนสต็อก (idempotent)
+import { restoreServiceJobStock, STOCK_RETURNED_MARKER } from "./service_equipment.js";
 
 const STATUS_LABELS = {
   pending:        "รอดำเนินการ",
@@ -353,7 +355,19 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
     btn.textContent = "กำลังลบ...";
     /* eslint-enable require-atomic-updates */
 
-    const newNote = "[ลบแล้ว] ลบโดยแอดมิน " + new Date().toLocaleString("th-TH");
+    // ★ Phase 404: คืนสต็อกอุปกรณ์ก่อนลบ (idempotent) — เฉพาะงานที่มี items_json
+    const _job = state.serviceJobs.find(x => x.id === jobId);
+    let _restore = { restored: false, errors: [] };
+    if (_job) {
+      try { _restore = await restoreServiceJobStock(_job); }
+      catch (re) { console.error("[service_jobs delete] restore stock threw:", re); }
+    }
+    let newNote = "[ลบแล้ว] ลบโดยแอดมิน " + new Date().toLocaleString("th-TH");
+    // ใส่ marker กันคืนซ้ำ ถ้าเพิ่งคืน หรือ note เดิมเคยคืนแล้ว
+    if (_restore.restored || String(_job?.note || "").includes(STOCK_RETURNED_MARKER)) {
+      newNote += " " + STOCK_RETURNED_MARKER;
+    }
+    if (_restore.errors?.length) showToast?.(`⚠️ ลบงานแล้ว แต่คืนสต็อกบางรายการไม่สำเร็จ (${_restore.errors.length}) — ตรวจ Console`, "warning");
     const updatePayload = { status: "cancelled", note: newNote };
 
     // ★ Safety timeout กัน hang

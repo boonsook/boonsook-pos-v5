@@ -96,6 +96,41 @@ export async function deductEquipmentStock(items, jobNo, customerName) {
   return { stockOpsFailed, errors };
 }
 
+// ── Phase 404: คืนสต็อกตอนยกเลิก/ลบงานช่างที่มีอุปกรณ์ ────────────────
+//   อุปกรณ์ถูกตัดตอนสร้าง (Phase 402) → cancel/delete ต้องคืน (return movement) ผ่าน
+//   window._appApplyStockMovement("return") → trigger 403 sync products.stock เอง (ไม่แตะ products ตรง).
+//   idempotent: ถ้า note มี STOCK_RETURNED_MARKER แล้ว = คืนไปแล้ว → no-op (กันคืนซ้ำ).
+//   คืนเฉพาะ item ที่มี warehouse_id (ถูก warehouse-deduct จริง); ไม่มี → skip (ไม่เดาคลัง).
+//   คืน { restored, newNote, errors } — caller เอา newNote ไปเขียน (มี marker กันคืนซ้ำรอบหน้า).
+export const STOCK_RETURNED_MARKER = "[คืนสต็อกแล้ว]";
+
+export async function restoreServiceJobStock(job) {
+  const items = Array.isArray(job?.items_json) ? job.items_json : [];
+  const note = String(job?.note || "");
+  if (items.length === 0 || note.includes(STOCK_RETURNED_MARKER)) {
+    return { restored: false, newNote: note, errors: [] };
+  }
+  const errors = [];
+  for (const it of items) {
+    if (!it.warehouse_id || !it.product_id) continue;  // เฉพาะที่ warehouse-deducted จริง
+    if (typeof window._appApplyStockMovement === "function") {
+      const r = await window._appApplyStockMovement({
+        productId: it.product_id,
+        warehouseId: it.warehouse_id,
+        movementType: "return",
+        qty: Number(it.qty || 0),
+        note: `คืนอุปกรณ์งานช่าง ${job.job_no || ""} (ยกเลิก)`
+      });
+      if (!r?.ok) {
+        console.error("[service_equipment restore fail]", it, r);
+        errors.push({ item: it, error: r?.error || "unknown" });
+      }
+    }
+  }
+  const newNote = note ? `${note} ${STOCK_RETURNED_MARKER}` : STOCK_RETURNED_MARKER;
+  return { restored: true, newNote, errors };
+}
+
 // optimistic local update state.warehouseStock (mirror Phase 45.4) — ไม่ await loadAllData
 export function optimisticDeduct(items, state) {
   try {

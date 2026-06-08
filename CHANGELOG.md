@@ -7,6 +7,13 @@
 
 ---
 
+## 5.66.0 (build 404) — 2026-06-08 Phase 404 service-job-cancel-restore-stock (MONEY/STOCK §4.2) — ยกเลิก/ลบงานช่าง = คืนสต็อก
+
+- **feat (service/stock):** งานช่างที่มีอุปกรณ์ (items_json) ตัดสต็อกตอนสร้าง (Phase 402) แต่ยกเลิก/ลบ **ไม่คืนสต็อก** → อุปกรณ์หายถาวร → เพิ่ม: cancel/delete งานที่มีอุปกรณ์ → **คืนสต็อก** (return movement) ผ่าน `_appApplyStockMovement("return")` → trigger 403 sync products.stock เอง
+- helper `restoreServiceJobStock()` + `STOCK_RETURNED_MARKER` ใน `service_equipment.js` — **idempotent** (note marker กันคืนซ้ำ) · คืนเฉพาะ item ที่มี warehouse_id · ไม่มี items_json → no-op
+- **wire ครบทุก cancel path (grep):** service_jobs.js delete · ai_sales.js cancel (AI order ไม่มี items_json = no-op) · main.js saveServiceJob edit→cancelled
+- error คืนบางตัว → showToast เตือน ไม่ rollback cancel (§4.8) · ❌ ไม่แตะ warehouse CAS/floor/transfer/trigger/products.stock/auto_post/POS · +guard `service_job_cancel_restore_guard.test.js` (รวม completeness guard)
+
 ## 5.66.0 (build 403) — 2026-06-08 Phase 403 stock-mirror-canonical-sync (MONEY/STOCK §4.2) — products.stock = sum(warehouse_stock) ผ่าน DB trigger
 
 - **fix (stock root):** `products.stock` (ยอดรวม derived) หลุด sync จาก `warehouse_stock` (truth) ได้ เพราะ `_applyStockMovement` เขียน 2 ตัวแยกกัน best-effort (Phase 402 smoke เจอ 6 ตัว −1) → ทำให้ products.stock เป็น **derived 100%**
