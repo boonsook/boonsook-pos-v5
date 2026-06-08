@@ -8,8 +8,18 @@
 --   → ทุก path ที่แตะ warehouse_stock (POS/งานช่าง/manual/transfer/concurrent/แก้จาก client อื่น)
 --     products.stock sync อัตโนมัติ ไม่พึ่ง JS.
 --
--- คู่กับ build 403 (JS เอา products.stock direct-write ออก) — ต้องรัน trigger นี้ให้ live
--- *ก่อน* merge build 403 ขึ้น main (ไม่งั้นช่วงคาบเกี่ยว products.stock จะไม่อัปเดตเลย).
+-- ⚠️ DEPLOY ORDER (สำคัญ — ทำตอนร้านปิด / ไม่มีบิลขายอยู่):
+--   1. ยืนยันไม่มีการขายอยู่ (ปิดร้าน/low traffic)
+--   2. merge + deploy build 403 ก่อน  → prod = 403 (JS ใหม่ defer trigger, ไม่เขียน products.stock บิล warehouse)
+--   3. รัน trigger SQL นี้ (ขั้นตอน 1-2 ด้านล่าง)
+--   4. รัน backfill (ขั้นตอน 3) → products.stock = sum ทันที
+--   5. verify (ดูท้ายไฟล์) = 0 แถว + ขายทดสอบ 1 บิล → products.stock ลด −1 ครั้งเดียว
+--
+--   ❌ ห้ามอยู่ในสถานะ (JS build 402 เก่า + trigger live) ตอนมีขาย:
+--      บิล warehouse 1 บิล → warehouse −1 → trigger ตั้ง products=sum → JS 402 ลบ products ซ้ำ
+--      = sum−qty (double-count ทุกบิลจนกว่า 403 จะ deploy; backfill แก้ได้แค่อดีต ไม่กันอนาคต).
+--   ✅ deploy 403 ก่อน trigger: ช่วงคาบเกี่ยว products.stock บิล warehouse "freeze" ชั่วคราว
+--      แต่ร้านปิด = ไม่มีบิล = ไม่กระทบ (และ freeze กู้ได้ด้วย backfill — ปลอดภัยกว่า double-count).
 -- ═══════════════════════════════════════════════════════════════════════
 
 -- 1) ฟังก์ชัน: recompute products.stock จาก sum(warehouse_stock) ของ product นั้น
