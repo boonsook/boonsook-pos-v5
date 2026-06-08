@@ -3029,32 +3029,30 @@ async function _deductStockForSaleItem({ product, qty, orderNo }) {
     console.warn(`[deductStock] ${product.name}: ไม่มีคลังที่มีสต็อก > 0`);
   }
 
-  // อัพเดท products.stock legacy field — สำคัญเพราะ UI ดู field นี้ตอนเลือก "ทั้งหมด"
-  // Phase 89.9 H10: ใช้ CAS เช่นกัน (มี race condition แบบเดียวกับ warehouse_stock)
-  // Phase 89.17 (M2): ข้าม products.stock CAS ถ้า warehouse_stock CAS fail
-  //   เดิม: warehouse fail → products ยังลด → 2 fields diverge (warehouse=X, products=X-qty)
-  //   ใหม่: warehouse fail → skip products (legacy mirror ของ warehouse — ตัวเดิมก็ทำให้ตรง)
-  //   หมายเหตุ: stocks.length === 0 (ไม่มี warehouse) → ยัง CAS products ตามเดิม (fallback legacy)
-  let curStock, newStock;
-  const skipProductsCas = stocks.length > 0 && !dec?.ok;
-  if (skipProductsCas) {
-    console.warn(`[deductStock] skip products.stock CAS (warehouse CAS failed — กัน 2 fields diverge)`);
-    curStock = Number(product.stock || 0);
-    newStock = curStock; // ไม่เปลี่ยน — ให้ user retry หรือ admin sync manually
+  // Phase 403: products.stock = sum(warehouse_stock) ผ่าน DB trigger (canonical derived).
+  //   - stocks.length>0 (warehouse ถูกตัดด้านบน) → trigger sync products.stock เอง →
+  //     ที่นี่ทำแค่ optimistic local (sum จาก cache) ไม่เขียน products.stock ตรง (กันตัดซ้ำ sum−qty).
+  //     warehouse CAS fail → ไม่แตะ products.stock local (ให้ retry/sync).
+  //   - stocks.length===0 (ไม่มี warehouse row ที่มีของ) → warehouse ไม่เปลี่ยน → trigger ไม่ fire →
+  //     คง legacy products.stock write ตรง (สินค้า track เฉพาะ products.stock ไม่มี warehouse).
+  if (stocks.length > 0) {
+    if (dec?.ok) {
+      // eslint-disable-next-line require-atomic-updates -- A: local cache sync only (products.stock DB owned by trigger)
+      product.stock = (state.warehouseStock || [])
+        .filter(w => String(w.product_id) === String(product.id))
+        .reduce((s, w) => s + Number(w.stock || 0), 0);
+    }
   } else {
     const dec2 = await _atomicDecrementStock("products", product.id, qty);
-    curStock = dec2.ok ? dec2.before : Number(product.stock || 0);
-    newStock = dec2.ok ? dec2.after : (curStock - qty);
+    const curStock = dec2.ok ? dec2.before : Number(product.stock || 0);
+    const newStock = dec2.ok ? dec2.after : (curStock - qty);
     if (!dec2.ok) {
-      console.warn("[deductStock] products.stock CAS failed:", dec2.error);
+      console.warn("[deductStock] products.stock CAS failed (legacy no-warehouse):", dec2.error);
       showToast("⚠️ อัพเดทสต็อกสินค้าไม่สำเร็จ: " + dec2.error);
     } else {
-      // eslint-disable-next-line require-atomic-updates -- A: local cache sync after CAS-protected mutation (Phase 89.9 H10)
-      product.stock = newStock; // sync local cache
+      // eslint-disable-next-line require-atomic-updates -- A: local cache sync after CAS (legacy path)
+      product.stock = newStock;
     }
-  }
-
-  if (stocks.length === 0) {
     // ไม่มีคลังไหนมีสต็อก → log movement จาก legacy field เท่านั้น
     await xhrPost("stock_movements", {
       product_id: product.id,
@@ -3119,21 +3117,32 @@ async function _revertStockForSale({ saleId, orderNo }) {
       }
       const whName = targetWs ? (state.warehouses.find(w => w.id === targetWs.warehouse_id)?.name || "?") : "(no warehouse)";
 
-      // 2b. update warehouse_stock += qty (ถ้ามี)
+      // 2b. update warehouse_stock += qty (ถ้ามี) — Phase 403: trigger จะ sync products.stock เอง
       if (targetWs) {
         const before = Number(targetWs.stock || 0);
         const after = before + qty;
         const pr = await xhrPatch("warehouse_stock", { stock: after }, "id", targetWs.id);
         if (!pr.ok) {
           errors.push(`${product.name}: warehouse_stock fail — ${pr.error?.message || "RLS?"}`);
+        } else {
+          targetWs.stock = after; // sync local cache
         }
       }
 
-      // 2c. update products.stock (legacy) += qty
-      const curStock = Number(product.stock || 0);
-      const newStock = curStock + qty;
-      const pr2 = await xhrPatch("products", { stock: newStock }, "id", product.id);
-      if (!pr2.ok) errors.push(`${product.name}: products.stock fail`);
+      // 2c. Phase 403: products.stock = sum(warehouse_stock) ผ่าน DB trigger (canonical derived).
+      //   - มี warehouse (targetWs) → warehouse +qty ด้านบน → trigger sync products.stock เอง →
+      //     ที่นี่ optimistic local (sum) ไม่เขียน products.stock ตรง (กันบวกซ้ำ sum+qty).
+      //   - ไม่มี warehouse → trigger ไม่ fire → คง legacy products.stock write ตรง.
+      if (targetWs) {
+        product.stock = (state.warehouseStock || [])
+          .filter(w => String(w.product_id) === String(product.id))
+          .reduce((s, w) => s + Number(w.stock || 0), 0);
+      } else {
+        const newStock = Number(product.stock || 0) + qty;
+        const pr2 = await xhrPatch("products", { stock: newStock }, "id", product.id);
+        if (!pr2.ok) errors.push(`${product.name}: products.stock fail`);
+        else product.stock = newStock;
+      }
 
       // 2d. log return movement
       // Phase 92.13: type "return_sale" ละเมิด stock_movements_type_check (23514) → ใช้ "return"
@@ -3406,26 +3415,19 @@ async function _applyStockMovement({ productId, warehouseId, movementType, qty, 
       }
     }
 
-    // Legacy products.stock mirror — delta → CAS, adjust → recompute+set, out/sale (!allowNegative) → floored
-    // best-effort: fail แค่ warn (ไม่ throw) — warehouse ตัดสำเร็จแล้ว ถ้า mirror ล้มก็ปล่อยตามเดิม
+    // Phase 403: products.stock = sum(warehouse_stock) ผ่าน DB trigger (canonical derived).
+    //   เลิกเขียน products.stock ตรง (เดิม CAS/decrement = mirror เปราะ → diverge ได้). warehouse
+    //   เพิ่ง update ด้านบน → trigger sync products.stock ฝั่ง DB ให้เอง. ที่นี่ทำแค่ optimistic
+    //   local recompute (sum จาก warehouseStock cache ที่เพิ่ง sync) — reload ได้ค่าจริงจาก trigger.
     try {
       const prod = (state.products || []).find(p => String(p.id) === String(productId));
       if (prod && warehouseId) {
-        if (isAdjust) {
-          const newProdStock = Number(prod.stock || 0) + (after - before);
-          const r = await xhrPatch("products", { stock: newProdStock }, "id", productId);
-          if (!r?.ok) console.warn("[applyStockMovement] products.stock recompute failed:", r?.error);
-        } else if (isOutFlow && !allowNegative) {
-          // Phase 369: mirror ใช้ floor เหมือน warehouse (กันติดลบ)
-          const pdec = await _atomicDecrementStock("products", productId, qty);
-          if (!pdec.ok) console.warn("[applyStockMovement] products.stock floored decrement failed:", pdec.error);
-        } else {
-          const pdec = await _atomicAddStock("products", productId, delta);
-          if (!pdec.ok) console.warn("[applyStockMovement] products.stock CAS failed:", pdec.error);
-        }
+        prod.stock = (state.warehouseStock || [])
+          .filter(w => String(w.product_id) === String(productId))
+          .reduce((s, w) => s + Number(w.stock || 0), 0);
       }
     } catch(e){
-      console.warn("[applyStockMovement] products.stock update threw:", e);
+      console.warn("[applyStockMovement] local products.stock recompute threw:", e);
     }
 
     // Phase 45.3: schema fields = id, product_id, type, qty, note, created_by, created_at
