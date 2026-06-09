@@ -7,6 +7,14 @@
 
 ---
 
+## 5.66.0 (build 407) — 2026-06-09 Phase 407 delivery-invoice-delete-receipt-precheck — กัน 409 + บิลพัง
+
+- **fix (sales):** ลบใบส่งสินค้าที่มี **ใบเสร็จ** (receipts.delivery_invoice_id FK) อ้างอิง เดิมลบ items ก่อน แล้วลบหัวบิลเจอ **HTTP 409** → items หายแต่หัวบิลค้าง = **บิลพัง** (0 รายการ แต่มียอด)
+- เพิ่ม `_invoiceHasReceipt()` live pre-check (ทุกสถานะ — FK บล็อกแม้ใบเสร็จ cancelled) **ก่อน** ลบอะไร: single delete → บล็อก + บอกชัด "ลบใบเสร็จก่อน" · bulk → ข้ามใบที่มีใบเสร็จ (นับ fail + toast สื่อ)
+- query ล้ม → ไม่บล็อก (ไม่ false-positive) · **no-receipt → behavior เดิมเป๊ะ**
+- ❌ ไม่แตะ logic ลบจริง/restore quotation · cancel paths · date-edit lock · convertToReceipt/receipts.js/เงิน/สต็อก/บัญชี · +guard `di_delete_receipt_precheck_guard.test.js`
+- known: atomic-delete refactor + restore-quotation-on-cancel = follow-up
+
 ## 5.66.0 (build 406) — 2026-06-09 Phase 406 auth-recovery-graceful (low risk · error-path only) — กู้ error หน้าตั้งรหัสผ่าน
 
 - **fix (auth):** หน้า "ตั้งรหัสผ่านใหม่" (เพิ่มสมาชิก/recovery) กดบันทึกแล้ว session หมดอายุ → เด้ง raw **"Auth session missing!"** ค้าง → แก้ให้กู้ได้: ข้อความชัด "ลิงก์หมดอายุ/ถูกใช้ไปแล้ว" + ปุ่ม **"← ขอลิงก์ใหม่"** พากลับหน้า login

@@ -10,6 +10,22 @@ import { voidJvForSource } from "./accounting/auto_post.js";
 
 // share ใช้ window._appShareDoc จาก main.js
 
+// ★ Phase 407: pre-check ใบเสร็จก่อนลบใบส่งสินค้า — กัน DB FK 409 (receipts.delivery_invoice_id)
+//   ที่เกิดตอนลบหัวบิล "หลัง" ลบ items ไปแล้ว = items หาย หัวบิลค้าง = บิลพัง (0 รายการ มียอด).
+//   live query ทุกสถานะ (FK บล็อกแม้ใบเสร็จ cancelled; ไม่อ่าน state.receipts cache ที่อาจเก่า).
+//   query ล้ม → blocked:false (ไม่บล็อก ปล่อย flow เดิมจัดการ — ไม่สร้าง false-positive).
+export async function _invoiceHasReceipt(invId) {
+  const cfg = window.SUPABASE_CONFIG;
+  const authFetch = window._appAuthFetch || fetch;
+  try {
+    const r = await authFetch(cfg.url + "/rest/v1/receipts?delivery_invoice_id=eq." + invId
+              + "&select=receipt_no,status", { headers: { "Content-Type": "application/json" } });
+    if (!r.ok) return { blocked: false, receipts: [] };
+    const rcs = await r.json().catch(() => []);
+    return { blocked: Array.isArray(rcs) && rcs.length > 0, receipts: rcs || [] };
+  } catch(e) { console.warn("[di precheck] receipt lookup failed:", e); return { blocked: false, receipts: [] }; }
+}
+
 function money(n){ return new Intl.NumberFormat("th-TH",{style:"currency",currency:"THB",minimumFractionDigits:2}).format(Number(n||0)); }
 function num(n){ return new Intl.NumberFormat("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(n||0)); }
 function dateTH(d){ if(!d) return "-"; try{ return new Date(d).toLocaleDateString("th-TH",{year:"numeric",month:"short",day:"numeric"}); }catch(e){ return d; } }
@@ -346,6 +362,9 @@ export function renderDeliveryInvoicesPage(ctx) {
     for (const id of ids) {
       try {
         const inv = (ctx.state.deliveryInvoices || []).find(x => x.id === id);
+        // ★ Phase 407: ข้ามใบที่มีใบเสร็จอ้างอิง (ไม่ลบ — กัน items หาย+409 = บิลพัง)
+        const _rc = await _invoiceHasReceipt(id);
+        if (_rc.blocked) { fail++; continue; }
         // 1. ลบ items
         await authFetch(cfg.url + "/rest/v1/delivery_invoice_items?delivery_invoice_id=eq." + id, { method: "DELETE", headers });
         // 2. ลบ invoice
@@ -362,7 +381,7 @@ export function renderDeliveryInvoicesPage(ctx) {
       } catch(e) { console.error("[delivery_invoices bulk delete]", e); fail++; }
     }
     _selectedIds.clear();
-    window.App?.showToast?.(`ลบสำเร็จ ${ok}${fail ? `, ล้มเหลว ${fail} (RLS บล็อค?)` : ''}`);
+    window.App?.showToast?.(`ลบสำเร็จ ${ok}${fail ? `, ข้าม/ไม่สำเร็จ ${fail} (บางใบมีใบเสร็จ)` : ''}`);
     // Phase 45.11: non-blocking reload
     if (ctx.loadAllData) ctx.loadAllData().catch(e => console.warn("[di] reload", e));
     renderDeliveryInvoicesPage(_ctx);
@@ -579,6 +598,13 @@ function renderInvoicePreview(container) {
   // ── delete delivery invoice → restore quotation status ──
   document.getElementById("diDeleteBtn")?.addEventListener("click", async () => {
     if (!(await window.App?.confirm?.(`ลบใบส่งสินค้า ${inv.inv_no} ?\n\nใบเสนอราคาที่อ้างอิงจะกลับสถานะเป็น "อนุมัติแล้ว" เพื่อให้แก้ไขหรือลบได้`))) return;
+    // ★ Phase 407: เช็คใบเสร็จ "ก่อน" ลบอะไรเลย — มีใบเสร็จอ้างอยู่ → บล็อก (กัน items หาย+หัวบิล 409 = บิลพัง)
+    const _rc = await _invoiceHasReceipt(inv.id);
+    if (_rc.blocked) {
+      const nos = _rc.receipts.map(r => r.receipt_no || "#").join(", ");
+      _ctx.showToast("ลบไม่ได้ — มีใบเสร็จ " + nos + " อ้างอิงอยู่ กรุณาลบ/จัดการใบเสร็จก่อน");
+      return;
+    }
     const cfg = window.SUPABASE_CONFIG;
     // Phase 89.4: _appAuthFetch → auto 401 retry
     const authFetch = window._appAuthFetch || fetch;
