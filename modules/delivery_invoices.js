@@ -722,9 +722,10 @@ async function convertToReceipt(inv) {
     const existing = await chkResp.json().catch(() => []);
     const active = Array.isArray(existing) ? existing.filter(d => d.status !== "cancelled") : [];
     if (active.length > 0) {
+      // Phase 409: บังคับ 1:1 — มีใบเสร็จ active แล้ว → บล็อก ไม่ให้ออกซ้ำ (เดิมแค่ confirm แล้วผ่านได้)
       const list = active.map(d => d.receipt_no).join(", ");
-      const msg = `⚠️ มีใบเสร็จจากใบส่งสินค้านี้อยู่แล้ว: ${list}\n\nต้องการออกใบใหม่อีกใบหรือไม่?\n(ปกติควรลบใบเดิมก่อน)`;
-      if (!(await window.App?.confirm?.(msg))) return;
+      window.App?.showToast?.(`มีใบเสร็จ ${list} จากใบส่งสินค้านี้แล้ว — ลบ/จัดการใบเดิมก่อนถึงออกใบใหม่ได้`);
+      return;   // ❌ ไม่สร้างซ้ำ
     } else {
       if (!(await window.App?.confirm?.("ออกใบเสร็จรับเงินจากใบส่งสินค้านี้?"))) return;
     }

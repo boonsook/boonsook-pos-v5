@@ -7,6 +7,15 @@
 
 ---
 
+## 5.66.0 (build 409) — 2026-06-09 Phase 409 document-chain-1to1 — บล็อกออกเอกสารซ้ำทั้งเชน
+
+- **fix (sales):** บังคับ **1:1** ทั้งเชนเอกสาร — quotation ที่มีใบส่งของ active แล้ว → **บล็อก**ออกใบส่งของซ้ำ · ใบส่งของที่มีใบเสร็จ active แล้ว → **บล็อก**ออกใบเสร็จซ้ำ (เดิมแค่ confirm แล้วกดยืนยันผ่านได้ = เอกสารซ้ำเละ) · ใบ `cancelled` ไม่บล็อก (ออกใหม่ได้)
+- `quotations.js convertToDeliveryInvoice` + `delivery_invoices.js convertToReceipt` branch `active.length>0`: confirm-to-proceed → `showToast` + `return`
+- ❌ ไม่แตะ branch else (ออกปกติ) · duplicate-check query/filter/catch · cash-basis 408 · cancel/delete · เงิน/สต็อก/บัญชี · ไม่ alert()
+- +guard `doc_chain_1to1` (source-regex 2 ฟังก์ชัน) · lint 0 / unit 1410 / e2e 12 · **STOP รอ review**
+
+---
+
 ## 5.66.0 (build 408) — 2026-06-09 Phase 408 cash-basis-revenue-core — รับรู้รายได้ที่ใบเสร็จ paid
 
 - **feat (accounting §4.3):** เปลี่ยนการรับรู้รายได้สายเครดิต (ใบเสนอราคา→ใบส่งของ→ใบเสร็จ) จาก **accrual → cash-basis** — รายได้เกิดเมื่อใบเสร็จ `status="paid"` (Dr เงินสด/ธนาคาร / Cr รายได้ 4150) **เลิก**ลง revenue ตอนออกใบส่งของ

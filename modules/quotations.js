@@ -1265,9 +1265,10 @@ async function convertToDeliveryInvoice(q) {
     const existing = await chkResp.json().catch(() => []);
     const active = Array.isArray(existing) ? existing.filter(d => d.status !== "cancelled") : [];
     if (active.length > 0) {
+      // Phase 409: บังคับ 1:1 — มีใบส่งสินค้า active แล้ว → บล็อก ไม่ให้ออกซ้ำ (เดิมแค่ confirm แล้วผ่านได้)
       const list = active.map(d => d.inv_no).join(", ");
-      const msg = `⚠️ มีใบส่งสินค้าจากใบเสนอราคานี้อยู่แล้ว: ${list}\n\nต้องการสร้างใบใหม่อีกใบหรือไม่?\n(ปกติควรลบใบเดิมก่อน)`;
-      if (!(await window.App?.confirm?.(msg))) return;
+      window.App?.showToast?.(`มีใบส่งสินค้า ${list} จากใบเสนอราคานี้แล้ว — ลบ/จัดการใบเดิมก่อนถึงออกใบใหม่ได้`);
+      return;   // ❌ ไม่สร้างซ้ำ
     } else {
       if (!(await window.App?.confirm?.("สร้างใบส่งสินค้า/ใบแจ้งหนี้ จากใบเสนอราคานี้?"))) return;
     }
