@@ -972,7 +972,8 @@ const {
   login,
   requestStaffPasswordReset,
   showSetPasswordScreen,
-  submitNewPassword
+  submitNewPassword,
+  requestNewRecoveryLink
 } = createEmailAuth({
   state, $, setText, showToast,
   afterLogin: () => afterLogin()
@@ -4599,6 +4600,7 @@ function bindStaticEvents(){
   $("shareReceiptLineBtn")?.addEventListener("click", shareReceiptToLine);
   $("addNewUserBtn")?.addEventListener("click", addNewUser);
   $("setPasswordBtn")?.addEventListener("click", submitNewPassword);
+  $("setPwRequestNewBtn")?.addEventListener("click", requestNewRecoveryLink);  // Phase 406: ลิงก์หมดอายุ → ขอใหม่
   $("setPwConfirm")?.addEventListener("keydown", (e) => { if (e.key === "Enter") submitNewPassword(); });
   // ═══ Toggle Set-Password Visibility ═══
   [["toggleSetPwNew", "setPwNew"], ["toggleSetPwConfirm", "setPwConfirm"]].forEach(([btnId, inputId]) => {

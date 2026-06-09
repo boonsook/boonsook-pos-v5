@@ -7,6 +7,12 @@
 
 ---
 
+## 5.66.0 (build 406) — 2026-06-09 Phase 406 auth-recovery-graceful (low risk · error-path only) — กู้ error หน้าตั้งรหัสผ่าน
+
+- **fix (auth):** หน้า "ตั้งรหัสผ่านใหม่" (เพิ่มสมาชิก/recovery) กดบันทึกแล้ว session หมดอายุ → เด้ง raw **"Auth session missing!"** ค้าง → แก้ให้กู้ได้: ข้อความชัด "ลิงก์หมดอายุ/ถูกใช้ไปแล้ว" + ปุ่ม **"← ขอลิงก์ใหม่"** พากลับหน้า login
+- `submitNewPassword` catch แยก session-dead (`AuthSessionMissingError`/401/regex) → โชว์ปุ่ม; error อื่นคงข้อความเดิม · +`requestNewRecoveryLink()` (สลับกลับ authScreen + reset `_recoveryMode`)
+- **error path เท่านั้น:** ❌ ไม่แตะ initSupabase/onAuthStateChange/getSession (Fix B = follow-up) · login/signInWithPassword · happy-path/boot · เงิน/สต็อก/บัญชี · ไม่ alert() · +guard `auth_recovery_graceful_guard.test.js`
+
 ## 5.66.0 (build 405) — 2026-06-08 Phase 405 receipt-acct-badge-refresh (cosmetic · display-only) — ป้าย "ลงบัญชี" บนใบเสร็จเด้งเองหลัง auto_post
 
 - **fix (display):** ป้าย "เอกสารบัญชี" บนใบเสร็จ POS ที่เด้งตอนจบบิลค้าง "ยังไม่ลงบัญชี" ทุกบิล ทั้งที่ลงบัญชีจริง — **ordering bug** (ไม่ใช่ data bug): `pos.js doCheckout` เปิดใบเสร็จ + ยิง lookup JV (`:1250`) **ก่อน** `postJournalForSale` สร้าง JV (`:1257`) + badge เติมครั้งเดียวไม่ re-poll

@@ -66,7 +66,16 @@ export function createEmailAuth(deps) {
       await afterLogin();
     } catch (err) {
       console.error("[submitNewPassword] error:", err);
-      setStatus("บันทึกไม่สำเร็จ: " + (err.message || "ไม่ทราบสาเหตุ"));
+      const msg = err?.message || "";
+      // ★ Phase 406: session หมดอายุ/ลิงก์ถูกใช้ไปแล้ว → กู้ได้ (ขอลิงก์ใหม่) แทนค้าง "Auth session missing!"
+      const sessionDead = err?.name === "AuthSessionMissingError" || err?.status === 401
+        || /session.*missing|missing.*session|expired|invalid|jwt/i.test(msg);
+      if (sessionDead) {
+        setStatus("ลิงก์ตั้งรหัสผ่านหมดอายุหรือถูกใช้ไปแล้ว กรุณาขอลิงก์ใหม่");
+        $("setPwRequestNewBtn")?.classList.remove("hidden");
+      } else {
+        setStatus("บันทึกไม่สำเร็จ: " + (msg || "ไม่ทราบสาเหตุ"));
+      }
       if (btn) { btn.disabled = false; btn.textContent = "บันทึกรหัสผ่าน"; }
     }
   }
@@ -151,10 +160,21 @@ export function createEmailAuth(deps) {
     }
   }
 
+  // ★ Phase 406: กดปุ่ม "ขอลิงก์ใหม่" จากหน้าตั้งรหัส (ลิงก์หมดอายุ) → กลับหน้า login พร้อมคำแนะนำ
+  function requestNewRecoveryLink() {
+    state._recoveryMode = false;
+    try { history.replaceState(null, "", window.location.pathname + window.location.search); } catch(e){}
+    $("setPasswordScreen")?.classList.add("hidden");
+    $("authScreen")?.classList.remove("hidden");
+    setText("authStatus", 'ลิงก์ตั้งรหัสผ่านหมดอายุ — กรอกอีเมลพนักงานแล้วกด "ลืมรหัสผ่าน?" เพื่อรับลิงก์ใหม่');
+    $("loginEmail")?.focus();
+  }
+
   return {
     login,
     requestStaffPasswordReset,
     showSetPasswordScreen,
-    submitNewPassword
+    submitNewPassword,
+    requestNewRecoveryLink
   };
 }
