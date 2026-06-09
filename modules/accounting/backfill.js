@@ -18,7 +18,7 @@ import {
   postJournalForExpense,
   postJournalForReceipt,
   postJournalForServiceJob,
-  postJournalForDeliveryInvoice,
+  // Phase 408 cash-basis: ไม่ import postJournalForDeliveryInvoice แล้ว (delivery_invoices skip — ไม่ post revenue)
   _isAfterEffective
 } from "./auto_post.js";
 import { todayBkk, dateBkk } from "../utils.js";
@@ -322,7 +322,8 @@ async function _onRun() {
         switch (bucket.srcKey) {
           case "sales":              result = await postJournalForSale(row);             break;
           case "expenses":           result = await postJournalForExpense(row);          break;
-          case "delivery_invoices":  result = await postJournalForDeliveryInvoice(row);  break;
+          // Phase 408 cash-basis: ใบส่งของไม่ลง revenue แล้ว (ย้ายไปที่ใบเสร็จ paid) — skip กัน backfill สร้างรายได้ซ้ำ
+          case "delivery_invoices":  result = null;  break;
           case "receipts":           result = await postJournalForReceipt(row);          break;
           case "service_jobs":       result = await postJournalForServiceJob(row);       break;
         }

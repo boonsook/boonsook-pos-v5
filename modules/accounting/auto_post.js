@@ -639,18 +639,40 @@ export async function postJournalForReceipt(receipt) {
 
   const mappings = await _getMappings();
   const pm = String(receipt.payment_method || "").toLowerCase();
-  let mappingKey = "receipt_payment";  // default = เงินสด (Dr 1110 / Cr 1200)
-  if (/transfer|โอน|qr|bank/.test(pm)) mappingKey = "receipt_transfer";
+  // ★ Phase 408 cash-basis: รับรู้รายได้ที่ใบเสร็จ paid → Cr รายได้ 4150 (ไม่ใช่ตัด A/R 1200)
+  //   ⚠️ ห้ามใช้ key receipt_payment/receipt_transfer (เดิม Cr 1200) — postJournalForCreditPayment ใช้ร่วม
+  let mappingKey = "receipt_revenue_cash";  // default = เงินสด (Dr 1110 / Cr 4150)
+  if (/transfer|โอน|qr|bank/.test(pm)) mappingKey = "receipt_revenue_transfer";  // (Dr 1130 / Cr 4150)
 
   const mapping = mappings[mappingKey];
   if (!mapping?.debit_account_code || !mapping?.credit_account_code) {
-    console.warn("[auto_post] no mapping for receipt:", mappingKey);
+    console.warn("[auto_post] no mapping for receipt:", mappingKey, "— ต้องรัน supabase-phase408-cashbasis.sql ก่อน");
     return null;
   }
 
   const desc = `รับชำระ ${receipt.receipt_no || '#' + receipt.id} — ${receipt.customer_name || 'ลูกค้า'}`;
   const amount = Number(amountRaw);
 
+  // ★ Phase 408: VAT split — ถ้า receipt มี vat_amount > 0 → แยก JV 3 บรรทัด (เลียนแบบ postJournalForSale)
+  //   ตอนนี้ระบบยังไม่จด VAT ที่ใบเสร็จ (vat_amount = 0) → ลง 2 บรรทัดปกติ (Dr cash / Cr 4150 เต็มยอด)
+  const vatAmount = Number(receipt.vat_amount || 0);
+  if (vatAmount > 0.01) {
+    const v = splitSaleVatLines(amount, vatAmount);  // total = subtotal + vat เป๊ะ
+    return _postJournal({
+      sourceTable: "receipts",
+      sourceId: receipt.id,
+      docType: "RV",
+      docDate,
+      description: desc,
+      lines: [
+        { account_code: mapping.debit_account_code,  debit: v.total, credit: 0,          description: desc },
+        { account_code: mapping.credit_account_code, debit: 0,       credit: v.subtotal, description: desc + " (รายได้ก่อน VAT)" },
+        { account_code: "2170",                       debit: 0,       credit: v.vat,      description: desc + ` (VAT ${receipt.vat_rate || 7}%)` }
+      ]
+    });
+  }
+
+  // ไม่มี VAT — 2 บรรทัด (Dr เงินสด/ธนาคาร / Cr รายได้ 4150 เต็มยอด)
   return _postJournal({
     sourceTable: "receipts",
     sourceId: receipt.id,
@@ -678,6 +700,10 @@ export async function postJournalForReceipt(receipt) {
  *   ต้องมี: id, inv_no, customer_name, grand_total, created_at, status
  */
 export async function postJournalForDeliveryInvoice(invoice) {
+  // Phase 408 cash-basis: รายได้ย้ายไปที่ใบเสร็จ paid — invoice ไม่ลง revenue แล้ว
+  //   คงฟังก์ชัน + import ไว้ (backfill.js ยังอ้าง) แต่ no-op เพื่อกัน double-count
+  return null;
+  // eslint-disable-next-line no-unreachable -- Phase 408: legacy accrual path kept for reference
   if (!invoice?.id) return null;
   // skip ถ้าใบนี้ยกเลิก
   if (String(invoice.status || "").toLowerCase() === "cancelled") return null;

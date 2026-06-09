@@ -5,8 +5,9 @@
 import { renderEmpty, renderSkeleton } from "./ui_states.js";
 // Phase 57: audit log + Phase 70 (D3): Excel export
 import { logActivity, exportToExcel, todaySuffix, round2 } from "./utils.js";
-// Phase 88.18: auto-post JV ตอนออก invoice (B2B revenue)
-import { postJournalForDeliveryInvoice } from "./accounting/auto_post.js";
+// Phase 408 cash-basis: ใบส่งของไม่ post JV revenue แล้ว (ย้ายไปที่ใบเสร็จ paid)
+//   import postJournalForDeliveryInvoice ถูกถอดออก — quotations.js ไม่เรียกแล้ว
+//   ฟังก์ชันยังคงอยู่ใน auto_post.js (guard return null) + backfill.js ยัง import
 // Phase 346: รับรายการร่างจากแคตตาล็อกแอร์ (sessionStorage bridge — ไม่สร้างเอกสารจริง)
 import { consumeAirQuoteDrafts } from "./ac_quotation_draft.js";
 
@@ -1334,20 +1335,13 @@ async function convertToDeliveryInvoice(q) {
 
   await xhrPatch("quotations", { status: "invoiced" }, "id", q.id);
 
-  // ★ Phase 88.18: auto-post JV — Dr 1200 (ลูกหนี้) / Cr 4150 (รายได้ B2B)
-  // เดิม: revenue ไม่เคย post จนกว่าจะออกใบเสร็จ — ทำให้ลูกหนี้ติดลบ + revenue หายจาก P&L
-  if (invoiceId) {
-    postJournalForDeliveryInvoice({
-      id: invoiceId,
-      inv_no: invNo,
-      customer_name: q.customer_name || q.customer || "",
-      grand_total: q.grand_total || q.amount || 0,
-      total_amount: q.total_amount || 0,
-      after_discount: q.after_discount || 0,
-      status: "pending",
-      created_at: new Date().toISOString()
-    }).catch(e => console.warn("[quotations] auto-post invoice JV failed:", e?.message));
-  }
+  // ★ Phase 408 cash-basis: รายได้ย้ายไปที่ใบเสร็จ paid — ใบส่งของไม่ลง revenue แล้ว
+  //   เดิม (88.18) post Dr 1200 / Cr 4150 ตอนออกใบส่งของ (accrual) → ตอนนี้ปิด
+  //   revenue จะเกิดที่ postJournalForReceipt เมื่อ receipt.status="paid" (Dr cash/Cr 4150)
+  //   postJournalForDeliveryInvoice คงไว้ (guard return null) — ยัง import ที่อื่น
+  // if (invoiceId) {
+  //   postJournalForDeliveryInvoice({ ... }).catch(...);
+  // }
 
   await _ctx.loadAllData();
   _ctx.showToast("สร้างใบส่งสินค้าแล้ว: " + invNo);

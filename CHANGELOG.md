@@ -7,6 +7,16 @@
 
 ---
 
+## 5.66.0 (build 408) — 2026-06-09 Phase 408 cash-basis-revenue-core — รับรู้รายได้ที่ใบเสร็จ paid
+
+- **feat (accounting §4.3):** เปลี่ยนการรับรู้รายได้สายเครดิต (ใบเสนอราคา→ใบส่งของ→ใบเสร็จ) จาก **accrual → cash-basis** — รายได้เกิดเมื่อใบเสร็จ `status="paid"` (Dr เงินสด/ธนาคาร / Cr รายได้ 4150) **เลิก**ลง revenue ตอนออกใบส่งของ
+- `quotations.js` ปิด `postJournalForDeliveryInvoice` ตอนสร้างใบส่งของ · `auto_post.js` `postJournalForDeliveryInvoice` → guard `return null` (คงฟังก์ชัน) · `postJournalForReceipt` → mapping `receipt_revenue_cash`(Dr1110)/`receipt_revenue_transfer`(Dr1130) Cr 4150 + VAT split (vat>0 → 3 บรรทัด ผ่าน `splitSaleVatLines`) · `backfill.js` delivery_invoices → skip
+- ⚠️ owner ต้องรัน `supabase-phase408-cashbasis.sql` (insert 2 mapping keys) **+ Phase B migration ก่อน smoke** (กัน revenue หาย/double-count)
+- ❌ ไม่แตะ `receipt_payment`/`receipt_transfer` mapping เดิม (credit_payment ใช้ร่วม) · POS/service/credit_payment · receipt partial/pending (=A2) · migration (=B) · hasReceipt/delete (407)
+- +guard `cashbasis_revenue_guard` (behavioral 7 ข้อ) · lint 0 / unit 1406 / e2e 12 · **STOP รอ review + owner SQL/Phase B**
+
+---
+
 ## 5.66.0 (build 407) — 2026-06-09 Phase 407 delivery-invoice-delete-receipt-precheck — กัน 409 + บิลพัง
 
 - **fix (sales):** ลบใบส่งสินค้าที่มี **ใบเสร็จ** (receipts.delivery_invoice_id FK) อ้างอิง เดิมลบ items ก่อน แล้วลบหัวบิลเจอ **HTTP 409** → items หายแต่หัวบิลค้าง = **บิลพัง** (0 รายการ แต่มียอด)
