@@ -710,112 +710,135 @@ function renderInvoicePreview(container) {
 // ═══════════════════════════════════════════════════════════
 //  CONVERT — Delivery Invoice → Receipt (ใบเสร็จรับเงิน)
 // ═══════════════════════════════════════════════════════════
+let _diConvertInflight = false; // Phase 412: กัน trigger convert→ใบเสร็จ ซ้ำระหว่างใบแรกกำลังสร้าง (ทุกทางเข้า)
 async function convertToReceipt(inv) {
-  // ★ ป้องกันสร้างซ้ำ — เช็คว่ามีใบเสร็จจากใบส่งสินค้านี้อยู่แล้วไหม
+  // ★ Phase 412: inflight guard ระดับฟังก์ชัน — กัน trigger ซ้ำจาก "ทุกทางเข้า" (dropdown แถว/
+  //   ปุ่ม preview diConvertReceiptBtn) ระหว่างใบแรกกำลังสร้าง: existence-check (409) กันได้
+  //   เฉพาะใบที่ commit แล้ว — กดซ้ำระหว่างสร้าง dup-check รอบสองวิ่งก่อน create commit → ใบซ้ำ
+  if (_diConvertInflight) return window.App?.showToast?.("กำลังออกใบเสร็จรับเงิน รอสักครู่...");
+  _diConvertInflight = true;
   try {
-    const cfg = window.SUPABASE_CONFIG;
-    const token = window._sbAccessToken || cfg.anonKey;
-    const chkResp = await fetch(
-      cfg.url + "/rest/v1/receipts?delivery_invoice_id=eq." + inv.id + "&select=receipt_no,status",
-      { headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token } }
-    );
-    const existing = await chkResp.json().catch(() => []);
-    const active = Array.isArray(existing) ? existing.filter(d => d.status !== "cancelled") : [];
-    if (active.length > 0) {
-      // Phase 409: บังคับ 1:1 — มีใบเสร็จ active แล้ว → บล็อก ไม่ให้ออกซ้ำ (เดิมแค่ confirm แล้วผ่านได้)
-      const list = active.map(d => d.receipt_no).join(", ");
-      window.App?.showToast?.(`มีใบเสร็จ ${list} จากใบส่งสินค้านี้แล้ว — ลบ/จัดการใบเดิมก่อนถึงออกใบใหม่ได้`);
-      return;   // ❌ ไม่สร้างซ้ำ
-    } else {
+    // ★ ป้องกันสร้างซ้ำ — เช็คว่ามีใบเสร็จจากใบส่งสินค้านี้อยู่แล้วไหม
+    try {
+      const cfg = window.SUPABASE_CONFIG;
+      const token = window._sbAccessToken || cfg.anonKey;
+      const chkResp = await fetch(
+        cfg.url + "/rest/v1/receipts?delivery_invoice_id=eq." + inv.id + "&select=receipt_no,status",
+        { headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token } }
+      );
+      const existing = await chkResp.json().catch(() => []);
+      const active = Array.isArray(existing) ? existing.filter(d => d.status !== "cancelled") : [];
+      if (active.length > 0) {
+        // Phase 409: บังคับ 1:1 — มีใบเสร็จ active แล้ว → บล็อก ไม่ให้ออกซ้ำ (เดิมแค่ confirm แล้วผ่านได้)
+        const list = active.map(d => d.receipt_no).join(", ");
+        window.App?.showToast?.(`มีใบเสร็จ ${list} จากใบส่งสินค้านี้แล้ว — ลบ/จัดการใบเดิมก่อนถึงออกใบใหม่ได้`);
+        return;   // ❌ ไม่สร้างซ้ำ
+      } else {
+        if (!(await window.App?.confirm?.("ออกใบเสร็จรับเงินจากใบส่งสินค้านี้?"))) return;
+      }
+    } catch(e) {
+      console.warn("[delivery_invoices convert] duplicate check failed, fallback to confirm:", e);
       if (!(await window.App?.confirm?.("ออกใบเสร็จรับเงินจากใบส่งสินค้านี้?"))) return;
     }
-  } catch(e) {
-    console.warn("[delivery_invoices convert] duplicate check failed, fallback to confirm:", e);
-    if (!(await window.App?.confirm?.("ออกใบเสร็จรับเงินจากใบส่งสินค้านี้?"))) return;
-  }
 
-  // Load items if not loaded
-  if (!_lineItems.length) {
-    const cfg = window.SUPABASE_CONFIG;
-    const token = window._sbAccessToken || cfg.anonKey;
-    try {
-      const resp = await fetch(cfg.url + "/rest/v1/delivery_invoice_items?delivery_invoice_id=eq." + inv.id + "&order=sort_order.asc",
-        { headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token } });
-      // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L3 module state load (invoice gen flow, single button)
-      _lineItems = ((await resp.json()) || []).map(i => ({
-        product_id: i.product_id, item_name: i.item_name || "",
-        qty: Number(i.qty||1), unit: i.unit || "ชิ้น",
-        unit_price: Number(i.unit_price||0), discount_pct: Number(i.discount_pct||0),
-        line_total: Number(i.line_total||0)
-      }));
-    // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L3 module state reset (catch path, invoice gen flow)
-    } catch(e) { _lineItems = []; }
-  }
-
-  const xhrPost = window._appXhrPost;
-  const xhrPatch = window._appXhrPatch;
-
-  const now = new Date();
-  const ds = now.getFullYear() + String(now.getMonth()+1).padStart(2,"0") + String(now.getDate()).padStart(2,"0");
-  const receiptNo = "RC" + ds + String(Date.now()).slice(-3);
-
-  const receiptPayload = {
-    receipt_no: receiptNo,
-    delivery_invoice_id: inv.id,
-    quotation_id: inv.quotation_id || null,
-    customer_name: inv.customer_name || "",
-    customer_phone: inv.customer_phone || "",
-    customer_address: inv.customer_address || "",
-    customer_tax_id: inv.customer_tax_id || "",
-    total_amount: inv.total_amount || 0,
-    discount_pct: inv.discount_pct || 0,
-    discount_amount: inv.discount_amount || 0,
-    after_discount: inv.after_discount || inv.total_amount || 0,
-    grand_total: inv.grand_total || 0,
-    withholding_tax: inv.withholding_tax || false,
-    wht_pct: inv.wht_pct || 3,
-    wht_amount: inv.wht_amount || 0,
-    net_total: inv.grand_total || 0,
-    payment_method: inv.payment_terms || "เงินสด",
-    payment_terms: inv.payment_terms || "เงินสด",
-    credit_days: inv.credit_days || 0,
-    project_name: inv.project_name || "",
-    ref_no: inv.inv_no || "",
-    salesperson: inv.salesperson || "",
-    // ★ Phase 88.17: เดิม "paid" (auto JV) — ตอนนี้ "pending" → user ต้องกดยืนยันใน list
-    status: "pending",
-    note: "จากใบส่งสินค้า " + (inv.inv_no || "")
-  };
-
-  _ctx.showToast("กำลังออกใบเสร็จรับเงิน...");
-  const rcRes = await xhrPost("receipts", receiptPayload, { returnData: true });
-  if (!rcRes.ok) return _ctx.showToast(rcRes.error?.message || "สร้างใบเสร็จไม่สำเร็จ");
-
-  const receiptId = rcRes.data?.id;
-  if (receiptId && _lineItems.length) {
-    for (let i = 0; i < _lineItems.length; i++) {
-      const li = _lineItems[i];
-      await xhrPost("receipt_items", {
-        receipt_id: receiptId, product_id: li.product_id || null,
-        item_name: li.item_name, qty: li.qty, unit: li.unit || "ชิ้น",
-        unit_price: li.unit_price, discount_pct: li.discount_pct || 0,
-        line_total: li.line_total, sort_order: i + 1
-      });
+    // Load items if not loaded
+    if (!_lineItems.length) {
+      const cfg = window.SUPABASE_CONFIG;
+      const token = window._sbAccessToken || cfg.anonKey;
+      try {
+        const resp = await fetch(cfg.url + "/rest/v1/delivery_invoice_items?delivery_invoice_id=eq." + inv.id + "&order=sort_order.asc",
+          { headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token } });
+        // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L3 module state load (invoice gen flow, single button)
+        _lineItems = ((await resp.json()) || []).map(i => ({
+          product_id: i.product_id, item_name: i.item_name || "",
+          qty: Number(i.qty||1), unit: i.unit || "ชิ้น",
+          unit_price: Number(i.unit_price||0), discount_pct: Number(i.discount_pct||0),
+          line_total: Number(i.line_total||0)
+        }));
+      // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L3 module state reset (catch path, invoice gen flow)
+      } catch(e) { _lineItems = []; }
     }
+
+    const xhrPost = window._appXhrPost;
+    const xhrPatch = window._appXhrPatch;
+
+    const now = new Date();
+    const ds = now.getFullYear() + String(now.getMonth()+1).padStart(2,"0") + String(now.getDate()).padStart(2,"0");
+    const receiptNo = "RC" + ds + String(Date.now()).slice(-3);
+
+    const receiptPayload = {
+      receipt_no: receiptNo,
+      delivery_invoice_id: inv.id,
+      quotation_id: inv.quotation_id || null,
+      customer_name: inv.customer_name || "",
+      customer_phone: inv.customer_phone || "",
+      customer_address: inv.customer_address || "",
+      customer_tax_id: inv.customer_tax_id || "",
+      total_amount: inv.total_amount || 0,
+      discount_pct: inv.discount_pct || 0,
+      discount_amount: inv.discount_amount || 0,
+      after_discount: inv.after_discount || inv.total_amount || 0,
+      grand_total: inv.grand_total || 0,
+      withholding_tax: inv.withholding_tax || false,
+      wht_pct: inv.wht_pct || 3,
+      wht_amount: inv.wht_amount || 0,
+      net_total: inv.grand_total || 0,
+      payment_method: inv.payment_terms || "เงินสด",
+      payment_terms: inv.payment_terms || "เงินสด",
+      credit_days: inv.credit_days || 0,
+      project_name: inv.project_name || "",
+      ref_no: inv.inv_no || "",
+      salesperson: inv.salesperson || "",
+      // ★ Phase 88.17: เดิม "paid" (auto JV) — ตอนนี้ "pending" → user ต้องกดยืนยันใน list
+      status: "pending",
+      note: "จากใบส่งสินค้า " + (inv.inv_no || "")
+    };
+
+    _ctx.showToast("กำลังออกใบเสร็จรับเงิน...");
+    const rcRes = await xhrPost("receipts", receiptPayload, { returnData: true });
+    if (!rcRes.ok) return _ctx.showToast(rcRes.error?.message || "สร้างใบเสร็จไม่สำเร็จ");
+
+    const receiptId = rcRes.data?.id;
+    // ★ Phase 412: เช็คผล insert รายการ — เดิมเงียบ = ใบรายการขาดแบบไม่มีใครรู้
+    const failedItems = [];
+    if (receiptId && _lineItems.length) {
+      for (let i = 0; i < _lineItems.length; i++) {
+        const li = _lineItems[i];
+        const ir = await xhrPost("receipt_items", {
+          receipt_id: receiptId, product_id: li.product_id || null,
+          item_name: li.item_name, qty: li.qty, unit: li.unit || "ชิ้น",
+          unit_price: li.unit_price, discount_pct: li.discount_pct || 0,
+          line_total: li.line_total, sort_order: i + 1
+        });
+        if (!ir?.ok) failedItems.push(li.item_name || ("#" + (i + 1)));
+      }
+    }
+    if (failedItems.length > 0) {
+      // ห้าม rollback/ลบ header — ใบเกิดแล้ว (409 existence-check กันออกซ้ำตอน retry)
+      console.error("[delivery_invoices convert] item insert failed:", failedItems);
+      _ctx.showToast(`⚠️ สร้าง ${receiptNo} แล้ว แต่บันทึกรายการไม่สำเร็จ ${failedItems.length} รายการ (${failedItems.slice(0, 3).join(", ")}…) — เปิดใบเพื่อตรวจ/เพิ่มเอง`);
+    }
+
+    // ★ Phase 412: เช็คผล PATCH status ทั้ง 2 จุด — fail = เตือนครั้งเดียว ไม่ rollback
+    //   (status = display; ตัวกัน 1:1 จริงคือ existence-check)
+    const sp1 = await xhrPatch("delivery_invoices", { status: "receipted" }, "id", inv.id);
+    let sp2 = null;
+    if (inv.quotation_id) {
+      sp2 = await xhrPatch("quotations", { status: "receipted" }, "id", inv.quotation_id);
+    }
+    if (!sp1?.ok || (inv.quotation_id && !sp2?.ok)) {
+      console.warn("[delivery_invoices convert] status patch failed:", sp1?.error?.message, sp2?.error?.message);
+      _ctx.showToast("⚠️ อัปเดตสถานะเอกสารต้นทางไม่สำเร็จ — ใบใหม่ถูกสร้างแล้ว");
+    }
+
+    await _ctx.loadAllData();
+    _ctx.showToast("ออกใบเสร็จรับเงินแล้ว: " + receiptNo);
+    _viewMode = "list";
+    _ctx.showRoute("receipts");
+  } finally {
+    // early return ทุกจุด (dup-block / ยกเลิก confirm / create fail) ผ่านที่นี่ → trigger ใหม่ได้เสมอ
+    _diConvertInflight = false;
   }
-
-  // Update delivery invoice status
-  await xhrPatch("delivery_invoices", { status: "receipted" }, "id", inv.id);
-
-  // Update quotation status if linked
-  if (inv.quotation_id) {
-    await xhrPatch("quotations", { status: "receipted" }, "id", inv.quotation_id);
-  }
-
-  await _ctx.loadAllData();
-  _ctx.showToast("ออกใบเสร็จรับเงินแล้ว: " + receiptNo);
-  _viewMode = "list";
-  _ctx.showRoute("receipts");
 }
 
 function escHtml(str) {

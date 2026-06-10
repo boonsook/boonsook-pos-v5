@@ -61,6 +61,7 @@ let _viewMode = "list";    // list | form | preview
 let _tabFilter = "all";    // all | pending | approved | invoiced | receipted | cancelled
 let _selectedIds = new Set();
 let _qtSaveInflight = false;   // Phase 356: กันกดปุ่ม "บันทึก" รัว/ดับเบิลคลิก → สร้างเอกสารซ้ำ
+let _qtConvertInflight = false; // Phase 412: กัน trigger convert→ใบส่งสินค้า ซ้ำระหว่างใบแรกกำลังสร้าง (ทุกทางเข้า)
 let _airDraftNotice = 0;   // Phase 346: จำนวนรายการร่างจากแคตตาล็อกแอร์/งานแอร์ที่เพิ่งเติม (โชว์ notice)
 let _airDraftSource = "air_catalog";          // Phase 353: "air_catalog" | "air_job"
 let _airDraftCustomer = { name: "", phone: "" }; // Phase 353: prefill ลูกค้าจากงานแอร์ (ถ้ามี)
@@ -1254,100 +1255,124 @@ async function deleteQuotation(q) {
 //  CONVERT — Quotation → Delivery Invoice
 // ═══════════════════════════════════════════════════════════
 async function convertToDeliveryInvoice(q) {
-  // ★ ป้องกันสร้างซ้ำ — เช็คว่ามีใบส่งสินค้าจาก quotation นี้อยู่แล้วไหม
+  // ★ Phase 412: inflight guard ระดับฟังก์ชัน — กัน trigger ซ้ำจาก "ทุกทางเข้า" (dropdown แถว/
+  //   ปุ่มฟอร์ม qtConvertFromForm/ปุ่ม preview qtConvertBtn) ระหว่างใบแรกกำลังสร้าง:
+  //   existence-check (409) กันได้เฉพาะใบที่ commit แล้ว — กดซ้ำระหว่างสร้าง dup-check
+  //   รอบสองวิ่งก่อน create รอบแรก commit → ใบซ้ำ. guard นี้ปิดช่องนั้น
+  if (_qtConvertInflight) return window.App?.showToast?.("กำลังสร้างใบส่งสินค้า...");
+  _qtConvertInflight = true;
   try {
-    const cfg = window.SUPABASE_CONFIG;
-    const token = window._sbAccessToken || cfg.anonKey;
-    const chkResp = await fetch(
-      cfg.url + "/rest/v1/delivery_invoices?quotation_id=eq." + q.id + "&select=inv_no,status",
-      { headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token } }
-    );
-    const existing = await chkResp.json().catch(() => []);
-    const active = Array.isArray(existing) ? existing.filter(d => d.status !== "cancelled") : [];
-    if (active.length > 0) {
-      // Phase 409: บังคับ 1:1 — มีใบส่งสินค้า active แล้ว → บล็อก ไม่ให้ออกซ้ำ (เดิมแค่ confirm แล้วผ่านได้)
-      const list = active.map(d => d.inv_no).join(", ");
-      window.App?.showToast?.(`มีใบส่งสินค้า ${list} จากใบเสนอราคานี้แล้ว — ลบ/จัดการใบเดิมก่อนถึงออกใบใหม่ได้`);
-      return;   // ❌ ไม่สร้างซ้ำ
-    } else {
+    // ★ ป้องกันสร้างซ้ำ — เช็คว่ามีใบส่งสินค้าจาก quotation นี้อยู่แล้วไหม
+    try {
+      const cfg = window.SUPABASE_CONFIG;
+      const token = window._sbAccessToken || cfg.anonKey;
+      const chkResp = await fetch(
+        cfg.url + "/rest/v1/delivery_invoices?quotation_id=eq." + q.id + "&select=inv_no,status",
+        { headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token } }
+      );
+      const existing = await chkResp.json().catch(() => []);
+      const active = Array.isArray(existing) ? existing.filter(d => d.status !== "cancelled") : [];
+      if (active.length > 0) {
+        // Phase 409: บังคับ 1:1 — มีใบส่งสินค้า active แล้ว → บล็อก ไม่ให้ออกซ้ำ (เดิมแค่ confirm แล้วผ่านได้)
+        const list = active.map(d => d.inv_no).join(", ");
+        window.App?.showToast?.(`มีใบส่งสินค้า ${list} จากใบเสนอราคานี้แล้ว — ลบ/จัดการใบเดิมก่อนถึงออกใบใหม่ได้`);
+        return;   // ❌ ไม่สร้างซ้ำ
+      } else {
+        if (!(await window.App?.confirm?.("สร้างใบส่งสินค้า/ใบแจ้งหนี้ จากใบเสนอราคานี้?"))) return;
+      }
+    } catch(e) {
+      console.warn("[quotations convert] duplicate check failed, fallback to confirm:", e);
       if (!(await window.App?.confirm?.("สร้างใบส่งสินค้า/ใบแจ้งหนี้ จากใบเสนอราคานี้?"))) return;
     }
-  } catch(e) {
-    console.warn("[quotations convert] duplicate check failed, fallback to confirm:", e);
-    if (!(await window.App?.confirm?.("สร้างใบส่งสินค้า/ใบแจ้งหนี้ จากใบเสนอราคานี้?"))) return;
-  }
 
-  // Load items if not loaded
-  if (!_lineItems.length) {
-    const cfg = window.SUPABASE_CONFIG;
-    const token = window._sbAccessToken || cfg.anonKey;
-    try {
-      const resp = await fetch(cfg.url + "/rest/v1/quotation_items?quotation_id=eq." + q.id + "&order=sort_order.asc",
-        { headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token } });
-      // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L3 module state reset (invoice gen flow, single button)
-      _lineItems = ((await resp.json()) || []).map(i => ({
-        product_id: i.product_id, item_name: i.item_name || "",
-        qty: Number(i.qty||1), unit: i.unit || "ชิ้น",
-        unit_price: Number(i.unit_price||0), discount_pct: Number(i.discount_pct||0),
-        line_total: Number(i.line_total||0)
-      }));
-    // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L3 module state reset (catch path, invoice gen flow)
-    } catch(e) { _lineItems = []; }
-  }
-
-  const xhrPost = window._appXhrPost;
-  const xhrPatch = window._appXhrPatch;
-
-  const now = new Date();
-  const ds = now.getFullYear() + String(now.getMonth()+1).padStart(2,"0") + String(now.getDate()).padStart(2,"0");
-  const invNo = "INV" + ds + String(Date.now()).slice(-3);
-
-  const invoicePayload = {
-    inv_no: invNo, quotation_id: q.id,
-    customer_name: q.customer_name || q.customer || "",
-    customer_phone: q.customer_phone || "", customer_address: q.customer_address || "",
-    customer_tax_id: q.customer_tax_id || "",
-    total_amount: q.total_amount || 0, discount_pct: q.discount_pct || 0,
-    discount_amount: q.discount_amount || 0, after_discount: q.after_discount || q.total_amount || 0,
-    grand_total: q.grand_total || q.amount || 0, withholding_tax: q.withholding_tax || false,
-    wht_pct: q.wht_pct || 3, wht_amount: q.wht_amount || 0,
-    payment_terms: q.payment_terms || "เงินสด", credit_days: q.credit_days || 0,
-    project_name: q.project_name || "", ref_no: q.qt_no || "",
-    salesperson: q.salesperson || "", status: "pending",
-    note: "จากใบเสนอราคา " + (q.qt_no || "")
-  };
-
-  _ctx.showToast("กำลังสร้างใบส่งสินค้า...");
-  const invRes = await xhrPost("delivery_invoices", invoicePayload, { returnData: true });
-  if (!invRes.ok) return _ctx.showToast(invRes.error?.message || "สร้างไม่สำเร็จ");
-
-  const invoiceId = invRes.data?.id;
-  if (invoiceId && _lineItems.length) {
-    for (let i = 0; i < _lineItems.length; i++) {
-      const li = _lineItems[i];
-      await xhrPost("delivery_invoice_items", {
-        delivery_invoice_id: invoiceId, product_id: li.product_id || null,
-        item_name: li.item_name, qty: li.qty, unit: li.unit || "ชิ้น",
-        unit_price: li.unit_price, discount_pct: li.discount_pct || 0,
-        line_total: li.line_total, sort_order: i + 1
-      });
+    // Load items if not loaded
+    if (!_lineItems.length) {
+      const cfg = window.SUPABASE_CONFIG;
+      const token = window._sbAccessToken || cfg.anonKey;
+      try {
+        const resp = await fetch(cfg.url + "/rest/v1/quotation_items?quotation_id=eq." + q.id + "&order=sort_order.asc",
+          { headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token } });
+        // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L3 module state reset (invoice gen flow, single button)
+        _lineItems = ((await resp.json()) || []).map(i => ({
+          product_id: i.product_id, item_name: i.item_name || "",
+          qty: Number(i.qty||1), unit: i.unit || "ชิ้น",
+          unit_price: Number(i.unit_price||0), discount_pct: Number(i.discount_pct||0),
+          line_total: Number(i.line_total||0)
+        }));
+      // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L3 module state reset (catch path, invoice gen flow)
+      } catch(e) { _lineItems = []; }
     }
+
+    const xhrPost = window._appXhrPost;
+    const xhrPatch = window._appXhrPatch;
+
+    const now = new Date();
+    const ds = now.getFullYear() + String(now.getMonth()+1).padStart(2,"0") + String(now.getDate()).padStart(2,"0");
+    const invNo = "INV" + ds + String(Date.now()).slice(-3);
+
+    const invoicePayload = {
+      inv_no: invNo, quotation_id: q.id,
+      customer_name: q.customer_name || q.customer || "",
+      customer_phone: q.customer_phone || "", customer_address: q.customer_address || "",
+      customer_tax_id: q.customer_tax_id || "",
+      total_amount: q.total_amount || 0, discount_pct: q.discount_pct || 0,
+      discount_amount: q.discount_amount || 0, after_discount: q.after_discount || q.total_amount || 0,
+      grand_total: q.grand_total || q.amount || 0, withholding_tax: q.withholding_tax || false,
+      wht_pct: q.wht_pct || 3, wht_amount: q.wht_amount || 0,
+      payment_terms: q.payment_terms || "เงินสด", credit_days: q.credit_days || 0,
+      project_name: q.project_name || "", ref_no: q.qt_no || "",
+      salesperson: q.salesperson || "", status: "pending",
+      note: "จากใบเสนอราคา " + (q.qt_no || "")
+    };
+
+    _ctx.showToast("กำลังสร้างใบส่งสินค้า...");
+    const invRes = await xhrPost("delivery_invoices", invoicePayload, { returnData: true });
+    if (!invRes.ok) return _ctx.showToast(invRes.error?.message || "สร้างไม่สำเร็จ");
+
+    const invoiceId = invRes.data?.id;
+    // ★ Phase 412: เช็คผล insert รายการ — เดิมเงียบ = ใบรายการขาดแบบไม่มีใครรู้
+    const failedItems = [];
+    if (invoiceId && _lineItems.length) {
+      for (let i = 0; i < _lineItems.length; i++) {
+        const li = _lineItems[i];
+        const ir = await xhrPost("delivery_invoice_items", {
+          delivery_invoice_id: invoiceId, product_id: li.product_id || null,
+          item_name: li.item_name, qty: li.qty, unit: li.unit || "ชิ้น",
+          unit_price: li.unit_price, discount_pct: li.discount_pct || 0,
+          line_total: li.line_total, sort_order: i + 1
+        });
+        if (!ir?.ok) failedItems.push(li.item_name || ("#" + (i + 1)));
+      }
+    }
+    if (failedItems.length > 0) {
+      // ห้าม rollback/ลบ header — ใบเกิดแล้ว (409 existence-check กันออกซ้ำตอน retry)
+      console.error("[quotations convert] item insert failed:", failedItems);
+      _ctx.showToast(`⚠️ สร้าง ${invNo} แล้ว แต่บันทึกรายการไม่สำเร็จ ${failedItems.length} รายการ (${failedItems.slice(0, 3).join(", ")}…) — เปิดใบเพื่อตรวจ/เพิ่มเอง`);
+    }
+
+    // ★ Phase 412: เช็คผล PATCH status — fail = เตือน ไม่ rollback (status = display; ตัวกัน 1:1 จริงคือ existence-check)
+    const sp = await xhrPatch("quotations", { status: "invoiced" }, "id", q.id);
+    if (!sp?.ok) {
+      console.warn("[quotations convert] status patch failed:", sp?.error?.message);
+      _ctx.showToast("⚠️ อัปเดตสถานะเอกสารต้นทางไม่สำเร็จ — ใบใหม่ถูกสร้างแล้ว");
+    }
+
+    // ★ Phase 408 cash-basis: รายได้ย้ายไปที่ใบเสร็จ paid — ใบส่งของไม่ลง revenue แล้ว
+    //   เดิม (88.18) post Dr 1200 / Cr 4150 ตอนออกใบส่งของ (accrual) → ตอนนี้ปิด
+    //   revenue จะเกิดที่ postJournalForReceipt เมื่อ receipt.status="paid" (Dr cash/Cr 4150)
+    //   postJournalForDeliveryInvoice คงไว้ (guard return null) — ยัง import ที่อื่น
+    // if (invoiceId) {
+    //   postJournalForDeliveryInvoice({ ... }).catch(...);
+    // }
+
+    await _ctx.loadAllData();
+    _ctx.showToast("สร้างใบส่งสินค้าแล้ว: " + invNo);
+    _viewMode = "list";
+    _ctx.showRoute("delivery_invoices");
+  } finally {
+    // early return ทุกจุด (dup-block / ยกเลิก confirm / create fail) ผ่านที่นี่ → trigger ใหม่ได้เสมอ
+    _qtConvertInflight = false;
   }
-
-  await xhrPatch("quotations", { status: "invoiced" }, "id", q.id);
-
-  // ★ Phase 408 cash-basis: รายได้ย้ายไปที่ใบเสร็จ paid — ใบส่งของไม่ลง revenue แล้ว
-  //   เดิม (88.18) post Dr 1200 / Cr 4150 ตอนออกใบส่งของ (accrual) → ตอนนี้ปิด
-  //   revenue จะเกิดที่ postJournalForReceipt เมื่อ receipt.status="paid" (Dr cash/Cr 4150)
-  //   postJournalForDeliveryInvoice คงไว้ (guard return null) — ยัง import ที่อื่น
-  // if (invoiceId) {
-  //   postJournalForDeliveryInvoice({ ... }).catch(...);
-  // }
-
-  await _ctx.loadAllData();
-  _ctx.showToast("สร้างใบส่งสินค้าแล้ว: " + invNo);
-  _viewMode = "list";
-  _ctx.showRoute("delivery_invoices");
 }
 
 // ═══════════════════════════════════════════════════════════

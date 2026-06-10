@@ -7,6 +7,16 @@
 
 ---
 
+## 5.66.0 (build 412) — 2026-06-10 Phase 412 convert-doc-inflight-guard — กัน convert ซ้ำระหว่างกำลังสร้าง + write มีเสียง
+
+- **fix (sales §4.1-4.2):** inflight guard ระดับฟังก์ชันที่ `convertToDeliveryInvoice` + `convertToReceipt` — Phase 409 กันได้เฉพาะใบที่ commit แล้ว; trigger ซ้ำระหว่างใบแรกกำลังสร้าง = ใบซ้ำทะลุ 1:1 → ตอนนี้ no-op + toast "กำลังสร้าง..." (guard ในฟังก์ชัน = คลุมทุกทางเข้า 5 จุด) + `try/finally` reset (ยกเลิก/fail → ทำใหม่ได้)
+- items loop ทั้ง 2: เช็คผล insert → fail = toast "⚠️ สร้าง <เลขใบ> แล้ว แต่บันทึกรายการไม่สำเร็จ N รายการ..." (ห้าม rollback header) · PATCH status 3 จุด: เช็คผล → fail = toast เตือน (status = display, ตัวกัน 1:1 จริง = existence-check)
+- ผลพลอยได้: กดรัวก่อนยืนยัน → dialog แรกคงอยู่ ไม่มี zombie await (ไม่แตะ confirmAsync/modal)
+- ❌ ไม่แตะ duplicate-check 409 · payload/เลขเอกสาร · call sites · _qtSaveInflight เดิม · POS/stock/บัญชี/SQL · re-indent body รีวิวด้วย `git diff -w`
+- +guard `convert_inflight` (11) · lint 0 / unit 1434 / e2e 12 · **STOP รอ review + owner smoke preview**
+
+---
+
 ## 5.66.0 (build 411) — 2026-06-10 Phase 411 backfill-skip-deleted-sales — Backfill/Integrity ข้ามบิลลบแล้ว (กัน JV รายได้ผี)
 
 - **fix (accounting §4.3):** เอกสาร soft-delete (note มี `[ลบแล้ว]`) ต้องไม่ถูก post JV จากทุก path และไม่นับเป็น "ต้องแก้" — เดิม integrity panel โชว์ "ต้องแก้ 5" จากบิลลบแล้ว (#177-181, JV void แล้ว) และปุ่ม "เริ่ม Backfill" จะสร้าง **JV รายได้ผี** ให้บิลพวกนี้
