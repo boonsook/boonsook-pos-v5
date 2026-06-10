@@ -1,6 +1,6 @@
 # Boonsook POS V5 - Shared Session Start
 
-Last updated: 2026-06-10 (Phase 414 ob-form-coa-labels-and-confirm — build 414 บน branch `claude/phase-414-ob-form-coa-confirm`; origin/main = build 413 live + smoke PASSED) · ⏸️ STOP — รอ owner review/smoke preview · เริ่มบัญชีจริง 1 ก.ค. 2569 (ก่อนนั้น = test, ไม่ post JV)
+Last updated: 2026-06-10 (Phase 414 ob-form-coa-labels-and-confirm — build 414 บน merged → origin/main `52eb0be` = build 414 live) · ✅ review PASSED · เริ่มบัญชีจริง 1 ก.ค. 2569 (ก่อนนั้น = test, ไม่ post JV)
 
 Purpose: this is the common first-read note for Codex, Claude, or any next agent opening a fresh session on this project. Read this before changing files so both teams start from the same facts.
 
