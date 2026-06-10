@@ -1,6 +1,6 @@
 # Boonsook POS V5 - Shared Session Start
 
-Last updated: 2026-06-10 (Phase 411 backfill-skip-deleted-sales — build 411, branch `claude/phase-411-backfill-skip-deleted`; origin/main = build 410 live) · ⏸️ STOP รอ owner review + smoke ผ่าน preview ก่อน merge
+Last updated: 2026-06-10 (Phase 411 backfill-skip-deleted-sales — build 411, merged → origin/main `68a4323` = build 411) · ✅ live + owner smoke preview PASSED (2026-06-10)
 
 Purpose: this is the common first-read note for Codex, Claude, or any next agent opening a fresh session on this project. Read this before changing files so both teams start from the same facts.
 
