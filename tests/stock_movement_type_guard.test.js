@@ -53,6 +53,9 @@ test("sale-delete reverse logs a return movement with valid type", () => {
   // _revertStockForSale block should log type "return" for the คืนสต็อกจากลบ POS movement
   const revertIdx = mainSrc.indexOf("_revertStockForSale");
   assert.ok(revertIdx >= 0, "_revertStockForSale should exist in main.js");
-  const block = mainSrc.slice(revertIdx, revertIdx + 4000);
+  // Phase 410: ฟังก์ชันยาวขึ้นเกิน window 4000 ตัวอักษรเดิม (idempotency gate + CAS)
+  // → slice ถึงจุดจบฟังก์ชันแทน (window._appRevertStockForSale export) — assertion เดิมเป๊ะ
+  const endIdx = mainSrc.indexOf("\nwindow._appRevertStockForSale", revertIdx);
+  const block = mainSrc.slice(revertIdx, endIdx === -1 ? revertIdx + 12000 : endIdx);
   assert.match(block, /type\s*:\s*["']return["']/, "reverse-stock movement must use type 'return'");
 });

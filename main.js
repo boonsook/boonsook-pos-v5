@@ -3094,6 +3094,24 @@ async function _revertStockForSale({ saleId, orderNo }) {
   const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token };
   const creatorUuid = state.currentUser?.id || null;
 
+  // ★ Phase 410 (§4.2): idempotency gate — note มี marker = เคยคืนสต็อกแล้ว → no-op
+  //   (กันคืนเบิ้ลจากกดซ้ำ/ยิงซ้ำ/ลบพร้อมกันจากเครื่องอื่น — อ่าน note สดจาก DB ไม่ใช่ cache)
+  //   GET ล้ม → fail-closed: ห้ามเดินหน้า revert ทั้งที่เช็ค marker ไม่ได้ (กันคืนซ้ำสำคัญกว่า
+  //   ความสะดวก — caller โชว์ toast partial อยู่แล้ว, ลองใหม่ได้)
+  let saleNote = "";
+  try {
+    const nr = await fetch(cfg.url + "/rest/v1/sales?id=eq." + saleId + "&select=note", { headers });
+    if (!nr.ok) return { ok: false, error: "เช็คสถานะคืนสต็อกไม่ได้: HTTP " + nr.status };
+    const noteRows = await nr.json().catch(() => null);
+    if (!Array.isArray(noteRows)) return { ok: false, error: "เช็คสถานะคืนสต็อกไม่ได้: bad response" };
+    saleNote = String(noteRows[0]?.note || "");
+  } catch (e) {
+    return { ok: false, error: "เช็คสถานะคืนสต็อกไม่ได้: " + (e?.message || e) };
+  }
+  if (saleNote.includes(_STOCK_RETURNED_MARKER)) {
+    return { ok: true, reverted: 0, skipped: true, errors: [] };
+  }
+
   const errors = [];
   try {
     // 1. fetch sale_items
@@ -3132,44 +3150,70 @@ async function _revertStockForSale({ saleId, orderNo }) {
       }
       const whName = targetWs ? (state.warehouses.find(w => w.id === targetWs.warehouse_id)?.name || "?") : "(no warehouse)";
 
-      // 2b. update warehouse_stock += qty (ถ้ามี) — Phase 403: trigger จะ sync products.stock เอง
+      // 2b. คืน warehouse_stock += qty (ถ้ามี) — Phase 403: trigger จะ sync products.stock เอง
+      // ★ Phase 410 (§4.2): เขียนผ่าน CAS (_atomicAddStock refetch ค่าจริงก่อนเขียน) —
+      //   ห้าม absolute write จากค่า cache (lost update ทับการขาย/โอนจากเครื่องอื่น)
+      //   CAS fail → ข้าม item นี้ (ไม่ log movement / ไม่นับ reverted — สต็อกไม่ได้คืนจริง)
       if (targetWs) {
-        const before = Number(targetWs.stock || 0);
-        const after = before + qty;
-        const pr = await xhrPatch("warehouse_stock", { stock: after }, "id", targetWs.id);
-        if (!pr.ok) {
-          errors.push(`${product.name}: warehouse_stock fail — ${pr.error?.message || "RLS?"}`);
-        } else {
-          targetWs.stock = after; // sync local cache
+        const add = await _atomicAddStock("warehouse_stock", targetWs.id, qty);
+        if (!add.ok) {
+          errors.push(`${product.name}: warehouse_stock CAS fail — ${add.error || "RLS?"}`);
+          continue;
         }
-      }
+        targetWs.stock = add.after; // sync local cache จากค่าจริงที่ CAS คืน
 
-      // 2c. Phase 403: products.stock = sum(warehouse_stock) ผ่าน DB trigger (canonical derived).
-      //   - มี warehouse (targetWs) → warehouse +qty ด้านบน → trigger sync products.stock เอง →
-      //     ที่นี่ optimistic local (sum) ไม่เขียน products.stock ตรง (กันบวกซ้ำ sum+qty).
-      //   - ไม่มี warehouse → trigger ไม่ fire → คง legacy products.stock write ตรง.
-      if (targetWs) {
+        // 2c. Phase 403: products.stock = sum(warehouse_stock) ผ่าน DB trigger (canonical derived).
+        //   warehouse +qty ด้านบน → trigger sync products.stock เอง → ที่นี่ optimistic local (sum)
+        //   ไม่เขียน products.stock ตรง (กันบวกซ้ำ sum+qty).
         product.stock = (state.warehouseStock || [])
           .filter(w => String(w.product_id) === String(product.id))
           .reduce((s, w) => s + Number(w.stock || 0), 0);
       } else {
-        const newStock = Number(product.stock || 0) + qty;
-        const pr2 = await xhrPatch("products", { stock: newStock }, "id", product.id);
-        if (!pr2.ok) errors.push(`${product.name}: products.stock fail`);
-        else product.stock = newStock;
+        // legacy: ไม่มี warehouse row → trigger 403 ไม่ fire → เขียน products.stock ตรง (ผ่าน CAS)
+        const add2 = await _atomicAddStock("products", product.id, qty);
+        if (!add2.ok) {
+          errors.push(`${product.name}: products.stock CAS fail — ${add2.error || "RLS?"}`);
+          continue;
+        }
+        product.stock = add2.after;
       }
 
       // 2d. log return movement
       // Phase 92.13: type "return_sale" ละเมิด stock_movements_type_check (23514) → ใช้ "return"
       //   (semantic เดียวกัน: สต็อกคืนกลับคลัง; เป็นค่าที่ flow คืนสินค้า/หน้า movement ใช้อยู่แล้ว)
-      await xhrPost("stock_movements", {
+      // ★ Phase 410: log fail = warn เท่านั้น — ห้าม rollback สต็อกที่คืนสำเร็จแล้ว (ขนาน Phase 368)
+      const mv = await xhrPost("stock_movements", {
         product_id: product.id,
         type: "return",
         qty: qty,
         note: `คืนสต็อกจากลบ POS ${orderNo || '#' + saleId} — คลัง: ${whName} +${qty}`,
         created_by: creatorUuid
       });
+      if (!mv?.ok) console.warn("[revertStock] movement log fail:", mv?.error?.message || "unknown");
       revertedCount++;
+    }
+
+    // ★ Phase 410: แปะ marker เมื่อคืนได้อย่างน้อย 1 รายการ (รวม partial — ถ้าไม่แปะ
+    //   แล้วมี retry รอบใหม่ item ที่คืนสำเร็จแล้วจะถูกคืนซ้ำ = สต็อกพองเกินจริง = เสี่ยง
+    //   oversell; รายการที่ fail surface ผ่าน errors ให้แอดมินแก้ทาง stock_movements)
+    //   ทุก item fail (revertedCount=0) → ไม่แปะ marker (retry รอบหน้าได้เต็ม ๆ)
+    if (revertedCount > 0) {
+      let latestNote = saleNote;
+      try {
+        const gr = await fetch(cfg.url + "/rest/v1/sales?id=eq." + saleId + "&select=note", { headers });
+        if (gr.ok) {
+          const grRows = await gr.json().catch(() => null);
+          if (Array.isArray(grRows)) latestNote = String(grRows[0]?.note || "");
+        }
+      } catch (e) { console.warn("[revertStock] re-fetch note fail (ใช้ค่าจาก gate แทน):", e?.message); }
+      if (!latestNote.includes(_STOCK_RETURNED_MARKER)) {
+        const mk = await xhrPatch("sales", { note: latestNote ? `${latestNote} ${_STOCK_RETURNED_MARKER}` : _STOCK_RETURNED_MARKER }, "id", saleId);
+        if (!mk.ok) {
+          // ห้าม rollback สต็อก (สต็อกถูกแล้ว) — แค่ surface ความเสี่ยงให้แอดมินเห็น
+          console.warn("[revertStock] marker PATCH fail:", mk.error?.message);
+          errors.push("แปะ marker กันคืนซ้ำไม่สำเร็จ — เสี่ยงคืนซ้ำถ้าลบใหม่");
+        }
+      }
     }
 
     return { ok: errors.length === 0, reverted: revertedCount, errors };

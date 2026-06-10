@@ -7,6 +7,15 @@
 
 ---
 
+## 5.66.0 (build 410) — 2026-06-10 Phase 410 fix-revert-stock-cas-idempotent — คืนสต็อกลบบิล POS ผ่าน CAS + กันคืนซ้ำ
+
+- **fix (stock §4.1-4.2):** `_revertStockForSale` (คืนสต็อกตอนลบบิล POS) — ทุก stock write ผ่าน **CAS** `_atomicAddStock` (warehouse_stock + legacy products; เดิม xhrPatch absolute จาก state cache = lost update) + **idempotent**: gate เช็ค marker `[คืนสต็อกแล้ว]` ใน sales.note สดก่อนคืน (เคยคืน → no-op skipped) · แปะ marker หลังคืน (partial ก็แปะ — กัน retry คืนซ้ำ) · GET เช็ค marker ล้ม → **fail-closed** ไม่เดินหน้า
+- `sales.js` delete handler: pre-check `[ลบแล้ว]` → block ก่อน confirm + `newNote` append ต่อ note เดิม (ไม่ทับ marker) · CAS fail → ข้าม item (ไม่ log movement/ไม่นับ) · movement log fail = warn ไม่ rollback
+- ❌ ไม่แตะ deduct/transfer/_applyStockMovement/stock_cas.js/service_equipment/POS checkout/JV/loyalty/บัญชี · heuristic คลัง "บ้าน" คงเดิม
+- +guard `revert_stock_cas` (7) · ปรับ guard เดิม 2 ไฟล์ intent คงเดิม (stock_movement_type window→ทั้งฟังก์ชัน · stock_mirror_canonical assert CAS) · lint 0 / unit 1417 / e2e 12 · **STOP รอ review + owner smoke ผ่าน preview**
+
+---
+
 ## 5.66.0 (build 409) — 2026-06-09 Phase 409 document-chain-1to1 — บล็อกออกเอกสารซ้ำทั้งเชน
 
 - **fix (sales):** บังคับ **1:1** ทั้งเชนเอกสาร — quotation ที่มีใบส่งของ active แล้ว → **บล็อก**ออกใบส่งของซ้ำ · ใบส่งของที่มีใบเสร็จ active แล้ว → **บล็อก**ออกใบเสร็จซ้ำ (เดิมแค่ confirm แล้วกดยืนยันผ่านได้ = เอกสารซ้ำเละ) · ใบ `cancelled` ไม่บล็อก (ออกใหม่ได้)

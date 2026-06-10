@@ -66,8 +66,10 @@ test("POS deduct writes products.stock directly ONLY in the no-warehouse legacy 
 
 test("revert writes products.stock directly ONLY when there is no warehouse row", () => {
   const body = fnBody(main, "async function _revertStockForSale", "window._appRevertStockForSale");
-  // targetWs branch → optimistic local sum; else (no warehouse) → direct patch
+  // targetWs branch → optimistic local sum; else (no warehouse) → direct write
   assert.match(body, /if \(targetWs\) \{[\s\S]*?product\.stock = \(state\.warehouseStock/, "warehouse branch optimistic local sum");
-  assert.match(body, /\} else \{\s*const newStock = Number\(product\.stock \|\| 0\) \+ qty;\s*const pr2 = await xhrPatch\("products"/,
-    "no-warehouse branch keeps legacy products patch");
+  // Phase 410: legacy direct write ต้องผ่าน CAS (_atomicAddStock) — ห้าม absolute xhrPatch จาก cache
+  const elseBranch = body.slice(body.indexOf("} else {", body.indexOf("if (targetWs) {")));
+  assert.match(elseBranch, /_atomicAddStock\("products", product\.id, qty\)/, "no-warehouse branch writes products via CAS");
+  assert.ok(!/xhrPatch\("products"/.test(body), "no absolute products patch anywhere in revert");
 });

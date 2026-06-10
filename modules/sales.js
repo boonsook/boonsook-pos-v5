@@ -194,6 +194,13 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
     // ★ FIX: ป้องกัน NaN
     if (!saleId || isNaN(saleId)) { showToast?.("ไม่พบ ID รายการขาย"); return; }
     const saleNo = btn.dataset.delSaleNo || "";
+    // ★ Phase 410: บิลที่ถูกลบไปแล้ว (note มี [ลบแล้ว]) → block ก่อน confirm
+    //   กันยิง side-effect chain (void JV / revert stock / loyalty) ซ้ำจาก UI ค้าง/stale list
+    const targetSale = (state.sales || []).find(s => String(s.id) === String(saleId));
+    if (String(targetSale?.note || "").includes("[ลบแล้ว]")) {
+      showToast?.("บิลนี้ถูกลบไปแล้ว");
+      return;
+    }
     if (!(await window.App?.confirm?.(`ลบรายการขาย "${saleNo}" ?\nลบแล้วไม่สามารถกู้คืนได้`))) return;
 
     /* eslint-disable require-atomic-updates -- A: UI feedback before async (sequential, single click handler per row) */
@@ -201,7 +208,9 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
     btn.textContent = "กำลังลบ...";
     /* eslint-enable require-atomic-updates */
 
-    const newNote = "[ลบแล้ว] ลบโดยแอดมิน " + new Date().toLocaleString("th-TH");
+    // ★ Phase 410: append ต่อ note เดิม (เดิมเขียนทับทั้งก้อน) — เก็บข้อมูลเดิม + marker
+    //   [คืนสต็อกแล้ว] ที่อาจมีอยู่ ไม่ให้ถูกล้าง (ใช้ทั้ง PATCH path และ supabase fallback)
+    const newNote = (targetSale?.note ? targetSale.note + " " : "") + "[ลบแล้ว] ลบโดยแอดมิน " + new Date().toLocaleString("th-TH");
 
     // ★ Safety timeout: ถ้า network/Supabase hang → หลุด 20 วินาที auto-reset
     const withTimeout = (p, ms, label) => Promise.race([
