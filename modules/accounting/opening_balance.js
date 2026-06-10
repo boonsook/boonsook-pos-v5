@@ -19,14 +19,44 @@ function num(v) { return Number(v || 0); }
 
 // ─── Default fields ที่ user มักลงตอน start ───
 //  Debit side (สินทรัพย์ที่ยกมา)
-const ASSET_FIELDS = [
+//  ★ Phase 415: ช่องเงินฝากธนาคาร (1130–1199) ดึงจาก chart_of_accounts จริงตอน render
+//    — DEFAULT_BANK_FIELDS ใช้เฉพาะ fallback ตอนโหลดผังบัญชีไม่สำเร็จ
+const CASH_FIELDS = [
   { code: "1110", label: "เงินสดในมือ",                  emoji: "💵" },
-  { code: "1120", label: "เงินสดย่อย",                    emoji: "💴" },
+  { code: "1120", label: "เงินสดย่อย",                    emoji: "💴" }
+];
+const DEFAULT_BANK_FIELDS = [
   { code: "1130", label: "เงินฝากธนาคาร — กระแสรายวัน",  emoji: "🏦" },
-  { code: "1140", label: "เงินฝากธนาคาร — ออมทรัพย์",     emoji: "🏦" },
+  { code: "1140", label: "เงินฝากธนาคาร — ออมทรัพย์",     emoji: "🏦" }
+];
+const RECEIVABLE_INVENTORY_FIELDS = [
   { code: "1200", label: "ลูกหนี้การค้า",                  emoji: "📋" },
   { code: "1300", label: "สินค้าคงเหลือ",                  emoji: "📦" }
 ];
+//  field list ฝั่ง Dr ที่ render จริง (cash + bank dynamic + receivable/inventory)
+//  — updateBalance/_onSubmit ต้อง loop จากตัวนี้ ไม่ hardcode ซ้ำ
+let _assetFields = [...CASH_FIELDS, ...DEFAULT_BANK_FIELDS, ...RECEIVABLE_INVENTORY_FIELDS];
+
+// ★ Phase 415: บัญชีเงินฝากธนาคารจากผังบัญชีจริง — type=asset, code 1130–1199,
+//   is_active, เฉพาะ leaf (ไม่มีบัญชีอื่น parent_code ชี้มา) เรียงตาม sort_order
+export async function fetchBankAssetAccounts() {
+  const cfg = window.SUPABASE_CONFIG;
+  const token = window._sbAccessToken || cfg.anonKey;
+  const r = await fetch(`${cfg.url}/rest/v1/chart_of_accounts?select=code,name,parent_code,is_active,sort_order&type=eq.asset&order=sort_order.asc`, {
+    headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token }
+  });
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  const rows = await r.json();
+  if (!Array.isArray(rows) || rows.length === 0) throw new Error("ผังบัญชีว่าง");
+  const hasChild = new Set(rows.map(a => a.parent_code).filter(Boolean));
+  return rows
+    .filter(a => a.is_active !== false)
+    .filter(a => /^\d{4}$/.test(String(a.code)))
+    .filter(a => String(a.code) >= "1130" && String(a.code) <= "1199")
+    .filter(a => !hasChild.has(a.code))
+    .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+    .map(a => ({ code: String(a.code), label: String(a.name || a.code), emoji: "🏦" }));
+}
 
 //  Credit side (หนี้สิน + ส่วนของเจ้าของ)
 //  ★ Phase 414: label ต้องตรง chart_of_accounts จริง (code ห้ามเปลี่ยน)
@@ -40,10 +70,25 @@ const EQUITY_FIELDS = [
   { code: "3200", label: "กำไรสะสม", emoji: "👤" }
 ];
 
-export function renderOpeningBalancePage(ctx) {
+export async function renderOpeningBalancePage(ctx) {
   _ctx = ctx;
   const container = document.getElementById("page-accounting_opening_balance");
   if (!container) return;
+
+  // ★ Phase 415: โหลดช่องธนาคารจากผังบัญชีจริงก่อน render — ล้ม → fallback 1130/1140 (ห้าม crash/ฟอร์มว่าง)
+  container.innerHTML = `<div class="panel"><div style="padding:30px;text-align:center;color:#94a3b8">⏳ กำลังโหลดผังบัญชี...</div></div>`;
+  let bankFields = DEFAULT_BANK_FIELDS;
+  let coaWarningHtml = "";
+  try {
+    const banks = await fetchBankAssetAccounts();
+    if (!banks.length) throw new Error("ไม่พบบัญชีเงินฝาก (1130–1199) ในผังบัญชี");
+    bankFields = banks;
+  } catch (e) {
+    console.error("[opening_balance] โหลดผังบัญชีไม่สำเร็จ — ใช้ช่องพื้นฐาน:", e);
+    bankFields = DEFAULT_BANK_FIELDS;
+    coaWarningHtml = `<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:#9a3412">⚠️ โหลดผังบัญชีไม่สำเร็จ — แสดงช่องพื้นฐาน (1130/1140) · รีเฟรชหน้าเพื่อลองใหม่</div>`;
+  }
+  _assetFields = [...CASH_FIELDS, ...bankFields, ...RECEIVABLE_INVENTORY_FIELDS];
 
   container.innerHTML = `
     <div class="panel" style="max-width:900px">
@@ -60,11 +105,13 @@ export function renderOpeningBalancePage(ctx) {
         ถ้าผิด → ลบ JV นั้นในสมุดรายวัน แล้วลงใหม่ (ผ่าน JV ใหม่ — กดปุ่มซ้ำได้ มี idempotency กัน)
       </div>
 
+      ${coaWarningHtml}
+
       <!-- Asset section -->
       <div style="margin-bottom:18px">
         <div style="background:#0284c7;color:#fff;padding:10px 14px;border-radius:8px 8px 0 0;font-weight:700;font-size:14px">🟦 สินทรัพย์ที่ยกมา (Debit)</div>
         <div style="background:#fff;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px;padding:14px">
-          ${ASSET_FIELDS.map(f => `
+          ${_assetFields.map(f => `
             <div class="ob-row">
               <span class="ob-emoji">${f.emoji}</span>
               <span class="ob-code">${f.code}</span>
@@ -120,7 +167,7 @@ export function renderOpeningBalancePage(ctx) {
 
   // Live balance update
   const updateBalance = () => {
-    const totalDebit = ASSET_FIELDS.reduce((s, f) => s + num(document.getElementById(`ob_${f.code}`)?.value), 0);
+    const totalDebit = _assetFields.reduce((s, f) => s + num(document.getElementById(`ob_${f.code}`)?.value), 0);
     const totalCredit = [...LIABILITY_FIELDS, ...EQUITY_FIELDS].reduce((s, f) => s + num(document.getElementById(`ob_${f.code}`)?.value), 0);
     const balanced = Math.abs(totalDebit - totalCredit) < 0.01 && totalDebit > 0;
     const empty = totalDebit < 0.01 && totalCredit < 0.01;
@@ -150,7 +197,7 @@ export function renderOpeningBalancePage(ctx) {
   };
 
   // Wire all input changes
-  [...ASSET_FIELDS, ...LIABILITY_FIELDS, ...EQUITY_FIELDS].forEach(f => {
+  [..._assetFields, ...LIABILITY_FIELDS, ...EQUITY_FIELDS].forEach(f => {
     document.getElementById(`ob_${f.code}`)?.addEventListener("input", updateBalance);
   });
   updateBalance();
@@ -158,7 +205,7 @@ export function renderOpeningBalancePage(ctx) {
   // ★ Phase 414: ใช้ modal กลางของแอป (window.App.confirm) — เลิก native confirm
   document.getElementById("obResetBtn")?.addEventListener("click", async () => {
     if (!(await window.App?.confirm?.("รีเซ็ตทั้งหมด?"))) return;
-    [...ASSET_FIELDS, ...LIABILITY_FIELDS, ...EQUITY_FIELDS].forEach(f => {
+    [..._assetFields, ...LIABILITY_FIELDS, ...EQUITY_FIELDS].forEach(f => {
       const el = document.getElementById(`ob_${f.code}`);
       if (el) el.value = "";
     });
@@ -176,7 +223,7 @@ async function _onSubmit() {
 
   // Collect lines
   const lines = [];
-  ASSET_FIELDS.forEach(f => {
+  _assetFields.forEach(f => {
     const v = num(document.getElementById(`ob_${f.code}`)?.value);
     if (v > 0) lines.push({ account_code: f.code, debit: v, credit: 0, description: `ยอดยกมา — ${f.label}` });
   });
@@ -284,7 +331,7 @@ async function _onSubmit() {
     _ctx?.showToast?.("บันทึกยอดยกมาแล้ว ✅");
 
     // Reset form
-    [...ASSET_FIELDS, ...LIABILITY_FIELDS, ...EQUITY_FIELDS].forEach(f => {
+    [..._assetFields, ...LIABILITY_FIELDS, ...EQUITY_FIELDS].forEach(f => {
       const el = document.getElementById(`ob_${f.code}`);
       if (el) el.value = "";
     });

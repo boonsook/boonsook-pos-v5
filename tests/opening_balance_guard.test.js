@@ -1,4 +1,5 @@
 // Phase 414 — ob-form-coa-labels-and-confirm (build 414)
+// Phase 415 — ob-form-dynamic-bank-fields (build 415): ช่องธนาคาร dynamic จาก COA
 // Run: node --test tests/opening_balance_guard.test.js
 //
 // Why this exists:
@@ -68,4 +69,70 @@ test("still imports ACCOUNTING_EFFECTIVE_DATE from effective_date.js (Phase 413)
 test("save semantics intact: doc_type OB + OB doc_no prefix", () => {
   assert.match(src, /doc_type: "OB"/, 'journal entry must keep doc_type "OB"');
   assert.match(src, /const docNoPrefix = `OB\$\{yyyy\}\$\{mm\}`/, "OB doc_no prefix generation must remain");
+});
+
+// ═══ Phase 415 — dynamic bank fields ═══════════════════════════════════════
+
+// behavioral: stub window/fetch แล้วเรียก fetchBankAssetAccounts จริง
+const COA_ROWS = [
+  { code: "1000", name: "สินทรัพย์",            parent_code: null,   is_active: true, sort_order: 1000 },
+  { code: "1100", name: "สินทรัพย์หมุนเวียน",   parent_code: "1000", is_active: true, sort_order: 1100 },
+  { code: "1110", name: "เงินสดในมือ",          parent_code: "1100", is_active: true, sort_order: 1110 },
+  { code: "1140", name: "ออมทรัพย์",            parent_code: "1100", is_active: true, sort_order: 1140 },
+  { code: "1130", name: "กระแสรายวัน",          parent_code: "1100", is_active: true, sort_order: 1130 },
+  { code: "1131", name: "กรุงไทย ร้านบุญสุข",   parent_code: "1100", is_active: true, sort_order: 1131 },
+  { code: "1150", name: "บัญชีปิดแล้ว",         parent_code: "1100", is_active: false, sort_order: 1150 },
+  { code: "1160", name: "กลุ่มเงินฝากพิเศษ",    parent_code: "1100", is_active: true, sort_order: 1160 },
+  { code: "1161", name: "ฝากประจำ 12 เดือน",    parent_code: "1160", is_active: true, sort_order: 1161 },
+  { code: "1200", name: "ลูกหนี้การค้า",         parent_code: "1100", is_active: true, sort_order: 1200 },
+  { code: "11x0", name: "code แปลก",            parent_code: "1100", is_active: true, sort_order: 1190 }
+];
+
+async function callFetchBanks(rows, ok = true) {
+  globalThis.window = { SUPABASE_CONFIG: { url: "https://stub.local", anonKey: "k" } };
+  globalThis.fetch = async () => ({ ok, status: ok ? 200 : 500, json: async () => rows });
+  const mod = await import("../modules/accounting/opening_balance.js");
+  try {
+    return await mod.fetchBankAssetAccounts();
+  } finally {
+    delete globalThis.fetch;
+  }
+}
+
+test("fetchBankAssetAccounts: leaf 1130–1199 active เท่านั้น เรียง sort_order (header/inactive/นอกช่วง/code แปลก ถูกตัด)", async () => {
+  const banks = await callFetchBanks(COA_ROWS);
+  assert.deepEqual(banks.map(b => b.code), ["1130", "1131", "1140", "1161"],
+    "ต้องได้ leaf ในช่วง 1130–1199 เรียงตาม sort_order — 1110/1200 นอกช่วง, 1150 inactive, 1160 header (มี 1161 ชี้), 11x0 ไม่ใช่ 4 หลัก");
+  assert.equal(banks[1].label, "กรุงไทย ร้านบุญสุข", "label ต้องมาจาก name ใน COA");
+  assert.ok(banks.every(b => b.emoji === "🏦"), "ทุกช่องธนาคารใช้ emoji 🏦");
+});
+
+test("fetchBankAssetAccounts: HTTP fail → throw (ให้ caller ใช้ fallback)", async () => {
+  await assert.rejects(() => callFetchBanks([], false), /HTTP 500/);
+});
+
+test("fetchBankAssetAccounts: ผังบัญชีว่าง → throw", async () => {
+  await assert.rejects(() => callFetchBanks([]), /ผังบัญชีว่าง/);
+});
+
+// source-regex: fallback + ไม่ hardcode บัญชีใหม่
+test("render fallback: โหลด COA ล้ม → DEFAULT_BANK_FIELDS + แถบเตือน (ห้ามฟอร์มว่าง)", () => {
+  assert.match(src, /const DEFAULT_BANK_FIELDS = \[/, "DEFAULT_BANK_FIELDS fallback block must exist");
+  assert.match(src, /bankFields = DEFAULT_BANK_FIELDS/, "catch branch must fall back to DEFAULT_BANK_FIELDS");
+  assert.match(src, /โหลดผังบัญชีไม่สำเร็จ — แสดงช่องพื้นฐาน/, "must warn user when COA fetch fails");
+});
+
+test("ไม่ hardcode บัญชีธนาคารใหม่ 1131–1136 ใน source (ต้องมาจาก fetch)", () => {
+  for (const code of ["1131", "1132", "1133", "1134", "1135", "1136"]) {
+    assert.ok(!src.includes(`"${code}"`), `code ${code} must not be hardcoded`);
+  }
+});
+
+test("regression 414/เดิม: 1110/1200/1300 ยังอยู่ + submit loop ใช้ _assetFields ที่ render จริง", () => {
+  for (const code of ["1110", "1120", "1200", "1300"]) {
+    assert.ok(src.includes(`{ code: "${code}"`), `field ${code} must remain`);
+  }
+  assert.ok(!/\bASSET_FIELDS\b/.test(src), "old ASSET_FIELDS const must be fully replaced by _assetFields");
+  assert.match(src, /_assetFields\.forEach\(f => \{/, "_onSubmit must collect debit lines from _assetFields");
+  assert.match(src, /const totalDebit = _assetFields\.reduce/, "live Dr calc must use _assetFields");
 });
