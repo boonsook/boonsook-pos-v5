@@ -7,6 +7,16 @@
 
 ---
 
+## 5.66.0 (build 411) — 2026-06-10 Phase 411 backfill-skip-deleted-sales — Backfill/Integrity ข้ามบิลลบแล้ว (กัน JV รายได้ผี)
+
+- **fix (accounting §4.3):** เอกสาร soft-delete (note มี `[ลบแล้ว]`) ต้องไม่ถูก post JV จากทุก path และไม่นับเป็น "ต้องแก้" — เดิม integrity panel โชว์ "ต้องแก้ 5" จากบิลลบแล้ว (#177-181, JV void แล้ว) และปุ่ม "เริ่ม Backfill" จะสร้าง **JV รายได้ผี** ให้บิลพวกนี้
+- `backfill.js _classifyOrphan`: เช็คแรกสุด `[ลบแล้ว]` → `{bucket:"skipped", reason:"deleted"}` · chip แสดง "ข้าม: N (ลบแล้ว: M)" · actionable=0 → banner แดงไม่ขึ้น
+- `auto_post.js postJournalForSale` + `postJournalForServiceJob`: early-return guard `[ลบแล้ว]` → `return null` (คง caller contract; service job ลบแต่ status done/closed ก็โดน guard) · checkout ปกติไม่กระทบ
+- ❌ ไม่แตะ vw_* views/SQL · _postJournal/voidJvForSource · postJournalForReceipt/Expense/Payroll/CreditPayment · POS/sales.js/stock
+- +guard `backfill_deleted` (unit จริง 4 + source-regex 2) · lint 0 / unit 1423 / e2e 12 · **STOP รอ review + owner smoke preview**
+
+---
+
 ## 5.66.0 (build 410) — 2026-06-10 Phase 410 fix-revert-stock-cas-idempotent — คืนสต็อกลบบิล POS ผ่าน CAS + กันคืนซ้ำ
 
 - **fix (stock §4.1-4.2):** `_revertStockForSale` (คืนสต็อกตอนลบบิล POS) — ทุก stock write ผ่าน **CAS** `_atomicAddStock` (warehouse_stock + legacy products; เดิม xhrPatch absolute จาก state cache = lost update) + **idempotent**: gate เช็ค marker `[คืนสต็อกแล้ว]` ใน sales.note สดก่อนคืน (เคยคืน → no-op skipped) · แปะ marker หลังคืน (partial ก็แปะ — กัน retry คืนซ้ำ) · GET เช็ค marker ล้ม → **fail-closed** ไม่เดินหน้า

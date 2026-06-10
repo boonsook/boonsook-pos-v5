@@ -341,6 +341,12 @@ export async function postJournalForSale(sale) {
   // ★ Boonsook sales ใช้ total_amount; quotations ใช้ grand_total — รองรับทั้งคู่
   const amountRaw = sale?.total_amount ?? sale?.grand_total;
   if (!sale?.id || !amountRaw) return null;
+  // ★ Phase 411 (§4.3): บิล soft-delete (note มี "[ลบแล้ว]") ห้าม post JV ทุก path
+  //   (auto/backfill) — JV เดิมถูก void ตอนลบแล้ว post ใหม่ = รายได้ผีจากบิลที่ไม่มีจริง
+  if (String(sale.note || "").includes("[ลบแล้ว]")) {
+    console.info("[auto_post] skip deleted sale:", sale.id);
+    return null;
+  }
   // Phase 89.1: ใช้ Bangkok time — กัน 00:00-06:59 ลง doc_date เป็นเมื่อวาน
   const docDate = sale.created_at ? dateBkk(sale.created_at) : todayBkk();
   if (!_isAfterEffective(docDate)) {
@@ -564,6 +570,12 @@ export async function postJournalForPayroll(payroll, paidAt, paymentMethod, opts
  */
 export async function postJournalForServiceJob(job) {
   if (!job?.id || !job?.total_cost) return null;
+  // ★ Phase 411 (§4.3): งานที่ลบแล้ว (note มี "[ลบแล้ว]") ห้าม post JV — แม้ status
+  //   ยัง done/delivered/closed ผ่าน filter ของ backfill มา (กัน JV รายได้ผี)
+  if (String(job.note || "").includes("[ลบแล้ว]")) {
+    console.info("[auto_post] skip deleted service job:", job.id);
+    return null;
+  }
   // เฉพาะงานที่ปิดแล้ว (delivered / closed) เท่านั้น
   if (!["delivered", "closed", "done"].includes(String(job.status || "").toLowerCase())) return null;
 

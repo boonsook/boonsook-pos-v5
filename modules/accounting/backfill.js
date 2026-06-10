@@ -405,6 +405,9 @@ function _fmtAmt(n) { return Number(n || 0).toLocaleString(undefined, { maximumF
 //   - amount <= 0 / falsy             → auto_post returns null → "skipped"
 //   - else                            → auto_post would post   → "actionable"
 export function _classifyOrphan(cat, row) {
+  // ★ Phase 411 (§4.3): เอกสาร soft-delete (note มี "[ลบแล้ว]") = ข้าม ไม่ใช่ "ต้องแก้"
+  //   (JV ถูก void ตอนลบแล้ว — post ใหม่ = รายได้ผี; expenses/payroll ไม่มี marker นี้ = ไม่กระทบ)
+  if (String(row.note || "").includes("[ลบแล้ว]")) return { bucket: "skipped", reason: "deleted" };
   const amt = Number(cat.amount(row)) || 0;
   const dRaw = cat.docDate(row);
   const docDate = dRaw ? dateBkk(dRaw) : todayBkk();
@@ -453,7 +456,7 @@ async function _loadIntegrityStatus() {
   for (const cat of INTEGRITY_CATS) {
     const raw = Number(summary[cat.countKey]) || 0;
     const actionable = [];
-    let skipped = 0, unknown = 0;
+    let skipped = 0, skippedDeleted = 0, unknown = 0;
     if (raw > 0) {
       let ids = [];
       try {
@@ -464,11 +467,15 @@ async function _loadIntegrityStatus() {
       for (const row of rows) {
         const c = _classifyOrphan(cat, row);
         if (c.bucket === "actionable") actionable.push({ id: row.id, amount: c.amount });
-        else skipped++;
+        else {
+          skipped++;
+          // ★ Phase 411: แยกนับบิลลบแล้ว ให้ owner เห็นว่า "ข้าม" มาจากอะไร
+          if (c.reason === "deleted") skippedDeleted++;
+        }
       }
       unknown = Math.max(0, ids.length - rows.length);
     }
-    cats.push({ key: cat.key, label: cat.label, raw, actionable, skipped, unknown });
+    cats.push({ key: cat.key, label: cat.label, raw, actionable, skipped, skippedDeleted, unknown });
   }
 
   // 2.5) Phase 390: service_jobs missing-JV — RPC summary/INTEGRITY_CATS ไม่ครอบ service_jobs.
@@ -490,7 +497,7 @@ async function _loadIntegrityStatus() {
     <div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;font-size:12px">
       <div style="color:#475569;font-weight:600">${escHtml(c.label)}</div>
       <div style="color:#94a3b8">ไม่มี JE: <b style="color:#0f172a">${c.raw.toLocaleString()}</b></div>
-      <div style="color:${c.actionable.length ? "#dc2626" : "#16a34a"}">ต้องแก้: <b>${c.actionable.length.toLocaleString()}</b> · ข้าม: ${c.skipped.toLocaleString()}${c.unknown ? ` · ?: ${c.unknown}` : ""}</div>
+      <div style="color:${c.actionable.length ? "#dc2626" : "#16a34a"}">ต้องแก้: <b>${c.actionable.length.toLocaleString()}</b> · ข้าม: ${c.skipped.toLocaleString()}${c.skippedDeleted ? ` (ลบแล้ว: ${c.skippedDeleted.toLocaleString()})` : ""}${c.unknown ? ` · ?: ${c.unknown}` : ""}</div>
     </div>`).join("")
     // Phase 390: service_jobs chip (แยก เพราะมาคนละแหล่ง — ดู Service Reconcile สำหรับรายการ + ปุ่ม re-post)
     + `
