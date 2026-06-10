@@ -1,6 +1,6 @@
 # Boonsook POS V5 - Shared Session Start
 
-Last updated: 2026-06-10 (Phase 413 accounting-effective-date-to-jul1 — build 413, branch `claude/phase-413-effective-date-jul1`; origin/main = build 412 live) · ⏸️ STOP รอ owner review + smoke ผ่าน preview ก่อน merge
+Last updated: 2026-06-10 (Phase 413 accounting-effective-date-to-jul1 — build 413, merged → origin/main `0520975` = build 413) · ✅ live + smoke PASSED · เริ่มบัญชีจริง 1 ก.ค. 2569 (ก่อนนั้น = test, ไม่ post JV)
 
 Purpose: this is the common first-read note for Codex, Claude, or any next agent opening a fresh session on this project. Read this before changing files so both teams start from the same facts.
 
