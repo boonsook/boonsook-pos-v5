@@ -1,6 +1,6 @@
 # Boonsook POS V5 - Shared Session Start
 
-Last updated: 2026-06-10 (Phase 412 convert-doc-inflight-guard — build 412, branch `claude/phase-412-convert-inflight-guard`; origin/main = build 411 live) · ⏸️ STOP รอ owner review + smoke ผ่าน preview ก่อน merge
+Last updated: 2026-06-10 (Phase 412 convert-doc-inflight-guard — build 412, merged → origin/main `139003f` = build 412) · ✅ live + Claude smoke PASSED (2026-06-10)
 
 Purpose: this is the common first-read note for Codex, Claude, or any next agent opening a fresh session on this project. Read this before changing files so both teams start from the same facts.
 
