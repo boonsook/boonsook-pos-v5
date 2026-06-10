@@ -7,6 +7,16 @@
 
 ---
 
+## 5.66.0 (build 414) — 2026-06-10 Phase 414 ob-form-coa-labels-and-confirm — ฟอร์มยอดยกมา label ตรง COA + App.confirm
+
+- **fix (accounting §4.3):** ฟอร์ม "ลงยอดยกมา" label ตรง chart_of_accounts จริง — EQUITY: 3100 "ทุนจดทะเบียน"→**"ทุนเจ้าของ"** · 3200 "ทุนของเจ้าของ"→**"กำไรสะสม"** (เดิมพา owner ลงทุนเข้า "กำไรสะสม"; OB placeholder 10 มิ.ย. เข้าผิดมาแล้ว — ไม่ data-fix เพราะหลุดจาก cutoff 413) · LIABILITY: 2100→"หนี้สินหมุนเวียน" · 2120→"เจ้าหนี้อื่น" · 2200→"หนี้สินไม่หมุนเวียน" (label-only, code คงเดิมตาม scope) · ASSET 6 ช่องตรงอยู่แล้ว
+- เลิก native confirm 2 จุด (reset/submit) → `await window.App?.confirm?.(...)` modal กลาง ข้อความเดิม · App.confirm ไม่มี (boot ผิดลำดับ) → **ไม่บันทึก** + toast เตือน (ห้าม fallback native)
+- ⚠️ known: 2100/2200 เป็น **header account** (เจ้าหนี้การค้าจริง=2110, เงินกู้จริง=2160/2210) — ย้ายช่องไป leaf code = owner decision phase หน้า
+- ❌ ไม่แตะ save semantics (doc_no OB/POST entry+lines/idempotency) · effective_date import (413) · confirmAsync ใน main.js · COA SQL/data · OB JV เดิมใน DB
+- +guard `opening_balance_guard` (6) · lint 0 / unit 1449 / e2e 12 · **STOP รอ review + owner smoke preview**
+
+---
+
 ## 5.66.0 (build 413) — 2026-06-10 Phase 413 accounting-effective-date-to-jul1 — เริ่มบัญชีจริง 1 ก.ค. 2569 (cutoff)
 
 - **chore (accounting §4.3):** เลื่อนวันเริ่มบัญชี `ACCOUNTING_EFFECTIVE_DATE` **2026-05-01 → 2026-07-01** — ข้อมูลก่อน 1 ก.ค. (บิลทดสอบ + OB placeholder 1 พ.ค.) หลุดจากรายงาน/auto_post อัตโนมัติ **ไม่ถูกลบ** (owner ยืนยัน cutoff อย่างเดียว; จะลง OB จริง 1 ก.ค.)

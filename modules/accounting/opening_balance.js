@@ -29,14 +29,15 @@ const ASSET_FIELDS = [
 ];
 
 //  Credit side (หนี้สิน + ส่วนของเจ้าของ)
+//  ★ Phase 414: label ต้องตรง chart_of_accounts จริง (code ห้ามเปลี่ยน)
 const LIABILITY_FIELDS = [
-  { code: "2100", label: "เจ้าหนี้การค้า",                emoji: "📋" },
-  { code: "2120", label: "เจ้าหนี้อื่น (บัตรเครดิต ฯลฯ)", emoji: "💳" },
-  { code: "2200", label: "เงินกู้ยืม",                     emoji: "🏛" }
+  { code: "2100", label: "หนี้สินหมุนเวียน", emoji: "📋" },
+  { code: "2120", label: "เจ้าหนี้อื่น", emoji: "💳" },
+  { code: "2200", label: "หนี้สินไม่หมุนเวียน", emoji: "🏛" }
 ];
 const EQUITY_FIELDS = [
-  { code: "3100", label: "ทุนจดทะเบียน",                  emoji: "💼" },
-  { code: "3200", label: "ทุนของเจ้าของ",                 emoji: "👤" }
+  { code: "3100", label: "ทุนเจ้าของ", emoji: "💼" },
+  { code: "3200", label: "กำไรสะสม", emoji: "👤" }
 ];
 
 export function renderOpeningBalancePage(ctx) {
@@ -154,8 +155,9 @@ export function renderOpeningBalancePage(ctx) {
   });
   updateBalance();
 
-  document.getElementById("obResetBtn")?.addEventListener("click", () => {
-    if (!confirm("รีเซ็ตทั้งหมด?")) return;
+  // ★ Phase 414: ใช้ modal กลางของแอป (window.App.confirm) — เลิก native confirm
+  document.getElementById("obResetBtn")?.addEventListener("click", async () => {
+    if (!(await window.App?.confirm?.("รีเซ็ตทั้งหมด?"))) return;
     [...ASSET_FIELDS, ...LIABILITY_FIELDS, ...EQUITY_FIELDS].forEach(f => {
       const el = document.getElementById(`ob_${f.code}`);
       if (el) el.value = "";
@@ -195,7 +197,13 @@ async function _onSubmit() {
     return;
   }
 
-  if (!confirm(`ยืนยันบันทึกยอดยกมา?\n\nDr = Cr = ${money(totalDebit)}\nลงวันที่ ${ACCOUNTING_EFFECTIVE_DATE}\n${lines.length} รายการ`)) return;
+  // ★ Phase 414: confirm ผ่าน modal กลางของแอป — ถ้ายังไม่พร้อม (boot ผิดลำดับ) ห้ามบันทึก และห้าม fallback ไป native confirm
+  if (typeof window.App?.confirm !== "function") {
+    _ctx?.showToast?.("ระบบยืนยันยังไม่พร้อม — รีเฟรชหน้าแล้วลองใหม่", "error");
+    setStatus(`<div style="padding:12px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;color:#991b1b">⚠️ ระบบยืนยันยังไม่พร้อม — ยังไม่ได้บันทึก รีเฟรชหน้าแล้วลองใหม่</div>`);
+    return;
+  }
+  if (!(await window.App?.confirm?.(`ยืนยันบันทึกยอดยกมา?\n\nDr = Cr = ${money(totalDebit)}\nลงวันที่ ${ACCOUNTING_EFFECTIVE_DATE}\n${lines.length} รายการ`))) return;
 
   const cfg = window.SUPABASE_CONFIG;
   const token = window._sbAccessToken || cfg.anonKey;
