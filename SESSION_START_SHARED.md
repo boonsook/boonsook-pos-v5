@@ -1,6 +1,6 @@
 # Boonsook POS V5 - Shared Session Start
 
-Last updated: 2026-06-10 (Phase 410 fix-revert-stock-cas-idempotent — build 410, branch `claude/phase-410-fix-revert-stock-cas`; origin/main = build 409) · ⏸️ STOP รอ owner review + smoke ผ่าน preview ก่อน merge
+Last updated: 2026-06-10 (Phase 410 fix-revert-stock-cas-idempotent — build 410, merged → origin/main `7da1aea` = build 410) · ✅ live + owner smoke preview PASSED (2026-06-10)
 
 Purpose: this is the common first-read note for Codex, Claude, or any next agent opening a fresh session on this project. Read this before changing files so both teams start from the same facts.
 
