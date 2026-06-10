@@ -1,6 +1,6 @@
 # Boonsook POS V5 - Shared Session Start
 
-Last updated: 2026-06-10 (Phase 415 ob-form-dynamic-bank-fields — build 415 บน branch `claude/phase-415-ob-dynamic-banks`; origin/main = build 414 live + review PASSED) · ⏸️ STOP — รอ owner review/smoke preview · เริ่มบัญชีจริง 1 ก.ค. 2569 (ก่อนนั้น = test, ไม่ post JV)
+Last updated: 2026-06-10 (Phase 415 ob-form-dynamic-bank-fields — build 415 merged → origin/main `bca3823` = build 415 live) · ✅ review+smoke PASSED · เริ่มบัญชีจริง 1 ก.ค. 2569 (ก่อนนั้น = test, ไม่ post JV)
 
 Purpose: this is the common first-read note for Codex, Claude, or any next agent opening a fresh session on this project. Read this before changing files so both teams start from the same facts.
 
