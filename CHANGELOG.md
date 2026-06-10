@@ -9,7 +9,8 @@
 
 ## 5.66.0 (build 415) — 2026-06-10 Phase 415 ob-form-dynamic-bank-fields — ฟอร์มยอดยกมา ช่องธนาคาร dynamic จาก COA
 
-- **feat (accounting §4.3):** ฟอร์ม "ลงยอดยกมา" ดึงช่องเงินฝากธนาคารจาก chart_of_accounts จริง (เดิม hardcode 1130/1140 — กรอกแยก 6 บัญชีใหม่ 1131–1136 ไม่ได้): `fetchBankAssetAccounts()` → type=asset · code 1130–1199 (4 หลัก) · is_active · เฉพาะ leaf (header ที่มีลูกชี้มาไม่เอา) · เรียง sort_order
+- **feat (accounting §4.3):** ฟอร์ม "ลงยอดยกมา" ดึงช่องเงินฝากธนาคารจาก chart_of_accounts จริง (เดิม hardcode 1130/1140 — กรอกแยก 6 บัญชีใหม่ 1131–1136 ไม่ได้): `fetchBankAssetAccounts()` → type=asset · code 1130–**1169** (4 หลัก) · is_active · เฉพาะ leaf (header ที่มีลูกชี้มาไม่เอา) · เรียง sort_order
+- **415-fix:** ขอบบนช่วงเดิม 1199 ดูด **1170 ภาษีซื้อ (Input VAT)** เข้ากลุ่มธนาคาร (COA จริงได้ 9 ช่องแทน 8) → เปลี่ยนเป็น ≤1169 + guard case 1170 ต้องไม่ติด
 - render เป็น async: loading → ASSET = เงินสด(1110/1120) + ธนาคาร dynamic + ลูกหนี้/สินค้า(1200/1300) ใน `_assetFields` — Dr=Cr live calc + submit + reset loop จาก list ที่ render จริง
 - fetch COA ล้ม/ว่าง → fallback ช่องพื้นฐาน 1130/1140 + แถบเตือน "โหลดผังบัญชีไม่สำเร็จ" (ไม่ crash/ฟอร์มไม่ว่าง)
 - ❌ ไม่แตะ EQUITY/LIABILITY fields + App.confirm (414) · save semantics · effective_date.js · COA data/SQL

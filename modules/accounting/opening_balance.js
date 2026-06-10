@@ -37,7 +37,8 @@ const RECEIVABLE_INVENTORY_FIELDS = [
 //  — updateBalance/_onSubmit ต้อง loop จากตัวนี้ ไม่ hardcode ซ้ำ
 let _assetFields = [...CASH_FIELDS, ...DEFAULT_BANK_FIELDS, ...RECEIVABLE_INVENTORY_FIELDS];
 
-// ★ Phase 415: บัญชีเงินฝากธนาคารจากผังบัญชีจริง — type=asset, code 1130–1199,
+// ★ Phase 415: บัญชีเงินฝากธนาคารจากผังบัญชีจริง — type=asset, code 1130–1169
+//   (เงินฝาก 113x–116x เท่านั้น — 1170+ เป็นภาษีซื้อ/อื่น ไม่ใช่เงินฝาก),
 //   is_active, เฉพาะ leaf (ไม่มีบัญชีอื่น parent_code ชี้มา) เรียงตาม sort_order
 export async function fetchBankAssetAccounts() {
   const cfg = window.SUPABASE_CONFIG;
@@ -52,7 +53,7 @@ export async function fetchBankAssetAccounts() {
   return rows
     .filter(a => a.is_active !== false)
     .filter(a => /^\d{4}$/.test(String(a.code)))
-    .filter(a => String(a.code) >= "1130" && String(a.code) <= "1199")
+    .filter(a => String(a.code) >= "1130" && String(a.code) <= "1169")
     .filter(a => !hasChild.has(a.code))
     .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
     .map(a => ({ code: String(a.code), label: String(a.name || a.code), emoji: "🏦" }));
@@ -81,7 +82,7 @@ export async function renderOpeningBalancePage(ctx) {
   let coaWarningHtml = "";
   try {
     const banks = await fetchBankAssetAccounts();
-    if (!banks.length) throw new Error("ไม่พบบัญชีเงินฝาก (1130–1199) ในผังบัญชี");
+    if (!banks.length) throw new Error("ไม่พบบัญชีเงินฝาก (1130–1169) ในผังบัญชี");
     bankFields = banks;
   } catch (e) {
     console.error("[opening_balance] โหลดผังบัญชีไม่สำเร็จ — ใช้ช่องพื้นฐาน:", e);

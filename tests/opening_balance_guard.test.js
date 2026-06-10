@@ -84,6 +84,7 @@ const COA_ROWS = [
   { code: "1150", name: "บัญชีปิดแล้ว",         parent_code: "1100", is_active: false, sort_order: 1150 },
   { code: "1160", name: "กลุ่มเงินฝากพิเศษ",    parent_code: "1100", is_active: true, sort_order: 1160 },
   { code: "1161", name: "ฝากประจำ 12 เดือน",    parent_code: "1160", is_active: true, sort_order: 1161 },
+  { code: "1170", name: "ภาษีซื้อ (Input VAT)",  parent_code: "1100", is_active: true, sort_order: 1170 },
   { code: "1200", name: "ลูกหนี้การค้า",         parent_code: "1100", is_active: true, sort_order: 1200 },
   { code: "11x0", name: "code แปลก",            parent_code: "1100", is_active: true, sort_order: 1190 }
 ];
@@ -99,12 +100,20 @@ async function callFetchBanks(rows, ok = true) {
   }
 }
 
-test("fetchBankAssetAccounts: leaf 1130–1199 active เท่านั้น เรียง sort_order (header/inactive/นอกช่วง/code แปลก ถูกตัด)", async () => {
+test("fetchBankAssetAccounts: leaf 1130–1169 active เท่านั้น เรียง sort_order (header/inactive/นอกช่วง/code แปลก ถูกตัด)", async () => {
   const banks = await callFetchBanks(COA_ROWS);
   assert.deepEqual(banks.map(b => b.code), ["1130", "1131", "1140", "1161"],
-    "ต้องได้ leaf ในช่วง 1130–1199 เรียงตาม sort_order — 1110/1200 นอกช่วง, 1150 inactive, 1160 header (มี 1161 ชี้), 11x0 ไม่ใช่ 4 หลัก");
+    "ต้องได้ leaf ในช่วง 1130–1169 เรียงตาม sort_order — 1110/1200 นอกช่วง, 1150 inactive, 1160 header (มี 1161 ชี้), 11x0 ไม่ใช่ 4 หลัก, 1170 ภาษีซื้อ");
   assert.equal(banks[1].label, "กรุงไทย ร้านบุญสุข", "label ต้องมาจาก name ใน COA");
   assert.ok(banks.every(b => b.emoji === "🏦"), "ทุกช่องธนาคารใช้ emoji 🏦");
+});
+
+// ★ Phase 415-fix: 1170 ภาษีซื้อ (Input VAT) อยู่ใน 1130–1199 เดิม — ต้องไม่ติดเข้ากลุ่มธนาคาร
+test("fetchBankAssetAccounts: 1170 ภาษีซื้อ (และ 117x+) ต้องไม่ติดเข้ากลุ่มธนาคาร", async () => {
+  const banks = await callFetchBanks(COA_ROWS);
+  assert.ok(!banks.some(b => b.code === "1170"), "1170 ภาษีซื้อ must be excluded (ขอบบนช่วง = 1169)");
+  const srcRange = src.match(/String\(a\.code\) <= "(\d{4})"/);
+  assert.equal(srcRange?.[1], "1169", 'upper bound ใน source ต้องเป็น "1169"');
 });
 
 test("fetchBankAssetAccounts: HTTP fail → throw (ให้ caller ใช้ fallback)", async () => {
