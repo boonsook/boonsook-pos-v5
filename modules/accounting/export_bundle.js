@@ -12,8 +12,8 @@
 
 import { todaySuffix, todayBkk } from "../utils.js";
 
-// ★ Phase 88.18b: production เริ่ม 1 พ.ค. 2026
-const ACCOUNTING_EFFECTIVE_DATE = "2026-05-01";
+// ★ Phase 413: เริ่มบัญชีจริง 1 ก.ค. 2569 — single source of truth ที่ effective_date.js
+import { ACCOUNTING_EFFECTIVE_DATE } from "./effective_date.js";
 
 let _ctx = null;
 let _periodType = "month";

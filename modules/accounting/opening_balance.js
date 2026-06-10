@@ -8,8 +8,8 @@
 //  (เช่น เงินสดยกมา 100,000 + ทุนเริ่มต้น 100,000 → BS จะ balance ตามจริง)
 // ═══════════════════════════════════════════════════════════
 
-// ★ Phase 88.18b: production เริ่ม 1 พ.ค. 2026 — opening balance ลงวันนี้
-const ACCOUNTING_EFFECTIVE_DATE = "2026-05-01";
+// ★ Phase 413: เริ่มบัญชีจริง 1 ก.ค. 2569 — opening balance ลงวันนี้ (single source: effective_date.js)
+import { ACCOUNTING_EFFECTIVE_DATE } from "./effective_date.js";
 
 let _ctx = null;
 

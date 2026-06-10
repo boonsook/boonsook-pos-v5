@@ -23,8 +23,8 @@ import {
 
 const SRC = fs.readFileSync(path.resolve("modules/service_reconcile.js"), "utf8");
 
-// created_at ที่ชัดเจนหลัง/ก่อน effective date (2026-05-01) ใน Asia/Bangkok (UTC+7, ใช้เที่ยงวันกัน edge)
-const AFTER_EFF = "2026-06-06T08:00:00Z";   // → BKK 2026-06-06
+// created_at ที่ชัดเจนหลัง/ก่อน effective date (2026-07-01 — Phase 413) ใน Asia/Bangkok (UTC+7, ใช้เที่ยงวันกัน edge)
+const AFTER_EFF = "2026-07-06T08:00:00Z";   // → BKK 2026-07-06
 const BEFORE_EFF = "2026-04-10T12:00:00Z";  // → BKK 2026-04-10
 
 function job(extra = {}) {

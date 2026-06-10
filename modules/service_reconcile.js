@@ -12,15 +12,17 @@
 //   - การเขียน JE ทำผ่าน postJournalForServiceJob เท่านั้น (ไม่ raw-insert journal_entries เอง,
 //     ไม่แก้สูตร double-entry/COA/period-lock — แค่ "เรียก")
 //   - ไม่แก้ status ของ service_jobs (ไม่แตะ logic ทีม 383), ไม่ mutate state, ไม่แตะ stock/POS
-//   - effective date เดียวกับ auto_post (2026-05-01): งานก่อนวันนั้น auto_post จะ skip → ไม่ flag
+//   - effective date เดียวกับ auto_post (effective_date.js — เริ่มบัญชีจริง 1 ก.ค. 2569): งานก่อนวันนั้น auto_post จะ skip → ไม่ flag
 
 import { escHtml, dateBkk, todayBkk } from "./utils.js";
 import { postJournalForServiceJob } from "./accounting/auto_post.js";
+// ★ Phase 413: single source of truth — เปลี่ยนวัน = แก้ที่ effective_date.js ที่เดียว
+import { ACCOUNTING_EFFECTIVE_DATE } from "./accounting/effective_date.js";
 
 // สถานะ "ปิดงาน = รับรู้รายได้" — ตรงกับ postJournalForServiceJob (auto_post.js)
 export const SERVICE_INCOME_STATUSES = ["delivered", "closed", "done"];
 // effective date เดียวกับ ACCOUNTING_EFFECTIVE_DATE ใน auto_post.js (ก่อนวันนี้ = test data → auto_post skip)
-const DEFAULT_EFFECTIVE_DATE = "2026-05-01";
+const DEFAULT_EFFECTIVE_DATE = ACCOUNTING_EFFECTIVE_DATE;
 const JOB_NO_GLOBAL = /JOB-\d+/g;   // ดึงเลขงานจาก description (อาจมีหลายตัว)
 const JOB_NO_ONE = /JOB-\d+/;       // ตรวจรูปแบบเลขงานเดียว (ไม่ใช้ /g — กัน lastIndex state)
 
@@ -74,7 +76,7 @@ export function buildPostedRef(jeRows) {
  * @param {Array} jobs - service_jobs rows
  * @param {object|Array<string>} posted
  * @param {object} [opts]
- * @param {string} [opts.effectiveDate] - YYYY-MM-DD (default 2026-05-01)
+ * @param {string} [opts.effectiveDate] - YYYY-MM-DD (default = ACCOUNTING_EFFECTIVE_DATE จาก effective_date.js)
  * @returns {Array} jobs ที่เป็น orphan (ตามลำดับเดิม)
  */
 export function findUnpostedServiceJobs(jobs, posted, opts = {}) {

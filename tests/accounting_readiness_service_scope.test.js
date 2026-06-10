@@ -24,7 +24,7 @@ const SVC = fs.readFileSync(path.resolve("modules/service_reconcile.js"), "utf8"
 const PERIODS = fs.readFileSync(path.resolve("modules/accounting/periods.js"), "utf8");
 const BACKFILL = fs.readFileSync(path.resolve("modules/accounting/backfill.js"), "utf8");
 
-const AFTER_EFF = "2026-06-06T08:00:00Z";   // → BKK 2026-06-06 (after 2026-05-01)
+const AFTER_EFF = "2026-07-06T08:00:00Z";   // → BKK 2026-07-06 (after 2026-07-01 — Phase 413)
 const BEFORE_EFF = "2026-04-10T12:00:00Z";  // → BKK 2026-04-10 (before effective)
 function job(extra = {}) {
   return { id: 1, job_no: "JOB-1780732840014", customer_name: "หลวงพี่", total_cost: 600, status: "delivered", created_at: AFTER_EFF, ...extra };

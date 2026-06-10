@@ -47,10 +47,9 @@ function _authFetch(url, opts = {}) {
   });
 }
 
-// ★ Phase 88.18b: เลื่อน effective date จาก 2026-01-01 → 2026-05-01
-//   เหตุผล: ก่อน 1 พ.ค. = test/mock data (เม.ย. = ทดสอบระบบ)
-//           production จริงเริ่ม 1 พ.ค. — JV ก่อนวันนี้จะถูก reject อัตโนมัติ
-const ACCOUNTING_EFFECTIVE_DATE = "2026-05-01";
+// ★ Phase 413: effective date ย้ายไป single source of truth (effective_date.js)
+//   เริ่มบัญชีจริง 1 ก.ค. 2569 — JV ก่อนวันนี้ถูก skip อัตโนมัติ (ของเก่า = test data ไม่ถูกลบ)
+import { ACCOUNTING_EFFECTIVE_DATE } from "./effective_date.js";
 
 let _mappingCache = null;
 let _coaCache = null;  // Phase 89.2: cache COA codes สำหรับ validate BANK_COA override

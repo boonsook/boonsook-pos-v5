@@ -144,18 +144,19 @@ test("voidJv — DELETE exception caught, returns 0", async () => {
 });
 
 // ═══════════════════════════════════════════════════════════
-//  _isAfterEffective — ACCOUNTING_EFFECTIVE_DATE = 2026-05-01
+//  _isAfterEffective — ACCOUNTING_EFFECTIVE_DATE = 2026-07-01 (Phase 413: เริ่มบัญชีจริง 1 ก.ค. 2569)
 // ═══════════════════════════════════════════════════════════
 
-test("_isAfterEffective — date >= 2026-05-01 returns true", () => {
-  assert.equal(_isAfterEffective("2026-05-01"), true);
-  assert.equal(_isAfterEffective("2026-05-13"), true);
+test("_isAfterEffective — date >= 2026-07-01 returns true", () => {
+  assert.equal(_isAfterEffective("2026-07-01"), true);
+  assert.equal(_isAfterEffective("2026-07-13"), true);
   assert.equal(_isAfterEffective("2026-12-31"), true);
   assert.equal(_isAfterEffective("2027-01-01"), true);
 });
 
-test("_isAfterEffective — date < 2026-05-01 returns false (mock/test data)", () => {
-  assert.equal(_isAfterEffective("2026-04-30"), false);
+test("_isAfterEffective — date < 2026-07-01 returns false (mock/test data)", () => {
+  assert.equal(_isAfterEffective("2026-06-30"), false);
+  assert.equal(_isAfterEffective("2026-05-01"), false);  // cutoff เดิม (88.18b) — ตอนนี้ pre-effective แล้ว
   assert.equal(_isAfterEffective("2026-01-01"), false);
   assert.equal(_isAfterEffective("2025-12-31"), false);
 });
@@ -168,9 +169,9 @@ test("_isAfterEffective — null/undefined/empty → false", () => {
 });
 
 test("_isAfterEffective — ISO timestamp slice(0,10) extracts date part correctly", () => {
-  assert.equal(_isAfterEffective("2026-05-01T00:00:00Z"), true);
-  assert.equal(_isAfterEffective("2026-04-30T23:59:59Z"), false);
-  assert.equal(_isAfterEffective("2026-05-13T15:30:00+07:00"), true);
+  assert.equal(_isAfterEffective("2026-07-01T00:00:00Z"), true);
+  assert.equal(_isAfterEffective("2026-06-30T23:59:59Z"), false);
+  assert.equal(_isAfterEffective("2026-07-13T15:30:00+07:00"), true);
 });
 
 // Restore console after all tests

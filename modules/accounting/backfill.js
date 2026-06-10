@@ -22,6 +22,8 @@ import {
   _isAfterEffective
 } from "./auto_post.js";
 import { todayBkk, dateBkk } from "../utils.js";
+// ★ Phase 413: cutoff = single source of truth (เริ่มบัญชีจริง 1 ก.ค. 2569)
+import { ACCOUNTING_EFFECTIVE_DATE } from "./effective_date.js";
 // Phase 390: รวม service_jobs missing-JV เข้า integrity panel (RPC summary ไม่ครอบ service_jobs)
 import { fetchServiceJVStatus } from "../service_reconcile.js";
 
@@ -83,7 +85,7 @@ export function renderBackfillPage(ctx) {
 
       <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:10px;padding:12px;margin-bottom:14px;font-size:12px;color:#78350f;line-height:1.7">
         <b>⚠️ ก่อนรัน:</b> ระบบ idempotent (call ซ้ำไม่สร้างซ้ำ) — แต่ <b>ทดสอบ range เล็กก่อน</b> (สัก 1 วัน) เพื่อยืนยัน mapping ถูกต้องทุกหมวด<br>
-        Effective date: <b>2026-05-01</b> — rows ก่อนหน้านี้จะถูก skip อัตโนมัติ (Phase 88.18b)
+        Effective date: <b>${ACCOUNTING_EFFECTIVE_DATE}</b> — rows ก่อนหน้านี้จะถูก skip อัตโนมัติ (Phase 413: เริ่มบัญชีจริง 1 ก.ค. 2569)
       </div>
 
       <!-- Source picker -->
@@ -156,7 +158,7 @@ async function _fetchSourceRows(srcKey, from, to) {
   const meta = SOURCES.find(s => s.key === srcKey);
   if (!meta) return [];
 
-  const cutoff = "2026-05-01";  // Phase 88.18b: production start date (เลื่อนจาก 2026-01-01)
+  const cutoff = ACCOUNTING_EFFECTIVE_DATE;  // Phase 413: single source of truth (effective_date.js) — เริ่มบัญชีจริง 1 ก.ค. 2569
   const fromEff = (from < cutoff) ? cutoff : from;
 
   // ★ Fix: 'created_at' เป็น timestamptz → 'lte.YYYY-MM-DD' = midnight ของวันนั้น
@@ -513,7 +515,7 @@ async function _loadIntegrityStatus() {
   let head;
   if (totalActionable === 0 && totalUnknown === 0) {
     head = `<div style="padding:10px 12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;color:#166534;font-weight:700">🟢 ธุรกรรมจริงมี JE ครบ — ไม่มีรายการค้างที่ต้อง backfill (รวมงานบริการ)</div>
-            <div style="font-size:12px;color:#64748b;margin-top:6px">รายการที่ "ไม่มี JE" ที่เหลือเป็น test/ก่อน go-live (ก่อน 2026-05-01) หรือยอด ฿0 — ระบบข้ามถูกต้อง</div>
+            <div style="font-size:12px;color:#64748b;margin-top:6px">รายการที่ "ไม่มี JE" ที่เหลือเป็น test/ก่อน go-live (ก่อน ${ACCOUNTING_EFFECTIVE_DATE}) หรือยอด ฿0 — ระบบข้ามถูกต้อง</div>
             ${svcNote}`;
   } else if (totalActionable > 0) {
     const list = cats.filter(c => c.actionable.length).map(c =>

@@ -28,18 +28,18 @@ assert.ok(salesCat, "INTEGRITY_CATS ต้องมี cat sales");
 // ── unit จริง: _classifyOrphan ─────────────────────────────────────────────
 test("_classifyOrphan: บิลลบแล้ว (note มี [ลบแล้ว]) → skipped/deleted ไม่ใช่ actionable", () => {
   const c = _classifyOrphan(salesCat, {
-    id: 177, note: "[ลบแล้ว] ลบโดยแอดมิน 10/6/2569", created_at: "2026-06-08", total_amount: 60
+    id: 177, note: "[ลบแล้ว] ลบโดยแอดมิน 10/6/2569", created_at: "2026-07-08", total_amount: 60
   });
   assert.equal(c.bucket, "skipped");
   assert.equal(c.reason, "deleted");
 });
 
 test("_classifyOrphan: row ปกติ (หลัง effective, amount>0, note ว่าง/null) → actionable เหมือนเดิม", () => {
-  const c1 = _classifyOrphan(salesCat, { id: 1, note: "", created_at: "2026-06-08", total_amount: 100 });
+  const c1 = _classifyOrphan(salesCat, { id: 1, note: "", created_at: "2026-07-08", total_amount: 100 });
   assert.equal(c1.bucket, "actionable");
   assert.equal(c1.amount, 100);
   // note = null/undefined → String(...) กัน crash → ไม่ skip
-  const c2 = _classifyOrphan(salesCat, { id: 2, created_at: "2026-06-08", total_amount: 50 });
+  const c2 = _classifyOrphan(salesCat, { id: 2, created_at: "2026-07-08", total_amount: 50 });
   assert.equal(c2.bucket, "actionable");
 });
 
@@ -50,7 +50,7 @@ test("_classifyOrphan: row pre-effective → skipped/pre-effective เหมื�
 });
 
 test("_classifyOrphan: บิลลบ + amount 0 ก็ยังไม่ actionable (deleted ครอบทุกเงื่อนไข)", () => {
-  const c = _classifyOrphan(salesCat, { id: 4, note: "x [ลบแล้ว] y", created_at: "2026-06-08", total_amount: 0 });
+  const c = _classifyOrphan(salesCat, { id: 4, note: "x [ลบแล้ว] y", created_at: "2026-07-08", total_amount: 0 });
   assert.equal(c.bucket, "skipped");
 });
 

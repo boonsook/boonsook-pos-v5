@@ -7,6 +7,16 @@
 
 ---
 
+## 5.66.0 (build 413) — 2026-06-10 Phase 413 accounting-effective-date-to-jul1 — เริ่มบัญชีจริง 1 ก.ค. 2569 (cutoff)
+
+- **chore (accounting §4.3):** เลื่อนวันเริ่มบัญชี `ACCOUNTING_EFFECTIVE_DATE` **2026-05-01 → 2026-07-01** — ข้อมูลก่อน 1 ก.ค. (บิลทดสอบ + OB placeholder 1 พ.ค.) หลุดจากรายงาน/auto_post อัตโนมัติ **ไม่ถูกลบ** (owner ยืนยัน cutoff อย่างเดียว; จะลง OB จริง 1 ก.ค.)
+- ⭐ refactor: single source of truth ที่ `modules/accounting/effective_date.js` — 6 ไฟล์ (auto_post/balance_sheet/export_bundle/opening_balance/backfill/service_reconcile) import แทน const ท้องถิ่น · เปลี่ยนวันครั้งหน้า = แก้ที่เดียว
+- Invariant: `_isAfterEffective("2026-06-30")=false` · `("2026-07-01")=true` · UI text backfill ใช้ interpolation
+- ❌ ไม่แตะข้อมูล/SQL · double-entry/mapping/VAT/period-lock · OB form · POS/stock · tests HR/ลา/export (คนละฟีเจอร์ — เขียวพิสูจน์)
+- tests date-sensitive 6 ไฟล์เลื่อนเป็น ก.ค. + fallback-today เปลี่ยนเป็น time-independent · +guard `effective_date_guard` (9) · lint 0 / unit 1443 / e2e 12 · **STOP รอ review + owner smoke preview**
+
+---
+
 ## 5.66.0 (build 412) — 2026-06-10 Phase 412 convert-doc-inflight-guard — กัน convert ซ้ำระหว่างกำลังสร้าง + write มีเสียง
 
 - **fix (sales §4.1-4.2):** inflight guard ระดับฟังก์ชันที่ `convertToDeliveryInvoice` + `convertToReceipt` — Phase 409 กันได้เฉพาะใบที่ commit แล้ว; trigger ซ้ำระหว่างใบแรกกำลังสร้าง = ใบซ้ำทะลุ 1:1 → ตอนนี้ no-op + toast "กำลังสร้าง..." (guard ในฟังก์ชัน = คลุมทุกทางเข้า 5 จุด) + `try/finally` reset (ยกเลิก/fail → ทำใหม่ได้)

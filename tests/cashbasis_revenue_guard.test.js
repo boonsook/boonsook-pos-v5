@@ -92,7 +92,7 @@ test("delivery invoice → return null, ไม่เรียก fetch เลย
 
   const res = await postJournalForDeliveryInvoice({
     id: 1, inv_no: "INV001", grand_total: 1000, status: "pending",
-    created_at: "2026-06-09T00:00:00Z",
+    created_at: "2026-07-09T00:00:00Z",
   });
   assert.equal(res, null, "ต้อง return null");
   assert.equal(fetchCalled, false, "ห้ามแตะ fetch (ไม่ post JV)");
@@ -106,7 +106,7 @@ test("receipt paid + เงินสด + vat=0 → 2 บรรทัด Dr 1110
   const cap = installAuthFetch();
   const res = await postJournalForReceipt({
     id: 10, receipt_no: "RC010", status: "paid", grand_total: 1000,
-    payment_method: "cash", vat_amount: 0, paid_at: "2026-06-09T00:00:00Z",
+    payment_method: "cash", vat_amount: 0, paid_at: "2026-07-09T00:00:00Z",
   });
   assert.equal(res, 9999, "post สำเร็จ");
   assert.equal(cap.lines.length, 2, "2 บรรทัด");
@@ -122,7 +122,7 @@ test("receipt paid + โอน → Dr 1130 / Cr 4150", async () => {
   const cap = installAuthFetch();
   const res = await postJournalForReceipt({
     id: 11, receipt_no: "RC011", status: "paid", grand_total: 500,
-    payment_method: "transfer", vat_amount: 0, paid_at: "2026-06-09T00:00:00Z",
+    payment_method: "transfer", vat_amount: 0, paid_at: "2026-07-09T00:00:00Z",
   });
   assert.equal(res, 9999);
   assert.equal(cap.lines.length, 2);
@@ -135,7 +135,7 @@ test("receipt paid + vat>0 → 3 บรรทัด (Dr full / Cr 4150 subtotal 
   // grand_total 1070 = subtotal 1000 + vat 70
   const res = await postJournalForReceipt({
     id: 12, receipt_no: "RC012", status: "paid", grand_total: 1070,
-    payment_method: "cash", vat_amount: 70, vat_rate: 7, paid_at: "2026-06-09T00:00:00Z",
+    payment_method: "cash", vat_amount: 70, vat_rate: 7, paid_at: "2026-07-09T00:00:00Z",
   });
   assert.equal(res, 9999);
   assert.equal(cap.lines.length, 3, "3 บรรทัด");
@@ -154,7 +154,7 @@ test("receipt pending → return null (ไม่ post)", async () => {
   const cap = installAuthFetch();
   const res = await postJournalForReceipt({
     id: 13, receipt_no: "RC013", status: "pending", grand_total: 1000,
-    payment_method: "cash", paid_at: "2026-06-09T00:00:00Z",
+    payment_method: "cash", paid_at: "2026-07-09T00:00:00Z",
   });
   assert.equal(res, null);
   assert.equal(cap.lines, null, "ไม่มี lines ถูก post");
@@ -164,7 +164,7 @@ test("receipt partial → return null (Phase A2, ยังไม่ post)", asyn
   const cap = installAuthFetch();
   const res = await postJournalForReceipt({
     id: 14, receipt_no: "RC014", status: "partial", grand_total: 1000,
-    payment_method: "cash", paid_at: "2026-06-09T00:00:00Z",
+    payment_method: "cash", paid_at: "2026-07-09T00:00:00Z",
   });
   assert.equal(res, null);
   assert.equal(cap.lines, null);
