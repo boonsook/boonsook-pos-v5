@@ -76,13 +76,110 @@ export function canDeletePayroll(payroll) {
   return { allowed: true, requiresReverse: false, expenseTag: tag, reason: "" };
 }
 
+// ═══════════════════════════════════════════════════════════
+//  Phase 416 — Custom pay period (รอบตัดเงินเดือนที่ร้านกำหนด)
+//  วันตัด cutoff1/cutoff2 (default 10/25):
+//    รอบ A = วันที่ (cutoff1+1) ถึง cutoff2 ของเดือนเดียวกัน  (เช่น 11–25)
+//    รอบ B = วันที่ (cutoff2+1) ถึง cutoff1 ของเดือนถัดไป     (เช่น 26–10)
+//  ★ string math เท่านั้น — ห้าม toISOString บน local Date (ตี 0-6:59 ไทยจะเพี้ยนวัน)
+// ═══════════════════════════════════════════════════════════
+
+const TH_MONTHS_ABBR = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+
+// จำนวนวันในเดือน (m = 1-12) — Date.UTC deterministic ไม่ขึ้นกับ local timezone
+function _daysInMonth(y, m) {
+  return new Date(Date.UTC(y, m, 0)).getUTCDate();
+}
+const _pad2 = (n) => String(n).padStart(2, "0");
+const _ymd = (y, m, d) => `${y}-${_pad2(m)}-${_pad2(d)}`;
+
+// วันถัดจากวันตัด c ของเดือน (y,m) — c ชนวันสุดท้ายของเดือน (เช่น 28 ก.พ.) → วันที่ 1 เดือนถัดไป
+function _dayAfterCut(y, m, c) {
+  if (c >= _daysInMonth(y, m)) {
+    return m === 12 ? { y: y + 1, m: 1, d: 1 } : { y, m: m + 1, d: 1 };
+  }
+  return { y, m, d: c + 1 };
+}
+
+/**
+ * Label ภาษาไทยของรอบจ่าย เช่น "11–25 มิ.ย. 69" / "26 พ.ค. – 10 มิ.ย. 69" / "26 ธ.ค. 68 – 10 ม.ค. 69"
+ * @param {string} start "YYYY-MM-DD"
+ * @param {string} end   "YYYY-MM-DD"
+ * @returns {string}
+ */
+export function formatPayPeriodLabel(start, end) {
+  const [sy, sm, sd] = String(start || "").split("-").map(Number);
+  const [ey, em, ed] = String(end || "").split("-").map(Number);
+  if (!sy || !sm || !sd || !ey || !em || !ed) return `${start || "?"} – ${end || "?"}`;
+  const syTh = _pad2((sy + 543) % 100);
+  const eyTh = _pad2((ey + 543) % 100);
+  if (sy === ey && sm === em) return `${sd}–${ed} ${TH_MONTHS_ABBR[em - 1]} ${eyTh}`;
+  if (sy === ey) return `${sd} ${TH_MONTHS_ABBR[sm - 1]} – ${ed} ${TH_MONTHS_ABBR[em - 1]} ${eyTh}`;
+  return `${sd} ${TH_MONTHS_ABBR[sm - 1]} ${syTh} – ${ed} ${TH_MONTHS_ABBR[em - 1]} ${eyTh}`;
+}
+
+/**
+ * คืนรอบจ่ายล่าสุด `count` รอบ (ใหม่ → เก่า) โดยรอบแรกคือรอบที่ refDate อยู่ข้างใน
+ *   - cutoff ต้องเป็นจำนวนเต็ม 1–28 และ cutoff1 < cutoff2 — ผิดเงื่อนไข → fallback 10/25
+ *   - refDate เป็น "YYYY-MM-DD" string (เทียบช่วงแบบ lexicographic = chronological)
+ *   - คร่อมเดือน/คร่อมปีได้ และวันตัดชนปลายเดือนสั้น (ก.พ.) จะ clamp ไม่มี invalid date
+ * @param {{cutoff1?:number, cutoff2?:number, refDate?:string, count?:number}} opts
+ * @returns {Array<{start:string, end:string, label:string}>}
+ */
+export function computePayPeriods({ cutoff1, cutoff2, refDate, count } = {}) {
+  let c1 = Number.isInteger(cutoff1) && cutoff1 >= 1 && cutoff1 <= 28 ? cutoff1 : 10;
+  let c2 = Number.isInteger(cutoff2) && cutoff2 >= 1 && cutoff2 <= 28 ? cutoff2 : 25;
+  if (c1 >= c2) { c1 = 10; c2 = 25; }
+  const n = Number.isInteger(count) && count > 0 ? count : 3;
+  const ref = /^\d{4}-\d{2}-\d{2}$/.test(String(refDate || "")) ? String(refDate) : dateBkk(new Date());
+
+  // สร้างรอบจาก (type, y, m):
+  //   A(y,m): start = วันถัดจาก c1 ของ (y,m), end = min(c2, วันสุดท้ายเดือน) ของ (y,m)
+  //   B(y,m): start = วันถัดจาก c2 ของ (y,m), end = min(c1, วันสุดท้ายเดือนถัดไป) ของเดือนถัดไป
+  const buildPeriod = (type, y, m) => {
+    if (type === "A") {
+      const s = _dayAfterCut(y, m, c1);
+      return { type, y, m, start: _ymd(s.y, s.m, s.d), end: _ymd(y, m, Math.min(c2, _daysInMonth(y, m))) };
+    }
+    const s = _dayAfterCut(y, m, c2);
+    const ny = m === 12 ? y + 1 : y;
+    const nm = m === 12 ? 1 : m + 1;
+    return { type, y, m, start: _ymd(s.y, s.m, s.d), end: _ymd(ny, nm, Math.min(c1, _daysInMonth(ny, nm))) };
+  };
+
+  // หารอบที่ refDate อยู่ข้างใน — candidates ที่เป็นไปได้: A(y,m), B(y,m), B(เดือนก่อน)
+  const [ry, rm] = ref.split("-").map(Number);
+  const py = rm === 1 ? ry - 1 : ry;
+  const pm = rm === 1 ? 12 : rm - 1;
+  const candidates = [buildPeriod("A", ry, rm), buildPeriod("B", ry, rm), buildPeriod("B", py, pm)];
+  const cur = candidates.find(p => p.start <= ref && ref <= p.end) || candidates[0];
+
+  // เดินถอยหลัง: รอบก่อน A(y,m) = B(เดือนก่อน); รอบก่อน B(y,m) = A(y,m)
+  const out = [];
+  let p = cur;
+  for (let i = 0; i < n; i++) {
+    out.push({ start: p.start, end: p.end, label: formatPayPeriodLabel(p.start, p.end) });
+    p = p.type === "A"
+      ? buildPeriod("B", p.m === 1 ? p.y - 1 : p.y, p.m === 1 ? 12 : p.m - 1)
+      : buildPeriod("A", p.y, p.m);
+  }
+  return out;
+}
+
 let _payrolls = [];
 let _depts = [];
 let _profiles = [];
+// Phase 416: รอบจ่ายที่เลือก — init จาก computePayPeriods ใน renderPayrollPage ครั้งแรก
+let _periodStart = null; // "YYYY-MM-DD"
+let _periodEnd = null;   // "YYYY-MM-DD"
+let _customPeriodOpen = false;
+// _periodMonth = derived (เดือนของ _periodEnd) — สลิป/JV/expense/leave-summary เดิมยังอ่านค่านี้
 let _periodMonth = (() => {
   const d = new Date();
-  return d.toISOString().slice(0, 7); // YYYY-MM
+  return d.toISOString().slice(0, 7); // YYYY-MM (fallback ก่อน render แรกเท่านั้น)
 })();
+// Phase 416: ชั่วโมง OT ที่ auto-fill ล่าสุด (จากปุ่ม "→ เติม") — เก็บลง details.attendance
+let _otAutofillHours = null;
 
 const money = (n) => "฿" + new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n || 0));
 const moneyShort = (n) => {
@@ -113,23 +210,41 @@ export async function renderPayrollPage(ctx) {
   const token = window._sbAccessToken || cfg.anonKey;
   const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token };
 
-  // Period range: month -> 1st to last day
-  const periodStart = _periodMonth + "-01";
-  const periodEndDate = new Date(_periodMonth + "-01");
-  periodEndDate.setMonth(periodEndDate.getMonth() + 1);
-  const periodEnd = periodEndDate.toISOString().slice(0, 10);
+  // Phase 416: รอบตัดจาก storeInfo (default 10/25) → ปุ่ม 3 รอบล่าสุด + กำหนดเอง
+  const storeInfo = ctx.state?.storeInfo || {};
+  const _cutoffOf = (v, dflt) => {
+    const num = Number(v);
+    return Number.isInteger(num) && num >= 1 && num <= 28 ? num : dflt;
+  };
+  const cutoff1 = _cutoffOf(storeInfo.payrollCutoff1, 10);
+  const cutoff2 = _cutoffOf(storeInfo.payrollCutoff2, 25);
+  const periods = computePayPeriods({ cutoff1, cutoff2, refDate: dateBkk(new Date()), count: 3 });
+  if (!_periodStart || !_periodEnd) {
+    _periodStart = periods[0].start;
+    _periodEnd = periods[0].end;
+  }
+  _periodMonth = _periodEnd.slice(0, 7); // derived: เดือนของวันสิ้นรอบ — สลิป/JV/expense เดิมใช้ต่อ
 
   try {
     const [pRes, dRes, profRes] = await Promise.all([
-      fetch(cfg.url + `/rest/v1/staff_payroll?select=*&period_month=gte.${periodStart}&period_month=lt.${periodEnd}&order=period_month.desc`, { headers }),
+      // Phase 416: โหลดรอบตรงตัว (eq ทั้ง start และ end — ไม่ใช่ overlap)
+      fetch(cfg.url + `/rest/v1/staff_payroll?select=*&period_start=eq.${_periodStart}&period_end=eq.${_periodEnd}&order=id.desc`, { headers }),
       fetch(cfg.url + "/rest/v1/departments?select=*&is_active=eq.true&order=sort_order.asc", { headers }),
       fetch(cfg.url + "/rest/v1/profiles?select=id,full_name,role,department_id,pay_type,daily_rate&order=full_name.asc", { headers })
     ]);
     if (!pRes.ok) {
       const isAuth = pRes.status === 401 || pRes.status === 403;
+      // Phase 416: owner ยังไม่รัน SQL เพิ่มคอลัมน์ → PostgREST ตอบ 400 (42703 unknown column / PGRST204)
+      const errTxt = await pRes.text().catch(() => "");
+      const missingPeriodCols = !isAuth && pRes.status === 400 &&
+        (errTxt.includes("period_start") || errTxt.includes("period_end") || errTxt.includes("42703") || errTxt.includes("PGRST204"));
       container.innerHTML = renderError({
-        message: isAuth ? "ไม่มีสิทธิ์เข้าถึง (HTTP " + pRes.status + ")" : "ตาราง staff_payroll ยังไม่มีในฐานข้อมูล",
-        detail: isAuth ? "Token หมดอายุ — กรุณา Logout แล้ว Login ใหม่" : "รัน supabase-phase72-payroll.sql ก่อน (HTTP " + pRes.status + ")",
+        message: isAuth ? "ไม่มีสิทธิ์เข้าถึง (HTTP " + pRes.status + ")"
+          : missingPeriodCols ? "ตาราง staff_payroll ยังไม่มีคอลัมน์รอบจ่าย (period_start/period_end)"
+          : "ตาราง staff_payroll ยังไม่มีในฐานข้อมูล",
+        detail: isAuth ? "Token หมดอายุ — กรุณา Logout แล้ว Login ใหม่"
+          : missingPeriodCols ? "รัน supabase-phase416-payroll-period.sql ใน Supabase SQL Editor ก่อน (HTTP " + pRes.status + ")"
+          : "รัน supabase-phase72-payroll.sql ก่อน (HTTP " + pRes.status + ")",
         retryLabel: "ลองโหลดใหม่",
         retryId: "prRetryBtn"
       });
@@ -163,30 +278,45 @@ export async function renderPayrollPage(ctx) {
     byDept[key] = (byDept[key] || 0) + Number(p.total_amount || 0);
   });
 
-  // Build month options (last 12 months + future 3)
-  const monthOpts = [];
-  const now = new Date();
-  for (let i = -3; i <= 11; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    monthOpts.push(d.toISOString().slice(0, 7));
-  }
+  // Phase 416: แถบปุ่มรอบจ่ายล่าสุด 3 รอบ (จาก computePayPeriods) + กำหนดเอง
+  const isCustomPeriod = !periods.some(p => p.start === _periodStart && p.end === _periodEnd);
 
   container.innerHTML = `
     <div style="padding:8px">
       <div class="hero" style="text-align:center;padding:20px 16px;margin-bottom:16px;background:linear-gradient(135deg,#dbeafe,#fef3c7);border-radius:16px">
         <div style="font-size:48px;margin-bottom:8px">💰</div>
         <h2 style="margin:0 0 4px;color:#0f172a">รายการเงินเดือน</h2>
-        <p style="margin:0;color:#475569;font-size:13px">บันทึก/แก้ไขเงินเดือน + จ่ายตามรอบเดือน</p>
+        <p style="margin:0;color:#475569;font-size:13px">บันทึก/แก้ไขเงินเดือน + จ่ายตามรอบที่ร้านกำหนด (ตัดวันที่ ${cutoff1} และ ${cutoff2})</p>
       </div>
 
-      <!-- Period selector + actions -->
-      <div class="panel" style="padding:14px;margin-bottom:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-        <span style="font-weight:700;font-size:13px">📅 รอบเดือน:</span>
-        <select id="prMonthSelect" style="padding:7px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;font-weight:600">
-          ${monthOpts.map(m => `<option value="${m}" ${m===_periodMonth?'selected':''}>${_formatMonth(m)}</option>`).join("")}
-        </select>
-        <button id="prExportBtn" class="btn light" style="font-size:13px">📥 Excel</button>
-        <button id="prAddBtn" class="btn primary" style="margin-left:auto;font-size:13px">+ เพิ่มรายการเงินเดือน</button>
+      <!-- Period selector + actions (Phase 416: ปุ่มรอบจ่ายแทน month select) -->
+      <div class="panel" style="padding:14px;margin-bottom:14px">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+          <span style="font-weight:700;font-size:13px">📅 รอบจ่าย:</span>
+          <div id="prPeriodBar" style="display:flex;gap:6px;flex-wrap:wrap">
+            ${periods.map(p => {
+              const active = !isCustomPeriod && p.start === _periodStart && p.end === _periodEnd;
+              return `<button type="button" class="pr-period-btn" data-start="${p.start}" data-end="${p.end}"
+                style="font-size:12px;font-weight:700;padding:7px 12px;border-radius:8px;cursor:pointer;border:1px solid ${active ? '#0284c7' : '#cbd5e1'};background:${active ? '#e0f2fe' : '#fff'};color:${active ? '#0c4a6e' : '#475569'}">${escHtml(p.label)}</button>`;
+            }).join("")}
+            <button id="prCustomPeriodBtn" type="button"
+              style="font-size:12px;font-weight:700;padding:7px 12px;border-radius:8px;cursor:pointer;border:1px dashed ${isCustomPeriod ? '#7c3aed' : '#cbd5e1'};background:${isCustomPeriod ? '#f5f3ff' : '#fff'};color:${isCustomPeriod ? '#5b21b6' : '#475569'}">⚙️ กำหนดเอง${isCustomPeriod ? ': ' + escHtml(formatPayPeriodLabel(_periodStart, _periodEnd)) : ''}</button>
+          </div>
+          <button id="prExportBtn" class="btn light" style="font-size:13px">📥 Excel</button>
+          <button id="prAddBtn" class="btn primary" style="margin-left:auto;font-size:13px">+ เพิ่มรายการเงินเดือน</button>
+        </div>
+        <div id="prCustomPeriodBox" style="display:${_customPeriodOpen ? 'flex' : 'none'};gap:8px;align-items:end;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px dashed #e2e8f0">
+          <label style="display:block">
+            <div style="font-size:11px;font-weight:700;color:#475569;margin-bottom:3px">จากวันที่</div>
+            <input id="prCustomFrom" type="date" value="${_periodStart}" style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px" />
+          </label>
+          <label style="display:block">
+            <div style="font-size:11px;font-weight:700;color:#475569;margin-bottom:3px">ถึงวันที่</div>
+            <input id="prCustomTo" type="date" value="${_periodEnd}" style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px" />
+          </label>
+          <button id="prCustomApplyBtn" type="button" class="btn primary" style="font-size:12px;padding:7px 14px">ใช้รอบนี้</button>
+          <span id="prCustomErr" style="font-size:11px;color:#dc2626"></span>
+        </div>
       </div>
 
       <!-- Summary -->
@@ -197,7 +327,7 @@ export async function renderPayrollPage(ctx) {
           <div style="font-size:11px;color:#94a3b8;margin-top:2px">จ่ายแล้ว: ${paidCount}</div>
         </div>
         <div class="stat-card" style="border-left:4px solid #ef4444">
-          <div class="stat-label">💸 ยอดรวมเดือนนี้</div>
+          <div class="stat-label">💸 ยอดรวมรอบนี้ (${escHtml(formatPayPeriodLabel(_periodStart, _periodEnd))})</div>
           <div class="stat-value" style="color:#dc2626;font-size:22px">${money(totalAmount)}</div>
         </div>
         <div class="stat-card" style="border-left:4px solid #10b981">
@@ -215,7 +345,7 @@ export async function renderPayrollPage(ctx) {
       <div class="panel" style="padding:0">
         ${_payrolls.length === 0 ? renderEmpty({
           icon: "💰",
-          title: "ยังไม่มีรายการเงินเดือนเดือนนี้",
+          title: "ยังไม่มีรายการเงินเดือนรอบนี้",
           message: "กดปุ่ม + เพิ่มรายการเงินเดือนเพื่อเริ่มจ่ายพนักงาน",
           actionLabel: "+ เพิ่มรายการเงินเดือน",
           actionId: "prEmptyAddBtn"
@@ -275,8 +405,32 @@ export async function renderPayrollPage(ctx) {
   `;
 
   // Bindings
-  document.getElementById("prMonthSelect")?.addEventListener("change", (e) => {
-    _periodMonth = e.target.value;
+  // Phase 416: เลือกรอบจ่ายจากปุ่ม → set state แล้ว re-render (โหลดข้อมูลรอบนั้น)
+  container.querySelectorAll(".pr-period-btn").forEach(btn => btn.addEventListener("click", () => {
+    _periodStart = btn.dataset.start;
+    _periodEnd = btn.dataset.end;
+    _customPeriodOpen = false;
+    renderPayrollPage(ctx);
+  }));
+  document.getElementById("prCustomPeriodBtn")?.addEventListener("click", () => {
+    _customPeriodOpen = !_customPeriodOpen;
+    const box = document.getElementById("prCustomPeriodBox");
+    if (box) box.style.display = _customPeriodOpen ? "flex" : "none";
+  });
+  document.getElementById("prCustomApplyBtn")?.addEventListener("click", () => {
+    const from = document.getElementById("prCustomFrom")?.value || "";
+    const to = document.getElementById("prCustomTo")?.value || "";
+    const errEl = document.getElementById("prCustomErr");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+      if (errEl) errEl.textContent = "เลือกวันที่ให้ครบทั้งสองช่อง";
+      return;
+    }
+    if (from > to) {
+      if (errEl) errEl.textContent = "วันเริ่มรอบต้องไม่เกินวันสิ้นรอบ";
+      return;
+    }
+    _periodStart = from;
+    _periodEnd = to;
     renderPayrollPage(ctx);
   });
   document.getElementById("prAddBtn")?.addEventListener("click", () => _openPayrollModal(ctx, null));
@@ -291,15 +445,11 @@ export async function renderPayrollPage(ctx) {
   document.getElementById("prExportBtn")?.addEventListener("click", () => _exportPayroll());
 }
 
-function _formatMonth(ym) {
-  const [y, m] = ym.split("-");
-  const d = new Date(Number(y), Number(m) - 1, 1);
-  return d.toLocaleDateString("th-TH", { year: "numeric", month: "long" });
-}
-
 function _openPayrollModal(ctx, payroll) {
   document.getElementById("prModal")?.remove();
   const isEdit = !!payroll;
+  // Phase 416: reset OT autofill snapshot ของ modal รอบนี้ (เก็บลง details ตอน save)
+  _otAutofillHours = null;
 
   // Profiles ที่มี role !== customer (พนักงานเท่านั้น)
   const staffOnly = _profiles.filter(p => p.role !== "customer");
@@ -326,8 +476,12 @@ function _openPayrollModal(ctx, payroll) {
           </select>
         </label>
         <label style="display:block">
-          <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:4px">รอบเดือน *</div>
-          <input id="prMonth" type="month" value="${(payroll?.period_month || (_periodMonth + '-01')).slice(0,7)}" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px" />
+          <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:4px">รอบจ่าย *</div>
+          <!-- Phase 416: read-only — รอบมาจากปุ่มรอบบนหน้าหลัก (state _periodStart/_periodEnd) -->
+          <div id="prPeriodDisplay" style="width:100%;padding:8px 10px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;font-size:13px;font-weight:700;color:#0f172a">
+            ${escHtml(formatPayPeriodLabel(_periodStart, _periodEnd))}
+            <span style="font-weight:400;color:#64748b;font-size:11px">(${escHtml(_periodStart || "?")} → ${escHtml(_periodEnd || "?")} — เปลี่ยนรอบได้จากหน้าหลัก)</span>
+          </div>
         </label>
 
         <!-- Phase 77: Daily-rate toggle + section -->
@@ -352,7 +506,7 @@ function _openPayrollModal(ctx, payroll) {
         <!-- Phase 92.33 / 92.36: ดึงสรุปวันลาในรอบเดือน — policy-based advisory + manual apply -->
         <div id="prLeaveBox" style="background:#fff7ed;border:1px solid #fdba74;border-radius:10px;padding:12px 14px">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
-            <div style="font-weight:700;color:#9a3412;font-size:13px">🌴 วันลาในรอบเดือน <span style="font-size:11px;font-weight:400;color:#c2410c">(ของเดือนนี้)</span></div>
+            <div style="font-weight:700;color:#9a3412;font-size:13px">🌴 วันลาในรอบเดือน <span style="font-size:11px;font-weight:400;color:#c2410c">(เดือนของวันสิ้นรอบ)</span></div>
             <button id="prFetchLeaveBtn" type="button" style="background:#ea580c;color:#fff;border:none;padding:6px 12px;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">📥 ดึงสรุปวันลา</button>
           </div>
           <div id="prLeaveSummary" style="margin-top:8px;font-size:12px;color:#9a3412;min-height:18px">— กดปุ่ม "ดึงสรุปวันลา" หลังเลือกพนักงาน + เดือน —</div>
@@ -386,7 +540,7 @@ function _openPayrollModal(ctx, payroll) {
         <!-- Phase 92.26: ดึงสรุป OT จาก Time Clock — auto-fill ค่าล่วงเวลา -->
         <div id="prOtFromClockBox" style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:12px 14px">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
-            <div style="font-weight:700;color:#166534;font-size:13px">🕒 ดึงจาก Time Clock <span style="font-size:11px;font-weight:400;color:#15803d">(ของเดือนนี้)</span></div>
+            <div style="font-weight:700;color:#166534;font-size:13px">🕒 ดึงจาก Time Clock <span style="font-size:11px;font-weight:400;color:#15803d">(ของรอบจ่ายนี้)</span></div>
             <button id="prFetchOtBtn" type="button" style="background:#16a34a;color:#fff;border:none;padding:6px 12px;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">📥 ดึงสรุป</button>
           </div>
           <div id="prOtSummary" style="margin-top:8px;font-size:12px;color:#15803d;min-height:18px">— กดปุ่ม "ดึงสรุป" หลังเลือกพนักงาน + เดือน —</div>
@@ -509,17 +663,15 @@ function _openPayrollModal(ctx, payroll) {
   fetchOtBtn?.addEventListener("click", async () => {
     if (fetchOtBtn.disabled) return;
     const empId = document.getElementById("prEmp")?.value || "";
-    const periodInput = document.getElementById("prMonth")?.value || ""; // YYYY-MM
     if (!empId) { _setOtSummaryError("เลือกพนักงานก่อน"); return; }
-    if (!periodInput) { _setOtSummaryError("เลือกรอบเดือนก่อน"); return; }
+    if (!_periodStart || !_periodEnd) { _setOtSummaryError("เลือกรอบจ่ายก่อน"); return; }
     fetchOtBtn.disabled = true;
     const orig = fetchOtBtn.textContent;
     fetchOtBtn.textContent = "⏳ กำลังดึง...";
-    // คำนวณ from/to เดือนนั้น (Asia/Bangkok)
-    const fromDate = periodInput + "-01";
-    const [y, mo] = periodInput.split("-").map(Number);
-    const lastDay = new Date(Date.UTC(y, mo, 0)).getUTCDate();
-    const toDate = `${periodInput}-${String(lastDay).padStart(2, "0")}`;
+    // Phase 416: ดึงตามช่วงรอบจ่ายจริง (custom pay period) แทนขอบเดือน
+    // fetchUserAttendanceSummary รับ (userId, fromDate, toDate, shiftOpts) ช่วง custom ได้อยู่แล้ว
+    const fromDate = _periodStart;
+    const toDate = _periodEnd;
     try {
       const shiftOpts = shiftHoursFromState(ctx.state);
       const summary = await fetchUserAttendanceSummary(empId, fromDate, toDate, shiftOpts);
@@ -573,6 +725,8 @@ function _openPayrollModal(ctx, payroll) {
     if (otInput) {
       otInput.value = amount.toFixed(2);
       otInput.dispatchEvent(new Event("input")); // trigger recalc total
+      // Phase 416: snapshot ชั่วโมง OT ที่ auto-fill — เก็บลง details.attendance ตอน save
+      _otAutofillHours = Number(_otSummary.ot) || 0;
     }
   });
 
@@ -770,9 +924,11 @@ function _openPayrollModal(ctx, payroll) {
   fetchLeaveBtn?.addEventListener("click", async () => {
     if (fetchLeaveBtn.disabled) return;
     const empId = document.getElementById("prEmp")?.value || "";
-    const periodInput = document.getElementById("prMonth")?.value || "";
+    // Phase 416: prMonth (input) ถูกแทนด้วย read-only display — leave summary ยังคิดเป็น
+    // "รายเดือน" (เดือนของวันสิ้นรอบ = _periodMonth derived) เหมือนพฤติกรรมเดิม
+    const periodInput = _periodMonth || "";
     if (!empId)       { _setLeaveSummary("เลือกพนักงานก่อน", true); return; }
-    if (!periodInput) { _setLeaveSummary("เลือกรอบเดือนก่อน", true); return; }
+    if (!periodInput) { _setLeaveSummary("เลือกรอบจ่ายก่อน", true); return; }
     fetchLeaveBtn.disabled = true;
     const orig = fetchLeaveBtn.textContent;
     fetchLeaveBtn.textContent = "⏳ กำลังดึง...";
@@ -888,9 +1044,9 @@ async function _savePayroll(ctx, existing) {
 
   const employee_id = document.getElementById("prEmp")?.value || "";
   const department_id = document.getElementById("prDept")?.value || null;
-  const periodInput = document.getElementById("prMonth")?.value || "";
   if (!employee_id) { setErr("เลือกพนักงาน"); return; }
-  if (!periodInput) { setErr("เลือกรอบเดือน"); return; }
+  // Phase 416: รอบจ่ายมาจาก state (modal แสดง read-only) — ไม่มีรอบ = บันทึกไม่ได้
+  if (!_periodStart || !_periodEnd) { setErr("เลือกรอบจ่ายจากหน้าหลักก่อน"); return; }
 
   const dailyOn = document.getElementById("prDailyToggle")?.checked;
   const daysWorked = dailyOn ? Number(document.getElementById("prDaysWorked")?.value || 0) : null;
@@ -899,7 +1055,11 @@ async function _savePayroll(ctx, existing) {
   const payload = {
     employee_id,
     department_id: department_id || null,
-    period_month: periodInput + "-01",
+    // Phase 416: รอบตรงตัว + period_month derived (= เดือนของวันสิ้นรอบ)
+    // — สลิป slipNo / JV periodLabel / expense periodTH เดิมยังอ่าน period_month ต่อได้
+    period_start: _periodStart,
+    period_end:   _periodEnd,
+    period_month: _periodMonth + "-01",
     base_salary: Number(document.getElementById("prBase")?.value || 0),
     overtime:    Number(document.getElementById("prOT")?.value || 0),
     welfare:     Number(document.getElementById("prWel")?.value || 0),
@@ -913,6 +1073,31 @@ async function _savePayroll(ctx, existing) {
   // Phase 92.43 (B1): persist total_amount ทุกครั้ง — ห้ามปล่อย NULL
   // (ฝั่ง app คำนวณเอง; ถ้า DB มี trigger/generated column ก็ยังยอมรับค่าที่ส่งมาเหมือนเดิม)
   payload.total_amount = computePayrollTotal(payload);
+
+  // ── Phase 416: details jsonb — snapshot รายละเอียดต่อรอบ (schema v1) ─────────
+  // shape:
+  //   { schema: 1,
+  //     rates:      { daily_rate },
+  //     attendance: { days_worked, ot_hours_autofill },
+  //     additions:  [ { type, label, amount }, ... ]   ← เฉพาะ amount > 0
+  //     deductions: [ { type, label, amount }, ... ] }
+  // อนาคต (ประกันสังคม/ประกันชีวิต ฯลฯ): push { type:"sso", label:"ประกันสังคม", amount }
+  // เข้า deductions (หรือ additions ตาม policy) ได้เลย — ไม่ต้องแก้ DB schema
+  const detailAdditions = [
+    { type: "overtime",   label: "ค่าล่วงเวลา",     amount: payload.overtime },
+    { type: "welfare",    label: "สวัสดิการ",        amount: payload.welfare },
+    { type: "bonus",      label: "เงินพิเศษ/โบนัส",  amount: payload.bonus },
+    { type: "commission", label: "คอมมิชชัน",        amount: payload.commission },
+  ].filter(a => Number(a.amount) > 0);
+  payload.details = {
+    schema: 1,
+    rates: { daily_rate: dailyRate },
+    attendance: { days_worked: daysWorked, ot_hours_autofill: _otAutofillHours },
+    additions: detailAdditions,
+    deductions: Number(payload.deductions) > 0
+      ? [{ type: "manual", label: "รายการหัก", amount: payload.deductions }]
+      : [],
+  };
 
   const cfg = window.SUPABASE_CONFIG;
   const token = window._sbAccessToken;
@@ -932,7 +1117,10 @@ async function _savePayroll(ctx, existing) {
     }
     if (!resp.ok) {
       const txt = await resp.text();
-      if (txt.includes("uq_staff_payroll") || txt.includes("23505")) throw new Error("พนักงานนี้มีรายการเงินเดือนเดือนนี้แล้ว — แก้ไขรายการเดิมแทน");
+      // Phase 416: unique ใหม่ uq_staff_payroll_period (รวม uq_staff_payroll เดิม + 23505)
+      if (txt.includes("uq_staff_payroll_period") || txt.includes("uq_staff_payroll") || txt.includes("23505")) {
+        throw new Error("พนักงานนี้มีรายการรอบนี้แล้ว — แก้ไขรายการเดิมแทน");
+      }
       throw new Error("HTTP " + resp.status + " " + txt.slice(0, 200));
     }
     // Phase 92.43 (B4): audit log — silent fail
@@ -940,9 +1128,11 @@ async function _savePayroll(ctx, existing) {
     logActivity(isUpdate ? "payroll_update" : "payroll_create", {
       entityType: "staff_payroll",
       entityId: existing?.id || null,
-      summary: `${isUpdate ? "แก้ไข" : "เพิ่ม"} payroll ${employee_id} เดือน ${periodInput} — รวม ${payload.total_amount}`,
+      summary: `${isUpdate ? "แก้ไข" : "เพิ่ม"} payroll ${employee_id} รอบ ${_periodStart} → ${_periodEnd} — รวม ${payload.total_amount}`,
       metadata: {
         employee_id,
+        period_start: payload.period_start,
+        period_end: payload.period_end,
         period_month: payload.period_month,
         total_amount: payload.total_amount,
         before: existing ? {
@@ -1234,10 +1424,14 @@ function _printPayslip(ctx, payrollId) {
   const store = ctx.state?.storeInfo || window.App?.state?.storeInfo || {};
   const logo = window._appGetLogo ? window._appGetLogo() : "./icons/logo.svg";
 
-  const periodLabel = (() => {
-    const d = new Date((p.period_month || "").slice(0, 10));
-    return d.toLocaleDateString("th-TH", { year: "numeric", month: "long" });
-  })();
+  // Phase 416: แสดงช่วงรอบจ่ายจริงเมื่อมี period_start/period_end (ข้อความ label เท่านั้น —
+  // layout สลิปเดิมทุกอย่าง); แถวเก่าไม่มีคอลัมน์รอบ → fallback ชื่อเดือนแบบเดิม
+  const periodLabel = (p.period_start && p.period_end)
+    ? formatPayPeriodLabel(p.period_start, p.period_end)
+    : (() => {
+        const d = new Date((p.period_month || "").slice(0, 10));
+        return d.toLocaleDateString("th-TH", { year: "numeric", month: "long" });
+      })();
   const slipNo = "PS" + (p.period_month || "").slice(0, 7).replace("-", "") + "-" + String(p.id).padStart(4, "0");
 
   // Phase 77: ถ้าจ่ายรายวัน → label เงินเดือนแสดง "rate × days"
@@ -1326,7 +1520,7 @@ ${[1,2].map(copyNum => `
       <div class="copy">${copyNum === 1 ? "ต้นฉบับ · สำหรับพนักงาน" : "สำเนา · สำหรับร้าน"}</div>
       <table class="meta-table">
         <tr><td>เลขที่</td><td>${escHtml(slipNo)}</td></tr>
-        <tr><td>รอบเดือน</td><td>${escHtml(periodLabel)}</td></tr>
+        <tr><td>รอบจ่าย</td><td>${escHtml(periodLabel)}</td></tr>
         <tr><td>วันที่ออก</td><td>${new Date().toLocaleDateString("th-TH", { year:"numeric", month:"short", day:"numeric" })}</td></tr>
       </table>
     </div>
@@ -1404,7 +1598,10 @@ function _exportPayroll() {
     return {
       "พนักงาน": emp?.full_name || "(ไม่พบ)",
       "แผนก": dept?.name || "",
-      "รอบเดือน": (p.period_month || "").slice(0, 7),
+      // Phase 416: รอบจ่ายตรงตัว (fallback period_month สำหรับแถวเก่าที่ไม่มีรอบ)
+      "รอบจ่าย": (p.period_start && p.period_end)
+        ? `${p.period_start} → ${p.period_end}`
+        : (p.period_month || "").slice(0, 7),
       "เงินเดือน": Number(p.base_salary || 0),
       "ค่าล่วงเวลา": Number(p.overtime || 0),
       "สวัสดิการ": Number(p.welfare || 0),
@@ -1417,6 +1614,7 @@ function _exportPayroll() {
       "หมายเหตุ": p.note || ""
     };
   });
-  exportToExcel(`เงินเดือน_${_periodMonth}_${todaySuffix()}.xlsx`, rows, "Payroll");
+  // Phase 416: ชื่อไฟล์บอกช่วงรอบจ่ายที่เลือก (แทนเดือน)
+  exportToExcel(`เงินเดือน_${_periodStart}_ถึง_${_periodEnd}_${todaySuffix()}.xlsx`, rows, "Payroll");
   window.App?.showToast?.(`ดาวน์โหลด ${rows.length} รายการ`);
 }

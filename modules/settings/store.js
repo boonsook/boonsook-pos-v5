@@ -68,6 +68,22 @@ export function renderSettingsStore(el, ctx, _goBack, _navigate) {
         </div>
       </div>
 
+      <!-- Phase 416: วันตัดรอบเงินเดือน — ใช้สร้างรอบจ่ายในหน้าเงินเดือน (default 10/25 → รอบ 11–25 และ 26–10 เดือนถัดไป) -->
+      <div style="margin-top:14px;padding:14px;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:10px">
+        <div style="font-weight:700;color:#4c1d95;margin-bottom:4px">💰 รอบตัดเงินเดือน</div>
+        <div style="font-size:11px;color:#6d28d9;margin-bottom:10px">วันตัดรอบ 2 ครั้ง/เดือน — เช่น ตัด 10 และ 25 = รอบ 11–25 และ 26–10 ของเดือนถัดไป (เลขจำนวนเต็ม 1–28)</div>
+        <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+          <div style="flex:1;min-width:120px">
+            <label class="form-label" style="font-size:12px">วันตัดรอบที่ 1</label>
+            <input type="number" min="1" max="28" step="1" id="storePayCut1" class="form-input" value="${escHtml(String(storeInfo.payrollCutoff1 ?? 10))}" />
+          </div>
+          <div style="flex:1;min-width:120px">
+            <label class="form-label" style="font-size:12px">วันตัดรอบที่ 2</label>
+            <input type="number" min="1" max="28" step="1" id="storePayCut2" class="form-input" value="${escHtml(String(storeInfo.payrollCutoff2 ?? 25))}" />
+          </div>
+        </div>
+      </div>
+
       <!-- Phase 92.24: GPS geo-fence ของร้าน — ใช้ตอนพนักงานลงเวลา -->
       <div style="margin-top:14px;padding:14px;background:#fefce8;border:1px solid #fde047;border-radius:10px">
         <div style="font-weight:700;color:#854d0e;margin-bottom:4px">📍 ตำแหน่งร้าน (GPS — สำหรับลงเวลา)</div>
@@ -152,6 +168,12 @@ export function renderSettingsStore(el, ctx, _goBack, _navigate) {
     const lateGraceMinutes      = (Number.isFinite(lateGraceRaw)  && lateGraceRaw  >= 0) ? Math.min(lateGraceRaw,  240) : 15;
     const earlyLeaveGraceMinutes = (Number.isFinite(earlyGraceRaw) && earlyGraceRaw >= 0) ? Math.min(earlyGraceRaw, 240) : 15;
 
+    // Phase 416: วันตัดรอบเงินเดือน — จำนวนเต็ม 1–28, clamp (default 10/25) ตาม pattern lateGrace
+    const payCut1Raw = parseInt(document.getElementById('storePayCut1')?.value, 10);
+    const payCut2Raw = parseInt(document.getElementById('storePayCut2')?.value, 10);
+    const payrollCutoff1 = (Number.isFinite(payCut1Raw) && payCut1Raw >= 1) ? Math.min(payCut1Raw, 28) : 10;
+    const payrollCutoff2 = (Number.isFinite(payCut2Raw) && payCut2Raw >= 1) ? Math.min(payCut2Raw, 28) : 25;
+
     // Phase 92.24: GPS geo-fence — null ถ้าเว้นว่าง (= ปิด feature)
     const latRaw    = parseFloat(document.getElementById('storeShopLat')?.value);
     const lngRaw    = parseFloat(document.getElementById('storeShopLng')?.value);
@@ -169,6 +191,8 @@ export function renderSettingsStore(el, ctx, _goBack, _navigate) {
       shiftEndHour:   safeEnd,
       lateGraceMinutes,
       earlyLeaveGraceMinutes,
+      payrollCutoff1,
+      payrollCutoff2,
       shopLat,
       shopLng,
       geofenceRadiusM: radius

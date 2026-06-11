@@ -7,6 +7,18 @@
 
 ---
 
+## 5.66.0 (build 416) — 2026-06-11 Phase 416 Part A payroll-custom-pay-period — เงินเดือนรอบตัดที่ร้านกำหนด (10/25)
+
+- **feat (payroll · HIGH):** เปลี่ยนรอบเงินเดือนจาก "เดือนปฏิทิน" → **รอบตัดที่ร้านกำหนด** (default ตัด 10/25 → รอบ 11–25 และ 26–10 ของเดือนถัดไป): pure `computePayPeriods` (string math — คร่อมเดือน/ปี/ก.พ. clamp ไม่มี invalid date) + แถบปุ่ม 3 รอบล่าสุด + "กำหนดเอง" (date from/to) แทน month select
+- save payload เพิ่ม `period_start`/`period_end` + `details` jsonb snapshot (schema 1: rates/attendance/additions/deductions — อนาคต push ประกันสังคมเข้า deductions ได้โดยไม่แก้ DB) · `period_month` คงเขียนต่อ (= เดือนของวันสิ้นรอบ; สลิป slipNo/JV/expense เดิมอ่านต่อได้)
+- โหลดรายการ filter รอบตรงตัว `period_start=eq.&period_end=eq.` · ยังไม่รัน SQL → error ชี้ "รัน supabase-phase416-payroll-period.sql" · OT autofill ดึงตามช่วงรอบจริง · unique error ใหม่ "พนักงานนี้มีรายการรอบนี้แล้ว"
+- settings ข้อมูลร้านค้า: ช่อง "วันตัดรอบที่ 1/2" (`payrollCutoff1/2`, จำนวนเต็ม 1–28 clamp, default 10/25)
+- **SQL ใหม่ (owner ต้องรันก่อน smoke):** `supabase-phase416-payroll-period.sql` — additive (3 คอลัมน์ + drop uq เดิม + unique ใหม่ per-รอบ; ตาราง 0 แถว ไม่ backfill)
+- ❌ ไม่แตะ `computePayrollTotal` สูตร · mark paid/JV/expense side-effects · สลิป layout (แค่ข้อความ period label) · time_clock.js/leave_management.js
+- +guard `payroll_period_guard` (12) · lint 0 / unit 1468 / e2e 12 · **STOP รอ review + owner รัน SQL + smoke preview**
+
+---
+
 ## 5.66.0 (build 415) — 2026-06-10 Phase 415 ob-form-dynamic-bank-fields — ฟอร์มยอดยกมา ช่องธนาคาร dynamic จาก COA
 
 - **feat (accounting §4.3):** ฟอร์ม "ลงยอดยกมา" ดึงช่องเงินฝากธนาคารจาก chart_of_accounts จริง (เดิม hardcode 1130/1140 — กรอกแยก 6 บัญชีใหม่ 1131–1136 ไม่ได้): `fetchBankAssetAccounts()` → type=asset · code 1130–**1169** (4 หลัก) · is_active · เฉพาะ leaf (header ที่มีลูกชี้มาไม่เอา) · เรียง sort_order

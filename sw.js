@@ -151,7 +151,8 @@
 // v295 (2026-05-26): Fix Time Clock self-service responsive layout. Desktop now uses a wider operational shell; mobile uses a single-column layout with table scrolling contained inside the history block. No DB or attendance logic changes.
 // v296 (2026-05-26): Phase 92.35 — Leave Policy + Balance/Quota foundation. Adds leave_policies + staff_leave_overrides tables, pure helpers (effectiveQuota/calcBalance/calcBalancesForUser), UI balance section on Leave page, form warning advisory, payroll year-balance preview. No money math change.
 // v297 (2026-05-26): Phase 92.36 — Paid Leave Policy → Payroll Decision. Adds decidePayrollLeaveImpact + leaveDeductionNoteMarker pure helpers; Payroll modal now shows policy breakdown (paid/over/unpaid/other) and Apply fills deduction = unpaid + over-quota (advisory; idempotent via marker). vacation/sick/personal within quota stay paid.
-const CACHE_NAME = 'boonsook-pos-v5-cache-v415';
+// v416 (2026-06-11): Phase 416 Part A — payroll custom pay-period (cutoff default 10/25 → รอบ 11–25 / 26–10 เดือนถัดไป). computePayPeriods pure helper + period buttons แทน month select + save period_start/period_end + details jsonb snapshot + OT autofill ใช้ช่วงรอบจริง. Additive — owner ต้องรัน supabase-phase416-payroll-period.sql ก่อนใช้หน้าเงินเดือน. computePayrollTotal/mark-paid/JV เดิมไม่แตะ.
+const CACHE_NAME = 'boonsook-pos-v5-cache-v416';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
