@@ -13,7 +13,6 @@ const CONSOLE_ALLOW = [
   /service ?worker/i,
   // CDN ถูก block ใน CI sandbox (ออก internet ไม่ได้)
   /Failed to load resource.*cdn/i,
-  /net::ERR_/i,
   // Phase 92.63b: Supabase client โหลดจาก https://esm.sh/@supabase/supabase-js@2 (main.js)
   //   — esm.sh 503/timeout ชั่วคราว = external CDN/network noise ไม่ใช่ app crash
   //   (local probe ไม่มี 503, prod build 333 ใช้งานปกติ)
@@ -27,10 +26,31 @@ function isAllowedConsoleMsg(msg) {
   return CONSOLE_ALLOW.some(re => re.test(text));
 }
 
+const CDN_ALLOW_HOSTS = new Set([
+  "cdn.jsdelivr.net",
+  "cdn.sheetjs.com",
+  "esm.sh",
+  "unpkg.com",
+]);
+
+function isAllowedCdnUrl(url) {
+  try {
+    return CDN_ALLOW_HOSTS.has(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
+function isGenericFailedResourceConsole(text) {
+  return /Failed to load resource: (the server responded with a status of \d+|net::ERR_)/i.test(text);
+}
+
 test.describe("Smoke — static load", () => {
   test("index.html loads without uncaught JS errors", async ({ page }) => {
     const errors = [];
     const pageErrors = [];
+    const externalCdnFailures = [];
+    const internalResourceFailures = [];
 
     page.on("pageerror", (err) => pageErrors.push(err.message));
     page.on("console", (msg) => {
@@ -38,12 +58,48 @@ test.describe("Smoke — static load", () => {
         errors.push(msg.text());
       }
     });
+    page.on("response", (response) => {
+      if (response.status() < 400) return;
+      const url = response.url();
+      if (isAllowedCdnUrl(url)) {
+        externalCdnFailures.push(`${response.status()} ${url}`);
+      } else {
+        internalResourceFailures.push(`${response.status()} ${url}`);
+      }
+    });
+    page.on("requestfailed", (request) => {
+      const url = request.url();
+      const failure = request.failure()?.errorText || "request failed";
+      if (isAllowedCdnUrl(url)) {
+        externalCdnFailures.push(`${failure} ${url}`);
+      } else if (failure !== "net::ERR_ABORTED") {
+        internalResourceFailures.push(`${failure} ${url}`);
+      }
+    });
+    await page.route("**/*", (route) => {
+      if (isAllowedCdnUrl(route.request().url())) {
+        route.abort("blockedbyclient");
+        return;
+      }
+      route.continue();
+    });
 
     await page.goto("/", { waitUntil: "domcontentloaded" });
     await page.waitForTimeout(2000);  // ให้ inline bootstrap run
 
+    let externalFailureBudget = externalCdnFailures.length;
+    const unexpectedErrors = errors.filter((text) => {
+      if (isGenericFailedResourceConsole(text) && externalFailureBudget > 0) {
+        externalFailureBudget -= 1;
+        return false;
+      }
+      return true;
+    });
+
     expect(pageErrors, "uncaught page errors").toEqual([]);
-    expect(errors, "unexpected console errors").toEqual([]);
+    expect(internalResourceFailures, "local/internal resource failures").toEqual([]);
+    expect(unexpectedErrors, "unexpected console errors").toEqual([]);
+    await page.close();
   });
 
   test("title is correct", async ({ page }) => {

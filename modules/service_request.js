@@ -4,6 +4,7 @@
 // Phase 347: รับ "คำขอจอง" จากแคตตาล็อกแอร์ (หน้าร้าน) มา prefill — user ต้องกดส่งเอง
 import { consumeAirBookingDrafts } from "./ac_booking_draft.js";
 import { describeLineResult } from "./line_notify.js";
+import { applyDraftFields, bindServiceDraft, clearServiceDraft, loadServiceDraft } from "./service_drafts.js";
 
 const SERVICE_TYPES = [
   "🔧 ซ่อมแอร์",
@@ -17,6 +18,16 @@ const SERVICE_TYPES = [
   "📺 ซ่อมทีวี LED/LCD",
   "🛠️ งานบริการอื่นๆ"
 ];
+const SERVICE_REQUEST_DRAFT_KEY = "service_request";
+const SERVICE_REQUEST_DRAFT_FIELDS = [
+  ["#srType", "type"],
+  ["#srCustomType", "customType"],
+  ["#srAddress", "address"],
+  ["#srPrefDate", "prefDate"],
+  ["#srPrefTime", "prefTime"],
+  ["#srSymptom", "symptom"],
+  ["#srNote", "note"]
+];
 
 export function renderServiceRequestPage(ctx) {
   const { state, showToast } = ctx;
@@ -27,6 +38,7 @@ export function renderServiceRequestPage(ctx) {
   const userName = state.profile?.full_name || userEmail;
   const customerRecord = state.customers?.find(c => c.email === userEmail) || null;
   const customerPhone = customerRecord?.phone || "";
+  const draft = loadServiceDraft(SERVICE_REQUEST_DRAFT_KEY);
 
   const escHtml = (s) => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 
@@ -150,6 +162,9 @@ export function renderServiceRequestPage(ctx) {
     if (noteEl) noteEl.value = noteBits.filter(Boolean).join(' | ');
     if (typeSel) { const opt = [...typeSel.options].find(o => o.value.includes("ติดตั้งแอร์")); if (opt) typeSel.value = opt.value; }
   }
+  applyDraftFields(container, draft, SERVICE_REQUEST_DRAFT_FIELDS);
+  container.querySelector("#srCustomTypeWrap")?.classList.toggle("hidden", !container.querySelector("#srType")?.value.includes("อื่นๆ"));
+  bindServiceDraft(container, SERVICE_REQUEST_DRAFT_KEY, SERVICE_REQUEST_DRAFT_FIELDS);
 
   // Toggle custom type
   container.querySelector("#srAiBtn")?.addEventListener("click", () => window.BoonsookAI?.open());
@@ -254,6 +269,7 @@ export function renderServiceRequestPage(ctx) {
         else window.location.hash = "customer_dashboard";
       });
       showToast(_isBooking ? "ส่งคำขอแล้ว เจ้าหน้าที่จะติดต่อกลับ ✅" : "แจ้งซ่อมสำเร็จ!");
+      clearServiceDraft(SERVICE_REQUEST_DRAFT_KEY);
 
       // Reset form
       container.querySelector("#srSymptom").value = "";

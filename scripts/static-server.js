@@ -29,6 +29,11 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 const PORT = Number(process.argv[2] || process.env.PORT || 4173);
+const IDLE_EXIT_MS = Number(
+  process.argv.find(arg => arg.startsWith("--idle-exit-ms="))?.split("=")[1] ||
+  process.env.IDLE_EXIT_MS ||
+  0
+);
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -60,6 +65,8 @@ function contentTypeFor(filePath) {
 }
 
 const server = http.createServer((req, res) => {
+  resetIdleExitTimer();
+
   // Strip query string + decode percent-encoding
   let urlPath = "/";
   try {
@@ -101,11 +108,28 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, "127.0.0.1", () => {
   console.log(`[static-server] serving ${ROOT} on http://127.0.0.1:${PORT}`);
+  resetIdleExitTimer();
 });
 
 // Graceful shutdown so Playwright's teardown doesn't leave a zombie.
+let shuttingDown = false;
+function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  server.close(() => process.exit(0));
+  server.closeIdleConnections?.();
+  server.closeAllConnections?.();
+  setTimeout(() => process.exit(0), 1000).unref();
+}
+
+let idleExitTimer = null;
+function resetIdleExitTimer() {
+  if (!IDLE_EXIT_MS || shuttingDown) return;
+  clearTimeout(idleExitTimer);
+  idleExitTimer = setTimeout(shutdown, IDLE_EXIT_MS);
+  idleExitTimer.unref?.();
+}
+
 for (const sig of ["SIGINT", "SIGTERM"]) {
-  process.on(sig, () => {
-    server.close(() => process.exit(0));
-  });
+  process.on(sig, shutdown);
 }

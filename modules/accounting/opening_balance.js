@@ -19,7 +19,7 @@ function num(v) { return Number(v || 0); }
 
 // ─── Default fields ที่ user มักลงตอน start ───
 //  Debit side (สินทรัพย์ที่ยกมา)
-//  ★ Phase 415: ช่องเงินฝากธนาคาร (1130–1199) ดึงจาก chart_of_accounts จริงตอน render
+//  ★ Phase 415: ช่องเงินฝากธนาคาร (1130–1169) ดึงจาก chart_of_accounts จริงตอน render
 //    — DEFAULT_BANK_FIELDS ใช้เฉพาะ fallback ตอนโหลดผังบัญชีไม่สำเร็จ
 const CASH_FIELDS = [
   { code: "1110", label: "เงินสดในมือ",                  emoji: "💵" },

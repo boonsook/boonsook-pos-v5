@@ -1,7 +1,8 @@
 
 import { renderDashboard } from "./modules/dashboard.js";
 import { fetchAllPaginated } from "./modules/fetch_paginated.js";
-import { renderProductsPage } from "./modules/products.js";
+import { renderProductsPage, refreshProductsPage } from "./modules/products.js";
+import { applyDraftFields, bindServiceDraft, clearServiceDraft, loadServiceDraft } from "./modules/service_drafts.js";
 import { renderPosPage, clearPosState } from "./modules/pos.js";
 import { renderSalesPage } from "./modules/sales.js";
 import { renderCustomersPage } from "./modules/customers.js";
@@ -1219,6 +1220,7 @@ function renderAll(){
   _updateLowStockBadge();
   _updateNotifBell();    // ★ Phase 399: topbar 🔔
   _updateProfileChip();  // ★ Phase 399: topbar 👤
+  if (state.currentRoute === "products" && refreshProductsPage()) return;
   showRoute(state.currentRoute);
 }
 
@@ -1698,7 +1700,9 @@ async function saveProduct(){
   }
   showToast("กำลังบันทึก...");
 
-  let productId = state.editingProductId;
+  const editingProductId = state.editingProductId;
+  let productId = editingProductId;
+  let savedProduct = null;
   if (productId) {
     const res = await xhrPatch("products", payload, "id", productId);
     if (!res.ok) return showToast(res.error?.message || "บันทึกสินค้าไม่สำเร็จ");
@@ -1707,6 +1711,7 @@ async function saveProduct(){
     if (!res.ok) return showToast(res.error?.message || "บันทึกสินค้าไม่สำเร็จ");
     // eslint-disable-next-line require-atomic-updates -- C: local productId reassign in sequential product save
     productId = res.data?.id;
+    savedProduct = res.data || null;
   }
 
   // ★ บันทึกสต็อกแยกคลัง
@@ -1752,15 +1757,20 @@ async function saveProduct(){
 
   // Phase 45.11: optimistic + non-blocking reload (กันค้าง 10-30s)
   try {
-    if (state.editingProductId && Array.isArray(state.products)) {
-      const idx = state.products.findIndex(p => String(p.id) === String(state.editingProductId));
+    if (editingProductId && Array.isArray(state.products)) {
+      const idx = state.products.findIndex(p => String(p.id) === String(editingProductId));
       if (idx >= 0) state.products[idx] = { ...state.products[idx], ...payload };
+    } else if (productId && Array.isArray(state.products)) {
+      const nextProduct = { ...payload, ...(savedProduct || {}), id: productId };
+      if (!state.products.some(p => String(p.id) === String(productId))) state.products.unshift(nextProduct);
     }
   } catch(e) { console.warn("[saveProduct] optimistic", e); }
   resetProductForm();
   closeAllDrawers();
   showToast("บันทึกสินค้าแล้ว");
-  if (state.currentRoute === "products") { try { showRoute("products"); } catch(e){} }
+  if (state.currentRoute === "products") {
+    try { if (!refreshProductsPage()) showRoute("products"); } catch(e){}
+  }
   setTimeout(() => loadAllData().catch(e => console.warn("[saveProduct] reload", e)), 100);
 }
 
@@ -2263,8 +2273,24 @@ function openQuotationDrawer(_doc=null){
 // Phase 402: อุปกรณ์ใน drawer งานช่าง — งานใหม่แก้ได้+ตัดสต็อกตอน save; งานเดิม (มี items_json) read-only กันตัดซ้ำ
 let _serviceDrawerItems = [];
 let _serviceDrawerEquipReadonly = false;
+let _serviceJobDrawerDraftBound = false;
+const SERVICE_JOB_DRAWER_DRAFT_KEY = "service_job_drawer";
+const SERVICE_JOB_DRAWER_DRAFT_FIELDS = [
+  ["#serviceCustomer", "customer"],
+  ["#servicePhone", "phone"],
+  ["#serviceAddress", "address"],
+  ["#serviceTitle", "title"],
+  ["#serviceType", "type"],
+  ["#serviceStatus", "status"],
+  ["#serviceNote", "note"],
+  ["#serviceLabor", "labor"],
+  ["#serviceDiscount", "discount"],
+  ["#serviceTotalCost", "totalCost"],
+  ["#servicePaymentMethod", "paymentMethod"]
+];
 
 function openServiceJobDrawer(job=null){
+  const drawerDraft = job ? null : loadServiceDraft(SERVICE_JOB_DRAWER_DRAFT_KEY);
   state.editingServiceJobId = job?.id || null;
   // ★ เก็บสถานะเดิม ไว้ตรวจการเปลี่ยนเป็น "done" ตอน save
   state.editingServiceJobOrigStatus = job?.status || "pending";
@@ -2285,6 +2311,9 @@ function openServiceJobDrawer(job=null){
   const _hasExistingItems = !!(job?.items_json && Array.isArray(job.items_json) && job.items_json.length);
   _serviceDrawerEquipReadonly = _hasExistingItems;
   _serviceDrawerItems = _hasExistingItems ? job.items_json.map(it => ({ ...it })) : [];  // clone งานเดิม (display เฉย ๆ)
+  if (!job && Array.isArray(drawerDraft?.items)) {
+    _serviceDrawerItems = drawerDraft.items.map(it => ({ ...it }));
+  }
   const _equipItemsTotal = () => _equipTotal(_serviceDrawerItems);
 
   // labor / discount เก็บใน field — derived จาก total_cost - items_total เป็นอย่างน้อย (row เก่าไม่มี labor แยก)
@@ -2294,6 +2323,7 @@ function openServiceJobDrawer(job=null){
   $("serviceDiscount").value = 0;
   $("serviceTotalCost").value = existingTotal || 0;
   $("servicePaymentMethod").value = job?.payment_method || "";
+  if (!job) applyDraftFields(document, drawerDraft, SERVICE_JOB_DRAWER_DRAFT_FIELDS);
   // Auto-recalc ยอดสุทธิ (อุปกรณ์ + ค่าแรง − ส่วนลด)
   const _recalc = () => {
     const labor = Number($("serviceLabor")?.value || 0);
@@ -2326,12 +2356,14 @@ function openServiceJobDrawer(job=null){
           _serviceDrawerItems[i].qty = qty;
           _serviceDrawerItems[i].line_total = qty * Number(_serviceDrawerItems[i].unit_price || 0);
           _renderEquip();
+          try { document.getElementById("serviceJobDrawer")?.dispatchEvent(new Event("input")); } catch (_) {}
         });
         fresh.addEventListener("click", (e) => {
           const btn = e.target.closest("[data-equip-del]");
           if (!btn) return;
           _serviceDrawerItems.splice(Number(btn.dataset.equipDel), 1);
           _renderEquip();
+          try { document.getElementById("serviceJobDrawer")?.dispatchEvent(new Event("input")); } catch (_) {}
         });
       }
     }
@@ -2349,6 +2381,7 @@ function openServiceJobDrawer(job=null){
             if (ex) { ex.qty = Number(ex.qty) + 1; ex.line_total = ex.qty * Number(ex.unit_price || 0); }
             else _serviceDrawerItems.push(item);
             _renderEquip();
+            try { document.getElementById("serviceJobDrawer")?.dispatchEvent(new Event("input")); } catch (_) {}
           });
         });
       }
@@ -2402,6 +2435,15 @@ function openServiceJobDrawer(job=null){
   _mountServiceJobTagWidget(job);
 
   openDrawer("serviceJobDrawer");
+  if (!_serviceJobDrawerDraftBound) {
+    const drawer = document.getElementById("serviceJobDrawer");
+    if (drawer) {
+      bindServiceDraft(drawer, SERVICE_JOB_DRAWER_DRAFT_KEY, SERVICE_JOB_DRAWER_DRAFT_FIELDS, () =>
+        state.editingServiceJobId ? false : { items: _serviceDrawerItems }
+      );
+      _serviceJobDrawerDraftBound = true;
+    }
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2817,6 +2859,7 @@ async function saveServiceJob(){
 
   closeAllDrawers();
   showToast("บันทึกงานช่างแล้ว");
+  clearServiceDraft(SERVICE_JOB_DRAWER_DRAFT_KEY);
 
   // Re-render service jobs list ทันที (ใช้ state ที่ optimistic update แล้ว)
   try {

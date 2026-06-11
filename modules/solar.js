@@ -7,6 +7,7 @@
 import { postJournalForServiceJob } from "./accounting/auto_post.js";
 import { aggregateNeedByKey } from "./stock_precheck.js";
 import { normalizeServiceJobStatus, serviceJobNoteWithReviewMarker } from "./service_status.js";
+import { applyDraftFields, bindServiceDraft, clearServiceDraft, loadServiceDraft } from "./service_drafts.js";
 
 const SOLAR_TYPES = [
   "💧 ติดตั้งปั๊มน้ำโซล่าเซลล์",
@@ -22,6 +23,19 @@ const SOLAR_TYPES = [
 let _solItems = [];
 
 const escHtml = (s) => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+const SOLAR_DRAFT_KEY = "solar";
+const SOLAR_DRAFT_FIELDS = [
+  ["#solType", "type"],
+  ["#solCustomType", "customType"],
+  ["#solName", "name"],
+  ["#solPhone", "phone"],
+  ["#solAddress", "address"],
+  ["#solDetail", "detail"],
+  ["#solLabor", "labor"],
+  ["#solDiscount", "discount"],
+  ["#solStatusSel", "status"],
+  ["#solPaymentMethod", "paymentMethod"]
+];
 
 // ═══════════════════════════════════════════════════════════
 //  Phase 88.13 — Mobile warehouse helpers (duplicate from ac_install.js)
@@ -171,6 +185,7 @@ function _solBindItemListEvents(container, updatePrice, money) {
       _solItems[idx].line_total = qty * Number(_solItems[idx].unit_price || 0);
       updateLineTotal(idx);
       updatePrice();
+      container.dispatchEvent(new Event("input"));
     } else if (tgt.dataset.solPrice !== undefined) {
       const idx = Number(tgt.dataset.solPrice);
       const price = Math.max(0, parseFloat(tgt.value) || 0);
@@ -178,6 +193,7 @@ function _solBindItemListEvents(container, updatePrice, money) {
       _solItems[idx].line_total = Number(_solItems[idx].qty) * price;
       updateLineTotal(idx);
       updatePrice();
+      container.dispatchEvent(new Event("input"));
     }
   });
   container.querySelector("#solItemsList")?.addEventListener("click", (e) => {
@@ -187,6 +203,7 @@ function _solBindItemListEvents(container, updatePrice, money) {
       _solItems.splice(idx, 1);
       _solRenderItemsList(container, money);
       updatePrice();
+      container.dispatchEvent(new Event("input"));
       return;
     }
     const incBtn = e.target.closest("[data-sol-qty-inc]");
@@ -198,6 +215,7 @@ function _solBindItemListEvents(container, updatePrice, money) {
       if (qtyInput) qtyInput.value = _solItems[idx].qty;
       updateLineTotal(idx);
       updatePrice();
+      container.dispatchEvent(new Event("input"));
       return;
     }
     const decBtn = e.target.closest("[data-sol-qty-dec]");
@@ -209,6 +227,7 @@ function _solBindItemListEvents(container, updatePrice, money) {
       if (qtyInput) qtyInput.value = _solItems[idx].qty;
       updateLineTotal(idx);
       updatePrice();
+      container.dispatchEvent(new Event("input"));
       return;
     }
   });
@@ -217,7 +236,7 @@ function _solBindItemListEvents(container, updatePrice, money) {
 // ═══════════════════════════════════════════════════════════
 //  Phase 88.13 — Picker modal: search + select equipment from stock
 // ═══════════════════════════════════════════════════════════
-function _solOpenItemPicker(ctx, container, updatePrice) {
+function _solOpenItemPicker(ctx, container, updatePrice, saveDraftNow) {
   const { state, money, showToast } = ctx;
   document.getElementById("solItemPickerModal")?.remove();
 
@@ -345,6 +364,7 @@ function _solOpenItemPicker(ctx, container, updatePrice) {
     modal.remove();
     _solRenderItemsList(container, money);
     updatePrice();
+    saveDraftNow?.();
     showToast?.(`เพิ่ม "${p.name}" จาก ${chosenWh.warehouse_name} แล้ว`);
   });
 
@@ -356,8 +376,8 @@ export function renderSolarPage(ctx) {
   const container = document.getElementById("page-solar");
   if (!container) return;
 
-  // Phase 88.13 — รีเซ็ต items list ตอน mount หน้า (กัน items ค้างจากครั้งก่อน)
-  _solItems = [];
+  const draft = loadServiceDraft(SOLAR_DRAFT_KEY);
+  _solItems = Array.isArray(draft?.items) ? draft.items.map(it => ({ ...it })) : [];
 
   const typeOptions = SOLAR_TYPES.map(t => `<option value="${escHtml(t)}">${escHtml(t)}</option>`).join("");
 
@@ -475,8 +495,11 @@ export function renderSolarPage(ctx) {
     <div id="solStatus" class="hidden panel mt16"></div>
   `;
 
+  applyDraftFields(container, draft, SOLAR_DRAFT_FIELDS);
+  container.querySelector("#solCustomTypeWrap")?.classList.toggle("hidden", !container.querySelector("#solType")?.value.includes("อื่นๆ"));
   // Render initial items list
   _solRenderItemsList(container, money);
+  const saveDraftNow = bindServiceDraft(container, SOLAR_DRAFT_KEY, SOLAR_DRAFT_FIELDS, () => ({ items: _solItems }));
 
   function updatePrice() {
     const labor = parseFloat(container.querySelector("#solLabor").value) || 0;
@@ -494,7 +517,7 @@ export function renderSolarPage(ctx) {
   container.querySelector("#solType").addEventListener("change", (e) => {
     container.querySelector("#solCustomTypeWrap").classList.toggle("hidden", !e.target.value.includes("อื่นๆ"));
   });
-  container.querySelector("#solAddItemBtn").addEventListener("click", () => _solOpenItemPicker(ctx, container, updatePrice));
+  container.querySelector("#solAddItemBtn").addEventListener("click", () => _solOpenItemPicker(ctx, container, updatePrice, saveDraftNow));
   _solBindItemListEvents(container, updatePrice, money);
   container.querySelector("#solLabor").addEventListener("input", updatePrice);
   container.querySelector("#solDiscount").addEventListener("input", updatePrice);
@@ -803,6 +826,7 @@ export function renderSolarPage(ctx) {
 
       statusEl.innerHTML = `<div style="text-align:center;color:var(--success);font-weight:700">✅ บันทึกงานโซล่าเซลล์สำเร็จ!${jobNo ? ` (${escHtml(jobNo)})` : ""}</div>`;
       showToast("บันทึกสำเร็จ!");
+      clearServiceDraft(SOLAR_DRAFT_KEY);
 
       // ★ Phase 88.12: auto-post JV ถ้าปิดงานทันที
       if (jobId && isClosure) {

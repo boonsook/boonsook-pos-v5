@@ -8,6 +8,7 @@
 import { postJournalForServiceJob } from "./accounting/auto_post.js";
 import { aggregateNeedByKey } from "./stock_precheck.js";
 import { normalizeServiceJobStatus, serviceJobNoteWithReviewMarker } from "./service_status.js";
+import { applyDraftFields, bindServiceDraft, clearServiceDraft, loadServiceDraft } from "./service_drafts.js";
 
 // Module-level state
 let _items = [];           // [{product_id, name, qty, unit_price, line_total, warehouse_id, warehouse_name}]
@@ -16,6 +17,19 @@ const _pickerSearch = "";
 let _lastSavedJob = null;  // ถ้ามีค่า → form อยู่ใน read-only (lock items, edit ได้แค่ note)
 
 const escHtml = (s) => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+const AC_DRAFT_KEY = "ac_install";
+const AC_DRAFT_FIELDS = [
+  ["#acName", "name"],
+  ["#acPhone", "phone"],
+  ["#acAddress", "address"],
+  ["#acProduct", "product"],
+  ["#acQty", "qty"],
+  ["#acLabor", "labor"],
+  ["#acDiscount", "discount"],
+  ["#acNote", "note"],
+  ["#acStatusSel", "status"],
+  ["#acPaymentMethod", "paymentMethod"]
+];
 
 // ═══════════════════════════════════════════════════════════
 //  Phase 43 — Mobile warehouse helpers
@@ -70,6 +84,10 @@ export function renderAcInstallPage(ctx) {
   const { state, money, showToast } = ctx;
   const container = document.getElementById("page-ac_install");
   if (!container) return;
+  const draft = loadServiceDraft(AC_DRAFT_KEY);
+  if (!_lastSavedJob && Array.isArray(draft?.items)) {
+    _items = draft.items.map(it => ({ ...it }));
+  }
 
   // ★ Phase 40 — สินค้าแอร์ในสต็อก (รุ่นหลัก)
   // Phase 43: filter เฉพาะที่มีใน mobile (รถ) — ถ้าไม่มีในรถเลย ก็ขึ้นใน dropdown ได้ ถ้ามีในบ้าน (auto-transfer)
@@ -222,8 +240,10 @@ export function renderAcInstallPage(ctx) {
     <div id="acAfterSave"></div>
   `;
 
+  applyDraftFields(container, draft, AC_DRAFT_FIELDS);
   // Render initial items list
   _renderItemsList(container, money);
+  const saveDraftNow = bindServiceDraft(container, AC_DRAFT_KEY, AC_DRAFT_FIELDS, () => ({ items: _items }));
 
   // ★ Phase 88.12: Slip upload + AI verify (port จาก service_form.js)
   let _slipUrl = "";
@@ -345,7 +365,7 @@ export function renderAcInstallPage(ctx) {
   container.querySelector("#acProduct")?.addEventListener("change", updateTotal);
 
   // ★ Phase 41 — เพิ่ม/แก้ไข/ลบอุปกรณ์
-  container.querySelector("#acAddItemBtn")?.addEventListener("click", () => _openItemPicker(ctx, container, updateTotal));
+  container.querySelector("#acAddItemBtn")?.addEventListener("click", () => _openItemPicker(ctx, container, updateTotal, saveDraftNow));
   _bindItemListEvents(container, updateTotal, money);
 
   // ★ Phase 45.6 — โอนสต็อก บ้าน→รถ inline
@@ -633,6 +653,7 @@ export function renderAcInstallPage(ctx) {
       // eslint-disable-next-line require-atomic-updates -- G: saveBtn entry-guard (ac_install.js:340) gates concurrent save handler
       statusEl.innerHTML = `<div style="text-align:center;color:#059669;font-weight:700">✅ บันทึกใบงานติดตั้งสำเร็จ!${jobNo ? ` (เลขที่ ${escHtml(jobNo)})` : ""}</div>`;
       showToast("บันทึกสำเร็จ!");
+      clearServiceDraft(AC_DRAFT_KEY);
 
       // ★ Phase 88.12: auto-post JV ถ้าช่างปิดงานทันที (delivered/closed/done)
       if (jobId && isClosure) {
@@ -745,6 +766,7 @@ function _bindItemListEvents(container, updateTotal, money) {
       _items[idx].line_total = qty * Number(_items[idx].unit_price || 0);
       updateLineTotal(idx);
       updateTotal();
+      container.dispatchEvent(new Event("input"));
     } else if (tgt.dataset.itemPrice !== undefined) {
       const idx = Number(tgt.dataset.itemPrice);
       const price = Math.max(0, parseFloat(tgt.value) || 0);
@@ -752,6 +774,7 @@ function _bindItemListEvents(container, updateTotal, money) {
       _items[idx].line_total = Number(_items[idx].qty) * price;
       updateLineTotal(idx);
       updateTotal();
+      container.dispatchEvent(new Event("input"));
     }
   });
   container.querySelector("#acItemsList")?.addEventListener("click", (e) => {
@@ -761,6 +784,7 @@ function _bindItemListEvents(container, updateTotal, money) {
       _items.splice(idx, 1);
       _renderItemsList(container, money);
       updateTotal();
+      container.dispatchEvent(new Event("input"));
       return;
     }
     // Phase 83.1: ปุ่ม +/- เพิ่ม/ลดจำนวน (mobile-friendly stepper)
@@ -774,6 +798,7 @@ function _bindItemListEvents(container, updateTotal, money) {
       if (qtyInput) qtyInput.value = _items[idx].qty;
       updateLineTotal(idx);
       updateTotal();
+      container.dispatchEvent(new Event("input"));
       return;
     }
     const decBtn = e.target.closest("[data-item-qty-dec]");
@@ -785,6 +810,7 @@ function _bindItemListEvents(container, updateTotal, money) {
       if (qtyInput) qtyInput.value = _items[idx].qty;
       updateLineTotal(idx);
       updateTotal();
+      container.dispatchEvent(new Event("input"));
       return;
     }
   });
@@ -793,7 +819,7 @@ function _bindItemListEvents(container, updateTotal, money) {
 // ═══════════════════════════════════════════════════════════
 //  Phase 41 — Picker modal: search + select equipment
 // ═══════════════════════════════════════════════════════════
-function _openItemPicker(ctx, container, updateTotal) {
+function _openItemPicker(ctx, container, updateTotal, saveDraftNow) {
   const { state, money, showToast } = ctx;
   document.getElementById("acItemPickerModal")?.remove();
 
@@ -928,6 +954,7 @@ function _openItemPicker(ctx, container, updateTotal) {
     modal.remove();
     _renderItemsList(container, money);
     updateTotal();
+    saveDraftNow?.();
     showToast?.(`เพิ่ม "${p.name}" จาก ${chosenWh.warehouse_name} แล้ว`);
   });
 
@@ -959,6 +986,7 @@ function _renderAfterSaveActions(container, ctx) {
     try { await ctx.loadAllData?.(); } catch(e) {}
     _items = [];
     _lastSavedJob = null;
+    clearServiceDraft(AC_DRAFT_KEY);
     renderAcInstallPage(ctx);
   });
 }

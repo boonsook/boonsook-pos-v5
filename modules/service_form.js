@@ -12,6 +12,7 @@
 import { postJournalForServiceJob } from "./accounting/auto_post.js";
 import { aggregateNeedByKey } from "./stock_precheck.js";
 import { normalizeServiceJobStatus, serviceJobNoteWithReviewMarker } from "./service_status.js";
+import { applyDraftFields, bindServiceDraft, clearServiceDraft, loadServiceDraft } from "./service_drafts.js";
 
 export const SERVICE_TYPES = {
   repair_ac:     { icon: "🔧", label: "ซ่อมแอร์",            job_type: "repair_ac",     defaultDesc: "อาการเสีย เช่น ไม่เย็น / มีน้ำหยด / เสียงดัง" },
@@ -37,6 +38,17 @@ function _getStateFor(type) {
 }
 
 const escHtml = (s) => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+const SERVICE_FORM_DRAFT_FIELDS = [
+  ["#svName", "name"],
+  ["#svPhone", "phone"],
+  ["#svAddress", "address"],
+  ["#svDescription", "description"],
+  ["#svLabor", "labor"],
+  ["#svDiscount", "discount"],
+  ["#svNote", "note"],
+  ["#svStatusSel", "status"],
+  ["#svPaymentMethod", "paymentMethod"]
+];
 
 // ═══════════════════════════════════════════════════════════
 //  Mobile warehouse helpers (เหมือน ac_install.js — Phase 43)
@@ -89,6 +101,11 @@ export function renderServiceFormPage(ctx, serviceType) {
   if (!container) return;
 
   const st = _getStateFor(serviceType);
+  const draftKey = `service_form:${serviceType}`;
+  const draft = loadServiceDraft(draftKey);
+  if (!st.lastSavedJob && Array.isArray(draft?.items)) {
+    st.items = draft.items.map(it => ({ ...it }));
+  }
 
   container.innerHTML = `
     <div class="panel">
@@ -206,7 +223,9 @@ export function renderServiceFormPage(ctx, serviceType) {
     <div id="svAfterSave"></div>
   `;
 
+  applyDraftFields(container, draft, SERVICE_FORM_DRAFT_FIELDS);
   _renderItemsList(container, money, st);
+  const saveDraftNow = bindServiceDraft(container, draftKey, SERVICE_FORM_DRAFT_FIELDS, () => ({ items: st.items }));
 
   // ★ Phase 88.6 + 88.12: Slip upload + AI verify (Gemini Vision) — service_form
   let _slipUrl = "";
@@ -371,7 +390,7 @@ export function renderServiceFormPage(ctx, serviceType) {
 
   container.querySelectorAll("input[type=number]").forEach(el => el.addEventListener("input", updateTotal));
 
-  container.querySelector("#svAddItemBtn")?.addEventListener("click", () => _openItemPicker(ctx, container, updateTotal, st));
+  container.querySelector("#svAddItemBtn")?.addEventListener("click", () => _openItemPicker(ctx, container, updateTotal, st, saveDraftNow));
   container.querySelector("#svAiBtn")?.addEventListener("click", () => window.BoonsookAI?.open());
   _bindItemListEvents(container, updateTotal, money, st);
 
@@ -629,6 +648,7 @@ export function renderServiceFormPage(ctx, serviceType) {
 
       statusEl.innerHTML = `<div style="text-align:center;color:#059669;font-weight:700">✅ บันทึกใบงาน${escHtml(cfg.label)}สำเร็จ!${jobNo ? ` (เลขที่ ${escHtml(jobNo)})` : ""}</div>`;
       showToast("บันทึกสำเร็จ!");
+      clearServiceDraft(draftKey);
 
       // ★ Phase 88.6: auto-post JV ถ้าช่างปิดงาน + เลือก completion status (delivered/closed/done)
       // (default = pending → ไม่ trigger; ต้องเลือก status เพื่อสั่งปิดงาน)
@@ -719,6 +739,7 @@ function _bindItemListEvents(container, updateTotal, money, st) {
       st.items[idx].line_total = qty * Number(st.items[idx].unit_price || 0);
       _renderItemsList(container, money, st);
       updateTotal();
+      container.dispatchEvent(new Event("input"));
     } else if (tgt.dataset.itemPrice !== undefined) {
       const idx = Number(tgt.dataset.itemPrice);
       const price = Math.max(0, parseFloat(tgt.value) || 0);
@@ -726,6 +747,7 @@ function _bindItemListEvents(container, updateTotal, money, st) {
       st.items[idx].line_total = Number(st.items[idx].qty) * price;
       _renderItemsList(container, money, st);
       updateTotal();
+      container.dispatchEvent(new Event("input"));
     }
   });
   container.querySelector("#svItemsList")?.addEventListener("click", (e) => {
@@ -735,6 +757,7 @@ function _bindItemListEvents(container, updateTotal, money, st) {
       st.items.splice(idx, 1);
       _renderItemsList(container, money, st);
       updateTotal();
+      container.dispatchEvent(new Event("input"));
     }
   });
 }
@@ -742,7 +765,7 @@ function _bindItemListEvents(container, updateTotal, money, st) {
 // ═══════════════════════════════════════════════════════════
 //  Picker modal
 // ═══════════════════════════════════════════════════════════
-function _openItemPicker(ctx, container, updateTotal, st) {
+function _openItemPicker(ctx, container, updateTotal, st, saveDraftNow) {
   const { state, money, showToast } = ctx;
   document.getElementById("svItemPickerModal")?.remove();
 
@@ -870,6 +893,7 @@ function _openItemPicker(ctx, container, updateTotal, st) {
     modal.remove();
     _renderItemsList(container, money, st);
     updateTotal();
+    saveDraftNow?.();
     showToast?.(`เพิ่ม "${p.name}" จาก ${chosenWh.warehouse_name} แล้ว`);
   });
 
@@ -901,6 +925,7 @@ function _renderAfterSaveActions(container, ctx, serviceType) {
     try { await ctx.loadAllData?.(); } catch(e) {}
     st.items = [];
     st.lastSavedJob = null;
+    clearServiceDraft(`service_form:${serviceType}`);
     renderServiceFormPage(ctx, serviceType);
   });
 }

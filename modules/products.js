@@ -76,6 +76,7 @@ let quickFilter = ""; // ★ "no_cost" | "no_barcode" | ""
 // Phase 68 (B3): tag filter — null = no filter, string = filter by tag name
 let currentTagFilter = null;
 const PAGE_SIZE = 20;
+let _lastProductsCtx = null;
 
 // ─── Letter Avatar Colors ───
 const AVATAR_COLORS = [
@@ -138,6 +139,7 @@ export function renderProductsPage({ state, addToCart, openProductDrawer, wareho
   // ★ warehouseFilter: ชื่อคลัง เช่น "คันขาว", "คันแดง", "ศีขร" — ถ้ามีจะล็อคคลังนั้น
   // ★ pageId: ถ้าเป็น sub-page จะใช้ container อื่น เช่น "page-wh_kunkhao"
   const ctx = { state, addToCart, openProductDrawer, warehouseFilter: warehouseFilter || null, pageId: pageId || "page-products" };
+  _lastProductsCtx = ctx;
 
   currentPage = 1;
   searchQuery = "";
@@ -181,6 +183,12 @@ export function renderProductsPage({ state, addToCart, openProductDrawer, wareho
   }
 }
 
+export function refreshProductsPage() {
+  if (!_lastProductsCtx) return false;
+  renderView(_lastProductsCtx);
+  return true;
+}
+
 // ─── Helper: get stock for a product in specific warehouse ───
 function getWarehouseStock(state, productId, warehouseId) {
   if (warehouseId === "all" || !warehouseId) return null; // use product.stock
@@ -195,7 +203,7 @@ function getDisplayStock(state, product) {
   return ws ? { stock: Number(ws.stock || 0), min_stock: Number(ws.min_stock || 0) } : { stock: 0, min_stock: 0 };
 }
 
-function renderView(ctx) {
+function renderView(ctx, opts = {}) {
   const { state, addToCart, openProductDrawer, warehouseFilter, pageId } = ctx;
   const el = document.getElementById(pageId || "page-products");
   if (!el) return;
@@ -581,7 +589,9 @@ function renderView(ctx) {
   });
   el.querySelector("#prodAddBtn, .prod-add-btn")?.addEventListener("click", () => {
     // ★ pre-fill product_type ตาม tab ที่เลือกอยู่
-    const opts = currentTypeFilter !== 'all' ? { prefillType: currentTypeFilter } : {};
+    const opts = {};
+    if (currentTypeFilter !== "all") opts.prefillType = currentTypeFilter;
+    if (currentCategory !== "all") opts.prefillCategory = currentCategory;
     openProductDrawer(null, opts);
   });
 
@@ -777,7 +787,7 @@ function renderView(ctx) {
     _searchTimer = setTimeout(() => {
       searchQuery = e.target.value.trim();
       currentPage = 1;
-      renderView(ctx);
+      renderView(ctx, { focusSearch: true });
     }, 300);
   });
 
@@ -874,6 +884,15 @@ function renderView(ctx) {
   // Scanner
   el.querySelector("#prodScanBtn")?.addEventListener("click", () => openScanner(ctx));
   el.querySelector("#prodScannerClose")?.addEventListener("click", () => closeScanner());
+
+  if (opts.focusSearch) {
+    const input = el.querySelector("#prodSearchInput");
+    if (input) {
+      input.focus();
+      const pos = input.value.length;
+      try { input.setSelectionRange(pos, pos); } catch(e) {}
+    }
+  }
 }
 
 
