@@ -1070,9 +1070,11 @@ async function _savePayroll(ctx, existing) {
     daily_rate:  dailyRate,
     note:        (document.getElementById("prNote")?.value || "").trim() || null
   };
-  // Phase 92.43 (B1): persist total_amount ทุกครั้ง — ห้ามปล่อย NULL
-  // (ฝั่ง app คำนวณเอง; ถ้า DB มี trigger/generated column ก็ยังยอมรับค่าที่ส่งมาเหมือนเดิม)
-  payload.total_amount = computePayrollTotal(payload);
+  // Phase 416 fix: total_amount = DB GENERATED column — ห้ามใส่ใน payload (POST/PATCH)
+  // ส่งไป = Postgres ปฏิเสธทั้งคำสั่ง 400 428C9 "cannot insert a non-DEFAULT value into
+  // column total_amount" (บั๊กเดิมตั้งแต่ 92.43 B1 — comment เก่าเดาผิดว่า DB จะยอมรับค่า
+  // → insert ไม่เคยผ่านเลย, ตาราง 0 แถว) — ค่าจริงได้จาก response (Prefer: return=representation);
+  // computePayrollTotal ใช้ display ฝั่ง UI เท่านั้น (สูตรต้องตรงกับ generated column ใน DB)
 
   // ── Phase 416: details jsonb — snapshot รายละเอียดต่อรอบ (schema v1) ─────────
   // shape:
@@ -1123,18 +1125,28 @@ async function _savePayroll(ctx, existing) {
       }
       throw new Error("HTTP " + resp.status + " " + txt.slice(0, 200));
     }
+    // Phase 416 fix: อ่าน row จริงจาก DB (return=representation) — total_amount เป็น
+    // generated column มีค่าเฉพาะใน response (payload ไม่มี) ใช้กับ audit log ด้านล่าง
+    let savedRow = null;
+    try {
+      const rows = await resp.json();
+      savedRow = Array.isArray(rows) ? rows[0] : rows;
+    } catch (_e) { /* parse fail — non-fatal: log ใช้ค่าคำนวณฝั่ง UI แทน */ }
+    const savedTotal = savedRow?.total_amount != null
+      ? Number(savedRow.total_amount)
+      : computePayrollTotal(payload); // display/log เท่านั้น — DB คือ source of truth
     // Phase 92.43 (B4): audit log — silent fail
     const isUpdate = !!existing?.id;
     logActivity(isUpdate ? "payroll_update" : "payroll_create", {
       entityType: "staff_payroll",
       entityId: existing?.id || null,
-      summary: `${isUpdate ? "แก้ไข" : "เพิ่ม"} payroll ${employee_id} รอบ ${_periodStart} → ${_periodEnd} — รวม ${payload.total_amount}`,
+      summary: `${isUpdate ? "แก้ไข" : "เพิ่ม"} payroll ${employee_id} รอบ ${_periodStart} → ${_periodEnd} — รวม ${savedTotal}`,
       metadata: {
         employee_id,
         period_start: payload.period_start,
         period_end: payload.period_end,
         period_month: payload.period_month,
-        total_amount: payload.total_amount,
+        total_amount: savedTotal,
         before: existing ? {
           base_salary: Number(existing.base_salary || 0),
           total_amount: Number(existing.total_amount || 0),
@@ -1147,7 +1159,7 @@ async function _savePayroll(ctx, existing) {
           bonus: payload.bonus,
           commission: payload.commission,
           deductions: payload.deductions,
-          total_amount: payload.total_amount,
+          total_amount: savedTotal,
         },
       },
     });

@@ -113,14 +113,25 @@ test("canDeletePayroll — null/undefined/no id → not allowed", () => {
 //  Source-level wiring (Phase 92.43 B1-B4)
 // ═══════════════════════════════════════════════════════════
 
-test("source: _savePayroll persist total_amount (B1) + logActivity (B4)", async () => {
+test("source: _savePayroll ห้ามส่ง total_amount ใน payload (DB generated column — 428C9) + logActivity (B4)", async () => {
   const fs = await import("node:fs");
   const path = await import("node:path");
   const src = fs.readFileSync(path.resolve("modules/payroll.js"), "utf8");
   const body = src.match(/async function _savePayroll[\s\S]*?^}/m)?.[0] || "";
   assert.ok(body.length > 0, "ต้องเจอ _savePayroll");
-  assert.match(body, /payload\.total_amount\s*=\s*computePayrollTotal\(payload\)/,
-    "ต้อง set payload.total_amount = computePayrollTotal(payload) — ห้ามปล่อย NULL");
+  // Phase 416 fix — กลับ invariant เดิมของ 92.43 B1 (justified deviation):
+  // DB จริง staff_payroll.total_amount เป็น GENERATED column → Postgres ปฏิเสธ INSERT/UPDATE
+  // ที่ส่งค่านี้ทั้งคำสั่ง (HTTP 400 428C9) — assumption เดิม "DB จะยอมรับค่าที่ส่ง" ผิด
+  // ทำให้บันทึกเงินเดือนไม่เคยผ่านเลยตั้งแต่ 92.43
+  assert.ok(!/payload\.total_amount\s*=/.test(body),
+    "ห้าม set payload.total_amount — DB generated column จะ reject ทั้งคำสั่ง (428C9)");
+  const payloadBlock = body.match(/const payload = \{[\s\S]*?\n {2}\};/)?.[0] || "";
+  assert.ok(payloadBlock.length > 0, "ต้องเจอ payload object literal ใน _savePayroll");
+  assert.ok(!/total_amount\s*:/.test(payloadBlock),
+    "payload block ห้ามมี key total_amount: (DB generate เอง)");
+  // ค่า total ที่ใช้หลัง save ต้องมาจาก response row (Prefer: return=representation) ไม่ใช่ payload
+  assert.match(body, /return=representation/, "ต้องใช้ Prefer: return=representation เพื่ออ่าน total_amount จริงจาก DB");
+  assert.match(body, /savedRow/, "ต้อง parse row จาก response (savedRow) มาใช้หลัง save");
   assert.match(body, /logActivity\([\s\S]{0,80}?["']payroll_(create|update|save)["']/, "ต้อง log activity (B4) — payroll_create/update/save");
   assert.match(body, /entityType:\s*["']staff_payroll["']/, "audit entityType=staff_payroll");
 });
