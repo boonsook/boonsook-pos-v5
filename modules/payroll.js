@@ -417,6 +417,7 @@ export async function renderPayrollPage(ctx) {
               style="font-size:12px;font-weight:700;padding:7px 12px;border-radius:8px;cursor:pointer;border:1px dashed ${isCustomPeriod ? '#7c3aed' : '#cbd5e1'};background:${isCustomPeriod ? '#f5f3ff' : '#fff'};color:${isCustomPeriod ? '#5b21b6' : '#475569'}">⚙️ กำหนดเอง${isCustomPeriod ? ': ' + escHtml(formatPayPeriodLabel(_periodStart, _periodEnd)) : ''}</button>
           </div>
           <button id="prExportBtn" class="btn light" style="font-size:13px">📥 Excel</button>
+          ${_payrolls.length > 0 ? `<button id="prPrintAllBtn" class="btn light" style="font-size:13px" title="พิมพ์สลิปทุกคนของรอบนี้ (สลิปละ 2 หน้า ต้นฉบับ+สำเนา)">🖨️ พิมพ์สลิปทุกคน</button>` : ""}
           <!-- Phase 417: bulk DRAFT ทั้งรอบ — สร้างสถานะ "รอจ่าย" เท่านั้น ไม่มีการจ่าย/JV -->
           <button id="prBulkBtn" type="button" style="margin-left:auto;font-size:13px;font-weight:700;padding:8px 14px;background:#7c3aed;color:#fff;border:none;border-radius:8px;cursor:pointer">⚡ สร้างเงินเดือนทั้งรอบ</button>
           <button id="prAddBtn" class="btn primary" style="font-size:13px">+ เพิ่มรายการเงินเดือน</button>
@@ -534,6 +535,7 @@ export async function renderPayrollPage(ctx) {
                       </td>
                       <td style="padding:8px 10px;text-align:right;white-space:nowrap">
                         <button class="btn pr-slip-btn" data-id="${p.id}" style="padding:4px 8px;font-size:11px;background:#0284c7;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700" title="พิมพ์สลิปเงินเดือน">🖨️ สลิป</button>
+                        <button class="btn light pr-hist-btn" data-emp="${escHtml(String(p.employee_id))}" style="padding:4px 8px;font-size:11px" title="ประวัติเงินเดือนย้อนหลังของพนักงานคนนี้">📜 ประวัติ</button>
                         ${!p.paid_at ? `<button class="btn pr-pay-btn" data-id="${p.id}" style="padding:4px 8px;font-size:11px;background:#10b981;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700">💸 จ่าย</button>` : ''}
                         <button class="btn light pr-edit-btn" data-id="${p.id}" style="padding:4px 8px;font-size:11px">แก้</button>
                         <button class="btn pr-del-btn" data-id="${p.id}" style="padding:4px 8px;font-size:11px;background:#fee2e2;color:#dc2626;border:none;border-radius:6px;cursor:pointer">ลบ</button>
@@ -590,6 +592,9 @@ export async function renderPayrollPage(ctx) {
   container.querySelectorAll(".pr-del-btn").forEach(btn => btn.addEventListener("click", () => _deletePayroll(ctx, btn.dataset.id)));
   container.querySelectorAll(".pr-pay-btn").forEach(btn => btn.addEventListener("click", () => _markPaid(ctx, btn.dataset.id)));
   container.querySelectorAll(".pr-slip-btn").forEach(btn => btn.addEventListener("click", () => _printPayslip(ctx, btn.dataset.id)));
+  // Phase 418 (Part C): ประวัติรายคน (read-only) + พิมพ์สลิปทุกคนของรอบ (read-only + print)
+  container.querySelectorAll(".pr-hist-btn").forEach(btn => btn.addEventListener("click", () => _openPayrollHistoryModal(ctx, btn.dataset.emp)));
+  document.getElementById("prPrintAllBtn")?.addEventListener("click", () => _printAllPayslips(ctx));
   document.getElementById("prExportBtn")?.addEventListener("click", () => _exportPayroll());
 }
 
@@ -1576,47 +1581,20 @@ function _bahtText(amount) {
   return t;
 }
 
-function _printPayslip(ctx, payrollId) {
-  const p = _payrolls.find(x => String(x.id) === String(payrollId));
-  if (!p) { ctx.showToast?.("ไม่พบรายการ"); return; }
-  const emp = _profiles.find(x => x.id === p.employee_id);
-  const dept = _depts.find(d => d.id === p.department_id);
-  const store = ctx.state?.storeInfo || window.App?.state?.storeInfo || {};
-  const logo = window._appGetLogo ? window._appGetLogo() : "./icons/logo.svg";
+// ═══════════════════════════════════════════════════════════
+//  Phase 418 (Part C) — Payslip HTML builders (pure, testable)
+//  extract จาก _printPayslip แบบ byte-preserving (เนื้อ template ย้ายทั้งก้อน ไม่พิมพ์ใหม่)
+//  — layout/ข้อความสลิปเดิมทุกตัวอักษร; _printPayslip ประกอบกลับได้ output เดิมเป๊ะ
+//  ผู้ใช้: _printPayslip (สลิปรายคน) + _printAllPayslips (รวมทุกคนของรอบ) + ปุ่มสลิปในประวัติ
+// ═══════════════════════════════════════════════════════════
 
-  // Phase 416: แสดงช่วงรอบจ่ายจริงเมื่อมี period_start/period_end (ข้อความ label เท่านั้น —
-  // layout สลิปเดิมทุกอย่าง); แถวเก่าไม่มีคอลัมน์รอบ → fallback ชื่อเดือนแบบเดิม
-  const periodLabel = (p.period_start && p.period_end)
-    ? formatPayPeriodLabel(p.period_start, p.period_end)
-    : (() => {
-        const d = new Date((p.period_month || "").slice(0, 10));
-        return d.toLocaleDateString("th-TH", { year: "numeric", month: "long" });
-      })();
-  const slipNo = "PS" + (p.period_month || "").slice(0, 7).replace("-", "") + "-" + String(p.id).padStart(4, "0");
-
-  // Phase 77: ถ้าจ่ายรายวัน → label เงินเดือนแสดง "rate × days"
-  const baseLabel = (p.days_worked > 0 && p.daily_rate > 0)
-    ? `ค่าจ้างรายวัน (฿${Number(p.daily_rate).toLocaleString('th-TH')} × ${p.days_worked} วัน)`
-    : "เงินเดือน";
-
-  const incomeRows = [
-    [baseLabel,           p.base_salary],
-    ["ค่าล่วงเวลา (OT)", p.overtime],
-    ["สวัสดิการ",        p.welfare],
-    ["เงินพิเศษ/โบนัส",  p.bonus],
-    ["คอมมิชชัน",        p.commission],
-  ].filter(r => Number(r[1] || 0) !== 0);
-
-  const totalIncome = incomeRows.reduce((s, r) => s + Number(r[1] || 0), 0);
-  const ded = Number(p.deductions || 0);
-  const net = Number(p.total_amount || (totalIncome - ded));
-
-  const html = `<!DOCTYPE html>
-<html lang="th"><head><meta charset="UTF-8" />
-<title>สลิปเงินเดือน — ${escHtml(emp?.full_name || "")}</title>
-<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700;800;900&display=swap" rel="stylesheet">
-<style>
-  *,*::before,*::after { box-sizing: border-box; }
+/**
+ * CSS ของสลิป — ขึ้นกับ p.paid_at เฉพาะสีของ .pay-section/.pay-title/.pay-detail
+ * @param {object} p payroll row
+ * @returns {string} เนื้อ CSS (ไม่รวมแท็ก <style>)
+ */
+export function buildPayslipStyleCss(p) {
+  return `  *,*::before,*::after { box-sizing: border-box; }
   @page { size: A4; margin: 0; }
   body { font-family: "Sarabun", system-ui, sans-serif; margin: 0; padding: 0; color: #0f172a; font-size: 14px; }
   .page { width: 210mm; min-height: 297mm; padding: 18mm 16mm; box-sizing: border-box; position: relative; page-break-after: always; }
@@ -1655,11 +1633,50 @@ function _printPayslip(ctx, payrollId) {
   .sig-line { border-bottom: 1px solid #1f2937; margin: 30px 0 6px; }
   .sig-label { font-size: 12px; color: #475569; }
   .footer-note { position: absolute; bottom: 12mm; left: 16mm; right: 16mm; font-size: 10.5px; color: #94a3b8; text-align: center; border-top: 1px dashed #cbd5e1; padding-top: 6px; }
-  @media print { .no-print { display: none; } body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
-</style>
-</head>
-<body>
-${[1,2].map(copyNum => `
+  @media print { .no-print { display: none; } body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }`;
+}
+
+/**
+ * HTML หน้าสลิปของ payroll row เดียว (2 หน้า: ต้นฉบับ + สำเนา — .page มี page-break-after)
+ * ใช้กับแถวรอบเก่า (ประวัติ) ได้ — ข้อมูลครบใน row เอง ไม่พึ่ง state รอบปัจจุบัน
+ * @param {object} p payroll row
+ * @param {{emp?:object, dept?:object, store?:object, logo?:string}} opts
+ * @returns {string} fragment สำหรับใส่ใน <body> (ไม่รวม <html>/<style>)
+ */
+export function buildPayslipHtml(p, opts = {}) {
+  const emp = opts.emp;
+  const dept = opts.dept;
+  const store = opts.store || {};
+  const logo = opts.logo || "./icons/logo.svg";
+
+  // Phase 416: แสดงช่วงรอบจ่ายจริงเมื่อมี period_start/period_end (ข้อความ label เท่านั้น —
+  // layout สลิปเดิมทุกอย่าง); แถวเก่าไม่มีคอลัมน์รอบ → fallback ชื่อเดือนแบบเดิม
+  const periodLabel = (p.period_start && p.period_end)
+    ? formatPayPeriodLabel(p.period_start, p.period_end)
+    : (() => {
+        const d = new Date((p.period_month || "").slice(0, 10));
+        return d.toLocaleDateString("th-TH", { year: "numeric", month: "long" });
+      })();
+  const slipNo = "PS" + (p.period_month || "").slice(0, 7).replace("-", "") + "-" + String(p.id).padStart(4, "0");
+
+  // Phase 77: ถ้าจ่ายรายวัน → label เงินเดือนแสดง "rate × days"
+  const baseLabel = (p.days_worked > 0 && p.daily_rate > 0)
+    ? `ค่าจ้างรายวัน (฿${Number(p.daily_rate).toLocaleString('th-TH')} × ${p.days_worked} วัน)`
+    : "เงินเดือน";
+
+  const incomeRows = [
+    [baseLabel,           p.base_salary],
+    ["ค่าล่วงเวลา (OT)", p.overtime],
+    ["สวัสดิการ",        p.welfare],
+    ["เงินพิเศษ/โบนัส",  p.bonus],
+    ["คอมมิชชัน",        p.commission],
+  ].filter(r => Number(r[1] || 0) !== 0);
+
+  const totalIncome = incomeRows.reduce((s, r) => s + Number(r[1] || 0), 0);
+  const ded = Number(p.deductions || 0);
+  const net = Number(p.total_amount || (totalIncome - ded));
+
+  return [1,2].map(copyNum => `
 <div class="page">
   <div class="accent"></div>
   <div class="hdr">
@@ -1737,7 +1754,28 @@ ${[1,2].map(copyNum => `
 
   <div class="footer-note">เอกสารนี้สร้างจากระบบ Boonsook POS V5 — โปรดเก็บไว้เป็นหลักฐาน</div>
 </div>
-`).join("")}
+`).join("");
+}
+
+function _printPayslip(ctx, payrollId, rowOverride) {
+  // Phase 418 (Part C): rowOverride = แถวจากปุ่มสลิปในประวัติ (รอบเก่า — ไม่อยู่ใน _payrolls ของรอบปัจจุบัน)
+  const p = rowOverride || _payrolls.find(x => String(x.id) === String(payrollId));
+  if (!p) { ctx.showToast?.("ไม่พบรายการ"); return; }
+  const emp = _profiles.find(x => x.id === p.employee_id);
+  const dept = _depts.find(d => d.id === p.department_id);
+  const store = ctx.state?.storeInfo || window.App?.state?.storeInfo || {};
+  const logo = window._appGetLogo ? window._appGetLogo() : "./icons/logo.svg";
+
+  const html = `<!DOCTYPE html>
+<html lang="th"><head><meta charset="UTF-8" />
+<title>สลิปเงินเดือน — ${escHtml(emp?.full_name || "")}</title>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700;800;900&display=swap" rel="stylesheet">
+<style>
+${buildPayslipStyleCss(p)}
+</style>
+</head>
+<body>
+${buildPayslipHtml(p, { emp, dept, store, logo })}
 <script>
   setTimeout(() => { window.print(); }, 400);
   window.onafterprint = () => window.close();
@@ -1749,6 +1787,61 @@ ${[1,2].map(copyNum => `
   w.document.open();
   w.document.write(html);
   w.document.close();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 418 (Part C): 🖨️ พิมพ์สลิปทุกคนของรอบปัจจุบัน — read-only + print เท่านั้น
+//  รวมสลิปทุกแถวใน _payrolls (รอบที่เลือกอยู่) เป็นเอกสารเดียว สลิปละ 2 หน้า
+//  (ต้นฉบับ/สำเนา) คั่นด้วย page-break — reuse buildPayslipStyleCss/buildPayslipHtml
+//  ❌ ไม่มี POST/PATCH/DELETE — ไม่เขียนข้อมูลใด ๆ (pattern เดียวกับพิมพ์ HR report)
+// ═══════════════════════════════════════════════════════════
+function _printAllPayslips(ctx) {
+  if (!_payrolls.length) { ctx.showToast?.("ยังไม่มีรายการเงินเดือนรอบนี้"); return; }
+  const store = ctx.state?.storeInfo || window.App?.state?.storeInfo || {};
+  const logo = window._appGetLogo ? window._appGetLogo() : "./icons/logo.svg";
+  const periodLabel = formatPayPeriodLabel(_periodStart, _periodEnd);
+
+  // สลิปแต่ละคนห่อ wrapper ตามสถานะจ่าย — base CSS (buildPayslipStyleCss) bake สี
+  // pay-section จากสลิปแรกตัวเดียว จึงต้อง override ต่อสลิปข้างล่าง ให้ถูกต้องเสมอ
+  // แม้รอบเดียวกันมีทั้ง "จ่ายแล้ว" และ "รอจ่าย"
+  const slips = _payrolls.map(p => {
+    const emp = _profiles.find(x => x.id === p.employee_id);
+    const dept = _depts.find(d => d.id === p.department_id);
+    return `<div class="slip ${p.paid_at ? "slip-paid" : "slip-pending"}">${buildPayslipHtml(p, { emp, dept, store, logo })}</div>`;
+  }).join("\n");
+
+  const html = `<!DOCTYPE html>
+<html lang="th"><head><meta charset="UTF-8" />
+<title>สลิปเงินเดือนทั้งรอบ — ${escHtml(periodLabel)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700;800;900&display=swap" rel="stylesheet">
+<style>
+${buildPayslipStyleCss(_payrolls[0])}
+  /* Phase 418 print-all: ทุกสลิปขึ้นหน้าใหม่ (page-break-after: always ระหว่างสลิป) +
+     สี pay-section/pay-title/pay-detail ตามสถานะจ่ายของแต่ละสลิป (override base ข้างบน) */
+  .slip .page:last-child { page-break-after: always; }
+  .slip:last-child .page:last-child { page-break-after: avoid; }
+  .slip-paid .pay-section { background: #f0fdf4; border-color: #bbf7d0; }
+  .slip-paid .pay-title { color: #15803d; }
+  .slip-paid .pay-detail { color: #166534; }
+  .slip-pending .pay-section { background: #fff7ed; border-color: #fed7aa; }
+  .slip-pending .pay-title { color: #9a3412; }
+  .slip-pending .pay-detail { color: #7c2d12; }
+</style>
+</head>
+<body>
+${slips}
+<script>
+  setTimeout(() => { window.print(); }, 400);
+  window.onafterprint = () => window.close();
+</script>
+</body></html>`;
+
+  const w = window.open("", "_blank", "width=900,height=1100");
+  if (!w) { ctx.showToast?.("Browser block popup — เปิดใช้ popup สำหรับเว็บนี้"); return; }
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+  ctx.showToast?.(`เปิดหน้าพิมพ์สลิป ${_payrolls.length} คน (${_payrolls.length * 2} หน้า)`);
 }
 
 function _exportPayroll() {
@@ -1777,6 +1870,113 @@ function _exportPayroll() {
   // Phase 416: ชื่อไฟล์บอกช่วงรอบจ่ายที่เลือก (แทนเดือน)
   exportToExcel(`เงินเดือน_${_periodStart}_ถึง_${_periodEnd}_${todaySuffix()}.xlsx`, rows, "Payroll");
   window.App?.showToast?.(`ดาวน์โหลด ${rows.length} รายการ`);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 418 (Part C): 📜 ประวัติเงินเดือนรายคน — read-only modal
+//  GET ครั้งเดียวตอนเปิด (ทุกรอบของพนักงาน ใหม่→เก่า สูงสุด 24 รอบ) — ❌ ไม่มี POST/PATCH/DELETE
+//  แถวเก่าก่อน Phase 416 อาจไม่มี period_start/period_end → nullslast + label fallback จาก period_month
+//  ปุ่ม "สลิป" ส่ง row นั้นให้ _printPayslip ตรง ๆ (รอบเก่าไม่อยู่ใน _payrolls ของรอบปัจจุบัน)
+// ═══════════════════════════════════════════════════════════
+async function _openPayrollHistoryModal(ctx, empId) {
+  if (!empId) return;
+  document.getElementById("prHistModal")?.remove();
+  const emp = _profiles.find(p => String(p.id) === String(empId));
+  const empName = emp?.full_name || "(ไม่พบ)";
+
+  // โครง modal ขึ้นก่อน (สถานะกำลังโหลด) — ตารางเติมหลัง fetch เสร็จ
+  const m = document.createElement("div");
+  m.id = "prHistModal";
+  m.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto";
+  m.innerHTML = `
+    <div style="background:#fff;border-radius:16px;max-width:640px;width:100%;padding:20px;max-height:90vh;overflow-y:auto">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
+        <div>
+          <h3 style="margin:0 0 2px;font-size:16px;color:#0f172a">📜 ประวัติเงินเดือน — ${escHtml(empName)}</h3>
+          <div style="font-size:12px;color:#64748b">ทุกรอบ ใหม่ → เก่า (สูงสุด 24 รอบล่าสุด) · อ่านอย่างเดียว</div>
+        </div>
+        <button id="prHistCloseTop" type="button" style="background:#f1f5f9;border:none;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px;color:#475569">✕ ปิด</button>
+      </div>
+      <div id="prHistBody" style="margin-top:12px;font-size:13px;color:#64748b">⏳ กำลังโหลดประวัติ...</div>
+      <div style="display:flex;justify-content:flex-end;margin-top:12px">
+        <button id="prHistCloseBtn" type="button" style="padding:8px 18px;background:#0284c7;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700">ปิด</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(m);
+  m.addEventListener("click", (e) => { if (e.target === m) m.remove(); });
+  m.querySelector("#prHistCloseTop")?.addEventListener("click", () => m.remove());
+  m.querySelector("#prHistCloseBtn")?.addEventListener("click", () => m.remove());
+
+  // GET ครั้งเดียว — แถวที่ไม่มี period_start (แถวเก่า) ไปท้าย แล้วเรียงต่อด้วย period_month
+  const cfg = window.SUPABASE_CONFIG;
+  const token = window._sbAccessToken || cfg.anonKey;
+  const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token };
+  let rows = [];
+  try {
+    const res = await fetch(cfg.url + `/rest/v1/staff_payroll?select=*&employee_id=eq.${encodeURIComponent(empId)}&order=period_start.desc.nullslast,period_month.desc.nullslast&limit=24`, { headers });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    rows = await res.json();
+  } catch (e) {
+    const bodyEl = m.querySelector("#prHistBody");
+    if (bodyEl) bodyEl.innerHTML = `<div style="padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;font-size:12px;color:#b91c1c">โหลดประวัติไม่สำเร็จ — ${escHtml(e?.message || String(e))}</div>`;
+    return;
+  }
+  if (!m.isConnected) return; // ผู้ใช้ปิด modal ระหว่างโหลด — ไม่ต้องเติม
+
+  const bodyEl = m.querySelector("#prHistBody");
+  if (!bodyEl) return;
+  if (!Array.isArray(rows) || rows.length === 0) {
+    bodyEl.innerHTML = `<div style="padding:14px;text-align:center;color:#94a3b8">ยังไม่มีประวัติเงินเดือนของพนักงานคนนี้</div>`;
+    return;
+  }
+
+  // label รอบ: รอบจริงจาก period_start/end — แถวเก่าไม่มี → fallback ชื่อเดือนจาก period_month
+  const periodCellOf = (r) => (r.period_start && r.period_end)
+    ? formatPayPeriodLabel(r.period_start, r.period_end)
+    : (r.period_month
+        ? new Date(String(r.period_month).slice(0, 10)).toLocaleDateString("th-TH", { year: "numeric", month: "long" })
+        : "—");
+  const paidSum = rows.filter(r => r.paid_at).reduce((s, r) => s + Number(r.total_amount || 0), 0);
+  const isCurrent = (r) => r.period_start === _periodStart && r.period_end === _periodEnd;
+
+  bodyEl.innerHTML = `
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+        <thead style="background:#f8fafc">
+          <tr>
+            <th style="padding:8px 10px;text-align:left;font-weight:700;color:#475569">รอบ</th>
+            <th style="padding:8px 10px;text-align:right;font-weight:700;color:#475569">รวมสุทธิ</th>
+            <th style="padding:8px 10px;text-align:center;font-weight:700;color:#475569">สถานะ</th>
+            <th style="padding:8px 10px;width:70px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(r => `
+            <tr style="border-bottom:1px solid #f1f5f9">
+              <td style="padding:6px 10px">${escHtml(periodCellOf(r))}${isCurrent(r) ? ' <span style="background:#e0f2fe;color:#0c4a6e;padding:1px 6px;border-radius:6px;font-size:10px;font-weight:700">รอบนี้</span>' : ""}</td>
+              <td style="padding:6px 10px;text-align:right;font-weight:700;color:#0284c7">${money(r.total_amount)}</td>
+              <td style="padding:6px 10px;text-align:center">${r.paid_at
+                ? `<span style="background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">✓ จ่ายแล้ว ${escHtml(new Date(r.paid_at).toLocaleDateString("th-TH", { year: "2-digit", month: "short", day: "numeric" }))}</span>`
+                : `<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">รอจ่าย</span>`}</td>
+              <td style="padding:6px 10px;text-align:right"><button type="button" class="pr-hist-slip-btn" data-id="${escHtml(String(r.id))}" title="พิมพ์สลิปรอบนี้" style="padding:3px 8px;font-size:11px;background:#0284c7;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700">🖨️ สลิป</button></td>
+            </tr>`).join("")}
+        </tbody>
+        <tfoot>
+          <tr style="background:#f0fdf4;font-weight:700">
+            <td style="padding:8px 10px;color:#166534">รวมจ่ายแล้ว (จาก ${rows.length} รอบที่แสดง)</td>
+            <td style="padding:8px 10px;text-align:right;color:#059669">${money(paidSum)}</td>
+            <td style="padding:8px 10px" colspan="2"></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>`;
+
+  // Phase 418: สลิปจากประวัติ — ส่ง row ตรงให้ _printPayslip (ห้าม lookup _payrolls — รอบเก่าไม่อยู่ในนั้น)
+  m.querySelectorAll(".pr-hist-slip-btn").forEach(btn => btn.addEventListener("click", () => {
+    const r = rows.find(x => String(x.id) === String(btn.dataset.id));
+    if (r) _printPayslip(ctx, r.id, r);
+  }));
 }
 
 // ═══════════════════════════════════════════════════════════

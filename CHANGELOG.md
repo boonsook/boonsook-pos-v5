@@ -7,6 +7,17 @@
 
 ---
 
+## 5.66.0 (build 418) — 2026-06-11 Phase 418 Part C payroll-history-and-print-all — ประวัติรายคน + พิมพ์สลิปทุกคน
+
+- **feat (payroll · MEDIUM — read-only + print เท่านั้น ไม่แตะ save/pay/JV):** ปุ่ม **"📜 ประวัติ"** ต่อแถว → modal ประวัติเงินเดือนรายคน: GET ครั้งเดียวตอนเปิด `staff_payroll?employee_id=eq.&order=period_start.desc.nullslast,period_month.desc.nullslast&limit=24` — คอลัมน์ รอบ / รวมสุทธิ (`total_amount` จาก DB) / สถานะ (จ่ายแล้ว+วันที่ / รอจ่าย) / ปุ่ม "สลิป" + แถวสรุปท้าย "รวมจ่ายแล้ว (จาก N รอบที่แสดง)"
+- แถวเก่าก่อน 416 ไม่มี `period_start/end` → เรียงท้าย (nullslast) + label fallback ชื่อเดือนจาก `period_month` · ปุ่มสลิปประวัติส่ง row ตรงให้ `_printPayslip` (param ใหม่ `rowOverride`) — **สลิปเก่าออกได้แม้รอบบนหน้าเปลี่ยน**
+- **ปุ่ม "🖨️ พิมพ์สลิปทุกคน"** ข้าง Excel (แสดงเฉพาะเมื่อมีรายการในรอบ): รวมสลิปทุกแถวของรอบเป็น HTML เดียว สลิปละ 2 หน้า (ต้นฉบับ/สำเนา) คั่น `page-break-after: always` + wrapper `slip-paid`/`slip-pending` override สีส่วนสถานะจ่ายต่อสลิป → เปิดหน้าต่างพิมพ์ (pattern เดียวกับพิมพ์ HR report)
+- ⭐ extract `buildPayslipStyleCss` + `buildPayslipHtml` จาก `_printPayslip` แบบ **byte-preserving** (ย้าย template ด้วย slice ไม่พิมพ์ใหม่ + พิสูจน์ output byte-identical 5 เคส: unpaid/paid+note/daily-rate/legacy/XSS) — layout/ข้อความสลิปเดิมทุกตัวอักษร
+- ❌ ไม่มี POST/PATCH/DELETE ใหม่ · ❌ ไม่แตะ `_savePayroll`/`_bulkGeneratePayroll`/`_markPaid`/JV/expense · `computePayrollTotal`/`computePayPeriods`/`buildPeriodAttendanceMap` · ตาราง/การ์ด 417 · hr_overview/time_clock/leave_management · SQL/DB
+- +guard `payroll_partc_guard` (12: unit builders 4 + source-regex 8) · guard 416 (12) + 417 (13) เขียวครบ · lint 0 / unit 1493 / e2e 12 · **STOP รอ review + owner smoke preview**
+
+---
+
 ## 5.66.0 (build 417) — 2026-06-11 Phase 417 Part B payroll-period-full-screen — bulk draft + คอลัมน์เวลาเข้างาน + timesheet
 
 - **feat (payroll · MEDIUM-HIGH — Part B ไม่แตะ pay/JV flow: สร้างร่าง + แสดงผลเท่านั้น):** ปุ่ม **"⚡ สร้างเงินเดือนทั้งรอบ"** — เตรียม "ร่าง" (สถานะรอจ่าย) ให้พนักงานทุกคนจากเวลาเข้างานจริง: App.confirm "สร้างร่าง...ให้ N คน (ข้าม M คนที่มีรายการแล้ว)?" → insert ทีละคนเฉพาะคนที่ยังไม่มีรายการรอบนี้ · inflight guard `_prBulkInflight` กันกดซ้ำ · toast สรุปสำเร็จ/fail + audit log
