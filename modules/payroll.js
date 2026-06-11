@@ -5,10 +5,24 @@
 import { renderSkeleton, renderEmpty, renderError } from "./ui_states.js";
 import { escHtml, exportToExcel, todaySuffix, dateBkk, logActivity } from "./utils.js";
 // Phase 92.26: ดึงสรุป OT จาก Time Clock มาเติมในช่องค่าล่วงเวลา (auto-fill)
-import { fetchUserAttendanceSummary, shiftHoursFromState } from "./time_clock.js";
+// Phase 417 (Part B): + pure helpers สำหรับ batch aggregation ต่อรอบ + timesheet modal
+//   (import อย่างเดียว — ห้ามแก้ time_clock.js)
+import {
+  fetchUserAttendanceSummary,
+  shiftHoursFromState,
+  attendanceRulesFromState,
+  classifyPunctuality,
+  sumRegularOT,
+  timeBangkok,
+  punctualityChipMeta,
+} from "./time_clock.js";
+// Phase 417 (Part B): timesheet รายวันของรอบ — pure helper export อยู่แล้ว (ห้ามแก้ hr_overview.js)
+import { buildEmployeeTimesheet } from "./hr_overview.js";
 // Phase 92.33: ดึงวันลา approved + suggest deduction (advisory)
 import {
   fetchApprovedLeavesForUser,
+  // Phase 417 (Part B): นับวันลา clip ขอบรอบใน buildPeriodAttendanceMap
+  calcLeaveDays,
   summarizeApprovedLeavesForPayroll,
   // Phase 92.35: quota helpers (graceful)
   fetchLeavePolicies,
@@ -166,6 +180,76 @@ export function computePayPeriods({ cutoff1, cutoff2, refDate, count } = {}) {
   return out;
 }
 
+// ═══════════════════════════════════════════════════════════
+//  Phase 417 (Part B) — Batch aggregation ต่อรอบ (pure, testable, no DOM/network)
+//  สรุปเวลาเข้างาน + วันลา approved ของ "ทุกคน" ในรอบ จาก rows ที่ fetch มาแล้ว
+//  ครั้งเดียว (ห้ามยิง query ต่อคน×หลายตาราง)
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * @param {Array} attRows   - staff_attendance rows ทั้งรอบ (ทุกคน)
+ * @param {Array} leaveRows - staff_leaves rows ที่ทับช่วงรอบ (ทุกคน — กรอง approved ซ้ำข้างใน)
+ * @param {object} opts
+ * @param {{startHour:number,endHour:number}} opts.shift - จาก shiftHoursFromState
+ * @param {{lateGraceMinutes:number,earlyLeaveGraceMinutes:number}} opts.rules - จาก attendanceRulesFromState
+ * @param {string} opts.periodStart - "YYYY-MM-DD"
+ * @param {string} opts.periodEnd   - "YYYY-MM-DD"
+ * @returns {Map<string, {days:number, otHours:number, lateCount:number, leaveDays:number}>}
+ *   key = String(user_id)
+ *   days      = distinct work_date ที่มี clock_in (pattern เดียวกับ buildMonthlyHrReport)
+ *   otHours   = sumRegularOT เฉพาะ session ที่ปิดแล้ว (เหมือน fetchUserAttendanceSummary)
+ *   lateCount = นับ row ที่ classifyPunctuality เป็น late/late_and_early_leave
+ *   leaveDays = วันลา approved ที่ทับช่วงรอบ (clip ขอบรอบ)
+ */
+export function buildPeriodAttendanceMap(attRows, leaveRows, { shift, rules, periodStart, periodEnd } = {}) {
+  const map = new Map();
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+  if (!DATE_RE.test(String(periodStart || "")) || !DATE_RE.test(String(periodEnd || ""))) return map;
+
+  const entryOf = (uid) => {
+    if (!map.has(uid)) map.set(uid, { days: 0, otHours: 0, lateCount: 0, leaveDays: 0 });
+    return map.get(uid);
+  };
+
+  // ── attendance: group ต่อ user ───────────────────────────
+  const byUser = new Map();
+  for (const r of (Array.isArray(attRows) ? attRows : [])) {
+    if (r?.user_id == null || !r?.clock_in_at) continue;
+    const uid = String(r.user_id);
+    if (!byUser.has(uid)) byUser.set(uid, []);
+    byUser.get(uid).push(r);
+  }
+  for (const [uid, rows] of byUser) {
+    const e = entryOf(uid);
+    const distinct = new Set(rows.map(r => String(r.work_date || "").slice(0, 10)).filter(Boolean));
+    e.days = distinct.size;
+    e.otHours = sumRegularOT(rows.filter(r => r.clock_out_at), shift).ot;
+    let late = 0;
+    for (const r of rows) {
+      const p = classifyPunctuality(r, shift, rules);
+      if (p.status === "late" || p.status === "late_and_early_leave") late += 1;
+    }
+    e.lateCount = late;
+  }
+
+  // ── วันลา approved ทับช่วงรอบ (clip ขอบรอบ) ──────────────
+  for (const l of (Array.isArray(leaveRows) ? leaveRows : [])) {
+    if (l?.user_id == null) continue;
+    if (String(l?.status || "").toLowerCase() !== "approved") continue;
+    const s = String(l?.start_date || "").slice(0, 10);
+    const en = String(l?.end_date || "").slice(0, 10);
+    if (!DATE_RE.test(s) || !DATE_RE.test(en)) continue;
+    // clip เข้าขอบรอบ — string compare = chronological สำหรับ YYYY-MM-DD
+    const cs = s < periodStart ? periodStart : s;
+    const ce = en > periodEnd ? periodEnd : en;
+    if (cs > ce) continue; // ไม่ทับรอบ
+    const e = entryOf(String(l.user_id));
+    e.leaveDays = Math.round((e.leaveDays + calcLeaveDays(cs, ce)) * 100) / 100;
+  }
+
+  return map;
+}
+
 let _payrolls = [];
 let _depts = [];
 let _profiles = [];
@@ -180,6 +264,12 @@ let _periodMonth = (() => {
 })();
 // Phase 416: ชั่วโมง OT ที่ auto-fill ล่าสุด (จากปุ่ม "→ เติม") — เก็บลง details.attendance
 let _otAutofillHours = null;
+// Phase 417 (Part B): batch attendance/leave ของรอบ — โหลดครั้งเดียวใน renderPayrollPage
+let _periodAttRows = [];      // raw staff_attendance rows ของรอบ (reuse ใน timesheet modal — ห้ามยิงซ้ำ)
+let _attMap = new Map();      // Map<user_id, {days, otHours, lateCount, leaveDays}>
+let _attLoadOk = false;       // fetch staff_attendance สำเร็จไหม (fail → คอลัมน์ วัน/OT/สาย แสดง "—")
+let _leaveLoadOk = false;     // fetch staff_leaves สำเร็จไหม (fail → คอลัมน์ ลา แสดง "—")
+let _prBulkInflight = false;  // inflight guard ปุ่ม "⚡ สร้างเงินเดือนทั้งรอบ" (pattern _qtConvertInflight)
 
 const money = (n) => "฿" + new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n || 0));
 const moneyShort = (n) => {
@@ -226,11 +316,15 @@ export async function renderPayrollPage(ctx) {
   _periodMonth = _periodEnd.slice(0, 7); // derived: เดือนของวันสิ้นรอบ — สลิป/JV/expense เดิมใช้ต่อ
 
   try {
-    const [pRes, dRes, profRes] = await Promise.all([
+    const [pRes, dRes, profRes, attRes, lvRes] = await Promise.all([
       // Phase 416: โหลดรอบตรงตัว (eq ทั้ง start และ end — ไม่ใช่ overlap)
       fetch(cfg.url + `/rest/v1/staff_payroll?select=*&period_start=eq.${_periodStart}&period_end=eq.${_periodEnd}&order=id.desc`, { headers }),
       fetch(cfg.url + "/rest/v1/departments?select=*&is_active=eq.true&order=sort_order.asc", { headers }),
-      fetch(cfg.url + "/rest/v1/profiles?select=id,full_name,role,department_id,pay_type,daily_rate&order=full_name.asc", { headers })
+      fetch(cfg.url + "/rest/v1/profiles?select=id,full_name,role,department_id,pay_type,daily_rate&order=full_name.asc", { headers }),
+      // Phase 417: batch ทั้งรอบครั้งเดียว (ทุกคน) — ห้ามยิงต่อคน×หลายตาราง;
+      // fail/ตารางไม่มี → null (advisory เท่านั้น — ไม่ block หน้า payroll)
+      fetch(cfg.url + `/rest/v1/staff_attendance?select=*&work_date=gte.${_periodStart}&work_date=lte.${_periodEnd}&order=clock_in_at.asc&limit=5000`, { headers }).catch(() => null),
+      fetch(cfg.url + `/rest/v1/staff_leaves?select=*&status=eq.approved&start_date=lte.${_periodEnd}&end_date=gte.${_periodStart}&limit=1000`, { headers }).catch(() => null),
     ]);
     if (!pRes.ok) {
       const isAuth = pRes.status === 401 || pRes.status === 403;
@@ -254,6 +348,17 @@ export async function renderPayrollPage(ctx) {
     _payrolls = await pRes.json();
     _depts = dRes.ok ? await dRes.json() : [];
     _profiles = profRes.ok ? await profRes.json() : [];
+    // Phase 417: aggregation ต่อรอบ — ตารางยังไม่ติดตั้ง/สิทธิ์ไม่พอ → advisory "—" (ไม่ block หน้า)
+    _attLoadOk = !!(attRes && attRes.ok);
+    _periodAttRows = _attLoadOk ? await attRes.json() : [];
+    _leaveLoadOk = !!(lvRes && lvRes.ok);
+    const leaveRows = _leaveLoadOk ? await lvRes.json() : [];
+    _attMap = buildPeriodAttendanceMap(_periodAttRows, leaveRows, {
+      shift: shiftHoursFromState(ctx.state),
+      rules: attendanceRulesFromState(ctx.state),
+      periodStart: _periodStart,
+      periodEnd: _periodEnd,
+    });
   } catch (e) {
     container.innerHTML = renderError({
       message: "โหลดข้อมูลไม่สำเร็จ",
@@ -277,6 +382,15 @@ export async function renderPayrollPage(ctx) {
     const key = d ? d.name : "ไม่ระบุ";
     byDept[key] = (byDept[key] || 0) + Number(p.total_amount || 0);
   });
+
+  // Phase 417: สรุป OT รวม (ชม.) + มาสายรวม (ครั้ง) ของรอบ จาก batch map (ทุกคนที่มีเวลาเข้างาน)
+  let periodOtHours = 0, periodLateCount = 0;
+  for (const a of _attMap.values()) {
+    periodOtHours += a.otHours;
+    periodLateCount += a.lateCount;
+  }
+  periodOtHours = Math.round(periodOtHours * 100) / 100;
+  const lateGraceLabel = attendanceRulesFromState(ctx.state).lateGraceMinutes;
 
   // Phase 416: แถบปุ่มรอบจ่ายล่าสุด 3 รอบ (จาก computePayPeriods) + กำหนดเอง
   const isCustomPeriod = !periods.some(p => p.start === _periodStart && p.end === _periodEnd);
@@ -303,7 +417,9 @@ export async function renderPayrollPage(ctx) {
               style="font-size:12px;font-weight:700;padding:7px 12px;border-radius:8px;cursor:pointer;border:1px dashed ${isCustomPeriod ? '#7c3aed' : '#cbd5e1'};background:${isCustomPeriod ? '#f5f3ff' : '#fff'};color:${isCustomPeriod ? '#5b21b6' : '#475569'}">⚙️ กำหนดเอง${isCustomPeriod ? ': ' + escHtml(formatPayPeriodLabel(_periodStart, _periodEnd)) : ''}</button>
           </div>
           <button id="prExportBtn" class="btn light" style="font-size:13px">📥 Excel</button>
-          <button id="prAddBtn" class="btn primary" style="margin-left:auto;font-size:13px">+ เพิ่มรายการเงินเดือน</button>
+          <!-- Phase 417: bulk DRAFT ทั้งรอบ — สร้างสถานะ "รอจ่าย" เท่านั้น ไม่มีการจ่าย/JV -->
+          <button id="prBulkBtn" type="button" style="margin-left:auto;font-size:13px;font-weight:700;padding:8px 14px;background:#7c3aed;color:#fff;border:none;border-radius:8px;cursor:pointer">⚡ สร้างเงินเดือนทั้งรอบ</button>
+          <button id="prAddBtn" class="btn primary" style="font-size:13px">+ เพิ่มรายการเงินเดือน</button>
         </div>
         <div id="prCustomPeriodBox" style="display:${_customPeriodOpen ? 'flex' : 'none'};gap:8px;align-items:end;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px dashed #e2e8f0">
           <label style="display:block">
@@ -339,6 +455,17 @@ export async function renderPayrollPage(ctx) {
           <div class="stat-label">🏢 จำนวนแผนก</div>
           <div class="stat-value" style="color:#6d28d9">${Object.keys(byDept).length}</div>
         </div>
+        <!-- Phase 417: สรุปจากเวลาเข้างานจริงของรอบ (advisory — โหลดไม่สำเร็จ = "—") -->
+        <div class="stat-card" style="border-left:4px solid #f59e0b">
+          <div class="stat-label">🕒 OT รวม (ชม.)</div>
+          <div class="stat-value" style="color:#d97706;font-size:22px">${_attLoadOk ? periodOtHours.toFixed(2) : "—"}</div>
+          <div style="font-size:11px;color:#94a3b8;margin-top:2px">จากเวลาเข้างานจริงของรอบ</div>
+        </div>
+        <div class="stat-card" style="border-left:4px solid #f43f5e">
+          <div class="stat-label">⏰ มาสายรวม (ครั้ง)</div>
+          <div class="stat-value" style="color:#e11d48;font-size:22px">${_attLoadOk ? periodLateCount : "—"}</div>
+          <div style="font-size:11px;color:#94a3b8;margin-top:2px">เกิน grace ${lateGraceLabel} นาที</div>
+        </div>
       </div>
 
       <!-- List -->
@@ -350,12 +477,17 @@ export async function renderPayrollPage(ctx) {
           actionLabel: "+ เพิ่มรายการเงินเดือน",
           actionId: "prEmptyAddBtn"
         }) : `
-          <div style="overflow-x:auto">
+          <div class="table-wrap">
             <table style="width:100%;border-collapse:collapse;font-size:13px">
               <thead style="background:#f8fafc">
                 <tr>
                   <th style="padding:10px;text-align:left;font-weight:700;color:#475569">พนักงาน</th>
                   <th style="padding:10px;text-align:left;font-weight:700;color:#475569">แผนก</th>
+                  <!-- Phase 417: จากเวลาเข้างาน/วันลาจริงของรอบ (advisory) -->
+                  <th style="padding:10px;text-align:right;font-weight:700;color:#475569" title="วันทำงาน (distinct วันที่มีเวลาเข้า)">วัน</th>
+                  <th style="padding:10px;text-align:right;font-weight:700;color:#475569" title="ชั่วโมง OT จากเวลาเข้างานจริง">OT ชม.</th>
+                  <th style="padding:10px;text-align:right;font-weight:700;color:#475569" title="จำนวนครั้งที่มาสาย (เกิน grace)">สาย</th>
+                  <th style="padding:10px;text-align:right;font-weight:700;color:#475569" title="วันลาอนุมัติที่ทับช่วงรอบ">ลา</th>
                   <th style="padding:10px;text-align:right;font-weight:700;color:#475569">เงินเดือน</th>
                   <th style="padding:10px;text-align:right;font-weight:700;color:#475569">OT</th>
                   <th style="padding:10px;text-align:right;font-weight:700;color:#475569">สวัสดิการ</th>
@@ -371,10 +503,23 @@ export async function renderPayrollPage(ctx) {
                 ${_payrolls.map(p => {
                   const emp = _profiles.find(x => x.id === p.employee_id);
                   const dept = _depts.find(d => d.id === p.department_id);
+                  // Phase 417: attendance ของรอบจาก batch map (advisory — โหลดไม่สำเร็จ = "—")
+                  const att = _attMap.get(String(p.employee_id)) || { days: 0, otHours: 0, lateCount: 0, leaveDays: 0 };
+                  const attDays  = _attLoadOk ? att.days : "—";
+                  const attOt    = _attLoadOk ? att.otHours.toFixed(2) : "—";
+                  const attLate  = _attLoadOk ? att.lateCount : "—";
+                  const attLeave = _leaveLoadOk ? att.leaveDays : "—";
                   return `
                     <tr style="border-bottom:1px solid #f1f5f9">
-                      <td style="padding:8px 10px;font-weight:700">${escHtml(emp?.full_name || "(ไม่พบ)")}</td>
+                      <td style="padding:8px 10px;font-weight:700">
+                        <button type="button" class="pr-name-btn" data-emp="${escHtml(String(p.employee_id))}" title="ดู timesheet รายวันของรอบ"
+                          style="background:none;border:none;padding:0;font:inherit;font-weight:700;color:#0284c7;cursor:pointer;text-decoration:underline dotted;text-align:left">${escHtml(emp?.full_name || "(ไม่พบ)")}</button>
+                      </td>
                       <td style="padding:8px 10px;color:#64748b">${escHtml(dept?.name || "-")}</td>
+                      <td style="padding:8px 10px;text-align:right">${attDays}</td>
+                      <td style="padding:8px 10px;text-align:right${Number(att.otHours) > 0 && _attLoadOk ? ';color:#c2410c;font-weight:700' : ''}">${attOt}</td>
+                      <td style="padding:8px 10px;text-align:right${Number(att.lateCount) > 0 && _attLoadOk ? ';color:#dc2626;font-weight:700' : ''}">${attLate}</td>
+                      <td style="padding:8px 10px;text-align:right">${attLeave}</td>
                       <td style="padding:8px 10px;text-align:right">${moneyShort(p.base_salary)}</td>
                       <td style="padding:8px 10px;text-align:right">${moneyShort(p.overtime)}</td>
                       <td style="padding:8px 10px;text-align:right">${moneyShort(p.welfare)}</td>
@@ -435,6 +580,9 @@ export async function renderPayrollPage(ctx) {
   });
   document.getElementById("prAddBtn")?.addEventListener("click", () => _openPayrollModal(ctx, null));
   document.getElementById("prEmptyAddBtn")?.addEventListener("click", () => _openPayrollModal(ctx, null));
+  // Phase 417: bulk DRAFT ทั้งรอบ + timesheet modal (กดชื่อพนักงาน)
+  document.getElementById("prBulkBtn")?.addEventListener("click", () => _bulkGeneratePayroll(ctx));
+  container.querySelectorAll(".pr-name-btn").forEach(btn => btn.addEventListener("click", () => _openTimesheetModal(ctx, btn.dataset.emp)));
   container.querySelectorAll(".pr-edit-btn").forEach(btn => btn.addEventListener("click", () => {
     const p = _payrolls.find(x => String(x.id) === String(btn.dataset.id));
     if (p) _openPayrollModal(ctx, p);
@@ -1629,4 +1777,202 @@ function _exportPayroll() {
   // Phase 416: ชื่อไฟล์บอกช่วงรอบจ่ายที่เลือก (แทนเดือน)
   exportToExcel(`เงินเดือน_${_periodStart}_ถึง_${_periodEnd}_${todaySuffix()}.xlsx`, rows, "Payroll");
   window.App?.showToast?.(`ดาวน์โหลด ${rows.length} รายการ`);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 417 (Part B): ⚡ สร้างเงินเดือนทั้งรอบ — bulk DRAFT จากเวลาเข้างานจริง
+//  - สร้างเฉพาะคนที่ยังไม่มีรายการรอบนี้ (unique = employee_id+period_start+period_end)
+//  - สถานะ "รอจ่าย" เท่านั้น — ❌ ไม่มีการจ่าย/mark paid/JV/expense ใด ๆ ที่นี่
+//  - payload ❌ ห้ามมี total_amount (DB GENERATED column — Postgres 400 428C9
+//    ปฏิเสธทั้งคำสั่ง; พิสูจน์จาก smoke 416)
+// ═══════════════════════════════════════════════════════════
+async function _bulkGeneratePayroll(ctx) {
+  // inflight guard (pattern _qtConvertInflight) — เช็คก่อนทุกอย่าง กันกดซ้ำระหว่างกำลังสร้าง
+  if (_prBulkInflight) { ctx.showToast?.("กำลังสร้างเงินเดือนทั้งรอบ..."); return; }
+  if (!_periodStart || !_periodEnd) { ctx.showToast?.("เลือกรอบจ่ายจากหน้าหลักก่อน"); return; }
+
+  const staffOnly = _profiles.filter(p => p.role !== "customer");
+  const existing = new Set(_payrolls.map(p => String(p.employee_id)));
+  const toCreate = staffOnly.filter(p => !existing.has(String(p.id)));
+  const skipCount = staffOnly.length - toCreate.length;
+  if (staffOnly.length === 0) { ctx.showToast?.("ไม่พบพนักงานในระบบ"); return; }
+  if (toCreate.length === 0) { ctx.showToast?.("พนักงานทุกคนมีรายการรอบนี้แล้ว — ไม่มีอะไรต้องสร้าง"); return; }
+
+  // App.confirm modal เท่านั้น (ห้าม native confirm) — modal ไม่พร้อม → ไม่สร้าง + เตือน
+  if (typeof window.App?.confirm !== "function") {
+    ctx.showToast?.("ระบบกล่องยืนยันยังไม่พร้อม — รีเฟรชหน้าแล้วลองใหม่");
+    return;
+  }
+  const label = formatPayPeriodLabel(_periodStart, _periodEnd);
+  const ok = await window.App.confirm(
+    `สร้างร่างเงินเดือนรอบ ${label} ให้พนักงาน ${toCreate.length} คน (ข้าม ${skipCount} คนที่มีรายการแล้ว)?`
+  );
+  if (!ok) return;
+
+  _prBulkInflight = true;
+  const bulkBtn = document.getElementById("prBulkBtn");
+  const btnOrig = bulkBtn?.textContent;
+  if (bulkBtn) { bulkBtn.disabled = true; bulkBtn.textContent = "⏳ กำลังสร้าง..."; }
+
+  const cfg = window.SUPABASE_CONFIG;
+  const token = window._sbAccessToken;
+  const headers = { "Content-Type": "application/json", "apikey": cfg.anonKey, "Authorization": "Bearer " + token, "Prefer": "return=minimal" };
+  const round2 = (n) => Math.round(n * 100) / 100;
+
+  let okCount = 0;
+  const fails = [];
+  try {
+    for (const prof of toCreate) {
+      const att = _attMap.get(String(prof.id)) || { days: 0, otHours: 0, lateCount: 0, leaveDays: 0 };
+      const dailyRate = Number(prof.daily_rate) || 0;
+      // base = round2(rate × days) เฉพาะ daily ที่มี rate และมีวันทำงานจริง —
+      // ไม่ใช่ daily (หรือข้อมูลไม่พอ) → base 0 + days_worked null ให้ owner กรอกเอง
+      const isDaily = prof.pay_type === "daily" && dailyRate > 0 && att.days > 0;
+      const payload = {
+        employee_id: prof.id,
+        department_id: prof.department_id || null,
+        period_start: _periodStart,
+        period_end: _periodEnd,
+        period_month: _periodMonth + "-01",
+        base_salary: isDaily ? round2(dailyRate * att.days) : 0,
+        overtime: 0, welfare: 0, bonus: 0, commission: 0, deductions: 0,
+        days_worked: isDaily ? att.days : null,
+        daily_rate: isDaily ? dailyRate : null,
+        note: "สร้างอัตโนมัติทั้งรอบ — ตรวจก่อนจ่าย",
+        // details schema 1 (Phase 416) + snapshot เวลาเข้างานจริงของรอบ
+        details: {
+          schema: 1,
+          rates: { daily_rate: isDaily ? dailyRate : null },
+          attendance: {
+            days_worked: att.days,
+            ot_hours_autofill: att.otHours,
+            late_count: att.lateCount,
+            leave_days: att.leaveDays,
+          },
+          additions: [],
+          deductions: [],
+        },
+      };
+      try {
+        const resp = await fetch(cfg.url + "/rest/v1/staff_payroll", { method: "POST", headers, body: JSON.stringify(payload) });
+        if (!resp.ok) {
+          const txt = await resp.text().catch(() => "");
+          const dup = txt.includes("uq_staff_payroll_period") || txt.includes("uq_staff_payroll") || txt.includes("23505");
+          throw new Error(dup ? "มีรายการรอบนี้แล้ว" : "HTTP " + resp.status + " " + txt.slice(0, 120));
+        }
+        okCount += 1;
+      } catch (e) {
+        fails.push(`${prof.full_name || prof.id}: ${e?.message || e}`);
+      }
+    }
+
+    // audit log สรุป 1 entry (silent fail — pattern เดิมของไฟล์)
+    logActivity("payroll_bulk_create", {
+      entityType: "staff_payroll",
+      entityId: null,
+      summary: `สร้างร่างเงินเดือนทั้งรอบ ${_periodStart} → ${_periodEnd} — สำเร็จ ${okCount}/${toCreate.length}${fails.length ? ` (ล้มเหลว ${fails.length})` : ""}`,
+      metadata: {
+        period_start: _periodStart,
+        period_end: _periodEnd,
+        created: okCount,
+        skipped_existing: skipCount,
+        failed: fails.slice(0, 10),
+      },
+    });
+
+    ctx.showToast?.(fails.length === 0
+      ? `สร้างร่างเงินเดือน ${okCount} รายการแล้ว ✅ (สถานะรอจ่าย — ตรวจก่อนจ่าย)`
+      : `สร้างร่าง ${okCount}/${toCreate.length} — ล้มเหลว ${fails.length}: ${fails[0]}`);
+  } finally {
+    // ทุก path (สำเร็จ/บางส่วน/throw) ผ่านที่นี่ → กดใหม่ได้เสมอ
+    _prBulkInflight = false;
+    if (bulkBtn?.isConnected) { bulkBtn.disabled = false; bulkBtn.textContent = btnOrig || "⚡ สร้างเงินเดือนทั้งรอบ"; }
+  }
+  renderPayrollPage(ctx); // reload list รอบเดิม (โหลดรายการที่เพิ่งสร้าง)
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 417 (Part B): Timesheet modal — กดชื่อพนักงาน → ตารางรายวันของรอบ
+//  read-only ล้วน: ใช้ raw rows ที่ batch โหลดแล้ว (_periodAttRows) — ❌ ไม่ยิง query ซ้ำ
+//  reuse buildEmployeeTimesheet (hr_overview.js, pure) — ไม่แก้ไฟล์ต้นทาง
+// ═══════════════════════════════════════════════════════════
+function _openTimesheetModal(ctx, empId) {
+  if (!empId) return;
+  document.getElementById("prTsModal")?.remove();
+  const emp = _profiles.find(p => String(p.id) === String(empId));
+  const empName = emp?.full_name || "(ไม่พบ)";
+
+  const rows = _periodAttRows.filter(r => String(r.user_id) === String(empId));
+  const ts = buildEmployeeTimesheet({
+    rows,
+    fromDate: _periodStart,
+    toDate: _periodEnd,
+    shiftOpts: shiftHoursFromState(ctx.state),
+    attendanceRules: attendanceRulesFromState(ctx.state),
+  });
+
+  const dayRows = ts.days.map(d => {
+    const meta = d.hasData ? punctualityChipMeta(d.punc) : null;
+    const chip = meta
+      ? `<span style="background:${meta.bg};color:${meta.fg};border:1px solid ${meta.border};padding:1px 8px;border-radius:8px;font-size:11px;font-weight:700;white-space:nowrap">${escHtml(meta.label)}</span>`
+      : `<span style="color:#cbd5e1">—</span>`;
+    const dateTh = new Date(d.date + "T00:00:00+07:00").toLocaleDateString("th-TH", { weekday: "short", day: "numeric", month: "short", timeZone: "Asia/Bangkok" });
+    return `
+      <tr style="border-bottom:1px solid #f1f5f9${d.hasData ? '' : ';color:#cbd5e1'}">
+        <td style="padding:6px 10px;white-space:nowrap">${escHtml(dateTh)}</td>
+        <td style="padding:6px 10px;text-align:center">${d.hasData ? timeBangkok(d.clockIn) : "—"}</td>
+        <td style="padding:6px 10px;text-align:center">${d.hasData ? (d.open ? '<span style="color:#3730a3;font-size:11px;font-weight:700">ยังไม่ออก</span>' : timeBangkok(d.clockOut)) : "—"}</td>
+        <td style="padding:6px 10px;text-align:right">${d.hasData ? d.regularHours.toFixed(2) : "—"}</td>
+        <td style="padding:6px 10px;text-align:right${d.hasData && d.otHours > 0 ? ';color:#c2410c;font-weight:700' : ''}">${d.hasData ? d.otHours.toFixed(2) : "—"}</td>
+        <td style="padding:6px 10px;text-align:center">${chip}</td>
+      </tr>`;
+  }).join("");
+
+  const m = document.createElement("div");
+  m.id = "prTsModal";
+  m.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto";
+  m.innerHTML = `
+    <div style="background:#fff;border-radius:16px;max-width:680px;width:100%;padding:20px;max-height:90vh;overflow-y:auto">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
+        <div>
+          <h3 style="margin:0 0 2px;font-size:16px;color:#0f172a">🗓️ Timesheet — ${escHtml(empName)}</h3>
+          <div style="font-size:12px;color:#64748b">รอบ ${escHtml(formatPayPeriodLabel(_periodStart, _periodEnd))} (${escHtml(_periodStart || "?")} → ${escHtml(_periodEnd || "?")}) · อ่านอย่างเดียว</div>
+        </div>
+        <button id="prTsCloseTop" type="button" style="background:#f1f5f9;border:none;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px;color:#475569">✕ ปิด</button>
+      </div>
+      ${!_attLoadOk ? `<div style="margin-top:12px;padding:10px;background:#fef3c7;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#92400e">⚠️ โหลดข้อมูลเวลาเข้างานของรอบไม่สำเร็จ — ตารางอาจว่าง ลองโหลดหน้าใหม่</div>` : ""}
+      <div style="overflow-x:auto;margin-top:12px">
+        <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+          <thead style="background:#f8fafc">
+            <tr>
+              <th style="padding:8px 10px;text-align:left;font-weight:700;color:#475569">วันที่</th>
+              <th style="padding:8px 10px;text-align:center;font-weight:700;color:#475569">เข้า</th>
+              <th style="padding:8px 10px;text-align:center;font-weight:700;color:#475569">ออก</th>
+              <th style="padding:8px 10px;text-align:right;font-weight:700;color:#475569">ชม.ปกติ</th>
+              <th style="padding:8px 10px;text-align:right;font-weight:700;color:#475569">OT</th>
+              <th style="padding:8px 10px;text-align:center;font-weight:700;color:#475569">สถานะ</th>
+            </tr>
+          </thead>
+          <tbody>${dayRows}</tbody>
+          <tfoot>
+            <tr style="background:#f0f9ff;font-weight:700">
+              <td style="padding:8px 10px">รวม ${ts.totals.daysWorked} วัน</td>
+              <td style="padding:8px 10px"></td>
+              <td style="padding:8px 10px;text-align:center;font-size:11px;color:#64748b">สาย ${ts.totals.lateCount} ครั้ง</td>
+              <td style="padding:8px 10px;text-align:right;color:#0284c7">${ts.totals.regularHours.toFixed(2)}</td>
+              <td style="padding:8px 10px;text-align:right;color:#c2410c">${ts.totals.otHours.toFixed(2)}</td>
+              <td style="padding:8px 10px"></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-top:12px">
+        <button id="prTsCloseBtn" type="button" style="padding:8px 18px;background:#0284c7;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700">ปิด</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(m);
+  m.addEventListener("click", (e) => { if (e.target === m) m.remove(); });
+  document.getElementById("prTsCloseTop")?.addEventListener("click", () => m.remove());
+  document.getElementById("prTsCloseBtn")?.addEventListener("click", () => m.remove());
 }

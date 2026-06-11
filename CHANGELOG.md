@@ -7,6 +7,18 @@
 
 ---
 
+## 5.66.0 (build 417) — 2026-06-11 Phase 417 Part B payroll-period-full-screen — bulk draft + คอลัมน์เวลาเข้างาน + timesheet
+
+- **feat (payroll · MEDIUM-HIGH — Part B ไม่แตะ pay/JV flow: สร้างร่าง + แสดงผลเท่านั้น):** ปุ่ม **"⚡ สร้างเงินเดือนทั้งรอบ"** — เตรียม "ร่าง" (สถานะรอจ่าย) ให้พนักงานทุกคนจากเวลาเข้างานจริง: App.confirm "สร้างร่าง...ให้ N คน (ข้าม M คนที่มีรายการแล้ว)?" → insert ทีละคนเฉพาะคนที่ยังไม่มีรายการรอบนี้ · inflight guard `_prBulkInflight` กันกดซ้ำ · toast สรุปสำเร็จ/fail + audit log
+- payload bulk: daily ที่มี rate + วันทำงานจริง → `base = round2(rate × days)`; อย่างอื่น base 0 + days_worked null ให้ owner กรอกเอง · details schema 1 + attendance `{days_worked, ot_hours_autofill, late_count, leave_days}` · **❌ ไม่มี total_amount** (DB GENERATED — 428C9) · ❌ ไม่มีการจ่าย/mark paid/JV/expense
+- **batch aggregation ต่อรอบ** (ไม่ยิง query ต่อคน): fetch staff_attendance + staff_leaves (approved) ทั้งรอบครั้งเดียว → pure `buildPeriodAttendanceMap` (days=distinct clock_in · OT=sumRegularOT closed · สาย=classifyPunctuality · ลา=clip ขอบรอบ)
+- **คอลัมน์ใหม่ต่อแถว** วัน | OT ชม. | สาย | ลา (advisory; โหลด fail → "—") ก่อนคอลัมน์เงินเดิม + ตารางใช้ `.table-wrap` (mobile scroll) · **การ์ดสรุปเพิ่ม 2 ใบ**: OT รวม (ชม.) + มาสายรวม (ครั้ง)
+- **กดชื่อพนักงาน** → timesheet modal รายวันของรอบ (read-only; reuse `buildEmployeeTimesheet` จาก hr_overview + rows ที่ batch แล้ว — ไม่ fetch ซ้ำ)
+- ❌ ไม่แตะ `_markPaid`/`postJournalForPayroll`/`_createSalaryExpense` · `computePayrollTotal` · `computePayPeriods` (416) · สลิป PDF · `_savePayroll` modal · hr_overview.js/time_clock.js/leave_management.js (import only) · SQL/DB
+- +guard `payroll_partb_guard` (13: unit map 7 + source-regex 6) · lint 0 / unit 1481 / e2e 12 · **STOP รอ review + owner smoke preview**
+
+---
+
 ## 5.66.0 (build 416) — 2026-06-11 Phase 416 Part A payroll-custom-pay-period — เงินเดือนรอบตัดที่ร้านกำหนด (10/25)
 
 - **feat (payroll · HIGH):** เปลี่ยนรอบเงินเดือนจาก "เดือนปฏิทิน" → **รอบตัดที่ร้านกำหนด** (default ตัด 10/25 → รอบ 11–25 และ 26–10 ของเดือนถัดไป): pure `computePayPeriods` (string math — คร่อมเดือน/ปี/ก.พ. clamp ไม่มี invalid date) + แถบปุ่ม 3 รอบล่าสุด + "กำหนดเอง" (date from/to) แทน month select
