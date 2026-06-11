@@ -1,6 +1,6 @@
 # Boonsook POS V5 - Shared Session Start
 
-Last updated: 2026-06-11 (Phase 417 **Part B** payroll-period-full-screen — build 417 บน branch `claude/phase-417-payroll-part-b` · ⏸️ STOP รอ owner/Codex review + smoke preview; origin/main = build 416 live + smoke PASSED) · เริ่มบัญชีจริง 1 ก.ค. 2569 (ก่อนนั้น = test, ไม่ post JV)
+Last updated: 2026-06-11 (Phase 417 **Part B** payroll-period-full-screen — build 417 บน branch `claude/phase-417-payroll-part-b` · ✅ merged → origin/main `c682a12` = build 417 live · review+smoke PASSED) · เริ่มบัญชีจริง 1 ก.ค. 2569 (ก่อนนั้น = test, ไม่ post JV)
 
 Purpose: this is the common first-read note for Codex, Claude, or any next agent opening a fresh session on this project. Read this before changing files so both teams start from the same facts.
 
