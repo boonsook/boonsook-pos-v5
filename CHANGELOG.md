@@ -13,7 +13,7 @@
 - เรียงลำดับใหม่ + หัวข้อหมวด 4 หัวข้อ: งานประจำวัน (ภาพรวม/ศูนย์ทีม AI/แคชเชียร์/Task/ปฏิทิน) → งานหลัก → การเงิน/รายงาน (การเงิน·บัญชี·ภาพรวม·HR) → หน้าร้านแอร์/เครื่องมือ → ตั้งค่า
 - กลไกเดิมรองรับอัตโนมัติ: toggle กลุ่ม + role-filter ใน main.js เป็น generic; **กลุ่ม HR คง byte เดิมทุกตัว** (hr_forms_guard เขียว)
 - bump build **425** (data-app-build + ?v= ×4 + sw cache-v425) + `dashboard_readonly_guard` → 425 · `ui_theme_guard` +1 test (กลุ่มใหม่ ×3 + ปุ่มย้าย 19 route เป็น sub + ปุ่มหลักคงลอย + ไม่มี route หาย/ซ้ำ)
-- lint:errors 0 / unit **1562** / e2e **14** · **⏸️ STOP รอ owner ดู preview (424+425) แล้วสั่ง merge**
+- lint:errors 0 / unit **1562** / e2e **14** · ✅ **merged ff `01f3c09` = build 425 live** (owner ดู preview + สั่ง merge, 2026-06-12)
 
 ---
 
