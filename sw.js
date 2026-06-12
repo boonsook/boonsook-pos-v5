@@ -161,7 +161,8 @@
 // v423 (2026-06-12): Phase 423 - mock-F finishing pass: merged "todo today" card (dash-todo, รวม วันนี้/ที่ต้องดู/ของใกล้หมด + hero chip ย้ายเข้า) + sales-by-channel SVG donut (display-only จาก state, honest cap caption) + stat tiles icon circles (kpi-tile) + tighter quick row. dashboard.js still read-only (guards green). Bumps CACHE_NAME.
 // v424 (2026-06-12): Phase 424 - workspace wash: deeper indigo --bg (#eaedf8, owner: too bright) + light-theme body lavender->pink gradient wash (reference-image look); dark theme stays flat token bg. CSS-only. Bumps CACHE_NAME.
 // v425 (2026-06-12): Phase 425 - sidebar reorganization (index.html markup-only): 16 loose nav buttons folded into groups (sales +3 doc tools, service +service_request, products +5 stock pages, new groups customers_crm/air_shop/tools) + 4 section labels; daily items (dashboard/team_center/pos/tasks/calendar) on top. All data-route values unchanged; hr group bytes untouched (guard). Generic nav-group toggle/role-filter in main.js covers new groups. Bumps CACHE_NAME.
-const CACHE_NAME = 'boonsook-pos-v5-cache-v425';
+// v426 (2026-06-12): Phase 426 - trim sidebar shortcuts (owner: too cluttered; quick* bindings in main.js are null-safe, untouched) + skin color sweep round 1: style.css effective sky -> indigo (auth logo/brand badge, pos-banner, pos action/active states, set-save-btn, focus rings, gs-item-amount, bsk-tag.active, dash/profile hovers) + pos.js display accents (bank picker, pay amount box, VAT span, customer note/hover). Semantic colors kept: info boxes, status chips, doc-type print colors (.doc-*.inv). Bumps CACHE_NAME.
+const CACHE_NAME = 'boonsook-pos-v5-cache-v426';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

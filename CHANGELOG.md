@@ -7,6 +7,16 @@
 
 ---
 
+## 5.66.0 (build 426) — 2026-06-12 Phase 426 ตัดหมวด "ลัด" + ไล่เก็บสีรอบแรก (global + POS)
+
+- **feat (UI · markup+CSS display-only):** ถอดหมวด "ลัด" 5 ปุ่มออกจาก sidebar ตาม owner ("เยอะเกิน ดูรก") — bindings `quick*` ใน main.js เป็น null-safe อยู่แล้ว ไม่ต้องแก้ JS
+- **ไล่เก็บสี sky → indigo (เฉพาะ skin):** style.css — โลโก้/แบรนด์หน้า login, `.pos-banner`, ปุ่มกด active ใน POS (numpad/วิธีจ่าย/ไอคอน), `.set-save-btn` หน้า settings, focus ring ×2, ราคาใน global search, `.bsk-tag.active`, hover ของ dash-period/dash-clickable/profile-menu · pos.js — กล่องยอดรับชำระ (gradient), ตัวเลือกธนาคารโอน, ข้อความ VAT/COA/โน้ตลูกค้า, hover รายชื่อลูกค้า
+- **คงไว้โดยเจตนา (ไม่ใช่ skin):** กล่อง info ฟ้า, ป้ายสถานะ, สีประจำชนิดเอกสารบนใบพิมพ์ (`.doc-*.inv` น้ำเงิน = อัตลักษณ์ใบแจ้งหนี้) — guard ล็อกไว้กันกวาดพลาดในอนาคต
+- bump build **426** (data-app-build + ?v= ×4 + sw cache-v426) + `dashboard_readonly_guard` → 426 · `ui_theme_guard` +1 test (ปุ่มลัดหาย + skin ไม่มี sky + doc colors คงเดิม)
+- lint:errors 0 / unit **1563** / e2e **14** · **⏸️ STOP รอ owner ดู preview** · คิวไล่สีหน้าถัดไป: customer_dashboard (38 จุด), products (35), hr_overview/payroll/leave (16/13/13), delivery_invoices/quotations (12/11)
+
+---
+
 ## 5.66.0 (build 425) — 2026-06-12 Phase 425 sidebar reorganization — ยุบเมนูเดี่ยวเข้ากลุ่ม + หัวข้อหมวด
 
 - **feat (UI nav · markup-only ใน index.html — ทุก `data-route` คงเดิม ไม่แตะ logic):** จัดระเบียบเมนูข้างตาม owner ขอ — เมนูเดี่ยวที่ลอย 16 ปุ่มยุบเข้ากลุ่ม: **งานขาย** +Template ใบเสนอราคา/Serial Warranty/รายงาน Warranty · **งานช่าง** +แจ้งซ่อมบริการ · **สินค้า/คลัง** +ประวัติสต็อก/รับเข้า/นับจริง/มูลค่า/ค้างนาน · กลุ่มใหม่ **ลูกค้า/สมาชิก** (ลูกค้า+วันเกิด+สะสมแต้ม) · **หน้าร้านแอร์** (หน้าหลัก+AI ขายแอร์+แอร์ใหม่) · **เครื่องมือ** (BTU+Error Code ×3)

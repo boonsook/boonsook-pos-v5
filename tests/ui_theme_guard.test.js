@@ -135,6 +135,27 @@ test("PHASE 425: sidebar groups hold the previously loose nav buttons", () => {
   assert.equal(occurrences, 1, "loyalty must appear exactly once (moved, not duplicated)");
 });
 
+// ── Phase 426: shortcuts trimmed + skin sky sweep (semantic colors kept) ─────
+test("PHASE 426: sidebar shortcuts removed, skin classes no longer sky", () => {
+  const indexHtml = fs.readFileSync(path.resolve("index.html"), "utf8");
+  for (const id of ["quickAddProduct", "quickAddCustomer", "quickAddQuotation", "quickAddServiceJob", "quickOpenReceipt"]) {
+    assert.ok(!indexHtml.includes(`id="${id}"`), `shortcut button #${id} must be removed from the sidebar`);
+  }
+  // skin surfaces must be indigo now (sky gradients gone from these classes)
+  const grab = (sel) => {
+    const i = css.indexOf(sel);
+    assert.ok(i > -1, `${sel} must exist`);
+    return css.slice(i, css.indexOf("}", i));
+  };
+  for (const sel of [".auth-logo {", ".brand-badge {", ".pos-banner {", ".set-save-btn {"]) {
+    const block = grab(sel);
+    assert.ok(!/#38bdf8|#0284c7/.test(block), `${sel} must not carry the legacy sky gradient`);
+  }
+  // semantic doc-type colors are intentionally preserved (printed documents)
+  assert.match(css, /\.doc-page-badge\.inv \{ background: #0284c7; \}/,
+    "invoice doc-type colour must stay (document identity, not skin)");
+});
+
 // ── phase4 design-system stays in sync ───────────────────────────────────────
 test("phase4 design-system primary scale is remapped to indigo", () => {
   assert.match(p4, /--primary-500:\s*#6b6be0/, "--primary-500 must be #6b6be0");

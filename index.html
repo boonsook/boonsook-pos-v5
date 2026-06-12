@@ -9,7 +9,7 @@
   <link rel="icon" type="image/svg+xml" href="./icons/logo.svg" />
   <link rel="manifest" href="./manifest.json" />
   <link rel="apple-touch-icon" href="./icons/logo.svg" />
-  <link rel="stylesheet" href="./style.css?v=425" />
+  <link rel="stylesheet" href="./style.css?v=426" />
   <link rel="stylesheet" href="./doc-print.css?v=1" />
   <!-- ✨ Phase 4: Design System & Components (30/3/2569) -->
   <link rel="stylesheet" href="./phase4-design-system.css?v=421" />
@@ -318,12 +318,7 @@
       <!-- ═══ ตั้งค่า ═══ -->
       <button class="nav-btn" data-route="settings">⚙️ ตั้งค่า</button>
 
-      <div class="nav-group-label nav-group-label--bottom">ลัด</div>
-      <button id="quickAddProduct" class="nav-btn">➕ เพิ่มสินค้า</button>
-      <button id="quickAddCustomer" class="nav-btn">👤 เพิ่มลูกค้า</button>
-      <button id="quickAddQuotation" class="nav-btn">📄 เพิ่มใบเสนอราคา</button>
-      <button id="quickAddServiceJob" class="nav-btn">🧰 เพิ่มงานช่าง</button>
-      <button id="quickOpenReceipt" class="nav-btn">🖨️ ใบเสร็จล่าสุด</button>
+      <!-- Phase 426: หมวด "ลัด" ถอดออกตาม owner (เยอะ/รก — ปุ่มเพิ่มมีในหน้านั้น ๆ อยู่แล้ว); main.js bindings เป็น null-safe ไม่ต้องแก้ -->
       <!-- ═══ DARK MODE TOGGLE ═══ -->
       <div class="dark-mode-row">
         <span class="dark-mode-label">โหมดมืด</span>
@@ -867,10 +862,10 @@
        ทำงานก่อน main.js โหลด → ป้องกัน user เห็น version display เก่า
        Phase 89.15: ย้ายออกไป external file + set window.APP_BUILD ให้ pages.js/main.js อ่านได้
        (CSP drop script-src 'unsafe-inline') -->
-  <script src="./selfheal.js?v=425" data-app-build="425" data-app-version="5.66.0"></script>
-  <script type="module" src="./main.js?v=425"></script>
+  <script src="./selfheal.js?v=426" data-app-build="426" data-app-version="5.66.0"></script>
+  <script type="module" src="./main.js?v=426"></script>
   <!-- Phase 89.15: externalized loading overlay + SW update banner (was inline script — drop CSP unsafe-inline) -->
-  <script src="./boot.js?v=425"></script>
+  <script src="./boot.js?v=426"></script>
 
   <!-- AI Assistant Chat Widget (Phase 1) -->
   <script src="./ai-chat-widget.js?v=9"></script>
