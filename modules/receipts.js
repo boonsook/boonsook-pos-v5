@@ -73,6 +73,26 @@ let _selectedIds = new Set(); // bulk selection
 let _rcDateRange = "all"; // all | today | 7d | 30d | month
 let _rcSearch = "";
 
+export function _receiptMatchesSearchDate(r, { cutoff = "", q = "" } = {}) {
+  if (cutoff && String(r?.created_at || "").slice(0, 10) < cutoff) return false;
+  const query = String(q || "").trim().toLowerCase();
+  if (query && !(
+    String(r?.receipt_no || "").toLowerCase().includes(query) ||
+    String(r?.customer_name || "").toLowerCase().includes(query) ||
+    String(r?.delivery_invoice_id || "").toLowerCase().includes(query)
+  )) return false;
+  return true;
+}
+
+export function _receiptStatusCounts(receipts = []) {
+  return {
+    all: receipts.length,
+    pending: receipts.filter(r => r.status === "pending" || r.status === "partial").length,
+    paid: receipts.filter(r => r.status === "paid").length,
+    cancelled: receipts.filter(r => r.status === "cancelled").length
+  };
+}
+
 // ═══════════════════════════════════════════════════════════
 //  LIST PAGE
 // ═══════════════════════════════════════════════════════════
@@ -90,11 +110,6 @@ export function renderReceiptsPage(ctx) {
   _selectedIds.clear();
   const receipts = ctx.state.receipts || [];
 
-  // ★ Filter ตาม tab
-  const countAll = receipts.length;
-  const countPending = receipts.filter(r => r.status === "pending" || r.status === "partial").length;
-  const countPaid = receipts.filter(r => r.status === "paid").length;
-  const countCancelled = receipts.filter(r => r.status === "cancelled").length;
   // Phase 59 (B2): apply advanced filters
   const today = new Date().toISOString().slice(0, 10);
   let cutoff = "";
@@ -103,18 +118,19 @@ export function renderReceiptsPage(ctx) {
   else if (_rcDateRange === "30d") { const d = new Date(); d.setDate(d.getDate() - 30); cutoff = d.toISOString().slice(0, 10); }
   else if (_rcDateRange === "month") { cutoff = today.slice(0, 7) + "-01"; }
   const q = (_rcSearch || "").trim().toLowerCase();
+  const scopedReceipts = receipts.filter(r => _receiptMatchesSearchDate(r, { cutoff, q }));
+  const counts = _receiptStatusCounts(scopedReceipts);
+  const countAll = counts.all;
+  const countPending = counts.pending;
+  const countPaid = counts.paid;
+  const countCancelled = counts.cancelled;
 
-  const filtered = receipts.filter(r => {
+  // ★ Filter ตาม tab
+  const filtered = scopedReceipts.filter(r => {
     if (_tabFilter !== "all") {
       if (_tabFilter === "pending" && !(r.status === "pending" || r.status === "partial")) return false;
       if (_tabFilter !== "pending" && r.status !== _tabFilter) return false;
     }
-    if (cutoff && String(r.created_at || "").slice(0, 10) < cutoff) return false;
-    if (q && !(
-      String(r.receipt_no || "").toLowerCase().includes(q) ||
-      String(r.customer_name || "").toLowerCase().includes(q) ||
-      String(r.delivery_invoice_id || "").toLowerCase().includes(q)
-    )) return false;
     return true;
   });
 
@@ -148,7 +164,7 @@ export function renderReceiptsPage(ctx) {
         </div>
         <div class="stat-card">
           <div class="stat-label">ยอดรวม</div>
-          <div class="stat-value" style="color:#0284c7">${money(receipts.reduce((s,r) => s + Number(r.grand_total||0), 0))}</div>
+          <div class="stat-value" style="color:#0284c7">${money(scopedReceipts.reduce((s,r) => s + Number(r.grand_total||0), 0))}</div>
         </div>
       </div>
 
