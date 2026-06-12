@@ -7,6 +7,16 @@
 
 ---
 
+## 5.66.0 (build 423) — 2026-06-12 Phase 423 mock-F finishing pass — การ์ดต้องทำวันนี้ + โดนัทช่องทาง + stat tiles
+
+- **feat (UI dashboard · display-only — dashboard.js คง read-only):** เก็บงานตามแบบ F ให้ครบ: (1) **รวมการ์ด "วันนี้" + "ที่ต้องดู" เป็น "📌 ต้องทำวันนี้" ใบเดียว** — แถวละเรื่อง (งานช่างวันนี้/งานเลท/ของใกล้หมด/ใบเสนอราคาใกล้หมดอายุ/หนี้เกินกำหนด/รายจ่ายประจำ) ไอคอนสี่เหลี่ยมสี + ตัวนับ + กดไปหน้านั้น (binding เดิม) — เงื่อนไข/ตัวนับเดิมทุกตัว; คำเตือนของใกล้หมดย้ายจาก hero chip มาอยู่การ์ดนี้ (hero สะอาดขึ้น)
+- (2) **โดนัท "ยอดขายแยกตามช่องทาง (เดือนนี้)"** — SVG ล้วน รวมยอดจาก payment_method ของบิลเดือนนี้ใน state (role-filtered, ข้าม [ลบแล้ว]) top 4 + อื่น ๆ พร้อม **caption ซื่อตรง "จากบิลที่โหลดล่าสุด (~50) — ไม่ใช่ทั้งระบบ"** (บทเรียน Phase 396) — ไม่มีสูตรเงินใหม่ แค่รวมเพื่อแสดง
+- (3) **stat tiles 9 ใบมีไอคอนวงกลมสี pastel** (`_kpiCard` รับ `icon/iconBg/iconFg` — เส้นทาง `data-go` เดิมล็อกด้วย guard) + (4) แถวปุ่มลัดวงกลมจัดกระชับกึ่งกลาง (จอกว้างไม่กระจาย)
+- bump build **423** (data-app-build + ?v= ×4 + sw cache-v423) + `dashboard_readonly_guard` → 423 · `ui_theme_guard` +1 test (PHASE 423 css + การ์ดรวม + caption ซื่อตรง + routes ครบ)
+- lint:errors 0 / unit **1560** / e2e **14** · **⏸️ STOP รอ owner smoke preview แล้ว merge 421+422+423 ทีเดียว**
+
+---
+
 ## 5.66.0 (build 422) — 2026-06-12 Phase 422 mock-F dashboard layout — ปุ่มลัดวงกลม + hero indigo
 
 - **feat (UI dashboard · display-only — dashboard.js ยังคง read-only ตาม guard):** หน้า "ภาพรวมบริษัท" ปรับตาม mockup แบบ F ต่อจาก 421 — **แถวปุ่มลัดวงกลม 6 ปุ่ม** (ขายสินค้า/เปิดใบงาน/ใบเสนอราคา/ลูกค้า/เช็คสต็อก/รายงาน) บนสุดใต้ header, นำทางผ่าน `dash-clickable[data-go]` binding เดิม (ไม่มี handler/fetch ใหม่) + **hero ยอดขายวันนี้พื้น indigo อ่อน** (`.dash-today--brand` + dark variant)

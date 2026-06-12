@@ -71,7 +71,7 @@ test("all button-id hooks are preserved", () => {
 test("KPI nav cards preserve every data-go route + emit data-go at render", () => {
   // _kpiCard turns go:"route" into data-go="route" on a .dash-clickable card
   assert.match(dash, /const goAttr = go \? ` data-go="\$\{go\}"` : "";/, "_kpiCard emits data-go");
-  assert.match(dash, /const cls = "kpi-card" \+ \(go \? " dash-clickable" : ""\);/, "go cards get .dash-clickable");
+  assert.match(dash, /const cls = "kpi-card"[\s\S]*\(go \? " dash-clickable" : ""\)/, "go cards get .dash-clickable");
   for (const route of ["receipts", "customers", "products", "service_jobs", "quotations", "settings", "settings/permissions"]) {
     assert.ok(dash.includes(`go: "${route}"`), `KPI nav route "${route}" must be preserved`);
   }

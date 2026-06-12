@@ -132,63 +132,89 @@ function _renderTodayAndAlerts(state) {
     return s <= r;
   });
 
-  const totalAlerts = overdueJobs.length + expSoon.length + overdueCredit.length + overdueRecurring.length;
-  if (todayJobs.length === 0 && totalAlerts === 0 && lowStock.length === 0) return ""; // เงียบ ๆ ถ้าไม่มี
+  // ── Phase 423 (mock-F): รวม "วันนี้" + "ที่ต้องดู" + ของใกล้หมด เป็นการ์ด "ต้องทำวันนี้" ใบเดียว ──
+  // แถวละเรื่อง กดแล้วไปหน้านั้น (dash-clickable[data-go] binding เดิม) — เงื่อนไข/ตัวนับเดิมทุกตัว
+  const todoRows = [];
+  if (todayJobs.length > 0) todoRows.push({ go: "service_jobs", bg: "#e0f2fe", fg: "#0369a1", ic: "🔧", t: `งานช่างวันนี้ ${todayJobs.length} งาน`, s: escapeHtml(todayJobs[0]?.customer_name || todayJobs[0]?.description || "") });
+  if (overdueJobs.length > 0) todoRows.push({ go: "service_jobs", bg: "#fee2e2", fg: "#b91c1c", ic: "⏰", t: `งานเลทกำหนด ${overdueJobs.length} งาน`, s: "เลยนัด/กำหนดส่ง" });
+  if (lowStock.length > 0) todoRows.push({ go: "products", bg: "#fee2e2", fg: "#b91c1c", ic: "⚠️", t: `ของใกล้หมด ${lowStock.length} รายการ`, s: escapeHtml(lowStock[0]?.name || "") });
+  if (expSoon.length > 0) todoRows.push({ go: "quotations", bg: "#ede9fe", fg: "#6d28d9", ic: "📄", t: `ใบเสนอราคาใกล้หมดอายุ ${expSoon.length} ใบ`, s: "ภายใน 3 วัน" });
+  if (overdueCredit.length > 0) todoRows.push({ go: "credit_tracker", bg: "#fef3c7", fg: "#b45309", ic: "💳", t: `ลูกค้าค้างชำระเกินกำหนด ${overdueCredit.length} ราย`, s: "ติดตามหนี้" });
+  if (overdueRecurring.length > 0) todoRows.push({ go: "recurring_expenses", bg: "#fef3c7", fg: "#b45309", ic: "🔁", t: `รายจ่ายประจำครบกำหนด ${overdueRecurring.length} รายการ`, s: "ถึงกำหนดจ่าย" });
+  const todoCount = todoRows.length;
+
+  // ── Phase 423: ยอดขายแยกตามช่องทาง (เดือนนี้) — display-only จาก state ที่โหลด (cap ~50) ──
+  // กลุ่มตาม payment_method ของบิลเดือนนี้ (role-filtered + ข้าม [ลบแล้ว]) — ไม่มีสูตรเงินใหม่ แค่รวมยอดเพื่อแสดง
+  const thisMonthKey = todayKey().slice(0, 7);
+  const CHANNEL_LABELS = { cash: "เงินสด", transfer: "โอนเงิน", promptpay: "พร้อมเพย์", card: "บัตร", credit: "เครดิต", multi: "หลายช่องทาง", cod: "เก็บปลายทาง" };
+  const chanMap = {};
+  visibleSalesForRole(state?.sales, state?.profile, state?.currentUser)
+    .filter(s => !(s.note || "").includes("[ลบแล้ว]"))
+    .filter(s => s.created_at && dateBkk(s.created_at).slice(0, 7) === thisMonthKey)
+    .forEach(s => {
+      const raw = String(s.payment_method || (s.is_credit ? "credit" : "")).trim().toLowerCase();
+      const label = CHANNEL_LABELS[raw] || (s.payment_method ? escapeHtml(String(s.payment_method)) : "อื่น ๆ");
+      chanMap[label] = (chanMap[label] || 0) + Number(s.total_amount || 0);
+    });
+  const chanSorted = Object.entries(chanMap).sort((a, b) => b[1] - a[1]);
+  const chanTop = chanSorted.slice(0, 4);
+  const chanRest = chanSorted.slice(4).reduce((s, e) => s + e[1], 0);
+  if (chanRest > 0) chanTop.push(["อื่น ๆ", chanRest]);
+  const chanTotal = chanTop.reduce((s, e) => s + e[1], 0);
+  const DONUT_COLORS = ["#5b5bd6", "#38bdf8", "#f59e0b", "#fb7185", "#94a3b8"];
+  const CIRC = 238.76;
+  let donutOff = 0;
+  const donutSegs = chanTop.map(([, amt], i) => {
+    const len = chanTotal > 0 ? (amt / chanTotal) * CIRC : 0;
+    const seg = `<circle cx="48" cy="48" r="38" fill="none" stroke="${DONUT_COLORS[i % DONUT_COLORS.length]}" stroke-width="13" stroke-dasharray="${len.toFixed(1)} ${(CIRC - len).toFixed(1)}" stroke-dashoffset="${(-donutOff).toFixed(1)}" transform="rotate(-90 48 48)"/>`;
+    donutOff += len;
+    return seg;
+  }).join("");
 
   return `
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px;margin:14px 0">
-      <!-- 📅 วันนี้ -->
-      <div class="stat-card" style="padding:14px;border-left:4px solid #5b5bd6">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-          <div style="font-weight:800;color:#33338f">📅 วันนี้ (${todayJobs.length})</div>
-          ${todayJobs.length ? `<button class="btn light dash-clickable" data-go="service_jobs" style="font-size:11px;padding:4px 8px">ดูทั้งหมด →</button>` : ''}
+      <!-- 📌 ต้องทำวันนี้ (Phase 423: รวม วันนี้/ที่ต้องดู/ของใกล้หมด) -->
+      <div class="stat-card dash-todo" style="padding:14px">
+        <div class="dash-todo-head">
+          <div style="font-weight:800;color:var(--primary2)">📌 ต้องทำวันนี้</div>
+          <span class="dash-todo-chip ${todoCount ? "warn" : "ok"}">${todoCount ? `${todoCount} เรื่อง` : "ไม่มีค้าง"}</span>
         </div>
-        ${todayJobs.length === 0
-          ? '<div style="text-align:center;padding:18px 8px;color:#94a3b8;font-size:13px">ไม่มีนัดงานช่างวันนี้</div>'
-          : todayJobs.slice(0, 5).map(j => `
-            <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px dashed #e2e8f0;font-size:13px">
-              <div style="width:32px;height:32px;border-radius:50%;background:#eef0ff;color:#4949b8;display:grid;place-items:center;font-size:14px;flex-shrink:0">🔧</div>
-              <div style="flex:1;min-width:0">
-                <div style="font-weight:600;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(j.customer_name || "ลูกค้าทั่วไป")}</div>
-                <div style="font-size:11px;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(j.description || j.device_name || "-")}</div>
+        ${todoCount === 0
+          ? '<div style="text-align:center;padding:18px 8px;color:#94a3b8;font-size:13px">ทุกอย่างปกติ — ไม่มีอะไรค้าง</div>'
+          : todoRows.map(r => `
+            <div class="dash-todo-row dash-clickable" data-go="${r.go}">
+              <span class="dash-todo-ic" style="background:${r.bg};color:${r.fg}">${r.ic}</span>
+              <div class="dash-todo-main">
+                <div class="dash-todo-title">${r.t}</div>
+                ${r.s ? `<div class="dash-todo-sub">${r.s}</div>` : ""}
               </div>
-              <span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:6px;font-size:10px;font-weight:700">${escapeHtml(j.status || "pending")}</span>
-            </div>
-          `).join("")
-        }
-        ${todayJobs.length > 5 ? `<div style="text-align:center;font-size:11px;color:#64748b;margin-top:6px">+${todayJobs.length - 5} อื่น ๆ</div>` : ""}
+              <span class="dash-todo-arrow">›</span>
+            </div>`).join("")}
       </div>
 
-      <!-- 🚨 Alerts -->
-      <div class="stat-card" style="padding:14px;border-left:4px solid ${totalAlerts > 0 ? '#dc2626' : '#10b981'}">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-          <div style="font-weight:800;color:${totalAlerts > 0 ? '#b91c1c' : '#065f46'}">${totalAlerts > 0 ? '🚨' : '✅'} ที่ต้องดู ${totalAlerts > 0 ? `(${totalAlerts})` : ''}</div>
-        </div>
-        ${totalAlerts === 0
-          ? '<div style="text-align:center;padding:18px 8px;color:#94a3b8;font-size:13px">ทุกอย่างปกติ — ไม่มีอะไรค้าง</div>'
+      <!-- 🍩 ยอดขายแยกตามช่องทาง (เดือนนี้) — display-only -->
+      <div class="stat-card dash-chan" style="padding:14px">
+        <div style="font-weight:800;color:var(--primary2);margin-bottom:8px">ยอดขายแยกตามช่องทาง <span style="font-weight:600;color:#94a3b8;font-size:11px">เดือนนี้</span></div>
+        ${chanTotal <= 0
+          ? '<div style="text-align:center;padding:24px 8px;color:#94a3b8;font-size:13px">เดือนนี้ยังไม่มีบิลขายในรายการที่โหลด</div>'
           : `
-            ${overdueJobs.length > 0 ? `
-              <div class="dash-clickable" data-go="service_jobs" style="display:flex;justify-content:space-between;padding:8px 10px;background:#fef2f2;border-radius:8px;margin-bottom:6px;cursor:pointer">
-                <div style="font-size:13px;color:#991b1b"><b>⏰ งานเลทกำหนด</b> (${overdueJobs.length})</div>
-                <div style="font-size:11px;color:#991b1b">→</div>
-              </div>` : ''}
-            ${expSoon.length > 0 ? `
-              <div class="dash-clickable" data-go="quotations" style="display:flex;justify-content:space-between;padding:8px 10px;background:#fff7ed;border-radius:8px;margin-bottom:6px;cursor:pointer">
-                <div style="font-size:13px;color:#92400e"><b>📄 ใบเสนอราคาใกล้หมดอายุ</b> (${expSoon.length}) ใน 3 วัน</div>
-                <div style="font-size:11px;color:#92400e">→</div>
-              </div>` : ''}
-            ${overdueCredit.length > 0 ? `
-              <div class="dash-clickable" data-go="credit_tracker" style="display:flex;justify-content:space-between;padding:8px 10px;background:#fef9c3;border-radius:8px;margin-bottom:6px;cursor:pointer">
-                <div style="font-size:13px;color:#854d0e"><b>💳 ลูกค้าค้างชำระเกินกำหนด</b> (${overdueCredit.length})</div>
-                <div style="font-size:11px;color:#854d0e">→</div>
-              </div>` : ''}
-            ${overdueRecurring.length > 0 ? `
-              <div class="dash-clickable" data-go="recurring_expenses" style="display:flex;justify-content:space-between;padding:8px 10px;background:#fef3c7;border-radius:8px;margin-bottom:6px;cursor:pointer">
-                <div style="font-size:13px;color:#92400e"><b>🔁 รายจ่ายประจำครบกำหนด</b> (${overdueRecurring.length})</div>
-                <div style="font-size:11px;color:#92400e">→</div>
-              </div>` : ''}
-          `
-        }
+          <div class="dash-chan-wrap">
+            <svg width="96" height="96" viewBox="0 0 96 96" aria-hidden="true">
+              <circle cx="48" cy="48" r="38" fill="none" stroke="#f1f0fa" stroke-width="13"/>
+              ${donutSegs}
+              <text x="48" y="45" text-anchor="middle" font-size="13" font-weight="700" style="fill:var(--text)">฿${moneyShort(chanTotal)}</text>
+              <text x="48" y="60" text-anchor="middle" font-size="10" fill="#94a3b8">เดือนนี้</text>
+            </svg>
+            <div class="dash-chan-legend">
+              ${chanTop.map(([label, amt], i) => `
+                <div class="dash-chan-row">
+                  <span class="dash-chan-dot" style="background:${DONUT_COLORS[i % DONUT_COLORS.length]}"></span>
+                  <span class="dash-chan-name">${label}</span>
+                  <span class="dash-chan-val">${chanTotal > 0 ? Math.round((amt / chanTotal) * 100) : 0}% · ฿${moneyShort(amt)}</span>
+                </div>`).join("")}
+            </div>
+          </div>
+          <div style="font-size:11px;color:#94a3b8;margin-top:8px">จากบิลที่โหลดล่าสุด (~50) — ไม่ใช่ทั้งระบบ</div>`}
       </div>
     </div>
   `;
@@ -328,15 +354,17 @@ function _dashHeader({ shopName, logoSrc, isAdmin }) {
 // One KPI card. `go` makes it a clickable nav card (dash-clickable[data-go]); `accent`
 // sets the left border colour; `spark` is optional sparkline markup; `small` shrinks
 // the value font (for text values like user name). Values must be pre-escaped by caller.
-function _kpiCard({ label, value, valueColor = "", sub = "", spark = "", accent = "", go = "", title = "", small = false }) {
-  const cls = "kpi-card" + (go ? " dash-clickable" : "");
+function _kpiCard({ label, value, valueColor = "", sub = "", spark = "", accent = "", go = "", title = "", small = false, icon = "", iconBg = "", iconFg = "" }) {
+  const cls = "kpi-card" + (go ? " dash-clickable" : "") + (icon ? " kpi-tile" : "");
   const accentStyle = accent ? ` style="border-left-color:${accent}"` : "";
   const goAttr = go ? ` data-go="${go}"` : "";
   const titleAttr = title ? ` title="${title}"` : "";
   const valStyle = valueColor ? ` style="color:${valueColor}"` : "";
   const valCls = "kpi-value" + (small ? " kpi-value--sm" : "");
+  const iconHtml = icon ? `<span class="kpi-tile-ic" style="background:${iconBg};color:${iconFg}">${icon}</span>` : "";
   return `
       <div class="${cls}"${goAttr}${titleAttr}${accentStyle}>
+        ${iconHtml}
         <div class="kpi-label">${label}</div>
         <div class="${valCls}"${valStyle}>${value}</div>
         ${sub ? `<div class="kpi-sub">${sub}</div>` : ""}
@@ -465,7 +493,8 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
         <div class="dash-today-amount">${money(todayRevenue)}</div>
         <div class="dash-today-sub">จาก ${todayOrderCount} ออเดอร์${todayWebOrders.length > 0 ? ` · 🛒 เว็บ ${todayWebOrders.length}` : ''}</div>
       </div>
-      <div class="dash-today-status ${lowStock.length ? 'warn' : 'ok'}">${lowStock.length ? `⚠ สินค้าใกล้หมด ${lowStock.length} รายการ` : "✓ เชื่อมต่อฐานข้อมูลแล้ว"}</div>
+      <!-- Phase 423: คำเตือนของใกล้หมดย้ายไปการ์ด "ต้องทำวันนี้" (hero สะอาดตาม mock-F) -->
+      <div class="dash-today-status ok">✓ เชื่อมต่อฐานข้อมูลแล้ว</div>
     </div>
 
     <!-- ═══ PERIOD TABS ═══ -->
@@ -507,16 +536,17 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
         const userRoleLabel = ROLE_LABEL_TH[userRoleKey] || userRoleKey || "ผู้ใช้";
         const productCount = (state.products || []).length;
         const jobsCount = activeJobs ?? 0;
+        // Phase 423 (mock-F): stat tiles — emoji ย้ายเข้าไอคอนวงกลมสี pastel
         return [
-          _kpiCard({ go: "income_overview", title: "ดูภาพรวมรายได้", label: "📈 รายได้วันนี้ (รวมบริการ)", value: money(todayTotalIncome), valueColor: "#059669" }),
-          _kpiCard({ go: "receipts", title: "ดูใบเสร็จ", label: "🧾 ยอดขายเดือนนี้", value: money(monthRevenue) }),
-          _kpiCard({ go: "customers", title: "ไปหน้าลูกค้า", label: "👥 ลูกค้าทั้งหมด", value: (state.customers || []).length.toLocaleString("th-TH") }),
-          _kpiCard({ go: "products", title: "ไปหน้าสินค้า", label: "📦 สินค้าทั้งหมด", value: productCount.toLocaleString("th-TH") }),
-          _kpiCard({ go: "service_jobs", title: "ไปหน้างานช่าง", label: "🔧 งานช่างค้าง", value: jobsCount.toLocaleString("th-TH") }),
-          _kpiCard({ go: "quotations", title: "ไปหน้าใบเสนอราคา", label: "📄 ใบเสนอราคา", value: (state.quotations || []).length.toLocaleString("th-TH") }),
-          _kpiCard({ go: "service_jobs", title: "ไปหน้างานช่าง", label: "🛒 ออเดอร์แอร์ค้าง", value: pendingOrders.length.toLocaleString("th-TH"), valueColor: "#f59e0b" }),
-          _kpiCard({ go: "settings", title: "ไปหน้าตั้งค่า", label: "👤 ผู้ใช้งาน", value: escapeHtml(userName), small: true }),
-          _kpiCard({ go: "settings/permissions", title: "ดูสิทธิ์ทั้งหมด", label: "🛡️ สิทธิ์", value: escapeHtml(userRoleLabel), small: true }),
+          _kpiCard({ go: "income_overview", title: "ดูภาพรวมรายได้", icon: "📈", iconBg: "#d1fae5", iconFg: "#047857", label: "รายได้วันนี้ (รวมบริการ)", value: money(todayTotalIncome), valueColor: "#059669" }),
+          _kpiCard({ go: "receipts", title: "ดูใบเสร็จ", icon: "🧾", iconBg: "#eef0ff", iconFg: "#4949b8", label: "ยอดขายเดือนนี้", value: money(monthRevenue) }),
+          _kpiCard({ go: "customers", title: "ไปหน้าลูกค้า", icon: "👥", iconBg: "#ccfbf1", iconFg: "#0f766e", label: "ลูกค้าทั้งหมด", value: (state.customers || []).length.toLocaleString("th-TH") }),
+          _kpiCard({ go: "products", title: "ไปหน้าสินค้า", icon: "📦", iconBg: "#fef3c7", iconFg: "#b45309", label: "สินค้าทั้งหมด", value: productCount.toLocaleString("th-TH") }),
+          _kpiCard({ go: "service_jobs", title: "ไปหน้างานช่าง", icon: "🔧", iconBg: "#e0f2fe", iconFg: "#0369a1", label: "งานช่างค้าง", value: jobsCount.toLocaleString("th-TH") }),
+          _kpiCard({ go: "quotations", title: "ไปหน้าใบเสนอราคา", icon: "📄", iconBg: "#ede9fe", iconFg: "#6d28d9", label: "ใบเสนอราคา", value: (state.quotations || []).length.toLocaleString("th-TH") }),
+          _kpiCard({ go: "service_jobs", title: "ไปหน้างานช่าง", icon: "🛒", iconBg: "#ffedd5", iconFg: "#c2410c", label: "ออเดอร์แอร์ค้าง", value: pendingOrders.length.toLocaleString("th-TH"), valueColor: "#f59e0b" }),
+          _kpiCard({ go: "settings", title: "ไปหน้าตั้งค่า", icon: "👤", iconBg: "#f1f5f9", iconFg: "#334155", label: "ผู้ใช้งาน", value: escapeHtml(userName), small: true }),
+          _kpiCard({ go: "settings/permissions", title: "ดูสิทธิ์ทั้งหมด", icon: "🛡️", iconBg: "#fce7f3", iconFg: "#be185d", label: "สิทธิ์", value: escapeHtml(userRoleLabel), small: true }),
         ].join("");
       })()}
     </div>

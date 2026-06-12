@@ -80,6 +80,26 @@ test("PHASE 422 dashboard layout: quick-action row + brand hero, nav-only", () =
   assert.match(dash, /class="dash-today dash-today--brand"/, "hero must carry the brand modifier");
 });
 
+// ── Phase 423: mock-F finishing pass (merged todo card + channel donut + tiles) ──
+test("PHASE 423: merged todo card, channel donut (honest caption), kpi tiles", () => {
+  const i = css.indexOf("PHASE 423");
+  assert.ok(i > -1, "PHASE 423 css section must exist");
+  const sect = css.slice(i);
+  for (const cl of [".dash-todo-row", ".dash-todo-ic", ".dash-chan-wrap", ".kpi-tile"]) {
+    assert.ok(sect.includes(cl), `${cl} css must exist in the 423 block`);
+  }
+
+  const dash = fs.readFileSync(path.resolve("modules/dashboard.js"), "utf8");
+  assert.ok(dash.includes("ต้องทำวันนี้"), "merged todo card must exist");
+  assert.ok(!dash.includes("ที่ต้องดู ${"), "old split alert card title markup must be gone (merged; comments may still mention it)");
+  assert.ok(dash.includes("ยอดขายแยกตามช่องทาง"), "sales-by-channel donut must exist");
+  assert.ok(dash.includes("จากบิลที่โหลดล่าสุด"), "channel donut must carry the honest cap caption (Phase 396 lesson)");
+  assert.match(dash, /dash-today-status ok/, "hero status chip is static ok (low-stock warning moved into todo card)");
+  for (const r of ["service_jobs", "products", "quotations", "credit_tracker", "recurring_expenses"]) {
+    assert.ok(dash.includes(`go: "${r}"`) || dash.includes(`data-go="${r}"`), `todo row route "${r}" must be preserved`);
+  }
+});
+
 // ── phase4 design-system stays in sync ───────────────────────────────────────
 test("phase4 design-system primary scale is remapped to indigo", () => {
   assert.match(p4, /--primary-500:\s*#6b6be0/, "--primary-500 must be #6b6be0");
