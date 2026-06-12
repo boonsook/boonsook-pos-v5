@@ -37,7 +37,7 @@ export default defineConfig({
   webServer: {
     // Node-based static server (zero new npm deps). See scripts/static-server.js.
     // Cross-platform: works on Windows / macOS / Linux without Python.
-    command: `node scripts/static-server.js ${PORT} --idle-exit-ms=3000`,
+    command: `node scripts/static-server.js ${PORT} --idle-exit-ms=30000`,
     port: PORT,
     reuseExistingServer: !process.env.CI,
     timeout: 10_000,
