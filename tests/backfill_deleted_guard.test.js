@@ -55,22 +55,23 @@ test("_classifyOrphan: บิลลบ + amount 0 ก็ยังไม่ actio
 });
 
 // ── source-regex: auto_post guards (extract เฉพาะ body ของฟังก์ชันก่อน) ──────
-function fnSource(src, decl) {
-  const start = src.indexOf(decl);
-  assert.notEqual(start, -1, `ไม่พบ ${decl}`);
-  const after = src.indexOf("\nexport async function ", start + decl.length);
-  const end = after === -1 ? src.indexOf("\nasync function ", start + decl.length) : after;
+function fnSource(src, fnName) {
+  const sig = new RegExp(`export\\s+async\\s+function\\s+${fnName}\\s*\\([^)]*\\)\\s*\\{`);
+  const m = sig.exec(src);
+  assert.ok(m, `ไม่พบ ${fnName}`);
+  const start = m.index;
+  const after = src.indexOf("\nexport async function ", start + m[0].length);
+  const end = after === -1 ? src.indexOf("\nasync function ", start + m[0].length) : after;
   return src.slice(start, end === -1 ? undefined : end);
 }
 
 const autoPostSrc = read("modules/accounting/auto_post.js");
 
-for (const decl of ["export async function postJournalForSale(sale) {",
-                    "export async function postJournalForServiceJob(job) {"]) {
-  test(`${decl.match(/postJournalFor\w+/)[0]}: guard [ลบแล้ว] → return null`, () => {
-    const fn = fnSource(autoPostSrc, decl);
+for (const fnName of ["postJournalForSale", "postJournalForServiceJob"]) {
+  test(`${fnName}: guard [ลบแล้ว] → legacy return null / detailed skipped`, () => {
+    const fn = fnSource(autoPostSrc, fnName);
     const g = fn.match(/if\s*\(String\((sale|job)\.note \|\| ""\)\.includes\("\[ลบแล้ว\]"\)\)\s*\{([\s\S]*?)\}/);
     assert.ok(g, "ต้องมี guard เช็ค note [ลบแล้ว]");
-    assert.match(g[2], /return null;/, "guard ต้อง return null (คง caller contract เหมือน skip case อื่น)");
+    assert.match(g[2], /_journalResult\(opts\.detailed,\s*\{\s*status:\s*"skipped",\s*reason:\s*"deleted"/, "guard ต้อง return skipped/deleted แบบ detailed และ legacy ยังได้ null");
   });
 }

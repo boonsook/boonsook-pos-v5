@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 
-import { summarizeResults, formatSummaryLine } from "../scripts/backfill_orphan_journals.js";
+import { summarizeResults, formatSummaryLine, classifyBackfillCandidate } from "../scripts/backfill_orphan_journals.js";
 
 const SCRIPT_PATH = path.resolve("scripts/backfill_orphan_journals.js");
 const SCRIPT_SRC = fs.readFileSync(SCRIPT_PATH, "utf8");
@@ -20,13 +20,14 @@ const SCRIPT_SRC = fs.readFileSync(SCRIPT_PATH, "utf8");
 // ── summarizeResults ────────────────────────────────────────
 test("summarizeResults: empty list returns all zeros", () => {
   const s = summarizeResults([]);
-  assert.deepEqual(s, { posted: 0, skipped: 0, failed: 0, total: 0 });
+  assert.deepEqual(s, { posted: 0, wouldPost: 0, skipped: 0, failed: 0, total: 0 });
 });
 
 test("summarizeResults: counts posted/skipped/failed correctly", () => {
   const results = [
     { id: 1, status: "posted", jvId: 100 },
     { id: 2, status: "posted", jvId: 101 },
+    { id: 7, status: "would-post" },
     { id: 3, status: "skipped" },
     { id: 4, status: "failed", reason: "no-mapping" },
     { id: 5, status: "skipped" },
@@ -34,19 +35,21 @@ test("summarizeResults: counts posted/skipped/failed correctly", () => {
   ];
   const s = summarizeResults(results);
   assert.equal(s.posted, 3);
+  assert.equal(s.wouldPost, 1);
   assert.equal(s.skipped, 2);
   assert.equal(s.failed, 1);
-  assert.equal(s.total, 6);
+  assert.equal(s.total, 7);
 });
 
-test("summarizeResults: dry-run status not counted as posted/skipped/failed", () => {
+test("summarizeResults: would-post status is counted separately", () => {
   const results = [
-    { id: 1, status: "dry-run" },
-    { id: 2, status: "dry-run" },
+    { id: 1, status: "would-post" },
+    { id: 2, status: "would-post" },
     { id: 3, status: "posted", jvId: 100 },
   ];
   const s = summarizeResults(results);
   assert.equal(s.posted, 1);
+  assert.equal(s.wouldPost, 2);
   assert.equal(s.skipped, 0);
   assert.equal(s.failed, 0);
   assert.equal(s.total, 3);
@@ -64,19 +67,37 @@ test("summarizeResults: unknown status ignored (not counted)", () => {
 
 // ── formatSummaryLine ───────────────────────────────────────
 test("formatSummaryLine: includes all counts + label", () => {
-  const line = formatSummaryLine("Sales:", { posted: 3, skipped: 2, failed: 1, total: 6 });
+  const line = formatSummaryLine("Sales:", { posted: 3, wouldPost: 4, skipped: 2, failed: 1, total: 10 });
   assert.match(line, /Sales:/);
   assert.match(line, /3 posted/);
+  assert.match(line, /4 would-post/);
   assert.match(line, /2 skipped/);
   assert.match(line, /1 failed/);
-  assert.match(line, /total 6/);
+  assert.match(line, /total 10/);
 });
 
 test("formatSummaryLine: zero counts render correctly", () => {
-  const line = formatSummaryLine("Expenses:", { posted: 0, skipped: 0, failed: 0, total: 0 });
+  const line = formatSummaryLine("Expenses:", { posted: 0, wouldPost: 0, skipped: 0, failed: 0, total: 0 });
   assert.match(line, /Expenses:/);
   assert.match(line, /0 posted/);
   assert.match(line, /0 failed/);
+});
+
+test("classifyBackfillCandidate: pre-effective and zero rows are skipped in dry-run", () => {
+  const april = classifyBackfillCandidate("sales", { created_at: "2026-04-04T12:00:00Z", total_amount: 11900 });
+  assert.equal(april.status, "skipped");
+  assert.equal(april.reason, "pre-effective");
+
+  const zero = classifyBackfillCandidate("sales", { created_at: "2026-07-04T12:00:00Z", total_amount: 0 });
+  assert.equal(zero.status, "skipped");
+  assert.equal(zero.reason, "zero-amount");
+});
+
+test("classifyBackfillCandidate: post-effective positive row is would-post in dry-run", () => {
+  const r = classifyBackfillCandidate("expenses", { expense_date: "2026-07-04", amount: 1000 });
+  assert.equal(r.status, "would-post");
+  assert.equal(r.docDate, "2026-07-04");
+  assert.equal(r.amount, 1000);
 });
 
 // ── Source-level guards (ป้องกัน regression ของ critical pattern) ──
@@ -142,9 +163,9 @@ test("source: main() guarded so test import does NOT trigger env load / auth / n
   assert.match(SCRIPT_SRC, /import\.meta\.url\s*===\s*pathToFileURL/);
 });
 
-test("source: README header explains effective date constraint (pre-2026-05-01 skip)", () => {
+test("source: README header explains effective date constraint", () => {
   // ป้องกันคน assume ว่า script จะ backfill ทั้งหมด ทั้งที่จริง auto_post skip pre-effective
-  assert.match(SCRIPT_SRC, /ACCOUNTING_EFFECTIVE_DATE|pre-effective|2026-05-01/i);
+  assert.match(SCRIPT_SRC, /ACCOUNTING_EFFECTIVE_DATE|pre-effective/i);
 });
 
 // ── npm script registration ─────────────────────────────────

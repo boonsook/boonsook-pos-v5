@@ -544,7 +544,10 @@ function bindAddFormEvents() {
         if (res && res.ok === false) throw new Error(res.error?.message || "update failed");
         // repost JV ด้วย amount/category/method ใหม่.
         try {
-          await postJournalForExpense({ id: editId, ...payload });
+          const postRes = await postJournalForExpense({ id: editId, ...payload }, { detailed: true });
+          if (postRes?.status === "failed") {
+            jvPostWarning = "อัปเดตรายจ่ายแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจสมุดรายวัน/Backfill";
+          }
         } catch (e) {
           console.warn("[expenses] repost JV after edit failed:", e?.message);
           jvPostWarning = "อัปเดตรายจ่ายแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจสมุดรายวัน/Backfill";
@@ -560,7 +563,10 @@ function bindAddFormEvents() {
         const inserted = res?.data;
         if (inserted?.id) {
           try {
-            await postJournalForExpense(inserted);
+            const postRes = await postJournalForExpense(inserted, { detailed: true });
+            if (postRes?.status === "failed") {
+              jvPostWarning = "เพิ่มรายจ่ายแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจสมุดรายวัน/Backfill";
+            }
           } catch (e) {
             console.warn("[expenses] auto-post JV failed:", e?.message);
             jvPostWarning = "เพิ่มรายจ่ายแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจสมุดรายวัน/Backfill";
@@ -976,7 +982,10 @@ function _showParsedResult(ctx, modal, imageDataUrl, data) {
         const inserted = Array.isArray(arr) ? arr[0] : arr;
         if (inserted?.id) {
           try {
-            await postJournalForExpense(inserted);
+            const postRes = await postJournalForExpense(inserted, { detailed: true });
+            if (postRes?.status === "failed") {
+              jvPostWarning = "บันทึกรายจ่ายแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจสมุดรายวัน/Backfill";
+            }
           } catch (postErr) {
             console.warn("[expenses-autokey] auto-post JV failed:", postErr?.message);
             jvPostWarning = "บันทึกรายจ่ายแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจสมุดรายวัน/Backfill";

@@ -411,7 +411,10 @@ async function _createExpenseFromRecurring(ctx, r) {
       // #2: auto-post JV → ค่าเช่า/น้ำไฟเข้าสมุดบัญชีคู่
       if (inserted?.id) {
         try {
-          await postJournalForExpense(inserted);
+          const postRes = await postJournalForExpense(inserted, { detailed: true });
+          if (postRes?.status === "failed") {
+            window.App?.showToast?.("สร้างรายจ่ายประจำแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจสมุดรายวัน/Backfill", "warn");
+          }
         } catch (e) {
           console.warn("[recurring] auto-post JV failed:", e?.message);
           window.App?.showToast?.("สร้างรายจ่ายประจำแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจสมุดรายวัน/Backfill", "warn");

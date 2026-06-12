@@ -482,7 +482,10 @@ export function renderReceiptsPage(ctx) {
         // ★ Phase 88.1b — auto-post JV ตอนเก็บเงิน
         if (action === "paid") {
           try {
-            await postJournalForReceipt({ ...r, status: "paid", paid_at: new Date().toISOString() });
+            const postRes = await postJournalForReceipt({ ...r, status: "paid", paid_at: new Date().toISOString() }, { detailed: true });
+            if (postRes?.status === "failed") {
+              window.App?.showToast?.("เก็บเงินแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจสมุดรายวัน/Backfill", "warn");
+            }
           } catch (e) {
             console.warn("[rc] auto-post JV failed:", e?.message);
             window.App?.showToast?.("เก็บเงินแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจสมุดรายวัน/Backfill", "warn");
@@ -513,7 +516,10 @@ export function renderReceiptsPage(ctx) {
           // ★ Phase 88.1b — auto-post JV (fallback path)
           if (action === "paid") {
             try {
-              await postJournalForReceipt({ ...r, status: "paid", paid_at: new Date().toISOString() });
+              const postRes = await postJournalForReceipt({ ...r, status: "paid", paid_at: new Date().toISOString() }, { detailed: true });
+              if (postRes?.status === "failed") {
+                window.App?.showToast?.("เก็บเงินแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจสมุดรายวัน/Backfill", "warn");
+              }
             } catch (e) {
               console.warn("[rc] auto-post JV failed:", e?.message);
               window.App?.showToast?.("เก็บเงินแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจสมุดรายวัน/Backfill", "warn");
@@ -765,7 +771,10 @@ function renderReceiptPreview(container) {
       window.App?.showToast?.("เก็บเงินเรียบร้อย ✅");
       // ★ Phase 88.1b — auto-post JV ตอนเก็บเงิน
       try {
-        await postJournalForReceipt({ ...r, status: "paid", paid_at: new Date().toISOString() });
+        const postRes = await postJournalForReceipt({ ...r, status: "paid", paid_at: new Date().toISOString() }, { detailed: true });
+        if (postRes?.status === "failed") {
+          window.App?.showToast?.("เก็บเงินแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจสมุดรายวัน/Backfill", "warn");
+        }
       } catch (err) {
         console.warn("[rc-preview] auto-post JV failed:", err?.message);
         window.App?.showToast?.("เก็บเงินแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจสมุดรายวัน/Backfill", "warn");

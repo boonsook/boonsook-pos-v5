@@ -16,7 +16,7 @@
 //    - ไม่ replicate logic (กัน drift) — ใช้ของจริงตรงๆ
 //    - Idempotent: ถ้ารันซ้ำ unique partial index บน (source_table,source_id)
 //      จะ return 409 → script เห็นเป็น "skipped (duplicate)"
-//    - Pre-effective skip: auto_post skip docDate < ACCOUNTING_EFFECTIVE_DATE (2026-05-01)
+//    - Pre-effective skip: auto_post skip docDate < ACCOUNTING_EFFECTIVE_DATE
 //      อัตโนมัติ — เช่น เมษา 2026 = test data ไม่ post
 //
 //  Run:
@@ -36,6 +36,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { dateBkk } from "../modules/utils.js";
+import { ACCOUNTING_EFFECTIVE_DATE } from "../modules/accounting/effective_date.js";
 
 // ── Env loading (mirror smoke script pattern) ───────────────
 function loadEnv(file) {
@@ -102,17 +104,34 @@ function makeHttp(URL, ANON) {
 
 // ── Pure helpers (exported สำหรับ test) ─────────────────────
 export function summarizeResults(results) {
-  let posted = 0, skipped = 0, failed = 0;
+  let posted = 0, wouldPost = 0, skipped = 0, failed = 0;
   for (const r of results) {
     if (r.status === "posted") posted++;
+    else if (r.status === "would-post") wouldPost++;
     else if (r.status === "skipped") skipped++;
     else if (r.status === "failed") failed++;
   }
-  return { posted, skipped, failed, total: results.length };
+  return { posted, wouldPost, skipped, failed, total: results.length };
 }
 
 export function formatSummaryLine(label, stats) {
-  return `${label.padEnd(10)} ${stats.posted} posted · ${stats.skipped} skipped · ${stats.failed} failed (total ${stats.total})`;
+  const wouldPost = stats.wouldPost ? ` · ${stats.wouldPost} would-post` : "";
+  return `${label.padEnd(10)} ${stats.posted} posted${wouldPost} · ${stats.skipped} skipped · ${stats.failed} failed (total ${stats.total})`;
+}
+
+function isAfterEffective(dateStr) {
+  return !!dateStr && String(dateStr).slice(0, 10) >= ACCOUNTING_EFFECTIVE_DATE;
+}
+
+export function classifyBackfillCandidate(kind, row) {
+  const amount = kind === "sales"
+    ? Number(row.total_amount ?? row.grand_total ?? 0)
+    : Number(row.amount ?? 0);
+  const dateField = kind === "sales" ? row.created_at : (row.expense_date || row.created_at);
+  const docDate = dateField ? dateBkk(dateField) : "";
+  if (!isAfterEffective(docDate)) return { status: "skipped", reason: "pre-effective", docDate, amount };
+  if (!Number.isFinite(amount) || amount <= 0) return { status: "skipped", reason: "zero-amount", docDate, amount };
+  return { status: "would-post", docDate, amount };
 }
 
 // ── Process loop ────────────────────────────────────────────
@@ -132,23 +151,27 @@ async function processOrphans({ kind, table, viewName, postFn, adminToken, http,
         continue;
       }
       if (dryRun) {
-        const amount = kind === "sales"
-          ? (row.total_amount ?? row.grand_total)
-          : row.amount;
-        const dateField = kind === "sales" ? row.created_at : (row.expense_date || row.created_at);
-        console.log(`  [${id}] WOULD post — date=${String(dateField).slice(0, 10)} amount=${amount}`);
-        results.push({ id, status: "dry-run" });
+        const preview = classifyBackfillCandidate(kind, row);
+        if (preview.status === "would-post") {
+          console.log(`  [${id}] WOULD post — date=${preview.docDate} amount=${preview.amount}`);
+          results.push({ id, status: "would-post" });
+        } else {
+          console.log(`  [${id}] ⏭️  skip dry-run — ${preview.reason} date=${preview.docDate || "-"} amount=${preview.amount}`);
+          results.push({ id, status: "skipped", reason: preview.reason });
+        }
         continue;
       }
       // Call the real auto_post function (via window shim)
-      const jvId = await postFn(row);
-      if (jvId) {
-        console.log(`  [${id}] ✅ posted → JV ${jvId}`);
-        results.push({ id, status: "posted", jvId });
+      const postRes = await postFn(row, { detailed: true });
+      if (postRes?.status === "posted") {
+        console.log(`  [${id}] ✅ posted → JV ${postRes.entryId}`);
+        results.push({ id, status: "posted", jvId: postRes.entryId });
+      } else if (postRes?.status === "failed") {
+        console.error(`  [${id}] ❌ failed: ${postRes.reason || "failed"} ${postRes.error || ""}`.trim());
+        results.push({ id, status: "failed", reason: postRes.reason || "failed" });
       } else {
-        // postFn returns null for: pre-effective date / no mapping / duplicate / RLS deny / unbalanced
-        console.log(`  [${id}] ⏭️  skipped (pre-effective / duplicate / no-mapping — ดู console เหนือ)`);
-        results.push({ id, status: "skipped" });
+        console.log(`  [${id}] ⏭️  skipped (${postRes?.reason || "unknown"})`);
+        results.push({ id, status: "skipped", reason: postRes?.reason || "unknown" });
       }
     } catch (e) {
       console.error(`  [${id}] ❌ failed: ${e.message}`);

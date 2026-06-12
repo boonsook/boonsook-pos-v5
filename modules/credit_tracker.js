@@ -393,11 +393,14 @@ function openReceivePaymentModal(ctx, sale) {
     let jvPostWarning = null;
     if (res.payment?.id) {
       try {
-        await postJournalForCreditPayment({
+        const postRes = await postJournalForCreditPayment({
           ...res.payment,
           sale_order_no: sale.order_no,
           customer_name: sale.customer_name
-        });
+        }, { detailed: true });
+        if (postRes?.status === "failed") {
+          jvPostWarning = "รับชำระแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจสมุดรายวัน/Backfill";
+        }
       } catch (e) {
         console.warn("[credit_tracker] auto-post JV failed:", e?.message);
         jvPostWarning = "รับชำระแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจสมุดรายวัน/Backfill";

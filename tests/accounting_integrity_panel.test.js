@@ -6,6 +6,8 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import { _classifyOrphan, INTEGRITY_CATS } from "../modules/accounting/backfill.js";
 import { _isAfterEffective } from "../modules/accounting/auto_post.js";
 import { todayBkk } from "../modules/utils.js";
@@ -13,6 +15,7 @@ import { todayBkk } from "../modules/utils.js";
 const sales    = INTEGRITY_CATS.find(c => c.key === "sales");
 const expenses = INTEGRITY_CATS.find(c => c.key === "expenses");
 const payroll  = INTEGRITY_CATS.find(c => c.key === "payroll");
+const BACKFILL_SRC = fs.readFileSync(path.resolve("modules/accounting/backfill.js"), "utf8");
 
 test("sale before effective date (April) → skipped/pre-effective", () => {
   const r = _classifyOrphan(sales, { id: 30, created_at: "2026-04-15T12:00:00Z", total_amount: 11900 });
@@ -63,4 +66,13 @@ test("missing docDate falls back to today → bucket ตามกติกาเ
   const r = _classifyOrphan(sales, { id: 300, created_at: null, total_amount: 100 });
   const expected = _isAfterEffective(todayBkk()) ? "actionable" : "skipped";
   assert.equal(r.bucket, expected);
+});
+
+test("backfill runner uses detailed auto-post result and counts failed separately", () => {
+  for (const fn of ["postJournalForSale", "postJournalForExpense", "postJournalForReceipt", "postJournalForServiceJob"]) {
+    assert.match(BACKFILL_SRC, new RegExp(`${fn}\\(row,\\s*\\{\\s*detailed:\\s*true\\s*\\}\\)`), `${fn} must request detailed result`);
+  }
+  assert.match(BACKFILL_SRC, /result\?\.status\s*===\s*["']posted["']/, "posted result must increment created");
+  assert.match(BACKFILL_SRC, /result\?\.status\s*===\s*["']failed["']/, "failed result must increment failed");
+  assert.match(BACKFILL_SRC, /errors\.push\(\{\s*src:\s*bucket\.srcKey/, "failed result must be visible in errors list");
 });

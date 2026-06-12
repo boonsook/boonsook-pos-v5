@@ -322,15 +322,20 @@ async function _onRun() {
       try {
         let result = null;
         switch (bucket.srcKey) {
-          case "sales":              result = await postJournalForSale(row);             break;
-          case "expenses":           result = await postJournalForExpense(row);          break;
+          case "sales":              result = await postJournalForSale(row, { detailed: true });        break;
+          case "expenses":           result = await postJournalForExpense(row, { detailed: true });     break;
           // Phase 408 cash-basis: ใบส่งของไม่ลง revenue แล้ว (ย้ายไปที่ใบเสร็จ paid) — skip กัน backfill สร้างรายได้ซ้ำ
-          case "delivery_invoices":  result = null;  break;
-          case "receipts":           result = await postJournalForReceipt(row);          break;
-          case "service_jobs":       result = await postJournalForServiceJob(row);       break;
+          case "delivery_invoices":  result = { status: "skipped", reason: "cash-basis-noop" }; break;
+          case "receipts":           result = await postJournalForReceipt(row, { detailed: true });     break;
+          case "service_jobs":       result = await postJournalForServiceJob(row, { detailed: true });  break;
         }
-        if (result) stats.created++;
-        else        stats.skipped++;  // null = duplicate / before effective / no mapping
+        if (result?.status === "posted") stats.created++;
+        else if (result?.status === "failed") {
+          stats.failed++;
+          errors.push({ src: bucket.srcKey, id: row.id, msg: `${result.reason || "failed"}: ${result.error || ""}`.slice(0, 200) });
+        } else {
+          stats.skipped++;
+        }
       } catch (e) {
         stats.failed++;
         errors.push({ src: bucket.srcKey, id: row.id, msg: (e?.message || String(e)).slice(0, 200) });

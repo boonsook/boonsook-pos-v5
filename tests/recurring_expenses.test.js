@@ -53,7 +53,7 @@ test("source: generate ลง JV (#2) + idempotency tag (#3) + Bangkok TZ", asyn
   const src = fs.readFileSync(path.resolve("modules/recurring_expenses.js"), "utf8");
   // #2: import + เรียก postJournalForExpense + return=representation
   assert.match(src, /import \{ postJournalForExpense \} from "\.\/accounting\/auto_post\.js"/, "ต้อง import postJournalForExpense");
-  assert.match(src, /postJournalForExpense\(inserted\)/, "ต้องเรียก JV หลัง insert");
+  assert.match(src, /postJournalForExpense\(inserted,\s*\{\s*detailed:\s*true\s*\}\)/, "ต้องเรียก JV หลัง insert พร้อม detailed result");
   assert.match(src, /Prefer": "return=representation"/, "ต้องขอ representation เพื่อเอา id");
   // #3: tag ใน note + pre-check exists
   assert.match(src, /recurringExpenseTag\(r\.id, periodKey\)/, "ต้องใช้ tag ต่อ recurring+งวด");

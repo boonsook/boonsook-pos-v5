@@ -520,7 +520,10 @@ function openRefundModal(ctx) {
       let jvPostWarning = null;
       if (insertedRefund?.id) {
         try {
-          await postJournalForRefund(insertedRefund);
+          const postRes = await postJournalForRefund(insertedRefund, { detailed: true });
+          if (postRes?.status === "failed") {
+            jvPostWarning = "บันทึกการคืนแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจสมุดรายวัน/Backfill";
+          }
         } catch (e) {
           console.warn("[refunds] auto-post JV failed:", e?.message);
           jvPostWarning = "บันทึกการคืนแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจสมุดรายวัน/Backfill";

@@ -54,6 +54,11 @@ import { ACCOUNTING_EFFECTIVE_DATE } from "./effective_date.js";
 let _mappingCache = null;
 let _coaCache = null;  // Phase 89.2: cache COA codes สำหรับ validate BANK_COA override
 
+function _journalResult(detailed, result) {
+  if (detailed) return result;
+  return result?.status === "posted" ? result.entryId : null;
+}
+
 /**
  * Reset mapping cache — เรียกหลัง admin แก้ account_mapping ใน DB
  * Phase 89.2: รวม COA cache ด้วย — เรียกหลัง admin เพิ่ม/ลบ chart_of_accounts
@@ -179,6 +184,7 @@ export function _isAfterEffective(dateStr) {
 // ═══════════════════════════════════════════════════════════
 async function _postJournal(opts) {
   const { sourceTable, sourceId, docType, docDate, description, lines } = opts;
+  const detailed = opts.detailed === true;
   const cfg = window.SUPABASE_CONFIG;
   const token = window._sbAccessToken || cfg.anonKey;
 
@@ -187,11 +193,11 @@ async function _postJournal(opts) {
   const totalCredit = lines.reduce((s, l) => s + Number(l.credit || 0), 0);
   if (Math.abs(totalDebit - totalCredit) > 0.01) {
     console.error("[auto_post] unbalanced:", { totalDebit, totalCredit, sourceTable, sourceId });
-    return null;
+    return _journalResult(detailed, { status: "failed", reason: "unbalanced", sourceTable, sourceId });
   }
   if (totalDebit < 0.01) {
     console.warn("[auto_post] zero amount, skipping:", sourceTable, sourceId);
-    return null;
+    return _journalResult(detailed, { status: "skipped", reason: "zero-amount", sourceTable, sourceId });
   }
 
   // ★ Phase 88.19: ตรวจ period locked ก่อน insert (front-end check + DB trigger เป็น defense in depth)
@@ -207,7 +213,7 @@ async function _postJournal(opts) {
       if (arr[0]?.status === "locked") {
         console.warn("[auto_post] period locked, skipping:", `${yyyy}-${mm}`, sourceTable, sourceId);
         if (window.showToast) window.showToast(`⛔ งวด ${yyyy}-${String(mm).padStart(2,"0")} ถูกปิดแล้ว — ลง JV ไม่ได้`);
-        return null;
+        return _journalResult(detailed, { status: "skipped", reason: "period-locked", sourceTable, sourceId });
       }
     }
   } catch(e) { /* fail open — DB trigger จะกันอีกชั้น */ }
@@ -255,14 +261,14 @@ async function _postJournal(opts) {
     if (r.status === 409 || r.status === 23505) {
       // Idempotency hit — JV already exists for this source
       console.info("[auto_post] JV already exists for", sourceTable, "#" + sourceId);
-      return null;
+      return _journalResult(detailed, { status: "skipped", reason: "duplicate", sourceTable, sourceId });
     }
     if (!r.ok) {
       const txt = await r.text();
       // Postgres unique violation surfaces as 409 in PostgREST, but check error code too
       if (txt.includes("idx_je_source_unique") || txt.includes("23505")) {
         console.info("[auto_post] JV already exists (via error):", sourceTable, sourceId);
-        return null;
+        return _journalResult(detailed, { status: "skipped", reason: "duplicate", sourceTable, sourceId });
       }
       throw new Error(`HTTP ${r.status}: ${txt.slice(0, 200)}`);
     }
@@ -281,7 +287,7 @@ async function _postJournal(opts) {
     } else {
       console.error("[auto_post] entry insert failed:", msg);
     }
-    return null;
+    return _journalResult(detailed, { status: "failed", reason: "entry-insert-failed", sourceTable, sourceId, error: msg });
   }
 
   // POST lines (bulk)
@@ -322,11 +328,11 @@ async function _postJournal(opts) {
       console.error("[auto_post] rollback exception:", delErr.message);
       if (window.showToast) window.showToast(`⚠️ JV ${entryId} ค้าง — ไม่มี lines (network error)`);
     }
-    return null;
+    return _journalResult(detailed, { status: "failed", reason: "lines-insert-failed", sourceTable, sourceId, entryId, error: e?.message || String(e) });
   }
 
   console.info("[auto_post] ✅ created", docNo, "from", sourceTable, "#" + sourceId, "amount", totalDebit);
-  return entryId;
+  return _journalResult(detailed, { status: "posted", entryId, docNo, sourceTable, sourceId });
 }
 
 
@@ -336,21 +342,21 @@ async function _postJournal(opts) {
 /**
  * @param {object} sale - row จาก state.sales (ต้องมี id, created_at, grand_total, payment_method)
  */
-export async function postJournalForSale(sale) {
+export async function postJournalForSale(sale, opts = {}) {
   // ★ Boonsook sales ใช้ total_amount; quotations ใช้ grand_total — รองรับทั้งคู่
   const amountRaw = sale?.total_amount ?? sale?.grand_total;
-  if (!sale?.id || !amountRaw) return null;
+  if (!sale?.id || !amountRaw) return _journalResult(opts.detailed, { status: "skipped", reason: "missing-required", sourceTable: "sales", sourceId: sale?.id });
   // ★ Phase 411 (§4.3): บิล soft-delete (note มี "[ลบแล้ว]") ห้าม post JV ทุก path
   //   (auto/backfill) — JV เดิมถูก void ตอนลบแล้ว post ใหม่ = รายได้ผีจากบิลที่ไม่มีจริง
   if (String(sale.note || "").includes("[ลบแล้ว]")) {
     console.info("[auto_post] skip deleted sale:", sale.id);
-    return null;
+    return _journalResult(opts.detailed, { status: "skipped", reason: "deleted", sourceTable: "sales", sourceId: sale.id });
   }
   // Phase 89.1: ใช้ Bangkok time — กัน 00:00-06:59 ลง doc_date เป็นเมื่อวาน
   const docDate = sale.created_at ? dateBkk(sale.created_at) : todayBkk();
   if (!_isAfterEffective(docDate)) {
     console.info("[auto_post] sale before effective date, skip:", docDate);
-    return null;
+    return _journalResult(opts.detailed, { status: "skipped", reason: "pre-effective", sourceTable: "sales", sourceId: sale.id, docDate });
   }
 
   const mappings = await _getMappings();
@@ -364,7 +370,7 @@ export async function postJournalForSale(sale) {
   const mapping = mappings[mappingKey];
   if (!mapping?.debit_account_code || !mapping?.credit_account_code) {
     console.warn("[auto_post] no mapping for sale:", mappingKey);
-    return null;
+    return _journalResult(opts.detailed, { status: "skipped", reason: "missing-mapping", sourceTable: "sales", sourceId: sale.id, mappingKey });
   }
 
   const desc = `ขาย POS ${sale.order_no || '#' + sale.id} — ${sale.customer_name || 'ลูกค้าทั่วไป'}`;
@@ -402,6 +408,7 @@ export async function postJournalForSale(sale) {
       docType: "SV",
       docDate,
       description: desc,
+      detailed: opts.detailed,
       lines: [
         { account_code: debitAccount,                 debit: v.total, credit: 0,          description: desc },
         { account_code: mapping.credit_account_code,  debit: 0,       credit: v.subtotal, description: desc + " (รายได้ก่อน VAT)" },
@@ -417,6 +424,7 @@ export async function postJournalForSale(sale) {
     docType: "SV",
     docDate,
     description: desc,
+    detailed: opts.detailed,
     lines: [
       { account_code: debitAccount,                 debit: amount, credit: 0,      description: desc },
       { account_code: mapping.credit_account_code,  debit: 0,      credit: amount, description: desc }
@@ -457,12 +465,12 @@ const EXPENSE_CATEGORY_MAP = {
 /**
  * @param {object} expense - row จาก state.expenses (ต้องมี id, expense_date, amount, category)
  */
-export async function postJournalForExpense(expense) {
-  if (!expense?.id || !expense?.amount) return null;
+export async function postJournalForExpense(expense, opts = {}) {
+  if (!expense?.id || !expense?.amount) return _journalResult(opts.detailed, { status: "skipped", reason: "missing-required", sourceTable: "expenses", sourceId: expense?.id });
   const docDate = (expense.expense_date || expense.created_at) ? dateBkk(expense.expense_date || expense.created_at) : todayBkk();
   if (!_isAfterEffective(docDate)) {
     console.info("[auto_post] expense before effective date, skip:", docDate);
-    return null;
+    return _journalResult(opts.detailed, { status: "skipped", reason: "pre-effective", sourceTable: "expenses", sourceId: expense.id, docDate });
   }
 
   const mappings = await _getMappings();
@@ -472,7 +480,7 @@ export async function postJournalForExpense(expense) {
   const mapping = mappings[mappingKey];
   if (!mapping?.debit_account_code || !mapping?.credit_account_code) {
     console.warn("[auto_post] no mapping for expense category:", cat);
-    return null;
+    return _journalResult(opts.detailed, { status: "skipped", reason: "missing-mapping", sourceTable: "expenses", sourceId: expense.id, mappingKey });
   }
 
   // ★ Override credit account ถ้าจ่ายผ่านธนาคาร (ไม่ใช่เงินสด)
@@ -490,6 +498,7 @@ export async function postJournalForExpense(expense) {
     docType: "PV",
     docDate,
     description: desc,
+    detailed: opts.detailed,
     lines: [
       { account_code: mapping.debit_account_code, debit: amount, credit: 0,      description: desc },
       { account_code: creditAccount,              debit: 0,      credit: amount, description: desc }
@@ -567,19 +576,23 @@ export async function postJournalForPayroll(payroll, paidAt, paymentMethod, opts
 /**
  * @param {object} job - service_jobs row (ต้องมี id, created_at, total_cost, job_type, status)
  */
-export async function postJournalForServiceJob(job) {
-  if (!job?.id || !job?.total_cost) return null;
+export async function postJournalForServiceJob(job, opts = {}) {
+  if (!job?.id || !job?.total_cost) return _journalResult(opts.detailed, { status: "skipped", reason: "missing-required", sourceTable: "service_jobs", sourceId: job?.id });
   // ★ Phase 411 (§4.3): งานที่ลบแล้ว (note มี "[ลบแล้ว]") ห้าม post JV — แม้ status
   //   ยัง done/delivered/closed ผ่าน filter ของ backfill มา (กัน JV รายได้ผี)
   if (String(job.note || "").includes("[ลบแล้ว]")) {
     console.info("[auto_post] skip deleted service job:", job.id);
-    return null;
+    return _journalResult(opts.detailed, { status: "skipped", reason: "deleted", sourceTable: "service_jobs", sourceId: job.id });
   }
   // เฉพาะงานที่ปิดแล้ว (delivered / closed) เท่านั้น
-  if (!["delivered", "closed", "done"].includes(String(job.status || "").toLowerCase())) return null;
+  if (!["delivered", "closed", "done"].includes(String(job.status || "").toLowerCase())) {
+    return _journalResult(opts.detailed, { status: "skipped", reason: "not-income-status", sourceTable: "service_jobs", sourceId: job.id });
+  }
 
   const docDate = job.created_at ? dateBkk(job.created_at) : todayBkk();
-  if (!_isAfterEffective(docDate)) return null;
+  if (!_isAfterEffective(docDate)) {
+    return _journalResult(opts.detailed, { status: "skipped", reason: "pre-effective", sourceTable: "service_jobs", sourceId: job.id, docDate });
+  }
 
   const mappings = await _getMappings();
   const jt = String(job.job_type || "").toLowerCase();
@@ -602,7 +615,9 @@ export async function postJournalForServiceJob(job) {
   const mappingKey = keyMap[jt] || "service_other";
 
   const mapping = mappings[mappingKey];
-  if (!mapping?.debit_account_code || !mapping?.credit_account_code) return null;
+  if (!mapping?.debit_account_code || !mapping?.credit_account_code) {
+    return _journalResult(opts.detailed, { status: "skipped", reason: "missing-mapping", sourceTable: "service_jobs", sourceId: job.id, mappingKey });
+  }
 
   // ★ Phase 88.6: ถ้าระบุ payment_method = transfer/โอน → Dr 1130 (เงินฝากธนาคาร) แทน 1110 (เงินสด)
   let debitAccount = mapping.debit_account_code;
@@ -618,6 +633,7 @@ export async function postJournalForServiceJob(job) {
     docType: "SV",
     docDate,
     description: desc,
+    detailed: opts.detailed,
     lines: [
       { account_code: debitAccount,                debit: amount, credit: 0,      description: desc },
       { account_code: mapping.credit_account_code, debit: 0,      credit: amount, description: desc }
@@ -633,19 +649,19 @@ export async function postJournalForServiceJob(job) {
  * เรียกหลัง PATCH receipts.status = "paid" สำเร็จ
  * @param {object} receipt - row จาก state.receipts (ต้องมี id, grand_total, payment_method หรือไม่ก็ได้)
  */
-export async function postJournalForReceipt(receipt) {
-  if (!receipt?.id) return null;
+export async function postJournalForReceipt(receipt, opts = {}) {
+  if (!receipt?.id) return _journalResult(opts.detailed, { status: "skipped", reason: "missing-required", sourceTable: "receipts", sourceId: receipt?.id });
   // ★ Phase 88.17: เฉพาะ status='paid' เท่านั้น — ป้องกัน JV เกิดจาก receipt ที่ยัง pending
   if (String(receipt.status || "").toLowerCase() !== "paid") {
     console.info("[auto_post] receipt not yet paid, skip:", receipt.id, receipt.status);
-    return null;
+    return _journalResult(opts.detailed, { status: "skipped", reason: "not-paid", sourceTable: "receipts", sourceId: receipt.id });
   }
   const amountRaw = receipt.grand_total ?? receipt.total_amount ?? receipt.amount;
-  if (!amountRaw) return null;
+  if (!amountRaw) return _journalResult(opts.detailed, { status: "skipped", reason: "zero-amount", sourceTable: "receipts", sourceId: receipt.id });
   const docDate = (receipt.paid_at || receipt.receipt_date || receipt.created_at) ? dateBkk(receipt.paid_at || receipt.receipt_date || receipt.created_at) : todayBkk();
   if (!_isAfterEffective(docDate)) {
     console.info("[auto_post] receipt before effective date, skip:", docDate);
-    return null;
+    return _journalResult(opts.detailed, { status: "skipped", reason: "pre-effective", sourceTable: "receipts", sourceId: receipt.id, docDate });
   }
 
   const mappings = await _getMappings();
@@ -658,7 +674,7 @@ export async function postJournalForReceipt(receipt) {
   const mapping = mappings[mappingKey];
   if (!mapping?.debit_account_code || !mapping?.credit_account_code) {
     console.warn("[auto_post] no mapping for receipt:", mappingKey, "— ต้องรัน supabase-phase408-cashbasis.sql ก่อน");
-    return null;
+    return _journalResult(opts.detailed, { status: "skipped", reason: "missing-mapping", sourceTable: "receipts", sourceId: receipt.id, mappingKey });
   }
 
   const desc = `รับชำระ ${receipt.receipt_no || '#' + receipt.id} — ${receipt.customer_name || 'ลูกค้า'}`;
@@ -675,6 +691,7 @@ export async function postJournalForReceipt(receipt) {
       docType: "RV",
       docDate,
       description: desc,
+      detailed: opts.detailed,
       lines: [
         { account_code: mapping.debit_account_code,  debit: v.total, credit: 0,          description: desc },
         { account_code: mapping.credit_account_code, debit: 0,       credit: v.subtotal, description: desc + " (รายได้ก่อน VAT)" },
@@ -690,6 +707,7 @@ export async function postJournalForReceipt(receipt) {
     docType: "RV",
     docDate,
     description: desc,
+    detailed: opts.detailed,
     lines: [
       { account_code: mapping.debit_account_code,  debit: amount, credit: 0,      description: desc },
       { account_code: mapping.credit_account_code, debit: 0,      credit: amount, description: desc }
@@ -764,17 +782,17 @@ export async function postJournalForDeliveryInvoice(invoice) {
  * @param {object} payment - row จาก credit_payments หลัง insert
  *   ต้องมี: id, sale_id, customer_id, amount, payment_method, note?, paid_at?
  */
-export async function postJournalForCreditPayment(payment) {
-  if (!payment?.id || !payment?.amount) return null;
+export async function postJournalForCreditPayment(payment, opts = {}) {
+  if (!payment?.id || !payment?.amount) return _journalResult(opts.detailed, { status: "skipped", reason: "missing-required", sourceTable: "credit_payments", sourceId: payment?.id });
   const amount = Number(payment.amount);
-  if (amount < 0.01) return null;
+  if (amount < 0.01) return _journalResult(opts.detailed, { status: "skipped", reason: "zero-amount", sourceTable: "credit_payments", sourceId: payment.id });
 
   const docDate = payment.paid_at ? dateBkk(payment.paid_at)
                                   : payment.created_at ? dateBkk(payment.created_at)
                                                        : todayBkk();
   if (!_isAfterEffective(docDate)) {
     console.info("[auto_post] credit payment before effective date, skip:", docDate);
-    return null;
+    return _journalResult(opts.detailed, { status: "skipped", reason: "pre-effective", sourceTable: "credit_payments", sourceId: payment.id, docDate });
   }
 
   const mappings = await _getMappings();
@@ -786,7 +804,7 @@ export async function postJournalForCreditPayment(payment) {
   const mapping = mappings[mappingKey];
   if (!mapping?.debit_account_code || !mapping?.credit_account_code) {
     console.warn("[auto_post] no mapping for credit_payment:", mappingKey);
-    return null;
+    return _journalResult(opts.detailed, { status: "skipped", reason: "missing-mapping", sourceTable: "credit_payments", sourceId: payment.id, mappingKey });
   }
 
   const saleRef = payment.sale_order_no || (payment.sale_id ? `#${payment.sale_id}` : "");
@@ -798,6 +816,7 @@ export async function postJournalForCreditPayment(payment) {
     docType: "RV",
     docDate,
     description: desc,
+    detailed: opts.detailed,
     lines: [
       { account_code: mapping.debit_account_code,  debit: amount, credit: 0,      description: desc },
       { account_code: mapping.credit_account_code, debit: 0,      credit: amount, description: desc }
@@ -819,15 +838,15 @@ export async function postJournalForCreditPayment(payment) {
  *   ต้องมี: id, refund_no, sale_id, customer_id, customer_name, refund_amount,
  *           refund_method, created_at?
  */
-export async function postJournalForRefund(refund) {
-  if (!refund?.id || !refund?.refund_amount) return null;
+export async function postJournalForRefund(refund, opts = {}) {
+  if (!refund?.id || !refund?.refund_amount) return _journalResult(opts.detailed, { status: "skipped", reason: "missing-required", sourceTable: "refunds", sourceId: refund?.id });
   const amount = Number(refund.refund_amount);
-  if (amount < 0.01) return null;
+  if (amount < 0.01) return _journalResult(opts.detailed, { status: "skipped", reason: "zero-amount", sourceTable: "refunds", sourceId: refund.id });
 
   const docDate = refund.created_at ? dateBkk(refund.created_at) : todayBkk();
   if (!_isAfterEffective(docDate)) {
     console.info("[auto_post] refund before effective date, skip:", docDate);
-    return null;
+    return _journalResult(opts.detailed, { status: "skipped", reason: "pre-effective", sourceTable: "refunds", sourceId: refund.id, docDate });
   }
 
   const mappings = await _getMappings();
@@ -838,7 +857,7 @@ export async function postJournalForRefund(refund) {
   const mapping = mappings[mappingKey];
   if (!mapping?.debit_account_code || !mapping?.credit_account_code) {
     console.warn("[auto_post] no mapping for refund:", mappingKey, "— run supabase-phase89-29-jv-gaps.sql");
-    return null;
+    return _journalResult(opts.detailed, { status: "skipped", reason: "missing-mapping", sourceTable: "refunds", sourceId: refund.id, mappingKey });
   }
 
   const desc = `คืน ${refund.refund_no || '#' + refund.id} — ${refund.customer_name || ''}`.trim();
@@ -849,6 +868,7 @@ export async function postJournalForRefund(refund) {
     docType: "JV",
     docDate,
     description: desc,
+    detailed: opts.detailed,
     lines: [
       { account_code: mapping.debit_account_code,  debit: amount, credit: 0,      description: desc },
       { account_code: mapping.credit_account_code, debit: 0,      credit: amount, description: desc }
