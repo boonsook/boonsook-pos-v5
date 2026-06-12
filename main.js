@@ -2808,18 +2808,8 @@ async function saveServiceJob(){
   }
   // ★ Phase 404 (MONEY/STOCK §4.2): edit → cancelled (transition) → คืนสต็อกอุปกรณ์ (idempotent).
   //   คืนผ่าน _appApplyStockMovement("return") → trigger 403 sync products.stock; marker กันคืนซ้ำ.
-  if (state.editingServiceJobId && payload.status === "cancelled" && state.editingServiceJobOrigStatus !== "cancelled") {
-    const _job = (state.serviceJobs || []).find(j => String(j.id) === String(state.editingServiceJobId));
-    if (_job) {
-      try {
-        const _r = await _equipRestoreStock(_job);
-        if (_r.restored && !String(payload.note || "").includes(_STOCK_RETURNED_MARKER)) {
-          payload.note = payload.note ? `${payload.note} ${_STOCK_RETURNED_MARKER}` : _STOCK_RETURNED_MARKER;
-        }
-        if (_r.errors?.length) showToast(`⚠️ คืนสต็อกอุปกรณ์บางรายการไม่สำเร็จ (${_r.errors.length}) — ตรวจ Console/สต็อก`, "warning");
-      } catch (re) { console.error("[saveServiceJob] restore stock threw:", re); }
-    }
-  }
+  const shouldRestoreCancelledServiceStock =
+    state.editingServiceJobId && payload.status === "cancelled" && state.editingServiceJobOrigStatus !== "cancelled";
   if (state.editingServiceJobId) {
     res = await xhrPatch("service_jobs", payload, "id", state.editingServiceJobId);
   } else {
@@ -2828,6 +2818,25 @@ async function saveServiceJob(){
     res = await xhrPost("service_jobs", payload, { returnData: true });
   }
   if (!res.ok) { _signalSave(false, { reason: res.error?.message || "บันทึกงานช่างไม่สำเร็จ" }); return showToast(res.error?.message || "บันทึกงานช่างไม่สำเร็จ"); }
+
+  // Restore cancelled-job stock only after service_jobs PATCH succeeds.
+  if (shouldRestoreCancelledServiceStock) {
+    const _job = (state.serviceJobs || []).find(j => String(j.id) === String(state.editingServiceJobId));
+    if (_job) {
+      try {
+        const _r = await _equipRestoreStock({ ..._job, note: String(_job.note || "") });
+        if (_r.restored && !String(payload.note || "").includes(_STOCK_RETURNED_MARKER)) {
+          payload.note = payload.note ? `${payload.note} ${_STOCK_RETURNED_MARKER}` : _STOCK_RETURNED_MARKER;
+          const markerRes = await xhrPatch("service_jobs", { note: payload.note }, "id", state.editingServiceJobId);
+          if (!markerRes?.ok) {
+            console.warn("[saveServiceJob] stock marker PATCH failed:", markerRes?.error?.message);
+            showToast("⚠️ ยกเลิกสำเร็จแล้ว แต่แปะ marker คืนสต็อกไม่สำเร็จ — ห้ามกดยกเลิกซ้ำ", "warning");
+          }
+        }
+        if (_r.errors?.length) showToast(`⚠️ คืนสต็อกอุปกรณ์บางรายการไม่สำเร็จ (${_r.errors.length}) — ตรวจ Console/สต็อก`, "warning");
+      } catch (re) { console.error("[saveServiceJob] restore stock threw:", re); }
+    }
+  }
 
   // ★ Phase 402: ตัดสต็อกอุปกรณ์ — job insert สำเร็จก่อน → ค่อยตัด (invariant เหมือน service_form.js).
   //   ตัดผ่าน window._appApplyStockMovement (out/CAS/floor); ตัดบางตัว fail → ไม่ rollback job (เตือน reconcile §4.8)

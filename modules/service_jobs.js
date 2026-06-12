@@ -355,19 +355,11 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
     btn.textContent = "กำลังลบ...";
     /* eslint-enable require-atomic-updates */
 
-    // ★ Phase 404: คืนสต็อกอุปกรณ์ก่อนลบ (idempotent) — เฉพาะงานที่มี items_json
     const _job = state.serviceJobs.find(x => x.id === jobId);
-    let _restore = { restored: false, errors: [] };
-    if (_job) {
-      try { _restore = await restoreServiceJobStock(_job); }
-      catch (re) { console.error("[service_jobs delete] restore stock threw:", re); }
-    }
     let newNote = "[ลบแล้ว] ลบโดยแอดมิน " + new Date().toLocaleString("th-TH");
-    // ใส่ marker กันคืนซ้ำ ถ้าเพิ่งคืน หรือ note เดิมเคยคืนแล้ว
-    if (_restore.restored || String(_job?.note || "").includes(STOCK_RETURNED_MARKER)) {
+    if (String(_job?.note || "").includes(STOCK_RETURNED_MARKER)) {
       newNote += " " + STOCK_RETURNED_MARKER;
     }
-    if (_restore.errors?.length) showToast?.(`⚠️ ลบงานแล้ว แต่คืนสต็อกบางรายการไม่สำเร็จ (${_restore.errors.length}) — ตรวจ Console`, "warning");
     const updatePayload = { status: "cancelled", note: newNote };
 
     // ★ Safety timeout กัน hang
@@ -408,9 +400,24 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
       }
 
       if (success) {
+        let finalNote = newNote;
+        if (_job && !String(newNote || "").includes(STOCK_RETURNED_MARKER)) {
+          let _restore = { restored: false, errors: [] };
+          try { _restore = await restoreServiceJobStock({ ..._job, note: String(_job.note || "") }); }
+          catch (re) { console.error("[service_jobs delete] restore stock threw:", re); }
+          if (_restore.restored) {
+            finalNote = `${newNote} ${STOCK_RETURNED_MARKER}`;
+            const markerRes = await window._appXhrPatch?.("service_jobs", { note: finalNote }, "id", jobId);
+            if (!markerRes?.ok) {
+              console.warn("[service_jobs delete] stock marker PATCH failed:", markerRes?.error?.message);
+              showToast?.("⚠️ ลบงานสำเร็จแล้ว แต่แปะ marker คืนสต็อกไม่สำเร็จ — ห้ามกดลบซ้ำ", "warning");
+            }
+          }
+          if (_restore.errors?.length) showToast?.(`⚠️ ลบงานแล้ว แต่คืนสต็อกบางรายการไม่สำเร็จ (${_restore.errors.length}) — ตรวจ Console`, "warning");
+        }
         if (showToast) showToast("ลบงานช่างเรียบร้อย ✅");
         const job = state.serviceJobs.find(x => x.id === jobId);
-        if (job) { job.status = "cancelled"; job.note = newNote; }
+        if (job) { job.status = "cancelled"; job.note = finalNote; }
         renderServiceJobsPage({ state, openServiceJobDrawer, showToast, showRoute });
       } else {
         throw new Error("RLS บล็อค — กรุณาเพิ่ม UPDATE policy ที่ Supabase Dashboard สำหรับตาราง service_jobs");

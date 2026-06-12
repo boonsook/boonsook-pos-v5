@@ -99,3 +99,25 @@ test("every service_jobs status=cancelled writer calls restoreServiceJobStock", 
     assert.match(src, /restoreServiceJobStock|_equipRestoreStock/, `${name} calls the stock-restore helper`);
   }
 });
+
+test("service job cancel paths write cancelled status before returning stock", () => {
+  const serviceJobsSrc = fs.readFileSync(path.resolve("modules/service_jobs.js"), "utf8");
+  const deleteStart = serviceJobsSrc.indexOf('document.querySelectorAll("[data-del-job]")');
+  assert.notEqual(deleteStart, -1, "service_jobs delete handler exists");
+  const deleteBody = serviceJobsSrc.slice(deleteStart, serviceJobsSrc.indexOf("}));", deleteStart) + 4);
+  const deleteStatusIdx = deleteBody.search(/from\("service_jobs"\)\.update\(updatePayload\)|_appXhrPatch\?\.\("service_jobs", updatePayload/);
+  const deleteRestoreIdx = deleteBody.indexOf("restoreServiceJobStock(");
+  assert.ok(deleteStatusIdx >= 0, "delete handler writes cancelled status");
+  assert.ok(deleteRestoreIdx >= 0, "delete handler restores stock");
+  assert.ok(deleteStatusIdx < deleteRestoreIdx, "delete handler must write cancelled before stock return");
+
+  const mainSrc = fs.readFileSync(path.resolve("main.js"), "utf8");
+  const saveStart = mainSrc.indexOf("async function saveServiceJob()");
+  assert.notEqual(saveStart, -1, "saveServiceJob exists");
+  const saveBody = mainSrc.slice(saveStart, mainSrc.indexOf("// ═", saveStart + 1));
+  const savePatchIdx = saveBody.indexOf('xhrPatch("service_jobs", payload');
+  const saveRestoreIdx = saveBody.indexOf("_equipRestoreStock(");
+  assert.ok(savePatchIdx >= 0, "saveServiceJob PATCHes service_jobs");
+  assert.ok(saveRestoreIdx >= 0, "saveServiceJob restores stock");
+  assert.ok(savePatchIdx < saveRestoreIdx, "saveServiceJob must write cancelled before stock return");
+});
