@@ -462,7 +462,7 @@ function openRefundModal(ctx) {
         refund_method: method,
         refund_amount: totalAmount,
         items_json: itemsToRefund.map(it => ({ product_id: it.product_id, name: it.name, qty: it.qty, unit_price: it.unit_price })),
-        restocked: restock,
+        restocked: false,
         warehouse_id: restock ? Number(whIdRaw) : null,
         note: note || null
       };
@@ -479,19 +479,39 @@ function openRefundModal(ctx) {
       const insertedRefund = Array.isArray(insertedRows) ? insertedRows[0] : insertedRows;
 
       // 2) คืนสต็อกถ้าเลือก
+      const restockErrors = [];
       if (restock) {
         const whId = Number(whIdRaw);
         for (const it of itemsToRefund) {
           if (!it.product_id) continue;
           try {
-            await window._appApplyStockMovement({
+            const move = await window._appApplyStockMovement({
               productId: it.product_id,
               warehouseId: whId,
               movementType: "return",
               qty: it.qty,
               note: `คืน ${refundNo} — ${reason}`
             });
-          } catch(e) { console.warn("[refund restock]", e); }
+            if (!move?.ok) restockErrors.push(`${it.name}: ${move?.error || "คืนสต็อกไม่สำเร็จ"}`);
+          } catch(e) {
+            console.warn("[refund restock]", e);
+            restockErrors.push(`${it.name}: ${e?.message || e}`);
+          }
+        }
+        if (restockErrors.length === 0) {
+          if (!insertedRefund?.id) {
+            restockErrors.push("ไม่พบ id ของ refund สำหรับอัปเดตสถานะคืนสต็อก");
+          } else {
+            const patchRestocked = await window._appXhrPatch?.("refunds", { restocked: true }, "id", insertedRefund.id);
+            if (!patchRestocked?.ok) {
+              restockErrors.push("อัปเดตสถานะคืนสต็อกใน refund ไม่สำเร็จ");
+              console.warn("[refund restock] marker patch failed:", patchRestocked?.error?.message);
+            } else {
+              insertedRefund.restocked = true;
+            }
+          }
+        } else {
+          console.warn("[refund restock] partial/failed:", restockErrors);
         }
       }
 
@@ -536,7 +556,11 @@ function openRefundModal(ctx) {
       }
 
       modal.remove();
-      ctx.showToast?.(`✓ บันทึกการคืน ${refundNo} • ฿${money(totalAmount)}`);
+      if (restock && restockErrors.length > 0) {
+        ctx.showToast?.(`⚠️ บันทึกการคืน ${refundNo} แล้ว แต่คืนสต็อกไม่ครบ (${restockErrors.length}) — ตรวจประวัติสต็อก`, "warn");
+      } else {
+        ctx.showToast?.(`✓ บันทึกการคืน ${refundNo} • ฿${money(totalAmount)}`);
+      }
       if (window.App?.loadAllData) await window.App.loadAllData();
       renderRefundsPage(ctx);
     } catch (e) {
