@@ -400,7 +400,7 @@ export function renderReceiptsPage(ctx) {
     const authFetch = window._appAuthFetch || fetch;
     const headers = { "Content-Type": "application/json", "Prefer": "return=representation" };
 
-    let ok = 0, fail = 0;
+    let ok = 0, fail = 0, restoreWarn = 0;
     for (const id of ids) {
       try {
         const r = (ctx.state.receipts || []).find(x => x.id === id);
@@ -414,14 +414,19 @@ export function renderReceiptsPage(ctx) {
         // 3. restore delivery_invoice status
         const invId = r?.delivery_invoice_id;
         if (invId) {
-          await authFetch(cfg.url + "/rest/v1/delivery_invoices?id=eq." + invId,
+          const restoreResp = await authFetch(cfg.url + "/rest/v1/delivery_invoices?id=eq." + invId,
             { method: "PATCH", headers, body: JSON.stringify({ status: "pending" }) });
+          if (!restoreResp.ok) {
+            restoreWarn++;
+            console.warn("[receipts bulk delete] restore invoice failed:", invId, restoreResp.status);
+          }
         }
         ok++;
       } catch(e) { console.error("[receipts bulk delete]", e); fail++; }
     }
     _selectedIds.clear();
     window.App?.showToast?.(`ลบสำเร็จ ${ok}${fail ? `, ล้มเหลว ${fail} (RLS บล็อค?)` : ''}`);
+    if (restoreWarn) window.App?.showToast?.(`ลบแล้ว แต่คืนสถานะใบส่งสินค้าไม่สำเร็จ ${restoreWarn} รายการ — กรุณาตรวจหน้าใบส่งสินค้า`, "warn");
     // Phase 89.15b: await reload BEFORE render — กัน UI stale หลัง bulk delete
     try { if (ctx.loadAllData) await ctx.loadAllData(); } catch(e) { console.warn("[rc] reload", e); }
     renderReceiptsPage(_ctx);
@@ -804,12 +809,17 @@ function renderReceiptPreview(container) {
       // Phase 89.1: void JV ของใบเสร็จที่ยกเลิก (กัน double-revenue ใน P&L)
       // Phase 89.16: voidJv handles silent-fail + toast เอง — ไม่ต้องใส่ .catch
       await voidJvForSource("receipts", r.id);
+      let restoreFailed = false;
       // Phase 89.6: restore delivery_invoice status → "pending" (เปิดใบเสร็จใหม่ได้)
       if (r.delivery_invoice_id) {
         const invRes = await window._appXhrPatch?.("delivery_invoices", { status: "pending" }, "id", r.delivery_invoice_id);
-        if (!invRes?.ok) console.warn("[rc preview cancel] restore invoice", invRes?.error?.message || "unknown");
+        if (!invRes?.ok) {
+          restoreFailed = true;
+          console.warn("[rc preview cancel] restore invoice", invRes?.error?.message || "unknown");
+        }
       }
       window.App?.showToast?.("ยกเลิกใบเสร็จเรียบร้อย — ใบส่งสินค้ากลับเป็น 'รอดำเนินการ'");
+      if (restoreFailed) window.App?.showToast?.("ยกเลิกใบเสร็จแล้ว แต่คืนสถานะใบส่งสินค้าไม่สำเร็จ — กรุณาตรวจหน้าใบส่งสินค้า", "warn");
       if (_ctx.loadAllData) await _ctx.loadAllData();
     } catch(err) {
       window.App?.showToast?.("❌ ยกเลิกไม่สำเร็จ", "error");
@@ -840,9 +850,14 @@ function renderReceiptPreview(container) {
       }
       // 3. คืนสถานะ delivery_invoice กลับเป็น invoiced (รอดำเนินการ)
       const invId = r.delivery_invoice_id || null;
+      let restoreFailed = false;
       if (invId) {
-        await authFetch(cfg.url + "/rest/v1/delivery_invoices?id=eq." + invId,
+        const restoreResp = await authFetch(cfg.url + "/rest/v1/delivery_invoices?id=eq." + invId,
           { method: "PATCH", headers, body: JSON.stringify({ status: "pending" }) });
+        if (!restoreResp.ok) {
+          restoreFailed = true;
+          console.warn("[receipts delete] restore invoice failed:", invId, restoreResp.status);
+        }
       }
       // Phase 57: audit log (silent)
       logActivity("delete_receipt", {
@@ -851,6 +866,7 @@ function renderReceiptPreview(container) {
         summary: `ลบใบเสร็จ ${r.receipt_no || "#"+r.id}` + (r.customer_name ? ` (${r.customer_name})` : "") + (r.grand_total ? ` ${Number(r.grand_total).toLocaleString("th-TH")} บาท` : "")
       });
       _ctx.showToast("ลบใบเสร็จแล้ว ✓");
+      if (restoreFailed) _ctx.showToast("ลบใบเสร็จแล้ว แต่คืนสถานะใบส่งสินค้าไม่สำเร็จ — กรุณาตรวจหน้าใบส่งสินค้า", "warn");
       _viewMode = "list"; _viewingId = null;
       await _ctx.loadAllData();
       renderReceiptsPage(_ctx);
