@@ -166,7 +166,8 @@
 // v428 (2026-06-12): Receipt delete/cancel restore warning fix - surface delivery-invoice status restore failures after receipt delete/cancel.
 // v429 (2026-06-12): Receipt list filter/count alignment - status counters and totals now use the same search/date scope as the visible table.
 // v430 (2026-06-13): Receipt financial total excludes cancelled receipts from the receipt list summary.
-const CACHE_NAME = 'boonsook-pos-v5-cache-v430';
+// v431 (2026-06-13): Phase 431 - blue skin (owner: indigo too harsh on the eyes) - all indigo accents -> original sky blue across style.css tokens/blocks, phase4 primary scale (reverted), dashboard.js, pos.js, customer_dashboard.js, hr_overview hero; layout/structure from 421-427 unchanged. products.js sweep skipped (already sky = now correct). Bumps CACHE_NAME.
+const CACHE_NAME = 'boonsook-pos-v5-cache-v431';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

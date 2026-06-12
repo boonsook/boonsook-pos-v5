@@ -121,7 +121,7 @@
 .form-input:focus {
   outline: none;
   border-color: var(--input-border-focus);
-  box-shadow: 0 0 0 3px rgba(91, 91, 214, 0.12);  /* Phase 421: indigo focus ring */
+  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.1);  /* Phase 431: sky focus ring (กลับค่าเดิม) */
 }
 
 .form-input:disabled {

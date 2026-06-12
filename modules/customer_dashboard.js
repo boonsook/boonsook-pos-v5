@@ -234,7 +234,7 @@ export function renderCustomerDashboard(ctx) {
     const btuLabel = p.btu ? Number(p.btu).toLocaleString() + ' BTU' : '';
     const isCheck = p._acStatus === "check";
     const bookLabel = isCheck ? '💬 สอบถามราคา' : '📅 สั่งจอง';
-    const bookBg = isCheck ? '#f59e0b' : '#5b5bd6';
+    const bookBg = isCheck ? '#f59e0b' : '#0284c7';
     const priceHtml = isCheck
       ? `<div style="font-size:14px;font-weight:900;color:#b45309">ต้องเช็คราคา</div>`
       : `<div style="font-size:17px;font-weight:900;color:var(--primary2)">${money(p.price)}</div><div style="font-size:10px;color:#10b981;font-weight:600">รวมติดตั้ง</div>`;
@@ -244,7 +244,7 @@ export function renderCustomerDashboard(ctx) {
     const warrantyBits = [p.w_install ? 'ติดตั้ง ' + p.w_install : '', p.w_parts ? 'อะไหล่ ' + p.w_parts : '', p.w_comp ? 'คอมฯ ' + p.w_comp : ''].filter(Boolean).join(' | ');
     return `
       <div style="background:#fff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;transition:.15s;cursor:pointer" data-view-product="${p.id}">
-        <div style="height:80px;background:${imgUrl ? `url('${escHtml(imgUrl)}') center/cover` : 'linear-gradient(135deg,#eef0ff,#e0e3fd)'};display:flex;align-items:center;justify-content:center;position:relative">
+        <div style="height:80px;background:${imgUrl ? `url('${escHtml(imgUrl)}') center/cover` : 'linear-gradient(135deg,#e0f2fe,#bae6fd)'};display:flex;align-items:center;justify-content:center;position:relative">
           ${!imgUrl ? `<span style="font-size:32px">❄️</span>` : ''}
           ${btuLabel ? `<div style="position:absolute;top:6px;right:6px;background:rgba(2,132,199,.9);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px">${btuLabel}</div>` : ''}
         </div>
@@ -252,7 +252,7 @@ export function renderCustomerDashboard(ctx) {
           <div style="font-size:10px;color:var(--primary2);font-weight:700;margin-bottom:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(p.section || '')}</div>
           <div style="font-size:14px;font-weight:900;color:#1f2937;margin-bottom:4px">${escHtml(p.sku || p.model || '')}</div>
           ${priceHtml}
-          ${specBits.length ? `<div style="font-size:9px;color:#4949b8;font-weight:600;margin-top:2px;line-height:1.3">${escHtml(specBits.join(' · '))}</div>` : ''}
+          ${specBits.length ? `<div style="font-size:9px;color:#0369a1;font-weight:600;margin-top:2px;line-height:1.3">${escHtml(specBits.join(' · '))}</div>` : ''}
           ${warrantyBits ? `<div style="font-size:9px;color:#94a3b8;margin-top:2px;line-height:1.3">${escHtml(warrantyBits)}</div>` : ''}
           <button data-book="${p.id}" style="width:100%;margin-top:8px;padding:8px;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;background:${bookBg};color:#fff">
             ${bookLabel}
@@ -308,7 +308,7 @@ export function renderCustomerDashboard(ctx) {
 
   container.innerHTML = `
     <!-- ═══ HEADER ═══ -->
-    <div style="background:linear-gradient(135deg,#8a8af2,#5b5bd6);color:#fff;border-radius:22px;padding:20px;position:relative;overflow:hidden">
+    <div style="background:linear-gradient(135deg,#38bdf8,#0284c7);color:#fff;border-radius:22px;padding:20px;position:relative;overflow:hidden">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <div>
           <div style="font-size:13px;opacity:.8">สวัสดี</div>
@@ -339,7 +339,7 @@ export function renderCustomerDashboard(ctx) {
         {id:"points", icon:"⭐", label:"แต้มสะสม"}
       ].map(t => `
         <button class="cust-tab-btn" data-cust-tab="${t.id}" style="flex:1;padding:10px 4px;border:none;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;transition:.15s;position:relative;
-          background:${_custTab===t.id ? '#5b5bd6' : 'transparent'};
+          background:${_custTab===t.id ? '#0284c7' : 'transparent'};
           color:${_custTab===t.id ? '#fff' : '#64748b'}">
           ${t.icon} ${t.label}
           ${t.badge ? `<span style="position:absolute;top:2px;right:8px;background:#ef4444;color:#fff;font-size:10px;font-weight:900;padding:1px 5px;border-radius:99px;min-width:16px">${t.badge}</span>` : ''}
@@ -409,7 +409,7 @@ export function renderCustomerDashboard(ctx) {
         ${_custCart.map(item => `
           <div style="background:#fff;border-radius:14px;border:1px solid #e2e8f0;padding:12px;overflow:hidden;box-sizing:border-box">
             <div style="display:flex;gap:10px;align-items:center">
-              <div style="width:44px;height:44px;background:linear-gradient(135deg,#eef0ff,#e0e3fd);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">❄️</div>
+              <div style="width:44px;height:44px;background:linear-gradient(135deg,#e0f2fe,#bae6fd);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">❄️</div>
               <div style="flex:1;min-width:0">
                 <div style="font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(item.name)}</div>
                 <div style="font-size:12px;color:var(--primary2);font-weight:700">${money(item.price)}/เครื่อง</div>
@@ -456,21 +456,21 @@ export function renderCustomerDashboard(ctx) {
         <div style="font-size:15px;font-weight:900;color:var(--primary2);margin-bottom:12px">💳 เลือกวิธีชำระเงิน</div>
         <div style="display:grid;gap:8px">
           <label data-pay-opt="transfer" style="display:flex;align-items:center;gap:12px;padding:14px;border:2px solid var(--primary2);border-radius:12px;cursor:pointer;background:#eff6ff;transition:.15s">
-            <input type="radio" name="custPayMethod" value="transfer" checked style="width:18px;height:18px;accent-color:#5b5bd6" />
+            <input type="radio" name="custPayMethod" value="transfer" checked style="width:18px;height:18px;accent-color:#0284c7" />
             <div style="flex:1">
               <div style="font-weight:700;font-size:14px;color:#1e40af">🏦 โอนเงิน / QR Code</div>
               <div style="font-size:12px;color:#64748b;margin-top:2px">โอนแล้วแนบสลิป — ตรวจสอบอัตโนมัติ</div>
             </div>
           </label>
           <label data-pay-opt="cod_cash" style="display:flex;align-items:center;gap:12px;padding:14px;border:2px solid #e2e8f0;border-radius:12px;cursor:pointer;background:#fff;transition:.15s">
-            <input type="radio" name="custPayMethod" value="cod_cash" style="width:18px;height:18px;accent-color:#5b5bd6" />
+            <input type="radio" name="custPayMethod" value="cod_cash" style="width:18px;height:18px;accent-color:#0284c7" />
             <div style="flex:1">
               <div style="font-weight:700;font-size:14px;color:#1f2937">💵 เก็บเงินปลายทาง (เงินสด)</div>
               <div style="font-size:12px;color:#64748b;margin-top:2px">จ่ายเงินสดตอนรับสินค้า</div>
             </div>
           </label>
           <label data-pay-opt="cod_transfer" style="display:flex;align-items:center;gap:12px;padding:14px;border:2px solid #e2e8f0;border-radius:12px;cursor:pointer;background:#fff;transition:.15s">
-            <input type="radio" name="custPayMethod" value="cod_transfer" style="width:18px;height:18px;accent-color:#5b5bd6" />
+            <input type="radio" name="custPayMethod" value="cod_transfer" style="width:18px;height:18px;accent-color:#0284c7" />
             <div style="flex:1">
               <div style="font-weight:700;font-size:14px;color:#1f2937">📲 จ่ายหน้างาน (โอน)</div>
               <div style="font-size:12px;color:#64748b;margin-top:2px">โอนเงินให้ช่างตอนส่งมอบสินค้า</div>
@@ -537,7 +537,7 @@ export function renderCustomerDashboard(ctx) {
             <div style="font-size:14px;font-weight:900;color:var(--primary2);margin-bottom:8px;text-align:center">📸 แนบสลิปการโอนเงิน</div>
             <input type="file" id="custSlipFileInput" accept="image/*" style="display:none" />
             <div id="custSlipPreview" style="text-align:center;margin-bottom:8px"></div>
-            <button id="custSlipUploadBtn" style="width:100%;padding:12px;background:linear-gradient(135deg,#eef0ff,#e0e3fd);color:var(--primary2);border:2px solid var(--primary2);border-radius:12px;font-size:14px;font-weight:700;cursor:pointer">
+            <button id="custSlipUploadBtn" style="width:100%;padding:12px;background:linear-gradient(135deg,#e0f2fe,#bae6fd);color:var(--primary2);border:2px solid var(--primary2);border-radius:12px;font-size:14px;font-weight:700;cursor:pointer">
               📷 เลือกรูปสลิป
             </button>
             <div id="custSlipStatus" style="margin-top:8px;font-size:12px;color:#64748b;text-align:center"></div>
@@ -673,13 +673,13 @@ export function renderCustomerDashboard(ctx) {
                   return `
                     <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;position:relative">
                       <div style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;
-                        background:${active ? '#5b5bd6' : '#e2e8f0'};
+                        background:${active ? '#0284c7' : '#e2e8f0'};
                         color:${active ? '#fff' : '#94a3b8'};
                         ${isCur ? 'box-shadow:0 0 0 4px #bae6fd;' : ''}">
                         ${s.icon}
                       </div>
-                      <div style="font-size:10px;font-weight:${isCur ? '800' : '500'};color:${active ? '#5b5bd6' : '#94a3b8'};text-align:center;line-height:1.2">${s.label}</div>
-                      ${i < STEPS.length - 1 ? `<div class="cust-step-line" style="position:absolute;top:14px;left:calc(50% + 16px);right:calc(-50% + 16px);height:3px;background:${i < step ? '#5b5bd6' : '#e2e8f0'};z-index:-1"></div>` : ''}
+                      <div style="font-size:10px;font-weight:${isCur ? '800' : '500'};color:${active ? '#0284c7' : '#94a3b8'};text-align:center;line-height:1.2">${s.label}</div>
+                      ${i < STEPS.length - 1 ? `<div class="cust-step-line" style="position:absolute;top:14px;left:calc(50% + 16px);right:calc(-50% + 16px);height:3px;background:${i < step ? '#0284c7' : '#e2e8f0'};z-index:-1"></div>` : ''}
                     </div>`;
                 }).join("")}
               </div>`;
@@ -880,7 +880,7 @@ export function renderCustomerDashboard(ctx) {
       const val = radio.value;
       container.querySelectorAll("[data-pay-opt]").forEach(label => {
         const isSelected = label.dataset.payOpt === val;
-        label.style.border = isSelected ? "2px solid #5b5bd6" : "2px solid #e2e8f0";
+        label.style.border = isSelected ? "2px solid #0284c7" : "2px solid #e2e8f0";
         label.style.background = isSelected ? "#eff6ff" : "#fff";
       });
       const bankInfo = container.querySelector("#custBankInfo");

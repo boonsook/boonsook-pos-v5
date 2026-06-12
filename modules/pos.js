@@ -549,7 +549,7 @@ function renderPosView(ctx) {
         <!-- Phase 88.20: Dropdown เลือกบัญชี (ถ้ามีหลายบัญชี) -->
         <div style="padding:12px 16px 4px">
           <label style="font-size:12px;color:#475569;font-weight:700;margin-bottom:6px;display:block">🏦 เลือกบัญชีรับเงิน:</label>
-          <select id="posBankPicker" style="width:100%;padding:12px;border:2px solid var(--primary2);border-radius:10px;background:#eef0ff;font-size:14px;font-weight:600;cursor:pointer">
+          <select id="posBankPicker" style="width:100%;padding:12px;border:2px solid var(--primary2);border-radius:10px;background:#e0f2fe;font-size:14px;font-weight:600;cursor:pointer">
             ${validBanks.map((b, i) => {
               const label = `${b.bankName || 'ธนาคาร'}${b.bankAccount ? ' — ' + b.bankAccount : ''}${b.coaCode ? ' (COA ' + b.coaCode + ')' : ''}`;
               return `<option value="${i}" ${i === selectedBankIdx ? 'selected' : ''}>${label}</option>`;
@@ -638,7 +638,7 @@ function renderPosView(ctx) {
       </div>
 
       <!-- สรุปยอด -->
-      <div class="pos-pay-amount-box" style="margin:16px;border-radius:16px;background:linear-gradient(135deg,#5b5bd6,#8a8af2);color:#fff;padding:20px 24px;text-align:center">
+      <div class="pos-pay-amount-box" style="margin:16px;border-radius:16px;background:linear-gradient(135deg,#0284c7,#0ea5e9);color:#fff;padding:20px 24px;text-align:center">
         <div style="font-size:14px;opacity:.8">${selectedPaymentMethod} ${methodIcons[selectedPaymentMethod] || ""}</div>
         <div style="font-size:36px;font-weight:900;margin:8px 0">฿${moneyNum(amount)}</div>
         ${(() => {
@@ -1558,7 +1558,7 @@ function openCustomerPicker(ctx) {
       }).join("");
       const noteSnippet = c.notes ? `<div style="font-size:11px;color:var(--primary2);font-style:italic;margin-top:2px">📝 ${escHtml(String(c.notes).slice(0, 60))}${String(c.notes).length > 60 ? '...' : ''}</div>` : "";
       return `
-      <div class="pcp-item" data-cid="${escHtml(c.id)}" data-cname="${escHtml(c.name || '')}" data-cphone="${escHtml(c.phone || '')}" style="padding:10px 12px;cursor:pointer;border-radius:8px;margin-bottom:4px;border:1px solid transparent" onmouseover="this.style.background='#eef0ff';this.style.borderColor='#5b5bd6'" onmouseout="this.style.background='';this.style.borderColor='transparent'">
+      <div class="pcp-item" data-cid="${escHtml(c.id)}" data-cname="${escHtml(c.name || '')}" data-cphone="${escHtml(c.phone || '')}" style="padding:10px 12px;cursor:pointer;border-radius:8px;margin-bottom:4px;border:1px solid transparent" onmouseover="this.style.background='#e0f2fe';this.style.borderColor='#0284c7'" onmouseout="this.style.background='';this.style.borderColor='transparent'">
         <div style="font-weight:700;font-size:14px">${escHtml(c.name || '-')}</div>
         <div style="font-size:11px;color:#64748b">${escHtml(c.phone || '')} ${c.contact_person ? '• ' + escHtml(c.contact_person) : ''}</div>
         ${tagsHtml ? `<div style="margin-top:4px">${tagsHtml}</div>` : ''}

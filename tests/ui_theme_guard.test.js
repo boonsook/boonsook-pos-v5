@@ -22,22 +22,22 @@ const p4 = fs.readFileSync(path.resolve("phase4-design-system.css"), "utf8");
 const p4c = fs.readFileSync(path.resolve("phase4-components.css"), "utf8");
 
 // ── light tokens ──────────────────────────────────────────────────────────────
-test("style.css :root carries the Phase 421 light tokens (lavender bg + indigo pair)", () => {
-  // Phase 424: --bg deepened (#f5f5fb -> #eaedf8) per owner feedback (too bright)
-  assert.match(css, /--bg:\s*#eaedf8/, "--bg must be #eaedf8");
-  assert.match(css, /--line:\s*#e9e9f2/, "--line must be #e9e9f2");
-  assert.match(css, /--primary:\s*#6b6be0/, "--primary must be #6b6be0");
-  assert.match(css, /--primary2:\s*#5b5bd6/, "--primary2 must be #5b5bd6");
+test("style.css :root carries the Phase 431 light tokens (blue-gray bg + sky pair)", () => {
+  // Phase 431: owner feedback "ม่วงแสบตา" — indigo reverted to the original sky blue
+  // (424's deeper-bg decision kept, hue shifted from lavender to blue-gray)
+  assert.match(css, /--bg:\s*#e8eef7/, "--bg must be #e8eef7");
+  assert.match(css, /--line:\s*#e7ecf3/, "--line must be #e7ecf3");
+  assert.match(css, /--primary:\s*#0ea5e9/, "--primary must be #0ea5e9");
+  assert.match(css, /--primary2:\s*#0284c7/, "--primary2 must be #0284c7");
 });
 
 // ── dark tokens ───────────────────────────────────────────────────────────────
-test("style.css dark theme uses the indigo pair (legacy sky values gone)", () => {
-  assert.match(css, /--primary:\s*#8a8af2/, "dark --primary must be #8a8af2");
-  assert.match(css, /--primary2:\s*#6b6be0/, "dark --primary2 must be #6b6be0");
-  assert.ok(!/--primary2:\s*#0284c7/.test(css), "legacy sky --primary2 must be gone");
-  assert.ok(!/--primary2:\s*#0ea5e9/.test(css), "legacy sky dark --primary2 must be gone");
-  assert.ok(!/--primary:\s*#0ea5e9/.test(css), "legacy sky --primary must be gone");
-  assert.ok(!/--primary:\s*#38bdf8/.test(css), "legacy sky dark --primary must be gone");
+test("style.css dark theme uses the sky pair (indigo token values gone)", () => {
+  assert.match(css, /--primary:\s*#38bdf8/, "dark --primary must be #38bdf8");
+  assert.match(css, /--primary2:\s*#0ea5e9/, "dark --primary2 must be #0ea5e9");
+  assert.ok(!/--primary2?:\s*#5b5bd6/.test(css), "indigo --primary2 must be gone (Phase 431)");
+  assert.ok(!/--primary2?:\s*#6b6be0/.test(css), "indigo token must be gone (Phase 431)");
+  assert.ok(!/--primary2?:\s*#8a8af2/.test(css), "indigo dark token must be gone (Phase 431)");
 });
 
 // ── appended skin block (must win the cascade over Phase 386 sidebar rules) ──
@@ -53,8 +53,8 @@ test("PHASE 421 skin block exists and restyles the sidebar via tokens", () => {
     "active nav must be the solid indigo pill");
   assert.match(sect, /\.nav-btn\.active\s*\{[^}]*box-shadow:\s*none/,
     "Phase-386 inset left accent must be neutralised in the new skin");
-  assert.ok(!/rgba\(14,\s*165,\s*233/.test(sect),
-    "no legacy sky rgba inside the PHASE 421 block");
+  assert.ok(!/rgba\(91,\s*91,\s*214/.test(sect),
+    "no indigo rgba inside the PHASE 421 block (Phase 431: hue is sky)");
 });
 
 // ── Phase 422: mock-F dashboard layout (quick actions + brand hero) ──────────
@@ -149,7 +149,7 @@ test("PHASE 426: sidebar shortcuts removed, skin classes no longer sky", () => {
   };
   for (const sel of [".auth-logo {", ".brand-badge {", ".pos-banner {", ".set-save-btn {"]) {
     const block = grab(sel);
-    assert.ok(!/#38bdf8|#0284c7/.test(block), `${sel} must not carry the legacy sky gradient`);
+    assert.ok(!/#5b5bd6|#8a8af2|#6b6be0/.test(block), `${sel} must not carry the indigo gradient (Phase 431: hue is sky)`);
   }
   // semantic doc-type colors are intentionally preserved (printed documents)
   assert.match(css, /\.doc-page-badge\.inv \{ background: #0284c7; \}/,
@@ -167,14 +167,14 @@ test("PHASE 427: help FAB unwired, customer_dashboard carries no sky accents", (
   assert.match(widget, /body\[data-route="solar"\] #bs-ai-fab:not\(\.hidden\)/, "service AI FAB gating must stay");
 
   const cust = fs.readFileSync(path.resolve("modules/customer_dashboard.js"), "utf8");
-  assert.ok(!/#0284c7|#0ea5e9|#38bdf8|#0369a1/.test(cust), "customer_dashboard must carry no sky accents");
+  assert.ok(!/#5b5bd6|#8a8af2|#6b6be0|#4949b8/.test(cust), "customer_dashboard must carry no indigo accents (Phase 431: hue is sky)");
 });
 
 // ── phase4 design-system stays in sync ───────────────────────────────────────
-test("phase4 design-system primary scale is remapped to indigo", () => {
-  assert.match(p4, /--primary-500:\s*#6b6be0/, "--primary-500 must be #6b6be0");
-  assert.match(p4, /--primary-600:\s*#5b5bd6/, "--primary-600 must be #5b5bd6");
-  assert.ok(!/--primary-500:\s*#0ea5e9/.test(p4), "legacy sky --primary-500 must be gone");
-  assert.ok(!/--primary-600:\s*#0284c7/.test(p4), "legacy sky --primary-600 must be gone");
-  assert.ok(!/rgba\(14,\s*165,\s*233/.test(p4c), "phase4 focus ring must not be sky");
+test("phase4 design-system primary scale is the sky blue ramp (Phase 431)", () => {
+  assert.match(p4, /--primary-500:\s*#0ea5e9/, "--primary-500 must be #0ea5e9");
+  assert.match(p4, /--primary-600:\s*#0284c7/, "--primary-600 must be #0284c7");
+  assert.ok(!/--primary-500:\s*#6b6be0/.test(p4), "indigo --primary-500 must be gone");
+  assert.ok(!/--primary-600:\s*#5b5bd6/.test(p4), "indigo --primary-600 must be gone");
+  assert.ok(!/rgba\(91,\s*91,\s*214/.test(p4c), "phase4 focus ring must not be indigo");
 });

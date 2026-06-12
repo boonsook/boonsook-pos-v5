@@ -1,12 +1,12 @@
 
 :root {
-  --bg: #eaedf8;                /* Phase 424: deeper indigo tint — owner: เดิมสว่างเกิน (was #f5f5fb) */
+  --bg: #e8eef7;                /* Phase 431: blue-gray workspace — owner: ม่วงแสบตา เลิก indigo (คงความเข้มจาก 424) */
   --surface: #fff;
   --text: #0f172a;
   --muted: #64748b;
-  --line: #e9e9f2;             /* Phase 421: soft indigo-gray border (was #e5e7eb) */
-  --primary: #6b6be0;          /* Phase 421: indigo accent (was sky #0ea5e9) */
-  --primary2: #5b5bd6;         /* Phase 421: main indigo (was sky #0284c7) */
+  --line: #e7ecf3;             /* Phase 431: blue-gray border */
+  --primary: #0ea5e9;          /* Phase 431: กลับสีฟ้า sky ตาม owner */
+  --primary2: #0284c7;         /* Phase 431: กลับสีฟ้า sky ตาม owner */
   --success: #059669;
   --danger: #dc2626;
   --warn: #f59e0b;
@@ -24,8 +24,8 @@
   --text: #f1f5f9;
   --muted: #64748b;
   --line: #334155;
-  --primary: #8a8af2;          /* Phase 421: indigo accent dark (was #38bdf8) */
-  --primary2: #6b6be0;         /* Phase 421: main indigo dark (was #0ea5e9) */
+  --primary: #38bdf8;          /* Phase 431: sky dark (กลับค่าเดิม) */
+  --primary2: #0ea5e9;         /* Phase 431: sky dark (กลับค่าเดิม) */
   --success: #34d399;
   --danger: #f87171;
   --warn: #fbbf24;
@@ -58,10 +58,10 @@ button, input, select, textarea { font: inherit; }
 /* ═══ AUTH ═══ */
 .auth-shell { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
 .auth-card { width: min(480px, 100%); background: #fff; border: 1px solid var(--line); border-radius: 28px; padding: 28px; box-shadow: var(--shadow); }
-.auth-logo { width: 90px; height: 90px; border-radius: 22px; background: linear-gradient(135deg, #8a8af2, #5b5bd6); display: grid; place-items: center; color: #fff; font-size: 12px; font-weight: 900; text-align: center; line-height: 1.2; margin: 0 auto 18px; box-shadow: 0 12px 30px rgba(91,91,214,.3); }
-.auth-logo-img { width: 100px; height: 100px; border-radius: 24px; margin: 0 auto 18px; display: block; box-shadow: 0 12px 30px rgba(91,91,214,.3); }
+.auth-logo { width: 90px; height: 90px; border-radius: 22px; background: linear-gradient(135deg, #38bdf8, #0284c7); display: grid; place-items: center; color: #fff; font-size: 12px; font-weight: 900; text-align: center; line-height: 1.2; margin: 0 auto 18px; box-shadow: 0 12px 30px rgba(2,132,199,.3); }
+.auth-logo-img { width: 100px; height: 100px; border-radius: 24px; margin: 0 auto 18px; display: block; box-shadow: 0 12px 30px rgba(2,132,199,.3); }
 .brand-row { display: flex; gap: 12px; align-items: center; }
-.brand-badge { width: 52px; height: 52px; border-radius: 16px; display: grid; place-items: center; background: linear-gradient(135deg, #8a8af2, #5b5bd6); color: #fff; font-size: 24px; }
+.brand-badge { width: 52px; height: 52px; border-radius: 16px; display: grid; place-items: center; background: linear-gradient(135deg, #38bdf8, #0284c7); color: #fff; font-size: 24px; }
 .brand-badge.small { width: 44px; height: 44px; font-size: 20px; }
 .brand-title { font-size: 24px; font-weight: 900; color: var(--primary2); }
 .brand-sub, .muted, .sku { color: var(--muted); font-size: 13px; }
@@ -408,9 +408,9 @@ th { color: var(--muted); font-size: 12px; }
 /* ─── Sales Banner ─── */
 /* ─── POS Banner (Phase 36 — FlowAccount-style + logo) ─── */
 .pos-banner {
-  background: linear-gradient(135deg, #8a8af2, #5b5bd6);
+  background: linear-gradient(135deg, #38bdf8, #0284c7);
   color: #fff; border-radius: 24px; padding: 22px 22px 26px; text-align: center;
-  box-shadow: 0 12px 30px rgba(91,91,214,.25);
+  box-shadow: 0 12px 30px rgba(2,132,199,.25);
 }
 .pos-banner-top {
   display: flex; align-items: center; justify-content: space-between;
@@ -440,7 +440,7 @@ th { color: var(--muted); font-size: 12px; }
 .pos-action-btn:active { transform: scale(.97); }
 .pos-action-icon-wrap {
   width: 56px; height: 56px; border-radius: 50%;
-  background: #eef0ff; display: grid; place-items: center;
+  background: #e0f2fe; display: grid; place-items: center;
 }
 .pos-action-icon { font-size: 28px; line-height: 1; }
 .pos-action-label { font-size: 12px; font-weight: 700; color: var(--primary2); }
@@ -518,7 +518,7 @@ th { color: var(--muted); font-size: 12px; }
   font-size: 16px; font-weight: 600; text-align: left; transition: .1s;
 }
 .pos-pay-method-btn:hover { background: #f0f9ff; }
-.pos-pay-method-btn:active { background: #eef0ff; }
+.pos-pay-method-btn:active { background: #e0f2fe; }
 .pos-pay-method-icon { font-size: 24px; width: 36px; text-align: center; flex-shrink: 0; }
 .pos-pay-arrow { margin-left: auto; color: var(--muted); font-size: 20px; }
 
@@ -539,7 +539,7 @@ th { color: var(--muted); font-size: 12px; }
   cursor: pointer; box-shadow: 0 2px 8px rgba(15,23,42,.06); transition: .1s;
 }
 .pos-numpad-btn:hover { background: #f0f9ff; }
-.pos-numpad-btn:active { background: #eef0ff; transform: scale(.95); }
+.pos-numpad-btn:active { background: #e0f2fe; transform: scale(.95); }
 
 .pos-quick-amounts { display: flex; gap: 8px; padding: 0 16px; margin-bottom: 12px; flex-wrap: wrap; }
 .pos-quick-amounts .btn { flex: 1; text-align: center; }
@@ -1009,7 +1009,7 @@ th { color: var(--muted); font-size: 12px; }
   color: #334155; white-space: nowrap; width: 100%;
 }
 .prod-more-item:hover { background: var(--bg); }
-.prod-more-item.prod-more-active { background: #eef0ff; color: #4949b8; }
+.prod-more-item.prod-more-active { background: #e0f2fe; color: #0369a1; }
 /* ลบทั้งหมด = ท้ายเมนูเสมอ + danger style (มีเส้นคั่นกันกดพลาด) */
 .prod-more-danger {
   color: #dc2626; margin-top: 4px; padding-top: 11px;
@@ -1147,12 +1147,12 @@ th { color: var(--muted); font-size: 12px; }
 /* ─── Save Button ─── */
 .set-save-btn {
   display: block; width: 100%; border: none; border-radius: 16px;
-  background: linear-gradient(135deg, #8a8af2, #5b5bd6); color: #fff;
+  background: linear-gradient(135deg, #38bdf8, #0284c7); color: #fff;
   padding: 16px; font-size: 17px; font-weight: 900; cursor: pointer;
-  box-shadow: 0 8px 24px rgba(91,91,214,.25); transition: .15s;
+  box-shadow: 0 8px 24px rgba(2,132,199,.25); transition: .15s;
   margin-top: 4px;
 }
-.set-save-btn:hover { transform: translateY(-1px); box-shadow: 0 12px 30px rgba(91,91,214,.3); }
+.set-save-btn:hover { transform: translateY(-1px); box-shadow: 0 12px 30px rgba(2,132,199,.3); }
 .set-save-btn:active { transform: scale(.98); }
 
 /* ─── Toggle Switch ─── */
@@ -1264,7 +1264,7 @@ th { color: var(--muted); font-size: 12px; }
 }
 .wh-select:focus {
   outline: none; border-color: var(--primary2);
-  box-shadow: 0 0 0 3px rgba(91,91,214,.12);
+  box-shadow: 0 0 0 3px rgba(2,132,199,.12);
 }
 
 /* ─── Warehouse stock inputs in product drawer ─── */
@@ -1285,7 +1285,7 @@ th { color: var(--muted); font-size: 12px; }
 }
 .wh-stock-input:focus, .wh-min-stock-input:focus {
   outline: none; border-color: var(--primary2);
-  box-shadow: 0 0 0 3px rgba(91,91,214,.12);
+  box-shadow: 0 0 0 3px rgba(2,132,199,.12);
 }
 
 @media (max-width: 768px) {
@@ -2126,7 +2126,7 @@ aside.drawer { position: fixed; top: 0; right: 0; }
   flex: 1; min-width: 72px; padding: 9px 8px; border: none; border-radius: 8px;
   font-size: 13px; font-weight: 700; cursor: pointer; transition: .15s; background: transparent; color: var(--muted);
 }
-.dash-period-btn:hover { background: rgba(91,91,214,.08); color: var(--primary2); }
+.dash-period-btn:hover { background: rgba(2,132,199,.08); color: var(--primary2); }
 .dash-period-btn.active { background: var(--primary2); color: #fff; }
 
 /* ── KPI grid (responsive, auto-fit → stacks on mobile, no inline grid) ── */
@@ -2143,7 +2143,7 @@ aside.drawer { position: fixed; top: 0; right: 0; }
 
 /* clickable nav cards (moved out of the dashboard.js inline <style>) */
 .dash-clickable { cursor: pointer; transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease; }
-.dash-clickable:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(91,91,214,0.15); border-color: var(--primary2); }
+.dash-clickable:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(2,132,199,0.15); border-color: var(--primary2); }
 .dash-clickable:active { transform: translateY(0); }
 
 /* ── App-shell business-app refinements (CSS-only; index.html untouched) ─ */
@@ -2193,7 +2193,7 @@ aside.drawer { position: fixed; top: 0; right: 0; }
   color: var(--text); padding: 9px 12px; border-radius: 8px; cursor: pointer;
   font-size: 13px; font-weight: 600;
 }
-.profile-menu-item:hover { background: rgba(91,91,214,.08); color: var(--primary2); }
+.profile-menu-item:hover { background: rgba(2,132,199,.08); color: var(--primary2); }
 
 /* mobile: ซ่อนชื่อยาว เหลือ avatar (กัน topbar ล้น) */
 @media (max-width: 560px) {
@@ -2240,7 +2240,7 @@ aside.drawer { position: fixed; top: 0; right: 0; }
 
 /* -- Nav items: muted text, soft indigo hover, solid indigo active pill -- */
 .nav-btn { color: var(--muted); }
-.nav-btn:hover { background: rgba(91,91,214,.10); color: var(--primary2); }
+.nav-btn:hover { background: rgba(2,132,199,.10); color: var(--primary2); }
 .nav-btn.active {
   background: var(--primary2);
   color: #fff;
@@ -2250,10 +2250,10 @@ aside.drawer { position: fixed; top: 0; right: 0; }
 .nav-btn.danger { color: var(--danger); }
 .nav-btn.sub { color: var(--muted); }
 .nav-btn.sub:hover,
-.nav-btn.sub.active { background: rgba(91,91,214,.10); color: var(--primary2); font-weight: 700; }
+.nav-btn.sub.active { background: rgba(2,132,199,.10); color: var(--primary2); font-weight: 700; }
 .nav-group-toggle { color: var(--muted); }
-.nav-group-toggle:hover { background: rgba(91,91,214,.10); color: var(--primary2); }
-.nav-group.open > .nav-group-toggle { background: rgba(91,91,214,.08); color: var(--primary2); }
+.nav-group-toggle:hover { background: rgba(2,132,199,.10); color: var(--primary2); }
+.nav-group.open > .nav-group-toggle { background: rgba(2,132,199,.08); color: var(--primary2); }
 
 /* -- Dark mode: keep nav text readable on the dark surface sidebar ------- */
 [data-theme="dark"] .nav-btn,
@@ -2291,19 +2291,19 @@ aside.drawer { position: fixed; top: 0; right: 0; }
 
 /* -- Hero: indigo-tinted brand card (light) + dark variant ---------------- */
 .dash-today--brand {
-  background: #eef0ff;
-  border: 1px solid #e2e4fb;
+  background: #e0f2fe;
+  border: 1px solid #bae6fd;
 }
-.dash-today--brand .dash-today-label { color: #4949b8; }
-.dash-today--brand .dash-today-amount { color: #33338f; }
-.dash-today--brand .dash-today-sub { color: #6363c9; }
+.dash-today--brand .dash-today-label { color: #0369a1; }
+.dash-today--brand .dash-today-amount { color: #075985; }
+.dash-today--brand .dash-today-sub { color: #0284c7; }
 [data-theme="dark"] .dash-today--brand {
-  background: #262650;
-  border: 1px solid #3a3a7a;
+  background: #0f3049;
+  border: 1px solid #1d567c;
 }
-[data-theme="dark"] .dash-today--brand .dash-today-label { color: #b3b3f5; }
-[data-theme="dark"] .dash-today--brand .dash-today-amount { color: #e0e0ff; }
-[data-theme="dark"] .dash-today--brand .dash-today-sub { color: #9d9df0; }
+[data-theme="dark"] .dash-today--brand .dash-today-label { color: #9bd1f5; }
+[data-theme="dark"] .dash-today--brand .dash-today-amount { color: #e3f3fe; }
+[data-theme="dark"] .dash-today--brand .dash-today-sub { color: #7cc2ee; }
 
 /* ========================================================================
    PHASE 423 - mock-F finishing pass (build 423)
@@ -2361,6 +2361,6 @@ aside.drawer { position: fixed; top: 0; right: 0; }
    Dark theme keeps its flat token bg (no wash).
    ======================================================================== */
 body {
-  background: linear-gradient(160deg, #e8ebf8 0%, #eee9f6 55%, #f5ecf1 100%);
+  background: linear-gradient(160deg, #e4ecf7 0%, #e9f3fa 55%, #f3f8fc 100%);
 }
 [data-theme="dark"] body { background: var(--bg); }

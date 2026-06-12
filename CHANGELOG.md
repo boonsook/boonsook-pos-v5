@@ -7,12 +7,27 @@
 
 ---
 
+## 5.66.0 (build 431) — 2026-06-13 Phase 431 เปลี่ยน skin ม่วง → สีฟ้า (owner: ม่วงแสบตา)
+
+- **feat (UI · display-only):** สี indigo ทั้งระบบกลับเป็น **สีฟ้า sky เดิม** ตาม owner — tokens `--primary/--primary2` (light: `#0ea5e9/#0284c7` · dark: `#38bdf8/#0ea5e9`), `--bg` เป็นเทาอมฟ้า `#e8eef7` (คงความเข้มจาก 424 แต่เลิกอมม่วง), wash พื้นหลังเป็นฟ้า→ฟ้าอ่อน, hero/การ์ด/tile/ปุ่มลัด/donut/กราฟ/focus ring/gradient ทุกจุด (style.css + phase4 scale revert + dashboard.js + pos.js + customer_dashboard.js + hrx-hero ของ hr_overview ที่ใช้ indigo เก่า)
+- **โครงทุกอย่างคงเดิม** (sidebar ขาว/จัดกลุ่ม, dashboard layout, การ์ดต้องทำวันนี้ ฯลฯ — เปลี่ยนเฉพาะ hue) · **หน้า products ไม่ต้องไล่แล้ว** — 35 จุดเดิมเป็นสีฟ้าอยู่แล้ว = ตรงโทนใหม่พอดี (คิวไล่สีที่เหลือ = ปรับเป็น token เฉย ๆ ไม่เร่ง)
+- bump build **431** + guard ปรับด้านล็อกโทนฟ้า (`ui_theme_guard` ห้ามมี indigo ตกค้าง + `dashboard_readonly_guard` → 431)
+- lint:errors 0 / unit **1570** / e2e **14** · **⏸️ STOP รอ owner ดู preview แล้วสั่ง merge**
+
+---
+
+## 5.66.0 (build 428–430) — 2026-06-12/13 ทีมขนาน: receipts hardening ×3 (commits ตรงบน main — เพิ่ม entry ย้อนหลัง)
+
+> งานอีก session: `829a990` **build 428 Surface receipt restore failures** — bulk delete ใบเสร็จ: จับผล PATCH ตอนคืนสถานะใบส่งสินค้า → fail ขึ้น toast เตือน (เดิม fail เงียบ = ใบส่งสินค้าค้างสถานะ receipted ทั้งที่ใบเสร็จถูกลบ) + guard test ใหม่ · `967d5da` **build 429 Align receipt filter counts** — ตัวนับ filter หน้าใบเสร็จให้ตรงเงื่อนไขกรองจริง + guard test · `d59e371` **build 430 Exclude cancelled receipts from totals** — ยอดรวมหน้าใบเสร็จไม่นับใบที่ยกเลิก + guard test · ทุกตัว bump build ครบ + CI เขียว · ✅ **build 430 live**
+
+---
+
 ## 5.66.0 (build 427) — 2026-06-12 Phase 427 ถอดปุ่มคำแนะนำ (หลอดไฟ) + ไล่สีหน้าร้านลูกค้า
 
 - **feat (UI · display-only):** ถอด **ปุ่มคำแนะนำหลอดไฟ (`#bs-help-fab` help tutor)** ออกทุกหน้า ตาม owner — main.js เลิก import/mount/setHelpContext (โมดูล `help_tutor.js` เก็บไว้แบบ dormant ไม่ลบไฟล์) · **AI ผู้ช่วยงานช่าง (`#bs-ai-fab`) ไม่ถูกแตะ** — ยังโชว์เฉพาะหน้างานช่าง desktop ตาม gating เดิม; AI ขายแอร์เข้าผ่านหน้า "AI ช่วยขายแอร์" ที่แยกเป็นหน้าของตัวเองในกลุ่ม หน้าร้านแอร์ (ติดกับ หน้าหลัก) ตามที่ owner ต้องการ
 - **ไล่สีรอบ 2 — customer_dashboard (หน้าหลัก/หน้าร้านลูกค้า) ครบ 38 จุด:** ราคา/ปุ่มสั่งจอง/แท็บ/หัวข้อ/step สถานะ/กล่องจัดส่ง-ชำระเงิน/radio/แนบสลิป sky → indigo — **คงไว้:** การ์ดสินค้าโทนฟ้าอ่อน (ธีมความเย็นของแอร์) + ปุ่ม CTA ส้ม "สอบถามราคา" + ป้ายสถานะ
 - bump build **427** + `dashboard_readonly_guard` → 427 · `ui_theme_guard` +1 test (help FAB unwired + gating ช่างคงเดิม + customer_dashboard ไม่มี sky)
-- lint:errors 0 / unit **1567** / e2e **14** · **⏸️ STOP รอ owner ดู preview (426+427)** · คิวต่อ: products 35 → hr_overview 16 → payroll 13 → leave 13 → DI 12 → quotations 11 → service_jobs 10
+- lint:errors 0 / unit **1567** / e2e **14** · ✅ **merged เข้า main แล้ว — อยู่ใน live แล้ว (ปัจจุบัน 430)** (session ขนาน ff ให้ 2026-06-12, owner อนุมัติ "merge ได้") · คิวต่อ: products 35 → hr_overview 16 → payroll 13 → leave 13 → DI 12 → quotations 11 → service_jobs 10
 
 ---
 
@@ -22,7 +37,7 @@
 - **ไล่เก็บสี sky → indigo (เฉพาะ skin):** style.css — โลโก้/แบรนด์หน้า login, `.pos-banner`, ปุ่มกด active ใน POS (numpad/วิธีจ่าย/ไอคอน), `.set-save-btn` หน้า settings, focus ring ×2, ราคาใน global search, `.bsk-tag.active`, hover ของ dash-period/dash-clickable/profile-menu · pos.js — กล่องยอดรับชำระ (gradient), ตัวเลือกธนาคารโอน, ข้อความ VAT/COA/โน้ตลูกค้า, hover รายชื่อลูกค้า
 - **คงไว้โดยเจตนา (ไม่ใช่ skin):** กล่อง info ฟ้า, ป้ายสถานะ, สีประจำชนิดเอกสารบนใบพิมพ์ (`.doc-*.inv` น้ำเงิน = อัตลักษณ์ใบแจ้งหนี้) — guard ล็อกไว้กันกวาดพลาดในอนาคต
 - bump build **426** (data-app-build + ?v= ×4 + sw cache-v426) + `dashboard_readonly_guard` → 426 · `ui_theme_guard` +1 test (ปุ่มลัดหาย + skin ไม่มี sky + doc colors คงเดิม)
-- lint:errors 0 / unit **1563** / e2e **14** · **⏸️ STOP รอ owner ดู preview** · คิวไล่สีหน้าถัดไป: customer_dashboard (38 จุด), products (35), hr_overview/payroll/leave (16/13/13), delivery_invoices/quotations (12/11)
+- lint:errors 0 / unit **1563** / e2e **14** · ✅ **merged เข้า main แล้ว — อยู่ใน live แล้ว (ปัจจุบัน 430)** · คิวไล่สีหน้าถัดไป: customer_dashboard (38 จุด), products (35), hr_overview/payroll/leave (16/13/13), delivery_invoices/quotations (12/11)
 
 ---
 
@@ -40,7 +55,7 @@
 
 - **fix (UI · CSS-only):** owner feedback "พื้นหลังสว่างเกิน" — `--bg` ลึกขึ้น `#f5f5fb → #eaedf8` (indigo tint ชัดขึ้น การ์ด/sidebar ขาวเด้งจากพื้น) + **body wash gradient ม่วงอ่อน→ชมพูอ่อน** (`linear-gradient(160deg, #e8ebf8 → #eee9f6 → #f5ecf1)`) ตามบรรยากาศภาพต้นแบบ; dark theme คงพื้นเรียบ token เดิม (override `[data-theme="dark"] body`)
 - bump build **424** (data-app-build + ?v= ×4 + sw cache-v424) + `dashboard_readonly_guard` → 424 · `ui_theme_guard`: ปรับ assertion `--bg` + เพิ่ม test PHASE 424 (wash มีจริง + dark เรียบ)
-- lint:errors 0 / unit **1561** / e2e **14** · **⏸️ STOP รอ owner ดู preview แล้วสั่ง merge**
+- lint:errors 0 / unit **1561** / e2e **14** · ✅ **merged ff `01f3c09` = live** (stamp ย้อนหลัง — ตกจากรอบ 425)
 
 ---
 

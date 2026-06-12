@@ -2303,7 +2303,7 @@ export async function renderHrOverviewPage(ctx) {
       .hr-row-employee:hover { background-color: #f5f7ff; }
       .hr-row-employee:focus-within { outline: 2px solid #6366f1; outline-offset: -2px; }
       .hrx-dashboard { display:flex; flex-direction:column; gap:12px; }
-      .hrx-hero { display:grid; grid-template-columns:minmax(0,1fr) 300px; gap:18px; align-items:stretch; background:linear-gradient(135deg,#ffffff 0%,#f5f6ff 55%,#eef0ff 100%); border:1px solid #e6e8f6; border-radius:22px; padding:26px; box-shadow:0 1px 2px rgba(16,24,64,.04), 0 24px 50px -28px rgba(79,70,229,.32); }
+      .hrx-hero { display:grid; grid-template-columns:minmax(0,1fr) 300px; gap:18px; align-items:stretch; background:linear-gradient(135deg,#ffffff 0%,#f2f8fd 55%,#e0f2fe 100%); border:1px solid #d8e9f7; border-radius:22px; padding:26px; box-shadow:0 1px 2px rgba(16,24,64,.04), 0 24px 50px -28px rgba(2,132,199,.25); }
       .hrx-eyebrow { display:inline-block; font-size:11px; font-weight:900; color:#4338ca; letter-spacing:.14em; background:linear-gradient(135deg,#eef2ff,#f3f0ff); border:1px solid #e0e7ff; padding:4px 11px; border-radius:999px; }
       .hrx-hero h2 { margin:10px 0 5px; font-size:30px; font-weight:900; letter-spacing:-.02em; line-height:1.12; background:linear-gradient(120deg,#0f172a 0%,#4338ca 70%,#7c3aed 100%); -webkit-background-clip:text; background-clip:text; color:transparent; }
       .hrx-hero p { margin:0; color:#475569; font-size:13px; line-height:1.6; }
