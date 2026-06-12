@@ -9,7 +9,7 @@
   <link rel="icon" type="image/svg+xml" href="./icons/logo.svg" />
   <link rel="manifest" href="./manifest.json" />
   <link rel="apple-touch-icon" href="./icons/logo.svg" />
-  <link rel="stylesheet" href="./style.css?v=424" />
+  <link rel="stylesheet" href="./style.css?v=425" />
   <link rel="stylesheet" href="./doc-print.css?v=1" />
   <!-- ✨ Phase 4: Design System & Components (30/3/2569) -->
   <link rel="stylesheet" href="./phase4-design-system.css?v=421" />
@@ -158,10 +158,112 @@
         <div id="sideUserRole" class="user-role">-</div>
       </div>
 
-      <!-- ═══ ภาพรวมบริษัท (หน้าหลัก) ═══ -->
+      <!-- ═══ Phase 425: sidebar reorganized — งานประจำวัน ═══ -->
+      <div class="nav-group-label">งานประจำวัน</div>
       <button class="nav-btn active" data-route="dashboard">📊 ภาพรวมบริษัท</button>
       <button class="nav-btn" data-route="team_center">🧠 ศูนย์ทีม AI</button>
-      <button class="nav-btn" data-route="customer_dashboard">🏠 หน้าหลัก</button>
+      <button class="nav-btn" data-route="pos">💰 แคชเชียร์</button>
+      <button class="nav-btn" data-route="tasks">⏰ Task / สิ่งที่ต้องทำ</button>
+      <button class="nav-btn" data-route="calendar">📅 ปฏิทินงานช่าง</button>
+
+      <!-- ═══ งานหลัก: ขาย / ช่าง / สินค้า / ลูกค้า ═══ -->
+      <div class="nav-group-label">งานหลัก</div>
+
+      <!-- งานขาย (กลุ่ม) + Phase 425: Template/Serial/Warranty ย้ายเข้ากลุ่ม -->
+      <div class="nav-group" data-group="sales">
+        <button class="nav-group-toggle">📋 งานขาย <span class="nav-arrow">▶</span></button>
+        <div class="nav-group-items">
+          <button class="nav-btn sub" data-route="quotations">📄 ใบเสนอราคา</button>
+          <button class="nav-btn sub" data-route="delivery_invoices">📦 ใบส่งสินค้า / ใบแจ้งหนี้</button>
+          <button class="nav-btn sub" data-route="receipts">🧾 ใบเสร็จรับเงิน</button>
+          <button class="nav-btn sub" data-route="sales">💳 รายการขาย POS</button>
+          <button class="nav-btn sub" data-route="quote_templates">📑 Template ใบเสนอราคา</button>
+          <button class="nav-btn sub" data-route="serials">🔢 Serial Number / Warranty</button>
+          <button class="nav-btn sub" data-route="warranty_report">📊 รายงาน Warranty</button>
+        </div>
+      </div>
+
+      <!-- งานช่าง (กลุ่ม) + Phase 425: แจ้งซ่อม/บริการ ย้ายเข้ากลุ่ม -->
+      <div class="nav-group" data-group="service">
+        <button class="nav-group-toggle">🧰 งานช่าง <span class="nav-arrow">▶</span></button>
+        <div class="nav-group-items">
+          <button class="nav-btn sub" data-route="service_jobs">📋 ใบรับงาน</button>
+          <button class="nav-btn sub" data-route="service_request">🛠️ แจ้งซ่อม/บริการ</button>
+          <button class="nav-btn sub" data-route="ac_install">🏗️ ติดตั้งแอร์</button>
+          <button class="nav-btn sub" data-route="service_repair_ac">🔧 ซ่อมแอร์</button>
+          <button class="nav-btn sub" data-route="service_clean_ac">🧼 ล้างแอร์</button>
+          <button class="nav-btn sub" data-route="service_move_ac">📦 ย้ายแอร์</button>
+          <button class="nav-btn sub" data-route="service_repair_fridge">❄️ ซ่อมตู้เย็น</button>
+          <button class="nav-btn sub" data-route="service_repair_washer">🧺 ซ่อมเครื่องซักผ้า</button>
+          <button class="nav-btn sub" data-route="service_repair_tv">📺 ซ่อมทีวี</button>
+          <button class="nav-btn sub" data-route="service_cctv">📷 CCTV</button>
+          <button class="nav-btn sub" data-route="service_satellite">📡 จานดาวเทียม</button>
+          <button class="nav-btn sub" data-route="solar">☀️ โซล่าเซลล์</button>
+          <button class="nav-btn sub" data-route="service_other">🔨 งานอื่นๆ</button>
+        </div>
+      </div>
+
+      <!-- สินค้า / คลัง (กลุ่ม) + Phase 425: หน้าสต็อก 5 หน้า ย้ายเข้ากลุ่ม -->
+      <div class="nav-group" data-group="products">
+        <button class="nav-group-toggle">📦 สินค้า / คลัง <span id="navLowStockBadge" class="low-stock-badge hidden"></span> <span class="nav-arrow">▶</span></button>
+        <div class="nav-group-items">
+          <button class="nav-btn sub" data-route="products">🏠 หน้าหลัก</button>
+          <button class="nav-btn sub" data-route="wh_kunkhao">🚐 คันขาว</button>
+          <button class="nav-btn sub" data-route="wh_kundaeng">🚗 คันแดง</button>
+          <button class="nav-btn sub" data-route="wh_sikhon">🏪 ศีขร</button>
+          <button class="nav-btn sub" data-route="stock_movements">📋 ประวัติสต็อก</button>
+          <button class="nav-btn sub" data-route="stock_in_wizard">🚛 รับเข้าสินค้า</button>
+          <button class="nav-btn sub" data-route="stock_count">📊 นับสต็อกจริง</button>
+          <button class="nav-btn sub" data-route="stock_value">💰 มูลค่าสต็อก</button>
+          <button class="nav-btn sub" data-route="dead_stock">🐌 สต็อกค้างนาน</button>
+        </div>
+      </div>
+
+      <!-- ลูกค้า / สมาชิก (กลุ่มใหม่ Phase 425: รวม ลูกค้า + วันเกิด + สะสมแต้ม) -->
+      <div class="nav-group" data-group="customers_crm">
+        <button class="nav-group-toggle">👥 ลูกค้า / สมาชิก <span class="nav-arrow">▶</span></button>
+        <div class="nav-group-items">
+          <button class="nav-btn sub" data-route="customers">👥 ลูกค้า</button>
+          <button class="nav-btn sub" data-route="birthdays">🎂 วันเกิดลูกค้า</button>
+          <button class="nav-btn sub" data-route="loyalty">🎁 สะสมแต้ม</button>
+        </div>
+      </div>
+
+      <!-- ═══ การเงิน / รายงาน / HR ═══ -->
+      <div class="nav-group-label">การเงิน / รายงาน</div>
+
+      <!-- ═══ การเงิน (กลุ่ม) ═══ -->
+      <div class="nav-group" data-group="finance">
+        <button class="nav-group-toggle">💰 การเงิน <span class="nav-arrow">▶</span></button>
+        <div class="nav-group-items">
+          <button class="nav-btn sub" data-route="expenses">📒 รายรับ-รายจ่าย</button>
+          <button class="nav-btn sub" data-route="recurring_expenses">🔁 รายจ่ายประจำ</button>
+          <button class="nav-btn sub" data-route="profit_report">📊 รายงานกำไร</button>
+          <button class="nav-btn sub" data-route="cash_recon">💵 กระทบยอดเงินสด</button>
+          <button class="nav-btn sub" data-route="credit_tracker">💳 ลูกค้าค้างชำระ</button>
+          <button class="nav-btn sub" data-route="refunds">🔄 รับคืนสินค้า</button>
+          <button class="nav-btn sub" data-route="top_customers">🏆 ลูกค้าซื้อเยอะสุด</button>
+          <button class="nav-btn sub" data-route="profit_by_product">📊 กำไรต่อสินค้า</button>
+          <button class="nav-btn sub" data-route="sales_heatmap">⏰ ยอดขายตามช่วงเวลา</button>
+        </div>
+      </div>
+
+      <!-- ═══ บัญชี (กลุ่ม) — Phase 88.0 ═══ -->
+      <div class="nav-group" data-group="accounting">
+        <button class="nav-group-toggle">💼 บัญชี <span class="nav-arrow">▶</span></button>
+        <div class="nav-group-items">
+          <button class="nav-btn sub" data-route="accounting_journals">📒 สมุดรายวัน</button>
+          <button class="nav-btn sub" data-route="accounting_coa">📚 ผังบัญชี</button>
+          <button class="nav-btn sub" data-route="accounting_trial_balance">📊 รายงานยอดทดลอง</button>
+          <button class="nav-btn sub" data-route="accounting_profit_loss">📈 งบกำไรขาดทุน</button>
+          <button class="nav-btn sub" data-route="accounting_balance_sheet">🏦 งบดุล</button>
+          <button class="nav-btn sub" data-route="accounting_opening_balance">📥 ลงยอดยกมา</button>
+          <button class="nav-btn sub" data-route="accounting_export_bundle">📦 Export ชุดรายงาน</button>
+          <button class="nav-btn sub" data-route="accounting_periods">🔒 ปิดงวดบัญชี</button>
+          <button class="nav-btn sub" data-route="accounting_backfill">⏪ Backfill ย้อนหลัง</button>
+          <button class="nav-btn sub" data-route="service_reconcile">🧾 รายได้งานบริการเข้าบัญชี</button>
+        </div>
+      </div>
 
       <!-- ═══ ภาพรวม / รายงาน (กลุ่ม) ═══ -->
       <div class="nav-group" data-group="overview">
@@ -189,120 +291,29 @@
         </div>
       </div>
 
-      <!-- ═══ บัญชี (กลุ่ม) — Phase 88.0 ═══ -->
-      <div class="nav-group" data-group="accounting">
-        <button class="nav-group-toggle">💼 บัญชี <span class="nav-arrow">▶</span></button>
+      <!-- ═══ หน้าร้านแอร์ / เครื่องมือ ═══ -->
+      <div class="nav-group-label">หน้าร้านแอร์ / เครื่องมือ</div>
+
+      <!-- หน้าร้านแอร์ (กลุ่มใหม่ Phase 425: หน้าหลัก + AI ขายแอร์ + แคตตาล็อกแอร์) -->
+      <div class="nav-group" data-group="air_shop">
+        <button class="nav-group-toggle">🏬 หน้าร้านแอร์ <span class="nav-arrow">▶</span></button>
         <div class="nav-group-items">
-          <button class="nav-btn sub" data-route="accounting_journals">📒 สมุดรายวัน</button>
-          <button class="nav-btn sub" data-route="accounting_coa">📚 ผังบัญชี</button>
-          <button class="nav-btn sub" data-route="accounting_trial_balance">📊 รายงานยอดทดลอง</button>
-          <button class="nav-btn sub" data-route="accounting_profit_loss">📈 งบกำไรขาดทุน</button>
-          <button class="nav-btn sub" data-route="accounting_balance_sheet">🏦 งบดุล</button>
-          <button class="nav-btn sub" data-route="accounting_opening_balance">📥 ลงยอดยกมา</button>
-          <button class="nav-btn sub" data-route="accounting_export_bundle">📦 Export ชุดรายงาน</button>
-          <button class="nav-btn sub" data-route="accounting_periods">🔒 ปิดงวดบัญชี</button>
-          <button class="nav-btn sub" data-route="accounting_backfill">⏪ Backfill ย้อนหลัง</button>
-          <button class="nav-btn sub" data-route="service_reconcile">🧾 รายได้งานบริการเข้าบัญชี</button>
+          <button class="nav-btn sub" data-route="customer_dashboard">🏠 หน้าหลัก</button>
+          <button class="nav-btn sub" data-route="ai_sales">🤖 AI ช่วยขายแอร์</button>
+          <button class="nav-btn sub" data-route="ac_shop">❄️ แอร์ใหม่พร้อมติดตั้ง</button>
         </div>
       </div>
 
-      <!-- ═══ แคชเชียร์ ═══ -->
-      <button class="nav-btn" data-route="pos">💰 แคชเชียร์</button>
-
-      <!-- ═══ งานขาย (กลุ่ม) ═══ -->
-      <div class="nav-group" data-group="sales">
-        <button class="nav-group-toggle">📋 งานขาย <span class="nav-arrow">▶</span></button>
+      <!-- เครื่องมือ (กลุ่มใหม่ Phase 425: BTU + Error Code ×3) -->
+      <div class="nav-group" data-group="tools">
+        <button class="nav-group-toggle">🧮 เครื่องมือ <span class="nav-arrow">▶</span></button>
         <div class="nav-group-items">
-          <button class="nav-btn sub" data-route="quotations">📄 ใบเสนอราคา</button>
-          <button class="nav-btn sub" data-route="delivery_invoices">📦 ใบส่งสินค้า / ใบแจ้งหนี้</button>
-          <button class="nav-btn sub" data-route="receipts">🧾 ใบเสร็จรับเงิน</button>
-          <button class="nav-btn sub" data-route="sales">💳 รายการขาย POS</button>
+          <button class="nav-btn sub" data-route="btu_calculator">🧮 คำนวณ BTU</button>
+          <button class="nav-btn sub" data-route="error_codes">⚠️ Error Code แอร์</button>
+          <button class="nav-btn sub" data-route="error_codes_fridge">🧊 Error Code ตู้เย็น</button>
+          <button class="nav-btn sub" data-route="error_codes_washer">🧺 Error Code เครื่องซักผ้า</button>
         </div>
       </div>
-
-      <!-- ═══ งานช่าง (กลุ่ม) ═══ -->
-      <div class="nav-group" data-group="service">
-        <button class="nav-group-toggle">🧰 งานช่าง <span class="nav-arrow">▶</span></button>
-        <div class="nav-group-items">
-          <button class="nav-btn sub" data-route="service_jobs">📋 ใบรับงาน</button>
-          <button class="nav-btn sub" data-route="ac_install">🏗️ ติดตั้งแอร์</button>
-          <button class="nav-btn sub" data-route="service_repair_ac">🔧 ซ่อมแอร์</button>
-          <button class="nav-btn sub" data-route="service_clean_ac">🧼 ล้างแอร์</button>
-          <button class="nav-btn sub" data-route="service_move_ac">📦 ย้ายแอร์</button>
-          <button class="nav-btn sub" data-route="service_repair_fridge">❄️ ซ่อมตู้เย็น</button>
-          <button class="nav-btn sub" data-route="service_repair_washer">🧺 ซ่อมเครื่องซักผ้า</button>
-          <button class="nav-btn sub" data-route="service_repair_tv">📺 ซ่อมทีวี</button>
-          <button class="nav-btn sub" data-route="service_cctv">📷 CCTV</button>
-          <button class="nav-btn sub" data-route="service_satellite">📡 จานดาวเทียม</button>
-          <button class="nav-btn sub" data-route="solar">☀️ โซล่าเซลล์</button>
-          <button class="nav-btn sub" data-route="service_other">🔨 งานอื่นๆ</button>
-        </div>
-      </div>
-
-      <!-- ═══ เครื่องมือ ═══ -->
-      <button class="nav-btn" data-route="btu_calculator">🧮 คำนวณ BTU</button>
-      <button class="nav-btn" data-route="service_request">🛠️ แจ้งซ่อม/บริการ</button>
-      <button class="nav-btn" data-route="error_codes">⚠️ Error Code แอร์</button>
-      <button class="nav-btn" data-route="error_codes_fridge">🧊 Error Code ตู้เย็น</button>
-      <button class="nav-btn" data-route="error_codes_washer">🧺 Error Code เครื่องซักผ้า</button>
-      <button class="nav-btn" data-route="ai_sales">🤖 AI ช่วยขายแอร์</button>
-      <button class="nav-btn" data-route="ac_shop">❄️ แอร์ใหม่พร้อมติดตั้ง</button>
-
-      <!-- ═══ สินค้า / คลัง (กลุ่ม) ═══ -->
-      <div class="nav-group" data-group="products">
-        <button class="nav-group-toggle">📦 สินค้า / คลัง <span id="navLowStockBadge" class="low-stock-badge hidden"></span> <span class="nav-arrow">▶</span></button>
-        <div class="nav-group-items">
-          <button class="nav-btn sub" data-route="products">🏠 หน้าหลัก</button>
-          <button class="nav-btn sub" data-route="wh_kunkhao">🚐 คันขาว</button>
-          <button class="nav-btn sub" data-route="wh_kundaeng">🚗 คันแดง</button>
-          <button class="nav-btn sub" data-route="wh_sikhon">🏪 ศีขร</button>
-        </div>
-      </div>
-
-      <!-- ═══ ลูกค้า ═══ -->
-      <button class="nav-btn" data-route="customers">👥 ลูกค้า</button>
-      <button class="nav-btn" data-route="birthdays">🎂 วันเกิดลูกค้า</button>
-
-      <!-- ═══ Task / สิ่งที่ต้องทำ (Phase 13) ═══ -->
-      <button class="nav-btn" data-route="tasks">⏰ Task / สิ่งที่ต้องทำ</button>
-
-      <!-- ═══ Quote Templates (Phase 16) ═══ -->
-      <button class="nav-btn" data-route="quote_templates">📑 Template ใบเสนอราคา</button>
-
-      <!-- ═══ Serial Number Tracking (Phase 19) ═══ -->
-      <button class="nav-btn" data-route="serials">🔢 Serial Number / Warranty</button>
-
-      <!-- ═══ Warranty Report (Phase 22) ═══ -->
-      <button class="nav-btn" data-route="warranty_report">📊 รายงาน Warranty</button>
-
-      <!-- ═══ การเงิน (กลุ่ม) ═══ -->
-      <div class="nav-group" data-group="finance">
-        <button class="nav-group-toggle">💰 การเงิน <span class="nav-arrow">▶</span></button>
-        <div class="nav-group-items">
-          <button class="nav-btn sub" data-route="expenses">📒 รายรับ-รายจ่าย</button>
-          <button class="nav-btn sub" data-route="recurring_expenses">🔁 รายจ่ายประจำ</button>
-          <button class="nav-btn sub" data-route="profit_report">📊 รายงานกำไร</button>
-          <button class="nav-btn sub" data-route="cash_recon">💵 กระทบยอดเงินสด</button>
-          <button class="nav-btn sub" data-route="credit_tracker">💳 ลูกค้าค้างชำระ</button>
-          <button class="nav-btn sub" data-route="refunds">🔄 รับคืนสินค้า</button>
-          <button class="nav-btn sub" data-route="top_customers">🏆 ลูกค้าซื้อเยอะสุด</button>
-          <button class="nav-btn sub" data-route="profit_by_product">📊 กำไรต่อสินค้า</button>
-          <button class="nav-btn sub" data-route="sales_heatmap">⏰ ยอดขายตามช่วงเวลา</button>
-        </div>
-      </div>
-
-      <!-- ═══ คลังสินค้า เพิ่มเติม ═══ -->
-      <button class="nav-btn" data-route="stock_movements">📋 ประวัติสต็อก</button>
-      <button class="nav-btn" data-route="stock_in_wizard">🚛 รับเข้าสินค้า</button>
-      <button class="nav-btn" data-route="stock_count">📊 นับสต็อกจริง</button>
-      <button class="nav-btn" data-route="stock_value">💰 มูลค่าสต็อก</button>
-      <button class="nav-btn" data-route="dead_stock">🐌 สต็อกค้างนาน</button>
-
-      <!-- ═══ ปฏิทินงานช่าง ═══ -->
-      <button class="nav-btn" data-route="calendar">📅 ปฏิทินงานช่าง</button>
-
-      <!-- ═══ Loyalty ═══ -->
-      <button class="nav-btn" data-route="loyalty">🎁 สะสมแต้ม</button>
 
       <!-- ═══ ตั้งค่า ═══ -->
       <button class="nav-btn" data-route="settings">⚙️ ตั้งค่า</button>
@@ -856,10 +867,10 @@
        ทำงานก่อน main.js โหลด → ป้องกัน user เห็น version display เก่า
        Phase 89.15: ย้ายออกไป external file + set window.APP_BUILD ให้ pages.js/main.js อ่านได้
        (CSP drop script-src 'unsafe-inline') -->
-  <script src="./selfheal.js?v=424" data-app-build="424" data-app-version="5.66.0"></script>
-  <script type="module" src="./main.js?v=424"></script>
+  <script src="./selfheal.js?v=425" data-app-build="425" data-app-version="5.66.0"></script>
+  <script type="module" src="./main.js?v=425"></script>
   <!-- Phase 89.15: externalized loading overlay + SW update banner (was inline script — drop CSP unsafe-inline) -->
-  <script src="./boot.js?v=424"></script>
+  <script src="./boot.js?v=425"></script>
 
   <!-- AI Assistant Chat Widget (Phase 1) -->
   <script src="./ai-chat-widget.js?v=9"></script>

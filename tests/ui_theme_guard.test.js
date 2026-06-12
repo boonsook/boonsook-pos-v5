@@ -110,6 +110,31 @@ test("PHASE 424: page wash gradient exists, dark theme stays flat", () => {
   assert.match(sect, /\[data-theme="dark"\] body \{ background: var\(--bg\); \}/, "dark body must stay flat token bg");
 });
 
+// ── Phase 425: sidebar reorganization (markup-only, all routes preserved) ────
+test("PHASE 425: sidebar groups hold the previously loose nav buttons", () => {
+  const indexHtml = fs.readFileSync(path.resolve("index.html"), "utf8");
+  // new groups exist
+  for (const g of ['data-group="customers_crm"', 'data-group="air_shop"', 'data-group="tools"']) {
+    assert.ok(indexHtml.includes(g), `${g} must exist`);
+  }
+  // moved buttons are now subs (route values unchanged)
+  for (const r of ["quote_templates", "serials", "warranty_report", "service_request",
+    "stock_movements", "stock_in_wizard", "stock_count", "stock_value", "dead_stock",
+    "customers", "birthdays", "loyalty", "customer_dashboard", "ai_sales", "ac_shop",
+    "btu_calculator", "error_codes", "error_codes_fridge", "error_codes_washer"]) {
+    assert.match(indexHtml, new RegExp(`<button class="nav-btn sub" data-route="${r}"`),
+      `route "${r}" must be a grouped sub item`);
+  }
+  // daily items stay loose on top
+  for (const r of ["dashboard", "team_center", "pos", "tasks", "calendar", "settings"]) {
+    assert.match(indexHtml, new RegExp(`<button class="nav-btn( active)?" data-route="${r}"`),
+      `route "${r}" must stay a top-level button`);
+  }
+  // no route lost in the reshuffle: every old data-route still present exactly once
+  const occurrences = (indexHtml.match(/data-route="loyalty"/g) || []).length;
+  assert.equal(occurrences, 1, "loyalty must appear exactly once (moved, not duplicated)");
+});
+
 // ── phase4 design-system stays in sync ───────────────────────────────────────
 test("phase4 design-system primary scale is remapped to indigo", () => {
   assert.match(p4, /--primary-500:\s*#6b6be0/, "--primary-500 must be #6b6be0");

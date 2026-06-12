@@ -7,6 +7,16 @@
 
 ---
 
+## 5.66.0 (build 425) — 2026-06-12 Phase 425 sidebar reorganization — ยุบเมนูเดี่ยวเข้ากลุ่ม + หัวข้อหมวด
+
+- **feat (UI nav · markup-only ใน index.html — ทุก `data-route` คงเดิม ไม่แตะ logic):** จัดระเบียบเมนูข้างตาม owner ขอ — เมนูเดี่ยวที่ลอย 16 ปุ่มยุบเข้ากลุ่ม: **งานขาย** +Template ใบเสนอราคา/Serial Warranty/รายงาน Warranty · **งานช่าง** +แจ้งซ่อมบริการ · **สินค้า/คลัง** +ประวัติสต็อก/รับเข้า/นับจริง/มูลค่า/ค้างนาน · กลุ่มใหม่ **ลูกค้า/สมาชิก** (ลูกค้า+วันเกิด+สะสมแต้ม) · **หน้าร้านแอร์** (หน้าหลัก+AI ขายแอร์+แอร์ใหม่) · **เครื่องมือ** (BTU+Error Code ×3)
+- เรียงลำดับใหม่ + หัวข้อหมวด 4 หัวข้อ: งานประจำวัน (ภาพรวม/ศูนย์ทีม AI/แคชเชียร์/Task/ปฏิทิน) → งานหลัก → การเงิน/รายงาน (การเงิน·บัญชี·ภาพรวม·HR) → หน้าร้านแอร์/เครื่องมือ → ตั้งค่า
+- กลไกเดิมรองรับอัตโนมัติ: toggle กลุ่ม + role-filter ใน main.js เป็น generic; **กลุ่ม HR คง byte เดิมทุกตัว** (hr_forms_guard เขียว)
+- bump build **425** (data-app-build + ?v= ×4 + sw cache-v425) + `dashboard_readonly_guard` → 425 · `ui_theme_guard` +1 test (กลุ่มใหม่ ×3 + ปุ่มย้าย 19 route เป็น sub + ปุ่มหลักคงลอย + ไม่มี route หาย/ซ้ำ)
+- lint:errors 0 / unit **1562** / e2e **14** · **⏸️ STOP รอ owner ดู preview (424+425) แล้วสั่ง merge**
+
+---
+
 ## 5.66.0 (build 424) — 2026-06-12 Phase 424 workspace wash — พื้นหลังเข้มขึ้น + wash ม่วง→ชมพู (CSS-only)
 
 - **fix (UI · CSS-only):** owner feedback "พื้นหลังสว่างเกิน" — `--bg` ลึกขึ้น `#f5f5fb → #eaedf8` (indigo tint ชัดขึ้น การ์ด/sidebar ขาวเด้งจากพื้น) + **body wash gradient ม่วงอ่อน→ชมพูอ่อน** (`linear-gradient(160deg, #e8ebf8 → #eee9f6 → #f5ecf1)`) ตามบรรยากาศภาพต้นแบบ; dark theme คงพื้นเรียบ token เดิม (override `[data-theme="dark"] body`)

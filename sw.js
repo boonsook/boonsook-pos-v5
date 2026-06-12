@@ -160,7 +160,8 @@
 // v422 (2026-06-12): Phase 422 - mock-F dashboard layout: quick-action circle row (_quickActions, nav-only via dash-clickable[data-go]) + indigo hero (.dash-today--brand) + dashboard display colors sky->indigo (KPI accents/sparkline/pro charts/BLUE_PALETTE). dashboard.js stays read-only (guard green). Bumps CACHE_NAME.
 // v423 (2026-06-12): Phase 423 - mock-F finishing pass: merged "todo today" card (dash-todo, รวม วันนี้/ที่ต้องดู/ของใกล้หมด + hero chip ย้ายเข้า) + sales-by-channel SVG donut (display-only จาก state, honest cap caption) + stat tiles icon circles (kpi-tile) + tighter quick row. dashboard.js still read-only (guards green). Bumps CACHE_NAME.
 // v424 (2026-06-12): Phase 424 - workspace wash: deeper indigo --bg (#eaedf8, owner: too bright) + light-theme body lavender->pink gradient wash (reference-image look); dark theme stays flat token bg. CSS-only. Bumps CACHE_NAME.
-const CACHE_NAME = 'boonsook-pos-v5-cache-v424';
+// v425 (2026-06-12): Phase 425 - sidebar reorganization (index.html markup-only): 16 loose nav buttons folded into groups (sales +3 doc tools, service +service_request, products +5 stock pages, new groups customers_crm/air_shop/tools) + 4 section labels; daily items (dashboard/team_center/pos/tasks/calendar) on top. All data-route values unchanged; hr group bytes untouched (guard). Generic nav-group toggle/role-filter in main.js covers new groups. Bumps CACHE_NAME.
+const CACHE_NAME = 'boonsook-pos-v5-cache-v425';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
