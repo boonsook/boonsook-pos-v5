@@ -234,25 +234,25 @@ export function renderCustomerDashboard(ctx) {
     const btuLabel = p.btu ? Number(p.btu).toLocaleString() + ' BTU' : '';
     const isCheck = p._acStatus === "check";
     const bookLabel = isCheck ? '💬 สอบถามราคา' : '📅 สั่งจอง';
-    const bookBg = isCheck ? '#f59e0b' : '#0284c7';
+    const bookBg = isCheck ? '#f59e0b' : '#5b5bd6';
     const priceHtml = isCheck
       ? `<div style="font-size:14px;font-weight:900;color:#b45309">ต้องเช็คราคา</div>`
-      : `<div style="font-size:17px;font-weight:900;color:#0284c7">${money(p.price)}</div><div style="font-size:10px;color:#10b981;font-weight:600">รวมติดตั้ง</div>`;
+      : `<div style="font-size:17px;font-weight:900;color:var(--primary2)">${money(p.price)}</div><div style="font-size:10px;color:#10b981;font-weight:600">รวมติดตั้ง</div>`;
     const specBits = [];
     if (Array.isArray(p.features) && p.features.length) specBits.push(p.features.slice(0, 2).join(' · '));
     else if (p.refrigerant) specBits.push('น้ำยา ' + p.refrigerant);
     const warrantyBits = [p.w_install ? 'ติดตั้ง ' + p.w_install : '', p.w_parts ? 'อะไหล่ ' + p.w_parts : '', p.w_comp ? 'คอมฯ ' + p.w_comp : ''].filter(Boolean).join(' | ');
     return `
       <div style="background:#fff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;transition:.15s;cursor:pointer" data-view-product="${p.id}">
-        <div style="height:80px;background:${imgUrl ? `url('${escHtml(imgUrl)}') center/cover` : 'linear-gradient(135deg,#e0f2fe,#bae6fd)'};display:flex;align-items:center;justify-content:center;position:relative">
+        <div style="height:80px;background:${imgUrl ? `url('${escHtml(imgUrl)}') center/cover` : 'linear-gradient(135deg,#eef0ff,#e0e3fd)'};display:flex;align-items:center;justify-content:center;position:relative">
           ${!imgUrl ? `<span style="font-size:32px">❄️</span>` : ''}
           ${btuLabel ? `<div style="position:absolute;top:6px;right:6px;background:rgba(2,132,199,.9);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px">${btuLabel}</div>` : ''}
         </div>
         <div style="padding:10px">
-          <div style="font-size:10px;color:#0284c7;font-weight:700;margin-bottom:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(p.section || '')}</div>
+          <div style="font-size:10px;color:var(--primary2);font-weight:700;margin-bottom:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(p.section || '')}</div>
           <div style="font-size:14px;font-weight:900;color:#1f2937;margin-bottom:4px">${escHtml(p.sku || p.model || '')}</div>
           ${priceHtml}
-          ${specBits.length ? `<div style="font-size:9px;color:#0369a1;font-weight:600;margin-top:2px;line-height:1.3">${escHtml(specBits.join(' · '))}</div>` : ''}
+          ${specBits.length ? `<div style="font-size:9px;color:#4949b8;font-weight:600;margin-top:2px;line-height:1.3">${escHtml(specBits.join(' · '))}</div>` : ''}
           ${warrantyBits ? `<div style="font-size:9px;color:#94a3b8;margin-top:2px;line-height:1.3">${escHtml(warrantyBits)}</div>` : ''}
           <button data-book="${p.id}" style="width:100%;margin-top:8px;padding:8px;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;background:${bookBg};color:#fff">
             ${bookLabel}
@@ -308,7 +308,7 @@ export function renderCustomerDashboard(ctx) {
 
   container.innerHTML = `
     <!-- ═══ HEADER ═══ -->
-    <div style="background:linear-gradient(135deg,#38bdf8,#0284c7);color:#fff;border-radius:22px;padding:20px;position:relative;overflow:hidden">
+    <div style="background:linear-gradient(135deg,#8a8af2,#5b5bd6);color:#fff;border-radius:22px;padding:20px;position:relative;overflow:hidden">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <div>
           <div style="font-size:13px;opacity:.8">สวัสดี</div>
@@ -339,7 +339,7 @@ export function renderCustomerDashboard(ctx) {
         {id:"points", icon:"⭐", label:"แต้มสะสม"}
       ].map(t => `
         <button class="cust-tab-btn" data-cust-tab="${t.id}" style="flex:1;padding:10px 4px;border:none;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;transition:.15s;position:relative;
-          background:${_custTab===t.id ? '#0284c7' : 'transparent'};
+          background:${_custTab===t.id ? '#5b5bd6' : 'transparent'};
           color:${_custTab===t.id ? '#fff' : '#64748b'}">
           ${t.icon} ${t.label}
           ${t.badge ? `<span style="position:absolute;top:2px;right:8px;background:#ef4444;color:#fff;font-size:10px;font-weight:900;padding:1px 5px;border-radius:99px;min-width:16px">${t.badge}</span>` : ''}
@@ -366,7 +366,7 @@ export function renderCustomerDashboard(ctx) {
 
       <!-- Categories (dropdown) — ตามประเภทแอร์ (นับเฉพาะที่พร้อมเสนอขาย/สอบถามราคา) -->
       <div style="position:relative">
-        <select id="custCatSelect" style="width:100%;padding:12px 40px 12px 16px;border:2px solid #e2e8f0;border-radius:14px;font-size:14px;font-weight:700;color:#0284c7;background:#fff;appearance:none;-webkit-appearance:none;cursor:pointer;box-sizing:border-box">
+        <select id="custCatSelect" style="width:100%;padding:12px 40px 12px 16px;border:2px solid #e2e8f0;border-radius:14px;font-size:14px;font-weight:700;color:var(--primary2);background:#fff;appearance:none;-webkit-appearance:none;cursor:pointer;box-sizing:border-box">
           <option value="all" ${_custCategory==='all' ? 'selected' : ''}>🌬️ ทั้งหมด (${visibleProducts.length} รุ่น)</option>
           ${AC_TYPES.map(t => {
             const count = visibleProducts.filter(p => p._acType === t.key).length;
@@ -409,10 +409,10 @@ export function renderCustomerDashboard(ctx) {
         ${_custCart.map(item => `
           <div style="background:#fff;border-radius:14px;border:1px solid #e2e8f0;padding:12px;overflow:hidden;box-sizing:border-box">
             <div style="display:flex;gap:10px;align-items:center">
-              <div style="width:44px;height:44px;background:linear-gradient(135deg,#e0f2fe,#bae6fd);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">❄️</div>
+              <div style="width:44px;height:44px;background:linear-gradient(135deg,#eef0ff,#e0e3fd);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">❄️</div>
               <div style="flex:1;min-width:0">
                 <div style="font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(item.name)}</div>
-                <div style="font-size:12px;color:#0284c7;font-weight:700">${money(item.price)}/เครื่อง</div>
+                <div style="font-size:12px;color:var(--primary2);font-weight:700">${money(item.price)}/เครื่อง</div>
               </div>
               <button data-cart-remove="${item.id}" style="background:none;border:none;font-size:16px;cursor:pointer;color:#ef4444;flex-shrink:0;padding:4px">✕</button>
             </div>
@@ -420,17 +420,17 @@ export function renderCustomerDashboard(ctx) {
               <div style="display:flex;align-items:center;gap:6px">
                 <button data-cart-minus="${item.id}" style="width:32px;height:32px;border-radius:8px;border:1px solid #e2e8f0;background:#f8fafc;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center">−</button>
                 <span style="font-size:16px;font-weight:900;min-width:28px;text-align:center">${item.qty}</span>
-                <button data-cart-plus="${item.id}" style="width:32px;height:32px;border-radius:8px;border:none;background:#0284c7;color:#fff;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center">+</button>
+                <button data-cart-plus="${item.id}" style="width:32px;height:32px;border-radius:8px;border:none;background:var(--primary2);color:#fff;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center">+</button>
               </div>
-              <div style="font-size:16px;font-weight:900;color:#0284c7">${money(item.price * item.qty)}</div>
+              <div style="font-size:16px;font-weight:900;color:var(--primary2)">${money(item.price * item.qty)}</div>
             </div>
           </div>
         `).join("")}
       </div>
 
       <!-- ═══ ข้อมูลจัดส่ง ═══ -->
-      <div style="background:#fff;border-radius:16px;border:2px solid #0284c7;padding:16px;margin-top:8px;box-sizing:border-box;max-width:100%">
-        <div style="font-size:15px;font-weight:900;color:#0284c7;margin-bottom:12px">📦 ข้อมูลจัดส่ง</div>
+      <div style="background:#fff;border-radius:16px;border:2px solid var(--primary2);padding:16px;margin-top:8px;box-sizing:border-box;max-width:100%">
+        <div style="font-size:15px;font-weight:900;color:var(--primary2);margin-bottom:12px">📦 ข้อมูลจัดส่ง</div>
         <div style="display:grid;gap:10px">
           <div>
             <label style="font-size:12px;font-weight:700;color:#64748b;display:block;margin-bottom:4px">ชื่อผู้รับ *</label>
@@ -452,25 +452,25 @@ export function renderCustomerDashboard(ctx) {
       </div>
 
       <!-- ═══ เลือกวิธีชำระเงิน ═══ -->
-      <div style="background:#fff;border-radius:16px;border:2px solid #0284c7;padding:16px;margin-top:8px;box-sizing:border-box;max-width:100%">
-        <div style="font-size:15px;font-weight:900;color:#0284c7;margin-bottom:12px">💳 เลือกวิธีชำระเงิน</div>
+      <div style="background:#fff;border-radius:16px;border:2px solid var(--primary2);padding:16px;margin-top:8px;box-sizing:border-box;max-width:100%">
+        <div style="font-size:15px;font-weight:900;color:var(--primary2);margin-bottom:12px">💳 เลือกวิธีชำระเงิน</div>
         <div style="display:grid;gap:8px">
-          <label data-pay-opt="transfer" style="display:flex;align-items:center;gap:12px;padding:14px;border:2px solid #0284c7;border-radius:12px;cursor:pointer;background:#eff6ff;transition:.15s">
-            <input type="radio" name="custPayMethod" value="transfer" checked style="width:18px;height:18px;accent-color:#0284c7" />
+          <label data-pay-opt="transfer" style="display:flex;align-items:center;gap:12px;padding:14px;border:2px solid var(--primary2);border-radius:12px;cursor:pointer;background:#eff6ff;transition:.15s">
+            <input type="radio" name="custPayMethod" value="transfer" checked style="width:18px;height:18px;accent-color:#5b5bd6" />
             <div style="flex:1">
               <div style="font-weight:700;font-size:14px;color:#1e40af">🏦 โอนเงิน / QR Code</div>
               <div style="font-size:12px;color:#64748b;margin-top:2px">โอนแล้วแนบสลิป — ตรวจสอบอัตโนมัติ</div>
             </div>
           </label>
           <label data-pay-opt="cod_cash" style="display:flex;align-items:center;gap:12px;padding:14px;border:2px solid #e2e8f0;border-radius:12px;cursor:pointer;background:#fff;transition:.15s">
-            <input type="radio" name="custPayMethod" value="cod_cash" style="width:18px;height:18px;accent-color:#0284c7" />
+            <input type="radio" name="custPayMethod" value="cod_cash" style="width:18px;height:18px;accent-color:#5b5bd6" />
             <div style="flex:1">
               <div style="font-weight:700;font-size:14px;color:#1f2937">💵 เก็บเงินปลายทาง (เงินสด)</div>
               <div style="font-size:12px;color:#64748b;margin-top:2px">จ่ายเงินสดตอนรับสินค้า</div>
             </div>
           </label>
           <label data-pay-opt="cod_transfer" style="display:flex;align-items:center;gap:12px;padding:14px;border:2px solid #e2e8f0;border-radius:12px;cursor:pointer;background:#fff;transition:.15s">
-            <input type="radio" name="custPayMethod" value="cod_transfer" style="width:18px;height:18px;accent-color:#0284c7" />
+            <input type="radio" name="custPayMethod" value="cod_transfer" style="width:18px;height:18px;accent-color:#5b5bd6" />
             <div style="flex:1">
               <div style="font-weight:700;font-size:14px;color:#1f2937">📲 จ่ายหน้างาน (โอน)</div>
               <div style="font-size:12px;color:#64748b;margin-top:2px">โอนเงินให้ช่างตอนส่งมอบสินค้า</div>
@@ -494,7 +494,7 @@ export function renderCustomerDashboard(ctx) {
                 html += '<div style="text-align:center;padding:16px;background:linear-gradient(135deg,#eff6ff,#dbeafe);border-radius:14px;border:1px solid #bfdbfe;margin-bottom:10px">';
                 html += '<div style="font-size:14px;font-weight:900;color:#1e40af;margin-bottom:10px">📱 สแกน QR Code เพื่อชำระเงิน</div>';
                 html += '<img src="' + escHtml(qrSrc) + '" alt="QR Code" style="max-width:220px;width:100%;border-radius:12px;border:3px solid #fff;box-shadow:0 2px 12px rgba(0,0,0,.1)" />';
-                html += '<div style="font-size:20px;font-weight:900;color:#0284c7;margin-top:10px">' + money(cartTotal) + '</div>';
+                html += '<div style="font-size:20px;font-weight:900;color:var(--primary2);margin-top:10px">' + money(cartTotal) + '</div>';
                 html += '<div style="font-size:11px;color:#64748b;margin-top:4px">สแกนจ่ายตามยอดด้านบน</div>';
                 html += '</div>';
               }
@@ -533,11 +533,11 @@ export function renderCustomerDashboard(ctx) {
           })()}
 
           <!-- ★ แนบสลิปการโอนเงิน -->
-          <div style="margin-top:12px;padding:14px;background:#fff;border-radius:14px;border:2px dashed #0284c7">
-            <div style="font-size:14px;font-weight:900;color:#0284c7;margin-bottom:8px;text-align:center">📸 แนบสลิปการโอนเงิน</div>
+          <div style="margin-top:12px;padding:14px;background:#fff;border-radius:14px;border:2px dashed var(--primary2)">
+            <div style="font-size:14px;font-weight:900;color:var(--primary2);margin-bottom:8px;text-align:center">📸 แนบสลิปการโอนเงิน</div>
             <input type="file" id="custSlipFileInput" accept="image/*" style="display:none" />
             <div id="custSlipPreview" style="text-align:center;margin-bottom:8px"></div>
-            <button id="custSlipUploadBtn" style="width:100%;padding:12px;background:linear-gradient(135deg,#e0f2fe,#bae6fd);color:#0284c7;border:2px solid #0284c7;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer">
+            <button id="custSlipUploadBtn" style="width:100%;padding:12px;background:linear-gradient(135deg,#eef0ff,#e0e3fd);color:var(--primary2);border:2px solid var(--primary2);border-radius:12px;font-size:14px;font-weight:700;cursor:pointer">
               📷 เลือกรูปสลิป
             </button>
             <div id="custSlipStatus" style="margin-top:8px;font-size:12px;color:#64748b;text-align:center"></div>
@@ -549,7 +549,7 @@ export function renderCustomerDashboard(ctx) {
       <div style="background:#fff;border-radius:16px;border:2px solid #10b981;padding:16px;margin-top:8px;box-sizing:border-box;max-width:100%">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
           <span style="font-size:15px;font-weight:700;color:#64748b">รวมทั้งหมด (${cartCount} ชิ้น)</span>
-          <span style="font-size:24px;font-weight:900;color:#0284c7">${money(cartTotal)}</span>
+          <span style="font-size:24px;font-weight:900;color:var(--primary2)">${money(cartTotal)}</span>
         </div>
         <div id="custPaySummary" style="font-size:13px;color:#059669;font-weight:700;margin-bottom:10px;padding:8px 12px;background:#ecfdf5;border-radius:8px;text-align:center">
           🏦 ชำระโดย: โอนเงิน / QR Code
@@ -565,14 +565,14 @@ export function renderCustomerDashboard(ctx) {
         <div style="font-size:64px;margin-bottom:12px">🛒</div>
         <div style="font-size:18px;font-weight:700;margin-bottom:8px">ตะกร้าว่าง</div>
         <div>เลือกสินค้าจากร้านค้าได้เลย</div>
-        <button class="cust-tab-btn" data-cust-tab="shop" style="margin-top:16px;padding:12px 24px;background:#0284c7;color:#fff;border:none;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer">🛍️ ไปร้านค้า</button>
+        <button class="cust-tab-btn" data-cust-tab="shop" style="margin-top:16px;padding:12px 24px;background:var(--primary2);color:#fff;border:none;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer">🛍️ ไปร้านค้า</button>
       </div>`}
     `;
 
   } else if (_custTab === "orders") {
     const hasOrders = myOrders.length > 0 || mySales.length > 0;
     contentEl.innerHTML = `
-      <h3 style="margin:0;color:#0284c7;font-size:16px">📋 ประวัติการสั่งซื้อ</h3>
+      <h3 style="margin:0;color:var(--primary2);font-size:16px">📋 ประวัติการสั่งซื้อ</h3>
       ${hasOrders ? `
       <div style="display:grid;gap:10px">
         ${myOrders.map(j => {
@@ -600,7 +600,7 @@ export function renderCustomerDashboard(ctx) {
             </div>
             <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:#f0f9ff;border-top:1px solid #e0f2fe">
               <span style="font-size:13px;color:#64748b">รวมทั้งหมด</span>
-              <span style="font-size:18px;font-weight:900;color:#0284c7">${money(j.total_cost)}</span>
+              <span style="font-size:18px;font-weight:900;color:var(--primary2)">${money(j.total_cost)}</span>
             </div>
           </div>`;
         }).join("")}
@@ -611,7 +611,7 @@ export function renderCustomerDashboard(ctx) {
           <div style="background:#fff;border-radius:14px;border:1px solid #e2e8f0;padding:14px">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
               <div style="font-weight:700;font-size:13px">🧾 ${escHtml(s.order_no)}</div>
-              <div style="font-weight:900;color:#0284c7">${money(s.total_amount)}</div>
+              <div style="font-weight:900;color:var(--primary2)">${money(s.total_amount)}</div>
             </div>
             <div style="font-size:12px;color:#94a3b8">${new Date(s.created_at).toLocaleString("th-TH")}</div>
             ${items.length > 0 ? `<div style="margin-top:8px;font-size:12px;color:#64748b">${items.map(i => `${escHtml(i.name||i.product_name||"สินค้า")} x${i.qty||1}`).join(", ")}</div>` : ''}
@@ -646,7 +646,7 @@ export function renderCustomerDashboard(ctx) {
 
     contentEl.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <h3 style="margin:0;color:#0284c7;font-size:16px">🔧 งานบริการของฉัน</h3>
+        <h3 style="margin:0;color:var(--primary2);font-size:16px">🔧 งานบริการของฉัน</h3>
         ${pendingConfirmCount > 0 ? `<span style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:99px;background:#fef3c7;color:#92400e">รอยืนยัน ${pendingConfirmCount} งาน</span>` : ''}
       </div>
       ${myServiceJobs.length > 0 ? `
@@ -673,13 +673,13 @@ export function renderCustomerDashboard(ctx) {
                   return `
                     <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;position:relative">
                       <div style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;
-                        background:${active ? '#0284c7' : '#e2e8f0'};
+                        background:${active ? '#5b5bd6' : '#e2e8f0'};
                         color:${active ? '#fff' : '#94a3b8'};
                         ${isCur ? 'box-shadow:0 0 0 4px #bae6fd;' : ''}">
                         ${s.icon}
                       </div>
-                      <div style="font-size:10px;font-weight:${isCur ? '800' : '500'};color:${active ? '#0284c7' : '#94a3b8'};text-align:center;line-height:1.2">${s.label}</div>
-                      ${i < STEPS.length - 1 ? `<div class="cust-step-line" style="position:absolute;top:14px;left:calc(50% + 16px);right:calc(-50% + 16px);height:3px;background:${i < step ? '#0284c7' : '#e2e8f0'};z-index:-1"></div>` : ''}
+                      <div style="font-size:10px;font-weight:${isCur ? '800' : '500'};color:${active ? '#5b5bd6' : '#94a3b8'};text-align:center;line-height:1.2">${s.label}</div>
+                      ${i < STEPS.length - 1 ? `<div class="cust-step-line" style="position:absolute;top:14px;left:calc(50% + 16px);right:calc(-50% + 16px);height:3px;background:${i < step ? '#5b5bd6' : '#e2e8f0'};z-index:-1"></div>` : ''}
                     </div>`;
                 }).join("")}
               </div>`;
@@ -696,7 +696,7 @@ export function renderCustomerDashboard(ctx) {
                   ${airMeta.isAir ? airJobInfoHtml(airMeta) : ''}
                 </div>
                 <div style="text-align:right;white-space:nowrap">
-                  <div style="font-size:16px;font-weight:900;color:#0284c7">${priceText}</div>
+                  <div style="font-size:16px;font-weight:900;color:var(--primary2)">${priceText}</div>
                   <div style="font-size:10px;color:#94a3b8;margin-top:2px">${createdStr}</div>
                 </div>
               </div>
@@ -718,7 +718,7 @@ export function renderCustomerDashboard(ctx) {
                 </div>
               ` : ''}
               ${j.note && !/^SH-/.test(j.note) && !j.note.includes("[ลบแล้ว]") && !airMeta.isAir ? `
-                <div style="font-size:12px;color:#64748b;margin-top:8px;padding:8px 10px;background:#f8fafc;border-radius:8px;border-left:3px solid #0284c7">
+                <div style="font-size:12px;color:#64748b;margin-top:8px;padding:8px 10px;background:#f8fafc;border-radius:8px;border-left:3px solid var(--primary2)">
                   💬 ${escHtml(j.note)}
                 </div>
               ` : ''}
@@ -880,7 +880,7 @@ export function renderCustomerDashboard(ctx) {
       const val = radio.value;
       container.querySelectorAll("[data-pay-opt]").forEach(label => {
         const isSelected = label.dataset.payOpt === val;
-        label.style.border = isSelected ? "2px solid #0284c7" : "2px solid #e2e8f0";
+        label.style.border = isSelected ? "2px solid #5b5bd6" : "2px solid #e2e8f0";
         label.style.background = isSelected ? "#eff6ff" : "#fff";
       });
       const bankInfo = container.querySelector("#custBankInfo");
@@ -946,7 +946,7 @@ export function renderCustomerDashboard(ctx) {
     if (!_fv.ok) return showToast(_fv.error || "ไฟล์ไม่ถูกต้อง");
 
     const statusEl = container.querySelector("#custSlipStatus");
-    if (statusEl) statusEl.innerHTML = '<span style="color:#0284c7">กำลังอ่านไฟล์...</span>';
+    if (statusEl) statusEl.innerHTML = '<span style="color:var(--primary2)">กำลังอ่านไฟล์...</span>';
 
     const reader = new FileReader();
     reader.onload = (ev) => {
@@ -959,7 +959,7 @@ export function renderCustomerDashboard(ctx) {
       if (previewEl) {
         previewEl.innerHTML = `
           <div style="position:relative;display:inline-block;margin-bottom:8px">
-            <img src="${_custSlipData}" alt="สลิป" style="max-width:100%;max-height:280px;border-radius:12px;border:2px solid #0284c7;box-shadow:0 2px 12px rgba(0,0,0,.1)" />
+            <img src="${_custSlipData}" alt="สลิป" style="max-width:100%;max-height:280px;border-radius:12px;border:2px solid var(--primary2);box-shadow:0 2px 12px rgba(0,0,0,.1)" />
             <button id="custSlipRemoveBtn" style="position:absolute;top:-8px;right:-8px;width:28px;height:28px;border-radius:50%;background:#ef4444;color:#fff;border:2px solid #fff;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.2)">✕</button>
           </div>`;
         previewEl.querySelector("#custSlipRemoveBtn")?.addEventListener("click", () => {

@@ -156,6 +156,20 @@ test("PHASE 426: sidebar shortcuts removed, skin classes no longer sky", () => {
     "invoice doc-type colour must stay (document identity, not skin)");
 });
 
+// ── Phase 427: help-tutor FAB removed + customer_dashboard sweep ─────────────
+test("PHASE 427: help FAB unwired, customer_dashboard carries no sky accents", () => {
+  const mainJs = fs.readFileSync(path.resolve("main.js"), "utf8");
+  assert.ok(!/mountHelpButton\(\)/.test(mainJs), "help tutor FAB must not be mounted");
+  assert.ok(!/setHelpContext\(/.test(mainJs), "help tutor context updates must be unwired");
+  assert.ok(!/from "\.\/modules\/help_tutor\.js"/.test(mainJs), "help_tutor must not be imported (dormant)");
+  // service-flow AI FAB gating must remain untouched (different AI system)
+  const widget = fs.readFileSync(path.resolve("ai-chat-widget.js"), "utf8");
+  assert.match(widget, /body\[data-route="solar"\] #bs-ai-fab:not\(\.hidden\)/, "service AI FAB gating must stay");
+
+  const cust = fs.readFileSync(path.resolve("modules/customer_dashboard.js"), "utf8");
+  assert.ok(!/#0284c7|#0ea5e9|#38bdf8|#0369a1/.test(cust), "customer_dashboard must carry no sky accents");
+});
+
 // ── phase4 design-system stays in sync ───────────────────────────────────────
 test("phase4 design-system primary scale is remapped to indigo", () => {
   assert.match(p4, /--primary-500:\s*#6b6be0/, "--primary-500 must be #6b6be0");

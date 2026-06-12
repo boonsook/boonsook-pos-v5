@@ -44,7 +44,7 @@ import { findJournalForSale, renderSaleTraceBadge, navigateToJv } from "./module
 // Phase 89.21: profit_by_product, quote_templates, serials lazy
 import { renderBirthdaysPage, checkTodayBirthdaysAndNotify } from "./modules/birthdays.js";
 import { renderWarrantyReportPage, checkWarrantyExpiringAndNotify } from "./modules/warranty_report.js";
-import { mountHelpButton, setHelpContext } from "./modules/help_tutor.js";
+// Phase 427: help tutor FAB ("คำแนะนำ" ปุ่มหลอดไฟ) ถอดออกตาม owner — modules/help_tutor.js คงไว้แบบ dormant (ไม่ import)
 import "./modules/doc-override.js";
 import { isValidPhone, isValidEmail, getUserFriendlyError, validateFile } from "./modules/validators.js";
 import { atomicDecrementStock, atomicAddToField } from "./modules/stock_cas.js";
@@ -777,8 +777,7 @@ async function showRoute(route){
   setText("pageTitle", titles[route] || "Boonsook POS");
   closeSidebar();
 
-  // Phase 25 — update help tutor context on route change
-  try { setHelpContext(route, titles[route] || route); } catch(e){}
+  // Phase 25 help tutor → ถอดออก Phase 427 (FAB คำแนะนำ)
 
   // Lazy render on navigate
   const ctx = { state, money, addToCart, changeQty, removeFromCart, openProductDrawer, checkout, openReceiptDrawer, showRoute, openCustomerDrawer, openQuotationDrawer, openServiceJobDrawer, loadAllData, loadReceipt, ROLE_LABELS, currentRole, requireAdmin, requireAdminOrSales, showToast, saveStoreInfo, savePaymentInfo, loadUsers, changeRole, openAddUserDrawer, hasPermission: (key) => hasPermission(key, { state, currentRole }), renderLineNotifySettings, renderPermissionMatrix, sendLineNotify };
@@ -1073,8 +1072,7 @@ async function afterLogin(){
   // loadAllData → renderAll() → showRoute(state.currentRoute) ซึ่งตอนนี้ = restorePage แล้ว ✅
   window.dispatchEvent(new Event("bsk-app-ready"));
 
-  // ★ Phase 25: mount Help Tutor floating button
-  try { mountHelpButton(); } catch(e) { console.warn("[help tutor]", e); }
+  // ★ Phase 25 Help Tutor FAB → ถอดออก Phase 427 ตาม owner (ปุ่มคำแนะนำรกหน้าจอ)
 
   // ★ Phase 13 + 15: Background checks (ไม่รอ — ทำใน background)
   setTimeout(() => {

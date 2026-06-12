@@ -162,7 +162,8 @@
 // v424 (2026-06-12): Phase 424 - workspace wash: deeper indigo --bg (#eaedf8, owner: too bright) + light-theme body lavender->pink gradient wash (reference-image look); dark theme stays flat token bg. CSS-only. Bumps CACHE_NAME.
 // v425 (2026-06-12): Phase 425 - sidebar reorganization (index.html markup-only): 16 loose nav buttons folded into groups (sales +3 doc tools, service +service_request, products +5 stock pages, new groups customers_crm/air_shop/tools) + 4 section labels; daily items (dashboard/team_center/pos/tasks/calendar) on top. All data-route values unchanged; hr group bytes untouched (guard). Generic nav-group toggle/role-filter in main.js covers new groups. Bumps CACHE_NAME.
 // v426 (2026-06-12): Phase 426 - trim sidebar shortcuts (owner: too cluttered; quick* bindings in main.js are null-safe, untouched) + skin color sweep round 1: style.css effective sky -> indigo (auth logo/brand badge, pos-banner, pos action/active states, set-save-btn, focus rings, gs-item-amount, bsk-tag.active, dash/profile hovers) + pos.js display accents (bank picker, pay amount box, VAT span, customer note/hover). Semantic colors kept: info boxes, status chips, doc-type print colors (.doc-*.inv). Bumps CACHE_NAME.
-const CACHE_NAME = 'boonsook-pos-v5-cache-v426';
+// v427 (2026-06-12): Phase 427 - remove help-tutor FAB (lightbulb suggestion button) per owner: main.js unwires import/mount/setHelpContext (module kept dormant; #bs-ai-fab service-flow gating untouched) + color sweep r2: customer_dashboard.js all 38 sky accents -> indigo (prices/buttons/tabs/steps/checkout chrome; light-blue product tiles + amber CTA kept). Bumps CACHE_NAME.
+const CACHE_NAME = 'boonsook-pos-v5-cache-v427';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

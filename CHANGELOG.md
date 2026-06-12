@@ -7,6 +7,15 @@
 
 ---
 
+## 5.66.0 (build 427) — 2026-06-12 Phase 427 ถอดปุ่มคำแนะนำ (หลอดไฟ) + ไล่สีหน้าร้านลูกค้า
+
+- **feat (UI · display-only):** ถอด **ปุ่มคำแนะนำหลอดไฟ (`#bs-help-fab` help tutor)** ออกทุกหน้า ตาม owner — main.js เลิก import/mount/setHelpContext (โมดูล `help_tutor.js` เก็บไว้แบบ dormant ไม่ลบไฟล์) · **AI ผู้ช่วยงานช่าง (`#bs-ai-fab`) ไม่ถูกแตะ** — ยังโชว์เฉพาะหน้างานช่าง desktop ตาม gating เดิม; AI ขายแอร์เข้าผ่านหน้า "AI ช่วยขายแอร์" ที่แยกเป็นหน้าของตัวเองในกลุ่ม หน้าร้านแอร์ (ติดกับ หน้าหลัก) ตามที่ owner ต้องการ
+- **ไล่สีรอบ 2 — customer_dashboard (หน้าหลัก/หน้าร้านลูกค้า) ครบ 38 จุด:** ราคา/ปุ่มสั่งจอง/แท็บ/หัวข้อ/step สถานะ/กล่องจัดส่ง-ชำระเงิน/radio/แนบสลิป sky → indigo — **คงไว้:** การ์ดสินค้าโทนฟ้าอ่อน (ธีมความเย็นของแอร์) + ปุ่ม CTA ส้ม "สอบถามราคา" + ป้ายสถานะ
+- bump build **427** + `dashboard_readonly_guard` → 427 · `ui_theme_guard` +1 test (help FAB unwired + gating ช่างคงเดิม + customer_dashboard ไม่มี sky)
+- lint:errors 0 / unit **1567** / e2e **14** · **⏸️ STOP รอ owner ดู preview (426+427)** · คิวต่อ: products 35 → hr_overview 16 → payroll 13 → leave 13 → DI 12 → quotations 11 → service_jobs 10
+
+---
+
 ## 5.66.0 (build 426) — 2026-06-12 Phase 426 ตัดหมวด "ลัด" + ไล่เก็บสีรอบแรก (global + POS)
 
 - **feat (UI · markup+CSS display-only):** ถอดหมวด "ลัด" 5 ปุ่มออกจาก sidebar ตาม owner ("เยอะเกิน ดูรก") — bindings `quick*` ใน main.js เป็น null-safe อยู่แล้ว ไม่ต้องแก้ JS
