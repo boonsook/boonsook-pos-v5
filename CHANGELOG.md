@@ -7,6 +7,22 @@
 
 ---
 
+## 5.66.0 (build 420) — 2026-06-12 Phase 420 hr-forms — รับสมัครงาน + ใบลาออก (admin-only)
+
+> เลข **build 419 ถูกใช้ไปแล้ว**โดยงาน mobile drafts + service cancel fix (commits `0117013`/`9b651af`/`369ab2f`/`1cf2b66`/`e3930bf` ตรงบน main — ไม่มี entry ใน CHANGELOG) → งานนี้จึงเป็น **420**
+
+- **feat (HR · additive — ไม่แตะเงิน/สต็อก/บัญชี/POS/payroll):** โมดูลใหม่ `modules/hr_forms.js` + 2 หน้าใหม่กลุ่ม บุคลากร/HR (admin-only ผ่าน ALL_ROUTES + `requireAdmin`)
+- **📝 รับสมัครงาน (`hr_applications`):** list + filter chips สถานะ (ใหม่/นัดสัมภาษณ์/รับแล้ว/ไม่รับ) + search ชื่อ/เบอร์/ตำแหน่ง · ฟอร์มเพิ่ม/แก้ (full_name*, phone, address, position, expected_salary, experience, applied_date default วันนี้ Bangkok, note) · **แนบรูปเอกสารหลายรูป** (บัตร ปชช./เรซูเม่) upload → storage bucket `proofs` path `applications/` (pattern expenses.js) เก็บ `attachments` jsonb `[{url,label}]` + thumbnail กดดูเต็ม · เปลี่ยนสถานะ — **hired → ติด `hired_date` วันนี้ + กล่องเตือน "อย่าลืมสร้างบัญชีผู้ใช้ที่ ตั้งค่า → ตั้งค่าผู้ใช้งาน" (❌ ไม่ auto-สร้าง user)** · พิมพ์ 2 แบบ: ฟอร์มเปล่ากรอกมือ (ช่องครบ+ที่ติดรูป+ลายเซ็น) / ใบสมัครพร้อมข้อมูล (A4, `window.open` pattern `_printAllPayslips`)
+- **📤 ใบลาออก (`hr_resignations`):** ฟอร์ม employee_id (จาก profiles role≠customer — GET read-only เท่านั้น), submitted_date default วันนี้, last_working_date, reason, note · ปุ่ม **อนุมัติ** = `App.confirm` → PATCH `staff_resignations` (status=approved + approved_at/by) → **banner ค้างเตือน "พนักงานยังอยู่ในรายชื่อ active — ไปปิดสถานะที่ ตั้งค่า → ผู้ใช้งาน เมื่อถึงวันสุดท้าย (วันที่)" — ❌ ไม่มี PATCH `profiles` เด็ดขาด (ไม่ตัดพนักงานอัตโนมัติ)** · พิมพ์หนังสือลาออกทางการ (หัวร้านจาก storeInfo + ลายเซ็นพนักงาน/ผู้อนุมัติ)
+- ทั้งคู่: `logActivity` ทุก action สำคัญ (create/update/status/approve/delete) · ลบ = `App.confirm` ระบุชื่อ · **ไม่มี `alert()`/native confirm** · print builders **escHtml ทุกค่าผู้ใช้** (XSS §4.5) · inflight guards (save ×2 + upload)
+- **SQL ใหม่ `supabase-phase420-hr-forms.sql`** (⚠️ **owner รันเองใน Supabase SQL Editor ก่อน smoke** — ยังไม่ได้ apply): `staff_applications` + `staff_resignations` + CHECK status + indexes + updated_at trigger + **RLS admin-only (`is_accountant()`) ทั้ง 2 ตาราง** (pattern phase92-32) + NOTIFY pgrst + verify queries · ❌ ไม่มี trigger/ALTER แตะ profiles
+- wiring: `main.js` LAZY_ROUTES + ALL_ROUTES (admin-only) + titles · `index.html` nav ×2 ใต้ 💰 รายการเงินเดือน + section ×2 · bump build **420** (data-app-build + ?v= ×4 + sw `cache-v420`)
+- +guard `tests/hr_forms_guard.test.js` (21: SQL/RLS/no-profiles-write/upload-proofs/approve-confirm/hired-warning/logActivity/print-XSS-unit/pure-helpers/wiring) · `dashboard_readonly_guard` bump 420
+- 🔁 **งานกู้จาก worktree ที่ตายกลางทาง** (เดิมทำเป็น Phase 419 ~80%): กู้ 3 ไฟล์ใหม่มา rename/แก้ markers 419→420 + ทำ wiring ใหม่บนฐาน `e3930bf` แล้ว rebase ขึ้น `f4ab6a1` = origin/main ล่าสุด (ไม่ apply patch เก่าตรง ๆ)
+- lint:errors 0 / unit **1529** (รวม 21 ใหม่ของ hr_forms_guard) / e2e **14** (รวม service-mobile-draft ของทีม 419) · **STOP รอ review + owner รัน SQL + smoke preview**
+
+---
+
 ## 5.66.0 (build 418) — 2026-06-11 Phase 418 Part C payroll-history-and-print-all — ประวัติรายคน + พิมพ์สลิปทุกคน
 
 - **feat (payroll · MEDIUM — read-only + print เท่านั้น ไม่แตะ save/pay/JV):** ปุ่ม **"📜 ประวัติ"** ต่อแถว → modal ประวัติเงินเดือนรายคน: GET ครั้งเดียวตอนเปิด `staff_payroll?employee_id=eq.&order=period_start.desc.nullslast,period_month.desc.nullslast&limit=24` — คอลัมน์ รอบ / รวมสุทธิ (`total_amount` จาก DB) / สถานะ (จ่ายแล้ว+วันที่ / รอจ่าย) / ปุ่ม "สลิป" + แถวสรุปท้าย "รวมจ่ายแล้ว (จาก N รอบที่แสดง)"

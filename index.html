@@ -9,7 +9,7 @@
   <link rel="icon" type="image/svg+xml" href="./icons/logo.svg" />
   <link rel="manifest" href="./manifest.json" />
   <link rel="apple-touch-icon" href="./icons/logo.svg" />
-  <link rel="stylesheet" href="./style.css?v=419" />
+  <link rel="stylesheet" href="./style.css?v=420" />
   <link rel="stylesheet" href="./doc-print.css?v=1" />
   <!-- ✨ Phase 4: Design System & Components (30/3/2569) -->
   <link rel="stylesheet" href="./phase4-design-system.css?v=1" />
@@ -184,6 +184,8 @@
           <button class="nav-btn sub" data-route="leave_management">🌴 วันลา</button>
           <button class="nav-btn sub" data-route="departments">🏢 ตั้งค่าแผนก</button>
           <button class="nav-btn sub" data-route="payroll">💰 รายการเงินเดือน</button>
+          <button class="nav-btn sub" data-route="hr_applications">📝 รับสมัครงาน</button>
+          <button class="nav-btn sub" data-route="hr_resignations">📤 ใบลาออก</button>
         </div>
       </div>
 
@@ -360,6 +362,8 @@
       <section id="page-audit_log" class="page hidden"></section>
       <section id="page-hr_overview" class="page hidden"></section>
       <section id="page-leave_management" class="page hidden"></section>
+      <section id="page-hr_applications" class="page hidden"></section>
+      <section id="page-hr_resignations" class="page hidden"></section>
       <section id="page-departments" class="page hidden"></section>
       <section id="page-payroll" class="page hidden"></section>
       <section id="page-time_clock" class="page hidden"></section>
@@ -852,10 +856,10 @@
        ทำงานก่อน main.js โหลด → ป้องกัน user เห็น version display เก่า
        Phase 89.15: ย้ายออกไป external file + set window.APP_BUILD ให้ pages.js/main.js อ่านได้
        (CSP drop script-src 'unsafe-inline') -->
-  <script src="./selfheal.js?v=419" data-app-build="419" data-app-version="5.66.0"></script>
-  <script type="module" src="./main.js?v=419"></script>
+  <script src="./selfheal.js?v=420" data-app-build="420" data-app-version="5.66.0"></script>
+  <script type="module" src="./main.js?v=420"></script>
   <!-- Phase 89.15: externalized loading overlay + SW update banner (was inline script — drop CSP unsafe-inline) -->
-  <script src="./boot.js?v=419"></script>
+  <script src="./boot.js?v=420"></script>
 
   <!-- AI Assistant Chat Widget (Phase 1) -->
   <script src="./ai-chat-widget.js?v=9"></script>
