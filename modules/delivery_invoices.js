@@ -325,6 +325,8 @@ export function renderDeliveryInvoicesPage(ctx) {
     let ok = 0, fail = 0;
     for (const id of ids) {
       try {
+        const _rc = await _invoiceHasReceipt(id);
+        if (_rc.blocked) { fail++; continue; }
         const res = await window._appXhrPatch?.("delivery_invoices", { status: "cancelled" }, "id", id);
         if (res?.ok) {
           // Phase 89.1: void JV ของใบส่งสินค้าที่ยกเลิก (กัน double-revenue ใน P&L)
@@ -431,6 +433,12 @@ export function renderDeliveryInvoicesPage(ctx) {
     } else if (action === "cancelled") {
       if (!(await window.App?.confirm?.(`ยกเลิกใบส่งสินค้า "${inv.inv_no}" ?`))) return;
       try {
+        const _rc = await _invoiceHasReceipt(invId);
+        if (_rc.blocked) {
+          const nos = _rc.receipts.map(r => r.receipt_no || "#").join(", ");
+          window.App?.showToast?.("ยกเลิกไม่ได้ — มีใบเสร็จ " + nos + " อ้างอิงอยู่ กรุณาจัดการใบเสร็จก่อน");
+          return;
+        }
         const res = await window._appXhrPatch?.("delivery_invoices", { status: "cancelled" }, "id", invId);
         if (res?.ok) {
           // Phase 89.1: void JV ของใบส่งสินค้าที่ยกเลิก (กัน double-revenue ใน P&L)

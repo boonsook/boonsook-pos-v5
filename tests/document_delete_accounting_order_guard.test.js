@@ -70,6 +70,30 @@ test("delivery invoice bulk hard delete voids JV before deleting invoice items/h
   assert.ok(voidIdx < delHeaderIdx, "bulk void JV must happen before deleting invoice header");
 });
 
+test("delivery invoice bulk cancel checks receipt FK before cancelling/voiding JV", () => {
+  const body = sliceFrom(deliverySrc, 'getElementById("diBulkCancel")', 2200);
+  const precheckIdx = body.indexOf("_invoiceHasReceipt(id)");
+  const patchIdx = body.indexOf('window._appXhrPatch?.("delivery_invoices", { status: "cancelled" }');
+  const voidIdx = body.indexOf('voidJvForSource("delivery_invoices", id)');
+  assert.ok(precheckIdx > 0, "bulk cancel checks receipt FK first");
+  assert.ok(patchIdx > 0, "bulk cancel PATCHes cancelled status");
+  assert.ok(voidIdx > 0, "bulk cancel voids accounting JV");
+  assert.ok(precheckIdx < patchIdx, "receipt FK pre-check must happen before cancelled PATCH");
+  assert.ok(precheckIdx < voidIdx, "receipt FK pre-check must happen before void JV");
+});
+
+test("delivery invoice row cancel checks receipt FK before cancelling/voiding JV", () => {
+  const body = sliceFrom(deliverySrc, 'action === "cancelled"', 1800);
+  const precheckIdx = body.indexOf("_invoiceHasReceipt(invId)");
+  const patchIdx = body.indexOf('window._appXhrPatch?.("delivery_invoices", { status: "cancelled" }');
+  const voidIdx = body.indexOf('voidJvForSource("delivery_invoices", invId)');
+  assert.ok(precheckIdx > 0, "row cancel checks receipt FK first");
+  assert.ok(patchIdx > 0, "row cancel PATCHes cancelled status");
+  assert.ok(voidIdx > 0, "row cancel voids accounting JV");
+  assert.ok(precheckIdx < patchIdx, "receipt FK pre-check must happen before cancelled PATCH");
+  assert.ok(precheckIdx < voidIdx, "receipt FK pre-check must happen before void JV");
+});
+
 test("receipt preview paid posts JV only after paid status PATCH success is checked", () => {
   const body = sliceFrom(receiptsSrc, 'getElementById("rcPreviewCollect")', 1200);
   const patchIdx = body.indexOf('window._appXhrPatch?.("receipts", { status: "paid" }');

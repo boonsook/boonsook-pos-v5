@@ -33,3 +33,17 @@ test("delete handler voids JV BEFORE deleting the expense row (no orphan)", () =
   const di = block.indexOf("_appXhrDelete");
   assert.ok(vi > -1 && di > -1 && vi < di, "must void JV before _appXhrDelete (avoid orphan JV)");
 });
+
+test("delete handler awaits DELETE result and reports failure before success toast", () => {
+  const i = SRC.indexOf('querySelectorAll(".exp-delete-btn")');
+  assert.ok(i > -1, "delete handler not found");
+  const block = SRC.slice(i, i + 1500);
+  const delIdx = block.indexOf("const delRes = await window._appXhrDelete");
+  const failIdx = block.indexOf("if (delRes && !delRes.ok)");
+  const successIdx = block.indexOf('showToast("ลบรายจ่ายเรียบร้อย"');
+  const catchIdx = block.indexOf('showToast("❌ ลบรายจ่ายไม่สำเร็จ: "');
+  assert.ok(delIdx > -1, "delete must await _appXhrDelete result");
+  assert.ok(failIdx > delIdx, "delete must check failed result");
+  assert.ok(successIdx > failIdx, "success toast must happen only after delete result check");
+  assert.ok(catchIdx > successIdx, "delete errors must be surfaced to the user");
+});
