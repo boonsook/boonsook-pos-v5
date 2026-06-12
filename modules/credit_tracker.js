@@ -389,13 +389,19 @@ function openReceivePaymentModal(ctx, sale) {
     }
 
     // ── ledger committed แล้ว → success path (ปุ่มไม่เปิดให้กดซ้ำ) ──
-    // post JV — Dr Cash/Bank / Cr 1200 (A/R) — fire-and-forget (Phase 89.29 audit C2)
+    // post JV — Dr Cash/Bank / Cr 1200 (A/R). Await and warn, but keep ledger committed.
+    let jvPostWarning = null;
     if (res.payment?.id) {
-      postJournalForCreditPayment({
-        ...res.payment,
-        sale_order_no: sale.order_no,
-        customer_name: sale.customer_name
-      }).catch(e => console.warn("[credit_tracker] auto-post JV failed:", e?.message));
+      try {
+        await postJournalForCreditPayment({
+          ...res.payment,
+          sale_order_no: sale.order_no,
+          customer_name: sale.customer_name
+        });
+      } catch (e) {
+        console.warn("[credit_tracker] auto-post JV failed:", e?.message);
+        jvPostWarning = "รับชำระแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจสมุดรายวัน/Backfill";
+      }
     }
 
     modal.remove();
@@ -405,6 +411,7 @@ function openReceivePaymentModal(ctx, sale) {
     } else {
       ctx.showToast?.(`✓ รับชำระ ฿${money(amount)} ${res.fullyPaid ? '— ครบแล้ว 🎉' : ''}`);
     }
+    if (jvPostWarning) window.App?.showToast?.(jvPostWarning, "warn");
     if (window.App?.loadAllData) await window.App.loadAllData();
     renderCreditTrackerPage(ctx);
   });

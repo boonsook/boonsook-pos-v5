@@ -516,10 +516,15 @@ function openRefundModal(ctx) {
       }
 
       // 3) Phase 89.29 (audit C3): post JV — Dr 4110 Sales Returns / Cr 1110/1130
-      // fire-and-forget — failed JV ไม่ block UX, จะมี log + admin backfill ได้
+      // Phase P1: await auto-post so failures are visible, while keeping refund committed.
+      let jvPostWarning = null;
       if (insertedRefund?.id) {
-        postJournalForRefund(insertedRefund)
-          .catch(e => console.warn("[refunds] auto-post JV failed:", e?.message));
+        try {
+          await postJournalForRefund(insertedRefund);
+        } catch (e) {
+          console.warn("[refunds] auto-post JV failed:", e?.message);
+          jvPostWarning = "บันทึกการคืนแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจสมุดรายวัน/Backfill";
+        }
       }
 
       // 4) Phase 91.3 + 91.4 — reverse loyalty auto-earn (fire-and-forget, idempotent).
@@ -561,6 +566,7 @@ function openRefundModal(ctx) {
       } else {
         ctx.showToast?.(`✓ บันทึกการคืน ${refundNo} • ฿${money(totalAmount)}`);
       }
+      if (jvPostWarning) ctx.showToast?.(jvPostWarning, "warn");
       if (window.App?.loadAllData) await window.App.loadAllData();
       renderRefundsPage(ctx);
     } catch (e) {

@@ -533,6 +533,7 @@ function bindAddFormEvents() {
     }
 
     try {
+      let jvPostWarning = null;
       if (_editingExpenseId) {
         // Phase 89.29 (audit C4): edit expense → void old JV + repost ด้วยข้อมูลใหม่
         // เดิม PATCH expense แต่ JV เดิมค้าง → P&L ไม่ตรง DB
@@ -541,9 +542,13 @@ function bindAddFormEvents() {
           console.warn("[expenses] voidJV before edit failed:", e?.message));
         const res = await window._appXhrPatch?.("expenses", payload, "id", editId);
         if (res && res.ok === false) throw new Error(res.error?.message || "update failed");
-        // repost JV ด้วย amount/category/method ใหม่. fire-and-forget.
-        postJournalForExpense({ id: editId, ...payload })
-          .catch(e => console.warn("[expenses] repost JV after edit failed:", e?.message));
+        // repost JV ด้วย amount/category/method ใหม่.
+        try {
+          await postJournalForExpense({ id: editId, ...payload });
+        } catch (e) {
+          console.warn("[expenses] repost JV after edit failed:", e?.message);
+          jvPostWarning = "อัปเดตรายจ่ายแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจสมุดรายวัน/Backfill";
+        }
         _ctx.showToast("อัปเดตรายจ่ายเรียบร้อย", "success");
       } else {
         // ★ Phase 88.1a: ขอ returnData เพื่อเอา id ไป auto-post JV
@@ -551,13 +556,18 @@ function bindAddFormEvents() {
         if (res && res.ok === false) throw new Error(res.error?.message || "insert failed");
         _ctx.showToast("เพิ่มรายจ่ายเรียบร้อย", "success");
 
-        // ★ Phase 88.1a: auto-post JV (fire-and-forget — ไม่ block UX)
+        // ★ Phase 88.1a: auto-post JV
         const inserted = res?.data;
         if (inserted?.id) {
-          postJournalForExpense(inserted)
-            .catch(e => console.warn("[expenses] auto-post JV failed:", e?.message));
+          try {
+            await postJournalForExpense(inserted);
+          } catch (e) {
+            console.warn("[expenses] auto-post JV failed:", e?.message);
+            jvPostWarning = "เพิ่มรายจ่ายแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจสมุดรายวัน/Backfill";
+          }
         }
       }
+      if (jvPostWarning) _ctx.showToast(jvPostWarning, "warn");
 
       _showAddForm = false;
       /* eslint-disable require-atomic-updates -- LOW_RISK: L3 module state reset after save (single edit session) */
@@ -959,13 +969,18 @@ function _showParsedResult(ctx, modal, imageDataUrl, data) {
       const r = await fetch(cfg.url + "/rest/v1/expenses", { method: "POST", headers, body: JSON.stringify(payload) });
       if (!r.ok) throw new Error("HTTP " + r.status);
 
-      // ★ Phase 88.1a: parse inserted row → auto-post JV (fire-and-forget)
+      // ★ Phase 88.1a: parse inserted row → auto-post JV
+      let jvPostWarning = null;
       try {
         const arr = await r.json();
         const inserted = Array.isArray(arr) ? arr[0] : arr;
         if (inserted?.id) {
-          postJournalForExpense(inserted)
-            .catch(e => console.warn("[expenses-autokey] auto-post JV failed:", e?.message));
+          try {
+            await postJournalForExpense(inserted);
+          } catch (postErr) {
+            console.warn("[expenses-autokey] auto-post JV failed:", postErr?.message);
+            jvPostWarning = "บันทึกรายจ่ายแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจสมุดรายวัน/Backfill";
+          }
         }
       } catch (parseErr) {
         console.warn("[expenses-autokey] parse insert response failed:", parseErr?.message);
@@ -973,6 +988,7 @@ function _showParsedResult(ctx, modal, imageDataUrl, data) {
 
       modal.remove();
       ctx.showToast?.(receiptUrl ? "บันทึกรายจ่าย + แนบรูปบิลแล้ว ✅" : "บันทึกรายจ่ายแล้ว (รูปบิลอัปโหลดไม่ได้)");
+      if (jvPostWarning) ctx.showToast?.(jvPostWarning, "warn");
       if (ctx.loadAllData) await ctx.loadAllData();
       renderExpensesPage(ctx);
     } catch (e) {

@@ -5,7 +5,7 @@
 import { renderEmpty, renderSkeleton } from "./ui_states.js";
 // Phase 57: audit log + Phase 70 (D3): Excel export
 import { logActivity, exportToExcel, todaySuffix } from "./utils.js";
-// Phase 88.1b: auto-post JV หลังรับชำระลูกหนี้ (fire-and-forget)
+// Phase 88.1b: auto-post JV หลังรับชำระลูกหนี้
 import { postJournalForReceipt, voidJvForSource } from "./accounting/auto_post.js";
 // Phase 89.42: single-flight guard for multi-payment save (prevent double-click race)
 import { createInflightGuard } from "./_inflight_guard.js";
@@ -479,10 +479,14 @@ export function renderReceiptsPage(ctx) {
       const res = await window._appXhrPatch?.("receipts", { status: cfg.status }, "id", rcId);
       if (res?.ok) {
         window.App?.showToast?.(cfg.toast);
-        // ★ Phase 88.1b — auto-post JV ตอนเก็บเงิน (fire-and-forget)
+        // ★ Phase 88.1b — auto-post JV ตอนเก็บเงิน
         if (action === "paid") {
-          postJournalForReceipt({ ...r, status: "paid", paid_at: new Date().toISOString() })
-            .catch(e => console.warn("[rc] auto-post JV failed:", e?.message));
+          try {
+            await postJournalForReceipt({ ...r, status: "paid", paid_at: new Date().toISOString() });
+          } catch (e) {
+            console.warn("[rc] auto-post JV failed:", e?.message);
+            window.App?.showToast?.("เก็บเงินแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจสมุดรายวัน/Backfill", "warn");
+          }
         }
         // Phase 89.1: void JV ของใบเสร็จที่ยกเลิก (กัน double-revenue ใน P&L + ลูกหนี้ติดลบ)
         // Phase 89.6: restore delivery_invoice status → "pending" (เปิดใบเสร็จใหม่ได้)
@@ -508,8 +512,12 @@ export function renderReceiptsPage(ctx) {
           window.App?.showToast?.(cfg.toast);
           // ★ Phase 88.1b — auto-post JV (fallback path)
           if (action === "paid") {
-            postJournalForReceipt({ ...r, status: "paid", paid_at: new Date().toISOString() })
-              .catch(e => console.warn("[rc] auto-post JV failed:", e?.message));
+            try {
+              await postJournalForReceipt({ ...r, status: "paid", paid_at: new Date().toISOString() });
+            } catch (e) {
+              console.warn("[rc] auto-post JV failed:", e?.message);
+              window.App?.showToast?.("เก็บเงินแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจสมุดรายวัน/Backfill", "warn");
+            }
           }
           // Phase 89.1: void JV (fallback path)
           // Phase 89.6: restore invoice status (fallback path)
@@ -755,9 +763,13 @@ function renderReceiptPreview(container) {
       const payRes = await window._appXhrPatch?.("receipts", { status: "paid" }, "id", r.id);
       if (!payRes?.ok) throw new Error(payRes?.error?.message || "PATCH receipts failed");
       window.App?.showToast?.("เก็บเงินเรียบร้อย ✅");
-      // ★ Phase 88.1b — auto-post JV ตอนเก็บเงิน (fire-and-forget)
-      postJournalForReceipt({ ...r, status: "paid", paid_at: new Date().toISOString() })
-        .catch(err => console.warn("[rc-preview] auto-post JV failed:", err?.message));
+      // ★ Phase 88.1b — auto-post JV ตอนเก็บเงิน
+      try {
+        await postJournalForReceipt({ ...r, status: "paid", paid_at: new Date().toISOString() });
+      } catch (err) {
+        console.warn("[rc-preview] auto-post JV failed:", err?.message);
+        window.App?.showToast?.("เก็บเงินแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจสมุดรายวัน/Backfill", "warn");
+      }
       if (_ctx.loadAllData) await _ctx.loadAllData();
     } catch(err) {
       window.App?.showToast?.("❌ เก็บเงินไม่สำเร็จ", "error");

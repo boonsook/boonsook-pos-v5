@@ -408,10 +408,14 @@ async function _createExpenseFromRecurring(ctx, r) {
       if (!res.ok) throw new Error("HTTP " + res.status);
       const rows = await res.json().catch(() => []);
       const inserted = Array.isArray(rows) ? rows[0] : rows;
-      // #2: auto-post JV (fire-and-forget เหมือน expenses.js) → ค่าเช่า/น้ำไฟเข้าสมุดบัญชีคู่
+      // #2: auto-post JV → ค่าเช่า/น้ำไฟเข้าสมุดบัญชีคู่
       if (inserted?.id) {
-        postJournalForExpense(inserted)
-          .catch(e => console.warn("[recurring] auto-post JV failed:", e?.message));
+        try {
+          await postJournalForExpense(inserted);
+        } catch (e) {
+          console.warn("[recurring] auto-post JV failed:", e?.message);
+          window.App?.showToast?.("สร้างรายจ่ายประจำแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจสมุดรายวัน/Backfill", "warn");
+        }
       }
     } else {
       createdStatus = "exists"; // มีอยู่แล้ว — ไม่ insert ซ้ำ แต่ยัง advance next_due ด้านล่าง (recover)
