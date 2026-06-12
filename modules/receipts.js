@@ -404,6 +404,7 @@ export function renderReceiptsPage(ctx) {
     for (const id of ids) {
       try {
         const r = (ctx.state.receipts || []).find(x => x.id === id);
+        await voidJvForSource("receipts", id);
         // 1. ลบ receipt_items
         await authFetch(cfg.url + "/rest/v1/receipt_items?receipt_id=eq." + id, { method: "DELETE", headers });
         // 2. ลบ receipt
@@ -751,7 +752,8 @@ function renderReceiptPreview(container) {
     btn.style.opacity = "0.6";
     btn.textContent = "⏳ กำลังเก็บเงิน...";
     try {
-      await window._appXhrPatch?.("receipts", { status: "paid" }, "id", r.id);
+      const payRes = await window._appXhrPatch?.("receipts", { status: "paid" }, "id", r.id);
+      if (!payRes?.ok) throw new Error(payRes?.error?.message || "PATCH receipts failed");
       window.App?.showToast?.("เก็บเงินเรียบร้อย ✅");
       // ★ Phase 88.1b — auto-post JV ตอนเก็บเงิน (fire-and-forget)
       postJournalForReceipt({ ...r, status: "paid", paid_at: new Date().toISOString() })
@@ -776,14 +778,15 @@ function renderReceiptPreview(container) {
     btn.style.opacity = "0.6";
     btn.textContent = "⏳ กำลังยกเลิก...";
     try {
-      await window._appXhrPatch?.("receipts", { status: "cancelled" }, "id", r.id);
+      const cancelRes = await window._appXhrPatch?.("receipts", { status: "cancelled" }, "id", r.id);
+      if (!cancelRes?.ok) throw new Error(cancelRes?.error?.message || "PATCH receipts failed");
       // Phase 89.1: void JV ของใบเสร็จที่ยกเลิก (กัน double-revenue ใน P&L)
       // Phase 89.16: voidJv handles silent-fail + toast เอง — ไม่ต้องใส่ .catch
       await voidJvForSource("receipts", r.id);
       // Phase 89.6: restore delivery_invoice status → "pending" (เปิดใบเสร็จใหม่ได้)
       if (r.delivery_invoice_id) {
-        await window._appXhrPatch?.("delivery_invoices", { status: "pending" }, "id", r.delivery_invoice_id)
-          .catch(err => console.warn("[rc preview cancel] restore invoice", err));
+        const invRes = await window._appXhrPatch?.("delivery_invoices", { status: "pending" }, "id", r.delivery_invoice_id);
+        if (!invRes?.ok) console.warn("[rc preview cancel] restore invoice", invRes?.error?.message || "unknown");
       }
       window.App?.showToast?.("ยกเลิกใบเสร็จเรียบร้อย — ใบส่งสินค้ากลับเป็น 'รอดำเนินการ'");
       if (_ctx.loadAllData) await _ctx.loadAllData();
@@ -804,6 +807,7 @@ function renderReceiptPreview(container) {
     // ★ return=representation เพื่อให้ได้ rows ที่ลบจริงกลับมา — ตรวจได้ว่า RLS บล็อคไหม
     const headers = { "Content-Type": "application/json", "Prefer": "return=representation" };
     try {
+      await voidJvForSource("receipts", r.id);
       // 1. ลบ receipt_items (OK ถ้า 0 rows เพราะอาจไม่มี items)
       await authFetch(cfg.url + "/rest/v1/receipt_items?receipt_id=eq." + r.id, { method: "DELETE", headers });
       // 2. ลบ receipt — verify ว่ามี row ถูกลบจริง

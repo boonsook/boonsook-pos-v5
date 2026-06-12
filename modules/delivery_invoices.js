@@ -365,6 +365,7 @@ export function renderDeliveryInvoicesPage(ctx) {
         // ★ Phase 407: ข้ามใบที่มีใบเสร็จอ้างอิง (ไม่ลบ — กัน items หาย+409 = บิลพัง)
         const _rc = await _invoiceHasReceipt(id);
         if (_rc.blocked) { fail++; continue; }
+        await voidJvForSource("delivery_invoices", id);
         // 1. ลบ items
         await authFetch(cfg.url + "/rest/v1/delivery_invoice_items?delivery_invoice_id=eq." + id, { method: "DELETE", headers });
         // 2. ลบ invoice
@@ -611,6 +612,7 @@ function renderInvoicePreview(container) {
     // ★ return=representation — ได้ rows ที่ลบกลับมาเช็คว่า RLS ไม่บล็อค
     const headers = { "Content-Type": "application/json", "Prefer": "return=representation" };
     try {
+      await voidJvForSource("delivery_invoices", inv.id);
       // 1. ลบ delivery_invoice_items
       await authFetch(cfg.url + "/rest/v1/delivery_invoice_items?delivery_invoice_id=eq." + inv.id, { method: "DELETE", headers });
       // 2. ลบ delivery_invoice — verify ว่าลบจริง
