@@ -43,7 +43,8 @@ test("gradient marketing hero is replaced by flat header + today + KPI grid", ()
   assert.match(dash, /function _dashHeader\(/, "has a _dashHeader render helper");
   assert.match(dash, /function _kpiCard\(/, "has a _kpiCard render helper");
   assert.match(dash, /class="dash-header"/, "renders the flat business header");
-  assert.match(dash, /class="dash-today"/, "renders the today highlight (not a hero)");
+  // Phase 422: today highlight may carry the mock-F brand modifier (still flat, not a hero)
+  assert.match(dash, /class="dash-today( dash-today--brand)?"/, "renders the today highlight (not a hero)");
   assert.ok((dash.match(/class="kpi-grid"/g) || []).length >= 2, "renders at least two KPI grids");
 });
 

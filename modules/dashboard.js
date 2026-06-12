@@ -60,7 +60,7 @@ function _recentTxnRows(state) {
         <div style="font-weight:700;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${orderNo}</div>
         <div style="color:#334155;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${cust}</div>
         <div style="color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${channel}</div>
-        <div style="text-align:right;font-weight:800;color:#0284c7;white-space:nowrap">${amt}${creditBadge}</div>
+        <div style="text-align:right;font-weight:800;color:var(--primary2);white-space:nowrap">${amt}${creditBadge}</div>
       </div>`;
   }).join("");
 }
@@ -138,16 +138,16 @@ function _renderTodayAndAlerts(state) {
   return `
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px;margin:14px 0">
       <!-- 📅 วันนี้ -->
-      <div class="stat-card" style="padding:14px;border-left:4px solid #0284c7">
+      <div class="stat-card" style="padding:14px;border-left:4px solid #5b5bd6">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-          <div style="font-weight:800;color:#0c4a6e">📅 วันนี้ (${todayJobs.length})</div>
+          <div style="font-weight:800;color:#33338f">📅 วันนี้ (${todayJobs.length})</div>
           ${todayJobs.length ? `<button class="btn light dash-clickable" data-go="service_jobs" style="font-size:11px;padding:4px 8px">ดูทั้งหมด →</button>` : ''}
         </div>
         ${todayJobs.length === 0
           ? '<div style="text-align:center;padding:18px 8px;color:#94a3b8;font-size:13px">ไม่มีนัดงานช่างวันนี้</div>'
           : todayJobs.slice(0, 5).map(j => `
             <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px dashed #e2e8f0;font-size:13px">
-              <div style="width:32px;height:32px;border-radius:50%;background:#dbeafe;color:#1e40af;display:grid;place-items:center;font-size:14px;flex-shrink:0">🔧</div>
+              <div style="width:32px;height:32px;border-radius:50%;background:#eef0ff;color:#4949b8;display:grid;place-items:center;font-size:14px;flex-shrink:0">🔧</div>
               <div style="flex:1;min-width:0">
                 <div style="font-weight:600;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(j.customer_name || "ลูกค้าทั่วไป")}</div>
                 <div style="font-size:11px;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(j.description || j.device_name || "-")}</div>
@@ -211,6 +211,27 @@ function _sparkline7d(values, color) {
     <polygon fill="${color}" fill-opacity="0.12" points="${pts} ${w - pad},${h} ${pad},${h}"/>
   </svg>`;
 }
+
+// ★ Phase 422 (mock-F layout): quick-action row — navigation only.
+// ปุ่ม = เมนูที่ใช้บ่อยสุดของหน้าร้าน ทุกปุ่มวิ่งผ่าน dash-clickable[data-go]
+// (binding เดิมของหน้า dashboard) — ไม่มี fetch / ไม่แตะ state / ไม่มี handler ใหม่
+const QUICK_ACTIONS = [
+  { go: "pos",             icon: "🛒", label: "ขายสินค้า",  bg: "#eef0ff", fg: "#4949b8" },
+  { go: "service_jobs",    icon: "🔧", label: "เปิดใบงาน",  bg: "#d1fae5", fg: "#047857" },
+  { go: "quotations",      icon: "📄", label: "ใบเสนอราคา", bg: "#ede9fe", fg: "#6d28d9" },
+  { go: "customers",       icon: "👥", label: "ลูกค้า",      bg: "#fce7f3", fg: "#be185d" },
+  { go: "products",        icon: "📦", label: "เช็คสต็อก",  bg: "#fef3c7", fg: "#b45309" },
+  { go: "income_overview", icon: "📊", label: "รายงาน",     bg: "#f1f5f9", fg: "#334155" },
+];
+function _quickActions() {
+  return `<div class="dash-quick">
+    ${QUICK_ACTIONS.map(a => `
+      <button type="button" class="dash-quick-btn dash-clickable" data-go="${a.go}" title="${a.label}">
+        <span class="dash-quick-ic" style="background:${a.bg};color:${a.fg}">${a.icon}</span>
+        <span class="dash-quick-label">${a.label}</span>
+      </button>`).join("")}
+  </div>`;
+}
 function _last7DaysSeries(items, dateKey, valKey) {
   // Phase 89.28: ใช้ BKK timezone — เดิม toISOString().slice(0,10) ใช้ UTC → เพี้ยน ช่วง 17:00-23:59 BKK
   const days = [];
@@ -269,12 +290,12 @@ function filterByMonths(arr, dateField, months) {
 }
 
 // ★ สีหลัก 8 โทนฟ้า-ม่วง สำหรับ donut ยอดขาย (FlowAccount blue palette)
-const BLUE_PALETTE = ["#0284c7","#0369a1","#075985","#0c4a6e","#38bdf8","#7dd3fc","#bae6fd","#e0f2fe"];
+const BLUE_PALETTE = ["#5b5bd6","#4949b8","#3a3a94","#2c2c70","#8a8af2","#a3a6f2","#c5c8f9","#e0e3fd"];
 // ★ สีโทนแดง-ชมพู สำหรับ donut ค่าใช้จ่าย
 const PINK_PALETTE = ["#be185d","#9f1239","#db2777","#e11d48","#f43f5e","#fb7185","#fda4af","#fecdd3"];
 // ★ สีสถานะงานช่าง
 const JOB_STATUS_COLORS = {
-  pending:"#f59e0b", progress:"#0284c7", in_progress:"#0284c7",
+  pending:"#f59e0b", progress:"#5b5bd6", in_progress:"#5b5bd6",
   done:"#10b981", delivered:"#6366f1", closed:"#7c3aed", cancelled:"#ef4444"
 };
 const JOB_STATUS_LABELS = {
@@ -434,8 +455,11 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
       isAdmin: isAdminProfile(state.profile),
     })}
 
+    <!-- ═══ PHASE 422: QUICK ACTIONS (mock-F) — nav-only circle buttons ═══ -->
+    ${_quickActions()}
+
     <!-- ═══ TODAY HIGHLIGHT (flat, no gradient hero) ═══ -->
-    <div class="dash-today">
+    <div class="dash-today dash-today--brand">
       <div class="dash-today-main">
         <div class="dash-today-label">ยอดขายวันนี้${isAdminProfile(state.profile) ? "" : ` <span class="dash-badge">เฉพาะของคุณ</span>`}</div>
         <div class="dash-today-amount">${money(todayRevenue)}</div>
@@ -454,9 +478,9 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
     <!-- ═══ KPI GRID — period money (Phase 56: + 7d sparkline) ═══ -->
     <div class="kpi-grid">
       ${_kpiCard({
-        accent: "#0284c7", label: `💰 ยอดขาย ${PERIOD_LABELS[_dashPeriod]}`, value: money(periodRevenue), valueColor: "#0284c7",
+        accent: "#5b5bd6", label: `💰 ยอดขาย ${PERIOD_LABELS[_dashPeriod]}`, value: money(periodRevenue), valueColor: "#5b5bd6",
         sub: `${periodOrders} ออเดอร์${periodWebOrders.length > 0 ? ` · 🛒 ${periodWebOrders.length} เว็บ` : ''}`,
-        spark: `${_sparkline7d(_last7DaysSeries(allSales, "created_at", "total_amount"), "#0284c7")}<div class="kpi-spark-cap">7 วันล่าสุด</div>`,
+        spark: `${_sparkline7d(_last7DaysSeries(allSales, "created_at", "total_amount"), "#5b5bd6")}<div class="kpi-spark-cap">7 วันล่าสุด</div>`,
       })}
       ${_kpiCard({
         accent: "#ef4444", label: `📤 ค่าใช้จ่าย ${PERIOD_LABELS[_dashPeriod]}`, value: money(periodExpenseTotal), valueColor: "#ef4444",
@@ -584,7 +608,7 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
       @media (max-width: 900px) { .pro-grid { grid-template-columns:1fr; } }
       .pro-panel { background:#fff; border:1px solid #e2e8f0; border-radius:14px; padding:18px; display:flex; flex-direction:column; gap:12px; }
       .pro-header { display:flex; align-items:center; justify-content:space-between; gap:8px; }
-      .pro-title { margin:0; font-size:15px; font-weight:800; color:#0284c7; display:flex; align-items:center; gap:6px; }
+      .pro-title { margin:0; font-size:15px; font-weight:800; color:var(--primary2); display:flex; align-items:center; gap:6px; }
       .pro-title.pink { color:#be185d; }
       .pro-range-select { padding:6px 28px 6px 10px; border:1px solid #e2e8f0; border-radius:8px; font-size:12px; font-weight:700; color:#475569; background:#fff; cursor:pointer; }
       .pro-total-row { display:flex; align-items:center; gap:8px; font-size:13px; color:#475569; flex-wrap:wrap; }
@@ -607,7 +631,7 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
             ${[3,6,12].map(n => `<option value="${n}" ${_panelRange.salesByProduct===n?'selected':''}>${MONTH_RANGE_LABELS[n]}</option>`).join('')}
           </select>
         </div>
-        <div class="pro-total-row"><span class="pro-dot" style="background:#0284c7"></span><span>รายได้รวม:</span><strong id="pro-sbp-total" style="color:#0284c7">-</strong></div>
+        <div class="pro-total-row"><span class="pro-dot" style="background:#5b5bd6"></span><span>รายได้รวม:</span><strong id="pro-sbp-total" style="color:var(--primary2)">-</strong></div>
         <div class="pro-donut-wrap">
           <div class="pro-chart-wrap"><canvas id="salesByProductChart"></canvas></div>
           <div class="pro-legend" id="pro-sbp-legend"></div>
@@ -623,7 +647,7 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
           </select>
         </div>
         <div class="pro-total-row">
-          <span class="pro-dot" style="background:#0284c7"></span><span>เก็บเงินแล้ว:</span><strong id="pro-rev-collected" style="color:#0284c7">-</strong>
+          <span class="pro-dot" style="background:#5b5bd6"></span><span>เก็บเงินแล้ว:</span><strong id="pro-rev-collected" style="color:var(--primary2)">-</strong>
           <span class="pro-dot" style="background:#94a3b8;margin-left:10px"></span><span>รายได้รวม:</span><strong id="pro-rev-total" style="color:#475569">-</strong>
         </div>
         <div class="pro-chart-wrap"><canvas id="revenueBarChart"></canvas></div>
@@ -688,7 +712,7 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
           <h3 style="margin:0 0 10px 0">🏆 สินค้าขายดีวันนี้</h3>
           <div style="display:flex;flex-direction:column;gap:6px">
             ${topProducts.map((p,i) => `
-              <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:${i===0?'#eff6ff':'#f8fafc'};border-radius:10px">
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:${i===0?'#eef0ff':'#f8fafc'};border-radius:10px">
                 <div style="display:flex;align-items:center;gap:8px">
                   <span style="font-size:16px;width:24px;text-align:center">${i===0?'🥇':i===1?'🥈':i===2?'🥉':'▪️'}</span>
                   <div>
@@ -696,7 +720,7 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
                     <div style="font-size:11px;color:#94a3b8">${p.qty} ชิ้น</div>
                   </div>
                 </div>
-                <div style="font-size:14px;font-weight:800;color:#0284c7">${money(p.revenue)}</div>
+                <div style="font-size:14px;font-weight:800;color:var(--primary2)">${money(p.revenue)}</div>
               </div>
             `).join("")}
           </div>
@@ -1034,7 +1058,7 @@ function renderRevenueBarPanel(allSales, webOrders) {
       labels,
       datasets: [
         { label:"รายได้รวม", data: total, backgroundColor:"#cbd5e1", borderRadius: 4 },
-        { label:"เก็บเงินแล้ว", data: collected, backgroundColor:"#0284c7", borderRadius: 4 },
+        { label:"เก็บเงินแล้ว", data: collected, backgroundColor:"#5b5bd6", borderRadius: 4 },
       ]
     },
     options: {
@@ -1187,7 +1211,7 @@ function renderChart(sales, expenses) {
   salesChart = new Chart(canvas, {
     type:"line",
     data:{ labels, datasets:[
-      { label:"รายได้",     data:incomeData,  borderColor:"#0284c7", backgroundColor:"rgba(2,132,199,.08)", fill:true, tension:0.3, pointRadius:3, borderWidth:2 },
+      { label:"รายได้",     data:incomeData,  borderColor:"#5b5bd6", backgroundColor:"rgba(91,91,214,.08)", fill:true, tension:0.3, pointRadius:3, borderWidth:2 },
       { label:"ค่าใช้จ่าย", data:expenseData, borderColor:"#ef4444", backgroundColor:"rgba(239,68,68,.08)",  fill:true, tension:0.3, pointRadius:3, borderWidth:2 }
     ]},
     options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{ display:true } }, scales:{ y:{ ticks:{ callback:v=>moneyShort(v) } } } }

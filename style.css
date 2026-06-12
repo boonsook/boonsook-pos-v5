@@ -2262,3 +2262,45 @@ aside.drawer { position: fixed; top: 0; right: 0; }
 [data-theme="dark"] .nav-btn.active { color: #fff; }
 [data-theme="dark"] .nav-group-label,
 [data-theme="dark"] .sidebar-sub { color: #94a3b8; }
+
+/* ========================================================================
+   PHASE 422 - mock-F dashboard layout (build 422)
+   Pairs with modules/dashboard.js _quickActions() + .dash-today--brand.
+   Quick-action circle row (nav-only buttons) + indigo-tinted hero card.
+   ======================================================================== */
+.dash-quick {
+  display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 14px; padding: 12px 8px; box-shadow: var(--shadow);
+}
+.dash-quick-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  background: transparent; border: none; cursor: pointer;
+  font-size: 12px; font-weight: 600; color: var(--muted);
+  padding: 6px 2px; border-radius: 10px; transition: .12s;
+}
+.dash-quick-btn:hover { background: var(--bg); color: var(--primary2); }
+.dash-quick-ic {
+  width: 44px; height: 44px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 19px; flex-shrink: 0;
+}
+.dash-quick-label { line-height: 1.2; white-space: nowrap; }
+@media (max-width: 700px) {
+  .dash-quick { grid-template-columns: repeat(3, 1fr); row-gap: 12px; }
+}
+
+/* -- Hero: indigo-tinted brand card (light) + dark variant ---------------- */
+.dash-today--brand {
+  background: #eef0ff;
+  border: 1px solid #e2e4fb;
+}
+.dash-today--brand .dash-today-label { color: #4949b8; }
+.dash-today--brand .dash-today-amount { color: #33338f; }
+.dash-today--brand .dash-today-sub { color: #6363c9; }
+[data-theme="dark"] .dash-today--brand {
+  background: #262650;
+  border: 1px solid #3a3a7a;
+}
+[data-theme="dark"] .dash-today--brand .dash-today-label { color: #b3b3f5; }
+[data-theme="dark"] .dash-today--brand .dash-today-amount { color: #e0e0ff; }
+[data-theme="dark"] .dash-today--brand .dash-today-sub { color: #9d9df0; }

@@ -56,6 +56,30 @@ test("PHASE 421 skin block exists and restyles the sidebar via tokens", () => {
     "no legacy sky rgba inside the PHASE 421 block");
 });
 
+// ── Phase 422: mock-F dashboard layout (quick actions + brand hero) ──────────
+test("PHASE 422 dashboard layout: quick-action row + brand hero, nav-only", () => {
+  const i = css.indexOf("PHASE 422");
+  assert.ok(i > -1, "PHASE 422 css section must exist");
+  const sect = css.slice(i);
+  assert.match(sect, /\.dash-quick\s*\{/, ".dash-quick row css must exist");
+  assert.match(sect, /\.dash-quick-ic\s*\{/, ".dash-quick-ic circle css must exist");
+  assert.match(sect, /\.dash-today--brand\s*\{/, "brand hero css must exist");
+  assert.match(sect, /\[data-theme="dark"\] \.dash-today--brand/, "brand hero must have a dark variant");
+
+  const dash = fs.readFileSync(path.resolve("modules/dashboard.js"), "utf8");
+  assert.match(dash, /const QUICK_ACTIONS = \[/, "QUICK_ACTIONS list must exist");
+  const qaStart = dash.indexOf("const QUICK_ACTIONS");
+  const qaEnd = dash.indexOf("function _quickActions");
+  assert.ok(qaStart > -1 && qaEnd > qaStart, "_quickActions must follow QUICK_ACTIONS");
+  const qaBlock = dash.slice(qaStart, qaEnd);
+  for (const r of ["pos", "service_jobs", "quotations", "customers", "products", "income_overview"]) {
+    assert.ok(qaBlock.includes(`go: "${r}"`), `quick action route "${r}" must exist`);
+  }
+  assert.match(dash, /dash-quick-btn dash-clickable/,
+    "quick buttons must reuse the dash-clickable[data-go] nav binding (no new handlers)");
+  assert.match(dash, /class="dash-today dash-today--brand"/, "hero must carry the brand modifier");
+});
+
 // ── phase4 design-system stays in sync ───────────────────────────────────────
 test("phase4 design-system primary scale is remapped to indigo", () => {
   assert.match(p4, /--primary-500:\s*#6b6be0/, "--primary-500 must be #6b6be0");

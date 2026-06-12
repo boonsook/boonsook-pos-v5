@@ -7,6 +7,16 @@
 
 ---
 
+## 5.66.0 (build 422) — 2026-06-12 Phase 422 mock-F dashboard layout — ปุ่มลัดวงกลม + hero indigo
+
+- **feat (UI dashboard · display-only — dashboard.js ยังคง read-only ตาม guard):** หน้า "ภาพรวมบริษัท" ปรับตาม mockup แบบ F ต่อจาก 421 — **แถวปุ่มลัดวงกลม 6 ปุ่ม** (ขายสินค้า/เปิดใบงาน/ใบเสนอราคา/ลูกค้า/เช็คสต็อก/รายงาน) บนสุดใต้ header, นำทางผ่าน `dash-clickable[data-go]` binding เดิม (ไม่มี handler/fetch ใหม่) + **hero ยอดขายวันนี้พื้น indigo อ่อน** (`.dash-today--brand` + dark variant)
+- สี display ใน dashboard เปลี่ยน sky → indigo ครบ: KPI accent/sparkline, การ์ด "วันนี้", pro-chart titles/dots, `BLUE_PALETTE` โดนัท, กราฟ Chart.js (เก็บเงินแล้ว bar + เส้นรายได้), แถวธุรกรรมล่าสุด — ตัวเลข/สูตรเงินเดิมทุกตัว ไม่แตะ
+- bump build **422** (data-app-build + ?v= ×4 + sw cache-v422; phase4-*.css คง 421 — cadence อิสระตาม e2e spec) + `dashboard_readonly_guard` → 422
+- guard: `ui_theme_guard` +1 test (PHASE 422 css + QUICK_ACTIONS routes ครบ 6 + ปุ่มใช้ binding เดิม + hero modifier) · `dashboard_ui_guard` ปรับ regex hero รับ modifier (intent เดิม: ไม่มี gradient hero)
+- lint:errors 0 / unit **1559** / e2e **14** · **⏸️ STOP รอ owner smoke preview** (branch เดิม `claude/phase-421-ui-skin-tokens-sidebar`)
+
+---
+
 ## 5.66.0 (build 421) — 2026-06-12 Phase 421 ui-skin-refresh — โทนใหม่ indigo + sidebar ขาว (CSS-only)
 
 - **feat (UI · CSS-only — ไม่แตะ JS/markup/เงิน/สต็อก/บัญชี/SQL):** เปลี่ยน skin ทั้งแอปตามทิศทาง mockup "แบบ F" ที่ owner เลือก — พื้น workspace `#f5f5fb` (lavender อ่อน), primary จาก sky → **indigo `#5b5bd6`** (ทั้ง light+dark), **sidebar จากเข้ม gradient → ขาว (surface)** + ปุ่ม active = indigo ทึบตัวหนังสือขาว — ทำเป็น block "PHASE 421" ท้าย `style.css` ชนะ cascade เหนือ Phase 386 (pattern เดิม รีวิว/ revert ง่าย)

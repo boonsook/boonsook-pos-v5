@@ -157,7 +157,8 @@
 // v419 (2026-06-11): Inventory + technician mobile draft fix cache bump.
 // v420 (2026-06-12): Phase 420 — HR forms: รับสมัครงาน + ใบลาออก (admin-only, additive — ไม่แตะเงิน/สต็อก/บัญชี/POS/payroll). โมดูลใหม่ modules/hr_forms.js + 2 route ใหม่กลุ่ม บุคลากร/HR: (1) hr_applications "📝 รับสมัครงาน" — บันทึกผู้สมัคร + filter chips สถานะ + search + แนบรูปเอกสารหลายรูป (upload storage bucket proofs path applications/ → attachments jsonb [{url,label}] + thumbnail ดูรูปเต็ม) + เปลี่ยนสถานะ (hired → hired_date + เตือน "สร้างบัญชีผู้ใช้เองที่ ตั้งค่า" — ❌ ไม่ auto-สร้าง user) + พิมพ์ฟอร์มเปล่า/ใบสมัคร A4 (escHtml ทุกค่า). (2) hr_resignations "📤 ใบลาออก" — บันทึก + อนุมัติ (App.confirm → PATCH staff_resignations เท่านั้น + เตือนค้างให้แอดมินไปปิดสถานะผู้ใช้เอง — ❌ ไม่ PATCH profiles/ไม่ตัดพนักงานอัตโนมัติ) + พิมพ์หนังสือลาออกทางการ. SQL ใหม่ supabase-phase420-hr-forms.sql (owner รันเองก่อน smoke — 2 ตาราง + RLS admin-only is_accountant + NOTIFY pgrst). ทุก action สำคัญ → logActivity. ไม่มี alert()/native confirm. +guard hr_forms_guard. Bumps CACHE_NAME.
 // v421 (2026-06-12): Phase 421 - UI skin refresh (CSS-only): light sidebar + indigo accent. Tokens in style.css :root (light+dark) + appended "PHASE 421" skin block (sidebar/nav states) + phase4-design-system primary scale remap sky->indigo + phase4-components focus ring. No JS/logic/markup change. Bumps CACHE_NAME.
-const CACHE_NAME = 'boonsook-pos-v5-cache-v421';
+// v422 (2026-06-12): Phase 422 - mock-F dashboard layout: quick-action circle row (_quickActions, nav-only via dash-clickable[data-go]) + indigo hero (.dash-today--brand) + dashboard display colors sky->indigo (KPI accents/sparkline/pro charts/BLUE_PALETTE). dashboard.js stays read-only (guard green). Bumps CACHE_NAME.
+const CACHE_NAME = 'boonsook-pos-v5-cache-v422';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
