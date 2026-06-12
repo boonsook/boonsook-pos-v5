@@ -93,6 +93,12 @@ export function _receiptStatusCounts(receipts = []) {
   };
 }
 
+export function _receiptFinancialTotal(receipts = []) {
+  return receipts
+    .filter(r => String(r?.status || "").toLowerCase() !== "cancelled")
+    .reduce((s, r) => s + Number(r?.grand_total || 0), 0);
+}
+
 // ═══════════════════════════════════════════════════════════
 //  LIST PAGE
 // ═══════════════════════════════════════════════════════════
@@ -164,7 +170,7 @@ export function renderReceiptsPage(ctx) {
         </div>
         <div class="stat-card">
           <div class="stat-label">ยอดรวม</div>
-          <div class="stat-value" style="color:#0284c7">${money(scopedReceipts.reduce((s,r) => s + Number(r.grand_total||0), 0))}</div>
+          <div class="stat-value" style="color:#0284c7">${money(_receiptFinancialTotal(scopedReceipts))}</div>
         </div>
       </div>
 

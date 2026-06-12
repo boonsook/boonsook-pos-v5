@@ -165,7 +165,8 @@
 // v427 (2026-06-12): Phase 427 - remove help-tutor FAB (lightbulb suggestion button) per owner: main.js unwires import/mount/setHelpContext (module kept dormant; #bs-ai-fab service-flow gating untouched) + color sweep r2: customer_dashboard.js all 38 sky accents -> indigo (prices/buttons/tabs/steps/checkout chrome; light-blue product tiles + amber CTA kept). Bumps CACHE_NAME.
 // v428 (2026-06-12): Receipt delete/cancel restore warning fix - surface delivery-invoice status restore failures after receipt delete/cancel.
 // v429 (2026-06-12): Receipt list filter/count alignment - status counters and totals now use the same search/date scope as the visible table.
-const CACHE_NAME = 'boonsook-pos-v5-cache-v429';
+// v430 (2026-06-13): Receipt financial total excludes cancelled receipts from the receipt list summary.
+const CACHE_NAME = 'boonsook-pos-v5-cache-v430';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

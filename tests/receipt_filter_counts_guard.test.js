@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  _receiptFinancialTotal,
   _receiptMatchesSearchDate,
   _receiptStatusCounts
 } from "../modules/receipts.js";
@@ -34,4 +35,14 @@ test("receipt search/date scope matches receipt number, customer, and delivery i
   assert.equal(_receiptMatchesSearchDate(receipt, { cutoff: "2026-06-12", q: "rc202606" }), true);
   assert.equal(_receiptMatchesSearchDate(receipt, { cutoff: "2026-06-12", q: "149" }), true);
   assert.equal(_receiptMatchesSearchDate(receipt, { cutoff: "2026-06-13", q: "" }), false);
+});
+
+test("receipt financial total excludes cancelled receipts", () => {
+  const receipts = [
+    { status: "cancelled", grand_total: 12300 },
+    { status: "paid", grand_total: 800 },
+    { status: "pending", grand_total: 500 }
+  ];
+
+  assert.equal(_receiptFinancialTotal(receipts), 1300);
 });
