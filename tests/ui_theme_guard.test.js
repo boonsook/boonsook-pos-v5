@@ -1,0 +1,66 @@
+// Phase 421 — ui-skin-refresh guard (light sidebar + indigo accent)
+// Run: node --test tests/ui_theme_guard.test.js
+//
+// Why this exists:
+//   Phase 421 is a CSS-ONLY skin refresh toward the owner-approved "mock F"
+//   direction: lavender workspace bg, white (surface) sidebar, solid indigo
+//   active nav pill, indigo primary tokens in both light and dark mode, and
+//   the phase4 design-system primary scale remapped sky -> indigo.
+//   These guards lock the token values and the appended "PHASE 421" skin
+//   block so a later phase cannot silently revert the direction or leave the
+//   two token systems (style.css vs phase4-design-system.css) out of sync.
+//
+// Source-level checks only (same pattern as dashboard_readonly_guard).
+
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+
+const css = fs.readFileSync(path.resolve("style.css"), "utf8");
+const p4 = fs.readFileSync(path.resolve("phase4-design-system.css"), "utf8");
+const p4c = fs.readFileSync(path.resolve("phase4-components.css"), "utf8");
+
+// ── light tokens ──────────────────────────────────────────────────────────────
+test("style.css :root carries the Phase 421 light tokens (lavender bg + indigo pair)", () => {
+  assert.match(css, /--bg:\s*#f5f5fb/, "--bg must be #f5f5fb");
+  assert.match(css, /--line:\s*#e9e9f2/, "--line must be #e9e9f2");
+  assert.match(css, /--primary:\s*#6b6be0/, "--primary must be #6b6be0");
+  assert.match(css, /--primary2:\s*#5b5bd6/, "--primary2 must be #5b5bd6");
+});
+
+// ── dark tokens ───────────────────────────────────────────────────────────────
+test("style.css dark theme uses the indigo pair (legacy sky values gone)", () => {
+  assert.match(css, /--primary:\s*#8a8af2/, "dark --primary must be #8a8af2");
+  assert.match(css, /--primary2:\s*#6b6be0/, "dark --primary2 must be #6b6be0");
+  assert.ok(!/--primary2:\s*#0284c7/.test(css), "legacy sky --primary2 must be gone");
+  assert.ok(!/--primary2:\s*#0ea5e9/.test(css), "legacy sky dark --primary2 must be gone");
+  assert.ok(!/--primary:\s*#0ea5e9/.test(css), "legacy sky --primary must be gone");
+  assert.ok(!/--primary:\s*#38bdf8/.test(css), "legacy sky dark --primary must be gone");
+});
+
+// ── appended skin block (must win the cascade over Phase 386 sidebar rules) ──
+test("PHASE 421 skin block exists and restyles the sidebar via tokens", () => {
+  const i = css.indexOf("PHASE 421");
+  assert.ok(i > -1, "appended PHASE 421 section must exist");
+  const sect = css.slice(i);
+  assert.match(sect, /\.sidebar\s*\{[^}]*background:\s*var\(--surface\)/,
+    "sidebar must be the flat surface card (not the legacy dark gradient)");
+  assert.match(sect, /\.sidebar\s*\{[^}]*border-right:\s*1px solid var\(--line\)/,
+    "sidebar must use the token border");
+  assert.match(sect, /\.nav-btn\.active\s*\{[^}]*background:\s*var\(--primary2\)/,
+    "active nav must be the solid indigo pill");
+  assert.match(sect, /\.nav-btn\.active\s*\{[^}]*box-shadow:\s*none/,
+    "Phase-386 inset left accent must be neutralised in the new skin");
+  assert.ok(!/rgba\(14,\s*165,\s*233/.test(sect),
+    "no legacy sky rgba inside the PHASE 421 block");
+});
+
+// ── phase4 design-system stays in sync ───────────────────────────────────────
+test("phase4 design-system primary scale is remapped to indigo", () => {
+  assert.match(p4, /--primary-500:\s*#6b6be0/, "--primary-500 must be #6b6be0");
+  assert.match(p4, /--primary-600:\s*#5b5bd6/, "--primary-600 must be #5b5bd6");
+  assert.ok(!/--primary-500:\s*#0ea5e9/.test(p4), "legacy sky --primary-500 must be gone");
+  assert.ok(!/--primary-600:\s*#0284c7/.test(p4), "legacy sky --primary-600 must be gone");
+  assert.ok(!/rgba\(14,\s*165,\s*233/.test(p4c), "phase4 focus ring must not be sky");
+});

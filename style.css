@@ -1,12 +1,12 @@
 
 :root {
-  --bg: #f3f5f8;                /* Phase 386: calmer neutral workspace gray (was #eef3f7) */
+  --bg: #f5f5fb;                /* Phase 421: soft indigo-tinted workspace (was #f3f5f8) */
   --surface: #fff;
   --text: #0f172a;
   --muted: #64748b;
-  --line: #e5e7eb;             /* Phase 386: SaaS thin border (was #e2e8f0) */
-  --primary: #0ea5e9;
-  --primary2: #0284c7;
+  --line: #e9e9f2;             /* Phase 421: soft indigo-gray border (was #e5e7eb) */
+  --primary: #6b6be0;          /* Phase 421: indigo accent (was sky #0ea5e9) */
+  --primary2: #5b5bd6;         /* Phase 421: main indigo (was sky #0284c7) */
   --success: #059669;
   --danger: #dc2626;
   --warn: #f59e0b;
@@ -24,8 +24,8 @@
   --text: #f1f5f9;
   --muted: #64748b;
   --line: #334155;
-  --primary: #38bdf8;
-  --primary2: #0ea5e9;
+  --primary: #8a8af2;          /* Phase 421: indigo accent dark (was #38bdf8) */
+  --primary2: #6b6be0;         /* Phase 421: main indigo dark (was #0ea5e9) */
   --success: #34d399;
   --danger: #f87171;
   --warn: #fbbf24;
@@ -2216,3 +2216,49 @@ aside.drawer { position: fixed; top: 0; right: 0; }
    (parent row มี flex-wrap:wrap อยู่แล้ว → ให้ title basis 100% บนจอแคบ → ปุ่มตกบรรทัดถัดไป) */
 .rep-head-main { flex: 1 1 auto; min-width: 200px; }
 @media (max-width: 600px){ .rep-head-main { flex: 1 1 100%; min-width: 0; } }
+
+/* ========================================================================
+   PHASE 421 - UI skin refresh (build 421): light sidebar + indigo accent
+   Token + skin layer ONLY - no logic, no JS, no markup. Direction: the
+   owner-approved "mock F" dashboard concept (white sidebar, solid indigo
+   active pill, lavender workspace bg). Everything below is token-driven
+   (var(--*)) so [data-theme="dark"] keeps working unchanged.
+   Appended last so these win on equal specificity over the Phase 386
+   sidebar rules; easy to review/revert as one block.
+   ======================================================================== */
+
+/* -- Sidebar shell: dark gradient -> flat surface card -------------------- */
+.sidebar {
+  background: var(--surface);
+  color: var(--text);
+  border-right: 1px solid var(--line);
+}
+.sidebar-sub { color: var(--muted); }
+.user-box { background: var(--bg); border: 1px solid var(--line); }
+.user-role { color: var(--primary2); }
+.nav-group-label { color: var(--muted); }
+
+/* -- Nav items: muted text, soft indigo hover, solid indigo active pill -- */
+.nav-btn { color: var(--muted); }
+.nav-btn:hover { background: rgba(91,91,214,.10); color: var(--primary2); }
+.nav-btn.active {
+  background: var(--primary2);
+  color: #fff;
+  box-shadow: none;            /* drop the Phase-386 inset left accent */
+  font-weight: 700;
+}
+.nav-btn.danger { color: var(--danger); }
+.nav-btn.sub { color: var(--muted); }
+.nav-btn.sub:hover,
+.nav-btn.sub.active { background: rgba(91,91,214,.10); color: var(--primary2); font-weight: 700; }
+.nav-group-toggle { color: var(--muted); }
+.nav-group-toggle:hover { background: rgba(91,91,214,.10); color: var(--primary2); }
+.nav-group.open > .nav-group-toggle { background: rgba(91,91,214,.08); color: var(--primary2); }
+
+/* -- Dark mode: keep nav text readable on the dark surface sidebar ------- */
+[data-theme="dark"] .nav-btn,
+[data-theme="dark"] .nav-btn.sub,
+[data-theme="dark"] .nav-group-toggle { color: #cbd5e1; }
+[data-theme="dark"] .nav-btn.active { color: #fff; }
+[data-theme="dark"] .nav-group-label,
+[data-theme="dark"] .sidebar-sub { color: #94a3b8; }

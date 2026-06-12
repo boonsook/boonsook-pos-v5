@@ -9,11 +9,11 @@
   <link rel="icon" type="image/svg+xml" href="./icons/logo.svg" />
   <link rel="manifest" href="./manifest.json" />
   <link rel="apple-touch-icon" href="./icons/logo.svg" />
-  <link rel="stylesheet" href="./style.css?v=420" />
+  <link rel="stylesheet" href="./style.css?v=421" />
   <link rel="stylesheet" href="./doc-print.css?v=1" />
   <!-- ✨ Phase 4: Design System & Components (30/3/2569) -->
-  <link rel="stylesheet" href="./phase4-design-system.css?v=1" />
-  <link rel="stylesheet" href="./phase4-components.css?v=2" />
+  <link rel="stylesheet" href="./phase4-design-system.css?v=421" />
+  <link rel="stylesheet" href="./phase4-components.css?v=421" />
   <!-- Phase 89.2b: pin Chart.js version + ใช้ UMD bundle เพื่อ define window.Chart global -->
   <!-- เดิม cdn.jsdelivr.net/npm/chart.js → resolve เป็น CJS (chart.cjs) → Chart undefined -->
   <!-- Phase 89.5: SRI (Subresource Integrity) — กัน CDN supply-chain attack ถ้า script ถูกแก้ → browser ไม่ execute -->
@@ -856,10 +856,10 @@
        ทำงานก่อน main.js โหลด → ป้องกัน user เห็น version display เก่า
        Phase 89.15: ย้ายออกไป external file + set window.APP_BUILD ให้ pages.js/main.js อ่านได้
        (CSP drop script-src 'unsafe-inline') -->
-  <script src="./selfheal.js?v=420" data-app-build="420" data-app-version="5.66.0"></script>
-  <script type="module" src="./main.js?v=420"></script>
+  <script src="./selfheal.js?v=421" data-app-build="421" data-app-version="5.66.0"></script>
+  <script type="module" src="./main.js?v=421"></script>
   <!-- Phase 89.15: externalized loading overlay + SW update banner (was inline script — drop CSP unsafe-inline) -->
-  <script src="./boot.js?v=420"></script>
+  <script src="./boot.js?v=421"></script>
 
   <!-- AI Assistant Chat Widget (Phase 1) -->
   <script src="./ai-chat-widget.js?v=9"></script>

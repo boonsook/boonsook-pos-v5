@@ -7,6 +7,16 @@
 
 ---
 
+## 5.66.0 (build 421) — 2026-06-12 Phase 421 ui-skin-refresh — โทนใหม่ indigo + sidebar ขาว (CSS-only)
+
+- **feat (UI · CSS-only — ไม่แตะ JS/markup/เงิน/สต็อก/บัญชี/SQL):** เปลี่ยน skin ทั้งแอปตามทิศทาง mockup "แบบ F" ที่ owner เลือก — พื้น workspace `#f5f5fb` (lavender อ่อน), primary จาก sky → **indigo `#5b5bd6`** (ทั้ง light+dark), **sidebar จากเข้ม gradient → ขาว (surface)** + ปุ่ม active = indigo ทึบตัวหนังสือขาว — ทำเป็น block "PHASE 421" ท้าย `style.css` ชนะ cascade เหนือ Phase 386 (pattern เดิม รีวิว/ revert ง่าย)
+- `phase4-design-system.css`: สเกล `--primary-50..900` sky → indigo + focus ring ใน `phase4-components.css` → indigo (ปุ่ม/ฟอร์มชุด phase4 เปลี่ยนตามอัตโนมัติ ไม่แตะ selector)
+- bump build **421** ครบชุด: `data-app-build` + `?v=421` (style/selfheal/main/boot **+ phase4-design-system/phase4-components** จาก v=1/v=2) + sw `cache-v421` + `dashboard_readonly_guard` → 421
+- +guard ใหม่ `tests/ui_theme_guard.test.js` (4 tests: tokens light/dark ไม่มี sky ตกค้าง · block PHASE 421 restyle sidebar/active pill ผ่าน token · phase4 scale sync — กัน phase หลัง revert เงียบ)
+- lint:errors **0** / unit **1558** / e2e **14** · **⏸️ STOP รอ owner review + smoke preview ก่อน merge** (branch `claude/phase-421-ui-skin-tokens-sidebar`) · dashboard layout ตามแบบ F (ปุ่มลัดวงกลม + การ์ดต้องทำวันนี้) = **Phase 422** ถัดไป
+
+---
+
 ## 5.66.0 (build 420) — 2026-06-12 Phase 420 hr-forms — รับสมัครงาน + ใบลาออก (admin-only)
 
 > เลข **build 419 ถูกใช้ไปแล้ว**โดยงาน mobile drafts + service cancel fix (commits `0117013`/`9b651af`/`369ab2f`/`1cf2b66`/`e3930bf` ตรงบน main — ไม่มี entry ใน CHANGELOG) → งานนี้จึงเป็น **420**
