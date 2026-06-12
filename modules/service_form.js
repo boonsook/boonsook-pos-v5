@@ -8,7 +8,7 @@
 //  + รับ serviceType pre-fill ตอน mount
 // ═══════════════════════════════════════════════════════════
 
-// Phase 88.1b+: auto-post JV หลัง save (fire-and-forget)
+// Phase 88.1b+: auto-post JV หลัง save (background, non-blocking)
 import { postJournalForServiceJob } from "./accounting/auto_post.js";
 import { aggregateNeedByKey } from "./stock_precheck.js";
 import { normalizeServiceJobStatus, serviceJobNoteWithReviewMarker } from "./service_status.js";
@@ -653,16 +653,25 @@ export function renderServiceFormPage(ctx, serviceType) {
       // ★ Phase 88.6: auto-post JV ถ้าช่างปิดงาน + เลือก completion status (delivered/closed/done)
       // (default = pending → ไม่ trigger; ต้องเลือก status เพื่อสั่งปิดงาน)
       if (jobId && isClosure) {
-        postJournalForServiceJob({
-          id: jobId,
-          job_no: jobNo,
-          customer_name: name,
-          job_type: cfg.job_type,
-          total_cost: net,
-          status: record.status,
-          payment_method: paymentMethod,  // ★ เพื่อ override Dr account ถ้า transfer
-          created_at: new Date().toISOString()
-        }).catch(e => console.warn("[service_form] auto-post JV failed:", e?.message));
+        void (async () => {
+          const postRes = await postJournalForServiceJob({
+            id: jobId,
+            job_no: jobNo,
+            customer_name: name,
+            job_type: cfg.job_type,
+            total_cost: net,
+            status: record.status,
+            payment_method: paymentMethod,  // ★ เพื่อ override Dr account ถ้า transfer
+            created_at: new Date().toISOString()
+          }, { detailed: true });
+          if (postRes?.status === "failed") {
+            console.warn("[service_form] auto-post JV failed:", postRes.reason, postRes.error || "");
+            showToast("บันทึกใบงานแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจ Service Reconcile/Backfill", "warn");
+          }
+        })().catch(e => {
+          console.warn("[service_form] auto-post JV failed:", e?.message);
+          showToast("บันทึกใบงานแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจ Service Reconcile/Backfill", "warn");
+        });
       }
 
       _renderAfterSaveActions(container, ctx, serviceType);

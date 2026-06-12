@@ -657,16 +657,25 @@ export function renderAcInstallPage(ctx) {
 
       // ★ Phase 88.12: auto-post JV ถ้าช่างปิดงานทันที (delivered/closed/done)
       if (jobId && isClosure) {
-        postJournalForServiceJob({
-          id: jobId,
-          job_no: jobNo,
-          customer_name: name,
-          job_type: "ac",  // install_ac → mapping service_install_ac → 4200
-          total_cost: net,
-          status: selectedStatus,
-          payment_method: paymentMethod,
-          created_at: new Date().toISOString()
-        }).catch(e => console.warn("[ac_install] auto-post JV failed:", e?.message));
+        void (async () => {
+          const postRes = await postJournalForServiceJob({
+            id: jobId,
+            job_no: jobNo,
+            customer_name: name,
+            job_type: "ac",  // install_ac → mapping service_install_ac → 4200
+            total_cost: net,
+            status: selectedStatus,
+            payment_method: paymentMethod,
+            created_at: new Date().toISOString()
+          }, { detailed: true });
+          if (postRes?.status === "failed") {
+            console.warn("[ac_install] auto-post JV failed:", postRes.reason, postRes.error || "");
+            showToast("บันทึกใบงานแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจ Service Reconcile/Backfill", "warn");
+          }
+        })().catch(e => {
+          console.warn("[ac_install] auto-post JV failed:", e?.message);
+          showToast("บันทึกใบงานแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจ Service Reconcile/Backfill", "warn");
+        });
       }
 
       // ★ Phase 41 — แสดงปุ่มหลังบันทึก: ดูใบเสร็จ / ส่ง LINE / สร้างใบใหม่

@@ -830,16 +830,25 @@ export function renderSolarPage(ctx) {
 
       // ★ Phase 88.12: auto-post JV ถ้าปิดงานทันที
       if (jobId && isClosure) {
-        postJournalForServiceJob({
-          id: jobId,
-          job_no: jobNo,
-          customer_name: name,
-          job_type: "solar",  // Phase 88.16 → mapping service_solar → Cr 4300
-          total_cost: net,
-          status: selectedStatus,
-          payment_method: paymentMethod,
-          created_at: new Date().toISOString()
-        }).catch(e => console.warn("[solar] auto-post JV failed:", e?.message));
+        void (async () => {
+          const postRes = await postJournalForServiceJob({
+            id: jobId,
+            job_no: jobNo,
+            customer_name: name,
+            job_type: "solar",  // Phase 88.16 → mapping service_solar → Cr 4300
+            total_cost: net,
+            status: selectedStatus,
+            payment_method: paymentMethod,
+            created_at: new Date().toISOString()
+          }, { detailed: true });
+          if (postRes?.status === "failed") {
+            console.warn("[solar] auto-post JV failed:", postRes.reason, postRes.error || "");
+            showToast("บันทึกใบงานแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจ Service Reconcile/Backfill", "warn");
+          }
+        })().catch(e => {
+          console.warn("[solar] auto-post JV failed:", e?.message);
+          showToast("บันทึกใบงานแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจ Service Reconcile/Backfill", "warn");
+        });
       }
 
       // Phase 88.13: เคลียร์ items + reset price (กรณี user save แล้วทำใบใหม่)

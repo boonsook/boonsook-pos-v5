@@ -68,13 +68,14 @@ test("main.js _fillReceiptAcctTrace: display-only (ไม่ write/post/ตั�
     "badge trace ต้องเป็น display-only — ห้าม write/post/ตัดสต็อก");
 });
 
-test("pos.js: checkout flow ไม่ถูกแตะ (auto-post .catch เดิมคงอยู่ · ไม่มี refresh hook ใน money path)", () => {
+test("pos.js: checkout auto-post stays background but uses detailed failure visibility", () => {
   const idx = posJs.indexOf("postJournalForSale({");
   assert.ok(idx >= 0, "doCheckout ต้องเรียก postJournalForSale");
-  const region = posJs.slice(idx, idx + 500);
-  // post ยัง fire-and-forget + .catch เดิม — fix อยู่ใน display ล้วน ไม่ผูก checkout
-  assert.match(region, /\}\)\.catch\(\s*e\s*=>\s*console\.warn\(\s*["']\[pos\] auto-post JV failed:/,
-    ".catch ของ auto-post เดิมต้องคงอยู่ (checkout flow ไม่เปลี่ยน)");
+  const region = posJs.slice(idx - 120, idx + 900);
+  assert.match(region, /void\s*\(\s*async\s*\(\)\s*=>/, "auto-post must remain a background task, not block checkout");
+  assert.match(region, /postJournalForSale\([\s\S]+,\s*\{\s*detailed:\s*true\s*\}/, "auto-post must request detailed result");
+  assert.match(region, /postRes\?\.status\s*===\s*["']failed["']/, "failed JV result must be detected");
+  assert.match(region, /ลงบัญชีอัตโนมัติไม่สำเร็จ/, "failed JV result must warn the user");
   assert.ok(!region.includes("_appRefreshReceiptAcctTrace") && !region.includes("ReceiptAcctTrace"),
     "checkout flow (money path) ต้องไม่มี hook ของ badge — fix เป็น display-only ใน main.js");
 });

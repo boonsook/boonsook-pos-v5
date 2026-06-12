@@ -3,7 +3,7 @@ function money(n){return new Intl.NumberFormat("th-TH",{style:"currency",currenc
 function moneyNum(n){return new Intl.NumberFormat("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(n||0));}
 
 import { escHtml, visibleSalesForRole, isAdminProfile } from "./utils.js";
-// Phase 88.1a: auto-post JV หลังบันทึกการขาย (fire-and-forget)
+// Phase 88.1a: auto-post JV หลังบันทึกการขาย (background, non-blocking)
 import { postJournalForSale } from "./accounting/auto_post.js";
 // Phase 89.42: single-flight guard for POS checkout (replaces brittle window._checkoutRunning manual flag)
 import { createInflightGuard } from "./_inflight_guard.js";
@@ -1250,15 +1250,24 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
     try { openReceiptDrawer(); } catch (e) { console.warn("openReceiptDrawer error:", e); }
     try { if (window.App?.loadAllData) await window.App.loadAllData(); } catch (e) { console.warn("[pos] loadAllData after checkout failed:", e); }
 
-    // ★ Phase 88.1a — auto-post JV (fire-and-forget, ไม่ block UX)
+    // ★ Phase 88.1a — auto-post JV (background, ไม่ block UX)
     // ★ Phase 89.1 FIX: spread salePayload เข้าไป → ส่ง note (BANK_COA) + vat_amount/rate/subtotal_before_vat
     //   เดิม pass แค่ 6 fields → Phase 88.20 (bank picker) + 88.21 (VAT split) พังเงียบ
     //   เพราะ postJournalForSale อ่าน sale.note (regex BANK_COA) + sale.vat_amount ไม่เจอ
-    postJournalForSale({
-      ...salePayload,
-      id: saleId,
-      created_at: new Date().toISOString()
-    }).catch(e => console.warn("[pos] auto-post JV failed:", e?.message));
+    void (async () => {
+      const postRes = await postJournalForSale({
+        ...salePayload,
+        id: saleId,
+        created_at: new Date().toISOString()
+      }, { detailed: true });
+      if (postRes?.status === "failed") {
+        console.warn("[pos] auto-post JV failed:", postRes.reason, postRes.error || "");
+        window.App?.showToast?.("บันทึกขายแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจสมุดรายวัน/Backfill", "warn");
+      }
+    })().catch(e => {
+      console.warn("[pos] auto-post JV failed:", e?.message);
+      window.App?.showToast?.("บันทึกขายแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจสมุดรายวัน/Backfill", "warn");
+    });
 
     // ★ Phase 91.1 — auto-earn loyalty points for the customer (fire-and-forget).
     // Silent skip when: no customer selected / loyalty system off / rate not configured.
