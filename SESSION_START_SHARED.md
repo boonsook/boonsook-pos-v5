@@ -1,6 +1,6 @@
 # Boonsook POS V5 - Shared Session Start
 
-Last updated: 2026-06-12 (Phase 420 hr-forms — **build 420** บน branch `claude/phase-420-hr-forms` · ⏸️ STOP รอ owner review + รัน supabase-phase420-hr-forms.sql + smoke preview — ⚠️ เลข 419 ถูกใช้แล้วโดยทีม mobile drafts ตรงบน main) · เริ่มบัญชีจริง 1 ก.ค. 2569 (ก่อนนั้น = test, ไม่ post JV)
+Last updated: 2026-06-12 (Phase 420 hr-forms — **build 420** บน branch `claude/phase-420-hr-forms` · ✅ merged ff `e06882d` = build 420 live · review+SQL applied+smoke PASSED) · เริ่มบัญชีจริง 1 ก.ค. 2569 (ก่อนนั้น = test, ไม่ post JV)
 
 Purpose: this is the common first-read note for Codex, Claude, or any next agent opening a fresh session on this project. Read this before changing files so both teams start from the same facts.
 
