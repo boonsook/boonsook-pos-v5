@@ -12,7 +12,7 @@
 - **feat (UI · display-only):** สี indigo ทั้งระบบกลับเป็น **สีฟ้า sky เดิม** ตาม owner — tokens `--primary/--primary2` (light: `#0ea5e9/#0284c7` · dark: `#38bdf8/#0ea5e9`), `--bg` เป็นเทาอมฟ้า `#e8eef7` (คงความเข้มจาก 424 แต่เลิกอมม่วง), wash พื้นหลังเป็นฟ้า→ฟ้าอ่อน, hero/การ์ด/tile/ปุ่มลัด/donut/กราฟ/focus ring/gradient ทุกจุด (style.css + phase4 scale revert + dashboard.js + pos.js + customer_dashboard.js + hrx-hero ของ hr_overview ที่ใช้ indigo เก่า)
 - **โครงทุกอย่างคงเดิม** (sidebar ขาว/จัดกลุ่ม, dashboard layout, การ์ดต้องทำวันนี้ ฯลฯ — เปลี่ยนเฉพาะ hue) · **หน้า products ไม่ต้องไล่แล้ว** — 35 จุดเดิมเป็นสีฟ้าอยู่แล้ว = ตรงโทนใหม่พอดี (คิวไล่สีที่เหลือ = ปรับเป็น token เฉย ๆ ไม่เร่ง)
 - bump build **431** + guard ปรับด้านล็อกโทนฟ้า (`ui_theme_guard` ห้ามมี indigo ตกค้าง + `dashboard_readonly_guard` → 431)
-- lint:errors 0 / unit **1570** / e2e **14** · **⏸️ STOP รอ owner ดู preview แล้วสั่ง merge**
+- lint:errors 0 / unit **1570** / e2e **14** · ✅ **merged = build 431 live** (owner ดู preview แล้วสั่ง "ถ้าเทสผ่าน ก็ merge ได้", 2026-06-13 — ff push `branch:main` ไม่แตะ worktree เพราะทีมขนานกำลังแก้ไฟล์อยู่)
 
 ---
 

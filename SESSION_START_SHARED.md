@@ -1,6 +1,6 @@
 # Boonsook POS V5 - Shared Session Start
 
-Last updated: 2026-06-13 (Phase 431 blue-skin — **build 431** บน branch `claude/phase-431-blue-skin` · ⏸️ STOP รอ owner ดู preview; origin/main = **build 430 live** — UI 426+427 merged + ทีมขนาน receipts 428 `829a990`/429 `967d5da`/430 `d59e371`, CI เขียวครบ) · เริ่มบัญชีจริง 1 ก.ค. 2569 (ก่อนนั้น = test, ไม่ post JV)
+Last updated: 2026-06-13 (Phase 431 blue-skin — ✅ **merged = build 431 live** (`6a09fa3`) · owner สั่ง "ถ้าเทสผ่าน ก็ merge ได้" · live verified · ⚠️ กติกา owner: ต่างคนต่างแก้งานตัวเอง — commit ด้วย explicit file list เท่านั้น ห้าม `git add -A` (ทีมขนานมีงาน financial-cancelled ค้างใน worktree)) · เริ่มบัญชีจริง 1 ก.ค. 2569 (ก่อนนั้น = test, ไม่ post JV)
 
 Purpose: this is the common first-read note for Codex, Claude, or any next agent opening a fresh session on this project. Read this before changing files so both teams start from the same facts.
 
@@ -13,7 +13,7 @@ Prompt quality: read `PROMPT_PHASE_BRIEF_SKILL.md` before drafting, reviewing, o
 
 - Project: Boonsook POS V5 PRO, Thai POS PWA.
 - Workspace: `C:\Users\Lenovo E14 Gen4\Documents\boonsuk v5\boonsook-pos-v5-github`
-- Main app version: `5.66.0` (**build 430 live บน origin/main**; build 431 (blue skin) บน branch `claude/phase-431-blue-skin` ⏸️ รอ owner ดู preview — ลำดับ: ui-redesign 421-423 `f9bfcc0` → 424-425 `01f3c09` → 426-427 → ทีมขนาน receipts 428-430 (`829a990`/`967d5da`/`d59e371`) · CI เขียวครบทุกชุด; smoke เต็มบน live = ค้าง owner ยืนยัน)
+- Main app version: `5.66.0` (**build 431 live บน origin/main** = `6a09fa3` blue-skin — ลำดับ: ui-redesign 421-423 `f9bfcc0` → 424-425 `01f3c09` → 426-427 → ทีมขนาน receipts 428-430 → 431 ฟ้า · CI เขียวครบทุกชุด · **โทนทางการปัจจุบัน = สีฟ้า sky (`--primary2 #0284c7`) — indigo ถูกยกเลิกโดย owner "ม่วงแสบตา"**)
 - 🆕 build 431 = **Phase 431 blue-skin** (**UI · display-only — เปลี่ยน hue เท่านั้น**): owner "ม่วงแสบตา" → indigo ทั้งระบบกลับ **sky blue เดิม** (tokens light/dark + gradient/tint/ring/hover ทุกจุดใน style.css, phase4 scale revert, dashboard.js/pos.js/customer_dashboard.js + hrx-hero ของ hr_overview ที่เป็น indigo เก่า) · `--bg #e8eef7` เทาอมฟ้า (คงความเข้ม 424) + wash ฟ้า · โครง 421-427 คงเดิมหมด · **products ไม่ต้องไล่สีแล้ว** (35 จุดเป็น sky อยู่แล้ว; คิวที่เหลือ = normalize เป็น var เฉย ๆ ไม่เร่ง) · guard ปรับด้าน (ห้าม indigo ตกค้าง) · bump 431 ครบ · lint 0 / unit **1570** / e2e **14**
 - 🆕 build 428-430 = **ทีมขนาน receipts hardening ×3** (ไม่มี entry ตอน push — บันทึกย้อนหลัง): 428 = bulk delete ใบเสร็จจับผล PATCH คืนสถานะใบส่งสินค้า + toast เตือนเมื่อ fail (เดิมเงียบ) + guard · 429 = ตัวนับ filter หน้าใบเสร็จตรงเงื่อนไขจริง + guard · 430 = ยอดรวมหน้าใบเสร็จไม่นับใบยกเลิก + guard · bump ครบทุกตัว
 - 🆕 build 427 = **Phase 427 remove-help-fab + sweep-customer-dashboard** (**UI · display-only**): ถอดปุ่มคำแนะนำหลอดไฟ `#bs-help-fab` ทุกหน้า (main.js unwire 3 จุด — help_tutor.js dormant; `#bs-ai-fab` ผู้ช่วยช่าง gating เดิม **ไม่แตะ** + guard ล็อก; AI ขายแอร์ = หน้าแยก `ai_sales` ในกลุ่มหน้าร้านแอร์อยู่แล้ว) + ไล่สี customer_dashboard ครบ 38 จุด sky→indigo (คงธีมการ์ดสินค้าฟ้าอ่อน/CTA ส้ม/สถานะ) · bump 427 + ui_theme_guard +1 · lint 0 / unit **1567** / e2e **14** · คิวต่อ: products 35 / hr 16 / payroll 13 / leave 13 / DI 12 / quotations 11 / service_jobs 10
