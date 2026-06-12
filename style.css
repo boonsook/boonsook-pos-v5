@@ -1,6 +1,6 @@
 
 :root {
-  --bg: #f5f5fb;                /* Phase 421: soft indigo-tinted workspace (was #f3f5f8) */
+  --bg: #eaedf8;                /* Phase 424: deeper indigo tint — owner: เดิมสว่างเกิน (was #f5f5fb) */
   --surface: #fff;
   --text: #0f172a;
   --muted: #64748b;
@@ -2352,3 +2352,15 @@ aside.drawer { position: fixed; top: 0; right: 0; }
   display: grid; place-items: center; font-size: 17px;
 }
 .kpi-tile .kpi-label, .kpi-tile .kpi-value, .kpi-tile .kpi-sub { grid-column: 2; }
+
+/* ========================================================================
+   PHASE 424 - workspace wash (build 424)
+   Owner feedback: พื้นหลังสว่าง/ขาวเกิน. Deeper indigo workspace token
+   (--bg #eaedf8) + soft lavender->pink page wash like the original
+   reference image. Cards/sidebar stay white surfaces so they pop.
+   Dark theme keeps its flat token bg (no wash).
+   ======================================================================== */
+body {
+  background: linear-gradient(160deg, #e8ebf8 0%, #eee9f6 55%, #f5ecf1 100%);
+}
+[data-theme="dark"] body { background: var(--bg); }

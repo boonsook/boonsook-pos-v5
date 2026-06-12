@@ -7,6 +7,14 @@
 
 ---
 
+## 5.66.0 (build 424) — 2026-06-12 Phase 424 workspace wash — พื้นหลังเข้มขึ้น + wash ม่วง→ชมพู (CSS-only)
+
+- **fix (UI · CSS-only):** owner feedback "พื้นหลังสว่างเกิน" — `--bg` ลึกขึ้น `#f5f5fb → #eaedf8` (indigo tint ชัดขึ้น การ์ด/sidebar ขาวเด้งจากพื้น) + **body wash gradient ม่วงอ่อน→ชมพูอ่อน** (`linear-gradient(160deg, #e8ebf8 → #eee9f6 → #f5ecf1)`) ตามบรรยากาศภาพต้นแบบ; dark theme คงพื้นเรียบ token เดิม (override `[data-theme="dark"] body`)
+- bump build **424** (data-app-build + ?v= ×4 + sw cache-v424) + `dashboard_readonly_guard` → 424 · `ui_theme_guard`: ปรับ assertion `--bg` + เพิ่ม test PHASE 424 (wash มีจริง + dark เรียบ)
+- lint:errors 0 / unit **1561** / e2e **14** · **⏸️ STOP รอ owner ดู preview แล้วสั่ง merge**
+
+---
+
 ## 5.66.0 (build 423) — 2026-06-12 Phase 423 mock-F finishing pass — การ์ดต้องทำวันนี้ + โดนัทช่องทาง + stat tiles
 
 - **feat (UI dashboard · display-only — dashboard.js คง read-only):** เก็บงานตามแบบ F ให้ครบ: (1) **รวมการ์ด "วันนี้" + "ที่ต้องดู" เป็น "📌 ต้องทำวันนี้" ใบเดียว** — แถวละเรื่อง (งานช่างวันนี้/งานเลท/ของใกล้หมด/ใบเสนอราคาใกล้หมดอายุ/หนี้เกินกำหนด/รายจ่ายประจำ) ไอคอนสี่เหลี่ยมสี + ตัวนับ + กดไปหน้านั้น (binding เดิม) — เงื่อนไข/ตัวนับเดิมทุกตัว; คำเตือนของใกล้หมดย้ายจาก hero chip มาอยู่การ์ดนี้ (hero สะอาดขึ้น)

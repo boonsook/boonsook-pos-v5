@@ -23,7 +23,8 @@ const p4c = fs.readFileSync(path.resolve("phase4-components.css"), "utf8");
 
 // ── light tokens ──────────────────────────────────────────────────────────────
 test("style.css :root carries the Phase 421 light tokens (lavender bg + indigo pair)", () => {
-  assert.match(css, /--bg:\s*#f5f5fb/, "--bg must be #f5f5fb");
+  // Phase 424: --bg deepened (#f5f5fb -> #eaedf8) per owner feedback (too bright)
+  assert.match(css, /--bg:\s*#eaedf8/, "--bg must be #eaedf8");
   assert.match(css, /--line:\s*#e9e9f2/, "--line must be #e9e9f2");
   assert.match(css, /--primary:\s*#6b6be0/, "--primary must be #6b6be0");
   assert.match(css, /--primary2:\s*#5b5bd6/, "--primary2 must be #5b5bd6");
@@ -98,6 +99,15 @@ test("PHASE 423: merged todo card, channel donut (honest caption), kpi tiles", (
   for (const r of ["service_jobs", "products", "quotations", "credit_tracker", "recurring_expenses"]) {
     assert.ok(dash.includes(`go: "${r}"`) || dash.includes(`data-go="${r}"`), `todo row route "${r}" must be preserved`);
   }
+});
+
+// ── Phase 424: workspace wash (deeper bg + light-theme page gradient) ────────
+test("PHASE 424: page wash gradient exists, dark theme stays flat", () => {
+  const i = css.indexOf("PHASE 424");
+  assert.ok(i > -1, "PHASE 424 css section must exist");
+  const sect = css.slice(i);
+  assert.match(sect, /body\s*\{[^}]*linear-gradient\(160deg/, "light body must carry the soft wash gradient");
+  assert.match(sect, /\[data-theme="dark"\] body \{ background: var\(--bg\); \}/, "dark body must stay flat token bg");
 });
 
 // ── phase4 design-system stays in sync ───────────────────────────────────────

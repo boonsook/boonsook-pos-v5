@@ -159,7 +159,8 @@
 // v421 (2026-06-12): Phase 421 - UI skin refresh (CSS-only): light sidebar + indigo accent. Tokens in style.css :root (light+dark) + appended "PHASE 421" skin block (sidebar/nav states) + phase4-design-system primary scale remap sky->indigo + phase4-components focus ring. No JS/logic/markup change. Bumps CACHE_NAME.
 // v422 (2026-06-12): Phase 422 - mock-F dashboard layout: quick-action circle row (_quickActions, nav-only via dash-clickable[data-go]) + indigo hero (.dash-today--brand) + dashboard display colors sky->indigo (KPI accents/sparkline/pro charts/BLUE_PALETTE). dashboard.js stays read-only (guard green). Bumps CACHE_NAME.
 // v423 (2026-06-12): Phase 423 - mock-F finishing pass: merged "todo today" card (dash-todo, รวม วันนี้/ที่ต้องดู/ของใกล้หมด + hero chip ย้ายเข้า) + sales-by-channel SVG donut (display-only จาก state, honest cap caption) + stat tiles icon circles (kpi-tile) + tighter quick row. dashboard.js still read-only (guards green). Bumps CACHE_NAME.
-const CACHE_NAME = 'boonsook-pos-v5-cache-v423';
+// v424 (2026-06-12): Phase 424 - workspace wash: deeper indigo --bg (#eaedf8, owner: too bright) + light-theme body lavender->pink gradient wash (reference-image look); dark theme stays flat token bg. CSS-only. Bumps CACHE_NAME.
+const CACHE_NAME = 'boonsook-pos-v5-cache-v424';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
