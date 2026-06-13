@@ -210,6 +210,10 @@ function renderView(ctx, opts = {}) {
   const products = state.products || [];
   const warehouses = state.warehouses || [];
 
+  // Phase 434: ช่าง (technician) ดูสต็อกได้ แต่ "ไม่เห็นต้นทุน" + ไม่จัดการสินค้า — ปุ่ม นำเข้า/เพิ่ม/ส่งออก/แก้ไข/รับสต็อก
+  //   ทั้งหมดเป็นจุดที่เห็น/แก้ต้นทุน → เปิดเฉพาะ admin/sales. หน้านี้สำหรับช่าง = read-only (ดูชื่อ+สต็อก) เบิก/ตัดทำที่ ประวัติสต็อก
+  const canManageProducts = ["admin", "sales"].includes(state.profile?.role);
+
   // ★ ถ้าเลือกคลังเฉพาะ → กรองเฉพาะสินค้าที่มี stock > 0 ใน warehouse_stock ของคลังนั้น
   // ★ "none" = warehouse หาไม่เจอ → แสดง 0 รายการ
   let filtered;
@@ -327,6 +331,7 @@ function renderView(ctx, opts = {}) {
           <div class="sku">${escHtml(whName)} ${countTypeAll} รายการ</div>
         </div>
         <div class="prod-header-actions" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+          ${canManageProducts ? `
           <button id="prodImportBtn" class="btn light" style="font-size:12px;padding:6px 10px">นำเข้า</button>
           <button id="prodAddBtn" class="btn primary" style="font-size:12px;padding:6px 12px">${
             currentTypeFilter === 'service' ? '+ เพิ่มบริการ' :
@@ -347,6 +352,7 @@ function renderView(ctx, opts = {}) {
               <button id="prodDeleteAllBtn" class="prod-more-item prod-more-danger" title="ลบสินค้าทั้งหมดเพื่อนำเข้าใหม่">🗑️ ลบทั้งหมด</button>
             </div>
           </details>
+          ` : ''}
         </div>
       </div>
 
@@ -932,6 +938,8 @@ function renderProductItem(p, mode, state) {
   const skuStr = p.sku ? escHtml(p.sku) : "";
 
   const isAdmin = (state.profile?.role === "admin");
+  // Phase 434: แก้ไข/รับสต็อก = จุดเห็น/แก้ต้นทุน → เฉพาะ admin/sales (ช่าง read-only); QR/พิมพ์บาร์โค้ด คงไว้ (ไม่มีต้นทุน)
+  const canManageCard = ["admin", "sales"].includes(state.profile?.role);
 
   // ★ Multi-warehouse breakdown — สำหรับสินค้านับสต็อก (pType === stock)
   let whBreakdown = "";
@@ -973,8 +981,8 @@ function renderProductItem(p, mode, state) {
   // ★ Per-card action menu — เก็บปุ่มรองไว้ใต้ "⋯" (inline disclosure กัน clip จาก .prod-list/.panel overflow).
   //   data-action / id เดิมครบ → event delegation เดิมทำงานต่อทุกปุ่ม. ปุ่มด่วน "+ บิล" อยู่นอกเมนู.
   const _cardMenuItems = [
-    `<button class="prod-cardmenu-item" data-prod-edit="${p.id}">✏️ แก้ไข</button>`,
-    pType === "stock" ? `<button class="prod-cardmenu-item" data-prod-stockin="${p.id}" title="รับสต็อกเข้า">📦 รับสต็อก/กล่อง</button>` : '',
+    canManageCard ? `<button class="prod-cardmenu-item" data-prod-edit="${p.id}">✏️ แก้ไข</button>` : '',
+    canManageCard && pType === "stock" ? `<button class="prod-cardmenu-item" data-prod-stockin="${p.id}" title="รับสต็อกเข้า">📦 รับสต็อก/กล่อง</button>` : '',
     pType === "stock" && (p.barcode || p.sku) ? `<button class="prod-cardmenu-item" data-qr-prod="${p.id}" title="QR Code สินค้า">📱 QR code</button>` : '',
     pType === "stock" && p.barcode ? `<button class="prod-cardmenu-item" data-prod-print="${p.id}" title="พิมพ์บาร์โค้ด">🖨️ พิมพ์บาร์โค้ด</button>` : '',
     isAdmin ? `<button class="prod-cardmenu-item prod-cardmenu-danger" data-prod-del="${p.id}" title="ลบสินค้า">🗑️ ลบสินค้า</button>` : '',

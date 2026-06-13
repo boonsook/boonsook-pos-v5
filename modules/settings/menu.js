@@ -65,11 +65,10 @@ export function renderSettingsMainMenu(el, ctx, goBack, navigate) {
         <span class="set-menu-label">ตั้งค่าการชำระเงิน</span>
         <span class="set-menu-arrow">›</span>
       </button>
-      <button class="set-menu-item" data-action="navigate" data-target="permissions">
-        <span class="set-menu-icon">🔐</span>
-        <span class="set-menu-label">สิทธิ์การใช้งาน</span>
-        <span class="set-menu-arrow">›</span>
-      </button>
+      <!-- Phase 434: ซ่อนเมนู "สิทธิ์การใช้งาน" — ตารางสิทธิ์เดิมเป็น UI ที่ไม่ได้ผูกกับการบังคับสิทธิ์จริง
+           (hasPermission ไม่เคยถูกเรียกใช้) → กันเข้าใจผิดว่าตั้งสิทธิ์ได้. สิทธิ์จริงคุมที่ role (ROLE_PAGES)
+           ตั้ง role ผู้ใช้ที่ "ตั้งค่าผู้ใช้งาน". route ยังอยู่แต่แสดงข้อความปิดปรับปรุง (permissions.js) -->
+      <!-- ปุ่มเมนูสิทธิ์เดิมถูกถอดออกที่นี่ -->
       <button class="set-menu-item" data-action="navigate" data-target="ac-catalog">
         <span class="set-menu-icon">❄️</span>
         <span class="set-menu-label">จัดการแคตตาล็อกแอร์</span>

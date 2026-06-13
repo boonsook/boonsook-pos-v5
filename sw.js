@@ -169,7 +169,8 @@
 // v431 (2026-06-13): Phase 431 - blue skin (owner: indigo too harsh on the eyes) - all indigo accents -> original sky blue across style.css tokens/blocks, phase4 primary scale (reverted), dashboard.js, pos.js, customer_dashboard.js, hr_overview hero; layout/structure from 421-427 unchanged. products.js sweep skipped (already sky = now correct). Bumps CACHE_NAME.
 // v432 (2026-06-13): Finance stability - cancelled sales/docs excluded from dashboard/report/customer lookup totals; VAT remains off until explicitly enabled and vatEffectiveDate is reached.
 // v433 (2026-06-13): Phase 433 - payroll double-pay race guard (MONEY): _markPaid PATCH is now CAS (&paid_at=is.null + Prefer return=representation) - race loser gets empty rows and bails BEFORE expense/JV side-effects (+ payroll_pay_race_blocked audit). DB backstop trigger trg_guard_payroll_double_pay in supabase-phase433-payroll-pay-guard.sql (owner must run) locks paid_at once set (blocks re-pay + stale-edit clearing). +payroll_pay_race_guard tests. Bumps CACHE_NAME.
-const CACHE_NAME = 'boonsook-pos-v5-cache-v433';
+// v434 (2026-06-13): Phase 434 - technician stock access: ROLE_PAGES.technician += products/wh_*/stock_movements/stock_count (เบิกขึ้นรถ + ตัดสต็อกเอง; รับเข้า/มูลค่าสต็อก ไม่เปิด = cost). products.js gates manage+cost surfaces (import/add/export header + per-card edit/stock-in) to admin/sales → technician = read-only no-cost view. Hide non-functional permission matrix page (menu entry removed + page shows maintenance notice; hasPermission was never enforced). Bumps CACHE_NAME.
+const CACHE_NAME = 'boonsook-pos-v5-cache-v434';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
