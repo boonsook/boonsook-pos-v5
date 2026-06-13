@@ -5,6 +5,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { round2, calcVAT } from "../modules/pos.js";
 
+const VAT_ACTIVE = { vatEnabled: true, vatRate: 7, vatEffectiveDate: "2026-07-01" };
+
 // ═══════════════════════════════════════════════════════════
 //  round2 — money rounding to 2 decimal places
 // ═══════════════════════════════════════════════════════════
@@ -48,7 +50,7 @@ test("calcVAT — disabled (vatEnabled=false): returns amount as-is, vat=0", () 
 });
 
 test("calcVAT — disabled when rate=0 even if vatEnabled=true", () => {
-  const r = calcVAT(1000, { vatEnabled: true, vatRate: 0 });
+  const r = calcVAT(1000, { vatEnabled: true, vatRate: 0, vatEffectiveDate: "2026-07-01" }, "2026-07-01");
   assert.equal(r.enabled, false);
   assert.equal(r.vat, 0);
   assert.equal(r.total, 1000);
@@ -65,7 +67,7 @@ test("calcVAT — null/missing paymentInfo → disabled, no crash", () => {
 });
 
 test("calcVAT inclusive — 107 with 7% VAT → subtotal 100, vat 7", () => {
-  const r = calcVAT(107, { vatEnabled: true, vatRate: 7, vatPriceMode: "inclusive" });
+  const r = calcVAT(107, { ...VAT_ACTIVE, vatPriceMode: "inclusive" }, "2026-07-01");
   assert.equal(r.enabled, true);
   assert.equal(r.mode, "inclusive");
   assert.equal(r.subtotal, 100);
@@ -74,14 +76,14 @@ test("calcVAT inclusive — 107 with 7% VAT → subtotal 100, vat 7", () => {
 });
 
 test("calcVAT inclusive — default mode when vatPriceMode missing", () => {
-  const r = calcVAT(107, { vatEnabled: true, vatRate: 7 });
+  const r = calcVAT(107, VAT_ACTIVE, "2026-07-01");
   assert.equal(r.mode, "inclusive", "default should be inclusive");
   assert.equal(r.subtotal, 100);
   assert.equal(r.vat, 7);
 });
 
 test("calcVAT exclusive — 100 + 7% VAT → vat 7, total 107", () => {
-  const r = calcVAT(100, { vatEnabled: true, vatRate: 7, vatPriceMode: "exclusive" });
+  const r = calcVAT(100, { ...VAT_ACTIVE, vatPriceMode: "exclusive" }, "2026-07-01");
   assert.equal(r.mode, "exclusive");
   assert.equal(r.subtotal, 100);
   assert.equal(r.vat, 7);
@@ -91,7 +93,7 @@ test("calcVAT exclusive — 100 + 7% VAT → vat 7, total 107", () => {
 test("calcVAT inclusive — rounding edge: 100 with 7% VAT", () => {
   // 100 inclusive: subtotal = 100*100/107 = 93.4579... → 93.46
   // vat = 100 - 93.46 = 6.54
-  const r = calcVAT(100, { vatEnabled: true, vatRate: 7, vatPriceMode: "inclusive" });
+  const r = calcVAT(100, { ...VAT_ACTIVE, vatPriceMode: "inclusive" }, "2026-07-01");
   assert.equal(r.subtotal, 93.46);
   assert.equal(r.vat, 6.54);
   assert.equal(r.total, 100, "inclusive total must equal input exactly");
@@ -101,33 +103,47 @@ test("calcVAT inclusive — rounding edge: 100 with 7% VAT", () => {
 
 test("calcVAT exclusive — rounding edge: 99.99 + 7% VAT", () => {
   // 99.99 * 0.07 = 6.9993 → vat 7.00, total = 99.99 + 7.00 = 106.99
-  const r = calcVAT(99.99, { vatEnabled: true, vatRate: 7, vatPriceMode: "exclusive" });
+  const r = calcVAT(99.99, { ...VAT_ACTIVE, vatPriceMode: "exclusive" }, "2026-07-01");
   assert.equal(r.subtotal, 99.99);
   assert.equal(r.vat, 7);
   assert.equal(r.total, 106.99);
 });
 
 test("calcVAT — non-standard VAT rate (10%)", () => {
-  const incl = calcVAT(110, { vatEnabled: true, vatRate: 10, vatPriceMode: "inclusive" });
+  const incl = calcVAT(110, { vatEnabled: true, vatRate: 10, vatPriceMode: "inclusive", vatEffectiveDate: "2026-07-01" }, "2026-07-01");
   assert.equal(incl.subtotal, 100);
   assert.equal(incl.vat, 10);
   assert.equal(incl.total, 110);
 
-  const excl = calcVAT(100, { vatEnabled: true, vatRate: 10, vatPriceMode: "exclusive" });
+  const excl = calcVAT(100, { vatEnabled: true, vatRate: 10, vatPriceMode: "exclusive", vatEffectiveDate: "2026-07-01" }, "2026-07-01");
   assert.equal(excl.vat, 10);
   assert.equal(excl.total, 110);
 });
 
 test("calcVAT — zero amount → all zeros, no NaN", () => {
-  const r = calcVAT(0, { vatEnabled: true, vatRate: 7, vatPriceMode: "inclusive" });
+  const r = calcVAT(0, { ...VAT_ACTIVE, vatPriceMode: "inclusive" }, "2026-07-01");
   assert.equal(r.subtotal, 0);
   assert.equal(r.vat, 0);
   assert.equal(r.total, 0);
 });
 
 test("calcVAT — return shape always has all keys", () => {
-  const r = calcVAT(100, { vatEnabled: true, vatRate: 7 });
+  const r = calcVAT(100, VAT_ACTIVE, "2026-07-01");
   for (const k of ["subtotal", "vat", "total", "rate", "enabled", "mode"]) {
     assert.ok(k in r, `key "${k}" missing from result`);
   }
+});
+
+test("calcVAT — VAT enabled but before vatEffectiveDate stays disabled", () => {
+  const r = calcVAT(100, { ...VAT_ACTIVE, vatPriceMode: "exclusive" }, "2026-06-30");
+  assert.equal(r.enabled, false);
+  assert.equal(r.vat, 0);
+  assert.equal(r.total, 100);
+});
+
+test("calcVAT — VAT enabled without vatEffectiveDate stays disabled", () => {
+  const r = calcVAT(100, { vatEnabled: true, vatRate: 7, vatPriceMode: "exclusive" }, "2026-07-01");
+  assert.equal(r.enabled, false);
+  assert.equal(r.vat, 0);
+  assert.equal(r.total, 100);
 });

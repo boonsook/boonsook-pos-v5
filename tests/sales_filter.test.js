@@ -2,7 +2,7 @@
 // Run: npm test
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { visibleSalesForRole, isAdminProfile } from "../modules/utils.js";
+import { visibleSalesForRole, isAdminProfile, getCustomerTier } from "../modules/utils.js";
 
 const ADMIN  = { role: "admin" };
 const SALES  = { role: "sales" };
@@ -35,6 +35,29 @@ test("admin sees ALL rows including other users + legacy NULL — deleted only f
   ];
   const out = visibleSalesForRole(sales, ADMIN, USER_A);
   assert.deepEqual(out.map(x => x.id), [1, 2, 3]);
+});
+
+test("cancelled sales are excluded from financial/report helper even for admin", () => {
+  const sales = [
+    s(1, USER_A.id),
+    { ...s(2, USER_A.id), status: "cancelled" },
+    { ...s(3, USER_A.id), status: "Cancelled" },
+    { ...s(4, USER_A.id), status: "paid" },
+  ];
+  const out = visibleSalesForRole(sales, ADMIN, USER_A);
+  assert.deepEqual(out.map(x => x.id), [1, 4]);
+  assert.equal(out.reduce((sum, x) => sum + Number(x.total_amount || 0), 0), 200);
+});
+
+test("customer lifetime revenue tier excludes cancelled sales", () => {
+  const sales = [
+    { customer_id: "C1", total_amount: 4000, status: "paid", note: "" },
+    { customer_id: "C1", total_amount: 100000, status: "cancelled", note: "" },
+    { customer_id: "C1", total_amount: 2000, status: "paid", note: "" },
+  ];
+  const out = getCustomerTier("C1", sales);
+  assert.equal(out.revenue, 6000);
+  assert.equal(out.tier.key, "bronze");
 });
 
 test("non-admin (sales role) sees own + legacy NULL — drops other-user rows", () => {

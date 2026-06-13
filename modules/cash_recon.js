@@ -27,6 +27,7 @@ const DENOMINATIONS = [
 export function computeCashRecon({ state, date, refunds = [], dateFn = dateBkk }) {
   const sales = (state.sales || []).filter(s =>
     !(s.note || "").includes("[ลบแล้ว]") &&
+    String(s.status || "").toLowerCase() !== "cancelled" &&
     dateFn(s.created_at) === date
   );
   const cashSales = sales.filter(s =>

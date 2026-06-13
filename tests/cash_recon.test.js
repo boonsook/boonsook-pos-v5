@@ -115,6 +115,21 @@ test("expense TZ — late-night BKK expense belongs to correct BKK date", () => 
   assert.equal(r14.cashOut, 200);
 });
 
+test("cancelled sale excluded from cash and transfer totals", () => {
+  const state = {
+    sales: [
+      { created_at: "2026-05-13T05:00:00Z", payment_method: "cash", total_amount: 100, status: "cancelled" },
+      { created_at: "2026-05-13T05:00:00Z", payment_method: "transfer", total_amount: 300, status: "Cancelled" },
+      { created_at: "2026-05-13T05:00:00Z", payment_method: "cash", total_amount: 200, status: "paid" },
+    ],
+    expenses: [],
+  };
+  const r = computeCashRecon({ state, date: "2026-05-13", dateFn: fakeDateBkk });
+  assert.equal(r.sales.length, 1, "cancelled sales skipped before payment split");
+  assert.equal(r.cashIn, 200);
+  assert.equal(r.transferIn, 0);
+});
+
 test("empty state — returns zeros, no crash", () => {
   const r = computeCashRecon({ state: {}, date: "2026-05-13", dateFn: fakeDateBkk });
   assert.equal(r.cashIn, 0);

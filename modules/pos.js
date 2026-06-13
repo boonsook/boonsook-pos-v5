@@ -2,7 +2,7 @@
 function money(n){return new Intl.NumberFormat("th-TH",{style:"currency",currency:"THB",minimumFractionDigits:2}).format(Number(n||0));}
 function moneyNum(n){return new Intl.NumberFormat("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(n||0));}
 
-import { escHtml, visibleSalesForRole, isAdminProfile } from "./utils.js";
+import { escHtml, visibleSalesForRole, isAdminProfile, todayBkk } from "./utils.js";
 // Phase 88.1a: auto-post JV หลังบันทึกการขาย (background, non-blocking)
 import { postJournalForSale } from "./accounting/auto_post.js";
 // Phase 89.42: single-flight guard for POS checkout (replaces brittle window._checkoutRunning manual flag)
@@ -104,12 +104,15 @@ export function cartSum(cart) {
 /**
  * @param {number} amount - ยอดเงิน (ขึ้นกับ mode)
  * @param {object} paymentInfo - state.paymentInfo
+ * @param {string} [currentDate] - YYYY-MM-DD date used to gate vatEffectiveDate
  * @returns {{subtotal:number, vat:number, total:number, rate:number, enabled:boolean, mode:string}}
  */
 // Phase 89.18: export for unit test
-export function calcVAT(amount, paymentInfo) {
+export function calcVAT(amount, paymentInfo, currentDate = todayBkk()) {
   const rate = Number(paymentInfo?.vatRate || 0);
-  const enabled = !!paymentInfo?.vatEnabled && rate > 0;
+  const effectiveDate = String(paymentInfo?.vatEffectiveDate || "").slice(0, 10);
+  const effectiveReached = !!effectiveDate && String(currentDate || "").slice(0, 10) >= effectiveDate;
+  const enabled = !!paymentInfo?.vatEnabled && rate > 0 && effectiveReached;
   if (!enabled) {
     return { subtotal: amount, vat: 0, total: amount, rate: 0, enabled: false, mode: "none" };
   }

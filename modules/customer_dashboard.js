@@ -167,6 +167,7 @@ export function renderCustomerDashboard(ctx) {
   const myOrders = (state.serviceJobs || []).filter(j =>
     (j.customer_phone === userPhone || j.created_by === state.currentUser?.id) &&
     (j.sub_service || "").includes("สั่งซื้อ") &&
+    String(j.status || "").toLowerCase() !== "cancelled" &&
     !(j.note || "").includes("[ลบแล้ว]")
   );
   // ★ งานบริการของฉัน (ซ่อม/ล้าง/ติดตั้ง — ไม่รวมออเดอร์ซื้อสินค้า)
@@ -174,12 +175,17 @@ export function renderCustomerDashboard(ctx) {
     (j.customer_phone === userPhone || j.created_by === state.currentUser?.id) &&
     !(j.sub_service || "").includes("สั่งซื้อ") &&
     !/^SH-(transfer|cod_cash|cod_transfer)\|/.test(j.note || "") &&
+    String(j.status || "").toLowerCase() !== "cancelled" &&
     !(j.note || "").includes("[ลบแล้ว]")
   ).sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
   // นับงานที่ต้องการยืนยันจากลูกค้า (ช่างส่งงานแล้ว)
   const pendingConfirmCount = myServiceJobs.filter(j => j.status === "done" || j.status === "delivered").length;
   const mySales = customerId
-    ? (state.sales || []).filter(s => s.customer_id === customerId && !(s.note||"").includes("[ลบแล้ว]"))
+    ? (state.sales || []).filter(s =>
+        s.customer_id === customerId &&
+        String(s.status || "").toLowerCase() !== "cancelled" &&
+        !(s.note||"").includes("[ลบแล้ว]")
+      )
     : [];
 
   // ★ สินค้าหน้าลูกค้า = แคตตาล็อกแอร์ (จาก localStorage หรือ JSON ไฟล์) แยกจากสต๊อกในร้าน

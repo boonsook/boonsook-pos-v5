@@ -1273,7 +1273,8 @@ function setupDailySummaryTimer(state, sendLineNotify) {
     // ส่งสรุปยอด
     const today = todayKey();
     // Phase 89.28: dateBkk(created_at) เทียบ today BKK
-    const todaySalesArr = (state.sales||[]).filter(s => !(s.note||"").includes("[ลบแล้ว]") && dateBkk(s.created_at) === today);
+    const todaySalesArr = visibleSalesForRole(state.sales, state.profile, state.currentUser)
+      .filter(s => dateBkk(s.created_at) === today);
     const revenue = todaySalesArr.reduce((s,x)=>s+Number(x.total_amount||0),0);
     const orders = todaySalesArr.length;
     const expenses = (state.expenses||[]).filter(e => String(e.expense_date||"").slice(0,10) === today);

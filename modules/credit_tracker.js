@@ -7,7 +7,7 @@ import { renderEmpty } from "./ui_states.js";
 // Phase 89.29 (audit C2): post JV เมื่อรับชำระลูกหนี้ → ตัด A/R 1200
 import { postJournalForCreditPayment } from "./accounting/auto_post.js";
 
-import { escHtml, round2 } from "./utils.js";
+import { escHtml, round2, visibleSalesForRole } from "./utils.js";
 import { atomicAddToField } from "./stock_cas.js";
 function money(n) {
   return new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n || 0));
@@ -151,8 +151,7 @@ export function renderCreditTrackerPage(ctx) {
   if (!container) return;
 
   // หา sales ที่เป็น credit (is_credit = true)
-  const allCredit = (state.sales || [])
-    .filter(s => !(s.note || "").includes("[ลบแล้ว]"))
+  const allCredit = visibleSalesForRole(state.sales, state.profile, state.currentUser)
     .filter(s => s.is_credit);
 
   const today = new Date().toISOString().slice(0, 10);

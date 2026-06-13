@@ -5,7 +5,7 @@
 // ═══════════════════════════════════════════════════════════
 import { renderEmpty } from "./ui_states.js";
 
-import { escHtml, todayBkk, addDaysBkk } from "./utils.js";
+import { escHtml, todayBkk, addDaysBkk, visibleSalesForRole } from "./utils.js";
 function money(n) {
   return new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n || 0));
 }
@@ -31,8 +31,7 @@ export function renderProfitByProductPage(ctx) {
   else if (_ppPeriod === "month") { cutoffKey = today.slice(0,7) + "-01"; }
   else if (_ppPeriod === "year") { cutoffKey = today.slice(0,4) + "-01-01"; }
 
-  const validSales = (state.sales || [])
-    .filter(s => !(s.note || "").includes("[ลบแล้ว]"))
+  const validSales = visibleSalesForRole(state.sales, state.profile, state.currentUser)
     .filter(s => !cutoffKey || String(s.created_at || "").slice(0,10) >= cutoffKey);
   const validSaleIds = new Set(validSales.map(s => String(s.id)));
 

@@ -4,7 +4,7 @@
 // ═══════════════════════════════════════════════════════════
 import { renderEmpty } from "./ui_states.js";
 // Phase 70 (D3): Excel export
-import { exportToExcel, todaySuffix, todayBkk } from "./utils.js";
+import { exportToExcel, todaySuffix, todayBkk, visibleSalesForRole } from "./utils.js";
 // Phase 88.1a: auto-post JV ตอนบันทึก expense
 import { postJournalForExpense, voidJvForSource } from "./accounting/auto_post.js";
 
@@ -55,7 +55,7 @@ export function renderExpensesPage(ctx) {
 
   const expenses = ctx.state.expenses || [];
   // ★ กรอง soft-deleted sales ออกก่อนคำนวณรายรับ
-  const sales = (ctx.state.sales || []).filter(s => !(s.note || "").includes("[ลบแล้ว]"));
+  const sales = visibleSalesForRole(ctx.state.sales, ctx.state.profile, ctx.state.currentUser);
 
   // Calculate summary values
   const thisMonth = todayStr.slice(0, 7);

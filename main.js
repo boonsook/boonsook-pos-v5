@@ -41,6 +41,7 @@ import { renderTasksPage, checkOverdueTasksAndNotify } from "./modules/tasks.js"
 // Phase 88.1: auto-posting JV จาก sales/expenses — eager (used in checkout flow)
 import { postJournalForSale, postJournalForServiceJob, voidJvForSource } from "./modules/accounting/auto_post.js";
 import { findJournalForSale, renderSaleTraceBadge, navigateToJv } from "./modules/accounting/sale_trace.js";
+import { ACCOUNTING_EFFECTIVE_DATE } from "./modules/accounting/effective_date.js";
 // Phase 89.21: profit_by_product, quote_templates, serials lazy
 import { renderBirthdaysPage, checkTodayBirthdaysAndNotify } from "./modules/birthdays.js";
 import { renderWarrantyReportPage, checkWarrantyExpiringAndNotify } from "./modules/warranty_report.js";
@@ -52,6 +53,7 @@ import { installErrorReporter } from "./modules/error_reporter.js";
 import { createInflightGuard } from "./modules/_inflight_guard.js";
 import { createApi } from "./modules/api.js";
 import { runBoot } from "./modules/boot.js";
+import { visibleSalesForRole } from "./modules/utils.js";
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -278,6 +280,10 @@ const state = {
       raw.promptPay = raw.promptPay || "";
       raw.qrImage = raw.qrImage || null;
     }
+    raw.vatEnabled = raw.vatEnabled === true;
+    raw.vatRate = Number(raw.vatRate || 7);
+    raw.vatPriceMode = raw.vatPriceMode || "exclusive";
+    raw.vatEffectiveDate = raw.vatEffectiveDate || ACCOUNTING_EFFECTIVE_DATE;
     return raw;
   })(),
   currentRoute: "dashboard",
@@ -2071,9 +2077,10 @@ function _renderProductRecentActivity(product) {
   let totalQty = 0, totalRevenue = 0;
   let lastSaleDate = null;
 
+  const visibleSales = visibleSalesForRole(state.sales, state.profile, state.currentUser);
   myItems.forEach(it => {
-    const sale = (state.sales || []).find(s => String(s.id) === String(it.sale_id));
-    if (!sale || (sale.note || "").includes("[ลบแล้ว]")) return;
+    const sale = visibleSales.find(s => String(s.id) === String(it.sale_id));
+    if (!sale) return;
     const saleDate = String(sale.created_at || "").slice(0, 10);
     const qty = Number(it.qty || 0);
     const rev = Number(it.line_total || (qty * Number(it.unit_price || 0)));
@@ -2143,8 +2150,7 @@ function _renderCustomerPurchaseHistory(customer) {
   const phone = String(customer.phone || "").replace(/\D/g, "");
 
   // หา sales ที่ match ลูกค้านี้ — ใช้ customer_id ก่อน, fallback ที่ชื่อ/เบอร์
-  const sales = (state.sales || [])
-    .filter(s => !(s.note || "").includes("[ลบแล้ว]"))
+  const sales = visibleSalesForRole(state.sales, state.profile, state.currentUser)
     .filter(s => {
       // 1) ตรง customer_id (ดีที่สุด — ถ้าตั้ง POS Customer Picker)
       if (s.customer_id && customer.id && String(s.customer_id) === String(customer.id)) return true;
@@ -4389,8 +4395,7 @@ const globalSearch = debounce(function(){
 
   // 3) Sales (order_no) (max 5)
   if (allowed.includes("sales")) {
-    const sales = (state.sales || [])
-      .filter(s => !(s.note || "").includes("[ลบแล้ว]"))
+    const sales = visibleSalesForRole(state.sales, state.profile, state.currentUser)
       .filter(s =>
         String(s.order_no||"").toLowerCase().includes(q) ||
         String(s.customer_name||"").toLowerCase().includes(q)

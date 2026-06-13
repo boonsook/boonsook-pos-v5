@@ -34,6 +34,7 @@ export function getCustomerTier(customerId, sales) {
   const cid = String(customerId);
   const revenue = (sales || [])
     .filter(s => !(s.note || "").includes("[ลบแล้ว]"))
+    .filter(s => String(s.status || "").toLowerCase() !== "cancelled")
     .filter(s => String(s.customer_id || "") === cid)
     .reduce((sum, s) => sum + Number(s.total_amount || 0), 0);
 
@@ -109,6 +110,7 @@ export function visibleSalesForRole(sales, profile, currentUser) {
   const myId = currentUser?.id || null;
   return (sales || []).filter(s => {
     if ((s.note || "").includes("[ลบแล้ว]")) return false;
+    if (String(s.status || "").toLowerCase() === "cancelled") return false;
     if (isAdmin) return true;
     if (myId && s.created_by && String(s.created_by) !== String(myId)) return false;
     return true;

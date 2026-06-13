@@ -1,4 +1,5 @@
 import { escHtml, THAI_BANKS } from "./utils.js";
+import { ACCOUNTING_EFFECTIVE_DATE } from "../accounting/effective_date.js";
 
 function _syncBanksFromDom(el, ctx) {
   const { state } = ctx;
@@ -107,7 +108,7 @@ export function renderSettingsPayment(el, ctx, goBack, navigate) {
       <!-- Phase 88.21: VAT Settings -->
       <div class="set-form-card" style="border:2px solid #0284c7;background:#f0f9ff">
         <div class="set-section-title" style="color:#0284c7">📜 ภาษีมูลค่าเพิ่ม (VAT)</div>
-        <div class="sku" style="margin-bottom:8px">เปิดใช้ถ้าร้านจดทะเบียน VAT — ระบบจะคำนวณ VAT 7% + ลง JV แยก Output VAT (2170)</div>
+        <div class="sku" style="margin-bottom:8px">ตอนนี้ร้านยังไม่เปิด VAT — ให้ปิดไว้ก่อน ระบบจะเริ่มคิด VAT เฉพาะเมื่อเปิดและถึงวันเริ่มใช้งานเท่านั้น</div>
         <div class="stack">
           <label style="display:flex;align-items:center;gap:8px;font-weight:600;cursor:pointer;font-size:14px">
             <input type="checkbox" id="setVatEnabled" ${state.paymentInfo.vatEnabled ? 'checked' : ''} style="width:20px;height:20px;cursor:pointer" />
@@ -120,6 +121,9 @@ export function renderSettingsPayment(el, ctx, goBack, navigate) {
 
             <label class="set-field-label" style="margin-top:8px">อัตราภาษี (%)</label>
             <input id="setVatRate" type="number" value="${state.paymentInfo.vatRate ?? 7}" min="0" max="20" step="0.5" />
+
+            <label class="set-field-label" style="margin-top:8px">วันเริ่มใช้ VAT</label>
+            <input id="setVatEffectiveDate" type="date" value="${escHtml(state.paymentInfo.vatEffectiveDate || ACCOUNTING_EFFECTIVE_DATE)}" />
 
             <label class="set-field-label" style="margin-top:8px">รูปแบบราคา</label>
             <select id="setVatPriceMode">
@@ -306,6 +310,7 @@ export function renderSettingsPayment(el, ctx, goBack, navigate) {
     const vatId        = (document.getElementById("setVatId")?.value || "").trim();
     const vatRate      = Number(document.getElementById("setVatRate")?.value || 7);
     const vatPriceMode = document.getElementById("setVatPriceMode")?.value || "exclusive";
+    const vatEffectiveDate = document.getElementById("setVatEffectiveDate")?.value || ACCOUNTING_EFFECTIVE_DATE;
 
     state.paymentInfo = {
       ...state.paymentInfo,
@@ -314,7 +319,8 @@ export function renderSettingsPayment(el, ctx, goBack, navigate) {
       vatEnabled,
       vatId,
       vatRate,
-      vatPriceMode
+      vatPriceMode,
+      vatEffectiveDate
     };
     savePaymentInfo();
 
