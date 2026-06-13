@@ -22,7 +22,13 @@ ALTER TABLE staff_payroll ADD COLUMN IF NOT EXISTS period_end date;
 ALTER TABLE staff_payroll ADD COLUMN IF NOT EXISTS details jsonb DEFAULT '{}'::jsonb;
 
 -- ถอด unique เดิม (employee_id, period_month) — กันรอบ 2 รอบที่จบเดือนเดียวกันชนกัน
+-- ⚠️ Phase 433 fix (2026-06-13): ชื่อจริงใน DB = uq_staff_payroll_emp_month (ไม่ใช่ uq_staff_payroll
+--    ที่เดาไว้เดิม) → DROP เดิมเงียบไม่ทำอะไร ทำให้รอบ 2 รอบ/เดือนสร้างไม่ได้จนถึง build 433.
+--    drop ครบทุกชื่อ/ทุกชนิด (constraint + index) ให้ self-healing บน DB ที่รีเซ็ตใหม่
+ALTER TABLE staff_payroll DROP CONSTRAINT IF EXISTS uq_staff_payroll_emp_month;
 ALTER TABLE staff_payroll DROP CONSTRAINT IF EXISTS uq_staff_payroll;
+DROP INDEX IF EXISTS uq_staff_payroll_emp_month;
+DROP INDEX IF EXISTS uq_staff_payroll;
 
 -- unique ใหม่ต่อรอบตรงตัว
 CREATE UNIQUE INDEX IF NOT EXISTS uq_staff_payroll_period

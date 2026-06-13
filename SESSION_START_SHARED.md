@@ -1,6 +1,6 @@
 # Boonsook POS V5 - Shared Session Start
 
-Last updated: 2026-06-13 (Phase 433 payroll-pay-race-guard — **build 433** บน branch `claude/phase-433-payroll-pay-guard` · ⏸️ STOP รอ owner **รัน supabase-phase433-payroll-pay-guard.sql** + smoke + สั่ง merge; origin/main = **build 432 live** `6998cae`+`a2f8b94` · ⚠️ กติกา: ต่างคนต่างแก้งานตัวเอง, explicit `git add <files>` เท่านั้น) · เริ่มบัญชีจริง 1 ก.ค. 2569 (ก่อนนั้น = test, ไม่ post JV)
+Last updated: 2026-06-13 (Phase 433 payroll-pay-race-guard — **build 433** บน branch `claude/phase-433-payroll-pay-guard` · ✅ owner รัน SQL 433 แล้ว + Claude smoke บน preview ผ่านครบ (CAS+trigger 2 ชั้นยืนยัน live) + เจอ/แก้บั๊ก SQL 416 ค้าง (constraint ชื่อผิดไม่เคย apply) · ⏸️ รอ owner สั่ง merge; origin/main = **build 432 live** `6998cae`+`a2f8b94` · ⚠️ กติกา: ต่างคนต่างแก้งานตัวเอง, explicit `git add <files>` เท่านั้น) · เริ่มบัญชีจริง 1 ก.ค. 2569 (ก่อนนั้น = test, ไม่ post JV)
 
 Purpose: this is the common first-read note for Codex, Claude, or any next agent opening a fresh session on this project. Read this before changing files so both teams start from the same facts.
 
