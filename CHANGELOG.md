@@ -7,6 +7,16 @@
 
 ---
 
+## 5.66.0 (build 433) — 2026-06-13 Phase 433 กันจ่ายเงินเดือนซ้ำข้ามเครื่อง (PAYROLL · MONEY)
+
+- **fix (MONEY — ปิด race ที่รู้จากการ audit 416-418):** สองเครื่อง/สองแท็บกด "จ่าย" แถวเดียวกันพร้อมกัน → เดิมสำเร็จทั้งคู่ = **รายจ่าย + JV ถูกสร้างซ้ำ 2 ชุด**
+- **ชั้น 1 (client):** `_markPaid` PATCH เป็นแบบ CAS — `?id=eq.{id}&paid_at=is.null` + `Prefer: return=representation` → เครื่องที่แพ้ได้แถวว่าง → toast "ถูกจ่ายไปแล้วจากเครื่องอื่น" + ลง audit `payroll_pay_race_blocked` + reload — **ไม่ยิง expense/JV/audit-จ่าย ซ้ำ**; เครื่องที่ชนะ flow เดิมทุกอย่าง
+- **ชั้น 2 (DB — ⚠️ owner ต้องรัน `supabase-phase433-payroll-pay-guard.sql` เอง):** trigger `trg_guard_payroll_double_pay` ล็อก `paid_at` เมื่อถูกตั้งแล้ว — บล็อกทั้งจ่ายทับและ**การล้างวันจ่ายโดย edit จาก state เก่า** (ช่องที่เจอเพิ่มตอนรีวิว); edit ปกติที่ส่งค่าเดิมกลับมา = ผ่าน (flow ปัจจุบันไม่สะดุด); additive ไม่แตะ RLS
+- +guard `tests/payroll_pay_race_guard.test.js` (6 tests: CAS filter/Prefer · ผู้แพ้ return ก่อน side-effects · audit race · winner ยิง expense+JV อย่างละครั้ง · pre-check เดิมคงอยู่ · SQL trigger ครบ+re-run safe+ไม่แตะ RLS) · bump 433 + dashboard_readonly_guard → 433
+- lint:errors 0 / unit **1589** / e2e **14** · **⏸️ STOP — รอ owner รัน SQL + smoke บน preview แล้วสั่ง merge**
+
+---
+
 ## 5.66.0 (build 432) — 2026-06-13 ทีมขนาน: ตัดบิลยกเลิกออกจากยอดเงินทุกหน้า + VAT effective-date guard
 
 - **fix (FINANCIAL · งานทีมขนาน — UI session ส่งแทนตามอนุญาตเฉพาะเคสของ owner):** session ทีมขนานทำเสร็จ+เทสผ่านแต่ commit/push ไม่ได้ (credit หมดตอนติด `.git/index.lock`) → owner วิเคราะห์และอนุญาตเป็นเคสเฉพาะกิจ ("ยืนยัน push งาน 432 แทนเขาได้") → UI session commit งานเขาทั้งก้อนแยกเป็น commit เดียว `6998cae` ระบุที่มา + **รันเทสยืนยันเองก่อนส่ง** (lint 0 / unit 1583/1583 / e2e 14/14 — ตรงรายงานเขา)

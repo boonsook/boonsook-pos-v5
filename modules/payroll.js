@@ -1416,11 +1416,30 @@ async function _markPaid(ctx, id) {
   const headers = { "Content-Type": "application/json", "apikey": cfg.anonKey, "Authorization": "Bearer " + token };
   try {
     const paidAt = new Date().toISOString();
-    const resp = await fetch(cfg.url + "/rest/v1/staff_payroll?id=eq." + id, {
-      method: "PATCH", headers,
+    // Phase 433: CAS — PATCH เฉพาะแถวที่ยังไม่จ่าย (&paid_at=is.null) กัน double-pay race ข้ามเครื่อง/แท็บ
+    // เครื่องที่แพ้ race จะได้ 200 + แถวว่าง → ต้องหยุดก่อนยิง side-effects (expense + JV) — กันรายจ่าย/JV ซ้ำ
+    // DB-side backstop: trigger trg_guard_payroll_double_pay (supabase-phase433-payroll-pay-guard.sql)
+    const resp = await fetch(cfg.url + "/rest/v1/staff_payroll?id=eq." + id + "&paid_at=is.null", {
+      method: "PATCH",
+      headers: { ...headers, "Prefer": "return=representation" },
       body: JSON.stringify({ paid_at: paidAt, payment_method: method })
     });
     if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const updatedRows = await resp.json().catch(() => []);
+    if (!Array.isArray(updatedRows) || updatedRows.length === 0) {
+      // แพ้ race: อีกเครื่องจ่ายไปก่อนแล้ว — ไม่สร้าง expense/JV/audit "จ่าย" ซ้ำ
+      ctx.showToast?.("⚠️ รายการนี้ถูกจ่ายไปแล้วจากเครื่อง/แท็บอื่น — ไม่ทำซ้ำ");
+      try {
+        logActivity("payroll_pay_race_blocked", {
+          entityType: "staff_payroll", entityId: id,
+          summary: `กันจ่ายซ้ำ: payroll ${id} ถูกจ่ายจากเครื่องอื่นก่อนหน้าแล้ว (CAS แถวว่าง)`,
+          metadata: { attempted_paid_at: paidAt, payment_method: method, employee_id: payroll?.employee_id },
+        });
+      } catch (_e) { /* swallow */ }
+      if (ctx.loadAllData) await ctx.loadAllData();
+      renderPayrollPage(ctx);
+      return;
+    }
 
     // Phase 76: Auto-create expense in salary category — link via "#payroll-{id}" pattern
     // Phase 92.43 (B2): expense_date ใช้ Bangkok date — กัน off-by-1 ตอนเที่ยงคืน-06:59 ไทย
