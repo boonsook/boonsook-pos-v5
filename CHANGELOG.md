@@ -7,6 +7,14 @@
 
 ---
 
+## 5.66.0 (build 432) — 2026-06-13 ทีมขนาน: ตัดบิลยกเลิกออกจากยอดเงินทุกหน้า + VAT effective-date guard
+
+- **fix (FINANCIAL · งานทีมขนาน — UI session ส่งแทนตามอนุญาตเฉพาะเคสของ owner):** session ทีมขนานทำเสร็จ+เทสผ่านแต่ commit/push ไม่ได้ (credit หมดตอนติด `.git/index.lock`) → owner วิเคราะห์และอนุญาตเป็นเคสเฉพาะกิจ ("ยืนยัน push งาน 432 แทนเขาได้") → UI session commit งานเขาทั้งก้อนแยกเป็น commit เดียว `6998cae` ระบุที่มา + **รันเทสยืนยันเองก่อนส่ง** (lint 0 / unit 1583/1583 / e2e 14/14 — ตรงรายงานเขา)
+- เนื้องาน: บิล `status=cancelled` ไม่ถูกนับในยอดเงิน/รายงานทุกจุด (utils getCustomerTier+visibleSalesForRole, กระทบยอดเงินสด, ลูกหนี้, รายจ่าย, กำไรต่อสินค้า, dashboard, หน้าร้านลูกค้า, POS) + VAT ต้องเปิดใช้เอง**และ**ถึง `vatEffectiveDate` ก่อนถึงจะทำงาน (settings/payment, pos) + guard ใหม่ 2 ไฟล์ (`financial_cancelled_guard`, `vat_effective_date_guard`) + bump 432 ครบ
+- CI Tests+Deploy success · ✅ **build 432 live** (verified HTML จริง)
+
+---
+
 ## 5.66.0 (build 431) — 2026-06-13 Phase 431 เปลี่ยน skin ม่วง → สีฟ้า (owner: ม่วงแสบตา)
 
 - **feat (UI · display-only):** สี indigo ทั้งระบบกลับเป็น **สีฟ้า sky เดิม** ตาม owner — tokens `--primary/--primary2` (light: `#0ea5e9/#0284c7` · dark: `#38bdf8/#0ea5e9`), `--bg` เป็นเทาอมฟ้า `#e8eef7` (คงความเข้มจาก 424 แต่เลิกอมม่วง), wash พื้นหลังเป็นฟ้า→ฟ้าอ่อน, hero/การ์ด/tile/ปุ่มลัด/donut/กราฟ/focus ring/gradient ทุกจุด (style.css + phase4 scale revert + dashboard.js + pos.js + customer_dashboard.js + hrx-hero ของ hr_overview ที่ใช้ indigo เก่า)
