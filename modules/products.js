@@ -475,7 +475,7 @@ function renderView(ctx, opts = {}) {
         return `
         <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;align-items:center">
           <span style="font-size:11px;color:#94a3b8;font-weight:600;padding-right:4px">⚡ ลัด:</span>
-          ${noCostCount > 0 || quickFilter === 'no_cost' ? `
+          ${canManageProducts && (noCostCount > 0 || quickFilter === 'no_cost') ? `
             <button class="prod-quick-chip" data-qf="no_cost" style="padding:4px 10px;border-radius:14px;border:1px solid ${quickFilter==='no_cost'?'#dc2626':'#fde68a'};background:${quickFilter==='no_cost'?'#dc2626':'#fef3c7'};color:${quickFilter==='no_cost'?'#fff':'#92400e'};font-size:11px;font-weight:600;cursor:pointer">
               ⚠️ ไม่มี cost (${noCostCount})
             </button>

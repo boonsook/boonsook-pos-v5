@@ -76,6 +76,9 @@ test("products.js gates header + card cost surfaces to admin/sales only", () => 
     "per-card stock-in must be gated by canManageCard");
   assert.ok(!/\[\s*`<button class="prod-cardmenu-item" data-prod-edit="\$\{p\.id\}">/.test(productsJs),
     "edit action must not be present ungated");
+  // the "ไม่มี cost" quick-filter chip references cost → hidden from technician
+  assert.match(productsJs, /canManageProducts && \(noCostCount > 0 \|\| quickFilter === 'no_cost'\)/,
+    "no_cost quick-filter chip must be gated by canManageProducts (no cost references for technician)");
 });
 
 // ── 4. the non-functional permission matrix page is hidden / neutralised ─────
