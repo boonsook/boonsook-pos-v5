@@ -14,7 +14,7 @@
 - **ชั้น 2 (DB — ⚠️ owner ต้องรัน `supabase-phase433-payroll-pay-guard.sql` เอง):** trigger `trg_guard_payroll_double_pay` ล็อก `paid_at` เมื่อถูกตั้งแล้ว — บล็อกทั้งจ่ายทับและ**การล้างวันจ่ายโดย edit จาก state เก่า** (ช่องที่เจอเพิ่มตอนรีวิว); edit ปกติที่ส่งค่าเดิมกลับมา = ผ่าน (flow ปัจจุบันไม่สะดุด); additive ไม่แตะ RLS
 - +guard `tests/payroll_pay_race_guard.test.js` (6 tests: CAS filter/Prefer · ผู้แพ้ return ก่อน side-effects · audit race · winner ยิง expense+JV อย่างละครั้ง · pre-check เดิมคงอยู่ · SQL trigger ครบ+re-run safe+ไม่แตะ RLS) · bump 433 + dashboard_readonly_guard → 433
 - **+fix พ่วง (Phase 416 SQL ค้าง — เจอตอน smoke 433):** `supabase-phase416-payroll-period.sql` เดาชื่อ constraint ผิด (`uq_staff_payroll` แต่ของจริง `uq_staff_payroll_emp_month`) → DROP เงียบ ไม่เคย apply → สร้าง 2 รอบ/เดือนไม่ได้ (รอบ 25 มิ.ย. จะพัง). แก้ไฟล์ให้ drop ครบทุกชื่อ/ชนิด (self-healing) + owner รัน fix ใน DB แล้ว — พิสูจน์ live: รอบ 2 รอบ/เดือนสร้างได้ + ยังกันรอบเดิมซ้ำด้วย `uq_staff_payroll_period`
-- lint:errors 0 / unit **1589** / e2e **14** · ✅ **owner รัน SQL 433 + smoke (Claude บน preview) ผ่านครบ** (จ่าย→expense 1 ใบ · แท็บ 2 โดน CAS กัน · trigger บล็อก PATCH ตรง 400 · edit แถวจ่ายแล้วผ่าน) · ⏸️ รอ owner สั่ง merge
+- lint:errors 0 / unit **1589** / e2e **14** · ✅ **merged = build 433 live** `a30c7a3` (owner รัน SQL 433 + smoke Claude บน preview ผ่านครบ: จ่าย→expense 1 ใบ · แท็บ 2 โดน CAS กัน · trigger บล็อก PATCH ตรง 400 · edit แถวจ่ายแล้วผ่าน · verified HTML จริง data-app-build=433)
 
 ---
 
