@@ -7,6 +7,17 @@
 
 ---
 
+## 5.66.0 (build 438) — 2026-06-14 Phase 438 กลุ่มลูกค้า (customer_group) — ฐาน auto บัญชีรับเงิน
+
+- **feat (UX/DATA · additive):** เพิ่มฟิลด์ "กลุ่มลูกค้า" (`customers.customer_group`, nullable text) — dropdown 5 กลุ่ม (ราชการ/ขาย POS/งานช่าง/หน้าร้าน/ขายพร้อมติดตั้ง) ในฟอร์มลูกค้า + ตัวกรอง + badge 🏦 ในสมุดรายชื่อ
+- **ทำไม:** ฐานสำหรับ Phase 439+ ที่จะ auto-เติมบัญชีรับเงิน (กลุ่ม→bank sub-account 1131-1136) ลงใบเสร็จ กันออกใบเสร็จผิดบัญชีโอน (owner เคาะ: เลือกตามกลุ่มลูกค้า + แบบ auto-เติม+เตือน แก้ได้)
+- **ไม่แตะ** เงิน/สต็อก/บัญชี/payment/receipts — additive ล้วน (ลูกค้าเก่า group=NULL ไม่ backfill)
+- **SQL ใหม่ `supabase-phase438-customer-group.sql` (owner รันแล้ว):** ADD COLUMN IF NOT EXISTS + NOTIFY pgrst + verify (re-run safe)
+- +guard `customer_group_guard.test.js` (7) · bump 438
+- lint:errors 0 / unit **1608** / e2e **14** · ✅ **merged = build 438 live** (`201524a`) — owner รัน SQL (verify customer_group|text|YES) · Claude smoke preview: dropdown 6 ตัวเลือกมองเห็น · ตัวกรอง 3 สถานะถูก · REST column query ได้ (save ไม่ PGRST204) · ไม่ mutate ข้อมูล · verified HTML prod 438
+
+---
+
 ## 5.66.0 (build 437) — 2026-06-14 Phase 437 สต็อกห้ามติดลบเด็ดขาด (DB CHECK) — P1-③
 
 - **fix (MONEY/STOCK · owner "ห้ามติดลบเด็ดขาด" — ของค้างจาก Phase 367):** ใส่ **DB CHECK `stock >= 0`** บน `warehouse_stock` + `products` (last line of defense ทับ floor 367/368/369) — client path ไหนพลาดก็เขียนค่าติดลบลง DB ไม่ได้
