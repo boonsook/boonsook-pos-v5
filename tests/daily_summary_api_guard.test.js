@@ -24,8 +24,8 @@ test("daily-summary route is authenticated and report-role gated in middleware",
     "daily summary must require a Supabase JWT");
   assert.match(MW_SRC, /REPORT_ONLY_ENDPOINTS[\s\S]*"\/api\/v1\/reports\/daily-summary"/,
     "daily summary must use the report-only role gate");
-  assert.match(MW_SRC, /REPORT_ROLES\s*=\s*new Set\(\["admin", "accountant", "owner"\]\)/,
-    "report roles must stay limited to admin/accountant/owner");
+  assert.match(MW_SRC, /REPORT_ROLES\s*=\s*new Set\(\["admin", "owner"\]\)/,
+    "report roles must stay limited to admin/owner");
 });
 
 test("daily-summary endpoint is GET-only and uses the user's JWT for Supabase RLS", () => {

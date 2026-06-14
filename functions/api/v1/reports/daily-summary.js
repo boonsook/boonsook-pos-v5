@@ -5,7 +5,7 @@ const PUBLIC_SUPABASE_URL = "https://rwmmjljelpcpwohwiplu.supabase.co";
 const PUBLIC_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_MoeSC0AubZ4C8LXjNJtq7w_iS1baV0j";
 
 const BANGKOK_TZ = "Asia/Bangkok";
-const REPORT_ROLES = new Set(["admin", "accountant", "owner"]);
+const REPORT_ROLES = new Set(["admin", "owner"]);
 const COMPLETED_STATUSES = new Set(["done", "delivered", "closed"]);
 const CANCELLED_STATUSES = new Set(["cancelled"]);
 const OPEN_STATUSES = ["pending", "progress", "in_progress", "open", "pending_review"];

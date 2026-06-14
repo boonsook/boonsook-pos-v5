@@ -51,7 +51,7 @@ const REPORT_ONLY_ENDPOINTS = [
 ];
 
 const STAFF_ROLES = new Set(["admin", "sales", "staff", "technician"]);
-const REPORT_ROLES = new Set(["admin", "accountant", "owner"]);
+const REPORT_ROLES = new Set(["admin", "owner"]);
 
 // Public Supabase client config. Keep env vars preferred, but provide the same
 // public values used by supabase-config.js so Pages deploys work without extra
