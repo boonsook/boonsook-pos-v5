@@ -37,6 +37,7 @@ const ALLOWED_ORIGIN_PATTERNS = [
 const REQUIRE_AUTH_ENDPOINTS = [
   "/api/ai-assistant",
   "/api/line-notify",
+  "/api/v1/reports/daily-summary",
   "/api/parse-receipt",   // Phase 89.14: ปิด anon — Gemini OCR ใช้แค่ staff ที่ login
   "/api/verify-slip"      // Phase 89.14: ปิด anon — SlipOK ใช้แค่ staff ที่ login
 ];
@@ -45,7 +46,12 @@ const STAFF_ONLY_ENDPOINTS = [
   "/api/line-notify"
 ];
 
+const REPORT_ONLY_ENDPOINTS = [
+  "/api/v1/reports/daily-summary"
+];
+
 const STAFF_ROLES = new Set(["admin", "sales", "staff", "technician"]);
+const REPORT_ROLES = new Set(["admin", "accountant", "owner"]);
 
 // Public Supabase client config. Keep env vars preferred, but provide the same
 // public values used by supabase-config.js so Pages deploys work without extra
@@ -282,7 +288,7 @@ export async function onRequest(context) {
     }
     // Pass user info ผ่าน data context
     let role = null;
-    if (STAFF_ONLY_ENDPOINTS.includes(url.pathname)) {
+    if (STAFF_ONLY_ENDPOINTS.includes(url.pathname) || REPORT_ONLY_ENDPOINTS.includes(url.pathname)) {
       const roleResult = await fetchUserRole(auth.userId, authHeader, env);
       if (!roleResult.ok) {
         return new Response(
@@ -291,9 +297,15 @@ export async function onRequest(context) {
         );
       }
       role = roleResult.role;
-      if (!STAFF_ROLES.has(role)) {
+      if (STAFF_ONLY_ENDPOINTS.includes(url.pathname) && !STAFF_ROLES.has(role)) {
         return new Response(
           JSON.stringify({ ok: false, error: "Forbidden: staff role required" }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      if (REPORT_ONLY_ENDPOINTS.includes(url.pathname) && !REPORT_ROLES.has(role)) {
+        return new Response(
+          JSON.stringify({ ok: false, error: "Forbidden: report role required" }),
           { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
