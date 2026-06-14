@@ -649,6 +649,17 @@ export async function postJournalForServiceJob(job, opts = {}) {
  * เรียกหลัง PATCH receipts.status = "paid" สำเร็จ
  * @param {object} receipt - row จาก state.receipts (ต้องมี id, grand_total, payment_method หรือไม่ก็ได้)
  */
+// Phase 443 (C): pure decision — which Dr account a transfer receipt's bank override should
+// use. candidate valid (or COA cache empty = fail-open, DB FK is the backstop) → candidate;
+// invalid / missing → mappingDefault. Pure (validCodes passed in) so the routing is unit-tested
+// without fetch/cache. Caller uses the COA cache + logs/toasts the fallback.
+export function _resolveReceiptDebitAccount(candidate, mappingDefault, validCodes) {
+  if (!candidate) return mappingDefault;
+  const c = String(candidate);
+  if (!validCodes || validCodes.size === 0 || validCodes.has(c)) return c;
+  return mappingDefault;
+}
+
 export async function postJournalForReceipt(receipt, opts = {}) {
   if (!receipt?.id) return _journalResult(opts.detailed, { status: "skipped", reason: "missing-required", sourceTable: "receipts", sourceId: receipt?.id });
   // ★ Phase 88.17: เฉพาะ status='paid' เท่านั้น — ป้องกัน JV เกิดจาก receipt ที่ยัง pending
@@ -677,6 +688,26 @@ export async function postJournalForReceipt(receipt, opts = {}) {
     return _journalResult(opts.detailed, { status: "skipped", reason: "missing-mapping", sourceTable: "receipts", sourceId: receipt.id, mappingKey });
   }
 
+  // ★ Phase 443 (C): route the transfer JV to the receipt's specific bank sub-account
+  //   (Dr e.g. 1132 instead of flat 1130). Mirrors the sale_transfer BANK_COA pattern
+  //   (Phase 88.20/89.2): validate against active COA; invalid → warn + fall back to the
+  //   mapping default (never post a JV to a bogus account, never silent). Uses bank_coa_code
+  //   only — bank_label is display/snapshot, never parsed for accounting.
+  let debitAccount = mapping.debit_account_code;
+  if (mappingKey === "receipt_revenue_transfer" && receipt.bank_coa_code) {
+    const candidate = String(receipt.bank_coa_code);
+    const validCodes = await _getValidCoaCodes();
+    debitAccount = _resolveReceiptDebitAccount(candidate, mapping.debit_account_code, validCodes);
+    if (debitAccount === candidate) {
+      console.info("[auto_post] receipt transfer override Dr account:", debitAccount, "(from receipt.bank_coa_code)");
+    } else {
+      console.warn("[auto_post] receipt bank_coa_code invalid:", candidate, "— falling back to default", mapping.debit_account_code);
+      if (window.showToast) window.showToast(`⚠️ COA ${candidate} ไม่พบ — ใช้ default ${mapping.debit_account_code} แทน`);
+    }
+  }
+  // transfer with no bank_coa_code → debitAccount stays the mapping default (1130); the
+  // collect-time UI already warned (Phase 442 _confirmTransferBankSet).
+
   const desc = `รับชำระ ${receipt.receipt_no || '#' + receipt.id} — ${receipt.customer_name || 'ลูกค้า'}`;
   const amount = Number(amountRaw);
 
@@ -693,7 +724,7 @@ export async function postJournalForReceipt(receipt, opts = {}) {
       description: desc,
       detailed: opts.detailed,
       lines: [
-        { account_code: mapping.debit_account_code,  debit: v.total, credit: 0,          description: desc },
+        { account_code: debitAccount,                debit: v.total, credit: 0,          description: desc },
         { account_code: mapping.credit_account_code, debit: 0,       credit: v.subtotal, description: desc + " (รายได้ก่อน VAT)" },
         { account_code: "2170",                       debit: 0,       credit: v.vat,      description: desc + ` (VAT ${receipt.vat_rate || 7}%)` }
       ]
@@ -709,7 +740,7 @@ export async function postJournalForReceipt(receipt, opts = {}) {
     description: desc,
     detailed: opts.detailed,
     lines: [
-      { account_code: mapping.debit_account_code,  debit: amount, credit: 0,      description: desc },
+      { account_code: debitAccount,                debit: amount, credit: 0,      description: desc },
       { account_code: mapping.credit_account_code, debit: 0,      credit: amount, description: desc }
     ]
   });
