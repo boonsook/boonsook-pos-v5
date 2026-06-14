@@ -2,7 +2,7 @@
 // Run: node --test tests/accountant_role_guard.test.js
 //
 // Contract:
-//   "พนักงานบัญชี" should reach finance/accounting/reporting and related sales documents,
+//   "สำนักงานบัญชี" should reach finance/accounting/reporting and related sales documents,
 //   but must not get POS, operational warehouse/product screens, service execution, HR admin,
 //   or settings/user management.
 
@@ -53,12 +53,9 @@ test("accountant ROLE_PAGES includes finance/accounting/reporting document work"
     "sales_heatmap",
     "recurring_expenses",
     "credit_tracker",
-    "refunds",
     "profit_by_product",
     "expense_overview",
     "income_overview",
-    "payroll",
-    "payroll_overview",
     "accounting_journals",
     "accounting_journal_new",
     "accounting_coa",
@@ -99,17 +96,20 @@ test("accountant ROLE_PAGES excludes operational/admin screens", () => {
     "hr_resignations",
     "departments",
     "audit_log",
+    "refunds",
+    "payroll",
+    "payroll_overview",
   ]) {
     assertExcludes(accountant, r);
   }
 });
 
 test("accountant role is selectable and labelled in user management", () => {
-  assert.match(mainJs, /accountant:\s*"พนักงานบัญชี"/, "ROLE_LABELS must include Thai accountant label");
+  assert.match(mainJs, /accountant:\s*"สำนักงานบัญชี"/, "ROLE_LABELS must include Thai accountant label");
   assert.match(usersJs, /accountant:\s*"#7c3aed"/, "settings user cards must have accountant color");
-  assert.match(usersJs, /<option value="accountant"[^>]*>พนักงานบัญชี<\/option>/,
+  assert.match(usersJs, /<option value="accountant"[^>]*>สำนักงานบัญชี<\/option>/,
     "existing-user role dropdown must include accountant");
-  assert.match(indexHtml, /<option value="accountant">พนักงานบัญชี<\/option>/,
+  assert.match(indexHtml, /<option value="accountant">สำนักงานบัญชี<\/option>/,
     "new-user invitation dropdown must include accountant");
 });
 

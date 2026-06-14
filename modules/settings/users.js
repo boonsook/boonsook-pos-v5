@@ -65,7 +65,7 @@ export function renderSettingsUsers(el, ctx, goBack, navigateToView) {
                   <select data-role-user-id="${p.id}" title="เปลี่ยนบทบาท">
                     <option value="admin" ${p.role==='admin'?'selected':''}>Admin</option>
                     <option value="technician" ${p.role==='technician'?'selected':''}>ช่าง</option>
-                    <option value="accountant" ${p.role==='accountant'?'selected':''}>พนักงานบัญชี</option>
+                    <option value="accountant" ${p.role==='accountant'?'selected':''}>สำนักงานบัญชี</option>
                     <option value="sales" ${p.role==='sales'?'selected':''}>พนักงานขาย</option>
                   </select>
                   <button class="btn-edit" data-edit-user-id="${p.id}" title="แก้ไขชื่อ/เบอร์">✏️ แก้ไข</button>

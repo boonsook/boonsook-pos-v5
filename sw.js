@@ -180,7 +180,8 @@
 // v442 (2026-06-14): Phase 442 (B2b) - receipt receiving-bank override + transfer-no-bank warn. receipts.js edit drawer gets a bank picker (snapshot bank_label from chosen bank, same as B2a) + warns (App.confirm, allow-proceed) BEFORE postJournalForReceipt at both collect paths if payment_method=transfer with no bank_coa_code (reviewer #4/#5 — no silent 1130). Single-bank only (payments[] per-row = future). NO auto_post/JV change — Dr-by-real-bank is Phase C. Bumps CACHE_NAME.
 // v443 (2026-06-14): Phase 443 (C, MONEY/JV) - receipt transfer JV routes to its bank sub-account. postJournalForReceipt reads receipt.bank_coa_code (snapshot from B2a/B2b) -> Dr <that bank> (e.g. 1132) instead of flat 1130, for BOTH VAT-split and no-VAT lines. Validates against active COA (reuse _getValidCoaCodes, sale_transfer pattern); invalid/stale -> warn + fall back to mapping default (never a bogus JV, never silent). Uses bank_coa_code only (bank_label display-only). Cash unchanged (1110). Sale/service/expense flat-1130 untouched (separate). Bumps CACHE_NAME.
 // v444 (2026-06-14): Phase 444 - add accountant role with finance/accounting/reporting + sales-doc access only. Bumps CACHE_NAME.
-const CACHE_NAME = 'boonsook-pos-v5-cache-v444';
+// v446 (2026-06-14): Phase 446 - re-scope "accountant" to EXTERNAL accounting firm (สำนักงานบัญชี). ROLE_PAGES.accountant drops payroll/payroll_overview (external must NOT see individual salaries) + refunds (operational disbursement); keeps accounting/reports/financial-doc views for closing books + half-year tax (sole-prop ภงด.94/90). ROLE_LABELS + user dropdowns relabel "พนักงานบัญชี" -> "สำนักงานบัญชี". (445 was SQL-only, no build bump.) Salary-privacy RLS + read-only-docs RLS = later steps (3,4). Bumps CACHE_NAME.
+const CACHE_NAME = 'boonsook-pos-v5-cache-v446';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

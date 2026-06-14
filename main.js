@@ -634,16 +634,19 @@ const ROLE_PAGES = {
   //   หน้า products gate ปุ่มจัดการ/ต้นทุนเป็น read-only ใน products.js). ❌ ไม่ให้ stock_in_wizard (รับเข้า=โชว์ต้นทุน),
   //   stock_value (มูลค่า/ต้นทุนรวม), dead_stock — ตาม owner "ไม่เห็นต้นทุน"
   technician: ["customer_dashboard","pos","sales","service_jobs","calendar","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop","time_clock","leave_management","products","wh_kunkhao","wh_kundaeng","wh_sikhon","stock_movements","stock_count", ...SERVICE_FORM_ROUTES],
-  // Phase 444: accountant role gets finance/accounting/reporting + sales documents only.
-  // No POS, product operations, warehouse operations, service execution, HR admin, or settings/users.
-  accountant: ["dashboard","sales","delivery_invoices","receipts","customers","quotations","quote_templates","expenses","profit_report","stock_value","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","refunds","profit_by_product","expense_overview","income_overview","payroll","payroll_overview","accounting_journals","accounting_journal_new","accounting_coa","accounting_backfill","accounting_trial_balance","accounting_profit_loss","accounting_balance_sheet","accounting_opening_balance","accounting_export_bundle","accounting_periods","stock_reconcile_report","service_reconcile"],
+  // Phase 446: "accountant" = EXTERNAL accounting firm (สำนักงานบัญชี) — closes the books + files tax
+  //   (sole-prop half-year ภงด.94 / year-end ภงด.90). Reads financials + posts adjusting JV + closes periods.
+  //   Re-scoped from Phase 444 (was in-house-staff broad): REMOVED payroll/payroll_overview (must NOT see
+  //   individual salaries — privacy) + refunds (operational money-out). Still excluded: POS, stock/warehouse
+  //   ops, service execution, settings/users. (Salary EXPENSE total still flows to P&L; per-person hidden via RLS.)
+  accountant: ["dashboard","sales","delivery_invoices","receipts","customers","quotations","quote_templates","expenses","profit_report","stock_value","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","profit_by_product","expense_overview","income_overview","accounting_journals","accounting_journal_new","accounting_coa","accounting_backfill","accounting_trial_balance","accounting_profit_loss","accounting_balance_sheet","accounting_opening_balance","accounting_export_bundle","accounting_periods","stock_reconcile_report","service_reconcile"],
   sales:      ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","quote_templates","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","refunds","tasks","profit_by_product","birthdays","serials","warranty_report","calendar","loyalty","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop","time_clock","leave_management", ...SERVICE_FORM_ROUTES],
   customer:   ["customer_dashboard","btu_calculator","service_request","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"]
 };
 const ROLE_LABELS = {
   admin: "ผู้ดูแลระบบ",
   technician: "ช่าง",
-  accountant: "พนักงานบัญชี",
+  accountant: "สำนักงานบัญชี",
   sales: "พนักงานขาย",
   customer: "ลูกค้า"
 };
