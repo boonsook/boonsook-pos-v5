@@ -103,6 +103,19 @@ export function _receiptFinancialTotal(receipts = []) {
 // ═══════════════════════════════════════════════════════════
 //  LIST PAGE
 // ═══════════════════════════════════════════════════════════
+// Phase 442 (B2b): warn (not block) before collecting a TRANSFER receipt with no bank set.
+// Returns true to proceed. The message is explicit that proceeding leaves the document
+// bank blank and the Phase C auto-post JV will use the default account until a bank is set.
+// Single-bank only — payments[] per-row banks are not supported yet (reviewer #5).
+async function _confirmTransferBankSet(r) {
+  if (!_payIs(r.payment_method, "transfer") || r.bank_coa_code) return true;
+  return await window.App?.confirm?.(
+    "⚠️ ใบเสร็จนี้รับชำระแบบโอน แต่ยังไม่ได้ระบุบัญชีรับเงิน\n\n" +
+    "ดำเนินการเก็บเงินต่อ? — บัญชีในเอกสารจะว่าง และการลงบัญชีอัตโนมัติ (เฟสถัดไป) " +
+    "จะใช้บัญชีเริ่มต้นจนกว่าจะระบุบัญชี\n(แนะนำ: ยกเลิก → แก้ไข → เลือกบัญชีรับโอน)"
+  );
+}
+
 export function renderReceiptsPage(ctx) {
   _ctx = ctx;
   const container = document.getElementById("page-receipts");
@@ -502,6 +515,8 @@ export function renderReceiptsPage(ctx) {
     const cfg = actionConfig[action];
     if (!cfg) return;
     if (!(await window.App?.confirm?.(cfg.confirm))) return;
+    // Phase 442: warn before posting if transfer w/o bank — fires BEFORE postJournalForReceipt (reviewer #4/#5)
+    if (action === "paid" && !(await _confirmTransferBankSet(r))) return;
 
     try {
       const res = await window._appXhrPatch?.("receipts", { status: cfg.status }, "id", rcId);
@@ -793,6 +808,8 @@ function renderReceiptPreview(container) {
     const btn = e.currentTarget;
     if (btn.disabled) return;
     if (!(await window.App?.confirm?.(`ยืนยันเก็บเงิน "${r.receipt_no}" ยอด ${money(r.grand_total||0)} ?`))) return;
+    // Phase 442: warn before posting if transfer w/o bank — fires BEFORE postJournalForReceipt (reviewer #4/#5)
+    if (!(await _confirmTransferBankSet(r))) return;
     btn.disabled = true;
     btn.style.opacity = "0.6";
     btn.textContent = "⏳ กำลังเก็บเงิน...";
@@ -1060,6 +1077,14 @@ function _openReceiptEditDrawer(r) {
           <textarea id="rcEdNote" rows="2" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;margin-top:4px;resize:vertical;font-family:inherit">${escHtml(r.note || '')}</textarea>
         </label>
 
+        <label style="display:block">
+          <span style="font-size:12px;color:#64748b">🏦 บัญชีรับโอน (สำหรับใบเสร็จ)</span>
+          <select id="rcEdBankCoa" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;margin-top:4px">
+            <option value="">— ไม่ระบุ —</option>
+            ${(_ctx.state.paymentInfo?.banks || []).filter(b => b.coaCode).map(b => `<option value="${escHtml(b.coaCode)}" ${r.bank_coa_code === b.coaCode ? 'selected' : ''}>${escHtml([b.bankName, b.bankAccount].filter(Boolean).join(' '))}</option>`).join("")}
+          </select>
+        </label>
+
         <div id="rcEdStatus" style="font-size:12px;min-height:16px"></div>
         <div style="display:flex;gap:8px;justify-content:flex-end">
           <button id="rcEdCancel" class="btn light">ยกเลิก</button>
@@ -1081,8 +1106,14 @@ function _openReceiptEditDrawer(r) {
       modal.querySelector("#rcEdStatus").innerHTML = '<span style="color:#dc2626">กรอกชื่อลูกค้า</span>';
       return;
     }
+    // Phase 442: bank override — snapshot bank_label from the SELECTED bank (same as B2a quotation, reviewer #3)
+    const _edBankCoa = modal.querySelector("#rcEdBankCoa")?.value || "";
+    const _edBankObj = (_ctx.state.paymentInfo?.banks || []).find(b => b.coaCode === _edBankCoa);
+    const _edBankLabel = _edBankObj ? [_edBankObj.bankName, _edBankObj.bankAccount].filter(Boolean).join(" ") : "";
     const payload = {
       customer_name: name,
+      bank_coa_code: _edBankCoa || null, // Phase 442: receipt receiving-bank override
+      bank_label: _edBankLabel || null,
       customer_phone: modal.querySelector("#rcEdPhone").value.trim(),
       customer_tax_id: modal.querySelector("#rcEdTaxId").value.trim(),
       customer_address: modal.querySelector("#rcEdAddress").value.trim(),
