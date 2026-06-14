@@ -172,7 +172,8 @@
 // v434 (2026-06-13): Phase 434 - technician stock access: ROLE_PAGES.technician += products/wh_*/stock_movements/stock_count (เบิกขึ้นรถ + ตัดสต็อกเอง; รับเข้า/มูลค่าสต็อก ไม่เปิด = cost). products.js gates manage+cost surfaces (import/add/export header + per-card edit/stock-in) to admin/sales → technician = read-only no-cost view. Hide non-functional permission matrix page (menu entry removed + page shows maintenance notice; hasPermission was never enforced). Bumps CACHE_NAME.
 // v435 (2026-06-14): Remove remaining native confirm fallbacks from service slip removal, period close, leave actions, and product confirmations; all use App.confirm/fail-closed. Bumps CACHE_NAME.
 // v436 (2026-06-14): Document template fields now render in quotation, delivery invoice, and receipt previews/print/PDF. Bumps CACHE_NAME.
-const CACHE_NAME = 'boonsook-pos-v5-cache-v436';
+// v437 (2026-06-14): Phase 437 - stock non-negative hard rule (MONEY/STOCK, owner "ห้ามติดลบเด็ดขาด"): DB CHECK chk_ws_stock_nonneg/chk_products_stock_nonneg (stock>=0) in supabase-phase437-stock-nonneg-check.sql (owner must run, pre-check+datafix+constraint). stock_movements.js manual override no longer sends allowNegative:true → out-flow/transfer that would go negative is hard-blocked at the form (was "will go negative, proceed?" confirm). allowNegativeStock POS setting untouched (it controls selling stock-0 service items, not DB negatives). Bumps CACHE_NAME.
+const CACHE_NAME = 'boonsook-pos-v5-cache-v437';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

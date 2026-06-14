@@ -7,6 +7,18 @@
 
 ---
 
+## 5.66.0 (build 437) — 2026-06-14 Phase 437 สต็อกห้ามติดลบเด็ดขาด (DB CHECK) — P1-③
+
+- **fix (MONEY/STOCK · owner "ห้ามติดลบเด็ดขาด" — ของค้างจาก Phase 367):** ใส่ **DB CHECK `stock >= 0`** บน `warehouse_stock` + `products` (last line of defense ทับ floor 367/368/369) — client path ไหนพลาดก็เขียนค่าติดลบลง DB ไม่ได้
+- **ปิดทาง manual override:** `stock_movements.js` เลิกส่ง `allowNegative:true` → ส่ง `false`; จ่ายออก/โอนที่จะติดลบเปลี่ยนจาก confirm "จะติดลบ ดำเนินการต่อ?" เป็น **hard block** ("ระบบไม่อนุญาตให้สต็อกติดลบ")
+- **ไม่แตะ setting `allowNegativeStock` (ตั้งใจ):** มันคุม POS ขายสินค้า stock 0 (ค่าบริการ/ค่าแรง) — บังคับ off จะขายค่าบริการไม่ได้; ไม่เขียนค่าติดลบลง DB (floor+CHECK คุมแล้ว)
+- **SQL ใหม่ `supabase-phase437-stock-nonneg-check.sql` (⚠️ owner รันเอง):** pre-check → data-fix (ถ้ามี) → ADD CHECK → verify (re-run safe)
+- +guard `stock_nonneg_guard.test.js` (3) · อัปเดต `apply_stock_movement_floor.test.js` (369 guard เดิม → กลับด้านตาม 437) · bump 437
+- lint:errors 0 / unit **1601** / e2e **14** · **⏸️ STOP — owner รัน SQL + smoke แล้วสั่ง merge**
+- หมายเหตุ: build 435/436 (งานทีมขนาน — native confirm cleanup + document template fields) ไม่มี entry ใน CHANGELOG ตอน push
+
+---
+
 ## 5.66.0 (build 434) — 2026-06-13 Phase 434 ช่างเข้าคลังเบิก/ตัดสต็อกเองได้ (ไม่เห็นต้นทุน) + ซ่อนหน้าสิทธิ์ที่ไม่ทำงาน
 
 - **feat (PERMISSION/STOCK · owner request):** role "ช่าง" (+ผู้ช่วยช่างที่ตั้ง role=ช่าง) เข้าเมนู **สินค้า/คลัง** ได้แล้ว เพื่อเบิกของขึ้นรถ + ตัดสต็อกเองทุกครั้งที่ทำงาน — `ROLE_PAGES.technician` += `products`, `wh_kunkhao`, `wh_kundaeng`, `wh_sikhon`, `stock_movements` (เบิก/โอน/ตัด), `stock_count` (นับ)

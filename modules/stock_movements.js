@@ -484,8 +484,10 @@ export function renderStockMovementsPage(ctx) {
         String(w.product_id) === String(pid) && String(w.warehouse_id) === String(from)
       );
       const cur = Number(ws?.stock || 0);
+      // Phase 437: สต็อกห้ามติดลบเด็ดขาด (DB CHECK chk_ws_stock_nonneg) → hard block แทน confirm-แล้วติดลบ
       if (qty > cur) {
-        if (!(await window.App?.confirm?.(`⚠️ คลังต้นทางเหลือ ${cur} — ย้าย ${qty} จะติดลบ ${cur - qty} — ดำเนินการต่อ?`))) return;
+        showToast(`คลังต้นทางเหลือ ${cur} — ย้าย ${qty} ไม่ได้ (ระบบไม่อนุญาตให้สต็อกติดลบ)`, 'error');
+        return;
       }
 
       const pidNum = Number(pid);
@@ -561,8 +563,10 @@ export function renderStockMovementsPage(ctx) {
           String(w.product_id) === String(productId) && String(w.warehouse_id) === String(warehouseId)
         );
         const cur = Number(ws?.stock || 0);
+        // Phase 437: สต็อกห้ามติดลบเด็ดขาด → hard block (เดิม confirm แล้วยอมให้ติดลบ)
         if (cur - quantity < 0) {
-          if (!(await window.App?.confirm?.(`⚠️ สต็อกคลังนี้เหลือ ${cur} — จ่ายออก ${quantity} จะติดลบ ${cur - quantity} — บันทึกต่อ?`))) return;
+          showToast(`สต็อกคลังนี้เหลือ ${cur} — จ่ายออก ${quantity} ไม่ได้ (ระบบไม่อนุญาตให้สต็อกติดลบ)`, 'error');
+          return;
         }
       }
 
@@ -574,9 +578,9 @@ export function renderStockMovementsPage(ctx) {
           throw new Error('ระบบยังโหลดไม่เสร็จ — กรุณารีเฟรชหน้าเว็บ');
         }
         const res = await window._appApplyStockMovement({
-          // Phase 369: manual override — หน้านี้มี confirm เตือนติดลบ (~บรรทัด 565) อยู่แล้ว
-          //   = admin จงใจให้ติดลบได้ → ส่ง allowNegative:true (ข้าม floor 369)
-          productId, warehouseId, movementType, qty: quantity, note, allowNegative: true
+          // Phase 437: สต็อกห้ามติดลบเด็ดขาด — เลิก override; ส่ง allowNegative:false ให้ floor (369) กันติดลบ
+          //   (out-flow ที่จะทำให้ติดลบถูก hard block ที่ฟอร์มก่อนหน้านี้แล้ว; นี่เป็น backstop ชั้น JS)
+          productId, warehouseId, movementType, qty: quantity, note, allowNegative: false
         });
         if (res && res.ok) {
           showToast('บันทึกเคลื่อนไหวสต็อกสำเร็จ', 'success');

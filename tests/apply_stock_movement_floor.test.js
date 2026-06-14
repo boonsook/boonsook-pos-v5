@@ -102,16 +102,17 @@ test("return shape stays {ok,error} (+ additive insufficient) — callers depend
 });
 
 // ── wiring: who passes allowNegative ──
-
-test("stock_movements.js save handler passes allowNegative:true (admin override behind confirm)", () => {
+// Phase 437 REVERSED the old Phase 369 behavior: owner ruled "สต็อกห้ามติดลบเด็ดขาด".
+// The manual override no longer confirms-then-goes-negative; it hard-blocks and sends
+// allowNegative:false. (The hard guarantee is the DB CHECK chk_ws_stock_nonneg.)
+// Deeper assertions live in tests/stock_nonneg_guard.test.js.
+test("stock_movements.js save handler no longer allows negative (Phase 437 hard rule)", () => {
   const sm = fs.readFileSync(path.resolve("modules/stock_movements.js"), "utf8");
-  // the negative-stock confirm must still be present (don't weaken the gate)
-  assert.match(sm, /จะติดลบ[\s\S]{0,40}บันทึกต่อ/, "negative-stock confirm preserved");
-  // the apply call sends allowNegative:true
+  assert.ok(!/allowNegative: true/.test(sm), "manual override must not send allowNegative:true anymore");
   assert.match(
     sm,
-    /window\._appApplyStockMovement\(\{[\s\S]{0,300}allowNegative: true/,
-    "save handler sends allowNegative: true"
+    /window\._appApplyStockMovement\(\{[\s\S]{0,300}allowNegative: false/,
+    "save handler sends allowNegative: false (floor enforced)"
   );
 });
 
