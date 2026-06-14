@@ -1614,7 +1614,7 @@ test("source: _jumpToTableRow + _scrollAndHighlightRow — switch view, confirm 
   const jBody = src.match(/function _jumpToTableRow[\s\S]*?^ {2}}/m)?.[0] || "";
   assert.ok(jBody.length > 0, "ต้องเจอ _jumpToTableRow");
   assert.match(jBody, /filterLeaves\(/, "ต้องเช็ค filter ปัจจุบัน");
-  assert.match(jBody, /window\.confirm\(/, "ต้องถาม confirm ตอน row ตก filter");
+  assert.match(jBody, /await\s+_confirmDialog\(/, "ต้องถาม confirm กลางตอน row ตก filter");
   assert.match(jBody, /activeView\s*=\s*["']table["']/, "ต้อง switch ไป table view");
   assert.match(jBody, /_closePopover\(\)/, "ต้องปิด popover");
   assert.match(jBody, /_rerender\(\)/, "ต้อง rerender");

@@ -426,7 +426,11 @@ export async function renderPeriodsPage(ctx) {
         `  ${issues.length === 0 ? '✅ พร้อมปิด (Dr=Cr · บิล + งานบริการครบ)' : '⚠️ มีข้อค้าง'}\n` +
         warn +
         `\n⚠️ หลังปิดงวด — ห้ามแก้/สร้าง JV ในงวดนี้ (เว้นแต่ปลดล็อก)`;
-      if (!confirm(msg)) return;
+      if (typeof window.App?.confirm !== "function") {
+        _ctx.showToast?.("ระบบยืนยันยังไม่พร้อม กรุณาลองใหม่");
+        return;
+      }
+      if (!(await window.App.confirm(msg))) return;
 
       btn.disabled = true;
       btn.textContent = "🔄 กำลังปิด...";

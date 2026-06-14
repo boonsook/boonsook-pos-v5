@@ -2684,8 +2684,9 @@ function _wireServiceSlipUpload() {
     }
   });
 
-  removeBtn?.addEventListener("click", () => {
-    if (!confirm("ลบสลิป?")) return;
+  removeBtn?.addEventListener("click", async () => {
+    if (typeof window.App?.confirm !== "function") return showToast("ระบบยืนยันยังไม่พร้อม กรุณาลองใหม่");
+    if (!(await window.App.confirm("ลบสลิป?"))) return;
     $("serviceSlipUrl").value = "";
     document.getElementById("serviceSlipVerifyResult").innerHTML = "";
     _renderSlipPreviewState();

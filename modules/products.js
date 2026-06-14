@@ -6,10 +6,10 @@ import { renderEmpty } from "./ui_states.js";
 // Phase 68 (B3): tag rendering + presets
 import { renderTagBadge, PRODUCT_TAG_PRESETS } from "./utils.js";
 
-// ★ Phase 85.2 — App.confirm wrapper with native fallback (กันช่วง boot)
+// ★ Phase 85.2 — App.confirm wrapper (fail-closed if modal is not ready during boot)
 const _appConfirm = (msg) => {
   if (typeof window.App?.confirm === "function") return window.App.confirm(msg);
-  return Promise.resolve(window.confirm(msg));
+  return Promise.resolve(false);
 };
 // Phase 81: Bluetooth printer integration (Web Bluetooth API → XP-420B)
 import * as BTPrinter from "./bt_printer.js";

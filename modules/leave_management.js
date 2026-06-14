@@ -1575,12 +1575,10 @@ function _renderBalanceSection({ role, balanceUserId, balanceMap, profiles, poli
 }
 
 function _confirmDialog(message) {
-  // ★ ใช้ window.confirm() เป็น fallback ที่เร็ว+เชื่อถือได้ (มีในทุกเบราว์เซอร์)
-  // ตามคำขอ user: "approve/reject/cancel ต้อง confirm ก่อน"
-  // (อย่าเปลี่ยนเป็น modal ที่ซับซ้อนเฟสนี้ — keep it minimal)
-  return typeof window !== "undefined" && typeof window.confirm === "function"
-    ? window.confirm(message)
-    : true;
+  if (typeof window !== "undefined" && typeof window.App?.confirm === "function") {
+    return window.App.confirm(message);
+  }
+  return Promise.resolve(false);
 }
 
 /**
@@ -2049,7 +2047,7 @@ export async function renderLeaveManagementPage(ctx) {
     // Phase 92.43: replace window.prompt → custom modal (iOS PWA safe)
     const note = await _askReviewNote(decisionLabel);
     if (note === null) return { ok: false, error: "ยกเลิก" }; // user pressed cancel — silent
-    if (!_confirmDialog(`ยืนยัน${decisionLabel}คำขอลานี้?`)) return { ok: false, error: "ยกเลิก" };
+    if (!(await _confirmDialog(`ยืนยัน${decisionLabel}คำขอลานี้?`))) return { ok: false, error: "ยกเลิก" };
     try {
       // Phase 92.45: ใช้ RPC review_staff_leave — DB trigger จะ set reviewed_by/reviewed_at เอง
       // (กัน non-admin spoof + audit ยึด server timestamp)
@@ -2085,7 +2083,7 @@ export async function renderLeaveManagementPage(ctx) {
     const row = _findLeave(id);
     if (!row) return { ok: false, error: "ไม่พบรายการ" };
     if (!canEditLeave(row, currentUserId, role)) { showToast?.("ไม่มีสิทธิ์"); return { ok: false, error: "ไม่มีสิทธิ์" }; }
-    if (!_confirmDialog("ยกเลิกคำขอลานี้?")) return { ok: false, error: "ยกเลิก" };
+    if (!(await _confirmDialog("ยกเลิกคำขอลานี้?"))) return { ok: false, error: "ยกเลิก" };
     try {
       const updated = await _patchLeave(row.id, { status: "cancelled" });
       const i = leaves.findIndex(r => String(r.id) === String(row.id));
@@ -2114,7 +2112,7 @@ export async function renderLeaveManagementPage(ctx) {
 
   async function _doDelete(id) {
     if (role !== "admin") { showToast?.("เฉพาะ admin"); return { ok: false, error: "เฉพาะ admin" }; }
-    if (!_confirmDialog("ลบรายการนี้ถาวร? (ไม่สามารถ undo ได้)")) return { ok: false, error: "ยกเลิก" };
+    if (!(await _confirmDialog("ลบรายการนี้ถาวร? (ไม่สามารถ undo ได้)"))) return { ok: false, error: "ยกเลิก" };
     // เก็บข้อมูลก่อนลบ — สำหรับ audit
     const before = _findLeave(id);
     try {
@@ -2267,7 +2265,7 @@ export async function renderLeaveManagementPage(ctx) {
   }
 
   // Phase 92.40: switch table view + scroll/highlight row; ถ้าตก filter ปัจจุบัน confirm + reset
-  function _jumpToTableRow(id) {
+  async function _jumpToTableRow(id) {
     const row = _findLeave(id);
     if (!row) return;
     const filtered = filterLeaves(leaves, {
@@ -2277,9 +2275,7 @@ export async function renderLeaveManagementPage(ctx) {
     });
     const inFilter = filtered.some(r => String(r.id) === String(id));
     if (!inFilter) {
-      const ok = (typeof window !== "undefined" && typeof window.confirm === "function")
-        ? window.confirm("รายการนี้อยู่นอก filter ปัจจุบัน — ล้าง filter เพื่อแสดง?")
-        : true;
+      const ok = await _confirmDialog("รายการนี้อยู่นอก filter ปัจจุบัน — ล้าง filter เพื่อแสดง?");
       if (!ok) return;
       activeStatus = "all";
       activeType = "all";
