@@ -64,7 +64,7 @@ function getCorsHeaders(origin) {
   return {
     "Access-Control-Allow-Origin": allowed ? origin : "https://boonsukair.com",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization, apikey",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, apikey, X-NING-AGENT-KEY",
     "Access-Control-Max-Age": "86400",
     "Vary": "Origin"
   };
@@ -238,6 +238,25 @@ async function verifyAuthToken(authHeader, env) {
   }
 }
 
+function verifyNingAgentKey(request, env) {
+  const provided = request.headers.get("X-NING-AGENT-KEY");
+  if (!provided) return { ok: false, skipped: true };
+
+  const expected = env.NING_AGENT_API_KEY;
+  if (!expected || String(expected).length < 24) {
+    return { ok: false, error: "Ning agent auth is not configured" };
+  }
+
+  const encoder = new TextEncoder();
+  const actualBytes = encoder.encode(provided);
+  const expectedBytes = encoder.encode(String(expected));
+  if (!timingSafeEqual(actualBytes, expectedBytes)) {
+    return { ok: false, error: "Invalid Ning agent key" };
+  }
+
+  return { ok: true };
+}
+
 export async function onRequest(context) {
   const { request, env, next } = context;
   const url = new URL(request.url);
@@ -278,6 +297,38 @@ export async function onRequest(context) {
 
   // ── Auth check (เฉพาะ endpoint ที่ระบุ) ──
   if (REQUIRE_AUTH_ENDPOINTS.includes(url.pathname)) {
+    if (REPORT_ONLY_ENDPOINTS.includes(url.pathname)) {
+      const agentAuth = verifyNingAgentKey(request, env);
+      if (agentAuth.ok) {
+        context.data = context.data || {};
+        context.data.user = {
+          id: "ning-agent",
+          email: null,
+          role: "owner",
+          authMode: "ning_agent"
+        };
+
+        const response = await next();
+        const newHeaders = new Headers(response.headers);
+        Object.entries(corsHeaders).forEach(([k, v]) => newHeaders.set(k, v));
+        if (rl.limit) newHeaders.set("X-RateLimit-Limit", String(rl.limit));
+        if (rl.remaining !== undefined) newHeaders.set("X-RateLimit-Remaining", String(rl.remaining));
+        if (rl.skipped) newHeaders.set("X-RateLimit-Skipped", "no-kv-binding");
+
+        return new Response(response.body, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: newHeaders
+        });
+      }
+      if (!agentAuth.skipped) {
+        return new Response(
+          JSON.stringify({ ok: false, error: "Unauthorized: " + agentAuth.error }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+
     const authHeader = request.headers.get("Authorization");
     const auth = await verifyAuthToken(authHeader, env);
     if (!auth.ok) {

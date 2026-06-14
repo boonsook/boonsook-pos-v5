@@ -195,6 +195,35 @@ async function fetchReportRows({ supabaseUrl, apiKey, authHeader, filters }) {
   return await response.json();
 }
 
+function getSupabaseReportAuth({ request, env, data }) {
+  const supabaseUrl = env.SUPABASE_URL || PUBLIC_SUPABASE_URL;
+
+  if (data?.user?.authMode === "ning_agent") {
+    const serviceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!serviceRoleKey) {
+      return {
+        ok: false,
+        status: 500,
+        error: "SUPABASE_SERVICE_ROLE_KEY is required for Ning agent access",
+      };
+    }
+    return {
+      ok: true,
+      supabaseUrl,
+      apiKey: serviceRoleKey,
+      authHeader: `Bearer ${serviceRoleKey}`,
+    };
+  }
+
+  const authHeader = request.headers.get("Authorization");
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return { ok: false, status: 401, error: "Missing Authorization Bearer token" };
+  }
+
+  const apiKey = env.SUPABASE_ANON_KEY || env.SUPABASE_PUBLISHABLE_KEY || PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  return { ok: true, supabaseUrl, apiKey, authHeader };
+}
+
 export async function onRequestGet({ request, env, data }) {
   if (!REPORT_ROLES.has(data?.user?.role)) {
     return jsonResponse({ ok: false, error: "Forbidden: report role required" }, 403);
@@ -211,13 +240,12 @@ export async function onRequestGet({ request, env, data }) {
     return jsonResponse({ ok: false, error: "Only tz=Asia/Bangkok is supported in Phase 1" }, 400);
   }
 
-  const authHeader = request.headers.get("Authorization");
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return jsonResponse({ ok: false, error: "Missing Authorization Bearer token" }, 401);
+  const reportAuth = getSupabaseReportAuth({ request, env, data });
+  if (!reportAuth.ok) {
+    return jsonResponse({ ok: false, error: reportAuth.error }, reportAuth.status);
   }
 
-  const supabaseUrl = env.SUPABASE_URL || PUBLIC_SUPABASE_URL;
-  const apiKey = env.SUPABASE_ANON_KEY || env.SUPABASE_PUBLISHABLE_KEY || PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  const { supabaseUrl, apiKey, authHeader } = reportAuth;
   try {
     const [todayJobs, completedTodayJobs, tomorrowJobs, openJobs] = await Promise.all([
       fetchReportRows({
@@ -281,4 +309,5 @@ export {
   hasPendingPartsMarker,
   needsFollowUpMarker,
   needsPaymentReview,
+  getSupabaseReportAuth,
 };

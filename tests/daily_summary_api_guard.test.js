@@ -14,6 +14,7 @@ import {
   hasPendingPartsMarker,
   needsFollowUpMarker,
   needsPaymentReview,
+  getSupabaseReportAuth,
 } from "../functions/api/v1/reports/daily-summary.js";
 
 const API_SRC = fs.readFileSync(path.resolve("functions/api/v1/reports/daily-summary.js"), "utf8");
@@ -26,9 +27,12 @@ test("daily-summary route is authenticated and report-role gated in middleware",
     "daily summary must use the report-only role gate");
   assert.match(MW_SRC, /REPORT_ROLES\s*=\s*new Set\(\["admin", "owner"\]\)/,
     "report roles must stay limited to admin/owner");
+  assert.match(MW_SRC, /X-NING-AGENT-KEY/, "CORS/auth must allow the Ning server-to-server header");
+  assert.match(MW_SRC, /NING_AGENT_API_KEY/, "middleware must validate the configured Ning API key");
+  assert.match(MW_SRC, /authMode:\s*"ning_agent"/, "valid Ning key must mark the request as Ning agent auth");
 });
 
-test("daily-summary endpoint is GET-only and uses the user's JWT for Supabase RLS", () => {
+test("daily-summary endpoint is GET-only and supports user JWT plus Ning service auth", () => {
   assert.match(API_SRC, /export async function onRequestGet/, "exports GET handler");
   assert.doesNotMatch(API_SRC, /export async function onRequest(Post|Put|Patch|Delete)/,
     "does not expose write handlers");
@@ -37,9 +41,39 @@ test("daily-summary endpoint is GET-only and uses the user's JWT for Supabase RL
   assert.match(API_SRC, /REPORT_ROLES\.has\(data\?\.user\?\.role\)/,
     "endpoint repeats the report-role guard");
   assert.match(API_SRC, /"Authorization": authHeader/,
-    "forwards the user's JWT instead of a service-role token");
-  assert.doesNotMatch(API_SRC, /SERVICE_ROLE|service_role/i,
-    "must not use service-role secrets in the function");
+    "forwards the selected auth header to Supabase");
+  assert.match(API_SRC, /env\.SUPABASE_SERVICE_ROLE_KEY/,
+    "Ning server-to-server mode must use a server-only Cloudflare secret");
+  assert.doesNotMatch(API_SRC, /SUPABASE_SERVICE_ROLE_KEY\s*\|\|/,
+    "service role must not fall back to a public key");
+});
+
+test("getSupabaseReportAuth keeps browser JWT and Ning service auth separate", () => {
+  const userReq = new Request("https://boonsukair.com/api/v1/reports/daily-summary", {
+    headers: { Authorization: "Bearer user-token" },
+  });
+  const userAuth = getSupabaseReportAuth({ request: userReq, env: {}, data: { user: { role: "owner" } } });
+  assert.equal(userAuth.ok, true);
+  assert.equal(userAuth.authHeader, "Bearer user-token");
+  assert.notEqual(userAuth.apiKey, "service-token");
+
+  const missingService = getSupabaseReportAuth({
+    request: new Request("https://boonsukair.com/api/v1/reports/daily-summary"),
+    env: {},
+    data: { user: { role: "owner", authMode: "ning_agent" } },
+  });
+  assert.equal(missingService.ok, false);
+  assert.equal(missingService.status, 500);
+  assert.match(missingService.error, /SUPABASE_SERVICE_ROLE_KEY/);
+
+  const agentAuth = getSupabaseReportAuth({
+    request: new Request("https://boonsukair.com/api/v1/reports/daily-summary"),
+    env: { SUPABASE_SERVICE_ROLE_KEY: "service-token" },
+    data: { user: { role: "owner", authMode: "ning_agent" } },
+  });
+  assert.equal(agentAuth.ok, true);
+  assert.equal(agentAuth.apiKey, "service-token");
+  assert.equal(agentAuth.authHeader, "Bearer service-token");
 });
 
 test("parseBangkokReportDate builds Asia/Bangkok day boundaries", () => {
