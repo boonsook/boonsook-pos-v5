@@ -7,6 +7,15 @@
 
 ---
 
+## 5.68.0 (build 447) — 2026-06-15 เงินเดือนลงบัญชีเป็น JV ก้อนเดียวต่องวด (Step 3a privacy)
+
+- เปลี่ยนการลงบัญชีเงินเดือน: เดิม JV **รายคน** (เห็นชื่อ+ยอดต่อคน) → **JV ก้อนเดียวต่อรอบ** (Dr 5200 รวม / Cr เงินสด·ธนาคาร แยก, **ไม่มีชื่อ**) ผ่าน `postPayrollPeriodJournal` — สำนักงานบัญชี (accountant) เห็นแค่ยอดรวมในสมุดรายวัน
+- โพสต์ผ่านปุ่ม admin **"📒 ลงบัญชีงวดนี้"** ในหน้าเงินเดือน (idempotent ต่องวด, append-only) + เตือนถ้าจ่ายยังไม่ครบงวด; ถอด per-person JV ออกจาก `_markPaid`
+- กัน double-count: backfill ข้าม expense category salary/labor_hire/payroll + ถอด payroll ออกจาก INTEGRITY_CATS (กันงวดขึ้น orphan ลวง = ปิดงวดไม่ได้)
+- staff_payroll + expense รายคน **ยังอยู่ครบเป็น HR detail** — 447a ปิด leak ทาง JV เท่านั้น; **เหลือ 447b (RLS staff_payroll + expenses-salary)** ถึงจะซ่อนรายคนจาก accountant ครบ
+- +pure `_buildPayrollPeriodLines` + guard `payroll_aggregate_jv_guard` (balance/split/zero/rounding)
+- _(build 447 ยังรวม commit `61b1216` — daily-summary read-only endpoint ของ owner ที่ค้างใน working tree, ขึ้น main พร้อมกัน)_
+
 ## 5.67.0 (build 446) — 2026-06-14 บทบาท "สำนักงานบัญชี" (external accounting firm)
 
 - ปรับบทบาท `accountant` ให้ตรงกับ **สำนักงานบัญชีภายนอก** (มาปิดงบ + ส่งสรรพากรทุก 6 เดือน) ไม่ใช่พนักงานในร้าน
