@@ -7,6 +7,15 @@
 
 ---
 
+## 5.66.0 (build 441) — 2026-06-14 Phase 441 (UX) สมุดรายชื่อจำหน้า/ตัวกรอง
+
+- **fix (UX · ไม่แตะข้อมูล):** แก้ไขลูกค้าหน้า 2 → กดบันทึก → เด้งกลับหน้า 1 ทุกครั้ง (renderCustomersPage reset currentPage/search/filter ทุก showRoute). ตอนนี้จำสถานะ (renderView clamp หน้า) → workflow "กรองยังไม่ระบุกลุ่ม→ตั้งกลุ่มทีละราย" อยู่ที่เดิม
+- หมายเหตุ: สมุดรายชื่อจำหน้า/ค้นหา/ตัวกรอง แม้ออก-กลับ (เปิดแอปใหม่=หน้า 1)
+- +guard `customer_list_page_keep_guard.test.js` (2) · bump 441
+- lint 0 / unit **1623** / e2e **14** · ✅ **merged = build 441 live** (`6d2a938`) — CI Tests+Deploy success · verified HTML prod 441 (preview 441 logged-out → ไม่ interactive smoke; guard-locked + deterministic)
+
+---
+
 ## 5.66.0 (build 440) — 2026-06-14 Phase 440 (B2a) บัญชีรับโอนบนสายเอกสาร (auto-เติม+carry+แสดง)
 
 - **feat (เอกสาร · ไม่แตะ JV):** ใบเสนอราคาเลือกลูกค้า→**บัญชีรับโอนเด้งอัตโนมัติตามกลุ่ม** (Phase 439 resolver, แก้ได้) → snapshot `bank_label` จากบัญชีที่เลือก → carry `bank_coa_code`+`bank_label` ลง ใบส่ง→ใบเสร็จ → **แสดงบนพิมพ์ทั้ง 3 ใบ** (อ่านจาก row ไม่ live settings)
