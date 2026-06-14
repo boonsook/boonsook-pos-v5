@@ -14,6 +14,7 @@
 - กัน double-count: backfill ข้าม expense category salary/labor_hire/payroll + ถอด payroll ออกจาก INTEGRITY_CATS (กันงวดขึ้น orphan ลวง = ปิดงวดไม่ได้)
 - staff_payroll + expense รายคน **ยังอยู่ครบเป็น HR detail** — 447a ปิด leak ทาง JV เท่านั้น; **เหลือ 447b (RLS staff_payroll + expenses-salary)** ถึงจะซ่อนรายคนจาก accountant ครบ
 - +pure `_buildPayrollPeriodLines` + guard `payroll_aggregate_jv_guard` (balance/split/zero/rounding)
+- **447b (SQL-only, applied 2026-06-15):** verify-first พบ privacy **ครบแล้วหลัง 447a** — `staff_payroll` RLS = admin+self · `expenses` = is_sales_or_admin (ไม่รวม accountant) → accountant อ่านเงินเดือนรายคนไม่ได้อยู่แล้ว. 447b เลยกลับเป็น "เปิดให้ accountant อ่าน": +RLS `expenses_accountant_read` (non-salary) + `customers_accountant_read` → accountant เห็นรายจ่าย/ลูกค้าที่จำเป็นปิดงบได้ (เงินเดือนยังซ่อน) — `supabase-phase447b-accountant-operational-read.sql`
 - _(build 447 ยังรวม commit `61b1216` — daily-summary read-only endpoint ของ owner ที่ค้างใน working tree, ขึ้น main พร้อมกัน)_
 
 ## 5.67.0 (build 446) — 2026-06-14 บทบาท "สำนักงานบัญชี" (external accounting firm)

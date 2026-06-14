@@ -1,6 +1,7 @@
 # Phase 447 — Salary privacy from external accounting firm (Step 3 of 4)
 
-> สถานะ: **DRAFT — รอ owner review** (ยังไม่ลงมือ ยังไม่ commit)
+> ✅ **OUTCOME (2026-06-15):** 447a shipped (build 447 live — aggregate JV). 447b applied (SQL) — **verify-first พบ privacy ครบแล้วหลัง 447a** (staff_payroll RLS=admin+self, expenses=is_sales_or_admin บล็อก accountant → leak จริงแค่ JV). 447b เลยกลับเป็น **read-grant** (expenses-non-salary + customers) ไม่ใช่ "hide salary" ตามที่ร่างไว้ด้านล่าง. **ดู HANDOFF + CHANGELOG สำหรับสถานะจริง** — เนื้อด้านล่าง = ร่างก่อน verify (เก็บไว้เป็น record ของการวิเคราะห์)
+> สถานะร่างเดิม: DRAFT
 > ผู้เขียน: Claude (analyst mode) · 2026-06-14 · baseline build 446 (`6502e1f`)
 > Step 3 จาก roadmap "accountant = สำนักงานบัญชีภายนอก" (ดู [[project-accountant-role]])
 
