@@ -6,6 +6,8 @@ import { renderEmpty, renderSkeleton } from "./ui_states.js";
 // Phase 57: audit log + Phase 70 (D3): Excel export
 import { logActivity, exportToExcel, todaySuffix, round2 } from "./utils.js";
 import { renderDocumentTemplateHeader, renderDocumentTemplateNote, renderDocumentTemplateFooter } from "./doc-utils.js";
+// Phase 440 (B2): resolve receiving bank from customer group → auto-fill on the quotation (carries to receipt)
+import { resolveBankForCustomerGroup } from "./customer_groups.js";
 // Phase 408 cash-basis: ใบส่งของไม่ post JV revenue แล้ว (ย้ายไปที่ใบเสร็จ paid)
 //   import postJournalForDeliveryInvoice ถูกถอดออก — quotations.js ไม่เรียกแล้ว
 //   ฟังก์ชันยังคงอยู่ใน auto_post.js (guard return null) + backfill.js ยัง import
@@ -526,6 +528,7 @@ function renderQuotationForm(container) {
   const prevDocNo = document.getElementById("qt_docNo")?.value ?? (editDoc?.qt_no || editDoc?.title || '');
   const prevDate = document.getElementById("qt_date")?.value ?? (editDoc?.created_at ? new Date(editDoc.created_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]);
   const prevPayTerms = document.getElementById("qt_payTerms")?.value ?? (editDoc?.payment_terms || 'เงินสด');
+  const prevBankCoa = document.getElementById("qt_bankCoa")?.value ?? (editDoc?.bank_coa_code || ''); // Phase 440
   const prevCreditDays = document.getElementById("qt_creditDays")?.value ?? (editDoc?.credit_days || 0);
   const prevProject = document.getElementById("qt_project")?.value ?? (editDoc?.project_name || '');
   const prevRefNo = document.getElementById("qt_refNo")?.value ?? (editDoc?.ref_no || '');
@@ -692,6 +695,13 @@ function renderQuotationForm(container) {
             <option value="เช็ค" ${prevPayTerms==='เช็ค'?'selected':''}>เช็ค</option>
           </select>
         </div>
+        <div class="stack"><label class="field-label">บัญชีสำหรับรับโอน (แสดงในเอกสาร)</label>
+          <select id="qt_bankCoa">
+            <option value="">— ไม่ระบุ —</option>
+            ${(_ctx.state.paymentInfo?.banks || []).filter(b => b.coaCode).map(b => `<option value="${escHtml(b.coaCode)}" ${prevBankCoa===b.coaCode?'selected':''}>${escHtml([b.bankName, b.bankAccount].filter(Boolean).join(' '))}</option>`).join("")}
+          </select>
+          <div class="sku" style="font-size:11px">เด้งอัตโนมัติตามกลุ่มลูกค้า · แก้ได้ · แสดงบนเอกสารเฉย ๆ (ไม่ลงบัญชี)</div>
+        </div>
         <div class="stack"><label class="field-label">เครดิต (วัน)</label><input id="qt_creditDays" type="number" inputmode="numeric" value="${prevCreditDays}" /></div>
         <div class="stack"><label class="field-label">โปรเจค</label><input id="qt_project" placeholder="ชื่อโปรเจค" value="${escHtml(prevProject)}" /></div>
         <div class="stack"><label class="field-label">เลขเอกสารอ้างอิง</label><input id="qt_refNo" placeholder="Ref." value="${escHtml(prevRefNo)}" /></div>
@@ -823,6 +833,12 @@ function bindFormEvents(container, customers, products) {
             document.getElementById("qt_customerPhone").value = c.phone || "";
             document.getElementById("qt_customerTaxId").value = c.tax_id || "";
             document.getElementById("qt_customerAddress").value = c.address || "";
+            // Phase 440: auto-fill receiving bank from the customer's group (editable; resolver returns null → clear)
+            const _bankSel = document.getElementById("qt_bankCoa");
+            if (_bankSel) {
+              const _bank = resolveBankForCustomerGroup(c.customer_group, _ctx.state.paymentInfo);
+              _bankSel.value = _bank?.coaCode || "";
+            }
             custDD?.classList.add("hidden");
           }
         });
@@ -884,6 +900,11 @@ async function saveQuotationFull() {
     const whtAmount  = whtChecked ? afterDisc * (whtPct / 100) : 0;
     const grandTotal = afterDisc - whtAmount;
 
+    // Phase 440: snapshot the receiving bank from the SELECTED option (reviewer #3 — freeze, don't re-derive)
+    const _bankCoa = document.getElementById("qt_bankCoa")?.value || "";
+    const _bankObj = (_ctx.state.paymentInfo?.banks || []).find(b => b.coaCode === _bankCoa);
+    const _bankLabel = _bankObj ? [_bankObj.bankName, _bankObj.bankAccount].filter(Boolean).join(" ") : "";
+
     const payload = {
       customer_name: customerName, customer: customerName,
       customer_phone: document.getElementById("qt_customerPhone")?.value?.trim() || "",
@@ -899,6 +920,8 @@ async function saveQuotationFull() {
       ref_no: document.getElementById("qt_refNo")?.value?.trim() || "",
       salesperson: document.getElementById("qt_salesperson")?.value?.trim() || "",
       status: document.getElementById("qt_status")?.value || "pending",
+      bank_coa_code: _bankCoa || null, // Phase 440: receiving bank (snapshot — แสดงในเอกสาร, ไม่ post JV จากใบเสนอราคา)
+      bank_label: _bankLabel || null,
       // Phase 355: append อ้างอิงงานต้นทาง (air_job) ตอนกดบันทึกเองเท่านั้น — preserve note ผู้ใช้, ไม่ duplicate
       note: appendAirJobNoteRef(document.getElementById("qt_note")?.value?.trim() || "", _airDraftMeta)
     };
@@ -1076,6 +1099,7 @@ function renderQuotationPreview(container) {
                 <tr><td>วันที่</td><td id="qtDateCell">..........................</td></tr>
                 <tr><td>ผู้ขาย</td><td>${escHtml(q.salesperson || '-')}</td></tr>
                 ${q.payment_terms ? '<tr><td>ชำระเงิน</td><td>'+escHtml(q.payment_terms)+'</td></tr>' : ''}
+                ${q.bank_label ? '<tr><td>บัญชีรับโอน</td><td>'+escHtml(q.bank_label)+'</td></tr>' : ''}
               </table>
             </div>
           </div>
@@ -1325,6 +1349,7 @@ async function convertToDeliveryInvoice(q) {
       payment_terms: q.payment_terms || "เงินสด", credit_days: q.credit_days || 0,
       project_name: q.project_name || "", ref_no: q.qt_no || "",
       salesperson: q.salesperson || "", status: "pending",
+      bank_coa_code: q.bank_coa_code || null, bank_label: q.bank_label || null, // Phase 440: carry receiving bank down
       note: "จากใบเสนอราคา " + (q.qt_no || "")
     };
 

@@ -748,7 +748,7 @@ function renderReceiptPreview(container) {
                 <span class="doc-checkbox"><span class="doc-checkbox-box" style="display:inline-flex;align-items:center;justify-content:center;font-size:11px;line-height:1">${_payIs(r.payment_method,'credit')?'✓':''}</span> บัตรเครดิต</span>
               </div>
               <div class="doc-bank-line">
-                <div class="doc-bank-field">ธนาคาร<span class="underline"></span></div>
+                <div class="doc-bank-field">ธนาคาร<span class="underline">${(_payIs(r.payment_method,'transfer') && r.bank_label) ? escHtml(r.bank_label) : ''}</span></div>
                 <div class="doc-bank-field">เลขที่<span class="underline"></span></div>
                 <div class="doc-bank-field">วันที่<span class="underline"></span></div>
                 <div class="doc-bank-field">จำนวนเงิน<span class="underline"></span></div>

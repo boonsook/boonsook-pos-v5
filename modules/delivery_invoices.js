@@ -532,6 +532,7 @@ function renderInvoicePreview(container) {
                 <tr><td>วันที่</td><td id="diDateCell">..................................</td></tr>
                 <tr><td>ผู้ขาย</td><td>${escHtml(inv.salesperson || '-')}</td></tr>
                 <tr><td>อ้างอิง</td><td>${escHtml(inv.ref_no || inv.quotation_id || '-')}</td></tr>
+                ${inv.bank_label ? '<tr><td>บัญชีรับโอน</td><td>'+escHtml(inv.bank_label)+'</td></tr>' : ''}
               </table>
             </div>
           </div>
@@ -802,6 +803,7 @@ async function convertToReceipt(inv) {
       salesperson: inv.salesperson || "",
       // ★ Phase 88.17: เดิม "paid" (auto JV) — ตอนนี้ "pending" → user ต้องกดยืนยันใน list
       status: "pending",
+      bank_coa_code: inv.bank_coa_code || null, bank_label: inv.bank_label || null, // Phase 440: carry receiving bank
       note: "จากใบส่งสินค้า " + (inv.inv_no || "")
     };
 
