@@ -7,6 +7,17 @@
 
 ---
 
+## 5.66.0 (build 439) — 2026-06-14 Phase 439 (B1) แมปบัญชี↔กลุ่มลูกค้า + resolver
+
+- **feat (settings/config · ไม่แตะเงิน):** ตั้งค่า→ชำระเงิน เพิ่ม dropdown "🏦 กลุ่มลูกค้า" ต่อบัญชีธนาคาร (เก็บ `paymentInfo.banks[].customerGroup` — JSON ใน app_settings, **ไม่มี SQL/DB schema**) → owner ผูกได้ว่าบัญชีไหน=กลุ่มไหน
+- **ใหม่ `modules/customer_groups.js`** single source: `CUSTOMER_GROUPS` (5 กลุ่ม; customers.js import จากนี่แทน const เดิม) + `resolveBankForCustomerGroup()` → snapshot เต็ม {coaCode,bankName,bankAccount,label} / **null เมื่อไม่ match (ไม่ fallback 1130)** (reviewer note #1/#4)
+- **ไม่แตะ** receipts/quotations/auto_post/JV/เงิน/สต็อก (= Phase B2/C) · ไม่มี SQL
+- +guard `customer_group_bank_map_guard.test.js` (7: resolver behaviour จริง + payment wiring + import single-source) · อัปเดต 438 guard (const→import) · bump 439
+- lint:errors 0 / unit **1614** / e2e **14** · ✅ **merged = build 439 live** (`3d4cd5c`) — CI Tests+Deploy success · Claude smoke preview: settings/ชำระเงิน 6 บัญชีมี dropdown กลุ่มครบ (ว่าง+5 กลุ่ม) ไม่มี error · verified HTML prod 439
+- **owner ตั้ง mapping ครั้งเดียว:** ผูกบัญชี→กลุ่ม (1131/1132→ราชการ · 1133→POS · 1134→ช่าง · 1135→หน้าร้าน · 1136→ติดตั้ง)
+
+---
+
 ## 5.66.0 (build 438) — 2026-06-14 Phase 438 กลุ่มลูกค้า (customer_group) — ฐาน auto บัญชีรับเงิน
 
 - **feat (UX/DATA · additive):** เพิ่มฟิลด์ "กลุ่มลูกค้า" (`customers.customer_group`, nullable text) — dropdown 5 กลุ่ม (ราชการ/ขาย POS/งานช่าง/หน้าร้าน/ขายพร้อมติดตั้ง) ในฟอร์มลูกค้า + ตัวกรอง + badge 🏦 ในสมุดรายชื่อ
