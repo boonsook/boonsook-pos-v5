@@ -273,6 +273,9 @@ test("source: Phase 92.46 SQL — whitelist ตรงกับ sourceTable ท�
   // ดึง sourceTable: "..." จาก JS
   const jsTables = new Set();
   for (const m of js.matchAll(/sourceTable:\s*"([a-z_]+)"/g)) jsTables.add(m[1]);
+  // Phase 447a: payroll_period = JV เงินเดือนรวมต่องวด (admin-only → is_accountant()=true ผ่าน je_insert)
+  //   ตั้งใจไม่อยู่ใน non-admin auto-post whitelist (sales/cashier) → ไม่ต้อง/ไม่ควรอยู่ใน je_insert_auto
+  jsTables.delete("payroll_period");
   assert.ok(jsTables.size >= 6, `auto_post.js ต้องมีอย่างน้อย 6 sourceTable values, เจอ ${jsTables.size}`);
   // ทุก sourceTable ใน JS ต้องอยู่ใน SQL whitelist
   for (const t of jsTables) {

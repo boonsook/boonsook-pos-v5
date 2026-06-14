@@ -570,6 +570,110 @@ export async function postJournalForPayroll(payroll, paidAt, paymentMethod, opts
 }
 
 
+// Phase 447a (pure, testable): สร้าง lines ของ JV เงินเดือน "รวมทั้งงวด" จากแถวที่จ่ายแล้ว
+//   - แยก Cr ตามวิธีจ่าย: transfer/cheque → 1130 (ธนาคาร), อื่น ๆ → mapping.credit_account_code (เงินสด)
+//   - Dr mapping.debit_account_code = ยอดรวม · balanced เป๊ะ (grand = cashR + bankR, ปัด 2 ตำแหน่งก่อนรวม)
+//   - description เดียวกันทุก line (ยอดรวม ไม่มีชื่อ/รายคน) · return null ถ้ายอดรวม < 0.01
+export function _buildPayrollPeriodLines(rows, mapping, desc) {
+  let cashSum = 0, bankSum = 0;
+  for (const p of (rows || [])) {
+    const amt = Number(p?.total_amount || 0);
+    if (!Number.isFinite(amt) || amt < 0.01) continue;
+    const pm = String(p?.payment_method || "").toLowerCase();
+    if (/transfer|โอน|bank|cheque|เช็ค/.test(pm)) bankSum += amt;
+    else cashSum += amt;
+  }
+  const cashR = round2(cashSum), bankR = round2(bankSum);
+  const grand = round2(cashR + bankR);
+  if (grand < 0.01) return null;
+  const lines = [{ account_code: mapping.debit_account_code, debit: grand, credit: 0, description: desc }];
+  if (bankR >= 0.01) lines.push({ account_code: "1130", debit: 0, credit: bankR, description: desc });
+  if (cashR >= 0.01) lines.push({ account_code: mapping.credit_account_code, debit: 0, credit: cashR, description: desc });
+  return { lines, grand };
+}
+
+// ═══════════════════════════════════════════════════════════
+// Public: Payroll PERIOD aggregate → JV (Phase 447a)
+//   - รวมเงินเดือนที่ "จ่ายแล้ว" ทั้งงวด เป็น JV ก้อนเดียว (ยอดรวม — ไม่มีชื่อ/รายคน)
+//     → สำนักงานบัญชี (accountant) เห็นแค่ยอดรวม ไม่เห็นเงินเดือนรายคน
+//   - แทน postJournalForPayroll (per-person) ที่ถอดออกจาก _markPaid แล้ว (กันรั่ว)
+//   - Dr payroll_salary (5200) รวม / Cr แยกตามวิธีจ่าย: cash→credit_account_code (1110),
+//     transfer·cheque→1130 (เงินฝากธนาคาร)
+//   - source_table="payroll_period", source_id=YYYYMMDD ของ period_end → idempotent ต่อ "งวด"
+//     (กดซ้ำ = 409 skip ไม่ลงซ้ำ); admin-only → is_accountant()=true → je_insert ผ่าน
+//   - gated _isAfterEffective(period_end) + balance/zero/period-lock ผ่าน _postJournal
+// ═══════════════════════════════════════════════════════════
+/**
+ * @param {string} periodStart - YYYY-MM-DD วันเริ่มรอบ (ใช้ filter staff_payroll)
+ * @param {string} periodEnd   - YYYY-MM-DD วันสิ้นรอบ (docDate + idempotency key)
+ * @param {object} [opts]
+ * @param {string}  [opts.periodLabel] - label งวดสำหรับ description (ไม่มีชื่อพนักงาน)
+ * @param {boolean} [opts.detailed]
+ * @returns {Promise<number|null|object>} entry_id ถ้า post ใหม่ / null|result ถ้า skip
+ */
+export async function postPayrollPeriodJournal(periodStart, periodEnd, opts = {}) {
+  const detailed = opts.detailed === true;
+  if (!periodStart || !periodEnd) {
+    return _journalResult(detailed, { status: "skipped", reason: "missing-period", sourceTable: "payroll_period" });
+  }
+  const docDate = dateBkk(periodEnd) || String(periodEnd).slice(0, 10);
+  if (!_isAfterEffective(docDate)) {
+    console.info("[auto_post] payroll period before effective date, skip:", docDate);
+    return _journalResult(detailed, { status: "skipped", reason: "pre-effective", sourceTable: "payroll_period", docDate });
+  }
+
+  const mappings = await _getMappings();
+  const mapping = mappings["payroll_salary"];
+  if (!mapping?.debit_account_code || !mapping?.credit_account_code) {
+    console.warn("[auto_post] no mapping for payroll_salary — รัน supabase mapping ก่อน");
+    return _journalResult(detailed, { status: "skipped", reason: "missing-mapping", sourceTable: "payroll_period" });
+  }
+
+  // โหลดเฉพาะแถวที่ "จ่ายแล้ว" ในงวดนี้ (ไม่ดึงชื่อ — แค่ยอด + วิธีจ่าย)
+  const cfg = window.SUPABASE_CONFIG;
+  const token = window._sbAccessToken || cfg.anonKey;
+  let rows = [];
+  try {
+    const r = await fetch(
+      `${cfg.url}/rest/v1/staff_payroll?select=total_amount,payment_method&paid_at=not.is.null&period_start=eq.${encodeURIComponent(periodStart)}&period_end=eq.${encodeURIComponent(periodEnd)}`,
+      { headers: { apikey: cfg.anonKey, Authorization: "Bearer " + token } }
+    );
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    rows = await r.json();
+  } catch (e) {
+    console.error("[auto_post] payroll period fetch failed:", e?.message || e);
+    return _journalResult(detailed, { status: "failed", reason: "fetch-failed", sourceTable: "payroll_period", error: String(e?.message || e) });
+  }
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return _journalResult(detailed, { status: "skipped", reason: "no-paid-rows", sourceTable: "payroll_period" });
+  }
+
+  const label = (opts.periodLabel || `${periodStart} → ${periodEnd}`).toString().trim();
+  const desc = `เงินเดือนพนักงาน — งวด ${label}`; // ★ ยอดรวม ไม่มีชื่อ/เงินเดือนรายคน
+  const built = _buildPayrollPeriodLines(rows, mapping, desc);
+  if (!built) {
+    return _journalResult(detailed, { status: "skipped", reason: "zero-amount", sourceTable: "payroll_period" });
+  }
+  const { lines } = built;
+
+  // source_id = YYYYMMDD ของ period_end (BIGINT) → idempotent ต่องวด
+  const sourceId = parseInt(String(periodEnd).slice(0, 10).replace(/-/g, ""), 10);
+  if (!Number.isFinite(sourceId)) {
+    return _journalResult(detailed, { status: "failed", reason: "bad-period-key", sourceTable: "payroll_period" });
+  }
+
+  return _postJournal({
+    sourceTable: "payroll_period",
+    sourceId,
+    docType: "PV",
+    docDate,
+    description: desc,
+    lines,
+    detailed
+  });
+}
+
+
 // ═══════════════════════════════════════════════════════════
 // Public: Service job → JV (Phase 88.1b — stub for now, full impl. next session)
 // ═══════════════════════════════════════════════════════════

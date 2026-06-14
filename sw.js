@@ -181,7 +181,8 @@
 // v443 (2026-06-14): Phase 443 (C, MONEY/JV) - receipt transfer JV routes to its bank sub-account. postJournalForReceipt reads receipt.bank_coa_code (snapshot from B2a/B2b) -> Dr <that bank> (e.g. 1132) instead of flat 1130, for BOTH VAT-split and no-VAT lines. Validates against active COA (reuse _getValidCoaCodes, sale_transfer pattern); invalid/stale -> warn + fall back to mapping default (never a bogus JV, never silent). Uses bank_coa_code only (bank_label display-only). Cash unchanged (1110). Sale/service/expense flat-1130 untouched (separate). Bumps CACHE_NAME.
 // v444 (2026-06-14): Phase 444 - add accountant role with finance/accounting/reporting + sales-doc access only. Bumps CACHE_NAME.
 // v446 (2026-06-14): Phase 446 - re-scope "accountant" to EXTERNAL accounting firm (สำนักงานบัญชี). ROLE_PAGES.accountant drops payroll/payroll_overview (external must NOT see individual salaries) + refunds (operational disbursement); keeps accounting/reports/financial-doc views for closing books + half-year tax (sole-prop ภงด.94/90). ROLE_LABELS + user dropdowns relabel "พนักงานบัญชี" -> "สำนักงานบัญชี". (445 was SQL-only, no build bump.) Salary-privacy RLS + read-only-docs RLS = later steps (3,4). Bumps CACHE_NAME.
-const CACHE_NAME = 'boonsook-pos-v5-cache-v446';
+// v447 (2026-06-14): Phase 447a (MONEY) — เงินเดือนลงบัญชีเป็น JV ก้อนเดียวต่อรอบ (postPayrollPeriodJournal: Dr 5200 รวม / Cr cash+bank แยก, ไม่มีชื่อ) ผ่านปุ่ม admin "ลงบัญชีงวดนี้"; ถอด JV รายคนออกจาก _markPaid (กันสำนักงานบัญชีเห็นเงินเดือนรายคน); backfill ข้าม expense salary (กัน double-count); ถอด payroll ออกจาก INTEGRITY_CATS close-readiness. Step 3a accountant-privacy. Bumps CACHE_NAME.
+const CACHE_NAME = 'boonsook-pos-v5-cache-v447';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

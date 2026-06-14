@@ -238,19 +238,20 @@ test("source: postJournalForPayroll ผ่าน _postJournal core (idempotent v
   // unique index บน (source_table, source_id) อยู่ใน _postJournal — ไม่ต้องเช็คเอง
 });
 
-test("source: _markPaid เรียก postJournalForPayroll หลัง expense insert", async () => {
+test("source: _markPaid ไม่ลง JV รายคนแล้ว (447a) — เงินเดือนลงบัญชีเป็น period aggregate ผ่านปุ่ม", async () => {
   const fs = await import("node:fs");
   const path = await import("node:path");
   const src = fs.readFileSync(path.resolve("modules/payroll.js"), "utf8");
-  const body = src.match(/async function _markPaid[\s\S]*?^}/m)?.[0] || "";
-  assert.ok(body.length > 0);
-  assert.match(body, /postJournalForPayroll\(/, "ต้องเรียก postJournalForPayroll");
-  // pass employeeName + periodLabel
-  assert.match(body, /employeeName:\s*empName/, "ส่ง employeeName เพื่อ description");
-  // periodLabel อาจเป็น { periodLabel } shorthand หรือ { periodLabel: periodLabel } explicit
-  assert.match(body, /periodLabel(\s*:\s*periodLabel)?\s*[},]/, "ส่ง periodLabel เพื่อ description");
-  // lazy import เพื่อกัน cycle / lazy loading
-  assert.match(body, /await import\(["']\.\/accounting\/auto_post\.js["']\)/, "lazy import auto_post.js");
+  const markPaid = src.match(/async function _markPaid[\s\S]*?^}/m)?.[0] || "";
+  assert.ok(markPaid.length > 0);
+  assert.ok(!/postJournalForPayroll\(/.test(markPaid),
+    "447a: _markPaid ต้องไม่เรียก postJournalForPayroll รายคน (กันสำนักงานบัญชีเห็นเงินเดือนรายคน)");
+  assert.match(markPaid, /_createSalaryExpense\(/, "_markPaid ยังลง expense (operational/HR detail)");
+  // JV ก้อนเดียวต่อรอบ post ผ่าน handler ของปุ่ม "ลงบัญชีงวดนี้"
+  const handler = src.match(/async function _postPayrollPeriodJV[\s\S]*?^}/m)?.[0] || "";
+  assert.ok(handler.length > 0, "ต้องมี handler _postPayrollPeriodJV");
+  assert.match(handler, /postPayrollPeriodJournal\(/, "handler เรียก postPayrollPeriodJournal (period aggregate)");
+  assert.match(handler, /await import\(["']\.\/accounting\/auto_post\.js["']\)/, "lazy import auto_post.js");
 });
 
 test("source: _deletePayroll เรียก voidJvForSource('staff_payroll', id) ก่อน DELETE", async () => {

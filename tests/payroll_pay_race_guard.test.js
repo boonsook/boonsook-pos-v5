@@ -11,6 +11,9 @@
 //        side-effect (no expense, no JV, no "paid" audit entry).
 //     2. DB backstop — trg_guard_payroll_double_pay (supabase-phase433-payroll-pay-guard.sql)
 //        locks paid_at once set: blocks re-pay AND a stale edit clearing it to NULL.
+//   ★ Phase 447a: per-person JV ถูกถอดจาก _markPaid (เงินเดือนลงบัญชีเป็น period aggregate
+//     ผ่านปุ่ม "ลงบัญชีงวดนี้") → guard นี้คุม race ของ "expense" side-effect เป็นหลัก
+//     (JV aggregate เป็น idempotent ต่องวดในตัวเองอยู่แล้ว).
 //   Source-level checks only (same pattern as the other payroll guards).
 
 import { test } from "node:test";
@@ -38,16 +41,16 @@ test("CAS: mark-paid PATCH only targets unpaid rows (&paid_at=is.null)", () => {
     "must request the updated rows back to detect the race loser");
 });
 
-test("race loser bails out BEFORE money side-effects (no expense / no JV / no paid-audit)", () => {
+test("race loser bails out BEFORE money side-effects (no expense / no paid-audit)", () => {
+  // Phase 447a: per-person JV ถูกถอดออกจาก _markPaid แล้ว (เงินเดือนลงบัญชีเป็น period aggregate
+  //   ผ่านปุ่ม "ลงบัญชีงวดนี้") → side-effect ที่ต้องกัน race ใน _markPaid เหลือ expense + paid-audit
   const body = markPaidBody();
   const loserIdx = body.indexOf("ถูกจ่ายไปแล้วจากเครื่อง");
   assert.ok(loserIdx > -1, "loser branch with the Thai duplicate-pay toast must exist");
   const expenseIdx = body.indexOf("_createSalaryExpense(");
-  const journalIdx = body.indexOf("postJournalForPayroll(");
   const paidAuditIdx = body.indexOf('logActivity("payroll_pay"');
-  assert.ok(expenseIdx > -1 && journalIdx > -1 && paidAuditIdx > -1, "winner side-effects must still exist");
+  assert.ok(expenseIdx > -1 && paidAuditIdx > -1, "winner side-effects (expense + paid audit) must still exist");
   assert.ok(loserIdx < expenseIdx, "loser bail-out must come before the expense side-effect");
-  assert.ok(loserIdx < journalIdx, "loser bail-out must come before the JV side-effect");
   assert.ok(loserIdx < paidAuditIdx, "loser bail-out must come before the paid audit log");
   // the bail-out path must actually return
   const loserSlice = body.slice(loserIdx, expenseIdx);
@@ -60,12 +63,12 @@ test("race loser is traced in the audit log (payroll_pay_race_blocked)", () => {
     "blocked double-pay must be traceable in audit log");
 });
 
-test("winner path unchanged: expense + JV fired exactly once each", () => {
+test("winner path: expense fired exactly once; per-person JV removed (447a)", () => {
   const body = markPaidBody();
   assert.equal((body.match(/_createSalaryExpense\(/g) || []).length, 1,
     "exactly one expense side-effect call");
-  assert.equal((body.match(/postJournalForPayroll\(/g) || []).length, 1,
-    "exactly one JV side-effect call");
+  assert.equal((body.match(/postJournalForPayroll\(/g) || []).length, 0,
+    "Phase 447a: per-person payroll JV removed from _markPaid (salary posts as period aggregate via button)");
 });
 
 test("stale local pre-check (idempotent guard) is retained as the first cheap gate", () => {

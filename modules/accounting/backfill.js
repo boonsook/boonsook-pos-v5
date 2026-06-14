@@ -46,8 +46,10 @@ export const INTEGRITY_CATS = [
     sel: "*", docDate: r => r.created_at,                     amount: r => (r.total_amount ?? r.grand_total) },
   { key: "expenses", label: "💸 รายจ่าย",   table: "expenses",      view: "vw_expenses_without_journal", countKey: "expenses_without_journal",
     sel: "*",      docDate: r => (r.expense_date || r.created_at), amount: r => r.amount },
-  { key: "payroll",  label: "👷 เงินเดือน", table: "staff_payroll", view: "vw_payroll_without_journal",   countKey: "payroll_without_journal",
-    sel: "*",     docDate: r => (r.paid_at || r.created_at),      amount: r => r.total_amount },
+  // ★ Phase 447a: ถอด payroll ออกจาก integrity/close-readiness — เงินเดือนลงบัญชีเป็น JV
+  //   ก้อนเดียวต่อรอบ (source_table=payroll_period) ไม่ใช่ JV รายแถว staff_payroll แล้ว.
+  //   vw_payroll_without_journal (รายแถว) จะนับ orphan ลวงทุกแถวที่จ่าย → ทำให้งวดดู "ปิดไม่ได้".
+  //   ลงบัญชีเงินเดือนผ่านปุ่ม "ลงบัญชีงวดนี้" ในหน้าเงินเดือน (admin). 447b: completeness ระดับงวด.
 ];
 
 function escHtml(s) { const d = document.createElement("div"); d.textContent = String(s ?? ""); return d.innerHTML; }
@@ -323,7 +325,16 @@ async function _onRun() {
         let result = null;
         switch (bucket.srcKey) {
           case "sales":              result = await postJournalForSale(row, { detailed: true });        break;
-          case "expenses":           result = await postJournalForExpense(row, { detailed: true });     break;
+          case "expenses":
+            // Phase 447a: เงินเดือน (salary/labor_hire/payroll) ลงบัญชีผ่าน JV ก้อนเดียวต่อรอบ
+            //   (postPayrollPeriodJournal) แล้ว → backfill ต้องข้ามแถว expense หมวดนี้
+            //   มิฉะนั้น post Dr 5200 ซ้ำ (double-count) + ยอดเงินเดือนรายคนรั่วเข้าสมุดรายวัน
+            if (["salary", "labor_hire", "payroll"].includes(String(row.category || "").toLowerCase().trim())) {
+              result = { status: "skipped", reason: "salary-via-payroll-period" };
+            } else {
+              result = await postJournalForExpense(row, { detailed: true });
+            }
+            break;
           // Phase 408 cash-basis: ใบส่งของไม่ลง revenue แล้ว (ย้ายไปที่ใบเสร็จ paid) — skip กัน backfill สร้างรายได้ซ้ำ
           case "delivery_invoices":  result = { status: "skipped", reason: "cash-basis-noop" }; break;
           case "receipts":           result = await postJournalForReceipt(row, { detailed: true });     break;

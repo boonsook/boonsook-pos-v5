@@ -418,6 +418,7 @@ export async function renderPayrollPage(ctx) {
           </div>
           <button id="prExportBtn" class="btn light" style="font-size:13px">📥 Excel</button>
           ${_payrolls.length > 0 ? `<button id="prPrintAllBtn" class="btn light" style="font-size:13px" title="พิมพ์สลิปทุกคนของรอบนี้ (สลิปละ 2 หน้า ต้นฉบับ+สำเนา)">🖨️ พิมพ์สลิปทุกคน</button>` : ""}
+          ${paidCount > 0 ? `<button id="prPostJVBtn" class="btn light" style="font-size:13px;border:1px solid #0284c7;color:#0c4a6e;font-weight:700" title="ลงบัญชีเงินเดือนงวดนี้เป็น JV ก้อนเดียว (ยอดรวม — ไม่มีรายคน)">📒 ลงบัญชีงวดนี้</button>` : ""}
           <!-- Phase 417: bulk DRAFT ทั้งรอบ — สร้างสถานะ "รอจ่าย" เท่านั้น ไม่มีการจ่าย/JV -->
           <button id="prBulkBtn" type="button" style="margin-left:auto;font-size:13px;font-weight:700;padding:8px 14px;background:#7c3aed;color:#fff;border:none;border-radius:8px;cursor:pointer">⚡ สร้างเงินเดือนทั้งรอบ</button>
           <button id="prAddBtn" class="btn primary" style="font-size:13px">+ เพิ่มรายการเงินเดือน</button>
@@ -596,6 +597,7 @@ export async function renderPayrollPage(ctx) {
   container.querySelectorAll(".pr-hist-btn").forEach(btn => btn.addEventListener("click", () => _openPayrollHistoryModal(ctx, btn.dataset.emp)));
   document.getElementById("prPrintAllBtn")?.addEventListener("click", () => _printAllPayslips(ctx));
   document.getElementById("prExportBtn")?.addEventListener("click", () => _exportPayroll());
+  document.getElementById("prPostJVBtn")?.addEventListener("click", () => _postPayrollPeriodJV(ctx));
 }
 
 function _openPayrollModal(ctx, payroll) {
@@ -1458,31 +1460,11 @@ async function _markPaid(ctx, id) {
           });
         } catch (_e) { /* swallow */ }
       }
-      // Phase 92.44: ลง journal PV (สมุดรายวัน) ให้ admin/บัญชีตรวจสอบได้
-      // source_table=staff_payroll → idempotent + reversible ตอนลบ payroll
-      try {
-        const { postJournalForPayroll } = await import("./accounting/auto_post.js");
-        const emp = _profiles.find(x => x.id === payroll.employee_id);
-        const empName = emp?.full_name || "(พนักงาน)";
-        const periodLabel = new Date(payroll.period_month).toLocaleDateString("th-TH", { year: "numeric", month: "long" });
-        await postJournalForPayroll(
-          { ...payroll, paid_at: paidAt, payment_method: method },
-          paidAt,
-          method,
-          { employeeName: empName, periodLabel }
-        );
-      } catch (e) {
-        console.warn("auto-journal payroll fail", e);
-        // ไม่ block — payroll paid + expense ลงแล้ว, JV ตามมาทีหลังได้ (admin re-post manually)
-        // Phase 92.63: trace ใน audit log → P&L/cash อาจ understated จนกว่าจะ re-post
-        try {
-          logActivity("payroll_journal_failed", {
-            entityType: "staff_payroll", entityId: id,
-            summary: `payroll ${id} จ่ายแล้วแต่ลงสมุดรายวัน (JV) ไม่สำเร็จ — admin ต้อง re-post ที่หน้าบัญชี`,
-            metadata: { error: String(e?.message || e), paid_at: paidAt, payment_method: method, employee_id: payroll?.employee_id },
-          });
-        } catch (_e) { /* swallow */ }
-      }
+      // Phase 447a: ❌ ไม่ลง JV "รายคน" ตรงนี้แล้ว (กันสำนักงานบัญชี/accountant เห็นเงินเดือนรายคน)
+      //   เงินเดือนลงบัญชีเป็น "ก้อนเดียวต่อรอบ" ผ่านปุ่ม "ลงบัญชีงวดนี้" (admin)
+      //   → postPayrollPeriodJournal() ใน auto_post.js (Dr 5200 รวม / Cr แยกวิธีจ่าย, ไม่มีชื่อ).
+      //   staff_payroll + expense รายคน ยังอยู่ครบเป็น HR detail (RLS ปิดจาก accountant ใน 447b),
+      //   แต่ JV ในสมุดรายวันเห็นแค่ยอดรวมงวด.
     }
     // Phase 92.43 (B4): audit log
     logActivity("payroll_pay", {
@@ -1502,6 +1484,78 @@ async function _markPaid(ctx, id) {
     renderPayrollPage(ctx);
   } catch(e) {
     ctx.showToast?.("บันทึกไม่สำเร็จ: " + (e.message || e));
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 447a: ลงบัญชีเงินเดือน "ทั้งงวด" เป็น JV ก้อนเดียว (ยอดรวม — ไม่มีรายคน)
+//   - กันสำนักงานบัญชี (accountant) เห็นเงินเดือนรายคน — เห็นแค่ยอดรวมผ่าน JV นี้
+//   - idempotent ต่อรอบ (postPayrollPeriodJournal source_table=payroll_period) + inflight guard
+//   - App.confirm modal เท่านั้น (ห้าม native confirm); เตือนถ้ายังจ่ายไม่ครบงวด
+// ═══════════════════════════════════════════════════════════
+let _postJVInflight = false;
+async function _postPayrollPeriodJV(ctx) {
+  if (_postJVInflight) return;
+  const paid = _payrolls.filter(p => p.paid_at);
+  if (!paid.length) { ctx.showToast?.("ยังไม่มีรายการที่จ่ายแล้วในงวดนี้"); return; }
+  if (typeof window.App?.confirm !== "function") {
+    ctx.showToast?.("ระบบกล่องยืนยันยังไม่พร้อม — รีเฟรชหน้าแล้วลองใหม่");
+    return;
+  }
+  const unpaid = _payrolls.length - paid.length;
+  const label = formatPayPeriodLabel(_periodStart, _periodEnd);
+  const total = paid.reduce((s, p) => s + Number(p.total_amount || 0), 0);
+  const ok = await window.App.confirm(
+    `ลงบัญชีเงินเดือนงวด ${label} เป็น JV ก้อนเดียว?\n\n` +
+    `• รวม ${paid.length} คนที่จ่ายแล้ว = ${money(total)}\n` +
+    (unpaid > 0 ? `• ⚠️ ยังมี ${unpaid} คนยังไม่จ่าย — งวดนี้ลงบัญชีได้ครั้งเดียว (ที่จ่ายภายหลังจะไม่รวม)\n` : "") +
+    `• JV จะแสดงเฉพาะ "ยอดรวม" ไม่มีชื่อ/เงินเดือนรายคน`
+  );
+  if (!ok) return;
+  _postJVInflight = true;
+  try {
+    const { postPayrollPeriodJournal } = await import("./accounting/auto_post.js");
+    const res = await postPayrollPeriodJournal(_periodStart, _periodEnd, { periodLabel: label, detailed: true });
+    const st = res?.status, reason = res?.reason;
+    if (st === "posted") {
+      ctx.showToast?.(`ลงบัญชีเงินเดือนงวดนี้แล้ว ✅ (JV #${res.entryId || ""})`);
+      logActivity("payroll_period_journal", {
+        entityType: "payroll_period", entityId: `${_periodStart}_${_periodEnd}`,
+        summary: `ลงบัญชีเงินเดือนงวด ${label} — รวม ${money(total)} (${paid.length} คน)`,
+        metadata: { period_start: _periodStart, period_end: _periodEnd, total_amount: total, paid_count: paid.length },
+      });
+    } else if (reason === "duplicate") {
+      ctx.showToast?.("งวดนี้ลงบัญชีไปแล้ว (ไม่ลงซ้ำ)");
+    } else if (reason === "pre-effective") {
+      ctx.showToast?.("งวดนี้อยู่ก่อนวันเริ่มบัญชีจริง — ยังไม่ลง JV");
+    } else if (reason === "period-locked") {
+      ctx.showToast?.("⛔ งวดบัญชีถูกปิดแล้ว — ลง JV ไม่ได้");
+    } else if (reason === "missing-mapping") {
+      ctx.showToast?.("ยังไม่ได้ตั้งค่าผังบัญชีเงินเดือน (payroll_salary)");
+    } else {
+      ctx.showToast?.("ลงบัญชีไม่สำเร็จ: " + (reason || res?.error || "unknown"));
+      // Phase 92.63: trace failed money side-effect ใน audit log (ไม่ใช่แค่ console)
+      try {
+        logActivity("payroll_journal_failed", {
+          entityType: "payroll_period", entityId: `${_periodStart}_${_periodEnd}`,
+          summary: `ลงบัญชีเงินเดือนงวด ${label} ไม่สำเร็จ (${reason || "unknown"}) — admin ลองใหม่ที่หน้าเงินเดือน`,
+          metadata: { period_start: _periodStart, period_end: _periodEnd, reason: reason || null, error: res?.error || null },
+        });
+      } catch (_e) { /* swallow */ }
+    }
+    if (ctx.loadAllData) await ctx.loadAllData();
+    renderPayrollPage(ctx);
+  } catch (e) {
+    ctx.showToast?.("ลงบัญชีไม่สำเร็จ: " + (e?.message || e));
+    try {
+      logActivity("payroll_journal_failed", {
+        entityType: "payroll_period", entityId: `${_periodStart}_${_periodEnd}`,
+        summary: `ลงบัญชีเงินเดือนงวด ${label} ผิดพลาด (exception)`,
+        metadata: { period_start: _periodStart, period_end: _periodEnd, error: String(e?.message || e) },
+      });
+    } catch (_e) { /* swallow */ }
+  } finally {
+    _postJVInflight = false;
   }
 }
 

@@ -14,7 +14,6 @@ import { todayBkk } from "../modules/utils.js";
 
 const sales    = INTEGRITY_CATS.find(c => c.key === "sales");
 const expenses = INTEGRITY_CATS.find(c => c.key === "expenses");
-const payroll  = INTEGRITY_CATS.find(c => c.key === "payroll");
 const BACKFILL_SRC = fs.readFileSync(path.resolve("modules/accounting/backfill.js"), "utf8");
 
 test("sale before effective date (April) → skipped/pre-effective", () => {
@@ -54,10 +53,11 @@ test("expense post-effective with amount → actionable", () => {
   assert.equal(r.amount, 1000);
 });
 
-test("payroll classifies on paid_at + total_amount", () => {
-  const r = _classifyOrphan(payroll, { id: 5, paid_at: "2026-07-31T12:00:00Z", total_amount: 9000 });
-  assert.equal(r.bucket, "actionable");
-  assert.equal(r.amount, 9000);
+test("Phase 447a: payroll removed from INTEGRITY_CATS (salary = period-aggregate JV, not per-row)", () => {
+  // เงินเดือนลงบัญชีเป็น JV ก้อนเดียวต่อรอบ (postPayrollPeriodJournal, source_table=payroll_period)
+  // ไม่ใช่ JV รายแถว staff_payroll แล้ว → close-readiness ต้องไม่นับแถวที่จ่ายเป็น orphan ลวง
+  assert.equal(INTEGRITY_CATS.find(c => c.key === "payroll"), undefined,
+    "payroll must NOT be in INTEGRITY_CATS post-447a (per-row staff_payroll JE replaced by payroll_period aggregate)");
 });
 
 test("missing docDate falls back to today → bucket ตามกติกาเดียวกับ auto_post (today vs effective)", () => {
