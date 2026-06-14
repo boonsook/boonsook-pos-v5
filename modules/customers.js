@@ -2,15 +2,14 @@
 import { renderEmpty } from "./ui_states.js";
 // Phase 55: loyalty tier badge
 import { getCustomerTier, renderTierBadge } from "./utils.js";
+// Phase 439 (B1): customer groups sourced from shared module (shared with settings/payment.js + bank resolver)
+import { CUSTOMER_GROUPS } from "./customer_groups.js";
 
 const CONTACT_TYPES = {
   customer: { label: "ลูกค้า", color: "#0284c7", dot: "#3b82f6" },
   supplier: { label: "ผู้จำหน่าย", color: "#d97706", dot: "#f59e0b" },
   both:     { label: "ผู้จำหน่าย/ลูกค้า", color: "#059669", dot: "#10b981" }
 };
-
-// Phase 438: customer groups → drive bank-account auto-fill on receipts (Phase 439+)
-const CUSTOMER_GROUPS = ["ราชการ", "ขาย POS", "งานช่าง", "หน้าร้าน", "ขายพร้อมติดตั้ง"];
 
 let currentFilter = "all"; // all | customer | supplier | both
 let currentGroupFilter = "all"; // Phase 438: all | <group> | __none__

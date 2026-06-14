@@ -1,5 +1,7 @@
 import { escHtml, THAI_BANKS } from "./utils.js";
 import { ACCOUNTING_EFFECTIVE_DATE } from "../accounting/effective_date.js";
+// Phase 439 (B1): customer-group → bank mapping (this select tags each bank for a customer group)
+import { CUSTOMER_GROUPS } from "../customer_groups.js";
 
 function _syncBanksFromDom(el, ctx) {
   const { state } = ctx;
@@ -22,6 +24,7 @@ function _syncBanksFromDom(el, ctx) {
     state.paymentInfo.banks[idx].bankHolder = card.querySelector(`[data-bank-field="bankHolder"][data-bank-idx="${idx}"]`)?.value?.trim() || "";
     state.paymentInfo.banks[idx].bankBranch = card.querySelector(`[data-bank-field="bankBranch"][data-bank-idx="${idx}"]`)?.value?.trim() || "";
     state.paymentInfo.banks[idx].coaCode    = card.querySelector(`[data-bank-field="coaCode"][data-bank-idx="${idx}"]`)?.value?.trim() || "";
+    state.paymentInfo.banks[idx].customerGroup = card.querySelector(`[data-bank-field="customerGroup"][data-bank-idx="${idx}"]`)?.value || ""; // Phase 439
   });
   // ★ PromptPay
   const ppEl = document.getElementById("setPromptPay");
@@ -85,6 +88,13 @@ export function renderSettingsPayment(el, ctx, goBack, navigate) {
                 <label class="set-field-label" style="margin-top:8px;color:#0284c7;font-weight:700">📊 รหัสบัญชีระบบบัญชี (COA)</label>
                 <input class="bank-input" data-bank-field="coaCode" data-bank-idx="${idx}" value="${escHtml(bank.coaCode || (idx === 0 ? '1130' : ''))}" placeholder="เช่น 1130, 1131, 1132 (ดูจากผังบัญชี)" inputmode="numeric" />
                 <div class="sku" style="font-size:11px;color:#64748b;margin-top:-4px">ใช้ตอนลง JV รับเงินโอน → Dr [COA] / Cr 4xxx · ปล่อยว่าง = ใช้ค่าเริ่มต้น (1130)</div>
+
+                <label class="set-field-label" style="margin-top:8px;color:#0284c7;font-weight:700">🏦 กลุ่มลูกค้า (auto-เติมบัญชีรับเงินในใบเสร็จ)</label>
+                <select class="bank-input" data-bank-field="customerGroup" data-bank-idx="${idx}">
+                  <option value="">— ไม่ผูกกลุ่ม —</option>
+                  ${CUSTOMER_GROUPS.map(g => `<option value="${escHtml(g)}" ${bank.customerGroup === g ? 'selected' : ''}>${escHtml(g)}</option>`).join("")}
+                </select>
+                <div class="sku" style="font-size:11px;color:#64748b;margin-top:-4px">ลูกค้ากลุ่มนี้ → ใบเสร็จเด้งบัญชีนี้ให้อัตโนมัติ (Phase B)</div>
 
                 <label class="set-field-label" style="margin-top:8px">QR Code บัญชีนี้</label>
                 ${bank.qrImage
@@ -301,6 +311,7 @@ export function renderSettingsPayment(el, ctx, goBack, navigate) {
         bankHolder: card.querySelector(`[data-bank-field="bankHolder"][data-bank-idx="${idx}"]`)?.value.trim() || "",
         bankBranch: card.querySelector(`[data-bank-field="bankBranch"][data-bank-idx="${idx}"]`)?.value.trim() || "",
         coaCode:    card.querySelector(`[data-bank-field="coaCode"][data-bank-idx="${idx}"]`)?.value.trim() || "",
+        customerGroup: card.querySelector(`[data-bank-field="customerGroup"][data-bank-idx="${idx}"]`)?.value || "", // Phase 439
         qrImage: state.paymentInfo.banks[idx]?.qrImage || null
       });
     });

@@ -58,11 +58,14 @@ test("saveCustomer payload includes customer_group (null when unset)", () => {
 });
 
 // ── 4. customers.js: groups constant, list filter, badge, no state mutation ──
-test("customers.js defines exactly the 5 agreed customer groups", () => {
-  assert.match(customers, /const CUSTOMER_GROUPS\s*=\s*\[/, "CUSTOMER_GROUPS constant must exist");
-  for (const g of GROUPS) {
-    assert.ok(customers.includes(`"${g}"`), `CUSTOMER_GROUPS must include "${g}"`);
-  }
+test("customers.js sources the 5 customer groups from the shared module (no local duplicate)", () => {
+  // Phase 439 (B1): CUSTOMER_GROUPS moved to modules/customer_groups.js (single source,
+  // shared with settings/payment.js + the bank resolver). The 5-group content is asserted
+  // in customer_group_bank_map_guard.test.js against that shared module.
+  assert.match(customers, /import\s*\{[^}]*\bCUSTOMER_GROUPS\b[^}]*\}\s*from\s*["']\.\/customer_groups\.js["']/,
+    "customers.js must import CUSTOMER_GROUPS from ./customer_groups.js");
+  assert.ok(!/const\s+CUSTOMER_GROUPS\s*=/.test(customers),
+    "customers.js must not redefine CUSTOMER_GROUPS locally");
 });
 
 test("customers.js renders a group filter and a per-row group badge", () => {
