@@ -20,10 +20,10 @@ let _custAbort = null;
 
 export function renderCustomersPage({ state, openCustomerDrawer }) {
   const ctx = { state, openCustomerDrawer };
-  currentPage = 1;
-  searchQuery = "";
-  currentFilter = "all";
-  currentGroupFilter = "all"; // Phase 438
+  // Phase 441: keep page / search / filter across re-renders. Editing a customer on
+  // page 2 then saving used to reset to page 1 (showRoute → renderCustomersPage reset
+  // every save). renderView clamps currentPage to the valid range, so a stale page is
+  // safe. Sticky state also helps the "filter ungrouped → assign group → stay put" flow.
   renderView(ctx);
 }
 

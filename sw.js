@@ -176,7 +176,8 @@
 // v438 (2026-06-14): Phase 438 - customer_group field (UX/data only): adds customers.customer_group (nullable text) + dropdown in customer drawer + list filter/badge. NO money/stock/accounting/payment path touched. Drives bank-account auto-fill on receipts in Phase 439+. Bumps CACHE_NAME.
 // v439 (2026-06-14): Phase 439 (B1) - bank<->customer-group mapping (settings + resolver, UX/config only): per-bank "customer group" tag in settings/payment.js (paymentInfo.banks[].customerGroup, JSON in app_settings — no DB schema) + shared modules/customer_groups.js (CUSTOMER_GROUPS + resolveBankForCustomerGroup → full snapshot / null on miss, no 1130 fallback). NO money/JV/receipts/auto_post touched (Phase B2/C). Bumps CACHE_NAME.
 // v440 (2026-06-14): Phase 440 (B2a) - receiving-bank on document chain (carry + display): +bank_coa_code/bank_label on quotations/delivery_invoices/receipts (supabase-phase440-doc-bank.sql, owner runs). Quotation resolves bank from customer group (439 resolver) + snapshots label from CHOSEN bank; carried quotation->invoice->receipt; displayed on all 3 prints (read from row, not live settings #5). Quotation = display-only, NO JV (#2). NOT touched: auto_post/JV (Phase C), receipt edit-override + paid-warn (Phase B2b). Bumps CACHE_NAME.
-const CACHE_NAME = 'boonsook-pos-v5-cache-v440';
+// v441 (2026-06-14): Phase 441 (UX) - customer list keeps its page/search/filter across re-renders. Editing a customer on page 2 then saving used to bounce back to page 1 (renderCustomersPage reset on every showRoute); now preserved (renderView clamps page to range). Helps the "filter ungrouped -> assign group -> stay put" flow. No money/data path touched. Bumps CACHE_NAME.
+const CACHE_NAME = 'boonsook-pos-v5-cache-v441';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
