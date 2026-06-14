@@ -7,6 +7,16 @@
 
 ---
 
+## 5.66.0 (build 442) — 2026-06-14 Phase 442 (B2b) แก้บัญชี override บนใบเสร็จ + เตือน paid
+
+- **fix (เอกสาร · ไม่แตะ JV):** edit ใบเสร็จ เพิ่ม dropdown "บัญชีรับโอน" override (snapshot label จากบัญชีที่เลือก เหมือน B2a) → save → preview โชว์ทันที
+- **เตือน paid (reviewer #4):** เก็บเงินใบเสร็จโอนที่ยังไม่ระบุบัญชี → App.confirm เตือน (ดำเนินต่อได้) **ก่อน** postJournalForReceipt ทั้ง 2 จุด (dropdown + preview) — ไม่ silent, ไม่เดา 1130
+- single-bank (payments[] per-row = future) · **ไม่แตะ auto_post/JV** (Dr บัญชีจริง = Phase C)
+- +guard `receipt_bank_override_guard.test.js` (7: ordering warn-ก่อน-post · snapshot · no-1130 · multi-pay) · ไม่มี SQL (col จาก B2a) · bump 442
+- lint 0 / unit **1630** / e2e **14** · ✅ **merged = build 442 live** (`b12fb22`) — CI success · Claude smoke preview (login): edit ใบเสร็จ→dropdown บัญชี 7 ตัวเลือกมองเห็น prefill ถูก ปิดไม่ save · ไม่มี error (warn ทริกด้วยข้อมูลจริงไม่ได้ — ไม่มีใบโอน; guard-locked ordering)
+
+---
+
 ## 5.66.0 (build 441) — 2026-06-14 Phase 441 (UX) สมุดรายชื่อจำหน้า/ตัวกรอง
 
 - **fix (UX · ไม่แตะข้อมูล):** แก้ไขลูกค้าหน้า 2 → กดบันทึก → เด้งกลับหน้า 1 ทุกครั้ง (renderCustomersPage reset currentPage/search/filter ทุก showRoute). ตอนนี้จำสถานะ (renderView clamp หน้า) → workflow "กรองยังไม่ระบุกลุ่ม→ตั้งกลุ่มทีละราย" อยู่ที่เดิม
