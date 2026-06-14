@@ -9,7 +9,7 @@
   <link rel="icon" type="image/svg+xml" href="./icons/logo.svg" />
   <link rel="manifest" href="./manifest.json" />
   <link rel="apple-touch-icon" href="./icons/logo.svg" />
-  <link rel="stylesheet" href="./style.css?v=437" />
+  <link rel="stylesheet" href="./style.css?v=438" />
   <link rel="stylesheet" href="./doc-print.css?v=1" />
   <!-- ✨ Phase 4: Design System & Components (30/3/2569) -->
   <link rel="stylesheet" href="./phase4-design-system.css?v=421" />
@@ -594,6 +594,16 @@
         <option value="supplier">ผู้จำหน่าย</option>
         <option value="both">ผู้จำหน่าย/ลูกค้า</option>
       </select>
+      <!-- Phase 438: customer group → drives bank-account auto-fill on receipts (Phase 439+) -->
+      <label for="customerGroup" style="font-size:12px;color:#64748b">🏦 กลุ่มลูกค้า (ผูกบัญชีรับเงิน):</label>
+      <select id="customerGroup" class="form-input" aria-label="กลุ่มลูกค้า">
+        <option value="">— ไม่ระบุ —</option>
+        <option value="ราชการ">ราชการ</option>
+        <option value="ขาย POS">ขาย POS</option>
+        <option value="งานช่าง">งานช่าง</option>
+        <option value="หน้าร้าน">หน้าร้าน</option>
+        <option value="ขายพร้อมติดตั้ง">ขายพร้อมติดตั้ง</option>
+      </select>
       <label for="customerName" class="sr-only">ชื่อรายชื่อ</label>
       <input class="form-input" id="customerName" placeholder="ชื่อรายชื่อ / ชื่อบริษัท" aria-label="ชื่อรายชื่อ / ชื่อบริษัท" autocomplete="organization" />
       <label for="customerContactPerson" class="sr-only">ชื่อผู้ติดต่อ</label>
@@ -862,10 +872,10 @@
        ทำงานก่อน main.js โหลด → ป้องกัน user เห็น version display เก่า
        Phase 89.15: ย้ายออกไป external file + set window.APP_BUILD ให้ pages.js/main.js อ่านได้
        (CSP drop script-src 'unsafe-inline') -->
-  <script src="./selfheal.js?v=437" data-app-build="437" data-app-version="5.66.0"></script>
-  <script type="module" src="./main.js?v=437"></script>
+  <script src="./selfheal.js?v=438" data-app-build="438" data-app-version="5.66.0"></script>
+  <script type="module" src="./main.js?v=438"></script>
   <!-- Phase 89.15: externalized loading overlay + SW update banner (was inline script — drop CSP unsafe-inline) -->
-  <script src="./boot.js?v=437"></script>
+  <script src="./boot.js?v=438"></script>
 
   <!-- AI Assistant Chat Widget (Phase 1) -->
   <script src="./ai-chat-widget.js?v=9"></script>

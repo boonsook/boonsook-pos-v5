@@ -9,7 +9,11 @@ const CONTACT_TYPES = {
   both:     { label: "ผู้จำหน่าย/ลูกค้า", color: "#059669", dot: "#10b981" }
 };
 
+// Phase 438: customer groups → drive bank-account auto-fill on receipts (Phase 439+)
+const CUSTOMER_GROUPS = ["ราชการ", "ขาย POS", "งานช่าง", "หน้าร้าน", "ขายพร้อมติดตั้ง"];
+
 let currentFilter = "all"; // all | customer | supplier | both
+let currentGroupFilter = "all"; // Phase 438: all | <group> | __none__
 let searchQuery = "";
 let currentPage = 1;
 const PAGE_SIZE = 20;
@@ -20,6 +24,7 @@ export function renderCustomersPage({ state, openCustomerDrawer }) {
   currentPage = 1;
   searchQuery = "";
   currentFilter = "all";
+  currentGroupFilter = "all"; // Phase 438
   renderView(ctx);
 }
 
@@ -37,6 +42,11 @@ function renderView(ctx) {
   let filtered = [...(state.customers || [])];
   if (currentFilter !== "all") {
     filtered = filtered.filter(c => (c.contact_type || "customer") === currentFilter);
+  }
+  if (currentGroupFilter !== "all") { // Phase 438: filter by customer group (clone already, no state mutation)
+    filtered = currentGroupFilter === "__none__"
+      ? filtered.filter(c => !c.customer_group)
+      : filtered.filter(c => c.customer_group === currentGroupFilter);
   }
   if (searchQuery) {
     const q = searchQuery.toLowerCase();
@@ -95,6 +105,11 @@ function renderView(ctx) {
       <!-- Search -->
       <div class="toolbar mt16"${countAll === 0 ? ' style="display:none"' : ''}>
         <input id="contactSearchInput" placeholder="ค้นหาจากชื่อ หรือรหัสผู้ติดต่อ" value="${escHtml(searchQuery)}" style="flex:1" />
+        <select id="contactGroupFilter" aria-label="กรองตามกลุ่มลูกค้า" style="padding:8px 10px;border:1px solid var(--border,#cbd5e1);border-radius:8px;background:#fff">
+          <option value="all"${currentGroupFilter==='all'?' selected':''}>🏦 ทุกกลุ่ม</option>
+          ${CUSTOMER_GROUPS.map(g => `<option value="${escHtml(g)}"${currentGroupFilter===g?' selected':''}>${escHtml(g)}</option>`).join("")}
+          <option value="__none__"${currentGroupFilter==='__none__'?' selected':''}>— ยังไม่ระบุกลุ่ม —</option>
+        </select>
       </div>
 
       <!-- Table -->
@@ -128,6 +143,7 @@ function renderView(ctx) {
                     <span style="font-weight:700">${escHtml(c.name || "-")}</span>
                     ${tierBadge ? ` ${tierBadge}` : ""}
                     ${c.company ? `<div class="sku" style="margin-left:16px">${escHtml(c.company)}</div>` : ''}
+                    ${c.customer_group ? `<div style="margin-top:3px;margin-left:16px"><span style="background:#e0f2fe;color:#0369a1;padding:1px 7px;border-radius:8px;font-size:10px;font-weight:700;display:inline-block">🏦 ${escHtml(c.customer_group)}</span></div>` : ''}
                     ${tagBadges ? `<div style="margin-top:3px;margin-left:16px">${tagBadges}</div>` : ''}
                   </td>
                   <td class="desktop-col">${escHtml(c.contact_person || "")}</td>
@@ -184,6 +200,13 @@ function renderView(ctx) {
   // Search
   document.getElementById("contactSearchInput")?.addEventListener("input", (e) => {
     searchQuery = e.target.value.trim();
+    currentPage = 1;
+    renderView(ctx);
+  }, { signal });
+
+  // Phase 438: customer group filter
+  document.getElementById("contactGroupFilter")?.addEventListener("change", (e) => {
+    currentGroupFilter = e.target.value;
     currentPage = 1;
     renderView(ctx);
   }, { signal });

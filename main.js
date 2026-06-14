@@ -1864,6 +1864,7 @@ function openCustomerDrawer(customer=null){
   state.editingCustomerId = customer?.id || null;
   setText("customerDrawerTitle", customer ? "แก้ไขรายชื่อ" : "เพิ่มรายชื่อ");
   $("customerContactType").value = customer?.contact_type || "customer";
+  if ($("customerGroup")) $("customerGroup").value = customer?.customer_group || ""; // Phase 438: customer group
   $("customerName").value = customer?.name || "";
   $("customerContactPerson").value = customer?.contact_person || "";
   $("customerPhone").value = customer?.phone || "";
@@ -2241,6 +2242,7 @@ async function saveCustomer(){
     address:$("customerAddress").value.trim(),
     tax_id:$("customerTaxId").value.trim(),
     contact_type:$("customerContactType")?.value || "customer",
+    customer_group: $("customerGroup")?.value || null, // Phase 438: → bank auto-fill (Phase 439+)
     notes: $("customerNotes")?.value?.trim() || null,
     tags: _getCustomerTagsCurrent(),
     birthday: $("customerBirthday")?.value || null

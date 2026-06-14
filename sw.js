@@ -173,7 +173,8 @@
 // v435 (2026-06-14): Remove remaining native confirm fallbacks from service slip removal, period close, leave actions, and product confirmations; all use App.confirm/fail-closed. Bumps CACHE_NAME.
 // v436 (2026-06-14): Document template fields now render in quotation, delivery invoice, and receipt previews/print/PDF. Bumps CACHE_NAME.
 // v437 (2026-06-14): Phase 437 - stock non-negative hard rule (MONEY/STOCK, owner "ห้ามติดลบเด็ดขาด"): DB CHECK chk_ws_stock_nonneg/chk_products_stock_nonneg (stock>=0) in supabase-phase437-stock-nonneg-check.sql (owner must run, pre-check+datafix+constraint). stock_movements.js manual override no longer sends allowNegative:true → out-flow/transfer that would go negative is hard-blocked at the form (was "will go negative, proceed?" confirm). allowNegativeStock POS setting untouched (it controls selling stock-0 service items, not DB negatives). Bumps CACHE_NAME.
-const CACHE_NAME = 'boonsook-pos-v5-cache-v437';
+// v438 (2026-06-14): Phase 438 - customer_group field (UX/data only): adds customers.customer_group (nullable text) + dropdown in customer drawer + list filter/badge. NO money/stock/accounting/payment path touched. Drives bank-account auto-fill on receipts in Phase 439+. Bumps CACHE_NAME.
+const CACHE_NAME = 'boonsook-pos-v5-cache-v438';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
