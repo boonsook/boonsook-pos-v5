@@ -14,7 +14,7 @@
 - **ไม่แตะ setting `allowNegativeStock` (ตั้งใจ):** มันคุม POS ขายสินค้า stock 0 (ค่าบริการ/ค่าแรง) — บังคับ off จะขายค่าบริการไม่ได้; ไม่เขียนค่าติดลบลง DB (floor+CHECK คุมแล้ว)
 - **SQL ใหม่ `supabase-phase437-stock-nonneg-check.sql` (⚠️ owner รันเอง):** pre-check → data-fix (ถ้ามี) → ADD CHECK → verify (re-run safe)
 - +guard `stock_nonneg_guard.test.js` (3) · อัปเดต `apply_stock_movement_floor.test.js` (369 guard เดิม → กลับด้านตาม 437) · bump 437
-- lint:errors 0 / unit **1601** / e2e **14** · **⏸️ STOP — owner รัน SQL + smoke แล้วสั่ง merge**
+- lint:errors 0 / unit **1601** / e2e **14** · ✅ **merged = build 437 live** (`a076b7a`) — owner รัน SQL (pre-check 0 ติดลบ · ADD constraint · verify 2 แถว) + Phase 403 sync trigger (prerequisite) · Claude smoke บน preview: จ่ายออก 999999 (สต็อก 1) → hard-block "ไม่อนุญาตให้สต็อกติดลบ" ไม่เขียนข้อมูล · DB CHECK active · verified HTML จริง 437 → **ปิดแผน P1 ครบ 3 ข้อ** (①433 เงินเดือนกันจ่ายซ้ำ ②435 รายงานกัน cancelled verify ③437 สต็อกห้ามติดลบ)
 - หมายเหตุ: build 435/436 (งานทีมขนาน — native confirm cleanup + document template fields) ไม่มี entry ใน CHANGELOG ตอน push
 
 ---
