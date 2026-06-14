@@ -7,6 +7,17 @@
 
 ---
 
+## 5.66.0 (build 440) — 2026-06-14 Phase 440 (B2a) บัญชีรับโอนบนสายเอกสาร (auto-เติม+carry+แสดง)
+
+- **feat (เอกสาร · ไม่แตะ JV):** ใบเสนอราคาเลือกลูกค้า→**บัญชีรับโอนเด้งอัตโนมัติตามกลุ่ม** (Phase 439 resolver, แก้ได้) → snapshot `bank_label` จากบัญชีที่เลือก → carry `bank_coa_code`+`bank_label` ลง ใบส่ง→ใบเสร็จ → **แสดงบนพิมพ์ทั้ง 3 ใบ** (อ่านจาก row ไม่ live settings)
+- **reviewer-locked:** ใบเสนอราคา = display-only ไม่ post JV (#2) · snapshot จากบัญชีที่เลือกจริง (#1/#3) · print อ่าน `r.bank_label` จาก row (#5)
+- **SQL ใหม่ `supabase-phase440-doc-bank.sql` (owner รันแล้ว):** +bank_coa_code +bank_label บน quotations/delivery_invoices/receipts (nullable; verify 6 rows queryable)
+- **ไม่แตะ:** auto_post/JV (Phase C) · override บนใบเสร็จ + เตือน paid (Phase B2b) · POS
+- +guard `doc_bank_carry_guard.test.js` (7) · bump 440
+- lint 0 / unit **1621** / e2e **14** · ✅ **merged = build 440 live** (`4781e0d`) — owner รัน SQL (6 col text/YES) + tag 6 บัญชี→กลุ่มครบ · Claude smoke preview: เลือกลูกค้าราชการ→บัญชี 1131 เด้งจริง · resolver vs config จริงถูก · ไม่ mutate · ไม่มี error · verified HTML prod 440
+
+---
+
 ## 5.66.0 (build 439) — 2026-06-14 Phase 439 (B1) แมปบัญชี↔กลุ่มลูกค้า + resolver
 
 - **feat (settings/config · ไม่แตะเงิน):** ตั้งค่า→ชำระเงิน เพิ่ม dropdown "🏦 กลุ่มลูกค้า" ต่อบัญชีธนาคาร (เก็บ `paymentInfo.banks[].customerGroup` — JSON ใน app_settings, **ไม่มี SQL/DB schema**) → owner ผูกได้ว่าบัญชีไหน=กลุ่มไหน
