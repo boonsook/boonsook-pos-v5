@@ -5,6 +5,7 @@
 import { renderEmpty, renderSkeleton } from "./ui_states.js";
 // Phase 57: audit log + Phase 70 (D3): Excel export
 import { logActivity, exportToExcel, todaySuffix } from "./utils.js";
+import { renderDocumentTemplateHeader, renderDocumentTemplateNote, renderDocumentTemplateFooter } from "./doc-utils.js";
 // Phase 88.1b: auto-post JV หลังรับชำระลูกหนี้
 import { postJournalForReceipt, voidJvForSource } from "./accounting/auto_post.js";
 // Phase 89.42: single-flight guard for multi-payment save (prevent double-click race)
@@ -678,6 +679,8 @@ function renderReceiptPreview(container) {
             </div>
           </div>
 
+          ${renderDocumentTemplateHeader(si)}
+
           <div class="doc-customer-section">
             <div class="doc-customer-label re">ลูกค้า</div>
             <div class="doc-customer-name">${escHtml(r.customer_name || '-')}</div>
@@ -716,7 +719,7 @@ function renderReceiptPreview(container) {
             </div>
           </div>
 
-          ${r.note ? '<div class="doc-note-section"><div class="doc-note-title re">หมายเหตุ</div><div>'+escHtml(r.note)+'</div></div>' : ''}
+          ${renderDocumentTemplateNote(si, { accent: "re", documentNote: r.note })}
 
           <div class="doc-payment-check">
             <div class="doc-payment-check-row">
@@ -765,6 +768,7 @@ function renderReceiptPreview(container) {
               <div class="doc-sig-label-row"><span>ผู้รับเงิน</span><span>วันที่</span></div>
             </div>
           </div>
+          ${renderDocumentTemplateFooter(si)}
         </div>
       </div>
       `).join('')}

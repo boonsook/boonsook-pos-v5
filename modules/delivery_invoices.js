@@ -5,6 +5,7 @@
 import { renderEmpty, renderSkeleton } from "./ui_states.js";
 // Phase 57: audit log + Phase 70 (D3): Excel export
 import { logActivity, exportToExcel, todaySuffix } from "./utils.js";
+import { renderDocumentTemplateHeader, renderDocumentTemplateNote, renderDocumentTemplateFooter } from "./doc-utils.js";
 // Phase 89.1: void JV ตอน cancel (กัน double-revenue ใน P&L)
 import { voidJvForSource } from "./accounting/auto_post.js";
 
@@ -535,6 +536,8 @@ function renderInvoicePreview(container) {
             </div>
           </div>
 
+          ${renderDocumentTemplateHeader(si)}
+
           <div class="doc-customer-section">
             <div class="doc-customer-label inv">ลูกค้า</div>
             <div class="doc-customer-name">${escHtml(inv.customer_name || '-')}</div>
@@ -573,10 +576,7 @@ function renderInvoicePreview(container) {
             </div>
           </div>
 
-          <div class="doc-note-section">
-            <div class="doc-note-title inv">หมายเหตุ</div>
-            <div>${inv.note ? escHtml(inv.note) : 'วิธีการชำระเงิน-ชำระเงินสด/เช็คเงินสด โอนผ่านธนาคาร'}</div>
-          </div>
+          ${renderDocumentTemplateNote(si, { accent: "inv", documentNote: inv.note, fallbackNote: "วิธีการชำระเงิน-ชำระเงินสด/เช็คเงินสด โอนผ่านธนาคาร" })}
 
           <div class="doc-signatures">
             <div class="doc-sig-col">
@@ -590,6 +590,7 @@ function renderInvoicePreview(container) {
               <div class="doc-sig-label-row"><span>ผู้อนุมัติ</span><span>วันที่</span></div>
             </div>
           </div>
+          ${renderDocumentTemplateFooter(si)}
         </div>
       </div>
       `).join('')}

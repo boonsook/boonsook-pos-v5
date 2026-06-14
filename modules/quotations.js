@@ -5,6 +5,7 @@
 import { renderEmpty, renderSkeleton } from "./ui_states.js";
 // Phase 57: audit log + Phase 70 (D3): Excel export
 import { logActivity, exportToExcel, todaySuffix, round2 } from "./utils.js";
+import { renderDocumentTemplateHeader, renderDocumentTemplateNote, renderDocumentTemplateFooter } from "./doc-utils.js";
 // Phase 408 cash-basis: ใบส่งของไม่ post JV revenue แล้ว (ย้ายไปที่ใบเสร็จ paid)
 //   import postJournalForDeliveryInvoice ถูกถอดออก — quotations.js ไม่เรียกแล้ว
 //   ฟังก์ชันยังคงอยู่ใน auto_post.js (guard return null) + backfill.js ยัง import
@@ -1079,6 +1080,8 @@ function renderQuotationPreview(container) {
             </div>
           </div>
 
+          ${renderDocumentTemplateHeader(si)}
+
           <div class="doc-customer-section">
             <div class="doc-customer-label qt">ลูกค้า</div>
             <div class="doc-customer-name">${escHtml(customerName)}</div>
@@ -1117,7 +1120,7 @@ function renderQuotationPreview(container) {
             </div>
           </div>
 
-          ${q.note ? '<div class="doc-note-section"><div class="doc-note-title qt">หมายเหตุ</div><div>'+escHtml(q.note)+'</div></div>' : ''}
+          ${renderDocumentTemplateNote(si, { accent: "qt", documentNote: q.note })}
 
           <div class="doc-signatures">
             <div class="doc-sig-col">
@@ -1132,7 +1135,7 @@ function renderQuotationPreview(container) {
             </div>
           </div>
 
-          <div class="doc-footer"></div>
+          ${renderDocumentTemplateFooter(si)}
         </div>
       </div>
     </div>

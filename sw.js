@@ -171,7 +171,8 @@
 // v433 (2026-06-13): Phase 433 - payroll double-pay race guard (MONEY): _markPaid PATCH is now CAS (&paid_at=is.null + Prefer return=representation) - race loser gets empty rows and bails BEFORE expense/JV side-effects (+ payroll_pay_race_blocked audit). DB backstop trigger trg_guard_payroll_double_pay in supabase-phase433-payroll-pay-guard.sql (owner must run) locks paid_at once set (blocks re-pay + stale-edit clearing). +payroll_pay_race_guard tests. Bumps CACHE_NAME.
 // v434 (2026-06-13): Phase 434 - technician stock access: ROLE_PAGES.technician += products/wh_*/stock_movements/stock_count (เบิกขึ้นรถ + ตัดสต็อกเอง; รับเข้า/มูลค่าสต็อก ไม่เปิด = cost). products.js gates manage+cost surfaces (import/add/export header + per-card edit/stock-in) to admin/sales → technician = read-only no-cost view. Hide non-functional permission matrix page (menu entry removed + page shows maintenance notice; hasPermission was never enforced). Bumps CACHE_NAME.
 // v435 (2026-06-14): Remove remaining native confirm fallbacks from service slip removal, period close, leave actions, and product confirmations; all use App.confirm/fail-closed. Bumps CACHE_NAME.
-const CACHE_NAME = 'boonsook-pos-v5-cache-v435';
+// v436 (2026-06-14): Document template fields now render in quotation, delivery invoice, and receipt previews/print/PDF. Bumps CACHE_NAME.
+const CACHE_NAME = 'boonsook-pos-v5-cache-v436';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

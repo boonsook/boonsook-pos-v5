@@ -102,6 +102,52 @@ body { margin: 0; padding: 0; background: #fff; font-family: "Sarabun","Noto San
 .doc-footer { margin-top: 12px; padding-top: 8px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 10px; color: #94a3b8; }
 `;
 
+function _docTemplateText(value) {
+  return String(value || "").trim();
+}
+
+function _docTemplateEsc(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function _docTemplateMultiline(value) {
+  return _docTemplateEsc(value).replace(/\r?\n/g, "<br>");
+}
+
+export function getDocumentTemplate(storeInfo = {}) {
+  return {
+    header: _docTemplateText(storeInfo.docHeader),
+    footer: _docTemplateText(storeInfo.docFooter),
+    note: _docTemplateText(storeInfo.docNote),
+  };
+}
+
+export function renderDocumentTemplateHeader(storeInfo = {}) {
+  const { header } = getDocumentTemplate(storeInfo);
+  if (!header) return "";
+  return `<div class="doc-note-section doc-template-header"><div>${_docTemplateMultiline(header)}</div></div>`;
+}
+
+export function renderDocumentTemplateNote(storeInfo = {}, opts = {}) {
+  const { note } = getDocumentTemplate(storeInfo);
+  const accent = _docTemplateEsc(opts.accent || "");
+  const noteTitle = opts.noteTitle || "หมายเหตุ";
+  const baseNote = _docTemplateText(opts.documentNote) || _docTemplateText(opts.fallbackNote);
+  const parts = [baseNote, note].filter(Boolean);
+  if (!parts.length) return "";
+  return `<div class="doc-note-section"><div class="doc-note-title ${accent}">${_docTemplateEsc(noteTitle)}</div><div>${parts.map(_docTemplateMultiline).join("<br>")}</div></div>`;
+}
+
+export function renderDocumentTemplateFooter(storeInfo = {}) {
+  const { footer } = getDocumentTemplate(storeInfo);
+  return `<div class="doc-footer">${footer ? _docTemplateMultiline(footer) : ""}</div>`;
+}
+
 // ─── bahtText ──────────────────────────────────────────────
 // แปลงจำนวนเงิน (number) เป็นคำไทย: 5500 → "ห้าพันห้าร้อยบาทถ้วน"
 // รองรับ 0-999,999,999,999 + สตางค์ (ทศนิยม 2 ตำแหน่ง)
