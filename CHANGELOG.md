@@ -7,6 +7,17 @@
 
 ---
 
+## 5.66.0 (build 443) — 2026-06-14 Phase C (ปิดฟีเจอร์) ใบเสร็จลง JV เข้าบัญชีธนาคารถูกตัว
+
+- **feat (MONEY/JV):** `postJournalForReceipt` อ่าน `receipt.bank_coa_code` → ลง JV โอน Dr บัญชีนั้น (เช่น **1132**) แทน 1130 รวมก้อน (ทั้ง VAT-split + no-VAT) = reconcile รายธนาคารครบ flow ใบเสร็จ (แก้ปัญหา audit)
+- **validate ก่อนใช้:** reuse `_getValidCoaCodes` (pattern sale_transfer) — invalid/stale COA → warn+toast+fallback mapping default (ไม่โพสต์บัญชีมั่ว ไม่ silent) · ใช้ bank_coa_code เท่านั้น · เงินสด 1110 เดิม
+- **ไม่แตะ:** ขาย/ช่าง/รายจ่าย 1130 (flow แยก ไม่มี customer-group) · ไม่มี SQL
+- +guard `receipt_bank_jv_guard.test.js` (7: pure resolver behavioral 1131→1131/9999→1130/fail-open + wiring 2 lines/validate/code-not-label) · bump 443
+- lint 0 / unit **1637** / e2e **14** / auto_post เดิม pass · ✅ **merged = build 443 live** (`34cec9a`) — CI success · Claude read-only verify preview (login): COA จริง 67 บัญชี · 1131→1131 · 1136→1136 · 9999→1130 fallback · null→1130 (ไม่โพสต์ JV) · JV เต็ม = Day-1/ซ้อมใหญ่ 1 ก.ค. (effective-date)
+- 🎉 **ปิดฟีเจอร์กลุ่มลูกค้า→บัญชีรับเงิน ครบ A(438)/B1(439)/B2a(440)/B2b(442)/C(443)** — เลือกกลุ่ม→auto บัญชี→carry→แสดงพิมพ์→override+เตือน→ลง JV ถูกบัญชี
+
+---
+
 ## 5.66.0 (build 442) — 2026-06-14 Phase 442 (B2b) แก้บัญชี override บนใบเสร็จ + เตือน paid
 
 - **fix (เอกสาร · ไม่แตะ JV):** edit ใบเสร็จ เพิ่ม dropdown "บัญชีรับโอน" override (snapshot label จากบัญชีที่เลือก เหมือน B2a) → save → preview โชว์ทันที
