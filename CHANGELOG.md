@@ -5,6 +5,8 @@
 
 รูปแบบ: `<commit> feat|fix|docs|refactor: <สรุปสั้น>` + bullet 1-2 ข้อถ้าจำเป็น
 
+- feat(service,build 455): warehouse-first picker — service_form (ทุกหน้าซ่อม) + solar (mirror 453a) → ทุกหน้างานช่าง consistent
+
 - feat(service,build 454): warehouse-first picker หน้าแจ้งซ่อม/บริการ (service drawer) — เลือกคลังก่อน + กรองหมวด (rebased จาก 452 → bump 454)
 
 ---
