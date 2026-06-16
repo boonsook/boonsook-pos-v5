@@ -120,3 +120,29 @@ test("print path = read-only: _printBarcodesWithScope ไม่มี write (XHR
   assert.doesNotMatch(body, /XMLHttpRequest|fetch\s*\(|_appXhr|"PATCH"|"POST"/,
     "print ต้องเป็น read-only — ห้ามเพิ่ม write ใด ๆ");
 });
+
+// ── Phase 450 (commit 3): default qty = สต๊อกคงเหลือ ──────────────────────────
+test("modal qty default มาจากสต๊อก: _defaultQtyFor ใช้ getDisplayStock (ไม่ hardcode 1)", () => {
+  const body = fnBody("openBulkBarcodePrintModal");
+  assert.match(body, /const _defaultQtyFor\s*=\s*\(p\)\s*=>/, "ต้องมี helper _defaultQtyFor");
+  assert.match(body, /getDisplayStock\(state,\s*p\)\.stock/, "_defaultQtyFor ต้องอ่านจาก getDisplayStock");
+  assert.match(body, /Math\.min\(s,\s*200\)/, "ต้อง clamp max 200");
+  assert.match(body, /value="\$\{qty \|\| _defaultQtyFor\(p\)\}"/,
+    "ช่อง qty ต้อง default = _defaultQtyFor(p) (ไม่ใช่ || 1)");
+});
+
+test("bbpSelectAll ใช้ _defaultQtyFor(p) ไม่ใช่ set(...,1)", () => {
+  const body = fnBody("openBulkBarcodePrintModal");
+  const idx = body.indexOf('getElementById("bbpSelectAll")');
+  assert.ok(idx >= 0, "ต้องมี handler bbpSelectAll");
+  const block = body.slice(idx, idx + 300);
+  assert.match(block, /selected\.set\(p\.id,\s*_defaultQtyFor\(p\)\)/,
+    "เลือกทั้งหมด ต้องตั้ง qty = _defaultQtyFor(p)");
+  assert.doesNotMatch(block, /selected\.set\(p\.id,\s*1\)/, "ต้องไม่ hardcode qty=1 ใน selectAll");
+});
+
+test("modal print ยัง read-only: openBulkBarcodePrintModal ไม่มี write (XHR/fetch PATCH/POST)", () => {
+  const body = fnBody("openBulkBarcodePrintModal");
+  assert.doesNotMatch(body, /XMLHttpRequest|fetch\s*\(|_appXhr|"PATCH"|"POST"/,
+    "modal พิมพ์บาร์โค้ดต้อง read-only — ห้ามเพิ่ม write");
+});

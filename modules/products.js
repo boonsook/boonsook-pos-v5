@@ -1556,6 +1556,12 @@ async function _printBarcodesWithScope(ctx) {
 // ไม่ส่ง presetList → ทั้งแคตตาล็อกเหมือนเดิม (backward compatible). print = read-only.
 function openBulkBarcodePrintModal(ctx, presetList) {
   const { state } = ctx;
+  // Phase 450 — default จำนวนป้าย = สต๊อกคงเหลือของคลังที่ดูอยู่ (getDisplayStock = warehouse-aware)
+  // คลังเฉพาะ → สต๊อกคลังนั้น · "all" → ยอดรวม · stock 0 → 1 (กัน qty=0; owner ปรับเองได้)
+  const _defaultQtyFor = (p) => {
+    const s = Number(getDisplayStock(state, p).stock || 0);
+    return s > 0 ? Math.min(s, 200) : 1; // clamp max 200 (= max ของ input number)
+  };
   const base = Array.isArray(presetList) ? presetList : (state.products || []);
   const products = base.filter(p => {
     const t = detectProductType(p);
@@ -1621,9 +1627,9 @@ function openBulkBarcodePrintModal(ctx, presetList) {
           <input type="checkbox" class="bbp-check" data-id="${p.id}" ${checked ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer" />
           <div style="flex:1;min-width:0">
             <div style="font-size:13px;font-weight:700;color:#1f2937;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(p.name || '-')}</div>
-            <div style="font-size:11px;color:#64748b">${escHtml(p.barcode)} · ฿${money(p.price)}</div>
+            <div style="font-size:11px;color:#64748b">${escHtml(p.barcode)} · ฿${money(p.price)} · คงเหลือ ${getDisplayStock(state, p).stock}</div>
           </div>
-          <input type="number" class="bbp-qty" data-id="${p.id}" min="1" max="200" value="${qty || 1}" style="width:64px;padding:6px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;text-align:center" ${checked ? '' : 'disabled'} />
+          <input type="number" class="bbp-qty" data-id="${p.id}" min="1" max="200" value="${qty || _defaultQtyFor(p)}" style="width:64px;padding:6px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;text-align:center" ${checked ? '' : 'disabled'} />
         </div>
       `;
     }).join("") : '<div style="padding:20px;text-align:center;color:#94a3b8;font-size:13px">ไม่พบสินค้า</div>';
@@ -1674,7 +1680,7 @@ function openBulkBarcodePrintModal(ctx, presetList) {
   document.getElementById("bbpSearch")?.addEventListener("input", (e) => renderList(e.target.value));
 
   document.getElementById("bbpSelectAll")?.addEventListener("click", () => {
-    products.forEach(p => { if (!selected.has(p.id)) selected.set(p.id, 1); });
+    products.forEach(p => { if (!selected.has(p.id)) selected.set(p.id, _defaultQtyFor(p)); });
     renderList(document.getElementById("bbpSearch")?.value || "");
     updateSummary();
   });
