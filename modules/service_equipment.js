@@ -176,18 +176,47 @@ export function openEquipmentPicker(ctx, onPick) {
 
   const allInStock = (state.products || []).filter(p => warehouseStockOptions(p, state).length > 0);
 
+  // Phase 452 — เลือกคลังก่อน + กรองหมวด (UI เท่านั้น; ไม่แตะ logic ตัดสต็อก)
+  const warehouses = state.warehouses || [];
+  let _pickerWh = "all";   // "all" หรือ warehouse id
+  let _pickerCat = "all";  // "all" หรือชื่อหมวด
+
+  // สินค้าที่ "มีสต็อก>0" ตามคลังที่เลือก (ฐานก่อน filter หมวด/ค้นหา)
+  const baseForWh = () => {
+    if (_pickerWh === "all") return allInStock;
+    return (state.products || []).filter(p =>
+      warehouseStockOptions(p, state).some(o => String(o.warehouse_id) === String(_pickerWh) && o.stock > 0));
+  };
+
+  const renderWhChips = () => {
+    const chip = (val, label, active) =>
+      `<button type="button" data-wh-chip="${escHtml(String(val))}" class="btn light" style="font-size:12px;padding:5px 10px;border-radius:14px;white-space:nowrap${active ? ';background:#0284c7;color:#fff;border-color:#0284c7' : ''}">${label}</button>`;
+    return chip("all", "ทุกคลัง", _pickerWh === "all") +
+      warehouses.map(w => chip(w.id, `${w.is_mobile === true ? "🚐" : "📦"} ${escHtml(w.name)}`, String(_pickerWh) === String(w.id))).join("");
+  };
+
+  const renderCatOptions = () => {
+    const cats = [...new Set(baseForWh().map(p => String(p.category || "").trim()).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, "th"));
+    return `<option value="all"${_pickerCat === "all" ? " selected" : ""}>ทุกหมวด</option>` +
+      cats.map(c => `<option value="${escHtml(c)}"${_pickerCat === c ? " selected" : ""}>${escHtml(c)}</option>`).join("");
+  };
+
   const renderList = (search) => {
     const q = (search || "").toLowerCase().trim();
-    let filtered = allInStock;
+    let filtered = baseForWh();
+    if (_pickerCat !== "all") filtered = filtered.filter(p => String(p.category || "").trim() === _pickerCat);
     if (q) {
-      filtered = allInStock.filter(p =>
+      filtered = filtered.filter(p =>
         (p.name || "").toLowerCase().includes(q) ||
         (p.barcode || "").toLowerCase().includes(q) ||
         (p.sku || "").toLowerCase().includes(q) ||
         (p.category || "").toLowerCase().includes(q));
     }
     return filtered.slice(0, 50).map(p => {
-      const opts = warehouseStockOptions(p, state);
+      let opts = warehouseStockOptions(p, state);
+      // เลือกคลังเฉพาะ → โชว์ tag เฉพาะคลังนั้น (กันสับสนชื่อซ้ำข้ามคลัง)
+      if (_pickerWh !== "all") opts = opts.filter(o => String(o.warehouse_id) === String(_pickerWh));
       const tags = opts.map(o =>
         `<span style="background:${o.is_mobile ? "#dbeafe" : "#fef3c7"};color:${o.is_mobile ? "#1e40af" : "#92400e"};padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">${o.is_mobile ? "🚐" : "📦"} ${escHtml(o.warehouse_name)}: ${o.stock}</span>`
       ).join(" ");
@@ -214,7 +243,12 @@ export function openEquipmentPicker(ctx, onPick) {
         <h3 style="margin:0;font-size:16px">🔧 เลือกอุปกรณ์ (จากสต็อก)</h3>
         <button id="svepClose" class="btn light" style="font-size:18px;padding:4px 10px">✕</button>
       </div>
-      <div style="padding:12px 16px;border-bottom:1px solid #e2e8f0">
+      <div style="padding:12px 16px 8px;border-bottom:1px solid #e2e8f0;display:flex;flex-direction:column;gap:8px">
+        <div style="font-size:12px;color:#64748b;font-weight:600">เลือกคลังก่อน:</div>
+        <div id="svepWhChips" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select id="svepCat" style="flex:1;min-width:0;padding:8px 10px;border:1px solid #cbd5e1;border-radius:10px;font:inherit;background:#fff"></select>
+        </div>
         <input id="svepSearch" type="text" placeholder="🔍 ค้นหา ชื่อ / barcode / หมวด..." style="width:100%;padding:10px 12px;border:1px solid #cbd5e1;border-radius:10px;font:inherit" />
       </div>
       <div id="svepList" style="flex:1;overflow-y:auto;padding:12px 16px"></div>
@@ -222,10 +256,30 @@ export function openEquipmentPicker(ctx, onPick) {
   document.body.appendChild(modal);
 
   const listEl = modal.querySelector("#svepList");
-  listEl.innerHTML = renderList("");
+  const whChipsEl = modal.querySelector("#svepWhChips");
+  const catEl = modal.querySelector("#svepCat");
+  const searchEl = modal.querySelector("#svepSearch");
+  const refreshList = () => { listEl.innerHTML = renderList(searchEl.value); };
+
+  whChipsEl.innerHTML = renderWhChips();
+  catEl.innerHTML = renderCatOptions();
+  refreshList();
+
   modal.querySelector("#svepClose").addEventListener("click", () => modal.remove());
   modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
-  modal.querySelector("#svepSearch").addEventListener("input", (e) => { listEl.innerHTML = renderList(e.target.value); });
+  searchEl.addEventListener("input", () => refreshList());
+
+  // เปลี่ยนคลัง → reset หมวด + rebuild dropdown หมวด + re-render list (delegation: container คงอยู่)
+  whChipsEl.addEventListener("click", (e) => {
+    const chip = e.target.closest("[data-wh-chip]");
+    if (!chip) return;
+    _pickerWh = chip.dataset.whChip;
+    _pickerCat = "all";
+    whChipsEl.innerHTML = renderWhChips();
+    catEl.innerHTML = renderCatOptions();
+    refreshList();
+  });
+  catEl.addEventListener("change", () => { _pickerCat = catEl.value; refreshList(); });
 
   listEl.addEventListener("click", async (e) => {
     const btn = e.target.closest("[data-pk-id]");
@@ -235,10 +289,24 @@ export function openEquipmentPicker(ctx, onPick) {
     const opts = warehouseStockOptions(p, state);
     if (opts.length === 0) { showToast?.("ไม่มีสต็อกในคลัง"); return; }
 
-    let chosen = opts[0];
-    if (opts.length > 1) {
-      chosen = await _pickWarehouse(opts, p.name);
-      if (!chosen) { showToast?.("ยกเลิก"); return; }
+    let chosen;
+    if (_pickerWh !== "all") {
+      // เลือกคลังไว้แล้ว → ใช้คลังนั้นเลย (ข้าม _pickWarehouse)
+      chosen = opts.find(o => String(o.warehouse_id) === String(_pickerWh));
+      if (!chosen) {
+        // ไม่ควรเกิด (list กรองมาแล้ว) — fallback flow เดิม
+        chosen = opts[0];
+        if (opts.length > 1) {
+          chosen = await _pickWarehouse(opts, p.name);
+          if (!chosen) { showToast?.("ยกเลิก"); return; }
+        }
+      }
+    } else {
+      chosen = opts[0];
+      if (opts.length > 1) {
+        chosen = await _pickWarehouse(opts, p.name);
+        if (!chosen) { showToast?.("ยกเลิก"); return; }
+      }
     }
     onPick?.({
       product_id: Number(p.id),

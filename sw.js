@@ -187,7 +187,8 @@
 // v450 (2026-06-16): Phase 450 — ปุ่ม "🏷️ สร้างบาร์โค้ด" (หน้าสินค้า/คลัง) เลือก scope ได้: ตาม filter/หมวด/หน้า หรือ Bulk เลือกรายตัว; เติมเฉพาะตัวที่ยังไม่มีบาร์โค้ด (ห้ามทับของเก่า). products.js เท่านั้น. Bumps CACHE_NAME.
 // v451 (2026-06-16): Phase 451 — ปุ่ม "📋 พิมพ์ใบเช็คสต็อก" (หน้าสินค้า/คลัง) เปิดหน้า A4 พิมพ์ได้ ตามคลัง/หมวดที่เห็น: แยกหมวด · QR ต่อตัว · คงเหลือ(ระบบ) · ช่อง "นับจริง" เขียนมือ. read-only ล้วน ไม่มีราคา/ต้นทุน. +modules/stock_check_sheet.js. Bumps CACHE_NAME.
 // v453 (2026-06-16): Phase 453a — picker "เลือกอุปกรณ์" หน้าติดตั้งแอร์ (ac_install _openItemPicker): เลือกคลังก่อน (chips ทุกคลัง/รถ/บ้าน) + กรองหมวด → ลิสต์เหลือเฉพาะของในคลัง + คลิกใช้คลังที่เลือกเลย (กันชื่อซ้ำข้ามคลัง). UI picker เท่านั้น — ไม่แตะ transfer/deduct/_items contract. (NB: build 452 equip-picker ยังค้างอีก branch). Bumps CACHE_NAME.
-const CACHE_NAME = 'boonsook-pos-v5-cache-v453';
+// v454 (2026-06-16): Phase 452 — picker "เลือกอุปกรณ์" หน้าแจ้งซ่อม/บริการ (service drawer, service_equipment.js openEquipmentPicker): เลือกคลังก่อน (chips ทุกคลัง/รถ/บ้าน) + กรองหมวด → ลิสต์เหลือเฉพาะของในคลัง + คลิกใช้คลังที่เลือกเลย. UI picker เท่านั้น — ไม่แตะ deduction/onPick contract. (rebased onto main + bump 452→454 กันเลขถอย). Bumps CACHE_NAME.
+const CACHE_NAME = 'boonsook-pos-v5-cache-v454';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

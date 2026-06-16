@@ -5,6 +5,8 @@
 
 รูปแบบ: `<commit> feat|fix|docs|refactor: <สรุปสั้น>` + bullet 1-2 ข้อถ้าจำเป็น
 
+- feat(service,build 454): warehouse-first picker หน้าแจ้งซ่อม/บริการ (service drawer) — เลือกคลังก่อน + กรองหมวด (rebased จาก 452 → bump 454)
+
 ---
 
 ## 5.69.1 (build 453) — 2026-06-16 ติดตั้งแอร์: เลือกอุปกรณ์ เลือกคลังก่อน + กรองหมวด
