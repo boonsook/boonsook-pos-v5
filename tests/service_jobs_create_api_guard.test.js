@@ -51,7 +51,13 @@ test("buildJobRecord creates a safe pending request (zero cost, no items)", () =
   assert.equal(built.record.closed_at, null);
   assert.match(built.record.job_no, /^JOB-\d+$/);
   assert.match(built.record.note, /Ning/);
-  assert.equal(built.record.job_type, "service");
+  assert.equal(built.record.job_type, "other");
+});
+
+test("buildJobRecord normalizes job_type to a DB-allowed value", () => {
+  assert.equal(buildJobRecord({ customer_name: "a", description: "b", job_type: "repair_ac" }).record.job_type, "repair_ac");
+  assert.equal(buildJobRecord({ customer_name: "a", description: "b", job_type: "weird-type" }).record.job_type, "other");
+  assert.equal(buildJobRecord({ customer_name: "a", description: "b" }).record.job_type, "other");
 });
 
 test("buildJobRecord requires customer_name and description", () => {
