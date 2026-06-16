@@ -168,3 +168,47 @@ test("handler prodCatPrintBtn เรียก openBulkBarcodePrintModal + filter
   assert.doesNotMatch(handler, /XMLHttpRequest|fetch\s*\(|_appXhr|"PATCH"|"POST"/,
     "handler ต้อง read-only — ห้ามเพิ่ม write");
 });
+
+// ── Phase 450 (commit 5, FIX): scope บาร์โค้ดตามคลังที่เลือก ───────────────────
+test("_currentWarehouseProducts: none → [] · all → ทั้งหมด · คลังเฉพาะ → เฉพาะ stock>0 ในคลังนั้น", () => {
+  const body = fnBody("_currentWarehouseProducts");
+  assert.match(body, /selectedWarehouse === "none"\s*\)\s*return \[\]/, "none → คืน []");
+  assert.match(body, /selectedWarehouse === "all"\)\s*return \[\.\.\.products\]/,
+    "all → คืนสำเนาทั้งหมด ([...products] กัน sort mutate state.products)");
+  assert.match(body, /state\.warehouseStock \|\| \[\]/, "คลังเฉพาะ ต้องอ่านจาก warehouseStock");
+  assert.match(body, /s\.warehouse_id === whId && Number\(s\.stock \|\| 0\) > 0/,
+    "คลังเฉพาะ ต้องกรอง warehouse_id ตรง + stock > 0 (เหมือน renderView)");
+  assert.match(body, /products\.filter\(p => ids\.has\(p\.id\)\)/, "คืนเฉพาะ product ที่อยู่ในคลังนั้น");
+});
+
+test("renderView ใช้ _currentWarehouseProducts เป็น base (share ตรรกะคลัง)", () => {
+  // marker นี้มีที่เดียวในไฟล์ (renderView) — assert บน src ตรง ๆ
+  assert.match(src, /let filtered = _currentWarehouseProducts\(state\)/,
+    "renderView ต้องใช้ helper กลางเป็น base list");
+});
+
+test("generateAllBarcodes base = _currentWarehouseProducts (ไม่ใช่ state.products ทุกคลัง)", () => {
+  const body = fnBody("generateAllBarcodes");
+  assert.match(body, /const allProducts = _currentWarehouseProducts\(state\)/,
+    "generate ต้อง scope ตามคลังที่เลือก");
+  assert.doesNotMatch(body, /const allProducts = state\.products/, "ต้องไม่ใช้ state.products ตรง ๆ เป็น base");
+});
+
+test("_printBarcodesWithScope base = _currentWarehouseProducts (ไม่ใช่ state.products ทุกคลัง)", () => {
+  const body = fnBody("_printBarcodesWithScope");
+  assert.match(body, /const allProducts = _currentWarehouseProducts\(state\)/,
+    "print ต้อง scope ตามคลังที่เลือก");
+  assert.doesNotMatch(body, /const allProducts = state\.products/, "ต้องไม่ใช้ state.products ตรง ๆ เป็น base");
+});
+
+test("prodCatPrintBtn handler scope ตามคลัง: _currentWarehouseProducts(state).filter(category)", () => {
+  const idx = src.indexOf('"#prodCatPrintBtn"');
+  const handler = src.slice(idx, idx + 400);
+  assert.match(handler, /_currentWarehouseProducts\(state\)\.filter\(p => String\(p\.category \|\| ''\)\s*===\s*currentCategory\)/,
+    "หมวดนี้ ต้องกรองคลังก่อน แล้วค่อยกรองหมวด");
+});
+
+test("_currentWarehouseProducts read-only: ไม่มี write (XHR/fetch/PATCH/POST)", () => {
+  const body = fnBody("_currentWarehouseProducts");
+  assert.doesNotMatch(body, /XMLHttpRequest|fetch\s*\(|_appXhr|"PATCH"|"POST"/, "helper ต้อง read-only");
+});

@@ -203,6 +203,20 @@ function getDisplayStock(state, product) {
   return ws ? { stock: Number(ws.stock || 0), min_stock: Number(ws.min_stock || 0) } : { stock: 0, min_stock: 0 };
 }
 
+// Phase 450 (commit 5) — สินค้า "ที่หน้าจอแสดงตามคลังที่เลือก" (base list ก่อน filter type/หมวด/ค้นหา)
+// = ตรรกะคลังเดียวกับ renderView (none → []; คลังเฉพาะ → เฉพาะตัวที่มี stock>0 ในคลังนั้น; all → ทั้งหมด)
+// ใช้ให้ scope บาร์โค้ด (generate/print/หมวด) ตรงกับเลขที่เห็นบนหน้าจอ — กันดูดตัวคงเหลือ 0 ในคลังอื่น
+function _currentWarehouseProducts(state) {
+  const products = state.products || [];
+  if (selectedWarehouse === "none") return [];
+  if (!selectedWarehouse || selectedWarehouse === "all") return [...products];
+  const whId = Number(selectedWarehouse);
+  const ids = new Set((state.warehouseStock || [])
+    .filter(s => s.warehouse_id === whId && Number(s.stock || 0) > 0)
+    .map(s => s.product_id));
+  return products.filter(p => ids.has(p.id));
+}
+
 function renderView(ctx, opts = {}) {
   const { state, addToCart, openProductDrawer, warehouseFilter, pageId } = ctx;
   const el = document.getElementById(pageId || "page-products");
@@ -215,20 +229,8 @@ function renderView(ctx, opts = {}) {
   const canManageProducts = ["admin", "sales"].includes(state.profile?.role);
 
   // ★ ถ้าเลือกคลังเฉพาะ → กรองเฉพาะสินค้าที่มี stock > 0 ใน warehouse_stock ของคลังนั้น
-  // ★ "none" = warehouse หาไม่เจอ → แสดง 0 รายการ
-  let filtered;
-  if (selectedWarehouse === "none") {
-    filtered = [];
-  } else if (selectedWarehouse && selectedWarehouse !== "all") {
-    const whId = Number(selectedWarehouse);
-    const whStockMap = new Map();
-    (state.warehouseStock || [])
-      .filter(s => s.warehouse_id === whId && Number(s.stock || 0) > 0)
-      .forEach(s => whStockMap.set(s.product_id, s));
-    filtered = products.filter(p => whStockMap.has(p.id));
-  } else {
-    filtered = [...products];
-  }
+  // ★ "none" = warehouse หาไม่เจอ → แสดง 0 รายการ (ใช้ helper กลางร่วมกับ scope บาร์โค้ด)
+  let filtered = _currentWarehouseProducts(state);
 
   // ─── Filter by product type (บริการ / ไม่นับสต็อก / นับสต็อก) ───
   if (currentTypeFilter !== "all") {
@@ -688,7 +690,8 @@ function renderView(ctx, opts = {}) {
 
   // Phase 450 — พิมพ์บาร์โค้ดเฉพาะหมวดที่เลือก (1-click, read-only; qty default = สต๊อกคงเหลือ)
   el.querySelector("#prodCatPrintBtn")?.addEventListener("click", () => {
-    const catProducts = (state.products || []).filter(p => String(p.category || '') === currentCategory);
+    // Phase 450 (commit 5) — เฉพาะหมวดนี้ "ในคลังที่เลือก" (กันดูดตัวคงเหลือ 0 ในคลังอื่น)
+    const catProducts = _currentWarehouseProducts(state).filter(p => String(p.category || '') === currentCategory);
     openBulkBarcodePrintModal(ctx, catProducts);
   });
 
@@ -1524,7 +1527,8 @@ if (typeof window !== "undefined") {
 // print = read-only — แค่คำนวณ scope list แล้วส่งให้ openBulkBarcodePrintModal (ไม่เขียน DB)
 async function _printBarcodesWithScope(ctx) {
   const { state } = ctx;
-  const allProducts = state.products || [];
+  // Phase 450 (commit 5) — base = สินค้าในคลังที่เลือก (ไม่ใช่ทุกคลัง) → scope ตรงกับหน้าจอ
+  const allProducts = _currentWarehouseProducts(state);
 
   const hasFilter = (currentTypeFilter !== 'all') || (currentFilter !== 'all') || (currentCategory !== 'all') || searchQuery || quickFilter;
 
@@ -1827,7 +1831,8 @@ async function _generateBarcodesForProducts(ctx, list, scopeLabel) {
 // mirror logic ของปุ่ม Export (products.js ~705-730) เป๊ะ
 async function generateAllBarcodes(ctx) {
   const { state } = ctx;
-  const allProducts = state.products || [];
+  // Phase 450 (commit 5) — base = สินค้าในคลังที่เลือก (ไม่ใช่ทุกคลัง) → scope ตรงกับหน้าจอ
+  const allProducts = _currentWarehouseProducts(state);
 
   const hasFilter = (currentTypeFilter !== 'all') || (currentFilter !== 'all') || (currentCategory !== 'all') || searchQuery || quickFilter;
 
