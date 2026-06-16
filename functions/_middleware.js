@@ -23,6 +23,7 @@ const RATE_LIMITS = {
   "/api/verify-slip":   { limit: 20,  windowSec: 60 },  // Phase 89.14: SlipOK 3rd-party — cost ต่อ verify
   "/api/log-error":     { limit: 60,  windowSec: 60 },  // Phase 89.14: error_log proxy — burst-tolerant, spam-resistant
   "/api/v1/service-jobs": { limit: 30, windowSec: 60 }, // Ning agent: create service-job (write to prod DB)
+  "/api/v1/service-job-submit": { limit: 30, windowSec: 60 }, // Ning agent: mark job ช่างส่ง→รออนุมัติ
   "default":            { limit: 100, windowSec: 60 }   // ทุก endpoint อื่น
 };
 
@@ -40,6 +41,7 @@ const REQUIRE_AUTH_ENDPOINTS = [
   "/api/line-notify",
   "/api/v1/reports/daily-summary",
   "/api/v1/service-jobs",   // Ning agent: create a service-job request (no stock/JV)
+  "/api/v1/service-job-submit",   // Ning agent: mark a job ช่างส่ง→รออนุมัติ (no money)
   "/api/parse-receipt",   // Phase 89.14: ปิด anon — Gemini OCR ใช้แค่ staff ที่ login
   "/api/verify-slip"      // Phase 89.14: ปิด anon — SlipOK ใช้แค่ staff ที่ login
 ];
@@ -55,7 +57,8 @@ const REPORT_ONLY_ENDPOINTS = [
 // Endpoints that also accept Ning server-to-server auth (X-NING-AGENT-KEY) besides a user JWT.
 const NING_AGENT_ENDPOINTS = [
   "/api/v1/reports/daily-summary",
-  "/api/v1/service-jobs"
+  "/api/v1/service-jobs",
+  "/api/v1/service-job-submit"
 ];
 
 const STAFF_ROLES = new Set(["admin", "sales", "staff", "technician"]);
