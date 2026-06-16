@@ -185,7 +185,8 @@
 // v448 (2026-06-15): Phase 448a — accountant (สำนักงานบัญชี) = read-only บนเอกสาร: client gate _denyWriteForAccountant() กัน write (สร้าง/แก้/ยกเลิก/ลบ/เก็บเงิน/แปลงใบเสร็จ) ใน receipts/quotations/delivery_invoices. RLS 448b = DB backstop. Bumps CACHE_NAME.
 // v449 (2026-06-16): invite/recovery "ตั้งรหัสผ่านใหม่" เด้งได้แม้เครื่อง login ค้าง/มี SW cache — selfheal.js จับ type=recovery เก็บ flag bsk_pending_set_password ก่อน Supabase เคลียร์ hash; main.js honor flag + เคลียร์เมื่อ set/logout/expired. (เดิมตั้ง build 448 แต่ชนงาน accountant-docs ที่ขึ้น 448 ก่อน → เป็น build 449). Bumps CACHE_NAME.
 // v450 (2026-06-16): Phase 450 — ปุ่ม "🏷️ สร้างบาร์โค้ด" (หน้าสินค้า/คลัง) เลือก scope ได้: ตาม filter/หมวด/หน้า หรือ Bulk เลือกรายตัว; เติมเฉพาะตัวที่ยังไม่มีบาร์โค้ด (ห้ามทับของเก่า). products.js เท่านั้น. Bumps CACHE_NAME.
-const CACHE_NAME = 'boonsook-pos-v5-cache-v450';
+// v451 (2026-06-16): Phase 451 — ปุ่ม "📋 พิมพ์ใบเช็คสต็อก" (หน้าสินค้า/คลัง) เปิดหน้า A4 พิมพ์ได้ ตามคลัง/หมวดที่เห็น: แยกหมวด · QR ต่อตัว · คงเหลือ(ระบบ) · ช่อง "นับจริง" เขียนมือ. read-only ล้วน ไม่มีราคา/ต้นทุน. +modules/stock_check_sheet.js. Bumps CACHE_NAME.
+const CACHE_NAME = 'boonsook-pos-v5-cache-v451';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

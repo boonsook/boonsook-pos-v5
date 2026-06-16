@@ -131,6 +131,8 @@ window._appGetActivePrice = getActivePrice; // expose for POS
 
 // Phase 51: dedup + fix XSS gap (added apostrophe escape via shared utils)
 import { escHtml } from "./utils.js";
+// Phase 451: ใบเช็คสต็อก A4 (pure HTML builder)
+import { buildStockCheckSheetHtml } from "./stock_check_sheet.js";
 
 // ═══════════════════════════════════════════════════════════
 //  MAIN RENDER
@@ -348,6 +350,7 @@ function renderView(ctx, opts = {}) {
               <button id="prodExportBtn" class="prod-more-item">⬇️ ส่งออก</button>
               <button id="prodGenAllBarcodesBtn" class="prod-more-item" title="สร้างบาร์โค้ดให้สินค้านับสต็อกที่ยังไม่มี">🏷️ สร้างบาร์โค้ด</button>
               <button id="prodPrintBarcodesBtn" class="prod-more-item" title="พิมพ์สติ๊กเกอร์บาร์โค้ดหลายตัว">🖨️ พิมพ์บาร์โค้ด</button>
+              <button id="prodStockSheetBtn" class="prod-more-item" title="พิมพ์ใบเช็คสต็อก A4 ตามคลัง/หมวดที่เห็น (QR + ช่องนับจริง)">📋 พิมพ์ใบเช็คสต็อก</button>
               <button id="prodManageCatBtn" class="prod-more-item" title="จัดการหมวดหมู่ (เพิ่ม/ลบ/เปลี่ยนชื่อ/ย้ายตำแหน่ง)">🗂️ จัดการหมวด</button>
               <button id="prodMergeCatBtn" class="prod-more-item" title="ค้นหาและรวมหมวดหมู่ซ้ำ/ใกล้เคียง">🔗 รวมหมวดซ้ำ</button>
               <button id="prodBulkModeBtn" class="prod-more-item${bulkMode ? ' prod-more-active' : ''}" title="โหมดเลือกหลายรายการ">${bulkMode ? '✓ Bulk (เลือก ' + bulkSelected.size + ')' : '☑ Bulk เลือกหลายรายการ'}</button>
@@ -745,6 +748,7 @@ function renderView(ctx, opts = {}) {
   });
   el.querySelector("#prodGenAllBarcodesBtn")?.addEventListener("click", () => generateAllBarcodes(ctx));
   el.querySelector("#prodPrintBarcodesBtn")?.addEventListener("click", () => _printBarcodesWithScope(ctx));
+  el.querySelector("#prodStockSheetBtn")?.addEventListener("click", () => openStockCheckSheet(ctx));
   el.querySelector("#prodDeleteAllBtn")?.addEventListener("click", () => deleteAllProducts(ctx));
   el.querySelector("#prodMergeCatBtn")?.addEventListener("click", () => openMergeCategoriesDialog(ctx));
 
@@ -1875,6 +1879,120 @@ async function generateAllBarcodes(ctx) {
   }
 
   await _generateBarcodesForProducts(ctx, chosenList, scopeLabel);
+}
+
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 451 — ใบเช็คสต็อก A4 (orchestrator; read-only)
+//  ดึง "รายการที่เห็นบนหน้าจอ" (คลัง + filter ปัจจุบัน) → เรนเดอร์ QR ต่อตัว (lib เดิม)
+//  → buildStockCheckSheetHtml → เปิดหน้าต่างพิมพ์. ❌ ไม่เขียน DB.
+// ═══════════════════════════════════════════════════════════
+async function openStockCheckSheet(ctx) {
+  const { state } = ctx;
+
+  // 1) base ตามคลังที่เลือก (warehouse-aware, Phase 450) + filter ชุดเดียวกับ Export/generate
+  let f = [..._currentWarehouseProducts(state)];
+  if (currentTypeFilter !== 'all') f = f.filter(p => detectProductType(p) === currentTypeFilter);
+  if (currentCategory !== 'all') f = f.filter(p => String(p.category || '') === currentCategory);
+  if (currentFilter === 'instock') f = f.filter(p => { const ds = getDisplayStock(state, p); return ds.stock > ds.min_stock; });
+  else if (currentFilter === 'low') f = f.filter(p => { const ds = getDisplayStock(state, p); return ds.stock > 0 && ds.stock <= ds.min_stock; });
+  else if (currentFilter === 'out') f = f.filter(p => { const ds = getDisplayStock(state, p); return ds.stock <= 0; });
+  if (quickFilter === 'no_cost') f = f.filter(p => detectProductType(p) === 'stock' && Number(p.cost || 0) === 0);
+  else if (quickFilter === 'no_barcode') f = f.filter(p => detectProductType(p) === 'stock' && !String(p.barcode || '').trim());
+  if (searchQuery) {
+    const q = searchQuery.toLowerCase();
+    f = f.filter(p =>
+      String(p.name || "").toLowerCase().includes(q) ||
+      String(p.sku || "").toLowerCase().includes(q) ||
+      String(p.barcode || "").toLowerCase().includes(q)
+    );
+  }
+  // ใบเช็คสต็อก = เฉพาะสินค้านับสต็อก (ข้ามบริการ/ไม่นับสต็อก)
+  f = f.filter(p => detectProductType(p) === "stock");
+
+  if (f.length === 0) {
+    window.App?.showToast?.("ไม่มีสินค้านับสต็อกในขอบเขตที่เลือก");
+    return;
+  }
+
+  // 2) sort ตามที่หน้าจอใช้อยู่ (currentSort) แล้วค่อย group ตามหมวด
+  const sorted = [...f].sort((a, b) => {
+    switch (currentSort) {
+      case "name_asc":   return String(a.name || "").localeCompare(String(b.name || ""), "th");
+      case "name_desc":  return String(b.name || "").localeCompare(String(a.name || ""), "th");
+      case "price_asc":  return Number(a.price || 0) - Number(b.price || 0);
+      case "price_desc": return Number(b.price || 0) - Number(a.price || 0);
+      case "stock_asc":  return getDisplayStock(state, a).stock - getDisplayStock(state, b).stock;
+      case "stock_desc": return getDisplayStock(state, b).stock - getDisplayStock(state, a).stock;
+      case "newest":     return (b.id || 0) - (a.id || 0);
+      default: return 0;
+    }
+  });
+
+  // 3) โหลด QR lib เดิม (jsdelivr qrcodejs — อยู่ใน CSP แล้ว) — เรนเดอร์ใน parent แล้วฝัง data-URL
+  try {
+    await loadQrLib();
+  } catch (e) {
+    window.App?.showToast?.(e?.message || "โหลด QR library ไม่สำเร็จ");
+    return;
+  }
+
+  const holder = document.createElement("div");
+  holder.style.cssText = "position:absolute;left:-9999px;top:-9999px;width:0;height:0;overflow:hidden";
+  document.body.appendChild(holder);
+  const qrDataUrlFor = (text) => {
+    const t = String(text == null ? "" : text).trim();
+    if (!t) return "";
+    try {
+      holder.innerHTML = "";
+      // eslint-disable-next-line no-undef
+      new QRCode(holder, { text: t, width: 120, height: 120, correctLevel: QRCode.CorrectLevel.M });
+      const canvas = holder.querySelector("canvas");
+      if (canvas) return canvas.toDataURL("image/png");
+      const img = holder.querySelector("img");
+      return img?.src || "";
+    } catch (_e) {
+      return "";
+    }
+  };
+
+  // 4) group ตามหมวด (คงลำดับการพบครั้งแรกหลัง sort)
+  const groupMap = new Map();
+  let idx = 0;
+  for (const p of sorted) {
+    const cat = String(p.category || "").trim() || "ไม่ระบุหมวด";
+    if (!groupMap.has(cat)) groupMap.set(cat, []);
+    idx += 1;
+    groupMap.get(cat).push({
+      idx,
+      name: p.name || "-",
+      barcode: String(p.barcode || "").trim(),
+      sku: String(p.sku || "").trim(),
+      stock: getDisplayStock(state, p).stock,
+      qrDataUrl: qrDataUrlFor(p.barcode || p.sku || "")
+    });
+  }
+  holder.remove();
+
+  const groups = [...groupMap.entries()].map(([category, items]) => ({ category, items }));
+
+  // 5) สร้าง HTML + เปิดหน้าต่างพิมพ์ (read-only)
+  const warehouseName = selectedWarehouse === "all"
+    ? "คลังทั้งหมด"
+    : ((state.warehouses || []).find(w => w.id === Number(selectedWarehouse))?.name || "คลังทั้งหมด");
+  const dateStr = new Date().toLocaleDateString("th-TH", { year: "numeric", month: "long", day: "numeric" });
+  const shopName = state.storeInfo?.name || "บุญสุข อิเล็กทรอนิกส์";
+
+  const html = buildStockCheckSheetHtml({ warehouseName, dateStr, groups, shopName });
+
+  const w = window.open("", "stock-check-sheet", "width=900,height=700");
+  if (!w) {
+    window.App?.showToast?.("กรุณาอนุญาต pop-up เพื่อพิมพ์ใบเช็คสต็อก");
+    return;
+  }
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
 }
 
 
