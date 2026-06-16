@@ -22,6 +22,7 @@ const RATE_LIMITS = {
   "/api/parse-receipt": { limit: 10,  windowSec: 60 },  // Phase 89.14: Gemini OCR — cost ต่อ image
   "/api/verify-slip":   { limit: 20,  windowSec: 60 },  // Phase 89.14: SlipOK 3rd-party — cost ต่อ verify
   "/api/log-error":     { limit: 60,  windowSec: 60 },  // Phase 89.14: error_log proxy — burst-tolerant, spam-resistant
+  "/api/v1/service-jobs": { limit: 30, windowSec: 60 }, // Ning agent: create service-job (write to prod DB)
   "default":            { limit: 100, windowSec: 60 }   // ทุก endpoint อื่น
 };
 
@@ -38,6 +39,7 @@ const REQUIRE_AUTH_ENDPOINTS = [
   "/api/ai-assistant",
   "/api/line-notify",
   "/api/v1/reports/daily-summary",
+  "/api/v1/service-jobs",   // Ning agent: create a service-job request (no stock/JV)
   "/api/parse-receipt",   // Phase 89.14: ปิด anon — Gemini OCR ใช้แค่ staff ที่ login
   "/api/verify-slip"      // Phase 89.14: ปิด anon — SlipOK ใช้แค่ staff ที่ login
 ];
@@ -48,6 +50,12 @@ const STAFF_ONLY_ENDPOINTS = [
 
 const REPORT_ONLY_ENDPOINTS = [
   "/api/v1/reports/daily-summary"
+];
+
+// Endpoints that also accept Ning server-to-server auth (X-NING-AGENT-KEY) besides a user JWT.
+const NING_AGENT_ENDPOINTS = [
+  "/api/v1/reports/daily-summary",
+  "/api/v1/service-jobs"
 ];
 
 const STAFF_ROLES = new Set(["admin", "sales", "staff", "technician"]);
@@ -297,7 +305,7 @@ export async function onRequest(context) {
 
   // ── Auth check (เฉพาะ endpoint ที่ระบุ) ──
   if (REQUIRE_AUTH_ENDPOINTS.includes(url.pathname)) {
-    if (REPORT_ONLY_ENDPOINTS.includes(url.pathname)) {
+    if (NING_AGENT_ENDPOINTS.includes(url.pathname)) {
       const agentAuth = verifyNingAgentKey(request, env);
       if (agentAuth.ok) {
         context.data = context.data || {};
