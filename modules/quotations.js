@@ -14,6 +14,16 @@ import { resolveBankForCustomerGroup } from "./customer_groups.js";
 // Phase 346: รับรายการร่างจากแคตตาล็อกแอร์ (sessionStorage bridge — ไม่สร้างเอกสารจริง)
 import { consumeAirQuoteDrafts } from "./ac_quotation_draft.js";
 
+// Phase 448a: สำนักงานบัญชี (accountant) = read-only บนเอกสาร — กัน write (สร้าง/แก้/ยกเลิก/ลบ)
+//   ผ่าน UI (RLS 448b = backstop ระดับ DB). อ่าน role จาก window.App.state.
+function _denyWriteForAccountant() {
+  if (window.App?.state?.profile?.role === "accountant") {
+    window.App?.showToast?.("สำนักงานบัญชี — อ่านอย่างเดียว (สร้าง/แก้/ยกเลิก/ลบ ไม่ได้)");
+    return true;
+  }
+  return false;
+}
+
 // share ใช้ window._appShareDoc จาก main.js
 
 function money(n){ return new Intl.NumberFormat("th-TH",{style:"currency",currency:"THB",minimumFractionDigits:2}).format(Number(n||0)); }
@@ -399,6 +409,7 @@ export function renderQuotationsPage(ctx) {
 
   // ── Bulk cancel (soft) ──
   document.getElementById("qtBulkCancel")?.addEventListener("click", async () => {
+    if (_denyWriteForAccountant()) return;
     const ids = [..._selectedIds];
     if (!ids.length) return;
     if (!(await window.App?.confirm?.(`ยกเลิกใบเสนอราคา ${ids.length} รายการ?\n(เปลี่ยนสถานะเป็น "ยกเลิก" — ยังอยู่ใน tab "ยกเลิก")`))) return;
@@ -419,6 +430,7 @@ export function renderQuotationsPage(ctx) {
 
   // ── Bulk delete (hard) — ลบถาวร ──
   document.getElementById("qtBulkDelete")?.addEventListener("click", async () => {
+    if (_denyWriteForAccountant()) return;
     const ids = [..._selectedIds];
     if (!ids.length) return;
     if (!(await window.App?.confirm?.(`⚠️ ลบใบเสนอราคา ${ids.length} รายการออกจากระบบถาวร?\n\nการกระทำนี้ไม่สามารถย้อนกลับได้`))) return;
@@ -879,6 +891,7 @@ function bindFormEvents(container, customers, products) {
 //  SAVE — Full Quotation + Line Items
 // ═══════════════════════════════════════════════════════════
 async function saveQuotationFull() {
+  if (_denyWriteForAccountant()) return;
   const customerName = document.getElementById("qt_customerSearch")?.value?.trim() || "";
   if (!customerName) return _ctx.showToast("กรอกชื่อลูกค้า");
   if (!_lineItems.length) return _ctx.showToast("เพิ่มรายการสินค้าอย่างน้อย 1 รายการ");

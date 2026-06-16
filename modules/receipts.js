@@ -67,6 +67,16 @@ let _ctx = null;
 let _lineItems = [];
 let _viewMode = "list";  // list | preview
 let _viewingId = null;
+
+// Phase 448a: สำนักงานบัญชี (accountant) = read-only บนเอกสาร — กัน write action ทุกตัว
+//   ผ่าน UI (RLS 448b = backstop ระดับ DB). handler ใช้ window.App อยู่แล้ว → อ่าน role จาก state.
+function _denyWriteForAccountant() {
+  if (window.App?.state?.profile?.role === "accountant") {
+    window.App?.showToast?.("สำนักงานบัญชี — อ่านอย่างเดียว (แก้/ยกเลิก/ลบ/เก็บเงิน ไม่ได้)");
+    return true;
+  }
+  return false;
+}
 // Phase 88.17: default filter = pending (เน้นใบที่รออนุมัติให้เห็นชัด)
 let _tabFilter = "pending";  // all | pending | paid | cancelled
 let _selectedIds = new Set(); // bulk selection
@@ -381,6 +391,7 @@ export function renderReceiptsPage(ctx) {
 
   // ── Bulk cancel (soft — status change) ──
   document.getElementById("rcBulkCancel")?.addEventListener("click", async (e) => {
+    if (_denyWriteForAccountant()) return;
     // Phase 89.4: double-click guard
     const btn = e.currentTarget;
     if (btn.disabled) return;
@@ -421,6 +432,7 @@ export function renderReceiptsPage(ctx) {
 
   // ── Bulk delete (hard — remove from DB + restore delivery_invoice status) ──
   document.getElementById("rcBulkDelete")?.addEventListener("click", async (e) => {
+    if (_denyWriteForAccountant()) return;
     // Phase 89.4: double-click guard
     const btn = e.currentTarget;
     if (btn.disabled) return;
@@ -805,6 +817,7 @@ function renderReceiptPreview(container) {
   // ★ เก็บเงิน (ในหน้า preview)
   // Phase 89.2: double-click guard — กัน user double-tap = post JV ซ้ำ (DB unique index จับได้ แต่ patch อาจซ้ำ)
   document.getElementById("rcPreviewCollect")?.addEventListener("click", async (e) => {
+    if (_denyWriteForAccountant()) return;
     const btn = e.currentTarget;
     if (btn.disabled) return;
     if (!(await window.App?.confirm?.(`ยืนยันเก็บเงิน "${r.receipt_no}" ยอด ${money(r.grand_total||0)} ?`))) return;
@@ -840,6 +853,7 @@ function renderReceiptPreview(container) {
   // ★ ยกเลิก (ในหน้า preview)
   // Phase 89.2: double-click guard
   document.getElementById("rcPreviewCancel")?.addEventListener("click", async (e) => {
+    if (_denyWriteForAccountant()) return;
     const btn = e.currentTarget;
     if (btn.disabled) return;
     if (!(await window.App?.confirm?.(`ยกเลิกใบเสร็จ "${r.receipt_no}" ?`))) return;
@@ -874,6 +888,7 @@ function renderReceiptPreview(container) {
 
   // ── delete receipt → restore delivery invoice status ──
   document.getElementById("rcDeleteBtn")?.addEventListener("click", async () => {
+    if (_denyWriteForAccountant()) return;
     if (!(await window.App?.confirm?.(`ลบใบเสร็จ ${r.receipt_no} ?\n\nใบส่งสินค้าที่อ้างอิงจะกลับสถานะเป็น "รอดำเนินการ" เพื่อให้แก้ไขหรือลบได้`))) return;
     const cfg = window.SUPABASE_CONFIG;
     // Phase 89.2d: ใช้ _appAuthFetch — 401 → refresh + retry อัตโนมัติ
@@ -1101,6 +1116,7 @@ function _openReceiptEditDrawer(r) {
   modal.addEventListener("click", (e) => { if (e.target === modal) close(); });
 
   modal.querySelector("#rcEdSave").addEventListener("click", async () => {
+    if (_denyWriteForAccountant()) return;
     const name = modal.querySelector("#rcEdName").value.trim();
     if (!name) {
       modal.querySelector("#rcEdStatus").innerHTML = '<span style="color:#dc2626">กรอกชื่อลูกค้า</span>';

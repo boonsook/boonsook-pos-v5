@@ -9,6 +9,16 @@ import { renderDocumentTemplateHeader, renderDocumentTemplateNote, renderDocumen
 // Phase 89.1: void JV ตอน cancel (กัน double-revenue ใน P&L)
 import { voidJvForSource } from "./accounting/auto_post.js";
 
+// Phase 448a: สำนักงานบัญชี (accountant) = read-only บนเอกสาร — กัน write (แก้/ยกเลิก/ลบ/แปลงเป็นใบเสร็จ)
+//   ผ่าน UI (RLS 448b = backstop ระดับ DB). อ่าน role จาก window.App.state.
+function _denyWriteForAccountant() {
+  if (window.App?.state?.profile?.role === "accountant") {
+    window.App?.showToast?.("สำนักงานบัญชี — อ่านอย่างเดียว (แก้/ยกเลิก/ลบ/แปลงเป็นใบเสร็จ ไม่ได้)");
+    return true;
+  }
+  return false;
+}
+
 // share ใช้ window._appShareDoc จาก main.js
 
 // ★ Phase 407: pre-check ใบเสร็จก่อนลบใบส่งสินค้า — กัน DB FK 409 (receipts.delivery_invoice_id)
@@ -314,6 +324,7 @@ export function renderDeliveryInvoicesPage(ctx) {
 
   // ── Bulk cancel (soft) ──
   document.getElementById("diBulkCancel")?.addEventListener("click", async (e) => {
+    if (_denyWriteForAccountant()) return;
     // Phase 89.4: double-click guard — กัน user double-tap = patch ซ้ำ
     const btn = e.currentTarget;
     if (btn.disabled) return;
@@ -346,6 +357,7 @@ export function renderDeliveryInvoicesPage(ctx) {
 
   // ── Bulk delete (hard) — ลบถาวร + restore quotation status ──
   document.getElementById("diBulkDelete")?.addEventListener("click", async (e) => {
+    if (_denyWriteForAccountant()) return;
     // Phase 89.4: double-click guard
     const btn = e.currentTarget;
     if (btn.disabled) return;
@@ -608,6 +620,7 @@ function renderInvoicePreview(container) {
 
   // ── delete delivery invoice → restore quotation status ──
   document.getElementById("diDeleteBtn")?.addEventListener("click", async () => {
+    if (_denyWriteForAccountant()) return;
     if (!(await window.App?.confirm?.(`ลบใบส่งสินค้า ${inv.inv_no} ?\n\nใบเสนอราคาที่อ้างอิงจะกลับสถานะเป็น "อนุมัติแล้ว" เพื่อให้แก้ไขหรือลบได้`))) return;
     // ★ Phase 407: เช็คใบเสร็จ "ก่อน" ลบอะไรเลย — มีใบเสร็จอ้างอยู่ → บล็อก (กัน items หาย+หัวบิล 409 = บิลพัง)
     const _rc = await _invoiceHasReceipt(inv.id);
@@ -724,6 +737,7 @@ function renderInvoicePreview(container) {
 // ═══════════════════════════════════════════════════════════
 let _diConvertInflight = false; // Phase 412: กัน trigger convert→ใบเสร็จ ซ้ำระหว่างใบแรกกำลังสร้าง (ทุกทางเข้า)
 async function convertToReceipt(inv) {
+  if (_denyWriteForAccountant()) return;
   // ★ Phase 412: inflight guard ระดับฟังก์ชัน — กัน trigger ซ้ำจาก "ทุกทางเข้า" (dropdown แถว/
   //   ปุ่ม preview diConvertReceiptBtn) ระหว่างใบแรกกำลังสร้าง: existence-check (409) กันได้
   //   เฉพาะใบที่ commit แล้ว — กดซ้ำระหว่างสร้าง dup-check รอบสองวิ่งก่อน create commit → ใบซ้ำ
@@ -938,6 +952,7 @@ function _openEditDrawer(inv) {
   modal.addEventListener("click", (e) => { if (e.target === modal) close(); });
 
   modal.querySelector("#diEdSave").addEventListener("click", async () => {
+    if (_denyWriteForAccountant()) return;
     const name = modal.querySelector("#diEdName").value.trim();
     if (!name) {
       modal.querySelector("#diEdStatus").innerHTML = '<span style="color:#dc2626">กรอกชื่อลูกค้า</span>';
