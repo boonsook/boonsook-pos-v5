@@ -20,20 +20,20 @@ const SAMPLE = {
     {
       category: "งานดาวเทียม",
       items: [
-        { idx: 1, name: "จานดาวเทียม 60cm", barcode: "2000001", sku: "SAT60", stock: 3, qrDataUrl: "data:image/png;base64,AAA" },
-        { idx: 2, name: "LNB Universal", barcode: "2000002", sku: "LNB1", stock: 0, qrDataUrl: "" }
+        { idx: 1, name: "จานดาวเทียม 60cm", barcode: "2000001", sku: "SAT60", stock: 3, barcodeDataUrl: "data:image/png;base64,AAA" },
+        { idx: 2, name: "LNB Universal", barcode: "2000002", sku: "LNB1", stock: 0, barcodeDataUrl: "" }
       ]
     },
     {
       category: "สายไฟ",
       items: [
-        { idx: 3, name: "สาย RG6 100m", barcode: "", sku: "RG6", stock: 12, qrDataUrl: "data:image/png;base64,BBB" }
+        { idx: 1, name: "สาย RG6 100m", barcode: "", sku: "RG6", stock: 12, barcodeDataUrl: "data:image/png;base64,BBB" }
       ]
     }
   ]
 };
 
-test("builder: คืน HTML A4 มีหัวหมวด + แถว + คอลัมน์นับจริง + คงเหลือ + QR img", () => {
+test("builder: คืน HTML A4 มีหัวหมวด + แถว + คอลัมน์นับจริง + คงเหลือ + บาร์โค้ด img", () => {
   const html = buildStockCheckSheetHtml(SAMPLE);
   assert.match(html, /<!DOCTYPE html>/, "ต้องเป็นหน้า HTML เต็ม");
   assert.match(html, /size:\s*A4/i, "ต้องตั้ง @page A4");
@@ -44,10 +44,31 @@ test("builder: คืน HTML A4 มีหัวหมวด + แถว + ค�
   assert.match(html, /จานดาวเทียม 60cm/, "ต้องมีชื่อสินค้า");
   assert.match(html, /นับจริง/, "ต้องมีคอลัมน์ 'นับจริง'");
   assert.match(html, /คงเหลือ/, "ต้องมีคอลัมน์คงเหลือ");
-  // QR img จาก qrDataUrl
-  assert.match(html, /<img class="qr" src="data:image\/png;base64,AAA"/, "ต้องฝัง QR data-URL เป็น <img>");
-  // ตัวไม่มี qrDataUrl → ไม่มี <img> ว่าง (ใช้ placeholder)
-  assert.match(html, /qr-none/, "ตัวที่ไม่มี QR ต้องเป็น placeholder ไม่ใช่ <img src=\"\">");
+  // หัวคอลัมน์ "บาร์โค้ด" (1D) ไม่ใช่ "QR"
+  assert.match(html, /<th class="c-bc">บาร์โค้ด<\/th>/, "หัวคอลัมน์ต้องเป็น 'บาร์โค้ด'");
+  assert.doesNotMatch(html, />QR</, "ต้องไม่มีหัวคอลัมน์ QR แล้ว");
+  // barcode img จาก barcodeDataUrl
+  assert.match(html, /<img class="bc" src="data:image\/png;base64,AAA"/, "ต้องฝังบาร์โค้ด data-URL เป็น <img class=bc>");
+  // ตัวไม่มี barcodeDataUrl → placeholder
+  assert.match(html, /qr-none/, "ตัวที่ไม่มีบาร์โค้ด ต้องเป็น placeholder ไม่ใช่ <img src=\"\">");
+});
+
+test("builder: เลขลำดับ # นับใหม่ต่อหมวด (1,2,1,2 ไม่ใช่ 1,2,3,4)", () => {
+  const html = buildStockCheckSheetHtml({
+    warehouseName: "x", dateStr: "d",
+    groups: [
+      { category: "A", items: [
+        { idx: 1, name: "a1", barcode: "1", sku: "", stock: 1, barcodeDataUrl: "" },
+        { idx: 2, name: "a2", barcode: "2", sku: "", stock: 1, barcodeDataUrl: "" }
+      ]},
+      { category: "B", items: [
+        { idx: 1, name: "b1", barcode: "3", sku: "", stock: 1, barcodeDataUrl: "" },
+        { idx: 2, name: "b2", barcode: "4", sku: "", stock: 1, barcodeDataUrl: "" }
+      ]}
+    ]
+  });
+  const idxCells = [...html.matchAll(/<td class="c-idx">(\d*)<\/td>/g)].map(m => m[1]);
+  assert.deepEqual(idxCells, ["1", "2", "1", "2"], "แต่ละหมวดต้องเริ่มนับ 1 ใหม่");
 });
 
 test("builder: ❌ ไม่มีคอลัมน์/คำว่า ราคา/ต้นทุน/cost (stock-check ไม่ใช่ valuation)", () => {
@@ -109,4 +130,22 @@ test("products: openStockCheckSheet = read-only (ไม่มี XHR/fetch/PATCH
   assert.match(body, /_currentWarehouseProducts\(state\)/, "ต้อง scope ตามคลังที่เลือก (Phase 450 helper)");
   assert.match(body, /getDisplayStock\(state, p\)\.stock/, "คงเหลือ ต้องมาจาก getDisplayStock (warehouse-aware)");
   assert.match(body, /buildStockCheckSheetHtml\(/, "ต้องเรียก pure builder");
+});
+
+test("products: ใบเช็คสต็อกใช้แท่งบาร์โค้ด 1D (JsBarcode + canvas.toDataURL) + เลขต่อหมวด", () => {
+  const body = fnBody("openStockCheckSheet");
+  assert.match(body, /await loadBarcodeLib\(\)/, "ต้องโหลด barcode lib (เลิกใช้ QR ในใบนี้)");
+  assert.match(body, /JsBarcode\(canvas,\s*t,\s*\{[^}]*format:\s*"CODE128"/, "ต้องเรนเดอร์ CODE128 ด้วย JsBarcode");
+  assert.match(body, /canvas\.toDataURL\("image\/png"\)/, "ต้องฝังเป็น data-URL");
+  assert.match(body, /barcodeDataUrl:\s*barcodeDataUrlFor\(/, "item ต้องมี field barcodeDataUrl");
+  assert.doesNotMatch(body, /new QRCode\(/, "ใบนี้ต้องไม่ใช้ QRCode แล้ว");
+  // เลขลำดับนับใหม่ต่อหมวด: map items ใส่ idx = i + 1
+  assert.match(body, /items:\s*items\.map\(\(it,\s*i\)\s*=>\s*\(\{\s*\.\.\.it,\s*idx:\s*i \+ 1\s*\}\)\)/,
+    "idx ต้องนับ 1..N ใหม่ต่อหมวด");
+});
+
+test("products: loadBarcodeLib ใช้ JsBarcode CDN เดิม (อยู่ใน CSP) + ไม่ลบ loadQrLib", () => {
+  assert.match(products, /function loadBarcodeLib\(\)/, "ต้องมี loadBarcodeLib");
+  assert.match(products, /jsbarcode@3\.11\.6\/dist\/JsBarcode\.all\.min\.js/, "ต้องใช้ JsBarcode CDN เดิม");
+  assert.match(products, /function loadQrLib\(\)/, "ห้ามลบ loadQrLib (module อื่นใช้)");
 });

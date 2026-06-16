@@ -1929,52 +1929,53 @@ async function openStockCheckSheet(ctx) {
     }
   });
 
-  // 3) โหลด QR lib เดิม (jsdelivr qrcodejs — อยู่ใน CSP แล้ว) — เรนเดอร์ใน parent แล้วฝัง data-URL
+  // 3) โหลด barcode lib เดิม (jsdelivr JsBarcode — อยู่ใน CSP แล้ว, openBarcodePrintWindow ใช้)
+  //    เรนเดอร์แท่ง 1D ใน parent แล้วฝัง data-URL (ไม่โหลด lib ในหน้าต่างพิมพ์)
   try {
-    await loadQrLib();
+    await loadBarcodeLib();
   } catch (e) {
-    window.App?.showToast?.(e?.message || "โหลด QR library ไม่สำเร็จ");
+    window.App?.showToast?.(e?.message || "โหลด barcode library ไม่สำเร็จ");
     return;
   }
 
   const holder = document.createElement("div");
   holder.style.cssText = "position:absolute;left:-9999px;top:-9999px;width:0;height:0;overflow:hidden";
   document.body.appendChild(holder);
-  const qrDataUrlFor = (text) => {
+  const barcodeDataUrlFor = (text) => {
     const t = String(text == null ? "" : text).trim();
     if (!t) return "";
     try {
+      const canvas = document.createElement("canvas");
       holder.innerHTML = "";
+      holder.appendChild(canvas);
       // eslint-disable-next-line no-undef
-      new QRCode(holder, { text: t, width: 120, height: 120, correctLevel: QRCode.CorrectLevel.M });
-      const canvas = holder.querySelector("canvas");
-      if (canvas) return canvas.toDataURL("image/png");
-      const img = holder.querySelector("img");
-      return img?.src || "";
+      JsBarcode(canvas, t, { format: "CODE128", width: 1.6, height: 44, displayValue: true, fontSize: 11, margin: 4, textMargin: 2, textAlign: "center" });
+      return canvas.toDataURL("image/png");
     } catch (_e) {
       return "";
     }
   };
 
-  // 4) group ตามหมวด (คงลำดับการพบครั้งแรกหลัง sort)
+  // 4) group ตามหมวด (คงลำดับการพบครั้งแรกหลัง sort) — ยังไม่ใส่ idx ที่นี่
   const groupMap = new Map();
-  let idx = 0;
   for (const p of sorted) {
     const cat = String(p.category || "").trim() || "ไม่ระบุหมวด";
     if (!groupMap.has(cat)) groupMap.set(cat, []);
-    idx += 1;
     groupMap.get(cat).push({
-      idx,
       name: p.name || "-",
       barcode: String(p.barcode || "").trim(),
       sku: String(p.sku || "").trim(),
       stock: getDisplayStock(state, p).stock,
-      qrDataUrl: qrDataUrlFor(p.barcode || p.sku || "")
+      barcodeDataUrl: barcodeDataUrlFor(p.barcode || p.sku || "")
     });
   }
   holder.remove();
 
-  const groups = [...groupMap.entries()].map(([category, items]) => ({ category, items }));
+  // 🔢 เลขลำดับ # นับใหม่ 1..N ต่อหมวด (ไม่ใช่เลขรันรวม)
+  const groups = [...groupMap.entries()].map(([category, items]) => ({
+    category,
+    items: items.map((it, i) => ({ ...it, idx: i + 1 }))
+  }));
 
   // 5) สร้าง HTML + เปิดหน้าต่างพิมพ์ (read-only)
   const warehouseName = selectedWarehouse === "all"
@@ -2754,6 +2755,22 @@ function loadQrLib() {
     document.head.appendChild(s);
   });
   return _qrLibPromise;
+}
+
+// Phase 451 — lazy-load JsBarcode (URL เดียวกับ openBarcodePrintWindow → อยู่ใน CSP แล้ว)
+// ใช้เรนเดอร์แท่งบาร์โค้ด 1D (CODE128) เป็น data-URL สำหรับใบเช็คสต็อก
+let _barcodeLibPromise = null;
+function loadBarcodeLib() {
+  if (window.JsBarcode) return Promise.resolve();
+  if (_barcodeLibPromise) return _barcodeLibPromise;
+  _barcodeLibPromise = new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js";
+    s.onload = () => resolve();
+    s.onerror = () => { _barcodeLibPromise = null; reject(new Error("โหลด barcode library ไม่สำเร็จ")); };
+    document.head.appendChild(s);
+  });
+  return _barcodeLibPromise;
 }
 
 async function showQrModal({ title, subtitle, text, showPrint = false, productName = "" }) {

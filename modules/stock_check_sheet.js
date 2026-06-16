@@ -11,7 +11,7 @@ import { escHtml } from "./utils.js";
  * @param {string} opts.warehouseName  ชื่อคลังที่กำลังดู (เช่น "รถคันแดง" / "คลังทั้งหมด")
  * @param {string} opts.dateStr        วันที่ (string พร้อมใช้)
  * @param {string} [opts.shopName]     ชื่อร้าน (หัวกระดาษ)
- * @param {Array<{category:string, items:Array<{idx:number,name:string,barcode:string,sku:string,stock:(number|string),qrDataUrl:string}>}>} opts.groups
+ * @param {Array<{category:string, items:Array<{idx:number,name:string,barcode:string,sku:string,stock:(number|string),barcodeDataUrl:string}>}>} opts.groups
  * @returns {string} HTML string เต็มหน้า A4 พร้อมพิมพ์
  */
 export function buildStockCheckSheetHtml({ warehouseName, dateStr, groups, shopName } = {}) {
@@ -23,8 +23,8 @@ export function buildStockCheckSheetHtml({ warehouseName, dateStr, groups, shopN
     const rows = items.map(it => {
       const sub = [it.barcode ? escHtml(it.barcode) : "", it.sku ? "SKU: " + escHtml(it.sku) : ""]
         .filter(Boolean).join(" · ");
-      const qr = it.qrDataUrl
-        ? `<img class="qr" src="${escHtml(it.qrDataUrl)}" alt="" />`
+      const bc = it.barcodeDataUrl
+        ? `<img class="bc" src="${escHtml(it.barcodeDataUrl)}" alt="" />`
         : `<span class="qr-none">—</span>`;
       return `
         <tr>
@@ -33,7 +33,7 @@ export function buildStockCheckSheetHtml({ warehouseName, dateStr, groups, shopN
             <div class="p-name">${escHtml(it.name || "-")}</div>
             ${sub ? `<div class="p-sub">${sub}</div>` : ""}
           </td>
-          <td class="c-qr">${qr}</td>
+          <td class="c-bc">${bc}</td>
           <td class="c-stock">${escHtml(String(it.stock == null ? "" : it.stock))}</td>
           <td class="c-count"></td>
         </tr>`;
@@ -47,7 +47,7 @@ export function buildStockCheckSheetHtml({ warehouseName, dateStr, groups, shopN
             <tr>
               <th class="c-idx">#</th>
               <th class="c-name">ชื่อสินค้า</th>
-              <th class="c-qr">QR</th>
+              <th class="c-bc">บาร์โค้ด</th>
               <th class="c-stock">คงเหลือ<br/>(ระบบ)</th>
               <th class="c-count">นับจริง</th>
             </tr>
@@ -88,8 +88,8 @@ export function buildStockCheckSheetHtml({ warehouseName, dateStr, groups, shopN
   .c-name { text-align: left; }
   .p-name { font-weight: 700; }
   .p-sub { font-size: 10px; color: #64748b; font-family: monospace; margin-top: 1px; }
-  .c-qr { width: 70px; text-align: center; }
-  img.qr { width: 56px; height: 56px; object-fit: contain; display: block; margin: 0 auto; }
+  .c-bc { width: 130px; text-align: center; }
+  img.bc { width: 120px; height: auto; display: block; margin: 0 auto; }
   .qr-none { color: #cbd5e1; }
   .c-stock { width: 60px; text-align: center; font-weight: 700; }
   .c-count { width: 90px; height: 38px; background: #fffef0; }
