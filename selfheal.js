@@ -23,6 +23,18 @@ window.APP_BUILD = __APP_BUILD;
 var __APP_VERSION = (__SCRIPT_TAG && __SCRIPT_TAG.dataset && __SCRIPT_TAG.dataset.appVersion) || '';
 window.APP_VERSION = __APP_VERSION;
 
+// Phase 448: capture the invite/recovery "set password" intent at the EARLIEST point —
+// before main.js creates the Supabase client (which clears the URL hash) and before any
+// SW-triggered reload. main.js's set-password detection read the LIVE window.location.hash,
+// which is lost on devices that already have a session / cached SW — dropping invited users
+// into the app instead of the "ตั้งรหัสผ่านใหม่" screen. Persisting the flag lets main.js
+// honor it even after the hash is gone. (Cleared on set / new-link / logout / expired.)
+try {
+  if (/[#&]type=recovery/.test(window.location.hash || '')) {
+    sessionStorage.setItem('bsk_pending_set_password', '1');
+  }
+} catch (e) { /* sessionStorage unavailable (private mode / quota) — non-fatal */ }
+
 (async function selfHeal() {
   try {
     var APP_BUILD = __APP_BUILD;

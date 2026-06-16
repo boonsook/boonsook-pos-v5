@@ -183,7 +183,8 @@
 // v446 (2026-06-14): Phase 446 - re-scope "accountant" to EXTERNAL accounting firm (สำนักงานบัญชี). ROLE_PAGES.accountant drops payroll/payroll_overview (external must NOT see individual salaries) + refunds (operational disbursement); keeps accounting/reports/financial-doc views for closing books + half-year tax (sole-prop ภงด.94/90). ROLE_LABELS + user dropdowns relabel "พนักงานบัญชี" -> "สำนักงานบัญชี". (445 was SQL-only, no build bump.) Salary-privacy RLS + read-only-docs RLS = later steps (3,4). Bumps CACHE_NAME.
 // v447 (2026-06-14): Phase 447a (MONEY) — เงินเดือนลงบัญชีเป็น JV ก้อนเดียวต่อรอบ (postPayrollPeriodJournal: Dr 5200 รวม / Cr cash+bank แยก, ไม่มีชื่อ) ผ่านปุ่ม admin "ลงบัญชีงวดนี้"; ถอด JV รายคนออกจาก _markPaid (กันสำนักงานบัญชีเห็นเงินเดือนรายคน); backfill ข้าม expense salary (กัน double-count); ถอด payroll ออกจาก INTEGRITY_CATS close-readiness. Step 3a accountant-privacy. Bumps CACHE_NAME.
 // v448 (2026-06-15): Phase 448a — accountant (สำนักงานบัญชี) = read-only บนเอกสาร: client gate _denyWriteForAccountant() กัน write (สร้าง/แก้/ยกเลิก/ลบ/เก็บเงิน/แปลงใบเสร็จ) ใน receipts/quotations/delivery_invoices. RLS 448b = DB backstop. Bumps CACHE_NAME.
-const CACHE_NAME = 'boonsook-pos-v5-cache-v448';
+// v449 (2026-06-16): invite/recovery "ตั้งรหัสผ่านใหม่" เด้งได้แม้เครื่อง login ค้าง/มี SW cache — selfheal.js จับ type=recovery เก็บ flag bsk_pending_set_password ก่อน Supabase เคลียร์ hash; main.js honor flag + เคลียร์เมื่อ set/logout/expired. (เดิมตั้ง build 448 แต่ชนงาน accountant-docs ที่ขึ้น 448 ก่อน → เป็น build 449). Bumps CACHE_NAME.
+const CACHE_NAME = 'boonsook-pos-v5-cache-v449';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

@@ -60,6 +60,8 @@ export function createEmailAuth(deps) {
       try { history.replaceState(null, "", window.location.pathname + window.location.search); } catch(e){}
       // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L3 module state reset (recovery flow, single password set per session)
       state._recoveryMode = false;
+      // Phase 448: recovery complete — clear the persisted set-password flag (selfheal.js)
+      try { sessionStorage.removeItem("bsk_pending_set_password"); } catch(e){}
       $("setPwNew").value = ""; $("setPwConfirm").value = "";
       $("setPasswordScreen")?.classList.add("hidden");
       showToast("ตั้งรหัสผ่านสำเร็จ — เข้าสู่ระบบอัตโนมัติ");
@@ -163,6 +165,8 @@ export function createEmailAuth(deps) {
   // ★ Phase 406: กดปุ่ม "ขอลิงก์ใหม่" จากหน้าตั้งรหัส (ลิงก์หมดอายุ) → กลับหน้า login พร้อมคำแนะนำ
   function requestNewRecoveryLink() {
     state._recoveryMode = false;
+    // Phase 448: abandoning the expired recovery — clear the persisted flag too
+    try { sessionStorage.removeItem("bsk_pending_set_password"); } catch(e){}
     try { history.replaceState(null, "", window.location.pathname + window.location.search); } catch(e){}
     $("setPasswordScreen")?.classList.add("hidden");
     $("authScreen")?.classList.remove("hidden");

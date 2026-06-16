@@ -945,8 +945,17 @@ async function initSupabase(){
   }
 
   // ★ Detect recovery link (จาก invite email) — ต้องเช็คก่อน getSession
-  const isRecovery = /[#&]type=recovery/.test(window.location.hash || "");
-  if (isRecovery) state._recoveryMode = true;
+  // Phase 448: honor the persisted flag (set in selfheal.js at the earliest point) in
+  // addition to the live hash. On a device that already has a session / cached SW the hash
+  // is gone by the time we reach here, so the live-hash check alone dropped invited users
+  // straight into the app. The sessionStorage flag survives the hash loss + any SW reload.
+  let _pendingSetPw = false;
+  try { _pendingSetPw = sessionStorage.getItem("bsk_pending_set_password") === "1"; } catch (e) { /* sessionStorage may be unavailable */ }
+  const isRecovery = /[#&]type=recovery/.test(window.location.hash || "") || _pendingSetPw;
+  if (isRecovery) {
+    state._recoveryMode = true;
+    try { sessionStorage.setItem("bsk_pending_set_password", "1"); } catch (e) { /* ignore */ }
+  }
 
   const { data:{session} } = await state.supabase.auth.getSession();
   if (session?.user) {
@@ -960,6 +969,11 @@ async function initSupabase(){
     } else {
       await afterLogin();
     }
+  } else if (isRecovery) {
+    // Phase 448: recovery indicated but no valid session (link expired/already used) —
+    // clear the flag so a later normal login in this tab isn't hijacked into set-password.
+    state._recoveryMode = false;
+    try { sessionStorage.removeItem("bsk_pending_set_password"); } catch (e) { /* ignore */ }
   }
 
   state.supabase.auth.onAuthStateChange(async (_event, session) => {
@@ -976,7 +990,9 @@ async function initSupabase(){
     } else {
       state.currentUser = null;
       state.profile = null;
+      state._recoveryMode = false; // Phase 448: logout abandons any pending set-password flow
       window._sbAccessToken = null;
+      try { sessionStorage.removeItem("bsk_pending_set_password"); } catch (e) { /* ignore */ }
       $("authScreen")?.classList.remove("hidden");
       $("appShell")?.classList.add("hidden");
       $("setPasswordScreen")?.classList.add("hidden");
