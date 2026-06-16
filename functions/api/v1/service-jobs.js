@@ -69,45 +69,62 @@ function getSupabaseWriteAuth({ env, data }) {
 }
 
 export async function onRequestPost({ request, env, data }) {
-  const auth = getSupabaseWriteAuth({ env, data });
-  if (!auth.ok) {
-    return jsonResponse({ ok: false, error: auth.error }, auth.status);
-  }
-
-  let body;
   try {
-    body = await request.json();
-  } catch {
-    return jsonResponse({ ok: false, error: "Invalid JSON body" }, 400);
-  }
-
-  const built = buildJobRecord(body);
-  if (!built.ok) {
-    return jsonResponse({ ok: false, error: built.error }, 400);
-  }
-
-  try {
-    const url = `${auth.supabaseUrl.replace(/\/+$/, "")}/rest/v1/service_jobs`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "apikey": auth.apiKey,
-        "Authorization": auth.authHeader,
-        "Content-Type": "application/json",
-        "Prefer": "return=representation",
-      },
-      body: JSON.stringify([built.record]),
-    });
-
-    if (!response.ok) {
-      const detail = await response.text().catch(() => "");
-      return jsonResponse(
-        { ok: false, error: `service_jobs insert failed ${response.status}: ${detail.slice(0, 300)}` },
-        502
-      );
+    const auth = getSupabaseWriteAuth({ env, data });
+    if (!auth.ok) {
+      return jsonResponse({ ok: false, error: auth.error }, auth.status);
     }
 
-    const rows = await response.json().catch(() => []);
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ ok: false, error: "Invalid JSON body" }, 400);
+    }
+
+    const built = buildJobRecord(body);
+    if (!built.ok) {
+      return jsonResponse({ ok: false, error: built.error }, 400);
+    }
+
+    const url = `${auth.supabaseUrl.replace(/\/+$/, "")}/rest/v1/service_jobs`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12000);
+    let response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "apikey": auth.apiKey,
+          "Authorization": auth.authHeader,
+          "Content-Type": "application/json",
+          "Prefer": "return=representation",
+        },
+        body: JSON.stringify([built.record]),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+
+    const text = await response.text().catch(() => "");
+    if (!response.ok) {
+      // Return 200 with ok:false so the detail is never hidden behind a
+      // Cloudflare 5xx page; the Ning client checks the ok flag, not the status.
+      return jsonResponse({
+        ok: false,
+        error: "service_jobs insert failed",
+        supabase_status: response.status,
+        detail: text.slice(0, 500),
+      });
+    }
+
+    let rows = [];
+    try {
+      rows = JSON.parse(text);
+    } catch {
+      rows = [];
+    }
     const created = Array.isArray(rows) ? rows[0] : rows;
     return jsonResponse({
       ok: true,
@@ -115,7 +132,11 @@ export async function onRequestPost({ request, env, data }) {
       job_no: created?.job_no ?? built.record.job_no,
     });
   } catch (e) {
-    return jsonResponse({ ok: false, error: e?.message || "service_jobs insert failed" }, 502);
+    return jsonResponse({
+      ok: false,
+      error: "service_jobs create exception",
+      detail: `${e?.name || "Error"}: ${e?.message || String(e)}`,
+    });
   }
 }
 
