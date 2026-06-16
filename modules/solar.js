@@ -247,11 +247,45 @@ function _solOpenItemPicker(ctx, container, updatePrice, saveDraftNow) {
     return (mobileTotal + homeStock) > 0;
   });
 
+  // Phase 453c — เลือกคลังก่อน + กรองหมวด (UI เท่านั้น; ไม่แตะ transfer/deduct)
+  const warehouses = state.warehouses || [];
+  let _solPickerWh = "all";   // "all" หรือ warehouse id
+  let _solPickerCat = "all";  // "all" หรือชื่อหมวด
+
+  // stock ของ p ในคลัง whId (รวม mobile + home)
+  const _solStockInWh = (p, whId) => {
+    let total = 0;
+    for (const s of _solGetMobileStocks(p, state)) {
+      if (String(s.warehouse_id) === String(whId)) total += s.stock;
+    }
+    const h = _solGetHomeStock(p, state);
+    if (h && String(h.warehouse_id) === String(whId)) total += h.stock;
+    return total;
+  };
+  const _solBaseForWh = () => {
+    if (_solPickerWh === "all") return allInStock;
+    return (state.products || []).filter(p => _solStockInWh(p, _solPickerWh) > 0);
+  };
+
+  const renderWhChips = () => {
+    const chip = (val, label, active) =>
+      `<button type="button" data-wh-chip="${escHtml(String(val))}" class="btn light" style="font-size:12px;padding:5px 10px;border-radius:14px;white-space:nowrap${active ? ';background:#0284c7;color:#fff;border-color:#0284c7' : ''}">${label}</button>`;
+    return chip("all", "ทุกคลัง", _solPickerWh === "all") +
+      warehouses.map(w => chip(w.id, `${w.is_mobile === true ? "🚐" : "📦"} ${escHtml(w.name)}`, String(_solPickerWh) === String(w.id))).join("");
+  };
+  const renderCatOptions = () => {
+    const cats = [...new Set(_solBaseForWh().map(p => String(p.category || "").trim()).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, "th"));
+    return `<option value="all"${_solPickerCat === "all" ? " selected" : ""}>ทุกหมวด</option>` +
+      cats.map(c => `<option value="${escHtml(c)}"${_solPickerCat === c ? " selected" : ""}>${escHtml(c)}</option>`).join("");
+  };
+
   const renderList = (search) => {
     const q = (search || "").toLowerCase().trim();
-    let filtered = allInStock;
+    let filtered = _solBaseForWh();
+    if (_solPickerCat !== "all") filtered = filtered.filter(p => String(p.category || "").trim() === _solPickerCat);
     if (q) {
-      filtered = allInStock.filter(p =>
+      filtered = filtered.filter(p =>
         (p.name || "").toLowerCase().includes(q) ||
         (p.barcode || "").toLowerCase().includes(q) ||
         (p.sku || "").toLowerCase().includes(q) ||
@@ -259,8 +293,13 @@ function _solOpenItemPicker(ctx, container, updatePrice, saveDraftNow) {
       );
     }
     return filtered.slice(0, 50).map(p => {
-      const mobileStocks = _solGetMobileStocks(p, state);
-      const homeStock = _solGetHomeStock(p, state);
+      let mobileStocks = _solGetMobileStocks(p, state);
+      let homeStock = _solGetHomeStock(p, state);
+      // เลือกคลังเฉพาะ → โชว์ tag เฉพาะคลังนั้น (กันสับสนชื่อซ้ำข้ามคลัง)
+      if (_solPickerWh !== "all") {
+        mobileStocks = mobileStocks.filter(s => String(s.warehouse_id) === String(_solPickerWh));
+        homeStock = (homeStock && String(homeStock.warehouse_id) === String(_solPickerWh)) ? homeStock : null;
+      }
       const inMobile = mobileStocks.length > 0;
       const stockTags = mobileStocks.map(s =>
         `<span style="background:#dbeafe;color:#1e40af;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">🚐 ${escHtml(s.warehouse_name)}: ${s.stock}</span>`
@@ -298,7 +337,10 @@ function _solOpenItemPicker(ctx, container, updatePrice, saveDraftNow) {
         <h3 style="margin:0;font-size:16px">☀️ เลือกอุปกรณ์โซล่าเซลล์</h3>
         <button id="solpkClose" class="btn light" style="font-size:18px;padding:4px 10px">✕</button>
       </div>
-      <div style="padding:12px 16px;border-bottom:1px solid #e2e8f0">
+      <div style="padding:12px 16px 8px;border-bottom:1px solid #e2e8f0;display:flex;flex-direction:column;gap:8px">
+        <div style="font-size:12px;color:#64748b;font-weight:600">เลือกคลังก่อน:</div>
+        <div id="solpkWhChips" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+        <select id="solpkCat" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:10px;font:inherit;background:#fff"></select>
         <input id="solpkSearch" type="text" placeholder="🔍 ค้นหา ชื่อ / barcode / หมวด..." style="width:100%;padding:10px 12px;border:1px solid #cbd5e1;border-radius:10px;font:inherit" />
       </div>
       <div id="solpkList" style="flex:1;overflow-y:auto;padding:12px 16px"></div>
@@ -307,13 +349,30 @@ function _solOpenItemPicker(ctx, container, updatePrice, saveDraftNow) {
   document.body.appendChild(modal);
 
   const listEl = modal.querySelector("#solpkList");
-  listEl.innerHTML = renderList("");
+  const whChipsEl = modal.querySelector("#solpkWhChips");
+  const catEl = modal.querySelector("#solpkCat");
+  const searchEl = modal.querySelector("#solpkSearch");
+  const refreshList = () => { listEl.innerHTML = renderList(searchEl.value); };
+
+  whChipsEl.innerHTML = renderWhChips();
+  catEl.innerHTML = renderCatOptions();
+  refreshList();
 
   modal.querySelector("#solpkClose").addEventListener("click", () => modal.remove());
   modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
-  modal.querySelector("#solpkSearch").addEventListener("input", (e) => {
-    listEl.innerHTML = renderList(e.target.value);
+  searchEl.addEventListener("input", () => refreshList());
+
+  // เปลี่ยนคลัง → reset หมวด + rebuild dropdown หมวด + re-render
+  whChipsEl.addEventListener("click", (e) => {
+    const chip = e.target.closest("[data-wh-chip]");
+    if (!chip) return;
+    _solPickerWh = chip.dataset.whChip;
+    _solPickerCat = "all";
+    whChipsEl.innerHTML = renderWhChips();
+    catEl.innerHTML = renderCatOptions();
+    refreshList();
   });
+  catEl.addEventListener("change", () => { _solPickerCat = catEl.value; refreshList(); });
 
   listEl.addEventListener("click", async (e) => {
     const btn = e.target.closest("[data-pk-id]");
@@ -326,20 +385,36 @@ function _solOpenItemPicker(ctx, container, updatePrice, saveDraftNow) {
     const homeStock = _solGetHomeStock(p, state);
 
     let chosenWh = null;
-    if (mobileStocks.length === 1) {
-      chosenWh = mobileStocks[0];
-    } else if (mobileStocks.length > 1) {
-      chosenWh = await _solPickMobileWarehouse(mobileStocks, p.name);
-      if (!chosenWh) {
-        showToast?.("ยกเลิก");
+
+    // Phase 453c — เลือกคลังไว้แล้ว → ใช้คลังนั้นเลย (ข้าม _solPickMobileWarehouse)
+    if (_solPickerWh !== "all") {
+      const mob = mobileStocks.find(s => String(s.warehouse_id) === String(_solPickerWh));
+      if (mob) {
+        chosenWh = mob;
+      } else if (homeStock && String(homeStock.warehouse_id) === String(_solPickerWh) && homeStock.stock > 0) {
+        // เลือกของบ้าน → คง toast ยืนยันโอนตอนบันทึกเหมือนเดิม
+        chosenWh = homeStock;
+        showToast?.(`⚠️ ${p.name} ยังอยู่ในบ้าน — จะถามยืนยันโอนตอนบันทึก`);
+      }
+      // ไม่เจอ (ไม่ควรเกิด เพราะ list กรองมาแล้ว) → ตกไป fallback flow เดิมด้านล่าง
+    }
+
+    if (!chosenWh) {
+      if (mobileStocks.length === 1) {
+        chosenWh = mobileStocks[0];
+      } else if (mobileStocks.length > 1) {
+        chosenWh = await _solPickMobileWarehouse(mobileStocks, p.name);
+        if (!chosenWh) {
+          showToast?.("ยกเลิก");
+          return;
+        }
+      } else if (homeStock && homeStock.stock > 0) {
+        chosenWh = homeStock;
+        showToast?.(`⚠️ ${p.name} ยังอยู่ในบ้าน — จะถามยืนยันโอนตอนบันทึก`);
+      } else {
+        showToast?.("ไม่มีของในระบบ");
         return;
       }
-    } else if (homeStock && homeStock.stock > 0) {
-      chosenWh = homeStock;
-      showToast?.(`⚠️ ${p.name} ยังอยู่ในบ้าน — จะถามยืนยันโอนตอนบันทึก`);
-    } else {
-      showToast?.("ไม่มีของในระบบ");
-      return;
     }
 
     const existing = _solItems.find(it =>
