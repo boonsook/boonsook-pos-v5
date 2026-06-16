@@ -13,6 +13,19 @@ const PUBLIC_SUPABASE_URL = "https://rwmmjljelpcpwohwiplu.supabase.co";
 const NING_SOURCE_MARKER = "[via Ning LINE group]";
 const NEW_JOB_STATUS = "pending";
 
+// service_jobs.job_type has a DB CHECK constraint; "other" is the safe generic
+// bucket for a Ning-captured request (staff re-classify in the app later).
+const ALLOWED_JOB_TYPES = new Set([
+  "ac", "repair_ac", "clean_ac", "move_ac", "service_install",
+  "repair_fridge", "repair_washer", "repair_tv", "cctv", "satellite",
+  "solar", "other",
+]);
+
+function normalizeJobType(value) {
+  const t = (value == null ? "" : String(value)).trim();
+  return ALLOWED_JOB_TYPES.has(t) ? t : "other";
+}
+
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -44,7 +57,7 @@ function buildJobRecord(body) {
       customer_name: customerName,
       customer_phone: cleanText(body?.customer_phone, 50),
       customer_address: cleanText(body?.customer_address, 500),
-      job_type: cleanText(body?.job_type, 100) || "service",
+      job_type: normalizeJobType(body?.job_type),
       description,
       status: NEW_JOB_STATUS,
       total_cost: 0,                           // NOT NULL; 0 keeps it out of accounting (JV gate >0)
