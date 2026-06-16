@@ -383,6 +383,7 @@ function renderView(ctx, opts = {}) {
         <button id="bulkSetCategoryBtn" class="btn light" style="font-size:12px;padding:5px 10px">🗂️ เปลี่ยนหมวด</button>
         <button id="bulkSetTypeBtn" class="btn light" style="font-size:12px;padding:5px 10px">🏷️ เปลี่ยนประเภท</button>
         <button id="prodBulkGenBarcodeBtn" class="btn light" style="font-size:12px;padding:5px 10px" title="เติมบาร์โค้ดเฉพาะตัวที่ยังไม่มี">🏷️ สร้างบาร์โค้ด</button>
+        <button id="prodBulkPrintBarcodeBtn" class="btn light" style="font-size:12px;padding:5px 10px" title="พิมพ์สติ๊กเกอร์บาร์โค้ดเฉพาะที่เลือก">🖨️ พิมพ์บาร์โค้ด</button>
         <button id="bulkDeleteBtn" class="btn" style="font-size:12px;padding:5px 10px;background:#ef4444;color:#fff;border:none">🗑️ ลบที่เลือก</button>
       </div>
       ` : ''}
@@ -731,7 +732,7 @@ function renderView(ctx, opts = {}) {
     exportProducts(state, exportList);
   });
   el.querySelector("#prodGenAllBarcodesBtn")?.addEventListener("click", () => generateAllBarcodes(ctx));
-  el.querySelector("#prodPrintBarcodesBtn")?.addEventListener("click", () => openBulkBarcodePrintModal(ctx));
+  el.querySelector("#prodPrintBarcodesBtn")?.addEventListener("click", () => _printBarcodesWithScope(ctx));
   el.querySelector("#prodDeleteAllBtn")?.addEventListener("click", () => deleteAllProducts(ctx));
   el.querySelector("#prodMergeCatBtn")?.addEventListener("click", () => openMergeCategoriesDialog(ctx));
 
@@ -767,6 +768,11 @@ function renderView(ctx, opts = {}) {
     await _generateBarcodesForProducts(ctx, sel, `ที่เลือก ${sel.length} รายการ`);
     bulkSelected.clear();
     renderView(ctx);
+  });
+  // Phase 450 — พิมพ์บาร์โค้ดเฉพาะที่เลือก (read-only; modal มี selection ของตัวเอง จึงไม่ clear bulkSelected)
+  el.querySelector("#prodBulkPrintBarcodeBtn")?.addEventListener("click", () => {
+    const sel = [...bulkSelected].map(id => state.products.find(p => String(p.id) === String(id))).filter(Boolean);
+    openBulkBarcodePrintModal(ctx, sel);
   });
   el.querySelector("#bulkDeleteBtn")?.addEventListener("click", () => bulkDelete(ctx));
 
@@ -1505,15 +1511,63 @@ if (typeof window !== "undefined") {
 // ═══════════════════════════════════════════════════════════
 //  Modal เลือกสินค้า + จำนวน เพื่อพิมพ์บาร์โค้ดหลายใบ
 // ═══════════════════════════════════════════════════════════
-function openBulkBarcodePrintModal(ctx) {
+// Phase 450 — ปุ่มเมนู "พิมพ์บาร์โค้ด" ให้ "รู้ filter" (mirror generateAllBarcodes/Export)
+// print = read-only — แค่คำนวณ scope list แล้วส่งให้ openBulkBarcodePrintModal (ไม่เขียน DB)
+async function _printBarcodesWithScope(ctx) {
   const { state } = ctx;
-  const products = (state.products || []).filter(p => {
+  const allProducts = state.products || [];
+
+  const hasFilter = (currentTypeFilter !== 'all') || (currentFilter !== 'all') || (currentCategory !== 'all') || searchQuery || quickFilter;
+
+  if (hasFilter) {
+    // คำนวณ filtered list ด้วย logic ชุดเดียวกับ generateAllBarcodes/Export
+    let f = [...allProducts];
+    if (currentTypeFilter !== 'all') f = f.filter(p => detectProductType(p) === currentTypeFilter);
+    if (currentCategory !== 'all') f = f.filter(p => String(p.category || '') === currentCategory);
+    if (currentFilter === 'instock') f = f.filter(p => { const ds = getDisplayStock(state, p); return ds.stock > ds.min_stock; });
+    else if (currentFilter === 'low') f = f.filter(p => { const ds = getDisplayStock(state, p); return ds.stock > 0 && ds.stock <= ds.min_stock; });
+    else if (currentFilter === 'out') f = f.filter(p => { const ds = getDisplayStock(state, p); return ds.stock <= 0; });
+    if (quickFilter === 'no_cost') f = f.filter(p => detectProductType(p) === 'stock' && Number(p.cost || 0) === 0);
+    else if (quickFilter === 'no_barcode') f = f.filter(p => detectProductType(p) === 'stock' && !String(p.barcode || '').trim());
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      f = f.filter(p =>
+        String(p.name || "").toLowerCase().includes(q) ||
+        String(p.sku || "").toLowerCase().includes(q) ||
+        String(p.barcode || "").toLowerCase().includes(q)
+      );
+    }
+
+    // นับ "ตัวที่พิมพ์ได้" (stock + มีบาร์โค้ด) ใน filtered เทียบกับใน state.products ทั้งหมด
+    const isPrintable = (p) => detectProductType(p) === "stock" && !!String(p.barcode || "").trim();
+    const filteredCount = f.filter(isPrintable).length;
+    const allCount = allProducts.filter(isPrintable).length;
+
+    if (filteredCount !== allCount) {
+      const choice = await _appConfirm(`พบ filter ที่ใช้อยู่\n\nตกลง = เฉพาะ ${filteredCount} รายการที่กรอง\nยกเลิก = ทั้งหมด ${allCount} รายการ`);
+      if (choice) { openBulkBarcodePrintModal(ctx, f); return; }
+    }
+  }
+
+  openBulkBarcodePrintModal(ctx);
+}
+
+// Phase 450 — รับ optional presetList (จาก filter/หมวด หรือ Bulk เลือกรายตัว)
+// ไม่ส่ง presetList → ทั้งแคตตาล็อกเหมือนเดิม (backward compatible). print = read-only.
+function openBulkBarcodePrintModal(ctx, presetList) {
+  const { state } = ctx;
+  const base = Array.isArray(presetList) ? presetList : (state.products || []);
+  const products = base.filter(p => {
     const t = detectProductType(p);
     return t === "stock" && p.barcode && String(p.barcode).trim();
   });
 
   if (products.length === 0) {
-    window.App?.showToast?.("ยังไม่มีสินค้านับสต็อกที่มีบาร์โค้ด — กด 'สร้างบาร์โค้ด' ก่อน");
+    window.App?.showToast?.(
+      Array.isArray(presetList)
+        ? "รายการที่เลือกยังไม่มีบาร์โค้ด — กด 'สร้างบาร์โค้ด' ก่อน"
+        : "ยังไม่มีสินค้านับสต็อกที่มีบาร์โค้ด — กด 'สร้างบาร์โค้ด' ก่อน"
+    );
     return;
   }
 
