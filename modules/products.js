@@ -540,6 +540,9 @@ function renderView(ctx, opts = {}) {
             <button id="prodCatQrBtn" data-cat="${escHtml(currentCategory)}" title="QR Code ลิงก์เพิ่มในหมวดนี้" style="padding:8px 14px;border-radius:10px;border:1px solid #cbd5e1;background:#fff;color:#475569;font-size:13px;font-weight:600;cursor:pointer">
               📱 QR หมวดนี้
             </button>
+            <button id="prodCatPrintBtn" data-cat="${escHtml(currentCategory)}" title="พิมพ์บาร์โค้ดสติ๊กเกอร์เฉพาะหมวดนี้ (จำนวน = สต๊อกคงเหลือ)" style="padding:8px 14px;border-radius:10px;border:1px solid #cbd5e1;background:#fff;color:#475569;font-size:13px;font-weight:600;cursor:pointer">
+              🖨️ พิมพ์บาร์โค้ดหมวดนี้
+            </button>
           </div>
         ` : ''}
         `;
@@ -681,6 +684,12 @@ function renderView(ctx, opts = {}) {
       subtitle: "สแกนด้วยมือถือ → เปิดหน้าเพิ่มสินค้าในหมวดนี้ทันที",
       text: url
     });
+  });
+
+  // Phase 450 — พิมพ์บาร์โค้ดเฉพาะหมวดที่เลือก (1-click, read-only; qty default = สต๊อกคงเหลือ)
+  el.querySelector("#prodCatPrintBtn")?.addEventListener("click", () => {
+    const catProducts = (state.products || []).filter(p => String(p.category || '') === currentCategory);
+    openBulkBarcodePrintModal(ctx, catProducts);
   });
 
   // ★ QR ของสินค้าแต่ละตัว — สำหรับพิมพ์ label

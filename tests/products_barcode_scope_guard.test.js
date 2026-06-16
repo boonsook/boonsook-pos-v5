@@ -146,3 +146,25 @@ test("modal print ยัง read-only: openBulkBarcodePrintModal ไม่มี
   assert.doesNotMatch(body, /XMLHttpRequest|fetch\s*\(|_appXhr|"PATCH"|"POST"/,
     "modal พิมพ์บาร์โค้ดต้อง read-only — ห้ามเพิ่ม write");
 });
+
+// ── Phase 450 (commit 4): ปุ่มพิมพ์บาร์โค้ดต่อหมวด (1-click) ───────────────────
+test("category bar มีปุ่ม prodCatPrintBtn (ในบล็อก currentCategory !== 'all')", () => {
+  assert.match(src, /id="prodCatPrintBtn"/, "ต้องมีปุ่ม id=prodCatPrintBtn ในแถบหมวด");
+  // ต้องอยู่ในบล็อกเดียวกับ prodCatQrBtn (ซึ่ง render เฉพาะ currentCategory !== 'all')
+  const qrIdx = src.indexOf('id="prodCatQrBtn"');
+  const printIdx = src.indexOf('id="prodCatPrintBtn"');
+  assert.ok(printIdx > qrIdx && printIdx - qrIdx < 600,
+    "prodCatPrintBtn ต้องอยู่ติดกับ prodCatQrBtn (บล็อกหมวดที่เลือก)");
+});
+
+test("handler prodCatPrintBtn เรียก openBulkBarcodePrintModal + filter ตาม currentCategory", () => {
+  const idx = src.indexOf('"#prodCatPrintBtn"');
+  assert.ok(idx >= 0, "ต้อง wire handler ของ prodCatPrintBtn");
+  const handler = src.slice(idx, idx + 400);
+  assert.match(handler, /String\(p\.category \|\| ''\)\s*===\s*currentCategory/,
+    "handler ต้อง filter สินค้าด้วย category === currentCategory");
+  assert.match(handler, /openBulkBarcodePrintModal\(ctx,\s*catProducts\)/,
+    "handler ต้องส่ง catProducts ให้ modal");
+  assert.doesNotMatch(handler, /XMLHttpRequest|fetch\s*\(|_appXhr|"PATCH"|"POST"/,
+    "handler ต้อง read-only — ห้ามเพิ่ม write");
+});
