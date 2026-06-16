@@ -382,6 +382,7 @@ function renderView(ctx, opts = {}) {
         <button id="bulkPriceUpBtn" class="btn light" style="font-size:12px;padding:5px 10px" title="ขึ้นราคา %">📈 ราคา ±%</button>
         <button id="bulkSetCategoryBtn" class="btn light" style="font-size:12px;padding:5px 10px">🗂️ เปลี่ยนหมวด</button>
         <button id="bulkSetTypeBtn" class="btn light" style="font-size:12px;padding:5px 10px">🏷️ เปลี่ยนประเภท</button>
+        <button id="prodBulkGenBarcodeBtn" class="btn light" style="font-size:12px;padding:5px 10px" title="เติมบาร์โค้ดเฉพาะตัวที่ยังไม่มี">🏷️ สร้างบาร์โค้ด</button>
         <button id="bulkDeleteBtn" class="btn" style="font-size:12px;padding:5px 10px;background:#ef4444;color:#fff;border:none">🗑️ ลบที่เลือก</button>
       </div>
       ` : ''}
@@ -760,6 +761,13 @@ function renderView(ctx, opts = {}) {
   el.querySelector("#bulkPriceUpBtn")?.addEventListener("click", () => bulkPriceChange(ctx));
   el.querySelector("#bulkSetCategoryBtn")?.addEventListener("click", () => bulkSetCategory(ctx));
   el.querySelector("#bulkSetTypeBtn")?.addEventListener("click", () => bulkSetType(ctx));
+  // Phase 450 — สร้างบาร์โค้ดให้รายการที่เลือก (เติมเฉพาะตัวว่าง)
+  el.querySelector("#prodBulkGenBarcodeBtn")?.addEventListener("click", async () => {
+    const sel = [...bulkSelected].map(id => state.products.find(p => String(p.id) === String(id))).filter(Boolean);
+    await _generateBarcodesForProducts(ctx, sel, `ที่เลือก ${sel.length} รายการ`);
+    bulkSelected.clear();
+    renderView(ctx);
+  });
   el.querySelector("#bulkDeleteBtn")?.addEventListener("click", () => bulkDelete(ctx));
 
   // ★ Quick Filter chips
@@ -1698,29 +1706,27 @@ function generateBarcodeEAN13() {
   return base + ((10 - (sum % 10)) % 10);
 }
 
-async function generateAllBarcodes(ctx) {
-  const { state } = ctx;
-  const products = state.products || [];
-  // เฉพาะ "สินค้านับสต็อก" ที่ยังไม่มีบาร์โค้ด (ข้ามบริการ/ไม่นับสต็อก)
-  const noBarcode = products.filter(p => {
-    const type = detectProductType(p);
-    return type === "stock" && (!p.barcode || !p.barcode.trim());
-  });
+// Phase 450 — helper กลาง: เติมบาร์โค้ดให้เฉพาะ "สินค้านับสต็อกที่ยังไม่มีบาร์โค้ด"
+// ใช้ร่วมทั้งปุ่มหลัก (filter-aware) และ bulk action — เติมเฉพาะตัวว่าง ห้ามทับของเก่า
+// ⚠️ generate ทีละราย (generateBarcodeEAN13 ต่อรายการ) — ห้ามใช้ _bulkPatchProducts (จะได้บาร์โค้ดซ้ำกัน)
+async function _generateBarcodesForProducts(ctx, list, scopeLabel) {
+  // เฉพาะ "สินค้านับสต็อก" ที่ยังไม่มีบาร์โค้ด (ข้ามบริการ/ไม่นับสต็อก + ตัวที่มีค่าแล้ว)
+  const targets = (list || []).filter(p => detectProductType(p) === "stock" && !String(p.barcode || "").trim());
 
-  if (noBarcode.length === 0) {
-    window.App?.showToast?.("สินค้านับสต็อกทุกตัวมีบาร์โค้ดแล้ว");
+  if (targets.length === 0) {
+    window.App?.showToast?.(`ทุกตัว (${scopeLabel}) มีบาร์โค้ดแล้ว`);
     return;
   }
 
-  if (!(await window.App?.confirm?.(`สร้างบาร์โค้ดให้สินค้านับสต็อก ${noBarcode.length} รายการที่ยังไม่มี?\n(ข้ามบริการ + สินค้าไม่นับสต็อก)`))) return;
+  if (!(await _appConfirm(`สร้างบาร์โค้ดให้ ${targets.length} รายการที่ยังไม่มี — ${scopeLabel}?`))) return;
 
-  window.App?.showToast?.(`กำลังสร้างบาร์โค้ด ${noBarcode.length} รายการ...`);
+  window.App?.showToast?.(`กำลังสร้างบาร์โค้ด ${targets.length} รายการ...`);
 
   const cfg = window.SUPABASE_CONFIG;
   const accessToken = window._sbAccessToken || cfg.anonKey;
   let success = 0, failed = 0;
 
-  for (const p of noBarcode) {
+  for (const p of targets) {
     const barcode = generateBarcodeEAN13();
     const ok = await new Promise((resolve) => {
       const xhr = new XMLHttpRequest();
@@ -1746,6 +1752,55 @@ async function generateAllBarcodes(ctx) {
   window.App?.showToast?.(`สร้างบาร์โค้ดสำเร็จ ${success} รายการ${failed ? `, ล้มเหลว ${failed}` : ''}`);
   if (window.App?.loadAllData) await window.App.loadAllData();
   renderView(ctx);
+}
+
+// Phase 450 — ปุ่มหลัก "สร้างบาร์โค้ด" (หน้า สินค้า/คลัง) ให้ "รู้ filter" ที่ใช้อยู่
+// mirror logic ของปุ่ม Export (products.js ~705-730) เป๊ะ
+async function generateAllBarcodes(ctx) {
+  const { state } = ctx;
+  const allProducts = state.products || [];
+
+  const hasFilter = (currentTypeFilter !== 'all') || (currentFilter !== 'all') || (currentCategory !== 'all') || searchQuery || quickFilter;
+
+  let chosenList = allProducts;
+  let scopeLabel = "ทั้งหมด";
+
+  if (hasFilter) {
+    // คำนวณ filtered list ด้วย logic ชุดเดียวกับ Export
+    let f = [...allProducts];
+    if (currentTypeFilter !== 'all') f = f.filter(p => detectProductType(p) === currentTypeFilter);
+    if (currentCategory !== 'all') f = f.filter(p => String(p.category || '') === currentCategory);
+    if (currentFilter === 'instock') f = f.filter(p => { const ds = getDisplayStock(state, p); return ds.stock > ds.min_stock; });
+    else if (currentFilter === 'low') f = f.filter(p => { const ds = getDisplayStock(state, p); return ds.stock > 0 && ds.stock <= ds.min_stock; });
+    else if (currentFilter === 'out') f = f.filter(p => { const ds = getDisplayStock(state, p); return ds.stock <= 0; });
+    if (quickFilter === 'no_cost') f = f.filter(p => detectProductType(p) === 'stock' && Number(p.cost || 0) === 0);
+    else if (quickFilter === 'no_barcode') f = f.filter(p => detectProductType(p) === 'stock' && !String(p.barcode || '').trim());
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      f = f.filter(p =>
+        String(p.name || "").toLowerCase().includes(q) ||
+        String(p.sku || "").toLowerCase().includes(q) ||
+        String(p.barcode || "").toLowerCase().includes(q)
+      );
+    }
+
+    // นับ "ตัวที่ยังไม่มีบาร์โค้ด" ใน filtered เทียบกับใน state.products ทั้งหมด
+    const isTarget = (p) => detectProductType(p) === "stock" && !String(p.barcode || "").trim();
+    const filteredTargets = f.filter(isTarget).length;
+    const allTargets = allProducts.filter(isTarget).length;
+
+    if (filteredTargets !== allTargets) {
+      const choice = await _appConfirm(`พบ filter ที่ใช้อยู่\n\nตกลง = เฉพาะ ${filteredTargets} รายการที่กรอง\nยกเลิก = ทั้งหมด ${allTargets} รายการ`);
+      if (choice) {
+        chosenList = f;
+        scopeLabel = `กรอง ${filteredTargets} รายการ`;
+      }
+      // ยกเลิก → ใช้ all (chosenList/scopeLabel เดิม)
+    }
+    // filteredTargets === allTargets → ไม่ต้องถาม, ใช้ all ตามเดิม
+  }
+
+  await _generateBarcodesForProducts(ctx, chosenList, scopeLabel);
 }
 
 
