@@ -208,6 +208,7 @@ export function renderStockMovementsPage(ctx) {
 
         <div style="margin-top: 15px;">
           <label for="smt-product-select" style="display: block; margin-bottom: 5px; font-weight: bold;">สินค้า:</label>
+          <input id="smt-product-search" type="text" placeholder="🔍 ค้นหา ชื่อ / หมวด / SKU / บาร์โค้ด" autocomplete="off" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; margin-bottom: 6px;" />
           <select id="smt-product-select" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
             <option value="">-- เลือกสินค้า --</option>
             ${(state.products || []).filter(p => p.product_type !== 'service' && p.product_type !== 'non_stock').map(p => `<option value="${escHtml(p.id)}">${escHtml(p.name)}</option>`).join('')}
@@ -282,9 +283,11 @@ export function renderStockMovementsPage(ctx) {
   };
   const closeTransferModal = () => {
     transferModal?.classList.add("sm-modal-hidden");
-    ["smt-product-select","smt-from-select","smt-to-select","smt-qty-input","smt-note-input"].forEach(id => {
+    ["smt-product-search","smt-product-select","smt-from-select","smt-to-select","smt-qty-input","smt-note-input"].forEach(id => {
       const e = document.getElementById(id); if (e) e.value = '';
     });
+    // Phase 459: restore the full (unfiltered) product list for the next open
+    filterTransferProducts('');
     const fs = document.getElementById("smt-from-stock"); if (fs) fs.textContent = '';
   };
   function updateTransferFromStock() {
@@ -299,6 +302,26 @@ export function renderStockMovementsPage(ctx) {
     const n = Number(ws?.stock || 0);
     el.textContent = `สต็อกคลังนี้เหลือ: ${thNum(n)}`;
     el.style.color = n > 0 ? "#059669" : "#dc2626";
+  }
+
+  // Phase 459: rebuild #smt-product-select options from a search query (UI-only filter,
+  // no stock write/fetch). Preserves current selection if it still matches.
+  function filterTransferProducts(query) {
+    const sel = document.getElementById("smt-product-select");
+    if (!sel) return;
+    const prev = sel.value;                       // keep current selection if still matches
+    const q = String(query || "").trim().toLowerCase();
+    const base = (state.products || []).filter(p => p.product_type !== 'service' && p.product_type !== 'non_stock');
+    const matched = q ? base.filter(p =>
+      String(p.name || "").toLowerCase().includes(q) ||
+      String(p.category || "").toLowerCase().includes(q) ||
+      String(p.sku || "").toLowerCase().includes(q) ||
+      String(p.barcode || "").toLowerCase().includes(q)
+    ) : base;
+    sel.innerHTML = '<option value="">-- เลือกสินค้า --</option>' +
+      matched.map(p => `<option value="${escHtml(String(p.id))}">${escHtml(p.name || '-')}</option>`).join('');
+    if (matched.some(p => String(p.id) === String(prev))) sel.value = prev; else sel.value = '';
+    updateTransferFromStock();                    // refresh from-stock display after rebuild
   }
 
   // Live preview: show expected stock_before / stock_after
@@ -465,6 +488,9 @@ export function renderStockMovementsPage(ctx) {
   if ($smtCancel) $smtCancel.onclick = closeTransferModal;
   if ($smtProd) $smtProd.onchange = updateTransferFromStock;
   if ($smtFrom) $smtFrom.onchange = updateTransferFromStock;
+  // Phase 459: search box filters the product picker's options (UI-only)
+  const $smtSearch = document.getElementById("smt-product-search");
+  if ($smtSearch) $smtSearch.oninput = (e) => filterTransferProducts(e.target.value);
   if (transferModal) transferModal.onclick = (e) => { if (e.target === transferModal) closeTransferModal(); };
 
   if ($smtSave) {

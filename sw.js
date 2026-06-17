@@ -192,7 +192,8 @@
 // v456 (2026-06-17): Phase 456 — แถวการ์ดสรุปสต็อกแต่ละคลัง (หน้าสินค้า/คลัง, products.js renderView): การ์ดต่อคลัง + การ์ด "ทุกคลัง" แสดงจำนวนรายการ(stock>0)/จำนวนชิ้น คลิกเพื่อสลับคลัง (เหมือน dropdown). read-only ล้วน คำนวณจาก state.warehouseStock ที่โหลดไว้ — ไม่ยิง fetch/query/write. Bumps CACHE_NAME.
 // v457 (2026-06-17): Phase 457 — แถวอุปกรณ์ในงานช่าง (service_equipment.js renderEquipmentList) แสดง "🔻 ตัดจาก {คลัง} • คงเหลือ {N} ชิ้น" ต่อรายการ: คงเหลือ = สต็อกสดของสินค้าในคลังนั้น (lookup จาก state.warehouseStock ที่โหลดไว้). read-only display ล้วน — ไม่ fetch/query/write, ไม่แตะ deduct/onPick/qty controls; backward-compatible (ไม่มี state/warehouse_id → แสดงแค่ราคาเหมือนเดิม). Bumps CACHE_NAME.
 // v458 (2026-06-17): Phase 458 — ปุ่มทางลัด "🔄 โอนระหว่างคลัง" ในเมนู "จัดการเพิ่มเติม" หน้าสินค้า/คลัง (products.js): ตั้ง flag window._smOpenTransfer แล้วนำทางไปหน้า stock_movements ซึ่งจะเปิด modal โอนเอง (one-shot — ล้าง flag ทันที). PURE navigation/UI — reuse flow โอนเดิม (_transferWarehouseStock) ไม่มี stock-write/transfer logic ใหม่. Bumps CACHE_NAME.
-const CACHE_NAME = 'boonsook-pos-v5-cache-v458';
+// v459 (2026-06-17): Phase 459 — ช่องค้นหาสินค้าใน modal "ย้ายสต็อกระหว่างคลัง" (stock_movements.js): พิมพ์กรอง option ของ #smt-product-select ตาม ชื่อ/หมวด/SKU/บาร์โค้ด (สินค้า ~1000 ตัว เลื่อนหายาก). UI-only filter — rebuild <option> ฝั่ง client เท่านั้น, คง id #smt-product-select + .value contract, ไม่แตะ _transferWarehouseStock/save logic, ไม่มี fetch/stock-write. Bumps CACHE_NAME.
+const CACHE_NAME = 'boonsook-pos-v5-cache-v459';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
