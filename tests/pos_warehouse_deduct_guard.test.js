@@ -101,7 +101,16 @@ test("changing the warehouse chip re-renders the picker", () => {
 test("POS [+] adds silently so the picker stays open (no bounce to home)", () => {
   assert.match(mainSrc, /function addToCart\(productId,\s*opts\s*=\s*\{\}\)/, "addToCart must accept opts");
   assert.match(mainSrc, /if\s*\(!opts\.silent\)\s*showRoute\(state\.currentRoute\)/, "silent add must skip the full route re-render");
-  assert.match(posSrc, /addToCart\(Number\(btn\.dataset\.addPosProductId\),\s*\{\s*silent:\s*true\s*\}\)/, "POS [+] must call addToCart with silent:true");
+  assert.match(posSrc, /ctx\.addToCart\(id,\s*\{\s*silent:\s*true\s*\}\)/, "POS [+] must call addToCart with silent:true");
   // the cart total/qty is still reflected via the sticky bar after a silent add
   assert.match(posSrc, /\{\s*silent:\s*true\s*\}\);\s*\n\s*updateStickyBar\(state\)/, "after silent add, the sticky cart bar must update");
+});
+
+// ── one tap = one add (guard the touchscreen double-fire double-add bug) ───────
+test("[+] is debounced per product so a touchscreen double-fire can't add twice", () => {
+  const bindBody = extractFn(posSrc, "function bindProductList(");
+  assert.match(bindBody, /id === _posLastAdd\.id && \(now - _posLastAdd\.t\) < 350/, "must skip a repeat add of the SAME product within 350ms");
+  // different products are NOT blocked (keyed on id) → adding many distinct items rapidly still works
+  assert.match(bindBody, /_posLastAdd = \{ id, t: now \}/, "must record last add id+time");
+  assert.match(posSrc, /touch-action:manipulation/, "the [+] button sets touch-action:manipulation");
 });

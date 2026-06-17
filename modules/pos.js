@@ -72,6 +72,8 @@ let selectedPaymentMethod = "";
 let selectedBankIdx = 0;
 // Phase 464: คลังที่เลือกขาย (คลังเดียวต่อบิล) — "" = อัตโนมัติ (บ้านก่อน เหมือนเดิม); ตัดทั้งบิลจากคลังนี้
 let _posWarehouseId = (() => { try { return localStorage.getItem("bsk_pos_warehouse") || ""; } catch(_e) { return ""; } })();
+// Phase 464: กัน double-add จาก double-fire จอสัมผัส (1 แตะ = 2 click) — จำ id+เวลา add ล่าสุด
+let _posLastAdd = { id: null, t: 0 };
 
 // ═══════════════════════════════════════════════════════════
 // Phase 89.2: helper round-to-2-decimals
@@ -1335,8 +1337,14 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
 // ═══════════════════════════════════════════════════════════
 function bindProductList(state, ctx, signal) {
   document.querySelectorAll("[data-add-pos-product-id]").forEach(btn => btn.addEventListener("click", () => {
-    // Phase 464: silent = ไม่ re-render ทั้งหน้า → อยู่หน้าเลือกสินค้าเดิม เพิ่มได้หลายรายการรวด (ไม่เด้งกลับ home)
-    ctx.addToCart(Number(btn.dataset.addPosProductId), { silent: true });
+    const id = Number(btn.dataset.addPosProductId);
+    // Phase 464: กัน double-add — จอสัมผัส POS ยิง click 2 ครั้งต่อ 1 แตะ → บล็อกสินค้า "ตัวเดิม" ภายใน 350ms
+    //   (เพิ่มสินค้า "คนละตัว" รัว ๆ ยังได้ครบ เพราะ id ต่างกัน; เพิ่มตัวเดิมจริง ๆ เว้น >350ms)
+    const now = Date.now();
+    if (id === _posLastAdd.id && (now - _posLastAdd.t) < 350) return;
+    _posLastAdd = { id, t: now };
+    // silent = ไม่ re-render ทั้งหน้า → อยู่หน้าเลือกสินค้าเดิม เพิ่มได้หลายรายการรวด (ไม่เด้งกลับ home)
+    ctx.addToCart(id, { silent: true });
     updateStickyBar(state);
   }, { signal }));
 }
@@ -1601,7 +1609,7 @@ function renderProductCards(products, canEdit = false, state = null) {
         <div class="pos-price-row" data-price-row="${p.id}" style="margin-top:4px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">${priceRowHtml(p, canEdit)}</div>
         ${remain !== null ? `<div style="font-size:11px;color:#0f766e;font-weight:700;margin-top:2px">🔻 ตัดจาก ${escHtml(whName)} • คงเหลือ ${Number(remain).toLocaleString()} ชิ้น</div>` : ""}
       </div>
-      <button class="btn primary pos-add-btn" data-add-pos-product-id="${p.id}">+</button>
+      <button class="btn primary pos-add-btn" data-add-pos-product-id="${p.id}" style="touch-action:manipulation">+</button>
     </div>`;
   }).join("");
 }
