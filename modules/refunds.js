@@ -89,6 +89,23 @@ async function _fetchRefundsForSale(saleId) {
     return await r.json().catch(() => []);
   } catch { return []; }
 }
+
+// Phase 467: ดึง sale_items ของบิลตรง ๆ — เดิม refund อ่าน saleItems ใน state ที่ loadAllData ไม่เคยโหลด
+//   → ตะกร้าคืนว่างเสมอ (คืนเงินไม่ได้). คืน null = โหลดไม่สำเร็จ (ต่างจาก [] = บิลไม่มีรายการ)
+//   ให้ caller เตือน + ไม่เดินต่อ (กันคืนจากลิสต์ว่างเพราะ fetch ล้ม). mirror _fetchRefundsForSale.
+async function _fetchSaleItemsForSale(saleId) {
+  const cfg = window.SUPABASE_CONFIG;
+  if (!cfg?.url || saleId == null) return null;
+  const accessToken = window._sbAccessToken || cfg.anonKey;
+  try {
+    const r = await fetch(cfg.url + "/rest/v1/sale_items?select=*&sale_id=eq." + encodeURIComponent(saleId), {
+      headers: { apikey: cfg.anonKey, Authorization: "Bearer " + accessToken }
+    });
+    if (!r.ok) return null;
+    const rows = await r.json().catch(() => null);
+    return Array.isArray(rows) ? rows : null;
+  } catch { return null; }
+}
 function moneyShort(n) {
   const v = Number(n || 0);
   if (v >= 1e6) return (v/1e6).toFixed(2) + "M";
@@ -371,7 +388,12 @@ function openRefundModal(ctx) {
 
     listEl.querySelectorAll(".rf-sale-pick").forEach(item => item.addEventListener("click", async () => {
       _selectedSale = recentSales.find(s => String(s.id) === String(item.dataset.id));
-      const items = (state.saleItems || []).filter(it => String(it.sale_id) === String(_selectedSale.id));
+      // Phase 467: ดึงรายการบิลจาก DB ตรง ๆ (เดิมอ่าน saleItems ใน state ที่ไม่เคยถูกโหลด → ว่างเสมอ)
+      const items = await _fetchSaleItemsForSale(_selectedSale.id);
+      if (items === null) {
+        window.App?.showToast?.("โหลดรายการสินค้าของบิลนี้ไม่สำเร็จ — ลองใหม่อีกครั้ง", "warn");
+        return;
+      }
       // Phase 92.61: หักจำนวนที่เคยคืนไปแล้วของบิลนี้ ออกจาก max_qty (กันคืนซ้ำ/คืนเกิน)
       const priorRefunds = await _fetchRefundsForSale(_selectedSale.id);
       _refundItems = computeRefundableItems(items, priorRefunds);
@@ -444,7 +466,13 @@ function openRefundModal(ctx) {
 
     try {
       // Phase 92.61: re-validate กับ refunds เดิม ณ ตอนกดบันทึก (กัน race / เปิด modal ค้าง) — authoritative
-      const saleItemsNow = (state.saleItems || []).filter(it => String(it.sale_id) === String(_selectedSale.id));
+      // Phase 467: ดึง sale_items สดจาก DB (เดิมอ่าน saleItems ใน state ที่ว่างเสมอ → re-validate ผิด)
+      const saleItemsNow = await _fetchSaleItemsForSale(_selectedSale.id);
+      if (saleItemsNow === null) {
+        window.App?.showToast?.("ตรวจสอบรายการบิลไม่สำเร็จ — ลองใหม่อีกครั้ง", "error");
+        saveBtn.disabled = false; saveBtn.textContent = "💾 บันทึกการคืน";
+        return;
+      }
       const priorNow = await _fetchRefundsForSale(_selectedSale.id);
       const chk = validateRefundWithinRemaining(itemsToRefund, saleItemsNow, priorNow);
       if (!chk.ok) {

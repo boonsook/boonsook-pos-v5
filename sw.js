@@ -194,7 +194,7 @@
 // v458 (2026-06-17): Phase 458 — ปุ่มทางลัด "🔄 โอนระหว่างคลัง" ในเมนู "จัดการเพิ่มเติม" หน้าสินค้า/คลัง (products.js): ตั้ง flag window._smOpenTransfer แล้วนำทางไปหน้า stock_movements ซึ่งจะเปิด modal โอนเอง (one-shot — ล้าง flag ทันที). PURE navigation/UI — reuse flow โอนเดิม (_transferWarehouseStock) ไม่มี stock-write/transfer logic ใหม่. Bumps CACHE_NAME.
 // v459 (2026-06-17): Phase 459 — ช่องค้นหาสินค้าใน modal "ย้ายสต็อกระหว่างคลัง" (stock_movements.js): พิมพ์กรอง option ของ #smt-product-select ตาม ชื่อ/หมวด/SKU/บาร์โค้ด (สินค้า ~1000 ตัว เลื่อนหายาก). UI-only filter — rebuild <option> ฝั่ง client เท่านั้น, คง id #smt-product-select + .value contract, ไม่แตะ _transferWarehouseStock/save logic, ไม่มี fetch/stock-write. Bumps CACHE_NAME.
 // v460 (2026-06-17): Phase 460 — picker สินค้าใน modal "ย้ายสต็อกระหว่างคลัง" (stock_movements.js) เปลี่ยนจากกรอง <select> เป็น "ผลการค้นหาแบบคลิกได้": พิมพ์ใน #smt-product-search → renderTransferSearchResults แสดงรายการที่ตรง (ชื่อ/หมวด/SKU/บาร์โค้ด, cap 30) ใน #smt-product-results, คลิกแถวเลือกสินค้า. <select id="smt-product-select"> ถูกซ่อน (display:none) แต่คง option ครบทุกตัว = value-holder (คลิกตั้ง sel.value=pid + dispatch change → updateTransferFromStock). UI-only — คง .value submit contract, ไม่แตะ _transferWarehouseStock/save logic, ไม่มี fetch/stock-write, escHtml ทุกค่า DB. Bumps CACHE_NAME.
-const CACHE_NAME = 'boonsook-pos-v5-cache-v466';
+const CACHE_NAME = 'boonsook-pos-v5-cache-v467';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)
