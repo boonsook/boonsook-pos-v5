@@ -1672,6 +1672,8 @@ function resetProductForm(){
 async function saveProduct(){
   if (!requireAdminOrSales()) return showToast("สิทธิ์ไม่พอ");
 
+  // ★ Phase 474: parse ตัวเลขกัน NaN (เดิม Number("5ก")→NaN → ลง DB เป็น null/เพี้ยน) + ห้ามติดลบ
+  const _n0 = (v) => { const n = Number(v); return Number.isFinite(n) ? Math.max(0, n) : 0; };
   // ★ คำนวณสต็อกรวมจากทุกคลัง
   let totalStock = 0;
   let totalMinStock = 0;
@@ -1679,16 +1681,16 @@ async function saveProduct(){
   if (state.warehouses.length > 0) {
     document.querySelectorAll(".wh-stock-input").forEach(inp => {
       const whId = Number(inp.dataset.whId);
-      const stock = Number(inp.value || 0);
+      const stock = _n0(inp.value);
       const minInp = document.querySelector(`.wh-min-stock-input[data-wh-min-id="${whId}"]`);
-      const minStock = Number(minInp?.value || 0);
+      const minStock = _n0(minInp?.value);
       totalStock += stock;
       totalMinStock += minStock;
       whStockData.push({ warehouse_id: whId, stock, min_stock: minStock });
     });
   } else {
-    totalStock = Number($("newProductStock")?.value || 0);
-    totalMinStock = Number($("newProductMinStock")?.value || 0);
+    totalStock = _n0($("newProductStock")?.value);
+    totalMinStock = _n0($("newProductMinStock")?.value);
   }
 
   const productType = $("newProductType")?.value || "stock";
@@ -1698,8 +1700,8 @@ async function saveProduct(){
     sku:$("newProductSku").value.trim(),
     category:$("newProductCategory")?.value?.trim() || "",
     product_type: productType,
-    price:Number($("newProductPrice").value||0),
-    cost:Number($("newProductCost").value||0),
+    price:_n0($("newProductPrice").value),
+    cost:_n0($("newProductCost").value),
     stock: productType === "service" ? 0 : totalStock,
     min_stock: productType === "service" ? 0 : totalMinStock,
     barcode: (productType === "service" || productType === "non_stock") ? "" : $("newProductBarcode").value.trim(),
@@ -1752,13 +1754,17 @@ async function saveProduct(){
 
   // ★ บันทึกสต็อกแยกคลัง
   if (productId && whStockData.length > 0) {
+    const _whFails = [];  // ★ Phase 474: เดิมเมินผล → warehouse write ล้มเงียบ (RLS/เน็ต) แต่โชว์ "บันทึกแล้ว"
     for (const ws of whStockData) {
       const existing = state.warehouseStock.find(s => s.product_id === productId && s.warehouse_id === ws.warehouse_id);
-      if (existing) {
-        await xhrPatch("warehouse_stock", { stock: ws.stock, min_stock: ws.min_stock }, "id", existing.id);
-      } else {
-        await xhrPost("warehouse_stock", { product_id: productId, warehouse_id: ws.warehouse_id, stock: ws.stock, min_stock: ws.min_stock });
-      }
+      const _r = existing
+        ? await xhrPatch("warehouse_stock", { stock: ws.stock, min_stock: ws.min_stock }, "id", existing.id)
+        : await xhrPost("warehouse_stock", { product_id: productId, warehouse_id: ws.warehouse_id, stock: ws.stock, min_stock: ws.min_stock });
+      if (!_r?.ok) _whFails.push(state.warehouses.find(w => String(w.id) === String(ws.warehouse_id))?.name || ("คลัง#" + ws.warehouse_id));
+    }
+    if (_whFails.length > 0) {
+      console.error("[saveProduct] warehouse_stock write failed:", _whFails);
+      showToast(`⚠️ บันทึกสต็อกบางคลังไม่สำเร็จ: ${_whFails.slice(0, 3).join(", ")}${_whFails.length > 3 ? "…" : ""} — โปรดตรวจ/ลองใหม่`);
     }
   }
 
@@ -1767,19 +1773,27 @@ async function saveProduct(){
     const bundleItems = _getBundleItems();
     const cfg = window.SUPABASE_CONFIG;
     const accessToken = window._sbAccessToken || cfg.anonKey;
-    // 1) DELETE existing children
-    await fetch(cfg.url + "/rest/v1/product_bundles?bundle_id=eq." + productId, {
-      method: "DELETE",
-      headers: { "apikey":cfg.anonKey,"Authorization":"Bearer "+accessToken,"Prefer":"return=minimal" }
-    });
-    // 2) INSERT new children
-    if (bundleItems.length > 0) {
-      const rows = bundleItems.map(it => ({ bundle_id: productId, child_product_id: it.product_id, qty: it.qty }));
-      await fetch(cfg.url + "/rest/v1/product_bundles", {
-        method: "POST",
-        headers: { "Content-Type":"application/json","apikey":cfg.anonKey,"Authorization":"Bearer "+accessToken,"Prefer":"return=minimal" },
-        body: JSON.stringify(rows)
+    try {
+      // 1) DELETE existing children
+      const _del = await fetch(cfg.url + "/rest/v1/product_bundles?bundle_id=eq." + productId, {
+        method: "DELETE",
+        headers: { "apikey":cfg.anonKey,"Authorization":"Bearer "+accessToken,"Prefer":"return=minimal" }
       });
+      // 2) INSERT new children — ★ Phase 474: เช็คผล (เดิม fire-and-forget → bundle ว่างเงียบถ้า insert ล้มหลัง delete)
+      if (bundleItems.length > 0) {
+        const rows = bundleItems.map(it => ({ bundle_id: productId, child_product_id: it.product_id, qty: it.qty }));
+        const _ins = await fetch(cfg.url + "/rest/v1/product_bundles", {
+          method: "POST",
+          headers: { "Content-Type":"application/json","apikey":cfg.anonKey,"Authorization":"Bearer "+accessToken,"Prefer":"return=minimal" },
+          body: JSON.stringify(rows)
+        });
+        if (!_ins.ok) showToast("⚠️ บันทึกรายการสินค้าในชุด (bundle) ไม่สำเร็จ — โปรดตั้งค่า bundle ใหม่");
+      } else if (!_del.ok) {
+        console.warn("[saveProduct] bundle DELETE failed:", _del.status);
+      }
+    } catch (e) {
+      console.warn("[saveProduct] bundle sync error:", e?.message || e);
+      showToast("⚠️ ซิงค์รายการ bundle ไม่สำเร็จ — โปรดตรวจ");
     }
   } else if (productId && !payload.is_bundle) {
     // ถ้า uncheck is_bundle → ลบ children ทิ้ง
