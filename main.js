@@ -3141,13 +3141,17 @@ async function _deductStockForSaleItem({ product, qty, orderNo, warehouseId }) {
       console.debug(`[deductStock] ${product.name}: ${whName} ${before} → ${after} (qty ${qty}, atomic)`);
     }
 
-    await xhrPost("stock_movements", {
-      product_id: product.id,
-      type: "sale",
-      qty: qty,
-      note: `ขายบิล ${orderNo} — คลัง: ${whName} | ${before}→${after}`,
-      created_by: creatorUuid
-    });
+    // Phase 465: log movement เฉพาะตอนตัดสำเร็จ — CAS fail/insufficient = สต็อกไม่ถูกแตะ
+    //   → ห้าม log "sale" หลอก (stock_movements/reconcile เพี้ยน). ขนานกับ _applyStockMovement (Phase 369).
+    if (dec.ok) {
+      await xhrPost("stock_movements", {
+        product_id: product.id,
+        type: "sale",
+        qty: qty,
+        note: `ขายบิล ${orderNo} — คลัง: ${whName} | ${before}→${after}`,
+        created_by: creatorUuid
+      });
+    }
   } else {
     console.warn(`[deductStock] ${product.name}: ไม่มีคลังที่มีสต็อก > 0`);
   }
@@ -3176,14 +3180,16 @@ async function _deductStockForSaleItem({ product, qty, orderNo, warehouseId }) {
       // eslint-disable-next-line require-atomic-updates -- A: local cache sync after CAS (legacy path)
       product.stock = newStock;
     }
-    // ไม่มีคลังไหนมีสต็อก → log movement จาก legacy field เท่านั้น
-    await xhrPost("stock_movements", {
-      product_id: product.id,
-      type: "sale",
-      qty: qty,
-      note: `ขายบิล ${orderNo} (ไม่มีคลังมีสต็อก — legacy) | ${curStock}→${newStock}`,
-      created_by: creatorUuid
-    });
+    // Phase 465: log เฉพาะตอนตัดสำเร็จ (legacy no-warehouse) — กัน movement "sale" หลอกเมื่อ CAS fail
+    if (dec2.ok) {
+      await xhrPost("stock_movements", {
+        product_id: product.id,
+        type: "sale",
+        qty: qty,
+        note: `ขายบิล ${orderNo} (ไม่มีคลังมีสต็อก — legacy) | ${curStock}→${newStock}`,
+        created_by: creatorUuid
+      });
+    }
   }
 }
 
