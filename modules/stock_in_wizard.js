@@ -429,6 +429,7 @@ async function saveAll(ctx) {
     const noteCommon = `รับเข้า: ${_swSupplier || "ไม่ระบุ supplier"}${_swInvoiceNo ? " (Inv " + _swInvoiceNo + ")" : ""}`;
 
     let ok = 0, fail = 0;
+    const costFailedItems = [];  // Phase 470: รับเข้าสำเร็จแต่อัปเดต cost ไม่ได้ → เตือน (เดิมกลืนเงียบ)
     for (const r of _swRows) {
       try {
         const res = await window._appApplyStockMovement({
@@ -444,7 +445,10 @@ async function saveAll(ctx) {
         if (r.cost !== r.originalCost && r.cost >= 0) {
           const cfg = window.SUPABASE_CONFIG;
           const accessToken = window._sbAccessToken || cfg.anonKey;
-          await new Promise(resolve => {
+          // Phase 470: เช็คผล PATCH cost — เดิม onload/onerror/ontimeout → resolve() หมด ไม่เช็ค status
+          //   → cost update ล้มเงียบ โชว์ "สำเร็จ" ทั้งที่ cost ไม่บันทึก → COGS/กำไรเพี้ยน.
+          //   (รับเข้า/สต็อกสำเร็จแล้ว — cost เป็น secondary; ล้ม = ไม่ fail ทั้ง row แต่ต้องเตือนให้แก้เอง)
+          const costOk = await new Promise(resolve => {
             const xhr = new XMLHttpRequest();
             xhr.open("PATCH", cfg.url + "/rest/v1/products?id=eq." + encodeURIComponent(r.productId));
             xhr.setRequestHeader("Content-Type", "application/json");
@@ -452,11 +456,12 @@ async function saveAll(ctx) {
             xhr.setRequestHeader("Authorization", "Bearer " + accessToken);
             xhr.setRequestHeader("Prefer", "return=minimal");
             xhr.timeout = 8000;
-            xhr.onload = () => resolve();
-            xhr.onerror = () => resolve();
-            xhr.ontimeout = () => resolve();
+            xhr.onload = () => resolve(xhr.status >= 200 && xhr.status < 300);
+            xhr.onerror = () => resolve(false);
+            xhr.ontimeout = () => resolve(false);
             xhr.send(JSON.stringify({ cost: r.cost }));
           });
+          if (!costOk) costFailedItems.push(r.name || ("#" + r.productId));
         }
         ok++;
       } catch(e) { fail++; }
@@ -464,6 +469,11 @@ async function saveAll(ctx) {
 
     if (btn) { btn.disabled = false; btn.textContent = "💾 บันทึกการรับเข้า"; }
     showToast?.(`✅ รับเข้าสำเร็จ ${ok}/${totalItems}${fail > 0 ? ` (ล้มเหลว ${fail})` : ''}`);
+    // Phase 470: รับเข้าได้แต่อัปเดตต้นทุนไม่สำเร็จบางตัว → เตือนชัด (เดิมเงียบ → COGS/กำไรเพี้ยน)
+    if (costFailedItems.length > 0) {
+      console.error("[stockIn] cost update failed:", costFailedItems);
+      showToast?.(`⚠️ รับเข้าแล้ว แต่อัปเดตต้นทุนไม่สำเร็จ ${costFailedItems.length} รายการ (${costFailedItems.slice(0, 3).join(", ")}${costFailedItems.length > 3 ? "…" : ""}) — โปรดแก้ต้นทุนเอง`);
+    }
 
     if (ok > 0) {
       _swRows = [];
