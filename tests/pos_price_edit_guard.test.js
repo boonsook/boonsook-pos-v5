@@ -89,6 +89,19 @@ test("product name is escaped where it renders into the card", () => {
   assert.match(cardBody, /escHtml\(p\.name\)/, "card must escHtml the product name");
 });
 
+// ── tap card → open the full product page (FlowAccount-style), gated + safe ────
+test("tapping the product card opens the full product drawer for admin/sales only", () => {
+  assert.match(cardBody, /data-product-id="\$\{p\.id\}"/, "card must carry data-product-id");
+  assert.match(src, /function bindPriceEdit\(state,\s*ctx,\s*signal\)/, "bindPriceEdit must receive ctx");
+  assert.match(editBody, /ctx\?\.openProductDrawer\)\s*ctx\.openProductDrawer\(prod\)/, "card tap must call ctx.openProductDrawer(prod)");
+  // a tap on the add button or the inline price controls must NOT open the drawer
+  assert.match(editBody, /closest\("\.pos-add-btn,[^"]*"\)\)\s*return/, "must ignore add-button / inline price-edit clicks");
+  // the card-open branch sits behind the permission gate
+  const openIdx = editBody.indexOf("openProductDrawer(prod)");
+  const gateBefore = editBody.lastIndexOf("canEditPosPrice(state)", openIdx);
+  assert.ok(gateBefore !== -1 && gateBefore < openIdx, "card-open must be gated by canEditPosPrice (cashiers can't open it)");
+});
+
 // ── no banned dialog primitives introduced ────────────────────────────────────
 test("price edit uses no prompt()/alert() (input + App.confirm + showToast only)", () => {
   assert.ok(!/\bprompt\s*\(/.test(editBody), "must not use prompt()");

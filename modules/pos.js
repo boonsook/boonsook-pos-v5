@@ -947,7 +947,7 @@ function renderPosView(ctx) {
 
     bindProductList(state, ctx, signal);
     bindProductSearch(state, ctx, signal);
-    bindPriceEdit(state, signal);
+    bindPriceEdit(state, ctx, signal);
 
 
   // ═══════════════════════════════════════════════════════
@@ -1348,8 +1348,9 @@ function bindProductSearch(state, ctx, signal) {
   }, { signal });
 }
 
-// แก้ราคาขาย inline ในการ์ดสินค้า POS (admin/sales เท่านั้น) — delegation บน container กัน search re-render ทำ listener หลุด
-function bindPriceEdit(state, signal) {
+// การ์ดสินค้า POS (admin/sales เท่านั้น): กด ✏️ = แก้ราคา inline เร็ว · กดการ์ด = เปิดหน้าสินค้าเต็ม (FlowAccount-style)
+// delegation บน container กัน search re-render ทำ listener หลุด
+function bindPriceEdit(state, ctx, signal) {
   const list = document.getElementById("posProductList");
   if (!list) return;
   const restore = (row, prod, price) => {
@@ -1357,7 +1358,16 @@ function bindPriceEdit(state, signal) {
   };
   list.addEventListener("click", (e) => {
     const btn = e.target.closest(".pos-edit-price-btn");
-    if (!btn) return;
+    if (!btn) {
+      // กดที่การ์ด (ไม่ใช่ปุ่ม + / ช่องกรอกราคาที่กำลังแก้) → เปิดฟอร์มสินค้าเต็ม (ราคา/ต้นทุน/สต็อก/ชื่อ)
+      if (e.target.closest(".pos-add-btn, .pos-price-input, .pos-price-save, .pos-price-cancel")) return;
+      if (!canEditPosPrice(state)) return; // cashier: กดการ์ดไม่ทำอะไร (ไม่มี ✏️ + ไม่เปิด drawer)
+      const card = e.target.closest(".pos-product-card[data-product-id]");
+      if (!card) return;
+      const prod = (state.products || []).find(p => String(p.id) === String(card.dataset.productId));
+      if (prod && ctx?.openProductDrawer) ctx.openProductDrawer(prod);
+      return;
+    }
     if (!canEditPosPrice(state)) return; // defense-in-depth (UI ก็ซ่อนปุ่มอยู่แล้ว)
     const id = btn.dataset.editPriceId;
     const prod = (state.products || []).find(p => String(p.id) === String(id));
@@ -1534,7 +1544,7 @@ function priceRowHtml(p, canEdit) {
 function renderProductCards(products, canEdit = false) {
   if (!products.length) return '<div class="card">ไม่พบสินค้า</div>';
   return products.map(p => `
-    <div class="pos-product-card">
+    <div class="pos-product-card" data-product-id="${p.id}"${canEdit ? ` style="cursor:pointer" title="กดที่การ์ดเพื่อเปิดหน้าสินค้า (แก้ราคา/ต้นทุน/สต็อก)"` : ""}>
       <div class="pos-product-info">
         <div style="font-weight:900;font-size:15px">${escHtml(p.name)}</div>
         <div class="sku">${escHtml(p.sku) || "-"} ${p.barcode ? "• " + escHtml(p.barcode) : ""}</div>
