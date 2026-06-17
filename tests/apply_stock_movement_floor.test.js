@@ -86,11 +86,12 @@ test("allowNegative override preserves _atomicAddStock + the warehouse_stock ins
   );
 });
 
-test("'in'/'return' still additive; 'adjust' still absolute xhrPatch on warehouse — untouched", () => {
+test("'in'/'return' still additive; 'adjust' = CAS-guarded absolute set on warehouse (Phase 472)", () => {
   // delta is +qty for in/return
   assert.match(body, /\(movementType === "in" \|\| movementType === "return"\) \? qty/, "in/return delta = +qty");
-  // adjust still PATCHes an absolute value (not a delta) on warehouse_stock (the truth)
-  assert.match(body, /xhrPatch\("warehouse_stock", \{ stock: after \}, "id", ws\.id\)/, "adjust warehouse absolute set");
+  // Phase 472: adjust sets an absolute value on warehouse_stock but CAS-guarded (?stock=eq.{before})
+  //   → a concurrent sale/receive during the count is not silently overwritten (conflict → recount).
+  assert.match(body, /warehouse_stock\?id=eq\.[\s\S]{0,50}&stock=eq\."/, "adjust = CAS-guarded absolute set");
   // Phase 403: no products.stock PATCH here anymore — the trigger recomputes products.stock from sum
   assert.ok(!/xhrPatch\("products"/.test(body), "no products.stock patch in _applyStockMovement (trigger-derived)");
 });
