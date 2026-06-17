@@ -3245,6 +3245,21 @@ async function _revertStockForSale({ saleId, orderNo }) {
       return { ok: true, reverted: 0, message: "ไม่มี sale_items" };
     }
 
+    // ★ Phase 471: คืนเฉพาะ item ที่ "ตัดสต็อกจริง" (มี movement type=sale ของบิลนี้).
+    //   Phase 465 log "sale" เฉพาะตอนตัดสำเร็จ → เป็นสัญญาณเป๊ะว่า item นั้นถูกตัดจริง.
+    //   กันคืนเกิน: บิล flagged [สต็อกไม่ครบ] ที่ขายเกินสต็อก → ตัดไม่ได้ → ไม่มี sale movement → ไม่ควรคืน.
+    //   deductedIds = null = เช็คไม่ได้ (ไม่มี orderNo / fetch ล้ม) → fallback คืนทั้งหมด (พฤติกรรมเดิม กัน under-credit).
+    let deductedIds = null;
+    if (orderNo) {
+      try {
+        const mr = await fetch(cfg.url + "/rest/v1/stock_movements?type=eq.sale&select=product_id&note=ilike.*" + encodeURIComponent(orderNo) + "*", { headers });
+        if (mr.ok) {
+          const movRows = await mr.json().catch(() => null);
+          if (Array.isArray(movRows)) deductedIds = new Set(movRows.map(m => String(m.product_id)));
+        }
+      } catch { /* deductedIds stays null → fallback คืนทั้งหมด */ }
+    }
+
     let revertedCount = 0;
     for (const item of items) {
       if (!item.product_id || !item.qty) continue;
@@ -3256,6 +3271,13 @@ async function _revertStockForSale({ saleId, orderNo }) {
       if (product.product_type === "service" || product.product_type === "non_stock") continue;
       const qty = Number(item.qty || 0);
       if (qty <= 0) continue;
+
+      // ★ Phase 471: ข้าม item ที่ไม่เคยถูกตัดจริง (ไม่มี sale movement ของบิลนี้) → กันคืนเกิน
+      //   (เคสบิล flagged [สต็อกไม่ครบ] ที่ขายเกินสต็อก: ตัดไม่ได้ → ถ้าคืนจะได้สต็อกผี)
+      if (deductedIds && !deductedIds.has(String(item.product_id))) {
+        console.warn(`[revertStock] ${product.name}: ไม่มี sale movement ของบิลนี้ (ไม่เคยตัดสต็อก) → ไม่คืน (กันคืนเกิน)`);
+        continue;
+      }
 
       // 2a. Phase 468: คืนเข้าคลังที่ขายจริง (sale_items.warehouse_id) ก่อน;
       //   บิลเก่า/คลังนั้นไม่มี row → fallback "บ้านก่อน" (เดิม) + เตือน
