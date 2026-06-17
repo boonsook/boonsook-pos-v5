@@ -1335,7 +1335,8 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
 // ═══════════════════════════════════════════════════════════
 function bindProductList(state, ctx, signal) {
   document.querySelectorAll("[data-add-pos-product-id]").forEach(btn => btn.addEventListener("click", () => {
-    ctx.addToCart(Number(btn.dataset.addPosProductId));
+    // Phase 464: silent = ไม่ re-render ทั้งหน้า → อยู่หน้าเลือกสินค้าเดิม เพิ่มได้หลายรายการรวด (ไม่เด้งกลับ home)
+    ctx.addToCart(Number(btn.dataset.addPosProductId), { silent: true });
     updateStickyBar(state);
   }, { signal }));
 }

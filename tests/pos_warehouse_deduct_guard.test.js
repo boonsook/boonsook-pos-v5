@@ -96,3 +96,12 @@ test("changing the warehouse chip re-renders the picker", () => {
   assert.match(bindBody, /_posWarehouseId = btn\.dataset\.posWh/, "chip click sets the selected warehouse");
   assert.match(bindBody, /renderPosView\(ctx\)/, "must re-render after change");
 });
+
+// ── adding from the picker keeps you on the picker (add many in a row) ─────────
+test("POS [+] adds silently so the picker stays open (no bounce to home)", () => {
+  assert.match(mainSrc, /function addToCart\(productId,\s*opts\s*=\s*\{\}\)/, "addToCart must accept opts");
+  assert.match(mainSrc, /if\s*\(!opts\.silent\)\s*showRoute\(state\.currentRoute\)/, "silent add must skip the full route re-render");
+  assert.match(posSrc, /addToCart\(Number\(btn\.dataset\.addPosProductId\),\s*\{\s*silent:\s*true\s*\}\)/, "POS [+] must call addToCart with silent:true");
+  // the cart total/qty is still reflected via the sticky bar after a silent add
+  assert.match(posSrc, /\{\s*silent:\s*true\s*\}\);\s*\n\s*updateStickyBar\(state\)/, "after silent add, the sticky cart bar must update");
+});

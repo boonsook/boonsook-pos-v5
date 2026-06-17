@@ -3006,7 +3006,7 @@ async function saveServiceJob(){
 function _allowNegStock(){
   try { return JSON.parse(localStorage.getItem("bsk_product_settings") || '{}').allowNegativeStock !== false; } catch(e){ return true; }
 }
-function addToCart(productId){
+function addToCart(productId, opts = {}){
   const p = state.products.find(x=>x.id===productId);
   if (!p) return;
   const allowNeg = _allowNegStock();
@@ -3023,7 +3023,10 @@ function addToCart(productId){
     if (ap.isPromo) showToast(`💰 ใช้ราคาโปร ฿${ap.price} (ปกติ ฿${ap.original})`);
   }
   saveCart();
-  showRoute(state.currentRoute);
+  // Phase 464: opts.silent = เพิ่มจากหน้าเลือกสินค้า POS โดยไม่ re-render ทั้ง route
+  //   (กันเด้งกลับ home — renderPosPage reset posView="home" — ให้กดเพิ่มรัวได้ + ไม่ดีดสกอลล์);
+  //   caller (POS) อัปเดต sticky cart bar เอง. context อื่นคงพฤติกรรมเดิม (re-render).
+  if (!opts.silent) showRoute(state.currentRoute);
   if (!found) showToast(`เพิ่ม ${p.name} ลงบิล`);
 }
 function changeQty(productId, delta){
