@@ -118,7 +118,8 @@ function money(n) {
 
 // ★ คำนวณราคาที่ active (ถ้ามี promo + อยู่ในช่วงวัน → ใช้ promo)
 function getActivePrice(p) {
-  const today = new Date().toISOString().slice(0, 10);
+  // Phase 475: ใช้วันที่โซน Asia/Bangkok (เดิม toISOString = UTC → โปรเริ่ม/หมดเพี้ยน ±7 ชม. ที่ขอบวัน)
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
   const promo = Number(p?.promo_price || 0);
   const ps = String(p?.promo_start || "");
   const pe = String(p?.promo_end || "");
