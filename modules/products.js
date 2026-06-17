@@ -330,7 +330,8 @@ function renderView(ctx, opts = {}) {
     });
     return { id: w.id, name: w.name, is_mobile: w.is_mobile === true, items, qty };
   });
-  const _whGrandItems = _whSummary.reduce((a, w) => a + w.items, 0);
+  // "ทุกคลัง" = นับชนิดสินค้าแบบไม่ซ้ำ (สินค้าตัวเดียวอยู่หลายคลัง = นับครั้งเดียว) ให้ตรงกับหัว "คลังทั้งหมด N รายการ" — ไม่ใช่ผลบวกต่อคลังที่นับซ้ำ
+  const _whGrandItems = new Set((state.warehouseStock || []).filter(s => Number(s.stock || 0) > 0).map(s => String(s.product_id))).size;
   const _whGrandQty = _whSummary.reduce((a, w) => a + w.qty, 0);
 
   // ─── Pagination ───
