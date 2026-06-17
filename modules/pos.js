@@ -1184,6 +1184,7 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
         const prodRef = state.products.find(x => x.id === item.id);
         const itemPayload = {
           sale_id: saleId,
+          warehouse_id: _posWarehouseId || null,  // Phase 468: คลังที่ขายจริง (ใช้ตอน revert ยกเลิกบิล)
           product_id: item.id || null,
           product_name: item.name || "สินค้า",
           qty: Number(item.qty) || 1,
@@ -1194,8 +1195,9 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
         };
         let itemRes = await xhrPostPOS("sale_items", itemPayload);
         // Legacy fallback: ถ้า product_id/unit_cost ยังไม่มีใน DB → retry โดยไม่ส่ง
-        if (!itemRes.ok && /column|product_id|unit_cost/i.test(itemRes.error || "")) {
-          const { product_id: _pid, unit_cost: _uc, ...legacy } = itemPayload;
+        if (!itemRes.ok && /column|product_id|unit_cost|warehouse_id/i.test(itemRes.error || "")) {
+          // Phase 468: strip warehouse_id ด้วย เผื่อ DB ยังไม่ได้รันคอลัมน์ (กัน insert ทั้ง row fail)
+          const { product_id: _pid, unit_cost: _uc, warehouse_id: _wh, ...legacy } = itemPayload;
           console.warn("[POS] sale_items legacy fallback");
           itemRes = await xhrPostPOS("sale_items", legacy);
         }
