@@ -42,10 +42,11 @@ test("canEditPosPrice allows only admin/sales", () => {
 
 test("the edit affordance only renders when canEdit is true", () => {
   // renderProductCards takes a canEdit flag and the ✏️ button is conditional
-  assert.match(src, /function renderProductCards\(products,\s*canEdit\s*=\s*false\)/, "renderProductCards must accept canEdit (default false)");
+  assert.match(src, /function renderProductCards\(products,\s*canEdit\s*=\s*false/, "renderProductCards must accept canEdit (default false)");
   assert.match(src, /canEdit\s*\?\s*`<button class="pos-edit-price-btn"/, "edit button must be gated behind canEdit");
   // both render call sites pass the gate result
-  const calls = src.match(/renderProductCards\([^)]*canEditPosPrice\(state\)\)/g) || [];
+  // both render call sites pass the gate (tolerate extra args like _posProductsForWh(state)/state — Phase 464)
+  const calls = src.match(/renderProductCards\([^;]*?canEditPosPrice\(state\)/g) || [];
   assert.ok(calls.length >= 2, "both initial + search re-render must pass canEditPosPrice(state)");
 });
 

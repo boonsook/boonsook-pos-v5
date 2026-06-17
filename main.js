@@ -3077,7 +3077,7 @@ async function _atomicAddStock(table, rowId, delta, field = "stock", maxRetries 
   });
 }
 
-async function _deductStockForSaleItem({ product, qty, orderNo }) {
+async function _deductStockForSaleItem({ product, qty, orderNo, warehouseId }) {
   if (!product || !qty || qty <= 0) return;
   // ข้าม service / non_stock
   if (product.product_type === "service" || product.product_type === "non_stock") return;
@@ -3094,15 +3094,29 @@ async function _deductStockForSaleItem({ product, qty, orderNo }) {
   // Phase 89.35: hoist dec outside if-block so skipProductsCas (below) can read it
   let dec = null;
   if (stocks.length > 0) {
-    stocks.sort((a, b) => {
-      const nameA = (state.warehouses.find(w => w.id === a.warehouse_id)?.name || "");
-      const nameB = (state.warehouses.find(w => w.id === b.warehouse_id)?.name || "");
-      const aHome = nameA.includes("บ้าน") ? 1 : 0;
-      const bHome = nameB.includes("บ้าน") ? 1 : 0;
-      if (aHome !== bHome) return bHome - aHome;
-      return Number(b.stock || 0) - Number(a.stock || 0);
-    });
-    const ws = stocks[0];
+    // Phase 464: ถ้า POS ส่งคลังที่เลือกมา (warehouseId) → ตัดจากคลังนั้นเท่านั้น
+    //   ไม่เจอสต็อกในคลังที่เลือก → เตือน + ไม่ตัด (กันตัดผิดคลัง/ไม่ falls back เงียบ)
+    //   ไม่ส่ง warehouseId (auto) → คงพฤติกรรมเดิม: "บ้าน" ก่อน แล้วคลังที่มีของมากสุด (backward-compatible ทุก caller เดิม)
+    const _hasPicked = warehouseId != null && String(warehouseId) !== "" && String(warehouseId) !== "auto";
+    let ws;
+    if (_hasPicked) {
+      ws = stocks.find(s => String(s.warehouse_id) === String(warehouseId));
+      if (!ws) {
+        const pickedName = state.warehouses.find(w => String(w.id) === String(warehouseId))?.name || ("คลัง#" + warehouseId);
+        showToast(`⚠️ ${product.name} ไม่มีสต็อกในคลัง ${pickedName} — ไม่ได้ตัดสต็อก (บิลบันทึกแล้ว โปรดตรวจ/ตัดเอง)`);
+        return; // ★ ไม่ตัดจากคลังอื่นแทน (กันตัดผิดคลัง)
+      }
+    } else {
+      stocks.sort((a, b) => {
+        const nameA = (state.warehouses.find(w => w.id === a.warehouse_id)?.name || "");
+        const nameB = (state.warehouses.find(w => w.id === b.warehouse_id)?.name || "");
+        const aHome = nameA.includes("บ้าน") ? 1 : 0;
+        const bHome = nameB.includes("บ้าน") ? 1 : 0;
+        if (aHome !== bHome) return bHome - aHome;
+        return Number(b.stock || 0) - Number(a.stock || 0);
+      });
+      ws = stocks[0];
+    }
     const whName = state.warehouses.find(w => w.id === ws.warehouse_id)?.name || "?";
 
     // Phase 89.9 H10: atomic CAS decrement (กัน 2 checkout พร้อมกันตัดสต็อกซ้ำ)
@@ -3605,12 +3619,14 @@ window._appDeductStockForSaleItem = _deductStockForSaleItem;
 window._appNotifySaleToLine = (payload) => _notifySaleToLine(payload);
 
 // ★ Phase 18: Bundle expander — ถ้าสินค้าเป็น bundle, ตัดสต็อก children แทน
-window._appDeductStockSmart = async function({ product, qty, orderNo }) {
+window._appDeductStockSmart = async function({ product, qty, orderNo, warehouseId }) {
   if (!product) return;
-  // ถ้าไม่ใช่ bundle → ตัดปกติ
+  // ถ้าไม่ใช่ bundle → ตัดปกติ (ส่งคลังที่ POS เลือกต่อ; ไม่มี = auto บ้าน-first เดิม)
   if (!product.is_bundle) {
-    return await _deductStockForSaleItem({ product, qty, orderNo });
+    return await _deductStockForSaleItem({ product, qty, orderNo, warehouseId });
   }
+  // หมายเหตุ: bundle → ตัด children แบบ auto (heuristic บ้าน-first) ไม่ผูกคลังที่เลือก
+  //   เพราะลูกอาจอยู่คนละคลัง (Phase 464 ทำคลังเดียวต่อบิลกับสินค้าเดี่ยวก่อน)
   // เป็น bundle → ดึง children แล้วตัดทีละตัว
   try {
     const cfg = window.SUPABASE_CONFIG;

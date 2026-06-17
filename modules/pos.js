@@ -70,6 +70,8 @@ let posView = "home";
 let selectedPaymentMethod = "";
 // Phase 88.20: เลือกบัญชีธนาคารปลายทางสำหรับการโอน (index ใน paymentInfo.banks[])
 let selectedBankIdx = 0;
+// Phase 464: คลังที่เลือกขาย (คลังเดียวต่อบิล) — "" = อัตโนมัติ (บ้านก่อน เหมือนเดิม); ตัดทั้งบิลจากคลังนี้
+let _posWarehouseId = (() => { try { return localStorage.getItem("bsk_pos_warehouse") || ""; } catch(_e) { return ""; } })();
 
 // ═══════════════════════════════════════════════════════════
 // Phase 89.2: helper round-to-2-decimals
@@ -918,8 +920,9 @@ function renderPosView(ctx) {
       <div class="toolbar">
         <input id="posSearchInput" placeholder="ค้นหาชื่อสินค้า / รหัส / บาร์โค้ด" style="flex:1" />
       </div>
+      ${_posWarehouseChips(state)}
       <div id="posProductList" class="pos-product-grid mt16">
-        ${renderProductCards(state.products, canEditPosPrice(state))}
+        ${renderProductCards(_posProductsForWh(state), canEditPosPrice(state), state)}
       </div>
 
       <!-- Sticky Cart Bar -->
@@ -948,6 +951,7 @@ function renderPosView(ctx) {
     bindProductList(state, ctx, signal);
     bindProductSearch(state, ctx, signal);
     bindPriceEdit(state, ctx, signal);
+    bindWarehouseChips(ctx, signal);
 
 
   // ═══════════════════════════════════════════════════════
@@ -1202,7 +1206,8 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
         try {
           const fn = window._appDeductStockSmart || window._appDeductStockForSaleItem;
           if (fn && prodRef) {
-            await fn({ product: prodRef, qty: Number(item.qty) || 0, orderNo });
+            // Phase 464: ตัดจากคลังที่เลือก (คลังเดียวต่อบิล); "" = auto บ้าน-first เดิม
+            await fn({ product: prodRef, qty: Number(item.qty) || 0, orderNo, warehouseId: _posWarehouseId || undefined });
           }
         } catch(e) { console.warn("[POS] deduct stock failed:", e?.message || e); }
       }
@@ -1338,12 +1343,12 @@ function bindProductList(state, ctx, signal) {
 function bindProductSearch(state, ctx, signal) {
   document.getElementById("posSearchInput")?.addEventListener("input", (e) => {
     const q = e.target.value.trim().toLowerCase();
-    const filtered = state.products.filter(p =>
+    const filtered = _posProductsForWh(state).filter(p =>
       String(p.name||"").toLowerCase().includes(q) ||
       String(p.sku||"").toLowerCase().includes(q) ||
       String(p.barcode||"").toLowerCase().includes(q)
     );
-    document.getElementById("posProductList").innerHTML = renderProductCards(filtered, canEditPosPrice(state));
+    document.getElementById("posProductList").innerHTML = renderProductCards(filtered, canEditPosPrice(state), state);
     bindProductList(state, ctx, signal);
   }, { signal });
 }
@@ -1420,6 +1425,18 @@ function updateStickyBar(state) {
   const q = state.cart.reduce((s,i)=>s+i.qty,0);
   const btn = document.getElementById("posStickyPayBtn");
   if (btn) btn.innerHTML = `${q} รายการ &nbsp;&nbsp; ฿${moneyNum(t)}`;
+}
+
+// Phase 464: เลือกคลังขาย (คลังเดียวต่อบิล) → จำใน localStorage + re-render (bar/list/คงเหลือ)
+function bindWarehouseChips(ctx, signal) {
+  document.querySelectorAll(".pos-wh-chip").forEach(btn => btn.addEventListener("click", () => {
+    _posWarehouseId = btn.dataset.posWh || "";
+    try {
+      if (_posWarehouseId) localStorage.setItem("bsk_pos_warehouse", _posWarehouseId);
+      else localStorage.removeItem("bsk_pos_warehouse");
+    } catch(_e) { /* localStorage ปิด — ใช้ค่าใน memory ต่อ */ }
+    renderPosView(ctx);
+  }, { signal }));
 }
 
 
@@ -1536,23 +1553,56 @@ function canEditPosPrice(state) {
   return ["admin", "sales"].includes(state?.profile?.role);
 }
 
+// ─── Phase 464: เลือกคลังขาย (คลังเดียวต่อบิล) ───────────────────────────────
+// สต็อกของสินค้าในคลังที่ระบุ (จาก warehouse_stock cache)
+function _posWhStock(state, productId, whId) {
+  const ws = (state.warehouseStock || []).find(s =>
+    String(s.product_id) === String(productId) && String(s.warehouse_id) === String(whId));
+  return ws ? Number(ws.stock || 0) : 0;
+}
+// รายการสินค้าตามคลังที่เลือก — "" (auto) = ทั้งหมด; เลือกคลัง = เฉพาะที่มีสต็อก > 0 ในคลังนั้น
+function _posProductsForWh(state) {
+  const all = state.products || [];
+  if (!_posWarehouseId) return all;
+  const ids = new Set((state.warehouseStock || [])
+    .filter(s => String(s.warehouse_id) === String(_posWarehouseId) && Number(s.stock || 0) > 0)
+    .map(s => String(s.product_id)));
+  return all.filter(p => ids.has(String(p.id)));
+}
+function _posWarehouseChips(state) {
+  const whs = state.warehouses || [];
+  const chip = (id, label, emoji) => {
+    const active = String(_posWarehouseId) === String(id);
+    return `<button class="pos-wh-chip" data-pos-wh="${escHtml(String(id))}" style="border:1px solid ${active ? '#0284c7' : '#cbd5e1'};background:${active ? '#0284c7' : '#fff'};color:${active ? '#fff' : '#475569'};border-radius:14px;padding:6px 12px;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap">${emoji} ${escHtml(label)}</button>`;
+  };
+  return `<div class="pos-wh-bar" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+    <span style="font-size:12px;color:#64748b;font-weight:700">ขายจากคลัง:</span>
+    ${chip("", "อัตโนมัติ", "⚙️")}
+    ${whs.map(w => chip(w.id, w.name, w.is_mobile ? "🚐" : "📦")).join("")}
+  </div>`;
+}
+
 function priceRowHtml(p, canEdit) {
   return `<span class="pos-price-val" style="font-weight:900;color:var(--primary2)">${money(p.price)}</span>` +
     (canEdit ? `<button class="pos-edit-price-btn" data-edit-price-id="${p.id}" title="แก้ราคาขาย" style="border:none;background:#eff6ff;color:#0284c7;border-radius:6px;padding:2px 7px;cursor:pointer;font-size:12px">✏️</button>` : "");
 }
 
-function renderProductCards(products, canEdit = false) {
+function renderProductCards(products, canEdit = false, state = null) {
   if (!products.length) return '<div class="card">ไม่พบสินค้า</div>';
-  return products.map(p => `
+  const whName = (_posWarehouseId && state) ? ((state.warehouses || []).find(w => String(w.id) === String(_posWarehouseId))?.name || "") : "";
+  return products.map(p => {
+    const remain = (_posWarehouseId && state) ? _posWhStock(state, p.id, _posWarehouseId) : null;
+    return `
     <div class="pos-product-card" data-product-id="${p.id}"${canEdit ? ` style="cursor:pointer" title="กดที่การ์ดเพื่อเปิดหน้าสินค้า (แก้ราคา/ต้นทุน/สต็อก)"` : ""}>
       <div class="pos-product-info">
         <div style="font-weight:900;font-size:15px">${escHtml(p.name)}</div>
         <div class="sku">${escHtml(p.sku) || "-"} ${p.barcode ? "• " + escHtml(p.barcode) : ""}</div>
         <div class="pos-price-row" data-price-row="${p.id}" style="margin-top:4px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">${priceRowHtml(p, canEdit)}</div>
+        ${remain !== null ? `<div style="font-size:11px;color:#0f766e;font-weight:700;margin-top:2px">🔻 ตัดจาก ${escHtml(whName)} • คงเหลือ ${Number(remain).toLocaleString()} ชิ้น</div>` : ""}
       </div>
       <button class="btn primary pos-add-btn" data-add-pos-product-id="${p.id}">+</button>
-    </div>
-  `).join("");
+    </div>`;
+  }).join("");
 }
 
 function renderCartCompact(cart) {
