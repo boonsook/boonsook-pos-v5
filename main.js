@@ -3081,9 +3081,10 @@ async function _atomicAddStock(table, rowId, delta, field = "stock", maxRetries 
 }
 
 async function _deductStockForSaleItem({ product, qty, orderNo, warehouseId }) {
-  if (!product || !qty || qty <= 0) return;
+  // Phase 469: คืนผลลัพธ์ให้ caller (checkout) — เดิม return void → บิลออกเงียบแม้ตัดสต็อกไม่ได้
+  if (!product || !qty || qty <= 0) return { ok: true, skipped: true };
   // ข้าม service / non_stock
-  if (product.product_type === "service" || product.product_type === "non_stock") return;
+  if (product.product_type === "service" || product.product_type === "non_stock") return { ok: true, skipped: true };
 
   // Phase 45.3: stock_movements.created_by เป็น uuid → ส่ง auth user id
   const creatorUuid = state.currentUser?.id || null;
@@ -3096,6 +3097,7 @@ async function _deductStockForSaleItem({ product, qty, orderNo, warehouseId }) {
 
   // Phase 89.35: hoist dec outside if-block so skipProductsCas (below) can read it
   let dec = null;
+  let dec2 = null;  // Phase 469: hoist dec2 เพื่อคืนผลลัพธ์ท้ายฟังก์ชัน
   if (stocks.length > 0) {
     // Phase 464: ถ้า POS ส่งคลังที่เลือกมา (warehouseId) → ตัดจากคลังนั้นเท่านั้น
     //   ไม่เจอสต็อกในคลังที่เลือก → เตือน + ไม่ตัด (กันตัดผิดคลัง/ไม่ falls back เงียบ)
@@ -3107,7 +3109,8 @@ async function _deductStockForSaleItem({ product, qty, orderNo, warehouseId }) {
       if (!ws) {
         const pickedName = state.warehouses.find(w => String(w.id) === String(warehouseId))?.name || ("คลัง#" + warehouseId);
         showToast(`⚠️ ${product.name} ไม่มีสต็อกในคลัง ${pickedName} — ไม่ได้ตัดสต็อก (บิลบันทึกแล้ว โปรดตรวจ/ตัดเอง)`);
-        return; // ★ ไม่ตัดจากคลังอื่นแทน (กันตัดผิดคลัง)
+        // Phase 469: คืน ok:false ให้ checkout ติดธงบิล (★ ไม่ตัดจากคลังอื่นแทน กันตัดผิดคลัง)
+        return { ok: false, insufficient: true, reason: `ไม่มีสต็อกในคลัง ${pickedName}` };
       }
     } else {
       stocks.sort((a, b) => {
@@ -3170,7 +3173,7 @@ async function _deductStockForSaleItem({ product, qty, orderNo, warehouseId }) {
         .reduce((s, w) => s + Number(w.stock || 0), 0);
     }
   } else {
-    const dec2 = await _atomicDecrementStock("products", product.id, qty);
+    dec2 = await _atomicDecrementStock("products", product.id, qty);
     const curStock = dec2.ok ? dec2.before : Number(product.stock || 0);
     const newStock = dec2.ok ? dec2.after : (curStock - qty);
     if (!dec2.ok) {
@@ -3191,6 +3194,11 @@ async function _deductStockForSaleItem({ product, qty, orderNo, warehouseId }) {
       });
     }
   }
+
+  // Phase 469: คืนสถานะตัดสต็อกให้ checkout (warehouse branch ใช้ dec, legacy no-warehouse ใช้ dec2)
+  const _decR = (stocks.length > 0) ? dec : dec2;
+  if (_decR && _decR.ok) return { ok: true };
+  return { ok: false, insufficient: !!_decR?.insufficient, reason: _decR?.error || "สต็อกไม่พอ" };
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -3636,7 +3644,7 @@ window._appNotifySaleToLine = (payload) => _notifySaleToLine(payload);
 
 // ★ Phase 18: Bundle expander — ถ้าสินค้าเป็น bundle, ตัดสต็อก children แทน
 window._appDeductStockSmart = async function({ product, qty, orderNo, warehouseId }) {
-  if (!product) return;
+  if (!product) return { ok: true, skipped: true };
   // ถ้าไม่ใช่ bundle → ตัดปกติ (ส่งคลังที่ POS เลือกต่อ; ไม่มี = auto บ้าน-first เดิม)
   if (!product.is_bundle) {
     return await _deductStockForSaleItem({ product, qty, orderNo, warehouseId });
@@ -3662,13 +3670,17 @@ window._appDeductStockSmart = async function({ product, qty, orderNo, warehouseI
       return await _deductStockForSaleItem({ product, qty, orderNo, warehouseId });
     }
     // ตัดสต็อกของแต่ละลูก
+    // Phase 469: ลูกตัวใดตัดไม่ได้ → bundle = ok:false (ให้ checkout ติดธงบิล)
+    let _childFail = null;
     for (const r of rows) {
       const childProd = (state.products || []).find(p => String(p.id) === String(r.child_product_id));
       if (!childProd) continue;
       const childQty = Number(r.qty || 1) * qty;
-      await _deductStockForSaleItem({ product: childProd, qty: childQty, orderNo: orderNo + " [bundle:" + product.name + "]", warehouseId });
+      const _cr = await _deductStockForSaleItem({ product: childProd, qty: childQty, orderNo: orderNo + " [bundle:" + product.name + "]", warehouseId });
+      if (_cr && _cr.ok === false && !_childFail) _childFail = _cr;
     }
     console.debug(`[bundle] ${product.name} × ${qty} → ตัด children ${rows.length} รายการ`);
+    return _childFail ? { ok: false, insufficient: !!_childFail.insufficient, reason: `bundle: ${_childFail.reason || "ลูกตัดไม่ครบ"}` } : { ok: true };
   } catch(e) {
     console.warn("[bundle expand error]", e);
     return await _deductStockForSaleItem({ product, qty, orderNo, warehouseId });

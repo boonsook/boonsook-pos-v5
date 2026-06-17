@@ -1180,6 +1180,7 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
     // ถ้ามีสินค้าในตะกร้า → บันทึก sale_items
     if (state.cart.length > 0) {
       const failedItems = [];  // ★ audit S2: เก็บรายการที่บันทึกไม่สำเร็จ → เตือน admin (เดิมกลืน console.error เงียบ)
+      const stockFailedItems = [];  // ★ Phase 469: รายการที่ตัดสต็อกไม่ได้ (คลังไม่พอ) → ติดธงบิล + เตือน (ไม่บล็อกการขาย)
       for (const item of state.cart) {
         const prodRef = state.products.find(x => x.id === item.id);
         const itemPayload = {
@@ -1211,14 +1212,35 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
           const fn = window._appDeductStockSmart || window._appDeductStockForSaleItem;
           if (fn && prodRef) {
             // Phase 464: ตัดจากคลังที่เลือก (คลังเดียวต่อบิล); "" = auto บ้าน-first เดิม
-            await fn({ product: prodRef, qty: Number(item.qty) || 0, orderNo, warehouseId: _posWarehouseId || undefined });
+            // Phase 469: เช็คผล — ตัดไม่ได้ (คลังที่เลือกไม่พอ) → เก็บไว้ติดธงบิล (owner เลือก warn+flag ไม่บล็อก)
+            const _dr = await fn({ product: prodRef, qty: Number(item.qty) || 0, orderNo, warehouseId: _posWarehouseId || undefined });
+            if (_dr && _dr.ok === false) stockFailedItems.push((item.name || `#${item.id}`) + (_dr.reason ? ` (${_dr.reason})` : ""));
           }
-        } catch(e) { console.warn("[POS] deduct stock failed:", e?.message || e); }
+        } catch(e) {
+          console.warn("[POS] deduct stock failed:", e?.message || e);
+          stockFailedItems.push((item.name || `#${item.id}`) + " (error)");
+        }
       }
       // ★ audit S2: บิลบันทึกแล้วแต่บางรายการขาด → เตือนชัด (เดิมแค่ console.error → COGS/สต็อก/รายงานเพี้ยนเงียบ)
       if (failedItems.length > 0) {
         console.error("[POS] sale_items incomplete:", { orderNo, saleId, failedItems });
         window.App?.showToast?.(`⚠️ บิล ${orderNo}: บันทึกรายการสินค้าไม่สำเร็จ ${failedItems.length} รายการ (${failedItems.slice(0, 3).join(", ")}${failedItems.length > 3 ? "…" : ""}) — โปรดตรวจ/เพิ่มในบิลนี้เอง`);
+      }
+      // ★ Phase 469: ตัดสต็อกไม่ครบ → ติดธง "[สต็อกไม่ครบ]" บนบิล + เตือนชัด (บิลออกแล้ว ไม่บล็อก — owner เลือก warn+flag)
+      if (stockFailedItems.length > 0) {
+        console.error("[POS] stock deduct incomplete:", { orderNo, saleId, stockFailedItems });
+        window.App?.showToast?.(`⚠️ บิล ${orderNo}: ตัดสต็อกไม่ครบ ${stockFailedItems.length} รายการ (${stockFailedItems.slice(0, 2).join(", ")}${stockFailedItems.length > 2 ? "…" : ""}) — บิลออกแล้ว ติดธงไว้ โปรดตรวจสต็อก/คลัง`);
+        try {
+          const cfgF = window.SUPABASE_CONFIG;
+          const tkF = window._sbAccessToken || cfgF.anonKey;
+          const _flagNote = (salePayload.note ? salePayload.note + " " : "") + "[สต็อกไม่ครบ]";
+          const rF = await fetch(cfgF.url + "/rest/v1/sales?id=eq." + saleId, {
+            method: "PATCH",
+            headers: { "apikey": cfgF.anonKey, "Authorization": "Bearer " + tkF, "Content-Type": "application/json", "Prefer": "return=minimal" },
+            body: JSON.stringify({ note: _flagNote })
+          });
+          if (!rF.ok) console.warn("[POS] flag note PATCH failed:", rF.status);
+        } catch(e) { console.warn("[POS] flag note PATCH threw:", e?.message || e); }
       }
     }
 

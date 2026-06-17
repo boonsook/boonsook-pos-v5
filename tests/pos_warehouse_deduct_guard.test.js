@@ -48,7 +48,7 @@ test("when a warehouse is picked, it selects THAT warehouse's stock row", () => 
 
 test("🔴 a picked warehouse with no stock must NOT fall back to another warehouse", () => {
   // the "not found in picked warehouse" branch must showToast + return (no deduction elsewhere)
-  assert.match(deductBody, /if\s*\(!ws\)\s*\{[\s\S]*?showToast[\s\S]*?return;/, "missing-in-picked-warehouse must warn + return");
+  assert.match(deductBody, /if\s*\(!ws\)\s*\{[\s\S]*?showToast[\s\S]*?return \{ ok: false/, "missing-in-picked-warehouse must warn + return ok:false (Phase 469: result object, still no fallback)");
   // and the early return must sit before the CAS decrement
   const notFoundIdx = deductBody.indexOf("if (!ws)");
   const casIdx = deductBody.indexOf('_atomicDecrementStock("warehouse_stock"');
