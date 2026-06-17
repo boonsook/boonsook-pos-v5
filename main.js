@@ -2371,7 +2371,7 @@ function openServiceJobDrawer(job=null){
   };
   // render รายการอุปกรณ์ + รวมอุปกรณ์ + recalc ยอดสุทธิ
   const _renderEquip = () => {
-    _equipRenderList($("serviceEquipmentList"), _serviceDrawerItems, { money, readOnly: _serviceDrawerEquipReadonly });
+    _equipRenderList($("serviceEquipmentList"), _serviceDrawerItems, { money, readOnly: _serviceDrawerEquipReadonly, state });
     const totEl = $("serviceEquipmentTotal");
     const t = _equipItemsTotal();
     if (totEl) totEl.textContent = t > 0 ? `รวมอุปกรณ์ ${money(t)}` : "";

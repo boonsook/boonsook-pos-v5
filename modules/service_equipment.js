@@ -145,17 +145,30 @@ export function optimisticDeduct(items, state) {
 
 // ── UI: render items list ────────────────────────────────────
 // readOnly=true (งานเดิมมี items_json) → ไม่มีปุ่มลบ/แก้ qty (กันตัดซ้ำ)
-export function renderEquipmentList(listEl, items, { money, readOnly }) {
+// state (optional) → คำนวณ "คงเหลือในคลัง" สด (read-only lookup จาก state.warehouseStock)
+export function renderEquipmentList(listEl, items, { money, readOnly, state }) {
   if (!listEl) return;
   if (!items || items.length === 0) {
     listEl.innerHTML = `<div style="font-size:12px;color:#94a3b8;padding:6px 0">ยังไม่มีอุปกรณ์</div>`;
     return;
   }
-  listEl.innerHTML = items.map((it, idx) => `
+  // คงเหลือสดของสินค้าในคลังของมัน (lookup จาก state.warehouseStock); null = ไม่รู้/ไม่มีคลัง
+  const _remainFor = (it) => {
+    if (!state || it.warehouse_id == null || it.product_id == null) return null;
+    const ws = (state.warehouseStock || []).find(s =>
+      String(s.product_id) === String(it.product_id) && String(s.warehouse_id) === String(it.warehouse_id));
+    return ws ? Number(ws.stock || 0) : null;
+  };
+  listEl.innerHTML = items.map((it, idx) => {
+    const _rem = _remainFor(it);
+    const _whText = it.warehouse_name
+      ? `${readOnly ? "🔻 ตัดจาก " : ""}${escHtml(it.warehouse_name)}${_rem !== null ? ` • คงเหลือ ${Number(_rem).toLocaleString()} ชิ้น` : ""} • `
+      : "";
+    return `
     <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #f1f5f9;flex-wrap:wrap">
       <div style="flex:1 1 140px;min-width:140px">
         <div style="font-weight:700;color:#0f172a;font-size:13px">${escHtml(it.name || "-")}</div>
-        <div style="font-size:11px;color:#64748b">${escHtml(it.warehouse_name || "")} • ${money ? money(it.unit_price || 0) : it.unit_price}/ชิ้น</div>
+        <div style="font-size:11px;color:#64748b">${_whText}${money ? money(it.unit_price || 0) : it.unit_price}/ชิ้น</div>
       </div>
       <div style="display:flex;align-items:center;gap:6px;flex:0 0 auto">
         ${readOnly
@@ -165,7 +178,8 @@ export function renderEquipmentList(listEl, items, { money, readOnly }) {
         ${readOnly ? "" : `<button type="button" data-equip-del="${idx}" class="btn light" style="padding:2px 8px;font-size:14px;color:#dc2626">✕</button>`}
       </div>
     </div>
-  `).join("");
+  `;
+  }).join("");
 }
 
 // ── UI: picker modal ─────────────────────────────────────────
