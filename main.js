@@ -3249,10 +3249,17 @@ async function _revertStockForSale({ saleId, orderNo }) {
       const qty = Number(item.qty || 0);
       if (qty <= 0) continue;
 
-      // 2a. หา warehouse_stock ที่จะคืนสต็อก — เลือก "บ้าน" ก่อน, ไม่งั้น row แรกที่เจอ
+      // 2a. Phase 468: คืนเข้าคลังที่ขายจริง (sale_items.warehouse_id) ก่อน;
+      //   บิลเก่า/คลังนั้นไม่มี row → fallback "บ้านก่อน" (เดิม) + เตือน
       const stocks = (state.warehouseStock || []).filter(ws => String(ws.product_id) === String(product.id));
       let targetWs = null;
-      if (stocks.length > 0) {
+      const soldWhId = (item.warehouse_id != null && String(item.warehouse_id) !== "") ? item.warehouse_id : null;
+      if (soldWhId != null) {
+        targetWs = stocks.find(ws => String(ws.warehouse_id) === String(soldWhId)) || null;
+        if (!targetWs) console.warn(`[revertStock] ${product.name}: คลังที่ขาย (warehouse_id=${soldWhId}) ไม่มี row → fallback บ้าน`);
+      }
+      if (!targetWs && stocks.length > 0) {
+        if (soldWhId == null) console.warn(`[revertStock] ${product.name}: บิลเก่าไม่มี warehouse_id → คืนบ้านก่อน (โปรดตรวจ)`);
         const sorted = [...stocks].sort((a, b) => {
           const nameA = (state.warehouses.find(w => w.id === a.warehouse_id)?.name || "");
           const nameB = (state.warehouses.find(w => w.id === b.warehouse_id)?.name || "");
