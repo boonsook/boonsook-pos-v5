@@ -390,7 +390,7 @@ async function applyAllAdjustments(ctx) {
   const btn = document.querySelector("#scApplyAllBtn");
   if (btn) { btn.disabled = true; btn.textContent = "กำลังบันทึก..."; }
 
-  let ok = 0, fail = 0;
+  let ok = 0, fail = 0, conflicts = 0;  // Phase 472: conflicts = สต็อกเปลี่ยนระหว่างนับ → ให้นับใหม่
   for (const adj of adjustList) {
     if (adj.diff === 0) continue;
     const productIdNum = Number(adj.pid);
@@ -406,7 +406,7 @@ async function applyAllAdjustments(ctx) {
         qty: adj.counted,  // adjust = set to exact value
         note: `นับจริง (Physical Count) — เดิม ${adj.sys} → นับได้ ${adj.counted}`
       });
-      if (res?.ok) ok++; else fail++;
+      if (res?.ok) ok++; else { fail++; if (res?.conflict) conflicts++; }  // Phase 472: แยกนับ conflict
     } catch(e) { fail++; }
   }
 
@@ -414,9 +414,9 @@ async function applyAllAdjustments(ctx) {
 
   // Phase 45.14 (B): toast แยกตาม outcome — ไม่ bias เห็น ✅ ทั้งที่ fail
   if (ok === 0 && fail > 0) {
-    showToast?.(`❌ ปรับสต็อกไม่สำเร็จทั้งหมด (${fail} รายการ) — ตรวจ Console`);
+    showToast?.(`❌ ปรับสต็อกไม่สำเร็จทั้งหมด (${fail} รายการ)${conflicts > 0 ? ` — ${conflicts} สต็อกเปลี่ยนระหว่างนับ โปรดนับใหม่` : ' — ตรวจ Console'}`);
   } else if (fail > 0) {
-    showToast?.(`⚠️ ปรับสต็อกสำเร็จ ${ok} รายการ — ไม่สำเร็จ ${fail} รายการ`);
+    showToast?.(`⚠️ ปรับสต็อกสำเร็จ ${ok} รายการ — ไม่สำเร็จ ${fail}${conflicts > 0 ? ` (${conflicts} สต็อกเปลี่ยนระหว่างนับ → นับใหม่)` : ' รายการ'}`);
   } else if (ok > 0) {
     showToast?.(`✅ ปรับสต็อกสำเร็จ ${ok} รายการ`);
   } else {

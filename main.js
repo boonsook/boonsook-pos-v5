@@ -3589,7 +3589,22 @@ async function _applyStockMovement({ productId, warehouseId, movementType, qty, 
     if (warehouseId) {
       if (ws?.id) {
         if (isAdjust) {
-          await xhrPatch("warehouse_stock", { stock: after }, "id", ws.id);
+          // Phase 472: CAS-guard การ set absolute — PATCH เฉพาะถ้า DB stock ยัง == before (ค่าที่นับอ้างอิง)
+          //   → กันทับการขาย/รับที่เกิดระหว่างนับ. 0 rows matched = สต็อกเปลี่ยน → conflict → ให้นับใหม่
+          const _cfg = window.SUPABASE_CONFIG;
+          const _tok = window._sbAccessToken || _cfg.anonKey;
+          const _resp = await fetch(_cfg.url + "/rest/v1/warehouse_stock?id=eq." + encodeURIComponent(ws.id) + "&stock=eq." + encodeURIComponent(before), {
+            method: "PATCH",
+            headers: { apikey: _cfg.anonKey, Authorization: "Bearer " + _tok, "Content-Type": "application/json", Prefer: "return=representation" },
+            body: JSON.stringify({ stock: after })
+          });
+          if (!_resp.ok) return { ok: false, error: "บันทึกการนับไม่สำเร็จ: HTTP " + _resp.status };
+          const _patched = await _resp.json().catch(() => null);
+          if (!Array.isArray(_patched) || _patched.length === 0) {
+            return { ok: false, conflict: true, error: "สต็อกเปลี่ยนระหว่างนับ — โปรดนับใหม่" };
+          }
+          // eslint-disable-next-line require-atomic-updates -- A: local cache sync after CAS-guarded set (Phase 472)
+          after = Number(_patched[0].stock); ws.stock = after;
         } else if (isOutFlow && !allowNegative) {
           // Phase 369: floor — out/sale ตัดด้วย _atomicDecrementStock (กันติดลบ + CAS)
           const dec = await _atomicDecrementStock("warehouse_stock", ws.id, qty);
