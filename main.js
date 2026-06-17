@@ -3634,8 +3634,10 @@ window._appDeductStockSmart = async function({ product, qty, orderNo, warehouseI
   if (!product.is_bundle) {
     return await _deductStockForSaleItem({ product, qty, orderNo, warehouseId });
   }
-  // หมายเหตุ: bundle → ตัด children แบบ auto (heuristic บ้าน-first) ไม่ผูกคลังที่เลือก
-  //   เพราะลูกอาจอยู่คนละคลัง (Phase 464 ทำคลังเดียวต่อบิลกับสินค้าเดี่ยวก่อน)
+  // Phase 466: bundle → ส่งต่อคลังที่เลือกต่อบิล (warehouseId) ให้ children + fallback ด้วย
+  //   (เดิมตัด auto บ้าน-first → ขายจากรถแต่ตัดจากบ้าน = สต็อกรถเพี้ยน). พฤติกรรมตรงกับสินค้าเดี่ยว
+  //   Phase 464: child ไม่มีสต็อกในคลังที่เลือก → toast + ไม่ตัด (กันตัดผิดคลัง ไม่ fallback เงียบ);
+  //   ไม่เลือกคลัง (auto/undefined) → คงเดิม บ้าน-first.
   // เป็น bundle → ดึง children แล้วตัดทีละตัว
   try {
     const cfg = window.SUPABASE_CONFIG;
@@ -3645,24 +3647,24 @@ window._appDeductStockSmart = async function({ product, qty, orderNo, warehouseI
     });
     if (!res.ok) {
       console.warn("[bundle expand] failed");
-      return await _deductStockForSaleItem({ product, qty, orderNo });
+      return await _deductStockForSaleItem({ product, qty, orderNo, warehouseId });
     }
     const rows = await res.json();
     if (!rows || rows.length === 0) {
       // ไม่มี children — เก็บไว้ แต่ตัดสต็อก bundle ตัวเองด้วย
-      return await _deductStockForSaleItem({ product, qty, orderNo });
+      return await _deductStockForSaleItem({ product, qty, orderNo, warehouseId });
     }
     // ตัดสต็อกของแต่ละลูก
     for (const r of rows) {
       const childProd = (state.products || []).find(p => String(p.id) === String(r.child_product_id));
       if (!childProd) continue;
       const childQty = Number(r.qty || 1) * qty;
-      await _deductStockForSaleItem({ product: childProd, qty: childQty, orderNo: orderNo + " [bundle:" + product.name + "]" });
+      await _deductStockForSaleItem({ product: childProd, qty: childQty, orderNo: orderNo + " [bundle:" + product.name + "]", warehouseId });
     }
     console.debug(`[bundle] ${product.name} × ${qty} → ตัด children ${rows.length} รายการ`);
   } catch(e) {
     console.warn("[bundle expand error]", e);
-    return await _deductStockForSaleItem({ product, qty, orderNo });
+    return await _deductStockForSaleItem({ product, qty, orderNo, warehouseId });
   }
 };
 
