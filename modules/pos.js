@@ -919,7 +919,7 @@ function renderPosView(ctx) {
         <input id="posSearchInput" placeholder="ค้นหาชื่อสินค้า / รหัส / บาร์โค้ด" style="flex:1" />
       </div>
       <div id="posProductList" class="pos-product-grid mt16">
-        ${renderProductCards(state.products)}
+        ${renderProductCards(state.products, canEditPosPrice(state))}
       </div>
 
       <!-- Sticky Cart Bar -->
@@ -947,6 +947,7 @@ function renderPosView(ctx) {
 
     bindProductList(state, ctx, signal);
     bindProductSearch(state, ctx, signal);
+    bindPriceEdit(state, signal);
 
 
   // ═══════════════════════════════════════════════════════
@@ -1342,8 +1343,65 @@ function bindProductSearch(state, ctx, signal) {
       String(p.sku||"").toLowerCase().includes(q) ||
       String(p.barcode||"").toLowerCase().includes(q)
     );
-    document.getElementById("posProductList").innerHTML = renderProductCards(filtered);
+    document.getElementById("posProductList").innerHTML = renderProductCards(filtered, canEditPosPrice(state));
     bindProductList(state, ctx, signal);
+  }, { signal });
+}
+
+// แก้ราคาขาย inline ในการ์ดสินค้า POS (admin/sales เท่านั้น) — delegation บน container กัน search re-render ทำ listener หลุด
+function bindPriceEdit(state, signal) {
+  const list = document.getElementById("posProductList");
+  if (!list) return;
+  const restore = (row, prod, price) => {
+    row.innerHTML = priceRowHtml({ ...prod, price }, canEditPosPrice(state));
+  };
+  list.addEventListener("click", (e) => {
+    const btn = e.target.closest(".pos-edit-price-btn");
+    if (!btn) return;
+    if (!canEditPosPrice(state)) return; // defense-in-depth (UI ก็ซ่อนปุ่มอยู่แล้ว)
+    const id = btn.dataset.editPriceId;
+    const prod = (state.products || []).find(p => String(p.id) === String(id));
+    const row = btn.closest(".pos-price-row");
+    if (!prod || !row || row.querySelector(".pos-price-input")) return; // กำลังแก้อยู่
+    const oldPrice = Number(prod.price || 0);
+    row.innerHTML =
+      `<input class="pos-price-input" type="number" inputmode="decimal" min="0" step="0.01" value="${oldPrice}" style="width:96px;padding:4px 6px;border:1px solid #0284c7;border-radius:6px;font-weight:700" />` +
+      `<button class="pos-price-save" style="border:none;background:#10b981;color:#fff;border-radius:6px;padding:4px 9px;cursor:pointer">✓</button>` +
+      `<button class="pos-price-cancel" style="border:none;background:#e2e8f0;color:#334155;border-radius:6px;padding:4px 9px;cursor:pointer">✗</button>`;
+    const input = row.querySelector(".pos-price-input");
+    input?.focus(); input?.select();
+    row.querySelector(".pos-price-cancel")?.addEventListener("click", () => restore(row, prod, oldPrice), { signal });
+    const doSave = async () => {
+      const newPrice = Math.round(Number(input.value || 0) * 100) / 100;
+      if (isNaN(newPrice) || newPrice < 0) { window.App?.showToast?.("ราคาไม่ถูกต้อง"); return; }
+      if (newPrice === oldPrice) { restore(row, prod, oldPrice); return; }
+      const ok = await window.App?.confirm?.(`เปลี่ยนราคาขาย "${prod.name}"\n฿${oldPrice.toLocaleString()} → ฿${newPrice.toLocaleString()} ?`);
+      if (!ok) { restore(row, prod, oldPrice); return; }
+      const cfg = window.SUPABASE_CONFIG;
+      const accessToken = window._sbAccessToken || cfg.anonKey;
+      const saved = await new Promise(resolve => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("PATCH", cfg.url + "/rest/v1/products?id=eq." + encodeURIComponent(prod.id));
+        xhr.setRequestHeader("Content-Type", "application/json");
+        xhr.setRequestHeader("apikey", cfg.anonKey);
+        xhr.setRequestHeader("Authorization", "Bearer " + accessToken);
+        xhr.setRequestHeader("Prefer", "return=minimal");
+        xhr.timeout = 8000;
+        xhr.onload = () => resolve(xhr.status >= 200 && xhr.status < 300);
+        xhr.onerror = () => resolve(false);
+        xhr.ontimeout = () => resolve(false);
+        xhr.send(JSON.stringify({ price: newPrice }));
+      });
+      if (!saved) { window.App?.showToast?.("บันทึกราคาไม่สำเร็จ ลองใหม่", "error"); restore(row, prod, oldPrice); return; }
+      prod.price = newPrice; // optimistic — การ์ด/เพิ่มลงตะกร้าครั้งถัดไปใช้ราคาใหม่; ของในตะกร้าเดิม snapshot ราคาเก่า (ไม่กระทบ)
+      restore(row, prod, newPrice);
+      window.App?.showToast?.(`✓ ราคาใหม่ ${prod.name}: ฿${newPrice.toLocaleString()}`);
+    };
+    row.querySelector(".pos-price-save")?.addEventListener("click", doSave, { signal });
+    input?.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") { ev.preventDefault(); doSave(); }
+      else if (ev.key === "Escape") restore(row, prod, oldPrice);
+    }, { signal });
   }, { signal });
 }
 
@@ -1463,14 +1521,24 @@ function handleScanResult(code, ctx) {
 // ═══════════════════════════════════════════════════════════
 //  RENDERERS
 // ═══════════════════════════════════════════════════════════
-function renderProductCards(products) {
+// สิทธิ์แก้ราคาขายจาก POS = admin/sales เท่านั้น (ตรงกับ canManageProducts หน้าสินค้า)
+function canEditPosPrice(state) {
+  return ["admin", "sales"].includes(state?.profile?.role);
+}
+
+function priceRowHtml(p, canEdit) {
+  return `<span class="pos-price-val" style="font-weight:900;color:var(--primary2)">${money(p.price)}</span>` +
+    (canEdit ? `<button class="pos-edit-price-btn" data-edit-price-id="${p.id}" title="แก้ราคาขาย" style="border:none;background:#eff6ff;color:#0284c7;border-radius:6px;padding:2px 7px;cursor:pointer;font-size:12px">✏️</button>` : "");
+}
+
+function renderProductCards(products, canEdit = false) {
   if (!products.length) return '<div class="card">ไม่พบสินค้า</div>';
   return products.map(p => `
     <div class="pos-product-card">
       <div class="pos-product-info">
         <div style="font-weight:900;font-size:15px">${escHtml(p.name)}</div>
         <div class="sku">${escHtml(p.sku) || "-"} ${p.barcode ? "• " + escHtml(p.barcode) : ""}</div>
-        <div style="font-weight:900;color:var(--primary2);margin-top:4px">${money(p.price)}</div>
+        <div class="pos-price-row" data-price-row="${p.id}" style="margin-top:4px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">${priceRowHtml(p, canEdit)}</div>
       </div>
       <button class="btn primary pos-add-btn" data-add-pos-product-id="${p.id}">+</button>
     </div>
