@@ -189,7 +189,8 @@
 // v453 (2026-06-16): Phase 453a — picker "เลือกอุปกรณ์" หน้าติดตั้งแอร์ (ac_install _openItemPicker): เลือกคลังก่อน (chips ทุกคลัง/รถ/บ้าน) + กรองหมวด → ลิสต์เหลือเฉพาะของในคลัง + คลิกใช้คลังที่เลือกเลย (กันชื่อซ้ำข้ามคลัง). UI picker เท่านั้น — ไม่แตะ transfer/deduct/_items contract. (NB: build 452 equip-picker ยังค้างอีก branch). Bumps CACHE_NAME.
 // v454 (2026-06-16): Phase 452 — picker "เลือกอุปกรณ์" หน้าแจ้งซ่อม/บริการ (service drawer, service_equipment.js openEquipmentPicker): เลือกคลังก่อน (chips ทุกคลัง/รถ/บ้าน) + กรองหมวด → ลิสต์เหลือเฉพาะของในคลัง + คลิกใช้คลังที่เลือกเลย. UI picker เท่านั้น — ไม่แตะ deduction/onPick contract. (rebased onto main + bump 452→454 กันเลขถอย). Bumps CACHE_NAME.
 // v455 (2026-06-16): Phase 453b/453c — picker "เลือกอุปกรณ์" หน้าใบงานติดตั้ง/ซ่อม (service_form.js _openItemPicker) + หน้าโซล่าเซลล์ (solar.js _solOpenItemPicker): เลือกคลังก่อน (chips ทุกคลัง/รถ/บ้าน) + กรองหมวด → ลิสต์เหลือเฉพาะของในคลัง + คลิกใช้คลังที่เลือกเลย (กันชื่อซ้ำข้ามคลัง). UI picker เท่านั้น — ไม่แตะ transfer/deduct/_pickMobileWarehouse/add-payload. Bumps CACHE_NAME.
-const CACHE_NAME = 'boonsook-pos-v5-cache-v455';
+// v456 (2026-06-17): Phase 456 — แถวการ์ดสรุปสต็อกแต่ละคลัง (หน้าสินค้า/คลัง, products.js renderView): การ์ดต่อคลัง + การ์ด "ทุกคลัง" แสดงจำนวนรายการ(stock>0)/จำนวนชิ้น คลิกเพื่อสลับคลัง (เหมือน dropdown). read-only ล้วน คำนวณจาก state.warehouseStock ที่โหลดไว้ — ไม่ยิง fetch/query/write. Bumps CACHE_NAME.
+const CACHE_NAME = 'boonsook-pos-v5-cache-v456';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

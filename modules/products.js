@@ -320,6 +320,19 @@ function renderView(ctx, opts = {}) {
   // ─── Warehouse dropdown ───
   const whName = selectedWarehouse === "all" ? "คลังทั้งหมด" : (warehouses.find(w => w.id === Number(selectedWarehouse))?.name || "คลังทั้งหมด");
 
+  // ─── Per-warehouse stock summary (read-only display, computed from loaded state) ───
+  // นับ "รายการ" = product ที่มี stock>0 ในคลังนั้น (นับซ้ำได้ถ้าสินค้าตัวเดียวอยู่หลายคลัง = ตามตั้งใจ)
+  // และ "ชิ้น" = ผลรวม stock ในคลังนั้น  — ไม่ยิง fetch/query ใช้ state.warehouseStock ที่โหลดไว้แล้ว
+  const _whSummary = (warehouses || []).map(w => {
+    let items = 0, qty = 0;
+    (state.warehouseStock || []).forEach(s => {
+      if (String(s.warehouse_id) === String(w.id) && Number(s.stock || 0) > 0) { items++; qty += Number(s.stock || 0); }
+    });
+    return { id: w.id, name: w.name, is_mobile: w.is_mobile === true, items, qty };
+  });
+  const _whGrandItems = _whSummary.reduce((a, w) => a + w.items, 0);
+  const _whGrandQty = _whSummary.reduce((a, w) => a + w.qty, 0);
+
   // ─── Pagination ───
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   if (currentPage > totalPages) currentPage = totalPages;
@@ -404,6 +417,24 @@ function renderView(ctx, opts = {}) {
         <button class="prod-type-tab ${currentTypeFilter === 'stock' ? 'active' : ''}" data-ptype="stock" style="padding:8px 12px;font-size:12px;font-weight:600;border:none;background:none;cursor:pointer;white-space:nowrap;color:${currentTypeFilter === 'stock' ? '#0284c7' : '#64748b'};border-bottom:${currentTypeFilter === 'stock' ? '2px solid #0284c7' : '2px solid transparent'};margin-bottom:-2px">
           🏪 นับสต็อก <span style="font-size:11px;color:#94a3b8">${countStock}</span></button>
       </div>
+
+      <!-- ★ Per-warehouse summary cards (read-only, clickable to switch warehouse) — ซ่อนบน sub-page คลัง -->
+      ${(!warehouseFilter && warehouses.length > 0) ? (() => {
+        const _whCard = (id, icon, name, items, qty, active) => `
+          <button type="button" data-wh-card="${escHtml(String(id))}" style="flex:0 0 auto;min-width:130px;text-align:left;cursor:pointer;border:1px solid ${active ? '#0284c7' : '#e2e8f0'};background:${active ? '#eff6ff' : '#fff'};border-radius:10px;padding:8px 12px;box-shadow:0 1px 3px rgba(15,23,42,.06)">
+            <div style="font-size:12px;font-weight:700;color:${active ? '#0284c7' : '#334155'};white-space:nowrap">${icon} ${escHtml(name)}</div>
+            <div style="font-size:11px;color:#64748b;margin-top:2px">${Number(items).toLocaleString()} รายการ · ${Number(qty).toLocaleString()} ชิ้น</div>
+          </button>`;
+        return `
+      <div class="wh-summary mt16">
+        <div style="font-size:11px;color:#94a3b8;font-weight:600;margin-bottom:6px">📊 สรุปแต่ละคลัง</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:2px">
+          ${_whCard('all', '🏪', 'ทุกคลัง', _whGrandItems, _whGrandQty, selectedWarehouse === 'all')}
+          ${_whSummary.map(w => _whCard(w.id, w.is_mobile ? '🚐' : '📦', w.name, w.items, w.qty, String(selectedWarehouse) === String(w.id))).join("")}
+        </div>
+      </div>
+      `;
+      })() : ''}
 
       <!-- ★ Warehouse Selector (FlowAccount style) — ซ่อนถ้าเป็น sub-page คลัง -->
       ${warehouseFilter ? `
@@ -839,6 +870,13 @@ function renderView(ctx, opts = {}) {
     currentPage = 1;
     renderView(ctx);
   });
+
+  // ★ Per-warehouse summary cards — คลิกเพื่อสลับคลัง (mirror dropdown handler)
+  el.querySelectorAll("[data-wh-card]").forEach(c => c.addEventListener("click", () => {
+    selectedWarehouse = c.dataset.whCard;
+    currentPage = 1;
+    renderView(ctx);
+  }));
 
   // View toggle
   el.querySelector("#prodViewToggle")?.addEventListener("click", () => {
