@@ -1083,6 +1083,24 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
   const { state, openReceiptDrawer } = ctx;
   const amount = quickPayAmount || cartSum(state.cart);
 
+  // ★ Phase 473: precheck — ห้ามขายเกินสต็อกคลังที่เลือก ("ขายเท่าที่มี" — กันสต็อกผี/ติดลบ; เก็บ Phase 437)
+  //   เกิน → บล็อก + บอกว่ามีเท่าไหร่ (ให้ลดจำนวน/รับเข้าก่อน) ไม่สร้างบิล.
+  //   cache = UX gate ชั้นแรก; CAS floor (deduct) = ด่านจริง; 469 flag = backstop เผื่อ race.
+  if ((state.cart || []).length > 0) {
+    const _short = [];
+    for (const _it of state.cart) {
+      const _p = (state.products || []).find(x => String(x.id) === String(_it.id));
+      if (!_p || _p.product_type === "service" || _p.product_type === "non_stock") continue;
+      const _picked = _posWarehouseId && String(_posWarehouseId) !== "" && String(_posWarehouseId) !== "auto";
+      const _avail = _picked ? _posWhStock(state, _it.id, _posWarehouseId) : Number(_p.stock || 0);
+      if (Number(_it.qty || 0) > _avail) _short.push(`${_it.name || _it.id}: มี ${_avail} (ในบิล ${_it.qty})`);
+    }
+    if (_short.length > 0) {
+      window.App?.showToast?.(`⚠️ สต็อกไม่พอ ขายเกินไม่ได้ — ${_short.slice(0, 3).join(" · ")}${_short.length > 3 ? " …" : ""} — โปรดลดจำนวน หรือ รับเข้าสต็อกก่อน`);
+      return;
+    }
+  }
+
   try {
     const orderNo = "BSK-" + Date.now();
     const proofUrl = window._pendingProofUrl || "";
