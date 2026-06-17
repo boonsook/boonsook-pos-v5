@@ -5,6 +5,8 @@
 
 รูปแบบ: `<commit> feat|fix|docs|refactor: <สรุปสั้น>` + bullet 1-2 ข้อถ้าจำเป็น
 
+- feat(stock,build 460): picker สินค้าใน modal "ย้ายสต็อกระหว่างคลัง" แสดงผลค้นหาเป็น "รายการคลิกได้" (เหมือนหน้าค้นหาสินค้า) — พิมพ์แล้วเห็นรายการที่ตรง ชื่อ/หมวด/SKU/บาร์โค้ด คลิกเลือกได้เลย (เดิมต้องเปิด dropdown เอง); UI-only — <select> ซ่อนไว้เป็น value-holder คง .value submit เดิม ไม่แตะ logic โอน/ไม่มี stock-write
+
 - feat(stock,build 459): ช่องค้นหาสินค้าใน modal "ย้ายสต็อกระหว่างคลัง" — พิมพ์กรอง dropdown สินค้าตาม ชื่อ/หมวด/SKU/บาร์โค้ด (สินค้า ~1000 ตัวเลื่อนหายาก); UI-only filter ฝั่ง client คง id #smt-product-select + .value เดิม ไม่แตะ logic โอน/ไม่มี stock-write
 
 - feat(products,build 458): ปุ่มทางลัด "🔄 โอนระหว่างคลัง" ในเมนูจัดการเพิ่มเติม (หน้าสินค้า/คลัง) → นำทางไปหน้ารายการเคลื่อนไหวสต็อกแล้วเปิด modal โอนให้เลย (PURE navigation/UI — reuse flow โอนเดิม ไม่มี stock-write ใหม่)
