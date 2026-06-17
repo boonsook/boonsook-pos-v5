@@ -5,6 +5,8 @@
 
 รูปแบบ: `<commit> feat|fix|docs|refactor: <สรุปสั้น>` + bullet 1-2 ข้อถ้าจำเป็น
 
+- feat(serial,build 461): เพิ่มปุ่ม 🗑️ ลบ serial (ถาวร) ในหน้า Serial Number / Warranty — เดิมไม่มีปุ่มลบเลย (ลบ test001/ข้อมูลทดสอบไม่ได้); confirm ก่อนลบ + ตรวจผลจริง (ลบ 0 แถว/ไม่มีสิทธิ์ → แจ้ง error ชัด ไม่เงียบ ไม่ค้าง); hard DELETE product_serials (RLS FOR ALL อนุญาตอยู่แล้ว) ไม่แตะ edit/claim/add
+
 - feat(stock,build 460): picker สินค้าใน modal "ย้ายสต็อกระหว่างคลัง" แสดงผลค้นหาเป็น "รายการคลิกได้" (เหมือนหน้าค้นหาสินค้า) — พิมพ์แล้วเห็นรายการที่ตรง ชื่อ/หมวด/SKU/บาร์โค้ด คลิกเลือกได้เลย (เดิมต้องเปิด dropdown เอง); UI-only — <select> ซ่อนไว้เป็น value-holder คง .value submit เดิม ไม่แตะ logic โอน/ไม่มี stock-write
 
 - feat(stock,build 459): ช่องค้นหาสินค้าใน modal "ย้ายสต็อกระหว่างคลัง" — พิมพ์กรอง dropdown สินค้าตาม ชื่อ/หมวด/SKU/บาร์โค้ด (สินค้า ~1000 ตัวเลื่อนหายาก); UI-only filter ฝั่ง client คง id #smt-product-select + .value เดิม ไม่แตะ logic โอน/ไม่มี stock-write

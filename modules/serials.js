@@ -155,6 +155,7 @@ export async function renderSerialsPage(ctx) {
                     <td style="padding:10px;text-align:center;white-space:nowrap">
                       <button class="sr-edit-btn" data-id="${s.id}" style="border:1px solid #cbd5e1;background:#fff;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:12px">✏️</button>
                       <button class="sr-claim-btn" data-id="${s.id}" style="border:none;background:#f59e0b;color:#fff;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:12px;margin-left:4px" title="รับเคลม">🔧</button>
+                      <button class="sr-del-btn" data-id="${s.id}" style="border:none;background:#fee2e2;color:#dc2626;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:12px;margin-left:4px" title="ลบ serial นี้ (ถาวร)">🗑️</button>
                     </td>
                   </tr>
                 `;
@@ -193,6 +194,10 @@ export async function renderSerialsPage(ctx) {
   container.querySelectorAll(".sr-claim-btn").forEach(btn => btn.addEventListener("click", () => {
     const s = _srResults.find(x => String(x.id) === String(btn.dataset.id));
     if (s) updateStatus(ctx, s.id, "claimed");
+  }));
+  container.querySelectorAll(".sr-del-btn").forEach(btn => btn.addEventListener("click", () => {
+    const s = _srResults.find(x => String(x.id) === String(btn.dataset.id));
+    if (s) deleteSerial(ctx, s.id, s.serial_no);
   }));
 }
 
@@ -337,6 +342,30 @@ async function updateStatus(ctx, id, newStatus) {
   });
   ctx.showToast?.(`✓ เปลี่ยนสถานะ → ${STATUS_META[newStatus].label}`);
   renderSerialsPage(ctx);
+}
+
+// Phase 461 — ลบ serial ถาวร (hard delete) พร้อม confirm + ตรวจผลจริง (ห้ามลบเงียบ/ค้าง)
+async function deleteSerial(ctx, id, serialNo) {
+  if (!(await window.App?.confirm?.(`ลบ serial "${serialNo || id}" ถาวร?\n(กู้คืนไม่ได้)`))) return;
+  const cfg = window.SUPABASE_CONFIG;
+  const accessToken = window._sbAccessToken || cfg.anonKey;
+  try {
+    const r = await fetch(cfg.url + "/rest/v1/product_serials?id=eq." + encodeURIComponent(id), {
+      method: "DELETE",
+      headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + accessToken, "Prefer": "return=representation" }
+    });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const rows = await r.json().catch(() => []);
+    if (!Array.isArray(rows) || rows.length === 0) {
+      // RLS บล็อก / id ไม่ตรง → PostgREST คืน 200 + [] (ลบ 0 แถว) — แจ้งชัด ไม่ปล่อยเข้าใจผิดว่าลบสำเร็จ
+      ctx.showToast?.("ลบไม่สำเร็จ — ไม่พบรายการ หรือไม่มีสิทธิ์ลบ", "error");
+      return;
+    }
+    ctx.showToast?.("🗑️ ลบ serial แล้ว");
+    renderSerialsPage(ctx);
+  } catch (e) {
+    ctx.showToast?.("ลบผิดพลาด: " + (e?.message || e), "error");
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
