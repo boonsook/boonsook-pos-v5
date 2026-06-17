@@ -365,6 +365,7 @@ function renderView(ctx, opts = {}) {
               <button id="prodGenAllBarcodesBtn" class="prod-more-item" title="สร้างบาร์โค้ดให้สินค้านับสต็อกที่ยังไม่มี">🏷️ สร้างบาร์โค้ด</button>
               <button id="prodPrintBarcodesBtn" class="prod-more-item" title="พิมพ์สติ๊กเกอร์บาร์โค้ดหลายตัว">🖨️ พิมพ์บาร์โค้ด</button>
               <button id="prodStockSheetBtn" class="prod-more-item" title="พิมพ์ใบเช็คสต็อก A4 ตามคลัง/หมวดที่เห็น (QR + ช่องนับจริง)">📋 พิมพ์ใบเช็คสต็อก</button>
+              <button id="prodTransferBtn" class="prod-more-item" title="โอน/ย้ายสินค้าระหว่างคลัง (บ้าน/รถ/ศีขร)">🔄 โอนระหว่างคลัง</button>
               <button id="prodManageCatBtn" class="prod-more-item" title="จัดการหมวดหมู่ (เพิ่ม/ลบ/เปลี่ยนชื่อ/ย้ายตำแหน่ง)">🗂️ จัดการหมวด</button>
               <button id="prodMergeCatBtn" class="prod-more-item" title="ค้นหาและรวมหมวดหมู่ซ้ำ/ใกล้เคียง">🔗 รวมหมวดซ้ำ</button>
               <button id="prodBulkModeBtn" class="prod-more-item${bulkMode ? ' prod-more-active' : ''}" title="โหมดเลือกหลายรายการ">${bulkMode ? '✓ Bulk (เลือก ' + bulkSelected.size + ')' : '☑ Bulk เลือกหลายรายการ'}</button>
@@ -781,6 +782,11 @@ function renderView(ctx, opts = {}) {
   el.querySelector("#prodGenAllBarcodesBtn")?.addEventListener("click", () => generateAllBarcodes(ctx));
   el.querySelector("#prodPrintBarcodesBtn")?.addEventListener("click", () => _printBarcodesWithScope(ctx));
   el.querySelector("#prodStockSheetBtn")?.addEventListener("click", () => openStockCheckSheet(ctx));
+  // 🔄 ทางลัด "โอนระหว่างคลัง" — นำทางไปหน้ารายการเคลื่อนไหวสต็อกแล้วให้มันเปิด modal โอนเอง (reuse flow เดิม ไม่มี stock-write ใหม่)
+  el.querySelector("#prodTransferBtn")?.addEventListener("click", () => {
+    window._smOpenTransfer = true;   // flag: stock-movements page auto-opens its transfer modal
+    location.hash = "stock_movements";
+  });
   el.querySelector("#prodDeleteAllBtn")?.addEventListener("click", () => deleteAllProducts(ctx));
   el.querySelector("#prodMergeCatBtn")?.addEventListener("click", () => openMergeCategoriesDialog(ctx));
 

@@ -191,7 +191,8 @@
 // v455 (2026-06-16): Phase 453b/453c — picker "เลือกอุปกรณ์" หน้าใบงานติดตั้ง/ซ่อม (service_form.js _openItemPicker) + หน้าโซล่าเซลล์ (solar.js _solOpenItemPicker): เลือกคลังก่อน (chips ทุกคลัง/รถ/บ้าน) + กรองหมวด → ลิสต์เหลือเฉพาะของในคลัง + คลิกใช้คลังที่เลือกเลย (กันชื่อซ้ำข้ามคลัง). UI picker เท่านั้น — ไม่แตะ transfer/deduct/_pickMobileWarehouse/add-payload. Bumps CACHE_NAME.
 // v456 (2026-06-17): Phase 456 — แถวการ์ดสรุปสต็อกแต่ละคลัง (หน้าสินค้า/คลัง, products.js renderView): การ์ดต่อคลัง + การ์ด "ทุกคลัง" แสดงจำนวนรายการ(stock>0)/จำนวนชิ้น คลิกเพื่อสลับคลัง (เหมือน dropdown). read-only ล้วน คำนวณจาก state.warehouseStock ที่โหลดไว้ — ไม่ยิง fetch/query/write. Bumps CACHE_NAME.
 // v457 (2026-06-17): Phase 457 — แถวอุปกรณ์ในงานช่าง (service_equipment.js renderEquipmentList) แสดง "🔻 ตัดจาก {คลัง} • คงเหลือ {N} ชิ้น" ต่อรายการ: คงเหลือ = สต็อกสดของสินค้าในคลังนั้น (lookup จาก state.warehouseStock ที่โหลดไว้). read-only display ล้วน — ไม่ fetch/query/write, ไม่แตะ deduct/onPick/qty controls; backward-compatible (ไม่มี state/warehouse_id → แสดงแค่ราคาเหมือนเดิม). Bumps CACHE_NAME.
-const CACHE_NAME = 'boonsook-pos-v5-cache-v457';
+// v458 (2026-06-17): Phase 458 — ปุ่มทางลัด "🔄 โอนระหว่างคลัง" ในเมนู "จัดการเพิ่มเติม" หน้าสินค้า/คลัง (products.js): ตั้ง flag window._smOpenTransfer แล้วนำทางไปหน้า stock_movements ซึ่งจะเปิด modal โอนเอง (one-shot — ล้าง flag ทันที). PURE navigation/UI — reuse flow โอนเดิม (_transferWarehouseStock) ไม่มี stock-write/transfer logic ใหม่. Bumps CACHE_NAME.
+const CACHE_NAME = 'boonsook-pos-v5-cache-v458';
 const OFFLINE_PAGE = './index.html';
 
 // Files to pre-cache on install (only essential files)

@@ -459,6 +459,8 @@ export function renderStockMovementsPage(ctx) {
   const $smtProd = document.getElementById("smt-product-select");
   const $smtFrom = document.getElementById("smt-from-select");
   if ($transferBtn) $transferBtn.onclick = openTransferModal;
+  // ทางลัดจากหน้าสินค้า: ถ้ามาพร้อม flag → เปิด modal โอนเลย (one-shot — ล้าง flag ทันทีกันเปิดซ้ำ)
+  if (window._smOpenTransfer) { window._smOpenTransfer = false; openTransferModal(); }
   if ($smtClose) $smtClose.onclick = closeTransferModal;
   if ($smtCancel) $smtCancel.onclick = closeTransferModal;
   if ($smtProd) $smtProd.onchange = updateTransferFromStock;
