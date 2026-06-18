@@ -18,6 +18,7 @@ import { exportToExcel, todaySuffix, todayBkk } from "../utils.js";
 
 // ★ Phase 413: เริ่มบัญชีจริง 1 ก.ค. 2569 — single source of truth ที่ effective_date.js
 import { ACCOUNTING_EFFECTIVE_DATE } from "./effective_date.js";
+import { fetchApprovedJournalLines } from "./je_fetch.js";
 
 let _ctx = null;
 let _asOfDate = null;
@@ -43,21 +44,9 @@ async function fetchData(asOfDate) {
   const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token };
 
   // ★ BS = cumulative ตั้งแต่ effective date → asOfDate
-  const entriesUrl = `${cfg.url}/rest/v1/journal_entries?select=id&doc_date=gte.${ACCOUNTING_EFFECTIVE_DATE}&doc_date=lte.${asOfDate}&status=eq.approved`;
-  const entriesRes = await fetch(entriesUrl, { headers });
-  if (!entriesRes.ok) throw new Error("ไม่สามารถดึง JV: HTTP " + entriesRes.status);
-  const entries = await entriesRes.json();
-  if (entries.length === 0) return { lines: [], coa: [] };
-
-  const ids = entries.map(e => e.id);
-  const linesAll = [];
-  const CHUNK = 200;
-  for (let i = 0; i < ids.length; i += CHUNK) {
-    const chunk = ids.slice(i, i + CHUNK).join(",");
-    const r = await fetch(`${cfg.url}/rest/v1/journal_lines?select=account_code,debit,credit&entry_id=in.(${chunk})`, { headers });
-    if (!r.ok) throw new Error("ไม่สามารถดึง lines: HTTP " + r.status);
-    linesAll.push(...await r.json());
-  }
+  // ★ Phase 496 (audit #2): paginate (เดิมไม่ paginate → 1000-row cap → BS ไม่ดุล; BS สะสมจาก 1ก.ค. = ข้าม 1000 ก่อนรายงานอื่น)
+  const linesAll = await fetchApprovedJournalLines(ACCOUNTING_EFFECTIVE_DATE, asOfDate);
+  if (linesAll.length === 0) return { lines: [], coa: [] };
 
   const coaRes = await fetch(`${cfg.url}/rest/v1/chart_of_accounts?select=code,name,type&order=code.asc`, { headers });
   if (!coaRes.ok) throw new Error("ไม่สามารถดึง COA: HTTP " + coaRes.status);

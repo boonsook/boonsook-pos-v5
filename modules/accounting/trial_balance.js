@@ -10,6 +10,7 @@
 // ═══════════════════════════════════════════════════════════
 
 import { exportToExcel, todaySuffix, todayBkk } from "../utils.js";
+import { fetchApprovedJournalLines } from "./je_fetch.js";
 
 let _ctx = null;
 let _periodType = "month";
@@ -81,25 +82,10 @@ export async function fetchTrialBalanceData(from, to) {
   const token = window._sbAccessToken || cfg.anonKey;
   const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token };
 
-  // 1. Get all approved JV entries in date range
-  const entriesUrl = `${cfg.url}/rest/v1/journal_entries?select=id&doc_date=gte.${from}&doc_date=lte.${to}&status=eq.approved`;
-  const entriesRes = await fetch(entriesUrl, { headers });
-  if (!entriesRes.ok) throw new Error("ไม่สามารถดึง JV: HTTP " + entriesRes.status);
-  const entries = await entriesRes.json();
-  if (entries.length === 0) return { lines: [], coa: [] };
-
-  // 2. Get all lines for those entries (chunk by 200 ids if needed)
-  const ids = entries.map(e => e.id);
-  const linesAll = [];
-  const CHUNK = 200;
-  for (let i = 0; i < ids.length; i += CHUNK) {
-    const chunk = ids.slice(i, i + CHUNK).join(",");
-    const linesUrl = `${cfg.url}/rest/v1/journal_lines?select=account_code,debit,credit&entry_id=in.(${chunk})`;
-    const r = await fetch(linesUrl, { headers });
-    if (!r.ok) throw new Error("ไม่สามารถดึง lines: HTTP " + r.status);
-    const arr = await r.json();
-    linesAll.push(...arr);
-  }
+  // 1+2. ★ Phase 496 (audit #2): ดึง entries+lines แบบ paginate (เดิม fetch ตรงไม่ paginate → PostgREST
+  //   1000-row cap → JV>1000 ในช่วง = หล่นเงียบ → TB ไม่บาลานซ์/บาลานซ์แต่ผิด)
+  const linesAll = await fetchApprovedJournalLines(from, to);
+  if (linesAll.length === 0) return { lines: [], coa: [] };
 
   // 3. Get full chart of accounts
   const coaUrl = `${cfg.url}/rest/v1/chart_of_accounts?select=code,name,type,is_active&order=code.asc`;

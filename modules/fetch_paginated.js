@@ -21,3 +21,21 @@ export async function fetchAllPaginated(queryFn, pageSize = 1000) {
   }
   return acc;
 }
+
+// ── raw-fetch variant (Phase 496) ────────────────────────────────────────────
+// สำหรับ module ที่ยิง PostgREST URL ตรงด้วย fetch() (ไม่ผ่าน supabase client) — เช่น
+// รายงานบัญชี (TB/PL/BS/periods) ที่ aggregate journal_entries/journal_lines แล้วโดน 1000-row cap.
+// urlFor(offset, limit) ต้องคืน URL เต็ม "พร้อม &order=... ที่ stable" (offset paging ถูกต้อง
+// เฉพาะเมื่อมีลำดับแน่นอน). throw เมื่อ HTTP/parse error — ห้าม truncate เงียบ (เส้นทางการเงิน).
+export async function fetchAllRowsRaw(urlFor, headers, pageSize = 1000) {
+  const acc = [];
+  for (let offset = 0; ; offset += pageSize) {
+    const res = await fetch(urlFor(offset, pageSize), { headers });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const page = await res.json();
+    if (!Array.isArray(page) || page.length === 0) break;
+    acc.push(...page);
+    if (page.length < pageSize) break;            // หน้าสุดท้าย
+  }
+  return acc;
+}

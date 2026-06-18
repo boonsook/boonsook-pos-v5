@@ -14,6 +14,7 @@ import { todaySuffix, todayBkk } from "../utils.js";
 
 // ★ Phase 413: เริ่มบัญชีจริง 1 ก.ค. 2569 — single source of truth ที่ effective_date.js
 import { ACCOUNTING_EFFECTIVE_DATE } from "./effective_date.js";
+import { fetchAllRowsRaw } from "../fetch_paginated.js";
 
 let _ctx = null;
 let _periodType = "month";
@@ -68,25 +69,33 @@ async function fetchAll(from, to) {
   const token = window._sbAccessToken || cfg.anonKey;
   const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token };
 
+  // ★ Phase 496 (audit #2): paginate ทุก fetch (เดิมไม่ paginate → 1000-row cap → ชุดส่งสรรพากรขาดข้อมูลเงียบ ๆ เมื่อ JV>1000)
   // 1. Period entries (for TB / PL)
-  const periodEntries = await (await fetch(`${cfg.url}/rest/v1/journal_entries?select=*&doc_date=gte.${from}&doc_date=lte.${to}&status=eq.approved&order=doc_date.asc,id.asc`, { headers })).json();
+  const periodEntries = await fetchAllRowsRaw(
+    (off, lim) => `${cfg.url}/rest/v1/journal_entries?select=*&doc_date=gte.${from}&doc_date=lte.${to}&status=eq.approved&order=doc_date.asc,id.asc&limit=${lim}&offset=${off}`,
+    headers
+  );
 
   // 2. Cumulative entries since effective (for BS)
-  const cumEntries = await (await fetch(`${cfg.url}/rest/v1/journal_entries?select=id&doc_date=gte.${ACCOUNTING_EFFECTIVE_DATE}&doc_date=lte.${to}&status=eq.approved`, { headers })).json();
+  const cumEntries = await fetchAllRowsRaw(
+    (off, lim) => `${cfg.url}/rest/v1/journal_entries?select=id&doc_date=gte.${ACCOUNTING_EFFECTIVE_DATE}&doc_date=lte.${to}&status=eq.approved&order=id.asc&limit=${lim}&offset=${off}`,
+    headers
+  );
 
   // 3. Lines for both
   const allIds = [...new Set([...periodEntries.map(e => e.id), ...cumEntries.map(e => e.id)])];
   const linesByEntry = {};
-  if (allIds.length > 0) {
-    const CHUNK = 200;
-    for (let i = 0; i < allIds.length; i += CHUNK) {
-      const chunk = allIds.slice(i, i + CHUNK).join(",");
-      const arr = await (await fetch(`${cfg.url}/rest/v1/journal_lines?select=*&entry_id=in.(${chunk})&order=entry_id.asc,line_no.asc`, { headers })).json();
-      arr.forEach(l => {
-        if (!linesByEntry[l.entry_id]) linesByEntry[l.entry_id] = [];
-        linesByEntry[l.entry_id].push(l);
-      });
-    }
+  const CHUNK = 200;
+  for (let i = 0; i < allIds.length; i += CHUNK) {
+    const chunk = allIds.slice(i, i + CHUNK).join(",");
+    const arr = await fetchAllRowsRaw(
+      (off, lim) => `${cfg.url}/rest/v1/journal_lines?select=*&entry_id=in.(${chunk})&order=entry_id.asc,line_no.asc&limit=${lim}&offset=${off}`,
+      headers
+    );
+    arr.forEach(l => {
+      if (!linesByEntry[l.entry_id]) linesByEntry[l.entry_id] = [];
+      linesByEntry[l.entry_id].push(l);
+    });
   }
 
   // 4. Chart of Accounts

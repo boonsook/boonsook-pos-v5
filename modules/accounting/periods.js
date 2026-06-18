@@ -11,6 +11,7 @@
 import { _classifyOrphan, INTEGRITY_CATS } from "./backfill.js";
 // Phase 390: รวม "งานบริการที่ปิดแล้วแต่ยังไม่มี JE" เข้า close-readiness (กันงวดเขียวทั้งที่รายได้บริการหาย)
 import { fetchServiceJVStatus } from "../service_reconcile.js";
+import { fetchApprovedJournalLines } from "./je_fetch.js";
 
 // non-HR source tables ที่ auto_post สร้าง JE (ไม่รวม staff_payroll = HR domain)
 const READINESS_JV_SOURCES = ["sales", "expenses", "receipts", "delivery_invoices", "service_jobs", "credit_payments", "refunds"];
@@ -64,32 +65,25 @@ async function fetchPeriodSummary(year, month) {
   const cacheKey = `${year}-${String(month).padStart(2,"0")}`;
   if (_summaryCache[cacheKey]) return _summaryCache[cacheKey];
 
-  const cfg = window.SUPABASE_CONFIG;
-  const token = window._sbAccessToken || cfg.anonKey;
   const fromDate = `${year}-${String(month).padStart(2,"0")}-01`;
   const lastDay = new Date(year, month, 0).getDate();
   const toDate = `${year}-${String(month).padStart(2,"0")}-${String(lastDay).padStart(2,"0")}`;
 
   // ดึง entries + lines เพื่อคำนวณ revenue/expense
-  const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token };
-  const entriesUrl = `${cfg.url}/rest/v1/journal_entries?select=id&doc_date=gte.${fromDate}&doc_date=lte.${toDate}&status=eq.approved`;
-  const entries = await (await fetch(entriesUrl, { headers })).json();
-  const ids = entries.map(e => e.id);
+  // ★ Phase 496 (audit #2): paginate (เดิม fetch ตรง + join ids ทั้งหมด → 1000-cap + URL ยาวเมื่อ entries เยอะ)
+  //   +entry_id เพื่อ count JV distinct (เดิมใช้ entries.length)
+  const lines = await fetchApprovedJournalLines(fromDate, toDate, "account_code,debit,credit,entry_id");
 
   let revenue = 0, expense = 0, totalDr = 0, totalCr = 0;
-  if (ids.length) {
-    const linesUrl = `${cfg.url}/rest/v1/journal_lines?select=account_code,debit,credit&entry_id=in.(${ids.join(",")})`;
-    const lines = await (await fetch(linesUrl, { headers })).json();
-    lines.forEach(l => {
-      const code = String(l.account_code || "");
-      const dr = Number(l.debit || 0), cr = Number(l.credit || 0);
-      totalDr += dr; totalCr += cr;
-      // Revenue: 4xxx (Cr - Dr)
-      if (code.startsWith("4")) revenue += cr - dr;
-      // Expense: 5xxx (Dr - Cr)
-      if (code.startsWith("5")) expense += dr - cr;
-    });
-  }
+  lines.forEach(l => {
+    const code = String(l.account_code || "");
+    const dr = Number(l.debit || 0), cr = Number(l.credit || 0);
+    totalDr += dr; totalCr += cr;
+    // Revenue: 4xxx (Cr - Dr)
+    if (code.startsWith("4")) revenue += cr - dr;
+    // Expense: 5xxx (Dr - Cr)
+    if (code.startsWith("5")) expense += dr - cr;
+  });
 
   // ★ Phase 92.53: Dr=Cr balance check (accounting close-readiness) — reuses the lines already fetched, no extra request
   const drCrDiff = totalDr - totalCr;
@@ -97,7 +91,7 @@ async function fetchPeriodSummary(year, month) {
     revenue,
     expense,
     net: revenue - expense,
-    jvCount: ids.length,
+    jvCount: new Set(lines.map(l => l.entry_id)).size,
     totalDr, totalCr, drCrDiff,
     balanced: Math.abs(drCrDiff) < 0.01
   };

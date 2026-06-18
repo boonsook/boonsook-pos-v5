@@ -10,6 +10,7 @@
 // ═══════════════════════════════════════════════════════════
 
 import { exportToExcel, todaySuffix, todayBkk, dateBkk } from "../utils.js";
+import { fetchApprovedJournalLines } from "./je_fetch.js";
 
 let _ctx = null;
 let _periodType = "month";
@@ -115,21 +116,9 @@ async function fetchData(from, to) {
   const token = window._sbAccessToken || cfg.anonKey;
   const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token };
 
-  const entriesUrl = `${cfg.url}/rest/v1/journal_entries?select=id&doc_date=gte.${from}&doc_date=lte.${to}&status=eq.approved`;
-  const entriesRes = await fetch(entriesUrl, { headers });
-  if (!entriesRes.ok) throw new Error("ไม่สามารถดึง JV: HTTP " + entriesRes.status);
-  const entries = await entriesRes.json();
-  if (entries.length === 0) return { lines: [], coa: [] };
-
-  const ids = entries.map(e => e.id);
-  const linesAll = [];
-  const CHUNK = 200;
-  for (let i = 0; i < ids.length; i += CHUNK) {
-    const chunk = ids.slice(i, i + CHUNK).join(",");
-    const r = await fetch(`${cfg.url}/rest/v1/journal_lines?select=account_code,debit,credit&entry_id=in.(${chunk})`, { headers });
-    if (!r.ok) throw new Error("ไม่สามารถดึง lines: HTTP " + r.status);
-    linesAll.push(...await r.json());
-  }
+  // ★ Phase 496 (audit #2): paginate entries+lines (เดิมไม่ paginate → 1000-row cap → P&L ต่ำกว่าจริงเมื่อ JV>1000)
+  const linesAll = await fetchApprovedJournalLines(from, to);
+  if (linesAll.length === 0) return { lines: [], coa: [] };
 
   const coaRes = await fetch(`${cfg.url}/rest/v1/chart_of_accounts?select=code,name,type&order=code.asc`, { headers });
   if (!coaRes.ok) throw new Error("ไม่สามารถดึง COA: HTTP " + coaRes.status);
