@@ -1189,6 +1189,17 @@ function _openPayrollModal(ctx, payroll) {
   m.addEventListener("click", e => { if (e.target === m) m.remove(); });
   document.getElementById("prModalCancel")?.addEventListener("click", () => m.remove());
   document.getElementById("prModalSave")?.addEventListener("click", () => _savePayroll(ctx, payroll));
+
+  // ★ Phase 491 (S-1): row ที่จ่ายแล้ว = แก้ได้แค่ note (ยอด/รายจ่าย/JV ต้องไม่หลุด sync — _savePayroll PATCH
+  //   เฉพาะ note ให้ paid row). ล็อกฟิลด์เงินเป็น read-only + แบนเนอร์บอกให้ลบแล้วสร้างใหม่ถ้าจะแก้ยอด.
+  if (payroll?.paid_at) {
+    ["prEmp","prDept","prDaysWorked","prDailyRate","prDailyToggle","prBase","prOT","prWel","prBonus","prCom","prDed"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) { el.disabled = true; el.style.opacity = "0.6"; el.style.cursor = "not-allowed"; }
+    });
+    const _lockEl = document.getElementById("prModalStatus");
+    if (_lockEl) _lockEl.innerHTML = `<div style="padding:8px 10px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;color:#92400e;font-size:12px;line-height:1.5">🔒 จ่ายแล้ว — แก้ยอดไม่ได้ (กันรายจ่าย/บัญชีหลุด). ต้องการแก้ยอด: <b>ลบรายการนี้แล้วสร้างใหม่</b> (ระบบย้อนรายจ่าย + ให้ลง JV งวดใหม่). แก้ได้เฉพาะหมายเหตุ</div>`;
+  }
 }
 
 async function _savePayroll(ctx, existing) {
@@ -1269,7 +1280,11 @@ async function _savePayroll(ctx, existing) {
   try {
     let resp;
     if (existing?.id) {
-      resp = await fetch(cfg.url + "/rest/v1/staff_payroll?id=eq." + existing.id, { method: "PATCH", headers, body: JSON.stringify(payload) });
+      // ★ Phase 491 (S-1): row ที่ "จ่ายแล้ว" → PATCH เฉพาะ note (กันยอด/total_amount/รายจ่าย #payroll-{id}/JV งวด
+      //   หลุด sync — เพราะ edit ไม่ได้ลบ+สร้าง expense/void+repost JV ใหม่). แก้ยอดต้องลบรายการแล้วสร้างใหม่
+      //   (delete ย้อน expense [489] + admin re-post JV งวด). row ยังไม่จ่าย → PATCH ได้ทั้งหมดเหมือนเดิม.
+      const patchBody = existing.paid_at ? { note: payload.note } : payload;
+      resp = await fetch(cfg.url + "/rest/v1/staff_payroll?id=eq." + existing.id, { method: "PATCH", headers, body: JSON.stringify(patchBody) });
     } else {
       resp = await fetch(cfg.url + "/rest/v1/staff_payroll", { method: "POST", headers, body: JSON.stringify(payload) });
     }

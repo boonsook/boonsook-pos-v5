@@ -302,3 +302,16 @@ test("source: _askReviewNote modal มี OK + Cancel buttons + textarea", async
   assert.match(body, /role="dialog"/, "a11y dialog role");
   assert.match(body, /aria-modal="true"/, "a11y aria-modal");
 });
+
+// Phase 491 (audit S-1) — paid payroll row = edit note only (no silent total/expense/JV divergence)
+test("source: paid payroll row → PATCH note only + financial inputs locked", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const src = fs.readFileSync(path.resolve("modules/payroll.js"), "utf8");
+  // _savePayroll: paid row PATCHes note only; unpaid PATCHes the full payload (unchanged)
+  assert.match(src, /const patchBody = existing\.paid_at \? \{ note: payload\.note \} : payload;/,
+    "paid row must PATCH note only (not the financial payload)");
+  // _openPayrollModal: paid row disables the financial inputs + shows a locked banner
+  assert.match(src, /if \(payroll\?\.paid_at\) \{[\s\S]{0,400}\.disabled = true/, "paid row disables financial inputs");
+  assert.match(src, /จ่ายแล้ว — แก้ยอดไม่ได้/, "paid row shows a locked banner (delete+recreate to change)");
+});
