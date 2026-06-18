@@ -841,8 +841,10 @@ export function renderSolarPage(ctx) {
         }
       } catch(e) { console.warn("[solar] state update fail", e); }
 
-      // ★ Phase 88.13: Auto-transfer (ถ้ามี) → ตัดสต็อก
-      statusEl.textContent = "🔄 กำลังโอน/ตัดสต็อก...";
+      // ★ Phase 482: งานโซลาร์ "ไม่ตัดสต็อก" ตอนสร้างอีกแล้ว — ตัดตอนปิดงานผ่าน admin drawer
+      //   (deductServiceJobStock; กัน double-deduct ที่ deduct-on-close จะตัดซ้ำ). คงเฉพาะ auto-transfer
+      //   (Step 1 — ย้ายคลังเตรียมของ ไม่ใช่ consume). items_json ถูกบันทึก (record.items_json) → drawer ตัดตอนปิด.
+      statusEl.textContent = "🔄 กำลังโอนสต็อก...";
       let stockOpsFailed = false;
       try {
         // Step 1: Auto-transfer จากบ้าน → รถ (ถ้ามี shortage)
@@ -861,42 +863,16 @@ export function renderSolarPage(ctx) {
             }
           }
         }
-        // Step 2: Deduct stock จาก warehouse ที่เลือก (ทุก item)
-        for (const it of fullItems) {
-          if (!it.warehouse_id || !it.product_id) continue;
-          if (typeof window._appApplyStockMovement === "function") {
-            const r = await window._appApplyStockMovement({
-              productId: it.product_id,
-              warehouseId: it.warehouse_id,
-              movementType: "out",
-              qty: Number(it.qty || 0),
-              note: `solar: ${jobNo} — ${name}`
-            });
-            if (!r?.ok) {
-              console.error("[solar deduct fail]", it, r);
-              stockOpsFailed = true;
-            }
-          }
-        }
       } catch (stockErr) {
         console.error("[solar stock ops]", stockErr);
         stockOpsFailed = true;
       }
-
-      // Phase 88.13: optimistic update state.warehouseStock (ไม่ await loadAllData)
-      try {
-        for (const it of fullItems) {
-          if (!it.warehouse_id || !it.product_id) continue;
-          const ws = (state.warehouseStock || []).find(w =>
-            String(w.product_id) === String(it.product_id) &&
-            String(w.warehouse_id) === String(it.warehouse_id)
-          );
-          if (ws) ws.stock = Math.max(0, Number(ws.stock || 0) - Number(it.qty || 0));
-        }
-      } catch(e) { console.warn("[solar] optimistic stock update fail", e); }
+      // ★ Phase 482: ลบ optimistic deduct ของ fullItems (เดิม Phase 88.13) — ฟอร์มไม่ตัดสต็อกแล้ว
+      //   (เก็บไว้จะทำ state.warehouseStock ลดทั้งที่ไม่ได้ตัดจริง = แสดงสต็อกผิด); transfer optimistic
+      //   อยู่ใน _appTransferWarehouseStock เองแล้ว.
 
       if (stockOpsFailed) {
-        showToast?.("⚠️ ใบงาน save แล้ว แต่ตัดสต็อก/โอนบางรายการล้มเหลว — ตรวจ Console");
+        showToast?.("⚠️ ใบงาน save แล้ว แต่โอนสต็อกบางรายการล้มเหลว — ตรวจ Console");
       }
 
       statusEl.innerHTML = `<div style="text-align:center;color:var(--success);font-weight:700">✅ บันทึกงานโซล่าเซลล์สำเร็จ!${jobNo ? ` (${escHtml(jobNo)})` : ""}</div>`;

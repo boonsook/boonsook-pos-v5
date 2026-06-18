@@ -118,8 +118,16 @@ test("saveServiceJob: deduct happens on close (transition / new-complete), idemp
   assert.match(body, /xhrPatch\("service_jobs", \{ note: ded\.newNote \}/, "marker persisted to DB to prevent re-deduct");
 });
 
-// ── source wiring: service_form.js (intake form no longer consumes stock) ───────
-test("service_form: no 'out' deduct on create (only transfer kept)", () => {
-  assert.ok(!/movementType: "out"/.test(serviceForm), "intake form must not deduct stock on create");
-  assert.match(serviceForm, /_appTransferWarehouseStock/, "auto-transfer (prepare stock) is kept");
+// ── source wiring: intake forms no longer consume stock (transfer kept) ─────────
+test("service_form / ac_install / solar: no 'out' deduct on create; transfer kept", () => {
+  // Phase 482 + addendum: all intake forms create jobs without consuming stock (deduct happens
+  // at job close via the drawer). Leaving any one cutting on create double-deducts after close.
+  for (const [name, src] of [
+    ["service_form", serviceForm],
+    ["ac_install", fs.readFileSync(path.resolve("modules/ac_install.js"), "utf8")],
+    ["solar", fs.readFileSync(path.resolve("modules/solar.js"), "utf8")],
+  ]) {
+    assert.ok(!/movementType: "out"/.test(src), `${name} must not deduct stock on create`);
+    assert.match(src, /_appTransferWarehouseStock/, `${name} keeps auto-transfer (prepare stock)`);
+  }
 });

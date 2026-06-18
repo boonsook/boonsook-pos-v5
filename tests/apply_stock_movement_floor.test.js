@@ -117,17 +117,16 @@ test("stock_movements.js save handler no longer allows negative (Phase 437 hard 
   );
 });
 
-test("service-job auto-deduct (ac_install/solar) does NOT pass allowNegative → floored", () => {
-  // Phase 482: service_form no longer deducts on create (moved to job close); ac_install/solar
-  // still deduct on create (out of Phase 482 scope — see known risk: consolidate later).
-  for (const f of ["ac_install", "solar"]) {
+test("intake forms no longer deduct on create (Phase 482); floor enforced at close via CAS", () => {
+  // Phase 482 (+addendum): service_form / ac_install / solar all create jobs WITHOUT consuming
+  // stock — equipment is deducted exactly once at job close (admin drawer → deductServiceJobStock
+  // → deductEquipmentStock, out movement, default allowNegative=false = CAS floor). This closes the
+  // double-deduct (create-cut + close-cut) for AC/solar jobs.
+  for (const f of ["service_form", "ac_install", "solar"]) {
     const src = fs.readFileSync(path.resolve(`modules/${f}.js`), "utf8");
-    assert.ok(src.includes('movementType: "out"'), `${f}.js auto-deducts with type out`);
-    assert.ok(!src.includes("allowNegative"), `${f}.js must rely on default allowNegative=false (floored)`);
+    assert.ok(!src.includes('movementType: "out"'), `${f}.js must not deduct stock on create`);
   }
-});
-
-test("service_form no longer deducts on create (Phase 482 — deduct moved to job close)", () => {
-  const src = fs.readFileSync(path.resolve("modules/service_form.js"), "utf8");
-  assert.ok(!src.includes('movementType: "out"'), "intake form must not consume stock on create");
+  const equip = fs.readFileSync(path.resolve("modules/service_equipment.js"), "utf8");
+  assert.ok(equip.includes('movementType: "out"'), "deduct-on-close cuts via out movement");
+  assert.ok(!equip.includes("allowNegative"), "deduct relies on default allowNegative=false (CAS floor)");
 });

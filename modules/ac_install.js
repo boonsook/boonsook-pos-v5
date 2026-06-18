@@ -578,7 +578,10 @@ export function renderAcInstallPage(ctx) {
 
       // ★ Phase 43: Auto-transfer (ถ้ามี) → ตัดสต็อก
       // eslint-disable-next-line require-atomic-updates -- G: saveBtn entry-guard (ac_install.js:340) gates concurrent save handler
-      statusEl.textContent = "🔄 กำลังโอน/ตัดสต็อก...";
+      statusEl.textContent = "🔄 กำลังโอนสต็อก...";
+      // ★ Phase 482: งานติดตั้งแอร์ "ไม่ตัดสต็อก" ตอนสร้างอีกแล้ว — ตัดตอนปิดงานผ่าน admin drawer
+      //   (deductServiceJobStock; กัน double-deduct ที่ deduct-on-close จะตัดซ้ำ). คงเฉพาะ auto-transfer
+      //   (Step 1 — ย้ายคลังเตรียมของ บ้าน→รถ ไม่ใช่ consume). items_json ถูกบันทึก (record.items_json) → drawer ตัดตอนปิด.
       let stockOpsFailed = false;
       try {
         // Step 1: Auto-transfer จากบ้าน → รถ (ถ้ามี shortage)
@@ -597,44 +600,16 @@ export function renderAcInstallPage(ctx) {
             }
           }
         }
-        // Step 2: Deduct stock จาก warehouse ที่เลือก (ทุก item)
-        for (const it of fullItems) {
-          if (!it.warehouse_id || !it.product_id) continue;
-          if (typeof window._appApplyStockMovement === "function") {
-            const r = await window._appApplyStockMovement({
-              productId: it.product_id,
-              warehouseId: it.warehouse_id,
-              movementType: "out",
-              qty: Number(it.qty || 0),
-              note: `service_install: ${jobNo} — ${name}`
-            });
-            if (!r?.ok) {
-              console.error("[ac_install deduct fail]", it, r);
-              stockOpsFailed = true;
-            }
-          }
-        }
       } catch (stockErr) {
         console.error("[ac_install stock ops]", stockErr);
         stockOpsFailed = true;
       }
-
-      // Phase 45.5: optimistic update state.warehouseStock + ไม่ await loadAllData
-      // เหตุผล: loadAllData → renderAll → showRoute → renderAcInstallPage → re-mount form →
-      //         ค่าแรง/ส่วนลด/หมายเหตุ input reset เป็น value="0" ทั้งที่ user เพิ่งกรอกค่า
-      try {
-        for (const it of fullItems) {
-          if (!it.warehouse_id || !it.product_id) continue;
-          const ws = (state.warehouseStock || []).find(w =>
-            String(w.product_id) === String(it.product_id) &&
-            String(w.warehouse_id) === String(it.warehouse_id)
-          );
-          if (ws) ws.stock = Math.max(0, Number(ws.stock || 0) - Number(it.qty || 0));
-        }
-      } catch(e) { console.warn("[ac_install] optimistic stock update fail", e); }
+      // ★ Phase 482: ลบ optimistic deduct ของ fullItems (เดิม Phase 45.5) — ฟอร์มไม่ตัดสต็อกแล้ว
+      //   (เก็บไว้จะทำ state.warehouseStock ลดทั้งที่ไม่ได้ตัดจริง = แสดงสต็อกผิด); transfer optimistic
+      //   อยู่ใน _appTransferWarehouseStock เองแล้ว.
 
       if (stockOpsFailed) {
-        showToast?.("⚠️ ใบงาน save แล้ว แต่ตัดสต็อก/โอนบางรายการล้มเหลว — ตรวจ Console");
+        showToast?.("⚠️ ใบงาน save แล้ว แต่โอนสต็อกบางรายการล้มเหลว — ตรวจ Console");
       }
 
       // เก็บข้อมูลไว้สำหรับปุ่ม "ดูใบเสร็จ" / "ส่ง LINE"
