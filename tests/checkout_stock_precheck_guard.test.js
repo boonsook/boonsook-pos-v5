@@ -33,6 +33,19 @@ test("oversell is blocked (returns before the sales insert) with an actionable m
   assert.ok(shortIdx > -1 && saleIdx > -1 && shortIdx < saleIdx, "the block must come BEFORE the sales insert (no bill on oversell)");
 });
 
+test("precheck sits INSIDE the try so its early-return hits the button-reset finally (no stuck 'กำลังบันทึก')", () => {
+  // Phase 476: the precheck used to live BEFORE the try, so its `return` on oversell skipped the
+  // finally that re-enables the confirm buttons → the button hung on "⏳ กำลังบันทึก..." forever.
+  const i = pos.indexOf("async function doCheckout(");
+  const body = pos.slice(i, i + 16000); // wide enough to include the button-reset finally
+  const tryIdx = body.indexOf("try {");
+  const shortIdx = body.indexOf("_short.length > 0");
+  const resetIdx = body.indexOf("reset UI buttons");
+  assert.ok(tryIdx > -1 && shortIdx > -1 && resetIdx > -1, "try / precheck / button-reset markers all present");
+  assert.ok(tryIdx < shortIdx, "the precheck must be INSIDE the try (try opens before the precheck)");
+  assert.ok(shortIdx < resetIdx, "the precheck must come before the finally that resets the buttons");
+});
+
 test("service / non_stock items are skipped (no false block)", () => {
   assert.match(cb, /product_type === "service" \|\| _p\.product_type === "non_stock"/, "skips non-stock items in the precheck");
 });
