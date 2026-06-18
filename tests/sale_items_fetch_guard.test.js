@@ -114,10 +114,11 @@ test("the 5 fixed consumers stop reading state.saleItems and use the fetch helpe
   }
 });
 
-// ── tracked residual: products.js turnover hint deferred (own follow-up phase) ───
-test("KNOWN RESIDUAL: products.js turnover hint still reads state.saleItems (deferred)", () => {
+// ── Phase 493: the 6th consumer (products.js turnover badge) is now fixed too ────
+test("products.js turnover hint fixed (Phase 493): lazy-fill, no longer reads state.saleItems", () => {
   const src = fs.readFileSync(path.resolve("modules/products.js"), "utf8");
-  assert.ok(/\(state\.saleItems/.test(src),
-    "products.js turnover hint is the documented deferred consumer (Phase 486 fixed the other 5); " +
-    "if this is fixed in a follow-up, update this guard");
+  assert.ok(!/\(state\.saleItems/.test(src), "products.js no longer reads the empty state.saleItems");
+  assert.match(src, /async function _fillTurnoverHints/, "turnover is lazy-filled after the list renders");
+  assert.match(src, /stock_movements\?type=eq\.sale/, "turnover qty comes from stock_movements (type=sale)");
+  assert.match(src, /class="prod-turnover" data-turnover-pid=/, "renders a turnover placeholder per stock product");
 });

@@ -134,6 +134,7 @@ window._appGetActivePrice = getActivePrice; // expose for POS
 import { escHtml } from "./utils.js";
 // Phase 451: ใบเช็คสต็อก A4 (pure HTML builder)
 import { buildStockCheckSheetHtml } from "./stock_check_sheet.js";
+import { indexQtyByProduct } from "./sale_items_fetch.js";
 
 // ═══════════════════════════════════════════════════════════
 //  MAIN RENDER
@@ -218,6 +219,44 @@ function _currentWarehouseProducts(state) {
     .filter(s => s.warehouse_id === whId && Number(s.stock || 0) > 0)
     .map(s => s.product_id));
   return products.filter(p => ids.has(p.id));
+}
+
+// ★ Phase 493 (B-1 #6): เติม badge stock-turnover "≈Nวันจะหมด" ต่อ product row หลัง render (lazy).
+//   อ่านยอดขายจริง 30 วันจาก stock_movements (type=sale, product_id+qty — bundle ลงใต้ child = ตรง),
+//   sum qty/product → daysLeft = stock / (qty30/30). read-only, paginate, fail/ไม่มีข้อมูล = เงียบ (decoration รอง).
+async function _fillTurnoverHints(container) {
+  const spans = container?.querySelectorAll?.(".prod-turnover[data-turnover-pid]");
+  if (!spans || !spans.length) return;
+  const cfg = typeof window !== "undefined" ? window.SUPABASE_CONFIG : null;
+  if (!cfg?.url) return;
+  const token = window._sbAccessToken || cfg.anonKey;
+  const headers = { apikey: cfg.anonKey, Authorization: "Bearer " + token };
+  const cutoff = (() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10); })();
+  const PAGE = 1000;
+  const rows = [];
+  try {
+    for (let offset = 0; ; offset += PAGE) {
+      const url = cfg.url + "/rest/v1/stock_movements?type=eq.sale&created_at=gte." + encodeURIComponent(cutoff)
+        + "&select=product_id,qty&order=id.asc&limit=" + PAGE + "&offset=" + offset;
+      const r = await fetch(url, { headers });
+      if (!r.ok) return;  // เงียบ — badge เป็น decoration รอง
+      const page = await r.json().catch(() => null);
+      if (!Array.isArray(page)) return;
+      rows.push(...page);
+      if (page.length < PAGE) break;
+    }
+  } catch { return; }
+  const qtyMap = indexQtyByProduct(rows);  // Map(pid → {qty,...}) — reuse (Phase 486)
+  spans.forEach(span => {
+    if (!document.body?.contains?.(span)) return;
+    const qty30 = qtyMap.get(String(span.dataset.turnoverPid))?.qty || 0;
+    const stock = Number(span.dataset.turnoverStock || 0);
+    if (qty30 <= 0 || stock <= 0) return;
+    const avgPerDay = qty30 / 30;
+    const daysLeft = Math.floor(stock / avgPerDay);
+    const color = daysLeft <= 7 ? "#dc2626" : daysLeft <= 14 ? "#f59e0b" : "#94a3b8";
+    span.outerHTML = `<span style="color:${color};font-size:11px;margin-left:4px" title="ขายเฉลี่ย ${avgPerDay.toFixed(1)}/วัน">≈${daysLeft}วัน</span>`;
+  });
 }
 
 function renderView(ctx, opts = {}) {
@@ -633,6 +672,8 @@ function renderView(ctx, opts = {}) {
     <input type="file" id="prodFileInput" accept=".xlsx,.xls,.csv" style="display:none" />
   `;
 
+  _fillTurnoverHints(el);  // ★ Phase 493: เติม badge "≈Nวันจะหมด" ต่อสินค้า (lazy, ดึงยอดขาย 30วันจริง)
+
   // ═══ BINDINGS (ใช้ el.querySelector เพื่อรองรับ multi-page) ═══
   el.querySelector("#prodEmptyAddBtn")?.addEventListener("click", () => {
     el.querySelector("#prodAddBtn")?.click();
@@ -1032,27 +1073,12 @@ function renderProductItem(p, mode, state) {
     if (parts.length > 0) whBreakdown = `<div class="prod-list-wh" style="margin-top:3px">${parts.join("")}</div>`;
   }
 
-  // ★ Stock turnover — กี่วันจะหมด (avg ขาย 30 วันล่าสุด)
-  let turnoverHint = "";
-  if (pType === "stock" && stock > 0) {
-    const last30Key = (() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10); })();
-    const recentSaleIds = new Set(
-      (state.sales || []).filter(s => !(s.note || "").includes("[ลบแล้ว]") && String(s.created_at || "").slice(0, 10) >= last30Key)
-        .map(s => String(s.id))
-    );
-    let qty30 = 0;
-    (state.saleItems || []).forEach(it => {
-      if (recentSaleIds.has(String(it.sale_id)) && String(it.product_id) === String(p.id)) {
-        qty30 += Number(it.qty || 0);
-      }
-    });
-    if (qty30 > 0) {
-      const avgPerDay = qty30 / 30;
-      const daysLeft = Math.floor(stock / avgPerDay);
-      const color = daysLeft <= 7 ? "#dc2626" : daysLeft <= 14 ? "#f59e0b" : "#94a3b8";
-      turnoverHint = `<span style="color:${color};font-size:11px;margin-left:4px" title="ขายเฉลี่ย ${avgPerDay.toFixed(1)}/วัน">≈${daysLeft}วัน</span>`;
-    }
-  }
+  // ★ Stock turnover — กี่วันจะหมด (avg ขาย 30 วัน). Phase 493 (B-1 #6): เดิมอ่าน state.saleItems
+  //   (loadAllData ไม่เคยโหลด = ว่าง) → badge ไม่เคยโชว์. ตอนนี้ render placeholder + เติมจริงหลัง render
+  //   ผ่าน _fillTurnoverHints (fetch stock_movements type=sale 30วัน → qty ต่อ product → ≈Nวัน).
+  const turnoverHint = (pType === "stock" && stock > 0)
+    ? `<span class="prod-turnover" data-turnover-pid="${p.id}" data-turnover-stock="${stock}"></span>`
+    : "";
 
   // ★ Per-card action menu — เก็บปุ่มรองไว้ใต้ "⋯" (inline disclosure กัน clip จาก .prod-list/.panel overflow).
   //   data-action / id เดิมครบ → event delegation เดิมทำงานต่อทุกปุ่ม. ปุ่มด่วน "+ บิล" อยู่นอกเมนู.
