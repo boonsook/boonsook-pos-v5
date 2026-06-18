@@ -48,7 +48,9 @@ builds **468–475** เพิ่งรื้อระบบสต็อก/chec
 
 ## 🟠 SHOULD-FIX
 
-### S1 — Dead Stock report เพี้ยนทั้งหน้า (แสดงทุกสินค้าเป็น "ไม่เคยขาย/ค้าง")
+### S1 — Dead Stock report เพี้ยนทั้งหน้า (แสดงทุกสินค้าเป็น "ไม่เคยขาย/ค้าง") — ✅ RESOLVED build 478 (merged+live 2026-06-18, commit 6e33806)
+
+> **แก้แล้ว:** dead_stock.js เลิกอ่าน `state.saleItems` (ว่าง) → fetch `stock_movements type=sale` ทั้งช่วง (paginate, read-only) → `computeDeadStock` (pure). error→errorHtml+retry (ไม่ fallback all-dead). verified: review+unit 1859+e2e+read-only smoke (dead 286→279 ตาม sale จริง). โบนัส: ขายจริง 90 วัน = 8 ตัว distinct (อาจ sanity-check ว่าน้อยไป — บาง sale ไม่ลง movement? = data question แยก).
 **ไฟล์:** `dead_stock.js:44-59`
 **หลักฐาน (verified):** `dead_stock.js:45,52` อ่าน `state.saleItems` แต่ **`state.saleItems` ไม่เคยถูก assign** ที่ไหนเลย (`grep "state.saleItems ="` = 0 ผลลัพธ์; `loadAllData` โหลด 15 ตารางไม่มี sale_items — fetch แบบ on-demand ต่อบิลเท่านั้น) → `soldProductIds` ว่างเสมอ → `dead = สินค้าที่มีสต็อก > 0 ทุกตัว` + KPI "มูลค่าทุนค้าง" + "% ของสต็อก" + Excel export ผิดทั้งหมด
 **ความเสี่ยง:** read-only (ไม่กระทบเงิน/สต็อกจริง) แต่ **ทำให้ตัดสินใจธุรกิจผิด** (เช่น เทขายล้างของที่จริงขายดี)
