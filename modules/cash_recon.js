@@ -4,7 +4,7 @@
 //  ปิดร้าน: นับเงินจริง → เทียบกับยอดที่ระบบคำนวณ → ดูผลต่าง
 // ═══════════════════════════════════════════════════════════
 
-import { todayBkk, dateBkk } from "./utils.js";
+import { todayBkk, dateBkk, round2 } from "./utils.js";
 function money(n) {
   return new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n || 0));
 }
@@ -110,12 +110,14 @@ export function renderCashReconPage(ctx) {
   const { sales: _sales, cashSales, cashIn, transferSales: _transferSales, transferIn, expenses: _expenses, cashExpenses, cashOut, cashRefunds, cashRefundOut } = recon;
 
   // Phase 92.12: หัก cash refunds ออกจากลิ้นชัก (audit 4.1 Should-fix)
-  const expected = openingCash + cashIn - cashOut - cashRefundOut;
+  // ★ Phase 490 (S-4): round2 ทุกค่าเงิน — เดิม expected/diff เป็นผลรวม reduce ลอย ๆ (0.1+0.2=0.300…04)
+  //   → diff = -1e-13 → ไม่เข้า `diff === 0` แต่เข้า branch "ขาด" → โชว์ "↓ ขาด -฿0.00" หลอกทั้งที่นับตรง
+  const expected = round2(openingCash + cashIn - cashOut - cashRefundOut);
 
   // ★ คำนวณ counted จาก denominations (ถ้ามี)
   const denomTotal = DENOMINATIONS.reduce((sum, d) => sum + d.value * (Number(_crDenoms[d.value]) || 0), 0);
-  const countedCash = denomTotal > 0 ? denomTotal : expectedCounted;
-  const diff = countedCash - expected;
+  const countedCash = round2(denomTotal > 0 ? denomTotal : expectedCounted);
+  const diff = round2(countedCash - expected);  // 2dp → `diff === 0` เชื่อถือได้ (ไม่มี float drift)
 
   container.innerHTML = `
     <div style="padding:8px">

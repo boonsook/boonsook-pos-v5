@@ -3,6 +3,8 @@
 // Run: npm test
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import { computeCashRecon } from "../modules/cash_recon.js";
 
 // Deterministic BKK date helper for tests — no JSDOM, no Intl-locale guessing
@@ -179,4 +181,13 @@ test("computeCashRecon: subtracts cash refunds from drawer (not transfer refunds
   const r = computeCashRecon({ state, date: "2026-05-21", refunds, dateFn: (d) => String(d).slice(0, 10) });
   assert.equal(r.cashRefundOut, 200, "เฉพาะ cash refund วันนั้น");
   assert.equal(r.cashIn, 1000);
+});
+
+// Phase 490 (audit S-4) — round2 the drawer math so float drift doesn't show "↓ ขาด ฿0.00"
+test("Phase 490: expected / countedCash / diff are round2'd (no float-drift false shortfall)", () => {
+  const src = fs.readFileSync(path.resolve("modules/cash_recon.js"), "utf8");
+  assert.match(src, /import \{[^}]*\bround2\b[^}]*\} from "\.\/utils\.js"/, "imports round2 from utils");
+  assert.match(src, /const expected = round2\(/, "expected (drawer math) is round2'd");
+  assert.match(src, /const countedCash = round2\(/, "countedCash (denominations) is round2'd");
+  assert.match(src, /const diff = round2\(countedCash - expected\)/, "diff is round2'd → `diff === 0` is reliable");
 });
