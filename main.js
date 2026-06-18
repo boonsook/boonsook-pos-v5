@@ -316,7 +316,7 @@ const $ = (id) => document.getElementById(id);
 // ★ XSS Protection — escapeHtml (Phase 51: dedup → use shared utils.js)
 import { escHtml as escapeHtml } from "./modules/utils.js";
 // ★ Phase 92.8 — Thai-locale formatters extracted to utils.js (caller compat via import binding)
-import { money, formatNumber, formatCurrency, formatDate, formatDateTime } from "./modules/utils.js";
+import { money, formatNumber, formatCurrency, formatDate, formatDateTime, round2 } from "./modules/utils.js";
 
 // ★ Phase 86.3 — email/password staff auth flow (extracted from main.js)
 import { createEmailAuth } from "./modules/auth_email.js";
@@ -1705,8 +1705,8 @@ async function saveProduct(){
     sku:$("newProductSku").value.trim(),
     category:$("newProductCategory")?.value?.trim() || "",
     product_type: productType,
-    price:_n0($("newProductPrice").value),
-    cost:_n0($("newProductCost").value),
+    price:round2(_n0($("newProductPrice").value)),  // ★ Phase 484 (NIT): ปัดเงิน 2 ตำแหน่ง (ตรงกับ inline POS price edit; กัน float drift)
+    cost:round2(_n0($("newProductCost").value)),
     barcode: (productType === "service" || productType === "non_stock") ? "" : $("newProductBarcode").value.trim(),
     is_active:true
   };
@@ -1727,7 +1727,7 @@ async function saveProduct(){
     // hasWarehouse → omit stock; trigger 403 derive จาก warehouse_stock writes ด้านล่าง
   }
   // ★ ราคาส่ง + รูปภาพ (เพิ่มเฉพาะถ้ามี — รองรับ DB ที่ยังไม่มี column)
-  const wholesale = Number($("newProductPriceWholesale")?.value || 0);
+  const wholesale = round2(Number($("newProductPriceWholesale")?.value || 0));  // ★ Phase 484 (NIT): ปัดเงิน 2 ตำแหน่ง
   if (wholesale > 0) payload.price_wholesale = wholesale;
   const imgUrl = ($("newProductImageUrl")?.value || "").trim();
   if (imgUrl) payload.image_url = imgUrl;
@@ -1740,7 +1740,7 @@ async function saveProduct(){
 
   // ★ Featured + Promo
   payload.is_featured = !!$("newProductFeatured")?.checked;
-  const promoPrice = Number($("newProductPromoPrice")?.value || 0);
+  const promoPrice = round2(Number($("newProductPromoPrice")?.value || 0));  // ★ Phase 484 (NIT): ปัดเงิน 2 ตำแหน่ง
   payload.promo_price = promoPrice > 0 ? promoPrice : null;
   payload.promo_start = $("newProductPromoStart")?.value || null;
   payload.promo_end = $("newProductPromoEnd")?.value || null;

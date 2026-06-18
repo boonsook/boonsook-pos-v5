@@ -95,7 +95,7 @@ builds **468–475** เพิ่งรื้อระบบสต็อก/chec
 ---
 
 ## 🔵 NIT
-- saveProduct ไม่ปัดเงิน 2 ตำแหน่ง (float drift; inline edit ปัดแล้ว = inconsistent) — `main.js:1676`
+- ✅ **FIXED build 484 (branch claude/phase-484, รอ owner review):** saveProduct ปัดเงิน 2 ตำแหน่ง (round2 ทุก money field: price/cost/wholesale/promo) — เดิม float drift; inline edit ปัดแล้ว = inconsistent — `main.js:1676`
 - inline POS price edit last-writer-wins (ไม่มี CAS; benign เพราะ price = scalar ไม่ใช่ accumulator) — `pos.js:1450`
 - `_applyStockMovement` out-flow CAS fail แบบ non-insufficient ยัง log movement (record การตัดที่ไม่เกิดจริง = reconcile noise) — `main.js:3675`
 - stock-count adjust ใช้ `before` จาก cache ไม่ refetch → false-conflict "นับใหม่" ได้ถ้า cache stale (ปลอดภัย ไม่ corrupt) — `main.js:3599`

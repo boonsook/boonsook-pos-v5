@@ -24,8 +24,9 @@ const sb = saveBody(main);
 
 test("numbers are parsed NaN-safe and non-negative (no null/corrupt writes from a typo)", () => {
   assert.match(sb, /const _n0 = \(v\) => \{ const n = Number\(v\); return Number\.isFinite\(n\) \? Math\.max\(0, n\)/, "NaN-safe parse helper present");
-  assert.match(sb, /price:_n0\(/, "price uses the safe parse");
-  assert.match(sb, /cost:_n0\(/, "cost uses the safe parse");
+  // Phase 484: price/cost still use the NaN-safe _n0, now wrapped in round2 (2dp money)
+  assert.match(sb, /price:round2\(_n0\(/, "price uses the safe parse (round2-wrapped)");
+  assert.match(sb, /cost:round2\(_n0\(/, "cost uses the safe parse (round2-wrapped)");
   assert.match(sb, /const stock = _n0\(/, "warehouse stock input uses the safe parse");
 });
 
