@@ -4,6 +4,7 @@
 // ═══════════════════════════════════════════════════════════
 import { renderSkeleton, renderEmpty, renderError } from "./ui_states.js";
 import { escHtml, exportToExcel, todaySuffix, dateBkk, logActivity } from "./utils.js";
+import { payrollTagMatches } from "./payroll_tag.js";
 // Phase 92.26: ดึงสรุป OT จาก Time Clock มาเติมในช่องค่าล่วงเวลา (auto-fill)
 // Phase 417 (Part B): + pure helpers สำหรับ batch aggregation ต่อรอบ + timesheet modal
 //   (import อย่างเดียว — ห้ามแก้ time_clock.js)
@@ -1358,16 +1359,39 @@ async function _deletePayroll(ctx, id) {
       }
     }
     // Reverse linked expense ก่อน (idempotent — ถ้าไม่มี ก็ไม่มีอะไรลบ)
+    // ★ Phase 489 (S-2): เดิม DELETE by ilike %#payroll-{id}% = substring → ลบ id=5 ไปโดน #payroll-50/500
+    //   (รายจ่ายเงินเดือนคนอื่นหาย = เงินจริงหาย). แก้: fetch candidates → กรอง tag แบบมีขอบเขต
+    //   (payrollTagMatches: #payroll-{id} ที่ตามด้วย "ไม่ใช่เลข") → DELETE เฉพาะ id ที่ตรงจริง.
     if (guard.requiresReverse && guard.expenseTag) {
-      const delExp = await fetch(
-        cfg.url + "/rest/v1/expenses?note=ilike." + encodeURIComponent("%" + guard.expenseTag + "%"),
-        { method: "DELETE", headers }
-      );
-      if (!delExp.ok && delExp.status !== 404) {
-        console.warn("[payroll] reverse expense failed HTTP", delExp.status);
-        // ไม่ throw — ให้ลบ payroll ต่อ แต่แจ้ง user หลัง action
-      } else {
-        reversedExpense = true;
+      try {
+        const candRes = await fetch(
+          cfg.url + "/rest/v1/expenses?select=id,note&note=ilike." + encodeURIComponent("%" + guard.expenseTag + "%"),
+          { headers }
+        );
+        if (candRes.ok) {
+          const rows = await candRes.json().catch(() => []);
+          const exactIds = (Array.isArray(rows) ? rows : [])
+            .filter(r => payrollTagMatches(r.note, id))
+            .map(r => r.id);
+          if (exactIds.length === 0) {
+            reversedExpense = true;  // ไม่มี expense ที่ตรง = ไม่มีอะไรต้องย้อน (idempotent)
+          } else {
+            const delExp = await fetch(
+              cfg.url + "/rest/v1/expenses?id=in.(" + exactIds.map(encodeURIComponent).join(",") + ")",
+              { method: "DELETE", headers }
+            );
+            if (!delExp.ok && delExp.status !== 404) {
+              console.warn("[payroll] reverse expense failed HTTP", delExp.status);
+              // ไม่ throw — ให้ลบ payroll ต่อ แต่แจ้ง user หลัง action
+            } else {
+              reversedExpense = true;
+            }
+          }
+        } else {
+          console.warn("[payroll] reverse expense candidate fetch HTTP", candRes.status);
+        }
+      } catch (e) {
+        console.warn("[payroll] reverse expense threw", e?.message);
       }
     }
     const resp = await fetch(cfg.url + "/rest/v1/staff_payroll?id=eq." + id, {
@@ -1562,12 +1586,13 @@ async function _postPayrollPeriodJV(ctx) {
 // Phase 76: ลงรายจ่าย salary อัตโนมัติเมื่อ mark paid — กัน duplicate ด้วย pattern #payroll-{id}
 async function _createSalaryExpense(cfg, headers, payroll, paidAt, method) {
   const tag = "#payroll-" + payroll.id;
-  // ตรวจซ้ำก่อน — ถ้ามี expense ที่ note ลงท้าย/มี #payroll-{id} อยู่แล้ว skip
-  const checkUrl = `${cfg.url}/rest/v1/expenses?note=ilike.${encodeURIComponent('%' + tag + '%')}&select=id&limit=1`;
+  // ตรวจซ้ำก่อน — ★ Phase 489 (S-2): กรอง tag แบบมีขอบเขต (เดิม ilike %#payroll-{id}% = substring →
+  //   id=5 เจอ #payroll-50 → false dup → ข้ามไม่สร้าง expense ของ id=5 ทั้งที่ยังไม่มี). select note มาด้วยแล้วกรองจริง.
+  const checkUrl = `${cfg.url}/rest/v1/expenses?note=ilike.${encodeURIComponent('%' + tag + '%')}&select=id,note`;
   const cr = await fetch(checkUrl, { headers: { apikey: cfg.anonKey, Authorization: headers.Authorization } });
   if (cr.ok) {
-    const arr = await cr.json();
-    if (arr && arr.length > 0) return; // มีแล้ว skip
+    const arr = await cr.json().catch(() => []);
+    if (Array.isArray(arr) && arr.some(r => payrollTagMatches(r.note, payroll.id))) return; // มีของ id นี้จริง → skip
   }
   const emp = _profiles.find(x => x.id === payroll.employee_id);
   const empName = emp?.full_name || "(พนักงาน)";

@@ -162,9 +162,11 @@ test("source: _deletePayroll reverse expense ก่อน + audit log (B3 + B4)"
   assert.ok(body.length > 0, "ต้องเจอ _deletePayroll");
   assert.match(body, /canDeletePayroll\(/, "ต้องผ่าน canDeletePayroll guard");
   assert.match(body, /requiresReverse/, "ต้องเช็ค requiresReverse");
-  // DELETE expense by tag ก่อน DELETE payroll
-  assert.match(body, /\/rest\/v1\/expenses\?note=ilike\./, "ต้อง DELETE expense by tag");
-  assert.match(body, /method:\s*["']DELETE["']/, "DELETE method");
+  // ★ Phase 489 (S-2): ย้อน expense แบบ exact-boundary — fetch candidates → filter → DELETE by id
+  //   (เดิม blind DELETE by note=ilike substring → ลบ #payroll-{id} ไปโดน id อื่นที่ขึ้นต้นเหมือนกัน)
+  assert.match(body, /expenses\?select=id,note&note=ilike\./, "ต้อง fetch candidates ของ expense by tag (GET)");
+  assert.match(body, /payrollTagMatches\(r\.note, id\)/, "ต้องกรอง tag แบบมีขอบเขต (กัน prefix-collision)");
+  assert.match(body, /expenses\?id=in\.\([\s\S]*?method:\s*["']DELETE["']/, "DELETE เฉพาะ id ที่ตรงจริง");
   assert.match(body, /logActivity\(["']payroll_delete["']/, "audit payroll_delete");
 });
 
