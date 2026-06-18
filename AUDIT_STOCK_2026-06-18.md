@@ -71,12 +71,16 @@ builds **468–475** เพิ่งรื้อระบบสต็อก/chec
 **หลักฐาน:** precheck (build 473) เทียบ qty กับ `products.stock` = **ผลรวมทุกคลัง**; แต่ deduct auto หยิบ **คลังเดียว** (`stocks[0]` บ้าน-first) ไม่ spill ข้ามคลัง → ของ 3(บ้าน)+4(รถ)=7 ขาย 5 → precheck ผ่าน แต่ตัดบ้านได้ 3 → ติดธง `[สต็อกไม่ครบ]` ทั้งที่ของพอ (fails closed = undersell ไม่ใช่ oversell)
 **แก้:** auto path loop ตัดข้ามคลายจนครบ (CAS ทีละคลัง) แล้วค่อย flag ถ้า total ทั้งหมดไม่พอ — หรือ precheck สะท้อนคลังเดียว
 
-### S4 — bundle child qty ไม่ validate NaN
+### S4 — bundle child qty ไม่ validate NaN — 🔧 FIX บน branch `claude/phase-481-product-save-validation` (build 481, รอ owner smoke + Codex review · ยังไม่ merge · รวมกับ S5)
+
+> **แก้ (รอ review):** +modules/product_validation.js `normalizeBundleQty(v)` = `Number.isFinite(q)&&q>0?q:1`; ใช้ที่ qty input edit + insert payload (filter row ไม่มี child_product_id) + add-button guard เปลี่ยนเป็น `!Number.isFinite||<=0` (เดิม `qty<=0` ปล่อย NaN รอด). ดู HANDOFF build 481.
 **ไฟล์:** `main.js:2083` (set qty) · `main.js:1784` (insert)
 **หลักฐาน:** `items[idx].qty = Number(inp.value || 1)` → พิมพ์ `"2ก"` = `NaN` → ส่งเข้า `product_bundles` → null/corrupt. build 474 fix NaN ให้ price/cost/stock แต่ **ตก bundle qty**
 **แก้:** `const q = Number(inp.value); items[idx].qty = Number.isFinite(q) && q > 0 ? q : 1;` + filter qty > 0 ก่อน insert
 
-### S5 — ไม่เช็ค SKU / barcode ซ้ำตอน save
+### S5 — ไม่เช็ค SKU / barcode ซ้ำตอน save — 🔧 FIX บน branch `claude/phase-481-product-save-validation` (build 481, รอ owner smoke + Codex review · ยังไม่ merge · รวมกับ S4)
+
+> **แก้ (รอ review):** +`findDuplicateProduct(state.products,{sku,barcode},editingProductId)` (เช็ค barcode ก่อน/sku, exclude self, ค่าว่างข้าม) ใน saveProduct ก่อน write → เจอ → App.confirm allow-proceed (cancel→ไม่ save; modal ไม่พร้อม→toast ไม่ block). **ไม่เพิ่ม DB unique index** (client warn ก่อน — owner กดต่อได้; DB partial unique = follow-up ถ้าต้องการ hard-block). ดู HANDOFF build 481.
 **ไฟล์:** `main.js:1698-1738`
 **หลักฐาน:** saveProduct validate ชื่อ + price>0 + auto-gen SKU แต่ไม่เช็ค barcode/SKU ซ้ำ; ไม่พบ DB unique constraint ใน repo → 2 สินค้า barcode เดียวกันได้ → สแกน POS ได้ผิดตัว (first match wins เงียบ ๆ)
 **แก้:** เช็ค `state.products` ก่อน insert (ยกเว้น row ที่กำลังแก้) + เตือน; ในระยะยาวทำ partial unique index ฝั่ง Supabase

@@ -51,6 +51,7 @@ import { isValidPhone, isValidEmail, getUserFriendlyError, validateFile } from "
 import { atomicDecrementStock, atomicAddToField } from "./modules/stock_cas.js";
 import { expandBundleForRevert } from "./modules/bundle_revert.js";
 import { pickAutoWarehouseStock } from "./modules/warehouse_pick.js";
+import { findDuplicateProduct, normalizeBundleQty } from "./modules/product_validation.js";
 import { installErrorReporter } from "./modules/error_reporter.js";
 import { createInflightGuard } from "./modules/_inflight_guard.js";
 import { createApi } from "./modules/api.js";
@@ -1753,6 +1754,20 @@ async function saveProduct(){
     const prefix = productType === "service" ? "SVC" : productType === "non_stock" ? "NS" : "SKU";
     payload.sku = `${prefix}-${Date.now().toString(36).toUpperCase()}`;
   }
+
+  // ★ Phase 481 (S5): เตือนถ้า barcode/SKU ซ้ำกับสินค้า "ตัวอื่น" (กัน POS สแกนหยิบผิดตัว/ราคาผิด).
+  //   ไม่มี DB unique constraint บน barcode/sku → client เป็นด่านเดียว. warn-only allow-proceed
+  //   (owner ตัดสินต่อ case) — ไม่ hard-block กันขวาง edit ที่ตั้งใจ. modal ไม่พร้อม → toast + ไม่ block.
+  const _dup = findDuplicateProduct(state.products, { sku: payload.sku, barcode: payload.barcode }, state.editingProductId);
+  if (_dup) {
+    const _label = _dup.field === "barcode" ? `บาร์โค้ด ${_dup.value}` : `รหัสสินค้า (SKU) ${_dup.value}`;
+    if (typeof window.App?.confirm === "function") {
+      if (!(await window.App.confirm(`${_label} ซ้ำกับ "${_dup.product.name}" — บันทึกต่อหรือไม่?`))) return;
+    } else {
+      showToast(`⚠️ ${_label} ซ้ำกับ "${_dup.product.name}"`);
+    }
+  }
+
   showToast("กำลังบันทึก...");
 
   const editingProductId = state.editingProductId;
@@ -1802,8 +1817,13 @@ async function saveProduct(){
         headers: { "apikey":cfg.anonKey,"Authorization":"Bearer "+accessToken,"Prefer":"return=minimal" }
       });
       // 2) INSERT new children — ★ Phase 474: เช็คผล (เดิม fire-and-forget → bundle ว่างเงียบถ้า insert ล้มหลัง delete)
-      if (bundleItems.length > 0) {
-        const rows = bundleItems.map(it => ({ bundle_id: productId, child_product_id: it.product_id, qty: it.qty }));
+      // ★ Phase 481 (S4): กัน qty NaN/0/ติดลบ + child_product_id ว่าง เข้า product_bundles (recipe corrupt).
+      //   normalize qty (invalid→1) + drop row ที่ไม่มี child_product_id (defense — input handler clamp แล้ว).
+      const _bundleRows = bundleItems
+        .filter(it => it && it.product_id != null && it.product_id !== "")
+        .map(it => ({ bundle_id: productId, child_product_id: it.product_id, qty: normalizeBundleQty(it.qty) }));
+      if (_bundleRows.length > 0) {
+        const rows = _bundleRows;
         const _ins = await fetch(cfg.url + "/rest/v1/product_bundles", {
           method: "POST",
           headers: { "Content-Type":"application/json","apikey":cfg.anonKey,"Authorization":"Bearer "+accessToken,"Prefer":"return=minimal" },
@@ -2102,7 +2122,7 @@ function _renderBundleItems(items) {
 
   el.querySelectorAll(".bd-item-qty").forEach(inp => inp.addEventListener("input", () => {
     const items = _getBundleItems();
-    items[Number(inp.dataset.idx)].qty = Number(inp.value || 1);
+    items[Number(inp.dataset.idx)].qty = normalizeBundleQty(inp.value);  // ★ Phase 481 (S4): "2ก"→1 ไม่ใช่ NaN
     if ($("bundleItemsValue")) $("bundleItemsValue").value = JSON.stringify(items);
   }));
   el.querySelectorAll(".bd-item-del").forEach(btn => btn.addEventListener("click", () => {
@@ -4737,9 +4757,10 @@ function bindStaticEvents(){
   });
   $("bundleAddBtn")?.addEventListener("click", () => {
     const search = ($("bundleSearchInput")?.value || "").trim().toLowerCase();
-    const qty = Number($("bundleQtyInput")?.value || 1);
+    const _rawQty = Number($("bundleQtyInput")?.value);  // ★ Phase 481 (S4): "2ก"→NaN รอด guard <=0 เดิม
     if (!search) return showToast("พิมพ์ชื่อ/SKU/บาร์โค้ดสินค้า");
-    if (qty <= 0) return showToast("จำนวนต้องมากกว่า 0");
+    if (!Number.isFinite(_rawQty) || _rawQty <= 0) return showToast("จำนวนต้องเป็นตัวเลขมากกว่า 0");
+    const qty = _rawQty;
     const prod = (state.products || []).find(p =>
       String(p.barcode || "").toLowerCase() === search ||
       String(p.sku || "").toLowerCase() === search ||
