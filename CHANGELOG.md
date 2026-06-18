@@ -5,7 +5,7 @@
 
 รูปแบบ: `<commit> feat|fix|docs|refactor: <สรุปสั้น>` + bullet 1-2 ข้อถ้าจำเป็น
 
-- security(rls,SQL phase 495): ปิดช่องผู้ใช้ทั่วไปเลื่อนตัวเองเป็นแอดมิน — เดิม profiles ไม่มี trigger ล็อก column `role` (RLS WITH CHECK ล็อกราย column ไม่ได้) → ใครที่ login ยิง REST PATCH เปลี่ยน role ตัวเองเป็น admin ได้. เพิ่ม BEFORE INSERT/UPDATE trigger: เฉพาะแอดมินตั้ง/เปลี่ยน role ได้ (signup/service ไม่กระทบ). 🔴 **owner ต้องรัน SQL ใน Supabase** (ไฟล์ supabase-phase495-*.sql) — ยังไม่ apply
+- docs(rls,SQL phase 495): บันทึก trigger กัน self-promote-to-admin ที่มีอยู่จริงเข้า repo (เดิม apply ตรงใน Supabase ไม่เคย track) — audit #1 เคยเคลมว่า "ไม่มีการป้องกัน" แต่ verify ผิดชั้น (ดูจาก repo ไม่ใช่ DB จริง); จริง ๆ DB มี `guard_profile_role_update` (BEFORE UPDATE: ล็อก id+role admin-only) บล็อก exploit อยู่แล้ว. ไฟล์นี้ document ของจริง + ลบ trigger ซ้ำที่ผมเผลอเพิ่ม (`trg_guard_profiles_role`). 🔴 owner รัน DROP block (2 บรรทัด) ทิ้งตัวซ้ำ
 
 - fix(stock,build 494): การรับ/คืนสต็อกที่บันทึกไม่สำเร็จ (เน็ตหลุด/สิทธิ์) จะไม่ทิ้ง "รายการเคลื่อนไหวหลอก" ไว้อีก — เดิมถ้าปรับสต็อกจริงล้มเหลว ยังบันทึกประวัติว่ารับเข้าแล้ว → รายงานสต็อกรับเกินจริง. ตอนนี้ล้มเหลว = หยุดก่อนบันทึกประวัติ (เหมือนฝั่งตัดขายที่แก้ไปแล้ว build 485). ⚠️ รอ owner review ก่อน merge
 
