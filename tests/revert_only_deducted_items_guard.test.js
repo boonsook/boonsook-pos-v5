@@ -8,8 +8,10 @@
 //   movement with no matching "sale" -7 → warehouse jumped 6→13).
 //   Phase 471: revert first queries the bill's "sale" stock_movements (Phase 465 logs "sale" only
 //   on a successful deduct) and restocks ONLY items that were actually deducted. If orderNo is
-//   missing or the fetch fails (deductedIds=null) it falls back to restocking all (avoids
-//   under-credit on a transient error).
+//   missing or the fetch fails it falls back to restocking all (avoids under-credit).
+//   Phase 483 (audit S6): upgraded the boolean gate to a qty-aware quota — restock per product is
+//   capped at the SUMMED deducted qty (Map via buildDeductedQty/takeRestockQty), so a product on
+//   several lines that was only partly deducted no longer over-credits. Same fallback (null = full).
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -25,18 +27,19 @@ function revertBody(src) {
 }
 const rb = revertBody(main);
 
-test("revert queries the bill's sale movements to learn which items were actually deducted", () => {
-  assert.match(rb, /type=eq\.sale&select=product_id&note=ilike\.\*/, "fetches sale movements filtered by orderNo");
-  assert.match(rb, /deductedIds = new Set\(/, "builds a set of deducted product ids");
+test("revert queries the bill's sale movements (with qty) to learn what was actually deducted", () => {
+  assert.match(rb, /type=eq\.sale&select=product_id,qty&note=ilike\.\*/, "fetches sale movements (incl qty) filtered by orderNo");
+  assert.match(rb, /deductedQty = buildDeductedQty\(movRows\)/, "builds a product→deducted-qty quota map");
 });
 
-test("an item with NO sale movement is not restocked (prevents over-credit on flagged bills)", () => {
-  assert.match(rb, /if \(deductedIds && !deductedIds\.has\(String\(item\.product_id\)\)\)/, "skips items not in the deducted set");
+test("an item beyond the deducted qty is not restocked (prevents over-credit on flagged bills)", () => {
+  assert.match(rb, /takeRestockQty\(deductedQty, item\.product_id, qty\)/, "caps restock at the deducted quota");
+  assert.match(rb, /if \(deductedQty != null && restockQty <= 0\)/, "skips items with no remaining quota");
   assert.match(rb, /กันคืนเกิน/, "logs the skip reason");
 });
 
 test("fallback to restock-all when it cannot tell (no orderNo / fetch failed)", () => {
-  assert.match(rb, /let deductedIds = null/, "null sentinel = could not check");
+  assert.match(rb, /let deductedQty = null/, "null sentinel = could not check");
   assert.match(rb, /if \(orderNo\) \{/, "only filters when orderNo is known");
 });
 

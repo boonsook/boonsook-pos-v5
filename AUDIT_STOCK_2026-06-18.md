@@ -85,7 +85,9 @@ builds **468–475** เพิ่งรื้อระบบสต็อก/chec
 **หลักฐาน:** saveProduct validate ชื่อ + price>0 + auto-gen SKU แต่ไม่เช็ค barcode/SKU ซ้ำ; ไม่พบ DB unique constraint ใน repo → 2 สินค้า barcode เดียวกันได้ → สแกน POS ได้ผิดตัว (first match wins เงียบ ๆ)
 **แก้:** เช็ค `state.products` ก่อน insert (ยกเว้น row ที่กำลังแก้) + เตือน; ในระยะยาวทำ partial unique index ฝั่ง Supabase
 
-### S6 — revert `deductedIds` keyed by product_id เฉย ๆ (ไม่รวม warehouse)
+### S6 — revert `deductedIds` keyed by product_id เฉย ๆ (ไม่รวม warehouse) — 🔧 FIX บน branch `claude/phase-483-revert-qty-aware` (build 483, รอ owner smoke + Codex review · ยังไม่ merge)
+
+> **แก้ (รอ review):** เปลี่ยน gate จาก `Set(product_id)` boolean เป็น **qty-aware quota** — +modules/revert_qty.js (`buildDeductedQty` = Map(pid→sum sale qty), `takeRestockQty` = min(want, remaining) หัก quota). คืนรวมต่อ product ไม่เกินที่ตัดจริง (product เดียวหลายบรรทัด/ตัดบางบรรทัด → ไม่ over-restock); null map → fallback คืนเต็ม. strict improvement (ไม่คืน > เดิม). ไม่แตะการเลือกคลังคืน (restockProduct เดิม). +guard revert_qty (11). ดู HANDOFF build 483.
 **ไฟล์:** `main.js:3269,3291`
 **หลักฐาน:** edge case สินค้าเดียวกันหลายบรรทัดในบิล ตัดบางบรรทัด → movement 1 อันทำให้ `has(id)`=true ทุกบรรทัดของสินค้านั้น → คืนเกินบรรทัดที่ไม่ได้ตัด (โอกาสน้อย)
 **แก้:** match/คืนที่ granularity (product_id, warehouse_id) หรือ reconcile by summed deducted qty

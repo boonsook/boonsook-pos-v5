@@ -82,21 +82,23 @@ test("revert detects a bundle line and expands its recipe", () => {
   assert.match(rb, /expandBundleForRevert\(recipeRows, qty\)/, "must expand recipe x line qty");
 });
 
-test("each bundle child is gated by deductedIds (restock only what was actually deducted)", () => {
-  assert.match(rb, /deductedIds && !deductedIds\.has\(String\(c\.childId\)\)/, "per-child deducted gate");
+test("each bundle child is gated qty-aware (Phase 483: restock only what was actually deducted)", () => {
+  assert.match(rb, /takeRestockQty\(deductedQty, c\.childId, c\.qty\)/, "per-child qty drawn from deducted quota");
+  assert.match(rb, /deductedQty != null && childRestock <= 0/, "per-child qty-aware gate (skip when quota exhausted)");
 });
 
 test("bundle children restock via CAS add through the shared restockProduct helper", () => {
   assert.match(rb, /async function restockProduct\(/, "per-item restock factored into a helper");
   assert.match(rb, /_atomicAddStock\("warehouse_stock"/, "restock via CAS add (no absolute write)");
-  assert.match(rb, /restockProduct\(childProd, c\.qty, soldWhId, `\[bundle:/, "children restocked with bundle label + sold warehouse");
+  assert.match(rb, /restockProduct\(childProd, childRestock, soldWhId, `\[bundle:/, "children restocked with capped qty + bundle label + sold warehouse");
 });
 
 test("a bundle with an unreadable recipe surfaces an error and does NOT rollback (no silent leak)", () => {
   assert.match(rb, /ไม่ได้คืนสต็อก children/, "must push an error when the recipe fetch fails");
 });
 
-test("non-bundle path keeps its exact prior gate + idempotency marker (no regression)", () => {
-  assert.match(rb, /if \(deductedIds && !deductedIds\.has\(String\(item\.product_id\)\)\)/, "non-bundle deducted gate retained");
+test("non-bundle path keeps a qty-aware deducted gate + idempotency marker (no regression)", () => {
+  assert.match(rb, /takeRestockQty\(deductedQty, item\.product_id, qty\)/, "non-bundle qty drawn from deducted quota");
+  assert.match(rb, /if \(deductedQty != null && restockQty <= 0\)/, "non-bundle qty-aware gate retained");
   assert.match(rb, /_STOCK_RETURNED_MARKER/, "idempotency marker retained");
 });

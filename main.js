@@ -50,6 +50,7 @@ import "./modules/doc-override.js";
 import { isValidPhone, isValidEmail, getUserFriendlyError, validateFile } from "./modules/validators.js";
 import { atomicDecrementStock, atomicAddToField } from "./modules/stock_cas.js";
 import { expandBundleForRevert } from "./modules/bundle_revert.js";
+import { buildDeductedQty, takeRestockQty } from "./modules/revert_qty.js";
 import { pickAutoWarehouseStock } from "./modules/warehouse_pick.js";
 import { findDuplicateProduct, normalizeBundleQty } from "./modules/product_validation.js";
 import { installErrorReporter } from "./modules/error_reporter.js";
@@ -3330,16 +3331,19 @@ async function _revertStockForSale({ saleId, orderNo }) {
     // ★ Phase 471: คืนเฉพาะ item ที่ "ตัดสต็อกจริง" (มี movement type=sale ของบิลนี้).
     //   Phase 465 log "sale" เฉพาะตอนตัดสำเร็จ → เป็นสัญญาณเป๊ะว่า item นั้นถูกตัดจริง.
     //   กันคืนเกิน: บิล flagged [สต็อกไม่ครบ] ที่ขายเกินสต็อก → ตัดไม่ได้ → ไม่มี sale movement → ไม่ควรคืน.
-    //   deductedIds = null = เช็คไม่ได้ (ไม่มี orderNo / fetch ล้ม) → fallback คืนทั้งหมด (พฤติกรรมเดิม กัน under-credit).
-    let deductedIds = null;
+    //   ★ Phase 483 (audit S6): qty-aware — เก็บ "จำนวนที่ตัดจริง" ต่อ product (sum sale movement qty)
+    //   แทน boolean Set → คืนรวมต่อ product ไม่เกิน qty ที่ตัดจริง (กัน over-restock เมื่อ product เดียว
+    //   โผล่หลายบรรทัด/ตัดได้บางบรรทัด). deductedQty = null = เช็คไม่ได้ (ไม่มี orderNo / fetch ล้ม) →
+    //   fallback คืนทั้งหมด (พฤติกรรมเดิม กัน under-credit).
+    let deductedQty = null;
     if (orderNo) {
       try {
-        const mr = await fetch(cfg.url + "/rest/v1/stock_movements?type=eq.sale&select=product_id&note=ilike.*" + encodeURIComponent(orderNo) + "*", { headers });
+        const mr = await fetch(cfg.url + "/rest/v1/stock_movements?type=eq.sale&select=product_id,qty&note=ilike.*" + encodeURIComponent(orderNo) + "*", { headers });
         if (mr.ok) {
           const movRows = await mr.json().catch(() => null);
-          if (Array.isArray(movRows)) deductedIds = new Set(movRows.map(m => String(m.product_id)));
+          deductedQty = buildDeductedQty(movRows);  // array → Map(pid→sum qty); ไม่ใช่ array → null (fallback)
         }
-      } catch { /* deductedIds stays null → fallback คืนทั้งหมด */ }
+      } catch { /* deductedQty stays null → fallback คืนทั้งหมด */ }
     }
 
     let revertedCount = 0;
@@ -3421,8 +3425,8 @@ async function _revertStockForSale({ saleId, orderNo }) {
 
       // ★ Phase 477: bundle line → คืนสต็อก "children" (สต็อกที่ตัดจริงตอนขาย).
       //   sale_items เก็บ product_id = ตัว bundle แม่ (ไม่มี warehouse_stock row / ไม่มี sale movement),
-      //   children คือตัวที่ถูกตัด (มี sale movement → อยู่ใน deductedIds). ขยาย recipe แล้วคืนทีละ child
-      //   ผ่านเส้นทางเดียวกับ non-bundle (gate deductedIds + CAS) แล้ว "ข้าม" บรรทัดแม่ (ไม่คืนตรง).
+      //   children คือตัวที่ถูกตัด (มี sale movement → มี quota ใน deductedQty). ขยาย recipe แล้วคืนทีละ child
+      //   ผ่านเส้นทางเดียวกับ non-bundle (qty-aware gate deductedQty + CAS) แล้ว "ข้าม" บรรทัดแม่ (ไม่คืนตรง).
       if (product.is_bundle) {
         let recipeRows = null;
         try {
@@ -3446,26 +3450,30 @@ async function _revertStockForSale({ saleId, orderNo }) {
             continue;
           }
           if (childProd.product_type === "service" || childProd.product_type === "non_stock") continue;
-          // ★ Phase 471/477: คืนเฉพาะ child ที่ตัดจริง (มี sale movement → อยู่ใน deductedIds) — กันคืนเกิน
-          if (deductedIds && !deductedIds.has(String(c.childId))) {
-            console.warn(`[revertStock] bundle child ${childProd.name}: ไม่มี sale movement ของบิลนี้ (ไม่เคยตัดสต็อก) → ไม่คืน (กันคืนเกิน)`);
+          // ★ Phase 471/477/483: คืน child ไม่เกินจำนวนที่ตัดจริง (qty-aware) — หัก quota จาก sum sale movement.
+          //   child ไม่เคยตัด / คืนครบ quota แล้ว → take 0 → ข้าม (กันคืนเกิน). null map → คืนเต็ม (fallback).
+          const childRestock = takeRestockQty(deductedQty, c.childId, c.qty);
+          if (deductedQty != null && childRestock <= 0) {
+            console.warn(`[revertStock] bundle child ${childProd.name}: ไม่มี/คืนครบ quota ที่ตัดจริง → ไม่คืน (กันคืนเกิน)`);
             continue;
           }
-          const rr = await restockProduct(childProd, c.qty, soldWhId, `[bundle:${product.name}]`);
+          const rr = await restockProduct(childProd, childRestock, soldWhId, `[bundle:${product.name}]`);
           if (rr.ok) revertedCount++;
           else if (rr.error) errors.push(rr.error);
         }
         continue;
       }
 
-      // ★ Phase 471: ข้าม item ที่ไม่เคยถูกตัดจริง (ไม่มี sale movement ของบิลนี้) → กันคืนเกิน
-      //   (เคสบิล flagged [สต็อกไม่ครบ] ที่ขายเกินสต็อก: ตัดไม่ได้ → ถ้าคืนจะได้สต็อกผี)
-      if (deductedIds && !deductedIds.has(String(item.product_id))) {
-        console.warn(`[revertStock] ${product.name}: ไม่มี sale movement ของบิลนี้ (ไม่เคยตัดสต็อก) → ไม่คืน (กันคืนเกิน)`);
+      // ★ Phase 471/483: คืนไม่เกินจำนวนที่ตัดจริง (qty-aware) — หัก quota จาก sum sale movement.
+      //   product เดียวหลายบรรทัด/ตัดได้บางบรรทัด → บรรทัดแรกได้ก่อน, ที่เหลือได้เท่าที่เหลือ; ไม่เคยตัด/
+      //   ครบ quota → take 0 → ข้าม (เคสบิล flagged [สต็อกไม่ครบ] กันสต็อกผี). null map → คืนเต็ม (fallback).
+      const restockQty = takeRestockQty(deductedQty, item.product_id, qty);
+      if (deductedQty != null && restockQty <= 0) {
+        console.warn(`[revertStock] ${product.name}: ไม่มี/คืนครบ quota ที่ตัดจริง → ไม่คืน (กันคืนเกิน)`);
         continue;
       }
 
-      const rr = await restockProduct(product, qty, soldWhId, "");
+      const rr = await restockProduct(product, restockQty, soldWhId, "");
       if (rr.ok) revertedCount++;
       else if (rr.error) errors.push(rr.error);
     }
