@@ -75,3 +75,35 @@ test("revert writes products.stock directly ONLY when there is no warehouse row"
   assert.match(elseBranch, /_atomicAddStock\("products", prod\.id, qty\)/, "no-warehouse branch writes products via CAS");
   assert.ok(!/xhrPatch\("products"/.test(body), "no absolute products patch anywhere in revert");
 });
+
+// ── Phase 479 (audit S2) — saveProduct + CSV import stop writing derived products.stock ──
+// products.stock = sum(warehouse_stock) is owned by the Phase 403 trigger. saveProduct/CSV used to
+// write it directly (always), which overstates products.stock when a warehouse write fails → oversell.
+// This locks: direct totalStock write survives ONLY in the no-warehouse legacy branch; min_stock
+// (NOT trigger-derived) is still maintained; CSV carries neither stock nor min_stock.
+const products = fs.readFileSync(path.resolve("modules/products.js"), "utf8");
+
+test("saveProduct writes products.stock directly ONLY in the no-warehouse legacy branch", () => {
+  const body = fnBody(main, "async function saveProduct(", "const CUSTOMER_TAG_PRESETS");
+  // old always-on pattern is gone (it overstated products.stock on warehouse write fail)
+  assert.ok(!/stock:\s*productType === "service" \? 0 : totalStock/.test(body),
+    "old unconditional payload.stock = totalStock pattern removed");
+  // totalStock → products.stock happens ONLY behind the no-warehouse guard, and nowhere else
+  assert.match(body, /if \(!hasWarehouse\) payload\.stock = totalStock/,
+    "totalStock written to products only when the product has no warehouse (trigger 403 owns it otherwise)");
+  const totalStockWrites = body.match(/payload\.stock = totalStock/g) || [];
+  assert.equal(totalStockWrites.length, 1, "exactly one totalStock → products.stock write (legacy branch only)");
+  // new warehouse product seeds 0 (never totalStock) so a possible NOT NULL column still inserts
+  assert.match(body, /\{ \.\.\.payload, stock: 0 \}/, "new warehouse product seeds stock:0; trigger overwrites");
+  // min_stock is NOT trigger-derived → still maintained client-side (low-stock 'all' view reads it)
+  assert.match(body, /payload\.min_stock = totalMinStock/, "min_stock still written directly");
+  assert.match(body, /trigger 403/, "documents trigger 403 ownership of products.stock");
+});
+
+test("CSV import payload carries neither stock nor min_stock (master-data only)", () => {
+  const body = fnBody(products, "let imported = 0", "clearTypeCache();");
+  assert.ok(!/stock:\s*Number\(getVal\(row, COL\.stock\)/.test(body),
+    "CSV payload must not write products.stock (upsert would overwrite warehouse-derived value)");
+  assert.ok(!/min_stock:\s*Number\(getVal\(row, COL\.minStock\)/.test(body),
+    "CSV payload must not write products.min_stock directly on import");
+});

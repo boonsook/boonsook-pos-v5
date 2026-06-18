@@ -1326,13 +1326,17 @@ async function importProducts(file, ctx) {
         product_type = "service";
       }
 
+      // ★ Phase 479 (S2): CSV = master data เท่านั้น — ไม่เขียน stock/min_stock ตรงเข้า products.
+      //   products.stock = derived จาก sum(warehouse_stock) ผ่าน DB trigger 403. การ upsert
+      //   (on_conflict=sku merge-duplicates) ที่ใส่ stock จะทับ products.stock ของสินค้าที่มี
+      //   warehouse rows อยู่แล้ว (warehouse_stock=truth ไม่เปลี่ยน) → diverge → เสี่ยงขายเกิน.
+      //   ตั้ง/ปรับสต็อกผ่าน "รับเข้า/นับสต็อก" (route ผ่าน warehouse_stock → trigger derive) แทน.
+      //   คอลัมน์ "คงเหลือ/ขั้นต่ำ" ใน CSV จึงถูกข้าม (COL.stock/COL.minStock map ไว้แต่ไม่เขียน).
       const payload = {
         name: name,
         sku: getVal(row, COL.sku),
         price: Number(getVal(row, COL.price) || 0),
         cost: Number(getVal(row, COL.cost) || 0),
-        stock: Number(getVal(row, COL.stock) || 0),
-        min_stock: Number(getVal(row, COL.minStock) || 0),
         barcode: getVal(row, COL.barcode),
         category: category,
         product_type: product_type
@@ -1385,7 +1389,7 @@ async function importProducts(file, ctx) {
       if (ok) imported++; else failed++;
     }
 
-    window.App?.showToast?.(`นำเข้าสำเร็จ ${imported} รายการ${failed ? `, ล้มเหลว ${failed}` : ''}`);
+    window.App?.showToast?.(`นำเข้าข้อมูลสินค้า ${imported} รายการ${failed ? `, ล้มเหลว ${failed}` : ''} — ตั้งสต็อกผ่าน "รับเข้า/นับสต็อก"`);
     clearTypeCache();
     if (window.App?.loadAllData) await window.App.loadAllData();
     renderView(ctx);

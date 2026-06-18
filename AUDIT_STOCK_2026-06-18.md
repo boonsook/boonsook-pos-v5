@@ -56,7 +56,9 @@ builds **468–475** เพิ่งรื้อระบบสต็อก/chec
 **ความเสี่ยง:** read-only (ไม่กระทบเงิน/สต็อกจริง) แต่ **ทำให้ตัดสินใจธุรกิจผิด** (เช่น เทขายล้างของที่จริงขายดี)
 **แก้:** โหลด sale_items เข้า state (เฉพาะช่วง cutoff ฝั่ง server — ระวัง cap) หรือทำ dead-stock ผ่าน server RPC
 
-### S2 — saveProduct + CSV import เขียน `products.stock` ตรง → diverge จาก warehouse_stock
+### S2 — saveProduct + CSV import เขียน `products.stock` ตรง → diverge จาก warehouse_stock — 🔧 FIX บน branch `claude/phase-479-saveproduct-csv-derived-stock` (build 479, รอ owner smoke + Codex review · ยังไม่ merge)
+
+> **แก้ (รอ review):** saveProduct มีคลัง → omit `stock` จาก products payload (ปล่อย trigger 403 derive; wh write fail = understated ปลอดภัย ไม่ overstated) + new product seed stock:0 กัน NOT NULL; legacy ไม่มีคลัง = เขียนตรงเดิม. CSV strip stock/min_stock (master-data only) + toast ตั้งสต็อกผ่านรับเข้า/นับสต็อก. min_stock ยังเขียนตรง (trigger 403 ไม่ derive min_stock). +guard stock_mirror_canonical_guard ขยายคลุม saveProduct+CSV. unit 1861 · e2e 14. ดู HANDOFF build 479.
 **ไฟล์:** `main.js:1705` (saveProduct) · `products.js:1334` (CSV import)
 **หลักฐาน:** payload ส่ง `stock: totalStock` ไปตาราง `products` ตรง ๆ; ปกติ trigger 403 (หลัง warehouse write) ทับให้ถูก **แต่** ถ้า warehouse_stock write บางตัว fail (RLS/network — 474 ดักด้วย `_whFails` + เตือน toast แต่ **ไม่ revert** `products.stock`) → `products.stock` ค้างเกินจริงจนกว่าจะมี warehouse movement ถัดไป re-sync. CSV import: re-import สินค้าที่มี warehouse rows อยู่แล้ว → ทับ `products.stock` โดยไม่แตะ warehouse_stock
 **ความเสี่ยง:** สต็อกแสดงเกินจริง → ขายเกินได้ (ผ่าน precheck ที่อ่าน products.stock)

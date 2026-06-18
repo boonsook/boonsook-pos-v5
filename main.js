@@ -1695,6 +1695,7 @@ async function saveProduct(){
   }
 
   const productType = $("newProductType")?.value || "stock";
+  const hasWarehouse = whStockData.length > 0;  // ★ Phase 479 (S2): มีคลัง → products.stock เป็น derived
 
   const payload = {
     name:$("newProductName").value.trim(),
@@ -1703,11 +1704,25 @@ async function saveProduct(){
     product_type: productType,
     price:_n0($("newProductPrice").value),
     cost:_n0($("newProductCost").value),
-    stock: productType === "service" ? 0 : totalStock,
-    min_stock: productType === "service" ? 0 : totalMinStock,
     barcode: (productType === "service" || productType === "non_stock") ? "" : $("newProductBarcode").value.trim(),
     is_active:true
   };
+  // ★ Phase 479 (S2 stock-divergence): products.stock = sum(warehouse_stock) ผ่าน DB trigger 403.
+  //   เดิม payload ส่ง stock=totalStock เสมอ แล้วพึ่ง trigger ทับให้ถูกหลัง warehouse writes — แต่ถ้า
+  //   warehouse write บางตัว fail (_whFails ด้านล่าง — เตือน toast แต่ "ไม่ revert") products.stock จะ
+  //   ค้าง "เกินจริง" (รวมคลังที่ fail) → oversell precheck (อ่าน products.stock) ผ่านทั้งที่ของไม่พอ.
+  //   แก้: มีคลัง → omit stock ปล่อย trigger derive อย่างเดียว → wh write fail = understated (ปลอดภัย
+  //   กันขายเกิน) ไม่ใช่ overstated. เขียน stock ตรงเฉพาะ legacy ที่ไม่มีคลัง (trigger ไม่ fire).
+  //   min_stock: trigger 403 ไม่ derive (sum เฉพาะ stock) → ยังเขียนตรง (เป็น threshold เตือน ไม่ใช่
+  //   vector ขายเกิน; getDisplayStock "all"/_isLowStock อ่าน products.min_stock).
+  if (productType === "service") {
+    payload.stock = 0;
+    payload.min_stock = 0;
+  } else {
+    payload.min_stock = totalMinStock;
+    if (!hasWarehouse) payload.stock = totalStock;  // legacy ไม่มีคลัง → trigger ไม่ fire → JS maintain เอง
+    // hasWarehouse → omit stock; trigger 403 derive จาก warehouse_stock writes ด้านล่าง
+  }
   // ★ ราคาส่ง + รูปภาพ (เพิ่มเฉพาะถ้ามี — รองรับ DB ที่ยังไม่มี column)
   const wholesale = Number($("newProductPriceWholesale")?.value || 0);
   if (wholesale > 0) payload.price_wholesale = wholesale;
@@ -1746,7 +1761,12 @@ async function saveProduct(){
     const res = await xhrPatch("products", payload, "id", productId);
     if (!res.ok) return showToast(res.error?.message || "บันทึกสินค้าไม่สำเร็จ");
   } else {
-    const res = await xhrPost("products", payload, { returnData: true });
+    // ★ Phase 479: สินค้าใหม่ที่มีคลังแต่ omit stock → seed 0 กัน column NOT NULL (ถ้ามี); trigger 403
+    //   จะ overwrite = sum หลัง warehouse_stock writes ด้านล่าง. ห้าม seed totalStock (overstate ถ้า wh fail).
+    const createPayload = (hasWarehouse && productType !== "service")
+      ? { ...payload, stock: 0 }
+      : payload;
+    const res = await xhrPost("products", createPayload, { returnData: true });
     if (!res.ok) return showToast(res.error?.message || "บันทึกสินค้าไม่สำเร็จ");
     // eslint-disable-next-line require-atomic-updates -- C: local productId reassign in sequential product save
     productId = res.data?.id;
