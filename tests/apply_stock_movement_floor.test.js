@@ -75,6 +75,20 @@ test("out/sale CAS fail (non-insufficient) → return BEFORE logging (Phase 485 
   );
 });
 
+test("in/return CAS fail (non-insufficient) → return BEFORE logging (Phase 494 NIT-B, sibling of 485)", () => {
+  // the in/return (additive) branch must also NOT fall through to the movement log on a CAS failure —
+  // logging a phantom "in"/"return" with no real stock change over-reports received stock (reconcile noise).
+  assert.match(
+    body,
+    /console\.warn\("\[applyStockMovement\] warehouse_stock CAS failed \(in\/return\):", dec\.error\);\s*return \{ ok: false, error: dec\.error/,
+    "in/return CAS fail returns ok:false before the stock_movements log"
+  );
+  // structural: the additive-branch failure return precedes the single stock_movements log
+  const inReturnFailIdx = body.indexOf('warehouse_stock CAS failed (in/return)');
+  const logIdx = body.indexOf('xhrPost("stock_movements"');
+  assert.ok(inReturnFailIdx > 0 && logIdx > inReturnFailIdx, "in/return CAS-fail return is positioned before the movement log");
+});
+
 test("out/sale with no warehouse row (+!allowNegative) → fail, does NOT insert a negative row", () => {
   // guard: missing row on an out/sale without override returns insufficient instead of inserting
   assert.match(

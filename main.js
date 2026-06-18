@@ -3763,13 +3763,18 @@ async function _applyStockMovement({ productId, warehouseId, movementType, qty, 
             return { ok: false, error: dec.error || "ตัดสต็อกคลังไม่สำเร็จ (CAS)" };
           }
         } else {
-          // in/return (delta>0) หรือ allowNegative out/sale (admin override) → คงพฤติกรรมเดิม
+          // in/return (delta>0) หรือ allowNegative out/sale (admin override)
           const dec = await _atomicAddStock("warehouse_stock", ws.id, delta);
           if (dec.ok) {
             after = dec.after;
             ws.stock = after;
           } else {
-            console.warn("[applyStockMovement] warehouse_stock CAS failed:", dec.error);
+            // ★ Phase 494 (audit NIT-B): CAS fail (RLS/network/retry หมด) → สต็อกไม่เปลี่ยนจริง →
+            //   return ก่อน log (mirror out-flow Phase 485). เดิม console.warn แล้วไหลต่อไป log
+            //   stock_movements หลอกว่ารับ/คืนแล้ว ทั้งที่ warehouse_stock ไม่ขยับ = reconcile noise
+            //   (in/return row + after optimistic ผิด → over-report ฝั่งรับ).
+            console.warn("[applyStockMovement] warehouse_stock CAS failed (in/return):", dec.error);
+            return { ok: false, error: dec.error || "ปรับสต็อกคลังไม่สำเร็จ (CAS)" };
           }
         }
       } else {
