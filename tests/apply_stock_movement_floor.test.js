@@ -65,6 +65,16 @@ test("out/sale insufficient → early return BEFORE logging stock_movements", ()
   assert.match(body, /if \(dec\.insufficient\) \{[\s\S]{0,200}return \{ ok: false, insufficient: true/, "returns on insufficient");
 });
 
+test("out/sale CAS fail (non-insufficient) → return BEFORE logging (Phase 485 NIT3, mirror Phase 465)", () => {
+  // the non-insufficient failure branch (RLS/network/retry-exhausted) must NOT fall through to the
+  // movement log — that would record a phantom "out" with no real stock change (reconcile noise).
+  assert.match(
+    body,
+    /console\.warn\("\[applyStockMovement\] warehouse_stock CAS failed:", dec\.error\);\s*return \{ ok: false, error: dec\.error/,
+    "non-insufficient CAS fail returns ok:false before the stock_movements log"
+  );
+});
+
 test("out/sale with no warehouse row (+!allowNegative) → fail, does NOT insert a negative row", () => {
   // guard: missing row on an out/sale without override returns insufficient instead of inserting
   assert.match(

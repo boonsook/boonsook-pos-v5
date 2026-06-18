@@ -3750,8 +3750,11 @@ async function _applyStockMovement({ productId, warehouseId, movementType, qty, 
             after = dec.after;
             ws.stock = after;
           } else {
-            // ล้มแบบอื่น (ไม่ใช่ insufficient) → best-effort เดิม
+            // ★ Phase 485 (audit NIT3): CAS fail แบบ non-insufficient (RLS/network/retry หมด) →
+            //   สต็อกไม่ถูกตัดจริง → return ก่อน log (mirror Phase 465 ใน _deductStockForSaleItem).
+            //   ห้าม log movement หลอกว่าตัดสำเร็จ = reconcile noise (out row ที่สต็อกไม่เปลี่ยน + after optimistic ผิด).
             console.warn("[applyStockMovement] warehouse_stock CAS failed:", dec.error);
+            return { ok: false, error: dec.error || "ตัดสต็อกคลังไม่สำเร็จ (CAS)" };
           }
         } else {
           // in/return (delta>0) หรือ allowNegative out/sale (admin override) → คงพฤติกรรมเดิม
