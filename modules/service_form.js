@@ -573,7 +573,9 @@ export function renderServiceFormPage(ctx, serviceType) {
         }
       } catch(e) { console.warn("[service_form] state update fail", e); }
 
-      // Auto-transfer + deduct stock
+      // ★ Phase 482: ฟอร์มรับงาน "ไม่ตัดสต็อก" ตอนสร้างอีกแล้ว — ตัดสต็อกตอนปิดงานผ่าน admin drawer
+      //   (deductServiceJobStock). คงเฉพาะ auto-transfer (ย้ายคลังเตรียมของ บ้าน→รถ — ไม่ใช่ consume).
+      //   items_json ถูกบันทึกในงาน (record.items_json = fullItems) → drawer ตัดตอนปิด.
       let stockOpsFailed = false;
       try {
         for (const t of transfersNeeded) {
@@ -591,43 +593,16 @@ export function renderServiceFormPage(ctx, serviceType) {
             }
           }
         }
-        for (const it of fullItems) {
-          if (!it.warehouse_id || !it.product_id) continue;
-          if (typeof window._appApplyStockMovement === "function") {
-            const r = await window._appApplyStockMovement({
-              productId: it.product_id,
-              warehouseId: it.warehouse_id,
-              movementType: "out",
-              qty: Number(it.qty || 0),
-              note: `${cfg.job_type}: ${jobNo} — ${name}`
-            });
-            if (!r?.ok) {
-              console.error("[service_form deduct fail]", it, r);
-              stockOpsFailed = true;
-            }
-          }
-        }
       } catch (stockErr) {
         console.error("[service_form stock ops]", stockErr);
         stockOpsFailed = true;
       }
-
-      // Phase 45.4: optimistic update state.warehouseStock + ไม่ await loadAllData
-      // เหตุผล: loadAllData → renderAll → showRoute → renderServiceFormPage → re-mount form →
-      //         labor/discount input reset เป็น value="0" ทั้งที่ user เพิ่งกรอกค่า
-      try {
-        for (const it of fullItems) {
-          if (!it.warehouse_id || !it.product_id) continue;
-          const ws = (state.warehouseStock || []).find(w =>
-            String(w.product_id) === String(it.product_id) &&
-            String(w.warehouse_id) === String(it.warehouse_id)
-          );
-          if (ws) ws.stock = Math.max(0, Number(ws.stock || 0) - Number(it.qty || 0));
-        }
-      } catch(e) { console.warn("[service_form] optimistic stock update fail", e); }
+      // ★ Phase 482: ลบ optimistic deduct ของ fullItems (เดิม Phase 45.4) — ฟอร์มไม่ตัดสต็อกแล้ว
+      //   (เก็บไว้จะทำ state.warehouseStock ลดทั้งที่ไม่ได้ตัดจริง = แสดงสต็อกผิด). transfer มี optimistic
+      //   ของตัวเองใน _appTransferWarehouseStock อยู่แล้ว.
 
       if (stockOpsFailed) {
-        showToast?.("⚠️ ใบงาน save แล้ว แต่ตัดสต็อก/โอนบางรายการล้มเหลว — ตรวจ Console");
+        showToast?.("⚠️ ใบงาน save แล้ว แต่โอนสต็อกบางรายการล้มเหลว — ตรวจ Console");
       }
 
       // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L1 user-event (single save button per service form)

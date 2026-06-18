@@ -117,10 +117,17 @@ test("stock_movements.js save handler no longer allows negative (Phase 437 hard 
   );
 });
 
-test("service-job auto-deduct (ac_install/service_form/solar) does NOT pass allowNegative → floored", () => {
-  for (const f of ["ac_install", "service_form", "solar"]) {
+test("service-job auto-deduct (ac_install/solar) does NOT pass allowNegative → floored", () => {
+  // Phase 482: service_form no longer deducts on create (moved to job close); ac_install/solar
+  // still deduct on create (out of Phase 482 scope — see known risk: consolidate later).
+  for (const f of ["ac_install", "solar"]) {
     const src = fs.readFileSync(path.resolve(`modules/${f}.js`), "utf8");
     assert.ok(src.includes('movementType: "out"'), `${f}.js auto-deducts with type out`);
     assert.ok(!src.includes("allowNegative"), `${f}.js must rely on default allowNegative=false (floored)`);
   }
+});
+
+test("service_form no longer deducts on create (Phase 482 — deduct moved to job close)", () => {
+  const src = fs.readFileSync(path.resolve("modules/service_form.js"), "utf8");
+  assert.ok(!src.includes('movementType: "out"'), "intake form must not consume stock on create");
 });

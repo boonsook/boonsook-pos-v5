@@ -96,10 +96,30 @@ export async function deductEquipmentStock(items, jobNo, customerName) {
   return { stockOpsFailed, errors };
 }
 
-// ── Phase 404: คืนสต็อกตอนยกเลิก/ลบงานช่างที่มีอุปกรณ์ ────────────────
-//   อุปกรณ์ถูกตัดตอนสร้าง (Phase 402) → cancel/delete ต้องคืน (return movement) ผ่าน
+// ── Phase 482: ตัดสต็อกอุปกรณ์งานช่าง "ตอนปิดงาน" (done/delivered/closed) ครั้งเดียว ─────
+//   โมเดล owner: ช่างเพิ่ม/แก้อุปกรณ์ได้ตลอดช่วงงานยังไม่ปิด = "ยังไม่ตัด"; ตัดจริงตอน owner ปิด+ได้เงิน
+//   (พร้อม JV). เดิม (Phase 402) ตัดตอนสร้าง/บันทึกงาน → ย้ายมาตัดตอนปิดแทน.
+//   idempotent ด้วย STOCK_DEDUCTED_MARKER: note มี marker แล้ว / ไม่มี items → no-op (กันตัดซ้ำตอน re-save/re-close).
+//   คืน { deducted, stockOpsFailed, newNote, errors } — caller แปะ newNote (marker) กันตัดรอบหน้า.
+export const STOCK_DEDUCTED_MARKER = "[ตัดสต็อกแล้ว]";
+
+export async function deductServiceJobStock(job) {
+  const items = Array.isArray(job?.items_json) ? job.items_json : [];
+  const note = String(job?.note || "");
+  if (items.length === 0 || note.includes(STOCK_DEDUCTED_MARKER)) {
+    return { deducted: false, stockOpsFailed: false, newNote: note, errors: [] };
+  }
+  const { stockOpsFailed, errors } = await deductEquipmentStock(items, job?.job_no || "", job?.customer_name || "");
+  const newNote = note ? `${note} ${STOCK_DEDUCTED_MARKER}` : STOCK_DEDUCTED_MARKER;
+  return { deducted: true, stockOpsFailed, newNote, errors };
+}
+
+// ── Phase 404 (+482): คืนสต็อกตอนยกเลิก/ลบงานช่างที่ "ตัดสต็อกแล้ว" ────────────────
+//   อุปกรณ์ถูกตัดตอนปิดงาน (Phase 482; เดิม 402 ตัดตอนสร้าง) → cancel/delete ต้องคืน (return movement) ผ่าน
 //   window._appApplyStockMovement("return") → trigger 403 sync products.stock เอง (ไม่แตะ products ตรง).
-//   idempotent: ถ้า note มี STOCK_RETURNED_MARKER แล้ว = คืนไปแล้ว → no-op (กันคืนซ้ำ).
+//   ★ Phase 482 gate: คืนเฉพาะงานที่ "เคยตัดจริง" (note มี STOCK_DEDUCTED_MARKER) — งานที่เพิ่มอุปกรณ์
+//      แต่ยังไม่ปิด/ยังไม่ตัด = ไม่มี marker → no-op (กันคืน phantom stock ที่ไม่เคยตัด).
+//   idempotent: note มี STOCK_RETURNED_MARKER แล้ว = คืนไปแล้ว → no-op (กันคืนซ้ำ).
 //   คืนเฉพาะ item ที่มี warehouse_id (ถูก warehouse-deduct จริง); ไม่มี → skip (ไม่เดาคลัง).
 //   คืน { restored, newNote, errors } — caller เอา newNote ไปเขียน (มี marker กันคืนซ้ำรอบหน้า).
 export const STOCK_RETURNED_MARKER = "[คืนสต็อกแล้ว]";
@@ -107,7 +127,9 @@ export const STOCK_RETURNED_MARKER = "[คืนสต็อกแล้ว]";
 export async function restoreServiceJobStock(job) {
   const items = Array.isArray(job?.items_json) ? job.items_json : [];
   const note = String(job?.note || "");
-  if (items.length === 0 || note.includes(STOCK_RETURNED_MARKER)) {
+  // ★ Phase 482: คืนเฉพาะที่ "เคยตัดจริง" (มี DEDUCTED marker) + ยังไม่เคยคืน (ไม่มี RETURNED marker).
+  //   งานที่เพิ่มอุปกรณ์แต่ยังไม่ปิด/ยังไม่ตัด = ไม่มี DEDUCTED marker → no-op (กันคืน phantom stock).
+  if (items.length === 0 || !note.includes(STOCK_DEDUCTED_MARKER) || note.includes(STOCK_RETURNED_MARKER)) {
     return { restored: false, newNote: note, errors: [] };
   }
   const errors = [];

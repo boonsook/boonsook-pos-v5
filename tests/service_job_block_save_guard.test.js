@@ -74,9 +74,10 @@ for (const { tag, file, homeStockHelper } of FILES) {
       !src.includes('service_jobs?id=eq.${jobId}'),
       `${file}: no PATCH-by-id of service_jobs (Part 2 reverted)`
     );
-    // the existing warn toast must stay (build-369 behavior)
+    // the existing warn toast must stay (build-369 behavior; Phase 482 reworded service_form to
+    // "โอนสต็อก" since the intake form no longer deducts — common prefix still asserted)
     assert.ok(
-      src.includes("ใบงาน save แล้ว แต่ตัดสต็อก"),
+      src.includes("ใบงาน save แล้ว แต่"),
       `${file}: stockOpsFailed toast must stay`
     );
   });

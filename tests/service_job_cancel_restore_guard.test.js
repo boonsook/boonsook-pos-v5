@@ -1,10 +1,12 @@
 // Phase 404 — service-job-cancel-restore-stock (MONEY/STOCK §4.2)
 // Run: node --test tests/service_job_cancel_restore_guard.test.js
 //
-// Equipment is deducted when a service job is created (Phase 402). When the job is
-// cancelled/deleted, the equipment must be RETURNED to stock — via the same CAS path
-// (_appApplyStockMovement "return"), idempotently (a note marker prevents a second
+// Equipment is deducted when a service job is CLOSED (Phase 482; was Phase 402 on-create).
+// When a DEDUCTED job is cancelled/deleted, the equipment must be RETURNED to stock — via the
+// same CAS path (_appApplyStockMovement "return"), idempotently (a note marker prevents a second
 // return), and only for items that were actually warehouse-deducted (have warehouse_id).
+// Phase 482 gate: restore runs only when the job carries STOCK_DEDUCTED_MARKER (i.e. it was
+// actually deducted) — added equipment on an open job that was never closed → nothing to return.
 //
 // Two layers: (1) behavioral on restoreServiceJobStock; (2) a COMPLETENESS guard — every
 // place that sets service_jobs status="cancelled" must call restoreServiceJobStock, so a
@@ -14,7 +16,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { restoreServiceJobStock, STOCK_RETURNED_MARKER } from "../modules/service_equipment.js";
+import { restoreServiceJobStock, STOCK_RETURNED_MARKER, STOCK_DEDUCTED_MARKER } from "../modules/service_equipment.js";
 
 function withMockApply(impl, fn) {
   const prev = globalThis.window;
@@ -25,7 +27,7 @@ function withMockApply(impl, fn) {
 
 test("returns each warehouse-deducted item via _appApplyStockMovement('return')", () =>
   withMockApply(null, async (calls) => {
-    const job = { job_no: "JOB-1", note: "งานซ่อม", items_json: [
+    const job = { job_no: "JOB-1", note: `งานซ่อม ${STOCK_DEDUCTED_MARKER}`, items_json: [
       { product_id: 1, warehouse_id: 9, qty: 2 },
       { product_id: 2, warehouse_id: 9, qty: 1 },
     ] };
@@ -56,7 +58,7 @@ test("no items_json → no-op (no calls)", () =>
 
 test("skips items without warehouse_id (don't guess a warehouse)", () =>
   withMockApply(null, async (calls) => {
-    const job = { job_no: "JOB-1", note: "", items_json: [
+    const job = { job_no: "JOB-1", note: STOCK_DEDUCTED_MARKER, items_json: [
       { product_id: 1, warehouse_id: 9, qty: 2 },   // returned
       { product_id: 2, qty: 5 },                      // no warehouse_id → skip
     ] };
@@ -67,7 +69,7 @@ test("skips items without warehouse_id (don't guess a warehouse)", () =>
 
 test("partial failure is reported (errors[]), not swallowed", () =>
   withMockApply((a) => ({ ok: a.productId !== 2 }), async () => {
-    const job = { job_no: "JOB-1", note: "", items_json: [
+    const job = { job_no: "JOB-1", note: STOCK_DEDUCTED_MARKER, items_json: [
       { product_id: 1, warehouse_id: 9, qty: 1 },
       { product_id: 2, warehouse_id: 9, qty: 1 },
     ] };

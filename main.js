@@ -28,7 +28,7 @@ import { shareDoc as _shareDocImpl } from "./modules/share_doc.js";
 // Phase 89.20: solar, ac_install lazy
 import { renderServiceFormPage, SERVICE_TYPES } from "./modules/service_form.js";
 // Phase 402 (MONEY/STOCK §4.1+§4.2): อุปกรณ์จากสต็อกใน drawer งานช่าง (deduct on save, งานใหม่)
-import { equipmentTotal as _equipTotal, precheckEquipmentStock as _equipPrecheck, toItemsJson as _equipToItemsJson, deductEquipmentStock as _equipDeduct, optimisticDeduct as _equipOptimistic, renderEquipmentList as _equipRenderList, openEquipmentPicker as _equipOpenPicker, restoreServiceJobStock as _equipRestoreStock, STOCK_RETURNED_MARKER as _STOCK_RETURNED_MARKER } from "./modules/service_equipment.js";
+import { equipmentTotal as _equipTotal, precheckEquipmentStock as _equipPrecheck, toItemsJson as _equipToItemsJson, deductServiceJobStock as _equipDeductOnClose, optimisticDeduct as _equipOptimistic, renderEquipmentList as _equipRenderList, openEquipmentPicker as _equipOpenPicker, restoreServiceJobStock as _equipRestoreStock, STOCK_RETURNED_MARKER as _STOCK_RETURNED_MARKER } from "./modules/service_equipment.js";
 // Phase 89.20: error_codes (124KB), error_codes_fridge (35KB), error_codes_washer (34KB) lazy
 // Phase 89.21: stock_value, dead_stock, stock_count, stock_in_wizard, cash_recon lazy
 // Phase 89.21: top_customers, sales_heatmap, recurring_expenses, credit_tracker, refunds lazy
@@ -2400,11 +2400,12 @@ function openServiceJobDrawer(job=null){
   $("serviceStatus").value = job?.status || "pending";
   $("serviceNote").value = job?.note || "";
 
-  // ★ Phase 88.8 / Phase 402: ค่าแรง / ส่วนลด / ยอดสุทธิ / อุปกรณ์ — สำหรับลง JV
-  // อุปกรณ์: งานเดิม (มี items_json) → read-only (ตัดสต็อกแล้ว กันตัดซ้ำ); งานใหม่ → เพิ่ม/ลบ + ตัดตอน save
-  const _hasExistingItems = !!(job?.items_json && Array.isArray(job.items_json) && job.items_json.length);
-  _serviceDrawerEquipReadonly = _hasExistingItems;
-  _serviceDrawerItems = _hasExistingItems ? job.items_json.map(it => ({ ...it })) : [];  // clone งานเดิม (display เฉย ๆ)
+  // ★ Phase 88.8 / Phase 402 / Phase 482: ค่าแรง / ส่วนลด / ยอดสุทธิ / อุปกรณ์ — สำหรับลง JV
+  // Phase 482: read-only = "งานปิดแล้ว" (done/delivered/closed = ตัดสต็อกแล้ว กันตัดซ้ำ) — ไม่ใช่ "มี items"
+  //   → งานที่ยังเปิด (pending/progress รวมงาน Ning/LINE ที่ items ว่าง) เพิ่ม/แก้อุปกรณ์ได้; ตัดสต็อกตอนปิด.
+  //   ยัง clone items_json มาแสดงเสมอ (display ถ้าปิด, แก้ได้ถ้ายังเปิด).
+  _serviceDrawerEquipReadonly = ["done", "delivered", "closed"].includes(job?.status);
+  _serviceDrawerItems = (job?.items_json && Array.isArray(job.items_json)) ? job.items_json.map(it => ({ ...it })) : [];
   if (!job && Array.isArray(drawerDraft?.items)) {
     _serviceDrawerItems = drawerDraft.items.map(it => ({ ...it }));
   }
@@ -2889,10 +2890,12 @@ async function saveServiceJob(){
   }
   let res;
   const isNewJob = !state.editingServiceJobId;
-  // ★ Phase 402 (MONEY/STOCK §4.1+§4.2): อุปกรณ์จากสต็อก — เฉพาะงานใหม่ (งานเดิม items read-only กันตัดซ้ำ)
-  const _equipItemsForSave = (isNewJob && !_serviceDrawerEquipReadonly) ? _equipToItemsJson(_serviceDrawerItems) : [];
+  // ★ Phase 402 / Phase 482 (MONEY/STOCK §4.1+§4.2): บันทึก items_json ได้ทุกครั้งที่ "ยังแก้ได้"
+  //   (งานยังไม่ปิด) — เดิมจำกัดเฉพาะ isNewJob ทำให้งานเดิม (รวมงาน Ning items ว่าง) เพิ่มอุปกรณ์แล้วหาย.
+  //   ★ ไม่ตัดสต็อกที่นี่อีกแล้ว (Phase 482 ย้ายไปตัดตอนปิดงาน — ดู deduct-on-close ใต้ JV block).
+  const _equipItemsForSave = (!_serviceDrawerEquipReadonly) ? _equipToItemsJson(_serviceDrawerItems) : [];
   if (_equipItemsForSave.length) {
-    // precheck: รวม qty ต่อ (product|warehouse) เทียบสต็อกจริง → ไม่พอ = บล็อก ไม่บันทึก/ไม่ตัด (floor กันติดลบ)
+    // precheck: รวม qty ต่อ (product|warehouse) เทียบสต็อกจริง → ไม่พอ = บล็อก ไม่บันทึก (floor กันติดลบ)
     const pc = _equipPrecheck(_equipItemsForSave, state);
     if (!pc.ok) {
       const msg = "❌ สต็อกอุปกรณ์ไม่พอ: " + pc.shortages.map(s => `${s.name} (${s.warehouse_name}) ต้องใช้ ${s.need} เหลือ ${s.avail}`).join(" • ");
@@ -2933,15 +2936,8 @@ async function saveServiceJob(){
     }
   }
 
-  // ★ Phase 402: ตัดสต็อกอุปกรณ์ — job insert สำเร็จก่อน → ค่อยตัด (invariant เหมือน service_form.js).
-  //   ตัดผ่าน window._appApplyStockMovement (out/CAS/floor); ตัดบางตัว fail → ไม่ rollback job (เตือน reconcile §4.8)
-  if (_equipItemsForSave.length) {
-    const { stockOpsFailed } = await _equipDeduct(_equipItemsForSave, payload.job_no || "", payload.customer_name);
-    _equipOptimistic(_equipItemsForSave, state);  // optimistic local (Phase 45.4) — ไม่ await loadAllData
-    if (stockOpsFailed) {
-      showToast("⚠️ บันทึกงานแล้ว แต่ตัดสต็อกอุปกรณ์บางรายการล้มเหลว — ตรวจ Console/สต็อก", "warning");
-    }
-  }
+  // ★ Phase 482: ตัดสต็อกอุปกรณ์ "ตอนปิดงาน" แทนตอน save (ย้ายไปบล็อก deduct-on-close ใต้ JV block).
+  //   ตอน save ปกติ (งานยังไม่ปิด) ไม่ตัดสต็อก — ช่างเพิ่ม/แก้อุปกรณ์ได้โดยไม่กิน stock จริง.
 
   // Phase 45.9: optimistic update + background reload
   // เดิม `await loadAllData()` block 10-30s ทุกครั้งหลัง save (slow connection อาจถึง 2 นาที)
@@ -3030,6 +3026,41 @@ async function saveServiceJob(){
         prepareAndPost().catch(e => console.warn("[saveServiceJob] auto-post JV failed:", e?.message));
       }
     } catch(e) { console.warn("[saveServiceJob] auto-post wire fail:", e?.message); }
+  }
+
+  // ★ Phase 482 (MONEY/STOCK §4.1+§4.2): ตัดสต็อกอุปกรณ์ "ตอนปิดงาน" ครั้งเดียว (พร้อม JV ด้านบน).
+  //   เฉพาะ transition เข้าปิด (pending→ปิด) หรือสร้างใหม่+ปิดทันที — ★ ไม่รวม editCompleteWithChange
+  //   (งานปิดอยู่แล้ว = ตัดไปแล้วรอบปิดครั้งแรก; marker กันซ้ำอีกชั้น). idempotent ด้วย STOCK_DEDUCTED_MARKER.
+  //   ตัดบางตัว fail → ไม่ rollback งาน (เตือน reconcile §4.8). marker PATCH fail → เตือน "ห้ามปิดซ้ำ".
+  if (transitionedToDone || newJobAlreadyComplete) {
+    try {
+      const jobId = isNewJob ? res.data?.id : state.editingServiceJobId;
+      if (jobId) {
+        const jobForDeduct = {
+          ...(state.serviceJobs || []).find(j => String(j.id) === String(jobId)),
+          ...payload,
+          id: jobId,
+          items_json: payload.items_json ?? _equipToItemsJson(_serviceDrawerItems)
+        };
+        const ded = await _equipDeductOnClose(jobForDeduct);
+        if (ded.deducted) {
+          _equipOptimistic(jobForDeduct.items_json, state);  // optimistic local (Phase 45.4)
+          const mk = await xhrPatch("service_jobs", { note: ded.newNote }, "id", jobId);  // แปะ marker กันตัดซ้ำ
+          if (!mk?.ok) {
+            console.warn("[saveServiceJob] deduct marker PATCH failed:", mk?.error?.message);
+            showToast("⚠️ ตัดสต็อกอุปกรณ์แล้ว แต่แปะ marker ไม่สำเร็จ — ห้ามปิดงานซ้ำ (อาจตัดซ้ำ)", "warning");
+          } else {
+            // sync marker ลง local state (optimistic block ด้านบนรันไปแล้ว) → cancel ทันทีหลังปิด restore ถูก
+            payload.note = ded.newNote;
+            const _sjIdx = (state.serviceJobs || []).findIndex(j => String(j.id) === String(jobId));
+            if (_sjIdx >= 0) state.serviceJobs[_sjIdx].note = ded.newNote;
+          }
+          if (ded.errors?.length || ded.stockOpsFailed) {
+            showToast(`⚠️ ปิดงานแล้ว แต่ตัดสต็อกอุปกรณ์บางรายการไม่สำเร็จ (${ded.errors?.length || 0}) — ตรวจ Console/สต็อก`, "warning");
+          }
+        }
+      }
+    } catch (e) { console.error("[saveServiceJob] deduct-on-close threw:", e?.message || e); }
   }
 
   if (transitionedToDone) {

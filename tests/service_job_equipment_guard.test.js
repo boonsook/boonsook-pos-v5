@@ -94,17 +94,22 @@ test("service_equipment.js never writes warehouse_stock directly (CAS-only)", ()
   assert.ok(/from "\.\/stock_precheck\.js"/.test(moduleSrc), "reuses aggregateNeedByKey (shared)");
 });
 
-// ── main.js wiring: deduct on create only, read-only on edit ──────
-test("saveServiceJob deducts equipment ONLY for new jobs (edit = no re-cut)", () => {
-  // the items-to-save list is gated on isNewJob && !readonly → editing yields []
-  assert.match(mainSrc, /_equipItemsForSave\s*=\s*\(isNewJob\s*&&\s*!_serviceDrawerEquipReadonly\)/,
-    "equip-to-save gated on new job + not readonly");
-  // precheck before insert, items_json attached, deduct after insert
-  assert.match(mainSrc, /_equipPrecheck\(_equipItemsForSave, state\)/, "precheck before save");
-  assert.match(mainSrc, /payload\.items_json\s*=\s*_equipItemsForSave/, "items_json attached for new job");
-  assert.match(mainSrc, /_equipDeduct\(_equipItemsForSave,/, "deduct after successful insert");
-  // both precheck and deduct sit behind `if (_equipItemsForSave.length)` → edit path ([]) skips deduct
-  assert.match(mainSrc, /if \(_equipItemsForSave\.length\)/, "deduct/precheck guarded by non-empty equip list");
+// ── main.js wiring (Phase 482): items saved whenever editable; deduct on CLOSE ──────
+test("saveServiceJob saves items_json whenever editable (no isNewJob gate) — existing open jobs editable", () => {
+  // Phase 482: gate is "editable" (= not closed), NOT isNewJob → existing open jobs can add equipment
+  assert.match(mainSrc, /_equipItemsForSave\s*=\s*\(!_serviceDrawerEquipReadonly\)\s*\?\s*_equipToItemsJson\(_serviceDrawerItems\)/,
+    "equip-to-save gated only on editable (not closed)");
+  assert.match(mainSrc, /_equipPrecheck\(_equipItemsForSave, state\)/, "precheck still runs on save");
+  assert.match(mainSrc, /payload\.items_json\s*=\s*_equipItemsForSave/, "items_json attached when editable");
+});
+
+test("Phase 482: stock is NOT deducted on save; it is deducted on close (idempotent)", () => {
+  // the old deduct-on-save call is gone
+  assert.ok(!/_equipDeduct\(_equipItemsForSave/.test(mainSrc), "no deduct-on-save");
+  // deduct happens in the close branch (transition→done | new-complete), persisting a marker
+  assert.match(mainSrc, /if \(transitionedToDone \|\| newJobAlreadyComplete\)[\s\S]{0,600}?_equipDeductOnClose\(jobForDeduct\)/,
+    "deduct-on-close gated by close transition");
+  assert.match(mainSrc, /xhrPatch\("service_jobs", \{ note: ded\.newNote \}/, "marker persisted to prevent re-deduct");
 });
 
 test("equipment drawer surfaces problems via showToast, never alert()", () => {
@@ -113,8 +118,9 @@ test("equipment drawer surfaces problems via showToast, never alert()", () => {
   assert.match(mainSrc, /return showToast\(msg\);/, "stock-shortage block warns via showToast");
 });
 
-test("editing job clones items read-only (no mutation of the original row)", () => {
-  assert.match(mainSrc, /_serviceDrawerEquipReadonly\s*=\s*_hasExistingItems/, "edit with items → readonly flag set");
+test("drawer read-only only when job is CLOSED; items always cloned (Phase 482)", () => {
+  assert.match(mainSrc, /_serviceDrawerEquipReadonly\s*=\s*\["done", "delivered", "closed"\]\.includes\(job\?\.status\)/,
+    "read-only = closed status (open jobs stay editable)");
   assert.match(mainSrc, /job\.items_json\.map\(it => \(\{ \.\.\.it \}\)\)/, "existing items are cloned, not referenced");
 });
 
