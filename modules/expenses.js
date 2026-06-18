@@ -5,6 +5,7 @@
 import { renderEmpty } from "./ui_states.js";
 // Phase 70 (D3): Excel export
 import { exportToExcel, todaySuffix, todayBkk, visibleSalesForRole } from "./utils.js";
+import { fetchSalesSince } from "./sales_fetch.js";
 // Phase 88.1a: auto-post JV ตอนบันทึก expense
 import { postJournalForExpense, voidJvForSource } from "./accounting/auto_post.js";
 
@@ -54,8 +55,6 @@ export function renderExpensesPage(ctx) {
   if (!_filterToDate) _filterToDate = todayStr;
 
   const expenses = ctx.state.expenses || [];
-  // ★ กรอง soft-deleted sales ออกก่อนคำนวณรายรับ
-  const sales = visibleSalesForRole(ctx.state.sales, ctx.state.profile, ctx.state.currentUser);
 
   // Calculate summary values
   const thisMonth = todayStr.slice(0, 7);
@@ -63,11 +62,8 @@ export function renderExpensesPage(ctx) {
     .filter(e => String(e.expense_date || "").slice(0, 7) === thisMonth)
     .reduce((sum, e) => sum + Number(e.amount || 0), 0);
 
-  const monthIncome = sales
-    .filter(s => String(s.created_at || "").slice(0, 7) === thisMonth)
-    .reduce((sum, s) => sum + Number(s.total_amount || 0), 0);
-
-  const profit = monthIncome - monthExpenses;
+  // ★ Phase 492 (S-5): "รายรับเดือนนี้" + กำไร = lazy-fill ดึงยอดขายจริงทั้งเดือนจาก DB (เดิม state.sales
+  //   cap 50 → รายรับต่ำกว่าจริง). patch #expMonthIncome / #expProfitCard ท้ายฟังก์ชัน (monthExpenses คงจาก state).
 
   // Apply filters
   let filtered = [...expenses];
@@ -100,12 +96,12 @@ export function renderExpensesPage(ctx) {
       </div>
       <div class="stat-card" style="border-left:4px solid #10b981">
         <div class="stat-label">รายรับเดือนนี้</div>
-        <div class="stat-value" style="color:#10b981">${money(monthIncome)}</div>
+        <div class="stat-value" style="color:#10b981" id="expMonthIncome">⏳</div>
         <div class="sku" style="margin-top:8px">จากการขาย</div>
       </div>
-      <div class="stat-card" style="border-left:4px solid ${profit >= 0 ? '#0284c7' : '#ef4444'}">
-        <div class="stat-label">${profit >= 0 ? 'กำไร' : 'ขาดทุน'}</div>
-        <div class="stat-value" style="color:${profit >= 0 ? '#0284c7' : '#ef4444'}">${money(Math.abs(profit))}</div>
+      <div class="stat-card" id="expProfitCard" style="border-left:4px solid #94a3b8">
+        <div class="stat-label">กำไร/ขาดทุน</div>
+        <div class="stat-value" style="color:#94a3b8">⏳</div>
         <div class="sku" style="margin-top:8px">ยอด ${new Date().toLocaleDateString('th-TH', {month:'long'})}</div>
       </div>
     </div>
@@ -281,6 +277,35 @@ export function renderExpensesPage(ctx) {
   bindFilterEvents();
   bindAddFormEvents();
   bindTableActions();
+
+  // ★ Phase 492 (S-5): lazy-fill รายรับ/กำไรเดือนนี้ — ดึงยอดขายจริงทั้งเดือนจาก DB แล้ว patch การ์ด
+  //   (เดิม state.sales cap 50 → รายรับต่ำกว่าจริง). fetch ล้ม → "—". monthExpenses ยังจาก state (cap 200 = นอก S-5).
+  (async () => {
+   try {
+    const incEl = document.getElementById("expMonthIncome");
+    const profitEl = document.getElementById("expProfitCard");
+    if (!incEl && !profitEl) return;
+    const res = await fetchSalesSince(thisMonth + "-01");
+    if (!document.body?.contains?.(incEl) && !document.body?.contains?.(profitEl)) return;  // ออกหน้า/re-render ระหว่างโหลด
+    if (!res.ok) {
+      if (incEl) incEl.textContent = "—";
+      const pv = profitEl?.querySelector(".stat-value"); if (pv) pv.textContent = "—";
+      return;
+    }
+    const monthIncome = visibleSalesForRole(res.rows, ctx.state.profile, ctx.state.currentUser)
+      .filter(s => String(s.created_at || "").slice(0, 7) === thisMonth)
+      .reduce((sum, s) => sum + Number(s.total_amount || 0), 0);
+    const profit = monthIncome - monthExpenses;
+    if (incEl) incEl.textContent = money(monthIncome);
+    if (profitEl) {
+      profitEl.style.borderLeftColor = profit >= 0 ? "#0284c7" : "#ef4444";
+      profitEl.innerHTML = `
+        <div class="stat-label">${profit >= 0 ? 'กำไร' : 'ขาดทุน'}</div>
+        <div class="stat-value" style="color:${profit >= 0 ? '#0284c7' : '#ef4444'}">${money(Math.abs(profit))}</div>
+        <div class="sku" style="margin-top:8px">ยอด ${new Date().toLocaleDateString('th-TH', {month:'long'})}</div>`;
+    }
+   } catch (e) { console.warn("[expenses] income/profit lazy-fill failed", e?.message || e); }
+  })();
 }
 
 // ═══════════════════════════════════════════════════════════

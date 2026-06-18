@@ -4,6 +4,7 @@
 // ═══════════════════════════════════════════════════════════
 
 import { escHtml, visibleSalesForRole } from "./utils.js";
+import { fetchSalesSince } from "./sales_fetch.js";
 function money(n) {
   return new Intl.NumberFormat("th-TH", { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(Number(n || 0));
 }
@@ -19,23 +20,65 @@ const DAY_NAMES_SHORT = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"];
 let _shPeriod = "90d"; // 30d | 90d | year | all
 let _shMetric = "revenue"; // revenue | bills
 
+// ★ Phase 492: hero + filter bar (ใช้ทั้ง loading / error / result — ปุ่มช่วง/แสดง ใช้ได้ทุก state)
+function _shFilterBar() {
+  return `
+      <div class="hero" style="text-align:center;padding:20px 16px;margin-bottom:16px;background:linear-gradient(135deg,#dbeafe,#fef3c7);border-radius:16px">
+        <div style="font-size:48px;margin-bottom:8px">⏰</div>
+        <h2 style="margin:0 0 4px;color:#1e40af">ยอดขายตามช่วงเวลา (Sales Heatmap)</h2>
+        <p style="margin:0;color:#92400e;font-size:13px">รู้ว่าเวลาไหนขายดี → จัดพนักงาน + เปิดร้านได้ตรงจังหวะ</p>
+      </div>
+
+      <!-- Filters -->
+      <div class="panel" style="padding:14px;margin-bottom:14px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <span style="font-weight:600;font-size:13px">📅 ช่วง:</span>
+        ${["30d","90d","year","all"].map(p => `
+          <button class="sh-period-btn" data-p="${p}" style="padding:6px 14px;border-radius:18px;border:1px solid ${_shPeriod===p?'#0284c7':'#cbd5e1'};background:${_shPeriod===p?'#0284c7':'#fff'};color:${_shPeriod===p?'#fff':'#475569'};cursor:pointer;font-size:12px;font-weight:600">
+            ${({"30d":"30 วัน","90d":"90 วัน","year":"ปีนี้","all":"ทั้งหมด"})[p]}
+          </button>
+        `).join("")}
+        <span style="margin-left:10px;font-weight:600;font-size:13px">🔢 แสดง:</span>
+        <button class="sh-metric-btn" data-m="revenue" style="padding:6px 14px;border-radius:18px;border:1px solid ${_shMetric==='revenue'?'#7c3aed':'#cbd5e1'};background:${_shMetric==='revenue'?'#7c3aed':'#fff'};color:${_shMetric==='revenue'?'#fff':'#475569'};cursor:pointer;font-size:12px;font-weight:600">💰 ยอดเงิน</button>
+        <button class="sh-metric-btn" data-m="bills" style="padding:6px 14px;border-radius:18px;border:1px solid ${_shMetric==='bills'?'#7c3aed':'#cbd5e1'};background:${_shMetric==='bills'?'#7c3aed':'#fff'};color:${_shMetric==='bills'?'#fff':'#475569'};cursor:pointer;font-size:12px;font-weight:600">📋 จำนวนบิล</button>
+      </div>`;
+}
+function _shBindFilters(ctx, container) {
+  container.querySelectorAll(".sh-period-btn").forEach(btn => btn.addEventListener("click", () => { _shPeriod = btn.dataset.p; renderSalesHeatmapPage(ctx); }));
+  container.querySelectorAll(".sh-metric-btn").forEach(btn => btn.addEventListener("click", () => { _shMetric = btn.dataset.m; renderSalesHeatmapPage(ctx); }));
+}
+
 export function renderSalesHeatmapPage(ctx) {
-  const { state, showToast: _showToast } = ctx;
   const container = document.getElementById("page-sales_heatmap");
   if (!container) return;
 
-  // ── Filter sales ──
+  // ── cutoff ตามช่วง ──
   let cutoffKey = "";
-  if (_shPeriod === "30d") {
-    const d = new Date(); d.setDate(d.getDate() - 30); cutoffKey = d.toISOString().slice(0, 10);
-  } else if (_shPeriod === "90d") {
-    const d = new Date(); d.setDate(d.getDate() - 90); cutoffKey = d.toISOString().slice(0, 10);
-  } else if (_shPeriod === "year") {
-    cutoffKey = new Date().toISOString().slice(0, 4) + "-01-01";
-  }
+  if (_shPeriod === "30d") { const d = new Date(); d.setDate(d.getDate() - 30); cutoffKey = d.toISOString().slice(0, 10); }
+  else if (_shPeriod === "90d") { const d = new Date(); d.setDate(d.getDate() - 90); cutoffKey = d.toISOString().slice(0, 10); }
+  else if (_shPeriod === "year") { cutoffKey = new Date().toISOString().slice(0, 4) + "-01-01"; }
 
+  // ★ Phase 492 (S-5): ดึงยอดขายตามช่วงจริงจาก DB (เดิม state.sales cap 50 → heatmap เห็นแค่ 50 บิลล่าสุด)
+  const period = _shPeriod;
+  container.innerHTML = `<div style="padding:8px">${_shFilterBar()}<div class="panel" style="padding:40px 16px;text-align:center;color:#64748b"><div style="font-size:32px;margin-bottom:8px">⏳</div>กำลังโหลดข้อมูลการขายจริง…</div></div>`;
+  _shBindFilters(ctx, container);
+
+  fetchSalesSince(cutoffKey).then(res => {
+    if (!document.body.contains(container)) return;
+    if (_shPeriod !== period) return;  // เปลี่ยนช่วงระหว่างโหลด → ปล่อย render รอบใหม่
+    if (!res.ok) {
+      container.innerHTML = `<div style="padding:8px">${_shFilterBar()}<div class="panel" style="padding:40px 16px;text-align:center"><div style="font-size:32px;margin-bottom:8px">⚠️</div><div style="color:#dc2626;margin-bottom:10px">โหลดข้อมูลการขายไม่สำเร็จ — ${escHtml(res.error || "")}</div><button id="shRetryBtn" class="btn">ลองใหม่</button></div></div>`;
+      _shBindFilters(ctx, container);
+      container.querySelector("#shRetryBtn")?.addEventListener("click", () => renderSalesHeatmapPage(ctx));
+      return;
+    }
+    _shRenderBody(ctx, container, res.rows, cutoffKey);
+  });
+}
+
+function _shRenderBody(ctx, container, salesRows, cutoffKey) {
+  const { state } = ctx;
   // Phase 89.27: non-admin เห็นเฉพาะของตัวเอง (sales role ที่เข้าหน้านี้)
-  const sales = visibleSalesForRole(state.sales, state.profile, state.currentUser)
+  const sales = visibleSalesForRole(salesRows, state.profile, state.currentUser)
     .filter(s => !cutoffKey || String(s.created_at || "").slice(0, 10) >= cutoffKey);
 
   // ── Build matrix [day][hour] ──
@@ -97,24 +140,7 @@ export function renderSalesHeatmapPage(ctx) {
 
   container.innerHTML = `
     <div style="padding:8px">
-      <div class="hero" style="text-align:center;padding:20px 16px;margin-bottom:16px;background:linear-gradient(135deg,#dbeafe,#fef3c7);border-radius:16px">
-        <div style="font-size:48px;margin-bottom:8px">⏰</div>
-        <h2 style="margin:0 0 4px;color:#1e40af">ยอดขายตามช่วงเวลา (Sales Heatmap)</h2>
-        <p style="margin:0;color:#92400e;font-size:13px">รู้ว่าเวลาไหนขายดี → จัดพนักงาน + เปิดร้านได้ตรงจังหวะ</p>
-      </div>
-
-      <!-- Filters -->
-      <div class="panel" style="padding:14px;margin-bottom:14px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-        <span style="font-weight:600;font-size:13px">📅 ช่วง:</span>
-        ${["30d","90d","year","all"].map(p => `
-          <button class="sh-period-btn" data-p="${p}" style="padding:6px 14px;border-radius:18px;border:1px solid ${_shPeriod===p?'#0284c7':'#cbd5e1'};background:${_shPeriod===p?'#0284c7':'#fff'};color:${_shPeriod===p?'#fff':'#475569'};cursor:pointer;font-size:12px;font-weight:600">
-            ${({"30d":"30 วัน","90d":"90 วัน","year":"ปีนี้","all":"ทั้งหมด"})[p]}
-          </button>
-        `).join("")}
-        <span style="margin-left:10px;font-weight:600;font-size:13px">🔢 แสดง:</span>
-        <button class="sh-metric-btn" data-m="revenue" style="padding:6px 14px;border-radius:18px;border:1px solid ${_shMetric==='revenue'?'#7c3aed':'#cbd5e1'};background:${_shMetric==='revenue'?'#7c3aed':'#fff'};color:${_shMetric==='revenue'?'#fff':'#475569'};cursor:pointer;font-size:12px;font-weight:600">💰 ยอดเงิน</button>
-        <button class="sh-metric-btn" data-m="bills" style="padding:6px 14px;border-radius:18px;border:1px solid ${_shMetric==='bills'?'#7c3aed':'#cbd5e1'};background:${_shMetric==='bills'?'#7c3aed':'#fff'};color:${_shMetric==='bills'?'#fff':'#475569'};cursor:pointer;font-size:12px;font-weight:600">📋 จำนวนบิล</button>
-      </div>
+      ${_shFilterBar()}
 
       <!-- Summary -->
       <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:14px">
@@ -201,12 +227,5 @@ export function renderSalesHeatmapPage(ctx) {
     </div>
   `;
 
-  container.querySelectorAll(".sh-period-btn").forEach(btn => btn.addEventListener("click", () => {
-    _shPeriod = btn.dataset.p;
-    renderSalesHeatmapPage(ctx);
-  }));
-  container.querySelectorAll(".sh-metric-btn").forEach(btn => btn.addEventListener("click", () => {
-    _shMetric = btn.dataset.m;
-    renderSalesHeatmapPage(ctx);
-  }));
+  _shBindFilters(ctx, container);
 }

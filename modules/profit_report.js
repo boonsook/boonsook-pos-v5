@@ -1,6 +1,8 @@
 // Phase 89.27: role-aware sales filter (extends Phase 89.24)
 // Phase 92.63: escHtml (กัน stored-XSS ชื่อสินค้า/หมวด) + Bangkok TZ default range
 import { visibleSalesForRole, escHtml, todayBkk, addDaysBkk } from "./utils.js";
+import { fetchSalesSince } from "./sales_fetch.js";
+import { fetchSaleItemsForSaleIds } from "./sale_items_fetch.js";
 
 export function renderProfitReportPage(ctx) {
   const { state, money, showToast, loadAllData: _loadAllData, currentRole: _currentRole, requireAdmin: _requireAdmin } = ctx;
@@ -68,30 +70,27 @@ export function renderProfitReportPage(ctx) {
       const fromTs = new Date(fromDate + "T00:00:00").getTime();
       const toTs = new Date(toDate + "T23:59:59").getTime();
 
+      // ★ Phase 492 (S-5): ดึงยอดขายช่วงนี้จริงจาก DB (เดิม state.sales cap 50 → กำไร/ต้นทุน/แนวโน้มต่ำกว่าจริง)
+      const _salesRes = await fetchSalesSince(fromDate);
+      if (!_salesRes.ok) { showToast("โหลดข้อมูลการขายไม่สำเร็จ: " + (_salesRes.error || ""), "error"); return; }
+      const _fetchedSales = _salesRes.rows;
+
       let totalRevenue = 0;
       let totalCost = 0;
 
       // Filter sales by date range (★ กรอง soft-deleted + non-admin เห็นเฉพาะของตัวเอง — Phase 89.27)
-      const salesInRange = visibleSalesForRole(state.sales, state.profile, state.currentUser)
+      const salesInRange = visibleSalesForRole(_fetchedSales, state.profile, state.currentUser)
         .filter(sale => {
           const saleTime = new Date(sale.created_at).getTime();
           return saleTime >= fromTs && saleTime <= toTs;
         });
 
       // Get sale IDs to fetch items
+      // ★ Phase 492 (S-5): ใช้ helper ที่ chunk+paginate (saleIds อาจมากหลังเลิก cap 50 → กัน URL ยาว/1000-cap)
       const saleIds = salesInRange.map(s => s.id).filter(Boolean);
-      let saleItems = [];
-
-      if (saleIds.length > 0 && state.supabase) {
-        const { data, error } = await state.supabase
-          .from("sale_items")
-          .select("*")
-          .in("sale_id", saleIds);
-
-        if (!error && data) {
-          saleItems = data;
-        }
-      }
+      const _siRes = await fetchSaleItemsForSaleIds(saleIds);
+      const saleItems = _siRes.ok ? _siRes.rows : [];
+      if (!_siRes.ok) showToast("โหลดต้นทุนบางรายการไม่สำเร็จ — กำไรอาจคลาดเคลื่อน", "warn");
 
       // Calculate revenue and cost
       totalRevenue = salesInRange.reduce((sum, s) => sum + (parseFloat(s.total_amount) || 0), 0);
@@ -127,7 +126,7 @@ export function renderProfitReportPage(ctx) {
       renderExpenseBreakdown(expensesInRange);
 
       // Render monthly trend
-      renderMonthlyTrend(fromDate, toDate, saleItems, productCostMap);
+      renderMonthlyTrend(fromDate, toDate, saleItems, productCostMap, _fetchedSales);
 
     } catch (error) {
       console.error("Error loading profit report:", error);
@@ -299,7 +298,7 @@ export function renderProfitReportPage(ctx) {
     container.innerHTML = html;
   }
 
-  function renderMonthlyTrend(fromDate, toDate, saleItems = [], productCostMap = {}) {
+  function renderMonthlyTrend(fromDate, toDate, saleItems = [], productCostMap = {}, salesRows = null) {
     const container = document.getElementById("monthly_trend_container");
 
     // Get last 6 months
@@ -319,7 +318,8 @@ export function renderProfitReportPage(ctx) {
     // Calculate monthly data from all sales (★ กรอง soft-deleted + non-admin เห็นเฉพาะของตัวเอง — Phase 89.27)
     const fromTs = new Date(fromDate + "T00:00:00").getTime();
     const toTs = new Date(toDate + "T23:59:59").getTime();
-    const activeSales = visibleSalesForRole(state.sales, state.profile, state.currentUser);
+    // ★ Phase 492 (S-5): ใช้ยอดขายที่ fetch ตามช่วงจริง (เดิม state.sales cap 50); fallback state ถ้าไม่ส่งมา
+    const activeSales = visibleSalesForRole(salesRows || state.sales, state.profile, state.currentUser);
 
     activeSales.forEach(sale => {
       const saleDate = new Date(sale.created_at);
