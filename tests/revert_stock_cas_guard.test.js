@@ -61,9 +61,15 @@ test("_revertStockForSale: marker-check GET ล้ม → fail-closed (return ok
   assert.ok(failPaths.length >= 3, `gate ต้อง fail-closed ครบ (HTTP/bad response/exception) — พบ ${failPaths.length}/3`);
 });
 
-test("_revertStockForSale: CAS fail = ข้าม item (ไม่ log movement/ไม่นับ reverted)", () => {
-  const casFails = revertFn.match(/CAS fail[\s\S]*?continue;/g) || [];
-  assert.ok(casFails.length >= 2, "ทั้ง warehouse และ legacy branch: CAS fail ต้อง continue (ไม่ log movement)");
+test("_revertStockForSale: CAS fail = ข้าม item (return {ok:false} ก่อน log movement, ไม่นับ reverted)", () => {
+  // Phase 477: per-item restock ย้ายเข้า nested restockProduct() (ใช้ทั้ง non-bundle + bundle children).
+  //   invariant เดิมคงไว้: CAS fail → return {ok:false,error} "ก่อน" ถึง xhrPost("stock_movements") →
+  //   ไม่ log movement หลอก; caller นับ revertedCount เฉพาะ rr.ok → ไม่นับ item ที่ CAS fail.
+  assert.match(revertFn, /warehouse_stock CAS fail/, "warehouse branch มี CAS fail handling");
+  assert.match(revertFn, /products\.stock CAS fail/, "legacy branch มี CAS fail handling");
+  const casReturns = revertFn.match(/if \(!add2?\.ok\) return \{ ok: false/g) || [];
+  assert.ok(casReturns.length >= 2, `CAS fail ทั้ง warehouse + legacy branch ต้อง return ok:false — พบ ${casReturns.length}/2`);
+  assert.match(revertFn, /if \(rr\.ok\) revertedCount\+\+/, "caller นับ revertedCount เฉพาะตอน restock สำเร็จ (rr.ok)");
 });
 
 test("sales.js delete handler: pre-check [ลบแล้ว] ก่อน confirm + ก่อน PATCH", () => {

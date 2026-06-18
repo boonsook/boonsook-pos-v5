@@ -49,6 +49,7 @@ import { renderWarrantyReportPage, checkWarrantyExpiringAndNotify } from "./modu
 import "./modules/doc-override.js";
 import { isValidPhone, isValidEmail, getUserFriendlyError, validateFile } from "./modules/validators.js";
 import { atomicDecrementStock, atomicAddToField } from "./modules/stock_cas.js";
+import { expandBundleForRevert } from "./modules/bundle_revert.js";
 import { installErrorReporter } from "./modules/error_reporter.js";
 import { createInflightGuard } from "./modules/_inflight_guard.js";
 import { createApi } from "./modules/api.js";
@@ -3275,35 +3276,22 @@ async function _revertStockForSale({ saleId, orderNo }) {
     }
 
     let revertedCount = 0;
-    for (const item of items) {
-      if (!item.product_id || !item.qty) continue;
-      const product = (state.products || []).find(p => String(p.id) === String(item.product_id));
-      if (!product) {
-        errors.push(`สินค้า id=${item.product_id} ไม่พบ — ข้าม`);
-        continue;
-      }
-      if (product.product_type === "service" || product.product_type === "non_stock") continue;
-      const qty = Number(item.qty || 0);
-      if (qty <= 0) continue;
 
-      // ★ Phase 471: ข้าม item ที่ไม่เคยถูกตัดจริง (ไม่มี sale movement ของบิลนี้) → กันคืนเกิน
-      //   (เคสบิล flagged [สต็อกไม่ครบ] ที่ขายเกินสต็อก: ตัดไม่ได้ → ถ้าคืนจะได้สต็อกผี)
-      if (deductedIds && !deductedIds.has(String(item.product_id))) {
-        console.warn(`[revertStock] ${product.name}: ไม่มี sale movement ของบิลนี้ (ไม่เคยตัดสต็อก) → ไม่คืน (กันคืนเกิน)`);
-        continue;
-      }
-
+    // คืนสต็อกของ "หนึ่งสินค้า/หนึ่งคลัง" ผ่าน CAS (ใช้ทั้ง non-bundle และ bundle children).
+    //   prod = product object ที่ resolve แล้ว, qty = จำนวนที่คืน, soldWhId = คลังที่ขาย (จาก sale_items),
+    //   label = ป้ายต่อท้าย note (เช่น "[bundle:ชื่อ]") — คืน { ok, error } ให้ caller นับ/เก็บ error เอง
+    //   (ห้าม rollback item อื่น — Phase 410: per-item best-effort).
+    async function restockProduct(prod, qty, soldWhId, label) {
       // 2a. Phase 468: คืนเข้าคลังที่ขายจริง (sale_items.warehouse_id) ก่อน;
       //   บิลเก่า/คลังนั้นไม่มี row → fallback "บ้านก่อน" (เดิม) + เตือน
-      const stocks = (state.warehouseStock || []).filter(ws => String(ws.product_id) === String(product.id));
+      const stocks = (state.warehouseStock || []).filter(ws => String(ws.product_id) === String(prod.id));
       let targetWs = null;
-      const soldWhId = (item.warehouse_id != null && String(item.warehouse_id) !== "") ? item.warehouse_id : null;
       if (soldWhId != null) {
         targetWs = stocks.find(ws => String(ws.warehouse_id) === String(soldWhId)) || null;
-        if (!targetWs) console.warn(`[revertStock] ${product.name}: คลังที่ขาย (warehouse_id=${soldWhId}) ไม่มี row → fallback บ้าน`);
+        if (!targetWs) console.warn(`[revertStock] ${prod.name}: คลังที่ขาย (warehouse_id=${soldWhId}) ไม่มี row → fallback บ้าน`);
       }
       if (!targetWs && stocks.length > 0) {
-        if (soldWhId == null) console.warn(`[revertStock] ${product.name}: บิลเก่าไม่มี warehouse_id → คืนบ้านก่อน (โปรดตรวจ)`);
+        if (soldWhId == null) console.warn(`[revertStock] ${prod.name}: บิลเก่าไม่มี warehouse_id → คืนบ้านก่อน (โปรดตรวจ)`);
         const sorted = [...stocks].sort((a, b) => {
           const nameA = (state.warehouses.find(w => w.id === a.warehouse_id)?.name || "");
           const nameB = (state.warehouses.find(w => w.id === b.warehouse_id)?.name || "");
@@ -3321,26 +3309,20 @@ async function _revertStockForSale({ saleId, orderNo }) {
       //   CAS fail → ข้าม item นี้ (ไม่ log movement / ไม่นับ reverted — สต็อกไม่ได้คืนจริง)
       if (targetWs) {
         const add = await _atomicAddStock("warehouse_stock", targetWs.id, qty);
-        if (!add.ok) {
-          errors.push(`${product.name}: warehouse_stock CAS fail — ${add.error || "RLS?"}`);
-          continue;
-        }
+        if (!add.ok) return { ok: false, error: `${prod.name}: warehouse_stock CAS fail — ${add.error || "RLS?"}` };
         targetWs.stock = add.after; // sync local cache จากค่าจริงที่ CAS คืน
 
         // 2c. Phase 403: products.stock = sum(warehouse_stock) ผ่าน DB trigger (canonical derived).
         //   warehouse +qty ด้านบน → trigger sync products.stock เอง → ที่นี่ optimistic local (sum)
         //   ไม่เขียน products.stock ตรง (กันบวกซ้ำ sum+qty).
-        product.stock = (state.warehouseStock || [])
-          .filter(w => String(w.product_id) === String(product.id))
+        prod.stock = (state.warehouseStock || [])
+          .filter(w => String(w.product_id) === String(prod.id))
           .reduce((s, w) => s + Number(w.stock || 0), 0);
       } else {
         // legacy: ไม่มี warehouse row → trigger 403 ไม่ fire → เขียน products.stock ตรง (ผ่าน CAS)
-        const add2 = await _atomicAddStock("products", product.id, qty);
-        if (!add2.ok) {
-          errors.push(`${product.name}: products.stock CAS fail — ${add2.error || "RLS?"}`);
-          continue;
-        }
-        product.stock = add2.after;
+        const add2 = await _atomicAddStock("products", prod.id, qty);
+        if (!add2.ok) return { ok: false, error: `${prod.name}: products.stock CAS fail — ${add2.error || "RLS?"}` };
+        prod.stock = add2.after;
       }
 
       // 2d. log return movement
@@ -3348,14 +3330,77 @@ async function _revertStockForSale({ saleId, orderNo }) {
       //   (semantic เดียวกัน: สต็อกคืนกลับคลัง; เป็นค่าที่ flow คืนสินค้า/หน้า movement ใช้อยู่แล้ว)
       // ★ Phase 410: log fail = warn เท่านั้น — ห้าม rollback สต็อกที่คืนสำเร็จแล้ว (ขนาน Phase 368)
       const mv = await xhrPost("stock_movements", {
-        product_id: product.id,
+        product_id: prod.id,
         type: "return",
         qty: qty,
-        note: `คืนสต็อกจากลบ POS ${orderNo || '#' + saleId} — คลัง: ${whName} +${qty}`,
+        note: `คืนสต็อกจากลบ POS ${orderNo || '#' + saleId}${label ? " " + label : ""} — คลัง: ${whName} +${qty}`,
         created_by: creatorUuid
       });
       if (!mv?.ok) console.warn("[revertStock] movement log fail:", mv?.error?.message || "unknown");
-      revertedCount++;
+      return { ok: true };
+    }
+
+    for (const item of items) {
+      if (!item.product_id || !item.qty) continue;
+      const product = (state.products || []).find(p => String(p.id) === String(item.product_id));
+      if (!product) {
+        errors.push(`สินค้า id=${item.product_id} ไม่พบ — ข้าม`);
+        continue;
+      }
+      if (product.product_type === "service" || product.product_type === "non_stock") continue;
+      const qty = Number(item.qty || 0);
+      if (qty <= 0) continue;
+      const soldWhId = (item.warehouse_id != null && String(item.warehouse_id) !== "") ? item.warehouse_id : null;
+
+      // ★ Phase 477: bundle line → คืนสต็อก "children" (สต็อกที่ตัดจริงตอนขาย).
+      //   sale_items เก็บ product_id = ตัว bundle แม่ (ไม่มี warehouse_stock row / ไม่มี sale movement),
+      //   children คือตัวที่ถูกตัด (มี sale movement → อยู่ใน deductedIds). ขยาย recipe แล้วคืนทีละ child
+      //   ผ่านเส้นทางเดียวกับ non-bundle (gate deductedIds + CAS) แล้ว "ข้าม" บรรทัดแม่ (ไม่คืนตรง).
+      if (product.is_bundle) {
+        let recipeRows = null;
+        try {
+          const br = await fetch(cfg.url + "/rest/v1/product_bundles?bundle_id=eq." + product.id + "&select=child_product_id,qty", { headers });
+          if (br.ok) recipeRows = await br.json().catch(() => null);
+        } catch { /* recipeRows stays null → fail-surface ด้านล่าง */ }
+        if (!Array.isArray(recipeRows)) {
+          // อ่านสูตร bundle ไม่ได้ → คืน children ไม่ได้; surface ให้แอดมินคืนเองทาง stock_movements (ห้าม rollback)
+          errors.push(`${product.name}: อ่านสูตร bundle ไม่สำเร็จ — ไม่ได้คืนสต็อก children (โปรดคืนเองทาง stock_movements)`);
+          continue;
+        }
+        const children = expandBundleForRevert(recipeRows, qty);
+        if (children.length === 0) {
+          console.warn(`[revertStock] bundle ${product.name}: ไม่มี children → ไม่คืน`);
+          continue;
+        }
+        for (const c of children) {
+          const childProd = (state.products || []).find(p => String(p.id) === String(c.childId));
+          if (!childProd) {
+            errors.push(`bundle ${product.name}: child id=${c.childId} ไม่พบใน state.products — ข้าม`);
+            continue;
+          }
+          if (childProd.product_type === "service" || childProd.product_type === "non_stock") continue;
+          // ★ Phase 471/477: คืนเฉพาะ child ที่ตัดจริง (มี sale movement → อยู่ใน deductedIds) — กันคืนเกิน
+          if (deductedIds && !deductedIds.has(String(c.childId))) {
+            console.warn(`[revertStock] bundle child ${childProd.name}: ไม่มี sale movement ของบิลนี้ (ไม่เคยตัดสต็อก) → ไม่คืน (กันคืนเกิน)`);
+            continue;
+          }
+          const rr = await restockProduct(childProd, c.qty, soldWhId, `[bundle:${product.name}]`);
+          if (rr.ok) revertedCount++;
+          else if (rr.error) errors.push(rr.error);
+        }
+        continue;
+      }
+
+      // ★ Phase 471: ข้าม item ที่ไม่เคยถูกตัดจริง (ไม่มี sale movement ของบิลนี้) → กันคืนเกิน
+      //   (เคสบิล flagged [สต็อกไม่ครบ] ที่ขายเกินสต็อก: ตัดไม่ได้ → ถ้าคืนจะได้สต็อกผี)
+      if (deductedIds && !deductedIds.has(String(item.product_id))) {
+        console.warn(`[revertStock] ${product.name}: ไม่มี sale movement ของบิลนี้ (ไม่เคยตัดสต็อก) → ไม่คืน (กันคืนเกิน)`);
+        continue;
+      }
+
+      const rr = await restockProduct(product, qty, soldWhId, "");
+      if (rr.ok) revertedCount++;
+      else if (rr.error) errors.push(rr.error);
     }
 
     // ★ Phase 410: แปะ marker เมื่อคืนได้อย่างน้อย 1 รายการ (รวม partial — ถ้าไม่แปะ
