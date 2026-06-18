@@ -59,9 +59,11 @@ test("deduction stays atomic CAS (no oversell / negative)", () => {
   assert.match(deductBody, /_atomicDecrementStock\("warehouse_stock",\s*ws\.id,\s*qty\)/, "must CAS-decrement the chosen warehouse row");
 });
 
-test("with no warehouseId, the old home-first heuristic is preserved (backward compatible)", () => {
-  // the auto branch still sorts บ้าน first
-  assert.match(deductBody, /aHome\s*!==\s*bHome.*return\s*bHome\s*-\s*aHome|if\s*\(aHome\s*!==\s*bHome\)\s*return\s*bHome\s*-\s*aHome/s, "auto path must keep home-first sort");
+test("with no warehouseId, the home-first heuristic is preserved (now via shared helper)", () => {
+  // Phase 480: the auto home-first sort moved into modules/warehouse_pick.js (pickAutoWarehouseStock)
+  //   so the POS oversell precheck can reuse the EXACT same pick (no drift). The home-first rule
+  //   itself is locked behaviorally in tests/precheck_single_warehouse_guard.test.js.
+  assert.match(deductBody, /pickAutoWarehouseStock\(state, product\.id\)/, "auto path delegates to the shared pick helper");
   // the picked-vs-auto split is explicit
   assert.match(deductBody, /_hasPicked/, "must branch on whether a warehouse was picked");
 });

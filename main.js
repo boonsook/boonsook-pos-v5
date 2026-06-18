@@ -50,6 +50,7 @@ import "./modules/doc-override.js";
 import { isValidPhone, isValidEmail, getUserFriendlyError, validateFile } from "./modules/validators.js";
 import { atomicDecrementStock, atomicAddToField } from "./modules/stock_cas.js";
 import { expandBundleForRevert } from "./modules/bundle_revert.js";
+import { pickAutoWarehouseStock } from "./modules/warehouse_pick.js";
 import { installErrorReporter } from "./modules/error_reporter.js";
 import { createInflightGuard } from "./modules/_inflight_guard.js";
 import { createApi } from "./modules/api.js";
@@ -3148,15 +3149,10 @@ async function _deductStockForSaleItem({ product, qty, orderNo, warehouseId }) {
         return { ok: false, insufficient: true, reason: `ไม่มีสต็อกในคลัง ${pickedName}` };
       }
     } else {
-      stocks.sort((a, b) => {
-        const nameA = (state.warehouses.find(w => w.id === a.warehouse_id)?.name || "");
-        const nameB = (state.warehouses.find(w => w.id === b.warehouse_id)?.name || "");
-        const aHome = nameA.includes("บ้าน") ? 1 : 0;
-        const bHome = nameB.includes("บ้าน") ? 1 : 0;
-        if (aHome !== bHome) return bHome - aHome;
-        return Number(b.stock || 0) - Number(a.stock || 0);
-      });
-      ws = stocks[0];
+      // Phase 480: auto-pick ผ่าน helper กลาง (pickAutoWarehouseStock) — ตัว precheck (pos.js) ใช้ตัวเดียวกัน
+      //   → "คลังที่จะตัด" ตรงกัน 100% (กัน false "[สต็อกไม่ครบ]"). บ้านก่อน ไม่งั้นคลัง stock มากสุด.
+      const _pick = pickAutoWarehouseStock(state, product.id);
+      ws = (_pick && stocks.find(s => String(s.warehouse_id) === String(_pick.warehouse_id))) || stocks[0];
     }
     const whName = state.warehouses.find(w => w.id === ws.warehouse_id)?.name || "?";
 

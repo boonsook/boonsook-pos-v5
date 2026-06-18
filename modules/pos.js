@@ -7,6 +7,7 @@ import { escHtml, visibleSalesForRole, isAdminProfile, todayBkk } from "./utils.
 import { postJournalForSale } from "./accounting/auto_post.js";
 // Phase 89.42: single-flight guard for POS checkout (replaces brittle window._checkoutRunning manual flag)
 import { createInflightGuard } from "./_inflight_guard.js";
+import { pickAutoWarehouseStock } from "./warehouse_pick.js";
 
 // Phase 89.42 — Site 2 fix: rapid double-tap on "เสร็จสิ้น" was relying on
 // window._checkoutRunning with 3 manual reset points (lines 1121, 1128, 1240).
@@ -1095,11 +1096,26 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
         const _p = (state.products || []).find(x => String(x.id) === String(_it.id));
         if (!_p || _p.product_type === "service" || _p.product_type === "non_stock") continue;
         const _picked = _posWarehouseId && String(_posWarehouseId) !== "" && String(_posWarehouseId) !== "auto";
-        const _avail = _picked ? _posWhStock(state, _it.id, _posWarehouseId) : Number(_p.stock || 0);
-        if (Number(_it.qty || 0) > _avail) _short.push(`${_it.name || _it.id}: มี ${_avail} (ในบิล ${_it.qty})`);
+        // Phase 480: เช็คสต็อก "คลังเดียวที่ deduct จะตัดจริง" ไม่ใช่ผลรวมทุกคลัง (1-บิล-1-คลัง).
+        //   picked → คลังที่เลือก (เดิม ถูกอยู่แล้ว). auto → pickAutoWarehouseStock (helper เดียวกับ deduct
+        //   main.js → pick ตรงกัน กัน false "[สต็อกไม่ครบ]"). ไม่มี warehouse row (legacy) → null → fallback
+        //   products.stock (= ค่าที่ deduct legacy branch ตัดจริง — main.js:3211 — ให้ precheck/deduct ตรงกัน).
+        let _avail, _whName;
+        if (_picked) {
+          _avail = _posWhStock(state, _it.id, _posWarehouseId);
+          _whName = (state.warehouses || []).find(w => String(w.id) === String(_posWarehouseId))?.name || "";
+        } else {
+          const _pick = pickAutoWarehouseStock(state, _it.id);
+          _avail = _pick ? _pick.stock : Number(_p.stock || 0);
+          _whName = _pick ? ((state.warehouses || []).find(w => w.id === _pick.warehouse_id)?.name || "") : "";
+        }
+        if (Number(_it.qty || 0) > _avail) {
+          const _where = _whName ? `คลัง ${_whName} มี ${_avail}` : `มี ${_avail}`;
+          _short.push(`${_it.name || _it.id}: ${_where} (ในบิล ${_it.qty})`);
+        }
       }
       if (_short.length > 0) {
-        window.App?.showToast?.(`⚠️ สต็อกไม่พอ ขายเกินไม่ได้ — ${_short.slice(0, 3).join(" · ")}${_short.length > 3 ? " …" : ""} — โปรดลดจำนวน หรือ รับเข้าสต็อกก่อน`);
+        window.App?.showToast?.(`⚠️ สต็อกไม่พอ ขายเกินไม่ได้ — ${_short.slice(0, 3).join(" · ")}${_short.length > 3 ? " …" : ""} — โปรดลดจำนวน เลือกคลังอื่น หรือ รับเข้าสต็อกก่อน`);
         return;
       }
     }
