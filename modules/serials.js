@@ -6,6 +6,7 @@
 import { renderSkeleton, renderEmpty, renderError } from "./ui_states.js";
 
 import { escHtml } from "./utils.js";
+import { fetchSaleItemsForSaleIds } from "./sale_items_fetch.js";
 
 const STATUS_META = {
   active:    { label: "ใช้งาน",       color: "#10b981", icon: "✓" },
@@ -283,15 +284,19 @@ function openSerialModal(ctx, s) {
   });
 
   // Auto-fill จากบิลที่เลือก
-  modal.querySelector("#srSale")?.addEventListener("change", (e) => {
+  modal.querySelector("#srSale")?.addEventListener("change", async (e) => {
     const sale = recentSales.find(x => String(x.id) === e.target.value);
-    if (sale) {
-      const items = (state.saleItems || []).filter(it => String(it.sale_id) === String(sale.id));
-      if (items.length > 0 && !modal.querySelector("#srProductName").value) {
-        modal.querySelector("#srProductName").value = items[0].product_name || "";
-      }
-      if (!modal.querySelector("#srCustomerName").value) {
-        modal.querySelector("#srCustomerName").value = sale.customer_name || "";
+    if (!sale) return;
+    if (!modal.querySelector("#srCustomerName").value) {
+      modal.querySelector("#srCustomerName").value = sale.customer_name || "";
+    }
+    // ★ Phase 486: ดึง sale_items ของบิลนี้สดจาก DB (เดิมอ่าน state.saleItems ที่ loadAllData ไม่เคยโหลด
+    //   → ว่างเสมอ → auto-fill ชื่อสินค้าไม่เคยทำงาน). fetch ล้ม = ไม่ auto-fill (= พฤติกรรมเดิม)
+    const nameInput = modal.querySelector("#srProductName");
+    if (nameInput && !nameInput.value) {
+      const res = await fetchSaleItemsForSaleIds([sale.id]);
+      if (res.ok && res.rows.length > 0 && !nameInput.value) {
+        nameInput.value = res.rows[0].product_name || "";
       }
     }
   });

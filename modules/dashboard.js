@@ -2,6 +2,7 @@
 // Phase 89.27: role-aware sales filter (extends Phase 89.24 to dashboard)
 // Phase 89.28: BKK timezone for "today" comparisons — fix UTC slice giving wrong date 17:00-23:59 BKK
 import { visibleSalesForRole, isAdminProfile, todayBkk, dateBkk } from "./utils.js";
+import { fetchSaleItemsForSaleIds, indexQtyByProduct } from "./sale_items_fetch.js";
 
 // ═══ Phase 387: dashboard income helpers (pure — ทำให้กำไรสุทธิตรงกับงบ P&L) ═══
 // web-order service jobs (คำสั่งซื้อสินค้าผ่านเว็บ) — predicate เดียวกับที่ใช้คิด revenue เดิม
@@ -433,21 +434,8 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
   // Phase 89.28: dateBkk เทียบกับ cutoff BKK
   const last30Key = (() => { const d = new Date(); d.setDate(d.getDate() - 30); return dateBkk(d); })();
   const recentSales = allSales.filter(s => dateBkk(s.created_at) >= last30Key);
-  const salesMap = new Map();
-  (state.saleItems || []).forEach(it => {
-    const saleExists = recentSales.some(s => String(s.id) === String(it.sale_id));
-    if (!saleExists) return;
-    const pid = it.product_id;
-    if (!pid) return;
-    const prev = salesMap.get(pid) || { qty: 0, revenue: 0, name: it.product_name };
-    prev.qty += Number(it.qty || 0);
-    prev.revenue += Number(it.line_total || (Number(it.qty||0) * Number(it.unit_price||0)));
-    salesMap.set(pid, prev);
-  });
-  const topSellers = [...salesMap.entries()]
-    .map(([pid, v]) => ({ pid, ...v }))
-    .sort((a, b) => b.qty - a.qty)
-    .slice(0, 5);
+  // ★ Phase 486: Top 5 ขายดี เดิมอ่าน state.saleItems (loadAllData ไม่เคยโหลด = ว่าง → การ์ดว่างถาวร).
+  //   ย้ายเป็น lazy-fill: ดึง sale_items ของ recentSales สดจาก DB หลัง render แล้ว patch #dashTopSellers (ท้ายฟังก์ชัน).
   const activeJobs = state.serviceJobs.filter(j => ["open","in_progress","pending","progress"].includes(j.status) && !j.deleted_at && !((j.note||"").includes("[ลบแล้ว]"))).length;
 
   // ═══ ออเดอร์ใหม่จาก AI Sales / AC Shop ═══
@@ -586,20 +574,7 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
           <div style="font-weight:800;color:#6d28d9">🏆 สินค้าขายดี 30 วันล่าสุด</div>
         </div>
-        ${topSellers.length === 0 ? `
-          <div style="color:#64748b;font-size:12px;text-align:center;padding:16px 0">ยังไม่มีข้อมูลการขาย</div>
-        ` : `
-          <div style="display:flex;flex-direction:column;gap:4px">
-            ${topSellers.map((t, i) => `
-              <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:#faf5ff;border-radius:6px;font-size:12px">
-                <div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-                  <span style="color:#7c3aed;font-weight:700">#${i+1}</span> ${escapeHtml(t.name || "-")}
-                </div>
-                <div style="color:#7c3aed;font-weight:700;margin-left:8px;white-space:nowrap">${t.qty} ชิ้น · ฿${moneyShort(t.revenue)}</div>
-              </div>
-            `).join("")}
-          </div>
-        `}
+        <div id="dashTopSellers"><div style="color:#94a3b8;font-size:12px;text-align:center;padding:16px 0">⏳ กำลังโหลด…</div></div>
       </div>
     </div>
 
@@ -940,6 +915,24 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
     // Re-render only the affected panel (เร็วกว่า re-render ทั้งหน้า)
     renderProPanels({ allSales, webOrders, expenses, serviceJobs: (state.serviceJobs||[]) }, key);
   }));
+
+  // ★ Phase 486: lazy-fill การ์ด Top 5 ขายดี — ดึง sale_items ของ recentSales สดจาก DB แล้ว patch #dashTopSellers
+  //   (เดิมอ่าน state.saleItems ว่าง → การ์ดว่างถาวร). fetch ล้ม → โชว์ "โหลดไม่สำเร็จ" (ไม่ว่างเงียบ)
+  (async () => {
+    const elTop = document.getElementById("dashTopSellers");
+    if (!elTop) return;
+    const res = await fetchSaleItemsForSaleIds(recentSales.map(s => s.id));
+    if (!document.body.contains(elTop)) return;  // ออกหน้า/re-render ระหว่างโหลด
+    if (!res.ok) { elTop.innerHTML = `<div style="color:#dc2626;font-size:12px;text-align:center;padding:14px 0">โหลดข้อมูลขายไม่สำเร็จ</div>`; return; }
+    const top = [...indexQtyByProduct(res.rows).values()].sort((a, b) => b.qty - a.qty).slice(0, 5);
+    elTop.innerHTML = top.length === 0
+      ? `<div style="color:#64748b;font-size:12px;text-align:center;padding:16px 0">ยังไม่มีข้อมูลการขาย</div>`
+      : `<div style="display:flex;flex-direction:column;gap:4px">${top.map((t, i) => `
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:#faf5ff;border-radius:6px;font-size:12px">
+            <div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span style="color:#7c3aed;font-weight:700">#${i+1}</span> ${escapeHtml(t.name || "-")}</div>
+            <div style="color:#7c3aed;font-weight:700;margin-left:8px;white-space:nowrap">${t.qty} ชิ้น · ฿${moneyShort(t.revenue)}</div>
+          </div>`).join("")}</div>`;
+  })();
 
   // ═══ AUTO DAILY SUMMARY ผ่าน LINE Notify ตอน 22:00 ═══
   setupDailySummaryTimer(state, sendLineNotify);

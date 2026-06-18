@@ -5,6 +5,7 @@
 import { renderEmpty } from "./ui_states.js";
 
 import { escHtml, visibleSalesForRole } from "./utils.js";
+import { fetchSaleItemsForSaleIds } from "./sale_items_fetch.js";
 function money(n) {
   return new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n || 0));
 }
@@ -18,7 +19,7 @@ function moneyShort(n) {
 let _tcPeriod = "year"; // all | year | month | 90d | 30d
 let _tcSortBy = "revenue"; // revenue | qty | avg | recent
 
-export function renderTopCustomersPage(ctx) {
+export async function renderTopCustomersPage(ctx) {
   const { state, showToast, openCustomerDrawer } = ctx;
   const container = document.getElementById("page-top_customers");
   if (!container) return;
@@ -39,6 +40,15 @@ export function renderTopCustomersPage(ctx) {
   // ── กรอง sales ในช่วง + non-admin เห็นเฉพาะของตัวเอง (Phase 89.27) ──
   const sales = visibleSalesForRole(state.sales, state.profile, state.currentUser)
     .filter(s => !cutoffKey || String(s.created_at || "").slice(0, 10) >= cutoffKey);
+
+  // ★ Phase 486: ดึง sale_items สดจาก DB (เดิมอ่าน state.saleItems ที่ loadAllData ไม่เคยโหลด = ว่าง
+  //   → คอลัมน์ "จำนวนชิ้น" = 0 ทุกราย + sort-by-qty พัง). fetch ล้ม → qty=0 แต่ยังโชว์ยอดเงิน (เตือน toast)
+  const _tcPeriodSnap = _tcPeriod;
+  container.innerHTML = `<div style="padding:48px 16px;text-align:center;color:#64748b"><div style="font-size:32px;margin-bottom:8px">⏳</div>กำลังโหลดข้อมูลลูกค้า…</div>`;
+  const _siRes = await fetchSaleItemsForSaleIds(sales.map(s => s.id));
+  if (!document.body.contains(container) || _tcPeriod !== _tcPeriodSnap) return;  // เปลี่ยนช่วง/ออกหน้าระหว่างโหลด
+  if (!_siRes.ok) showToast?.("โหลดจำนวนชิ้นสินค้าไม่สำเร็จ — แสดงยอดเงินตามจริง", "warn");
+  const saleItemsRows = _siRes.ok ? _siRes.rows : [];
 
   // ── Group by customer (ใช้ customer_id ก่อน, fallback customer_name) ──
   const map = new Map();
@@ -67,9 +77,9 @@ export function renderTopCustomersPage(ctx) {
     if (!g.lastBuy || date > g.lastBuy) g.lastBuy = date;
   });
 
-  // นับจำนวนชิ้นสินค้า (จาก saleItems)
+  // นับจำนวนชิ้นสินค้า (จาก sale_items ที่ fetch สดด้านบน — Phase 486)
   const saleIdSet = new Set(sales.map(s => String(s.id)));
-  (state.saleItems || []).forEach(it => {
+  saleItemsRows.forEach(it => {
     if (!saleIdSet.has(String(it.sale_id))) return;
     const sale = sales.find(s => String(s.id) === String(it.sale_id));
     if (!sale) return;

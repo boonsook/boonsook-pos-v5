@@ -51,6 +51,7 @@ import { isValidPhone, isValidEmail, getUserFriendlyError, validateFile } from "
 import { atomicDecrementStock, atomicAddToField } from "./modules/stock_cas.js";
 import { expandBundleForRevert } from "./modules/bundle_revert.js";
 import { buildDeductedQty, takeRestockQty } from "./modules/revert_qty.js";
+import { fetchSaleItemsForProduct } from "./modules/sale_items_fetch.js";
 import { pickAutoWarehouseStock } from "./modules/warehouse_pick.js";
 import { findDuplicateProduct, normalizeBundleQty } from "./modules/product_validation.js";
 import { installErrorReporter } from "./modules/error_reporter.js";
@@ -2134,13 +2135,18 @@ function _renderBundleItems(items) {
   }));
 }
 
-function _renderProductRecentActivity(product) {
+async function _renderProductRecentActivity(product) {
   const el = $("productRecentActivity");
   if (!el) return;
   if (!product?.id) { el.classList.add("hidden"); el.innerHTML = ""; return; }
 
-  // Sale items ที่มี product_id ตรงกัน
-  const myItems = (state.saleItems || []).filter(it => String(it.product_id) === String(product.id));
+  // ★ Phase 486: ดึง sale_items ของสินค้านี้สดจาก DB (เดิมอ่าน state.saleItems ที่ loadAllData ไม่เคยโหลด
+  //   → ว่างเสมอ → สถิติขาย 30วัน/เดือน/ปี = 0 ทั้งที่ขายจริง). fetch ล้ม → ถือว่าไม่มีสถิติขาย (ยังโชว์ movement)
+  const _pid = String(product.id);
+  el.dataset.activityPid = _pid;  // กัน stale overwrite เมื่อเปิด drawer สินค้าอื่นระหว่างโหลด
+  const _res = await fetchSaleItemsForProduct(product.id);
+  if (el.dataset.activityPid !== _pid || !document.body.contains(el)) return;
+  const myItems = _res.ok ? _res.rows : [];
   if (myItems.length === 0 && (!state.stockMovements || state.stockMovements.length === 0)) {
     el.classList.remove("hidden");
     el.innerHTML = `

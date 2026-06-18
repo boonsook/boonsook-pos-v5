@@ -6,6 +6,7 @@
 import { renderEmpty } from "./ui_states.js";
 
 import { escHtml, todayBkk, addDaysBkk, visibleSalesForRole } from "./utils.js";
+import { fetchSaleItemsForSaleIds } from "./sale_items_fetch.js";
 function money(n) {
   return new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n || 0));
 }
@@ -19,8 +20,37 @@ function moneyShort(n) {
 let _ppPeriod = "month"; // 30d | month | year | all
 let _ppSortBy = "profit"; // profit | margin | qty | revenue
 
+// ★ Phase 486: hero + filter bar (ใช้ทั้ง loading / error / result — ปุ่มช่วง/เรียง ใช้ได้ทุก state)
+function _ppFilterBar() {
+  return `
+      <div class="hero" style="text-align:center;padding:20px 16px;margin-bottom:16px;background:linear-gradient(135deg,#dcfce7,#dbeafe);border-radius:16px">
+        <div style="font-size:48px;margin-bottom:8px">📊</div>
+        <h2 style="margin:0 0 4px;color:#065f46">กำไรต่อสินค้า (Profit by Product)</h2>
+        <p style="margin:0;color:#1e40af;font-size:13px">รู้ว่าสินค้าไหนกำไรดี / กำไรน้อย / ขาดทุน — ตัดสินใจปรับราคา</p>
+      </div>
+
+      <!-- Filters -->
+      <div class="panel" style="padding:14px;margin-bottom:14px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <span style="font-weight:600;font-size:13px">📅 ช่วง:</span>
+        ${["30d","month","year","all"].map(p => `
+          <button class="pp-period-btn" data-p="${p}" style="padding:6px 14px;border-radius:18px;border:1px solid ${_ppPeriod===p?'#0284c7':'#cbd5e1'};background:${_ppPeriod===p?'#0284c7':'#fff'};color:${_ppPeriod===p?'#fff':'#475569'};cursor:pointer;font-size:12px;font-weight:600">
+            ${({"30d":"30 วัน","month":"เดือนนี้","year":"ปีนี้","all":"ทั้งหมด"})[p]}
+          </button>
+        `).join("")}
+        <span style="margin-left:10px;font-weight:600;font-size:13px">🔢 เรียงตาม:</span>
+        ${[["profit","กำไร"],["margin","Margin %"],["qty","จำนวน"],["revenue","ยอดขาย"]].map(([k,l]) => `
+          <button class="pp-sort-btn" data-s="${k}" style="padding:6px 12px;border-radius:18px;border:1px solid ${_ppSortBy===k?'#7c3aed':'#cbd5e1'};background:${_ppSortBy===k?'#7c3aed':'#fff'};color:${_ppSortBy===k?'#fff':'#475569'};cursor:pointer;font-size:12px;font-weight:600">${l}</button>
+        `).join("")}
+        <button id="ppExportBtn" class="btn light" style="margin-left:auto;font-size:13px">📥 Excel</button>
+      </div>`;
+}
+function _ppBindFilters(ctx, container) {
+  container.querySelectorAll(".pp-period-btn").forEach(btn => btn.addEventListener("click", () => { _ppPeriod = btn.dataset.p; renderProfitByProductPage(ctx); }));
+  container.querySelectorAll(".pp-sort-btn").forEach(btn => btn.addEventListener("click", () => { _ppSortBy = btn.dataset.s; renderProfitByProductPage(ctx); }));
+}
+
 export function renderProfitByProductPage(ctx) {
-  const { state, showToast } = ctx;
+  const { state } = ctx;
   const container = document.getElementById("page-profit_by_product");
   if (!container) return;
 
@@ -35,9 +65,30 @@ export function renderProfitByProductPage(ctx) {
     .filter(s => !cutoffKey || String(s.created_at || "").slice(0,10) >= cutoffKey);
   const validSaleIds = new Set(validSales.map(s => String(s.id)));
 
+  // ★ Phase 486: ดึง sale_items สดจาก DB (เดิมอ่าน state.saleItems ที่ loadAllData ไม่เคยโหลด = ว่าง → ทั้งหน้า ฿0)
+  const period = _ppPeriod;  // snapshot กัน render ทับเมื่อเปลี่ยนช่วงระหว่างโหลด
+  container.innerHTML = `<div style="padding:8px">${_ppFilterBar()}<div class="panel" style="padding:40px 16px;text-align:center;color:#64748b"><div style="font-size:32px;margin-bottom:8px">⏳</div>กำลังโหลดข้อมูลการขายจริง…</div></div>`;
+  _ppBindFilters(ctx, container);
+
+  fetchSaleItemsForSaleIds([...validSaleIds]).then(res => {
+    if (!document.body.contains(container)) return;
+    if (_ppPeriod !== period) return;  // ผู้ใช้เปลี่ยนช่วงระหว่างโหลด → ปล่อย render รอบใหม่
+    if (!res.ok) {
+      container.innerHTML = `<div style="padding:8px">${_ppFilterBar()}<div class="panel" style="padding:40px 16px;text-align:center"><div style="font-size:32px;margin-bottom:8px">⚠️</div><div style="color:#dc2626;margin-bottom:10px">โหลดข้อมูลการขายไม่สำเร็จ — ${escHtml(res.error || "")}</div><button id="ppRetryBtn" class="btn">ลองใหม่</button></div></div>`;
+      _ppBindFilters(ctx, container);
+      container.querySelector("#ppRetryBtn")?.addEventListener("click", () => renderProfitByProductPage(ctx));
+      return;
+    }
+    _ppRenderBody(ctx, container, res.rows, validSaleIds);
+  });
+}
+
+function _ppRenderBody(ctx, container, rows, validSaleIds) {
+  const { state, showToast } = ctx;
+
   // Aggregate per product
   const map = new Map();
-  (state.saleItems || []).forEach(it => {
+  (rows || []).forEach(it => {
     if (!validSaleIds.has(String(it.sale_id))) return;
     if (!it.product_id) return;
     const pid = String(it.product_id);
@@ -94,26 +145,7 @@ export function renderProfitByProductPage(ctx) {
 
   container.innerHTML = `
     <div style="padding:8px">
-      <div class="hero" style="text-align:center;padding:20px 16px;margin-bottom:16px;background:linear-gradient(135deg,#dcfce7,#dbeafe);border-radius:16px">
-        <div style="font-size:48px;margin-bottom:8px">📊</div>
-        <h2 style="margin:0 0 4px;color:#065f46">กำไรต่อสินค้า (Profit by Product)</h2>
-        <p style="margin:0;color:#1e40af;font-size:13px">รู้ว่าสินค้าไหนกำไรดี / กำไรน้อย / ขาดทุน — ตัดสินใจปรับราคา</p>
-      </div>
-
-      <!-- Filters -->
-      <div class="panel" style="padding:14px;margin-bottom:14px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-        <span style="font-weight:600;font-size:13px">📅 ช่วง:</span>
-        ${["30d","month","year","all"].map(p => `
-          <button class="pp-period-btn" data-p="${p}" style="padding:6px 14px;border-radius:18px;border:1px solid ${_ppPeriod===p?'#0284c7':'#cbd5e1'};background:${_ppPeriod===p?'#0284c7':'#fff'};color:${_ppPeriod===p?'#fff':'#475569'};cursor:pointer;font-size:12px;font-weight:600">
-            ${({"30d":"30 วัน","month":"เดือนนี้","year":"ปีนี้","all":"ทั้งหมด"})[p]}
-          </button>
-        `).join("")}
-        <span style="margin-left:10px;font-weight:600;font-size:13px">🔢 เรียงตาม:</span>
-        ${[["profit","กำไร"],["margin","Margin %"],["qty","จำนวน"],["revenue","ยอดขาย"]].map(([k,l]) => `
-          <button class="pp-sort-btn" data-s="${k}" style="padding:6px 12px;border-radius:18px;border:1px solid ${_ppSortBy===k?'#7c3aed':'#cbd5e1'};background:${_ppSortBy===k?'#7c3aed':'#fff'};color:${_ppSortBy===k?'#fff':'#475569'};cursor:pointer;font-size:12px;font-weight:600">${l}</button>
-        `).join("")}
-        <button id="ppExportBtn" class="btn light" style="margin-left:auto;font-size:13px">📥 Excel</button>
-      </div>
+      ${_ppFilterBar()}
 
       <!-- Summary -->
       <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:14px">
@@ -223,8 +255,7 @@ export function renderProfitByProductPage(ctx) {
     </div>
   `;
 
-  container.querySelectorAll(".pp-period-btn").forEach(btn => btn.addEventListener("click", () => { _ppPeriod = btn.dataset.p; renderProfitByProductPage(ctx); }));
-  container.querySelectorAll(".pp-sort-btn").forEach(btn => btn.addEventListener("click", () => { _ppSortBy = btn.dataset.s; renderProfitByProductPage(ctx); }));
+  _ppBindFilters(ctx, container);
 
   container.querySelector("#ppExportBtn")?.addEventListener("click", () => {
     if (typeof XLSX === "undefined") { showToast?.("XLSX ไม่พร้อม"); return; }
