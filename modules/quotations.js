@@ -482,6 +482,7 @@ export function renderQuotationsPage(ctx) {
 
   // ── Status dropdown actions ──
   container.querySelectorAll(".qt-status-select").forEach(sel => sel.addEventListener("change", async (e) => {
+    if (_denyWriteForAccountant()) { e.target.value = ""; return; }  // ★ Phase 487: accountant อ่านอย่างเดียว (กันอนุมัติ/แปลง/ลบผ่าน dropdown)
     const qtId = Number(sel.dataset.qtId);
     const action = e.target.value;
     const q = _ctx.state.quotations.find(x => x.id === qtId);
@@ -1248,6 +1249,7 @@ function renderQuotationPreview(container) {
 //  DELETE — ลบใบเสนอราคา (เฉพาะที่ยังไม่สร้างใบส่ง)
 // ═══════════════════════════════════════════════════════════
 async function deleteQuotation(q) {
+  if (_denyWriteForAccountant()) return;  // ★ Phase 487: defense-in-depth (เรียกได้จาก dropdown/ปุ่มอื่น)
   // Double-check: ถ้าสถานะ invoiced/receipted ห้ามลบ
   if (['invoiced','receipted'].includes(q.status)) {
     return _ctx.showToast("ไม่สามารถลบได้ — มีเอกสารต่อเนื่องแล้ว");
@@ -1295,6 +1297,7 @@ async function deleteQuotation(q) {
 //  CONVERT — Quotation → Delivery Invoice
 // ═══════════════════════════════════════════════════════════
 async function convertToDeliveryInvoice(q) {
+  if (_denyWriteForAccountant()) return;  // ★ Phase 487: defense-in-depth (เรียกได้จาก dropdown/ฟอร์ม/preview)
   // ★ Phase 412: inflight guard ระดับฟังก์ชัน — กัน trigger ซ้ำจาก "ทุกทางเข้า" (dropdown แถว/
   //   ปุ่มฟอร์ม qtConvertFromForm/ปุ่ม preview qtConvertBtn) ระหว่างใบแรกกำลังสร้าง:
   //   existence-check (409) กันได้เฉพาะใบที่ commit แล้ว — กดซ้ำระหว่างสร้าง dup-check

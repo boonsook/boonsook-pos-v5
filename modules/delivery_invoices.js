@@ -434,6 +434,7 @@ export function renderDeliveryInvoicesPage(ctx) {
 
   // ── Status dropdown: ออกใบเสร็จ / ยกเลิก ──
   container.querySelectorAll(".di-status-select").forEach(sel => sel.addEventListener("change", async (e) => {
+    if (_denyWriteForAccountant()) { e.target.value = ""; return; }  // ★ Phase 487: accountant อ่านอย่างเดียว (กันยกเลิก/แปลงผ่าน dropdown)
     const invId = Number(sel.dataset.diId);
     const action = e.target.value;
     const inv = (ctx.state.deliveryInvoices || []).find(x => x.id === invId);

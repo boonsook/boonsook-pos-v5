@@ -12,13 +12,14 @@ import fs from "node:fs";
 import path from "node:path";
 
 // minGuards = จำนวน write entry ที่ verify มาแล้วต่อ module (กันมีคนถอด guard ออก)
+// Phase 487: +row-status dropdown handler ทุก module + convertToDeliveryInvoice/deleteQuotation (quotations)
 const MODULES = {
-  receipts:          { file: "modules/receipts.js",          minGuards: 6 }, // bulk-cancel/bulk-delete/collect/cancel/delete/edit-save
-  quotations:        { file: "modules/quotations.js",        minGuards: 3 }, // bulk-cancel/bulk-delete/saveQuotationFull
-  delivery_invoices: { file: "modules/delivery_invoices.js", minGuards: 5 }, // bulk-cancel/bulk-delete/delete/edit-save/convertToReceipt
+  receipts:          { file: "modules/receipts.js",          minGuards: 7, dropdown: "rc-status-select" }, // bulk-cancel/bulk-delete/collect/cancel/delete/edit-save + row-dropdown(487)
+  quotations:        { file: "modules/quotations.js",        minGuards: 6, dropdown: "qt-status-select" }, // bulk-cancel/bulk-delete/saveQuotationFull + dropdown/convert/delete(487)
+  delivery_invoices: { file: "modules/delivery_invoices.js", minGuards: 6, dropdown: "di-status-select" }, // bulk-cancel/bulk-delete/delete/edit-save/convertToReceipt + row-dropdown(487)
 };
 
-for (const [name, { file, minGuards }] of Object.entries(MODULES)) {
+for (const [name, { file, minGuards, dropdown }] of Object.entries(MODULES)) {
   const src = fs.readFileSync(path.resolve(file), "utf8");
 
   test(`${name}: defines _denyWriteForAccountant gate (role === accountant, toast, no silent)`, () => {
@@ -29,8 +30,14 @@ for (const [name, { file, minGuards }] of Object.entries(MODULES)) {
   });
 
   test(`${name}: every write path is gated (>= ${minGuards} call sites)`, () => {
-    const guards = (src.match(/if\s*\(_denyWriteForAccountant\(\)\)\s*return;/g) || []).length;
+    // counts both bare `return;` and the braced dropdown form `{ e.target.value=""; return; }`
+    const guards = (src.match(/if\s*\(_denyWriteForAccountant\(\)\)/g) || []).length;
     assert.ok(guards >= minGuards,
       `${name} must gate >= ${minGuards} write paths with _denyWriteForAccountant(); found ${guards}`);
+  });
+
+  test(`${name}: the row-status dropdown handler gates accountant FIRST (Phase 487 — closed SoD hole)`, () => {
+    const re = new RegExp(dropdown + '"\\)\\.forEach\\(sel => sel\\.addEventListener\\("change", async \\(e\\) => \\{\\s*if \\(_denyWriteForAccountant');
+    assert.match(src, re, `${name} .${dropdown} change handler must call _denyWriteForAccountant() as its first action`);
   });
 }

@@ -512,6 +512,7 @@ export function renderReceiptsPage(ctx) {
 
   // ── Status dropdown: เก็บเงิน / ยกเลิก ──
   container.querySelectorAll(".rc-status-select").forEach(sel => sel.addEventListener("change", async (e) => {
+    if (_denyWriteForAccountant()) { e.target.value = ""; return; }  // ★ Phase 487: accountant อ่านอย่างเดียว (กันเก็บเงิน/ยกเลิกผ่าน dropdown)
     const rcId = Number(sel.dataset.rcId);
     const action = e.target.value;
     const r = (ctx.state.receipts || []).find(x => x.id === rcId);
