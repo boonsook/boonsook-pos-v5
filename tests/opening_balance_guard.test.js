@@ -71,6 +71,25 @@ test("save semantics intact: doc_type OB + OB doc_no prefix", () => {
   assert.match(src, /const docNoPrefix = `OB\$\{yyyy\}\$\{mm\}`/, "OB doc_no prefix generation must remain");
 });
 
+// ── Phase 488 (S-3): กัน OB ซ้อน → งบดุลเบิ้ล ─────────────────────────────────
+test("Phase 488: inflight guard prevents double-submit (flag + finally reset + button disable)", () => {
+  assert.match(src, /let _obSubmitting = false/, "module-level inflight flag");
+  assert.match(src, /if \(_obSubmitting\) return;[\s\S]{0,140}?_obSubmitting = true;/, "guards re-entry then sets the flag");
+  assert.match(src, /finally \{\s*_obSubmitting = false;\s*if \(_obBtn\) _obBtn\.disabled = false/, "finally resets flag + re-enables button");
+  assert.match(src, /async function _onSubmitInner\(/, "real submit body extracted to _onSubmitInner (wrapper holds the guard)");
+});
+
+test("Phase 488: warns when an approved OB already exists for the effective date (no silent double-count)", () => {
+  assert.match(src, /doc_type=eq\.OB&doc_date=eq\.\$\{ACCOUNTING_EFFECTIVE_DATE\}&status=eq\.approved/,
+    "existence check queries the APPROVED OB of the effective date (BS/TB count only approved)");
+  const after = src.slice(src.indexOf("doc_type=eq.OB&doc_date=eq."));
+  assert.match(after.slice(0, 900), /window\.App\?\.confirm\?\.\(/, "warns via App.confirm (proceed-to-confirm)");
+  assert.match(after.slice(0, 900), /if \(!ok\) \{[\s\S]*?return;/, "declining the warning aborts the save (no POST)");
+  const exIdx = src.indexOf("doc_type=eq.OB&doc_date=eq.");
+  const postIdx = src.indexOf('method: "POST", headers');
+  assert.ok(exIdx > 0 && postIdx > exIdx, "existence check must run BEFORE the entry POST");
+});
+
 // ═══ Phase 415 — dynamic bank fields ═══════════════════════════════════════
 
 // behavioral: stub window/fetch แล้วเรียก fetchBankAssetAccounts จริง

@@ -103,7 +103,7 @@ export async function renderOpeningBalancePage(ctx) {
 
       <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:10px;padding:12px;margin-bottom:14px;font-size:12px;color:#78350f;line-height:1.7">
         <b>⚠️ ลงครั้งเดียวเท่านั้น</b> — ระบบจะสร้าง JV ประเภท OB (Opening Balance) ลงวันที่ ${ACCOUNTING_EFFECTIVE_DATE}<br>
-        ถ้าผิด → ลบ JV นั้นในสมุดรายวัน แล้วลงใหม่ (ผ่าน JV ใหม่ — กดปุ่มซ้ำได้ มี idempotency กัน)
+        ถ้าผิด → <b>ลบ JV ใบเดิมในสมุดรายวันก่อน</b> แล้วจึงลงใหม่ (ระบบจะเตือนถ้ามี OB ของวันนี้อยู่แล้ว + กันกดซ้ำตอนกำลังบันทึก — กันงบดุลซ้อน)
       </div>
 
       ${coaWarningHtml}
@@ -216,7 +216,23 @@ export async function renderOpeningBalancePage(ctx) {
   document.getElementById("obSubmitBtn")?.addEventListener("click", _onSubmit);
 }
 
+// ★ Phase 488 (S-3): inflight guard — กันกดบันทึก OB ซ้ำ (double-click/เน็ตช้า) = JV OB ซ้อน → งบดุลเบิ้ล
+let _obSubmitting = false;
+
 async function _onSubmit() {
+  if (_obSubmitting) return;                                  // กำลังบันทึกอยู่ → กดซ้ำ = no-op
+  _obSubmitting = true;
+  const _obBtn = document.getElementById("obSubmitBtn");
+  if (_obBtn) _obBtn.disabled = true;
+  try {
+    await _onSubmitInner();
+  } finally {
+    _obSubmitting = false;
+    if (_obBtn) _obBtn.disabled = false;
+  }
+}
+
+async function _onSubmitInner() {
   const setStatus = (html) => {
     const el = document.getElementById("obStatus");
     if (el) el.innerHTML = html;
@@ -256,6 +272,26 @@ async function _onSubmit() {
   const cfg = window.SUPABASE_CONFIG;
   const token = window._sbAccessToken || cfg.anonKey;
   const headers = { "Content-Type": "application/json", "apikey": cfg.anonKey, "Authorization": "Bearer " + token, "Prefer": "return=representation" };
+
+  // ★ Phase 488 (S-3): กัน OB ซ้อน — เช็คว่ามี OB "approved" ของวัน effective นี้อยู่แล้วไหม
+  //   (งบดุล/งบทดลองนับเฉพาะ status=approved — balance_sheet.js:46 / trial_balance.js:85). มีอยู่แล้ว
+  //   → เตือน + ให้ยืนยันว่าจะลงเพิ่ม (กันงบดุลซ้อนเงียบ ๆ; เดิม unique index คุมแค่ source_table/id ซึ่ง OB ไม่มี).
+  //   query ล้ม → ไม่บล็อก (inflight guard กัน double-click อยู่แล้ว + กัน transient error ขวางการลง OB ใบแรก)
+  try {
+    const exUrl = `${cfg.url}/rest/v1/journal_entries?select=doc_no&doc_type=eq.OB&doc_date=eq.${ACCOUNTING_EFFECTIVE_DATE}&status=eq.approved&limit=5`;
+    const exRes = await fetch(exUrl, { headers });
+    if (exRes.ok) {
+      const existing = await exRes.json().catch(() => null);
+      if (Array.isArray(existing) && existing.length > 0) {
+        const nos = existing.map(e => e.doc_no).filter(Boolean).join(", ");
+        const ok = await window.App?.confirm?.(`⚠️ มียอดยกมา (OB) ของวันที่ ${ACCOUNTING_EFFECTIVE_DATE} อยู่แล้ว: ${nos}\n\nการลงซ้ำจะทำให้งบดุล/งบทดลองนับซ้อน — ถ้าต้องการแก้ ให้ลบใบเดิมในสมุดรายวันก่อน\n\nยืนยันลงเพิ่มอีกใบหรือไม่?`);
+        if (!ok) {
+          setStatus(`<div style="padding:12px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;color:#92400e">ยกเลิก — มี OB อยู่แล้ว (${escHtml(nos)}) ไม่ได้บันทึกเพิ่ม</div>`);
+          return;
+        }
+      }
+    }
+  } catch(_) { /* query ล้ม → ไม่บล็อก (inflight guard ครอบ double-click) */ }
 
   setStatus(`<div style="padding:12px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;color:#0c4a6e">⏳ กำลังบันทึก...</div>`);
 
