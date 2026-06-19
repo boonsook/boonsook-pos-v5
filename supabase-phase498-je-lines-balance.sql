@@ -121,15 +121,10 @@ NOTIFY pgrst, 'reload schema';
 -- STEP 3 — (หลังติดตั้ง · ทดสอบ negative — ต้อง RAISE EXCEPTION)
 --   จะ rollback เองด้วย ROLLBACK ท้ายบล็อก ไม่ทิ้งข้อมูลขยะ:
 -- ────────────────────────────────────────────────────────────────────────
--- DO $$
--- DECLARE v_id bigint;
--- BEGIN
---   INSERT INTO public.journal_entries(doc_no, doc_type, doc_date, description, status, total_debit, total_credit)
---   VALUES ('TEST-498', 'TEST', CURRENT_DATE, 'phase498 negative test', 'draft', 100, 100)
---   RETURNING id INTO v_id;
---   -- lines ไม่ตรง header (debit 90 ไม่ใช่ 100) → ควร RAISE EXCEPTION ตอน COMMIT/END
---   INSERT INTO public.journal_lines(entry_id, line_no, account_code, debit, credit)
---   VALUES (v_id, 1, '1110', 90, 0), (v_id, 2, '4100', 0, 90);
---   RAISE EXCEPTION 'should-not-reach (trigger เป็น DEFERRED จะ fire ตอน COMMIT)';
--- END $$;
--- -- ↑ คาดหวัง: error "JE ... ผลรวม lines (90.00/90.00) <> header (100.00/100.00)" — ถ้าได้แบบนี้ = trigger ทำงานถูก
+-- BEGIN;
+--   DELETE FROM public.journal_lines
+--    WHERE id = (SELECT id FROM public.journal_lines ORDER BY entry_id DESC, line_no DESC LIMIT 1);
+--   SET CONSTRAINTS ALL IMMEDIATE;   -- บังคับเช็ค deferred เดี๋ยวนี้ → คาด ERROR balance ตรงนี้
+-- ROLLBACK;
+-- -- ↑ คาดหวัง: ERROR "JE ... lines ไม่บาลานซ์ / ผลรวม lines <> header" → trigger ทำงานถูก (DELETE rollback อัตโนมัติ)
+-- -- ⚠️ ห้ามใช้ doc_type='TEST' (ชน CHECK) หรือ RAISE ก่อน COMMIT (DEFERRED ยังไม่ fire) — เคยทำให้ test ใช้ไม่ได้
