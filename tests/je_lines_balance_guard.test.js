@@ -80,3 +80,13 @@ test("scope guard: does NOT touch header trigger / je_balanced / RLS / generated
   assert.ok(!/CREATE POLICY|DROP POLICY|ALTER POLICY/.test(s), "must NOT touch RLS policies");
   assert.ok(!/je_insert_auto|jl_insert_auto/.test(s), "must NOT touch je/jl insert RLS (separate phase)");
 });
+
+test("STEP3 negative-test is valid (owner-flagged fix): valid doc_type + SET CONSTRAINTS, no bogus RAISE", () => {
+  const s = sql();
+  // เดิม doc_type='TEST' ตาย CHECK (23514) ก่อนถึง trigger; ต้องใช้ค่า valid (ห้ามมี bare 'TEST' literal)
+  assert.ok(!/['"]TEST['"]/.test(s), "negative-test ห้ามใช้ doc_type 'TEST' (ชน CHECK ก่อนถึง trigger)");
+  // RAISE 'should-not-reach' ขวาง deferred trigger ที่ fire ตอน COMMIT — ต้องเอาออก
+  assert.ok(!/should-not-reach/.test(s), "ห้ามมี RAISE 'should-not-reach' (ขวาง deferred check)");
+  // ต้องบังคับ deferred constraint ให้เช็คทันที เพื่อเห็น error จาก trigger จริง
+  assert.match(s, /SET CONSTRAINTS ALL IMMEDIATE/, "ต้องใช้ SET CONSTRAINTS ALL IMMEDIATE บังคับ deferred check");
+});

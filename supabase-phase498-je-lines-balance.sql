@@ -118,18 +118,29 @@ NOTIFY pgrst, 'reload schema';
 
 
 -- ────────────────────────────────────────────────────────────────────────
--- STEP 3 — (หลังติดตั้ง · ทดสอบ negative — ต้อง RAISE EXCEPTION)
---   จะ rollback เองด้วย ROLLBACK ท้ายบล็อก ไม่ทิ้งข้อมูลขยะ:
+-- STEP 3 — (หลังติดตั้ง · ทดสอบ negative — ต้องเห็น ERROR แล้ว ROLLBACK ทิ้ง ไม่เหลือขยะ)
+--   ⚠️ ใช้ transaction block (BEGIN…ROLLBACK) ไม่ใช่ DO block — เพราะ:
+--     • DO block ควบคุม transaction (ROLLBACK) เองไม่ได้
+--     • trigger เป็น DEFERRED → fire ตอน COMMIT; เราใช้ `SET CONSTRAINTS ALL IMMEDIATE`
+--       บังคับเช็ค "เดี๋ยวนี้" เพื่อให้เห็น error ชัด ๆ ก่อน ROLLBACK
+--     • doc_type ต้องเป็นค่า valid (JV/PV/SV/RV/CV/AJ/OB) — ค่านอกชุดนี้จะตาย CHECK (23514)
+--       "ก่อน" ถึง trigger เรา (= ทดสอบผิดตัว)
+--   ⚠️ แทน <ACCT_DR>/<ACCT_CR> ด้วย "บัญชี leaf จริง 2 ตัว" ใน chart_of_accounts ของร้าน
+--      (account_code เป็น FK → ถ้าไม่มีจริง error จะเป็น FK 23503 ไม่ใช่ trigger เรา)
+--      ตัวอย่าง: เงินสด 1110 / รายได้ 4100 — ปรับตาม COA จริง
 -- ────────────────────────────────────────────────────────────────────────
--- DO $$
--- DECLARE v_id bigint;
--- BEGIN
---   INSERT INTO public.journal_entries(doc_no, doc_type, doc_date, description, status, total_debit, total_credit)
---   VALUES ('TEST-498', 'TEST', CURRENT_DATE, 'phase498 negative test', 'draft', 100, 100)
---   RETURNING id INTO v_id;
---   -- lines ไม่ตรง header (debit 90 ไม่ใช่ 100) → ควร RAISE EXCEPTION ตอน COMMIT/END
+-- BEGIN;
+--   WITH e AS (
+--     INSERT INTO public.journal_entries(doc_no, doc_type, doc_date, description, status, total_debit, total_credit)
+--     VALUES ('TEST-498-NEG', 'JV', CURRENT_DATE, 'phase498 negative test', 'draft', 100, 100)
+--     RETURNING id
+--   )
 --   INSERT INTO public.journal_lines(entry_id, line_no, account_code, debit, credit)
---   VALUES (v_id, 1, '1110', 90, 0), (v_id, 2, '4100', 0, 90);
---   RAISE EXCEPTION 'should-not-reach (trigger เป็น DEFERRED จะ fire ตอน COMMIT)';
--- END $$;
--- -- ↑ คาดหวัง: error "JE ... ผลรวม lines (90.00/90.00) <> header (100.00/100.00)" — ถ้าได้แบบนี้ = trigger ทำงานถูก
+--   SELECT id, 1, '<ACCT_DR>', 90, 0 FROM e          -- lines รวม 90/90 (บาลานซ์กันเอง)
+--   UNION ALL SELECT id, 2, '<ACCT_CR>', 0, 90 FROM e; --   แต่ "ไม่ตรง header 100/100"
+--   SET CONSTRAINTS ALL IMMEDIATE;  -- ← ต้อง RAISE ที่นี่
+-- ROLLBACK;
+-- -- ↑ คาดหวัง ERROR: "JE ... ผลรวม lines (90.00/90.00) <> header (100.00/100.00)"
+-- --   (SQLSTATE 23514 / check_violation จาก trg_je_lines_balance) = trigger ทำงานถูก; ROLLBACK เคลียร์ของทดสอบ.
+-- -- ทดสอบ check #1 (Dr รวม ≠ Cr รวม) ได้เช่นกัน: เปลี่ยน lines เป็น (<ACCT_DR>,100,0)+(<ACCT_CR>,0,90)
+-- --   → error "lines ไม่บาลานซ์: debit 100.00 <> credit 90.00"
