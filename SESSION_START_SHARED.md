@@ -2,6 +2,8 @@
 
 Last updated: 2026-06-14 (✅ **build 437 live** `a076b7a` — Phase 437 สต็อกห้ามติดลบเด็ดขาด: DB CHECK chk_ws/products_stock_nonneg (owner รัน SQL + verify 2 แถว) + Phase 403 sync trigger (owner รันด้วย) + client hard-block (Claude smoke ผ่าน). 🎉 **ปิดแผน P1 ครบ 3: ①433 เงินเดือน ②435 รายงาน verify ③437 สต็อก** · ⚠️ กติกา: ต่างคนต่างแก้งานตัวเอง, explicit `git add <files>`, งานเส้นเงินรอ session อื่นว่างก่อน) · เริ่มบัญชีจริง 1 ก.ค. 2569 (ก่อนนั้น = test, ไม่ post JV)
 
+> 🆕 **2026-06-19 — branches รอ review (ไม่ push main) + 🔴 pending owner-run SQL:** `claude/phase-499-double-restock-claim` (build 499 — atomic claim `sales.stock_reverted_at` กัน double-restock ข้ามเครื่อง, audit #C; **owner รัน supabase-phase499 ALTER+backfill "ก่อน deploy"**) · `claude/phase-498-jv-form-focus` (build 498 UI) · `claude/phase-498-je-lines-balance` (SQL #A, owner verified-live; STEP3 negative-test ในไฟล์เสียควรแก้). pending SQL: phase499 / phase497-loyalty / phase495-profiles. ⚠️ build เรียง 497(main)→498(jv)→499(restock) อยู่คนละ branch → merge ตามลำดับ + re-bump ถ้าชน markers. ดู HANDOFF บนสุด + memory `project-audit-2026-06-19-accounting-void`.
+
 Purpose: this is the common first-read note for Codex, Claude, or any next agent opening a fresh session on this project. Read this before changing files so both teams start from the same facts.
 
 Prompt quality: read `PROMPT_PHASE_BRIEF_SKILL.md` before drafting, reviewing, or implementing a phase prompt. It defines the required order for baseline, scope, failure semantics, tests, build/docs, and STOP marker.
