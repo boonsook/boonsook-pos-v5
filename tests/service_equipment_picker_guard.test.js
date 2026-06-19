@@ -78,3 +78,63 @@ test("module: warehouseStockOptions contract เดิม (ไม่ถูกแ
   assert.match(ws, /stock:\s*Number\(ws\?\.stock \|\| 0\)/, "คง field stock");
   assert.match(ws, /\.filter\(o => o\.stock > 0\)/, "คงกรอง stock>0");
 });
+
+// Phase 501 — picker multi-add: เลือกอุปกรณ์แล้ว "ไม่ปิด" picker (เพิ่มหลายชิ้นรวด)
+test("Phase 501: item-click ไม่ปิด picker (multi-add) — ไม่มี modal.remove() หลัง onPick", () => {
+  const afterOnPick = picker.slice(picker.indexOf("onPick?."));
+  assert.ok(afterOnPick.length > 0, "ต้องมี onPick call");
+  assert.doesNotMatch(afterOnPick, /modal\.remove\(\)/,
+    "เลือกอุปกรณ์แล้วต้องไม่ปิด picker (เพิ่มหลายชิ้นได้)");
+  assert.match(afterOnPick, /showToast\?\.\(/, "ต้องมี toast feedback ต่อชิ้น");
+});
+
+test("Phase 501: ตัวนับ 'เพิ่มแล้ว N ชิ้น' ที่หัว picker + bump ต่อการเลือก", () => {
+  assert.match(picker, /id="svepCount"/, "ต้องมี element ตัวนับที่หัว picker");
+  assert.match(picker, /เพิ่มแล้ว " \+ _addedCount \+ " ชิ้น/, "ตัวนับแสดงข้อความ 'เพิ่มแล้ว N ชิ้น'");
+  const afterOnPick = picker.slice(picker.indexOf("onPick?."));
+  assert.match(afterOnPick, /_bumpCount\(\)/, "item-click ต้องเรียก _bumpCount() (นับต่อการเลือก)");
+});
+
+test("Phase 501: ปิด picker ได้แค่ #svepClose + backdrop (modal.remove() เหลือ 2 จุด)", () => {
+  assert.match(picker, /#svepClose"\)\.addEventListener\("click", \(\) => modal\.remove\(\)\)/,
+    "ปุ่ม ✕ ยังปิด picker ได้");
+  assert.match(picker, /modal\.addEventListener\("click", \(e\) => \{ if \(e\.target === modal\) modal\.remove\(\); \}\)/,
+    "คลิก backdrop ยังปิด picker ได้");
+  assert.equal((picker.match(/modal\.remove\(\)/g) || []).length, 2,
+    "มี modal.remove() แค่ 2 จุดปิด (svepClose + backdrop) — ไม่มีบนเส้น item-click");
+});
+
+// Phase 501-amend (A) — กัน double-add จอสัมผัส (mirror POS _posLastAdd) + touch-action
+test("Phase 501-amend: debounce double-add (350ms) ก่อน onPick", () => {
+  assert.match(picker, /_svepLastPick = \{ id: null, t: 0 \}/, "ต้องมี state _svepLastPick");
+  assert.match(picker, /String\(p\.id\) === String\(_svepLastPick\.id\) && \(_now - _svepLastPick\.t\) < 350\) return/,
+    "ต้องเช็ค same-id ภายใน 350ms → return (กัน double-add)");
+  assert.match(picker, /_svepLastPick = \{ id: p\.id, t: _now \}/, "ต้องบันทึก id+เวลา last pick");
+  // debounce ต้องอยู่ "ก่อน" onPick (ไม่งั้น qty+2 หลุดไปแล้ว)
+  const dbIdx = picker.indexOf("_svepLastPick = { id: p.id");
+  const onPickIdx = picker.indexOf("onPick?.(");
+  assert.ok(dbIdx >= 0 && onPickIdx >= 0 && dbIdx < onPickIdx, "debounce ต้องมาก่อน onPick");
+});
+
+test("Phase 501-amend: ปุ่ม svep-item มี touch-action:manipulation (กัน synthetic double-click)", () => {
+  assert.match(picker, /class="svep-item"[\s\S]*?touch-action:manipulation/, "ปุ่มสินค้าต้องมี touch-action:manipulation");
+});
+
+// Phase 501-amend (B) — ตะกร้าเห็นขณะเลือก (เหมือนแคชเชียร์)
+test("Phase 501-amend: ตะกร้าสด render จาก getItems (ชื่อ/qty/ยอด/รวม)", () => {
+  assert.match(picker, /id="svepCart"/, "ต้องมี container ตะกร้า");
+  assert.match(picker, /const renderCart = \(\)/, "ต้องมีฟังก์ชัน renderCart");
+  assert.match(picker, /getItems\(\)/, "renderCart ต้องอ่าน getItems()");
+  assert.match(picker, /money\(Number\(it\.qty \|\| 0\) \* Number\(it\.unit_price \|\| 0\)\)/, "ต้องแสดงยอดต่อบรรทัด (qty×unit_price)");
+  assert.match(picker, /totalQty|totalAmt/, "ต้องมีแถบรวม (จำนวน/ยอดรวม)");
+  assert.match(picker, /escHtml\(it\.name/, "ชื่อสินค้าในตะกร้าต้อง escHtml");
+  // re-render หลังเพิ่ม
+  const afterOnPick = picker.slice(picker.indexOf("onPick?."));
+  assert.match(afterOnPick, /renderCart\(\)/, "ต้อง renderCart หลัง onPick (อัปเดตตะกร้าสด)");
+});
+
+test("Phase 501-amend: signature รับ opts.getItems + ไม่มี getItems → ไม่ throw (backward-compat)", () => {
+  assert.match(picker, /openEquipmentPicker\(ctx, onPick, opts\)/, "signature ต้องรับ opts");
+  assert.match(picker, /opts && typeof opts\.getItems === "function" \? opts\.getItems : null/, "getItems resolve แบบ optional");
+  assert.match(picker, /if \(!getItems \|\| !cartEl\) return/, "renderCart ต้อง guard getItems หาย (ซ่อนตะกร้า ไม่ throw)");
+});

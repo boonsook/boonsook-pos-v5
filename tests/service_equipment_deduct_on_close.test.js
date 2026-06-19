@@ -124,6 +124,14 @@ test("saveServiceJob: deduct happens on close (transition / new-complete), idemp
   assert.match(body, /xhrPatch\("service_jobs", \{ note: ded\.newNote \}/, "marker persisted to DB to prevent re-deduct");
 });
 
+// ── Phase 501: no optimistic double-deduct on close (display sync) ──────────────
+test("Phase 501: saveServiceJob ไม่เรียก optimistic local อีก (กันลบ ws.stock ซ้ำ)", () => {
+  // _equipDeductOnClose → _applyStockMovement sync ws.stock + products.stock (derived) แล้ว;
+  // optimistic เดิม (_equipOptimistic) ลด ws.stock ซ้ำ → จอเพี้ยน DB−2×qty จน loadAllData resync.
+  assert.ok(!/_equipOptimistic/.test(main), "main.js ต้องไม่เรียก _equipOptimistic (Phase 501 ลบแล้ว)");
+  assert.ok(!/optimisticDeduct/.test(main), "main.js ต้องไม่ import optimisticDeduct (alias ถูกลบ)");
+});
+
 // ── source wiring: intake forms no longer consume stock (transfer kept) ─────────
 test("service_form / ac_install / solar: no 'out' deduct on create; transfer kept", () => {
   // Phase 482 + addendum: all intake forms create jobs without consuming stock (deduct happens

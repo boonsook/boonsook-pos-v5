@@ -293,8 +293,11 @@ export function renderEquipmentList(listEl, items, { money, readOnly, state }) {
 
 // ── UI: picker modal ─────────────────────────────────────────
 // onPick(item) เรียกเมื่อเลือกสินค้า + คลัง (qty เริ่ม 1)
-export function openEquipmentPicker(ctx, onPick) {
+export function openEquipmentPicker(ctx, onPick, opts) {
   const { state, money, showToast } = ctx;
+  // ★ Phase 501-amend: opts.getItems = ฟังก์ชันคืน array อุปกรณ์ปัจจุบันในงาน (caller ส่ง () => _serviceDrawerItems)
+  //   → picker แสดง "ตะกร้า" สด (เหมือนแคชเชียร์). ไม่ส่ง = ซ่อนตะกร้า (backward-compat).
+  const getItems = opts && typeof opts.getItems === "function" ? opts.getItems : null;
   document.getElementById("svEquipPickerModal")?.remove();
 
   const allInStock = (state.products || []).filter(p => warehouseStockOptions(p, state).length > 0);
@@ -344,7 +347,7 @@ export function openEquipmentPicker(ctx, onPick) {
         `<span style="background:${o.is_mobile ? "#dbeafe" : "#fef3c7"};color:${o.is_mobile ? "#1e40af" : "#92400e"};padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">${o.is_mobile ? "🚐" : "📦"} ${escHtml(o.warehouse_name)}: ${o.stock}</span>`
       ).join(" ");
       return `
-        <button class="svep-item" data-pk-id="${p.id}" style="display:block;width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;background:#fff;cursor:pointer;text-align:left;font:inherit;margin-bottom:6px">
+        <button class="svep-item" data-pk-id="${p.id}" style="display:block;width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;background:#fff;cursor:pointer;text-align:left;font:inherit;margin-bottom:6px;touch-action:manipulation">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
             <div style="flex:1;min-width:0">
               <div style="font-weight:700;color:#0f172a">${escHtml(p.name || "-")}</div>
@@ -363,7 +366,10 @@ export function openEquipmentPicker(ctx, onPick) {
   modal.innerHTML = `
     <div style="background:#fff;border-radius:16px;max-width:500px;width:100%;max-height:80vh;display:flex;flex-direction:column;overflow:hidden">
       <div style="padding:14px 16px;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center">
-        <h3 style="margin:0;font-size:16px">🔧 เลือกอุปกรณ์ (จากสต็อก)</h3>
+        <div style="display:flex;align-items:center;gap:8px;min-width:0">
+          <h3 style="margin:0;font-size:16px">🔧 เลือกอุปกรณ์ (จากสต็อก)</h3>
+          <span id="svepCount" style="display:none;font-size:12px;font-weight:700;color:#0284c7;background:#e0f2fe;border-radius:999px;padding:2px 10px;white-space:nowrap"></span>
+        </div>
         <button id="svepClose" class="btn light" style="font-size:18px;padding:4px 10px">✕</button>
       </div>
       <div style="padding:12px 16px 8px;border-bottom:1px solid #e2e8f0;display:flex;flex-direction:column;gap:8px">
@@ -375,6 +381,7 @@ export function openEquipmentPicker(ctx, onPick) {
         <input id="svepSearch" type="text" placeholder="🔍 ค้นหา ชื่อ / barcode / หมวด..." style="width:100%;padding:10px 12px;border:1px solid #cbd5e1;border-radius:10px;font:inherit" />
       </div>
       <div id="svepList" style="flex:1;overflow-y:auto;padding:12px 16px"></div>
+      <div id="svepCart" style="border-top:1px solid #e2e8f0;background:#f8fafc;max-height:32vh;overflow-y:auto;display:none"></div>
     </div>`;
   document.body.appendChild(modal);
 
@@ -384,9 +391,54 @@ export function openEquipmentPicker(ctx, onPick) {
   const searchEl = modal.querySelector("#svepSearch");
   const refreshList = () => { listEl.innerHTML = renderList(searchEl.value); };
 
+  // ★ Phase 501: ตัวนับ "เพิ่มแล้ว N ชิ้น" ที่หัว picker (multi-add) — +1 ทุกครั้งที่เลือก (รวม qty ที่เพิ่มซ้ำ)
+  const countEl = modal.querySelector("#svepCount");
+  let _addedCount = 0;
+  const _bumpCount = () => {
+    _addedCount++;
+    if (countEl) {
+      countEl.textContent = "เพิ่มแล้ว " + _addedCount + " ชิ้น";
+      countEl.style.display = "";
+    }
+  };
+
+  // ★ Phase 501-amend (A): กัน double-add จอสัมผัส — แตะตัวเดิมซ้ำภายใน 350ms = ข้าม (mirror POS _posLastAdd).
+  //   สินค้าคนละตัวรัว ๆ ยังได้ครบ (id ต่าง); ตั้งใจเพิ่มตัวเดิมจริง เว้น >350ms.
+  let _svepLastPick = { id: null, t: 0 };
+
+  // ★ Phase 501-amend (B): ตะกร้าเห็นขณะเลือก (เหมือนแคชเชียร์) — render สดจาก getItems() ทุกครั้งที่เพิ่ม.
+  //   re-render เฉพาะ cart section (ไม่แตะ product list = กัน focus/scroll หลุด). display-only (แก้/ลบทำใน drawer).
+  const cartEl = modal.querySelector("#svepCart");
+  const renderCart = () => {
+    if (!getItems || !cartEl) return;
+    const items = getItems() || [];
+    if (items.length === 0) { cartEl.style.display = "none"; cartEl.innerHTML = ""; return; }
+    const totalQty = items.reduce((s, i) => s + Number(i.qty || 0), 0);
+    const totalAmt = items.reduce((s, i) => s + Number(i.qty || 0) * Number(i.unit_price || 0), 0);
+    const rows = items.map(it => `
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px dashed #e2e8f0">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700;color:#0f172a;font-size:13px">${escHtml(it.name || "-")}</div>
+          <div style="font-size:11px;color:#64748b">${money ? money(it.unit_price || 0) : (it.unit_price || 0)} × ${Number(it.qty || 0)}${it.warehouse_name ? " • " + escHtml(it.warehouse_name) : ""}</div>
+        </div>
+        <div style="font-weight:800;color:#0284c7;white-space:nowrap">${money ? money(Number(it.qty || 0) * Number(it.unit_price || 0)) : ""}</div>
+      </div>`).join("");
+    cartEl.innerHTML = `
+      <div style="padding:10px 16px">
+        <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:4px">🧺 อุปกรณ์ในงานนี้</div>
+        ${rows}
+        <div style="display:flex;justify-content:space-between;margin-top:8px;font-weight:800;color:#0f172a">
+          <span>${totalQty} ชิ้น</span>
+          <span>${money ? money(totalAmt) : totalAmt}</span>
+        </div>
+      </div>`;
+    cartEl.style.display = "";
+  };
+
   whChipsEl.innerHTML = renderWhChips();
   catEl.innerHTML = renderCatOptions();
   refreshList();
+  renderCart();  // โชว์ของเดิมในงาน (ถ้ามี) ตั้งแต่เปิด picker
 
   modal.querySelector("#svepClose").addEventListener("click", () => modal.remove());
   modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
@@ -409,6 +461,10 @@ export function openEquipmentPicker(ctx, onPick) {
     if (!btn) return;
     const p = (state.products || []).find(x => String(x.id) === String(btn.dataset.pkId));
     if (!p) return;
+    // ★ Phase 501-amend (A): กัน double-add จอสัมผัส (mirror POS bindProductList) — เช็คก่อนทำงาน
+    const _now = Date.now();
+    if (String(p.id) === String(_svepLastPick.id) && (_now - _svepLastPick.t) < 350) return;
+    _svepLastPick = { id: p.id, t: _now };
     const opts = warehouseStockOptions(p, state);
     if (opts.length === 0) { showToast?.("ไม่มีสต็อกในคลัง"); return; }
 
@@ -441,7 +497,12 @@ export function openEquipmentPicker(ctx, onPick) {
       warehouse_name: chosen.warehouse_name,
       _stock_avail: chosen.stock
     });
-    modal.remove();
+    // ★ Phase 501: ไม่ปิด picker หลังเลือก → เพิ่มหลายชิ้นรวดได้ (เหมือนตะกร้า POS).
+    //   ปิดด้วยปุ่ม #svepClose / คลิก backdrop เท่านั้น (handler ปิดอยู่ด้านบน คงเดิม).
+    //   feedback ต่อชิ้นด้วย toast + ตัวนับที่หัว picker; onPick (main.js) qty+1 ถ้าซ้ำ.
+    showToast?.("เพิ่ม " + (p.name || "อุปกรณ์") + " ✓");
+    _bumpCount();
+    renderCart();  // อัปเดตตะกร้าสด (อ่าน getItems หลัง onPick เพิ่ม/เพิ่ม qty แล้ว)
   });
 }
 
