@@ -593,9 +593,9 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
           return `
           <div style="background:#fff;border-radius:10px;padding:10px 12px;border:1px solid #fde68a;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
             <div style="flex:1;min-width:180px">
-              <div style="font-weight:700;color:#1f2937;font-size:13px">${j.job_no} — ${j.customer_name || "ไม่ระบุ"}</div>
-              <div style="font-size:12px;color:#6b7280;margin-top:2px">${(j.note || "").replace(/AI Sales:|AC Shop:/,"").slice(0,60)}</div>
-              ${phone ? `<div style="font-size:12px;color:#3b82f6;margin-top:2px">📞 ${phone}</div>` : ""}
+              <div style="font-weight:700;color:#1f2937;font-size:13px">${escapeHtml(j.job_no)} — ${escapeHtml(j.customer_name || "ไม่ระบุ")}</div>
+              <div style="font-size:12px;color:#6b7280;margin-top:2px">${escapeHtml((j.note || "").replace(/AI Sales:|AC Shop:/,"").slice(0,60))}</div>
+              ${phone ? `<div style="font-size:12px;color:#3b82f6;margin-top:2px">📞 ${escapeHtml(phone)}</div>` : ""}
             </div>
             <div style="text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:4px">
               <span style="display:inline-block;background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">⏳ รอดำเนินการ</span>
