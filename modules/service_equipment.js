@@ -96,6 +96,48 @@ export async function deductEquipmentStock(items, jobNo, customerName) {
   return { stockOpsFailed, errors };
 }
 
+// ── Phase 500 (MONEY/STOCK §4.2): atomic claim กัน double-deduct/double-restore ข้ามเครื่อง ──
+//   mirror Phase 499 (_revertStockForSale): conditional PATCH ที่ DB = single-writer (ชนะ 1 row/แพ้ 0 row).
+//   ★ ใช้ raw fetch ตรง — helper PATCH แบบ filter-เดียวเดิมรับ 1 เงื่อนไข + ถือ 0-row=error จึงทำ claim ไม่ได้.
+function _svcSbHeaders() {
+  const cfg = window.SUPABASE_CONFIG;
+  const token = window._sbAccessToken || cfg.anonKey;
+  return { apikey: cfg.anonKey, Authorization: "Bearer " + token };
+}
+
+// claim: conditional PATCH service_jobs (filter = เงื่อนไข atomic). คืน { won, note, error }.
+//   won=true (1 row ชนะ) · won=false ไม่มี error (0 row = แพ้/ไม่เข้าเงื่อนไข → skip) · error set = fail-closed.
+async function _claimServiceJob(jobId, filter, body) {
+  if (jobId == null) return { won: false, error: "no job id" };
+  const cfg = window.SUPABASE_CONFIG;
+  try {
+    const r = await fetch(`${cfg.url}/rest/v1/service_jobs?id=eq.${encodeURIComponent(jobId)}&${filter}&select=id,note`, {
+      method: "PATCH",
+      headers: { ..._svcSbHeaders(), "Content-Type": "application/json", "Prefer": "return=representation" },
+      body: JSON.stringify(body)
+    });
+    if (!r.ok) return { won: false, error: "claim HTTP " + r.status };
+    const rows = await r.json().catch(() => null);
+    if (!Array.isArray(rows)) return { won: false, error: "claim bad response" };
+    if (rows.length === 0) return { won: false };
+    return { won: true, note: String(rows[0]?.note || "") };
+  } catch (e) { return { won: false, error: "claim exception: " + (e?.message || e) }; }
+}
+
+// release: unconditional PATCH (เราเป็นคน claim) — เซ็ตคอลัมน์กลับ null ให้ retry ได้.
+async function _releaseServiceJob(jobId, body, reason) {
+  if (jobId == null) return;
+  const cfg = window.SUPABASE_CONFIG;
+  try {
+    const r = await fetch(`${cfg.url}/rest/v1/service_jobs?id=eq.${encodeURIComponent(jobId)}`, {
+      method: "PATCH",
+      headers: { ..._svcSbHeaders(), "Content-Type": "application/json", "Prefer": "return=minimal" },
+      body: JSON.stringify(body)
+    });
+    if (!r.ok) console.warn("[service stock] release claim fail (" + reason + "): HTTP " + r.status);
+  } catch (e) { console.warn("[service stock] release claim exception (" + reason + "):", e?.message); }
+}
+
 // ── Phase 482: ตัดสต็อกอุปกรณ์งานช่าง "ตอนปิดงาน" (done/delivered/closed) ครั้งเดียว ─────
 //   โมเดล owner: ช่างเพิ่ม/แก้อุปกรณ์ได้ตลอดช่วงงานยังไม่ปิด = "ยังไม่ตัด"; ตัดจริงตอน owner ปิด+ได้เงิน
 //   (พร้อม JV). เดิม (Phase 402) ตัดตอนสร้าง/บันทึกงาน → ย้ายมาตัดตอนปิดแทน.
@@ -106,11 +148,32 @@ export const STOCK_DEDUCTED_MARKER = "[ตัดสต็อกแล้ว]";
 export async function deductServiceJobStock(job) {
   const items = Array.isArray(job?.items_json) ? job.items_json : [];
   const note = String(job?.note || "");
-  if (items.length === 0 || note.includes(STOCK_DEDUCTED_MARKER)) {
-    return { deducted: false, stockOpsFailed: false, newNote: note, errors: [] };
+  if (items.length === 0) {
+    return { deducted: false, stockOpsFailed: false, newNote: note, errors: [] };  // ไม่มีอะไรตัด — ไม่ claim
   }
+  // ★ Phase 500: atomic claim กันตัดซ้ำข้ามเครื่อง/หลาย tab (แทน in-memory note gate เดิม).
+  //   ⚠️ ต้องรัน supabase-phase500 (ALTER + backfill) ก่อน deploy ไม่งั้น claim fail → fail-closed.
+  const claim = await _claimServiceJob(job?.id, "stock_deducted_at=is.null", { stock_deducted_at: new Date().toISOString() });
+  if (claim.error) {
+    // เช็ค/เคลมไม่ได้ → fail-closed: ไม่ตัด + ให้ caller เตือน (กันปิดงานแบบไม่ตัดสต็อกเงียบ)
+    return { deducted: false, claimError: true, stockOpsFailed: false, newNote: note, errors: [claim.error] };
+  }
+  if (!claim.won) {
+    return { deducted: false, skipped: true, stockOpsFailed: false, newNote: note, errors: [] };  // 0 row = ตัดไปแล้ว
+  }
+  const dbNote = claim.note || note;
+  // safety-net เผื่อ ALTER แล้วยังไม่ backfill: note มี marker = เคยตัดแล้ว → ไม่ตัดซ้ำ (คง claim ที่เพิ่งเซ็ต)
+  if (dbNote.includes(STOCK_DEDUCTED_MARKER)) {
+    return { deducted: false, skipped: true, stockOpsFailed: false, newNote: dbNote, errors: [] };
+  }
+  const attempted = items.filter(it => it.warehouse_id && it.product_id).length;
   const { stockOpsFailed, errors } = await deductEquipmentStock(items, job?.job_no || "", job?.customer_name || "");
-  const newNote = note ? `${note} ${STOCK_DEDUCTED_MARKER}` : STOCK_DEDUCTED_MARKER;
+  if (attempted > 0 && errors.length >= attempted) {
+    // ตัดไม่ได้เลย (ทุก item ที่มีคลัง fail = transient) → release claim ให้ปิด/ตัดใหม่ได้
+    await _releaseServiceJob(job?.id, { stock_deducted_at: null }, "deduct all-fail");
+    return { deducted: false, stockOpsFailed, newNote: dbNote, errors };
+  }
+  const newNote = dbNote ? `${dbNote} ${STOCK_DEDUCTED_MARKER}` : STOCK_DEDUCTED_MARKER;
   return { deducted: true, stockOpsFailed, newNote, errors };
 }
 
@@ -127,11 +190,30 @@ export const STOCK_RETURNED_MARKER = "[คืนสต็อกแล้ว]";
 export async function restoreServiceJobStock(job) {
   const items = Array.isArray(job?.items_json) ? job.items_json : [];
   const note = String(job?.note || "");
-  // ★ Phase 482: คืนเฉพาะที่ "เคยตัดจริง" (มี DEDUCTED marker) + ยังไม่เคยคืน (ไม่มี RETURNED marker).
-  //   งานที่เพิ่มอุปกรณ์แต่ยังไม่ปิด/ยังไม่ตัด = ไม่มี DEDUCTED marker → no-op (กันคืน phantom stock).
-  if (items.length === 0 || !note.includes(STOCK_DEDUCTED_MARKER) || note.includes(STOCK_RETURNED_MARKER)) {
-    return { restored: false, newNote: note, errors: [] };
+  if (items.length === 0) {
+    return { restored: false, newNote: note, errors: [] };  // ไม่มีอะไรคืน — ไม่ claim
   }
+  // ★ Phase 500: atomic claim "เคยตัด (stock_deducted_at not null) และยังไม่คืน (stock_reverted_at null)"
+  //   แทน in-memory note gate เดิม (Phase 482) → กันคืนซ้ำข้ามเครื่อง + กันคืน phantom จาก state ค้าง.
+  //   ⚠️ ต้องรัน supabase-phase500 (ALTER 2 col + backfill) ก่อน deploy.
+  const claim = await _claimServiceJob(
+    job?.id,
+    "stock_deducted_at=not.is.null&stock_reverted_at=is.null",
+    { stock_reverted_at: new Date().toISOString() }
+  );
+  if (claim.error) {
+    return { restored: false, claimError: true, newNote: note, errors: [claim.error] };
+  }
+  if (!claim.won) {
+    // ไม่เคยตัด หรือ คืนไปแล้ว → no-op (กันคืน phantom + คืนซ้ำ)
+    return { restored: false, skipped: true, newNote: note, errors: [] };
+  }
+  const dbNote = claim.note || note;
+  // safety-net: note มี RETURNED marker แล้ว = คืนไปแล้ว → ไม่คืนซ้ำ (คง claim)
+  if (dbNote.includes(STOCK_RETURNED_MARKER)) {
+    return { restored: false, skipped: true, newNote: dbNote, errors: [] };
+  }
+  const attempted = items.filter(it => it.warehouse_id && it.product_id).length;
   const errors = [];
   for (const it of items) {
     if (!it.warehouse_id || !it.product_id) continue;  // เฉพาะที่ warehouse-deducted จริง
@@ -149,7 +231,12 @@ export async function restoreServiceJobStock(job) {
       }
     }
   }
-  const newNote = note ? `${note} ${STOCK_RETURNED_MARKER}` : STOCK_RETURNED_MARKER;
+  if (attempted > 0 && errors.length >= attempted) {
+    // คืนไม่ได้เลย (ทุก item ที่มีคลัง fail = transient) → release claim ให้ลบ/คืนใหม่ได้
+    await _releaseServiceJob(job?.id, { stock_reverted_at: null }, "restore all-fail");
+    return { restored: false, newNote: dbNote, errors };
+  }
+  const newNote = dbNote ? `${dbNote} ${STOCK_RETURNED_MARKER}` : STOCK_RETURNED_MARKER;
   return { restored: true, newNote, errors };
 }
 

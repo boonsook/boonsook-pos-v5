@@ -18,16 +18,24 @@ import fs from "node:fs";
 import path from "node:path";
 import { restoreServiceJobStock, STOCK_RETURNED_MARKER, STOCK_DEDUCTED_MARKER } from "../modules/service_equipment.js";
 
-function withMockApply(impl, fn) {
-  const prev = globalThis.window;
+// Phase 500: restoreServiceJobStock เรียก atomic claim ผ่าน global fetch (PATCH service_jobs) ก่อน loop คืนสต็อก.
+//   claimRows = แถวที่ claim PATCH คืน: [{id,note}] = ชนะ claim (เดินหน้าคืน) · [] = แพ้/ไม่เข้าเงื่อนไข (skip).
+function withMockApply(impl, fn, claimRows = [{ id: 1, note: "" }]) {
+  const prevWin = globalThis.window;
+  const prevFetch = globalThis.fetch;
   const calls = [];
-  globalThis.window = { _appApplyStockMovement: async (a) => { calls.push(a); return impl ? impl(a) : { ok: true }; } };
-  return Promise.resolve(fn(calls)).finally(() => { globalThis.window = prev; });
+  globalThis.window = {
+    _appApplyStockMovement: async (a) => { calls.push(a); return impl ? impl(a) : { ok: true }; },
+    SUPABASE_CONFIG: { url: "http://test", anonKey: "k" },
+    _sbAccessToken: "t",
+  };
+  globalThis.fetch = async () => ({ ok: true, json: async () => claimRows });
+  return Promise.resolve(fn(calls)).finally(() => { globalThis.window = prevWin; globalThis.fetch = prevFetch; });
 }
 
 test("returns each warehouse-deducted item via _appApplyStockMovement('return')", () =>
   withMockApply(null, async (calls) => {
-    const job = { job_no: "JOB-1", note: `งานซ่อม ${STOCK_DEDUCTED_MARKER}`, items_json: [
+    const job = { id: 1, job_no: "JOB-1", note: `งานซ่อม ${STOCK_DEDUCTED_MARKER}`, items_json: [
       { product_id: 1, warehouse_id: 9, qty: 2 },
       { product_id: 2, warehouse_id: 9, qty: 1 },
     ] };
@@ -39,26 +47,28 @@ test("returns each warehouse-deducted item via _appApplyStockMovement('return')"
     assert.ok(r.newNote.includes(STOCK_RETURNED_MARKER), "marker appended to note");
   }));
 
-test("idempotent: note already has the marker → no return, no calls", () =>
+test("idempotent: claim returns 0 rows (already reverted at DB) → no return, no calls", () =>
+  // Phase 500: idempotency ย้ายไป DB claim — งานที่คืนแล้วมี stock_reverted_at set → claim 0 row → skip
   withMockApply(null, async (calls) => {
-    const job = { job_no: "JOB-1", note: `งานซ่อม ${STOCK_RETURNED_MARKER}`, items_json: [{ product_id: 1, warehouse_id: 9, qty: 2 }] };
+    const job = { id: 1, job_no: "JOB-1", note: `งานซ่อม ${STOCK_RETURNED_MARKER}`, items_json: [{ product_id: 1, warehouse_id: 9, qty: 2 }] };
     const r = await restoreServiceJobStock(job);
-    assert.equal(calls.length, 0, "no stock movement when already returned");
+    assert.equal(calls.length, 0, "no stock movement when claim lost (already reverted)");
     assert.equal(r.restored, false);
-  }));
+    assert.equal(r.skipped, true, "0-row claim → skipped");
+  }, []));
 
 test("no items_json → no-op (no calls)", () =>
   withMockApply(null, async (calls) => {
-    const r = await restoreServiceJobStock({ job_no: "JOB-1", note: "x", items_json: [] });
+    const r = await restoreServiceJobStock({ id: 1, job_no: "JOB-1", note: "x", items_json: [] });
     assert.equal(calls.length, 0);
     assert.equal(r.restored, false);
-    const r2 = await restoreServiceJobStock({ job_no: "JOB-1", note: "x" });  // missing items_json
+    const r2 = await restoreServiceJobStock({ id: 1, job_no: "JOB-1", note: "x" });  // missing items_json
     assert.equal(r2.restored, false);
   }));
 
 test("skips items without warehouse_id (don't guess a warehouse)", () =>
   withMockApply(null, async (calls) => {
-    const job = { job_no: "JOB-1", note: STOCK_DEDUCTED_MARKER, items_json: [
+    const job = { id: 1, job_no: "JOB-1", note: STOCK_DEDUCTED_MARKER, items_json: [
       { product_id: 1, warehouse_id: 9, qty: 2 },   // returned
       { product_id: 2, qty: 5 },                      // no warehouse_id → skip
     ] };
@@ -69,7 +79,7 @@ test("skips items without warehouse_id (don't guess a warehouse)", () =>
 
 test("partial failure is reported (errors[]), not swallowed", () =>
   withMockApply((a) => ({ ok: a.productId !== 2 }), async () => {
-    const job = { job_no: "JOB-1", note: STOCK_DEDUCTED_MARKER, items_json: [
+    const job = { id: 1, job_no: "JOB-1", note: STOCK_DEDUCTED_MARKER, items_json: [
       { product_id: 1, warehouse_id: 9, qty: 1 },
       { product_id: 2, warehouse_id: 9, qty: 1 },
     ] };
