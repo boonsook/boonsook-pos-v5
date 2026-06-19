@@ -114,14 +114,16 @@ export function createApi({ windowRef = typeof window !== "undefined" ? window :
         } else {
           const errBody = xhr.responseText;
           let msg = "HTTP " + xhr.status;
+          let code = null;  // ★ Phase 497: surface Postgres error code (e.g. 23505 unique) + status for idempotent callers
           try {
             const parsed = JSON.parse(errBody);
             msg = parsed.message || parsed.details || parsed.hint || msg;
+            code = parsed.code || null;
             console.error("[xhrPost] " + table + " ERROR:", parsed);
           } catch (e) {
             console.error("[xhrPost] " + table + " ERROR raw:", errBody);
           }
-          resolve({ ok: false, data: null, error: { message: msg } });
+          resolve({ ok: false, data: null, error: { message: msg, code, status: xhr.status } });
         }
       };
       xhr.onerror = function () { resolve({ ok: false, data: null, error: { message: "Network error" } }); };

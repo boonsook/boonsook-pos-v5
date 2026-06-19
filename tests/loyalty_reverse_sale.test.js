@@ -298,6 +298,40 @@ test("reverseEarnedPointsForSale: returns failure (ok:false, skipped:false) when
   } finally { xhr.restore(); }
 });
 
+// ─── Phase 497 (#4a): DB unique-violation = idempotent skip (concurrent double-void) ───
+test("Phase 497: unique-violation (23505) on insert → skip not error (another void already reversed)", async () => {
+  const state = { loyaltyPoints: [ earnRow({ id: 1, customerId: 42, points: 5, saleId: 100 }) ] };
+  const captured = [];
+  globalThis.window = globalThis.window || {};
+  globalThis.window._appXhrPost = async (table, record) => {
+    captured.push({ table, record });
+    return { ok: false, error: { code: "23505", message: 'duplicate key value violates unique constraint "uq_loyalty_sale_reverse"', status: 409 } };
+  };
+  try {
+    const res = await reverseEarnedPointsForSale(100, { state, customerId: 42 });
+    assert.equal(res.ok, false);
+    assert.equal(res.skipped, true, "23505 = the concurrent void already reversed → skip, never double-deduct");
+    assert.match(res.reason, /already reversed/);
+    assert.equal(captured.length, 1, "it attempted the insert; the DB partial-unique rejected the duplicate");
+  } finally { delete globalThis.window._appXhrPost; }
+});
+
+test("Phase 497: a real (non-unique) DB error still surfaces as failure (skipped:false)", async () => {
+  const state = { loyaltyPoints: [ earnRow({ id: 1, customerId: 42, points: 5, saleId: 100 }) ] };
+  globalThis.window = globalThis.window || {};
+  globalThis.window._appXhrPost = async () => ({ ok: false, error: { code: "42501", message: "permission denied", status: 403 } });
+  try {
+    const res = await reverseEarnedPointsForSale(100, { state, customerId: 42 });
+    assert.equal(res.skipped, false, "only 23505/duplicate is swallowed; RLS/network must still surface");
+  } finally { delete globalThis.window._appXhrPost; }
+});
+
+test("Phase 497: xhrPost surfaces the Postgres error code so idempotent callers can detect 23505", () => {
+  const src = readFileSync(path.join(__dirname2, "..", "modules", "api.js"), "utf8");
+  assert.match(src, /code\s*=\s*parsed\.code/, "xhrPost must read the PG error code");
+  assert.match(src, /error:\s*\{\s*message:\s*msg,\s*code,\s*status:\s*xhr\.status\s*\}/, "xhrPost error must include code + status");
+});
+
 // ─── Phase 91.4 hotfix regression ───
 // Phase 91.3 wired the helper from refunds.js + sales.js but gated the call on
 // the SALE row's customer_id. That sale-row column is an opt-in schema extension

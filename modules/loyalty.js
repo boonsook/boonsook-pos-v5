@@ -227,6 +227,12 @@ export async function reverseEarnedPointsForSale(saleId, options = {}) {
 
   const r = await window._appXhrPost('loyalty_points', newRecord);
   if (!r?.ok) {
+    // ★ Phase 497 (#4a): DB partial-unique uq_loyalty_sale_reverse (ref_id WHERE ref_type='sale_reverse')
+    //   = void/refund อีกตัวคืนแต้มไปแล้ว (race ข้ามเครื่อง/แท็บ ที่ cache check ไม่ทัน) → idempotent skip
+    //   ไม่ใช่ error (กันคืนแต้ม 2 เท่า). cache check ด้านบนยังเป็น fast-path.
+    if (r?.error?.code === '23505' || /duplicate key|uq_loyalty_sale_reverse/i.test(r?.error?.message || '')) {
+      return { ok: false, skipped: true, reason: 'already reversed (db unique — concurrent void)' };
+    }
     return {
       ok: false,
       skipped: false,
