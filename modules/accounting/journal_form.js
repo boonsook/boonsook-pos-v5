@@ -20,6 +20,23 @@ function money(n) {
   return new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n || 0));
 }
 
+// Phase 498/build 498: pure totals — ใช้ทั้งตอน initial render และ live refresh (กัน drift + unit-test ได้)
+export function computeJvTotals(lines) {
+  const totalDebit  = (lines || []).reduce((s, l) => s + Number(l.debit  || 0), 0);
+  const totalCredit = (lines || []).reduce((s, l) => s + Number(l.credit || 0), 0);
+  const balanced = Math.abs(totalDebit - totalCredit) < 0.01 && totalDebit > 0;
+  return { totalDebit, totalCredit, balanced };
+}
+
+// ป้ายสถานะแถบรวม — ใช้ทั้ง template และ _refreshSummary (single source กัน drift)
+function jvBalStateHtml(totalDebit, totalCredit, balanced) {
+  return balanced
+    ? `<span style="color:#10b981">✅ เดบิต = เครดิต</span>`
+    : totalDebit === 0
+      ? `<span style="color:#94a3b8">รอใส่จำนวนเงิน</span>`
+      : `<span style="color:#ef4444">⚠️ ต่างกัน ${money(Math.abs(totalDebit - totalCredit))}</span>`;
+}
+
 const DOC_TYPE_OPTIONS = [
   ["JV", "JV — รายวันทั่วไป"],
   ["PV", "PV — จ่าย"],
@@ -70,9 +87,7 @@ export async function renderJournalFormPage(ctx) {
     .map(a => `<option value="${a.code}">${a.code} — ${escHtml(a.name)}</option>`)
     .join("");
 
-  const totalDebit  = _lines.reduce((s, l) => s + Number(l.debit || 0), 0);
-  const totalCredit = _lines.reduce((s, l) => s + Number(l.credit || 0), 0);
-  const balanced = Math.abs(totalDebit - totalCredit) < 0.01 && totalDebit > 0;
+  const { totalDebit, totalCredit, balanced } = computeJvTotals(_lines);
 
   container.innerHTML = `
     <div class="panel">
@@ -146,12 +161,10 @@ export async function renderJournalFormPage(ctx) {
             <tfoot>
               <tr style="background:#f1f5f9;font-weight:700">
                 <td colspan="2" style="padding:8px;text-align:right">รวม:</td>
-                <td style="padding:8px;text-align:right;color:#0284c7">${money(totalDebit)}</td>
-                <td style="padding:8px;text-align:right;color:#dc2626">${money(totalCredit)}</td>
-                <td colspan="2" style="padding:8px;text-align:center;font-size:12px">
-                  ${balanced ? `<span style="color:#10b981">✅ เดบิต = เครดิต</span>` :
-                    totalDebit === 0 ? `<span style="color:#94a3b8">รอใส่จำนวนเงิน</span>` :
-                    `<span style="color:#ef4444">⚠️ ต่างกัน ${money(Math.abs(totalDebit - totalCredit))}</span>`}
+                <td id="jvTotDr" style="padding:8px;text-align:right;color:#0284c7">${money(totalDebit)}</td>
+                <td id="jvTotCr" style="padding:8px;text-align:right;color:#dc2626">${money(totalCredit)}</td>
+                <td id="jvBalState" colspan="2" style="padding:8px;text-align:center;font-size:12px">
+                  ${jvBalStateHtml(totalDebit, totalCredit, balanced)}
                 </td>
               </tr>
             </tfoot>
@@ -166,6 +179,23 @@ export async function renderJournalFormPage(ctx) {
         <button id="jvSaveApprovedBtn" class="btn primary" ${!balanced ? 'disabled' : ''} style="opacity:${balanced ? 1 : 0.5}">✅ บันทึก + อนุมัติ</button>
       </div>
     </div>`;
+
+  // Phase 498/build 498: อัปเดต "สด" เฉพาะแถบรวม + ปุ่ม โดยไม่ re-render ทั้งฟอร์ม
+  //   (เดิม handler เลขเรียก renderJournalFormPage ทุก keystroke → input ถูกแทน → focus หลุด/ทศนิยมพัง)
+  //   ★ ไม่แตะ tbody/inputs — กฎ line_one_side (เคลียร์ฝั่งตรงข้าม) ทำใน handler เป็นรายช่อง
+  function _refreshSummary() {
+    const { totalDebit, totalCredit, balanced } = computeJvTotals(_lines);
+    const drEl = container.querySelector("#jvTotDr");
+    const crEl = container.querySelector("#jvTotCr");
+    const stEl = container.querySelector("#jvBalState");
+    if (drEl) drEl.textContent = money(totalDebit);
+    if (crEl) crEl.textContent = money(totalCredit);
+    if (stEl) stEl.innerHTML = jvBalStateHtml(totalDebit, totalCredit, balanced);
+    for (const id of ["jvSaveDraftBtn", "jvSaveApprovedBtn"]) {
+      const btn = container.querySelector("#" + id);
+      if (btn) { btn.disabled = !balanced; btn.style.opacity = balanced ? 1 : 0.5; }
+    }
+  }
 
   // ─── Bind events ─────────────────────────────────────────
   document.getElementById("jvBackBtn")?.addEventListener("click", () => { location.hash = "accounting_journals"; });
@@ -188,15 +218,23 @@ export async function renderJournalFormPage(ctx) {
     const i = Number(ev.target.dataset.jvLineDebit);
     const v = Number(ev.target.value || 0);
     _lines[i].debit = v;
-    if (v > 0) _lines[i].credit = 0;
-    renderJournalFormPage(ctx);
+    if (v > 0) {
+      _lines[i].credit = 0;
+      const cr = container.querySelector('[data-jv-line-credit="' + i + '"]');
+      if (cr) cr.value = "";  // เคลียร์ฝั่งตรงข้ามในจอ (line_one_side) โดยไม่ re-render
+    }
+    _refreshSummary();
   }));
   container.querySelectorAll("[data-jv-line-credit]").forEach(el => el.addEventListener("input", (ev) => {
     const i = Number(ev.target.dataset.jvLineCredit);
     const v = Number(ev.target.value || 0);
     _lines[i].credit = v;
-    if (v > 0) _lines[i].debit = 0;
-    renderJournalFormPage(ctx);
+    if (v > 0) {
+      _lines[i].debit = 0;
+      const dr = container.querySelector('[data-jv-line-debit="' + i + '"]');
+      if (dr) dr.value = "";  // เคลียร์ฝั่งตรงข้ามในจอ (line_one_side) โดยไม่ re-render
+    }
+    _refreshSummary();
   }));
   container.querySelectorAll("[data-jv-line-desc]").forEach(el => el.addEventListener("input", (ev) => {
     const i = Number(ev.target.dataset.jvLineDesc);
