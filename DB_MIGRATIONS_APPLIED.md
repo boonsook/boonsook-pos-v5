@@ -16,6 +16,7 @@
 | `supabase-phase498-je-lines-balance.sql` | CONSTRAINT TRIGGER `trg_je_lines_balance` (DEFERRABLE INITIALLY DEFERRED) บน `journal_lines` — บังคับ `SUM(lines)=header` + `Dr=Cr` (audit **#A**) | 2026-06-19 | ✅ negative test (ลบ line → `SET CONSTRAINTS ALL IMMEDIATE`) → **ERROR 23514** = trigger fires; STEP0a/0b = 0 (ข้อมูลสะอาด) |
 | `supabase-phase499-sales-stock-reverted-at.sql` | `ALTER sales ADD stock_reverted_at` + backfill marker `[คืนสต็อกแล้ว]` → atomic claim กัน double-restock POS (audit **#C**, build 499) | 2026-06-19 | ✅ column มีจริง (REST select); backfill **marked=9 / missed=0** |
 | `supabase-phase500-service-job-stock-markers.sql` | `ALTER service_jobs ADD stock_deducted_at, stock_reverted_at` + backfill 2 marker → atomic claim service-job (audit **#C-2**, build 500) | 2026-06-19 | ✅ 2 cols มีจริง; backfill **deduct 19/missed 0 · revert 6/missed 0** |
+| `supabase-phaseB2-doc-no-sequence.sql` | `doc_number_counters` + `next_doc_number()` atomic (`ON CONFLICT` race-free) + 3 BEFORE-INSERT trigger override `qt_no`/`inv_no`/`receipt_no` (gapless ต่อวัน Asia/Bangkok) + 3 UNIQUE partial backstop + seed (audit **#B2**, build 503, PR #91) | 2026-06-19 | ✅ STEP0 = no dup; VERIFY `pg_trigger`=3 / `pg_indexes uq_%_no`=3 / `next_doc_number('QT','quotation')`=**QT20260619001** (format ถูก + sequential) |
 
 > โค้ดที่ใช้คอลัมน์/trigger เหล่านี้: #A trigger ทำงานทันที (ไม่ต้องรอ deploy); #C live build 499; #C-2 live build 500 (boonsukair.com + pages.dev).
 
@@ -43,4 +44,4 @@ SELECT column_name, data_type FROM information_schema.columns WHERE table_name='
 SELECT count(*) FILTER (WHERE note ILIKE '%[ตัดสต็อกแล้ว]%' AND stock_deducted_at IS NULL) AS deduct_missed FROM public.service_jobs;
 ```
 
-_อัปเดตล่าสุด: 2026-06-19 (audit idempotency #A/#C/#C-2 — DDL applied prod, verified live)._
+_อัปเดตล่าสุด: 2026-06-19 (audit idempotency #A/#C/#C-2 + #B2 doc-no sequence — DDL applied prod, verified live)._
