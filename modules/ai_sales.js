@@ -553,12 +553,12 @@ export function renderAiSalesPage(ctx) {
       <div id="orderForm${fid}" style="background:#fefce8;border:1px solid #fde68a;border-radius:12px;padding:14px;margin-bottom:4px">
         <div style="font-weight:700;color:#92400e;font-size:14px;margin-bottom:8px">📋 กรอกข้อมูลเพื่อสั่งซื้อ</div>
         <div style="font-size:13px;color:#78350f;margin-bottom:10px;padding:8px;background:#fff;border-radius:8px;border:1px solid #fde68a">
-          🛒 <b>${prodName}</b><br>
+          🛒 <b>${escHtml(prodName)}</b><br>
           ❄️ ${(product.btu || 0).toLocaleString()} BTU — 💰 <b>${prodPrice.toLocaleString()} บาท</b>
         </div>
         <div style="display:flex;flex-direction:column;gap:8px">
-          <input data-f="${fid}" data-role="name" type="text" placeholder="ชื่อ-นามสกุล *" value="${prefillName}" style="padding:10px 12px;border:1px solid #d1d5db;border-radius:10px;font-size:14px">
-          <input data-f="${fid}" data-role="phone" type="tel" placeholder="เบอร์โทรศัพท์ *" value="${prefillPhone}" style="padding:10px 12px;border:1px solid #d1d5db;border-radius:10px;font-size:14px">
+          <input data-f="${fid}" data-role="name" type="text" placeholder="ชื่อ-นามสกุล *" value="${escHtml(prefillName)}" style="padding:10px 12px;border:1px solid #d1d5db;border-radius:10px;font-size:14px">
+          <input data-f="${fid}" data-role="phone" type="tel" placeholder="เบอร์โทรศัพท์ *" value="${escHtml(prefillPhone)}" style="padding:10px 12px;border:1px solid #d1d5db;border-radius:10px;font-size:14px">
           <textarea data-f="${fid}" data-role="addr" rows="2" placeholder="ที่อยู่สำหรับติดตั้ง *" style="padding:10px 12px;border:1px solid #d1d5db;border-radius:10px;font-size:14px;resize:vertical"></textarea>
           <textarea data-f="${fid}" data-role="note" rows="1" placeholder="หมายเหตุเพิ่มเติม (ถ้ามี)" style="padding:10px 12px;border:1px solid #d1d5db;border-radius:10px;font-size:14px;resize:vertical"></textarea>
           <div style="display:flex;gap:8px;margin-top:4px">
@@ -651,10 +651,10 @@ export function renderAiSalesPage(ctx) {
                 <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:14px">
                   <div style="font-weight:700;color:#166534;font-size:15px;margin-bottom:8px">✅ สั่งซื้อเรียบร้อยแล้วครับ!</div>
                   <div style="font-size:13px;color:#15803d;line-height:1.8">
-                    🛒 <b>${prodName}</b><br>
+                    🛒 <b>${escHtml(prodName)}</b><br>
                     💰 ${prodPrice.toLocaleString()} บาท<br>
-                    👤 ${cName} / ${cPhone}<br>
-                    📍 ${cAddr}<br>
+                    👤 ${escHtml(cName)} / ${escHtml(cPhone)}<br>
+                    📍 ${escHtml(cAddr)}<br>
                     📄 เลขที่: <b>${jobNo}</b>
                   </div>
                   <div style="margin-top:10px;font-size:13px;color:#166534">ทีมงานบุญสุขจะติดต่อกลับเพื่อนัดวันติดตั้งครับ 🙏</div>
@@ -689,7 +689,7 @@ export function renderAiSalesPage(ctx) {
                           cancelBtn.style.color = "#9ca3af";
                           cancelBtn.style.border = "1px solid #e5e7eb";
                           showToast("ยกเลิกคำสั่งซื้อเรียบร้อย");
-                          addBubble(`❌ ยกเลิกคำสั่งซื้อ <b>${prodName}</b> (${jobNo}) เรียบร้อยแล้วครับ`, "bot", true);
+                          addBubble(`❌ ยกเลิกคำสั่งซื้อ <b>${escHtml(prodName)}</b> (${jobNo}) เรียบร้อยแล้วครับ`, "bot", true);
                           try {
                             if (typeof ctx?.sendLineNotify === "function") Promise.resolve(ctx.sendLineNotify(`❌ ยกเลิกออเดอร์ ${jobNo}\nลูกค้า: ${cName}\nสินค้า: ${prodName}`)).catch(() => {});
                           } catch(le) { console.warn("[ai_sales] LINE notify threw:", le); }

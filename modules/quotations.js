@@ -940,11 +940,13 @@ async function saveQuotationFull() {
       note: appendAirJobNoteRef(document.getElementById("qt_note")?.value?.trim() || "", _airDraftMeta)
     };
 
-    // Auto QT number
+    // Auto QT number — Phase B2: เลขจริงออกฝั่ง DB (trigger trg_assign_quotation_no override เสมอ
+    //   = เรียงต่อเนื่องต่อวัน + UNIQUE). ค่าด้านล่างเป็นแค่ fallback ช่วงก่อน trigger ถูก apply
+    //   (เลิกใช้ state.quotations.length ที่ cap ≤50 → ชนซ้ำ; ใช้ timestamp 6 หลักท้าย collision-resistant)
     if (!payload.qt_no) {
       const now = new Date();
       const ds = now.getFullYear() + String(now.getMonth()+1).padStart(2,"0") + String(now.getDate()).padStart(2,"0");
-      payload.qt_no = "QT" + ds + String((_ctx.state.quotations?.length||0)+1).padStart(3,"0");
+      payload.qt_no = "QT" + ds + String(Date.now()).slice(-6);
     }
 
     _ctx.showToast("กำลังบันทึก...");
@@ -1351,7 +1353,8 @@ async function convertToDeliveryInvoice(q) {
 
     const now = new Date();
     const ds = now.getFullYear() + String(now.getMonth()+1).padStart(2,"0") + String(now.getDate()).padStart(2,"0");
-    const invNo = "INV" + ds + String(Date.now()).slice(-3);
+    // Phase B2: เลขจริงออกฝั่ง DB (trigger override เสมอ); fallback collision-resistant (6 หลักท้าย) ช่วงก่อน trigger apply
+    const invNo = "INV" + ds + String(Date.now()).slice(-6);
 
     const invoicePayload = {
       inv_no: invNo, quotation_id: q.id,
@@ -1374,6 +1377,7 @@ async function convertToDeliveryInvoice(q) {
     if (!invRes.ok) return _ctx.showToast(invRes.error?.message || "สร้างไม่สำเร็จ");
 
     const invoiceId = invRes.data?.id;
+    const realInvNo = invRes.data?.inv_no || invNo;  // Phase B2: ใช้เลขที่ DB trigger ออกจริง (fallback = ที่ส่งไป)
     // ★ Phase 412: เช็คผล insert รายการ — เดิมเงียบ = ใบรายการขาดแบบไม่มีใครรู้
     const failedItems = [];
     if (invoiceId && _lineItems.length) {
@@ -1391,7 +1395,7 @@ async function convertToDeliveryInvoice(q) {
     if (failedItems.length > 0) {
       // ห้าม rollback/ลบ header — ใบเกิดแล้ว (409 existence-check กันออกซ้ำตอน retry)
       console.error("[quotations convert] item insert failed:", failedItems);
-      _ctx.showToast(`⚠️ สร้าง ${invNo} แล้ว แต่บันทึกรายการไม่สำเร็จ ${failedItems.length} รายการ (${failedItems.slice(0, 3).join(", ")}…) — เปิดใบเพื่อตรวจ/เพิ่มเอง`);
+      _ctx.showToast(`⚠️ สร้าง ${realInvNo} แล้ว แต่บันทึกรายการไม่สำเร็จ ${failedItems.length} รายการ (${failedItems.slice(0, 3).join(", ")}…) — เปิดใบเพื่อตรวจ/เพิ่มเอง`);
     }
 
     // ★ Phase 412: เช็คผล PATCH status — fail = เตือน ไม่ rollback (status = display; ตัวกัน 1:1 จริงคือ existence-check)
@@ -1410,7 +1414,7 @@ async function convertToDeliveryInvoice(q) {
     // }
 
     await _ctx.loadAllData();
-    _ctx.showToast("สร้างใบส่งสินค้าแล้ว: " + invNo);
+    _ctx.showToast("สร้างใบส่งสินค้าแล้ว: " + realInvNo);
     _viewMode = "list";
     _ctx.showRoute("delivery_invoices");
   } finally {

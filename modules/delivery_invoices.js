@@ -791,7 +791,8 @@ async function convertToReceipt(inv) {
 
     const now = new Date();
     const ds = now.getFullYear() + String(now.getMonth()+1).padStart(2,"0") + String(now.getDate()).padStart(2,"0");
-    const receiptNo = "RC" + ds + String(Date.now()).slice(-3);
+    // Phase B2: เลขจริงออกฝั่ง DB (trigger trg_assign_receipt_no override เสมอ); fallback collision-resistant ช่วงก่อน trigger apply
+    const receiptNo = "RC" + ds + String(Date.now()).slice(-6);
 
     const receiptPayload = {
       receipt_no: receiptNo,
@@ -827,6 +828,7 @@ async function convertToReceipt(inv) {
     if (!rcRes.ok) return _ctx.showToast(rcRes.error?.message || "สร้างใบเสร็จไม่สำเร็จ");
 
     const receiptId = rcRes.data?.id;
+    const realReceiptNo = rcRes.data?.receipt_no || receiptNo;  // Phase B2: ใช้เลขที่ DB trigger ออกจริง
     // ★ Phase 412: เช็คผล insert รายการ — เดิมเงียบ = ใบรายการขาดแบบไม่มีใครรู้
     const failedItems = [];
     if (receiptId && _lineItems.length) {
@@ -844,7 +846,7 @@ async function convertToReceipt(inv) {
     if (failedItems.length > 0) {
       // ห้าม rollback/ลบ header — ใบเกิดแล้ว (409 existence-check กันออกซ้ำตอน retry)
       console.error("[delivery_invoices convert] item insert failed:", failedItems);
-      _ctx.showToast(`⚠️ สร้าง ${receiptNo} แล้ว แต่บันทึกรายการไม่สำเร็จ ${failedItems.length} รายการ (${failedItems.slice(0, 3).join(", ")}…) — เปิดใบเพื่อตรวจ/เพิ่มเอง`);
+      _ctx.showToast(`⚠️ สร้าง ${realReceiptNo} แล้ว แต่บันทึกรายการไม่สำเร็จ ${failedItems.length} รายการ (${failedItems.slice(0, 3).join(", ")}…) — เปิดใบเพื่อตรวจ/เพิ่มเอง`);
     }
 
     // ★ Phase 412: เช็คผล PATCH status ทั้ง 2 จุด — fail = เตือนครั้งเดียว ไม่ rollback
@@ -860,7 +862,7 @@ async function convertToReceipt(inv) {
     }
 
     await _ctx.loadAllData();
-    _ctx.showToast("ออกใบเสร็จรับเงินแล้ว: " + receiptNo);
+    _ctx.showToast("ออกใบเสร็จรับเงินแล้ว: " + realReceiptNo);
     _viewMode = "list";
     _ctx.showRoute("receipts");
   } finally {
