@@ -90,3 +90,44 @@ test("stripForCssUrl: preserves normal http(s) URLs intact", () => {
   const ok = "https://cdn.example.com/path/to/image.jpg?v=42&size=large";
   assert.equal(stripForCssUrl(ok), ok);
 });
+
+// ───────────────────────────────────────────────
+// Phase B1 (build 502) — escape customer-supplied input before innerHTML
+//   ai_sales (public storefront) order form/confirm/cancel bubbles, and the
+//   dashboard "รอดำเนินการ" card that re-renders the same service_jobs fields.
+//   Source-regex guards: the DOM sinks must wrap user/DB fields in the escape
+//   helper. (LINE-notify text + textContent echoes stay raw — not DOM sinks.)
+// ───────────────────────────────────────────────
+
+import { readFileSync } from "node:fs";
+
+const aiSalesSrc   = readFileSync(new URL("../modules/ai_sales.js", import.meta.url), "utf8");
+const dashboardSrc = readFileSync(new URL("../modules/dashboard.js", import.meta.url), "utf8");
+
+test("B1 ai_sales: order-confirm bubble escapes customer name/phone/address", () => {
+  assert.ok(aiSalesSrc.includes("${escHtml(cName)}"),  "cName must be escaped in confirm bubble");
+  assert.ok(aiSalesSrc.includes("${escHtml(cPhone)}"), "cPhone must be escaped in confirm bubble");
+  assert.ok(aiSalesSrc.includes("${escHtml(cAddr)}"),  "cAddr must be escaped in confirm bubble");
+  // raw (unescaped) DOM sinks must be gone
+  assert.ok(!aiSalesSrc.includes("📍 ${cAddr}<br>"),            "raw ${cAddr} in bubble must be gone");
+  assert.ok(!aiSalesSrc.includes("👤 ${cName} / ${cPhone}<br>"), "raw ${cName}/${cPhone} bubble must be gone");
+});
+
+test("B1 ai_sales: order form prefilled name/phone escaped inside value attribute", () => {
+  assert.ok(aiSalesSrc.includes('value="${escHtml(prefillName)}"'),  "prefillName must be escaped in attr");
+  assert.ok(aiSalesSrc.includes('value="${escHtml(prefillPhone)}"'), "prefillPhone must be escaped in attr");
+  assert.ok(!aiSalesSrc.includes('value="${prefillName}"'),  "raw prefillName attr must be gone");
+  assert.ok(!aiSalesSrc.includes('value="${prefillPhone}"'), "raw prefillPhone attr must be gone");
+});
+
+test("B1 ai_sales: prodName escaped in the 3 HTML bubble sinks (form/confirm/cancel)", () => {
+  const count = (aiSalesSrc.match(/\$\{escHtml\(prodName\)\}/g) || []).length;
+  assert.ok(count >= 3, `expected >=3 escHtml(prodName) DOM sinks, got ${count}`);
+});
+
+test("B1 dashboard: pending-order card escapes service_jobs fields", () => {
+  assert.ok(dashboardSrc.includes("${escapeHtml(j.job_no)}"),       "job_no must be escaped");
+  assert.ok(dashboardSrc.includes("${escapeHtml(j.customer_name"),  "customer_name must be escaped");
+  assert.ok(dashboardSrc.includes("📞 ${escapeHtml(phone)}"),       "phone must be escaped");
+  assert.ok(!dashboardSrc.includes("${j.job_no} — ${j.customer_name"), "raw job_no/customer_name must be gone");
+});
