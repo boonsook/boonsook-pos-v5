@@ -3305,29 +3305,60 @@ async function _revertStockForSale({ saleId, orderNo }) {
   const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token };
   const creatorUuid = state.currentUser?.id || null;
 
-  // ★ Phase 410 (§4.2): idempotency gate — note มี marker = เคยคืนสต็อกแล้ว → no-op
-  //   (กันคืนเบิ้ลจากกดซ้ำ/ยิงซ้ำ/ลบพร้อมกันจากเครื่องอื่น — อ่าน note สดจาก DB ไม่ใช่ cache)
-  //   GET ล้ม → fail-closed: ห้ามเดินหน้า revert ทั้งที่เช็ค marker ไม่ได้ (กันคืนซ้ำสำคัญกว่า
-  //   ความสะดวก — caller โชว์ toast partial อยู่แล้ว, ลองใหม่ได้)
+  // helper: ปลดเคลม (เซ็ต stock_reverted_at กลับเป็น NULL) เมื่อเรา "เคลมแล้วแต่ไม่ได้คืนอะไรเลย"
+  //   → ให้ลบใหม่/retry คืนได้ (ไม่บล็อกถาวรจาก transient fail). เราเป็นคนเคลม → unconditional PATCH.
+  const _releaseClaim = async (reason) => {
+    try {
+      const rel = await fetch(cfg.url + "/rest/v1/sales?id=eq." + saleId, {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json", "Prefer": "return=minimal" },
+        body: JSON.stringify({ stock_reverted_at: null })
+      });
+      if (!rel.ok) console.warn("[revertStock] release claim fail (" + reason + "): HTTP " + rel.status);
+      return rel.ok;
+    } catch (e) { console.warn("[revertStock] release claim exception (" + reason + "):", e?.message); return false; }
+  };
+
+  // ★ Phase 499 (§4.2): atomic claim กันคืนซ้ำข้ามเครื่อง/หลาย tab — conditional PATCH ที่ DB.
+  //   เดิม (Phase 410) = GET note → เช็ค marker → write ทีหลัง = TOCTOU: ลบพร้อมกัน 2 เครื่อง ผ่าน gate
+  //   ทั้งคู่ → restock ซ้ำ = สต็อกพอง. claim = UPDATE ... WHERE stock_reverted_at IS NULL → DB การันตี
+  //   single-writer: ชนะ = 1 row, แพ้ = 0 row. claim ล้ม/อ่านไม่ได้ → fail-closed (กันคืนซ้ำสำคัญกว่า).
+  //   note-marker เดิม (_STOCK_RETURNED_MARKER) ยังถูกแปะตอนจบ (module อื่นอ่าน note อยู่).
+  //   ⚠️ ต้องรัน supabase-phase499 (ALTER + backfill marker เก่า) ที่ DB "ก่อน" deploy — ไม่งั้นคอลัมน์ไม่มี
+  //      → PATCH fail → fail-closed → ลบบิลได้แต่ "ไม่คืนสต็อก" (surface error). ไม่ใช้ xhrPatch (มัน 0-row=error).
   let saleNote = "";
   try {
-    const nr = await fetch(cfg.url + "/rest/v1/sales?id=eq." + saleId + "&select=note", { headers });
-    if (!nr.ok) return { ok: false, error: "เช็คสถานะคืนสต็อกไม่ได้: HTTP " + nr.status };
-    const noteRows = await nr.json().catch(() => null);
-    if (!Array.isArray(noteRows)) return { ok: false, error: "เช็คสถานะคืนสต็อกไม่ได้: bad response" };
-    saleNote = String(noteRows[0]?.note || "");
+    const cr = await fetch(cfg.url + "/rest/v1/sales?id=eq." + saleId + "&stock_reverted_at=is.null&select=id,note", {
+      method: "PATCH",
+      headers: { ...headers, "Content-Type": "application/json", "Prefer": "return=representation" },
+      body: JSON.stringify({ stock_reverted_at: new Date().toISOString() })
+    });
+    if (!cr.ok) return { ok: false, error: "เคลมสถานะคืนสต็อกไม่ได้: HTTP " + cr.status };
+    const claimedRows = await cr.json().catch(() => null);
+    if (!Array.isArray(claimedRows)) {
+      await _releaseClaim("unconfirmed claim (bad response)");
+      return { ok: false, error: "เคลมสถานะคืนสต็อกไม่ได้: bad response" };
+    }
+    if (claimedRows.length === 0) {
+      // มีคนเคลม/คืนไปแล้ว (หรือ row หาย) → no-op (idempotent — เหมือน gate marker เดิม)
+      return { ok: true, reverted: 0, skipped: true, errors: [] };
+    }
+    saleNote = String(claimedRows[0]?.note || "");
+    // safety net เผื่อ ALTER แล้วยังไม่ backfill: ใบที่เคยคืน (note มี marker) แต่ stock_reverted_at ยัง NULL
+    //   → claim นี้ชนะ แต่ของถูกคืนไปแล้ว → ห้าม restock ซ้ำ (คง claim ที่เพิ่งเซ็ต = สถานะถูกต้อง)
+    if (saleNote.includes(_STOCK_RETURNED_MARKER)) {
+      return { ok: true, reverted: 0, skipped: true, errors: [] };
+    }
   } catch (e) {
-    return { ok: false, error: "เช็คสถานะคืนสต็อกไม่ได้: " + (e?.message || e) };
-  }
-  if (saleNote.includes(_STOCK_RETURNED_MARKER)) {
-    return { ok: true, reverted: 0, skipped: true, errors: [] };
+    return { ok: false, error: "เคลมสถานะคืนสต็อกไม่ได้: " + (e?.message || e) };
   }
 
   const errors = [];
+  let revertedCount = 0;
   try {
     // 1. fetch sale_items
     const r = await fetch(cfg.url + "/rest/v1/sale_items?sale_id=eq." + saleId + "&select=*", { headers });
-    if (!r.ok) return { ok: false, error: "fetch sale_items HTTP " + r.status };
+    if (!r.ok) { await _releaseClaim("sale_items fetch HTTP " + r.status); return { ok: false, error: "fetch sale_items HTTP " + r.status }; }
     const items = await r.json().catch(() => []);
     if (!Array.isArray(items) || items.length === 0) {
       // ไม่มี items (ขายผ่าน numpad ไม่ใส่ cart) → ไม่ต้องคืนสต็อก
@@ -3351,8 +3382,6 @@ async function _revertStockForSale({ saleId, orderNo }) {
         }
       } catch { /* deductedQty stays null → fallback คืนทั้งหมด */ }
     }
-
-    let revertedCount = 0;
 
     // คืนสต็อกของ "หนึ่งสินค้า/หนึ่งคลัง" ผ่าน CAS (ใช้ทั้ง non-bundle และ bundle children).
     //   prod = product object ที่ resolve แล้ว, qty = จำนวนที่คืน, soldWhId = คลังที่ขาย (จาก sale_items),
@@ -3505,10 +3534,16 @@ async function _revertStockForSale({ saleId, orderNo }) {
           errors.push("แปะ marker กันคืนซ้ำไม่สำเร็จ — เสี่ยงคืนซ้ำถ้าลบใหม่");
         }
       }
+    } else {
+      // ★ Phase 499: คืนไม่ได้เลย (transient/RLS) → ปลดเคลม ให้ลบ/คืนใหม่ได้ (ไม่บล็อกถาวร)
+      if (!(await _releaseClaim("no item restored"))) errors.push("ปลดเคลมคืนสต็อกไม่สำเร็จ — อาจต้องลบ/คืนใหม่");
     }
 
     return { ok: errors.length === 0, reverted: revertedCount, errors };
   } catch (e) {
+    // ★ Phase 499: exception กลางทาง — ยังไม่ได้คืนอะไรเลย → ปลดเคลม (transient, retry ได้);
+    //   คืนไปบางส่วนแล้ว (revertedCount>0) → คง claim ค้าง กัน retry คืนซ้ำ (admin แก้มือ — trade-off ที่ยอมรับ)
+    if (revertedCount === 0) await _releaseClaim("exception before any restore");
     return { ok: false, error: e?.message || "revert exception" };
   }
 }

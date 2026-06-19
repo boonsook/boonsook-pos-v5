@@ -2,7 +2,7 @@
 // invariant: ลบบิล 1 ครั้ง = สต็อกคืนครั้งเดียวเป๊ะต่อ item
 //   (1) ทุก stock write ใน _revertStockForSale ผ่าน _atomicAddStock (CAS) — ห้าม absolute xhrPatch จาก cache
 //   (2) idempotency marker [คืนสต็อกแล้ว] (_STOCK_RETURNED_MARKER): เช็คก่อนคืน (no-op ถ้าเคยคืน) + แปะหลังคืน
-//   (3) marker-check GET ล้ม → fail-closed (return ok:false ไม่เดินหน้า revert)
+//   (3) Phase 499: gate = atomic claim (conditional PATCH stock_reverted_at=is.null) — claim ล้ม → fail-closed (return ok:false ไม่เดินหน้า revert)
 //   (4) sales.js delete handler: pre-check [ลบแล้ว] ก่อน confirm + newNote เป็น append (ไม่ทับ note เดิม)
 //
 // Source-regex (iron rule #5: extract เฉพาะ body ของ function/handler เป้าหมายก่อน assert — ห้าม grep ทั้งไฟล์)
@@ -55,10 +55,11 @@ test("_revertStockForSale: idempotency marker — เช็คก่อนคื
   assert.ok(append, "ต้องแปะ marker ผ่าน xhrPatch(sales, {note: ...marker}) เมื่อ revertedCount > 0");
 });
 
-test("_revertStockForSale: marker-check GET ล้ม → fail-closed (return ok:false)", () => {
-  // ทั้ง HTTP fail / bad response / exception ของ gate ต้อง return ok:false ไม่เดินหน้า revert
-  const failPaths = revertFn.match(/return\s*\{\s*ok:\s*false,\s*error:\s*"เช็คสถานะคืนสต็อกไม่ได้/g) || [];
-  assert.ok(failPaths.length >= 3, `gate ต้อง fail-closed ครบ (HTTP/bad response/exception) — พบ ${failPaths.length}/3`);
+test("_revertStockForSale: claim gate ล้ม → fail-closed (return ok:false)", () => {
+  // Phase 499: gate เปลี่ยนจาก marker-check GET → atomic claim (conditional PATCH).
+  //   invariant เดิมคงไว้: claim HTTP fail / bad response / exception → return ok:false ไม่เดินหน้า revert.
+  const failPaths = revertFn.match(/return\s*\{\s*ok:\s*false,\s*error:\s*"เคลมสถานะคืนสต็อกไม่ได้/g) || [];
+  assert.ok(failPaths.length >= 3, `claim gate ต้อง fail-closed ครบ (HTTP/bad response/exception) — พบ ${failPaths.length}/3`);
 });
 
 test("_revertStockForSale: CAS fail = ข้าม item (return {ok:false} ก่อน log movement, ไม่นับ reverted)", () => {
