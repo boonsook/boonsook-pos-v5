@@ -2,6 +2,8 @@
 
 Last updated: 2026-06-14 (✅ **build 437 live** `a076b7a` — Phase 437 สต็อกห้ามติดลบเด็ดขาด: DB CHECK chk_ws/products_stock_nonneg (owner รัน SQL + verify 2 แถว) + Phase 403 sync trigger (owner รันด้วย) + client hard-block (Claude smoke ผ่าน). 🎉 **ปิดแผน P1 ครบ 3: ①433 เงินเดือน ②435 รายงาน verify ③437 สต็อก** · ⚠️ กติกา: ต่างคนต่างแก้งานตัวเอง, explicit `git add <files>`, งานเส้นเงินรอ session อื่นว่างก่อน) · เริ่มบัญชีจริง 1 ก.ค. 2569 (ก่อนนั้น = test, ไม่ post JV)
 
+> 🆕 **2026-06-19 — pending owner-run SQL (review-gated):** 🔴 owner รัน STEP0 (เช็คก่อน) แล้วค่อย apply — `supabase-phase498-je-lines-balance.sql` (JE lines=header balance constraint trigger, audit #A · branch `claude/phase-498-je-lines-balance` รอ review, ไม่ push main) · `supabase-phase497-loyalty-reverse-unique.sql` (#4a, build 497 merged) · `supabase-phase495-profiles-role-lock.sql` (audit #1). ดู HANDOFF ส่วนบน + memory `project-audit-2026-06-19-accounting-void` / `project-audit-2026-06-18-auth-pos` (open findings ทั้งหมด).
+
 Purpose: this is the common first-read note for Codex, Claude, or any next agent opening a fresh session on this project. Read this before changing files so both teams start from the same facts.
 
 Prompt quality: read `PROMPT_PHASE_BRIEF_SKILL.md` before drafting, reviewing, or implementing a phase prompt. It defines the required order for baseline, scope, failure semantics, tests, build/docs, and STOP marker.
