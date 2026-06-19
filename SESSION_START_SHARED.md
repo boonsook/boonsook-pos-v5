@@ -2,6 +2,8 @@
 
 Last updated: 2026-06-14 (✅ **build 437 live** `a076b7a` — Phase 437 สต็อกห้ามติดลบเด็ดขาด: DB CHECK chk_ws/products_stock_nonneg (owner รัน SQL + verify 2 แถว) + Phase 403 sync trigger (owner รันด้วย) + client hard-block (Claude smoke ผ่าน). 🎉 **ปิดแผน P1 ครบ 3: ①433 เงินเดือน ②435 รายงาน verify ③437 สต็อก** · ⚠️ กติกา: ต่างคนต่างแก้งานตัวเอง, explicit `git add <files>`, งานเส้นเงินรอ session อื่นว่างก่อน) · เริ่มบัญชีจริง 1 ก.ค. 2569 (ก่อนนั้น = test, ไม่ post JV)
 
+> 🆕 **2026-06-19 — branches รอ review (ไม่ push main):** `claude/phase-498-jv-form-focus` (build 498 — JV form พิมพ์เลขไม่หลุด focus; UI-only; guard12/lint0/unit1964/e2e14) · `claude/phase-498-je-lines-balance` (SQL DB trigger lines=header, audit #A — **owner รัน SQL verified-live แล้ว**; ⚠️ STEP3 negative-test ในไฟล์เสีย doc_type='TEST' ควรแก้ก่อน merge). 🔴 pending owner-run SQL: phase498-je-lines / phase497-loyalty-reverse / phase495-profiles-role. ดู HANDOFF บนสุด + memory `project-audit-2026-06-19-accounting-void`.
+
 Purpose: this is the common first-read note for Codex, Claude, or any next agent opening a fresh session on this project. Read this before changing files so both teams start from the same facts.
 
 Prompt quality: read `PROMPT_PHASE_BRIEF_SKILL.md` before drafting, reviewing, or implementing a phase prompt. It defines the required order for baseline, scope, failure semantics, tests, build/docs, and STOP marker.
