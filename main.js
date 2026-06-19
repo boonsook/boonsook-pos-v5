@@ -28,7 +28,7 @@ import { shareDoc as _shareDocImpl } from "./modules/share_doc.js";
 // Phase 89.20: solar, ac_install lazy
 import { renderServiceFormPage, SERVICE_TYPES } from "./modules/service_form.js";
 // Phase 402 (MONEY/STOCK §4.1+§4.2): อุปกรณ์จากสต็อกใน drawer งานช่าง (deduct on save, งานใหม่)
-import { equipmentTotal as _equipTotal, precheckEquipmentStock as _equipPrecheck, toItemsJson as _equipToItemsJson, deductServiceJobStock as _equipDeductOnClose, optimisticDeduct as _equipOptimistic, renderEquipmentList as _equipRenderList, openEquipmentPicker as _equipOpenPicker, restoreServiceJobStock as _equipRestoreStock, STOCK_RETURNED_MARKER as _STOCK_RETURNED_MARKER } from "./modules/service_equipment.js";
+import { equipmentTotal as _equipTotal, precheckEquipmentStock as _equipPrecheck, toItemsJson as _equipToItemsJson, deductServiceJobStock as _equipDeductOnClose, renderEquipmentList as _equipRenderList, openEquipmentPicker as _equipOpenPicker, restoreServiceJobStock as _equipRestoreStock, STOCK_RETURNED_MARKER as _STOCK_RETURNED_MARKER } from "./modules/service_equipment.js";
 // Phase 89.20: error_codes (124KB), error_codes_fridge (35KB), error_codes_washer (34KB) lazy
 // Phase 89.21: stock_value, dead_stock, stock_count, stock_in_wizard, cash_recon lazy
 // Phase 89.21: top_customers, sales_heatmap, recurring_expenses, credit_tracker, refunds lazy
@@ -3051,13 +3051,14 @@ async function saveServiceJob(){
         };
         const ded = await _equipDeductOnClose(jobForDeduct);
         if (ded.deducted) {
-          _equipOptimistic(jobForDeduct.items_json, state);  // optimistic local (Phase 45.4)
+          // ★ Phase 501: เลิกเรียก optimistic local — _equipDeductOnClose → _applyStockMovement sync
+          //   local ให้แล้ว (ws.stock CAS + products.stock derived sum); optimistic = ลด ws.stock ซ้ำ → จอเพี้ยน (DB−2×qty).
           const mk = await xhrPatch("service_jobs", { note: ded.newNote }, "id", jobId);  // แปะ marker กันตัดซ้ำ
           if (!mk?.ok) {
             console.warn("[saveServiceJob] deduct marker PATCH failed:", mk?.error?.message);
             showToast("⚠️ ตัดสต็อกอุปกรณ์แล้ว แต่แปะ marker ไม่สำเร็จ — ห้ามปิดงานซ้ำ (อาจตัดซ้ำ)", "warning");
           } else {
-            // sync marker ลง local state (optimistic block ด้านบนรันไปแล้ว) → cancel ทันทีหลังปิด restore ถูก
+            // sync marker ลง local state → cancel ทันทีหลังปิด restore ถูก
             payload.note = ded.newNote;
             const _sjIdx = (state.serviceJobs || []).findIndex(j => String(j.id) === String(jobId));
             if (_sjIdx >= 0) state.serviceJobs[_sjIdx].note = ded.newNote;

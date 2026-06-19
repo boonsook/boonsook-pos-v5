@@ -363,7 +363,10 @@ export function openEquipmentPicker(ctx, onPick) {
   modal.innerHTML = `
     <div style="background:#fff;border-radius:16px;max-width:500px;width:100%;max-height:80vh;display:flex;flex-direction:column;overflow:hidden">
       <div style="padding:14px 16px;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center">
-        <h3 style="margin:0;font-size:16px">🔧 เลือกอุปกรณ์ (จากสต็อก)</h3>
+        <div style="display:flex;align-items:center;gap:8px;min-width:0">
+          <h3 style="margin:0;font-size:16px">🔧 เลือกอุปกรณ์ (จากสต็อก)</h3>
+          <span id="svepCount" style="display:none;font-size:12px;font-weight:700;color:#0284c7;background:#e0f2fe;border-radius:999px;padding:2px 10px;white-space:nowrap"></span>
+        </div>
         <button id="svepClose" class="btn light" style="font-size:18px;padding:4px 10px">✕</button>
       </div>
       <div style="padding:12px 16px 8px;border-bottom:1px solid #e2e8f0;display:flex;flex-direction:column;gap:8px">
@@ -383,6 +386,17 @@ export function openEquipmentPicker(ctx, onPick) {
   const catEl = modal.querySelector("#svepCat");
   const searchEl = modal.querySelector("#svepSearch");
   const refreshList = () => { listEl.innerHTML = renderList(searchEl.value); };
+
+  // ★ Phase 501: ตัวนับ "เพิ่มแล้ว N ชิ้น" ที่หัว picker (multi-add) — +1 ทุกครั้งที่เลือก (รวม qty ที่เพิ่มซ้ำ)
+  const countEl = modal.querySelector("#svepCount");
+  let _addedCount = 0;
+  const _bumpCount = () => {
+    _addedCount++;
+    if (countEl) {
+      countEl.textContent = "เพิ่มแล้ว " + _addedCount + " ชิ้น";
+      countEl.style.display = "";
+    }
+  };
 
   whChipsEl.innerHTML = renderWhChips();
   catEl.innerHTML = renderCatOptions();
@@ -441,7 +455,11 @@ export function openEquipmentPicker(ctx, onPick) {
       warehouse_name: chosen.warehouse_name,
       _stock_avail: chosen.stock
     });
-    modal.remove();
+    // ★ Phase 501: ไม่ปิด picker หลังเลือก → เพิ่มหลายชิ้นรวดได้ (เหมือนตะกร้า POS).
+    //   ปิดด้วยปุ่ม #svepClose / คลิก backdrop เท่านั้น (handler ปิดอยู่ด้านบน คงเดิม).
+    //   feedback ต่อชิ้นด้วย toast + ตัวนับที่หัว picker; onPick (main.js) qty+1 ถ้าซ้ำ.
+    showToast?.("เพิ่ม " + (p.name || "อุปกรณ์") + " ✓");
+    _bumpCount();
   });
 }
 
