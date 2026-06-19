@@ -19,13 +19,19 @@ import {
 const main = fs.readFileSync(path.resolve("main.js"), "utf8");
 const serviceForm = fs.readFileSync(path.resolve("modules/service_form.js"), "utf8");
 
-// mock window._appApplyStockMovement; returns the recorded calls
-function mockMovement(result = { ok: true }) {
+// mock window._appApplyStockMovement + Phase 500 atomic claim (global fetch PATCH service_jobs).
+//   claimRows = แถวที่ claim คืน: [{id,note}] = ชนะ (เดินหน้าตัด/คืน) · [] = แพ้/ไม่เข้าเงื่อนไข (skip — idempotent).
+function mockMovement(result = { ok: true }, claimRows = [{ id: 1, note: "" }]) {
   const calls = [];
-  globalThis.window = { _appApplyStockMovement: async (arg) => { calls.push(arg); return result; } };
+  globalThis.window = {
+    _appApplyStockMovement: async (arg) => { calls.push(arg); return result; },
+    SUPABASE_CONFIG: { url: "http://test", anonKey: "k" },
+    _sbAccessToken: "t",
+  };
+  globalThis.fetch = async () => ({ ok: true, json: async () => claimRows });
   return calls;
 }
-function clearMock() { delete globalThis.window; }
+function clearMock() { delete globalThis.window; delete globalThis.fetch; }
 
 const ITEMS = [{ product_id: 7, warehouse_id: 3, qty: 2, name: "คอมเพรสเซอร์" }];
 
@@ -39,9 +45,9 @@ test("deductServiceJobStock: no items → deducted:false, no movement, note unch
   clearMock();
 });
 
-test("deductServiceJobStock: note already has DEDUCTED marker → idempotent no-op", async () => {
-  const calls = mockMovement();
-  const r = await deductServiceJobStock({ items_json: ITEMS, note: `x ${STOCK_DEDUCTED_MARKER}`, job_no: "J1" });
+test("deductServiceJobStock: already deducted (claim 0-row) → idempotent no-op", async () => {
+  const calls = mockMovement({ ok: true }, []);  // Phase 500: ตัดแล้ว = stock_deducted_at set → claim 0 row
+  const r = await deductServiceJobStock({ id: 1, items_json: ITEMS, note: `x ${STOCK_DEDUCTED_MARKER}`, job_no: "J1" });
   assert.equal(r.deducted, false);
   assert.equal(calls.length, 0, "must NOT deduct again when marker present");
   clearMock();
@@ -49,7 +55,7 @@ test("deductServiceJobStock: note already has DEDUCTED marker → idempotent no-
 
 test("deductServiceJobStock: items + no marker → deducts (out movement) and appends marker", async () => {
   const calls = mockMovement();
-  const r = await deductServiceJobStock({ items_json: ITEMS, note: "งานช่าง", job_no: "J9", customer_name: "คุณเอ" });
+  const r = await deductServiceJobStock({ id: 1, items_json: ITEMS, note: "งานช่าง", job_no: "J9", customer_name: "คุณเอ" });
   assert.equal(r.deducted, true);
   assert.ok(r.newNote.includes(STOCK_DEDUCTED_MARKER), "marker appended to note");
   assert.equal(calls.length, 1, "one movement per item");
@@ -62,15 +68,15 @@ test("deductServiceJobStock: items + no marker → deducts (out movement) and ap
 
 test("deductServiceJobStock: empty note → newNote is just the marker", async () => {
   mockMovement();
-  const r = await deductServiceJobStock({ items_json: ITEMS, note: "", job_no: "J9" });
+  const r = await deductServiceJobStock({ id: 1, items_json: ITEMS, note: "", job_no: "J9" });
   assert.equal(r.newNote, STOCK_DEDUCTED_MARKER);
   clearMock();
 });
 
 // ── restoreServiceJobStock gate (Phase 482: only restore what was actually deducted) ───────
-test("restore: job WITHOUT deducted marker → restored:false (no phantom restore)", async () => {
-  const calls = mockMovement();
-  const r = await restoreServiceJobStock({ items_json: ITEMS, note: "งานยังไม่ปิด" });
+test("restore: job never deducted (claim 0-row) → restored:false (no phantom restore)", async () => {
+  const calls = mockMovement({ ok: true }, []);  // Phase 500: ไม่เคยตัด = stock_deducted_at null → claim filter not.is.null → 0 row
+  const r = await restoreServiceJobStock({ id: 1, items_json: ITEMS, note: "งานยังไม่ปิด" });
   assert.equal(r.restored, false, "added equipment but never deducted → nothing to restore");
   assert.equal(calls.length, 0);
   clearMock();
@@ -78,7 +84,7 @@ test("restore: job WITHOUT deducted marker → restored:false (no phantom restor
 
 test("restore: job WITH deducted marker, not yet returned → restored:true (return movement)", async () => {
   const calls = mockMovement();
-  const r = await restoreServiceJobStock({ items_json: ITEMS, note: `งาน ${STOCK_DEDUCTED_MARKER}`, job_no: "J9" });
+  const r = await restoreServiceJobStock({ id: 1, items_json: ITEMS, note: `งาน ${STOCK_DEDUCTED_MARKER}`, job_no: "J9" });
   assert.equal(r.restored, true);
   assert.ok(r.newNote.includes(STOCK_RETURNED_MARKER));
   assert.equal(calls.length, 1);
@@ -86,9 +92,9 @@ test("restore: job WITH deducted marker, not yet returned → restored:true (ret
   clearMock();
 });
 
-test("restore: job already returned → restored:false (idempotent)", async () => {
-  const calls = mockMovement();
-  const r = await restoreServiceJobStock({ items_json: ITEMS, note: `${STOCK_DEDUCTED_MARKER} ${STOCK_RETURNED_MARKER}` });
+test("restore: already returned (claim 0-row) → restored:false (idempotent)", async () => {
+  const calls = mockMovement({ ok: true }, []);  // Phase 500: คืนแล้ว = stock_reverted_at set → claim 0 row
+  const r = await restoreServiceJobStock({ id: 1, items_json: ITEMS, note: `${STOCK_DEDUCTED_MARKER} ${STOCK_RETURNED_MARKER}` });
   assert.equal(r.restored, false);
   assert.equal(calls.length, 0);
   clearMock();

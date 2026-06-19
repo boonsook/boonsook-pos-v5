@@ -88,9 +88,10 @@ test("optimisticDeduct reduces local stock and floors at 0", () => {
 test("service_equipment.js never writes warehouse_stock directly (CAS-only)", () => {
   assert.ok(/window\._appApplyStockMovement/.test(moduleSrc), "deducts via the shared CAS/floor helper");
   assert.ok(/movementType:\s*"out"/.test(moduleSrc), "uses out movement");
-  // no raw DB write: no xhr/fetch, and no quoted "warehouse_stock" table-name in a write call
-  // (a bare mention in a comment is fine — only flag an actual write target)
-  assert.ok(!/xhrPost|xhrPatch|fetch\(|["']warehouse_stock["']/.test(moduleSrc), "no raw warehouse_stock write / xhr");
+  // no raw STOCK write: no xhr, and no quoted "warehouse_stock" table-name in a write call
+  // (Phase 500: claim/release ใช้ fetch ไป "service_jobs" [idempotency column] — ไม่ใช่ warehouse_stock; สต็อกยังผ่าน CAS เท่านั้น)
+  assert.ok(!/xhrPost|xhrPatch|["']warehouse_stock["']/.test(moduleSrc), "no raw warehouse_stock write / xhr");
+  assert.ok(!/fetch\([^)]*warehouse_stock/.test(moduleSrc), "fetch (claim) ต้องไม่แตะ warehouse_stock");
   assert.ok(/from "\.\/stock_precheck\.js"/.test(moduleSrc), "reuses aggregateNeedByKey (shared)");
 });
 

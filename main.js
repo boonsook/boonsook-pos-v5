@@ -3065,7 +3065,14 @@ async function saveServiceJob(){
           if (ded.errors?.length || ded.stockOpsFailed) {
             showToast(`⚠️ ปิดงานแล้ว แต่ตัดสต็อกอุปกรณ์บางรายการไม่สำเร็จ (${ded.errors?.length || 0}) — ตรวจ Console/สต็อก`, "warning");
           }
+        } else if (ded.claimError) {
+          // ★ Phase 500: เคลม/เช็คสถานะตัดสต็อกไม่ได้ (fail-closed) — เดิม caller เงียบ → เตือนกันปิดงานแบบไม่ตัดสต็อก
+          showToast("⚠️ ปิดงานแล้ว แต่เช็ค/ตัดสต็อกอุปกรณ์ไม่สำเร็จ — โปรดตรวจสต็อก (Phase 500 ต้องรัน SQL ก่อน)", "warning");
+        } else if (ded.errors?.length) {
+          // claim ชนะแต่ตัดไม่ได้เลย (release แล้ว) → เตือนให้ตรวจ/ปิดใหม่
+          showToast(`⚠️ ปิดงานแล้ว แต่ตัดสต็อกอุปกรณ์ไม่สำเร็จ (${ded.errors.length}) — ตรวจสต็อก/ลองปิดใหม่`, "warning");
         }
+        // ded.skipped (ตัดไปแล้ว) = เงียบ (idempotent ปกติ)
       }
     } catch (e) { console.error("[saveServiceJob] deduct-on-close threw:", e?.message || e); }
   }
