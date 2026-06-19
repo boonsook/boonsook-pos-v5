@@ -2484,7 +2484,7 @@ function openServiceJobDrawer(job=null){
             else _serviceDrawerItems.push(item);
             _renderEquip();
             try { document.getElementById("serviceJobDrawer")?.dispatchEvent(new Event("input")); } catch (_) {}
-          });
+          }, { getItems: () => _serviceDrawerItems });
         });
       }
     }
