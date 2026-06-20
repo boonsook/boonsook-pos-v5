@@ -914,7 +914,7 @@ function _openItemPicker(ctx, container, updateTotal, saveDraftNow) {
         <input id="acpkSearch" type="text" placeholder="🔍 ค้นหา ชื่อ / barcode / หมวด..." style="width:100%;padding:10px 12px;border:1px solid #cbd5e1;border-radius:10px;font:inherit" />
       </div>
       <div id="acpkList" style="flex:1;overflow-y:auto;padding:12px 16px"></div>
-      <div id="acpkCart" style="border-top:1px solid #e2e8f0;background:#f8fafc;max-height:34vh;overflow-y:auto;display:none"></div>
+      <div id="acpkCart" style="border-top:2px solid #0284c7;background:#f8fafc;max-height:42vh;overflow-y:auto;display:none;flex-shrink:0"></div>
       <div style="padding:10px 16px;border-top:1px solid #e2e8f0">
         <button id="acpkDone" type="button" style="width:100%;padding:11px;background:#0284c7;color:#fff;border:none;border-radius:10px;font-weight:700;font-size:15px;cursor:pointer">เสร็จ</button>
       </div>
@@ -942,7 +942,7 @@ function _openItemPicker(ctx, container, updateTotal, saveDraftNow) {
     updateCartBadges(listEl, _items);
     const tq = _items.reduce((s, it) => s + Number(it.qty || 0), 0);
     const ta = _items.reduce((s, it) => s + Number(it.qty || 0) * Number(it.unit_price || 0), 0);
-    if (doneBtn) doneBtn.textContent = tq > 0 ? `เสร็จ • ${tq} รายการ • ${money(ta)}` : "เสร็จ";
+    if (doneBtn) doneBtn.textContent = tq > 0 ? `เสร็จ • ${tq} ชิ้น • ${money(ta)}` : "เสร็จ";
   };
 
   whChipsEl.innerHTML = renderWhChips();

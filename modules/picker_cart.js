@@ -88,7 +88,7 @@ export function renderPickerCart(cartEl, { items, money, escHtml, onChangeQty, o
       <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:4px">🧺 อุปกรณ์ในงานนี้</div>
       ${rows}
       <div style="display:flex;justify-content:space-between;margin-top:8px;font-weight:800;color:#0f172a">
-        <span>${totalQty} รายการ</span>
+        <span>${totalQty} ชิ้น</span>
         <span>${fmt(totalAmt)}</span>
       </div>
     </div>`;

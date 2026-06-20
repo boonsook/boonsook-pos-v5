@@ -63,7 +63,7 @@ test("renderPickerCart: renders rows with +/-/x controls, line total, and footer
   assert.match(el.innerHTML, /data-cart-act="dec"/, "must render - button");
   assert.match(el.innerHTML, /data-cart-act="del"/, "must render remove button");
   assert.ok(el.innerHTML.includes("฿100"), "line total = qty*price = ฿100");
-  assert.ok(el.innerHTML.includes("รายการ"), "footer total line present");
+  assert.ok(el.innerHTML.includes("ชิ้น"), "footer total line present (ชิ้น = sum of qty)");
   assert.ok(el.innerHTML.includes("สายไฟ"), "product name rendered");
 });
 
