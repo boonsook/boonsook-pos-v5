@@ -3,6 +3,8 @@
 // Phase 89.28: BKK timezone for "today" comparisons — fix UTC slice giving wrong date 17:00-23:59 BKK
 import { visibleSalesForRole, isAdminProfile, todayBkk, dateBkk } from "./utils.js";
 import { fetchSaleItemsForSaleIds, indexQtyByProduct } from "./sale_items_fetch.js";
+// Phase 508: นับหนี้ค้างเกินกำหนดจากบิลเครดิต "ครบ" จาก DB (reuse helper Phase 507) ไม่ใช่ state.sales (cap ≤50)
+import { fetchCreditSales } from "./credit_sales_fetch.js";
 
 // ═══ Phase 387: dashboard income helpers (pure — ทำให้กำไรสุทธิตรงกับงบ P&L) ═══
 // web-order service jobs (คำสั่งซื้อสินค้าผ่านเว็บ) — predicate เดียวกับที่ใช้คิด revenue เดิม
@@ -77,6 +79,12 @@ let jobStatusChart = null;
 
 let _dashPeriod = "today"; // today | week | month | year (hero-level)
 
+// Phase 508: cache หนี้ค้างเกินกำหนด (fetch ครบจาก DB ครั้งเดียว/session — period change ไม่ refetch)
+let _dashCreditRows = null;        // role-filtered is_credit rows (null = ยังไม่โหลด)
+let _dashCreditState = "idle";     // idle | loading | loaded | error
+let _dashCreditSeq = 0;            // กัน stale: fetch รอบเก่าที่ resolve ช้า ไม่ทับรอบใหม่
+let _dashCreditCacheKey = null;    // "<userId>:<role>" — cache ผูก user/role (กัน leak ข้าม user)
+
 // ★ Per-panel date range (months) — FlowAccount-style dropdown per panel
 const _panelRange = {
   salesByProduct: 3,
@@ -111,15 +119,16 @@ function _renderTodayAndAlerts(state) {
     return exp > now && exp - now < 3 * 86400000;
   });
 
-  // 4) Overdue credit (sales is_credit + due_date < today + not paid)
-  // Phase 89.27: visibleSalesForRole = soft-delete + role filter (non-admin sees own sales only)
-  const overdueCredit = visibleSalesForRole(state.sales, state.profile, state.currentUser)
-    .filter(s => s.is_credit)
-    .filter(s => {
-      const total = Number(s.total_amount || 0);
-      const paid = Number(s.credit_paid_amount || 0);
-      return (total - paid) > 0.01 && s.credit_due_date && s.credit_due_date < today;
-    });
+  // 4) Overdue credit — Phase 508: count จาก credit fetch สด ใน cache `_dashCreditRows`
+  //    ไม่ใช้ state.sales (loadAllData cap ≤50 = undercount เงียบ); role-filter ทำตอน load.
+  //    idle/loading → null (ไม่โกหกเป็น 0); error → -1 sentinel. (logic overdue เดิม: due<today, ค้าง>0.01)
+  const overdueCreditCount = _dashCreditState === "loaded"
+    ? (_dashCreditRows || []).filter(s => {
+        const total = Number(s.total_amount || 0);
+        const paid = Number(s.credit_paid_amount || 0);
+        return (total - paid) > 0.01 && s.credit_due_date && s.credit_due_date < today;
+      }).length
+    : (_dashCreditState === "error" ? -1 : null);
 
   // 5) Recurring expenses overdue
   const overdueRecurring = (state.recurringExpenses || []).filter(r => r.is_active && r.next_due && r.next_due <= today);
@@ -140,7 +149,10 @@ function _renderTodayAndAlerts(state) {
   if (overdueJobs.length > 0) todoRows.push({ go: "service_jobs", bg: "#fee2e2", fg: "#b91c1c", ic: "⏰", t: `งานเลทกำหนด ${overdueJobs.length} งาน`, s: "เลยนัด/กำหนดส่ง" });
   if (lowStock.length > 0) todoRows.push({ go: "products", bg: "#fee2e2", fg: "#b91c1c", ic: "⚠️", t: `ของใกล้หมด ${lowStock.length} รายการ`, s: escapeHtml(lowStock[0]?.name || "") });
   if (expSoon.length > 0) todoRows.push({ go: "quotations", bg: "#ede9fe", fg: "#6d28d9", ic: "📄", t: `ใบเสนอราคาใกล้หมดอายุ ${expSoon.length} ใบ`, s: "ภายใน 3 วัน" });
-  if (overdueCredit.length > 0) todoRows.push({ go: "credit_tracker", bg: "#fef3c7", fg: "#b45309", ic: "💳", t: `ลูกค้าค้างชำระเกินกำหนด ${overdueCredit.length} ราย`, s: "ติดตามหนี้" });
+  // Phase 508: แถวหนี้เกินกำหนด — สถานะตามการโหลด credit data ไม่โกหกตัวเลขตอนยังโหลดไม่เสร็จ
+  if (overdueCreditCount === null) todoRows.push({ go: "credit_tracker", bg: "#f1f5f9", fg: "#64748b", ic: "💳", t: "กำลังตรวจหนี้ค้างเกินกำหนด…", s: "แตะเพื่อดูหน้าหนี้" });
+  else if (overdueCreditCount === -1) todoRows.push({ go: "credit_tracker", bg: "#fee2e2", fg: "#b91c1c", ic: "💳", t: "ตรวจหนี้ค้างไม่สำเร็จ", s: "แตะเพื่อเปิดหน้าหนี้" });
+  else if (overdueCreditCount > 0) todoRows.push({ go: "credit_tracker", bg: "#fef3c7", fg: "#b45309", ic: "💳", t: `ลูกค้าค้างชำระเกินกำหนด ${overdueCreditCount} ราย`, s: "ติดตามหนี้" });
   if (overdueRecurring.length > 0) todoRows.push({ go: "recurring_expenses", bg: "#fef3c7", fg: "#b45309", ic: "🔁", t: `รายจ่ายประจำครบกำหนด ${overdueRecurring.length} รายการ`, s: "ถึงกำหนดจ่าย" });
   const todoCount = todoRows.length;
 
@@ -374,6 +386,16 @@ function _kpiCard({ label, value, valueColor = "", sub = "", spark = "", accent 
 }
 
 export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineNotify, showToast }) {
+  // Phase 508: credit cache ผูกกับ user/role — สลับ user/role ใน session เดียว (SPA ไม่ reload)
+  //   ต้อง invalidate cache (กันโชว์ overdue count ของ user/role เก่า). เช็คก่อน build innerHTML
+  //   → _renderTodayAndAlerts เห็น idle = "กำลังตรวจ…" (ไม่ flash ตัวเลขเก่า).
+  const _ckey = `${state?.currentUser?.id || ""}:${state?.profile?.role || ""}`;
+  if (_ckey !== _dashCreditCacheKey) {
+    _dashCreditCacheKey = _ckey;
+    _dashCreditRows = null;
+    _dashCreditState = "idle";
+    _dashCreditSeq++; // invalidate fetch ที่ in-flight ของ key เก่า
+  }
   const today = todayKey();
   const thisMonth = today.slice(0,7);
 
@@ -539,7 +561,7 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
       })()}
     </div>
 
-    ${_renderTodayAndAlerts(state)}
+    <div id="dashTodoCard">${_renderTodayAndAlerts(state)}</div>
 
     <!-- ═══ LOW STOCK + TOP SELLERS (2 columns) ═══ -->
     <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(340px,1fr))">
@@ -932,6 +954,33 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
             <div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span style="color:#7c3aed;font-weight:700">#${i+1}</span> ${escapeHtml(t.name || "-")}</div>
             <div style="color:#7c3aed;font-weight:700;margin-left:8px;white-space:nowrap">${t.qty} ชิ้น · ฿${moneyShort(t.revenue)}</div>
           </div>`).join("")}</div>`;
+  })();
+
+  // ★ Phase 508: นับหนี้ค้างเกินกำหนดจากบิลเครดิต "ครบ" จาก DB (ไม่ใช่ state.sales ≤50)
+  //   cache module-scope → period/re-render ไม่ refetch; fail = แถว error (ไม่ fallback ตัวเลขต่ำกว่าจริง);
+  //   patch เฉพาะการ์ด #dashTodoCard + re-bind clickables (binding line ~795 เป็น per-element).
+  (async () => {
+    if (_dashCreditState === "loaded" || _dashCreditState === "loading") return; // มี cache/กำลังโหลด → ไม่ refetch
+    const seq = ++_dashCreditSeq;
+    _dashCreditState = "loading";
+    const res = await fetchCreditSales();
+    if (seq !== _dashCreditSeq) return; // stale — มี load รอบใหม่แซง → ทิ้งผลรอบนี้
+    if (!res.ok) {
+      _dashCreditState = "error";
+      _dashCreditRows = null; // ★ ห้าม fallback ไปข้อมูล state เดิม (cap ≤50 = undercount เงียบ)
+    } else {
+      _dashCreditRows = visibleSalesForRole(res.rows, state.profile, state.currentUser).filter(s => s.is_credit);
+      _dashCreditState = "loaded";
+    }
+    const card = document.getElementById("dashTodoCard");
+    if (!card || !document.body.contains(card)) return; // ออกหน้า/re-render ระหว่างโหลด
+    card.innerHTML = _renderTodayAndAlerts(state);
+    card.querySelectorAll(".dash-clickable[data-go]").forEach(el => el.addEventListener("click", () => {
+      const t = el.dataset.go || "";
+      if (!t) return;
+      if (t.startsWith("settings")) { window.location.hash = "#" + t; showRoute("settings"); }
+      else showRoute(t);
+    }));
   })();
 
   // ═══ AUTO DAILY SUMMARY ผ่าน LINE Notify ตอน 22:00 ═══
