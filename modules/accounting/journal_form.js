@@ -343,7 +343,27 @@ async function _save(ctx, status) {
     if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
   } catch(err) {
     console.error("[jv save lines]", err);
-    return showToast("บันทึก lines ไม่สำเร็จ: " + err.message + " (entry " + docNo + " ถูกสร้างแล้ว แต่ไม่มี lines)");
+    // Phase 509: rollback orphan header — POST lines fail หลังสร้าง entry แล้ว → ลบ entry ทันที
+    //   (กัน JV header ไม่มี lines ค้างในงบทดลอง/รายงานบัญชี = ผิดเงียบ ๆ; mirror auto_post.js rollback).
+    //   ใช้ auth headers เดิม (cfg.anonKey + token) — ไม่ reset _lines / ไม่ navigate / ไม่ show success.
+    try {
+      const delResp = await fetch(`${cfg.url}/rest/v1/journal_entries?id=eq.${entryId}`, {
+        method: "DELETE",
+        headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token, "Prefer": "return=representation" }
+      });
+      // ★ return=representation → คืน "แถวที่ลบจริง"; RLS/filtered DELETE ที่ลบ 0 row ก็คืน 2xx ได้
+      //   → ถือว่า rollback สำเร็จ "เฉพาะลบได้จริง 1 แถว" (delResp.ok เฉย ๆ ไม่พอ = orphan อาจค้าง)
+      const deleted = await delResp.json().catch(() => []);
+      const rollbackCount = Array.isArray(deleted) ? deleted.length : 0;
+      if (delResp.ok && rollbackCount === 1) {
+        return showToast("บันทึก lines ไม่สำเร็จ จึงยกเลิกหัวรายการแล้ว กรุณาลองใหม่: " + err.message);
+      }
+      console.error("[jv save lines] rollback FAILED — entry " + entryId + " orphan (ok=" + delResp.ok + " deleted=" + rollbackCount + ")");
+      return showToast(`⚠️ JV ${docNo}/entry ${entryId} ค้าง (มีหัวรายการแต่ไม่มี lines) — ยกเลิกอัตโนมัติไม่สำเร็จ ต้องให้ admin ตรวจ/ลบ`);
+    } catch(delErr) {
+      console.error("[jv save lines] rollback exception:", delErr.message);
+      return showToast(`⚠️ JV ${docNo}/entry ${entryId} ค้าง (มีหัวรายการแต่ไม่มี lines) — ยกเลิกอัตโนมัติไม่สำเร็จ ต้องให้ admin ตรวจ/ลบ`);
+    }
   }
 
   showToast(`✅ บันทึก ${docNo} สำเร็จ (${status === "approved" ? "อนุมัติ" : "ฉบับร่าง"})`);
