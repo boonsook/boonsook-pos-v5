@@ -13,6 +13,7 @@ import { postJournalForServiceJob } from "./accounting/auto_post.js";
 import { aggregateNeedByKey } from "./stock_precheck.js";
 import { normalizeServiceJobStatus, serviceJobNoteWithReviewMarker } from "./service_status.js";
 import { applyDraftFields, bindServiceDraft, clearServiceDraft, loadServiceDraft } from "./service_drafts.js";
+import { makePickerTouchGuard, renderPickerCart, updateCartBadges } from "./picker_cart.js";
 
 export const SERVICE_TYPES = {
   repair_ac:     { icon: "🔧", label: "ซ่อมแอร์",            job_type: "repair_ac",     defaultDesc: "อาการเสีย เช่น ไม่เย็น / มีน้ำหยด / เสียงดัง" },
@@ -823,7 +824,7 @@ function _openItemPicker(ctx, container, updateTotal, st, saveDraftNow) {
         ? `<div style="font-size:10px;color:#dc2626;margin-top:4px">⚠️ ยังไม่ได้โอนขึ้นรถ — ต้องยืนยันโอนตอนกดเลือก</div>`
         : "";
       return `
-        <button class="svpk-item" data-pk-id="${p.id}" style="display:block;width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;background:#fff;cursor:pointer;text-align:left;font:inherit;margin-bottom:6px">
+        <button class="svpk-item" data-pk-id="${p.id}" style="display:block;width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;background:#fff;cursor:pointer;text-align:left;font:inherit;margin-bottom:6px;touch-action:manipulation">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
             <div style="flex:1;min-width:0">
               <div style="font-weight:700;color:#0f172a">${escHtml(p.name || "-")}</div>
@@ -832,6 +833,7 @@ function _openItemPicker(ctx, container, updateTotal, st, saveDraftNow) {
               ${warningBadge}
             </div>
             <div style="text-align:right;flex-shrink:0">
+              <span data-badge-pid="${p.id}" style="display:none;background:#0284c7;color:#fff;border-radius:10px;padding:1px 8px;font-size:11px;font-weight:800;margin-bottom:4px"></span>
               <div style="font-weight:700;color:#0284c7">${money(p.price || 0)}</div>
             </div>
           </div>
@@ -856,6 +858,10 @@ function _openItemPicker(ctx, container, updateTotal, st, saveDraftNow) {
         <input id="svpkSearch" type="text" placeholder="🔍 ค้นหา ชื่อ / barcode / หมวด..." style="width:100%;padding:10px 12px;border:1px solid #cbd5e1;border-radius:10px;font:inherit" />
       </div>
       <div id="svpkList" style="flex:1;overflow-y:auto;padding:12px 16px"></div>
+      <div id="svpkCart" style="border-top:2px solid #0284c7;background:#f8fafc;max-height:42vh;overflow-y:auto;display:none;flex-shrink:0"></div>
+      <div style="padding:10px 16px;border-top:1px solid #e2e8f0">
+        <button id="svpkDone" type="button" style="width:100%;padding:11px;background:#0284c7;color:#fff;border:none;border-radius:10px;font-weight:700;font-size:15px;cursor:pointer">เสร็จ</button>
+      </div>
     </div>
   `;
   document.body.appendChild(modal);
@@ -864,13 +870,32 @@ function _openItemPicker(ctx, container, updateTotal, st, saveDraftNow) {
   const whChipsEl = modal.querySelector("#svpkWhChips");
   const catEl = modal.querySelector("#svpkCat");
   const searchEl = modal.querySelector("#svpkSearch");
-  const refreshList = () => { listEl.innerHTML = renderList(searchEl.value); };
+  const cartEl = modal.querySelector("#svpkCart");
+  const doneBtn = modal.querySelector("#svpkDone");
+  const refreshList = () => { listEl.innerHTML = renderList(searchEl.value); updateCartBadges(listEl, st.items); };
+
+  // Phase 502b: ตะกร้าแคชเชียร์ในตัว picker (helper กลาง picker_cart.js) — แก้ qty/ลบในตะกร้าได้ + badge "×N" บนสินค้า
+  const _tg = makePickerTouchGuard();   // กัน double-add จอสัมผัส (แตะตัวเดิมซ้ำ <350ms = ข้าม)
+  const _afterCartChange = () => { _renderItemsList(container, money, st); updateTotal(); saveDraftNow?.(); renderCart(); };
+  const renderCart = () => {
+    renderPickerCart(cartEl, {
+      items: st.items, money, escHtml,
+      onChangeQty: (i, q) => { st.items[i].qty = q; st.items[i].line_total = q * Number(st.items[i].unit_price || 0); _afterCartChange(); },
+      onRemove: (i) => { st.items.splice(i, 1); _afterCartChange(); }
+    });
+    updateCartBadges(listEl, st.items);
+    const tq = st.items.reduce((s, it) => s + Number(it.qty || 0), 0);
+    const ta = st.items.reduce((s, it) => s + Number(it.qty || 0) * Number(it.unit_price || 0), 0);
+    if (doneBtn) doneBtn.textContent = tq > 0 ? `เสร็จ • ${tq} ชิ้น • ${money(ta)}` : "เสร็จ";
+  };
 
   whChipsEl.innerHTML = renderWhChips();
   catEl.innerHTML = renderCatOptions();
   refreshList();
+  renderCart();   // โชว์ของเดิมในงาน (ถ้ามี) + label ปุ่มเสร็จ
 
   modal.querySelector("#svpkClose").addEventListener("click", () => modal.remove());
+  doneBtn?.addEventListener("click", () => modal.remove());
   modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
   searchEl.addEventListener("input", () => refreshList());
 
@@ -892,6 +917,8 @@ function _openItemPicker(ctx, container, updateTotal, st, saveDraftNow) {
     const id = btn.dataset.pkId;
     const p = (state.products || []).find(x => String(x.id) === String(id));
     if (!p) return;
+    // Phase 502b: กัน double-add จอสัมผัส (แตะตัวเดิมซ้ำ <350ms = ข้าม) — ก่อน logic เลือกคลัง/await
+    if (_tg.shouldSkip(p.id)) return;
 
     const mobileStocks = _getMobileStocks(p, state);
     const homeStock = _getHomeStock(p, state);
@@ -948,11 +975,9 @@ function _openItemPicker(ctx, container, updateTotal, st, saveDraftNow) {
         _stock_avail: chosenWh.stock
       });
     }
-    modal.remove();
-    _renderItemsList(container, money, st);
-    updateTotal();
-    saveDraftNow?.();
-    showToast?.(`เพิ่ม "${p.name}" จาก ${chosenWh.warehouse_name} แล้ว`);
+    // Phase 502b: ไม่ปิด picker (multi-add) — refresh รายการ/ยอด/draft/ตะกร้า ในที่เดียว (modal.remove ออกแล้ว)
+    _afterCartChange();
+    showToast?.(`เพิ่ม "${p.name}" ✓`);
   });
 
   setTimeout(() => modal.querySelector("#svpkSearch")?.focus(), 100);
