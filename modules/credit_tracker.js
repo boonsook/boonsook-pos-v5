@@ -9,6 +9,8 @@ import { postJournalForCreditPayment } from "./accounting/auto_post.js";
 
 import { escHtml, round2, visibleSalesForRole } from "./utils.js";
 import { atomicAddToField } from "./stock_cas.js";
+// Phase 507: ดึงบิลเครดิต "ครบ" จาก DB (ไม่อิง state.sales ที่ cap ≤50)
+import { fetchCreditSales } from "./credit_sales_fetch.js";
 function money(n) {
   return new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n || 0));
 }
@@ -144,15 +146,59 @@ export async function processCreditPayment({
 }
 
 let _ctFilter = "open"; // open | paid | overdue | all
+// Phase 507: แยก fetch (DB, ครบทุกบิลเครดิต) ออกจาก render (sync จาก cache) — filter ไม่ re-fetch
+let _creditRows = null;          // cached rows (role-filtered + is_credit); null = ยังไม่โหลด
+let _creditLoadState = "idle";   // idle | loading | loaded | error
+let _creditLoadError = null;
+let _creditLoadSeq = 0;          // กัน stale: fetch รอบเก่าที่ resolve ช้า ไม่ทับรอบใหม่
+
+function _renderCreditLoading(container) {
+  container.innerHTML = `<div style="padding:40px 16px;text-align:center;color:#64748b">
+    <div style="font-size:40px;margin-bottom:10px">💳</div>
+    <div style="font-size:15px">กำลังโหลดบิลเครดิตทั้งหมด…</div></div>`;
+}
+
+function _renderCreditError(ctx, container) {
+  container.innerHTML = `<div style="padding:36px 16px;text-align:center;color:#b91c1c">
+    <div style="font-size:40px;margin-bottom:10px">⚠️</div>
+    <div style="font-size:15px;font-weight:600;margin-bottom:4px">โหลดบิลเครดิตไม่สำเร็จ</div>
+    <div style="font-size:12px;color:#92400e;margin-bottom:14px">${escHtml(_creditLoadError || "")}</div>
+    <button id="ctRetryBtn" style="padding:8px 20px;border:none;background:#0284c7;color:#fff;border-radius:8px;cursor:pointer;font-weight:600">🔄 ลองใหม่</button>
+  </div>`;
+  container.querySelector("#ctRetryBtn")?.addEventListener("click", () => loadCreditSales(ctx, { force: true }));
+}
+
+// fetch บิลเครดิตครบจาก DB → cache (role-filtered). force=true = reload (เช่น หลังรับชำระ).
+export async function loadCreditSales(ctx, { force = false } = {}) {
+  const { state } = ctx;
+  if (_creditLoadState === "loaded" && _creditRows && !force) return;
+  const seq = ++_creditLoadSeq;
+  _creditLoadState = "loading";
+  _creditLoadError = null;
+  renderCreditTrackerPage(ctx); // paint loading
+  const res = await fetchCreditSales();
+  if (seq !== _creditLoadSeq) return; // stale — มี load รอบใหม่แซง → ทิ้งผลรอบนี้
+  if (!res.ok) {
+    _creditLoadState = "error";
+    _creditLoadError = res.error || "โหลดบิลเครดิตไม่สำเร็จ";
+    _creditRows = null; // ★ ห้าม fallback ไป state.sales (จะกลับไป undercount เงียบ)
+  } else {
+    _creditRows = visibleSalesForRole(res.rows, state.profile, state.currentUser).filter(s => s.is_credit);
+    _creditLoadState = "loaded";
+  }
+  renderCreditTrackerPage(ctx); // paint result (render เช็ค container null เอง = stale guard)
+}
 
 export function renderCreditTrackerPage(ctx) {
-  const { state, showToast: _showToast } = ctx;
   const container = document.getElementById("page-credit_tracker");
-  if (!container) return;
+  if (!container) return; // container หาย/route เปลี่ยน → ไม่เขียน DOM
 
-  // หา sales ที่เป็น credit (is_credit = true)
-  const allCredit = visibleSalesForRole(state.sales, state.profile, state.currentUser)
-    .filter(s => s.is_credit);
+  if (_creditLoadState === "idle") { _renderCreditLoading(container); loadCreditSales(ctx); return; }
+  if (_creditLoadState === "loading") { _renderCreditLoading(container); return; }
+  if (_creditLoadState === "error") { _renderCreditError(ctx, container); return; }
+
+  // ── loaded → render sync จาก cache (ไม่มี network call) ──
+  const allCredit = _creditRows || [];
 
   const today = new Date().toISOString().slice(0, 10);
 
@@ -414,7 +460,8 @@ function openReceivePaymentModal(ctx, sale) {
       ctx.showToast?.(`✓ รับชำระ ฿${money(amount)} ${res.fullyPaid ? '— ครบแล้ว 🎉' : ''}`);
     }
     if (jvPostWarning) window.App?.showToast?.(jvPostWarning, "warn");
-    if (window.App?.loadAllData) await window.App.loadAllData();
-    renderCreditTrackerPage(ctx);
+    // Phase 507: refresh credit list จาก DB จริง (force) — ไม่พึ่ง loadAllData (state.sales ≤50)
+    //   loadCreditSales จะ re-render หน้านี้เองหลังโหลดเสร็จ
+    await loadCreditSales(ctx, { force: true });
   });
 }
