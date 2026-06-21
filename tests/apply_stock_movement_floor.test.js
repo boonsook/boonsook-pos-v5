@@ -102,11 +102,13 @@ test("allowNegative override preserves _atomicAddStock + the warehouse_stock ins
   // in/return AND admin-override out/sale still use the additive CAS on warehouse_stock (the truth)
   assert.match(body, /_atomicAddStock\("warehouse_stock", ws\.id, delta\)/, "additive warehouse CAS preserved");
   // Phase 403: products.stock additive mirror removed (DB trigger keeps products.stock = sum)
-  // the insert (used by in/return and by manual override out/sale) is kept
+  // Phase 513 (audit S2): the new-row insert (in/return + manual override out/sale) is kept BUT now
+  //   uses { returnData: true } + checks res.data.id before logging (was an unchecked one-liner that
+  //   could log a phantom movement on insert failure). See apply_stock_movement_insert_guard.test.js.
   assert.match(
     body,
-    /xhrPost\("warehouse_stock", \{ product_id: productId, warehouse_id: warehouseId, stock: after, min_stock: 0 \}\)/,
-    "warehouse_stock insert preserved for in/return + override"
+    /xhrPost\(\s*"warehouse_stock",\s*\{ product_id: productId, warehouse_id: warehouseId, stock: after, min_stock: 0 \},\s*\{ returnData: true \}/,
+    "warehouse_stock insert preserved (now returnData-checked) for in/return + override"
   );
 });
 

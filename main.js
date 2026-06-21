@@ -3826,8 +3826,28 @@ async function _applyStockMovement({ productId, warehouseId, movementType, qty, 
           // Phase 369: ❌ ห้าม insert row stock ติดลบ (ขนานกับ transfer 368 "ไม่มี source row")
           return { ok: false, insufficient: true, error: "คลังนี้ไม่มีสินค้านี้ (สต็อก 0)" };
         }
-        // in/return (after>0) หรือ allowNegative out/sale (manual override ผ่าน confirm) → insert ตามเดิม
-        await xhrPost("warehouse_stock", { product_id: productId, warehouse_id: warehouseId, stock: after, min_stock: 0 });
+        // in/return (after>0) หรือ allowNegative out/sale (manual override ผ่าน confirm) → insert row ใหม่
+        // ★ Phase 513 (audit S2): ต้องเช็คผล insert จริงก่อน log — เดิม `await xhrPost(...)` ไม่เช็ค .ok /
+        //   ไม่ขอ id / ไม่ push cache → insert ล้ม (RLS/network/CHECK) แต่ไหลต่อไป log stock_movements =
+        //   phantom movement; แม้สำเร็จ cache ก็ไม่มี row ใหม่ → recompute products.stock under-count จน reload.
+        //   mirror transfer new-target (Phase 368, main.js ด้านบน): returnData + เช็ค res.data.id + push cache.
+        const res = await xhrPost(
+          "warehouse_stock",
+          { product_id: productId, warehouse_id: warehouseId, stock: after, min_stock: 0 },
+          { returnData: true }
+        );
+        if (!res.ok || !res.data?.id) {
+          return { ok: false, error: res.error?.message || "สร้างสต็อกคลังใหม่ไม่สำเร็จ" };
+        }
+        // cache row ใหม่ต้องมี id จริงจาก DB (เพื่อ CAS ครั้งถัดไป + recompute products.stock ครบ)
+        after = Number(res.data.stock ?? after);
+        state.warehouseStock.push({
+          id: res.data.id,
+          product_id: productId,
+          warehouse_id: warehouseId,
+          stock: after,
+          min_stock: Number(res.data.min_stock ?? 0)
+        });
       }
     }
 
