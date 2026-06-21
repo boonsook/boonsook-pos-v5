@@ -897,15 +897,24 @@ function renderView(ctx, opts = {}) {
   }));
 
   // Search (debounce 300ms — ไม่ค้างตอนพิมพ์)
+  // ★ Phase 507: มือถือ Thai IME — renderView สร้าง input ใหม่ทุกครั้งที่ค้นหา; ถ้าทำ "ระหว่าง composition"
+  //   (กำลังประกอบสระ/วรรณยุกต์) → ตัวอักษรซ้ำ/เด้ง ("หน้" → "หน้หน้า"). แก้: ข้าม input event ระหว่าง compose
+  //   (e.isComposing) แล้วค้นหาตอน compositionend (commit ตัวไทยเสร็จ) — input ไม่โดน re-render กลางพิมพ์.
   let _searchTimer = null;
-  el.querySelector("#prodSearchInput")?.addEventListener("input", (e) => {
+  const _runProdSearch = (val) => {
     clearTimeout(_searchTimer);
     _searchTimer = setTimeout(() => {
-      searchQuery = e.target.value.trim();
+      searchQuery = String(val || "").trim();
       currentPage = 1;
       renderView(ctx, { focusSearch: true });
     }, 300);
+  };
+  const _prodSearchEl = el.querySelector("#prodSearchInput");
+  _prodSearchEl?.addEventListener("input", (e) => {
+    if (e.isComposing) return;   // ระหว่างประกอบตัวอักษรไทย — ยังไม่ค้นหา (กัน input สร้างใหม่กลางพิมพ์)
+    _runProdSearch(e.target.value);
   });
+  _prodSearchEl?.addEventListener("compositionend", (e) => _runProdSearch(e.target.value));
 
   // Sort
   el.querySelector("#prodSortSelect")?.addEventListener("change", (e) => {
