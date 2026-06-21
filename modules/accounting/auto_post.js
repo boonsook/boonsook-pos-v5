@@ -178,6 +178,16 @@ export function _isAfterEffective(dateStr) {
   return String(dateStr).slice(0, 10) >= ACCOUNTING_EFFECTIVE_DATE;
 }
 
+export function refundMappingKeyForMethod(method) {
+  const pm = String(method || "").trim().toLowerCase();
+  if (!pm) return null;
+  if (/credit|เครดิต/.test(pm)) return "refund_credit";
+  if (/exchange|เปลี่ยน/.test(pm)) return "refund_exchange";
+  if (/transfer|โอน|qr|bank/.test(pm)) return "refund_transfer";
+  if (/cash|เงินสด/.test(pm)) return "refund_cash";
+  return null;
+}
+
 
 // ═══════════════════════════════════════════════════════════
 // Core: post a journal entry + lines
@@ -965,7 +975,7 @@ export async function postJournalForCreditPayment(payment, opts = {}) {
 // ═══════════════════════════════════════════════════════════
 /**
  * เรียกหลัง INSERT refunds.
- * Dr 4110 (รับคืน/ส่วนลดจ่าย — contra-revenue) / Cr 1110/1130 (Cash/Bank ออก)
+ * Dr 4110 (รับคืน/ส่วนลดจ่าย — contra-revenue) / Cr Cash/Bank/2180 ตามวิธีคืน
  *
  * Audit C3: เดิม refund ไม่ post JV → P&L รายได้เกินจริง
  *
@@ -985,9 +995,11 @@ export async function postJournalForRefund(refund, opts = {}) {
   }
 
   const mappings = await _getMappings();
-  const pm = String(refund.refund_method || "").toLowerCase();
-  let mappingKey = "refund_cash";
-  if (/transfer|โอน|qr|bank/.test(pm)) mappingKey = "refund_transfer";
+  const mappingKey = refundMappingKeyForMethod(refund.refund_method);
+  if (!mappingKey) {
+    console.warn("[auto_post] unknown refund method:", refund.refund_method, "for refund", refund.id);
+    return _journalResult(opts.detailed, { status: "failed", reason: "unknown-refund-method", sourceTable: "refunds", sourceId: refund.id, refundMethod: refund.refund_method || null });
+  }
 
   const mapping = mappings[mappingKey];
   if (!mapping?.debit_account_code || !mapping?.credit_account_code) {
