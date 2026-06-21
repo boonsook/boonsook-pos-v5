@@ -6,6 +6,10 @@
 //
 // Request: { image: "data:image/jpeg;base64,...", expected_amount?: number, expected_recipient?: string }
 // Response: { ok, data: { type, sender_name, recipient_name, amount, datetime, transaction_id, ... }, verification: { amount_match, tampering_score, warnings } }
+// Phase 515 (audit S4): error responses never leak stack / raw Gemini body / per-attempt
+//   dumps to the client — those go to server logs (logServerError); client gets message + code.
+
+import { logServerError, clientError } from "./_error_sanitizer.js";
 
 // ─── Verification builder (pure, unit-tested) — Phase 92.14 ───
 // สร้าง verification object + is_safe จากผล OCR + ค่าที่คาดหวัง
@@ -176,12 +180,11 @@ export async function onRequestPost(context) {
         const errTxt = await resp.text();
         attempts.push(`${model}: ${resp.status} ${errTxt.slice(0, 120)}`);
         if (resp.status !== 404 && resp.status !== 429) {
-          return new Response(JSON.stringify({
-            ok: false,
-            error: "Gemini API error " + resp.status,
-            detail: errTxt.slice(0, 500),
-            model
-          }), { status: 200, headers: corsHeaders });
+          // Phase 515: log raw Gemini body + model server-side; client gets generic message + code
+          logServerError("[verify-slip] gemini-api-error", resp.status, model, errTxt.slice(0, 500));
+          return new Response(JSON.stringify(
+            clientError("gemini_api_error", "Gemini API error " + resp.status)
+          ), { status: 200, headers: corsHeaders });
         }
       } catch (fetchErr) {
         clearTimeout(timer);
@@ -196,11 +199,11 @@ export async function onRequestPost(context) {
     }
 
     if (!r) {
-      return new Response(JSON.stringify({
-        ok: false,
-        error: "ไม่มี Gemini model ใดใช้งานได้",
-        attempts
-      }), { status: 200, headers: corsHeaders });
+      // Phase 515: per-attempt dump (model names + raw errors) → server logs only
+      logServerError("[verify-slip] no-model-available", ...attempts);
+      return new Response(JSON.stringify(
+        clientError("no_model_available", "ไม่มี Gemini model ใดใช้งานได้")
+      ), { status: 200, headers: corsHeaders });
     }
 
     const data = await r.json();
@@ -228,15 +231,15 @@ export async function onRequestPost(context) {
       if (m) parsed = tryParse(m[0]);
     }
     if (!parsed) {
-      return new Response(JSON.stringify({
-        ok: false,
-        error: "Gemini ส่ง JSON ไม่ valid",
-        raw: text.slice(0, 800),
-        parseError,
-        model: usedModel,
-        finishReason: data?.candidates?.[0]?.finishReason || null,
-        promptFeedback: data?.promptFeedback || null
-      }), { status: 200, headers: corsHeaders });
+      // Phase 515: raw model output + parseError + model + Google promptFeedback → server logs only
+      logServerError("[verify-slip] invalid-json", usedModel,
+        "parseError:", parseError,
+        "finishReason:", data?.candidates?.[0]?.finishReason || null,
+        "promptFeedback:", JSON.stringify(data?.promptFeedback || null),
+        "raw:", text.slice(0, 800));
+      return new Response(JSON.stringify(
+        clientError("ai_invalid_json", "Gemini ส่ง JSON ไม่ valid")
+      ), { status: 200, headers: corsHeaders });
     }
 
     // ─── Verification: เปรียบเทียบกับค่าที่คาดหวัง ───
@@ -249,10 +252,11 @@ export async function onRequestPost(context) {
     }), { status: 200, headers: corsHeaders });
 
   } catch(e) {
-    return new Response(JSON.stringify({
-      ok: false,
-      error: e?.message || String(e)
-    }), { status: 500, headers: corsHeaders });
+    // Phase 515: never leak message/stack to client — log server-side, return generic + code
+    logServerError("[verify-slip] unhandled", e?.message || String(e), e?.stack);
+    return new Response(JSON.stringify(
+      clientError("internal_error", "ตรวจสลิปไม่สำเร็จ — ลองใหม่อีกครั้ง")
+    ), { status: 500, headers: corsHeaders });
   }
 }
 

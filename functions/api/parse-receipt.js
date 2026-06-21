@@ -14,7 +14,11 @@
 //   { ok: true, data: { vendor, address, tax_id, date, total, items, raw_text } }
 //
 // Response (error):
-//   { ok: false, error: "...", configured?: false }
+//   { ok: false, error: "...", code?: "...", configured?: false }
+//   Phase 515 (audit S4): never returns stack / raw Gemini body / per-attempt dumps to
+//   the client — those go to server logs (logServerError); client gets message + code.
+
+import { logServerError, clientError } from "./_error_sanitizer.js";
 
 export async function onRequestPost(context) {
   const corsHeaders = {
@@ -121,12 +125,11 @@ JSON schema:
         const isLimitZero = /limit:\s*0/.test(errTxt);
         if (resp.status === 429 && !isLimitZero) allFreeQuotaZero = false;
         if (resp.status !== 404 && resp.status !== 429) {
-          return new Response(JSON.stringify({
-            ok: false,
-            error: "Gemini API error " + resp.status,
-            detail: errTxt.slice(0, 500),
-            model
-          }), { status: 200, headers: corsHeaders });
+          // Phase 515: log raw Gemini body + model server-side; client gets generic message + code
+          logServerError("[parse-receipt] gemini-api-error", resp.status, model, errTxt.slice(0, 500));
+          return new Response(JSON.stringify(
+            clientError("gemini_api_error", "Gemini API error " + resp.status)
+          ), { status: 200, headers: corsHeaders });
         }
       } catch (fetchErr) {
         clearTimeout(timer);
@@ -144,12 +147,11 @@ JSON schema:
       const hint = allFreeQuotaZero
         ? "API key ของคุณไม่มี free tier (limit: 0) — สร้าง key ใหม่จาก https://aistudio.google.com/apikey (ไม่ใช่จาก Google Cloud Console)"
         : "หมด quota วันนี้ — รอ 24 ชม. หรืออัพเกรด billing";
-      return new Response(JSON.stringify({
-        ok: false,
-        error: "ไม่มี Gemini model ใดใช้งานได้",
-        hint,
-        attempts
-      }), { status: 200, headers: corsHeaders });
+      // Phase 515: per-attempt dump (model names + raw errors) → server logs only; keep user hint
+      logServerError("[parse-receipt] no-model-available", ...attempts);
+      return new Response(JSON.stringify(
+        clientError("no_model_available", "ไม่มี Gemini model ใดใช้งานได้", { hint })
+      ), { status: 200, headers: corsHeaders });
     }
 
     const j = await r.json();
@@ -161,21 +163,21 @@ JSON schema:
       const clean = text.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim();
       parsed = JSON.parse(clean);
     } catch (e) {
-      return new Response(JSON.stringify({
-        ok: false,
-        error: "AI ตอบกลับไม่ใช่ JSON ที่ valid",
-        raw: text.slice(0, 500)
-      }), { status: 200, headers: corsHeaders });
+      // Phase 515: raw model output → server logs only (could echo arbitrary content)
+      logServerError("[parse-receipt] invalid-json", text.slice(0, 500));
+      return new Response(JSON.stringify(
+        clientError("ai_invalid_json", "AI ตอบกลับไม่ใช่ JSON ที่ valid")
+      ), { status: 200, headers: corsHeaders });
     }
 
     return new Response(JSON.stringify({ ok: true, data: parsed, model: usedModel }), { status: 200, headers: corsHeaders });
 
   } catch (e) {
-    return new Response(JSON.stringify({
-      ok: false,
-      error: e?.message || String(e),
-      stack: e?.stack ? String(e.stack).slice(0, 300) : undefined
-    }), { status: 200, headers: corsHeaders });
+    // Phase 515: never leak message/stack to client — log server-side, return generic + code
+    logServerError("[parse-receipt] unhandled", e?.message || String(e), e?.stack);
+    return new Response(JSON.stringify(
+      clientError("internal_error", "เกิดข้อผิดพลาดภายในระบบ — ลองใหม่อีกครั้ง")
+    ), { status: 200, headers: corsHeaders });
   }
 }
 
