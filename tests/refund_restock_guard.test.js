@@ -11,7 +11,9 @@ const src = fs.readFileSync(path.resolve("modules/refunds.js"), "utf8");
 function saveHandlerBody() {
   const start = src.indexOf('modal.querySelector("#rfSave").addEventListener("click"');
   assert.notEqual(start, -1, "refund save handler exists");
-  return src.slice(start, start + 7600);
+  // window widened in Phase 517a: the credit-ledger block (+~1.5KB) sits between the
+  // JV post and the final toast, pushing the restockErrors.length>0 check further down.
+  return src.slice(start, start + 9600);
 }
 
 test("refund insert starts as restocked:false even when the user selected restock", () => {

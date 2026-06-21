@@ -5,7 +5,7 @@
 // ═══════════════════════════════════════════════════════════
 import { renderSkeleton, renderEmpty, renderError } from "./ui_states.js";
 // Phase 89.29 (audit C3): post JV เมื่อบันทึก refund → Dr 4110 Sales Returns / Cr Cash/Bank
-import { postJournalForRefund } from "./accounting/auto_post.js";
+import { postJournalForRefund, refundMappingKeyForMethod } from "./accounting/auto_post.js";
 
 import { escHtml, addDaysBkk, round2 } from "./utils.js";
 function money(n) {
@@ -555,6 +555,41 @@ function openRefundModal(ctx) {
         } catch (e) {
           console.warn("[refunds] auto-post JV failed:", e?.message);
           jvPostWarning = "บันทึกการคืนแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจสมุดรายวัน/Backfill";
+        }
+      }
+
+      // 3b) Phase 517a — customer credit ledger (+amount) สำหรับคืนแบบเครดิต/เปลี่ยนสินค้า.
+      //   = source-of-truth ระดับลูกค้าของ "เครดิตคงเหลือ 2180" (JV ลง Cr 2180 ใน step 3 อยู่แล้ว).
+      //   Best-effort + idempotent (uq_ccl_source บน source_type+source_id) — ความล้มเหลว "ห้าม"
+      //   ทำให้ refund ที่ commit แล้ว rollback (under-credit ทิศปลอดภัย; backfill 517a ซ่อมได้).
+      //   ไม่มี customer_id → ไม่สร้างเครดิตลอย (เตือนให้ผูกลูกค้าก่อน). ไม่แตะ credit_payments.
+      const _credLedgerKey = refundMappingKeyForMethod(method); // refund_credit | refund_exchange | ...
+      if (insertedRefund?.id && (_credLedgerKey === "refund_credit" || _credLedgerKey === "refund_exchange")) {
+        if (!insertedRefund.customer_id) {
+          console.warn("[refunds] credit/exchange refund without customer_id — no credit ledger:", insertedRefund.id);
+          jvPostWarning = jvPostWarning || "คืนเป็นเครดิตแต่ไม่มีลูกค้าผูก — เครดิตนี้ยังใช้ไม่ได้ (ผูกลูกค้าก่อน)";
+        } else {
+          try {
+            const led = await fetch(cfg.url + "/rest/v1/customer_credit_ledger", {
+              method: "POST",
+              headers: { "Content-Type":"application/json","apikey":cfg.anonKey,"Authorization":"Bearer "+accessToken,"Prefer":"return=minimal" },
+              body: JSON.stringify({
+                customer_id: insertedRefund.customer_id,
+                source_type: _credLedgerKey,
+                source_id: insertedRefund.id,
+                amount: round2(Number(totalAmount)),
+                note: `เครดิตจากการคืน ${refundNo}`
+              })
+            });
+            // 409 = ลงซ้ำ (idempotent hit) = ถือว่าสำเร็จ
+            if (!led.ok && led.status !== 409) {
+              console.warn("[refunds] credit ledger insert failed:", led.status);
+              jvPostWarning = jvPostWarning || "บันทึกเครดิตลูกค้าไม่สำเร็จ — ใช้ Backfill เครดิตภายหลัง";
+            }
+          } catch (e) {
+            console.warn("[refunds] credit ledger insert exception:", e?.message);
+            jvPostWarning = jvPostWarning || "บันทึกเครดิตลูกค้าไม่สำเร็จ — ใช้ Backfill เครดิตภายหลัง";
+          }
         }
       }
 
