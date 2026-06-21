@@ -1,4 +1,8 @@
-# CLAUDE.md — Boonsook POS V5 · Project & Code Review Guide
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+> **Boonsook POS V5 · Project & Code Review Guide.** This file is read on every run (including automated PR review). It is the authoritative guardrail spec; [`project-patterns.md`](project-patterns.md) is the practical companion and [`IMPLEMENT_TEAM_PROTOCOL.md`](IMPLEMENT_TEAM_PROTOCOL.md) is the canonical session protocol.
 
 > Phase prompt quality: read [`PROMPT_PHASE_BRIEF_SKILL.md`](PROMPT_PHASE_BRIEF_SKILL.md) before drafting, reviewing, or implementing a phase prompt. It defines the baseline/scope/failure-semantics/test/report structure expected by the owner and Codex.
 
@@ -28,17 +32,53 @@ Boonsook POS PRO V5 — ระบบขายหน้าร้าน (POS) ส�
 
 ---
 
+## 1.5 สถาปัตยกรรมภาพรวม (อ่านก่อนแก้ของข้ามไฟล์)
+
+จุดที่ต้องเข้าใจเพราะกระจายหลายไฟล์ — อ่านโค้ดไฟล์เดียวจะมองไม่เห็น:
+
+- **Entry & app shell** — `index.html` โหลด `selfheal.js` → `boot.js` (loading overlay + ลงทะเบียน Service Worker + แบนเนอร์อัปเดต) → `main.js`. `main.js` เป็น **monolith ~280KB** เป็นทั้ง router + state + ตัวเชื่อม Supabase: มัน`import` ฟีเจอร์จาก `modules/*.js` แล้ว map เข้าหน้าจอ. โมดูลส่วนใหญ่ export ฟังก์ชัน `renderXxxPage(...)` ที่ `main.js` เรียกตาม nav. โมดูลหนักหลายตัวถูก **lazy-import** (โหลดตอนเปิดหน้านั้น) — ดูคอมเมนต์ `// Phase 89.20/89.21 ... lazy` ใน `main.js`.
+- **ไม่มี build step จริง ๆ** — เบราว์เซอร์โหลด ES modules ตรงจาก path. dependency ภายนอกตัวเดียวคือ Supabase client ที่ `import` จาก CDN `https://esm.sh/@supabase/supabase-js@2`. `package.json` มีแต่ devDeps (eslint, playwright) — runtime deps ว่างเปล่า.
+- **Backend = Supabase + Cloudflare Pages Functions** — ตรรกะข้อมูลเกือบทั้งหมดเป็น Supabase REST/RPC ตรงจาก client โดยมี **RLS เป็นด่านความปลอดภัยจริง**. `functions/api/*.js` เป็น serverless proxy เฉพาะงานที่ต้องซ่อน secret หรือเรียก 3rd-party (`send-otp`, `verify-otp`, `verify-slip` SlipOK, `parse-receipt` Gemini OCR, `ai-assistant`, `line-notify`, `v1/reports/daily-summary`). `functions/_middleware.js` ครอบ `/api/*` ทุกตัว: CORS + rate-limit (Cloudflare KV) + JWT/role check ก่อนถึง handler.
+- **Schema & RLS อยู่ในไฟล์ `supabase-*.sql`** — เป็น migration เรียงตาม phase (เช่น `supabase-phase88-accounting-foundation.sql`, `supabase-rls-policies.sql`). **ต้องรันด้วยมือใน Supabase SQL editor** ไม่มี migration runner อัตโนมัติ — แก้ schema = เพิ่มไฟล์ SQL ใหม่ + บอก owner ให้รัน + `NOTIFY pgrst, 'reload schema';` หลัง `ALTER TABLE`.
+- **Auto-posting accounting** — การขาย/บิลบริการ/ค่าใช้จ่าย โพสต์ JV อัตโนมัติผ่าน `modules/accounting/auto_post.js` (eager import ใน checkout flow) แมป account ตาม `coa.js`; โพสต์ซ้ำไม่ได้ (idempotent ด้วย `source_table` + `source_id`); void ผ่าน `voidJvForSource`. งบ (`trial_balance.js`/`profit_loss.js`/`balance_sheet.js`) อ่านจาก journal lines ที่โพสต์ไว้.
+- **Offline/PWA** — `sw.js` (~210KB) cache app shell; `modules/_offline_queue.js` คิวการเขียนตอน offline แล้ว reconcile เมื่อ online. การ deploy ขึ้นกับ **build/cache markers ที่ต้อง bump พร้อมกัน** (ดู §4.6 + `project-patterns.md`): `data-app-build` & `selfheal.js?v=` & `main.js?v=` ใน `index.html` และ `CACHE_NAME` ใน `sw.js`.
+- **Tests** — unit เป็น `node --test` ล้วน (no framework) ใน `tests/*.test.js`; pattern เด่นคือ `*_guard.test.js` ที่ extract function body แล้ว regex/assert invariant กันเงิน/สต็อก regression. e2e เป็น Playwright (`tests/e2e/*.spec.js`) เสิร์ฟด้วย `scripts/static-server.js` (Node built-in, zero dep). สคริปต์ verify เพิ่มเติม (`scripts/*.js`) ยิง Supabase จริงเพื่อตรวจ integrity บัญชี/JE/RLS.
+
+**เลข build/version จริง = `data-app-build` + `data-app-version` ใน `index.html`** (source of truth — ไม่ระบุเลขตายตัวที่นี่ กันค้าง). `version` ใน `package.json` มักตามหลัง build marker — ยึด marker ใน `index.html` เป็นเลขจริงเสมอ.
+
+---
+
 ## 2. คำสั่งที่ใช้ตรวจ (gate ก่อน merge)
 
 ```bash
 npm run verify        # = lint && test && test:e2e  ← gate ทอง ต้องเขียวก่อน merge
 npm run lint          # eslint . --max-warnings=99999
-npm run lint:errors   # เฉพาะ error (ตัวที่ block CI จริง)
-npm test              # node --test tests/*.test.js
-npm run test:e2e      # playwright test
+npm run lint:errors   # เฉพาะ error (ตัวที่ block CI จริง) — 0 errors required
+npm test              # node --test tests/*.test.js  (unit ทั้งหมด)
+npm run test:e2e      # playwright test  (e2e ผ่าน scripts/static-server.js เอง)
+
+# รัน unit ทีละไฟล์ / ทีละ test
+node --test tests/pos.test.js                         # ไฟล์เดียว
+node --test --test-name-pattern="multi payment" tests/multi_payment_guard.test.js
+
+# รัน e2e ทีละ spec / ดูแบบ headed
+npx playwright test tests/e2e/smoke.spec.js
+npx playwright test --headed
+
+# เสิร์ฟแอป local (PWA, static, zero dep) — ใช้กับ playwright หรือเปิดเองที่ :4173
+node scripts/static-server.js 4173
 ```
 
-CI (`.github/workflows/test.yml`) รันบน push เข้า `main` / `claude/**` และ PR เข้า `main`: install → lint → unit → playwright → e2e. **PR ที่ทำให้ขั้นใดขั้นหนึ่งแดง = ห้ามผ่าน**
+สคริปต์ verify เพิ่มเติม (ยิง **Supabase จริง** — ต้องมี env/key) สำหรับงานเสี่ยงสูง:
+
+```bash
+npm run verify:accounting   # node scripts/accounting_integrity_smoke.js  (A1–A6 ความถูกต้องบัญชี)
+npm run verify:je           # node scripts/verify_je_fix.js  (journal entries บาลานซ์)
+npm run verify:security     # node scripts/leave_spoof_test.js  (ทดสอบ RLS/spoof)
+npm run backfill:orphans    # node scripts/backfill_orphan_journals.js  (ปะ JV ที่หลุดโพสต์)
+```
+
+CI (`.github/workflows/test.yml`) รันบน push เข้า `main` / `claude/**` และ PR เข้า `main`: install → lint → unit → playwright → e2e. **PR ที่ทำให้ขั้นใดขั้นหนึ่งแดง = ห้ามผ่าน**. Deploy (`.github/workflows/main.yml`) ยิงเฉพาะ push เข้า `main` (หรือ `workflow_dispatch` สำหรับ preview build) → Cloudflare Pages `boonsook-pos-v5.pages.dev` + build Docker image. หลัง push ต้องเช็คทั้ง Actions conclusion **และ** live build marker บน canonical URL.
 
 ---
 
