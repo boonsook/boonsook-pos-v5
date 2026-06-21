@@ -84,3 +84,31 @@ test("parse-receipt keeps the operator hint + configured-state fields", () => {
   assert.match(PR, /\{ hint \}/, "keeps the API-key hint for the operator");
   assert.match(PR, /configured: false/, "keeps the not-configured signal");
 });
+
+// ── Phase 516: the same sanitizer rolled out to the remaining functions ──────
+const ROLLOUT = {
+  "ai-assistant": "functions/api/ai-assistant.js",
+  "log-error": "functions/api/log-error.js",
+  "line-notify": "functions/api/line-notify.js",
+  "daily-summary": "functions/api/v1/reports/daily-summary.js",
+  "service-job-submit": "functions/api/v1/service-job-submit.js",
+  "service-jobs": "functions/api/v1/service-jobs.js",
+};
+
+for (const [name, file] of Object.entries(ROLLOUT)) {
+  const src = fs.readFileSync(path.resolve(file), "utf8");
+  test(`${name}: imports the shared sanitizer and logs server-side`, () => {
+    assert.match(src, /from "(\.\.?\/)+_error_sanitizer\.js"/, "imports helper (relative path)");
+    assert.match(src, /logServerError\(/, "logs full detail server-side");
+    assert.match(src, /clientError\(/, "returns sanitized client body");
+  });
+  test(`${name}: no raw-internals leak in error responses`, () => {
+    assert.ok(!/detail: errTxt\.slice|detail: text\.slice|detail: findText\.slice|detail: patchText\.slice/.test(src), "no raw provider body as detail");
+    assert.ok(!/detail: `\$\{e\?\.name/.test(src), "no exception name/message as detail");
+    assert.ok(!/supabase_status:/.test(src), "no upstream supabase status leaked");
+    assert.ok(!/error: e\?\.message \|\|/.test(src), "top catch must not return raw e.message");
+    assert.ok(!/error: String\(e && e\.message/.test(src), "must not return raw String(e.message)");
+    assert.ok(!/error: "AI error: " \+/.test(src), "must not concat raw error into the message");
+    assert.ok(!/stack: String\(e\.stack\)/.test(src), "no JS stack in response");
+  });
+}

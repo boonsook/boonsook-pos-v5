@@ -6,6 +6,9 @@
 //   LINE_USER_ID               — userId ปลายทางที่จะรับข้อความ (ขึ้นต้นด้วย U...)
 //
 // ถ้ายังไม่ตั้งค่า endpoint จะตอบ 200 พร้อม { ok:false, configured:false } — UI จะแสดง "ยังไม่ตั้งค่า"
+// Phase 516 (audit S4): sanitize error responses — log full detail server-side, never to client.
+
+import { logServerError, clientError } from "./_error_sanitizer.js";
 
 export async function onRequestPost(context) {
   const corsHeaders = {
@@ -91,7 +94,9 @@ export async function onRequestPost(context) {
     }), { status: allOk ? 200 : 502, headers: corsHeaders });
 
   } catch (e) {
-    return new Response(JSON.stringify({ ok: false, error: String(e && e.message || e) }), {
+    // Phase 516: never leak raw exception message to client — log server-side
+    logServerError("[line-notify] unhandled", e?.message || String(e), e?.stack);
+    return new Response(JSON.stringify(clientError("internal_error", "ส่งแจ้งเตือนไม่สำเร็จ")), {
       status: 500, headers: corsHeaders
     });
   }

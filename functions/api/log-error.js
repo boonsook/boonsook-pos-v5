@@ -21,6 +21,9 @@
 // user's JWT, anonymous requests with the anon key.
 // ═══════════════════════════════════════════════════════════
 
+// Phase 516 (audit S4): sanitize error responses — log full detail server-side, never to client.
+import { logServerError, clientError } from "./_error_sanitizer.js";
+
 const PUBLIC_SUPABASE_URL = "https://rwmmjljelpcpwohwiplu.supabase.co";
 const PUBLIC_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_MoeSC0AubZ4C8LXjNJtq7w_iS1baV0j";
 
@@ -102,7 +105,9 @@ export async function onRequestPost({ request, env }) {
 
     if (!r.ok) {
       const errTxt = await r.text().catch(() => "");
-      return new Response(JSON.stringify({ ok: false, error: `supabase ${r.status}`, detail: errTxt.slice(0, 500) }), {
+      // Phase 516: log raw supabase body server-side; client gets generic message + code
+      logServerError("[log-error] supabase-insert-failed", r.status, errTxt.slice(0, 500));
+      return new Response(JSON.stringify(clientError("log_store_failed", "บันทึก log ไม่สำเร็จ")), {
         status: 502, headers: { "Content-Type": "application/json" },
       });
     }
@@ -111,7 +116,9 @@ export async function onRequestPost({ request, env }) {
       status: 200, headers: { "Content-Type": "application/json" },
     });
   } catch (e) {
-    return new Response(JSON.stringify({ ok: false, error: e?.message || "fetch failed" }), {
+    // Phase 516: never leak raw exception message to client — log server-side
+    logServerError("[log-error] unhandled", e?.message || String(e), e?.stack);
+    return new Response(JSON.stringify(clientError("internal_error", "บันทึก log ไม่สำเร็จ")), {
       status: 502, headers: { "Content-Type": "application/json" },
     });
   }

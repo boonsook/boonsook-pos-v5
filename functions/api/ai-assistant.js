@@ -15,6 +15,9 @@
 //           estimated_price_range, urgency, needs_photo,
 //           quick_replies, done }
 
+// Phase 516 (audit S4): sanitize error responses — log full detail server-side, never to client.
+import { logServerError, clientError } from "./_error_sanitizer.js";
+
 const SYSTEM_PROMPT = `คุณเป็นผู้ช่วย AI ของ "บุญสุขแอร์" (Boonsook Air) ร้านซ่อม-ติดตั้งแอร์และเครื่องใช้ไฟฟ้า
 จังหวัด: ขอนแก่น (บริการทั่วภาคอีสาน)
 
@@ -294,8 +297,9 @@ ${helpContext ? "📍 หน้าที่ผู้ใช้กำลังอ�
           { status: 200, headers: corsHeaders }
         );
       } catch (helpErr) {
+        logServerError("[ai-assistant] help-error", helpErr?.message || String(helpErr), helpErr?.stack);
         return new Response(
-          JSON.stringify({ ok: false, error: "AI error: " + (helpErr?.message || String(helpErr)) }),
+          JSON.stringify(clientError("ai_error", "AI ตอบไม่สำเร็จ — ลองใหม่อีกครั้ง")),
           { status: 500, headers: corsHeaders }
         );
       }
@@ -457,13 +461,9 @@ ${helpContext ? "📍 หน้าที่ผู้ใช้กำลังอ�
       headers: corsHeaders,
     });
   } catch (err) {
-    console.error("[ai-assistant] server error:", err);
+    logServerError("[ai-assistant] server error", err?.message || String(err), err?.stack);
     return new Response(
-      JSON.stringify({
-        ok: false,
-        error: "AI assistant failed",
-        detail: String(err?.message || err),
-      }),
+      JSON.stringify(clientError("internal_error", "AI assistant failed")),
       { status: 500, headers: corsHeaders }
     );
   }

@@ -8,6 +8,9 @@
 //   - status = "pending"       → open job; staff fill in details / close it in the app later
 // Auth: Ning server-to-server only (X-NING-AGENT-KEY validated in _middleware.js,
 // which sets data.user.authMode = "ning_agent"). Writes use the service-role key.
+// Phase 516 (audit S4): sanitize error responses — log full detail server-side, never to client.
+
+import { logServerError, clientError } from "../_error_sanitizer.js";
 
 const PUBLIC_SUPABASE_URL = "https://rwmmjljelpcpwohwiplu.supabase.co";
 const NING_SOURCE_MARKER = "[via Ning LINE group]";
@@ -122,14 +125,11 @@ export async function onRequestPost({ request, env, data }) {
 
     const text = await response.text().catch(() => "");
     if (!response.ok) {
-      // Return 200 with ok:false so the detail is never hidden behind a
-      // Cloudflare 5xx page; the Ning client checks the ok flag, not the status.
-      return jsonResponse({
-        ok: false,
-        error: "service_jobs insert failed",
-        supabase_status: response.status,
-        detail: text.slice(0, 500),
-      });
+      // Return 200 with ok:false so the failure is never hidden behind a Cloudflare 5xx
+      // page; the Ning client checks the ok flag, not the status.
+      // Phase 516: raw supabase body → server logs only (Ning reads ok flag, not detail)
+      logServerError("[service-jobs] insert-failed", response.status, text.slice(0, 500));
+      return jsonResponse(clientError("insert_failed", "service_jobs insert failed"));
     }
 
     let rows = [];
@@ -145,11 +145,9 @@ export async function onRequestPost({ request, env, data }) {
       job_no: created?.job_no ?? built.record.job_no,
     });
   } catch (e) {
-    return jsonResponse({
-      ok: false,
-      error: "service_jobs create exception",
-      detail: `${e?.name || "Error"}: ${e?.message || String(e)}`,
-    });
+    // Phase 516: never leak exception name/message to client — log server-side
+    logServerError("[service-jobs] exception", `${e?.name || "Error"}: ${e?.message || String(e)}`, e?.stack);
+    return jsonResponse(clientError("internal_error", "service_jobs create exception"));
   }
 }
 

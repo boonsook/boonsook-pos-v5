@@ -12,6 +12,9 @@
 //
 // Auth: Ning server-to-server only (X-NING-AGENT-KEY → ning_agent); service-role write.
 
+// Phase 516 (audit S4): sanitize error responses — log full detail server-side, never to client.
+import { logServerError, clientError } from "../_error_sanitizer.js";
+
 const PUBLIC_SUPABASE_URL = "https://rwmmjljelpcpwohwiplu.supabase.co";
 const REVIEW_NOTE_MARKER = "[รออนุมัติแอดมิน]"; // mirror modules/service_status.js
 const OPEN_STATUSES = "pending,progress"; // active jobs eligible to be submitted
@@ -74,7 +77,8 @@ export async function onRequestPost({ request, env, data }) {
       const findResp = await fetch(findUrl, { headers, signal: controller.signal });
       const findText = await findResp.text().catch(() => "");
       if (!findResp.ok) {
-        return jsonResponse({ ok: false, error: "lookup failed", supabase_status: findResp.status, detail: findText.slice(0, 500) });
+        logServerError("[service-job-submit] lookup-failed", findResp.status, findText.slice(0, 500));
+        return jsonResponse(clientError("lookup_failed", "lookup failed"));
       }
       let rows = [];
       try {
@@ -96,18 +100,17 @@ export async function onRequestPost({ request, env, data }) {
       });
       const patchText = await patchResp.text().catch(() => "");
       if (!patchResp.ok) {
-        return jsonResponse({ ok: false, error: "update failed", supabase_status: patchResp.status, detail: patchText.slice(0, 500) });
+        logServerError("[service-job-submit] update-failed", patchResp.status, patchText.slice(0, 500));
+        return jsonResponse(clientError("update_failed", "update failed"));
       }
       return jsonResponse({ ok: true, matched: true, job_no: job.job_no, id: job.id });
     } finally {
       clearTimeout(timer);
     }
   } catch (e) {
-    return jsonResponse({
-      ok: false,
-      error: "service-job-submit exception",
-      detail: `${e?.name || "Error"}: ${e?.message || String(e)}`,
-    });
+    // Phase 516: never leak exception name/message to client — log server-side
+    logServerError("[service-job-submit] exception", `${e?.name || "Error"}: ${e?.message || String(e)}`, e?.stack);
+    return jsonResponse(clientError("internal_error", "service-job-submit exception"));
   }
 }
 

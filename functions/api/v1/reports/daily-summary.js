@@ -1,5 +1,7 @@
 // Phase 1 draft: read-only daily service-job summary for owner/agent reports.
 // Endpoint: GET /api/v1/reports/daily-summary?date=YYYY-MM-DD
+// Phase 516 (audit S4): sanitize error responses — log full detail server-side, never to client.
+import { logServerError, clientError } from "../../_error_sanitizer.js";
 
 const PUBLIC_SUPABASE_URL = "https://rwmmjljelpcpwohwiplu.supabase.co";
 const PUBLIC_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_MoeSC0AubZ4C8LXjNJtq7w_iS1baV0j";
@@ -295,7 +297,9 @@ export async function onRequestGet({ request, env, data }) {
       openJobs,
     }));
   } catch (e) {
-    return jsonResponse({ ok: false, error: e?.message || "daily summary failed" }, 502);
+    // Phase 516: never leak raw exception message to client — log server-side
+    logServerError("[daily-summary] unhandled", e?.message || String(e), e?.stack);
+    return jsonResponse(clientError("internal_error", "daily summary failed"), 502);
   }
 }
 
