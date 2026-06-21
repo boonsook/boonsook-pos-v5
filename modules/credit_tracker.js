@@ -80,9 +80,14 @@ export async function processCreditPayment({
     });
     if (!insertR.ok) {
       const errBody = await insertR.text?.().catch(() => "");
+      // Phase 514: DB overpay guard (trg_guard_credit_payment_overpay) reject → ข้อความชัดเจน
+      //   (ledger ยังไม่ถูกเขียน → retry ปลอดภัย เหมือน transient fail; shape เดิมไม่เปลี่ยน)
+      const isOverpay = /exceeds outstanding balance|non-credit sale|amount must be > 0/i.test(String(errBody || ""));
       // ledger ยังไม่ถูกเขียน → retry ปลอดภัย
       return { ok: false, ledgerInserted: false, retrySafe: true,
-        error: `บันทึก credit_payments ไม่สำเร็จ (HTTP ${insertR.status}) ${String(errBody || "").slice(0, 200)}` };
+        error: isOverpay
+          ? "จำนวนเงินเกินยอดค้างของบิลนี้ — โปรดรีโหลดแล้วตรวจยอดค้างก่อนกดใหม่ (กันจ่ายเกิน/ซ้ำหลายเครื่อง)"
+          : `บันทึก credit_payments ไม่สำเร็จ (HTTP ${insertR.status}) ${String(errBody || "").slice(0, 200)}` };
     }
     const rows = await insertR.json().catch(() => []);
     payment = Array.isArray(rows) ? rows[0] : rows;
