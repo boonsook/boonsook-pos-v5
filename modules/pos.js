@@ -1076,6 +1076,37 @@ function updateCollectBtn() {
 
 
 // ═══════════════════════════════════════════════════════════
+//  Phase 517b-1: เตรียม path ใช้เครดิตลูกค้า 2180 ตอนขายใหม่ (2180 clearing).
+//  *** ยังไม่ wire UI — ยังไม่มีช่อง "ใช้เครดิต" ใน checkout → helper นี้ยังไม่ถูกเรียก ***
+//  (เปิด UI + ลำดับ redeem/compensation = เฟสถัดไป 517b-2). วาง gate ไว้ก่อนเพื่อ:
+//    - ใช้เครดิตต้องผ่าน RPC redeem_customer_credit เท่านั้น (atomic + idempotent + กัน over-use 23514 = 517a)
+//    - source_key ผูกกับบิล (sale:<id>) → replay-safe (JV fail หลัง sale = ไม่ redeem ซ้ำ)
+//    - ห้ามเขียน customer_credit_ledger ตรงจาก client (RPC เท่านั้น)
+//  คืน { ok, row } | { ok:false, error, overuse } — overuse (23514) = caller ต้องไม่ finalize เป็นใช้เครดิต.
+async function _redeemCheckoutCredit({ customerId, sourceKey, amount, note } = {}) {
+  if (!customerId || !(Number(amount) > 0) || !sourceKey) return { ok: false, error: "invalid args" };
+  const cfg = window.SUPABASE_CONFIG;
+  const token = window._sbAccessToken || cfg.anonKey;
+  try {
+    const r = await fetch(cfg.url + "/rest/v1/rpc/redeem_customer_credit", {
+      method: "POST",
+      headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token, "Content-Type": "application/json" },
+      body: JSON.stringify({ p_customer_id: customerId, p_source_key: sourceKey, p_amount: Number(amount), p_note: note || null })
+    });
+    if (!r.ok) {
+      const txt = await r.text().catch(() => "");
+      return { ok: false, error: "HTTP " + r.status, overuse: /23514/.test(txt) };
+    }
+    return { ok: true, row: await r.json().catch(() => null) };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+}
+// expose ให้เฟสถัดไป wire UI (ยังไม่มี caller ในเฟสนี้); ไม่ใช่ attack surface ใหม่ — RPC GRANT authenticated + guard ที่ DB
+// guard typeof window — pos.js ถูก import ใน node --test (unit) ที่ไม่มี window (กัน ReferenceError ตอน module load)
+if (typeof window !== "undefined") window._appRedeemCheckoutCredit = _redeemCheckoutCredit;
+
+// ═══════════════════════════════════════════════════════════
 //  CHECKOUT — บันทึกการขาย
 // ═══════════════════════════════════════════════════════════
 async function doCheckout(ctx, paymentMethod, paidAmount) {
@@ -1310,19 +1341,25 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
     //   ถึงตรงนี้ = items/stock ครบ (hard-fail return ไปแล้ว). JV failed/missing-mapping/lines-insert-failed →
     //   บิล commit แล้ว "ห้าม" rollback (สต็อกตัดถูก) → ขายถูกบันทึก แต่แจ้งว่าลงบัญชีไม่สำเร็จ (ไม่ประกาศ "เรียบร้อย").
     //   posted/skipped (pre-effective ก่อน 1 ก.ค.) = ปกติ. ไม่แตะ mapping/VAT/2180 — แค่เปลี่ยน fire-and-forget → await.
+    // ★ Phase 517b-1: เก็บสถานะ JV จริง (status+reason) → แนบใบเสร็จ ให้ badge แสดงสถานะตรง
+    //   (posted=ลงบัญชีแล้ว · skipped/pre-effective=ยังไม่ถึงรอบบัญชี · failed=ต้องตรวจสอบ) แทนการ
+    //   poll blind จน "ยังไม่ลงบัญชี" หลอกตา. ห้าม rollback บิลถ้า JV fail (บิล commit แล้ว สต็อกตัดถูก).
     let _jvWarn = false;
+    let _jvStatus = { status: "unknown", reason: null };
     try {
       const postRes = await postJournalForSale({
         ...salePayload,
         id: saleId,
         created_at: new Date().toISOString()
       }, { detailed: true });
+      _jvStatus = { status: postRes?.status || "unknown", reason: postRes?.reason || null };
       if (postRes?.status === "failed") {
         _jvWarn = true;
         console.warn("[pos] auto-post JV failed:", postRes.reason, postRes.error || "");
       }
     } catch (e) {
       _jvWarn = true;
+      _jvStatus = { status: "failed", reason: "exception" };
       console.warn("[pos] auto-post JV threw:", e?.message);
     }
 
@@ -1347,6 +1384,9 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
         state.lastReceipt = { ...saleData, items: itemsData };
         /* eslint-enable require-atomic-updates */
         localStorage.setItem("bsk_last_receipt", JSON.stringify(state.lastReceipt));
+        // ★ Phase 517b-1: แนบสถานะ JV ที่รู้แล้ว "หลัง" persist → in-memory เท่านั้น
+        //   (บิลที่เปิดซ้ำ/reload จาก localStorage จะไม่มี _jvStatus → badge lookup ปกติ กัน stale).
+        state.lastReceipt._jvStatus = _jvStatus;
       }
     } catch (receiptErr) {
       console.warn("[POS] receipt fetch failed:", receiptErr.message);

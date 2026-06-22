@@ -4361,6 +4361,24 @@ const RECEIPT_TRACE_RETRY_MS = 1500;
 
 // แสดงสถานะเอกสารบัญชีในใบเสร็จที่เปิดอยู่ — found → กดไปสมุดรายวัน, missing/error → ข้อความชัด
 async function _fillReceiptAcctTrace(sale, attempt = 0){
+  // ★ Phase 517b-1: ถ้ารู้ผล JV จาก checkout แล้ว (517b-0 รอผล JV ด้วย await) ใช้สถานะนั้นตรง ๆ
+  //   กัน badge poll blind ~9 วิ แล้วโชว์ "ยังไม่ลงบัญชี" หลอกตา ตอน pre-go-live (JV skip pre-effective).
+  //   เฉพาะบิลสด (in-memory _jvStatus, attempt 0); บิลเปิดซ้ำ/reload = ไม่มี _jvStatus → lookup ปกติ.
+  //   display-only — ไม่ write/post/ตัดสต็อก (คงเป็น read-only ตาม guard เดิม).
+  const jv = sale?._jvStatus;
+  if (jv && attempt === 0) {
+    const slot0 = document.getElementById("receiptAcctTrace");
+    if (!slot0) return;
+    if (jv.status === "skipped" && jv.reason === "pre-effective") {
+      slot0.innerHTML = `<span style="font-size:12px;color:#94a3b8">🕓 ยังไม่ถึงรอบบัญชี (เริ่ม 1 ก.ค. 69)</span>`;
+      return;
+    }
+    if (jv.status === "failed" || (jv.status === "skipped" && (jv.reason === "missing-mapping" || jv.reason === "unbalanced"))) {
+      slot0.innerHTML = `<span style="font-size:12px;color:#dc2626;font-weight:600">⚠️ ยังไม่ลงบัญชี / ต้องตรวจสอบ</span>`;
+      return;
+    }
+    // posted / duplicate / อื่น ๆ → ตกไป lookup ปกติ (render badge "ลงบัญชีแล้ว" + ลิงก์ JV)
+  }
   let res;
   try {
     res = await findJournalForSale(sale);

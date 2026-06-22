@@ -22,7 +22,7 @@ const pos = fs.readFileSync(path.resolve("modules/pos.js"), "utf8");
 function doCheckoutBody() {
   const i = pos.indexOf("async function doCheckout(");
   assert.ok(i >= 0, "doCheckout must exist");
-  return pos.slice(i, i + 17000);
+  return pos.slice(i, i + 18000);
 }
 const cb = doCheckoutBody();
 
@@ -79,8 +79,10 @@ test("the awaited JV runs only after the items/stock hard-fail return (success p
 });
 
 // ── scope guard: 517b-0 must not touch credit / mapping / VAT ─────────────────
-test("517b-0 does not enable credit use or touch JV mapping/VAT (foundation only)", () => {
-  assert.ok(!/redeem_customer_credit/.test(pos), "must NOT call the redeem RPC yet (that is 517b-1)");
-  assert.ok(!/customer_credit_ledger/.test(pos), "must NOT touch the credit ledger in checkout (517b-1)");
+test("checkout does not enable credit use or touch JV mapping/VAT (foundation only)", () => {
+  // 517b-1 added a redeem helper (RPC-only) but it must NOT be wired into doCheckout yet,
+  // and the checkout must never write the credit ledger directly or add the 2180 split here.
+  assert.ok(!cb.includes("_redeemCheckoutCredit("), "doCheckout must NOT call the redeem helper yet (credit UI not enabled)");
+  assert.ok(!/customer_credit_ledger/.test(cb), "checkout must NOT touch the credit ledger directly");
   assert.ok(!/Dr\s*2180|"2180"|'2180'/.test(cb), "must NOT add the 2180 split in checkout yet");
 });
