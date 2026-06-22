@@ -28,7 +28,7 @@ function assertBackgroundDetailed(src, fnName, label) {
 function assertAwaitedDetailed(src, fnName, label) {
   const i = src.indexOf("async function doCheckout(");
   assert.ok(i >= 0, `${label} must have doCheckout`);
-  const body = src.slice(i, i + 18000);
+  const body = src.slice(i, i + 20500);
   assert.match(body, new RegExp(`await\\s+${fnName}\\(`), `${label} must AWAIT the JV post (Phase 517b-0, not background)`);
   assert.ok(!new RegExp(`void\\s*\\(\\s*async[\\s\\S]{0,120}${fnName}`).test(body), `${label} sale JV must NOT be fire-and-forget`);
   assert.match(body, new RegExp(`${fnName}\\([\\s\\S]+?,\\s*\\{\\s*detailed:\\s*true\\s*\\}`), `${label} must request detailed result`);

@@ -33,9 +33,12 @@ export function computeCashRecon({ state, date, refunds = [], dateFn = dateBkk }
   const cashSales = sales.filter(s =>
     (s.payment_method || "").includes("เงินสด") || s.payment_method === "cash"
   );
-  const cashIn = cashSales.reduce((sum, s) => sum + Number(s.total_amount || 0), 0);
+  // ★ Phase 520: "เงินรับจริง" = total_amount − credit_used_amount (ส่วนที่จ่ายด้วยเครดิตลูกค้า 2180
+  //   ไม่ใช่เงินสด/โอนเข้าลิ้นชัก). credit_used_amount default 0 → บิลปกติไม่กระทบ. (revenue ที่อื่น = total เต็ม ถูก)
+  const _cashReceived = (s) => Math.max(Number(s.total_amount || 0) - Number(s.credit_used_amount || 0), 0);
+  const cashIn = cashSales.reduce((sum, s) => sum + _cashReceived(s), 0);
   const transferSales = sales.filter(s => !cashSales.includes(s));
-  const transferIn = transferSales.reduce((sum, s) => sum + Number(s.total_amount || 0), 0);
+  const transferIn = transferSales.reduce((sum, s) => sum + _cashReceived(s), 0);
 
   const expenses = (state.expenses || []).filter(e => dateFn(e.expense_date) === date);
   const cashExpenses = expenses.filter(e =>

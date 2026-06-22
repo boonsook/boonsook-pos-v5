@@ -73,7 +73,7 @@ test("pos.js: checkout auto-post is AWAITED (Phase 517b-0) with detailed failure
   //   (post ก่อนเปิดใบเสร็จ → badge มีโอกาสเจอ JV ทันที; retry-poll ใน main.js ยังเป็น backstop).
   const i = posJs.indexOf("async function doCheckout(");
   assert.ok(i >= 0, "doCheckout ต้องมี");
-  const body = posJs.slice(i, i + 18000);
+  const body = posJs.slice(i, i + 20500);
   assert.match(body, /await\s+postJournalForSale\(\s*\{[\s\S]+?\},\s*\{\s*detailed:\s*true\s*\}\s*\)/, "auto-post must be AWAITED with detailed result");
   assert.ok(!/void\s*\(\s*async[\s\S]{0,120}postJournalForSale/.test(body), "sale JV must NOT be fire-and-forget background");
   assert.match(body, /postRes\?\.status\s*===\s*["']failed["']/, "failed JV result must be detected");

@@ -23,7 +23,7 @@ const mainJs = fs.readFileSync(path.resolve("main.js"), "utf8");
 function doCheckoutBody() {
   const i = pos.indexOf("async function doCheckout(");
   assert.ok(i >= 0, "doCheckout must exist");
-  return pos.slice(i, i + 18000);
+  return pos.slice(i, i + 20500);
 }
 const cb = doCheckoutBody();
 

@@ -142,6 +142,14 @@ let _posScannerActive = false;
 let _posScanInProgress = false;
 let _posAbort = null;     // ★ AbortController สำหรับลบ event listeners เก่า
 let _posCustomer = null;  // ★ Customer ที่เลือก {id, name, phone}
+// ★ Phase 520 (#1): idempotency key "ต่อ 1 checkout intent" — gen ครั้งเดียวต่อ 1 ตะกร้า/ความตั้งใจขาย,
+//   ใช้ค่าเดิมตอน re-click/re-submit/back-nav, reset เฉพาะตอนขายสำเร็จจริง หรือเริ่มขายใหม่.
+//   กัน double-sale/double-redeem (re-click หลัง network timeout / 2 เครื่อง ms เดียว = key เดิม → DB กันซ้ำ).
+let _checkoutKey = null;
+function _ensureCheckoutKey() {
+  if (!_checkoutKey) _checkoutKey = (globalThis.crypto?.randomUUID?.() || ("ck-" + Date.now() + "-" + Math.random().toString(36).slice(2, 10)));
+  return _checkoutKey;
+}
 
 // Phase 45.10 (B5-5): expose clear ให้ logout เรียก (กัน cross-login leak)
 export function clearPosState() {
@@ -151,6 +159,7 @@ export function clearPosState() {
   numpadValue = "";
   quickPayAmount = 0;
   pendingPaidAmount = 0;
+  _checkoutKey = null;  // Phase 520: ล้าง intent key (logout / cross-login)
 }
 
 export function renderPosPage({ state, addToCart, changeQty, removeFromCart, openProductDrawer, checkout, openReceiptDrawer }) {
@@ -158,6 +167,7 @@ export function renderPosPage({ state, addToCart, changeQty, removeFromCart, ope
   posView = "home";
   numpadValue = "";
   quickPayAmount = 0;
+  _checkoutKey = null;  // Phase 520: เข้าหน้า POS ใหม่ = intent ใหม่
   renderPosView(ctx);
 }
 
@@ -405,6 +415,7 @@ function renderPosView(ctx) {
   //  PAYMENT SELECT — "เก็บเงินด้วย" เลือกวิธีจ่าย
   // ═══════════════════════════════════════════════════════
   } else if (posView === "payment-select") {
+    _ensureCheckoutKey();  // Phase 520: intent เริ่มที่จอเลือกวิธีจ่าย (idempotent — back-nav ไม่ regen)
     const amount = quickPayAmount || cartTotal;
 
     el.innerHTML = `
@@ -1106,6 +1117,53 @@ async function _redeemCheckoutCredit({ customerId, sourceKey, amount, note } = {
 // guard typeof window — pos.js ถูก import ใน node --test (unit) ที่ไม่มี window (กัน ReferenceError ตอน module load)
 if (typeof window !== "undefined") window._appRedeemCheckoutCredit = _redeemCheckoutCredit;
 
+// ★ Phase 520 (#2/#3): release เครดิตคืน (compensation) ผ่าน RPC idempotent + log ถ้าล้ม (ห้ามเงียบ — accounting §4.8).
+//   ใช้เมื่อ redeem สำเร็จแล้ว sale insert/items/stock ล้ม. release_customer_credit idempotent (กัน double-release).
+async function _releaseAndLog(sourceKey, customerId, amount, reason) {
+  const cfg = window.SUPABASE_CONFIG;
+  const token = window._sbAccessToken || cfg.anonKey;
+  try {
+    const r = await fetch(cfg.url + "/rest/v1/rpc/release_customer_credit", {
+      method: "POST",
+      headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token, "Content-Type": "application/json" },
+      body: JSON.stringify({ p_source_key: sourceKey })
+    });
+    if (r.ok) return true;
+    throw new Error("HTTP " + r.status);
+  } catch (e) {
+    // release ล้ม = เครดิตถูกตัดแต่บิลไม่เกิด/ไม่สมบูรณ์ → admin ต้องคืนมือผ่าน ledger (ตาม source_key)
+    const detail = { sourceKey, customerId, amount, reason, err: e?.message || String(e) };
+    console.error("[POS] CREDIT RELEASE FAILED — manual refund via ledger needed:", detail);
+    try { window._errorReporter?.captureMessage?.("credit release failed", { severity: "error", extra: detail }); } catch { /* reporter optional */ }
+    window.App?.showToast?.(`🛑 ใช้เครดิตแต่บิลไม่สำเร็จ และคืนเครดิตไม่ได้ — แจ้ง admin ทันที (key ${sourceKey})`, "error");
+    return false;
+  }
+}
+
+// ★ Phase 520 (#1d): replay — บิล checkout_key เดิมถูกสร้างไปแล้ว (re-submit) → เปิดใบเสร็จเดิม ไม่ทำซ้ำ.
+async function _openExistingSaleByCheckoutKey(checkoutKey, ctx) {
+  try {
+    const cfg = window.SUPABASE_CONFIG;
+    const tk = window._sbAccessToken || cfg.anonKey;
+    const hdrs = { "apikey": cfg.anonKey, "Authorization": "Bearer " + tk };
+    const r = await fetch(cfg.url + "/rest/v1/sales?checkout_key=eq." + encodeURIComponent(checkoutKey) + "&select=*&limit=1", { headers: hdrs });
+    const rows = await r.json().catch(() => []);
+    const sale = Array.isArray(rows) ? rows[0] : null;
+    if (sale?.id) {
+      const ir = await fetch(cfg.url + "/rest/v1/sale_items?sale_id=eq." + sale.id + "&select=*&order=id.asc", { headers: hdrs });
+      const items = await ir.json().catch(() => []);
+      ctx.state.lastReceipt = { ...sale, items: Array.isArray(items) ? items : [] };
+      try { localStorage.setItem("bsk_last_receipt", JSON.stringify(ctx.state.lastReceipt)); } catch { /* quota */ }
+      ctx.state.cart = []; try { localStorage.setItem("bsk_cart_v2", "[]"); } catch { /* quota */ }
+      try { ctx.openReceiptDrawer?.(); } catch (e) { console.warn("[POS] replay openReceipt:", e?.message); }
+    }
+    window.App?.showToast?.("บิลนี้บันทึกแล้ว (กันบันทึกซ้ำ) ✅", "info");
+  } catch (e) {
+    console.warn("[POS] replay lookup failed:", e?.message);
+    window.App?.showToast?.("บิลนี้อาจบันทึกแล้ว — ตรวจรายการขายล่าสุด", "info");
+  }
+}
+
 // ═══════════════════════════════════════════════════════════
 //  CHECKOUT — บันทึกการขาย
 // ═══════════════════════════════════════════════════════════
@@ -1152,10 +1210,13 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
     }
 
     const orderNo = "BSK-" + Date.now();
-    // ★ Phase 517b-0: stable idempotency key ต่อ 1 checkout attempt (ไม่ใช้ Date.now() เป็น source เดียว).
-    //   crypto.randomUUID = secure-context (https/localhost) ✓ + fallback กันเครื่องเก่า. single-flight
-    //   (_posCheckoutGuard) กัน double-click อยู่แล้ว → 1 attempt = 1 key. ใช้ trace/rollback + future redeem (517b-1).
-    const checkoutKey = (globalThis.crypto?.randomUUID?.() || (orderNo + "-" + Math.random().toString(36).slice(2, 10)));
+    // ★ Phase 520 (#1): ใช้ idempotency key "ต่อ intent" (gen ที่ payment-select, ใช้ค่าเดิมตอน re-submit).
+    //   เดิม (517b-0) gen ตอน submit ทุกครั้ง → re-click หลัง timeout = key ใหม่ = double-sale/double-redeem.
+    //   ตอนนี้ persist จน insert สำเร็จ (reset ท้าย) → re-submit = key เดิม → DB uq_sales_checkout_key กันซ้ำ (23505).
+    const checkoutKey = _ensureCheckoutKey();
+    // ★ Phase 520: ยอดเครดิตลูกค้าที่ใช้ — UI ยังปิด (#4ก) → 0 เสมอใน build 520; redeem/release path เป็น backend
+    //   พร้อม (517b-3 เปิด UI). creditUsed>0 = เส้นทาง redeem-first + release (ยังไม่ active runtime จนเปิด UI).
+    const creditUsed = 0;
     const proofUrl = window._pendingProofUrl || "";
     window._pendingProofUrl = "";
     // ★ ใช้ลูกค้าที่เลือก (ถ้ามี)
@@ -1221,21 +1282,46 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
       vat_rate: vatCalc.rate,
       subtotal_before_vat: vatCalc.enabled ? round2(vatCalc.subtotal) : null,
       note: noteParts.join(" • "),
-      created_by: state.currentUser?.id || null
+      created_by: state.currentUser?.id || null,
+      // ★ Phase 520: idempotency key (column + uq_sales_checkout_key) + ยอดเครดิตที่ใช้ (0 ใน 520 UI ปิด)
+      checkout_key: checkoutKey,
+      credit_used_amount: round2(creditUsed)
     };
     // ★ ถ้ามี customer_id field ในตาราง — ใส่ด้วย (รองรับ schema ที่ extend แล้ว)
     if (_posCustomer?.id) salePayload.customer_id = _posCustomer.id;
 
+    // ★ Phase 520 (#1e): ใช้เครดิต → redeem "ก่อน" insert sale (source_key = checkoutKey, idempotent ต่อ intent).
+    //   UI ปิดใน 520 → creditUsed=0 → ไม่ทำงาน (backend พร้อม, 517b-3 เปิด UI). redeem fail → abort ไม่สร้างบิล (fail-closed).
+    let _creditRedeemed = false;
+    if (creditUsed > 0 && _posCustomer?.id) {
+      const rd = await window._appRedeemCheckoutCredit?.({ customerId: _posCustomer.id, sourceKey: checkoutKey, amount: creditUsed, note: "ใช้เครดิตบิล " + orderNo });
+      if (!rd?.ok) {
+        window.App?.showToast?.(rd?.overuse ? "เครดิตคงเหลือไม่พอ — ลดจำนวนเครดิต" : "ใช้เครดิตไม่สำเร็จ ลองใหม่", "error");
+        return;  // ไม่สร้างบิล / ไม่ post JV
+      }
+      _creditRedeemed = true;
+    }
+
     let saleRes = await xhrPostPOS("sales", salePayload, true);
-    // ★ Phase 398: defensive fallback — กัน checkout พังถ้า column gross_profit ยังไม่มีใน DB (ตัด field แล้ว retry)
-    if (!saleRes.ok && /column|gross_profit/i.test(saleRes.error || "")) {
-      const { gross_profit: _gp, ...legacy } = salePayload;
-      console.warn("[POS] sales gross_profit fallback (column missing)");
+    // ★ Phase 398/520: defensive fallback — กัน checkout พังถ้า column (gross_profit/checkout_key/credit_used_amount)
+    //   ยังไม่มีใน DB (owner ยังไม่รัน SQL 520) → ตัด optional fields แล้ว retry (degrade = ไม่มี idempotency จน SQL ลง)
+    if (!saleRes.ok && /column|gross_profit|checkout_key|credit_used_amount/i.test(saleRes.error || "")) {
+      const { gross_profit: _gp, checkout_key: _ck, credit_used_amount: _cu, ...legacy } = salePayload;
+      console.warn("[POS] sales optional-column fallback (column missing — รัน supabase-phase520?)");
       saleRes = await xhrPostPOS("sales", legacy, true);
     }
     if (!saleRes.ok) {
+      // ★ Phase 520 (#1d): duplicate checkout_key = re-submit ของ intent เดิม (บิลถูกสร้างไปแล้ว) → replay
+      //   ไม่ insert 2 / ไม่ redeem ซ้ำ (redeem idempotent อยู่แล้ว) / ไม่ post JV / ไม่ตัด stock ซ้ำ → เปิดใบเสร็จเดิม.
+      if (/23505|uq_sales_checkout_key|duplicate key/i.test(saleRes.error || "")) {
+        console.warn("[POS] duplicate checkout_key — replay existing sale:", checkoutKey);
+        await _openExistingSaleByCheckoutKey(checkoutKey, ctx);
+        _checkoutKey = null;  // intent จบ (บิลมีแล้ว)
+        return;
+      }
       window.App?.showToast?.("บันทึกการขายไม่สำเร็จ: " + (saleRes.error || "unknown"));
-      window.App?.showToast?.(saleRes.error || "บันทึกไม่สำเร็จ");
+      // ★ Phase 520 (#2/#3): redeem แล้วแต่ insert ล้มจริง → release คืนเครดิต (idempotent); ล้ม = log ไม่เงียบ
+      if (_creditRedeemed) await _releaseAndLog(checkoutKey, _posCustomer?.id, creditUsed, "sale-insert-failed");
       return;
     }
 
@@ -1325,8 +1411,12 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
           softDeleteOk = rD.ok;
           if (!rD.ok) console.error("[POS] rollback: soft-delete PATCH failed:", rD.status);
         } catch (e) { console.error("[POS] rollback: soft-delete threw:", e?.message || e); }
+        // ★ Phase 520 (#2/#3): บิลถูก rollback (soft-delete) → ถ้าเคย redeem เครดิต ต้อง release คืน (idempotent);
+        //   release ล้ม = log ไม่เงียบ. (UI ปิดใน 520 → creditUsed=0 → ไม่ทำงาน; พร้อมสำหรับ 517b-3.)
+        let creditReleaseOk = true;
+        if (_creditRedeemed) creditReleaseOk = await _releaseAndLog(checkoutKey, _posCustomer?.id, creditUsed, "items-stock-hard-fail");
         // 3) แจ้งผล — "ห้าม" ประกาศสำเร็จ. ไม่ post JV / ไม่ clear cart (ให้ลองใหม่) / ไม่เปิดใบเสร็จ.
-        const needsManualReview = !revertOk || !softDeleteOk;
+        const needsManualReview = !revertOk || !softDeleteOk || !creditReleaseOk;
         if (needsManualReview) {
           window.App?.showToast?.(`🛑 บิล ${orderNo} บันทึกไม่สมบูรณ์ และยกเลิก/คืนสต็อกไม่สำเร็จ — โปรดแจ้ง admin ตรวจสอบบิลนี้ทันที (CHECKOUT_FAILED:${checkoutKey})`, "error");
         } else {
@@ -1401,6 +1491,7 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
     quickPayAmount = 0;
     posView = "home";
     _posCustomer = null; // เคลียร์ลูกค้าหลังจบบิล
+    _checkoutKey = null; // ★ Phase 520: ขายสำเร็จ → intent จบ → บิลถัดไปได้ key ใหม่
     /* eslint-enable require-atomic-updates */
 
     // ★ Phase 517b-0: gate ข้อความ — JV failed → ไม่ประกาศ "เรียบร้อย" (บิล commit แล้ว ไม่ rollback)

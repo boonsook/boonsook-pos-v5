@@ -22,7 +22,7 @@ const pos = fs.readFileSync(path.resolve("modules/pos.js"), "utf8");
 function doCheckoutBody() {
   const i = pos.indexOf("async function doCheckout(");
   assert.ok(i >= 0, "doCheckout must exist");
-  return pos.slice(i, i + 18000);
+  return pos.slice(i, i + 20500);
 }
 const cb = doCheckoutBody();
 
@@ -32,7 +32,9 @@ test("checkout builds a stable idempotency key before the sale insert (not Date.
   const saleIdx = cb.indexOf('xhrPostPOS("sales"');
   assert.ok(keyIdx > -1, "checkoutKey must be defined");
   assert.ok(saleIdx > -1 && keyIdx < saleIdx, "checkoutKey must be created BEFORE the sales insert");
-  assert.match(cb, /crypto\?\.randomUUID\?\.\(\)/, "key source must be crypto.randomUUID (not Date.now alone)");
+  // Phase 520: key source moved to per-intent _ensureCheckoutKey() (crypto.randomUUID at module level)
+  assert.match(cb, /const checkoutKey = _ensureCheckoutKey\(\);/, "key must come from per-intent _ensureCheckoutKey()");
+  assert.match(pos, /function _ensureCheckoutKey\(\)[\s\S]*?crypto\?\.randomUUID\?\.\(\)/, "key generator must use crypto.randomUUID (not Date.now alone)");
   assert.match(cb, /noteParts\.push\("CHECKOUT_KEY:"\s*\+\s*checkoutKey\)/, "checkoutKey must be embedded in the sale note for trace");
 });
 

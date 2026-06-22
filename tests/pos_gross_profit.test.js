@@ -43,8 +43,9 @@ test("rounds to 2 decimals (no float drift into DB)", () => {
 test("doCheckout writes gross_profit and has a column-missing fallback", () => {
   assert.match(src, /gross_profit:\s*_grossProfit/, "salePayload includes gross_profit");
   assert.match(src, /_computeGrossProfit\(state\.cart, state\.products, _saleSubtotal\)/, "computed from cart/products/subtotal");
-  assert.match(src, /gross_profit:\s*_gp,\s*\.\.\.legacy/, "fallback strips gross_profit before retry");
-  assert.match(src, /\/column\|gross_profit\/i\.test\(saleRes\.error/, "fallback triggers on a column error");
+  // Phase 520: fallback broadened to also strip checkout_key/credit_used_amount on column-missing
+  assert.match(src, /gross_profit:\s*_gp,[\s\S]*?\.\.\.legacy/, "fallback strips gross_profit before retry");
+  assert.match(src, /\/column\|gross_profit[^/]*\/i\.test\(saleRes\.error/, "fallback triggers on a column error");
 });
 
 // ── must not alter the existing money formulas ────────────────────────────────
