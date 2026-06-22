@@ -1121,6 +1121,10 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
     }
 
     const orderNo = "BSK-" + Date.now();
+    // ★ Phase 517b-0: stable idempotency key ต่อ 1 checkout attempt (ไม่ใช้ Date.now() เป็น source เดียว).
+    //   crypto.randomUUID = secure-context (https/localhost) ✓ + fallback กันเครื่องเก่า. single-flight
+    //   (_posCheckoutGuard) กัน double-click อยู่แล้ว → 1 attempt = 1 key. ใช้ trace/rollback + future redeem (517b-1).
+    const checkoutKey = (globalThis.crypto?.randomUUID?.() || (orderNo + "-" + Math.random().toString(36).slice(2, 10)));
     const proofUrl = window._pendingProofUrl || "";
     window._pendingProofUrl = "";
     // ★ ใช้ลูกค้าที่เลือก (ถ้ามี)
@@ -1164,6 +1168,9 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
     // ★ Phase 398: gross profit = subtotal (ex-VAT) − COGS · null ถ้าตะกร้าว่าง (quick-pay)
     const _saleSubtotal = round2(vatCalc.enabled ? vatCalc.subtotal : amount);  // = subtotal เดิม (ไม่เปลี่ยนค่า)
     const _grossProfit = _computeGrossProfit(state.cart, state.products, _saleSubtotal);
+
+    // ★ Phase 517b-0: ฝัง idempotency key ใน note (trace/debug + future replay) — ท้ายสุด ไม่ชน BANK_COA regex
+    noteParts.push("CHECKOUT_KEY:" + checkoutKey);
 
     // Phase 89.2: round2 ทุก money field — กัน 0.30000000000000004 เข้า DB
     const salePayload = {
@@ -1257,27 +1264,66 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
           stockFailedItems.push((item.name || `#${item.id}`) + " (error)");
         }
       }
-      // ★ audit S2: บิลบันทึกแล้วแต่บางรายการขาด → เตือนชัด (เดิมแค่ console.error → COGS/สต็อก/รายงานเพี้ยนเงียบ)
-      if (failedItems.length > 0) {
-        console.error("[POS] sale_items incomplete:", { orderNo, saleId, failedItems });
-        window.App?.showToast?.(`⚠️ บิล ${orderNo}: บันทึกรายการสินค้าไม่สำเร็จ ${failedItems.length} รายการ (${failedItems.slice(0, 3).join(", ")}${failedItems.length > 3 ? "…" : ""}) — โปรดตรวจ/เพิ่มในบิลนี้เอง`);
-      }
-      // ★ Phase 469: ตัดสต็อกไม่ครบ → ติดธง "[สต็อกไม่ครบ]" บนบิล + เตือนชัด (บิลออกแล้ว ไม่บล็อก — owner เลือก warn+flag)
-      if (stockFailedItems.length > 0) {
-        console.error("[POS] stock deduct incomplete:", { orderNo, saleId, stockFailedItems });
-        window.App?.showToast?.(`⚠️ บิล ${orderNo}: ตัดสต็อกไม่ครบ ${stockFailedItems.length} รายการ (${stockFailedItems.slice(0, 2).join(", ")}${stockFailedItems.length > 2 ? "…" : ""}) — บิลออกแล้ว ติดธงไว้ โปรดตรวจสต็อก/คลัง`);
+      // ★ Phase 517b-0: HARD FAIL — sale_items insert หรือ stock deduct ล้ม = checkout ไม่สมบูรณ์.
+      //   เดิม (audit S2 / Phase 469) แค่ toast/ติดธง "[สต็อกไม่ครบ]" แล้วประกาศสำเร็จ → บิลขาดของ/COGS เพี้ยน
+      //   และ (เตรียม 517b) จะเป็น "ขายสำเร็จแต่ล้าง 2180 ไม่สำเร็จ". เปลี่ยนเป็น rollback ด้วยกลไกเดิม:
+      //     1) คืนสต็อกเฉพาะที่ตัดจริง = _appRevertStockForSale (qty-aware/atomic-claim Phase 499/483 — ไม่เขียน path ใหม่)
+      //     2) soft-delete บิล = note marker [ลบแล้ว] ที่ visibleSalesForRole ซ่อนอยู่แล้ว (+ CHECKOUT_FAILED:<key> trace)
+      //   → ไม่ post JV · ไม่ clear cart · ไม่เปิดใบเสร็จ · ไม่ประกาศสำเร็จ. revert/soft-delete ล้ม = needsManualReview.
+      //   precheck (L1093) กัน oversell ส่วนใหญ่ไปแล้ว → path นี้ = edge (CAS race / RLS / network).
+      if (failedItems.length > 0 || stockFailedItems.length > 0) {
+        console.error("[POS] checkout incomplete — rolling back:", { orderNo, saleId, checkoutKey, failedItems, stockFailedItems });
+        // 1) คืนสต็อกที่ตัดไปแล้ว (helper เดิม — iterate sale_items ∩ stock_movements ของ orderNo, cap ที่ตัดจริง)
+        let revertOk = false;
         try {
-          const cfgF = window.SUPABASE_CONFIG;
-          const tkF = window._sbAccessToken || cfgF.anonKey;
-          const _flagNote = (salePayload.note ? salePayload.note + " " : "") + "[สต็อกไม่ครบ]";
-          const rF = await fetch(cfgF.url + "/rest/v1/sales?id=eq." + saleId, {
+          const rv = await window._appRevertStockForSale?.({ saleId, orderNo });
+          revertOk = !!rv?.ok;
+          if (!revertOk) console.error("[POS] rollback: revert stock failed:", rv?.error || rv);
+        } catch (e) { console.error("[POS] rollback: revert stock threw:", e?.message || e); }
+        // 2) soft-delete บิล (marker เดิม visibleSalesForRole ซ่อน + trace key)
+        let softDeleteOk = false;
+        try {
+          const cfgD = window.SUPABASE_CONFIG;
+          const tkD = window._sbAccessToken || cfgD.anonKey;
+          const _delNote = (salePayload.note ? salePayload.note + " " : "") + "[ลบแล้ว] CHECKOUT_FAILED:" + checkoutKey;
+          const rD = await fetch(cfgD.url + "/rest/v1/sales?id=eq." + saleId, {
             method: "PATCH",
-            headers: { "apikey": cfgF.anonKey, "Authorization": "Bearer " + tkF, "Content-Type": "application/json", "Prefer": "return=minimal" },
-            body: JSON.stringify({ note: _flagNote })
+            headers: { "apikey": cfgD.anonKey, "Authorization": "Bearer " + tkD, "Content-Type": "application/json", "Prefer": "return=minimal" },
+            body: JSON.stringify({ note: _delNote })
           });
-          if (!rF.ok) console.warn("[POS] flag note PATCH failed:", rF.status);
-        } catch(e) { console.warn("[POS] flag note PATCH threw:", e?.message || e); }
+          softDeleteOk = rD.ok;
+          if (!rD.ok) console.error("[POS] rollback: soft-delete PATCH failed:", rD.status);
+        } catch (e) { console.error("[POS] rollback: soft-delete threw:", e?.message || e); }
+        // 3) แจ้งผล — "ห้าม" ประกาศสำเร็จ. ไม่ post JV / ไม่ clear cart (ให้ลองใหม่) / ไม่เปิดใบเสร็จ.
+        const needsManualReview = !revertOk || !softDeleteOk;
+        if (needsManualReview) {
+          window.App?.showToast?.(`🛑 บิล ${orderNo} บันทึกไม่สมบูรณ์ และยกเลิก/คืนสต็อกไม่สำเร็จ — โปรดแจ้ง admin ตรวจสอบบิลนี้ทันที (CHECKOUT_FAILED:${checkoutKey})`, "error");
+        } else {
+          window.App?.showToast?.(`⚠️ บิล ${orderNo} บันทึกไม่สมบูรณ์ — ยกเลิกบิล + คืนสต็อกแล้ว โปรดลองใหม่`, "warn");
+        }
+        try { if (window.App?.loadAllData) await window.App.loadAllData(); } catch (_e) { /* best-effort refresh */ }
+        return { ok: false, needsManualReview, saleId, orderNo, checkoutKey };
       }
+    }
+
+    // ★ Phase 517b-0: await auto-post JV (เดิม fire-and-forget) — gate ข้อความสำเร็จด้วยผลบัญชี.
+    //   ถึงตรงนี้ = items/stock ครบ (hard-fail return ไปแล้ว). JV failed/missing-mapping/lines-insert-failed →
+    //   บิล commit แล้ว "ห้าม" rollback (สต็อกตัดถูก) → ขายถูกบันทึก แต่แจ้งว่าลงบัญชีไม่สำเร็จ (ไม่ประกาศ "เรียบร้อย").
+    //   posted/skipped (pre-effective ก่อน 1 ก.ค.) = ปกติ. ไม่แตะ mapping/VAT/2180 — แค่เปลี่ยน fire-and-forget → await.
+    let _jvWarn = false;
+    try {
+      const postRes = await postJournalForSale({
+        ...salePayload,
+        id: saleId,
+        created_at: new Date().toISOString()
+      }, { detailed: true });
+      if (postRes?.status === "failed") {
+        _jvWarn = true;
+        console.warn("[pos] auto-post JV failed:", postRes.reason, postRes.error || "");
+      }
+    } catch (e) {
+      _jvWarn = true;
+      console.warn("[pos] auto-post JV threw:", e?.message);
     }
 
     // โหลดใบเสร็จ (ใช้ fetch + timeout ไม่ใช้ Supabase JS ที่ค้างบนมือถือ)
@@ -1317,28 +1363,13 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
     _posCustomer = null; // เคลียร์ลูกค้าหลังจบบิล
     /* eslint-enable require-atomic-updates */
 
-    window.App?.showToast?.("บันทึกการขายเรียบร้อย ✅");
+    // ★ Phase 517b-0: gate ข้อความ — JV failed → ไม่ประกาศ "เรียบร้อย" (บิล commit แล้ว ไม่ rollback)
+    window.App?.showToast?.(
+      _jvWarn ? "ขายถูกบันทึกแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจสมุดรายวัน/Backfill" : "บันทึกการขายเรียบร้อย ✅",
+      _jvWarn ? "warn" : undefined
+    );
     try { openReceiptDrawer(); } catch (e) { console.warn("openReceiptDrawer error:", e); }
     try { if (window.App?.loadAllData) await window.App.loadAllData(); } catch (e) { console.warn("[pos] loadAllData after checkout failed:", e); }
-
-    // ★ Phase 88.1a — auto-post JV (background, ไม่ block UX)
-    // ★ Phase 89.1 FIX: spread salePayload เข้าไป → ส่ง note (BANK_COA) + vat_amount/rate/subtotal_before_vat
-    //   เดิม pass แค่ 6 fields → Phase 88.20 (bank picker) + 88.21 (VAT split) พังเงียบ
-    //   เพราะ postJournalForSale อ่าน sale.note (regex BANK_COA) + sale.vat_amount ไม่เจอ
-    void (async () => {
-      const postRes = await postJournalForSale({
-        ...salePayload,
-        id: saleId,
-        created_at: new Date().toISOString()
-      }, { detailed: true });
-      if (postRes?.status === "failed") {
-        console.warn("[pos] auto-post JV failed:", postRes.reason, postRes.error || "");
-        window.App?.showToast?.("บันทึกขายแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจสมุดรายวัน/Backfill", "warn");
-      }
-    })().catch(e => {
-      console.warn("[pos] auto-post JV failed:", e?.message);
-      window.App?.showToast?.("บันทึกขายแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจสมุดรายวัน/Backfill", "warn");
-    });
 
     // ★ Phase 91.1 — auto-earn loyalty points for the customer (fire-and-forget).
     // Silent skip when: no customer selected / loyalty system off / rate not configured.

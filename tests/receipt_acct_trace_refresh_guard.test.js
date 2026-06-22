@@ -68,14 +68,17 @@ test("main.js _fillReceiptAcctTrace: display-only (ไม่ write/post/ตั�
     "badge trace ต้องเป็น display-only — ห้าม write/post/ตัดสต็อก");
 });
 
-test("pos.js: checkout auto-post stays background but uses detailed failure visibility", () => {
-  const idx = posJs.indexOf("postJournalForSale({");
-  assert.ok(idx >= 0, "doCheckout ต้องเรียก postJournalForSale");
-  const region = posJs.slice(idx - 120, idx + 900);
-  assert.match(region, /void\s*\(\s*async\s*\(\)\s*=>/, "auto-post must remain a background task, not block checkout");
-  assert.match(region, /postJournalForSale\([\s\S]+,\s*\{\s*detailed:\s*true\s*\}/, "auto-post must request detailed result");
-  assert.match(region, /postRes\?\.status\s*===\s*["']failed["']/, "failed JV result must be detected");
-  assert.match(region, /ลงบัญชีอัตโนมัติไม่สำเร็จ/, "failed JV result must warn the user");
-  assert.ok(!region.includes("_appRefreshReceiptAcctTrace") && !region.includes("ReceiptAcctTrace"),
+test("pos.js: checkout auto-post is AWAITED (Phase 517b-0) with detailed failure visibility", () => {
+  // Phase 517b-0: JV post เปลี่ยนจาก void(async) background → await — gate ข้อความสำเร็จด้วยผลบัญชี
+  //   (post ก่อนเปิดใบเสร็จ → badge มีโอกาสเจอ JV ทันที; retry-poll ใน main.js ยังเป็น backstop).
+  const i = posJs.indexOf("async function doCheckout(");
+  assert.ok(i >= 0, "doCheckout ต้องมี");
+  const body = posJs.slice(i, i + 17000);
+  assert.match(body, /await\s+postJournalForSale\(\s*\{[\s\S]+?\},\s*\{\s*detailed:\s*true\s*\}\s*\)/, "auto-post must be AWAITED with detailed result");
+  assert.ok(!/void\s*\(\s*async[\s\S]{0,120}postJournalForSale/.test(body), "sale JV must NOT be fire-and-forget background");
+  assert.match(body, /postRes\?\.status\s*===\s*["']failed["']/, "failed JV result must be detected");
+  assert.match(body, /_jvWarn/, "failed JV must gate the success message via a flag");
+  assert.match(body, /ลงบัญชีอัตโนมัติไม่สำเร็จ/, "failed JV result must warn the user");
+  assert.ok(!body.includes("_appRefreshReceiptAcctTrace") && !body.includes("ReceiptAcctTrace"),
     "checkout flow (money path) ต้องไม่มี hook ของ badge — fix เป็น display-only ใน main.js");
 });

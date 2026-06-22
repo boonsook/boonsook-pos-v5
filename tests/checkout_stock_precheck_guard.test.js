@@ -37,7 +37,7 @@ test("precheck sits INSIDE the try so its early-return hits the button-reset fin
   // Phase 476: the precheck used to live BEFORE the try, so its `return` on oversell skipped the
   // finally that re-enables the confirm buttons → the button hung on "⏳ กำลังบันทึก..." forever.
   const i = pos.indexOf("async function doCheckout(");
-  const body = pos.slice(i, i + 18000); // wide enough to include the button-reset finally (Phase 480 grew the precheck)
+  const body = pos.slice(i, i + 20000); // wide enough to include the button-reset finally (Phase 480 precheck + 517b-0 hard-fail/await JV grew doCheckout)
   const tryIdx = body.indexOf("try {");
   const shortIdx = body.indexOf("_short.length > 0");
   const resetIdx = body.indexOf("reset UI buttons");
