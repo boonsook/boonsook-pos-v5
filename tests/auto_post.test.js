@@ -340,9 +340,9 @@ test("source: vatAmount=0 ยังใช้ 2-line path เดิม (Dr=Cr=amo
   const fs = await import("node:fs");
   const path = await import("node:path");
   const src = fs.readFileSync(path.resolve("modules/accounting/auto_post.js"), "utf8");
-  // 2-line sale path เดิม (ไม่มี VAT) ยังอยู่ — ใช้ marker ที่ stable (ไม่พึ่ง multi-space)
-  assert.match(src, /ไม่มี VAT — JV ปกติ 2 บรรทัด/, "comment 2-line path เดิมต้องคงอยู่");
-  assert.match(src, /debit: amount, credit: 0,/, "non-VAT Dr line = amount ยังอยู่");
+  // non-VAT sale path ยังอยู่ — Phase 517b-3: ฝั่ง debit เป็น buildSaleDebitLines (credit_used=0 → 1 บรรทัด=amount)
+  assert.match(src, /ไม่มี VAT — JV ปกติ/, "comment non-VAT path เดิมต้องคงอยู่");
+  assert.match(src, /\.\.\.buildSaleDebitLines\(debitAccount, amount, creditUsed/, "non-VAT Dr ใช้ buildSaleDebitLines (cu=0 → Dr=amount)");
   assert.match(src, /credit: amount, description: desc/, "non-VAT Cr line = amount ยังอยู่");
   // refund: Dr 4110 / Cr cash — ไม่ถูกแตะ (2-line, balanced)
   assert.match(src, /Dr 4110/, "refund mapping doc comment ยังอยู่");

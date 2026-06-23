@@ -4,7 +4,7 @@ function moneyNum(n){return new Intl.NumberFormat("th-TH",{minimumFractionDigits
 
 import { escHtml, visibleSalesForRole, isAdminProfile, todayBkk } from "./utils.js";
 // Phase 88.1a: auto-post JV หลังบันทึกการขาย (background, non-blocking)
-import { postJournalForSale } from "./accounting/auto_post.js";
+import { postJournalForSale, _isAfterEffective } from "./accounting/auto_post.js";
 // Phase 89.42: single-flight guard for POS checkout (replaces brittle window._checkoutRunning manual flag)
 import { createInflightGuard } from "./_inflight_guard.js";
 import { pickAutoWarehouseStock } from "./warehouse_pick.js";
@@ -150,6 +150,22 @@ function _ensureCheckoutKey() {
   if (!_checkoutKey) _checkoutKey = (globalThis.crypto?.randomUUID?.() || ("ck-" + Date.now() + "-" + Math.random().toString(36).slice(2, 10)));
   return _checkoutKey;
 }
+// ★ Phase 517b-3: ใช้เครดิตลูกค้า 2180 หักบิลใหม่. _creditUsed = ยอดที่เลือกใช้ (0 = ไม่ใช้); _posCustomerCredit
+//   = balance ที่ fetch มา (cache ต่อลูกค้า กัน refetch ทุก re-render); reset ทั้งหมดตอนสำเร็จ/clearPosState/renderPosPage.
+let _creditUsed = 0;
+let _posCustomerCredit = 0;
+let _creditFetchedFor = null;
+async function _fetchCustomerCredit(customerId) {
+  try {
+    const cfg = window.SUPABASE_CONFIG;
+    const tk = window._sbAccessToken || cfg.anonKey;
+    const r = await fetch(cfg.url + "/rest/v1/customer_credit_ledger?customer_id=eq." + encodeURIComponent(customerId) + "&select=amount", { headers: { apikey: cfg.anonKey, Authorization: "Bearer " + tk } });
+    const rows = await r.json().catch(() => []);
+    if (!Array.isArray(rows)) return 0;
+    return Math.max(rows.reduce((s, x) => s + Number(x.amount || 0), 0), 0);
+  } catch { return 0; }
+}
+function _resetCreditState() { _creditUsed = 0; _posCustomerCredit = 0; _creditFetchedFor = null; }
 
 // Phase 45.10 (B5-5): expose clear ให้ logout เรียก (กัน cross-login leak)
 export function clearPosState() {
@@ -160,6 +176,7 @@ export function clearPosState() {
   quickPayAmount = 0;
   pendingPaidAmount = 0;
   _checkoutKey = null;  // Phase 520: ล้าง intent key (logout / cross-login)
+  _resetCreditState();  // Phase 517b-3
 }
 
 export function renderPosPage({ state, addToCart, changeQty, removeFromCart, openProductDrawer, checkout, openReceiptDrawer }) {
@@ -168,6 +185,7 @@ export function renderPosPage({ state, addToCart, changeQty, removeFromCart, ope
   numpadValue = "";
   quickPayAmount = 0;
   _checkoutKey = null;  // Phase 520: เข้าหน้า POS ใหม่ = intent ใหม่
+  _resetCreditState();  // Phase 517b-3
   renderPosView(ctx);
 }
 
@@ -418,6 +436,24 @@ function renderPosView(ctx) {
     _ensureCheckoutKey();  // Phase 520: intent เริ่มที่จอเลือกวิธีจ่าย (idempotent — back-nav ไม่ regen)
     const amount = quickPayAmount || cartTotal;
 
+    // ★ Phase 517b-3: ดึงเครดิตคงเหลือลูกค้า (ครั้งเดียวต่อลูกค้า) แล้ว re-render เมื่อมาถึง
+    if (_posCustomer?.id && _creditFetchedFor !== _posCustomer.id) {
+      _creditFetchedFor = _posCustomer.id;
+      _fetchCustomerCredit(_posCustomer.id).then(bal => {
+        _posCustomerCredit = bal;
+        if (posView === "payment-select") renderPosView(ctx);
+      });
+    }
+    const _maxCredit = round2(Math.min(_posCustomerCredit, round2(amount)));
+    if (_creditUsed > _maxCredit) _creditUsed = _maxCredit;  // clamp (ยอดเปลี่ยน/เครดิตน้อยกว่า)
+    const _payable = round2(Math.max(round2(amount) - _creditUsed, 0));
+    // ★ Phase 517b-3 B1 fix: เปิดใช้เครดิตเฉพาะตั้งแต่ ACCOUNTING_EFFECTIVE_DATE (JV active พร้อมกัน)
+    //   ก่อน 1 ก.ค. = JV Dr 2180 skip (pre-effective) → ถ้า redeem จะ ledger 2180 ≠ งบ 2180 ถาวร → ห้ามเปิด.
+    //   ใช้ helper เดียวกับ JV gate (_isAfterEffective) = single source of truth.
+    const _creditEnabled = _isAfterEffective(todayBkk());
+    const _showCredit = !!(_posCustomer?.id && _posCustomerCredit > 0) && _creditEnabled;
+    const _fullCredit = _showCredit && _payable <= 0 && _creditUsed > 0;
+
     el.innerHTML = `
       <div class="pos-subpage-header">
         <button class="btn light pos-back-btn" id="posBack">←</button>
@@ -426,11 +462,28 @@ function renderPosView(ctx) {
       </div>
 
       <div class="pos-pay-amount-box">
-        <div class="pos-pay-label">ยอดชำระ</div>
-        <div class="pos-pay-total">${moneyNum(amount)}</div>
+        <div class="pos-pay-label">${_creditUsed > 0 ? 'เหลือจ่ายจริง' : 'ยอดชำระ'}</div>
+        <div class="pos-pay-total">${moneyNum(_payable)}</div>
         <div class="pos-pay-label">บาท</div>
       </div>
 
+      ${_showCredit ? `
+      <div style="margin:0 16px 12px;padding:12px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <span style="font-weight:600;color:#0369a1">🎁 เครดิตคงเหลือ ฿${moneyNum(_posCustomerCredit)}</span>
+          <button id="posCreditMax" class="btn light" style="padding:4px 12px;font-size:13px">ใช้เต็ม</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:13px;color:#64748b;white-space:nowrap">ใช้เครดิต ฿</span>
+          <input id="posCreditInput" type="number" inputmode="decimal" min="0" max="${_maxCredit}" value="${_creditUsed || ''}" placeholder="0"
+            style="flex:1;padding:8px;border:1px solid #cbd5e1;border-radius:8px;text-align:right;font-size:15px;min-width:0" />
+        </div>
+      </div>` : ''}
+
+      ${_fullCredit ? `
+      <div style="padding:0 16px">
+        <button id="posCreditFullConfirm" class="pos-collect-btn" style="width:100%">ยืนยัน — ใช้เครดิตเต็มจำนวน ฿${moneyNum(_creditUsed)}</button>
+      </div>` : `
       <div class="pos-pay-methods">
         <button class="pos-pay-method-btn" data-pay-method="เงินสด">
           <span class="pos-pay-method-icon">💵</span>
@@ -452,8 +505,22 @@ function renderPosView(ctx) {
           <span>QR พร้อมเพย์</span>
           <span class="pos-pay-arrow">›</span>
         </button>
-      </div>
+      </div>`}
     `;
+
+    // ★ Phase 517b-3: credit input + ใช้เต็ม + full-credit confirm
+    const _creditInput = document.getElementById("posCreditInput");
+    if (_creditInput) _creditInput.addEventListener("change", () => {
+      _creditUsed = round2(Math.max(0, Math.min(round2(Number(_creditInput.value || 0)), _maxCredit)));
+      renderPosView(ctx);
+    }, { signal });
+    document.getElementById("posCreditMax")?.addEventListener("click", () => {
+      _creditUsed = _maxCredit; renderPosView(ctx);
+    }, { signal });
+    document.getElementById("posCreditFullConfirm")?.addEventListener("click", () => {
+      selectedPaymentMethod = "เงินสด"; pendingPaidAmount = 0;
+      posView = "confirm-proof"; renderPosView(ctx);
+    }, { signal });
 
     document.getElementById("posBack")?.addEventListener("click", () => {
       // กลับไป numpad ถ้ามาจาก quick-pay, กลับ products ถ้ามาจากตะกร้า
@@ -474,8 +541,8 @@ function renderPosView(ctx) {
       } else if (selectedPaymentMethod === "QR พร้อมเพย์") {
         posView = "transfer-qr"; renderPosView(ctx);
       } else {
-        // บัตรเครดิต → ไปหน้ายืนยัน+แนบสลิป
-        pendingPaidAmount = amount;
+        // บัตรเครดิต → ไปหน้ายืนยัน+แนบสลิป (Phase 517b-3: หักเครดิตที่ใช้)
+        pendingPaidAmount = round2(Math.max(round2(amount) - _creditUsed, 0));
         posView = "confirm-proof"; renderPosView(ctx);
       }
     }, { signal }));
@@ -489,9 +556,12 @@ function renderPosView(ctx) {
     // ★ Phase 88.21 fix: ในโหมด VAT exclusive ลูกค้าต้องจ่าย = baseAmount + VAT
     const cashVatCalc = calcVAT(baseAmount, state.paymentInfo);
     const amount = (cashVatCalc.enabled && cashVatCalc.mode === "exclusive") ? cashVatCalc.total : baseAmount;
+    // ★ Phase 517b-3: เงินสดที่ต้องเก็บจริง = ยอด − เครดิตที่ใช้ (_creditUsed clamp ที่ payment-select แล้ว)
+    const _creditOnBill = round2(Math.min(_creditUsed, round2(amount)));
+    const payable = round2(Math.max(amount - _creditOnBill, 0));
     const displayVal = numpadValue || "0";
     const paid = Number(numpadValue || 0);
-    const change = Math.max(paid - amount, 0);
+    const change = Math.max(paid - payable, 0);
 
     el.innerHTML = `
       <div class="pos-subpage-header">
@@ -503,8 +573,8 @@ function renderPosView(ctx) {
       <div class="pos-numpad-display">
         <div class="pos-pay-label">รับเงินมา</div>
         <div class="pos-numpad-value" id="numpadDisplay">${displayVal}</div>
-        <div class="pos-pay-label">จากยอดทั้งหมด ${moneyNum(amount)} บาท${cashVatCalc.enabled && cashVatCalc.mode === "exclusive" ? ` <span style="color:var(--primary2);font-size:11px">(${moneyNum(baseAmount)} + VAT ${moneyNum(cashVatCalc.vat)})</span>` : ''}</div>
-        ${paid >= amount && paid > 0 ? `<div class="pos-change-display">เงินทอน ฿${moneyNum(change)}</div>` : ''}
+        <div class="pos-pay-label">ต้องเก็บ ${moneyNum(payable)} บาท${_creditOnBill > 0 ? ` <span style="color:#0369a1;font-size:11px">(ยอด ${moneyNum(amount)} − เครดิต ${moneyNum(_creditOnBill)})</span>` : (cashVatCalc.enabled && cashVatCalc.mode === "exclusive" ? ` <span style="color:var(--primary2);font-size:11px">(${moneyNum(baseAmount)} + VAT ${moneyNum(cashVatCalc.vat)})</span>` : '')}</div>
+        ${paid >= payable && paid > 0 ? `<div class="pos-change-display">เงินทอน ฿${moneyNum(change)}</div>` : ''}
       </div>
 
       ${renderNumpad()}
@@ -517,7 +587,7 @@ function renderPosView(ctx) {
       </div>
 
       <div style="padding:0 16px 16px">
-        <button id="posCashConfirmBtn" class="pos-collect-btn ${paid >= amount ? '' : 'disabled'}" ${paid >= amount ? '' : 'disabled'}>เสร็จสิ้น</button>
+        <button id="posCashConfirmBtn" class="pos-collect-btn ${paid >= payable ? '' : 'disabled'}" ${paid >= payable ? '' : 'disabled'}>เสร็จสิ้น</button>
       </div>
     `;
 
@@ -529,14 +599,14 @@ function renderPosView(ctx) {
     // Quick amounts
     document.querySelectorAll("[data-quick-amt]").forEach(btn => btn.addEventListener("click", () => {
       const v = btn.dataset.quickAmt;
-      if (v === "exact") numpadValue = String(amount);
+      if (v === "exact") numpadValue = String(payable);
       // Phase 89.2: round2 กัน float drift (0.1+0.2 = 0.300000...004)
       else numpadValue = String(round2(Number(numpadValue||0) + Number(v)));
       renderPosView(ctx); // re-render to update change
     }, { signal }));
 
     document.getElementById("posCashConfirmBtn")?.addEventListener("click", () => {
-      if (paid < amount) return;
+      if (paid < payable) return;
       pendingPaidAmount = paid;
       posView = "confirm-proof"; renderPosView(ctx);
     }, { signal });
@@ -547,6 +617,8 @@ function renderPosView(ctx) {
   // ═══════════════════════════════════════════════════════
   } else if (posView === "transfer-qr") {
     const amount = quickPayAmount || cartTotal;
+    // ★ Phase 517b-3: ยอดโอนจริง = ยอด − เครดิตที่ใช้
+    const _tPayable = round2(Math.max(round2(amount) - _creditUsed, 0));
     // Phase 88.20: ดึง banks list — ถ้ามีหลายบัญชี → dropdown ให้เลือก
     const allBanks = state.paymentInfo?.banks || [];
     const validBanks = allBanks.filter(b => b.bankName || b.bankAccount);
@@ -590,7 +662,7 @@ function renderPosView(ctx) {
           </div>
         `}
 
-        <div class="pos-transfer-amount">${moneyNum(amount)}</div>
+        <div class="pos-transfer-amount">${moneyNum(_tPayable)}</div>
 
         ${activeBank ? `
         <div class="pos-transfer-bank-info">
@@ -627,7 +699,7 @@ function renderPosView(ctx) {
     }, { signal });
 
     document.getElementById("posTransferConfirmBtn")?.addEventListener("click", () => {
-      pendingPaidAmount = amount;
+      pendingPaidAmount = _tPayable;
       posView = "confirm-proof"; renderPosView(ctx);
     }, { signal });
 
@@ -1214,9 +1286,6 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
     //   เดิม (517b-0) gen ตอน submit ทุกครั้ง → re-click หลัง timeout = key ใหม่ = double-sale/double-redeem.
     //   ตอนนี้ persist จน insert สำเร็จ (reset ท้าย) → re-submit = key เดิม → DB uq_sales_checkout_key กันซ้ำ (23505).
     const checkoutKey = _ensureCheckoutKey();
-    // ★ Phase 520: ยอดเครดิตลูกค้าที่ใช้ — UI ยังปิด (#4ก) → 0 เสมอใน build 520; redeem/release path เป็น backend
-    //   พร้อม (517b-3 เปิด UI). creditUsed>0 = เส้นทาง redeem-first + release (ยังไม่ active runtime จนเปิด UI).
-    const creditUsed = 0;
     const proofUrl = window._pendingProofUrl || "";
     window._pendingProofUrl = "";
     // ★ ใช้ลูกค้าที่เลือก (ถ้ามี)
@@ -1238,16 +1307,6 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
         noteParts.push(`🏦 ${activeBank.bankName}${activeBank.bankAccount ? ' (' + activeBank.bankAccount + ')' : ''}`);
       }
     }
-    // ★ Phase 88.20: เพิ่มรายละเอียดเงินสด (รับเงิน + เงินทอน) ใน note ถ้า payment=cash
-    if (paymentMethod === "เงินสด" && (paidAmount || 0) > 0) {
-      const change = Math.max((paidAmount || 0) - amount, 0);
-      if (change > 0) {
-        noteParts.push(`💵 รับ ฿${(paidAmount || 0).toLocaleString("th-TH")} ทอน ฿${change.toLocaleString("th-TH")}`);
-      } else {
-        noteParts.push(`💵 รับ ฿${(paidAmount || amount).toLocaleString("th-TH")} (พอดี)`);
-      }
-    }
-
     // ★ Phase 88.21: คำนวณ VAT (ถ้าเปิดใช้งาน)
     const vatCalc = calcVAT(amount, state.paymentInfo);
     let actualTotal = amount;
@@ -1256,6 +1315,24 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
       actualTotal = vatCalc.total;
     }
     // inclusive: amount = total อยู่แล้ว → ไม่ต้องแก้
+
+    // ★ Phase 517b-3: ใช้เครดิตลูกค้า 2180 = clamp(_creditUsed, 0..actualTotal) เฉพาะเมื่อมีลูกค้า;
+    //   _payable = เงินสด/โอนที่ต้องเก็บจริง = actualTotal − creditUsed. (total/VAT/รายได้ ไม่เปลี่ยน)
+    // ★ Phase 517b-3 B1 fix (defense-in-depth): ก่อน effective-date → creditUsed = 0 เสมอ (กัน state เก่า/race
+    //   หลุดเข้า redeem → ledger เคลื่อนก่อน JV active = mismatch). UI gate (_showCredit) เป็นด่านแรก; นี่ด่านสอง.
+    const creditUsed = (_posCustomer?.id && _isAfterEffective(todayBkk())) ? round2(Math.min(Math.max(_creditUsed, 0), actualTotal)) : 0;
+    const _payable = round2(Math.max(actualTotal - creditUsed, 0));
+
+    // ★ Phase 88.20/517b-3: รายละเอียดเงินสด (รับ + ทอน) ใน note — เทียบกับ "ยอดที่ต้องชำระจริง" (_payable)
+    if (paymentMethod === "เงินสด" && (paidAmount || 0) > 0) {
+      const change = Math.max((paidAmount || 0) - _payable, 0);
+      if (change > 0) {
+        noteParts.push(`💵 รับ ฿${(paidAmount || 0).toLocaleString("th-TH")} ทอน ฿${change.toLocaleString("th-TH")}`);
+      } else {
+        noteParts.push(`💵 รับ ฿${(paidAmount || _payable).toLocaleString("th-TH")} (พอดี)`);
+      }
+    }
+    if (creditUsed > 0) noteParts.push(`🎁 ใช้เครดิต ฿${creditUsed.toLocaleString("th-TH")}`);
 
     // ★ Phase 398: gross profit = subtotal (ex-VAT) − COGS · null ถ้าตะกร้าว่าง (quick-pay)
     const _saleSubtotal = round2(vatCalc.enabled ? vatCalc.subtotal : amount);  // = subtotal เดิม (ไม่เปลี่ยนค่า)
@@ -1272,8 +1349,9 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
       subtotal: _saleSubtotal,
       gross_profit: _grossProfit,
       total_amount: round2(actualTotal),
-      paid_amount: round2(paidAmount || actualTotal),
-      change_amount: round2(Math.max((paidAmount || actualTotal) - actualTotal, 0)),
+      // ★ Phase 517b-3: paid_amount = เงินสด/โอนรับจริง (ไม่รวมเครดิต); change เทียบ _payable (= total − credit)
+      paid_amount: round2(paidAmount || _payable),
+      change_amount: round2(Math.max((paidAmount || _payable) - _payable, 0)),
       discount_type: null,
       discount_value: 0,
       discount_amount: 0,
@@ -1492,6 +1570,7 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
     posView = "home";
     _posCustomer = null; // เคลียร์ลูกค้าหลังจบบิล
     _checkoutKey = null; // ★ Phase 520: ขายสำเร็จ → intent จบ → บิลถัดไปได้ key ใหม่
+    _resetCreditState(); // ★ Phase 517b-3: ล้างเครดิตที่ใช้
     /* eslint-enable require-atomic-updates */
 
     // ★ Phase 517b-0: gate ข้อความ — JV failed → ไม่ประกาศ "เรียบร้อย" (บิล commit แล้ว ไม่ rollback)

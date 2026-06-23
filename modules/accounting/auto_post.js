@@ -34,6 +34,22 @@ export function splitSaleVatLines(total, vatAmount) {
   return { total: t, vat: v, subtotal: round2(t - v) };
 }
 
+// ★ Phase 517b-3: แยก "ฝั่ง debit" ของ JV ขาย เมื่อใช้เครดิตลูกค้า 2180 (credit_used_amount > 0).
+//   Dr 2180 = creditUsed (ล้าง liability เครดิตลูกค้า) + Dr <cash/bank> = total − creditUsed (เงินจริง).
+//   credit เต็มจำนวน (cash = 0) → ข้ามบรรทัด cash; creditUsed = 0 → คืน 1 บรรทัดเดิม (Dr debitAccount = total).
+//   Σ debit = total เสมอ → JV บาลานซ์ (Cr ฝั่งรายได้/VAT ไม่เปลี่ยน). ไม่แตะ VAT/total/revenue.
+export function buildSaleDebitLines(debitAccount, totalDebit, creditUsed, desc) {
+  const total = round2(totalDebit);
+  const cu = round2(Math.min(Math.max(Number(creditUsed) || 0, 0), total));  // clamp 0..total
+  const lines = [];
+  if (cu > 0.005) lines.push({ account_code: "2180", debit: cu, credit: 0, description: desc + " (ใช้เครดิตลูกค้า 2180)" });
+  const cash = round2(total - cu);
+  if (cash > 0.005) lines.push({ account_code: debitAccount, debit: cash, credit: 0, description: desc });
+  // safety: ถ้าทั้งคู่ปัดเป็น 0 (total เล็กมาก) → คงบรรทัด debitAccount เต็ม เพื่อให้ Dr=Cr (ไม่ควรเกิดจริง)
+  if (lines.length === 0) lines.push({ account_code: debitAccount, debit: total, credit: 0, description: desc });
+  return lines;
+}
+
 // Phase 89.4: auth-fetch helper สำหรับ critical write ops
 // ใช้ window._appAuthFetch (auto 401 retry) — fallback ราฟ fetch + manual headers ถ้า main.js ยังไม่ init
 function _authFetch(url, opts = {}) {
@@ -408,6 +424,8 @@ export async function postJournalForSale(sale, opts = {}) {
   // ★ Phase 88.21: VAT split — ถ้ามี vat_amount > 0 → แยก JV เป็น 3 บรรทัด
   const vatAmount = Number(sale.vat_amount || 0);
   const subtotalBeforeVat = Number(sale.subtotal_before_vat || 0) || (amount - vatAmount);
+  // ★ Phase 517b-3: ใช้เครดิตลูกค้า 2180 → แยกฝั่ง debit (Dr 2180 + Dr cash/bank ที่เหลือ). 0 = โครงเดิม.
+  const creditUsed = Number(sale.credit_used_amount || 0);
 
   if (vatAmount > 0.01 && subtotalBeforeVat > 0.01) {
     // Phase 92.64: derive ให้ Dr === Cr เป๊ะ (subtotal := total - vat, ทั้งคู่ round2)
@@ -420,14 +438,14 @@ export async function postJournalForSale(sale, opts = {}) {
       description: desc,
       detailed: opts.detailed,
       lines: [
-        { account_code: debitAccount,                 debit: v.total, credit: 0,          description: desc },
+        ...buildSaleDebitLines(debitAccount, v.total, creditUsed, desc),
         { account_code: mapping.credit_account_code,  debit: 0,       credit: v.subtotal, description: desc + " (รายได้ก่อน VAT)" },
         { account_code: "2170",                       debit: 0,       credit: v.vat,      description: desc + ` (VAT ${sale.vat_rate || 7}%)` }
       ]
     });
   }
 
-  // ไม่มี VAT — JV ปกติ 2 บรรทัด
+  // ไม่มี VAT — JV ปกติ (Cr รายได้ 1 บรรทัด; ฝั่ง debit อาจ split 2180)
   return _postJournal({
     sourceTable: "sales",
     sourceId: sale.id,
@@ -436,7 +454,7 @@ export async function postJournalForSale(sale, opts = {}) {
     description: desc,
     detailed: opts.detailed,
     lines: [
-      { account_code: debitAccount,                 debit: amount, credit: 0,      description: desc },
+      ...buildSaleDebitLines(debitAccount, amount, creditUsed, desc),
       { account_code: mapping.credit_account_code,  debit: 0,      credit: amount, description: desc }
     ]
   });
