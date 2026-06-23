@@ -4,7 +4,7 @@ function moneyNum(n){return new Intl.NumberFormat("th-TH",{minimumFractionDigits
 
 import { escHtml, visibleSalesForRole, isAdminProfile, todayBkk } from "./utils.js";
 // Phase 88.1a: auto-post JV หลังบันทึกการขาย (background, non-blocking)
-import { postJournalForSale } from "./accounting/auto_post.js";
+import { postJournalForSale, _isAfterEffective } from "./accounting/auto_post.js";
 // Phase 89.42: single-flight guard for POS checkout (replaces brittle window._checkoutRunning manual flag)
 import { createInflightGuard } from "./_inflight_guard.js";
 import { pickAutoWarehouseStock } from "./warehouse_pick.js";
@@ -447,7 +447,11 @@ function renderPosView(ctx) {
     const _maxCredit = round2(Math.min(_posCustomerCredit, round2(amount)));
     if (_creditUsed > _maxCredit) _creditUsed = _maxCredit;  // clamp (ยอดเปลี่ยน/เครดิตน้อยกว่า)
     const _payable = round2(Math.max(round2(amount) - _creditUsed, 0));
-    const _showCredit = !!(_posCustomer?.id && _posCustomerCredit > 0);
+    // ★ Phase 517b-3 B1 fix: เปิดใช้เครดิตเฉพาะตั้งแต่ ACCOUNTING_EFFECTIVE_DATE (JV active พร้อมกัน)
+    //   ก่อน 1 ก.ค. = JV Dr 2180 skip (pre-effective) → ถ้า redeem จะ ledger 2180 ≠ งบ 2180 ถาวร → ห้ามเปิด.
+    //   ใช้ helper เดียวกับ JV gate (_isAfterEffective) = single source of truth.
+    const _creditEnabled = _isAfterEffective(todayBkk());
+    const _showCredit = !!(_posCustomer?.id && _posCustomerCredit > 0) && _creditEnabled;
     const _fullCredit = _showCredit && _payable <= 0 && _creditUsed > 0;
 
     el.innerHTML = `
@@ -1314,7 +1318,9 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
 
     // ★ Phase 517b-3: ใช้เครดิตลูกค้า 2180 = clamp(_creditUsed, 0..actualTotal) เฉพาะเมื่อมีลูกค้า;
     //   _payable = เงินสด/โอนที่ต้องเก็บจริง = actualTotal − creditUsed. (total/VAT/รายได้ ไม่เปลี่ยน)
-    const creditUsed = _posCustomer?.id ? round2(Math.min(Math.max(_creditUsed, 0), actualTotal)) : 0;
+    // ★ Phase 517b-3 B1 fix (defense-in-depth): ก่อน effective-date → creditUsed = 0 เสมอ (กัน state เก่า/race
+    //   หลุดเข้า redeem → ledger เคลื่อนก่อน JV active = mismatch). UI gate (_showCredit) เป็นด่านแรก; นี่ด่านสอง.
+    const creditUsed = (_posCustomer?.id && _isAfterEffective(todayBkk())) ? round2(Math.min(Math.max(_creditUsed, 0), actualTotal)) : 0;
     const _payable = round2(Math.max(actualTotal - creditUsed, 0));
 
     // ★ Phase 88.20/517b-3: รายละเอียดเงินสด (รับ + ทอน) ใน note — เทียบกับ "ยอดที่ต้องชำระจริง" (_payable)

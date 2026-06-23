@@ -9,7 +9,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { buildSaleDebitLines } from "../modules/accounting/auto_post.js";
+import { buildSaleDebitLines, _isAfterEffective } from "../modules/accounting/auto_post.js";
 
 const pos = fs.readFileSync(path.resolve("modules/pos.js"), "utf8");
 const autoPost = fs.readFileSync(path.resolve("modules/accounting/auto_post.js"), "utf8");
@@ -68,7 +68,7 @@ test("postJournalForSale uses buildSaleDebitLines in both VAT and non-VAT paths"
 // ── pos.js: creditUsed activated (no longer hard-zero) ───────────────────────
 test("doCheckout computes creditUsed from UI state, clamped, not hardcoded 0", () => {
   assert.ok(!/const creditUsed = 0;/.test(pos), "creditUsed must no longer be hardcoded 0 (UI is ON)");
-  assert.match(cbHead, /const creditUsed = _posCustomer\?\.id \? round2\(Math\.min\(Math\.max\(_creditUsed/, "creditUsed = clamp(_creditUsed, 0..actualTotal) when a customer is selected");
+  assert.match(cbHead, /const creditUsed = \(_posCustomer\?\.id && _isAfterEffective\(todayBkk\(\)\)\) \? round2\(Math\.min\(Math\.max\(_creditUsed/, "creditUsed = clamp(_creditUsed, 0..actualTotal) when customer selected AND past effective date");
   assert.match(cbHead, /const _payable = round2\(Math\.max\(actualTotal - creditUsed/, "payable = total - creditUsed");
   assert.match(cbHead, /credit_used_amount:\s*round2\(creditUsed\)/, "payload records credit_used_amount");
 });
@@ -115,6 +115,23 @@ test("balance fetch is read-only (no write to the ledger from the client)", () =
   const fn = pos.slice(i, i + 700);
   assert.ok(!/method:\s*"POST"|method:\s*"PATCH"|rpc\//.test(fn), "balance fetch must be a read (no write/RPC)");
   assert.match(fn, /customer_credit_ledger\?customer_id=eq/, "reads the ledger by customer");
+});
+
+// ── B1 fix: credit-use gated by accounting effective date (same gate as JV) ──
+test("the effective-date gate function itself works (before vs on go-live)", () => {
+  assert.equal(_isAfterEffective("2026-06-23"), false, "before 1 ก.ค. → credit must be OFF (JV would skip → mismatch)");
+  assert.equal(_isAfterEffective("2026-06-30"), false, "still before go-live");
+  assert.equal(_isAfterEffective("2026-07-01"), true, "on go-live → credit ON (JV posts Dr 2180)");
+  assert.equal(_isAfterEffective("2026-08-15"), true, "after go-live");
+});
+
+test("credit UI + creditUsed are gated by _isAfterEffective(todayBkk()) — no ledger move before JV active", () => {
+  assert.match(pos, /import \{ postJournalForSale, _isAfterEffective \}/, "must reuse the JV effective-date helper");
+  // UI gate (primary): credit box only shows from the effective date
+  assert.match(pos, /_showCredit = !!\(_posCustomer\?\.id && _posCustomerCredit > 0\) && _creditEnabled/, "credit UI must be gated by effective date");
+  assert.match(pos, /_creditEnabled = _isAfterEffective\(todayBkk\(\)\)/, "gate uses _isAfterEffective(todayBkk())");
+  // redeem/payload gate (defense-in-depth): before effective → creditUsed forced to 0
+  assert.match(cbHead, /const creditUsed = \(_posCustomer\?\.id && _isAfterEffective\(todayBkk\(\)\)\) \? round2/, "creditUsed must be 0 before the effective date (no redeem / no ledger move)");
 });
 
 // ── receipt shows credit used ────────────────────────────────────────────────

@@ -109,5 +109,5 @@ test("SQL release_customer_credit RPC is idempotent (no double-release) + SECURI
 // ── #4(ก) credit-use was staged in 520; 517b-3 (build 521) turns the UI ON ────
 test("credit-use is wired (517b-3 build 521 turned the UI on — creditUsed no longer hard-zero)", () => {
   assert.ok(!/const creditUsed = 0;/.test(cbHead), "creditUsed must not be hardcoded 0 anymore (UI enabled in 521)");
-  assert.match(cbHead, /const creditUsed = _posCustomer\?\.id \?/, "creditUsed now comes from the UI state");
+  assert.match(cbHead, /const creditUsed = \(_posCustomer\?\.id && _isAfterEffective\(todayBkk\(\)\)\) \?/, "creditUsed comes from UI state, gated by effective date (B1)");
 });
