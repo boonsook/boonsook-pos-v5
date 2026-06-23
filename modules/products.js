@@ -897,24 +897,37 @@ function renderView(ctx, opts = {}) {
   }));
 
   // Search (debounce 300ms — ไม่ค้างตอนพิมพ์)
-  // ★ Phase 507: มือถือ Thai IME — renderView สร้าง input ใหม่ทุกครั้งที่ค้นหา; ถ้าทำ "ระหว่าง composition"
-  //   (กำลังประกอบสระ/วรรณยุกต์) → ตัวอักษรซ้ำ/เด้ง ("หน้" → "หน้หน้า"). แก้: ข้าม input event ระหว่าง compose
-  //   (e.isComposing) แล้วค้นหาตอน compositionend (commit ตัวไทยเสร็จ) — input ไม่โดน re-render กลางพิมพ์.
+  // ★ Phase 522 (deeper fix ต่อจาก 507): มือถือ Thai IME — search เรียก renderView ที่ "สร้าง #prodSearchInput
+  //   ใหม่". ถ้า input ถูกสร้างใหม่ระหว่างประกอบสระ/วรรณยุกต์ (composition) → IME ใส่ตัวซ้ำ/เด้ง
+  //   ("หน้" → "หน้หน้า" ใส่เองทั้งที่ไม่ได้พิมพ์). 507 ข้าม isComposing แล้ว แต่ debounce ยังยิงตอนกำลัง
+  //   ประกอบ "ตัวถัดไป" ได้ → ยังเด้ง. แก้ราก: **ห้าม renderView ระหว่าง compose เด็ดขาด** — ถ้า timer ครบ
+  //   ตอนกำลังประกอบ → ตั้ง pending แล้วไปทำตอน compositionend (input ไม่โดนสร้างใหม่กลางพิมพ์เลย).
   let _searchTimer = null;
-  const _runProdSearch = (val) => {
+  let _searchComposing = false;
+  let _searchPending = false;
+  const _prodSearchEl = el.querySelector("#prodSearchInput");
+  const _doProdSearch = () => {
+    searchQuery = String(_prodSearchEl?.value || "").trim();
+    currentPage = 1;
+    renderView(ctx, { focusSearch: true });
+  };
+  const _scheduleProdSearch = () => {
     clearTimeout(_searchTimer);
     _searchTimer = setTimeout(() => {
-      searchQuery = String(val || "").trim();
-      currentPage = 1;
-      renderView(ctx, { focusSearch: true });
+      if (_searchComposing) { _searchPending = true; return; }  // กำลังประกอบตัวอักษร → เลื่อน (อย่าสร้าง input ใหม่ตอนนี้)
+      _doProdSearch();
     }, 300);
   };
-  const _prodSearchEl = el.querySelector("#prodSearchInput");
-  _prodSearchEl?.addEventListener("input", (e) => {
-    if (e.isComposing) return;   // ระหว่างประกอบตัวอักษรไทย — ยังไม่ค้นหา (กัน input สร้างใหม่กลางพิมพ์)
-    _runProdSearch(e.target.value);
+  _prodSearchEl?.addEventListener("compositionstart", () => { _searchComposing = true; });
+  _prodSearchEl?.addEventListener("compositionend", () => {
+    _searchComposing = false;
+    if (_searchPending) { _searchPending = false; _doProdSearch(); }  // ทำ render ที่ค้างไว้ (ประกอบเสร็จแล้ว = ปลอดภัย)
+    else _scheduleProdSearch();
   });
-  _prodSearchEl?.addEventListener("compositionend", (e) => _runProdSearch(e.target.value));
+  _prodSearchEl?.addEventListener("input", (e) => {
+    if (e.isComposing || _searchComposing) return;   // ระหว่างประกอบ — ยังไม่ค้นหา
+    _scheduleProdSearch();
+  });
 
   // Sort
   el.querySelector("#prodSortSelect")?.addEventListener("change", (e) => {
