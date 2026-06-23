@@ -49,4 +49,4 @@ SELECT column_name, data_type FROM information_schema.columns WHERE table_name='
 SELECT count(*) FILTER (WHERE note ILIKE '%[ตัดสต็อกแล้ว]%' AND stock_deducted_at IS NULL) AS deduct_missed FROM public.service_jobs;
 ```
 
-_อัปเดตล่าสุด: 2026-06-22 (Phase 517a customer_credit_ledger + redeem RPC — applied prod 2026-06-22: RLS enabled / indexes ครบ / PostgREST reload / STEP0 สะอาด)._
+_อัปเดตล่าสุด: 2026-06-23 (Phase 517b-3 / build 521 = **ไม่มี SQL ใหม่** — JS/UI เท่านั้น [เปิด UI ใช้เครดิต + JV Dr 2180 split + B1 effective-gate]; columns sales.checkout_key/credit_used_amount + redeem/release RPC = applied แล้วใน phase520 2026-06-22. 🎉 Phase 517 customer-credit-2180 ปิดครบชุด)._
