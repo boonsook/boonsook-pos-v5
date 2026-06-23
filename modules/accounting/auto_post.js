@@ -339,19 +339,42 @@ async function _postJournal(opts) {
   } catch(e) {
     console.error("[auto_post] lines insert failed (entry " + entryId + "), rolling back entry:", e.message);
     // Phase 89.2: rollback entry — กัน orphan JV ที่ trial balance พังเงียบ
+    // ★ Phase 522 (audit #1): นับ "แถวที่ลบจริง" (mirror journal_form 509) — DELETE ที่โดน RLS block
+    //   คืน 2xx + 0 row = false-positive "rollback OK" (delResp.ok เดี่ยว ๆ ไม่พอ) → orphan JV ค้างจริง
+    //   → unique(source_table,source_id) block repost → JV หาย (รายได้ undercount; ถ้าใช้เครดิต = 2180 mismatch).
+    //   → return=representation + rollbackCount===1 เท่านั้นถือว่า rollback สำเร็จ.
     // Phase 89.4: _authFetch → auto 401 retry
+    const _usedCredit = Array.isArray(lines) && lines.some(l => l.account_code === "2180" && Number(l.debit || 0) > 0);
     try {
       const delResp = await _authFetch(`${cfg.url}/rest/v1/journal_entries?id=eq.${entryId}`, {
-        method: "DELETE"
+        method: "DELETE",
+        headers: { "Prefer": "return=representation" }
       });
-      if (delResp.ok) {
+      const deleted = await delResp.json().catch(() => []);
+      const rollbackCount = Array.isArray(deleted) ? deleted.length : 0;
+      if (delResp.ok && rollbackCount === 1) {
         console.info("[auto_post] rollback OK — entry " + entryId + " deleted");
       } else {
-        console.error("[auto_post] rollback FAILED — entry " + entryId + " still orphan:", delResp.status);
-        if (window.showToast) window.showToast(`⚠️ JV ${entryId} ค้าง — ไม่มี lines (ลบจาก UI ได้)`);
+        // orphan ค้างจริง (ลบ 0 row / RLS block) — ห้ามเงียบ (§4.8)
+        console.error("[auto_post] rollback INCOMPLETE — orphan JV " + entryId + " (ok=" + delResp.ok + " deleted=" + rollbackCount + ")");
+        try {
+          window._errorReporter?.captureMessage?.("auto_post orphan JV (rollback failed)", {
+            severity: "error",
+            extra: { entryId, sourceTable, sourceId, ok: delResp.ok, deleted: rollbackCount, usedCredit: _usedCredit }
+          });
+        } catch { /* reporter optional */ }
+        if (window.showToast) window.showToast(_usedCredit
+          ? `⚠️ JV ${entryId} ค้าง + ใช้เครดิต 2180 (ledger −cu แต่งบไม่ลง) — admin reconcile ${sourceTable}#${sourceId}`
+          : `⚠️ JV ${entryId} ค้าง — ไม่มี lines (ลบจาก UI ได้)`);
       }
     } catch(delErr) {
       console.error("[auto_post] rollback exception:", delErr.message);
+      try {
+        window._errorReporter?.captureMessage?.("auto_post orphan JV (rollback exception)", {
+          severity: "error",
+          extra: { entryId, sourceTable, sourceId, usedCredit: _usedCredit, err: delErr?.message || String(delErr) }
+        });
+      } catch { /* reporter optional */ }
       if (window.showToast) window.showToast(`⚠️ JV ${entryId} ค้าง — ไม่มี lines (network error)`);
     }
     return _journalResult(detailed, { status: "failed", reason: "lines-insert-failed", sourceTable, sourceId, entryId, error: e?.message || String(e) });
