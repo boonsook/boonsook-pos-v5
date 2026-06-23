@@ -19,7 +19,7 @@ const pos = fs.readFileSync(path.resolve("modules/pos.js"), "utf8");
 const cashRecon = fs.readFileSync(path.resolve("modules/cash_recon.js"), "utf8");
 const sql = fs.readFileSync(path.resolve("supabase-phase520-credit-use-checkout-key.sql"), "utf8");
 
-function doCheckoutBody(len = 9000) {
+function doCheckoutBody(len = 11000) {
   const i = pos.indexOf("async function doCheckout(");
   assert.ok(i >= 0, "doCheckout must exist");
   return pos.slice(i, i + len);
@@ -106,7 +106,8 @@ test("SQL release_customer_credit RPC is idempotent (no double-release) + SECURI
   assert.match(fn, /source_type = 'sale_credit_use' AND source_key = p_source_key/, "release must match its redeem by source_key");
 });
 
-// ── #4(ก) credit UI stays OFF in 520 ─────────────────────────────────────────
-test("credit-use UI is OFF in build 520 (creditUsed hard-zero; backend ready)", () => {
-  assert.match(cbHead, /const creditUsed = 0;/, "creditUsed must be 0 in 520 (UI off, #4ก) — 517b-3 enables it");
+// ── #4(ก) credit-use was staged in 520; 517b-3 (build 521) turns the UI ON ────
+test("credit-use is wired (517b-3 build 521 turned the UI on — creditUsed no longer hard-zero)", () => {
+  assert.ok(!/const creditUsed = 0;/.test(cbHead), "creditUsed must not be hardcoded 0 anymore (UI enabled in 521)");
+  assert.match(cbHead, /const creditUsed = _posCustomer\?\.id \?/, "creditUsed now comes from the UI state");
 });

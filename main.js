@@ -4338,7 +4338,8 @@ function renderReceiptDrawer(){
     ${(lastSale.items || []).map(i => `<div class="row mt16"><div>${i.product_name} x ${i.qty}</div><div>${money(i.line_total)}</div></div>`).join("")}
     <hr>
     <div class="row"><div>รวม</div><div style="font-weight:900;font-size:20px">${money(lastSale.total_amount)}</div></div>
-    <div class="row mt16"><div>รับเงิน</div><div>${money(lastSale.paid_amount)}</div></div>
+    ${Number(lastSale.credit_used_amount || 0) > 0 ? `<div class="row mt16" style="color:#0369a1"><div>🎁 ใช้เครดิต</div><div>−${money(lastSale.credit_used_amount)}</div></div>` : ''}
+    <div class="row mt16"><div>${Number(lastSale.credit_used_amount || 0) > 0 ? 'ชำระจริง' : 'รับเงิน'}</div><div>${money(lastSale.paid_amount)}</div></div>
     <div class="row mt16"><div>เงินทอน</div><div>${money(lastSale.change_amount)}</div></div>
     <hr>
     <div class="row mt16" style="align-items:center"><div>เอกสารบัญชี</div>
