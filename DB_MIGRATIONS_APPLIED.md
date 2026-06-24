@@ -49,4 +49,4 @@ SELECT column_name, data_type FROM information_schema.columns WHERE table_name='
 SELECT count(*) FILTER (WHERE note ILIKE '%[ตัดสต็อกแล้ว]%' AND stock_deducted_at IS NULL) AS deduct_missed FROM public.service_jobs;
 ```
 
-_อัปเดตล่าสุด: 2026-06-23 (Phase 517b-3 / build 521 = **ไม่มี SQL ใหม่** — JS/UI เท่านั้น [เปิด UI ใช้เครดิต + JV Dr 2180 split + B1 effective-gate]; columns sales.checkout_key/credit_used_amount + redeem/release RPC = applied แล้วใน phase520 2026-06-22. 🎉 Phase 517 customer-credit-2180 ปิดครบชุด)._
+_อัปเดตล่าสุด: 2026-06-24 (builds **522–525 = ไม่มี SQL ใหม่** — JS-only: 522/524 mobile-search IME · 523 auto_post orphan-JV rollback · **525 credit_tracker overdue→todayBkk (audit TZ #2)**). ก่อนหน้า: Phase 517b-3 / build 521 = ไม่มี SQL [เปิด UI ใช้เครดิต + JV Dr 2180 split + B1 effective-gate]; columns sales.checkout_key/credit_used_amount + redeem/release RPC = applied phase520 2026-06-22. 🎉 Phase 517 customer-credit-2180 ปิดครบชุด)._
