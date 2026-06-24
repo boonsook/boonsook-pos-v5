@@ -896,38 +896,25 @@ function renderView(ctx, opts = {}) {
     renderView(ctx);
   }));
 
-  // Search (debounce 300ms — ไม่ค้างตอนพิมพ์)
-  // ★ Phase 522 (deeper fix ต่อจาก 507): มือถือ Thai IME — search เรียก renderView ที่ "สร้าง #prodSearchInput
-  //   ใหม่". ถ้า input ถูกสร้างใหม่ระหว่างประกอบสระ/วรรณยุกต์ (composition) → IME ใส่ตัวซ้ำ/เด้ง
-  //   ("หน้" → "หน้หน้า" ใส่เองทั้งที่ไม่ได้พิมพ์). 507 ข้าม isComposing แล้ว แต่ debounce ยังยิงตอนกำลัง
-  //   ประกอบ "ตัวถัดไป" ได้ → ยังเด้ง. แก้ราก: **ห้าม renderView ระหว่าง compose เด็ดขาด** — ถ้า timer ครบ
-  //   ตอนกำลังประกอบ → ตั้ง pending แล้วไปทำตอน compositionend (input ไม่โดนสร้างใหม่กลางพิมพ์เลย).
-  let _searchTimer = null;
-  let _searchComposing = false;
-  let _searchPending = false;
+  // Search — ★ Phase 524: แก้ "keyboard เด้งขึ้นตลอด" บนมือถือ (ต่อจาก 507/522).
+  //   ราก: เดิม search render ทุกครั้งที่พิมพ์ (debounce) → renderView สร้าง #prodSearchInput ใหม่ + .focus()
+  //   → มือถือ keyboard dismiss แล้ว pop ใหม่ทุกครั้งที่ list อัปเดต = เด้งตลอดระหว่างพิมพ์. (507/522 แก้
+  //   ตัวอักษรซ้ำได้แล้ว แต่ยัง recreate input → keyboard ยังเด้ง). แก้ขาด + เสี่ยงต่ำ (ไม่ refactor render
+  //   ทั้งหน้า): **ไม่ render ระหว่างพิมพ์เลย** — ค้นหาเมื่อ "กด Enter" หรือ "ออกจากช่อง (blur)" → ตอนพิมพ์
+  //   ไม่มี renderView → input ไม่ถูกสร้างใหม่ → keyboard นิ่ง (UX มาตรฐานบนมือถือ: พิมพ์→กดค้นหา).
   const _prodSearchEl = el.querySelector("#prodSearchInput");
-  const _doProdSearch = () => {
-    searchQuery = String(_prodSearchEl?.value || "").trim();
+  const _runProdSearch = (refocus) => {
+    const v = String(_prodSearchEl?.value || "").trim();
+    if (v === searchQuery) return;            // ค่าไม่เปลี่ยน → ไม่ render (กันแตะผลลัพธ์/blur แล้ว render ทับโดยไม่จำเป็น)
+    searchQuery = v;
     currentPage = 1;
-    renderView(ctx, { focusSearch: true });
+    renderView(ctx, refocus ? { focusSearch: true } : {});
   };
-  const _scheduleProdSearch = () => {
-    clearTimeout(_searchTimer);
-    _searchTimer = setTimeout(() => {
-      if (_searchComposing) { _searchPending = true; return; }  // กำลังประกอบตัวอักษร → เลื่อน (อย่าสร้าง input ใหม่ตอนนี้)
-      _doProdSearch();
-    }, 300);
-  };
-  _prodSearchEl?.addEventListener("compositionstart", () => { _searchComposing = true; });
-  _prodSearchEl?.addEventListener("compositionend", () => {
-    _searchComposing = false;
-    if (_searchPending) { _searchPending = false; _doProdSearch(); }  // ทำ render ที่ค้างไว้ (ประกอบเสร็จแล้ว = ปลอดภัย)
-    else _scheduleProdSearch();
+  _prodSearchEl?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); _runProdSearch(true); }   // Enter/ปุ่มค้นหา → ค้นหา + คง focus (พิมพ์ต่อได้)
   });
-  _prodSearchEl?.addEventListener("input", (e) => {
-    if (e.isComposing || _searchComposing) return;   // ระหว่างประกอบ — ยังไม่ค้นหา
-    _scheduleProdSearch();
-  });
+  // blur: หน่วง 200ms ให้การ "แตะผลลัพธ์/ปุ่ม" ทำงานก่อน (กัน render ทับ tap); ไม่ refocus (keyboard ปิดอยู่แล้ว)
+  _prodSearchEl?.addEventListener("blur", () => setTimeout(() => _runProdSearch(false), 200));
 
   // Sort
   el.querySelector("#prodSortSelect")?.addEventListener("change", (e) => {

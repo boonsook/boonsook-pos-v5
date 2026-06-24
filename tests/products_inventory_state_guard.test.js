@@ -7,7 +7,8 @@ const mainSource = fs.readFileSync("main.js", "utf8");
 
 test("inventory search refresh keeps the search input focused", () => {
   assert.match(productsSource, /function renderView\(ctx,\s*opts\s*=\s*\{\}\)/);
-  assert.match(productsSource, /renderView\(ctx,\s*\{\s*focusSearch:\s*true\s*\}\)/);
+  // Phase 524: search ค้นเมื่อ Enter/blur — focus-restore ส่งผ่าน ternary renderView(ctx, refocus ? { focusSearch: true } : {})
+  assert.match(productsSource, /renderView\(ctx,[^)]*focusSearch:\s*true/);
   assert.match(productsSource, /if\s*\(\s*opts\.focusSearch\s*\)[\s\S]*?#prodSearchInput[\s\S]*?\.focus\(\)/);
 });
 
