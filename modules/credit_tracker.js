@@ -7,7 +7,7 @@ import { renderEmpty } from "./ui_states.js";
 // Phase 89.29 (audit C2): post JV เมื่อรับชำระลูกหนี้ → ตัด A/R 1200
 import { postJournalForCreditPayment } from "./accounting/auto_post.js";
 
-import { escHtml, round2, visibleSalesForRole } from "./utils.js";
+import { escHtml, round2, visibleSalesForRole, todayBkk } from "./utils.js";
 import { atomicAddToField } from "./stock_cas.js";
 // Phase 507: ดึงบิลเครดิต "ครบ" จาก DB (ไม่อิง state.sales ที่ cap ≤50)
 import { fetchCreditSales } from "./credit_sales_fetch.js";
@@ -205,7 +205,10 @@ export function renderCreditTrackerPage(ctx) {
   // ── loaded → render sync จาก cache (ไม่มี network call) ──
   const allCredit = _creditRows || [];
 
-  const today = new Date().toISOString().slice(0, 10);
+  // ★ Phase 525 (audit TZ #2, §4.7): overdue boundary = "วันนี้" เขตเวลาไทย (Asia/Bangkok)
+  //   เดิม new Date().toISOString() = UTC → ช่วง 00:00–07:00 ไทย today(UTC) ยังเป็นเมื่อวาน
+  //   → บิล due=เมื่อวาน ไม่ถูกนับ overdue (undercount) + ไม่ตรง dashboard (508 ใช้ todayBkk).
+  const today = todayBkk();
 
   // คำนวณยอดค้างของแต่ละบิล
   const enriched = allCredit.map(s => {
@@ -214,7 +217,13 @@ export function renderCreditTrackerPage(ctx) {
     const due = total - paid;
     const isPaid = due <= 0.01; // 1 satang tolerance
     const isOverdue = !isPaid && s.credit_due_date && s.credit_due_date < today;
-    const daysOverdue = isOverdue ? Math.floor((Date.now() - new Date(s.credit_due_date).getTime()) / (1000*60*60*24)) : 0;
+    // ★ Phase 525: นับวันเกินกำหนดบนเส้นเวลาไทยให้ตรงกับ boundary `today` (BKK) —
+    //   เดิม Date.now() (UTC ms) อาจ off-by-1 vs today(BKK). diff ของวันที่ปฏิทินไทยทั้งคู่.
+    const daysOverdue = isOverdue
+      ? Math.max(0, Math.floor(
+          (new Date(today + "T00:00:00+07:00").getTime()
+           - new Date(s.credit_due_date + "T00:00:00+07:00").getTime()) / 86400000))
+      : 0;
     return { ...s, _total: total, _paid: paid, _due: due, _isPaid: isPaid, _isOverdue: isOverdue, _daysOverdue: daysOverdue };
   });
 
