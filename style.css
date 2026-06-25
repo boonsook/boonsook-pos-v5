@@ -289,8 +289,8 @@ th { color: var(--muted); font-size: 12px; }
 
   /* ── Topbar ── */
   .topbar { padding: 10px 14px; gap: 8px; }
-  .page-title { font-size: 18px; }
-  .page-sub { font-size: 11px; }
+  .page-title { font-size: 20px; }
+  .page-sub { font-size: 13px; }
   .icon-btn { width: 38px; height: 38px; font-size: 16px; }
 
   /* ── Page content ── */
@@ -309,17 +309,17 @@ th { color: var(--muted); font-size: 12px; }
   /* ── Stats ── */
   .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
   .stat-card { padding: 12px; border-radius: 16px; }
-  .stat-label { font-size: 11px; }
+  .stat-label { font-size: 13px; }
   .stat-value { font-size: 20px; }
 
   /* ── Two column → single ── */
   .two-col { grid-template-columns: 1fr; }
 
   /* ── Buttons ── */
-  .btn { padding: 10px 14px; font-size: 13px; }
+  .btn { padding: 10px 14px; font-size: 14px; }
 
   /* ── Inputs ── */
-  input, select, textarea { padding: 10px 12px; font-size: 14px; border-radius: 14px; }
+  input, select, textarea { padding: 10px 12px; font-size: 16px; border-radius: 14px; }
 
   /* ── Drawer (bottom sheet style) ── */
   .drawer {
@@ -336,7 +336,7 @@ th { color: var(--muted); font-size: 12px; }
   .chart-wrap { height: 220px; }
 
   /* ── Table ── */
-  th, td { padding: 8px 6px; font-size: 12px; }
+  th, td { padding: 8px 6px; font-size: 13px; }
 
   /* ══════════════════════════════════════
      MOBILE BOTTOM NAV BAR
@@ -361,11 +361,11 @@ th { color: var(--muted); font-size: 12px; }
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
     gap: 2px;
-    font-size: 10px;
+    font-size: 12px;
     cursor: pointer;
     min-width: 0;
   }
-  .mobile-nav-btn span { font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 56px; }
+  .mobile-nav-btn span { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 56px; }
   .mobile-nav-btn.active { color: var(--primary2); }
 }
 
@@ -377,11 +377,11 @@ th { color: var(--muted); font-size: 12px; }
   .hero-sub { font-size: 13px; }
   .stats-grid { grid-template-columns: 1fr 1fr; gap: 6px; }
   .stat-value { font-size: 18px; }
-  .mobile-nav-btn { font-size: 9px; padding: 5px 1px; }
-  .mobile-nav-btn span { font-size: 9px; max-width: 48px; }
+  .mobile-nav-btn { font-size: 11px; padding: 5px 1px; }
+  .mobile-nav-btn span { font-size: 11px; max-width: 48px; }
   .page { padding: 10px 10px 150px; gap: 10px; }
   .topbar { padding: 8px 10px; }
-  .page-title { font-size: 16px; }
+  .page-title { font-size: 18px; }
   /* Phase 84-CSS: hide step-connector line on tiny screens (overlaps labels) */
   .cust-step-line { display: none; }
   /* Phase 84-CSS: customer product grid → 2 cols max on tiny screens */
@@ -2153,7 +2153,10 @@ aside.drawer { position: fixed; top: 0; right: 0; }
 /* ── Mobile: 2-up KPI grid, tighter highlight ──────────────────────────── */
 @media (max-width: 480px) {
   .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-  .kpi-value { font-size: 18px; }
+  /* Phase 527: ตัวเลข KPI ไม่ตกบรรทัดกลางตัวเลข (เดิม overflow-wrap:anywhere แตก ฿28,640.00 → ฿28,64/0.00) — nowrap + ย่อ font ให้พอดีการ์ด (เลขสั้นยังใหญ่) */
+  .kpi-value { font-size: clamp(13px, 4.2vw, 17px); white-space: nowrap; }
+  /* Phase 527: ป้าย KPI แสดงเต็ม ไม่ตัด "..." (เดิม nowrap+ellipsis) — ให้ขึ้นบรรทัดใหม่ได้ */
+  .kpi-label { white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.25; }
   .dash-today-amount { font-size: 28px; }
   .dash-today { padding: 14px 16px; }
 }
