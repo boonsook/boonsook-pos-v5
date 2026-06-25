@@ -156,15 +156,17 @@
 }
 
 /* ═══ DARK MODE ═══ */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-background: #0f172a;
-    --color-surface: #1e293b;
-    --color-border: #334155;
-    --color-text: #f1f5f9;
-    --color-text-secondary: #cbd5e1;
-    --color-text-muted: #94a3b8;
-  }
+/* Phase 529: toggle-driven (ผูก [data-theme="dark"]) แทน @media (prefers-color-scheme: dark).
+   เดิม auto-dark ตาม OS ทำงานไม่ครบ → .card (var(--card-bg)) ดำ แต่ .stat-card (#fff) ขาว = ปนกัน
+   อ่านยาก, แม้ผู้ใช้ไม่ได้กดปุ่มโหมดมืด. ย้ายมาผูกปุ่ม toggle: app ขาวปกติเสมอ, ดำเฉพาะตอนกดปุ่มเอง
+   (สอดคล้องกับ [data-theme="dark"] ใน style.css + phase4 ตอบ toggle ครบขึ้น). */
+:root[data-theme="dark"] {
+  --color-background: #0f172a;
+  --color-surface: #1e293b;
+  --color-border: #334155;
+  --color-text: #f1f5f9;
+  --color-text-secondary: #cbd5e1;
+  --color-text-muted: #94a3b8;
 }
 
 /* ═══ COMPONENT VARIABLES ═══ */
