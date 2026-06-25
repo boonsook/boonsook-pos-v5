@@ -299,6 +299,11 @@ th { color: var(--muted); font-size: 12px; }
   .panel { padding: 14px; border-radius: 18px; }
   .card { padding: 12px; border-radius: 16px; }
 
+  /* Phase 528: การ์ดรายการขาย (sales.js) — มือถือ stack แนวตั้ง (ข้อมูลบน / ยอด+ปุ่มล่าง).
+     แก้บั๊ก pre-existing: เดิม row [ซ้าย เลขบิล flex:1;min-width:0 | ขวา ยอด+ปุ่ม] + .page{overflow-wrap:anywhere}
+     → จอแคบ ฝั่งซ้ายหดจนเหลือ ~1 ตัวอักษร → "BSK-..." แตกแนวตั้ง. targeted เฉพาะ .sale-card-row ไม่กระทบ list อื่น */
+  .sale-card-row { flex-direction: column; align-items: stretch; gap: 8px; }
+
   /* ── Hero ── */
   .hero { padding: 16px; border-radius: 22px; }
   .hero-grid { grid-template-columns: 1fr; }
