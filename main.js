@@ -4303,20 +4303,20 @@ function renderReceiptDrawer(){
     const statusLabels = { pending: "🟡 รอดำเนินการ", progress: "🔵 กำลังดำเนินการ", done: "🟢 เสร็จแล้ว", delivered: "🟣 ส่งมอบแล้ว", cancelled: "🔴 ยกเลิก" };
 
     setHtml("receiptContent", `
-      <div style="text-align:center;font-size:22px;font-weight:900">${si.name || "บุญสุข อิเล็กทรอนิกส์"}</div>
-      <div style="text-align:center;color:#64748b;font-size:13px">${si.address || ""}</div>
-      <div style="text-align:center;color:#64748b;font-size:13px">${si.phone ? "โทร: "+si.phone : ""} ${si.taxId ? "• เลขผู้เสียภาษี: "+si.taxId : ""}</div>
+      <div style="text-align:center;font-size:22px;font-weight:900">${escapeHtml(si.name || "บุญสุข อิเล็กทรอนิกส์")}</div>
+      <div style="text-align:center;color:#64748b;font-size:13px">${escapeHtml(si.address || "")}</div>
+      <div style="text-align:center;color:#64748b;font-size:13px">${si.phone ? "โทร: "+escapeHtml(si.phone) : ""} ${si.taxId ? "• เลขผู้เสียภาษี: "+escapeHtml(si.taxId) : ""}</div>
       <div style="text-align:center;margin-top:6px"><span style="background:#ecfdf5;color:#059669;padding:4px 12px;border-radius:99px;font-size:12px;font-weight:700">🛒 ออเดอร์จากเว็บ</span></div>
       <hr>
-      <div class="row"><div>เลขที่</div><div>${j.job_no || "-"}</div></div>
-      <div class="row mt16"><div>ลูกค้า</div><div>${j.customer_name || "-"}</div></div>
-      <div class="row mt16"><div>เบอร์โทร</div><div>${j.customer_phone || "-"}</div></div>
-      <div class="row mt16"><div>ที่อยู่</div><div style="max-width:200px;text-align:right">${j.customer_address || "-"}</div></div>
+      <div class="row"><div>เลขที่</div><div>${escapeHtml(j.job_no || "-")}</div></div>
+      <div class="row mt16"><div>ลูกค้า</div><div>${escapeHtml(j.customer_name || "-")}</div></div>
+      <div class="row mt16"><div>เบอร์โทร</div><div>${escapeHtml(j.customer_phone || "-")}</div></div>
+      <div class="row mt16"><div>ที่อยู่</div><div style="max-width:200px;text-align:right">${escapeHtml(j.customer_address || "-")}</div></div>
       <div class="row mt16"><div>ชำระเงิน</div><div>${payMethod}</div></div>
-      <div class="row mt16"><div>สถานะ</div><div>${statusLabels[j.status] || j.status || "-"}</div></div>
+      <div class="row mt16"><div>สถานะ</div><div>${statusLabels[j.status] || escapeHtml(j.status) || "-"}</div></div>
       <div class="row mt16"><div>เวลา</div><div>${new Date(j.created_at).toLocaleString("th-TH")}</div></div>
       <hr>
-      ${itemLines.map(line => `<div class="row mt16"><div style="flex:1">${line}</div></div>`).join("")}
+      ${itemLines.map(line => `<div class="row mt16"><div style="flex:1">${escapeHtml(line)}</div></div>`).join("")}
       <hr>
       <div class="row"><div>รวม</div><div style="font-weight:900;font-size:20px">${money(j.total_cost)}</div></div>
     `);
@@ -4325,17 +4325,17 @@ function renderReceiptDrawer(){
 
   // ★ ปกติ: แสดงบิลจาก POS
   setHtml("receiptContent", `
-    <div style="text-align:center;font-size:22px;font-weight:900">${si.name || "บุญสุข อิเล็กทรอนิกส์"}</div>
-    <div style="text-align:center;color:#64748b;font-size:13px">${si.address || ""}</div>
-    <div style="text-align:center;color:#64748b;font-size:13px">${si.phone ? "โทร: "+si.phone : ""} ${si.taxId ? "• เลขผู้เสียภาษี: "+si.taxId : ""}</div>
+    <div style="text-align:center;font-size:22px;font-weight:900">${escapeHtml(si.name || "บุญสุข อิเล็กทรอนิกส์")}</div>
+    <div style="text-align:center;color:#64748b;font-size:13px">${escapeHtml(si.address || "")}</div>
+    <div style="text-align:center;color:#64748b;font-size:13px">${si.phone ? "โทร: "+escapeHtml(si.phone) : ""} ${si.taxId ? "• เลขผู้เสียภาษี: "+escapeHtml(si.taxId) : ""}</div>
     <div style="text-align:center;color:#64748b;margin-top:4px">ใบเสร็จอย่างย่อ</div>
     <hr>
-    <div class="row"><div>เลขที่บิล</div><div>${lastSale.order_no}</div></div>
-    <div class="row mt16"><div>ลูกค้า</div><div>${lastSale.customer_name || "ลูกค้าทั่วไป"}</div></div>
-    <div class="row mt16"><div>ชำระเงิน</div><div>${lastSale.payment_method || "-"}</div></div>
+    <div class="row"><div>เลขที่บิล</div><div>${escapeHtml(lastSale.order_no)}</div></div>
+    <div class="row mt16"><div>ลูกค้า</div><div>${escapeHtml(lastSale.customer_name || "ลูกค้าทั่วไป")}</div></div>
+    <div class="row mt16"><div>ชำระเงิน</div><div>${escapeHtml(lastSale.payment_method || "-")}</div></div>
     <div class="row mt16"><div>เวลา</div><div>${new Date(lastSale.created_at).toLocaleString("th-TH")}</div></div>
     <hr>
-    ${(lastSale.items || []).map(i => `<div class="row mt16"><div>${i.product_name} x ${i.qty}</div><div>${money(i.line_total)}</div></div>`).join("")}
+    ${(lastSale.items || []).map(i => `<div class="row mt16"><div>${escapeHtml(i.product_name)} x ${Number(i.qty) || 0}</div><div>${money(i.line_total)}</div></div>`).join("")}
     <hr>
     <div class="row"><div>รวม</div><div style="font-weight:900;font-size:20px">${money(lastSale.total_amount)}</div></div>
     ${Number(lastSale.credit_used_amount || 0) > 0 ? `<div class="row mt16" style="color:#0369a1"><div>🎁 ใช้เครดิต</div><div>−${money(lastSale.credit_used_amount)}</div></div>` : ''}
