@@ -55,7 +55,7 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
       <div class="card-list mt16">
         ${pageSales.length ? pageSales.map(s => `
           <div class="card">
-            <div class="row">
+            <div class="row sale-card-row">
               <div style="flex:1;min-width:0">
                 <div style="font-weight:900">${escHtml(s.order_no)}</div>
                 <div class="sku">${escHtml(s.customer_name || "ลูกค้าทั่วไป")} • ${escHtml(s.payment_method || "-")}</div>
