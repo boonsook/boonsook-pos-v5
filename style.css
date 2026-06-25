@@ -2153,7 +2153,10 @@ aside.drawer { position: fixed; top: 0; right: 0; }
 /* ── Mobile: 2-up KPI grid, tighter highlight ──────────────────────────── */
 @media (max-width: 480px) {
   .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-  .kpi-value { font-size: 18px; }
+  /* Phase 527: ตัวเลข KPI ไม่ตกบรรทัดกลางตัวเลข (เดิม overflow-wrap:anywhere แตก ฿28,640.00 → ฿28,64/0.00) — nowrap + ย่อ font ให้พอดีการ์ด (เลขสั้นยังใหญ่) */
+  .kpi-value { font-size: clamp(13px, 4.2vw, 17px); white-space: nowrap; }
+  /* Phase 527: ป้าย KPI แสดงเต็ม ไม่ตัด "..." (เดิม nowrap+ellipsis) — ให้ขึ้นบรรทัดใหม่ได้ */
+  .kpi-label { white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.25; }
   .dash-today-amount { font-size: 28px; }
   .dash-today { padding: 14px 16px; }
 }
