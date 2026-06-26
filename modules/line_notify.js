@@ -186,17 +186,17 @@ function attachLineNotifyListeners(container, ctx, settings) {
   const saveButton = container.querySelector('#line-save-button');
   const isActiveCheckbox = container.querySelector('#line-is-active');
 
-  // Probe server on mount — ping /api/line-notify with empty body เพื่อเช็คว่า configured
+  // Probe server on mount — Phase 531: ส่ง { probe:true } ให้ endpoint เช็ค env จริง (ไม่ส่ง LINE)
+  //   แล้วอ่าน data.configured ตรง ๆ (เลิกเดาจาก HTTP 400 ที่เป็นแค่ "ข้อความว่าง" → เคยโชว์ 🟢 หลอก)
   (async () => {
     try {
       const resp = await fetch('/api/line-notify', {
         method: 'POST',
         headers: await getLineNotifyHeaders(state),
-        body: JSON.stringify({ message: '' })
+        body: JSON.stringify({ probe: true })
       });
       const data = await resp.json().catch(() => ({}));
-      if (resp.status === 400) {
-        // 400 = endpoint ทำงาน แต่ข้อความว่าง → แปลว่า env vars ตั้งแล้ว
+      if (data && data.configured === true) {
         statusEl.innerHTML = '🟢 <b style="color:#059669">เซิร์ฟเวอร์พร้อมส่ง LINE</b>';
         statusEl.style.backgroundColor = '#ecfdf5';
         statusEl.style.borderColor = '#059669';
