@@ -24,6 +24,18 @@ export async function onRequestPost(context) {
     // target: "queue" | "done" | "default" (default = LINE_USER_ID)
     const target = String(body.target || "default").trim().toLowerCase();
 
+    const token = context.env.LINE_CHANNEL_ACCESS_TOKEN;
+    const userId = context.env.LINE_USER_ID;
+
+    // Phase 531: probe mode — เช็ค env จริงโดย "ไม่ส่ง LINE" (badge สถานะหน้าตั้งค่า).
+    //   ก่อนหน้านี้หน้าเว็บ probe ด้วย body ว่าง → endpoint คืน 400 (เช็คก่อน env) → เดาผิดว่า env ตั้งแล้ว.
+    //   early-return แยกจาก flow ส่งจริง — ไม่แตะ empty-message check / recipient / fetch ด้านล่าง.
+    if (body.probe === true) {
+      return new Response(JSON.stringify({ ok: false, configured: !!(token && userId), probe: true }), {
+        status: 200, headers: corsHeaders
+      });
+    }
+
     if (!message) {
       return new Response(JSON.stringify({ ok: false, error: "ข้อความว่าง" }), {
         status: 400, headers: corsHeaders
@@ -33,9 +45,7 @@ export async function onRequestPost(context) {
     // ตัดความยาว LINE limit = 5000 chars ต่อ text message
     const safeMessage = message.length > 4900 ? message.slice(0, 4900) + "\n…(ตัดทอน)" : message;
 
-    const token = context.env.LINE_CHANNEL_ACCESS_TOKEN;
     // ★ เลือกปลายทางตาม target (มี fallback เป็น LINE_USER_ID เสมอ)
-    const userId = context.env.LINE_USER_ID;
     let recipient = userId;
     // Phase 391: usedFallback = boolean เท่านั้น (ไม่เปิดเผย id/secret) — แจ้ง client ว่า queue/done
     //   ตกไปที่ LINE_USER_ID เพราะยังไม่ได้ตั้งกลุ่ม (LINE_GROUP_QUEUE / LINE_GROUP_DONE)
