@@ -7,6 +7,8 @@
 //
 // ถ้ายังไม่ตั้งค่า endpoint จะตอบ 200 พร้อม { ok:false, configured:false } — UI จะแสดง "ยังไม่ตั้งค่า"
 // Phase 516 (audit S4): sanitize error responses — log full detail server-side, never to client.
+// Phase 535 (audit S4): same for per-recipient push results — drop raw upstream body (`detail`)
+//   and recipient id (`to`) from the client response; the full body is logged server-side only.
 
 import { logServerError, clientError } from "./_error_sanitizer.js";
 
@@ -87,11 +89,15 @@ export async function onRequestPost(context) {
         })
       });
 
-      let detail = null;
+      // Phase 535 (S4): the upstream LINE body may carry recipient id / quota / token state /
+      //   diagnostic detail — log it server-side (Cloudflare logs) but NEVER return it to the
+      //   client. The per-recipient client result is HTTP status + ok only (no `to`, no `detail`).
       if (!resp.ok) {
+        let detail = null;
         try { detail = await resp.text(); } catch { /* ignore */ }
+        logServerError("[line-notify] LINE push failed", { status: resp.status, detail });
       }
-      results.push({ to, status: resp.status, ok: resp.ok, detail });
+      results.push({ status: resp.status, ok: resp.ok });
     }
 
     const allOk = results.every(r => r.ok);
