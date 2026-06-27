@@ -4632,3 +4632,6 @@ Inconsistent กับ rcDeleteBtn (ลบ) ที่ restore อยู่แล
 - **Bullets** = 1-2 ข้อ ต่อ commit ใหญ่ — เน้น user-impact
 - **Skip**: tiny chores, version-bump-only commits — ดู git log ก็พอ
 - **เนื้อหาลึก** (why / trade-off / architecture) — ใส่ใน HANDOFF.md ไม่ใช่ตรงนี้
+# Phase 536 note
+
+- fix(security,build 536): harden `error_log` spoof/read exposure (BUG_AUDIT 2026-06-25 S2+S3). `/api/log-error` now derives `user_id` from Authorization JWT `sub` only after UUID validation. New SQL `supabase-phase536-error-log-hardening.sql` blocks direct REST user_id spoofing (`user_id IS NULL OR user_id = auth.uid()`), changes `error_log` SELECT to admin-only (`public.is_admin()`), and sets `error_log_grouped` to `security_invoker`. +guard `error_log_hardening`. Build/cache 535->536.
