@@ -208,6 +208,24 @@ export function refundMappingKeyForMethod(method) {
 // ═══════════════════════════════════════════════════════════
 // Core: post a journal entry + lines
 // ═══════════════════════════════════════════════════════════
+// Phase 534 (B3): classify a failed journal_entries insert by which UNIQUE constraint it hit.
+//   Call ONLY after confirming a unique violation (409 / 23505) — see the gate in _postJournal.
+//   Real PostgREST 409 always names the constraint in the body, so an unnamed/ambiguous
+//   violation is "unknown" → caller throws (never a blind skip/retry that could lose a JV).
+//   'source-dup'  = idx_je_source_unique  → this source already has a JV → idempotent skip.
+//   'docno-clash' = journal_entries_doc_no_key (doc_no) → race on read-max+1 → retry a new seq.
+export function classifyJeInsertError(status, bodyText) {
+  const t = String(bodyText || "");
+  if (t.includes("idx_je_source_unique")) return "source-dup";
+  if (t.includes("journal_entries_doc_no_key") || /unique constraint[^]*doc_no/i.test(t)) return "docno-clash";
+  return "unknown";
+}
+
+// Phase 534: short jitter between doc_no-clash retries so the winning insert becomes visible
+//   before we re-read max(doc_no). Injectable so the retry guard test stays fast + deterministic.
+let _docnoRetrySleep = (ms) => new Promise((r) => setTimeout(r, ms));
+export function _setDocnoRetrySleepForTest(fn) { _docnoRetrySleep = fn; }
+
 async function _postJournal(opts) {
   const { sourceTable, sourceId, docType, docDate, description, lines } = opts;
   const detailed = opts.detailed === true;
@@ -248,59 +266,96 @@ async function _postJournal(opts) {
   const yyyy = docDate.slice(0, 4);
   const mm   = docDate.slice(5, 7);
   const docNoPrefix = `${docType}${yyyy}${mm}`;
-  let nextSeq = 1;
-  try {
-    const r = await fetch(`${cfg.url}/rest/v1/journal_entries?select=doc_no&doc_no=like.${docNoPrefix}*&order=doc_no.desc&limit=1`, {
-      headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token }
-    });
-    const arr = await r.json();
-    if (arr[0]?.doc_no) {
-      const tail = arr[0].doc_no.slice(docNoPrefix.length);
-      nextSeq = (Number(tail) || 0) + 1;
-    }
-  } catch(e) { /* fallback to 1 */ }
-  const docNo = `${docNoPrefix}${String(nextSeq).padStart(4, "0")}`;
 
-  // POST entry — idempotent via partial unique index
-  // Phase 89.4: _authFetch → auto 401 retry
+  // Phase 534 (B3): doc_no = read-max+1 is RACY (two concurrent checkouts read the same max →
+  //   same doc_no → the loser gets a 409 on journal_entries_doc_no_key). Previously ALL 409s were
+  //   treated as "source already posted" → skipped silently → that bill's JV was LOST. Now we
+  //   classify the 409 and RETRY a fresh seq on a doc_no clash. The for-loop lives INSIDE the
+  //   existing try, so any throw (non-unique error / unknown violation / no-id) still falls to the
+  //   Phase 92.13 RLS catch below — RLS/real-error behavior is UNCHANGED.
+  const MAX_DOCNO_RETRY = 5;
   let entryId = null;
+  let docNo = null;
   try {
-    const r = await _authFetch(`${cfg.url}/rest/v1/journal_entries`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Prefer": "return=representation"
-      },
-      body: JSON.stringify({
-        doc_no: docNo,
-        doc_type: docType,
-        doc_date: docDate,
-        description,
-        status: "approved",
-        total_debit: totalDebit,
-        total_credit: totalCredit,
-        source_table: sourceTable,
-        source_id: sourceId,
-        approved_at: new Date().toISOString()
-      })
-    });
-    if (r.status === 409 || r.status === 23505) {
-      // Idempotency hit — JV already exists for this source
-      console.info("[auto_post] JV already exists for", sourceTable, "#" + sourceId);
-      return _journalResult(detailed, { status: "skipped", reason: "duplicate", sourceTable, sourceId });
-    }
-    if (!r.ok) {
+    let posted = false;
+    let lastTriedSeq = 0;
+    for (let attempt = 0; attempt < MAX_DOCNO_RETRY && !posted; attempt++) {
+      // a. read current max seq for this monthly prefix (own fallback — a read miss must NOT throw)
+      let fetchedNextSeq = 1;
+      try {
+        const rr = await fetch(`${cfg.url}/rest/v1/journal_entries?select=doc_no&doc_no=like.${docNoPrefix}*&order=doc_no.desc&limit=1`, {
+          headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token }
+        });
+        const arr = await rr.json();
+        if (arr[0]?.doc_no) {
+          const tail = arr[0].doc_no.slice(docNoPrefix.length);
+          fetchedNextSeq = (Number(tail) || 0) + 1;
+        }
+      } catch(e) { /* fallback to 1 */ }
+
+      // b. progress-guaranteed seq — advances even if the read is still stale after a clash
+      const nextSeq = Math.max(fetchedNextSeq, lastTriedSeq + 1);
+      docNo = `${docNoPrefix}${String(nextSeq).padStart(4, "0")}`;
+
+      // c. POST entry — idempotent via partial unique index. Phase 89.4: _authFetch → auto 401 retry
+      const r = await _authFetch(`${cfg.url}/rest/v1/journal_entries`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Prefer": "return=representation"
+        },
+        body: JSON.stringify({
+          doc_no: docNo,
+          doc_type: docType,
+          doc_date: docDate,
+          description,
+          status: "approved",
+          total_debit: totalDebit,
+          total_credit: totalCredit,
+          source_table: sourceTable,
+          source_id: sourceId,
+          approved_at: new Date().toISOString()
+        })
+      });
+
+      // d. success
+      if (r.ok) {
+        const arr = await r.json();
+        entryId = arr[0]?.id;
+        if (!entryId) throw new Error("no id returned");
+        posted = true;
+        break;
+      }
+
+      // e. failure — GATE: classify ONLY a unique violation (409 / 23505). Anything else
+      //    (RLS 403 / 42501 / real 4xx-5xx) throws → Phase 92.13 catch below. ห้าม regress.
       const txt = await r.text();
-      // Postgres unique violation surfaces as 409 in PostgREST, but check error code too
-      if (txt.includes("idx_je_source_unique") || txt.includes("23505")) {
-        console.info("[auto_post] JV already exists (via error):", sourceTable, sourceId);
+      const isUniqueViolation = r.status === 409 || /23505/.test(txt);
+      if (!isUniqueViolation) throw new Error(`HTTP ${r.status}: ${txt.slice(0, 200)}`);
+      const kind = classifyJeInsertError(r.status, txt);
+      if (kind === "source-dup") {
+        // this source already has a JV (idempotent re-post) → correct to skip
+        console.info("[auto_post] JV already exists for", sourceTable, "#" + sourceId);
         return _journalResult(detailed, { status: "skipped", reason: "duplicate", sourceTable, sourceId });
       }
+      if (kind === "docno-clash") {
+        lastTriedSeq = nextSeq;
+        await _docnoRetrySleep(50 + Math.random() * 100);
+        continue;
+      }
+      // unknown unique violation (unrecognized constraint) → throw, never blind retry/skip
       throw new Error(`HTTP ${r.status}: ${txt.slice(0, 200)}`);
     }
-    const arr = await r.json();
-    entryId = arr[0]?.id;
-    if (!entryId) throw new Error("no id returned");
+
+    if (!posted) {
+      // ครบ MAX_DOCNO_RETRY ยังชน doc_no → ห้าม skip เงียบ (B3 invariant). surface + report (§4.8).
+      console.error("[auto_post] doc_no clash unresolved", docNoPrefix, sourceTable, sourceId);
+      window._errorReporter?.captureMessage?.("auto_post doc_no clash unresolved", {
+        severity: "error",
+        extra: { sourceTable, sourceId, docNoPrefix, attempts: MAX_DOCNO_RETRY }
+      });
+      return _journalResult(detailed, { status: "failed", reason: "docno-clash-unresolved", sourceTable, sourceId });
+    }
   } catch(e) {
     const msg = e?.message || String(e);
     // Phase 92.13: distinguish RLS denial (403 / Postgres 42501) from real errors.

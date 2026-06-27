@@ -88,10 +88,19 @@ test("detailed pre-effective returns skipped, not failed", async () => {
   assert.equal(authCalled, false, "pre-effective should not attempt journal writes");
 });
 
-test("detailed duplicate returns skipped duplicate", async () => {
+test("detailed duplicate (source already posted) returns skipped duplicate", async () => {
+  // Phase 534 (B3): a real PostgREST 409 names the violated constraint. The source-dup case
+  //   is idx_je_source_unique → classifier = 'source-dup' → still skipped/duplicate. (The old
+  //   mock returned a bare {code:"23505"} with no constraint name, which the B3 classifier now
+  //   correctly treats as 'unknown' → throw — so the mock must reflect reality, not be relaxed.)
   window._appAuthFetch = async (url, init) => {
     const u = String(url);
-    if (u.includes("/journal_entries") && init?.method === "POST") return makeRes(409, { code: "23505" });
+    if (u.includes("/journal_entries") && init?.method === "POST") {
+      return makeRes(409, {
+        code: "23505",
+        message: 'duplicate key value violates unique constraint "idx_je_source_unique"',
+      });
+    }
     return makeRes(200, []);
   };
 
