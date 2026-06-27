@@ -333,6 +333,22 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
           sideEffects.push("⚠️ reverse loyalty exception");
         }
 
+        // (d) Phase B4 (build 533): คืนเครดิตลูกค้า (2180) ที่ใช้จ่ายบิลนี้ — void แล้วต้องคืน
+        //     ไม่งั้น customer_credit_ledger ≠ GL 2180 (void JV คืน Cr 2180 ใน GL แล้ว แต่ ledger ลูกค้าไม่คืน).
+        //     release_customer_credit idempotent ต่อ source_key (re-void ปลอดภัย). best-effort เหมือน a/b/c.
+        try {
+          const tSale = (state.sales || []).find(s => String(s.id) === String(saleId));
+          const creditUsed = Number(tSale?.credit_used_amount || 0);
+          const srcKey = tSale?.checkout_key;
+          if (creditUsed > 0 && srcKey && window._appReleaseCheckoutCredit) {
+            const relOk = await window._appReleaseCheckoutCredit(srcKey, tSale?.customer_id, creditUsed, "void-sale");
+            sideEffects.push(relOk ? `คืนเครดิต ฿${creditUsed}` : "⚠️ คืนเครดิต fail");
+          }
+        } catch (e) {
+          console.warn("[sales delete] release credit exception:", e?.message);
+          sideEffects.push("⚠️ release credit exception");
+        }
+
         const sideEffectsMsg = sideEffects.length ? ` (${sideEffects.join(", ")})` : "";
         if (showToast) showToast("ลบรายการขายเรียบร้อย ✅" + sideEffectsMsg);
 

@@ -1212,6 +1212,10 @@ async function _releaseAndLog(sourceKey, customerId, amount, reason) {
   }
 }
 
+// ★ Phase B4 (build 533): เปิด release helper ให้ flow void/ลบบิล (sales.js) คืนเครดิตลูกค้า (2180)
+//   เมื่อ void บิลที่จ่ายด้วยเครดิต. mirror redeem (:1190). idempotent ต่อ source_key (กัน double-release).
+if (typeof window !== "undefined") window._appReleaseCheckoutCredit = _releaseAndLog;
+
 // ★ Phase 520 (#1d): replay — บิล checkout_key เดิมถูกสร้างไปแล้ว (re-submit) → เปิดใบเสร็จเดิม ไม่ทำซ้ำ.
 async function _openExistingSaleByCheckoutKey(checkoutKey, ctx) {
   try {
