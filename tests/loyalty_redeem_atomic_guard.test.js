@@ -32,14 +32,19 @@ test("SQL: defines a SECURITY DEFINER redeem function", () => {
   assert.match(SQL, /SET search_path = public/, "must pin search_path");
 });
 
-test("SQL: ★ role guard refuses the customer role with 42501 (before any read/insert)", () => {
-  assert.match(SQL, /COALESCE\(public\.is_customer_role\(\), false\)/, "must re-check the caller's role");
-  assert.match(SQL, /RAISE EXCEPTION[\s\S]{0,80}USING ERRCODE = '42501'/, "customer role → 42501 forbidden");
-  // the guard must come BEFORE the balance read (so a customer never even reaches the SELECT)
-  const idxGuard = SQL.indexOf("is_customer_role");
-  const idxBalance = SQL.indexOf("v_remaining");
-  assert.ok(idxGuard !== -1 && idxBalance !== -1 && idxGuard < idxBalance,
-    "the role guard must precede the balance computation");
+test("SQL: ★ role guard is staff-only (42501) and matches the table policy (before any read/insert)", () => {
+  // positive gate must equal the existing loyalty_points_rw policy (WITH CHECK is_staff()) so the
+  // SECURITY DEFINER RPC does not grant redeem to any role the direct INSERT didn't already allow.
+  assert.match(SQL, /IF NOT COALESCE\(public\.is_staff\(\), false\) THEN/, "must require staff (match loyalty_points_rw policy)");
+  // explicit defence-in-depth deny of the OTP customer role
+  assert.match(SQL, /COALESCE\(public\.is_customer_role\(\), false\)/, "must also explicitly deny the customer role");
+  assert.match(SQL, /RAISE EXCEPTION[\s\S]{0,80}USING ERRCODE = '42501'/, "non-staff / customer → 42501 forbidden");
+  // the guard must come BEFORE the balance read (so a non-staff caller never reaches the SELECT)
+  const idxStaff = SQL.indexOf("is_staff");
+  const idxCustomer = SQL.indexOf("is_customer_role");
+  const idxBalance = SQL.indexOf("v_remaining :=") === -1 ? SQL.indexOf("INTO v_remaining") : SQL.indexOf("v_remaining :=");
+  assert.ok(idxStaff !== -1 && idxCustomer !== -1, "both guards must be present");
+  assert.ok(idxStaff < idxBalance && idxCustomer < idxBalance, "the role guards must precede the balance computation");
 });
 
 test("SQL: serializes per-customer with an advisory xact lock", () => {

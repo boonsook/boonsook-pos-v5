@@ -61,8 +61,13 @@ DECLARE
   v_remaining numeric;
   v_row       public.loyalty_points;
 BEGIN
-  -- ★ AUTHZ — MUST be first (SECURITY DEFINER bypasses RLS). Loyalty redeem is staff-only;
-  --   block OTP customers. auth.uid() inside a DEFINER function is still the CALLING user.
+  -- ★ AUTHZ — MUST be first (SECURITY DEFINER bypasses RLS). auth.uid() inside a DEFINER function
+  --   is still the CALLING user. This matches the existing table policy loyalty_points_rw
+  --   (WITH CHECK is_staff()): require staff (positive gate, so the RPC does not grant redeem to
+  --   any role the direct INSERT didn't already allow) AND explicitly deny the OTP customer role.
+  IF NOT COALESCE(public.is_staff(), false) THEN
+    RAISE EXCEPTION 'forbidden: loyalty redeem is staff-only' USING ERRCODE = '42501';
+  END IF;
   IF COALESCE(public.is_customer_role(), false) THEN
     RAISE EXCEPTION 'forbidden: loyalty redeem is staff-only' USING ERRCODE = '42501';
   END IF;
