@@ -5,7 +5,7 @@
 // ═══════════════════════════════════════════════════════════
 import { renderEmpty } from "./ui_states.js";
 
-import { escHtml } from "./utils.js";
+import { escHtml, todayBkk } from "./utils.js";
 
 const THAI_MONTHS = ["มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน","กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"];
 const THAI_MONTHS_SHORT = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
@@ -171,13 +171,16 @@ async function sendBirthdayGreeting(customer, ctx) {
 // ★ Background check — เรียกตอน app load
 export async function checkTodayBirthdaysAndNotify(state) {
   if (!state?.lineNotifySettings?.is_active) return;
-  const today = new Date();
-  const todayMD = String(today.getMonth()+1).padStart(2,'0') + "-" + String(today.getDate()).padStart(2,'0');
+  // Phase 538 (S11, §4.7): คิด "วันนี้" บนเขตเวลาไทย (Asia/Bangkok) ทั้ง match วันเกิด + dedup key.
+  //   เดิม dedup key = `new Date().toISOString().slice(0,10)` = วัน UTC → ช่วง 00:00–06:59 ไทย key
+  //   ย้อนเป็น "เมื่อวาน" → ส่งอวยพรซ้ำรอบเช้า. todayBkk() = "YYYY-MM-DD" เขตเวลาไทย (single source).
+  const todayBkkStr = todayBkk();
+  const todayMD = todayBkkStr.slice(5, 10);  // "MM-DD" บนเขตเวลาไทย
   const todayBdays = (state.customers || []).filter(c => String(c.birthday || "").slice(5,10) === todayMD);
   if (todayBdays.length === 0) return;
 
   // เช็ค localStorage ว่าวันนี้ส่งแล้วยัง (กันส่งซ้ำเปิดแอปหลายครั้ง)
-  const todayKey = today.toISOString().slice(0, 10);
+  const todayKey = todayBkkStr;
   const lastNotifyKey = `bsk_bday_notified_${todayKey}`;
   if (localStorage.getItem(lastNotifyKey)) return;
 
