@@ -6694,3 +6694,6 @@ Verified 2026-06-01:
 Backfill NOT run — dry-run + `auto_post.js` confirm 0 actionable rows. Remaining orphans (`sales_without_journal=85`, `expenses=1`, `payroll=0`) are all intentional skips: pre-effective April test data (`< 2026-05-01`) and one zero-amount May sale. Real May orphans were backfilled in a prior session. Live backfill would be a no-op.
 
 No client/UI change. APP_BUILD stays 315 / v5.64.0.
+# Phase 536 handoff
+
+**build 536 (Phase 536 / S2+S3 - error_log hardening):** Baseline main `5edc416` (build 535). Fixes `/api/log-error` trusting client `body.user_id` by deriving `user_id` from Authorization JWT `sub` only after UUID validation. Adds owner-run SQL `supabase-phase536-error-log-hardening.sql`: insert policy `user_id IS NULL OR user_id = auth.uid()`, admin-only select via `public.is_admin()`, grouped view `security_invoker=true`, and PostgREST schema reload. Not touched: LINE, parse/verify sanitizer, POS/stock/accounting flows. Verify with `node --test tests/error_log_hardening_guard.test.js`, full unit/lint/e2e. Owner must run SQL before merge/live smoke.

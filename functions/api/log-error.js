@@ -37,6 +37,7 @@ const MAX_LEN = {
 };
 
 const ALLOWED_SEVERITY = new Set(["error", "warning", "info"]);
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function clamp(val, max) {
   if (val == null) return null;
@@ -50,6 +51,24 @@ function validate(body) {
   const sev = body.severity || "error";
   if (!ALLOWED_SEVERITY.has(sev)) return { ok: false, error: "invalid severity" };
   return { ok: true };
+}
+
+function decodeBase64UrlJson(segment) {
+  try {
+    const normalized = String(segment || "").replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), "=");
+    return JSON.parse(globalThis.atob(padded));
+  } catch {
+    return null;
+  }
+}
+
+export function userIdFromAuthHeader(authHeader) {
+  const match = String(authHeader || "").match(/^Bearer\s+([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)\.[A-Za-z0-9_-]+$/);
+  if (!match) return null;
+  const payload = decodeBase64UrlJson(match[2]);
+  const sub = typeof payload?.sub === "string" ? payload.sub : "";
+  return UUID_RE.test(sub) ? sub : null;
 }
 
 export async function onRequestPost({ request, env }) {
@@ -76,6 +95,7 @@ export async function onRequestPost({ request, env }) {
   // otherwise fall back to anon key.
   const clientAuth = request.headers.get("Authorization");
   const forwardAuth = clientAuth && clientAuth.startsWith("Bearer ") ? clientAuth : `Bearer ${anonKey}`;
+  const derivedUserId = userIdFromAuthHeader(clientAuth);
 
   // Sanitize + truncate (defense in depth — client should already cap).
   const payload = {
@@ -84,7 +104,7 @@ export async function onRequestPost({ request, env }) {
     stack: clamp(body.stack, MAX_LEN.stack),
     source: clamp(body.source, MAX_LEN.source),
     url: clamp(body.url, MAX_LEN.url),
-    user_id: body.user_id || null,
+    user_id: derivedUserId,
     user_agent: clamp(body.user_agent, MAX_LEN.user_agent),
     build: Number.isFinite(body.build) ? body.build : null,
     fingerprint: clamp(body.fingerprint, MAX_LEN.fingerprint),
