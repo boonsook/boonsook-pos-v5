@@ -309,31 +309,43 @@ export async function redeemPoints(customerId, points, note, ctx) {
     return { ok: false, error: { message: `ต้องแลกอย่างน้อย ${minRedeem} แต้ม` } };
   }
 
+  // Phase 540 (S5): client balance check is a UX precheck ONLY — state.loyaltyPoints is an
+  //   in-memory cache (capped ≤500) and racy. The authoritative balance check + insert happen
+  //   atomically in the redeem_loyalty_points_atomic RPC (per-customer advisory xact lock) so two
+  //   devices redeeming at once can't drive the balance negative. Do NOT treat this as the gate.
   const customerPoints = getCustomerPoints(customerId, ctx);
   if (customerPoints.remaining < Number(points || 0)) {
     if (showToast) showToast("แต้มไม่พอแลก", "error");
     return { ok: false, error: { message: "แต้มไม่พอแลก" } };
   }
 
-  const newRecord = {
-    customer_id: customerId,
-    type: 'redeem',
-    points: Number(points || 0),
-    ref_type: 'redemption',
-    ref_id: null,
-    note: note || null,
-    created_at: new Date().toISOString(),
-  };
-
-  // Phase 90.8: same signature fix as earnPoints — table name + Promise pattern.
-  const r = await window._appXhrPost('loyalty_points', newRecord);
-  if (r?.ok) {
+  // ★ Atomic redeem via SECURITY DEFINER RPC (mirror pos.js _redeemCheckoutCredit). The DB is the
+  //   source of truth: it re-reads the balance under a lock, refuses over-redeem with 23514, and
+  //   refuses the customer role with 42501. p_customer_id is bigint → cast (select.value = string).
+  const cfg = window.SUPABASE_CONFIG;
+  const token = window._sbAccessToken || cfg.anonKey;
+  let r;
+  try {
+    r = await fetch(cfg.url + "/rest/v1/rpc/redeem_loyalty_points_atomic", {
+      method: "POST",
+      headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token, "Content-Type": "application/json" },
+      body: JSON.stringify({ p_customer_id: Number(customerId), p_points: Number(points || 0), p_note: note || null })
+    });
+  } catch (e) {
+    if (showToast) showToast('แลกแต้มล้มเหลว: ' + (e?.message || 'network'), "error");
+    return { ok: false, error: { message: e?.message || "network" } };
+  }
+  if (r.ok) {
     if (showToast) showToast(`แลกแต้ม ${points} แต้ม สำเร็จ`, "success");
     if (loadAllData) loadAllData();
     return { ok: true, error: null };
   }
-  if (showToast) showToast('แลกแต้มล้มเหลว: ' + (r?.error?.message || 'unknown'), "error");
-  return { ok: false, error: r?.error || { message: "unknown" } };
+  // failure — read the body once; map 23514 (insufficient balance) to a friendly message
+  const txt = await r.text().catch(() => "");
+  const insufficient = /23514/.test(txt) || /insufficient/i.test(txt);
+  const msg = insufficient ? "แต้มไม่พอแลก" : ("แลกแต้มล้มเหลว (HTTP " + r.status + ")");
+  if (showToast) showToast(msg, "error");
+  return { ok: false, error: { message: msg, status: r.status } };
 }
 
 /**
