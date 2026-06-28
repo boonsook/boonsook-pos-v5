@@ -4,7 +4,7 @@
 // ═══════════════════════════════════════════════════════════
 import { renderEmpty, renderSkeleton } from "./ui_states.js";
 // Phase 57: audit log + Phase 70 (D3): Excel export
-import { logActivity, exportToExcel, todaySuffix } from "./utils.js";
+import { logActivity, exportToExcel, todaySuffix, todayBkk, addDaysBkk, dateBkk } from "./utils.js";
 import { renderDocumentTemplateHeader, renderDocumentTemplateNote, renderDocumentTemplateFooter } from "./doc-utils.js";
 // Phase 88.1b: auto-post JV หลังรับชำระลูกหนี้
 import { postJournalForReceipt, voidJvForSource } from "./accounting/auto_post.js";
@@ -85,7 +85,9 @@ let _rcDateRange = "all"; // all | today | 7d | 30d | month
 let _rcSearch = "";
 
 export function _receiptMatchesSearchDate(r, { cutoff = "", q = "" } = {}) {
-  if (cutoff && String(r?.created_at || "").slice(0, 10) < cutoff) return false;
+  // Phase 538 (S9, §4.7): เทียบวันบนเขตเวลาไทย — created_at เป็น timestamptz (UTC); .slice(0,10)
+  //   จะได้ "วันที่ UTC" → บิลที่สร้าง 00:00–06:59 ไทย (= เมื่อวาน UTC) หลุด filter "วันนี้". ใช้ dateBkk().
+  if (cutoff && dateBkk(r?.created_at) < cutoff) return false;
   const query = String(q || "").trim().toLowerCase();
   if (query && !(
     String(r?.receipt_no || "").toLowerCase().includes(query) ||
@@ -141,11 +143,12 @@ export function renderReceiptsPage(ctx) {
   const receipts = ctx.state.receipts || [];
 
   // Phase 59 (B2): apply advanced filters
-  const today = new Date().toISOString().slice(0, 10);
+  // Phase 538 (S9, §4.7): boundary "วันนี้/7วัน/30วัน/เดือนนี้" คิดบนเขตเวลาไทย (Asia/Bangkok) ไม่ใช่ UTC
+  const today = todayBkk();
   let cutoff = "";
   if (_rcDateRange === "today") cutoff = today;
-  else if (_rcDateRange === "7d") { const d = new Date(); d.setDate(d.getDate() - 7); cutoff = d.toISOString().slice(0, 10); }
-  else if (_rcDateRange === "30d") { const d = new Date(); d.setDate(d.getDate() - 30); cutoff = d.toISOString().slice(0, 10); }
+  else if (_rcDateRange === "7d") { cutoff = addDaysBkk(-7); }
+  else if (_rcDateRange === "30d") { cutoff = addDaysBkk(-30); }
   else if (_rcDateRange === "month") { cutoff = today.slice(0, 7) + "-01"; }
   const q = (_rcSearch || "").trim().toLowerCase();
   const scopedReceipts = receipts.filter(r => _receiptMatchesSearchDate(r, { cutoff, q }));

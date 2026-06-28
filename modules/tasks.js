@@ -4,7 +4,7 @@
 // ═══════════════════════════════════════════════════════════
 import { renderEmpty, renderSkeleton, renderError } from "./ui_states.js";
 
-import { escHtml } from "./utils.js";
+import { escHtml, todayBkk, addDaysBkk, dateBkk } from "./utils.js";
 
 let _tkList = [];
 let _tkFilter = "today"; // today | week | overdue | done | all
@@ -60,14 +60,17 @@ export async function renderTasksPage(ctx) {
     return;
   }
 
+  // Phase 538 (S10, §4.7): "วันนี้/สัปดาห์/ค้างวันนี้/เสร็จวันนี้" คิดบนเขตเวลาไทย — due_at/done_at เป็น
+  //   timestamptz (UTC, เก็บด้วย .toISOString()) → .slice(0,10) ได้วัน UTC; ใช้ dateBkk() เทียบ + todayBkk()/
+  //   addDaysBkk() เป็น boundary. overdue เทียบ instant (new Date(due) < now) = TZ-agnostic คงไว้.
   const now = new Date();
-  const today = now.toISOString().slice(0, 10);
-  const weekFromNow = new Date(); weekFromNow.setDate(weekFromNow.getDate()+7);
+  const today = todayBkk();
+  const weekEnd = addDaysBkk(7);
 
   // Filter
   let filtered = _tkList;
-  if (_tkFilter === "today") filtered = _tkList.filter(t => !t.done && t.due_at && String(t.due_at).slice(0,10) === today);
-  else if (_tkFilter === "week") filtered = _tkList.filter(t => !t.done && t.due_at && String(t.due_at).slice(0,10) <= weekFromNow.toISOString().slice(0,10));
+  if (_tkFilter === "today") filtered = _tkList.filter(t => !t.done && t.due_at && dateBkk(t.due_at) === today);
+  else if (_tkFilter === "week") filtered = _tkList.filter(t => !t.done && t.due_at && dateBkk(t.due_at) <= weekEnd);
   else if (_tkFilter === "overdue") filtered = _tkList.filter(t => !t.done && t.due_at && new Date(t.due_at) < now);
   else if (_tkFilter === "done") filtered = _tkList.filter(t => t.done);
   // all = ทั้งหมด
@@ -75,8 +78,8 @@ export async function renderTasksPage(ctx) {
   // Stats
   const totalOpen = _tkList.filter(t => !t.done).length;
   const overdueCount = _tkList.filter(t => !t.done && t.due_at && new Date(t.due_at) < now).length;
-  const todayCount = _tkList.filter(t => !t.done && t.due_at && String(t.due_at).slice(0,10) === today).length;
-  const doneToday = _tkList.filter(t => t.done && t.done_at && String(t.done_at).slice(0,10) === today).length;
+  const todayCount = _tkList.filter(t => !t.done && t.due_at && dateBkk(t.due_at) === today).length;
+  const doneToday = _tkList.filter(t => t.done && t.done_at && dateBkk(t.done_at) === today).length;
 
   container.innerHTML = `
     <div style="padding:8px">
