@@ -401,10 +401,19 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
 
       if (success) {
         let finalNote = newNote;
+        // Phase 539 (S8): คืนสต็อก throw/partial = สต็อก "ไม่คืน" จริง → ห้ามโชว์ "✅ เรียบร้อย" เฉย ๆ
+        //   (เดิม restore throw → catch console.error → _restore={restored:false,errors:[]} → ตกไป ✅
+        //   ทั้งที่สต็อกไม่คืน เงียบ). gate ✅ + warning + report.
+        let stockIssue = false;
         if (_job && !String(newNote || "").includes(STOCK_RETURNED_MARKER)) {
           let _restore = { restored: false, errors: [] };
           try { _restore = await restoreServiceJobStock({ ..._job, note: String(_job.note || "") }); }
-          catch (re) { console.error("[service_jobs delete] restore stock threw:", re); }
+          catch (re) {
+            console.error("[service_jobs delete] restore stock threw:", re);
+            try { window._errorReporter?.captureMessage?.("service_job delete: restore stock threw", { severity: "error", extra: { jobId, error: re?.message || String(re) } }); } catch { /* reporter optional */ }
+            stockIssue = true;
+            showToast?.("⚠️ ลบงานแล้ว แต่คืนสต็อกไม่สำเร็จ (เกิดข้อผิดพลาด) — โปรดตรวจสอบ/คืนสต็อกด้วยตนเอง", "warning");
+          }
           if (_restore.restored) {
             finalNote = `${newNote} ${STOCK_RETURNED_MARKER}`;
             const markerRes = await window._appXhrPatch?.("service_jobs", { note: finalNote }, "id", jobId);
@@ -413,9 +422,12 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
               showToast?.("⚠️ ลบงานสำเร็จแล้ว แต่แปะ marker คืนสต็อกไม่สำเร็จ — ห้ามกดลบซ้ำ", "warning");
             }
           }
-          if (_restore.errors?.length) showToast?.(`⚠️ ลบงานแล้ว แต่คืนสต็อกบางรายการไม่สำเร็จ (${_restore.errors.length}) — ตรวจ Console`, "warning");
+          if (_restore.errors?.length) {
+            stockIssue = true;
+            showToast?.(`⚠️ ลบงานแล้ว แต่คืนสต็อกบางรายการไม่สำเร็จ (${_restore.errors.length}) — ตรวจ Console`, "warning");
+          }
         }
-        if (showToast) showToast("ลบงานช่างเรียบร้อย ✅");
+        if (showToast && !stockIssue) showToast("ลบงานช่างเรียบร้อย ✅");
         const job = state.serviceJobs.find(x => x.id === jobId);
         if (job) { job.status = "cancelled"; job.note = finalNote; }
         renderServiceJobsPage({ state, openServiceJobDrawer, showToast, showRoute });

@@ -65,9 +65,12 @@ test("release (d) is ordered AFTER void-JV / revert-stock / reverse-loyalty", ()
 });
 
 test("release failure is surfaced, not silent (§4.8)", () => {
+  // Phase 539 (S7): release fail is now tracked as a `failures` entry, which downgrades the
+  //   whole delete toast to a warning (no fake "✅ เรียบร้อย") + reports for audit — strictly
+  //   more visible than the old inline "⚠️ คืนเครดิต fail" sideEffect note.
   assert.match(
     SALES,
-    /relOk\s*\?[\s\S]{0,80}?:\s*["']⚠️ คืนเครดิต fail/,
-    "release fail must push a visible sideEffect (not swallowed)",
+    /else failures\.push\("คืนเครดิตลูกค้า"\)/,
+    "release fail must be tracked as a failure (downgrades the delete toast + reported, not swallowed)",
   );
 });
