@@ -55,10 +55,37 @@ function redeemRow({ id, customerId, points, refType = "redemption", refId = nul
   };
 }
 
-// Mock window._appXhrPost and return the captured payload.
-// Each call resets — return what you want via factory args.
-function installMockXhr({ shouldFail = false, errMsg = "boom" } = {}) {
+// Phase 541 (S6): reverseEarnedPointsForSale now reads loyalty rows from the DB (source of truth)
+// via fetchAllRowsRaw → mock globalThis.fetch to serve `rows`, honouring the PostgREST filters the
+// function uses (ref_id=eq.X · ref_type=in.(a,b) · customer_id=eq.Y). failFetch → HTTP 500 (throws
+// in fetchAllRowsRaw → exercises the no-silent-skip path). Also sets window.SUPABASE_CONFIG.
+function installMockDb(rows = [], { failFetch = false } = {}) {
+  const origFetch = globalThis.fetch;
+  globalThis.window = globalThis.window || {};
+  const prevCfg = globalThis.window.SUPABASE_CONFIG;
+  globalThis.window.SUPABASE_CONFIG = { url: "https://test.supabase.co", anonKey: "anon" };
+  globalThis.fetch = async (url) => {
+    if (failFetch) return { ok: false, status: 500, json: async () => ({}) };
+    const params = new URLSearchParams(String(url).split("?")[1] || "");
+    if (Number(params.get("offset") || 0) > 0) return { ok: true, status: 200, json: async () => [] };
+    let out = rows.slice();
+    for (const [k, v] of params.entries()) {
+      if (["select", "order", "limit", "offset"].includes(k)) continue;
+      if (v.startsWith("eq.")) out = out.filter(r => String(r[k]) === v.slice(3));
+      else if (v.startsWith("in.")) {
+        const set = v.slice(3).replace(/^\(|\)$/g, "").split(",");
+        out = out.filter(r => set.includes(String(r[k])));
+      }
+    }
+    return { ok: true, status: 200, json: async () => out };
+  };
+  return { restore() { globalThis.fetch = origFetch; globalThis.window.SUPABASE_CONFIG = prevCfg; } };
+}
+
+// Mock window._appXhrPost (the reverse INSERT) AND the DB read (from `rows`). Returns captured payloads.
+function installMockXhr(rows = [], { shouldFail = false, errMsg = "boom" } = {}) {
   const captured = [];
+  const db = installMockDb(rows);
   globalThis.window = globalThis.window || {};
   globalThis.window._appXhrPost = async (table, record) => {
     captured.push({ table, record });
@@ -67,7 +94,7 @@ function installMockXhr({ shouldFail = false, errMsg = "boom" } = {}) {
   };
   return {
     captured,
-    restore: () => { delete globalThis.window._appXhrPost; },
+    restore: () => { delete globalThis.window._appXhrPost; db.restore(); },
   };
 }
 
@@ -142,7 +169,7 @@ test("hasReversedLoyaltyForSale distinguishes ref_type='sale_reverse' from other
 // ─── reverseEarnedPointsForSale: happy path ───
 test("reverseEarnedPointsForSale: sale earned 5 → reverses exactly 5, inserts type=redeem + ref_type=sale_reverse", async () => {
   const state = { loyaltyPoints: [ earnRow({ id: 1, customerId: 42, points: 5, saleId: 100 }) ] };
-  const xhr = installMockXhr();
+  const xhr = installMockXhr(state.loyaltyPoints);
   try {
     const res = await reverseEarnedPointsForSale(100, { state, customerId: 42 });
     assert.equal(res.ok, true);
@@ -166,7 +193,7 @@ test("reverseEarnedPointsForSale: sale earned 5 → reverses exactly 5, inserts 
 
 test("reverseEarnedPointsForSale: includes refund #id in note when refundId is passed", async () => {
   const state = { loyaltyPoints: [ earnRow({ id: 1, customerId: 42, points: 5, saleId: 100 }) ] };
-  const xhr = installMockXhr();
+  const xhr = installMockXhr(state.loyaltyPoints);
   try {
     await reverseEarnedPointsForSale(100, { state, customerId: 42, refundId: 7 });
     const note = xhr.captured[0].record.note;
@@ -181,7 +208,7 @@ test("reverseEarnedPointsForSale: skips when a reverse already exists for this s
     earnRow({   id: 1, customerId: 42, points: 5, saleId: 100 }),
     redeemRow({ id: 2, customerId: 42, points: 5, refType: "sale_reverse", refId: 100 }),
   ]};
-  const xhr = installMockXhr();
+  const xhr = installMockXhr(state.loyaltyPoints);
   try {
     const res = await reverseEarnedPointsForSale(100, { state, customerId: 42 });
     assert.equal(res.ok, false);
@@ -196,7 +223,7 @@ test("reverseEarnedPointsForSale: skips when sale has no earn record (sale had n
   const state = { loyaltyPoints: [
     earnRow({ id: 1, customerId: 42, points: 5, saleId: 999 }),  // different sale only
   ]};
-  const xhr = installMockXhr();
+  const xhr = installMockXhr(state.loyaltyPoints);
   try {
     const res = await reverseEarnedPointsForSale(100, { state, customerId: 42 });
     assert.equal(res.ok, false);
@@ -210,7 +237,7 @@ test("reverseEarnedPointsForSale: skips when neither options.customerId nor earn
   const state = { loyaltyPoints: [
     earnRow({ id: 1, customerId: null, points: 5, saleId: 100 }),  // earn with no customer (shouldn't happen but defend)
   ]};
-  const xhr = installMockXhr();
+  const xhr = installMockXhr(state.loyaltyPoints);
   try {
     const res = await reverseEarnedPointsForSale(100, { state /* no customerId */ });
     assert.equal(res.ok, false);
@@ -227,7 +254,7 @@ test("reverseEarnedPointsForSale: caps reverse at customer's remaining when they
     redeemRow({ id: 2, customerId: 42, points: 3, refType: "redemption" }),        // -3 (manual redeem)
     // remaining = 5 - 3 = 2; sale earned 5, but only 2 can be reversed
   ]};
-  const xhr = installMockXhr();
+  const xhr = installMockXhr(state.loyaltyPoints);
   try {
     const res = await reverseEarnedPointsForSale(100, { state, customerId: 42 });
     assert.equal(res.ok, true);
@@ -247,7 +274,7 @@ test("reverseEarnedPointsForSale: skips when remaining is 0 (customer already sp
     earnRow({   id: 1, customerId: 42, points: 5, saleId: 100 }),
     redeemRow({ id: 2, customerId: 42, points: 5, refType: "redemption" }),  // remaining = 0
   ]};
-  const xhr = installMockXhr();
+  const xhr = installMockXhr(state.loyaltyPoints);
   try {
     const res = await reverseEarnedPointsForSale(100, { state, customerId: 42 });
     assert.equal(res.ok, false);
@@ -266,7 +293,7 @@ test("reverseEarnedPointsForSale: clamps negative remaining to 0 (defense — sh
     earnRow({   id: 1, customerId: 42, points: 5, saleId: 100 }),
     redeemRow({ id: 2, customerId: 42, points: 99, refType: "redemption" }),  // remaining = -94
   ]};
-  const xhr = installMockXhr();
+  const xhr = installMockXhr(state.loyaltyPoints);
   try {
     const res = await reverseEarnedPointsForSale(100, { state, customerId: 42 });
     assert.equal(res.ok, false);
@@ -278,17 +305,20 @@ test("reverseEarnedPointsForSale: clamps negative remaining to 0 (defense — sh
 // ─── reverseEarnedPointsForSale: failure modes ───
 test("reverseEarnedPointsForSale: returns failure (ok:false, skipped:false) when xhr is missing — never throws", async () => {
   const state = { loyaltyPoints: [ earnRow({ id: 1, customerId: 42, points: 5, saleId: 100 }) ] };
-  // Intentionally do NOT install the mock
+  // DB read mocked (so we reach the insert step), but intentionally NO _appXhrPost insert mock.
+  const db = installMockDb(state.loyaltyPoints);
   if (globalThis.window) delete globalThis.window._appXhrPost;
-  const res = await reverseEarnedPointsForSale(100, { state, customerId: 42 });
-  assert.equal(res.ok, false);
-  assert.equal(res.skipped, false);
-  assert.ok(/_appXhrPost/.test(res.reason));
+  try {
+    const res = await reverseEarnedPointsForSale(100, { state, customerId: 42 });
+    assert.equal(res.ok, false);
+    assert.equal(res.skipped, false);
+    assert.ok(/_appXhrPost/.test(res.reason));
+  } finally { db.restore(); }
 });
 
 test("reverseEarnedPointsForSale: returns failure (ok:false, skipped:false) when DB insert fails", async () => {
   const state = { loyaltyPoints: [ earnRow({ id: 1, customerId: 42, points: 5, saleId: 100 }) ] };
-  const xhr = installMockXhr({ shouldFail: true, errMsg: "RLS denied" });
+  const xhr = installMockXhr(state.loyaltyPoints, { shouldFail: true, errMsg: "RLS denied" });
   try {
     const res = await reverseEarnedPointsForSale(100, { state, customerId: 42 });
     assert.equal(res.ok, false);
@@ -302,6 +332,7 @@ test("reverseEarnedPointsForSale: returns failure (ok:false, skipped:false) when
 test("Phase 497: unique-violation (23505) on insert → skip not error (another void already reversed)", async () => {
   const state = { loyaltyPoints: [ earnRow({ id: 1, customerId: 42, points: 5, saleId: 100 }) ] };
   const captured = [];
+  const db = installMockDb(state.loyaltyPoints);
   globalThis.window = globalThis.window || {};
   globalThis.window._appXhrPost = async (table, record) => {
     captured.push({ table, record });
@@ -313,17 +344,18 @@ test("Phase 497: unique-violation (23505) on insert → skip not error (another 
     assert.equal(res.skipped, true, "23505 = the concurrent void already reversed → skip, never double-deduct");
     assert.match(res.reason, /already reversed/);
     assert.equal(captured.length, 1, "it attempted the insert; the DB partial-unique rejected the duplicate");
-  } finally { delete globalThis.window._appXhrPost; }
+  } finally { delete globalThis.window._appXhrPost; db.restore(); }
 });
 
 test("Phase 497: a real (non-unique) DB error still surfaces as failure (skipped:false)", async () => {
   const state = { loyaltyPoints: [ earnRow({ id: 1, customerId: 42, points: 5, saleId: 100 }) ] };
+  const db = installMockDb(state.loyaltyPoints);
   globalThis.window = globalThis.window || {};
   globalThis.window._appXhrPost = async () => ({ ok: false, error: { code: "42501", message: "permission denied", status: 403 } });
   try {
     const res = await reverseEarnedPointsForSale(100, { state, customerId: 42 });
     assert.equal(res.skipped, false, "only 23505/duplicate is swallowed; RLS/network must still surface");
-  } finally { delete globalThis.window._appXhrPost; }
+  } finally { delete globalThis.window._appXhrPost; db.restore(); }
 });
 
 test("Phase 497: xhrPost surfaces the Postgres error code so idempotent callers can detect 23505", () => {
@@ -349,7 +381,7 @@ test("Phase 91.4: helper resolves customer_id from earn record when caller passe
     // Earn record HAS customer_id (loyalty_points.customer_id always populated since Phase 91.1)
     earnRow({ id: 1, customerId: 42, points: 5, saleId: 143 }),
   ]};
-  const xhr = installMockXhr();
+  const xhr = installMockXhr(state.loyaltyPoints);
   try {
     const res = await reverseEarnedPointsForSale(143, {
       state,
@@ -366,12 +398,70 @@ test("Phase 91.4: undefined customerId (option key omitted) also works — helpe
   const state = { loyaltyPoints: [
     earnRow({ id: 1, customerId: 42, points: 5, saleId: 143 }),
   ]};
-  const xhr = installMockXhr();
+  const xhr = installMockXhr(state.loyaltyPoints);
   try {
     const res = await reverseEarnedPointsForSale(143, { state });
     assert.equal(res.ok, true);
     assert.equal(xhr.captured[0].record.customer_id, 42);
   } finally { xhr.restore(); }
+});
+
+// ─── Phase 541 (S6): reverse reads the DB source-of-truth, not the capped cache ───
+test("Phase 541 (S6): reverses from the DB even when state.loyaltyPoints is empty (old sale outside cache)", async () => {
+  // The whole point of S6: the in-memory cache is capped (≤500) so an old sale's earn row may be
+  // absent. The DB still has it → the reverse must happen. (Previously: state-only → wrongly skipped.)
+  const dbRows = [ earnRow({ id: 1, customerId: 42, points: 5, saleId: 100 }) ];
+  const xhr = installMockXhr(dbRows);   // DB read = dbRows; cache passed below is empty
+  try {
+    const res = await reverseEarnedPointsForSale(100, { state: { loyaltyPoints: [] }, customerId: 42 });
+    assert.equal(res.ok, true, "must reverse based on the DB, not the empty cache");
+    assert.equal(res.reversed, 5);
+    assert.equal(xhr.captured.length, 1);
+    assert.equal(xhr.captured[0].record.ref_type, "sale_reverse");
+    assert.equal(xhr.captured[0].record.ref_id, 100);
+  } finally { xhr.restore(); }
+});
+
+test("Phase 541 (S6): DB idempotency holds when cache is empty (existing sale_reverse in DB → no double)", async () => {
+  const dbRows = [
+    earnRow({   id: 1, customerId: 42, points: 5, saleId: 100 }),
+    redeemRow({ id: 2, customerId: 42, points: 5, refType: "sale_reverse", refId: 100 }),
+  ];
+  const xhr = installMockXhr(dbRows);
+  try {
+    const res = await reverseEarnedPointsForSale(100, { state: { loyaltyPoints: [] }, customerId: 42 });
+    assert.equal(res.skipped, true);
+    assert.match(res.reason, /already reversed/);
+    assert.equal(xhr.captured.length, 0, "DB-sourced idempotency must hold even with an empty cache");
+  } finally { xhr.restore(); }
+});
+
+test("Phase 541 (S6): caps the reverse at the DB remaining (earned 10, redeemed 7 → reverse 3)", async () => {
+  const dbRows = [
+    earnRow({   id: 1, customerId: 42, points: 10, saleId: 100 }),
+    redeemRow({ id: 2, customerId: 42, points: 7,  refType: "redemption" }),  // remaining = 3
+  ];
+  const xhr = installMockXhr(dbRows);
+  try {
+    const res = await reverseEarnedPointsForSale(100, { state: { loyaltyPoints: [] }, customerId: 42 });
+    assert.equal(res.ok, true);
+    assert.equal(res.totalEarned, 10);
+    assert.equal(res.reversed, 3, "cap at DB remaining, never negative");
+    assert.equal(res.capped, true);
+    assert.equal(xhr.captured[0].record.points, 3);
+  } finally { xhr.restore(); }
+});
+
+test("Phase 541 (S6): DB fetch failure → {ok:false, skipped:false} and NEVER inserts a reverse", async () => {
+  const db = installMockDb([], { failFetch: true });
+  let inserted = 0;
+  globalThis.window._appXhrPost = async () => { inserted++; return { ok: true }; };
+  try {
+    const res = await reverseEarnedPointsForSale(100, { state: { loyaltyPoints: [] }, customerId: 42 });
+    assert.equal(res.ok, false);
+    assert.equal(res.skipped, false, "a failed source-of-truth read must SURFACE (caller warns), not silently skip");
+    assert.equal(inserted, 0, "must not insert a reverse when the balance/earn read failed");
+  } finally { delete globalThis.window._appXhrPost; db.restore(); }
 });
 
 // ─── Source-level pin: wiring must NOT pre-gate on customer_id ───
@@ -416,4 +506,25 @@ test("Phase 91.4: sales.js wiring must NOT gate on targetSale.customer_id (helpe
     /reverseEarnedPointsForSale\(/.test(code),
     "sales.js must still call reverseEarnedPointsForSale (otherwise nothing to test)"
   );
+});
+
+// ─── Phase 541 (S6) source guard: reverse must read the DB before deciding "no earn" ───
+test("Phase 541 (S6): reverseEarnedPointsForSale fetches loyalty_points from DB before the no-earn branch", () => {
+  const loyaltySrc = readFileSync(path.join(__dirname2, "..", "modules", "loyalty.js"), "utf8");
+  const start = loyaltySrc.indexOf("export async function reverseEarnedPointsForSale");
+  const end = loyaltySrc.indexOf("export async function earnPoints", start);
+  assert.ok(start !== -1 && end > start, "reverseEarnedPointsForSale body must be found");
+  // strip comments so the explainer comment ("...state.loyaltyPoints is an in-memory cache...")
+  // doesn't false-match the "must not read state" assertion below.
+  const body = stripComments(loyaltySrc.slice(start, end));
+  assert.match(body, /fetchAllRowsRaw\(/, "must read from the DB (source of truth), not state.loyaltyPoints");
+  assert.match(body, /loyalty_points\?ref_id=eq\./, "must query loyalty_points by the sale's ref_id");
+  const idxFetch = body.indexOf("fetchAllRowsRaw");
+  const idxNoEarn = body.indexOf("no earn records for this sale");
+  assert.ok(idxFetch !== -1 && idxNoEarn !== -1 && idxFetch < idxNoEarn,
+    "the DB fetch must come BEFORE the 'no earn records' skip (else old sales are wrongly skipped)");
+  assert.match(body, /skipped: false, reason: 'db fetch failed/,
+    "a failed DB fetch must return {skipped:false} (no silent skip, no insert)");
+  // must NOT regress to reading the capped in-memory cache as the source of truth (code, not comments)
+  assert.ok(!/state\.loyaltyPoints/.test(body), "reverse must not read state.loyaltyPoints as source of truth");
 });
