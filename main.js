@@ -81,7 +81,12 @@ function _bustedUrl(path) {
   return path + (path.includes("?") ? "&" : "?") + "v=" + build;
 }
 function _lazyImport(path) {
-  if (!_lazyMod.has(path)) _lazyMod.set(path, import(_bustedUrl(path)));
+  // Phase 537 (S13): evict a REJECTED import so a transient network blip doesn't poison the
+  //   cache and brick this lazy route for the rest of the session. Without this, the rejected
+  //   promise stays cached → every later nav reuses it → page dead until a full reload. The
+  //   .catch re-throws so the caller (_renderLazy try/catch) still surfaces the failure; the
+  //   next nav re-imports. Resolved promises stay cached (per-session de-dup, keyed by path).
+  if (!_lazyMod.has(path)) _lazyMod.set(path, import(_bustedUrl(path)).catch(e => { _lazyMod.delete(path); throw e; }));
   return _lazyMod.get(path);
 }
 const LAZY_ROUTES = {

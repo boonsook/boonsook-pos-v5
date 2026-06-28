@@ -107,6 +107,19 @@ test("_lazyImport must keep its session cache keyed by path (not version) — sa
   );
 });
 
+test("Phase 537 (S13) — _lazyImport must evict a rejected import so a transient failure doesn't brick the route", () => {
+  const fnBody = extractFn(mainSrc, "_lazyImport");
+  assert.ok(fnBody, "_lazyImport must exist");
+  // A rejected import() promise must NOT stay cached in _lazyMod. Otherwise one network blip
+  // poisons the entry and every later nav to that route reuses the rejected promise until a
+  // full page reload. The fix: .catch evicts the entry (keyed by path) and re-throws.
+  assert.match(fnBody, /\.catch\(/, "the cached import must have a .catch to handle rejection");
+  assert.match(fnBody, /_lazyMod\.delete\(\s*path\s*\)/,
+    "a rejected import must be evicted from _lazyMod (keyed by the bare path) so the next nav retries");
+  assert.match(fnBody, /throw\b/,
+    "the catch must re-throw so the caller still sees the failure (not silently swallowed)");
+});
+
 test("Phase 90.7 — all dynamic import() calls in main.js must use cache-bust helper or include ?v=", () => {
   // Find every dynamic `import("...")` call in main.js and require either:
   //   - It's the _lazyImport definition itself (handled by the test above), OR
