@@ -269,6 +269,9 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
         // Phase 89.3: void JV + revert stock — แก้ปัญหา P&L นับรายได้เกินจริง + stock ลดถาวร
         // ทำแบบ best-effort: ถ้าตัวใดล้มเหลว → toast เตือนแต่ไม่ block
         const sideEffects = [];
+        // Phase 539 (S7): money/stock side-effect ที่ "ล้มจริง" → เก็บแยกเพื่อ downgrade toast เป็น
+        //   warning (ห้ามโชว์ "✅ เรียบร้อย" หลอก) + report ให้ admin ตรวจ/แก้มือ (บิล soft-delete แล้ว).
+        const failures = [];
 
         // (a) void JV ของ sale นี้ (ถ้ามี — POS sale ก่อน effective date ไม่มี JV)
         try {
@@ -276,7 +279,7 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
           if (voided > 0) sideEffects.push(`JV ${voided} entry`);
         } catch(e) {
           console.warn("[sales delete] void JV failed:", e?.message);
-          sideEffects.push("⚠️ void JV fail");
+          failures.push("ลงบัญชีย้อนกลับ (void JV)");
         }
 
         // (b) revert stock — คืนสต็อกสินค้าใน sale_items กลับ
@@ -286,12 +289,12 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
             if (rev?.reverted > 0) sideEffects.push(`คืนสต็อก ${rev.reverted} รายการ`);
             if (rev?.errors?.length > 0) {
               console.warn("[sales delete] revert stock partial:", rev.errors);
-              sideEffects.push(`⚠️ stock partial (${rev.errors.length} fail)`);
+              failures.push(`คืนสต็อก (${rev.errors.length} รายการ)`);
             }
           }
         } catch(e) {
           console.warn("[sales delete] revert stock exception:", e?.message);
-          sideEffects.push("⚠️ revert stock exception");
+          failures.push("คืนสต็อก");
         }
 
         // (c) Phase 91.3 + 91.4 — reverse loyalty auto-earn. Helper is silent on
@@ -326,11 +329,11 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
             console.info("[sales delete] loyalty reverse skipped:", res.reason);
           } else {
             console.warn("[sales delete] loyalty reverse failed:", res?.reason);
-            sideEffects.push("⚠️ reverse loyalty fail");
+            failures.push("คืนแต้ม loyalty");
           }
         } catch (e) {
           console.warn("[sales delete] loyalty reverse exception:", e?.message);
-          sideEffects.push("⚠️ reverse loyalty exception");
+          failures.push("คืนแต้ม loyalty");
         }
 
         // (d) Phase B4 (build 533): คืนเครดิตลูกค้า (2180) ที่ใช้จ่ายบิลนี้ — void แล้วต้องคืน
@@ -342,15 +345,24 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
           const srcKey = tSale?.checkout_key;
           if (creditUsed > 0 && srcKey && window._appReleaseCheckoutCredit) {
             const relOk = await window._appReleaseCheckoutCredit(srcKey, tSale?.customer_id, creditUsed, "void-sale");
-            sideEffects.push(relOk ? `คืนเครดิต ฿${creditUsed}` : "⚠️ คืนเครดิต fail");
+            if (relOk) sideEffects.push(`คืนเครดิต ฿${creditUsed}`);
+            else failures.push("คืนเครดิตลูกค้า");
           }
         } catch (e) {
           console.warn("[sales delete] release credit exception:", e?.message);
-          sideEffects.push("⚠️ release credit exception");
+          failures.push("คืนเครดิตลูกค้า");
         }
 
-        const sideEffectsMsg = sideEffects.length ? ` (${sideEffects.join(", ")})` : "";
-        if (showToast) showToast("ลบรายการขายเรียบร้อย ✅" + sideEffectsMsg);
+        // Phase 539 (S7): ถ้ามี side-effect การเงิน/สต็อกล้ม → ห้ามโชว์ "✅ เรียบร้อย" หลอก →
+        //   downgrade เป็น warning + report (audit trail §4.8) ให้ admin ไปตรวจ/แก้มือ.
+        if (failures.length) {
+          const okNote = sideEffects.length ? ` · สำเร็จ: ${sideEffects.join(", ")}` : "";
+          try { window._errorReporter?.captureMessage?.("sale delete side-effects failed", { severity: "error", extra: { saleId, failures, ok: sideEffects } }); } catch { /* reporter optional */ }
+          if (showToast) showToast(`⚠️ ลบบิลแล้ว แต่ ${failures.join(", ")} ไม่สำเร็จ — โปรดตรวจสอบบัญชี/สต็อก/เครดิตด้วยตนเอง${okNote}`, "warning");
+        } else {
+          const sideEffectsMsg = sideEffects.length ? ` (${sideEffects.join(", ")})` : "";
+          if (showToast) showToast("ลบรายการขายเรียบร้อย ✅" + sideEffectsMsg);
+        }
 
         // Phase 92.18: audit log (best-effort) — บันทึกการลบบิลขายพร้อม sale id เพื่อให้
         // หน้า Audit Log แสดง accounting trace ได้ (entity_type='sale' + entity_id=saleId).
