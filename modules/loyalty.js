@@ -13,6 +13,7 @@ function money(n) {
 
 // Phase 51: dedup + fix XSS gap (added apostrophe escape via shared utils)
 import { escHtml } from "./utils.js";
+import { fetchAllRowsRaw } from "./fetch_paginated.js";
 
 function dateTH(d) {
   if (!d) return "-";
@@ -128,19 +129,6 @@ export function hasReversedLoyaltyForSale(state, saleId, customerId) {
   );
 }
 
-/** Customer's current loyalty remaining (earn − redeem) from in-memory state. */
-function customerRemainingFromState(state, customerId) {
-  if (!state || customerId == null) return 0;
-  const cidStr = String(customerId);
-  let earned = 0, redeemed = 0;
-  (state.loyaltyPoints || []).forEach(t => {
-    if (String(t.customer_id) !== cidStr) return;
-    if (t.type === 'earn') earned += Number(t.points || 0);
-    else if (t.type === 'redeem') redeemed += Number(t.points || 0);
-  });
-  return earned - redeemed;
-}
-
 /**
  * Reverse the loyalty earn from a sale (called from refund + sale soft-delete).
  *
@@ -152,44 +140,80 @@ function customerRemainingFromState(state, customerId) {
  * Never throws — caller can fire-and-forget and inspect the result if needed.
  */
 export async function reverseEarnedPointsForSale(saleId, options = {}) {
-  const { state, customerId: optCustomerId = null, refundId = null } = options || {};
+  const { customerId: optCustomerId = null, refundId = null } = options || {};
 
-  if (!state || saleId == null) {
-    return { ok: false, skipped: true, reason: 'missing state or saleId' };
+  if (saleId == null) {
+    return { ok: false, skipped: true, reason: 'missing saleId' };
   }
 
-  const sidStr = String(saleId);
-  const loyaltyPoints = state.loyaltyPoints || [];
+  // Phase 541 (S6): read the sale's loyalty rows from the DB — state.loyaltyPoints is an in-memory
+  //   cache capped at ≤500, so an OLD sale's earn/reverse rows can be missing → the previous
+  //   state-only check wrongly concluded "no earn" / "not reversed" and skipped the clawback (or
+  //   computed the cap from a partial balance). The DB is the source of truth here. A failed fetch
+  //   must NOT silently skip (it could hide a real earn) and must NOT insert a reverse.
+  if (typeof window === 'undefined' || !window.SUPABASE_CONFIG) {
+    return { ok: false, skipped: false, reason: 'supabase config not available' };
+  }
+  const cfg = window.SUPABASE_CONFIG;
+  const token = window._sbAccessToken || cfg.anonKey;
+  const headers = { apikey: cfg.anonKey, Authorization: 'Bearer ' + token };
+  const sidEnc = encodeURIComponent(String(saleId));
 
-  // Find earn records for this sale (any customer)
-  const earnRecords = loyaltyPoints.filter(t =>
-    t.type === 'earn' && t.ref_type === 'sale' && String(t.ref_id) === sidStr
-  );
+  // earn + existing sale_reverse rows for THIS sale (anchored by ref_id — small set)
+  let saleRows;
+  try {
+    saleRows = await fetchAllRowsRaw(
+      (off, lim) => `${cfg.url}/rest/v1/loyalty_points?ref_id=eq.${sidEnc}&ref_type=in.(sale,sale_reverse)` +
+        `&select=customer_id,type,ref_type,points&order=id.asc&limit=${lim}&offset=${off}`,
+      headers
+    );
+  } catch (e) {
+    return { ok: false, skipped: false, reason: 'db fetch failed: ' + (e?.message || e), retrySafe: true };
+  }
+
+  const earnRecords = saleRows.filter(t => t.type === 'earn' && t.ref_type === 'sale');
   if (earnRecords.length === 0) {
     return { ok: false, skipped: true, reason: 'no earn records for this sale' };
   }
 
-  // Resolve customer: prefer caller-supplied (refund knows it from sale row),
-  // fall back to the customer_id stored on the earn record.
+  // Resolve customer: prefer caller-supplied (refund/sale knows it), fall back to the DB earn row.
   const customerId = optCustomerId != null ? optCustomerId : earnRecords[0].customer_id;
   if (customerId == null) {
     return { ok: false, skipped: true, reason: 'no customer_id on earn record or in options' };
   }
+  const cidStr = String(customerId);
 
-  // Idempotency: already reversed?
-  if (hasReversedLoyaltyForSale(state, saleId, customerId)) {
+  // Idempotency: already reversed? (DB sale_reverse row for this sale + customer)
+  if (saleRows.some(t => t.type === 'redeem' && t.ref_type === 'sale_reverse' && String(t.customer_id) === cidStr)) {
     return { ok: false, skipped: true, reason: 'already reversed' };
   }
 
   const totalEarned = earnRecords
-    .filter(t => String(t.customer_id) === String(customerId))
+    .filter(t => String(t.customer_id) === cidStr)
     .reduce((sum, t) => sum + Number(t.points || 0), 0);
   if (totalEarned <= 0) {
     return { ok: false, skipped: true, reason: 'earn total is zero' };
   }
 
+  // remaining = (all earn − all redeem) for this customer, from the DB (paginated, no cap)
+  let custRows;
+  try {
+    custRows = await fetchAllRowsRaw(
+      (off, lim) => `${cfg.url}/rest/v1/loyalty_points?customer_id=eq.${encodeURIComponent(cidStr)}` +
+        `&select=type,points&order=id.asc&limit=${lim}&offset=${off}`,
+      headers
+    );
+  } catch (e) {
+    return { ok: false, skipped: false, reason: 'db fetch failed (balance): ' + (e?.message || e), retrySafe: true };
+  }
+  let earned = 0, redeemed = 0;
+  custRows.forEach(t => {
+    if (t.type === 'earn') earned += Number(t.points || 0);
+    else if (t.type === 'redeem') redeemed += Number(t.points || 0);
+  });
+  const remaining = earned - redeemed;
+
   // Cap at remaining so we never drive the balance negative.
-  const remaining = customerRemainingFromState(state, customerId);
   const reverseAmount = Math.min(totalEarned, Math.max(remaining, 0));
   const capped = reverseAmount < totalEarned;
 
