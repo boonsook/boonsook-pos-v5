@@ -168,16 +168,16 @@ export function renderSettingsPayment(el, ctx, goBack, navigate) {
         <button id="qrUploadBtn" class="btn light" style="width:100%;margin-top:8px">${state.paymentInfo.qrImage ? '🔄 เปลี่ยน QR Code' : '📷 แนบรูป QR Code'}</button>
       </div>
 
-      <!-- SlipOK API Section -->
+      <!-- SlipOK API Section — Phase 543 (S14): key ย้ายไป server-side (Cloudflare env) ไม่เก็บใน browser -->
       <div class="set-form-card" style="border:2px solid #f59e0b;background:#fffbeb">
         <div class="set-section-title" style="color:#d97706">🧾 ตรวจสอบสลิปอัตโนมัติ (SlipOK)</div>
-        <div class="sku" style="margin-bottom:8px">ใส่ API Key จาก <a href="https://slipok.com" target="_blank" style="color:#0284c7">slipok.com</a> เพื่อตรวจสอบสลิปลูกค้าอัตโนมัติ (จริง/ปลอม/ยอดตรง)</div>
-        <div class="stack">
-          <label class="set-field-label">SlipOK API Key</label>
-          <input id="setSlipOkKey" type="password" value="${escHtml(localStorage.getItem('bsk_slipok_key') || '')}" placeholder="SLIPOK-xxxxxxxx" />
-          <label class="set-field-label" style="margin-top:8px">Branch ID (ถ้ามี)</label>
-          <input id="setSlipOkBranch" value="${escHtml(localStorage.getItem('bsk_slipok_branch') || '')}" placeholder="0 (ค่าเริ่มต้น)" />
-          <div class="sku" style="margin-top:4px;font-size:11px">* ถ้าไม่มี API Key ลูกค้ายังแนบสลิปได้ แต่ร้านต้องตรวจสอบเอง</div>
+        <div class="sku" style="margin-bottom:8px;line-height:1.6">
+          ตั้งค่า SlipOK API Key ที่ <b>Cloudflare Pages → Settings → Environment variables</b> (ปลอดภัยกว่าเก็บในเบราว์เซอร์):
+          <div style="margin-top:6px;font-family:monospace;font-size:12px;background:#fff7ed;border:1px solid #fed7aa;border-radius:6px;padding:8px">
+            SLIPOK_API_KEY = <span style="color:#9a3412">&lt;คีย์จาก slipok.com&gt;</span><br>
+            SLIPOK_BRANCH_ID = 0 <span style="color:#92400e">(ค่าเริ่มต้น / ถ้ามีหลายสาขา)</span>
+          </div>
+          <div style="margin-top:6px;font-size:11px">* ถ้ายังไม่ตั้งค่า ลูกค้ายังแนบสลิปได้ แต่ร้านต้องตรวจสอบเอง · เปลี่ยนค่าแล้วระบบใช้ทันที (ไม่ต้องแก้ในหน้านี้)</div>
         </div>
       </div>
 
@@ -335,13 +335,12 @@ export function renderSettingsPayment(el, ctx, goBack, navigate) {
     };
     savePaymentInfo();
 
-    // ★ บันทึก SlipOK API Key
-    const slipKey = (document.getElementById("setSlipOkKey")?.value || "").trim();
-    const slipBranch = (document.getElementById("setSlipOkBranch")?.value || "").trim();
-    if (slipKey) localStorage.setItem("bsk_slipok_key", slipKey);
-    else localStorage.removeItem("bsk_slipok_key");
-    if (slipBranch) localStorage.setItem("bsk_slipok_branch", slipBranch);
-    else localStorage.removeItem("bsk_slipok_branch");
+    // ★ Phase 543 (S14): SlipOK key/branch ย้ายไป Cloudflare env แล้ว — ลบ legacy ออกจาก localStorage
+    //   (best-effort cleanup; ไม่เก็บ key ในเบราว์เซอร์อีก). ห้ามลบ localStorage key อื่น.
+    try {
+      localStorage.removeItem("bsk_slipok_key");
+      localStorage.removeItem("bsk_slipok_branch");
+    } catch (_) { /* ignore */ }
 
     showToast("บันทึกข้อมูลการเงินแล้ว");
   });
