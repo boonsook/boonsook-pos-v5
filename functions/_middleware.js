@@ -20,7 +20,8 @@ const RATE_LIMITS = {
   "/api/line-notify":   { limit: 30,  windowSec: 60 },
   "/api/ai-assistant":  { limit: 20,  windowSec: 60 },  // AI inference cost
   "/api/parse-receipt": { limit: 10,  windowSec: 60 },  // Phase 89.14: Gemini OCR — cost ต่อ image
-  "/api/verify-slip":   { limit: 20,  windowSec: 60 },  // Phase 89.14: SlipOK 3rd-party — cost ต่อ verify
+  "/api/verify-slip":   { limit: 20,  windowSec: 60 },  // Phase 89.14: Gemini OCR — cost ต่อ verify
+  "/api/verify-slipok": { limit: 20,  windowSec: 60 },  // Phase 543 (S14): SlipOK proxy — 3rd-party cost ต่อ verify
   "/api/log-error":     { limit: 60,  windowSec: 60 },  // Phase 89.14: error_log proxy — burst-tolerant, spam-resistant
   "/api/v1/service-jobs": { limit: 30, windowSec: 60 }, // Ning agent: create service-job (write to prod DB)
   "/api/v1/service-job-submit": { limit: 30, windowSec: 60 }, // Ning agent: mark job ช่างส่ง→รออนุมัติ
@@ -43,7 +44,8 @@ const REQUIRE_AUTH_ENDPOINTS = [
   "/api/v1/service-jobs",   // Ning agent: create a service-job request (no stock/JV)
   "/api/v1/service-job-submit",   // Ning agent: mark a job ช่างส่ง→รออนุมัติ (no money)
   "/api/parse-receipt",   // Phase 89.14: ปิด anon — Gemini OCR ใช้แค่ staff ที่ login
-  "/api/verify-slip"      // Phase 89.14: ปิด anon — SlipOK ใช้แค่ staff ที่ login
+  "/api/verify-slip",     // Phase 89.14: ปิด anon — Gemini OCR ใช้แค่ staff ที่ login
+  "/api/verify-slipok"    // Phase 543 (S14): ปิด anon — SlipOK proxy (customer dashboard ใช้ customer JWT ได้; ไม่ STAFF_ONLY)
 ];
 
 const STAFF_ONLY_ENDPOINTS = [

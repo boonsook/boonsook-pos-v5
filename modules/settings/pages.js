@@ -239,8 +239,11 @@ export function renderSettingsAbout(el, ctx, goBack) {
       if (!data || typeof data !== "object" || !data.version) throw new Error("ไฟล์ไม่ถูกต้อง — ขาด field 'version'");
       // Restore localStorage entries (safe ones)
       if (data.local_storage && typeof data.local_storage === "object") {
+        // Phase 543 (S14): never restore the SlipOK API key into the browser — it lives in
+        //   Cloudflare env now (a hand-edited / legacy backup file must not re-introduce it).
+        const _RESTORE_DENY = new Set(["bsk_slipok_key"]);
         Object.entries(data.local_storage).forEach(([k, v]) => {
-          if (typeof v === "string" && k.startsWith("bsk_")) {
+          if (typeof v === "string" && k.startsWith("bsk_") && !_RESTORE_DENY.has(k)) {
             try { localStorage.setItem(k, v); } catch(_) {}
           }
         });

@@ -86,59 +86,27 @@ async function _uploadSlipToStorage(base64Data, state) {
 // ★ ตรวจสอบสลิปผ่าน SlipOK API (https://slipok.com)
 // ถ้าร้านยังไม่ได้ตั้ง API key จะ return { valid: false, error: "no_api" } → ให้ผ่านเลย ร้านตรวจเอง
 async function _verifySlip(base64Data, expectedAmount) {
+  // Phase 543 (S14): SlipOK API key อยู่ server-side แล้ว — เรียก proxy ของเรา (/api/verify-slipok)
+  //   ด้วย session JWT ของลูกค้า; เลิกอ่าน bsk_slipok_key จาก localStorage + เลิกยิง api.slipok.com
+  //   ตรงจากเบราว์เซอร์ (กัน key รั่วใน Network/localStorage). proxy คืน shape เดิม (ไม่มี raw).
   try {
-    // ★ อ่าน SlipOK API key จาก localStorage (ร้านตั้งค่าในหน้า settings)
-    const slipOkKey = localStorage.getItem("bsk_slipok_key") || "";
-    const slipOkBranch = localStorage.getItem("bsk_slipok_branch") || "";
-    if (!slipOkKey) return { valid: false, error: "no_api", message: "ไม่มี SlipOK API Key" };
+    const token = window._sbAccessToken;
+    if (!token) return { valid: false, error: "auth", message: "เซสชันหมดอายุ — กรุณาเข้าสู่ระบบใหม่" };
 
-    // แปลง base64 เป็น blob/file
-    const byteStr = atob(base64Data.split(",")[1]);
-    const mimeType = base64Data.split(",")[0].match(/:(.*?);/)?.[1] || "image/jpeg";
-    const ab = new ArrayBuffer(byteStr.length);
-    const ia = new Uint8Array(ab);
-    for (let i = 0; i < byteStr.length; i++) ia[i] = byteStr.charCodeAt(i);
-    const blob = new Blob([ab], { type: mimeType });
-
-    const formData = new FormData();
-    formData.append("files", blob, "slip.jpg");
-    if (expectedAmount) formData.append("amount", String(expectedAmount));
-
-    const apiUrl = slipOkBranch
-      ? `https://api.slipok.com/api/line/apikey/${slipOkBranch}`
-      : "https://api.slipok.com/api/line/apikey/0";
-
-    const resp = await fetch(apiUrl, {
+    const resp = await fetch("/api/verify-slipok", {
       method: "POST",
-      headers: { "x-authorization": slipOkKey },
-      body: formData
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+      body: JSON.stringify({ image: base64Data, expected_amount: Number(expectedAmount) || 0 })
     });
 
-    if (!resp.ok) {
-      const _errText = await resp.text().catch(() => "");
-      return { valid: false, error: "api_error", message: "API Error: " + resp.status };
-    }
+    if (resp.status === 401) return { valid: false, error: "auth", message: "เซสชันหมดอายุ — กรุณาเข้าสู่ระบบใหม่" };
+    if (!resp.ok) return { valid: false, error: "api_error", message: "ตรวจสอบสลิปไม่สำเร็จ" };
 
-    const data = await resp.json();
-    if (data.success) {
-      const d = data.data || {};
-      const amountOk = !expectedAmount || Math.abs(Number(d.amount || 0) - Number(expectedAmount)) < 1;
-      return {
-        valid: true,
-        amountMatch: amountOk,
-        amount: d.amount,
-        sender: d.sender?.name || d.sendingBank || "",
-        receiver: d.receiver?.name || "",
-        transRef: d.transRef || "",
-        date: d.transDate || "",
-        raw: d
-      };
-    } else {
-      return { valid: false, error: "invalid", message: data.message || "สลิปไม่ถูกต้องหรือเป็นสลิปปลอม" };
-    }
-  } catch(e) {
+    const result = await resp.json().catch(() => null);
+    return result || { valid: false, error: "network", message: "ตรวจสอบสลิปไม่ได้" };
+  } catch (e) {
     console.warn("SlipOK verify error:", e);
-    return { valid: false, error: "network", message: "ตรวจสอบสลิปไม่ได้ — " + e.message };
+    return { valid: false, error: "network", message: "ตรวจสอบสลิปไม่ได้ — " + (e?.message || "") };
   }
 }
 
