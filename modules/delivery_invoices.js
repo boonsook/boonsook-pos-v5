@@ -10,6 +10,8 @@ import { renderDocumentTemplateHeader, renderDocumentTemplateNote, renderDocumen
 import { voidJvForSource } from "./accounting/auto_post.js";
 // Phase 544: single-flight guard กัน double-click ตอนตัดสต็อกภายใน
 import { createInflightGuard } from "./_inflight_guard.js";
+// Phase 544-amend: reuse picker/cart เดียวกับหน้างานช่าง (warehouse-first + เพิ่มหลายรายการ)
+import { openEquipmentPicker as _diOpenPicker, renderEquipmentList as _diRenderCart, precheckEquipmentStock as _diPrecheck } from "./service_equipment.js";
 
 // ═══════════════════════════════════════════════════════════
 //  Phase 544 — Internal stock issue for lump-sum sales docs
@@ -89,6 +91,18 @@ async function _refreshInternalStockIssued(docType, docId) {
       }).join("");
   } catch (_e) {
     el.innerHTML = '<span style="color:#ef4444">โหลดประวัติการตัดไม่สำเร็จ — โปรดตรวจประวัติเคลื่อนไหวสต็อก</span>';
+  }
+}
+
+// ตะกร้า "ตัดสต็อกภายใน" (staging ก่อนยืนยัน) — ใช้ picker/cart เดียวกับงานช่าง
+let _diInternalCart = [];
+function _renderInternalCart() {
+  _diRenderCart(document.getElementById("diIntCart"), _diInternalCart, { money: _ctx?.money, readOnly: false, state: _ctx?.state });
+  const btn = document.getElementById("diIntConfirmBtn");
+  if (btn) {
+    const n = _diInternalCart.length;
+    btn.disabled = n === 0;
+    btn.textContent = n ? `✂️ ยืนยันตัดสต็อก (${n})` : "✂️ ยืนยันตัดสต็อก";
   }
 }
 
@@ -608,26 +622,13 @@ function renderInvoicePreview(container) {
     ${_canInternalStock ? `
     <div class="panel mt16" id="diInternalStockPanel" style="border:1px dashed #f59e0b;background:#fffbeb">
       <div style="font-weight:800;color:#b45309;margin-bottom:2px">🔧 ตัดสต็อกภายใน <span style="font-weight:400;font-size:12px;color:#92400e">(ภายในเท่านั้น — ไม่แสดงในเอกสาร/พิมพ์/PDF/แชร์ ของลูกค้า)</span></div>
-      <div class="sku" style="margin-bottom:8px;font-size:12px">งานเหมาจ่าย: เลือกสินค้า + คลัง + จำนวน เพื่อตัดสต็อกจริง (บันทึกใน "ประวัติเคลื่อนไหวสต็อก" · สินค้า+คลังเดิมตัดซ้ำไม่ได้ · เพิ่มสินค้า/คลังอื่นได้)</div>
-      <div class="row" style="gap:8px;flex-wrap:wrap;align-items:flex-end">
-        <div><div class="sku" style="font-size:11px">สินค้า</div>
-          <select id="diIntProduct" style="min-width:200px;border:1px solid #d1d5db;border-radius:6px;padding:6px">
-            <option value="">— เลือกสินค้า —</option>
-            ${(_ctx.state.products || []).map(p => `<option value="${escHtml(String(p.id))}">${escHtml(p.name || ('#' + p.id))}</option>`).join('')}
-          </select>
-        </div>
-        <div><div class="sku" style="font-size:11px">คลัง</div>
-          <select id="diIntWarehouse" style="min-width:140px;border:1px solid #d1d5db;border-radius:6px;padding:6px">
-            <option value="">— เลือกคลัง —</option>
-            ${(_ctx.state.warehouses || []).map(w => `<option value="${escHtml(String(w.id))}">${escHtml(w.name)}</option>`).join('')}
-          </select>
-        </div>
-        <div><div class="sku" style="font-size:11px">จำนวน</div>
-          <input id="diIntQty" type="number" min="1" value="1" style="width:80px;border:1px solid #d1d5db;border-radius:6px;padding:6px" />
-        </div>
-        <button id="diIntIssueBtn" class="btn primary">✂️ ตัดสต็อก</button>
+      <div class="sku" style="margin-bottom:8px;font-size:12px">งานเหมาจ่าย: เลือกอุปกรณ์จากคลัง (เลือกคลัง→สินค้า เหมือนหน้างานช่าง) เพื่อตัดสต็อกจริง (บันทึกใน "ประวัติเคลื่อนไหวสต็อก" · สินค้า+คลังเดิมตัดซ้ำไม่ได้)</div>
+      <button id="diIntAddBtn" class="btn light" style="border:1px solid #f59e0b;color:#b45309">➕ เพิ่มสินค้า (เลือกจากคลัง)</button>
+      <div id="diIntCart" class="mt16"></div>
+      <div class="row mt16" style="justify-content:flex-end">
+        <button id="diIntConfirmBtn" class="btn primary" disabled>✂️ ยืนยันตัดสต็อก</button>
       </div>
-      <div id="diIntIssued" class="mt16" style="font-size:13px;color:#78350f">กำลังโหลด…</div>
+      <div id="diIntIssued" class="mt16" style="font-size:13px;color:#78350f;border-top:1px dashed #fcd34d;padding-top:8px">กำลังโหลด…</div>
     </div>
     ` : ''}
 
@@ -723,35 +724,71 @@ function renderInvoicePreview(container) {
     </div>
   `;
 
-  // Phase 544: internal stock issue (admin/sales only) — wire + initial load
+  // Phase 544: internal stock issue (admin/sales only) — picker/cart เดียวกับหน้างานช่าง
   if (_canInternalStock) {
+    _diInternalCart = [];                 // reset ต่อการเปิด preview (กัน leak ข้ามใบ)
+    _renderInternalCart();
     _refreshInternalStockIssued("di", inv.id);
-    document.getElementById("diIntIssueBtn")?.addEventListener("click", () => {
-      // single-flight: double-click ขณะ inflight = no-op (กันตัดซ้ำใน session เดียว)
+    const _toast = (m, t) => (_ctx.showToast || window.App?.showToast || (() => {}))(m, t);
+
+    // ตะกร้า: qty / ลบ (mirror หน้างานช่าง)
+    const cartEl = document.getElementById("diIntCart");
+    if (cartEl) {
+      cartEl.addEventListener("input", (e) => {
+        const idx = e.target?.dataset?.equipQty;
+        if (idx === undefined) return;
+        const i = Number(idx);
+        const qty = Math.max(1, parseInt(e.target.value) || 1);
+        if (_diInternalCart[i]) { _diInternalCart[i].qty = qty; _diInternalCart[i].line_total = qty * Number(_diInternalCart[i].unit_price || 0); }
+        _renderInternalCart();
+      });
+      cartEl.addEventListener("click", (e) => {
+        const btn = e.target.closest("[data-equip-del]");
+        if (!btn) return;
+        _diInternalCart.splice(Number(btn.dataset.equipDel), 1);
+        _renderInternalCart();
+      });
+    }
+
+    // เพิ่มสินค้า → เปิด picker เดียวกับงานช่าง (เลือกคลัง→สินค้า, เพิ่มหลายรายการ)
+    document.getElementById("diIntAddBtn")?.addEventListener("click", () => {
+      _diOpenPicker({ state: _ctx.state, money: _ctx.money, showToast: _toast }, (item) => {
+        const ex = _diInternalCart.find(it => String(it.product_id) === String(item.product_id) && String(it.warehouse_id) === String(item.warehouse_id));
+        if (ex) { ex.qty = Number(ex.qty) + 1; ex.line_total = ex.qty * Number(ex.unit_price || 0); }
+        else _diInternalCart.push(item);
+        _renderInternalCart();
+      }, { getItems: () => _diInternalCart });
+    });
+
+    // ยืนยันตัดสต็อก → precheck ทั้งตะกร้า + loop issueInternalStockRow (single-flight)
+    document.getElementById("diIntConfirmBtn")?.addEventListener("click", () => {
       _internalStockGuard.run(async () => {
-        const _toast = (m, t) => (_ctx.showToast || window.App?.showToast || (() => {}))(m, t);
-        const pSel = document.getElementById("diIntProduct");
-        const wSel = document.getElementById("diIntWarehouse");
-        const productId = pSel?.value || "";
-        const warehouseId = wSel?.value || "";
-        const qty = Number(document.getElementById("diIntQty")?.value || 0);
-        const productName = pSel?.selectedOptions?.[0]?.textContent || "";
-        const warehouseName = wSel?.selectedOptions?.[0]?.textContent || "";
-        if (!productId || !warehouseId || !(qty > 0)) { _toast("เลือกสินค้า/คลัง/จำนวน > 0"); return; }
-        const btn = document.getElementById("diIntIssueBtn");
+        if (!_diInternalCart.length) { _toast("ยังไม่ได้เลือกสินค้า"); return; }
+        const pc = _diPrecheck(_diInternalCart, _ctx.state);
+        if (!pc.ok) { _toast("❌ สต็อกไม่พอ: " + pc.shortages.map(s => `${s.name} (${s.warehouse_name}) ต้องใช้ ${s.need} เหลือ ${s.avail}`).join(" • "), "error"); return; }
+        const btn = document.getElementById("diIntConfirmBtn");
         if (btn) { btn.disabled = true; btn.textContent = "⏳ กำลังตัด…"; }
+        let ok = 0, skip = 0, warn = 0; const fails = [];
         try {
-          const r = await issueInternalStockRow({ docType: "di", docId: inv.id, invNo: inv.inv_no, productId, productName, warehouseId, warehouseName, qty });
-          if (r.ok && r.logConfirmed) _toast(`✂️ ตัดสต็อกภายในแล้ว: ${productName} × ${qty}`, "success");
-          else if (r.ok && !r.logConfirmed) _toast("⚠️ ตัดสต็อกแล้ว แต่บันทึก log ไม่ยืนยัน — โปรดตรวจประวัติเคลื่อนไหวสต็อก", "warning");
-          else if (r.skipped) _toast("สินค้า+คลังนี้ตัดให้เอกสารนี้ไปแล้ว (ไม่ตัดซ้ำ)", "warning");
-          else _toast("❌ " + (r.error || "ตัดสต็อกไม่สำเร็จ"), "error");
+          for (const it of [..._diInternalCart]) {
+            const r = await issueInternalStockRow({ docType: "di", docId: inv.id, invNo: inv.inv_no, productId: it.product_id, productName: it.name, warehouseId: it.warehouse_id, warehouseName: it.warehouse_name, qty: it.qty });
+            if (r.ok && r.logConfirmed) ok++;
+            else if (r.ok && !r.logConfirmed) { ok++; warn++; }
+            else if (r.skipped) skip++;
+            else fails.push(`${it.name}: ${r.error || "ล้มเหลว"}`);
+          }
         } catch (e) {
-          _toast("❌ ตัดสต็อกไม่สำเร็จ: " + (e?.message || e), "error");
+          fails.push(e?.message || String(e));
         } finally {
-          if (btn) { btn.disabled = false; btn.textContent = "✂️ ตัดสต็อก"; }
+          _diInternalCart = [];
+          _renderInternalCart();
           _refreshInternalStockIssued("di", inv.id);
         }
+        let msg = `✂️ ตัดสต็อกภายใน: สำเร็จ ${ok}`;
+        if (skip) msg += ` · ตัดไปแล้ว ${skip}`;
+        if (fails.length) msg += ` · ล้มเหลว ${fails.length} (${fails.join(", ").slice(0, 120)})`;
+        if (warn) msg += " ⚠️ บาง log ไม่ยืนยัน — ตรวจประวัติเคลื่อนไหวสต็อก";
+        _toast(msg, fails.length ? "error" : (warn ? "warning" : "success"));
       });
     });
   }

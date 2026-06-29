@@ -142,11 +142,19 @@ test("source: issue uses _appApplyStockMovement (out, no-negative) — never PAT
 
 test("source: internal-stock panel lives OUTSIDE #diDocPreview (so print/PDF/share never render it)", () => {
   const idxPanel = SRC.indexOf("diInternalStockPanel");
-  const idxProductSel = SRC.indexOf("diIntProduct");
+  const idxAddBtn = SRC.indexOf("diIntAddBtn");
   const idxDoc = SRC.indexOf('id="diDocPreview"');
   assert.ok(idxPanel !== -1 && idxDoc !== -1, "both markers must exist");
   assert.ok(idxPanel < idxDoc, "the internal panel must be rendered before #diDocPreview (sibling, not inside)");
-  assert.ok(idxProductSel < idxDoc, "the internal inputs must be outside the printed document");
+  assert.ok(idxAddBtn !== -1 && idxAddBtn < idxDoc, "the internal controls must be outside the printed document");
+});
+
+test("source: UI reuses the service-job equipment picker/cart (warehouse-first, same options)", () => {
+  assert.match(SRC, /from "\.\/service_equipment\.js"/, "must import the shared equipment picker");
+  assert.match(SRC, /_diOpenPicker\(\s*\{[^}]*state[^}]*\}/, "ปุ่มเพิ่มสินค้าต้องเปิด openEquipmentPicker (เหมือนหน้างานช่าง)");
+  assert.match(SRC, /_diRenderCart\(/, "ตะกร้าต้อง render ด้วย renderEquipmentList (UI เดียวกับงานช่าง)");
+  assert.match(SRC, /_diPrecheck\(/, "ยืนยันตัดต้อง precheck สต็อกทั้งตะกร้าก่อน (block ก่อนตัด)");
+  assert.match(SRC, /getItems:\s*\(\)\s*=>\s*_diInternalCart/, "picker ต้องโชว์ตะกร้าสด (multi-add) เหมือนงานช่าง");
 });
 
 test("source: confirm is single-flight guarded (no double-deduct on double-click)", () => {
