@@ -117,7 +117,7 @@ test("saveServiceJob: NO deduct on normal save (deduct-on-save block removed)", 
 
 test("saveServiceJob: deduct happens on close (transition / new-complete), idempotent via marker", () => {
   const i = main.indexOf("async function saveServiceJob(");
-  const body = main.slice(i, i + 12000);
+  const body = main.slice(i, i + 14000);  // widened for the Phase 542 closed_at-stamp block
   // the deduct-on-close call is inside the (transition→done | new-complete) branch — NOT editCompleteWithChange
   assert.match(body, /if \(transitionedToDone \|\| newJobAlreadyComplete\) \{[\s\S]*?_equipDeductOnClose\(jobForDeduct\)/,
     "deduct-on-close gated by close transition");

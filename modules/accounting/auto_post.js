@@ -799,7 +799,12 @@ export async function postJournalForServiceJob(job, opts = {}) {
     return _journalResult(opts.detailed, { status: "skipped", reason: "not-income-status", sourceTable: "service_jobs", sourceId: job.id });
   }
 
-  const docDate = job.created_at ? dateBkk(job.created_at) : todayBkk();
+  // Phase 542 (AH6): บริการรับรู้รายได้ "วันปิดงาน" (cash-basis) → docDate = closed_at (วันรับรู้จริง)
+  //   ไม่ใช่ created_at (วันสร้าง/นัด). งานที่สร้างเดือนหนึ่งปิดอีกเดือน เดิมลง JV ผิดงวด — และคาบ go-live
+  //   1 ก.ค.: สร้าง มิ.ย. ปิด ก.ค. → docDate=created_at(มิ.ย.) < effective → JV skip = รายได้หาย. ใช้
+  //   closed_at → ลงงวดถูก. fallback created_at เมื่อ closed_at ยัง null (เผื่อ caller เก่า/ยังไม่ stamp).
+  const _docBasis = job.closed_at || job.created_at;
+  const docDate = _docBasis ? dateBkk(_docBasis) : todayBkk();
   if (!_isAfterEffective(docDate)) {
     return _journalResult(opts.detailed, { status: "skipped", reason: "pre-effective", sourceTable: "service_jobs", sourceId: job.id, docDate });
   }
