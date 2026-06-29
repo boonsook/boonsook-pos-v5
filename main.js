@@ -2920,6 +2920,19 @@ async function saveServiceJob(){
   //   คืนผ่าน _appApplyStockMovement("return") → trigger 403 sync products.stock; marker กันคืนซ้ำ.
   const shouldRestoreCancelledServiceStock =
     state.editingServiceJobId && payload.status === "cancelled" && state.editingServiceJobOrigStatus !== "cancelled";
+  // ★ Phase 542 (AH6): stamp closed_at = วันปิดงานจริง (วันรับรู้รายได้) เมื่องาน "เพิ่งเข้าสถานะปิด"
+  //   เพื่อให้ service JV (auto_post) ใช้ closed_at เป็น docDate (ลงงวดถูก) — drawer ทั่วไปเดิมไม่ set
+  //   closed_at → JV ใช้ created_at → งานข้ามเดือนลงผิดงวด/หลุด effective gate. ตั้งเฉพาะตอนเพิ่งปิด
+  //   (ไม่ทับของเดิม → edit งานที่ปิดแล้วไม่เลื่อนวันปิด); inline form (ac_install/service_form/solar)
+  //   set closed_at เองอยู่แล้ว.
+  {
+    const _CLOSE_ST = ["done", "delivered", "closed"];
+    const _wasClosed = _CLOSE_ST.includes(String(state.editingServiceJobOrigStatus || ""));
+    const _isClosing = _CLOSE_ST.includes(String(payload.status || ""));
+    if (_isClosing && !_wasClosed && !payload.closed_at) {
+      payload.closed_at = new Date().toISOString();
+    }
+  }
   if (state.editingServiceJobId) {
     res = await xhrPatch("service_jobs", payload, "id", state.editingServiceJobId);
   } else {
