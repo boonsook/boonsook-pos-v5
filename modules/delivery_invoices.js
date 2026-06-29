@@ -8,6 +8,89 @@ import { logActivity, exportToExcel, todaySuffix } from "./utils.js";
 import { renderDocumentTemplateHeader, renderDocumentTemplateNote, renderDocumentTemplateFooter } from "./doc-utils.js";
 // Phase 89.1: void JV ตอน cancel (กัน double-revenue ใน P&L)
 import { voidJvForSource } from "./accounting/auto_post.js";
+// Phase 544: single-flight guard กัน double-click ตอนตัดสต็อกภายใน
+import { createInflightGuard } from "./_inflight_guard.js";
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 544 — Internal stock issue for lump-sum sales docs
+//  งานขายเหมาจ่าย: ลูกค้าเห็นแค่ line เหมาจ่าย (จาก delivery_invoice_items) แต่หลังบ้านตัดสต็อกจริงได้.
+//  ★ ไม่เพิ่มสินค้าภายในเข้า *_items (customer docs ไม่เห็น) — log อยู่ใน stock_movements เท่านั้น.
+//  Idempotency: stock_movements ไม่มี source_* column → ใช้ note marker per (doc, product, warehouse):
+//    [SALES_INTERNAL_STOCK:<docType>:<docId>:<productId>:<warehouseId>]
+//  → ตัดสินค้า/คลัง "เดิม" ในใบเดิมซ้ำไม่ได้ แต่ append สินค้า/คลัง "อื่น" ในใบเดิมได้.
+// ═══════════════════════════════════════════════════════════
+const INTERNAL_STOCK_TAG = "SALES_INTERNAL_STOCK";
+const _internalStockGuard = createInflightGuard();
+
+export function internalStockMarker(docType, docId, productId, warehouseId) {
+  return `[${INTERNAL_STOCK_TAG}:${docType}:${docId}:${productId}:${warehouseId}]`;
+}
+
+export function internalStockNote({ docType, docId, productId, warehouseId, invNo, productName, warehouseName }) {
+  const marker = internalStockMarker(docType, docId, productId, warehouseId);
+  return `${marker} ตัดสต็อกภายในงานขาย ${invNo || ""} — ${productName || ""} — ${warehouseName || ""}`.trim();
+}
+
+// query stock_movements ที่ note มี pattern (LIKE). คืน array · throw ถ้า HTTP error (ห้าม truncate เงียบ).
+async function _fetchStockMovementsByNote(likeContains) {
+  const cfg = window.SUPABASE_CONFIG;
+  const token = window._sbAccessToken || cfg.anonKey;
+  const url = cfg.url + "/rest/v1/stock_movements?select=id,product_id,type,qty,note,created_at"
+    + "&note=like.*" + encodeURIComponent(likeContains) + "*&order=created_at.desc";
+  const resp = await fetch(url, { headers: { apikey: cfg.anonKey, Authorization: "Bearer " + token } });
+  if (!resp.ok) throw new Error("HTTP " + resp.status);
+  return await resp.json();
+}
+
+// รายการ internal-stock ที่ตัดไปแล้วของเอกสารนี้ (สำหรับแสดงผล — prefix per doc).
+export async function fetchIssuedInternalStock(docType, docId) {
+  return _fetchStockMovementsByNote(`[${INTERNAL_STOCK_TAG}:${docType}:${docId}:`);
+}
+
+// ตัดสต็อกภายใน 1 รายการ. idempotent ต่อ (doc, product, warehouse) ผ่าน note marker.
+//   - มี marker เดิมแล้ว → skip (ไม่ตัดซ้ำ)  · stock ไม่พอ → block ก่อนตัด (helper floor ด้วย)
+//   - ตัดสำเร็จ → re-query ยืนยัน marker/log จริง; ถ้าไม่เจอ → logConfirmed:false (caller เตือน ห้ามเงียบ)
+export async function issueInternalStockRow({ docType, docId, invNo, productId, productName, warehouseId, warehouseName, qty }) {
+  const n = Number(qty);
+  if (!productId || !warehouseId || !(n > 0)) return { ok: false, error: "ข้อมูลไม่ครบ (เลือกสินค้า/คลัง/จำนวน > 0)" };
+  const marker = internalStockMarker(docType, docId, productId, warehouseId);
+
+  let existing;
+  try { existing = await _fetchStockMovementsByNote(marker); }
+  catch (e) { return { ok: false, error: "ตรวจสอบประวัติการตัดไม่สำเร็จ: " + (e?.message || e) }; }
+  if (existing.length > 0) return { ok: false, skipped: true, reason: "already-issued", existing };
+
+  if (typeof window._appApplyStockMovement !== "function") return { ok: false, error: "ระบบสต็อกไม่พร้อม" };
+  const note = internalStockNote({ docType, docId, productId, warehouseId, invNo, productName, warehouseName });
+  const res = await window._appApplyStockMovement({ productId, warehouseId, movementType: "out", qty: n, note, allowNegative: false });
+  if (!res?.ok) {
+    return { ok: false, insufficient: !!res?.insufficient, error: res?.error || "ตัดสต็อกไม่สำเร็จ" };
+  }
+
+  // ★ helper ตัด warehouse_stock แล้วแม้ insert log จะล้ม (RLS/net) → re-query ยืนยัน marker จริง
+  let logConfirmed = false;
+  try { logConfirmed = (await _fetchStockMovementsByNote(marker)).length > 0; }
+  catch (_e) { logConfirmed = false; }
+  return { ok: true, logConfirmed, marker };
+}
+
+// UI helper (internal panel) — re-query + แสดงรายการ internal-stock ที่ตัดแล้วของเอกสารนี้.
+async function _refreshInternalStockIssued(docType, docId) {
+  const el = document.getElementById("diIntIssued");
+  if (!el) return;
+  try {
+    const rows = await fetchIssuedInternalStock(docType, docId);
+    if (!rows.length) { el.innerHTML = '<span class="sku">ยังไม่มีการตัดสต็อกภายในสำหรับเอกสารนี้</span>'; return; }
+    el.innerHTML = `<div style="font-weight:700;margin-bottom:4px">ตัดสต็อกภายในแล้ว ${rows.length} รายการ:</div>`
+      + rows.map(r => {
+        const p = (_ctx.state.products || []).find(x => String(x.id) === String(r.product_id));
+        const detail = String(r.note || "").replace(/\[SALES_INTERNAL_STOCK[^\]]*\]\s*/, "").slice(0, 90);
+        return `<div style="padding:3px 0;border-bottom:1px solid #fde68a">• ${escHtml(p?.name || ("#" + r.product_id))} × ${Number(r.qty)} <span class="sku">${escHtml(detail)}</span></div>`;
+      }).join("");
+  } catch (_e) {
+    el.innerHTML = '<span style="color:#ef4444">โหลดประวัติการตัดไม่สำเร็จ — โปรดตรวจประวัติเคลื่อนไหวสต็อก</span>';
+  }
+}
 
 // Phase 448a: สำนักงานบัญชี (accountant) = read-only บนเอกสาร — กัน write (แก้/ยกเลิก/ลบ/แปลงเป็นใบเสร็จ)
 //   ผ่าน UI (RLS 448b = backstop ระดับ DB). อ่าน role จาก window.App.state.
@@ -490,6 +573,9 @@ function renderInvoicePreview(container) {
     rc.delivery_invoice_id === inv.id && rc.status !== 'cancelled'
   );
 
+  // Phase 544: "ตัดสต็อกภายใน" = admin/sales เท่านั้น (สิทธิ์จัดการสต็อก); internal-only — วางนอก #diDocPreview
+  const _canInternalStock = ["admin", "sales"].includes(_ctx.state.profile?.role);
+
   container.innerHTML = `
     <div class="panel">
       <div class="row">
@@ -518,6 +604,32 @@ function renderInvoicePreview(container) {
         </div>
       </div>
     </div>
+
+    ${_canInternalStock ? `
+    <div class="panel mt16" id="diInternalStockPanel" style="border:1px dashed #f59e0b;background:#fffbeb">
+      <div style="font-weight:800;color:#b45309;margin-bottom:2px">🔧 ตัดสต็อกภายใน <span style="font-weight:400;font-size:12px;color:#92400e">(ภายในเท่านั้น — ไม่แสดงในเอกสาร/พิมพ์/PDF/แชร์ ของลูกค้า)</span></div>
+      <div class="sku" style="margin-bottom:8px;font-size:12px">งานเหมาจ่าย: เลือกสินค้า + คลัง + จำนวน เพื่อตัดสต็อกจริง (บันทึกใน "ประวัติเคลื่อนไหวสต็อก" · สินค้า+คลังเดิมตัดซ้ำไม่ได้ · เพิ่มสินค้า/คลังอื่นได้)</div>
+      <div class="row" style="gap:8px;flex-wrap:wrap;align-items:flex-end">
+        <div><div class="sku" style="font-size:11px">สินค้า</div>
+          <select id="diIntProduct" style="min-width:200px;border:1px solid #d1d5db;border-radius:6px;padding:6px">
+            <option value="">— เลือกสินค้า —</option>
+            ${(_ctx.state.products || []).map(p => `<option value="${escHtml(String(p.id))}">${escHtml(p.name || ('#' + p.id))}</option>`).join('')}
+          </select>
+        </div>
+        <div><div class="sku" style="font-size:11px">คลัง</div>
+          <select id="diIntWarehouse" style="min-width:140px;border:1px solid #d1d5db;border-radius:6px;padding:6px">
+            <option value="">— เลือกคลัง —</option>
+            ${(_ctx.state.warehouses || []).map(w => `<option value="${escHtml(String(w.id))}">${escHtml(w.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div><div class="sku" style="font-size:11px">จำนวน</div>
+          <input id="diIntQty" type="number" min="1" value="1" style="width:80px;border:1px solid #d1d5db;border-radius:6px;padding:6px" />
+        </div>
+        <button id="diIntIssueBtn" class="btn primary">✂️ ตัดสต็อก</button>
+      </div>
+      <div id="diIntIssued" class="mt16" style="font-size:13px;color:#78350f">กำลังโหลด…</div>
+    </div>
+    ` : ''}
 
     <div id="diDocPreview" class="doc-preview mt16">
       ${[1,2].map(pageNum => `
@@ -610,6 +722,39 @@ function renderInvoicePreview(container) {
       `).join('')}
     </div>
   `;
+
+  // Phase 544: internal stock issue (admin/sales only) — wire + initial load
+  if (_canInternalStock) {
+    _refreshInternalStockIssued("di", inv.id);
+    document.getElementById("diIntIssueBtn")?.addEventListener("click", () => {
+      // single-flight: double-click ขณะ inflight = no-op (กันตัดซ้ำใน session เดียว)
+      _internalStockGuard.run(async () => {
+        const _toast = (m, t) => (_ctx.showToast || window.App?.showToast || (() => {}))(m, t);
+        const pSel = document.getElementById("diIntProduct");
+        const wSel = document.getElementById("diIntWarehouse");
+        const productId = pSel?.value || "";
+        const warehouseId = wSel?.value || "";
+        const qty = Number(document.getElementById("diIntQty")?.value || 0);
+        const productName = pSel?.selectedOptions?.[0]?.textContent || "";
+        const warehouseName = wSel?.selectedOptions?.[0]?.textContent || "";
+        if (!productId || !warehouseId || !(qty > 0)) { _toast("เลือกสินค้า/คลัง/จำนวน > 0"); return; }
+        const btn = document.getElementById("diIntIssueBtn");
+        if (btn) { btn.disabled = true; btn.textContent = "⏳ กำลังตัด…"; }
+        try {
+          const r = await issueInternalStockRow({ docType: "di", docId: inv.id, invNo: inv.inv_no, productId, productName, warehouseId, warehouseName, qty });
+          if (r.ok && r.logConfirmed) _toast(`✂️ ตัดสต็อกภายในแล้ว: ${productName} × ${qty}`, "success");
+          else if (r.ok && !r.logConfirmed) _toast("⚠️ ตัดสต็อกแล้ว แต่บันทึก log ไม่ยืนยัน — โปรดตรวจประวัติเคลื่อนไหวสต็อก", "warning");
+          else if (r.skipped) _toast("สินค้า+คลังนี้ตัดให้เอกสารนี้ไปแล้ว (ไม่ตัดซ้ำ)", "warning");
+          else _toast("❌ " + (r.error || "ตัดสต็อกไม่สำเร็จ"), "error");
+        } catch (e) {
+          _toast("❌ ตัดสต็อกไม่สำเร็จ: " + (e?.message || e), "error");
+        } finally {
+          if (btn) { btn.disabled = false; btn.textContent = "✂️ ตัดสต็อก"; }
+          _refreshInternalStockIssued("di", inv.id);
+        }
+      });
+    });
+  }
 
   document.getElementById("diPreviewBack")?.addEventListener("click", () => {
     _viewMode = "list"; _viewingId = null;
