@@ -1,3 +1,7 @@
+> ⚠️ **ARCHIVED / historical** — เก็บเป็นบันทึกประวัติเท่านั้น. สถานะปัจจุบันดู
+> HANDOFF.md / CHANGELOG.md / IMPLEMENT_TEAM_PROTOCOL.md. อย่าใช้เป็น current status.
+> (N3 audit 2026-06-25)
+
 # 📐 Blueprint — Phase 45: Service Job Forms (9 ประเภทงานช่าง)
 
 **เขียน:** 26 เมษายน 2026 (เย็นๆ — user ขอพักก่อน)
