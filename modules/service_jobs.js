@@ -60,6 +60,10 @@ const CLOSED_STATUSES = ["done", "delivered", "closed"];
 // open = OPEN_STATUSES แต่ไม่ใช่ review (กันนับซ้ำ — pending+marker ไม่ควรขึ้นทั้ง open และ review)
 
 export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, showRoute }) {
+  // ★ Phase 546 (SECURITY §4.4): ลบใบรับงาน (soft-delete: cancelled + [ลบแล้ว]) = admin เท่านั้น.
+  //   render ปุ่ม [ลบ] เฉพาะ admin (UX); ด่านจริง = DB trigger trg_service_jobs_delete_guard.
+  //   technician ยังเห็น/แก้ใบงานได้ตามเดิม (ไม่ซ่อนหน้า service_jobs).
+  const _isAdmin = state.profile?.role === "admin";
   // ★ ซ่อนงานที่ถูกลบ (status = cancelled + note มีคำว่า [ลบแล้ว])
   const allJobs = (state.serviceJobs || []).filter(j => !(j.status === "cancelled" && (j.note || "").includes("[ลบแล้ว]")));
 
@@ -251,7 +255,7 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
                 <div style="display:flex;flex-direction:column;gap:6px;margin-left:8px;flex-shrink:0">
                   ${airMeta.isAir ? `<button class="btn" data-air-quote="${j.id}" style="background:#0284c7;color:#fff;font-size:12px;padding:4px 10px;border-radius:8px;border:none;cursor:pointer;white-space:nowrap">📝 ใบเสนอราคา</button>` : ''}
                   <button class="btn light" data-job-id="${j.id}">แก้ไข</button>
-                  <button class="btn" data-del-job="${j.id}" data-del-name="${escHtml((j.job_no || '') + ' ' + (j.customer_name || ''))}" style="background:#ef4444;color:#fff;font-size:12px;padding:4px 10px;border-radius:8px;border:none;cursor:pointer">🗑️ ลบ</button>
+                  ${_isAdmin ? `<button class="btn" data-del-job="${j.id}" data-del-name="${escHtml((j.job_no || '') + ' ' + (j.customer_name || ''))}" style="background:#ef4444;color:#fff;font-size:12px;padding:4px 10px;border-radius:8px;border:none;cursor:pointer">🗑️ ลบ</button>` : ''}
                 </div>
               </div>
             </div>
@@ -344,6 +348,9 @@ export function renderServiceJobsPage({ state, openServiceJobDrawer, showToast, 
   /* ── Delete job (soft-delete: cancelled + [ลบแล้ว]) ── */
   document.querySelectorAll("[data-del-job]").forEach(btn => btn.addEventListener("click", async (e) => {
     e.stopPropagation();
+    // ★ Phase 546 (SECURITY): ลบ = admin เท่านั้น — guard ก่อน confirm/PATCH/restore stock ใด ๆ.
+    //   client guard = UX; ด่านจริง = DB trigger trg_service_jobs_delete_guard (กัน REST bypass → 42501).
+    if (state.profile?.role !== "admin") { showToast?.("เฉพาะแอดมินลบงานได้", "error"); return; }
     const jobId = Number(btn.dataset.delJob);
     // ★ FIX: ป้องกัน NaN
     if (!jobId || isNaN(jobId)) { showToast?.("ไม่พบ ID งาน"); return; }
