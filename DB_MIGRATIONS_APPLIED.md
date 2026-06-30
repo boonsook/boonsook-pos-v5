@@ -28,6 +28,12 @@
 
 > โค้ดที่ใช้คอลัมน์/trigger เหล่านี้: #A trigger ทำงานทันที (ไม่ต้องรอ deploy); #C live build 499; #C-2 live build 500 (boonsukair.com + pages.dev). **B3** = RLS-only (PostgREST `NOTIFY pgrst` reload — ไม่ต้องรอ deploy; repo file sync ตรง live แล้ว @ branch phase-505 commit 3). **phase545** trigger fires ทันทีหลัง owner รัน (client guard build 545 = UX ชั้นบน).
 
+### 🔴 PENDING owner-run (ยังไม่ apply prod)
+
+| SQL file | ทำอะไร | สถานะ | verify หลังรันยังไง |
+|---|---|---|---|
+| `supabase-phase546-service-delete-admin-guard.sql` | trigger `trg_service_jobs_delete_guard` (BEFORE UPDATE `service_jobs`) — non-admin block เมื่อ (a) transition เข้า `cancelled` หรือ (b) เพิ่ม marker `[ลบแล้ว]` ใหม่ → **42501** (transition/add-only; service_role/null-uid ไม่ gate). reuse `public.is_admin()`. ปิดช่อง technician/sales/accountant/customer ลบ/ยกเลิกใบรับงาน (soft-delete) ผ่าน UI+REST. independent จาก 545. (Phase 546, build 546, PR #—) | 🔴 **PENDING** (owner รันใน SQL Editor) | `SELECT tgname,tgenabled FROM pg_trigger WHERE tgname='trg_service_jobs_delete_guard';` → `tgenabled='O'` · **negative** (technician JWT): `UPDATE service_jobs SET status='cancelled' WHERE status='pending'` → **42501** · เพิ่ม note `[ลบแล้ว]` → **42501** · แก้ note ธรรมดา (ไม่มี marker, status คงเดิม) → ผ่าน · admin cancel/delete → ผ่าน |
+
 ## 🟡 บันทึกไว้ก่อนหน้า — per CHANGELOG/HANDOFF/memory (⚠️ ควร verify ที่ DB ก่อนถือเป็น fact)
 
 | SQL file | ทำอะไร | สถานะตามบันทึก |
