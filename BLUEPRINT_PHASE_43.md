@@ -1,3 +1,7 @@
+> ⚠️ **ARCHIVED / historical** — เก็บเป็นบันทึกประวัติเท่านั้น. สถานะปัจจุบันดู
+> HANDOFF.md / CHANGELOG.md / IMPLEMENT_TEAM_PROTOCOL.md. อย่าใช้เป็น current status.
+> (N3 audit 2026-06-25)
+
 # 📋 Blueprint — Phase 43: Stock Flow Refactor + AC Install Deduction
 
 > **สถานะ:** Draft — รอ User confirm ก่อนลงมือ
