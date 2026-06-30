@@ -27,6 +27,12 @@
 
 > โค้ดที่ใช้คอลัมน์/trigger เหล่านี้: #A trigger ทำงานทันที (ไม่ต้องรอ deploy); #C live build 499; #C-2 live build 500 (boonsukair.com + pages.dev). **B3** = RLS-only (PostgREST `NOTIFY pgrst` reload — ไม่ต้องรอ deploy; repo file sync ตรง live แล้ว @ branch phase-505 commit 3).
 
+### 🔴 PENDING owner-run (ยังไม่ apply prod)
+
+| SQL file | ทำอะไร | สถานะ | verify หลังรันยังไง |
+|---|---|---|---|
+| `supabase-phase545-service-close-admin-guard.sql` | trigger `trg_service_jobs_close_guard` (BEFORE UPDATE `service_jobs`) — non-admin transition status เข้า done/delivered/closed → **42501** (transition-only; service_role/null-uid ไม่ gate). reuse `public.is_admin()`. ปิดช่อง technician/sales ปิดงาน → JV/stock (Phase 545, build 545) | 🔴 **PENDING** (owner รันใน SQL Editor) | `SELECT tgname,tgenabled FROM pg_trigger WHERE tgname='trg_service_jobs_close_guard';` → ควรมี `tgenabled='O'` · **negative** (สวมเป็น non-admin / หรือ test row): UPDATE service_jobs SET status='delivered' WHERE status='pending' → **ERROR 42501** · admin UPDATE เดิมผ่าน · แก้ note งานที่ปิดแล้ว (status คงเดิม) ผ่าน |
+
 ## 🟡 บันทึกไว้ก่อนหน้า — per CHANGELOG/HANDOFF/memory (⚠️ ควร verify ที่ DB ก่อนถือเป็น fact)
 
 | SQL file | ทำอะไร | สถานะตามบันทึก |
