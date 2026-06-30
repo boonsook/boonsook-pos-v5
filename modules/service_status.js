@@ -54,6 +54,31 @@ export function serviceJobNoteWithReviewMarker(note, uiStatus) {
   return base ? `${base} ${REVIEW_NOTE_MARKER}` : REVIEW_NOTE_MARKER;
 }
 
+// ═══════════════════════════════════════════════════════════
+//  Phase 545: completion statuses + admin-only close-transition helpers
+//  ปิดงาน (done/delivered/closed) ทริก auto-post JV + ตัดสต็อกจริง → admin เท่านั้น.
+//  ด่านจริง = DB trigger trg_service_jobs_close_guard; helper นี้ใช้ทำ client guard (UX) + testable.
+// ═══════════════════════════════════════════════════════════
+
+/** สถานะ "ปิดงาน/ส่งมอบ" ที่ทริก JV + ตัดสต็อก (admin เท่านั้นที่ตั้งได้) */
+export const SERVICE_COMPLETION_STATUSES = ["done", "delivered", "closed"];
+
+/** status เป็นสถานะปิดงาน (completion) ไหม */
+export function isServiceCompletionStatus(status) {
+  const s = typeof status === "string" ? status.trim() : status;
+  return SERVICE_COMPLETION_STATUSES.includes(s);
+}
+
+/**
+ * เป็นการ "เพิ่งปิดงาน" (transition non-completion → completion) ไหม
+ * — ตรงกับเงื่อนไขที่ทริก JV/stock; ใช้ block แบบ transition-only (ไม่ block แก้งานที่ปิดแล้ว)
+ * @param {*} fromStatus - status เดิม (origStatus); งานใหม่ = undefined/"" → ถือว่า non-completion
+ * @param {*} toStatus   - status ใหม่ (normalized payload.status)
+ */
+export function isServiceCloseTransition(fromStatus, toStatus) {
+  return !isServiceCompletionStatus(fromStatus) && isServiceCompletionStatus(toStatus);
+}
+
 /**
  * Read-side: ใบงานนี้อยู่สถานะ "รออนุมัติ (ช่างส่ง)" ไหม
  * (Phase 383: เพราะ status ถูก normalize เป็น pending แล้ว read-side ต้องดู marker ด้วย)

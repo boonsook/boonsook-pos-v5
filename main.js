@@ -8,7 +8,7 @@ import { renderSalesPage } from "./modules/sales.js";
 import { renderCustomersPage } from "./modules/customers.js";
 import { renderQuotationsPage } from "./modules/quotations.js";
 import { renderServiceJobsPage } from "./modules/service_jobs.js";
-import { normalizeServiceJobStatus, serviceJobNoteWithReviewMarker, isServiceJobPendingReview } from "./modules/service_status.js";
+import { normalizeServiceJobStatus, serviceJobNoteWithReviewMarker, isServiceJobPendingReview, isServiceCompletionStatus, isServiceCloseTransition } from "./modules/service_status.js";
 import { renderSettingsPage } from "./modules/settings/index.js";
 // Phase 89.20/89.21: delivery_invoices, receipts, expenses lazy
 import { renderStockMovementsPage } from "./modules/stock_movements.js";
@@ -2412,6 +2412,21 @@ function openServiceJobDrawer(job=null){
   $("serviceStatus").value = job?.status || "pending";
   $("serviceNote").value = job?.note || "";
 
+  // ★ Phase 545 (SECURITY): non-admin (technician/sales) เลือกสถานะปิดงาน done/delivered/closed ไม่ได้
+  //   (= admin เท่านั้น เพราะทริก JV + ตัดสต็อกจริง). UX guard; ด่านจริง = DB trigger.
+  //   transition-only: คงตัวเลือกที่ "เป็นสถานะปัจจุบัน" ของงานที่ปิดแล้วไว้ให้แสดงได้ (ไม่บังคับเปลี่ยน)
+  //   แต่เลือก completion อันอื่นไม่ได้. admin = เห็น/เลือกครบ (block=false → re-enable ทุกครั้งที่เปิด).
+  {
+    const _statusSel = $("serviceStatus");
+    const _curStatus = String(job?.status || "");
+    const _nonAdmin = !requireAdmin();
+    Array.from(_statusSel?.options || []).forEach(opt => {
+      const _block = _nonAdmin && isServiceCompletionStatus(opt.value) && opt.value !== _curStatus;
+      opt.disabled = _block;
+      opt.hidden = _block;
+    });
+  }
+
   // ★ Phase 88.8 / Phase 402 / Phase 482: ค่าแรง / ส่วนลด / ยอดสุทธิ / อุปกรณ์ — สำหรับลง JV
   // Phase 482: read-only = "งานปิดแล้ว" (done/delivered/closed = ตัดสต็อกแล้ว กันตัดซ้ำ) — ไม่ใช่ "มี items"
   //   → งานที่ยังเปิด (pending/progress รวมงาน Ning/LINE ที่ items ว่าง) เพิ่ม/แก้อุปกรณ์ได้; ตัดสต็อกตอนปิด.
@@ -2899,6 +2914,15 @@ async function saveServiceJob(){
   if (payload.customer_phone && !isValidPhone(payload.customer_phone)) {
     _signalSave(false, { reason: "เบอร์โทรลูกค้าไม่ถูกต้อง" });
     return showToast("เบอร์โทรลูกค้าไม่ถูกต้อง (ต้องมี 10 หลักขึ้นไป)");
+  }
+  // ★ Phase 545 (SECURITY): ปิดงาน/ส่งมอบ (transition เข้า done/delivered/closed) = admin เท่านั้น.
+  //   ต้อง return "ก่อน" closed_at stamp + JV (postJournalForServiceJob) + stock (_equipDeductOnClose) ใต้นี้.
+  //   transition-only: แก้ note/field ของงานที่ปิดแล้วไม่ถูก block (origStatus เป็น completion อยู่แล้ว).
+  //   technician/sales/customer/accountant โดน block เท่ากัน; pending_review (→pending) ไม่ใช่ completion = ผ่าน.
+  //   client guard = UX; ด่านจริง = DB trigger trg_service_jobs_close_guard (กัน bypass ตรง REST → 42501).
+  if (!requireAdmin() && isServiceCloseTransition(state.editingServiceJobOrigStatus, payload.status)) {
+    _signalSave(false, { reason: "เฉพาะแอดมินปิดงาน/ส่งมอบงานได้" });
+    return showToast("เฉพาะแอดมินเท่านั้นที่ปิดงาน/ส่งมอบงานได้", "error");
   }
   let res;
   const isNewJob = !state.editingServiceJobId;
