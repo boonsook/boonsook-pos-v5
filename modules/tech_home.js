@@ -65,24 +65,31 @@ export function shopJobsForDay(serviceJobs, day) {
 //   ที่เดียวที่บอก "คันไหน" (stock_movements ไม่มี warehouse_id). READ-ONLY จาก state.serviceJobs +
 //   state.warehouses (กรอง is_mobile = รถ) + state.products (fallback ชื่อ). group อุปกรณ์ที่ใช้ล่าสุด per รถ.
 function _prodName(products, id) { const p = (products || []).find((x) => String(x.id) === String(id)); return p ? p.name : ("#" + id); }
-export function recentTruckUsage(serviceJobs, warehouses, products, jobLimit = 25, perTruck = 12) {
+export function recentTruckUsage(serviceJobs, warehouses, products, days = 2) {
   const mobileIds = new Set((Array.isArray(warehouses) ? warehouses : []).filter((w) => w.is_mobile).map((w) => String(w.id)));
+  // วันที่อนุญาต = วันนี้ + ย้อนหลัง (days-1) วัน (default 2 = วันนี้+เมื่อวาน) เขตเวลาไทย
+  const allowed = new Set();
+  for (let i = 0; i < Math.max(1, days); i++) { const d = new Date(); d.setDate(d.getDate() - i); allowed.add(dateBkk(d)); }
   const jobs = (Array.isArray(serviceJobs) ? serviceJobs : [])
     .filter(_isActiveJob)
-    .filter((j) => Array.isArray(j.items_json) && j.items_json.length)
-    .sort((a, b) => (Number(b.id) || 0) - (Number(a.id) || 0))   // ล่าสุดก่อน (id monotonic)
-    .slice(0, jobLimit);
-  const byTruck = new Map();   // warehouse_id → { warehouse_id, name, items:[] }
+    .filter((j) => Array.isArray(j.items_json) && j.items_json.length && allowed.has(_jobDay(j)));
+  const byTruck = new Map();   // warehouse_id → { warehouse_id, name, byP:Map(product → {name,qty,jobs,lastDay}) }
   for (const j of jobs) {
     const day = _jobDay(j);
     for (const it of (j.items_json || [])) {
       if (!mobileIds.has(String(it.warehouse_id))) continue;   // เฉพาะรถ (is_mobile) — บอกคันได้
-      const g = byTruck.get(String(it.warehouse_id)) || { warehouse_id: it.warehouse_id, name: it.warehouse_name || ("รถ #" + it.warehouse_id), items: [] };
-      g.items.push({ name: it.name || _prodName(products, it.product_id), qty: Number(it.qty || 0), job: j.customer_name || "", day });
+      const g = byTruck.get(String(it.warehouse_id)) || { warehouse_id: it.warehouse_id, name: it.warehouse_name || ("รถ #" + it.warehouse_id), byP: new Map() };
+      const pk = String(it.product_id);
+      const p = g.byP.get(pk) || { name: it.name || _prodName(products, it.product_id), qty: 0, jobs: 0, lastDay: "" };
+      p.qty += Number(it.qty || 0); p.jobs += 1; if (day > p.lastDay) p.lastDay = day;   // รวม qty ต่อสินค้า/คัน
+      g.byP.set(pk, p);
       byTruck.set(String(it.warehouse_id), g);
     }
   }
-  return [...byTruck.values()].map((t) => ({ ...t, items: t.items.slice(0, perTruck) }));
+  return [...byTruck.values()].map((t) => ({
+    warehouse_id: t.warehouse_id, name: t.name,
+    items: [...t.byP.values()].sort((a, b) => b.lastDay.localeCompare(a.lastDay) || b.qty - a.qty),   // ล่าสุด/มากก่อน
+  }));
 }
 
 // ═══ RENDER (read-only) ═══
@@ -90,6 +97,8 @@ export function renderTechHome(ctx) {
   const { state, showRoute } = ctx;
   const today = todayBkk();
   const tomorrow = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return dateBkk(d); })();
+  const yesterday = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return dateBkk(d); })();
+  const _dayLabel = (day) => day === today ? "วันนี้" : (day === yesterday ? "เมื่อวาน" : day);
 
   const todayJobs = shopJobsForDay(state.serviceJobs, today);
   const tomorrowJobs = shopJobsForDay(state.serviceJobs, tomorrow);
@@ -141,11 +150,10 @@ export function renderTechHome(ctx) {
     : `<div style="text-align:center;padding:28px;color:#94a3b8;font-size:13px">วันนี้ยังไม่มีงานช่าง</div>`;
 
   const _itemRow = (it) => {
-    const dayTxt = it.day === today ? "วันนี้" : it.day;
     return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 10px;background:#f8fafc;border-radius:8px;font-size:12px">
       <div style="flex:1;min-width:0">
         <div style="font-weight:700;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(it.name)}</div>
-        <div style="font-size:11px;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${it.job ? "🔧 " + escHtml(it.job) + " · " : ""}${dayTxt}</div>
+        <div style="font-size:11px;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${it.jobs > 1 ? it.jobs + " งาน · " : ""}ใช้${_dayLabel(it.lastDay)}</div>
       </div>
       <div style="font-weight:800;color:#0284c7;white-space:nowrap">×${it.qty}</div>
     </div>`;
@@ -199,7 +207,7 @@ export function renderTechHome(ctx) {
       <div style="display:flex;flex-direction:column;gap:16px">
         <div class="panel" style="border-left:4px solid #0284c7">
           <div class="row"><h3 style="margin:0;font-size:15px">🔧 ของที่ช่างใช้ล่าสุด · แยกตามรถ</h3><button class="btn light" style="font-size:11px;padding:4px 8px" data-go="stock_movements">ประวัติ →</button></div>
-          <div class="muted" style="font-size:11px;margin:2px 0 10px">อุปกรณ์ที่ใช้จากงานช่างล่าสุด (จาก items_json) — เติมกลับเข้ารถให้ตรงคัน เช้าพรุ่งนี้</div>
+          <div class="muted" style="font-size:11px;margin:2px 0 10px">อุปกรณ์ที่ใช้ <b>2 วันล่าสุด (วันนี้+เมื่อวาน)</b> · รวมจำนวนต่อสินค้า — เติมกลับเข้ารถให้ตรงคัน เช้าพรุ่งนี้</div>
           <div style="max-height:360px;overflow-y:auto">${truckUsageHtml}</div>
         </div>
 
