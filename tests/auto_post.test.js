@@ -332,8 +332,10 @@ test("source: postJournalForSale VAT split ใช้ splitSaleVatLines + balance
   assert.match(src, /credit: v\.subtotal/, "Cr revenue = v.subtotal (derived)");
   assert.match(src, /credit: v\.vat/, "Cr VAT = v.vat");
   assert.match(src, /debit: v\.total/, "Dr = v.total");
-  // balance guard ใน _postJournal ยังอยู่
-  assert.match(src, /Math\.abs\(totalDebit - totalCredit\) > 0\.01/, "balance guard ต้องคงอยู่");
+  // balance guard ใน _postJournal ยังอยู่ — Phase 547 (AH4): exact compare + round2 ทุก field (เลิก tolerance ±0.01)
+  assert.match(src, /const rLines = lines\.map\([\s\S]{0,120}debit: _rd\(l\.debit\)/, "AH4: ต้อง round2 ทุก line เป็น rLines");
+  assert.match(src, /if \(totalDebit !== totalCredit\)/, "AH4: balance guard = exact compare (ตรง DB NUMERIC(14,2))");
+  assert.ok(!/Math\.abs\(totalDebit - totalCredit\)\s*>\s*0\.01/.test(src), "AH4: เลิกใช้ tolerance ±0.01 (satang drift → orphan)");
 });
 
 test("source: vatAmount=0 ยังใช้ 2-line path เดิม (Dr=Cr=amount) + refund ยัง Dr4110/Cr balanced", async () => {

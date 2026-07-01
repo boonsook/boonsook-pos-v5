@@ -44,7 +44,7 @@ test("incomplete rollback (orphan) is reported, never swallowed (§4.8)", () => 
 });
 
 test("orphan message is credit-aware (Dr 2180 in lines → flag ledger↔GL reconcile)", () => {
-  assert.match(rb, /_usedCredit = Array\.isArray\(lines\) && lines\.some\(l => l\.account_code === "2180" && Number\(l\.debit \|\| 0\) > 0\)/, "detect credit via Dr 2180 line");
+  assert.match(rb, /_usedCredit = Array\.isArray\(rLines\) && rLines\.some\(l => l\.account_code === "2180" && Number\(l\.debit \|\| 0\) > 0\)/, "detect credit via Dr 2180 line (rLines = round2 · Phase 547 AH4)");
   assert.match(rb, /ใช้เครดิต 2180 \(ledger −cu แต่งบไม่ลง\)/, "credit sale orphan → reconcile warning");
 });
 
