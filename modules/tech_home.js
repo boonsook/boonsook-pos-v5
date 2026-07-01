@@ -60,17 +60,29 @@ export function shopJobsForDay(serviceJobs, day) {
     .sort((a, b) => String(a.scheduled_date || a.created_at || "").localeCompare(String(b.scheduled_date || b.created_at || "")));
 }
 
-// ★ Phase 549 (owner): "ของที่ช่างใช้ล่าสุด" จากการตัดสต็อกงานช่าง → ช่างเตรียมเติมเข้ารถ (คันขาว/คันแดง)
-//   เช้าวันถัดไป. ไม่ใช่ "ของเหลือน้อยในรถ" (บางรายการขึ้นชิ้นเดียวโดยตั้งใจ). อ่านจาก stock_movements
-//   type=out ที่ note ขึ้นต้น "งานช่าง:" (= อุปกรณ์ที่ใช้ตอนปิดงานช่าง) — READ-ONLY จาก
-//   state.stockMovements (loadAllData 200 ล่าสุด, เรียง created_at desc) + state.products.
+// ★ Phase 549 (owner): "ของที่ช่างใช้ล่าสุด — แยกตามรถ" → ช่างใหม่รู้ว่าเติมของชิ้นนี้เข้าคันไหน.
+//   ★ key: `service_jobs.items_json` เก็บ warehouse_id/warehouse_name ต่ออุปกรณ์ (= คันที่หยิบ) — เป็น
+//   ที่เดียวที่บอก "คันไหน" (stock_movements ไม่มี warehouse_id). READ-ONLY จาก state.serviceJobs +
+//   state.warehouses (กรอง is_mobile = รถ) + state.products (fallback ชื่อ). group อุปกรณ์ที่ใช้ล่าสุด per รถ.
 function _prodName(products, id) { const p = (products || []).find((x) => String(x.id) === String(id)); return p ? p.name : ("#" + id); }
-function _jobFromNote(note) { const m = /—\s*(.+?)\s*\|/.exec(String(note || "")); return m ? m[1] : ""; }  // "งานช่าง: JOB-x — <ลูกค้า/งาน> | ..."
-export function recentJobUsage(stockMovements, products, limit = 15) {
-  return (Array.isArray(stockMovements) ? stockMovements : [])
-    .filter((m) => m.type === "out" && String(m.note || "").startsWith("งานช่าง"))
-    .slice(0, limit)   // state.stockMovements เรียง created_at desc → ล่าสุดก่อน
-    .map((m) => ({ product_id: m.product_id, name: _prodName(products, m.product_id), qty: Number(m.qty || 0), day: dateBkk(m.created_at), job: _jobFromNote(m.note) }));
+export function recentTruckUsage(serviceJobs, warehouses, products, jobLimit = 25, perTruck = 12) {
+  const mobileIds = new Set((Array.isArray(warehouses) ? warehouses : []).filter((w) => w.is_mobile).map((w) => String(w.id)));
+  const jobs = (Array.isArray(serviceJobs) ? serviceJobs : [])
+    .filter(_isActiveJob)
+    .filter((j) => Array.isArray(j.items_json) && j.items_json.length)
+    .sort((a, b) => (Number(b.id) || 0) - (Number(a.id) || 0))   // ล่าสุดก่อน (id monotonic)
+    .slice(0, jobLimit);
+  const byTruck = new Map();   // warehouse_id → { warehouse_id, name, items:[] }
+  for (const j of jobs) {
+    const day = _jobDay(j);
+    for (const it of (j.items_json || [])) {
+      if (!mobileIds.has(String(it.warehouse_id))) continue;   // เฉพาะรถ (is_mobile) — บอกคันได้
+      const g = byTruck.get(String(it.warehouse_id)) || { warehouse_id: it.warehouse_id, name: it.warehouse_name || ("รถ #" + it.warehouse_id), items: [] };
+      g.items.push({ name: it.name || _prodName(products, it.product_id), qty: Number(it.qty || 0), job: j.customer_name || "", day });
+      byTruck.set(String(it.warehouse_id), g);
+    }
+  }
+  return [...byTruck.values()].map((t) => ({ ...t, items: t.items.slice(0, perTruck) }));
 }
 
 // ═══ RENDER (read-only) ═══
@@ -81,8 +93,8 @@ export function renderTechHome(ctx) {
 
   const todayJobs = shopJobsForDay(state.serviceJobs, today);
   const tomorrowJobs = shopJobsForDay(state.serviceJobs, tomorrow);
-  const usage = recentJobUsage(state.stockMovements, state.products);
-  const usedToday = usage.filter((u) => u.day === today).length;
+  const truckUsage = recentTruckUsage(state.serviceJobs, state.warehouses, state.products);
+  const usedToday = truckUsage.reduce((n, t) => n + t.items.filter((i) => i.day === today).length, 0);
 
   const doneCount = todayJobs.filter((j) => ["done", "delivered", "closed"].includes(j.status)).length;
   const techName = escHtml((state.profile?.full_name || "").trim() || "ช่าง");
@@ -128,18 +140,25 @@ export function renderTechHome(ctx) {
     ? `<div style="position:relative;padding-left:22px"><div style="position:absolute;left:6px;top:8px;bottom:8px;width:2px;background:#e2e8f0"></div>${todayJobs.map(jobRow).join("")}</div>`
     : `<div style="text-align:center;padding:28px;color:#94a3b8;font-size:13px">วันนี้ยังไม่มีงานช่าง</div>`;
 
-  const usageHtml = usage.length
-    ? usage.map((u) => {
-        const dayTxt = u.day === today ? "วันนี้" : u.day;
-        return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 10px;background:#f8fafc;border-radius:8px;font-size:12px">
-          <div style="flex:1;min-width:0">
-            <div style="font-weight:700;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(u.name)}</div>
-            ${u.job ? `<div style="font-size:11px;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">🔧 ${escHtml(u.job)} · ${dayTxt}</div>` : `<div style="font-size:11px;color:#64748b">${dayTxt}</div>`}
-          </div>
-          <div style="font-weight:800;color:#0284c7;white-space:nowrap">×${u.qty}</div>
+  const _itemRow = (it) => {
+    const dayTxt = it.day === today ? "วันนี้" : it.day;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 10px;background:#f8fafc;border-radius:8px;font-size:12px">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(it.name)}</div>
+        <div style="font-size:11px;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${it.job ? "🔧 " + escHtml(it.job) + " · " : ""}${dayTxt}</div>
+      </div>
+      <div style="font-weight:800;color:#0284c7;white-space:nowrap">×${it.qty}</div>
+    </div>`;
+  };
+  const truckUsageHtml = truckUsage.length
+    ? truckUsage.map((t) => {
+        const route = String(t.name).includes("แดง") ? "wh_kundaeng" : "wh_kunkhao";
+        return `<div style="margin-bottom:12px">
+          <div class="row" style="margin-bottom:6px"><h3 style="margin:0;font-size:14px">🚐 ${escHtml(t.name)} <span class="muted" style="font-weight:400;font-size:11px">ใช้ ${t.items.length}</span></h3><button class="btn light" style="font-size:11px;padding:3px 8px" data-go="${route}">เติมคันนี้ →</button></div>
+          <div style="display:flex;flex-direction:column;gap:4px">${t.items.map(_itemRow).join("")}</div>
         </div>`;
       }).join("")
-    : `<div style="text-align:center;padding:20px;color:#64748b;font-size:12px">ยังไม่มีการตัดสต็อกงานช่างล่าสุด</div>`;
+    : `<div style="text-align:center;padding:20px;color:#64748b;font-size:12px">ยังไม่มีการใช้อุปกรณ์จากรถล่าสุด</div>`;
 
   const tomorrowHtml = tomorrowJobs.length
     ? tomorrowJobs.map((j) => {
@@ -179,9 +198,9 @@ export function renderTechHome(ctx) {
 
       <div style="display:flex;flex-direction:column;gap:16px">
         <div class="panel" style="border-left:4px solid #0284c7">
-          <div class="row"><h3 style="margin:0;font-size:15px">🔧 ของที่ช่างใช้ล่าสุด</h3><button class="btn light" style="font-size:11px;padding:4px 8px" data-go="stock_movements">ประวัติ →</button></div>
-          <div class="muted" style="font-size:11px;margin:2px 0 10px">ตัดสต็อกจากงานช่างล่าสุด — เตรียมเติมเข้ารถ (คันขาว/คันแดง) เช้าพรุ่งนี้</div>
-          <div style="max-height:340px;overflow-y:auto;display:flex;flex-direction:column;gap:4px">${usageHtml}</div>
+          <div class="row"><h3 style="margin:0;font-size:15px">🔧 ของที่ช่างใช้ล่าสุด · แยกตามรถ</h3><button class="btn light" style="font-size:11px;padding:4px 8px" data-go="stock_movements">ประวัติ →</button></div>
+          <div class="muted" style="font-size:11px;margin:2px 0 10px">อุปกรณ์ที่ใช้จากงานช่างล่าสุด (จาก items_json) — เติมกลับเข้ารถให้ตรงคัน เช้าพรุ่งนี้</div>
+          <div style="max-height:360px;overflow-y:auto">${truckUsageHtml}</div>
         </div>
 
         <div style="background:#0f172a;border-radius:20px;padding:18px;color:#e2e8f0">
