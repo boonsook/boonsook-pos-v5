@@ -232,10 +232,15 @@ async function _postJournal(opts) {
   const cfg = window.SUPABASE_CONFIG;
   const token = window._sbAccessToken || cfg.anonKey;
 
-  // Validate balanced
-  const totalDebit  = lines.reduce((s, l) => s + Number(l.debit  || 0), 0);
-  const totalCredit = lines.reduce((s, l) => s + Number(l.credit || 0), 0);
-  if (Math.abs(totalDebit - totalCredit) > 0.01) {
+  // ★ Phase 547 (AH4, §4.3): round2 ทุก field debit/credit ก่อน validate + POST → ตรงกับ DB NUMERIC(14,2).
+  //   เดิม tolerance ±0.01 (`Math.abs > 0.01`) ยอม satang drift ≤1 ผ่าน client แต่ Phase 498 balance
+  //   trigger บังคับ exact NUMERIC(14,2) → drift หลุด client → lines-insert fail = orphan header (§4.3).
+  //   ใช้ค่า round2 เดียวกันทั้ง validate + header total + lines POST (rLines) → กัน drift ต้นทาง + exact compare.
+  const _rd = (n) => round2(Number(n || 0));
+  const rLines = lines.map((l) => ({ ...l, debit: _rd(l.debit), credit: _rd(l.credit) }));
+  const totalDebit  = _rd(rLines.reduce((s, l) => s + l.debit, 0));
+  const totalCredit = _rd(rLines.reduce((s, l) => s + l.credit, 0));
+  if (totalDebit !== totalCredit) {
     console.error("[auto_post] unbalanced:", { totalDebit, totalCredit, sourceTable, sourceId });
     return _journalResult(detailed, { status: "failed", reason: "unbalanced", sourceTable, sourceId });
   }
@@ -373,12 +378,12 @@ async function _postJournal(opts) {
 
   // POST lines (bulk)
   try {
-    const lineData = lines.map((l, i) => ({
+    const lineData = rLines.map((l, i) => ({
       entry_id: entryId,
       line_no: i + 1,
       account_code: l.account_code,
-      debit:  Number(l.debit  || 0),
-      credit: Number(l.credit || 0),
+      debit:  l.debit,   // Phase 547 (AH4): round2 แล้วจาก rLines — ตรง header total + DB NUMERIC(14,2)
+      credit: l.credit,
       description: l.description || ""
     }));
     // Phase 89.4: _authFetch → auto 401 retry
@@ -399,7 +404,7 @@ async function _postJournal(opts) {
     //   → unique(source_table,source_id) block repost → JV หาย (รายได้ undercount; ถ้าใช้เครดิต = 2180 mismatch).
     //   → return=representation + rollbackCount===1 เท่านั้นถือว่า rollback สำเร็จ.
     // Phase 89.4: _authFetch → auto 401 retry
-    const _usedCredit = Array.isArray(lines) && lines.some(l => l.account_code === "2180" && Number(l.debit || 0) > 0);
+    const _usedCredit = Array.isArray(rLines) && rLines.some(l => l.account_code === "2180" && Number(l.debit || 0) > 0);
     try {
       const delResp = await _authFetch(`${cfg.url}/rest/v1/journal_entries?id=eq.${entryId}`, {
         method: "DELETE",
