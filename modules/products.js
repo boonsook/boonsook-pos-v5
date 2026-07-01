@@ -77,6 +77,7 @@ let quickFilter = ""; // ★ "no_cost" | "no_barcode" | ""
 let currentTagFilter = null;
 const PAGE_SIZE = 20;
 let _lastProductsCtx = null;
+let _prodSearchTimer = null;
 
 // ─── Letter Avatar Colors ───
 const AVATAR_COLORS = [
@@ -904,12 +905,30 @@ function renderView(ctx, opts = {}) {
   //   ไม่มี renderView → input ไม่ถูกสร้างใหม่ → keyboard นิ่ง (UX มาตรฐานบนมือถือ: พิมพ์→กดค้นหา).
   const _prodSearchEl = el.querySelector("#prodSearchInput");
   const _runProdSearch = (refocus) => {
+    if (_prodSearchTimer) {
+      clearTimeout(_prodSearchTimer);
+      _prodSearchTimer = null;
+    }
     const v = String(_prodSearchEl?.value || "").trim();
     if (v === searchQuery) return;            // ค่าไม่เปลี่ยน → ไม่ render (กันแตะผลลัพธ์/blur แล้ว render ทับโดยไม่จำเป็น)
     searchQuery = v;
     currentPage = 1;
     renderView(ctx, refocus ? { focusSearch: true } : {});
   };
+  const _scheduleProdSearch = () => {
+    if (_prodSearchTimer) clearTimeout(_prodSearchTimer);
+    _prodSearchTimer = setTimeout(() => _runProdSearch(true), 220);
+  };
+  let _prodSearchComposing = false;
+  _prodSearchEl?.addEventListener("compositionstart", () => { _prodSearchComposing = true; });
+  _prodSearchEl?.addEventListener("compositionend", () => {
+    _prodSearchComposing = false;
+    _scheduleProdSearch();
+  });
+  _prodSearchEl?.addEventListener("input", () => {
+    if (_prodSearchComposing) return;
+    _scheduleProdSearch();
+  });
   _prodSearchEl?.addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); _runProdSearch(true); }   // Enter/ปุ่มค้นหา → ค้นหา + คง focus (พิมพ์ต่อได้)
   });
