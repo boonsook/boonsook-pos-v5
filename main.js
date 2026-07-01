@@ -90,6 +90,7 @@ function _lazyImport(path) {
   return _lazyMod.get(path);
 }
 const LAZY_ROUTES = {
+  tech_home:                  ["./modules/tech_home.js",                  "renderTechHome"],   // Phase 549: หน้าหลักช่าง (read-only)
   team_center:                ["./modules/team_command_center.js",        "renderTeamCommandCenter"],
   // Phase 89.20 — Service/admin heavy (9)
   customer_dashboard:         ["./modules/customer_dashboard.js",         "renderCustomerDashboard"],
@@ -636,14 +637,14 @@ function _isLowStock(product){ return Number(product.stock||0) <= Number(product
 const SERVICE_FORM_TYPES = ["repair_ac","clean_ac","move_ac","satellite","repair_fridge","repair_washer","cctv","repair_tv","other"];
 const SERVICE_FORM_ROUTES = SERVICE_FORM_TYPES.map(t => "service_" + t);
 
-const ALL_ROUTES = ["dashboard","team_center","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","quote_templates","service_jobs","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","refunds","tasks","profit_by_product","birthdays","serials","warranty_report","calendar","loyalty","customer_dashboard","btu_calculator","service_request","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop","audit_log","hr_overview","leave_management","hr_applications","hr_resignations","departments","payroll","payroll_overview","expense_overview","income_overview","accounting_journals","accounting_journal_new","accounting_coa","accounting_backfill","accounting_trial_balance","accounting_profit_loss","accounting_balance_sheet","accounting_opening_balance","accounting_export_bundle","accounting_periods","time_clock","stock_reconcile_report","service_reconcile", ...SERVICE_FORM_ROUTES];
+const ALL_ROUTES = ["tech_home","dashboard","team_center","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","quote_templates","service_jobs","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","refunds","tasks","profit_by_product","birthdays","serials","warranty_report","calendar","loyalty","customer_dashboard","btu_calculator","service_request","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop","audit_log","hr_overview","leave_management","hr_applications","hr_resignations","departments","payroll","payroll_overview","expense_overview","income_overview","accounting_journals","accounting_journal_new","accounting_coa","accounting_backfill","accounting_trial_balance","accounting_profit_loss","accounting_balance_sheet","accounting_opening_balance","accounting_export_bundle","accounting_periods","time_clock","stock_reconcile_report","service_reconcile", ...SERVICE_FORM_ROUTES];
 const ROLE_PAGES = {
   admin:      ALL_ROUTES,
   // Phase 434: ช่าง (+ผู้ช่วยช่างที่ตั้ง role=technician) เข้าสินค้า/คลังเพื่อเบิกขึ้นรถ + ตัดสต็อกเองได้
   //   เพิ่ม products/wh_*/stock_movements/stock_count (ดูสต็อก + เบิก/โอน/ตัด — ทุกหน้า cost-free สำหรับ technician;
   //   หน้า products gate ปุ่มจัดการ/ต้นทุนเป็น read-only ใน products.js). ❌ ไม่ให้ stock_in_wizard (รับเข้า=โชว์ต้นทุน),
   //   stock_value (มูลค่า/ต้นทุนรวม), dead_stock — ตาม owner "ไม่เห็นต้นทุน"
-  technician: ["customer_dashboard","pos","sales","service_jobs","calendar","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop","time_clock","leave_management","products","wh_kunkhao","wh_kundaeng","wh_sikhon","stock_movements","stock_count", ...SERVICE_FORM_ROUTES],
+  technician: ["tech_home","customer_dashboard","pos","sales","service_jobs","calendar","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop","time_clock","leave_management","products","wh_kunkhao","wh_kundaeng","wh_sikhon","stock_movements","stock_count", ...SERVICE_FORM_ROUTES],
   // Phase 446: "accountant" = EXTERNAL accounting firm (สำนักงานบัญชี) — closes the books + files tax
   //   (sole-prop half-year ภงด.94 / year-end ภงด.90). Reads financials + posts adjusting JV + closes periods.
   //   Re-scoped from Phase 444 (was in-house-staff broad): REMOVED payroll/payroll_overview (must NOT see
@@ -748,6 +749,7 @@ async function showRoute(route){
 
   // Page titles
   const titles = {
+    tech_home:"หน้าหลักช่าง",
     dashboard:"ภาพรวมบริษัท", team_center:"ศูนย์ทีม AI", pos:"แคชเชียร์",
     products:"สินค้า / คลัง", wh_kunkhao:"คันขาว", wh_kundaeng:"คันแดง", wh_sikhon:"ศีขร",
     sales:"รายการขาย POS", delivery_invoices:"ใบส่งสินค้า / ใบแจ้งหนี้",
