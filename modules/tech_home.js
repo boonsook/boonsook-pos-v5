@@ -60,16 +60,23 @@ export function shopJobsForDay(serviceJobs, day) {
     .sort((a, b) => String(a.scheduled_date || a.created_at || "").localeCompare(String(b.scheduled_date || b.created_at || "")));
 }
 
-export function fieldLowStock(products) {
-  return (Array.isArray(products) ? products : [])
-    .filter((p) => {
-      const t = p.product_type;
-      if (t === "service" || t === "non_stock") return false;
-      const s = Number(p.stock || 0);
-      const m = Number(p.min_stock || 0);
-      return s <= 0 || (m > 0 && s <= m);
-    })
-    .sort((a, b) => Number(a.stock || 0) - Number(b.stock || 0));
+// ★ Phase 549 (owner): โฟกัส "สต็อกในรถ 2 คัน" (คันขาว/คันแดง = warehouse is_mobile) — โชว์ของที่
+//   "เหลือน้อยสุด" ในแต่ละคัน ให้ช่างเติมกันขาดหน้างาน. ไม่ดูสต็อกรวมในร้าน (ไม่ใช่หน้าที่ช่าง).
+//   READ-ONLY จาก state.warehouseStock (loadAllData โหลดครบ) + state.warehouses + state.products.
+//   ⚠️ data reality: truck warehouse_stock มี phantom 0-row (สร้างพร้อมสินค้า) + ยังไม่ตั้ง min_stock(par) →
+//      กรอง stock>0 (เอาเฉพาะของที่รถ "มีจริง") + เรียงน้อยสุด. ของที่ stock<=LOW_THRESHOLD = ควรเติม.
+export const TRUCK_LOW_THRESHOLD = 3;
+function _prodName(products, id) { const p = (products || []).find((x) => String(x.id) === String(id)); return p ? p.name : ("#" + id); }
+export function truckLowStock(warehouseStock, warehouses, products, limit = 12) {
+  const trucks = (Array.isArray(warehouses) ? warehouses : []).filter((w) => w.is_mobile);
+  return trucks.map((t) => {
+    const items = (Array.isArray(warehouseStock) ? warehouseStock : [])
+      .filter((s) => String(s.warehouse_id) === String(t.id) && Number(s.stock || 0) > 0)  // ตัด phantom 0-row
+      .map((s) => ({ product_id: s.product_id, name: _prodName(products, s.product_id), stock: Number(s.stock || 0) }))
+      .sort((a, b) => a.stock - b.stock)  // เหลือน้อยก่อน
+      .slice(0, limit);
+    return { id: t.id, name: t.name, items, lowCount: items.filter((it) => it.stock <= TRUCK_LOW_THRESHOLD).length };
+  });
 }
 
 // ═══ RENDER (read-only) ═══
@@ -80,7 +87,8 @@ export function renderTechHome(ctx) {
 
   const todayJobs = shopJobsForDay(state.serviceJobs, today);
   const tomorrowJobs = shopJobsForDay(state.serviceJobs, tomorrow);
-  const lowStock = fieldLowStock(state.products);
+  const trucks = truckLowStock(state.warehouseStock, state.warehouses, state.products);
+  const needRefill = trucks.reduce((n, t) => n + t.lowCount, 0);   // ของเหลือน้อย (≤ TRUCK_LOW_THRESHOLD)
 
   const doneCount = todayJobs.filter((j) => ["done", "delivered", "closed"].includes(j.status)).length;
   const techName = escHtml((state.profile?.full_name || "").trim() || "ช่าง");
@@ -89,7 +97,7 @@ export function renderTechHome(ctx) {
   const stats = [
     { icon: "📋", bg: "#e0f2fe", fg: "#0369a1", label: "งานวันนี้ (ทั้งร้าน)", value: String(todayJobs.length) },
     { icon: "✅", bg: "#d1fae5", fg: "#047857", label: "เสร็จแล้ว", value: `${doneCount} / ${todayJobs.length}` },
-    { icon: "🚚", bg: "#fef3c7", fg: "#b45309", label: "ของใกล้หมด/หมด", value: String(lowStock.length) },
+    { icon: "🚚", bg: "#fef3c7", fg: "#b45309", label: "ของต้องเติมในรถ", value: String(needRefill) },
     { icon: "📅", bg: "#ede9fe", fg: "#6d28d9", label: "งานพรุ่งนี้", value: String(tomorrowJobs.length) },
   ];
 
@@ -126,17 +134,19 @@ export function renderTechHome(ctx) {
     ? `<div style="position:relative;padding-left:22px"><div style="position:absolute;left:6px;top:8px;bottom:8px;width:2px;background:#e2e8f0"></div>${todayJobs.map(jobRow).join("")}</div>`
     : `<div style="text-align:center;padding:28px;color:#94a3b8;font-size:13px">วันนี้ยังไม่มีงานช่าง</div>`;
 
-  const lowStockHtml = lowStock.length
-    ? lowStock.slice(0, 12).map((p) => {
-        const s = Number(p.stock || 0), m = Number(p.min_stock || 0);
-        const color = s <= 0 ? "#dc2626" : "#f59e0b";
-        const label = s <= 0 ? "หมด" : `${s} / ${m}`;
-        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:#f8fafc;border-radius:8px;font-size:12px">
-          <div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(p.name)}</div>
-          <div style="font-weight:800;margin-left:8px;color:${color}">${label}</div>
-        </div>`;
-      }).join("")
-    : `<div style="text-align:center;padding:20px;color:#64748b;font-size:12px">สต็อกพร้อม 🎉</div>`;
+  // นำทางไปหน้าคลังรถให้ตรงคัน (คันแดง→wh_kundaeng, อื่น=คันขาว→wh_kunkhao) — read-only nav ไปหน้าคลังรถเดิม
+  const _truckRoute = (name) => name.includes("แดง") ? "wh_kundaeng" : "wh_kunkhao";
+  const trucksHtml = trucks.map((t) => {
+    const head = `<div class="row" style="margin-bottom:6px"><h3 style="margin:0;font-size:14px">🚐 ${escHtml(t.name)} <span class="muted" style="font-weight:400;font-size:11px">เหลือน้อย ${t.lowCount}</span></h3>${t.items.length ? `<button class="btn light" style="font-size:11px;padding:3px 8px" data-go="${_truckRoute(t.name)}">ดูคลังรถ →</button>` : `<span style="font-size:12px;color:#94a3b8">ไม่มีของในรถ</span>`}</div>`;
+    const body = t.items.map((it) => {
+      const color = it.stock <= 1 ? "#dc2626" : (it.stock <= TRUCK_LOW_THRESHOLD ? "#f59e0b" : "#64748b");
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:#f8fafc;border-radius:8px;font-size:12px">
+        <div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(it.name)}</div>
+        <div style="font-weight:800;margin-left:8px;color:${color}">เหลือ ${it.stock}</div>
+      </div>`;
+    }).join("");
+    return `<div style="margin-bottom:14px">${head}<div style="display:flex;flex-direction:column;gap:4px">${body}</div></div>`;
+  }).join("") || `<div style="text-align:center;padding:20px;color:#64748b;font-size:12px">ไม่พบคลังรถ (is_mobile)</div>`;
 
   const tomorrowHtml = tomorrowJobs.length
     ? tomorrowJobs.map((j) => {
@@ -159,7 +169,7 @@ export function renderTechHome(ctx) {
       <div class="dash-today-main">
         <div class="dash-today-label">สวัสดี, ${techName}</div>
         <div class="dash-today-amount" style="font-size:26px">วันนี้ร้านมี ${todayJobs.length} งาน</div>
-        <div class="dash-today-sub">ของใกล้หมด/หมด ${lowStock.length} รายการ · เช็กก่อนออกจากร้าน</div>
+        <div class="dash-today-sub">ของในรถต้องเติม ${needRefill} รายการ · เช็กคันขาว/คันแดงก่อนออกงาน</div>
       </div>
       <button class="btn light" data-go="calendar">🗺️ ดูปฏิทินงาน</button>
     </div>
@@ -175,9 +185,10 @@ export function renderTechHome(ctx) {
       </div>
 
       <div style="display:flex;flex-direction:column;gap:16px">
-        <div class="panel" style="border-left:4px solid ${lowStock.length ? "#ef4444" : "#10b981"}">
-          <div class="row"><h3 style="margin:0;font-size:15px">${lowStock.length ? "⚠️" : "✅"} ของที่ควรเติมก่อนออกงาน</h3>${lowStock.length ? `<button class="btn light" style="font-size:11px;padding:4px 8px" data-go="stock_movements">ไปเบิก →</button>` : ""}</div>
-          <div style="margin-top:10px;max-height:280px;overflow-y:auto;display:flex;flex-direction:column;gap:4px">${lowStockHtml}</div>
+        <div class="panel" style="border-left:4px solid ${needRefill ? "#ef4444" : "#10b981"}">
+          <div class="row"><h3 style="margin:0;font-size:15px">🚚 สต็อกในรถ · เติมก่อนออกงาน</h3></div>
+          <div class="muted" style="font-size:11px;margin:2px 0 10px">รถคันขาว/คันแดง — ของที่เหลือน้อยสุด (เรียงน้อย→มาก) เช็กเติมกันขาด</div>
+          <div style="max-height:320px;overflow-y:auto">${trucksHtml}</div>
         </div>
 
         <div style="background:#0f172a;border-radius:20px;padding:18px;color:#e2e8f0">
