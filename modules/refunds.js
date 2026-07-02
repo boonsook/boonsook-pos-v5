@@ -8,6 +8,14 @@ import { renderSkeleton, renderEmpty, renderError } from "./ui_states.js";
 import { postJournalForRefund, refundMappingKeyForMethod } from "./accounting/auto_post.js";
 
 import { escHtml, addDaysBkk, round2 } from "./utils.js";
+import { createInflightGuard } from "./_inflight_guard.js";
+
+// Audit fix: single-flight กันกดบันทึกคืนซ้ำ. เดิม saveBtn.disabled ตั้ง "หลัง"
+// await confirm → กดรัว 2 ครั้ง = 2 handler ค้างที่ confirm พร้อมกัน → ผ่าน
+// validate (TOCTOU: ต่างคน fetch prior refunds ก่อนอีกฝั่ง insert) → refund ซ้ำ
+// (over-refund + restock ซ้ำ + JV Dr 4110 ซ้ำ + เครดิต 2180 เข้า 2 รอบ).
+// guard set inflight แบบ synchronous ก่อน await ใด ๆ → คลิกที่ 2 bail ทันที.
+const _refundSaveGuard = createInflightGuard();
 function money(n) {
   return new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n || 0));
 }
@@ -446,7 +454,7 @@ function openRefundModal(ctx) {
 
   modal.querySelector("#rfCancel").addEventListener("click", () => modal.remove());
 
-  modal.querySelector("#rfSave").addEventListener("click", async () => {
+  modal.querySelector("#rfSave").addEventListener("click", () => _refundSaveGuard.run(async () => {
     if (!_selectedSale) return;
     const itemsToRefund = _refundItems.filter(it => it.qty > 0);
     if (itemsToRefund.length === 0) { window.App?.showToast?.("เลือกสินค้าที่คืนอย่างน้อย 1 รายการ + จำนวน > 0", "warn"); return; }
@@ -639,5 +647,5 @@ function openRefundModal(ctx) {
       window.App?.showToast?.("ผิดพลาด: " + (e?.message || e), "error");
       saveBtn.disabled = false; saveBtn.textContent = "💾 บันทึกการคืน";
     }
-  });
+  }));
 }

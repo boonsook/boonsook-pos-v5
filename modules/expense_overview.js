@@ -4,7 +4,7 @@
 //  + stats cards + top expenses
 // ═══════════════════════════════════════════════════════════
 import { renderSkeleton, renderError } from "./ui_states.js";
-import { escHtml } from "./utils.js";
+import { escHtml, monthsAgoStartBkk } from "./utils.js";
 
 let _data = [];
 let _periodMonths = 3;
@@ -52,9 +52,9 @@ export async function renderExpenseOverviewPage(ctx) {
   const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token };
 
   // Period: last N months rolling
-  const endDate = new Date();
-  const startDate = new Date(endDate.getFullYear(), endDate.getMonth() - (_periodMonths - 1), 1);
-  const startStr = startDate.toISOString().slice(0, 10);
+  // Audit fix: เดิม new Date(...).toISOString() แปลง local-midnight เป็น UTC → เลื่อนถอย 1 วัน
+  //   → นับรายจ่ายเกินมา 1 วัน. helper คิดจากเดือน Bangkok แบบ int ล้วน.
+  const startStr = monthsAgoStartBkk(_periodMonths - 1);
 
   try {
     const r = await fetch(cfg.url + `/rest/v1/expenses?select=*&expense_date=gte.${startStr}&order=expense_date.desc`, { headers });

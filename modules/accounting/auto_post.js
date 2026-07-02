@@ -603,6 +603,17 @@ export async function postJournalForExpense(expense, opts = {}) {
 
   const mappings = await _getMappings();
   const cat = String(expense.category || "").toLowerCase().trim();
+
+  // ★ Audit fix (single source): เงินเดือน/ค่าจ้าง (salary/labor_hire/payroll) ลงบัญชี
+  //   ผ่าน JV ก้อนเดียวต่อรอบ (postPayrollPeriodJournal, Dr 5200) — payroll.js auto-สร้าง
+  //   expense category=salary รายคนโดยตั้งใจไม่ลง JV. ถ้า post รายคนที่นี่ = Dr 5200 ซ้ำ
+  //   (double-count P&L). เดิม backfill skip ภายนอก แต่ expenses.js insert/edit +
+  //   recurring_expenses เรียกตรง → ลืม skip. ย้าย invariant มาที่ writer เดียวกัน
+  //   caller ทุกตัว (insert/edit/recurring/backfill) กันซ้ำอัตโนมัติ.
+  if (["salary", "labor_hire", "payroll"].includes(cat)) {
+    return _journalResult(opts.detailed, { status: "skipped", reason: "salary-via-payroll-period", sourceTable: "expenses", sourceId: expense.id });
+  }
+
   const mappingKey = EXPENSE_CATEGORY_MAP[cat] || "expense_misc";
 
   const mapping = mappings[mappingKey];

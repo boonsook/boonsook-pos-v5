@@ -153,6 +153,39 @@ export function todaySuffix() {
   return todayBkk();
 }
 
+/**
+ * ขอบเดือน (pure, TZ-safe) จาก "YYYY-MM" → { start, endExclusive }.
+ * endExclusive = วันที่ 1 ของเดือนถัดไป (YYYY-MM-01).
+ * ★ Audit fix: เดิมหลายที่ทำ `new Date(start+"T00:00:00+07:00")` แล้ว setMonth()+
+ *   toISOString().slice(0,10) → ปน offset +07:00 กับ setMonth/UTC → คืนวันผิด
+ *   (เช่น "2026-02" → endExclusive "2026-03-03" แทน "2026-03-01") → วันสิ้นเดือน
+ *   หลุดจาก filter. helper นี้คิดจาก int ล้วน ไม่พึ่ง Date เลย.
+ * @param {string} yyyymm เช่น "2026-06" (รับ "YYYY-MM-DD" ได้ ใช้ 7 ตัวแรก)
+ */
+export function monthBoundsBkk(yyyymm) {
+  const m7 = String(yyyymm || "").slice(0, 7);
+  const [y, m] = m7.split("-").map(Number);
+  const start = `${m7}-01`;
+  const ny = m === 12 ? y + 1 : y;
+  const nm = m === 12 ? 1 : m + 1;
+  const endExclusive = `${ny}-${String(nm).padStart(2, "0")}-01`;
+  return { start, endExclusive };
+}
+
+/**
+ * วันที่ 1 ของเดือนที่ย้อนหลัง n เดือนจากเดือนปัจจุบัน (Bangkok) → "YYYY-MM-01".
+ * ★ Audit fix: เดิม `new Date(y, m-n, 1).toISOString().slice(0,10)` → local-midnight
+ *   ถูกแปลงเป็น UTC → เลื่อนวันถอย 1 (เช่น ตั้งใจ 2026-02-01 ได้ 2026-01-31) →
+ *   rolling window นับเกิน 1 วัน. คิดจากเดือน Bangkok ปัจจุบันแบบ int ล้วน.
+ * @param {number} n จำนวนเดือนย้อนหลัง (0 = เดือนนี้)
+ */
+export function monthsAgoStartBkk(n) {
+  const [cy, cm] = todayBkk().split("-").map(Number);   // cm = 1..12 (Bangkok)
+  let sy = cy, sm = cm - Number(n || 0);
+  while (sm <= 0) { sm += 12; sy -= 1; }
+  return `${sy}-${String(sm).padStart(2, "0")}-01`;
+}
+
 // ═══════════════════════════════════════════════════════════
 //  Thai-locale formatters (Phase 92.8: extracted from main.js)
 //  Pure: zero DOM/state/side-effect. formatCurrency delegates to money.
