@@ -53,6 +53,22 @@ const _isActiveJob = (j) => !((j.note || "").includes("[ลบแล้ว]")) &
 //   ไม่ใช่ scheduled_at/due_date (ไม่มีจริง). ถ้าไม่มีวันนัด → fallback วันที่สร้าง (dateBkk).
 const _jobDay = (j) => (j.scheduled_date ? String(j.scheduled_date).slice(0, 10) : dateBkk(j.created_at));
 
+// ★ Phase 550 review: งานที่ "ยังไม่จบ" (open) = ไม่อยู่ใน done/delivered/closed/cancelled/[ลบแล้ว]
+const _isOpenJob = (j) => _isActiveJob(j) && !["done", "delivered", "closed"].includes(j.status);
+const _schedDay = (j) => (j.scheduled_date ? String(j.scheduled_date).slice(0, 10) : null);   // วันนัดจริง (ไม่ fallback created_at)
+
+// แยก 3 ถัง (open jobs) — วันนี้=นัดวันนี้ · พรุ่งนี้=นัดพรุ่งนี้ · ค้าง=นัดก่อนวันนี้ หรือ "ไม่มีวันนัด"
+//   (กันงานเก่าที่ยัง pending/progress หายเพราะ empty state "วันนี้ไม่มีงาน")
+export function serviceJobBuckets(serviceJobs, today, tomorrow) {
+  const open = (Array.isArray(serviceJobs) ? serviceJobs : []).filter(_isOpenJob);
+  return {
+    today: open.filter((j) => _schedDay(j) === today),
+    tomorrow: open.filter((j) => _schedDay(j) === tomorrow),
+    backlog: open.filter((j) => { const d = _schedDay(j); return !d || d < today; })
+      .sort((a, b) => String(_schedDay(a) || a.created_at || "").localeCompare(String(_schedDay(b) || b.created_at || ""))),
+  };
+}
+
 export function shopJobsForDay(serviceJobs, day) {
   return (Array.isArray(serviceJobs) ? serviceJobs : [])
     .filter(_isActiveJob)
@@ -92,46 +108,41 @@ export function recentTruckUsage(serviceJobs, warehouses, products, days = 2) {
   }));
 }
 
-// ★ Phase 550 (owner): "อุปกรณ์ต้องเบิกขึ้นรถวันนี้" (morning-load) — รวม items_json ของงานวันนี้ต่อรถ
-//   → เทียบคงเหลือในรถ → บอกต้องเบิกอะไร กี่ชิ้น. งานยังไม่ปิด = ต้องเบิก (ยังไม่ตัด), ปิดวันนี้ = ใช้แล้ว.
-//   READ-ONLY: state.serviceJobs + warehouses (is_mobile) + warehouseStock + products.
-const _STATUS_ORDER = { out: 0, low: 1, ok: 2, used: 3 };
+// ★ Phase 550 (owner) + review: "อุปกรณ์ต้องเบิกขึ้นรถ" — รวม items_json ของ "งาน active (วันนี้ + ค้าง)"
+//   ต่อรถ (is_mobile) → เทียบคงเหลือในรถ → ต้องเบิกอะไร กี่ชิ้น. รับ jobsForLoad (open jobs = today+backlog)
+//   ตรง ๆ (ไม่กรองแค่วันนี้). คืน **ทุกคัน is_mobile เสมอ** (คันขาว+คันแดง) แม้ไม่มีของ. READ-ONLY.
+const _STATUS_ORDER = { out: 0, low: 1, ok: 2 };
 function _loadStatus(need, remain) {
-  if (need <= 0) return { key: "used", color: "#94a3b8", label: "" };
   if (remain <= 0) return { key: "out", color: "#dc2626", label: "ของหมด" };
   if (remain < need) return { key: "out", color: "#dc2626", label: "ไม่พอ" };
   if (remain <= need + 2) return { key: "low", color: "#f59e0b", label: "เหลือน้อย" };
   return { key: "ok", color: "#10b981", label: "เบิกได้" };
 }
-export function truckLoadPlan(serviceJobs, warehouses, warehouseStock, products, today, perTruck = 20) {
-  const mobileIds = new Set((Array.isArray(warehouses) ? warehouses : []).filter((w) => w.is_mobile).map((w) => String(w.id)));
+export function truckLoadPlan(jobsForLoad, warehouses, warehouseStock, products, perTruck = 30) {
+  const trucks = (Array.isArray(warehouses) ? warehouses : []).filter((w) => w.is_mobile);
+  const truckIds = new Set(trucks.map((t) => String(t.id)));
   const stockOf = (wid, pid) => {
     const s = (Array.isArray(warehouseStock) ? warehouseStock : []).find((x) => String(x.warehouse_id) === String(wid) && String(x.product_id) === String(pid));
     return s ? Number(s.stock || 0) : 0;
   };
-  const OPEN = ["pending", "progress"];
-  const jobs = (Array.isArray(serviceJobs) ? serviceJobs : [])
-    .filter(_isActiveJob)
-    .filter((j) => _jobDay(j) === today && Array.isArray(j.items_json) && j.items_json.length);
-  const byTruck = new Map();
-  for (const j of jobs) {
-    const isOpen = OPEN.includes(j.status);
-    for (const it of (j.items_json || [])) {
-      if (!mobileIds.has(String(it.warehouse_id))) continue;
-      const g = byTruck.get(String(it.warehouse_id)) || { warehouse_id: it.warehouse_id, name: it.warehouse_name || ("รถ #" + it.warehouse_id), byP: new Map() };
+  const need = new Map();   // truckId → Map(pid → {name, product_id, need})
+  for (const j of (Array.isArray(jobsForLoad) ? jobsForLoad : [])) {
+    for (const it of (Array.isArray(j.items_json) ? j.items_json : [])) {
+      if (!truckIds.has(String(it.warehouse_id))) continue;
+      const m = need.get(String(it.warehouse_id)) || new Map();
       const pk = String(it.product_id);
-      const p = g.byP.get(pk) || { name: it.name || _prodName(products, it.product_id), product_id: it.product_id, need: 0, used: 0 };
-      if (isOpen) p.need += Number(it.qty || 0); else p.used += Number(it.qty || 0);   // เปิด=ต้องเบิก · ปิดวันนี้=ใช้แล้ว
-      g.byP.set(pk, p);
-      byTruck.set(String(it.warehouse_id), g);
+      const p = m.get(pk) || { name: it.name || _prodName(products, it.product_id), product_id: it.product_id, need: 0 };
+      p.need += Number(it.qty || 0);
+      m.set(pk, p);
+      need.set(String(it.warehouse_id), m);
     }
   }
-  return [...byTruck.values()].map((t) => ({
-    warehouse_id: t.warehouse_id, name: t.name,
-    items: [...t.byP.values()].map((p) => {
-      const remain = stockOf(t.warehouse_id, p.product_id);
+  return trucks.map((t) => ({
+    warehouse_id: t.id, name: t.name,
+    items: [...(need.get(String(t.id)) || new Map()).values()].map((p) => {
+      const remain = stockOf(t.id, p.product_id);
       const st = _loadStatus(p.need, remain);
-      return { name: p.name, need: p.need, used: p.used, remain, status: st.key, color: st.color, label: st.label };
+      return { name: p.name, need: p.need, remain, status: st.key, color: st.color, label: st.label };
     }).sort((a, b) => (_STATUS_ORDER[a.status] - _STATUS_ORDER[b.status]) || (b.need - a.need)).slice(0, perTruck),
   }));
 }
@@ -144,21 +155,22 @@ export function renderTechHome(ctx) {
   const yesterday = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return dateBkk(d); })();
   const _dayLabel = (day) => day === today ? "วันนี้" : (day === yesterday ? "เมื่อวาน" : day);
 
-  const todayJobs = shopJobsForDay(state.serviceJobs, today);
-  const tomorrowJobs = shopJobsForDay(state.serviceJobs, tomorrow);
+  const buckets = serviceJobBuckets(state.serviceJobs, today, tomorrow);   // Phase 550 review: today/backlog/tomorrow
+  const todayJobs = buckets.today;
+  const tomorrowJobs = buckets.tomorrow;
+  const backlogJobs = buckets.backlog;
   const truckUsage = recentTruckUsage(state.serviceJobs, state.warehouses, state.products);
-  const loadPlan = truckLoadPlan(state.serviceJobs, state.warehouses, state.warehouseStock, state.products, today);
+  const loadPlan = truckLoadPlan(todayJobs.concat(backlogJobs), state.warehouses, state.warehouseStock, state.products);   // active = วันนี้ + ค้าง
   const loadItems = loadPlan.flatMap((t) => t.items);
   const needCount = loadItems.filter((i) => i.need > 0).length;
   const outCount = loadItems.filter((i) => i.status === "out").length;
 
-  const doneCount = todayJobs.filter((j) => ["done", "delivered", "closed"].includes(j.status)).length;
   const techName = escHtml((state.profile?.full_name || "").trim() || "ช่าง");
 
   // ── STAT TILES (นับจาก state ตรง ๆ) ──
   const stats = [
-    { icon: "📋", bg: "#e0f2fe", fg: "#0369a1", label: "งานวันนี้ (ทั้งร้าน)", value: String(todayJobs.length) },
-    { icon: "✅", bg: "#d1fae5", fg: "#047857", label: "เสร็จแล้ว", value: `${doneCount} / ${todayJobs.length}` },
+    { icon: "📋", bg: "#e0f2fe", fg: "#0369a1", label: "งานวันนี้", value: String(todayJobs.length) },
+    { icon: "⏳", bg: "#fee2e2", fg: "#b91c1c", label: "งานค้าง / รอทำ", value: String(backlogJobs.length) },
     { icon: "🚚", bg: "#fef3c7", fg: "#b45309", label: "ต้องเบิกขึ้นรถ", value: String(needCount) },
     { icon: "📅", bg: "#ede9fe", fg: "#6d28d9", label: "งานพรุ่งนี้", value: String(tomorrowJobs.length) },
   ];
@@ -192,9 +204,11 @@ export function renderTechHome(ctx) {
       </div>`;
   };
 
-  const jobsHtml = todayJobs.length
-    ? `<div style="position:relative;padding-left:22px"><div style="position:absolute;left:6px;top:8px;bottom:8px;width:2px;background:#e2e8f0"></div>${todayJobs.map(jobRow).join("")}</div>`
-    : `<div style="text-align:center;padding:28px;color:#94a3b8;font-size:13px">วันนี้ยังไม่มีงานช่าง</div>`;
+  const _jobsList = (arr) => `<div style="position:relative;padding-left:22px"><div style="position:absolute;left:6px;top:8px;bottom:8px;width:2px;background:#e2e8f0"></div>${arr.map(jobRow).join("")}</div>`;
+  const _sectionHead = (icon, txt, color, mt) => `<div style="font-size:12px;font-weight:800;color:${color};margin:${mt} 0 8px">${icon} ${txt}</div>`;
+  const jobsHtml = (todayJobs.length || backlogJobs.length)
+    ? `${todayJobs.length ? _sectionHead("📌", `งานวันนี้ (${todayJobs.length})`, "#0369a1", "0") + _jobsList(todayJobs) : ""}${backlogJobs.length ? _sectionHead("⏳", `งานค้าง / รอดำเนินการ (${backlogJobs.length})`, "#b91c1c", todayJobs.length ? "16px" : "0") + _jobsList(backlogJobs) : ""}`
+    : `<div style="text-align:center;padding:28px;color:#94a3b8;font-size:13px">ไม่มีงานค้าง / งานวันนี้ 🎉</div>`;
 
   const _itemRow = (it) => {
     return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 10px;background:#f8fafc;border-radius:8px;font-size:12px">
@@ -219,19 +233,19 @@ export function renderTechHome(ctx) {
   const _loadRow = (it) => `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 10px;background:#f8fafc;border-radius:8px;font-size:12px">
       <div style="flex:1;min-width:0">
         <div style="font-weight:700;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(it.name)}${it.label ? ` <span style="font-size:10px;font-weight:800;padding:1px 6px;border-radius:999px;background:${it.color}1a;color:${it.color}">${it.label}</span>` : ""}</div>
-        <div style="font-size:11px;color:#64748b">${it.need > 0 ? `ต้องเบิก <b style="color:${it.color}">${it.need}</b> · ` : ""}คงเหลือในรถ ${it.remain}${it.used > 0 ? ` · +${it.used} ใช้แล้ว` : ""}</div>
+        <div style="font-size:11px;color:#64748b">ต้องเบิก <b style="color:${it.color}">${it.need}</b> · คงเหลือในรถ ${it.remain}</div>
       </div>
     </div>`;
-  const loadHtml = (loadPlan.length && loadItems.length)
+  // ★ review: แสดง "ทั้ง 2 คัน" เสมอ (คันขาว/คันแดง) — คันที่ไม่มีของ = "ครบ" · empty state เฉพาะเมื่อไม่มีของทั้งคู่
+  const loadHtml = loadItems.length
     ? loadPlan.map((t) => {
         const route = String(t.name).includes("แดง") ? "wh_kundaeng" : "wh_kunkhao";
-        const need = t.items.filter((i) => i.need > 0).length;
         return `<div style="margin-bottom:12px">
-          <div class="row" style="margin-bottom:6px"><h3 style="margin:0;font-size:14px">🚐 ${escHtml(t.name)} <span class="muted" style="font-weight:400;font-size:11px">ต้องเบิก ${need}</span></h3><button class="btn light" style="font-size:11px;padding:3px 8px" data-go="${route}">เบิกคันนี้ →</button></div>
-          <div style="display:flex;flex-direction:column;gap:4px">${t.items.map(_loadRow).join("")}</div>
+          <div class="row" style="margin-bottom:6px"><h3 style="margin:0;font-size:14px">🚐 ${escHtml(t.name)} <span class="muted" style="font-weight:400;font-size:11px">ต้องเบิก ${t.items.length}</span></h3><button class="btn light" style="font-size:11px;padding:3px 8px" data-go="${route}">เบิกคันนี้ →</button></div>
+          ${t.items.length ? `<div style="display:flex;flex-direction:column;gap:4px">${t.items.map(_loadRow).join("")}</div>` : `<div style="font-size:11px;color:#94a3b8;padding:2px 0 0">— ไม่มีของต้องเบิกคันนี้</div>`}
         </div>`;
       }).join("")
-    : `<div style="text-align:center;padding:20px;color:#64748b;font-size:12px">วันนี้ยังไม่มีอุปกรณ์ที่ระบุ<br><span style="font-size:11px">ใส่อุปกรณ์ตอนรับงาน → ระบบจะเตือนต้องเบิกขึ้นรถ</span></div>`;
+    : `<div style="text-align:center;padding:20px;color:#64748b;font-size:12px">ยังไม่มีอุปกรณ์ต้องเบิก<br><span style="font-size:11px">ใส่อุปกรณ์ในงานวันนี้/งานค้าง (เลือกคลัง=รถคันขาว/คันแดง) → ระบบจะเตือนต้องเบิกขึ้นรถ</span></div>`;
 
   const tomorrowHtml = tomorrowJobs.length
     ? tomorrowJobs.map((j) => {
@@ -253,8 +267,8 @@ export function renderTechHome(ctx) {
     <div class="dash-today dash-today--brand">
       <div class="dash-today-main">
         <div class="dash-today-label">สวัสดี, ${techName}</div>
-        <div class="dash-today-amount" style="font-size:26px">วันนี้ร้านมี ${todayJobs.length} งาน</div>
-        <div class="dash-today-sub">วันนี้ต้องเบิกขึ้นรถ ${needCount} รายการ${outCount ? ` · <b>${outCount} ของหมด</b>` : ""} · เช็ก 2 คันก่อนออกจากร้าน</div>
+        <div class="dash-today-amount" style="font-size:26px">วันนี้ ${todayJobs.length} งาน${backlogJobs.length ? ` · ค้าง ${backlogJobs.length}` : ""}</div>
+        <div class="dash-today-sub">ต้องเบิกขึ้นรถ ${needCount} รายการ${outCount ? ` · <b>${outCount} ของหมด</b>` : ""} · เช็กคันขาว/คันแดงก่อนออกจากร้าน</div>
       </div>
       <button class="btn light" data-go="calendar">🗺️ ดูปฏิทินงาน</button>
     </div>
@@ -265,14 +279,14 @@ export function renderTechHome(ctx) {
     <!-- งานช่างวันนี้ · ทั้งร้าน + ของใกล้หมด -->
     <div style="display:grid;grid-template-columns:1.5fr 1fr;gap:16px" class="tech-home-grid">
       <div class="panel">
-        <div class="row"><h3 style="margin:0">📋 งานช่างวันนี้ · ทั้งร้าน</h3><span class="muted" style="font-size:12px">${todayJobs.length} งาน · เสร็จ ${doneCount}</span></div>
+        <div class="row"><h3 style="margin:0">📋 งานที่ต้องทำ · ทั้งร้าน</h3><span class="muted" style="font-size:12px">วันนี้ ${todayJobs.length} · ค้าง ${backlogJobs.length}</span></div>
         <div style="margin-top:12px">${jobsHtml}</div>
       </div>
 
       <div style="display:flex;flex-direction:column;gap:16px">
         <div class="panel" style="border-left:4px solid ${outCount ? "#ef4444" : (needCount ? "#f59e0b" : "#10b981")}">
-          <div class="row"><h3 style="margin:0;font-size:15px">🚚 อุปกรณ์ต้องเบิกขึ้นรถวันนี้</h3><span class="muted" style="font-size:12px">${needCount} รายการ${outCount ? ` · <b style="color:#dc2626">${outCount} ของหมด</b>` : ""}</span></div>
-          <div class="muted" style="font-size:11px;margin:2px 0 10px">รวมจากงานวันนี้ทั้งร้าน — เช็ก+จัดขึ้นรถก่อนออกจากร้าน (ต่อคัน)</div>
+          <div class="row"><h3 style="margin:0;font-size:15px">🚚 อุปกรณ์ต้องเบิกขึ้นรถ</h3><span class="muted" style="font-size:12px">${needCount} รายการ${outCount ? ` · <b style="color:#dc2626">${outCount} ของหมด</b>` : ""}</span></div>
+          <div class="muted" style="font-size:11px;margin:2px 0 10px">รวมจาก <b>งานวันนี้ + งานค้าง</b> — เช็ก+จัดขึ้นรถทั้ง 2 คันก่อนออกจากร้าน</div>
           <div style="max-height:360px;overflow-y:auto">${loadHtml}</div>
         </div>
 
