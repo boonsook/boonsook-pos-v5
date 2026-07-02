@@ -191,3 +191,73 @@ test("Phase 490: expected / countedCash / diff are round2'd (no float-drift fals
   assert.match(src, /const countedCash = round2\(/, "countedCash (denominations) is round2'd");
   assert.match(src, /const diff = round2\(countedCash - expected\)/, "diff is round2'd → `diff === 0` is reliable");
 });
+
+// ── Phase 554 — fetch per-day (เลิกพึ่ง state cap) + เก็บหนี้เงินสดเข้าลิ้นชัก ──
+const src554 = fs.readFileSync(path.resolve("modules/cash_recon.js"), "utf8");
+
+test("Phase 554: computeCashRecon uses sales/expenses PARAMS (not state cap) when provided", () => {
+  const state = {
+    sales: [{ created_at: "2026-05-13T05:00:00Z", payment_method: "เงินสด", total_amount: 9999 }],   // state cap (ต้องไม่ถูกใช้)
+    expenses: [{ expense_date: "2026-05-13T05:00:00Z", payment_method: "cash", amount: 8888 }],
+  };
+  const sales = [{ created_at: "2026-05-13T05:00:00Z", payment_method: "เงินสด", total_amount: 100 }];
+  const expenses = [{ expense_date: "2026-05-13T05:00:00Z", payment_method: "cash", amount: 40 }];
+  const r = computeCashRecon({ state, date: "2026-05-13", sales, expenses, dateFn: fakeDateBkk });
+  assert.equal(r.cashIn, 100, "ใช้ sales param ไม่ใช่ state.sales");
+  assert.equal(r.cashOut, 40, "ใช้ expenses param ไม่ใช่ state.expenses");
+});
+
+test("Phase 554: fallback to state.sales/expenses when params omitted (backward-compat กับ test เดิม)", () => {
+  const state = {
+    sales: [{ created_at: "2026-05-13T05:00:00Z", payment_method: "เงินสด", total_amount: 250 }],
+    expenses: [{ expense_date: "2026-05-13T05:00:00Z", payment_method: "cash", amount: 30 }],
+  };
+  const r = computeCashRecon({ state, date: "2026-05-13", dateFn: fakeDateBkk });
+  assert.equal(r.cashIn, 250);
+  assert.equal(r.cashOut, 30);
+});
+
+test("Phase 554: explicit [] param honored — ไม่ fallback ไป state (กัน cap หลุดกลับมา)", () => {
+  const state = { sales: [{ created_at: "2026-05-13T05:00:00Z", payment_method: "เงินสด", total_amount: 500 }], expenses: [] };
+  const r = computeCashRecon({ state, date: "2026-05-13", sales: [], expenses: [], dateFn: fakeDateBkk });
+  assert.equal(r.cashIn, 0, "[] ที่ส่งมาต้องชนะ state");
+});
+
+test("Phase 554: credit cash payments (method=cash วันนั้น) บวกเข้า creditCashIn; โอน/คนละวัน ไม่นับ", () => {
+  const creditCashPayments = [
+    { paid_at: "2026-05-13T05:00:00Z", payment_method: "cash", amount: 300 },
+    { paid_at: "2026-05-13T05:00:00Z", payment_method: "เงินสด", amount: 150 },
+    { paid_at: "2026-05-13T05:00:00Z", payment_method: "transfer", amount: 999 },  // โอน = ไม่เข้าลิ้นชัก
+    { paid_at: "2026-05-12T05:00:00Z", payment_method: "cash", amount: 888 },        // คนละวัน
+  ];
+  const r = computeCashRecon({ state: {}, date: "2026-05-13", creditCashPayments, dateFn: fakeDateBkk });
+  assert.equal(r.creditCashIn, 450, "เฉพาะเก็บหนี้เงินสดวันนั้น (300+150)");
+  assert.equal(r.creditCashRows.length, 2);
+});
+
+test("Phase 554: creditCashIn default 0 เมื่อไม่ส่ง (บิลไม่มีเก็บหนี้ไม่กระทบ)", () => {
+  const r = computeCashRecon({ state: {}, date: "2026-05-13", dateFn: fakeDateBkk });
+  assert.equal(r.creditCashIn, 0);
+  assert.equal(r.creditCashRows.length, 0);
+});
+
+test("Phase 554: expected (drawer) formula = opening + cashIn + creditCashIn − cashOut − cashRefundOut (source)", () => {
+  assert.match(src554, /const expected = round2\(openingCash \+ cashIn \+ creditCashIn - cashOut - cashRefundOut\)/,
+    "expected ต้องรวม creditCashIn เข้าลิ้นชัก");
+});
+
+test("Phase 554: fetch helpers มีครบ + ใช้คอลัมน์วันที่ถูก (sales=created_at, credit=paid_at, expenses=expense_date)", () => {
+  const salesFn = src554.match(/async function fetchCashReconSales\([\s\S]*?\n}/)?.[0] || "";
+  const expFn   = src554.match(/async function fetchCashReconExpenses\([\s\S]*?\n}/)?.[0] || "";
+  const credFn  = src554.match(/async function fetchCashReconCreditPayments\([\s\S]*?\n}/)?.[0] || "";
+  assert.ok(salesFn, "fetchCashReconSales exists");
+  assert.ok(expFn, "fetchCashReconExpenses exists");
+  assert.ok(credFn, "fetchCashReconCreditPayments exists");
+  // sales — created_at gte/lt +07:00
+  assert.ok(salesFn.includes("created_at=gte.") && salesFn.includes("T00:00:00%2B07:00"), "sales fetch ใช้ created_at gte +07:00");
+  // credit_payments — ★ ต้อง paid_at ไม่ใช่ created_at (schema จริง = paid_at; created_at จะ 400 → fetch [] เงียบ)
+  assert.ok(credFn.includes("select=paid_at") && credFn.includes("paid_at=gte."), "credit fetch ใช้ paid_at");
+  assert.ok(!credFn.includes("created_at"), "credit fetch ต้องไม่ใช้ created_at (คอลัมน์ไม่มีจริง)");
+  // expenses — expense_date=eq (DATE column ไม่ใช่ timestamptz)
+  assert.ok(expFn.includes("expense_date=eq."), "expenses fetch ใช้ expense_date=eq");
+});
