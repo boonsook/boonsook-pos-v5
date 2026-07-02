@@ -1,3 +1,5 @@
+import { escHtml } from "./utils.js";
+
 export function renderCalendarPage(ctx) {
   const { state, showToast: _showToast, showRoute, openServiceJobDrawer } = ctx;
   const pageContainer = document.getElementById("page-calendar");
@@ -181,13 +183,12 @@ export function renderCalendarPage(ctx) {
       dayJobs.slice(0, 3).forEach(job => {
         const color = statusColors[job.status] || "#999";
         dayHtml += `
-          <div style="
+          <div title="${escHtml(job.customer_name)}" style="
             width: 8px;
             height: 8px;
             border-radius: 50%;
             background: ${color};
             cursor: pointer;
-            title: '${job.customer_name}';
           "></div>
         `;
       });
@@ -262,15 +263,15 @@ export function renderCalendarPage(ctx) {
       panelHtml += `<div style="display: flex; flex-direction: column; gap: 10px;">`;
 
       jobs.forEach(job => {
-        const statusLabel = statusLabels[job.status] || job.status;
+        const statusLabel = statusLabels[job.status] || escHtml(job.status);
         const statusColor = statusColors[job.status] || "#999";
-        const jobTypeLabel = jobTypeLabels[job.job_type] || job.job_type;
+        const jobTypeLabel = jobTypeLabels[job.job_type] || escHtml(job.job_type);
         const jobTypeColor = jobTypeColors[job.job_type] || "#999";
 
         panelHtml += `
           <div
             class="job-card"
-            data-job-id="${job.id}"
+            data-job-id="${escHtml(job.id)}"
             style="
               padding: 12px;
               background: white;
@@ -283,7 +284,7 @@ export function renderCalendarPage(ctx) {
             onmouseout="this.style.boxShadow='none';"
           >
             <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
-              <div style="font-weight: 600; color: #333; font-size: 12px;">${job.customer_name}</div>
+              <div style="font-weight: 600; color: #333; font-size: 12px;">${escHtml(job.customer_name)}</div>
               <span style="
                 background: ${jobTypeColor};
                 color: white;
@@ -301,9 +302,9 @@ export function renderCalendarPage(ctx) {
               ">${statusLabel}</span>
             </div>
             <div style="color: #666; font-size: 11px; line-height: 1.4;">
-              ${job.description ? job.description.substring(0, 100) : 'ไม่มีรายละเอียด'}${job.description && job.description.length > 100 ? '...' : ''}
+              ${job.description ? escHtml(job.description.substring(0, 100)) : 'ไม่มีรายละเอียด'}${job.description && job.description.length > 100 ? '...' : ''}
             </div>
-            ${job.job_address ? `<div style="color: #999; font-size: 10px; margin-top: 6px;">📍 ${job.job_address}</div>` : ''}
+            ${job.job_address ? `<div style="color: #999; font-size: 10px; margin-top: 6px;">📍 ${escHtml(job.job_address)}</div>` : ''}
           </div>
         `;
       });

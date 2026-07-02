@@ -4,7 +4,7 @@
 //  + stats cards + top earners
 // ═══════════════════════════════════════════════════════════
 import { renderSkeleton, renderError } from "./ui_states.js";
-import { escHtml } from "./utils.js";
+import { escHtml, monthsAgoStartBkk } from "./utils.js";
 
 let _data = [];        // staff_payroll rows in selected range
 let _depts = [];
@@ -46,9 +46,9 @@ export async function renderPayrollOverviewPage(ctx) {
   const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token };
 
   // Period: last N months (rolling) — start of (now - N+1) months
-  const endDate = new Date();
-  const startDate = new Date(endDate.getFullYear(), endDate.getMonth() - (_periodMonths - 1), 1);
-  const startStr = startDate.toISOString().slice(0, 10);
+  // Audit fix: เดิม new Date(...).toISOString() แปลง local-midnight เป็น UTC → เลื่อนถอย 1 วัน.
+  //   payroll ใช้ period_month (first-of-month) เลยไม่เพี้ยนในทางปฏิบัติ แต่แก้ให้ถูกต้อง+สม่ำเสมอ.
+  const startStr = monthsAgoStartBkk(_periodMonths - 1);
 
   try {
     const [pRes, dRes, profRes] = await Promise.all([

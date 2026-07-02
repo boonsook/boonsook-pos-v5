@@ -606,8 +606,13 @@ function renderPosView(ctx) {
     }, { signal }));
 
     document.getElementById("posCashConfirmBtn")?.addEventListener("click", () => {
-      if (paid < payable) return;
-      pendingPaidAmount = paid;
+      // ★ Audit fix: อ่านยอดรับสดจาก numpadValue — ปุ่ม numpad (bindNumpad) mutate
+      //   numpadValue โดยไม่ re-render → closure `paid` (ค่าตอน render) ค้าง →
+      //   เดิม: พิมพ์ผ่าน numpad ล้วน = ปุ่มตายเงียบ / กด quick แล้วพิมพ์เพิ่ม = ทอนขาด.
+      //   payable คงที่ตั้งแต่ render (cart/เครดิตไม่เปลี่ยนระหว่างกด numpad).
+      const paidNow = round2(Number(numpadValue || 0));
+      if (paidNow < payable) return;
+      pendingPaidAmount = paidNow;
       posView = "confirm-proof"; renderPosView(ctx);
     }, { signal });
 

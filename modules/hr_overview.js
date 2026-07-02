@@ -20,7 +20,7 @@
 // ═══════════════════════════════════════════════════════════
 
 import { renderSkeleton, renderEmpty, renderError } from "./ui_states.js";
-import { escHtml } from "./utils.js";
+import { escHtml, monthBoundsBkk } from "./utils.js";
 import {
   workDateBangkok,
   timeBangkok,
@@ -1224,11 +1224,8 @@ function _sbHeaders() {
 }
 
 function _monthBounds(yyyymm) {
-  const start = yyyymm + "-01";
-  const d = new Date(start + "T00:00:00+07:00");
-  d.setMonth(d.getMonth() + 1);
-  const endExclusive = d.toISOString().slice(0, 10);
-  return { start, endExclusive };
+  // Audit fix: ใช้ helper pure TZ-safe (เดิมปน offset+setMonth → วันสิ้นเดือนหาย)
+  return monthBoundsBkk(yyyymm);
 }
 
 async function _fetchHrData(today, monthKey) {

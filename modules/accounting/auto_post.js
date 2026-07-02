@@ -449,6 +449,28 @@ async function _postJournal(opts) {
 // Public: POS sale → JV
 // ═══════════════════════════════════════════════════════════
 /**
+ * เลือก mapping key ของการขายตามวิธีชำระ/สถานะเครดิต (pure — testable).
+ *   sale_credit_term → Dr 1200 ลูกหนี้ (ขายเชื่อ/is_credit)
+ *   sale_credit      → Dr 1130 เงินรับบัตร (บัตรเครดิต/EDC)
+ *   sale_transfer    → Dr 1130 (โอน/QR/bank)
+ *   sale_cash        → Dr 1110 เงินสด (default)
+ * ★ Audit fix: เดิม regex `/credit_term|เครดิต/` จับ "บัตรเครดิต" (มี substring "เครดิต")
+ *   → บิลบัตรทุกใบลง Dr 1200 (ลูกหนี้) แทน 1130 = A/R พองผิด. is_credit = สัญญาณ
+ *   ขายเชื่อที่แท้จริง (dashboard.js ก็จำแนกด้วย is_credit เช่นกัน).
+ * @param {object} sale
+ * @returns {"sale_credit_term"|"sale_credit"|"sale_transfer"|"sale_cash"}
+ */
+export function _selectSaleMappingKey(sale) {
+  const pm = String(sale?.payment_method || "").toLowerCase();
+  // ขายเชื่อ / เครดิตเทอม → ลูกหนี้ 1200 (ตรวจ is_credit ก่อน string; ห้ามพึ่งคำว่า "เครดิต" เดี่ยว ๆ)
+  if (sale?.is_credit || /credit_term|เงินเชื่อ|ขายเชื่อ/.test(pm)) return "sale_credit_term";
+  // บัตรเครดิต/EDC → 1130 (ต้องมาก่อน generic; "บัตรเครดิต" ต้องไม่หลุดไป term ด้านบน)
+  if (/บัตร|credit card|card|edc|เครดิต/.test(pm))                 return "sale_credit";
+  if (/transfer|โอน|qr|bank/.test(pm))                            return "sale_transfer";
+  return "sale_cash";
+}
+
+/**
  * @param {object} sale - row จาก state.sales (ต้องมี id, created_at, grand_total, payment_method)
  */
 export async function postJournalForSale(sale, opts = {}) {
@@ -469,12 +491,7 @@ export async function postJournalForSale(sale, opts = {}) {
   }
 
   const mappings = await _getMappings();
-  const pm = String(sale.payment_method || "").toLowerCase();
-  let mappingKey = "sale_cash";
-  if (/credit_term|เครดิต/.test(pm))     mappingKey = "sale_credit_term";
-  else if (/credit|บัตร/.test(pm))        mappingKey = "sale_credit";
-  else if (/transfer|โอน|qr|bank/.test(pm)) mappingKey = "sale_transfer";
-  // else: sale_cash
+  const mappingKey = _selectSaleMappingKey(sale);
 
   const mapping = mappings[mappingKey];
   if (!mapping?.debit_account_code || !mapping?.credit_account_code) {
@@ -586,6 +603,17 @@ export async function postJournalForExpense(expense, opts = {}) {
 
   const mappings = await _getMappings();
   const cat = String(expense.category || "").toLowerCase().trim();
+
+  // ★ Audit fix (single source): เงินเดือน/ค่าจ้าง (salary/labor_hire/payroll) ลงบัญชี
+  //   ผ่าน JV ก้อนเดียวต่อรอบ (postPayrollPeriodJournal, Dr 5200) — payroll.js auto-สร้าง
+  //   expense category=salary รายคนโดยตั้งใจไม่ลง JV. ถ้า post รายคนที่นี่ = Dr 5200 ซ้ำ
+  //   (double-count P&L). เดิม backfill skip ภายนอก แต่ expenses.js insert/edit +
+  //   recurring_expenses เรียกตรง → ลืม skip. ย้าย invariant มาที่ writer เดียวกัน
+  //   caller ทุกตัว (insert/edit/recurring/backfill) กันซ้ำอัตโนมัติ.
+  if (["salary", "labor_hire", "payroll"].includes(cat)) {
+    return _journalResult(opts.detailed, { status: "skipped", reason: "salary-via-payroll-period", sourceTable: "expenses", sourceId: expense.id });
+  }
+
   const mappingKey = EXPENSE_CATEGORY_MAP[cat] || "expense_misc";
 
   const mapping = mappings[mappingKey];

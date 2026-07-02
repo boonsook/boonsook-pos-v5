@@ -97,9 +97,10 @@ test("payment-select shows credit UI, clamps input, and offers full-credit confi
 
 test("cash-input / transfer collect the payable (amount - credit), not the full amount", () => {
   const ci = pos.indexOf('posView === "cash-input"');
-  const cash = pos.slice(ci, ci + 3000);
+  const cash = pos.slice(ci, ci + 3800);
   assert.match(cash, /const payable = round2\(Math\.max\(amount - _creditOnBill/, "cash-input computes payable");
-  assert.match(cash, /paid < payable/, "confirm gate uses payable");
+  // Audit fix: confirm handler อ่านยอดรับสด (paidNow) จาก numpadValue แล้ว gate กับ payable
+  assert.match(cash, /paid(?:Now)? < payable/, "confirm gate uses payable (not full amount)");
   const ti = pos.indexOf('posView === "transfer-qr"');
   const tr = pos.slice(ti, ti + 3000);
   assert.match(tr, /_tPayable = round2\(Math\.max\(round2\(amount\) - _creditUsed/, "transfer computes payable");

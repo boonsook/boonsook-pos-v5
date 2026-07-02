@@ -23,7 +23,7 @@
 // ═══════════════════════════════════════════════════════════
 
 import { renderSkeleton, renderEmpty, renderError } from "./ui_states.js";
-import { escHtml, exportToExcel, todaySuffix, logActivity } from "./utils.js";
+import { escHtml, exportToExcel, todaySuffix, logActivity, monthBoundsBkk } from "./utils.js";
 import { profileDisplayName } from "./time_clock.js";
 
 const TZ = "Asia/Bangkok";
@@ -104,12 +104,9 @@ export function filterLeaves(rows, filters = {}) {
     if (uid && String(r?.user_id) !== String(uid)) return false;
     if (month) {
       // overlap: start_date <= monthEnd AND end_date >= monthStart
-      const m = String(month).slice(0, 7);
-      const monthStart = m + "-01";
-      const d = new Date(monthStart + "T00:00:00+07:00");
-      if (!Number.isFinite(d.getTime())) return true;
-      d.setMonth(d.getMonth() + 1);
-      const monthEndExclusive = d.toISOString().slice(0, 10);
+      // Audit fix: ขอบเดือน pure TZ-safe (เดิม offset+setMonth+toISOString → วันสิ้นเดือนหลุด filter)
+      if (!/^\d{4}-\d{2}/.test(String(month))) return true;  // month ผิดรูป → ไม่กรอง (คงพฤติกรรมเดิม)
+      const { start: monthStart, endExclusive: monthEndExclusive } = monthBoundsBkk(month);
       const s = String(r?.start_date || "").slice(0, 10);
       const e = String(r?.end_date   || "").slice(0, 10);
       if (!s || !e) return false;
