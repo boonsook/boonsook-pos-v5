@@ -2372,3 +2372,21 @@ body {
   background: linear-gradient(160deg, #e4ecf7 0%, #e9f3fa 55%, #f3f8fc 100%);
 }
 [data-theme="dark"] body { background: var(--bg); }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   PHASE 550-mobile — tech_home (หน้าหลักช่าง) responsive readability
+   .tech-home-grid: desktop = 2 คอลัมน์ (งานที่ต้องทำ | panels) · mobile ≤640px = 1 คอลัมน์ (stack)
+   แก้บั๊ก: เดิม grid-template-columns เป็น inline 1.5fr 1fr ไม่มี breakpoint → มือถือบีบคอลัมน์ขวาแคบ
+   จนข้อความแตกทีละคำ. ย้าย layout มา class + single-column ≤640px. (font tweak scope ใต้ #page-tech_home
+   เท่านั้น กันกระทบหน้าอื่นที่ใช้ .panel/.muted ร่วมกัน). READ-ONLY UI — ไม่แตะ logic/data.
+   ═══════════════════════════════════════════════════════════════════════ */
+.tech-home-grid { display: grid; grid-template-columns: 1.5fr 1fr; gap: 16px; align-items: start; }
+@media (max-width: 640px) {
+  .tech-home-grid { grid-template-columns: 1fr; }        /* stack: งานที่ต้องทำ + panels เรียงลงมาเต็มกว้าง */
+  #page-tech_home .panel { padding: 14px 16px; }
+  #page-tech_home .panel h3 { font-size: 16px; line-height: 1.3; }   /* card title อ่านชัด ไม่เล็กแบบ desktop */
+  #page-tech_home .dash-today-amount { font-size: 26px; }
+  #page-tech_home .dash-today-sub,
+  #page-tech_home .muted { line-height: 1.55; }           /* description อ่านเป็นประโยค ไม่แตกคำละบรรทัด */
+  #page-tech_home .panel > div[style*="max-height"] { max-height: none; }   /* มือถือ stack แล้ว ไม่ต้องมี inner scroll */
+}

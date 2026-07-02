@@ -276,8 +276,8 @@ export function renderTechHome(ctx) {
     <!-- สรุป -->
     <div class="kpi-grid">${statTilesHtml}</div>
 
-    <!-- งานช่างวันนี้ · ทั้งร้าน + ของใกล้หมด -->
-    <div style="display:grid;grid-template-columns:1.5fr 1fr;gap:16px" class="tech-home-grid">
+    <!-- งานช่างวันนี้ · ทั้งร้าน + ของใกล้หมด (layout ใน .tech-home-grid — desktop 2-col, mobile ≤640px 1-col) -->
+    <div class="tech-home-grid">
       <div class="panel">
         <div class="row"><h3 style="margin:0">📋 งานที่ต้องทำ · ทั้งร้าน</h3><span class="muted" style="font-size:12px">วันนี้ ${todayJobs.length} · ค้าง ${backlogJobs.length}</span></div>
         <div style="margin-top:12px">${jobsHtml}</div>
