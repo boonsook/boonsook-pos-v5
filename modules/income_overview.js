@@ -8,7 +8,7 @@
 // ═══════════════════════════════════════════════════════════
 import { renderSkeleton, renderError } from "./ui_states.js";
 import { escHtml, visibleSalesForRole, dateBkk, todayBkk } from "./utils.js";
-import { isWebOrderServiceJob, isServiceIncomeJob, sumServiceJobIncome } from "./dashboard.js";
+import { isWebOrderServiceJob, isServiceIncomeJob, sumServiceJobIncome, serviceIncomeDate } from "./dashboard.js";
 
 let _period = "month";   // today | month | year
 let _donutChart = null;
@@ -61,19 +61,20 @@ export function renderIncomeOverviewPage(ctx) {
   const webTotal = webOrders.filter(j => inPeriod(j.created_at, _period)).reduce((a, j) => a + Number(j.total_cost || 0), 0);
   const webCount = webOrders.filter(j => inPeriod(j.created_at, _period)).length;
   // ★ รายได้งานบริการ — ใช้ sumServiceJobIncome (single source) ไม่คิดสูตรเอง
-  const serviceTotal = sumServiceJobIncome(jobs, j => inPeriod(j.created_at, _period));
+  //   Phase 553: ฐานวัน = serviceIncomeDate (closed_at) ให้ตรง JV (auto_post.js:839). web ยัง created_at.
+  const serviceTotal = sumServiceJobIncome(jobs, j => inPeriod(serviceIncomeDate(j), _period));
 
   // breakdown หมวดสำหรับ donut: POS + web + งานบริการตาม job_type
   const byCat = {};
   if (posTotal > 0) byCat["💳 ขาย POS"] = posTotal;
   if (webTotal > 0) byCat["🛒 ออเดอร์เว็บ"] = webTotal;
-  serviceJobs.filter(j => inPeriod(j.created_at, _period)).forEach(j => {
+  serviceJobs.filter(j => inPeriod(serviceIncomeDate(j), _period)).forEach(j => {
     const lbl = JOB_TYPE_LABELS[j.job_type] || (j.job_type ? "🛠️ " + escHtml(String(j.job_type)) : "🛠️ งานอื่นๆ");
     byCat[lbl] = (byCat[lbl] || 0) + Number(j.total_cost || 0);
   });
 
   const grandTotal = posTotal + webTotal + serviceTotal;
-  const txCount = posCount + webCount + serviceJobs.filter(j => inPeriod(j.created_at, _period)).length;
+  const txCount = posCount + webCount + serviceJobs.filter(j => inPeriod(serviceIncomeDate(j), _period)).length;
 
   // bar รายเดือน (ปีนี้) — รวมทุกแหล่งต่อเดือน
   const yr = todayBkk().slice(0, 4);
@@ -86,7 +87,7 @@ export function renderIncomeOverviewPage(ctx) {
   };
   allSales.forEach(s => addMonth(s.created_at, s.total_amount));
   webOrders.forEach(j => addMonth(j.created_at, j.total_cost));
-  serviceJobs.forEach(j => addMonth(j.created_at, j.total_cost));
+  serviceJobs.forEach(j => addMonth(serviceIncomeDate(j), j.total_cost));
 
   container.innerHTML = `
     <div style="padding:8px">

@@ -21,6 +21,10 @@ export function isServiceIncomeJob(j) {
     && Number(j.total_cost || 0) > 0
     && !j.deleted_at && !(j.note || "").includes("[ลบแล้ว]");
 }
+// Phase 553: ฐานวันรับรู้รายได้งานบริการ = closed_at (วันปิดงาน) fallback created_at —
+//   ต้อง match ฐานวันของ service-job JV (auto_post.js:839 `job.closed_at || job.created_at`,
+//   Phase 542 cash-basis) ไม่งั้นการ์ดรายได้หน้าแรกไม่ตรงสมุดรายวัน (งานสร้างวันหนึ่งปิดอีกวัน).
+export function serviceIncomeDate(j) { return j?.closed_at || j?.created_at || ""; }
 // รวมรายได้งานบริการ (ไม่นับ web order ที่นับไปแล้ว) ของงานที่ผ่าน dateMatch
 export function sumServiceJobIncome(serviceJobs, dateMatch) {
   if (!Array.isArray(serviceJobs)) return 0;
@@ -426,7 +430,7 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
   const todayOrderCount = todaySales.length + todayWebOrders.length;
   // ★ Phase 395: รายได้รวมวันนี้ = POS + web + งานบริการ (delivered/done/closed) — นิยามเดียวกับ income_overview/P&L
   //   *ไม่แก้* "ยอดขายวันนี้" (todayRevenue = POS+web) — แค่ "เพิ่ม" การ์ดรายได้รวม
-  const todayServiceIncome = sumServiceJobIncome(state.serviceJobs, j => dateBkk(j.created_at) === today);
+  const todayServiceIncome = sumServiceJobIncome(state.serviceJobs, j => dateBkk(serviceIncomeDate(j)) === today);
   const todayTotalIncome = todayRevenue + todayServiceIncome;
 
   // ─── สรุปรวม ───
@@ -435,7 +439,7 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
   const monthRevenue = monthSales.reduce((s,x)=>s+Number(x.total_amount||0),0) + monthWebOrders.reduce((s,x)=>s+Number(x.total_cost||0),0);
   const monthExpenseTotal = expenses.filter(e => String(e.expense_date||"").slice(0,7) === thisMonth).reduce((s,x)=>s+Number(x.amount||0),0);
   // Phase 387: กำไรสุทธิต้องรวมรายได้งานบริการ (delivered/done/closed) ให้ตรงกับงบ P&L
-  const monthServiceIncome = sumServiceJobIncome(state.serviceJobs, j => dateBkk(j.created_at).slice(0,7) === thisMonth);
+  const monthServiceIncome = sumServiceJobIncome(state.serviceJobs, j => dateBkk(serviceIncomeDate(j)).slice(0,7) === thisMonth);
   const monthTotalIncome = monthRevenue + monthServiceIncome;
   const monthNetProfit = monthTotalIncome - monthExpenseTotal;
 
