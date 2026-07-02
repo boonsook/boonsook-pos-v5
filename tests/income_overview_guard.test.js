@@ -39,6 +39,19 @@ test("income_overview reuses the dashboard income helpers (single source of trut
   assert.ok(!/status[\s\S]{0,40}===\s*["']delivered["']/.test(src), "no own delivered-status income formula");
 });
 
+// ── Phase 553: service income dated by closed_at (JV basis); web/POS stay created_at ──
+test("income_overview: serviceTotal uses serviceIncomeDate (closed_at); webTotal/posTotal stay created_at", () => {
+  assert.match(src, /import \{[^}]*serviceIncomeDate[^}]*\} from "\.\/dashboard\.js"/, "imports serviceIncomeDate from dashboard.js");
+  // service income period-matched by serviceIncomeDate (วันปิดงาน) — ตรง JV
+  assert.match(src, /sumServiceJobIncome\(jobs,\s*j\s*=>\s*inPeriod\(serviceIncomeDate\(j\),\s*_period\)\)/, "serviceTotal uses serviceIncomeDate");
+  // web orders + POS must stay on created_at (out of scope — web JV basis = follow-up Phase 554)
+  assert.match(src, /webTotal\s*=\s*webOrders\.filter\(j\s*=>\s*inPeriod\(j\.created_at,\s*_period\)\)/, "webTotal stays created_at");
+  assert.match(src, /posTotal\s*=\s*allSales\.filter\(s\s*=>\s*inPeriod\(s\.created_at,\s*_period\)\)/, "posTotal stays created_at");
+  // guard against over-reaching: web orders must NOT be re-dated by serviceIncomeDate
+  assert.ok(!/webOrders\.filter\(j\s*=>\s*inPeriod\(serviceIncomeDate/.test(src), "webTotal must not be switched to serviceIncomeDate");
+  assert.ok(!/webOrders\.forEach\(j\s*=>\s*addMonth\(serviceIncomeDate/.test(src), "web monthly trend must not switch to serviceIncomeDate");
+});
+
 // ── admin-gated + renders into the page section ───────────────────────────────
 test("income_overview is admin-gated and renders into #page-income_overview", () => {
   assert.match(src, /requireAdmin/, "admin gate");
