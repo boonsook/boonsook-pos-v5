@@ -132,11 +132,13 @@ async function _crFetchRows(path, label) {
     return [];
   }
 }
-// ขายของวัน (created_at gte/lt +07:00) — select เท่าที่ compute ใช้; กรอง [ลบแล้ว]/cancelled ฝั่ง compute
+// ขายของวัน (created_at gte/lt +07:00) — select เท่าที่ compute ใช้; กรอง [ลบแล้ว] ฝั่ง compute.
+//   ★ sales ไม่มีคอลัมน์ `status` (การยกเลิกบิลใช้ note "[ลบแล้ว]" ไม่ใช่ status) → ห้าม select status
+//   (จะ 400). compute อ้าง s.status ได้ปลอดภัย (undefined → ไม่ถือว่า cancelled = เท่าเดิมกับ select *).
 async function fetchCashReconSales(date) {
   const next = _crNextDay(date);
   return _crFetchRows(
-    "/rest/v1/sales?select=created_at,payment_method,total_amount,credit_used_amount,status,note"
+    "/rest/v1/sales?select=created_at,payment_method,total_amount,credit_used_amount,note"
     + "&created_at=gte." + date + "T00:00:00%2B07:00"
     + "&created_at=lt." + next + "T00:00:00%2B07:00",
     "sales");

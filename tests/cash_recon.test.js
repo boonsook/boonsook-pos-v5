@@ -255,6 +255,8 @@ test("Phase 554: fetch helpers มีครบ + ใช้คอลัมน์�
   assert.ok(credFn, "fetchCashReconCreditPayments exists");
   // sales — created_at gte/lt +07:00
   assert.ok(salesFn.includes("created_at=gte.") && salesFn.includes("T00:00:00%2B07:00"), "sales fetch ใช้ created_at gte +07:00");
+  // ★ sales ไม่มีคอลัมน์ status (ยกเลิกบิล = note "[ลบแล้ว]") → ห้าม select status (จะ 400 → fetch [] เงียบ)
+  assert.ok(!/select=[^&]*\bstatus\b/.test(salesFn), "sales fetch ต้องไม่ select status (คอลัมน์ไม่มีจริง → 400)");
   // credit_payments — ★ ต้อง paid_at ไม่ใช่ created_at (schema จริง = paid_at; created_at จะ 400 → fetch [] เงียบ)
   assert.ok(credFn.includes("select=paid_at") && credFn.includes("paid_at=gte."), "credit fetch ใช้ paid_at");
   assert.ok(!credFn.includes("created_at"), "credit fetch ต้องไม่ใช้ created_at (คอลัมน์ไม่มีจริง)");
