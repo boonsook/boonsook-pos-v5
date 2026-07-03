@@ -147,6 +147,9 @@ test("Phase 557: SQL backfill — STEP2 scope (unit_cost=0 + is_bundle + recipe 
   assert.match(sql, /s\.gross_profit IS NOT NULL/, "STEP3 skips NULL gross_profit (quick-pay)");
   assert.match(sql, /s\.subtotal IS NOT NULL/, "STEP3 skips NULL subtotal (กัน set NULL)");
   assert.match(sql, /NOT LIKE '%\[ลบแล้ว\]%'/, "STEP3 skips voided/deleted bills");
+  // STEP3 COGS = COALESCE(NULLIF(unit_cost,0), products.cost, 0) — mirror profit_report.js:186 fallback
+  assert.match(sql, /COALESCE\(NULLIF\(si\.unit_cost, 0\), pc\.cost, 0\)/, "STEP3 COGS falls back to products.cost when unit_cost=0 (มิเช่นนั้น non-bundle legacy line เฟ้อ)");
+  assert.match(sql, /LEFT JOIN products pc ON pc\.id = si\.product_id/, "STEP3 joins products for cost fallback");
 });
 
 // ── must not alter the existing money formulas ────────────────────────────────

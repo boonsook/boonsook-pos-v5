@@ -12,9 +12,10 @@
 --   ของบิลใหม่. ไฟล์นี้ปะข้อมูล "เก่า" ที่ค้างใน DB.
 --
 -- ⚠️ สมมติฐาน (เหมือน fallback ของ profit_report เดิม):
---   ใช้ "cost ปัจจุบัน" ของ children (ระบบไม่เก็บ historical cost). ถ้า cost ของ child หรือสูตร
---   (product_bundles) ถูกแก้หลังการขาย backfill จะคลาดจากต้นทุน ณ วันขายจริงได้ — ยอมรับได้
---   เพราะเป็นฐานเดียวกับที่รายงานใช้อยู่แล้ว และดีกว่าปล่อยเป็น 0.
+--   ใช้ "cost ปัจจุบัน" — ของ children (bundle) และของ products (non-bundle line ที่ unit_cost=0);
+--   ระบบไม่เก็บ historical cost. ถ้า cost หรือสูตร (product_bundles) ถูกแก้หลังการขาย backfill จะคลาด
+--   จากต้นทุน ณ วันขายจริงได้ — ยอมรับได้ เพราะเป็นฐานเดียวกับที่ profit_report/gross_profit column
+--   ใช้อยู่แล้ว (อ่าน products.cost live) และดีกว่าปล่อยเป็น 0.
 --
 -- ขอบเขต (ไม่แตะแถวอื่น):
 --   เฉพาะ sale_items ที่ (unit_cost = 0) AND (product เป็น is_bundle) AND (Σ ต้นทุน children > 0).
@@ -75,14 +76,20 @@ WHERE si.unit_cost = 0
   ) > 0
 RETURNING si.id, si.sale_id, si.product_id, si.unit_cost AS new_unit_cost;
 
--- ── STEP 3 — UPDATE sales.gross_profit = round(subtotal − Σ(qty×unit_cost), 2) ────
+-- ── STEP 3 — UPDATE sales.gross_profit = round(subtotal − Σ(qty×COGS), 2) ─────────
 -- เฉพาะ sales ที่ (ก) มี sale_items เป็น bundle ที่เพิ่งแก้ใน STEP2, (ข) gross_profit ไม่ NULL
 -- (quick-pay/บิลว่าง = NULL คงไว้ ไม่ inflate), (ค) subtotal ไม่ NULL, (ง) note ไม่ใช่บิลลบ.
+-- COGS ต่อบรรทัด = COALESCE(NULLIF(unit_cost,0), products.cost, 0) — mirror profit_report.js:186
+-- (`parseFloat(unit_cost) || products.cost`) และ live `_computeGrossProfit` (อ่าน products.cost):
+--   • bundle line หลัง STEP2 → unit_cost = Σ children (nonzero) → NULLIF เก็บค่านั้น (ไม่ fallback parent 0)
+--   • non-bundle legacy (unit_cost=0 ก่อน migration) → fallback products.cost จริง (เดิม raw 0 = COGS 0 เฟ้อ)
+--   → gross_profit บิลเก่าที่ backfill = เท่าที่ POS build 557 คำนวณบิลใหม่เป๊ะ + ตรงหน้า profit_report.
 UPDATE sales s
 SET gross_profit = round(
   COALESCE(s.subtotal, 0) - (
-    SELECT COALESCE(SUM(si.qty * si.unit_cost), 0)
+    SELECT COALESCE(SUM(si.qty * COALESCE(NULLIF(si.unit_cost, 0), pc.cost, 0)), 0)
     FROM sale_items si
+    LEFT JOIN products pc ON pc.id = si.product_id
     WHERE si.sale_id = s.id
   ), 2)
 WHERE s.gross_profit IS NOT NULL
@@ -109,11 +116,14 @@ WHERE si.unit_cost = 0
     WHERE pb.bundle_id = si.product_id
   ) > 0;
 
--- 4b) spot-check 3 บิลที่มี bundle: subtotal, Σต้นทุน, gross_profit ใหม่ (ควร subtotal − Σcost)
+-- 4b) spot-check 3 บิลที่มี bundle: subtotal, Σต้นทุน (สูตรเดียวกับ STEP3), gross_profit ใหม่
+--     ควร reconcile: round(subtotal − total_cost, 2) = gross_profit
 SELECT
   s.id,
   s.subtotal,
-  (SELECT COALESCE(SUM(si.qty * si.unit_cost), 0) FROM sale_items si WHERE si.sale_id = s.id) AS total_cost,
+  (SELECT COALESCE(SUM(si.qty * COALESCE(NULLIF(si.unit_cost, 0), pc.cost, 0)), 0)
+     FROM sale_items si LEFT JOIN products pc ON pc.id = si.product_id
+     WHERE si.sale_id = s.id) AS total_cost,
   s.gross_profit
 FROM sales s
 WHERE s.gross_profit IS NOT NULL
