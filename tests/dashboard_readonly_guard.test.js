@@ -54,12 +54,12 @@ test("style.css carries the Phase 386 polish section", () => {
 });
 
 // ── build bump is consistent so the PWA shell is not served stale ─────────────
-test("build markers are all bumped to 554 (index.html + sw.js)", () => {
-  assert.match(indexHtml, /data-app-build="554"/, "data-app-build must be 554");
+test("build markers are all bumped to 555 (index.html + sw.js)", () => {
+  assert.match(indexHtml, /data-app-build="555"/, "data-app-build must be 555");
   for (const asset of ["style.css", "selfheal.js", "main.js", "boot.js"]) {
-    assert.ok(indexHtml.includes(`${asset}?v=554`), `${asset}?v= must be bumped to 554`);
-    assert.ok(!indexHtml.includes(`${asset}?v=553`), `${asset}?v= must not still be 553`);
+    assert.ok(indexHtml.includes(`${asset}?v=555`), `${asset}?v= must be bumped to 555`);
+    assert.ok(!indexHtml.includes(`${asset}?v=554`), `${asset}?v= must not still be 554`);
   }
-  assert.match(sw, /boonsook-pos-v5-cache-v554'/, "sw.js CACHE_NAME must be v554");
-  assert.ok(!/boonsook-pos-v5-cache-v553'/.test(sw), "sw.js CACHE_NAME must not still be v553");
+  assert.match(sw, /boonsook-pos-v5-cache-v555'/, "sw.js CACHE_NAME must be v555");
+  assert.ok(!/boonsook-pos-v5-cache-v554'/.test(sw), "sw.js CACHE_NAME must not still be v554");
 });

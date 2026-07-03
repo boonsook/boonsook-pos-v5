@@ -1199,22 +1199,30 @@ async function loadAllData(){
     }
 
     // ★ Phase 2: โมดูลเสริม — โหลดพร้อมกัน (ถ้าตารางยังไม่มีก็ไม่พัง)
-    const [rExpenses, rStockMov, rLoyalty, rLoySetting, rPerms, rLineNotify] = await Promise.allSettled([
+    const [rExpenses, rStockMov, rLoyalty, rLoySetting, rPerms, rLineNotify, rBundles] = await Promise.allSettled([
       sb.from("expenses").select("*").order("expense_date",{ascending:false}).limit(200),
       sb.from("stock_movements").select("*").order("created_at",{ascending:false}).limit(200),
       sb.from("loyalty_points").select("*").order("created_at",{ascending:false}).limit(500),
       sb.from("loyalty_settings").select("*").limit(1),
       sb.from("permissions").select("*"),
-      sb.from("line_notify_settings").select("*").limit(1)
+      sb.from("line_notify_settings").select("*").limit(1),
+      // Phase 555 (audit S12): สูตร bundle ทั้งหมด → คิด COGS/gross_profit ของบิลชุดให้ถูก (fail → {} → fallback parent cost)
+      sb.from("product_bundles").select("bundle_id,child_product_id,qty")
     ]);
 
-    /* eslint-disable require-atomic-updates -- G: all 6 state assigns protected by _isLoading entry-guard at loadAllData() (main.js:1443) */
+    /* eslint-disable require-atomic-updates -- G: all 7 state assigns protected by _isLoading entry-guard at loadAllData() (main.js:1443) */
     state.expenses           = val(rExpenses);
     state.stockMovements     = val(rStockMov);
     state.loyaltyPoints      = val(rLoyalty);
     state.loyaltySettings    = (val(rLoySetting))[0] || null;
     state.permissions        = val(rPerms);
     state.lineNotifySettings = (val(rLineNotify))[0] || null;
+    // Phase 555 (audit S12): map สูตร bundle → { [bundle_id]: [{child_product_id, qty}] } (key=string ให้ตรง lookup ใน _computeGrossProfit)
+    state.bundleRecipes = (val(rBundles)).reduce((m, r) => {
+      const bid = String(r.bundle_id);
+      (m[bid] || (m[bid] = [])).push({ child_product_id: r.child_product_id, qty: r.qty });
+      return m;
+    }, {});
     /* eslint-enable require-atomic-updates */
 
     // ★ Sync cart with actual stock
