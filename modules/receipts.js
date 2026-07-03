@@ -47,6 +47,51 @@ function _payIs(method, target) {
   return (pats[target] || []).some(p => m.includes(p));
 }
 
+// ═══════════════════════════════════════════════════════════
+//  Phase 556: re-post JV เมื่อแก้ช่องทางชำระ/ธนาคาร ของใบเสร็จ paid
+//  ปัญหา: 3 จุด (multipay saveBtn / dropdown rcEditPayMethod / rcEdSave-bank) PATCH
+//  payment_method หรือ bank_coa_code แต่ไม่ void/repost JV → JV RV ค้าง Dr บัญชีเดิม
+//  (postJournalForReceipt เลือก Dr ตอน post ครั้งแรกเท่านั้น: transfer→1130/อื่น→1110,
+//  + override sub-account ด้วย bank_coa_code). ที่นี่ trigger void+repost เมื่อฐาน Dr เปลี่ยนจริง.
+// ═══════════════════════════════════════════════════════════
+// pure decision — repost เฉพาะเมื่อ "บัญชี Dr เปลี่ยนจริง": ข้าม boundary transfer(1130) vs อื่น(1110)
+//   หรือ bank sub-account เปลี่ยน. ใช้ _payIs normalize Thai/Eng (dropdown เก็บไทย/multipay เก็บ Eng)
+//   → กัน churn เท็จ เช่น "เงินสด"→"cash" (บัญชีเดิม) ต้องไม่ repost. เฉพาะใบเสร็จ paid (มี JV แล้ว).
+export function receiptJvRepostNeeded({ prevMethod, newMethod, prevBank, newBank, status }) {
+  if (String(status || "").toLowerCase() !== "paid") return false;
+  const drChanged = _payIs(prevMethod, "transfer") !== _payIs(newMethod, "transfer");
+  const bankChanged = String(prevBank || "") !== String(newBank || "");
+  return drChanged || bankChanged;
+}
+
+// async — void JV เดิม + repost ตามช่องทาง/ธนาคารใหม่. fail-safe: ไม่ throw, ไม่ rollback การ PATCH
+//   ที่สำเร็จแล้ว (§4.8). period ปิด (Phase 551 BEFORE DELETE guard) → void ลบไม่ได้ → repost ชน
+//   409 idempotency (source_table+source_id) → reason "duplicate" → เตือน manual (ไม่ dup JV เงียบ).
+async function _repostReceiptJvIfChanged(r, { prevMethod, newMethod, prevBank, newBank }) {
+  const _toast = (m) => { try { (window.App?.showToast || _ctx?.showToast)?.(m); } catch { /* noop */ } };
+  try {
+    if (!receiptJvRepostNeeded({ prevMethod, newMethod, prevBank, newBank, status: r?.status })) return;
+    const voided = await voidJvForSource("receipts", r.id);
+    const postRes = await postJournalForReceipt(
+      { ...r, payment_method: newMethod, bank_coa_code: newBank,
+        status: "paid", paid_at: r.paid_at || new Date().toISOString() },
+      { detailed: true });
+    if (postRes?.status === "posted") {
+      _toast("อัปเดตบัญชีตามช่องทางใหม่แล้ว ✓");
+    } else if (postRes?.status === "skipped" && postRes?.reason === "duplicate") {
+      // void === 0 ร่วมด้วย = ยืนยัน period-lock (JV เดิมยังอยู่ ลบไม่ได้)
+      console.warn("[receipt repost] JV เดิมอยู่งวดปิด ลบไม่ได้ (voided=" + voided + ")", r.id);
+      _toast("⚠️ JV เดิมอยู่ในงวดที่ปิดแล้ว แก้อัตโนมัติไม่ได้ — ปลดล็อกงวด หรือปรับด้วย manual JV (ใบเสร็จบันทึกแล้ว)");
+    } else if (postRes?.status === "failed") {
+      _toast("⚠️ อัปเดตแล้ว แต่ลงบัญชีใหม่ไม่สำเร็จ — ตรวจสมุดรายวัน");
+    }
+    // reason อื่น (pre-effective/not-paid) = ไม่มี JV ให้แก้อยู่แล้ว → เงียบ
+  } catch (e) {
+    console.error("[receipt repost JV]", e);
+    _toast("⚠️ อัปเดตแล้ว แต่ปรับบัญชีไม่สำเร็จ — ตรวจสมุดรายวัน");
+  }
+}
+
 // Phase 88.17: รออนุมัติ (pending) คือ default — JV ยังไม่เกิด
 const STATUS_LABELS = {
   paid:      "✅ ชำระแล้ว",
@@ -980,6 +1025,8 @@ function renderReceiptPreview(container) {
       // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L4 doc-edit handler (paymethod dropdown change, single admin)
       r.payment_method = newMethod;
       _ctx.showToast("อัปเดตวิธีชำระเรียบร้อย ✓");
+      // Phase 556: ช่องทางหลักเปลี่ยน → void+repost JV (dropdown ไม่แก้ธนาคาร → prevBank=newBank)
+      await _repostReceiptJvIfChanged(r, { prevMethod, newMethod, prevBank: r.bank_coa_code, newBank: r.bank_coa_code });
       // Re-render preview เพื่อให้ checkboxes แสดง ✓ ตรงตำแหน่งที่เลือก
       renderReceiptsPage(_ctx);
     } catch (e) {
@@ -1146,6 +1193,7 @@ function _openReceiptEditDrawer(r) {
     const saveBtn = modal.querySelector("#rcEdSave");
     saveBtn.disabled = true;
     saveBtn.textContent = "⏳ กำลังบันทึก...";
+    const _prevBank = r.bank_coa_code;  // Phase 556: จับก่อน patch (repost JV ถ้าธนาคารรับเงินเปลี่ยน)
 
     try {
       const result = await window._appXhrPatch?.("receipts", payload, "id", r.id);
@@ -1156,6 +1204,10 @@ function _openReceiptEditDrawer(r) {
         const idx = (_ctx.state.receipts || []).findIndex(x => x.id === r.id);
         if (idx >= 0) _ctx.state.receipts[idx] = { ..._ctx.state.receipts[idx], ...payload };
       } catch(e){}
+      // Phase 556: ธนาคารรับเงินเปลี่ยน → void+repost JV (method ไม่เปลี่ยนที่หน้านี้ → prev=new)
+      //   r ต้องสะท้อน bank_coa_code ใหม่ก่อน repost (postJournalForReceipt อ่านจาก receipt ที่ส่งเข้า)
+      r.bank_coa_code = payload.bank_coa_code;
+      await _repostReceiptJvIfChanged(r, { prevMethod: r.payment_method, newMethod: r.payment_method, prevBank: _prevBank, newBank: payload.bank_coa_code });
 
       window.App?.showToast?.("บันทึกสำเร็จ");
       close();
@@ -1285,6 +1337,7 @@ function _wireMultiPayPanel(r) {
       });
       // Update primary payment_method to the largest entry (for backward compat)
       const main = [...payments].sort((a,b)=>b.amount-a.amount)[0];
+      const _prevMethod = r.payment_method;  // Phase 556: จับก่อน overwrite (repost JV ถ้า Dr เปลี่ยน)
       const patchBody = { payments };
       if (main) patchBody.payment_method = main.method;
       await window._appXhrPatch?.("receipts", patchBody, "id", r.id);
@@ -1293,6 +1346,8 @@ function _wireMultiPayPanel(r) {
       r.payments = payments;
       if (main) r.payment_method = main.method;
       /* eslint-enable require-atomic-updates */
+      // Phase 556: ช่องทางหลักเปลี่ยน → void+repost JV (multipay ไม่แก้ธนาคาร → prevBank=newBank)
+      if (main) await _repostReceiptJvIfChanged(r, { prevMethod: _prevMethod, newMethod: main.method, prevBank: r.bank_coa_code, newBank: r.bank_coa_code });
       window.App?.showToast?.("บันทึกการชำระเงินแล้ว ✅");
       // re-render preview to reflect new payment list in document body
       if (_ctx) renderReceiptsPage(_ctx);
