@@ -8,6 +8,8 @@ import { postJournalForSale, _isAfterEffective } from "./accounting/auto_post.js
 // Phase 89.42: single-flight guard for POS checkout (replaces brittle window._checkoutRunning manual flag)
 import { createInflightGuard } from "./_inflight_guard.js";
 import { pickAutoWarehouseStock } from "./warehouse_pick.js";
+// Phase 555 (audit S12): expand bundle recipe → children เพื่อคิด COGS ที่ถูกของ bundle (pure, reuse deduct-side math)
+import { expandBundleForRevert } from "./bundle_revert.js";
 
 // Phase 89.42 — Site 2 fix: rapid double-tap on "เสร็จสิ้น" was relying on
 // window._checkoutRunning with 3 manual reset points (lines 1121, 1128, 1240).
@@ -87,11 +89,24 @@ export function round2(n) {
 
 // ★ Phase 398: gross profit = subtotal (ex-VAT) − COGS (Σ ต้นทุน×จำนวน จาก products.cost = source เดียวกับ sale_items.unit_cost)
 //   คืน null ถ้าตะกร้าว่าง (quick-pay) — ไม่ inflate กำไร. ไม่แตะสูตรยอด/VAT — เพิ่ม field อย่างเดียว.
-export function _computeGrossProfit(cart, products, subtotal) {
+// ★ Phase 555 (audit S12): bundle line — COGS ต้องเป็น Σ ต้นทุน "children" ที่ตัดสต็อกจริง ไม่ใช่ cost
+//   ของตัว bundle แม่ (มักตั้ง 0) → เดิม COGS bundle = 0 → gross_profit KPI เกินจริงสำหรับบิลชุด.
+//   bundleRecipes = { [bundleId]: [{child_product_id, qty}] } (preload ที่ loadAllData). ไม่มี recipe →
+//   fallback ใช้ parent cost (พฤติกรรมเดิม ไม่ regress). reporting-only — ไม่กระทบยอด/VAT/JV/สต็อก/sale_items.
+export function _computeGrossProfit(cart, products, subtotal, bundleRecipes = {}) {
   if (!Array.isArray(cart) || cart.length === 0) return null;
+  const _cost = (id) => Number((products || []).find(x => String(x.id) === String(id))?.cost || 0);
   const cogs = cart.reduce((s, it) => {
+    const qty = Number(it.qty) || 1;
     const p = (products || []).find(x => x.id === it.id);
-    return s + Number(p?.cost || 0) * (Number(it.qty) || 1);
+    const recipe = (p?.is_bundle && bundleRecipes) ? bundleRecipes[String(p.id)] : null;
+    if (Array.isArray(recipe) && recipe.length) {
+      // ขยายสูตร → COGS = Σ(child.cost × childQty) ; childQty = recipe.qty × line qty (เท่าที่ตัดสต็อกจริง)
+      const childCogs = expandBundleForRevert(recipe, qty)
+        .reduce((cs, c) => cs + _cost(c.childId) * c.qty, 0);
+      return s + childCogs;
+    }
+    return s + _cost(it.id) * qty;   // สินค้าเดี่ยว หรือ bundle ที่ไม่มี recipe → parent cost (เดิม)
   }, 0);
   return round2(Number(subtotal || 0) - cogs);
 }
@@ -1345,7 +1360,7 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
 
     // ★ Phase 398: gross profit = subtotal (ex-VAT) − COGS · null ถ้าตะกร้าว่าง (quick-pay)
     const _saleSubtotal = round2(vatCalc.enabled ? vatCalc.subtotal : amount);  // = subtotal เดิม (ไม่เปลี่ยนค่า)
-    const _grossProfit = _computeGrossProfit(state.cart, state.products, _saleSubtotal);
+    const _grossProfit = _computeGrossProfit(state.cart, state.products, _saleSubtotal, state.bundleRecipes);
 
     // ★ Phase 517b-0: ฝัง idempotency key ใน note (trace/debug + future replay) — ท้ายสุด ไม่ชน BANK_COA regex
     noteParts.push("CHECKOUT_KEY:" + checkoutKey);
