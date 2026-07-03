@@ -9,7 +9,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // Phase 88.1b+: auto-post JV หลัง save (background, non-blocking)
-import { postJournalForServiceJob } from "./accounting/auto_post.js";
+import { postJournalForServiceJob, getServiceTransferCoa } from "./accounting/auto_post.js";
 import { aggregateNeedByKey } from "./stock_precheck.js";
 import { normalizeServiceJobStatus, serviceJobNoteWithReviewMarker } from "./service_status.js";
 import { applyDraftFields, bindServiceDraft, clearServiceDraft, loadServiceDraft } from "./service_drafts.js";
@@ -40,39 +40,22 @@ function _getStateFor(type) {
 
 const escHtml = (s) => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 
-// ★ Phase 558: แสดง QR พร้อมเพย์ + บัญชีร้าน ใต้ช่อง "วิธีรับเงิน" เมื่อช่างเลือก "โอน/QR → Dr 1130"
-//   ช่างเปิดใบงานหน้างาน → โชว์ให้ลูกค้าสแกนได้ทันที ไม่ต้องสลับหน้า POS. **read-only** — อ่าน
-//   state.paymentInfo (banks[]/promptPay/qrImage ที่ตั้งใน Settings; source เดียวกับ customer_dashboard.js).
-//   คืน "" เมื่อ method ไม่ใช่ "transfer" (เคลียร์กล่อง). ทุก field ห่อ escHtml กัน XSS (มาจาก DB/Settings).
-//   ไม่มี QR/บัญชี → ข้อความชวนไปตั้งใน Settings (ไม่ error). pure (params only) → unit-testable.
-export function _svPayQrHtml(paymentInfo, method) {
+// ★ Phase 558/560: แสดง QR + บัญชีร้าน ใต้ช่อง "วิธีรับเงิน" เมื่อช่างเลือก "โอน/QR" — ช่างโชว์ให้
+//   ลูกค้าสแกนหน้างาน. **read-only** อ่าน state.paymentInfo (banks[]/promptPay/qrImage จาก Settings).
+//   ★ Phase 560: targetCoa = COA ที่งานประเภทนี้ผูกไว้ (account_mapping.transfer_debit_code) →
+//     โชว์ "เฉพาะ" บัญชีที่ coaCode===targetCoa (ไม่ dump ทุกบัญชีเหมือน 558). targetCoa ว่าง =
+//     ยังไม่ผูก → QR หลักปลอดภัย (ไม่ dump). method≠transfer → "" (เคลียร์). ทุก field escHtml กัน XSS.
+export function _svPayQrHtml(paymentInfo, method, targetCoa) {
   if (method !== "transfer") return "";
   const pi = paymentInfo || {};
   const banks = Array.isArray(pi.banks) ? pi.banks : [];
-  const promptPay = pi.promptPay || "";
-  const mainQr = pi.qrImage || "";
-  let inner = "";
 
-  // QR หลัก (global qrImage หรือใบแรกที่มี qr)
-  const qrSrc = mainQr || (banks.find(b => b && b.qrImage)?.qrImage) || "";
-  if (qrSrc) {
-    inner += '<div style="text-align:center;padding:14px;background:linear-gradient(135deg,#eff6ff,#dbeafe);border-radius:12px;border:1px solid #bfdbfe;margin-bottom:8px">'
-      + '<div style="font-size:13px;font-weight:900;color:#1e40af;margin-bottom:8px">📱 ให้ลูกค้าสแกนจ่าย</div>'
-      + '<img src="' + escHtml(qrSrc) + '" alt="QR" style="max-width:220px;width:100%;border-radius:10px;border:3px solid #fff;box-shadow:0 2px 12px rgba(0,0,0,.1)" />'
-      + '</div>';
-  }
-
-  // พร้อมเพย์ (เบอร์/เลขบัตร)
-  if (promptPay) {
-    inner += '<div style="padding:10px;background:#ecfdf5;border-radius:10px;border:1px solid #a7f3d0;margin-bottom:8px;text-align:center">'
-      + '<div style="font-size:12px;font-weight:700;color:#059669;margin-bottom:2px">พร้อมเพย์ PromptPay</div>'
-      + '<div style="font-size:18px;font-weight:900;color:#047857;letter-spacing:2px">' + escHtml(promptPay) + '</div>'
-      + '</div>';
-  }
-
-  // บัญชีธนาคาร (ทุกใบที่มีชื่อ/เลข) + qr ต่อใบ ถ้ามี
-  const bankHtml = banks.map(bank => {
-    if (!bank || (!bank.bankName && !bank.bankAccount)) return "";
+  const _qrBlock = (src) =>
+    '<div style="text-align:center;padding:14px;background:linear-gradient(135deg,#eff6ff,#dbeafe);border-radius:12px;border:1px solid #bfdbfe;margin-bottom:8px">'
+    + '<div style="font-size:13px;font-weight:900;color:#1e40af;margin-bottom:8px">📱 ให้ลูกค้าสแกนจ่าย</div>'
+    + '<img src="' + escHtml(src) + '" alt="QR" style="max-width:220px;width:100%;border-radius:10px;border:3px solid #fff;box-shadow:0 2px 12px rgba(0,0,0,.1)" />'
+    + '</div>';
+  const _bankCard = (bank) => {
     let b = '<div style="padding:10px;background:linear-gradient(135deg,#eff6ff,#dbeafe);border-radius:10px;border:1px solid #bfdbfe">'
       + '<div style="font-size:12px;font-weight:700;color:#1e40af;margin-bottom:4px">🏦 ' + escHtml(bank.bankName || "ธนาคาร") + '</div>';
     if (bank.bankAccount) b += '<div style="font-size:10px;color:#64748b">เลขบัญชี</div><div style="font-size:16px;font-weight:900;color:#1e3a5f;letter-spacing:1.5px;margin-bottom:2px">' + escHtml(bank.bankAccount) + '</div>';
@@ -80,10 +63,32 @@ export function _svPayQrHtml(paymentInfo, method) {
     if (bank.bankBranch) b += '<div style="font-size:10px;color:#94a3b8">สาขา: ' + escHtml(bank.bankBranch) + '</div>';
     if (bank.qrImage) b += '<div style="text-align:center;margin-top:6px"><img src="' + escHtml(bank.qrImage) + '" alt="QR" style="max-width:160px;width:100%;border-radius:8px;border:2px solid #fff" /></div>';
     return b + '</div>';
-  }).join("");
-  if (bankHtml) inner += '<div style="display:grid;gap:6px">' + bankHtml + '</div>';
+  };
 
-  // ไม่มีข้อมูลเลย → ชวนไปตั้งใน Settings (ไม่ error)
+  let inner = "";
+  if (targetCoa) {
+    // ★ โชว์เฉพาะบัญชีที่ผูกกับงานประเภทนี้ (coaCode === targetCoa) — ไม่ dump บัญชีอื่น
+    const bank = banks.find(b => b && String(b.coaCode) === String(targetCoa));
+    if (bank) {
+      if (bank.qrImage) inner += _qrBlock(bank.qrImage);
+      inner += '<div style="display:grid;gap:6px">' + _bankCard(bank) + '</div>';
+    } else {
+      inner = '<div style="padding:12px;background:#fef3c7;border-radius:10px;border:1px solid #fde68a;text-align:center;font-size:12px;color:#92400e">'
+        + '⚠️ บัญชีรับเงินงานนี้ (COA ' + escHtml(targetCoa) + ') ยังไม่ได้ตั้งใน <b>ตั้งค่า → ข้อมูลการชำระเงิน</b>'
+        + '</div>';
+    }
+  } else {
+    // ยังไม่ผูกบัญชีกับงานประเภทนี้ (mapping ยังไม่ตั้ง/โหลดไม่ได้) → QR หลักปลอดภัย ไม่ dump ทุกบัญชี
+    const qrSrc = pi.qrImage || (banks.find(b => b && b.qrImage)?.qrImage) || "";
+    if (qrSrc) inner += _qrBlock(qrSrc);
+    if (pi.promptPay) {
+      inner += '<div style="padding:10px;background:#ecfdf5;border-radius:10px;border:1px solid #a7f3d0;margin-bottom:8px;text-align:center">'
+        + '<div style="font-size:12px;font-weight:700;color:#059669;margin-bottom:2px">พร้อมเพย์ PromptPay</div>'
+        + '<div style="font-size:18px;font-weight:900;color:#047857;letter-spacing:2px">' + escHtml(pi.promptPay) + '</div>'
+        + '</div>';
+    }
+  }
+
   if (!inner) {
     inner = '<div style="padding:12px;background:#fef3c7;border-radius:10px;border:1px solid #fde68a;text-align:center;font-size:12px;color:#92400e">'
       + '⚠️ ยังไม่ได้ตั้ง QR/บัญชี — ตั้งได้ที่ <b>ตั้งค่า → ข้อมูลการชำระเงิน</b>'
@@ -300,9 +305,17 @@ export function renderServiceFormPage(ctx, serviceType) {
   // ★ Phase 558: โชว์ QR+บัญชีร้าน เมื่อเลือก "โอน/QR" (read-only — อ่าน state.paymentInfo).
   //   render ครั้งแรกด้วย (หลัง applyDraftFields ที่ restore paymentMethod) → งาน/ฉบับร่างที่
   //   payment=transfer อยู่แล้ว โชว์ทันทีตอนเปิด drawer. ไม่แตะ save/status/JV/slip-verify.
+  // ★ Phase 560: QR โชว์เฉพาะบัญชีที่งานประเภทนี้ผูกไว้ (job_type → transfer_debit_code). read-only.
+  //   resolve COA แบบ async (reuse account_mapping cache) → render; method≠transfer เคลียร์ทันที (sync).
   const payMethodSel = container.querySelector("#svPaymentMethod");
   const payQrBox = container.querySelector("#svPayQrBox");
-  const _renderPayQr = () => { if (payQrBox) payQrBox.innerHTML = _svPayQrHtml(state?.paymentInfo, payMethodSel?.value || ""); };
+  const _renderPayQr = async () => {
+    if (!payQrBox) return;
+    const method = payMethodSel?.value || "";
+    if (method !== "transfer") { payQrBox.innerHTML = ""; return; }
+    const targetCoa = await getServiceTransferCoa(cfg.job_type);
+    if (payMethodSel?.value === "transfer") payQrBox.innerHTML = _svPayQrHtml(state?.paymentInfo, "transfer", targetCoa);
+  };
   payMethodSel?.addEventListener("change", _renderPayQr);
   _renderPayQr();
 

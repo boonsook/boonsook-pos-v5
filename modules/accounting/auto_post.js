@@ -816,6 +816,39 @@ export async function postPayrollPeriodJournal(periodStart, periodEnd, opts = {}
 // ═══════════════════════════════════════════════════════════
 // Public: Service job → JV (Phase 88.1b — stub for now, full impl. next session)
 // ═══════════════════════════════════════════════════════════
+// Phase 560: job_type → account_mapping key (single source — auto_post ใช้เอง + QR resolver ใช้ร่วม)
+const SERVICE_JOB_TYPE_KEY_MAP = {
+  ac:            "service_install_ac",
+  install_ac:    "service_install_ac",
+  repair_ac:     "service_repair_ac",
+  clean_ac:      "service_clean_ac",
+  move_ac:       "service_move_ac",
+  // Phase 88.6: รองรับ 9 ประเภทงานช่างครบ
+  satellite:     "service_satellite",
+  repair_fridge: "service_repair_fridge",
+  repair_washer: "service_repair_washer",
+  cctv:          "service_cctv",
+  repair_tv:     "service_repair_tv",
+  // Phase 88.16: solar revenue → 4300 (เดิม fallback service_other → 4240)
+  solar:         "service_solar",
+  other:         "service_other"
+};
+export function serviceMappingKeyForJobType(jobType) {
+  return SERVICE_JOB_TYPE_KEY_MAP[String(jobType || "").toLowerCase()] || "service_other";
+}
+
+// Phase 560: บัญชี Dr ที่งานบริการประเภทนี้รับเงินโอนเข้า (account_mapping.transfer_debit_code).
+//   read-only — reuse _getMappings (cached). ใช้ฝั่ง UI (QR ใน service drawer) ให้โชว์บัญชีที่ถูก.
+//   คืน null เมื่อยังไม่ตั้ง/ไม่มี mapping → caller fallback (ไม่ dump ทุกบัญชี).
+export async function getServiceTransferCoa(jobType) {
+  try {
+    const mappings = await _getMappings();
+    const m = mappings[serviceMappingKeyForJobType(jobType)];
+    const coa = m?.transfer_debit_code;
+    return coa ? String(coa) : null;
+  } catch { return null; }
+}
+
 /**
  * @param {object} job - service_jobs row (ต้องมี id, created_at, total_cost, job_type, status)
  */
@@ -843,34 +876,22 @@ export async function postJournalForServiceJob(job, opts = {}) {
   }
 
   const mappings = await _getMappings();
-  const jt = String(job.job_type || "").toLowerCase();
-  const keyMap = {
-    ac:            "service_install_ac",
-    install_ac:    "service_install_ac",
-    repair_ac:     "service_repair_ac",
-    clean_ac:      "service_clean_ac",
-    move_ac:       "service_move_ac",
-    // Phase 88.6: รองรับ 9 ประเภทงานช่างครบ
-    satellite:     "service_satellite",
-    repair_fridge: "service_repair_fridge",
-    repair_washer: "service_repair_washer",
-    cctv:          "service_cctv",
-    repair_tv:     "service_repair_tv",
-    // Phase 88.16: solar revenue → 4300 (เดิม fallback service_other → 4240)
-    solar:         "service_solar",
-    other:         "service_other"
-  };
-  const mappingKey = keyMap[jt] || "service_other";
+  const mappingKey = serviceMappingKeyForJobType(job.job_type);
 
   const mapping = mappings[mappingKey];
   if (!mapping?.debit_account_code || !mapping?.credit_account_code) {
     return _journalResult(opts.detailed, { status: "skipped", reason: "missing-mapping", sourceTable: "service_jobs", sourceId: job.id, mappingKey });
   }
 
-  // ★ Phase 88.6: ถ้าระบุ payment_method = transfer/โอน → Dr 1130 (เงินฝากธนาคาร) แทน 1110 (เงินสด)
+  // ★ Phase 88.6 / 560: รับเงินโอน → Dr เข้าบัญชีตามประเภทงาน (account_mapping.transfer_debit_code)
+  //   แทน 1130 แบน. reuse _resolveReceiptDebitAccount (validate COA จริง; ไม่ valid/ยังไม่ตั้ง =
+  //   fallback 1130 — ไม่ post บัญชีผี). เงินสด = คง debit_account_code (1110) เดิม.
   let debitAccount = mapping.debit_account_code;
   const pm = String(job.payment_method || "").toLowerCase();
-  if (/transfer|โอน|qr|bank/.test(pm)) debitAccount = "1130";
+  if (/transfer|โอน|qr|bank/.test(pm)) {
+    const validCodes = await _getValidCoaCodes();
+    debitAccount = _resolveReceiptDebitAccount(mapping.transfer_debit_code, "1130", validCodes);
+  }
 
   const desc = `งานบริการ ${job.job_no || '#' + job.id} — ${job.customer_name || ''}`.trim();
   const amount = Number(job.total_cost);

@@ -9,7 +9,7 @@
   <link rel="icon" type="image/svg+xml" href="./icons/logo.svg" />
   <link rel="manifest" href="./manifest.json" />
   <link rel="apple-touch-icon" href="./icons/logo.svg" />
-  <link rel="stylesheet" href="./style.css?v=558" />
+  <link rel="stylesheet" href="./style.css?v=559" />
   <link rel="stylesheet" href="./doc-print.css?v=1" />
   <!-- ✨ Phase 4: Design System & Components (30/3/2569) -->
   <link rel="stylesheet" href="./phase4-design-system.css?v=529" />
@@ -747,6 +747,8 @@
             <option value="transfer">🏦 โอน / QR → Dr 1130</option>
           </select>
         </div>
+        <!-- ★ Phase 560: QR+บัญชีร้าน (โชว์เฉพาะบัญชีที่ผูกกับประเภทงาน เมื่อเลือกโอน/QR) — read-only -->
+        <div id="serviceDrawerQrBox"></div>
         <div style="font-size:10px;color:#92400e;margin-top:6px;line-height:1.5">💡 เปลี่ยน status เป็น <b>"ส่งมอบแล้ว"</b> หรือ <b>"ปิดงาน"</b> → ระบบลงรายได้อัตโนมัติ (Cr 4200-4290 ตามประเภทงาน)</div>
       </div>
 
@@ -875,10 +877,10 @@
        ทำงานก่อน main.js โหลด → ป้องกัน user เห็น version display เก่า
        Phase 89.15: ย้ายออกไป external file + set window.APP_BUILD ให้ pages.js/main.js อ่านได้
        (CSP drop script-src 'unsafe-inline') -->
-  <script src="./selfheal.js?v=558" data-app-build="558" data-app-version="5.69.30"></script>
-  <script type="module" src="./main.js?v=558"></script>
+  <script src="./selfheal.js?v=559" data-app-build="559" data-app-version="5.69.31"></script>
+  <script type="module" src="./main.js?v=559"></script>
   <!-- Phase 89.15: externalized loading overlay + SW update banner (was inline script — drop CSP unsafe-inline) -->
-  <script src="./boot.js?v=558"></script>
+  <script src="./boot.js?v=559"></script>
 
   <!-- AI Assistant Chat Widget (Phase 1) -->
   <script src="./ai-chat-widget.js?v=9"></script>

@@ -26,7 +26,7 @@ import { shareDoc as _shareDocImpl } from "./modules/share_doc.js";
 // Phase 89.20: customer_dashboard lazy — clearCustomerDashboardState called only if loaded (see logout)
 // Phase 89.21: btu_calculator, service_request lazy
 // Phase 89.20: solar, ac_install lazy
-import { renderServiceFormPage, SERVICE_TYPES } from "./modules/service_form.js";
+import { renderServiceFormPage, SERVICE_TYPES, _svPayQrHtml } from "./modules/service_form.js";
 // Phase 402 (MONEY/STOCK §4.1+§4.2): อุปกรณ์จากสต็อกใน drawer งานช่าง (deduct on save, งานใหม่)
 import { equipmentTotal as _equipTotal, precheckEquipmentStock as _equipPrecheck, toItemsJson as _equipToItemsJson, deductServiceJobStock as _equipDeductOnClose, renderEquipmentList as _equipRenderList, openEquipmentPicker as _equipOpenPicker, restoreServiceJobStock as _equipRestoreStock, STOCK_RETURNED_MARKER as _STOCK_RETURNED_MARKER } from "./modules/service_equipment.js";
 // Phase 89.20: error_codes (124KB), error_codes_fridge (35KB), error_codes_washer (34KB) lazy
@@ -39,7 +39,7 @@ import { renderTasksPage, checkOverdueTasksAndNotify } from "./modules/tasks.js"
 // Phase 89.21: payroll_overview, expense_overview lazy
 // Phase 89.20: accounting/* (9 modules) — all lazy (admin only, ~167KB combined)
 // Phase 88.1: auto-posting JV จาก sales/expenses — eager (used in checkout flow)
-import { postJournalForSale, postJournalForServiceJob, voidJvForSource } from "./modules/accounting/auto_post.js";
+import { postJournalForSale, postJournalForServiceJob, voidJvForSource, getServiceTransferCoa } from "./modules/accounting/auto_post.js";
 import { findJournalForSale, renderSaleTraceBadge, navigateToJv } from "./modules/accounting/sale_trace.js";
 import { ACCOUNTING_EFFECTIVE_DATE } from "./modules/accounting/effective_date.js";
 // Phase 89.21: profit_by_product, quote_templates, serials lazy
@@ -2529,6 +2529,20 @@ function openServiceJobDrawer(job=null){
   _updateServiceSlipSection();
   $("servicePaymentMethod")?.addEventListener("change", _updateServiceSlipSection);
   _wireServiceSlipUpload();
+
+  // ★ Phase 560: QR โชว์เฉพาะบัญชีที่งานประเภทนี้ผูก (job_type → transfer_debit_code). read-only.
+  //   re-render เมื่อเปลี่ยนวิธีชำระ "หรือ" ประเภทงาน; method≠transfer เคลียร์ทันที (sync).
+  const _renderDrawerQr = async () => {
+    const box = document.getElementById("serviceDrawerQrBox");
+    if (!box) return;
+    const method = $("servicePaymentMethod")?.value || "";
+    if (method !== "transfer") { box.innerHTML = ""; return; }
+    const targetCoa = await getServiceTransferCoa($("serviceType")?.value);
+    if ($("servicePaymentMethod")?.value === "transfer") box.innerHTML = _svPayQrHtml(state?.paymentInfo, "transfer", targetCoa);
+  };
+  $("servicePaymentMethod")?.addEventListener("change", _renderDrawerQr);
+  $("serviceType")?.addEventListener("change", _renderDrawerQr);
+  _renderDrawerQr();
 
   // ★ Phase 88.12: Admin approve banner — แสดงเมื่อ "รออนุมัติ"
   // Phase 383: ใช้ isServiceJobPendingReview (status pending_review เก่า หรือ pending+note marker ใหม่)
