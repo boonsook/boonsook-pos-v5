@@ -24,8 +24,14 @@ const DENOMINATIONS = [
 
 // Phase 89.18: pure helper สำหรับ unit test — แยก business logic ออกจาก DOM render
 // dateFn injection allows test ใช้ deterministic date conversion
-export function computeCashRecon({ state, date, refunds = [], dateFn = dateBkk }) {
-  const sales = (state.sales || []).filter(s =>
+// Phase 554: recon ต้องดึงข้อมูล "วันที่เลือก" ตรงจาก DB (fetchCashRecon* ด้านล่าง) ไม่พึ่ง
+//   state.sales/state.expenses ที่ถูก cap (sales limit 50 @main.js:1148, expenses 200 @main.js:1203)
+//   → วันขาย/จ่ายเกิน cap = cashIn/cashOut ขาด = "เกิน/ขาด" ปลอม. รับ sales/expenses ผ่านพารามได้;
+//   ถ้าไม่ส่ง (unit test เดิม) → fallback state. + creditCashPayments (เก็บหนี้เงินสด method=cash)
+//   บวกเข้าลิ้นชักผ่าน creditCashIn (เดิมไม่นับเลย → วันมีเก็บหนี้สด ลิ้นชัก "เกิน" เสมอ).
+export function computeCashRecon({ state, date, refunds = [], sales: salesInput, expenses: expensesInput, creditCashPayments = [], dateFn = dateBkk }) {
+  const _salesSrc = (salesInput !== undefined) ? salesInput : (state?.sales || []);
+  const sales = (_salesSrc || []).filter(s =>
     !(s.note || "").includes("[ลบแล้ว]") &&
     String(s.status || "").toLowerCase() !== "cancelled" &&
     dateFn(s.created_at) === date
@@ -40,11 +46,20 @@ export function computeCashRecon({ state, date, refunds = [], dateFn = dateBkk }
   const transferSales = sales.filter(s => !cashSales.includes(s));
   const transferIn = transferSales.reduce((sum, s) => sum + _cashReceived(s), 0);
 
-  const expenses = (state.expenses || []).filter(e => dateFn(e.expense_date) === date);
+  const _expSrc = (expensesInput !== undefined) ? expensesInput : (state?.expenses || []);
+  const expenses = (_expSrc || []).filter(e => dateFn(e.expense_date) === date);
   const cashExpenses = expenses.filter(e =>
     !e.payment_method || e.payment_method === "cash" || (e.payment_method || "").includes("เงินสด")
   );
   const cashOut = cashExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
+
+  // Phase 554: เงินสดจากรับชำระลูกหนี้ (credit_payments) เข้าลิ้นชักด้วย — เฉพาะ method=cash
+  //   และเฉพาะวันที่เลือก (credit_payments.paid_at เป็นคอลัมน์วันที่ ไม่ใช่ created_at). โอน=ไม่เข้าลิ้นชัก.
+  const creditCashRows = (creditCashPayments || []).filter(p =>
+    dateFn(p.paid_at) === date &&
+    ((p.payment_method || "").includes("เงินสด") || p.payment_method === "cash" || !p.payment_method)
+  );
+  const creditCashIn = creditCashRows.reduce((sum, p) => sum + Number(p.amount || 0), 0);
 
   // Phase 92.12 (audit 4.1 Should-fix): หัก cash refunds ออกจากลิ้นชัก
   //   เดิมไม่นับ refund → คืนเงินสดทำให้ลิ้นชักขาดโดยไม่มีบันทึก = false "ขาด" ทุกรอบ
@@ -55,7 +70,7 @@ export function computeCashRecon({ state, date, refunds = [], dateFn = dateBkk }
   );
   const cashRefundOut = cashRefunds.reduce((sum, r) => sum + Number(r.refund_amount || 0), 0);
 
-  return { sales, cashSales, cashIn, transferSales, transferIn, expenses, cashExpenses, cashOut, cashRefunds, cashRefundOut };
+  return { sales, cashSales, cashIn, transferSales, transferIn, expenses, cashExpenses, cashOut, cashRefunds, cashRefundOut, creditCashRows, creditCashIn };
 }
 
 // State สำหรับวันที่เลือก (default = วันนี้ — Phase 89.9 H11: BKK time, ไม่ใช่ UTC)
@@ -64,6 +79,11 @@ let _crDenoms = {}; // { value: count }
 // Phase 92.12: cash refunds สำหรับวันที่เลือก (fetch async, cache ต่อวัน — กัน refetch ทุก keystroke)
 let _crRefunds = [];
 let _crRefundsDate = null;
+// Phase 554: sales/expenses/credit-payments ของวันที่เลือก (fetch ตรงจาก DB — เลิกพึ่ง state cap)
+let _crSales = [];
+let _crExpenses = [];
+let _crCreditCash = [];
+let _crDataDate = null;   // date guard ร่วมของ 3 ชุดข้างบน (กัน refetch ทุก keystroke)
 
 // Phase 92.12: ดึง cash refunds ของวัน (BKK) สำหรับ recon — refunds ไม่อยู่ใน state กลาง
 async function fetchCashReconRefunds(date) {
@@ -87,6 +107,59 @@ async function fetchCashReconRefunds(date) {
   }
 }
 
+// Phase 554: fetch helpers — ดึงข้อมูล "วันที่เลือก" ตรงจาก Supabase (เลี่ยง state cap).
+//   ทุกตัว fail-safe: return [] เมื่อไม่มี cfg / !res.ok / error — ไม่ throw (recon อ่านอย่างเดียว).
+function _crAuth() {
+  const cfg = window.SUPABASE_CONFIG;
+  if (!cfg?.url) return null;
+  const accessToken = window._sbAccessToken || cfg.anonKey;
+  return { cfg, headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + accessToken } };
+}
+// วันถัดไป (BKK) สำหรับ boundary [date, nextDay) แบบเดียวกับ fetchCashReconRefunds
+function _crNextDay(date) {
+  return dateBkk(new Date(new Date(date + "T00:00:00+07:00").getTime() + 86400000));
+}
+async function _crFetchRows(path, label) {
+  try {
+    const a = _crAuth();
+    if (!a) return [];
+    const res = await fetch(a.cfg.url + path, { headers: a.headers });
+    if (!res.ok) return [];
+    const rows = await res.json().catch(() => []);
+    return Array.isArray(rows) ? rows : [];
+  } catch (e) {
+    console.warn(`[cash_recon] fetch ${label} failed:`, e?.message);
+    return [];
+  }
+}
+// ขายของวัน (created_at gte/lt +07:00) — select เท่าที่ compute ใช้; กรอง [ลบแล้ว] ฝั่ง compute.
+//   ★ sales ไม่มีคอลัมน์ `status` (การยกเลิกบิลใช้ note "[ลบแล้ว]" ไม่ใช่ status) → ห้าม select status
+//   (จะ 400). compute อ้าง s.status ได้ปลอดภัย (undefined → ไม่ถือว่า cancelled = เท่าเดิมกับ select *).
+async function fetchCashReconSales(date) {
+  const next = _crNextDay(date);
+  return _crFetchRows(
+    "/rest/v1/sales?select=created_at,payment_method,total_amount,credit_used_amount,note"
+    + "&created_at=gte." + date + "T00:00:00%2B07:00"
+    + "&created_at=lt." + next + "T00:00:00%2B07:00",
+    "sales");
+}
+// รายจ่ายของวัน — expenses ใช้ expense_date (DATE) ไม่ใช่ created_at → filter eq.date
+async function fetchCashReconExpenses(date) {
+  return _crFetchRows(
+    "/rest/v1/expenses?select=expense_date,payment_method,amount&expense_date=eq." + date,
+    "expenses");
+}
+// รับชำระลูกหนี้ของวัน — ★ credit_payments ใช้คอลัมน์ paid_at (ไม่ใช่ created_at!) — fetch ทุก method
+//   แล้วให้ compute กรอง cash (กัน "เงินสด" vs "cash" หลุด แบบเดียวกับ refunds)
+async function fetchCashReconCreditPayments(date) {
+  const next = _crNextDay(date);
+  return _crFetchRows(
+    "/rest/v1/credit_payments?select=paid_at,payment_method,amount"
+    + "&paid_at=gte." + date + "T00:00:00%2B07:00"
+    + "&paid_at=lt." + next + "T00:00:00%2B07:00",
+    "credit_payments");
+}
+
 export function renderCashReconPage(ctx) {
   const { state, showToast } = ctx;
   const container = document.getElementById("page-cash_recon");
@@ -108,14 +181,31 @@ export function renderCashReconPage(ctx) {
     });
   }
 
+  // Phase 554: ดึง sales/expenses/credit-payments ของวันที่เลือกตรงจาก DB (เลิกพึ่ง state cap).
+  //   cache ต่อวัน (date guard) → กัน refetch ทุก keystroke; re-render เมื่อชุดข้อมูลมาถึง.
+  if (_crDataDate !== _crDate) {
+    const _d = _crDate;
+    _crDataDate = _d;
+    _crSales = []; _crExpenses = []; _crCreditCash = [];
+    Promise.all([
+      fetchCashReconSales(_d),
+      fetchCashReconExpenses(_d),
+      fetchCashReconCreditPayments(_d),
+    ]).then(([s, e, c]) => {
+      if (_crDataDate === _d) { _crSales = s; _crExpenses = e; _crCreditCash = c; renderCashReconPage(ctx); }
+    });
+  }
+
   // Phase 89.18: ใช้ computeCashRecon pure helper (unit-tested)
-  const recon = computeCashRecon({ state, date: _crDate, refunds: _crRefunds });
-  const { sales: _sales, cashSales, cashIn, transferSales: _transferSales, transferIn, expenses: _expenses, cashExpenses, cashOut, cashRefunds, cashRefundOut } = recon;
+  // Phase 554: ส่ง sales/expenses/creditCashPayments ที่ fetch มา (ไม่พึ่ง state ที่ cap)
+  const recon = computeCashRecon({ state, date: _crDate, refunds: _crRefunds, sales: _crSales, expenses: _crExpenses, creditCashPayments: _crCreditCash });
+  const { sales: _sales, cashSales, cashIn, transferSales: _transferSales, transferIn, expenses: _expenses, cashExpenses, cashOut, cashRefunds, cashRefundOut, creditCashRows, creditCashIn } = recon;
 
   // Phase 92.12: หัก cash refunds ออกจากลิ้นชัก (audit 4.1 Should-fix)
   // ★ Phase 490 (S-4): round2 ทุกค่าเงิน — เดิม expected/diff เป็นผลรวม reduce ลอย ๆ (0.1+0.2=0.300…04)
   //   → diff = -1e-13 → ไม่เข้า `diff === 0` แต่เข้า branch "ขาด" → โชว์ "↓ ขาด -฿0.00" หลอกทั้งที่นับตรง
-  const expected = round2(openingCash + cashIn - cashOut - cashRefundOut);
+  // Phase 554: + creditCashIn (เก็บหนี้เงินสดเข้าลิ้นชัก) — เดิมไม่นับ → วันมีเก็บหนี้สดโชว์ "เกิน"
+  const expected = round2(openingCash + cashIn + creditCashIn - cashOut - cashRefundOut);
 
   // ★ คำนวณ counted จาก denominations (ถ้ามี)
   const denomTotal = DENOMINATIONS.reduce((sum, d) => sum + d.value * (Number(_crDenoms[d.value]) || 0), 0);
@@ -162,6 +252,11 @@ export function renderCashReconPage(ctx) {
             <div style="font-size:11px;color:#64748b">💰 ขายเงินสดวันนี้ (${cashSales.length} บิล)</div>
             <div style="font-size:18px;font-weight:700;color:#059669">+ ฿${money(cashIn)}</div>
           </div>
+          ${creditCashIn > 0 ? `
+          <div style="background:#fff;padding:10px;border-radius:8px">
+            <div style="font-size:11px;color:#64748b">🧾 รับชำระลูกหนี้ (เงินสด) (${creditCashRows.length} รายการ)</div>
+            <div style="font-size:18px;font-weight:700;color:#059669">+ ฿${money(creditCashIn)}</div>
+          </div>` : ''}
           <div style="background:#fff;padding:10px;border-radius:8px">
             <div style="font-size:11px;color:#64748b">📤 จ่ายเงินสดวันนี้ (${cashExpenses.length} รายการ)</div>
             <div style="font-size:18px;font-weight:700;color:#dc2626">- ฿${money(cashOut)}</div>
