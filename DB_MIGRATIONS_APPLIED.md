@@ -9,6 +9,14 @@
 
 ---
 
+## 🔴 PENDING — รอ owner รัน (ยังไม่ apply ที่ prod)
+
+| SQL file | ทำอะไร | สถานะ |
+|---|---|---|
+| `supabase-phase557-bundle-cogs-backfill.sql` | **Backfill ย้อนหลัง** `sale_items.unit_cost` ของบรรทัด bundle (เดิม=0 จาก cost ตัวแม่) → `Σ(child.cost × recipe.qty)` + recompute `sales.gross_profit=round(subtotal−Σ qty×unit_cost,2)`. STEP1 verify (นับแถว) → STEP2 UPDATE sale_items (scope: `unit_cost=0` + `is_bundle` + Σ children cost>0) → STEP3 UPDATE sales.gross_profit (เว้น gross_profit/subtotal NULL + note `[ลบแล้ว]`) → STEP4 verify. **ย้อนหลังใช้ cost ปัจจุบันของ children** (ไม่มี historical cost — ฐานเดียวกับ fallback profit_report เดิม). code side (build 557) = source `unit_cost` เขียน bundle COGS ถูกตั้งแต่แรกแล้ว; ไฟล์นี้ปะข้อมูลเก่า | 🔴 **รอ owner รัน** (Phase 557, build 557) — STEP1 ดูจำนวนก่อน → STEP2-3 → STEP4 verify → log ที่นี่ + owner smoke (ขาย bundle test → unit_cost ≠ 0; profit_report เดือนนี้กำไร bundle ลดสมจริง; void bill → children คืนครบ) |
+
+---
+
 ## ✅ Applied — verified live this session (2026-06-19)
 
 | SQL file | ทำอะไร (audit) | applied | verified อย่างไร |
