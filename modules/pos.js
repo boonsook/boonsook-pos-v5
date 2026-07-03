@@ -87,26 +87,39 @@ export function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
+// ★ Phase 557 (ต่อยอด 555): ต้นทุน "ต่อหน่วย" ของบรรทัด bundle = Σ(child.cost × recipe.qty)
+//   ค่าเดียว (single source) ที่ใช้ทั้ง (1) _computeGrossProfit (KPI dashboard) และ (2) itemPayload.unit_cost
+//   ที่เขียนลง sale_items ตอน checkout — profit_report/profit_by_product อ่าน unit_cost เป็นต้นทุนจริง.
+//   per-unit = expandBundleForRevert(recipe, 1) (mirror deduct-side; recipe.qty blank → 1). คืน null เมื่อ:
+//     - ไม่ใช่ bundle / ไม่มี recipe → caller ใช้ parent cost (พฤติกรรมเดิม ไม่ regress)
+//     - Σ child cost = 0 (children ยังไม่ตั้งต้นทุน) → caller fallback parent cost (ไม่ทับด้วย 0)
+//   pure — ไม่ round ภายใน (caller round2 ตอนใช้) เพื่อให้ผลเท่าการขยาย inline เดิมของ #130 ทุก case.
+export function _bundleUnitCost(product, products, bundleRecipes) {
+  if (!product?.is_bundle || !bundleRecipes) return null;
+  const recipe = bundleRecipes[String(product.id)];
+  if (!Array.isArray(recipe) || !recipe.length) return null;
+  const _cost = (id) => Number((products || []).find(x => String(x.id) === String(id))?.cost || 0);
+  const perUnit = expandBundleForRevert(recipe, 1)
+    .reduce((s, c) => s + _cost(c.childId) * c.qty, 0);
+  return perUnit > 0 ? perUnit : null;
+}
+
 // ★ Phase 398: gross profit = subtotal (ex-VAT) − COGS (Σ ต้นทุน×จำนวน จาก products.cost = source เดียวกับ sale_items.unit_cost)
 //   คืน null ถ้าตะกร้าว่าง (quick-pay) — ไม่ inflate กำไร. ไม่แตะสูตรยอด/VAT — เพิ่ม field อย่างเดียว.
 // ★ Phase 555 (audit S12): bundle line — COGS ต้องเป็น Σ ต้นทุน "children" ที่ตัดสต็อกจริง ไม่ใช่ cost
 //   ของตัว bundle แม่ (มักตั้ง 0) → เดิม COGS bundle = 0 → gross_profit KPI เกินจริงสำหรับบิลชุด.
-//   bundleRecipes = { [bundleId]: [{child_product_id, qty}] } (preload ที่ loadAllData). ไม่มี recipe →
-//   fallback ใช้ parent cost (พฤติกรรมเดิม ไม่ regress). reporting-only — ไม่กระทบยอด/VAT/JV/สต็อก/sale_items.
+// ★ Phase 557: ใช้ _bundleUnitCost (single source กับ itemPayload.unit_cost) — DRY, ผลเลขเท่าเดิม.
+//   bundleRecipes = { [bundleId]: [{child_product_id, qty}] } (preload ที่ loadAllData). ไม่มี/ต้นทุน 0 →
+//   fallback ใช้ parent cost (พฤติกรรมเดิม ไม่ regress). reporting-only — ไม่กระทบยอด/VAT/JV/สต็อก.
 export function _computeGrossProfit(cart, products, subtotal, bundleRecipes = {}) {
   if (!Array.isArray(cart) || cart.length === 0) return null;
   const _cost = (id) => Number((products || []).find(x => String(x.id) === String(id))?.cost || 0);
   const cogs = cart.reduce((s, it) => {
     const qty = Number(it.qty) || 1;
     const p = (products || []).find(x => x.id === it.id);
-    const recipe = (p?.is_bundle && bundleRecipes) ? bundleRecipes[String(p.id)] : null;
-    if (Array.isArray(recipe) && recipe.length) {
-      // ขยายสูตร → COGS = Σ(child.cost × childQty) ; childQty = recipe.qty × line qty (เท่าที่ตัดสต็อกจริง)
-      const childCogs = expandBundleForRevert(recipe, qty)
-        .reduce((cs, c) => cs + _cost(c.childId) * c.qty, 0);
-      return s + childCogs;
-    }
-    return s + _cost(it.id) * qty;   // สินค้าเดี่ยว หรือ bundle ที่ไม่มี recipe → parent cost (เดิม)
+    const perUnit = _bundleUnitCost(p, products, bundleRecipes);   // bundle → Σ children/หน่วย ; else null
+    if (perUnit != null) return s + perUnit * qty;                 // ขยายสูตร (mirror deduct-side)
+    return s + _cost(it.id) * qty;   // สินค้าเดี่ยว หรือ bundle ไม่มีสูตร/ต้นทุน 0 → parent cost (เดิม)
   }, 0);
   return round2(Number(subtotal || 0) - cogs);
 }
@@ -1452,7 +1465,7 @@ async function doCheckout(ctx, paymentMethod, paidAmount) {
           product_name: item.name || "สินค้า",
           qty: Number(item.qty) || 1,
           unit_price: round2(item.price),
-          unit_cost: round2(prodRef?.cost || 0),
+          unit_cost: round2(_bundleUnitCost(prodRef, state.products, state.bundleRecipes) ?? (prodRef?.cost || 0)),  // Phase 557: bundle→Σchildren
           // Phase 89.2: round2 กัน 0.30000000000000004
           line_total: round2(Number(item.qty || 1) * Number(item.price || 0))
         };

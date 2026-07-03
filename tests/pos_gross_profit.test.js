@@ -11,7 +11,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { _computeGrossProfit } from "../modules/pos.js";
+import { _computeGrossProfit, _bundleUnitCost } from "../modules/pos.js";
 
 const src = fs.readFileSync(path.resolve("modules/pos.js"), "utf8");
 
@@ -89,7 +89,67 @@ test("Phase 555: source — loadAllData preloads state.bundleRecipes; compute ex
   assert.match(mainSrc, /product_bundles"\)\.select\("bundle_id,child_product_id,qty"\)/, "loads product_bundles at loadAllData");
   assert.match(mainSrc, /state\.bundleRecipes\s*=/, "builds state.bundleRecipes map");
   assert.match(src, /import \{ expandBundleForRevert \} from "\.\/bundle_revert\.js"/, "reuses pure expand helper");
-  assert.match(src, /p\?\.is_bundle && bundleRecipes/, "bundle path guarded by is_bundle + recipe presence");
+  // Phase 557: bundle path now DRY-routed through _bundleUnitCost (single source with itemPayload)
+  assert.match(src, /_bundleUnitCost\(p, products, bundleRecipes\)/, "_computeGrossProfit routes bundle COGS through _bundleUnitCost");
+});
+
+// ── Phase 557: _bundleUnitCost pure helper (single source: KPI + sale_items.unit_cost) ──────
+test("Phase 557: _bundleUnitCost = Σ(child.cost × recipe.qty) ต่อหน่วย", () => {
+  // recipe 10 → child1(60)×2 + child2(25)×1 = 145 ต่อ 1 ชุด (per-unit; ไม่คูณ line qty)
+  assert.equal(_bundleUnitCost(bundleProducts[0], bundleProducts, recipe), 145);
+});
+
+test("Phase 557: ไม่ใช่ bundle → null (caller ใช้ parent cost)", () => {
+  assert.equal(_bundleUnitCost({ id: 1, cost: 60 }, bundleProducts, recipe), null);
+  assert.equal(_bundleUnitCost(bundleProducts[1], bundleProducts, recipe), null); // id1 = child, ไม่ใช่ bundle
+});
+
+test("Phase 557: bundle ไม่มี recipe → null (fallback parent cost)", () => {
+  assert.equal(_bundleUnitCost(bundleProducts[0], bundleProducts, {}), null);
+  assert.equal(_bundleUnitCost(bundleProducts[0], bundleProducts, null), null);
+});
+
+test("Phase 557: recipe cost รวม = 0 → null (children ยังไม่ตั้งต้นทุน → ไม่ทับด้วย 0)", () => {
+  const zeroCostProducts = [{ id: 10, is_bundle: true, cost: 0 }, { id: 1, cost: 0 }, { id: 2, cost: 0 }];
+  assert.equal(_bundleUnitCost(zeroCostProducts[0], zeroCostProducts, recipe), null);
+});
+
+test("Phase 557: recipe.qty ว่าง/0/ไม่ถูกต้อง → นับเป็น 1 (mirror deduct-side)", () => {
+  const blankQtyRecipe = { "10": [{ child_product_id: 1, qty: null }, { child_product_id: 2 }] };
+  // child1(60)×1 + child2(25)×1 = 85
+  assert.equal(_bundleUnitCost(bundleProducts[0], bundleProducts, blankQtyRecipe), 85);
+});
+
+// ── Phase 557: source guards — unit_cost ต้นทาง + โครงแถวไม่เปลี่ยน ──────────────
+test("Phase 557: itemPayload.unit_cost ใช้ _bundleUnitCost + round2 (ไม่ใช่ parent cost ตรง ๆ)", () => {
+  assert.match(
+    src,
+    /unit_cost:\s*round2\(_bundleUnitCost\(prodRef, state\.products, state\.bundleRecipes\)\s*\?\?\s*\(prodRef\?\.cost \|\| 0\)\)/,
+    "unit_cost ของ sale_items คิด bundle จาก children (fallback parent cost) + round2 ครอบ"
+  );
+});
+
+test("Phase 557: โครงแถว sale_items ไม่เปลี่ยน — บรรทัด bundle ยังเป็น product_id ตัวแม่", () => {
+  assert.match(src, /product_id:\s*item\.id \|\| null/, "sale_items.product_id ยังเป็น item.id (ตัว bundle แม่) 1 แถว");
+  assert.match(src, /qty:\s*Number\(item\.qty\) \|\| 1/, "qty โครงเดิม");
+  assert.match(src, /line_total:\s*round2\(Number\(item\.qty \|\| 1\) \* Number\(item\.price \|\| 0\)\)/, "line_total โครงเดิม");
+});
+
+// ── Phase 557: SQL backfill scope guards ────────────────────────────────────────
+test("Phase 557: SQL backfill — STEP2 scope (unit_cost=0 + is_bundle + recipe cost>0), STEP3 เว้น NULL/ลบ", () => {
+  const sql = fs.readFileSync(path.resolve("supabase-phase557-bundle-cogs-backfill.sql"), "utf8");
+  // STEP2: อัปเดต sale_items เฉพาะ unit_cost=0 + is_bundle + Σ children cost > 0
+  assert.match(sql, /UPDATE sale_items si/, "STEP2 updates sale_items");
+  assert.match(sql, /si\.unit_cost = 0/, "STEP2 scoped to unit_cost = 0");
+  assert.match(sql, /is_bundle = true/, "STEP2 scoped to is_bundle");
+  assert.match(sql, /\)\s*>\s*0/, "STEP2 scoped to recipe cost > 0");
+  // STEP3: เว้นบิล gross_profit NULL, subtotal NULL, และ note ที่ลบแล้ว
+  assert.match(sql, /s\.gross_profit IS NOT NULL/, "STEP3 skips NULL gross_profit (quick-pay)");
+  assert.match(sql, /s\.subtotal IS NOT NULL/, "STEP3 skips NULL subtotal (กัน set NULL)");
+  assert.match(sql, /NOT LIKE '%\[ลบแล้ว\]%'/, "STEP3 skips voided/deleted bills");
+  // STEP3 COGS = COALESCE(NULLIF(unit_cost,0), products.cost, 0) — mirror profit_report.js:186 fallback
+  assert.match(sql, /COALESCE\(NULLIF\(si\.unit_cost, 0\), pc\.cost, 0\)/, "STEP3 COGS falls back to products.cost when unit_cost=0 (มิเช่นนั้น non-bundle legacy line เฟ้อ)");
+  assert.match(sql, /LEFT JOIN products pc ON pc\.id = si\.product_id/, "STEP3 joins products for cost fallback");
 });
 
 // ── must not alter the existing money formulas ────────────────────────────────
