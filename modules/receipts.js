@@ -64,6 +64,21 @@ export function receiptJvRepostNeeded({ prevMethod, newMethod, prevBank, newBank
   return drChanged || bankChanged;
 }
 
+// pure: แปลผล repost → ข้อความ toast (null = เงียบ). แยกออกมาให้ unit-test behavioral ได้.
+//   ★ Phase 556 review-fix: งวดปิด (Phase 551 BEFORE DELETE) → void=0 → repost เจอ period-lock
+//   pre-check (_postJournal auto_post.js:252-265) คืน reason "period-locked" — ไม่ใช่ "duplicate"
+//   (409 unique = :344 ทีหลัง). ต้องครอบทั้งสอง reason ไม่งั้น JV ค้างผิดเงียบ (ไม่เตือน).
+export function receiptRepostResultToast(postRes) {
+  const st = postRes?.status;
+  const reason = postRes?.reason;
+  if (st === "posted") return { ok: true, msg: "อัปเดตบัญชีตามช่องทางใหม่แล้ว ✓" };
+  if (st === "skipped" && (reason === "duplicate" || reason === "period-locked")) {
+    return { ok: false, msg: "⚠️ JV เดิมอยู่ในงวดที่ปิดแล้ว แก้อัตโนมัติไม่ได้ — ปลดล็อกงวด หรือปรับด้วย manual JV (ใบเสร็จบันทึกแล้ว)" };
+  }
+  if (st === "failed") return { ok: false, msg: "⚠️ อัปเดตแล้ว แต่ลงบัญชีใหม่ไม่สำเร็จ — ตรวจสมุดรายวัน" };
+  return null;  // reason อื่น (pre-effective/not-paid/missing-*) = ไม่มี JV ให้แก้ → เงียบ
+}
+
 // async — void JV เดิม + repost ตามช่องทาง/ธนาคารใหม่. fail-safe: ไม่ throw, ไม่ rollback การ PATCH
 //   ที่สำเร็จแล้ว (§4.8). period ปิด (Phase 551 BEFORE DELETE guard) → void ลบไม่ได้ → repost ชน
 //   409 idempotency (source_table+source_id) → reason "duplicate" → เตือน manual (ไม่ dup JV เงียบ).
@@ -76,16 +91,12 @@ async function _repostReceiptJvIfChanged(r, { prevMethod, newMethod, prevBank, n
       { ...r, payment_method: newMethod, bank_coa_code: newBank,
         status: "paid", paid_at: r.paid_at || new Date().toISOString() },
       { detailed: true });
-    if (postRes?.status === "posted") {
-      _toast("อัปเดตบัญชีตามช่องทางใหม่แล้ว ✓");
-    } else if (postRes?.status === "skipped" && postRes?.reason === "duplicate") {
-      // void === 0 ร่วมด้วย = ยืนยัน period-lock (JV เดิมยังอยู่ ลบไม่ได้)
-      console.warn("[receipt repost] JV เดิมอยู่งวดปิด ลบไม่ได้ (voided=" + voided + ")", r.id);
-      _toast("⚠️ JV เดิมอยู่ในงวดที่ปิดแล้ว แก้อัตโนมัติไม่ได้ — ปลดล็อกงวด หรือปรับด้วย manual JV (ใบเสร็จบันทึกแล้ว)");
-    } else if (postRes?.status === "failed") {
-      _toast("⚠️ อัปเดตแล้ว แต่ลงบัญชีใหม่ไม่สำเร็จ — ตรวจสมุดรายวัน");
+    const t = receiptRepostResultToast(postRes);
+    if (t) _toast(t.msg);
+    // JV เดิมแก้อัตโนมัติไม่ได้ (งวดปิด: duplicate/period-locked) → log ร่วมกับ voided count เพื่อ trace
+    if (t && !t.ok && postRes?.status === "skipped") {
+      console.warn("[receipt repost] JV เดิมแก้อัตโนมัติไม่ได้ (voided=" + voided + ", reason=" + postRes?.reason + ")", r.id);
     }
-    // reason อื่น (pre-effective/not-paid) = ไม่มี JV ให้แก้อยู่แล้ว → เงียบ
   } catch (e) {
     console.error("[receipt repost JV]", e);
     _toast("⚠️ อัปเดตแล้ว แต่ปรับบัญชีไม่สำเร็จ — ตรวจสมุดรายวัน");

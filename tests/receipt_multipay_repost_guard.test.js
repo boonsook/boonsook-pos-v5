@@ -20,7 +20,7 @@ import path from "node:path";
 
 // receipts.js imports auto_post (reads window at call-time). A minimal stub keeps import safe.
 globalThis.window = globalThis.window || { SUPABASE_CONFIG: { url: "x", anonKey: "x" }, App: {} };
-const { receiptJvRepostNeeded } = await import("../modules/receipts.js");
+const { receiptJvRepostNeeded, receiptRepostResultToast } = await import("../modules/receipts.js");
 
 const src = fs.readFileSync(path.resolve("modules/receipts.js"), "utf8");
 
@@ -60,6 +60,28 @@ test("status not paid → never repost (no JV exists yet)", () => {
   assert.equal(receiptJvRepostNeeded({ prevMethod: "cash", newMethod: "transfer", status: "" }), false);
 });
 
+// ── result → toast (behavioral): period-lock case MUST warn (not silent) ──────
+// review-fix: a receipt whose JV sits in a CLOSED period → void=0 (BEFORE DELETE guard) →
+// repost hits the period-lock pre-check FIRST → reason "period-locked" (NOT "duplicate").
+// The old branch only matched "duplicate" → the locked case fell through silently → JV stayed wrong.
+test("period-locked repost result → warns (was the silent-JV bug)", () => {
+  const t = receiptRepostResultToast({ status: "skipped", reason: "period-locked" });
+  assert.ok(t && t.ok === false && /งวดที่ปิด/.test(t.msg), "period-locked must produce the locked-period warning");
+});
+
+test("duplicate (409) repost result → same locked-period warning", () => {
+  const t = receiptRepostResultToast({ status: "skipped", reason: "duplicate" });
+  assert.ok(t && t.ok === false && /งวดที่ปิด/.test(t.msg), "duplicate must warn too");
+});
+
+test("posted → ok toast; failed → warn; benign skips → silent (null)", () => {
+  assert.equal(receiptRepostResultToast({ status: "posted" }).ok, true);
+  assert.ok(/ไม่สำเร็จ/.test(receiptRepostResultToast({ status: "failed" }).msg));
+  assert.equal(receiptRepostResultToast({ status: "skipped", reason: "pre-effective" }), null, "pre-effective = no JV to fix → silent");
+  assert.equal(receiptRepostResultToast({ status: "skipped", reason: "not-paid" }), null);
+  assert.equal(receiptRepostResultToast(null), null);
+});
+
 // ── source wiring: pure gate + helper + three call sites ──────────────────────
 test("receiptJvRepostNeeded normalises via _payIs (not raw string compare) + gates on paid", () => {
   assert.match(src, /export function receiptJvRepostNeeded/, "exported pure decision");
@@ -68,11 +90,13 @@ test("receiptJvRepostNeeded normalises via _payIs (not raw string compare) + gat
   assert.match(src, /status\s*\|\|\s*""\)\.toLowerCase\(\)\s*!==\s*"paid"/, "gated on paid");
 });
 
-test("helper voids + reposts, and surfaces the period-locked case (no silent dup)", () => {
+test("helper voids + reposts, and routes the result through receiptRepostResultToast", () => {
   assert.match(src, /async function _repostReceiptJvIfChanged/, "async helper exists");
   assert.match(src, /voidJvForSource\("receipts",\s*r\.id\)/, "voids existing JV by source");
   assert.match(src, /postJournalForReceipt\(\s*\{\s*\.\.\.r,\s*payment_method:\s*newMethod,\s*bank_coa_code:\s*newBank/, "reposts with new method+bank");
-  assert.match(src, /reason\s*===\s*"duplicate"/, "detects 409/period-lock (JV not cleared) and warns");
+  assert.match(src, /receiptRepostResultToast\(postRes\)/, "helper delegates the toast decision to the pure fn");
+  // the pure fn must cover BOTH locked reasons (period-locked pre-check + duplicate 409)
+  assert.match(src, /reason\s*===\s*"duplicate"\s*\|\|\s*reason\s*===\s*"period-locked"/, "covers period-locked AND duplicate (review-fix)");
 });
 
 test("all three edit surfaces route through the helper", () => {
