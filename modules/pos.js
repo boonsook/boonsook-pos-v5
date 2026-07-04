@@ -87,6 +87,19 @@ export function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
+// ★ Phase 561: ล็อกบัญชีรับเงินหน้า POS = บัญชีที่ owner ผูกกลุ่มลูกค้า "หน้าร้าน" ใน Settings
+//   (reuse Phase 439 `bank.customerGroup` — ไม่มี setting ใหม่). คืน "index ใน validBanks"
+//   เพราะ JV note ตอน checkout resolve `validBanks[selectedBankIdx]` อีกครั้ง (แยกจาก render) —
+//   caller ต้อง set module-level selectedBankIdx = idx นี้ ไม่งั้นจอโชว์บัญชีหนึ่งแต่ JV ลงอีกบัญชี.
+//   ไม่ผูก (idx<0) → fallbackIdx เดิม (dropdown, ไม่ล็อก). pure (params only) → unit-testable.
+export function _resolvePosBankIdx(validBanks, group, fallbackIdx) {
+  const banks = Array.isArray(validBanks) ? validBanks : [];
+  const i = banks.findIndex(b => b && b.customerGroup === group);
+  if (i >= 0) return { idx: i, locked: true };
+  const fb = (Number(fallbackIdx) >= 0 && Number(fallbackIdx) < banks.length) ? Number(fallbackIdx) : 0;
+  return { idx: fb, locked: false };
+}
+
 // ★ Phase 557 (ต่อยอด 555): ต้นทุน "ต่อหน่วย" ของบรรทัด bundle = Σ(child.cost × recipe.qty)
 //   ค่าเดียว (single source) ที่ใช้ทั้ง (1) _computeGrossProfit (KPI dashboard) และ (2) itemPayload.unit_cost
 //   ที่เขียนลง sale_items ตอน checkout — profit_report/profit_by_product อ่าน unit_cost เป็นต้นทุนจริง.
@@ -656,6 +669,12 @@ function renderPosView(ctx) {
     const allBanks = state.paymentInfo?.banks || [];
     const validBanks = allBanks.filter(b => b.bankName || b.bankAccount);
     if (selectedBankIdx >= validBanks.length) selectedBankIdx = 0;
+    // ★ Phase 561: ล็อกบัญชีตามกลุ่ม "หน้าร้าน" ที่ผูกใน Settings (Phase 439). set
+    //   selectedBankIdx = idx ที่ล็อก เพื่อให้ JV note (validBanks[selectedBankIdx]) ลงบัญชีเดียวกับที่โชว์.
+    const POS_GROUP = "หน้าร้าน";
+    const _posBankRes = _resolvePosBankIdx(validBanks, POS_GROUP, selectedBankIdx);
+    selectedBankIdx = _posBankRes.idx;
+    const _bankLocked = _posBankRes.locked;
     const activeBank = validBanks[selectedBankIdx] || null;
     const pi = state.paymentInfo || {};
     // ★ Phase 88.20: ถ้าใช้บัญชีจาก banks[] → ใช้ QR ของบัญชีนั้น (ไม่งั้น fallback to global qrImage)
@@ -669,7 +688,14 @@ function renderPosView(ctx) {
         <div></div>
       </div>
 
-      ${validBanks.length > 1 ? `
+      ${_bankLocked ? `
+        <!-- Phase 561: บัญชีผูกกลุ่ม "หน้าร้าน" → ล็อก ซ่อน dropdown โชว์ป้ายอ่านอย่างเดียว -->
+        <div style="padding:12px 16px 4px">
+          <div style="padding:10px 12px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;font-size:13px;font-weight:700;color:#047857">
+            🔒 บัญชีรับเงินหน้าร้าน: ${escHtml(activeBank?.bankName || 'ธนาคาร')}${activeBank?.bankAccount ? ' — ' + escHtml(activeBank.bankAccount) : ''} <span style="font-weight:500;opacity:.75">(ผูกไว้ในตั้งค่า)</span>
+          </div>
+        </div>
+      ` : (validBanks.length > 1 ? `
         <!-- Phase 88.20: Dropdown เลือกบัญชี (ถ้ามีหลายบัญชี) -->
         <div style="padding:12px 16px 4px">
           <label style="font-size:12px;color:#475569;font-weight:700;margin-bottom:6px;display:block">🏦 เลือกบัญชีรับเงิน:</label>
@@ -679,6 +705,11 @@ function renderPosView(ctx) {
               return `<option value="${i}" ${i === selectedBankIdx ? 'selected' : ''}>${label}</option>`;
             }).join("")}
           </select>
+        </div>
+      ` : '')}
+      ${(!_bankLocked && validBanks.length > 1) ? `
+        <div style="padding:4px 16px 0">
+          <div style="padding:8px 12px;background:#fef3c7;border:1px solid #fde68a;border-radius:10px;font-size:12px;color:#92400e">⚠️ ยังไม่ผูกบัญชีกลุ่ม "หน้าร้าน" — เลือกเอง หรือตั้งใน ตั้งค่า → ข้อมูลการเงิน</div>
         </div>
       ` : ''}
 
