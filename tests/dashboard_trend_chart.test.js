@@ -29,8 +29,9 @@ test("renderChart is a 2-line income/expense chart guarded by typeof Chart", () 
   assert.match(body, /legend\s*:\s*\{\s*display\s*:\s*true/, "legend shown (two lines)");
 });
 
-test("renderChart is called with (allSales, expenses) and stays read-only", () => {
-  assert.match(src, /renderChart\(allSales,\s*expenses\)/, "call site passes income + expenses");
+test("renderChart is called with (sales, expenses) and stays read-only", () => {
+  // Phase 562: sales arg renamed allSales → _salesForAgg (full-year fetch, cap-free)
+  assert.match(src, /renderChart\(_salesForAgg,\s*expenses\)/, "call site passes income + expenses");
   assert.ok(!/\bfetch\s*\(/.test(body), "no fetch in renderChart");
   assert.ok(!/\.(push|splice|sort|reverse|pop|shift|unshift)\(/.test(body), "no in-place array mutation in renderChart");
 });
