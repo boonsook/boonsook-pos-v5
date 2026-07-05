@@ -1104,7 +1104,14 @@ async function afterLogin(){
   const mainRouteFromHash = (fullHash.split('/')[0] || "").split('?')[0];
   const hashRoute = mainRouteFromHash || fullHash;
   const savedRoute = hashRoute || (function(){ try { return localStorage.getItem("bsk_last_route"); } catch(e){ return null; } })();
-  const restorePage = (savedRoute && allowed.includes(savedRoute)) ? savedRoute : (allowed[0] || "dashboard");
+  // ★ Phase 563: fresh-login default = หน้าประจำ role (ไม่ใช่ allowed[0]) — admin = ALL_ROUTES ทำให้
+  //   allowed[0]="tech_home" → เดิม admin เปิดมาเจอ "หน้าหลักช่าง" ก่อน. technician ยัง land tech_home,
+  //   customer ยัง customer_dashboard, ที่เหลือ (admin/sales/accountant) → dashboard.
+  const _roleHome = (currentRole() === "technician") ? "tech_home"
+                  : (currentRole() === "customer") ? "customer_dashboard"
+                  : "dashboard";
+  const _defaultHome = allowed.includes(_roleHome) ? _roleHome : (allowed[0] || "dashboard");
+  const restorePage = (savedRoute && allowed.includes(savedRoute)) ? savedRoute : _defaultHome;
 
   // ★ ตั้ง currentRoute ก่อน loadAllData เพื่อไม่ให้ renderAll() เปลี่ยนกลับไป dashboard
   state.currentRoute = restorePage;

@@ -9,7 +9,7 @@
   <link rel="icon" type="image/svg+xml" href="./icons/logo.svg" />
   <link rel="manifest" href="./manifest.json" />
   <link rel="apple-touch-icon" href="./icons/logo.svg" />
-  <link rel="stylesheet" href="./style.css?v=561" />
+  <link rel="stylesheet" href="./style.css?v=562" />
   <link rel="stylesheet" href="./doc-print.css?v=1" />
   <!-- ✨ Phase 4: Design System & Components (30/3/2569) -->
   <link rel="stylesheet" href="./phase4-design-system.css?v=529" />
@@ -159,8 +159,9 @@
       </div>
 
       <!-- ═══ Phase 425: sidebar reorganized — งานประจำวัน ═══ -->
+      <!-- Phase 563: ย้าย "หน้าหลักช่าง" (tech_home) ออกจากท็อป → ไปกลุ่ม "งานหลัก" (admin ไม่เจอหน้าช่างก่อน);
+           landing admin = dashboard (main.js), technician ยัง land tech_home ตามเดิม -->
       <div class="nav-group-label">งานประจำวัน</div>
-      <button class="nav-btn" data-route="tech_home">🧰 หน้าหลักช่าง</button>
       <button class="nav-btn active" data-route="dashboard">📊 ภาพรวมบริษัท</button>
       <button class="nav-btn" data-route="team_center">🧠 ศูนย์ทีม AI</button>
       <button class="nav-btn" data-route="pos">💰 แคชเชียร์</button>
@@ -169,6 +170,8 @@
 
       <!-- ═══ งานหลัก: ขาย / ช่าง / สินค้า / ลูกค้า ═══ -->
       <div class="nav-group-label">งานหลัก</div>
+      <!-- Phase 563: หน้าหลักช่าง ย้ายมาที่นี่ (เดิมอยู่ท็อป "งานประจำวัน") — technician ยัง land หน้านี้เป็นหน้าแรก -->
+      <button class="nav-btn" data-route="tech_home">🧰 หน้าหลักช่าง</button>
 
       <!-- งานขาย (กลุ่ม) + Phase 425: Template/Serial/Warranty ย้ายเข้ากลุ่ม -->
       <div class="nav-group" data-group="sales">
@@ -877,10 +880,10 @@
        ทำงานก่อน main.js โหลด → ป้องกัน user เห็น version display เก่า
        Phase 89.15: ย้ายออกไป external file + set window.APP_BUILD ให้ pages.js/main.js อ่านได้
        (CSP drop script-src 'unsafe-inline') -->
-  <script src="./selfheal.js?v=561" data-app-build="561" data-app-version="5.69.33"></script>
-  <script type="module" src="./main.js?v=561"></script>
+  <script src="./selfheal.js?v=562" data-app-build="562" data-app-version="5.69.34"></script>
+  <script type="module" src="./main.js?v=562"></script>
   <!-- Phase 89.15: externalized loading overlay + SW update banner (was inline script — drop CSP unsafe-inline) -->
-  <script src="./boot.js?v=561"></script>
+  <script src="./boot.js?v=562"></script>
 
   <!-- AI Assistant Chat Widget (Phase 1) -->
   <script src="./ai-chat-widget.js?v=9"></script>
