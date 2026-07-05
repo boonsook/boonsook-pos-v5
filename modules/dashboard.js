@@ -5,6 +5,8 @@ import { visibleSalesForRole, isAdminProfile, todayBkk, dateBkk } from "./utils.
 import { fetchSaleItemsForSaleIds, indexQtyByProduct } from "./sale_items_fetch.js";
 // Phase 508: นับหนี้ค้างเกินกำหนดจากบิลเครดิต "ครบ" จาก DB (reuse helper Phase 507) ไม่ใช่ state.sales (cap ≤50)
 import { fetchCreditSales } from "./credit_sales_fetch.js";
+// Phase 562: ดึงยอดขายทั้งปีจาก DB (paginated, ไม่ cap 50) สำหรับ KPI เดือน/ปี/trend — read-only GET
+import { fetchSalesSince } from "./sales_fetch.js";
 
 // ═══ Phase 387: dashboard income helpers (pure — ทำให้กำไรสุทธิตรงกับงบ P&L) ═══
 // web-order service jobs (คำสั่งซื้อสินค้าผ่านเว็บ) — predicate เดียวกับที่ใช้คิด revenue เดิม
@@ -88,6 +90,12 @@ let _dashCreditRows = null;        // role-filtered is_credit rows (null = ย�
 let _dashCreditState = "idle";     // idle | loading | loaded | error
 let _dashCreditSeq = 0;            // กัน stale: fetch รอบเก่าที่ resolve ช้า ไม่ทับรอบใหม่
 let _dashCreditCacheKey = null;    // "<userId>:<role>" — cache ผูก user/role (กัน leak ข้าม user)
+
+// Phase 562: full-year sales cache (ลอกโครง Phase 508) — KPI เดือน/ปี/trend อ่านชุดนี้แทน state.sales (cap 50)
+let _dashSalesRows = null;         // role-filtered sales ทั้งปี (null = ยังไม่โหลด)
+let _dashSalesState = "idle";      // idle | loading | loaded | error
+let _dashSalesSeq = 0;             // กัน stale resolve
+let _dashSalesCacheKey = null;     // "<userId>:<role>:<yearStart>" — ผูก user/role/ปี
 
 // ★ Per-panel date range (months) — FlowAccount-style dropdown per panel
 const _panelRange = {
@@ -403,14 +411,27 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
   const today = todayKey();
   const thisMonth = today.slice(0,7);
 
+  // ★ Phase 562: sales cache ผูก user/role/ปี — invalidate เมื่อสลับ (กัน leak/ค้างปีเก่า)
+  const _yearStart = today.slice(0, 4) + "-01-01";
+  const _skey = `${state?.currentUser?.id || ""}:${state?.profile?.role || ""}:${_yearStart}`;
+  if (_skey !== _dashSalesCacheKey) {
+    _dashSalesCacheKey = _skey;
+    _dashSalesRows = null;
+    _dashSalesState = "idle";
+    _dashSalesSeq++; // invalidate fetch in-flight ของ key เก่า
+  }
+
   // ★ กรองรายการขายที่ soft-delete + non-admin เห็นเฉพาะของตัวเอง (Phase 89.27)
-  const allSales = visibleSalesForRole(state.sales, state.profile, state.currentUser);
+  const _stateSales = visibleSalesForRole(state.sales, state.profile, state.currentUser);
+  // ★ Phase 562: period/เดือน/ปี/trend/chart อ่านจากยอดขายเต็มปีที่ fetch สด (ไม่ cap 50 แบบ state);
+  //   ระหว่างโหลด/error → fallback state (≤50) — ไม่ throw/หน้าขาว
+  const _salesForAgg = (_dashSalesState === "loaded" && _dashSalesRows) ? _dashSalesRows : _stateSales;
 
   // ★ ออเดอร์จากเว็บ (service_jobs ที่เป็นคำสั่งซื้อสินค้า) — รวมทุกสถานะยกเว้นยกเลิก
   const webOrders = (state.serviceJobs || []).filter(isWebOrderServiceJob);
 
   // ─── ข้อมูลยอดขายตามช่วงเวลา ───
-  const periodSales = filterByPeriod(allSales, "created_at", _dashPeriod);
+  const periodSales = filterByPeriod(_salesForAgg, "created_at", _dashPeriod);
   const periodWebOrders = filterByPeriod(webOrders, "created_at", _dashPeriod);
   const periodRevenue = periodSales.reduce((s,x)=>s+Number(x.total_amount||0),0) + periodWebOrders.reduce((s,x)=>s+Number(x.total_cost||0),0);
   const periodOrders = periodSales.length + periodWebOrders.length;
@@ -424,7 +445,7 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
 
   // ─── วันนี้ (สำหรับ hero) ───
   // Phase 89.28: dateBkk(...) แทน slice(0,10) เพื่อ TZ-correct (UTC timestamptz → BKK วันนี้)
-  const todaySales = allSales.filter(s => dateBkk(s.created_at) === today);
+  const todaySales = _salesForAgg.filter(s => dateBkk(s.created_at) === today);
   const todayWebOrders = webOrders.filter(j => dateBkk(j.created_at) === today);
   const todayRevenue = todaySales.reduce((s,x)=>s+Number(x.total_amount||0),0) + todayWebOrders.reduce((s,x)=>s+Number(x.total_cost||0),0);
   const todayOrderCount = todaySales.length + todayWebOrders.length;
@@ -434,7 +455,7 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
   const todayTotalIncome = todayRevenue + todayServiceIncome;
 
   // ─── สรุปรวม ───
-  const monthSales = allSales.filter(s => dateBkk(s.created_at).slice(0,7) === thisMonth);
+  const monthSales = _salesForAgg.filter(s => dateBkk(s.created_at).slice(0,7) === thisMonth);
   const monthWebOrders = webOrders.filter(j => dateBkk(j.created_at).slice(0,7) === thisMonth);
   const monthRevenue = monthSales.reduce((s,x)=>s+Number(x.total_amount||0),0) + monthWebOrders.reduce((s,x)=>s+Number(x.total_cost||0),0);
   const monthExpenseTotal = expenses.filter(e => String(e.expense_date||"").slice(0,7) === thisMonth).reduce((s,x)=>s+Number(x.amount||0),0);
@@ -459,7 +480,7 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
   // ★ Top 5 สินค้าขายดี (30 วันล่าสุด)
   // Phase 89.28: dateBkk เทียบกับ cutoff BKK
   const last30Key = (() => { const d = new Date(); d.setDate(d.getDate() - 30); return dateBkk(d); })();
-  const recentSales = allSales.filter(s => dateBkk(s.created_at) >= last30Key);
+  const recentSales = _salesForAgg.filter(s => dateBkk(s.created_at) >= last30Key);
   // ★ Phase 486: Top 5 ขายดี เดิมอ่าน state.saleItems (loadAllData ไม่เคยโหลด = ว่าง → การ์ดว่างถาวร).
   //   ย้ายเป็น lazy-fill: ดึง sale_items ของ recentSales สดจาก DB หลัง render แล้ว patch #dashTopSellers (ท้ายฟังก์ชัน).
   const activeJobs = state.serviceJobs.filter(j => ["open","in_progress","pending","progress"].includes(j.status) && !j.deleted_at && !((j.note||"").includes("[ลบแล้ว]"))).length;
@@ -521,9 +542,9 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
     <!-- ═══ KPI GRID — period money (Phase 56: + 7d sparkline) ═══ -->
     <div class="kpi-grid">
       ${_kpiCard({
-        accent: "#0284c7", label: `💰 ยอดขาย ${PERIOD_LABELS[_dashPeriod]}`, value: money(periodRevenue), valueColor: "#0284c7",
+        accent: "#0284c7", label: `💰 ยอดขาย ${PERIOD_LABELS[_dashPeriod]}${_dashSalesState === "loading" ? ` <span style="font-size:10px;color:#94a3b8;font-weight:400">⏳ โหลดยอดเต็ม…</span>` : _dashSalesState === "error" ? ` <span title="โหลดยอดเต็มไม่ได้ — แสดง ≤50 ล่าสุด" style="font-size:11px;color:#f59e0b;font-weight:400">⚠️</span>` : ""}`, value: money(periodRevenue), valueColor: "#0284c7",
         sub: `${periodOrders} ออเดอร์${periodWebOrders.length > 0 ? ` · 🛒 ${periodWebOrders.length} เว็บ` : ''}`,
-        spark: `${_sparkline7d(_last7DaysSeries(allSales, "created_at", "total_amount"), "#0284c7")}<div class="kpi-spark-cap">7 วันล่าสุด</div>`,
+        spark: `${_sparkline7d(_last7DaysSeries(_salesForAgg, "created_at", "total_amount"), "#0284c7")}<div class="kpi-spark-cap">7 วันล่าสุด</div>`,
       })}
       ${_kpiCard({
         accent: "#ef4444", label: `📤 ค่าใช้จ่าย ${PERIOD_LABELS[_dashPeriod]}`, value: money(periodExpenseTotal), valueColor: "#ef4444",
@@ -730,8 +751,8 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
     <!-- ═══ TREND (Phase 396): income vs expense line — full width ═══ -->
     <div class="panel">
       <div class="row"><h3 style="margin:0">📈 แนวโน้มรายได้ & ค่าใช้จ่าย</h3></div>
-      <div style="font-size:11px;color:#94a3b8;margin:-2px 0 8px">จากรายการล่าสุดที่โหลด (บิล ~50 / ค่าใช้จ่าย ~200) — ไม่ใช่ทั้งระบบ</div>
-      ${_trendMonths(allSales, expenses).length === 0
+      <div style="font-size:11px;color:#94a3b8;margin:-2px 0 8px">${_dashSalesState === "loaded" ? "รายได้ = ยอดขายปีนี้จาก DB · ค่าใช้จ่าย ~200 ล่าสุด" : "จากรายการล่าสุดที่โหลด (บิล ~50 / ค่าใช้จ่าย ~200) — ไม่ใช่ทั้งระบบ"}</div>
+      ${_trendMonths(_salesForAgg, expenses).length === 0
         ? `<div style="text-align:center;padding:40px;color:#94a3b8;font-size:13px">ยังไม่มีข้อมูลพอแสดงแนวโน้ม</div>`
         : `<div class="chart-wrap" style="height:260px"><canvas id="salesChart"></canvas></div>`}
     </div>
@@ -929,17 +950,17 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
     }
   }));
 
-  renderChart(allSales, expenses);
+  renderChart(_salesForAgg, expenses);
 
   // ★ Pro panels render
-  renderProPanels({ allSales, webOrders, expenses, serviceJobs: (state.serviceJobs||[]) });
+  renderProPanels({ allSales: _salesForAgg, webOrders, expenses, serviceJobs: (state.serviceJobs||[]) });
 
   // Event listeners for per-panel date range dropdowns
   document.querySelectorAll(".pro-range-select").forEach(sel => sel.addEventListener("change", (_e) => {
     const key = sel.dataset.panel;
     _panelRange[key] = Number(sel.value);
     // Re-render only the affected panel (เร็วกว่า re-render ทั้งหน้า)
-    renderProPanels({ allSales, webOrders, expenses, serviceJobs: (state.serviceJobs||[]) }, key);
+    renderProPanels({ allSales: _salesForAgg, webOrders, expenses, serviceJobs: (state.serviceJobs||[]) }, key);
   }));
 
   // ★ Phase 486: lazy-fill การ์ด Top 5 ขายดี — ดึง sale_items ของ recentSales สดจาก DB แล้ว patch #dashTopSellers
@@ -985,6 +1006,28 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
       if (t.startsWith("settings")) { window.location.hash = "#" + t; showRoute("settings"); }
       else showRoute(t);
     }));
+  })();
+
+  // ★ Phase 562: ดึงยอดขายทั้งปีจาก DB (paginated, ไม่ cap 50) → KPI เดือน/ปี/trend/chart อ่านชุดนี้.
+  //   cache module-scope (period tab/re-render ไม่ refetch); fetch เฉพาะตอน idle เท่านั้น (กัน loop).
+  //   error → คง state="error" → _salesForAgg fallback state (≤50) + ป้าย ⚠️ (ไม่ throw/หน้าขาว).
+  (async () => {
+    if (_dashSalesState !== "idle") return; // มี cache/กำลังโหลด/เคย error แล้ว → ไม่ refetch (กัน re-render loop)
+    const seq = ++_dashSalesSeq;
+    _dashSalesState = "loading";
+    const res = await fetchSalesSince(_yearStart);
+    if (seq !== _dashSalesSeq) return; // stale — มี load รอบใหม่ (สลับ user/role/ปี) แซง → ทิ้งผลรอบนี้
+    if (!res.ok) {
+      _dashSalesState = "error";
+      _dashSalesRows = null; // ★ ไม่ fallback ไปข้อมูล cap เดิม (undercount เงียบ) — _salesForAgg จัดการ fallback + ป้าย
+    } else {
+      // role-filter เหมือน allSales/credit (กัน non-admin เห็นยอดคนอื่น)
+      _dashSalesRows = visibleSalesForRole(res.rows, state.profile, state.currentUser);
+      _dashSalesState = "loaded";
+    }
+    if (!document.getElementById("page-dashboard")) return; // ออกหน้าไปแล้ว
+    // re-render ทั้งหน้า → KPI เดือน/ปี/trend/chart อ่าน _salesForAgg ใหม่. trigger นี้เห็น non-idle → ไม่ refetch/ไม่ loop
+    renderDashboard({ state, openReceiptDrawer, showRoute, sendLineNotify, showToast });
   })();
 
   // ═══ AUTO DAILY SUMMARY ผ่าน LINE Notify ตอน 22:00 ═══
