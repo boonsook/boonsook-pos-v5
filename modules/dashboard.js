@@ -5,6 +5,10 @@ import { visibleSalesForRole, isAdminProfile, todayBkk, dateBkk } from "./utils.
 import { fetchSaleItemsForSaleIds, indexQtyByProduct } from "./sale_items_fetch.js";
 // Phase 508: นับหนี้ค้างเกินกำหนดจากบิลเครดิต "ครบ" จาก DB (reuse helper Phase 507) ไม่ใช่ state.sales (cap ≤50)
 import { fetchCreditSales } from "./credit_sales_fetch.js";
+// Phase 564: แถบ "งานช่างรออนุมัติ" — reuse helper detect (pending_review เก่า / pending+marker ใหม่)
+//   + setter เปิดหน้าใบรับงานพร้อม filter "review" (read-only, ไม่ fetch/write)
+import { isServiceJobPendingReview } from "./service_status.js";
+import { setServiceJobsFilter } from "./service_jobs.js";
 // Phase 562: ดึงยอดขายทั้งปีจาก DB (paginated, ไม่ cap 50) สำหรับ KPI เดือน/ปี/trend — read-only GET
 import { fetchSalesSince } from "./sales_fetch.js";
 
@@ -484,6 +488,12 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
   // ★ Phase 486: Top 5 ขายดี เดิมอ่าน state.saleItems (loadAllData ไม่เคยโหลด = ว่าง → การ์ดว่างถาวร).
   //   ย้ายเป็น lazy-fill: ดึง sale_items ของ recentSales สดจาก DB หลัง render แล้ว patch #dashTopSellers (ท้ายฟังก์ชัน).
   const activeJobs = state.serviceJobs.filter(j => ["open","in_progress","pending","progress"].includes(j.status) && !j.deleted_at && !((j.note||"").includes("[ลบแล้ว]"))).length;
+  // ★ Phase 564: งานช่าง "รออนุมัติ" (ช่างส่ง รอแอดมิน) — นับแบบเดียวกับ chip "review" หน้าใบรับงาน
+  //   (service_jobs.js cReview = allJobs ตัด cancelled+[ลบแล้ว] แล้ว filter isServiceJobPendingReview)
+  //   → เลข "N" บนแถบ = เลขบน chip เป๊ะ. read-only (อ่าน state ที่โหลดแล้ว).
+  const pendingReviewCount = (state.serviceJobs || [])
+    .filter(j => !(j.status === "cancelled" && (j.note || "").includes("[ลบแล้ว]")))
+    .filter(j => isServiceJobPendingReview(j)).length;
 
   // ═══ ออเดอร์ใหม่จาก AI Sales / AC Shop ═══
   const pendingOrders = (state.serviceJobs || []).filter(j => j.status === "pending" && /^(AI-|SH-)/.test(j.job_no || "") && !j.deleted_at && !((j.note||"").includes("[ลบแล้ว]")));
@@ -531,6 +541,18 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
       <!-- Phase 423: คำเตือนของใกล้หมดย้ายไปการ์ด "ต้องทำวันนี้" (hero สะอาดตาม mock-F) -->
       <div class="dash-today-status ok">✓ เชื่อมต่อฐานข้อมูลแล้ว</div>
     </div>
+
+    <!-- ═══ Phase 564: แถบเด่น "งานช่างรออนุมัติ" (โผล่เฉพาะมีงานรอ) — คลิกเข้าหน้าอนุมัติเลย ═══ -->
+    ${pendingReviewCount > 0 ? `
+      <div class="dash-clickable" data-go="service_jobs" data-sj-filter="review"
+           style="display:flex;align-items:center;gap:10px;margin:10px 0;padding:12px 16px;background:linear-gradient(135deg,#f5f3ff,#ede9fe);border:1px solid #c4b5fd;border-radius:12px;cursor:pointer">
+        <span style="font-size:22px">📨</span>
+        <div style="flex:1">
+          <div style="font-weight:800;color:#6d28d9">มีงานช่างรออนุมัติ ${pendingReviewCount} งาน</div>
+          <div style="font-size:12px;color:#7c3aed">ช่างส่งงานแล้ว — กดเพื่อตรวจ/อนุมัติ</div>
+        </div>
+        <span style="color:#6d28d9;font-weight:700">→</span>
+      </div>` : ""}
 
     <!-- ═══ PERIOD TABS ═══ -->
     <div class="dash-period-tabs">
@@ -839,6 +861,8 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
     card.addEventListener("click", () => {
       const target = card.dataset.go || "";
       if (!target) return;
+      // ★ Phase 564: ถ้าการ์ดระบุ filter (เช่น แถบงานรออนุมัติ → service_jobs "review") → ตั้งก่อน navigate
+      if (card.dataset.sjFilter) setServiceJobsFilter(card.dataset.sjFilter);
       if (target.startsWith("settings")) {
         window.location.hash = "#" + target;
         showRoute("settings");
