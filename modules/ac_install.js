@@ -214,7 +214,7 @@ export function renderAcInstallPage(ctx) {
           <select id="acPaymentMethod" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;font:inherit;background:#fff">
             <option value="">— ยังไม่ระบุ —</option>
             <option value="cash">💵 เงินสด → Dr 1110</option>
-            <option value="transfer">🏦 โอน/QR → Dr 1130</option>
+            <option value="transfer">🏦 โอน/QR → เข้าบัญชีธนาคาร</option>
           </select>
         </div>
       </div>
