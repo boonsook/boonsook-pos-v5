@@ -2426,7 +2426,11 @@ function openServiceJobDrawer(job=null){
   $("serviceAddress").value = job?.customer_address || job?.job_address || "";
   $("serviceTitle").value = job?.description || job?.job_title || "";
   $("serviceType").value = job?.job_type || "ac";
-  $("serviceStatus").value = job?.status || "pending";
+  // ★ Phase 563: งาน "รออนุมัติ" เก็บ DB เป็น pending+note marker (pending_review = UI-pseudo, Phase 383/545)
+  //   → restore dropdown ด้วย helper detect ให้โชว์ option "รออนุมัติ" ถูก (เดิม job.status ดิบ = "pending").
+  //   round-trip ไม่เปลี่ยน DB: save (:2929-2930) normalizeServiceJobStatus("pending_review")→pending
+  //   + serviceJobNoteWithReviewMarker คง marker. display-only.
+  $("serviceStatus").value = isServiceJobPendingReview(job) ? "pending_review" : (job?.status || "pending");
   $("serviceNote").value = job?.note || "";
 
   // ★ Phase 545 (SECURITY): non-admin (technician/sales) เลือกสถานะปิดงาน done/delivered/closed ไม่ได้
