@@ -52,6 +52,12 @@ const sanitizeUrl = (url) => {
 // state อยู่ใน module-level — คงค่าระหว่าง re-render แต่ reset เมื่อ refresh page
 let _sjFilter = "open"; // default: ค้าง (เพราะคือ default workflow ของช่าง)
 let _sjTagFilter = null; // Phase 68: filter by tag
+
+// ★ Phase 564: setter ให้หน้าอื่น (เช่น แถบ "งานช่างรออนุมัติ" บน dashboard) เปิดหน้านี้พร้อม
+//   filter ที่ต้องการ (เช่น "review"). รับเฉพาะ key ที่ chip รองรับ — key ไม่รู้จัก = ไม่เปลี่ยน.
+export function setServiceJobsFilter(key) {
+  if (["all", "open", "review", "closed", "cancelled"].includes(key)) _sjFilter = key;
+}
 let _sjSourceFilter = "all"; // Phase 352: all | air | general (กรองงานจากแคตตาล็อกแอร์)
 
 const OPEN_STATUSES = ["pending", "progress", "in_progress", "open"];
