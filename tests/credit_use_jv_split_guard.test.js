@@ -96,14 +96,18 @@ test("payment-select shows credit UI, clamps input, and offers full-credit confi
 });
 
 test("cash-input / transfer collect the payable (amount - credit), not the full amount", () => {
+  // Phase 566: สูตร payable ยกออกเป็น helper calcPayable() ร่วมกันทุกวิธีจ่าย (เดิม inline แยกจุด).
+  //   เจตนาเดิมคงอยู่: เก็บ payable = amount(+VAT exclusive) − credit ไม่ใช่ยอดเต็ม.
   const ci = pos.indexOf('posView === "cash-input"');
   const cash = pos.slice(ci, ci + 3800);
-  assert.match(cash, /const payable = round2\(Math\.max\(amount - _creditOnBill/, "cash-input computes payable");
+  assert.match(cash, /const cashPay = calcPayable\(baseAmount, state\.paymentInfo, _creditUsed\)/, "cash-input computes payable via calcPayable helper");
+  assert.match(cash, /const payable = cashPay\.payable/, "cash-input payable = amount - credit (helper)");
   // Audit fix: confirm handler อ่านยอดรับสด (paidNow) จาก numpadValue แล้ว gate กับ payable
   assert.match(cash, /paid(?:Now)? < payable/, "confirm gate uses payable (not full amount)");
   const ti = pos.indexOf('posView === "transfer-qr"');
   const tr = pos.slice(ti, ti + 3000);
-  assert.match(tr, /_tPayable = round2\(Math\.max\(round2\(amount\) - _creditUsed/, "transfer computes payable");
+  assert.match(tr, /calcPayable\(amount, state\.paymentInfo, _creditUsed\)/, "transfer computes payable via calcPayable (now VAT-exclusive too)");
+  assert.match(tr, /_tPayable = _tPay\.payable/, "transfer collects payable = amount(+VAT) - credit (helper)");
 });
 
 test("credit state resets on success / clearPosState / renderPosPage", () => {
