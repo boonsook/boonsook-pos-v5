@@ -57,6 +57,8 @@ import { findDuplicateProduct, normalizeBundleQty } from "./modules/product_vali
 import { installErrorReporter } from "./modules/error_reporter.js";
 import { createInflightGuard } from "./modules/_inflight_guard.js";
 import { createApi } from "./modules/api.js";
+// Phase 568: reuse idempotency helper (Phase 567) กัน service_jobs ซ้ำจาก drawer สร้างงานใหม่
+import { createInsertIntent, insertServiceJobWithReplay } from "./modules/_insert_idempotency.js";
 import { runBoot } from "./modules/boot.js";
 import { visibleSalesForRole } from "./modules/utils.js";
 
@@ -2396,6 +2398,9 @@ function openQuotationDrawer(_doc=null){
 // Phase 402: อุปกรณ์ใน drawer งานช่าง — งานใหม่แก้ได้+ตัดสต็อกตอน save; งานเดิม (มี items_json) read-only กันตัดซ้ำ
 let _serviceDrawerItems = [];
 let _serviceDrawerEquipReadonly = false;
+// Phase 568: intent key ของ "งานใหม่" ที่เปิดใน drawer (gen ตอน openServiceJobDrawer(job==null),
+//   ใช้ค่าเดิมตอน retry, reset หลัง insert สำเร็จ/replay). edit = PATCH by id idempotent ไม่ใช้ key นี้.
+let _serviceDrawerInsertKey = null;
 let _serviceJobDrawerDraftBound = false;
 const SERVICE_JOB_DRAWER_DRAFT_KEY = "service_job_drawer";
 const SERVICE_JOB_DRAWER_DRAFT_FIELDS = [
@@ -2415,6 +2420,8 @@ const SERVICE_JOB_DRAWER_DRAFT_FIELDS = [
 function openServiceJobDrawer(job=null){
   const drawerDraft = job ? null : loadServiceDraft(SERVICE_JOB_DRAWER_DRAFT_KEY);
   state.editingServiceJobId = job?.id || null;
+  // Phase 568: เปิด drawer "สร้างงานใหม่" = intent ใหม่ (gen client_uuid). เปิดเพื่อ edit ไม่ gen (PATCH idempotent)
+  if (!job) _serviceDrawerInsertKey = createInsertIntent();
   // ★ เก็บสถานะเดิม ไว้ตรวจการเปลี่ยนเป็น "done" ตอน save
   state.editingServiceJobOrigStatus = job?.status || "pending";
   // ★ Phase 88.10b: เก็บ total_cost + payment_method เดิม → ตรวจว่าเปลี่ยนตอน save
@@ -2997,7 +3004,26 @@ async function saveServiceJob(){
   } else {
     payload.job_no = "JOB-" + Date.now();
     // ★ Phase 88.1b: ขอ returnData=true เพื่อเอา id กลับมา auto-post JV
-    res = await xhrPost("service_jobs", payload, { returnData: true });
+    // ★ Phase 568: POST ผ่าน helper กลาง (Phase 567) — client_uuid + replay-lookup กัน service_jobs ซ้ำ
+    //   จาก timeout/retry (drawer สร้างงานใหม่ = insert path สุดท้ายที่ยังไม่มี idempotency; หนักสุดเพราะ
+    //   newJobAlreadyComplete โพสต์ JV ตอน save ตรง ๆ → dup row = dup JV). fetchFn=appAuthFetch = fetch-compat
+    //   + inject token สด (override Authorization ของ helper) + 401-refresh-retry → auth เท่า xhrPost เดิม;
+    //   timeout 15s ใน helper = เท่า xhr.timeout เดิม. adapter คงรูป res {ok,data,error} (data=row เดี่ยว เท่า
+    //   xhrPost ที่ unwrap data[0] แล้ว) → downstream res.ok/res.data?.id ไม่ต้องแก้.
+    try {
+      const { row, replayed } = await insertServiceJobWithReplay({
+        cfg: window.SUPABASE_CONFIG,
+        token: window._sbAccessToken || window.SUPABASE_CONFIG?.anonKey,
+        record: payload,
+        key: _serviceDrawerInsertKey,
+        fetchFn: appAuthFetch
+      });
+      res = { ok: !!row, data: row, error: row ? null : { message: "insert ไม่คืน row" } };
+      if (replayed) showToast("ใบงานนี้บันทึกแล้ว (กันบันทึกซ้ำ) ✅", "info");
+    } catch (e) {
+      res = { ok: false, data: null, error: { message: e?.message || "บันทึกงานช่างไม่สำเร็จ" } };
+    }
+    if (res.ok) _serviceDrawerInsertKey = null;  // Phase 568: intent สำเร็จ (insert จริง/replay) → reset
   }
   if (!res.ok) { _signalSave(false, { reason: res.error?.message || "บันทึกงานช่างไม่สำเร็จ" }); return showToast(res.error?.message || "บันทึกงานช่างไม่สำเร็จ"); }
 
@@ -3096,6 +3122,10 @@ async function saveServiceJob(){
   //   3. editCompleteWithChange — งานปิดอยู่แล้ว + user แก้ total/method (Phase 88.10b)
   if (transitionedToDone || newJobAlreadyComplete || editCompleteWithChange) {
     try {
+      // ★ Phase 568 invariant: บน replay (res มาจาก 409/timeout-replay ของ helper) jobId = row เดิม
+      //   → postJournalForServiceJob idempotent ที่ (source_table='service_jobs', source_id=jobId):
+      //   รอบแรกโพสต์ JV แล้ว = source-dup skip เอง; รอบแรก commit แต่ตายก่อนโพสต์ = replay โพสต์ให้ครบ.
+      //   **ห้าม skip JV เมื่อ replayed** (จะทำให้งานที่ commit แต่ JV ยังไม่ลง = รายได้หาย) — คง flow เดิม.
       const jobId = isNewJob ? res.data?.id : state.editingServiceJobId;
       if (jobId) {
         const fullJob = { ...(state.serviceJobs || []).find(j => String(j.id) === String(jobId)), ...payload, id: jobId };
