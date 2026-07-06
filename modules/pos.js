@@ -174,6 +174,20 @@ export function calcVAT(amount, paymentInfo, currentDate = todayBkk()) {
     return { subtotal: amount, vat, total: Math.round((amount + vat) * 100) / 100, rate, enabled, mode };
   }
 }
+
+// ═══════════════════════════════════════════════════════════
+// Phase 566: "ยอดที่ต้องเก็บจริง" — helper เดียวทุกวิธีชำระ
+//   ยกสมการจาก cash-input (Phase 88.21 VAT exclusive + Phase 517b-3 หักเครดิต) ออกมา reuse
+//   ให้ โอน/QR/บัตร/live-numpad คิดตรงกันหมด (เดิม inline แยกจุด → โอน/บัตร ใช้ยอดก่อน VAT).
+//   VAT ปิด → amount = baseAmount (พฤติกรรมเดิมเป๊ะ). exclusive → amount = base + VAT.
+//   credit clamp 0..amount (กันติดลบ/เกินยอด). doCheckout คิด actualTotal/_payable เองแยก (ไม่พึ่ง helper นี้).
+// ═══════════════════════════════════════════════════════════
+export function calcPayable(baseAmount, paymentInfo, creditUsed = 0, currentDate = todayBkk()) {
+  const vc = calcVAT(baseAmount, paymentInfo, currentDate);
+  const amount = (vc.enabled && vc.mode === "exclusive") ? vc.total : baseAmount;
+  const credit = round2(Math.min(Math.max(round2(creditUsed), 0), round2(amount)));
+  return { amount: round2(amount), credit, payable: round2(Math.max(round2(amount) - credit, 0)), vat: vc };
+}
 let numpadValue = "";
 let quickPayAmount = 0;   // ยอดจาก numpad (เก็บเงินทันที) หรือ cart total
 let pendingPaidAmount = 0; // จำนวนเงินที่รับมา (สำหรับเงินสด)
@@ -582,8 +596,8 @@ function renderPosView(ctx) {
       } else if (selectedPaymentMethod === "QR พร้อมเพย์") {
         posView = "transfer-qr"; renderPosView(ctx);
       } else {
-        // บัตรเครดิต → ไปหน้ายืนยัน+แนบสลิป (Phase 517b-3: หักเครดิตที่ใช้)
-        pendingPaidAmount = round2(Math.max(round2(amount) - _creditUsed, 0));
+        // บัตรเครดิต → ไปหน้ายืนยัน+แนบสลิป (Phase 517b-3: หักเครดิตที่ใช้; Phase 566: helper รวม VAT exclusive)
+        pendingPaidAmount = calcPayable(amount, state.paymentInfo, _creditUsed).payable;
         posView = "confirm-proof"; renderPosView(ctx);
       }
     }, { signal }));
@@ -594,12 +608,13 @@ function renderPosView(ctx) {
   // ═══════════════════════════════════════════════════════
   } else if (posView === "cash-input") {
     const baseAmount = quickPayAmount || cartTotal;
-    // ★ Phase 88.21 fix: ในโหมด VAT exclusive ลูกค้าต้องจ่าย = baseAmount + VAT
-    const cashVatCalc = calcVAT(baseAmount, state.paymentInfo);
-    const amount = (cashVatCalc.enabled && cashVatCalc.mode === "exclusive") ? cashVatCalc.total : baseAmount;
-    // ★ Phase 517b-3: เงินสดที่ต้องเก็บจริง = ยอด − เครดิตที่ใช้ (_creditUsed clamp ที่ payment-select แล้ว)
-    const _creditOnBill = round2(Math.min(_creditUsed, round2(amount)));
-    const payable = round2(Math.max(amount - _creditOnBill, 0));
+    // ★ Phase 566: ยอดที่ต้องเก็บจริง ผ่าน helper เดียว (VAT exclusive Phase 88.21 + หักเครดิต Phase 517b-3).
+    //   พฤติกรรมเท่าเดิมเป๊ะ — แค่ยกสมการออกมา reuse ให้โอน/บัตร/live-numpad ตรงกัน.
+    const cashPay = calcPayable(baseAmount, state.paymentInfo, _creditUsed);
+    const cashVatCalc = cashPay.vat;
+    const amount = cashPay.amount;
+    const _creditOnBill = cashPay.credit;
+    const payable = cashPay.payable;
     const displayVal = numpadValue || "0";
     const paid = Number(numpadValue || 0);
     const change = Math.max(paid - payable, 0);
@@ -663,8 +678,10 @@ function renderPosView(ctx) {
   // ═══════════════════════════════════════════════════════
   } else if (posView === "transfer-qr") {
     const amount = quickPayAmount || cartTotal;
-    // ★ Phase 517b-3: ยอดโอนจริง = ยอด − เครดิตที่ใช้
-    const _tPayable = round2(Math.max(round2(amount) - _creditUsed, 0));
+    // ★ Phase 566: ยอดโอนจริง = ยอดที่ต้องเก็บ (VAT exclusive + หักเครดิต) ผ่าน helper เดียว
+    //   เดิม (Phase 517b-3) ใช้ยอดก่อน VAT → exclusive เก็บขาดเท่า VAT.
+    const _tPay = calcPayable(amount, state.paymentInfo, _creditUsed);
+    const _tPayable = _tPay.payable;
     // Phase 88.20: ดึง banks list — ถ้ามีหลายบัญชี → dropdown ให้เลือก
     const allBanks = state.paymentInfo?.banks || [];
     const validBanks = allBanks.filter(b => b.bankName || b.bankAccount);
@@ -727,6 +744,7 @@ function renderPosView(ctx) {
         `}
 
         <div class="pos-transfer-amount">${moneyNum(_tPayable)}</div>
+        ${_tPay.vat.enabled && _tPay.vat.mode === "exclusive" ? `<div class="sku" style="text-align:center;color:var(--primary2);font-size:11px;margin-top:-4px">(${moneyNum(amount)} + VAT ${moneyNum(_tPay.vat.vat)})</div>` : ''}
 
         ${activeBank ? `
         <div class="pos-transfer-bank-info">
@@ -1197,22 +1215,23 @@ function updateCollectBtn() {
   // Also update cash confirm
   const cashBtn = document.getElementById("posCashConfirmBtn");
   if (cashBtn) {
-    // ★ Phase 88.21 fix: ใช้ total หลัง VAT (exclusive mode) เป็น threshold
-    const pi = (window.App?.state || {}).paymentInfo;
-    const baseAmount = quickPayAmount;
-    const vc = calcVAT(baseAmount, pi);
-    const amount = (vc.enabled && vc.mode === "exclusive") ? vc.total : baseAmount;
+    // ★ Phase 566: threshold + เงินทอน live = ยอดที่ต้องเก็บจริง ผ่าน helper เดียว (ตรงกับ render cash-input).
+    //   เดิม (Phase 88.21) ใช้ VAT total แต่ (ก) ไม่หักเครดิต → บิลใช้เครดิตแล้วพิมพ์พอดี ปุ่มค้าง disabled;
+    //   (ข) baseAmount = quickPayAmount ล้วน ไม่มี fallback → ขายจากตะกร้า (quickPayAmount ว่าง) threshold = 0.
+    const st = (window.App?.state || {});
+    const pi = st.paymentInfo;
+    const payable = calcPayable(quickPayAmount || cartSum(st.cart), pi, _creditUsed).payable;
     const paid = Number(numpadValue || 0);
-    if (paid >= amount) { cashBtn.disabled = false; cashBtn.classList.remove("disabled"); }
+    if (paid >= payable) { cashBtn.disabled = false; cashBtn.classList.remove("disabled"); }
     else { cashBtn.disabled = true; cashBtn.classList.add("disabled"); }
     // Update change display
     const changeEl = document.querySelector(".pos-change-display");
-    if (paid >= amount && paid > 0) {
-      if (changeEl) changeEl.textContent = `เงินทอน ฿${moneyNum(paid - amount)}`;
+    if (paid >= payable && paid > 0) {
+      if (changeEl) changeEl.textContent = `เงินทอน ฿${moneyNum(paid - payable)}`;
       else {
         const d = document.createElement("div");
         d.className = "pos-change-display";
-        d.textContent = `เงินทอน ฿${moneyNum(paid - amount)}`;
+        d.textContent = `เงินทอน ฿${moneyNum(paid - payable)}`;
         document.querySelector(".pos-numpad-display")?.appendChild(d);
       }
     } else if (changeEl) {
