@@ -14,6 +14,11 @@ import { aggregateNeedByKey } from "./stock_precheck.js";
 import { normalizeServiceJobStatus, serviceJobNoteWithReviewMarker } from "./service_status.js";
 import { applyDraftFields, bindServiceDraft, clearServiceDraft, loadServiceDraft } from "./service_drafts.js";
 import { makePickerTouchGuard, renderPickerCart, updateCartBadges } from "./picker_cart.js";
+// Phase 567: idempotency กันใบงานซ้ำจาก timeout/retry
+import { createInsertIntent, insertServiceJobWithReplay } from "./_insert_idempotency.js";
+
+// Phase 567: intent key ของใบงานที่กำลังกรอก (gen ที่ render, ใช้ค่าเดิมตอน retry, reset หลังสำเร็จ)
+let _svInsertKey = null;
 
 export const SERVICE_TYPES = {
   repair_ac:     { icon: "🔧", label: "ซ่อมแอร์",            job_type: "repair_ac",     defaultDesc: "อาการเสีย เช่น ไม่เย็น / มีน้ำหยด / เสียงดัง" },
@@ -156,6 +161,9 @@ export function renderServiceFormPage(ctx, serviceType) {
   }
 
   const { state, money, showToast } = ctx;
+  // Phase 567: เปิดฟอร์มใบใหม่ = intent ใหม่ (render เรียกตอน nav + ตอน "สร้างใบใหม่" หลัง save เท่านั้น
+  //   ไม่ถูกเรียกซ้ำระหว่างกรอก/timeout → retry ใช้ key เดิม dedup ได้)
+  _svInsertKey = createInsertIntent();
   const containerId = `page-service_${serviceType}`;
   const container = document.getElementById(containerId);
   if (!container) return;
@@ -612,43 +620,21 @@ export function renderServiceFormPage(ctx, serviceType) {
         closed_at: isClosure ? new Date().toISOString() : null
       };
 
-      // ★ Phase 88.5+: AbortController + 15s timeout — กัน fetch ค้างไม่จบ (network slow ฯลฯ)
-      const ctrl = new AbortController();
-      const tmr = setTimeout(() => ctrl.abort(), 15000);
-      let resp;
-      try {
-        resp = await fetch(`${supaCfg.url}/rest/v1/service_jobs`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "apikey": supaCfg.anonKey,
-            "Authorization": `Bearer ${token}`,
-            "Prefer": "return=representation"
-          },
-          body: JSON.stringify(record),
-          signal: ctrl.signal
-        });
-      } catch(fetchErr) {
-        if (fetchErr.name === "AbortError") throw new Error("⏰ บันทึกล้มเหลว — server ตอบช้าเกิน 15 วิ (ลอง refresh แล้วลองใหม่)");
-        throw new Error("เครือข่ายขัดข้อง: " + (fetchErr.message || String(fetchErr)));
-      } finally {
-        clearTimeout(tmr);
-      }
-      if (!resp.ok) {
-        let errBody = "";
-        try { errBody = await resp.text(); } catch(e) {}
-        console.error("[service_form save fail]", serviceType, resp.status, errBody, "payload:", record);
-        throw new Error(`HTTP ${resp.status}: ${errBody.slice(0, 300) || "no body"}`);
-      }
-      const inserted = await resp.json();
-      const jobId = inserted?.[0]?.id || null;
-      const jobNo = inserted?.[0]?.job_no || "";
+      // ★ Phase 567: POST ผ่าน helper กลาง — client_uuid + replay-lookup กัน service_jobs ซ้ำ
+      //   (timeout/network หลัง commit → replay row เดิม ไม่ POST ซ้ำ). timeout 15s เดิมอยู่ใน helper.
+      const { row: insertedRow, replayed } = await insertServiceJobWithReplay({
+        cfg: supaCfg, token, record, key: _svInsertKey
+      });
+      const jobId = insertedRow?.id || null;
+      const jobNo = insertedRow?.job_no || "";
+      _svInsertKey = null;  // Phase 567: intent สำเร็จ → reset (ใบใหม่ gen key ใหม่ที่ render)
+      if (replayed) showToast("ใบงานนี้บันทึกแล้ว (กันบันทึกซ้ำ) ✅", "info");
 
       // ★ Phase 88.14: Optimistic update — push job ใหม่เข้า state.serviceJobs
-      // (เดิมไม่ push → หน้าใบรับงานไม่เห็น job จนกว่าจะ refresh page)
+      //   (เดิมไม่ push → หน้าใบรับงานไม่เห็น job จนกว่าจะ refresh page); Phase 567: กัน push ซ้ำถ้า replay
       try {
-        if (inserted?.[0]) {
-          state.serviceJobs = [inserted[0], ...(state.serviceJobs || [])];
+        if (insertedRow && !(state.serviceJobs || []).some(j => String(j.id) === String(insertedRow.id))) {
+          state.serviceJobs = [insertedRow, ...(state.serviceJobs || [])];
         }
       } catch(e) { console.warn("[service_form] state update fail", e); }
 
