@@ -9,6 +9,10 @@ import { aggregateNeedByKey } from "./stock_precheck.js";
 import { normalizeServiceJobStatus, serviceJobNoteWithReviewMarker } from "./service_status.js";
 import { applyDraftFields, bindServiceDraft, clearServiceDraft, loadServiceDraft } from "./service_drafts.js";
 import { makePickerTouchGuard, renderPickerCart, updateCartBadges } from "./picker_cart.js";
+// Phase 567: idempotency กันใบงานซ้ำจาก timeout/retry
+import { createInsertIntent, insertServiceJobWithReplay } from "./_insert_idempotency.js";
+
+let _solInsertKey = null;  // Phase 567: intent key ของใบงานที่กำลังกรอก
 
 const SOLAR_TYPES = [
   "💧 ติดตั้งปั๊มน้ำโซล่าเซลล์",
@@ -475,6 +479,7 @@ export function renderSolarPage(ctx) {
   const { state, money, showToast } = ctx;
   const container = document.getElementById("page-solar");
   if (!container) return;
+  _solInsertKey = createInsertIntent();  // Phase 567: เปิดฟอร์มใบใหม่ = intent ใหม่ (retry ใช้ค่าเดิม)
 
   const draft = loadServiceDraft(SOLAR_DRAFT_KEY);
   _solItems = Array.isArray(draft?.items) ? draft.items.map(it => ({ ...it })) : [];
@@ -837,32 +842,21 @@ export function renderSolarPage(ctx) {
         closed_at: isClosure ? new Date().toISOString() : null
       };
 
-      const resp = await fetch(`${cfg.url}/rest/v1/service_jobs`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "apikey": cfg.anonKey,
-          "Authorization": `Bearer ${token}`,
-          "Prefer": "return=representation"  // ★ ขอ id กลับ
-        },
-        body: JSON.stringify(record)
+      // ★ Phase 567: POST ผ่าน helper กลาง — client_uuid + replay-lookup กัน service_jobs ซ้ำ
+      //   (timeout/network หลัง commit → replay row เดิม ไม่ POST ซ้ำ); เดิม solar ไม่มี timeout → helper ให้ 15s
+      const { row: insertedRow, replayed } = await insertServiceJobWithReplay({
+        cfg, token, record, key: _solInsertKey
       });
-
-      if (!resp.ok) {
-        const errBody = await resp.text().catch(() => "");
-        console.error("[solar save fail]", resp.status, errBody);
-        throw new Error("HTTP " + resp.status + ": " + errBody.slice(0, 200));
-      }
-
-      const inserted = await resp.json();
-      const jobId = inserted?.[0]?.id;
-      const jobNo = inserted?.[0]?.job_no || "";
+      const jobId = insertedRow?.id;
+      const jobNo = insertedRow?.job_no || "";
+      _solInsertKey = null;  // Phase 567: intent สำเร็จ → reset
+      if (replayed) showToast("ใบงานนี้บันทึกแล้ว (กันบันทึกซ้ำ) ✅", "info");
 
       // ★ Phase 88.14: Optimistic update — push job ใหม่เข้า state.serviceJobs
-      // (เดิมไม่ push → หน้าใบรับงานไม่เห็น job จนกว่าจะ refresh page)
+      //   (เดิมไม่ push → หน้าใบรับงานไม่เห็น job จนกว่าจะ refresh page); Phase 567: กัน push ซ้ำถ้า replay
       try {
-        if (inserted?.[0]) {
-          state.serviceJobs = [inserted[0], ...(state.serviceJobs || [])];
+        if (insertedRow && !(state.serviceJobs || []).some(j => String(j.id) === String(insertedRow.id))) {
+          state.serviceJobs = [insertedRow, ...(state.serviceJobs || [])];
         }
       } catch(e) { console.warn("[solar] state update fail", e); }
 

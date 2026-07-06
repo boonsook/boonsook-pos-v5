@@ -10,9 +10,12 @@ import { aggregateNeedByKey } from "./stock_precheck.js";
 import { normalizeServiceJobStatus, serviceJobNoteWithReviewMarker } from "./service_status.js";
 import { applyDraftFields, bindServiceDraft, clearServiceDraft, loadServiceDraft } from "./service_drafts.js";
 import { makePickerTouchGuard, renderPickerCart, updateCartBadges } from "./picker_cart.js";
+// Phase 567: idempotency กันใบงานซ้ำจาก timeout/retry
+import { createInsertIntent, insertServiceJobWithReplay } from "./_insert_idempotency.js";
 
 // Module-level state
 let _items = [];           // [{product_id, name, qty, unit_price, line_total, warehouse_id, warehouse_name}]
+let _acInsertKey = null;   // Phase 567: intent key ของใบงานที่กำลังกรอก
 const _showPicker = false;
 const _pickerSearch = "";
 let _lastSavedJob = null;  // ถ้ามีค่า → form อยู่ใน read-only (lock items, edit ได้แค่ note)
@@ -85,6 +88,7 @@ export function renderAcInstallPage(ctx) {
   const { state, money, showToast } = ctx;
   const container = document.getElementById("page-ac_install");
   if (!container) return;
+  _acInsertKey = createInsertIntent();  // Phase 567: เปิดฟอร์มใบใหม่ = intent ใหม่ (retry ใช้ค่าเดิม)
   const draft = loadServiceDraft(AC_DRAFT_KEY);
   if (!_lastSavedJob && Array.isArray(draft?.items)) {
     _items = draft.items.map(it => ({ ...it }));
@@ -548,32 +552,21 @@ export function renderAcInstallPage(ctx) {
         closed_at: isClosure ? new Date().toISOString() : null
       };
 
-      const resp = await fetch(`${cfg.url}/rest/v1/service_jobs`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "apikey": cfg.anonKey,
-          "Authorization": `Bearer ${token}`,
-          "Prefer": "return=representation"
-        },
-        body: JSON.stringify(record)
+      // ★ Phase 567: POST ผ่าน helper กลาง — client_uuid + replay-lookup กัน service_jobs ซ้ำ
+      //   (timeout/network หลัง commit → replay row เดิม ไม่ POST ซ้ำ); เดิม ac_install ไม่มี timeout → helper ให้ 15s
+      const { row: insertedRow, replayed } = await insertServiceJobWithReplay({
+        cfg, token, record, key: _acInsertKey
       });
-      if (!resp.ok) {
-        // Phase 43.2: log response body — เห็น error column/RLS ชัด
-        let errBody = "";
-        try { errBody = await resp.text(); } catch(e) {}
-        console.error("[ac_install save fail]", resp.status, errBody, "payload:", record);
-        throw new Error(`HTTP ${resp.status}: ${errBody.slice(0, 300) || "no body"}`);
-      }
-      const inserted = await resp.json();
-      const jobId = inserted?.[0]?.id || null;
-      const jobNo = inserted?.[0]?.job_no || "";
+      const jobId = insertedRow?.id || null;
+      const jobNo = insertedRow?.job_no || "";
+      _acInsertKey = null;  // Phase 567: intent สำเร็จ → reset
+      if (replayed) showToast("ใบงานนี้บันทึกแล้ว (กันบันทึกซ้ำ) ✅", "info");
 
       // ★ Phase 88.14: Optimistic update — push job ใหม่เข้า state.serviceJobs
-      // (เดิมไม่ push → หน้าใบรับงานไม่เห็น job จนกว่าจะ refresh page)
+      //   (เดิมไม่ push → หน้าใบรับงานไม่เห็น job จนกว่าจะ refresh page); Phase 567: กัน push ซ้ำถ้า replay
       try {
-        if (inserted?.[0]) {
-          state.serviceJobs = [inserted[0], ...(state.serviceJobs || [])];
+        if (insertedRow && !(state.serviceJobs || []).some(j => String(j.id) === String(insertedRow.id))) {
+          state.serviceJobs = [insertedRow, ...(state.serviceJobs || [])];
         }
       } catch(e) { console.warn("[ac_install] state update fail", e); }
 
