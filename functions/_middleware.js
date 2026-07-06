@@ -25,6 +25,9 @@ const RATE_LIMITS = {
   "/api/log-error":     { limit: 60,  windowSec: 60 },  // Phase 89.14: error_log proxy — burst-tolerant, spam-resistant
   "/api/v1/service-jobs": { limit: 30, windowSec: 60 }, // Ning agent: create service-job (write to prod DB)
   "/api/v1/service-job-submit": { limit: 30, windowSec: 60 }, // Ning agent: mark job ช่างส่ง→รออนุมัติ
+  "/api/v1/ning-memory/recall":     { limit: 120, windowSec: 60 }, // Phase 569: hot path — Ning recalls on every inbound message
+  "/api/v1/ning-memory/remember":   { limit: 60,  windowSec: 60 }, // Phase 569: Ning agent memory write
+  "/api/v1/ning-memory/forget-all": { limit: 20,  windowSec: 60 }, // Phase 569: destructive, rare — keep tight
   "default":            { limit: 100, windowSec: 60 }   // ทุก endpoint อื่น
 };
 
@@ -43,6 +46,9 @@ const REQUIRE_AUTH_ENDPOINTS = [
   "/api/v1/reports/daily-summary",
   "/api/v1/service-jobs",   // Ning agent: create a service-job request (no stock/JV)
   "/api/v1/service-job-submit",   // Ning agent: mark a job ช่างส่ง→รออนุมัติ (no money)
+  "/api/v1/ning-memory/remember",   // Phase 569: Ning long-term memory upsert (service-role write)
+  "/api/v1/ning-memory/recall",     // Phase 569: Ning long-term memory read
+  "/api/v1/ning-memory/forget-all", // Phase 569: Ning long-term memory delete (per user)
   "/api/parse-receipt",   // Phase 89.14: ปิด anon — Gemini OCR ใช้แค่ staff ที่ login
   "/api/verify-slip",     // Phase 89.14: ปิด anon — Gemini OCR ใช้แค่ staff ที่ login
   "/api/verify-slipok"    // Phase 543 (S14): ปิด anon — SlipOK proxy (customer dashboard ใช้ customer JWT ได้; ไม่ STAFF_ONLY)
@@ -60,7 +66,10 @@ const REPORT_ONLY_ENDPOINTS = [
 const NING_AGENT_ENDPOINTS = [
   "/api/v1/reports/daily-summary",
   "/api/v1/service-jobs",
-  "/api/v1/service-job-submit"
+  "/api/v1/service-job-submit",
+  "/api/v1/ning-memory/remember",   // Phase 569: Ning memory proxy (server-to-server only)
+  "/api/v1/ning-memory/recall",
+  "/api/v1/ning-memory/forget-all"
 ];
 
 const STAFF_ROLES = new Set(["admin", "sales", "staff", "technician"]);
