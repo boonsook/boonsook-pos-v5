@@ -18,6 +18,14 @@
 
 ---
 
+## ✅ Applied — 2026-07-06
+
+| SQL file | ทำอะไร | applied | verified อย่างไร |
+|---|---|---|---|
+| `supabase-phase567-service-client-uuid.sql` | `ALTER service_jobs ADD COLUMN IF NOT EXISTS client_uuid uuid` + partial UNIQUE `idx_service_jobs_client_uuid_unique` (`WHERE client_uuid IS NOT NULL`) + `NOTIFY pgrst` — idempotency กันใบงานช่างซ้ำจาก timeout/retry. 3 ฟอร์ม (service_form/ac_install/solar) POST ผ่าน helper `modules/_insert_idempotency.js` แนบ client_uuid → 409/timeout/network หลัง commit → replay-lookup คืน row เดิม (กัน dup row → กัน JV ซ้ำทางอ้อมตอนแอดมินปิดทั้งคู่). code build 567 **degrade-safe** ถ้ายังไม่รัน (retry POST ไม่มี client_uuid). mirror pattern time-clock phase92-22 (Phase 567, PR #142) | **2026-07-06** (owner รันใน SQL Editor) | ✅ owner verify query ผ่าน — column `client_uuid` มีจริง + index `idx_service_jobs_client_uuid_unique`; build 567 MERGED+LIVE `3393908` (data-app-build 567). 🔴 **drawer `main.js:3000` = Phase 567b ค้าง** (insert gap เดียวกัน ยังไม่แก้ — reuse helper ได้แต่เป็น xhrPost path) |
+
+---
+
 ## ✅ Applied — verified live this session (2026-06-19)
 
 | SQL file | ทำอะไร (audit) | applied | verified อย่างไร |
