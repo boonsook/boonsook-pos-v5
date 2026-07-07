@@ -72,6 +72,25 @@ git log --oneline -5 origin/main
 
 If local changes exist and are not yours, stop and report. Do not stash, reset, revert, or commit them without approval.
 
+### Parallel sessions — use a separate git worktree (required when another session may run against this clone)
+
+A single clone shares one `.git` = one HEAD + index + working tree. If another Claude/Codex session runs against the SAME clone at the same time, its `git checkout` / `commit` changes YOUR state mid-work: your staged files can float onto the wrong branch and commits can land astray. This happened in **Phase 569** — a parallel Phase 568 session switched HEAD and the ning-memory staged files ended up on the drawer branch (recovered via branch surgery, but avoidable).
+
+**Isolate with a worktree — do NOT share one working tree:**
+
+```bash
+# from the main clone; picks its OWN HEAD/index/tree — the other session is untouched
+git worktree add ../bpos-wt-<slug> -b claude/phase-NN-<slug> origin/main
+cd ../bpos-wt-<slug>
+# ... edit, verify, commit, push, open PR ...
+git worktree remove ../bpos-wt-<slug>     # after merge
+```
+
+- Before `git worktree remove`, delete any `node_modules` **junction** inside the worktree first — `--force` can follow the junction and wipe the main clone's `node_modules`. A fresh worktree with no `npm install` has none, so it is safe (run `npm ci` inside the worktree only if you need tests there).
+- Claim your phase number first: `git branch -r | grep <NN>` (remote) + local branches — Phase 569 had to renumber off 568 because a parallel session already took it.
+
+**If you truly must share one tree:** before every `git add` / `git commit`, re-run `git status --short --branch` to confirm you are still on your own branch; stage **explicit paths only** (never `git add -A`, or you sweep the other session's files); verify committed blobs with `git cat-file blob <sha>:<file>` (not `git show | grep`, which the local `core.autocrlf=true` smudge makes lie about CRLF).
+
 ## Implementation Rules
 
 - Prefer existing local patterns over new abstractions.
