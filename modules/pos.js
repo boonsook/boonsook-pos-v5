@@ -239,7 +239,12 @@ export function renderPosPage({ state, addToCart, changeQty, removeFromCart, ope
   posView = "home";
   numpadValue = "";
   quickPayAmount = 0;
-  _checkoutKey = null;  // Phase 520: เข้าหน้า POS ใหม่ = intent ใหม่
+  // ★ Phase 571: reset intent key เฉพาะเมื่อตะกร้าว่าง. renderAll() หลัง background loadAllData
+  //   (deferred 10s–2min หลัง save งานต่าง ๆ) ก็เรียก renderPosPage ด้วย — ถ้าล้างเปลือยทุกครั้ง
+  //   จังหวะ retry หลัง checkout timeout จะได้ key ใหม่ → uq_sales_checkout_key ดัก replay ไม่ได้ = บิลซ้ำ.
+  //   ตะกร้าไม่ว่าง = intent เดิมยังไม่จบ → คง key (ตรงเจตนา Phase 520 "ใช้ค่าเดิมตอน re-submit/back-nav");
+  //   ตะกร้าว่าง = intent จบ/เริ่มใหม่ → ล้างเหมือนเดิม (success ล้าง cart+key ที่ L1653/1659 อยู่แล้ว).
+  if (!(state.cart || []).length) _checkoutKey = null;
   _resetCreditState();  // Phase 517b-3
   renderPosView(ctx);
 }
