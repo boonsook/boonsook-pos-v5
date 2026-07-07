@@ -41,6 +41,31 @@ test("checkout_key is reset on success and on new-intent/logout (so next bill ge
   assert.ok(resets >= 3, `must reset _checkoutKey on success + clearPosState + renderPosPage (found ${resets})`);
 });
 
+// ── Phase 571: renderPosPage must NOT nuke the key on background renderAll ─────
+//   renderAll() (fired by deferred loadAllData 10s–2min after saves) also calls renderPosPage.
+//   A bare reset there clears _checkoutKey mid-retry after a checkout timeout → next submit gets a
+//   fresh key → uq_sales_checkout_key can't dedup → duplicate sale/stock/JV. Reset only when the
+//   cart is empty (empty = intent done/new; non-empty = same intent still alive → keep the key).
+test("Phase 571 — renderPosPage resets _checkoutKey ONLY when the cart is empty (not unconditionally)", () => {
+  const rp = pos.indexOf("export function renderPosPage(");
+  assert.ok(rp >= 0, "renderPosPage must exist");
+  const rpBody = pos.slice(rp, pos.indexOf("function renderPosView(", rp));
+  assert.match(rpBody, /if\s*\(!\(state\.cart[\s\S]{0,40}_checkoutKey = null/,
+    "renderPosPage must reset _checkoutKey ONLY when the cart is empty (cart ไม่ว่าง = intent เดิม → คง key)");
+  assert.doesNotMatch(rpBody, /\n\s*_checkoutKey = null;/,
+    "renderPosPage must NOT reset _checkoutKey unconditionally (would clear the key during a deferred renderAll while a checkout retry is in flight → duplicate sale/stock/JV)");
+});
+
+test("Phase 571 — clearPosState still resets _checkoutKey unconditionally (logout/cross-login must always clear)", () => {
+  const cp = pos.indexOf("export function clearPosState(");
+  assert.ok(cp >= 0, "clearPosState must exist");
+  const cpBody = pos.slice(cp, pos.indexOf("export function renderPosPage(", cp));
+  assert.match(cpBody, /\n\s*_checkoutKey = null;/,
+    "clearPosState must reset _checkoutKey unconditionally (logout must never leak an intent key across logins)");
+  assert.doesNotMatch(cpBody, /if\s*\(!\(state\.cart[\s\S]{0,40}_checkoutKey = null/,
+    "clearPosState reset must stay unconditional (no cart guard — no cart in scope; must always clear)");
+});
+
 test("salePayload carries checkout_key + credit_used_amount", () => {
   assert.match(cbHead, /checkout_key:\s*checkoutKey/, "payload must include checkout_key");
   assert.match(cbHead, /credit_used_amount:\s*round2\(creditUsed\)/, "payload must include credit_used_amount");
