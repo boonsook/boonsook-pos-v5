@@ -12,9 +12,10 @@
 
 ## 🔴 กลุ่ม Blocking (เงิน/ข้อมูลเสียหาย/แอปตาย)
 
-### Phase 571 — POS `_checkoutKey` ถูกล้างโดย background reload → บิลซ้ำได้
+### ✅ Phase 571 — POS `_checkoutKey` ถูกล้างโดย background reload → บิลซ้ำได้ — DONE (MERGED+LIVE build 571, PR #149 `93c3a67`, 2026-07-07)
 - `modules/pos.js:242` — `renderPosPage` ทำ `_checkoutKey = null` ทุกครั้ง แต่ `renderAll()` (หลัง `loadAllData` ที่ deferred 10s–2min) ก็เรียก renderPosPage ด้วย → จังหวะ retry หลัง checkout timeout ได้ key ใหม่ → `uq_sales_checkout_key` ดัก replay ไม่ได้ = บิลซ้ำ/ตัดสต็อกซ้ำ/JV ซ้ำ
 - แก้: reset key เฉพาะเมื่อ `state.cart` ว่าง (cart ไม่ว่าง = intent เดิม) + อัปเดต `tests/checkout_key_credit_guard.test.js` (ปัจจุบัน assert พฤติกรรมที่เป็นช่องโหว่ — ระบุเหตุผลใน PR ตาม §5)
+- 🔻 follow-up คงค้าง: ปิด edge committed-but-errored ให้สนิท = reset key ตอน cart→0 ผ่าน `removeFromCart` (edge แคบ, ทำแยกเฟสถ้าจัดคิว)
 
 ### Phase 572 — `TOKEN_REFRESHED` trigger `afterLogin()` เต็มชุด → ทั้งแอป re-render เองทุก ~1 ชม.
 - `main.js:993-1003` — `onAuthStateChange` ไม่ filter event type → token refresh (ทุก ~1 ชม. + ตอน tab กลับ focus) รัน afterLogin → loadAllData → renderAll → หน้า reset (นี่คือ "ต้นน้ำ" ของอาการหน้าเด้ง/ฟอร์มหาย ที่ Phase 570 แก้ปลายน้ำ)
