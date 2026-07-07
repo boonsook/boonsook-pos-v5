@@ -15,6 +15,27 @@ function _readCatalog() {
   catch (e) { console.warn("[settings/ac-catalog] parse failed:", e); return []; }
 }
 
+/** เขียน catalog + mark ว่า user แก้แล้ว (Phase 570) — loadAllData auto-refresh จะข้าม
+ *  ไม่ทับ "ทั้งก้อน" จาก ac_catalog.json (กันลบรุ่น/การแก้ไขของ user). ใช้ทุกจุดที่ mutate ผ่านฟอร์ม. */
+function _writeCatalog(list) {
+  try {
+    localStorage.setItem("bsk_ac_catalog", JSON.stringify(list));
+    localStorage.setItem("bsk_ac_catalog_user_edited", "1");
+  } catch (e) { console.warn("[settings/ac-catalog] write failed:", e); }
+}
+
+/** map ค่า "ประเภท" จาก import (อังกฤษ key หรือ label ไทย) → ac_type key; ไม่รู้จัก → undefined
+ *  (acTypeOf fallback "wall" เอง — ไม่ migrate). Phase 570. */
+export function _acTypeFromImport(raw) {
+  const s = String(raw || "").trim().toLowerCase();
+  if (!s) return undefined;
+  if (["wall", "ceiling", "cassette"].includes(s)) return s;   // อังกฤษ key ตรง
+  if (s.includes("ผนัง")) return "wall";                        // ติดผนัง / แอร์ติดผนัง
+  if (s.includes("แขวน")) return "ceiling";                     // แขวน / แอร์แขวน
+  if (s.includes("สี่ทิศ") || s.includes("cassette") || s.includes("4")) return "cassette";  // สี่ทิศทาง
+  return undefined;
+}
+
 // ═══════════════════════════════════════════════════════════
 //  Phase 87.3 — Extended fields helpers (CSV/Excel ↔ catalog object)
 // ═══════════════════════════════════════════════════════════
@@ -31,10 +52,15 @@ const _tryNum = (val) => {
 };
 
 /** flatten catalog entry → row object สำหรับ Excel/CSV export (24 columns) */
-function _toExportRow(c) {
+export function _toExportRow(c) {
   return {
     section: c.section || "",
     model: c.model || "",
+    // ★ Phase 570 — ประเภทแอร์ + ต้นทุน/รหัส/หมายเหตุ (owner เติมประเภทใน Excel แล้ว import กลับ = จัดกลุ่ม bulk)
+    ac_type: acTypeOf(c),
+    cost: (c.cost !== undefined && c.cost !== null && c.cost !== "") ? Number(c.cost) : "",
+    sku: c.sku || c.barcode || "",
+    note: c.note || "",
     btu: Number(c.btu || 0),
     price: Number(c.price || 0),
     w_install: c.w_install || "",
@@ -61,8 +87,9 @@ function _toExportRow(c) {
   };
 }
 
-const _EXPORT_HEADERS = [
-  "section","model","btu","price","w_install","w_parts","w_comp","stock",
+export const _EXPORT_HEADERS = [
+  "section","model","ac_type","btu","price","w_install","w_parts","w_comp","stock",
+  "cost","sku","note",
   "description","features","badge_tags","image_url",
   "seer","refrigerant","voltage","current_a","power_w",
   "indoor_dim","outdoor_dim","indoor_weight_kg","outdoor_weight_kg",
@@ -70,7 +97,7 @@ const _EXPORT_HEADERS = [
 ];
 
 /** parse Excel/CSV row → catalog entry (extended fields optional) */
-function _fromImportRow(r, idx, pick) {
+export function _fromImportRow(r, idx, pick) {
   const section = String(pick(r, ["section", "ยี่ห้อ", "แบรนด์"]) || "").trim();
   const model   = String(pick(r, ["model", "รุ่น"]) || "").trim();
   if (!section || !model) return null;
@@ -114,6 +141,12 @@ function _fromImportRow(r, idx, pick) {
   setIfTruthy("noise_indoor_db",   _tryNum(pick(r, ["noise_indoor_db"])));
   setIfTruthy("noise_outdoor_db",  _tryNum(pick(r, ["noise_outdoor_db"])));
   setIfTruthy("color", String(pick(r, ["color", "สี"]) || "").trim() || undefined);
+
+  // ★ Phase 570 — ประเภทแอร์ (map อังกฤษ/ไทย → key) + ต้นทุน/รหัส/หมายเหตุ
+  setIfTruthy("ac_type", _acTypeFromImport(pick(r, ["ac_type", "ประเภท", "type", "ชนิด"])));
+  setIfTruthy("cost", _tryNum(pick(r, ["cost", "ต้นทุน", "ทุน"])));
+  setIfTruthy("sku", String(pick(r, ["sku", "barcode", "รหัส", "บาร์โค้ด"]) || "").trim() || undefined);
+  setIfTruthy("note", String(pick(r, ["note", "หมายเหตุ"]) || "").trim() || undefined);
 
   return entry;
 }
@@ -304,7 +337,7 @@ export function renderSettingsAcCatalog(el, ctx, goBack, navigate) {
       const nextId = list.reduce((m, c) => Math.max(m, Number(c.id) || 0), 0) + 1;
       entry.id = nextId;
       list.push(entry);
-      localStorage.setItem("bsk_ac_catalog", JSON.stringify(list));
+      _writeCatalog(list);
       if (ctx?.showToast) ctx.showToast(`เพิ่มรุ่น ${entry.model} (${acTypeLabel(entry.ac_type)}) แล้ว ✅`);
       _acTab = entry.ac_type;
       rerender();
@@ -319,7 +352,7 @@ export function renderSettingsAcCatalog(el, ctx, goBack, navigate) {
     if (idx < 0) return;
     openAcStockForm(list[idx], acTypeOf(list[idx]), (entry) => {
       list[idx] = { ...list[idx], ...entry };
-      localStorage.setItem("bsk_ac_catalog", JSON.stringify(list));
+      _writeCatalog(list);
       if (ctx?.showToast) ctx.showToast(`บันทึก ${entry.model} แล้ว ✅`);
       rerender();
     });
@@ -359,7 +392,7 @@ export function renderSettingsAcCatalog(el, ctx, goBack, navigate) {
   document.getElementById("acSetStock5Btn")?.addEventListener("click", async () => {
     if (!(await window.App?.confirm?.(`ตั้งค่าให้ทุกรุ่น (${catalog.length} รุ่น) เป็น "พร้อมเสนอขาย"?\n(แคตตาล็อกสำหรับทำราคา — ไม่ใช่สต็อกจริงในคลัง)`))) return;
     const updated = catalog.map(c => ({ ...c, stock: Number(c.stock || 0) > 0 ? c.stock : 5 }));
-    localStorage.setItem("bsk_ac_catalog", JSON.stringify(updated));
+    _writeCatalog(updated);
     if (ctx?.showToast) ctx.showToast(`ตั้งค่าทุกรุ่นเป็น "พร้อมเสนอขาย" แล้ว ✅`);
     rerender();
   });
@@ -481,7 +514,7 @@ export function renderSettingsAcCatalog(el, ctx, goBack, navigate) {
 
       if (newCatalog.length === 0) throw new Error("ไม่พบแถวที่มี section + model");
 
-      localStorage.setItem("bsk_ac_catalog", JSON.stringify(newCatalog));
+      _writeCatalog(newCatalog);
       if (statusEl) statusEl.innerHTML = `<span style="color:#10b981;font-weight:700">✅ นำเข้าสำเร็จ! ${newCatalog.length} รุ่น จาก ${[...new Set(newCatalog.map(c=>c.section))].length} แบรนด์</span>`;
       if (ctx?.showToast) ctx.showToast(`นำเข้าแคตตาล็อก ${newCatalog.length} รุ่น สำเร็จ! ✅`);
       setTimeout(rerender, 800);
@@ -503,7 +536,7 @@ export function renderSettingsAcCatalog(el, ctx, goBack, navigate) {
     const sourceList = catalog.filter(c => c.features || c.seer || c.description);
     openSpecEditor(catalog[idx], (updates) => {
       catalog[idx] = { ...catalog[idx], ...updates };
-      localStorage.setItem("bsk_ac_catalog", JSON.stringify(catalog));
+      _writeCatalog(catalog);
       if (ctx?.showToast) ctx.showToast(`บันทึกสเปก ${catalog[idx].model} แล้ว ✅`);
       rerender();
     }, sourceList);
@@ -518,6 +551,8 @@ export function renderSettingsAcCatalog(el, ctx, goBack, navigate) {
       const data = await resp.json();
       if (!Array.isArray(data) || data.length === 0) throw new Error("ไฟล์ว่าง");
       localStorage.setItem("bsk_ac_catalog", JSON.stringify(data));
+      // Phase 570: manual "โหลดใหม่จาก JSON" = reset baseline โดยตั้งใจ → เคลียร์ flag (auto-refresh กลับมาทำงานได้)
+      try { localStorage.removeItem("bsk_ac_catalog_user_edited"); } catch(e){}
       if (ctx?.showToast) ctx.showToast(`โหลดแคตตาล็อก ${data.length} รุ่น สำเร็จ! ✅`);
       rerender();
     } catch(err) {

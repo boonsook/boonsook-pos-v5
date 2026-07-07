@@ -102,13 +102,15 @@ test("all existing import/export handler ids survive (no logic change)", () => {
   }
 });
 
-test("Excel/CSV export format is UNCHANGED — 24 columns, no new fields leaked in", () => {
+test("Excel/CSV export includes ac_type + cost/sku/note (Phase 570 — owner จัดประเภท bulk ผ่าน Excel)", () => {
+  // ★ Phase 570: เดิม guard ล็อก 24 คอลัมน์ห้าม ac_type/cost/sku/note รั่ว — owner ขอกลับ: ต้องมี
+  //   ac_type (+ cost/sku/note) ใน export เพื่อ export → เติมประเภท 223 รุ่น → import กลับในรอบเดียว.
   const m = catalog.match(/_EXPORT_HEADERS\s*=\s*\[([\s\S]*?)\]/);
   assert.ok(m, "_EXPORT_HEADERS must exist");
   const cols = [...m[1].matchAll(/"([^"]+)"/g)].map(x => x[1]);
-  assert.equal(cols.length, 24, "export must stay 24 columns");
-  for (const leak of ["ac_type", "cost", "sku", "note"]) {
-    assert.ok(!cols.includes(leak), `export must not include new field '${leak}'`);
+  assert.equal(cols.length, 28, "export = 24 core + 4 (ac_type/cost/sku/note)");
+  for (const need of ["ac_type", "cost", "sku", "note"]) {
+    assert.ok(cols.includes(need), `export must include '${need}' (Phase 570)`);
   }
 });
 
