@@ -721,16 +721,17 @@ async function showRoute(route){
 
   // ★ บันทึก route ล่าสุดไว้ใน localStorage + URL hash เพื่อกดรีเฟรชแล้วอยู่หน้าเดิม
   try { localStorage.setItem("bsk_last_route", route); } catch(e){}
-  // ★ รักษา query string ไว้ใน hash (เช่น #products?cat=X&addNew=1)
-  //    ถ้า route ตรงกับ hash ปัจจุบัน deep link params จะคงอยู่ให้ page parser อ่านได้
+  // ★ รักษา query string + subpath ไว้ใน hash (เช่น #products?cat=X หรือ #settings/ac-catalog)
+  //    Phase 570: ถ้า main route เดิม → คง hash "ทั้งก้อน" (subpath+query). เดิมเก็บแค่ ?query → subpath หาย
+  //    (#settings/ac-catalog → #settings) → settings/index.js restore เป็น 'main' = หน้าย่อยเด้งกลับเมนู
+  //    ทุกครั้งที่มี background reload. route เปลี่ยนจริง → เขียน "#"+route ใหม่.
   const curHash = location.hash || "";
   const curMainRoute = (curHash.replace("#","").split('/')[0] || "").split('?')[0];
-  const curQuery = curHash.includes("?") ? "?" + curHash.split("?")[1] : "";
-  const keepQuery = (curMainRoute === route) ? curQuery : "";
+  const newHash = (curMainRoute === route && curHash) ? curHash : ("#" + route);
   if (history.replaceState) {
-    history.replaceState(null, "", "#" + route + keepQuery);
+    history.replaceState(null, "", newHash);
   } else {
-    location.hash = route + keepQuery;
+    location.hash = newHash.replace(/^#/, "");
   }
 
   // Toggle page sections
@@ -1248,18 +1249,23 @@ async function loadAllData(){
     // Phase 87.5 — ตรวจ schema coverage: ถ้า cache มี specs <90% ของ entries → refresh
     try {
       const cached = localStorage.getItem("bsk_ac_catalog");
-      let needRefresh = !cached;
+      // ★ Phase 570: ถ้า user เคยเพิ่ม/แก้/ลบ/import (flag) → auto-refresh ทับ "ทั้งก้อน" จาก JSON จะลบ
+      //   รุ่น/การแก้ไขของ user (เช่น user เพิ่มรุ่นไม่มี spec → specs coverage <90% → เดิม refresh = ทับหาย).
+      //   จึง refresh เฉพาะตอน cache ว่าง/พัง (กู้คืน) — cache ใช้ได้ + user เคยแก้ = ไม่แตะ.
+      const userEdited = localStorage.getItem("bsk_ac_catalog_user_edited") === "1";
+      let cacheUsable = false;
+      let lowSpec = false;
       if (cached) {
         try {
           const parsed = JSON.parse(cached);
-          if (!Array.isArray(parsed) || parsed.length === 0) {
-            needRefresh = true;
-          } else {
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            cacheUsable = true;
             const specced = parsed.filter(p => p && (p.features || p.seer || p.description)).length;
-            if (specced < parsed.length * 0.9) needRefresh = true;
+            lowSpec = specced < parsed.length * 0.9;
           }
-        } catch(e){ needRefresh = true; }
+        } catch(e){ /* corrupt → cacheUsable=false → refresh (กู้) */ }
       }
+      const needRefresh = !cacheUsable || (lowSpec && !userEdited);
       if (needRefresh) {
         fetch("data/ac_catalog.json", { cache: "no-store" }).then(r => r.ok ? r.json() : null).then(data => {
           if (data && Array.isArray(data) && data.length > 0) {
