@@ -17,9 +17,9 @@
 - แก้: reset key เฉพาะเมื่อ `state.cart` ว่าง (cart ไม่ว่าง = intent เดิม) + อัปเดต `tests/checkout_key_credit_guard.test.js` (ปัจจุบัน assert พฤติกรรมที่เป็นช่องโหว่ — ระบุเหตุผลใน PR ตาม §5)
 - 🔻 follow-up คงค้าง: ปิด edge committed-but-errored ให้สนิท = reset key ตอน cart→0 ผ่าน `removeFromCart` (edge แคบ, ทำแยกเฟสถ้าจัดคิว)
 
-### Phase 572 — `TOKEN_REFRESHED` trigger `afterLogin()` เต็มชุด → ทั้งแอป re-render เองทุก ~1 ชม.
+### ✅ Phase 572 — `TOKEN_REFRESHED` trigger `afterLogin()` เต็มชุด → ทั้งแอป re-render เองทุก ~1 ชม. — DONE (MERGED+LIVE build 572, PR #150 `ee233fe`, 2026-07-08; owner smoke login/boot preview ผ่าน)
 - `main.js:993-1003` — `onAuthStateChange` ไม่ filter event type → token refresh (ทุก ~1 ชม. + ตอน tab กลับ focus) รัน afterLogin → loadAllData → renderAll → หน้า reset (นี่คือ "ต้นน้ำ" ของอาการหน้าเด้ง/ฟอร์มหาย ที่ Phase 570 แก้ปลายน้ำ)
-- แก้: เช็ค `_event` — `TOKEN_REFRESHED`/`USER_UPDATED` → อัปเดต `window._sbAccessToken` แล้ว return; afterLogin เฉพาะ transition logged-out→in
+- แก้: เช็ค `_event` — `TOKEN_REFRESHED`/`USER_UPDATED` → อัปเดต `window._sbAccessToken` แล้ว return; afterLogin เฉพาะ transition logged-out→in (+ same-user guard `_appSessionUserId` กัน boot รันซ้ำ 2-3 รอบ)
 
 ### Phase 573 — JSON.parse ตอน boot ไม่มี try/catch → key เดียวเสีย = แอปขาวถาวร (selfheal กู้ไม่ได้)
 - `main.js:284-288` (cart/lastReceipt/storeInfo/paymentInfo — รันตอน module eval, throw = main.js ไม่โหลดทั้งไฟล์) + `modules/customer_dashboard.js:15` (`bsk_cust_cart` — ลูกค้าติดหน้าเปล่าถาวร)
