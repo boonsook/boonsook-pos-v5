@@ -5,6 +5,7 @@
 // ═══════════════════════════════════════════════════════════
 import { renderSkeleton, renderError } from "./ui_states.js";
 import { escHtml, monthsAgoStartBkk } from "./utils.js";
+import { fetchExpensesSince } from "./range_fetch.js";
 
 let _data = [];
 let _periodMonths = 3;
@@ -47,39 +48,27 @@ export async function renderExpenseOverviewPage(ctx) {
 
   container.innerHTML = renderSkeleton({ type: "dashboard-cards", count: 3 });
 
-  const cfg = window.SUPABASE_CONFIG;
-  const token = window._sbAccessToken || cfg.anonKey;
-  const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token };
-
   // Period: last N months rolling
   // Audit fix: เดิม new Date(...).toISOString() แปลง local-midnight เป็น UTC → เลื่อนถอย 1 วัน
   //   → นับรายจ่ายเกินมา 1 วัน. helper คิดจากเดือน Bangkok แบบ int ล้วน.
   const startStr = monthsAgoStartBkk(_periodMonths - 1);
 
-  try {
-    const r = await fetch(cfg.url + `/rest/v1/expenses?select=*&expense_date=gte.${startStr}&order=expense_date.desc`, { headers });
-    if (!r.ok) {
-      const isAuth = r.status === 401 || r.status === 403;
-      container.innerHTML = renderError({
-        message: isAuth ? "ไม่มีสิทธิ์เข้าถึง (HTTP " + r.status + ")" : "โหลดข้อมูลรายจ่ายไม่สำเร็จ",
-        detail: isAuth ? "Token หมดอายุ — กรุณา Logout แล้ว Login ใหม่" : "HTTP " + r.status,
-        retryLabel: "ลองโหลดใหม่",
-        retryId: "eoRetryBtn"
-      });
-      document.getElementById("eoRetryBtn")?.addEventListener("click", () => renderExpenseOverviewPage(ctx));
-      return;
-    }
-    _data = await r.json();
-  } catch (e) {
+  // ★ Phase 578: paginated fetch (เดิม raw fetch ไม่ paginate → >1000 รายจ่ายในช่วง = ยอดรวม/เฉลี่ย/Top ขาดเงียบ).
+  //   helper คืน {ok,rows}/{ok:false,error} + buffer -2 วัน (candidate superset) → re-filter exact lower bound ด้านล่าง.
+  const _res = await fetchExpensesSince(startStr);
+  if (!_res.ok) {
+    const isAuth = /\b(401|403)\b/.test(_res.error || "");
     container.innerHTML = renderError({
-      message: "โหลดข้อมูลไม่สำเร็จ",
-      detail: e?.message || String(e),
-      retryLabel: "ลองใหม่",
+      message: isAuth ? "ไม่มีสิทธิ์เข้าถึง" : "โหลดข้อมูลรายจ่ายไม่สำเร็จ",
+      detail: isAuth ? "Token หมดอายุ — กรุณา Logout แล้ว Login ใหม่" : (_res.error || ""),
+      retryLabel: "ลองโหลดใหม่",
       retryId: "eoRetryBtn"
     });
     document.getElementById("eoRetryBtn")?.addEventListener("click", () => renderExpenseOverviewPage(ctx));
     return;
   }
+  // re-filter exact lower bound (helper buffer -2 วัน = candidate superset เท่านั้น — กัน over-count 2 วันก่อนช่วง)
+  _data = _res.rows.filter(e => String(e.expense_date || "").slice(0, 10) >= startStr);
 
   // ═══ Aggregate ═══
   const sumByCat = {};
