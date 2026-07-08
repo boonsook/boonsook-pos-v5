@@ -75,6 +75,7 @@ let _tabFilter = "all";    // all | pending | approved | invoiced | receipted | 
 let _selectedIds = new Set();
 let _qtSaveInflight = false;   // Phase 356: กันกดปุ่ม "บันทึก" รัว/ดับเบิลคลิก → สร้างเอกสารซ้ำ
 let _qtConvertInflight = false; // Phase 412: กัน trigger convert→ใบส่งสินค้า ซ้ำระหว่างใบแรกกำลังสร้าง (ทุกทางเข้า)
+let _lineItemsLoadFailed = false; // Phase 576: โหลด quotation_items ใบเดิมล้ม → ห้ามบันทึกทับ (edit path DELETE ทั้งใบก่อน insert — ฟอร์มที่เปิดมาว่างเพราะโหลดพัง = รายการเดิมหายถาวร)
 let _airDraftNotice = 0;   // Phase 346: จำนวนรายการร่างจากแคตตาล็อกแอร์/งานแอร์ที่เพิ่งเติม (โชว์ notice)
 let _airDraftSource = "air_catalog";          // Phase 353: "air_catalog" | "air_job"
 let _airDraftCustomer = { name: "", phone: "" }; // Phase 353: prefill ลูกค้าจากงานแอร์ (ถ้ามี)
@@ -160,6 +161,7 @@ export function renderQuotationsPage(ctx) {
       _editingId = null;
       _viewMode = "form";
       _lineItems = _airDrafts.map(airDraftToLineItem);
+      _lineItemsLoadFailed = false;   // Phase 576: เปิดใบใหม่จาก draft — ไม่มีรายการเดิมให้ทับ
       _airDraftNotice = _airDrafts.length;
       const first = _airDrafts[0] || {};
       _airDraftSource = first.source === "air_job" ? "air_job" : "air_catalog";
@@ -171,6 +173,7 @@ export function renderQuotationsPage(ctx) {
   // Phase 45.10 (B5-3): clear stale line items + selection
   if (!window._pendingQuotationPreviewId && _viewMode === "list") {
     _lineItems = [];
+    _lineItemsLoadFailed = false;   // Phase 576: ออกจากฟอร์ม/กลับหน้า list — เคลียร์สถานะโหลดล้ม
     _selectedIds.clear();
     _airDraftNotice = 0;
     _airDraftSource = "air_catalog";
@@ -197,7 +200,13 @@ export function renderQuotationsPage(ctx) {
           unit_price: Number(i.unit_price||0), discount_pct: Number(i.discount_pct||0),
           line_total: Number(i.line_total||0)
         }));
-      } catch(e) { _lineItems = []; }
+        _lineItemsLoadFailed = false;
+      } catch(e) {
+        // Phase 576: เลิกเงียบ — preview ทางลัดนี้ read-only ไม่มี save ตาม จึงแค่แจ้ง (ไม่ block)
+        _lineItems = [];
+        console.error("[quotations] load items failed (pending preview):", e);
+        _ctx?.showToast?.("⚠️ โหลดรายการสินค้าไม่สำเร็จ — ปิดแล้วเปิดใหม่อีกครั้ง");
+      }
       renderQuotationsPage(ctx);
     })();
     return;
@@ -353,6 +362,7 @@ export function renderQuotationsPage(ctx) {
   document.getElementById("qtAddBtn")?.addEventListener("click", () => {
     _editingId = null;
     _lineItems = [];
+    _lineItemsLoadFailed = false;   // Phase 576: เปิดใบใหม่
     _viewMode = "form";
     renderQuotationsPage(_ctx);
   });
@@ -377,6 +387,7 @@ export function renderQuotationsPage(ctx) {
   document.getElementById("qtEmptyAddBtn")?.addEventListener("click", () => {
     _editingId = null;
     _lineItems = [];
+    _lineItemsLoadFailed = false;   // Phase 576: เปิดใบใหม่
     _viewMode = "form";
     renderQuotationsPage(_ctx);
   });
@@ -897,6 +908,12 @@ async function saveQuotationFull() {
   if (!customerName) return _ctx.showToast("กรอกชื่อลูกค้า");
   if (!_lineItems.length) return _ctx.showToast("เพิ่มรายการสินค้าอย่างน้อย 1 รายการ");
 
+  // ★ Phase 576: รายการเดิมโหลดไม่สำเร็จ (ฟอร์มเปิดมาว่าง/ไม่ครบเพราะโหลดพัง) → ห้ามบันทึกทับ
+  //   edit path ข้างล่าง DELETE quotation_items ทั้งใบก่อน insert จากฟอร์ม — ถ้าปล่อยผ่าน = รายการเดิมหายถาวรแบบเงียบ
+  if (_editingId && _lineItemsLoadFailed) {
+    return _ctx.showToast("⚠️ รายการเดิมโหลดไม่สำเร็จ — ห้ามบันทึกทับ ปิดฟอร์มแล้วเปิดใหม่อีกครั้ง");
+  }
+
   // Phase 356: inflight guard — กันกดปุ่ม "บันทึก" รัว/ดับเบิลคลิก (สร้างเอกสารซ้ำ).
   //  set หลังผ่าน validation เบื้องต้น; reset ใน finally เสมอ (แม้ xhr/loadAllData fail).
   if (_qtSaveInflight) return _ctx.showToast("กำลังบันทึก...");
@@ -959,32 +976,50 @@ async function saveQuotationFull() {
     if (quotationId) {
       res = await xhrPatch("quotations", payload, "id", quotationId);
       if (!res.ok) return _ctx.showToast(res.error?.message || "บันทึกไม่สำเร็จ");
-      await xhrDelete("quotation_items", "quotation_id", quotationId);
+      // ★ Phase 576: เช็คผลลบรายการเดิม — เดิม fire-and-forget: ลบล้มแล้วไหลไป insert ต่อ = รายการซ้ำ/เพี้ยนเงียบ
+      const delRes = await xhrDelete("quotation_items", "quotation_id", quotationId);
+      if (!delRes?.ok) throw new Error(delRes?.error?.message || "ลบรายการเดิมไม่สำเร็จ — ยกเลิกการบันทึก (รายการเดิมยังอยู่ครบ)");
     } else {
       res = await xhrPost("quotations", payload, { returnData: true });
       if (!res.ok) return _ctx.showToast(res.error?.message || "บันทึกไม่สำเร็จ");
       quotationId = res.data?.id;
     }
 
-    // Insert line items
+    // Insert line items — ★ Phase 576: เช็คผลทุกแถวแบบ convert flow (Phase 412) — fail ต้องมีเสียง ห้าม toast สำเร็จ
+    const failedItems = [];
     if (quotationId && _lineItems.length) {
       for (let i = 0; i < _lineItems.length; i++) {
         const li = _lineItems[i];
-        await xhrPost("quotation_items", {
+        const ir = await xhrPost("quotation_items", {
           quotation_id: quotationId, product_id: li.product_id || null,
           item_name: li.item_name, qty: li.qty, unit: li.unit || "ชิ้น",
           unit_price: li.unit_price, discount_pct: li.discount_pct || 0,
           line_total: li.line_total, sort_order: i + 1
         });
+        if (!ir?.ok) failedItems.push(li.item_name || ("#" + (i + 1)));
       }
+    }
+    if (failedItems.length > 0) {
+      // ห้าม rollback header — เอกสารบันทึก/อัปเดตแล้ว; แจ้งรายการที่ขาดให้เปิดใบตรวจ/เพิ่มเอง
+      console.error("[quotations] item insert failed:", failedItems);
     }
 
     // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L3 module state reset after save (single edit session)
     _viewMode = "list"; _editingId = null; _lineItems = [];
+    // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L3 module state reset after save (single edit session)
+    _lineItemsLoadFailed = false;   // Phase 576
     _airDraftMeta = null;   // Phase 355: เคลียร์ meta หลังบันทึก → กด save อีกครั้งไม่ append อ้างอิงซ้ำ
     await _ctx.loadAllData();
-    _ctx.showToast("บันทึกใบเสนอราคาแล้ว");
+    if (failedItems.length > 0) {
+      _ctx.showToast(`⚠️ บันทึกเอกสารแล้ว แต่บันทึกรายการไม่สำเร็จ ${failedItems.length} รายการ (${failedItems.slice(0, 3).join(", ")}…) — เปิดใบเพื่อตรวจ/เพิ่มเอง`);
+    } else {
+      _ctx.showToast("บันทึกใบเสนอราคาแล้ว");
+    }
     renderQuotationsPage(_ctx);
+  } catch (e) {
+    // ★ Phase 576: รับ throw จาก delete-fail — เดิมไม่มี catch เลย = throw ใดก็เงียบ (unhandled rejection)
+    console.error("[quotations] save failed:", e);
+    _ctx.showToast("❌ บันทึกไม่สำเร็จ: " + (e?.message || e));
   } finally {
     // Phase 356: ปลดล็อก guard + เปิดปุ่มกลับเสมอ (re-query เพราะ DOM อาจถูก re-render หลัง save)
     _qtSaveInflight = false;
@@ -1013,7 +1048,15 @@ async function openEditForm(q) {
       unit_price: Number(i.unit_price||0), discount_pct: Number(i.discount_pct||0),
       line_total: Number(i.line_total||0)
     }));
-  } catch (e) { _lineItems = []; }
+    _lineItemsLoadFailed = false;
+  } catch (e) {
+    // ★ Phase 576: เลิกเงียบ — ฟอร์มที่เปิดมาว่างเพราะโหลดพัง ถ้า user กดบันทึก = DELETE รายการทั้งใบ
+    //   flag นี้ถูกเช็คใน saveQuotationFull (ห้ามบันทึกทับ) + แจ้ง user ให้ปิดแล้วเปิดใหม่
+    _lineItems = [];
+    _lineItemsLoadFailed = true;
+    console.error("[quotations] load items failed (edit):", e);
+    _ctx?.showToast?.("⚠️ โหลดรายการสินค้าไม่สำเร็จ — ปิดแล้วเปิดใหม่อีกครั้ง");
+  }
   renderQuotationsPage(_ctx);
 }
 
@@ -1036,7 +1079,17 @@ async function openPreview(q) {
       unit_price: Number(i.unit_price||0), discount_pct: Number(i.discount_pct||0),
       line_total: Number(i.line_total||0)
     }));
-  } catch (e) { _lineItems = []; }
+    _lineItemsLoadFailed = false;
+  } catch (e) {
+    // ★ Phase 576: โหลดล้ม → ยกเลิกการเปิด preview ไปเลย (เอกสาร 0 รายการห้ามโชว์/พิมพ์/ส่งลูกค้า) + แจ้งจริง
+    _lineItems = [];
+    _lineItemsLoadFailed = true;
+    console.error("[quotations] load items failed (preview):", e);
+    _ctx?.showToast?.("⚠️ โหลดรายการสินค้าไม่สำเร็จ — ยกเลิกการเปิดเอกสาร ลองใหม่อีกครั้ง");
+    _viewMode = "list"; _editingId = null;
+    renderQuotationsPage(_ctx);
+    return;
+  }
   renderQuotationsPage(_ctx);
 }
 
@@ -1344,8 +1397,16 @@ async function convertToDeliveryInvoice(q) {
           unit_price: Number(i.unit_price||0), discount_pct: Number(i.discount_pct||0),
           line_total: Number(i.line_total||0)
         }));
-      // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L3 module state reset (catch path, invoice gen flow)
-      } catch(e) { _lineItems = []; }
+        _lineItemsLoadFailed = false;
+      } catch(e) {
+        // ★ Phase 576: โหลดล้ม → ยกเลิกการแปลงไปเลย (เดิมไหลต่อ = สร้างใบส่งสินค้า 0 รายการ) + แจ้งจริง
+        // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L3 module state reset (catch path, invoice gen flow)
+        _lineItems = [];
+        _lineItemsLoadFailed = true;
+        console.error("[quotations convert] load items failed:", e);
+        _ctx.showToast("⚠️ โหลดรายการสินค้าไม่สำเร็จ — ยกเลิกการสร้างใบส่งสินค้า ลองใหม่อีกครั้ง");
+        return;   // finally ปลด _qtConvertInflight ให้เสมอ
+      }
     }
 
     const xhrPost = window._appXhrPost;
