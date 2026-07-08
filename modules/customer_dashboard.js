@@ -4,6 +4,7 @@
 import { isValidPhone, validateFile } from "./validators.js";
 import { renderEmpty, renderSkeleton } from "./ui_states.js";
 import { createInflightGuard } from "./_inflight_guard.js";
+import { safeParse } from "./_safe_parse.js"; // Phase 573: กัน bsk_cust_cart เสีย → lazy import reject = ลูกค้าติดหน้าเปล่า
 // Phase 87.1 — product detail modal
 import { openProductDetail } from "./product_detail_modal.js";
 // Phase 347 — หน้าร้านอ่านแคตตาล็อกแอร์ชุดเดียวกับหน้า "จัดการแคตตาล็อกแอร์" (แยกจากคลังจริง 100%)
@@ -12,7 +13,7 @@ import { pushAirBookingDraft } from "./ac_booking_draft.js";
 // Phase 351: badge "จากแคตตาล็อกแอร์" ในแท็บงานของฉัน (read-only parse จาก note)
 import { parseAirJobMeta, airBadgeHtml, airJobInfoHtml } from "./air_job_meta.js";
 
-let _custCart = JSON.parse(localStorage.getItem("bsk_cust_cart") || "[]");
+let _custCart = safeParse("bsk_cust_cart", []); // Phase 573: safe parse (เดิม JSON.parse เปลือย → เสีย = แอปลูกค้าขาว)
 let _custTab = "shop"; // shop | cart | orders | jobs | points
 let _custCategory = "all";
 let _custSearch = "";

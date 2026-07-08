@@ -242,11 +242,23 @@ export function renderSettingsAbout(el, ctx, goBack) {
         // Phase 543 (S14): never restore the SlipOK API key into the browser — it lives in
         //   Cloudflare env now (a hand-edited / legacy backup file must not re-introduce it).
         const _RESTORE_DENY = new Set(["bsk_slipok_key"]);
+        // ★ Phase 573: keys ที่เก็บ JSON — ต้อง parse ผ่านก่อน setItem. กัน backup เสีย/แก้มือ
+        //   เขียน JSON พังลง localStorage → boot ถัดไป JSON.parse ตอน module eval throw = แอปขาวถาวร.
+        //   key อื่น (bsk_dark_mode / bsk_store_logo / bsk_slipok_branch = plain string) restore ตามเดิม.
+        const _JSON_KEYS = new Set(["bsk_store_info", "bsk_payment_info", "bsk_product_settings", "bsk_ac_catalog", "bsk_cart_v2", "bsk_last_receipt", "bsk_cust_cart"]);
+        let _skipped = 0;
         Object.entries(data.local_storage).forEach(([k, v]) => {
-          if (typeof v === "string" && k.startsWith("bsk_") && !_RESTORE_DENY.has(k)) {
-            try { localStorage.setItem(k, v); } catch(_) {}
+          if (typeof v !== "string" || !k.startsWith("bsk_") || _RESTORE_DENY.has(k)) return;
+          if (_JSON_KEYS.has(k)) {
+            try { JSON.parse(v); } catch(_) { _skipped++; console.warn("[restore] ข้าม key JSON เสีย:", k); return; }
           }
+          try { localStorage.setItem(k, v); } catch(_) {}
         });
+        if (_skipped > 0) {
+          setBk(`⚠️ กู้คืนแล้ว แต่ข้าม ${_skipped} รายการที่ไฟล์เสีย (JSON ไม่ถูกต้อง) — กำลัง reload...`, "#d97706");
+          setTimeout(hardReload, 2500);
+          return;
+        }
       }
       setBk("✅ กู้คืนสำเร็จ — กำลัง reload เพื่อใช้ข้อมูลใหม่...", "#059669");
       setTimeout(hardReload, 800);
