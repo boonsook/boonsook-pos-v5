@@ -25,6 +25,13 @@ let _custSlipUrl = null;  // ★ URL สลิปที่ upload ไป Supabas
 // Phase 89.41: single-flight guard prevents customer-checkout double-click race
 const _custCheckoutGuard = createInflightGuard();
 
+// ★ Phase 580: แต้มสะสมของลูกค้าอ่านจาก proxy (/api/v1/loyalty-balance) — RLS deny loyalty_points
+//   ตรง ๆ สำหรับ customer role (Phase 505) → state.loyaltyPoints ว่าง = โชว์ 0 หลอก. cache ต่อ session
+//   (keyed ด้วย phone) กัน refetch ทุก re-render; error → ข้อความ + retry (ไม่โชว์ 0 หลอก).
+let _loyalty = null;          // { balance, earned, redeemed, recent:[] } | null
+let _loyaltyState = "idle";   // idle | loading | loaded | error
+let _loyaltyKey = null;       // phone (identity ของ session ปัจจุบัน)
+
 function saveCustCart() {
   try { localStorage.setItem("bsk_cust_cart", JSON.stringify(_custCart)); } catch(e){}
 }
@@ -40,7 +47,40 @@ export function clearCustomerDashboardState() {
   _custSlipVerified = false;
   _custSlipResult = null;
   _custSlipUrl = null;
+  // ★ Phase 580: เคลียร์แต้ม cache ตอน logout (กัน User A logout → User B เห็นแต้ม A)
+  _loyalty = null;
+  _loyaltyState = "idle";
+  _loyaltyKey = null;
   try { localStorage.removeItem("bsk_cust_cart"); } catch(e){}
+}
+
+// ★ Phase 580: ดึงแต้มสะสมจริงจาก proxy (server derive customer_id จาก JWT — ปลอดภัย). idle→loading→loaded/error.
+//   cache keyed ด้วย phone; re-render ไม่ refetch (นอกจากเปลี่ยน account/กด retry).
+async function _loadLoyaltyBalance(phone, ctx) {
+  if (!phone) { _loyaltyState = "error"; return; }
+  _loyaltyState = "loading";
+  _loyaltyKey = phone;
+  try {
+    const token = window._sbAccessToken;
+    const resp = await fetch("/api/v1/loyalty-balance", {
+      headers: { "Authorization": "Bearer " + token },
+    });
+    const body = await resp.json().catch(() => null);
+    if (_loyaltyKey !== phone) return;   // สลับ account ระหว่างโหลด → ทิ้งผลเก่า
+    if (resp.ok && body?.ok) {
+      _loyalty = { balance: Number(body.balance || 0), earned: Number(body.earned || 0), redeemed: Number(body.redeemed || 0), recent: Array.isArray(body.recent) ? body.recent : [] };
+      _loyaltyState = "loaded";
+    } else {
+      _loyalty = null;
+      _loyaltyState = "error";
+    }
+  } catch (_e) {
+    if (_loyaltyKey !== phone) return;
+    _loyalty = null;
+    _loyaltyState = "error";
+  }
+  if (!document.getElementById("page-customer_dashboard")) return; // ออกหน้าไปแล้ว
+  renderCustomerDashboard(ctx);
 }
 
 function money(n){return new Intl.NumberFormat("th-TH",{style:"currency",currency:"THB",minimumFractionDigits:2}).format(Number(n||0));}
@@ -128,9 +168,16 @@ export function renderCustomerDashboard(ctx) {
   const customerRecord = state.customers?.find(c => c.phone === userPhone || c.email === userEmail) || null;
   const customerId = customerRecord?.id;
 
-  // แต้มสะสม
-  const myPoints = customerId ? (state.loyaltyPoints || []).filter(p => p.customer_id === customerId) : [];
-  const totalPoints = myPoints.reduce((sum, p) => sum + (p.points || 0), 0);
+  // ★ Phase 580: แต้มสะสม — อ่านจาก proxy (server-derived id) ไม่ใช่ state.loyaltyPoints (ว่างเสมอสำหรับลูกค้า = 0 หลอก).
+  //   kick โหลดครั้งแรก/เมื่อสลับ account; re-render อื่นใช้ cache. loading→"…" / error→ปุ่ม retry ในแท็บแต้ม.
+  if (userPhone && (_loyaltyState === "idle" || _loyaltyKey !== userPhone)) {
+    _loadLoyaltyBalance(userPhone, ctx);  // async (ไม่ await) — จะ re-render เมื่อเสร็จ
+  }
+  const _loyaltyLoaded = _loyaltyState === "loaded" && _loyalty;
+  const totalPoints = _loyaltyLoaded ? _loyalty.balance : 0;
+  const _pointsBadge = _loyaltyLoaded ? totalPoints.toLocaleString()
+    : _loyaltyState === "error" ? "—"
+    : "…";  // loading
 
   // ประวัติซื้อ — ดึงจาก service_jobs (ออเดอร์จากลูกค้า) + sales (ขายที่เคาน์เตอร์)
   const myOrders = (state.serviceJobs || []).filter(j =>
@@ -292,7 +339,7 @@ export function renderCustomerDashboard(ctx) {
         </div>
         <div style="text-align:center;background:rgba(255,255,255,.2);border-radius:16px;padding:10px 16px">
           <div style="font-size:22px">⭐</div>
-          <div style="font-size:18px;font-weight:900">${totalPoints.toLocaleString()}</div>
+          <div style="font-size:18px;font-weight:900">${_pointsBadge}</div>
           <div style="font-size:10px;opacity:.8">แต้ม</div>
         </div>
       </div>
@@ -710,31 +757,46 @@ export function renderCustomerDashboard(ctx) {
     `;
 
   } else if (_custTab === "points") {
-    contentEl.innerHTML = `
-      <div style="text-align:center;background:linear-gradient(135deg,#fef3c7,#fde68a);border-radius:20px;padding:24px">
-        <div style="font-size:14px;color:#92400e">แต้มสะสมรวม</div>
-        <div style="font-size:40px;font-weight:900;color:#b45309;margin-top:4px">${totalPoints.toLocaleString()}</div>
-        <div style="font-size:13px;color:#92400e;margin-top:4px">แต้ม</div>
-      </div>
-      ${myPoints.length > 0 ? `
-      <div style="display:grid;gap:6px">
-        ${myPoints.slice(0,20).map(p => {
-          const isEarn = p.points > 0;
-          return `
-          <div style="display:flex;justify-content:space-between;align-items:center;padding:12px;background:#fff;border-radius:12px;border:1px solid #e2e8f0">
-            <div>
-              <div style="font-weight:600;font-size:13px">${escHtml(p.note || (isEarn ? "ได้รับแต้ม" : "ใช้แต้ม"))}</div>
-              <div style="font-size:11px;color:#94a3b8;margin-top:2px">${new Date(p.created_at).toLocaleDateString("th-TH")}</div>
-            </div>
-            <div style="font-weight:900;font-size:16px;color:${isEarn ? '#10b981' : '#ef4444'}">${isEarn ? '+' : ''}${p.points}</div>
-          </div>`;
-        }).join("")}
-      </div>` : `
-      <div style="text-align:center;padding:40px;color:#94a3b8">
-        <div style="font-size:48px;margin-bottom:8px">⭐</div>
-        <div>ยังไม่มีประวัติแต้ม</div>
-      </div>`}
-    `;
+    // ★ Phase 580: error → ข้อความ + ปุ่ม retry (ไม่โชว์ 0 หลอก); loading → skeleton; loaded → ยอดจริง + ประวัติจาก proxy
+    if (_loyaltyState === "error") {
+      contentEl.innerHTML = `
+        <div style="text-align:center;padding:40px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:16px">
+          <div style="font-size:40px;margin-bottom:8px">⚠️</div>
+          <div style="font-weight:700">โหลดแต้มสะสมไม่สำเร็จ</div>
+          <div style="font-size:13px;margin:6px 0 14px">ลองใหม่อีกครั้ง</div>
+          <button id="custLoyaltyRetry" style="padding:8px 18px;border-radius:10px;border:1px solid #f59e0b;background:#fff;color:#92400e;cursor:pointer;font-weight:700">ลองโหลดใหม่</button>
+        </div>`;
+    } else if (!_loyaltyLoaded) {
+      contentEl.innerHTML = renderSkeleton({ type: "dashboard-cards", count: 2 });
+    } else {
+      const recent = _loyalty.recent || [];
+      contentEl.innerHTML = `
+        <div style="text-align:center;background:linear-gradient(135deg,#fef3c7,#fde68a);border-radius:20px;padding:24px">
+          <div style="font-size:14px;color:#92400e">แต้มสะสมรวม</div>
+          <div style="font-size:40px;font-weight:900;color:#b45309;margin-top:4px">${totalPoints.toLocaleString()}</div>
+          <div style="font-size:13px;color:#92400e;margin-top:4px">แต้ม</div>
+        </div>
+        ${recent.length > 0 ? `
+        <div style="display:grid;gap:6px">
+          ${recent.map(p => {
+            const isEarn = p.type === "earn";
+            const pts = Math.abs(Number(p.points || 0));
+            return `
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:12px;background:#fff;border-radius:12px;border:1px solid #e2e8f0">
+              <div>
+                <div style="font-weight:600;font-size:13px">${escHtml(p.note || (isEarn ? "ได้รับแต้ม" : "ใช้แต้ม"))}</div>
+                <div style="font-size:11px;color:#94a3b8;margin-top:2px">${p.created_at ? new Date(p.created_at).toLocaleDateString("th-TH") : "—"}</div>
+              </div>
+              <div style="font-weight:900;font-size:16px;color:${isEarn ? '#10b981' : '#ef4444'}">${isEarn ? '+' : '−'}${pts}</div>
+            </div>`;
+          }).join("")}
+        </div>` : `
+        <div style="text-align:center;padding:40px;color:#94a3b8">
+          <div style="font-size:48px;margin-bottom:8px">⭐</div>
+          <div>ยังไม่มีประวัติแต้ม</div>
+        </div>`}
+      `;
+    }
   }
 
   // ═══ EVENT BINDINGS ═══
@@ -744,6 +806,12 @@ export function renderCustomerDashboard(ctx) {
     _custTab = btn.dataset.custTab;
     renderCustomerDashboard(ctx);
   }));
+
+  // ★ Phase 580: retry โหลดแต้ม (reset เป็น idle → render ใหม่ = kick fetch อีกครั้ง)
+  document.getElementById("custLoyaltyRetry")?.addEventListener("click", () => {
+    _loyaltyState = "idle";
+    renderCustomerDashboard(ctx);
+  });
 
   // ★ ปุ่ม "ยืนยันปิดงาน" ในแท็บงานของฉัน — ลูกค้ายืนยันว่าช่างส่งงานเรียบร้อย
   container.querySelectorAll(".cust-confirm-btn").forEach(btn => btn.addEventListener("click", async (_e) => {
