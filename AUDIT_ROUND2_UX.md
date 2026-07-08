@@ -8,7 +8,7 @@
 ## นิยามเลขเฟส
 เลขเฟส = ลำดับแนะนำ (571 ขึ้นไป ต่อจาก build 570 settings-bounce+catalog ที่กำลังทำ) — owner สลับลำดับได้
 
-> ⚠️ **build# ≠ phase# ในลิสต์นี้แล้ว:** มี "เฟสแทรก" **ac-catalog-live-sync** ที่ owner เลือกทำ ใช้ **build 574** (แคตตาล็อกแอร์ sync ทุกเครื่องผ่าน `ac_catalog_doc` — รวมหน้าลูกค้า; ✅ MERGED+LIVE #152 `54e7bfe`, ไม่อยู่ใน numbered list นี้). รายการ "Phase 574 — receipts multipay" ปิดแล้วที่ build 575. ✅ ปิดไปแล้ว: 571 (build 571) · 572 (build 572) · 573 (build 573) · +ac-catalog (build 574) · 574-receipts-multipay (build 575). 🔜 **คิวถัดไป = "Phase 575 — quotations: โหลด items ล้มเงียบ + save ไม่เช็คผล" → จะ ship ที่ build 576** (money/data blocker: เปิดแก้ตอนเน็ตสะดุด → ฟอร์มว่าง → บันทึก = DELETE items ทั้งใบเงียบ).
+> ⚠️ **build# ≠ phase# ในลิสต์นี้แล้ว:** มี "เฟสแทรก" **ac-catalog-live-sync** ที่ owner เลือกทำ ใช้ **build 574** (แคตตาล็อกแอร์ sync ทุกเครื่องผ่าน `ac_catalog_doc` — รวมหน้าลูกค้า; ✅ MERGED+LIVE #152 `54e7bfe`, ไม่อยู่ใน numbered list นี้). รายการ "Phase 574 — receipts multipay" ปิดแล้วที่ build 575. ✅ ปิดไปแล้ว: 571 (build 571) · 572 (build 572) · 573 (build 573) · +ac-catalog (build 574) · 574-receipts-multipay (build 575) · 575-quotations-items (build 576 #154 `56a89e3`). 🔜 **คิวถัดไป = "Phase 576 — income_overview + dashboard: ตัวเลขเงินจาก state ที่ cap → โชว์ผิดเงียบ" → จะ ship ที่ build 577** (income_overview ทั้งหน้าคิดจาก state cap 50 + dashboard expenses cap 200/serviceIncome·webOrders cap 50 — ขยายโครง `fetchSalesSince` Phase 562 ครอบ expenses + service_jobs ช่วงปี).
 
 ---
 
@@ -32,9 +32,9 @@
 - `modules/receipts.js:1354` — `await window._appXhrPatch?.(...)` ไม่เช็คผล (xhrPatch ไม่ throw — คืน `{ok:false}`) → mutate state + void/repost JV (`:1361`) + toast สำเร็จ ทั้งที่ DB ไม่ถูกแก้ → GL ไม่ตรง receipts
 - แก้: เช็ค `res?.ok` ก่อน optimistic ทุกบรรทัด (catch `:1365` restore ปุ่มอยู่แล้ว) + guard test
 
-### Phase 575 — quotations: โหลด items ล้มเป็น `[]` เงียบ + save ไม่เช็คผล → ลบรายการทั้งใบแบบเงียบได้
+### ✅ Phase 575 (→ build 576) — quotations: โหลด items ล้มเป็น `[]` เงียบ + save ไม่เช็คผล → ลบรายการทั้งใบแบบเงียบได้ — DONE (MERGED+DEPLOYED build 576, PR #154 `56a89e3`, 2026-07-08)
 - `modules/quotations.js:1016/1039/200/1348` — fetch items ล้ม → `_lineItems=[]` ไม่มี toast; `:962` xhrDelete + `:973` loop xhrPost ไม่เช็คผล → scenario: เปิดแก้ตอนเน็ตสะดุด → ฟอร์มว่าง → กดบันทึก → DELETE items ทั้งใบ + toast สำเร็จ
-- แก้: (ก) catch ต้อง toast+block เข้าฟอร์ม/convert (ข) เช็คผล delete + `failedItems` แบบ Phase 412 (`:1396-1399`) (ค) กัน save เมื่อ edit ใบเดิมที่มีรายการแต่ `_lineItems.length===0`
+- แก้แล้ว: flag `_lineItemsLoadFailed` + toast ทุก catch (openPreview/convert = ยกเลิกการเปิด/แปลง) · guard "ห้ามบันทึกทับ" ก่อนถึง xhrDelete · เช็คผล delete (`!ok → throw` + catch ใหม่รับ) · `failedItems` แบบ Phase 412 (fail = ห้าม toast สำเร็จ) · +guard test 13 (`quotations_items_integrity_guard`)
 
 ### Phase 576 — income_overview + dashboard: ตัวเลขเงินจาก state ที่ cap → โชว์ผิดเงียบ
 - `modules/income_overview.js:54-90` ทั้งหน้า (POS/web/service + กราฟรายเดือนปีนี้) จาก `state.sales` cap 50 + `state.serviceJobs` cap 50 — footer `:146` อ้างว่าตรง P&L ซึ่งไม่จริง
