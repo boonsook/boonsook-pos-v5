@@ -12,6 +12,7 @@ import { _classifyOrphan, INTEGRITY_CATS } from "./backfill.js";
 // Phase 390: รวม "งานบริการที่ปิดแล้วแต่ยังไม่มี JE" เข้า close-readiness (กันงวดเขียวทั้งที่รายได้บริการหาย)
 import { fetchServiceJVStatus } from "../service_reconcile.js";
 import { fetchApprovedJournalLines } from "./je_fetch.js";
+import { fetchAllRowsRaw } from "../fetch_paginated.js";  // Phase 579: paginate readiness fetch (เกิน 1000 ต้องได้ครบ, throw บน error → fail-closed)
 
 // non-HR source tables ที่ auto_post สร้าง JE (ไม่รวม staff_payroll = HR domain)
 const READINESS_JV_SOURCES = ["sales", "expenses", "receipts", "delivery_invoices", "service_jobs", "credit_payments", "refunds"];
@@ -30,7 +31,7 @@ function money(n) { return new Intl.NumberFormat("th-TH", { minimumFractionDigit
 // หรือ "งานบริการยังไม่เข้าบัญชี" หรือ "ตรวจงานบริการไม่ได้ (unknown)". ใช้ตัดสินว่าการ์ดเดือน
 // (แม้ jvCount=0) ต้องโชว์ warning ไม่ใช่ "ไม่มีรายการในเดือนนี้".
 export function _monthNeedsAttention(rd) {
-  return !!(rd && (rd.serviceMissing > 0 || rd.serviceUnknown || rd.orphanSrc > 0 || rd.orphanJV > 0));
+  return !!(rd && (rd.serviceMissing > 0 || rd.serviceUnknown || rd.orphanSrc > 0 || rd.orphanJV > 0 || rd.srcUnknown || rd.jvUnknown));
 }
 
 // Phase 390: readiness label แยกชัด — บิลครบ / orphan JV / งานบริการ missing / unknown.
@@ -42,7 +43,10 @@ export function _readinessLinesHtml(rd) {
   if (rd.orphanJV > 0) lines.push(`<div style="margin-top:2px;font-weight:600;color:#b91c1c">🧹 orphan JV ${rd.orphanJV} (source ถูกลบ) ⚠️</div>`);
   if (rd.serviceMissing > 0) lines.push(`<div style="margin-top:2px;font-weight:600;color:#b91c1c">🔧 งานบริการ ${rd.serviceMissing} งานยังไม่เข้าบัญชี ⚠️</div>`);
   if (rd.serviceUnknown) lines.push(`<div style="margin-top:2px;font-weight:600;color:#b45309">🔧 ตรวจงานบริการไม่ได้ (unknown) — ยังไม่ยืนยันว่าครบ ⚠️</div>`);
-  if (rd.orphanSrc === 0 && rd.orphanJV === 0 && rd.serviceMissing === 0 && !rd.serviceUnknown) {
+  // ★ Phase 579: บิล/orphan-JV ตรวจไม่ได้ (network สะดุด/เกิน cap) → เตือน unknown (สีเหลือง) ไม่โชว์ "ครบ ✅" หลอก
+  if (rd.srcUnknown) lines.push(`<div style="margin-top:2px;font-weight:600;color:#b45309">📋 ตรวจบิลไม่ได้ (unknown) — ยังไม่ยืนยันว่าครบ ⚠️</div>`);
+  if (rd.jvUnknown) lines.push(`<div style="margin-top:2px;font-weight:600;color:#b45309">🧹 ตรวจ orphan JV ไม่ได้ (unknown) — ยังไม่ยืนยันว่าครบ ⚠️</div>`);
+  if (rd.orphanSrc === 0 && rd.orphanJV === 0 && rd.serviceMissing === 0 && !rd.serviceUnknown && !rd.srcUnknown && !rd.jvUnknown) {
     lines.push(`<div style="margin-top:2px;font-weight:600;color:#166534">📋 บิล + งานบริการมี JE ครบ ✅</div>`);
   }
   return lines.join("");
@@ -112,42 +116,61 @@ async function fetchCloseReadiness(year, month, fromDate, toDate) {
   const toNext = nd.toISOString().slice(0, 10);
 
   let orphanSrc = 0, orphanJV = 0;
+  let srcUnknown = false, jvUnknown = false;   // ★ Phase 579: ตรวจไม่ได้/เกิน cap = unknown = ไม่เขียว (fail-CLOSED)
+  const ID_CHUNK = 120;   // batch id=in.(...) กัน URL ยาว fail (mirror je_fetch chunk-by-URL-length)
 
   // (a) completeness: ขาย/รายจ่ายในเดือนที่ยังไม่มี JE (actionable)
+  //   ★ Phase 579: paginate source ids (เกิน 1000 ต้องได้ครบ) + batch id-in + fetch fail → srcUnknown
+  //     (เลิก catch{ข้ามเงียบ}→orphanSrc คง 0 = เขียวหลอก). "0 orphan ที่ตรวจครบจริง"=เขียว; "ตรวจไม่ได้"=unknown.
   for (const key of ["sales", "expenses"]) {
     const cat = INTEGRITY_CATS.find(c => c.key === key);
     try {
-      const vr = await fetch(`${cfg.url}/rest/v1/${cat.view}?select=id&created_at=gte.${fromDate}&created_at=lt.${toNext}`, { headers });
-      if (!vr.ok) continue;
-      const ids = (await vr.json()).map(x => x.id);
-      if (!ids.length) continue;
-      const rr = await fetch(`${cfg.url}/rest/v1/${cat.table}?id=in.(${ids.join(",")})&select=${cat.sel}`, { headers });
-      if (!rr.ok) continue;
-      for (const row of await rr.json()) {
-        if (_classifyOrphan(cat, row).bucket === "actionable") orphanSrc++;
+      const idRows = await fetchAllRowsRaw(
+        (off, lim) => `${cfg.url}/rest/v1/${cat.view}?select=id&created_at=gte.${fromDate}&created_at=lt.${toNext}&order=id.asc&limit=${lim}&offset=${off}`,
+        headers
+      );
+      const ids = idRows.map(x => x.id);
+      if (!ids.length) continue;   // ไม่มี source ในเดือน = เขียวจริง (ไม่ใช่ fail)
+      for (let i = 0; i < ids.length; i += ID_CHUNK) {
+        const chunk = ids.slice(i, i + ID_CHUNK).join(",");
+        const rows = await fetchAllRowsRaw(
+          (off, lim) => `${cfg.url}/rest/v1/${cat.table}?id=in.(${chunk})&select=${cat.sel}&order=id.asc&limit=${lim}&offset=${off}`,
+          headers
+        );
+        for (const row of rows) {
+          if (_classifyOrphan(cat, row).bucket === "actionable") orphanSrc++;
+        }
       }
-    } catch (_e) { /* fail-safe: ข้าม ไม่ false-alarm */ }
+    } catch (_e) { srcUnknown = true; }   // ★ fail-CLOSED: ตรวจไม่ได้ → unknown (ไม่เขียว)
   }
 
   // (b) orphan JV: JE (approved) ในเดือน ที่ source row ถูกลบไปแล้ว (เฉพาะ non-HR sources)
+  //   ★ Phase 579: paginate journal_entries (เกิน 1000 ต้องได้ครบ) + batch existence check + fetch fail → jvUnknown
+  //     (เลิก er.ok? Set : Set(uniq) ที่ "ถือว่ามีครบ" = เขียวหลอก). existence จริงตรวจไม่ได้ = unknown.
   try {
-    const jr = await fetch(`${cfg.url}/rest/v1/journal_entries?select=source_table,source_id&doc_date=gte.${fromDate}&doc_date=lte.${toDate}&status=eq.approved&source_table=in.(${READINESS_JV_SOURCES.join(",")})&source_id=not.is.null`, { headers });
-    if (jr.ok) {
-      const jes = await jr.json();
-      const byTable = {};
-      for (const j of jes) {
-        if (!byTable[j.source_table]) byTable[j.source_table] = [];
-        byTable[j.source_table].push(String(j.source_id));
-      }
-      for (const table of Object.keys(byTable)) {
-        const uniq = [...new Set(byTable[table])];
-        const er = await fetch(`${cfg.url}/rest/v1/${table}?id=in.(${uniq.join(",")})&select=id`, { headers });
-        // fail-safe: ถ้าเช็คไม่ได้ → ถือว่ามีอยู่ครบ (ไม่ false-alarm)
-        const exist = er.ok ? new Set((await er.json()).map(r => String(r.id))) : new Set(uniq);
-        for (const sid of uniq) if (!exist.has(sid)) orphanJV++;
-      }
+    const jes = await fetchAllRowsRaw(
+      (off, lim) => `${cfg.url}/rest/v1/journal_entries?select=source_table,source_id&doc_date=gte.${fromDate}&doc_date=lte.${toDate}&status=eq.approved&source_table=in.(${READINESS_JV_SOURCES.join(",")})&source_id=not.is.null&order=id.asc&limit=${lim}&offset=${off}`,
+      headers
+    );
+    const byTable = {};
+    for (const j of jes) {
+      if (!byTable[j.source_table]) byTable[j.source_table] = [];
+      byTable[j.source_table].push(String(j.source_id));
     }
-  } catch (_e) { /* fail-safe */ }
+    for (const table of Object.keys(byTable)) {
+      const uniq = [...new Set(byTable[table])];
+      const exist = new Set();
+      for (let i = 0; i < uniq.length; i += ID_CHUNK) {
+        const chunk = uniq.slice(i, i + ID_CHUNK).join(",");
+        const rows = await fetchAllRowsRaw(
+          (off, lim) => `${cfg.url}/rest/v1/${table}?id=in.(${chunk})&select=id&order=id.asc&limit=${lim}&offset=${off}`,
+          headers
+        );
+        for (const r of rows) exist.add(String(r.id));
+      }
+      for (const sid of uniq) if (!exist.has(sid)) orphanJV++;
+    }
+  } catch (_e) { jvUnknown = true; }   // ★ fail-CLOSED: existence ตรวจไม่ได้ → unknown (ไม่เขียว)
 
   // (c) Phase 390: service revenue completeness — งานบริการที่ปิดแล้วในเดือนนี้ ที่ยังไม่มี JE (จับด้วย source_id).
   //     ★ ต่างจาก (a)/(b): fetch fail → serviceUnknown=true (ไม่เขียว) ไม่ใช่ fail-safe-green —
@@ -160,8 +183,9 @@ async function fetchCloseReadiness(year, month, fromDate, toDate) {
   } catch (_e) { serviceUnknown = true; }
 
   return {
-    orphanSrc, orphanJV, serviceMissing, serviceUnknown,
-    ready: orphanSrc === 0 && orphanJV === 0 && serviceMissing === 0 && !serviceUnknown,
+    orphanSrc, orphanJV, serviceMissing, serviceUnknown, srcUnknown, jvUnknown,
+    // ★ Phase 579: unknown ใด ๆ (ตรวจไม่ได้) = ไม่เขียว — กัน "ปิดงวดได้ ✅" หลอกตอน network สะดุด/เกิน cap
+    ready: orphanSrc === 0 && orphanJV === 0 && serviceMissing === 0 && !serviceUnknown && !srcUnknown && !jvUnknown,
   };
 }
 
@@ -410,6 +434,9 @@ export async function renderPeriodsPage(ctx) {
       if (rd && rd.orphanJV > 0) issues.push(`orphan JV ${rd.orphanJV} รายการ`);
       if (rd && rd.serviceMissing > 0) issues.push(`งานบริการ ${rd.serviceMissing} งานยังไม่เข้าบัญชี`);
       if (rd && rd.serviceUnknown) issues.push(`ตรวจงานบริการไม่ได้ (unknown)`);
+      // ★ Phase 579: บิล/orphan-JV ตรวจไม่ได้ = ยังไม่พร้อมปิด (confirm dialog ต้องไม่บอก "✅ พร้อมปิด" หลอก)
+      if (rd && rd.srcUnknown) issues.push(`ตรวจบิลไม่ได้ (unknown)`);
+      if (rd && rd.jvUnknown) issues.push(`ตรวจ orphan JV ไม่ได้ (unknown)`);
       const warn = issues.length ? `\n🔴 เตือน: งวดนี้ยังไม่พร้อม — ${issues.join(" · ")} (ควรแก้ก่อนปิด)\n` : '';
       const msg = `ยืนยันปิดงวด ${MONTHS_TH[m-1]} ${y}?\n\n` +
         `📊 Summary:\n` +
