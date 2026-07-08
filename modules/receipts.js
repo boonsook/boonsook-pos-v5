@@ -1351,7 +1351,11 @@ function _wireMultiPayPanel(r) {
       const _prevMethod = r.payment_method;  // Phase 556: จับก่อน overwrite (repost JV ถ้า Dr เปลี่ยน)
       const patchBody = { payments };
       if (main) patchBody.payment_method = main.method;
-      await window._appXhrPatch?.("receipts", patchBody, "id", r.id);
+      // ★ Phase 575: เช็คผล PATCH "ก่อน" mutate/repost JV/toast. xhrPatch ไม่ throw (คืน {ok:false} ทั้ง
+      //   RLS/network/timeout/undefined) → เดิมไหลต่อ = mutate r.payments + void/repost JV ตาม method ใหม่
+      //   ที่ DB ไม่ได้รับ + toast สำเร็จ = GL ไม่ตรง receipts (สำเร็จปลอม). throw → catch เดิม rollback ปุ่ม.
+      const res = await window._appXhrPatch?.("receipts", patchBody, "id", r.id);
+      if (!res?.ok) throw new Error(res?.error?.message || "บันทึกการชำระเงินไม่สำเร็จ");
       // Phase 89.42: race is prevented by _multiPayGuard single-flight (no concurrent invocation can reach this line)
       /* eslint-disable require-atomic-updates -- protected by _multiPayGuard single-flight (Phase 89.42) */
       r.payments = payments;
@@ -1363,8 +1367,9 @@ function _wireMultiPayPanel(r) {
       // re-render preview to reflect new payment list in document body
       if (_ctx) renderReceiptsPage(_ctx);
     } catch (e) {
-      console.error("[multi-pay save]", e);
-      window.App?.showToast?.("❌ บันทึกไม่สำเร็จ — รัน supabase-phase69-multi-payment.sql ก่อน", "error");
+      console.error("[multi-pay save] (ถ้า column payments ยังไม่มี ให้รัน supabase-phase69-multi-payment.sql)", e);
+      // ★ Phase 575: บอกสาเหตุจริง (RLS/network/timeout ก็มาทางนี้) — เดิม assume สาเหตุเดียว (SQL) = mislead
+      window.App?.showToast?.("❌ บันทึกไม่สำเร็จ: " + (e?.message || "ไม่ทราบสาเหตุ"), "error");
       /* eslint-disable require-atomic-updates -- A: UI rollback in catch (sequential error path) */
       saveBtn.disabled = false;
       saveBtn.textContent = orig;
