@@ -8,7 +8,7 @@
 ## นิยามเลขเฟส
 เลขเฟส = ลำดับแนะนำ (571 ขึ้นไป ต่อจาก build 570 settings-bounce+catalog ที่กำลังทำ) — owner สลับลำดับได้
 
-> ⚠️ **build# ≠ phase# ในลิสต์นี้แล้ว:** มี "เฟสแทรก" **ac-catalog-live-sync** ที่ owner เลือกทำ ใช้ **build 574** (แคตตาล็อกแอร์ sync ทุกเครื่องผ่าน `ac_catalog_doc` — รวมหน้าลูกค้า; ✅ MERGED+LIVE #152 `54e7bfe`, ไม่อยู่ใน numbered list นี้). รายการ "Phase 574 — receipts multipay" ปิดแล้วที่ build 575. ✅ ปิดไปแล้ว: 571 (build 571) · 572 (build 572) · 573 (build 573) · +ac-catalog (build 574) · 574-receipts-multipay (build 575) · 575-quotations-items (build 576 #154 `56a89e3`) · 576-income-dashboard (build 577 #155 `72aafb7`). 🔜 **คิวถัดไป = follow-up Phase 577: `profit_report.js:111` + `expense_overview.js:60` ใช้ `fetchExpensesSince` (paginated) — ตัด undercount รายจ่ายในงบกำไร/หน้าภาพรวมรายจ่าย** (แล้วค่อยไล่ Should-fix กลุ่มถัดไป).
+> ⚠️ **build# ≠ phase# ในลิสต์นี้แล้ว:** มี "เฟสแทรก" **ac-catalog-live-sync** ที่ owner เลือกทำ ใช้ **build 574** (แคตตาล็อกแอร์ sync ทุกเครื่องผ่าน `ac_catalog_doc` — รวมหน้าลูกค้า; ✅ MERGED+LIVE #152 `54e7bfe`, ไม่อยู่ใน numbered list นี้). รายการ "Phase 574 — receipts multipay" ปิดแล้วที่ build 575. ✅ ปิดไปแล้ว: 571 (build 571) · 572 (build 572) · 573 (build 573) · +ac-catalog (build 574) · 574-receipts-multipay (build 575) · 575-quotations-items (build 576 #154 `56a89e3`) · 576-income-dashboard (build 577 #155 `72aafb7`) · follow-up-577 profit_report+expense_overview (build 578 #156 `ac3d943`). 🔜 **คิวถัดไป = accounting blocker: period-close readiness fail-closed (`periods.js` computeReadiness completeness + orphan-JV fail-safe-green + cap 1000 → "ปิดงวดได้ ✅" หลอก)** (แล้วค่อยไล่ Should-fix กลุ่มถัดไป).
 
 ---
 
