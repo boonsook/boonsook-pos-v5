@@ -91,11 +91,13 @@ test("(c) closed_at null → fallback created_at (งานเก่าก่อ
   assert.equal(sumServiceJobIncome([j], inMonthBySvcDate("2026-06")), 500);
 });
 test("(d) source: dashboard today/month service income use serviceIncomeDate, not j.created_at", () => {
+  // Phase 577: source ย้ายจาก state.serviceJobs (cap 50) → _serviceForAgg (full-year fetch เมื่อ loaded, fallback state).
+  //   invariant ที่ guard นี้ป้องคือ "ลงวันด้วย serviceIncomeDate (closed_at) ไม่ใช่ created_at" — ยังคงอยู่ครบ.
   // today income
-  assert.match(dashSrc, /todayServiceIncome\s*=\s*sumServiceJobIncome\(state\.serviceJobs,\s*j\s*=>\s*dateBkk\(serviceIncomeDate\(j\)\)\s*===\s*today\)/);
+  assert.match(dashSrc, /todayServiceIncome\s*=\s*sumServiceJobIncome\(_serviceForAgg,\s*j\s*=>\s*dateBkk\(serviceIncomeDate\(j\)\)\s*===\s*today\)/);
   // month income
-  assert.match(dashSrc, /monthServiceIncome\s*=\s*sumServiceJobIncome\(state\.serviceJobs,\s*j\s*=>\s*dateBkk\(serviceIncomeDate\(j\)\)\.slice\(0,7\)\s*===\s*thisMonth\)/);
+  assert.match(dashSrc, /monthServiceIncome\s*=\s*sumServiceJobIncome\(_serviceForAgg,\s*j\s*=>\s*dateBkk\(serviceIncomeDate\(j\)\)\.slice\(0,7\)\s*===\s*thisMonth\)/);
   // must NOT still date service income directly by created_at
-  assert.ok(!/todayServiceIncome\s*=\s*sumServiceJobIncome\(state\.serviceJobs,\s*j\s*=>\s*dateBkk\(j\.created_at\)/.test(dashSrc), "todayServiceIncome must not use j.created_at directly");
-  assert.ok(!/monthServiceIncome\s*=\s*sumServiceJobIncome\(state\.serviceJobs,\s*j\s*=>\s*dateBkk\(j\.created_at\)/.test(dashSrc), "monthServiceIncome must not use j.created_at directly");
+  assert.ok(!/todayServiceIncome\s*=\s*sumServiceJobIncome\([^,]+,\s*j\s*=>\s*dateBkk\(j\.created_at\)/.test(dashSrc), "todayServiceIncome must not use j.created_at directly");
+  assert.ok(!/monthServiceIncome\s*=\s*sumServiceJobIncome\([^,]+,\s*j\s*=>\s*dateBkk\(j\.created_at\)/.test(dashSrc), "monthServiceIncome must not use j.created_at directly");
 });
