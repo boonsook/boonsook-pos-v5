@@ -8,7 +8,7 @@
 ## นิยามเลขเฟส
 เลขเฟส = ลำดับแนะนำ (571 ขึ้นไป ต่อจาก build 570 settings-bounce+catalog ที่กำลังทำ) — owner สลับลำดับได้
 
-> ⚠️ **build# ≠ phase# ในลิสต์นี้แล้ว:** มี "เฟสแทรก" **ac-catalog-live-sync** ที่ owner เลือกทำ ใช้ **build 574** (แคตตาล็อกแอร์ sync ทุกเครื่องผ่าน `ac_catalog_doc` — รวมหน้าลูกค้า; ✅ MERGED+LIVE #152 `54e7bfe`, ไม่อยู่ใน numbered list นี้). รายการ "Phase 574 — receipts multipay" ปิดแล้วที่ build 575. ✅ ปิดไปแล้ว: 571 (build 571) · 572 (build 572) · 573 (build 573) · +ac-catalog (build 574) · 574-receipts-multipay (build 575) · 575-quotations-items (build 576 #154 `56a89e3`). 🔜 **คิวถัดไป = "Phase 576 — income_overview + dashboard: ตัวเลขเงินจาก state ที่ cap → โชว์ผิดเงียบ" → จะ ship ที่ build 577** (income_overview ทั้งหน้าคิดจาก state cap 50 + dashboard expenses cap 200/serviceIncome·webOrders cap 50 — ขยายโครง `fetchSalesSince` Phase 562 ครอบ expenses + service_jobs ช่วงปี).
+> ⚠️ **build# ≠ phase# ในลิสต์นี้แล้ว:** มี "เฟสแทรก" **ac-catalog-live-sync** ที่ owner เลือกทำ ใช้ **build 574** (แคตตาล็อกแอร์ sync ทุกเครื่องผ่าน `ac_catalog_doc` — รวมหน้าลูกค้า; ✅ MERGED+LIVE #152 `54e7bfe`, ไม่อยู่ใน numbered list นี้). รายการ "Phase 574 — receipts multipay" ปิดแล้วที่ build 575. ✅ ปิดไปแล้ว: 571 (build 571) · 572 (build 572) · 573 (build 573) · +ac-catalog (build 574) · 574-receipts-multipay (build 575) · 575-quotations-items (build 576 #154 `56a89e3`) · 576-income-dashboard (build 577 #155 `72aafb7`). 🔜 **คิวถัดไป = follow-up Phase 577: `profit_report.js:111` + `expense_overview.js:60` ใช้ `fetchExpensesSince` (paginated) — ตัด undercount รายจ่ายในงบกำไร/หน้าภาพรวมรายจ่าย** (แล้วค่อยไล่ Should-fix กลุ่มถัดไป).
 
 ---
 
@@ -36,10 +36,12 @@
 - `modules/quotations.js:1016/1039/200/1348` — fetch items ล้ม → `_lineItems=[]` ไม่มี toast; `:962` xhrDelete + `:973` loop xhrPost ไม่เช็คผล → scenario: เปิดแก้ตอนเน็ตสะดุด → ฟอร์มว่าง → กดบันทึก → DELETE items ทั้งใบ + toast สำเร็จ
 - แก้แล้ว: flag `_lineItemsLoadFailed` + toast ทุก catch (openPreview/convert = ยกเลิกการเปิด/แปลง) · guard "ห้ามบันทึกทับ" ก่อนถึง xhrDelete · เช็คผล delete (`!ok → throw` + catch ใหม่รับ) · `failedItems` แบบ Phase 412 (fail = ห้าม toast สำเร็จ) · +guard test 13 (`quotations_items_integrity_guard`)
 
-### Phase 576 — income_overview + dashboard: ตัวเลขเงินจาก state ที่ cap → โชว์ผิดเงียบ
+### ✅ Phase 576 (→ build 577) — income_overview + dashboard: ตัวเลขเงินจาก state ที่ cap → โชว์ผิดเงียบ — DONE (MERGED+DEPLOYED build 577, PR #155 `72aafb7`, 2026-07-08)
 - `modules/income_overview.js:54-90` ทั้งหน้า (POS/web/service + กราฟรายเดือนปีนี้) จาก `state.sales` cap 50 + `state.serviceJobs` cap 50 — footer `:146` อ้างว่าตรง P&L ซึ่งไม่จริง
 - `modules/dashboard.js:446-448,458,465-469` — expenses cap 200 + serviceIncome/webOrders cap 50 → "กำไรสุทธิเดือนนี้"/การ์ดรายจ่ายปีเพี้ยน (Phase 562 แก้เฉพาะ sales)
-- แก้: ขยายโครง `_dashSalesRows`/`fetchSalesSince` (Phase 562, `sales_fetch.js`) ครอบ expenses + service_jobs ช่วงปี
+- แก้แล้ว: `modules/range_fetch.js` ใหม่ (paginated `fetchExpensesSince`/`fetchServiceJobsSince` — service OR filter `closed_at.gte|created_at.gte`); dashboard บล็อก aux แยก + `_expensesForAgg`/`_serviceForAgg` (loaded=DB เต็ม, fallback state+⚠️); income_overview fetch-backed (skeleton/error+retry). +guard `income_dashboard_fetch` (15). READ-ONLY ไม่มี SQL
+
+> 🔜 **Follow-up (จาก verify Phase 577 ข้อ 4 — เฟสถัดไป):** `profit_report.js:111` netProfit ใช้ `state.expenses` cap 200 (revenue เต็มจาก `fetchSalesSince` แล้ว แต่ expense ขาด → **net profit เกินจริง**) + `expense_overview.js:60` fetch แต่ไม่ paginate (silent 1000-cap) — ทั้งคู่ใช้ `fetchExpensesSince` (paginated helper Phase 577) ได้
 
 ---
 
