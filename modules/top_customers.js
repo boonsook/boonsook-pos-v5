@@ -6,6 +6,7 @@ import { renderEmpty } from "./ui_states.js";
 
 import { escHtml, visibleSalesForRole } from "./utils.js";
 import { fetchSaleItemsForSaleIds } from "./sale_items_fetch.js";
+import { fetchSalesSince } from "./sales_fetch.js";
 function money(n) {
   return new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n || 0));
 }
@@ -37,14 +38,21 @@ export async function renderTopCustomersPage(ctx) {
     cutoffKey = today.toISOString().slice(0, 4) + "-01-01";
   }
 
-  // ── กรอง sales ในช่วง + non-admin เห็นเฉพาะของตัวเอง (Phase 89.27) ──
-  const sales = visibleSalesForRole(state.sales, state.profile, state.currentUser)
+  // ── โหลด sales เต็มช่วงจาก DB + non-admin เห็นเฉพาะของตัวเอง (Phase 89.27) ──
+  // ★ Phase 582: เดิมอ่าน state.sales cap 50 → อันดับ/ยอด (totalRevenue/top5) ต่ำกว่าจริงเมื่อ >50 บิล/ช่วง.
+  //   fetchSalesSince(cutoffKey) เต็มช่วง (mirror profit_report:74); fetch ล้ม → fallback state.sales + ป้าย ⚠️.
+  //   client-side date filter เดิมคง exact bound (helper buffer -2 วัน = candidate superset เท่านั้น).
+  const _tcPeriodSnap = _tcPeriod;
+  container.innerHTML = `<div style="padding:48px 16px;text-align:center;color:#64748b"><div style="font-size:32px;margin-bottom:8px">⏳</div>กำลังโหลดข้อมูลลูกค้า…</div>`;
+  const _salesRes = await fetchSalesSince(cutoffKey);
+  if (!document.body.contains(container) || _tcPeriod !== _tcPeriodSnap) return;  // เปลี่ยนช่วง/ออกหน้าระหว่างโหลด
+  const _salesFetchOk = _salesRes.ok;
+  if (!_salesFetchOk) showToast?.("โหลดยอดขายเต็มไม่สำเร็จ — แสดงจาก ~50 ล่าสุด (อันดับอาจไม่ครบ)", "warn");
+  const sales = visibleSalesForRole(_salesFetchOk ? _salesRes.rows : (state.sales || []), state.profile, state.currentUser)
     .filter(s => !cutoffKey || String(s.created_at || "").slice(0, 10) >= cutoffKey);
 
   // ★ Phase 486: ดึง sale_items สดจาก DB (เดิมอ่าน state.saleItems ที่ loadAllData ไม่เคยโหลด = ว่าง
   //   → คอลัมน์ "จำนวนชิ้น" = 0 ทุกราย + sort-by-qty พัง). fetch ล้ม → qty=0 แต่ยังโชว์ยอดเงิน (เตือน toast)
-  const _tcPeriodSnap = _tcPeriod;
-  container.innerHTML = `<div style="padding:48px 16px;text-align:center;color:#64748b"><div style="font-size:32px;margin-bottom:8px">⏳</div>กำลังโหลดข้อมูลลูกค้า…</div>`;
   const _siRes = await fetchSaleItemsForSaleIds(sales.map(s => s.id));
   if (!document.body.contains(container) || _tcPeriod !== _tcPeriodSnap) return;  // เปลี่ยนช่วง/ออกหน้าระหว่างโหลด
   if (!_siRes.ok) showToast?.("โหลดจำนวนชิ้นสินค้าไม่สำเร็จ — แสดงยอดเงินตามจริง", "warn");
@@ -116,6 +124,7 @@ export async function renderTopCustomersPage(ctx) {
         <h2 style="margin:0 0 4px;color:#854d0e">ลูกค้าซื้อเยอะสุด (Top Customers)</h2>
         <p style="margin:0;color:#1e40af;font-size:13px">จัดอันดับลูกค้าตามยอดซื้อ — ใช้ดูแล/ทำโปรโมชั่นพิเศษ</p>
       </div>
+      ${_salesFetchOk ? "" : `<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:#92400e">⚠️ โหลดยอดขายเต็มไม่สำเร็จ — อันดับ/ยอดคิดจาก ~50 บิลล่าสุด (อาจไม่ครบ) · ลองสลับช่วงเพื่อโหลดใหม่</div>`}
 
       <!-- Period Selector -->
       <div class="panel" style="padding:14px;margin-bottom:14px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
