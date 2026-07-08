@@ -11,6 +11,7 @@ import { isServiceJobPendingReview } from "./service_status.js";
 import { setServiceJobsFilter } from "./service_jobs.js";
 // Phase 562: ดึงยอดขายทั้งปีจาก DB (paginated, ไม่ cap 50) สำหรับ KPI เดือน/ปี/trend — read-only GET
 import { fetchSalesSince } from "./sales_fetch.js";
+import { fetchExpensesSince, fetchServiceJobsSince } from "./range_fetch.js";
 
 // ═══ Phase 387: dashboard income helpers (pure — ทำให้กำไรสุทธิตรงกับงบ P&L) ═══
 // web-order service jobs (คำสั่งซื้อสินค้าผ่านเว็บ) — predicate เดียวกับที่ใช้คิด revenue เดิม
@@ -100,6 +101,11 @@ let _dashSalesRows = null;         // role-filtered sales ทั้งปี (nu
 let _dashSalesState = "idle";      // idle | loading | loaded | error
 let _dashSalesSeq = 0;             // กัน stale resolve
 let _dashSalesCacheKey = null;     // "<userId>:<role>:<yearStart>" — ผูก user/role/ปี
+// ★ Phase 577: ยอดค่าใช้จ่าย + งานบริการทั้งปีจาก DB (ไม่ cap 200/50) → KPI รายจ่าย/รายได้บริการ/ออเดอร์เว็บ
+let _dashExpenseRows = null;       // expenses ทั้งปี (null = ยังไม่โหลด)
+let _dashServiceRows = null;       // service_jobs ทั้งปี (closed_at|created_at ในช่วง — null = ยังไม่โหลด)
+let _dashAuxState = "idle";        // idle | loading | loaded | error (expenses+service ร่วมกัน)
+let _dashAuxSeq = 0;               // กัน stale resolve (แยกจาก sales — คงบล็อก sales Phase 562 เดิมไว้)
 
 // ★ Per-panel date range (months) — FlowAccount-style dropdown per panel
 const _panelRange = {
@@ -423,6 +429,11 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
     _dashSalesRows = null;
     _dashSalesState = "idle";
     _dashSalesSeq++; // invalidate fetch in-flight ของ key เก่า
+    // ★ Phase 577: reset aux (expenses+service) ให้ idle พร้อมกัน — สลับ user/role/ปี = โหลดใหม่
+    _dashExpenseRows = null;
+    _dashServiceRows = null;
+    _dashAuxState = "idle";
+    _dashAuxSeq++;
   }
 
   // ★ กรองรายการขายที่ soft-delete + non-admin เห็นเฉพาะของตัวเอง (Phase 89.27)
@@ -430,9 +441,12 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
   // ★ Phase 562: period/เดือน/ปี/trend/chart อ่านจากยอดขายเต็มปีที่ fetch สด (ไม่ cap 50 แบบ state);
   //   ระหว่างโหลด/error → fallback state (≤50) — ไม่ throw/หน้าขาว
   const _salesForAgg = (_dashSalesState === "loaded" && _dashSalesRows) ? _dashSalesRows : _stateSales;
+  // ★ Phase 577: ค่าใช้จ่าย/งานบริการ อ่านชุด fetch เต็มปีเมื่อ loaded, มิฉะนั้น fallback state (cap 200/50) + ป้าย ⚠️
+  const _expensesForAgg = (_dashAuxState === "loaded" && _dashExpenseRows) ? _dashExpenseRows : (state.expenses || []);
+  const _serviceForAgg = (_dashAuxState === "loaded" && _dashServiceRows) ? _dashServiceRows : (state.serviceJobs || []);
 
   // ★ ออเดอร์จากเว็บ (service_jobs ที่เป็นคำสั่งซื้อสินค้า) — รวมทุกสถานะยกเว้นยกเลิก
-  const webOrders = (state.serviceJobs || []).filter(isWebOrderServiceJob);
+  const webOrders = _serviceForAgg.filter(isWebOrderServiceJob);
 
   // ─── ข้อมูลยอดขายตามช่วงเวลา ───
   const periodSales = filterByPeriod(_salesForAgg, "created_at", _dashPeriod);
@@ -443,7 +457,7 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
   const _periodCost = periodSales.reduce((s,x)=>s+Number(x.total_cost||0),0);
 
   // ─── ข้อมูลค่าใช้จ่ายตามช่วงเวลา ───
-  const expenses = state.expenses || [];
+  const expenses = _expensesForAgg;   // Phase 577: full-year fetch เมื่อ loaded (เดิม state.expenses cap 200)
   const periodExpenses = filterByPeriod(expenses, "expense_date", _dashPeriod);
   const periodExpenseTotal = periodExpenses.reduce((s,x)=>s+Number(x.amount||0),0);
 
@@ -455,7 +469,7 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
   const todayOrderCount = todaySales.length + todayWebOrders.length;
   // ★ Phase 395: รายได้รวมวันนี้ = POS + web + งานบริการ (delivered/done/closed) — นิยามเดียวกับ income_overview/P&L
   //   *ไม่แก้* "ยอดขายวันนี้" (todayRevenue = POS+web) — แค่ "เพิ่ม" การ์ดรายได้รวม
-  const todayServiceIncome = sumServiceJobIncome(state.serviceJobs, j => dateBkk(serviceIncomeDate(j)) === today);
+  const todayServiceIncome = sumServiceJobIncome(_serviceForAgg, j => dateBkk(serviceIncomeDate(j)) === today);
   const todayTotalIncome = todayRevenue + todayServiceIncome;
 
   // ─── สรุปรวม ───
@@ -464,7 +478,7 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
   const monthRevenue = monthSales.reduce((s,x)=>s+Number(x.total_amount||0),0) + monthWebOrders.reduce((s,x)=>s+Number(x.total_cost||0),0);
   const monthExpenseTotal = expenses.filter(e => String(e.expense_date||"").slice(0,7) === thisMonth).reduce((s,x)=>s+Number(x.amount||0),0);
   // Phase 387: กำไรสุทธิต้องรวมรายได้งานบริการ (delivered/done/closed) ให้ตรงกับงบ P&L
-  const monthServiceIncome = sumServiceJobIncome(state.serviceJobs, j => dateBkk(serviceIncomeDate(j)).slice(0,7) === thisMonth);
+  const monthServiceIncome = sumServiceJobIncome(_serviceForAgg, j => dateBkk(serviceIncomeDate(j)).slice(0,7) === thisMonth);
   const monthTotalIncome = monthRevenue + monthServiceIncome;
   const monthNetProfit = monthTotalIncome - monthExpenseTotal;
 
@@ -571,11 +585,12 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
       ${_kpiCard({
         accent: "#ef4444", label: `📤 ค่าใช้จ่าย ${PERIOD_LABELS[_dashPeriod]}`, value: money(periodExpenseTotal), valueColor: "#ef4444",
         sub: `${periodExpenses.length} รายการ`,
-        spark: `${_sparkline7d(_last7DaysSeries(state.expenses, "expense_date", "amount"), "#ef4444")}<div class="kpi-spark-cap">7 วันล่าสุด</div>`,
+        spark: `${_sparkline7d(_last7DaysSeries(expenses, "expense_date", "amount"), "#ef4444")}<div class="kpi-spark-cap">7 วันล่าสุด</div>`,
       })}
       ${_kpiCard({ accent: "#10b981", label: `📊 กำไรขั้นต้น ${PERIOD_LABELS[_dashPeriod]}`, value: money(periodProfit), valueColor: "#10b981" })}
       ${_kpiCard({
-        accent: monthNetProfit >= 0 ? "#10b981" : "#ef4444", label: "📈 กำไรสุทธิเดือนนี้",
+        accent: monthNetProfit >= 0 ? "#10b981" : "#ef4444",
+        label: `📈 กำไรสุทธิเดือนนี้${_dashAuxState === "loading" ? ` <span style="font-size:10px;color:#94a3b8;font-weight:400">⏳ โหลดยอดเต็ม…</span>` : _dashAuxState === "error" ? ` <span title="โหลดค่าใช้จ่าย/งานบริการเต็มไม่ได้ — คิดจาก ~200/~50 ล่าสุด อาจต่ำกว่าจริง" style="font-size:11px;color:#f59e0b;font-weight:400">⚠️</span>` : ""}`,
         value: money(monthNetProfit), valueColor: monthNetProfit >= 0 ? "#10b981" : "#ef4444",
         sub: `รายได้ ${moneyShort(monthTotalIncome)} − จ่าย ${moneyShort(monthExpenseTotal)}`,
       })}
@@ -773,7 +788,7 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
     <!-- ═══ TREND (Phase 396): income vs expense line — full width ═══ -->
     <div class="panel">
       <div class="row"><h3 style="margin:0">📈 แนวโน้มรายได้ & ค่าใช้จ่าย</h3></div>
-      <div style="font-size:11px;color:#94a3b8;margin:-2px 0 8px">${_dashSalesState === "loaded" ? "รายได้ = ยอดขายปีนี้จาก DB · ค่าใช้จ่าย ~200 ล่าสุด" : "จากรายการล่าสุดที่โหลด (บิล ~50 / ค่าใช้จ่าย ~200) — ไม่ใช่ทั้งระบบ"}</div>
+      <div style="font-size:11px;color:#94a3b8;margin:-2px 0 8px">${(_dashSalesState === "loaded" && _dashAuxState === "loaded") ? "รายได้ + ค่าใช้จ่าย = ยอดเต็มปีนี้จาก DB (ไม่ตัดที่ cap)" : _dashSalesState === "loaded" ? "รายได้ = ยอดขายปีนี้จาก DB · ค่าใช้จ่าย/บริการ กำลังโหลดยอดเต็ม…" : "จากรายการล่าสุดที่โหลด (บิล ~50 / ค่าใช้จ่าย ~200) — ไม่ใช่ทั้งระบบ"}</div>
       ${_trendMonths(_salesForAgg, expenses).length === 0
         ? `<div style="text-align:center;padding:40px;color:#94a3b8;font-size:13px">ยังไม่มีข้อมูลพอแสดงแนวโน้ม</div>`
         : `<div class="chart-wrap" style="height:260px"><canvas id="salesChart"></canvas></div>`}
@@ -1051,6 +1066,31 @@ export function renderDashboard({ state, openReceiptDrawer, showRoute, sendLineN
     }
     if (!document.getElementById("page-dashboard")) return; // ออกหน้าไปแล้ว
     // re-render ทั้งหน้า → KPI เดือน/ปี/trend/chart อ่าน _salesForAgg ใหม่. trigger นี้เห็น non-idle → ไม่ refetch/ไม่ loop
+    renderDashboard({ state, openReceiptDrawer, showRoute, sendLineNotify, showToast });
+  })();
+
+  // ★ Phase 577: ดึงค่าใช้จ่าย + งานบริการทั้งปีจาก DB (paginated, ไม่ cap 200/50) → KPI รายจ่าย/รายได้บริการ/
+  //   ออเดอร์เว็บ/กำไรสุทธิ อ่านชุดนี้. บล็อกแยกจาก sales (คงบล็อก Phase 562 เดิมไว้ครบ = dashboard_sales_fetch_guard
+  //   ไม่แดง); ทั้งสองบล็อกยิงขนานกันจริง (fire-and-forget IIFE). error → aux state="error" → fallback state + ป้าย ⚠️
+  (async () => {
+    if (_dashAuxState !== "idle") return; // มี cache/กำลังโหลด/เคย error แล้ว → ไม่ refetch (กัน re-render loop)
+    const seq = ++_dashAuxSeq;
+    _dashAuxState = "loading";
+    const [expRes, svcRes] = await Promise.all([
+      fetchExpensesSince(_yearStart),
+      fetchServiceJobsSince(_yearStart),
+    ]);
+    if (seq !== _dashAuxSeq) return; // stale — มี load รอบใหม่ (สลับ user/role/ปี) แซง → ทิ้งผลรอบนี้
+    if (!expRes.ok || !svcRes.ok) {
+      _dashAuxState = "error";
+      _dashExpenseRows = null; // ★ ไม่ fallback ไป cap เดิมในแคช (undercount เงียบ) — _expensesForAgg/_serviceForAgg จัดการ fallback + ป้าย
+      _dashServiceRows = null;
+    } else {
+      _dashExpenseRows = expRes.rows;
+      _dashServiceRows = svcRes.rows; // service_jobs ไม่ role-filter (dashboard เดิมอ่าน state.serviceJobs ตรง ๆ)
+      _dashAuxState = "loaded";
+    }
+    if (!document.getElementById("page-dashboard")) return; // ออกหน้าไปแล้ว
     renderDashboard({ state, openReceiptDrawer, showRoute, sendLineNotify, showToast });
   })();
 

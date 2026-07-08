@@ -1,6 +1,11 @@
 // ═══════════════════════════════════════════════════════════
 //  INCOME OVERVIEW — ภาพรวมรายได้ (Phase 395)
-//  คู่กับ expense_overview · READ-ONLY (อ่าน ctx.state เท่านั้น ไม่ fetch/ไม่ mutate)
+//  คู่กับ expense_overview · READ-ONLY (ไม่เขียน/ไม่ mutate state)
+//
+//  ★ Phase 577: เดิมอ่าน ctx.state ตรง ๆ (state.sales cap 50 + state.serviceJobs cap 50)
+//     → ทั้งหน้า (POS/web/service + กราฟรายเดือน) โชว์ต่ำกว่าจริงเงียบ ๆ เมื่อร้านมี >50 บิล/งาน.
+//     ตอนนี้ fetch ยอดเต็มปีจาก DB (paginated, read-only GET ผ่าน helper) แล้ว aggregate จากชุดนั้น;
+//     ระหว่างโหลด → skeleton, error → fallback state (≤50) + ป้าย ⚠️ (worst case = พฤติกรรมเดิม).
 //
 //  ⚠️ "รายได้" ต้องนิยามเดียวกับ dashboard/P&L = POS sales + web orders + งานบริการ
 //     (delivered/done/closed) — reuse helper จาก dashboard.js (single source of truth)
@@ -9,10 +14,18 @@
 import { renderSkeleton, renderError } from "./ui_states.js";
 import { escHtml, visibleSalesForRole, dateBkk, todayBkk } from "./utils.js";
 import { isWebOrderServiceJob, isServiceIncomeJob, sumServiceJobIncome, serviceIncomeDate } from "./dashboard.js";
+import { fetchSalesSince } from "./sales_fetch.js";
+import { fetchServiceJobsSince } from "./range_fetch.js";
 
 let _period = "month";   // today | month | year
 let _donutChart = null;
 let _barChart = null;
+// ★ Phase 577: cache ยอดเต็มปีจาก DB (idle/loading/loaded/error) — keyed user/role/ปี, period tab ไม่ refetch
+let _ioSalesRows = null;
+let _ioServiceRows = null;
+let _ioState = "idle";     // idle | loading | loaded | error
+let _ioSeq = 0;            // กัน stale resolve
+let _ioCacheKey = null;    // "<userId>:<role>:<yearStart>"
 
 const PERIOD_LABELS = { today: "วันนี้", month: "เดือนนี้", year: "ปีนี้" };
 const money = (n) => "฿" + new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n || 0));
@@ -48,11 +61,39 @@ export function renderIncomeOverviewPage(ctx) {
     return;
   }
 
-  container.innerHTML = renderSkeleton({ type: "dashboard-cards", count: 3 });
+  // ★ Phase 577: cache key ผูก user/role/ปี — สลับ = โหลดใหม่ (period tab ไม่ reset → ไม่ refetch)
+  const _yearStart = todayBkk().slice(0, 4) + "-01-01";
+  const _skey = `${state?.currentUser?.id || ""}:${state?.profile?.role || ""}:${_yearStart}`;
+  if (_skey !== _ioCacheKey) {
+    _ioCacheKey = _skey; _ioSalesRows = null; _ioServiceRows = null; _ioState = "idle"; _ioSeq++;
+  }
 
-  // ── READ-ONLY: คำนวณจาก state เท่านั้น (นิยามเดียวกับ dashboard) ──
-  const allSales = visibleSalesForRole(state?.sales, state?.profile, state?.currentUser);
-  const jobs = state?.serviceJobs || [];
+  // ★ Phase 577: โหลดยอดเต็มปีจาก DB (ไม่ cap 50). yearStart เป็น cutoff → ครอบ today/month/year + กราฟรายเดือน.
+  //   filter ช่วงจริงทำ client-side (inPeriod) เหมือนเดิม — fetch แค่ขยาย candidate set เกิน cap.
+  if (_ioState === "idle") {
+    _ioState = "loading";
+    container.innerHTML = renderSkeleton({ type: "dashboard-cards", count: 3 });
+    const seq = ++_ioSeq;
+    (async () => {
+      const [sRes, svcRes] = await Promise.all([fetchSalesSince(_yearStart), fetchServiceJobsSince(_yearStart)]);
+      if (seq !== _ioSeq) return; // stale — สลับ user/role/ปี แซง → ทิ้งผลรอบนี้
+      if (sRes.ok && svcRes.ok) {
+        _ioSalesRows = visibleSalesForRole(sRes.rows, state?.profile, state?.currentUser);
+        _ioServiceRows = svcRes.rows;
+        _ioState = "loaded";
+      } else {
+        _ioSalesRows = null; _ioServiceRows = null; _ioState = "error"; // fallback + ป้าย จัดการตอน render
+      }
+      if (!document.getElementById("page-income_overview")) return; // ออกหน้าไปแล้ว
+      renderIncomeOverviewPage(ctx);
+    })();
+    return; // แสดง skeleton รอบนี้ — async resolve แล้วค่อย render หน้าจริง
+  }
+
+  // ── source: loaded = ยอดเต็มปีจาก DB / error → fallback state (≤50) + ป้าย ⚠️ (นิยามเดียวกับ dashboard) ──
+  const _loaded = _ioState === "loaded";
+  const allSales = (_loaded && _ioSalesRows) ? _ioSalesRows : visibleSalesForRole(state?.sales, state?.profile, state?.currentUser);
+  const jobs = (_loaded && _ioServiceRows) ? _ioServiceRows : (state?.serviceJobs || []);
   const webOrders = jobs.filter(isWebOrderServiceJob);
   const serviceJobs = jobs.filter(j => isServiceIncomeJob(j) && !isWebOrderServiceJob(j));
 
@@ -96,6 +137,8 @@ export function renderIncomeOverviewPage(ctx) {
         <h2 style="margin:0 0 4px;color:#0f172a">ภาพรวมรายได้</h2>
         <p style="margin:0;color:#475569;font-size:13px">ขาย POS + ออเดอร์เว็บ + งานบริการ (นิยามเดียวกับงบ P&L)</p>
       </div>
+
+      ${!_loaded ? `<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:#92400e;display:flex;gap:10px;align-items:center;flex-wrap:wrap">⚠️ โหลดยอดเต็มจาก DB ไม่สำเร็จ — แสดงจากรายการล่าสุดที่โหลด (≤50) อาจต่ำกว่าจริง<button id="ioRetryBtn" style="padding:4px 12px;border-radius:8px;border:1px solid #f59e0b;background:#fff;color:#92400e;cursor:pointer;font-size:12px;font-weight:600">ลองโหลดใหม่</button></div>` : ""}
 
       <div class="panel" style="padding:12px 14px;margin-bottom:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <span style="font-weight:700;font-size:13px">📅 ช่วง:</span>
@@ -143,7 +186,7 @@ export function renderIncomeOverviewPage(ctx) {
         </div>
       </div>
 
-      <div style="font-size:11px;color:#94a3b8;text-align:center;margin-top:4px">นิยาม "รายได้" ตรงกับหน้าภาพรวมบริษัท + งบกำไรขาดทุน (P&L)</div>
+      <div style="font-size:11px;color:#94a3b8;text-align:center;margin-top:4px">${_loaded ? 'ดึงยอดเต็มปีนี้จาก DB · นิยาม "รายได้" ตรงกับงบกำไรขาดทุน (P&L) — ตัวเลขควรใกล้เคียงกัน' : 'นิยาม "รายได้" ตรงกับหน้าภาพรวมบริษัท + งบกำไรขาดทุน (P&L)'}</div>
     </div>
   `;
 
@@ -151,6 +194,11 @@ export function renderIncomeOverviewPage(ctx) {
     _period = btn.dataset.p;
     renderIncomeOverviewPage(ctx);
   }));
+  // ★ Phase 577: retry เมื่อโหลดยอดเต็มล้ม → reset เป็น idle แล้ว render ใหม่ (idle-trigger จะ refetch)
+  document.getElementById("ioRetryBtn")?.addEventListener("click", () => {
+    _ioState = "idle";
+    renderIncomeOverviewPage(ctx);
+  });
   // ลิงก์ stat card "รายได้รวม" ไป P&L (read-only navigate)
   if (typeof showRoute === "function") {
     // (ไม่มีปุ่ม nav บังคับ — ปล่อยให้ user ใช้เมนู; showRoute มีไว้เผื่อ extend)
