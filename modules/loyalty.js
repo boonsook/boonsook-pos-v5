@@ -15,6 +15,40 @@ function money(n) {
 import { escHtml } from "./utils.js";
 import { fetchAllRowsRaw } from "./fetch_paginated.js";
 
+// ★ Phase 581: หน้าแอดมิน loyalty ดึงแต้มเต็มจาก DB (state.loyaltyPoints cap 500 @loadAllData →
+//   summary/per-customer ต่ำกว่าจริง + "คงเหลือ" ติดลบได้เมื่อ rows รวม >500: earn เก่าหลุดหน้าต่างก่อน redeem).
+//   staff อ่าน loyalty_points ได้ (ไม่โดน customer-deny Phase 505). cache module-scope + fallback state
+//   ระหว่างโหลด/error (mirror dashboard Phase 562 async-cache). READ-ONLY.
+let _loyAllRows = null;      // loyalty_points ทั้งหมดจาก DB (null = ยังไม่โหลด)
+let _loyState = "idle";      // idle | loading | loaded | error
+let _loySeq = 0;             // กัน stale resolve
+
+// โหลด loyalty_points ทั้งหมด (paginated) แล้ว re-render — idle-guard กัน refetch loop, seq-guard กัน stale.
+async function _loadAllLoyalty(ctx) {
+  if (_loyState !== "idle") return;   // มี cache/กำลังโหลด/เคย error → ไม่ refetch (กัน loop)
+  if (typeof window === "undefined" || !window.SUPABASE_CONFIG) { _loyState = "error"; _loyAllRows = null; return; }
+  const seq = ++_loySeq;
+  _loyState = "loading";
+  const cfg = window.SUPABASE_CONFIG;
+  const token = window._sbAccessToken || cfg.anonKey;
+  const headers = { apikey: cfg.anonKey, Authorization: "Bearer " + token };
+  try {
+    const rows = await fetchAllRowsRaw(
+      (off, lim) => `${cfg.url}/rest/v1/loyalty_points?select=*&order=created_at.desc&limit=${lim}&offset=${off}`,
+      headers
+    );
+    if (seq !== _loySeq) return;   // stale — โหลดรอบใหม่แซง → ทิ้งผลรอบนี้
+    _loyAllRows = rows;
+    _loyState = "loaded";
+  } catch (_e) {
+    if (seq !== _loySeq) return;
+    _loyAllRows = null;            // error → ไม่ fallback ในแคช (undercount เงียบ) — _loyForAgg จัดการ fallback + ป้าย
+    _loyState = "error";
+  }
+  if (!document.getElementById("page-loyalty")) return;   // ออกหน้าไปแล้ว
+  renderLoyaltyPage(ctx);
+}
+
 function dateTH(d) {
   if (!d) return "-";
   try {
@@ -386,7 +420,10 @@ export function renderLoyaltyPage(ctx) {
   const container = document.getElementById("page-loyalty");
   if (!container) return;
 
-  const loyaltyPoints = state.loyaltyPoints || [];
+  // ★ Phase 581: kick โหลดแต้มเต็มจาก DB (idle → loading → re-render เมื่อเสร็จ). idle-guard กัน loop.
+  if (_loyState === "idle") _loadAllLoyalty(ctx);
+  // summary + tabs + per-customer อ่านชุดเต็มเมื่อ loaded; ระหว่างโหลด/error → fallback state (≤500) + ป้าย
+  const loyaltyPoints = (_loyState === "loaded" && _loyAllRows) ? _loyAllRows : (state.loyaltyPoints || []);
   const settings = state.loyaltySettings || {};
   const customers = state.customers || [];
 
@@ -415,6 +452,14 @@ export function renderLoyaltyPage(ctx) {
   const html = `
     <div style="padding: 20px;">
       <h1 style="margin-bottom: 30px;">สะสมแต้มลูกค้า (Loyalty Points)</h1>
+
+      ${_loyState === "loaded" ? "" : `
+      <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;margin-bottom:20px;font-size:13px;color:#92400e;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        ${_loyState === "error"
+          ? "⚠️ โหลดแต้มเต็มจาก DB ไม่สำเร็จ — ตัวเลขจาก ~500 รายการล่าสุด (อาจต่ำกว่าจริง/คงเหลือเพี้ยน)"
+          : "⏳ กำลังโหลดแต้มเต็มจาก DB… ตัวเลขชั่วคราวจาก ~500 รายการล่าสุด"}
+        ${_loyState === "error" ? `<button id="loyRetryBtn" style="padding:5px 14px;border-radius:8px;border:1px solid #f59e0b;background:#fff;color:#92400e;cursor:pointer;font-weight:700">ลองโหลดใหม่</button>` : ""}
+      </div>`}
 
       <!-- Summary Cards -->
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 40px;">
@@ -477,6 +522,12 @@ export function renderLoyaltyPage(ctx) {
   `;
 
   container.innerHTML = html;
+
+  // ★ Phase 581: retry โหลดแต้มเต็ม (reset idle → re-render = kick fetch อีกครั้ง)
+  document.getElementById('loyRetryBtn')?.addEventListener('click', () => {
+    _loyState = "idle";
+    renderLoyaltyPage(ctx);
+  });
 
   // Phase 89.23: history modal close button (was inline onclick)
   document.getElementById('loyalty-history-close')?.addEventListener('click', () => {
