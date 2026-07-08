@@ -21,7 +21,7 @@
 - `main.js:993-1003` — `onAuthStateChange` ไม่ filter event type → token refresh (ทุก ~1 ชม. + ตอน tab กลับ focus) รัน afterLogin → loadAllData → renderAll → หน้า reset (นี่คือ "ต้นน้ำ" ของอาการหน้าเด้ง/ฟอร์มหาย ที่ Phase 570 แก้ปลายน้ำ)
 - แก้: เช็ค `_event` — `TOKEN_REFRESHED`/`USER_UPDATED` → อัปเดต `window._sbAccessToken` แล้ว return; afterLogin เฉพาะ transition logged-out→in (+ same-user guard `_appSessionUserId` กัน boot รันซ้ำ 2-3 รอบ)
 
-### Phase 573 — JSON.parse ตอน boot ไม่มี try/catch → key เดียวเสีย = แอปขาวถาวร (selfheal กู้ไม่ได้)
+### ✅ Phase 573 — JSON.parse ตอน boot ไม่มี try/catch → key เดียวเสีย = แอปขาวถาวร (selfheal กู้ไม่ได้) — DONE (MERGED+LIVE build 573, PR #151 `1c6654e`, 2026-07-08)
 - `main.js:284-288` (cart/lastReceipt/storeInfo/paymentInfo — รันตอน module eval, throw = main.js ไม่โหลดทั้งไฟล์) + `modules/customer_dashboard.js:15` (`bsk_cust_cart` — ลูกค้าติดหน้าเปล่าถาวร)
 - Corruption vector จริง: หน้ากู้ backup (`modules/settings/pages.js:240-250`) restore `bsk_*` โดยไม่ validate JSON
 - แก้: helper `safeParse(key, fallback)` (pattern มีแล้ว `main.js:1238`) + validate JSON ใน restore loop + selfheal เพิ่มการล้าง `bsk_*` ที่ parse ไม่ผ่าน
