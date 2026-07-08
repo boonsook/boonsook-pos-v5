@@ -8,7 +8,7 @@
 ## นิยามเลขเฟส
 เลขเฟส = ลำดับแนะนำ (571 ขึ้นไป ต่อจาก build 570 settings-bounce+catalog ที่กำลังทำ) — owner สลับลำดับได้
 
-> ⚠️ **build# ≠ phase# ในลิสต์นี้แล้ว:** มี "เฟสแทรก" **ac-catalog-live-sync** ที่ owner เลือกทำ ใช้ **build 574** (แคตตาล็อกแอร์ sync ทุกเครื่องผ่าน `ac_catalog_doc` — รวมหน้าลูกค้า; ✅ MERGED+LIVE #152 `54e7bfe`, ไม่อยู่ใน numbered list นี้). ดังนั้นรายการ "Phase 574 — receipts multipay" ด้านล่าง = **คิวถัดไป** และจะ ship ที่ **build 575** (เลข build เดินต่อ ไม่ย้อน). ✅ ปิดไปแล้ว: 571 (build 571) · 572 (build 572) · 573 (build 573) · +ac-catalog (build 574).
+> ⚠️ **build# ≠ phase# ในลิสต์นี้แล้ว:** มี "เฟสแทรก" **ac-catalog-live-sync** ที่ owner เลือกทำ ใช้ **build 574** (แคตตาล็อกแอร์ sync ทุกเครื่องผ่าน `ac_catalog_doc` — รวมหน้าลูกค้า; ✅ MERGED+LIVE #152 `54e7bfe`, ไม่อยู่ใน numbered list นี้). รายการ "Phase 574 — receipts multipay" ปิดแล้วที่ build 575. ✅ ปิดไปแล้ว: 571 (build 571) · 572 (build 572) · 573 (build 573) · +ac-catalog (build 574) · 574-receipts-multipay (build 575). 🔜 **คิวถัดไป = "Phase 575 — quotations: โหลด items ล้มเงียบ + save ไม่เช็คผล" → จะ ship ที่ build 576** (money/data blocker: เปิดแก้ตอนเน็ตสะดุด → ฟอร์มว่าง → บันทึก = DELETE items ทั้งใบเงียบ).
 
 ---
 
@@ -28,7 +28,7 @@
 - Corruption vector จริง: หน้ากู้ backup (`modules/settings/pages.js:240-250`) restore `bsk_*` โดยไม่ validate JSON
 - แก้: helper `safeParse(key, fallback)` (pattern มีแล้ว `main.js:1238`) + validate JSON ใน restore loop + selfheal เพิ่มการล้าง `bsk_*` ที่ parse ไม่ผ่าน
 
-### 🔜 Phase 574 (→ build 575) — receipts multi-payment: PATCH ล้มแต่ UI+JV เดินต่อ (สำเร็จปลอม) — คิวถัดไป (money/GL blocker)
+### ✅ Phase 574 (→ build 575) — receipts multi-payment: PATCH ล้มแต่ UI+JV เดินต่อ (สำเร็จปลอม) — DONE (MERGED+LIVE build 575, PR #153 `04512c1`, 2026-07-08)
 - `modules/receipts.js:1354` — `await window._appXhrPatch?.(...)` ไม่เช็คผล (xhrPatch ไม่ throw — คืน `{ok:false}`) → mutate state + void/repost JV (`:1361`) + toast สำเร็จ ทั้งที่ DB ไม่ถูกแก้ → GL ไม่ตรง receipts
 - แก้: เช็ค `res?.ok` ก่อน optimistic ทุกบรรทัด (catch `:1365` restore ปุ่มอยู่แล้ว) + guard test
 
