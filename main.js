@@ -1,6 +1,7 @@
 
 import { renderDashboard } from "./modules/dashboard.js";
 import { fetchAllPaginated } from "./modules/fetch_paginated.js";
+import { safeParse } from "./modules/_safe_parse.js"; // Phase 573: กัน localStorage เสีย → แอปขาวถาวร
 import { renderProductsPage, refreshProductsPage } from "./modules/products.js";
 import { applyDraftFields, bindServiceDraft, clearServiceDraft, loadServiceDraft } from "./modules/service_drafts.js";
 import { renderPosPage, clearPosState } from "./modules/pos.js";
@@ -281,11 +282,11 @@ const state = {
   serviceJobs: [],
   deliveryInvoices: [],
   receipts: [],
-  cart: JSON.parse(localStorage.getItem("bsk_cart_v2") || "[]"),
-  lastReceipt: JSON.parse(localStorage.getItem("bsk_last_receipt") || "null"),
-  storeInfo: JSON.parse(localStorage.getItem("bsk_store_info") || '{"name":"ร้านบุญสุขอิเล็กทรอนิกส์","phone":"0862613829","email":"gangboo@gmail.com","address":"87 ม.12 ต.คาลาแมะ อ.ศีขรภูมิ จ.สุรินทร์ 32110","taxId":""}'),
+  cart: safeParse("bsk_cart_v2", []),
+  lastReceipt: safeParse("bsk_last_receipt", null),
+  storeInfo: safeParse("bsk_store_info", { name: "ร้านบุญสุขอิเล็กทรอนิกส์", phone: "0862613829", email: "gangboo@gmail.com", address: "87 ม.12 ต.คาลาแมะ อ.ศีขรภูมิ จ.สุรินทร์ 32110", taxId: "" }),
   paymentInfo: (() => {
-    const raw = JSON.parse(localStorage.getItem("bsk_payment_info") || '{"banks":[],"promptPay":""}');
+    const raw = safeParse("bsk_payment_info", { banks: [], promptPay: "" });
     // ★ Migrate: ถ้ายังเป็น format เดิม (มี bankName) ให้ย้ายเข้า banks[]
     if (!raw.banks) {
       const bank = { bankCode: raw.bankCode||"", bankName: raw.bankName||"", bankAccount: raw.bankAccount||"", bankHolder: raw.bankHolder||"", bankBranch: raw.bankBranch||"" };
