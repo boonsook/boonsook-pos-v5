@@ -606,6 +606,57 @@ async function loadAppSettings() {
   }
 }
 
+// ★ Phase 574 — แคตตาล็อกแอร์ sync ทุกเครื่อง (รวมหน้าลูกค้า) ผ่านตาราง ac_catalog_doc (single-row jsonb).
+//   อ่านได้ทุก role ที่ login (ราคาโชว์ลูกค้าโดยดีไซน์); เขียนได้เฉพาะ non-customer (RLS + gate ฝั่ง client).
+//   localStorage = cache → customer_dashboard อ่าน bsk_ac_catalog เหมือนเดิม ไม่ต้องแก้.
+//   degrade-safe: ตารางยังไม่มี (owner ยังไม่รัน SQL) → error → เงียบ → ใช้ localStorage เดิม.
+async function loadAcCatalogCloud() {
+  if (!state.supabase) return;
+  try {
+    const timeout = new Promise((_, rej) => { setTimeout(() => rej(new Error("supabase timeout")), 4000); });
+    const q = state.supabase.from('ac_catalog_doc').select('value').eq('id', 1).maybeSingle();
+    const { data, error } = await Promise.race([q, timeout]);
+    if (error) { console.warn('[loadAcCatalogCloud] warn:', error.message); return; }
+    const value = data?.value;
+    if (Array.isArray(value) && value.length > 0) {
+      // cloud มีข้อมูล → source of truth (ทุก role รวมลูกค้า); mark from_cloud เพื่อกัน auto-refresh ทับด้วย static JSON
+      localStorage.setItem("bsk_ac_catalog", JSON.stringify(value));
+      localStorage.setItem("bsk_ac_catalog_from_cloud", "1");
+    } else if (!data) {
+      // ยังไม่มีแถว (ตารางว่าง) → seed จากเครื่องที่ owner แก้ไว้จริง (เคยแก้ local + ไม่ใช่ลูกค้า)
+      const userEdited = localStorage.getItem("bsk_ac_catalog_user_edited") === "1";
+      if (userEdited && currentRole() !== "customer") {
+        let localList = [];
+        try { localList = JSON.parse(localStorage.getItem("bsk_ac_catalog") || "[]"); } catch(e){ localList = []; }
+        if (Array.isArray(localList) && localList.length > 0) {
+          const res = await saveAcCatalogCloud(localList);
+          if (res?.ok) localStorage.setItem("bsk_ac_catalog_from_cloud", "1");
+        }
+      }
+    }
+    // value === [] (row มีแต่ว่าง) → ไม่ทับ local (offline-friendly; ดู known-limitation ใน HANDOFF)
+  } catch (err) {
+    console.warn('[loadAcCatalogCloud] failed (using localStorage):', err?.message || err);
+  }
+}
+
+// upsert single-row doc; gate customer → no-op (RLS กันอีกชั้น). คืน {ok} ให้ caller เตือน sync fail ได้.
+async function saveAcCatalogCloud(list) {
+  if (!state.supabase) return { ok: false };
+  if (currentRole() === "customer") return { ok: false, denied: true };
+  try {
+    const { error } = await state.supabase
+      .from('ac_catalog_doc')
+      .upsert({ id: 1, value: Array.isArray(list) ? list : [] }, { onConflict: 'id' });
+    if (error) { console.warn('[saveAcCatalogCloud] warn:', error.message); return { ok: false, error: error.message }; }
+    return { ok: true };
+  } catch (err) {
+    console.warn('[saveAcCatalogCloud] failed:', err?.message || err);
+    return { ok: false, error: err?.message || String(err) };
+  }
+}
+window._appSaveAcCatalog = saveAcCatalogCloud; // ให้ settings/ac-catalog.js เรียกตอน mutate
+
 // ★ Toast Queue — แสดงเรียงลำดับ ไม่ทับกัน
 const _toastQueue = [];
 let _toastBusy = false;
@@ -1138,6 +1189,9 @@ async function afterLogin(){
   // ★ Sync settings (store info + payment info) จาก Supabase ก่อน render
   //    — ช่วยให้ข้อมูลบัญชีธนาคาร + QR + logo มีใน device อื่นที่ login เดียวกัน
   await loadAppSettings();
+  // ★ Phase 574: โหลดแคตตาล็อกแอร์จาก cloud (ทุก role — ก่อน loadAllData เพื่อ set from_cloud flag
+  //   ก่อน auto-refresh check ของ Phase 570). fail = เงียบ ใช้ localStorage เดิม.
+  await loadAcCatalogCloud();
 
   await loadAllData();
   // loadAllData → renderAll() → showRoute(state.currentRoute) ซึ่งตอนนี้ = restorePage แล้ว ✅
@@ -1269,6 +1323,9 @@ async function loadAllData(){
       //   รุ่น/การแก้ไขของ user (เช่น user เพิ่มรุ่นไม่มี spec → specs coverage <90% → เดิม refresh = ทับหาย).
       //   จึง refresh เฉพาะตอน cache ว่าง/พัง (กู้คืน) — cache ใช้ได้ + user เคยแก้ = ไม่แตะ.
       const userEdited = localStorage.getItem("bsk_ac_catalog_user_edited") === "1";
+      // ★ Phase 574: มาจาก cloud แล้ว = cloud คือ source of truth → ห้าม auto-refresh ทับด้วย static JSON
+      //   (ac_catalog.json เป็นแค่ seed baseline; owner แก้ราคา → cloud → ห้าม static มาทับ specs-coverage)
+      const fromCloud = localStorage.getItem("bsk_ac_catalog_from_cloud") === "1";
       let cacheUsable = false;
       let lowSpec = false;
       if (cached) {
@@ -1281,7 +1338,7 @@ async function loadAllData(){
           }
         } catch(e){ /* corrupt → cacheUsable=false → refresh (กู้) */ }
       }
-      const needRefresh = !cacheUsable || (lowSpec && !userEdited);
+      const needRefresh = !cacheUsable || (lowSpec && !userEdited && !fromCloud);
       if (needRefresh) {
         fetch("data/ac_catalog.json", { cache: "no-store" }).then(r => r.ok ? r.json() : null).then(data => {
           if (data && Array.isArray(data) && data.length > 0) {

@@ -18,10 +18,25 @@ function _readCatalog() {
 /** เขียน catalog + mark ว่า user แก้แล้ว (Phase 570) — loadAllData auto-refresh จะข้าม
  *  ไม่ทับ "ทั้งก้อน" จาก ac_catalog.json (กันลบรุ่น/การแก้ไขของ user). ใช้ทุกจุดที่ mutate ผ่านฟอร์ม. */
 function _writeCatalog(list) {
+  // ★ local เขียน "ก่อน" เสมอ (แหล่งความจริงหลักของเครื่องนี้ + offline ยังใช้ได้)
   try {
     localStorage.setItem("bsk_ac_catalog", JSON.stringify(list));
     localStorage.setItem("bsk_ac_catalog_user_edited", "1");
   } catch (e) { console.warn("[settings/ac-catalog] write failed:", e); }
+  // ★ Phase 574: sync ขึ้น cloud (ac_catalog_doc) ให้ทุกเครื่อง + หน้าลูกค้าเห็นตาม.
+  //   fire-and-forget — local เขียนไปแล้ว, cloud fail = เตือน ไม่ rollback (last-write-wins ทั้งก้อน).
+  try {
+    const p = window._appSaveAcCatalog?.(list);
+    if (p && typeof p.then === "function") {
+      p.then(res => {
+        if (res && res.ok === false && !res.denied) {
+          window.App?.showToast?.("บันทึกในเครื่องแล้ว แต่ sync ข้ามเครื่องไม่สำเร็จ", "warn");
+        }
+      }).catch(() => {
+        window.App?.showToast?.("บันทึกในเครื่องแล้ว แต่ sync ข้ามเครื่องไม่สำเร็จ", "warn");
+      });
+    }
+  } catch (e) { console.warn("[settings/ac-catalog] cloud sync failed:", e); }
 }
 
 /** map ค่า "ประเภท" จาก import (อังกฤษ key หรือ label ไทย) → ac_type key; ไม่รู้จัก → undefined
@@ -553,6 +568,12 @@ export function renderSettingsAcCatalog(el, ctx, goBack, navigate) {
       localStorage.setItem("bsk_ac_catalog", JSON.stringify(data));
       // Phase 570: manual "โหลดใหม่จาก JSON" = reset baseline โดยตั้งใจ → เคลียร์ flag (auto-refresh กลับมาทำงานได้)
       try { localStorage.removeItem("bsk_ac_catalog_user_edited"); } catch(e){}
+      // ★ Phase 574: reset = global (มี confirm แล้ว) → push ชุดใหม่ขึ้น cloud ให้ทุกเครื่อง + mark from_cloud
+      try {
+        const res = await window._appSaveAcCatalog?.(data);
+        if (res?.ok) { try { localStorage.setItem("bsk_ac_catalog_from_cloud", "1"); } catch(e){} }
+        else if (res && !res.denied && ctx?.showToast) ctx.showToast("โหลดในเครื่องแล้ว แต่ sync ข้ามเครื่องไม่สำเร็จ", "warn");
+      } catch(e){ console.warn("[ac-catalog] reload cloud sync failed:", e); }
       if (ctx?.showToast) ctx.showToast(`โหลดแคตตาล็อก ${data.length} รุ่น สำเร็จ! ✅`);
       rerender();
     } catch(err) {
@@ -564,6 +585,13 @@ export function renderSettingsAcCatalog(el, ctx, goBack, navigate) {
   document.getElementById("acCatalogClearBtn")?.addEventListener("click", async () => {
     if (!(await window.App?.confirm?.("ล้างแคตตาล็อกแอร์ทั้งหมด? ข้อมูลจะถูกลบออกจากหน้าลูกค้า"))) return;
     localStorage.removeItem("bsk_ac_catalog");
+    try { localStorage.removeItem("bsk_ac_catalog_user_edited"); } catch(e){}
+    // ★ Phase 574: ล้าง = global → push value=[] ขึ้น cloud (ทุกเครื่อง + หน้าลูกค้าหายตาม; ไม่มี DELETE policy = UPDATE เป็น [])
+    try {
+      const res = await window._appSaveAcCatalog?.([]);
+      if (res?.ok) { try { localStorage.setItem("bsk_ac_catalog_from_cloud", "1"); } catch(e){} }
+      else if (res && !res.denied && ctx?.showToast) ctx.showToast("ล้างในเครื่องแล้ว แต่ sync ข้ามเครื่องไม่สำเร็จ", "warn");
+    } catch(e){ console.warn("[ac-catalog] clear cloud sync failed:", e); }
     if (ctx?.showToast) ctx.showToast("ล้างแคตตาล็อกแล้ว");
     rerender();
   });

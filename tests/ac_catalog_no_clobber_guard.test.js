@@ -21,7 +21,9 @@ const pick = (obj, keys) => {
 };
 
 // ── (1) flag/refresh decision — จำลองสูตร loadAllData ─────────────────────────
-function needRefresh(cached, userEdited) {
+// ★ Phase 574: เพิ่ม fromCloud (default false = backward-compat). มาจาก cloud แล้ว = source of truth
+//   → ห้าม auto-refresh ทับด้วย static ac_catalog.json (แม้ specs coverage ต่ำ).
+function needRefresh(cached, userEdited, fromCloud = false) {
   let cacheUsable = false, lowSpec = false;
   if (cached) {
     try {
@@ -33,7 +35,7 @@ function needRefresh(cached, userEdited) {
       }
     } catch (e) { /* corrupt */ }
   }
-  return !cacheUsable || (lowSpec && !userEdited);
+  return !cacheUsable || (lowSpec && !userEdited && !fromCloud);
 }
 const lowSpecCache = JSON.stringify([{ model: "A", features: ["x"] }, { model: "B" }, { model: "C" }]); // 1/3 spec < 90%
 const highSpecCache = JSON.stringify([{ model: "A", seer: 20 }, { model: "B", features: ["y"] }]);
@@ -52,6 +54,11 @@ test("★ specs ไม่ครบ + user เคยแก้ → NO refresh (ก
 });
 test("specs ไม่ครบ + user ยังไม่แก้ → refresh (ได้ spec ใหม่จาก JSON)", () => {
   assert.equal(needRefresh(lowSpecCache, false), true);
+});
+test("★ Phase 574: specs ไม่ครบ + มาจาก cloud → NO refresh (cloud = source of truth, ห้าม static ทับ)", () => {
+  assert.equal(needRefresh(lowSpecCache, false, true), false);   // fromCloud ระงับ refresh แม้ user ยังไม่แก้
+  assert.equal(needRefresh(lowSpecCache, true, true), false);    // เคยแก้ + cloud = ยิ่งไม่ refresh
+  assert.equal(needRefresh(null, false, true), true);            // cache หาย = ยังกู้ (fromCloud ไม่ override recovery)
 });
 test("specs ครบ → ไม่ refresh (ทั้งเคย/ไม่เคยแก้)", () => {
   assert.equal(needRefresh(highSpecCache, false), false);
@@ -110,9 +117,10 @@ test("import: ไม่มี ประเภท → ac_type ไม่ถูก 
 });
 
 // ── source-regex: ผูก flag logic กับ source จริง ──────────────────────────────
-test("main.js loadAllData ใช้ flag bsk_ac_catalog_user_edited", () => {
+test("main.js loadAllData ใช้ flag bsk_ac_catalog_user_edited (+ !fromCloud Phase 574)", () => {
   assert.match(MAIN, /bsk_ac_catalog_user_edited/);
-  assert.match(MAIN, /const needRefresh = !cacheUsable \|\| \(lowSpec && !userEdited\)/);
+  // Phase 574: เพิ่ม !fromCloud (cloud = source of truth) — ยังคง !userEdited (ไม่ weaken การกันทับของ Phase 570)
+  assert.match(MAIN, /const needRefresh = !cacheUsable \|\| \(lowSpec && !userEdited && !fromCloud\)/);
 });
 test("ac-catalog.js: _writeCatalog ตั้ง flag + manual refresh เคลียร์ flag", () => {
   assert.match(CAT, /localStorage\.setItem\("bsk_ac_catalog_user_edited", "1"\)/);
