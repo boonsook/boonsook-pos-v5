@@ -19,6 +19,14 @@
 
 ---
 
+## ✅ Applied — 2026-07-08
+
+| SQL file | ทำอะไร | applied | verified อย่างไร |
+|---|---|---|---|
+| `supabase-phase574-ac-catalog-doc.sql` | **สร้าง table `public.ac_catalog_doc`** (single-row jsonb: `id int PK DEFAULT 1 CHECK(id=1)` · `value jsonb NOT NULL` · `updated_at timestamptz DEFAULT now()`) + trigger `trg_ac_catalog_doc_touch` (BEFORE UPDATE → `updated_at=now()`) + **ENABLE RLS** + 3 policy: `ac_catalog_doc_select` (SELECT ทุก authenticated `USING(true)` — ลูกค้าอ่านได้ = ราคาโชว์โดยดีไซน์) · `ac_catalog_doc_insert`/`ac_catalog_doc_update` (`NOT COALESCE(is_customer_role(),false)` — เขียนเฉพาะ non-customer) · **ไม่มี DELETE policy** (ล้าง=UPDATE value=[]) + `NOTIFY pgrst`. แคตตาล็อกแอร์ sync ทุกเครื่อง "รวมหน้าลูกค้า" (แก้บั๊ก product ตั้งแต่ Phase 347 — ราคาที่ owner แก้ ลูกค้าไม่เคยเห็น). Prereq: `is_customer_role()` (Phase 505). code build 574 **degrade-safe** ถ้ายังไม่รัน (fetch fail เงียบ → localStorage-only เดิม). (Phase 574, PR #152 `54e7bfe`) | **2026-07-08** (owner รันใน SQL Editor) | ✅ **verify 5/5 ผ่าน** (verify queries ท้ายไฟล์): (a) `is_customer_role` มีจริง (b) `ac_catalog_doc` relrowsecurity=true (c) policy 3 ตัว = SELECT/INSERT/UPDATE (ไม่มี DELETE) (d) trigger touch มีจริง + ✅ **owner smoke ผ่าน cross-device บน preview** (มือถือแก้ราคา → desktop เห็นตาม → **ลูกค้า OTP เห็นราคาใหม่**). build 574 MERGED+LIVE `54e7bfe` (data-app-build 574) |
+
+---
+
 ## ✅ Applied — 2026-07-06
 
 | SQL file | ทำอะไร | applied | verified อย่างไร |
