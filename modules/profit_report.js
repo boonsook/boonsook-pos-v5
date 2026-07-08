@@ -2,6 +2,7 @@
 // Phase 92.63: escHtml (กัน stored-XSS ชื่อสินค้า/หมวด) + Bangkok TZ default range
 import { visibleSalesForRole, escHtml, todayBkk, addDaysBkk } from "./utils.js";
 import { fetchSalesSince } from "./sales_fetch.js";
+import { fetchExpensesSince } from "./range_fetch.js";
 import { fetchSaleItemsForSaleIds } from "./sale_items_fetch.js";
 
 export function renderProfitReportPage(ctx) {
@@ -71,9 +72,13 @@ export function renderProfitReportPage(ctx) {
       const toTs = new Date(toDate + "T23:59:59").getTime();
 
       // ★ Phase 492 (S-5): ดึงยอดขายช่วงนี้จริงจาก DB (เดิม state.sales cap 50 → กำไร/ต้นทุน/แนวโน้มต่ำกว่าจริง)
-      const _salesRes = await fetchSalesSince(fromDate);
+      // ★ Phase 578: ดึงรายจ่ายช่วงนี้จริงจาก DB ขนานกับ sales (เดิม state.expenses cap 200 → กำไรสุทธิสูงเกินจริง)
+      const [_salesRes, _expRes] = await Promise.all([fetchSalesSince(fromDate), fetchExpensesSince(fromDate)]);
       if (!_salesRes.ok) { showToast("โหลดข้อมูลการขายไม่สำเร็จ: " + (_salesRes.error || ""), "error"); return; }
       const _fetchedSales = _salesRes.rows;
+      // sales fail = hard-stop (ไม่มี report); expenses fail = fallback state + warn (ยัง render กำไรได้ แค่รายจ่ายอาจขาด)
+      const _fetchedExpenses = _expRes.ok ? _expRes.rows : (state.expenses || []);
+      if (!_expRes.ok) showToast("โหลดรายจ่ายไม่ครบ — กำไรสุทธิอาจสูงกว่าจริง: " + (_expRes.error || ""), "warn");
 
       let totalRevenue = 0;
       let totalCost = 0;
@@ -107,8 +112,8 @@ export function renderProfitReportPage(ctx) {
       const grossProfit = totalRevenue - totalCost;
       const grossProfitPct = totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0;
 
-      // Filter expenses by date range
-      const expensesInRange = (state.expenses || []).filter(exp => {
+      // Filter expenses by date range (Phase 578: จาก fetched rows เต็มช่วง; client-side filter เดิมคง exact boundary)
+      const expensesInRange = _fetchedExpenses.filter(exp => {
         const expTime = new Date(exp.expense_date).getTime();
         return expTime >= fromTs && expTime <= toTs;
       });
