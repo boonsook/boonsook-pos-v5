@@ -28,6 +28,7 @@ const RATE_LIMITS = {
   "/api/v1/ning-memory/recall":     { limit: 120, windowSec: 60 }, // Phase 569: hot path — Ning recalls on every inbound message
   "/api/v1/ning-memory/remember":   { limit: 60,  windowSec: 60 }, // Phase 569: Ning agent memory write
   "/api/v1/ning-memory/forget-all": { limit: 20,  windowSec: 60 }, // Phase 569: destructive, rare — keep tight
+  "/api/v1/loyalty-balance": { limit: 60, windowSec: 60 }, // Phase 580: customer อ่านแต้มตัวเอง (read-only, service-role proxy)
   "default":            { limit: 100, windowSec: 60 }   // ทุก endpoint อื่น
 };
 
@@ -51,7 +52,8 @@ const REQUIRE_AUTH_ENDPOINTS = [
   "/api/v1/ning-memory/forget-all", // Phase 569: Ning long-term memory delete (per user)
   "/api/parse-receipt",   // Phase 89.14: ปิด anon — Gemini OCR ใช้แค่ staff ที่ login
   "/api/verify-slip",     // Phase 89.14: ปิด anon — Gemini OCR ใช้แค่ staff ที่ login
-  "/api/verify-slipok"    // Phase 543 (S14): ปิด anon — SlipOK proxy (customer dashboard ใช้ customer JWT ได้; ไม่ STAFF_ONLY)
+  "/api/verify-slipok",   // Phase 543 (S14): ปิด anon — SlipOK proxy (customer dashboard ใช้ customer JWT ได้; ไม่ STAFF_ONLY)
+  "/api/v1/loyalty-balance" // Phase 580: customer อ่านแต้มตัวเอง — customer JWT ผ่านได้ (ไม่ STAFF_ONLY/ไม่ NING_AGENT); identity derive จาก JWT ฝั่ง handler
 ];
 
 const STAFF_ONLY_ENDPOINTS = [
