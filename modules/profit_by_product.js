@@ -7,6 +7,7 @@ import { renderEmpty } from "./ui_states.js";
 
 import { escHtml, todayBkk, addDaysBkk, visibleSalesForRole } from "./utils.js";
 import { fetchSaleItemsForSaleIds } from "./sale_items_fetch.js";
+import { fetchSalesSince } from "./sales_fetch.js";
 function money(n) {
   return new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n || 0));
 }
@@ -61,29 +62,35 @@ export function renderProfitByProductPage(ctx) {
   else if (_ppPeriod === "month") { cutoffKey = today.slice(0,7) + "-01"; }
   else if (_ppPeriod === "year") { cutoffKey = today.slice(0,4) + "-01-01"; }
 
-  const validSales = visibleSalesForRole(state.sales, state.profile, state.currentUser)
-    .filter(s => !cutoffKey || String(s.created_at || "").slice(0,10) >= cutoffKey);
-  const validSaleIds = new Set(validSales.map(s => String(s.id)));
-
-  // ★ Phase 486: ดึง sale_items สดจาก DB (เดิมอ่าน state.saleItems ที่ loadAllData ไม่เคยโหลด = ว่าง → ทั้งหน้า ฿0)
+  // ★ Phase 582: ดึง sales เต็มช่วงจาก DB (เดิม state.sales cap 50 → กำไรรายสินค้าไม่ครบเมื่อ >50 บิล/ช่วง).
+  //   fetchSalesSince(cutoffKey) เต็มช่วง (mirror profit_report:74); fetch ล้ม → fallback state.sales + ป้าย ⚠️.
+  //   client-side date filter เดิมคง exact bound (helper buffer -2 วัน = candidate superset เท่านั้น).
   const period = _ppPeriod;  // snapshot กัน render ทับเมื่อเปลี่ยนช่วงระหว่างโหลด
   container.innerHTML = `<div style="padding:8px">${_ppFilterBar()}<div class="panel" style="padding:40px 16px;text-align:center;color:#64748b"><div style="font-size:32px;margin-bottom:8px">⏳</div>กำลังโหลดข้อมูลการขายจริง…</div></div>`;
   _ppBindFilters(ctx, container);
 
-  fetchSaleItemsForSaleIds([...validSaleIds]).then(res => {
-    if (!document.body.contains(container)) return;
-    if (_ppPeriod !== period) return;  // ผู้ใช้เปลี่ยนช่วงระหว่างโหลด → ปล่อย render รอบใหม่
+  (async () => {
+    const _salesRes = await fetchSalesSince(cutoffKey);
+    if (!document.body.contains(container) || _ppPeriod !== period) return;
+    const _salesOk = _salesRes.ok;
+    const validSales = visibleSalesForRole(_salesOk ? _salesRes.rows : (state.sales || []), state.profile, state.currentUser)
+      .filter(s => !cutoffKey || String(s.created_at || "").slice(0,10) >= cutoffKey);
+    const validSaleIds = new Set(validSales.map(s => String(s.id)));
+
+    // ★ Phase 486: ดึง sale_items สดจาก DB (เดิมอ่าน state.saleItems ที่ loadAllData ไม่เคยโหลด = ว่าง → ทั้งหน้า ฿0)
+    const res = await fetchSaleItemsForSaleIds([...validSaleIds]);
+    if (!document.body.contains(container) || _ppPeriod !== period) return;  // ผู้ใช้เปลี่ยนช่วงระหว่างโหลด → ปล่อย render รอบใหม่
     if (!res.ok) {
       container.innerHTML = `<div style="padding:8px">${_ppFilterBar()}<div class="panel" style="padding:40px 16px;text-align:center"><div style="font-size:32px;margin-bottom:8px">⚠️</div><div style="color:#dc2626;margin-bottom:10px">โหลดข้อมูลการขายไม่สำเร็จ — ${escHtml(res.error || "")}</div><button id="ppRetryBtn" class="btn">ลองใหม่</button></div></div>`;
       _ppBindFilters(ctx, container);
       container.querySelector("#ppRetryBtn")?.addEventListener("click", () => renderProfitByProductPage(ctx));
       return;
     }
-    _ppRenderBody(ctx, container, res.rows, validSaleIds);
-  });
+    _ppRenderBody(ctx, container, res.rows, validSaleIds, _salesOk);
+  })();
 }
 
-function _ppRenderBody(ctx, container, rows, validSaleIds) {
+function _ppRenderBody(ctx, container, rows, validSaleIds, salesFetchOk = true) {
   const { state, showToast } = ctx;
 
   // Aggregate per product
@@ -146,6 +153,7 @@ function _ppRenderBody(ctx, container, rows, validSaleIds) {
   container.innerHTML = `
     <div style="padding:8px">
       ${_ppFilterBar()}
+      ${salesFetchOk ? "" : `<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:#92400e">⚠️ โหลดยอดขายเต็มไม่สำเร็จ — กำไรรายสินค้าคิดจาก ~50 บิลล่าสุด (อาจไม่ครบ) · ลองสลับช่วงเพื่อโหลดใหม่</div>`}
 
       <!-- Summary -->
       <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:14px">
