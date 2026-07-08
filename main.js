@@ -934,6 +934,10 @@ function toggleSidebar(){
 // ═══════════════════════════════════════════════════════════
 //  AUTH + SUPABASE (เก็บ access token ตอน login)
 // ═══════════════════════════════════════════════════════════
+// ★ Phase 572: จำ user id ที่ initialize แล้ว (afterLogin รันครบ) — ให้ onAuthStateChange
+//   กัน afterLogin ซ้ำต่อ user เดิม (boot getSession + INITIAL_SESSION/SIGNED_IN ที่ยิงตามมา = 2-3 รอบ).
+//   ล้างเป็น null ตอน sign-out → re-login user เดิมรัน afterLogin ใหม่ครบ.
+let _appSessionUserId = null;
 async function initSupabase(){
   if (!window.SUPABASE_CONFIG?.url || !window.SUPABASE_CONFIG?.anonKey) {
     setText("authStatus", "ยังไม่ได้ตั้งค่า supabase-config.js");
@@ -1001,11 +1005,19 @@ async function initSupabase(){
         window.dispatchEvent(new Event("bsk-app-ready"));
         return;
       }
+      // ★ Phase 572 (c): token อัปเดตแล้วด้านบน (ทุก event) — TOKEN_REFRESHED/USER_UPDATED
+      //   ไม่ต้อง reload/re-render ทั้งแอป (เดิมยิง afterLogin ทุก ~1 ชม. + ตอน tab กลับ focus
+      //   → หน้า reset/ฟอร์มหาย/settings เด้ง โดย user ไม่ได้ทำอะไร).
+      if (_event === "TOKEN_REFRESHED" || _event === "USER_UPDATED") return;
+      // ★ Phase 572 (d): user เดิม initialize ครบแล้ว — กัน afterLogin ซ้ำจาก INITIAL_SESSION/SIGNED_IN
+      //   ที่ยิงตามหลัง boot getSession/login (เดิมรัน afterLogin 2-3 รอบตอน boot).
+      if (session.user.id && session.user.id === _appSessionUserId) return;
       await afterLogin();
     } else {
       state.currentUser = null;
       state.profile = null;
       state._recoveryMode = false; // Phase 448: logout abandons any pending set-password flow
+      _appSessionUserId = null; // ★ Phase 572: logout → re-login user เดิมต้องรัน afterLogin ใหม่ (กัน cross-login)
       window._sbAccessToken = null;
       try { sessionStorage.removeItem("bsk_pending_set_password"); } catch (e) { /* ignore */ }
       $("authScreen")?.classList.remove("hidden");
@@ -1085,6 +1097,9 @@ async function loadProfile(){
 
 async function afterLogin(){
   await loadProfile();
+  // ★ Phase 572: มาร์คว่า user นี้ initialize แล้ว (จุดเดียวครอบทุก caller — boot/email/otp/recovery/listener)
+  //   → onAuthStateChange จะข้าม afterLogin ซ้ำสำหรับ user เดิม (INITIAL_SESSION/SIGNED_IN ที่ยิงตามมา).
+  _appSessionUserId = state.currentUser?.id || null;
   $("authScreen")?.classList.add("hidden");
   $("appShell")?.classList.remove("hidden");
   applyRoleUI();
