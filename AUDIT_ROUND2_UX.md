@@ -8,7 +8,7 @@
 ## นิยามเลขเฟส
 เลขเฟส = ลำดับแนะนำ (571 ขึ้นไป ต่อจาก build 570 settings-bounce+catalog ที่กำลังทำ) — owner สลับลำดับได้
 
-> ⚠️ **build# ≠ phase# ในลิสต์นี้แล้ว:** มี "เฟสแทรก" **ac-catalog-live-sync** ที่ owner เลือกทำ ใช้ **build 574** (แคตตาล็อกแอร์ sync ทุกเครื่องผ่าน `ac_catalog_doc` — รวมหน้าลูกค้า; ✅ MERGED+LIVE #152 `54e7bfe`, ไม่อยู่ใน numbered list นี้). รายการ "Phase 574 — receipts multipay" ปิดแล้วที่ build 575. ✅ ปิดไปแล้ว: 571 (build 571) · 572 (build 572) · 573 (build 573) · +ac-catalog (build 574) · 574-receipts-multipay (build 575) · 575-quotations-items (build 576 #154 `56a89e3`) · 576-income-dashboard (build 577 #155 `72aafb7`) · follow-up-577 profit_report+expense_overview (build 578 #156 `ac3d943`) · period-close-readiness fail-closed (build 579 #157 `159cacd`). 🔜 **คิวถัดไป = Should-fix กลุ่มถัดไป (reviewer เลือก)** — เช่น receipts page ยอดรวม/ค้นหา/Excel บน cap 50 (§ Should-fix), journal_form snapshot header, quotations PDF catch, ฯลฯ.
+> ⚠️ **build# ≠ phase# ในลิสต์นี้แล้ว:** มี "เฟสแทรก" **ac-catalog-live-sync** ที่ owner เลือกทำ ใช้ **build 574** (แคตตาล็อกแอร์ sync ทุกเครื่องผ่าน `ac_catalog_doc` — รวมหน้าลูกค้า; ✅ MERGED+LIVE #152 `54e7bfe`, ไม่อยู่ใน numbered list นี้). รายการ "Phase 574 — receipts multipay" ปิดแล้วที่ build 575. ✅ ปิดไปแล้ว: 571 (build 571) · 572 (build 572) · 573 (build 573) · +ac-catalog (build 574) · 574-receipts-multipay (build 575) · 575-quotations-items (build 576 #154 `56a89e3`) · 576-income-dashboard (build 577 #155 `72aafb7`) · follow-up-577 profit_report+expense_overview (build 578 #156 `ac3d943`) · period-close-readiness fail-closed (build 579 #157 `159cacd`) · customer-loyalty-balance proxy (build 580 #158 `794963f`). 🔜 **คิวถัดไป (reviewer เลือก)** — เช่น loyalty admin summary cap-500 (ครึ่งที่เหลือของ AUDIT Phase 578), receipts page ยอดรวม/ค้นหา/Excel บน cap 50, journal_form snapshot header, quotations PDF catch, ฯลฯ.
 
 ---
 
@@ -52,8 +52,8 @@
 - `modules/expense_overview.js:60` rolling N เดือน ไม่มี limit → PostgREST cap 1000
 
 ### Phase 578 — loyalty points จาก `state.loyaltyPoints` cap 500
-- `modules/loyalty.js:389-409, 34-59` + `modules/customer_dashboard.js:131-132` — ยอดแต้มรายลูกค้า (ที่ลูกค้าเห็นเอง) + summary เพี้ยนเมื่อธุรกรรมรวมเกิน 500 (คงเหลือติดลบได้ — earn เก่าหลุดหน้าต่างก่อน redeem) · redeem จริงปลอดภัย (server enforce Phase 540/541)
-- แก้: balance รายลูกค้า query DB ตรง/RPC sum
+- ✅ **ครึ่ง customer-facing DONE (build 580 #158 `794963f`):** `modules/customer_dashboard.js:131-132` — ลูกค้าเห็นแต้มจริงผ่าน proxy `/api/v1/loyalty-balance` (service-role อ่าน, id derive จาก JWT server-only, balance Σearn−Σredeem paginate). *[หมายเหตุ: บั๊กจริงคือ RLS deny Phase 505 → state ว่าง = 0, ไม่ใช่แค่ cap 500]*
+- 🔜 **ครึ่ง admin ยังเหลือ (→ Phase ถัดไป):** `modules/loyalty.js:389-409, 34-59` — summary/ยอดแต้มฝั่งแอดมิน (`getCustomerPoints` อ่าน `state.loyaltyPoints` cap 500) เพี้ยนเมื่อธุรกรรมรวมเกิน 500 (คงเหลือติดลบได้ — earn เก่าหลุดก่อน redeem) · redeem จริงปลอดภัย (server enforce Phase 540/541). แก้: query DB ตรง/RPC sum (อาจ reuse proxy หรือ paginate `loyalty.js:202`)
 
 ### Phase 579 — receipts page: ยอดรวม (เงิน) + ค้นหา + Excel บน cap 50
 - `modules/receipts.js:199-267` — stat "ยอดรวม" คือ 50 ใบล่าสุดไม่มี label; ค้นใบเก่าไม่เจอ; Excel ไม่ครบ → server-side search (pattern `serials.js:36`) + aggregate DB/label
