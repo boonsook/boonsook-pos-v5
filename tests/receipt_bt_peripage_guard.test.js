@@ -119,6 +119,7 @@ test("(d) canvasToRasterBody: สูง 300 แถว → chunked (GS v 0 header
 });
 
 // ── (e) connect เลือก fec7 ก่อน (ข้าม writable ตัวอื่น + ข้าม service) ──
+// ★ Phase 589: ใช้ชื่อไม่มี "MAX" — เครื่องมี MAX จะ override เล็ง ff02 (ดู receipt_bt_max_guard)
 test("(e) connectSlipPrinter เลือก char fec7 แม้มี writable ตัวอื่นใน service ก่อนหน้า", async () => {
   await disconnectSlip();
   const svcA = mkService("000018f0-0000-1000-8000-00805f9b34fb", [mkChar("0000abcd-0000-1000-8000-00805f9b34fb", { write: true })]);
@@ -126,7 +127,7 @@ test("(e) connectSlipPrinter เลือก char fec7 แม้มี writable 
     mkChar("0000fec8-0000-1000-8000-00805f9b34fb", { indicate: true }),
     mkChar(FEC7, { write: true, writeWithoutResponse: true })
   ]);
-  await withNavigator(mkNav({ name: "PeriPage_A9MAX", services: [svcA, svcB] }), async () => {
+  await withNavigator(mkNav({ name: "PeriPage_A9", services: [svcA, svcB] }), async () => {
     const ch = await connectSlipPrinter();
     assert.match(ch.uuid, /fec7/i, "ต้องเลือก fec7 (ไม่ใช่ abcd ที่ writable มาก่อน)");
     assert.equal(getSlipTarget().char, FEC7, "getSlipTarget char = fec7");

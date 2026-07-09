@@ -106,6 +106,10 @@ export async function connectSlipPrinter() {
   const writable = (c) => c.properties.write || c.properties.writeWithoutResponse;
   // ★ Phase 586: หา characteristic fec7 (PeriPage write) จาก "ทุก service" ก่อน;
   //   ไม่เจอ → fallback ตัว writable ตัวแรกที่พบ (เครื่องยี่ห้ออื่น)
+  // ★ Phase 589 override เฉพาะเครื่องชื่อมี "MAX" (A9 Max) → เล็ง ff02 (thermal มาตรฐาน)
+  //   แทน fec7; เครื่องอื่น (A9 ฯลฯ) คงเดิม 586 เป๊ะ (เล็ง fec7 → fallback ตัว writable ตัวแรก = 8841)
+  const isMax = /max/i.test(_device?.name || "");
+  const preferUuid = isMax ? "ff02" : PERIPAGE_WRITE_CHAR;
   let picked = null, pickedSvc = null, firstWritable = null, firstWritableSvc = null;
   for (const svc of services) {
     let chs = [];
@@ -113,7 +117,7 @@ export async function connectSlipPrinter() {
     for (const c of chs) {
       if (!writable(c)) continue;
       if (!firstWritable) { firstWritable = c; firstWritableSvc = svc; }
-      if (String(c.uuid).toLowerCase().includes(PERIPAGE_WRITE_CHAR)) { picked = c; pickedSvc = svc; break; }
+      if (String(c.uuid).toLowerCase().includes(preferUuid)) { picked = c; pickedSvc = svc; break; }
     }
     if (picked) break;
   }
