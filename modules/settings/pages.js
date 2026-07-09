@@ -18,6 +18,7 @@ export function renderSettingsAbout(el, ctx, goBack) {
   // Phase 585: feature-detect Bluetooth printing (iOS/desktop-no-BT → ปิดปุ่ม + แจ้งชัด ไม่ crash)
   const _btSupported = receiptBt.isSlipSupported();
   const _btConnected = _btSupported && receiptBt.isSlipConnected();
+  const _btPaperKey = receiptBt.getPaperWidthKey ? receiptBt.getPaperWidthKey() : "auto"; // Phase 591
   el.innerHTML = `
     <div class="set-subpage">
       <div class="set-subpage-header">
@@ -81,6 +82,15 @@ export function renderSettingsAbout(el, ctx, goBack) {
               <button id="btDiagnoseBtn" class="btn light" style="font-size:13px;padding:8px 14px;border:1px solid #cbd5e1" title="ดู service/characteristic จริงของเครื่อง — ส่งภาพหน้าจอให้ทีมถ้าเชื่อม/พิมพ์ไม่ได้">🔍 ตรวจเครื่องพิมพ์ (debug)</button>
             </div>
             <pre id="btDiagOutput" style="display:none;margin-top:10px;padding:10px;background:#0f172a;color:#e2e8f0;border-radius:8px;font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-all;max-height:260px;overflow:auto"></pre>
+            <label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:13px;color:#1e3a8a">
+              <span>📏 ขนาดกระดาษ:</span>
+              <select id="btPaperSize" style="border:1px solid #cbd5e1;border-radius:8px;padding:6px 10px;font-size:13px;background:#fff">
+                <option value="auto"${_btPaperKey === 'auto' ? ' selected' : ''}>อัตโนมัติ (ตามรุ่น)</option>
+                <option value="58"${_btPaperKey === '58' ? ' selected' : ''}>58mm</option>
+                <option value="80"${_btPaperKey === '80' ? ' selected' : ''}>80mm</option>
+                <option value="107"${_btPaperKey === '107' ? ' selected' : ''}>107mm (4 นิ้ว)</option>
+              </select>
+            </label>
           ` : `
             <div style="padding:10px;background:#fef2f2;border-radius:8px;font-size:12px;color:#991b1b;line-height:1.6">
               ⚠️ อุปกรณ์นี้ไม่รองรับ Web Bluetooth — ใช้ได้เฉพาะ <b>Android + Chrome/Edge</b><br>
@@ -357,6 +367,14 @@ export function renderSettingsAbout(el, ctx, goBack) {
     await receiptBt.disconnectSlip();
     _btSetStatus("⚪ ยังไม่เชื่อม");
     _toast("ตัดการเชื่อมเครื่องพิมพ์แล้ว");
+  });
+
+  // ─── Phase 591: เลือกขนาดกระดาษสลิป ───
+  document.getElementById("btPaperSize")?.addEventListener("change", (e) => {
+    const key = e.target.value;
+    receiptBt.setPaperWidth(key);
+    const label = { auto: "อัตโนมัติ (ตามรุ่น)", "58": "58mm", "80": "80mm", "107": "107mm (4 นิ้ว)" }[key] || key;
+    _toast("ตั้งขนาดกระดาษ: " + label);
   });
 
   // ─── Phase 586: GATT diagnostic — dump service/characteristic บนจอ (ให้ owner screenshot) ───
