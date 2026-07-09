@@ -4,7 +4,7 @@ import { fetchAllPaginated } from "./modules/fetch_paginated.js";
 import { safeParse } from "./modules/_safe_parse.js"; // Phase 573: กัน localStorage เสีย → แอปขาวถาวร
 import { renderProductsPage, refreshProductsPage } from "./modules/products.js";
 import { applyDraftFields, bindServiceDraft, clearServiceDraft, loadServiceDraft } from "./modules/service_drafts.js";
-import { renderPosPage, clearPosState } from "./modules/pos.js";
+import { renderPosPage, clearPosState, refreshPosPage } from "./modules/pos.js";
 import { renderSalesPage } from "./modules/sales.js";
 import { renderCustomersPage } from "./modules/customers.js";
 import { renderQuotationsPage } from "./modules/quotations.js";
@@ -1365,6 +1365,8 @@ function renderAll(){
   _updateNotifBell();    // ★ Phase 399: topbar 🔔
   _updateProfileChip();  // ★ Phase 399: topbar 👤
   if (state.currentRoute === "products" && refreshProductsPage()) return;
+  // ★ Phase 584: POS view sticky ตอน background reload — mid-flow (numpad/payment/search) ไม่เด้ง home
+  if (state.currentRoute === "pos" && refreshPosPage()) return;
   showRoute(state.currentRoute);
 }
 

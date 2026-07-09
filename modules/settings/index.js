@@ -39,7 +39,10 @@ export function renderSettingsPage(ctx) {
 /**
  * Setup event listeners for navigation
  */
+let _navBound = false;   // ★ Phase 584: bind ครั้งเดียว — เดิมทุก render/navigate เพิ่ม listener ซ้ำ → navigate ทวีคูณ
 function setupEventListeners() {
+  if (_navBound) return;   // call site :36/:105 กลายเป็น no-op หลังครั้งแรก (handler อ้าง module-scope stable)
+  _navBound = true;
   // Listen for CustomEvent from buttons
   document.addEventListener('navigate-settings', (e) => {
     const target = e.detail;
