@@ -57,7 +57,11 @@ function concatBytes(...parts) {
   return out;
 }
 
-const CANVAS_WIDTH = 384;   // 58mm @ 203dpi (พิมพ์บน 80mm ได้ — ใช้ครึ่งซ้าย)
+const CANVAS_WIDTH = 384;   // 58mm @ 203dpi (default — A9)
+// ★ Phase 591: ความกว้างกระดาษ (dot @203dpi): 58mm=384, 80mm=576, 107mm/4"=832
+const PAPER_WIDTHS = { "58": CANVAS_WIDTH, "80": 576, "107": 832 };
+const PAPER_KEYS = ["auto", "58", "80", "107"];
+const PAPER_LS_KEY = "bsk_slip_paper";
 const PAD = 10;
 const CHUNK = 200;          // BLE MTU-safe (writeWithoutResponse ~200 ปลอดภัยกับเครื่องส่วนใหญ่)
 const CHUNK_DELAY_MS = 20;  // กัน buffer overrun
@@ -67,6 +71,30 @@ let _device = null;
 let _char = null;
 let _serviceUuid = null;   // Phase 586: จำ service/char ที่เลือก โชว์ใน diagnostic/status + ใช้ตรวจ PeriPage
 let _charUuid = null;
+
+// ★ Phase 591: ขนาดกระดาษ — "auto" (ตามรุ่น) | "58" | "80" | "107"; persist localStorage
+let _paperKey = "auto";
+try {
+  if (typeof localStorage !== "undefined") {
+    const v = localStorage.getItem(PAPER_LS_KEY);
+    if (v && PAPER_KEYS.includes(v)) _paperKey = v;
+  }
+} catch (_) { /* ignore */ }
+
+// ความกว้าง canvas ที่จะใช้ (px): auto → ตามรุ่น (ชื่อมี MAX = 4"/832; ไม่งั้น 58mm/384)
+export function getPaperPx() {
+  if (_paperKey === "auto") {
+    return /max/i.test(_device?.name || "") ? PAPER_WIDTHS["107"] : CANVAS_WIDTH;
+  }
+  return PAPER_WIDTHS[_paperKey] || CANVAS_WIDTH;
+}
+export function getPaperWidthKey() { return _paperKey; }
+export function setPaperWidth(key) {
+  if (!PAPER_KEYS.includes(key)) return false;
+  _paperKey = key;
+  try { if (typeof localStorage !== "undefined") localStorage.setItem(PAPER_LS_KEY, key); } catch (_) { /* ignore */ }
+  return true;
+}
 
 // ─── Feature detection ───────────────────────────────────────
 export function isSlipSupported() {
@@ -308,7 +336,7 @@ function clip(s, n) {
 export function renderReceiptCanvas(receipt, store) {
   const rc = normalizeReceipt(receipt);
   const st = store || {};
-  const W = CANVAS_WIDTH;
+  const W = getPaperPx();   // ★ Phase 591: ตามขนาดกระดาษที่ตั้ง (auto=ตามรุ่น)
 
   // ── build ops (รอบวัด) ──
   const ops = [];
@@ -381,7 +409,7 @@ export function renderReceiptCanvas(receipt, store) {
 }
 
 function renderTestCanvas(store) {
-  const W = CANVAS_WIDTH;
+  const W = getPaperPx();   // ★ Phase 591: ตามขนาดกระดาษที่ตั้ง
   const canvas = document.createElement("canvas");
   canvas.width = W;
   canvas.height = 170;
