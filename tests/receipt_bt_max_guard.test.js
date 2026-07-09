@@ -78,18 +78,22 @@ test("(1) A9 (ชื่อไม่มี MAX): เลือก 8841 (fallback, 
   await disconnectSlip();
 });
 
-// ── (2) A9 Max: ชื่อมี MAX → char ff02 + คง PeriPage framing ──
-test("(2) A9 Max (ชื่อมี MAX): เลือก ff02 (override) + buildPrintBytes = PeriPage (10FFFE01 + GS v0 + ESC J)", async () => {
+// ── (2) A9 Max: ชื่อมี MAX → char ff02 + A9MAX framing ตัวจริงจากแอปทางการ (build 592) ──
+// build 592 เปลี่ยน A9 Max จาก PeriPage framing → A9MAX framing (preamble/density/reset/feed/finalize
+// ที่แกะจาก HCI snoop log ของแอปทางการ) ยิงผ่าน ff02 (long-shot). A9 (test 1) คงเดิม 586.
+test("(2) A9 Max (ชื่อมี MAX): เลือก ff02 (override) + buildPrintBytes = A9MAX framing (10FF20F0 preamble + GS v0 + feed 1B4A50 + finalize 10FFFE45)", async () => {
   await disconnectSlip();
   await withNavigator(realGatt("PeriPage_A9MAX_BLE"), async () => {
     await connectSlipPrinter();
     assert.match(getSlipTarget().char, /ff02/i, "A9 Max ต้องได้ ff02 (override MAX)");
     const bytes = buildPrintBytes(mockCanvas([solidRow()]));
-    assert.deepEqual([...bytes.slice(0, 4)], [0x10, 0xFF, 0xFE, 0x01], "คง PeriPage framing (reset)");
-    assert.ok(hasSeq(bytes, [0x1D, 0x76, 0x30, 0x00]), "มี GS v 0 raster");
-    const n = bytes.length;
-    assert.equal(bytes[n - 3], 0x1B, "ท้าย ESC J"); assert.equal(bytes[n - 2], 0x4A, "J");
-    assert.ok(!hasSeq(bytes, [0x1B, 0x40]), "ไม่มี ESC @ (ยัง PeriPage ไม่ใช่ generic)");
+    assert.deepEqual([...bytes.slice(0, 4)], [0x10, 0xFF, 0x20, 0xF0], "A9MAX preamble ตัวจริง (10 FF 20 F0)");
+    assert.ok(hasSeq(bytes, [0x10, 0xFF, 0x10, 0x00, 0x04]), "density 10 FF 10 00 04 (จาก capture)");
+    assert.ok(hasSeq(bytes, [0x10, 0xFF, 0xFE, 0x01, 0x1F, 0xB2, 0x10]), "reset 10 FF FE 01 1F B2 10 (ไม่ใช่ 12×00)");
+    assert.ok(hasSeq(bytes, [0x1D, 0x76, 0x30, 0x00]), "มี GS v 0 raster (best-effort image)");
+    assert.ok(hasSeq(bytes, [0x1B, 0x4A, 0x50]), "feed 1B 4A 50 (ตัวชี้วัดกระดาษเลื่อน)");
+    assert.ok(hasSeq(bytes, [0x10, 0xFF, 0xFE, 0x45]), "finalize 10 FF FE 45");
+    assert.ok(!hasSeq(bytes, [0x1B, 0x40]), "ไม่มี ESC @ (generic)");
     assert.ok(!hasSeq(bytes, [0x1D, 0x56]), "ไม่มี GS V cut");
   });
   await disconnectSlip();
