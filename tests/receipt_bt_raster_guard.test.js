@@ -63,8 +63,8 @@ test("(3) 384px กว้าง (chunk เดียว ≤255): xL=48 xH=0 + yL=
   assert.equal(out[h + 7], 0, "yH = 0 (chunk ≤255)");
   const dataStart = h + 8;
   const dataLen = 48 * 200;
-  // Phase 588: generic wrapper = ESC @(2) + [GS v0 header(8)+data] + feed(3) → ท้าย 3 bytes (ไม่มี cut)
-  assert.equal(out.length - dataStart - 3, dataLen, "data bytes = bytesPerRow*rows (chunk เดียว)");
+  // generic wrapper: ESC @(2) + [GS v0 header(8)+data] + feed(3) + cut(3) → ท้าย 6 bytes
+  assert.equal(out.length - dataStart - 6, dataLen, "data bytes = bytesPerRow*rows (chunk เดียว)");
 });
 
 test("(4) bit-packing: ทึบ → 0xFF ทุก byte; สลับ(ดำ,ขาว) → 0xAA (MSB = pixel ซ้ายสุด)", () => {
@@ -92,12 +92,10 @@ test("(5) width ไม่หาร 8 ลงตัว → padding byte สุด�
   assert.equal(out[h + 9], 0xC0, "byte1 = 2 pixel (bit7,6) + padding 0");
 });
 
-test("(6) Phase 588: ปิดท้ายด้วย feed (ESC d n) — ไม่มี GS V cut (เครื่องพกพาไม่มีคัตเตอร์)", () => {
+test("(6) ปิดท้ายด้วย partial cut GS V 1 (0x1D,0x56,0x01)", () => {
   const out = canvasToEscposRaster(mockCanvas([[1, 1, 1, 1, 1, 1, 1, 1]]));
   const n = out.length;
-  assert.equal(out[n - 3], 0x1B, "ESC");
-  assert.equal(out[n - 2], 0x64, "d (feed)");
-  let hasCut = false;
-  for (let i = 0; i + 1 < out.length; i++) if (out[i] === 0x1D && out[i + 1] === 0x56) hasCut = true;
-  assert.ok(!hasCut, "ต้องไม่มี GS V cut");
+  assert.equal(out[n - 3], 0x1D, "GS");
+  assert.equal(out[n - 2], 0x56, "V");
+  assert.equal(out[n - 1], 0x01, "1 (partial cut)");
 });
