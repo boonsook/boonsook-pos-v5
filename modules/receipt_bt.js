@@ -59,14 +59,21 @@ function concatBytes(...parts) {
 
 const CANVAS_WIDTH = 384;   // 58mm @ 203dpi (พิมพ์บน 80mm ได้ — ใช้ครึ่งซ้าย)
 const PAD = 10;
-const CHUNK = 200;          // BLE MTU-safe (writeWithoutResponse ~200 ปลอดภัยกับเครื่องส่วนใหญ่)
+const CHUNK = 200;          // A9 direct (fee7/fec7) — BLE MTU-safe · writeWithoutResponse ~200 (คงเดิม 586 — A9 ใช้ได้แล้ว)
 const CHUNK_DELAY_MS = 20;  // กัน buffer overrun
+// ★ Phase 587: ISSC transparent UART (A9 Max) มัก drop writeWithoutResponse ถ้าเร็ว/ก้อนใหญ่ →
+//   ก้อนเล็กลง + delay มากขึ้น + write-with-response เสมอ (เฉพาะ path นี้)
+const CHUNK_UART = 128;
+const CHUNK_DELAY_UART_MS = 40;
+const ISSC_SERVICE_PREFIX = "49535343"; // ISSC/Microchip transparent UART service prefix
 const RASTER_MAX_ROWS = 255; // Phase 586: แบ่ง GS v 0 ทีละ ≤255 แถว (yL 1 byte — PeriPage/บาง firmware ต้องการ)
 
 let _device = null;
 let _char = null;
 let _serviceUuid = null;   // Phase 586: จำ service/char ที่เลือก โชว์ใน diagnostic/status + ใช้ตรวจ PeriPage
 let _charUuid = null;
+let _notifyChar = null;    // Phase 587: notify characteristic (ISSC UART bridge — A9 Max)
+let _notifyStarted = false;
 
 // ─── Feature detection ───────────────────────────────────────
 export function isSlipSupported() {
@@ -87,7 +94,7 @@ export async function connectSlipPrinter() {
     acceptAllDevices: true,
     optionalServices: SLIP_PRINTER_SERVICES
   });
-  _device.addEventListener("gattserverdisconnected", () => { _char = null; _serviceUuid = null; _charUuid = null; });
+  _device.addEventListener("gattserverdisconnected", () => { _char = null; _serviceUuid = null; _charUuid = null; _notifyChar = null; _notifyStarted = false; });
 
   const server = await _device.gatt.connect();
 
@@ -123,6 +130,20 @@ export async function connectSlipPrinter() {
   _char = picked;
   _serviceUuid = pickedSvc?.uuid || null;
   _charUuid = picked.uuid;
+  _notifyChar = null;
+  _notifyStarted = false;
+
+  // ★ Phase 587: เฉพาะ ISSC transparent UART (A9 Max) — เปิด pipe ก่อนเขียน
+  //   (A9 fee7/fec7 = direct write ไม่เข้าเงื่อนไขนี้ → ไม่มีอะไรเปลี่ยน)
+  if (isUartTransport() && pickedSvc) {
+    try {
+      const chs2 = await pickedSvc.getCharacteristics();
+      _notifyChar = chs2.find((c) => c.properties.notify) || null;
+    } catch (_) { _notifyChar = null; }
+    if (_notifyChar && _notifyChar.startNotifications) {
+      try { await _notifyChar.startNotifications(); _notifyStarted = true; } catch (_) { /* บาง stack ไม่ต้อง subscribe */ }
+    }
+  }
   return _char;
 }
 
@@ -140,6 +161,13 @@ export async function disconnectSlip() {
   _char = null;
   _serviceUuid = null;
   _charUuid = null;
+  _notifyChar = null;
+  _notifyStarted = false;
+}
+
+// Phase 587: transport เป็น ISSC transparent UART ไหม (A9 Max) — write ต้อง with-response + chunk เล็ก
+export function isUartTransport() {
+  return String(_serviceUuid || "").toLowerCase().includes(ISSC_SERVICE_PREFIX);
 }
 
 // Phase 586: service/characteristic ที่เลือกตอน connect (โชว์ในสถานะ/diagnostic)
@@ -181,16 +209,21 @@ export async function diagnoseSlipPrinter() {
 }
 
 // ─── Send raster in BLE-sized chunks (mirror bt_printer.js sendChunked) ──
-export async function sendChunked(characteristic, bytes) {
+//  opts.uart = true (ISSC transparent UART / A9 Max) → chunk 128, delay 40, write-with-response เสมอ
+//  default (A9 fee7/fec7 direct) → chunk 200, delay 20, prefer writeWithoutResponse — คงเดิม 586
+export async function sendChunked(characteristic, bytes, opts = {}) {
+  const uart = !!opts.uart;
+  const size = uart ? CHUNK_UART : CHUNK;
+  const delay = uart ? CHUNK_DELAY_UART_MS : CHUNK_DELAY_MS;
   const buf = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-  for (let i = 0; i < buf.length; i += CHUNK) {
-    const slice = buf.slice(i, Math.min(i + CHUNK, buf.length));
-    if (characteristic.properties?.writeWithoutResponse && characteristic.writeValueWithoutResponse) {
-      await characteristic.writeValueWithoutResponse(slice);
+  for (let i = 0; i < buf.length; i += size) {
+    const slice = buf.slice(i, Math.min(i + size, buf.length));
+    if (!uart && characteristic.properties?.writeWithoutResponse && characteristic.writeValueWithoutResponse) {
+      await characteristic.writeValueWithoutResponse(slice);   // A9 path — คงเดิม
     } else {
-      await characteristic.writeValue(slice);
+      await characteristic.writeValue(slice);                   // UART = with-response; A9 fallback ถ้าไม่มี WoR
     }
-    await new Promise(r => { setTimeout(r, CHUNK_DELAY_MS); });
+    await new Promise(r => { setTimeout(r, delay); });
   }
 }
 
@@ -406,7 +439,8 @@ export async function printReceipt(receipt, store) {
   }
   const canvas = renderReceiptCanvas(receipt, store);
   const bytes = buildPrintBytes(canvas);   // Phase 586: หุ้มคำสั่งตามชนิดเครื่อง (PeriPage vs generic)
-  await sendChunked(char, bytes);
+  await sendChunked(char, bytes, { uart: isUartTransport() });   // Phase 587: A9 Max = UART transport
+
 }
 
 export async function testPrint(store) {
@@ -416,5 +450,6 @@ export async function testPrint(store) {
   }
   const canvas = renderTestCanvas(store);
   const bytes = buildPrintBytes(canvas);   // Phase 586: หุ้มคำสั่งตามชนิดเครื่อง (PeriPage vs generic)
-  await sendChunked(char, bytes);
+  await sendChunked(char, bytes, { uart: isUartTransport() });   // Phase 587: A9 Max = UART transport
+
 }
