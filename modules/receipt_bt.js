@@ -38,28 +38,16 @@ const ESC_FEED = [0x1B, 0x64, 0x03];   // ESC d 3  (feed 3 lines)
 const ESC_CUT = [0x1D, 0x56, 0x01];    // GS V 1   (partial cut)
 
 // ═══════════════════════════════════════════════════════════
-//  build 592: PeriPage A9 Max — long-shot ผ่าน BLE ff02
+//  build 594: PeriPage A9 Max — ปิดเคส (พิมพ์ผ่านเว็บไม่ได้)
 //  ─────────────────────────────────────────────────────────
-//  ที่มา: แกะ Android HCI snoop log (btsnoop_hci.log) ของแอป PeriPage ทางการ
-//  ขณะพิมพ์ A9 Max พบว่า **แอปทางการพิมพ์ผ่าน Bluetooth Classic (RFCOMM/SPP)**
-//  ไม่ใช่ BLE — ซึ่ง Web Bluetooth เปิด socket Classic/SPP ไม่ได้ (ข้อจำกัด browser).
-//  โปรโตคอลที่แอปส่ง: init/density/reset/feed/finalize (ไบต์ด้านล่าง = ถอดจริง) +
-//  ภาพผ่านคำสั่ง 10 FF 80 ที่ **บีบอัดแบบ proprietary (คล้าย CCITT G4)** —
-//  ยัง reproduce ใน vanilla JS (ห้ามใช้ dep) ไม่ได้.
-//  long-shot: ยิง framing จริงนี้ผ่าน BLE ff02 + หุ้ม GS v 0 raster (best-effort).
-//  ตัวชี้วัด = A9MAX_FEED (1B 4A 50): ถ้า A9 Max "เลื่อนกระดาษ" = ช่อง BLE ถึง
-//  print engine จริง → คุ้มลงทุนถอด G4 ต่อ; ถ้าไม่ขยับเลย = ช่อง BLE ไม่ใช่ช่องพิมพ์.
-//  ★ ล็อกเฉพาะเครื่องชื่อมี "MAX" — A9 (และเครื่องอื่น) ไม่แตะ (byte-identical 586).
+//  สรุปหลังพิสูจน์ครบ 3 ทาง (build 592 framing / 593 notify handshake / btsnoop log):
+//  **A9 Max พิมพ์ได้เฉพาะทาง Bluetooth Classic (RFCOMM/SPP)** ซึ่ง Web Bluetooth
+//  เข้าไม่ถึงเลย (ข้อจำกัด browser ระดับ platform). ช่อง BLE (ff02/8841) ของรุ่นนี้
+//  ไม่ได้ต่อเข้า print engine (แอปทางการก็ไม่ใช้ BLE พิมพ์). โค้ด experimental 590/592/593
+//  จึงถอดออกหมด — เหลือแค่ "แจ้ง user ให้ชัด" แทนกดแล้วเงียบ. ★ A9 = byte-identical 586.
 // ═══════════════════════════════════════════════════════════
-const A9MAX_PREAMBLE = [
-  0x10, 0xFF, 0x20, 0xF0,
-  0x10, 0xFF, 0x70,
-  0x10, 0xFF, 0x12, 0x00, 0x14, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 10 FF 12 00 14 + 12×00
-  0x10, 0xFF, 0x10, 0x00, 0x04,                                       // setConcentration = 4 (เข้ม)
-  0x10, 0xFF, 0xFE, 0x01, 0x1F, 0xB2, 0x10                            // reset (จาก capture — ไม่ใช่ 12×00)
-];
-const A9MAX_FEED = [0x1B, 0x4A, 0x50];                                          // ESC J 0x50 (feed ~80 dot)
-const A9MAX_FINALIZE = [0x10, 0xFF, 0xFE, 0x45, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; // finalize (16B)
+export const A9MAX_UNSUPPORTED_MSG =
+  "รุ่น A9 Max พิมพ์ผ่านเว็บ (Bluetooth) ไม่ได้ — เครื่องนี้พิมพ์ได้เฉพาะทาง Bluetooth Classic ที่เบราว์เซอร์เข้าไม่ถึง. ใช้แอป PeriPage ทางการ หรือใช้เครื่อง A9 (58mm) กับเว็บ";
 
 // รายชื่อ property flag ของ BluetoothCharacteristicProperties (getter บน prototype —
 // Object.entries ไม่คืน → ต้องเช็คชื่อเอง; ใช้ใน diagnostic)
@@ -95,10 +83,6 @@ let _device = null;
 let _char = null;
 let _serviceUuid = null;   // Phase 586: จำ service/char ที่เลือก โชว์ใน diagnostic/status + ใช้ตรวจ PeriPage
 let _charUuid = null;
-// build 593: notify handshake (เฉพาะ A9 Max) — เครื่อง ff00/ff02 บางรุ่นต้อง "เปิด" notify (ff01/ff03)
-// ก่อน channel เขียนถึงจะ active. เก็บ notify char ที่ subscribe ไว้เพื่อไม่ทำซ้ำ.
-let _notifyChars = [];
-let _notifyStarted = false;
 
 // ★ Phase 591: ขนาดกระดาษ — "auto" (ตามรุ่น) | "58" | "80" | "107"; persist localStorage
 let _paperKey = "auto";
@@ -143,7 +127,7 @@ export async function connectSlipPrinter() {
     acceptAllDevices: true,
     optionalServices: SLIP_PRINTER_SERVICES
   });
-  _device.addEventListener("gattserverdisconnected", () => { _char = null; _serviceUuid = null; _charUuid = null; _notifyChars = []; _notifyStarted = false; });
+  _device.addEventListener("gattserverdisconnected", () => { _char = null; _serviceUuid = null; _charUuid = null; });
 
   const server = await _device.gatt.connect();
 
@@ -162,10 +146,9 @@ export async function connectSlipPrinter() {
   const writable = (c) => c.properties.write || c.properties.writeWithoutResponse;
   // ★ Phase 586: หา characteristic fec7 (PeriPage write) จาก "ทุก service" ก่อน;
   //   ไม่เจอ → fallback ตัว writable ตัวแรกที่พบ (เครื่องยี่ห้ออื่น)
-  // ★ Phase 589 override เฉพาะเครื่องชื่อมี "MAX" (A9 Max) → เล็ง ff02 (thermal มาตรฐาน)
-  //   แทน fec7; เครื่องอื่น (A9 ฯลฯ) คงเดิม 586 เป๊ะ (เล็ง fec7 → fallback ตัว writable ตัวแรก = 8841)
-  const isMax = /max/i.test(_device?.name || "");
-  const preferUuid = isMax ? "ff02" : PERIPAGE_WRITE_CHAR;
+  //   (build 594 ถอด A9 Max ff02 override ออก — A9 Max พิมพ์ผ่านเว็บไม่ได้ จึงไม่ต้องเล็งช่องพิเศษ;
+  //    connect ปล่อยตามปกติ = A9 byte-identical 586)
+  const preferUuid = PERIPAGE_WRITE_CHAR;
   let picked = null, pickedSvc = null, firstWritable = null, firstWritableSvc = null;
   for (const svc of services) {
     let chs = [];
@@ -183,27 +166,6 @@ export async function connectSlipPrinter() {
   _char = picked;
   _serviceUuid = pickedSvc?.uuid || null;
   _charUuid = picked.uuid;
-
-  // ★ build 593: notify handshake — เฉพาะ A9 Max (ชื่อมี MAX) เท่านั้น.
-  //   ช่อง ff00/ff02 บางรุ่นต้อง enable CCCD ของ notify char (ff01/ff03) ก่อน firmware ถึงจะ
-  //   ประมวลผล write ที่ ff02. subscribe notify char ทุกตัวใน service เดียวกับ ff02 (ครั้งเดียว).
-  //   ★ A9 (และเครื่องอื่น) ไม่เข้า block นี้ → connect byte-identical 592/586 (ไม่ subscribe อะไร).
-  if (isMax && pickedSvc && !_notifyStarted) {
-    let notifyChs = [];
-    try { notifyChs = await pickedSvc.getCharacteristics(); } catch (_) { notifyChs = []; }
-    for (const c of notifyChs) {
-      if (!c.properties?.notify || typeof c.startNotifications !== "function") continue;
-      try {
-        await c.startNotifications();
-        // บาง BLE stack ต้องมี listener characteristicvaluechanged ค้างไว้ CCCD ถึงคงอยู่ (no-op)
-        if (typeof c.addEventListener === "function") c.addEventListener("characteristicvaluechanged", () => {});
-        _notifyChars.push(c);
-      } catch (_) { /* char นี้ subscribe ไม่ได้ → ข้าม */ }
-    }
-    _notifyStarted = _notifyChars.length > 0;
-    // settle สั้น ๆ หลัง enable CCCD — บาง firmware ต้องรอ pipe พร้อมก่อนรับ write แรก
-    if (_notifyStarted) await new Promise(r => { setTimeout(r, 120); });
-  }
   return _char;
 }
 
@@ -221,8 +183,6 @@ export async function disconnectSlip() {
   _char = null;
   _serviceUuid = null;
   _charUuid = null;
-  _notifyChars = [];      // build 593: ล้าง notify handshake state
-  _notifyStarted = false;
 }
 
 // Phase 586: service/characteristic ที่เลือกตอน connect (โชว์ในสถานะ/diagnostic)
@@ -235,7 +195,7 @@ export function isPeriPage() {
   return /peripage/i.test(_device?.name || "") || /fee7/i.test(_serviceUuid || "");
 }
 
-// build 592: A9 Max ไหม (ชื่อมี "MAX") → ใช้ framing ตัวจริงจากแอปทางการ (long-shot ผ่าน BLE)
+// build 594: A9 Max ไหม (ชื่อมี "MAX") → พิมพ์ผ่านเว็บไม่ได้ (Bluetooth Classic เท่านั้น) → บล็อก+แจ้ง user
 export function isPeriPageMax() {
   return /max/i.test(_device?.name || "");
 }
@@ -337,11 +297,6 @@ export function canvasToEscposRaster(canvas) {
 // ═══════════════════════════════════════════════════════════
 export function buildPrintBytes(canvas) {
   const body = canvasToRasterBody(canvas);
-  // build 592: A9 Max ก่อน (ชื่อมี MAX) — framing ตัวจริงจากแอปทางการ + GS v 0 (long-shot ผ่าน BLE ff02)
-  //   เช็คก่อน isPeriPage() เพราะชื่อ A9 Max ก็ match /peripage/ ด้วย
-  if (isPeriPageMax()) {
-    return concatBytes(A9MAX_PREAMBLE, body, A9MAX_FEED, A9MAX_FINALIZE);
-  }
   if (isPeriPage()) {
     return concatBytes(PERIPAGE_RESET, PERIPAGE_CONCENTRATION, body, PERIPAGE_FEED);
   }
@@ -493,6 +448,8 @@ function renderTestCanvas(store) {
 // ═══════════════════════════════════════════════════════════
 export async function printReceipt(receipt, store) {
   const char = await connectSlipPrinter();
+  // build 594: A9 Max พิมพ์ผ่านเว็บไม่ได้ (Bluetooth Classic เท่านั้น) → แจ้งชัดแทนกดแล้วเงียบ
+  if (isPeriPageMax()) throw new Error(A9MAX_UNSUPPORTED_MSG);
   // รอ font ไทยพร้อมก่อนวาด (กันวาดด้วย fallback font แล้วสระลอย)
   if (typeof document !== "undefined" && document.fonts?.ready) {
     try { await document.fonts.ready; } catch (_) { /* ignore */ }
@@ -504,6 +461,8 @@ export async function printReceipt(receipt, store) {
 
 export async function testPrint(store) {
   const char = await connectSlipPrinter();
+  // build 594: A9 Max พิมพ์ผ่านเว็บไม่ได้ → แจ้งชัด (บล็อกก่อนวาด canvas)
+  if (isPeriPageMax()) throw new Error(A9MAX_UNSUPPORTED_MSG);
   if (typeof document !== "undefined" && document.fonts?.ready) {
     try { await document.fonts.ready; } catch (_) { /* ignore */ }
   }

@@ -334,10 +334,16 @@ export function renderSettingsAbout(el, ctx, goBack) {
     try {
       await receiptBt.connectSlipPrinter();   // ต้องมาจาก user gesture (click นี้)
       const name = receiptBt.getSlipDeviceName() || "(อุปกรณ์)";
-      const t = receiptBt.getSlipTarget?.() || {};   // Phase 586: โชว์ char ที่เลือก (ยืนยัน PeriPage fec7)
-      const tgt = t.char ? ` [char ${String(t.char).slice(0, 8)}]` : "";
-      _btSetStatus("🟢 เชื่อมแล้ว: " + name + tgt);
-      _toast("เชื่อมเครื่องพิมพ์แล้ว: " + name);
+      // build 594: A9 Max เชื่อมได้แต่พิมพ์ผ่านเว็บไม่ได้ (Bluetooth Classic) → แจ้งชัดตั้งแต่เชื่อม
+      if (receiptBt.isPeriPageMax?.()) {
+        _btSetStatus("🟠 เชื่อมแล้ว: " + name + " — ⚠️ พิมพ์ผ่านเว็บไม่ได้");
+        _toast("⚠️ " + receiptBt.A9MAX_UNSUPPORTED_MSG);
+      } else {
+        const t = receiptBt.getSlipTarget?.() || {};   // Phase 586: โชว์ char ที่เลือก (ยืนยัน PeriPage fec7)
+        const tgt = t.char ? ` [char ${String(t.char).slice(0, 8)}]` : "";
+        _btSetStatus("🟢 เชื่อมแล้ว: " + name + tgt);
+        _toast("เชื่อมเครื่องพิมพ์แล้ว: " + name);
+      }
     } catch (e) {
       console.error("[btConnect]", e);
       _btSetStatus("🔴 เชื่อมไม่สำเร็จ");
@@ -357,7 +363,9 @@ export function renderSettingsAbout(el, ctx, goBack) {
       _toast("ส่งทดสอบพิมพ์แล้ว ✅");
     } catch (e) {
       console.error("[btTestPrint]", e);
-      _toast("ทดสอบพิมพ์ไม่สำเร็จ: " + (e?.message || e));
+      // build 594: A9 Max = ไม่รองรับ (ไม่ใช่ "พิมพ์ไม่สำเร็จ") → แจ้งข้อความชัด ๆ ตรง ๆ
+      if (receiptBt.isPeriPageMax?.()) _toast("⚠️ " + (e?.message || e));
+      else _toast("ทดสอบพิมพ์ไม่สำเร็จ: " + (e?.message || e));
     } finally {
       b.disabled = false; b.textContent = o;
     }
