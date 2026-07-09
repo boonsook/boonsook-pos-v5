@@ -78,7 +78,9 @@ export function renderSettingsAbout(el, ctx, goBack) {
               <button id="btConnectBtn" class="btn primary" style="font-size:13px;padding:8px 14px;background:#2563eb;border:none">🔗 เชื่อมเครื่องพิมพ์</button>
               <button id="btTestPrintBtn" class="btn light" style="font-size:13px;padding:8px 14px">🧾 ทดสอบพิมพ์</button>
               <button id="btDisconnectBtn" class="btn light" style="font-size:13px;padding:8px 14px">✕ ตัดการเชื่อม</button>
+              <button id="btDiagnoseBtn" class="btn light" style="font-size:13px;padding:8px 14px;border:1px solid #cbd5e1" title="ดู service/characteristic จริงของเครื่อง — ส่งภาพหน้าจอให้ทีมถ้าเชื่อม/พิมพ์ไม่ได้">🔍 ตรวจเครื่องพิมพ์ (debug)</button>
             </div>
+            <pre id="btDiagOutput" style="display:none;margin-top:10px;padding:10px;background:#0f172a;color:#e2e8f0;border-radius:8px;font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-all;max-height:260px;overflow:auto"></pre>
           ` : `
             <div style="padding:10px;background:#fef2f2;border-radius:8px;font-size:12px;color:#991b1b;line-height:1.6">
               ⚠️ อุปกรณ์นี้ไม่รองรับ Web Bluetooth — ใช้ได้เฉพาะ <b>Android + Chrome/Edge</b><br>
@@ -322,7 +324,9 @@ export function renderSettingsAbout(el, ctx, goBack) {
     try {
       await receiptBt.connectSlipPrinter();   // ต้องมาจาก user gesture (click นี้)
       const name = receiptBt.getSlipDeviceName() || "(อุปกรณ์)";
-      _btSetStatus("🟢 เชื่อมแล้ว: " + name);
+      const t = receiptBt.getSlipTarget?.() || {};   // Phase 586: โชว์ char ที่เลือก (ยืนยัน PeriPage fec7)
+      const tgt = t.char ? ` [char ${String(t.char).slice(0, 8)}]` : "";
+      _btSetStatus("🟢 เชื่อมแล้ว: " + name + tgt);
       _toast("เชื่อมเครื่องพิมพ์แล้ว: " + name);
     } catch (e) {
       console.error("[btConnect]", e);
@@ -353,6 +357,35 @@ export function renderSettingsAbout(el, ctx, goBack) {
     await receiptBt.disconnectSlip();
     _btSetStatus("⚪ ยังไม่เชื่อม");
     _toast("ตัดการเชื่อมเครื่องพิมพ์แล้ว");
+  });
+
+  // ─── Phase 586: GATT diagnostic — dump service/characteristic บนจอ (ให้ owner screenshot) ───
+  document.getElementById("btDiagnoseBtn")?.addEventListener("click", async () => {
+    const b = document.getElementById("btDiagnoseBtn");
+    const out = document.getElementById("btDiagOutput");
+    const o = b.textContent;
+    b.disabled = true; b.textContent = "⏳ กำลังตรวจ...";
+    if (out) { out.style.display = "block"; out.textContent = "กำลังอ่าน service/characteristic ของเครื่อง..."; }
+    try {
+      const rows = await receiptBt.diagnoseSlipPrinter();   // user gesture (click นี้)
+      if (!out) return;
+      if (!rows.length) { out.textContent = "ไม่พบ service ที่ประกาศไว้ (optionalServices) — เครื่องอาจใช้ UUID นอกลิสต์ หรือเป็น Bluetooth Classic"; return; }
+      const byService = {};
+      for (const r of rows) { (byService[r.service] = byService[r.service] || []).push(r); }
+      const lines = ["📋 GATT ของเครื่อง (ส่งภาพนี้ให้ทีมถ้าเชื่อม/พิมพ์ไม่ได้):", ""];
+      for (const [svc, chs] of Object.entries(byService)) {
+        lines.push("service: " + svc);
+        for (const c of chs) lines.push("   • char " + c.char + "  [" + (c.props || "-") + "]");
+        lines.push("");
+      }
+      out.textContent = lines.join("\n");
+    } catch (e) {
+      console.error("[btDiagnose]", e);
+      if (out) out.textContent = "ตรวจไม่สำเร็จ: " + (e?.message || e);
+      _toast("ตรวจเครื่องพิมพ์ไม่สำเร็จ: " + (e?.message || e));
+    } finally {
+      b.disabled = false; b.textContent = o;
+    }
   });
 }
 
