@@ -12,6 +12,8 @@ import { postJournalForReceipt, voidJvForSource } from "./accounting/auto_post.j
 import { createInflightGuard } from "./_inflight_guard.js";
 // Phase 583: ดึงใบเสร็จเต็มช่วงจาก DB (paginated) — ยอดรวม/ค้นหา/Excel ไม่ขาดจาก state.receipts cap 50
 import { fetchReceiptsSince } from "./range_fetch.js";
+// Phase 585: reprint บิลเก่าเข้าเครื่องสลิป Bluetooth (Android) — raster ESC/POS
+import * as receiptBt from "./receipt_bt.js";
 
 // Phase 89.42 — Site 1 fix: rapid double-click on "บันทึก" in multi-pay drawer
 // could fire 2 PATCH /receipts with overlapping payloads (lost-update race).
@@ -768,6 +770,7 @@ function renderReceiptPreview(container) {
           <button id="rcMultiPayBtn" class="btn light" style="border:1px solid #cbd5e1" title="แตกย่อยหลายวิธีชำระ (เงินสด+โอน+เครดิต ฯลฯ)">📊 Multi-pay</button>
           <button id="rcShareBtn" class="btn" style="background:#06C755;color:#fff">📤 แชร์</button>
           <button id="rcPrintBtn" class="btn light">🖨️ พิมพ์</button>
+          <button id="rcBtSlipBtn" class="btn light" style="border:1px solid #93c5fd;color:#2563eb" title="พิมพ์เข้าเครื่องสลิป Bluetooth 58/80mm (Android)">🖨️ สลิป BT</button>
           <button id="rcPdfBtn" class="btn primary">📄 PDF</button>
           <button id="rcDeleteBtn" class="btn" style="background:#ef4444;color:#fff">🗑️ ลบ</button>
         </div>
@@ -1117,9 +1120,31 @@ function renderReceiptPreview(container) {
   // Print
   document.getElementById("rcPrintBtn")?.addEventListener("click", () => {
     const content = document.getElementById("rcDocPreview")?.innerHTML; if (!content) return;
-    const w = window.open("","_blank");
+    const w = window.open("","_blank"); if (!w) return _ctx?.showToast?.("เบราว์เซอร์บล็อกหน้าต่างพิมพ์ — อนุญาต popup แล้วลองใหม่"); // Phase 585: popup block → null
     w.document.write('<html><head><title>ใบเสร็จรับเงิน</title><link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700;800&display=swap" rel="stylesheet"><style>@page{size:A4;margin:0}body{font-family:"Sarabun","Noto Sans Thai",system-ui,sans-serif;margin:0;padding:0;color:#1a1a1a;font-size:14px}.doc-preview{padding:0}.doc-page{width:210mm;min-height:297mm;padding:20mm 18mm 15mm;box-sizing:border-box;page-break-after:always;position:relative;display:flex;flex-direction:column}.doc-page:last-child{page-break-after:avoid}.doc-page-inner{flex:1;display:flex;flex-direction:column}.doc-accent{height:5px;width:100%;position:absolute;top:0;left:0}.doc-accent.re{background:linear-gradient(90deg,#15803d,#16a34a,#4ade80)}.doc-page-badge{position:absolute;top:0;right:0;width:40px;height:40px;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900;color:#fff;background:#16a34a}.doc-copy-label{font-size:13px;font-weight:600;color:#64748b;text-align:center}.doc-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px}.doc-header-left{display:flex;gap:12px;max-width:55%}.doc-logo{width:64px;height:64px;border-radius:8px;object-fit:contain}.doc-company-name{font-size:16px;font-weight:900;margin-bottom:4px}.doc-company-detail{font-size:12px;color:#555;line-height:1.7}.doc-title{font-size:26px;font-weight:900}.doc-title.re{color:#15803d}.doc-detail-table{margin-left:auto;border-collapse:collapse;font-size:13px;margin-top:8px}.doc-detail-table td{padding:3px 10px;border:1px solid #d1d5db}.doc-detail-table td:first-child{font-weight:700;color:#555;background:#f9fafb;white-space:nowrap}.doc-customer-section{margin:12px 0 16px}.doc-customer-label{font-weight:800;font-size:12px;text-decoration:underline;margin-bottom:4px;color:#15803d}.doc-customer-name{font-weight:700;font-size:14px}.doc-customer-detail{font-size:13px;color:#333;line-height:1.6}.doc-table{width:100%;border-collapse:collapse;margin:12px 0 8px}.doc-table th{padding:8px 10px;font-size:12px;font-weight:700;text-align:center;border:1px solid #d1d5db;background:#f3f4f6;color:#333}.doc-table td{padding:8px 10px;font-size:13px;border:1px solid #d1d5db;vertical-align:top}.doc-totals{margin-left:auto;width:280px;margin-top:4px}.doc-total-row{display:flex;justify-content:space-between;padding:4px 0;font-size:13px;color:#333}.doc-total-row.grand{font-size:14px;font-weight:900;padding-top:8px;margin-top:4px}.doc-total-row.grand.re{color:#1a1a1a;border-top:2px solid #15803d}.doc-note-section{margin-top:16px;font-size:12.5px;line-height:1.7}.doc-note-title{font-weight:800;text-decoration:underline;margin-bottom:2px;color:#15803d}.doc-payment-check{margin-top:auto;padding-top:20px;font-size:12.5px}.doc-payment-check-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.doc-checkbox{display:inline-flex;align-items:center;gap:4px;margin-right:12px}.doc-checkbox-box{width:14px;height:14px;border:1.5px solid #555;display:inline-block;border-radius:2px}.doc-bank-line{display:flex;gap:16px;margin-top:6px;font-size:12px}.doc-bank-field{display:flex;gap:4px;align-items:baseline}.doc-bank-field .underline{border-bottom:1px solid #333;min-width:100px;display:inline-block;height:16px}.doc-signatures{display:flex;justify-content:space-between;margin-top:auto;padding-top:24px;font-size:13px}.doc-sig-col{text-align:center;width:42%}.doc-sig-behalf{font-weight:600;margin-bottom:28px;font-size:12.5px}.doc-sig-line{width:200px;border-bottom:1px solid #333;margin:0 auto 6px}.doc-sig-label-row{display:flex;justify-content:center;gap:40px;font-size:12px}</style></head><body>'+content+'</body></html>');
     w.document.close(); w.focus(); setTimeout(() => w.print(), 500);
+  });
+
+  // Phase 585: พิมพ์สลิป Bluetooth (Android) — reprint บิลนี้เข้าเครื่องสลิป (map field ให้ตรง renderReceiptCanvas)
+  document.getElementById("rcBtSlipBtn")?.addEventListener("click", async () => {
+    if (!receiptBt.isSlipSupported()) {
+      return _ctx?.showToast?.("อุปกรณ์นี้ไม่รองรับ Bluetooth printing — ใช้ Android + Chrome/Edge (iPhone ใช้ไม่ได้)");
+    }
+    const btn = document.getElementById("rcBtSlipBtn");
+    const orig = btn?.textContent;
+    try {
+      if (btn) { btn.disabled = true; btn.textContent = "⏳ พิมพ์..."; }
+      if (!receiptBt.isSlipConnected()) _ctx?.showToast?.("กำลังเชื่อมเครื่องพิมพ์...");
+      // r ใช้ field receipts.js (receipt_no/grand_total/created_at); items จาก _lineItems (item_name/qty/unit_price/line_total)
+      const rc = { ...r, items: _lineItems };
+      await receiptBt.printReceipt(rc, _ctx?.state?.storeInfo || {});
+      _ctx?.showToast?.("ส่งพิมพ์สลิปแล้ว ✅");
+    } catch (e) {
+      console.error("[rcBtSlip]", e);
+      _ctx?.showToast?.("พิมพ์สลิปไม่สำเร็จ: " + (e?.message || e));
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = orig; }
+    }
   });
 
   // PDF
