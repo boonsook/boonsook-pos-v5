@@ -4,6 +4,8 @@
 // ═══════════════════════════════════════════════════════════
 
 import { escHtml } from './utils.js';
+// Phase 585: เชื่อม/ทดสอบเครื่องพิมพ์สลิป Bluetooth (Android)
+import * as receiptBt from '../receipt_bt.js';
 
 /**
  * Render About page
@@ -13,6 +15,9 @@ export function renderSettingsAbout(el, ctx, goBack) {
   // — ไม่ hardcode → ไม่มี risk ลืม bump 5.x.x หรือ build N ใน About page ตอนปล่อย phase ใหม่
   const _ver = (typeof window !== 'undefined' && window.APP_VERSION) || '-';
   const _build = (typeof window !== 'undefined' && window.APP_BUILD) || '-';
+  // Phase 585: feature-detect Bluetooth printing (iOS/desktop-no-BT → ปิดปุ่ม + แจ้งชัด ไม่ crash)
+  const _btSupported = receiptBt.isSlipSupported();
+  const _btConnected = _btSupported && receiptBt.isSlipConnected();
   el.innerHTML = `
     <div class="set-subpage">
       <div class="set-subpage-header">
@@ -61,6 +66,25 @@ export function renderSettingsAbout(el, ctx, goBack) {
             <input type="file" id="appRestoreFile" accept="application/json,.json" style="display:none" />
           </div>
           <div id="appBackupStatus" style="font-size:12px;color:#475569;margin-top:8px"></div>
+        </div>
+
+        <!-- ★ Phase 585: Bluetooth slip printer -->
+        <div style="margin-top:20px;padding:14px;background:#eff6ff;border-radius:10px;border:1px solid #bfdbfe">
+          <div style="font-weight:700;color:#1e40af;margin-bottom:6px">🖨️ เครื่องพิมพ์สลิป (Bluetooth)</div>
+          ${_btSupported ? `
+            <div style="font-size:12px;color:#1e3a8a;margin-bottom:10px">เชื่อมเครื่องพิมพ์สลิป 58/80mm ผ่าน Bluetooth แล้วพิมพ์ใบเสร็จได้จากหน้าใบเสร็จ (พิมพ์เป็นภาพ — ภาษาไทยไม่เพี้ยน)</div>
+            <div id="btPrinterStatus" style="font-size:13px;color:#475569;margin-bottom:8px">${_btConnected ? '🟢 เชื่อมแล้ว: ' + escHtml(receiptBt.getSlipDeviceName() || '(อุปกรณ์)') : '⚪ ยังไม่เชื่อม'}</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button id="btConnectBtn" class="btn primary" style="font-size:13px;padding:8px 14px;background:#2563eb;border:none">🔗 เชื่อมเครื่องพิมพ์</button>
+              <button id="btTestPrintBtn" class="btn light" style="font-size:13px;padding:8px 14px">🧾 ทดสอบพิมพ์</button>
+              <button id="btDisconnectBtn" class="btn light" style="font-size:13px;padding:8px 14px">✕ ตัดการเชื่อม</button>
+            </div>
+          ` : `
+            <div style="padding:10px;background:#fef2f2;border-radius:8px;font-size:12px;color:#991b1b;line-height:1.6">
+              ⚠️ อุปกรณ์นี้ไม่รองรับ Web Bluetooth — ใช้ได้เฉพาะ <b>Android + Chrome/Edge</b><br>
+              iPhone/iPad (iOS) ใช้ไม่ได้ (Apple บล็อก Web Bluetooth ทุกเบราว์เซอร์) — ให้ใช้ปุ่ม "พิมพ์" ปกติแทน
+            </div>
+          `}
         </div>
       </div>
     </div>
@@ -284,6 +308,51 @@ export function renderSettingsAbout(el, ctx, goBack) {
       setStatus("❌ ผิดพลาด: " + (e?.message || e), "#dc2626");
       btn.disabled = false; btn.textContent = orig;
     }
+  });
+
+  // ─── Phase 585: Bluetooth slip printer connect / test / disconnect ───
+  const _btStatusEl = document.getElementById("btPrinterStatus");
+  const _btSetStatus = (msg) => { if (_btStatusEl) _btStatusEl.textContent = msg; };
+  const _toast = (m) => ctx?.showToast?.(m);
+
+  document.getElementById("btConnectBtn")?.addEventListener("click", async () => {
+    const b = document.getElementById("btConnectBtn");
+    const o = b.textContent;
+    b.disabled = true; b.textContent = "⏳ กำลังเชื่อม...";
+    try {
+      await receiptBt.connectSlipPrinter();   // ต้องมาจาก user gesture (click นี้)
+      const name = receiptBt.getSlipDeviceName() || "(อุปกรณ์)";
+      _btSetStatus("🟢 เชื่อมแล้ว: " + name);
+      _toast("เชื่อมเครื่องพิมพ์แล้ว: " + name);
+    } catch (e) {
+      console.error("[btConnect]", e);
+      _btSetStatus("🔴 เชื่อมไม่สำเร็จ");
+      _toast("เชื่อมไม่สำเร็จ: " + (e?.message || e));
+    } finally {
+      b.disabled = false; b.textContent = o;
+    }
+  });
+
+  document.getElementById("btTestPrintBtn")?.addEventListener("click", async () => {
+    const b = document.getElementById("btTestPrintBtn");
+    const o = b.textContent;
+    b.disabled = true; b.textContent = "⏳ พิมพ์...";
+    try {
+      await receiptBt.testPrint(ctx?.state?.storeInfo || {});
+      _btSetStatus("🟢 เชื่อมแล้ว: " + (receiptBt.getSlipDeviceName() || "(อุปกรณ์)"));
+      _toast("ส่งทดสอบพิมพ์แล้ว ✅");
+    } catch (e) {
+      console.error("[btTestPrint]", e);
+      _toast("ทดสอบพิมพ์ไม่สำเร็จ: " + (e?.message || e));
+    } finally {
+      b.disabled = false; b.textContent = o;
+    }
+  });
+
+  document.getElementById("btDisconnectBtn")?.addEventListener("click", async () => {
+    await receiptBt.disconnectSlip();
+    _btSetStatus("⚪ ยังไม่เชื่อม");
+    _toast("ตัดการเชื่อมเครื่องพิมพ์แล้ว");
   });
 }
 

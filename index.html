@@ -9,7 +9,7 @@
   <link rel="icon" type="image/svg+xml" href="./icons/logo.svg" />
   <link rel="manifest" href="./manifest.json" />
   <link rel="apple-touch-icon" href="./icons/logo.svg" />
-  <link rel="stylesheet" href="./style.css?v=584" />
+  <link rel="stylesheet" href="./style.css?v=585" />
   <link rel="stylesheet" href="./doc-print.css?v=1" />
   <!-- ✨ Phase 4: Design System & Components (30/3/2569) -->
   <link rel="stylesheet" href="./phase4-design-system.css?v=529" />
@@ -841,6 +841,7 @@
     <div class="row mt16" style="flex-wrap:wrap;gap:6px">
       <button class="btn light" data-close-drawer>ปิด</button>
       <button id="printReceiptBtn" class="btn dark">พิมพ์</button>
+      <button id="btSlipReceiptBtn" class="btn" style="background:#2563eb;color:#fff;border:none" title="พิมพ์เข้าเครื่องสลิป Bluetooth 58/80mm (Android)">🖨️ สลิป BT</button>
       <button id="pdfReceiptBtn" class="btn btn-primary">PDF</button>
       <button id="shareReceiptLineBtn" class="btn" style="background:#06c755;color:#fff;border:none" title="แชร์ใบเสร็จผ่าน Line">💬 แชร์ Line</button>
     </div>
@@ -880,10 +881,10 @@
        ทำงานก่อน main.js โหลด → ป้องกัน user เห็น version display เก่า
        Phase 89.15: ย้ายออกไป external file + set window.APP_BUILD ให้ pages.js/main.js อ่านได้
        (CSP drop script-src 'unsafe-inline') -->
-  <script src="./selfheal.js?v=584" data-app-build="584" data-app-version="5.69.55"></script>
-  <script type="module" src="./main.js?v=584"></script>
+  <script src="./selfheal.js?v=585" data-app-build="585" data-app-version="5.69.56"></script>
+  <script type="module" src="./main.js?v=585"></script>
   <!-- Phase 89.15: externalized loading overlay + SW update banner (was inline script — drop CSP unsafe-inline) -->
-  <script src="./boot.js?v=584"></script>
+  <script src="./boot.js?v=585"></script>
 
   <!-- AI Assistant Chat Widget (Phase 1) -->
   <script src="./ai-chat-widget.js?v=9"></script>

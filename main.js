@@ -5,6 +5,7 @@ import { safeParse } from "./modules/_safe_parse.js"; // Phase 573: กัน lo
 import { renderProductsPage, refreshProductsPage } from "./modules/products.js";
 import { applyDraftFields, bindServiceDraft, clearServiceDraft, loadServiceDraft } from "./modules/service_drafts.js";
 import { renderPosPage, clearPosState, refreshPosPage } from "./modules/pos.js";
+import * as receiptBt from "./modules/receipt_bt.js"; // Phase 585: พิมพ์ใบเสร็จเข้าเครื่องสลิป Bluetooth (Android)
 import { renderSalesPage } from "./modules/sales.js";
 import { renderCustomersPage } from "./modules/customers.js";
 import { renderQuotationsPage } from "./modules/quotations.js";
@@ -4602,8 +4603,30 @@ async function _fillReceiptAcctTrace(sale, attempt = 0){
 function printLastReceipt(){
   if (!state.lastReceipt) return showToast("ยังไม่มีบิลล่าสุด");
   const w = window.open("", "_blank");
+  if (!w) return showToast("เบราว์เซอร์บล็อกหน้าต่างพิมพ์ — อนุญาต popup แล้วลองใหม่"); // Phase 585: popup block → คืน null
   w.document.write(`<html><head><title>Receipt</title><style>body{font-family:sans-serif;padding:20px}.row{display:flex;justify-content:space-between;margin:4px 0}hr{margin:10px 0}</style></head><body>${$("receiptContent").innerHTML}</body></html>`);
   w.document.close(); w.focus(); w.print();
+}
+
+// ★ Phase 585: พิมพ์ใบเสร็จล่าสุดเข้าเครื่องสลิป Bluetooth (Android/Chrome) — raster ESC/POS
+async function printSlipBt(){
+  if (!state.lastReceipt) return showToast("ยังไม่มีบิลล่าสุด");
+  if (!receiptBt.isSlipSupported()) {
+    return showToast("อุปกรณ์นี้ไม่รองรับ Bluetooth printing — ใช้ Android + Chrome/Edge (iPhone ใช้ไม่ได้)");
+  }
+  const btn = $("btSlipReceiptBtn");
+  const orig = btn?.textContent;
+  try {
+    if (btn) { btn.disabled = true; btn.textContent = "⏳ กำลังพิมพ์..."; }
+    if (!receiptBt.isSlipConnected()) showToast("กำลังเชื่อมเครื่องพิมพ์...");
+    await receiptBt.printReceipt(state.lastReceipt, state.storeInfo || {});
+    showToast("ส่งพิมพ์สลิปแล้ว ✅");
+  } catch (e) {
+    console.error("[printSlipBt]", e);
+    showToast("พิมพ์สลิปไม่สำเร็จ: " + (e?.message || e));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = orig; }
+  }
 }
 
 // ★ แชร์ใบเสร็จผ่าน Line — เปิด Line Share URL + copy text ไว้ด้วย
@@ -5232,6 +5255,7 @@ function bindStaticEvents(){
     });
   });
   $("printReceiptBtn")?.addEventListener("click", printLastReceipt);
+  $("btSlipReceiptBtn")?.addEventListener("click", printSlipBt); // Phase 585: พิมพ์สลิป Bluetooth
   $("pdfReceiptBtn")?.addEventListener("click", exportReceiptPdf);
   $("shareReceiptLineBtn")?.addEventListener("click", shareReceiptToLine);
   $("addNewUserBtn")?.addEventListener("click", addNewUser);
