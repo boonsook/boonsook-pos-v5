@@ -71,6 +71,8 @@ function xhrPostPOS(table, payload, returnData = false) {
 // ═══════════════════════════════════════════════════════════
 let posView = "home";
 let selectedPaymentMethod = "";
+// ★ Phase 584: ctx ล่าสุด สำหรับ refreshPosPage() ตอน background renderAll (คงสถานะ view — ไม่เด้ง home)
+let _lastPosCtx = null;
 // Phase 88.20: เลือกบัญชีธนาคารปลายทางสำหรับการโอน (index ใน paymentInfo.banks[])
 let selectedBankIdx = 0;
 // Phase 464: คลังที่เลือกขาย (คลังเดียวต่อบิล) — "" = อัตโนมัติ (บ้านก่อน เหมือนเดิม); ตัดทั้งบิลจากคลังนี้
@@ -236,6 +238,7 @@ export function clearPosState() {
 
 export function renderPosPage({ state, addToCart, changeQty, removeFromCart, openProductDrawer, checkout, openReceiptDrawer }) {
   const ctx = { state, addToCart, changeQty, removeFromCart, openProductDrawer, checkout, openReceiptDrawer };
+  _lastPosCtx = ctx;   // ★ Phase 584: เก็บ ctx ให้ refreshPosPage() ใช้ตอน background reload
   posView = "home";
   numpadValue = "";
   quickPayAmount = 0;
@@ -247,6 +250,18 @@ export function renderPosPage({ state, addToCart, changeQty, removeFromCart, ope
   if (!(state.cart || []).length) _checkoutKey = null;
   _resetCreditState();  // Phase 517b-3
   renderPosView(ctx);
+}
+
+// ★ Phase 584: refresh หน้า POS ตอน background renderAll (หลัง loadAllData deferred) — คงสถานะ view
+//   (mirror products.js refreshProductsPage แต่กัน mid-flow). ★ ห้ามแตะ posView/numpadValue/
+//   quickPayAmount/_checkoutKey/_resetCreditState — นั่นเป็นหน้าที่ renderPosPage ตอน navigate จริงเท่านั้น.
+export function refreshPosPage() {
+  if (!_lastPosCtx) return false;
+  // mid-transaction (posView != home) → อย่า re-render: กันเด้ง view เดิม / หลุด focus / ดีดสกอลล์
+  //   ระหว่างพิมพ์ numpad, เลือกวิธีจ่าย, ยืนยันสลิป, ค้นหาสินค้า (background reload เรียก renderAll).
+  if (posView !== "home") return true;   // short-circuit renderAll โดยไม่แตะ DOM
+  renderPosView(_lastPosCtx);            // home: refresh แบนเนอร์ยอดขาย/ฟีดล่าสุด (ไม่มี input ค้าง = ปลอดภัย)
+  return true;
 }
 
 function renderPosView(ctx) {

@@ -49,6 +49,10 @@ const DOC_TYPE_OPTIONS = [
 
 let _coa = [];                      // chart of accounts cache
 let _lines = [{ account_code: "", debit: 0, credit: 0, description: "" }];
+// ★ Phase 584: header (วันที่/ประเภท/คำอธิบาย) เป็น module state เหมือน _lines — คงค่าข้าม re-render
+//   (กด "+ เพิ่มบรรทัด"/ลบบรรทัด rebuild innerHTML). เดิมอยู่ใน DOM เท่านั้น → re-render = รีเซ็ตเป็น
+//   today/JV/ว่าง เงียบ → save โพสต์ JV ผิด period (วันที่ที่ผู้ใช้ตั้ง = period ก่อน หายกลับเป็นวันนี้).
+let _header = { doc_date: "", doc_type: "JV", desc: "" };
 
 export async function renderJournalFormPage(ctx) {
   const container = document.getElementById("page-accounting_journal_new");
@@ -81,6 +85,8 @@ export async function renderJournalFormPage(ctx) {
   }
 
   const today = todayBkk();  // Phase 89.1: Bangkok time
+  // ★ Phase 584: init วันที่เฉพาะครั้งแรก (ว่าง) — คงค่าที่ผู้ใช้กรอกไว้ตอน re-render (เพิ่ม/ลบบรรทัด)
+  if (!_header.doc_date) _header.doc_date = today;
 
   const accountOptions = _coa
     .filter(a => a.parent_code) // skip header rows (parent accounts)
@@ -101,18 +107,18 @@ export async function renderJournalFormPage(ctx) {
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:14px">
         <div>
           <label style="font-size:12px;font-weight:600;color:#475569;display:block;margin-bottom:4px">📅 วันที่</label>
-          <input type="date" id="jvDocDate" value="${today}" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px" />
+          <input type="date" id="jvDocDate" value="${escAttr(_header.doc_date)}" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px" />
         </div>
         <div>
           <label style="font-size:12px;font-weight:600;color:#475569;display:block;margin-bottom:4px">🏷️ ประเภทเอกสาร</label>
           <select id="jvDocType" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px">
-            ${DOC_TYPE_OPTIONS.map(([k, l]) => `<option value="${k}">${escHtml(l)}</option>`).join("")}
+            ${DOC_TYPE_OPTIONS.map(([k, l]) => `<option value="${k}"${k === _header.doc_type ? " selected" : ""}>${escHtml(l)}</option>`).join("")}
           </select>
         </div>
       </div>
       <div style="margin-top:10px">
         <label style="font-size:12px;font-weight:600;color:#475569;display:block;margin-bottom:4px">📝 คำอธิบาย</label>
-        <input type="text" id="jvDesc" placeholder="เช่น: บันทึกรายการเงินเดือนสำหรับงวด 05/2026" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px" />
+        <input type="text" id="jvDesc" value="${escAttr(_header.desc)}" placeholder="เช่น: บันทึกรายการเงินเดือนสำหรับงวด 05/2026" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px" />
       </div>
 
       <!-- Lines table -->
@@ -201,8 +207,14 @@ export async function renderJournalFormPage(ctx) {
   document.getElementById("jvBackBtn")?.addEventListener("click", () => { location.hash = "accounting_journals"; });
   document.getElementById("jvCancelBtn")?.addEventListener("click", () => {
     _lines = [{ account_code: "", debit: 0, credit: 0, description: "" }];
+    _header = { doc_date: "", doc_type: "JV", desc: "" };   // ★ Phase 584: ฟอร์มถัดไปเริ่มสะอาด
     location.hash = "accounting_journals";
   });
+
+  // ★ Phase 584: header inputs → _header (single source; save อ่านจาก _header ไม่พึ่ง DOM timing)
+  document.getElementById("jvDocDate")?.addEventListener("change", (ev) => { _header.doc_date = ev.target.value; });
+  document.getElementById("jvDocType")?.addEventListener("change", (ev) => { _header.doc_type = ev.target.value; });
+  document.getElementById("jvDesc")?.addEventListener("input", (ev) => { _header.desc = ev.target.value; });
 
   document.getElementById("jvAddLineBtn")?.addEventListener("click", () => {
     _lines.push({ account_code: "", debit: 0, credit: 0, description: "" });
@@ -257,9 +269,11 @@ async function _save(ctx, status) {
   const cfg = window.SUPABASE_CONFIG;
   const token = window._sbAccessToken || cfg.anonKey;
 
-  const docDate = document.getElementById("jvDocDate")?.value;
-  const docType = document.getElementById("jvDocType")?.value || "JV";
-  const desc    = document.getElementById("jvDesc")?.value?.trim() || "";
+  // ★ Phase 584: อ่านจาก _header (single source) — เดิมอ่าน DOM ที่ re-render ล่าสุดรีเซ็ตเป็น today/JV/ว่าง
+  //   → save โพสต์ผิด period เงียบ. _header คงค่าที่ผู้ใช้กรอกก่อนกด "+ เพิ่มบรรทัด".
+  const docDate = _header.doc_date;
+  const docType = _header.doc_type || "JV";
+  const desc    = (_header.desc || "").trim();
 
   if (!docDate) return showToast("กรุณาเลือกวันที่");
 
@@ -370,5 +384,7 @@ async function _save(ctx, status) {
   // Reset form
   // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L3 module state reset after save (single form session)
   _lines = [{ account_code: "", debit: 0, credit: 0, description: "" }];
+  // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L3 module state reset after save (single form session)
+  _header = { doc_date: "", doc_type: "JV", desc: "" };   // ★ Phase 584: ฟอร์มถัดไปเริ่มสะอาด (today ใหม่ตอน init guard)
   location.hash = "accounting_journals";
 }
