@@ -66,3 +66,15 @@ export async function fetchServiceJobsSince(cutoffKey) {
   const url = c.url + "/rest/v1/service_jobs?select=*" + filter + "&order=created_at.desc";
   return _paginate(url, c.headers, "ดึงข้อมูลงานบริการ");
 }
+
+// Phase 583: fetch receipts with created_at >= (cutoffKey - 2 days). cutoffKey === "" → all (no lower bound).
+//   หน้าใบเสร็จอ่าน state.receipts cap 50 → ยอดรวม/ค้นหา/Excel ขาดเมื่อ >50 ใบ; ดึงเต็มช่วงที่เลือกจาก DB.
+//   read-only GET, paginated. caller คง client-side date filter เดิม (buffer -2 วัน = candidate superset).
+export async function fetchReceiptsSince(cutoffKey) {
+  const c = _conn();
+  if (!c) return { ok: false, rows: [], error: "ไม่พบการตั้งค่าเซิร์ฟเวอร์" };
+  const since = bufferedSince(cutoffKey);
+  const filter = since ? "&created_at=gte." + encodeURIComponent(since) : "";
+  const url = c.url + "/rest/v1/receipts?select=*" + filter + "&order=created_at.desc";
+  return _paginate(url, c.headers, "ดึงข้อมูลใบเสร็จ");
+}
