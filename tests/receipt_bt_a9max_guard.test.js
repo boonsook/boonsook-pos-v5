@@ -8,7 +8,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  connectSlipPrinter, disconnectSlip, sendChunked, isUartTransport, getSlipTarget
+  connectSlipPrinter, disconnectSlip, sendChunked, isUartTransport, getSlipTarget,
+  buildPrintBytes, usePeriPageProtocol
 } from "../modules/receipt_bt.js";
 
 // ── mocks ────────────────────────────────────────────────────
@@ -123,6 +124,87 @@ test("(e) A9 (fee7) connect ไม่เรียก startNotifications (path �
     await connectSlipPrinter();
     assert.equal(isUartTransport(), false, "A9 ไม่ใช่ UART");
     assert.equal(touched, false, "ต้องไม่ subscribe notify (A9 path เดิม)");
+  });
+  await disconnectSlip();
+});
+
+// ═══ Phase 588: เลือก char ตามช่อง (fec7→ff02) + framing ตามช่อง ═══
+const FF00_SVC = "0000ff00-0000-1000-8000-00805f9b34fb";
+const FF02_CHAR = "0000ff02-0000-1000-8000-00805f9b34fb";
+function mockCanvas(rows) {
+  const height = rows.length, width = rows[0].length;
+  const data = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    const i = (y * width + x) * 4, v = rows[y][x] ? 0 : 255;
+    data[i] = v; data[i + 1] = v; data[i + 2] = v; data[i + 3] = 255;
+  }
+  return { width, height, getContext() { return { getImageData() { return { data }; } }; } };
+}
+function hasSeq(arr, seq) {
+  for (let i = 0; i + seq.length <= arr.length; i++) {
+    let ok = true; for (let j = 0; j < seq.length; j++) if (arr[i + j] !== seq[j]) { ok = false; break; }
+    if (ok) return true;
+  }
+  return false;
+}
+const solidRow = () => [1, 1, 1, 1, 1, 1, 1, 1];
+
+// ── (f) A9 regression: fec7 → PeriPage-classic framing (คงเดิม) ──
+test("(f) A9 (fec7): usePeriPageProtocol true → buildPrintBytes = reset(10FFFE01) + ESC J ท้าย (คงเดิม 587)", async () => {
+  await disconnectSlip();
+  const nav = mkNav({ name: "PeriPage_A9", services: [mkService(A9_SVC, [mkChar(A9_CHAR, { write: true, writeWithoutResponse: true })])] });
+  await withNavigator(nav, async () => {
+    await connectSlipPrinter();
+    assert.match(getSlipTarget().char, /fec7/i, "เลือก fec7");
+    assert.equal(usePeriPageProtocol(), true, "fec7 → PeriPage protocol");
+    assert.equal(isUartTransport(), false, "A9 direct write (ไม่ใช่ UART)");
+    const bytes = buildPrintBytes(mockCanvas([solidRow()]));
+    assert.deepEqual([...bytes.slice(0, 4)], [0x10, 0xFF, 0xFE, 0x01], "ขึ้นต้น reset 10 FF FE 01");
+    assert.ok(hasSeq(bytes, [0x10, 0xFF, 0x10, 0x00, 0x02]), "มี concentration");
+    const n = bytes.length;
+    assert.equal(bytes[n - 3], 0x1B, "ท้าย ESC J"); assert.equal(bytes[n - 2], 0x4A, "J");
+    assert.ok(!hasSeq(bytes, [0x1B, 0x40]), "ไม่มี ESC @ (PeriPage path)");
+  });
+  await disconnectSlip();
+});
+
+// ── (g) A9 Max: มีทั้ง ISSC(8841) + ff02 → ต้องเลือก ff02 + generic ESC/POS ──
+test("(g) A9 Max (49535343-8841 + ff02): เลือก ff02 (ไม่ใช่ 8841) → generic ESC/POS, ไม่มี cut/PeriPage reset", async () => {
+  await disconnectSlip();
+  const issc = mkService(ISSC_SVC, [mkChar(ISSC_WRITE, { write: true, writeWithoutResponse: true })]);
+  const ff00 = mkService(FF00_SVC, [
+    mkChar("0000ff01-0000-1000-8000-00805f9b34fb", { notify: true }),
+    mkChar(FF02_CHAR, { write: true, writeWithoutResponse: true }),
+    mkChar("0000ff03-0000-1000-8000-00805f9b34fb", { notify: true })
+  ]);
+  await withNavigator(mkNav({ name: "PeriPage_A9MAX", services: [issc, ff00] }), async () => {
+    await connectSlipPrinter();
+    assert.match(getSlipTarget().char, /ff02/i, "★ ต้องเลือก ff02 (ไม่ใช่ 49535343-8841)");
+    assert.ok(!/8841/i.test(getSlipTarget().char), "ต้องไม่ใช่ ISSC 8841");
+    assert.equal(isUartTransport(), false, "ff00 ไม่ใช่ ISSC UART");
+    assert.equal(usePeriPageProtocol(), false, "ff02 → generic ESC/POS (ไม่ใช่ PeriPage)");
+    const bytes = buildPrintBytes(mockCanvas([solidRow()]));
+    assert.deepEqual([...bytes.slice(0, 2)], [0x1B, 0x40], "ขึ้นต้น ESC @");
+    assert.ok(hasSeq(bytes, [0x1D, 0x76, 0x30, 0x00]), "มี GS v 0");
+    const n = bytes.length;
+    assert.equal(bytes[n - 3], 0x1B, "ท้าย feed ESC d"); assert.equal(bytes[n - 2], 0x64, "d");
+    assert.ok(!hasSeq(bytes, [0x1D, 0x56]), "ไม่มี GS V cut");
+    assert.ok(!hasSeq(bytes, [0x10, 0xFF, 0xFE]), "ไม่มี PeriPage reset");
+  });
+  await disconnectSlip();
+});
+
+// ── (h) fallback: ไม่มี fec7/ff02 → เลือก writable ตัวแรก ──
+test("(h) ไม่มี fec7/ff02 → fallback writable ตัวแรก (เครื่องยี่ห้ออื่น)", async () => {
+  await disconnectSlip();
+  const svc = mkService("000018f0-0000-1000-8000-00805f9b34fb", [
+    mkChar("00002a00-0000-1000-8000-00805f9b34fb", { read: true }),
+    mkChar("00002af1-0000-1000-8000-00805f9b34fb", { write: true, writeWithoutResponse: true })
+  ]);
+  await withNavigator(mkNav({ name: "Xprinter", services: [svc] }), async () => {
+    const ch = await connectSlipPrinter();
+    assert.equal(ch.uuid, "00002af1-0000-1000-8000-00805f9b34fb", "fallback = writable ตัวแรก");
+    assert.equal(usePeriPageProtocol(), false, "generic");
   });
   await disconnectSlip();
 });

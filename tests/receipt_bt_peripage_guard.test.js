@@ -82,7 +82,7 @@ test("(b) buildPrintBytes (PeriPage) = reset + concentration + GS v 0 + ESC J fe
 });
 
 // ── (c) generic path คงเดิม ──────────────────────────────────
-test("(c) buildPrintBytes (generic) = ESC @ + body + feed + GS V cut (คงพฤติกรรมเครื่องอื่น)", async () => {
+test("(c) buildPrintBytes (generic) = ESC @ + body + feed (Phase 588: ไม่มี GS V cut)", async () => {
   await disconnectSlip();
   const svc = mkService("000018f0-0000-1000-8000-00805f9b34fb", [mkChar("00002af1-0000-1000-8000-00805f9b34fb", { write: true, writeWithoutResponse: true })]);
   await withNavigator(mkNav({ name: "Xprinter-58", services: [svc] }), async () => {
@@ -91,10 +91,11 @@ test("(c) buildPrintBytes (generic) = ESC @ + body + feed + GS V cut (คงพ�
     const bytes = buildPrintBytes(mockCanvas([solidRow()]));
     assert.deepEqual([...bytes.slice(0, 2)], [0x1B, 0x40], "ขึ้นต้น ESC @");
     assert.ok(hasSeq(bytes, [0x1D, 0x76, 0x30, 0x00]), "มี GS v 0 body");
+    // Phase 588: generic = ESC @ + body + feed (★ ไม่มี GS V cut แล้ว)
     const n = bytes.length;
-    assert.equal(bytes[n - 3], 0x1D, "ลงท้าย GS V");
-    assert.equal(bytes[n - 2], 0x56, "V");
-    assert.equal(bytes[n - 1], 0x01, "1 (partial cut)");
+    assert.equal(bytes[n - 3], 0x1B, "ลงท้าย ESC d (feed)");
+    assert.equal(bytes[n - 2], 0x64, "d");
+    assert.ok(!hasSeq(bytes, [0x1D, 0x56]), "ต้องไม่มี GS V cut");
   });
   await disconnectSlip();
 });
