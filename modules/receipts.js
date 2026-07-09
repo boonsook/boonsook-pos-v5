@@ -10,6 +10,8 @@ import { renderDocumentTemplateHeader, renderDocumentTemplateNote, renderDocumen
 import { postJournalForReceipt, voidJvForSource } from "./accounting/auto_post.js";
 // Phase 89.42: single-flight guard for multi-payment save (prevent double-click race)
 import { createInflightGuard } from "./_inflight_guard.js";
+// Phase 583: ดึงใบเสร็จเต็มช่วงจาก DB (paginated) — ยอดรวม/ค้นหา/Excel ไม่ขาดจาก state.receipts cap 50
+import { fetchReceiptsSince } from "./range_fetch.js";
 
 // Phase 89.42 — Site 1 fix: rapid double-click on "บันทึก" in multi-pay drawer
 // could fire 2 PATCH /receipts with overlapping payloads (lost-update race).
@@ -140,6 +142,39 @@ let _selectedIds = new Set(); // bulk selection
 let _rcDateRange = "all"; // all | today | 7d | 30d | month
 let _rcSearch = "";
 
+// ★ Phase 583: ใบเสร็จทั้งช่วงที่เลือกจาก DB (state.receipts cap 50 @loadAllData → ยอดรวม/ค้นหา/Excel ขาด
+//   เมื่อ >50 ใบ). cache keyed ด้วย _rcDateRange (เปลี่ยน range → refetch; search/tab → client-side ไม่ refetch).
+//   fallback state ระหว่างโหลด/error + ป้าย (mirror loyalty/dashboard Phase 562/581). READ-ONLY.
+let _rcAllRows = null;      // ใบเสร็จทั้งช่วงจาก DB (null = ยังไม่โหลด)
+let _rcState = "idle";      // idle | loading | loaded | error
+let _rcSeq = 0;             // กัน stale resolve
+let _rcKey = null;          // _rcDateRange ที่ cache อยู่ (เปลี่ยน range → โหลดใหม่)
+
+// _rcDateRange → cutoffKey (mirror renderReceiptsPage; all → "" = ทั้งหมด). ใช้ตัดสิน fetch lower bound.
+function _rcCutoffKey() {
+  const today = todayBkk();
+  if (_rcDateRange === "today") return today;
+  if (_rcDateRange === "7d") return addDaysBkk(-7);
+  if (_rcDateRange === "30d") return addDaysBkk(-30);
+  if (_rcDateRange === "month") return today.slice(0, 7) + "-01";
+  return "";  // all
+}
+
+// โหลดใบเสร็จทั้งช่วง (paginated) แล้ว re-render — idle/range-guard กัน refetch loop, seq-guard กัน stale.
+async function _loadReceiptsRange(ctx) {
+  const rangeKey = _rcDateRange;
+  if (_rcState !== "idle" && _rcKey === rangeKey) return;   // มี cache/กำลังโหลด/error สำหรับ range นี้ → ไม่ refetch
+  _rcKey = rangeKey;
+  _rcState = "loading";
+  const seq = ++_rcSeq;
+  const res = await fetchReceiptsSince(_rcCutoffKey());
+  if (seq !== _rcSeq) return;   // stale — เปลี่ยน range/โหลดรอบใหม่แซง → ทิ้งผลรอบนี้
+  if (res.ok) { _rcAllRows = res.rows; _rcState = "loaded"; }
+  else { _rcAllRows = null; _rcState = "error"; }   // error → fallback + ป้าย จัดการที่ render
+  if (!document.getElementById("page-receipts")) return;   // ออกหน้าไปแล้ว
+  renderReceiptsPage(ctx);
+}
+
 export function _receiptMatchesSearchDate(r, { cutoff = "", q = "" } = {}) {
   // Phase 538 (S9, §4.7): เทียบวันบนเขตเวลาไทย — created_at เป็น timestamptz (UTC); .slice(0,10)
   //   จะได้ "วันที่ UTC" → บิลที่สร้าง 00:00–06:59 ไทย (= เมื่อวาน UTC) หลุด filter "วันนี้". ใช้ dateBkk().
@@ -196,7 +231,12 @@ export function renderReceiptsPage(ctx) {
   // Phase 45.10 (B5-4): clear stale line items + selection ตอนเข้า list view
   _lineItems = [];
   _selectedIds.clear();
-  const receipts = ctx.state.receipts || [];
+
+  // ★ Phase 583: kick โหลดใบเสร็จเต็มช่วงจาก DB (idle หรือ range เปลี่ยน → refetch). idle/range-guard กัน loop.
+  //   summary/ค้นหา/tab/Excel อ่านชุดเต็มเมื่อ loaded; ระหว่างโหลด/error → fallback state.receipts (≤50) + ป้าย.
+  if (_rcState === "idle" || _rcKey !== _rcDateRange) _loadReceiptsRange(ctx);
+  const _rcLoaded = _rcState === "loaded" && _rcAllRows && _rcKey === _rcDateRange;
+  const receipts = _rcLoaded ? _rcAllRows : (ctx.state.receipts || []);
 
   // Phase 59 (B2): apply advanced filters
   // Phase 538 (S9, §4.7): boundary "วันนี้/7วัน/30วัน/เดือนนี้" คิดบนเขตเวลาไทย (Asia/Bangkok) ไม่ใช่ UTC
@@ -233,6 +273,14 @@ export function renderReceiptsPage(ctx) {
         <span class="sku">สร้างจากใบส่งสินค้า</span>
         <button id="rcExportBtn" class="btn light" style="font-size:13px;margin-left:auto" title="ส่งออก Excel ตาม filter ที่กำลังเลือก">📥 Excel</button>
       </div>
+
+      ${_rcLoaded ? "" : `
+      <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:9px 12px;margin-top:10px;font-size:12px;color:#92400e;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        ${_rcState === "error"
+          ? "⚠️ โหลดใบเสร็จเต็มช่วงไม่สำเร็จ — ยอดรวม/ค้นหา/Excel คิดจาก ~50 ใบล่าสุด (อาจไม่ครบ)"
+          : "⏳ กำลังโหลดใบเสร็จเต็มช่วงจาก DB… ตัวเลขชั่วคราวจาก ~50 ใบล่าสุด"}
+        ${_rcState === "error" ? `<button id="rcRetryBtn" style="padding:4px 12px;border-radius:8px;border:1px solid #f59e0b;background:#fff;color:#92400e;cursor:pointer;font-weight:700;font-size:12px">ลองโหลดใหม่</button>` : ""}
+      </div>`}
 
       ${countAll === 0 ? renderEmpty({
         icon: "🧾",
@@ -389,6 +437,11 @@ export function renderReceiptsPage(ctx) {
     }));
     const ok = exportToExcel(`ใบเสร็จรับเงิน_${todaySuffix()}.xlsx`, rows, "Receipts");
     if (ok) window.App?.showToast?.(`ดาวน์โหลด ${rows.length} รายการแล้ว`);
+  });
+  // ★ Phase 583: retry โหลดใบเสร็จเต็มช่วง (reset idle → re-render = kick fetch อีกครั้ง)
+  container.querySelector("#rcRetryBtn")?.addEventListener("click", () => {
+    _rcState = "idle"; _rcKey = null;
+    renderReceiptsPage(_ctx);
   });
   // Phase 59 B2: date range pills
   container.querySelectorAll(".rc-date-btn").forEach(btn => btn.addEventListener("click", () => {
