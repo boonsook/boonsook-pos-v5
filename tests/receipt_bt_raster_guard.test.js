@@ -52,19 +52,19 @@ test("(2) xL/xH = bytesPerRow, yL/yH = จำนวนแถว (little-endian)"
   assert.equal(out[h + 7], 0, "yH = 0");
 });
 
-test("(3) มิติใหญ่: xL/xH + yL/yH little-endian ถูก + data length = bytesPerRow*rows", () => {
-  // width 384 → bytesPerRow 48 ; height 300 → 0x012C → yL=0x2C(44), yH=1
-  const rows = Array.from({ length: 300 }, () => new Array(384).fill(0));
+test("(3) 384px กว้าง (chunk เดียว ≤255): xL=48 xH=0 + yL=แถว + data length = bytesPerRow*rows", () => {
+  // Phase 586: body แบ่ง chunk ≤255 แถว — ใช้ 200 แถว = chunk เดียว (yL=200,yH=0)
+  const rows = Array.from({ length: 200 }, () => new Array(384).fill(0));
   const out = canvasToEscposRaster(mockCanvas(rows));
   const h = findRasterHeader(out);
   assert.equal(out[h + 4], 48, "xL = 48 (384/8)");
   assert.equal(out[h + 5], 0, "xH = 0");
-  assert.equal(out[h + 6], 44, "yL = 300 & 0xFF = 44");
-  assert.equal(out[h + 7], 1, "yH = 300 >> 8 = 1");
+  assert.equal(out[h + 6], 200, "yL = 200");
+  assert.equal(out[h + 7], 0, "yH = 0 (chunk ≤255)");
   const dataStart = h + 8;
-  const dataLen = 48 * 300;
-  // data ตามด้วย feed(3) + cut(3) = 6 bytes ท้าย
-  assert.equal(out.length - dataStart - 6, dataLen, "data bytes = bytesPerRow*rows");
+  const dataLen = 48 * 200;
+  // generic wrapper: ESC @(2) + [GS v0 header(8)+data] + feed(3) + cut(3) → ท้าย 6 bytes
+  assert.equal(out.length - dataStart - 6, dataLen, "data bytes = bytesPerRow*rows (chunk เดียว)");
 });
 
 test("(4) bit-packing: ทึบ → 0xFF ทุก byte; สลับ(ดำ,ขาว) → 0xAA (MSB = pixel ซ้ายสุด)", () => {

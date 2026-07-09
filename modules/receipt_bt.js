@@ -16,7 +16,9 @@
 import { money, formatNumber, formatDateTime } from "./utils.js";
 
 // Common BLE thermal-printer service UUIDs (generic slip printers + 000018f0 generic printer)
+// ★ Phase 586: fee7 = PeriPage (A9/A9MAX ฯลฯ) — วางต้น list เพื่อให้ match ก่อน
 const SLIP_PRINTER_SERVICES = [
+  "0000fee7-0000-1000-8000-00805f9b34fb",   // PeriPage (A9/A9MAX) — write=fec7, indicate=fec8, read=fec9
   "000018f0-0000-1000-8000-00805f9b34fb",   // Generic printer service (ESC/POS slip)
   "0000ff00-0000-1000-8000-00805f9b34fb",   // Xprinter / common thermal
   "0000ffe0-0000-1000-8000-00805f9b34fb",   // HM-10 / common BLE serial
@@ -24,13 +26,47 @@ const SLIP_PRINTER_SERVICES = [
   "e7810a71-73ae-499d-8c15-faa9aef0c3f2"    // Some Goojprt/PT-210 style printers
 ];
 
+// PeriPage BLE profile (ref: bitrate16/peripage-python) — write char ภายใต้ service fee7
+const PERIPAGE_WRITE_CHAR = "fec7";   // 0000fec7-... — เลือก characteristic นี้ก่อน
+// PeriPage framing bytes (ไม่ใช่ ESC/POS มาตรฐาน — เครื่องยี่ห้ออื่นไม่ต้องใช้)
+const PERIPAGE_RESET = [0x10, 0xFF, 0xFE, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; // reset (16 bytes)
+const PERIPAGE_CONCENTRATION = [0x10, 0xFF, 0x10, 0x00, 0x02];                        // setConcentration=2 (เข้มสุด กันจาง)
+const PERIPAGE_FEED = [0x1B, 0x4A, 0x60];                                             // ESC J 0x60 (feed ~96 dot; ไม่มี cut)
+// generic ESC/POS framing (เครื่องมีคัตเตอร์)
+const ESC_INIT = [0x1B, 0x40];         // ESC @  (init)
+const ESC_FEED = [0x1B, 0x64, 0x03];   // ESC d 3  (feed 3 lines)
+const ESC_CUT = [0x1D, 0x56, 0x01];    // GS V 1   (partial cut)
+
+// รายชื่อ property flag ของ BluetoothCharacteristicProperties (getter บน prototype —
+// Object.entries ไม่คืน → ต้องเช็คชื่อเอง; ใช้ใน diagnostic)
+const CHAR_PROP_FLAGS = [
+  "broadcast", "read", "writeWithoutResponse", "write",
+  "notify", "indicate", "authenticatedSignedWrites", "reliableWrite", "writableAuxiliaries"
+];
+function propsString(props) {
+  if (!props) return "";
+  return CHAR_PROP_FLAGS.filter((k) => props[k]).join(",");
+}
+// รวมหลาย byte-array/Uint8Array เป็น Uint8Array เดียว
+function concatBytes(...parts) {
+  let len = 0;
+  for (const p of parts) len += p.length;
+  const out = new Uint8Array(len);
+  let o = 0;
+  for (const p of parts) { out.set(p, o); o += p.length; }
+  return out;
+}
+
 const CANVAS_WIDTH = 384;   // 58mm @ 203dpi (พิมพ์บน 80mm ได้ — ใช้ครึ่งซ้าย)
 const PAD = 10;
 const CHUNK = 200;          // BLE MTU-safe (writeWithoutResponse ~200 ปลอดภัยกับเครื่องส่วนใหญ่)
 const CHUNK_DELAY_MS = 20;  // กัน buffer overrun
+const RASTER_MAX_ROWS = 255; // Phase 586: แบ่ง GS v 0 ทีละ ≤255 แถว (yL 1 byte — PeriPage/บาง firmware ต้องการ)
 
 let _device = null;
 let _char = null;
+let _serviceUuid = null;   // Phase 586: จำ service/char ที่เลือก โชว์ใน diagnostic/status + ใช้ตรวจ PeriPage
+let _charUuid = null;
 
 // ─── Feature detection ───────────────────────────────────────
 export function isSlipSupported() {
@@ -51,20 +87,42 @@ export async function connectSlipPrinter() {
     acceptAllDevices: true,
     optionalServices: SLIP_PRINTER_SERVICES
   });
-  _device.addEventListener("gattserverdisconnected", () => { _char = null; });
+  _device.addEventListener("gattserverdisconnected", () => { _char = null; _serviceUuid = null; _charUuid = null; });
 
   const server = await _device.gatt.connect();
-  let service = null;
-  for (const uuid of SLIP_PRINTER_SERVICES) {
-    try { service = await server.getPrimaryService(uuid); if (service) break; } catch (_) { /* ลองตัวถัดไป */ }
+
+  // รวบรวม service ทั้งหมดที่ประกาศไว้ (getPrimaryServices ก่อน — เห็นครบ; fallback วนทีละ uuid)
+  let services = [];
+  try { services = await server.getPrimaryServices(); } catch (_) { services = []; }
+  if (!services.length) {
+    for (const uuid of SLIP_PRINTER_SERVICES) {
+      try { const s = await server.getPrimaryService(uuid); if (s) services.push(s); } catch (_) { /* ลองตัวถัดไป */ }
+    }
   }
-  if (!service) {
+  if (!services.length) {
     throw new Error("ไม่พบ printer service — รุ่นนี้อาจเป็น Bluetooth Classic (Web Bluetooth ใช้ได้แค่ BLE)");
   }
-  const chars = await service.getCharacteristics();
+
+  const writable = (c) => c.properties.write || c.properties.writeWithoutResponse;
+  // ★ Phase 586: หา characteristic fec7 (PeriPage write) จาก "ทุก service" ก่อน;
+  //   ไม่เจอ → fallback ตัว writable ตัวแรกที่พบ (เครื่องยี่ห้ออื่น)
+  let picked = null, pickedSvc = null, firstWritable = null, firstWritableSvc = null;
+  for (const svc of services) {
+    let chs = [];
+    try { chs = await svc.getCharacteristics(); } catch (_) { chs = []; }
+    for (const c of chs) {
+      if (!writable(c)) continue;
+      if (!firstWritable) { firstWritable = c; firstWritableSvc = svc; }
+      if (String(c.uuid).toLowerCase().includes(PERIPAGE_WRITE_CHAR)) { picked = c; pickedSvc = svc; break; }
+    }
+    if (picked) break;
+  }
+  if (!picked) { picked = firstWritable; pickedSvc = firstWritableSvc; }
+  if (!picked) throw new Error("ไม่พบ writable characteristic ในเครื่องพิมพ์");
   // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L2 single-device singleton (slip printer connect flow)
-  _char = chars.find(c => c.properties.write || c.properties.writeWithoutResponse);
-  if (!_char) throw new Error("ไม่พบ writable characteristic ในเครื่องพิมพ์");
+  _char = picked;
+  _serviceUuid = pickedSvc?.uuid || null;
+  _charUuid = picked.uuid;
   return _char;
 }
 
@@ -80,6 +138,46 @@ export async function disconnectSlip() {
   try { if (_device?.gatt?.connected) _device.gatt.disconnect(); } catch (_) { /* ignore */ }
   _device = null;
   _char = null;
+  _serviceUuid = null;
+  _charUuid = null;
+}
+
+// Phase 586: service/characteristic ที่เลือกตอน connect (โชว์ในสถานะ/diagnostic)
+export function getSlipTarget() {
+  return { service: _serviceUuid, char: _charUuid };
+}
+
+// เครื่องเป็น PeriPage ไหม → ตัดสินจากชื่อ device หรือ service fee7 ที่เลือก
+export function isPeriPage() {
+  return /peripage/i.test(_device?.name || "") || /fee7/i.test(_serviceUuid || "");
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 586: GATT diagnostic — dump service/characteristic จริงของเครื่อง
+//  ให้ owner (มือถือ) เห็น/screenshot ได้ — กันเดา UUID ถ้า firmware ต่างจากเอกสาร
+//  requestDevice ใหม่ (user gesture) → เห็นเฉพาะ service ใน optionalServices (= SLIP_PRINTER_SERVICES)
+//  คืน array ของ { service, char, props }
+// ═══════════════════════════════════════════════════════════
+export async function diagnoseSlipPrinter() {
+  if (!isSlipSupported()) {
+    throw new Error("อุปกรณ์นี้ไม่รองรับ Bluetooth printing — ใช้ Android + Chrome/Edge (iPhone/iPad ใช้ไม่ได้)");
+  }
+  const device = await navigator.bluetooth.requestDevice({
+    acceptAllDevices: true,
+    optionalServices: SLIP_PRINTER_SERVICES
+  });
+  const server = await device.gatt.connect();
+  const services = await server.getPrimaryServices();
+  const rows = [];
+  for (const svc of services) {
+    let chs = [];
+    try { chs = await svc.getCharacteristics(); } catch (_) { chs = []; }
+    if (!chs.length) { rows.push({ service: svc.uuid, char: "(no characteristics)", props: "" }); continue; }
+    for (const c of chs) {
+      rows.push({ service: svc.uuid, char: c.uuid, props: propsString(c.properties) });
+    }
+  }
+  return rows;
 }
 
 // ─── Send raster in BLE-sized chunks (mirror bt_printer.js sendChunked) ──
@@ -97,10 +195,13 @@ export async function sendChunked(characteristic, bytes) {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  Canvas → ESC/POS raster (GS v 0)
+//  Canvas → raster body (GS v 0 เท่านั้น — ไม่มี init/feed/cut)
 //  รับ canvas (หรือ mock ที่มี width/height/getContext('2d').getImageData)
+//  ★ Phase 586: แบ่งเป็น chunk ทีละ ≤255 แถว — แต่ละ chunk มี header GS v 0 ของตัวเอง
+//     (yL 1 byte, yH=0). PeriPage/บาง firmware ต้อง header ต่อ chunk; เครื่อง ESC/POS
+//     มาตรฐานก็รับ GS v 0 ซ้อนหลายบล็อกแนวตั้งได้ปกติ.
 // ═══════════════════════════════════════════════════════════
-export function canvasToEscposRaster(canvas) {
+export function canvasToRasterBody(canvas) {
   const width = canvas.width;
   const height = canvas.height;
   const ctx = canvas.getContext("2d");
@@ -122,21 +223,36 @@ export function canvasToEscposRaster(canvas) {
   }
 
   const xL = bytesPerRow & 0xFF, xH = (bytesPerRow >> 8) & 0xFF;   // bytes/row (little-endian)
-  const yL = height & 0xFF, yH = (height >> 8) & 0xFF;             // dot rows (little-endian)
-
-  const ESC_INIT = [0x1B, 0x40];                                   // ESC @  (init)
-  const RASTER_HDR = [0x1D, 0x76, 0x30, 0x00, xL, xH, yL, yH];     // GS v 0 m xL xH yL yH  (m=0 normal)
-  const FEED = [0x1B, 0x64, 0x03];                                 // ESC d 3  (feed 3 lines)
-  const CUT = [0x1D, 0x56, 0x01];                                  // GS V 1   (partial cut)
-
-  const out = new Uint8Array(ESC_INIT.length + RASTER_HDR.length + raster.length + FEED.length + CUT.length);
+  const nChunks = Math.max(1, Math.ceil(height / RASTER_MAX_ROWS));
+  const out = new Uint8Array(raster.length + nChunks * 8);        // + header 8 byte ต่อ chunk
   let p = 0;
-  out.set(ESC_INIT, p); p += ESC_INIT.length;
-  out.set(RASTER_HDR, p); p += RASTER_HDR.length;
-  out.set(raster, p); p += raster.length;
-  out.set(FEED, p); p += FEED.length;
-  out.set(CUT, p); p += CUT.length;
+  for (let y0 = 0; y0 < height; y0 += RASTER_MAX_ROWS) {
+    const rows = Math.min(RASTER_MAX_ROWS, height - y0);           // ≤255 → yL 1 byte พอ
+    out[p++] = 0x1D; out[p++] = 0x76; out[p++] = 0x30; out[p++] = 0x00;  // GS v 0 m(0)
+    out[p++] = xL; out[p++] = xH; out[p++] = rows & 0xFF; out[p++] = 0;  // xL xH yL yH(=0)
+    const start = y0 * bytesPerRow, len = rows * bytesPerRow;
+    out.set(raster.subarray(start, start + len), p);
+    p += len;
+  }
   return out;
+}
+
+// generic ESC/POS wrapper (เครื่องมีคัตเตอร์): ESC @ + body + feed + partial cut
+// (คงชื่อเดิมไว้ให้ guard/โค้ดที่อ้างถึงใช้ได้ — Phase 585 signature)
+export function canvasToEscposRaster(canvas) {
+  return concatBytes(ESC_INIT, canvasToRasterBody(canvas), ESC_FEED, ESC_CUT);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 586: หุ้มคำสั่งตามชนิดเครื่อง (PeriPage vs generic ESC/POS)
+//  PeriPage ไม่รู้จัก ESC @ / GS V cut → ต้อง reset + concentration + ESC J feed เฉพาะตัว
+// ═══════════════════════════════════════════════════════════
+export function buildPrintBytes(canvas) {
+  const body = canvasToRasterBody(canvas);
+  if (isPeriPage()) {
+    return concatBytes(PERIPAGE_RESET, PERIPAGE_CONCENTRATION, body, PERIPAGE_FEED);
+  }
+  return concatBytes(ESC_INIT, body, ESC_FEED, ESC_CUT);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -289,7 +405,7 @@ export async function printReceipt(receipt, store) {
     try { await document.fonts.ready; } catch (_) { /* ignore */ }
   }
   const canvas = renderReceiptCanvas(receipt, store);
-  const bytes = canvasToEscposRaster(canvas);
+  const bytes = buildPrintBytes(canvas);   // Phase 586: หุ้มคำสั่งตามชนิดเครื่อง (PeriPage vs generic)
   await sendChunked(char, bytes);
 }
 
@@ -299,6 +415,6 @@ export async function testPrint(store) {
     try { await document.fonts.ready; } catch (_) { /* ignore */ }
   }
   const canvas = renderTestCanvas(store);
-  const bytes = canvasToEscposRaster(canvas);
+  const bytes = buildPrintBytes(canvas);   // Phase 586: หุ้มคำสั่งตามชนิดเครื่อง (PeriPage vs generic)
   await sendChunked(char, bytes);
 }
