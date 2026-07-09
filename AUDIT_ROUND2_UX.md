@@ -8,7 +8,7 @@
 ## นิยามเลขเฟส
 เลขเฟส = ลำดับแนะนำ (571 ขึ้นไป ต่อจาก build 570 settings-bounce+catalog ที่กำลังทำ) — owner สลับลำดับได้
 
-> ⚠️ **build# ≠ phase# ในลิสต์นี้แล้ว:** มี "เฟสแทรก" **ac-catalog-live-sync** ที่ owner เลือกทำ ใช้ **build 574** (แคตตาล็อกแอร์ sync ทุกเครื่องผ่าน `ac_catalog_doc` — รวมหน้าลูกค้า; ✅ MERGED+LIVE #152 `54e7bfe`, ไม่อยู่ใน numbered list นี้). รายการ "Phase 574 — receipts multipay" ปิดแล้วที่ build 575. ✅ ปิดไปแล้ว: 571 (build 571) · 572 (build 572) · 573 (build 573) · +ac-catalog (build 574) · 574-receipts-multipay (build 575) · 575-quotations-items (build 576 #154 `56a89e3`) · 576-income-dashboard (build 577 #155 `72aafb7`) · follow-up-577 profit_report+expense_overview (build 578 #156 `ac3d943`) · period-close-readiness fail-closed (build 579 #157 `159cacd`) · customer-loyalty-balance proxy (build 580 #158 `794963f`) · admin-loyalty-full-fetch (build 581 #159 `760e7ae`) · sales-ranking top_customers+profit_by_product (build 582 #160 `49304c8`) · receipts-range-full-fetch (build 583 #161 `704ef0b`). ✅ **กลุ่ม money-display/cap sweep ปิดครบแล้ว** (576→583). 🔜 **คิวถัดไป (reviewer เลือก)** — journal_form snapshot header, quotations PDF catch, customers.js getCustomerTier cap 50 (follow-up 582), + Should-fix อื่น ๆ.
+> ⚠️ **build# ≠ phase# ในลิสต์นี้แล้ว:** มี "เฟสแทรก" **ac-catalog-live-sync** ที่ owner เลือกทำ ใช้ **build 574** (แคตตาล็อกแอร์ sync ทุกเครื่องผ่าน `ac_catalog_doc` — รวมหน้าลูกค้า; ✅ MERGED+LIVE #152 `54e7bfe`, ไม่อยู่ใน numbered list นี้). รายการ "Phase 574 — receipts multipay" ปิดแล้วที่ build 575. ✅ ปิดไปแล้ว: 571 (build 571) · 572 (build 572) · 573 (build 573) · +ac-catalog (build 574) · 574-receipts-multipay (build 575) · 575-quotations-items (build 576 #154 `56a89e3`) · 576-income-dashboard (build 577 #155 `72aafb7`) · follow-up-577 profit_report+expense_overview (build 578 #156 `ac3d943`) · period-close-readiness fail-closed (build 579 #157 `159cacd`) · customer-loyalty-balance proxy (build 580 #158 `794963f`) · admin-loyalty-full-fetch (build 581 #159 `760e7ae`) · sales-ranking top_customers+profit_by_product (build 582 #160 `49304c8`) · receipts-range-full-fetch (build 583 #161 `704ef0b`) · POS-view-sticky + JV-header-persist + settings-nav-bind-once (build 584 #162 `d6800a2` — re-render/listener กินสถานะ, ปิด audit-item Phase 581+582). ✅ **กลุ่ม money-display/cap sweep ปิดครบแล้ว** (576→583). 🔜 **คิวถัดไป (reviewer เลือก)** — settings store/payment form preserve (follow-up 582), quotations PDF catch, customers.js getCustomerTier cap 50 (follow-up 582), + Should-fix อื่น ๆ.
 
 ---
 
@@ -62,13 +62,15 @@
 - `modules/accounting/periods.js:120-124,134` — บิลทั้งเดือน cap 1000 + `id=in.(1000 ids)` URL ~8KB เสี่ยง fail → catch → การ์ดโชว์ "JE ครบ ✅" ทั้งที่ตรวจไม่ครบ → paginate + fail=unknown ⚠️ (semantics แบบ `:152-160`)
 - คู่กัน: `modules/accounting/backfill.js:187,204` — เครื่องมือ backfill เองก็ cap 1000 เงียบ (ไม่ double-post — unique index กันอยู่)
 
-### Phase 581 — POS view sticky (UX แคชเชียร์)
+### ✅ Phase 581 — POS view sticky (UX แคชเชียร์) — DONE (MERGED+DEPLOYED build 584, PR #162 `d6800a2`, 2026-07-09)
 - `modules/pos.js:237-244` — renderAll ระหว่างพิมพ์ → numpad/ยอด/ค้นหา/จอเด้งกลับ home (cart รอด) → ทำ `refreshPosPage()` แบบ products (`main.js:1288`) · รวม `pos.js:2165-2168` (เพิ่มลูกค้า inline แล้วเด้ง home)
+- แก้แล้ว: `refreshPosPage()` export (mirror `refreshProductsPage`) — `_lastPosCtx` snapshot; mid-flow (`posView !== "home"`) → ไม่ re-render, home → refresh แบนเนอร์ผ่าน `renderPosView` เท่านั้น (ไม่แตะ posView/numpad/quickPay/_checkoutKey); `main.js` renderAll short-circuit `currentRoute === "pos"` ต่อจาก products. +guard `pos_view_sticky_guard` (4)
 
-### Phase 582 — JV form header หาย + settings listener leak
+### ✅ Phase 582 — JV form header หาย + settings listener leak — DONE (MERGED+DEPLOYED build 584, PR #162 `d6800a2`, 2026-07-09)
 - `modules/accounting/journal_form.js:104-115` — กด "+ เพิ่มบรรทัด" (`:207-210`) re-render → วันที่ back-date/type/คำอธิบายเด้งกลับ default เงียบ → เสี่ยงลงผิดงวด → snapshot header แบบ quotations (`quotations.js:535-550`)
 - `modules/settings/index.js:36,105` — `navigate-settings` listener ลงซ้ำไม่จำกัด (doubling ต่อการกดกลับจากหน้า store) → bind ครั้งเดียว/module flag
-- คู่กัน: settings ฟอร์มร้าน/ชำระเงิน ไม่ preserve ค่าที่พิมพ์ (`store.js`, `payment.js:76-89`)
+- แก้แล้ว: header เป็น module state `_header{doc_date,doc_type,desc}` (mirror `_lines`) คงค่าข้าม re-render, `_save` อ่านจาก `_header` (ไม่ใช่ DOM), init วันที่ guard `!_header.doc_date`, reset คู่ `_lines` 2 จุด (cancel + post-save); settings `_navBound` bind-once ครอบ `addEventListener('navigate-settings')`. +guard `jv_form_header_persist` (6, §4.3) + `settings_nav_listener_once` (2)
+- 🔻 follow-up คงค้าง (ไม่อยู่ scope 584): settings ฟอร์มร้าน/ชำระเงิน ไม่ preserve ค่าที่พิมพ์ (`store.js`, `payment.js:76-89`) — snapshot pattern เดียวกัน ทำแยกเฟสถ้าจัดคิว
 
 ### Phase 583 — logout hygiene (PII/attribution)
 - `main.js:1045-1076` logout ไม่เรียก `clearCurrentStaff()` (auth.js:52) → PIN session (ชื่อ/เบอร์/role) ค้างข้าม account + `staff_sessions.logged_out_at` ไม่ set
