@@ -37,6 +37,30 @@ const ESC_INIT = [0x1B, 0x40];         // ESC @  (init)
 const ESC_FEED = [0x1B, 0x64, 0x03];   // ESC d 3  (feed 3 lines)
 const ESC_CUT = [0x1D, 0x56, 0x01];    // GS V 1   (partial cut)
 
+// ═══════════════════════════════════════════════════════════
+//  build 592: PeriPage A9 Max — long-shot ผ่าน BLE ff02
+//  ─────────────────────────────────────────────────────────
+//  ที่มา: แกะ Android HCI snoop log (btsnoop_hci.log) ของแอป PeriPage ทางการ
+//  ขณะพิมพ์ A9 Max พบว่า **แอปทางการพิมพ์ผ่าน Bluetooth Classic (RFCOMM/SPP)**
+//  ไม่ใช่ BLE — ซึ่ง Web Bluetooth เปิด socket Classic/SPP ไม่ได้ (ข้อจำกัด browser).
+//  โปรโตคอลที่แอปส่ง: init/density/reset/feed/finalize (ไบต์ด้านล่าง = ถอดจริง) +
+//  ภาพผ่านคำสั่ง 10 FF 80 ที่ **บีบอัดแบบ proprietary (คล้าย CCITT G4)** —
+//  ยัง reproduce ใน vanilla JS (ห้ามใช้ dep) ไม่ได้.
+//  long-shot: ยิง framing จริงนี้ผ่าน BLE ff02 + หุ้ม GS v 0 raster (best-effort).
+//  ตัวชี้วัด = A9MAX_FEED (1B 4A 50): ถ้า A9 Max "เลื่อนกระดาษ" = ช่อง BLE ถึง
+//  print engine จริง → คุ้มลงทุนถอด G4 ต่อ; ถ้าไม่ขยับเลย = ช่อง BLE ไม่ใช่ช่องพิมพ์.
+//  ★ ล็อกเฉพาะเครื่องชื่อมี "MAX" — A9 (และเครื่องอื่น) ไม่แตะ (byte-identical 586).
+// ═══════════════════════════════════════════════════════════
+const A9MAX_PREAMBLE = [
+  0x10, 0xFF, 0x20, 0xF0,
+  0x10, 0xFF, 0x70,
+  0x10, 0xFF, 0x12, 0x00, 0x14, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 10 FF 12 00 14 + 12×00
+  0x10, 0xFF, 0x10, 0x00, 0x04,                                       // setConcentration = 4 (เข้ม)
+  0x10, 0xFF, 0xFE, 0x01, 0x1F, 0xB2, 0x10                            // reset (จาก capture — ไม่ใช่ 12×00)
+];
+const A9MAX_FEED = [0x1B, 0x4A, 0x50];                                          // ESC J 0x50 (feed ~80 dot)
+const A9MAX_FINALIZE = [0x10, 0xFF, 0xFE, 0x45, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; // finalize (16B)
+
 // รายชื่อ property flag ของ BluetoothCharacteristicProperties (getter บน prototype —
 // Object.entries ไม่คืน → ต้องเช็คชื่อเอง; ใช้ใน diagnostic)
 const CHAR_PROP_FLAGS = [
@@ -184,6 +208,11 @@ export function isPeriPage() {
   return /peripage/i.test(_device?.name || "") || /fee7/i.test(_serviceUuid || "");
 }
 
+// build 592: A9 Max ไหม (ชื่อมี "MAX") → ใช้ framing ตัวจริงจากแอปทางการ (long-shot ผ่าน BLE)
+export function isPeriPageMax() {
+  return /max/i.test(_device?.name || "");
+}
+
 // ═══════════════════════════════════════════════════════════
 //  Phase 586: GATT diagnostic — dump service/characteristic จริงของเครื่อง
 //  ให้ owner (มือถือ) เห็น/screenshot ได้ — กันเดา UUID ถ้า firmware ต่างจากเอกสาร
@@ -281,6 +310,11 @@ export function canvasToEscposRaster(canvas) {
 // ═══════════════════════════════════════════════════════════
 export function buildPrintBytes(canvas) {
   const body = canvasToRasterBody(canvas);
+  // build 592: A9 Max ก่อน (ชื่อมี MAX) — framing ตัวจริงจากแอปทางการ + GS v 0 (long-shot ผ่าน BLE ff02)
+  //   เช็คก่อน isPeriPage() เพราะชื่อ A9 Max ก็ match /peripage/ ด้วย
+  if (isPeriPageMax()) {
+    return concatBytes(A9MAX_PREAMBLE, body, A9MAX_FEED, A9MAX_FINALIZE);
+  }
   if (isPeriPage()) {
     return concatBytes(PERIPAGE_RESET, PERIPAGE_CONCENTRATION, body, PERIPAGE_FEED);
   }

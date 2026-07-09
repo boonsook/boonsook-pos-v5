@@ -65,7 +65,8 @@ test("(a) SLIP_PRINTER_SERVICES มี PeriPage service fee7 + write char fec7",
 test("(b) buildPrintBytes (PeriPage) = reset + concentration + GS v 0 + ESC J feed; ไม่มี cut/ESC @", async () => {
   await disconnectSlip();
   const svc = mkService(FEE7, [mkChar(FEC7, { write: true, writeWithoutResponse: true })]);
-  await withNavigator(mkNav({ name: "PeriPage_A9MAX", services: [svc] }), async () => {
+  // ชื่อ non-MAX (A9) → PeriPage framing เดิม; A9 Max มี path ของตัวเอง (build 592) ทดสอบใน receipt_bt_a9max_mode_guard
+  await withNavigator(mkNav({ name: "PeriPage_A9", services: [svc] }), async () => {
     await connectSlipPrinter();
     assert.ok(isPeriPage(), "device PeriPage → isPeriPage true");
     const bytes = buildPrintBytes(mockCanvas([solidRow()]));
