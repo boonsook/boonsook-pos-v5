@@ -95,6 +95,10 @@ let _device = null;
 let _char = null;
 let _serviceUuid = null;   // Phase 586: จำ service/char ที่เลือก โชว์ใน diagnostic/status + ใช้ตรวจ PeriPage
 let _charUuid = null;
+// build 593: notify handshake (เฉพาะ A9 Max) — เครื่อง ff00/ff02 บางรุ่นต้อง "เปิด" notify (ff01/ff03)
+// ก่อน channel เขียนถึงจะ active. เก็บ notify char ที่ subscribe ไว้เพื่อไม่ทำซ้ำ.
+let _notifyChars = [];
+let _notifyStarted = false;
 
 // ★ Phase 591: ขนาดกระดาษ — "auto" (ตามรุ่น) | "58" | "80" | "107"; persist localStorage
 let _paperKey = "auto";
@@ -139,7 +143,7 @@ export async function connectSlipPrinter() {
     acceptAllDevices: true,
     optionalServices: SLIP_PRINTER_SERVICES
   });
-  _device.addEventListener("gattserverdisconnected", () => { _char = null; _serviceUuid = null; _charUuid = null; });
+  _device.addEventListener("gattserverdisconnected", () => { _char = null; _serviceUuid = null; _charUuid = null; _notifyChars = []; _notifyStarted = false; });
 
   const server = await _device.gatt.connect();
 
@@ -179,6 +183,27 @@ export async function connectSlipPrinter() {
   _char = picked;
   _serviceUuid = pickedSvc?.uuid || null;
   _charUuid = picked.uuid;
+
+  // ★ build 593: notify handshake — เฉพาะ A9 Max (ชื่อมี MAX) เท่านั้น.
+  //   ช่อง ff00/ff02 บางรุ่นต้อง enable CCCD ของ notify char (ff01/ff03) ก่อน firmware ถึงจะ
+  //   ประมวลผล write ที่ ff02. subscribe notify char ทุกตัวใน service เดียวกับ ff02 (ครั้งเดียว).
+  //   ★ A9 (และเครื่องอื่น) ไม่เข้า block นี้ → connect byte-identical 592/586 (ไม่ subscribe อะไร).
+  if (isMax && pickedSvc && !_notifyStarted) {
+    let notifyChs = [];
+    try { notifyChs = await pickedSvc.getCharacteristics(); } catch (_) { notifyChs = []; }
+    for (const c of notifyChs) {
+      if (!c.properties?.notify || typeof c.startNotifications !== "function") continue;
+      try {
+        await c.startNotifications();
+        // บาง BLE stack ต้องมี listener characteristicvaluechanged ค้างไว้ CCCD ถึงคงอยู่ (no-op)
+        if (typeof c.addEventListener === "function") c.addEventListener("characteristicvaluechanged", () => {});
+        _notifyChars.push(c);
+      } catch (_) { /* char นี้ subscribe ไม่ได้ → ข้าม */ }
+    }
+    _notifyStarted = _notifyChars.length > 0;
+    // settle สั้น ๆ หลัง enable CCCD — บาง firmware ต้องรอ pipe พร้อมก่อนรับ write แรก
+    if (_notifyStarted) await new Promise(r => { setTimeout(r, 120); });
+  }
   return _char;
 }
 
@@ -196,6 +221,8 @@ export async function disconnectSlip() {
   _char = null;
   _serviceUuid = null;
   _charUuid = null;
+  _notifyChars = [];      // build 593: ล้าง notify handshake state
+  _notifyStarted = false;
 }
 
 // Phase 586: service/characteristic ที่เลือกตอน connect (โชว์ในสถานะ/diagnostic)
