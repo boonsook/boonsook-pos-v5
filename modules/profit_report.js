@@ -2,8 +2,16 @@
 // Phase 92.63: escHtml (กัน stored-XSS ชื่อสินค้า/หมวด) + Bangkok TZ default range
 import { visibleSalesForRole, escHtml, todayBkk, addDaysBkk } from "./utils.js";
 import { fetchSalesSince } from "./sales_fetch.js";
-import { fetchExpensesSince } from "./range_fetch.js";
+import { fetchExpensesSince, fetchServiceJobsSince } from "./range_fetch.js";
 import { fetchSaleItemsForSaleIds } from "./sale_items_fetch.js";
+// ★ build 597: รายได้งานบริการ — ใช้ single source เดียวกับ dashboard/income_overview (ห้ามคิดสูตรเอง กัน drift)
+import { sumServiceJobIncome, serviceIncomeDate } from "./dashboard.js";
+
+// ★ build 597: กำไรสุทธิ = กำไรขั้นต้น (POS) + รายได้งานบริการ − ค่าใช้จ่าย
+//   (นิยามเดียวกับ dashboard/income_overview; COGS/กำไรขั้นต้นเป็นของฝั่ง POS — ต้นทุนงานช่างอยู่ในรายจ่ายแล้ว)
+export function computeNetProfit(grossProfit, serviceIncome, totalExpenses) {
+  return (Number(grossProfit) || 0) + (Number(serviceIncome) || 0) - (Number(totalExpenses) || 0);
+}
 
 export function renderProfitReportPage(ctx) {
   const { state, money, showToast, loadAllData: _loadAllData, currentRole: _currentRole, requireAdmin: _requireAdmin } = ctx;
@@ -42,7 +50,7 @@ export function renderProfitReportPage(ctx) {
       </div>
 
       <div class="panel mt16">
-        <h2>แนวโน้มรายได้-ต้นทุน 6 เดือนล่าสุด</h2>
+        <h2>แนวโน้มรายได้-ต้นทุน 6 เดือนล่าสุด (POS)</h2>
         <div id="monthly_trend_container"></div>
       </div>
     </div>
@@ -73,12 +81,16 @@ export function renderProfitReportPage(ctx) {
 
       // ★ Phase 492 (S-5): ดึงยอดขายช่วงนี้จริงจาก DB (เดิม state.sales cap 50 → กำไร/ต้นทุน/แนวโน้มต่ำกว่าจริง)
       // ★ Phase 578: ดึงรายจ่ายช่วงนี้จริงจาก DB ขนานกับ sales (เดิม state.expenses cap 200 → กำไรสุทธิสูงเกินจริง)
-      const [_salesRes, _expRes] = await Promise.all([fetchSalesSince(fromDate), fetchExpensesSince(fromDate)]);
+      // ★ build 597: ดึงงานบริการช่วงนี้ขนานกับ sales/expenses (รายได้งานช่าง — นิยามเดียวกับ income_overview)
+      const [_salesRes, _expRes, _svcRes] = await Promise.all([fetchSalesSince(fromDate), fetchExpensesSince(fromDate), fetchServiceJobsSince(fromDate)]);
       if (!_salesRes.ok) { showToast("โหลดข้อมูลการขายไม่สำเร็จ: " + (_salesRes.error || ""), "error"); return; }
       const _fetchedSales = _salesRes.rows;
       // sales fail = hard-stop (ไม่มี report); expenses fail = fallback state + warn (ยัง render กำไรได้ แค่รายจ่ายอาจขาด)
       const _fetchedExpenses = _expRes.ok ? _expRes.rows : (state.expenses || []);
       if (!_expRes.ok) showToast("โหลดรายจ่ายไม่ครบ — กำไรสุทธิอาจสูงกว่าจริง: " + (_expRes.error || ""), "warn");
+      // service jobs fail = fallback state + warn (รายได้บริการอาจต่ำกว่าจริง) — pattern เดียวกับ expenses
+      const _fetchedServiceJobs = _svcRes.ok ? _svcRes.rows : (state.serviceJobs || []);
+      if (!_svcRes.ok) showToast("โหลดงานบริการไม่ครบ — รายได้อาจต่ำกว่าจริง: " + (_svcRes.error || ""), "warn");
 
       let totalRevenue = 0;
       let totalCost = 0;
@@ -119,10 +131,18 @@ export function renderProfitReportPage(ctx) {
       });
 
       const totalExpenses = expensesInRange.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
-      const netProfit = grossProfit - totalExpenses;
+
+      // ★ build 597: รายได้งานบริการ — ใช้ sumServiceJobIncome (single source, ไม่คิดสูตรเอง);
+      //   ฐานวัน = serviceIncomeDate (closed_at||created_at) ให้ตรง JV/dashboard; ขอบเขต = ชุดเดียวกับ expensesInRange
+      const serviceIncome = sumServiceJobIncome(_fetchedServiceJobs, j => {
+        const t = new Date(serviceIncomeDate(j)).getTime();
+        return t >= fromTs && t <= toTs;
+      });
+
+      const netProfit = computeNetProfit(grossProfit, serviceIncome, totalExpenses);
 
       // Render summary cards
-      renderSummaryCards(totalRevenue, totalCost, grossProfit, grossProfitPct, totalExpenses, netProfit);
+      renderSummaryCards(totalRevenue, totalCost, grossProfit, grossProfitPct, totalExpenses, netProfit, serviceIncome);
 
       // Render profit by product
       renderProfitByProduct(saleItems, state.products || []);
@@ -139,21 +159,29 @@ export function renderProfitReportPage(ctx) {
     }
   }
 
-  function renderSummaryCards(revenue, cost, profit, profitPct, expenses, netProfit) {
+  function renderSummaryCards(revenue, cost, profit, profitPct, expenses, netProfit, serviceIncome = 0) {
     const cards = document.getElementById("profit_summary_cards");
+    // ★ build 597: การ์ด "รายได้" = ขาย POS + งานบริการ (นิยามเดียวกับ dashboard/income_overview);
+    //   COGS/กำไรขั้นต้น = เฉพาะ POS → ติด label (POS); เพิ่มการ์ด "รายได้งานบริการ"
+    const totalIncome = (Number(revenue) || 0) + (Number(serviceIncome) || 0);
     cards.innerHTML = `
       <div class="stat-card">
         <div class="label">รายได้</div>
-        <div class="value">${money(revenue)}</div>
+        <div class="value">${money(totalIncome)}</div>
+        <div class="muted">ขาย POS ${money(revenue)} · งานบริการ ${money(serviceIncome)}</div>
       </div>
       <div class="stat-card">
-        <div class="label">ต้นทุนสินค้า</div>
+        <div class="label">ต้นทุนสินค้า (POS)</div>
         <div class="value">${money(cost)}</div>
       </div>
       <div class="stat-card">
-        <div class="label">กำไรขั้นต้น</div>
+        <div class="label">กำไรขั้นต้น (POS)</div>
         <div class="value">${money(profit)}</div>
         <div class="muted">${pct(profitPct)}</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">รายได้งานบริการ</div>
+        <div class="value">${money(serviceIncome)}</div>
       </div>
       <div class="stat-card">
         <div class="label">ค่าใช้จ่าย</div>
