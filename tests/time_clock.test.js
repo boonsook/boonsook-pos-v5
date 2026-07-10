@@ -518,9 +518,11 @@ test("summarizePunctuality — นับ status + รวมนาที ถู�
   assert.equal(s.earlyLeave, 1);
   assert.equal(s.lateAndEarly, 1);
   assert.equal(s.missingClockOut, 1);
-  // late minutes: 0 + 25 + 0 + 40 + 30 = 95
-  assert.equal(s.totalLateMinutes, 95);
-  // early minutes: 0 + 0 + 60 + 60 + 0 = 120
+  // ★ Phase 600: late minutes นับเฉพาะ status late/late_and_early_leave → 25 + 40 = 65
+  //   (missing_clock_out row มา 8:30 แต่ status = missing_clock_out ไม่ใช่ late → ไม่นับนาทีสาย;
+  //    เดิมบวกดิบ = 95 → ขัดกับ count "มาสาย" ที่ไม่รวม missing_clock_out)
+  assert.equal(s.totalLateMinutes, 65);
+  // early minutes: early_leave 60 + late_and_early_leave 60 = 120 (คงเดิม)
   assert.equal(s.totalEarlyLeaveMinutes, 120);
 });
 

@@ -257,8 +257,10 @@ export function summarizePunctuality(rows, shift, opts = {}) {
       case "missing_clock_out":    acc.missingClockOut += 1; break;
       default:                     acc.none += 1;
     }
-    acc.totalLateMinutes      += Number(p.lateMinutes) || 0;
-    acc.totalEarlyLeaveMinutes += Number(p.earlyLeaveMinutes) || 0;
+    // ★ Phase 600: บวกนาทีเฉพาะ record ที่ status ตรง — ให้ count กับนาทีใช้เกณฑ์เดียวกัน
+    //   (เดิมบวกดิบทุก record → "มาสาย 0 (รวม 750 นาที)" ขัดกัน)
+    if (p.status === "late" || p.status === "late_and_early_leave") acc.totalLateMinutes += Number(p.lateMinutes) || 0;
+    if (p.status === "early_leave" || p.status === "late_and_early_leave") acc.totalEarlyLeaveMinutes += Number(p.earlyLeaveMinutes) || 0;
   }
   return acc;
 }

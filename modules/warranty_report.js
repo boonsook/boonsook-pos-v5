@@ -67,6 +67,7 @@ export async function renderWarrantyReportPage(ctx) {
         <h2 style="margin:0 0 4px;color:#92400e">รายงาน Warranty</h2>
         <p style="margin:0;color:#075985;font-size:13px">เครื่องที่ประกันใกล้หมด • หมดแล้ว • ใช้งาน — ส่ง LINE เตือนเจ้าของ</p>
       </div>
+      <div class="muted" style="font-size:11px;text-align:center;margin-bottom:10px">แสดงจากรายการล่าสุด ~500 รายการ — ค้นหา/รายงานดูข้อมูลเต็มระบบ</div>
 
       <!-- Stats -->
       <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:14px">

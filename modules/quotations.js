@@ -240,6 +240,7 @@ export function renderQuotationsPage(ctx) {
           <button id="qtAddBtn" class="btn primary">+ สร้างใบเสนอราคา</button>
         </div>
       </div>
+      <div class="muted" style="font-size:11px">แสดงจากรายการล่าสุด ~50 รายการ — ค้นหา/รายงานดูข้อมูลเต็มระบบ</div>
 
       ${countAll === 0 ? renderEmpty({
         icon: "📄",

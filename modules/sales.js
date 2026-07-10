@@ -52,6 +52,7 @@ function _renderSalesView({ state, loadAllData, loadReceipt, openReceiptDrawer, 
           <button id="refreshSalesBtn" class="btn light">รีโหลด</button>
         </div>
       </div>
+      <div class="muted" style="font-size:11px">แสดงจากรายการล่าสุด ~50 รายการ — ค้นหา/รายงานดูข้อมูลเต็มระบบ</div>
       <div class="card-list mt16">
         ${pageSales.length ? pageSales.map(s => `
           <div class="card">

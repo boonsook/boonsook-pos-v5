@@ -77,6 +77,7 @@ export async function renderSerialsPage(ctx) {
         <h2 style="margin:0 0 4px;color:#1e40af">Serial Number Tracking</h2>
         <p style="margin:0;color:#065f46;font-size:13px">บันทึก serial เครื่องใช้ไฟฟ้า • ค้นหา • track warranty • รับเคลม</p>
       </div>
+      <div class="muted" style="font-size:11px;text-align:center;margin-bottom:10px">แสดงจากรายการล่าสุด ~200 รายการ — ค้นหา/รายงานดูข้อมูลเต็มระบบ</div>
 
       <!-- Stats -->
       <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:14px">

@@ -612,7 +612,7 @@ export function renderCustomerDashboard(ctx) {
             <div style="padding:14px">
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
                 <div style="font-weight:700;font-size:13px">🛒 ${escHtml(j.job_no)}</div>
-                <div style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:99px;background:${bgColor}">${statusLabel}</div>
+                <div style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:99px;background:${bgColor}">${escHtml(statusLabel)}</div>
               </div>
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
                 <div style="font-size:12px;color:#94a3b8">${new Date(j.created_at).toLocaleString("th-TH")}</div>

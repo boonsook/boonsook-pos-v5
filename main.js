@@ -1157,6 +1157,8 @@ async function logout(){
   if ($("loginEmail")) $("loginEmail").value = "";
   if ($("loginPassword")) $("loginPassword").value = "";
   if ($("loginStatus")) $("loginStatus").textContent = "";
+  // ★ Phase 600: ล้าง authStatus ด้วย (auth_email.js set "กำลังเข้าสู่ระบบ..." → เดิมค้างหลัง logout)
+  if ($("authStatus")) $("authStatus").textContent = "";
   // ★ Phase 595: ล้าง PII บิลล่าสุด (ชื่อ/เบอร์ลูกค้า) — กันค้างข้าม account
   state.lastReceipt = null;
   try { localStorage.removeItem("bsk_last_receipt"); } catch(_) {}
@@ -5063,7 +5065,8 @@ function bindStaticEvents(){
   $("custPhone")?.addEventListener("input", (e) => {
     e.target.value = e.target.value.replace(/\D/g, "").slice(0, 10);
   });
-  $("logoutBtn")?.addEventListener("click", logout);
+  // ★ Phase 600: logout sidebar +confirm (pattern 596: defer tick กัน tap-leak โดนปุ่มยืนยันทันที)
+  $("logoutBtn")?.addEventListener("click", () => { setTimeout(async () => { if (await window.App.confirm("ออกจากระบบ?")) logout(); }, 0); });
   $("refreshBtn")?.addEventListener("click", loadAllData);
   $("menuToggle")?.addEventListener("click", toggleSidebar);
   // ★ Phase 399: topbar 🔔 bell → ไปจัดการสต็อกใกล้หมด · 👤 profile menu (settings / logout)
