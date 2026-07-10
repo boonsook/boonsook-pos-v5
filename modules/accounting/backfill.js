@@ -288,6 +288,9 @@ async function _onRun() {
   _running = true;
   if (btnRun) { btnRun.disabled = true; btnRun.textContent = "⏳ กำลังรัน..."; }
 
+  // ★ Phase 600: ครอบ body ด้วย try/finally — throw กลางทางไม่ทำ _running ค้าง true (เดิมปุ่มตายจน reload)
+  try {
+
   const stats = { total: 0, created: 0, exists: 0, skipped: 0, failed: 0 };
   const errors = [];
 
@@ -404,9 +407,12 @@ async function _onRun() {
     document.querySelector('[data-route=accounting_journals]')?.click();
   });
 
-  // eslint-disable-next-line require-atomic-updates -- G: _running lock release (final, entry guard at backfill.js:238)
-  _running = false;
-  if (btnRun) { btnRun.disabled = false; btnRun.textContent = "⚡ เริ่ม Backfill"; }
+  } finally {
+    // ★ Phase 600: ล้าง lock เสมอทุกทางออก (รวม throw) — กัน _running ค้าง true
+    // eslint-disable-next-line require-atomic-updates -- G: _running lock release (finally, entry guard at backfill.js:238)
+    _running = false;
+    if (btnRun) { btnRun.disabled = false; btnRun.textContent = "⚡ เริ่ม Backfill"; }
+  }
 }
 
 // ═══════════════════════════════════════════════════════════

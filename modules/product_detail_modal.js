@@ -196,13 +196,13 @@ export function openProductDetail(p, opts = {}) {
   document.body.appendChild(overlay);
 
   // ═══ Event handlers ═══
-  const close = () => overlay.remove();
+  // ★ Phase 600: ถอด keydown listener ใน close() → ทุกทางปิด (ปุ่ม/backdrop/ESC) ล้าง listener ไม่ค้างสะสม
+  const close = () => { overlay.remove(); document.removeEventListener("keydown", escClose); };
+  function escClose(e) { if (e.key === "Escape") close(); }
   document.getElementById("pdmCloseBtn")?.addEventListener("click", close);
   document.getElementById("pdmCloseBtn2")?.addEventListener("click", close);
   overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
-  document.addEventListener("keydown", function escClose(e) {
-    if (e.key === "Escape") { close(); document.removeEventListener("keydown", escClose); }
-  });
+  document.addEventListener("keydown", escClose);
 
   document.getElementById("pdmCtaBtn")?.addEventListener("click", () => {
     if (!reserveOnly && stockNum > 0 && onAddToCart) {

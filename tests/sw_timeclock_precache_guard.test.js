@@ -15,8 +15,9 @@ const indexHtml = fs.readFileSync(path.resolve("index.html"), "utf8");
 
 // ── (a) 3 จุดเลข build ต้องตรงกัน: SW_BUILD = CACHE_NAME = data-app-build ──
 test("(a) SW_BUILD = CACHE_NAME number = data-app-build (index.html) — ตรงกัน 3 จุด", () => {
-  const swBuild = (sw.match(/const\s+SW_BUILD\s*=\s*['"](\d+)['"]/) || [])[1];
-  assert.ok(swBuild, "sw.js ต้องมี const SW_BUILD = '<เลข>'");
+  // ★ anchor ^ (multiline) — จับ "โค้ดจริง" ที่ต้นบรรทัด ไม่ใช่ที่พูดถึงในคอมเมนต์ header (// …)
+  const swBuild = (sw.match(/^const\s+SW_BUILD\s*=\s*['"](\d+)['"]/m) || [])[1];
+  assert.ok(swBuild, "sw.js ต้องมี const SW_BUILD = '<เลข>' (บรรทัดโค้ด)");
   const cacheNum = (sw.match(/boonsook-pos-v5-cache-v(\d+)'/) || [])[1];
   assert.ok(cacheNum, "sw.js ต้องมี CACHE_NAME boonsook-pos-v5-cache-v<เลข>");
   const appBuild = (indexHtml.match(/data-app-build="(\d+)"/) || [])[1];

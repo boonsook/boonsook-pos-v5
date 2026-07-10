@@ -241,6 +241,7 @@ export function renderDeliveryInvoicesPage(ctx) {
         <span class="sku">สร้างจากใบเสนอราคาที่อนุมัติแล้ว</span>
         <button id="diExportBtn" class="btn light" style="font-size:13px;margin-left:auto" title="ส่งออก Excel ตาม filter ที่กำลังเลือก">📥 Excel</button>
       </div>
+      <div class="muted" style="font-size:11px">แสดงจากรายการล่าสุด ~50 รายการ — ค้นหา/รายงานดูข้อมูลเต็มระบบ</div>
 
       ${countAll === 0 ? renderEmpty({
         icon: "📦",
