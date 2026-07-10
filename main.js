@@ -1138,6 +1138,9 @@ async function logout(){
   if ($("loginEmail")) $("loginEmail").value = "";
   if ($("loginPassword")) $("loginPassword").value = "";
   if ($("loginStatus")) $("loginStatus").textContent = "";
+  // ★ Phase 595: ล้าง PII บิลล่าสุด (ชื่อ/เบอร์ลูกค้า) — กันค้างข้าม account
+  state.lastReceipt = null;
+  try { localStorage.removeItem("bsk_last_receipt"); } catch(_) {}
   showToast("ออกจากระบบแล้ว");
 }
 
@@ -5057,12 +5060,16 @@ function bindStaticEvents(){
       menu.classList.toggle("hidden");
       $("profileChip")?.setAttribute("aria-expanded", willOpen ? "true" : "false");
     });
-    $("profileMenu")?.addEventListener("click", (e) => {
+    $("profileMenu")?.addEventListener("click", async (e) => {
       const item = e.target.closest(".profile-menu-item");
       if (!item) return;
       closeProfileMenu();
       if (item.dataset.act === "settings") showRoute("settings");
-      else if (item.dataset.act === "logout") window.__authLogout?.();   // ★ reuse auth.js logout (ไม่เขียนเอง)
+      else if (item.dataset.act === "logout") {
+        // ★ Phase 595: __authLogout เป็นของ auth.js dead module (initAuth ไม่เคยถูกเรียก) → ปุ่มตาย
+        //   เรียก logout() หลักโดยตรง + confirm กันกดพลาดบนมือถือ (pattern App.confirm เดิมของแอป)
+        if (await window.App.confirm("ออกจากระบบ?")) logout();
+      }
     });
     document.addEventListener("click", (e) => { if (!e.target.closest(".topbar-profile-wrap")) closeProfileMenu(); });
   }

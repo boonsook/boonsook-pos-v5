@@ -4,9 +4,11 @@
 // Why this exists:
 //   The topbar gained a 🔔 bell (badge = low-stock count) and a 👤 profile chip/menu
 //   (settings / logout). It must: share ONE low-stock counter with the sidebar badge (no
-//   number drift), escape the profile name (XSS), reuse auth.js __authLogout (never
-//   re-implement logout), and stay read-only (no fetch / no write). The existing
-//   search / refresh / page-title must remain.
+//   number drift), escape the profile name (XSS), and stay read-only (no fetch / no write).
+//   The existing search / refresh / page-title must remain.
+//   ★ Phase 595: logout ต้องเรียก logout() หลักโดยตรง + App.confirm — เดิมเรียก
+//     window.__authLogout?.() ที่ assign ใน initAuth() ของ auth.js (dead module ไม่เคยถูกเรียก)
+//     = undefined เสมอ → ปุ่มตาย.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -34,10 +36,15 @@ test("low-stock count is a SINGLE source shared by sidebar badge + topbar bell",
   assert.match(bell, /_countLowStockItems\(state\.products\)/, "topbar bell uses the SAME helper");
 });
 
-test("profile name escaped (XSS); logout reuses auth; settings + bell navigate", () => {
+test("profile name escaped (XSS); logout calls main logout() (Phase 595); settings + bell navigate", () => {
   const chip = (mainJs.match(/function _updateProfileChip\([\s\S]*?\n\}/) || [""])[0];
   assert.match(chip, /escapeHtml\(name\)/, "profile name is escaped");
-  assert.match(mainJs, /window\.__authLogout\?\.\(\)/, "logout reuses auth.js __authLogout (not re-implemented)");
+  // ★ Phase 595: logout เรียก logout() หลัก + App.confirm — เลิกพึ่ง __authLogout (dead module)
+  const mStart = mainJs.indexOf('$("profileMenu")?.addEventListener("click"');
+  assert.ok(mStart >= 0, "หา profileMenu click handler เจอ");
+  const menu = mainJs.slice(mStart, mStart + 600);
+  assert.ok(!/window\.__authLogout/.test(menu), "logout ต้องไม่เรียก window.__authLogout (dead module) แล้ว");
+  assert.match(menu, /act === "logout"[\s\S]{0,300}App\.confirm[\s\S]{0,80}logout\(\)/, "logout → App.confirm แล้วเรียก logout()");
   assert.match(mainJs, /act === "settings"\) showRoute\("settings"\)/, "settings → showRoute('settings')");
   assert.match(mainJs, /notifBell"\)\?\.addEventListener\([\s\S]{0,70}showRoute\("products"\)/, "bell → showRoute('products')");
 });
