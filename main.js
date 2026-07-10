@@ -685,6 +685,25 @@ function setHtml(id, html){ const el=$(id); if(el) el.innerHTML = html; } // ⚠
 function _setSafeHtml(id, html){ const el=$(id); if(el) el.innerHTML = html; } // alias ชัดเจนว่าผ่าน escapeHtml แล้ว
 function _isLowStock(product){ return Number(product.stock||0) <= Number(product.min_stock||0); }
 
+// ★ Phase 598: ลงเวลา offline ต้องไม่รอเปิดหน้า time clock — drain เมื่อ online กลับ + ตอน boot
+//   (time_clock เป็น lazy route → online listener ต้องอยู่ main.js ระดับ global). ใช้ _lazyImport
+//   เดิม (cache-bust) ไม่ eager import กัน bundle โต. flag window._tcSyncing กัน sync ซ้อน (ใช้ร่วมกับ
+//   sync-on-render ของ time_clock.js).
+async function _drainTimeClockQueue(trigger) {
+  if (window._tcSyncing) return;
+  window._tcSyncing = true;
+  try {
+    const m = await _lazyImport("./modules/time_clock.js");
+    const pending = await m.offlinePendingCount().catch(() => 0);
+    if (pending <= 0) return;
+    const { ok, fail } = await m.syncOfflineQueue();
+    if (ok > 0) showToast(`📥 Sync ลงเวลา: ✅ ${ok} รายการ`);
+    if (fail > 0) showToast(`⚠️ ลงเวลาค้าง sync ${fail} รายการ — จะลองใหม่อัตโนมัติ`, "warn");
+  } catch(e) { console.warn("[tc drain]", trigger, e); }
+  finally { window._tcSyncing = false; }
+}
+window.addEventListener("online", () => _drainTimeClockQueue("online"));
+
 // ═══════════════════════════════════════════════════════════
 //  ROLE-BASED ACCESS CONTROL (4 กลุ่ม)
 // ═══════════════════════════════════════════════════════════
@@ -1208,6 +1227,8 @@ async function afterLogin(){
     try { checkOverdueTasksAndNotify(state); } catch(e){ console.warn("[overdue tasks check]", e); }
     try { checkTodayBirthdaysAndNotify(state); } catch(e){ console.warn("[bday check]", e); }
     try { checkWarrantyExpiringAndNotify(state); } catch(e){ console.warn("[warranty check]", e); }
+    // ★ Phase 598: drain คิวลงเวลา offline ตอน boot (ไม่ต้องเปิดหน้า time clock ก่อน)
+    try { if (typeof navigator === "undefined" || navigator.onLine !== false) _drainTimeClockQueue("boot"); } catch(e){ console.warn("[tc boot drain]", e); }
   }, 3000); // หลัง app load 3 วินาทีค่อยเช็ค
 }
 

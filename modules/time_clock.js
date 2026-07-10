@@ -629,6 +629,26 @@ export async function offlinePendingCount() {
   try { return await OfflineQueue.count(); } catch { return 0; }
 }
 
+// ★ Phase 598: bind ปุ่ม sync ออฟไลน์ (ใช้ร่วม admin tcSyncOfflineBtn + self tcSyncSelfBtn)
+//   sync → toast ✅/❌ → re-render (badge/pending อัปเดตเอง). handler เดิมของ admin ยกมาไม่เปลี่ยน logic.
+function _bindOfflineSyncBtn(btnId, ctx) {
+  document.getElementById(btnId)?.addEventListener("click", async (ev) => {
+    const btn = ev.currentTarget;
+    if (btn.disabled) return;
+    btn.disabled = true;
+    const orig = btn.textContent;
+    btn.textContent = "⏳ กำลัง sync...";
+    try {
+      const { ok, fail } = await syncOfflineQueue();
+      ctx.showToast?.(`📥 Sync: ✅ ${ok} • ❌ ${fail}`);
+      renderTimeClockPage(ctx);
+    } catch (e) {
+      ctx.showToast?.("Sync ไม่สำเร็จ: " + (e?.message || "unknown"));
+      if (btn.isConnected) { btn.disabled = false; btn.textContent = orig; }
+    }
+  });
+}
+
 /**
  * Phase 92.25: admin edit a single attendance row
  * @param {number} id - staff_attendance.id
@@ -752,8 +772,10 @@ export async function renderTimeClockPage(ctx) {
     try {
       const pending = await offlinePendingCount().catch(() => 0);
       if (pending > 0) {
-        const { ok } = await syncOfflineQueue();
+        // ★ Phase 598: แจ้งทั้ง ok และ fail (เดิมโชว์เฉพาะ ok → fail เงียบ = ลงเวลาหายจาก payroll)
+        const { ok, fail } = await syncOfflineQueue();
         if (ok > 0) showToast?.(`📥 Sync auto: ✅ ${ok} record`);
+        if (fail > 0) showToast?.(`⚠️ sync ไม่สำเร็จ ${fail} รายการ — กด Sync ออฟไลน์เพื่อลองใหม่`, "warn");
       }
     } finally {
       window._tcSyncing = false;
@@ -984,21 +1006,8 @@ async function _renderManagerView(container, ctx) {
   document.getElementById("tcRefreshBtn")?.addEventListener("click", () => renderTimeClockPage(ctx));
 
   // Phase 92.27: manual sync button (visible when pending count > 0)
-  document.getElementById("tcSyncOfflineBtn")?.addEventListener("click", async (ev) => {
-    const btn = ev.currentTarget;
-    if (btn.disabled) return;
-    btn.disabled = true;
-    const orig = btn.textContent;
-    btn.textContent = "⏳ กำลัง sync...";
-    try {
-      const { ok, fail } = await syncOfflineQueue();
-      ctx.showToast?.(`📥 Sync: ✅ ${ok} • ❌ ${fail}`);
-      renderTimeClockPage(ctx);
-    } catch (e) {
-      ctx.showToast?.("Sync ไม่สำเร็จ: " + (e?.message || "unknown"));
-      if (btn.isConnected) { btn.disabled = false; btn.textContent = orig; }
-    }
-  });
+  // ★ Phase 598: ใช้ helper ร่วม (self view ก็เรียกด้วย id ตัวเอง)
+  _bindOfflineSyncBtn("tcSyncOfflineBtn", ctx);
 
   document.getElementById("tcClockInBtn")?.addEventListener("click", async (ev) => {
     const btn = ev.currentTarget;
@@ -1131,6 +1140,9 @@ async function _renderSelfView(container, ctx) {
   const myName = profileDisplayName(me);
   const myRoleTh = ROLE_LABEL_TH[me.role] || me.role || "-";
 
+  // ★ Phase 598: self view — แจ้งพนักงานถ้ามีลงเวลาค้าง sync (เดิมไม่มี badge → หายเงียบจาก payroll)
+  const pendingCount = await offlinePendingCount().catch(() => 0);
+
   const historyRows = rows.length
     ? rows.map(r => {
         const stillOpen = r.clock_out_at == null;
@@ -1162,6 +1174,14 @@ async function _renderSelfView(container, ctx) {
           <div class="tc-self-profile-sub">${escHtml(myRoleTh)}${me.email ? ' • ' + escHtml(me.email) : ''}</div>
         </div>
       </div>
+
+      ${pendingCount > 0 ? `
+        <div class="tc-self-action-card" style="background:#fffbeb;border:1px solid #fde68a">
+          <div class="tc-self-action-title" style="color:#92400e">⏳ ลงเวลาค้าง sync ${pendingCount} รายการ</div>
+          <div class="tc-self-action-state" style="color:#b45309">ยังไม่ขึ้นระบบ (offline) — กดเพื่อ sync เมื่อมีเน็ต ไม่งั้นจะไม่เข้า payroll</div>
+          <button id="tcSyncSelfBtn" class="btn tc-self-action-btn" style="background:#f59e0b;color:#fff">📥 Sync ลงเวลาค้าง (${pendingCount})</button>
+        </div>
+      ` : ''}
 
       ${state === "open" ? `
         <div class="tc-self-action-card tc-self-action-card--open">
@@ -1217,6 +1237,8 @@ async function _renderSelfView(container, ctx) {
   `;
 
   // ─── Bind events ───────────────────────────────────────────
+  // ★ Phase 598: ปุ่ม sync ลงเวลาค้าง (self) — reuse handler เดียวกับ admin
+  _bindOfflineSyncBtn("tcSyncSelfBtn", ctx);
   document.getElementById("tcSelfClockIn")?.addEventListener("click", async (ev) => {
     const btn = ev.currentTarget;
     if (btn.disabled) return;
