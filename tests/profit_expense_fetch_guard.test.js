@@ -17,12 +17,14 @@ const read = (p) => fs.readFileSync(path.resolve(p), "utf8");
 const pr = read("modules/profit_report.js");
 
 test("profit_report imports fetchExpensesSince from range_fetch.js", () => {
-  assert.match(pr, /import\s+\{\s*fetchExpensesSince\s*\}\s+from\s+["']\.\/range_fetch\.js["']/);
+  // build 597: import เพิ่ม fetchServiceJobsSince ใน braces เดียวกัน → allow import อื่นร่วม
+  assert.match(pr, /import\s+\{[^}]*\bfetchExpensesSince\b[^}]*\}\s+from\s+["']\.\/range_fetch\.js["']/);
 });
 
 test("profit_report fetches expenses in parallel with sales (Promise.all)", () => {
-  assert.match(pr, /const \[_salesRes, _expRes\] = await Promise\.all\(\[fetchSalesSince\(fromDate\), fetchExpensesSince\(fromDate\)\]\)/,
-    "sales + expenses ต้องยิงขนานกัน");
+  // build 597: เพิ่ม _svcRes/fetchServiceJobsSince ใน Promise.all เดียวกัน → sales+expenses ยังขนานเหมือนเดิม
+  assert.match(pr, /const \[_salesRes, _expRes[^\]]*\] = await Promise\.all\(\[fetchSalesSince\(fromDate\), fetchExpensesSince\(fromDate\)[\s\S]*?\]\)/,
+    "sales + expenses ต้องยิงขนานกัน (Promise.all)");
   // sales ยังคง hard-stop เดิม (fetchSalesSince fail → return) — guard sales_fetch เดิมไม่ถูก weaken
   assert.match(pr, /if \(!_salesRes\.ok\) \{[\s\S]{0,120}return; \}/, "sales fail ยัง hard-stop");
 });
