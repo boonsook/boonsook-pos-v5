@@ -22,13 +22,15 @@ function sliceFrom(marker, len = 700) {
   return src.slice(i, i + len);
 }
 
-// ── (a) profile-menu handler: ไม่มี __authLogout + มี App.confirm + เรียก logout() ──
-test("(a) profile menu logout handler: เลิกพึ่ง __authLogout → App.confirm + logout()", () => {
-  const block = sliceFrom('$("profileMenu")?.addEventListener("click"', 700);
+// ── (a) profile-menu handler: ไม่มี __authLogout + มี App.confirm + เรียก logout() + defer (Phase 596) ──
+test("(a) profile menu logout handler: เลิกพึ่ง __authLogout → App.confirm + logout() (defer tick)", () => {
+  const block = sliceFrom('$("profileMenu")?.addEventListener("click"', 900);
   assert.ok(/dataset\.act === "logout"/.test(block), "block ต้องมี branch logout");
   assert.ok(!/window\.__authLogout/.test(block), "★ ต้องไม่เรียก window.__authLogout แล้ว (dead module)");
   assert.ok(/App\.confirm\(\s*["']ออกจากระบบ\?["']\s*\)/.test(block), "ต้องมี App.confirm(\"ออกจากระบบ?\")");
   assert.ok(/\blogout\(\)/.test(block), "ต้องเรียก logout() หลักโดยตรง");
+  // ★ Phase 596: confirm ต้องเปิดใน tick ถัดไป (setTimeout) — กัน tap มือถือทะลุไปโดน "ยืนยัน" ทันที
+  assert.ok(/setTimeout\(\s*async[\s\S]{0,60}App\.confirm/.test(block), "logout confirm ต้องถูก defer ด้วย setTimeout (Phase 596)");
 });
 
 // ── (b) logout() body: ล้าง PII บิลล่าสุด (state.lastReceipt + localStorage) ──

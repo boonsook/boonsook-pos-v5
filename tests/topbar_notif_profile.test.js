@@ -42,9 +42,10 @@ test("profile name escaped (XSS); logout calls main logout() (Phase 595); settin
   // ★ Phase 595: logout เรียก logout() หลัก + App.confirm — เลิกพึ่ง __authLogout (dead module)
   const mStart = mainJs.indexOf('$("profileMenu")?.addEventListener("click"');
   assert.ok(mStart >= 0, "หา profileMenu click handler เจอ");
-  const menu = mainJs.slice(mStart, mStart + 600);
+  const menu = mainJs.slice(mStart, mStart + 950);
   assert.ok(!/window\.__authLogout/.test(menu), "logout ต้องไม่เรียก window.__authLogout (dead module) แล้ว");
-  assert.match(menu, /act === "logout"[\s\S]{0,300}App\.confirm[\s\S]{0,80}logout\(\)/, "logout → App.confirm แล้วเรียก logout()");
+  // แยก assert (กันคอมเมนต์ที่มีคำว่า App.confirm/logout() รบกวนลำดับ regex)
+  assert.match(menu, /App\.confirm\(\s*["']ออกจากระบบ\?["']\s*\)\)\s*logout\(\)/, "confirm(\"ออกจากระบบ?\") ผ่าน → เรียก logout()");
   assert.match(mainJs, /act === "settings"\) showRoute\("settings"\)/, "settings → showRoute('settings')");
   assert.match(mainJs, /notifBell"\)\?\.addEventListener\([\s\S]{0,70}showRoute\("products"\)/, "bell → showRoute('products')");
 });

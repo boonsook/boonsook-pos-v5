@@ -5060,7 +5060,7 @@ function bindStaticEvents(){
       menu.classList.toggle("hidden");
       $("profileChip")?.setAttribute("aria-expanded", willOpen ? "true" : "false");
     });
-    $("profileMenu")?.addEventListener("click", async (e) => {
+    $("profileMenu")?.addEventListener("click", (e) => {
       const item = e.target.closest(".profile-menu-item");
       if (!item) return;
       closeProfileMenu();
@@ -5068,7 +5068,10 @@ function bindStaticEvents(){
       else if (item.dataset.act === "logout") {
         // ★ Phase 595: __authLogout เป็นของ auth.js dead module (initAuth ไม่เคยถูกเรียก) → ปุ่มตาย
         //   เรียก logout() หลักโดยตรง + confirm กันกดพลาดบนมือถือ (pattern App.confirm เดิมของแอป)
-        if (await window.App.confirm("ออกจากระบบ?")) logout();
+        // ★ Phase 596: closeProfileMenu() ซ่อนปุ่มที่ถูกแตะกลางคัน → บนมือถือ tap เดิม leak ไปโดนปุ่ม
+        //   "ยืนยัน" ของ modal ที่เพิ่งสร้าง = logout ทันทีโดยไม่ขึ้น confirm. เลื่อนเปิด confirm ไป
+        //   tick ถัดไป (หลัง gesture จบ) → modal ไม่โดน tap เดิม.
+        setTimeout(async () => { if (await window.App.confirm("ออกจากระบบ?")) logout(); }, 0);
       }
     });
     document.addEventListener("click", (e) => { if (!e.target.closest(".topbar-profile-wrap")) closeProfileMenu(); });
