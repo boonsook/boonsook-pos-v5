@@ -35,8 +35,15 @@ window.addEventListener('bsk-app-ready', hideLoadingOverlay);
       + '<button type="button" id="swUpdateLater" aria-label="ภายหลัง" style="background:transparent;color:#cbd5e1;border:none;padding:6px 8px;cursor:pointer;font-size:18px">✕</button>';
     document.body.appendChild(banner);
     document.getElementById('swUpdateApply').addEventListener('click', function () {
+      // ★ Phase 598: กดแล้วต้องอัปเดตเสมอ (เดิม no-op เงียบถ้าไม่มี reg.waiting)
+      var applyBtn = document.getElementById('swUpdateApply');
+      if (applyBtn) { applyBtn.disabled = true; applyBtn.textContent = 'กำลังอัปเดต...'; }
       if (reg && reg.waiting) {
         reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+        // fallback: controllerchange ไม่มาใน 4s → force reload เอง (กันปุ่มค้างเงียบ)
+        setTimeout(forceReload, 4000);
+      } else {
+        forceReload(); // ไม่มี waiting worker → reload ทันที (bust cache) แทน no-op
       }
     });
     document.getElementById('swUpdateLater').addEventListener('click', function () {
@@ -88,8 +95,9 @@ window.addEventListener('bsk-app-ready', hideLoadingOverlay);
   // Reload once the new SW takes control (single reload guard)
   // ★ Phase 28: ใช้ location.replace + cache-bust query เพื่อ bypass HTTP cache
   // (location.reload() ปกติไม่ bust HTTP cache บน iOS Safari + PWA)
-  let reloaded = false;
-  navigator.serviceWorker.addEventListener('controllerchange', function () {
+  // ★ Phase 598: extract เป็น forceReload() ใช้ร่วม controllerchange + ปุ่มอัปเดต (fallback)
+  var reloaded = false;
+  function forceReload() {
     if (reloaded) return;
     reloaded = true;
     try {
@@ -99,7 +107,8 @@ window.addEventListener('bsk-app-ready', hideLoadingOverlay);
     } catch (e) {
       window.location.href = window.location.pathname + '?_t=' + Date.now();
     }
-  });
+  }
+  navigator.serviceWorker.addEventListener('controllerchange', forceReload);
 
   // Phase 90.11: kick reg.update() periodically and on tab visibility change so
   // long-lived sessions don't sit on an old build until the user reloads. We
@@ -113,6 +122,9 @@ window.addEventListener('bsk-app-ready', hideLoadingOverlay);
     document.addEventListener('visibilitychange', function () {
       if (document.hidden) return;
       try { reg.update().catch(function () {}); } catch (e) { /* ignore */ }
+      // ★ Phase 598: waiting worker ค้างอยู่ (banner ถูกปิด / isReallyNewBuild เคย fail) → เด้ง banner ซ้ำ
+      //   (maybeShowBanner มี dup-guard อยู่แล้ว — ไม่เด้งซ้อน; ไม่ reload ที่นี่)
+      if (reg.waiting && navigator.serviceWorker.controller) maybeShowBanner(reg);
     });
   }
 
