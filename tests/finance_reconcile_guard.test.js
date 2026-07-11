@@ -105,7 +105,7 @@ test("(e3) summarizeMonth: JV ผีของบิลที่ลบแล้�
     docDateEntries: [je]
   });
   assert.equal(sum.orphans.length, 1);
-  assert.equal(sum.orphans[0].reason, "source-deleted");
+  assert.equal(sum.orphans[0].reason, "ORPHAN_SOURCE_DELETED");
   assert.equal(sum.counts.sales.DELETED_HAS_JV, 1);
 });
 
@@ -159,9 +159,9 @@ test("(j2) classifyExpense: salary→EXPECTED_SKIP (ไม่ใช่ NO_JV) ·
   }
   // ยอด < 0.01 → ZERO_AMOUNT
   assert.equal(L.classifyExpense({ expense_date: "2026-07-10", amount: 0, category: "fuel" }, null, eff, validKeys).cls, "ZERO_AMOUNT");
-  // category resolve → mappingKey ที่ไม่อยู่ใน validKeys + ไม่มี je → MISSING_MAPPING (≠ NO_JV)
+  // category resolve → mappingKey ที่ไม่อยู่ใน validKeys + ไม่มี je → CURRENT_MAPPING_MISSING (≠ NO_JV)
   const mm = L.classifyExpense({ expense_date: "2026-07-10", amount: 500, category: "unknown_cat_xyz" }, null, eff, validKeys);
-  assert.equal(mm.cls, "MISSING_MAPPING");
+  assert.equal(mm.cls, "CURRENT_MAPPING_MISSING");
   assert.equal(mm.detail.mappingKey, "expense_misc");
   // category ที่ mapping ใช้ได้ (fuel→expense_fuel ∈ validKeys) แต่ไม่มี je → NO_JV (หลุดโพสต์จริง)
   assert.equal(L.classifyExpense({ expense_date: "2026-07-10", amount: 500, category: "fuel" }, null, eff, validKeys).cls, "NO_JV");
@@ -177,9 +177,9 @@ test("(j2) classifyExpense: salary→EXPECTED_SKIP (ไม่ใช่ NO_JV) ·
   });
   assert.equal(sum.counts.expenses.EXPECTED_SKIP_SALARY_VIA_PAYROLL, 1);
   assert.equal(sum.counts.expenses.ZERO_AMOUNT, 1);
-  assert.equal(sum.counts.expenses.MISSING_MAPPING, 1);
-  assert.equal(sum.counts.expenses.NO_JV, 0, "ไม่มี expense เป็น NO_JV ในชุดนี้");
-  assert.deepEqual(sum.problemRows.expenses.map(x => x.cls), ["MISSING_MAPPING"], "problem table เหลือแค่ MISSING_MAPPING");
+  assert.equal(sum.counts.expenses.CURRENT_MAPPING_MISSING, 1);
+  assert.equal(sum.counts.expenses.NO_JV || 0, 0, "ไม่มี expense เป็น NO_JV ในชุดนี้");
+  assert.deepEqual(sum.problemRows.expenses.map(x => x.cls), ["CURRENT_MAPPING_MISSING"], "problem table เหลือแค่ CURRENT_MAPPING_MISSING");
 });
 
 // ── (j3) EXPENSE_CATEGORY_MAP ตรง auto_post.js:567-591 (กัน drift — salary keys → payroll_salary) ──
@@ -190,6 +190,52 @@ test("(j3) EXPENSE_CATEGORY_MAP: salary/labor_hire/payroll → payroll_salary + 
   assert.equal(L.EXPENSE_CATEGORY_MAP.fuel, "expense_fuel");
   assert.equal(L.EXPENSE_CATEGORY_MAP.rent, "expense_rent");
   assert.equal(L.EXPENSE_CATEGORY_MAP["น้ำมัน"], "expense_fuel");
+});
+
+// ── (j4) amount taxonomy: 0=ZERO(expected) · <0=INVALID_NEGATIVE · null/NaN=INVALID · subcent=SUBCENT ──
+test("(j4) classifyExpense amount classes แยกกัน (ไม่กลืนยอดติดลบ)", () => {
+  const eff = EFF, d = "2026-07-10";
+  assert.equal(L.classifyExpense({ expense_date: d, amount: 0, category: "fuel" }, null, eff).cls, "ZERO_AMOUNT");
+  assert.equal(L.classifyExpense({ expense_date: d, amount: -500, category: "fuel" }, null, eff).cls, "INVALID_NEGATIVE_AMOUNT");
+  assert.equal(L.classifyExpense({ expense_date: d, amount: null, category: "fuel" }, null, eff).cls, "INVALID_AMOUNT");
+  assert.equal(L.classifyExpense({ expense_date: d, amount: undefined, category: "fuel" }, null, eff).cls, "INVALID_AMOUNT");
+  assert.equal(L.classifyExpense({ expense_date: d, amount: 0.005, category: "fuel" }, null, eff).cls, "SUBCENT_AMOUNT");
+  // salary มาก่อน amount → salary ติดลบยังเป็น EXPECTED_SKIP (mirror auto_post skip เงินเดือนเสมอ)
+  assert.equal(L.classifyExpense({ expense_date: d, amount: -500, category: "salary" }, null, eff).cls, "EXPECTED_SKIP_SALARY_VIA_PAYROLL");
+  // −500 (non-salary) เข้า problem table
+  const sum = L.summarizeMonth({ month: "2026-07", expenses: [{ id: "N", expense_date: d, amount: -500, category: "fuel" }], jeBySource: new Map(), docDateEntries: [] });
+  assert.deepEqual(sum.problemRows.expenses.map(x => x.cls), ["INVALID_NEGATIVE_AMOUNT"]);
+});
+
+// ── (n) MANUAL_JV: source null ทั้งคู่ → informational (ไม่เข้า orphan) + manualJvGl หัก → residual 0 ──
+test("(n) summarizeMonth: manual JV (source null) มี Cr 4xxx → MANUAL_JV + residual = 0", () => {
+  const je = { id: "man1", source_table: null, source_id: null, doc_date: "2026-07-12", total_debit: 300 };
+  const sum = L.summarizeMonth({
+    month: "2026-07",
+    jeBySource: new Map(),
+    linesByEntry: new Map([["man1", [{ account_code: "4100", debit: 0, credit: 300 }, { account_code: "1010", debit: 300, credit: 0 }]]]),
+    docDateEntries: [je]
+  });
+  assert.equal(sum.manualJv.length, 1);
+  assert.equal(sum.orphans.length, 0, "manual JV ต้องไม่เข้า orphan");
+  assert.equal(sum.revenue.gl, 300);
+  assert.equal(sum.revenue.breakdown.manualJvGl, 300);
+  assert.equal(sum.revenue.unexplainedResidual, 0, "manualJvGl หักออก → identity ปิด");
+});
+
+// ── (o) orphan taxonomy + data hole: one-side-null→BROKEN_SOURCE_LINK · missing→ORPHAN_SOURCE_MISSING · no lines→dataIncomplete ──
+test("(o) summarizeMonth: BROKEN_SOURCE_LINK · ORPHAN_SOURCE_MISSING · dataIncomplete แยกกัน", () => {
+  const jeBroken = { id: "b1", source_table: "sales", source_id: null, doc_date: "2026-07-12", total_debit: 100 };  // ข้างเดียว null + ไม่มี lines
+  const jeMissing = { id: "m1", source_table: "sales", source_id: "GONE", doc_date: "2026-07-12", total_debit: 100 };
+  const sum = L.summarizeMonth({
+    month: "2026-07", sales: [],
+    jeBySource: new Map(),
+    linesByEntry: new Map([["m1", [{ account_code: "4100", debit: 0, credit: 100 }]]]),
+    docDateEntries: [jeBroken, jeMissing]
+  });
+  assert.deepEqual(sum.orphans.map(o => o.reason).sort(), ["BROKEN_SOURCE_LINK", "ORPHAN_SOURCE_MISSING"]);
+  assert.equal(sum.dataIncomplete.length, 1, "b1 ไม่มี journal_lines = data hole");
+  assert.equal(sum.dataIncomplete[0].entryId, "b1");
 });
 
 // ── (k) duplicate source postings: source เดียวมี JE approved > 1 → surface ไม่กลืน ──
@@ -300,7 +346,10 @@ test("(m) runner: account_mapping mapping-keys + --strict ครอบ residual/
   assert.match(runnerSrc, /is_active=eq\.true/, "account_mapping ต้องกรอง is_active=eq.true (align _getMappings)");
   assert.match(runnerSrc, /expenseMappingKeys/, "ต้องส่ง expenseMappingKeys เข้า summarizeMonth");
   // --strict ต้องดูสัญญาณครบ ไม่ใช่ residual อย่างเดียว
-  for (const sig of ["unexplainedResidual", "noJv", "mismatch", "deletedHasJv", "duplicateSources", "orphans", "nonApprovedCount"]) {
+  for (const sig of ["unexplainedResidual", "noJv", "mismatch", "dateMismatch", "deletedHasJv", "duplicateSources", "orphans", "mappingMissing", "invalidAmt", "dataIncomplete", "nonApprovedSourceBoundCount"]) {
     assert.ok(runnerSrc.includes(sig), `strict gate ต้องอ้างสัญญาณ ${sig}`);
   }
+  // non-approved ต้องแยก manual vs source-bound
+  assert.match(runnerSrc, /nonApprovedManual/, "ต้องแยก non-approved manual");
+  assert.match(runnerSrc, /nonApprovedSourceBound/, "ต้องแยก non-approved source-bound");
 });

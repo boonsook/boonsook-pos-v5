@@ -106,21 +106,27 @@ const SALARY_VIA_PAYROLL_CATEGORIES = new Set(["salary", "labor_hire", "payroll"
 
 // ── 1.8b classifyExpense (expense_date basis; opAmount = amount) ──
 //   validMappingKeys: Set<mapping_key> ที่ active + มี debit/credit ครบ (จาก account_mapping) —
-//   ถ้าไม่ส่งมา (null) จะข้ามเช็ค MISSING_MAPPING (fixture เก่าเรียกได้เหมือนเดิม)
-//   ลำดับตรง auto_post.postJournalForExpense: pre-effective(599) → salary(613) → mapping(617) → post
+//   ถ้าไม่ส่งมา (null) จะข้ามเช็ค CURRENT_MAPPING_MISSING (fixture เก่าเรียกได้เหมือนเดิม)
+//   ลำดับ mirror auto_post.postJournalForExpense: pre-effective(599) → salary(613) → amount(597) → mapping(617)
 export function classifyExpense(expense, je, effective = ACCOUNTING_EFFECTIVE_DATE, validMappingKeys = null) {
   const expenseDate = String(expense?.expense_date || "").slice(0, 10); // DATE column — ไม่มี time, ไม่ต้อง TZ shift
-  const opAmount = round2(expense?.amount);
+  const rawAmount = expense?.amount;
+  const opAmount = round2(rawAmount);
   const cat = String(expense?.category || "").toLowerCase().trim();
   const base = { expenseDate, opAmount, category: cat };
   if (_lt(expenseDate, effective)) return { cls: "PRE_EFFECTIVE", detail: base };
-  // เงินเดือน/ค่าจ้าง → JV ก้อนเดียวผ่าน payroll (ไม่ลงรายคน) = คาดว่าไม่มี JV, ไม่ใช่ NO_JV
+  // เงินเดือน/ค่าจ้าง → JV ก้อนเดียวผ่าน payroll (ไม่ลงรายคน) = คาดว่าไม่มี JV, ไม่ใช่ NO_JV (auto_post.js:613-615)
   if (SALARY_VIA_PAYROLL_CATEGORIES.has(cat)) return { cls: "EXPECTED_SKIP_SALARY_VIA_PAYROLL", detail: base };
-  if (opAmount < 0.01) return { cls: "ZERO_AMOUNT", detail: base };  // ยอด 0 → auto_post skip (missing-required)
-  // resolve mapping (auto_post.js:617 fallback expense_misc) — ถ้า key ไม่ active/ไม่ครบ = คาดว่าไม่มี JV เพราะ config
+  // amount classes — แยกจากกัน (เดิม <0.01 กลืนยอดติดลบ). auto_post.js:597 `!amount` = falsy skip
+  const num = Number(rawAmount);
+  if (rawAmount === null || rawAmount === undefined || !Number.isFinite(num)) return { cls: "INVALID_AMOUNT", detail: base };          // null/NaN = row เพี้ยน (problem)
+  if (num === 0) return { cls: "ZERO_AMOUNT", detail: base };                     // 0 → falsy → auto_post skip (expected)
+  if (num < 0) return { cls: "INVALID_NEGATIVE_AMOUNT", detail: base };           // ติดลบ → auto_post โพสต์ Dr ลบ (problem)
+  if (num < 0.01) return { cls: "SUBCENT_AMOUNT", detail: base };                 // 0<amount<0.01 = เศษต่ำกว่าสตางค์ (problem)
+  // resolve mapping (auto_post.js:617 fallback expense_misc) — ถ้า key ไม่ active/ไม่ครบ ณ วัน audit = คาดว่าไม่มี JV
   const mappingKey = EXPENSE_CATEGORY_MAP[cat] || "expense_misc";
   if (!je && validMappingKeys && !validMappingKeys.has(mappingKey)) {
-    return { cls: "MISSING_MAPPING", detail: { ...base, mappingKey } };  // ≠ NO_JV: "ไม่มี JV เพราะออกแบบ/config"
+    return { cls: "CURRENT_MAPPING_MISSING", detail: { ...base, mappingKey } };   // ≠ NO_JV; "current" = พิสูจน์ได้แค่สถานะ ณ วัน audit
   }
   if (!je) return { cls: "NO_JV", detail: base };  // valid mapping แต่ไม่มี JV = หลุดโพสต์จริง
   const glAmount = round2(je.total_debit);
@@ -223,6 +229,7 @@ export function summarizeMonth(inp) {
   const expenseRows = expenses.map(e => ({ e, ...classifyExpense(e, jeFor("expenses", e.id), effective, expenseMappingKeys) }));
 
   const count = (rows, cls) => rows.filter(x => x.cls === cls).length;
+  const countBy = (rows) => { const o = {}; for (const x of rows) o[x.cls] = (o[x.cls] || 0) + 1; return o; };
   const jobById = new Map(jobs.map(j => [String(j.id), j]));
 
   // ── delta breakdown (op dashboard − GL) เป็นสาเหตุที่วัดได้ ──
@@ -259,10 +266,15 @@ export function summarizeMonth(inp) {
     if (!job || isWebOrderJob(job)) return a;   // web อยู่ใน op(dashboard) แล้ว; นับเฉพาะ non-web ที่ op ไม่มี
     return a + entryRevenue(linesByEntry.get(je.id) || []);
   }, 0));
+  // manual JV (source_table & source_id null ทั้งคู่) = ลงมือเอง ไม่มี operational source → GL-only revenue
+  //   หักออกจากฝั่ง GL เหมือน serviceNonWebGl (informational ไม่ใช่ anomaly — ดู orphan taxonomy)
+  const isManualEntry = (je) => (je.source_table === null || je.source_table === undefined || je.source_table === "")
+    && (je.source_id === null || je.source_id === undefined || String(je.source_id) === "");
+  const manualJvGl = round2(docDateEntries.reduce((a, je) => isManualEntry(je) ? a + entryRevenue(linesByEntry.get(je.id) || []) : a, 0));
 
-  // identity: op − gl = vat + webNotClosed + noJv + refunds − crossMonthGlOnly − deletedHasJv − serviceNonWebGl + residual
+  // identity: op − gl = vat + webNotClosed + noJv + refunds − crossMonthGlOnly − deletedHasJv − serviceNonWebGl − manualJvGl + residual
   const rawDelta = round2(opDashboardRevenue - glRevenue);
-  const explained = round2(vat + webNotClosed + noJvSales + refundsGl - crossMonthGlOnly - deletedHasJv - serviceNonWebGl);
+  const explained = round2(vat + webNotClosed + noJvSales + refundsGl - crossMonthGlOnly - deletedHasJv - serviceNonWebGl - manualJvGl);
   const unexplainedResidual = round2(rawDelta - explained);
 
   // ── gross profit 3 มุม ──
@@ -274,21 +286,28 @@ export function summarizeMonth(inp) {
   const gpStrict = round2(opPos - cost.knownCogs);                       // null≠0: unknown/zero ไม่คิดต้นทุน
   const gpFallback = round2(opPos - round2(cost.knownCogs + cost.fallbackDelta)); // สูตร profit_report
 
-  // ── orphan JEs: doc_date∈M แต่ source ไม่เจอ / ถูกลบ ──
+  // ── JE taxonomy: doc_date∈M — แยก manual (informational) จาก orphan (problem) + data hole ──
   const saleById = new Map(sales.map(s => [String(s.id), s]));
   const refundById = new Map(refunds.map(r => [String(r.id), r]));
   const expenseById = new Map(expenses.map(e => [String(e.id), e]));
   const orphans = [];
+  const manualJvEntries = [];
+  const dataIncomplete = [];  // JE approved แต่ไม่มี journal_lines เลย = data hole
   for (const je of docDateEntries) {
-    const t = je.source_table, id = String(je.source_id ?? "");
+    if ((linesByEntry.get(je.id) || []).length === 0) dataIncomplete.push({ entryId: je.id, docDate: je.doc_date, sourceTable: je.source_table, sourceId: je.source_id });
+    const t = je.source_table, sid = je.source_id;
+    const tNull = (t === null || t === undefined || t === "");
+    const sNull = (sid === null || sid === undefined || String(sid) === "");
+    if (tNull && sNull) { manualJvEntries.push({ entryId: je.id, docDate: je.doc_date }); continue; }   // MANUAL_JV — informational
+    if (tNull || sNull) { orphans.push({ entryId: je.id, docDate: je.doc_date, sourceTable: t, sourceId: sid, reason: "BROKEN_SOURCE_LINK" }); continue; }
+    const id = String(sid);
     let row, reason = "";
-    if (!t || id === "") { reason = "no-source"; }
-    else if (t === "sales") { row = saleById.get(id); if (!row) reason = "source-missing"; else if (isDeletedSale(row)) reason = "source-deleted"; }
-    else if (t === "service_jobs") { row = jobById.get(id); if (!row) reason = "source-missing"; else if (isServiceDeleted(row)) reason = "source-deleted"; }
-    else if (t === "refunds") { row = refundById.get(id); if (!row) reason = "source-missing"; }
-    else if (t === "expenses") { row = expenseById.get(id); if (!row) reason = "source-missing"; }
+    if (t === "sales") { row = saleById.get(id); if (!row) reason = "ORPHAN_SOURCE_MISSING"; else if (isDeletedSale(row)) reason = "ORPHAN_SOURCE_DELETED"; }
+    else if (t === "service_jobs") { row = jobById.get(id); if (!row) reason = "ORPHAN_SOURCE_MISSING"; else if (isServiceDeleted(row)) reason = "ORPHAN_SOURCE_DELETED"; }
+    else if (t === "refunds") { row = refundById.get(id); if (!row) reason = "ORPHAN_SOURCE_MISSING"; }
+    else if (t === "expenses") { row = expenseById.get(id); if (!row) reason = "ORPHAN_SOURCE_MISSING"; }
     // t อื่น (staff_payroll ฯลฯ) ไม่ถือ orphan (นอกขอบเขต operational 4 ตาราง)
-    if (reason) orphans.push({ entryId: je.id, docDate: je.doc_date, sourceTable: t, sourceId: je.source_id, reason });
+    if (reason) orphans.push({ entryId: je.id, docDate: je.doc_date, sourceTable: t, sourceId: sid, reason });
   }
 
   return {
@@ -297,7 +316,7 @@ export function summarizeMonth(inp) {
       opDashboard: opDashboardRevenue, opIncomeOverview: opIncomeOverviewRevenue, gl: glRevenue,
       opPos, opWeb, opServiceIncome,
       deltaDashboardGl: rawDelta, deltaIncomeOverviewGl: round2(opIncomeOverviewRevenue - glRevenue),
-      breakdown: { vat, webNotClosed, crossMonthGlOnly, noJv: noJvSales, refunds: refundsGl, deletedHasJv, serviceNonWebGl },
+      breakdown: { vat, webNotClosed, crossMonthGlOnly, noJv: noJvSales, refunds: refundsGl, deletedHasJv, serviceNonWebGl, manualJvGl },
       explained, unexplainedResidual
     },
     grossProfit: { frozen: gpFrozen, strict: gpStrict, fallback: gpFallback, ...cost },
@@ -306,16 +325,18 @@ export function summarizeMonth(inp) {
       sales: { total: sales.length, OK: count(saleRows, "OK"), NO_JV: count(saleRows, "NO_JV"), AMOUNT_MISMATCH: count(saleRows, "AMOUNT_MISMATCH"), DATE_MISMATCH: count(saleRows, "DATE_MISMATCH"), DELETED_HAS_JV: count(saleRows, "DELETED_HAS_JV"), PRE_EFFECTIVE: count(saleRows, "PRE_EFFECTIVE") },
       jobs: { total: jobs.length, OK: count(jobRows, "OK"), NO_JV: count(jobRows, "NO_JV"), AMOUNT_MISMATCH: count(jobRows, "AMOUNT_MISMATCH"), NOT_INCOME_STATUS: count(jobRows, "NOT_INCOME_STATUS"), DELETED_HAS_JV: count(jobRows, "DELETED_HAS_JV"), crossMonth: jobRows.filter(x => x.detail.crossMonth).length },
       refunds: { total: refunds.length, OK: count(refundRows, "OK"), NO_JV: count(refundRows, "NO_JV"), AMOUNT_MISMATCH: count(refundRows, "AMOUNT_MISMATCH") },
-      expenses: { total: expenses.length, OK: count(expenseRows, "OK"), NO_JV: count(expenseRows, "NO_JV"), AMOUNT_MISMATCH: count(expenseRows, "AMOUNT_MISMATCH"), PRE_EFFECTIVE: count(expenseRows, "PRE_EFFECTIVE"), MISSING_MAPPING: count(expenseRows, "MISSING_MAPPING"), EXPECTED_SKIP_SALARY_VIA_PAYROLL: count(expenseRows, "EXPECTED_SKIP_SALARY_VIA_PAYROLL"), ZERO_AMOUNT: count(expenseRows, "ZERO_AMOUNT") }
+      expenses: { total: expenses.length, ...countBy(expenseRows) }
     },
     orphans,
+    manualJv: manualJvEntries,
+    dataIncomplete,
     duplicateSources,
     // rows ที่ไม่ OK (สำหรับส่วน B) — กรอง OK/DELETED_OK/PRE_EFFECTIVE + NOT_INCOME_STATUS ที่ไม่ใช่ web
     problemRows: {
       sales: saleRows.filter(x => !["OK", "DELETED_OK", "PRE_EFFECTIVE"].includes(x.cls)),
       jobs: jobRows.filter(x => !["OK", "DELETED_OK", "PRE_EFFECTIVE"].includes(x.cls) && !(x.cls === "NOT_INCOME_STATUS" && !x.detail.webCountedOperational)),
       refunds: refundRows.filter(x => !["OK", "PRE_EFFECTIVE"].includes(x.cls)),
-      // expenses: ตัด class ที่ "คาดว่าไม่มี JV โดยออกแบบ" (salary via payroll / ยอด 0) — เหลือ NO_JV/MISSING_MAPPING/AMOUNT_MISMATCH
+      // expenses: ตัด class ที่ "คาดว่าไม่มี JV โดยออกแบบ" (salary via payroll / ยอด 0) — เหลือ NO_JV/CURRENT_MAPPING_MISSING/AMOUNT_MISMATCH/INVALID*/SUBCENT
       expenses: expenseRows.filter(x => !["OK", "PRE_EFFECTIVE", "EXPECTED_SKIP_SALARY_VIA_PAYROLL", "ZERO_AMOUNT"].includes(x.cls))
     }
   };
