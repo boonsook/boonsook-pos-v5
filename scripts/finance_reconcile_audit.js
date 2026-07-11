@@ -9,8 +9,8 @@
 //  Usage: node scripts/finance_reconcile_audit.js [YYYY-MM ...] [--strict]  (default = เดือนนี้ + ก่อน, Bangkok)
 //  Env (.env): SUPABASE_URL, SUPABASE_ANON_KEY, ADMIN_EMAIL, ADMIN_PASSWORD
 //  Exit: 0 = รันจบ (report-only) · 1 = --strict + เจอสัญญาณ anomaly ใด ๆ (residual/NO_JV/mismatch/
-//        date-mismatch/deleted-jv/duplicate/orphan/mapping-missing/invalid-amount/data-incomplete/
-//        source-bound draft post-effective) · 2 = fatal (env/network)
+//        date-mismatch/deleted-jv/duplicate/orphan/mapping-missing/invalid-amount/itemless-cost-unknown/
+//        data-incomplete/source-bound draft post-effective) · 2 = fatal (env/network)
 // ═══════════════════════════════════════════════════════════
 import fs from "node:fs";
 import path from "node:path";
@@ -236,11 +236,15 @@ async function main() {
     console.log(`| − DELETED_HAS_JV (บิลลบแต่ JV ผียังอยู่) | ${money(R.breakdown.deletedHasJv)} |`);
     console.log(`| **= unexplained residual** | **${money(R.unexplainedResidual)}** ${Math.abs(R.unexplainedResidual) < 0.01 ? "✅" : "⚠️ ยังมีสาเหตุที่ไม่รู้ — ห้ามไป S4.1"} |`);
 
-    console.log(`\n### Gross profit 3 มุม`);
+    console.log(`\n### Gross profit (itemized เท่านั้น — itemless แยกด้านล่าง)`);
+    console.log(`- itemized revenue (บิลที่มี item): **${money(G.itemizedRevenue)}**`);
     console.log(`- frozen (sales.gross_profit): **${money(G.frozen)}**`);
-    console.log(`- strict (POS − knownCogs, null≠0): **${money(G.strict)}** (knownCogs ${money(G.knownCogs)})`);
-    console.log(`- fallback (สูตร profit_report): **${money(G.fallback)}** (fallbackDelta ${money(G.fallbackDelta)})`);
-    console.log(`- unit_cost: UNKNOWN(null) ${G.unknownCount} รายการ (fallback ${money(G.unknownFallbackCogs)}) · AMBIGUOUS_ZERO_COST (0 — pos.js ยัง fallback 0 จนกว่า S4.1) ${G.zeroCount} รายการ (fallback ${money(G.zeroFallbackCogs)})`);
+    console.log(`- known GP (itemized − knownCogs, null≠0): **${money(G.knownGp)}** (knownCogs ${money(G.knownCogs)})`);
+    console.log(`- fallback (สูตร profit_report บน itemized): **${money(G.fallback)}** (fallbackDelta ${money(G.fallbackDelta)})`);
+    console.log(`- unit_cost (ใน itemized): UNKNOWN(null) ${G.unknownCount} รายการ (fallback ${money(G.unknownFallbackCogs)}) · AMBIGUOUS_ZERO_COST (0 — pos.js ยัง fallback 0 จนกว่า S4.1) ${G.zeroCount} รายการ (fallback ${money(G.zeroFallbackCogs)})`);
+    console.log(`\n### ⚠️ Itemless sales (ITEMLESS_SALE_COST_UNKNOWN — quick-pay ไม่มี item, ต้นทุนไม่ทราบ): **${G.itemlessCount}** รายการ · revenue ${money(G.itemlessRevenue)}`);
+    console.log(`  _นับแยกจาก known GP — ห้ามตีเป็น COGS 0 (policy null=ไม่รู้ต้นทุน). known GP ${money(G.knownGp)} + unknown-cost revenue ${money(G.itemlessRevenue)}_`);
+    if (G.itemlessCount) { for (const r of G.itemlessRows.slice(0, 50)) console.log(`  - ${r.orderNo || r.id} · ${money(r.revenue)}`); if (G.itemlessCount > 50) console.log(`  …และอีก ${G.itemlessCount - 50}`); }
     console.log(`\n### COGS ใน GL (Dr 5100 เท่านั้น — คาด 0 = premise S4.1): **${money(sum.glCogs)}** ${Math.abs(sum.glCogs) < 0.01 ? "(ยืนยัน: ไม่มีการโพสต์ COGS)" : "⚠️"}`);
     console.log(`\n### Refunds: ${sum.counts.refunds.total} รายการ — OK ${sum.counts.refunds.OK} · NO_JV ${sum.counts.refunds.NO_JV} · MISMATCH ${sum.counts.refunds.AMOUNT_MISMATCH}`);
     console.log(`  - restocked flag: true ${refundRestock.restockedTrue} · false ${refundRestock.restockedFalse} · null ${refundRestock.restockedNull} — _false = ยังไม่ยืนยันว่าคืนสต็อกครบ (ต้องตรวจ stock_movements — S4.1); ไม่ได้แปลว่า "ไม่มีการคืน"_`);
@@ -292,6 +296,7 @@ async function main() {
     if (sum.orphans.length > 0) reasons.push(`orphan ${sum.orphans.length}`);      // BROKEN_SOURCE_LINK/ORPHAN*
     if (mappingMissing > 0) reasons.push(`CURRENT_MAPPING_MISSING ${mappingMissing}`);
     if (invalidAmt > 0) reasons.push(`invalid/subcent amount ${invalidAmt}`);
+    if (sum.grossProfit.itemlessCount > 0) reasons.push(`ITEMLESS_SALE_COST_UNKNOWN ${sum.grossProfit.itemlessCount}`);
     if (sum.dataIncomplete.length > 0) reasons.push(`dataIncomplete ${sum.dataIncomplete.length}`);
     if (!preEffective && nonApprovedSourceBoundCount > 0) reasons.push(`source-bound draft post-effective ${nonApprovedSourceBoundCount}`);
     if (reasons.length) { anyStrictFail = true; console.log(`\n_strict signals เดือน ${month}: ${reasons.join(" · ")}_`); }
@@ -299,7 +304,7 @@ async function main() {
   }
   console.log(`\n─── จบรายงาน (read-only audit — ไม่มีการแก้ข้อมูล) ───`);
   if (STRICT && anyStrictFail) {
-    console.log(`\n⚠️ --strict: เจอสัญญาณ anomaly (residual/NO_JV/mismatch/date-mismatch/deleted-jv/duplicate/orphan/mapping-missing/invalid-amount/data-incomplete/source-bound-draft) → exit 1 (ยังไม่พร้อมไป S4.1)`);
+    console.log(`\n⚠️ --strict: เจอสัญญาณ anomaly (residual/NO_JV/mismatch/date-mismatch/deleted-jv/duplicate/orphan/mapping-missing/invalid-amount/itemless-cost-unknown/data-incomplete/source-bound-draft) → exit 1 (ยังไม่พร้อมไป S4.1)`);
     return 1;
   }
   return 0;

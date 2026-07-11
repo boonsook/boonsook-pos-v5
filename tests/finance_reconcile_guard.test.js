@@ -346,12 +346,32 @@ test("(m) runner: account_mapping mapping-keys + --strict ครอบ residual/
   assert.match(runnerSrc, /is_active=eq\.true/, "account_mapping ต้องกรอง is_active=eq.true (align _getMappings)");
   assert.match(runnerSrc, /expenseMappingKeys/, "ต้องส่ง expenseMappingKeys เข้า summarizeMonth");
   // --strict ต้องดูสัญญาณครบ ไม่ใช่ residual อย่างเดียว
-  for (const sig of ["unexplainedResidual", "noJv", "mismatch", "dateMismatch", "deletedHasJv", "duplicateSources", "orphans", "mappingMissing", "invalidAmt", "dataIncomplete", "nonApprovedSourceBoundCount"]) {
+  for (const sig of ["unexplainedResidual", "noJv", "mismatch", "dateMismatch", "deletedHasJv", "duplicateSources", "orphans", "mappingMissing", "invalidAmt", "itemlessCount", "dataIncomplete", "nonApprovedSourceBoundCount"]) {
     assert.ok(runnerSrc.includes(sig), `strict gate ต้องอ้างสัญญาณ ${sig}`);
   }
   // non-approved ต้องแยก manual vs source-bound
   assert.match(runnerSrc, /nonApprovedManual/, "ต้องแยก non-approved manual");
   assert.match(runnerSrc, /nonApprovedSourceBound/, "ต้องแยก non-approved source-bound");
+});
+
+// ── (q) itemless quick-pay: active ไม่มี item → ITEMLESS (ไม่ตี COGS 0) · deleted ไม่เข้า · itemized → GP ปกติ ──
+test("(q) summarizeMonth: itemless sale = cost unknown (แยกจาก known GP, ไม่ใช่ COGS 0)", () => {
+  const month = "2026-07", d = "2026-07-15T03:00:00Z";
+  const activeQuick = { id: "Q1", order_no: "BSK-1", created_at: d, total_amount: 100, gross_profit: null, note: "" };
+  const deletedQuick = { id: "Q2", order_no: "BSK-2", created_at: d, total_amount: 200, gross_profit: null, note: "[ลบแล้ว]" };
+  const itemized = { id: "I1", order_no: "BSK-3", created_at: d, total_amount: 500, gross_profit: 300, note: "" };
+  const saleItems = [{ sale_id: "I1", qty: 2, unit_cost: 100, product_id: "p1" }];   // knownCogs 200
+  const sum = L.summarizeMonth({ month, sales: [activeQuick, deletedQuick, itemized], saleItems, jeBySource: new Map(), docDateEntries: [] });
+  const G = sum.grossProfit;
+  // itemless เฉพาะ active quick-pay Q1 — deleted Q2 ถูกกรอง (posInMonth), itemized I1 มี item
+  assert.equal(G.itemlessCount, 1);
+  assert.equal(G.itemlessRevenue, 100);
+  assert.deepEqual(G.itemlessRows.map(r => r.id), ["Q1"]);
+  assert.equal(G.itemlessRows[0].cls, "ITEMLESS_SALE_COST_UNKNOWN");
+  // itemized revenue = opPos(600) − itemless(100) = 500 ; known GP = 500 − knownCogs 200 = 300
+  assert.equal(G.itemizedRevenue, 500);
+  assert.equal(G.knownCogs, 200);
+  assert.equal(G.knownGp, 300, "quick-pay 100 ต้องไม่ถูกนับเป็นกำไร (เดิม strict=400 ผิด)");
 });
 
 // ── (p) runner ต้องไม่ select service_jobs.deleted_at (production ไม่มีคอลัมน์ → PG 42703/400) ──

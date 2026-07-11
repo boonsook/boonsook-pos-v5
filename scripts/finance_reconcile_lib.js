@@ -277,14 +277,23 @@ export function summarizeMonth(inp) {
   const explained = round2(vat + webNotClosed + noJvSales + refundsGl - crossMonthGlOnly - deletedHasJv - serviceNonWebGl - manualJvGl);
   const unexplainedResidual = round2(rawDelta - explained);
 
-  // ── gross profit 3 มุม ──
+  // ── gross profit — แยก itemized (มี cost basis) ออกจาก itemless (quick-pay ไม่มี item = ต้นทุนไม่ทราบ) ──
+  //   ★ policy: null/ไม่มีข้อมูล = ไม่รู้ต้นทุน (ห้ามตี itemless = COGS 0 → กำไรเกินจริง)
+  //   frozen = Σ sales.gross_profit (itemless มี gross_profit=null → 0 อยู่แล้ว, pos.js:122)
   const gpFrozen = round2(posInMonth.reduce((a, s) => a + (Number(s.gross_profit) || 0), 0));
-  // ★ วิเคราะห์ต้นทุนเฉพาะ items ของบิล POS ในเดือน (posInMonth) — saleItems ที่ fetch มา
-  //   รวม window ±1 วัน + บิลที่ลบ → ถ้าไม่กรอง 3 มุม GP เทียบคนละฐาน + unknown/zero ปนนอกเดือน
   const posIds = new Set(posInMonth.map(s => String(s.id)));
-  const cost = analyzeSaleItemsCost(saleItems.filter(it => posIds.has(String(it.sale_id))), productCostMap);
-  const gpStrict = round2(opPos - cost.knownCogs);                       // null≠0: unknown/zero ไม่คิดต้นทุน
-  const gpFallback = round2(opPos - round2(cost.knownCogs + cost.fallbackDelta)); // สูตร profit_report
+  const posItems = saleItems.filter(it => posIds.has(String(it.sale_id)));   // items ของบิล POS ในเดือนเท่านั้น
+  const salesWithItems = new Set(posItems.map(it => String(it.sale_id)));
+  const cost = analyzeSaleItemsCost(posItems, productCostMap);
+  // itemless = active POS sale ในเดือนที่ไม่มี sale_items เลย → ITEMLESS_SALE_COST_UNKNOWN (ต้นทุนไม่ทราบ)
+  //   deleted sale ถูกกรองออกแล้วโดย posInMonth (isDeletedSale) → ไม่เข้า itemless
+  const itemlessRows = posInMonth.filter(s => !salesWithItems.has(String(s.id)))
+    .map(s => ({ id: s.id, orderNo: s.order_no, revenue: round2(s.total_amount), cls: "ITEMLESS_SALE_COST_UNKNOWN" }));
+  const itemlessCount = itemlessRows.length;
+  const itemlessRevenue = round2(itemlessRows.reduce((a, r) => a + r.revenue, 0));
+  const itemizedRevenue = round2(opPos - itemlessRevenue);                // ยอดขายที่มี item (คิด GP ได้)
+  const knownGp = round2(itemizedRevenue - cost.knownCogs);              // GP เฉพาะบิลที่มี item, ต้นทุนที่ทราบ (null≠0)
+  const gpFallback = round2(itemizedRevenue - round2(cost.knownCogs + cost.fallbackDelta)); // สูตร profit_report บน itemized
 
   // ── JE taxonomy: doc_date∈M — แยก manual (informational) จาก orphan (problem) + data hole ──
   const saleById = new Map(sales.map(s => [String(s.id), s]));
@@ -319,7 +328,7 @@ export function summarizeMonth(inp) {
       breakdown: { vat, webNotClosed, crossMonthGlOnly, noJv: noJvSales, refunds: refundsGl, deletedHasJv, serviceNonWebGl, manualJvGl },
       explained, unexplainedResidual
     },
-    grossProfit: { frozen: gpFrozen, strict: gpStrict, fallback: gpFallback, ...cost },
+    grossProfit: { frozen: gpFrozen, knownGp, fallback: gpFallback, itemizedRevenue, itemlessCount, itemlessRevenue, itemlessRows, ...cost },
     glCogs,
     counts: {
       sales: { total: sales.length, OK: count(saleRows, "OK"), NO_JV: count(saleRows, "NO_JV"), AMOUNT_MISMATCH: count(saleRows, "AMOUNT_MISMATCH"), DATE_MISMATCH: count(saleRows, "DATE_MISMATCH"), DELETED_HAS_JV: count(saleRows, "DELETED_HAS_JV"), PRE_EFFECTIVE: count(saleRows, "PRE_EFFECTIVE") },
