@@ -353,3 +353,19 @@ test("(m) runner: account_mapping mapping-keys + --strict ครอบ residual/
   assert.match(runnerSrc, /nonApprovedManual/, "ต้องแยก non-approved manual");
   assert.match(runnerSrc, /nonApprovedSourceBound/, "ต้องแยก non-approved source-bound");
 });
+
+// ── (p) runner ต้องไม่ select service_jobs.deleted_at (production ไม่มีคอลัมน์ → PG 42703/400) ──
+test("(p) runner ไม่ query service_jobs.deleted_at + isServiceDeleted ยังจับ [ลบแล้ว]", () => {
+  // ทุก select ที่ยิง service_jobs ต้องไม่มี deleted_at
+  const sjSelects = runnerSrc.match(/service_jobs\?select=[^`&]*/g) || [];
+  const sjConst = runnerSrc.match(/SJ_SELECT\s*=\s*["'][^"']*["']/g) || [];
+  for (const s of [...sjSelects, ...sjConst]) {
+    assert.doesNotMatch(s, /deleted_at/, `service_jobs select ต้องไม่มี deleted_at: ${s}`);
+  }
+  // production soft-delete truth = note "[ลบแล้ว]" → classify เป็น DELETED แม้ไม่มีคอลัมน์ deleted_at
+  const delJob = { id: "X", status: "cancelled", total_cost: 100, closed_at: "2026-07-10T03:00:00Z", note: "ยกเลิก [ลบแล้ว]" };
+  const del = L.classifyServiceJob(delJob, { total_debit: 100, doc_date: "2026-07-10" });
+  assert.equal(del.cls, "DELETED_HAS_JV", "[ลบแล้ว] + มี JV → DELETED_HAS_JV (ไม่พึ่ง deleted_at)");
+  const delNoJe = L.classifyServiceJob(delJob, null);
+  assert.equal(delNoJe.cls, "DELETED_OK", "[ลบแล้ว] ไม่มี JV → DELETED_OK");
+});

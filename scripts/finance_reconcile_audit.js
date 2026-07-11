@@ -8,7 +8,9 @@
 //    การซ่อม/backfill JV. ไฟล์นี้ "ชี้ discrepancy" อย่างเดียว ไม่ตัดสินความถูกของ inventory.
 //  Usage: node scripts/finance_reconcile_audit.js [YYYY-MM ...] [--strict]  (default = เดือนนี้ + ก่อน, Bangkok)
 //  Env (.env): SUPABASE_URL, SUPABASE_ANON_KEY, ADMIN_EMAIL, ADMIN_PASSWORD
-//  Exit: 0 = รันจบ (report-only) · 1 = --strict + residual≠0 (มีเดือนที่ยังปิดไม่ลง) · 2 = fatal (env/network)
+//  Exit: 0 = รันจบ (report-only) · 1 = --strict + เจอสัญญาณ anomaly ใด ๆ (residual/NO_JV/mismatch/
+//        date-mismatch/deleted-jv/duplicate/orphan/mapping-missing/invalid-amount/data-incomplete/
+//        source-bound draft post-effective) · 2 = fatal (env/network)
 // ═══════════════════════════════════════════════════════════
 import fs from "node:fs";
 import path from "node:path";
@@ -88,7 +90,7 @@ function defaultMonths() {
 }
 const months = process.argv.slice(2).filter(a => /^\d{4}-\d{2}$/.test(a));
 const AUDIT_MONTHS = months.length ? months : defaultMonths();
-const STRICT = process.argv.slice(2).includes("--strict"); // exit 1 ถ้า residual≠0 (default report-only exit 0)
+const STRICT = process.argv.slice(2).includes("--strict"); // exit 1 ถ้าเจอสัญญาณ anomaly ใด ๆ (default report-only exit 0)
 
 // ── date window (UTC) ครอบเดือน ± 1 วัน กัน UTC เหลื่อม (bucket จริงด้วย bkkDate ใน lib) ──
 function monthWindow(month) {
@@ -105,8 +107,11 @@ async function auditMonth(token, month, productCostMap, expenseMappingKeys) {
   // operational fetches (GET, paginated)
   const salesRaw = await getAll(token, `sales?select=id,order_no,created_at,total_amount,vat_amount,subtotal_before_vat,credit_used_amount,gross_profit,payment_method,note&created_at=gte.${w.fromTs}&created_at=lt.${w.toTs}`);
   const saleItems = await getByIn(token, "sale_items", "sale_id,qty,unit_cost,product_id,product_name", "sale_id", salesRaw.map(s => s.id));
-  const jobsCreated = await getAll(token, `service_jobs?select=id,job_no,job_type,status,created_at,closed_at,total_cost,sub_service,note,deleted_at,payment_method&created_at=gte.${w.fromTs}&created_at=lt.${w.toTs}`);
-  const jobsClosed = await getAll(token, `service_jobs?select=id,job_no,job_type,status,created_at,closed_at,total_cost,sub_service,note,deleted_at,payment_method&closed_at=gte.${w.fromTs}&closed_at=lt.${w.toTs}`);
+  // ★ ห้าม select deleted_at — production service_jobs ไม่มีคอลัมน์นี้ (PG 42703 / HTTP 400).
+  //   soft-delete truth = status=cancelled + note "[ลบแล้ว]" (isServiceDeleted จับจาก note)
+  const SJ_SELECT = "id,job_no,job_type,status,created_at,closed_at,total_cost,sub_service,note,payment_method";
+  const jobsCreated = await getAll(token, `service_jobs?select=${SJ_SELECT}&created_at=gte.${w.fromTs}&created_at=lt.${w.toTs}`);
+  const jobsClosed = await getAll(token, `service_jobs?select=${SJ_SELECT}&closed_at=gte.${w.fromTs}&closed_at=lt.${w.toTs}`);
   const jobsMap = new Map(); for (const j of [...jobsCreated, ...jobsClosed]) jobsMap.set(String(j.id), j);
   const jobs = [...jobsMap.values()];
   const refunds = await getAll(token, `refunds?select=id,refund_no,sale_id,refund_amount,refund_method,created_at,items_json,restocked,warehouse_id&created_at=gte.${w.fromTs}&created_at=lt.${w.toTs}`);
@@ -196,7 +201,7 @@ async function main() {
 
   console.log(`# Revenue / Posting / Gross-profit Discrepancy Audit (S4.0)\n`);
   console.log(`- effective date: **${L.ACCOUNTING_EFFECTIVE_DATE}** · read-only (ไม่มีการแก้ข้อมูล)`);
-  console.log(`- months: ${AUDIT_MONTHS.join(", ")}${STRICT ? " · --strict (exit 1 ถ้า residual≠0)" : ""}`);
+  console.log(`- months: ${AUDIT_MONTHS.join(", ")}${STRICT ? " · --strict (exit 1 ถ้าเจอ anomaly ใด ๆ)" : ""}`);
   console.log(`- generated: ${L.bkkDate(new Date())} (Bangkok)`);
   console.log(`- **OUT OF SCOPE (= S4.1):** inventory/stock_movements reconcile · VAT-reversal correctness · การซ่อม/backfill JV\n`);
 
@@ -294,7 +299,7 @@ async function main() {
   }
   console.log(`\n─── จบรายงาน (read-only audit — ไม่มีการแก้ข้อมูล) ───`);
   if (STRICT && anyStrictFail) {
-    console.log(`\n⚠️ --strict: มีสัญญาณ anomaly (residual/NO_JV/mismatch/deleted-jv/duplicate/orphan/non-approved) → exit 1 (ยังไม่พร้อมไป S4.1)`);
+    console.log(`\n⚠️ --strict: เจอสัญญาณ anomaly (residual/NO_JV/mismatch/date-mismatch/deleted-jv/duplicate/orphan/mapping-missing/invalid-amount/data-incomplete/source-bound-draft) → exit 1 (ยังไม่พร้อมไป S4.1)`);
     return 1;
   }
   return 0;
