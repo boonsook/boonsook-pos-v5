@@ -121,11 +121,14 @@ export function entryRevenue(lines) {
   }
   return round2(rev);
 }
-// COGS ใน GL = Σ debit 5xxx (คาด 0 — auto_post ไม่โพสต์ COGS = premise S4.1)
+// COGS ใน GL = Σ debit 5100 เท่านั้น (คาด 0 — auto_post ไม่โพสต์ COGS = premise S4.1)
+//   ★ 5100 = "ต้นทุนสินค้าที่ขาย" ตัวเดียว (COA supabase-phase88:225). 5200-5900 = opex
+//   (เงินเดือน/น้ำมัน/ค่าเช่า ฯลฯ) ที่ expense JV โพสต์ Dr ทุกวัน — ถ้าใช้ startsWith("5")
+//   บรรทัด "COGS คาด 0" จะโชว์ยอด opex ทั้งเดือน = หลักฐานตั้งต้น S4.1 เพี้ยน
 export function entryCogs(lines) {
   let c = 0;
   for (const l of (lines || [])) {
-    if (String(l?.account_code || "").startsWith("5")) c += (Number(l.debit) || 0) - (Number(l.credit) || 0);
+    if (String(l?.account_code || "") === "5100") c += (Number(l.debit) || 0) - (Number(l.credit) || 0);
   }
   return round2(c);
 }
@@ -168,11 +171,12 @@ export function summarizeMonth(inp) {
   const refundRows = refunds.map(r => ({ r, ...classifyRefund(r, jeFor("refunds", r.id), effective) }));
 
   const count = (rows, cls) => rows.filter(x => x.cls === cls).length;
-  const sumOp = (rows, pred) => round2(rows.filter(pred).reduce((a, x) => a + (Number(x.detail.opAmount) || 0), 0));
+  const jobById = new Map(jobs.map(j => [String(j.id), j]));
 
   // ── delta breakdown (op dashboard − GL) เป็นสาเหตุที่วัดได้ ──
-  // VAT: op(POS) รวม VAT แต่ GL แยก 2170 → ต่อ sale ที่มี JV ในเดือนนี้
-  const vat = round2(posInMonth.filter(s => jeFor("sales", s.id)).reduce((a, s) => a + (Number(s.vat_amount) || 0), 0));
+  // VAT: op(POS) รวม VAT แต่ GL แยก 2170 → ต่อ sale ที่มี JV doc_date∈M
+  //   (ต้อง gate doc_date ในเดือน มิฉะนั้นเคส DATE_MISMATCH ข้ามเดือนจะรั่วเข้า residual)
+  const vat = round2(posInMonth.filter(s => { const je = jeFor("sales", s.id); return je && inMonth(je.doc_date); }).reduce((a, s) => a + (Number(s.vat_amount) || 0), 0));
   // web ที่ยังไม่ closed = อยู่ใน op (created_at∈M) แต่ไม่ contribute GL เดือนนี้
   const webNotClosed = round2(webInMonth.filter(j => {
     const je = jeFor("service_jobs", j.id);
@@ -193,21 +197,32 @@ export function summarizeMonth(inp) {
     const je = jeFor("sales", x.s.id); const lines = je ? (linesByEntry.get(je.id) || []) : [];
     return a + entryRevenue(lines);
   }, 0));
+  // service (non-web) GL revenue = GL-only: dashboard นับแค่ POS+web แต่ GL โพสต์รายได้งานช่าง
+  //   (satellite/CCTV ฯลฯ) ที่ปิดงานในเดือน → ต้องหักออกจากฝั่ง GL มิฉะนั้น residual ติดลบ ≈ −(ยอดนี้)
+  //   ใช้ entryRevenue (4xxx net) ให้ตรงฐานเดียวกับ glRevenue (rollup จาก entryRevenue เช่นกัน)
+  const serviceNonWebGl = round2(docDateEntries.reduce((a, je) => {
+    if (je.source_table !== "service_jobs") return a;
+    const job = jobById.get(String(je.source_id ?? ""));
+    if (!job || isWebOrderJob(job)) return a;   // web อยู่ใน op(dashboard) แล้ว; นับเฉพาะ non-web ที่ op ไม่มี
+    return a + entryRevenue(linesByEntry.get(je.id) || []);
+  }, 0));
 
-  // identity: op − gl = vat + webNotClosed + noJv + refunds − crossMonthGlOnly − deletedHasJv + residual
+  // identity: op − gl = vat + webNotClosed + noJv + refunds − crossMonthGlOnly − deletedHasJv − serviceNonWebGl + residual
   const rawDelta = round2(opDashboardRevenue - glRevenue);
-  const explained = round2(vat + webNotClosed + noJvSales + refundsGl - crossMonthGlOnly - deletedHasJv);
+  const explained = round2(vat + webNotClosed + noJvSales + refundsGl - crossMonthGlOnly - deletedHasJv - serviceNonWebGl);
   const unexplainedResidual = round2(rawDelta - explained);
 
   // ── gross profit 3 มุม ──
   const gpFrozen = round2(posInMonth.reduce((a, s) => a + (Number(s.gross_profit) || 0), 0));
-  const cost = analyzeSaleItemsCost(saleItems, productCostMap);
+  // ★ วิเคราะห์ต้นทุนเฉพาะ items ของบิล POS ในเดือน (posInMonth) — saleItems ที่ fetch มา
+  //   รวม window ±1 วัน + บิลที่ลบ → ถ้าไม่กรอง 3 มุม GP เทียบคนละฐาน + unknown/zero ปนนอกเดือน
+  const posIds = new Set(posInMonth.map(s => String(s.id)));
+  const cost = analyzeSaleItemsCost(saleItems.filter(it => posIds.has(String(it.sale_id))), productCostMap);
   const gpStrict = round2(opPos - cost.knownCogs);                       // null≠0: unknown/zero ไม่คิดต้นทุน
   const gpFallback = round2(opPos - round2(cost.knownCogs + cost.fallbackDelta)); // สูตร profit_report
 
   // ── orphan JEs: doc_date∈M แต่ source ไม่เจอ / ถูกลบ ──
   const saleById = new Map(sales.map(s => [String(s.id), s]));
-  const jobById = new Map(jobs.map(j => [String(j.id), j]));
   const refundById = new Map(refunds.map(r => [String(r.id), r]));
   const expenseById = new Map(expenses.map(e => [String(e.id), e]));
   const orphans = [];
@@ -229,7 +244,7 @@ export function summarizeMonth(inp) {
       opDashboard: opDashboardRevenue, opIncomeOverview: opIncomeOverviewRevenue, gl: glRevenue,
       opPos, opWeb, opServiceIncome,
       deltaDashboardGl: rawDelta, deltaIncomeOverviewGl: round2(opIncomeOverviewRevenue - glRevenue),
-      breakdown: { vat, webNotClosed, crossMonthGlOnly, noJv: noJvSales, refunds: refundsGl, deletedHasJv },
+      breakdown: { vat, webNotClosed, crossMonthGlOnly, noJv: noJvSales, refunds: refundsGl, deletedHasJv, serviceNonWebGl },
       explained, unexplainedResidual
     },
     grossProfit: { frozen: gpFrozen, strict: gpStrict, fallback: gpFallback, ...cost },

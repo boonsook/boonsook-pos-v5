@@ -109,6 +109,43 @@ test("(e3) summarizeMonth: JV ผีของบิลที่ลบแล้�
   assert.equal(sum.counts.sales.DELETED_HAS_JV, 1);
 });
 
+// ── (i) expense JV (Dr 5210 opex) ต้องไม่นับเป็น COGS — entryCogs/glCogs = 0 ──
+test("(i) COGS = 5100 เท่านั้น: expense JV Dr 5210 → entryCogs 0 + glCogs 0 (premise S4.1 ไม่เพี้ยน)", () => {
+  // unit: 5210 (ค่าน้ำมัน opex) ไม่นับ, 5100 (COGS) นับ
+  assert.equal(L.entryCogs([{ account_code: "5210", debit: 3000, credit: 0 }]), 0);
+  assert.equal(L.entryCogs([{ account_code: "5100", debit: 80, credit: 0 }, { account_code: "5240", debit: 9000, credit: 0 }]), 80);
+  // fixture ระดับเดือน: มี expense JV Dr 5210 3000 / Cr 1010 → glCogs ต้องยังเป็น 0
+  const month = "2026-07";
+  const jeExp = { id: "jeE", source_table: "expenses", source_id: "E1", doc_date: "2026-07-09", total_debit: 3000 };
+  const sum = L.summarizeMonth({
+    month, expenses: [{ id: "E1", expense_date: "2026-07-09", amount: 3000, note: "" }],
+    jeBySource: new Map([["expenses:E1", jeExp]]),
+    linesByEntry: new Map([["jeE", [{ entry_id: "jeE", account_code: "5210", debit: 3000, credit: 0 }, { entry_id: "jeE", account_code: "1010", debit: 0, credit: 3000 }]]]),
+    docDateEntries: [jeExp]
+  });
+  assert.equal(sum.glCogs, 0, "expense opex (5210) ต้องไม่โผล่ใน glCogs");
+  assert.equal(sum.revenue.gl, 0, "expense JV ไม่มี 4xxx → GL revenue 0");
+});
+
+// ── (ii) service job non-web ปิดงานมี JV → residual ปิดเป็น 0 (identity ครบ term GL งานช่าง) ──
+test("(ii) summarizeMonth: non-web service job ปิดงานมี JV → unexplainedResidual = 0", () => {
+  const month = "2026-07";
+  // งานช่าง (จานดาวเทียม) non-web ปิดในเดือน — dashboard ไม่นับ แต่ GL โพสต์ revenue 500
+  const job = { id: "S1", created_at: "2026-07-08T03:00:00Z", closed_at: "2026-07-08T03:00:00Z", status: "closed", total_cost: 500, sub_service: "ติดตั้งจานดาวเทียม", note: "" };
+  const je = { id: "jeS1", source_table: "service_jobs", source_id: "S1", doc_date: "2026-07-08", total_debit: 500 };
+  const sum = L.summarizeMonth({
+    month, jobs: [job],
+    jeBySource: new Map([["service_jobs:S1", je]]),
+    linesByEntry: new Map([["jeS1", [{ entry_id: "jeS1", account_code: "4200", debit: 0, credit: 500 }]]]),
+    docDateEntries: [je]
+  });
+  assert.equal(sum.revenue.opDashboard, 0, "dashboard นับแค่ POS+web → 0");
+  assert.equal(sum.revenue.gl, 500, "GL โพสต์ revenue งานช่าง 500");
+  assert.equal(sum.revenue.breakdown.serviceNonWebGl, 500, "ต้องจับ service non-web GL 500");
+  assert.equal(sum.revenue.deltaDashboardGl, -500);
+  assert.equal(sum.revenue.unexplainedResidual, 0, "identity ต้องปิด (ถ้าไม่มี term นี้ residual = −500)");
+});
+
 // ══════════════════════════════════════════════════════════════
 //  ส่วน 2 — READ-ONLY invariant ของ runner (อ่าน source text, ไม่ import/รัน)
 // ══════════════════════════════════════════════════════════════

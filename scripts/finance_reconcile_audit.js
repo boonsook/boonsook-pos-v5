@@ -132,7 +132,8 @@ async function auditMonth(token, month, productCostMap) {
   const linesByEntryId = new Map(docDateEntries.map(e => [e.id, linesByEntry.get(String(e.id)) || []]));
 
   const sum = L.summarizeMonth({ month, sales: salesRaw, saleItems, jobs, refunds, expenses, jeBySource, linesByEntry: linesByEntryId, docDateEntries, productCostMap });
-  return { sum, voidCount, counts: { sales: salesRaw.length, saleItems: saleItems.length, jobs: jobs.length, refunds: refunds.length, expenses: expenses.length, jeDocDate: docDateEntries.length } };
+  const jeList = docDateEntries.map(e => ({ id: e.id, doc_date: e.doc_date, source_table: e.source_table, source_id: e.source_id, total_debit: e.total_debit }));
+  return { sum, voidCount, jeList, counts: { sales: salesRaw.length, saleItems: saleItems.length, jobs: jobs.length, refunds: refunds.length, expenses: expenses.length, jeDocDate: docDateEntries.length } };
 }
 
 // ── report ──
@@ -164,7 +165,7 @@ async function main() {
   console.log(`- generated: ${L.bkkDate(new Date())} (Bangkok)\n`);
 
   for (const month of AUDIT_MONTHS) {
-    const { sum, voidCount, counts } = await auditMonth(token, month, productCostMap);
+    const { sum, voidCount, jeList, counts } = await auditMonth(token, month, productCostMap);
     const R = sum.revenue, G = sum.grossProfit;
     const preEffective = L.monthOf(month) < L.monthOf(L.ACCOUNTING_EFFECTIVE_DATE);
 
@@ -186,6 +187,7 @@ async function main() {
     console.log(`| NO_JV (op มี, GL หลุดโพสต์) | ${money(R.breakdown.noJv)} |`);
     console.log(`| refunds (GL หัก 4110, op ไม่หัก) | ${money(R.breakdown.refunds)} |`);
     console.log(`| − service cross-month (GL มี, op คนละเดือน) | ${money(R.breakdown.crossMonthGlOnly)} |`);
+    console.log(`| − service non-web (GL โพสต์งานช่าง, dashboard ไม่นับ) | ${money(R.breakdown.serviceNonWebGl)} |`);
     console.log(`| − DELETED_HAS_JV (บิลลบแต่ JV ผียังอยู่) | ${money(R.breakdown.deletedHasJv)} |`);
     console.log(`| **= unexplained residual** | **${money(R.unexplainedResidual)}** ${Math.abs(R.unexplainedResidual) < 0.01 ? "✅" : "⚠️ ยังมีสาเหตุที่ไม่รู้ — ห้ามไป S4.1"} |`);
 
@@ -207,11 +209,12 @@ async function main() {
 
     // ── ส่วน C: pre-effective ──
     if (preEffective) {
-      const jvInMonth = sum.counts.sales.total || sum.counts.jobs.total; // any source with JV?
-      const anyJv = sum.revenue.gl !== 0 || sum.counts.jeDocDate !== undefined;
       console.log(`\n### C. Pre-effective baseline (คาด JV = 0)`);
       console.log(`- JE ที่ doc_date ในเดือนนี้: **${counts.jeDocDate}** ${counts.jeDocDate === 0 ? "✅ (baseline สะอาด)" : "⚠️ เจอ JV ในเดือน pre-effective — anomaly ต้องดู"}`);
-      void jvInMonth; void anyJv;
+      if (counts.jeDocDate > 0) {
+        for (const e of jeList.slice(0, 50)) console.log(`  - JE ${e.id} (${e.doc_date}) ${e.source_table || "-"}:${e.source_id ?? "-"} · debit ${money(e.total_debit)}`);
+        if (jeList.length > 50) console.log(`  …และอีก ${jeList.length - 50} (รวม ${jeList.length} — ไม่ตัดเงียบ)`);
+      }
     }
   }
   console.log(`\n─── จบรายงาน (read-only audit — ไม่มีการแก้ข้อมูล) ───`);
