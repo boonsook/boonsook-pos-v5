@@ -125,6 +125,45 @@ test("(i) COGS = 5100 เท่านั้น: expense JV Dr 5210 → entryCogs
   });
   assert.equal(sum.glCogs, 0, "expense opex (5210) ต้องไม่โผล่ใน glCogs");
   assert.equal(sum.revenue.gl, 0, "expense JV ไม่มี 4xxx → GL revenue 0");
+  assert.equal(sum.counts.expenses.OK, 1, "expense มี JV ยอดตรง → OK");
+});
+
+// ── (j) classifyExpense: NO_JV / OK / AMOUNT_MISMATCH / PRE_EFFECTIVE + problem table ──
+test("(j) classifyExpense: จำแนก 4 คลาสถูก + เข้า problemRows.expenses (ยกเว้น OK/PRE_EFFECTIVE)", () => {
+  const eff = EFF;
+  assert.equal(L.classifyExpense({ expense_date: "2026-07-09", amount: 500 }, null, eff).cls, "NO_JV");
+  assert.equal(L.classifyExpense({ expense_date: "2026-06-20", amount: 500 }, null, eff).cls, "PRE_EFFECTIVE");
+  assert.equal(L.classifyExpense({ expense_date: "2026-07-09", amount: 500 }, { total_debit: 500 }, eff).cls, "OK");
+  const mm = L.classifyExpense({ expense_date: "2026-07-09", amount: 500 }, { total_debit: 480 }, eff);
+  assert.equal(mm.cls, "AMOUNT_MISMATCH");
+  assert.equal(mm.detail.delta, -20);
+  // problemRows.expenses: NO_JV เข้า, OK ไม่เข้า
+  const sum = L.summarizeMonth({
+    month: "2026-07",
+    expenses: [{ id: "E1", expense_date: "2026-07-09", amount: 500, category: "ค่าน้ำมัน" }],
+    jeBySource: new Map(), docDateEntries: []
+  });
+  assert.equal(sum.counts.expenses.NO_JV, 1);
+  assert.equal(sum.problemRows.expenses.length, 1);
+  assert.equal(sum.problemRows.expenses[0].cls, "NO_JV");
+});
+
+// ── (k) duplicate source postings: source เดียวมี JE approved > 1 → surface ไม่กลืน ──
+test("(k) summarizeMonth: jeBySource array > 1 ต่อ source → duplicateSources รายงาน (double-post)", () => {
+  const je1 = { id: "je1", source_table: "sales", source_id: "X", doc_date: "2026-07-10", total_debit: 100 };
+  const je2 = { id: "je2", source_table: "sales", source_id: "X", doc_date: "2026-07-10", total_debit: 100 };
+  const sale = { id: "X", created_at: "2026-07-10T03:00:00Z", total_amount: 100, note: "" };
+  const sum = L.summarizeMonth({
+    month: "2026-07", sales: [sale],
+    jeBySource: new Map([["sales:X", [je1, je2]]]),   // array 2 entries = โพสต์ซ้ำ
+    linesByEntry: new Map([["je1", [{ account_code: "4100", debit: 0, credit: 100 }]], ["je2", [{ account_code: "4100", debit: 0, credit: 100 }]]]),
+    docDateEntries: [je1, je2]
+  });
+  assert.equal(sum.duplicateSources.length, 1, "ต้องจับ 1 source ที่โพสต์ซ้ำ");
+  assert.equal(sum.duplicateSources[0].count, 2);
+  assert.deepEqual(sum.duplicateSources[0].entryIds, ["je1", "je2"]);
+  // jeFor คืน entry แรก → classify ยังทำงาน (ไม่ crash เพราะ array)
+  assert.equal(sum.counts.sales.OK, 1);
 });
 
 // ── (ii) service job non-web ปิดงานมี JV → residual ปิดเป็น 0 (identity ครบ term GL งานช่าง) ──
@@ -199,4 +238,14 @@ test("(h) isWebOrderJob (lib) มี token ครบตรง dashboard.js", () 
   assert.equal(L.isWebOrderJob({ sub_service: "สั่งซื้อ", status: "cancelled", note: "" }), false);
   assert.equal(L.isWebOrderJob({ note: "SH-cod_cash|123", status: "done" }), true);
   assert.equal(L.isWebOrderJob({ sub_service: "ซ่อม", status: "done", note: "" }), false);
+});
+
+// ── (l) runner ใช้ status=eq.approved (align je_fetch.js:26) — reconcile ตัด non-approved ──
+test("(l) runner กรอง JE ด้วย status=eq.approved (by-source) + แยก approved ใน doc_date", () => {
+  // by-source JE query ต้องพก &status=eq.approved
+  assert.match(runnerSrc, /status=eq\.approved/, "by-source JE ต้องกรอง status=eq.approved");
+  // doc_date entries ต้องคัดเฉพาะ approved ก่อน rollup
+  assert.match(runnerSrc, /isApproved\s*\(\s*e\.status\s*\)/, "docDateEntries ต้อง filter isApproved");
+  // ต้องนับ + รายงาน non-approved (transparency)
+  assert.match(runnerSrc, /nonApproved/, "ต้องมีการนับ non-approved เพื่อรายงาน");
 });

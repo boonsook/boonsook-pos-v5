@@ -89,6 +89,18 @@ export function classifyRefund(refund, je, effective = ACCOUNTING_EFFECTIVE_DATE
   return { cls: "OK", detail: { refundDate, opAmount, glAmount } };
 }
 
+// ── 1.8b classifyExpense (expense_date basis; opAmount = amount) ──
+export function classifyExpense(expense, je, effective = ACCOUNTING_EFFECTIVE_DATE) {
+  const expenseDate = String(expense?.expense_date || "").slice(0, 10); // DATE column — ไม่มี time, ไม่ต้อง TZ shift
+  const opAmount = round2(expense?.amount);
+  if (_lt(expenseDate, effective)) return { cls: "PRE_EFFECTIVE", detail: { expenseDate, opAmount } };
+  if (!je) return { cls: "NO_JV", detail: { expenseDate, opAmount } };
+  const glAmount = round2(je.total_debit);
+  const delta = round2(glAmount - opAmount);
+  if (delta !== 0) return { cls: "AMOUNT_MISMATCH", detail: { expenseDate, opAmount, glAmount, delta } };
+  return { cls: "OK", detail: { expenseDate, opAmount, glAmount } };
+}
+
 // ── 1.9 analyzeSaleItemsCost — แยก 3 ถัง null/0/>0 (ห้าม merge) ──
 //   fallbackDelta = ส่วนที่สูตร profit_report.js:118-120 `if(!uc) uc = productCostMap[...]` เติมให้
 //   ทั้งถัง UNKNOWN(null) และถัง ZERO(0) → พิสูจน์/หักล้างสมมติฐาน Δ2
@@ -144,7 +156,17 @@ export function summarizeMonth(inp) {
     jeBySource = new Map(), linesByEntry = new Map(), docDateEntries = [], productCostMap = {}
   } = inp;
   const inMonth = (d) => monthOf(bkkDate(d)) === month;
-  const jeFor = (table, id) => jeBySource.get(`${table}:${id}`) || null;
+  // jeBySource value อาจเป็น array (defensive — 1 source มีได้หลาย JE = double-post) หรือ je เดี่ยว (fixture เก่า)
+  const jeFor = (table, id) => {
+    const v = jeBySource.get(`${table}:${id}`);
+    if (!v) return null;
+    return Array.isArray(v) ? (v[0] || null) : v;
+  };
+  // duplicate source postings: source เดียวมี JE > 1 = anomaly (โพสต์ซ้ำ) — surface ห้ามกลืน
+  const duplicateSources = [];
+  for (const [key, v] of jeBySource) {
+    if (Array.isArray(v) && v.length > 1) duplicateSources.push({ key, count: v.length, entryIds: v.map(e => e.id) });
+  }
 
   // ── operational revenue (dashboard = POS total_amount + web total_cost, created_at basis) ──
   const posInMonth = sales.filter(s => !isDeletedSale(s) && inMonth(s.created_at));
@@ -169,6 +191,7 @@ export function summarizeMonth(inp) {
   const saleRows = sales.map(s => ({ s, ...classifySale(s, jeFor("sales", s.id), effective) }));
   const jobRows = jobs.map(j => ({ j, ...classifyServiceJob(j, jeFor("service_jobs", j.id), effective) }));
   const refundRows = refunds.map(r => ({ r, ...classifyRefund(r, jeFor("refunds", r.id), effective) }));
+  const expenseRows = expenses.map(e => ({ e, ...classifyExpense(e, jeFor("expenses", e.id), effective) }));
 
   const count = (rows, cls) => rows.filter(x => x.cls === cls).length;
   const jobById = new Map(jobs.map(j => [String(j.id), j]));
@@ -199,12 +222,13 @@ export function summarizeMonth(inp) {
   }, 0));
   // service (non-web) GL revenue = GL-only: dashboard นับแค่ POS+web แต่ GL โพสต์รายได้งานช่าง
   //   (satellite/CCTV ฯลฯ) ที่ปิดงานในเดือน → ต้องหักออกจากฝั่ง GL มิฉะนั้น residual ติดลบ ≈ −(ยอดนี้)
-  //   ใช้ entryRevenue (4xxx net) ให้ตรงฐานเดียวกับ glRevenue (rollup จาก entryRevenue เช่นกัน)
+  //   ใช้ total_debit (je header) — service JV โพสต์ Dr Cash / Cr Revenue ไม่มี VAT split
+  //   (auto_post.js:680-706) → total_debit === entryRevenue พอดี → ปิด identity ตรงกับ glRevenue
   const serviceNonWebGl = round2(docDateEntries.reduce((a, je) => {
     if (je.source_table !== "service_jobs") return a;
     const job = jobById.get(String(je.source_id ?? ""));
     if (!job || isWebOrderJob(job)) return a;   // web อยู่ใน op(dashboard) แล้ว; นับเฉพาะ non-web ที่ op ไม่มี
-    return a + entryRevenue(linesByEntry.get(je.id) || []);
+    return a + (Number(je.total_debit) || 0);
   }, 0));
 
   // identity: op − gl = vat + webNotClosed + noJv + refunds − crossMonthGlOnly − deletedHasJv − serviceNonWebGl + residual
@@ -252,14 +276,17 @@ export function summarizeMonth(inp) {
     counts: {
       sales: { total: sales.length, OK: count(saleRows, "OK"), NO_JV: count(saleRows, "NO_JV"), AMOUNT_MISMATCH: count(saleRows, "AMOUNT_MISMATCH"), DATE_MISMATCH: count(saleRows, "DATE_MISMATCH"), DELETED_HAS_JV: count(saleRows, "DELETED_HAS_JV"), PRE_EFFECTIVE: count(saleRows, "PRE_EFFECTIVE") },
       jobs: { total: jobs.length, OK: count(jobRows, "OK"), NO_JV: count(jobRows, "NO_JV"), AMOUNT_MISMATCH: count(jobRows, "AMOUNT_MISMATCH"), NOT_INCOME_STATUS: count(jobRows, "NOT_INCOME_STATUS"), DELETED_HAS_JV: count(jobRows, "DELETED_HAS_JV"), crossMonth: jobRows.filter(x => x.detail.crossMonth).length },
-      refunds: { total: refunds.length, OK: count(refundRows, "OK"), NO_JV: count(refundRows, "NO_JV"), AMOUNT_MISMATCH: count(refundRows, "AMOUNT_MISMATCH") }
+      refunds: { total: refunds.length, OK: count(refundRows, "OK"), NO_JV: count(refundRows, "NO_JV"), AMOUNT_MISMATCH: count(refundRows, "AMOUNT_MISMATCH") },
+      expenses: { total: expenses.length, OK: count(expenseRows, "OK"), NO_JV: count(expenseRows, "NO_JV"), AMOUNT_MISMATCH: count(expenseRows, "AMOUNT_MISMATCH"), PRE_EFFECTIVE: count(expenseRows, "PRE_EFFECTIVE") }
     },
     orphans,
+    duplicateSources,
     // rows ที่ไม่ OK (สำหรับส่วน B) — กรอง OK/DELETED_OK/PRE_EFFECTIVE + NOT_INCOME_STATUS ที่ไม่ใช่ web
     problemRows: {
       sales: saleRows.filter(x => !["OK", "DELETED_OK", "PRE_EFFECTIVE"].includes(x.cls)),
       jobs: jobRows.filter(x => !["OK", "DELETED_OK", "PRE_EFFECTIVE"].includes(x.cls) && !(x.cls === "NOT_INCOME_STATUS" && !x.detail.webCountedOperational)),
-      refunds: refundRows.filter(x => !["OK", "PRE_EFFECTIVE"].includes(x.cls))
+      refunds: refundRows.filter(x => !["OK", "PRE_EFFECTIVE"].includes(x.cls)),
+      expenses: expenseRows.filter(x => !["OK", "PRE_EFFECTIVE"].includes(x.cls))
     }
   };
 }
