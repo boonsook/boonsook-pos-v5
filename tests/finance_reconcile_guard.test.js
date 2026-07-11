@@ -148,6 +148,50 @@ test("(j) classifyExpense: จำแนก 4 คลาสถูก + เข้�
   assert.equal(sum.problemRows.expenses[0].cls, "NO_JV");
 });
 
+// ── (j2) 3 class ใหม่: เงินเดือนไม่เป็น NO_JV · ยอด 0 · mapping หาย (แยกจาก NO_JV) ──
+test("(j2) classifyExpense: salary→EXPECTED_SKIP (ไม่ใช่ NO_JV) · <0.01→ZERO_AMOUNT · mapping หาย→MISSING_MAPPING", () => {
+  const eff = EFF;
+  const validKeys = new Set(["expense_fuel", "expense_rent"]); // ไม่มี expense_misc / payroll_salary
+  // เงินเดือน (salary/labor_hire/payroll) → EXPECTED_SKIP_SALARY_VIA_PAYROLL — ต้องไม่เป็น NO_JV
+  for (const cat of ["salary", "labor_hire", "payroll", "  Salary "]) {
+    const r = L.classifyExpense({ expense_date: "2026-07-10", amount: 9000, category: cat }, null, eff, validKeys);
+    assert.equal(r.cls, "EXPECTED_SKIP_SALARY_VIA_PAYROLL", `${cat} ต้องไม่เป็น NO_JV`);
+  }
+  // ยอด < 0.01 → ZERO_AMOUNT
+  assert.equal(L.classifyExpense({ expense_date: "2026-07-10", amount: 0, category: "fuel" }, null, eff, validKeys).cls, "ZERO_AMOUNT");
+  // category resolve → mappingKey ที่ไม่อยู่ใน validKeys + ไม่มี je → MISSING_MAPPING (≠ NO_JV)
+  const mm = L.classifyExpense({ expense_date: "2026-07-10", amount: 500, category: "unknown_cat_xyz" }, null, eff, validKeys);
+  assert.equal(mm.cls, "MISSING_MAPPING");
+  assert.equal(mm.detail.mappingKey, "expense_misc");
+  // category ที่ mapping ใช้ได้ (fuel→expense_fuel ∈ validKeys) แต่ไม่มี je → NO_JV (หลุดโพสต์จริง)
+  assert.equal(L.classifyExpense({ expense_date: "2026-07-10", amount: 500, category: "fuel" }, null, eff, validKeys).cls, "NO_JV");
+  // summarizeMonth: salary + zero ไม่เข้า problem table; MISSING_MAPPING เข้า
+  const sum = L.summarizeMonth({
+    month: "2026-07",
+    expenses: [
+      { id: "S", expense_date: "2026-07-10", amount: 9000, category: "salary" },
+      { id: "Z", expense_date: "2026-07-10", amount: 0, category: "fuel" },
+      { id: "M", expense_date: "2026-07-10", amount: 500, category: "unknown_cat_xyz" }
+    ],
+    jeBySource: new Map(), docDateEntries: [], expenseMappingKeys: validKeys
+  });
+  assert.equal(sum.counts.expenses.EXPECTED_SKIP_SALARY_VIA_PAYROLL, 1);
+  assert.equal(sum.counts.expenses.ZERO_AMOUNT, 1);
+  assert.equal(sum.counts.expenses.MISSING_MAPPING, 1);
+  assert.equal(sum.counts.expenses.NO_JV, 0, "ไม่มี expense เป็น NO_JV ในชุดนี้");
+  assert.deepEqual(sum.problemRows.expenses.map(x => x.cls), ["MISSING_MAPPING"], "problem table เหลือแค่ MISSING_MAPPING");
+});
+
+// ── (j3) EXPENSE_CATEGORY_MAP ตรง auto_post.js:567-591 (กัน drift — salary keys → payroll_salary) ──
+test("(j3) EXPENSE_CATEGORY_MAP: salary/labor_hire/payroll → payroll_salary + sample อื่นตรง source", () => {
+  assert.equal(L.EXPENSE_CATEGORY_MAP.salary, "payroll_salary");
+  assert.equal(L.EXPENSE_CATEGORY_MAP.labor_hire, "payroll_salary");
+  assert.equal(L.EXPENSE_CATEGORY_MAP.payroll, "payroll_salary");
+  assert.equal(L.EXPENSE_CATEGORY_MAP.fuel, "expense_fuel");
+  assert.equal(L.EXPENSE_CATEGORY_MAP.rent, "expense_rent");
+  assert.equal(L.EXPENSE_CATEGORY_MAP["น้ำมัน"], "expense_fuel");
+});
+
 // ── (k) duplicate source postings: source เดียวมี JE approved > 1 → surface ไม่กลืน ──
 test("(k) summarizeMonth: jeBySource array > 1 ต่อ source → duplicateSources รายงาน (double-post)", () => {
   const je1 = { id: "je1", source_table: "sales", source_id: "X", doc_date: "2026-07-10", total_debit: 100 };
@@ -248,4 +292,15 @@ test("(l) runner กรอง JE ด้วย status=eq.approved (by-source) + �
   assert.match(runnerSrc, /isApproved\s*\(\s*e\.status\s*\)/, "docDateEntries ต้อง filter isApproved");
   // ต้องนับ + รายงาน non-approved (transparency)
   assert.match(runnerSrc, /nonApproved/, "ต้องมีการนับ non-approved เพื่อรายงาน");
+});
+
+// ── (m) runner ดึง account_mapping (GET) → ส่ง expenseMappingKeys เข้า lib + --strict ครอบหลายสัญญาณ ──
+test("(m) runner: account_mapping mapping-keys + --strict ครอบ residual/NO_JV/mismatch/deleted/duplicate/orphan/non-approved", () => {
+  assert.match(runnerSrc, /account_mapping\?select=mapping_key,debit_account_code,credit_account_code/, "ต้อง GET account_mapping (mapping_key/debit/credit)");
+  assert.match(runnerSrc, /is_active=eq\.true/, "account_mapping ต้องกรอง is_active=eq.true (align _getMappings)");
+  assert.match(runnerSrc, /expenseMappingKeys/, "ต้องส่ง expenseMappingKeys เข้า summarizeMonth");
+  // --strict ต้องดูสัญญาณครบ ไม่ใช่ residual อย่างเดียว
+  for (const sig of ["unexplainedResidual", "noJv", "mismatch", "deletedHasJv", "duplicateSources", "orphans", "nonApprovedCount"]) {
+    assert.ok(runnerSrc.includes(sig), `strict gate ต้องอ้างสัญญาณ ${sig}`);
+  }
 });

@@ -100,7 +100,7 @@ function monthWindow(month) {
 
 const money = (n) => (Number(n) || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-async function auditMonth(token, month, productCostMap) {
+async function auditMonth(token, month, productCostMap, expenseMappingKeys) {
   const w = monthWindow(month);
   // operational fetches (GET, paginated)
   const salesRaw = await getAll(token, `sales?select=id,order_no,created_at,total_amount,vat_amount,subtotal_before_vat,credit_used_amount,gross_profit,payment_method,note&created_at=gte.${w.fromTs}&created_at=lt.${w.toTs}`);
@@ -152,7 +152,7 @@ async function auditMonth(token, month, productCostMap) {
     else refundRestock.restockedNull += 1;
   }
 
-  const sum = L.summarizeMonth({ month, sales: salesRaw, saleItems, jobs, refunds, expenses, jeBySource, linesByEntry: linesByEntryId, docDateEntries, productCostMap });
+  const sum = L.summarizeMonth({ month, sales: salesRaw, saleItems, jobs, refunds, expenses, jeBySource, linesByEntry: linesByEntryId, docDateEntries, productCostMap, expenseMappingKeys });
   const jeList = docDateEntries.map(e => ({ id: e.id, doc_date: e.doc_date, source_table: e.source_table, source_id: e.source_id, total_debit: e.total_debit }));
   return { sum, nonApprovedCount: nonApproved.length, nonApprovedHist, refundRestock, jeList, counts: { sales: salesRaw.length, saleItems: saleItems.length, jobs: jobs.length, refunds: refunds.length, expenses: expenses.length, jeDocDate: docDateEntries.length } };
 }
@@ -179,6 +179,10 @@ async function main() {
   const products = await getAll(token, "products?select=id,name,cost");
   const productCostMap = {};
   for (const p of products) { productCostMap[p.id] = Number(p.cost || 0); productCostMap[p.name] = Number(p.cost || 0); }
+  // account_mapping (GET) — key ที่ active + มี debit/credit ครบ = mapping ใช้ได้จริง (align _getMappings is_active)
+  //   → lib แยก MISSING_MAPPING (config gap) จาก NO_JV (หลุดโพสต์)
+  const mappings = await getAll(token, "account_mapping?select=mapping_key,debit_account_code,credit_account_code&is_active=eq.true");
+  const expenseMappingKeys = new Set(mappings.filter(m => m.debit_account_code && m.credit_account_code).map(m => m.mapping_key));
 
   console.log(`# Revenue / Posting / Gross-profit Discrepancy Audit (S4.0)\n`);
   console.log(`- effective date: **${L.ACCOUNTING_EFFECTIVE_DATE}** · read-only (ไม่มีการแก้ข้อมูล)`);
@@ -186,10 +190,9 @@ async function main() {
   console.log(`- generated: ${L.bkkDate(new Date())} (Bangkok)`);
   console.log(`- **OUT OF SCOPE (= S4.1):** inventory/stock_movements reconcile · VAT-reversal correctness · การซ่อม/backfill JV\n`);
 
-  let anyResidual = false;
+  let anyStrictFail = false;
   for (const month of AUDIT_MONTHS) {
-    const { sum, nonApprovedCount, nonApprovedHist, refundRestock, jeList, counts } = await auditMonth(token, month, productCostMap);
-    if (Math.abs(sum.revenue.unexplainedResidual) >= 0.01) anyResidual = true;
+    const { sum, nonApprovedCount, nonApprovedHist, refundRestock, jeList, counts } = await auditMonth(token, month, productCostMap, expenseMappingKeys);
     const R = sum.revenue, G = sum.grossProfit;
     const preEffective = L.monthOf(month) < L.monthOf(L.ACCOUNTING_EFFECTIVE_DATE);
 
@@ -221,11 +224,12 @@ async function main() {
     console.log(`- frozen (sales.gross_profit): **${money(G.frozen)}**`);
     console.log(`- strict (POS − knownCogs, null≠0): **${money(G.strict)}** (knownCogs ${money(G.knownCogs)})`);
     console.log(`- fallback (สูตร profit_report): **${money(G.fallback)}** (fallbackDelta ${money(G.fallbackDelta)})`);
-    console.log(`- unit_cost: UNKNOWN(null) ${G.unknownCount} รายการ (fallback ${money(G.unknownFallbackCogs)}) · AMBIGUOUS_ZERO_COST(legacy, 0) ${G.zeroCount} รายการ (fallback ${money(G.zeroFallbackCogs)})`);
+    console.log(`- unit_cost: UNKNOWN(null) ${G.unknownCount} รายการ (fallback ${money(G.unknownFallbackCogs)}) · AMBIGUOUS_ZERO_COST (0 — pos.js ยัง fallback 0 จนกว่า S4.1) ${G.zeroCount} รายการ (fallback ${money(G.zeroFallbackCogs)})`);
     console.log(`\n### COGS ใน GL (Dr 5100 เท่านั้น — คาด 0 = premise S4.1): **${money(sum.glCogs)}** ${Math.abs(sum.glCogs) < 0.01 ? "(ยืนยัน: ไม่มีการโพสต์ COGS)" : "⚠️"}`);
     console.log(`\n### Refunds: ${sum.counts.refunds.total} รายการ — OK ${sum.counts.refunds.OK} · NO_JV ${sum.counts.refunds.NO_JV} · MISMATCH ${sum.counts.refunds.AMOUNT_MISMATCH}`);
-    console.log(`  - restocked (inventory = OUT OF SCOPE): true ${refundRestock.restockedTrue} · false ${refundRestock.restockedFalse} · null ${refundRestock.restockedNull}`);
-    console.log(`\n### Expenses: ${sum.counts.expenses.total} รายการ — OK ${sum.counts.expenses.OK} · NO_JV ${sum.counts.expenses.NO_JV} · MISMATCH ${sum.counts.expenses.AMOUNT_MISMATCH} · PRE_EFFECTIVE ${sum.counts.expenses.PRE_EFFECTIVE}`);
+    console.log(`  - restocked flag: true ${refundRestock.restockedTrue} · false ${refundRestock.restockedFalse} · null ${refundRestock.restockedNull} — _false = ยังไม่ยืนยันว่าคืนสต็อกครบ (ต้องตรวจ stock_movements — S4.1); ไม่ได้แปลว่า "ไม่มีการคืน"_`);
+    const ex = sum.counts.expenses;
+    console.log(`\n### Expenses: ${ex.total} รายการ — OK ${ex.OK} · NO_JV ${ex.NO_JV} · MISSING_MAPPING ${ex.MISSING_MAPPING} · MISMATCH ${ex.AMOUNT_MISMATCH} · PRE_EFFECTIVE ${ex.PRE_EFFECTIVE} · salary→payroll ${ex.EXPECTED_SKIP_SALARY_VIA_PAYROLL} · zero ${ex.ZERO_AMOUNT}`);
     if (sum.duplicateSources.length) {
       console.log(`\n### ⚠️ Duplicate source postings (source เดียวมี JE approved > 1 = โพสต์ซ้ำ): **${sum.duplicateSources.length}**`);
       for (const d of sum.duplicateSources.slice(0, 50)) console.log(`  - ${d.key} → ${d.count} entries [${d.entryIds.join(", ")}]`);
@@ -250,10 +254,26 @@ async function main() {
         if (jeList.length > 50) console.log(`  …และอีก ${jeList.length - 50} (รวม ${jeList.length} — ไม่ตัดเงียบ)`);
       }
     }
+
+    // ── strict gate: รวมสัญญาณ "ยังไม่พร้อมไป S4.1" ต่อเดือน ──
+    const c = sum.counts;
+    const noJv = c.sales.NO_JV + c.jobs.NO_JV + c.refunds.NO_JV + c.expenses.NO_JV;
+    const mismatch = c.sales.AMOUNT_MISMATCH + c.jobs.AMOUNT_MISMATCH + c.refunds.AMOUNT_MISMATCH + c.expenses.AMOUNT_MISMATCH;
+    const deletedHasJv = c.sales.DELETED_HAS_JV + c.jobs.DELETED_HAS_JV;
+    const reasons = [];
+    if (Math.abs(sum.revenue.unexplainedResidual) >= 0.01) reasons.push(`residual ${money(sum.revenue.unexplainedResidual)}`);
+    if (noJv > 0) reasons.push(`NO_JV ${noJv}`);
+    if (mismatch > 0) reasons.push(`AMOUNT_MISMATCH ${mismatch}`);
+    if (deletedHasJv > 0) reasons.push(`DELETED_HAS_JV ${deletedHasJv}`);
+    if (sum.duplicateSources.length > 0) reasons.push(`duplicate ${sum.duplicateSources.length}`);
+    if (sum.orphans.length > 0) reasons.push(`orphan ${sum.orphans.length}`);
+    if (!preEffective && nonApprovedCount > 0) reasons.push(`non-approved JE ${nonApprovedCount} (post-effective, ไม่คาด)`);
+    if (reasons.length) { anyStrictFail = true; console.log(`\n_strict signals เดือน ${month}: ${reasons.join(" · ")}_`); }
+    else console.log(`\n_strict: เดือน ${month} สะอาด ✅_`);
   }
   console.log(`\n─── จบรายงาน (read-only audit — ไม่มีการแก้ข้อมูล) ───`);
-  if (STRICT && anyResidual) {
-    console.log(`\n⚠️ --strict: มีเดือนที่ unexplained residual ≠ 0 → exit 1 (ยังไม่พร้อมไป S4.1)`);
+  if (STRICT && anyStrictFail) {
+    console.log(`\n⚠️ --strict: มีสัญญาณ anomaly (residual/NO_JV/mismatch/deleted-jv/duplicate/orphan/non-approved) → exit 1 (ยังไม่พร้อมไป S4.1)`);
     return 1;
   }
   return 0;
