@@ -346,12 +346,16 @@ test("(m) runner: account_mapping mapping-keys + --strict ครอบ residual/
   assert.match(runnerSrc, /is_active=eq\.true/, "account_mapping ต้องกรอง is_active=eq.true (align _getMappings)");
   assert.match(runnerSrc, /expenseMappingKeys/, "ต้องส่ง expenseMappingKeys เข้า summarizeMonth");
   // --strict ต้องดูสัญญาณครบ ไม่ใช่ residual อย่างเดียว
-  for (const sig of ["unexplainedResidual", "noJv", "mismatch", "dateMismatch", "deletedHasJv", "duplicateSources", "orphans", "mappingMissing", "invalidAmt", "unknownCount", "zeroCount", "itemlessCount", "partitionOk", "serviceIncomeResidual", "dataIncomplete", "nonApprovedSourceBoundCount"]) {
+  for (const sig of ["combinedResidual", "noJv", "mismatch", "dateMismatch", "deletedHasJv", "duplicateSources", "orphans", "mappingMissing", "invalidAmt", "unknownCount", "zeroCount", "itemlessCount", "partitionOk", "dataIncomplete", "nonApprovedSourceBoundCount"]) {
     assert.ok(runnerSrc.includes(sig), `strict gate ต้องอ้างสัญญาณ ${sig}`);
   }
-  // Δ income_overview ต้องพิมพ์ออกมา (ไม่ให้ผู้ใช้อ่านจาก problem table เอง)
+  // Δ income_overview + combined residual ต้องพิมพ์ (ไม่ให้ผู้ใช้อ่านจาก problem table เอง)
   assert.match(runnerSrc, /deltaIncomeOverviewGl/, "runner ต้องพิมพ์ Δ income_overview − GL");
   assert.match(runnerSrc, /dashboard-basis residual/, "residual ต้อง label เป็น dashboard-basis");
+  assert.match(runnerSrc, /combined income residual/, "ต้องมี combined income residual");
+  // pre-effective months ต้อง gate op-vs-GL signals (กัน gate แดงถาวร) — มี pre-effective approved JE เป็น integrity signal
+  assert.match(runnerSrc, /pre-effective approved JE/, "pre-effective JE ต้องเป็น strict signal");
+  assert.match(runnerSrc, /if \(!preEffective\) \{/, "op-vs-GL strict signals ต้อง gate ด้วย !preEffective");
   // non-approved ต้องแยก manual vs source-bound
   assert.match(runnerSrc, /nonApprovedManual/, "ต้องแยก non-approved manual");
   assert.match(runnerSrc, /nonApprovedSourceBound/, "ต้องแยก non-approved source-bound");
@@ -434,7 +438,50 @@ test("(s) dashboard residual 0 แต่ income delta = service NO_JV → income
   assert.equal(IR.deltaServiceOpGl, 6950);
   assert.equal(IR.serviceNoJv, 6950);
   assert.equal(IR.serviceNoJvCount, 1);
-  assert.equal(IR.serviceIncomeResidual, 0, "แตกครบ (NO_JV) → income-basis residual 0");
+  assert.equal(IR.serviceIncomeResidual, 0, "แตกครบ (NO_JV) → service-dimension residual 0");
+  assert.equal(IR.combinedResidual, 0, "combined = dashboard 0 + service 0 = 0");
+});
+
+// ── (t) pre-effective service (ปิดก่อน effective) ไม่มี JV → expected-unposted ไม่ใช่ NO_JV ──
+test("(t) pre-effective service → PRE_EFFECTIVE_EXPECTED_UNPOSTED (ไม่ใช่ NO_JV) → service residual 0", () => {
+  const month = "2026-06";  // effective = 2026-07-01
+  const svc = { id: "SV", job_no: "SV1", created_at: "2026-06-01T03:00:00Z", closed_at: "2026-06-20T03:00:00Z", status: "closed", total_cost: 5000, sub_service: "จาน", note: "" };
+  const sum = L.summarizeMonth({ month, jobs: [svc], jeBySource: new Map(), docDateEntries: [] });
+  const IR = sum.incomeReconcile;
+  assert.equal(IR.serviceNoJv, 0, "pre-effective ต้องไม่นับเป็น NO_JV");
+  assert.equal(IR.serviceNoJvCount, 0);
+  assert.equal(IR.preEffExpectedUnposted, 5000);
+  assert.equal(IR.preEffExpectedUnpostedCount, 1);
+  assert.equal(IR.serviceIncomeResidual, 0, "residual = Δ − (…+ expected-unposted) = 0");
+});
+
+// ── (u) combined residual = dashboard-basis + service-dimension (มิ.ย.-like: dashboard 19460 + service 0) ──
+test("(u) combined residual = dashboard + service; มิ.ย. pre-effective POS 19460 + service 0 = 19460", () => {
+  const month = "2026-06";
+  const sale = { id: "S", order_no: "S1", created_at: "2026-06-15T03:00:00Z", total_amount: 19460, gross_profit: null, note: "" };
+  const svc = { id: "SV", job_no: "SV1", created_at: "2026-06-01T03:00:00Z", closed_at: "2026-06-20T03:00:00Z", status: "closed", total_cost: 5000, sub_service: "จาน", note: "" };
+  const sum = L.summarizeMonth({ month, sales: [sale], jobs: [svc], jeBySource: new Map(), docDateEntries: [] });
+  // June pre-effective: sale = PRE_EFFECTIVE (ไม่ใช่ NO_JV) → dashboard residual = opPos 19460 − GL 0
+  assert.equal(sum.revenue.unexplainedResidual, 19460, "dashboard-basis residual");
+  assert.equal(sum.incomeReconcile.serviceIncomeResidual, 0);
+  assert.equal(sum.incomeReconcile.combinedResidual, 19460, "combined = 19460 + 0");
+});
+
+// ── (v) service mismatch ใช้ entryRevenue (revenue line 100) ไม่ใช่ total_debit (107 = มี VAT split) ──
+test("(v) service mismatch ฐาน entryRevenue: JE debit 107 / revenue 100, op 100 → ไม่ mismatch", () => {
+  const month = "2026-07";
+  const svc = { id: "SV", job_no: "SV1", created_at: "2026-07-05T03:00:00Z", closed_at: "2026-07-10T03:00:00Z", status: "closed", total_cost: 100, sub_service: "จาน", note: "" };
+  const je = { id: "jeSV", source_table: "service_jobs", source_id: "SV", doc_date: "2026-07-10", total_debit: 107 };
+  const sum = L.summarizeMonth({
+    month, jobs: [svc],
+    jeBySource: new Map([["service_jobs:SV", je]]),
+    linesByEntry: new Map([["jeSV", [{ account_code: "4200", debit: 0, credit: 100 }, { account_code: "2170", debit: 0, credit: 7 }, { account_code: "1010", debit: 107, credit: 0 }]]]),
+    docDateEntries: [je]
+  });
+  const IR = sum.incomeReconcile;
+  assert.equal(IR.serviceGlPosted, 100, "serviceGlPosted = entryRevenue 100 (ไม่ใช่ total_debit 107)");
+  assert.equal(IR.serviceMismatchCount, 0, "op 100 = revenue 100 → ไม่ mismatch (ถ้าใช้ total_debit 107 จะ false mismatch)");
+  assert.equal(IR.serviceIncomeResidual, 0);
 });
 
 // ── (p) runner ต้องไม่ select service_jobs.deleted_at (production ไม่มีคอลัมน์ → PG 42703/400) ──

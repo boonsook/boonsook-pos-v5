@@ -328,12 +328,18 @@ export function summarizeMonth(inp) {
   const serviceOperational = opServiceIncome;                              // Σ total_cost non-web income job (closed∈M)
   const serviceGlPosted = serviceNonWebGl;                                // Σ entryRevenue non-web service JE (doc_date∈M)
   let serviceNoJv = 0, serviceNoJvCount = 0, serviceMismatchDelta = 0, serviceMismatchCount = 0, serviceCrossMonthOut = 0;
+  let preEffExpectedUnposted = 0, preEffExpectedUnpostedCount = 0;
   for (const j of svcIncomeInMonth) {
+    const basisDate = bkkDate(j.closed_at || j.created_at);               // ★ ฐานเดียวกับ classifyServiceJob (กัน drift)
     const je = jeFor("service_jobs", j.id);
     const op = round2(j.total_cost);
+    if (_lt(basisDate, effective)) {                                       // ก่อน effective = ตั้งใจไม่ลง JV → expected-unposted (ไม่ใช่ NO_JV)
+      if (!je) { preEffExpectedUnposted = round2(preEffExpectedUnposted + op); preEffExpectedUnpostedCount += 1; }
+      continue;                                                            // ถ้ามี je pre-effective = anomaly จับที่ pre-effective JE signal
+    }
     if (!je) { serviceNoJv = round2(serviceNoJv + op); serviceNoJvCount += 1; continue; }
     if (!inMonth(je.doc_date)) { serviceCrossMonthOut = round2(serviceCrossMonthOut + op); continue; } // มี JE แต่ doc_date คนละเดือน
-    const gl = round2(je.total_debit);
+    const gl = entryRevenue(linesByEntry.get(je.id) || []);               // ★ entryRevenue (4xxx net) ฐานเดียวกับ serviceGlPosted — ไม่ใช่ total_debit
     if (gl !== op) { serviceMismatchDelta = round2(serviceMismatchDelta + (op - gl)); serviceMismatchCount += 1; }
   }
   // cross-month in: service JE doc_date∈M แต่ job operational (closed) คนละเดือน → GL มี, operational ไม่มี
@@ -347,7 +353,10 @@ export function summarizeMonth(inp) {
   }
   const deltaServiceOpGl = round2(serviceOperational - serviceGlPosted);
   const serviceCrossMonthNet = round2(serviceCrossMonthOut - serviceCrossMonthIn);
-  const serviceIncomeResidual = round2(deltaServiceOpGl - round2(serviceNoJv + serviceMismatchDelta + serviceCrossMonthNet));
+  // residual = Δ − (NO_JV + mismatch + crossMonthNet + preEffectiveExpectedUnposted) → pre-effective month = 0
+  const serviceIncomeResidual = round2(deltaServiceOpGl - round2(serviceNoJv + serviceMismatchDelta + serviceCrossMonthNet + preEffExpectedUnposted));
+  // combined income residual = dashboard-basis + service-dimension (July 0 · June = dashboard 19,460 + service 0)
+  const combinedResidual = round2(unexplainedResidual + serviceIncomeResidual);
 
   // ── JE taxonomy: doc_date∈M — แยก manual (informational) จาก orphan (problem) + data hole ──
   const saleById = new Map(sales.map(s => [String(s.id), s]));
@@ -386,7 +395,8 @@ export function summarizeMonth(inp) {
     incomeReconcile: {
       serviceOperational, serviceGlPosted, deltaServiceOpGl,
       serviceNoJv, serviceNoJvCount, serviceMismatchDelta, serviceMismatchCount,
-      serviceCrossMonthNet, serviceIncomeResidual
+      serviceCrossMonthNet, preEffExpectedUnposted, preEffExpectedUnpostedCount,
+      serviceIncomeResidual, combinedResidual
     },
     grossProfit: {
       frozen: gpFrozen, fallback: gpFallback, itemizedRevenue,

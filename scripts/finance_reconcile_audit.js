@@ -236,21 +236,24 @@ async function main() {
     console.log(`| − service non-web (GL โพสต์งานช่าง, dashboard ไม่นับ) | ${money(R.breakdown.serviceNonWebGl)} |`);
     console.log(`| − manual JV (ลงมือเอง, ไม่มี operational source) | ${money(R.breakdown.manualJvGl)} |`);
     console.log(`| − DELETED_HAS_JV (บิลลบแต่ JV ผียังอยู่) | ${money(R.breakdown.deletedHasJv)} |`);
-    console.log(`| **= dashboard-basis residual** | **${money(R.unexplainedResidual)}** ${Math.abs(R.unexplainedResidual) < 0.01 ? "✅ (dashboard เท่านั้น — ดู income_overview ด้านล่าง)" : "⚠️ ยังมีสาเหตุที่ไม่รู้"} |`);
-    console.log(`_หมายเหตุ: residual นี้เป็น **dashboard-basis** (POS+web vs GL) เท่านั้น — ไม่รวม service income. ระบบยังไม่ reconcile ครบจนกว่า income_overview residual ด้านล่าง = 0_`);
+    console.log(`| **= dashboard-basis residual** | **${money(R.unexplainedResidual)}** ${Math.abs(R.unexplainedResidual) < 0.01 ? "✅" : (preEffective ? "(pre-effective — คาด nonzero)" : "⚠️ ยังมีสาเหตุที่ไม่รู้")} |`);
 
-    // ── Δ income_overview − GL (service dimension) — จับ service NO_JV ที่ dashboard−GL มองไม่เห็น ──
+    // ── A2. Income reconciliation — total income_overview − GL / service component / combined residual ──
     const IR = sum.incomeReconcile;
-    console.log(`\n### A2. Δ income_overview − GL = ${money(R.deltaIncomeOverviewGl)} (service dimension)`);
+    console.log(`\n### A2. Income reconciliation (service dimension + combined)`);
+    console.log(`- **total income_overview − GL: ${money(R.deltaIncomeOverviewGl)}**`);
+    console.log(`\n_service component (operational vs GL posted):_`);
     console.log("| รายการ | ยอด |");
     console.log("|---|---:|");
     console.log(`| service operational (closed basis, non-web) | ${money(IR.serviceOperational)} |`);
-    console.log(`| service GL posted (JE doc_date∈เดือน) | ${money(IR.serviceGlPosted)} |`);
+    console.log(`| service GL posted (entryRevenue, doc_date∈เดือน) | ${money(IR.serviceGlPosted)} |`);
     console.log(`| **Δ service (operational − GL)** | **${money(IR.deltaServiceOpGl)}** |`);
     console.log(`| − NO_JV (${IR.serviceNoJvCount} งาน หลุดโพสต์) | ${money(IR.serviceNoJv)} |`);
     console.log(`| − AMOUNT_MISMATCH (${IR.serviceMismatchCount} งาน, Σdelta) | ${money(IR.serviceMismatchDelta)} |`);
     console.log(`| − cross-month net | ${money(IR.serviceCrossMonthNet)} |`);
-    console.log(`| **= income-basis residual** | **${money(IR.serviceIncomeResidual)}** ${Math.abs(IR.serviceIncomeResidual) < 0.01 ? "✅" : "⚠️ ยังแตกไม่ครบ"} |`);
+    console.log(`| − pre-effective expected-unposted (${IR.preEffExpectedUnpostedCount} งาน, informational) | ${money(IR.preEffExpectedUnposted)} |`);
+    console.log(`| **= service-dimension residual** | **${money(IR.serviceIncomeResidual)}** ${Math.abs(IR.serviceIncomeResidual) < 0.01 ? "✅" : "⚠️ ยังแตกไม่ครบ"} |`);
+    console.log(`\n- **combined income residual = dashboard ${money(R.unexplainedResidual)} + service ${money(IR.serviceIncomeResidual)} = ${money(IR.combinedResidual)}** ${Math.abs(IR.combinedResidual) < 0.01 ? "✅" : (preEffective ? "(pre-effective baseline — ยังไม่เริ่มบัญชีจริง, informational)" : "⚠️ audit math ยังไม่ปิด")}`);
 
     console.log(`\n### Gross profit — 3 ฐาน (policy null/0 = ไม่รู้ต้นทุน ระดับบิล)`);
     console.log(`- **A) complete-cost bills** (ทุกแถว unit_cost>0): ${G.completeBillCount} บิล · revenue ${money(G.completeRevenue)} − COGS ${money(G.completeCogs)} = **known GP ${money(G.completeGp)}**`);
@@ -293,7 +296,9 @@ async function main() {
       }
     }
 
-    // ── strict gate: รวมสัญญาณ "ยังไม่พร้อมไป S4.1" ต่อเดือน ──
+    // ── strict gate ต่อเดือน — 2 กลุ่ม ──
+    //   integrity signals (ทั้ง pre & post-effective — ผิดเสมอ) + op-vs-GL signals (post-effective เท่านั้น
+    //   เพราะเดือน pre-effective คาด operational≠GL โดยตั้งใจ; ถ้า fail ทุกเดือน = gate ที่ไม่มีใครฟัง)
     const c = sum.counts, cn = (o, k) => o[k] || 0;
     const noJv = cn(c.sales, "NO_JV") + cn(c.jobs, "NO_JV") + cn(c.refunds, "NO_JV") + cn(c.expenses, "NO_JV");
     const mismatch = cn(c.sales, "AMOUNT_MISMATCH") + cn(c.jobs, "AMOUNT_MISMATCH") + cn(c.refunds, "AMOUNT_MISMATCH") + cn(c.expenses, "AMOUNT_MISMATCH");
@@ -302,29 +307,33 @@ async function main() {
     const mappingMissing = cn(c.expenses, "CURRENT_MAPPING_MISSING");
     const invalidAmt = cn(c.expenses, "INVALID_NEGATIVE_AMOUNT") + cn(c.expenses, "INVALID_AMOUNT") + cn(c.expenses, "SUBCENT_AMOUNT");
     const reasons = [];
-    if (Math.abs(sum.revenue.unexplainedResidual) >= 0.01) reasons.push(`residual ${money(sum.revenue.unexplainedResidual)}`);
-    if (noJv > 0) reasons.push(`NO_JV ${noJv}`);
-    if (mismatch > 0) reasons.push(`AMOUNT_MISMATCH ${mismatch}`);
-    if (dateMismatch > 0) reasons.push(`DATE_MISMATCH ${dateMismatch}`);
-    if (deletedHasJv > 0) reasons.push(`DELETED_HAS_JV ${deletedHasJv}`);
+    // ── group A: integrity (ผิดเสมอ ไม่ว่า pre/post-effective) ──
     if (sum.duplicateSources.length > 0) reasons.push(`duplicate ${sum.duplicateSources.length}`);
-    if (sum.orphans.length > 0) reasons.push(`orphan ${sum.orphans.length}`);      // BROKEN_SOURCE_LINK/ORPHAN*
-    if (mappingMissing > 0) reasons.push(`CURRENT_MAPPING_MISSING ${mappingMissing}`);
-    if (invalidAmt > 0) reasons.push(`invalid/subcent amount ${invalidAmt}`);
-    // GP cost-basis gaps — เจตนาให้ strict แดงจนกว่า writer (S4.1) จะแก้ (อย่าผ่อน gate เพื่อให้เขียว)
-    if (sum.grossProfit.unknownCount > 0) reasons.push(`UNKNOWN_UNIT_COST ${sum.grossProfit.unknownCount}`);
-    if (sum.grossProfit.zeroCount > 0) reasons.push(`AMBIGUOUS_ZERO_COST ${sum.grossProfit.zeroCount}`);
-    if (sum.grossProfit.itemlessCount > 0) reasons.push(`ITEMLESS_SALE_COST_UNKNOWN ${sum.grossProfit.itemlessCount}`);
-    if (!sum.grossProfit.partitionOk) reasons.push(`GP partition mismatch (บิลตกหล่น)`);
-    if (Math.abs(sum.incomeReconcile.serviceIncomeResidual) >= 0.01) reasons.push(`income-basis residual ${money(sum.incomeReconcile.serviceIncomeResidual)}`);
+    if (sum.orphans.length > 0) reasons.push(`orphan ${sum.orphans.length}`);        // BROKEN_SOURCE_LINK/ORPHAN*
     if (sum.dataIncomplete.length > 0) reasons.push(`dataIncomplete ${sum.dataIncomplete.length}`);
+    if (!sum.grossProfit.partitionOk) reasons.push(`GP partition mismatch (บิลตกหล่น)`);
+    if (preEffective && counts.jeDocDate > 0) reasons.push(`pre-effective approved JE ${counts.jeDocDate} (ไม่ควรมีก่อน effective)`);
     if (!preEffective && nonApprovedSourceBoundCount > 0) reasons.push(`source-bound draft post-effective ${nonApprovedSourceBoundCount}`);
-    if (reasons.length) { anyStrictFail = true; console.log(`\n_strict signals เดือน ${month}: ${reasons.join(" · ")}_`); }
+    // ── group B: op-vs-GL reconciliation (post-effective เท่านั้น — pre-effective คาด nonzero โดยตั้งใจ) ──
+    if (!preEffective) {
+      if (Math.abs(sum.incomeReconcile.combinedResidual) >= 0.01) reasons.push(`combined residual ${money(sum.incomeReconcile.combinedResidual)}`);
+      if (noJv > 0) reasons.push(`NO_JV ${noJv}`);
+      if (mismatch > 0) reasons.push(`AMOUNT_MISMATCH ${mismatch}`);
+      if (dateMismatch > 0) reasons.push(`DATE_MISMATCH ${dateMismatch}`);
+      if (deletedHasJv > 0) reasons.push(`DELETED_HAS_JV ${deletedHasJv}`);
+      if (mappingMissing > 0) reasons.push(`CURRENT_MAPPING_MISSING ${mappingMissing}`);
+      if (invalidAmt > 0) reasons.push(`invalid/subcent amount ${invalidAmt}`);
+      // GP cost-basis gaps — เจตนาให้ strict แดงจนกว่า writer (S4.1) จะแก้ (อย่าผ่อน gate เพื่อให้เขียว)
+      if (sum.grossProfit.unknownCount > 0) reasons.push(`UNKNOWN_UNIT_COST ${sum.grossProfit.unknownCount}`);
+      if (sum.grossProfit.zeroCount > 0) reasons.push(`AMBIGUOUS_ZERO_COST ${sum.grossProfit.zeroCount}`);
+      if (sum.grossProfit.itemlessCount > 0) reasons.push(`ITEMLESS_SALE_COST_UNKNOWN ${sum.grossProfit.itemlessCount}`);
+    }
+    if (reasons.length) { anyStrictFail = true; console.log(`\n_strict signals เดือน ${month}${preEffective ? " (pre-effective — เฉพาะ integrity)" : ""}: ${reasons.join(" · ")}_`); }
     else console.log(`\n_strict: เดือน ${month} สะอาด ✅_`);
   }
   console.log(`\n─── จบรายงาน (read-only audit — ไม่มีการแก้ข้อมูล) ───`);
   if (STRICT && anyStrictFail) {
-    console.log(`\n⚠️ --strict: เจอสัญญาณ anomaly (dashboard/income residual/NO_JV/mismatch/date-mismatch/deleted-jv/duplicate/orphan/mapping-missing/invalid-amount/unknown-unit-cost/ambiguous-zero-cost/itemless/GP-partition/data-incomplete/source-bound-draft) → exit 1 (gate ก่อน S4.1 — แดงจนกว่า writer แก้)`);
+    console.log(`\n⚠️ --strict: เจอสัญญาณ anomaly → exit 1 (gate ก่อน S4.1 — แดงจนกว่า writer แก้). integrity signals (duplicate/orphan/dataIncomplete/partition/pre-effective JE) นับทุกเดือน · op-vs-GL signals (combined residual/NO_JV/mismatch/cost-gaps) เฉพาะ post-effective`);
     return 1;
   }
   return 0;
