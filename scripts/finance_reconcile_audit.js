@@ -8,9 +8,11 @@
 //    การซ่อม/backfill JV. ไฟล์นี้ "ชี้ discrepancy" อย่างเดียว ไม่ตัดสินความถูกของ inventory.
 //  Usage: node scripts/finance_reconcile_audit.js [YYYY-MM ...] [--strict]  (default = เดือนนี้ + ก่อน, Bangkok)
 //  Env (.env): SUPABASE_URL, SUPABASE_ANON_KEY, ADMIN_EMAIL, ADMIN_PASSWORD
-//  Exit: 0 = รันจบ (report-only) · 1 = --strict + เจอสัญญาณ anomaly ใด ๆ (residual/NO_JV/mismatch/
-//        date-mismatch/deleted-jv/duplicate/orphan/mapping-missing/invalid-amount/itemless-cost-unknown/
-//        data-incomplete/source-bound draft post-effective) · 2 = fatal (env/network)
+//  Exit: 0 = รันจบ (report-only) · 1 = --strict + เจอสัญญาณ anomaly ใด ๆ (dashboard/income residual/
+//        NO_JV/mismatch/date-mismatch/deleted-jv/duplicate/orphan/mapping-missing/invalid-amount/
+//        unknown-unit-cost/ambiguous-zero-cost/itemless-cost-unknown/GP-partition/data-incomplete/
+//        source-bound draft post-effective) · 2 = fatal (env/network)
+//  ★ strict คือ gate ก่อน S4.1 — จะแดงจนกว่า writer จะแก้ (COGS/service close) ห้ามผ่อน gate เพื่อให้เขียว
 // ═══════════════════════════════════════════════════════════
 import fs from "node:fs";
 import path from "node:path";
@@ -234,17 +236,30 @@ async function main() {
     console.log(`| − service non-web (GL โพสต์งานช่าง, dashboard ไม่นับ) | ${money(R.breakdown.serviceNonWebGl)} |`);
     console.log(`| − manual JV (ลงมือเอง, ไม่มี operational source) | ${money(R.breakdown.manualJvGl)} |`);
     console.log(`| − DELETED_HAS_JV (บิลลบแต่ JV ผียังอยู่) | ${money(R.breakdown.deletedHasJv)} |`);
-    console.log(`| **= unexplained residual** | **${money(R.unexplainedResidual)}** ${Math.abs(R.unexplainedResidual) < 0.01 ? "✅" : "⚠️ ยังมีสาเหตุที่ไม่รู้ — ห้ามไป S4.1"} |`);
+    console.log(`| **= dashboard-basis residual** | **${money(R.unexplainedResidual)}** ${Math.abs(R.unexplainedResidual) < 0.01 ? "✅ (dashboard เท่านั้น — ดู income_overview ด้านล่าง)" : "⚠️ ยังมีสาเหตุที่ไม่รู้"} |`);
+    console.log(`_หมายเหตุ: residual นี้เป็น **dashboard-basis** (POS+web vs GL) เท่านั้น — ไม่รวม service income. ระบบยังไม่ reconcile ครบจนกว่า income_overview residual ด้านล่าง = 0_`);
 
-    console.log(`\n### Gross profit (itemized เท่านั้น — itemless แยกด้านล่าง)`);
-    console.log(`- itemized revenue (บิลที่มี item): **${money(G.itemizedRevenue)}**`);
-    console.log(`- frozen (sales.gross_profit): **${money(G.frozen)}**`);
-    console.log(`- known GP (itemized − knownCogs, null≠0): **${money(G.knownGp)}** (knownCogs ${money(G.knownCogs)})`);
-    console.log(`- fallback (สูตร profit_report บน itemized): **${money(G.fallback)}** (fallbackDelta ${money(G.fallbackDelta)})`);
-    console.log(`- unit_cost (ใน itemized): UNKNOWN(null) ${G.unknownCount} รายการ (fallback ${money(G.unknownFallbackCogs)}) · AMBIGUOUS_ZERO_COST (0 — pos.js ยัง fallback 0 จนกว่า S4.1) ${G.zeroCount} รายการ (fallback ${money(G.zeroFallbackCogs)})`);
-    console.log(`\n### ⚠️ Itemless sales (ITEMLESS_SALE_COST_UNKNOWN — quick-pay ไม่มี item, ต้นทุนไม่ทราบ): **${G.itemlessCount}** รายการ · revenue ${money(G.itemlessRevenue)}`);
-    console.log(`  _นับแยกจาก known GP — ห้ามตีเป็น COGS 0 (policy null=ไม่รู้ต้นทุน). known GP ${money(G.knownGp)} + unknown-cost revenue ${money(G.itemlessRevenue)}_`);
-    if (G.itemlessCount) { for (const r of G.itemlessRows.slice(0, 50)) console.log(`  - ${r.orderNo || r.id} · ${money(r.revenue)}`); if (G.itemlessCount > 50) console.log(`  …และอีก ${G.itemlessCount - 50}`); }
+    // ── Δ income_overview − GL (service dimension) — จับ service NO_JV ที่ dashboard−GL มองไม่เห็น ──
+    const IR = sum.incomeReconcile;
+    console.log(`\n### A2. Δ income_overview − GL = ${money(R.deltaIncomeOverviewGl)} (service dimension)`);
+    console.log("| รายการ | ยอด |");
+    console.log("|---|---:|");
+    console.log(`| service operational (closed basis, non-web) | ${money(IR.serviceOperational)} |`);
+    console.log(`| service GL posted (JE doc_date∈เดือน) | ${money(IR.serviceGlPosted)} |`);
+    console.log(`| **Δ service (operational − GL)** | **${money(IR.deltaServiceOpGl)}** |`);
+    console.log(`| − NO_JV (${IR.serviceNoJvCount} งาน หลุดโพสต์) | ${money(IR.serviceNoJv)} |`);
+    console.log(`| − AMOUNT_MISMATCH (${IR.serviceMismatchCount} งาน, Σdelta) | ${money(IR.serviceMismatchDelta)} |`);
+    console.log(`| − cross-month net | ${money(IR.serviceCrossMonthNet)} |`);
+    console.log(`| **= income-basis residual** | **${money(IR.serviceIncomeResidual)}** ${Math.abs(IR.serviceIncomeResidual) < 0.01 ? "✅" : "⚠️ ยังแตกไม่ครบ"} |`);
+
+    console.log(`\n### Gross profit — 3 ฐาน (policy null/0 = ไม่รู้ต้นทุน ระดับบิล)`);
+    console.log(`- **A) complete-cost bills** (ทุกแถว unit_cost>0): ${G.completeBillCount} บิล · revenue ${money(G.completeRevenue)} − COGS ${money(G.completeCogs)} = **known GP ${money(G.completeGp)}**`);
+    console.log(`- **B) incomplete itemized** (มี ≥1 แถว null/0 — ไม่ประกาศ GP): ${G.incompleteBillCount} บิล · revenue ${money(G.incompleteRevenue)} · null-rows ${G.incompleteNullRows} · zero-rows ${G.incompleteZeroRows}`);
+    console.log(`- **C) itemless** (quick-pay ไม่มี item): ${G.itemlessCount} บิล · revenue ${money(G.itemlessRevenue)}`);
+    console.log(`- frozen (sales.gross_profit เทียบ): ${money(G.frozen)} · profit_report replica: ${money(G.fallback)}`);
+    console.log(`- **partition self-check**: complete ${money(G.completeRevenue)} + incomplete ${money(G.incompleteRevenue)} + itemless ${money(G.itemlessRevenue)} = ${money(G.partitionSum)} vs opPos ${money(R.opPos)} → ${G.partitionOk ? "✅ ครบ" : "⚠️ บิลตกหล่น!"}`);
+    if (G.incompleteBillCount) { for (const r of G.incompleteBills.slice(0, 50)) console.log(`  - [incomplete] ${r.orderNo || r.id} · ${money(r.revenue)} · null ${r.nullRows} zero ${r.zeroRows}`); if (G.incompleteBillCount > 50) console.log(`  …และอีก ${G.incompleteBillCount - 50}`); }
+    if (G.itemlessCount) { for (const r of G.itemlessRows.slice(0, 50)) console.log(`  - [itemless] ${r.orderNo || r.id} · ${money(r.revenue)}`); if (G.itemlessCount > 50) console.log(`  …และอีก ${G.itemlessCount - 50}`); }
     console.log(`\n### COGS ใน GL (Dr 5100 เท่านั้น — คาด 0 = premise S4.1): **${money(sum.glCogs)}** ${Math.abs(sum.glCogs) < 0.01 ? "(ยืนยัน: ไม่มีการโพสต์ COGS)" : "⚠️"}`);
     console.log(`\n### Refunds: ${sum.counts.refunds.total} รายการ — OK ${sum.counts.refunds.OK} · NO_JV ${sum.counts.refunds.NO_JV} · MISMATCH ${sum.counts.refunds.AMOUNT_MISMATCH}`);
     console.log(`  - restocked flag: true ${refundRestock.restockedTrue} · false ${refundRestock.restockedFalse} · null ${refundRestock.restockedNull} — _false = ยังไม่ยืนยันว่าคืนสต็อกครบ (ต้องตรวจ stock_movements — S4.1); ไม่ได้แปลว่า "ไม่มีการคืน"_`);
@@ -296,7 +311,12 @@ async function main() {
     if (sum.orphans.length > 0) reasons.push(`orphan ${sum.orphans.length}`);      // BROKEN_SOURCE_LINK/ORPHAN*
     if (mappingMissing > 0) reasons.push(`CURRENT_MAPPING_MISSING ${mappingMissing}`);
     if (invalidAmt > 0) reasons.push(`invalid/subcent amount ${invalidAmt}`);
+    // GP cost-basis gaps — เจตนาให้ strict แดงจนกว่า writer (S4.1) จะแก้ (อย่าผ่อน gate เพื่อให้เขียว)
+    if (sum.grossProfit.unknownCount > 0) reasons.push(`UNKNOWN_UNIT_COST ${sum.grossProfit.unknownCount}`);
+    if (sum.grossProfit.zeroCount > 0) reasons.push(`AMBIGUOUS_ZERO_COST ${sum.grossProfit.zeroCount}`);
     if (sum.grossProfit.itemlessCount > 0) reasons.push(`ITEMLESS_SALE_COST_UNKNOWN ${sum.grossProfit.itemlessCount}`);
+    if (!sum.grossProfit.partitionOk) reasons.push(`GP partition mismatch (บิลตกหล่น)`);
+    if (Math.abs(sum.incomeReconcile.serviceIncomeResidual) >= 0.01) reasons.push(`income-basis residual ${money(sum.incomeReconcile.serviceIncomeResidual)}`);
     if (sum.dataIncomplete.length > 0) reasons.push(`dataIncomplete ${sum.dataIncomplete.length}`);
     if (!preEffective && nonApprovedSourceBoundCount > 0) reasons.push(`source-bound draft post-effective ${nonApprovedSourceBoundCount}`);
     if (reasons.length) { anyStrictFail = true; console.log(`\n_strict signals เดือน ${month}: ${reasons.join(" · ")}_`); }
@@ -304,7 +324,7 @@ async function main() {
   }
   console.log(`\n─── จบรายงาน (read-only audit — ไม่มีการแก้ข้อมูล) ───`);
   if (STRICT && anyStrictFail) {
-    console.log(`\n⚠️ --strict: เจอสัญญาณ anomaly (residual/NO_JV/mismatch/date-mismatch/deleted-jv/duplicate/orphan/mapping-missing/invalid-amount/itemless-cost-unknown/data-incomplete/source-bound-draft) → exit 1 (ยังไม่พร้อมไป S4.1)`);
+    console.log(`\n⚠️ --strict: เจอสัญญาณ anomaly (dashboard/income residual/NO_JV/mismatch/date-mismatch/deleted-jv/duplicate/orphan/mapping-missing/invalid-amount/unknown-unit-cost/ambiguous-zero-cost/itemless/GP-partition/data-incomplete/source-bound-draft) → exit 1 (gate ก่อน S4.1 — แดงจนกว่า writer แก้)`);
     return 1;
   }
   return 0;

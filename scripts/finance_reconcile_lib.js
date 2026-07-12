@@ -277,23 +277,77 @@ export function summarizeMonth(inp) {
   const explained = round2(vat + webNotClosed + noJvSales + refundsGl - crossMonthGlOnly - deletedHasJv - serviceNonWebGl - manualJvGl);
   const unexplainedResidual = round2(rawDelta - explained);
 
-  // ── gross profit — แยก itemized (มี cost basis) ออกจาก itemless (quick-pay ไม่มี item = ต้นทุนไม่ทราบ) ──
-  //   ★ policy: null/ไม่มีข้อมูล = ไม่รู้ต้นทุน (ห้ามตี itemless = COGS 0 → กำไรเกินจริง)
-  //   frozen = Σ sales.gross_profit (itemless มี gross_profit=null → 0 อยู่แล้ว, pos.js:122)
+  // ── gross profit — 3 ฐานต่อบิล (policy: null/ไม่มีข้อมูล = ไม่รู้ต้นทุน ระดับบิล) ──
+  //   ★ complete-cost bill = ทุก item row มี unit_cost > 0 (null และ 0 ถือว่า "ไม่ครบ" ทั้งคู่ —
+  //     0 ยัง ambiguous จนกว่า S4.1 แก้ writer). ห้ามให้ null/0 กลายเป็น COGS 0 โดยปริยาย
+  //   frozen = Σ sales.gross_profit (itemless gross_profit=null → 0, pos.js:122)
   const gpFrozen = round2(posInMonth.reduce((a, s) => a + (Number(s.gross_profit) || 0), 0));
   const posIds = new Set(posInMonth.map(s => String(s.id)));
   const posItems = saleItems.filter(it => posIds.has(String(it.sale_id)));   // items ของบิล POS ในเดือนเท่านั้น
-  const salesWithItems = new Set(posItems.map(it => String(it.sale_id)));
-  const cost = analyzeSaleItemsCost(posItems, productCostMap);
-  // itemless = active POS sale ในเดือนที่ไม่มี sale_items เลย → ITEMLESS_SALE_COST_UNKNOWN (ต้นทุนไม่ทราบ)
-  //   deleted sale ถูกกรองออกแล้วโดย posInMonth (isDeletedSale) → ไม่เข้า itemless
-  const itemlessRows = posInMonth.filter(s => !salesWithItems.has(String(s.id)))
-    .map(s => ({ id: s.id, orderNo: s.order_no, revenue: round2(s.total_amount), cls: "ITEMLESS_SALE_COST_UNKNOWN" }));
+  const cost = analyzeSaleItemsCost(posItems, productCostMap);               // item-level buckets (คงไว้เพื่อ fallback/continuity)
+  const itemsBySale = new Map();
+  for (const it of posItems) { const k = String(it.sale_id); if (!itemsBySale.has(k)) itemsBySale.set(k, []); itemsBySale.get(k).push(it); }
+  // แบ่งบิลเป็น 3 ก้อน: complete / incomplete-itemized / itemless — partition ของ opPos
+  let completeRevenue = 0, completeCogs = 0, completeBillCount = 0;
+  let incompleteRevenue = 0, incompleteBillCount = 0, incompleteNullRows = 0, incompleteZeroRows = 0;
+  const incompleteBills = [], itemlessRows = [];
+  for (const s of posInMonth) {
+    const rev = round2(s.total_amount);
+    const items = itemsBySale.get(String(s.id));
+    if (!items || items.length === 0) {                                     // C) itemless — ไม่มี item เลย
+      itemlessRows.push({ id: s.id, orderNo: s.order_no, revenue: rev, cls: "ITEMLESS_SALE_COST_UNKNOWN" });
+      continue;
+    }
+    let nullRows = 0, zeroRows = 0, cogs = 0;
+    for (const it of items) {
+      const uc = it.unit_cost, qty = Number(it.qty) || 0;
+      if (uc === null || uc === undefined) nullRows += 1;                    // UNKNOWN_UNIT_COST
+      else if (Number(uc) === 0) zeroRows += 1;                             // AMBIGUOUS_ZERO_COST
+      else cogs = round2(cogs + qty * Number(uc));
+    }
+    if (nullRows === 0 && zeroRows === 0) {                                  // A) complete — ทุกแถว cost > 0
+      completeBillCount += 1; completeRevenue = round2(completeRevenue + rev); completeCogs = round2(completeCogs + cogs);
+    } else {                                                                 // B) incomplete-itemized — ไม่ประกาศ GP
+      incompleteBillCount += 1; incompleteRevenue = round2(incompleteRevenue + rev);
+      incompleteNullRows += nullRows; incompleteZeroRows += zeroRows;
+      incompleteBills.push({ id: s.id, orderNo: s.order_no, revenue: rev, nullRows, zeroRows, cls: "INCOMPLETE_ITEMIZED_COST_UNKNOWN" });
+    }
+  }
   const itemlessCount = itemlessRows.length;
   const itemlessRevenue = round2(itemlessRows.reduce((a, r) => a + r.revenue, 0));
-  const itemizedRevenue = round2(opPos - itemlessRevenue);                // ยอดขายที่มี item (คิด GP ได้)
-  const knownGp = round2(itemizedRevenue - cost.knownCogs);              // GP เฉพาะบิลที่มี item, ต้นทุนที่ทราบ (null≠0)
-  const gpFallback = round2(itemizedRevenue - round2(cost.knownCogs + cost.fallbackDelta)); // สูตร profit_report บน itemized
+  const completeGp = round2(completeRevenue - completeCogs);               // "known GP" ตัวจริง (เฉพาะบิล complete)
+  const itemizedRevenue = round2(completeRevenue + incompleteRevenue);
+  const gpFallback = round2(itemizedRevenue - round2(cost.knownCogs + cost.fallbackDelta)); // สูตร profit_report (เทียบ)
+  // partition identity — กันบิลตกหล่นเงียบ (complete + incomplete + itemless === opPos)
+  const partitionSum = round2(completeRevenue + incompleteRevenue + itemlessRevenue);
+  const partitionOk = partitionSum === opPos;
+
+  // ── income_overview reconciliation (service dimension) — dashboard reconcile แล้ว, ต่อด้วย service ──
+  //   Δ service = operational(closed basis) − GL posted → แตกเป็น NO_JV + mismatch + cross-month → residual 0
+  //   (dashboard−GL ไม่จับ service NO_JV เพราะสองฝั่งไม่มี service; ต้อง reconcile ฝั่ง income แยก)
+  const serviceOperational = opServiceIncome;                              // Σ total_cost non-web income job (closed∈M)
+  const serviceGlPosted = serviceNonWebGl;                                // Σ entryRevenue non-web service JE (doc_date∈M)
+  let serviceNoJv = 0, serviceNoJvCount = 0, serviceMismatchDelta = 0, serviceMismatchCount = 0, serviceCrossMonthOut = 0;
+  for (const j of svcIncomeInMonth) {
+    const je = jeFor("service_jobs", j.id);
+    const op = round2(j.total_cost);
+    if (!je) { serviceNoJv = round2(serviceNoJv + op); serviceNoJvCount += 1; continue; }
+    if (!inMonth(je.doc_date)) { serviceCrossMonthOut = round2(serviceCrossMonthOut + op); continue; } // มี JE แต่ doc_date คนละเดือน
+    const gl = round2(je.total_debit);
+    if (gl !== op) { serviceMismatchDelta = round2(serviceMismatchDelta + (op - gl)); serviceMismatchCount += 1; }
+  }
+  // cross-month in: service JE doc_date∈M แต่ job operational (closed) คนละเดือน → GL มี, operational ไม่มี
+  let serviceCrossMonthIn = 0;
+  for (const je of docDateEntries) {
+    if (je.source_table !== "service_jobs") continue;
+    const job = jobById.get(String(je.source_id ?? ""));
+    if (!job || isWebOrderJob(job) || !isServiceIncomeJob(job)) continue;
+    if (monthOf(bkkDate(job.closed_at || job.created_at)) === month) continue; // operational-in-month แล้ว (นับใน out)
+    serviceCrossMonthIn = round2(serviceCrossMonthIn + entryRevenue(linesByEntry.get(je.id) || []));
+  }
+  const deltaServiceOpGl = round2(serviceOperational - serviceGlPosted);
+  const serviceCrossMonthNet = round2(serviceCrossMonthOut - serviceCrossMonthIn);
+  const serviceIncomeResidual = round2(deltaServiceOpGl - round2(serviceNoJv + serviceMismatchDelta + serviceCrossMonthNet));
 
   // ── JE taxonomy: doc_date∈M — แยก manual (informational) จาก orphan (problem) + data hole ──
   const saleById = new Map(sales.map(s => [String(s.id), s]));
@@ -328,7 +382,20 @@ export function summarizeMonth(inp) {
       breakdown: { vat, webNotClosed, crossMonthGlOnly, noJv: noJvSales, refunds: refundsGl, deletedHasJv, serviceNonWebGl, manualJvGl },
       explained, unexplainedResidual
     },
-    grossProfit: { frozen: gpFrozen, knownGp, fallback: gpFallback, itemizedRevenue, itemlessCount, itemlessRevenue, itemlessRows, ...cost },
+    // income_overview (service) reconciliation — Δ operational vs GL posted → residual ต้อง 0 เมื่อแตกครบ
+    incomeReconcile: {
+      serviceOperational, serviceGlPosted, deltaServiceOpGl,
+      serviceNoJv, serviceNoJvCount, serviceMismatchDelta, serviceMismatchCount,
+      serviceCrossMonthNet, serviceIncomeResidual
+    },
+    grossProfit: {
+      frozen: gpFrozen, fallback: gpFallback, itemizedRevenue,
+      completeGp, completeRevenue, completeCogs, completeBillCount,          // A) complete = known GP ตัวจริง
+      incompleteRevenue, incompleteBillCount, incompleteNullRows, incompleteZeroRows, incompleteBills, // B) ไม่ประกาศ GP
+      itemlessCount, itemlessRevenue, itemlessRows,                          // C) itemless
+      partitionOk, partitionSum,
+      ...cost
+    },
     glCogs,
     counts: {
       sales: { total: sales.length, OK: count(saleRows, "OK"), NO_JV: count(saleRows, "NO_JV"), AMOUNT_MISMATCH: count(saleRows, "AMOUNT_MISMATCH"), DATE_MISMATCH: count(saleRows, "DATE_MISMATCH"), DELETED_HAS_JV: count(saleRows, "DELETED_HAS_JV"), PRE_EFFECTIVE: count(saleRows, "PRE_EFFECTIVE") },

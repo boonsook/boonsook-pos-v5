@@ -346,9 +346,12 @@ test("(m) runner: account_mapping mapping-keys + --strict ครอบ residual/
   assert.match(runnerSrc, /is_active=eq\.true/, "account_mapping ต้องกรอง is_active=eq.true (align _getMappings)");
   assert.match(runnerSrc, /expenseMappingKeys/, "ต้องส่ง expenseMappingKeys เข้า summarizeMonth");
   // --strict ต้องดูสัญญาณครบ ไม่ใช่ residual อย่างเดียว
-  for (const sig of ["unexplainedResidual", "noJv", "mismatch", "dateMismatch", "deletedHasJv", "duplicateSources", "orphans", "mappingMissing", "invalidAmt", "itemlessCount", "dataIncomplete", "nonApprovedSourceBoundCount"]) {
+  for (const sig of ["unexplainedResidual", "noJv", "mismatch", "dateMismatch", "deletedHasJv", "duplicateSources", "orphans", "mappingMissing", "invalidAmt", "unknownCount", "zeroCount", "itemlessCount", "partitionOk", "serviceIncomeResidual", "dataIncomplete", "nonApprovedSourceBoundCount"]) {
     assert.ok(runnerSrc.includes(sig), `strict gate ต้องอ้างสัญญาณ ${sig}`);
   }
+  // Δ income_overview ต้องพิมพ์ออกมา (ไม่ให้ผู้ใช้อ่านจาก problem table เอง)
+  assert.match(runnerSrc, /deltaIncomeOverviewGl/, "runner ต้องพิมพ์ Δ income_overview − GL");
+  assert.match(runnerSrc, /dashboard-basis residual/, "residual ต้อง label เป็น dashboard-basis");
   // non-approved ต้องแยก manual vs source-bound
   assert.match(runnerSrc, /nonApprovedManual/, "ต้องแยก non-approved manual");
   assert.match(runnerSrc, /nonApprovedSourceBound/, "ต้องแยก non-approved source-bound");
@@ -363,15 +366,75 @@ test("(q) summarizeMonth: itemless sale = cost unknown (แยกจาก known
   const saleItems = [{ sale_id: "I1", qty: 2, unit_cost: 100, product_id: "p1" }];   // knownCogs 200
   const sum = L.summarizeMonth({ month, sales: [activeQuick, deletedQuick, itemized], saleItems, jeBySource: new Map(), docDateEntries: [] });
   const G = sum.grossProfit;
-  // itemless เฉพาะ active quick-pay Q1 — deleted Q2 ถูกกรอง (posInMonth), itemized I1 มี item
+  // itemless เฉพาะ active quick-pay Q1 — deleted Q2 ถูกกรอง (posInMonth), itemized I1 complete
   assert.equal(G.itemlessCount, 1);
   assert.equal(G.itemlessRevenue, 100);
   assert.deepEqual(G.itemlessRows.map(r => r.id), ["Q1"]);
   assert.equal(G.itemlessRows[0].cls, "ITEMLESS_SALE_COST_UNKNOWN");
-  // itemized revenue = opPos(600) − itemless(100) = 500 ; known GP = 500 − knownCogs 200 = 300
-  assert.equal(G.itemizedRevenue, 500);
-  assert.equal(G.knownCogs, 200);
-  assert.equal(G.knownGp, 300, "quick-pay 100 ต้องไม่ถูกนับเป็นกำไร (เดิม strict=400 ผิด)");
+  // complete bill I1 (unit_cost 100>0 ทุกแถว): revenue 500 − COGS 200 = known GP 300
+  assert.equal(G.completeBillCount, 1);
+  assert.equal(G.completeRevenue, 500);
+  assert.equal(G.completeCogs, 200);
+  assert.equal(G.completeGp, 300, "quick-pay 100 ต้องไม่ถูกนับเป็นกำไร (เดิม strict=400 ผิด)");
+  // partition: complete 500 + incomplete 0 + itemless 100 = opPos 600
+  assert.equal(G.partitionOk, true);
+  assert.equal(G.partitionSum, 600);
+});
+
+// ── (r) GP 3 ฐาน: complete vs incomplete (null/zero) → null/0 ห้ามกลายเป็น COGS 0 + partition ครบ ──
+test("(r) summarizeMonth GP: complete/incomplete(null)/incomplete(zero) แยกกัน + partition identity", () => {
+  const month = "2026-07", d = "2026-07-15T03:00:00Z";
+  const complete = { id: "C", order_no: "C1", created_at: d, total_amount: 300, gross_profit: 100, note: "" };
+  const withNull = { id: "N", order_no: "N1", created_at: d, total_amount: 200, gross_profit: null, note: "" };
+  const withZero = { id: "Z", order_no: "Z1", created_at: d, total_amount: 150, gross_profit: null, note: "" };
+  const saleItems = [
+    { sale_id: "C", qty: 2, unit_cost: 100 },                 // complete → cogs 200
+    { sale_id: "N", qty: 1, unit_cost: null },                // null row → incomplete
+    { sale_id: "N", qty: 1, unit_cost: 50 },                  // มี cost row ปน แต่บิลยังถือ incomplete
+    { sale_id: "Z", qty: 3, unit_cost: 0 }                    // zero row → incomplete
+  ];
+  const sum = L.summarizeMonth({ month, sales: [complete, withNull, withZero], saleItems, jeBySource: new Map(), docDateEntries: [] });
+  const G = sum.grossProfit;
+  // A) complete: บิล C เท่านั้น → GP 300 − 200 = 100
+  assert.equal(G.completeBillCount, 1);
+  assert.equal(G.completeGp, 100);
+  // B) incomplete: บิล N (null) + Z (zero) → ไม่ประกาศ GP, revenue 200+150=350, null-rows 1, zero-rows 1
+  assert.equal(G.incompleteBillCount, 2);
+  assert.equal(G.incompleteRevenue, 350);
+  assert.equal(G.incompleteNullRows, 1);
+  assert.equal(G.incompleteZeroRows, 1);
+  // null/0 ห้ามกลายเป็นกำไร — บิล N มี cost row 50 แต่ทั้งบิลไม่เข้า completeCogs
+  assert.equal(G.completeCogs, 200, "cost ของบิล incomplete ต้องไม่เข้า completeCogs");
+  // partition: 300 + 350 + 0(itemless) = opPos 650
+  assert.equal(G.partitionOk, true);
+  assert.equal(G.partitionSum, 650);
+});
+
+// ── (s) B1: dashboard residual 0 แต่ income_overview − GL = service NO_JV (ไม่หมกเม็ด) ──
+test("(s) dashboard residual 0 แต่ income delta = service NO_JV → income-basis residual ปิด 0", () => {
+  const month = "2026-07";
+  // POS sale จับคู่ JE ตรง → dashboard−GL = 0
+  const sale = { id: "P", order_no: "P1", created_at: "2026-07-10T03:00:00Z", total_amount: 100, vat_amount: 0, gross_profit: 40, note: "" };
+  const jeSale = { id: "jeP", source_table: "sales", source_id: "P", doc_date: "2026-07-10", total_debit: 100 };
+  // service job non-web closed ในเดือน income แต่ไม่มี JE → service NO_JV 6950
+  const svc = { id: "SV", job_no: "SV1", created_at: "2026-07-05T03:00:00Z", closed_at: "2026-07-20T03:00:00Z", status: "closed", total_cost: 6950, sub_service: "ติดตั้งจานดาวเทียม", note: "" };
+  const sum = L.summarizeMonth({
+    month, sales: [sale], jobs: [svc],
+    jeBySource: new Map([["sales:P", jeSale]]),
+    linesByEntry: new Map([["jeP", [{ account_code: "4100", debit: 0, credit: 100 }]]]),
+    docDateEntries: [jeSale]
+  });
+  // dashboard (POS+web) reconcile → residual 0 (service ไม่อยู่ทั้ง dashboard และ GL)
+  assert.equal(sum.revenue.unexplainedResidual, 0, "dashboard-basis residual ต้อง 0");
+  // income_overview − GL = service operational 6950 (opIncomeOverview 100+6950=7050, GL 100)
+  assert.equal(sum.revenue.deltaIncomeOverviewGl, 6950);
+  const IR = sum.incomeReconcile;
+  assert.equal(IR.serviceOperational, 6950);
+  assert.equal(IR.serviceGlPosted, 0);
+  assert.equal(IR.deltaServiceOpGl, 6950);
+  assert.equal(IR.serviceNoJv, 6950);
+  assert.equal(IR.serviceNoJvCount, 1);
+  assert.equal(IR.serviceIncomeResidual, 0, "แตกครบ (NO_JV) → income-basis residual 0");
 });
 
 // ── (p) runner ต้องไม่ select service_jobs.deleted_at (production ไม่มีคอลัมน์ → PG 42703/400) ──
