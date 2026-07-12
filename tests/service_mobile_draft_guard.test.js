@@ -44,6 +44,16 @@ test("all technician form pages persist and restore mobile drafts", () => {
   }
 });
 
+test("Phase 602: completion status in an old draft is normalized before it is applied to the form", () => {
+  for (const [name, src] of [["service_form", serviceForm], ["ac_install", acInstall], ["solar", solar]]) {
+    const applyIdx = src.indexOf("applyDraftFields(");
+    assert.ok(applyIdx > 0, `${name}: has applyDraftFields`);
+    assert.match(src.slice(0, applyIdx),
+      /draft\.fields\.status = normalizeServiceIntakeCreateStatus\(draft\.fields\.status\)/,
+      `${name}: normalizes draft.fields.status (done → pending_review) before applyDraftFields`);
+  }
+});
+
 test("equipment line-item changes are included in technician drafts", () => {
   assert.match(serviceForm, /bindServiceDraft\(container,\s*draftKey[\s\S]*?\(\) => \(\{ items: st\.items \}\)/);
   assert.match(acInstall, /bindServiceDraft\(container,\s*AC_DRAFT_KEY[\s\S]*?\(\) => \(\{ items: _items \}\)/);

@@ -1,12 +1,13 @@
 // ═══════════════════════════════════════════════════════════
 //  SOLAR — งานโซล่าเซลล์
-//  Phase 88.12: + ปิดงาน/แนบสลิป/AI verify (workflow ช่างส่ง→admin ยืนยัน)
-//  Phase 88.13: ลิ้งอุปกรณ์กับสต็อก (warehouse) + ตัดสต็อกอัตโนมัติตอน save
+//  Phase 88.12: + แนบสลิป/AI verify (workflow ช่างส่ง→admin ยืนยัน)
+//  Phase 88.13: ลิ้งอุปกรณ์กับสต็อก (warehouse) — ★ Phase 482: ไม่ตัดสต็อกตอน save แล้ว (ตัดตอนปิดงาน)
+//  Phase 602: ฟอร์มรับงาน = intake เท่านั้น — สร้างงานสถานะปิดไม่ได้ทุก role;
+//    ปิดงาน (วันปิด + JV + ตัดสต็อก) ทำที่ drawer "ใบรับงาน" ที่เดียว
 // ═══════════════════════════════════════════════════════════
 
-import { postJournalForServiceJob } from "./accounting/auto_post.js";
 import { aggregateNeedByKey } from "./stock_precheck.js";
-import { normalizeServiceJobStatus, serviceJobNoteWithReviewMarker } from "./service_status.js";
+import { normalizeServiceIntakeCreateStatus, normalizeServiceJobStatus, serviceJobNoteWithReviewMarker } from "./service_status.js";
 import { applyDraftFields, bindServiceDraft, clearServiceDraft, loadServiceDraft } from "./service_drafts.js";
 import { makePickerTouchGuard, renderPickerCart, updateCartBadges } from "./picker_cart.js";
 // Phase 567: idempotency กันใบงานซ้ำจาก timeout/retry
@@ -482,6 +483,9 @@ export function renderSolarPage(ctx) {
   _solInsertKey = createInsertIntent();  // Phase 567: เปิดฟอร์มใบใหม่ = intent ใหม่ (retry ใช้ค่าเดิม)
 
   const draft = loadServiceDraft(SOLAR_DRAFT_KEY);
+  // Phase 602: draft เก่าอาจเก็บ status=done (ตอน option ยังมี) → normalize ก่อน applyDraftFields
+  //   ไม่งั้น select.value=done จะ set ไม่ติด (option หายแล้ว) = ค่าว่างโดยไม่ตั้งใจ
+  if (draft?.fields) draft.fields.status = normalizeServiceIntakeCreateStatus(draft.fields.status);
   _solItems = Array.isArray(draft?.items) ? draft.items.map(it => ({ ...it })) : [];
 
   const typeOptions = SOLAR_TYPES.map(t => `<option value="${escHtml(t)}">${escHtml(t)}</option>`).join("");
@@ -555,12 +559,11 @@ export function renderSolarPage(ctx) {
       </div>
     </div>
 
-    <!-- 🔚 ปิดงาน + แนบสลิป (Phase 88.12) -->
+    <!-- 📨 ส่งงานให้แอดมินตรวจ + แนบสลิป (Phase 602) — ปิดงานที่ drawer ใบรับงานเท่านั้น -->
     <div class="panel" style="border:2px solid #fef3c7;background:#fffbeb">
-      <div class="set-section-title" style="color:#78350f">🔚 ปิดงาน (กรณีงานเสร็จ + รับเงินแล้ว)</div>
+      <div class="set-section-title" style="color:#78350f">📨 ส่งงานให้แอดมินตรวจ / แนบสลิป</div>
       <div style="font-size:11px;color:#92400e;margin-bottom:10px;line-height:1.6">
-        💡 ช่าง — เลือก <b>"📨 รออนุมัติ"</b> + แนบสลิป → ส่งให้แอดมินยืนยัน<br>
-        แอดมิน — เลือก <b>"ส่งมอบแล้ว"</b> → ระบบลงรายได้อัตโนมัติ ✨
+        💡 ช่างเลือก <b>"📨 รออนุมัติ"</b> และแนบสลิป → แอดมินเปิดงานจาก drawer ใบรับงานแล้วปิดงาน ระบบจึงลงรายได้และตัดสต็อก
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:10px">
         <div>
@@ -568,11 +571,9 @@ export function renderSolarPage(ctx) {
           <select id="solStatusSel" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;font:inherit;background:#fff">
             <option value="pending">⏳ รอดำเนินการ</option>
             <option value="in_progress">🔄 กำลังดำเนินการ</option>
-            <option value="done">✅ เสร็จแล้ว</option>
             <option value="pending_review">📨 รออนุมัติ</option>
           </select>
-          <!-- Phase 88.15: ลบ delivered/closed ออก — admin only ใน drawer ใบรับงาน -->
-          <!-- ช่างใช้ "📨 รออนุมัติ" + แนบสลิป → admin approve → JV เกิด -->
+          <!-- Phase 602: ไม่มี done/delivered/closed — ฟอร์มรับงานปิดงานไม่ได้ทุก role (คำอธิบายอยู่หัว panel) -->
         </div>
         <div>
           <label class="set-field-label">วิธีรับเงิน</label>
@@ -734,13 +735,10 @@ export function renderSolarPage(ctx) {
     const equipNote = _solItems.map(it => `${it.name} ${it.qty} ชิ้น = ฿${Number(it.line_total).toLocaleString()}`);
     const net = Math.max(0, labor + equipTotal - discount);
 
-    // Phase 88.12 — closure values
-    const selectedStatus = container.querySelector("#solStatusSel")?.value || "pending";
+    // ★ Phase 602: ฟอร์มรับงานสร้าง completion status ไม่ได้ทุก role — normalize ครั้งเดียวที่นี่
+    //   แล้วใช้ค่าเดียวกันต่อทั้ง status + note marker (กัน born-done จาก draft เก่า/DOM injection)
+    const selectedStatus = normalizeServiceIntakeCreateStatus(container.querySelector("#solStatusSel")?.value);
     const paymentMethod  = container.querySelector("#solPaymentMethod")?.value || "";
-    // Phase 88.15: ฟอร์มช่างไม่ trigger JV เอง — JV เกิดผ่าน admin drawer (approve banner)
-    // เดิม: ["done","delivered","closed"] → ตอนนี้ [] (ปลอดภัยกว่า — กัน JV เกิด 2 ครั้ง)
-    const COMPLETION_STATUSES = [];
-    const isClosure = COMPLETION_STATUSES.includes(selectedStatus);
 
     const statusEl = container.querySelector("#solStatus");
     statusEl.classList.remove("hidden");
@@ -835,11 +833,11 @@ export function renderSolarPage(ctx) {
         items_json: fullItems,  // ★ Phase 88.13: เก็บ items ใน DB
         status: normalizeServiceJobStatus(selectedStatus), // Phase 383: DB-safe (กัน 400 23514)
         note: serviceJobNoteWithReviewMarker(`ค่าแรง: ฿${labor.toLocaleString()}${discount ? ` ส่วนลด: ฿${discount.toLocaleString()}` : ""}`, selectedStatus),
-        // Phase 88.12 — บัญชี
+        // Phase 88.12 — บัญชี (JV เกิดตอนแอดมินปิดงานจาก drawer)
         total_cost: net,
         payment_method: paymentMethod || null,
-        payment_slip_url: _slipUrl || null,
-        closed_at: isClosure ? new Date().toISOString() : null
+        payment_slip_url: _slipUrl || null
+        // Phase 602: งานรับเข้าไม่ stamp วันปิดงาน — ปิดงาน (วันปิด + JV + ตัดสต็อก) ผ่าน drawer ใบรับงานเท่านั้น
       };
 
       // ★ Phase 567: POST ผ่าน helper กลาง — client_uuid + replay-lookup กัน service_jobs ซ้ำ
@@ -898,28 +896,8 @@ export function renderSolarPage(ctx) {
       showToast("บันทึกสำเร็จ!");
       clearServiceDraft(SOLAR_DRAFT_KEY);
 
-      // ★ Phase 88.12: auto-post JV ถ้าปิดงานทันที
-      if (jobId && isClosure) {
-        void (async () => {
-          const postRes = await postJournalForServiceJob({
-            id: jobId,
-            job_no: jobNo,
-            customer_name: name,
-            job_type: "solar",  // Phase 88.16 → mapping service_solar → Cr 4300
-            total_cost: net,
-            status: selectedStatus,
-            payment_method: paymentMethod,
-            created_at: new Date().toISOString()
-          }, { detailed: true });
-          if (postRes?.status === "failed") {
-            console.warn("[solar] auto-post JV failed:", postRes.reason, postRes.error || "");
-            showToast("บันทึกใบงานแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจ Service Reconcile/Backfill", "warn");
-          }
-        })().catch(e => {
-          console.warn("[solar] auto-post JV failed:", e?.message);
-          showToast("บันทึกใบงานแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจ Service Reconcile/Backfill", "warn");
-        });
-      }
+      // Phase 602: ลบ auto-post JV ของฟอร์มรับงานทิ้ง (dead code ตั้งแต่ 88.15 — COMPLETION_STATUSES ว่าง)
+      //   งานรับเข้าเป็น non-completion เสมอ → JV/ตัดสต็อกเกิดตอนแอดมินปิดงานจาก drawer ใบรับงานเท่านั้น
 
       // Phase 88.13: เคลียร์ items + reset price (กรณี user save แล้วทำใบใหม่)
       // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L3 module state reset after save (single save button per form)

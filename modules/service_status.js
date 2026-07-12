@@ -92,3 +92,36 @@ export function isServiceJobPendingReview(job) {
   if (job.status === "pending_review") return true;
   return job.status === "pending" && typeof job.note === "string" && job.note.includes(REVIEW_NOTE_MARKER);
 }
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 602 (build 601): intake create forms ห้ามสร้างงาน "เกิดมาปิดแล้ว" (born-done)
+//
+//  ปัญหา: ฟอร์มรับงาน (service_form / ac_install / solar) ยังมี option "เสร็จแล้ว" (done)
+//  แต่ closure side effects (closed_at + JV + ตัดสต็อก) ถูกย้ายไป admin drawer หมดแล้ว (88.15/545)
+//  → เลือก done ตอนสร้าง = row status=done, closed_at=null, ไม่มี JV, ไม่ตัดสต็อก (รายได้หาย)
+//  → non-admin ยิ่งหนัก: DB trigger trg_service_jobs_insert_close_guard (551) reject 42501 = save ล้ม
+//
+//  Policy: create path ของ intake form **ทุก role รวม admin** ต้องได้ non-completion status เสมอ
+//  (ไม่ใช่ role-gate — ปิดงานต้องผ่าน drawer "ใบรับงาน" ที่มี close pipeline ครบเท่านั้น)
+// ═══════════════════════════════════════════════════════════
+
+/** UI status ที่ intake create form อนุญาต (non-completion ทั้งหมด) */
+export const SERVICE_INTAKE_CREATE_STATUSES = ["pending", "in_progress", "pending_review"];
+
+/**
+ * Normalize status ที่ intake create form (service_form/ac_install/solar) จะส่งต่อ — กัน born-done
+ * ใช้กับ **ทุก role** (admin ก็ห้ามสร้าง completion จากฟอร์มนี้) ไม่ใช่ helper ที่ gate ตาม role
+ * - pending / in_progress / pending_review → คงเดิม
+ * - progress → in_progress (draft เก่าเก็บค่า DB-safe ไว้)
+ * - done / delivered / closed → pending_review (ส่งให้แอดมินปิดจาก drawer แทน)
+ * - null / empty / unknown / non-string → pending
+ * @param {*} status - ค่าดิบจาก select หรือ draft
+ * @returns {"pending"|"in_progress"|"pending_review"}
+ */
+export function normalizeServiceIntakeCreateStatus(status) {
+  const s = typeof status === "string" ? status.trim().toLowerCase() : "";
+  if (SERVICE_INTAKE_CREATE_STATUSES.includes(s)) return s;
+  if (s === "progress") return "in_progress";
+  if (isServiceCompletionStatus(s)) return "pending_review";
+  return "pending";
+}

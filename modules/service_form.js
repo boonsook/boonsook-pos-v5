@@ -8,10 +8,11 @@
 //  + รับ serviceType pre-fill ตอน mount
 // ═══════════════════════════════════════════════════════════
 
-// Phase 88.1b+: auto-post JV หลัง save (background, non-blocking)
-import { postJournalForServiceJob, getServiceTransferCoa } from "./accounting/auto_post.js";
+// Phase 602: ฟอร์มรับงานไม่โพสต์ JV เอง — JV/ตัดสต็อกเกิดตอนแอดมินปิดงานจาก drawer ใบรับงาน
+// (auto_post ใช้แค่ getServiceTransferCoa สำหรับ auto-transfer เตรียมของ)
+import { getServiceTransferCoa } from "./accounting/auto_post.js";
 import { aggregateNeedByKey } from "./stock_precheck.js";
-import { normalizeServiceJobStatus, serviceJobNoteWithReviewMarker } from "./service_status.js";
+import { normalizeServiceIntakeCreateStatus, normalizeServiceJobStatus, serviceJobNoteWithReviewMarker } from "./service_status.js";
 import { applyDraftFields, bindServiceDraft, clearServiceDraft, loadServiceDraft } from "./service_drafts.js";
 import { makePickerTouchGuard, renderPickerCart, updateCartBadges } from "./picker_cart.js";
 // Phase 567: idempotency กันใบงานซ้ำจาก timeout/retry
@@ -171,6 +172,9 @@ export function renderServiceFormPage(ctx, serviceType) {
   const st = _getStateFor(serviceType);
   const draftKey = `service_form:${serviceType}`;
   const draft = loadServiceDraft(draftKey);
+  // Phase 602: draft เก่าอาจเก็บ status=done (ตอน option ยังมี) → normalize ก่อน applyDraftFields
+  //   ไม่งั้น select.value=done จะ set ไม่ติด (option หายแล้ว) = ค่าว่างโดยไม่ตั้งใจ
+  if (draft?.fields) draft.fields.status = normalizeServiceIntakeCreateStatus(draft.fields.status);
   if (!st.lastSavedJob && Array.isArray(draft?.items)) {
     st.items = draft.items.map(it => ({ ...it }));
   }
@@ -238,12 +242,11 @@ export function renderServiceFormPage(ctx, serviceType) {
       <input type="text" id="svNote" placeholder="เช่น วันนัดหมาย, รายละเอียดเพิ่มเติม..." />
     </div>
 
-    <!-- 🔚 ปิดงาน (Phase 88.6) — ช่างเลือก status + แนบสลิป → JV เกิดทันที -->
+    <!-- 📨 ส่งงานให้แอดมินตรวจ (Phase 602) — ฟอร์มรับงานปิดงานไม่ได้ทุก role; ปิดงานที่ drawer ใบรับงาน -->
     <div class="panel" style="border:2px solid #fef3c7;background:#fffbeb">
-      <div class="set-section-title" style="color:#78350f">🔚 ปิดงาน (กรณีงานเสร็จ + รับเงินแล้ว)</div>
+      <div class="set-section-title" style="color:#78350f">📨 ส่งงานให้แอดมินตรวจ / แนบสลิป</div>
       <div style="font-size:11px;color:#92400e;margin-bottom:10px;line-height:1.6">
-        💡 ช่าง — เลือก <b>"📨 รออนุมัติ"</b> + แนบสลิป → ส่งให้แอดมินยืนยัน<br>
-        แอดมิน — เลือก <b>"ส่งมอบแล้ว"</b> หรือ <b>"ปิดงาน"</b> → ระบบลงรายได้อัตโนมัติ ✨
+        💡 ช่างเลือก <b>"📨 รออนุมัติ"</b> และแนบสลิป → แอดมินเปิดงานจาก drawer ใบรับงานแล้วปิดงาน ระบบจึงลงรายได้และตัดสต็อก
       </div>
 
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:10px">
@@ -252,10 +255,9 @@ export function renderServiceFormPage(ctx, serviceType) {
           <select id="svStatusSel" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;font:inherit;background:#fff">
             <option value="pending">⏳ รอดำเนินการ</option>
             <option value="in_progress">🔄 กำลังดำเนินการ</option>
-            <option value="done">✅ เสร็จแล้ว</option>
             <option value="pending_review">📨 รออนุมัติ (ช่างส่ง — รอแอดมิน)</option>
           </select>
-          <!-- Phase 88.15: ลบ delivered/closed ออก — admin only ใน drawer ใบรับงาน -->
+          <!-- Phase 602: ไม่มี done/delivered/closed — ฟอร์มรับงานปิดงานไม่ได้ทุก role (คำอธิบายอยู่หัว panel) -->
         </div>
         <div>
           <label class="set-field-label">วิธีรับเงิน (ถ้ามี)</label>
@@ -595,12 +597,10 @@ export function renderServiceFormPage(ctx, serviceType) {
         discount ? `ส่วนลด: -฿${discount.toLocaleString()}` : "",
       ].filter(Boolean).join(" | ");
 
-      // ★ Phase 88.6: รับค่าจาก closure section (default pending — ถ้า user ไม่เปลี่ยน)
-      const selectedStatus = container.querySelector("#svStatusSel")?.value || "pending";
+      // ★ Phase 602: ฟอร์มรับงานสร้าง completion status ไม่ได้ทุก role — normalize ครั้งเดียวที่นี่
+      //   แล้วใช้ค่าเดียวกันต่อทั้ง status + note marker (กัน born-done จาก draft เก่า/DOM injection)
+      const selectedStatus = normalizeServiceIntakeCreateStatus(container.querySelector("#svStatusSel")?.value);
       const paymentMethod  = container.querySelector("#svPaymentMethod")?.value || "";
-      // Phase 88.15: ฟอร์มช่างไม่ trigger JV เอง — JV เกิดผ่าน admin drawer (approve banner)
-      const COMPLETION_STATUSES = [];
-      const isClosure = COMPLETION_STATUSES.includes(selectedStatus);
 
       const record = {
         job_no: "JOB-" + Date.now(),
@@ -612,12 +612,12 @@ export function renderServiceFormPage(ctx, serviceType) {
         items_json: fullItems,
         status: normalizeServiceJobStatus(selectedStatus), // Phase 383: DB-safe (กัน 400 23514)
         note: serviceJobNoteWithReviewMarker(container.querySelector("#svNote").value.trim(), selectedStatus),
-        // ★ Phase 88.1b+: เก็บยอดสุทธิใน total_cost เพื่อให้ auto-post JV ใช้ได้
+        // ★ Phase 88.1b+: เก็บยอดสุทธิใน total_cost เพื่อให้ auto-post JV ใช้ได้ (ตอนแอดมินปิดงาน)
         total_cost: net,
-        // ★ Phase 88.6: ถ้าปิดงานเลย → เก็บ payment + slip + closed_at
+        // ★ Phase 88.6: เก็บ payment + slip ที่ช่างแนบมาตั้งแต่รับงาน
         payment_method: paymentMethod || null,
-        payment_slip_url: _slipUrl || null,
-        closed_at: isClosure ? new Date().toISOString() : null
+        payment_slip_url: _slipUrl || null
+        // Phase 602: งานรับเข้าไม่ stamp วันปิดงาน — ปิดงาน (วันปิด + JV + ตัดสต็อก) ผ่าน drawer ใบรับงานเท่านั้น
       };
 
       // ★ Phase 567: POST ผ่าน helper กลาง — client_uuid + replay-lookup กัน service_jobs ซ้ำ
@@ -690,29 +690,8 @@ export function renderServiceFormPage(ctx, serviceType) {
       showToast("บันทึกสำเร็จ!");
       clearServiceDraft(draftKey);
 
-      // ★ Phase 88.6: auto-post JV ถ้าช่างปิดงาน + เลือก completion status (delivered/closed/done)
-      // (default = pending → ไม่ trigger; ต้องเลือก status เพื่อสั่งปิดงาน)
-      if (jobId && isClosure) {
-        void (async () => {
-          const postRes = await postJournalForServiceJob({
-            id: jobId,
-            job_no: jobNo,
-            customer_name: name,
-            job_type: cfg.job_type,
-            total_cost: net,
-            status: record.status,
-            payment_method: paymentMethod,  // ★ เพื่อ override Dr account ถ้า transfer
-            created_at: new Date().toISOString()
-          }, { detailed: true });
-          if (postRes?.status === "failed") {
-            console.warn("[service_form] auto-post JV failed:", postRes.reason, postRes.error || "");
-            showToast("บันทึกใบงานแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจ Service Reconcile/Backfill", "warn");
-          }
-        })().catch(e => {
-          console.warn("[service_form] auto-post JV failed:", e?.message);
-          showToast("บันทึกใบงานแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจ Service Reconcile/Backfill", "warn");
-        });
-      }
+      // Phase 602: ลบ auto-post JV ของฟอร์มรับงานทิ้ง (dead code ตั้งแต่ 88.15 — COMPLETION_STATUSES ว่าง)
+      //   งานรับเข้าเป็น non-completion เสมอ → JV/ตัดสต็อกเกิดตอนแอดมินปิดงานจาก drawer ใบรับงานเท่านั้น
 
       _renderAfterSaveActions(container, ctx, serviceType);
     } catch (e) {

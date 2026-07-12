@@ -2,12 +2,13 @@
 //  AC INSTALL — ใบงานติดตั้งแอร์
 //  Phase 41: line items + receipt + LINE
 //  Phase 43: ตัดสต็อกจากคลังในรถ (mobile) + auto-transfer จากบ้านถ้าไม่พอ
-//  Phase 88.12: + ปิดงาน/แนบสลิป/AI verify (workflow ช่างส่ง→admin ยืนยัน)
+//  Phase 88.12: + แนบสลิป/AI verify (workflow ช่างส่ง→admin ยืนยัน)
+//  Phase 602: ฟอร์มรับงาน = intake เท่านั้น — สร้างงานสถานะปิดไม่ได้ทุก role;
+//    ปิดงาน (วันปิด + JV + ตัดสต็อก) ทำที่ drawer "ใบรับงาน" ที่เดียว
 // ═══════════════════════════════════════════════════════════
 
-import { postJournalForServiceJob } from "./accounting/auto_post.js";
 import { aggregateNeedByKey } from "./stock_precheck.js";
-import { normalizeServiceJobStatus, serviceJobNoteWithReviewMarker } from "./service_status.js";
+import { normalizeServiceIntakeCreateStatus, normalizeServiceJobStatus, serviceJobNoteWithReviewMarker } from "./service_status.js";
 import { applyDraftFields, bindServiceDraft, clearServiceDraft, loadServiceDraft } from "./service_drafts.js";
 import { makePickerTouchGuard, renderPickerCart, updateCartBadges } from "./picker_cart.js";
 // Phase 567: idempotency กันใบงานซ้ำจาก timeout/retry
@@ -90,6 +91,9 @@ export function renderAcInstallPage(ctx) {
   if (!container) return;
   _acInsertKey = createInsertIntent();  // Phase 567: เปิดฟอร์มใบใหม่ = intent ใหม่ (retry ใช้ค่าเดิม)
   const draft = loadServiceDraft(AC_DRAFT_KEY);
+  // Phase 602: draft เก่าอาจเก็บ status=done (ตอน option ยังมี) → normalize ก่อน applyDraftFields
+  //   ไม่งั้น select.value=done จะ set ไม่ติด (option หายแล้ว) = ค่าว่างโดยไม่ตั้งใจ
+  if (draft?.fields) draft.fields.status = normalizeServiceIntakeCreateStatus(draft.fields.status);
   if (!_lastSavedJob && Array.isArray(draft?.items)) {
     _items = draft.items.map(it => ({ ...it }));
   }
@@ -195,12 +199,11 @@ export function renderAcInstallPage(ctx) {
       <input type="text" id="acNote" placeholder="เช่น วันนัดติดตั้ง, รายละเอียดเพิ่มเติม..." />
     </div>
 
-    <!-- 🔚 ปิดงาน + แนบสลิป + AI verify (Phase 88.12) -->
+    <!-- 📨 ส่งงานให้แอดมินตรวจ + แนบสลิป + AI verify (Phase 602) — ปิดงานที่ drawer ใบรับงานเท่านั้น -->
     <div class="panel" style="border:2px solid #fef3c7;background:#fffbeb">
-      <div class="set-section-title" style="color:#78350f">🔚 ปิดงาน (กรณีงานเสร็จ + รับเงินแล้ว)</div>
+      <div class="set-section-title" style="color:#78350f">📨 ส่งงานให้แอดมินตรวจ / แนบสลิป</div>
       <div style="font-size:11px;color:#92400e;margin-bottom:10px;line-height:1.6">
-        💡 ช่าง — เลือก <b>"📨 รออนุมัติ"</b> + แนบสลิป → ส่งให้แอดมินยืนยัน<br>
-        แอดมิน — เลือก <b>"ส่งมอบแล้ว"</b> → ระบบลงรายได้อัตโนมัติ ✨
+        💡 ช่างเลือก <b>"📨 รออนุมัติ"</b> และแนบสลิป → แอดมินเปิดงานจาก drawer ใบรับงานแล้วปิดงาน ระบบจึงลงรายได้และตัดสต็อก
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:10px">
         <div>
@@ -208,10 +211,9 @@ export function renderAcInstallPage(ctx) {
           <select id="acStatusSel" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;font:inherit;background:#fff">
             <option value="pending">⏳ รอดำเนินการ</option>
             <option value="in_progress">🔄 กำลังดำเนินการ</option>
-            <option value="done">✅ เสร็จแล้ว</option>
             <option value="pending_review">📨 รออนุมัติ (ช่างส่ง — รอแอดมิน)</option>
           </select>
-          <!-- Phase 88.15: ลบ delivered/closed ออก — admin only ใน drawer ใบรับงาน -->
+          <!-- Phase 602: ไม่มี done/delivered/closed — ฟอร์มรับงานปิดงานไม่ได้ทุก role (คำอธิบายอยู่หัว panel) -->
         </div>
         <div>
           <label class="set-field-label">วิธีรับเงิน</label>
@@ -525,13 +527,11 @@ export function renderAcInstallPage(ctx) {
         discount ? `ส่วนลด: -฿${discount.toLocaleString()}` : "",
       ].filter(Boolean).join(" | ");
 
-      // ★ Phase 88.12: รับค่าจาก closure section
-      const selectedStatus = container.querySelector("#acStatusSel")?.value || "pending";
+      // ★ Phase 602: ฟอร์มรับงานสร้าง completion status ไม่ได้ทุก role — normalize ครั้งเดียวที่นี่
+      //   แล้วใช้ค่าเดียวกันต่อทั้ง status + note marker (กัน born-done จาก draft เก่า/DOM injection)
+      const selectedStatus = normalizeServiceIntakeCreateStatus(container.querySelector("#acStatusSel")?.value);
       const paymentMethod  = container.querySelector("#acPaymentMethod")?.value || "";
       const slipUrl        = container._getAcSlipUrl?.() || "";
-      // Phase 88.15: ฟอร์มช่างไม่ trigger JV เอง — JV เกิดผ่าน admin drawer (approve banner)
-      const COMPLETION_STATUSES = [];
-      const isClosure = COMPLETION_STATUSES.includes(selectedStatus);
 
       // Phase 43.2: ใช้ field name ตรงกับ schema (customer_address ไม่ใช่ address)
       // Phase 43.4: เพิ่ม job_no ก่อน insert (NOT NULL constraint) — pattern เดียวกับ main.js
@@ -545,11 +545,11 @@ export function renderAcInstallPage(ctx) {
         items_json: fullItems,
         status: normalizeServiceJobStatus(selectedStatus), // Phase 383: DB-safe (กัน 400 23514)
         note: serviceJobNoteWithReviewMarker(container.querySelector("#acNote").value.trim(), selectedStatus),
-        // Phase 88.12 — บัญชี
+        // Phase 88.12 — บัญชี (JV เกิดตอนแอดมินปิดงานจาก drawer)
         total_cost: net,
         payment_method: paymentMethod || null,
-        payment_slip_url: slipUrl || null,
-        closed_at: isClosure ? new Date().toISOString() : null
+        payment_slip_url: slipUrl || null
+        // Phase 602: งานรับเข้าไม่ stamp วันปิดงาน — ปิดงาน (วันปิด + JV + ตัดสต็อก) ผ่าน drawer ใบรับงานเท่านั้น
       };
 
       // ★ Phase 567: POST ผ่าน helper กลาง — client_uuid + replay-lookup กัน service_jobs ซ้ำ
@@ -624,28 +624,8 @@ export function renderAcInstallPage(ctx) {
       showToast("บันทึกสำเร็จ!");
       clearServiceDraft(AC_DRAFT_KEY);
 
-      // ★ Phase 88.12: auto-post JV ถ้าช่างปิดงานทันที (delivered/closed/done)
-      if (jobId && isClosure) {
-        void (async () => {
-          const postRes = await postJournalForServiceJob({
-            id: jobId,
-            job_no: jobNo,
-            customer_name: name,
-            job_type: "ac",  // install_ac → mapping service_install_ac → 4200
-            total_cost: net,
-            status: selectedStatus,
-            payment_method: paymentMethod,
-            created_at: new Date().toISOString()
-          }, { detailed: true });
-          if (postRes?.status === "failed") {
-            console.warn("[ac_install] auto-post JV failed:", postRes.reason, postRes.error || "");
-            showToast("บันทึกใบงานแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจ Service Reconcile/Backfill", "warn");
-          }
-        })().catch(e => {
-          console.warn("[ac_install] auto-post JV failed:", e?.message);
-          showToast("บันทึกใบงานแล้ว แต่ลงบัญชีอัตโนมัติไม่สำเร็จ — ตรวจ Service Reconcile/Backfill", "warn");
-        });
-      }
+      // Phase 602: ลบ auto-post JV ของฟอร์มรับงานทิ้ง (dead code ตั้งแต่ 88.15 — COMPLETION_STATUSES ว่าง)
+      //   งานรับเข้าเป็น non-completion เสมอ → JV/ตัดสต็อกเกิดตอนแอดมินปิดงานจาก drawer ใบรับงานเท่านั้น
 
       // ★ Phase 41 — แสดงปุ่มหลังบันทึก: ดูใบเสร็จ / ส่ง LINE / สร้างใบใหม่
       _renderAfterSaveActions(container, ctx);

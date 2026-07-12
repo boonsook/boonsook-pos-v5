@@ -17,9 +17,11 @@ import path from "node:path";
 
 const {
   normalizeServiceJobStatus,
+  normalizeServiceIntakeCreateStatus,
   serviceJobNoteWithReviewMarker,
   isServiceJobPendingReview,
   VALID_SERVICE_JOB_STATUSES,
+  SERVICE_INTAKE_CREATE_STATUSES,
   REVIEW_NOTE_MARKER,
 } = await import("../modules/service_status.js");
 
@@ -66,6 +68,59 @@ test("normalize: ผลลัพธ์ต้องเป็นค่าที่
     assert.ok(VALID_SERVICE_JOB_STATUSES.includes(normalizeServiceJobStatus(i)),
       `normalize(${JSON.stringify(i)}) ต้องอยู่ใน VALID list`);
   }
+});
+
+// ── normalizeServiceIntakeCreateStatus (Phase 602 — กัน born-done) ──────────
+test("intake: status ที่อนุญาต (pending/in_progress/pending_review) → คงเดิม", () => {
+  for (const s of SERVICE_INTAKE_CREATE_STATUSES) {
+    assert.equal(normalizeServiceIntakeCreateStatus(s), s);
+  }
+});
+
+test("intake: progress (draft เก่า DB-safe) → in_progress", () => {
+  assert.equal(normalizeServiceIntakeCreateStatus("progress"), "in_progress");
+});
+
+test("intake: completion (done/delivered/closed) → pending_review — ห้ามสร้างงานปิดจากฟอร์มรับงาน", () => {
+  assert.equal(normalizeServiceIntakeCreateStatus("done"), "pending_review");
+  assert.equal(normalizeServiceIntakeCreateStatus("delivered"), "pending_review");
+  assert.equal(normalizeServiceIntakeCreateStatus("closed"), "pending_review");
+});
+
+test("intake: trim + lowercase ก่อนตัดสิน (กัน DOM injection แบบ ' DONE ')", () => {
+  assert.equal(normalizeServiceIntakeCreateStatus(" DONE "), "pending_review");
+  assert.equal(normalizeServiceIntakeCreateStatus("  Delivered"), "pending_review");
+  assert.equal(normalizeServiceIntakeCreateStatus(" In_Progress "), "in_progress");
+  assert.equal(normalizeServiceIntakeCreateStatus("  pending_review  "), "pending_review");
+});
+
+test("intake: null / empty / unknown / non-string → pending", () => {
+  assert.equal(normalizeServiceIntakeCreateStatus(null), "pending");
+  assert.equal(normalizeServiceIntakeCreateStatus(undefined), "pending");
+  assert.equal(normalizeServiceIntakeCreateStatus(""), "pending");
+  assert.equal(normalizeServiceIntakeCreateStatus("garbage"), "pending");
+  assert.equal(normalizeServiceIntakeCreateStatus("cancelled"), "pending");
+  assert.equal(normalizeServiceIntakeCreateStatus(123), "pending");
+  assert.equal(normalizeServiceIntakeCreateStatus({}), "pending");
+});
+
+test("intake: ผลลัพธ์ต้องไม่เป็น completion เลย และเขียน DB แล้วไม่ปิดงาน (invariant)", () => {
+  const inputs = ["done", "delivered", "closed", " CLOSED ", "pending_review", "progress", "", null, "junk", {}, 7];
+  for (const i of inputs) {
+    const ui = normalizeServiceIntakeCreateStatus(i);
+    assert.ok(SERVICE_INTAKE_CREATE_STATUSES.includes(ui),
+      `intake(${JSON.stringify(i)}) → ${ui} ต้องอยู่ใน SERVICE_INTAKE_CREATE_STATUSES`);
+    // ส่งต่อ normalizeServiceJobStatus (ค่าที่เขียน DB จริง) ต้องไม่เป็น completion
+    const dbStatus = normalizeServiceJobStatus(ui);
+    assert.ok(!["done", "delivered", "closed"].includes(dbStatus),
+      `DB status จาก intake(${JSON.stringify(i)}) ต้องไม่ใช่ completion (ได้ ${dbStatus})`);
+  }
+});
+
+test("intake: done ที่ถูก inject → DB pending + note มี review marker (ส่งให้แอดมินปิดจาก drawer)", () => {
+  const ui = normalizeServiceIntakeCreateStatus("done");
+  assert.equal(normalizeServiceJobStatus(ui), "pending");
+  assert.equal(serviceJobNoteWithReviewMarker("งานล้างแอร์", ui), `งานล้างแอร์ ${REVIEW_NOTE_MARKER}`);
 });
 
 // ── serviceJobNoteWithReviewMarker ──────────────────────────────────────────
