@@ -1,8 +1,11 @@
 // Guard POS/service auto-JV posting:
 // - POS checkout (Phase 517b-0): JV post is now AWAITED so the success message is gated on the
 //   accounting result (prep for 517b Dr2180 — กัน "ขายสำเร็จแต่ล้าง 2180 ไม่สำเร็จ").
-// - service close (service_form/ac_install/solar): JV post stays a background task (not blocking).
-// - all callers must request detailed result and surface only real failed results.
+//   POS caller must request detailed result and surface only real failed results.
+// - service intake forms (service_form/ac_install/solar) — Phase 602: ไม่โพสต์ JV เองอีกแล้ว.
+//   ฟอร์มรับงานสร้างงานเป็น non-completion เสมอ (กัน born-done) → service close JV + ตัดสต็อก
+//   เกิดที่ admin drawer "ใบรับงาน" (main.js saveServiceJob) ที่เดียว. เดิมมี background-JV block
+//   ในฟอร์ม แต่เป็น dead code ตั้งแต่ 88.15 (COMPLETION_STATUSES = []) → ลบทิ้งใน Phase 602.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -11,17 +14,6 @@ import path from "node:path";
 
 function read(file) {
   return fs.readFileSync(path.resolve(file), "utf8");
-}
-
-function assertBackgroundDetailed(src, fnName, label) {
-  const idx = src.indexOf(`${fnName}({`);
-  assert.ok(idx >= 0, `${label} must call ${fnName}`);
-  const region = src.slice(Math.max(0, idx - 160), idx + 1000);
-  assert.match(region, /void\s*\(\s*async\s*\(\)\s*=>/, `${label} must keep JV post in a background task`);
-  assert.match(region, new RegExp(`${fnName}\\([\\s\\S]+,\\s*\\{\\s*detailed:\\s*true\\s*\\}`), `${label} must request detailed result`);
-  assert.match(region, /postRes\?\.status\s*===\s*["']failed["']/, `${label} must detect failed result`);
-  assert.match(region, /ลงบัญชีอัตโนมัติไม่สำเร็จ/, `${label} must warn on failed JV`);
-  assert.match(region, /\}\)\(\)\.catch\(/, `${label} background task must catch promise failures`);
 }
 
 // Phase 517b-0: POS sale JV is AWAITED (no longer background) so success is gated on the JV result.
@@ -41,8 +33,20 @@ test("POS sale auto-JV is awaited (517b-0) and surfaces detailed failures", () =
   assertAwaitedDetailed(read("modules/pos.js"), "postJournalForSale", "pos.js");
 });
 
+// Phase 602: intake forms ต้องไม่โพสต์ JV เอง (งานรับเข้า = non-completion เสมอ; ปิดงาน = admin drawer)
 for (const file of ["modules/service_form.js", "modules/ac_install.js", "modules/solar.js"]) {
-  test(`${file} service auto-JV stays background and surfaces detailed failures`, () => {
-    assertBackgroundDetailed(read(file), "postJournalForServiceJob", file);
+  test(`${file} intake form must NOT post service JV (close JV lives in the admin drawer)`, () => {
+    const src = read(file);
+    assert.doesNotMatch(src, /postJournalForServiceJob/,
+      `${file} must not import or call postJournalForServiceJob — service close JV is posted by main.js saveServiceJob (admin drawer)`);
+    // record ที่ POST service_jobs ต้องไม่ stamp closed_at — เช็คแบบเจาะ record block ใน
+    // tests/service_borndone_prevention_guard.test.js (file-wide grep จะชนคอมเมนต์)
   });
 }
+
+test("main.js admin drawer still posts the service close JV (single source)", () => {
+  const main = read("main.js");
+  assert.match(main, /postJournalForServiceJob\(/, "main.js saveServiceJob must still post the service JV on close");
+  assert.match(main, /transitionedToDone \|\| newJobAlreadyComplete \|\| editCompleteWithChange/,
+    "main.js must keep the close/complete JV trigger conditions");
+});
