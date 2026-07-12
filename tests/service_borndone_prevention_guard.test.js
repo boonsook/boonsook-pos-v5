@@ -136,6 +136,35 @@ for (const { name, src, selectId } of FORMS) {
   });
 }
 
+// ── Phase 603: visible copy ของ pending_review ต้องตรงกันทั้งสาม intake forms ──────
+// (value เหมือนกันอยู่แล้ว; drift อยู่ที่ label — solar เคยสั้นกว่า ทำให้ดูเหมือนคนละ workflow)
+const PENDING_REVIEW_OPTION = '<option value="pending_review">📨 รออนุมัติ (ช่างส่ง — รอแอดมิน)</option>';
+
+test("Phase 603: intake forms ทั้งสามใช้ label 'รออนุมัติ' ข้อความเดียวกันทุกตัวอักษร", () => {
+  for (const { name, src, selectId } of FORMS) {
+    const block = selectBlock(src, selectId);
+    assert.ok(block.includes(PENDING_REVIEW_OPTION),
+      `${name}: option pending_review ต้องเป็น "${PENDING_REVIEW_OPTION}" เป๊ะ (copy ตรงกันทั้งสามฟอร์ม)`);
+  }
+});
+
+// ── Phase 603: admin drawer (หน้าใบรับงาน) = canonical close path — ห้ามลบ completion ──
+// intake forms ห้ามสร้าง completion (Phase 602) แต่ drawer ต้องคง done/delivered/closed ไว้
+// เพราะเป็นทางเดียวที่ stamp closed_at + โพสต์ service JV + ตัดสต็อกจริง
+test("Phase 603: admin drawer #serviceStatus ยังมี completion statuses ครบ (canonical close path)", () => {
+  const html = read("index.html");
+  const start = html.indexOf('<select id="serviceStatus"');
+  assert.ok(start >= 0, 'index.html ต้องมี <select id="serviceStatus"> (drawer ใบรับงาน)');
+  const end = html.indexOf("</select>", start);
+  assert.ok(end > start, "#serviceStatus ต้องปิดด้วย </select>");
+  const block = html.slice(start, end);
+  for (const v of ["done", "delivered", "closed"]) {
+    assert.ok(block.includes(`value="${v}"`),
+      `drawer ใบรับงานต้องคง option ${v} — เป็น close path เดียวที่ลง closed_at + JV + ตัดสต็อก (ห้ามลบตาม intake forms)`);
+  }
+  assert.ok(block.includes('value="pending_review"'), "drawer ต้องยังมี pending_review (คิวรออนุมัติ)");
+});
+
 test("service_status.js: helper คุม intake create — pure, ไม่ gate ตาม role", () => {
   const src = read("modules/service_status.js");
   assert.match(src, /export const SERVICE_INTAKE_CREATE_STATUSES = \["pending", "in_progress", "pending_review"\]/);

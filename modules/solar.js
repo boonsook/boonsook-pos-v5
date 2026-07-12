@@ -571,7 +571,7 @@ export function renderSolarPage(ctx) {
           <select id="solStatusSel" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;font:inherit;background:#fff">
             <option value="pending">⏳ รอดำเนินการ</option>
             <option value="in_progress">🔄 กำลังดำเนินการ</option>
-            <option value="pending_review">📨 รออนุมัติ</option>
+            <option value="pending_review">📨 รออนุมัติ (ช่างส่ง — รอแอดมิน)</option>
           </select>
           <!-- Phase 602: ไม่มี done/delivered/closed — ฟอร์มรับงานปิดงานไม่ได้ทุก role (คำอธิบายอยู่หัว panel) -->
         </div>
