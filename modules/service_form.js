@@ -8,7 +8,8 @@
 //  + รับ serviceType pre-fill ตอน mount
 // ═══════════════════════════════════════════════════════════
 
-// Phase 88.1b+: auto-post JV หลัง save (background, non-blocking)
+// Phase 602: ฟอร์มรับงานไม่โพสต์ JV เอง — JV/ตัดสต็อกเกิดตอนแอดมินปิดงานจาก drawer ใบรับงาน
+// (auto_post ใช้แค่ getServiceTransferCoa สำหรับ auto-transfer เตรียมของ)
 import { getServiceTransferCoa } from "./accounting/auto_post.js";
 import { aggregateNeedByKey } from "./stock_precheck.js";
 import { normalizeServiceIntakeCreateStatus, normalizeServiceJobStatus, serviceJobNoteWithReviewMarker } from "./service_status.js";
@@ -241,12 +242,11 @@ export function renderServiceFormPage(ctx, serviceType) {
       <input type="text" id="svNote" placeholder="เช่น วันนัดหมาย, รายละเอียดเพิ่มเติม..." />
     </div>
 
-    <!-- 🔚 ปิดงาน (Phase 88.6) — ช่างเลือก status + แนบสลิป → JV เกิดทันที -->
+    <!-- 📨 ส่งงานให้แอดมินตรวจ (Phase 602) — ฟอร์มรับงานปิดงานไม่ได้ทุก role; ปิดงานที่ drawer ใบรับงาน -->
     <div class="panel" style="border:2px solid #fef3c7;background:#fffbeb">
-      <div class="set-section-title" style="color:#78350f">🔚 ปิดงาน (กรณีงานเสร็จ + รับเงินแล้ว)</div>
+      <div class="set-section-title" style="color:#78350f">📨 ส่งงานให้แอดมินตรวจ / แนบสลิป</div>
       <div style="font-size:11px;color:#92400e;margin-bottom:10px;line-height:1.6">
-        💡 ช่าง — เลือก <b>"📨 รออนุมัติ"</b> + แนบสลิป → ส่งให้แอดมินยืนยัน<br>
-        แอดมิน — เลือก <b>"ส่งมอบแล้ว"</b> หรือ <b>"ปิดงาน"</b> → ระบบลงรายได้อัตโนมัติ ✨
+        💡 ช่างเลือก <b>"📨 รออนุมัติ"</b> และแนบสลิป → แอดมินเปิดงานจาก drawer ใบรับงานแล้วปิดงาน ระบบจึงลงรายได้และตัดสต็อก
       </div>
 
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:10px">
@@ -257,8 +257,7 @@ export function renderServiceFormPage(ctx, serviceType) {
             <option value="in_progress">🔄 กำลังดำเนินการ</option>
             <option value="pending_review">📨 รออนุมัติ (ช่างส่ง — รอแอดมิน)</option>
           </select>
-          <!-- Phase 602: ฟอร์มรับงานสร้างงานสถานะปิด (done/delivered/closed) ไม่ได้ทุก role รวมแอดมิน -->
-          <div class="sku" style="margin-top:6px">ช่างเลือก “รออนุมัติ” — แอดมินปิดงานจาก drawer ใบรับงาน</div>
+          <!-- Phase 602: ไม่มี done/delivered/closed — ฟอร์มรับงานปิดงานไม่ได้ทุก role (คำอธิบายอยู่หัว panel) -->
         </div>
         <div>
           <label class="set-field-label">วิธีรับเงิน (ถ้ามี)</label>
