@@ -213,7 +213,11 @@ async function main() {
 
   console.log(`## สรุป`);
   console.log(`- **candidate (service income ที่ยังไม่มี approved JV): ${S.candidateCount} งาน · รวม ${money(S.candidateAmount)} บาท**`);
-  console.log(`- eligible สำหรับ S4.1c ทันที (ไม่มี blocker เลย): **${S.eligibleCount}** งาน`);
+  console.log(`- **readiness (แยก track — journal พร้อม ≠ ทั้งงานพร้อม):**`);
+  console.log(`  - journal recovery eligible (หลักฐาน GL พร้อมโพสต์): **${S.journalEligibleCount}/${S.candidateCount}**`);
+  console.log(`  - stock review required (ยังต้องตรวจ/ตัดสินใจฝั่งสต็อก): **${S.stockReviewRequiredCount}/${S.candidateCount}**`);
+  console.log(`  - owner confirmation pending (ยังไม่ยืนยันวันรับรู้รายได้): **${S.ownerConfirmationPendingCount}/${S.candidateCount}**`);
+  console.log(`  - **overall S4.1c ready (ครบทั้งสามมิติ): ${S.overallReadyCount}/${S.candidateCount}**`);
   console.log(`- journal taxonomy: ${Object.entries(S.journalCounts).map(([k, v]) => `${k} ${v}`).join(" · ") || "-"}`);
   console.log(`- stock taxonomy: ${Object.entries(S.stockCounts).map(([k, v]) => `${k} ${v}`).join(" · ") || "-"}`);
   console.log(`- blockers: ${Object.entries(S.blockerCounts).map(([k, v]) => `${k} ${v}`).join(" · ") || "ไม่มี"}`);
@@ -237,10 +241,11 @@ async function main() {
   }
 
   console.log(`\n## Owner decision table (วันรับรู้รายได้ — ระบบเลือกให้เองไม่ได้)`);
-  console.log("| job_no | system created | system closed | owner recognition date | amount basis | journal blockers | stock verdict | S4.1c eligible |");
-  console.log("|---|---|---|---|---:|---|---|---|");
+  console.log("| job_no | system created | system closed | owner recognition date | amount basis | journal blockers | journal eligible | stock verdict | stock review | **overall S4.1c ready** |");
+  console.log("|---|---|---|---|---:|---|---|---|---|---|");
   for (const r of rows) {
-    console.log(`| ${r.jobNo || r.jobId} | ${r.recognition.createdBkk || "-"} | ${r.recognition.closedBkk || "**ไม่มี**"} | **${r.recognition.ownerRecognitionDate}** | ${money(r.journal.detail.opAmount)} (total_cost) | ${r.blockers.join(", ") || "-"} | ${r.stock.verdict} | ${r.eligibleForS41c ? "YES" : "NO"} — ${r.eligibilityReason} |`);
+    const R = r.readiness;
+    console.log(`| ${r.jobNo || r.jobId} | ${r.recognition.createdBkk || "-"} | ${r.recognition.closedBkk || "**ไม่มี**"} | **${r.recognition.ownerRecognitionDate}** | ${money(r.journal.detail.opAmount)} (total_cost) | ${r.blockers.join(", ") || "-"} | ${R.journalRecoveryEligible ? "YES" : "NO"} | ${r.stock.verdict} | ${R.stockReviewRequired ? "REQUIRED" : "clear"} | **${R.overallS41cReady ? "YES" : "NO"}** — ${R.reason} |`);
   }
 
   if (excluded.length) {
@@ -279,18 +284,26 @@ async function main() {
   console.log(`\n─── จบรายงาน (read-only — ไม่มีการแก้ข้อมูล; S4.1c ยังไม่เริ่ม) ───`);
 
   // ── strict gate ──
-  const unresolved = rows.filter(r => !r.eligibleForS41c);
+  //   ★ ต้องแดงเมื่อ **overall** ยังไม่พร้อม — journal track พร้อมอย่างเดียวไม่พอ (สต็อก/วันรับรู้ยังค้าง)
+  const notOverallReady = rows.filter(r => !r.readiness.overallS41cReady);
+  const journalBlocked = rows.filter(r => !r.readiness.journalRecoveryEligible);
+  const stockPending = rows.filter(r => r.readiness.stockReviewRequired);
+  const ownerPending = rows.filter(r => r.readiness.ownerConfirmationPending);
   if (STRICT) {
     const reasons = [];
-    if (unresolved.length) reasons.push(`unresolved recovery blocker ${unresolved.length}/${S.candidateCount} งาน`);
+    if (notOverallReady.length) reasons.push(`overall ยังไม่พร้อม ${notOverallReady.length}/${S.candidateCount} งาน`);
+    if (journalBlocked.length) reasons.push(`journal blocker ${journalBlocked.length}`);
+    if (stockPending.length) reasons.push(`stock review required ${stockPending.length}`);
+    if (ownerPending.length) reasons.push(`owner recognition-date confirmation pending ${ownerPending.length}`);
     if (stockDataIncomplete) reasons.push("stock movements DATA_INCOMPLETE");
     if (!S.partitionOk) reasons.push("partition self-check ไม่ผ่าน");
     if (driftFail) reasons.push("BASELINE_DRIFT");
     if (reasons.length) {
-      console.log(`\n⚠️ --strict: ${reasons.join(" · ")} → exit 1 (คาดว่าแดงจนกว่า owner จะเลือกวันรับรู้รายได้/หลักฐานสต็อกจะชัด — ห้ามผ่อน gate)`);
+      console.log(`\n⚠️ --strict: ${reasons.join(" · ")} → exit 1`);
+      console.log(`_(journal track พร้อม ${S.journalEligibleCount}/${S.candidateCount} — แต่ overall ยังไม่พร้อมจนกว่า owner จะยืนยันวันรับรู้รายได้ และหลักฐานสต็อกจะถูกตรวจ; ห้ามผ่อน gate เพื่อให้เขียว)_`);
       return 1;
     }
-    console.log(`\n_strict: candidate ทุกงานพร้อมสำหรับ S4.1c (ไม่มี blocker) ✅_`);
+    console.log(`\n_strict: candidate ทุกงาน overall-ready สำหรับ S4.1c (บัญชี + สต็อก + owner ยืนยันวันแล้ว) ✅_`);
   }
   return 0;
 }

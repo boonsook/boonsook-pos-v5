@@ -65,7 +65,8 @@ test("1. closed_at null → OWNER_RECOGNITION_DATE_REQUIRED (ห้าม fallba
 
   const c = classifyServiceNoJvCandidate({ job: job({ closed_at: null }), entries: [], validMappingKeys: MAPPING_OK });
   assert.ok(c.blockers.includes("OWNER_RECOGNITION_DATE_REQUIRED"));
-  assert.equal(c.eligibleForS41c, false);
+  assert.equal(c.readiness.journalRecoveryEligible, false);
+  assert.equal(c.readiness.overallS41cReady, false);
 });
 
 test("1b. closed_at มีค่า → เป็น evidence แต่ยังต้องให้ owner ยืนยัน (ไม่ auto-approve)", () => {
@@ -77,11 +78,14 @@ test("1b. closed_at มีค่า → เป็น evidence แต่ยัง
 });
 
 // ═══ 2-6. journal taxonomy ═════════════════════════════════
-test("2. ไม่มี JE ผูก source → NO_APPROVED_JV (และ eligible เมื่อไม่มี blocker อื่น)", () => {
+test("2. ไม่มี JE ผูก source → NO_APPROVED_JV (journal track พร้อม แต่ overall ยังไม่พร้อม)", () => {
   const c = classifyServiceNoJvCandidate({ job: job(), entries: [], validMappingKeys: MAPPING_OK });
   assert.equal(c.journal.verdict, "NO_APPROVED_JV");
   assert.deepEqual(c.blockers, []);
-  assert.equal(c.eligibleForS41c, true);
+  assert.equal(c.readiness.journalRecoveryEligible, true);
+  // ★ review fix: closed_at เป็นหลักฐานของระบบ — owner ยังไม่ยืนยัน → overall ยังไม่พร้อม
+  assert.equal(c.readiness.ownerConfirmationPending, true);
+  assert.equal(c.readiness.overallS41cReady, false);
 });
 
 test("3. approved JV ตรงยอด/ตรงวัน → APPROVED_JV_PRESENT (ไม่ใช่เคส recovery)", () => {
@@ -133,7 +137,7 @@ test("8. mapping ไม่ active/ไม่ครบ → CURRENT_MAPPING_MISSING
   assert.equal(c.journal.detail.mappingKey, "service_cctv");
   assert.equal(c.journal.detail.mappingStatus, "MISSING_OR_INCOMPLETE");
   assert.ok(c.blockers.includes("CURRENT_MAPPING_MISSING"));
-  assert.equal(c.eligibleForS41c, false);
+  assert.equal(c.readiness.journalRecoveryEligible, false);
   // ไม่ส่ง validMappingKeys → UNCHECKED (ไม่กล่าวหาว่า mapping หาย)
   assert.equal(classifyJournalEvidence({ job: job(), entries: [] }).detail.mappingStatus, "UNCHECKED");
 });
@@ -168,7 +172,7 @@ test("10c. candidate scoping ต้องตรง S4.0: pre-effective (basis cl
   const c = classifyServiceNoJvCandidate({ job: job({ created_at: "2026-07-08T04:00:00Z", closed_at: null }), entries: [], validMappingKeys: MAPPING_OK });
   assert.equal(c.recognition.recognitionDecision, "OWNER_RECOGNITION_DATE_REQUIRED");
   assert.equal(c.recognition.ownerRecognitionDate, "PENDING_OWNER");
-  assert.equal(c.eligibleForS41c, false);
+  assert.equal(c.readiness.journalRecoveryEligible, false);
 });
 
 test("10b. pre-effective (ตาม closed_at) → PRE_EFFECTIVE_REVIEW blocker", () => {
@@ -324,20 +328,99 @@ test("21. partition: ทุก candidate ถูกนับใน journal + stoc
   assert.equal(s.journalSum, 3);
   assert.equal(s.stockSum, 3);
   assert.equal(s.partitionOk, true);
-  // JOB-1 + JOB-3 eligible ฝั่งบัญชี (JOB-3 สต็อกยัง conflict แต่ไม่ gate JV) · JOB-2 ติดวันรับรู้รายได้
-  assert.equal(s.eligibleCount, 2);
+  // JOB-1 + JOB-3 journal-eligible (JOB-3 สต็อกยัง conflict แต่ไม่ gate ฝั่งบัญชี) · JOB-2 ติดวันรับรู้รายได้
+  assert.equal(s.journalEligibleCount, 2);
+  assert.equal(s.overallReadyCount, 0, "ไม่มีงานไหน overall-ready (owner ยังไม่ยืนยันวัน + stock ค้าง)");
   assert.equal(s.blockerCounts.OWNER_RECOGNITION_DATE_REQUIRED, 1);
   assert.equal(s.stockCounts.STOCK_MARKER_MOVEMENT_CONFLICT, 1);
 });
 
-test("21b. accounting verdict กับ stock verdict แยกอิสระ (stock ไม่ gate JV และกลับกัน)", () => {
-  // ฝั่งบัญชีพร้อม (NO_APPROVED_JV ไม่มี blocker) แต่สต็อกยังพิสูจน์ไม่ได้ → ยัง eligible ฝั่ง JV
+test("21b. readiness แยก 3 ระดับ: journal พร้อม ≠ overall พร้อม (stock ยังต้องตรวจ)", () => {
   const c = classifyServiceNoJvCandidate({
     job: job({ items_json: "{{bad" }), entries: [], validMappingKeys: MAPPING_OK
   });
   assert.equal(c.journal.verdict, "NO_APPROVED_JV");
   assert.equal(c.stock.verdict, "STOCK_UNVERIFIABLE");
-  assert.equal(c.eligibleForS41c, true);   // สต็อกไม่ block การตัดสินใจฝั่งบัญชี (แยก recovery track)
+  assert.equal(c.readiness.journalRecoveryEligible, true, "สต็อกไม่ gate การตัดสินใจฝั่งบัญชี (แยก track)");
+  assert.equal(c.readiness.stockReviewRequired, true);
+  assert.equal(c.readiness.overallS41cReady, false, "stock ยัง unresolved → overall ต้องไม่พร้อม");
+  assert.match(c.readiness.reason, /stock ต้องตรวจ/);
+});
+
+// ═══ review follow-up fixtures (PR #189 — 5 กรณีที่ reviewer สั่ง) ═══════════
+test("R1. Blocking#1: overall/strict ต้องแดงเมื่อ stock ยัง unresolved แม้ journal พร้อม", () => {
+  // qty ตรงครบ + marker ครบ → ยัง WAREHOUSE_UNVERIFIABLE (movement ไม่มี warehouse_id) = stock review required
+  const c = classifyServiceNoJvCandidate({
+    job: job({ items_json: [{ product_id: 5, qty: 2, warehouse_id: 1 }], stock_deducted_at: "2026-07-05T05:00:00Z" }),
+    entries: [], validMappingKeys: MAPPING_OK, productMap: PM, movements: [mv({ qty: 2 })]
+  });
+  assert.equal(c.stock.verdict, "STOCK_QTY_EVIDENCE_PRESENT_WAREHOUSE_UNVERIFIABLE");
+  assert.equal(c.readiness.journalRecoveryEligible, true);
+  assert.equal(c.readiness.stockReviewRequired, true, "WAREHOUSE_UNVERIFIABLE ต้องยังนับเป็น stock review");
+  assert.equal(c.readiness.overallS41cReady, false);
+  // สต็อกที่ 'clear' จริงมีแค่ STOCK_NOT_REQUIRED ที่ไม่มี flag
+  const clean = classifyServiceNoJvCandidate({ job: job({ items_json: [] }), entries: [], validMappingKeys: MAPPING_OK });
+  assert.equal(clean.readiness.stockReviewRequired, false);
+  assert.equal(clean.readiness.overallS41cReady, false, "แต่ owner ยังไม่ยืนยันวัน → overall ยังไม่พร้อม");
+});
+
+test("R2. Blocking#2: mixed valid + unusable/missing-meta items ห้ามประกาศว่า qty evidence ครบ", () => {
+  // item A ถูกต้อง + movement ตรง · item B ขาด warehouse_id
+  const mixedWarehouse = classifyStockEvidence({
+    job: job({ items_json: [{ product_id: 5, qty: 2, warehouse_id: 1 }, { product_id: 6, qty: 1 }], stock_deducted_at: "x" }),
+    productMap: PM, movements: [mv({ qty: 2 })]
+  });
+  assert.equal(mixedWarehouse.verdict, "STOCK_PARTIAL_EXPECTATION_UNVERIFIABLE");
+  assert.ok(mixedWarehouse.flags.includes("ITEM_MISSING_PRODUCT_WAREHOUSE_OR_QTY"));
+  assert.ok(mixedWarehouse.flags.includes("PARTIAL_EXPECTATION_UNVERIFIABLE"));
+  assert.notEqual(mixedWarehouse.verdict, "STOCK_QTY_EVIDENCE_PRESENT_WAREHOUSE_UNVERIFIABLE");
+  // item B ไม่มี product metadata → เหมือนกัน
+  const mixedMeta = classifyStockEvidence({
+    job: job({ items_json: [{ product_id: 5, qty: 2, warehouse_id: 1 }, { product_id: 999, qty: 1, warehouse_id: 1 }], stock_deducted_at: "x" }),
+    productMap: PM, movements: [mv({ qty: 2 })]
+  });
+  assert.equal(mixedMeta.verdict, "STOCK_PARTIAL_EXPECTATION_UNVERIFIABLE");
+  assert.ok(mixedMeta.flags.includes("PRODUCT_METADATA_MISSING"));
+});
+
+test("R3. Should-fix: closed_at มีค่า แต่ owner ยังไม่ยืนยัน → PENDING_OWNER = overall ไม่พร้อม", () => {
+  const c = classifyServiceNoJvCandidate({ job: job(), entries: [], validMappingKeys: MAPPING_OK });
+  assert.equal(c.recognition.ownerRecognitionDate, "PENDING_OWNER");
+  assert.equal(c.readiness.ownerConfirmationPending, true);
+  assert.equal(c.readiness.overallS41cReady, false);
+  assert.match(c.readiness.reason, /owner ยังไม่ยืนยันวันรับรู้รายได้/);
+});
+
+test("R4. Should-fix: ไม่มี stockable item แต่มี deduct claim/marker → conflict (ไม่ใช่ NOT_REQUIRED)", () => {
+  const byColumn = classifyStockEvidence({ job: job({ items_json: [], stock_deducted_at: "2026-07-05T05:00:00Z" }), productMap: PM });
+  assert.equal(byColumn.verdict, "STOCK_MARKER_MOVEMENT_CONFLICT");
+  assert.ok(byColumn.flags.includes("DEDUCT_CLAIM_WITHOUT_EXPECTED_ITEMS"));
+  const byNote = classifyStockEvidence({ job: job({ items_json: [], note: "งานเสร็จ [ตัดสต็อกแล้ว]" }), productMap: PM });
+  assert.equal(byNote.verdict, "STOCK_MARKER_MOVEMENT_CONFLICT");
+  const reverted = classifyStockEvidence({ job: job({ items_json: [], stock_reverted_at: "2026-07-06T00:00:00Z" }), productMap: PM });
+  assert.equal(reverted.verdict, "STOCK_REVERTED_CONFLICT");
+});
+
+test("R5. summarize นับ readiness แยกกัน (journal / stock / owner / overall)", () => {
+  const rows = [
+    classifyServiceNoJvCandidate({ job: job({ id: 1, job_no: "JOB-1" }), entries: [], validMappingKeys: MAPPING_OK }),
+    classifyServiceNoJvCandidate({ job: job({ id: 2, job_no: "JOB-2", closed_at: null }), entries: [], validMappingKeys: MAPPING_OK }),
+    classifyServiceNoJvCandidate({ job: job({ id: 3, job_no: "JOB-3", items_json: ITEMS, stock_deducted_at: "x" }), entries: [], validMappingKeys: MAPPING_OK, productMap: PM, movements: [] }),
+  ];
+  const s = summarizeClassification(rows);
+  assert.equal(s.journalEligibleCount, 2);
+  assert.equal(s.stockReviewRequiredCount, 1);
+  assert.equal(s.ownerConfirmationPendingCount, 3);
+  assert.equal(s.overallReadyCount, 0);
+});
+
+test("R6. strict gate ใน runner ต้อง gate ด้วย overall/stock/owner ไม่ใช่ journal อย่างเดียว", () => {
+  const strict = RUNNER_CODE.slice(RUNNER_CODE.indexOf("const notOverallReady"), RUNNER_CODE.indexOf("main().then"));
+  assert.match(strict, /readiness\.overallS41cReady/, "strict ต้อง gate ด้วย overallS41cReady");
+  assert.match(strict, /readiness\.stockReviewRequired/, "strict ต้องนับ stock review");
+  assert.match(strict, /readiness\.ownerConfirmationPending/, "strict ต้องนับ owner confirmation");
+  assert.ok(!/eligibleForS41c/.test(RUNNER_CODE), "ต้องไม่เหลือ gate เดิมที่ดูแค่ฝั่ง journal");
+  assert.ok(!/eligibleForS41c/.test(LIB), "lib ต้องเลิก export flag รวมที่กำกวม (ใช้ readiness แทน)");
 });
 
 // ═══ 22. mapping drift vs auto_post (writer จริง) ═══════════
@@ -430,7 +513,9 @@ test("26. runner ไม่ print credential/token/PII", () => {
 test("27. exit semantics: default report-only 0 · strict 1 (blocker/incomplete/drift) · fatal 2", () => {
   assert.match(RUNNER, /function fatal\(msg\) \{ console\.error\("\[fatal\] " \+ msg\); process\.exit\(2\); \}/, "fatal = exit 2");
   const strict = RUNNER.slice(RUNNER.indexOf("// ── strict gate ──"), RUNNER.indexOf("main().then"));
-  assert.match(strict, /unresolved recovery blocker/);
+  assert.match(strict, /overall ยังไม่พร้อม/, "strict ต้องรายงานว่า overall ยังไม่พร้อม (ไม่ใช่แค่ journal)");
+  assert.match(strict, /stock review required/);
+  assert.match(strict, /owner recognition-date confirmation pending/);
   assert.match(strict, /stockDataIncomplete/);
   assert.match(strict, /BASELINE_DRIFT/);
   assert.match(strict, /return 1/, "strict + blocker → exit 1");

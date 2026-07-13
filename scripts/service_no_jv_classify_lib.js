@@ -213,16 +213,31 @@ export function classifyStockEvidence({ job, productMap = new Map(), movements =
     return { verdict: "STOCK_REVERTED_CONFLICT", flags, expected, evidence };
   }
 
+  const hasDeductClaim = (deductedAt !== null && deductedAt !== undefined) || noteHasDeductMarker;
+
   // ไม่มี item ที่ต้องตัดสต็อกเลย
   if (part.stockable.length === 0) {
     if (unusableItemCount > 0 || missingMetaItemCount > 0) {
       return { verdict: "STOCK_UNVERIFIABLE", flags, expected, evidence };   // มี item แต่พิสูจน์ไม่ได้ว่าต้องตัดไหม
+    }
+    // ★ review fix: ไม่คาดว่าจะตัดอะไรเลย แต่มี claim/marker ระดับงาน = ข้อมูลขัดกัน (ห้ามบอกว่า "ไม่ต้องตัด")
+    if (hasDeductClaim) {
+      flags.push("DEDUCT_CLAIM_WITHOUT_EXPECTED_ITEMS");
+      return { verdict: "STOCK_MARKER_MOVEMENT_CONFLICT", flags, expected, evidence };
     }
     if (outTotal > 0) {   // ไม่คาดว่าจะตัด แต่มี movement = ต้องดู
       flags.push("MOVEMENT_WITHOUT_EXPECTED_ITEMS");
       return { verdict: "STOCK_MOVEMENT_WITHOUT_MARKER", flags, expected, evidence };
     }
     return { verdict: "STOCK_NOT_REQUIRED", flags, expected, evidence };
+  }
+
+  // ★ review fix (Blocking #2): มี stockable บางส่วน + item ที่พิสูจน์ไม่ได้ (ขาด warehouse/product/qty
+  //   หรือไม่มี product metadata) → "ของที่คาดว่าต้องตัด" ยังไม่ครบ → ห้ามประกาศว่า qty evidence ครบ
+  //   แม้ movement ของ item ที่ valid จะตรงทุกตัว (item B อาจต้องตัดแต่เราไม่รู้ว่าต้องตัดเท่าไร/คลังไหน)
+  if (unusableItemCount > 0 || missingMetaItemCount > 0) {
+    flags.push("PARTIAL_EXPECTATION_UNVERIFIABLE");
+    return { verdict: "STOCK_PARTIAL_EXPECTATION_UNVERIFIABLE", flags, expected, evidence };
   }
 
   // มี stockable items → เทียบ qty ต่อ product (ไม่ใช่นับ rows)
@@ -241,7 +256,7 @@ export function classifyStockEvidence({ job, productMap = new Map(), movements =
   }
   evidence.perProduct = perProduct;
   const qtyFullyMatched = shortProducts === 0 && overProducts === 0 && matchedProducts === part.expectedQtyByProduct.size;
-  const hasMarker = deductedAt !== null && deductedAt !== undefined;
+  const hasMarker = hasDeductClaim;   // claim ระดับงาน = คอลัมน์ stock_deducted_at หรือ note marker [ตัดสต็อกแล้ว]
 
   // marker ไม่มี + ไม่พบ movement ที่ตรง marker (≠ พิสูจน์ว่าไม่ได้ตัด — movement log เป็น best-effort)
   if (!hasMarker && outTotal === 0) {
@@ -415,30 +430,40 @@ export function isServiceIncomeCandidate(job, effective = ACCOUNTING_EFFECTIVE_D
 
 // ── รวมทุกมิติต่อ 1 งาน ────────────────────────────────────
 /**
- * @returns {{jobId, jobNo, journal, stock, recognition, eligibleForS41c:boolean, eligibilityReason:string, blockers:string[]}}
+ * @returns {{jobId, jobNo, journal, stock, recognition, readiness:{journalRecoveryEligible:boolean, stockReviewRequired:boolean, ownerConfirmationPending:boolean, overallS41cReady:boolean, reason:string}, blockers:string[]}}
  */
 export function classifyServiceNoJvCandidate({ job, entries = [], linesByEntry = new Map(), validMappingKeys = null, productMap = new Map(), movements = [], stockDataIncomplete = false, effective = ACCOUNTING_EFFECTIVE_DATE } = {}) {
   const journal = classifyJournalEvidence({ job, entries, linesByEntry, validMappingKeys, effective });
   const stock = classifyStockEvidence({ job, productMap, movements, dataIncomplete: stockDataIncomplete });
   const recognition = classifyRecognitionDate(job);
 
-  // eligible = ฝั่งบัญชีพร้อมโพสต์จริง (ไม่มี JV, ไม่มี blocker ใด ๆ) — สต็อกแยกต่างหาก ไม่ gate JV
+  // ── readiness 3 ระดับ (review fix — ห้ามให้ journal readiness พูดแทนทั้งงาน) ────────────────
+  //  journalRecoveryEligible : หลักฐานฝั่ง GL พร้อมโพสต์ (ไม่มี JV ผูก source + ไม่มี blocker บัญชี)
+  //  stockReviewRequired     : ฝั่งสต็อกยังต้องตรวจ/ตัดสินใจ (รวม WAREHOUSE_UNVERIFIABLE — qty ตรงก็ยังยืนยันคลังไม่ได้)
+  //  ownerConfirmationPending: owner ยังไม่ยืนยันวันรับรู้รายได้ (closed_at เป็นแค่หลักฐานของระบบ)
+  //  overallS41cReady        : พร้อมจริงทั้งงาน = ครบทั้งสามอย่าง (สคริปต์ประกาศเองไม่ได้ตราบใดที่ owner ยังไม่ยืนยัน)
   const blockers = [...journal.blockers];
-  let eligible = false;
-  let reason;
-  if (journal.verdict === "NO_APPROVED_JV" && blockers.length === 0) {
-    eligible = true;
-    reason = "หลักฐานครบ: ไม่มี JV ผูก source · mapping ใช้ได้ · มี closed_at เป็นวันรับรู้ (รอ owner ยืนยัน)";
-  } else if (journal.verdict === "NO_APPROVED_JV") {
-    reason = `ยังโพสต์ไม่ได้ — blocker: ${blockers.join(", ")}`;
-  } else {
-    reason = `ไม่ใช่เคส post-JV ตรง ๆ — verdict ${journal.verdict}`;
+  const journalRecoveryEligible = journal.verdict === "NO_APPROVED_JV" && blockers.length === 0;
+  const stockReviewRequired = !(stock.verdict === "STOCK_NOT_REQUIRED" && stock.flags.length === 0);
+  const ownerConfirmationPending = recognition.ownerRecognitionDate === "PENDING_OWNER";
+  const overallS41cReady = journalRecoveryEligible && !stockReviewRequired && !ownerConfirmationPending;
+
+  const notReady = [];
+  if (!journalRecoveryEligible) {
+    notReady.push(journal.verdict === "NO_APPROVED_JV"
+      ? `journal blocker: ${blockers.join(", ")}`
+      : `journal verdict ${journal.verdict} (ไม่ใช่เคส post-JV ตรง ๆ)`);
   }
+  if (stockReviewRequired) notReady.push(`stock ต้องตรวจ: ${stock.verdict}`);
+  if (ownerConfirmationPending) notReady.push("owner ยังไม่ยืนยันวันรับรู้รายได้");
+  const readinessReason = overallS41cReady ? "พร้อมทุกมิติ (บัญชี + สต็อก + owner ยืนยันวันแล้ว)" : notReady.join(" · ");
+
   return {
     jobId: job?.id, jobNo: job?.job_no || null, jobType: job?.job_type || null, status: job?.status || null,
     paymentMethod: job?.payment_method || null,
     journal, stock, recognition,
-    eligibleForS41c: eligible, eligibilityReason: reason, blockers,
+    readiness: { journalRecoveryEligible, stockReviewRequired, ownerConfirmationPending, overallS41cReady, reason: readinessReason },
+    blockers,
     // VAT: writer ไม่แยก VAT ของงานบริการ และ service_jobs ไม่มี field VAT → ห้ามคำนวณเอง
     vatNote: "VAT_BASIS_NOT_SEPARATELY_EVIDENCED"
   };
@@ -457,10 +482,15 @@ export function summarizeClassification(rows) {
   const total = (rows || []).length;
   const journalSum = Object.values(journalCounts).reduce((a, b) => a + b, 0);
   const stockSum = Object.values(stockCounts).reduce((a, b) => a + b, 0);
+  const list = rows || [];
   return {
     candidateCount: total, candidateAmount: amount,
     journalCounts, stockCounts, blockerCounts,
-    eligibleCount: (rows || []).filter(r => r.eligibleForS41c).length,
+    // readiness แยก 3 ระดับ — ห้ามสรุปรวมเป็นตัวเดียว (journal พร้อม ≠ ทั้งงานพร้อม)
+    journalEligibleCount: list.filter(r => r.readiness.journalRecoveryEligible).length,
+    stockReviewRequiredCount: list.filter(r => r.readiness.stockReviewRequired).length,
+    ownerConfirmationPendingCount: list.filter(r => r.readiness.ownerConfirmationPending).length,
+    overallReadyCount: list.filter(r => r.readiness.overallS41cReady).length,
     partitionOk: journalSum === total && stockSum === total,
     journalSum, stockSum
   };
