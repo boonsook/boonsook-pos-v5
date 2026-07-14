@@ -474,8 +474,11 @@ BEGIN
   WHERE a.attrelid='public.service_jobs'::regclass AND a.attname='id' AND NOT a.attisdropped;
   v_job_val := CASE WHEN v_id_type ILIKE '%uuid%' THEN 'gen_random_uuid()' ELSE '1' END;
 
-  DROP TABLE IF EXISTS _sp_probe;
-  CREATE TEMP TABLE _sp_probe (LIKE public.service_payments INCLUDING CONSTRAINTS) ON COMMIT DROP;
+  -- ★ ต้อง qualify ด้วย pg_temp ทุกจุด: `DROP TABLE IF EXISTS _sp_probe` แบบไม่ qualify
+  --   resolve ตาม search_path ได้ → ถ้ามีตารางถาวร public._sp_probe อยู่ จะโดนลบจริงและ commit ไปด้วย
+  DROP TABLE IF EXISTS pg_temp._phase606a_sp_probe;
+  CREATE TEMP TABLE pg_temp._phase606a_sp_probe
+    (LIKE public.service_payments INCLUDING CONSTRAINTS) ON COMMIT DROP;
 
   FOR v_case IN
     SELECT * FROM (VALUES
@@ -494,7 +497,7 @@ BEGIN
   LOOP
     v_i  := v_i + 1;
     v_sql := format(
-      'INSERT INTO _sp_probe (id, service_job_id, amount, payment_method, bank_coa_code, paid_at, idempotency_key, created_at)
+      'INSERT INTO pg_temp._phase606a_sp_probe (id, service_job_id, amount, payment_method, bank_coa_code, paid_at, idempotency_key, created_at)
        VALUES (%s, %s, %s, %L, %s, now(), gen_random_uuid(), now())',
       v_i, v_job_val, v_case.amount_expr, v_case.method, v_case.bank_expr);
     v_ok := true;                       -- true = INSERT ผ่าน

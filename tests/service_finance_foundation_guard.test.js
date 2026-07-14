@@ -263,7 +263,7 @@ test("A8c. should-fix: existing-table verify ครบ (type/NOT NULL/default/PK
 
 test("A8d. review#4: CHECK semantics probe ต้องพิสูจน์พฤติกรรมจริงของ constraint (ไม่ใช่ substring)", () => {
   const b = block("-- 8b) ★ CHECK semantics probe", "-- 9) RLS");
-  assert.match(b, /CREATE TEMP TABLE _sp_probe \(LIKE public\.service_payments INCLUDING CONSTRAINTS\) ON COMMIT DROP/);
+  assert.match(b, /CREATE TEMP TABLE pg_temp\._phase606a_sp_probe\s*\n?\s*\(LIKE public\.service_payments INCLUDING CONSTRAINTS\) ON COMMIT DROP/);
   for (const c of ["'0'", "'-1'", "'''NaN''::numeric'", "'''Infinity''::numeric'", "'''-Infinity''::numeric'",
     "'promptpay'", "'transfer',  'NULL'", "'cash',      '''1130'''"]) {
     assert.ok(b.includes(c), `probe ต้องมีเคส: ${c}`);
@@ -271,6 +271,20 @@ test("A8d. review#4: CHECK semantics probe ต้องพิสูจน์พ�
   assert.match(b, /CHECK semantics ผิดสัญญา/, "เคสไหนผิดสัญญา = rollback ทั้ง migration");
   assert.ok(!/UPDATE|DELETE FROM public\./.test(code(b)), "probe ห้ามแตะข้อมูลจริง");
   assert.ok(!/INSERT INTO public\./.test(code(b)), "probe ต้องเขียนลง temp table เท่านั้น");
+
+  // ★ review#5 (blocking): DROP/CREATE/INSERT ของ probe ต้อง qualify pg_temp ทุกจุด
+  //   unqualified `DROP TABLE IF EXISTS _sp_probe` resolve ตาม search_path → ลบตารางถาวรได้
+  const c = code(b);
+  assert.ok(!/DROP TABLE IF EXISTS\s+_sp_probe/.test(c), "ห้าม DROP TABLE ที่ไม่ qualify (โดน public.* ได้)");
+  assert.match(c, /DROP TABLE IF EXISTS pg_temp\._phase606a_sp_probe/);
+  assert.equal((c.match(/_phase606a_sp_probe/g) || []).length, 3, "probe ต้องอ้างชื่อเดียวกัน 3 จุด (drop/create/insert)");
+  for (const m of c.match(/_phase606a_sp_probe/g) ? c.match(/[\w.]*_phase606a_sp_probe/g) : []) {
+    assert.equal(m, "pg_temp._phase606a_sp_probe", "ทุกจุดต้อง qualify ด้วย pg_temp");
+  }
+  assert.ok(!/\bDROP\s+(TABLE|SCHEMA|FUNCTION|TRIGGER)\b(?![\s\S]{0,40}pg_temp)/.test(c),
+    "probe ห้ามมี DROP ที่ไม่ใช่ pg_temp");
+  assert.ok(!/\b(DROP|TRUNCATE|UPDATE|DELETE|INSERT)\b[\s\S]{0,60}public\.(?!service_payments\s*INCLUDING|service_jobs'::regclass)/.test(c),
+    "probe ห้าม destructive statement ต่อ public.*");
 });
 
 test("A9. POST-CHECK: NOT NULL · constraints · triggers enabled · ledger schema+ว่าง · flow2=0", () => {
