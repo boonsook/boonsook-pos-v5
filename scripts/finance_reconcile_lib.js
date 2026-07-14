@@ -40,14 +40,44 @@ const WEB_ORDER_JOB_NO = /^(AI|SH)-/i;
 const WEB_ORDER_NOTE = /^(AI Sales:|AC Shop:)/i;
 const WEB_ORDER_LEGACY_NOTE = /^SH-(transfer|cod_cash|cod_transfer)\|/;
 
+// ═══ Phase 606-a: source identity (แหล่งกำเนิดงาน) แยกจาก income eligibility ═══
+//  ★ identity ไม่ขึ้นกับวงจรชีวิตงาน — web order ที่ถูกยกเลิก/ลบ **ยังเป็น web_order**
+//  ★ eligibility (จะนับเป็นรายได้ไหม) ใช้ isServiceIncomeJob/isWebOrderJob แยกต่างหาก
+//  ★ ลำดับความน่าเชื่อถือ: source_kind จาก DB (Phase 606-a) → marker เดิม (งานก่อน migration)
+//    → ค่า invalid = **ห้ามกลืนเป็น service เงียบ ๆ** (คืน invalid ให้ caller รายงาน dataIncomplete)
+export const SOURCE_KINDS = { SERVICE: "service", WEB_ORDER: "web_order" };
+
+/** derive จาก marker แบบ anchored (ต้อง "ขึ้นต้น" — substring กลางประโยคไม่นับ) — mirror SQL derive_service_source_kind() */
+export function deriveSourceKindFromMarkers(job) {
+  const note = String(job?.note || "");
+  const isWeb = String(job?.sub_service || "").includes("สั่งซื้อ")
+    || WEB_ORDER_LEGACY_NOTE.test(note)
+    || WEB_ORDER_JOB_NO.test(String(job?.job_no || ""))
+    || WEB_ORDER_NOTE.test(note);
+  return isWeb ? SOURCE_KINDS.WEB_ORDER : SOURCE_KINDS.SERVICE;
+}
+
+/**
+ * @returns {{kind:"service"|"web_order"|null, from:"db"|"marker"|"invalid"}}
+ *   from="invalid" → source_kind ใน DB เป็นค่าที่ไม่รู้จัก = data problem (strict ต้องแดง)
+ */
+export function serviceJobSourceKindOf(job) {
+  const raw = job?.source_kind;
+  if (raw === null || raw === undefined || raw === "") {
+    return { kind: deriveSourceKindFromMarkers(job), from: "marker" };   // งานก่อน migration
+  }
+  const k = String(raw).trim().toLowerCase();
+  if (k === SOURCE_KINDS.SERVICE || k === SOURCE_KINDS.WEB_ORDER) return { kind: k, from: "db" };
+  return { kind: null, from: "invalid" };   // ★ ห้าม fallback เป็น service
+}
+
+/** ใช้ในงาน reconcile: web order ที่ยัง "มีชีวิต" (ไม่ยกเลิก/ไม่ลบ) — identity + lifecycle */
 export function isWebOrderJob(j) {
   if (!j) return false;
+  const { kind } = serviceJobSourceKindOf(j);
   const note = String(j.note || "");
-  const isWeb = String(j.sub_service || "").includes("สั่งซื้อ")
-    || WEB_ORDER_LEGACY_NOTE.test(note)
-    || WEB_ORDER_JOB_NO.test(String(j.job_no || ""))
-    || WEB_ORDER_NOTE.test(note);
-  return isWeb && j.status !== "cancelled" && !j.deleted_at && !note.includes("[ลบแล้ว]");
+  return kind === SOURCE_KINDS.WEB_ORDER
+    && j.status !== "cancelled" && !j.deleted_at && !note.includes("[ลบแล้ว]");
 }
 
 // isServiceIncomeJob: ตรง dashboard.js:24 + auto_post.js:864 (delivered/done/closed + total_cost>0 + ไม่ลบ)

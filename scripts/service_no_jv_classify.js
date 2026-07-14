@@ -116,10 +116,23 @@ const money = (n) => (Number(n) || 0).toLocaleString("en-US", { minimumFractionD
 
 // ★ service_jobs select — ห้ามใส่ deleted_at (production ไม่มีคอลัมน์นี้ → 42703/400)
 //   ห้าม select customer_name/phone/address/payment_slip_url (PII ที่ไม่จำเป็นต่อการจำแนก)
-const SJ_SELECT = "id,job_no,job_type,status,created_at,closed_at,total_cost,payment_method,sub_service,note,items_json,stock_deducted_at,stock_reverted_at";
+const SJ_SELECT_BASE = "id,job_no,job_type,status,created_at,closed_at,total_cost,payment_method,sub_service,note,items_json,stock_deducted_at,stock_reverted_at";
+// ★ Phase 606-a: metadata ใหม่ (source_kind / finance_flow_version) — จะมีก็ต่อเมื่อ owner รัน migration แล้ว
+//   จึงต้อง probe ก่อน: ยังไม่มีคอลัมน์ = fallback ไป marker เดิม (สคริปต์ต้องรันได้ทั้งก่อน/หลัง migration)
+const SJ_META = "source_kind,finance_flow_version";
+let SJ_SELECT = SJ_SELECT_BASE;
+let META_AVAILABLE = false;
+
+async function probeMetaColumns(token) {
+  const r = await fetch(`${URL_BASE}/rest/v1/service_jobs?select=id,${SJ_META}&limit=1`, { method: "GET", headers: authH(token) });
+  if (r.ok) { META_AVAILABLE = true; SJ_SELECT = `${SJ_SELECT_BASE},${SJ_META}`; return true; }
+  if (r.status === 400 || r.status === 404) return false;   // ยังไม่ได้รัน migration 606-a
+  fatal(`probe metadata columns → HTTP ${r.status}`);
+}
 
 async function main() {
   const token = await signIn(AD_EMAIL, AD_PASS);
+  await probeMetaColumns(token);   // ★ 606-a metadata มีหรือยัง (ยังไม่มี = fallback marker)
 
   // 1) service_jobs ในหน้าต่างเดือนที่ตรวจ (created + closed window แล้ว dedupe ด้วย id)
   const jobsMap = new Map();
@@ -210,6 +223,24 @@ async function main() {
   console.log(`- generated: ${L.bkkDate(new Date())} (Bangkok)`);
   console.log(`- scope: จำแนกหลักฐานเท่านั้น — **การซ่อม (post JV / แก้สต็อก) = S4.1c ยังไม่เริ่ม**\n`);
   console.log(`_fetched: service_jobs ${jobs.length} · income (non-web, ไม่ลบ, >0) ${incomeJobs.length} · source-bound JE ${boundEntries.length} · movements(out/return) ${movements.length}${stockDataIncomplete ? " ⚠️ INCOMPLETE" : ""} · active mappings ${validMappingKeys.size}_\n`);
+
+  // ── Phase 606-a: source identity partition (แหล่งกำเนิดงาน — ไม่ขึ้นกับสถานะ) ──
+  const idn = { service: 0, web_order: 0, invalid: 0, fromDb: 0, fromMarker: 0 };
+  const invalidIds = [];
+  for (const j of jobs) {
+    const s = L.serviceJobSourceKindOf(j);
+    if (s.from === "invalid") { idn.invalid += 1; if (invalidIds.length < 20) invalidIds.push(j.job_no || j.id); continue; }
+    idn[s.kind] += 1;
+    if (s.from === "db") idn.fromDb += 1; else idn.fromMarker += 1;
+  }
+  const sourceKindDataIncomplete = idn.invalid > 0;
+  console.log(`## Source identity (Phase 606-a metadata)`);
+  console.log(`- metadata columns (\`source_kind\`/\`finance_flow_version\`): **${META_AVAILABLE ? "มีแล้ว (อ่านจาก DB)" : "ยังไม่มี → fallback marker เดิม (owner ยังไม่รัน migration 606-a)"}**`);
+  console.log(`- partition: service **${idn.service}** · web_order **${idn.web_order}** · invalid **${idn.invalid}** (รวม ${jobs.length} งาน) · จาก DB ${idn.fromDb} · จาก marker ${idn.fromMarker}`);
+  if (sourceKindDataIncomplete) {
+    console.log(`- ⚠️ **DATA_INCOMPLETE: source_kind ไม่ถูกต้อง ${idn.invalid} งาน** (${invalidIds.join(", ")}${idn.invalid > 20 ? " …" : ""}) — ห้ามตีความเป็น service เงียบ ๆ`);
+  }
+  console.log("");
 
   // ── Phase 606-0: finance-flow taxonomy ของงานบริการทั้งชุด (ไม่ใช่แค่ candidate) ──
   const flow = C.summarizeServiceFlow(jobs, entriesByJob);
@@ -310,6 +341,7 @@ async function main() {
     if (stockPending.length) reasons.push(`stock review required ${stockPending.length}`);
     if (ownerPending.length) reasons.push(`owner recognition-date confirmation pending ${ownerPending.length}`);
     if (stockDataIncomplete) reasons.push("stock movements DATA_INCOMPLETE");
+    if (sourceKindDataIncomplete) reasons.push(`source_kind DATA_INCOMPLETE ${idn.invalid} งาน`);   // ★ 606-a
     if (!S.partitionOk) reasons.push("partition self-check ไม่ผ่าน");
     if (driftFail) reasons.push("BASELINE_DRIFT");
     if (reasons.length) {

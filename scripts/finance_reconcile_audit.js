@@ -104,6 +104,17 @@ function monthWindow(month) {
 
 const money = (n) => (Number(n) || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+// ★ Phase 606-a: service_jobs metadata ใหม่ (source_kind/finance_flow_version) มีต่อเมื่อ owner รัน migration แล้ว
+//   → probe ก่อนใช้; ยังไม่มี = อ่าน identity จาก marker เดิม (สคริปต์ต้องรันได้ทั้งก่อน/หลัง migration)
+const SJ_SELECT_BASE = "id,job_no,job_type,status,created_at,closed_at,total_cost,sub_service,note,payment_method";
+let META_AVAILABLE = false;
+async function probeMetaColumns(token) {
+  const r = await fetch(`${URL_BASE}/rest/v1/service_jobs?select=id,source_kind,finance_flow_version&limit=1`, { method: "GET", headers: authH(token) });
+  if (r.ok) { META_AVAILABLE = true; return true; }
+  if (r.status === 400 || r.status === 404) return false;
+  fatal(`probe metadata columns → HTTP ${r.status}`);
+}
+
 async function auditMonth(token, month, productCostMap, expenseMappingKeys) {
   const w = monthWindow(month);
   // operational fetches (GET, paginated)
@@ -111,7 +122,8 @@ async function auditMonth(token, month, productCostMap, expenseMappingKeys) {
   const saleItems = await getByIn(token, "sale_items", "sale_id,qty,unit_cost,product_id,product_name", "sale_id", salesRaw.map(s => s.id));
   // ★ ห้าม select deleted_at — production service_jobs ไม่มีคอลัมน์นี้ (PG 42703 / HTTP 400).
   //   soft-delete truth = status=cancelled + note "[ลบแล้ว]" (isServiceDeleted จับจาก note)
-  const SJ_SELECT = "id,job_no,job_type,status,created_at,closed_at,total_cost,sub_service,note,payment_method";
+  //   ★ Phase 606-a: +source_kind/finance_flow_version ถ้ามี (probe แล้วใน main) — ยังไม่มี = fallback marker
+  const SJ_SELECT = SJ_SELECT_BASE + (META_AVAILABLE ? ",source_kind,finance_flow_version" : "");
   const jobsCreated = await getAll(token, `service_jobs?select=${SJ_SELECT}&created_at=gte.${w.fromTs}&created_at=lt.${w.toTs}`);
   const jobsClosed = await getAll(token, `service_jobs?select=${SJ_SELECT}&closed_at=gte.${w.fromTs}&closed_at=lt.${w.toTs}`);
   const jobsMap = new Map(); for (const j of [...jobsCreated, ...jobsClosed]) jobsMap.set(String(j.id), j);
@@ -192,6 +204,7 @@ function printProblemTable(title, rows, refKey, docKey) {
 
 async function main() {
   const token = await signIn(AD_EMAIL, AD_PASS);
+  await probeMetaColumns(token);   // ★ 606-a metadata (source_kind/finance_flow_version) มีหรือยัง
   // productCostMap
   const products = await getAll(token, "products?select=id,name,cost");
   const productCostMap = {};
