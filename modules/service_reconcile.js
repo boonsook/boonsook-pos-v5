@@ -177,7 +177,9 @@ export function classifyLedgerJv({ payments = [], reversals = [], jeRows = [], l
     const job = jobsById[String(p.service_job_id)] || null;
     const mapping = mappingsByKey[keyOf(job?.job_type)] || null;
     const found = src.get(`service_payments#${p.id}`) || { entry: null, lines: [] };
-    const v = validatePaymentJv({ payment: p, mapping, entry: found.entry, lines: found.lines });
+    // ★ review#4: ไม่มี header เลย = NO_JV เสมอ (แม้ mapping resolve ไม่ได้) → ซ่อมอัตโนมัติได้
+    const v = found.entry ? validatePaymentJv({ payment: p, mapping, entry: found.entry, lines: found.lines })
+                          : { ok: false, reason: "no-header" };
     const state = ledgerStateOf(v);
     if (state === "OK") return;
     const item = { row: p, kind: "payment", state: `PAYMENT_${state}`, reason: v.reason, entry: found.entry };
@@ -191,12 +193,12 @@ export function classifyLedgerJv({ payments = [], reversals = [], jeRows = [], l
     const job = pay ? jobsById[String(pay.service_job_id)] || null : null;
     const mapping = mappingsByKey[keyOf(job?.job_type)] || null;
     const found = src.get(`service_payment_reversals#${r.id}`) || { entry: null, lines: [] };
-    const v = validateReversalJv({
+    const v = found.entry ? validateReversalJv({
       reversal: r,
       paymentDebit: paymentDebitCode(pay, mapping),
       recognitionCode: mapping?.recognition_debit_code,
       entry: found.entry, lines: found.lines
-    });
+    }) : { ok: false, reason: "no-header" };
     const state = ledgerStateOf(v);
     if (state === "OK") return;
     const item = { row: r, kind: "reversal", state: `REVERSAL_${state}`, reason: v.reason, entry: found.entry };
@@ -565,7 +567,7 @@ function validateTwoLegLegacy({ entry, lines, amount }) {
   return { ok: true, reason: "ok" };
 }
 
-async function _loadAndRender(ctx, container) {
+export async function _loadAndRender(ctx, container) {   // export = ทดสอบ render path จริงได้
   if (!document.body.contains(container)) return;
   container.innerHTML = loadingHtml();
 
@@ -575,14 +577,20 @@ async function _loadAndRender(ctx, container) {
     container.innerHTML = incompleteHtml(res.reason || "ไม่ทราบสาเหตุ");
     return;
   }
-  // ★ Phase 606-b1: ledger รับชำระ/กลับรายการ (flow v2) — ledger มีแถวแต่ JV หาย ต้องซ่อมได้
-  //   fail-soft: ตาราง ledger ยังไม่มี (ก่อน migration b1) → ข้ามส่วนนี้ ไม่ทำให้หน้าเสีย
-  const ledger = await fetchLedgerJVStatus().catch(() => ({ ok: false }));
-  res.ledger = ledger.ok ? ledger : null;
-  if (ledger?.dataIncomplete) {
-    ctx?.showToast?.("⚠️ ข้อมูล ledger เกินขีดจำกัดที่ดึงได้ — ผลอาจไม่ครบ (DATA_INCOMPLETE)");
-  }
+  // ★ review#4 (blocking 1): ledger ตรวจไม่ได้ = **ห้ามขึ้นการ์ดเขียว**
+  //   (ชน limit / HTTP 500-403-404 / ตารางยังไม่มี / JSON เพี้ยน / journal_lines โหลดไม่ได้)
+  //   การ์ดเขียวแปลว่า "ตรวจครบแล้วไม่มีปัญหา" — ถ้าตรวจไม่ได้ต้องบอกตรง ๆ ไม่ใช่ toast แล้วเขียว
+  const ledger = await fetchLedgerJVStatus().catch(e => ({ ok: false, reason: "เครือข่าย/สคริปต์ผิดพลาด: " + (e?.message || e) }));
   if (!document.body.contains(container)) return;
+  if (ledger?.ok !== true) {
+    container.innerHTML = incompleteHtml(
+      "LEDGER_UNAVAILABLE — ยังตรวจการรับชำระ/กลับรายการ (ledger) ไม่ได้: " +
+      (ledger?.reason || "ไม่ทราบสาเหตุ") +
+      (ledger?.dataIncomplete ? " (DATA_INCOMPLETE — ข้อมูลเกินขีดจำกัด ผลไม่ครบ)" : "")
+    );
+    return;      // ★ ห้าม fall-through ไป emptyHtml() (การ์ดเขียว) เด็ดขาด
+  }
+  res.ledger = ledger;
 
   const orphans = res.orphans || [];
   const needDate = res.needRecognitionDate || [];
@@ -620,9 +628,18 @@ async function _handleLedgerRetry(ctx, container, kind, rowId, btn) {
     const res = kind === "reversal"
       ? await postJournalForServicePaymentReversal(rowId, { detailed: true })
       : await postJournalForServicePayment(rowId, { detailed: true });
-    if (res?.status === "posted") ctx?.showToast?.(`✅ ลงบัญชีแล้ว (JE #${res.entryId || res.docNo || ""})`.trim());
-    else if (res?.reason === "duplicate") ctx?.showToast?.("มีรายการบัญชีอยู่แล้ว (ไม่สร้างซ้ำ)");
-    else ctx?.showToast?.(`ยังไม่สำเร็จ (${res?.reason || "unknown"}) — ดู Console`);
+    if (res?.status === "posted") {
+      ctx?.showToast?.(`✅ ลงบัญชีแล้ว (JE #${res.entryId || res.docNo || ""})`.trim());
+    } else if (res?.reason === "duplicate-valid") {
+      ctx?.showToast?.("✅ มีรายการบัญชีที่ถูกต้องอยู่แล้ว (ไม่สร้างซ้ำ)");
+    } else if (String(res?.reason || "").startsWith("duplicate-invalid:")) {
+      // ★ review#4: มีเอกสารค้างอยู่แต่ **ไม่ถูกต้อง** — ห้ามแจ้งว่าสำเร็จ
+      ctx?.showToast?.(`⛔ มีรายการบัญชีค้างอยู่แต่ไม่ถูกต้อง (${res.reason.split(":")[1]}) — ต้องตรวจด้วยคน`);
+    } else if (res?.reason === "duplicate") {
+      ctx?.showToast?.("มีรายการบัญชีอยู่แล้ว (ไม่สร้างซ้ำ)");
+    } else {
+      ctx?.showToast?.(`ยังไม่สำเร็จ (${res?.reason || "unknown"}) — ดู Console`);
+    }
   } catch (e) {
     console.error("[service_reconcile] ledger retry error:", e?.message || e);
     ctx?.showToast?.("⚠️ ลงบัญชีไม่สำเร็จ (ดู Console)");

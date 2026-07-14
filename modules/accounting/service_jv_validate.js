@@ -41,19 +41,19 @@ export function validateTwoLegJv({ entry, lines, amount, debitCode, creditCode }
   if (Number.isNaN(amt) || amt <= 0) return { ok: false, reason: JV_BAD_NUMBER };
 
   const all = Array.isArray(lines) ? lines : [];
-  // ตัวเลขในทุกบรรทัดต้องอ่านได้จริง — **null/""/NaN = ผิด ไม่ใช่ 0**
-  //   (บรรทัดบัญชีต้องมีทั้ง debit และ credit เสมอ; ค่าที่หายแปลว่าอ่านข้อมูลไม่ครบ → fail-closed)
+  // ★ review#4 (blocking 2): ทุกบรรทัดบัญชีต้องมี **ทั้ง** debit และ credit และเป็นตัวเลข finite ทั้งคู่
+  //   field ที่หายไป (undefined) ก็คือ "อ่านข้อมูลมาไม่ครบ" ไม่ใช่ 0 → fail-closed
+  //   (เดิม undefined → 0 ทำให้ read-back ที่ malformed กลายเป็น duplicate-valid ได้)
   for (const l of all) {
-    const d = l?.debit === undefined ? 0 : zeroish(l.debit);
-    const c = l?.credit === undefined ? 0 : zeroish(l.credit);
-    if (Number.isNaN(d) || Number.isNaN(c)) return { ok: false, reason: JV_BAD_NUMBER };
+    if (!l || !("debit" in l) || !("credit" in l)) return { ok: false, reason: JV_BAD_NUMBER };
+    if (Number.isNaN(zeroish(l.debit)) || Number.isNaN(zeroish(l.credit))) return { ok: false, reason: JV_BAD_NUMBER };
   }
-  const ls = all.filter(l => num(l?.debit ?? 0) !== 0 || num(l?.credit ?? 0) !== 0);
+  const ls = all.filter(l => num(l.debit) !== 0 || num(l.credit) !== 0);
   if (!ls.length) return { ok: false, reason: JV_NO_LINES };
   if (ls.length !== 2) return { ok: false, reason: JV_EXTRA_LINES };   // split line / บัญชีแปลกปลอม = ไม่ผ่าน
 
-  const sumD = r2(ls.reduce((s, l) => s + num(l.debit ?? 0), 0));
-  const sumC = r2(ls.reduce((s, l) => s + num(l.credit ?? 0), 0));
+  const sumD = r2(ls.reduce((s, l) => s + num(l.debit), 0));
+  const sumC = r2(ls.reduce((s, l) => s + num(l.credit), 0));
   if (Number.isNaN(sumD) || Number.isNaN(sumC)) return { ok: false, reason: JV_BAD_NUMBER };
   if (sumD !== sumC) return { ok: false, reason: JV_UNBALANCED };
 
@@ -64,8 +64,8 @@ export function validateTwoLegJv({ entry, lines, amount, debitCode, creditCode }
   if (hD !== sumD || hC !== sumC) return { ok: false, reason: JV_HEADER_MISMATCH };
   if (sumD !== amt) return { ok: false, reason: JV_AMOUNT_MISMATCH };
 
-  const dr = ls.filter(l => num(l.debit ?? 0) > 0);
-  const cr = ls.filter(l => num(l.credit ?? 0) > 0);
+  const dr = ls.filter(l => num(l.debit) > 0);
+  const cr = ls.filter(l => num(l.credit) > 0);
   if (dr.length !== 1 || cr.length !== 1) return { ok: false, reason: JV_EXTRA_LINES };
   if (num(dr[0].debit) !== amt || num(cr[0].credit) !== amt) return { ok: false, reason: JV_AMOUNT_MISMATCH };
   if (String(dr[0].account_code) !== String(debitCode)) return { ok: false, reason: JV_ACCOUNT_MISMATCH };
