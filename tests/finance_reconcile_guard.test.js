@@ -315,19 +315,32 @@ test("(g) pagination: getAll มี loop offset += limit กัน cap 1000 เ�
   assert.match(runnerSrc, /rows\.length\s*<\s*PAGE/, "ต้อง break เมื่อหน้าสุดท้าย < PAGE");
 });
 
-// ── (h) isWebOrderJob ใน lib มี token ครบ (กัน drift จาก dashboard.js:18-22) ──
-test("(h) isWebOrderJob (lib) มี token ครบตรง dashboard.js", () => {
+// ── (h) isWebOrderJob ใน lib ต้องครอบ **web writer จริงทั้ง 3 ทาง** (Phase 606-0) ──
+//   ของเดิม (dashboard.js:18-22) จับได้แค่ sub_service "สั่งซื้อ" + note "SH-<payment>|" →
+//   ai_sales (AI-* / "AI Sales:") และ ac_shop (SH-* / "AC Shop:") หลุด → ถูกนับเป็นงานบริการผิดประเภท
+test("(h) isWebOrderJob (lib) ครอบ web writer ทั้ง 3 ทาง + คงกติกาเดิม", () => {
   const libSrc = fs.readFileSync(path.resolve("scripts/finance_reconcile_lib.js"), "utf8");
-  const fn = (libSrc.match(/export function isWebOrderJob[\s\S]*?\n}/) || [])[0] || "";
-  assert.ok(fn, "ต้องเจอ isWebOrderJob");
-  for (const tok of ["สั่งซื้อ", "SH-(transfer|cod_cash|cod_transfer)", "cancelled", "deleted_at", "[ลบแล้ว]"]) {
-    assert.ok(fn.includes(tok), `isWebOrderJob ต้องมี token: ${tok}`);
+  const region = libSrc.slice(libSrc.indexOf("// isWebOrderJob"), libSrc.indexOf("// isServiceIncomeJob"));
+  assert.ok(region, "ต้องเจอบล็อก isWebOrderJob");
+  for (const tok of ["สั่งซื้อ", "SH-(transfer|cod_cash|cod_transfer)", "cancelled", "deleted_at", "[ลบแล้ว]",
+    "(AI|SH)-", "AI Sales:", "AC Shop:"]) {
+    assert.ok(region.includes(tok), `isWebOrderJob ต้องมี token: ${tok}`);
   }
-  // ยืนยันพฤติกรรมจริง: web order (สั่งซื้อ) ไม่ลบ ไม่ cancelled → true
+  // กติกาเดิม (คงไว้ทั้งหมด)
   assert.equal(L.isWebOrderJob({ sub_service: "สั่งซื้อออนไลน์", status: "done", note: "" }), true);
   assert.equal(L.isWebOrderJob({ sub_service: "สั่งซื้อ", status: "cancelled", note: "" }), false);
   assert.equal(L.isWebOrderJob({ note: "SH-cod_cash|123", status: "done" }), true);
   assert.equal(L.isWebOrderJob({ sub_service: "ซ่อม", status: "done", note: "" }), false);
+  // ★ web writer ที่เดิมหลุด
+  assert.equal(L.isWebOrderJob({ job_no: "AI-MABC12", note: "AI Sales: แอร์ 12000 BTU", status: "delivered" }), true);
+  assert.equal(L.isWebOrderJob({ job_no: "SH-MXYZ99", note: "AC Shop: แอร์ 18000 BTU", status: "delivered" }), true);
+  assert.equal(L.isWebOrderJob({ job_no: "JOB-1", note: "AI Sales: สั่งจากแชท", status: "delivered" }), true, "note marker ก็พอ");
+  // งานบริการปกติต้องไม่ถูกจับผิด (marker ต้องเป็น 'ขึ้นต้น' เท่านั้น)
+  assert.equal(L.isWebOrderJob({ job_no: "JOB-2", note: "ลูกค้าถามผ่าน AI Sales: แต่เป็นงานซ่อม", status: "delivered" }), false);
+  assert.equal(L.isWebOrderJob({ job_no: "JOB-3", note: "ล้างแอร์", status: "delivered" }), false);
+  // ลบ/ยกเลิก ยังถูกกันเหมือนเดิม
+  assert.equal(L.isWebOrderJob({ job_no: "AI-X", note: "AI Sales: x [ลบแล้ว]", status: "delivered" }), false);
+  assert.equal(L.isWebOrderJob({ job_no: "SH-X", note: "AC Shop: x", status: "cancelled" }), false);
 });
 
 // ── (l) runner ใช้ status=eq.approved (align je_fetch.js:26) — reconcile ตัด non-approved ──

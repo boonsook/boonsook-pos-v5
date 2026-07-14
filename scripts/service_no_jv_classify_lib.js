@@ -405,6 +405,78 @@ export function classifyJournalEvidence({ job, entries = [], linesByEntry = new 
   return { verdict: "NO_APPROVED_JV", blockers, detail };
 }
 
+// ═══════════════════════════════════════════════════════════
+//  Phase 606-0: finance-flow taxonomy — แยกงานเก่า (flow v1) ออกจากกติกาใหม่ (flow v2)
+//
+//  ทำไม: Phase 606 (S4.1d) เปลี่ยนโมเดล — ส่งมอบ = Dr 1200 ลูกหนี้ / Cr รายได้ · รับเงิน = Dr เงินสด
+//  /ธนาคาร / Cr 1200. งานที่โพสต์ JV ไปแล้วด้วยกติกาเดิม (Dr เงินสด/ธนาคารตอนส่งมอบ) ต้อง **ไม่ถูก
+//  ตัดสินว่าผิด** ด้วยกติกาใหม่ แต่ก็ **ห้ามกลบให้หายไป** — จึงแยกเป็น 4 สถานะ:
+//    LEGACY_FLOW_V1_POSTED  — งานเก่า มี approved JV แล้ว (informational; ห้ามแตะ/ห้าม re-post)
+//    LEGACY_FLOW_V1_NO_JV   — งานเก่า ยังไม่มี JV = **ยังเป็นปัญหา** (รายได้หาย → recovery ต้องจัดการ)
+//    FLOW_V2_POSTED         — งานใหม่ตามกติกา 606 ที่ลง JV แล้ว
+//    FLOW_V2_NO_JV          — งานใหม่ตามกติกา 606 ที่ยังไม่ลง JV = ปัญหา
+//  ★ finance_flow_version ยังไม่มีในสคีมาตอนนี้ (มาใน Phase 606-a) → row ที่ไม่มีคอลัมน์/เป็น null = v1
+//  ★ ห้าม hardcode จำนวนงานเก่าไว้ในโค้ด — จำนวนเป็นผลจากการรันจริงเท่านั้น
+// ═══════════════════════════════════════════════════════════
+//  ★ งานที่ปิด/ส่งมอบ "ก่อน effective date" (ก่อนเริ่มบัญชีจริง) ตั้งใจไม่ลง JV อยู่แล้ว →
+//    แยกเป็น PRE_EFFECTIVE_EXPECTED_UNPOSTED (informational) ห้ามนับเป็นปัญหา ไม่งั้นตัวเลข "รายได้หาย"
+//    จะพองด้วยงานที่ถูกต้องอยู่แล้ว (ฐานเดียวกับ S4.0/S4.1b — preliminaryBasisDateForScoping)
+export const SERVICE_FLOW_STATES = {
+  PRE_EFFECTIVE_EXPECTED_UNPOSTED: "PRE_EFFECTIVE_EXPECTED_UNPOSTED",
+  LEGACY_FLOW_V1_POSTED: "LEGACY_FLOW_V1_POSTED",
+  LEGACY_FLOW_V1_NO_JV: "LEGACY_FLOW_V1_NO_JV",
+  FLOW_V2_POSTED: "FLOW_V2_POSTED",
+  FLOW_V2_NO_JV: "FLOW_V2_NO_JV"
+};
+
+/** finance_flow_version ของงาน — ไม่มีคอลัมน์/null/ค่าที่อ่านไม่ได้ = 1 (legacy) */
+export function financeFlowVersionOf(job) {
+  const v = Number(job?.finance_flow_version);
+  return Number.isFinite(v) && v >= 2 ? v : 1;
+}
+
+/**
+ * งานบริการ (income status) นี้อยู่สถานะไหนของ finance flow
+ * @param {object} job
+ * @param {Array} entries - journal_entries ที่ผูก source (ทุก status) ของงานนี้
+ */
+export function classifyServiceFlowState(job, entries = [], effective = ACCOUNTING_EFFECTIVE_DATE) {
+  const approved = (entries || []).filter(e =>
+    e && e.source_table === "service_jobs" && String(e.source_id) === String(job?.id)
+    && String(e.status || "").toLowerCase() === "approved"
+  );
+  const v2 = financeFlowVersionOf(job) >= 2;
+  const posted = approved.length > 0;
+  // pre-effective + ยังไม่มี JV = ตั้งใจไม่ลง (ไม่ใช่ปัญหา). ถ้ามี JV กลับถือว่า posted ตามจริง
+  const basis = preliminaryBasisDateForScoping(job);
+  if (!posted && basis && _lt(basis, effective)) return SERVICE_FLOW_STATES.PRE_EFFECTIVE_EXPECTED_UNPOSTED;
+  if (v2) return posted ? SERVICE_FLOW_STATES.FLOW_V2_POSTED : SERVICE_FLOW_STATES.FLOW_V2_NO_JV;
+  return posted ? SERVICE_FLOW_STATES.LEGACY_FLOW_V1_POSTED : SERVICE_FLOW_STATES.LEGACY_FLOW_V1_NO_JV;
+}
+
+/**
+ * สรุป taxonomy ของงานบริการทั้งชุด (นับ + ยอด ต่อสถานะ) — ใช้รายงาน ไม่ใช้ตัดสินใจซ่อม
+ * @param {Array} jobs - service_jobs rows (จะกรองเฉพาะ income status ที่ไม่ใช่ web/ไม่ลบ)
+ * @param {Map<string,Array>} entriesByJob - id → journal_entries[]
+ */
+export function summarizeServiceFlow(jobs, entriesByJob = new Map()) {
+  const out = {};
+  for (const k of Object.values(SERVICE_FLOW_STATES)) out[k] = { count: 0, amount: 0, jobNos: [] };
+  let scanned = 0;
+  for (const j of (jobs || [])) {
+    if (!isServiceIncomeJob(j) || isWebOrderJob(j) || isServiceJobDeletedOrCancelled(j)) continue;
+    scanned += 1;
+    const st = classifyServiceFlowState(j, entriesByJob.get(String(j.id)) || []);
+    out[st].count += 1;
+    out[st].amount = round2(out[st].amount + round2(j.total_cost));
+    if (out[st].jobNos.length < 200) out[st].jobNos.push(j.job_no || String(j.id));   // ไม่ตัดเงียบเกิน 200
+  }
+  // LEGACY_FLOW_V1_NO_JV + FLOW_V2_NO_JV = ยังเป็นปัญหา (รายได้ยังไม่ลงบัญชี)
+  const problemCount = out.LEGACY_FLOW_V1_NO_JV.count + out.FLOW_V2_NO_JV.count;
+  const problemAmount = round2(out.LEGACY_FLOW_V1_NO_JV.amount + out.FLOW_V2_NO_JV.amount);
+  return { states: out, scanned, problemCount, problemAmount, partitionOk: Object.values(out).reduce((a, s) => a + s.count, 0) === scanned };
+}
+
 // ── candidate: งานที่ S4.0 นับเป็น service NO_JV (ต้องตรงนิยามเดียวกัน) ──
 /**
  * ★★ SCOPING ONLY — ห้ามใช้เป็นวันรับรู้รายได้ ★★
