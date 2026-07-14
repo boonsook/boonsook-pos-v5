@@ -10,14 +10,13 @@
 //    - sales         → SV (postJournalForSale)
 //    - expenses      → PV (postJournalForExpense)
 //    - receipts      → RV (เฉพาะ status=paid) (postJournalForReceipt)
-//    - service_jobs  → SV (เฉพาะ status in done/delivered/closed) (postJournalForServiceJob)
+//    ★ service_jobs = **ไม่อยู่ใน backfill แล้ว** (Phase 606-b1) — โพสต์ผ่าน writer เดียวเท่านั้น
 // ═══════════════════════════════════════════════════════════
 
 import {
   postJournalForSale,
   postJournalForExpense,
   postJournalForReceipt,
-  postJournalForServiceJob,
   // Phase 408 cash-basis: ไม่ import postJournalForDeliveryInvoice แล้ว (delivery_invoices skip — ไม่ post revenue)
   _isAfterEffective
 } from "./auto_post.js";
@@ -34,8 +33,12 @@ const SOURCES = [
   { key: "sales",              label: "🛒 การขาย POS",            table: "sales",              dateField: "created_at",   docType: "SV" },
   { key: "expenses",           label: "💸 รายจ่าย",               table: "expenses",           dateField: "expense_date", docType: "PV" },
   { key: "delivery_invoices",  label: "🧾 ใบส่งสินค้า (B2B)",     table: "delivery_invoices",  dateField: "created_at",   docType: "SV" },
-  { key: "receipts",           label: "💰 ใบเสร็จ (paid)",        table: "receipts",           dateField: "receipt_date", docType: "RV" },
-  { key: "service_jobs",       label: "🔧 งานช่าง (closed)",      table: "service_jobs",       dateField: "created_at",   docType: "SV" }
+  { key: "receipts",           label: "💰 ใบเสร็จ (paid)",        table: "receipts",           dateField: "receipt_date", docType: "RV" }
+  // ★ Phase 606-b1: **service_jobs ถูกถอดออกจาก generic backfill**
+  //   เหตุผล: backfill ใช้ dateField=created_at (วันสร้าง ≠ วันรับรู้รายได้) และเป็นทางลัดที่ทำให้งานเก่า
+  //   ซึ่งไม่มีวันปิดงาน (closed_at = null) ถูกโพสต์ด้วยวันที่ผิดงวด — รวมถึง 6 งาน legacy NO_JV (6,950)
+  //   ที่ต้องผ่าน recovery runner ของ owner (Phase 607) เท่านั้น. งานบริการโพสต์ผ่าน canonical writer
+  //   ตัวเดียวใน auto_post (เรียกจาก service drawer / Service Reconcile) — ไม่มี path อื่น.
 ];
 
 // ★ Phase 92.48: Accounting Integrity — classify orphans (no JE) into actionable vs intentionally-skipped.
@@ -72,7 +75,7 @@ export function renderBackfillPage(ctx) {
         <span style="font-size:28px">⏪</span>
         <div>
           <h2 style="margin:0;font-size:20px;color:#0f172a">Backfill รายการบัญชีย้อนหลัง</h2>
-          <div style="font-size:12px;color:#64748b">สร้าง JV จาก ขาย/รายจ่าย/ใบเสร็จ/งานช่าง ที่บันทึกก่อน Phase 88.1a deploy — ทำให้ trial balance ครบจริง</div>
+          <div style="font-size:12px;color:#64748b">สร้าง JV จาก ขาย/รายจ่าย/ใบเสร็จ ที่บันทึกก่อน Phase 88.1a deploy — ทำให้ trial balance ครบจริง (งานช่างไม่อยู่ที่นี่แล้ว — ดูหน้า Service Reconcile)</div>
         </div>
       </div>
 
@@ -174,8 +177,6 @@ async function _fetchSourceRows(srcKey, from, to) {
   let extraFilter = "";
   if (srcKey === "receipts") {
     extraFilter = "&status=eq.paid";
-  } else if (srcKey === "service_jobs") {
-    extraFilter = "&status=in.(done,delivered,closed)";
   }
 
   // expense_date / receipt_date = DATE (no time) → lte ปกติ; created_at = TIMESTAMPTZ → lt exclusive
@@ -341,7 +342,8 @@ async function _onRun() {
           // Phase 408 cash-basis: ใบส่งของไม่ลง revenue แล้ว (ย้ายไปที่ใบเสร็จ paid) — skip กัน backfill สร้างรายได้ซ้ำ
           case "delivery_invoices":  result = { status: "skipped", reason: "cash-basis-noop" }; break;
           case "receipts":           result = await postJournalForReceipt(row, { detailed: true });     break;
-          case "service_jobs":       result = await postJournalForServiceJob(row, { detailed: true });  break;
+          // ★ Phase 606-b1: งานบริการไม่ผ่าน backfill แล้ว (ลัด recovery gate ของ 6 งาน legacy ไม่ได้)
+          case "service_jobs":       result = { status: "skipped", reason: "service-writer-only" };            break;
         }
         if (result?.status === "posted") stats.created++;
         else if (result?.status === "failed") {

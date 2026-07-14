@@ -86,11 +86,25 @@ test("custom effectiveDate is respected (object signature)", () => {
 // ── shared fetch helper is read-only and date-scoped ─────────────────────────
 test("fetchServiceJVStatus reads service_jobs + journal_entries by GET, never writes", () => {
   assert.match(SVC, /export async function fetchServiceJVStatus/, "exports the shared status fetch");
-  assert.match(SVC, /rest\/v1\/service_jobs/, "fetches service_jobs");
-  assert.match(SVC, /select=id,job_no,customer_name,status,total_cost,created_at/, "service_jobs read-only select");
-  assert.match(SVC, /rest\/v1\/journal_entries/, "fetches journal_entries");
-  assert.match(SVC, /source_table=eq\.service_jobs&select=source_id/, "JE fetch selects source_id (primary match)");
-  assert.match(SVC, /created_at=gte\.\$\{fromDate\}/, "service_jobs fetch is date-range scoped (not ≤50 state)");
+  assert.match(SVC, /\/rest\/v1\//, "ยิงผ่าน REST");
+  assert.match(SVC, /service_jobs\?/, "fetches service_jobs");
+  // ★ Phase 606-b1: select ต้องมีทุกฟิลด์ที่ canonical writer ใช้ตัดสิน (flow/closed_at/job_type)
+  //   — ถ้าขาด ปุ่ม "ส่งเข้าบัญชีอีกครั้ง" จะถูก writer block (finance-flow-unknown) ทุกครั้ง
+  assert.match(SVC, /select=id,job_no,customer_name,status,total_cost,job_type,payment_method,closed_at,finance_flow_version,note,created_at/,
+    "service_jobs read-only select (ต้องครบ metadata ของ writer)");
+  // ★ review#2: recognition period = closed_at (งาน closed_at=null query แยกด้วย created_at)
+  // ★ review#3: ขอบงวดเป็น timestamp เวลาไทย (+07:00) ไม่ใช่ YYYY-MM-DD เปล่า
+  assert.match(SVC, /closed_at=gte\.\$\{enc\(fromTs\)\}/, "ช่วงตรวจ bound ด้วย closed_at (เวลาไทย)");
+  assert.match(SVC, /closed_at=lt\.\$\{enc\(toTs\)\}/);
+  assert.match(SVC, /closed_at=is\.null/, "งานไม่มีวันปิด query แยก");
+  assert.match(SVC, /T00:00:00\+07:00/, "ต้นวันไทย");
+  assert.match(SVC, /journal_entries\?/, "fetches journal_entries");
+  // ★ review#2: JE fetch ต้องเอา status/total ด้วย + โหลด journal_lines → พิสูจน์ว่า "ลงบัญชีถูกจริง"
+  //   (มี source_id อย่างเดียว = รู้แค่ว่ามี header — draft/header-only/บัญชีผิด จะถูกนับว่า OK ผิด ๆ)
+  assert.match(SVC, /source_table=eq\.service_jobs&select=id,source_id,description,status,total_debit,total_credit/,
+    "JE fetch ต้องมี status + ยอด (ไม่ใช่แค่ source_id)");
+  assert.match(SVC, /journal_lines\?select=entry_id,account_code,debit,credit/, "ต้องอ่าน lines จริง");
+
   // no write verbs anywhere in the reconcile module's fetch path
   assert.doesNotMatch(SVC, /method:\s*["'](POST|PATCH|PUT|DELETE)["']/, "scan path is GET-only");
   // re-post still goes through the idempotent helper, bound to a click (no auto-post)

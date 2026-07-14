@@ -1,0 +1,846 @@
+-- ═══════════════════════════════════════════════════════════════════════════
+--  Phase 606-b1 (S4.1d) — SERVICE PAYMENT GUARDS + APPEND-ONLY REVERSAL
+--  ต่อยอดจาก supabase-phase606a-service-finance-foundation.sql (applied 2026-07-14)
+--
+--  ทำอะไร (additive ล้วน · ยังเปิด flow v2 ไม่ได้ — activation อยู่ที่ 606-b3):
+--    1) record_service_payment_v2 (CREATE OR REPLACE) — เพิ่ม gate:
+--       ★ รับชำระได้ก็ต่อเมื่อ "มี JV รับรู้รายได้ (approved) ของงานนี้แล้ว" เท่านั้น
+--         (เดิมดูแค่ status/closed_at → รับเงินเข้าได้ทั้งที่ยังไม่มีลูกหนี้ให้ล้าง = Cr 1200 ลอย)
+--    2) freeze งาน flow v2 ที่ส่งมอบแล้ว: ห้ามแก้ total_cost / job_type
+--       (มีลูกหนี้/มีการรับชำระแล้ว → void+repost ไม่ได้ ต้องออกเอกสารปรับปรุงแทน)
+--    3) service_payment_reversals — ledger แก้รายการรับชำระผิดแบบ **append-only**
+--       + RPC reverse_service_payment_v2 (admin · idempotent · reverse เกินยอดที่รับจริงไม่ได้)
+--
+--  ไม่ทำอะไร: ไม่เปิด finance_flow_version = 2 · ไม่โพสต์ JV · ไม่แตะ 6 งาน legacy NO_JV
+--             ไม่แตะ journal_entries/journal_lines · ไม่แตะ mapping เดิม (debit/credit/transfer)
+--
+--  วิธีใช้ (owner):  STEP 0 inspect → รันไฟล์นี้ → VERIFY (count-only)
+--  ⚠️ ห้าม mark applied ใน DB_MIGRATIONS_APPLIED.md จนกว่าผล VERIFY จะผ่านครบ
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- ───────────────────────────────────────────────────────────────────────────
+-- STEP 0 — READ-ONLY INSPECT (รันก่อน; ไม่เปลี่ยนข้อมูล)
+-- ───────────────────────────────────────────────────────────────────────────
+/*
+-- 0.1 foundation 606-a ต้องติดตั้งแล้ว
+SELECT to_regclass('public.service_payments') AS ledger,
+       (SELECT count(*) FROM public.service_payments) AS ledger_rows,
+       (SELECT count(*) FROM public.service_jobs WHERE finance_flow_version = 2) AS flow_v2_jobs;
+
+-- 0.2 RPC เดิม
+SELECT p.proname, p.prosecdef, p.proconfig FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+WHERE n.nspname='public' AND p.proname IN ('record_service_payment_v2','reverse_service_payment_v2');
+
+-- 0.3 journal_entries: คอลัมน์ที่ gate ใช้ (source_table/source_id/status)
+SELECT column_name, data_type FROM information_schema.columns
+WHERE table_schema='public' AND table_name='journal_entries' AND column_name IN ('source_table','source_id','status');
+
+-- 0.4 counts ที่ต้องไม่ขยับ
+SELECT (SELECT count(*) FROM public.journal_entries) AS je, (SELECT count(*) FROM public.journal_lines) AS jl;
+*/
+
+BEGIN;
+
+-- ───────────────────────────────────────────────────────────────────────────
+-- 1) PREFLIGHT — ต้องมี foundation 606-a ครบก่อน (ผิด = rollback ทั้งไฟล์)
+-- ───────────────────────────────────────────────────────────────────────────
+DO $$
+BEGIN
+  IF to_regclass('public.service_payments') IS NULL THEN
+    RAISE EXCEPTION 'ยังไม่ได้ติดตั้ง foundation 606-a (ไม่มี service_payments)';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='public.service_jobs'::regclass
+                   AND attname='finance_flow_version' AND NOT attisdropped) THEN
+    RAISE EXCEPTION 'ยังไม่ได้ติดตั้ง foundation 606-a (ไม่มี service_jobs.finance_flow_version)';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+                  WHERE n.nspname='public' AND p.proname='record_service_payment_v2') THEN
+    RAISE EXCEPTION 'ไม่พบ RPC record_service_payment_v2 (foundation 606-a)';
+  END IF;
+  -- gate ใหม่พึ่ง journal_entries.source_table/source_id/status
+  IF (SELECT count(*) FROM information_schema.columns
+       WHERE table_schema='public' AND table_name='journal_entries'
+         AND column_name IN ('source_table','source_id','status')) <> 3 THEN
+    RAISE EXCEPTION 'journal_entries ขาดคอลัมน์ source_table/source_id/status — gate รับชำระทำไม่ได้';
+  END IF;
+END $$;
+
+-- ───────────────────────────────────────────────────────────────────────────
+-- 2) helpers: mapping key ตามประเภทงาน + "มี JV รับรู้รายได้ที่ถูกต้องจริง" หรือยัง
+--    ★ Blocking 1: approved header อย่างเดียว **ไม่พอ** — header ที่ไม่มี lines / บัญชีผิด / ยอดผิด
+--      ต้องคืน false. ความจริงของ "ส่งมอบแล้วและลงบัญชีถูก" = header + lines + บัญชี + ยอด ครบชุด
+-- ───────────────────────────────────────────────────────────────────────────
+-- job_type → account_mapping key (mirror ของ SERVICE_JOB_TYPE_KEY_MAP ใน auto_post.js — มี drift guard)
+CREATE OR REPLACE FUNCTION public.service_mapping_key_for_job_type(p_job_type TEXT)
+RETURNS TEXT
+LANGUAGE sql IMMUTABLE
+AS $$
+  SELECT CASE lower(coalesce(p_job_type,''))
+    WHEN 'ac'            THEN 'service_install_ac'
+    WHEN 'install_ac'    THEN 'service_install_ac'
+    WHEN 'repair_ac'     THEN 'service_repair_ac'
+    WHEN 'clean_ac'      THEN 'service_clean_ac'
+    WHEN 'move_ac'       THEN 'service_move_ac'
+    WHEN 'satellite'     THEN 'service_satellite'
+    WHEN 'repair_fridge' THEN 'service_repair_fridge'
+    WHEN 'repair_washer' THEN 'service_repair_washer'
+    WHEN 'cctv'          THEN 'service_cctv'
+    WHEN 'repair_tv'     THEN 'service_repair_tv'
+    WHEN 'solar'         THEN 'service_solar'
+    WHEN 'other'         THEN 'service_other'
+    ELSE 'service_other'
+  END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.service_job_has_recognition_jv(p_job_id BIGINT)
+RETURNS BOOLEAN
+LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_job    public.service_jobs%ROWTYPE;
+  v_total  NUMERIC(14,2);
+  v_map    public.account_mapping%ROWTYPE;
+  v_entry  RECORD;
+  v_cnt    int;
+  v_dr_cnt int;
+  v_cr_cnt int;
+  v_dr     NUMERIC(14,2);
+  v_cr     NUMERIC(14,2);
+  v_sum_d  NUMERIC(14,2);
+  v_sum_c  NUMERIC(14,2);
+BEGIN
+  -- fail-closed: อ่านสถานะบัญชีของงานใด ๆ ได้เฉพาะ admin/accountant
+  IF NOT COALESCE(public.is_accountant(), false) THEN
+    RAISE EXCEPTION 'ไม่มีสิทธิ์ตรวจสถานะบัญชีของงานบริการ' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT * INTO v_job FROM public.service_jobs WHERE id = p_job_id;
+  IF NOT FOUND THEN RETURN false; END IF;
+  IF v_job.total_cost IS NULL
+     OR lower(v_job.total_cost::text) IN ('nan','infinity','-infinity','+infinity') THEN
+    RETURN false;                                                     -- null/NaN/Infinity = false
+  END IF;
+  v_total := round(v_job.total_cost, 2);
+  IF v_total <= 0 THEN RETURN false; END IF;
+
+  SELECT * INTO v_map FROM public.account_mapping
+   WHERE mapping_key = public.service_mapping_key_for_job_type(v_job.job_type) AND is_active;
+  IF NOT FOUND
+     OR v_map.recognition_debit_code IS NULL
+     OR v_map.credit_account_code IS NULL
+     OR v_map.recognition_debit_code = v_map.credit_account_code THEN
+    RETURN false;                                                     -- mapping หาย/ไม่ถูกต้อง = false
+  END IF;
+
+  -- header: approved เท่านั้น + total_debit = total_credit = total_cost (ทั้งสองช่อง ห้าม null)
+  SELECT je.id, je.total_debit, je.total_credit INTO v_entry
+    FROM public.journal_entries je
+   WHERE je.source_table = 'service_jobs'
+     AND je.source_id    = p_job_id
+     AND lower(coalesce(je.status,'')) = 'approved'
+   ORDER BY je.id DESC LIMIT 1;
+  IF NOT FOUND THEN RETURN false; END IF;
+  IF v_entry.total_debit IS NULL OR v_entry.total_credit IS NULL THEN RETURN false; END IF;
+  IF round(v_entry.total_debit,2)  <> v_total THEN RETURN false; END IF;
+  IF round(v_entry.total_credit,2) <> v_total THEN RETURN false; END IF;
+
+  -- ★ review#3 (blocking 2): บรรทัดที่ไม่เป็นศูนย์ต้อง **2 บรรทัดพอดี** (split line / บัญชีแปลกปลอม = false)
+  SELECT count(*) INTO v_cnt FROM public.journal_lines
+   WHERE entry_id = v_entry.id
+     AND (round(coalesce(debit,0),2) <> 0 OR round(coalesce(credit,0),2) <> 0);
+  IF v_cnt <> 2 THEN RETURN false; END IF;
+
+  -- lines ต้องบาลานซ์และตรง header
+  SELECT coalesce(sum(debit),0), coalesce(sum(credit),0) INTO v_sum_d, v_sum_c
+    FROM public.journal_lines WHERE entry_id = v_entry.id;
+  IF round(v_sum_d,2) <> round(v_sum_c,2) THEN RETURN false; END IF;
+  IF round(v_sum_d,2) <> v_total THEN RETURN false; END IF;
+
+  -- Dr: หนึ่งขาเท่านั้น · บัญชี recognition_debit_code (1200) · ยอดเต็ม
+  SELECT count(*), coalesce(sum(debit),0) INTO v_dr_cnt, v_dr
+    FROM public.journal_lines
+   WHERE entry_id = v_entry.id AND round(coalesce(debit,0),2) <> 0;
+  IF v_dr_cnt <> 1 THEN RETURN false; END IF;
+  IF round(v_dr,2) <> v_total THEN RETURN false; END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.journal_lines
+     WHERE entry_id = v_entry.id AND round(coalesce(debit,0),2) = v_total
+       AND account_code = v_map.recognition_debit_code
+  ) THEN RETURN false; END IF;
+
+  -- Cr: หนึ่งขาเท่านั้น · บัญชีรายได้ตาม mapping · ยอดเต็ม
+  SELECT count(*), coalesce(sum(credit),0) INTO v_cr_cnt, v_cr
+    FROM public.journal_lines
+   WHERE entry_id = v_entry.id AND round(coalesce(credit,0),2) <> 0;
+  IF v_cr_cnt <> 1 THEN RETURN false; END IF;
+  IF round(v_cr,2) <> v_total THEN RETURN false; END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.journal_lines
+     WHERE entry_id = v_entry.id AND round(coalesce(credit,0),2) = v_total
+       AND account_code = v_map.credit_account_code
+  ) THEN RETURN false; END IF;
+
+  RETURN true;
+END $$;
+REVOKE ALL ON FUNCTION public.service_job_has_recognition_jv(BIGINT) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.service_job_has_recognition_jv(BIGINT) TO authenticated;
+
+-- ───────────────────────────────────────────────────────────────────────────
+-- 3) service_payment_jv_is_valid — ★ review#2 (blocking 2): JV รับเงินเดิมต้องถูกต้อง **เป๊ะ**
+--     approved · header debit = credit = payment.amount · บรรทัดที่ไม่เป็นศูนย์ **2 บรรทัดเท่านั้น** ·
+--     Dr = บัญชีเงินที่ ledger ระบุ (bank_coa_code สำหรับโอน / เงินสดตาม mapping) · Cr = 1200 ·
+--     ยอดแต่ละบรรทัด = payment.amount · **ห้ามมีบัญชีแปลกปลอม**
+-- ───────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.service_payment_jv_is_valid(p_payment_id BIGINT)
+RETURNS BOOLEAN
+LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_pay     public.service_payments%ROWTYPE;
+  v_job     public.service_jobs%ROWTYPE;
+  v_map     public.account_mapping%ROWTYPE;
+  v_entry   RECORD;
+  v_amt     NUMERIC(14,2);
+  v_dr_code TEXT;
+  v_cnt     int;
+  v_dr      NUMERIC(14,2);
+  v_cr      NUMERIC(14,2);
+BEGIN
+  IF NOT COALESCE(public.is_accountant(), false) THEN
+    RAISE EXCEPTION 'ไม่มีสิทธิ์ตรวจรายการบัญชีของการรับชำระ' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT * INTO v_pay FROM public.service_payments WHERE id = p_payment_id;
+  IF NOT FOUND THEN RETURN false; END IF;
+  v_amt := round(v_pay.amount, 2);
+  IF v_amt <= 0 THEN RETURN false; END IF;
+
+  SELECT * INTO v_job FROM public.service_jobs WHERE id = v_pay.service_job_id;
+  IF NOT FOUND THEN RETURN false; END IF;
+  SELECT * INTO v_map FROM public.account_mapping
+   WHERE mapping_key = public.service_mapping_key_for_job_type(v_job.job_type) AND is_active;
+  IF NOT FOUND OR v_map.recognition_debit_code IS NULL THEN RETURN false; END IF;
+
+  v_dr_code := CASE lower(coalesce(v_pay.payment_method,''))
+                 WHEN 'transfer' THEN v_pay.bank_coa_code
+                 WHEN 'cash'     THEN v_map.debit_account_code
+                 ELSE NULL END;
+  IF v_dr_code IS NULL THEN RETURN false; END IF;
+
+  SELECT je.id, je.total_debit, je.total_credit INTO v_entry
+    FROM public.journal_entries je
+   WHERE je.source_table = 'service_payments' AND je.source_id = p_payment_id
+     AND lower(coalesce(je.status,'')) = 'approved'
+   ORDER BY je.id DESC LIMIT 1;
+  IF NOT FOUND THEN RETURN false; END IF;
+  IF round(coalesce(v_entry.total_debit,0),2) <> v_amt
+     OR round(coalesce(v_entry.total_credit,0),2) <> v_amt THEN RETURN false; END IF;
+
+  SELECT count(*) INTO v_cnt FROM public.journal_lines
+   WHERE entry_id = v_entry.id
+     AND (round(coalesce(debit,0),2) <> 0 OR round(coalesce(credit,0),2) <> 0);
+  IF v_cnt <> 2 THEN RETURN false; END IF;             -- บัญชีแปลกปลอม/บรรทัดเกิน = ไม่ผ่าน
+
+  SELECT coalesce(sum(debit),0) INTO v_dr FROM public.journal_lines
+   WHERE entry_id = v_entry.id AND account_code = v_dr_code;
+  IF round(v_dr,2) <> v_amt THEN RETURN false; END IF;
+
+  SELECT coalesce(sum(credit),0) INTO v_cr FROM public.journal_lines
+   WHERE entry_id = v_entry.id AND account_code = v_map.recognition_debit_code;
+  IF round(v_cr,2) <> v_amt THEN RETURN false; END IF;
+
+  RETURN true;
+END $$;
+REVOKE ALL ON FUNCTION public.service_payment_jv_is_valid(BIGINT) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.service_payment_jv_is_valid(BIGINT) TO authenticated;
+
+-- ───────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.guard_service_job_v2_freeze()
+RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_recognized boolean := false;
+  v_has_money  boolean := false;
+  v_old text := lower(coalesce(OLD.status,''));
+  v_new text := lower(coalesce(NEW.status,''));
+BEGIN
+  IF coalesce(OLD.finance_flow_version, 1) <> 2 THEN
+    RETURN NEW;                                   -- legacy v1 = พฤติกรรมเดิม (ไม่แตะ)
+  END IF;
+
+  SELECT EXISTS (
+    SELECT 1 FROM public.journal_entries je
+     WHERE je.source_table = 'service_jobs' AND je.source_id = OLD.id
+       AND lower(coalesce(je.status,'')) = 'approved'
+  ) INTO v_recognized;
+
+  SELECT EXISTS (SELECT 1 FROM public.service_payments p WHERE p.service_job_id = OLD.id)
+      OR EXISTS (SELECT 1 FROM public.service_payment_reversals r
+                   JOIN public.service_payments p2 ON p2.id = r.payment_id
+                  WHERE p2.service_job_id = OLD.id)
+    INTO v_has_money;
+
+  IF NOT (v_recognized OR v_has_money) THEN
+    RETURN NEW;                                   -- ยังไม่มีผลทางบัญชี → แก้ได้อิสระ
+  END IF;
+
+  -- ★ review#2 (blocking 1): ยอด/ประเภทงาน frozen **ทุกสถานะ**
+  --   (ย้อน status เป็น done ก่อนแล้วค่อยแก้ยอด = ทางลัดที่ปิดแล้ว)
+  IF NEW.total_cost IS DISTINCT FROM OLD.total_cost THEN
+    RAISE EXCEPTION 'งานนี้ลงบัญชี/รับเงินแล้ว — แก้ยอดเงินไม่ได้ (ต้องออกเอกสารปรับปรุง)' USING ERRCODE = '42501';
+  END IF;
+  IF NEW.job_type IS DISTINCT FROM OLD.job_type THEN
+    RAISE EXCEPTION 'งานนี้ลงบัญชี/รับเงินแล้ว — เปลี่ยนประเภทงานไม่ได้ (บัญชีรายได้ผูกกับประเภทงาน)' USING ERRCODE = '42501';
+  END IF;
+
+  -- ★ transition matrix หลังมีผลทางบัญชีแล้ว:
+  --     เดิม → เดิม        = ผ่าน (แก้ฟิลด์อื่น เช่น note/ที่อยู่)
+  --     delivered → closed = ผ่าน (ลูกค้ายืนยันปิดงาน — ไม่ใช่เหตุการณ์บัญชี)
+  --     ที่เหลือทั้งหมด     = block (→ done/progress/pending/cancelled · closed → delivered)
+  IF v_new IS DISTINCT FROM v_old
+     AND NOT (v_old = 'delivered' AND v_new = 'closed') THEN
+    RAISE EXCEPTION 'เปลี่ยนสถานะงานที่ลงบัญชี/รับเงินแล้วจาก % เป็น % ไม่ได้ (ต้องกลับรายการ/ปรับปรุงบัญชีก่อน)', v_old, v_new
+      USING ERRCODE = '42501';
+  END IF;
+
+  RETURN NEW;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_service_job_v2_freeze ON public.service_jobs;
+CREATE TRIGGER trg_service_job_v2_freeze
+  BEFORE UPDATE ON public.service_jobs
+  FOR EACH ROW EXECUTE FUNCTION public.guard_service_job_v2_freeze();
+
+-- 4) service_payment_reversals — append-only (แก้รายการรับชำระผิด "ด้วยการกลับรายการ")
+--    ห้าม UPDATE/DELETE service_payments ตลอดกาล — ledger ต้อง audit ได้
+-- ───────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.service_payment_reversals (
+  id               BIGSERIAL PRIMARY KEY,
+  payment_id       BIGINT NOT NULL REFERENCES public.service_payments(id) ON DELETE RESTRICT,
+  amount           NUMERIC(14,2) NOT NULL
+                     CONSTRAINT chk_service_payment_reversals_amount_finite
+                     CHECK (amount > 0 AND lower(amount::text) NOT IN ('nan','infinity','-infinity')),
+  reason           TEXT NOT NULL CHECK (btrim(reason) <> ''),
+  idempotency_key  UUID NOT NULL,
+  reversed_at      TIMESTAMPTZ NOT NULL,
+  created_by       UUID,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT uq_service_payment_reversals_idem UNIQUE (payment_id, idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS idx_service_payment_reversals_payment ON public.service_payment_reversals(payment_id);
+
+ALTER TABLE public.service_payment_reversals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.service_payment_reversals FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS service_payment_reversals_select_accountant ON public.service_payment_reversals;
+CREATE POLICY service_payment_reversals_select_accountant
+  ON public.service_payment_reversals FOR SELECT TO authenticated
+  USING (COALESCE(public.is_accountant(), false));           -- fail-closed
+REVOKE ALL ON public.service_payment_reversals FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.service_payment_reversals TO authenticated;
+
+-- ───────────────────────────────────────────────────────────────────────────
+-- 4b) service_job_paid_total — "รับแล้วสุทธิ" = Σ payments − Σ reversals
+--    (ใช้ทั้งใน RPC รับชำระ/กลับรายการ และฝั่ง report)
+-- ───────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.service_job_paid_total(p_job_id BIGINT)
+RETURNS NUMERIC
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = public
+AS $$
+  -- ★ should-fix: fail-closed — เฉพาะ admin/accountant เท่านั้นที่อ่านยอดของงานใด ๆ ได้
+  SELECT CASE WHEN NOT COALESCE(public.is_accountant(), false) THEN NULL ELSE round(
+           coalesce((SELECT sum(p.amount) FROM public.service_payments p
+                      WHERE p.service_job_id = p_job_id), 0)
+         - coalesce((SELECT sum(r.amount) FROM public.service_payment_reversals r
+                      JOIN public.service_payments p2 ON p2.id = r.payment_id
+                     WHERE p2.service_job_id = p_job_id), 0)
+         , 2) END;
+$$;
+REVOKE ALL ON FUNCTION public.service_job_paid_total(BIGINT) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.service_job_paid_total(BIGINT) TO authenticated;
+
+-- ───────────────────────────────────────────────────────────────────────────
+-- 5) record_service_payment_v2 — REPLACE: เพิ่ม gate "ต้องมี recognition JV แล้ว"
+--    (ที่เหลือคงสัญญาเดิมจาก 606-a เป๊ะ: authority fail-closed · total_cost finite+>0 ก่อน
+--     idempotency · idempotency เทียบ payload ครบ · bank allowlist · overpay exact)
+--    ★ ยอดค้าง = total_cost − (รับแล้ว − กลับรายการแล้ว)
+-- ───────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.record_service_payment_v2(
+  p_service_job_id  BIGINT,
+  p_amount          NUMERIC,
+  p_payment_method  TEXT,
+  p_paid_at         TIMESTAMPTZ,
+  p_idempotency_key UUID,
+  p_bank_coa_code   TEXT DEFAULT NULL,
+  p_slip_url        TEXT DEFAULT NULL,
+  p_note            TEXT DEFAULT NULL
+) RETURNS JSONB
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_job      public.service_jobs%ROWTYPE;
+  v_amount   NUMERIC(14,2);
+  v_paid     NUMERIC(14,2);
+  v_total    NUMERIC(14,2);
+  v_existing public.service_payments%ROWTYPE;
+  v_row      public.service_payments%ROWTYPE;
+  v_method   TEXT;
+BEGIN
+  -- (1) authority — fail-closed
+  IF NOT COALESCE(public.is_admin(), false) THEN
+    RAISE EXCEPTION 'เฉพาะแอดมินเท่านั้นที่บันทึกรับชำระได้' USING ERRCODE = '42501';
+  END IF;
+
+  -- (2) input normalize/validate
+  v_method := lower(btrim(coalesce(p_payment_method, '')));
+  IF v_method NOT IN ('cash','transfer') THEN
+    RAISE EXCEPTION 'payment_method ต้องเป็น cash หรือ transfer (ไม่ระบุ/ไม่รู้จัก = ปฏิเสธ ห้าม default เป็นเงินสด)'
+      USING ERRCODE = '22023';
+  END IF;
+  IF p_amount IS NULL OR lower(p_amount::text) IN ('nan','infinity','-infinity','+infinity') THEN
+    RAISE EXCEPTION 'amount ไม่ใช่ตัวเลขที่ใช้ได้ (NaN/Infinity ถูกปฏิเสธ)' USING ERRCODE = '22023';
+  END IF;
+  v_amount := round(p_amount::numeric, 2);
+  IF v_amount <= 0 THEN
+    RAISE EXCEPTION 'amount ต้องมากกว่า 0 หลังปัดเป็นทศนิยม 2 ตำแหน่ง' USING ERRCODE = '22023';
+  END IF;
+  IF p_paid_at IS NULL OR p_paid_at = 'infinity'::timestamptz OR p_paid_at = '-infinity'::timestamptz THEN
+    RAISE EXCEPTION 'paid_at ต้องเป็นเวลาจริง (ห้าม fallback วันสร้างงาน)' USING ERRCODE = '22023';
+  END IF;
+  -- ★ review#5 (blocking 4): วันรับเงินก่อน "วันเริ่มบัญชีจริง" = JS writer จะ skip JV (pre-effective)
+  --   → จะได้ ledger append-only ที่ไม่มี JV และซ่อมไม่ได้ตลอดกาล. ปฏิเสธตั้งแต่ต้นทาง
+  --   ★ ต้องตัดสินด้วย **วันตามเวลาไทย** ไม่ใช่ UTC (30 มิ.ย. 23:30 น. ไทย = 16:30 UTC วันเดียวกัน
+  --     แต่ 1 ก.ค. 00:30 น. ไทย = 30 มิ.ย. 17:30 UTC → ถ้าใช้ UTC จะปฏิเสธผิด)
+  --   ★ วันที่นี้ต้องตรงกับ ACCOUNTING_EFFECTIVE_DATE ใน modules/accounting/effective_date.js (มี drift guard)
+  IF (p_paid_at AT TIME ZONE 'Asia/Bangkok')::date < DATE '2026-07-01' THEN
+    RAISE EXCEPTION 'วันรับชำระ (%) ก่อนวันเริ่มระบบบัญชี 2026-07-01 (เวลาไทย) — บันทึกไม่ได้',
+      (p_paid_at AT TIME ZONE 'Asia/Bangkok')::date USING ERRCODE = '22023';
+  END IF;
+  IF p_idempotency_key IS NULL THEN
+    RAISE EXCEPTION 'idempotency_key ต้องระบุ' USING ERRCODE = '22023';
+  END IF;
+  IF v_method = 'cash' AND p_bank_coa_code IS NOT NULL THEN
+    RAISE EXCEPTION 'เงินสดต้องไม่ระบุบัญชีธนาคาร' USING ERRCODE = '22023';
+  END IF;
+  IF v_method = 'transfer' AND p_bank_coa_code IS NULL THEN
+    RAISE EXCEPTION 'โอน/QR ต้องระบุบัญชีธนาคาร (bank_coa_code)' USING ERRCODE = '22023';
+  END IF;
+
+  -- (3) lock งาน
+  SELECT * INTO v_job FROM public.service_jobs WHERE id = p_service_job_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'ไม่พบงาน #%', p_service_job_id USING ERRCODE = 'P0002';
+  END IF;
+
+  -- (3b) ยอดงานต้องใช้ได้จริง **ก่อน idempotency lookup** (retry ก็ต้องไม่ซ่อนยอดเสีย)
+  IF v_job.total_cost IS NULL
+     OR lower(v_job.total_cost::text) IN ('nan','infinity','-infinity','+infinity') THEN
+    RAISE EXCEPTION 'ยอดงานไม่ใช่ตัวเลขที่ใช้ได้ (null/NaN/Infinity) — รับชำระ/ยืนยันรายการไม่ได้'
+      USING ERRCODE = '22023';
+  END IF;
+  v_total := round(v_job.total_cost, 2);
+  IF v_total <= 0 THEN
+    RAISE EXCEPTION 'ยอดงานไม่ถูกต้อง (%) — รับชำระ/ยืนยันรายการไม่ได้', v_total USING ERRCODE = '22023';
+  END IF;
+
+  -- (4) idempotency ก่อน business-state: retry ต้องคืนของเดิมได้ แม้สถานะงานเปลี่ยนไปแล้ว
+  SELECT * INTO v_existing FROM public.service_payments
+   WHERE service_job_id = p_service_job_id AND idempotency_key = p_idempotency_key;
+  IF FOUND THEN
+    IF v_existing.amount = v_amount
+       AND v_existing.payment_method = v_method
+       AND v_existing.bank_coa_code IS NOT DISTINCT FROM p_bank_coa_code
+       AND v_existing.paid_at = p_paid_at
+       AND v_existing.slip_url IS NOT DISTINCT FROM p_slip_url
+       AND v_existing.note IS NOT DISTINCT FROM p_note THEN
+      SELECT public.service_job_paid_total(p_service_job_id) INTO v_paid;
+      RETURN jsonb_build_object(
+        'payment_id', v_existing.id, 'inserted', false,
+        'paid_total', v_paid,
+        'outstanding_after', greatest(v_total - v_paid, 0)
+      );
+    END IF;
+    RAISE EXCEPTION 'idempotency_key นี้ถูกใช้กับข้อมูลชุดอื่นแล้ว — ปฏิเสธ (ไม่มีการเขียน)' USING ERRCODE = '23505';
+  END IF;
+
+  -- (4b) bank allowlist — เฉพาะตอนจะ insert ใหม่ (asset อย่างเดียวไม่พอ: 1170/1200/1300 ก็ asset)
+  IF v_method = 'transfer' AND NOT EXISTS (
+    SELECT 1 FROM public.chart_of_accounts
+     WHERE code = p_bank_coa_code AND is_active AND type = 'asset' AND code ~ '^11[3-6][0-9]$'
+  ) THEN
+    RAISE EXCEPTION 'bank_coa_code % ไม่ใช่บัญชีธนาคารที่รับโอนได้ (ต้องเป็น asset active รหัส 1130-1169)', p_bank_coa_code
+      USING ERRCODE = '23503';
+  END IF;
+
+  -- (5) business-state (เฉพาะกรณีจะ insert ใหม่)
+  IF coalesce(v_job.source_kind, 'service') <> 'service' THEN
+    RAISE EXCEPTION 'งานนี้เป็น % — รับชำระผ่าน ledger นี้ไม่ได้', v_job.source_kind USING ERRCODE = '22023';
+  END IF;
+  IF coalesce(v_job.finance_flow_version, 1) <> 2 THEN
+    RAISE EXCEPTION 'งานนี้ยังเป็น finance flow v% — ต้อง activate flow v2 (Phase 606-b3) ก่อน',
+      coalesce(v_job.finance_flow_version, 1) USING ERRCODE = '22023';
+  END IF;
+  IF coalesce(v_job.note,'') LIKE '%[ลบแล้ว]%' THEN
+    RAISE EXCEPTION 'งานนี้ถูกลบแล้ว — รับชำระไม่ได้' USING ERRCODE = '22023';
+  END IF;
+  -- ★ Phase 606-b1: ความจริงของ "ส่งมอบแล้ว" = **มี JV รับรู้รายได้ (approved) จริง**
+  --   ไม่ใช่ status/closed_at (แก้ด้วยมือได้) — ไม่มีลูกหนี้ (Dr 1200) ก็ไม่มีอะไรให้ล้างด้วยเงินที่รับ
+  IF NOT public.service_job_has_recognition_jv(p_service_job_id) THEN
+    RAISE EXCEPTION 'งานนี้ยังไม่มีรายการบัญชีรับรู้รายได้ (ยังไม่ส่งมอบ/ยังไม่ลงบัญชี) — รับชำระไม่ได้'
+      USING ERRCODE = '22023';
+  END IF;
+
+  -- (6) over-pay guard — exact (หักยอดที่กลับรายการแล้วออกจาก "รับแล้ว")
+  SELECT public.service_job_paid_total(p_service_job_id) INTO v_paid;
+  IF v_paid + v_amount > v_total THEN
+    RAISE EXCEPTION 'รับชำระเกินยอดค้าง (ยอดงาน % · รับแล้ว % · จะรับเพิ่ม %)', v_total, v_paid, v_amount
+      USING ERRCODE = '23514';
+  END IF;
+
+  -- (7) insert ledger (append-only) — ไม่แตะ journal / ไม่ PATCH service_jobs (ห้าม auto เปลี่ยน status)
+  INSERT INTO public.service_payments
+    (service_job_id, amount, payment_method, bank_coa_code, paid_at, idempotency_key, slip_url, note, created_by)
+  VALUES
+    (p_service_job_id, v_amount, v_method, p_bank_coa_code, p_paid_at, p_idempotency_key, p_slip_url, p_note, auth.uid())
+  RETURNING * INTO v_row;
+
+  v_paid := v_paid + v_amount;
+  RETURN jsonb_build_object(
+    'payment_id', v_row.id, 'inserted', true,
+    'paid_total', v_paid,
+    'outstanding_after', greatest(v_total - v_paid, 0)
+  );
+END $$;
+
+-- ───────────────────────────────────────────────────────────────────────────
+-- 6) reverse_service_payment_v2 — กลับรายการรับชำระผิด (append-only · admin · idempotent)
+--    ★ ไม่ UPDATE/DELETE service_payments · reverse เกินยอดที่แถวนั้นรับจริงไม่ได้
+--    ★ JV กลับรายการ โพสต์ฝั่ง client ด้วย canonical writer (source_table='service_payment_reversals')
+-- ───────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.reverse_service_payment_v2(
+  p_payment_id      BIGINT,
+  p_amount          NUMERIC,
+  p_reason          TEXT,
+  p_reversed_at     TIMESTAMPTZ,
+  p_idempotency_key UUID
+) RETURNS JSONB
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_pay      public.service_payments%ROWTYPE;
+  v_amount   NUMERIC(14,2);
+  v_reason   TEXT;
+  v_reversed NUMERIC(14,2);
+  v_existing public.service_payment_reversals%ROWTYPE;
+  v_row      public.service_payment_reversals%ROWTYPE;
+BEGIN
+  IF NOT COALESCE(public.is_admin(), false) THEN
+    RAISE EXCEPTION 'เฉพาะแอดมินเท่านั้นที่กลับรายการรับชำระได้' USING ERRCODE = '42501';
+  END IF;
+  IF p_amount IS NULL OR lower(p_amount::text) IN ('nan','infinity','-infinity','+infinity') THEN
+    RAISE EXCEPTION 'amount ไม่ใช่ตัวเลขที่ใช้ได้ (NaN/Infinity ถูกปฏิเสธ)' USING ERRCODE = '22023';
+  END IF;
+  v_amount := round(p_amount::numeric, 2);
+  IF v_amount <= 0 THEN
+    RAISE EXCEPTION 'amount ต้องมากกว่า 0' USING ERRCODE = '22023';
+  END IF;
+  IF p_reason IS NULL OR btrim(p_reason) = '' THEN
+    RAISE EXCEPTION 'ต้องระบุเหตุผลการกลับรายการ' USING ERRCODE = '22023';
+  END IF;
+  v_reason := btrim(p_reason);      -- ★ normalize ครั้งเดียว → ใช้ค่าเดียวกันทั้ง compare และ insert
+                                    --   (ไม่งั้น retry ด้วย reason ที่มีช่องว่างต่างกัน = 23505 ทั้งที่ควร idempotent)
+  IF p_reversed_at IS NULL OR p_reversed_at = 'infinity'::timestamptz OR p_reversed_at = '-infinity'::timestamptz THEN
+    RAISE EXCEPTION 'reversed_at ต้องเป็นเวลาจริง' USING ERRCODE = '22023';
+  END IF;
+  IF p_idempotency_key IS NULL THEN
+    RAISE EXCEPTION 'idempotency_key ต้องระบุ' USING ERRCODE = '22023';
+  END IF;
+
+  SELECT * INTO v_pay FROM public.service_payments WHERE id = p_payment_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'ไม่พบรายการรับชำระ #%', p_payment_id USING ERRCODE = 'P0002';
+  END IF;
+
+  -- idempotency ก่อน business-state (retry ต้องคืนของเดิม)
+  SELECT * INTO v_existing FROM public.service_payment_reversals
+   WHERE payment_id = p_payment_id AND idempotency_key = p_idempotency_key;
+  IF FOUND THEN
+    IF v_existing.amount = v_amount
+       AND v_existing.reason IS NOT DISTINCT FROM v_reason
+       AND v_existing.reversed_at = p_reversed_at THEN
+      RETURN jsonb_build_object('reversal_id', v_existing.id, 'inserted', false,
+                                'paid_total', public.service_job_paid_total(v_pay.service_job_id));
+    END IF;
+    RAISE EXCEPTION 'idempotency_key นี้ถูกใช้กับข้อมูลชุดอื่นแล้ว — ปฏิเสธ (ไม่มีการเขียน)' USING ERRCODE = '23505';
+  END IF;
+
+  -- ★ review#2 (blocking 2): กลับรายการได้เฉพาะเมื่อ (ก) งานมี recognition JV ถูกต้อง และ
+  --   (ข) **JV ของการรับเงินเดิมถูกต้องเป๊ะ** (approved · 2 ขา · Dr บัญชีเงินตาม ledger · Cr 1200 · ยอดตรง)
+  --   ไม่ผ่าน = ปฏิเสธ **ก่อน INSERT reversal ledger** (zero writes)
+  --   — retry ของ reversal row เดิม return ไปแล้วที่ขั้น idempotency ข้างบน (ไม่โดน gate นี้)
+  IF NOT public.service_job_has_recognition_jv(v_pay.service_job_id) THEN
+    RAISE EXCEPTION 'งานของรายการนี้ยังไม่มีรายการบัญชีรับรู้รายได้ที่ถูกต้อง — กลับรายการไม่ได้'
+      USING ERRCODE = '22023';
+  END IF;
+  IF NOT public.service_payment_jv_is_valid(p_payment_id) THEN
+    RAISE EXCEPTION 'รายการบัญชีของการรับชำระนี้ไม่ถูกต้อง (ไม่มี / ยังไม่ approved / มีแต่ header / บัญชีหรือยอดผิด) — กลับรายการไม่ได้ ต้องแก้ด้วยคน'
+      USING ERRCODE = '22023';
+  END IF;
+
+  -- กลับรายการเกิน "ยอดที่แถวนี้รับจริง" ไม่ได้ (รวมของเดิมที่เคยกลับไปแล้ว)
+  SELECT coalesce(sum(amount), 0) INTO v_reversed
+    FROM public.service_payment_reversals WHERE payment_id = p_payment_id;
+  IF v_reversed + v_amount > round(v_pay.amount, 2) THEN
+    RAISE EXCEPTION 'กลับรายการเกินยอดที่รับไว้ (รับ % · กลับแล้ว % · จะกลับเพิ่ม %)',
+      round(v_pay.amount,2), v_reversed, v_amount USING ERRCODE = '23514';
+  END IF;
+
+  INSERT INTO public.service_payment_reversals
+    (payment_id, amount, reason, idempotency_key, reversed_at, created_by)
+  VALUES (p_payment_id, v_amount, v_reason, p_idempotency_key, p_reversed_at, auth.uid())
+  RETURNING * INTO v_row;
+
+  RETURN jsonb_build_object('reversal_id', v_row.id, 'inserted', true,
+                            'paid_total', public.service_job_paid_total(v_pay.service_job_id));
+END $$;
+
+REVOKE ALL ON FUNCTION public.reverse_service_payment_v2(BIGINT, NUMERIC, TEXT, TIMESTAMPTZ, UUID) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.reverse_service_payment_v2(BIGINT, NUMERIC, TEXT, TIMESTAMPTZ, UUID) TO authenticated;
+
+-- ───────────────────────────────────────────────────────────────────────────
+-- 6b) ★ POLICY GUARD — historical drift ของ account_mapping
+--     ปัญหา: service_job_has_recognition_jv / service_payment_jv_is_valid ตรวจ JV **เก่า**
+--     ด้วย mapping **ปัจจุบัน** → ถ้าแอดมินแก้บัญชีรายได้/ลูกหนี้ของ service_% วันนี้
+--     JV ที่โพสต์ถูกต้องเมื่อวาน จะกลายเป็น "invalid" เงียบ ๆ (รับชำระ/กลับรายการไม่ได้ทั้งกอง)
+--     วิธีแก้ที่เลือก (owner ruling): **freeze mapping ของงานบริการที่ถูกใช้ไปแล้ว**
+--       - ห้าม UPDATE debit/credit/recognition/transfer code ของ mapping_key ที่ขึ้นต้น 'service_'
+--         ถ้ามี JV ของงานบริการอ้างอิงอยู่แล้ว (approved)
+--       - เปลี่ยนผังบัญชีจริง = สร้าง mapping_key ใหม่ + ย้าย job_type ใหม่ (ไม่แตะประวัติศาสตร์)
+--       - is_active/description/notes ยังแก้ได้ (ไม่กระทบการตรวจ JV)
+-- ───────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.guard_service_mapping_freeze()
+RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_row  public.account_mapping%ROWTYPE := OLD;
+  v_used boolean := false;
+BEGIN
+  IF v_row.mapping_key NOT LIKE 'service\_%' THEN
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;      -- ไม่ใช่งานบริการ = นโยบายเดิม
+  END IF;
+
+  -- mapping นี้ถูกใช้โพสต์ JV งานบริการ (approved) ไปแล้วหรือยัง
+  SELECT EXISTS (
+    SELECT 1
+      FROM public.journal_entries je
+      JOIN public.service_jobs sj ON sj.id = je.source_id
+     WHERE je.source_table = 'service_jobs'
+       AND lower(coalesce(je.status,'')) = 'approved'
+       AND public.service_mapping_key_for_job_type(sj.job_type) = v_row.mapping_key
+  ) INTO v_used;
+
+  IF NOT v_used THEN
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;       -- ยังไม่ถูกใช้ = แก้/ลบได้ตามเดิม
+  END IF;
+
+  -- ★ review#3 (blocking 3): ถูกใช้แล้ว → ปิดทุกทางที่ทำให้ JV เก่ากลายเป็น invalid
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'mapping % ถูกใช้ลงบัญชีงานบริการแล้ว — ลบไม่ได้', v_row.mapping_key USING ERRCODE = '42501';
+  END IF;
+
+  IF NEW.mapping_key IS DISTINCT FROM OLD.mapping_key THEN
+    RAISE EXCEPTION 'mapping % ถูกใช้ลงบัญชีแล้ว — เปลี่ยนรหัส mapping ไม่ได้', OLD.mapping_key USING ERRCODE = '42501';
+  END IF;
+  IF NEW.is_active IS DISTINCT FROM OLD.is_active THEN
+    RAISE EXCEPTION 'mapping % ถูกใช้ลงบัญชีแล้ว — เปิด/ปิดใช้งานไม่ได้ (ปิดแล้วเอกสารเก่าจะกลายเป็นไม่ถูกต้อง)', OLD.mapping_key USING ERRCODE = '42501';
+  END IF;
+  IF NEW.debit_account_code       IS DISTINCT FROM OLD.debit_account_code
+     OR NEW.credit_account_code   IS DISTINCT FROM OLD.credit_account_code
+     OR NEW.recognition_debit_code IS DISTINCT FROM OLD.recognition_debit_code
+     OR NEW.transfer_debit_code   IS DISTINCT FROM OLD.transfer_debit_code THEN
+    RAISE EXCEPTION 'บัญชีของ % ถูกใช้ลงบัญชีงานบริการไปแล้ว — แก้ไม่ได้ (ให้สร้าง mapping ใหม่แทน)', OLD.mapping_key
+      USING ERRCODE = '42501';
+  END IF;
+
+  RETURN NEW;    -- เหลือแก้ได้เฉพาะ description / notes / updated_at
+END $$;
+
+DROP TRIGGER IF EXISTS trg_service_mapping_freeze ON public.account_mapping;
+CREATE TRIGGER trg_service_mapping_freeze
+  BEFORE UPDATE OR DELETE ON public.account_mapping
+  FOR EACH ROW EXECUTE FUNCTION public.guard_service_mapping_freeze();
+
+-- ───────────────────────────────────────────────────────────────────────────
+-- 7) POST-CHECK — ผิดข้อใดข้อหนึ่ง = rollback ทั้งไฟล์
+-- ───────────────────────────────────────────────────────────────────────────
+DO $$
+DECLARE
+  v_flow2 bigint;
+  v_rows  bigint;
+  v_rev   bigint;
+  v_fn    text;
+BEGIN
+  -- ยังต้อง "เปิดใช้ไม่ได้": ไม่มีงาน flow v2 · ledger ยังว่าง · reversal ยังว่าง
+  SELECT count(*) INTO v_flow2 FROM public.service_jobs WHERE finance_flow_version = 2;
+  IF v_flow2 <> 0 THEN RAISE EXCEPTION 'พบงาน finance_flow_version=2 % งาน — เฟสนี้ยังห้าม activate', v_flow2; END IF;
+  SELECT count(*) INTO v_rows FROM public.service_payments;
+  IF v_rows <> 0 THEN RAISE EXCEPTION 'service_payments ต้องยังว่าง (พบ % แถว)', v_rows; END IF;
+  SELECT count(*) INTO v_rev FROM public.service_payment_reversals;
+  IF v_rev <> 0 THEN RAISE EXCEPTION 'service_payment_reversals ต้องยังว่าง (พบ % แถว)', v_rev; END IF;
+
+  -- RPC/trigger/helper ต้องมีจริง + SECURITY DEFINER + search_path
+  IF NOT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+                  WHERE n.nspname='public' AND p.proname='reverse_service_payment_v2'
+                    AND p.prosecdef AND p.proconfig IS NOT NULL) THEN
+    RAISE EXCEPTION 'reverse_service_payment_v2 ต้องเป็น SECURITY DEFINER + search_path';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+                  WHERE n.nspname='public' AND p.proname='service_job_paid_total') THEN
+    RAISE EXCEPTION 'ไม่พบ service_job_paid_total';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_service_job_v2_freeze' AND NOT tgisinternal AND tgenabled <> 'D') THEN
+    RAISE EXCEPTION 'trigger trg_service_job_v2_freeze ต้องมีและ enabled';
+  END IF;
+
+  -- gate รับชำระ/กลับรายการ ต้องอ้าง recognition JV จริง (ไม่ใช่ status)
+  FOR v_fn IN SELECT unnest(ARRAY['record_service_payment_v2','reverse_service_payment_v2']) LOOP
+    IF (SELECT pg_get_functiondef(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+         WHERE n.nspname='public' AND p.proname=v_fn)
+       NOT LIKE '%service_job_has_recognition_jv%' THEN
+      RAISE EXCEPTION '% ต้องเช็ค recognition JV ก่อนเขียน ledger', v_fn;
+    END IF;
+  END LOOP;
+
+  -- ★ Blocking 1: recognition gate ต้องตรวจ **lines** ไม่ใช่แค่ header ที่ approved
+  IF (SELECT pg_get_functiondef(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+       WHERE n.nspname='public' AND p.proname='service_job_has_recognition_jv')
+     NOT LIKE '%journal_lines%' THEN
+    RAISE EXCEPTION 'service_job_has_recognition_jv ต้องตรวจ journal_lines (header อย่างเดียวไม่พอ)';
+  END IF;
+
+  -- ★ Blocking 4: freeze ต้องอิง accounting truth (JV/ledger) ไม่ใช่ status ปัจจุบันอย่างเดียว
+  IF (SELECT pg_get_functiondef(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+       WHERE n.nspname='public' AND p.proname='guard_service_job_v2_freeze')
+     NOT LIKE '%service_payments%' THEN
+    RAISE EXCEPTION 'guard_service_job_v2_freeze ต้องดูเงินใน ledger ด้วย (ไม่ใช่แค่ status)';
+  END IF;
+
+  -- ★ review#5: รับชำระต้องปฏิเสธวันก่อน effective date (เวลาไทย) — ก่อน idempotency/INSERT
+  IF (SELECT pg_get_functiondef(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+       WHERE n.nspname='public' AND p.proname='record_service_payment_v2')
+     NOT LIKE '%AT TIME ZONE ''Asia/Bangkok''%' THEN
+    RAISE EXCEPTION 'record_service_payment_v2 ต้องตรวจ paid_at ตามวันเวลาไทย (effective date)';
+  END IF;
+
+  -- ★ review#2: กลับรายการต้องผ่าน exact payment-JV validator ก่อน INSERT
+  IF (SELECT pg_get_functiondef(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+       WHERE n.nspname='public' AND p.proname='reverse_service_payment_v2')
+     NOT LIKE '%service_payment_jv_is_valid%' THEN
+    RAISE EXCEPTION 'reverse_service_payment_v2 ต้องตรวจ JV ของการรับเงินเดิมแบบ exact ก่อนเขียน ledger';
+  END IF;
+
+  -- ★ review#2: mapping ของงานบริการที่ถูกใช้แล้วต้อง freeze (กัน historical drift)
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_service_mapping_freeze' AND NOT tgisinternal AND tgenabled <> 'D') THEN
+    RAISE EXCEPTION 'trigger trg_service_mapping_freeze ต้องมีและ enabled (กัน JV ประวัติศาสตร์กลายเป็น invalid)';
+  END IF;
+
+  -- ห้ามมีสิทธิ์เขียนตรงลง ledger/reversal สำหรับ anon/authenticated
+  IF EXISTS (
+    SELECT 1 FROM information_schema.role_table_grants
+     WHERE table_schema='public' AND table_name IN ('service_payments','service_payment_reversals')
+       AND grantee IN ('anon','authenticated')
+       AND privilege_type IN ('INSERT','UPDATE','DELETE','TRUNCATE')
+  ) THEN
+    RAISE EXCEPTION 'พบสิทธิ์เขียนตรงลง ledger — ต้องเขียนผ่าน RPC เท่านั้น';
+  END IF;
+
+  RAISE NOTICE 'POST-CHECK 606-b1 ผ่านครบ (gate recognition JV · freeze v2 · reversal append-only)';
+END $$;
+
+COMMIT;
+
+NOTIFY pgrst, 'reload schema';
+
+-- ═══════════════════════════════════════════════════════════════════════════
+--  VERIFY (count-only — รันหลัง COMMIT แล้วส่งผลให้ทีม)
+-- ═══════════════════════════════════════════════════════════════════════════
+/*
+-- V1 objects ครบ
+SELECT to_regclass('public.service_payment_reversals') AS reversals,
+       (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+         WHERE n.nspname='public' AND p.proname IN
+           ('record_service_payment_v2','reverse_service_payment_v2','service_job_paid_total','service_job_has_recognition_jv')) AS fns;
+
+-- V2 trigger freeze
+SELECT tgname, tgenabled FROM pg_trigger WHERE tgname = 'trg_service_job_v2_freeze';
+
+-- V3 ยังไม่ activate (ต้องเป็น 0 ทั้งสาม)
+SELECT (SELECT count(*) FROM public.service_jobs WHERE finance_flow_version=2) AS flow_v2,
+       (SELECT count(*) FROM public.service_payments) AS payments,
+       (SELECT count(*) FROM public.service_payment_reversals) AS reversals;
+
+-- V4 grants (ต้องไม่มี INSERT/UPDATE/DELETE ให้ anon/authenticated)
+SELECT table_name, grantee, privilege_type FROM information_schema.role_table_grants
+WHERE table_schema='public' AND table_name IN ('service_payments','service_payment_reversals')
+  AND grantee IN ('anon','authenticated');
+
+-- V5 บัญชีต้องไม่ขยับ (เทียบกับ STEP 0.4)
+SELECT (SELECT count(*) FROM public.journal_entries) AS je, (SELECT count(*) FROM public.journal_lines) AS jl;
+
+-- V6 (behavioral · **staging/branch DB เท่านั้น** — ห้ามรันบน production: ต้องมีงาน flow v2 + เขียน ledger)
+--   ตั้งงาน flow v2 + recognition JV ถูกต้อง (Dr 1200 / Cr 42xx = total_cost) แล้วทดสอบ:
+--   B1  recognized delivered → cancelled                      = 42501 (zero writes)
+--   B2  recognized closed    → delivered                      = 42501
+--   B3  recognized delivered → closed                         = ผ่าน (ลูกค้ายืนยันปิดงาน)
+--   B4  recognized closed    → done/progress/pending          = 42501
+--   B5  แก้ total_cost หรือ job_type ในสถานะใดก็ตามหลัง recognize = 42501
+--       (รวมเคส "ย้อน status + แก้ยอด ใน UPDATE เดียว" → ต้อง 42501 และไม่มีแถวใดเปลี่ยน)
+--   B6  รับชำระเมื่อ recognition JV เป็น approved-header-ไม่มี-lines → 22023 (zero writes)
+--   B7  รับชำระเมื่อ Dr/Cr ของ recognition JV ผิดบัญชี/ผิดยอด      → 22023 (zero writes)
+--   B8  กลับรายการเมื่อ payment JV เป็น draft / header-only / บัญชีผิด → 22023 (zero writes)
+--       counterexample ที่ต้อง block: Dr 1134 = 500 · Cr 4200 = 100 · Cr 1200 = 400
+--       (header balance ตรง แต่มีบัญชีแปลกปลอม + ไม่ใช่ 2 ขา) → service_payment_jv_is_valid = false
+--   B9  account_mapping ของ service_% ที่ถูกใช้ลง JV แล้ว (matrix):
+--         key change = 42501 · deactivate (true→false) = 42501 · DELETE = 42501 ·
+--         account-code change (4 ช่อง) = 42501 · แก้ notes/description อย่างเดียว = ผ่าน
+--         mapping ที่ยังไม่ถูกใช้: แก้/ลบได้ตามเดิม
+--   B11 paid_at boundary (เวลาไทย):
+--         2026-06-30 23:59:59+07  → 22023 (reject, zero writes)
+--         2026-07-01 00:00:00+07  → accept
+--         2026-06-30 17:30:00Z (= 1 ก.ค. 00:30 น. ไทย) → accept (ตัดสินตามวันไทย ไม่ใช่ UTC)
+--         retry payload เดิมที่ pre-effective → ต้องถูกปฏิเสธ (gate อยู่ก่อน idempotency return)
+--   B10 recognition JV counterexamples (service_job_has_recognition_jv ต้องคืน false):
+--         Dr 1200 = 300 + Dr 1200 = 200 + Cr 42xx = 500  (split line, 3 บรรทัด)  → false
+--         lines ถูก แต่ header total_credit ผิด/null                              → false
+--         exact 2 ขา (Dr 1200 เต็ม / Cr 42xx เต็ม = total_cost)                   → true
+--         → เมื่อ false: record_service_payment_v2 ต้อง RAISE 22023 และ **ไม่ INSERT** service_payments
+--   ★ B1-B5 ต้องถูก block **ที่ DB (BEFORE UPDATE)** → runtime ไม่มีทางไปถึงขั้นคืนสต็อก
+--     (b2 ต้องเช็คผล PATCH ก่อนทำ side-effect ใด ๆ — บังคับด้วย guard ใน 606-b2)
+*/
+
+-- ═══════════════════════════════════════════════════════════════════════════
+--  ROLLBACK GUIDANCE (additive ล้วน — ถอยได้ตราบใดที่ ledger/reversal ยังว่าง)
+-- ═══════════════════════════════════════════════════════════════════════════
+/*
+BEGIN;
+  DROP TRIGGER IF EXISTS trg_service_mapping_freeze ON public.account_mapping;
+  DROP FUNCTION IF EXISTS public.guard_service_mapping_freeze();
+  DROP TRIGGER IF EXISTS trg_service_job_v2_freeze ON public.service_jobs;
+  DROP FUNCTION IF EXISTS public.guard_service_job_v2_freeze();
+  DROP FUNCTION IF EXISTS public.service_payment_jv_is_valid(BIGINT);
+  DROP FUNCTION IF EXISTS public.reverse_service_payment_v2(BIGINT, NUMERIC, TEXT, TIMESTAMPTZ, UUID);
+  DROP TABLE IF EXISTS public.service_payment_reversals;      -- ต้องว่างเท่านั้น
+  DROP FUNCTION IF EXISTS public.service_job_paid_total(BIGINT);
+  DROP FUNCTION IF EXISTS public.service_job_has_recognition_jv(BIGINT);
+  -- record_service_payment_v2: กลับไปใช้เวอร์ชันใน supabase-phase606a-service-finance-foundation.sql (§10)
+COMMIT;
+NOTIFY pgrst, 'reload schema';
+*/
