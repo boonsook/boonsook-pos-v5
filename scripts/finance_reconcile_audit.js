@@ -108,11 +108,14 @@ const money = (n) => (Number(n) || 0).toLocaleString("en-US", { minimumFractionD
 //   → probe ก่อนใช้; ยังไม่มี = อ่าน identity จาก marker เดิม (สคริปต์ต้องรันได้ทั้งก่อน/หลัง migration)
 const SJ_SELECT_BASE = "id,job_no,job_type,status,created_at,closed_at,total_cost,sub_service,note,payment_method";
 let META_AVAILABLE = false;
+// ★ fail-closed: ตัวตัดสิน missing-column อยู่ใน finance_reconcile_lib (L.isMissingMetaColumnError)
+//   404 หรือ 400 ด้วยสาเหตุอื่น = fatal exit 2 (ห้ามเดาว่ายังไม่ได้ migrate)
 async function probeMetaColumns(token) {
   const r = await fetch(`${URL_BASE}/rest/v1/service_jobs?select=id,source_kind,finance_flow_version&limit=1`, { method: "GET", headers: authH(token) });
   if (r.ok) { META_AVAILABLE = true; return true; }
-  if (r.status === 400 || r.status === 404) return false;
-  fatal(`probe metadata columns → HTTP ${r.status}`);
+  const body = await r.text().catch(() => "");
+  if (L.isMissingMetaColumnError(r.status, body)) return false;
+  fatal(`probe metadata columns → HTTP ${r.status}: ${body.slice(0, 200)}`);
 }
 
 async function auditMonth(token, month, productCostMap, expenseMappingKeys) {

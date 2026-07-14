@@ -36,9 +36,10 @@ export function isDeletedSale(sale) { return String(sale?.note || "").includes("
 //   (กติกาเดิมคงไว้ทั้งหมด — เป็นการ "ขยาย" ไม่ใช่เปลี่ยนนิยาม)
 //   ⚠️ Phase 606-a จะเพิ่มคอลัมน์ `source_kind` ('service'|'web_order') + backfill แล้วให้ทุกที่อ่าน
 //   จาก helper เดียว — detector ตาม marker นี้เป็นของชั่วคราวสำหรับงานเก่าที่ยังไม่มี source_kind
+// ★ ทุก marker ต้อง case-insensitive ให้ตรงกับฝั่ง SQL (derive_service_source_kind ใช้ ~* / ILIKE)
 const WEB_ORDER_JOB_NO = /^(AI|SH)-/i;
 const WEB_ORDER_NOTE = /^(AI Sales:|AC Shop:)/i;
-const WEB_ORDER_LEGACY_NOTE = /^SH-(transfer|cod_cash|cod_transfer)\|/;
+const WEB_ORDER_LEGACY_NOTE = /^SH-(transfer|cod_cash|cod_transfer)\|/i;
 
 // ═══ Phase 606-a: source identity (แหล่งกำเนิดงาน) แยกจาก income eligibility ═══
 //  ★ identity ไม่ขึ้นกับวงจรชีวิตงาน — web order ที่ถูกยกเลิก/ลบ **ยังเป็น web_order**
@@ -69,6 +70,21 @@ export function serviceJobSourceKindOf(job) {
   const k = String(raw).trim().toLowerCase();
   if (k === SOURCE_KINDS.SERVICE || k === SOURCE_KINDS.WEB_ORDER) return { kind: k, from: "db" };
   return { kind: null, from: "invalid" };   // ★ ห้าม fallback เป็น service
+}
+
+/**
+ * ★ Phase 606-a (fail-closed): metadata `source_kind`/`finance_flow_version` จะมีก็ต่อเมื่อรัน migration แล้ว
+ * → runner ต้อง probe ก่อนใช้ และ **fallback ได้เฉพาะเมื่อยืนยันว่าคอลัมน์ไม่มีจริง** (PG 42703 /
+ *   undefined column ที่อ้างชื่อคอลัมน์ของเรา). 404 หรือ 400 ด้วยสาเหตุอื่น (RLS/สิทธิ์/พิมพ์ผิด/JWT)
+ *   = fatal — ห้ามเดาว่า "ยังไม่ได้ migrate" แล้วเงียบ ๆ ใช้ marker แทน
+ * (pure — เป็นตัวตัดสินร่วมของทั้ง verify:reconcile และ verify:service-no-jv)
+ */
+export function isMissingMetaColumnError(status, bodyText) {
+  if (status !== 400) return false;
+  const t = String(bodyText || "");
+  const named = /source_kind|finance_flow_version/.test(t);
+  const undefinedCol = /42703/.test(t) || /does not exist/i.test(t) || (/PGRST\d+/.test(t) && /column/i.test(t));
+  return named && undefinedCol;
 }
 
 /** ใช้ในงาน reconcile: web order ที่ยัง "มีชีวิต" (ไม่ยกเลิก/ไม่ลบ) — identity + lifecycle */
