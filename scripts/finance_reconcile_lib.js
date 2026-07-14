@@ -59,13 +59,18 @@ export function deriveSourceKindFromMarkers(job) {
 }
 
 /**
+ * @param {object} job
+ * @param {boolean} metaAvailable - คอลัมน์ 606-a มีในสคีมาแล้วหรือยัง (probe จาก runner)
  * @returns {{kind:"service"|"web_order"|null, from:"db"|"marker"|"invalid"}}
- *   from="invalid" → source_kind ใน DB เป็นค่าที่ไม่รู้จัก = data problem (strict ต้องแดง)
+ *   ★ metaAvailable = true แล้ว source_kind ยัง null/"" → **invalid (data เสีย)** ไม่ใช่ fallback marker
+ *     (คอลัมน์ NOT NULL หลัง migration → ค่าว่าง = ผิดปกติ ต้องรายงาน ไม่ใช่เดา)
+ *   ★ metaAvailable = false (ยังไม่รัน migration) → fallback marker ตามเดิม
  */
-export function serviceJobSourceKindOf(job) {
+export function serviceJobSourceKindOf(job, metaAvailable = false) {
   const raw = job?.source_kind;
   if (raw === null || raw === undefined || raw === "") {
-    return { kind: deriveSourceKindFromMarkers(job), from: "marker" };   // งานก่อน migration
+    if (metaAvailable) return { kind: null, from: "invalid" };            // ★ fail-closed
+    return { kind: deriveSourceKindFromMarkers(job), from: "marker" };    // งานก่อน migration
   }
   const k = String(raw).trim().toLowerCase();
   if (k === SOURCE_KINDS.SERVICE || k === SOURCE_KINDS.WEB_ORDER) return { kind: k, from: "db" };
@@ -79,12 +84,18 @@ export function serviceJobSourceKindOf(job) {
  *   = fatal — ห้ามเดาว่า "ยังไม่ได้ migrate" แล้วเงียบ ๆ ใช้ marker แทน
  * (pure — เป็นตัวตัดสินร่วมของทั้ง verify:reconcile และ verify:service-no-jv)
  */
+export const META_COLUMNS = ["source_kind", "finance_flow_version"];
 export function isMissingMetaColumnError(status, bodyText) {
-  if (status !== 400) return false;
-  const t = String(bodyText || "");
-  const named = /source_kind|finance_flow_version/.test(t);
-  const undefinedCol = /42703/.test(t) || /does not exist/i.test(t) || (/PGRST\d+/.test(t) && /column/i.test(t));
-  return named && undefinedCol;
+  if (status !== 400) return false;                     // 404/401/5xx ฯลฯ = ปัญหาอื่น → fatal
+  let body;
+  try { body = JSON.parse(String(bodyText || "")); } catch (_) { return false; }   // อ่านไม่ออก = fatal
+  if (!body || typeof body !== "object") return false;
+  const code = String(body.code || "");
+  // ★ รับเฉพาะ 2 รหัสนี้เท่านั้น: PG 42703 (undefined_column) · PostgREST PGRST204 (column not found)
+  //   PGRST100 = query parsing error → ต้อง fatal (ไม่ใช่ "ยังไม่ migrate")
+  if (code !== "42703" && code !== "PGRST204") return false;
+  const text = `${body.message || ""} ${body.details || ""} ${body.hint || ""}`;
+  return META_COLUMNS.some(c => text.includes(c));      // ต้องระบุคอลัมน์เป้าหมายของเราจริง ๆ
 }
 
 /** ใช้ในงาน reconcile: web order ที่ยัง "มีชีวิต" (ไม่ยกเลิก/ไม่ลบ) — identity + lifecycle */

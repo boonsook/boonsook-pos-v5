@@ -231,7 +231,7 @@ async function main() {
   const idn = { service: 0, web_order: 0, invalid: 0, fromDb: 0, fromMarker: 0 };
   const invalidIds = [];
   for (const j of jobs) {
-    const s = L.serviceJobSourceKindOf(j);
+    const s = L.serviceJobSourceKindOf(j, META_AVAILABLE);
     if (s.from === "invalid") { idn.invalid += 1; if (invalidIds.length < 20) invalidIds.push(j.job_no || j.id); continue; }
     idn[s.kind] += 1;
     if (s.from === "db") idn.fromDb += 1; else idn.fromMarker += 1;
@@ -269,7 +269,9 @@ async function main() {
   console.log(`| FLOW_V2_NO_JV | ${F.FLOW_V2_NO_JV.count} | ${money(F.FLOW_V2_NO_JV.amount)} | งานตามกติกา 606 **ยังไม่ลง JV (ปัญหา)** |`);
   console.log(`| DATA_INCOMPLETE_METADATA | ${F.DATA_INCOMPLETE_METADATA.count} | ${money(F.DATA_INCOMPLETE_METADATA.amount)} | **metadata เพี้ยน (flow version ไม่ใช่ 1/2) — ห้ามเดา** |`);
   console.log(`\n- **ที่ยังเป็นปัญหา (รายได้ยังไม่ลงบัญชี): ${flow.problemCount} งาน · ${money(flow.problemAmount)} บาท** · partition ${flow.partitionOk ? "✅" : "⚠️ ไม่ครบ"}`);
-  console.log(`- _finance_flow_version ยังไม่มีในสคีมา (มาใน Phase 606-a) → ทุกงานตอนนี้ถูกนับเป็น v1 โดยนิยาม_\n`);
+  console.log(META_AVAILABLE
+    ? `- _finance_flow_version อ่านจาก DB (ค่าที่ไม่ใช่ 1/2 = DATA_INCOMPLETE_METADATA — ไม่ถูกเดา)_\n`
+    : `- _finance_flow_version ยังไม่มีในสคีมา (มาใน Phase 606-a) → ทุกงานตอนนี้ถูกนับเป็น v1 โดยนิยาม_\n`);
 
   console.log(`## สรุป`);
   console.log(`- **candidate (service income ที่ยังไม่มี approved JV): ${S.candidateCount} งาน · รวม ${money(S.candidateAmount)} บาท**`);

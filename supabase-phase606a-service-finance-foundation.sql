@@ -315,7 +315,10 @@ BEGIN
       CREATE TABLE public.service_payments (
         id               BIGSERIAL PRIMARY KEY,
         service_job_id   %s NOT NULL REFERENCES public.service_jobs(id) ON DELETE RESTRICT,
-        amount           NUMERIC(14,2) NOT NULL CHECK (amount > 0),
+        -- ★ finite guard: numeric NaN "มากกว่า" ทุกจำนวน → CHECK (amount > 0) เพียงอย่างเดียวปล่อย NaN ผ่าน
+        amount           NUMERIC(14,2) NOT NULL
+                           CONSTRAINT chk_service_payments_amount_finite
+                           CHECK (amount > 0 AND lower(amount::text) NOT IN ('nan','infinity','-infinity')),
         payment_method   TEXT NOT NULL CHECK (payment_method IN ('cash','transfer')),
         bank_coa_code    TEXT REFERENCES public.chart_of_accounts(code),
         paid_at          TIMESTAMPTZ NOT NULL,
@@ -353,22 +356,45 @@ BEGIN
     IF v_col_type <> 'numeric(14,2)' THEN
       RAISE EXCEPTION 'service_payments.amount ต้องเป็น numeric(14,2) (พบ %)', v_col_type;
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint
-                    WHERE conrelid='public.service_payments'::regclass AND conname='uq_service_payments_job_idem'
-                      AND contype='u') THEN
-      RAISE EXCEPTION 'service_payments ขาด UNIQUE (service_job_id, idempotency_key)';
+    -- ★ พิสูจน์ constraint จาก "นิยามจริง" ไม่ใช่แค่ชื่อ: conkey (คอลัมน์ที่ผูก) + expression + ON DELETE
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint c
+       WHERE c.conrelid='public.service_payments'::regclass AND c.contype='u'
+         AND c.conkey = ARRAY[
+               (SELECT attnum FROM pg_attribute WHERE attrelid=c.conrelid AND attname='service_job_id'),
+               (SELECT attnum FROM pg_attribute WHERE attrelid=c.conrelid AND attname='idempotency_key')
+             ]::smallint[]
+    ) THEN
+      RAISE EXCEPTION 'service_payments ขาด UNIQUE (service_job_id, idempotency_key) ที่ผูกคอลัมน์ถูกต้อง';
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint
-                    WHERE conrelid='public.service_payments'::regclass AND conname='chk_service_payments_bank_by_method'
-                      AND contype='c') THEN
-      RAISE EXCEPTION 'service_payments ขาด CHECK cash/transfer ↔ bank_coa_code';
+
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint c
+       WHERE c.conrelid='public.service_payments'::regclass AND c.contype='c'
+         AND pg_get_constraintdef(c.oid) ILIKE '%payment_method%cash%bank_coa_code IS NULL%'
+    ) THEN
+      RAISE EXCEPTION 'service_payments ขาด CHECK cash/transfer ↔ bank_coa_code (ตามนิยามจริง)';
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint
-                    WHERE conrelid='public.service_payments'::regclass AND contype='f'
-                      AND confrelid='public.service_jobs'::regclass) THEN
-      RAISE EXCEPTION 'service_payments ขาด FK ไป service_jobs';
+
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint c
+       WHERE c.conrelid='public.service_payments'::regclass AND c.contype='c'
+         AND pg_get_constraintdef(c.oid) ILIKE '%amount%' AND pg_get_constraintdef(c.oid) ILIKE '%nan%'
+    ) THEN
+      RAISE EXCEPTION 'service_payments ขาด CHECK กัน NaN/Infinity ของ amount';
     END IF;
-    RAISE NOTICE 'service_payments มีอยู่แล้ว — verify โครงสร้างผ่าน';
+
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint c
+       WHERE c.conrelid='public.service_payments'::regclass AND c.contype='f'
+         AND c.confrelid='public.service_jobs'::regclass
+         AND c.confdeltype='r'                                                   -- ON DELETE RESTRICT
+         AND c.conkey = ARRAY[(SELECT attnum FROM pg_attribute
+                                WHERE attrelid=c.conrelid AND attname='service_job_id')]::smallint[]
+    ) THEN
+      RAISE EXCEPTION 'service_payments ขาด FK service_job_id → service_jobs(id) ON DELETE RESTRICT';
+    END IF;
+    RAISE NOTICE 'service_payments มีอยู่แล้ว — verify โครงสร้างผ่าน (columns/type/unique/check/FK)';
   END IF;
 END $$;
 
@@ -432,11 +458,13 @@ BEGIN
     RAISE EXCEPTION 'payment_method ต้องเป็น cash หรือ transfer (ไม่ระบุ/ไม่รู้จัก = ปฏิเสธ ห้าม default เป็นเงินสด)'
       USING ERRCODE = '22023';
   END IF;
-  IF p_amount IS NULL OR p_amount <> p_amount                      -- NaN
-     OR p_amount = 'Infinity'::numeric OR p_amount = '-Infinity'::numeric THEN
-    RAISE EXCEPTION 'amount ไม่ใช่ตัวเลขที่ใช้ได้' USING ERRCODE = '22023';
+  -- ★ NaN/Infinity: PostgreSQL numeric ถือว่า **NaN = NaN** และ **NaN > ตัวเลขทุกตัว**
+  --   → `p_amount <> p_amount` ใช้ตรวจ NaN ไม่ได้ และ CHECK (amount > 0) ก็ปล่อย NaN ผ่าน
+  --   → ต้องเทียบด้วยข้อความ (lower(value::text)) ซึ่งครอบทั้ง NaN/Infinity/-Infinity แน่นอน
+  IF p_amount IS NULL OR lower(p_amount::text) IN ('nan','infinity','-infinity','+infinity') THEN
+    RAISE EXCEPTION 'amount ไม่ใช่ตัวเลขที่ใช้ได้ (NaN/Infinity ถูกปฏิเสธ)' USING ERRCODE = '22023';
   END IF;
-  v_amount := round(p_amount::numeric, 2);                         -- ★ ปัดก่อน แล้วค่อยตรวจ
+  v_amount := round(p_amount::numeric, 2);                         -- ★ ปัดหลังกัน NaN/Inf แล้ว
   IF v_amount <= 0 THEN
     RAISE EXCEPTION 'amount ต้องมากกว่า 0 หลังปัดเป็นทศนิยม 2 ตำแหน่ง' USING ERRCODE = '22023';
   END IF;
@@ -449,19 +477,11 @@ BEGIN
   IF v_method = 'cash' AND p_bank_coa_code IS NOT NULL THEN
     RAISE EXCEPTION 'เงินสดต้องไม่ระบุบัญชีธนาคาร' USING ERRCODE = '22023';
   END IF;
-  IF v_method = 'transfer' THEN
-    IF p_bank_coa_code IS NULL THEN
-      RAISE EXCEPTION 'โอน/QR ต้องระบุบัญชีธนาคาร (bank_coa_code)' USING ERRCODE = '22023';
-    END IF;
-    -- ★ ต้องเป็นบัญชีธนาคารจริงตาม allowlist (asset อย่างเดียวไม่พอ — 1200/1300 ก็เป็น asset)
-    IF NOT EXISTS (
-      SELECT 1 FROM public.chart_of_accounts
-       WHERE code = p_bank_coa_code AND is_active AND type = 'asset' AND code ~ '^11[3-6][0-9]$'
-    ) THEN
-      RAISE EXCEPTION 'bank_coa_code % ไม่ใช่บัญชีธนาคารที่รับโอนได้ (ต้องเป็น asset active รหัส 1130-1169)', p_bank_coa_code
-        USING ERRCODE = '23503';
-    END IF;
+  IF v_method = 'transfer' AND p_bank_coa_code IS NULL THEN
+    RAISE EXCEPTION 'โอน/QR ต้องระบุบัญชีธนาคาร (bank_coa_code)' USING ERRCODE = '22023';
   END IF;
+  -- ★ การ "ตรวจว่าบัญชีธนาคารยัง active" ทำ **หลัง** idempotency lookup (ขั้นที่ 4)
+  --   เพราะถ้าบัญชีถูกปิดภายหลัง retry ของรายการเดิมต้องยังคืน payment เดิมได้ (ไม่ใช่ error)
 
   -- (3) lock งาน (row lock ก่อนอ่าน ledger — กัน race)
   SELECT * INTO v_job FROM public.service_jobs WHERE id = p_service_job_id FOR UPDATE;
@@ -489,6 +509,16 @@ BEGIN
     RAISE EXCEPTION 'idempotency_key นี้ถูกใช้กับข้อมูลชุดอื่นแล้ว — ปฏิเสธ (ไม่มีการเขียน)' USING ERRCODE = '23505';
   END IF;
 
+  -- (4b) bank allowlist — ตรวจเฉพาะตอนจะ "insert ใหม่" (retry ของเดิมผ่านได้แม้บัญชีถูกปิดภายหลัง)
+  --   ★ asset อย่างเดียวไม่พอ — 1170 ภาษีซื้อ / 1200 ลูกหนี้ / 1300 สินค้า ก็เป็น asset
+  IF v_method = 'transfer' AND NOT EXISTS (
+    SELECT 1 FROM public.chart_of_accounts
+     WHERE code = p_bank_coa_code AND is_active AND type = 'asset' AND code ~ '^11[3-6][0-9]$'
+  ) THEN
+    RAISE EXCEPTION 'bank_coa_code % ไม่ใช่บัญชีธนาคารที่รับโอนได้ (ต้องเป็น asset active รหัส 1130-1169)', p_bank_coa_code
+      USING ERRCODE = '23503';
+  END IF;
+
   -- (5) business-state (เฉพาะกรณีจะ insert ใหม่)
   IF coalesce(v_job.source_kind, 'service') <> 'service' THEN
     RAISE EXCEPTION 'งานนี้เป็น % — รับชำระผ่าน ledger นี้ไม่ได้', v_job.source_kind USING ERRCODE = '22023';
@@ -506,7 +536,11 @@ BEGIN
   IF v_job.closed_at IS NULL THEN
     RAISE EXCEPTION 'งานยังไม่มีวันปิดงาน (closed_at) — รับชำระไม่ได้' USING ERRCODE = '22023';
   END IF;
-  v_total := round(coalesce(v_job.total_cost, 0), 2);
+  -- ★ total_cost ก็ต้องกัน NaN/Infinity (ไม่งั้น outstanding/overpay กลายเป็น NaN)
+  IF v_job.total_cost IS NULL OR lower(v_job.total_cost::text) IN ('nan','infinity','-infinity','+infinity') THEN
+    RAISE EXCEPTION 'ยอดงานไม่ใช่ตัวเลขที่ใช้ได้ (NaN/Infinity) — รับชำระไม่ได้' USING ERRCODE = '22023';
+  END IF;
+  v_total := round(v_job.total_cost, 2);
   IF v_total <= 0 THEN
     RAISE EXCEPTION 'ยอดงานไม่ถูกต้อง — รับชำระไม่ได้' USING ERRCODE = '22023';
   END IF;
@@ -595,8 +629,22 @@ BEGIN
                    AND contype='f' AND confrelid='public.service_jobs'::regclass) THEN
     RAISE EXCEPTION 'POST-CHECK: service_payments ขาด FK ไป service_jobs';
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_class WHERE oid='public.service_payments'::regclass AND relrowsecurity) THEN
-    RAISE EXCEPTION 'POST-CHECK: service_payments ต้องเปิด RLS';
+  IF NOT EXISTS (SELECT 1 FROM pg_class
+                  WHERE oid='public.service_payments'::regclass AND relrowsecurity AND relforcerowsecurity) THEN
+    RAISE EXCEPTION 'POST-CHECK: service_payments ต้องเปิด RLS แบบ ENABLE + FORCE';
+  END IF;
+  -- ★ amount ต้องมี CHECK กัน NaN/Infinity (numeric NaN > 0 เป็นจริง — CHECK amount > 0 อย่างเดียวไม่พอ)
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint c
+                  WHERE c.conrelid='public.service_payments'::regclass AND c.contype='c'
+                    AND pg_get_constraintdef(c.oid) ILIKE '%nan%') THEN
+    RAISE EXCEPTION 'POST-CHECK: service_payments.amount ขาด CHECK กัน NaN/Infinity';
+  END IF;
+  -- ★ ห้ามมีสิทธิ์เขียนตรงหลุดไปที่ anon/authenticated
+  IF EXISTS (SELECT 1 FROM information_schema.role_table_grants
+              WHERE table_schema='public' AND table_name='service_payments'
+                AND grantee IN ('anon','authenticated')
+                AND privilege_type IN ('INSERT','UPDATE','DELETE','TRUNCATE')) THEN
+    RAISE EXCEPTION 'POST-CHECK: service_payments ต้องไม่มีสิทธิ์เขียนตรงสำหรับ anon/authenticated';
   END IF;
 
   RAISE NOTICE 'POST-CHECK ผ่าน: metadata NOT NULL · flow2=0 · ledger ว่าง+schema ครบ · triggers enabled · recognition mapping ครบ';

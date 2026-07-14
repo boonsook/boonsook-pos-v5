@@ -66,7 +66,8 @@ test("A2. ledger: FK type จริง (dynamic DDL) · unique(job,idem) · cash
   assert.match(b, /format_type\(a\.atttypid, a\.atttypmod\) INTO v_id_type/);
   assert.match(b, /EXECUTE format\(/);
   assert.match(b, /service_job_id\s+%s NOT NULL REFERENCES public\.service_jobs\(id\) ON DELETE RESTRICT/);
-  assert.match(b, /amount\s+NUMERIC\(14,2\) NOT NULL CHECK \(amount > 0\)/);
+  assert.match(b, /CONSTRAINT chk_service_payments_amount_finite/, "amount ต้องมี CHECK กัน NaN/Infinity");
+  assert.match(b, /CHECK \(amount > 0 AND lower\(amount::text\) NOT IN \('nan','infinity','-infinity'\)\)/);
   assert.match(b, /CONSTRAINT uq_service_payments_job_idem UNIQUE \(service_job_id, idempotency_key\)/);
   assert.ok(!/UNIQUE \(service_job_id\)\s*[,)]/.test(b), "ห้าม unique ที่ job เดี่ยว");
   assert.match(b, /CONSTRAINT chk_service_payments_bank_by_method/);
@@ -75,9 +76,11 @@ test("A2. ledger: FK type จริง (dynamic DDL) · unique(job,idem) · cash
   assert.match(existing, /ขาดคอลัมน์/);
   assert.match(existing, /service_payments\.service_job_id เป็น %/);
   assert.match(existing, /numeric\(14,2\)/);
-  assert.match(existing, /ขาด UNIQUE \(service_job_id, idempotency_key\)/);
-  assert.match(existing, /ขาด CHECK/);
-  assert.match(existing, /ขาด FK ไป service_jobs/);
+  // ★ should-fix: พิสูจน์จาก "นิยามจริง" (conkey/expression/ON DELETE) ไม่ใช่แค่ชื่อ constraint
+  assert.match(existing, /c\.conkey = ARRAY\[[\s\S]{0,200}attname='service_job_id'[\s\S]{0,200}attname='idempotency_key'/);
+  assert.match(existing, /pg_get_constraintdef\(c\.oid\) ILIKE '%payment_method%cash%bank_coa_code IS NULL%'/);
+  assert.match(existing, /pg_get_constraintdef\(c\.oid\) ILIKE '%amount%'[\s\S]{0,120}'%nan%'/);
+  assert.match(existing, /c\.confdeltype='r'/, "FK ต้องเป็น ON DELETE RESTRICT จริง");
 });
 
 test("A3. INSERT trigger fail-closed: ไม่เชื่อ client · flow บังคับ 1 · payment_due_date เฉพาะแอดมิน", () => {
@@ -168,8 +171,12 @@ test("A8. RPC: authority/money/idempotency/bank fail-closed · ไม่โพ�
   // (B2) authority fail-closed
   assert.match(b, /IF NOT COALESCE\(public\.is_admin\(\), false\) THEN[\s\S]{0,120}42501/);
   // (B3) money exact
-  assert.match(b, /p_amount <> p_amount/, "ต้อง reject NaN");
-  assert.match(b, /'Infinity'::numeric/, "ต้อง reject Infinity");
+  // ★ review#2: numeric NaN ใน PostgreSQL **เท่ากับตัวเอง** และ **มากกว่าตัวเลขทุกตัว**
+  //   → `p_amount <> p_amount` ตรวจ NaN ไม่ได้ · CHECK (amount > 0) ก็ปล่อย NaN ผ่าน
+  //   → ต้องเทียบด้วยข้อความ lower(value::text) IN ('nan','infinity',...)
+  assert.ok(!/p_amount <> p_amount/.test(code(b)), "ห้ามใช้สูตร NaN แบบ IEEE ในโค้ดจริง (ผิดสำหรับ numeric)");
+  assert.match(b, /lower\(p_amount::text\) IN \('nan','infinity','-infinity','\+infinity'\)/, "amount ต้อง reject NaN/Infinity ด้วยข้อความ");
+  assert.match(b, /lower\(v_job\.total_cost::text\) IN \('nan','infinity'/, "total_cost ต้อง reject NaN/Infinity ด้วย");
   assert.match(b, /'infinity'::timestamptz/, "paid_at ต้อง finite");
   const roundIdx = b.indexOf("v_amount := round(p_amount::numeric, 2)");
   const checkIdx = b.indexOf("IF v_amount <= 0");
@@ -189,8 +196,11 @@ test("A8. RPC: authority/money/idempotency/bank fail-closed · ไม่โพ�
   }
   assert.match(b, /'inserted', false/);
   assert.match(b, /23505/);
-  // (B5) bank allowlist
+  // (B5) bank allowlist — และต้องตรวจ "หลัง" idempotency lookup (retry เดิมผ่านได้แม้บัญชีถูกปิดภายหลัง)
   assert.match(b, /code ~ '\^11\[3-6\]\[0-9\]\$'/, "transfer ต้องจำกัดบัญชีธนาคาร 1130-1169");
+  const bankIdx = b.indexOf("code ~ '^11[3-6][0-9]$'");
+  const idemLookupIdx = b.indexOf("SELECT * INTO v_existing FROM public.service_payments");
+  assert.ok(idemLookupIdx > 0 && bankIdx > idemLookupIdx, "bank allowlist ต้องตรวจหลัง idempotency lookup");
   assert.match(b, /'cash' AND p_bank_coa_code IS NOT NULL/);
   assert.match(b, /v_method NOT IN \('cash','transfer'\)/);
   assert.ok(/ห้าม default เป็นเงินสด/.test(b));
@@ -207,7 +217,8 @@ test("A9. POST-CHECK: NOT NULL · constraints · triggers enabled · ledger sche
   for (const need of ["source_kind IS NULL OR source_kind NOT IN", "finance_flow_version IS NULL OR finance_flow_version NOT IN",
     "finance_flow_version = 2", "FROM public.service_payments", "recognition_debit_code IS DISTINCT FROM '1200'",
     "attnotnull", "chk_service_jobs_source_kind", "chk_service_jobs_finance_flow_version",
-    "tgenabled", "uq_service_payments_job_idem", "chk_service_payments_bank_by_method", "relrowsecurity"]) {
+    "tgenabled", "uq_service_payments_job_idem", "chk_service_payments_bank_by_method",
+    "relrowsecurity AND relforcerowsecurity", "'%nan%'", "role_table_grants"]) {
     assert.ok(b.includes(need), `post-check ต้องตรวจ: ${need}`);
   }
   assert.ok((b.match(/RAISE EXCEPTION/g) || []).length >= 10, "ทุกเงื่อนไขต้อง fail-fast");
@@ -271,12 +282,20 @@ test("B4. summarize: metadata เพี้ยนไม่ถูกกลืน �
 });
 
 // ═══ C. runners — probe fail-closed + strict ═══
-test("C1. probe: fallback เฉพาะ 42703/missing-column ที่อ้างชื่อคอลัมน์ · 404/400 อื่น = fatal", () => {
-  assert.equal(isMissingMetaColumnError(400, 'column service_jobs.source_kind does not exist'), true);
+test("C1. probe fail-closed: รับเฉพาะ 42703/PGRST204 ที่อ้างคอลัมน์ของเรา — PGRST100/404/plain-text = fatal", () => {
+  // ผ่าน (ยืนยันว่าคอลัมน์ไม่มีจริง)
   assert.equal(isMissingMetaColumnError(400, '{"code":"42703","message":"column \\"finance_flow_version\\" does not exist"}'), true);
-  assert.equal(isMissingMetaColumnError(404, 'not found'), false, "404 ต้อง fatal");
-  assert.equal(isMissingMetaColumnError(400, '{"code":"PGRST301","message":"JWT expired"}'), false, "400 สาเหตุอื่นต้อง fatal");
-  assert.equal(isMissingMetaColumnError(400, 'column products.foo does not exist'), false, "คอลัมน์อื่นไม่นับ");
+  assert.equal(isMissingMetaColumnError(400, '{"code":"PGRST204","message":"Column \'source_kind\' not found"}'), true);
+  // ★ ต้อง fatal ทั้งหมด
+  assert.equal(isMissingMetaColumnError(400, '{"code":"PGRST100","message":"unexpected \\"x\\" expecting field name","details":"source_kind"}'), false,
+    "PGRST100 = query parsing error → fatal แม้ข้อความจะพาดพิงคอลัมน์");
+  assert.equal(isMissingMetaColumnError(400, '{"code":"42P01","message":"relation does not exist"}'), false);
+  assert.equal(isMissingMetaColumnError(400, '{"code":"PGRST301","message":"JWT expired"}'), false);
+  assert.equal(isMissingMetaColumnError(400, 'column service_jobs.source_kind does not exist'), false,
+    "plain text (parse JSON ไม่ได้) = fatal — ห้ามเดา");
+  assert.equal(isMissingMetaColumnError(400, '{"code":"42703","message":"column \\"foo\\" does not exist"}'), false,
+    "คอลัมน์อื่นไม่นับ");
+  assert.equal(isMissingMetaColumnError(404, '{"code":"42703","message":"source_kind"}'), false, "404 ต้อง fatal");
   assert.equal(isMissingMetaColumnError(500, ''), false);
   for (const [name, src] of [["classify", CLASSIFY], ["reconcile", RECONCILE]]) {
     const start = src.indexOf("async function probeMetaColumns");
@@ -298,6 +317,25 @@ test("C2. classify runner: รายงาน metadata + strict แดงเม�
   assert.match(strict, /idn\.invalid > 0\) reasons\.push/);
   assert.match(strict, /badFlow > 0\) reasons\.push/);
   assert.match(strict, /flow\.dataIncompleteCount > 0\) reasons\.push/);
+});
+
+test("C2b. review#3: **ทั้งสอง runner** ต้อง partition metadata + strict แดงเมื่อเพี้ยน (ไม่ใช่แค่ classify)", () => {
+  // reconcile audit ต้องมี metadata partition + DATA_INCOMPLETE + strict reason
+  assert.match(RECONCILE, /const meta = \{ service: 0, web_order: 0, invalidKind: 0, invalidFlow: 0 \}/);
+  assert.match(RECONCILE, /L\.serviceJobSourceKindOf\(j, META_AVAILABLE\)/, "ต้องส่ง META_AVAILABLE (fail-closed)");
+  assert.match(RECONCILE, /Service metadata \(Phase 606-a\)/);
+  assert.match(RECONCILE, /DATA_INCOMPLETE_METADATA/);
+  const strict = RECONCILE.slice(RECONCILE.indexOf("const reasons = []"));
+  assert.match(strict, /metaBad > 0\) reasons\.push\(`DATA_INCOMPLETE_METADATA/, "strict ของ reconcile ต้องแดงเมื่อ metadata เพี้ยน");
+  // classify ก็ต้องส่ง META_AVAILABLE เช่นกัน
+  assert.match(CLASSIFY, /L\.serviceJobSourceKindOf\(j, META_AVAILABLE\)/);
+  // ★ metadata พร้อมแล้วแต่ source_kind ว่าง = invalid (ไม่ fallback marker)
+  assert.deepEqual(serviceJobSourceKindOf(job({ source_kind: null, job_no: "AI-1" }), true), { kind: null, from: "invalid" });
+  assert.deepEqual(serviceJobSourceKindOf(job({ source_kind: "", job_no: "JOB-1" }), true), { kind: null, from: "invalid" });
+  // ยังไม่รัน migration → fallback marker ตามเดิม
+  assert.deepEqual(serviceJobSourceKindOf(job({ job_no: "AI-1" }), false), { kind: "web_order", from: "marker" });
+  // ข้อความ classifier ต้องไม่ stale หลัง migration
+  assert.match(CLASSIFY, /META_AVAILABLE\s*\?\s*`- _finance_flow_version อ่านจาก DB/);
 });
 
 test("C3. 606-a ไม่ปลดล็อก recovery และ runtime ยังไม่รู้จักของใหม่", () => {
