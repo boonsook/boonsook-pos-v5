@@ -118,17 +118,46 @@ test("A1. serviceFinanceFlowOf: 1/2 ผ่าน · undefined/null/0/3/junk = nu
   assert.equal(serviceFinanceFlowOf(undefined), null);
 });
 
-test("A2. metadata หาย → อ่าน DB เป็น authority · DB ก็ไม่มี flow → ไม่โพสต์ (ห้าม fallback v1)", async () => {
-  // ★ review#5: caller ที่ส่ง row ไม่มี flow (service drawer) → writer อ่าน service_jobs จาก DB ก่อน
-  //   ถ้า DB row ก็ยังไม่มี flow ที่ถูกต้อง = fail-closed, zero writes
+test("A2. metadata หาย → DB คือ authority (v1/v2/ไม่พบ/error/flow ยังหาย) — fail case ต้อง zero writes", async () => {
   const { finance_flow_version: _drop, ...noMeta } = v1Job;
-  installFetch({ job: { ...noMeta } });     // DB row ก็ไม่มี flow
-  installPostOk();
-  const res = await postJournalForServiceJob(noMeta, { detailed: true });
+
+  // (ก) DB พบ row + flow v1 → โพสต์แบบ legacy
+  installFetch({ job: { ...noMeta, finance_flow_version: 1 } }); installPostOk();
+  let res = await postJournalForServiceJob({ ...noMeta, payment_method: "cash" }, { detailed: true });
+  assert.equal(res.status, "posted");
+  assert.deepEqual(posted.lines.map(l => l.account_code), ["1110", "4200"]);
+
+  // (ข) DB พบ row + flow v2 → กติกา v2 (Dr 1200)
+  resetMappingCache(); installFetch({ job: { ...noMeta, finance_flow_version: 2 } }); installPostOk();
+  res = await postJournalForServiceJob(noMeta, { detailed: true });
+  assert.equal(res.status, "posted");
+  assert.deepEqual(posted.lines.map(l => l.account_code), ["1200", "4200"]);
+
+  // (ค) DB ไม่พบ row → job-not-found (zero writes)
+  resetMappingCache(); installFetch({ job: null }); installPostOk();
+  res = await postJournalForServiceJob(noMeta, { detailed: true });
+  assert.equal(res.reason, "job-not-found");
+  assert.equal(posted.entries.length, 0);
+
+  // (ง) DB error → job-read-failed (zero writes)
+  resetMappingCache(); installFetch(); installPostOk();
+  const okFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => (String(url).includes("/service_jobs?select=*")
+    ? { ok: false, status: 500, json: async () => null, text: async () => "boom" }
+    : okFetch(url, init));
+  res = await postJournalForServiceJob(noMeta, { detailed: true });
+  assert.equal(res.status, "failed");
+  assert.equal(res.reason, "job-read-failed");
+  assert.equal(posted.entries.length, 0);
+
+  // (จ) DB row ก็ยังไม่มี flow → finance-flow-unknown (zero writes · ห้าม fallback v1)
+  resetMappingCache(); installFetch({ job: { ...noMeta } }); installPostOk();
+  res = await postJournalForServiceJob(noMeta, { detailed: true });
   assert.equal(res.status, "skipped");
   assert.equal(res.reason, "finance-flow-unknown");
   assert.equal(posted.entries.length, 0, "ต้องไม่มี JV ออกไปเลย");
 });
+
 
 // ═══════════════════════════════════════════════════════════
 //  B. flow v1 = พฤติกรรมเดิมเป๊ะ (ห้าม drift ก่อน cutover)

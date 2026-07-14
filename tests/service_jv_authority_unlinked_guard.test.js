@@ -361,3 +361,77 @@ test("E4. toast policy: helper เดียวครอบทุกผล แล
   const repost = RECONCILE.slice(RECONCILE.indexOf("async function _handleRepost"), RECONCILE.indexOf("export function renderServiceReconcilePage"));
   assert.match(repost, /jvResultToToast/);
 });
+
+// ═══════════════════════════════════════════════════════════
+//  F. ADDENDUM — unlinked ทุกสถานะ · exact job_no · numeric strict
+// ═══════════════════════════════════════════════════════════
+test("F1. unlinked query select status และ **ไม่ filter approved** (draft ก็ต้อง fail-closed)", async () => {
+  const urls = installRecon({});
+  await RECON.fetchServiceJVStatus({ effectiveDate: "2026-07-01" });
+  const q = urls.find(u => u.includes("source_id=is.null"));
+  assert.match(q, /select=id,description,status,total_debit,total_credit/, "ต้องดึง status มาด้วย");
+  assert.ok(!/status=eq\.approved/.test(q), "ห้าม filter เฉพาะ approved (draft อาจถูก approve ภายหลัง)");
+});
+
+test("F2. manual JE ทุกสถานะ (draft/approved/void) ที่อ้างเลขงานตรงตัว → SERVICE_JV_UNLINKED + รายงาน JE id & status", async () => {
+  for (const st of ["draft", "approved", "void", null]) {
+    container.innerHTML = "";
+    installRecon({ unlinked: [{ id: 910, description: "งานบริการ JOB-30 — ลงมือเอง", status: st, total_debit: 500, total_credit: 500 }] });
+    const res = await RECON.fetchServiceJVStatus({ effectiveDate: "2026-07-01" });
+    assert.equal(res.orphans.length, 0, `status=${st} ต้องไม่เป็น orphan`);
+    assert.equal(res.conflicts[0].state, "SERVICE_JV_UNLINKED");
+    assert.equal(res.conflicts[0].entryId, 910);
+    assert.equal(res.conflicts[0].entryStatus, st);
+    assert.match(res.conflicts[0].reason, /JE #910/);
+
+    await RECON._loadAndRender(ctx, container);
+    assert.match(container.innerHTML, /SERVICE_JV_UNLINKED/);
+    assert.match(container.innerHTML, /JE #910/);
+    assert.ok(!container.innerHTML.includes("svc-recon-repost"), "ห้ามมีปุ่ม re-post");
+  }
+});
+
+test("F3. exact matching: JOB-70 ไม่ชน JOB-701 · XJOB-70 ไม่ใช่ job_no canonical · marker หลายเลขแยกได้ครบ", async () => {
+  // ตัวดึง marker = extractPostedJobNos (ตัวเดียวของระบบ)
+  const set = RECON.extractPostedJobNos(["งานบริการ JOB-70 — ก และ JOB-701 — ข", null, "ไม่มีเลขงาน"]);
+  assert.deepEqual([...set].sort(), ["JOB-70", "JOB-701"], "ต้องแยก marker ได้ครบทุกเลข");
+
+  // canonical: ต้อง anchored (^JOB-\d+$) — XJOB-70 / JOB-70x ไม่ผ่าน
+  assert.equal(RECON.isCanonicalJobNo("JOB-70"), true);
+  assert.equal(RECON.isCanonicalJobNo(" JOB-70 "), true, "trim ก่อนตรวจ");
+  assert.equal(RECON.isCanonicalJobNo("XJOB-70"), false);
+  assert.equal(RECON.isCanonicalJobNo("JOB-70x"), false);
+  assert.equal(RECON.isCanonicalJobNo(""), false);
+
+  // JOB-70 ต้องไม่ถูกจับคู่กับ manual JE ที่อ้าง JOB-701 เท่านั้น
+  const job70 = { ...closedJob, id: 70, job_no: "JOB-70" };
+  installRecon({ jobs: [job70], unlinked: [{ id: 920, description: "JOB-701 คนละงาน", status: "approved", total_debit: 500, total_credit: 500 }] });
+  let res = await RECON.fetchServiceJVStatus({ effectiveDate: "2026-07-01" });
+  assert.equal(res.conflicts.length, 0);
+  assert.deepEqual(res.orphans.map(j => j.id), [70]);
+
+  // job_no ที่ไม่ canonical (XJOB-70) → จับคู่ manual JE ไม่ได้ (ยังเป็น orphan ปกติ)
+  installRecon({ jobs: [{ ...closedJob, id: 71, job_no: "XJOB-70" }],
+                 unlinked: [{ id: 921, description: "JOB-70 งานอื่น", status: "approved", total_debit: 500, total_credit: 500 }] });
+  res = await RECON.fetchServiceJVStatus({ effectiveDate: "2026-07-01" });
+  assert.equal(res.conflicts.length, 0, "XJOB-70 ไม่ใช่เลขงาน canonical → ไม่ match");
+});
+
+test("F4. DDL default 0 ของ journal_lines ไม่ลดความเข้ม validator — field หายจาก response ยัง bad-number", () => {
+  // DDL: debit/credit NUMERIC(14,2) NOT NULL DEFAULT 0 — แต่ "response ที่ field หาย" = อ่านข้อมูลไม่ครบ
+  const entry = { status: "approved", total_debit: 600, total_credit: 600 };
+  const job = { id: 10, total_cost: 600 };
+  const missing = [{ account_code: "1110", debit: 600 }, { account_code: "4200", debit: 0, credit: 600 }];
+  assert.equal(V.validateLegacyServiceJv({ job, entry, lines: missing }).reason, V.JV_BAD_NUMBER);
+  const zeros = [{ account_code: "1110", debit: 600, credit: 0 }, { account_code: "4200", debit: 0, credit: 600 }];
+  assert.equal(V.validateLegacyServiceJv({ job, entry, lines: zeros }).ok, true, "0 จริง (ตาม DDL default) ยังผ่าน");
+});
+
+test("F5. docstring ของ fetchServiceJVStatus ต้องตรงเส้นทางจริง (validator + closed/noDate partition)", () => {
+  const doc = RECONCILE.slice(RECONCILE.indexOf("READ-ONLY GET (ใช้ร่วมกัน"), RECONCILE.indexOf("export async function fetchServiceJVStatus"));
+  assert.match(doc, /validateRecognitionJv \/ validateLegacyServiceJv/);
+  assert.match(doc, /SERVICE_JV_UNLINKED/);
+  assert.match(doc, /closed_at IS NULL/);
+  assert.match(doc, /dataIncomplete/);
+  assert.ok(!/→ หา orphan ผ่าน findUnpostedServiceJobs \(source_id เป็น primary match\)/.test(doc), "เอกสารเก่าที่ไม่ตรงเส้นทางต้องถูกแก้");
+});
