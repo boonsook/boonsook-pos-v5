@@ -104,6 +104,20 @@ function monthWindow(month) {
 
 const money = (n) => (Number(n) || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+// ★ Phase 606-a: service_jobs metadata ใหม่ (source_kind/finance_flow_version) มีต่อเมื่อ owner รัน migration แล้ว
+//   → probe ก่อนใช้; ยังไม่มี = อ่าน identity จาก marker เดิม (สคริปต์ต้องรันได้ทั้งก่อน/หลัง migration)
+const SJ_SELECT_BASE = "id,job_no,job_type,status,created_at,closed_at,total_cost,sub_service,note,payment_method";
+let META_AVAILABLE = false;
+// ★ fail-closed: ตัวตัดสิน missing-column อยู่ใน finance_reconcile_lib (L.isMissingMetaColumnError)
+//   404 หรือ 400 ด้วยสาเหตุอื่น = fatal exit 2 (ห้ามเดาว่ายังไม่ได้ migrate)
+async function probeMetaColumns(token) {
+  const r = await fetch(`${URL_BASE}/rest/v1/service_jobs?select=id,source_kind,finance_flow_version&limit=1`, { method: "GET", headers: authH(token) });
+  if (r.ok) { META_AVAILABLE = true; return true; }
+  const body = await r.text().catch(() => "");
+  if (L.isMissingMetaColumnError(r.status, body)) return false;
+  fatal(`probe metadata columns → HTTP ${r.status}: ${body.slice(0, 200)}`);
+}
+
 async function auditMonth(token, month, productCostMap, expenseMappingKeys) {
   const w = monthWindow(month);
   // operational fetches (GET, paginated)
@@ -111,7 +125,8 @@ async function auditMonth(token, month, productCostMap, expenseMappingKeys) {
   const saleItems = await getByIn(token, "sale_items", "sale_id,qty,unit_cost,product_id,product_name", "sale_id", salesRaw.map(s => s.id));
   // ★ ห้าม select deleted_at — production service_jobs ไม่มีคอลัมน์นี้ (PG 42703 / HTTP 400).
   //   soft-delete truth = status=cancelled + note "[ลบแล้ว]" (isServiceDeleted จับจาก note)
-  const SJ_SELECT = "id,job_no,job_type,status,created_at,closed_at,total_cost,sub_service,note,payment_method";
+  //   ★ Phase 606-a: +source_kind/finance_flow_version ถ้ามี (probe แล้วใน main) — ยังไม่มี = fallback marker
+  const SJ_SELECT = SJ_SELECT_BASE + (META_AVAILABLE ? ",source_kind,finance_flow_version" : "");
   const jobsCreated = await getAll(token, `service_jobs?select=${SJ_SELECT}&created_at=gte.${w.fromTs}&created_at=lt.${w.toTs}`);
   const jobsClosed = await getAll(token, `service_jobs?select=${SJ_SELECT}&closed_at=gte.${w.fromTs}&closed_at=lt.${w.toTs}`);
   const jobsMap = new Map(); for (const j of [...jobsCreated, ...jobsClosed]) jobsMap.set(String(j.id), j);
@@ -163,10 +178,25 @@ async function auditMonth(token, month, productCostMap, expenseMappingKeys) {
     else refundRestock.restockedNull += 1;
   }
 
+  // ★ Phase 606-a: metadata partition (fail-closed) — source_kind/finance_flow_version ต้อง valid
+  //   เมื่อคอลัมน์มีแล้ว (META_AVAILABLE) ค่าว่าง/เพี้ยน = DATA_INCOMPLETE ไม่ใช่ fallback marker
+  //   ★ badJobs = **distinct job** ที่ metadata เพี้ยน (งานเดียวที่เพี้ยนทั้ง 2 มิติ ต้องนับครั้งเดียว)
+  const meta = { service: 0, web_order: 0, invalidKind: 0, invalidFlow: 0, badJobs: 0 };
+  for (const j of jobs) {
+    const sk = L.serviceJobSourceKindOf(j, META_AVAILABLE);
+    let bad = false;
+    if (sk.from === "invalid") { meta.invalidKind += 1; bad = true; } else { meta[sk.kind] += 1; }
+    if (META_AVAILABLE) {
+      const fv = j.finance_flow_version;
+      if (!(fv === 1 || fv === 2 || fv === "1" || fv === "2")) { meta.invalidFlow += 1; bad = true; }
+    }
+    if (bad) meta.badJobs += 1;
+  }
+
   const sum = L.summarizeMonth({ month, sales: salesRaw, saleItems, jobs, refunds, expenses, jeBySource, linesByEntry: linesByEntryId, docDateEntries, productCostMap, expenseMappingKeys });
   const jeList = docDateEntries.map(e => ({ id: e.id, doc_date: e.doc_date, source_table: e.source_table, source_id: e.source_id, total_debit: e.total_debit }));
   return {
-    sum, refundRestock, jeList,
+    sum, refundRestock, jeList, meta,
     nonApprovedCount: nonApproved.length,
     nonApprovedManualCount: nonApprovedManual.length, nonApprovedManualHist: histOf(nonApprovedManual),
     nonApprovedSourceBoundCount: nonApprovedSourceBound.length, nonApprovedSourceBoundHist: histOf(nonApprovedSourceBound),
@@ -192,6 +222,7 @@ function printProblemTable(title, rows, refKey, docKey) {
 
 async function main() {
   const token = await signIn(AD_EMAIL, AD_PASS);
+  await probeMetaColumns(token);   // ★ 606-a metadata (source_kind/finance_flow_version) มีหรือยัง
   // productCostMap
   const products = await getAll(token, "products?select=id,name,cost");
   const productCostMap = {};
@@ -209,7 +240,7 @@ async function main() {
 
   let anyStrictFail = false;
   for (const month of AUDIT_MONTHS) {
-    const { sum, nonApprovedCount, nonApprovedManualCount, nonApprovedManualHist, nonApprovedSourceBoundCount, nonApprovedSourceBoundHist, refundRestock, jeList, counts } = await auditMonth(token, month, productCostMap, expenseMappingKeys);
+    const { sum, nonApprovedCount, nonApprovedManualCount, nonApprovedManualHist, nonApprovedSourceBoundCount, nonApprovedSourceBoundHist, refundRestock, jeList, counts, meta } = await auditMonth(token, month, productCostMap, expenseMappingKeys);
     const R = sum.revenue, G = sum.grossProfit;
     const preEffective = L.monthOf(month) < L.monthOf(L.ACCOUNTING_EFFECTIVE_DATE);
 
@@ -217,6 +248,13 @@ async function main() {
     const histStr = (h) => Object.entries(h).map(([s, n]) => `${s} ${n}`).join(", ");
     console.log(`_fetched: sales ${counts.sales} · sale_items ${counts.saleItems} · jobs ${counts.jobs} · refunds ${counts.refunds} · expenses ${counts.expenses} · JE approved(doc_date) ${counts.jeDocDate}_`);
     console.log(`_non-approved JE ในเดือน (exclude จาก reconcile): **${nonApprovedCount}** — manual(informational) ${nonApprovedManualCount}${nonApprovedManualCount ? ` (${histStr(nonApprovedManualHist)})` : ""} · source-bound ${nonApprovedSourceBoundCount}${nonApprovedSourceBoundCount ? ` (${histStr(nonApprovedSourceBoundHist)})` : ""}${!preEffective && nonApprovedSourceBoundCount ? " ⚠️ anomaly (post-effective)" : ""}_\n`);
+
+    // ── Phase 606-a: service metadata (source identity + finance flow) ──
+    const metaBad = meta.badJobs;   // distinct jobs (ไม่นับซ้ำเมื่อเพี้ยนทั้งสองมิติ)
+    console.log(`### Service metadata (Phase 606-a)`);
+    console.log(`- columns: **${META_AVAILABLE ? "มีแล้ว (อ่านจาก DB)" : "ยังไม่มี → fallback marker (ยังไม่รัน migration 606-a)"}** · partition: service ${meta.service} · web_order ${meta.web_order} · invalid source_kind **${meta.invalidKind}** · invalid finance_flow_version **${meta.invalidFlow}**`);
+    if (metaBad > 0) console.log(`- ⚠️ **DATA_INCOMPLETE_METADATA: ${metaBad} งาน** — ห้ามเดาค่า (strict จะแดง)`);
+    console.log("");
 
     // ── ส่วน A: matrix ──
     console.log(`### A. Revenue 3 มุม`);
@@ -312,6 +350,7 @@ async function main() {
     if (sum.orphans.length > 0) reasons.push(`orphan ${sum.orphans.length}`);        // BROKEN_SOURCE_LINK/ORPHAN*
     if (sum.dataIncomplete.length > 0) reasons.push(`dataIncomplete ${sum.dataIncomplete.length}`);
     if (!sum.grossProfit.partitionOk) reasons.push(`GP partition mismatch (บิลตกหล่น)`);
+    if (metaBad > 0) reasons.push(`DATA_INCOMPLETE_METADATA ${metaBad} (source_kind ${meta.invalidKind} · flow ${meta.invalidFlow})`);   // ★ 606-a
     if (preEffective && counts.jeDocDate > 0) reasons.push(`pre-effective approved JE ${counts.jeDocDate} (ไม่ควรมีก่อน effective)`);
     if (!preEffective && nonApprovedSourceBoundCount > 0) reasons.push(`source-bound draft post-effective ${nonApprovedSourceBoundCount}`);
     // ── group B: op-vs-GL reconciliation (post-effective เท่านั้น — pre-effective คาด nonzero โดยตั้งใจ) ──

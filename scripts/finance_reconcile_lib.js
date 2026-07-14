@@ -36,18 +36,75 @@ export function isDeletedSale(sale) { return String(sale?.note || "").includes("
 //   (กติกาเดิมคงไว้ทั้งหมด — เป็นการ "ขยาย" ไม่ใช่เปลี่ยนนิยาม)
 //   ⚠️ Phase 606-a จะเพิ่มคอลัมน์ `source_kind` ('service'|'web_order') + backfill แล้วให้ทุกที่อ่าน
 //   จาก helper เดียว — detector ตาม marker นี้เป็นของชั่วคราวสำหรับงานเก่าที่ยังไม่มี source_kind
+// ★ ทุก marker ต้อง case-insensitive ให้ตรงกับฝั่ง SQL (derive_service_source_kind ใช้ ~* / ILIKE)
 const WEB_ORDER_JOB_NO = /^(AI|SH)-/i;
 const WEB_ORDER_NOTE = /^(AI Sales:|AC Shop:)/i;
-const WEB_ORDER_LEGACY_NOTE = /^SH-(transfer|cod_cash|cod_transfer)\|/;
+const WEB_ORDER_LEGACY_NOTE = /^SH-(transfer|cod_cash|cod_transfer)\|/i;
 
+// ═══ Phase 606-a: source identity (แหล่งกำเนิดงาน) แยกจาก income eligibility ═══
+//  ★ identity ไม่ขึ้นกับวงจรชีวิตงาน — web order ที่ถูกยกเลิก/ลบ **ยังเป็น web_order**
+//  ★ eligibility (จะนับเป็นรายได้ไหม) ใช้ isServiceIncomeJob/isWebOrderJob แยกต่างหาก
+//  ★ ลำดับความน่าเชื่อถือ: source_kind จาก DB (Phase 606-a) → marker เดิม (งานก่อน migration)
+//    → ค่า invalid = **ห้ามกลืนเป็น service เงียบ ๆ** (คืน invalid ให้ caller รายงาน dataIncomplete)
+export const SOURCE_KINDS = { SERVICE: "service", WEB_ORDER: "web_order" };
+
+/** derive จาก marker แบบ anchored (ต้อง "ขึ้นต้น" — substring กลางประโยคไม่นับ) — mirror SQL derive_service_source_kind() */
+export function deriveSourceKindFromMarkers(job) {
+  const note = String(job?.note || "");
+  const isWeb = String(job?.sub_service || "").includes("สั่งซื้อ")
+    || WEB_ORDER_LEGACY_NOTE.test(note)
+    || WEB_ORDER_JOB_NO.test(String(job?.job_no || ""))
+    || WEB_ORDER_NOTE.test(note);
+  return isWeb ? SOURCE_KINDS.WEB_ORDER : SOURCE_KINDS.SERVICE;
+}
+
+/**
+ * @param {object} job
+ * @param {boolean} metaAvailable - คอลัมน์ 606-a มีในสคีมาแล้วหรือยัง (probe จาก runner)
+ * @returns {{kind:"service"|"web_order"|null, from:"db"|"marker"|"invalid"}}
+ *   ★ metaAvailable = true แล้ว source_kind ยัง null/"" → **invalid (data เสีย)** ไม่ใช่ fallback marker
+ *     (คอลัมน์ NOT NULL หลัง migration → ค่าว่าง = ผิดปกติ ต้องรายงาน ไม่ใช่เดา)
+ *   ★ metaAvailable = false (ยังไม่รัน migration) → fallback marker ตามเดิม
+ */
+export function serviceJobSourceKindOf(job, metaAvailable = false) {
+  const raw = job?.source_kind;
+  if (raw === null || raw === undefined || raw === "") {
+    if (metaAvailable) return { kind: null, from: "invalid" };            // ★ fail-closed
+    return { kind: deriveSourceKindFromMarkers(job), from: "marker" };    // งานก่อน migration
+  }
+  const k = String(raw).trim().toLowerCase();
+  if (k === SOURCE_KINDS.SERVICE || k === SOURCE_KINDS.WEB_ORDER) return { kind: k, from: "db" };
+  return { kind: null, from: "invalid" };   // ★ ห้าม fallback เป็น service
+}
+
+/**
+ * ★ Phase 606-a (fail-closed): metadata `source_kind`/`finance_flow_version` จะมีก็ต่อเมื่อรัน migration แล้ว
+ * → runner ต้อง probe ก่อนใช้ และ **fallback ได้เฉพาะเมื่อยืนยันว่าคอลัมน์ไม่มีจริง** (PG 42703 /
+ *   undefined column ที่อ้างชื่อคอลัมน์ของเรา). 404 หรือ 400 ด้วยสาเหตุอื่น (RLS/สิทธิ์/พิมพ์ผิด/JWT)
+ *   = fatal — ห้ามเดาว่า "ยังไม่ได้ migrate" แล้วเงียบ ๆ ใช้ marker แทน
+ * (pure — เป็นตัวตัดสินร่วมของทั้ง verify:reconcile และ verify:service-no-jv)
+ */
+export const META_COLUMNS = ["source_kind", "finance_flow_version"];
+export function isMissingMetaColumnError(status, bodyText) {
+  if (status !== 400) return false;                     // 404/401/5xx ฯลฯ = ปัญหาอื่น → fatal
+  let body;
+  try { body = JSON.parse(String(bodyText || "")); } catch (_) { return false; }   // อ่านไม่ออก = fatal
+  if (!body || typeof body !== "object") return false;
+  const code = String(body.code || "");
+  // ★ รับเฉพาะ 2 รหัสนี้เท่านั้น: PG 42703 (undefined_column) · PostgREST PGRST204 (column not found)
+  //   PGRST100 = query parsing error → ต้อง fatal (ไม่ใช่ "ยังไม่ migrate")
+  if (code !== "42703" && code !== "PGRST204") return false;
+  const text = `${body.message || ""} ${body.details || ""} ${body.hint || ""}`;
+  return META_COLUMNS.some(c => text.includes(c));      // ต้องระบุคอลัมน์เป้าหมายของเราจริง ๆ
+}
+
+/** ใช้ในงาน reconcile: web order ที่ยัง "มีชีวิต" (ไม่ยกเลิก/ไม่ลบ) — identity + lifecycle */
 export function isWebOrderJob(j) {
   if (!j) return false;
+  const { kind } = serviceJobSourceKindOf(j);
   const note = String(j.note || "");
-  const isWeb = String(j.sub_service || "").includes("สั่งซื้อ")
-    || WEB_ORDER_LEGACY_NOTE.test(note)
-    || WEB_ORDER_JOB_NO.test(String(j.job_no || ""))
-    || WEB_ORDER_NOTE.test(note);
-  return isWeb && j.status !== "cancelled" && !j.deleted_at && !note.includes("[ลบแล้ว]");
+  return kind === SOURCE_KINDS.WEB_ORDER
+    && j.status !== "cancelled" && !j.deleted_at && !note.includes("[ลบแล้ว]");
 }
 
 // isServiceIncomeJob: ตรง dashboard.js:24 + auto_post.js:864 (delivered/done/closed + total_cost>0 + ไม่ลบ)

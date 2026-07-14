@@ -452,9 +452,14 @@ test("22b. movement note marker ต้องตรงกับที่ writer �
 
 // ═══ 23-27. runner source guards (extract block — ไม่ grep กว้าง) ═══
 test("23. runner ต้องไม่ select service_jobs.deleted_at (production ไม่มีคอลัมน์นี้)", () => {
-  const sel = RUNNER.match(/const SJ_SELECT = "([^"]+)"/);
-  assert.ok(sel, "ต้องมี SJ_SELECT");
+  // Phase 606-a: base select แยกจาก metadata ใหม่ (source_kind/finance_flow_version ที่เพิ่มเมื่อ probe ผ่าน)
+  const sel = RUNNER.match(/const SJ_SELECT_BASE = "([^"]+)"/);
+  assert.ok(sel, "ต้องมี SJ_SELECT_BASE");
   const cols = sel[1].split(",");
+  const meta = RUNNER.match(/const SJ_META = "([^"]+)"/);
+  assert.ok(meta, "ต้องมี SJ_META (คอลัมน์ 606-a)");
+  assert.deepEqual(meta[1].split(","), ["source_kind", "finance_flow_version"]);
+  assert.ok(!meta[1].includes("deleted_at"));
   assert.ok(!cols.includes("deleted_at"), "ห้าม select deleted_at");
   for (const need of ["id", "job_no", "job_type", "status", "created_at", "closed_at", "total_cost", "payment_method", "sub_service", "note", "items_json", "stock_deducted_at", "stock_reverted_at"]) {
     assert.ok(cols.includes(need), `SJ_SELECT ต้องมี ${need}`);
@@ -488,13 +493,16 @@ test("25. read-only guard: POST เฉพาะ /auth/v1/token · REST เป็
   assert.ok(!/method:\s*"(PATCH|PUT|DELETE)"/.test(RUNNER_CODE), "ห้าม PATCH/PUT/DELETE");
   assert.ok(!/Prefer["']?\s*:\s*["']?\s*resolution/.test(RUNNER_CODE), "ห้ามใช้ Prefer: resolution=");
   assert.ok(!/\/rest\/v1\/rpc\//.test(RUNNER_CODE), "ห้ามเรียก RPC");
-  // REST endpoint มีจุดเดียว = getAllChecked และต้องยิงด้วย GET
+  // REST มีได้ 2 จุด: getAllChecked (ทุก query) + probeMetaColumns (Phase 606-a) — ทั้งคู่ต้องเป็น GET ล้วน
   const restFetches = [...RUNNER_CODE.matchAll(/\/rest\/v1\//g)];
-  assert.equal(restFetches.length, 1, "REST URL ต้องถูกประกอบที่เดียว (getAllChecked) — ทุก query ผ่านทางนี้");
+  assert.equal(restFetches.length, 2, "REST URL ประกอบได้ 2 จุด: getAllChecked + probeMetaColumns");
   const getAllFn = RUNNER_CODE.slice(RUNNER_CODE.indexOf("async function getAllChecked"), RUNNER_CODE.indexOf("async function getAll(token"));
   assert.match(getAllFn, /\$\{URL_BASE\}\/rest\/v1\/\$\{pathAndQuery\}/, "getAllChecked ต้องเป็นตัวประกอบ REST URL");
   assert.match(getAllFn, /await fetch\(url, \{ method: "GET"/, "REST fetch ต้องเป็น GET");
   assert.ok(!/body:/.test(getAllFn), "REST GET ต้องไม่มี body");
+  const probeFn = RUNNER_CODE.slice(RUNNER_CODE.indexOf("async function probeMetaColumns"), RUNNER_CODE.indexOf("async function main"));
+  assert.match(probeFn, /method: "GET"/, "probe ต้องเป็น GET");
+  assert.ok(!/body:/.test(probeFn), "probe ต้องไม่มี body");
   // ไม่มี recovery code
   assert.ok(!/postJournalForServiceJob|backfill|deductServiceJobStock|restoreServiceJobStock/.test(RUNNER_CODE),
     "Phase 604 ห้ามมี recovery/repair code");

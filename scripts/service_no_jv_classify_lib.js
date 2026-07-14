@@ -426,13 +426,24 @@ export const SERVICE_FLOW_STATES = {
   LEGACY_FLOW_V1_POSTED: "LEGACY_FLOW_V1_POSTED",
   LEGACY_FLOW_V1_NO_JV: "LEGACY_FLOW_V1_NO_JV",
   FLOW_V2_POSTED: "FLOW_V2_POSTED",
-  FLOW_V2_NO_JV: "FLOW_V2_NO_JV"
+  FLOW_V2_NO_JV: "FLOW_V2_NO_JV",
+  // ★ 606-a review: metadata เพี้ยน (flow version null/3/ขยะ, source_kind invalid) = ข้อมูลไม่ครบ
+  //   ห้ามยัดเข้า v1/v2 — ต้องโผล่เป็นปัญหาแยกและทำให้ strict แดง
+  DATA_INCOMPLETE_METADATA: "DATA_INCOMPLETE_METADATA"
 };
 
-/** finance_flow_version ของงาน — ไม่มีคอลัมน์/null/ค่าที่อ่านไม่ได้ = 1 (legacy) */
+/**
+ * finance_flow_version ของงาน — **fail-closed** (ห้ามกลืนค่าผิดเป็น v1/v2)
+ *  - ไม่มีคอลัมน์เลย (undefined = ยังไม่ได้รัน migration 606-a) → 1 (legacy โดยนิยาม)
+ *  - 1 หรือ 2 → ตามค่านั้น
+ *  - null / 0 / 3 / "ขยะ" (คอลัมน์มีแล้วแต่ค่าเพี้ยน) → **null = DATA_INCOMPLETE** (strict ต้องแดง)
+ */
 export function financeFlowVersionOf(job) {
-  const v = Number(job?.finance_flow_version);
-  return Number.isFinite(v) && v >= 2 ? v : 1;
+  const raw = job?.finance_flow_version;
+  if (raw === undefined) return 1;                 // คอลัมน์ยังไม่มีในสคีมา
+  if (raw === 1 || raw === 2) return raw;
+  if (typeof raw === "string" && (raw.trim() === "1" || raw.trim() === "2")) return Number(raw.trim());
+  return null;                                     // ★ null/ค่าอื่น = ข้อมูลไม่ครบ ห้ามเดา
 }
 
 /**
@@ -445,7 +456,9 @@ export function classifyServiceFlowState(job, entries = [], effective = ACCOUNTI
     e && e.source_table === "service_jobs" && String(e.source_id) === String(job?.id)
     && String(e.status || "").toLowerCase() === "approved"
   );
-  const v2 = financeFlowVersionOf(job) >= 2;
+  const flow = financeFlowVersionOf(job);
+  if (flow === null) return SERVICE_FLOW_STATES.DATA_INCOMPLETE_METADATA;   // ★ ห้ามเดา
+  const v2 = flow === 2;
   const posted = approved.length > 0;
   // pre-effective + ยังไม่มี JV = ตั้งใจไม่ลง (ไม่ใช่ปัญหา). ถ้ามี JV กลับถือว่า posted ตามจริง
   const basis = preliminaryBasisDateForScoping(job);
@@ -474,7 +487,11 @@ export function summarizeServiceFlow(jobs, entriesByJob = new Map()) {
   // LEGACY_FLOW_V1_NO_JV + FLOW_V2_NO_JV = ยังเป็นปัญหา (รายได้ยังไม่ลงบัญชี)
   const problemCount = out.LEGACY_FLOW_V1_NO_JV.count + out.FLOW_V2_NO_JV.count;
   const problemAmount = round2(out.LEGACY_FLOW_V1_NO_JV.amount + out.FLOW_V2_NO_JV.amount);
-  return { states: out, scanned, problemCount, problemAmount, partitionOk: Object.values(out).reduce((a, s) => a + s.count, 0) === scanned };
+  const dataIncompleteCount = out.DATA_INCOMPLETE_METADATA.count;   // ★ strict ต้องแดงถ้ามี
+  return {
+    states: out, scanned, problemCount, problemAmount, dataIncompleteCount,
+    partitionOk: Object.values(out).reduce((a, s) => a + s.count, 0) === scanned
+  };
 }
 
 // ── candidate: งานที่ S4.0 นับเป็น service NO_JV (ต้องตรงนิยามเดียวกัน) ──

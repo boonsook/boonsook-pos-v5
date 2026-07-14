@@ -95,12 +95,14 @@ test("A3. preview (ไม่มี --apply) ยัง read-only ตามเด�
 });
 
 // ═══ B. finance-flow taxonomy ════════════════════════════
-test("B1. flow version: ไม่มีคอลัมน์/null/ค่าเพี้ยน = v1 (legacy) · >=2 = v2", () => {
-  assert.equal(financeFlowVersionOf(job()), 1);                                  // ยังไม่มีคอลัมน์
-  assert.equal(financeFlowVersionOf(job({ finance_flow_version: null })), 1);
-  assert.equal(financeFlowVersionOf(job({ finance_flow_version: "ขยะ" })), 1);
+test("B1. flow version fail-closed (606-a): ไม่มีคอลัมน์ = v1 · 1/2 ตามค่า · null/ค่าเพี้ยน = null (ห้ามเดา)", () => {
+  assert.equal(financeFlowVersionOf(job()), 1);                                   // คอลัมน์ยังไม่มีในสคีมา
   assert.equal(financeFlowVersionOf(job({ finance_flow_version: 1 })), 1);
   assert.equal(financeFlowVersionOf(job({ finance_flow_version: 2 })), 2);
+  // ★ 606-a: คอลัมน์มีแล้วแต่ค่าเพี้ยน = DATA_INCOMPLETE (เดิมกลืนเป็น v1 → อันตราย)
+  assert.equal(financeFlowVersionOf(job({ finance_flow_version: null })), null);
+  assert.equal(financeFlowVersionOf(job({ finance_flow_version: "ขยะ" })), null);
+  assert.equal(financeFlowVersionOf(job({ finance_flow_version: 3 })), null);
 });
 
 test("B2. 4 สถานะแยกกันจริง: legacy posted ≠ legacy no-jv ≠ v2 posted ≠ v2 no-jv", () => {
