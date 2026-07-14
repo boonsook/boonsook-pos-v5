@@ -346,15 +346,63 @@ BEGIN
       RAISE EXCEPTION 'service_payments มีอยู่แล้วแต่ขาดคอลัมน์ %', v_missing;
     END LOOP;
 
-    SELECT format_type(a.atttypid, a.atttypmod) INTO v_col_type FROM pg_attribute a
-     WHERE a.attrelid='public.service_payments'::regclass AND a.attname='service_job_id';
-    IF v_col_type <> v_id_type THEN
-      RAISE EXCEPTION 'service_payments.service_job_id เป็น % แต่ service_jobs.id เป็น %', v_col_type, v_id_type;
+    -- ★ type ของทุกคอลัมน์สำคัญต้องตรงสัญญา (ไม่ใช่แค่มีชื่อ)
+    FOR v_missing IN
+      SELECT x.c FROM (VALUES
+        ('service_job_id',  v_id_type),
+        ('amount',          'numeric(14,2)'),
+        ('payment_method',  'text'),
+        ('bank_coa_code',   'text'),
+        ('paid_at',         'timestamp with time zone'),
+        ('idempotency_key', 'uuid'),
+        ('slip_url',        'text'),
+        ('note',            'text'),
+        ('created_by',      'uuid'),
+        ('created_at',      'timestamp with time zone')
+      ) AS x(c, want)
+      WHERE (SELECT format_type(a.atttypid, a.atttypmod) FROM pg_attribute a
+              WHERE a.attrelid='public.service_payments'::regclass AND a.attname=x.c) <> x.want
+    LOOP
+      RAISE EXCEPTION 'service_payments.% มี type ไม่ตรงสัญญา', v_missing;
+    END LOOP;
+
+    -- ★ NOT NULL ของคอลัมน์บังคับ
+    FOR v_missing IN
+      SELECT c FROM unnest(ARRAY['service_job_id','amount','payment_method','paid_at','idempotency_key','created_at']) AS c
+      WHERE NOT EXISTS (SELECT 1 FROM pg_attribute a
+                        WHERE a.attrelid='public.service_payments'::regclass AND a.attname=c AND a.attnotnull)
+    LOOP
+      RAISE EXCEPTION 'service_payments.% ต้องเป็น NOT NULL', v_missing;
+    END LOOP;
+
+    -- ★ created_at default now()
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_attrdef d JOIN pg_attribute a ON a.attrelid=d.adrelid AND a.attnum=d.adnum
+       WHERE d.adrelid='public.service_payments'::regclass AND a.attname='created_at'
+         AND pg_get_expr(d.adbin, d.adrelid) ILIKE '%now()%'
+    ) THEN
+      RAISE EXCEPTION 'service_payments.created_at ต้องมี DEFAULT now()';
     END IF;
-    SELECT format_type(a.atttypid, a.atttypmod) INTO v_col_type FROM pg_attribute a
-     WHERE a.attrelid='public.service_payments'::regclass AND a.attname='amount';
-    IF v_col_type <> 'numeric(14,2)' THEN
-      RAISE EXCEPTION 'service_payments.amount ต้องเป็น numeric(14,2) (พบ %)', v_col_type;
+
+    -- ★ PK ต้องเป็น id
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint c
+       WHERE c.conrelid='public.service_payments'::regclass AND c.contype='p'
+         AND c.conkey = ARRAY[(SELECT attnum FROM pg_attribute
+                                WHERE attrelid=c.conrelid AND attname='id')]::smallint[]
+    ) THEN
+      RAISE EXCEPTION 'service_payments ต้องมี PRIMARY KEY (id)';
+    END IF;
+
+    -- ★ FK bank_coa_code → chart_of_accounts(code)
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint c
+       WHERE c.conrelid='public.service_payments'::regclass AND c.contype='f'
+         AND c.confrelid='public.chart_of_accounts'::regclass
+         AND c.conkey = ARRAY[(SELECT attnum FROM pg_attribute
+                                WHERE attrelid=c.conrelid AND attname='bank_coa_code')]::smallint[]
+    ) THEN
+      RAISE EXCEPTION 'service_payments ขาด FK bank_coa_code → chart_of_accounts(code)';
     END IF;
     -- ★ พิสูจน์ constraint จาก "นิยามจริง" ไม่ใช่แค่ชื่อ: conkey (คอลัมน์ที่ผูก) + expression + ON DELETE
     IF NOT EXISTS (
@@ -391,6 +439,8 @@ BEGIN
          AND c.confdeltype='r'                                                   -- ON DELETE RESTRICT
          AND c.conkey = ARRAY[(SELECT attnum FROM pg_attribute
                                 WHERE attrelid=c.conrelid AND attname='service_job_id')]::smallint[]
+         AND c.confkey = ARRAY[(SELECT attnum FROM pg_attribute                  -- ★ ต้องชี้ service_jobs.id จริง
+                                 WHERE attrelid='public.service_jobs'::regclass AND attname='id')]::smallint[]
     ) THEN
       RAISE EXCEPTION 'service_payments ขาด FK service_job_id → service_jobs(id) ON DELETE RESTRICT';
     END IF;
@@ -489,6 +539,15 @@ BEGIN
     RAISE EXCEPTION 'ไม่พบงาน #%', p_service_job_id USING ERRCODE = 'P0002';
   END IF;
 
+  -- (3b) ★ total_cost ต้อง finite **ก่อน idempotency lookup** — ไม่งั้น retry path จะคืน
+  --      outstanding_after = NaN/Infinity หรือกลืน null เป็น 0 (เส้นทางนี้ไม่ผ่าน business-state)
+  IF v_job.total_cost IS NULL
+     OR lower(v_job.total_cost::text) IN ('nan','infinity','-infinity','+infinity') THEN
+    RAISE EXCEPTION 'ยอดงานไม่ใช่ตัวเลขที่ใช้ได้ (null/NaN/Infinity) — รับชำระ/ยืนยันรายการไม่ได้'
+      USING ERRCODE = '22023';
+  END IF;
+  v_total := round(v_job.total_cost, 2);   -- ★ ใช้ค่านี้ทั้ง retry path และ insert path
+
   -- (4) ★ idempotency ก่อน business-state: retry ต้องคืนของเดิมได้ แม้สถานะงานเปลี่ยนไปแล้ว
   SELECT * INTO v_existing FROM public.service_payments
    WHERE service_job_id = p_service_job_id AND idempotency_key = p_idempotency_key;
@@ -503,7 +562,7 @@ BEGIN
       RETURN jsonb_build_object(
         'payment_id', v_existing.id, 'inserted', false,
         'paid_total', v_paid,
-        'outstanding_after', greatest(round(coalesce(v_job.total_cost,0),2) - v_paid, 0)
+        'outstanding_after', greatest(v_total - v_paid, 0)   -- ★ v_total ผ่าน finite guard แล้ว (ขั้น 3b)
       );
     END IF;
     RAISE EXCEPTION 'idempotency_key นี้ถูกใช้กับข้อมูลชุดอื่นแล้ว — ปฏิเสธ (ไม่มีการเขียน)' USING ERRCODE = '23505';
@@ -536,11 +595,7 @@ BEGIN
   IF v_job.closed_at IS NULL THEN
     RAISE EXCEPTION 'งานยังไม่มีวันปิดงาน (closed_at) — รับชำระไม่ได้' USING ERRCODE = '22023';
   END IF;
-  -- ★ total_cost ก็ต้องกัน NaN/Infinity (ไม่งั้น outstanding/overpay กลายเป็น NaN)
-  IF v_job.total_cost IS NULL OR lower(v_job.total_cost::text) IN ('nan','infinity','-infinity','+infinity') THEN
-    RAISE EXCEPTION 'ยอดงานไม่ใช่ตัวเลขที่ใช้ได้ (NaN/Infinity) — รับชำระไม่ได้' USING ERRCODE = '22023';
-  END IF;
-  v_total := round(v_job.total_cost, 2);
+  -- (v_total ถูก validate + คำนวณไว้แล้วที่ขั้น 3b — ก่อน idempotency lookup)
   IF v_total <= 0 THEN
     RAISE EXCEPTION 'ยอดงานไม่ถูกต้อง — รับชำระไม่ได้' USING ERRCODE = '22023';
   END IF;
@@ -577,6 +632,7 @@ GRANT EXECUTE ON FUNCTION public.record_service_payment_v2(BIGINT, NUMERIC, TEXT
 DO $$
 DECLARE
   v_bad_kind bigint; v_bad_flow bigint; v_flow2 bigint; v_payments bigint; v_map bigint;
+  v_map_total bigint;
   v_notnull  int;    v_trg int;
 BEGIN
   SELECT count(*) INTO v_bad_kind FROM public.service_jobs
@@ -587,11 +643,14 @@ BEGIN
   SELECT count(*) INTO v_payments FROM public.service_payments;
   SELECT count(*) INTO v_map FROM public.account_mapping
    WHERE mapping_key LIKE 'service\_%' AND recognition_debit_code IS DISTINCT FROM '1200';
+  SELECT count(*) INTO v_map_total FROM public.account_mapping WHERE mapping_key LIKE 'service\_%';
 
   IF v_bad_kind <> 0 THEN RAISE EXCEPTION 'POST-CHECK: source_kind ว่าง/ไม่ถูกต้อง % แถว', v_bad_kind; END IF;
   IF v_bad_flow <> 0 THEN RAISE EXCEPTION 'POST-CHECK: finance_flow_version ว่าง/ไม่ถูกต้อง % แถว', v_bad_flow; END IF;
   IF v_flow2 <> 0 THEN RAISE EXCEPTION 'POST-CHECK: พบงาน flow v2 % แถว — Phase 606-a ห้ามมี', v_flow2; END IF;
   IF v_payments <> 0 THEN RAISE EXCEPTION 'POST-CHECK: service_payments ต้องว่าง แต่มี % แถว', v_payments; END IF;
+  -- ★ ต้องมี service mapping จริงอย่างน้อย 1 (ไม่งั้น "bad = 0" ผ่านได้ทั้งที่ไม่มี mapping เลย)
+  IF v_map_total = 0 THEN RAISE EXCEPTION 'POST-CHECK: ไม่พบ account_mapping ของงานบริการ (service_%%) เลย'; END IF;
   IF v_map <> 0 THEN RAISE EXCEPTION 'POST-CHECK: service mapping ที่ยังไม่มี recognition_debit_code=1200 % แถว', v_map; END IF;
 
   -- NOT NULL จริงบนคอลัมน์ metadata

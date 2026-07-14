@@ -74,13 +74,14 @@ test("A2. ledger: FK type จริง (dynamic DDL) · unique(job,idem) · cash
   // ★ should-fix: มีอยู่แล้ว → verify columns/type/unique/check/FK (ไม่ใช่ NOTICE แล้วข้าม)
   const existing = b.slice(b.indexOf("ELSE"));
   assert.match(existing, /ขาดคอลัมน์/);
-  assert.match(existing, /service_payments\.service_job_id เป็น %/);
+  assert.match(existing, /มี type ไม่ตรงสัญญา/);
   assert.match(existing, /numeric\(14,2\)/);
   // ★ should-fix: พิสูจน์จาก "นิยามจริง" (conkey/expression/ON DELETE) ไม่ใช่แค่ชื่อ constraint
   assert.match(existing, /c\.conkey = ARRAY\[[\s\S]{0,200}attname='service_job_id'[\s\S]{0,200}attname='idempotency_key'/);
   assert.match(existing, /pg_get_constraintdef\(c\.oid\) ILIKE '%payment_method%cash%bank_coa_code IS NULL%'/);
   assert.match(existing, /pg_get_constraintdef\(c\.oid\) ILIKE '%amount%'[\s\S]{0,120}'%nan%'/);
   assert.match(existing, /c\.confdeltype='r'/, "FK ต้องเป็น ON DELETE RESTRICT จริง");
+  assert.match(existing, /c\.confkey = ARRAY\[/, "FK ต้องยืนยันคอลัมน์ปลายทาง (confkey)");
 });
 
 test("A3. INSERT trigger fail-closed: ไม่เชื่อ client · flow บังคับ 1 · payment_due_date เฉพาะแอดมิน", () => {
@@ -212,13 +213,47 @@ test("A8. RPC: authority/money/idempotency/bank fail-closed · ไม่โพ�
   assert.ok(!/UPDATE public\.service_jobs/.test(code(b)));
 });
 
+test("A8b. review#3: total_cost finite guard ต้องอยู่ก่อน idempotency lookup (retry path ห้ามคืน NaN/0 ปลอม)", () => {
+  const b = block("-- 10) RPC", "-- 11) POST-CHECK");
+  const lockIdx = b.indexOf("FOR UPDATE");
+  const totalGuardIdx = b.indexOf("lower(v_job.total_cost::text) IN");
+  const vTotalIdx = b.indexOf("v_total := round(v_job.total_cost, 2)");
+  const idemIdx = b.indexOf("SELECT * INTO v_existing FROM public.service_payments");
+  const retryReturnIdx = b.indexOf("'inserted', false");
+  assert.ok(lockIdx > 0 && totalGuardIdx > lockIdx, "ตรวจ total_cost หลัง FOR UPDATE");
+  assert.ok(totalGuardIdx < idemIdx, "ตรวจ total_cost ต้องมา **ก่อน** idempotency lookup");
+  assert.ok(vTotalIdx > 0 && vTotalIdx < idemIdx, "v_total ต้องคำนวณก่อน idempotency lookup");
+  // retry path ต้องใช้ v_total ที่ผ่าน validation แล้ว (ห้าม coalesce(total_cost,0) สด ๆ)
+  const retryBlock = b.slice(idemIdx, retryReturnIdx + 400);
+  assert.match(retryBlock, /'outstanding_after', greatest\(v_total - v_paid, 0\)/);
+  assert.ok(!/coalesce\(v_job\.total_cost\s*,\s*0\)/.test(code(b)), "ห้ามกลืน total_cost=null เป็น 0");
+  // status/flow/bank ยังตรวจหลัง idempotency ตามเดิม
+  const flowIdx = b.indexOf("finance_flow_version, 1) <> 2");
+  const bankIdx = b.indexOf("code ~ '^11[3-6][0-9]$'");
+  assert.ok(flowIdx > idemIdx && bankIdx > idemIdx, "status/flow/bank ยังอยู่หลัง idempotency");
+});
+
+test("A8c. should-fix: existing-table verify ครบ (type/NOT NULL/default/PK/FK ทั้งสองตัว + confkey)", () => {
+  const b = block("-- 8) service_payments", "-- 9) RLS");
+  const existing = b.slice(b.indexOf("ELSE"));
+  assert.match(existing, /มี type ไม่ตรงสัญญา/, "ต้องเทียบ type ของทุกคอลัมน์");
+  for (const t of ["'numeric(14,2)'", "'timestamp with time zone'", "'uuid'", "'text'"]) {
+    assert.ok(existing.includes(t), `ต้องระบุ type ที่คาดหวัง: ${t}`);
+  }
+  assert.match(existing, /ต้องเป็น NOT NULL/);
+  assert.match(existing, /DEFAULT now\(\)/);
+  assert.match(existing, /ต้องมี PRIMARY KEY \(id\)/);
+  assert.match(existing, /ขาด FK bank_coa_code → chart_of_accounts\(code\)/);
+  assert.ok(/c\.confkey = ARRAY\[[\s\S]{0,200}attname='id'/.test(existing), "FK ต้องชี้ service_jobs.id จริง (confkey)");
+});
+
 test("A9. POST-CHECK: NOT NULL · constraints · triggers enabled · ledger schema+ว่าง · flow2=0", () => {
   const b = block("-- 11) POST-CHECK", "COMMIT;");
   for (const need of ["source_kind IS NULL OR source_kind NOT IN", "finance_flow_version IS NULL OR finance_flow_version NOT IN",
     "finance_flow_version = 2", "FROM public.service_payments", "recognition_debit_code IS DISTINCT FROM '1200'",
     "attnotnull", "chk_service_jobs_source_kind", "chk_service_jobs_finance_flow_version",
     "tgenabled", "uq_service_payments_job_idem", "chk_service_payments_bank_by_method",
-    "relrowsecurity AND relforcerowsecurity", "'%nan%'", "role_table_grants"]) {
+    "relrowsecurity AND relforcerowsecurity", "'%nan%'", "role_table_grants", "v_map_total = 0"]) {
     assert.ok(b.includes(need), `post-check ต้องตรวจ: ${need}`);
   }
   assert.ok((b.match(/RAISE EXCEPTION/g) || []).length >= 10, "ทุกเงื่อนไขต้อง fail-fast");
@@ -321,12 +356,15 @@ test("C2. classify runner: รายงาน metadata + strict แดงเม�
 
 test("C2b. review#3: **ทั้งสอง runner** ต้อง partition metadata + strict แดงเมื่อเพี้ยน (ไม่ใช่แค่ classify)", () => {
   // reconcile audit ต้องมี metadata partition + DATA_INCOMPLETE + strict reason
-  assert.match(RECONCILE, /const meta = \{ service: 0, web_order: 0, invalidKind: 0, invalidFlow: 0 \}/);
+  assert.match(RECONCILE, /const meta = \{ service: 0, web_order: 0, invalidKind: 0, invalidFlow: 0, badJobs: 0 \}/);
   assert.match(RECONCILE, /L\.serviceJobSourceKindOf\(j, META_AVAILABLE\)/, "ต้องส่ง META_AVAILABLE (fail-closed)");
   assert.match(RECONCILE, /Service metadata \(Phase 606-a\)/);
   assert.match(RECONCILE, /DATA_INCOMPLETE_METADATA/);
   const strict = RECONCILE.slice(RECONCILE.indexOf("const reasons = []"));
   assert.match(strict, /metaBad > 0\) reasons\.push\(`DATA_INCOMPLETE_METADATA/, "strict ของ reconcile ต้องแดงเมื่อ metadata เพี้ยน");
+  // ★ should-fix: นับ **distinct job** (งานเดียวเพี้ยนสองมิติ ต้องไม่นับเป็นสองงาน)
+  assert.match(RECONCILE, /const metaBad = meta\.badJobs;/);
+  assert.match(RECONCILE, /if \(bad\) meta\.badJobs \+= 1;/);
   // classify ก็ต้องส่ง META_AVAILABLE เช่นกัน
   assert.match(CLASSIFY, /L\.serviceJobSourceKindOf\(j, META_AVAILABLE\)/);
   // ★ metadata พร้อมแล้วแต่ source_kind ว่าง = invalid (ไม่ fallback marker)

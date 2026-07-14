@@ -180,14 +180,17 @@ async function auditMonth(token, month, productCostMap, expenseMappingKeys) {
 
   // ★ Phase 606-a: metadata partition (fail-closed) — source_kind/finance_flow_version ต้อง valid
   //   เมื่อคอลัมน์มีแล้ว (META_AVAILABLE) ค่าว่าง/เพี้ยน = DATA_INCOMPLETE ไม่ใช่ fallback marker
-  const meta = { service: 0, web_order: 0, invalidKind: 0, invalidFlow: 0 };
+  //   ★ badJobs = **distinct job** ที่ metadata เพี้ยน (งานเดียวที่เพี้ยนทั้ง 2 มิติ ต้องนับครั้งเดียว)
+  const meta = { service: 0, web_order: 0, invalidKind: 0, invalidFlow: 0, badJobs: 0 };
   for (const j of jobs) {
     const sk = L.serviceJobSourceKindOf(j, META_AVAILABLE);
-    if (sk.from === "invalid") meta.invalidKind += 1; else meta[sk.kind] += 1;
+    let bad = false;
+    if (sk.from === "invalid") { meta.invalidKind += 1; bad = true; } else { meta[sk.kind] += 1; }
     if (META_AVAILABLE) {
       const fv = j.finance_flow_version;
-      if (!(fv === 1 || fv === 2 || fv === "1" || fv === "2")) meta.invalidFlow += 1;
+      if (!(fv === 1 || fv === 2 || fv === "1" || fv === "2")) { meta.invalidFlow += 1; bad = true; }
     }
+    if (bad) meta.badJobs += 1;
   }
 
   const sum = L.summarizeMonth({ month, sales: salesRaw, saleItems, jobs, refunds, expenses, jeBySource, linesByEntry: linesByEntryId, docDateEntries, productCostMap, expenseMappingKeys });
@@ -247,7 +250,7 @@ async function main() {
     console.log(`_non-approved JE ในเดือน (exclude จาก reconcile): **${nonApprovedCount}** — manual(informational) ${nonApprovedManualCount}${nonApprovedManualCount ? ` (${histStr(nonApprovedManualHist)})` : ""} · source-bound ${nonApprovedSourceBoundCount}${nonApprovedSourceBoundCount ? ` (${histStr(nonApprovedSourceBoundHist)})` : ""}${!preEffective && nonApprovedSourceBoundCount ? " ⚠️ anomaly (post-effective)" : ""}_\n`);
 
     // ── Phase 606-a: service metadata (source identity + finance flow) ──
-    const metaBad = meta.invalidKind + meta.invalidFlow;
+    const metaBad = meta.badJobs;   // distinct jobs (ไม่นับซ้ำเมื่อเพี้ยนทั้งสองมิติ)
     console.log(`### Service metadata (Phase 606-a)`);
     console.log(`- columns: **${META_AVAILABLE ? "มีแล้ว (อ่านจาก DB)" : "ยังไม่มี → fallback marker (ยังไม่รัน migration 606-a)"}** · partition: service ${meta.service} · web_order ${meta.web_order} · invalid source_kind **${meta.invalidKind}** · invalid finance_flow_version **${meta.invalidFlow}**`);
     if (metaBad > 0) console.log(`- ⚠️ **DATA_INCOMPLETE_METADATA: ${metaBad} งาน** — ห้ามเดาค่า (strict จะแดง)`);
