@@ -16,6 +16,7 @@
     "verify:accounting": "node scripts/accounting_integrity_smoke.js",
     "verify:je": "node scripts/verify_je_fix.js",
     "verify:service-no-jv": "node scripts/service_no_jv_classify.js",
+    "recover:service-no-jv": "node scripts/service_no_jv_recover.js",
     "verify:reconcile": "node scripts/finance_reconcile_audit.js",
     "backfill:orphans": "node scripts/backfill_orphan_journals.js"
   },
