@@ -299,7 +299,7 @@ test("D2. SQL service_payment_jv_is_valid: approved · 2 ขา · Dr ตาม 
   assert.match(fn, /lower\(coalesce\(je\.status,''\)\) = 'approved'/);
   assert.match(fn, /IF v_cnt <> 2 THEN RETURN false/, "บรรทัดที่ไม่เป็นศูนย์ต้อง = 2 (กันบัญชีแปลกปลอม)");
   assert.match(fn, /WHEN 'transfer' THEN v_pay\.bank_coa_code/, "Dr โอน = บัญชีที่ ledger ระบุ");
-  assert.match(fn, /WHEN 'cash'     THEN v_map\.debit_account_code/);
+  assert.match(fn, /WHEN 'cash'\s+THEN v_map\.debit_account_code/);
   assert.match(fn, /account_code = v_map\.recognition_debit_code[\s\S]{0,120}round\(v_cr,2\) <> v_amt THEN RETURN false/, "Cr = 1200 ยอดเต็ม");
   assert.match(fn, /round\(coalesce\(v_entry\.total_debit,0\),2\) <> v_amt[\s\S]{0,120}RETURN false/);
   // reverse RPC ต้องเรียก validator นี้ก่อน INSERT
