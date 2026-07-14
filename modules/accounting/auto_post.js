@@ -66,6 +66,8 @@ function _authFetch(url, opts = {}) {
 // ★ Phase 413: effective date ย้ายไป single source of truth (effective_date.js)
 //   เริ่มบัญชีจริง 1 ก.ค. 2569 — JV ก่อนวันนี้ถูก skip อัตโนมัติ (ของเก่า = test data ไม่ถูกลบ)
 import { ACCOUNTING_EFFECTIVE_DATE } from "./effective_date.js";
+// ★ Phase 606-b1 (review#2): ตัวตรวจ JV กลาง — "มีแถวใน journal_entries" ≠ "ลงบัญชีถูก"
+import { validateRecognitionJv, validatePaymentJv, paymentDebitCode } from "./service_jv_validate.js";
 
 let _mappingCache = null;
 let _coaCache = null;  // Phase 89.2: cache COA codes สำหรับ validate BANK_COA override
@@ -970,6 +972,16 @@ export async function postJournalForServiceJob(job, opts = {}) {
 //     amount/method/bank จากฟอร์ม**: ฟอร์มถูกแก้ได้, ledger คือความจริงเดียวที่บัญชีต้องตาม
 //   idempotent: source_table='service_payments' + source_id=payment.id (idx_je_source_unique)
 //   → retry ได้เสมอ (ledger มีแถวแต่ JV หาย = reconcile แล้วยิงซ้ำ ไม่เกิด JV ซ้ำ)
+// อ่าน JE (header) + lines ของ source หนึ่ง ๆ — ใช้ตรวจความถูกต้องจริงก่อนโพสต์/กลับรายการ
+async function _fetchJvWithLines(sourceTable, sourceId) {
+  const cfg = window.SUPABASE_CONFIG;
+  const entry = await _fetchOne(`journal_entries?select=id,status,total_debit,total_credit&source_table=eq.${sourceTable}&source_id=eq.${encodeURIComponent(sourceId)}&order=id.desc&limit=1`);
+  if (!entry) return { entry: null, lines: [] };
+  const r = await _authFetch(`${cfg.url}/rest/v1/journal_lines?select=account_code,debit,credit&entry_id=eq.${encodeURIComponent(entry.id)}`, { headers: { Accept: "application/json" } });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return { entry, lines: await r.json() };
+}
+
 async function _fetchOne(path) {
   const cfg = window.SUPABASE_CONFIG;
   const r = await _authFetch(`${cfg.url}/rest/v1/${path}`, { headers: { Accept: "application/json" } });
@@ -1010,21 +1022,29 @@ export async function postJournalForServicePayment(paymentId, opts = {}) {
     return _journalResult(detailed, { status: "skipped", reason: "missing-mapping", sourceTable: "service_payments", sourceId: paymentId, mappingKey });
   }
 
-  // Dr = เงินสด (mapping.debit_account_code 1110) หรือ **บัญชีธนาคารที่ ledger บันทึกไว้** (ไม่ใช่ mapping)
+  // Dr = เงินสด (mapping.debit_account_code) หรือ **บัญชีธนาคารที่ ledger บันทึกไว้** (ไม่ใช่ mapping)
   const validCodes = await _getValidCoaCodes();
-  const method = String(pay.payment_method || "").toLowerCase();
-  let debitAccount;
-  if (method === "transfer") {
-    const bank = pay.bank_coa_code ? String(pay.bank_coa_code) : "";
-    if (!bank || (validCodes.size && !validCodes.has(bank))) {
-      console.error("[auto_post] service payment transfer without valid bank_coa_code:", paymentId, bank);
-      return _journalResult(detailed, { status: "skipped", reason: "missing-bank-account", sourceTable: "service_payments", sourceId: paymentId });
-    }
-    debitAccount = bank;
-  } else if (method === "cash") {
-    debitAccount = String(mapping.debit_account_code);
-  } else {
-    return _journalResult(detailed, { status: "skipped", reason: "unknown-payment-method", sourceTable: "service_payments", sourceId: paymentId });
+  const debitAccount = paymentDebitCode(pay, mapping);
+  if (!debitAccount) {
+    return _journalResult(detailed, { status: "skipped", reason: "missing-bank-account", sourceTable: "service_payments", sourceId: paymentId });
+  }
+  if (validCodes.size && !validCodes.has(String(debitAccount))) {
+    console.error("[auto_post] service payment debit account not in COA:", paymentId, debitAccount);
+    return _journalResult(detailed, { status: "skipped", reason: "missing-bank-account", sourceTable: "service_payments", sourceId: paymentId });
+  }
+
+  // ★ review#2 (blocking 3): ก่อนโพสต์ Cr 1200 ต้อง **revalidate recognition JV** แบบเดียวกับ RPC
+  //   — ลูกหนี้ที่จะล้างต้องมีจริง (approved + lines + บัญชี + ยอด ถูกครบ) ไม่ใช่แค่ "มี header"
+  let rec;
+  try {
+    const { entry, lines } = await _fetchJvWithLines("service_jobs", job.id);
+    rec = validateRecognitionJv({ job, mapping, entry, lines });
+  } catch (e) {
+    return _journalResult(detailed, { status: "failed", reason: "recognition-read-failed", sourceTable: "service_payments", sourceId: paymentId, error: String(e?.message || e) });
+  }
+  if (!rec.ok) {
+    console.error("[auto_post] recognition JV invalid — refuse to post payment JV:", job.id, rec.reason);
+    return _journalResult(detailed, { status: "skipped", reason: `recognition-invalid:${rec.reason}`, sourceTable: "service_payments", sourceId: paymentId });
   }
 
   const amount = Number(pay.amount);
@@ -1103,32 +1123,31 @@ export async function postJournalForServicePaymentReversal(reversalId, opts = {}
   const R = (o) => _journalResult(detailed, { sourceTable: "service_payment_reversals", sourceId: reversalId, ...o });
   if (!reversalId) return R({ status: "skipped", reason: "missing-required" });
 
-  let rev = null, pay = null, je = null, lines = [];
+  let rev = null, pay = null, job = null, jv = null;
   try {
     rev = await _fetchOne(`service_payment_reversals?select=*&id=eq.${encodeURIComponent(reversalId)}`);
     if (!rev) return R({ status: "skipped", reason: "reversal-not-found" });
     pay = await _fetchOne(`service_payments?select=*&id=eq.${encodeURIComponent(rev.payment_id)}`);
     if (!pay) return R({ status: "skipped", reason: "payment-not-found" });
-    // JV ของการรับเงินเดิม (ต้องมีจริง + มี lines ครบ) — ไม่มี = ไม่มีอะไรให้กลับรายการ
-    je = await _fetchOne(`journal_entries?select=id,status,total_debit&source_table=eq.service_payments&source_id=eq.${encodeURIComponent(pay.id)}`);
-    if (!je) return R({ status: "skipped", reason: "original-jv-missing" });
-    const cfg = window.SUPABASE_CONFIG;
-    const r = await _authFetch(`${cfg.url}/rest/v1/journal_lines?select=account_code,debit,credit&entry_id=eq.${encodeURIComponent(je.id)}`, { headers: { Accept: "application/json" } });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    lines = await r.json();
+    job = await _fetchOne(`service_jobs?select=id,job_no,job_type,customer_name,total_cost,finance_flow_version&id=eq.${encodeURIComponent(pay.service_job_id)}`);
+    if (!job) return R({ status: "skipped", reason: "job-not-found" });
+    jv = await _fetchJvWithLines("service_payments", pay.id);       // JV ของการรับเงินเดิม (header + lines)
   } catch (e) {
     console.error("[auto_post] cannot read reversal source rows:", e?.message || e);
     return R({ status: "failed", reason: "ledger-read-failed", error: String(e?.message || e) });
   }
 
-  if (String(je.status || "").toLowerCase() !== "approved") return R({ status: "skipped", reason: "original-jv-not-approved" });
-  const drLine = (lines || []).find(l => Number(l.debit) > 0);     // เงินเข้าบัญชีไหน (cash/bank)
-  const crLine = (lines || []).find(l => Number(l.credit) > 0);    // ล้างลูกหนี้ (1200)
-  if (!drLine?.account_code || !crLine?.account_code) return R({ status: "skipped", reason: "original-jv-lines-missing" });
-  if (round2(Number(drLine.debit)) !== round2(Number(pay.amount))) {
-    // JV เดิมไม่ตรงกับ ledger → ห้ามกลับรายการทับความผิดปกติ (ต้องให้คนตรวจ)
-    console.error("[auto_post] original payment JV amount mismatch:", pay.id, drLine.debit, pay.amount);
-    return R({ status: "skipped", reason: "original-jv-mismatch" });
+  const mappings = await _getMappings();
+  const mapping = mappings[serviceMappingKeyForJobType(job.job_type)];
+  if (!mapping?.recognition_debit_code) return R({ status: "skipped", reason: "missing-mapping" });
+
+  // ★ review#2 (blocking 2): ตรวจ JV เดิมแบบ **exact** ผ่าน validator กลาง —
+  //   approved · 2 ขาเป๊ะ · Dr = บัญชีเงินที่ ledger ระบุ · Cr = 1200 · ยอดตรง payment.amount ทั้งคู่
+  //   (เดิมใช้ find() หยิบบรรทัดแรกที่ debit>0 → JV ที่มีบัญชีแปลกปลอมก็ผ่าน)
+  const check = validatePaymentJv({ payment: pay, mapping, entry: jv.entry, lines: jv.lines });
+  if (!check.ok) {
+    console.error("[auto_post] original payment JV invalid — refuse to reverse:", pay.id, check.reason);
+    return R({ status: "skipped", reason: `original-jv-invalid:${check.reason}` });
   }
 
   const amount = round2(Number(rev.amount));
@@ -1146,8 +1165,8 @@ export async function postJournalForServicePaymentReversal(reversalId, opts = {}
     description: desc,
     detailed,
     lines: [
-      { account_code: String(crLine.account_code), debit: amount, credit: 0,      description: desc },  // Dr 1200 (คืนลูกหนี้)
-      { account_code: String(drLine.account_code), debit: 0,      credit: amount, description: desc }   // Cr บัญชีเงินเดิมเป๊ะ
+      { account_code: check.creditCode, debit: amount, credit: 0,      description: desc },  // Dr 1200 (คืนลูกหนี้)
+      { account_code: check.debitCode,  debit: 0,      credit: amount, description: desc }   // Cr บัญชีเงินเดิมเป๊ะ
     ]
   });
 }

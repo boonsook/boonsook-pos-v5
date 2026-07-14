@@ -15,7 +15,9 @@
 //   - effective date เดียวกับ auto_post (effective_date.js — เริ่มบัญชีจริง 1 ก.ค. 2569): งานก่อนวันนั้น auto_post จะ skip → ไม่ flag
 
 import { escHtml, dateBkk, todayBkk } from "./utils.js";
-import { postJournalForServiceJob, postJournalForServicePayment, postJournalForServicePaymentReversal } from "./accounting/auto_post.js";
+import { postJournalForServiceJob, postJournalForServicePayment, postJournalForServicePaymentReversal,
+         serviceMappingKeyForJobType, serviceFinanceFlowOf } from "./accounting/auto_post.js";
+import { validateRecognitionJv, validatePaymentJv, validateReversalJv, paymentDebitCode, ledgerStateOf } from "./accounting/service_jv_validate.js";
 // ★ Phase 413: single source of truth — เปลี่ยนวัน = แก้ที่ effective_date.js ที่เดียว
 import { ACCOUNTING_EFFECTIVE_DATE } from "./accounting/effective_date.js";
 
@@ -32,6 +34,17 @@ const JOB_NO_ONE = /JOB-\d+/;       // ตรวจรูปแบบเลข�
 
 export function isServiceIncomeStatus(status) {
   return SERVICE_INCOME_STATUSES.includes(String(status || "").trim().toLowerCase());
+}
+
+// ★ Phase 606-b1 (review#2, blocking 4): สถานะที่ "ควรมี JV" ขึ้นกับ flow ของงานนั้น
+//   v1 = done/delivered/closed (เดิม) · v2 = delivered/closed เท่านั้น (done = ยังไม่ส่งมอบ → ไม่ใช่ orphan)
+//   flow เพี้ยน/หาย = ไม่รู้กติกา → ไม่ flag เป็น orphan (แต่ writer ก็ block อยู่แล้ว)
+export function isRecognitionStatusForJob(job) {
+  const st = String(job?.status || "").trim().toLowerCase();
+  const flow = serviceFinanceFlowOf(job);
+  if (flow === 2) return ["delivered", "closed"].includes(st);
+  if (flow === 1) return SERVICE_INCOME_STATUSES.includes(st);
+  return false;
 }
 
 // ดึงเลขงาน (JOB-\d+) ทั้งหมดที่ปรากฏใน description ของ journal_entries → Set
@@ -96,8 +109,8 @@ export function findUnpostedServiceJobs(jobs, posted, opts = {}) {
   const out = [];
   (Array.isArray(jobs) ? jobs : []).forEach(job => {
     if (!job) return;
-    // 1) ต้องเป็นงานที่ปิด/รับรู้รายได้แล้ว
-    if (!isServiceIncomeStatus(job.status)) return;
+    // 1) ต้องเป็นงานที่ "ควรรับรู้รายได้แล้ว" ตาม flow ของงานนั้น (v2 + done = ไม่ใช่ orphan)
+    if (opts.flowAware ? !isRecognitionStatusForJob(job) : !isServiceIncomeStatus(job.status)) return;
     // 2) ต้องมียอดเงิน > 0
     const amount = Number(job.total_cost);
     if (!Number.isFinite(amount) || amount <= 0) return;
@@ -121,57 +134,124 @@ export function findUnpostedServiceJobs(jobs, posted, opts = {}) {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  Phase 606-b1 — ledger การรับชำระ/กลับรายการ (flow v2) เทียบ JV
+//  Phase 606-b1 — ledger การรับชำระ/กลับรายการ (flow v2) เทียบ JV จริง (header + lines + บัญชี)
 // ═══════════════════════════════════════════════════════════
-// taxonomy:
-//   PAYMENT_NO_JV     — มีเงินใน ledger แต่ไม่มี JV (เงินเข้าจริงแต่บัญชีไม่รู้) → retry ได้
-//   REVERSAL_NO_JV    — กลับรายการใน ledger แต่ JV กลับรายการหาย → retry ได้
-//   REVERSAL_MISMATCH — มี JV กลับรายการแต่ยอดไม่ตรง ledger → **ห้าม retry** ต้องให้คนตรวจ
-export const LEDGER_JV_STATES = ["PAYMENT_NO_JV", "REVERSAL_NO_JV", "REVERSAL_MISMATCH"];
+// taxonomy (review#2 blocking 3): "มี header" ไม่พอ — draft / header-only / บัญชีผิด ต้องไม่ OK
+//   PAYMENT_NO_JV        · REVERSAL_NO_JV        → ไม่มี header เลย → **ปุ่มซ่อมอัตโนมัติได้**
+//   PAYMENT_NON_APPROVED · REVERSAL_NON_APPROVED → header draft/void → manual (ยิงทับไม่ได้)
+//   PAYMENT_MISMATCH     · REVERSAL_MISMATCH     → lines หาย/บัญชีผิด/ยอดผิด → manual conflict
+// เหตุผลที่มี header เสียแล้วห้าม auto-repair: idx_je_source_unique จะปฏิเสธการยิงทับ (409)
+export const LEDGER_JV_STATES = [
+  "PAYMENT_NO_JV", "PAYMENT_NON_APPROVED", "PAYMENT_MISMATCH",
+  "REVERSAL_NO_JV", "REVERSAL_NON_APPROVED", "REVERSAL_MISMATCH"
+];
+export const LEDGER_AUTO_REPAIRABLE = ["PAYMENT_NO_JV", "REVERSAL_NO_JV"];
 
-function _jeIndex(jeRows) {
-  const map = new Map();
-  (Array.isArray(jeRows) ? jeRows : []).forEach(r => {
-    if (r?.source_id === undefined || r?.source_id === null) return;
-    map.set(`${r.source_table}#${r.source_id}`, r);
+function _byEntry(jeRows, lineRows) {
+  const linesByEntry = new Map();
+  (Array.isArray(lineRows) ? lineRows : []).forEach(l => {
+    const k = String(l.entry_id);
+    if (!linesByEntry.has(k)) linesByEntry.set(k, []);
+    linesByEntry.get(k).push(l);
   });
-  return map;
+  const bySource = new Map();
+  (Array.isArray(jeRows) ? jeRows : []).forEach(e => {
+    if (e?.source_id === undefined || e?.source_id === null) return;
+    bySource.set(`${e.source_table}#${e.source_id}`, { entry: e, lines: linesByEntry.get(String(e.id)) || [] });
+  });
+  return bySource;
 }
-const _r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
-/** pure — ไม่มี DOM/network (ทดสอบตรง) */
-export function classifyLedgerJv({ payments = [], reversals = [], jeRows = [] } = {}) {
-  const je = _jeIndex(jeRows);
-  const paymentNoJv = [], reversalNoJv = [], reversalMismatch = [];
+/**
+ * pure — ไม่มี DOM/network. mappingsByKey = { [mapping_key]: account_mapping row }
+ * jobsById = { [id]: service_jobs row } (ต้องมี job_type — ใช้หา mapping ของบัญชีที่ถูกต้อง)
+ */
+export function classifyLedgerJv({ payments = [], reversals = [], jeRows = [], lineRows = [], jobsById = {}, mappingsByKey = {}, mappingKeyOf = null } = {}) {
+  const keyOf = mappingKeyOf || (() => null);
+  const src = _byEntry(jeRows, lineRows);
+  const out = { paymentNoJv: [], paymentNonApproved: [], paymentMismatch: [], reversalNoJv: [], reversalNonApproved: [], reversalMismatch: [] };
+  const payById = new Map();
+
   payments.forEach(p => {
-    const e = je.get(`service_payments#${p.id}`);
-    if (!e) paymentNoJv.push(p);
-    else if (_r2(e.total_debit) !== _r2(p.amount)) reversalMismatch.push({ kind: "payment", row: p, entry: e });
+    payById.set(String(p.id), p);
+    const job = jobsById[String(p.service_job_id)] || null;
+    const mapping = mappingsByKey[keyOf(job?.job_type)] || null;
+    const found = src.get(`service_payments#${p.id}`) || { entry: null, lines: [] };
+    const v = validatePaymentJv({ payment: p, mapping, entry: found.entry, lines: found.lines });
+    const state = ledgerStateOf(v);
+    if (state === "OK") return;
+    const item = { row: p, kind: "payment", state: `PAYMENT_${state}`, reason: v.reason, entry: found.entry };
+    if (state === "NO_JV") out.paymentNoJv.push(item);
+    else if (state === "NON_APPROVED") out.paymentNonApproved.push(item);
+    else out.paymentMismatch.push(item);
   });
+
   reversals.forEach(r => {
-    const e = je.get(`service_payment_reversals#${r.id}`);
-    if (!e) reversalNoJv.push(r);
-    else if (_r2(e.total_debit) !== _r2(r.amount)) reversalMismatch.push({ kind: "reversal", row: r, entry: e });
+    const pay = payById.get(String(r.payment_id)) || null;
+    const job = pay ? jobsById[String(pay.service_job_id)] || null : null;
+    const mapping = mappingsByKey[keyOf(job?.job_type)] || null;
+    const found = src.get(`service_payment_reversals#${r.id}`) || { entry: null, lines: [] };
+    const v = validateReversalJv({
+      reversal: r,
+      paymentDebit: paymentDebitCode(pay, mapping),
+      recognitionCode: mapping?.recognition_debit_code,
+      entry: found.entry, lines: found.lines
+    });
+    const state = ledgerStateOf(v);
+    if (state === "OK") return;
+    const item = { row: r, kind: "reversal", state: `REVERSAL_${state}`, reason: v.reason, entry: found.entry };
+    if (state === "NO_JV") out.reversalNoJv.push(item);
+    else if (state === "NON_APPROVED") out.reversalNonApproved.push(item);
+    else out.reversalMismatch.push(item);
   });
-  return { paymentNoJv, reversalNoJv, reversalMismatch };
+
+  return out;
 }
 
-/** READ-ONLY GET — ledger + JV ของทั้งสอง source table */
+/** READ-ONLY GET — ledger + JE + lines + jobs + mappings (ต้องมี lines ถึงจะบอก MISMATCH ได้จริง) */
 export async function fetchLedgerJVStatus() {
   const cfg = typeof window !== "undefined" ? window.SUPABASE_CONFIG : null;
   if (!cfg?.url) return { ok: false, reason: "ไม่พบการตั้งค่าเซิร์ฟเวอร์" };
   const token = (typeof window !== "undefined" ? window._sbAccessToken : null) || cfg.anonKey;
   const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token };
+  const get = (path) => fetch(cfg.url + "/rest/v1/" + path, { headers });
   try {
-    const [pRes, rRes, jRes] = await Promise.all([
-      fetch(cfg.url + "/rest/v1/service_payments?select=id,service_job_id,amount,payment_method,paid_at&order=id.desc&limit=5000", { headers }),
-      fetch(cfg.url + "/rest/v1/service_payment_reversals?select=id,payment_id,amount,reason,reversed_at&order=id.desc&limit=5000", { headers }),
-      fetch(cfg.url + "/rest/v1/journal_entries?source_table=in.(service_payments,service_payment_reversals)&select=source_table,source_id,total_debit,status&limit=5000", { headers })
+    const [pRes, rRes, jRes, mRes] = await Promise.all([
+      get("service_payments?select=id,service_job_id,amount,payment_method,bank_coa_code,paid_at&order=id.desc&limit=5000"),
+      get("service_payment_reversals?select=id,payment_id,amount,reason,reversed_at&order=id.desc&limit=5000"),
+      get("journal_entries?source_table=in.(service_payments,service_payment_reversals)&select=id,source_table,source_id,status,total_debit,total_credit&limit=5000"),
+      get("account_mapping?select=mapping_key,debit_account_code,credit_account_code,recognition_debit_code&is_active=eq.true")
     ]);
-    if (!pRes.ok || !rRes.ok || !jRes.ok) return { ok: false, reason: "ดึงข้อมูล ledger/สมุดรายวันไม่สำเร็จ" };
-    const [payments, reversals, jeRows] = await Promise.all([pRes.json(), rRes.json(), jRes.json()]);
-    if (!Array.isArray(payments) || !Array.isArray(reversals) || !Array.isArray(jeRows)) return { ok: false, reason: "ข้อมูลรูปแบบไม่ถูกต้อง" };
-    return { ok: true, ...classifyLedgerJv({ payments, reversals, jeRows }), paymentsFetched: payments.length, reversalsFetched: reversals.length };
+    if (!pRes.ok || !rRes.ok || !jRes.ok || !mRes.ok) return { ok: false, reason: "ดึงข้อมูล ledger/สมุดรายวันไม่สำเร็จ" };
+    const [payments, reversals, jeRows, mappings] = await Promise.all([pRes.json(), rRes.json(), jRes.json(), mRes.json()]);
+    if (![payments, reversals, jeRows, mappings].every(Array.isArray)) return { ok: false, reason: "ข้อมูลรูปแบบไม่ถูกต้อง" };
+
+    let lineRows = [];
+    if (jeRows.length) {
+      const ids = jeRows.map(e => e.id).join(",");
+      const lRes = await get(`journal_lines?select=entry_id,account_code,debit,credit&entry_id=in.(${ids})&limit=20000`);
+      if (!lRes.ok) return { ok: false, reason: "ดึง journal_lines ไม่สำเร็จ" };
+      lineRows = await lRes.json();
+      if (!Array.isArray(lineRows)) return { ok: false, reason: "ข้อมูล journal_lines ไม่ถูกต้อง" };
+    }
+
+    const jobIds = [...new Set(payments.map(p => p.service_job_id).filter(v => v != null))];
+    let jobsById = {};
+    if (jobIds.length) {
+      const jbRes = await get(`service_jobs?select=id,job_no,job_type,total_cost&id=in.(${jobIds.join(",")})&limit=5000`);
+      if (!jbRes.ok) return { ok: false, reason: "ดึงงานบริการไม่สำเร็จ" };
+      const jobs = await jbRes.json();
+      if (!Array.isArray(jobs)) return { ok: false, reason: "ข้อมูลงานบริการไม่ถูกต้อง" };
+      jobs.forEach(j => { jobsById[String(j.id)] = j; });
+    }
+    const mappingsByKey = {};
+    mappings.forEach(m => { mappingsByKey[m.mapping_key] = m; });
+
+    return {
+      ok: true,
+      ...classifyLedgerJv({ payments, reversals, jeRows, lineRows, jobsById, mappingsByKey, mappingKeyOf: serviceMappingKeyForJobType }),
+      paymentsFetched: payments.length, reversalsFetched: reversals.length
+    };
   } catch (e) {
     return { ok: false, reason: "เครือข่ายมีปัญหา: " + (e?.message || e) };
   }
@@ -288,15 +368,34 @@ function resultsHtml(orphans, res) {
     parts.push(`<div style="font-size:12px;color:#94a3b8;margin-top:12px">กด "ส่งเข้าบัญชีอีกครั้ง" เพื่อสร้างรายการบันทึกบัญชี (JE) — ปลอดภัยถ้ามีอยู่แล้ว (ระบบกันซ้ำให้)</div>`);
   }
   const led = res?.ledger;
-  if (led && (led.paymentNoJv?.length || led.reversalNoJv?.length || led.reversalMismatch?.length)) {
-    parts.push(`<div style="font-weight:700;font-size:14px;color:#b91c1c;margin:16px 0 8px">💸 การรับชำระ/กลับรายการที่ยังไม่ลงบัญชี</div>`);
-    (led.paymentNoJv || []).forEach(p => parts.push(ledgerCardHtml("PAYMENT_NO_JV", p.id, `รับชำระ #${p.id} · งาน #${p.service_job_id} · ฿${fmtAmount(p.amount)}`, "payment")));
-    (led.reversalNoJv || []).forEach(r => parts.push(ledgerCardHtml("REVERSAL_NO_JV", r.id, `กลับรายการ #${r.id} · รับชำระ #${r.payment_id} · ฿${fmtAmount(r.amount)}`, "reversal")));
-    (led.reversalMismatch || []).forEach(m => parts.push(`
+  const conflicts = res?.conflicts || [];
+  if (conflicts.length) {
+    parts.push(`<div style="font-weight:700;font-size:14px;color:#b91c1c;margin:16px 0 8px">⛔ งานที่มีรายการบัญชี "เสีย" (${conflicts.length}) — ต้องแก้ด้วยคน</div>`);
+    conflicts.forEach(c => parts.push(`
       <div style="border:1px solid #ef4444;background:#fef2f2;border-radius:8px;padding:12px;margin-bottom:10px">
-        <div style="font-weight:700;font-size:14px">⛔ REVERSAL_MISMATCH — ${escHtml(m.kind)} #${escHtml(String(m.row?.id))}</div>
-        <div style="font-size:12px;color:#991b1b">ยอดใน ledger ฿${escHtml(fmtAmount(m.row?.amount))} ไม่ตรงกับ JV ฿${escHtml(fmtAmount(m.entry?.total_debit))} — <b>ห้ามซ่อมอัตโนมัติ</b> ต้องตรวจด้วยคน</div>
+        <div style="font-weight:700;font-size:14px">${escHtml(c.state)} — ${escHtml(String(c.job?.job_no || "#" + c.job?.id))}</div>
+        <div style="font-size:12px;color:#991b1b">฿${escHtml(fmtAmount(c.job?.total_cost))} · JE #${escHtml(String(c.entryId ?? "—"))} · เหตุ: ${escHtml(c.reason)} — <b>ซ่อมอัตโนมัติไม่ได้</b> (มีเอกสารอยู่แล้ว ระบบกันยิงทับ)</div>
       </div>`));
+  }
+  if (led) {
+    const repairable = [...(led.paymentNoJv || []), ...(led.reversalNoJv || [])];
+    const manual = [...(led.paymentNonApproved || []), ...(led.paymentMismatch || []), ...(led.reversalNonApproved || []), ...(led.reversalMismatch || [])];
+    if (repairable.length) {
+      parts.push(`<div style="font-weight:700;font-size:14px;color:#b91c1c;margin:16px 0 8px">💸 รับชำระ/กลับรายการที่ยังไม่ลงบัญชี (${repairable.length}) — ซ่อมได้</div>`);
+      repairable.forEach(it => parts.push(ledgerCardHtml(it.state, it.row.id,
+        it.kind === "payment"
+          ? `รับชำระ #${it.row.id} · งาน #${it.row.service_job_id} · ฿${fmtAmount(it.row.amount)}`
+          : `กลับรายการ #${it.row.id} · รับชำระ #${it.row.payment_id} · ฿${fmtAmount(it.row.amount)}`,
+        it.kind)));
+    }
+    if (manual.length) {
+      parts.push(`<div style="font-weight:700;font-size:14px;color:#b45309;margin:16px 0 8px">⛔ รายการบัญชีของ ledger ที่เสีย (${manual.length}) — ต้องแก้ด้วยคน</div>`);
+      manual.forEach(it => parts.push(`
+        <div style="border:1px solid #ef4444;background:#fef2f2;border-radius:8px;padding:12px;margin-bottom:10px">
+          <div style="font-weight:700;font-size:14px">${escHtml(it.state)} — ${escHtml(it.kind)} #${escHtml(String(it.row?.id))}</div>
+          <div style="font-size:12px;color:#991b1b">฿${escHtml(fmtAmount(it.row?.amount))} · JE #${escHtml(String(it.entry?.id ?? "—"))} · เหตุ: ${escHtml(it.reason)} — <b>ห้ามซ่อมอัตโนมัติ</b></div>
+        </div>`));
+    }
   }
   if (needDate.length) {
     parts.push(`<div style="font-weight:700;font-size:14px;color:#b45309;margin:16px 0 8px">⏳ ต้องกำหนดวันรับรู้รายได้ก่อน (${needDate.length}) — OWNER_RECOGNITION_DATE_REQUIRED</div>`);
@@ -319,43 +418,110 @@ export async function fetchServiceJVStatus(opts = {}) {
   if (!cfg?.url) return { ok: false, reason: "ไม่พบการตั้งค่าเซิร์ฟเวอร์" };
   const token = (typeof window !== "undefined" ? window._sbAccessToken : null) || cfg.anonKey;
   const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token };
+  const get = (path) => fetch(cfg.url + "/rest/v1/" + path, { headers });
 
   const effectiveDate = opts.effectiveDate || DEFAULT_EFFECTIVE_DATE;
   const fromDate = opts.fromDate || effectiveDate;     // inclusive (YYYY-MM-DD)
   const toDate = opts.toDate || todayBkk();            // inclusive (YYYY-MM-DD)
-  // created_at = timestamptz → ใช้ exclusive next-day เป็น upper bound (กัน row วันสุดท้ายหลุด)
   const nd = new Date(toDate + "T00:00:00Z");
   nd.setUTCDate(nd.getUTCDate() + 1);
   const toExclusive = nd.toISOString().slice(0, 10);
 
   const statusList = SERVICE_INCOME_STATUSES.join(",");
-  // ★ Phase 606-b1 (blocking 3): ต้อง select **ทุกฟิลด์ที่ canonical writer ใช้ตัดสิน** — ไม่งั้นปุ่ม
-  //   "ส่งเข้าบัญชีอีกครั้ง" จะส่ง row ที่ไม่มี finance_flow_version/closed_at/job_type เข้า writer
-  //   แล้วโดน block (finance-flow-unknown) ทุกครั้ง = ปุ่มตายเงียบ
-  const jobsUrl = cfg.url + "/rest/v1/service_jobs"
-    + "?select=id,job_no,customer_name,status,total_cost,job_type,payment_method,closed_at,finance_flow_version,note,created_at"
-    + `&status=in.(${statusList})`
-    + `&created_at=gte.${fromDate}&created_at=lt.${toExclusive}`
-    + "&order=created_at.desc&limit=5000";
-  const jeUrl = cfg.url + "/rest/v1/journal_entries"
-    + "?source_table=eq.service_jobs&select=source_id,description&order=id.desc&limit=5000";
+  // ★ review#2 (blocking 4): recognition period = **closed_at** (ไม่ใช่ created_at)
+  //   → query 1: งานที่มี closed_at ในช่วงที่ตรวจ (สร้าง มิ.ย. ปิด ก.ค. ต้องอยู่ในรายงาน ก.ค.;
+  //              สร้าง ก.ค. ปิด ส.ค. ต้อง **ไม่** อยู่ในรายงาน ก.ค.)
+  //   → query 2: งานที่ closed_at = null (ไม่มีวันรับรู้เลย) — scope ด้วย created_at เพื่อให้เห็น
+  //              และเข้ากอง OWNER_RECOGNITION_DATE_REQUIRED (re-post ไม่ได้จนกว่า owner กำหนดวัน)
+  const SEL = "select=id,job_no,customer_name,status,total_cost,job_type,payment_method,closed_at,finance_flow_version,note,created_at";
+  const closedUrl = `service_jobs?${SEL}&status=in.(${statusList})&closed_at=gte.${fromDate}&closed_at=lt.${toExclusive}&order=closed_at.desc&limit=5000`;
+  const noDateUrl = `service_jobs?${SEL}&status=in.(${statusList})&closed_at=is.null&created_at=gte.${fromDate}&created_at=lt.${toExclusive}&order=created_at.desc&limit=5000`;
 
   try {
-    const [jobsRes, jeRes] = await Promise.all([fetch(jobsUrl, { headers }), fetch(jeUrl, { headers })]);
-    if (!jobsRes.ok) return { ok: false, reason: "ดึงงานบริการไม่สำเร็จ (HTTP " + jobsRes.status + ")", fromDate, toDate };
+    const [closedRes, noDateRes, jeRes, mRes] = await Promise.all([
+      get(closedUrl),
+      get(noDateUrl),
+      get("journal_entries?source_table=eq.service_jobs&select=id,source_id,description,status,total_debit,total_credit&order=id.desc&limit=5000"),
+      get("account_mapping?select=mapping_key,debit_account_code,credit_account_code,recognition_debit_code&is_active=eq.true")
+    ]);
+    if (!closedRes.ok || !noDateRes.ok) return { ok: false, reason: "ดึงงานบริการไม่สำเร็จ", fromDate, toDate };
     if (!jeRes.ok) return { ok: false, reason: "ดึงข้อมูลสมุดรายวันไม่สำเร็จ (HTTP " + jeRes.status + ")", fromDate, toDate };
-    const jobs = await jobsRes.json().catch(() => null);
-    const jeRows = await jeRes.json().catch(() => null);
-    if (!Array.isArray(jobs) || !Array.isArray(jeRows)) return { ok: false, reason: "ข้อมูลรูปแบบไม่ถูกต้อง", fromDate, toDate };
-    const all = findUnpostedServiceJobs(jobs, buildPostedRef(jeRows), { effectiveDate });
-    // ★ แยกกอง: งานที่ re-post ได้จริง vs งานที่ "ไม่มีวันรับรู้รายได้" (closed_at = null) ซึ่ง writer
-    //   จะ block เสมอ — ต้องให้ owner กำหนดวันผ่าน recovery (Phase 607) ไม่ใช่ให้กดปุ่มแล้วงงว่าทำไมไม่ขึ้น
-    const orphans = all.filter(j => j.closed_at);
-    const needRecognitionDate = all.filter(j => !j.closed_at);
-    return { ok: true, orphans, needRecognitionDate, jobsFetched: jobs.length, jeFetched: jeRows.length, fromDate, toDate };
+    if (!mRes.ok) return { ok: false, reason: "ดึงผังบัญชีไม่สำเร็จ", fromDate, toDate };
+    const [closedJobs, noDateJobs, jeRows, mappings] = await Promise.all([closedRes.json(), noDateRes.json(), jeRes.json(), mRes.json()]);
+    if (![closedJobs, noDateJobs, jeRows, mappings].every(Array.isArray)) return { ok: false, reason: "ข้อมูลรูปแบบไม่ถูกต้อง", fromDate, toDate };
+
+    // lines ของ JE งานบริการ — ต้องมี ถึงจะบอกได้ว่า "ลงบัญชีถูกจริง" ไม่ใช่แค่ "มี header"
+    let lineRows = [];
+    if (jeRows.length) {
+      const lRes = await get(`journal_lines?select=entry_id,account_code,debit,credit&entry_id=in.(${jeRows.map(e => e.id).join(",")})&limit=20000`);
+      if (!lRes.ok) return { ok: false, reason: "ดึง journal_lines ไม่สำเร็จ", fromDate, toDate };
+      lineRows = await lRes.json();
+      if (!Array.isArray(lineRows)) return { ok: false, reason: "ข้อมูล journal_lines ไม่ถูกต้อง", fromDate, toDate };
+    }
+    const linesByEntry = new Map();
+    lineRows.forEach(l => {
+      const k = String(l.entry_id);
+      if (!linesByEntry.has(k)) linesByEntry.set(k, []);
+      linesByEntry.get(k).push(l);
+    });
+    const jeBySource = new Map();
+    jeRows.forEach(e => { if (e?.source_id != null) jeBySource.set(String(e.source_id), e); });
+    const mappingsByKey = {};
+    mappings.forEach(m => { mappingsByKey[m.mapping_key] = m; });
+
+    // ★ "posted" = JV ที่ **ผ่าน validator** เท่านั้น (approved + lines + บัญชี + ยอด)
+    //   header เสีย (draft/ไม่มี lines/บัญชีผิด) = **conflict** ต้องแจ้ง ไม่ใช่ซ่อนว่าเรียบร้อย
+    //   และ auto-repair ไม่ได้ (unique source index จะไม่ให้ยิงทับ)
+    const orphans = [], conflicts = [];
+    const consider = (job) => {
+      if (!isRecognitionStatusForJob(job)) return;                       // flow-aware (v2 + done = ไม่ใช่ orphan)
+      const amount = Number(job.total_cost);
+      if (!Number.isFinite(amount) || amount <= 0) return;
+      const entry = jeBySource.get(String(job.id)) || null;
+      const lines = entry ? (linesByEntry.get(String(entry.id)) || []) : [];
+      const mapping = mappingsByKey[serviceMappingKeyForJobType(job.job_type)] || null;
+      const flow = serviceFinanceFlowOf(job);
+      // flow v1: JV เดิม Dr เงินสด/ธนาคาร → ตรวจได้แค่ "มี header approved + lines" (บัญชีขึ้นกับ payment_method เดิม)
+      const v = flow === 2
+        ? validateRecognitionJv({ job, mapping, entry, lines })
+        : validateTwoLegLegacy({ entry, lines, amount });
+      if (v.ok) return;
+      const state = ledgerStateOf(v);
+      if (state === "NO_JV") orphans.push(job);
+      else conflicts.push({ job, state: `SERVICE_${state}`, reason: v.reason, entryId: entry?.id });
+    };
+    closedJobs.forEach(consider);
+
+    const needRecognitionDate = noDateJobs.filter(j => {
+      if (!isRecognitionStatusForJob(j)) return false;
+      const amount = Number(j.total_cost);
+      if (!Number.isFinite(amount) || amount <= 0) return false;
+      return !jeBySource.has(String(j.id));      // มี JV แล้วก็ไม่ต้องตาม (วันผิดเป็นเรื่องของ recovery)
+    });
+
+    return {
+      ok: true, orphans, conflicts, needRecognitionDate,
+      jobsFetched: closedJobs.length + noDateJobs.length, jeFetched: jeRows.length, fromDate, toDate
+    };
   } catch (e) {
     return { ok: false, reason: "เครือข่ายมีปัญหา: " + (e?.message || e), fromDate, toDate };
   }
+}
+
+// flow v1 (legacy): Dr = เงินสด/ธนาคาร ตาม payment_method เดิม → ตรวจ "approved + มี lines + บาลานซ์ + ยอดตรง"
+// (ไม่ผูกบัญชีตายตัว เพราะ mapping/ช่องทางเดิมเปลี่ยนได้ — ดูหมายเหตุ historical drift ใน SQL 606-b1)
+function validateTwoLegLegacy({ entry, lines, amount }) {
+  const _r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+  if (!entry) return { ok: false, reason: "no-header" };
+  if (String(entry.status || "").toLowerCase() !== "approved") return { ok: false, reason: "not-approved" };
+  const ls = (lines || []).filter(l => Number(l.debit) || Number(l.credit));
+  if (!ls.length) return { ok: false, reason: "no-lines" };
+  const d = _r2(ls.reduce((s, l) => s + Number(l.debit || 0), 0));
+  const c = _r2(ls.reduce((s, l) => s + Number(l.credit || 0), 0));
+  if (d !== c) return { ok: false, reason: "unbalanced" };
+  if (_r2(entry.total_debit) !== d) return { ok: false, reason: "header-mismatch" };
+  if (d !== _r2(amount)) return { ok: false, reason: "amount-mismatch" };
+  return { ok: true, reason: "ok" };
 }
 
 async function _loadAndRender(ctx, container) {
@@ -377,8 +543,12 @@ async function _loadAndRender(ctx, container) {
   const orphans = res.orphans || [];
   const needDate = res.needRecognitionDate || [];
   const led = res.ledger;
-  const ledgerCount = led ? (led.paymentNoJv.length + led.reversalNoJv.length + led.reversalMismatch.length) : 0;
-  if (!orphans.length && !needDate.length && !ledgerCount) {
+  const conflicts = res.conflicts || [];
+  const ledgerCount = led
+    ? led.paymentNoJv.length + led.paymentNonApproved.length + led.paymentMismatch.length
+      + led.reversalNoJv.length + led.reversalNonApproved.length + led.reversalMismatch.length
+    : 0;
+  if (!orphans.length && !needDate.length && !conflicts.length && !ledgerCount) {
     container.innerHTML = emptyHtml(res);
     return;
   }

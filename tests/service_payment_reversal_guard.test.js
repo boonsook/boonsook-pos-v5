@@ -51,14 +51,14 @@ const v2Job = { id: 20, job_no: "JOB-20", job_type: "ac", total_cost: 1000, cust
 const payXfer = { id: 501, service_job_id: 20, amount: 400, payment_method: "transfer", bank_coa_code: "1134", paid_at: "2026-07-09T03:00:00Z" };
 const payCash = { id: 500, service_job_id: 20, amount: 400, payment_method: "cash", bank_coa_code: null, paid_at: "2026-07-09T03:00:00Z" };
 const revRow = { id: 700, payment_id: 501, amount: 400, reason: "โอนผิดบิล", reversed_at: "2026-07-11T03:00:00Z" };
-const payJe = { id: 8100, status: "approved", total_debit: 400 };
+const payJe = { id: 8100, status: "approved", total_debit: 400, total_credit: 400 };
 const payJeLines = [
   { account_code: "1134", debit: 400, credit: 0 },   // เงินเข้าธนาคารจริงตอนรับเงิน
   { account_code: "1200", debit: 0, credit: 400 }    // ล้างลูกหนี้
 ];
 
 let posted;
-function install({ reversal = revRow, payment = payXfer, job = v2Job, je = payJe, lines = payJeLines, jePostStatus = 201 } = {}) {
+function install({ reversal = revRow, payment = payXfer, job = v2Job, je = payJe, lines = payJeLines, jePostStatus = 201, recognitionOk = true } = {}) {
   posted = { entries: [], lines: [], rpc: [] };
   const handler = async (url) => {
     const u = String(url);
@@ -69,8 +69,16 @@ function install({ reversal = revRow, payment = payXfer, job = v2Job, je = payJe
     if (u.includes("/service_payment_reversals?select=")) return makeRes(200, reversal ? [reversal] : []);
     if (u.includes("/service_payments?select=")) return makeRes(200, payment ? [payment] : []);
     if (u.includes("/service_jobs?select=")) return makeRes(200, job ? [job] : []);
-    if (u.includes("/journal_entries?select=id,status,total_debit")) return makeRes(200, je ? [je] : []);
-    if (u.includes("/journal_lines?select=")) return makeRes(200, lines || []);
+    // recognition JV ของงาน (ต้องถูกต้องก่อน ถึงจะรับชำระ/กลับรายการได้)
+    if (u.includes("source_table=eq.service_jobs")) {
+      return makeRes(200, recognitionOk ? [{ id: 11, status: "approved", total_debit: 1000, total_credit: 1000 }] : []);
+    }
+    if (u.includes("source_table=eq.service_payments")) return makeRes(200, je ? [{ id: 8100, ...je }] : []);
+    if (u.includes("/journal_lines?select=")) {
+      const eid = /entry_id=eq\.(\d+)/.exec(u)?.[1];
+      if (eid === "11") return makeRes(200, [{ account_code: "1200", debit: 1000, credit: 0 }, { account_code: "4200", debit: 0, credit: 1000 }]);
+      return makeRes(200, lines || []);
+    }
     return makeRes(200, []);
   };
   globalThis.fetch = handler;
@@ -112,11 +120,12 @@ test("G1 (guard 4). reversal JV = exact reverse ของ payment JV เดิ�
 
 test("G2. JV เดิมหาย / ยังไม่ approved / ไม่มี lines / ยอดไม่ตรง ledger → ไม่โพสต์ reversal JV", async () => {
   const cases = [
-    [{ je: null }, "original-jv-missing"],
-    [{ je: { id: 1, status: "draft", total_debit: 400 } }, "original-jv-not-approved"],
-    [{ lines: [] }, "original-jv-lines-missing"],
-    [{ je: { id: 1, status: "approved", total_debit: 999 },
-       lines: [{ account_code: "1134", debit: 999, credit: 0 }, { account_code: "1200", debit: 0, credit: 999 }] }, "original-jv-mismatch"]
+    [{ je: null }, "original-jv-invalid:no-header"],
+    [{ je: { status: "draft", total_debit: 400, total_credit: 400 } }, "original-jv-invalid:not-approved"],
+    [{ lines: [] }, "original-jv-invalid:no-lines"],
+    [{ je: { status: "approved", total_debit: 999, total_credit: 999 },
+       lines: [{ account_code: "1134", debit: 999, credit: 0 }, { account_code: "1200", debit: 0, credit: 999 }] }, "original-jv-invalid:amount-mismatch"],
+    [{ lines: [{ account_code: "1130", debit: 400, credit: 0 }, { account_code: "1200", debit: 0, credit: 400 }] }, "original-jv-invalid:account-mismatch"]
   ];
   for (const [override, reason] of cases) {
     resetMappingCache(); install(override);
@@ -143,7 +152,7 @@ test("G4 (should-fix). ledgerRecorded แยกจาก accountingPosted — JV
   assert.equal(ok.ledgerRecorded, true);
   assert.equal(ok.accountingPosted, true);
 
-  resetMappingCache(); install({ je: null });     // JV เดิมหาย → reversal JV โพสต์ไม่ได้
+  resetMappingCache(); install({ je: null });     // JV รับเงินเดิมหาย → reversal JV โพสต์ไม่ได้
   const partial = await reverseServicePayment({ paymentId: 501, amount: 400, reason: "x", reversedAt: "2026-07-11T03:00:00Z", idempotencyKey: "k2" });
   assert.equal(partial.ledgerRecorded, true, "เงินถูกกลับรายการใน ledger แล้ว (RPC สำเร็จ)");
   assert.equal(partial.accountingPosted, false, "แต่บัญชียังไม่ลง → ต้องเห็นและ retry ได้");
@@ -166,7 +175,10 @@ test("H1 (guard 3). closed orphan: fetch (metadata ครบ) → detect → re-
   posted = { entries: [], lines: [], rpc: [] };
   globalThis.fetch = async (url) => {
     const u = String(url);
-    if (u.includes("/service_jobs?select=")) { jobsSelect = u; return makeRes(200, [closedOrphan]); }
+    if (u.includes("/service_jobs?select=")) {
+      jobsSelect = u;
+      return makeRes(200, u.includes("closed_at=is.null") ? [] : [closedOrphan]);
+    }
     if (u.includes("/journal_entries?source_table=eq.service_jobs")) return makeRes(200, []);   // ไม่มี JE = orphan
     if (u.includes("/account_mapping")) return makeRes(200, MAPPING);
     if (u.includes("/chart_of_accounts")) return makeRes(200, COA);
@@ -198,8 +210,9 @@ test("H2. งานที่ไม่มี closed_at → กอง OWNER_RECOGN
                    closed_at: null, finance_flow_version: 1, created_at: "2026-07-02T03:00:00Z" };
   globalThis.fetch = async (url) => {
     const u = String(url);
-    if (u.includes("/service_jobs?select=")) return makeRes(200, [noDate]);
+    if (u.includes("/service_jobs?select=")) return makeRes(200, u.includes("closed_at=is.null") ? [noDate] : []);
     if (u.includes("/journal_entries")) return makeRes(200, []);
+    if (u.includes("/account_mapping")) return makeRes(200, MAPPING);
     return makeRes(200, []);
   };
   const res = await RECON.fetchServiceJVStatus({ effectiveDate: "2026-07-01" });
@@ -208,19 +221,12 @@ test("H2. งานที่ไม่มี closed_at → กอง OWNER_RECOGN
   assert.match(RECONCILE, /OWNER_RECOGNITION_DATE_REQUIRED/);
 });
 
-test("H3. ledger taxonomy: PAYMENT_NO_JV · REVERSAL_NO_JV · REVERSAL_MISMATCH", () => {
-  const out = RECON.classifyLedgerJv({
-    payments: [{ id: 1, amount: 100 }, { id: 2, amount: 200 }],
-    reversals: [{ id: 9, payment_id: 2, amount: 50 }, { id: 10, payment_id: 1, amount: 30 }],
-    jeRows: [
-      { source_table: "service_payments", source_id: 2, total_debit: 200 },
-      { source_table: "service_payment_reversals", source_id: 10, total_debit: 999 }    // ยอดเพี้ยน
-    ]
-  });
-  assert.deepEqual(out.paymentNoJv.map(p => p.id), [1]);
-  assert.deepEqual(out.reversalNoJv.map(r => r.id), [9]);
-  assert.deepEqual(out.reversalMismatch.map(m => `${m.kind}#${m.row.id}`), ["reversal#10"]);
-  assert.deepEqual(RECON.LEDGER_JV_STATES, ["PAYMENT_NO_JV", "REVERSAL_NO_JV", "REVERSAL_MISMATCH"]);
+test("H3. ledger taxonomy = 6 สถานะ · auto-repair เฉพาะ NO_JV (รายละเอียดใน service_jv_exactness_guard)", () => {
+  assert.deepEqual(RECON.LEDGER_JV_STATES, [
+    "PAYMENT_NO_JV", "PAYMENT_NON_APPROVED", "PAYMENT_MISMATCH",
+    "REVERSAL_NO_JV", "REVERSAL_NON_APPROVED", "REVERSAL_MISMATCH"
+  ]);
+  assert.deepEqual(RECON.LEDGER_AUTO_REPAIRABLE, ["PAYMENT_NO_JV", "REVERSAL_NO_JV"]);
 });
 
 // ═══════════════════════════════════════════════════════════
@@ -251,10 +257,12 @@ test("I3 (guard 6). freeze อิง accounting truth — ย้อน status �
   const trg = SQL.slice(SQL.indexOf("FUNCTION public.guard_service_job_v2_freeze"), SQL.indexOf("-- 4) service_payment_reversals"));
   assert.match(trg, /journal_entries[\s\S]{0,240}INTO v_recognized/, "ต้องดู JV จริง");
   assert.match(trg, /FROM public\.service_payments p WHERE p\.service_job_id = OLD\.id/, "ต้องดูเงินใน ledger");
-  assert.match(trg, /IF v_recognized OR v_has_money THEN/, "freeze = accounting truth ไม่ใช่ status ปัจจุบัน");
+  assert.match(trg, /IF NOT \(v_recognized OR v_has_money\) THEN[\s\S]{0,80}RETURN NEW;/,
+    "ยังไม่มีผลทางบัญชี = แก้ได้อิสระ · มีแล้ว = เข้ากติกา freeze");
   assert.match(trg, /NEW\.total_cost IS DISTINCT FROM OLD\.total_cost[\s\S]{0,160}42501/);
   assert.match(trg, /NEW\.job_type IS DISTINCT FROM OLD\.job_type[\s\S]{0,160}42501/);
-  assert.match(trg, /IN \('done','progress','pending'\)[\s\S]{0,200}42501/, "ห้ามย้อนสถานะหลังลงบัญชี");
+  assert.match(trg, /NOT \(v_old = 'delivered' AND v_new = 'closed'\)[\s\S]{0,200}42501/,
+    "หลังลงบัญชี: อนุญาตแค่ delivered→closed (cancelled / closed→delivered / ย้อนกลับ = block)");
   assert.ok(!/lower\(coalesce\(OLD\.status,''\)\) IN \('delivered','closed'\) THEN\s+IF NEW\.total_cost/.test(trg),
     "ห้าม gate การแก้ยอดด้วย status ปัจจุบันอย่างเดียว (ย้อน status ก่อน = ทางลัด)");
 });

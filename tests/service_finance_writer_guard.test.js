@@ -48,7 +48,7 @@ function makeRes(status, body, text = null) {
 
 // posted JV lines ที่ writer ส่งจริง (ดักที่ journal_lines POST)
 let posted;
-function installFetch({ payment = null, job = null } = {}) {
+function installFetch({ payment = null, job = null, recognitionJe = true } = {}) {
   posted = { entries: [], lines: [], rpc: [] };
   globalThis.fetch = async (url) => {
     const u = String(url);
@@ -69,6 +69,15 @@ function installFetch({ payment = null, job = null } = {}) {
     if (u.includes("/journal_entries?select=doc_no")) return makeRes(200, []);
     if (u.includes("/service_payments?select=")) return makeRes(200, payment ? [payment] : []);
     if (u.includes("/service_jobs?select=")) return makeRes(200, job ? [job] : []);
+    // ★ review#2: writer ตรวจ recognition JV จริงก่อนโพสต์ JV รับเงิน (Cr 1200)
+    if (u.includes("source_table=eq.service_jobs")) {
+      return makeRes(200, recognitionJe ? [{ id: 11, status: "approved", total_debit: 1000, total_credit: 1000 }] : []);
+    }
+    if (u.includes("/journal_lines?select=account_code")) {
+      return makeRes(200, recognitionJe
+        ? [{ account_code: "1200", debit: 1000, credit: 0 }, { account_code: "4200", debit: 0, credit: 1000 }]
+        : []);
+    }
     return makeRes(200, []);
   };
 }
