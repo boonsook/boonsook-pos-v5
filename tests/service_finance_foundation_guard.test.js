@@ -78,8 +78,8 @@ test("A2. ledger: FK type จริง (dynamic DDL) · unique(job,idem) · cash
   assert.match(existing, /numeric\(14,2\)/);
   // ★ should-fix: พิสูจน์จาก "นิยามจริง" (conkey/expression/ON DELETE) ไม่ใช่แค่ชื่อ constraint
   assert.match(existing, /c\.conkey = ARRAY\[[\s\S]{0,200}attname='service_job_id'[\s\S]{0,200}attname='idempotency_key'/);
-  assert.match(existing, /pg_get_constraintdef\(c\.oid\) ILIKE '%payment_method%cash%bank_coa_code IS NULL%'/);
-  assert.match(existing, /pg_get_constraintdef\(c\.oid\) ILIKE '%amount%'[\s\S]{0,120}'%nan%'/);
+  // CHECK: พิสูจน์ด้วย semantics probe จริงที่ §8b (ดู A8d) — substring ของนิยามผ่านง่ายเกินจริง
+  assert.match(SQL, /8b\) ★ CHECK semantics probe/);
   assert.match(existing, /c\.confdeltype='r'/, "FK ต้องเป็น ON DELETE RESTRICT จริง");
   assert.match(existing, /c\.confkey = ARRAY\[/, "FK ต้องยืนยันคอลัมน์ปลายทาง (confkey)");
 });
@@ -213,16 +213,23 @@ test("A8. RPC: authority/money/idempotency/bank fail-closed · ไม่โพ�
   assert.ok(!/UPDATE public\.service_jobs/.test(code(b)));
 });
 
-test("A8b. review#3: total_cost finite guard ต้องอยู่ก่อน idempotency lookup (retry path ห้ามคืน NaN/0 ปลอม)", () => {
+test("A8b. review#4: total_cost guard (finite **และ > 0**) ต้องอยู่ก่อน idempotency lookup — retry ห้ามซ่อนยอดเสีย", () => {
   const b = block("-- 10) RPC", "-- 11) POST-CHECK");
   const lockIdx = b.indexOf("FOR UPDATE");
   const totalGuardIdx = b.indexOf("lower(v_job.total_cost::text) IN");
   const vTotalIdx = b.indexOf("v_total := round(v_job.total_cost, 2)");
   const idemIdx = b.indexOf("SELECT * INTO v_existing FROM public.service_payments");
+  const posGuardIdx = b.indexOf("IF v_total <= 0 THEN");
   const retryReturnIdx = b.indexOf("'inserted', false");
   assert.ok(lockIdx > 0 && totalGuardIdx > lockIdx, "ตรวจ total_cost หลัง FOR UPDATE");
   assert.ok(totalGuardIdx < idemIdx, "ตรวจ total_cost ต้องมา **ก่อน** idempotency lookup");
   assert.ok(vTotalIdx > 0 && vTotalIdx < idemIdx, "v_total ต้องคำนวณก่อน idempotency lookup");
+  // ★ review#4: ยอดงาน 0/ติดลบ ต้องถูกปฏิเสธก่อน retry return — ไม่ให้ greatest(v_total - v_paid, 0) ซ่อนไว้
+  assert.ok(posGuardIdx > vTotalIdx && posGuardIdx < idemIdx,
+    "guard v_total <= 0 ต้องอยู่หลัง v_total := ... และ **ก่อน** idempotency lookup");
+  assert.equal(b.split("IF v_total <= 0 THEN").length - 1, 1, "guard v_total <= 0 ต้องมีที่เดียว (ห้ามค้างของเดิมหลัง retry)");
+  assert.ok(posGuardIdx < retryReturnIdx, "retry return ต้องอยู่หลัง guard ยอดงาน");
+  assert.match(SQL, /V11 \(behavioral/, "ต้องมี behavioral VERIFY: retry + total_cost 0/-1/NaN → 22023 · zero writes");
   // retry path ต้องใช้ v_total ที่ผ่าน validation แล้ว (ห้าม coalesce(total_cost,0) สด ๆ)
   const retryBlock = b.slice(idemIdx, retryReturnIdx + 400);
   assert.match(retryBlock, /'outstanding_after', greatest\(v_total - v_paid, 0\)/);
@@ -245,6 +252,25 @@ test("A8c. should-fix: existing-table verify ครบ (type/NOT NULL/default/PK
   assert.match(existing, /ต้องมี PRIMARY KEY \(id\)/);
   assert.match(existing, /ขาด FK bank_coa_code → chart_of_accounts\(code\)/);
   assert.ok(/c\.confkey = ARRAY\[[\s\S]{0,200}attname='id'/.test(existing), "FK ต้องชี้ service_jobs.id จริง (confkey)");
+  // ★ review#4: id ต้องอยู่ในรายการ + เป็น bigint + auto-generate เอง; FK ธนาคารต้องพิสูจน์ confkey = code
+  assert.ok(existing.includes("('id',              'bigint')"), "ต้องเทียบ type ของ id (bigint)");
+  assert.match(existing, /BIGSERIAL\/IDENTITY \(มี default nextval\)/, "id ต้องมี sequence/identity");
+  assert.ok(/c\.confkey = ARRAY\[[\s\S]{0,220}chart_of_accounts'::regclass AND attname='code'/.test(existing),
+    "FK bank_coa_code ต้องพิสูจน์ว่าชี้ chart_of_accounts.code จริง");
+  // CHECK ต้องไม่ถูกตรวจด้วย substring ของนิยาม (ผ่านง่ายเกินจริง) — ย้ายไป probe จริงที่ §8b
+  assert.ok(!/pg_get_constraintdef\(c\.oid\) ILIKE '%amount%'/.test(existing));
+});
+
+test("A8d. review#4: CHECK semantics probe ต้องพิสูจน์พฤติกรรมจริงของ constraint (ไม่ใช่ substring)", () => {
+  const b = block("-- 8b) ★ CHECK semantics probe", "-- 9) RLS");
+  assert.match(b, /CREATE TEMP TABLE _sp_probe \(LIKE public\.service_payments INCLUDING CONSTRAINTS\) ON COMMIT DROP/);
+  for (const c of ["'0'", "'-1'", "'''NaN''::numeric'", "'''Infinity''::numeric'", "'''-Infinity''::numeric'",
+    "'promptpay'", "'transfer',  'NULL'", "'cash',      '''1130'''"]) {
+    assert.ok(b.includes(c), `probe ต้องมีเคส: ${c}`);
+  }
+  assert.match(b, /CHECK semantics ผิดสัญญา/, "เคสไหนผิดสัญญา = rollback ทั้ง migration");
+  assert.ok(!/UPDATE|DELETE FROM public\./.test(code(b)), "probe ห้ามแตะข้อมูลจริง");
+  assert.ok(!/INSERT INTO public\./.test(code(b)), "probe ต้องเขียนลง temp table เท่านั้น");
 });
 
 test("A9. POST-CHECK: NOT NULL · constraints · triggers enabled · ledger schema+ว่าง · flow2=0", () => {

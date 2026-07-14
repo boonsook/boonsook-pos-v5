@@ -338,7 +338,7 @@ BEGIN
   ELSE
     -- ★ มีอยู่แล้ว → ตรวจโครงสร้างให้ตรงสัญญา (ผิด = rollback ทั้ง migration)
     FOR v_missing IN
-      SELECT c FROM unnest(ARRAY['service_job_id','amount','payment_method','bank_coa_code','paid_at',
+      SELECT c FROM unnest(ARRAY['id','service_job_id','amount','payment_method','bank_coa_code','paid_at',
                                  'idempotency_key','slip_url','note','created_by','created_at']) AS c
       WHERE NOT EXISTS (SELECT 1 FROM pg_attribute a
                         WHERE a.attrelid='public.service_payments'::regclass AND a.attname=c AND NOT a.attisdropped)
@@ -349,6 +349,7 @@ BEGIN
     -- ★ type ของทุกคอลัมน์สำคัญต้องตรงสัญญา (ไม่ใช่แค่มีชื่อ)
     FOR v_missing IN
       SELECT x.c FROM (VALUES
+        ('id',              'bigint'),
         ('service_job_id',  v_id_type),
         ('amount',          'numeric(14,2)'),
         ('payment_method',  'text'),
@@ -366,9 +367,21 @@ BEGIN
       RAISE EXCEPTION 'service_payments.% มี type ไม่ตรงสัญญา', v_missing;
     END LOOP;
 
+    -- ★ id ต้อง auto-generate เอง (sequence/identity) — ไม่งั้น caller ต้องเดา id เอง
+    IF NOT (
+      EXISTS (SELECT 1 FROM pg_attrdef d JOIN pg_attribute a ON a.attrelid=d.adrelid AND a.attnum=d.adnum
+               WHERE d.adrelid='public.service_payments'::regclass AND a.attname='id'
+                 AND pg_get_expr(d.adbin, d.adrelid) ILIKE '%nextval%')
+      OR EXISTS (SELECT 1 FROM pg_attribute a
+                  WHERE a.attrelid='public.service_payments'::regclass AND a.attname='id'
+                    AND a.attidentity IN ('a','d'))
+    ) THEN
+      RAISE EXCEPTION 'service_payments.id ต้องเป็น BIGSERIAL/IDENTITY (มี default nextval)';
+    END IF;
+
     -- ★ NOT NULL ของคอลัมน์บังคับ
     FOR v_missing IN
-      SELECT c FROM unnest(ARRAY['service_job_id','amount','payment_method','paid_at','idempotency_key','created_at']) AS c
+      SELECT c FROM unnest(ARRAY['id','service_job_id','amount','payment_method','paid_at','idempotency_key','created_at']) AS c
       WHERE NOT EXISTS (SELECT 1 FROM pg_attribute a
                         WHERE a.attrelid='public.service_payments'::regclass AND a.attname=c AND a.attnotnull)
     LOOP
@@ -401,6 +414,8 @@ BEGIN
          AND c.confrelid='public.chart_of_accounts'::regclass
          AND c.conkey = ARRAY[(SELECT attnum FROM pg_attribute
                                 WHERE attrelid=c.conrelid AND attname='bank_coa_code')]::smallint[]
+         AND c.confkey = ARRAY[(SELECT attnum FROM pg_attribute                  -- ★ ต้องชี้ chart_of_accounts.code จริง
+                                 WHERE attrelid='public.chart_of_accounts'::regclass AND attname='code')]::smallint[]
     ) THEN
       RAISE EXCEPTION 'service_payments ขาด FK bank_coa_code → chart_of_accounts(code)';
     END IF;
@@ -416,21 +431,8 @@ BEGIN
       RAISE EXCEPTION 'service_payments ขาด UNIQUE (service_job_id, idempotency_key) ที่ผูกคอลัมน์ถูกต้อง';
     END IF;
 
-    IF NOT EXISTS (
-      SELECT 1 FROM pg_constraint c
-       WHERE c.conrelid='public.service_payments'::regclass AND c.contype='c'
-         AND pg_get_constraintdef(c.oid) ILIKE '%payment_method%cash%bank_coa_code IS NULL%'
-    ) THEN
-      RAISE EXCEPTION 'service_payments ขาด CHECK cash/transfer ↔ bank_coa_code (ตามนิยามจริง)';
-    END IF;
-
-    IF NOT EXISTS (
-      SELECT 1 FROM pg_constraint c
-       WHERE c.conrelid='public.service_payments'::regclass AND c.contype='c'
-         AND pg_get_constraintdef(c.oid) ILIKE '%amount%' AND pg_get_constraintdef(c.oid) ILIKE '%nan%'
-    ) THEN
-      RAISE EXCEPTION 'service_payments ขาด CHECK กัน NaN/Infinity ของ amount';
-    END IF;
+    -- ★ CHECK constraints ไม่ตรวจด้วย substring ของนิยาม (ผ่านง่ายเกินจริง)
+    --   → ตรวจ **semantics จริง** ที่ §8b (probe ด้วย temp table ที่ clone constraints มา)
 
     IF NOT EXISTS (
       SELECT 1 FROM pg_constraint c
@@ -450,6 +452,67 @@ END $$;
 
 CREATE INDEX IF NOT EXISTS idx_service_payments_job     ON public.service_payments(service_job_id);
 CREATE INDEX IF NOT EXISTS idx_service_payments_paid_at ON public.service_payments(paid_at);
+
+-- ───────────────────────────────────────────────────────────────────────────
+-- 8b) ★ CHECK semantics probe — พิสูจน์ว่า constraint "ทำงานจริง" ไม่ใช่แค่มีข้อความคล้าย ๆ
+--     ใช้ TEMP TABLE ที่ clone CHECK/NOT NULL มาจาก service_payments (LIKE ... INCLUDING CONSTRAINTS)
+--     → ไม่แตะตารางจริง · ไม่มีแถวจริงถูกเขียน · เคสไหนผิดสัญญา = rollback ทั้ง migration
+--     (ตารางจะถูก drop ตอน COMMIT — ON COMMIT DROP)
+-- ───────────────────────────────────────────────────────────────────────────
+DO $$
+DECLARE
+  v_id_type text;
+  v_job_val text;
+  v_case    RECORD;
+  v_sql     text;
+  v_bad     text[] := '{}';
+  v_ok      boolean;
+  v_i       int := 0;      -- id ของ temp table ไม่ได้ clone default มาด้วย → ใส่เอง
+BEGIN
+  SELECT format_type(a.atttypid, a.atttypmod) INTO v_id_type
+  FROM pg_attribute a
+  WHERE a.attrelid='public.service_jobs'::regclass AND a.attname='id' AND NOT a.attisdropped;
+  v_job_val := CASE WHEN v_id_type ILIKE '%uuid%' THEN 'gen_random_uuid()' ELSE '1' END;
+
+  DROP TABLE IF EXISTS _sp_probe;
+  CREATE TEMP TABLE _sp_probe (LIKE public.service_payments INCLUDING CONSTRAINTS) ON COMMIT DROP;
+
+  FOR v_case IN
+    SELECT * FROM (VALUES
+      -- (label,                        amount_expr,          method,      bank_expr, must_reject)
+      ('amount = 0',                    '0',                  'cash',      'NULL',    true),
+      ('amount ติดลบ',                  '-1',                 'cash',      'NULL',    true),
+      ('amount = NaN',                  '''NaN''::numeric',   'cash',      'NULL',    true),
+      ('amount = Infinity',             '''Infinity''::numeric','cash',    'NULL',    true),
+      ('amount = -Infinity',            '''-Infinity''::numeric','cash',   'NULL',    true),
+      ('payment_method นอก enum',       '100',                'promptpay', 'NULL',    true),
+      ('transfer แต่ไม่มีธนาคาร',        '100',                'transfer',  'NULL',    true),
+      ('cash แต่ระบุธนาคาร',            '100',                'cash',      '''1130''', true),
+      ('cash ถูกต้อง',                  '100',                'cash',      'NULL',    false),
+      ('transfer ถูกต้อง',              '100',                'transfer',  '''1130''', false)
+    ) AS t(label, amount_expr, method, bank_expr, must_reject)
+  LOOP
+    v_i  := v_i + 1;
+    v_sql := format(
+      'INSERT INTO _sp_probe (id, service_job_id, amount, payment_method, bank_coa_code, paid_at, idempotency_key, created_at)
+       VALUES (%s, %s, %s, %L, %s, now(), gen_random_uuid(), now())',
+      v_i, v_job_val, v_case.amount_expr, v_case.method, v_case.bank_expr);
+    v_ok := true;                       -- true = INSERT ผ่าน
+    BEGIN
+      EXECUTE v_sql;
+    EXCEPTION WHEN others THEN
+      v_ok := false;                    -- ถูกปฏิเสธ (check_violation / numeric out of range ฯลฯ)
+    END;
+    IF v_ok = v_case.must_reject THEN   -- ควรถูกปฏิเสธแต่ผ่าน (หรือควรผ่านแต่ถูกปฏิเสธ)
+      v_bad := v_bad || v_case.label;
+    END IF;
+  END LOOP;
+
+  IF array_length(v_bad, 1) IS NOT NULL THEN
+    RAISE EXCEPTION 'service_payments CHECK semantics ผิดสัญญา: %', array_to_string(v_bad, ' · ');
+  END IF;
+  RAISE NOTICE 'service_payments CHECK semantics probe ผ่านครบ 10 เคส (amount>0/finite · enum · transfer↔bank)';
+END $$;
 
 -- ───────────────────────────────────────────────────────────────────────────
 -- 9) RLS — อ่านเฉพาะ admin/accountant · เขียนตรงไม่ได้ (ต้องผ่าน RPC)
@@ -539,14 +602,19 @@ BEGIN
     RAISE EXCEPTION 'ไม่พบงาน #%', p_service_job_id USING ERRCODE = 'P0002';
   END IF;
 
-  -- (3b) ★ total_cost ต้อง finite **ก่อน idempotency lookup** — ไม่งั้น retry path จะคืน
-  --      outstanding_after = NaN/Infinity หรือกลืน null เป็น 0 (เส้นทางนี้ไม่ผ่าน business-state)
+  -- (3b) ★ total_cost ต้อง "ใช้ได้จริง" **ก่อน idempotency lookup** — ไม่งั้น retry path จะคืน
+  --      outstanding_after = NaN/Infinity, กลืน null เป็น 0, หรือซ่อนยอดงานที่เสียเป็น 0/ติดลบ
+  --      (เส้นทาง retry ไม่ผ่าน business-state จึงต้อง validate ให้ครบตั้งแต่ตรงนี้)
   IF v_job.total_cost IS NULL
      OR lower(v_job.total_cost::text) IN ('nan','infinity','-infinity','+infinity') THEN
     RAISE EXCEPTION 'ยอดงานไม่ใช่ตัวเลขที่ใช้ได้ (null/NaN/Infinity) — รับชำระ/ยืนยันรายการไม่ได้'
       USING ERRCODE = '22023';
   END IF;
   v_total := round(v_job.total_cost, 2);   -- ★ ใช้ค่านี้ทั้ง retry path และ insert path
+  IF v_total <= 0 THEN                     -- ★ ต้องอยู่ "ก่อน" idempotency lookup ด้วย:
+    RAISE EXCEPTION 'ยอดงานไม่ถูกต้อง (%) — รับชำระ/ยืนยันรายการไม่ได้', v_total   -- ยอดงานเสียเป็น 0/ติดลบ
+      USING ERRCODE = '22023';                                                    -- ห้ามถูกซ่อนด้วย greatest(...,0)
+  END IF;
 
   -- (4) ★ idempotency ก่อน business-state: retry ต้องคืนของเดิมได้ แม้สถานะงานเปลี่ยนไปแล้ว
   SELECT * INTO v_existing FROM public.service_payments
@@ -595,10 +663,7 @@ BEGIN
   IF v_job.closed_at IS NULL THEN
     RAISE EXCEPTION 'งานยังไม่มีวันปิดงาน (closed_at) — รับชำระไม่ได้' USING ERRCODE = '22023';
   END IF;
-  -- (v_total ถูก validate + คำนวณไว้แล้วที่ขั้น 3b — ก่อน idempotency lookup)
-  IF v_total <= 0 THEN
-    RAISE EXCEPTION 'ยอดงานไม่ถูกต้อง — รับชำระไม่ได้' USING ERRCODE = '22023';
-  END IF;
+  -- (ยอดงาน: validate ครบแล้วที่ขั้น 3b — finite + > 0 — ก่อน idempotency lookup)
 
   -- (6) over-pay guard — exact (ledger เป็น NUMERIC(14,2) → ไม่ต้องมี tolerance)
   SELECT coalesce(sum(amount),0) INTO v_paid FROM public.service_payments WHERE service_job_id = p_service_job_id;
@@ -766,6 +831,14 @@ WHERE routine_schema='public' AND routine_name='record_service_payment_v2';
 
 -- V10 บัญชีต้องไม่ขยับจาก migration (เทียบกับค่าใน STEP 0.9)
 SELECT (SELECT count(*) FROM public.journal_entries) AS je, (SELECT count(*) FROM public.journal_lines) AS jl;
+
+-- V11 (behavioral · ทำได้เฉพาะบน staging/branch DB — ห้ามรันบน production เพราะต้อง flow v2 + เขียน ledger)
+--   ยืนยันว่า "retry ของ idempotency key เดิม" ก็ยัง reject งานที่ยอดเสีย และ **ไม่เขียนอะไรเลย**:
+--   1) ตั้งงาน flow v2 + total_cost = 1000 → record_service_payment_v2(key=K, amount=100)  → inserted:true
+--   2) UPDATE service_jobs SET total_cost = 0    WHERE id = ... ; เรียกซ้ำด้วย key=K เดิม  → ต้อง 22023 (ไม่ใช่ inserted:false/outstanding 0)
+--   3) UPDATE service_jobs SET total_cost = -1   WHERE id = ... ; เรียกซ้ำด้วย key=K เดิม  → ต้อง 22023
+--   4) UPDATE service_jobs SET total_cost = 'NaN'::numeric ... ; เรียกซ้ำด้วย key=K เดิม   → ต้อง 22023
+--   ทุกเคส 2-4: SELECT count(*) FROM service_payments WHERE service_job_id = ... ต้อง = 1 (zero writes)
 */
 
 -- ═══════════════════════════════════════════════════════════════════════════
