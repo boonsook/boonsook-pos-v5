@@ -118,9 +118,12 @@ test("A1. serviceFinanceFlowOf: 1/2 ผ่าน · undefined/null/0/3/junk = nu
   assert.equal(serviceFinanceFlowOf(undefined), null);
 });
 
-test("A2. metadata หาย → ไม่โพสต์ JV เลย (finance-flow-unknown) — ห้าม fallback v1", async () => {
-  installPostOk();
+test("A2. metadata หาย → อ่าน DB เป็น authority · DB ก็ไม่มี flow → ไม่โพสต์ (ห้าม fallback v1)", async () => {
+  // ★ review#5: caller ที่ส่ง row ไม่มี flow (service drawer) → writer อ่าน service_jobs จาก DB ก่อน
+  //   ถ้า DB row ก็ยังไม่มี flow ที่ถูกต้อง = fail-closed, zero writes
   const { finance_flow_version: _drop, ...noMeta } = v1Job;
+  installFetch({ job: { ...noMeta } });     // DB row ก็ไม่มี flow
+  installPostOk();
   const res = await postJournalForServiceJob(noMeta, { detailed: true });
   assert.equal(res.status, "skipped");
   assert.equal(res.reason, "finance-flow-unknown");
@@ -294,8 +297,12 @@ test("E2. reconcile: re-post ยังใช้ canonical writer + แสดง�
   // อ่าน journal_entries เพื่อหางานที่ยังไม่ลงบัญชีได้ (GET) — แต่ห้าม "เขียน" JE เอง
   const rec = RECONCILE.replace(/\/\/[^\n]*/g, "");
   assert.ok(!/method:\s*"(POST|PATCH|DELETE)"/.test(rec), "reconcile ต้อง read-only (เขียน JE ผ่าน canonical writer เท่านั้น)");
-  assert.match(RECONCILE, /recognition-date-required/);
-  assert.match(RECONCILE, /finance-flow-unknown/);
+  // ★ review#5: ข้อความเหตุผลย้ายไป shared helper (jvResultToToast) — ปุ่ม re-post และปุ่มซ่อม ledger
+  //   ใช้ policy ชุดเดียวกัน (recognition-date-required / finance-flow-unknown ยังถูกสื่อครบ)
+  assert.match(RECONCILE, /jvResultToToast\(res\)\.message/);
+  const helper = read("modules/accounting/service_jv_validate.js");
+  assert.match(helper, /recognition-date-required/);
+  assert.match(helper, /finance-flow-unknown/);
 });
 
 test("E3. runtime ที่ activate ได้จริง (main.js / customer_dashboard) ต้องยังไม่ถูกแตะในเฟสนี้", () => {

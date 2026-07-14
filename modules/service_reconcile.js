@@ -17,7 +17,8 @@
 import { escHtml, dateBkk, todayBkk } from "./utils.js";
 import { postJournalForServiceJob, postJournalForServicePayment, postJournalForServicePaymentReversal,
          serviceMappingKeyForJobType, serviceFinanceFlowOf } from "./accounting/auto_post.js";
-import { validateRecognitionJv, validatePaymentJv, validateReversalJv, paymentDebitCode, ledgerStateOf } from "./accounting/service_jv_validate.js";
+import { validateRecognitionJv, validatePaymentJv, validateReversalJv, validateLegacyServiceJv,
+         paymentDebitCode, ledgerStateOf, jvResultToToast } from "./accounting/service_jv_validate.js";
 // ★ Phase 413: single source of truth — เปลี่ยนวัน = แก้ที่ effective_date.js ที่เดียว
 import { ACCOUNTING_EFFECTIVE_DATE } from "./accounting/effective_date.js";
 
@@ -369,6 +370,13 @@ function ledgerCardHtml(state, id, label, kind) {
 function resultsHtml(orphans, res) {
   const needDate = res?.needRecognitionDate || [];
   const parts = [];
+  if (res?.ledgerUnavailable) {
+    parts.push(`
+      <div style="border:1px solid #f59e0b;background:#fffbeb;border-radius:8px;padding:12px;margin-bottom:12px;color:#92400e">
+        <div style="font-weight:700;font-size:14px">⚠️ LEDGER_UNAVAILABLE${res.ledgerUnavailable.dataIncomplete ? " · DATA_INCOMPLETE" : ""} — ยังตรวจการรับชำระ/กลับรายการ (ledger) ไม่ได้</div>
+        <div style="font-size:12px">${escHtml(res.ledgerUnavailable.reason)} · ผลด้านล่างเป็นเฉพาะฝั่งงานบริการ (ยังไม่ครบทั้งระบบ) — ปุ่มซ่อม ledger ถูกปิดไว้</div>
+      </div>`);
+  }
   if (orphans.length) {
     parts.push(`<div style="font-weight:700;font-size:14px;color:#b91c1c;margin:6px 0 8px">🚩 งานปิดแล้วแต่ยังไม่เข้าบัญชี (${orphans.length})</div>`);
     parts.push(orphans.map(orphanCardHtml).join(""));
@@ -482,6 +490,23 @@ export async function fetchServiceJVStatus(opts = {}) {
       return { ok: false, dataIncomplete: true, reason: "DATA_INCOMPLETE — ข้อมูลเกินขีดจำกัดที่ดึงได้ (ผลอาจไม่ครบ) กรุณาย่อช่วงวันที่", fromDate, toDate };
     }
 
+    // ★ review#5 (blocking 2): manual JV จาก journal_form มี source_table/source_id = NULL
+    //   → unique index ไม่กัน และ query source_table=service_jobs ก็ไม่เห็น. ถ้าปล่อยไว้ ปุ่ม re-post
+    //   จะสร้าง "รายได้ซ้ำ" ทับ JV ที่คนลงมือไว้แล้ว. ดึงแยกแบบ bounded + จับคู่ด้วยเลขงาน **ตรงตัว**
+    const unlinkedRes = await get(`journal_entries?source_id=is.null&select=id,description,status,total_debit,total_credit&description=ilike.*JOB-*&order=id.desc&limit=${FETCH_LIMIT}`);
+    if (!unlinkedRes.ok) return { ok: false, reason: "ดึงรายการบัญชีที่ไม่ผูก source ไม่สำเร็จ", fromDate, toDate };
+    const unlinkedRows = await unlinkedRes.json();
+    if (!Array.isArray(unlinkedRows)) return { ok: false, reason: "ข้อมูลรายการบัญชีไม่ถูกต้อง", fromDate, toDate };
+    if (unlinkedRows.length >= FETCH_LIMIT) {
+      return { ok: false, dataIncomplete: true, reason: "DATA_INCOMPLETE — รายการบัญชีที่ไม่ผูก source เกินขีดจำกัด (ผลอาจไม่ครบ)", fromDate, toDate };
+    }
+    const unlinkedByJobNo = new Map();       // job_no (exact) → JE ที่ไม่ผูก source
+    unlinkedRows.forEach(e => {
+      extractPostedJobNos([e.description]).forEach(no => {
+        if (!unlinkedByJobNo.has(no)) unlinkedByJobNo.set(no, e);
+      });
+    });
+
     let lineRows = [];
     if (jeRows.length) {
       const lRes = await get(`journal_lines?select=entry_id,account_code,debit,credit&entry_id=in.(${jeRows.map(e => e.id).join(",")})&limit=${LINE_LIMIT}`);
@@ -509,7 +534,7 @@ export async function fetchServiceJVStatus(opts = {}) {
       const mapping = mappingsByKey[serviceMappingKeyForJobType(job.job_type)] || null;
       const v = serviceFinanceFlowOf(job) === 2
         ? validateRecognitionJv({ job, mapping, entry, lines })
-        : validateTwoLegLegacy({ entry, lines, amount: job.total_cost });
+        : validateLegacyServiceJv({ job, entry, lines });   // ★ shared strict validator (ไม่มี Number()||0)
       return { entry, v };
     };
     const eligible = (job) => {
@@ -518,14 +543,28 @@ export async function fetchServiceJVStatus(opts = {}) {
       return Number.isFinite(amount) && amount > 0;
     };
 
+    // งานนี้มี JE ที่คนลงมือไว้เอง (ไม่ผูก source) อ้างเลขงานนี้อยู่ไหม — เลขงานต้อง **ตรงตัว**
+    const unlinkedFor = (job) => {
+      const no = String(job?.job_no || "").trim();
+      return no && unlinkedByJobNo.has(no) ? unlinkedByJobNo.get(no) : null;
+    };
+
     // ★ "posted" = ผ่าน validator เท่านั้น · header เสีย = conflict (auto-repair ไม่ได้ — unique index กันทับ)
+    //   ★ review#5: มี JE ที่ไม่ผูก source อ้างเลขงานนี้ = SERVICE_JV_UNLINKED → ห้ามมีปุ่ม re-post
+    //     (ยิงซ้ำ = รายได้ซ้ำ เพราะ unique index ไม่กัน source = NULL)
     const orphans = [], conflicts = [];
     closedJobs.filter(eligible).forEach(job => {
       const { entry, v } = validateJob(job);
       if (v.ok) return;
       const state = ledgerStateOf(v);
-      if (state === "NO_JV") orphans.push(job);
-      else conflicts.push({ job, state: `SERVICE_${state}`, reason: v.reason, entryId: entry?.id });
+      const un = unlinkedFor(job);
+      if (state === "NO_JV" && un) {
+        conflicts.push({ job, state: "SERVICE_JV_UNLINKED", reason: "manual-jv-not-linked", entryId: un.id });
+      } else if (state === "NO_JV") {
+        orphans.push(job);
+      } else {
+        conflicts.push({ job, state: `SERVICE_${state}`, reason: v.reason, entryId: entry?.id });
+      }
     });
 
     // ★ review#3 (blocking 5): งานที่ไม่มีวันรับรู้ (closed_at = null) ต้องปรากฏ **หนึ่งกองพอดี** เสมอ
@@ -534,7 +573,14 @@ export async function fetchServiceJVStatus(opts = {}) {
     const needRecognitionDate = [], dateMissingWithJv = [];
     noDateJobs.filter(eligible).forEach(job => {
       const { entry, v } = validateJob(job);
-      if (!entry) { needRecognitionDate.push(job); return; }
+      if (!entry) {
+        const un = unlinkedFor(job);
+        // ★ review#5: ไม่มี source-linked JE แต่มี manual JE อ้างเลขงานนี้ → unlinked conflict
+        //   (ไม่ใช่ "รอกำหนดวัน" เฉย ๆ — เพราะรายได้อาจถูกลงบัญชีไปแล้วด้วยมือ)
+        if (un) conflicts.push({ job, state: "SERVICE_JV_UNLINKED", reason: "manual-jv-not-linked", entryId: un.id });
+        else needRecognitionDate.push(job);
+        return;
+      }
       dateMissingWithJv.push({
         job, state: "SERVICE_DATE_MISSING_WITH_JV",
         reason: v.ok ? "jv-valid-but-no-recognition-date" : v.reason,
@@ -549,22 +595,6 @@ export async function fetchServiceJVStatus(opts = {}) {
   } catch (e) {
     return { ok: false, reason: "เครือข่ายมีปัญหา: " + (e?.message || e), fromDate, toDate };
   }
-}
-
-// flow v1 (legacy): Dr = เงินสด/ธนาคาร ตาม payment_method เดิม → ตรวจ "approved + มี lines + บาลานซ์ + ยอดตรง"
-// (ไม่ผูกบัญชีตายตัว เพราะ mapping/ช่องทางเดิมเปลี่ยนได้ — ดูหมายเหตุ historical drift ใน SQL 606-b1)
-function validateTwoLegLegacy({ entry, lines, amount }) {
-  const _r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
-  if (!entry) return { ok: false, reason: "no-header" };
-  if (String(entry.status || "").toLowerCase() !== "approved") return { ok: false, reason: "not-approved" };
-  const ls = (lines || []).filter(l => Number(l.debit) || Number(l.credit));
-  if (!ls.length) return { ok: false, reason: "no-lines" };
-  const d = _r2(ls.reduce((s, l) => s + Number(l.debit || 0), 0));
-  const c = _r2(ls.reduce((s, l) => s + Number(l.credit || 0), 0));
-  if (d !== c) return { ok: false, reason: "unbalanced" };
-  if (_r2(entry.total_debit) !== d) return { ok: false, reason: "header-mismatch" };
-  if (d !== _r2(amount)) return { ok: false, reason: "amount-mismatch" };
-  return { ok: true, reason: "ok" };
 }
 
 export async function _loadAndRender(ctx, container) {   // export = ทดสอบ render path จริงได้
@@ -582,15 +612,13 @@ export async function _loadAndRender(ctx, container) {   // export = ทดส�
   //   การ์ดเขียวแปลว่า "ตรวจครบแล้วไม่มีปัญหา" — ถ้าตรวจไม่ได้ต้องบอกตรง ๆ ไม่ใช่ toast แล้วเขียว
   const ledger = await fetchLedgerJVStatus().catch(e => ({ ok: false, reason: "เครือข่าย/สคริปต์ผิดพลาด: " + (e?.message || e) }));
   if (!document.body.contains(container)) return;
-  if (ledger?.ok !== true) {
-    container.innerHTML = incompleteHtml(
-      "LEDGER_UNAVAILABLE — ยังตรวจการรับชำระ/กลับรายการ (ledger) ไม่ได้: " +
-      (ledger?.reason || "ไม่ทราบสาเหตุ") +
-      (ledger?.dataIncomplete ? " (DATA_INCOMPLETE — ข้อมูลเกินขีดจำกัด ผลไม่ครบ)" : "")
-    );
-    return;      // ★ ห้าม fall-through ไป emptyHtml() (การ์ดเขียว) เด็ดขาด
-  }
-  res.ledger = ledger;
+  // ★ review#5 (blocking 3): ledger อ่านไม่ได้ = **ห้ามเขียว** แต่ก็ **ห้ามกลืน service findings ที่อ่านได้แล้ว**
+  //   → แสดงผลฝั่งงานบริการตามปกติ + แบนเนอร์ LEDGER_UNAVAILABLE/DATA_INCOMPLETE (ไม่มีปุ่มซ่อม ledger)
+  res.ledger = ledger?.ok === true ? ledger : null;
+  res.ledgerUnavailable = ledger?.ok === true ? null : {
+    reason: ledger?.reason || "ไม่ทราบสาเหตุ",
+    dataIncomplete: !!ledger?.dataIncomplete
+  };
 
   const orphans = res.orphans || [];
   const needDate = res.needRecognitionDate || [];
@@ -601,7 +629,8 @@ export async function _loadAndRender(ctx, container) {   // export = ทดส�
     ? led.paymentNoJv.length + led.paymentNonApproved.length + led.paymentMismatch.length
       + led.reversalNoJv.length + led.reversalNonApproved.length + led.reversalMismatch.length
     : 0;
-  if (!orphans.length && !needDate.length && !dateWithJv.length && !conflicts.length && !ledgerCount) {
+  // การ์ดเขียวขึ้นได้ต่อเมื่อ **อ่านครบทั้งสองฝั่ง** และทุก taxonomy สะอาด
+  if (!res.ledgerUnavailable && !orphans.length && !needDate.length && !dateWithJv.length && !conflicts.length && !ledgerCount) {
     container.innerHTML = emptyHtml(res);
     return;
   }
@@ -628,18 +657,7 @@ async function _handleLedgerRetry(ctx, container, kind, rowId, btn) {
     const res = kind === "reversal"
       ? await postJournalForServicePaymentReversal(rowId, { detailed: true })
       : await postJournalForServicePayment(rowId, { detailed: true });
-    if (res?.status === "posted") {
-      ctx?.showToast?.(`✅ ลงบัญชีแล้ว (JE #${res.entryId || res.docNo || ""})`.trim());
-    } else if (res?.reason === "duplicate-valid") {
-      ctx?.showToast?.("✅ มีรายการบัญชีที่ถูกต้องอยู่แล้ว (ไม่สร้างซ้ำ)");
-    } else if (String(res?.reason || "").startsWith("duplicate-invalid:")) {
-      // ★ review#4: มีเอกสารค้างอยู่แต่ **ไม่ถูกต้อง** — ห้ามแจ้งว่าสำเร็จ
-      ctx?.showToast?.(`⛔ มีรายการบัญชีค้างอยู่แต่ไม่ถูกต้อง (${res.reason.split(":")[1]}) — ต้องตรวจด้วยคน`);
-    } else if (res?.reason === "duplicate") {
-      ctx?.showToast?.("มีรายการบัญชีอยู่แล้ว (ไม่สร้างซ้ำ)");
-    } else {
-      ctx?.showToast?.(`ยังไม่สำเร็จ (${res?.reason || "unknown"}) — ดู Console`);
-    }
+    ctx?.showToast?.(jvResultToToast(res).message);      // ★ helper เดียวกับปุ่ม re-post งานบริการ
   } catch (e) {
     console.error("[service_reconcile] ledger retry error:", e?.message || e);
     ctx?.showToast?.("⚠️ ลงบัญชีไม่สำเร็จ (ดู Console)");
@@ -661,18 +679,7 @@ async function _handleRepost(ctx, container, job, btn) {
     //   result — re-post **ลัด gate ไม่ได้**: งานที่ไม่มีวันรับรู้รายได้ (closed_at = null) หรือ
     //   metadata flow หาย จะถูก block และบอกเหตุผลตรง ๆ (เดิมเหมาะรวมเป็น "อาจมีรายการอยู่แล้ว")
     const res = await postJournalForServiceJob(job, { detailed: true });
-    if (res?.status === "posted") {
-      ctx?.showToast?.(`✅ ส่งเข้าบัญชีแล้ว (JE #${res.entryId || res.docNo || ""})`.trim());
-    } else if (res?.reason === "recognition-date-required") {
-      ctx?.showToast?.("⛔ งานนี้ไม่มีวันรับรู้รายได้ (closed_at) — ต้องให้เจ้าของกำหนดวันผ่าน recovery ก่อน");
-    } else if (res?.reason === "finance-flow-unknown") {
-      ctx?.showToast?.("⛔ ข้อมูล finance flow ของงานนี้ไม่ครบ — ลงบัญชีไม่ได้ (แจ้งผู้ดูแล)");
-    } else if (res?.reason === "not-income-status") {
-      ctx?.showToast?.("⛔ งานนี้ยังไม่ส่งมอบ — ยังรับรู้รายได้ไม่ได้");
-    } else {
-      // idempotency hit (มี JE อยู่แล้ว) / period locked / ก่อน effective date / post ล้มจริง
-      ctx?.showToast?.(`ยังไม่สำเร็จ (${res?.reason || "unknown"}) — ดู Console`);
-    }
+    ctx?.showToast?.(jvResultToToast(res).message);      // ★ toast policy ชุดเดียวกับปุ่มซ่อม ledger
   } catch (e) {
     // postJournalForServiceJob ปกติไม่ throw แต่กันไว้ — ไม่ fake success
     console.error("[service_reconcile] re-post error:", e?.message || e);

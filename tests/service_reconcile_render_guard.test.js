@@ -191,7 +191,10 @@ test("B4. malformed read-back (field หาย) ห้ามกลายเป�
 // ═══════════════════════════════════════════════════════════
 test("C1. toast: posted = สำเร็จ · duplicate-valid = มีอยู่แล้วถูกต้อง · duplicate-invalid = conflict (ห้ามบอกว่าสำเร็จ)", () => {
   const file = fs.readFileSync("modules/service_reconcile.js", "utf8");
-  assert.match(file, /res\?\.reason === "duplicate-valid"[\s\S]{0,120}มีรายการบัญชีที่ถูกต้องอยู่แล้ว/);
-  assert.match(file, /startsWith\("duplicate-invalid:"\)[\s\S]{0,200}ต้องตรวจด้วยคน/);
-  assert.ok(!/duplicate-invalid[\s\S]{0,80}✅/.test(file), "duplicate-invalid ห้ามแจ้งว่าสำเร็จ");
+  // ★ review#5: policy ย้ายไป shared helper — ทั้งสองปุ่มเรียก jvResultToToast ตัวเดียวกัน
+  assert.equal((file.match(/jvResultToToast\(res\)\.message/g) || []).length, 2);
+  const helper = fs.readFileSync("modules/accounting/service_jv_validate.js", "utf8");
+  assert.match(helper, /duplicate-valid[\s\S]{0,160}มีรายการบัญชีที่ถูกต้องอยู่แล้ว/);
+  assert.match(helper, /startsWith\("duplicate-invalid:"\)[\s\S]{0,200}ต้องตรวจบัญชีด้วยคน/);
+  assert.ok(!/duplicate-invalid[\s\S]{0,80}✅/.test(helper), "duplicate-invalid ห้ามแจ้งว่าสำเร็จ");
 });

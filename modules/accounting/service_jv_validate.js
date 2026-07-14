@@ -117,6 +117,71 @@ export function validateReversalJv({ reversal, paymentDebit, recognitionCode, en
   });
 }
 
+/**
+ * ★ review#5 (blocking 5): JV ของงาน flow v1 (legacy) — Dr เงินสด/ธนาคาร ตาม payment_method เดิม
+ *   บัญชีไม่ผูกตายตัว (mapping/ช่องทางเปลี่ยนได้ในอดีต) จึงไม่บังคับ account code แบบ v2
+ *   แต่ **ความเข้มเรื่องตัวเลขต้องเท่ากัน**: approved · lines ครบและ finite · บาลานซ์ ·
+ *   header ครบและตรง lines · ยอด = total_cost. missing/null/""/NaN/Infinity = bad-number (ไม่ใช่ 0)
+ */
+export function validateLegacyServiceJv({ job, entry, lines }) {
+  if (!entry) return { ok: false, reason: JV_NO_HEADER };
+  if (String(entry.status || "").toLowerCase() !== "approved") return { ok: false, reason: JV_NOT_APPROVED };
+
+  const amt = num(job?.total_cost);
+  if (Number.isNaN(amt) || amt <= 0) return { ok: false, reason: JV_BAD_NUMBER };
+
+  const all = Array.isArray(lines) ? lines : [];
+  for (const l of all) {
+    if (!l || !("debit" in l) || !("credit" in l)) return { ok: false, reason: JV_BAD_NUMBER };
+    if (Number.isNaN(zeroish(l.debit)) || Number.isNaN(zeroish(l.credit))) return { ok: false, reason: JV_BAD_NUMBER };
+  }
+  const ls = all.filter(l => num(l.debit) !== 0 || num(l.credit) !== 0);
+  if (!ls.length) return { ok: false, reason: JV_NO_LINES };
+
+  const sumD = r2(ls.reduce((s, l) => s + num(l.debit), 0));
+  const sumC = r2(ls.reduce((s, l) => s + num(l.credit), 0));
+  if (Number.isNaN(sumD) || Number.isNaN(sumC)) return { ok: false, reason: JV_BAD_NUMBER };
+  if (sumD !== sumC) return { ok: false, reason: JV_UNBALANCED };
+
+  const hD = num(entry.total_debit);
+  const hC = num(entry.total_credit);
+  if (Number.isNaN(hD) || Number.isNaN(hC)) return { ok: false, reason: JV_BAD_NUMBER };
+  if (hD !== sumD || hC !== sumC) return { ok: false, reason: JV_HEADER_MISMATCH };
+  if (sumD !== amt) return { ok: false, reason: JV_AMOUNT_MISMATCH };
+
+  return { ok: true, reason: JV_OK, amount: amt };
+}
+
+/**
+ * ★ review#5 (should-fix 6): ผลของ writer → ข้อความเดียวกันทุกปุ่ม (re-post งาน / ซ่อม ledger)
+ *   duplicate-invalid = **ไม่สำเร็จ** ห้ามสื่อว่าซ่อมแล้ว
+ */
+export function jvResultToToast(res) {
+  const reason = String(res?.reason || "");
+  if (res?.status === "posted") {
+    return { kind: "success", message: `✅ ลงบัญชีแล้ว (JE #${res.entryId || res.docNo || ""})`.trim() };
+  }
+  if (reason === "duplicate-valid") {
+    return { kind: "success", message: "✅ มีรายการบัญชีที่ถูกต้องอยู่แล้ว (ไม่สร้างซ้ำ)" };
+  }
+  if (reason.startsWith("duplicate-invalid:")) {
+    return { kind: "error", message: `⛔ มีรายการบัญชีค้างอยู่แต่ไม่ถูกต้อง (${reason.split(":")[1]}) — ต้องตรวจบัญชีด้วยคน` };
+  }
+  if (reason === "duplicate") {                       // legacy flow v1 (ไม่มี read-back)
+    return { kind: "info", message: "มีรายการบัญชีอยู่แล้ว (ไม่สร้างซ้ำ)" };
+  }
+  if (reason === "recognition-date-required") {
+    return { kind: "error", message: "⛔ งานนี้ไม่มีวันรับรู้รายได้ (closed_at) — ต้องให้เจ้าของกำหนดวันผ่าน recovery ก่อน" };
+  }
+  if (reason === "finance-flow-unknown") {
+    return { kind: "error", message: "⛔ ข้อมูล finance flow ของงานนี้ไม่ครบ — ลงบัญชีไม่ได้ (แจ้งผู้ดูแล)" };
+  }
+  if (reason === "not-income-status") {
+    return { kind: "error", message: "⛔ งานนี้ยังไม่ส่งมอบ — ยังรับรู้รายได้ไม่ได้" };
+  }
+  return { kind: "error", message: `ยังไม่สำเร็จ (${reason || "unknown"}) — ดู Console` };
+}
+
 /** taxonomy ที่ reconcile ใช้ — header หายเท่านั้นที่ auto-repair ได้ (unique source index กันยิงทับ) */
 export function ledgerStateOf(validation) {
   if (validation?.ok) return "OK";

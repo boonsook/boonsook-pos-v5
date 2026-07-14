@@ -874,6 +874,28 @@ export function serviceFinanceFlowOf(job) {
  *                       finance_flow_version — metadata จาก DB; ขาด = block ไม่โพสต์)
  */
 export async function postJournalForServiceJob(job, opts = {}) {
+  // ★ review#5 (blocking 1): caller บางราย (service drawer ใน main.js) ส่ง row ที่ merge มาจากฟอร์ม
+  //   ซึ่งอาจ **ยังไม่มี finance_flow_version** (งานใหม่ที่เพิ่ง INSERT แล้วปิดทันที) — ถ้า fail ทันที
+  //   งานนั้นจะไม่มี JV เลย. ทางที่ถูก: ถ้า metadata ขาด → **อ่าน row จริงจาก DB มาเป็น authority ทั้งแถว**
+  //   (ห้าม merge ค่าการเงินจากฟอร์ม) แล้วค่อยตัดสินทุก gate. อ่านไม่ได้/ไม่พบ/flow ไม่ถูกต้อง = fail-closed
+  if (job?.id && serviceFinanceFlowOf(job) === null) {
+    let dbJob = null;
+    try {
+      dbJob = await _fetchOne(`service_jobs?select=*&id=eq.${encodeURIComponent(job.id)}`);
+    } catch (e) {
+      console.error("[auto_post] cannot read service job row:", e?.message || e);
+      return _journalResult(opts.detailed, { status: "failed", reason: "job-read-failed", sourceTable: "service_jobs", sourceId: job.id, error: String(e?.message || e) });
+    }
+    if (!dbJob) {
+      return _journalResult(opts.detailed, { status: "skipped", reason: "job-not-found", sourceTable: "service_jobs", sourceId: job.id });
+    }
+    if (serviceFinanceFlowOf(dbJob) === null) {
+      console.error("[auto_post] DB row has no valid finance_flow_version:", job.id);
+      return _journalResult(opts.detailed, { status: "skipped", reason: "finance-flow-unknown", sourceTable: "service_jobs", sourceId: job.id });
+    }
+    job = dbJob;      // ★ DB = authority ทั้งแถว (status/total_cost/closed_at/job_type/note/flow)
+  }
+
   if (!job?.id || !job?.total_cost) return _journalResult(opts.detailed, { status: "skipped", reason: "missing-required", sourceTable: "service_jobs", sourceId: job?.id });
   // ★ Phase 411 (§4.3): งานที่ลบแล้ว (note มี "[ลบแล้ว]") ห้าม post JV — แม้ status
   //   ยัง done/delivered/closed ผ่าน filter ของ backfill มา (กัน JV รายได้ผี)

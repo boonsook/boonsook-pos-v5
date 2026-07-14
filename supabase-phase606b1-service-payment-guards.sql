@@ -412,6 +412,15 @@ BEGIN
   IF p_paid_at IS NULL OR p_paid_at = 'infinity'::timestamptz OR p_paid_at = '-infinity'::timestamptz THEN
     RAISE EXCEPTION 'paid_at ต้องเป็นเวลาจริง (ห้าม fallback วันสร้างงาน)' USING ERRCODE = '22023';
   END IF;
+  -- ★ review#5 (blocking 4): วันรับเงินก่อน "วันเริ่มบัญชีจริง" = JS writer จะ skip JV (pre-effective)
+  --   → จะได้ ledger append-only ที่ไม่มี JV และซ่อมไม่ได้ตลอดกาล. ปฏิเสธตั้งแต่ต้นทาง
+  --   ★ ต้องตัดสินด้วย **วันตามเวลาไทย** ไม่ใช่ UTC (30 มิ.ย. 23:30 น. ไทย = 16:30 UTC วันเดียวกัน
+  --     แต่ 1 ก.ค. 00:30 น. ไทย = 30 มิ.ย. 17:30 UTC → ถ้าใช้ UTC จะปฏิเสธผิด)
+  --   ★ วันที่นี้ต้องตรงกับ ACCOUNTING_EFFECTIVE_DATE ใน modules/accounting/effective_date.js (มี drift guard)
+  IF (p_paid_at AT TIME ZONE 'Asia/Bangkok')::date < DATE '2026-07-01' THEN
+    RAISE EXCEPTION 'วันรับชำระ (%) ก่อนวันเริ่มระบบบัญชี 2026-07-01 (เวลาไทย) — บันทึกไม่ได้',
+      (p_paid_at AT TIME ZONE 'Asia/Bangkok')::date USING ERRCODE = '22023';
+  END IF;
   IF p_idempotency_key IS NULL THEN
     RAISE EXCEPTION 'idempotency_key ต้องระบุ' USING ERRCODE = '22023';
   END IF;
@@ -724,6 +733,13 @@ BEGIN
     RAISE EXCEPTION 'guard_service_job_v2_freeze ต้องดูเงินใน ledger ด้วย (ไม่ใช่แค่ status)';
   END IF;
 
+  -- ★ review#5: รับชำระต้องปฏิเสธวันก่อน effective date (เวลาไทย) — ก่อน idempotency/INSERT
+  IF (SELECT pg_get_functiondef(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+       WHERE n.nspname='public' AND p.proname='record_service_payment_v2')
+     NOT LIKE '%AT TIME ZONE ''Asia/Bangkok''%' THEN
+    RAISE EXCEPTION 'record_service_payment_v2 ต้องตรวจ paid_at ตามวันเวลาไทย (effective date)';
+  END IF;
+
   -- ★ review#2: กลับรายการต้องผ่าน exact payment-JV validator ก่อน INSERT
   IF (SELECT pg_get_functiondef(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
        WHERE n.nspname='public' AND p.proname='reverse_service_payment_v2')
@@ -796,6 +812,11 @@ SELECT (SELECT count(*) FROM public.journal_entries) AS je, (SELECT count(*) FRO
 --         key change = 42501 · deactivate (true→false) = 42501 · DELETE = 42501 ·
 --         account-code change (4 ช่อง) = 42501 · แก้ notes/description อย่างเดียว = ผ่าน
 --         mapping ที่ยังไม่ถูกใช้: แก้/ลบได้ตามเดิม
+--   B11 paid_at boundary (เวลาไทย):
+--         2026-06-30 23:59:59+07  → 22023 (reject, zero writes)
+--         2026-07-01 00:00:00+07  → accept
+--         2026-06-30 17:30:00Z (= 1 ก.ค. 00:30 น. ไทย) → accept (ตัดสินตามวันไทย ไม่ใช่ UTC)
+--         retry payload เดิมที่ pre-effective → ต้องถูกปฏิเสธ (gate อยู่ก่อน idempotency return)
 --   B10 recognition JV counterexamples (service_job_has_recognition_jv ต้องคืน false):
 --         Dr 1200 = 300 + Dr 1200 = 200 + Cr 42xx = 500  (split line, 3 บรรทัด)  → false
 --         lines ถูก แต่ header total_credit ผิด/null                              → false
