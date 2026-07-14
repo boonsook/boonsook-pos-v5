@@ -15,7 +15,7 @@
 //   - effective date เดียวกับ auto_post (effective_date.js — เริ่มบัญชีจริง 1 ก.ค. 2569): งานก่อนวันนั้น auto_post จะ skip → ไม่ flag
 
 import { escHtml, dateBkk, todayBkk } from "./utils.js";
-import { postJournalForServiceJob } from "./accounting/auto_post.js";
+import { postJournalForServiceJob, postJournalForServicePayment, postJournalForServicePaymentReversal } from "./accounting/auto_post.js";
 // ★ Phase 413: single source of truth — เปลี่ยนวัน = แก้ที่ effective_date.js ที่เดียว
 import { ACCOUNTING_EFFECTIVE_DATE } from "./accounting/effective_date.js";
 
@@ -107,14 +107,74 @@ export function findUnpostedServiceJobs(jobs, posted, opts = {}) {
     const hasValidJobNo = JOB_NO_ONE.test(jobNo);
     // 4) ไม่มี source_id info (legacy) + ไม่มีเลขงาน = จับคู่ไม่ได้ → ไม่ flag (กัน false-positive)
     if (!hasSourceIds && !hasValidJobNo) return;
-    // 5) ต้องปิดหลัง effective date (ก่อนวันนั้น auto_post จะ skip อยู่แล้ว → re-post ไม่เกิด JE)
-    const docDate = job.created_at ? dateBkk(job.created_at) : "";
+    // 5) ต้องรับรู้รายได้หลัง effective date — ★ Phase 606-b1: ใช้ closed_at (วันรับรู้จริง) ถ้ามี
+    //    งานที่ closed_at = null ยัง flag ต่อ (ใช้ created_at เป็น scope) เพื่อให้ผู้ดูแลเห็นว่ามีงาน
+    //    ค้าง แต่ fetchServiceJVStatus จะแยกไปกอง needRecognitionDate (re-post ไม่ได้จนกว่า owner กำหนดวัน)
+    const basis = job.closed_at || job.created_at;
+    const docDate = basis ? dateBkk(basis) : "";
     if (!docDate || String(docDate).slice(0, 10) < effectiveDate) return;
     // 6) fallback: มี JE description อ้างถึงเลขงานนี้ → ถือว่าเข้าบัญชีแล้ว
     if (hasValidJobNo && jobNos.has(jobNo)) return;
     out.push(job);
   });
   return out;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Phase 606-b1 — ledger การรับชำระ/กลับรายการ (flow v2) เทียบ JV
+// ═══════════════════════════════════════════════════════════
+// taxonomy:
+//   PAYMENT_NO_JV     — มีเงินใน ledger แต่ไม่มี JV (เงินเข้าจริงแต่บัญชีไม่รู้) → retry ได้
+//   REVERSAL_NO_JV    — กลับรายการใน ledger แต่ JV กลับรายการหาย → retry ได้
+//   REVERSAL_MISMATCH — มี JV กลับรายการแต่ยอดไม่ตรง ledger → **ห้าม retry** ต้องให้คนตรวจ
+export const LEDGER_JV_STATES = ["PAYMENT_NO_JV", "REVERSAL_NO_JV", "REVERSAL_MISMATCH"];
+
+function _jeIndex(jeRows) {
+  const map = new Map();
+  (Array.isArray(jeRows) ? jeRows : []).forEach(r => {
+    if (r?.source_id === undefined || r?.source_id === null) return;
+    map.set(`${r.source_table}#${r.source_id}`, r);
+  });
+  return map;
+}
+const _r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
+/** pure — ไม่มี DOM/network (ทดสอบตรง) */
+export function classifyLedgerJv({ payments = [], reversals = [], jeRows = [] } = {}) {
+  const je = _jeIndex(jeRows);
+  const paymentNoJv = [], reversalNoJv = [], reversalMismatch = [];
+  payments.forEach(p => {
+    const e = je.get(`service_payments#${p.id}`);
+    if (!e) paymentNoJv.push(p);
+    else if (_r2(e.total_debit) !== _r2(p.amount)) reversalMismatch.push({ kind: "payment", row: p, entry: e });
+  });
+  reversals.forEach(r => {
+    const e = je.get(`service_payment_reversals#${r.id}`);
+    if (!e) reversalNoJv.push(r);
+    else if (_r2(e.total_debit) !== _r2(r.amount)) reversalMismatch.push({ kind: "reversal", row: r, entry: e });
+  });
+  return { paymentNoJv, reversalNoJv, reversalMismatch };
+}
+
+/** READ-ONLY GET — ledger + JV ของทั้งสอง source table */
+export async function fetchLedgerJVStatus() {
+  const cfg = typeof window !== "undefined" ? window.SUPABASE_CONFIG : null;
+  if (!cfg?.url) return { ok: false, reason: "ไม่พบการตั้งค่าเซิร์ฟเวอร์" };
+  const token = (typeof window !== "undefined" ? window._sbAccessToken : null) || cfg.anonKey;
+  const headers = { "apikey": cfg.anonKey, "Authorization": "Bearer " + token };
+  try {
+    const [pRes, rRes, jRes] = await Promise.all([
+      fetch(cfg.url + "/rest/v1/service_payments?select=id,service_job_id,amount,payment_method,paid_at&order=id.desc&limit=5000", { headers }),
+      fetch(cfg.url + "/rest/v1/service_payment_reversals?select=id,payment_id,amount,reason,reversed_at&order=id.desc&limit=5000", { headers }),
+      fetch(cfg.url + "/rest/v1/journal_entries?source_table=in.(service_payments,service_payment_reversals)&select=source_table,source_id,total_debit,status&limit=5000", { headers })
+    ]);
+    if (!pRes.ok || !rRes.ok || !jRes.ok) return { ok: false, reason: "ดึงข้อมูล ledger/สมุดรายวันไม่สำเร็จ" };
+    const [payments, reversals, jeRows] = await Promise.all([pRes.json(), rRes.json(), jRes.json()]);
+    if (!Array.isArray(payments) || !Array.isArray(reversals) || !Array.isArray(jeRows)) return { ok: false, reason: "ข้อมูลรูปแบบไม่ถูกต้อง" };
+    return { ok: true, ...classifyLedgerJv({ payments, reversals, jeRows }), paymentsFetched: payments.length, reversalsFetched: reversals.length };
+  } catch (e) {
+    return { ok: false, reason: "เครือข่ายมีปัญหา: " + (e?.message || e) };
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -190,11 +250,59 @@ function orphanCardHtml(job) {
     </div>`;
 }
 
+// ★ Phase 606-b1: งานที่ "ไม่มีวันรับรู้รายได้" (closed_at = null) — writer block เสมอ (OWNER_RECOGNITION_DATE_REQUIRED)
+//   โชว์แยก + **ไม่มีปุ่ม re-post** (ปุ่มที่กดแล้วไม่มีวันสำเร็จ = หลอกผู้ใช้)
+function needDateCardHtml(job) {
+  const jobNo = escHtml(String(job?.job_no || "—"));
+  const name = escHtml(String(job?.customer_name || ""));
+  const amount = escHtml(fmtAmount(job?.total_cost));
+  const dateStr = escHtml(String(job?.created_at ? dateBkk(job.created_at) : "—"));
+  return `
+    <div style="border:1px solid #fcd34d;background:#fffbeb;border-radius:8px;padding:12px;margin-bottom:10px">
+      <div style="font-weight:700;font-size:14px">${jobNo} ${name ? "· " + name : ""}</div>
+      <div style="font-size:12px;color:#92400e">สร้าง ${dateStr} · ฿${amount} · <b>ไม่มีวันปิดงาน (closed_at)</b> — ต้องให้เจ้าของกำหนดวันรับรู้รายได้ก่อน (recovery)</div>
+    </div>`;
+}
+
+// การ์ด ledger ที่ "มีเงิน/มีการกลับรายการ แต่ JV หาย" → retry โพสต์ JV ได้ (idempotent)
+function ledgerCardHtml(state, id, label, kind) {
+  return `
+    <div style="border:1px solid #fca5a5;background:#fef2f2;border-radius:8px;padding:12px;margin-bottom:10px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center">
+      <div>
+        <div style="font-weight:700;font-size:14px">${escHtml(state)}</div>
+        <div style="font-size:12px;color:#64748b">${escHtml(label)}</div>
+      </div>
+      <button type="button" class="svc-recon-ledger-retry" data-kind="${escHtml(kind)}" data-row-id="${escHtml(String(id))}"
+        style="border:1px solid #2563eb;background:#2563eb;color:#fff;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;white-space:nowrap">
+        ลงบัญชีอีกครั้ง
+      </button>
+    </div>`;
+}
+
 function resultsHtml(orphans, res) {
+  const needDate = res?.needRecognitionDate || [];
   const parts = [];
-  parts.push(`<div style="font-weight:700;font-size:14px;color:#b91c1c;margin:6px 0 8px">🚩 งานปิดแล้วแต่ยังไม่เข้าบัญชี (${orphans.length})</div>`);
-  parts.push(orphans.map(orphanCardHtml).join(""));
-  parts.push(`<div style="font-size:12px;color:#94a3b8;margin-top:12px">กด "ส่งเข้าบัญชีอีกครั้ง" เพื่อสร้างรายการบันทึกบัญชี (JE) — ปลอดภัยถ้ามีอยู่แล้ว (ระบบกันซ้ำให้)</div>`);
+  if (orphans.length) {
+    parts.push(`<div style="font-weight:700;font-size:14px;color:#b91c1c;margin:6px 0 8px">🚩 งานปิดแล้วแต่ยังไม่เข้าบัญชี (${orphans.length})</div>`);
+    parts.push(orphans.map(orphanCardHtml).join(""));
+    parts.push(`<div style="font-size:12px;color:#94a3b8;margin-top:12px">กด "ส่งเข้าบัญชีอีกครั้ง" เพื่อสร้างรายการบันทึกบัญชี (JE) — ปลอดภัยถ้ามีอยู่แล้ว (ระบบกันซ้ำให้)</div>`);
+  }
+  const led = res?.ledger;
+  if (led && (led.paymentNoJv?.length || led.reversalNoJv?.length || led.reversalMismatch?.length)) {
+    parts.push(`<div style="font-weight:700;font-size:14px;color:#b91c1c;margin:16px 0 8px">💸 การรับชำระ/กลับรายการที่ยังไม่ลงบัญชี</div>`);
+    (led.paymentNoJv || []).forEach(p => parts.push(ledgerCardHtml("PAYMENT_NO_JV", p.id, `รับชำระ #${p.id} · งาน #${p.service_job_id} · ฿${fmtAmount(p.amount)}`, "payment")));
+    (led.reversalNoJv || []).forEach(r => parts.push(ledgerCardHtml("REVERSAL_NO_JV", r.id, `กลับรายการ #${r.id} · รับชำระ #${r.payment_id} · ฿${fmtAmount(r.amount)}`, "reversal")));
+    (led.reversalMismatch || []).forEach(m => parts.push(`
+      <div style="border:1px solid #ef4444;background:#fef2f2;border-radius:8px;padding:12px;margin-bottom:10px">
+        <div style="font-weight:700;font-size:14px">⛔ REVERSAL_MISMATCH — ${escHtml(m.kind)} #${escHtml(String(m.row?.id))}</div>
+        <div style="font-size:12px;color:#991b1b">ยอดใน ledger ฿${escHtml(fmtAmount(m.row?.amount))} ไม่ตรงกับ JV ฿${escHtml(fmtAmount(m.entry?.total_debit))} — <b>ห้ามซ่อมอัตโนมัติ</b> ต้องตรวจด้วยคน</div>
+      </div>`));
+  }
+  if (needDate.length) {
+    parts.push(`<div style="font-weight:700;font-size:14px;color:#b45309;margin:16px 0 8px">⏳ ต้องกำหนดวันรับรู้รายได้ก่อน (${needDate.length}) — OWNER_RECOGNITION_DATE_REQUIRED</div>`);
+    parts.push(needDate.map(needDateCardHtml).join(""));
+    parts.push(`<div style="font-size:12px;color:#94a3b8;margin-top:8px">งานเหล่านี้ปิดโดยไม่บันทึกวันปิดงาน — ระบบจะไม่เดาวันให้ (เคยทำให้ JV ลงผิดงวด) ต้องผ่านขั้นตอน recovery ของเจ้าของ</div>`);
+  }
   return shell(parts.join(""), scanMeta(res));
 }
 
@@ -221,8 +329,11 @@ export async function fetchServiceJVStatus(opts = {}) {
   const toExclusive = nd.toISOString().slice(0, 10);
 
   const statusList = SERVICE_INCOME_STATUSES.join(",");
+  // ★ Phase 606-b1 (blocking 3): ต้อง select **ทุกฟิลด์ที่ canonical writer ใช้ตัดสิน** — ไม่งั้นปุ่ม
+  //   "ส่งเข้าบัญชีอีกครั้ง" จะส่ง row ที่ไม่มี finance_flow_version/closed_at/job_type เข้า writer
+  //   แล้วโดน block (finance-flow-unknown) ทุกครั้ง = ปุ่มตายเงียบ
   const jobsUrl = cfg.url + "/rest/v1/service_jobs"
-    + "?select=id,job_no,customer_name,status,total_cost,created_at"
+    + "?select=id,job_no,customer_name,status,total_cost,job_type,payment_method,closed_at,finance_flow_version,note,created_at"
     + `&status=in.(${statusList})`
     + `&created_at=gte.${fromDate}&created_at=lt.${toExclusive}`
     + "&order=created_at.desc&limit=5000";
@@ -236,8 +347,12 @@ export async function fetchServiceJVStatus(opts = {}) {
     const jobs = await jobsRes.json().catch(() => null);
     const jeRows = await jeRes.json().catch(() => null);
     if (!Array.isArray(jobs) || !Array.isArray(jeRows)) return { ok: false, reason: "ข้อมูลรูปแบบไม่ถูกต้อง", fromDate, toDate };
-    const orphans = findUnpostedServiceJobs(jobs, buildPostedRef(jeRows), { effectiveDate });
-    return { ok: true, orphans, jobsFetched: jobs.length, jeFetched: jeRows.length, fromDate, toDate };
+    const all = findUnpostedServiceJobs(jobs, buildPostedRef(jeRows), { effectiveDate });
+    // ★ แยกกอง: งานที่ re-post ได้จริง vs งานที่ "ไม่มีวันรับรู้รายได้" (closed_at = null) ซึ่ง writer
+    //   จะ block เสมอ — ต้องให้ owner กำหนดวันผ่าน recovery (Phase 607) ไม่ใช่ให้กดปุ่มแล้วงงว่าทำไมไม่ขึ้น
+    const orphans = all.filter(j => j.closed_at);
+    const needRecognitionDate = all.filter(j => !j.closed_at);
+    return { ok: true, orphans, needRecognitionDate, jobsFetched: jobs.length, jeFetched: jeRows.length, fromDate, toDate };
   } catch (e) {
     return { ok: false, reason: "เครือข่ายมีปัญหา: " + (e?.message || e), fromDate, toDate };
   }
@@ -253,9 +368,17 @@ async function _loadAndRender(ctx, container) {
     container.innerHTML = incompleteHtml(res.reason || "ไม่ทราบสาเหตุ");
     return;
   }
+  // ★ Phase 606-b1: ledger รับชำระ/กลับรายการ (flow v2) — ledger มีแถวแต่ JV หาย ต้องซ่อมได้
+  //   fail-soft: ตาราง ledger ยังไม่มี (ก่อน migration b1) → ข้ามส่วนนี้ ไม่ทำให้หน้าเสีย
+  const ledger = await fetchLedgerJVStatus().catch(() => ({ ok: false }));
+  res.ledger = ledger.ok ? ledger : null;
+  if (!document.body.contains(container)) return;
 
   const orphans = res.orphans || [];
-  if (!orphans.length) {
+  const needDate = res.needRecognitionDate || [];
+  const led = res.ledger;
+  const ledgerCount = led ? (led.paymentNoJv.length + led.reversalNoJv.length + led.reversalMismatch.length) : 0;
+  if (!orphans.length && !needDate.length && !ledgerCount) {
     container.innerHTML = emptyHtml(res);
     return;
   }
@@ -267,6 +390,32 @@ async function _loadAndRender(ctx, container) {
   container.querySelectorAll(".svc-recon-repost").forEach(btn => {
     btn.addEventListener("click", () => _handleRepost(ctx, container, byId[btn.dataset.jobId], btn));
   });
+  // bind ปุ่มซ่อม JV ของ ledger (PAYMENT_NO_JV / REVERSAL_NO_JV) — idempotent, ไม่แตะ ledger
+  container.querySelectorAll(".svc-recon-ledger-retry").forEach(btn => {
+    btn.addEventListener("click", () => _handleLedgerRetry(ctx, container, btn.dataset.kind, btn.dataset.rowId, btn));
+  });
+}
+
+async function _handleLedgerRetry(ctx, container, kind, rowId, btn) {
+  if (!rowId || _repostInflight) { if (_repostInflight) ctx?.showToast?.("กำลังส่ง... รอสักครู่"); return; }
+  _repostInflight = true;
+  const origText = btn ? btn.textContent : "";
+  if (btn) { btn.disabled = true; btn.textContent = "กำลังส่ง..."; }
+  try {
+    const res = kind === "reversal"
+      ? await postJournalForServicePaymentReversal(rowId, { detailed: true })
+      : await postJournalForServicePayment(rowId, { detailed: true });
+    if (res?.status === "posted") ctx?.showToast?.(`✅ ลงบัญชีแล้ว (JE #${res.entryId || res.docNo || ""})`.trim());
+    else if (res?.reason === "duplicate") ctx?.showToast?.("มีรายการบัญชีอยู่แล้ว (ไม่สร้างซ้ำ)");
+    else ctx?.showToast?.(`ยังไม่สำเร็จ (${res?.reason || "unknown"}) — ดู Console`);
+  } catch (e) {
+    console.error("[service_reconcile] ledger retry error:", e?.message || e);
+    ctx?.showToast?.("⚠️ ลงบัญชีไม่สำเร็จ (ดู Console)");
+  } finally {
+    _repostInflight = false;
+    if (btn && btn.isConnected) { btn.disabled = false; btn.textContent = origText; }
+    _loadAndRender(ctx, container).catch(err => console.warn("[service_reconcile] refresh", err));
+  }
 }
 
 async function _handleRepost(ctx, container, job, btn) {

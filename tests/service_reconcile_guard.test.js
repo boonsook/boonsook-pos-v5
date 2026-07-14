@@ -145,7 +145,8 @@ test("does NOT mutate the input jobs array/order; returns subset in original ord
 // ── SOURCE GUARDS: re-post safety + no forbidden writes ──
 
 test("re-post goes through postJournalForServiceJob (idempotent), not a raw JE insert", () => {
-  assert.match(SRC, /import\s*\{\s*postJournalForServiceJob\s*\}\s*from\s*["']\.\/accounting\/auto_post\.js["']/);
+  // Phase 606-b1: import เพิ่ม writer ของ payment/reversal ได้ (ยังเป็น canonical writer ตัวเดียวกัน)
+  assert.match(SRC, /import\s*\{[^}]*postJournalForServiceJob[^}]*\}\s*from\s*["']\.\/accounting\/auto_post\.js["']/);
   assert.match(SRC, /postJournalForServiceJob\s*\(/);
   // must NOT hand-roll a journal_entries / journal_lines insert
   assert.doesNotMatch(SRC, /rest\/v1\/journal_entries[^"'`]*["'`]\s*,\s*\{\s*method:\s*["']POST/i);

@@ -26,10 +26,13 @@ console.error = () => {}; console.info = () => {}; console.warn = () => {};
 const {
   postJournalForServiceJob,
   postJournalForServicePayment,
+  postJournalForServicePaymentReversal,
   recordServicePayment,
+  reverseServicePayment,
   serviceFinanceFlowOf,
   resetMappingCache
 } = await import("../modules/accounting/auto_post.js");
+const RECON = await import("../modules/service_reconcile.js");
 
 const read = (f) => fs.readFileSync(path.resolve(f), "utf8");
 const AUTO_POST = read("modules/accounting/auto_post.js");
@@ -150,14 +153,18 @@ test("C1. v2 delivered: Dr 1200 ลูกหนี้ / Cr 4200 — payment_meth
     "โอน/เงินสดบนใบงานต้องไม่เปลี่ยน Dr ของ v2 (ช่องทางเงินอยู่ที่ ledger รับชำระ)");
 });
 
-test("C2. v2 done/closed: **ไม่โพสต์** (done = ยังไม่ส่งมอบ · closed = workflow ไม่ใช่ payment)", async () => {
-  for (const st of ["done", "closed"]) {
-    installFetch(); resetMappingCache(); installPostOk();
-    const res = await postJournalForServiceJob({ ...v2Job, status: st }, { detailed: true });
-    assert.equal(res.status, "skipped", `v2 + ${st} ต้องไม่โพสต์`);
-    assert.equal(res.reason, "not-income-status");
-    assert.equal(posted.entries.length, 0);
-  }
+test("C2. v2 done: **ไม่โพสต์** (ช่างทำเสร็จภายใน ยังไม่ส่งมอบ) · v2 closed: โพสต์ได้เพื่อ recovery", async () => {
+  installFetch(); resetMappingCache(); installPostOk();
+  const done = await postJournalForServiceJob({ ...v2Job, status: "done" }, { detailed: true });
+  assert.equal(done.status, "skipped");
+  assert.equal(done.reason, "not-income-status");
+  assert.equal(posted.entries.length, 0);
+
+  // closed = งานที่ลูกค้ายืนยันปิดแล้วแต่ JV หาย → Service Reconcile ต้อง re-post ได้ (guard #3)
+  installFetch(); resetMappingCache(); installPostOk();
+  const closed = await postJournalForServiceJob({ ...v2Job, status: "closed" }, { detailed: true });
+  assert.equal(closed.status, "posted", "closed orphan ต้อง re-post สำเร็จ (ไม่งั้นซ่อมไม่ได้ตลอดกาล)");
+  assert.deepEqual(posted.lines.map(l => l.account_code), ["1200", "4200"]);
 });
 
 test("C3. v2 ที่ mapping ไม่มี recognition_debit_code → block (ไม่โพสต์บัญชีผี)", async () => {
@@ -294,7 +301,7 @@ test("E3. runtime ที่ activate ได้จริง (main.js / customer_d
 // ═══════════════════════════════════════════════════════════
 test("F1. SQL: รับชำระต้องมี recognition JV จริง (ไม่ใช่ status/closed_at)", () => {
   assert.match(SQL, /CREATE OR REPLACE FUNCTION public\.service_job_has_recognition_jv/);
-  assert.match(SQL, /source_table = 'service_jobs'[\s\S]{0,120}lower\(coalesce\(status,''\)\) = 'approved'/);
+  assert.match(SQL, /je\.source_table = 'service_jobs'[\s\S]{0,160}lower\(coalesce\(je\.status,''\)\) = 'approved'/);
   assert.match(SQL, /IF NOT public\.service_job_has_recognition_jv\(p_service_job_id\) THEN/);
   // gate ต้องอยู่ในกลุ่ม business-state (หลัง idempotency) — retry ของรายการเดิมต้องไม่พังเพราะ JV ถูก void ทีหลัง
   const rpc = SQL.slice(SQL.indexOf("CREATE OR REPLACE FUNCTION public.record_service_payment_v2"));

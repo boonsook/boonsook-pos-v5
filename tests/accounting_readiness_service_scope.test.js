@@ -87,7 +87,10 @@ test("custom effectiveDate is respected (object signature)", () => {
 test("fetchServiceJVStatus reads service_jobs + journal_entries by GET, never writes", () => {
   assert.match(SVC, /export async function fetchServiceJVStatus/, "exports the shared status fetch");
   assert.match(SVC, /rest\/v1\/service_jobs/, "fetches service_jobs");
-  assert.match(SVC, /select=id,job_no,customer_name,status,total_cost,created_at/, "service_jobs read-only select");
+  // ★ Phase 606-b1: select ต้องมีทุกฟิลด์ที่ canonical writer ใช้ตัดสิน (flow/closed_at/job_type)
+  //   — ถ้าขาด ปุ่ม "ส่งเข้าบัญชีอีกครั้ง" จะถูก writer block (finance-flow-unknown) ทุกครั้ง
+  assert.match(SVC, /select=id,job_no,customer_name,status,total_cost,job_type,payment_method,closed_at,finance_flow_version,note,created_at/,
+    "service_jobs read-only select (ต้องครบ metadata ของ writer)");
   assert.match(SVC, /rest\/v1\/journal_entries/, "fetches journal_entries");
   assert.match(SVC, /source_table=eq\.service_jobs&select=source_id/, "JE fetch selects source_id (primary match)");
   assert.match(SVC, /created_at=gte\.\$\{fromDate\}/, "service_jobs fetch is date-range scoped (not ≤50 state)");

@@ -280,6 +280,8 @@ test("source: Phase 92.46 SQL — whitelist ตรงกับ sourceTable ท�
   //   (admin-only, fail-closed) → ผู้โพสต์เป็น admin เสมอ = ผ่าน is_accountant() branch ของ je_insert_auto.
   //   **ตั้งใจไม่ใส่ใน non-admin whitelist** — ใส่แล้วจะเปิดให้ non-admin insert JV อ้าง source นี้ได้เอง
   jsTables.delete("service_payments");
+  //   เช่นเดียวกัน: service_payment_reversals เกิดได้เฉพาะหลัง RPC reverse_service_payment_v2 (admin-only)
+  jsTables.delete("service_payment_reversals");
   assert.ok(jsTables.size >= 6, `auto_post.js ต้องมีอย่างน้อย 6 sourceTable values, เจอ ${jsTables.size}`);
   // ทุก sourceTable ใน JS ต้องอยู่ใน SQL whitelist
   for (const t of jsTables) {
