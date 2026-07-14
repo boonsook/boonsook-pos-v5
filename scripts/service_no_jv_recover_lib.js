@@ -17,6 +17,24 @@ export { bkkDate, round2, serviceMappingKeyForJobTypeAudit };
 export const CONFIRM_TOKEN = "SERVICE-NO-JV-S4.1C";
 export const PLAN_SCHEMA_VERSION = 2;   // v2 = plan ต้องมี sourceSnapshotSha256 ต่อ job (durable snapshot)
 
+// ═══════════════════════════════════════════════════════════
+//  Phase 606-0: HARD-DISABLE apply — recovery ถูกพักไว้จนกว่าจะมี "payment truth"
+//
+//  ทำไม: แผน recovery ของ S4.1c ตั้งอยู่บนสมมติฐานว่า service job = ขายสด (Dr เงินสด/ธนาคาร
+//  ตาม payment_method ของงาน) ซึ่ง **ผิดโมเดลบัญชีจริง** — การส่งมอบกับการรับเงินเป็นคนละเหตุการณ์
+//  (ส่งมอบ = Dr 1200 ลูกหนี้ / Cr รายได้ · รับเงินจริง = Dr เงินสด-ธนาคาร / Cr 1200).
+//  ถ้าปล่อยให้ --apply เดินตอนนี้ = โพสต์ JV ที่ Dr ผิดฝั่ง และไม่มีบันทึกการรับชำระเลย.
+//  → Phase 606 (S4.1d) สร้าง payment ledger + writer ใหม่ก่อน แล้ว Phase 607 จะ regenerate plan
+//    ที่มี: วันส่งมอบ/วันรับรู้ · paid/unpaid/partial · วัน-วิธี-ยอดที่รับชำระ · stock decision.
+//  ★ preview/read-only ยังใช้ได้เหมือนเดิม — บล็อกเฉพาะเส้นทางที่ "เขียน"
+// ═══════════════════════════════════════════════════════════
+export const RECOVERY_APPLY_DISABLED = true;
+export const RECOVERY_PAUSED_REASON = "SERVICE_RECOVERY_PAUSED_PAYMENT_TRUTH";
+export const RECOVERY_PAUSED_MESSAGE =
+  "S4.1c recovery --apply ถูกพักไว้ (SERVICE_RECOVERY_PAUSED_PAYMENT_TRUTH): แผนเดิมยังไม่มี payment truth "
+  + "(ส่งมอบ = Dr 1200 ลูกหนี้ / รับเงิน = Dr เงินสด-ธนาคาร / Cr 1200) → รอ Phase 606 (payment ledger) "
+  + "แล้ว Phase 607 จะสร้างแผนใหม่พร้อมข้อมูลการรับชำระ. preview ยังใช้ได้ตามปกติ.";
+
 // ── durable source snapshot (★ review fix B1) ──────────────
 //  plan ที่ owner อนุมัติต้อง "ผูกกับสภาพ row ตอนอนุมัติ" ไม่ใช่แค่ยอด/สถานะ ณ ตอนรัน
 //  → hash canonical fields ทั้ง 7 (รวม note ที่กระทบ JV/soft-delete) แต่ **เก็บแค่ hash ไม่เก็บ note ดิบ** (PII)

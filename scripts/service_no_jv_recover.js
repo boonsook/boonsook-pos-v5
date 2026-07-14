@@ -27,6 +27,24 @@ import * as R from "./service_no_jv_recover_lib.js";
 
 function fatal(msg) { console.error("[fatal] " + msg); process.exit(2); }   // ★ ห้ามใส่ token/password ในข้อความ
 
+// ── args (parse ก่อนอย่างอื่น เพื่อให้ hard-block ทำงานได้โดยไม่ต้องมี env/credential) ──
+const argv = process.argv.slice(2);
+const MONTHS = argv.filter(a => /^\d{4}-\d{2}$/.test(a));
+const STRICT = argv.includes("--strict");
+const APPLY_FLAG = argv.includes("--apply");
+const CONFIRM = (argv.find(a => a.startsWith("--confirm=")) || "").split("=")[1] || "";
+const PLAN_PATH = (argv.find(a => a.startsWith("--plan=")) || "").split("=")[1] || "";
+
+// ★ Phase 606-0: HARD-BLOCK — --apply ถูกพักไว้ (payment truth ยังไม่มี) → exit 1 ก่อนทำอะไรทั้งสิ้น
+//   วางไว้ "ก่อนโหลด .env / login / fetch / CAS / JV" → บล็อกได้แม้ไม่มี credential เลย
+//   บล็อกทุก combination (มี --plan/--confirm ครบก็ยังบล็อก) → zero writes พิสูจน์ได้จากลำดับโค้ด
+if (APPLY_FLAG && R.RECOVERY_APPLY_DISABLED) {
+  console.error(`⛔ ${R.RECOVERY_PAUSED_REASON}`);
+  console.error(R.RECOVERY_PAUSED_MESSAGE);
+  console.error("→ ไม่มีการเขียนข้อมูลใด ๆ (zero writes). ใช้ preview ได้: npm run recover:service-no-jv -- <เดือน> [--plan=<path>] [--strict]");
+  process.exit(1);
+}
+
 function loadEnv(file) {
   if (!fs.existsSync(file)) return null;
   const env = {};
@@ -49,15 +67,10 @@ if (!URL_BASE || !ANON || !AD_EMAIL || !AD_PASS) fatal("env ไม่ครบ: 
 const _keyCheck = R.assertPublishableKey(ANON);
 if (!_keyCheck.ok) fatal(`SUPABASE_ANON_KEY ใช้ไม่ได้: ${_keyCheck.reason} — runner นี้ต้องใช้ publishable/anon key เท่านั้น`);
 
-// ── args ───────────────────────────────────────────────────
-const argv = process.argv.slice(2);
-const MONTHS = argv.filter(a => /^\d{4}-\d{2}$/.test(a));
-const STRICT = argv.includes("--strict");
-const APPLY_FLAG = argv.includes("--apply");
-const CONFIRM = (argv.find(a => a.startsWith("--confirm=")) || "").split("=")[1] || "";
-const PLAN_PATH = (argv.find(a => a.startsWith("--plan=")) || "").split("=")[1] || "";
+// ── apply gates (args ถูก parse ไว้ด้านบนแล้วพร้อม hard-block) ──────────────
 // ★ APPLY ต้องครบทั้งสองธง — ขาดอย่างใดอย่างหนึ่ง = preview (ไม่เขียนอะไรเลย)
-const APPLY = APPLY_FLAG && CONFIRM === R.CONFIRM_TOKEN;
+//   (คงไว้เป็นด่านที่ 2 — ถึงจะปลด hard-block ในอนาคต gate เดิมก็ยังอยู่)
+const APPLY = APPLY_FLAG && CONFIRM === R.CONFIRM_TOKEN && !R.RECOVERY_APPLY_DISABLED;
 // ★ review fix (#4): "ตั้งใจจะ apply แต่ธง/plan ไม่ครบ" = ความผิดพลาดของผู้ใช้ → exit 1 (ห้ามเงียบเป็น preview exit 0)
 const APPLY_INTENT_INVALID = APPLY_FLAG && (!APPLY || !PLAN_PATH);
 if (MONTHS.length === 0) fatal("ต้องระบุเดือนอย่างน้อย 1 เดือน เช่น 2026-07 2026-06");
@@ -275,6 +288,8 @@ async function main() {
   const S = await loadState(token, (rawPlan?.jobs || []).map(j => String(j.sourceId)).filter(Boolean));
 
   console.log(`# Service NO_JV — Controlled Recovery (S4.1c / Phase 605)\n`);
+  console.log(`> ⛔ **${R.RECOVERY_PAUSED_REASON}** — \`--apply\` ถูกพักไว้ตั้งแต่ Phase 606-0 (runner นี้เขียนข้อมูลไม่ได้แล้ว)`);
+  console.log(`> ${R.RECOVERY_PAUSED_MESSAGE}\n`);
   console.log(`- mode: **${APPLY ? "APPLY (เขียนข้อมูลจริง)" : "PREVIEW (read-only)"}** · months: ${MONTHS.join(", ")}${STRICT ? " · --strict" : ""}`);
   console.log(`- effective date: ${L.ACCOUNTING_EFFECTIVE_DATE} · canonical writer: postJournalForServiceJob() (ห้าม raw JV insert)`);
   console.log(`- stock: **ไม่แตะทุกกรณีในเฟสนี้** (ไม่ deduct/restore/แก้ marker/insert movement)`);

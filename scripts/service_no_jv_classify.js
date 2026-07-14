@@ -211,6 +211,20 @@ async function main() {
   console.log(`- scope: จำแนกหลักฐานเท่านั้น — **การซ่อม (post JV / แก้สต็อก) = S4.1c ยังไม่เริ่ม**\n`);
   console.log(`_fetched: service_jobs ${jobs.length} · income (non-web, ไม่ลบ, >0) ${incomeJobs.length} · source-bound JE ${boundEntries.length} · movements(out/return) ${movements.length}${stockDataIncomplete ? " ⚠️ INCOMPLETE" : ""} · active mappings ${validMappingKeys.size}_\n`);
 
+  // ── Phase 606-0: finance-flow taxonomy ของงานบริการทั้งชุด (ไม่ใช่แค่ candidate) ──
+  const flow = C.summarizeServiceFlow(jobs, entriesByJob);
+  console.log(`## Finance-flow taxonomy (งานบริการ income status, non-web, ไม่ลบ — ${flow.scanned} งาน)`);
+  console.log("| state | งาน | ยอด | ความหมาย |");
+  console.log("|---|---:|---:|---|");
+  const F = flow.states;
+  console.log(`| PRE_EFFECTIVE_EXPECTED_UNPOSTED | ${F.PRE_EFFECTIVE_EXPECTED_UNPOSTED.count} | ${money(F.PRE_EFFECTIVE_EXPECTED_UNPOSTED.amount)} | ปิดงานก่อน ${L.ACCOUNTING_EFFECTIVE_DATE} → **ตั้งใจไม่ลง JV (ไม่ใช่ปัญหา)** |`);
+  console.log(`| LEGACY_FLOW_V1_POSTED | ${F.LEGACY_FLOW_V1_POSTED.count} | ${money(F.LEGACY_FLOW_V1_POSTED.amount)} | งานเก่า มี JV แล้ว (กติกาเดิม Dr เงินสด/ธนาคาร) — **ห้ามแตะ/ห้าม re-post** |`);
+  console.log(`| LEGACY_FLOW_V1_NO_JV | ${F.LEGACY_FLOW_V1_NO_JV.count} | ${money(F.LEGACY_FLOW_V1_NO_JV.amount)} | งานเก่า **ยังไม่มี JV = รายได้ยังไม่ลงบัญชี (ปัญหา)** |`);
+  console.log(`| FLOW_V2_POSTED | ${F.FLOW_V2_POSTED.count} | ${money(F.FLOW_V2_POSTED.amount)} | งานตามกติกา 606 (Dr 1200 ลูกหนี้) ลง JV แล้ว |`);
+  console.log(`| FLOW_V2_NO_JV | ${F.FLOW_V2_NO_JV.count} | ${money(F.FLOW_V2_NO_JV.amount)} | งานตามกติกา 606 **ยังไม่ลง JV (ปัญหา)** |`);
+  console.log(`\n- **ที่ยังเป็นปัญหา (รายได้ยังไม่ลงบัญชี): ${flow.problemCount} งาน · ${money(flow.problemAmount)} บาท** · partition ${flow.partitionOk ? "✅" : "⚠️ ไม่ครบ"}`);
+  console.log(`- _finance_flow_version ยังไม่มีในสคีมา (มาใน Phase 606-a) → ทุกงานตอนนี้ถูกนับเป็น v1 โดยนิยาม_\n`);
+
   console.log(`## สรุป`);
   console.log(`- **candidate (service income ที่ยังไม่มี approved JV): ${S.candidateCount} งาน · รวม ${money(S.candidateAmount)} บาท**`);
   console.log(`- **readiness (แยก track — journal พร้อม ≠ ทั้งงานพร้อม):**`);

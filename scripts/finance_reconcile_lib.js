@@ -25,10 +25,29 @@ export function round2(n) { return Math.round((Number(n) || 0) * 100) / 100; }
 export function isDeletedSale(sale) { return String(sale?.note || "").includes("[ลบแล้ว]"); }
 
 // isWebOrderJob: คัดลอก dashboard.js:18-22 isWebOrderServiceJob (ห้าม import โมดูล UI — มี side-effect)
+//
+// ★ Phase 606-0 (review PR #191): detector เดิมจับได้แค่ 2 รูปแบบ (sub_service "สั่งซื้อ" / note "SH-<payment>|")
+//   แต่ **web writer จริงมี 3 ทาง** และอีกสองทางไม่ตรงรูปแบบนั้นเลย → ออเดอร์เว็บถูกนับเป็น "งานบริการ"
+//   ในรายงาน/taxonomy (ผิดประเภท):
+//     - customer_dashboard.js  → note "SH-transfer|…" (จับได้อยู่แล้ว)
+//     - ai_sales.js:611-620    → job_no "AI-<base36>" + note "AI Sales: …"   ← เดิมหลุด
+//     - ac_shop.js:452-461     → job_no "SH-<base36>" + note "AC Shop: …"    ← เดิมหลุด
+//   → เพิ่ม legacy marker: job_no ขึ้นต้น AI-/SH- หรือ note ขึ้นต้น "AI Sales:"/"AC Shop:"
+//   (กติกาเดิมคงไว้ทั้งหมด — เป็นการ "ขยาย" ไม่ใช่เปลี่ยนนิยาม)
+//   ⚠️ Phase 606-a จะเพิ่มคอลัมน์ `source_kind` ('service'|'web_order') + backfill แล้วให้ทุกที่อ่าน
+//   จาก helper เดียว — detector ตาม marker นี้เป็นของชั่วคราวสำหรับงานเก่าที่ยังไม่มี source_kind
+const WEB_ORDER_JOB_NO = /^(AI|SH)-/i;
+const WEB_ORDER_NOTE = /^(AI Sales:|AC Shop:)/i;
+const WEB_ORDER_LEGACY_NOTE = /^SH-(transfer|cod_cash|cod_transfer)\|/;
+
 export function isWebOrderJob(j) {
   if (!j) return false;
-  return (((j.sub_service || "").includes("สั่งซื้อ")) || /^SH-(transfer|cod_cash|cod_transfer)\|/.test(j.note || ""))
-    && j.status !== "cancelled" && !j.deleted_at && !(j.note || "").includes("[ลบแล้ว]");
+  const note = String(j.note || "");
+  const isWeb = String(j.sub_service || "").includes("สั่งซื้อ")
+    || WEB_ORDER_LEGACY_NOTE.test(note)
+    || WEB_ORDER_JOB_NO.test(String(j.job_no || ""))
+    || WEB_ORDER_NOTE.test(note);
+  return isWeb && j.status !== "cancelled" && !j.deleted_at && !note.includes("[ลบแล้ว]");
 }
 
 // isServiceIncomeJob: ตรง dashboard.js:24 + auto_post.js:864 (delivered/done/closed + total_cost>0 + ไม่ลบ)
