@@ -225,6 +225,10 @@ export async function fetchLedgerJVStatus() {
     if (!pRes.ok || !rRes.ok || !jRes.ok || !mRes.ok) return { ok: false, reason: "ดึงข้อมูล ledger/สมุดรายวันไม่สำเร็จ" };
     const [payments, reversals, jeRows, mappings] = await Promise.all([pRes.json(), rRes.json(), jRes.json(), mRes.json()]);
     if (![payments, reversals, jeRows, mappings].every(Array.isArray)) return { ok: false, reason: "ข้อมูลรูปแบบไม่ถูกต้อง" };
+    // ★ should-fix 1: ชน limit = ผลไม่ครบ → DATA_INCOMPLETE (ห้ามรายงานว่าไม่มีปัญหา)
+    if (payments.length >= 5000 || reversals.length >= 5000 || jeRows.length >= 5000) {
+      return { ok: false, dataIncomplete: true, reason: "DATA_INCOMPLETE — ledger/สมุดรายวันเกินขีดจำกัดที่ดึงได้" };
+    }
 
     let lineRows = [];
     if (jeRows.length) {
@@ -233,6 +237,7 @@ export async function fetchLedgerJVStatus() {
       if (!lRes.ok) return { ok: false, reason: "ดึง journal_lines ไม่สำเร็จ" };
       lineRows = await lRes.json();
       if (!Array.isArray(lineRows)) return { ok: false, reason: "ข้อมูล journal_lines ไม่ถูกต้อง" };
+      if (lineRows.length >= 20000) return { ok: false, dataIncomplete: true, reason: "DATA_INCOMPLETE — journal_lines เกินขีดจำกัด" };
     }
 
     const jobIds = [...new Set(payments.map(p => p.service_job_id).filter(v => v != null))];
@@ -397,6 +402,15 @@ function resultsHtml(orphans, res) {
         </div>`));
     }
   }
+  const dateWithJv = res?.dateMissingWithJv || [];
+  if (dateWithJv.length) {
+    parts.push(`<div style="font-weight:700;font-size:14px;color:#b91c1c;margin:16px 0 8px">⛔ ลงบัญชีแล้วแต่ไม่มีวันปิดงาน (${dateWithJv.length}) — SERVICE_DATE_MISSING_WITH_JV</div>`);
+    dateWithJv.forEach(c => parts.push(`
+      <div style="border:1px solid #ef4444;background:#fef2f2;border-radius:8px;padding:12px;margin-bottom:10px">
+        <div style="font-weight:700;font-size:14px">${escHtml(String(c.job?.job_no || "#" + c.job?.id))}</div>
+        <div style="font-size:12px;color:#991b1b">฿${escHtml(fmtAmount(c.job?.total_cost))} · JE #${escHtml(String(c.entryId ?? "—"))} · ${escHtml(c.reason)} — <b>ต้องให้เจ้าของกำหนดวันรับรู้ก่อน</b> (ซ่อม/โพสต์ซ้ำไม่ได้)</div>
+      </div>`));
+  }
   if (needDate.length) {
     parts.push(`<div style="font-weight:700;font-size:14px;color:#b45309;margin:16px 0 8px">⏳ ต้องกำหนดวันรับรู้รายได้ก่อน (${needDate.length}) — OWNER_RECOGNITION_DATE_REQUIRED</div>`);
     parts.push(needDate.map(needDateCardHtml).join(""));
@@ -413,6 +427,22 @@ function resultsHtml(orphans, res) {
  * @param {object} [opts] - { fromDate?, toDate? (YYYY-MM-DD), effectiveDate? }
  * @returns {Promise<{ok:boolean, orphans?:Array, jobsFetched?:number, jeFetched?:number, fromDate?:string, toDate?:string, reason?:string}>}
  */
+// ★ review#3 (blocking 4): ขอบเขตงวดต้องเป็น **เวลาไทย** — closed_at/created_at เป็น timestamptz
+//   ส่ง "YYYY-MM-DD" เปล่า ๆ ให้ PostgREST = ตีความเป็น UTC → งานที่ปิด 1 ก.ค. 00:30 น. (ไทย)
+//   = 30 มิ.ย. 17:30 UTC → หลุดออกจากงวด ก.ค. เงียบ ๆ
+export function bkkDayStartIso(dateStr) {
+  return `${dateStr}T00:00:00+07:00`;      // ต้น "วันไทย"
+}
+export function bkkNextDayStartIso(dateStr) {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return `${d.toISOString().slice(0, 10)}T00:00:00+07:00`;   // ต้นวันถัดไป (เวลาไทย) = ขอบบน exclusive
+}
+const enc = (v) => encodeURIComponent(v);   // "+07:00" ต้อง URL-encode ไม่งั้น '+' = ช่องว่าง
+
+const FETCH_LIMIT = 5000;
+const LINE_LIMIT  = 20000;
+
 export async function fetchServiceJVStatus(opts = {}) {
   const cfg = typeof window !== "undefined" ? window.SUPABASE_CONFIG : null;
   if (!cfg?.url) return { ok: false, reason: "ไม่พบการตั้งค่าเซิร์ฟเวอร์" };
@@ -421,27 +451,22 @@ export async function fetchServiceJVStatus(opts = {}) {
   const get = (path) => fetch(cfg.url + "/rest/v1/" + path, { headers });
 
   const effectiveDate = opts.effectiveDate || DEFAULT_EFFECTIVE_DATE;
-  const fromDate = opts.fromDate || effectiveDate;     // inclusive (YYYY-MM-DD)
-  const toDate = opts.toDate || todayBkk();            // inclusive (YYYY-MM-DD)
-  const nd = new Date(toDate + "T00:00:00Z");
-  nd.setUTCDate(nd.getUTCDate() + 1);
-  const toExclusive = nd.toISOString().slice(0, 10);
+  const fromDate = opts.fromDate || effectiveDate;     // inclusive (YYYY-MM-DD, เวลาไทย)
+  const toDate = opts.toDate || todayBkk();            // inclusive (YYYY-MM-DD, เวลาไทย)
+  const fromTs = bkkDayStartIso(fromDate);
+  const toTs   = bkkNextDayStartIso(toDate);
 
   const statusList = SERVICE_INCOME_STATUSES.join(",");
-  // ★ review#2 (blocking 4): recognition period = **closed_at** (ไม่ใช่ created_at)
-  //   → query 1: งานที่มี closed_at ในช่วงที่ตรวจ (สร้าง มิ.ย. ปิด ก.ค. ต้องอยู่ในรายงาน ก.ค.;
-  //              สร้าง ก.ค. ปิด ส.ค. ต้อง **ไม่** อยู่ในรายงาน ก.ค.)
-  //   → query 2: งานที่ closed_at = null (ไม่มีวันรับรู้เลย) — scope ด้วย created_at เพื่อให้เห็น
-  //              และเข้ากอง OWNER_RECOGNITION_DATE_REQUIRED (re-post ไม่ได้จนกว่า owner กำหนดวัน)
+  // recognition period = closed_at (ไม่ใช่ created_at) · งานที่ไม่มี closed_at query แยกด้วย created_at
   const SEL = "select=id,job_no,customer_name,status,total_cost,job_type,payment_method,closed_at,finance_flow_version,note,created_at";
-  const closedUrl = `service_jobs?${SEL}&status=in.(${statusList})&closed_at=gte.${fromDate}&closed_at=lt.${toExclusive}&order=closed_at.desc&limit=5000`;
-  const noDateUrl = `service_jobs?${SEL}&status=in.(${statusList})&closed_at=is.null&created_at=gte.${fromDate}&created_at=lt.${toExclusive}&order=created_at.desc&limit=5000`;
+  const closedUrl = `service_jobs?${SEL}&status=in.(${statusList})&closed_at=gte.${enc(fromTs)}&closed_at=lt.${enc(toTs)}&order=closed_at.desc&limit=${FETCH_LIMIT}`;
+  const noDateUrl = `service_jobs?${SEL}&status=in.(${statusList})&closed_at=is.null&created_at=gte.${enc(fromTs)}&created_at=lt.${enc(toTs)}&order=created_at.desc&limit=${FETCH_LIMIT}`;
 
   try {
     const [closedRes, noDateRes, jeRes, mRes] = await Promise.all([
       get(closedUrl),
       get(noDateUrl),
-      get("journal_entries?source_table=eq.service_jobs&select=id,source_id,description,status,total_debit,total_credit&order=id.desc&limit=5000"),
+      get(`journal_entries?source_table=eq.service_jobs&select=id,source_id,description,status,total_debit,total_credit&order=id.desc&limit=${FETCH_LIMIT}`),
       get("account_mapping?select=mapping_key,debit_account_code,credit_account_code,recognition_debit_code&is_active=eq.true")
     ]);
     if (!closedRes.ok || !noDateRes.ok) return { ok: false, reason: "ดึงงานบริการไม่สำเร็จ", fromDate, toDate };
@@ -450,13 +475,20 @@ export async function fetchServiceJVStatus(opts = {}) {
     const [closedJobs, noDateJobs, jeRows, mappings] = await Promise.all([closedRes.json(), noDateRes.json(), jeRes.json(), mRes.json()]);
     if (![closedJobs, noDateJobs, jeRows, mappings].every(Array.isArray)) return { ok: false, reason: "ข้อมูลรูปแบบไม่ถูกต้อง", fromDate, toDate };
 
-    // lines ของ JE งานบริการ — ต้องมี ถึงจะบอกได้ว่า "ลงบัญชีถูกจริง" ไม่ใช่แค่ "มี header"
+    // ★ should-fix 1: ชน limit = ข้อมูลไม่ครบ → ห้ามรายงานว่า "สะอาด" (false clean)
+    if (closedJobs.length >= FETCH_LIMIT || noDateJobs.length >= FETCH_LIMIT || jeRows.length >= FETCH_LIMIT) {
+      return { ok: false, dataIncomplete: true, reason: "DATA_INCOMPLETE — ข้อมูลเกินขีดจำกัดที่ดึงได้ (ผลอาจไม่ครบ) กรุณาย่อช่วงวันที่", fromDate, toDate };
+    }
+
     let lineRows = [];
     if (jeRows.length) {
-      const lRes = await get(`journal_lines?select=entry_id,account_code,debit,credit&entry_id=in.(${jeRows.map(e => e.id).join(",")})&limit=20000`);
+      const lRes = await get(`journal_lines?select=entry_id,account_code,debit,credit&entry_id=in.(${jeRows.map(e => e.id).join(",")})&limit=${LINE_LIMIT}`);
       if (!lRes.ok) return { ok: false, reason: "ดึง journal_lines ไม่สำเร็จ", fromDate, toDate };
       lineRows = await lRes.json();
       if (!Array.isArray(lineRows)) return { ok: false, reason: "ข้อมูล journal_lines ไม่ถูกต้อง", fromDate, toDate };
+      if (lineRows.length >= LINE_LIMIT) {
+        return { ok: false, dataIncomplete: true, reason: "DATA_INCOMPLETE — journal_lines เกินขีดจำกัด (ผลอาจไม่ครบ)", fromDate, toDate };
+      }
     }
     const linesByEntry = new Map();
     lineRows.forEach(l => {
@@ -469,38 +501,47 @@ export async function fetchServiceJVStatus(opts = {}) {
     const mappingsByKey = {};
     mappings.forEach(m => { mappingsByKey[m.mapping_key] = m; });
 
-    // ★ "posted" = JV ที่ **ผ่าน validator** เท่านั้น (approved + lines + บัญชี + ยอด)
-    //   header เสีย (draft/ไม่มี lines/บัญชีผิด) = **conflict** ต้องแจ้ง ไม่ใช่ซ่อนว่าเรียบร้อย
-    //   และ auto-repair ไม่ได้ (unique source index จะไม่ให้ยิงทับ)
-    const orphans = [], conflicts = [];
-    const consider = (job) => {
-      if (!isRecognitionStatusForJob(job)) return;                       // flow-aware (v2 + done = ไม่ใช่ orphan)
-      const amount = Number(job.total_cost);
-      if (!Number.isFinite(amount) || amount <= 0) return;
+    const validateJob = (job) => {
       const entry = jeBySource.get(String(job.id)) || null;
       const lines = entry ? (linesByEntry.get(String(entry.id)) || []) : [];
       const mapping = mappingsByKey[serviceMappingKeyForJobType(job.job_type)] || null;
-      const flow = serviceFinanceFlowOf(job);
-      // flow v1: JV เดิม Dr เงินสด/ธนาคาร → ตรวจได้แค่ "มี header approved + lines" (บัญชีขึ้นกับ payment_method เดิม)
-      const v = flow === 2
+      const v = serviceFinanceFlowOf(job) === 2
         ? validateRecognitionJv({ job, mapping, entry, lines })
-        : validateTwoLegLegacy({ entry, lines, amount });
+        : validateTwoLegLegacy({ entry, lines, amount: job.total_cost });
+      return { entry, v };
+    };
+    const eligible = (job) => {
+      if (!isRecognitionStatusForJob(job)) return false;          // flow-aware (v2 + done ≠ orphan)
+      const amount = Number(job.total_cost);
+      return Number.isFinite(amount) && amount > 0;
+    };
+
+    // ★ "posted" = ผ่าน validator เท่านั้น · header เสีย = conflict (auto-repair ไม่ได้ — unique index กันทับ)
+    const orphans = [], conflicts = [];
+    closedJobs.filter(eligible).forEach(job => {
+      const { entry, v } = validateJob(job);
       if (v.ok) return;
       const state = ledgerStateOf(v);
       if (state === "NO_JV") orphans.push(job);
       else conflicts.push({ job, state: `SERVICE_${state}`, reason: v.reason, entryId: entry?.id });
-    };
-    closedJobs.forEach(consider);
+    });
 
-    const needRecognitionDate = noDateJobs.filter(j => {
-      if (!isRecognitionStatusForJob(j)) return false;
-      const amount = Number(j.total_cost);
-      if (!Number.isFinite(amount) || amount <= 0) return false;
-      return !jeBySource.has(String(j.id));      // มี JV แล้วก็ไม่ต้องตาม (วันผิดเป็นเรื่องของ recovery)
+    // ★ review#3 (blocking 5): งานที่ไม่มีวันรับรู้ (closed_at = null) ต้องปรากฏ **หนึ่งกองพอดี** เสมอ
+    //   ไม่มี JE  → OWNER_RECOGNITION_DATE_REQUIRED (รอ owner กำหนดวัน — re-post ไม่ได้)
+    //   มี JE     → SERVICE_DATE_MISSING_WITH_JV (ลงบัญชีไปแล้วทั้งที่ไม่มีวันปิดงาน = ต้องสอบ ห้ามซ่อน)
+    const needRecognitionDate = [], dateMissingWithJv = [];
+    noDateJobs.filter(eligible).forEach(job => {
+      const { entry, v } = validateJob(job);
+      if (!entry) { needRecognitionDate.push(job); return; }
+      dateMissingWithJv.push({
+        job, state: "SERVICE_DATE_MISSING_WITH_JV",
+        reason: v.ok ? "jv-valid-but-no-recognition-date" : v.reason,
+        entryId: entry.id
+      });
     });
 
     return {
-      ok: true, orphans, conflicts, needRecognitionDate,
+      ok: true, orphans, conflicts, needRecognitionDate, dateMissingWithJv,
       jobsFetched: closedJobs.length + noDateJobs.length, jeFetched: jeRows.length, fromDate, toDate
     };
   } catch (e) {
@@ -538,17 +579,21 @@ async function _loadAndRender(ctx, container) {
   //   fail-soft: ตาราง ledger ยังไม่มี (ก่อน migration b1) → ข้ามส่วนนี้ ไม่ทำให้หน้าเสีย
   const ledger = await fetchLedgerJVStatus().catch(() => ({ ok: false }));
   res.ledger = ledger.ok ? ledger : null;
+  if (ledger?.dataIncomplete) {
+    ctx?.showToast?.("⚠️ ข้อมูล ledger เกินขีดจำกัดที่ดึงได้ — ผลอาจไม่ครบ (DATA_INCOMPLETE)");
+  }
   if (!document.body.contains(container)) return;
 
   const orphans = res.orphans || [];
   const needDate = res.needRecognitionDate || [];
+  const dateWithJv = res.dateMissingWithJv || [];
   const led = res.ledger;
   const conflicts = res.conflicts || [];
   const ledgerCount = led
     ? led.paymentNoJv.length + led.paymentNonApproved.length + led.paymentMismatch.length
       + led.reversalNoJv.length + led.reversalNonApproved.length + led.reversalMismatch.length
     : 0;
-  if (!orphans.length && !needDate.length && !conflicts.length && !ledgerCount) {
+  if (!orphans.length && !needDate.length && !dateWithJv.length && !conflicts.length && !ledgerCount) {
     container.innerHTML = emptyHtml(res);
     return;
   }

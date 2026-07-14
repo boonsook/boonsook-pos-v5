@@ -93,8 +93,11 @@ test("fetchServiceJVStatus reads service_jobs + journal_entries by GET, never wr
   assert.match(SVC, /select=id,job_no,customer_name,status,total_cost,job_type,payment_method,closed_at,finance_flow_version,note,created_at/,
     "service_jobs read-only select (ต้องครบ metadata ของ writer)");
   // ★ review#2: recognition period = closed_at (งาน closed_at=null query แยกด้วย created_at)
-  assert.match(SVC, /closed_at=gte\.\$\{fromDate\}/, "ช่วงตรวจ bound ด้วย closed_at");
+  // ★ review#3: ขอบงวดเป็น timestamp เวลาไทย (+07:00) ไม่ใช่ YYYY-MM-DD เปล่า
+  assert.match(SVC, /closed_at=gte\.\$\{enc\(fromTs\)\}/, "ช่วงตรวจ bound ด้วย closed_at (เวลาไทย)");
+  assert.match(SVC, /closed_at=lt\.\$\{enc\(toTs\)\}/);
   assert.match(SVC, /closed_at=is\.null/, "งานไม่มีวันปิด query แยก");
+  assert.match(SVC, /T00:00:00\+07:00/, "ต้นวันไทย");
   assert.match(SVC, /journal_entries\?/, "fetches journal_entries");
   // ★ review#2: JE fetch ต้องเอา status/total ด้วย + โหลด journal_lines → พิสูจน์ว่า "ลงบัญชีถูกจริง"
   //   (มี source_id อย่างเดียว = รู้แค่ว่ามี header — draft/header-only/บัญชีผิด จะถูกนับว่า OK ผิด ๆ)

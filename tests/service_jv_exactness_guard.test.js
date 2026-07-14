@@ -311,8 +311,9 @@ test("D2. SQL service_payment_jv_is_valid: approved · 2 ขา · Dr ตาม 
 test("D3. SQL mapping freeze: แก้บัญชีของ service_% ที่ถูกใช้ลง JV แล้ว → 42501 (กัน historical drift)", () => {
   const fn = SQL.slice(SQL.indexOf("FUNCTION public.guard_service_mapping_freeze"), SQL.indexOf("-- 7) POST-CHECK"));
   assert.ok(/mapping_key NOT LIKE 'service.?_%'/.test(fn), "scope = mapping_key ที่ขึ้นต้น service_");
-  assert.match(fn, /journal_entries je[\s\S]{0,220}service_mapping_key_for_job_type\(sj\.job_type\) = OLD\.mapping_key/);
+  assert.match(fn, /journal_entries je[\s\S]{0,260}service_mapping_key_for_job_type\(sj\.job_type\) = v_row\.mapping_key/);
   assert.match(fn, /42501/);
-  assert.match(SQL, /CREATE TRIGGER trg_service_mapping_freeze\s+BEFORE UPDATE ON public\.account_mapping/);
+  // ★ review#3: trigger ต้องครอบ DELETE ด้วย (ลบ mapping = bypass การ freeze)
+  assert.match(SQL, /CREATE TRIGGER trg_service_mapping_freeze\s+BEFORE UPDATE OR DELETE ON public\.account_mapping/);
   assert.match(SQL, /trg_service_mapping_freeze ต้องมีและ enabled/, "POST-CHECK ต้องยืนยัน trigger");
 });

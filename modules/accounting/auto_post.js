@@ -67,7 +67,7 @@ function _authFetch(url, opts = {}) {
 //   เริ่มบัญชีจริง 1 ก.ค. 2569 — JV ก่อนวันนี้ถูก skip อัตโนมัติ (ของเก่า = test data ไม่ถูกลบ)
 import { ACCOUNTING_EFFECTIVE_DATE } from "./effective_date.js";
 // ★ Phase 606-b1 (review#2): ตัวตรวจ JV กลาง — "มีแถวใน journal_entries" ≠ "ลงบัญชีถูก"
-import { validateRecognitionJv, validatePaymentJv, paymentDebitCode } from "./service_jv_validate.js";
+import { validateRecognitionJv, validatePaymentJv, validateReversalJv, paymentDebitCode } from "./service_jv_validate.js";
 
 let _mappingCache = null;
 let _coaCache = null;  // Phase 89.2: cache COA codes สำหรับ validate BANK_COA override
@@ -949,18 +949,27 @@ export async function postJournalForServiceJob(job, opts = {}) {
   const desc = `งานบริการ ${job.job_no || '#' + job.id} — ${job.customer_name || ''}`.trim();
   const amount = Number(job.total_cost);
 
-  return _postJournal({
+  const res = await _postJournal({
     sourceTable: "service_jobs",
     sourceId: job.id,
     docType: "SV",
     docDate,
     description: desc,
-    detailed: opts.detailed,
+    detailed: true,
     lines: [
       { account_code: debitAccount,                debit: amount, credit: 0,      description: desc },
       { account_code: mapping.credit_account_code, debit: 0,      credit: amount, description: desc }
     ]
   });
+  // ★ review#3 (blocking 1): flow v2 + duplicate → ต้อง read-back แล้ว validate (draft/header-only/
+  //   บัญชีผิด/ยอดผิด ที่ค้างอยู่ ห้ามถูกนับว่า "ลงบัญชีแล้ว"). v1 legacy = พฤติกรรมเดิมทุกประการ
+  if (flow === 2 && res?.reason === "duplicate") {
+    return _verifyDuplicateJv({
+      sourceTable: "service_jobs", sourceId: job.id, detailed: opts.detailed,
+      validate: (entry, lines) => validateRecognitionJv({ job, mapping, entry, lines })
+    });
+  }
+  return _journalResult(opts.detailed, res);
 }
 
 
@@ -972,6 +981,26 @@ export async function postJournalForServiceJob(job, opts = {}) {
 //     amount/method/bank จากฟอร์ม**: ฟอร์มถูกแก้ได้, ledger คือความจริงเดียวที่บัญชีต้องตาม
 //   idempotent: source_table='service_payments' + source_id=payment.id (idx_je_source_unique)
 //   → retry ได้เสมอ (ledger มีแถวแต่ JV หาย = reconcile แล้วยิงซ้ำ ไม่เกิด JV ซ้ำ)
+// ★ review#3 (blocking 1): source-dup **ไม่ใช่หลักฐานว่าลงบัญชีถูก** — JE ที่ค้างอยู่อาจเป็น draft /
+//   header ลอยไม่มี lines / บัญชีผิด / ยอดผิด. หลังเจอ duplicate ต้อง **read-back แล้ว validate**:
+//     ผ่าน  → reason "duplicate-valid"       (accountingPosted = true, ไม่เขียนซ้ำ)
+//     ไม่ผ่าน → reason "duplicate-invalid:<เหตุ>" (accountingPosted = false → ต้องแก้ด้วยคน)
+//   additive: writer legacy (sales/receipts/…) ไม่ถูกแตะ — ใช้เฉพาะ 3 source ของงานบริการ
+async function _verifyDuplicateJv({ sourceTable, sourceId, validate, detailed }) {
+  let jv;
+  try {
+    jv = await _fetchJvWithLines(sourceTable, sourceId);
+  } catch (e) {
+    return _journalResult(detailed, { status: "failed", reason: "duplicate-verify-failed", sourceTable, sourceId, error: String(e?.message || e) });
+  }
+  const v = validate(jv.entry, jv.lines);
+  if (v.ok) {
+    return _journalResult(detailed, { status: "skipped", reason: "duplicate-valid", sourceTable, sourceId, entryId: jv.entry?.id });
+  }
+  console.error("[auto_post] existing JV is invalid:", sourceTable, sourceId, v.reason);
+  return _journalResult(detailed, { status: "skipped", reason: `duplicate-invalid:${v.reason}`, sourceTable, sourceId, entryId: jv.entry?.id });
+}
+
 // อ่าน JE (header) + lines ของ source หนึ่ง ๆ — ใช้ตรวจความถูกต้องจริงก่อนโพสต์/กลับรายการ
 async function _fetchJvWithLines(sourceTable, sourceId) {
   const cfg = window.SUPABASE_CONFIG;
@@ -1049,18 +1078,25 @@ export async function postJournalForServicePayment(paymentId, opts = {}) {
 
   const amount = Number(pay.amount);
   const desc = `รับชำระงานบริการ ${job.job_no || "#" + job.id} — ${job.customer_name || ""}`.trim();
-  return _postJournal({
+  const res = await _postJournal({
     sourceTable: "service_payments",
     sourceId: pay.id,
     docType: "RV",
     docDate,
     description: desc,
-    detailed,
+    detailed: true,
     lines: [
       { account_code: debitAccount,                        debit: amount, credit: 0,      description: desc },
       { account_code: String(mapping.recognition_debit_code), debit: 0,   credit: amount, description: desc }   // Cr 1200 ล้างลูกหนี้
     ]
   });
+  if (res?.reason === "duplicate") {
+    return _verifyDuplicateJv({
+      sourceTable: "service_payments", sourceId: pay.id, detailed,
+      validate: (entry, lines) => validatePaymentJv({ payment: pay, mapping, entry, lines })
+    });
+  }
+  return _journalResult(detailed, res);
 }
 
 /**
@@ -1103,7 +1139,8 @@ export async function recordServicePayment({ serviceJobId, amount, paymentMethod
   const jv = await postJournalForServicePayment(paymentId, { detailed: true });
   // ★ แยกความจริงสองชั้น: เงินถูกบันทึกใน ledger แล้ว (ledgerRecorded) กับ "ลงบัญชีแล้ว" (accountingPosted)
   //   JV ล้ม = ยังไม่จบ — caller ต้องเห็นและ retry ได้ (ห้ามรายงานว่าสำเร็จสมบูรณ์)
-  const accountingPosted = jv?.status === "posted" || jv?.reason === "duplicate";   // duplicate = มี JV อยู่แล้ว (idempotent)
+  // ★ review#3: "duplicate" เฉย ๆ ไม่พอ — ต้องผ่าน read-back validation (duplicate-valid)
+  const accountingPosted = jv?.status === "posted" || jv?.reason === "duplicate-valid";
   return {
     ok: true, ledgerRecorded: true, accountingPosted,
     paymentId, inserted: body?.inserted === true,
@@ -1157,18 +1194,27 @@ export async function postJournalForServicePaymentReversal(reversalId, opts = {}
   if (!_isAfterEffective(docDate)) return R({ status: "skipped", reason: "pre-effective", docDate });
 
   const desc = `กลับรายการรับชำระงานบริการ #${pay.service_job_id} — ${String(rev.reason || "").slice(0, 80)}`.trim();
-  return _postJournal({
+  const res = await _postJournal({
     sourceTable: "service_payment_reversals",
     sourceId: rev.id,
     docType: "JV",
     docDate,
     description: desc,
-    detailed,
+    detailed: true,
     lines: [
       { account_code: check.creditCode, debit: amount, credit: 0,      description: desc },  // Dr 1200 (คืนลูกหนี้)
       { account_code: check.debitCode,  debit: 0,      credit: amount, description: desc }   // Cr บัญชีเงินเดิมเป๊ะ
     ]
   });
+  if (res?.reason === "duplicate") {
+    return _verifyDuplicateJv({
+      sourceTable: "service_payment_reversals", sourceId: rev.id, detailed,
+      validate: (entry, lines) => validateReversalJv({
+        reversal: rev, paymentDebit: check.debitCode, recognitionCode: check.creditCode, entry, lines
+      })
+    });
+  }
+  return _journalResult(detailed, res);
 }
 
 /**
@@ -1204,7 +1250,8 @@ export async function reverseServicePayment({ paymentId, amount, reason, reverse
   const reversalId = body?.reversal_id;
   if (!reversalId) return { ok: false, error: "RPC ไม่คืน reversal_id" };
   const jv = await postJournalForServicePaymentReversal(reversalId, { detailed: true });
-  const accountingPosted = jv?.status === "posted" || jv?.reason === "duplicate";   // duplicate = มี JV อยู่แล้ว (idempotent)
+  // ★ review#3: "duplicate" เฉย ๆ ไม่พอ — ต้องผ่าน read-back validation (duplicate-valid)
+  const accountingPosted = jv?.status === "posted" || jv?.reason === "duplicate-valid";
   return { ok: true, ledgerRecorded: true, accountingPosted, reversalId, inserted: body?.inserted === true, paidTotal: body?.paid_total, jv };
 }
 

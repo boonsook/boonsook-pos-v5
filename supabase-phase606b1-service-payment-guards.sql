@@ -98,16 +98,19 @@ LANGUAGE plpgsql STABLE SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_job   public.service_jobs%ROWTYPE;
-  v_total NUMERIC(14,2);
-  v_map   public.account_mapping%ROWTYPE;
-  v_entry RECORD;
-  v_dr    NUMERIC(14,2);
-  v_cr    NUMERIC(14,2);
-  v_sum_d NUMERIC(14,2);
-  v_sum_c NUMERIC(14,2);
+  v_job    public.service_jobs%ROWTYPE;
+  v_total  NUMERIC(14,2);
+  v_map    public.account_mapping%ROWTYPE;
+  v_entry  RECORD;
+  v_cnt    int;
+  v_dr_cnt int;
+  v_cr_cnt int;
+  v_dr     NUMERIC(14,2);
+  v_cr     NUMERIC(14,2);
+  v_sum_d  NUMERIC(14,2);
+  v_sum_c  NUMERIC(14,2);
 BEGIN
-  -- ★ should-fix: อ่านสถานะบัญชีของงานคนอื่นได้เฉพาะ admin/accountant (fail-closed)
+  -- fail-closed: อ่านสถานะบัญชีของงานใด ๆ ได้เฉพาะ admin/accountant
   IF NOT COALESCE(public.is_accountant(), false) THEN
     RAISE EXCEPTION 'ไม่มีสิทธิ์ตรวจสถานะบัญชีของงานบริการ' USING ERRCODE = '42501';
   END IF;
@@ -116,17 +119,21 @@ BEGIN
   IF NOT FOUND THEN RETURN false; END IF;
   IF v_job.total_cost IS NULL
      OR lower(v_job.total_cost::text) IN ('nan','infinity','-infinity','+infinity') THEN
-    RETURN false;
+    RETURN false;                                                     -- null/NaN/Infinity = false
   END IF;
   v_total := round(v_job.total_cost, 2);
   IF v_total <= 0 THEN RETURN false; END IF;
 
   SELECT * INTO v_map FROM public.account_mapping
    WHERE mapping_key = public.service_mapping_key_for_job_type(v_job.job_type) AND is_active;
-  IF NOT FOUND OR v_map.recognition_debit_code IS NULL OR v_map.credit_account_code IS NULL THEN
-    RETURN false;
+  IF NOT FOUND
+     OR v_map.recognition_debit_code IS NULL
+     OR v_map.credit_account_code IS NULL
+     OR v_map.recognition_debit_code = v_map.credit_account_code THEN
+    RETURN false;                                                     -- mapping หาย/ไม่ถูกต้อง = false
   END IF;
 
+  -- header: approved เท่านั้น + total_debit = total_credit = total_cost (ทั้งสองช่อง ห้าม null)
   SELECT je.id, je.total_debit, je.total_credit INTO v_entry
     FROM public.journal_entries je
    WHERE je.source_table = 'service_jobs'
@@ -134,24 +141,45 @@ BEGIN
      AND lower(coalesce(je.status,'')) = 'approved'
    ORDER BY je.id DESC LIMIT 1;
   IF NOT FOUND THEN RETURN false; END IF;
+  IF v_entry.total_debit IS NULL OR v_entry.total_credit IS NULL THEN RETURN false; END IF;
+  IF round(v_entry.total_debit,2)  <> v_total THEN RETURN false; END IF;
+  IF round(v_entry.total_credit,2) <> v_total THEN RETURN false; END IF;
 
-  -- lines ต้องมีจริง + บาลานซ์ + ตรง header + ตรงยอดงาน (orphan header = false)
+  -- ★ review#3 (blocking 2): บรรทัดที่ไม่เป็นศูนย์ต้อง **2 บรรทัดพอดี** (split line / บัญชีแปลกปลอม = false)
+  SELECT count(*) INTO v_cnt FROM public.journal_lines
+   WHERE entry_id = v_entry.id
+     AND (round(coalesce(debit,0),2) <> 0 OR round(coalesce(credit,0),2) <> 0);
+  IF v_cnt <> 2 THEN RETURN false; END IF;
+
+  -- lines ต้องบาลานซ์และตรง header
   SELECT coalesce(sum(debit),0), coalesce(sum(credit),0) INTO v_sum_d, v_sum_c
     FROM public.journal_lines WHERE entry_id = v_entry.id;
-  IF v_sum_d = 0 AND v_sum_c = 0 THEN RETURN false; END IF;                      -- header ไม่มี lines
-  IF round(v_sum_d,2) <> round(v_sum_c,2) THEN RETURN false; END IF;             -- ไม่บาลานซ์
-  IF round(v_sum_d,2) <> round(coalesce(v_entry.total_debit,0),2) THEN RETURN false; END IF;  -- lines ≠ header
-  IF round(v_sum_d,2) <> v_total THEN RETURN false; END IF;                      -- ≠ ยอดงาน
+  IF round(v_sum_d,2) <> round(v_sum_c,2) THEN RETURN false; END IF;
+  IF round(v_sum_d,2) <> v_total THEN RETURN false; END IF;
 
-  -- Dr ต้องเป็นบัญชีลูกหนี้ตาม mapping (recognition_debit_code) ยอดเต็ม
-  SELECT coalesce(sum(debit),0) INTO v_dr FROM public.journal_lines
-   WHERE entry_id = v_entry.id AND account_code = v_map.recognition_debit_code;
+  -- Dr: หนึ่งขาเท่านั้น · บัญชี recognition_debit_code (1200) · ยอดเต็ม
+  SELECT count(*), coalesce(sum(debit),0) INTO v_dr_cnt, v_dr
+    FROM public.journal_lines
+   WHERE entry_id = v_entry.id AND round(coalesce(debit,0),2) <> 0;
+  IF v_dr_cnt <> 1 THEN RETURN false; END IF;
   IF round(v_dr,2) <> v_total THEN RETURN false; END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.journal_lines
+     WHERE entry_id = v_entry.id AND round(coalesce(debit,0),2) = v_total
+       AND account_code = v_map.recognition_debit_code
+  ) THEN RETURN false; END IF;
 
-  -- Cr ต้องเป็นบัญชีรายได้ตาม mapping ยอดเต็ม
-  SELECT coalesce(sum(credit),0) INTO v_cr FROM public.journal_lines
-   WHERE entry_id = v_entry.id AND account_code = v_map.credit_account_code;
+  -- Cr: หนึ่งขาเท่านั้น · บัญชีรายได้ตาม mapping · ยอดเต็ม
+  SELECT count(*), coalesce(sum(credit),0) INTO v_cr_cnt, v_cr
+    FROM public.journal_lines
+   WHERE entry_id = v_entry.id AND round(coalesce(credit,0),2) <> 0;
+  IF v_cr_cnt <> 1 THEN RETURN false; END IF;
   IF round(v_cr,2) <> v_total THEN RETURN false; END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.journal_lines
+     WHERE entry_id = v_entry.id AND round(coalesce(credit,0),2) = v_total
+       AND account_code = v_map.credit_account_code
+  ) THEN RETURN false; END IF;
 
   RETURN true;
 END $$;
@@ -593,38 +621,52 @@ LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
+  v_row  public.account_mapping%ROWTYPE := OLD;
   v_used boolean := false;
 BEGIN
-  IF OLD.mapping_key NOT LIKE 'service\_%' THEN
-    RETURN NEW;
-  END IF;
-  IF NEW.debit_account_code      IS NOT DISTINCT FROM OLD.debit_account_code
-     AND NEW.credit_account_code IS NOT DISTINCT FROM OLD.credit_account_code
-     AND NEW.recognition_debit_code IS NOT DISTINCT FROM OLD.recognition_debit_code
-     AND NEW.transfer_debit_code IS NOT DISTINCT FROM OLD.transfer_debit_code THEN
-    RETURN NEW;                        -- ไม่ได้แตะบัญชี → ผ่าน (is_active/notes ฯลฯ แก้ได้)
+  IF v_row.mapping_key NOT LIKE 'service\_%' THEN
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;      -- ไม่ใช่งานบริการ = นโยบายเดิม
   END IF;
 
-  -- mapping นี้ถูกใช้โพสต์ JV งานบริการไปแล้วหรือยัง (งานที่ job_type map มาที่ key นี้)
+  -- mapping นี้ถูกใช้โพสต์ JV งานบริการ (approved) ไปแล้วหรือยัง
   SELECT EXISTS (
     SELECT 1
       FROM public.journal_entries je
       JOIN public.service_jobs sj ON sj.id = je.source_id
      WHERE je.source_table = 'service_jobs'
        AND lower(coalesce(je.status,'')) = 'approved'
-       AND public.service_mapping_key_for_job_type(sj.job_type) = OLD.mapping_key
+       AND public.service_mapping_key_for_job_type(sj.job_type) = v_row.mapping_key
   ) INTO v_used;
 
-  IF v_used THEN
-    RAISE EXCEPTION 'บัญชีของ % ถูกใช้ลงบัญชีงานบริการไปแล้ว — แก้ไม่ได้ (จะทำให้เอกสารเก่ากลายเป็นไม่ถูกต้อง) ให้สร้าง mapping ใหม่แทน', OLD.mapping_key
+  IF NOT v_used THEN
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;       -- ยังไม่ถูกใช้ = แก้/ลบได้ตามเดิม
+  END IF;
+
+  -- ★ review#3 (blocking 3): ถูกใช้แล้ว → ปิดทุกทางที่ทำให้ JV เก่ากลายเป็น invalid
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'mapping % ถูกใช้ลงบัญชีงานบริการแล้ว — ลบไม่ได้', v_row.mapping_key USING ERRCODE = '42501';
+  END IF;
+
+  IF NEW.mapping_key IS DISTINCT FROM OLD.mapping_key THEN
+    RAISE EXCEPTION 'mapping % ถูกใช้ลงบัญชีแล้ว — เปลี่ยนรหัส mapping ไม่ได้', OLD.mapping_key USING ERRCODE = '42501';
+  END IF;
+  IF NEW.is_active IS DISTINCT FROM OLD.is_active THEN
+    RAISE EXCEPTION 'mapping % ถูกใช้ลงบัญชีแล้ว — เปิด/ปิดใช้งานไม่ได้ (ปิดแล้วเอกสารเก่าจะกลายเป็นไม่ถูกต้อง)', OLD.mapping_key USING ERRCODE = '42501';
+  END IF;
+  IF NEW.debit_account_code       IS DISTINCT FROM OLD.debit_account_code
+     OR NEW.credit_account_code   IS DISTINCT FROM OLD.credit_account_code
+     OR NEW.recognition_debit_code IS DISTINCT FROM OLD.recognition_debit_code
+     OR NEW.transfer_debit_code   IS DISTINCT FROM OLD.transfer_debit_code THEN
+    RAISE EXCEPTION 'บัญชีของ % ถูกใช้ลงบัญชีงานบริการไปแล้ว — แก้ไม่ได้ (ให้สร้าง mapping ใหม่แทน)', OLD.mapping_key
       USING ERRCODE = '42501';
   END IF;
-  RETURN NEW;
+
+  RETURN NEW;    -- เหลือแก้ได้เฉพาะ description / notes / updated_at
 END $$;
 
 DROP TRIGGER IF EXISTS trg_service_mapping_freeze ON public.account_mapping;
 CREATE TRIGGER trg_service_mapping_freeze
-  BEFORE UPDATE ON public.account_mapping
+  BEFORE UPDATE OR DELETE ON public.account_mapping
   FOR EACH ROW EXECUTE FUNCTION public.guard_service_mapping_freeze();
 
 -- ───────────────────────────────────────────────────────────────────────────
@@ -750,7 +792,15 @@ SELECT (SELECT count(*) FROM public.journal_entries) AS je, (SELECT count(*) FRO
 --   B8  กลับรายการเมื่อ payment JV เป็น draft / header-only / บัญชีผิด → 22023 (zero writes)
 --       counterexample ที่ต้อง block: Dr 1134 = 500 · Cr 4200 = 100 · Cr 1200 = 400
 --       (header balance ตรง แต่มีบัญชีแปลกปลอม + ไม่ใช่ 2 ขา) → service_payment_jv_is_valid = false
---   B9  แก้ account_mapping ของ service_% ที่ถูกใช้ลง JV แล้ว        → 42501
+--   B9  account_mapping ของ service_% ที่ถูกใช้ลง JV แล้ว (matrix):
+--         key change = 42501 · deactivate (true→false) = 42501 · DELETE = 42501 ·
+--         account-code change (4 ช่อง) = 42501 · แก้ notes/description อย่างเดียว = ผ่าน
+--         mapping ที่ยังไม่ถูกใช้: แก้/ลบได้ตามเดิม
+--   B10 recognition JV counterexamples (service_job_has_recognition_jv ต้องคืน false):
+--         Dr 1200 = 300 + Dr 1200 = 200 + Cr 42xx = 500  (split line, 3 บรรทัด)  → false
+--         lines ถูก แต่ header total_credit ผิด/null                              → false
+--         exact 2 ขา (Dr 1200 เต็ม / Cr 42xx เต็ม = total_cost)                   → true
+--         → เมื่อ false: record_service_payment_v2 ต้อง RAISE 22023 และ **ไม่ INSERT** service_payments
 --   ★ B1-B5 ต้องถูก block **ที่ DB (BEFORE UPDATE)** → runtime ไม่มีทางไปถึงขั้นคืนสต็อก
 --     (b2 ต้องเช็คผล PATCH ก่อนทำ side-effect ใด ๆ — บังคับด้วย guard ใน 606-b2)
 */

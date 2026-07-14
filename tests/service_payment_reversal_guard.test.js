@@ -139,11 +139,13 @@ test("G3 (guard 5). reversal ledger มีแล้วแต่ JV หาย →
   const first = await postJournalForServicePaymentReversal(700, { detailed: true });
   assert.equal(first.status, "posted", "ledger มีแถวแต่ JV หาย → retry แล้วต้องลงบัญชีได้");
 
-  resetMappingCache(); install({ jePostStatus: 409 });   // DB กันซ้ำด้วย idx_je_source_unique
+  // ★ review#3: ยิงซ้ำ → DB ปฏิเสธด้วย idx_je_source_unique → ต้อง **read-back + validate** JV ที่ค้างอยู่
+  //   (JV กลับรายการเดิมที่ stub คืนมาไม่มีอยู่ → duplicate-invalid:no-header ไม่ใช่ "duplicate" ลอย ๆ)
+  resetMappingCache(); install({ jePostStatus: 409 });
   const again = await postJournalForServicePaymentReversal(700, { detailed: true });
   assert.equal(again.status, "skipped");
-  assert.equal(again.reason, "duplicate", "idx_je_source_unique → skip ไม่สร้าง JV ซ้ำ");
-  assert.equal(posted.entries.length, 0);
+  assert.match(again.reason, /^duplicate-(valid|invalid:)/, "duplicate ต้องผ่านการตรวจของจริง ไม่ใช่ถือว่า healthy");
+  assert.equal(posted.entries.length, 0, "ห้ามเขียนซ้ำ");
 });
 
 test("G4 (should-fix). ledgerRecorded แยกจาก accountingPosted — JV ล้มห้ามรายงานว่าสำเร็จสมบูรณ์", async () => {
@@ -233,14 +235,17 @@ test("H3. ledger taxonomy = 6 สถานะ · auto-repair เฉพาะ NO_
 //  I. SQL — blocking 1 & 4 + should-fix + drift
 // ═══════════════════════════════════════════════════════════
 test("I1 (guard 1,2). recognition gate ตรวจ header + lines + บัญชี + ยอด (approved อย่างเดียวไม่พอ)", () => {
-  const fn = SQL.slice(SQL.indexOf("FUNCTION public.service_job_has_recognition_jv"), SQL.indexOf("-- 3) freeze"));
-  assert.match(fn, /FROM public\.journal_lines WHERE entry_id = v_entry\.id/, "ต้องอ่าน lines จริง");
-  assert.match(fn, /IF v_sum_d = 0 AND v_sum_c = 0 THEN RETURN false/, "approved header ที่ไม่มี lines → false");
+  const fn = SQL.slice(SQL.indexOf("FUNCTION public.service_job_has_recognition_jv"),
+                       SQL.indexOf("REVOKE ALL ON FUNCTION public.service_job_has_recognition_jv"));
+  assert.match(fn, /FROM public\.journal_lines/, "ต้องอ่าน lines จริง");
+  assert.match(fn, /IF v_cnt <> 2 THEN RETURN false/, "ต้องมีบรรทัดที่ไม่เป็นศูนย์ 2 บรรทัดพอดี (header ลอย/split line = false)");
   assert.match(fn, /round\(v_sum_d,2\) <> round\(v_sum_c,2\) THEN RETURN false/, "ไม่บาลานซ์ → false");
-  assert.match(fn, /round\(v_sum_d,2\) <> round\(coalesce\(v_entry\.total_debit,0\),2\) THEN RETURN false/, "lines ≠ header → false");
-  assert.match(fn, /round\(v_sum_d,2\) <> v_total THEN RETURN false/, "ยอด ≠ total_cost → false");
-  assert.match(fn, /account_code = v_map\.recognition_debit_code[\s\S]{0,160}round\(v_dr,2\) <> v_total THEN RETURN false/, "Dr ต้องเป็นบัญชีลูกหนี้ ยอดเต็ม");
-  assert.match(fn, /account_code = v_map\.credit_account_code[\s\S]{0,160}round\(v_cr,2\) <> v_total THEN RETURN false/, "Cr ต้องเป็นบัญชีรายได้ ยอดเต็ม");
+  assert.match(fn, /round\(v_entry\.total_debit,2\)\s+<> v_total THEN RETURN false/, "header total_debit ≠ ยอดงาน → false");
+  assert.match(fn, /round\(v_entry\.total_credit,2\) <> v_total THEN RETURN false/, "header total_credit ≠ ยอดงาน → false");
+  assert.match(fn, /IF v_dr_cnt <> 1 THEN RETURN false/, "Dr ต้องมีขาเดียว");
+  assert.match(fn, /IF v_cr_cnt <> 1 THEN RETURN false/, "Cr ต้องมีขาเดียว");
+  assert.match(fn, /account_code = v_map\.recognition_debit_code/, "Dr = บัญชีลูกหนี้ตาม mapping");
+  assert.match(fn, /account_code = v_map\.credit_account_code/, "Cr = บัญชีรายได้ตาม mapping");
   assert.match(SQL, /IF NOT public\.service_job_has_recognition_jv\(p_service_job_id\) THEN/, "RPC รับชำระต้องผ่าน gate นี้");
 });
 
