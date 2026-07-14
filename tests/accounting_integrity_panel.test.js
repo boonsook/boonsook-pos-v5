@@ -69,9 +69,14 @@ test("missing docDate falls back to today → bucket ตามกติกาเ
 });
 
 test("backfill runner uses detailed auto-post result and counts failed separately", () => {
-  for (const fn of ["postJournalForSale", "postJournalForExpense", "postJournalForReceipt", "postJournalForServiceJob"]) {
+  for (const fn of ["postJournalForSale", "postJournalForExpense", "postJournalForReceipt"]) {
     assert.match(BACKFILL_SRC, new RegExp(`${fn}\\(row,\\s*\\{\\s*detailed:\\s*true\\s*\\}\\)`), `${fn} must request detailed result`);
   }
+  // ★ Phase 606-b1: งานบริการ **ถูกถอดออกจาก backfill** (backfill ใช้ created_at = วันรับรู้ผิด และเป็น
+  //   ทางลัดข้าม recovery gate ของ 6 งาน legacy NO_JV) → ต้องไม่มีทั้ง source และการเรียก writer
+  assert.ok(!/postJournalForServiceJob/.test(BACKFILL_SRC), "backfill ห้ามเรียก writer งานบริการ");
+  assert.match(BACKFILL_SRC, /case "service_jobs":\s+result = \{ status: "skipped", reason: "service-writer-only" \}/,
+    "service_jobs ต้อง skip แบบชัดเจน (กัน source กลับมาเงียบ ๆ)");
   assert.match(BACKFILL_SRC, /result\?\.status\s*===\s*["']posted["']/, "posted result must increment created");
   assert.match(BACKFILL_SRC, /result\?\.status\s*===\s*["']failed["']/, "failed result must increment failed");
   assert.match(BACKFILL_SRC, /errors\.push\(\{\s*src:\s*bucket\.srcKey/, "failed result must be visible in errors list");

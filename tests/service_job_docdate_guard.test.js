@@ -51,7 +51,9 @@ function installPostOk() {
   };
 }
 
-const baseJob = { id: 70, job_no: "JOB-70", job_type: "ac", total_cost: 100, customer_name: "ทดสอบ", status: "delivered" };
+// ★ Phase 606-b1: metadata จาก DB (finance_flow_version) เป็นส่วนหนึ่งของสัญญา writer แล้ว —
+//   ขาด = block (ห้ามเดา v1). งาน legacy ทุกงานในระบบมี finance_flow_version = 1 หลัง migration 606-a
+const baseJob = { id: 70, job_no: "JOB-70", job_type: "ac", total_cost: 100, customer_name: "ทดสอบ", status: "delivered", finance_flow_version: 1 };
 
 // ───────────────────────────────────────────────
 // Behavioral — effective date = 2026-07-01
@@ -77,37 +79,40 @@ test("AH6: created+closed both in ก.ค. → docDate = closed_at month", async
   assert.match(res.docNo, /^SV202607/);
 });
 
-test("AH6: closed_at null → falls back to created_at (no regression for jobs without closed_at)", async () => {
+test("606-b1: closed_at null → **block** (recognition-date-required) — ห้าม fallback created_at อีกต่อไป", async () => {
   installPostOk();
   const res = await postJournalForServiceJob(
     { ...baseJob, id: 72, created_at: "2026-07-10T03:00:00Z", closed_at: null },
     { detailed: true }
   );
-  assert.equal(res.status, "posted");
-  assert.match(res.docNo, /^SV202607/, "fallback created_at (ก.ค.) still posts in that month");
+  assert.equal(res.status, "skipped");
+  assert.equal(res.reason, "recognition-date-required",
+    "งานที่ไม่มีวันปิดงาน = owner ต้องกำหนดวันรับรู้ผ่าน recovery (Phase 607) — backfill/reconcile ลัดไม่ได้");
 });
 
-test("AH6: created มิ.ย. + closed_at null → still skipped pre-effective (fallback honours the gate)", async () => {
+test("606-b1: created มิ.ย. + closed_at null → block ก่อนถึง effective gate (ไม่โพสต์ด้วยวันสร้าง)", async () => {
   const res = await postJournalForServiceJob(
     { ...baseJob, id: 73, created_at: "2026-06-15T03:00:00Z", closed_at: null },
     { detailed: true }
   );
   assert.equal(res.status, "skipped");
-  assert.equal(res.reason, "pre-effective");
-  assert.match(res.docDate, /^2026-06/, "docDate falls back to the created month when closed_at is null");
+  assert.equal(res.reason, "recognition-date-required");
+  assert.equal(res.docDate, undefined, "ห้ามคำนวณ docDate จาก created_at เลย");
 });
 
 // ───────────────────────────────────────────────
 // Source guards
 // ───────────────────────────────────────────────
 
-test("source: auto_post postJournalForServiceJob docDate uses closed_at (|| created_at)", () => {
+test("source: docDate = closed_at เท่านั้น (Phase 606-b1 — ห้าม fallback created_at/today)", () => {
   const src = fs.readFileSync(path.resolve("modules/accounting/auto_post.js"), "utf8");
   const start = src.indexOf("export async function postJournalForServiceJob");
-  const end = src.indexOf("export function _resolveReceiptDebitAccount", start);
+  const end = src.indexOf("// Public: Service payment (flow v2)", start);
   assert.ok(start !== -1 && end > start, "postJournalForServiceJob body must be found");
   const body = src.slice(start, end);
-  assert.match(body, /job\.closed_at\s*\|\|\s*job\.created_at/, "docDate must prefer closed_at, fall back to created_at");
+  assert.match(body, /const docDate = dateBkk\(job\.closed_at\)/, "docDate ต้องมาจาก closed_at ตรง ๆ");
+  assert.ok(!/job\.closed_at\s*\|\|\s*job\.created_at/.test(body), "ห้าม fallback created_at");
+  assert.match(body, /reason: "recognition-date-required"/, "closed_at ว่าง = block พร้อมเหตุผลชัดเจน");
   // the gate must still run on the chosen docDate (not bypassed)
   assert.match(body, /_isAfterEffective\(docDate\)/, "effective gate must still apply to the (new) docDate");
 });

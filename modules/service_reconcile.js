@@ -276,13 +276,21 @@ async function _handleRepost(ctx, container, job, btn) {
   const origText = btn ? btn.textContent : "";
   if (btn) { btn.disabled = true; btn.textContent = "กำลังส่ง..."; }
   try {
-    const entryId = await postJournalForServiceJob(job);
-    if (entryId) {
-      ctx?.showToast?.(`✅ ส่งเข้าบัญชีแล้ว (JE #${entryId})`);
+    // ★ Phase 606-b1: ใช้ canonical writer ตัวเดิม (ห้าม insert JE ตรง) + อ่านเหตุผลจริงจาก detailed
+    //   result — re-post **ลัด gate ไม่ได้**: งานที่ไม่มีวันรับรู้รายได้ (closed_at = null) หรือ
+    //   metadata flow หาย จะถูก block และบอกเหตุผลตรง ๆ (เดิมเหมาะรวมเป็น "อาจมีรายการอยู่แล้ว")
+    const res = await postJournalForServiceJob(job, { detailed: true });
+    if (res?.status === "posted") {
+      ctx?.showToast?.(`✅ ส่งเข้าบัญชีแล้ว (JE #${res.entryId || res.docNo || ""})`.trim());
+    } else if (res?.reason === "recognition-date-required") {
+      ctx?.showToast?.("⛔ งานนี้ไม่มีวันรับรู้รายได้ (closed_at) — ต้องให้เจ้าของกำหนดวันผ่าน recovery ก่อน");
+    } else if (res?.reason === "finance-flow-unknown") {
+      ctx?.showToast?.("⛔ ข้อมูล finance flow ของงานนี้ไม่ครบ — ลงบัญชีไม่ได้ (แจ้งผู้ดูแล)");
+    } else if (res?.reason === "not-income-status") {
+      ctx?.showToast?.("⛔ งานนี้ยังไม่ส่งมอบ — ยังรับรู้รายได้ไม่ได้");
     } else {
-      // null = idempotency hit (มี JE อยู่แล้ว), period locked, ก่อน effective date, หรือ post ล้มจริง
-      // โทษที่ console (auto_post log ไว้แล้ว) — refresh จะทำให้แถวที่มี JE แล้วหายไปเอง
-      ctx?.showToast?.("ยังไม่สำเร็จ — อาจมีรายการอยู่แล้ว หรือเกิดข้อผิดพลาด (ดู Console)");
+      // idempotency hit (มี JE อยู่แล้ว) / period locked / ก่อน effective date / post ล้มจริง
+      ctx?.showToast?.(`ยังไม่สำเร็จ (${res?.reason || "unknown"}) — ดู Console`);
     }
   } catch (e) {
     // postJournalForServiceJob ปกติไม่ throw แต่กันไว้ — ไม่ fake success

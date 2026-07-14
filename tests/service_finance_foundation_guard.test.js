@@ -419,8 +419,13 @@ test("C2b. review#3: **ทั้งสอง runner** ต้อง partition met
 test("C3. 606-a ไม่ปลดล็อก recovery และ runtime ยังไม่รู้จักของใหม่", () => {
   assert.match(read("scripts/service_no_jv_recover.js"), /if \(APPLY_FLAG && R\.RECOVERY_APPLY_DISABLED\)/);
   assert.match(read("scripts/service_no_jv_recover_lib.js"), /RECOVERY_APPLY_DISABLED = true/);
-  for (const f of ["modules/accounting/auto_post.js", "modules/accounting/backfill.js", "main.js"]) {
-    assert.ok(!/service_payments|record_service_payment_v2|recognition_debit_code|finance_flow_version/.test(read(f)),
-      `${f} ต้องยังไม่รู้จักของใหม่ (606-b เท่านั้นที่ activate)`);
+  // ★ Phase 606-b1: writer (auto_post) รู้จัก flow v2 / ledger ได้แล้ว = เนื้องานของ b1
+  //   แต่ runtime ที่ "เปิดใช้งานจริง" (main.js drawer / customer_dashboard) **ยังห้ามแตะ**
+  //   จนกว่าจะถึง 606-b2/b3 (build 603 + activation SQL) — flow v1 ต้องไม่เปลี่ยนพฤติกรรมก่อน cutover
+  for (const f of ["main.js", "modules/customer_dashboard.js"]) {
+    assert.ok(!/service_payments|record_service_payment_v2|recordServicePayment|finance_flow_version/.test(read(f)),
+      `${f} ต้องยังไม่รู้จักของใหม่ (606-b2/b3 เท่านั้นที่ activate)`);
   }
+  // backfill ต้องไม่โพสต์งานบริการอีกต่อไป (ลัด recovery gate ของ 6 งาน legacy ไม่ได้)
+  assert.ok(!/postJournalForServiceJob/.test(read("modules/accounting/backfill.js")));
 });

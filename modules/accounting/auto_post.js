@@ -849,8 +849,27 @@ export async function getServiceTransferCoa(jobType) {
   } catch { return null; }
 }
 
+// ═══════════════════════════════════════════════════════════
+// Phase 606-b1: finance flow v1 (legacy) vs v2 (delivery = รับรู้รายได้ / payment = อีกเหตุการณ์)
+// ═══════════════════════════════════════════════════════════
+// v1 (legacy)  — เหตุการณ์เดียว: ปิดงาน → Dr เงินสด/ธนาคาร / Cr รายได้ (พฤติกรรมเดิม ห้าม drift)
+// v2 (ใหม่)    — สองเหตุการณ์:
+//                 ส่งมอบ (delivered) → Dr 1200 ลูกหนี้ / Cr รายได้ 42xx  ← ฟังก์ชันนี้
+//                 รับชำระ            → Dr เงินสด/ธนาคาร / Cr 1200        ← postJournalForServicePayment
+//
+// ★ fail-closed: finance_flow_version หาย/ไม่ใช่ 1|2 → **ไม่โพสต์** (ห้ามเดาเป็น v1 — เดาผิด =
+//   งาน v2 ได้ JV เงินสดทั้งที่ลูกค้ายังไม่จ่าย → เงินในสมุดไม่มีจริง)
+export const SERVICE_FLOW_VERSIONS = [1, 2];
+export function serviceFinanceFlowOf(job) {
+  const raw = job?.finance_flow_version;
+  if (raw === 1 || raw === 2) return raw;
+  if (typeof raw === "string" && /^[12]$/.test(raw.trim())) return Number(raw.trim());
+  return null;                       // undefined / null / 0 / 3 / junk → unknown = block
+}
+
 /**
- * @param {object} job - service_jobs row (ต้องมี id, created_at, total_cost, job_type, status)
+ * @param {object} job - service_jobs row (ต้องมี id, total_cost, job_type, status, closed_at,
+ *                       finance_flow_version — metadata จาก DB; ขาด = block ไม่โพสต์)
  */
 export async function postJournalForServiceJob(job, opts = {}) {
   if (!job?.id || !job?.total_cost) return _journalResult(opts.detailed, { status: "skipped", reason: "missing-required", sourceTable: "service_jobs", sourceId: job?.id });
@@ -860,17 +879,34 @@ export async function postJournalForServiceJob(job, opts = {}) {
     console.info("[auto_post] skip deleted service job:", job.id);
     return _journalResult(opts.detailed, { status: "skipped", reason: "deleted", sourceTable: "service_jobs", sourceId: job.id });
   }
-  // เฉพาะงานที่ปิดแล้ว (delivered / closed) เท่านั้น
-  if (!["delivered", "closed", "done"].includes(String(job.status || "").toLowerCase())) {
-    return _journalResult(opts.detailed, { status: "skipped", reason: "not-income-status", sourceTable: "service_jobs", sourceId: job.id });
+  // ★ Phase 606-b1: flow version ต้องมาจาก DB row จริง — หาย/เพี้ยน = block (ห้าม fallback v1)
+  const flow = serviceFinanceFlowOf(job);
+  if (flow === null) {
+    console.error("[auto_post] service job missing finance_flow_version — refuse to post:", job.id);
+    return _journalResult(opts.detailed, { status: "skipped", reason: "finance-flow-unknown", sourceTable: "service_jobs", sourceId: job.id });
   }
 
-  // Phase 542 (AH6): บริการรับรู้รายได้ "วันปิดงาน" (cash-basis) → docDate = closed_at (วันรับรู้จริง)
-  //   ไม่ใช่ created_at (วันสร้าง/นัด). งานที่สร้างเดือนหนึ่งปิดอีกเดือน เดิมลง JV ผิดงวด — และคาบ go-live
-  //   1 ก.ค.: สร้าง มิ.ย. ปิด ก.ค. → docDate=created_at(มิ.ย.) < effective → JV skip = รายได้หาย. ใช้
-  //   closed_at → ลงงวดถูก. fallback created_at เมื่อ closed_at ยัง null (เผื่อ caller เก่า/ยังไม่ stamp).
-  const _docBasis = job.closed_at || job.created_at;
-  const docDate = _docBasis ? dateBkk(_docBasis) : todayBkk();
+  // สถานะที่รับรู้รายได้:
+  //   v1 = done/delivered/closed (เดิม)
+  //   v2 = **delivered เท่านั้น** (done = ช่างทำเสร็จภายใน ยังไม่ส่งมอบ · closed = ลูกค้ายืนยันปิด workflow
+  //        ไม่ใช่เหตุการณ์รับเงิน/รับรู้รายได้ซ้ำ)
+  const st = String(job.status || "").toLowerCase();
+  const incomeStatuses = flow === 2 ? ["delivered"] : ["delivered", "closed", "done"];
+  if (!incomeStatuses.includes(st)) {
+    return _journalResult(opts.detailed, { status: "skipped", reason: "not-income-status", sourceTable: "service_jobs", sourceId: job.id, flow });
+  }
+
+  // Phase 542 (AH6): บริการรับรู้รายได้ "วันส่งมอบ/ปิดงาน" → docDate = closed_at (วันรับรู้จริง)
+  //   ★ Phase 606-b1: **เลิก fallback created_at/today** — งานเก่าที่ closed_at = null (ปิดผ่านช่องทาง
+  //   ที่ไม่ stamp วันปิด) เคยถูกโพสต์ด้วยวันสร้าง = ลง JV ผิดงวด. ต่อไปนี้ต้องให้ owner กำหนดวันรับรู้
+  //   ผ่าน recovery runner (Phase 607) เท่านั้น — backfill/reconcile ลัดไม่ได้.
+  if (!job.closed_at) {
+    return _journalResult(opts.detailed, {
+      status: "skipped", reason: "recognition-date-required",   // OWNER_RECOGNITION_DATE_REQUIRED
+      sourceTable: "service_jobs", sourceId: job.id, flow
+    });
+  }
+  const docDate = dateBkk(job.closed_at);
   if (!_isAfterEffective(docDate)) {
     return _journalResult(opts.detailed, { status: "skipped", reason: "pre-effective", sourceTable: "service_jobs", sourceId: job.id, docDate });
   }
@@ -883,14 +919,26 @@ export async function postJournalForServiceJob(job, opts = {}) {
     return _journalResult(opts.detailed, { status: "skipped", reason: "missing-mapping", sourceTable: "service_jobs", sourceId: job.id, mappingKey });
   }
 
-  // ★ Phase 88.6 / 560: รับเงินโอน → Dr เข้าบัญชีตามประเภทงาน (account_mapping.transfer_debit_code)
-  //   แทน 1130 แบน. reuse _resolveReceiptDebitAccount (validate COA จริง; ไม่ valid/ยังไม่ตั้ง =
-  //   fallback 1130 — ไม่ post บัญชีผี). เงินสด = คง debit_account_code (1110) เดิม.
-  let debitAccount = mapping.debit_account_code;
-  const pm = String(job.payment_method || "").toLowerCase();
-  if (/transfer|โอน|qr|bank/.test(pm)) {
+  let debitAccount;
+  if (flow === 2) {
+    // ★ v2: ส่งมอบ = รับรู้รายได้เป็น "ลูกหนี้" (Dr 1200) — เงินยังไม่เข้า. payment_method ของใบงาน
+    //   ไม่มีความหมายที่นี่ (ช่องทางเงินอยู่ที่ ledger การรับชำระ) → ห้ามใช้ตัดสินบัญชี Dr.
+    const recognitionCode = mapping.recognition_debit_code;
     const validCodes = await _getValidCoaCodes();
-    debitAccount = _resolveReceiptDebitAccount(mapping.transfer_debit_code, "1130", validCodes);
+    if (!recognitionCode || (validCodes.size && !validCodes.has(String(recognitionCode)))) {
+      console.error("[auto_post] missing/invalid recognition_debit_code for", mappingKey, recognitionCode);
+      return _journalResult(opts.detailed, { status: "skipped", reason: "missing-recognition-account", sourceTable: "service_jobs", sourceId: job.id, mappingKey, flow });
+    }
+    debitAccount = String(recognitionCode);
+  } else {
+    // ★ Phase 88.6 / 560 (v1 legacy — พฤติกรรมเดิมเป๊ะ): รับเงินโอน → Dr เข้าบัญชีตามประเภทงาน
+    //   (account_mapping.transfer_debit_code) แทน 1130 แบน. เงินสด = debit_account_code (1110).
+    debitAccount = mapping.debit_account_code;
+    const pm = String(job.payment_method || "").toLowerCase();
+    if (/transfer|โอน|qr|bank/.test(pm)) {
+      const validCodes = await _getValidCoaCodes();
+      debitAccount = _resolveReceiptDebitAccount(mapping.transfer_debit_code, "1130", validCodes);
+    }
   }
 
   const desc = `งานบริการ ${job.job_no || '#' + job.id} — ${job.customer_name || ''}`.trim();
@@ -908,6 +956,129 @@ export async function postJournalForServiceJob(job, opts = {}) {
       { account_code: mapping.credit_account_code, debit: 0,      credit: amount, description: desc }
     ]
   });
+}
+
+
+// ═══════════════════════════════════════════════════════════
+// Public: Service payment (flow v2) → JV — Dr เงินสด/ธนาคาร / Cr 1200 ลูกหนี้
+// ═══════════════════════════════════════════════════════════
+// ★ Phase 606-b1 — เหตุการณ์ "รับเงิน" แยกจาก "ส่งมอบ" (คนละ JV คนละวัน)
+//   ★ อ่าน row จาก DB เสมอ (service_payments = append-only ledger ที่ RPC เขียน) — **ห้ามเชื่อ
+//     amount/method/bank จากฟอร์ม**: ฟอร์มถูกแก้ได้, ledger คือความจริงเดียวที่บัญชีต้องตาม
+//   idempotent: source_table='service_payments' + source_id=payment.id (idx_je_source_unique)
+//   → retry ได้เสมอ (ledger มีแถวแต่ JV หาย = reconcile แล้วยิงซ้ำ ไม่เกิด JV ซ้ำ)
+async function _fetchOne(path) {
+  const cfg = window.SUPABASE_CONFIG;
+  const r = await _authFetch(`${cfg.url}/rest/v1/${path}`, { headers: { Accept: "application/json" } });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const arr = await r.json();
+  return Array.isArray(arr) ? arr[0] || null : null;
+}
+
+export async function postJournalForServicePayment(paymentId, opts = {}) {
+  const detailed = opts.detailed;
+  if (!paymentId) return _journalResult(detailed, { status: "skipped", reason: "missing-required", sourceTable: "service_payments", sourceId: paymentId });
+
+  let pay = null, job = null;
+  try {
+    pay = await _fetchOne(`service_payments?select=*&id=eq.${encodeURIComponent(paymentId)}`);
+    if (!pay) return _journalResult(detailed, { status: "skipped", reason: "payment-not-found", sourceTable: "service_payments", sourceId: paymentId });
+    job = await _fetchOne(`service_jobs?select=id,job_no,job_type,customer_name,finance_flow_version&id=eq.${encodeURIComponent(pay.service_job_id)}`);
+  } catch (e) {
+    // fail-closed: อ่าน ledger ไม่ได้ = ไม่โพสต์ (ห้ามเดาจากฟอร์ม) — reconcile จะยิงซ้ำภายหลัง
+    console.error("[auto_post] cannot read service payment/job:", e?.message || e);
+    return _journalResult(detailed, { status: "failed", reason: "ledger-read-failed", sourceTable: "service_payments", sourceId: paymentId, error: String(e?.message || e) });
+  }
+  if (!job) return _journalResult(detailed, { status: "skipped", reason: "job-not-found", sourceTable: "service_payments", sourceId: paymentId });
+  if (serviceFinanceFlowOf(job) !== 2) {
+    // งาน flow v1 ไม่มีลูกหนี้ให้ล้าง (JV เดิม Dr เงินสด/ธนาคารไปแล้ว) → รับชำระผ่าน ledger ไม่ได้
+    return _journalResult(detailed, { status: "skipped", reason: "not-flow-v2", sourceTable: "service_payments", sourceId: paymentId });
+  }
+
+  const docDate = dateBkk(pay.paid_at);
+  if (!_isAfterEffective(docDate)) {
+    return _journalResult(detailed, { status: "skipped", reason: "pre-effective", sourceTable: "service_payments", sourceId: paymentId, docDate });
+  }
+
+  const mappings = await _getMappings();
+  const mappingKey = serviceMappingKeyForJobType(job.job_type);
+  const mapping = mappings[mappingKey];
+  if (!mapping?.debit_account_code || !mapping?.recognition_debit_code) {
+    return _journalResult(detailed, { status: "skipped", reason: "missing-mapping", sourceTable: "service_payments", sourceId: paymentId, mappingKey });
+  }
+
+  // Dr = เงินสด (mapping.debit_account_code 1110) หรือ **บัญชีธนาคารที่ ledger บันทึกไว้** (ไม่ใช่ mapping)
+  const validCodes = await _getValidCoaCodes();
+  const method = String(pay.payment_method || "").toLowerCase();
+  let debitAccount;
+  if (method === "transfer") {
+    const bank = pay.bank_coa_code ? String(pay.bank_coa_code) : "";
+    if (!bank || (validCodes.size && !validCodes.has(bank))) {
+      console.error("[auto_post] service payment transfer without valid bank_coa_code:", paymentId, bank);
+      return _journalResult(detailed, { status: "skipped", reason: "missing-bank-account", sourceTable: "service_payments", sourceId: paymentId });
+    }
+    debitAccount = bank;
+  } else if (method === "cash") {
+    debitAccount = String(mapping.debit_account_code);
+  } else {
+    return _journalResult(detailed, { status: "skipped", reason: "unknown-payment-method", sourceTable: "service_payments", sourceId: paymentId });
+  }
+
+  const amount = Number(pay.amount);
+  const desc = `รับชำระงานบริการ ${job.job_no || "#" + job.id} — ${job.customer_name || ""}`.trim();
+  return _postJournal({
+    sourceTable: "service_payments",
+    sourceId: pay.id,
+    docType: "RV",
+    docDate,
+    description: desc,
+    detailed,
+    lines: [
+      { account_code: debitAccount,                        debit: amount, credit: 0,      description: desc },
+      { account_code: String(mapping.recognition_debit_code), debit: 0,   credit: amount, description: desc }   // Cr 1200 ล้างลูกหนี้
+    ]
+  });
+}
+
+/**
+ * รับชำระงานบริการ flow v2: RPC (ledger + guard ทั้งหมดอยู่ใน DB) → อ่าน row กลับ → โพสต์ JV
+ * ★ ไม่มีการ INSERT service_payments จาก client เด็ดขาด (RLS ไม่มี policy เขียนอยู่แล้ว)
+ * ★ RPC สำเร็จแต่ JV พลาด = ledger-without-JV → reconcile/retry ได้ (ไม่ rollback เงินที่รับจริง)
+ * @returns {Promise<{ok:boolean, paymentId?:number, inserted?:boolean, jv?:object, error?:string}>}
+ */
+export async function recordServicePayment({ serviceJobId, amount, paymentMethod, paidAt, idempotencyKey, bankCoaCode = null, slipUrl = null, note = null }) {
+  const cfg = window.SUPABASE_CONFIG;
+  let body;
+  try {
+    const r = await _authFetch(`${cfg.url}/rest/v1/rpc/record_service_payment_v2`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        p_service_job_id: serviceJobId,
+        p_amount: amount,
+        p_payment_method: paymentMethod,
+        p_paid_at: paidAt,
+        p_idempotency_key: idempotencyKey,
+        p_bank_coa_code: bankCoaCode,
+        p_slip_url: slipUrl,
+        p_note: note
+      })
+    });
+    const txt = await r.text();
+    if (!r.ok) {
+      console.error("[auto_post] record_service_payment_v2 failed:", r.status, txt.slice(0, 200));
+      return { ok: false, error: txt.slice(0, 300) };
+    }
+    body = txt ? JSON.parse(txt) : null;
+  } catch (e) {
+    console.error("[auto_post] record_service_payment_v2 error:", e?.message || e);
+    return { ok: false, error: String(e?.message || e) };
+  }
+
+  const paymentId = body?.payment_id;
+  if (!paymentId) return { ok: false, error: "RPC ไม่คืน payment_id" };
+  const jv = await postJournalForServicePayment(paymentId, { detailed: true });
+  return { ok: true, paymentId, inserted: body?.inserted === true, paidTotal: body?.paid_total, outstanding: body?.outstanding_after, jv };
 }
 
 
