@@ -435,3 +435,111 @@ test("F5. docstring ของ fetchServiceJVStatus ต้องตรงเส�
   assert.match(doc, /dataIncomplete/);
   assert.ok(!/→ หา orphan ผ่าน findUnpostedServiceJobs \(source_id เป็น primary match\)/.test(doc), "เอกสารเก่าที่ไม่ตรงเส้นทางต้องถูกแก้");
 });
+
+// ═══════════════════════════════════════════════════════════
+//  G. REVIEW#6 — unlinked ต้องชนะ linked-clean · marker boundary-safe
+// ═══════════════════════════════════════════════════════════
+const LINKED_OK = {   // JV ที่ผูก source และถูกต้องเป๊ะ (flow v2: Dr 1200 / Cr 4200 = 500)
+  entry: { id: 88, source_id: 30, status: "approved", total_debit: 500, total_credit: 500, description: "" },
+  lines: [{ entry_id: 88, account_code: "1200", debit: 500, credit: 0 }, { entry_id: 88, account_code: "4200", debit: 0, credit: 500 }]
+};
+const LINKED_BROKEN = {   // header ลอย (ไม่มี lines)
+  entry: { id: 89, source_id: 30, status: "approved", total_debit: 500, total_credit: 500, description: "" },
+  lines: []
+};
+
+function installLinked({ jobs = [closedJob], noDate = [], linked = null, unlinked = [] } = {}) {
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    if (u.includes("/service_jobs?select=")) return ok(u.includes("closed_at=is.null") ? noDate : jobs);
+    if (u.includes("source_id=is.null")) return ok(unlinked);
+    if (u.includes("/journal_entries?source_table=eq.service_jobs")) return ok(linked ? [linked.entry] : []);
+    if (u.includes("/journal_lines?select=")) return ok(linked ? linked.lines : []);
+    if (u.includes("/account_mapping")) return ok([MAPPING]);
+    if (u.includes("/service_payments?select=") || u.includes("/service_payment_reversals?select=")) return ok([]);
+    if (u.includes("/journal_entries?source_table=in.")) return ok([]);
+    return ok([]);
+  };
+}
+const manual = (id, status) => ({ id, description: `ลงบัญชีเอง งานบริการ JOB-30 — ข`, status, total_debit: 500, total_credit: 500 });
+
+test("G1. linked valid + unlinked approved → SERVICE_JV_UNLINKED (ห้ามถูก 'JV ถูกต้องแล้ว' กลบ)", async () => {
+  installLinked({ linked: LINKED_OK, unlinked: [manual(910, "approved")] });
+  const res = await RECON.fetchServiceJVStatus({ effectiveDate: "2026-07-01" });
+  assert.equal(res.orphans.length, 0);
+  assert.equal(res.conflicts.length, 1, "ต้องมี conflict เดียว (ไม่ duplicate)");
+  assert.equal(res.conflicts[0].state, "SERVICE_JV_UNLINKED");
+  assert.deepEqual(res.conflicts[0].unlinkedEntries, [{ id: 910, status: "approved" }]);
+});
+
+test("G2. linked valid + unlinked draft → SERVICE_JV_UNLINKED เช่นกัน (draft อาจถูก approve ทีหลัง)", async () => {
+  installLinked({ linked: LINKED_OK, unlinked: [manual(911, "draft")] });
+  const res = await RECON.fetchServiceJVStatus({ effectiveDate: "2026-07-01" });
+  assert.equal(res.conflicts[0].state, "SERVICE_JV_UNLINKED");
+  assert.equal(res.conflicts[0].entryStatus, "draft");
+});
+
+test("G3. linked invalid (header ลอย) + unlinked → conflict เดียว = SERVICE_JV_UNLINKED (ไม่ซ่อน ไม่นับซ้ำ)", async () => {
+  installLinked({ linked: LINKED_BROKEN, unlinked: [manual(912, "approved")] });
+  const res = await RECON.fetchServiceJVStatus({ effectiveDate: "2026-07-01" });
+  assert.equal(res.conflicts.length, 1);
+  assert.equal(res.conflicts[0].state, "SERVICE_JV_UNLINKED");
+  assert.equal(res.orphans.length, 0);
+});
+
+test("G4. closed_at = null + linked + unlinked → SERVICE_JV_UNLINKED (ไม่ถูก DATE_MISSING_WITH_JV กลบ)", async () => {
+  const nd = { ...closedJob, id: 30, job_no: "JOB-30", closed_at: null };
+  installLinked({ jobs: [], noDate: [nd], linked: { ...LINKED_OK, entry: { ...LINKED_OK.entry, source_id: 30 } }, unlinked: [manual(913, "approved")] });
+  const res = await RECON.fetchServiceJVStatus({ effectiveDate: "2026-07-01" });
+  assert.equal(res.dateMissingWithJv.length, 0);
+  assert.equal(res.needRecognitionDate.length, 0);
+  assert.equal(res.conflicts[0].state, "SERVICE_JV_UNLINKED");
+});
+
+test("G5. unlinked หลายรายการของงานเดียว → conflict เดียว แต่รายงาน JE id/status ครบทุกตัว (ไม่มี description/PII)", async () => {
+  installLinked({ linked: LINKED_OK, unlinked: [manual(914, "approved"), manual(915, "draft"), manual(916, null)] });
+  const res = await RECON.fetchServiceJVStatus({ effectiveDate: "2026-07-01" });
+  assert.equal(res.conflicts.length, 1);
+  assert.deepEqual(res.conflicts[0].unlinkedEntries, [
+    { id: 914, status: "approved" }, { id: 915, status: "draft" }, { id: 916, status: null }
+  ]);
+  assert.match(res.conflicts[0].reason, /3 รายการ/);
+  assert.ok(!/ลงบัญชีเอง/.test(JSON.stringify(res.conflicts[0])), "ห้ามเก็บ/รายงาน description (PII)");
+
+  container.innerHTML = "";
+  await RECON._loadAndRender(ctx, container);
+  for (const id of [914, 915, 916]) assert.match(container.innerHTML, new RegExp(`JE #${id}`));
+  assert.ok(!container.innerHTML.includes("svc-recon-repost"), "SERVICE_JV_UNLINKED ห้ามมีปุ่ม re-post");
+});
+
+test("G6. marker boundary: JOB-70 ไม่ชน JOB-701 (ทั้ง extract และการจับคู่)", async () => {
+  assert.deepEqual([...RECON.extractPostedJobNos(["งานบริการ JOB-701 — ข"])], ["JOB-701"]);
+  const job70 = { ...closedJob, id: 70, job_no: "JOB-70" };
+  installLinked({ jobs: [job70], unlinked: [{ id: 920, description: "JOB-701 คนละงาน", status: "approved", total_debit: 1, total_credit: 1 }] });
+  const res = await RECON.fetchServiceJVStatus({ effectiveDate: "2026-07-01" });
+  assert.equal(res.conflicts.length, 0);
+  assert.deepEqual(res.orphans.map(j => j.id), [70]);
+});
+
+test("G7. XJOB-70 ไม่ถูกจับเป็น marker (เดิมถูกจับ = false positive)", () => {
+  assert.deepEqual([...RECON.extractPostedJobNos(["ลงบัญชี XJOB-70 เอง"])], []);
+});
+
+test("G8. JOB-70x ไม่ถูกจับเป็น JOB-70", () => {
+  assert.deepEqual([...RECON.extractPostedJobNos(["JOB-70x"])], []);
+  assert.deepEqual([...RECON.extractPostedJobNos(["JOB-70-1"])], [], "มีขีดต่อท้าย = ไม่ใช่ marker");
+});
+
+test("G9. ข้อความไทยล้อมรอบ + หลาย marker + dedupe", () => {
+  assert.deepEqual([...RECON.extractPostedJobNos(["งานบริการ JOB-70 — ก และ JOB-701 — ข"])].sort(), ["JOB-70", "JOB-701"]);
+  assert.deepEqual([...RECON.extractPostedJobNos(["JOB-70 กับ JOB-70 อีกครั้ง"])], ["JOB-70"], "dedupe marker ซ้ำ");
+  assert.deepEqual([...RECON.extractPostedJobNos(["ปิดงาน(JOB-70)เรียบร้อย"])], ["JOB-70"], "วงเล็บไม่ใช่ขอบตัวอักษร → ยังจับได้");
+});
+
+test("G10. งานสะอาด (linked valid + ไม่มี unlinked) → ไม่มี conflict/orphan เหมือนเดิม", async () => {
+  installLinked({ linked: LINKED_OK, unlinked: [] });
+  const res = await RECON.fetchServiceJVStatus({ effectiveDate: "2026-07-01" });
+  assert.equal(res.conflicts.length, 0);
+  assert.equal(res.orphans.length, 0);
+  assert.equal(res.needRecognitionDate.length, 0);
+});

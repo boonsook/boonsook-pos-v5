@@ -26,12 +26,14 @@ import { ACCOUNTING_EFFECTIVE_DATE } from "./accounting/effective_date.js";
 export const SERVICE_INCOME_STATUSES = ["delivered", "closed", "done"];
 // effective date เดียวกับ ACCOUNTING_EFFECTIVE_DATE ใน auto_post.js (ก่อนวันนี้ = test data → auto_post skip)
 const DEFAULT_EFFECTIVE_DATE = ACCOUNTING_EFFECTIVE_DATE;
-const JOB_NO_GLOBAL = /JOB-\d+/g;   // ดึงเลขงานจาก description (อาจมีหลายตัว)
-const JOB_NO_ONE = /JOB-\d+/;       // ตรวจรูปแบบเลขงานเดียว (ไม่ใช้ /g — กัน lastIndex state)
-// ★ addendum#2: "เลขงานที่ใช้จับคู่ได้จริง" ต้อง **anchored** — JOB_NO_ONE (/JOB-\d+/) ไม่ anchor
-//   จึงมองว่า "XJOB-70" ผ่าน. การจับคู่ทำด้วย Set equality กับผลของ extractPostedJobNos() เท่านั้น
-const JOB_NO_CANONICAL = /^JOB-\d+$/;
-export function isCanonicalJobNo(v) { return JOB_NO_CANONICAL.test(String(v ?? "").trim()); }
+// ★ review#6 (blocking 2): marker ต้อง **boundary-safe** — เดิม /JOB-\d+/ ไม่มีขอบ ทำให้
+//   "XJOB-70" ถูกจับ และ "JOB-70x" ก็ถูกจับเป็น JOB-70. ใช้ helper กลางตัวเดียวทั้งระบบ:
+//   ซ้าย: ห้ามมีตัวอักษร/ตัวเลข/ขีดติดกัน · ขวา: ห้ามมีตัวเลข/ตัวอักษร/ขีดต่อท้าย
+//   (ข้อความไทยรอบ ๆ ไม่ถือเป็นขอบ → "งานบริการ JOB-70 — ก" ยังจับได้)
+const JOB_NO_GLOBAL = /(?<![A-Za-z0-9-])JOB-\d+(?![A-Za-z0-9-])/g;
+const JOB_NO_ONE = /^JOB-\d+$/;    // canonical (anchored) — ใช้ตรวจ job_no ของงาน
+// การจับคู่ทำด้วย Set equality กับผลของ extractPostedJobNos() เท่านั้น (ไม่มี regex ชุดที่สอง)
+export function isCanonicalJobNo(v) { return JOB_NO_ONE.test(String(v ?? "").trim()); }
 
 // ═══════════════════════════════════════════════════════════
 //  PURE DETECTION (testable — no DOM / no network)
@@ -122,7 +124,7 @@ export function findUnpostedServiceJobs(jobs, posted, opts = {}) {
     // 3) primary match: มี JE ที่ source_id = job.id แล้ว → ไม่ orphan
     if (sourceIds.has(String(job.id))) return;
     const jobNo = String(job.job_no || "").trim();
-    const hasValidJobNo = JOB_NO_ONE.test(jobNo);
+    const hasValidJobNo = isCanonicalJobNo(jobNo);
     // 4) ไม่มี source_id info (legacy) + ไม่มีเลขงาน = จับคู่ไม่ได้ → ไม่ flag (กัน false-positive)
     if (!hasSourceIds && !hasValidJobNo) return;
     // 5) ต้องรับรู้รายได้หลัง effective date — ★ Phase 606-b1: ใช้ closed_at (วันรับรู้จริง) ถ้ามี
@@ -393,7 +395,12 @@ function resultsHtml(orphans, res) {
     conflicts.forEach(c => parts.push(`
       <div style="border:1px solid #ef4444;background:#fef2f2;border-radius:8px;padding:12px;margin-bottom:10px">
         <div style="font-weight:700;font-size:14px">${escHtml(c.state)} — ${escHtml(String(c.job?.job_no || "#" + c.job?.id))}</div>
-        <div style="font-size:12px;color:#991b1b">฿${escHtml(fmtAmount(c.job?.total_cost))} · JE #${escHtml(String(c.entryId ?? "—"))}${c.entryStatus ? " · สถานะ " + escHtml(c.entryStatus) : ""} · เหตุ: ${escHtml(c.reason)} — <b>ซ่อมอัตโนมัติไม่ได้</b> (มีเอกสารอยู่แล้ว ระบบกันยิงทับ)</div>
+        <div style="font-size:12px;color:#991b1b">฿${escHtml(fmtAmount(c.job?.total_cost))} · ${
+          Array.isArray(c.unlinkedEntries) && c.unlinkedEntries.length
+            ? `รายการบัญชีที่ไม่ผูกงาน ${c.unlinkedEntries.length} รายการ: ` +
+              c.unlinkedEntries.map(e => `JE #${escHtml(String(e.id))} (${escHtml(e.status || "?")})`).join(" , ")
+            : `JE #${escHtml(String(c.entryId ?? "—"))}${c.entryStatus ? " · สถานะ " + escHtml(c.entryStatus) : ""} · เหตุ: ${escHtml(c.reason)}`
+        } — <b>ซ่อมอัตโนมัติไม่ได้</b> (มีเอกสารอยู่แล้ว ระบบกันยิงทับ)</div>
       </div>`));
   }
   if (led) {
@@ -518,10 +525,11 @@ export async function fetchServiceJVStatus(opts = {}) {
     // ★ addendum#1: **ทุกสถานะ** (draft/approved/อื่น ๆ) ที่อ้างเลขงานตรงตัว = fail-closed
     //   draft วันนี้อาจถูก approve พรุ่งนี้ → ถ้าเรายิง re-post ไปแล้ว = รายได้ซ้ำ
     //   เก็บ status ไว้แสดงในรายงานด้วย (admin ต้องเห็น JE id + สถานะ เพื่อไปตรวจเอง)
-    const unlinkedByJobNo = new Map();       // job_no (exact, canonical) → JE ที่ไม่ผูก source
+    const unlinkedByJobNo = new Map();       // job_no (exact, canonical) → **ทุก** JE ที่ไม่ผูก source
     unlinkedRows.forEach(e => {
       extractPostedJobNos([e.description]).forEach(no => {         // ← ตัวดึง marker ตัวเดียวของระบบ
-        if (!unlinkedByJobNo.has(no)) unlinkedByJobNo.set(no, e);
+        if (!unlinkedByJobNo.has(no)) unlinkedByJobNo.set(no, []);
+        unlinkedByJobNo.get(no).push({ id: e.id, status: e.status || null });   // ไม่เก็บ description (PII)
       });
     });
 
@@ -564,27 +572,33 @@ export async function fetchServiceJVStatus(opts = {}) {
     // งานนี้มี JE ที่คนลงมือไว้เอง (ไม่ผูก source) อ้างเลขงานนี้อยู่ไหม — เลขงานต้อง **ตรงตัว**
     const unlinkedFor = (job) => {
       const no = String(job?.job_no ?? "").trim();
-      if (!isCanonicalJobNo(no)) return null;                       // XJOB-70 / ว่าง = จับคู่ไม่ได้
-      return unlinkedByJobNo.has(no) ? unlinkedByJobNo.get(no) : null;   // exact Set equality
+      if (!isCanonicalJobNo(no)) return [];                         // XJOB-70 / ว่าง = จับคู่ไม่ได้
+      return unlinkedByJobNo.get(no) || [];                         // exact match → JE ทุกตัวของเลขงานนี้
     };
+    // conflict เดียวต่องาน (ไม่ duplicate count) + บอกจำนวนและ JE id/status ทุกตัว (ไม่มี description)
+    const unlinkedConflict = (job, list) => ({
+      job, state: "SERVICE_JV_UNLINKED",
+      reason: `manual-jv-not-linked (${list.length} รายการ: ` +
+              list.map(e => `JE #${e.id} · ${e.status || "?"}`).join(" , ") + ")",
+      entryId: list[0].id,
+      entryStatus: list[0].status,
+      unlinkedEntries: list
+    });
 
     // ★ "posted" = ผ่าน validator เท่านั้น · header เสีย = conflict (auto-repair ไม่ได้ — unique index กันทับ)
     //   ★ review#5: มี JE ที่ไม่ผูก source อ้างเลขงานนี้ = SERVICE_JV_UNLINKED → ห้ามมีปุ่ม re-post
     //     (ยิงซ้ำ = รายได้ซ้ำ เพราะ unique index ไม่กัน source = NULL)
     const orphans = [], conflicts = [];
     closedJobs.filter(eligible).forEach(job => {
+      const un = unlinkedFor(job);
+      // ★ review#6 (blocking 1): unlinked ต้องชนะ **ก่อน** ทางออก "JV ที่ผูก source ถูกต้อง = จบ"
+      //   งานที่มี JV ถูกต้องแล้ว **และ** มี JE ที่คนลงมือไว้เอง = รายได้อาจถูกบันทึกซ้ำอยู่แล้ว → ต้องแจ้ง
+      if (un.length) { conflicts.push(unlinkedConflict(job, un)); return; }
       const { entry, v } = validateJob(job);
       if (v.ok) return;
       const state = ledgerStateOf(v);
-      const un = unlinkedFor(job);
-      if (state === "NO_JV" && un) {
-        conflicts.push({ job, state: "SERVICE_JV_UNLINKED", reason: `manual-jv-not-linked (JE #${un.id} · ${un.status || "?"})`,
-                         entryId: un.id, entryStatus: un.status || null });
-      } else if (state === "NO_JV") {
-        orphans.push(job);
-      } else {
-        conflicts.push({ job, state: `SERVICE_${state}`, reason: v.reason, entryId: entry?.id });
-      }
+      if (state === "NO_JV") orphans.push(job);
+      else conflicts.push({ job, state: `SERVICE_${state}`, reason: v.reason, entryId: entry?.id });
     });
 
     // ★ review#3 (blocking 5): งานที่ไม่มีวันรับรู้ (closed_at = null) ต้องปรากฏ **หนึ่งกองพอดี** เสมอ
@@ -592,16 +606,11 @@ export async function fetchServiceJVStatus(opts = {}) {
     //   มี JE     → SERVICE_DATE_MISSING_WITH_JV (ลงบัญชีไปแล้วทั้งที่ไม่มีวันปิดงาน = ต้องสอบ ห้ามซ่อน)
     const needRecognitionDate = [], dateMissingWithJv = [];
     noDateJobs.filter(eligible).forEach(job => {
+      const un = unlinkedFor(job);
+      // ★ review#6: unlinked ชนะทุกกอง (รวมกรณีมี linked JV แล้วแต่ไม่มีวันรับรู้) — ห้ามถูกกลบ
+      if (un.length) { conflicts.push(unlinkedConflict(job, un)); return; }
       const { entry, v } = validateJob(job);
-      if (!entry) {
-        const un = unlinkedFor(job);
-        // ★ review#5: ไม่มี source-linked JE แต่มี manual JE อ้างเลขงานนี้ → unlinked conflict
-        //   (ไม่ใช่ "รอกำหนดวัน" เฉย ๆ — เพราะรายได้อาจถูกลงบัญชีไปแล้วด้วยมือ)
-        if (un) conflicts.push({ job, state: "SERVICE_JV_UNLINKED", reason: `manual-jv-not-linked (JE #${un.id} · ${un.status || "?"})`,
-                                 entryId: un.id, entryStatus: un.status || null });
-        else needRecognitionDate.push(job);
-        return;
-      }
+      if (!entry) { needRecognitionDate.push(job); return; }
       dateMissingWithJv.push({
         job, state: "SERVICE_DATE_MISSING_WITH_JV",
         reason: v.ok ? "jv-valid-but-no-recognition-date" : v.reason,
