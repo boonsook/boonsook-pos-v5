@@ -19,6 +19,14 @@
 
 ---
 
+## ✅ Applied — 2026-07-15
+
+| SQL file | ทำอะไร | applied | verified อย่างไร |
+|---|---|---|---|
+| `supabase-phase606b1-service-payment-guards.sql` | **Service Payment Guards + append-only reversal (Phase 606-b1, PR #193 `53947ec`)** — ต่อยอดจาก foundation 606-a (additive · ยัง activate ไม่ได้): (1) `service_job_has_recognition_jv()` / `service_payment_jv_is_valid()` ตรวจ JV แบบ **exact** (approved · 2 non-zero lines · Dr/Cr ขาละหนึ่ง · บัญชี+ยอดตรง mapping/total_cost · fail-closed อ่านเฉพาะ admin/accountant) (2) `record_service_payment_v2` REPLACE — เพิ่ม gate **ต้องมี recognition JV จริงก่อนรับชำระ** + reject `paid_at` ก่อน 2026-07-01 **ตามเวลาไทย** (`AT TIME ZONE Asia/Bangkok`) ก่อน idempotency/INSERT (3) trigger `trg_service_job_v2_freeze` (BEFORE UPDATE) — งาน v2 ที่มีผลบัญชี/ledger แล้ว: `total_cost`/`job_type` frozen ทุกสถานะ + transition อนุญาตแค่ เดิม→เดิม และ delivered→closed (4) ตาราง **`service_payment_reversals`** append-only + RPC `reverse_service_payment_v2` (validate payment JV เดิม exact ก่อน INSERT · กลับเกินยอดที่รับจริงไม่ได้) + `service_job_paid_total()` = Σ payments − Σ reversals (5) `service_mapping_key_for_job_type()` + trigger `trg_service_mapping_freeze` (BEFORE UPDATE OR DELETE) — mapping `service_%` ที่ถูกใช้ลง JV แล้ว: แก้บัญชี/`is_active`/key/DELETE ไม่ได้ (กัน historical drift). **ไม่โพสต์ JV · ไม่แตะ journal · ไม่ activate flow v2 · ไม่ซ่อม 6 legacy NO_JV · build ไม่เปลี่ยน (602)** | **2026-07-15** (owner รันทั้งไฟล์ครั้งเดียวใน SQL Editor — commit ล็อก `53947ec`) | ✅ **STEP 3 POST-CHECK PASS:** functions **4/4 SECURITY DEFINER + search_path** (recognition/payment-valid/paid-total/reverse) · trigger enabled = `O` · **flow2 / service_payments / service_payment_reversals = 0 / 0 / 0** · direct write grants (anon/authenticated INSERT-UPDATE-DELETE) = **0** · RLS **ENABLED + FORCED** ทั้งสอง ledger · **JE/JL = 136/305 เท่า baseline** (บัญชีไม่ขยับ). ✅ **STEP 4 read-only audit** (`verify:reconcile` + `verify:service-no-jv` 2026-07/06): ก.ค. service residual **0.00** + combined **0.00** · metadata invalid source/flow = **0** · DATA_INCOMPLETE = **0** · FLOW_V2 0/0 · **legacy NO_JV 6 งาน / 6,950 ไม่ drift** (งานของ Phase 607). Codex verdict = **PASS** (guards installed, ยังไม่ activate) |
+
+---
+
 ## ✅ Applied — 2026-07-14
 
 | SQL file | ทำอะไร | applied | verified อย่างไร |
