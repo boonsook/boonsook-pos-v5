@@ -1049,7 +1049,9 @@ export async function postJournalForServicePayment(paymentId, opts = {}) {
   try {
     pay = await _fetchOne(`service_payments?select=*&id=eq.${encodeURIComponent(paymentId)}`);
     if (!pay) return _journalResult(detailed, { status: "skipped", reason: "payment-not-found", sourceTable: "service_payments", sourceId: paymentId });
-    job = await _fetchOne(`service_jobs?select=id,job_no,job_type,customer_name,finance_flow_version&id=eq.${encodeURIComponent(pay.service_job_id)}`);
+    // ★ Phase 606-b1.1 (B1): ต้องมี total_cost — validateRecognitionJv ใช้เทียบยอด JV รับรู้รายได้
+    //   (เดิม select ขาด → job.total_cost = undefined → bad-number → payment JV ถูก block 100%)
+    job = await _fetchOne(`service_jobs?select=id,job_no,job_type,customer_name,total_cost,finance_flow_version&id=eq.${encodeURIComponent(pay.service_job_id)}`);
   } catch (e) {
     // fail-closed: อ่าน ledger ไม่ได้ = ไม่โพสต์ (ห้ามเดาจากฟอร์ม) — reconcile จะยิงซ้ำภายหลัง
     console.error("[auto_post] cannot read service payment/job:", e?.message || e);

@@ -5,6 +5,7 @@ import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { projectRows } from "./_select_projection.js";  // ★ 606-b1.1: select-projection mock
 
 class El {
   constructor() { this.innerHTML = ""; }
@@ -59,7 +60,7 @@ function installDb({ dbJob = undefined, dbFail = false } = {}) {
     if (u.includes("/service_jobs?select=*")) {
       jobFetches.push(u);
       if (dbFail) return bad(500);
-      return ok(dbJob ? [dbJob] : []);
+      return ok(projectRows(dbJob ? [dbJob] : [], u));
     }
     if (u.includes("/account_mapping")) return ok([MAPPING]);
     if (u.includes("/chart_of_accounts")) return ok(["1110", "1134", "1200", "4200"].map(code => ({ code })));
@@ -158,7 +159,7 @@ function installRecon({ jobs = [closedJob], noDate = [], unlinked = [], unlinked
   globalThis.fetch = async (url) => {
     const u = String(url);
     urls.push(u);
-    if (u.includes("/service_jobs?select=")) return ok(u.includes("closed_at=is.null") ? noDate : jobs);
+    if (u.includes("/service_jobs?select=")) return ok(projectRows(u.includes("closed_at=is.null") ? noDate : jobs, u));
     if (u.includes("source_id=is.null")) {
       if (unlinkedFail) return bad(500);
       return ok(unlinkedRows || unlinked);
@@ -239,7 +240,7 @@ test("B6. unlinked query ล้มเหลว / ชน limit → fail-closed (�
 function installMixed({ jobs = [closedJob], ledgerFail = false, ledgerLimit = false } = {}) {
   globalThis.fetch = async (url) => {
     const u = String(url);
-    if (u.includes("/service_jobs?select=")) return ok(u.includes("closed_at=is.null") ? [] : jobs);
+    if (u.includes("/service_jobs?select=")) return ok(projectRows(u.includes("closed_at=is.null") ? [] : jobs, u));
     if (u.includes("source_id=is.null")) return ok([]);
     if (u.includes("/journal_entries?source_table=eq.service_jobs")) return ok([]);
     if (u.includes("/account_mapping")) return ok([MAPPING]);
@@ -451,7 +452,7 @@ const LINKED_BROKEN = {   // header ลอย (ไม่มี lines)
 function installLinked({ jobs = [closedJob], noDate = [], linked = null, unlinked = [] } = {}) {
   globalThis.fetch = async (url) => {
     const u = String(url);
-    if (u.includes("/service_jobs?select=")) return ok(u.includes("closed_at=is.null") ? noDate : jobs);
+    if (u.includes("/service_jobs?select=")) return ok(projectRows(u.includes("closed_at=is.null") ? noDate : jobs, u));
     if (u.includes("source_id=is.null")) return ok(unlinked);
     if (u.includes("/journal_entries?source_table=eq.service_jobs")) return ok(linked ? [linked.entry] : []);
     if (u.includes("/journal_lines?select=")) return ok(linked ? linked.lines : []);

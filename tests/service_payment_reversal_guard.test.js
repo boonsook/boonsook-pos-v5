@@ -15,6 +15,7 @@ import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { projectRows } from "./_select_projection.js";  // ★ 606-b1.1: select-projection mock
 
 globalThis.window = {
   SUPABASE_CONFIG: { url: "https://example.supabase.co", anonKey: "anon-xxx" },
@@ -66,9 +67,9 @@ function install({ reversal = revRow, payment = payXfer, job = v2Job, je = payJe
     if (u.includes("/chart_of_accounts")) return makeRes(200, COA);
     if (u.includes("/accounting_periods")) return makeRes(200, []);
     if (u.includes("/journal_entries?select=doc_no")) return makeRes(200, []);
-    if (u.includes("/service_payment_reversals?select=")) return makeRes(200, reversal ? [reversal] : []);
-    if (u.includes("/service_payments?select=")) return makeRes(200, payment ? [payment] : []);
-    if (u.includes("/service_jobs?select=")) return makeRes(200, job ? [job] : []);
+    if (u.includes("/service_payment_reversals?select=")) return makeRes(200, projectRows(reversal ? [reversal] : [], u));
+    if (u.includes("/service_payments?select=")) return makeRes(200, projectRows(payment ? [payment] : [], u));
+    if (u.includes("/service_jobs?select=")) return makeRes(200, projectRows(job ? [job] : [], u));
     // recognition JV ของงาน (ต้องถูกต้องก่อน ถึงจะรับชำระ/กลับรายการได้)
     if (u.includes("source_table=eq.service_jobs")) {
       return makeRes(200, recognitionOk ? [{ id: 11, status: "approved", total_debit: 1000, total_credit: 1000 }] : []);
@@ -179,7 +180,7 @@ test("H1 (guard 3). closed orphan: fetch (metadata ครบ) → detect → re-
     const u = String(url);
     if (u.includes("/service_jobs?select=")) {
       jobsSelect = u;
-      return makeRes(200, u.includes("closed_at=is.null") ? [] : [closedOrphan]);
+      return makeRes(200, projectRows(u.includes("closed_at=is.null") ? [] : [closedOrphan], u));
     }
     if (u.includes("/journal_entries?source_table=eq.service_jobs")) return makeRes(200, []);   // ไม่มี JE = orphan
     if (u.includes("/account_mapping")) return makeRes(200, MAPPING);
@@ -212,7 +213,7 @@ test("H2. งานที่ไม่มี closed_at → กอง OWNER_RECOGN
                    closed_at: null, finance_flow_version: 1, created_at: "2026-07-02T03:00:00Z" };
   globalThis.fetch = async (url) => {
     const u = String(url);
-    if (u.includes("/service_jobs?select=")) return makeRes(200, u.includes("closed_at=is.null") ? [noDate] : []);
+    if (u.includes("/service_jobs?select=")) return makeRes(200, projectRows(u.includes("closed_at=is.null") ? [noDate] : [], u));
     if (u.includes("/journal_entries")) return makeRes(200, []);
     if (u.includes("/account_mapping")) return makeRes(200, MAPPING);
     return makeRes(200, []);

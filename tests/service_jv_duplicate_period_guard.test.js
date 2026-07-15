@@ -8,6 +8,7 @@ import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { projectRows } from "./_select_projection.js";  // ★ 606-b1.1: select-projection mock
 
 globalThis.window = {
   SUPABASE_CONFIG: { url: "https://example.supabase.co", anonKey: "anon-xxx" },
@@ -61,9 +62,9 @@ function install({ recog = RECOG_OK, payJv = null, revJv = null, dupOn = [] } = 
     if (u.includes("/chart_of_accounts")) return res200(["1110", "1134", "1200", "4200"].map(code => ({ code })));
     if (u.includes("/accounting_periods")) return res200([]);
     if (u.includes("/journal_entries?select=doc_no")) return res200([]);
-    if (u.includes("/service_payment_reversals?select=")) return res200([rev]);
-    if (u.includes("/service_payments?select=")) return res200([pay]);
-    if (u.includes("/service_jobs?select=")) return res200([job]);
+    if (u.includes("/service_payment_reversals?select=")) return res200(projectRows([rev], u));
+    if (u.includes("/service_payments?select=")) return res200(projectRows([pay], u));
+    if (u.includes("/service_jobs?select=")) return res200(projectRows([job], u));
     if (u.includes("/journal_entries?select=id,status")) {
       const found = pick(u);
       return res200(found?.entry ? [found.entry] : []);
@@ -236,7 +237,7 @@ async function runNoDate(jeEntry, jeLines) {
                    closed_at: null, finance_flow_version: 2, created_at: "2026-07-02T03:00:00Z" };
   globalThis.fetch = async (url) => {
     const u = String(url);
-    if (u.includes("/service_jobs?select=")) return res200(u.includes("closed_at=is.null") ? [noDate] : []);
+    if (u.includes("/service_jobs?select=")) return res200(projectRows(u.includes("closed_at=is.null") ? [noDate] : [], u));
     if (u.includes("/journal_entries?source_table=eq.service_jobs")) return res200(jeEntry ? [{ ...jeEntry, source_id: 31 }] : []);
     if (u.includes("/journal_lines?select=")) return res200(jeLines || []);
     if (u.includes("/account_mapping")) return res200([MAPPING]);
@@ -274,7 +275,7 @@ test("D3. DATA_INCOMPLETE: ชน limit → ห้ามรายงานว่
   const many = Array.from({ length: 5000 }, (_, i) => ({ id: i + 1, status: "delivered", total_cost: 1, job_type: "ac", finance_flow_version: 2, closed_at: "2026-07-05T03:00:00Z" }));
   globalThis.fetch = async (url) => {
     const u = String(url);
-    if (u.includes("/service_jobs?select=")) return res200(u.includes("closed_at=is.null") ? [] : many);
+    if (u.includes("/service_jobs?select=")) return res200(projectRows(u.includes("closed_at=is.null") ? [] : many, u));
     if (u.includes("/journal_entries")) return res200([]);
     if (u.includes("/account_mapping")) return res200([MAPPING]);
     return res200([]);

@@ -9,6 +9,8 @@ import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+// ★ 606-b1.1: mock ต้องคืนเฉพาะคอลัมน์ตาม select= จริง (เดิมคืนเต็มแถว → กลบบั๊ก projection เช่น B1 total_cost)
+import { projectRows } from "./_select_projection.js";
 
 globalThis.window = {
   SUPABASE_CONFIG: { url: "https://example.supabase.co", anonKey: "anon-xxx" },
@@ -92,9 +94,9 @@ function install({ recogEntry, recogLines, payEntry, payLines } = {}) {
     if (u.includes("/chart_of_accounts")) return makeRes(200, ["1110", "1134", "1200", "4200"].map(code => ({ code })));
     if (u.includes("/accounting_periods")) return makeRes(200, []);
     if (u.includes("/journal_entries?select=doc_no")) return makeRes(200, []);
-    if (u.includes("/service_payment_reversals?select=")) return makeRes(200, [rev]);
-    if (u.includes("/service_payments?select=")) return makeRes(200, [pay]);
-    if (u.includes("/service_jobs?select=")) return makeRes(200, [job]);
+    if (u.includes("/service_payment_reversals?select=")) return makeRes(200, projectRows([rev], u));
+    if (u.includes("/service_payments?select=")) return makeRes(200, projectRows([pay], u));
+    if (u.includes("/service_jobs?select=")) return makeRes(200, projectRows([job], u));
     if (u.includes("source_table=eq.service_jobs")) return makeRes(200, recogEntry ? [{ id: 11, ...recogEntry }] : []);
     if (u.includes("source_table=eq.service_payments")) return makeRes(200, payEntry ? [{ id: 22, ...payEntry }] : []);
     if (u.includes("/journal_lines?select=account_code")) {
@@ -143,6 +145,27 @@ test("B4. รับชำระ: recognition JV ถูกต้อง → โพ
   const res = await postJournalForServicePayment(501, { detailed: true });
   assert.equal(res.status, "posted");
   assert.deepEqual(posted.lines.map(l => [l.account_code, l.debit, l.credit]), [["1134", 500, 0], ["1200", 0, 500]]);
+});
+
+test("B4b. projection ขาด total_cost (จำลอง select ไม่ครบแบบบั๊ก B1) → bad-number + zero writes", async () => {
+  // ★ 606-b1.1: พิสูจน์ fail-closed เชิง behavior — ถ้า query งานคืนแถวที่ไม่มี total_cost
+  //   (select ขอไม่ครบ) writer ต้อง block เป็น bad-number ไม่ใช่ตีเป็น 0 แล้วโพสต์
+  install({ recogEntry: { status: "approved", total_debit: 1000, total_credit: 1000 }, recogLines: goodRecogLines });
+  const strip = (fn) => async (url, init) => {
+    const r = await fn(url, init);
+    if (String(url).includes("/service_jobs?select=")) {
+      const rows = await r.json();
+      (Array.isArray(rows) ? rows : []).forEach(x => { delete x.total_cost; });
+      return makeRes(200, rows);
+    }
+    return r;
+  };
+  globalThis.fetch = strip(globalThis.fetch);
+  window._appAuthFetch = strip(window._appAuthFetch);
+  const res = await postJournalForServicePayment(501, { detailed: true });
+  assert.equal(res.status, "skipped");
+  assert.match(res.reason, /^recognition-invalid:bad-number$/);
+  assert.equal(posted.entries.length, 0, "total_cost หาย = ห้ามโพสต์ JV รับเงิน");
 });
 
 test("B5. กลับรายการ: payment JV = counterexample (3 ขา) → block + zero writes", async () => {
@@ -237,7 +260,7 @@ test("C4. recognition period: created มิ.ย. + closed ก.ค. → อย�
       captured.push(u);
       if (u.includes("closed_at=is.null")) return makeRes(200, []);
       // query ช่วง closed_at → คืนเฉพาะงานที่ปิดใน ก.ค. (งาน created ก.ค./closed ส.ค. ไม่เข้า filter ของ DB)
-      return makeRes(200, [juneClosedJuly]);
+      return makeRes(200, projectRows([juneClosedJuly], u));
     }
     if (u.includes("/journal_entries")) return makeRes(200, []);
     if (u.includes("/account_mapping")) return makeRes(200, [MAPPING]);
@@ -259,7 +282,7 @@ test("C5. service JE ที่ draft / header-only → เป็น conflict (�
   const jobRow = { ...job, id: 41, job_no: "JOB-41", total_cost: 1000 };
   globalThis.fetch = async (url) => {
     const u = String(url);
-    if (u.includes("/service_jobs?select=")) return makeRes(200, u.includes("closed_at=is.null") ? [] : [jobRow]);
+    if (u.includes("/service_jobs?select=")) return makeRes(200, projectRows(u.includes("closed_at=is.null") ? [] : [jobRow], u));
     if (u.includes("/journal_entries?source_table=eq.service_jobs")) {
       return makeRes(200, [{ id: 55, source_id: 41, status: "draft", total_debit: 1000, total_credit: 1000, description: "" }]);
     }
