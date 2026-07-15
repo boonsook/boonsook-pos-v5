@@ -7,6 +7,7 @@
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { projectRows } from "./_select_projection.js";  // ★ 606-b1.1: select-projection mock
 
 // ── fake DOM เล็กที่สุดที่ render path ต้องใช้ ──────────────────────────────
 class El {
@@ -50,8 +51,8 @@ function installFetch({ payments = [], reversals = [], jeLedger = [], lines = []
     if (u.includes("/service_jobs?select=")) return ok([]);                              // ไม่มีงานค้าง
     if (u.includes("/journal_entries?source_table=eq.service_jobs")) return ok([]);
     if (u.includes("/account_mapping")) return ok([MAPPING]);
-    if (u.includes("/service_payments?select=")) return badJson ? ok({ oops: true }) : ok(payments);
-    if (u.includes("/service_payment_reversals?select=")) return ok(reversals);
+    if (u.includes("/service_payments?select=")) return badJson ? ok({ oops: true }) : ok(projectRows(payments, u));
+    if (u.includes("/service_payment_reversals?select=")) return ok(projectRows(reversals, u));
     if (u.includes("/journal_entries?source_table=in.")) return ok(jeLedger);
     if (u.includes("/journal_lines?select=")) return ok(lines);
     return ok([]);
@@ -163,8 +164,8 @@ test("B4. malformed read-back (field หาย) ห้ามกลายเป�
     if (u.includes("/chart_of_accounts")) return ok(["1110", "1134", "1200", "4200"].map(code => ({ code })));
     if (u.includes("/accounting_periods")) return ok([]);
     if (u.includes("/journal_entries?select=doc_no")) return ok([]);
-    if (u.includes("/service_payments?select=")) return ok([payment]);
-    if (u.includes("/service_jobs?select=")) return ok([{ id: 20, job_no: "JOB-20", job_type: "ac", total_cost: 1000, finance_flow_version: 2 }]);
+    if (u.includes("/service_payments?select=")) return ok(projectRows([payment], u));
+    if (u.includes("/service_jobs?select=")) return ok(projectRows([{ id: 20, job_no: "JOB-20", job_type: "ac", total_cost: 1000, finance_flow_version: 2 }], u));
     if (u.includes("source_table=eq.service_jobs")) return ok([{ id: 11, status: "approved", total_debit: 1000, total_credit: 1000 }]);
     if (u.includes("source_table=eq.service_payments")) return ok([{ id: 22, status: "approved", total_debit: 500, total_credit: 500 }]);
     if (u.includes("/journal_lines?select=account_code")) {

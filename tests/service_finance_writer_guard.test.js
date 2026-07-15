@@ -14,6 +14,7 @@ import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { projectRows } from "./_select_projection.js";  // ★ 606-b1.1: mock @select-projection
 
 globalThis.window = {
   SUPABASE_CONFIG: { url: "https://example.supabase.co", anonKey: "anon-xxx" },
@@ -67,8 +68,8 @@ function installFetch({ payment = null, job = null, recognitionJe = true } = {})
     }
     if (u.includes("/accounting_periods")) return makeRes(200, []);
     if (u.includes("/journal_entries?select=doc_no")) return makeRes(200, []);
-    if (u.includes("/service_payments?select=")) return makeRes(200, payment ? [payment] : []);
-    if (u.includes("/service_jobs?select=")) return makeRes(200, job ? [job] : []);
+    if (u.includes("/service_payments?select=")) return makeRes(200, projectRows(payment ? [payment] : [], u));
+    if (u.includes("/service_jobs?select=")) return makeRes(200, projectRows(job ? [job] : [], u));
     // ★ review#2: writer ตรวจ recognition JV จริงก่อนโพสต์ JV รับเงิน (Cr 1200)
     if (u.includes("source_table=eq.service_jobs")) {
       return makeRes(200, recognitionJe ? [{ id: 11, status: "approved", total_debit: 1000, total_credit: 1000 }] : []);
@@ -310,6 +311,31 @@ test("D7. RPC ล้มเหลว → ไม่โพสต์ JV และไ
   assert.equal(out.ok, false);
   assert.match(out.error, /เกินยอดค้าง/);
   assert.equal(posted.entries.length, 0);
+});
+
+test("D8. RPC สำเร็จแต่ JV ล้ม → ledgerRecorded=true / accountingPosted=false (ห้ามใช้ ok ตัวเดียวตัดสิน)", async () => {
+  // ★ 606-b1.1 (A4): เงินลง ledger จริงแล้ว แต่ recognition JV หาย → บัญชียังไม่จบ
+  //   caller/UI (606-b2) ต้องอ่าน accountingPosted — ok:true แปลว่า "ledger รับแล้ว" เท่านั้น
+  installFetch({ payment: payCash, job: v2Job, recognitionJe: false });
+  installPostOk({ payment_id: 500, inserted: true, paid_total: 400, outstanding_after: 600 });
+  const out = await recordServicePayment({
+    serviceJobId: 20, amount: 400, paymentMethod: "cash", paidAt: "2026-07-09T03:00:00Z",
+    idempotencyKey: "22222222-2222-4222-8222-222222222222"
+  });
+  assert.equal(out.ok, true);
+  assert.equal(out.ledgerRecorded, true);
+  assert.equal(out.accountingPosted, false, "JV ไม่ผ่าน = accountingPosted ต้อง false");
+  assert.match(out.jv.reason, /^recognition-invalid:no-header$/);
+  assert.equal(posted.entries.length, 0, "recognition หาย = ห้ามโพสต์ JV รับเงิน");
+});
+
+test("D9. payment writer ต้อง select total_cost จาก service_jobs (B1 regression — structural fast-fail)", () => {
+  // behavioral proof อยู่ที่ B4/B4b ใน service_jv_exactness_guard (mock เคารพ projection แล้ว) —
+  // ตัวนี้เป็น fast-fail ชี้ตำแหน่ง: select ของ payment writer ต้องขอ total_cost เสมอ
+  const body = AUTO_POST.slice(AUTO_POST.indexOf("export async function postJournalForServicePayment"),
+                               AUTO_POST.indexOf("export async function recordServicePayment"));
+  assert.match(body, /service_jobs\?select=[^`]*total_cost/,
+    "select ของ payment writer ต้องมี total_cost (validateRecognitionJv ใช้เทียบยอด)");
 });
 
 // ═══════════════════════════════════════════════════════════
