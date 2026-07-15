@@ -106,3 +106,34 @@ test("G8. ไฟล์ 606-b1 เดิม (applied แล้ว) ต้อง�
       `invariant "${marker}" ต้องอยู่ทั้งใน b1 และ hotfix`);
   }
 });
+
+test("G9. catalog query ต้องผูก trigger เต็มรูปทั้ง 4 จุด — mutation ถอด predicate ใดออก = แดง", () => {
+  // review#3: tgname unique แค่ในตารางเดียว — เช็คแบบ tgname+tgenabled อย่างเดียว false-pass ได้
+  // (trigger ชื่อซ้ำบนตารางอื่น / สลับ function / เปลี่ยนเป็น AFTER / เพิ่ม UPDATE OF/WHEN / ตั้ง replica-only)
+  // 4 จุด = STEP 0.1 + preflight + POST-CHECK + VERIFY V2 · จุดที่รันจริง (active) = preflight + POST-CHECK
+  const active = HOTFIX.replace(/\/\*[\s\S]*?\*\//g, "").replace(/--[^\n]*/g, "");
+  const predicates = [
+    [/JOIN pg_proc p ON p\.oid = t\.tgfoid/g, "bind function จริงผ่าน tgfoid"],
+    [/JOIN pg_namespace n ON n\.oid = p\.pronamespace/g, "bind namespace ของ function"],
+    [/t\.tgname = 'trg_service_job_v2_freeze'/g, "ชื่อ trigger"],
+    [/t\.tgrelid = 'public\.service_jobs'::regclass/g, "ผูกตาราง service_jobs (tgname ไม่ unique ทั้งฐาน)"],
+    [/NOT t\.tgisinternal/g, "ตัด internal triggers"],
+    [/t\.tgenabled IN \('O', 'A'\)/g, "enabled ปกติเท่านั้น ('R' replica-only ต้องไม่ผ่าน)"],
+    [/n\.nspname = 'public'/g, "namespace public"],
+    [/p\.proname = 'guard_service_job_v2_freeze'/g, "ชื่อ function ที่ trigger ชี้"],
+    [/p\.pronargs = 0/g, "signature: ไม่มี argument"],
+    [/p\.prorettype = 'trigger'::regtype/g, "return type ต้องเป็น trigger"],
+    [/t\.tgtype = \(1 \| 2 \| 16\)::smallint/g, "topology exact: ROW|BEFORE|UPDATE = 19 (BEFORE INSERT OR UPDATE ต้องไม่ผ่าน)"],
+    [/COALESCE\(cardinality\(t\.tgattr::smallint\[\]\), 0\) = 0/g, "ห้ามมี UPDATE OF <column> (อาจไม่ยิงตอนแก้ finance_flow_version)"],
+    [/t\.tgqual IS NULL/g, "ห้ามมี WHEN condition"],
+  ];
+  for (const [re, label] of predicates) {
+    const full = (HOTFIX.match(re) || []).length;
+    const act = (active.match(re) || []).length;
+    assert.ok(full >= 4, `${label}: ต้องครบทั้ง 4 จุดในไฟล์ — พบ ${full}`);
+    assert.ok(act >= 2, `${label}: ต้องอยู่ทั้ง preflight และ POST-CHECK (ส่วนที่รันจริง) — พบ ${act}`);
+  }
+  // เช็คหลวมแบบเดิมต้องหายทั้งไฟล์ (tgname เดี่ยว ๆ + tgenabled <> 'D' = ช่อง false-pass)
+  assert.ok(!/tgenabled\s*<>\s*'D'/.test(HOTFIX), "ห้ามเหลือเช็ค tgenabled <> 'D' (ปล่อย replica-only ผ่าน)");
+  assert.ok(!/FROM pg_trigger\s+WHERE tgname=/.test(HOTFIX), "ห้ามเหลือ query pg_trigger ที่ไม่ join pg_proc");
+});

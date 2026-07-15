@@ -31,7 +31,23 @@
 -- 0.1 function/trigger 606-b1 ต้องอยู่ครบ
 SELECT p.proname, p.prosecdef, p.proconfig FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
 WHERE n.nspname='public' AND p.proname='guard_service_job_v2_freeze';
-SELECT tgname, tgenabled FROM pg_trigger WHERE tgname='trg_service_job_v2_freeze' AND NOT tgisinternal;
+--     ★ review#3: tgname unique แค่ในตารางเดียว — ต้องผูก tgrelid + tgfoid + topology exact
+SELECT t.tgname, t.tgenabled, t.tgtype
+FROM pg_trigger t
+JOIN pg_proc p ON p.oid = t.tgfoid
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE t.tgname = 'trg_service_job_v2_freeze'
+  AND t.tgrelid = 'public.service_jobs'::regclass
+  AND NOT t.tgisinternal
+  AND t.tgenabled IN ('O', 'A')
+  AND n.nspname = 'public'
+  AND p.proname = 'guard_service_job_v2_freeze'
+  AND p.pronargs = 0
+  AND p.prorettype = 'trigger'::regtype
+  AND t.tgtype = (1 | 2 | 16)::smallint
+  AND COALESCE(cardinality(t.tgattr::smallint[]), 0) = 0
+  AND t.tgqual IS NULL;
+-- ต้องได้ 1 แถว (tgtype = 19 = ROW|BEFORE|UPDATE · ไม่มี UPDATE OF/WHEN · enabled ปกติ)
 
 -- 0.2 counts ที่ต้องไม่ขยับ (จดค่าไว้เทียบกับ VERIFY)
 SELECT (SELECT count(*) FROM public.journal_entries)  AS je,
@@ -57,9 +73,27 @@ BEGIN
                   WHERE n.nspname='public' AND p.proname='guard_service_job_v2_freeze') THEN
     RAISE EXCEPTION 'ยังไม่ได้รัน 606-b1 (ไม่มี guard_service_job_v2_freeze) — hotfix นี้ replace ของเดิมเท่านั้น';
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_trigger
-                  WHERE tgname='trg_service_job_v2_freeze' AND NOT tgisinternal AND tgenabled <> 'D') THEN
-    RAISE EXCEPTION 'trigger trg_service_job_v2_freeze ต้องมีและ enabled ก่อนรัน hotfix';
+  -- ★ review#3 (blocking): tgname ไม่ unique ทั้งฐาน — ต้องผูก tgrelid + tgfoid + topology exact
+  --   (BEFORE UPDATE FOR EACH ROW = tgtype 19 · ไม่มี UPDATE OF/WHEN · tgenabled O/A เท่านั้น —
+  --    'R' = replica-only ไม่ยิงใน session ปกติของ PostgREST ต้องถือว่า fail)
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_trigger t
+    JOIN pg_proc p ON p.oid = t.tgfoid
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE t.tgname = 'trg_service_job_v2_freeze'
+      AND t.tgrelid = 'public.service_jobs'::regclass
+      AND NOT t.tgisinternal
+      AND t.tgenabled IN ('O', 'A')
+      AND n.nspname = 'public'
+      AND p.proname = 'guard_service_job_v2_freeze'
+      AND p.pronargs = 0
+      AND p.prorettype = 'trigger'::regtype
+      AND t.tgtype = (1 | 2 | 16)::smallint
+      AND COALESCE(cardinality(t.tgattr::smallint[]), 0) = 0
+      AND t.tgqual IS NULL
+  ) THEN
+    RAISE EXCEPTION 'trigger trg_service_job_v2_freeze ต้องอยู่บน public.service_jobs ชี้ public.guard_service_job_v2_freeze() เป็น BEFORE UPDATE FOR EACH ROW (ไม่มี UPDATE OF/WHEN) และ enabled O/A ก่อนรัน hotfix';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='public.service_jobs'::regclass
                    AND attname='finance_flow_version' AND NOT attisdropped) THEN
@@ -171,10 +205,25 @@ BEGIN
     RAISE EXCEPTION 'เนื้อ freeze เดิมของ 606-b1 หายไปจาก function ใหม่ — ห้าม weaken';
   END IF;
 
-  -- trigger เดิมต้องยัง enabled และชี้ function เดิม
-  IF NOT EXISTS (SELECT 1 FROM pg_trigger
-                  WHERE tgname='trg_service_job_v2_freeze' AND NOT tgisinternal AND tgenabled <> 'D') THEN
-    RAISE EXCEPTION 'trigger trg_service_job_v2_freeze ต้องยัง enabled หลัง replace';
+  -- trigger เดิมต้องยังผูก service_jobs + function เดิม + BEFORE UPDATE FOR EACH ROW exact (review#3)
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_trigger t
+    JOIN pg_proc p ON p.oid = t.tgfoid
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE t.tgname = 'trg_service_job_v2_freeze'
+      AND t.tgrelid = 'public.service_jobs'::regclass
+      AND NOT t.tgisinternal
+      AND t.tgenabled IN ('O', 'A')
+      AND n.nspname = 'public'
+      AND p.proname = 'guard_service_job_v2_freeze'
+      AND p.pronargs = 0
+      AND p.prorettype = 'trigger'::regtype
+      AND t.tgtype = (1 | 2 | 16)::smallint
+      AND COALESCE(cardinality(t.tgattr::smallint[]), 0) = 0
+      AND t.tgqual IS NULL
+  ) THEN
+    RAISE EXCEPTION 'trigger trg_service_job_v2_freeze ต้องยังผูก public.service_jobs → guard_service_job_v2_freeze() แบบ BEFORE UPDATE FOR EACH ROW และ enabled O/A หลัง replace';
   END IF;
 
   -- บัญชีต้องไม่ขยับ (เทียบ baseline ที่จับไว้ตอนต้น transaction — ไม่ hardcode)
@@ -202,8 +251,23 @@ FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
 WHERE n.nspname='public' AND p.proname='guard_service_job_v2_freeze';
 -- ต้องได้ pos_clause > 0 และ pos_clause < pos_early
 
--- V2 trigger ยัง enabled
-SELECT tgname, tgenabled FROM pg_trigger WHERE tgname='trg_service_job_v2_freeze' AND NOT tgisinternal;
+-- V2 trigger ยังผูกถูกตาราง/ถูก function + BEFORE UPDATE FOR EACH ROW exact + enabled (review#3)
+SELECT t.tgname, t.tgenabled, t.tgtype
+FROM pg_trigger t
+JOIN pg_proc p ON p.oid = t.tgfoid
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE t.tgname = 'trg_service_job_v2_freeze'
+  AND t.tgrelid = 'public.service_jobs'::regclass
+  AND NOT t.tgisinternal
+  AND t.tgenabled IN ('O', 'A')
+  AND n.nspname = 'public'
+  AND p.proname = 'guard_service_job_v2_freeze'
+  AND p.pronargs = 0
+  AND p.prorettype = 'trigger'::regtype
+  AND t.tgtype = (1 | 2 | 16)::smallint
+  AND COALESCE(cardinality(t.tgattr::smallint[]), 0) = 0
+  AND t.tgqual IS NULL;
+-- ต้องได้ 1 แถว และ tgtype = 19 (ROW|BEFORE|UPDATE) — ได้ 0 แถว = trigger ถูกย้าย/สลับ function/เปลี่ยน timing → หยุดและแจ้งทีมทันที
 
 -- V3 counts เท่ากับ STEP 0.2 ทุกตัว (JE/JL/flow2/payments/reversals)
 SELECT (SELECT count(*) FROM public.journal_entries)  AS je,
