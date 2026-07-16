@@ -360,11 +360,14 @@ test("E2. reconcile: re-post ยังใช้ canonical writer + แสดง�
   assert.match(helper, /finance-flow-unknown/);
 });
 
-test("E3. runtime ที่ activate ได้จริง (main.js / customer_dashboard) ต้องยังไม่ถูกแตะในเฟสนี้", () => {
-  for (const f of ["main.js", "modules/customer_dashboard.js"]) {
-    assert.ok(!/service_payments|recordServicePayment|finance_flow_version/.test(read(f)),
-      `${f} = 606-b2 (build 603 + cutover) เท่านั้น`);
-  }
+test("E3. runtime ที่ยังไม่ถึงเฟส (customer_dashboard) ต้องยังไม่ถูกแตะ; main.js ผ่าน helper เท่านั้น", () => {
+  // ★ Phase 606-b2 (build 603): main.js drawer = เนื้องานของเฟสนี้ (dormant สำหรับ v1 —
+  //   พิสูจน์ใน service_drawer_v2_semantics_guard + service_payment_ui_guard);
+  //   customer confirm (customer_dashboard) = 606-b2c ยังห้ามแตะ
+  assert.ok(!/service_payments|recordServicePayment|finance_flow_version/.test(read("modules/customer_dashboard.js")),
+    "modules/customer_dashboard.js = 606-b2c เท่านั้น");
+  assert.ok(!/record_service_payment_v2|rest\/v1\/service_payments/.test(read("main.js")),
+    "main.js ห้ามยิง RPC/ledger ตรง — ต้องผ่าน recordServicePayment (auto_post)");
 });
 
 // ═══════════════════════════════════════════════════════════

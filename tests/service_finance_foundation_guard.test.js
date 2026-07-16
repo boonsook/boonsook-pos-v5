@@ -416,16 +416,17 @@ test("C2b. review#3: **ทั้งสอง runner** ต้อง partition met
   assert.match(CLASSIFY, /META_AVAILABLE\s*\?\s*`- _finance_flow_version อ่านจาก DB/);
 });
 
-test("C3. 606-a ไม่ปลดล็อก recovery และ runtime ยังไม่รู้จักของใหม่", () => {
+test("C3. 606-a ไม่ปลดล็อก recovery และ runtime ที่ยังไม่ถึงเฟสห้ามรู้จักของใหม่", () => {
   assert.match(read("scripts/service_no_jv_recover.js"), /if \(APPLY_FLAG && R\.RECOVERY_APPLY_DISABLED\)/);
   assert.match(read("scripts/service_no_jv_recover_lib.js"), /RECOVERY_APPLY_DISABLED = true/);
-  // ★ Phase 606-b1: writer (auto_post) รู้จัก flow v2 / ledger ได้แล้ว = เนื้องานของ b1
-  //   แต่ runtime ที่ "เปิดใช้งานจริง" (main.js drawer / customer_dashboard) **ยังห้ามแตะ**
-  //   จนกว่าจะถึง 606-b2/b3 (build 603 + activation SQL) — flow v1 ต้องไม่เปลี่ยนพฤติกรรมก่อน cutover
-  for (const f of ["main.js", "modules/customer_dashboard.js"]) {
-    assert.ok(!/service_payments|record_service_payment_v2|recordServicePayment|finance_flow_version/.test(read(f)),
-      `${f} ต้องยังไม่รู้จักของใหม่ (606-b2/b3 เท่านั้นที่ activate)`);
-  }
+  // ★ Phase 606-b2 (build 603): main.js drawer รู้จัก recordServicePayment/serviceFinanceFlowOf แล้ว
+  //   = เนื้องานของ b2 (dormant สำหรับ v1 — พิสูจน์ใน service_drawer_v2_semantics_guard +
+  //   service_payment_ui_guard). customer_dashboard (customer confirm) = 606-b2c ยังห้ามแตะ.
+  assert.ok(!/service_payments|record_service_payment_v2|recordServicePayment|finance_flow_version/.test(read("modules/customer_dashboard.js")),
+    "modules/customer_dashboard.js ต้องยังไม่รู้จักของใหม่ (606-b2c เท่านั้นที่ activate)");
+  // main.js เขียนได้เฉพาะผ่าน canonical helper — ห้ามยิง RPC/ตาราง ledger ตรง
+  assert.ok(!/record_service_payment_v2|rest\/v1\/service_payments/.test(read("main.js")),
+    "main.js ห้ามเรียก RPC record_service_payment_v2 / REST service_payments ตรง — ต้องผ่าน recordServicePayment (auto_post)");
   // backfill ต้องไม่โพสต์งานบริการอีกต่อไป (ลัด recovery gate ของ 6 งาน legacy ไม่ได้)
   assert.ok(!/postJournalForServiceJob/.test(read("modules/accounting/backfill.js")));
 });
