@@ -2549,10 +2549,10 @@ function serviceSavePlan({ flow, isNewJob, origStatus, newStatus, totalChanged, 
 
 // ═══ Phase 606-b2: รับชำระงานบริการ flow v2 (admin เท่านั้น · dormant จนกว่า activation 606-b3) ═══
 // ledger append-only + JV = audit trail (drawer money actions เดิมไม่มี pattern เขียน audit_log — ไม่ประดิษฐ์ใหม่)
-let _svcPayReqSeq = 0;     // generation token — กันผล async ของงาน/รอบก่อนหน้ามาทับ drawer ปัจจุบัน
-let _svcPayIntent = null;  // snapshot payment intent ทั้งก้อน — RPC เทียบ payload ครบทุก field (amount/method/bank/paid_at/slip/note)
-                           // retry ต้องส่งค่าเดิมทุกตัวรวม paid_at ไม่งั้นชน 23505
-const _svcPayGuard = createInflightGuard();
+// ★ review#196: state ทั้งหมดเป็น per-render closure (intent/submitting/summary) — งาน/render ก่อนหน้า
+//   ที่ async จบช้า แตะได้เฉพาะ closure ของตัวเอง และต้องผ่าน generation check ก่อนแตะ UI ทุกครั้ง
+let _svcPayRenderGen = 0;  // render generation — bump ทุกครั้งที่ (re)render section; async ของ render เก่า
+                           // (payment/summary ของงาน A) ต้องเทียบ gen ก่อน toast/refresh — งาน B ห้ามโดนกระทบ
 
 // fail-closed summary: RPC คืน null (role ไม่ผ่าน) · HTTP fail · ค่าไม่ finite → DATA_INCOMPLETE
 //   ห้ามแสดง 0 (0 = "ยังไม่รับเงิน" คนละความจริงกับ "อ่านไม่ได้") และต้อง disable ปุ่มรับชำระ
@@ -2588,15 +2588,21 @@ function svcPayResultPlan(res) {
 function _renderServicePaymentSection(job) {
   const host = document.getElementById("svcPaySection");
   if (!host) return;
-  host.innerHTML = "";          // งาน v1 / ไม่เข้าเงื่อนไข = ไม่มี DOM ข้างในเลย (ไม่ใช่แค่ซ่อน CSS)
-  _svcPayIntent = null;
-  ++_svcPayReqSeq;              // เปิด drawer ใหม่ = invalidate ผล async ของรอบก่อนเสมอ
+  host.innerHTML = "";               // งาน v1 / ไม่เข้าเงื่อนไข = ไม่มี DOM ข้างในเลย (ไม่ใช่แค่ซ่อน CSS)
+  const myGen = ++_svcPayRenderGen;  // เปิด drawer/render ใหม่ = invalidate async UI-effect ของ render ก่อนหน้า
   if (!requireAdmin()) return;
   if (serviceFinanceFlowOf(job) !== 2) return;
   if (!["delivered", "closed"].includes(String(job?.status || ""))) return;
   if (String(job?.note || "").includes("[ลบแล้ว]")) return;
-  const jobId = job.id;         // ผูกผล async กับงานนี้ผ่าน closure + seq (กัน job A ทับ drawer job B)
+  const jobId = job.id;              // ผูกผล async กับงานนี้ผ่าน closure + myGen (กัน job A ทับ drawer job B)
   const totalCost = Number(job.total_cost || 0);
+
+  // ★ Blocking#1 (review#196): summary state ชัดเจน per-section — ปุ่มเปิดได้เฉพาะ
+  //   summaryOk && outstanding > 0 && ไม่มี summary/submit request inflight.
+  //   ทุกทางออก sync ปุ่มจาก state ก้อนเดียว — ไม่มี finally เปิดปุ่มแบบ unconditional.
+  const S = { summaryOk: false, paid: null, outstanding: 0, summaryInflight: false, submitting: false };
+  let sumSeq = 0;      // summary-request sequence (per-section — แยกคนละชั้นกับ render generation)
+  let intent = null;   // payment intent snapshot per-section — งาน/section อื่นไม่มีทางแชร์ key
 
   const box = document.createElement("div");
   box.style.cssText = "border:1px dashed #86efac;border-radius:10px;padding:12px;background:#f0fdf4;margin-top:12px";
@@ -2647,17 +2653,28 @@ function _renderServicePaymentSection(job) {
   btn.type = "button"; btn.id = "svcPaySubmitBtn"; btn.className = "btn primary";
   btn.style.cssText = "font-size:12px;padding:8px 14px";
   btn.textContent = "💾 รับชำระ";
+  btn.disabled = true;               // เริ่ม disabled — เปิดได้เฉพาะจาก syncBtn ตาม state
   form.appendChild(amt); form.appendChild(method); form.appendChild(bank); form.appendChild(btn);
   box.appendChild(form);
   const hint = document.createElement("div");
-  hint.style.cssText = "font-size:10px;color:#4d7c0f;margin-top:6px";
-  hint.textContent = "บันทึกผ่าน ledger (append-only) + ลง JV Dr เงินสด/ธนาคาร / Cr 1200 อัตโนมัติ — ไม่กระทบสถานะงาน";
+  hint.style.cssText = "font-size:10px;color:#4d7c0f;margin-top:6px;line-height:1.6";
+  hint.textContent = "flow v2: 「ส่งมอบแล้ว」= รับรู้รายได้/ตั้งลูกหนี้ 1200 · รับเงินจริง = ปุ่ม 「รับชำระ」 นี้ (ledger append-only + JV Dr เงินสด/ธนาคาร / Cr 1200 · ไม่กระทบสถานะงาน) · 「ปิดงาน」= ลูกค้ายืนยัน ไม่ลงรายได้ซ้ำ";
   box.appendChild(hint);
+  const hintOld = document.createElement("div");
+  hintOld.style.cssText = "font-size:10px;color:#92400e;margin-top:4px";
+  hintOld.textContent = "⚠️ ช่อง 「วิธีรับเงิน」 ในการ์ดค่าแรงด้านบนใช้กับงาน flow v1 เท่านั้น — งาน v2 บันทึกการรับเงินที่ section นี้";
+  box.appendChild(hintOld);
   host.appendChild(box);
 
+  // ★ ปุ่มคุมจาก state ก้อนเดียว (Blocking#1): summary ต้องอ่านสำเร็จ + มียอดค้าง + ไม่มี request inflight
+  const syncBtn = () => {
+    btn.disabled = S.submitting || S.summaryInflight || !S.summaryOk || !(S.outstanding > 0);
+  };
+
   const refreshSummary = async () => {
-    const mySeq = ++_svcPayReqSeq;
-    elPaid.textContent = "…"; elOut.textContent = "…"; btn.disabled = true;
+    const mySeq = ++sumSeq;
+    S.summaryOk = false; S.summaryInflight = true; syncBtn();
+    elPaid.textContent = "…"; elOut.textContent = "…";
     let raw = null;
     try {
       const _sb = state.supabase;   // client ตัวเดียวกับ loadAllData — ไม่มี = fail-closed
@@ -2666,55 +2683,78 @@ function _renderServicePaymentSection(job) {
         raw = error ? null : data;
       }
     } catch (_) { raw = null; }
-    if (mySeq !== _svcPayReqSeq) return;   // stale response — drawer ถูกเปิดงานอื่น/refresh ใหม่แล้ว
+    // stale ทั้งสองชั้น: render generation (เปิดงานอื่นแล้ว) หรือ summary seq (มี refresh ใหม่กว่าใน section เดิม)
+    // — ห้ามแตะ DOM/state/toast; request ที่ใหม่กว่าเป็นเจ้าของ state ต่อ
+    if (myGen !== _svcPayRenderGen || mySeq !== sumSeq) return;
+    S.summaryInflight = false;
     const view = svcPaySummaryView(raw);
     if (!view.ok) {
-      // DATA_INCOMPLETE: อ่าน "รับแล้ว" ไม่ได้ → ห้ามเดา 0 และห้ามให้กดรับชำระ (กัน overpay จากตัวเลขหลอก)
+      // DATA_INCOMPLETE: อ่าน "รับแล้ว" ไม่ได้ → ห้ามเดา 0 · ปุ่มคง disabled จริงผ่าน state (summaryOk=false)
+      S.summaryOk = false; S.paid = null; S.outstanding = 0;
       elPaid.textContent = "—"; elOut.textContent = "—";
-      btn.disabled = true;
+      syncBtn();
       showToast("อ่านยอดรับชำระของงานนี้ไม่ได้ (DATA_INCOMPLETE) — ปิดปุ่มรับชำระไว้ก่อน", "warning");
       return;
     }
+    S.summaryOk = true; S.paid = view.paid;
+    S.outstanding = Math.max(totalCost - view.paid, 0);
     elPaid.textContent = money(view.paid);
-    const outstanding = Math.max(totalCost - view.paid, 0);
-    elOut.textContent = money(outstanding);
-    if (!amt.value) amt.value = outstanding > 0 ? String(outstanding) : "";
-    btn.disabled = false;
+    elOut.textContent = money(S.outstanding);
+    if (S.outstanding > 0) {
+      if (!amt.value) amt.value = String(S.outstanding);
+    } else {
+      amt.value = "";                // จ่ายครบแล้ว — เคลียร์ช่องจำนวน; ปุ่ม disabled ผ่าน state (outstanding=0)
+    }
+    syncBtn();
   };
 
   // แก้ยอด/วิธี/บัญชี = คนละรายการ → ทิ้ง intent เดิม (key ใหม่ตอน submit ถัดไป)
-  const resetIntent = () => { _svcPayIntent = null; };
+  const resetIntent = () => { intent = null; };
   amt.addEventListener("input", resetIntent);
   method.addEventListener("change", resetIntent);
   bank.addEventListener("change", resetIntent);
 
-  btn.addEventListener("click", () => _svcPayGuard.run(async () => {
+  btn.addEventListener("click", async () => {
+    if (S.submitting || S.summaryInflight || !S.summaryOk) return;  // belt — ปุ่มควร disabled อยู่แล้วตาม state
     const amount = Number(amt.value);
     if (!Number.isFinite(amount) || amount <= 0) return showToast("กรอกจำนวนเงินให้ถูกต้อง (มากกว่า 0)", "error");
     const m = method.value;
     const bankCode = m === "transfer" ? (bank.value || "") : "";
     if (m === "transfer" && !bankCode) return showToast("เลือกบัญชีธนาคารที่รับโอน", "error");
-    _svcPayIntent = svcPayIntentFor({ amount, paymentMethod: m, bankCoaCode: bankCode || null },
-      _svcPayIntent, () => crypto.randomUUID(), new Date().toISOString());
-    btn.disabled = true;
+    intent = svcPayIntentFor({ amount, paymentMethod: m, bankCoaCode: bankCode || null },
+      intent, () => crypto.randomUUID(), new Date().toISOString());
+    S.submitting = true; syncBtn();
+    let res;
     try {
       // I4: เขียนผ่าน RPC เท่านั้น (recordServicePayment) — ห้าม INSERT service_payments ตรง
-      const res = await recordServicePayment({
+      res = await recordServicePayment({
         serviceJobId: jobId,
-        amount: _svcPayIntent.amount,
-        paymentMethod: _svcPayIntent.paymentMethod,
-        paidAt: _svcPayIntent.paidAt,
-        idempotencyKey: _svcPayIntent.key,
-        bankCoaCode: _svcPayIntent.bankCoaCode
+        amount: intent.amount,
+        paymentMethod: intent.paymentMethod,
+        paidAt: intent.paidAt,
+        idempotencyKey: intent.key,
+        bankCoaCode: intent.bankCoaCode
       });
-      const plan = svcPayResultPlan(res);
-      if (plan.kind === "error") { showToast(plan.message, "error"); return; }  // คง intent — retry ใช้ key+payload เดิม
-      _svcPayIntent = null;  // intent จบแล้ว — รายการถัดไปคือ key ใหม่
-      if (plan.kind === "ledger-only") showToast(plan.message, "warning");
-      else showToast(jvResultToToast(res.jv).message);
-      await refreshSummary();  // ผูก jobId เดิมผ่าน closure; ภายในมี seq guard กัน stale เอง
-    } finally { btn.disabled = false; }
-  }));
+    } catch (e) {
+      res = { ok: false, error: String(e?.message || e) };
+    }
+    // ★ Blocking#2 (review#196): generation check ก่อน UI-effect ทุกอย่าง — drawer เปิดงานอื่นไปแล้ว
+    //   = payment ของงานนี้ (A) ห้าม toast / ห้าม refresh / ห้าม invalidate summary ของงานปัจจุบัน (B).
+    //   DOM ของ section นี้ detach ไปแล้ว (host ถูกล้างตอน render B) — จบเงียบโดยไม่แตะอะไร.
+    if (myGen !== _svcPayRenderGen) return;
+    S.submitting = false;
+    const plan = svcPayResultPlan(res);
+    if (plan.kind === "error") {
+      showToast(plan.message, "error");   // คง intent — retry ใช้ key+payload เดิมครบทุก field
+      syncBtn();                          // เปิดปุ่มได้เฉพาะเมื่อ summary ยัง ok + มียอดค้าง
+      return;
+    }
+    intent = null;  // intent จบแล้ว — รายการถัดไปคือ key ใหม่
+    if (plan.kind === "ledger-only") showToast(plan.message, "warning");
+    else showToast(jvResultToToast(res.jv).message);
+    // refresh สรุปของงานเดิม (closure jobId) — ถ้าอ่านไม่ได้ (DATA_INCOMPLETE) ปุ่มคง disabled จริงผ่าน state
+    await refreshSummary();
+  });
 
   refreshSummary();
 }
