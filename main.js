@@ -41,7 +41,8 @@ import { renderTasksPage, checkOverdueTasksAndNotify } from "./modules/tasks.js"
 // Phase 89.21: payroll_overview, expense_overview lazy
 // Phase 89.20: accounting/* (9 modules) — all lazy (admin only, ~167KB combined)
 // Phase 88.1: auto-posting JV จาก sales/expenses — eager (used in checkout flow)
-import { postJournalForSale, postJournalForServiceJob, voidJvForSource, getServiceTransferCoa } from "./modules/accounting/auto_post.js";
+import { postJournalForSale, postJournalForServiceJob, voidJvForSource, getServiceTransferCoa, serviceFinanceFlowOf, recordServicePayment } from "./modules/accounting/auto_post.js";
+import { jvResultToToast } from "./modules/accounting/service_jv_validate.js";
 import { findJournalForSale, renderSaleTraceBadge, navigateToJv } from "./modules/accounting/sale_trace.js";
 import { ACCOUNTING_EFFECTIVE_DATE } from "./modules/accounting/effective_date.js";
 // Phase 89.21: profit_by_product, quote_templates, serials lazy
@@ -2525,6 +2526,199 @@ const SERVICE_JOB_DRAWER_DRAFT_FIELDS = [
   ["#servicePaymentMethod", "paymentMethod"]
 ];
 
+// ★ Phase 606-b2: pure planner — แยก "recognition" (closed_at + JV = เหตุการณ์บัญชี) ออกจาก
+//   "operational" (stock/LINE = งานเสร็จ ใช้ COMPLETION_STATUSES เดิมทุก flow — ห้ามแตะ).
+//   v1: สองชุดเท่ากัน → พฤติกรรมเดิม 100%. v2: recognition runtime = "เพิ่งเข้า delivered" เท่านั้น —
+//   closed สงวนให้ recovery ผ่าน Service Reconcile (ดู incomeStatuses ใน auto_post.js:915);
+//   เข้า done = งานเสร็จรอส่งมอบ ไม่ stamp closed_at / ไม่ยิง JV.
+function serviceSavePlan({ flow, isNewJob, origStatus, newStatus, totalChanged, methodChanged }) {
+  const OPERATIONAL = ["done", "delivered", "closed"];
+  const stampSet = flow === 2 ? ["delivered", "closed"] : OPERATIONAL;
+  const orig = String(origStatus || "");
+  const next = String(newStatus || "");
+  // v2 ห้ามกระโดดเข้า closed โดยไม่ผ่าน delivered — recognition ต้องเกิดที่ delivered
+  const blockClosedJump = flow === 2 && !isNewJob && next === "closed" && !["delivered", "closed"].includes(orig);
+  const wasRecognized = stampSet.includes(orig);
+  const isNowRecognized = stampSet.includes(next);
+  // v2 runtime: JV ใหม่ยิงเฉพาะเข้า delivered (เข้า closed ตรง ๆ ถูก blockClosedJump กันก่อนแล้ว)
+  const transitionedToRecognized = !isNewJob && !wasRecognized && isNowRecognized && (flow !== 2 || next === "delivered");
+  const newJobRecognized = isNewJob && isNowRecognized;   // งานใหม่ = flow 1 เสมอ (DB trigger บังคับจนกว่า 606-b3)
+  const editRecognizedWithChange = !isNewJob && wasRecognized && isNowRecognized && (totalChanged || methodChanged);
+  return { stampSet, blockClosedJump, wasRecognized, isNowRecognized, transitionedToRecognized, newJobRecognized, editRecognizedWithChange };
+}
+
+// ═══ Phase 606-b2: รับชำระงานบริการ flow v2 (admin เท่านั้น · dormant จนกว่า activation 606-b3) ═══
+// ledger append-only + JV = audit trail (drawer money actions เดิมไม่มี pattern เขียน audit_log — ไม่ประดิษฐ์ใหม่)
+let _svcPayReqSeq = 0;     // generation token — กันผล async ของงาน/รอบก่อนหน้ามาทับ drawer ปัจจุบัน
+let _svcPayIntent = null;  // snapshot payment intent ทั้งก้อน — RPC เทียบ payload ครบทุก field (amount/method/bank/paid_at/slip/note)
+                           // retry ต้องส่งค่าเดิมทุกตัวรวม paid_at ไม่งั้นชน 23505
+const _svcPayGuard = createInflightGuard();
+
+// fail-closed summary: RPC คืน null (role ไม่ผ่าน) · HTTP fail · ค่าไม่ finite → DATA_INCOMPLETE
+//   ห้ามแสดง 0 (0 = "ยังไม่รับเงิน" คนละความจริงกับ "อ่านไม่ได้") และต้อง disable ปุ่มรับชำระ
+function svcPaySummaryView(raw) {
+  const n = Number(raw);
+  if (raw === null || raw === undefined || raw === "" || !Number.isFinite(n) || n < 0) {
+    return { ok: false, paid: null, label: "—", disableSubmit: true };
+  }
+  return { ok: true, paid: n, label: null, disableSubmit: false };
+}
+
+// reuse intent เดิมทั้งก้อน (รวม key + paid_at) เมื่อ field ที่ user ควบคุมตรงเดิมทุกตัว = retry หลัง fail
+// แก้ยอด/วิธี/บัญชี = รายการใหม่ = key ใหม่ + paid_at ใหม่
+function svcPayIntentFor(cur, prev, uuidFn, nowIso) {
+  if (prev && prev.amount === cur.amount && prev.paymentMethod === cur.paymentMethod
+      && String(prev.bankCoaCode || "") === String(cur.bankCoaCode || "")) return prev;
+  return { key: uuidFn(), amount: cur.amount, paymentMethod: cur.paymentMethod,
+           bankCoaCode: cur.bankCoaCode || null, paidAt: nowIso, slipUrl: null, note: null };
+}
+
+// mapping ผลรับชำระ 3 ชั้น — ห้ามยุบ: res.ok ตัวเดียว = "ledger รับแล้ว" เท่านั้น (guard D8)
+// การรายงานว่า "ลงบัญชีแล้ว" ต้องอ่าน res.accountingPosted
+function svcPayResultPlan(res) {
+  if (!res || !res.ok) {
+    return { kind: "error", message: "รับชำระไม่สำเร็จ: " + String(res?.error || "ไม่ทราบสาเหตุ").slice(0, 180) };
+  }
+  if (!res.accountingPosted) {
+    return { kind: "ledger-only", message: "⚠️ รับเงินบันทึกแล้ว แต่ยังไม่ลงบัญชี — ลงบัญชีซ้ำได้ที่หน้า Service Reconcile" };
+  }
+  return { kind: "posted", message: null };  // caller ใช้ jvResultToToast(res.jv)
+}
+
+function _renderServicePaymentSection(job) {
+  const host = document.getElementById("svcPaySection");
+  if (!host) return;
+  host.innerHTML = "";          // งาน v1 / ไม่เข้าเงื่อนไข = ไม่มี DOM ข้างในเลย (ไม่ใช่แค่ซ่อน CSS)
+  _svcPayIntent = null;
+  ++_svcPayReqSeq;              // เปิด drawer ใหม่ = invalidate ผล async ของรอบก่อนเสมอ
+  if (!requireAdmin()) return;
+  if (serviceFinanceFlowOf(job) !== 2) return;
+  if (!["delivered", "closed"].includes(String(job?.status || ""))) return;
+  if (String(job?.note || "").includes("[ลบแล้ว]")) return;
+  const jobId = job.id;         // ผูกผล async กับงานนี้ผ่าน closure + seq (กัน job A ทับ drawer job B)
+  const totalCost = Number(job.total_cost || 0);
+
+  const box = document.createElement("div");
+  box.style.cssText = "border:1px dashed #86efac;border-radius:10px;padding:12px;background:#f0fdf4;margin-top:12px";
+  const title = document.createElement("div");
+  title.style.cssText = "font-size:12px;font-weight:700;color:#166534;margin-bottom:8px";
+  title.textContent = "💰 รับชำระเงิน (flow v2 — ตัดลูกหนี้ 1200)";
+  box.appendChild(title);
+
+  const sum = document.createElement("div");
+  sum.style.cssText = "font-size:12px;color:#166534;margin-bottom:8px;display:grid;grid-template-columns:repeat(3,1fr);gap:6px";
+  const mkStat = (label) => {
+    const d = document.createElement("div");
+    const l = document.createElement("div"); l.style.cssText = "font-size:10px;color:#4d7c0f"; l.textContent = label;
+    const v = document.createElement("div"); v.style.cssText = "font-weight:700";
+    d.appendChild(l); d.appendChild(v); sum.appendChild(d); return v;
+  };
+  const elTotal = mkStat("ยอดงาน");
+  const elPaid = mkStat("รับแล้ว");
+  const elOut = mkStat("คงค้าง");
+  elTotal.textContent = money(totalCost);
+  elPaid.textContent = "…"; elOut.textContent = "…";
+  box.appendChild(sum);
+
+  const form = document.createElement("div");
+  form.style.cssText = "display:flex;flex-wrap:wrap;gap:6px;align-items:flex-end";
+  const amt = document.createElement("input");
+  amt.type = "number"; amt.min = "0"; amt.step = "0.01"; amt.placeholder = "จำนวนเงิน";
+  amt.id = "svcPayAmount";
+  amt.style.cssText = "flex:1;min-width:110px;padding:8px 10px;border:1px solid #86efac;border-radius:8px;font:inherit";
+  const method = document.createElement("select");
+  method.id = "svcPayMethod";
+  method.style.cssText = "padding:8px 10px;border:1px solid #86efac;border-radius:8px;font:inherit";
+  [["cash", "💵 เงินสด"], ["transfer", "🏦 โอน"]].forEach(([v, t]) => {
+    const o = document.createElement("option"); o.value = v; o.textContent = t; method.appendChild(o);
+  });
+  const bank = document.createElement("select");
+  bank.id = "svcPayBank";
+  bank.style.cssText = "padding:8px 10px;border:1px solid #86efac;border-radius:8px;font:inherit;display:none";
+  const bank0 = document.createElement("option"); bank0.value = ""; bank0.textContent = "— เลือกบัญชีธนาคาร —"; bank.appendChild(bank0);
+  (state.paymentInfo?.banks || []).filter(b => b.coaCode).forEach(b => {
+    const o = document.createElement("option");
+    o.value = String(b.coaCode);
+    o.textContent = [b.bankName, b.bankAccount].filter(Boolean).join(" ");  // textContent = escape ในตัว
+    bank.appendChild(o);
+  });
+  method.addEventListener("change", () => { bank.style.display = method.value === "transfer" ? "" : "none"; });
+  const btn = document.createElement("button");
+  btn.type = "button"; btn.id = "svcPaySubmitBtn"; btn.className = "btn primary";
+  btn.style.cssText = "font-size:12px;padding:8px 14px";
+  btn.textContent = "💾 รับชำระ";
+  form.appendChild(amt); form.appendChild(method); form.appendChild(bank); form.appendChild(btn);
+  box.appendChild(form);
+  const hint = document.createElement("div");
+  hint.style.cssText = "font-size:10px;color:#4d7c0f;margin-top:6px";
+  hint.textContent = "บันทึกผ่าน ledger (append-only) + ลง JV Dr เงินสด/ธนาคาร / Cr 1200 อัตโนมัติ — ไม่กระทบสถานะงาน";
+  box.appendChild(hint);
+  host.appendChild(box);
+
+  const refreshSummary = async () => {
+    const mySeq = ++_svcPayReqSeq;
+    elPaid.textContent = "…"; elOut.textContent = "…"; btn.disabled = true;
+    let raw = null;
+    try {
+      const _sb = state.supabase;   // client ตัวเดียวกับ loadAllData — ไม่มี = fail-closed
+      if (_sb) {
+        const { data, error } = await _sb.rpc("service_job_paid_total", { p_job_id: jobId });
+        raw = error ? null : data;
+      }
+    } catch (_) { raw = null; }
+    if (mySeq !== _svcPayReqSeq) return;   // stale response — drawer ถูกเปิดงานอื่น/refresh ใหม่แล้ว
+    const view = svcPaySummaryView(raw);
+    if (!view.ok) {
+      // DATA_INCOMPLETE: อ่าน "รับแล้ว" ไม่ได้ → ห้ามเดา 0 และห้ามให้กดรับชำระ (กัน overpay จากตัวเลขหลอก)
+      elPaid.textContent = "—"; elOut.textContent = "—";
+      btn.disabled = true;
+      showToast("อ่านยอดรับชำระของงานนี้ไม่ได้ (DATA_INCOMPLETE) — ปิดปุ่มรับชำระไว้ก่อน", "warning");
+      return;
+    }
+    elPaid.textContent = money(view.paid);
+    const outstanding = Math.max(totalCost - view.paid, 0);
+    elOut.textContent = money(outstanding);
+    if (!amt.value) amt.value = outstanding > 0 ? String(outstanding) : "";
+    btn.disabled = false;
+  };
+
+  // แก้ยอด/วิธี/บัญชี = คนละรายการ → ทิ้ง intent เดิม (key ใหม่ตอน submit ถัดไป)
+  const resetIntent = () => { _svcPayIntent = null; };
+  amt.addEventListener("input", resetIntent);
+  method.addEventListener("change", resetIntent);
+  bank.addEventListener("change", resetIntent);
+
+  btn.addEventListener("click", () => _svcPayGuard.run(async () => {
+    const amount = Number(amt.value);
+    if (!Number.isFinite(amount) || amount <= 0) return showToast("กรอกจำนวนเงินให้ถูกต้อง (มากกว่า 0)", "error");
+    const m = method.value;
+    const bankCode = m === "transfer" ? (bank.value || "") : "";
+    if (m === "transfer" && !bankCode) return showToast("เลือกบัญชีธนาคารที่รับโอน", "error");
+    _svcPayIntent = svcPayIntentFor({ amount, paymentMethod: m, bankCoaCode: bankCode || null },
+      _svcPayIntent, () => crypto.randomUUID(), new Date().toISOString());
+    btn.disabled = true;
+    try {
+      // I4: เขียนผ่าน RPC เท่านั้น (recordServicePayment) — ห้าม INSERT service_payments ตรง
+      const res = await recordServicePayment({
+        serviceJobId: jobId,
+        amount: _svcPayIntent.amount,
+        paymentMethod: _svcPayIntent.paymentMethod,
+        paidAt: _svcPayIntent.paidAt,
+        idempotencyKey: _svcPayIntent.key,
+        bankCoaCode: _svcPayIntent.bankCoaCode
+      });
+      const plan = svcPayResultPlan(res);
+      if (plan.kind === "error") { showToast(plan.message, "error"); return; }  // คง intent — retry ใช้ key+payload เดิม
+      _svcPayIntent = null;  // intent จบแล้ว — รายการถัดไปคือ key ใหม่
+      if (plan.kind === "ledger-only") showToast(plan.message, "warning");
+      else showToast(jvResultToToast(res.jv).message);
+      await refreshSummary();  // ผูก jobId เดิมผ่าน closure; ภายในมี seq guard กัน stale เอง
+    } finally { btn.disabled = false; }
+  }));
+
+  refreshSummary();
+}
+
 function openServiceJobDrawer(job=null){
   const drawerDraft = job ? null : loadServiceDraft(SERVICE_JOB_DRAWER_DRAFT_KEY);
   state.editingServiceJobId = job?.id || null;
@@ -2702,6 +2896,9 @@ function openServiceJobDrawer(job=null){
 
   // Phase 63 (C1): Share link button (only for existing jobs)
   _renderServiceJobShareSection(job);
+
+  // ★ Phase 606-b2: section รับชำระ flow v2 (admin + delivered/closed เท่านั้น — งาน v1 ไม่ render DOM)
+  _renderServicePaymentSection(job);
 
   // Phase 68 (B3): Tag widget for service jobs
   _mountServiceJobTagWidget(job);
@@ -3076,6 +3273,33 @@ async function saveServiceJob(){
   }
   let res;
   const isNewJob = !state.editingServiceJobId;
+  // ★ Phase 606-b2: finance flow จาก state row ของงานเดิม (mirror DB — column NOT NULL ตั้งแต่ 606-a).
+  //   อ่านไม่ได้/เพี้ยน = BLOCK ก่อน PATCH — นโยบายเดียวกับ writer (serviceFinanceFlowOf คืน null เพื่อ block
+  //   โดยตั้งใจ ห้ามเดาเป็น v1): writer read-back กัน JV ผิดได้ แต่ closed_at ที่ UI stamp ผิดย้อนคืนไม่ได้.
+  //   งานใหม่ = flow 1 เสมอ (DB trigger บังคับ flow=1 จนกว่า activation 606-b3).
+  let _svcFlow = 1;
+  if (!isNewJob) {
+    const _stRow = (state.serviceJobs || []).find(j => String(j.id) === String(state.editingServiceJobId));
+    _svcFlow = serviceFinanceFlowOf(_stRow);
+    if (_svcFlow === null) {
+      _signalSave(false, { reason: "finance flow ของงานนี้อ่านไม่ได้" });
+      return showToast("อ่านข้อมูล finance flow ของงานนี้ไม่ได้ — รีเฟรชหน้า (Ctrl+Shift+R) แล้วลองใหม่", "error");
+    }
+  }
+  // ★ Phase 88.10b (ย้ายขึ้นมาเป็น input ของ planner): amount/method เปลี่ยนหรือไม่
+  const origTotalCost = Number(state.editingServiceJobOrigTotalCost ?? 0);
+  const newTotalCost  = Number(payload.total_cost ?? 0);
+  const totalChanged  = Math.abs(origTotalCost - newTotalCost) > 0.005;
+  const methodChanged = (state.editingServiceJobOrigPaymentMethod || "") !== (payload.payment_method || "");
+  const _svcPlan = serviceSavePlan({
+    flow: _svcFlow, isNewJob,
+    origStatus: state.editingServiceJobOrigStatus, newStatus: payload.status,
+    totalChanged, methodChanged
+  });
+  if (_svcPlan.blockClosedJump) {
+    _signalSave(false, { reason: "flow v2 ต้องผ่าน delivered ก่อน closed" });
+    return showToast("งานนี้ (finance v2) ต้องส่งมอบงาน (ส่งมอบแล้ว) ก่อน จึงจะปิดงานได้", "error");
+  }
   // ★ Phase 402 / Phase 482 (MONEY/STOCK §4.1+§4.2): บันทึก items_json ได้ทุกครั้งที่ "ยังแก้ได้"
   //   (งานยังไม่ปิด) — เดิมจำกัดเฉพาะ isNewJob ทำให้งานเดิม (รวมงาน Ning items ว่าง) เพิ่มอุปกรณ์แล้วหาย.
   //   ★ ไม่ตัดสต็อกที่นี่อีกแล้ว (Phase 482 ย้ายไปตัดตอนปิดงาน — ดู deduct-on-close ใต้ JV block).
@@ -3100,7 +3324,10 @@ async function saveServiceJob(){
   //   (ไม่ทับของเดิม → edit งานที่ปิดแล้วไม่เลื่อนวันปิด); inline form (ac_install/service_form/solar)
   //   set closed_at เองอยู่แล้ว.
   {
-    const _CLOSE_ST = ["done", "delivered", "closed"];
+    // ★ Phase 606-b2: ชุดสถานะที่ stamp มาจาก planner ตาม flow —
+    //   v1 = ["done","delivered","closed"] (เดิมเป๊ะ) · v2 = ["delivered","closed"] (เข้า done ไม่ประทับ:
+    //   done = งานเสร็จรอส่งมอบ ยังไม่ใช่วันรับรู้รายได้; เข้า closed ตรง ๆ ถูก blockClosedJump กันก่อนแล้ว)
+    const _CLOSE_ST = _svcPlan.stampSet;
     const _wasClosed = _CLOSE_ST.includes(String(state.editingServiceJobOrigStatus || ""));
     const _isClosing = _CLOSE_ST.includes(String(payload.status || ""));
     if (_isClosing && !_wasClosed && !payload.closed_at) {
@@ -3209,26 +3436,22 @@ async function saveServiceJob(){
   // ★ LINE notify เมื่อปิดงาน → กลุ่ม "ส่งงาน"
   // Phase 31 fix: ปิดงานนับ done / delivered / closed (ก่อนหน้าเช็คเฉพาะ "done" → "ส่งมอบแล้ว"/"ลูกค้ายืนยันปิดงาน" ไม่ส่ง LINE)
   const origStatus = state.editingServiceJobOrigStatus;
+  // ★ operational bucket — ขับ stock (ด้านล่าง) + LINE notify (ล่างสุด) เท่านั้น: "งานเสร็จ" ทุก flow
+  //   เท่ากัน ["done","delivered","closed"] — ★ Phase 606-b2 ห้ามเปลี่ยนชุดนี้ (v2 เข้า done ต้องยังตัดสต็อก)
   const COMPLETION_STATUSES = ["done", "delivered", "closed"];
   const wasComplete = COMPLETION_STATUSES.includes(origStatus);
   const isNowComplete = COMPLETION_STATUSES.includes(payload.status);
   const transitionedToDone = !isNewJob && !wasComplete && isNowComplete;
   const newJobAlreadyComplete = isNewJob && isNowComplete;
 
-  // ★ Phase 88.10b: ตรวจว่า amount/method เปลี่ยนหรือไม่ — trigger re-post แม้ status ไม่ transition
-  const origTotalCost = Number(state.editingServiceJobOrigTotalCost ?? 0);
-  const newTotalCost  = Number(payload.total_cost ?? 0);
-  const totalChanged  = Math.abs(origTotalCost - newTotalCost) > 0.005;
-  const methodChanged = (state.editingServiceJobOrigPaymentMethod || "") !== (payload.payment_method || "");
-  // Edit งานเก่าที่ status complete อยู่แล้ว + แก้ค่าเงิน/method → ก็ต้อง re-post
-  const editCompleteWithChange = !isNewJob && wasComplete && isNowComplete && (totalChanged || methodChanged);
-
-  // ★ Phase 88.1b/88.8/88.10 — auto-post JV เมื่องานปิด
+  // ★ Phase 88.1b/88.8/88.10 + 606-b2 — auto-post JV ตาม "recognition" transition จาก planner
+  //   (v1 = เท่า operational เดิมทุกกรณี · v2 = เพิ่งเข้า delivered เท่านั้น; totalChanged/methodChanged
+  //   ย้ายไปคำนวณก่อน PATCH เป็น input ของ planner — Phase 88.10b semantics เดิม)
   //   trigger 3 case:
-  //   1. transitionedToDone   — เพิ่ง transition pending → delivered
-  //   2. newJobAlreadyComplete — สร้างใหม่ + status=delivered ทันที
-  //   3. editCompleteWithChange — งานปิดอยู่แล้ว + user แก้ total/method (Phase 88.10b)
-  if (transitionedToDone || newJobAlreadyComplete || editCompleteWithChange) {
+  //   1. transitionedToRecognized — เพิ่ง transition เข้าสถานะรับรู้รายได้
+  //   2. newJobRecognized         — สร้างใหม่ + สถานะรับรู้ทันที (งานใหม่ = flow 1 เสมอ)
+  //   3. editRecognizedWithChange — งานรับรู้แล้ว + user แก้ total/method (Phase 88.10b)
+  if (_svcPlan.transitionedToRecognized || _svcPlan.newJobRecognized || _svcPlan.editRecognizedWithChange) {
     try {
       // ★ Phase 568 invariant: บน replay (res มาจาก 409/timeout-replay ของ helper) jobId = row เดิม
       //   → postJournalForServiceJob idempotent ที่ (source_table='service_jobs', source_id=jobId):
@@ -3238,7 +3461,8 @@ async function saveServiceJob(){
       if (jobId) {
         const fullJob = { ...(state.serviceJobs || []).find(j => String(j.id) === String(jobId)), ...payload, id: jobId };
         // ถ้า edit + มี JV เก่า (transition หรือ change) → void ก่อน เพื่อให้ POST ใหม่ผ่าน
-        const needsVoid = !isNewJob && (wasComplete || transitionedToDone);
+        // ★ 606-b2: ใช้ recognition vars (v1 = ค่าเดิมเป๊ะ) — v2 เข้า done ไม่มี JV ให้ void
+        const needsVoid = !isNewJob && (_svcPlan.wasRecognized || _svcPlan.transitionedToRecognized);
         const prepareAndPost = async () => {
           if (needsVoid) {
             await voidJvForSource("service_jobs", jobId);

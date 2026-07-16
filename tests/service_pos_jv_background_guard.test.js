@@ -47,6 +47,8 @@ for (const file of ["modules/service_form.js", "modules/ac_install.js", "modules
 test("main.js admin drawer still posts the service close JV (single source)", () => {
   const main = read("main.js");
   assert.match(main, /postJournalForServiceJob\(/, "main.js saveServiceJob must still post the service JV on close");
-  assert.match(main, /transitionedToDone \|\| newJobAlreadyComplete \|\| editCompleteWithChange/,
-    "main.js must keep the close/complete JV trigger conditions");
+  // ★ Phase 606-b2: trigger 3-case เดิมย้ายไปเป็น recognition vars จาก serviceSavePlan
+  //   (v1 semantics เท่าเดิมเป๊ะ — พิสูจน์ behavioral ใน service_drawer_v2_semantics_guard)
+  assert.match(main, /_svcPlan\.transitionedToRecognized \|\| _svcPlan\.newJobRecognized \|\| _svcPlan\.editRecognizedWithChange/,
+    "main.js must keep the close/complete JV trigger conditions (recognition plan)");
 });

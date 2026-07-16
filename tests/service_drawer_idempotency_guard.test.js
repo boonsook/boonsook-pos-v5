@@ -18,7 +18,7 @@ function slice(from, to) {
 
 const drawerBody = slice("function openServiceJobDrawer(job=null){", "// ★ Phase 545 (SECURITY)");
 const insertBranch = slice('payload.job_no = "JOB-" + Date.now();', "if (!res.ok) {");
-const jvBlock = slice("if (transitionedToDone || newJobAlreadyComplete || editCompleteWithChange) {", "prepareAndPost().catch");
+const jvBlock = slice("if (_svcPlan.transitionedToRecognized || _svcPlan.newJobRecognized || _svcPlan.editRecognizedWithChange) {", "prepareAndPost().catch");
 
 // ── import helper (reuse Phase 567) ──────────────────────────────────────────
 test("import createInsertIntent + insertServiceJobWithReplay จาก _insert_idempotency.js", () => {
@@ -58,8 +58,8 @@ test("replayed → showToast กันบันทึกซ้ำ", () => {
 // ── 4. JV block: ห้าม skip เมื่อ replay (คง invariant) ─────────────────────────
 test("JV block ไม่ถูก gate ด้วยตัวแปร replayed (postJournalForServiceJob ยิงปกติ — idempotent by source_id)", () => {
   // trigger เดิม 3-way OR ต้องไม่มี replayed แทรก (replayed ปรากฏได้เฉพาะใน comment invariant)
-  assert.ok(jvBlock.startsWith("if (transitionedToDone || newJobAlreadyComplete || editCompleteWithChange) {"),
-    "JV trigger condition ต้องคงเดิม (ไม่เพิ่ม replayed gate)");
+  assert.ok(jvBlock.startsWith("if (_svcPlan.transitionedToRecognized || _svcPlan.newJobRecognized || _svcPlan.editRecognizedWithChange) {"),
+    "JV trigger condition (recognition plan, Phase 606-b2) ต้องไม่เพิ่ม replayed gate");
   assert.doesNotMatch(jvBlock, /if\s*\(\s*!?\s*replayed/, "JV ต้องไม่ถูก gate ด้วย if(replayed)/if(!replayed)");
   assert.doesNotMatch(jvBlock, /replayed\s*[&|?]/, "JV ต้องไม่ใช้ replayed ใน boolean expression");
   assert.match(jvBlock, /const jobId = isNewJob \? res\.data\?\.id : state\.editingServiceJobId/);
