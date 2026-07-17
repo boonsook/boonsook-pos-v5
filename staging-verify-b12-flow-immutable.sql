@@ -20,9 +20,12 @@
 --     และ assert SQLERRM substring เพื่อพิสูจน์ว่า 42501 มาจาก guard ตัวที่คาด
 --     (BEFORE UPDATE ยิงเรียงชื่อ: trg_service_job_v2_freeze ('_'=0x5F) มาก่อน
 --      trg_service_jobs_metadata_update_guard ('s'=0x73))
---   • snapshot ก่อนกระทำ = flow/status/total_cost/note + count(je)/count(jl)
---     (service_jobs ไม่มี DDL ในรีโป — ไม่อ้าง updated_at เพราะยืนยัน column ไม่ได้;
---      zero-writes พิสูจน์จาก field + count เปรียบเทียบ)
+--   • snapshot ก่อนกระทำ = flow/status/total_cost/note (คอลัมน์ที่ยืนยันว่ามี) +
+--     count(je)/count(jl) — journal_entries/journal_lines มี DDL ในรีโป
+--     (supabase-phase88-accounting-foundation.sql). ห้ามอ้าง updated_at:
+--     service_jobs ไม่มี DDL ในรีโป และไม่มีโค้ด/SQL ใดอ้าง service_jobs.updated_at
+--     (grep = 0 hit เฉพาะ service_jobs; ตารางอื่นมีใช้ปกติ) → ไม่มีหลักฐานว่า
+--     คอลัมน์นี้มีอยู่บนตารางนี้
 --   • job_no ขึ้นต้น B12TEST- : derive_service_source_kind จับเฉพาะ ^(AI|SH)- →
 --     ได้ source_kind='service' ไม่ชน web_order
 --   • ผลทุก case ลงตาราง _staging_b12_results (สร้างใน SEED · อ่านสรุปที่ STEP ท้าย)

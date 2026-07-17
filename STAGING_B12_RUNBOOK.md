@@ -140,5 +140,9 @@ DROP TABLE IF EXISTS public._staging_b12_sentinel;
 - ไม่ทดสอบ role ฝั่ง authenticated (script รันเป็น system) — เป้าหมายคือพิสูจน์ clause
   ที่ **ไม่ขึ้นกับ role**: v2 immutable (ทุก role) + activation gate 1→2 (ทุก role) +
   freeze matrix (ทุก role) ซึ่งครอบ B12a–e ครบ
-- `updated_at` ไม่ถูกใช้เป็น snapshot (ไม่มี DDL ของ service_jobs ในรีโปให้ยืนยัน column) —
-  zero-writes พิสูจน์จาก flow/status/total_cost/note + count(je)/count(jl) แทน
+- zero-writes ใช้ re-read เฉพาะคอลัมน์ที่ยืนยันว่ามี: `finance_flow_version`, `status`,
+  `total_cost`, `note` (+ je/jl count — สองตารางนี้มี DDL ในรีโป
+  `supabase-phase88-accounting-foundation.sql` ✓ verify แล้ว) — **ห้ามอ้าง `updated_at`**:
+  `service_jobs` ไม่มี DDL ในรีโป และไม่มีโค้ด/SQL ใดอ้าง `service_jobs.updated_at`
+  (grep = 0 hit เฉพาะ service_jobs; ตารางอื่นมีใช้ปกติ) → ไม่มีหลักฐานว่าคอลัมน์นี้
+  มีอยู่บนตารางนี้

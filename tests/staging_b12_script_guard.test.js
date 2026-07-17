@@ -177,7 +177,9 @@ test("G12. B12c: handler ของตัวเองเจาะจง insuffici
 
 test("G13. zero-writes ใช้เฉพาะคอลัมน์ที่ยืนยันว่ามี — ห้ามอ้าง updated_at ทั้งไฟล์", () => {
   assert.doesNotMatch(SQL_CODE, /updated_at/i,
-    "ห้ามอ้าง updated_at ในโค้ดจริง (ไม่มี DDL service_jobs ในรีโป — verify แล้วศูนย์ hit; comment อธิบายเหตุผลได้)");
+    "ห้ามอ้าง updated_at ในโค้ดจริง — service_jobs ไม่มี DDL ในรีโป และไม่มีโค้ด/SQL ใดอ้าง " +
+    "service_jobs.updated_at (grep = 0 hit เฉพาะ service_jobs; ตารางอื่นมีใช้ปกติ) " +
+    "= ไม่มีหลักฐานว่าคอลัมน์นี้มีบนตารางนี้ (comment ใน SQL อธิบายเหตุผลได้)");
   for (const tag of ["b12a", "b12b", "b12c"]) {
     const b = BLOCKS.find((x) => x.tag === tag).body;
     assert.match(b, /finance_flow_version = 2\s*\n?\s*AND status = v_status AND total_cost = v_cost AND note IS NOT DISTINCT FROM v_note/,
