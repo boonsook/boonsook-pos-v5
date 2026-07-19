@@ -69,6 +69,9 @@ INSERT INTO public._staging_b12_sentinel (confirm_text) VALUES ('B12-STAGING-<YY
 
 - script เทียบ `confirm_text = 'B12-STAGING-' || วันที่ปัจจุบัน` **เป๊ะ** — sentinel ค้างจากวันก่อน
   = ทุก block ปฏิเสธ (ตั้งใจ: บังคับ re-confirm ทุกวันที่รัน)
+- ⚠️ **timezone**: `current_date` ใน script = วันที่ **UTC** (Supabase) — ถ้ารันช่วง **00:00–06:59 น. ไทย**
+  ให้ใส่ confirm_text เป็นวันที่ UTC (= เมื่อวานตามเวลาไทย) หรือรอรันหลัง 07:00 น. ไทย
+  (ใส่วันที่ไทยในช่วงนั้น = interlock ปฏิเสธ — fail-closed ไม่เสียหาย แค่ต้องแก้ sentinel)
 - production ไม่มีตารางนี้ → ทุก block RAISE ทันที (default = ปฏิเสธ)
 
 ## 2) ยืนยัน schema ครบก่อนรัน (STEP 0 ใน script — SELECT อย่างเดียว)
