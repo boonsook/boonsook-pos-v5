@@ -4,6 +4,7 @@
  * Handles LINE notification settings and sending notifications
  * via LINE Notify API with CORS-friendly approach
  */
+import { escHtml } from "./utils.js";
 
 /**
  * Render LINE Notify settings UI
@@ -209,7 +210,7 @@ function attachLineNotifyListeners(container, ctx, settings) {
         statusEl.style.backgroundColor = '#fffbeb';
       }
     } catch (e) {
-      statusEl.innerHTML = '🔴 <b>เชื่อมต่อเซิร์ฟเวอร์ไม่ได้</b> — ' + ((e && e.message) || e);
+      statusEl.innerHTML = '🔴 <b>เชื่อมต่อเซิร์ฟเวอร์ไม่ได้</b> — ' + escHtml(String((e && e.message) || e));
       statusEl.style.backgroundColor = '#fef2f2';
     }
   })();

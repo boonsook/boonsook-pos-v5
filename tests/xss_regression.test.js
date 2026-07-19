@@ -131,3 +131,26 @@ test("B1 dashboard: pending-order card escapes service_jobs fields", () => {
   assert.ok(dashboardSrc.includes("📞 ${escapeHtml(phone)}"),       "phone must be escaped");
   assert.ok(!dashboardSrc.includes("${j.job_no} — ${j.customer_name"), "raw job_no/customer_name must be gone");
 });
+
+// ───────────────────────────────────────────────
+// Phase 606-B12.1 — line_notify.js: error message ใน status innerHTML ต้อง escape
+//   จุด dynamic เดียวของไฟล์ (catch ของ status check) — e.message มาจาก fetch error
+//   (ความเสี่ยงต่ำ แต่กติกา §4.5: innerHTML + ค่า dynamic = ต้อง escape เสมอ)
+// ───────────────────────────────────────────────
+import fs from "node:fs";
+const lineNotifySrc = fs.readFileSync(new URL("../modules/line_notify.js", import.meta.url), "utf8");
+
+test("line_notify imports escHtml from utils (ไฟล์เดิมไม่มี import — กันเขียน helper เอง)", () => {
+  assert.match(lineNotifySrc, /import \{ escHtml \} from "\.\/utils\.js";/,
+    "line_notify.js ต้อง import escHtml จาก ./utils.js");
+});
+
+test("line_notify: catch block ของ status check ครอบ e.message ด้วย escHtml", () => {
+  // extract เฉพาะ catch block ที่ render 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้' (อย่า grep ทั้งไฟล์)
+  const m = lineNotifySrc.match(/catch \(e\) \{[^}]*เชื่อมต่อเซิร์ฟเวอร์ไม่ได้[^}]*\}/s);
+  assert.ok(m, "ต้องเจอ catch block ที่ render ข้อความเชื่อมต่อไม่ได้");
+  assert.match(m[0], /escHtml\(String\(\(e && e\.message\) \|\| e\)\)/,
+    "e.message ใน innerHTML ต้องถูกครอบ escHtml(String(...))");
+  assert.ok(!/\+ \(\(e && e\.message\) \|\| e\);/.test(m[0]),
+    "รูปแบบ raw concat เดิมต้องหายไป");
+});
