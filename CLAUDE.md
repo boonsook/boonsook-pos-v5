@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> **Boonsook POS V5 · Project & Code Review Guide.** This file is read on every run (including automated PR review). It is the authoritative guardrail spec; [`project-patterns.md`](project-patterns.md) is the practical companion and [`IMPLEMENT_TEAM_PROTOCOL.md`](IMPLEMENT_TEAM_PROTOCOL.md) is the canonical session protocol.
+> **Boonsook POS V5 · Project & Code Review Guide.** This file is read on every run (including automated PR review). It is the authoritative guardrail spec; [`project-patterns.md`](project-patterns.md) is the practical companion and [`IMPLEMENT_TEAM_PROTOCOL.md`](IMPLEMENT_TEAM_PROTOCOL.md) is the canonical session protocol; [`EXTERNAL_TEAM_PROTOCOL.md`](EXTERNAL_TEAM_PROTOCOL.md) is the multi-team collaboration rulebook (ทีม/AI agent ภายนอกทุกทีมอ่านก่อนเริ่มงานแรก).
 
 > Phase prompt quality: read [`PROMPT_PHASE_BRIEF_SKILL.md`](PROMPT_PHASE_BRIEF_SKILL.md) before drafting, reviewing, or implementing a phase prompt. It defines the baseline/scope/failure-semantics/test/report structure expected by the owner and Codex.
 
