@@ -205,3 +205,48 @@ test("G10. runbook มีจริง + sentinel setup อยู่ใน runboo
   assert.doesNotMatch(SQL, /CREATE TABLE[^;]*_staging_b12_sentinel/i,
     "script ห้ามสร้าง sentinel เอง (ต้องเป็นการยืนยันด้วยมือของ owner เท่านั้น)");
 });
+
+test("G15. sentinel date authority = db_current_date จาก target DB session เท่านั้น — กัน UTC/clock assumption กลับมา (606-B12.2)", () => {
+  const rb = fs.readFileSync(path.join(ROOT, "STAGING_B12_RUNBOOK.md"), "utf8");
+  // 5.1 extract เฉพาะ sentinel section (## 1) สร้าง sentinel → ก่อน ## 2)) — ห้าม grep ทั้งไฟล์
+  const secStart = rb.indexOf("## 1) สร้าง sentinel");
+  const secEnd = rb.indexOf("## 2)", secStart);
+  assert.ok(secStart > 0 && secEnd > secStart, "runbook ต้องมี sentinel section ครอบขั้นสร้าง sentinel");
+  const sec = rb.slice(secStart, secEnd);
+
+  // 5.2 positive assertions (แยกกัน): precheck + authority + rerun + prohibition
+  assert.match(sec, /SHOW timezone;/, "ต้องมี precheck SHOW timezone");
+  assert.match(sec, /current_date AS db_current_date/, "ต้องอ่าน current_date เป็น alias db_current_date");
+  assert.match(sec, /now\(\)\s+AS db_now/, "ต้องอ่าน now() เป็น alias db_now");
+  assert.match(sec, /db_current_date[^.\n]*authority เพียงค่าเดียว/,
+    "ต้องประกาศ db_current_date เป็น authority เพียงค่าเดียวสำหรับ sentinel suffix");
+  assert.match(sec, /B12-STAGING-<YYYY-MM-DD>/, "ต้องมี sentinel template B12-STAGING-<YYYY-MM-DD>");
+  assert.match(sec, /แทน `<YYYY-MM-DD>` ด้วยค่า `db_current_date`/,
+    "ต้องสั่งให้ใช้ db_current_date จาก precheck สร้าง sentinel โดยตรง");
+  assert.match(sec, /precheck ใหม่[\s\S]{0,160}ข้ามวัน/,
+    "ต้องสั่ง rerun precheck เมื่อเปลี่ยน project/session หรือข้ามวัน");
+  assert.match(sec, /ห้าม derive[\s\S]{0,200}local[\s\S]{0,40}Bangkok[\s\S]{0,20}UTC/,
+    "ต้องห้าม derive suffix จาก local/Bangkok/UTC clock");
+  assert.match(sec, /ห้ามเปลี่ยน timezone configuration ของ session/,
+    "ต้องห้ามเปลี่ยน session timezone configuration เพื่อบังคับผล");
+
+  // 5.3 negative (claim-scoped — คำว่า UTC ในบริบทคำห้าม derive ใช้ได้;
+  //    ห้ามเฉพาะ false claim ว่า current_date เท่ากับ/เป็น UTC)
+  assert.doesNotMatch(sec, /current_date[^.\n]*(=|คือ|เป็น|เท่ากับ)[^.\n]*UTC/i,
+    "ห้าม claim ว่า current_date เท่ากับ/เป็น UTC (universal assumption)");
+  assert.doesNotMatch(sec, /00:00\s*[-–—]\s*06:59/, "ห้ามใช้ decision rule ช่วงเวลา 00:00–06:59 (จับขีดทุกรูปแบบ)");
+  assert.doesNotMatch(sec, /07:00/, "ห้ามแนะนำให้รอหลัง 07:00 เพื่อแก้วันที่");
+  assert.doesNotMatch(sec, /SET\s+TIME\s+ZONE/i, "ห้ามมี SQL token SET TIME ZONE");
+
+  // 5.4 ความสัมพันธ์กับ script: 9 DO blocks ยังใช้ current_date ของ DB session
+  //     และไม่มี date authority ใหม่ (Bangkok/UTC conversion/hardcoded date)
+  assert.equal(BLOCKS.length, 9, "ต้องมี DO block ครบ 9 (tags ถูกล็อกโดย G1)");
+  for (const b of BLOCKS) {
+    assert.match(b.body, /'B12-STAGING-' \|\| to_char\(current_date, 'YYYY-MM-DD'\)/,
+      `${b.tag}: interlock ต้องใช้ current_date ของ DB session เหมือนเดิม`);
+  }
+  assert.doesNotMatch(SQL_CODE, /AT\s+TIME\s+ZONE|timezone\s*\(|Asia\/Bangkok/i,
+    "script ห้ามเปลี่ยน date authority เป็น Bangkok/UTC conversion");
+  assert.doesNotMatch(SQL_CODE, /'B12-STAGING-\d{4}-\d{2}-\d{2}'/,
+    "script ห้าม hardcode วันที่ของ sentinel");
+});
