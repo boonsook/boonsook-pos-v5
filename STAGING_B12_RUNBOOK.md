@@ -57,7 +57,36 @@ query นี้ SELECT จาก catalog ล้วน — ไม่แตะข�
 
 ## 1) สร้าง sentinel (มือ · บน staging เท่านั้น — คำสั่งอยู่ที่นี่ ไม่อยู่ใน script)
 
-รันใน SQL Editor **ของ staging** (แทน `<YYYY-MM-DD>` ด้วย **วันนี้** เช่น `2026-07-17`):
+### 1.1 Precheck — อ่านวันที่จาก target DB session ก่อนทุกครั้ง
+
+`current_date` ใน PostgreSQL ขึ้นกับ timezone ของ **database session** ที่รัน script
+(ตั้งค่าต่างกันได้ในระดับ database/role/session) — ห้ามเหมารวมว่า Supabase ทุก
+project/session ใช้ timezone เดียวกัน ให้รัน precheck นี้ใน SQL Editor **ของ target
+STAGING project/session** ก่อนสร้าง sentinel ทุกครั้ง:
+
+```sql
+SHOW timezone;
+
+SELECT current_date AS db_current_date,
+       now()        AS db_now;
+```
+
+กฎตีความผล (บังคับ):
+
+- **`db_current_date` คือ authority เพียงค่าเดียว** สำหรับ suffix ของ sentinel —
+  เช่น query คืน `db_current_date = 2026-07-21` → ใช้ `B12-STAGING-2026-07-21`
+- `timezone` และ `db_now` ใช้เป็น**หลักฐานประกอบรายงาน**เท่านั้น ห้ามนำไปคำนวณ suffix
+- **ห้าม derive suffix จาก clock/date นอก target DB session** ไม่ว่าจะเป็น local,
+  Bangkok หรือ UTC
+- **ห้ามเปลี่ยน timezone configuration ของ session** เพื่อบังคับให้วันที่ออกมาตรงกับที่คาด
+- **รัน precheck ใหม่ทุกครั้ง** ที่เปลี่ยน project, reconnect session หรือข้ามวัน
+  ก่อนสร้าง sentinel
+- ถ้ายืนยันไม่ได้ว่า SQL Editor อยู่บน staging project ที่ถูกต้อง → **STOP ห้ามสร้าง sentinel**
+
+### 1.2 สร้าง sentinel (พิมพ์ confirm_text ด้วยมือ — human interlock)
+
+รันใน SQL Editor **ของ staging** — แทน `<YYYY-MM-DD>` ด้วยค่า `db_current_date`
+จาก precheck ข้อ 1.1 เป๊ะ (เช่น precheck คืน `2026-07-21` → `B12-STAGING-2026-07-21`):
 
 ```sql
 CREATE TABLE IF NOT EXISTS public._staging_b12_sentinel (
@@ -67,11 +96,12 @@ CREATE TABLE IF NOT EXISTS public._staging_b12_sentinel (
 INSERT INTO public._staging_b12_sentinel (confirm_text) VALUES ('B12-STAGING-<YYYY-MM-DD>');
 ```
 
-- script เทียบ `confirm_text = 'B12-STAGING-' || วันที่ปัจจุบัน` **เป๊ะ** — sentinel ค้างจากวันก่อน
-  = ทุก block ปฏิเสธ (ตั้งใจ: บังคับ re-confirm ทุกวันที่รัน)
-- ⚠️ **timezone**: `current_date` ใน script = วันที่ **UTC** (Supabase) — ถ้ารันช่วง **00:00–06:59 น. ไทย**
-  ให้ใส่ confirm_text เป็นวันที่ UTC (= เมื่อวานตามเวลาไทย) หรือรอรันหลัง 07:00 น. ไทย
-  (ใส่วันที่ไทยในช่วงนั้น = interlock ปฏิเสธ — fail-closed ไม่เสียหาย แค่ต้องแก้ sentinel)
+ห้ามสร้าง sentinel อัตโนมัติจาก SELECT/INSERT statement เดียวกัน — owner ต้องพิมพ์
+confirm_text ด้วยมือเป็น human interlock เสมอ
+
+- script เทียบ `confirm_text = 'B12-STAGING-' || to_char(current_date, 'YYYY-MM-DD')`
+  ของ session ที่รัน script **เป๊ะ** — sentinel ที่ไม่ตรง `db_current_date` ของ session
+  = ทุก block ปฏิเสธ (ตั้งใจ: บังคับ re-confirm ทุกครั้งที่รัน)
 - production ไม่มีตารางนี้ → ทุก block RAISE ทันที (default = ปฏิเสธ)
 
 ## 2) ยืนยัน schema ครบก่อนรัน (STEP 0 ใน script — SELECT อย่างเดียว)

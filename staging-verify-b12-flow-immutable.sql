@@ -14,7 +14,9 @@
 --   • Supabase SQL Editor ไม่คง transaction/temp object ข้าม statement (บทเรียน 606-b1.1)
 --     → ทุก test case = DO block เดี่ยวจบในตัว · ล้มไม่พาตัวอื่นล้ม
 --   • ทุก DO block เริ่มด้วย PRODUCTION INTERLOCK สองชั้น (ตาราง sentinel + confirm_text
---     ตรงวันนี้เป๊ะ) — default = ปฏิเสธ; sentinel สร้างด้วยมือบน staging เท่านั้น (อยู่ใน runbook)
+--     ต้องตรง current_date ของ target DB session เป๊ะ — owner อ่านค่าจาก precheck ใน
+--     runbook แล้วพิมพ์ sentinel ด้วยมือ) — default = ปฏิเสธ; sentinel สร้างด้วยมือบน
+--     staging เท่านั้น (อยู่ใน runbook)
 --   • ห้าม disable trigger ฝั่ง journal ทุกกรณี (นั่นคือของที่กำลังพิสูจน์)
 --   • expected-exception จับเฉพาะ insufficient_privilege (SQLSTATE 42501) — ห้าม WHEN OTHERS
 --     และ assert SQLERRM substring เพื่อพิสูจน์ว่า 42501 มาจาก guard ตัวที่คาด
@@ -85,7 +87,7 @@ BEGIN
     RAISE EXCEPTION 'B12 INTERLOCK: ไม่พบตาราง _staging_b12_sentinel — นี่ไม่ใช่ staging ห้ามรันเด็ดขาด';
   END;
   IF NOT v_staging_ok THEN
-    RAISE EXCEPTION 'B12 INTERLOCK: confirm_text ต้องเป็น B12-STAGING-% (วันนี้เป๊ะ) — หยุดทุกกรณี',
+    RAISE EXCEPTION 'B12 INTERLOCK: confirm_text ต้องเป็น B12-STAGING-% (ต้องตรง current_date ของ DB session นี้เป๊ะ) — หยุดทุกกรณี',
       to_char(current_date, 'YYYY-MM-DD');
   END IF;
 
@@ -136,7 +138,7 @@ BEGIN
     RAISE EXCEPTION 'B12 INTERLOCK: ไม่พบตาราง _staging_b12_sentinel — นี่ไม่ใช่ staging ห้ามรันเด็ดขาด';
   END;
   IF NOT v_staging_ok THEN
-    RAISE EXCEPTION 'B12 INTERLOCK: confirm_text ต้องเป็น B12-STAGING-% (วันนี้เป๊ะ) — หยุดทุกกรณี',
+    RAISE EXCEPTION 'B12 INTERLOCK: confirm_text ต้องเป็น B12-STAGING-% (ต้องตรง current_date ของ DB session นี้เป๊ะ) — หยุดทุกกรณี',
       to_char(current_date, 'YYYY-MM-DD');
   END IF;
 
@@ -183,7 +185,7 @@ BEGIN
     RAISE EXCEPTION 'B12 INTERLOCK: ไม่พบตาราง _staging_b12_sentinel — นี่ไม่ใช่ staging ห้ามรันเด็ดขาด';
   END;
   IF NOT v_staging_ok THEN
-    RAISE EXCEPTION 'B12 INTERLOCK: confirm_text ต้องเป็น B12-STAGING-% (วันนี้เป๊ะ) — หยุดทุกกรณี',
+    RAISE EXCEPTION 'B12 INTERLOCK: confirm_text ต้องเป็น B12-STAGING-% (ต้องตรง current_date ของ DB session นี้เป๊ะ) — หยุดทุกกรณี',
       to_char(current_date, 'YYYY-MM-DD');
   END IF;
 
@@ -226,7 +228,7 @@ BEGIN
     RAISE EXCEPTION 'B12 INTERLOCK: ไม่พบตาราง _staging_b12_sentinel — นี่ไม่ใช่ staging ห้ามรันเด็ดขาด';
   END;
   IF NOT v_staging_ok THEN
-    RAISE EXCEPTION 'B12 INTERLOCK: confirm_text ต้องเป็น B12-STAGING-% (วันนี้เป๊ะ) — หยุดทุกกรณี',
+    RAISE EXCEPTION 'B12 INTERLOCK: confirm_text ต้องเป็น B12-STAGING-% (ต้องตรง current_date ของ DB session นี้เป๊ะ) — หยุดทุกกรณี',
       to_char(current_date, 'YYYY-MM-DD');
   END IF;
 
@@ -289,7 +291,7 @@ BEGIN
     RAISE EXCEPTION 'B12 INTERLOCK: ไม่พบตาราง _staging_b12_sentinel — นี่ไม่ใช่ staging ห้ามรันเด็ดขาด';
   END;
   IF NOT v_staging_ok THEN
-    RAISE EXCEPTION 'B12 INTERLOCK: confirm_text ต้องเป็น B12-STAGING-% (วันนี้เป๊ะ) — หยุดทุกกรณี',
+    RAISE EXCEPTION 'B12 INTERLOCK: confirm_text ต้องเป็น B12-STAGING-% (ต้องตรง current_date ของ DB session นี้เป๊ะ) — หยุดทุกกรณี',
       to_char(current_date, 'YYYY-MM-DD');
   END IF;
 
@@ -357,7 +359,7 @@ BEGIN
     RAISE EXCEPTION 'B12 INTERLOCK: ไม่พบตาราง _staging_b12_sentinel — นี่ไม่ใช่ staging ห้ามรันเด็ดขาด';
   END;
   IF NOT v_staging_ok THEN
-    RAISE EXCEPTION 'B12 INTERLOCK: confirm_text ต้องเป็น B12-STAGING-% (วันนี้เป๊ะ) — หยุดทุกกรณี',
+    RAISE EXCEPTION 'B12 INTERLOCK: confirm_text ต้องเป็น B12-STAGING-% (ต้องตรง current_date ของ DB session นี้เป๊ะ) — หยุดทุกกรณี',
       to_char(current_date, 'YYYY-MM-DD');
   END IF;
 
@@ -424,7 +426,7 @@ BEGIN
     RAISE EXCEPTION 'B12 INTERLOCK: ไม่พบตาราง _staging_b12_sentinel — นี่ไม่ใช่ staging ห้ามรันเด็ดขาด';
   END;
   IF NOT v_staging_ok THEN
-    RAISE EXCEPTION 'B12 INTERLOCK: confirm_text ต้องเป็น B12-STAGING-% (วันนี้เป๊ะ) — หยุดทุกกรณี',
+    RAISE EXCEPTION 'B12 INTERLOCK: confirm_text ต้องเป็น B12-STAGING-% (ต้องตรง current_date ของ DB session นี้เป๊ะ) — หยุดทุกกรณี',
       to_char(current_date, 'YYYY-MM-DD');
   END IF;
 
@@ -509,7 +511,7 @@ BEGIN
     RAISE EXCEPTION 'B12 INTERLOCK: ไม่พบตาราง _staging_b12_sentinel — นี่ไม่ใช่ staging ห้ามรันเด็ดขาด';
   END;
   IF NOT v_staging_ok THEN
-    RAISE EXCEPTION 'B12 INTERLOCK: confirm_text ต้องเป็น B12-STAGING-% (วันนี้เป๊ะ) — หยุดทุกกรณี',
+    RAISE EXCEPTION 'B12 INTERLOCK: confirm_text ต้องเป็น B12-STAGING-% (ต้องตรง current_date ของ DB session นี้เป๊ะ) — หยุดทุกกรณี',
       to_char(current_date, 'YYYY-MM-DD');
   END IF;
 
@@ -570,7 +572,7 @@ BEGIN
     RAISE EXCEPTION 'B12 INTERLOCK: ไม่พบตาราง _staging_b12_sentinel — นี่ไม่ใช่ staging ห้ามรันเด็ดขาด';
   END;
   IF NOT v_staging_ok THEN
-    RAISE EXCEPTION 'B12 INTERLOCK: confirm_text ต้องเป็น B12-STAGING-% (วันนี้เป๊ะ) — หยุดทุกกรณี',
+    RAISE EXCEPTION 'B12 INTERLOCK: confirm_text ต้องเป็น B12-STAGING-% (ต้องตรง current_date ของ DB session นี้เป๊ะ) — หยุดทุกกรณี',
       to_char(current_date, 'YYYY-MM-DD');
   END IF;
 
