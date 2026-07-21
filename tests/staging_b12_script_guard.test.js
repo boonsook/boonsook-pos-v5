@@ -234,7 +234,7 @@ test("G15. sentinel date authority = db_current_date จาก target DB session
   //    ห้ามเฉพาะ false claim ว่า current_date เท่ากับ/เป็น UTC)
   assert.doesNotMatch(sec, /current_date[^.\n]*(=|คือ|เป็น|เท่ากับ)[^.\n]*UTC/i,
     "ห้าม claim ว่า current_date เท่ากับ/เป็น UTC (universal assumption)");
-  assert.doesNotMatch(sec, /00:00–06:59/, "ห้ามใช้ decision rule ช่วงเวลา 00:00–06:59");
+  assert.doesNotMatch(sec, /00:00\s*[-–—]\s*06:59/, "ห้ามใช้ decision rule ช่วงเวลา 00:00–06:59 (จับขีดทุกรูปแบบ)");
   assert.doesNotMatch(sec, /07:00/, "ห้ามแนะนำให้รอหลัง 07:00 เพื่อแก้วันที่");
   assert.doesNotMatch(sec, /SET\s+TIME\s+ZONE/i, "ห้ามมี SQL token SET TIME ZONE");
 
