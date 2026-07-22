@@ -9,6 +9,17 @@
 
 ---
 
+## 🧪 Staging verification runs — NOT production migrations
+
+> รายการใน section นี้คือ **staging verification เท่านั้น — ไม่ใช่ migration ที่ apply บน production**
+> ห้ามนำ script เหล่านี้ไปรันบน production (มี production interlock + sentinel contract ของตัวเองอยู่แล้ว)
+
+| Script | Environment | ผล |
+|---|---|---|
+| `staging-verify-b12-flow-immutable.sql` (source: main `d2078fd` — executable logic จาก PR #197 + sentinel wording hardening จาก PR #200) | scratch staging `bsk-staging-b12` (Path B: scratch project + production **read-only** introspection/schema/reference dump เท่านั้น) — owner-run 2026-07-22 (Asia/Bangkok) · target DB session timezone=UTC, `db_current_date=2026-07-21` | ✅ **B12a–e + TEARDOWN = 6/6 ok=true** (behavioral execution จริง ไม่ใช่เพียง CI/source guard) · service_jobs triggers **6/6 'O'** (รวม `trg_service_jobs_delete_guard` Phase 546) · journal required triggers **2/2** (`trg_je_lines_balance`, `trg_check_period_locked`) · residual B12 jobs/JE/JL = **0/0/0** · **production SQL migration = ไม่มี · production write = ไม่มี · ไม่มี `NOTIFY pgrst` บน production** · `_staging_b12_results` + sentinel **retained รอ cross-team review** (scratch ยังไม่ลบ — cleanup = คำสั่ง owner แยก) · หมายเหตุ: execution context = system (`auth.uid() IS NULL`) · authenticated payment RPC behavioral path ยังไม่ได้ทดสอบ · closeout PR (docs-only) ไม่ได้รัน SQL เพิ่ม — staging B12 SQL รันแล้วภายใต้ owner control |
+
+---
+
 ## 🔴 PENDING — รอ owner รัน (ยังไม่ apply ที่ prod)
 
 | SQL file | ทำอะไร | สถานะ |
