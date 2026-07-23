@@ -407,6 +407,23 @@ test("G24. S0 introspect-or-create-exact — ห้าม silent IF NOT EXISTS /
       `${tag}: ต้องคลี่ acl รวม default (proacl NULL = PUBLIC execute)`);
     assert.match(b, /a\.grantee = 0 AND a\.privilege_type = 'EXECUTE'/,
       `${tag}: ต้องตรวจ PUBLIC (grantee=0) ด้วย`);
+    // audit R2-A: ห้าม overload — ชื่อละหนึ่ง signature เท่านั้น
+    assert.match(b, /SELECT count\(\*\) INTO v_cnt_name FROM pg_proc p JOIN pg_namespace n/,
+      `${tag}: ต้องนับ pg_proc ทุก signature ของชื่อนี้`);
+    assert.match(b, /IF v_cnt_name > 1 THEN\s*\n\s*RAISE EXCEPTION[^;]*overload/,
+      `${tag}: พบ overload = STOP (PostgREST resolution/expose เกิน)`);
+    // audit R2-B: grantee allowlist ทั้งหมด — ไม่ใช่ blacklist สาม role
+    assert.match(b, /SELECT count\(\*\) INTO v_acl_bad/,
+      `${tag}: ต้องนับ grantee นอก allowlist จาก aclexplode`);
+    assert.match(b, /grantee นอก allowlist[^;]*STOP ห้าม reuse/,
+      `${tag}: grantee อื่นทุกตัว = STOP`);
+    if (tag === "b13a_s0_fn_bootstrap" || tag === "b13a_s0_fn_finalize") {
+      assert.match(b, /AND a\.grantee <> p\.proowner;/,
+        `${tag}: owner function allowlist = owner เท่านั้น`);
+    } else {
+      assert.match(b, /NOT \(a\.grantee = p\.proowner\s*\n\s*OR \(a\.grantee = to_regrole\('authenticated'\)::oid AND a\.privilege_type = 'EXECUTE'\)\)/,
+        `${tag}: browser/probe allowlist = owner + authenticated(EXECUTE) เท่านั้น`);
+    }
     assert.match(b, /STOP ห้าม overwrite/, `${tag}: mismatch = STOP`);
     assert.doesNotMatch(b, /CREATE OR REPLACE FUNCTION/, `${tag}: ห้าม CREATE OR REPLACE (overwrite)`);
   }
@@ -416,13 +433,32 @@ test("G24. S0 introspect-or-create-exact — ห้าม silent IF NOT EXISTS /
     b13a_s0_results: { pk: "'run_id,certificate'", qual: null },
     b13a_s0_evidence: { pk: "'run_id,step'", qual: "(r.actor_id = auth.uid())" },
   };
+  const TBL_EXACT = {
+    b13a_s0_runs: { ctypes: "'c=4,p=1,u=1'", idx: 2 },
+    b13a_s0_results: { ctypes: "'c=1,p=1'", idx: 1 },
+    b13a_s0_evidence: { ctypes: "'c=5,p=1'", idx: 1 },
+  };
   for (const [tag, exp] of Object.entries(TBL_EXPECT)) {
     const b = block(tag);
     assert.match(b, /i\.indisprimary/, `${tag}: ต้อง introspect PK จริง`);
     assert.ok(b.includes(`IF v_pk IS DISTINCT FROM ${exp.pk}`), `${tag}: PK ต้องเทียบ exact`);
-    assert.match(b, /pg_get_constraintdef/, `${tag}: ต้องตรวจ CHECK constraints ด้วย definition จริง`);
-    assert.match(b, /FOREACH v_item IN ARRAY/, `${tag}: ต้องไล่สมาชิก allowlist ครบทุกตัว`);
+    // audit R2-C: CHECK definitions เทียบ normalized ทั้งนิพจน์ (ไม่ใช่ member substring)
+    assert.match(b, /regexp_replace\(pg_get_constraintdef\(c\.oid\), '\[\(\)\\s\]\+', '', 'g'\)/,
+      `${tag}: ต้องเทียบ constraint definition แบบ normalized เต็มนิพจน์`);
+    assert.match(b, /นิยามไม่ตรงเป๊ะ/, `${tag}: definition mismatch = STOP`);
+    // audit R2-C: defaults/identity/generated + ชุด constraint + index exact
+    assert.match(b, /coalesce\(column_default, '-'\) \|\| ':' \|\| is_identity \|\| ':' \|\| is_generated/,
+      `${tag}: ต้องตรวจ column_default/identity/generated`);
+    assert.match(b, /created_at=now\(\):NO:NEVER/, `${tag}: created_at default ต้องเป็น now() exact`);
+    assert.ok(b.includes(`IF v_chk IS DISTINCT FROM ${exp === undefined ? "" : TBL_EXACT[tag].ctypes}`),
+      `${tag}: จำนวน constraint ต่อชนิดต้อง exact (${TBL_EXACT[tag].ctypes})`);
+    assert.match(b, new RegExp(`index ต้องมี ${TBL_EXACT[tag].idx} `), `${tag}: จำนวน index ต้อง exact`);
     assert.match(b, /'PUBLIC'/, `${tag}: grants ต้องครอบ PUBLIC ด้วย`);
+    // audit R2-B: table grants เป็น allowlist ทั้งหมดผ่าน relacl
+    assert.match(b, /aclexplode\(coalesce\(c\.relacl, acldefault\('r', c\.relowner\)\)\)/,
+      `${tag}: ต้องคลี่ relacl (allowlist ทุก grantee ไม่ใช่ blacklist)`);
+    assert.match(b, /table grant นอก allowlist[^;]*STOP ห้าม reuse/,
+      `${tag}: grant ให้ role อื่น = STOP`);
     assert.match(b, /relrowsecurity AND c\.relforcerowsecurity/, `${tag}: ต้องตรวจ RLS ENABLE+FORCE`);
     if (exp.qual) {
       assert.ok(b.includes(exp.qual), `${tag}: policy expression ต้องเทียบ exact`);
@@ -431,6 +467,14 @@ test("G24. S0 introspect-or-create-exact — ห้าม silent IF NOT EXISTS /
       assert.match(b, /ต้องไม่มี policy/, `${tag}: results ต้อง assert policy = 0`);
     }
   }
+  // audit R2-C: runs ต้อง verify CHECK(singleton) + UNIQUE(run_id) โดยนิยามจริง
+  const runsB = block("b13a_s0_runs");
+  assert.match(runsB, /= 'CHECKsingleton'/, "runs: ต้อง verify CHECK (singleton) ด้วยนิยาม normalized");
+  assert.match(runsB, /= 'UNIQUErun_id'/, "runs: ต้อง verify UNIQUE (run_id) ด้วยนิยาม normalized");
+  assert.match(runsB, /'CHECKstage=ANYARRAY\[''prepared''::text/, "runs: stage CHECK เทียบ normalized เต็มนิพจน์");
+  const evB = block("b13a_s0_evidence");
+  assert.match(evB, /'CHECKstep<>ALLARRAY\[''session_null_attested''::text/,
+    "evidence: attest_boolean_only เทียบ normalized เต็มนิพจน์");
   assert.doesNotMatch(SQL_CODE, /\bDROP\s+(TABLE|FUNCTION|TRIGGER|POLICY|INDEX)\b/i,
     "script ห้าม DROP ใด ๆ (ไม่มี auto cleanup)");
   assert.doesNotMatch(SQL_CODE, /TRUNCATE\s+(TABLE\b|public\.)/i,

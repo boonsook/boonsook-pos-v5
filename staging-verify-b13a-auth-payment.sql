@@ -186,36 +186,60 @@ BEGIN
     IF v_pk IS DISTINCT FROM 'singleton' THEN
       RAISE EXCEPTION 'B13A S0.1: PK ไม่ตรง (%) — STOP ห้าม overwrite/reuse', v_pk;
     END IF;
-    -- CHECK constraints exact (ชื่อ + สมาชิก allowlist ครบ + cardinality ตรง)
-    SELECT pg_get_constraintdef(c.oid) INTO v_chk FROM pg_constraint c
+    -- column defaults / identity / generated exact — กัน default ถูกสลับ (เช่น created_at)
+    SELECT string_agg(column_name || '=' || coalesce(column_default, '-') || ':' || is_identity || ':' || is_generated, ',' ORDER BY ordinal_position)
+      INTO v_cols
+      FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = '_staging_b13a_runs';
+    IF v_cols IS DISTINCT FROM
+      'singleton=-:NO:NEVER,run_id=-:NO:NEVER,actor_id=-:NO:NEVER,stage=-:NO:NEVER,service_job_id=-:NO:NEVER,'
+      || 'payment_id=-:NO:NEVER,payment_jv_entry_id=-:NO:NEVER,amount=-:NO:NEVER,payment_method=-:NO:NEVER,'
+      || 'bank_coa_code=-:NO:NEVER,paid_at=-:NO:NEVER,idempotency_key=-:NO:NEVER,slip_url=-:NO:NEVER,'
+      || 'note=-:NO:NEVER,failure_code=-:NO:NEVER,created_at=now():NO:NEVER,updated_at=now():NO:NEVER' THEN
+      RAISE EXCEPTION 'B13A S0.1: column defaults/identity/generated ไม่ตรง (%) — STOP ห้าม overwrite/reuse', v_cols;
+    END IF;
+    -- constraint set exact: จำนวนต่อชนิดตรงเป๊ะ — กัน extra constraint ที่เปลี่ยน contract
+    SELECT string_agg(t.ct || '=' || t.n, ',' ORDER BY t.ct) INTO v_chk
+      FROM (SELECT c.contype::text AS ct, count(*) AS n FROM pg_constraint c
+             WHERE c.conrelid = 'public._staging_b13a_runs'::regclass AND c.contype IN ('p','u','c','f')
+             GROUP BY c.contype) t;
+    IF v_chk IS DISTINCT FROM 'c=4,p=1,u=1' THEN
+      RAISE EXCEPTION 'B13A S0.1: ชุด constraint ไม่ตรง (% — คาด c=4,p=1,u=1) — STOP ห้าม overwrite/reuse', v_chk;
+    END IF;
+    -- CHECK (singleton) + UNIQUE (run_id) ต้องมีจริง (เทียบนิยาม normalized ตัดวงเล็บ/ช่องว่าง)
+    SELECT count(*) INTO v_cnt FROM pg_constraint c
+     WHERE c.conrelid = 'public._staging_b13a_runs'::regclass AND c.contype = 'c'
+       AND regexp_replace(pg_get_constraintdef(c.oid), '[()\s]+', '', 'g') = 'CHECKsingleton';
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'B13A S0.1: ไม่พบ CHECK (singleton) — STOP ห้าม overwrite/reuse'; END IF;
+    SELECT count(*) INTO v_cnt FROM pg_constraint c
+     WHERE c.conrelid = 'public._staging_b13a_runs'::regclass AND c.contype = 'u'
+       AND regexp_replace(pg_get_constraintdef(c.oid), '[()\s]+', '', 'g') = 'UNIQUErun_id';
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'B13A S0.1: ไม่พบ UNIQUE (run_id) — STOP ห้าม overwrite/reuse'; END IF;
+    -- named CHECK definitions exact (normalized ทั้งนิพจน์ — กัน expression ถูกผ่อน/ขยายทั้งที่สมาชิกเดิมอยู่)
+    SELECT regexp_replace(pg_get_constraintdef(c.oid), '[()\s]+', '', 'g') INTO v_chk FROM pg_constraint c
      WHERE c.conrelid = 'public._staging_b13a_runs'::regclass AND c.conname = 'chk_b13a_runs_stage';
-    IF v_chk IS NULL OR (length(v_chk) - length(replace(v_chk, '::text', ''))) / 6 <> 12 THEN
-      RAISE EXCEPTION 'B13A S0.1: chk_b13a_runs_stage หาย/สมาชิกไม่ครบ 12 (%) — STOP', v_chk;
+    IF v_chk IS DISTINCT FROM
+      'CHECKstage=ANYARRAY[''prepared''::text,''gates_passed''::text,''r1_inflight''::text,''r1_recorded''::text,'
+      || '''r2_inflight''::text,''r2_verified''::text,''db_verified''::text,''teardown_complete''::text,'
+      || '''auth_cleanup_complete''::text,''execution_complete''::text,''failed_incomplete''::text,''failed_no_write''::text]' THEN
+      RAISE EXCEPTION 'B13A S0.1: chk_b13a_runs_stage นิยามไม่ตรงเป๊ะ (%) — STOP ห้าม overwrite/reuse', v_chk;
     END IF;
-    FOREACH v_item IN ARRAY ARRAY['prepared','gates_passed','r1_inflight','r1_recorded','r2_inflight',
-                                  'r2_verified','db_verified','teardown_complete','auth_cleanup_complete',
-                                  'execution_complete','failed_incomplete','failed_no_write'] LOOP
-      IF position('''' || v_item || '''' IN v_chk) = 0 THEN
-        RAISE EXCEPTION 'B13A S0.1: chk_b13a_runs_stage ขาด % — STOP', v_item;
-      END IF;
-    END LOOP;
-    SELECT pg_get_constraintdef(c.oid) INTO v_chk FROM pg_constraint c
+    SELECT regexp_replace(pg_get_constraintdef(c.oid), '[()\s]+', '', 'g') INTO v_chk FROM pg_constraint c
      WHERE c.conrelid = 'public._staging_b13a_runs'::regclass AND c.conname = 'chk_b13a_runs_method';
-    IF v_chk IS NULL OR position('''cash''' IN v_chk) = 0
-       OR (length(v_chk) - length(replace(v_chk, '::text', ''))) / 6 <> 1 THEN
-      RAISE EXCEPTION 'B13A S0.1: chk_b13a_runs_method ไม่ตรง (%) — STOP', v_chk;
+    IF v_chk IS DISTINCT FROM 'CHECKpayment_methodISNULLORpayment_method=''cash''::text' THEN
+      RAISE EXCEPTION 'B13A S0.1: chk_b13a_runs_method นิยามไม่ตรงเป๊ะ (%) — STOP ห้าม overwrite/reuse', v_chk;
     END IF;
-    SELECT pg_get_constraintdef(c.oid) INTO v_chk FROM pg_constraint c
+    SELECT regexp_replace(pg_get_constraintdef(c.oid), '[()\s]+', '', 'g') INTO v_chk FROM pg_constraint c
      WHERE c.conrelid = 'public._staging_b13a_runs'::regclass AND c.conname = 'chk_b13a_runs_failure_code';
-    IF v_chk IS NULL OR (length(v_chk) - length(replace(v_chk, '::text', ''))) / 6 <> 6 THEN
-      RAISE EXCEPTION 'B13A S0.1: chk_b13a_runs_failure_code สมาชิกไม่ครบ 6 (%) — STOP', v_chk;
+    IF v_chk IS DISTINCT FROM
+      'CHECKfailure_codeISNULLORfailure_code=ANYARRAY[''LEDGER_WITHOUT_JV''::text,''JV_INVALID''::text,'
+      || '''UNKNOWN_OUTCOME_PAYMENT_FOUND''::text,''VERIFY_DB_FAILED''::text,''TEARDOWN_PRECONDITION_FAILED''::text,'
+      || '''ZERO_WRITE_CONFIRMED''::text]' THEN
+      RAISE EXCEPTION 'B13A S0.1: chk_b13a_runs_failure_code นิยามไม่ตรงเป๊ะ (%) — STOP ห้าม overwrite/reuse', v_chk;
     END IF;
-    FOREACH v_item IN ARRAY ARRAY['LEDGER_WITHOUT_JV','JV_INVALID','UNKNOWN_OUTCOME_PAYMENT_FOUND',
-                                  'VERIFY_DB_FAILED','TEARDOWN_PRECONDITION_FAILED','ZERO_WRITE_CONFIRMED'] LOOP
-      IF position('''' || v_item || '''' IN v_chk) = 0 THEN
-        RAISE EXCEPTION 'B13A S0.1: chk_b13a_runs_failure_code ขาด % — STOP', v_item;
-      END IF;
-    END LOOP;
+    -- index exact: ต้องมีแค่ pkey + run_id unique (index แปลกปลอม = contract เปลี่ยน)
+    SELECT count(*) INTO v_cnt FROM pg_indexes WHERE schemaname = 'public' AND tablename = '_staging_b13a_runs';
+    IF v_cnt <> 2 THEN RAISE EXCEPTION 'B13A S0.1: index ต้องมี 2 (พบ %) — STOP ห้าม overwrite/reuse', v_cnt; END IF;
     -- policy exact: หนึ่ง policy + expression/cmd/roles/permissive ตรงเป๊ะ
     SELECT count(*) INTO v_cnt FROM pg_policies WHERE schemaname='public' AND tablename='_staging_b13a_runs';
     IF v_cnt <> 1 THEN RAISE EXCEPTION 'B13A S0.1: policy ต้องมี 1 (พบ %) — STOP', v_cnt; END IF;
@@ -244,6 +268,15 @@ BEGIN
                 WHERE table_schema='public' AND table_name='_staging_b13a_runs'
                   AND grantee = 'authenticated' AND privilege_type = 'SELECT') THEN
       RAISE EXCEPTION 'B13A S0.1: ขาด SELECT grant ของ authenticated — STOP';
+    END IF;
+    -- grantee allowlist ทั้งหมด: table owner + authenticated(SELECT) เท่านั้น — role อื่นทุกตัว = STOP
+    SELECT count(*) INTO v_cnt
+      FROM pg_class c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+     WHERE c.oid = 'public._staging_b13a_runs'::regclass
+       AND NOT (a.grantee = c.relowner
+                OR (a.grantee = to_regrole('authenticated')::oid AND a.privilege_type = 'SELECT'));
+    IF v_cnt <> 0 THEN
+      RAISE EXCEPTION 'B13A S0.1: พบ table grant นอก allowlist % รายการ (อนุญาต: owner + authenticated SELECT) — STOP ห้าม reuse', v_cnt;
     END IF;
     RAISE NOTICE 'B13A S0.1: reuse _staging_b13a_runs (introspect exact ผ่าน: columns/PK/CHECK/policy/grants)';
   END IF;
@@ -311,22 +344,47 @@ BEGIN
     IF v_pk IS DISTINCT FROM 'run_id,certificate' THEN
       RAISE EXCEPTION 'B13A S0.2: PK ไม่ตรง (%) — STOP ห้าม overwrite/reuse', v_pk;
     END IF;
-    SELECT pg_get_constraintdef(c.oid) INTO v_chk FROM pg_constraint c
-     WHERE c.conrelid = 'public._staging_b13a_results'::regclass AND c.conname = 'chk_b13a_results_certificate';
-    IF v_chk IS NULL OR (length(v_chk) - length(replace(v_chk, '::text', ''))) / 6 <> 3 THEN
-      RAISE EXCEPTION 'B13A S0.2: chk_b13a_results_certificate สมาชิกไม่ครบ 3 (%) — STOP', v_chk;
+    -- column defaults / identity / generated exact
+    SELECT string_agg(column_name || '=' || coalesce(column_default, '-') || ':' || is_identity || ':' || is_generated, ',' ORDER BY ordinal_position)
+      INTO v_cols
+      FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = '_staging_b13a_results';
+    IF v_cols IS DISTINCT FROM
+      'run_id=-:NO:NEVER,certificate=-:NO:NEVER,detail=-:NO:NEVER,created_at=now():NO:NEVER' THEN
+      RAISE EXCEPTION 'B13A S0.2: column defaults/identity/generated ไม่ตรง (%) — STOP ห้าม overwrite/reuse', v_cols;
     END IF;
-    FOREACH v_item IN ARRAY ARRAY['PAYMENT_BEHAVIOR_PASS','ABORTED_NO_PAYMENT','EXECUTION_COMPLETE'] LOOP
-      IF position('''' || v_item || '''' IN v_chk) = 0 THEN
-        RAISE EXCEPTION 'B13A S0.2: chk_b13a_results_certificate ขาด % — STOP', v_item;
-      END IF;
-    END LOOP;
+    -- constraint set exact
+    SELECT string_agg(t.ct || '=' || t.n, ',' ORDER BY t.ct) INTO v_chk
+      FROM (SELECT c.contype::text AS ct, count(*) AS n FROM pg_constraint c
+             WHERE c.conrelid = 'public._staging_b13a_results'::regclass AND c.contype IN ('p','u','c','f')
+             GROUP BY c.contype) t;
+    IF v_chk IS DISTINCT FROM 'c=1,p=1' THEN
+      RAISE EXCEPTION 'B13A S0.2: ชุด constraint ไม่ตรง (% — คาด c=1,p=1) — STOP ห้าม overwrite/reuse', v_chk;
+    END IF;
+    -- CHECK definition exact (normalized ทั้งนิพจน์)
+    SELECT regexp_replace(pg_get_constraintdef(c.oid), '[()\s]+', '', 'g') INTO v_chk FROM pg_constraint c
+     WHERE c.conrelid = 'public._staging_b13a_results'::regclass AND c.conname = 'chk_b13a_results_certificate';
+    IF v_chk IS DISTINCT FROM
+      'CHECKcertificate=ANYARRAY[''PAYMENT_BEHAVIOR_PASS''::text,''ABORTED_NO_PAYMENT''::text,''EXECUTION_COMPLETE''::text]' THEN
+      RAISE EXCEPTION 'B13A S0.2: chk_b13a_results_certificate นิยามไม่ตรงเป๊ะ (%) — STOP ห้าม overwrite/reuse', v_chk;
+    END IF;
+    -- index exact (pkey เท่านั้น)
+    SELECT count(*) INTO v_cnt FROM pg_indexes WHERE schemaname = 'public' AND tablename = '_staging_b13a_results';
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'B13A S0.2: index ต้องมี 1 (พบ %) — STOP ห้าม overwrite/reuse', v_cnt; END IF;
     SELECT count(*) INTO v_cnt FROM pg_policies WHERE schemaname='public' AND tablename='_staging_b13a_results';
     IF v_cnt <> 0 THEN RAISE EXCEPTION 'B13A S0.2: results ต้องไม่มี policy (พบ %) — STOP', v_cnt; END IF;
     IF EXISTS (SELECT 1 FROM information_schema.role_table_grants
                 WHERE table_schema='public' AND table_name='_staging_b13a_results'
                   AND grantee IN ('PUBLIC','anon','authenticated')) THEN
       RAISE EXCEPTION 'B13A S0.2: results ต้องไม่มี grant ให้ PUBLIC/anon/authenticated ใด ๆ — STOP';
+    END IF;
+    -- grantee allowlist ทั้งหมด: table owner เท่านั้น — role อื่นทุกตัว = STOP
+    SELECT count(*) INTO v_cnt
+      FROM pg_class c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+     WHERE c.oid = 'public._staging_b13a_results'::regclass
+       AND a.grantee <> c.relowner;
+    IF v_cnt <> 0 THEN
+      RAISE EXCEPTION 'B13A S0.2: พบ table grant นอก allowlist % รายการ (อนุญาต: owner เท่านั้น) — STOP ห้าม reuse', v_cnt;
     END IF;
     RAISE NOTICE 'B13A S0.2: reuse _staging_b13a_results (introspect exact ผ่าน: columns/PK/CHECK/RLS/grants)';
   END IF;
@@ -437,39 +495,67 @@ BEGIN
     IF v_pk IS DISTINCT FROM 'run_id,step' THEN
       RAISE EXCEPTION 'B13A S0.3: PK ไม่ตรง (%) — STOP ห้าม overwrite/reuse', v_pk;
     END IF;
-    SELECT pg_get_constraintdef(c.oid) INTO v_chk FROM pg_constraint c
+    -- column defaults / identity / generated exact
+    SELECT string_agg(column_name || '=' || coalesce(column_default, '-') || ':' || is_identity || ':' || is_generated, ',' ORDER BY ordinal_position)
+      INTO v_cols
+      FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = '_staging_b13a_evidence';
+    IF v_cols IS DISTINCT FROM
+      'run_id=-:NO:NEVER,step=-:NO:NEVER,source=-:NO:NEVER,ok=-:NO:NEVER,payment_id=-:NO:NEVER,'
+      || 'payment_jv_entry_id=-:NO:NEVER,inserted=-:NO:NEVER,ledger_recorded=-:NO:NEVER,'
+      || 'accounting_posted=-:NO:NEVER,paid_total=-:NO:NEVER,outstanding=-:NO:NEVER,'
+      || 'jv_status=-:NO:NEVER,jv_reason=-:NO:NEVER,failure_code=-:NO:NEVER,created_at=now():NO:NEVER' THEN
+      RAISE EXCEPTION 'B13A S0.3: column defaults/identity/generated ไม่ตรง (%) — STOP ห้าม overwrite/reuse', v_cols;
+    END IF;
+    -- constraint set exact
+    SELECT string_agg(t.ct || '=' || t.n, ',' ORDER BY t.ct) INTO v_chk
+      FROM (SELECT c.contype::text AS ct, count(*) AS n FROM pg_constraint c
+             WHERE c.conrelid = 'public._staging_b13a_evidence'::regclass AND c.contype IN ('p','u','c','f')
+             GROUP BY c.contype) t;
+    IF v_chk IS DISTINCT FROM 'c=5,p=1' THEN
+      RAISE EXCEPTION 'B13A S0.3: ชุด constraint ไม่ตรง (% — คาด c=5,p=1) — STOP ห้าม overwrite/reuse', v_chk;
+    END IF;
+    -- named CHECK definitions exact (normalized ทั้งนิพจน์)
+    SELECT regexp_replace(pg_get_constraintdef(c.oid), '[()\s]+', '', 'g') INTO v_chk FROM pg_constraint c
      WHERE c.conrelid = 'public._staging_b13a_evidence'::regclass AND c.conname = 'chk_b13a_evidence_step';
-    IF v_chk IS NULL OR (length(v_chk) - length(replace(v_chk, '::text', ''))) / 6 <> 7 THEN
-      RAISE EXCEPTION 'B13A S0.3: chk_b13a_evidence_step สมาชิกไม่ครบ 7 (%) — STOP', v_chk;
+    IF v_chk IS DISTINCT FROM
+      'CHECKstep=ANYARRAY[''gates''::text,''r1''::text,''r2''::text,''failure''::text,''session_null_attested''::text,'
+      || '''clean_login_rejected_attested''::text,''local_cleanup_attested''::text]' THEN
+      RAISE EXCEPTION 'B13A S0.3: chk_b13a_evidence_step นิยามไม่ตรงเป๊ะ (%) — STOP ห้าม overwrite/reuse', v_chk;
     END IF;
-    FOREACH v_item IN ARRAY ARRAY['gates','r1','r2','failure','session_null_attested',
-                                  'clean_login_rejected_attested','local_cleanup_attested'] LOOP
-      IF position('''' || v_item || '''' IN v_chk) = 0 THEN
-        RAISE EXCEPTION 'B13A S0.3: chk_b13a_evidence_step ขาด % — STOP', v_item;
-      END IF;
-    END LOOP;
-    SELECT pg_get_constraintdef(c.oid) INTO v_chk FROM pg_constraint c
+    SELECT regexp_replace(pg_get_constraintdef(c.oid), '[()\s]+', '', 'g') INTO v_chk FROM pg_constraint c
      WHERE c.conrelid = 'public._staging_b13a_evidence'::regclass AND c.conname = 'chk_b13a_evidence_source';
-    IF v_chk IS NULL OR position('''browser_cas''' IN v_chk) = 0
-       OR position('''owner_sql_attestation''' IN v_chk) = 0
-       OR (length(v_chk) - length(replace(v_chk, '::text', ''))) / 6 <> 2 THEN
-      RAISE EXCEPTION 'B13A S0.3: chk_b13a_evidence_source ไม่ตรง (%) — STOP', v_chk;
+    IF v_chk IS DISTINCT FROM 'CHECKsource=ANYARRAY[''browser_cas''::text,''owner_sql_attestation''::text]' THEN
+      RAISE EXCEPTION 'B13A S0.3: chk_b13a_evidence_source นิยามไม่ตรงเป๊ะ (%) — STOP ห้าม overwrite/reuse', v_chk;
     END IF;
-    SELECT pg_get_constraintdef(c.oid) INTO v_chk FROM pg_constraint c
+    SELECT regexp_replace(pg_get_constraintdef(c.oid), '[()\s]+', '', 'g') INTO v_chk FROM pg_constraint c
      WHERE c.conrelid = 'public._staging_b13a_evidence'::regclass AND c.conname = 'chk_b13a_evidence_failure_code';
-    IF v_chk IS NULL OR (length(v_chk) - length(replace(v_chk, '::text', ''))) / 6 <> 6 THEN
-      RAISE EXCEPTION 'B13A S0.3: chk_b13a_evidence_failure_code สมาชิกไม่ครบ 6 (%) — STOP', v_chk;
+    IF v_chk IS DISTINCT FROM
+      'CHECKfailure_codeISNULLORfailure_code=ANYARRAY[''LEDGER_WITHOUT_JV''::text,''JV_INVALID''::text,'
+      || '''UNKNOWN_OUTCOME_PAYMENT_FOUND''::text,''VERIFY_DB_FAILED''::text,''TEARDOWN_PRECONDITION_FAILED''::text,'
+      || '''ZERO_WRITE_CONFIRMED''::text]' THEN
+      RAISE EXCEPTION 'B13A S0.3: chk_b13a_evidence_failure_code นิยามไม่ตรงเป๊ะ (%) — STOP ห้าม overwrite/reuse', v_chk;
     END IF;
-    SELECT pg_get_constraintdef(c.oid) INTO v_chk FROM pg_constraint c
+    SELECT regexp_replace(pg_get_constraintdef(c.oid), '[()\s]+', '', 'g') INTO v_chk FROM pg_constraint c
      WHERE c.conrelid = 'public._staging_b13a_evidence'::regclass AND c.conname = 'chk_b13a_evidence_step_source';
-    IF v_chk IS NULL OR position('''browser_cas''' IN v_chk) = 0 OR position('''owner_sql_attestation''' IN v_chk) = 0 THEN
-      RAISE EXCEPTION 'B13A S0.3: chk_b13a_evidence_step_source ไม่ตรง — STOP';
+    IF v_chk IS DISTINCT FROM
+      'CHECKstep=ANYARRAY[''gates''::text,''r1''::text,''r2''::text]ANDsource=''browser_cas''::text'
+      || 'ORstep=''failure''::textORstep=ANYARRAY[''session_null_attested''::text,''clean_login_rejected_attested''::text,'
+      || '''local_cleanup_attested''::text]ANDsource=''owner_sql_attestation''::text' THEN
+      RAISE EXCEPTION 'B13A S0.3: chk_b13a_evidence_step_source นิยามไม่ตรงเป๊ะ (%) — STOP ห้าม overwrite/reuse', v_chk;
     END IF;
-    SELECT pg_get_constraintdef(c.oid) INTO v_chk FROM pg_constraint c
+    SELECT regexp_replace(pg_get_constraintdef(c.oid), '[()\s]+', '', 'g') INTO v_chk FROM pg_constraint c
      WHERE c.conrelid = 'public._staging_b13a_evidence'::regclass AND c.conname = 'chk_b13a_evidence_attest_boolean_only';
-    IF v_chk IS NULL OR position('payment_id IS NULL' IN v_chk) = 0 OR position('failure_code IS NULL' IN v_chk) = 0 THEN
-      RAISE EXCEPTION 'B13A S0.3: chk_b13a_evidence_attest_boolean_only ไม่ตรง — STOP';
+    IF v_chk IS DISTINCT FROM
+      'CHECKstep<>ALLARRAY[''session_null_attested''::text,''clean_login_rejected_attested''::text,''local_cleanup_attested''::text]'
+      || 'ORpayment_idISNULLANDpayment_jv_entry_idISNULLANDinsertedISNULLANDledger_recordedISNULL'
+      || 'ANDaccounting_postedISNULLANDpaid_totalISNULLANDoutstandingISNULLANDjv_statusISNULL'
+      || 'ANDjv_reasonISNULLANDfailure_codeISNULL' THEN
+      RAISE EXCEPTION 'B13A S0.3: chk_b13a_evidence_attest_boolean_only นิยามไม่ตรงเป๊ะ (%) — STOP ห้าม overwrite/reuse', v_chk;
     END IF;
+    -- index exact (pkey เท่านั้น)
+    SELECT count(*) INTO v_cnt FROM pg_indexes WHERE schemaname = 'public' AND tablename = '_staging_b13a_evidence';
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'B13A S0.3: index ต้องมี 1 (พบ %) — STOP ห้าม overwrite/reuse', v_cnt; END IF;
     SELECT count(*) INTO v_cnt FROM pg_policies WHERE schemaname='public' AND tablename='_staging_b13a_evidence';
     IF v_cnt <> 1 THEN RAISE EXCEPTION 'B13A S0.3: policy ต้องมี 1 (พบ %) — STOP', v_cnt; END IF;
     SELECT regexp_replace(coalesce(pp.qual, ''), '\s+', ' ', 'g'), pp.cmd, pp.permissive,
@@ -498,6 +584,15 @@ BEGIN
                   AND grantee = 'authenticated' AND privilege_type = 'SELECT') THEN
       RAISE EXCEPTION 'B13A S0.3: ขาด SELECT grant ของ authenticated — STOP';
     END IF;
+    -- grantee allowlist ทั้งหมด: table owner + authenticated(SELECT) เท่านั้น — role อื่นทุกตัว = STOP
+    SELECT count(*) INTO v_cnt
+      FROM pg_class c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+     WHERE c.oid = 'public._staging_b13a_evidence'::regclass
+       AND NOT (a.grantee = c.relowner
+                OR (a.grantee = to_regrole('authenticated')::oid AND a.privilege_type = 'SELECT'));
+    IF v_cnt <> 0 THEN
+      RAISE EXCEPTION 'B13A S0.3: พบ table grant นอก allowlist % รายการ (อนุญาต: owner + authenticated SELECT) — STOP ห้าม reuse', v_cnt;
+    END IF;
     RAISE NOTICE 'B13A S0.3: reuse _staging_b13a_evidence (introspect exact ผ่าน: columns/PK/CHECK/policy/grants)';
   END IF;
 END $b13a_s0_evidence$;
@@ -523,6 +618,8 @@ DECLARE
   v_pub boolean;
   v_anon boolean;
   v_auth boolean;
+  v_cnt_name int;
+  v_acl_bad int;
 BEGIN
   -- [B13A-INTERLOCK] sentinel ต้องผ่านก่อน DDL/GRANT/introspect-reuse ใด ๆ (fail-closed)
   BEGIN
@@ -646,6 +743,13 @@ $B13A_DEF_BOOTSTRAP$;
                                 WHERE n.nspname = 'public' AND p.proname = 'b13a_owner_bootstrap') THEN
     RAISE EXCEPTION 'B13A S0.4: พบ b13a_owner_bootstrap แต่ signature ไม่ตรงเวอร์ชันนี้ — STOP ห้าม overwrite/reuse';
   END IF;
+  -- ห้ามมี overload: ชื่อนี้ต้องมีหนึ่ง signature เดียวใน pg_proc เท่านั้น
+  -- (overload ทำ PostgREST resolution เพี้ยน/expose RPC ที่ไม่ตั้งใจ)
+  SELECT count(*) INTO v_cnt_name FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.proname = 'b13a_owner_bootstrap';
+  IF v_cnt_name > 1 THEN
+    RAISE EXCEPTION 'B13A S0.4: b13a_owner_bootstrap มี % signature (อนุญาตหนึ่งเดียว — พบ overload) — STOP ห้าม overwrite/reuse', v_cnt_name;
+  END IF;
 
   IF v_oid IS NOT NULL THEN
     SELECT p.prosrc, p.prosecdef, array_to_string(p.proconfig, ','), l.lanname,
@@ -679,6 +783,14 @@ $B13A_DEF_BOOTSTRAP$;
     IF COALESCE(v_pub, false) OR COALESCE(v_anon, false) OR COALESCE(v_auth, false) THEN
       RAISE EXCEPTION 'B13A S0.4: execute grants ไม่ตรง (PUBLIC=% anon=% authenticated=%) — STOP',
         COALESCE(v_pub, false), COALESCE(v_anon, false), COALESCE(v_auth, false);
+    END IF;
+    -- grantee allowlist ทั้งหมด: function owner เท่านั้น — grantee อื่นทุกตัว (role ใดก็ตาม) = STOP
+    SELECT count(*) INTO v_acl_bad
+      FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+     WHERE p.oid = v_oid
+       AND a.grantee <> p.proowner;
+    IF v_acl_bad > 0 THEN
+      RAISE EXCEPTION 'B13A S0.4: พบ grantee นอก allowlist % รายการ (อนุญาต: function owner) — STOP ห้าม reuse', v_acl_bad;
     END IF;
     RAISE NOTICE 'B13A S0.4: reuse b13a_owner_bootstrap (exact: signature/body/secdef/config/language/owner/grants)';
   ELSE
@@ -717,6 +829,8 @@ DECLARE
   v_pub boolean;
   v_anon boolean;
   v_auth boolean;
+  v_cnt_name int;
+  v_acl_bad int;
 BEGIN
   -- [B13A-INTERLOCK] sentinel ต้องผ่านก่อน DDL/GRANT/introspect-reuse ใด ๆ (fail-closed)
   BEGIN
@@ -1154,6 +1268,13 @@ $B13A_DEF_BROWSER$;
                                 WHERE n.nspname = 'public' AND p.proname = 'b13a_browser_transition') THEN
     RAISE EXCEPTION 'B13A S0.5: พบ b13a_browser_transition แต่ signature ไม่ตรงเวอร์ชันนี้ — STOP ห้าม overwrite/reuse';
   END IF;
+  -- ห้ามมี overload: ชื่อนี้ต้องมีหนึ่ง signature เดียวใน pg_proc เท่านั้น
+  -- (overload ทำ PostgREST resolution เพี้ยน/expose RPC ที่ไม่ตั้งใจ)
+  SELECT count(*) INTO v_cnt_name FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.proname = 'b13a_browser_transition';
+  IF v_cnt_name > 1 THEN
+    RAISE EXCEPTION 'B13A S0.5: b13a_browser_transition มี % signature (อนุญาตหนึ่งเดียว — พบ overload) — STOP ห้าม overwrite/reuse', v_cnt_name;
+  END IF;
 
   IF v_oid IS NOT NULL THEN
     SELECT p.prosrc, p.prosecdef, array_to_string(p.proconfig, ','), l.lanname,
@@ -1187,6 +1308,15 @@ $B13A_DEF_BROWSER$;
     IF COALESCE(v_pub, false) OR COALESCE(v_anon, false) OR (COALESCE(v_auth, false) IS DISTINCT FROM true) THEN
       RAISE EXCEPTION 'B13A S0.5: execute grants ไม่ตรง (PUBLIC=% anon=% authenticated=%) — STOP',
         COALESCE(v_pub, false), COALESCE(v_anon, false), COALESCE(v_auth, false);
+    END IF;
+    -- grantee allowlist ทั้งหมด: function owner + authenticated(EXECUTE) เท่านั้น — grantee อื่นทุกตัว (role ใดก็ตาม) = STOP
+    SELECT count(*) INTO v_acl_bad
+      FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+     WHERE p.oid = v_oid
+       AND NOT (a.grantee = p.proowner
+                OR (a.grantee = to_regrole('authenticated')::oid AND a.privilege_type = 'EXECUTE'));
+    IF v_acl_bad > 0 THEN
+      RAISE EXCEPTION 'B13A S0.5: พบ grantee นอก allowlist % รายการ (อนุญาต: function owner + authenticated(EXECUTE)) — STOP ห้าม reuse', v_acl_bad;
     END IF;
     RAISE NOTICE 'B13A S0.5: reuse b13a_browser_transition (exact: signature/body/secdef/config/language/owner/grants)';
   ELSE
@@ -1222,6 +1352,8 @@ DECLARE
   v_pub boolean;
   v_anon boolean;
   v_auth boolean;
+  v_cnt_name int;
+  v_acl_bad int;
 BEGIN
   -- [B13A-INTERLOCK] sentinel ต้องผ่านก่อน DDL/GRANT/introspect-reuse ใด ๆ (fail-closed)
   BEGIN
@@ -1743,6 +1875,13 @@ $B13A_DEF_FINALIZE$;
                                 WHERE n.nspname = 'public' AND p.proname = 'b13a_owner_finalize') THEN
     RAISE EXCEPTION 'B13A S0.6: พบ b13a_owner_finalize แต่ signature ไม่ตรงเวอร์ชันนี้ — STOP ห้าม overwrite/reuse';
   END IF;
+  -- ห้ามมี overload: ชื่อนี้ต้องมีหนึ่ง signature เดียวใน pg_proc เท่านั้น
+  -- (overload ทำ PostgREST resolution เพี้ยน/expose RPC ที่ไม่ตั้งใจ)
+  SELECT count(*) INTO v_cnt_name FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.proname = 'b13a_owner_finalize';
+  IF v_cnt_name > 1 THEN
+    RAISE EXCEPTION 'B13A S0.6: b13a_owner_finalize มี % signature (อนุญาตหนึ่งเดียว — พบ overload) — STOP ห้าม overwrite/reuse', v_cnt_name;
+  END IF;
 
   IF v_oid IS NOT NULL THEN
     SELECT p.prosrc, p.prosecdef, array_to_string(p.proconfig, ','), l.lanname,
@@ -1777,6 +1916,14 @@ $B13A_DEF_FINALIZE$;
       RAISE EXCEPTION 'B13A S0.6: execute grants ไม่ตรง (PUBLIC=% anon=% authenticated=%) — STOP',
         COALESCE(v_pub, false), COALESCE(v_anon, false), COALESCE(v_auth, false);
     END IF;
+    -- grantee allowlist ทั้งหมด: function owner เท่านั้น — grantee อื่นทุกตัว (role ใดก็ตาม) = STOP
+    SELECT count(*) INTO v_acl_bad
+      FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+     WHERE p.oid = v_oid
+       AND a.grantee <> p.proowner;
+    IF v_acl_bad > 0 THEN
+      RAISE EXCEPTION 'B13A S0.6: พบ grantee นอก allowlist % รายการ (อนุญาต: function owner) — STOP ห้าม reuse', v_acl_bad;
+    END IF;
     RAISE NOTICE 'B13A S0.6: reuse b13a_owner_finalize (exact: signature/body/secdef/config/language/owner/grants)';
   ELSE
     EXECUTE v_def;
@@ -1808,6 +1955,8 @@ DECLARE
   v_pub boolean;
   v_anon boolean;
   v_auth boolean;
+  v_cnt_name int;
+  v_acl_bad int;
 BEGIN
   -- [B13A-INTERLOCK] sentinel ต้องผ่านก่อน DDL/GRANT/introspect-reuse ใด ๆ (fail-closed)
   BEGIN
@@ -1842,6 +1991,13 @@ $B13A_DEF_EXPOSED$;
                                 WHERE n.nspname = 'public' AND p.proname = 'b13a_rpc_exposed') THEN
     RAISE EXCEPTION 'B13A S0.7: พบ b13a_rpc_exposed แต่ signature ไม่ตรงเวอร์ชันนี้ — STOP ห้าม overwrite/reuse';
   END IF;
+  -- ห้ามมี overload: ชื่อนี้ต้องมีหนึ่ง signature เดียวใน pg_proc เท่านั้น
+  -- (overload ทำ PostgREST resolution เพี้ยน/expose RPC ที่ไม่ตั้งใจ)
+  SELECT count(*) INTO v_cnt_name FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.proname = 'b13a_rpc_exposed';
+  IF v_cnt_name > 1 THEN
+    RAISE EXCEPTION 'B13A S0.7: b13a_rpc_exposed มี % signature (อนุญาตหนึ่งเดียว — พบ overload) — STOP ห้าม overwrite/reuse', v_cnt_name;
+  END IF;
 
   IF v_oid IS NOT NULL THEN
     SELECT p.prosrc, p.prosecdef, array_to_string(p.proconfig, ','), l.lanname,
@@ -1875,6 +2031,15 @@ $B13A_DEF_EXPOSED$;
     IF COALESCE(v_pub, false) OR COALESCE(v_anon, false) OR (COALESCE(v_auth, false) IS DISTINCT FROM true) THEN
       RAISE EXCEPTION 'B13A S0.7: execute grants ไม่ตรง (PUBLIC=% anon=% authenticated=%) — STOP',
         COALESCE(v_pub, false), COALESCE(v_anon, false), COALESCE(v_auth, false);
+    END IF;
+    -- grantee allowlist ทั้งหมด: function owner + authenticated(EXECUTE) เท่านั้น — grantee อื่นทุกตัว (role ใดก็ตาม) = STOP
+    SELECT count(*) INTO v_acl_bad
+      FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+     WHERE p.oid = v_oid
+       AND NOT (a.grantee = p.proowner
+                OR (a.grantee = to_regrole('authenticated')::oid AND a.privilege_type = 'EXECUTE'));
+    IF v_acl_bad > 0 THEN
+      RAISE EXCEPTION 'B13A S0.7: พบ grantee นอก allowlist % รายการ (อนุญาต: function owner + authenticated(EXECUTE)) — STOP ห้าม reuse', v_acl_bad;
     END IF;
     RAISE NOTICE 'B13A S0.7: reuse b13a_rpc_exposed (exact: signature/body/secdef/config/language/owner/grants)';
   ELSE
