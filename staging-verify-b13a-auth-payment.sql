@@ -278,6 +278,20 @@ BEGIN
     IF v_cnt <> 0 THEN
       RAISE EXCEPTION 'B13A S0.1: พบ table grant นอก allowlist % รายการ (อนุญาต: owner + authenticated SELECT) — STOP ห้าม reuse', v_cnt;
     END IF;
+    -- ห้ามมี WITH GRANT OPTION ทุกกรณีบนตาราง (is_grantable = ส่งต่อสิทธิ์ได้ = กว้างกว่าสัญญา)
+    SELECT count(*) INTO v_cnt
+      FROM pg_class c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+     WHERE c.oid = 'public._staging_b13a_runs'::regclass AND a.is_grantable;
+    IF v_cnt <> 0 THEN
+      RAISE EXCEPTION 'B13A S0.1: พบ table grant WITH GRANT OPTION % รายการ — STOP ห้าม reuse', v_cnt;
+    END IF;
+    -- table owner ต้องเป็น trusted context จริง — introspect pg_roles (ห้ามยอมรับ relowner อัตโนมัติ)
+    SELECT r.rolsuper OR r.rolbypassrls INTO v_ok
+      FROM pg_class c JOIN pg_roles r ON r.oid = c.relowner
+     WHERE c.oid = 'public._staging_b13a_runs'::regclass;
+    IF NOT COALESCE(v_ok, false) THEN
+      RAISE EXCEPTION 'B13A S0.1: table owner ไม่ใช่ trusted role (ต้อง rolsuper/rolbypassrls จาก pg_roles) — STOP ห้าม reuse';
+    END IF;
     RAISE NOTICE 'B13A S0.1: reuse _staging_b13a_runs (introspect exact ผ่าน: columns/PK/CHECK/policy/grants)';
   END IF;
 END $b13a_s0_runs$;
@@ -385,6 +399,20 @@ BEGIN
        AND a.grantee <> c.relowner;
     IF v_cnt <> 0 THEN
       RAISE EXCEPTION 'B13A S0.2: พบ table grant นอก allowlist % รายการ (อนุญาต: owner เท่านั้น) — STOP ห้าม reuse', v_cnt;
+    END IF;
+    -- ห้ามมี WITH GRANT OPTION ทุกกรณีบนตาราง (is_grantable = ส่งต่อสิทธิ์ได้ = กว้างกว่าสัญญา)
+    SELECT count(*) INTO v_cnt
+      FROM pg_class c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+     WHERE c.oid = 'public._staging_b13a_results'::regclass AND a.is_grantable;
+    IF v_cnt <> 0 THEN
+      RAISE EXCEPTION 'B13A S0.2: พบ table grant WITH GRANT OPTION % รายการ — STOP ห้าม reuse', v_cnt;
+    END IF;
+    -- table owner ต้องเป็น trusted context จริง — introspect pg_roles (ห้ามยอมรับ relowner อัตโนมัติ)
+    SELECT r.rolsuper OR r.rolbypassrls INTO v_ok
+      FROM pg_class c JOIN pg_roles r ON r.oid = c.relowner
+     WHERE c.oid = 'public._staging_b13a_results'::regclass;
+    IF NOT COALESCE(v_ok, false) THEN
+      RAISE EXCEPTION 'B13A S0.2: table owner ไม่ใช่ trusted role (ต้อง rolsuper/rolbypassrls จาก pg_roles) — STOP ห้าม reuse';
     END IF;
     RAISE NOTICE 'B13A S0.2: reuse _staging_b13a_results (introspect exact ผ่าน: columns/PK/CHECK/RLS/grants)';
   END IF;
@@ -593,6 +621,20 @@ BEGIN
     IF v_cnt <> 0 THEN
       RAISE EXCEPTION 'B13A S0.3: พบ table grant นอก allowlist % รายการ (อนุญาต: owner + authenticated SELECT) — STOP ห้าม reuse', v_cnt;
     END IF;
+    -- ห้ามมี WITH GRANT OPTION ทุกกรณีบนตาราง (is_grantable = ส่งต่อสิทธิ์ได้ = กว้างกว่าสัญญา)
+    SELECT count(*) INTO v_cnt
+      FROM pg_class c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+     WHERE c.oid = 'public._staging_b13a_evidence'::regclass AND a.is_grantable;
+    IF v_cnt <> 0 THEN
+      RAISE EXCEPTION 'B13A S0.3: พบ table grant WITH GRANT OPTION % รายการ — STOP ห้าม reuse', v_cnt;
+    END IF;
+    -- table owner ต้องเป็น trusted context จริง — introspect pg_roles (ห้ามยอมรับ relowner อัตโนมัติ)
+    SELECT r.rolsuper OR r.rolbypassrls INTO v_ok
+      FROM pg_class c JOIN pg_roles r ON r.oid = c.relowner
+     WHERE c.oid = 'public._staging_b13a_evidence'::regclass;
+    IF NOT COALESCE(v_ok, false) THEN
+      RAISE EXCEPTION 'B13A S0.3: table owner ไม่ใช่ trusted role (ต้อง rolsuper/rolbypassrls จาก pg_roles) — STOP ห้าม reuse';
+    END IF;
     RAISE NOTICE 'B13A S0.3: reuse _staging_b13a_evidence (introspect exact ผ่าน: columns/PK/CHECK/policy/grants)';
   END IF;
 END $b13a_s0_evidence$;
@@ -620,6 +662,13 @@ DECLARE
   v_auth boolean;
   v_cnt_name int;
   v_acl_bad int;
+  v_args text;
+  v_ret text;
+  v_vol "char";
+  v_strict boolean;
+  v_par "char";
+  v_leak boolean;
+  v_kind "char";
 BEGIN
   -- [B13A-INTERLOCK] sentinel ต้องผ่านก่อน DDL/GRANT/introspect-reuse ใด ๆ (fail-closed)
   BEGIN
@@ -773,6 +822,23 @@ $B13A_DEF_BOOTSTRAP$;
     IF NOT COALESCE(v_owner_ok, false) THEN
       RAISE EXCEPTION 'B13A S0.4: owner ของ function ไม่ใช่ trusted role — STOP';
     END IF;
+    -- API metadata exact: argument names/defaults · return type · attributes
+    -- (runbook เรียกด้วย named args + อาศัย defaults — เปลี่ยนชื่อ/ค่า default = สัญญาเปลี่ยน)
+    SELECT pg_get_function_arguments(p.oid), pg_get_function_result(p.oid),
+           p.provolatile, p.proisstrict, p.proparallel, p.proleakproof, p.prokind
+      INTO v_args, v_ret, v_vol, v_strict, v_par, v_leak, v_kind
+      FROM pg_proc p WHERE p.oid = v_oid;
+    IF v_args IS DISTINCT FROM 'p_actor_id uuid' THEN
+      RAISE EXCEPTION 'B13A S0.4: argument names/defaults ไม่ตรงเป๊ะ (%) — STOP ห้าม reuse', v_args;
+    END IF;
+    IF v_ret IS DISTINCT FROM 'jsonb' THEN
+      RAISE EXCEPTION 'B13A S0.4: return type ไม่ตรง (%) — STOP ห้าม reuse', v_ret;
+    END IF;
+    IF v_vol IS DISTINCT FROM 'v' OR v_strict OR v_par IS DISTINCT FROM 'u'
+       OR v_leak OR v_kind IS DISTINCT FROM 'f' THEN
+      RAISE EXCEPTION 'B13A S0.4: function attributes ไม่ตรง (volatile=% strict=% parallel=% leakproof=% kind=%) — STOP ห้าม reuse',
+        v_vol, v_strict, v_par, v_leak, v_kind;
+    END IF;
     -- EXECUTE grants exact รวม PUBLIC (aclexplode คลี่ default acl ด้วย — proacl NULL = PUBLIC execute)
     SELECT bool_or(a.grantee = 0 AND a.privilege_type = 'EXECUTE'),
            bool_or(a.grantee = to_regrole('anon')::oid AND a.privilege_type = 'EXECUTE'),
@@ -791,6 +857,13 @@ $B13A_DEF_BOOTSTRAP$;
        AND a.grantee <> p.proowner;
     IF v_acl_bad > 0 THEN
       RAISE EXCEPTION 'B13A S0.4: พบ grantee นอก allowlist % รายการ (อนุญาต: function owner) — STOP ห้าม reuse', v_acl_bad;
+    END IF;
+    -- ห้ามมี WITH GRANT OPTION ทุกกรณี (is_grantable = ส่งต่อสิทธิ์ได้ = กว้างกว่าสัญญา)
+    SELECT count(*) INTO v_acl_bad
+      FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+     WHERE p.oid = v_oid AND a.is_grantable;
+    IF v_acl_bad > 0 THEN
+      RAISE EXCEPTION 'B13A S0.4: พบ EXECUTE WITH GRANT OPTION % รายการ — STOP ห้าม reuse', v_acl_bad;
     END IF;
     RAISE NOTICE 'B13A S0.4: reuse b13a_owner_bootstrap (exact: signature/body/secdef/config/language/owner/grants)';
   ELSE
@@ -831,6 +904,13 @@ DECLARE
   v_auth boolean;
   v_cnt_name int;
   v_acl_bad int;
+  v_args text;
+  v_ret text;
+  v_vol "char";
+  v_strict boolean;
+  v_par "char";
+  v_leak boolean;
+  v_kind "char";
 BEGIN
   -- [B13A-INTERLOCK] sentinel ต้องผ่านก่อน DDL/GRANT/introspect-reuse ใด ๆ (fail-closed)
   BEGIN
@@ -1298,6 +1378,23 @@ $B13A_DEF_BROWSER$;
     IF NOT COALESCE(v_owner_ok, false) THEN
       RAISE EXCEPTION 'B13A S0.5: owner ของ function ไม่ใช่ trusted role — STOP';
     END IF;
+    -- API metadata exact: argument names/defaults · return type · attributes
+    -- (runbook เรียกด้วย named args + อาศัย defaults — เปลี่ยนชื่อ/ค่า default = สัญญาเปลี่ยน)
+    SELECT pg_get_function_arguments(p.oid), pg_get_function_result(p.oid),
+           p.provolatile, p.proisstrict, p.proparallel, p.proleakproof, p.prokind
+      INTO v_args, v_ret, v_vol, v_strict, v_par, v_leak, v_kind
+      FROM pg_proc p WHERE p.oid = v_oid;
+    IF v_args IS DISTINCT FROM 'p_run_id uuid, p_from_stage text, p_to_stage text, p_service_job_id bigint DEFAULT NULL::bigint, p_amount numeric DEFAULT NULL::numeric, p_payment_method text DEFAULT NULL::text, p_bank_coa_code text DEFAULT NULL::text, p_paid_at timestamp with time zone DEFAULT NULL::timestamp with time zone, p_idempotency_key uuid DEFAULT NULL::uuid, p_slip_url text DEFAULT NULL::text, p_note text DEFAULT NULL::text, p_payment_id bigint DEFAULT NULL::bigint, p_payment_jv_entry_id bigint DEFAULT NULL::bigint, p_ok boolean DEFAULT NULL::boolean, p_inserted boolean DEFAULT NULL::boolean, p_ledger_recorded boolean DEFAULT NULL::boolean, p_accounting_posted boolean DEFAULT NULL::boolean, p_paid_total numeric DEFAULT NULL::numeric, p_outstanding numeric DEFAULT NULL::numeric, p_jv_status text DEFAULT NULL::text, p_jv_reason text DEFAULT NULL::text, p_failure_code text DEFAULT NULL::text' THEN
+      RAISE EXCEPTION 'B13A S0.5: argument names/defaults ไม่ตรงเป๊ะ (%) — STOP ห้าม reuse', v_args;
+    END IF;
+    IF v_ret IS DISTINCT FROM 'jsonb' THEN
+      RAISE EXCEPTION 'B13A S0.5: return type ไม่ตรง (%) — STOP ห้าม reuse', v_ret;
+    END IF;
+    IF v_vol IS DISTINCT FROM 'v' OR v_strict OR v_par IS DISTINCT FROM 'u'
+       OR v_leak OR v_kind IS DISTINCT FROM 'f' THEN
+      RAISE EXCEPTION 'B13A S0.5: function attributes ไม่ตรง (volatile=% strict=% parallel=% leakproof=% kind=%) — STOP ห้าม reuse',
+        v_vol, v_strict, v_par, v_leak, v_kind;
+    END IF;
     -- EXECUTE grants exact รวม PUBLIC (aclexplode คลี่ default acl ด้วย — proacl NULL = PUBLIC execute)
     SELECT bool_or(a.grantee = 0 AND a.privilege_type = 'EXECUTE'),
            bool_or(a.grantee = to_regrole('anon')::oid AND a.privilege_type = 'EXECUTE'),
@@ -1317,6 +1414,13 @@ $B13A_DEF_BROWSER$;
                 OR (a.grantee = to_regrole('authenticated')::oid AND a.privilege_type = 'EXECUTE'));
     IF v_acl_bad > 0 THEN
       RAISE EXCEPTION 'B13A S0.5: พบ grantee นอก allowlist % รายการ (อนุญาต: function owner + authenticated(EXECUTE)) — STOP ห้าม reuse', v_acl_bad;
+    END IF;
+    -- ห้ามมี WITH GRANT OPTION ทุกกรณี (is_grantable = ส่งต่อสิทธิ์ได้ = กว้างกว่าสัญญา)
+    SELECT count(*) INTO v_acl_bad
+      FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+     WHERE p.oid = v_oid AND a.is_grantable;
+    IF v_acl_bad > 0 THEN
+      RAISE EXCEPTION 'B13A S0.5: พบ EXECUTE WITH GRANT OPTION % รายการ — STOP ห้าม reuse', v_acl_bad;
     END IF;
     RAISE NOTICE 'B13A S0.5: reuse b13a_browser_transition (exact: signature/body/secdef/config/language/owner/grants)';
   ELSE
@@ -1354,6 +1458,13 @@ DECLARE
   v_auth boolean;
   v_cnt_name int;
   v_acl_bad int;
+  v_args text;
+  v_ret text;
+  v_vol "char";
+  v_strict boolean;
+  v_par "char";
+  v_leak boolean;
+  v_kind "char";
 BEGIN
   -- [B13A-INTERLOCK] sentinel ต้องผ่านก่อน DDL/GRANT/introspect-reuse ใด ๆ (fail-closed)
   BEGIN
@@ -1905,6 +2016,23 @@ $B13A_DEF_FINALIZE$;
     IF NOT COALESCE(v_owner_ok, false) THEN
       RAISE EXCEPTION 'B13A S0.6: owner ของ function ไม่ใช่ trusted role — STOP';
     END IF;
+    -- API metadata exact: argument names/defaults · return type · attributes
+    -- (runbook เรียกด้วย named args + อาศัย defaults — เปลี่ยนชื่อ/ค่า default = สัญญาเปลี่ยน)
+    SELECT pg_get_function_arguments(p.oid), pg_get_function_result(p.oid),
+           p.provolatile, p.proisstrict, p.proparallel, p.proleakproof, p.prokind
+      INTO v_args, v_ret, v_vol, v_strict, v_par, v_leak, v_kind
+      FROM pg_proc p WHERE p.oid = v_oid;
+    IF v_args IS DISTINCT FROM 'p_run_id uuid, p_action text, p_failure_code text DEFAULT NULL::text, p_session_null boolean DEFAULT NULL::boolean, p_clean_login_rejected boolean DEFAULT NULL::boolean, p_local_cleanup boolean DEFAULT NULL::boolean' THEN
+      RAISE EXCEPTION 'B13A S0.6: argument names/defaults ไม่ตรงเป๊ะ (%) — STOP ห้าม reuse', v_args;
+    END IF;
+    IF v_ret IS DISTINCT FROM 'jsonb' THEN
+      RAISE EXCEPTION 'B13A S0.6: return type ไม่ตรง (%) — STOP ห้าม reuse', v_ret;
+    END IF;
+    IF v_vol IS DISTINCT FROM 'v' OR v_strict OR v_par IS DISTINCT FROM 'u'
+       OR v_leak OR v_kind IS DISTINCT FROM 'f' THEN
+      RAISE EXCEPTION 'B13A S0.6: function attributes ไม่ตรง (volatile=% strict=% parallel=% leakproof=% kind=%) — STOP ห้าม reuse',
+        v_vol, v_strict, v_par, v_leak, v_kind;
+    END IF;
     -- EXECUTE grants exact รวม PUBLIC (aclexplode คลี่ default acl ด้วย — proacl NULL = PUBLIC execute)
     SELECT bool_or(a.grantee = 0 AND a.privilege_type = 'EXECUTE'),
            bool_or(a.grantee = to_regrole('anon')::oid AND a.privilege_type = 'EXECUTE'),
@@ -1923,6 +2051,13 @@ $B13A_DEF_FINALIZE$;
        AND a.grantee <> p.proowner;
     IF v_acl_bad > 0 THEN
       RAISE EXCEPTION 'B13A S0.6: พบ grantee นอก allowlist % รายการ (อนุญาต: function owner) — STOP ห้าม reuse', v_acl_bad;
+    END IF;
+    -- ห้ามมี WITH GRANT OPTION ทุกกรณี (is_grantable = ส่งต่อสิทธิ์ได้ = กว้างกว่าสัญญา)
+    SELECT count(*) INTO v_acl_bad
+      FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+     WHERE p.oid = v_oid AND a.is_grantable;
+    IF v_acl_bad > 0 THEN
+      RAISE EXCEPTION 'B13A S0.6: พบ EXECUTE WITH GRANT OPTION % รายการ — STOP ห้าม reuse', v_acl_bad;
     END IF;
     RAISE NOTICE 'B13A S0.6: reuse b13a_owner_finalize (exact: signature/body/secdef/config/language/owner/grants)';
   ELSE
@@ -1957,6 +2092,13 @@ DECLARE
   v_auth boolean;
   v_cnt_name int;
   v_acl_bad int;
+  v_args text;
+  v_ret text;
+  v_vol "char";
+  v_strict boolean;
+  v_par "char";
+  v_leak boolean;
+  v_kind "char";
 BEGIN
   -- [B13A-INTERLOCK] sentinel ต้องผ่านก่อน DDL/GRANT/introspect-reuse ใด ๆ (fail-closed)
   BEGIN
@@ -2021,6 +2163,23 @@ $B13A_DEF_EXPOSED$;
     IF NOT COALESCE(v_owner_ok, false) THEN
       RAISE EXCEPTION 'B13A S0.7: owner ของ function ไม่ใช่ trusted role — STOP';
     END IF;
+    -- API metadata exact: argument names/defaults · return type · attributes
+    -- (runbook เรียกด้วย named args + อาศัย defaults — เปลี่ยนชื่อ/ค่า default = สัญญาเปลี่ยน)
+    SELECT pg_get_function_arguments(p.oid), pg_get_function_result(p.oid),
+           p.provolatile, p.proisstrict, p.proparallel, p.proleakproof, p.prokind
+      INTO v_args, v_ret, v_vol, v_strict, v_par, v_leak, v_kind
+      FROM pg_proc p WHERE p.oid = v_oid;
+    IF v_args IS DISTINCT FROM '' THEN
+      RAISE EXCEPTION 'B13A S0.7: argument names/defaults ไม่ตรงเป๊ะ (%) — STOP ห้าม reuse', v_args;
+    END IF;
+    IF v_ret IS DISTINCT FROM 'boolean' THEN
+      RAISE EXCEPTION 'B13A S0.7: return type ไม่ตรง (%) — STOP ห้าม reuse', v_ret;
+    END IF;
+    IF v_vol IS DISTINCT FROM 's' OR v_strict OR v_par IS DISTINCT FROM 'u'
+       OR v_leak OR v_kind IS DISTINCT FROM 'f' THEN
+      RAISE EXCEPTION 'B13A S0.7: function attributes ไม่ตรง (volatile=% strict=% parallel=% leakproof=% kind=%) — STOP ห้าม reuse',
+        v_vol, v_strict, v_par, v_leak, v_kind;
+    END IF;
     -- EXECUTE grants exact รวม PUBLIC (aclexplode คลี่ default acl ด้วย — proacl NULL = PUBLIC execute)
     SELECT bool_or(a.grantee = 0 AND a.privilege_type = 'EXECUTE'),
            bool_or(a.grantee = to_regrole('anon')::oid AND a.privilege_type = 'EXECUTE'),
@@ -2040,6 +2199,13 @@ $B13A_DEF_EXPOSED$;
                 OR (a.grantee = to_regrole('authenticated')::oid AND a.privilege_type = 'EXECUTE'));
     IF v_acl_bad > 0 THEN
       RAISE EXCEPTION 'B13A S0.7: พบ grantee นอก allowlist % รายการ (อนุญาต: function owner + authenticated(EXECUTE)) — STOP ห้าม reuse', v_acl_bad;
+    END IF;
+    -- ห้ามมี WITH GRANT OPTION ทุกกรณี (is_grantable = ส่งต่อสิทธิ์ได้ = กว้างกว่าสัญญา)
+    SELECT count(*) INTO v_acl_bad
+      FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+     WHERE p.oid = v_oid AND a.is_grantable;
+    IF v_acl_bad > 0 THEN
+      RAISE EXCEPTION 'B13A S0.7: พบ EXECUTE WITH GRANT OPTION % รายการ — STOP ห้าม reuse', v_acl_bad;
     END IF;
     RAISE NOTICE 'B13A S0.7: reuse b13a_rpc_exposed (exact: signature/body/secdef/config/language/owner/grants)';
   ELSE

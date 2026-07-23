@@ -424,9 +424,28 @@ test("G24. S0 introspect-or-create-exact — ห้าม silent IF NOT EXISTS /
       assert.match(b, /NOT \(a\.grantee = p\.proowner\s*\n\s*OR \(a\.grantee = to_regrole\('authenticated'\)::oid AND a\.privilege_type = 'EXECUTE'\)\)/,
         `${tag}: browser/probe allowlist = owner + authenticated(EXECUTE) เท่านั้น`);
     }
+    // audit R3-B1: ห้ามมี WITH GRANT OPTION ทุกกรณี
+    assert.match(b, /WHERE p\.oid = v_oid AND a\.is_grantable;/,
+      `${tag}: ต้องตรวจ is_grantable ทุก grant`);
+    assert.match(b, /EXECUTE WITH GRANT OPTION % รายการ — STOP ห้าม reuse/,
+      `${tag}: grant option = STOP`);
+    // audit R3-SF: API metadata exact — args/result/attributes
+    assert.match(b, /pg_get_function_arguments\(p\.oid\), pg_get_function_result\(p\.oid\)/,
+      `${tag}: ต้องตรวจ argument names/defaults + return type`);
+    assert.match(b, /p\.provolatile, p\.proisstrict, p\.proparallel, p\.proleakproof, p\.prokind/,
+      `${tag}: ต้องตรวจ volatility/strict/parallel/leakproof/kind`);
+    assert.match(b, /argument names\/defaults ไม่ตรงเป๊ะ/, `${tag}: args mismatch = STOP`);
+    assert.match(b, /return type ไม่ตรง/, `${tag}: return type mismatch = STOP`);
+    assert.match(b, /function attributes ไม่ตรง/, `${tag}: attributes mismatch = STOP`);
     assert.match(b, /STOP ห้าม overwrite/, `${tag}: mismatch = STOP`);
     assert.doesNotMatch(b, /CREATE OR REPLACE FUNCTION/, `${tag}: ห้าม CREATE OR REPLACE (overwrite)`);
   }
+  // browser CAS: expected args ต้องคง named args + defaults ที่ runbook พึ่งพา
+  const brW = block("b13a_s0_fn_browser");
+  assert.ok(brW.includes("p_run_id uuid, p_from_stage text, p_to_stage text,"),
+    "browser: expected args ต้องล็อกชื่อ argument ครบ");
+  assert.ok(brW.includes("p_paid_at timestamp with time zone DEFAULT NULL::timestamp with time zone"),
+    "browser: expected args ต้องล็อก DEFAULT NULL ของ optional args");
   // ตาราง: reuse ต้อง exact ครบ PK/CHECK/policy/FORCE RLS/grants รวม PUBLIC
   const TBL_EXPECT = {
     b13a_s0_runs: { pk: "'singleton'", qual: "'(singleton AND (actor_id = auth.uid()))'" },
@@ -459,6 +478,15 @@ test("G24. S0 introspect-or-create-exact — ห้าม silent IF NOT EXISTS /
       `${tag}: ต้องคลี่ relacl (allowlist ทุก grantee ไม่ใช่ blacklist)`);
     assert.match(b, /table grant นอก allowlist[^;]*STOP ห้าม reuse/,
       `${tag}: grant ให้ role อื่น = STOP`);
+    // audit R3-B1: ห้าม WITH GRANT OPTION บนตาราง
+    assert.match(b, /::regclass AND a\.is_grantable;/, `${tag}: ต้องตรวจ is_grantable บนตาราง`);
+    assert.match(b, /table grant WITH GRANT OPTION % รายการ — STOP ห้าม reuse/,
+      `${tag}: grant option บนตาราง = STOP`);
+    // audit R3-B2: table owner ต้องเป็น trusted role จริง (ห้ามยอมรับ relowner อัตโนมัติ)
+    assert.match(b, /SELECT r\.rolsuper OR r\.rolbypassrls INTO v_ok\s*\n\s*FROM pg_class c JOIN pg_roles r ON r\.oid = c\.relowner/,
+      `${tag}: ต้อง introspect owner ผ่าน pg_roles`);
+    assert.match(b, /table owner ไม่ใช่ trusted role[^;]*STOP ห้าม reuse/,
+      `${tag}: owner ไม่ trusted = STOP`);
     assert.match(b, /relrowsecurity AND c\.relforcerowsecurity/, `${tag}: ต้องตรวจ RLS ENABLE+FORCE`);
     if (exp.qual) {
       assert.ok(b.includes(exp.qual), `${tag}: policy expression ต้องเทียบ exact`);
