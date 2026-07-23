@@ -97,9 +97,31 @@ SELECT 'B13a sentinel (owner สร้างเองตาม runbook)', (to_re
 -- ────────────────────────────────────────────────────────────────────────────
 DO $b13a_s0_runs$
 DECLARE
+  v_staging_ok boolean := false;
   v_cols text;
   v_ok boolean;
+  v_pk text;
+  v_chk text;
+  v_item text;
+  v_cnt int;
+  v_qual text;
+  v_cmd text;
+  v_perm text;
+  v_roles text;
+  v_withchk text;
 BEGIN
+  -- [B13A-INTERLOCK] sentinel ต้องผ่านก่อน DDL/GRANT/introspect-reuse ใด ๆ (fail-closed)
+  BEGIN
+    SELECT count(*) = 1 AND bool_and(x.confirm_text = 'B13A-STAGING-' || to_char(current_date, 'YYYY-MM-DD'))
+      INTO v_staging_ok FROM public._staging_b13a_sentinel x;
+  EXCEPTION WHEN undefined_table THEN
+    RAISE EXCEPTION 'B13A INTERLOCK: ไม่พบตาราง _staging_b13a_sentinel — นี่ไม่ใช่ staging ห้ามรันเด็ดขาด';
+  END;
+  IF NOT COALESCE(v_staging_ok, false) THEN
+    RAISE EXCEPTION 'B13A INTERLOCK: sentinel ต้องมีหนึ่งแถวและ confirm_text = B13A-STAGING-% เป๊ะ — หยุดทุกกรณี',
+      to_char(current_date, 'YYYY-MM-DD');
+  END IF;
+
   IF to_regclass('public._staging_b13a_runs') IS NULL THEN
     EXECUTE 'CREATE TABLE public._staging_b13a_runs (
       singleton             boolean PRIMARY KEY CHECK (singleton),
@@ -157,17 +179,73 @@ BEGIN
     IF NOT COALESCE(v_ok, false) THEN
       RAISE EXCEPTION 'B13A S0.1: _staging_b13a_runs RLS ต้อง ENABLE+FORCE — STOP';
     END IF;
-    IF (SELECT count(*) FROM pg_policies WHERE schemaname='public' AND tablename='_staging_b13a_runs'
-          AND policyname='b13a_runs_select_actor' AND cmd='SELECT') <> 1 THEN
-      RAISE EXCEPTION 'B13A S0.1: policy b13a_runs_select_actor ไม่ตรง — STOP';
+    -- PK exact
+    SELECT string_agg(a.attname, ',' ORDER BY a.attnum) INTO v_pk
+      FROM pg_index i JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY (i.indkey)
+     WHERE i.indrelid = 'public._staging_b13a_runs'::regclass AND i.indisprimary;
+    IF v_pk IS DISTINCT FROM 'singleton' THEN
+      RAISE EXCEPTION 'B13A S0.1: PK ไม่ตรง (%) — STOP ห้าม overwrite/reuse', v_pk;
+    END IF;
+    -- CHECK constraints exact (ชื่อ + สมาชิก allowlist ครบ + cardinality ตรง)
+    SELECT pg_get_constraintdef(c.oid) INTO v_chk FROM pg_constraint c
+     WHERE c.conrelid = 'public._staging_b13a_runs'::regclass AND c.conname = 'chk_b13a_runs_stage';
+    IF v_chk IS NULL OR (length(v_chk) - length(replace(v_chk, '::text', ''))) / 6 <> 12 THEN
+      RAISE EXCEPTION 'B13A S0.1: chk_b13a_runs_stage หาย/สมาชิกไม่ครบ 12 (%) — STOP', v_chk;
+    END IF;
+    FOREACH v_item IN ARRAY ARRAY['prepared','gates_passed','r1_inflight','r1_recorded','r2_inflight',
+                                  'r2_verified','db_verified','teardown_complete','auth_cleanup_complete',
+                                  'execution_complete','failed_incomplete','failed_no_write'] LOOP
+      IF position('''' || v_item || '''' IN v_chk) = 0 THEN
+        RAISE EXCEPTION 'B13A S0.1: chk_b13a_runs_stage ขาด % — STOP', v_item;
+      END IF;
+    END LOOP;
+    SELECT pg_get_constraintdef(c.oid) INTO v_chk FROM pg_constraint c
+     WHERE c.conrelid = 'public._staging_b13a_runs'::regclass AND c.conname = 'chk_b13a_runs_method';
+    IF v_chk IS NULL OR position('''cash''' IN v_chk) = 0
+       OR (length(v_chk) - length(replace(v_chk, '::text', ''))) / 6 <> 1 THEN
+      RAISE EXCEPTION 'B13A S0.1: chk_b13a_runs_method ไม่ตรง (%) — STOP', v_chk;
+    END IF;
+    SELECT pg_get_constraintdef(c.oid) INTO v_chk FROM pg_constraint c
+     WHERE c.conrelid = 'public._staging_b13a_runs'::regclass AND c.conname = 'chk_b13a_runs_failure_code';
+    IF v_chk IS NULL OR (length(v_chk) - length(replace(v_chk, '::text', ''))) / 6 <> 6 THEN
+      RAISE EXCEPTION 'B13A S0.1: chk_b13a_runs_failure_code สมาชิกไม่ครบ 6 (%) — STOP', v_chk;
+    END IF;
+    FOREACH v_item IN ARRAY ARRAY['LEDGER_WITHOUT_JV','JV_INVALID','UNKNOWN_OUTCOME_PAYMENT_FOUND',
+                                  'VERIFY_DB_FAILED','TEARDOWN_PRECONDITION_FAILED','ZERO_WRITE_CONFIRMED'] LOOP
+      IF position('''' || v_item || '''' IN v_chk) = 0 THEN
+        RAISE EXCEPTION 'B13A S0.1: chk_b13a_runs_failure_code ขาด % — STOP', v_item;
+      END IF;
+    END LOOP;
+    -- policy exact: หนึ่ง policy + expression/cmd/roles/permissive ตรงเป๊ะ
+    SELECT count(*) INTO v_cnt FROM pg_policies WHERE schemaname='public' AND tablename='_staging_b13a_runs';
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'B13A S0.1: policy ต้องมี 1 (พบ %) — STOP', v_cnt; END IF;
+    SELECT regexp_replace(coalesce(pp.qual, ''), '\s+', ' ', 'g'), pp.cmd, pp.permissive,
+           array_to_string(pp.roles, ','), pp.with_check
+      INTO v_qual, v_cmd, v_perm, v_roles, v_withchk
+      FROM pg_policies pp
+     WHERE pp.schemaname='public' AND pp.tablename='_staging_b13a_runs' AND pp.policyname='b13a_runs_select_actor';
+    IF v_qual IS DISTINCT FROM '(singleton AND (actor_id = auth.uid()))'
+       OR v_cmd IS DISTINCT FROM 'SELECT' OR v_perm IS DISTINCT FROM 'PERMISSIVE'
+       OR v_roles IS DISTINCT FROM 'authenticated' OR v_withchk IS NOT NULL THEN
+      RAISE EXCEPTION 'B13A S0.1: policy expression/roles ไม่ตรงเป๊ะ (qual=% cmd=% roles=%) — STOP', v_qual, v_cmd, v_roles;
+    END IF;
+    -- grants exact รวม PUBLIC: authenticated = SELECT เท่านั้น · PUBLIC/anon = ห้ามมี
+    IF EXISTS (SELECT 1 FROM information_schema.role_table_grants
+                WHERE table_schema='public' AND table_name='_staging_b13a_runs'
+                  AND grantee IN ('PUBLIC','anon')) THEN
+      RAISE EXCEPTION 'B13A S0.1: พบ grant ให้ PUBLIC/anon บน _staging_b13a_runs — STOP';
     END IF;
     IF EXISTS (SELECT 1 FROM information_schema.role_table_grants
                 WHERE table_schema='public' AND table_name='_staging_b13a_runs'
-                  AND grantee IN ('anon','authenticated')
-                  AND privilege_type IN ('INSERT','UPDATE','DELETE','TRUNCATE')) THEN
-      RAISE EXCEPTION 'B13A S0.1: พบ DML grant บน _staging_b13a_runs — browser ต้องอ่านอย่างเดียว — STOP';
+                  AND grantee = 'authenticated' AND privilege_type <> 'SELECT') THEN
+      RAISE EXCEPTION 'B13A S0.1: authenticated ต้องมีแค่ SELECT — STOP';
     END IF;
-    RAISE NOTICE 'B13A S0.1: reuse _staging_b13a_runs (introspect exact ผ่าน)';
+    IF NOT EXISTS (SELECT 1 FROM information_schema.role_table_grants
+                WHERE table_schema='public' AND table_name='_staging_b13a_runs'
+                  AND grantee = 'authenticated' AND privilege_type = 'SELECT') THEN
+      RAISE EXCEPTION 'B13A S0.1: ขาด SELECT grant ของ authenticated — STOP';
+    END IF;
+    RAISE NOTICE 'B13A S0.1: reuse _staging_b13a_runs (introspect exact ผ่าน: columns/PK/CHECK/policy/grants)';
   END IF;
 END $b13a_s0_runs$;
 
@@ -178,8 +256,26 @@ END $b13a_s0_runs$;
 -- ────────────────────────────────────────────────────────────────────────────
 DO $b13a_s0_results$
 DECLARE
+  v_staging_ok boolean := false;
   v_cols text;
+  v_ok boolean;
+  v_pk text;
+  v_chk text;
+  v_item text;
+  v_cnt int;
 BEGIN
+  -- [B13A-INTERLOCK] sentinel ต้องผ่านก่อน DDL/GRANT/introspect-reuse ใด ๆ (fail-closed)
+  BEGIN
+    SELECT count(*) = 1 AND bool_and(x.confirm_text = 'B13A-STAGING-' || to_char(current_date, 'YYYY-MM-DD'))
+      INTO v_staging_ok FROM public._staging_b13a_sentinel x;
+  EXCEPTION WHEN undefined_table THEN
+    RAISE EXCEPTION 'B13A INTERLOCK: ไม่พบตาราง _staging_b13a_sentinel — นี่ไม่ใช่ staging ห้ามรันเด็ดขาด';
+  END;
+  IF NOT COALESCE(v_staging_ok, false) THEN
+    RAISE EXCEPTION 'B13A INTERLOCK: sentinel ต้องมีหนึ่งแถวและ confirm_text = B13A-STAGING-% เป๊ะ — หยุดทุกกรณี',
+      to_char(current_date, 'YYYY-MM-DD');
+  END IF;
+
   IF to_regclass('public._staging_b13a_results') IS NULL THEN
     EXECUTE 'CREATE TABLE public._staging_b13a_results (
       run_id      uuid NOT NULL,
@@ -204,12 +300,35 @@ BEGIN
       'run_id:uuid:NO,certificate:text:NO,detail:text:YES,created_at:timestamp with time zone:NO' THEN
       RAISE EXCEPTION 'B13A S0.2: _staging_b13a_results มีอยู่แต่ columns ไม่ตรง (%) — STOP ห้าม overwrite/reuse', v_cols;
     END IF;
+    SELECT c.relrowsecurity AND c.relforcerowsecurity INTO v_ok
+      FROM pg_class c WHERE c.oid = 'public._staging_b13a_results'::regclass;
+    IF NOT COALESCE(v_ok, false) THEN
+      RAISE EXCEPTION 'B13A S0.2: _staging_b13a_results RLS ต้อง ENABLE+FORCE — STOP';
+    END IF;
+    SELECT string_agg(a.attname, ',' ORDER BY a.attnum) INTO v_pk
+      FROM pg_index i JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY (i.indkey)
+     WHERE i.indrelid = 'public._staging_b13a_results'::regclass AND i.indisprimary;
+    IF v_pk IS DISTINCT FROM 'run_id,certificate' THEN
+      RAISE EXCEPTION 'B13A S0.2: PK ไม่ตรง (%) — STOP ห้าม overwrite/reuse', v_pk;
+    END IF;
+    SELECT pg_get_constraintdef(c.oid) INTO v_chk FROM pg_constraint c
+     WHERE c.conrelid = 'public._staging_b13a_results'::regclass AND c.conname = 'chk_b13a_results_certificate';
+    IF v_chk IS NULL OR (length(v_chk) - length(replace(v_chk, '::text', ''))) / 6 <> 3 THEN
+      RAISE EXCEPTION 'B13A S0.2: chk_b13a_results_certificate สมาชิกไม่ครบ 3 (%) — STOP', v_chk;
+    END IF;
+    FOREACH v_item IN ARRAY ARRAY['PAYMENT_BEHAVIOR_PASS','ABORTED_NO_PAYMENT','EXECUTION_COMPLETE'] LOOP
+      IF position('''' || v_item || '''' IN v_chk) = 0 THEN
+        RAISE EXCEPTION 'B13A S0.2: chk_b13a_results_certificate ขาด % — STOP', v_item;
+      END IF;
+    END LOOP;
+    SELECT count(*) INTO v_cnt FROM pg_policies WHERE schemaname='public' AND tablename='_staging_b13a_results';
+    IF v_cnt <> 0 THEN RAISE EXCEPTION 'B13A S0.2: results ต้องไม่มี policy (พบ %) — STOP', v_cnt; END IF;
     IF EXISTS (SELECT 1 FROM information_schema.role_table_grants
                 WHERE table_schema='public' AND table_name='_staging_b13a_results'
-                  AND grantee IN ('anon','authenticated')) THEN
-      RAISE EXCEPTION 'B13A S0.2: results ต้องไม่มี browser grant ใด ๆ — STOP';
+                  AND grantee IN ('PUBLIC','anon','authenticated')) THEN
+      RAISE EXCEPTION 'B13A S0.2: results ต้องไม่มี grant ให้ PUBLIC/anon/authenticated ใด ๆ — STOP';
     END IF;
-    RAISE NOTICE 'B13A S0.2: reuse _staging_b13a_results (introspect exact ผ่าน)';
+    RAISE NOTICE 'B13A S0.2: reuse _staging_b13a_results (introspect exact ผ่าน: columns/PK/CHECK/RLS/grants)';
   END IF;
 END $b13a_s0_results$;
 
@@ -223,9 +342,31 @@ END $b13a_s0_results$;
 -- ────────────────────────────────────────────────────────────────────────────
 DO $b13a_s0_evidence$
 DECLARE
+  v_staging_ok boolean := false;
   v_cols text;
   v_ok boolean;
+  v_pk text;
+  v_chk text;
+  v_item text;
+  v_cnt int;
+  v_qual text;
+  v_cmd text;
+  v_perm text;
+  v_roles text;
+  v_withchk text;
 BEGIN
+  -- [B13A-INTERLOCK] sentinel ต้องผ่านก่อน DDL/GRANT/introspect-reuse ใด ๆ (fail-closed)
+  BEGIN
+    SELECT count(*) = 1 AND bool_and(x.confirm_text = 'B13A-STAGING-' || to_char(current_date, 'YYYY-MM-DD'))
+      INTO v_staging_ok FROM public._staging_b13a_sentinel x;
+  EXCEPTION WHEN undefined_table THEN
+    RAISE EXCEPTION 'B13A INTERLOCK: ไม่พบตาราง _staging_b13a_sentinel — นี่ไม่ใช่ staging ห้ามรันเด็ดขาด';
+  END;
+  IF NOT COALESCE(v_staging_ok, false) THEN
+    RAISE EXCEPTION 'B13A INTERLOCK: sentinel ต้องมีหนึ่งแถวและ confirm_text = B13A-STAGING-% เป๊ะ — หยุดทุกกรณี',
+      to_char(current_date, 'YYYY-MM-DD');
+  END IF;
+
   IF to_regclass('public._staging_b13a_evidence') IS NULL THEN
     EXECUTE 'CREATE TABLE public._staging_b13a_evidence (
       run_id              uuid NOT NULL,
@@ -290,13 +431,74 @@ BEGIN
     IF NOT COALESCE(v_ok, false) THEN
       RAISE EXCEPTION 'B13A S0.3: _staging_b13a_evidence RLS ต้อง ENABLE+FORCE — STOP';
     END IF;
+    SELECT string_agg(a.attname, ',' ORDER BY a.attnum) INTO v_pk
+      FROM pg_index i JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY (i.indkey)
+     WHERE i.indrelid = 'public._staging_b13a_evidence'::regclass AND i.indisprimary;
+    IF v_pk IS DISTINCT FROM 'run_id,step' THEN
+      RAISE EXCEPTION 'B13A S0.3: PK ไม่ตรง (%) — STOP ห้าม overwrite/reuse', v_pk;
+    END IF;
+    SELECT pg_get_constraintdef(c.oid) INTO v_chk FROM pg_constraint c
+     WHERE c.conrelid = 'public._staging_b13a_evidence'::regclass AND c.conname = 'chk_b13a_evidence_step';
+    IF v_chk IS NULL OR (length(v_chk) - length(replace(v_chk, '::text', ''))) / 6 <> 7 THEN
+      RAISE EXCEPTION 'B13A S0.3: chk_b13a_evidence_step สมาชิกไม่ครบ 7 (%) — STOP', v_chk;
+    END IF;
+    FOREACH v_item IN ARRAY ARRAY['gates','r1','r2','failure','session_null_attested',
+                                  'clean_login_rejected_attested','local_cleanup_attested'] LOOP
+      IF position('''' || v_item || '''' IN v_chk) = 0 THEN
+        RAISE EXCEPTION 'B13A S0.3: chk_b13a_evidence_step ขาด % — STOP', v_item;
+      END IF;
+    END LOOP;
+    SELECT pg_get_constraintdef(c.oid) INTO v_chk FROM pg_constraint c
+     WHERE c.conrelid = 'public._staging_b13a_evidence'::regclass AND c.conname = 'chk_b13a_evidence_source';
+    IF v_chk IS NULL OR position('''browser_cas''' IN v_chk) = 0
+       OR position('''owner_sql_attestation''' IN v_chk) = 0
+       OR (length(v_chk) - length(replace(v_chk, '::text', ''))) / 6 <> 2 THEN
+      RAISE EXCEPTION 'B13A S0.3: chk_b13a_evidence_source ไม่ตรง (%) — STOP', v_chk;
+    END IF;
+    SELECT pg_get_constraintdef(c.oid) INTO v_chk FROM pg_constraint c
+     WHERE c.conrelid = 'public._staging_b13a_evidence'::regclass AND c.conname = 'chk_b13a_evidence_failure_code';
+    IF v_chk IS NULL OR (length(v_chk) - length(replace(v_chk, '::text', ''))) / 6 <> 6 THEN
+      RAISE EXCEPTION 'B13A S0.3: chk_b13a_evidence_failure_code สมาชิกไม่ครบ 6 (%) — STOP', v_chk;
+    END IF;
+    SELECT pg_get_constraintdef(c.oid) INTO v_chk FROM pg_constraint c
+     WHERE c.conrelid = 'public._staging_b13a_evidence'::regclass AND c.conname = 'chk_b13a_evidence_step_source';
+    IF v_chk IS NULL OR position('''browser_cas''' IN v_chk) = 0 OR position('''owner_sql_attestation''' IN v_chk) = 0 THEN
+      RAISE EXCEPTION 'B13A S0.3: chk_b13a_evidence_step_source ไม่ตรง — STOP';
+    END IF;
+    SELECT pg_get_constraintdef(c.oid) INTO v_chk FROM pg_constraint c
+     WHERE c.conrelid = 'public._staging_b13a_evidence'::regclass AND c.conname = 'chk_b13a_evidence_attest_boolean_only';
+    IF v_chk IS NULL OR position('payment_id IS NULL' IN v_chk) = 0 OR position('failure_code IS NULL' IN v_chk) = 0 THEN
+      RAISE EXCEPTION 'B13A S0.3: chk_b13a_evidence_attest_boolean_only ไม่ตรง — STOP';
+    END IF;
+    SELECT count(*) INTO v_cnt FROM pg_policies WHERE schemaname='public' AND tablename='_staging_b13a_evidence';
+    IF v_cnt <> 1 THEN RAISE EXCEPTION 'B13A S0.3: policy ต้องมี 1 (พบ %) — STOP', v_cnt; END IF;
+    SELECT regexp_replace(coalesce(pp.qual, ''), '\s+', ' ', 'g'), pp.cmd, pp.permissive,
+           array_to_string(pp.roles, ','), pp.with_check
+      INTO v_qual, v_cmd, v_perm, v_roles, v_withchk
+      FROM pg_policies pp
+     WHERE pp.schemaname='public' AND pp.tablename='_staging_b13a_evidence' AND pp.policyname='b13a_evidence_select_actor';
+    IF v_qual IS DISTINCT FROM
+       '(EXISTS ( SELECT 1 FROM _staging_b13a_runs r WHERE (r.singleton AND (r.run_id = _staging_b13a_evidence.run_id) AND (r.actor_id = auth.uid()))))'
+       OR v_cmd IS DISTINCT FROM 'SELECT' OR v_perm IS DISTINCT FROM 'PERMISSIVE'
+       OR v_roles IS DISTINCT FROM 'authenticated' OR v_withchk IS NOT NULL THEN
+      RAISE EXCEPTION 'B13A S0.3: policy expression/roles ไม่ตรงเป๊ะ (qual=%) — STOP', v_qual;
+    END IF;
     IF EXISTS (SELECT 1 FROM information_schema.role_table_grants
                 WHERE table_schema='public' AND table_name='_staging_b13a_evidence'
-                  AND grantee IN ('anon','authenticated')
-                  AND privilege_type IN ('INSERT','UPDATE','DELETE','TRUNCATE')) THEN
-      RAISE EXCEPTION 'B13A S0.3: พบ DML grant บน _staging_b13a_evidence — browser ห้าม direct DML — STOP';
+                  AND grantee IN ('PUBLIC','anon')) THEN
+      RAISE EXCEPTION 'B13A S0.3: พบ grant ให้ PUBLIC/anon บน _staging_b13a_evidence — STOP';
     END IF;
-    RAISE NOTICE 'B13A S0.3: reuse _staging_b13a_evidence (introspect exact ผ่าน)';
+    IF EXISTS (SELECT 1 FROM information_schema.role_table_grants
+                WHERE table_schema='public' AND table_name='_staging_b13a_evidence'
+                  AND grantee = 'authenticated' AND privilege_type <> 'SELECT') THEN
+      RAISE EXCEPTION 'B13A S0.3: authenticated ต้องมีแค่ SELECT (browser ห้าม direct DML) — STOP';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.role_table_grants
+                WHERE table_schema='public' AND table_name='_staging_b13a_evidence'
+                  AND grantee = 'authenticated' AND privilege_type = 'SELECT') THEN
+      RAISE EXCEPTION 'B13A S0.3: ขาด SELECT grant ของ authenticated — STOP';
+    END IF;
+    RAISE NOTICE 'B13A S0.3: reuse _staging_b13a_evidence (introspect exact ผ่าน: columns/PK/CHECK/policy/grants)';
   END IF;
 END $b13a_s0_evidence$;
 
@@ -308,22 +510,33 @@ END $b13a_s0_evidence$;
 -- ────────────────────────────────────────────────────────────────────────────
 DO $b13a_s0_fn_bootstrap$
 DECLARE
+  v_staging_ok boolean := false;
   v_oid oid;
+  v_def text;
+  v_body text;
+  v_p int;
+  v_prosrc text;
+  v_secdef boolean;
+  v_cfg text;
+  v_lang text;
+  v_owner_ok boolean;
+  v_pub boolean;
+  v_anon boolean;
+  v_auth boolean;
 BEGIN
-  SELECT p.oid INTO v_oid FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-   WHERE n.nspname = 'public' AND p.proname = 'b13a_owner_bootstrap';
-  IF v_oid IS NOT NULL THEN
-    IF position('B13A-FN-BOOTSTRAP-V1' IN pg_get_functiondef(v_oid)) = 0 THEN
-      RAISE EXCEPTION 'B13A S0.4: b13a_owner_bootstrap มีอยู่แต่ไม่ใช่เวอร์ชันนี้ (ไม่มี marker B13A-FN-BOOTSTRAP-V1) — STOP ห้าม overwrite';
-    END IF;
-    IF EXISTS (SELECT 1 FROM information_schema.routine_privileges
-                WHERE routine_schema='public' AND routine_name='b13a_owner_bootstrap'
-                  AND grantee IN ('PUBLIC','anon','authenticated')) THEN
-      RAISE EXCEPTION 'B13A S0.4: b13a_owner_bootstrap ต้องไม่มี execute grant PUBLIC/anon/authenticated — STOP';
-    END IF;
-    RAISE NOTICE 'B13A S0.4: reuse b13a_owner_bootstrap (marker ตรง)';
-  ELSE
-    EXECUTE $B13A_DEF_BOOTSTRAP$
+  -- [B13A-INTERLOCK] sentinel ต้องผ่านก่อน DDL/GRANT/introspect-reuse ใด ๆ (fail-closed)
+  BEGIN
+    SELECT count(*) = 1 AND bool_and(x.confirm_text = 'B13A-STAGING-' || to_char(current_date, 'YYYY-MM-DD'))
+      INTO v_staging_ok FROM public._staging_b13a_sentinel x;
+  EXCEPTION WHEN undefined_table THEN
+    RAISE EXCEPTION 'B13A INTERLOCK: ไม่พบตาราง _staging_b13a_sentinel — นี่ไม่ใช่ staging ห้ามรันเด็ดขาด';
+  END;
+  IF NOT COALESCE(v_staging_ok, false) THEN
+    RAISE EXCEPTION 'B13A INTERLOCK: sentinel ต้องมีหนึ่งแถวและ confirm_text = B13A-STAGING-% เป๊ะ — หยุดทุกกรณี',
+      to_char(current_date, 'YYYY-MM-DD');
+  END IF;
+
+  v_def := $B13A_DEF_BOOTSTRAP$
 CREATE FUNCTION public.b13a_owner_bootstrap(p_actor_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -422,6 +635,54 @@ BEGIN
   RETURN jsonb_build_object('run_id', v_run_id, 'stage', 'prepared', 'service_job_id', v_job.id);
 END $fn_bootstrap$;
 $B13A_DEF_BOOTSTRAP$;
+  -- expected body = ข้อความระหว่าง $fn_bootstrap$ ... $fn_bootstrap$ (source เดียว ใช้ทั้ง CREATE และ verify)
+  v_p := position('$fn_bootstrap$' IN v_def);
+  v_body := substring(v_def FROM v_p + length('$fn_bootstrap$'));
+  v_body := left(v_body, position('$fn_bootstrap$' IN v_body) - 1);
+
+  -- ผูกด้วย exact signature เท่านั้น — ชื่อเดียวกันแต่ signature อื่น = STOP
+  v_oid := to_regprocedure('public.b13a_owner_bootstrap(uuid)');
+  IF v_oid IS NULL AND EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+                                WHERE n.nspname = 'public' AND p.proname = 'b13a_owner_bootstrap') THEN
+    RAISE EXCEPTION 'B13A S0.4: พบ b13a_owner_bootstrap แต่ signature ไม่ตรงเวอร์ชันนี้ — STOP ห้าม overwrite/reuse';
+  END IF;
+
+  IF v_oid IS NOT NULL THEN
+    SELECT p.prosrc, p.prosecdef, array_to_string(p.proconfig, ','), l.lanname,
+           (SELECT r.rolsuper OR r.rolbypassrls FROM pg_roles r WHERE r.oid = p.proowner)
+      INTO v_prosrc, v_secdef, v_cfg, v_lang, v_owner_ok
+      FROM pg_proc p JOIN pg_language l ON l.oid = p.prolang
+     WHERE p.oid = v_oid;
+    -- body ต้องตรงเวอร์ชันนี้ byte-ต่อ-byte — marker substring อย่างเดียวไม่พอ
+    IF v_prosrc IS DISTINCT FROM v_body THEN
+      RAISE EXCEPTION 'B13A S0.4: b13a_owner_bootstrap body ไม่ตรงเวอร์ชันนี้เป๊ะ — STOP ห้าม overwrite/reuse';
+    END IF;
+    IF v_secdef THEN
+      RAISE EXCEPTION 'B13A S0.4: b13a_owner_bootstrap ต้องไม่เป็น SECURITY DEFINER — STOP';
+    END IF;
+    IF v_cfg IS DISTINCT FROM 'search_path=public' THEN
+      RAISE EXCEPTION 'B13A S0.4: proconfig ต้องเป็น search_path=public เป๊ะ (ได้ %) — STOP', v_cfg;
+    END IF;
+    IF v_lang IS DISTINCT FROM 'plpgsql' THEN
+      RAISE EXCEPTION 'B13A S0.4: language ต้องเป็น plpgsql (ได้ %) — STOP', v_lang;
+    END IF;
+    IF NOT COALESCE(v_owner_ok, false) THEN
+      RAISE EXCEPTION 'B13A S0.4: owner ของ function ไม่ใช่ trusted role — STOP';
+    END IF;
+    -- EXECUTE grants exact รวม PUBLIC (aclexplode คลี่ default acl ด้วย — proacl NULL = PUBLIC execute)
+    SELECT bool_or(a.grantee = 0 AND a.privilege_type = 'EXECUTE'),
+           bool_or(a.grantee = to_regrole('anon')::oid AND a.privilege_type = 'EXECUTE'),
+           bool_or(a.grantee = to_regrole('authenticated')::oid AND a.privilege_type = 'EXECUTE')
+      INTO v_pub, v_anon, v_auth
+      FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+     WHERE p.oid = v_oid;
+    IF COALESCE(v_pub, false) OR COALESCE(v_anon, false) OR COALESCE(v_auth, false) THEN
+      RAISE EXCEPTION 'B13A S0.4: execute grants ไม่ตรง (PUBLIC=% anon=% authenticated=%) — STOP',
+        COALESCE(v_pub, false), COALESCE(v_anon, false), COALESCE(v_auth, false);
+    END IF;
+    RAISE NOTICE 'B13A S0.4: reuse b13a_owner_bootstrap (exact: signature/body/secdef/config/language/owner/grants)';
+  ELSE
+    EXECUTE v_def;
     EXECUTE 'REVOKE ALL ON FUNCTION public.b13a_owner_bootstrap(uuid) FROM PUBLIC, anon, authenticated';
     RAISE NOTICE 'B13A S0.4: created b13a_owner_bootstrap (no API grants)';
   END IF;
@@ -443,22 +704,33 @@ END $b13a_s0_fn_bootstrap$;
 -- ────────────────────────────────────────────────────────────────────────────
 DO $b13a_s0_fn_browser$
 DECLARE
+  v_staging_ok boolean := false;
   v_oid oid;
+  v_def text;
+  v_body text;
+  v_p int;
+  v_prosrc text;
+  v_secdef boolean;
+  v_cfg text;
+  v_lang text;
+  v_owner_ok boolean;
+  v_pub boolean;
+  v_anon boolean;
+  v_auth boolean;
 BEGIN
-  SELECT p.oid INTO v_oid FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-   WHERE n.nspname = 'public' AND p.proname = 'b13a_browser_transition';
-  IF v_oid IS NOT NULL THEN
-    IF position('B13A-FN-BROWSER-V1' IN pg_get_functiondef(v_oid)) = 0 THEN
-      RAISE EXCEPTION 'B13A S0.5: b13a_browser_transition มีอยู่แต่ไม่ใช่เวอร์ชันนี้ (ไม่มี marker B13A-FN-BROWSER-V1) — STOP ห้าม overwrite';
-    END IF;
-    PERFORM 1 FROM pg_proc p WHERE p.oid = v_oid AND p.prosecdef
-       AND array_to_string(p.proconfig, ',') LIKE '%search_path=public%';
-    IF NOT FOUND THEN
-      RAISE EXCEPTION 'B13A S0.5: b13a_browser_transition ต้องเป็น SECURITY DEFINER + search_path=public — STOP';
-    END IF;
-    RAISE NOTICE 'B13A S0.5: reuse b13a_browser_transition (marker ตรง)';
-  ELSE
-    EXECUTE $B13A_DEF_BROWSER$
+  -- [B13A-INTERLOCK] sentinel ต้องผ่านก่อน DDL/GRANT/introspect-reuse ใด ๆ (fail-closed)
+  BEGIN
+    SELECT count(*) = 1 AND bool_and(x.confirm_text = 'B13A-STAGING-' || to_char(current_date, 'YYYY-MM-DD'))
+      INTO v_staging_ok FROM public._staging_b13a_sentinel x;
+  EXCEPTION WHEN undefined_table THEN
+    RAISE EXCEPTION 'B13A INTERLOCK: ไม่พบตาราง _staging_b13a_sentinel — นี่ไม่ใช่ staging ห้ามรันเด็ดขาด';
+  END;
+  IF NOT COALESCE(v_staging_ok, false) THEN
+    RAISE EXCEPTION 'B13A INTERLOCK: sentinel ต้องมีหนึ่งแถวและ confirm_text = B13A-STAGING-% เป๊ะ — หยุดทุกกรณี',
+      to_char(current_date, 'YYYY-MM-DD');
+  END IF;
+
+  v_def := $B13A_DEF_BROWSER$
 CREATE FUNCTION public.b13a_browser_transition(
   p_run_id              uuid,
   p_from_stage          text,
@@ -871,6 +1143,54 @@ BEGIN
   RAISE EXCEPTION 'B13A CAS: unreachable transition — reject';
 END $fn_browser$;
 $B13A_DEF_BROWSER$;
+  -- expected body = ข้อความระหว่าง $fn_browser$ ... $fn_browser$ (source เดียว ใช้ทั้ง CREATE และ verify)
+  v_p := position('$fn_browser$' IN v_def);
+  v_body := substring(v_def FROM v_p + length('$fn_browser$'));
+  v_body := left(v_body, position('$fn_browser$' IN v_body) - 1);
+
+  -- ผูกด้วย exact signature เท่านั้น — ชื่อเดียวกันแต่ signature อื่น = STOP
+  v_oid := to_regprocedure('public.b13a_browser_transition(uuid,text,text,bigint,numeric,text,text,timestamptz,uuid,text,text,bigint,bigint,boolean,boolean,boolean,boolean,numeric,numeric,text,text,text)');
+  IF v_oid IS NULL AND EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+                                WHERE n.nspname = 'public' AND p.proname = 'b13a_browser_transition') THEN
+    RAISE EXCEPTION 'B13A S0.5: พบ b13a_browser_transition แต่ signature ไม่ตรงเวอร์ชันนี้ — STOP ห้าม overwrite/reuse';
+  END IF;
+
+  IF v_oid IS NOT NULL THEN
+    SELECT p.prosrc, p.prosecdef, array_to_string(p.proconfig, ','), l.lanname,
+           (SELECT r.rolsuper OR r.rolbypassrls FROM pg_roles r WHERE r.oid = p.proowner)
+      INTO v_prosrc, v_secdef, v_cfg, v_lang, v_owner_ok
+      FROM pg_proc p JOIN pg_language l ON l.oid = p.prolang
+     WHERE p.oid = v_oid;
+    -- body ต้องตรงเวอร์ชันนี้ byte-ต่อ-byte — marker substring อย่างเดียวไม่พอ
+    IF v_prosrc IS DISTINCT FROM v_body THEN
+      RAISE EXCEPTION 'B13A S0.5: b13a_browser_transition body ไม่ตรงเวอร์ชันนี้เป๊ะ — STOP ห้าม overwrite/reuse';
+    END IF;
+    IF NOT v_secdef THEN
+      RAISE EXCEPTION 'B13A S0.5: b13a_browser_transition ต้องเป็น SECURITY DEFINER — STOP';
+    END IF;
+    IF v_cfg IS DISTINCT FROM 'search_path=public' THEN
+      RAISE EXCEPTION 'B13A S0.5: proconfig ต้องเป็น search_path=public เป๊ะ (ได้ %) — STOP', v_cfg;
+    END IF;
+    IF v_lang IS DISTINCT FROM 'plpgsql' THEN
+      RAISE EXCEPTION 'B13A S0.5: language ต้องเป็น plpgsql (ได้ %) — STOP', v_lang;
+    END IF;
+    IF NOT COALESCE(v_owner_ok, false) THEN
+      RAISE EXCEPTION 'B13A S0.5: owner ของ function ไม่ใช่ trusted role — STOP';
+    END IF;
+    -- EXECUTE grants exact รวม PUBLIC (aclexplode คลี่ default acl ด้วย — proacl NULL = PUBLIC execute)
+    SELECT bool_or(a.grantee = 0 AND a.privilege_type = 'EXECUTE'),
+           bool_or(a.grantee = to_regrole('anon')::oid AND a.privilege_type = 'EXECUTE'),
+           bool_or(a.grantee = to_regrole('authenticated')::oid AND a.privilege_type = 'EXECUTE')
+      INTO v_pub, v_anon, v_auth
+      FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+     WHERE p.oid = v_oid;
+    IF COALESCE(v_pub, false) OR COALESCE(v_anon, false) OR (COALESCE(v_auth, false) IS DISTINCT FROM true) THEN
+      RAISE EXCEPTION 'B13A S0.5: execute grants ไม่ตรง (PUBLIC=% anon=% authenticated=%) — STOP',
+        COALESCE(v_pub, false), COALESCE(v_anon, false), COALESCE(v_auth, false);
+    END IF;
+    RAISE NOTICE 'B13A S0.5: reuse b13a_browser_transition (exact: signature/body/secdef/config/language/owner/grants)';
+  ELSE
+    EXECUTE v_def;
     EXECUTE 'REVOKE ALL ON FUNCTION public.b13a_browser_transition(uuid,text,text,bigint,numeric,text,text,timestamptz,uuid,text,text,bigint,bigint,boolean,boolean,boolean,boolean,numeric,numeric,text,text,text) FROM PUBLIC, anon';
     EXECUTE 'GRANT EXECUTE ON FUNCTION public.b13a_browser_transition(uuid,text,text,bigint,numeric,text,text,timestamptz,uuid,text,text,bigint,bigint,boolean,boolean,boolean,boolean,numeric,numeric,text,text,text) TO authenticated';
     RAISE NOTICE 'B13A S0.5: created b13a_browser_transition (SECURITY DEFINER · authenticated เท่านั้น)';
@@ -889,22 +1209,33 @@ END $b13a_s0_fn_browser$;
 -- ────────────────────────────────────────────────────────────────────────────
 DO $b13a_s0_fn_finalize$
 DECLARE
+  v_staging_ok boolean := false;
   v_oid oid;
+  v_def text;
+  v_body text;
+  v_p int;
+  v_prosrc text;
+  v_secdef boolean;
+  v_cfg text;
+  v_lang text;
+  v_owner_ok boolean;
+  v_pub boolean;
+  v_anon boolean;
+  v_auth boolean;
 BEGIN
-  SELECT p.oid INTO v_oid FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-   WHERE n.nspname = 'public' AND p.proname = 'b13a_owner_finalize';
-  IF v_oid IS NOT NULL THEN
-    IF position('B13A-FN-FINALIZE-V1' IN pg_get_functiondef(v_oid)) = 0 THEN
-      RAISE EXCEPTION 'B13A S0.6: b13a_owner_finalize มีอยู่แต่ไม่ใช่เวอร์ชันนี้ (ไม่มี marker B13A-FN-FINALIZE-V1) — STOP ห้าม overwrite';
-    END IF;
-    IF EXISTS (SELECT 1 FROM information_schema.routine_privileges
-                WHERE routine_schema='public' AND routine_name='b13a_owner_finalize'
-                  AND grantee IN ('PUBLIC','anon','authenticated')) THEN
-      RAISE EXCEPTION 'B13A S0.6: b13a_owner_finalize ต้องไม่มี execute grant PUBLIC/anon/authenticated — STOP';
-    END IF;
-    RAISE NOTICE 'B13A S0.6: reuse b13a_owner_finalize (marker ตรง)';
-  ELSE
-    EXECUTE $B13A_DEF_FINALIZE$
+  -- [B13A-INTERLOCK] sentinel ต้องผ่านก่อน DDL/GRANT/introspect-reuse ใด ๆ (fail-closed)
+  BEGIN
+    SELECT count(*) = 1 AND bool_and(x.confirm_text = 'B13A-STAGING-' || to_char(current_date, 'YYYY-MM-DD'))
+      INTO v_staging_ok FROM public._staging_b13a_sentinel x;
+  EXCEPTION WHEN undefined_table THEN
+    RAISE EXCEPTION 'B13A INTERLOCK: ไม่พบตาราง _staging_b13a_sentinel — นี่ไม่ใช่ staging ห้ามรันเด็ดขาด';
+  END;
+  IF NOT COALESCE(v_staging_ok, false) THEN
+    RAISE EXCEPTION 'B13A INTERLOCK: sentinel ต้องมีหนึ่งแถวและ confirm_text = B13A-STAGING-% เป๊ะ — หยุดทุกกรณี',
+      to_char(current_date, 'YYYY-MM-DD');
+  END IF;
+
+  v_def := $B13A_DEF_FINALIZE$
 CREATE FUNCTION public.b13a_owner_finalize(
   p_run_id               uuid,
   p_action               text,
@@ -1307,14 +1638,31 @@ BEGIN
        ('LEDGER_WITHOUT_JV','JV_INVALID','UNKNOWN_OUTCOME_PAYMENT_FOUND','VERIFY_DB_FAILED','TEARDOWN_PRECONDITION_FAILED') THEN
       RAISE EXCEPTION 'B13A FINALIZE(classify-incomplete): failure_code ต้องอยู่ใน allowlist';
     END IF;
-    -- owner ค้น payment ด้วย job + stored idempotency — พบจึง classify แบบ incomplete ได้
+    -- owner ค้น payment ด้วย job + stored idempotency — bind ได้เมื่อ candidate มี "หนึ่งแถวเป๊ะ"
+    -- และ payload ตรง stored intent ครบทุก field แบบ NULL-safe + created_by = actor เท่านั้น
     IF v_run.payment_id IS NULL THEN
-      SELECT sp.id INTO v_found_pay FROM public.service_payments sp
+      SELECT count(*) INTO v_cnt FROM public.service_payments sp
        WHERE sp.service_job_id = v_run.service_job_id
          AND sp.idempotency_key IS NOT DISTINCT FROM v_run.idempotency_key;
-      IF v_found_pay IS NULL THEN
+      IF v_cnt = 0 THEN
         RAISE EXCEPTION 'B13A FINALIZE(classify-incomplete): ไม่พบ payment ของ run — ถ้าพิสูจน์ zero-write ได้ใช้ classify_failed_no_write แทน';
       END IF;
+      IF v_cnt <> 1 THEN
+        RAISE EXCEPTION 'B13A FINALIZE(classify-incomplete): candidate payment % แถว (ต้อง 1 เป๊ะ) — STOP ห้าม bind (recovery review)', v_cnt;
+      END IF;
+      SELECT * INTO v_pay FROM public.service_payments sp
+       WHERE sp.service_job_id = v_run.service_job_id
+         AND sp.idempotency_key IS NOT DISTINCT FROM v_run.idempotency_key;
+      IF round(v_pay.amount, 2) IS DISTINCT FROM v_run.amount
+         OR v_pay.payment_method IS DISTINCT FROM v_run.payment_method
+         OR v_pay.bank_coa_code IS DISTINCT FROM v_run.bank_coa_code
+         OR v_pay.paid_at IS DISTINCT FROM v_run.paid_at
+         OR v_pay.slip_url IS DISTINCT FROM v_run.slip_url
+         OR v_pay.note IS DISTINCT FROM v_run.note
+         OR v_pay.created_by IS DISTINCT FROM v_run.actor_id THEN
+        RAISE EXCEPTION 'B13A FINALIZE(classify-incomplete): candidate payment ไม่ตรง stored intent/actor ครบทุกช่อง — STOP ห้าม bind (recovery review)';
+      END IF;
+      v_found_pay := v_pay.id;
       UPDATE public._staging_b13a_runs SET payment_id = v_found_pay, updated_at = now()
        WHERE singleton AND run_id = p_run_id AND payment_id IS NULL;
       GET DIAGNOSTICS v_n = ROW_COUNT;
@@ -1322,9 +1670,15 @@ BEGIN
       v_run.payment_id := v_found_pay;
     END IF;
     IF v_run.payment_jv_entry_id IS NULL THEN
-      SELECT je.id INTO v_found_pay FROM public.journal_entries je
+      -- JV candidate ต้องเป็น 0 หรือ 1 header ที่ผูก source exact — มากกว่า 1 = STOP
+      SELECT count(*) INTO v_cnt FROM public.journal_entries je
        WHERE je.source_table = 'service_payments' AND je.source_id = v_run.payment_id;
-      IF v_found_pay IS NOT NULL THEN
+      IF v_cnt > 1 THEN
+        RAISE EXCEPTION 'B13A FINALIZE(classify-incomplete): JV header ของ payment มี % ใบ (ต้อง 0 หรือ 1) — STOP ห้าม bind', v_cnt;
+      END IF;
+      IF v_cnt = 1 THEN
+        SELECT je.id INTO v_found_pay FROM public.journal_entries je
+         WHERE je.source_table = 'service_payments' AND je.source_id = v_run.payment_id;
         UPDATE public._staging_b13a_runs SET payment_jv_entry_id = v_found_pay, updated_at = now()
          WHERE singleton AND run_id = p_run_id AND payment_jv_entry_id IS NULL;
       END IF;
@@ -1378,6 +1732,54 @@ BEGIN
   RAISE EXCEPTION 'B13A FINALIZE: unreachable action — reject';
 END $fn_finalize$;
 $B13A_DEF_FINALIZE$;
+  -- expected body = ข้อความระหว่าง $fn_finalize$ ... $fn_finalize$ (source เดียว ใช้ทั้ง CREATE และ verify)
+  v_p := position('$fn_finalize$' IN v_def);
+  v_body := substring(v_def FROM v_p + length('$fn_finalize$'));
+  v_body := left(v_body, position('$fn_finalize$' IN v_body) - 1);
+
+  -- ผูกด้วย exact signature เท่านั้น — ชื่อเดียวกันแต่ signature อื่น = STOP
+  v_oid := to_regprocedure('public.b13a_owner_finalize(uuid,text,text,boolean,boolean,boolean)');
+  IF v_oid IS NULL AND EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+                                WHERE n.nspname = 'public' AND p.proname = 'b13a_owner_finalize') THEN
+    RAISE EXCEPTION 'B13A S0.6: พบ b13a_owner_finalize แต่ signature ไม่ตรงเวอร์ชันนี้ — STOP ห้าม overwrite/reuse';
+  END IF;
+
+  IF v_oid IS NOT NULL THEN
+    SELECT p.prosrc, p.prosecdef, array_to_string(p.proconfig, ','), l.lanname,
+           (SELECT r.rolsuper OR r.rolbypassrls FROM pg_roles r WHERE r.oid = p.proowner)
+      INTO v_prosrc, v_secdef, v_cfg, v_lang, v_owner_ok
+      FROM pg_proc p JOIN pg_language l ON l.oid = p.prolang
+     WHERE p.oid = v_oid;
+    -- body ต้องตรงเวอร์ชันนี้ byte-ต่อ-byte — marker substring อย่างเดียวไม่พอ
+    IF v_prosrc IS DISTINCT FROM v_body THEN
+      RAISE EXCEPTION 'B13A S0.6: b13a_owner_finalize body ไม่ตรงเวอร์ชันนี้เป๊ะ — STOP ห้าม overwrite/reuse';
+    END IF;
+    IF v_secdef THEN
+      RAISE EXCEPTION 'B13A S0.6: b13a_owner_finalize ต้องไม่เป็น SECURITY DEFINER — STOP';
+    END IF;
+    IF v_cfg IS DISTINCT FROM 'search_path=public' THEN
+      RAISE EXCEPTION 'B13A S0.6: proconfig ต้องเป็น search_path=public เป๊ะ (ได้ %) — STOP', v_cfg;
+    END IF;
+    IF v_lang IS DISTINCT FROM 'plpgsql' THEN
+      RAISE EXCEPTION 'B13A S0.6: language ต้องเป็น plpgsql (ได้ %) — STOP', v_lang;
+    END IF;
+    IF NOT COALESCE(v_owner_ok, false) THEN
+      RAISE EXCEPTION 'B13A S0.6: owner ของ function ไม่ใช่ trusted role — STOP';
+    END IF;
+    -- EXECUTE grants exact รวม PUBLIC (aclexplode คลี่ default acl ด้วย — proacl NULL = PUBLIC execute)
+    SELECT bool_or(a.grantee = 0 AND a.privilege_type = 'EXECUTE'),
+           bool_or(a.grantee = to_regrole('anon')::oid AND a.privilege_type = 'EXECUTE'),
+           bool_or(a.grantee = to_regrole('authenticated')::oid AND a.privilege_type = 'EXECUTE')
+      INTO v_pub, v_anon, v_auth
+      FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+     WHERE p.oid = v_oid;
+    IF COALESCE(v_pub, false) OR COALESCE(v_anon, false) OR COALESCE(v_auth, false) THEN
+      RAISE EXCEPTION 'B13A S0.6: execute grants ไม่ตรง (PUBLIC=% anon=% authenticated=%) — STOP',
+        COALESCE(v_pub, false), COALESCE(v_anon, false), COALESCE(v_auth, false);
+    END IF;
+    RAISE NOTICE 'B13A S0.6: reuse b13a_owner_finalize (exact: signature/body/secdef/config/language/owner/grants)';
+  ELSE
+    EXECUTE v_def;
     EXECUTE 'REVOKE ALL ON FUNCTION public.b13a_owner_finalize(uuid,text,text,boolean,boolean,boolean) FROM PUBLIC, anon, authenticated';
     RAISE NOTICE 'B13A S0.6: created b13a_owner_finalize (no API grants)';
   END IF;
@@ -1393,17 +1795,33 @@ END $b13a_s0_fn_finalize$;
 -- ────────────────────────────────────────────────────────────────────────────
 DO $b13a_s0_fn_exposed$
 DECLARE
+  v_staging_ok boolean := false;
   v_oid oid;
+  v_def text;
+  v_body text;
+  v_p int;
+  v_prosrc text;
+  v_secdef boolean;
+  v_cfg text;
+  v_lang text;
+  v_owner_ok boolean;
+  v_pub boolean;
+  v_anon boolean;
+  v_auth boolean;
 BEGIN
-  SELECT p.oid INTO v_oid FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-   WHERE n.nspname = 'public' AND p.proname = 'b13a_rpc_exposed';
-  IF v_oid IS NOT NULL THEN
-    IF position('B13A-FN-EXPOSED-V1' IN pg_get_functiondef(v_oid)) = 0 THEN
-      RAISE EXCEPTION 'B13A S0.7: b13a_rpc_exposed มีอยู่แต่ไม่ใช่เวอร์ชันนี้ — STOP ห้าม overwrite';
-    END IF;
-    RAISE NOTICE 'B13A S0.7: reuse b13a_rpc_exposed';
-  ELSE
-    EXECUTE $B13A_DEF_EXPOSED$
+  -- [B13A-INTERLOCK] sentinel ต้องผ่านก่อน DDL/GRANT/introspect-reuse ใด ๆ (fail-closed)
+  BEGIN
+    SELECT count(*) = 1 AND bool_and(x.confirm_text = 'B13A-STAGING-' || to_char(current_date, 'YYYY-MM-DD'))
+      INTO v_staging_ok FROM public._staging_b13a_sentinel x;
+  EXCEPTION WHEN undefined_table THEN
+    RAISE EXCEPTION 'B13A INTERLOCK: ไม่พบตาราง _staging_b13a_sentinel — นี่ไม่ใช่ staging ห้ามรันเด็ดขาด';
+  END;
+  IF NOT COALESCE(v_staging_ok, false) THEN
+    RAISE EXCEPTION 'B13A INTERLOCK: sentinel ต้องมีหนึ่งแถวและ confirm_text = B13A-STAGING-% เป๊ะ — หยุดทุกกรณี',
+      to_char(current_date, 'YYYY-MM-DD');
+  END IF;
+
+  v_def := $B13A_DEF_EXPOSED$
 CREATE FUNCTION public.b13a_rpc_exposed()
 RETURNS boolean
 LANGUAGE sql STABLE
@@ -1413,6 +1831,54 @@ AS $fn_exposed$
   SELECT true;
 $fn_exposed$;
 $B13A_DEF_EXPOSED$;
+  -- expected body = ข้อความระหว่าง $fn_exposed$ ... $fn_exposed$ (source เดียว ใช้ทั้ง CREATE และ verify)
+  v_p := position('$fn_exposed$' IN v_def);
+  v_body := substring(v_def FROM v_p + length('$fn_exposed$'));
+  v_body := left(v_body, position('$fn_exposed$' IN v_body) - 1);
+
+  -- ผูกด้วย exact signature เท่านั้น — ชื่อเดียวกันแต่ signature อื่น = STOP
+  v_oid := to_regprocedure('public.b13a_rpc_exposed()');
+  IF v_oid IS NULL AND EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+                                WHERE n.nspname = 'public' AND p.proname = 'b13a_rpc_exposed') THEN
+    RAISE EXCEPTION 'B13A S0.7: พบ b13a_rpc_exposed แต่ signature ไม่ตรงเวอร์ชันนี้ — STOP ห้าม overwrite/reuse';
+  END IF;
+
+  IF v_oid IS NOT NULL THEN
+    SELECT p.prosrc, p.prosecdef, array_to_string(p.proconfig, ','), l.lanname,
+           (SELECT r.rolsuper OR r.rolbypassrls FROM pg_roles r WHERE r.oid = p.proowner)
+      INTO v_prosrc, v_secdef, v_cfg, v_lang, v_owner_ok
+      FROM pg_proc p JOIN pg_language l ON l.oid = p.prolang
+     WHERE p.oid = v_oid;
+    -- body ต้องตรงเวอร์ชันนี้ byte-ต่อ-byte — marker substring อย่างเดียวไม่พอ
+    IF v_prosrc IS DISTINCT FROM v_body THEN
+      RAISE EXCEPTION 'B13A S0.7: b13a_rpc_exposed body ไม่ตรงเวอร์ชันนี้เป๊ะ — STOP ห้าม overwrite/reuse';
+    END IF;
+    IF v_secdef THEN
+      RAISE EXCEPTION 'B13A S0.7: b13a_rpc_exposed ต้องไม่เป็น SECURITY DEFINER — STOP';
+    END IF;
+    IF v_cfg IS DISTINCT FROM 'search_path=public' THEN
+      RAISE EXCEPTION 'B13A S0.7: proconfig ต้องเป็น search_path=public เป๊ะ (ได้ %) — STOP', v_cfg;
+    END IF;
+    IF v_lang IS DISTINCT FROM 'sql' THEN
+      RAISE EXCEPTION 'B13A S0.7: language ต้องเป็น sql (ได้ %) — STOP', v_lang;
+    END IF;
+    IF NOT COALESCE(v_owner_ok, false) THEN
+      RAISE EXCEPTION 'B13A S0.7: owner ของ function ไม่ใช่ trusted role — STOP';
+    END IF;
+    -- EXECUTE grants exact รวม PUBLIC (aclexplode คลี่ default acl ด้วย — proacl NULL = PUBLIC execute)
+    SELECT bool_or(a.grantee = 0 AND a.privilege_type = 'EXECUTE'),
+           bool_or(a.grantee = to_regrole('anon')::oid AND a.privilege_type = 'EXECUTE'),
+           bool_or(a.grantee = to_regrole('authenticated')::oid AND a.privilege_type = 'EXECUTE')
+      INTO v_pub, v_anon, v_auth
+      FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+     WHERE p.oid = v_oid;
+    IF COALESCE(v_pub, false) OR COALESCE(v_anon, false) OR (COALESCE(v_auth, false) IS DISTINCT FROM true) THEN
+      RAISE EXCEPTION 'B13A S0.7: execute grants ไม่ตรง (PUBLIC=% anon=% authenticated=%) — STOP',
+        COALESCE(v_pub, false), COALESCE(v_anon, false), COALESCE(v_auth, false);
+    END IF;
+    RAISE NOTICE 'B13A S0.7: reuse b13a_rpc_exposed (exact: signature/body/secdef/config/language/owner/grants)';
+  ELSE
+    EXECUTE v_def;
     EXECUTE 'REVOKE ALL ON FUNCTION public.b13a_rpc_exposed() FROM PUBLIC, anon';
     EXECUTE 'GRANT EXECUTE ON FUNCTION public.b13a_rpc_exposed() TO authenticated';
     RAISE NOTICE 'B13A S0.7: created b13a_rpc_exposed (read-only probe)';

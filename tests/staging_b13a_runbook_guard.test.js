@@ -93,19 +93,35 @@ test("G2. B12 scratch explicit — target = scratch เดิมของ B12 �
 });
 
 test("G3. sentinel ทุก mutation unit + ห้าม script สร้าง sentinel เอง + หนึ่งแถวเป๊ะ", () => {
+  // mutation wrappers ทั้งหมด: S0.1–S0.7 (DDL/GRANT) + S0-RELOAD + SEED — ไม่มีข้อยกเว้น
   const units = [
-    ["b13a_seed (DO)", block("b13a_seed")],
+    ["b13a_s0_runs (DO)", block("b13a_s0_runs")],
+    ["b13a_s0_results (DO)", block("b13a_s0_results")],
+    ["b13a_s0_evidence (DO)", block("b13a_s0_evidence")],
+    ["b13a_s0_fn_bootstrap (DO)", block("b13a_s0_fn_bootstrap")],
+    ["b13a_s0_fn_browser (DO)", block("b13a_s0_fn_browser")],
+    ["b13a_s0_fn_finalize (DO)", block("b13a_s0_fn_finalize")],
+    ["b13a_s0_fn_exposed (DO)", block("b13a_s0_fn_exposed")],
     ["b13a_s0_reload (DO)", block("b13a_s0_reload")],
+    ["b13a_seed (DO)", block("b13a_seed")],
     ["fn_bootstrap", FN_BOOTSTRAP],
     ["fn_browser", FN_BROWSER],
     ["fn_finalize", FN_FINALIZE],
   ];
   for (const [name, body] of units) {
     assert.match(body, /_staging_b13a_sentinel/, `${name}: ต้องเช็ค sentinel`);
-    assert.match(body, /count\(\*\) = 1 AND bool_and\(s?\.?confirm_text = 'B13A-STAGING-' \|\| to_char\(current_date, 'YYYY-MM-DD'\)|count\(\*\) = 1 AND bool_and\(s\.confirm_text = 'B13A-STAGING-' \|\| to_char\(current_date, 'YYYY-MM-DD'\)\)/,
+    assert.match(body, /count\(\*\) = 1 AND bool_and\([sx]\.confirm_text = 'B13A-STAGING-' \|\| to_char\(current_date, 'YYYY-MM-DD'\)\)/,
       `${name}: sentinel ต้อง "หนึ่งแถว + confirm_text ตรง current_date ของ DB session" เป๊ะ`);
     assert.match(body, /WHEN undefined_table THEN\s*\n\s*RAISE EXCEPTION 'B13A INTERLOCK: ไม่พบตาราง/,
       `${name}: ไม่มีตาราง sentinel = ปฏิเสธ (default = ปฏิเสธ)`);
+    // interlock ต้องมาก่อน mutation แรกของ unit (CREATE/EXECUTE/GRANT/REVOKE/INSERT/UPDATE/DELETE)
+    const il = body.indexOf("_staging_b13a_sentinel");
+    const firstMut = Math.min(...["EXECUTE 'CREATE", "EXECUTE 'ALTER", "EXECUTE v_def",
+      "EXECUTE 'REVOKE", "EXECUTE 'GRANT", "EXECUTE 'NOTIFY", "INSERT INTO public.",
+      "UPDATE public.", "DELETE FROM public."]
+      .map((k) => body.indexOf(k)).filter((i) => i >= 0));
+    assert.ok(Number.isFinite(firstMut) ? il < firstMut : true,
+      `${name}: interlock ต้องมาก่อน DDL/GRANT/DML แรกใน unit`);
   }
   assert.doesNotMatch(SQL, /CREATE TABLE[^;]*_staging_b13a_sentinel/i,
     "script ห้ามสร้าง sentinel เอง (owner พิมพ์มือใน runbook เท่านั้น)");
@@ -225,7 +241,7 @@ test("G10. typed evidence: step/source allowlist + write-once + ห้าม arb
   const res = block("b13a_s0_results");
   assert.match(res, /REVOKE ALL ON public\._staging_b13a_results FROM PUBLIC, anon, authenticated/,
     "results ต้องไม่มี browser grants");
-  assert.doesNotMatch(res, /GRANT/, "results ห้ามมี grant ใด ๆ");
+  assert.doesNotMatch(res, /EXECUTE 'GRANT/, "results ห้ามมี GRANT statement ใด ๆ (แม้ SELECT)");
   for (const c of ["PAYMENT_BEHAVIOR_PASS", "ABORTED_NO_PAYMENT", "EXECUTION_COMPLETE"]) {
     assert.match(res, new RegExp(`''${c}''`), `certificate allowlist ต้องมี ${c}`);
   }
@@ -314,6 +330,18 @@ test("G20. unknown outcome = owner classification (no guess/no retry · คง r
     "browser ต้องไม่เดา — unknown = คง r1_inflight");
   assert.match(FZ_CLS_INC, /owner ค้น payment ด้วย job \+ stored idempotency/,
     "owner ค้นด้วย job+idempotency");
+  assert.match(FZ_CLS_INC, /candidate payment % แถว \(ต้อง 1 เป๊ะ\) — STOP ห้าม bind/,
+    "candidate ต้องมีหนึ่งแถวเป๊ะ — เกิน = STOP ห้าม bind");
+  for (const f of ["amount", "payment_method", "bank_coa_code", "paid_at", "slip_url", "note"]) {
+    assert.match(FZ_CLS_INC, new RegExp(`v_pay\\.${f}(, 2\\))? IS DISTINCT FROM v_run\\.${f}`),
+      `classify bind ต้องเทียบ stored intent field ${f} แบบ NULL-safe ก่อน bind`);
+  }
+  assert.match(FZ_CLS_INC, /v_pay\.created_by IS DISTINCT FROM v_run\.actor_id/,
+    "classify bind ต้องตรวจ created_by = actor_id");
+  assert.match(FZ_CLS_INC, /ไม่ตรง stored intent\/actor ครบทุกช่อง — STOP ห้าม bind/,
+    "payload ไม่ตรง = STOP ห้าม bind");
+  assert.match(FZ_CLS_INC, /JV header ของ payment มี % ใบ \(ต้อง 0 หรือ 1\) — STOP ห้าม bind/,
+    "JV candidate ต้อง 0 หรือ 1 header (source exact) — เกิน = STOP");
   assert.match(FZ_CLS_INC, /ถ้าพิสูจน์ zero-write ได้ใช้ classify_failed_no_write แทน/,
     "ไม่พบ payment → เส้นทาง no-write แยกชัด");
   const b9 = rbSection("## B9)", "## B10)");
@@ -357,12 +385,51 @@ test("G24. S0 introspect-or-create-exact — ห้าม silent IF NOT EXISTS /
   }
   assert.doesNotMatch(SQL_CODE, /CREATE TABLE IF NOT EXISTS public\._staging_b13a/,
     "b13a tables ห้ามใช้ CREATE TABLE IF NOT EXISTS (ต้อง introspect-or-create)");
-  for (const tag of ["b13a_s0_fn_bootstrap", "b13a_s0_fn_browser", "b13a_s0_fn_finalize", "b13a_s0_fn_exposed"]) {
+  const FN_SIGS = {
+    b13a_s0_fn_bootstrap: "public.b13a_owner_bootstrap(uuid)",
+    b13a_s0_fn_browser: "public.b13a_browser_transition(uuid,text,text,bigint,numeric,text,text,timestamptz,uuid,text,text,bigint,bigint,boolean,boolean,boolean,boolean,numeric,numeric,text,text,text)",
+    b13a_s0_fn_finalize: "public.b13a_owner_finalize(uuid,text,text,boolean,boolean,boolean)",
+    b13a_s0_fn_exposed: "public.b13a_rpc_exposed()",
+  };
+  for (const [tag, sig] of Object.entries(FN_SIGS)) {
     const b = block(tag);
-    assert.match(b, /position\('B13A-FN-[A-Z]+-V1' IN pg_get_functiondef/,
-      `${tag}: reuse ต้องตรวจ version marker จริง`);
+    assert.ok(b.includes(`to_regprocedure('${sig}')`),
+      `${tag}: ต้องผูกด้วย exact to_regprocedure signature (ห้ามค้นด้วยชื่ออย่างเดียว)`);
+    assert.match(b, /signature ไม่ตรงเวอร์ชันนี้ — STOP/, `${tag}: ชื่อซ้ำแต่ signature อื่น = STOP`);
+    assert.match(b, /IF v_prosrc IS DISTINCT FROM v_body THEN/,
+      `${tag}: reuse ต้องเทียบ prosrc กับ expected body แบบ exact (marker อย่างเดียวไม่พอ)`);
+    assert.match(b, /p\.prosecdef/, `${tag}: ต้องตรวจ prosecdef`);
+    assert.match(b, /array_to_string\(p\.proconfig, ','\)/, `${tag}: ต้องตรวจ proconfig exact`);
+    assert.match(b, /l\.lanname/, `${tag}: ต้องตรวจ language`);
+    assert.match(b, /r\.rolsuper OR r\.rolbypassrls FROM pg_roles r WHERE r\.oid = p\.proowner/,
+      `${tag}: ต้องตรวจ owner เป็น trusted role จริง`);
+    assert.match(b, /aclexplode\(coalesce\(p\.proacl, acldefault\('f', p\.proowner\)\)\)/,
+      `${tag}: ต้องคลี่ acl รวม default (proacl NULL = PUBLIC execute)`);
+    assert.match(b, /a\.grantee = 0 AND a\.privilege_type = 'EXECUTE'/,
+      `${tag}: ต้องตรวจ PUBLIC (grantee=0) ด้วย`);
     assert.match(b, /STOP ห้าม overwrite/, `${tag}: mismatch = STOP`);
     assert.doesNotMatch(b, /CREATE OR REPLACE FUNCTION/, `${tag}: ห้าม CREATE OR REPLACE (overwrite)`);
+  }
+  // ตาราง: reuse ต้อง exact ครบ PK/CHECK/policy/FORCE RLS/grants รวม PUBLIC
+  const TBL_EXPECT = {
+    b13a_s0_runs: { pk: "'singleton'", qual: "'(singleton AND (actor_id = auth.uid()))'" },
+    b13a_s0_results: { pk: "'run_id,certificate'", qual: null },
+    b13a_s0_evidence: { pk: "'run_id,step'", qual: "(r.actor_id = auth.uid())" },
+  };
+  for (const [tag, exp] of Object.entries(TBL_EXPECT)) {
+    const b = block(tag);
+    assert.match(b, /i\.indisprimary/, `${tag}: ต้อง introspect PK จริง`);
+    assert.ok(b.includes(`IF v_pk IS DISTINCT FROM ${exp.pk}`), `${tag}: PK ต้องเทียบ exact`);
+    assert.match(b, /pg_get_constraintdef/, `${tag}: ต้องตรวจ CHECK constraints ด้วย definition จริง`);
+    assert.match(b, /FOREACH v_item IN ARRAY/, `${tag}: ต้องไล่สมาชิก allowlist ครบทุกตัว`);
+    assert.match(b, /'PUBLIC'/, `${tag}: grants ต้องครอบ PUBLIC ด้วย`);
+    assert.match(b, /relrowsecurity AND c\.relforcerowsecurity/, `${tag}: ต้องตรวจ RLS ENABLE+FORCE`);
+    if (exp.qual) {
+      assert.ok(b.includes(exp.qual), `${tag}: policy expression ต้องเทียบ exact`);
+      assert.match(b, /regexp_replace\(coalesce\(pp\.qual, ''\)/, `${tag}: ต้องอ่าน qual จริงมาเทียบ`);
+    } else {
+      assert.match(b, /ต้องไม่มี policy/, `${tag}: results ต้อง assert policy = 0`);
+    }
   }
   assert.doesNotMatch(SQL_CODE, /\bDROP\s+(TABLE|FUNCTION|TRIGGER|POLICY|INDEX)\b/i,
     "script ห้าม DROP ใด ๆ (ไม่มี auto cleanup)");
