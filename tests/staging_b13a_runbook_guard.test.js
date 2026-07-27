@@ -8,6 +8,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const SQL_FILE = "staging-verify-b13a-auth-payment.sql";
@@ -16,6 +17,14 @@ const SQL = fs.readFileSync(path.join(ROOT, SQL_FILE), "utf8");
 const RB = fs.readFileSync(path.join(ROOT, RB_FILE), "utf8");
 // โค้ดจริงไม่รวม comment — ใช้กับ check ที่ comment อาจ mention คำต้องห้ามโดยชอบธรรม
 const SQL_CODE = SQL.split("\n").map((l) => l.replace(/--.*$/, "")).join("\n");
+// exact signature ของ function ทั้งสี่ที่ package นี้อนุญาต — ใช้เป็น allowlist แบบ exact
+// (ห้ามใช้ pattern แบบ b13a_<อะไรก็ได้> เพราะจะปล่อย function แปลกปลอมผ่าน)
+const B13A_FN_SIGS = [
+  "public.b13a_owner_bootstrap(uuid)",
+  "public.b13a_browser_transition(uuid,text,text,bigint,numeric,text,text,timestamptz,uuid,text,text,bigint,bigint,boolean,boolean,boolean,boolean,numeric,numeric,text,text,text)",
+  "public.b13a_owner_finalize(uuid,text,text,boolean,boolean,boolean)",
+  "public.b13a_rpc_exposed()",
+];
 
 // DO blocks — dollar-quote tag ขึ้นต้น b13a ทุกบล็อก
 const BLOCKS = [...SQL.matchAll(/DO \$(b13a[a-z0-9_]+)\$([\s\S]*?)\$\1\$;/g)]
@@ -95,6 +104,7 @@ test("G2. B12 scratch explicit — target = scratch เดิมของ B12 �
 test("G3. sentinel ทุก mutation unit + ห้าม script สร้าง sentinel เอง + หนึ่งแถวเป๊ะ", () => {
   // mutation wrappers ทั้งหมด: S0.1–S0.7 (DDL/GRANT) + S0-RELOAD + SEED — ไม่มีข้อยกเว้น
   const units = [
+    ["b13a_s0_acl_recovery (DO)", block("b13a_s0_acl_recovery")],
     ["b13a_s0_runs (DO)", block("b13a_s0_runs")],
     ["b13a_s0_results (DO)", block("b13a_s0_results")],
     ["b13a_s0_evidence (DO)", block("b13a_s0_evidence")],
@@ -705,7 +715,29 @@ test("G39. canonical client เดียว + ห้าม second client + ห�
   assert.match(b6, /window\._sbAccessToken/, "ต้องอ้าง auth refresh contract ของแอป");
   const b5 = rbSection("## B5)", "## B6)");
   assert.match(b5, /ห้ามมี service_role key/, "ห้าม service_role ทุกขั้น");
-  assert.doesNotMatch(SQL, /service_role/i, "SQL ห้ามอ้าง service_role");
+  // Phase 606-B13a.1: เดิม assert ว่า SQL ห้ามมีคำว่า service_role เลย — แต่ hotfix ต้อง REVOKE
+  // default privileges ของ service_role จริง (ซึ่งเป็นการ "ลดสิทธิ์" ไม่ใช่เปิดสิทธิ์) จึงเปลี่ยน
+  // จาก blanket ban → context allowlist ที่เข้มกว่าเดิม: อนุญาตเฉพาะ REVOKE ที่ระบุ object เป๊ะ
+  // + to_regrole introspection · ที่เหลือทั้งหมด (โดยเฉพาะ GRANT ให้ service_role) = แดง
+  let srProbe = SQL_CODE.replace(/RAISE (EXCEPTION|NOTICE)\s+'(?:[^']|'')*'/g, "");
+  // function allowlist = exact 4 signatures เท่านั้น (regex `b13a_[a-z_]+(...)` กว้างเกินไป —
+  // จะปล่อย REVOKE ของ function แปลกปลอมเช่น b13a_evil() ผ่าน)
+  for (const sig of B13A_FN_SIGS) {
+    srProbe = srProbe.split(`REVOKE ALL ON FUNCTION ${sig} FROM PUBLIC, anon, authenticated, service_role`).join("");
+  }
+  srProbe = srProbe
+    .split("REVOKE ALL ON FUNCTION public.b13a_owner_bootstrap(uuid) FROM service_role").join("");
+  for (const allowed of [
+    /REVOKE ALL ON public\._staging_b13a_(runs|results|evidence) FROM PUBLIC, anon, authenticated, service_role/g,
+    /REVOKE ALL ON public\._staging_b13a_(runs|results|evidence) FROM service_role/g,
+    /to_regrole\('service_role'\)/g,
+  ]) srProbe = srProbe.replace(allowed, "");
+  assert.doesNotMatch(srProbe, /service_role/i,
+    "SQL อ้าง service_role ได้เฉพาะ REVOKE object เป๊ะ + to_regrole introspection (GRANT = ห้ามทุกกรณี)");
+  assert.doesNotMatch(SQL, /service_role[^\n]{0,40}(key|secret|token|jwt|apikey|bearer)/i,
+    "ห้ามอ้าง service_role ในบริบท credential/key");
+  assert.doesNotMatch(SQL, /(key|secret|token|jwt|apikey|bearer)[^\n]{0,40}service_role/i,
+    "ห้ามอ้าง service_role ในบริบท credential/key");
   assert.match(b5, /production host แม้แต่ครั้งเดียว = STOP/, "network ไป production = STOP");
 });
 
@@ -759,4 +791,409 @@ test("G45. package-only: ห้ามรัน SQL/แตะ runtime/build + nex
   const idx = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
   assert.match(idx, /data-app-build="604"/, "build marker ต้องคง 604 (ไม่ bump)");
   assert.match(idx, /data-app-version="5\.69\.72"/, "version ต้องคง 5.69.72");
+});
+
+// ═════════════════════════════════════════════════
+//  Phase 606-B13a.1 — fresh-create ACL exactness + S0-ACL-RECOVERY (G46+)
+// ═════════════════════════════════════════════════
+const RECOVERY = block("b13a_s0_acl_recovery");
+// tri-state branch extraction จาก marker คงที่ใน recovery block
+function recBranch(startMark, endMark) {
+  const s = RECOVERY.indexOf(startMark);
+  const e = endMark ? RECOVERY.indexOf(endMark) : RECOVERY.length;
+  assert.ok(s > 0 && (endMark ? e > s : true), `extract recovery branch ${startMark} ไม่ได้`);
+  return RECOVERY.slice(s, endMark ? e : undefined);
+}
+const REC_NOOP = recBranch("══ STATE 1", "══ STATE 2");
+const REC_REPAIR = recBranch("══ STATE 2", "══ STATE 3");
+const REC_STOP = recBranch("══ STATE 3");
+// แยก REPAIR เป็นก่อน/หลัง mutation แล้ว assert แยกสองฝั่ง — assert แบบ "มีอยู่ที่ใดที่หนึ่ง"
+// อ่อนเกินไป เพราะ check ชุดเดียวกันปรากฏทั้ง precheck และ post-check: ถอดฝั่งเดียวจะยังเขียว
+const REC_MUT_IDX = REC_REPAIR.indexOf("EXECUTE 'REVOKE");
+const REC_PRE = REC_REPAIR.slice(0, REC_MUT_IDX);
+const REC_POST = REC_REPAIR.slice(REC_MUT_IDX);
+// ไฟล์นี้เป็น source ของ G3 units ด้วย — อ่านตัวเองเพื่อ assert ว่า recovery ถูกผูกเข้า G3 จริง
+const SELF = fs.readFileSync(new URL(import.meta.url), "utf8");
+const S0_TABLE_BLOCKS = ["b13a_s0_runs", "b13a_s0_results", "b13a_s0_evidence"];
+const S0_FN_BLOCKS = ["b13a_s0_fn_bootstrap", "b13a_s0_fn_browser",
+                      "b13a_s0_fn_finalize", "b13a_s0_fn_exposed"];
+// fresh-create branch = ส่วนที่มี "created" NOTICE (ตัด reuse path ออกก่อน assert)
+const B13A_TABLES = ["_staging_b13a_runs", "_staging_b13a_results", "_staging_b13a_evidence"];
+
+test("G46. fresh-create ทั้ง 7 blocks ถอน service_role (default privileges ของ Supabase)", () => {
+  for (const t of B13A_TABLES) {
+    assert.match(SQL_CODE,
+      new RegExp(`REVOKE ALL ON public\\.${t} FROM PUBLIC, anon, authenticated, service_role`),
+      `${t}: fresh-create ต้อง REVOKE รวม service_role`);
+  }
+  for (const sig of B13A_FN_SIGS) {
+    assert.ok(SQL_CODE.includes(
+      `REVOKE ALL ON FUNCTION ${sig} FROM PUBLIC, anon, authenticated, service_role`),
+      `${sig}: fresh-create ต้อง REVOKE รวม service_role`);
+  }
+  // จำนวน REVOKE ของ function ต้องเท่ากับ signature ที่อนุญาตเป๊ะ — ห้ามมี function อื่นแทรก
+  assert.equal((SQL_CODE.match(/REVOKE ALL ON FUNCTION public\.b13a_/g) || []).length,
+    B13A_FN_SIGS.length + 1,
+    "REVOKE ของ function ต้องมีเฉพาะ 4 signature ที่อนุญาต (+1 = recovery REVOKE ของ bootstrap)");
+  // ห้ามเหลือ REVOKE รูปเดิมที่ตกหล่น service_role
+  assert.doesNotMatch(SQL_CODE, /REVOKE ALL ON (TABLE )?public\._staging_b13a_[a-z]+ FROM PUBLIC, anon, authenticated'/,
+    "ห้ามเหลือ table REVOKE ที่จบแค่ authenticated (ตกหล่น service_role)");
+  assert.doesNotMatch(SQL_CODE, /REVOKE ALL ON FUNCTION public\.b13a_[a-z_]+\([^)]*\) FROM PUBLIC, anon'/,
+    "ห้ามเหลือ function REVOKE ที่จบแค่ anon (ตกหล่น authenticated/service_role)");
+});
+
+test("G47. fresh-create ACL postcondition ตรง reuse allowlist + อยู่หลัง REVOKE/GRANT", () => {
+  for (const tag of [...S0_TABLE_BLOCKS, ...S0_FN_BLOCKS]) {
+    const b = block(tag);
+    assert.match(b, /\[B13A-ACL-POST\]/, `${tag}: ต้องมี fresh-create postcondition marker`);
+    assert.match(b, /postcondition:[^']*rollback ทั้ง block/,
+      `${tag}: postcondition ไม่ผ่าน = RAISE เพื่อ rollback ทั้ง DO block`);
+    const posRevoke = b.indexOf("EXECUTE 'REVOKE");
+    const posPost = b.indexOf("[B13A-ACL-POST]");
+    assert.ok(posRevoke > 0 && posPost > posRevoke,
+      `${tag}: postcondition ต้องอยู่ "หลัง" REVOKE/GRANT (ตรวจของจริงหลังเปลี่ยน ACL)`);
+    // หมายเหตุ: ห้ามใช้ indexOf("created") ตรง ๆ — column created_at อยู่ก่อนใน CREATE TABLE
+    const mNotice = /RAISE NOTICE '[^']*created[^']*'/.exec(b);
+    assert.ok(mNotice, `${tag}: ต้องมี RAISE NOTICE ... created`);
+    assert.ok(mNotice.index > posPost,
+      `${tag}: postcondition ต้องอยู่ก่อน RAISE NOTICE ... created`);
+  }
+  // ตาราง: allowlist เดียวกับ reuse path (owner + authenticated SELECT / owner-only สำหรับ results)
+  for (const tag of S0_TABLE_BLOCKS) {
+    const b = block(tag);
+    assert.match(b, /aclexplode\(coalesce\(c\.relacl, acldefault\('r', c\.relowner\)\)\)/,
+      `${tag}: postcondition ต้องคลี่ relacl (allowlist ไม่ใช่ blacklist)`);
+    assert.match(b, /postcondition:[^']*WITH GRANT OPTION/, `${tag}: postcondition ต้องตรวจ is_grantable`);
+    assert.match(b, /postcondition:[^']*owner ไม่ใช่ trusted role/, `${tag}: postcondition ต้องตรวจ owner trusted`);
+  }
+  assert.match(block("b13a_s0_results"), /AND a\.grantee <> c\.relowner;/,
+    "results postcondition allowlist = owner เท่านั้น");
+  for (const tag of ["b13a_s0_runs", "b13a_s0_evidence"]) {
+    assert.match(block(tag), /ขาด SELECT grant ของ authenticated/,
+      `${tag}: postcondition ต้อง assert ว่า authenticated ยังมี SELECT`);
+  }
+  for (const tag of ["b13a_s0_fn_browser", "b13a_s0_fn_exposed"]) {
+    assert.match(block(tag), /ขาด EXECUTE grant ของ authenticated/,
+      `${tag}: postcondition ต้อง assert ว่า authenticated ยังมี EXECUTE`);
+  }
+});
+
+test("G48. service_role/authenticated existence precondition ทุก S0 block + recovery", () => {
+  for (const tag of [...S0_TABLE_BLOCKS, ...S0_FN_BLOCKS, "b13a_s0_acl_recovery"]) {
+    const b = block(tag);
+    assert.match(b, /\[B13A-ROLE-PRECOND\]/, `${tag}: ต้องมี role precondition marker`);
+    assert.match(b, /IF to_regrole\('service_role'\) IS NULL THEN/,
+      `${tag}: ต้อง assert ว่า role มีจริงก่อนอ้าง (กัน raw SQL error)`);
+    const posPre = b.indexOf("IF to_regrole('service_role') IS NULL THEN");
+    const posUse = b.indexOf("EXECUTE 'REVOKE");
+    assert.ok(posUse < 0 || posPre < posUse, `${tag}: precondition ต้องมาก่อน REVOKE`);
+  }
+  assert.match(RECOVERY, /to_regrole\('authenticated'\) IS NULL OR to_regrole\('anon'\) IS NULL/,
+    "recovery ต้อง assert authenticated/anon มีจริง (กัน NULL comparison กลืน grantee แปลกปลอม)");
+});
+
+test("G49-G50. recovery block: ผูกเข้า G3 units + ตำแหน่ง/tag/interlock มาก่อน introspection", () => {
+  // ต้อง slice เฉพาะ units array ของ G3 — assert กับทั้งไฟล์เป็น false positive
+  // เพราะ string ที่ค้นหาจะปรากฏใน assertion ของตัวเองด้วย
+  const uStart = SELF.indexOf("const units = [");
+  assert.ok(uStart > 0, "ต้องหา units array ของ G3 เจอ");
+  const unitsSrc = SELF.slice(uStart, SELF.indexOf("];", uStart));
+  assert.ok(unitsSrc.includes("b13a_s0_acl_recovery"),
+    "recovery block ต้องถูกผูกเข้า units array ของ G3 โดยตรง (ห้ามพึ่ง guard แยกอย่างเดียว)");
+  assert.ok(unitsSrc.includes("b13a_s0_runs") && unitsSrc.includes("b13a_seed"),
+    "units array ต้องยังครอบ mutation unit เดิมครบ");
+  assert.ok(SQL.includes("DO $b13a_s0_acl_recovery$"), "dollar tag ต้องเป็น b13a_s0_acl_recovery");
+  assert.ok(SQL.includes("END $b13a_s0_acl_recovery$;"), "ต้องปิด block ด้วย tag เดิม");
+  assert.doesNotMatch(SQL, /DO \$b13a-s0-acl-recovery\$/, "ห้ามใช้ขีดใน dollar tag");
+  const posR0 = SQL.indexOf("-- R0 — read-only environment check");
+  const posRec = SQL.indexOf("DO $b13a_s0_acl_recovery$");
+  const posS01 = SQL.indexOf("DO $b13a_s0_runs$");
+  assert.ok(posR0 > 0 && posRec > posR0 && posS01 > posRec,
+    "recovery ต้องอยู่หลัง R0 และก่อน S0.1");
+  // interlock เป็นสิ่งแรกก่อน introspection ทุกชนิด
+  const posIl = RECOVERY.indexOf("_staging_b13a_sentinel");
+  for (const probe of ["to_regclass('public._staging_b13a_runs')", "to_regprocedure(",
+                       "aclexplode(", "EXECUTE 'REVOKE"]) {
+    const p = RECOVERY.indexOf(probe);
+    assert.ok(p < 0 || posIl < p, `recovery: interlock ต้องมาก่อน ${probe}`);
+  }
+});
+
+test("G51. tri-state ครบ NO-OP/REPAIR/STOP + NO-OP ไม่มี mutation + ห้าม fallback", () => {
+  assert.match(RECOVERY, /RAISE NOTICE 'B13A S0 ACL RECOVERY NO-OP/, "ต้องมี NOTICE NO-OP");
+  assert.match(RECOVERY, /RAISE NOTICE 'B13A S0 ACL RECOVERY PASS/, "ต้องมี NOTICE PASS");
+  assert.match(REC_STOP, /RAISE EXCEPTION 'B13A RECOVERY STOP:/, "STATE 3 ต้อง RAISE EXCEPTION");
+  // NO-OP: ห้ามมี mutation ทุกชนิด
+  for (const bad of ["EXECUTE 'REVOKE", "EXECUTE 'GRANT", "EXECUTE 'CREATE", "EXECUTE 'ALTER",
+                     "EXECUTE 'DROP", "INSERT INTO", "UPDATE public.", "DELETE FROM"]) {
+    assert.ok(!REC_NOOP.includes(bad), `NO-OP branch ห้ามมี mutation: ${bad}`);
+  }
+  // เงื่อนไขเข้า NO-OP / REPAIR ต้อง explicit ไม่ใช่ else-fallback
+  assert.match(RECOVERY, /IF v_have_tbl = 0 AND v_have_fn = 0 THEN/, "NO-OP = ไม่มี object เลยเท่านั้น");
+  assert.match(RECOVERY, /ELSIF v_have_tbl = 3 AND v_have_fn = 1 THEN/, "REPAIR = ครบ 4 objects เท่านั้น");
+  assert.match(REC_STOP, /partial state ไม่ตรง interrupted evidence/, "state อื่น = STOP พร้อมเหตุผล");
+});
+
+test("G52. canonical residue absence proof ตรง PREFLIGHT ทั้งสี่ predicate", () => {
+  const pre = block("b13a_preflight");
+  const need = [
+    /FROM public\.service_jobs WHERE job_no LIKE 'B13ATEST-%'/,
+    /FROM public\.journal_entries WHERE doc_no LIKE 'B13ATEST-%'/,
+    /FROM public\.service_payments\)/,
+    /FROM public\.service_payment_reversals\)/,
+  ];
+  for (const re of need) assert.match(pre, re, `PREFLIGHT ต้องมี predicate ${re}`);
+  // recovery พิสูจน์ residue สองครั้ง (precheck ก่อน tri-state + post-check หลัง REVOKE) —
+  // ต้องครบทั้งสี่ predicate "ทั้งสองครั้ง" มิฉะนั้นถอดฝั่งเดียวแล้ว guard ยังเขียว
+  const residueStmts = RECOVERY.split("INTO v_residue;").slice(0, -1)
+    .map((chunk) => chunk.slice(chunk.lastIndexOf("SELECT (SELECT count(*)")));
+  assert.equal(residueStmts.length, 2,
+    `recovery ต้องพิสูจน์ residue 2 ครั้ง (precheck + post-check) — พบ ${residueStmts.length}`);
+  residueStmts.forEach((stmt, i) => {
+    for (const re of need) {
+      assert.match(stmt, re, `recovery residue proof #${i + 1} ต้องมี predicate เดียวกับ PREFLIGHT: ${re}`);
+    }
+  });
+  // exact job lookup อย่างเดียวไม่พอ — ต้องเห็น orphan JE 'B13ATEST-JV1' ด้วย
+  assert.match(RECOVERY, /B13a residue/, "recovery ต้องมี residue absence proof ที่ตั้งชื่อชัด");
+  assert.ok(SQL.includes("'B13ATEST-JV1'"), "SEED ยังต้องสร้าง recognition JE ชื่อ B13ATEST-JV1");
+  assert.match(REC_POST, /post-check: พบ business residue/, "post-check ต้องยืนยัน residue ยัง 0");
+});
+
+test("G53. schema-object inventory: starts_with + relkind filter + allowlist", () => {
+  assert.match(RECOVERY, /starts_with\(c\.relname, '_staging_b13a'\)/,
+    "relation scan ต้องใช้ starts_with (ห้าม LIKE ที่ _ เป็น wildcard)");
+  assert.match(RECOVERY, /starts_with\(p\.proname, 'b13a_'\)/,
+    "function scan ต้องใช้ starts_with");
+  assert.doesNotMatch(RECOVERY, /LIKE '_staging_b13a/, "ห้ามใช้ LIKE ที่ _ เป็น wildcard กับ prefix scan");
+  assert.doesNotMatch(RECOVERY, /LIKE 'b13a_/, "ห้ามใช้ LIKE ที่ _ เป็น wildcard กับ function prefix");
+  assert.match(RECOVERY, /c\.relkind <> ALL \(ARRAY\['i','I','t'\]\)/,
+    "relation scan ต้องตัดเฉพาะ index/partitioned-index/TOAST (กัน index/PK false positive)");
+  assert.doesNotMatch(RECOVERY, /c\.relkind IN \(/,
+    "ห้าม allowlist relkind — sequence 'S' / composite 'c' ใต้ B13a prefix ต้องถูกจับเป็น unknown object");
+  assert.match(RECOVERY, /relation นอก allowlist ใต้ B13a prefix/, "relation แปลกปลอม = STOP");
+  assert.match(RECOVERY, /function นอก allowlist ใต้ B13a prefix/, "function แปลกปลอม = STOP");
+  assert.match(RECOVERY, /ARRAY\['_staging_b13a_sentinel'\] \|\| c_tbls/,
+    "relation allowlist = sentinel + 3 target tables");
+  assert.match(RECOVERY, /p\.proname <> 'b13a_owner_bootstrap'/, "function allowlist = bootstrap เท่านั้น");
+});
+
+test("G54. REPAIR table checks = identity-critical เท่านั้น (ห้าม duplicate full schema contract)", () => {
+  assert.ok(REC_MUT_IDX > 0 && REC_PRE.length > 0 && REC_POST.length > 0,
+    "REPAIR ต้องแยกเป็น precheck / mutation / post-check ได้");
+  // precheck (ก่อน REVOKE) ต้องครบ — assert บนฝั่ง PRE โดยเฉพาะ ไม่ใช่ทั้ง branch
+  for (const need of [/relkind = 'r'\) AND \(r\.rolsuper OR r\.rolbypassrls\)/,
+                      /EXECUTE format\('SELECT count\(\*\) FROM public\.%I', v_tbl\) INTO v_rows/,
+                      /a\.is_grantable/,
+                      /grantee นอก allowlist/,
+                      /authenticated privilege นอก contract/,
+                      /มี grant WITH GRANT OPTION % รายการ — ห้าม repair/]) {
+    assert.match(REC_PRE, need, `REPAIR precheck ต้องตรวจ identity-critical: ${need}`);
+  }
+  // is_grantable ต้องถูกตรวจทั้ง 4 จุด (table/bootstrap × precheck/post-check)
+  assert.ok((REC_REPAIR.match(/a\.is_grantable/g) || []).length >= 4,
+    "is_grantable ต้องถูกตรวจทั้ง table+bootstrap ทั้งก่อนและหลัง REVOKE");
+  // ห้าม duplicate full schema contract ของ S0.1–S0.3 เข้ามาใน recovery
+  for (const dup of [/information_schema\.columns/, /pg_get_constraintdef/, /pg_policies/,
+                     /indisprimary/, /column_default/]) {
+    assert.doesNotMatch(RECOVERY, dup,
+      `recovery ห้าม duplicate full table contract (${dup}) — ให้ S0.1–S0.3 reuse ตรวจหลัง recovery`);
+  }
+  assert.match(RB, /full schema\/PK\/CHECK\/policy contract พิสูจน์ด้วย `S0\.1`–`S0\.4` reuse หลัง recovery/,
+    "runbook ต้องบอกว่า full contract พิสูจน์ที่ rerun");
+});
+
+test("G55. service_role surplus = non-empty subset ของชุดที่อนุญาต (ไม่บังคับครบ 8)", () => {
+  assert.match(RECOVERY,
+    /c_privs CONSTANT text\[\] := ARRAY\['DELETE','INSERT','MAINTAIN','REFERENCES','SELECT','TRIGGER','TRUNCATE','UPDATE'\]/,
+    "ชุด privilege ที่อนุญาตต้องตรง observed state");
+  assert.match(REC_REPAIR, /NOT \(a\.privilege_type = ANY \(c_privs\)\)/, "privilege นอกชุด = ต้องจับได้");
+  assert.match(REC_REPAIR, /มี privilege นอกชุดที่อนุญาต \(%\)/, "ต้องรายงานชื่อ privilege ที่พบ");
+  assert.match(REC_REPAIR, /IF v_cnt < 1 THEN/, "surplus ต้อง non-empty (มีของให้ซ่อมจริง)");
+  assert.doesNotMatch(REC_REPAIR, /v_cnt <> 8|v_cnt = 8/,
+    "ห้ามบังคับว่าต้องครบ 8 (MAINTAIN ขึ้นกับ PostgreSQL version)");
+});
+
+test("G56-G57. mutation = exact REVOKE 4 objects + post-check ACL ครบ", () => {
+  const muts = (REC_REPAIR.match(/EXECUTE '(REVOKE|GRANT|CREATE|ALTER|DROP|TRUNCATE)[^']*'/g) || []);
+  assert.equal(muts.length, 4, `REPAIR ต้องมี mutation 4 ตัวเป๊ะ (พบ ${muts.length})`);
+  for (const m of muts) assert.match(m, /^EXECUTE 'REVOKE ALL ON /, `mutation ต้องเป็น REVOKE เท่านั้น: ${m}`);
+  for (const obj of ["public._staging_b13a_runs", "public._staging_b13a_results",
+                     "public._staging_b13a_evidence", "FUNCTION public.b13a_owner_bootstrap(uuid)"]) {
+    assert.ok(REC_REPAIR.includes(`REVOKE ALL ON ${obj} FROM service_role`),
+      `ต้อง REVOKE object เป๊ะ: ${obj}`);
+  }
+  for (const bad of ["INSERT INTO", "UPDATE public.", "DELETE FROM", "ALTER DEFAULT PRIVILEGES",
+                     "ALTER TABLE", "CREATE ", "DROP "]) {
+    assert.ok(!REC_REPAIR.includes(bad), `REPAIR ห้ามมี ${bad}`);
+  }
+  // post-check ต้องอยู่ "หลัง" REVOKE และ assert บนฝั่ง POST โดยเฉพาะ
+  assert.ok(REC_POST.indexOf("RECOVERY post-check") > 0, "post-check ต้องอยู่หลัง REVOKE");
+  for (const need of [/ยังเหลือ surplus % รายการ หลัง REVOKE/, /มี PUBLIC\/anon privilege/,
+                      /ACL ไม่ตรง reuse contract/, /ขาด authenticated SELECT ตาม contract/,
+                      /มี grant option % รายการ/, /owner ไม่ใช่ trusted role/,
+                      /bootstrap ยังมี grantee นอก owner/, /a\.is_grantable/,
+                      /มี % แถว หลัง recovery \(ต้องคง 0\)/]) {
+    assert.match(REC_POST, need, `post-check ต้องครอบ: ${need}`);
+  }
+  assert.match(REC_POST, /rollback ทั้ง block/, "post-check ล้ม = rollback ทั้ง DO statement");
+});
+
+test("G58-G59. bootstrap INVOKER + marker + metadata · security modes ครบทั้งสี่", () => {
+  assert.match(REC_REPAIR, /IF v_secdef THEN\s*\n\s*RAISE EXCEPTION 'B13A RECOVERY STOP: bootstrap ต้องเป็น SECURITY INVOKER/,
+    "recovery ต้องบังคับ bootstrap = SECURITY INVOKER");
+  assert.match(REC_REPAIR, /position\('B13A-FN-BOOTSTRAP-V1' IN coalesce\(v_prosrc, ''\)\) = 0/,
+    "recovery ต้องตรวจ canonical marker ใน prosrc");
+  // API contract ต้องตรวจ "ก่อน" REVOKE ให้ครบเท่า S0.4 reuse — ไม่งั้น function ที่ arg/return เพี้ยน
+  // จะผ่าน recovery ไปโดน REVOKE ก่อน แล้วค่อยล้มที่ S0.4 (ผิดสัญญา "ไม่ exact ต้อง STOP ก่อน mutation")
+  assert.match(REC_PRE, /pg_get_function_arguments\(p\.oid\), pg_get_function_result\(p\.oid\)/,
+    "recovery ต้องอ่าน API metadata (arguments/result) ก่อน REVOKE");
+  assert.match(REC_PRE, /v_args IS DISTINCT FROM 'p_actor_id uuid'/, "argument contract ต้อง exact");
+  assert.match(REC_PRE, /v_ret IS DISTINCT FROM 'jsonb'/, "return contract ต้อง exact");
+  assert.match(REC_PRE, /bootstrap argument names\/defaults ไม่ตรง canonical/, "args mismatch = STOP ก่อน REVOKE");
+  assert.match(REC_PRE, /bootstrap return type ไม่ตรง canonical/, "return mismatch = STOP ก่อน REVOKE");
+  // ต้องตรงกับที่ canonical S0.4 reuse ตรวจ
+  assert.match(block("b13a_s0_fn_bootstrap"), /IF v_args IS DISTINCT FROM 'p_actor_id uuid' THEN/,
+    "S0.4 reuse ต้องยังตรวจ argument contract เดิม");
+  assert.match(block("b13a_s0_fn_bootstrap"), /IF v_ret IS DISTINCT FROM 'jsonb' THEN/,
+    "S0.4 reuse ต้องยังตรวจ return contract เดิม");
+  for (const need of [/proconfig ไม่ตรง canonical/, /language ไม่ตรง canonical/,
+                      /owner ไม่ใช่ trusted role/, /attributes ไม่ตรง canonical/]) {
+    assert.match(REC_REPAIR, need, `recovery ต้องตรวจ bootstrap metadata: ${need}`);
+  }
+  assert.match(RECOVERY, /b13a_owner_bootstrap มี % signature/, "recovery ต้องกัน overload");
+  // security mode ของทั้งสี่ function ต้องล็อกไว้ใน S0 blocks (INVOKER x3 · DEFINER x1)
+  assert.match(block("b13a_s0_fn_bootstrap"), /ต้องเป็น SECURITY INVOKER \(prosecdef=false\)/, "bootstrap = INVOKER");
+  assert.match(block("b13a_s0_fn_finalize"), /ต้องเป็น SECURITY INVOKER \(prosecdef=false\)/, "finalize = INVOKER");
+  assert.match(block("b13a_s0_fn_exposed"), /ต้องเป็น SECURITY INVOKER \(prosecdef=false\)/, "rpc_exposed = INVOKER");
+  assert.match(block("b13a_s0_fn_browser"), /ต้องเป็น SECURITY DEFINER \(prosecdef=true\)/, "browser = DEFINER");
+});
+
+test("G60-G61. canonical MD5 cross-check + ห้าม $fn_bootstrap$ ก่อน S0.4", () => {
+  const expected = crypto.createHash("md5").update(FN_BOOTSTRAP, "utf8").digest("hex");
+  const m = RECOVERY.match(/c_md5 CONSTANT text := '([0-9a-f]{32})'/);
+  assert.ok(m, "recovery ต้องฝัง canonical MD5 constant");
+  assert.equal(m[1], expected,
+    `MD5 ใน recovery (${m ? m[1] : "-"}) ต้องตรง canonical $fn_bootstrap$ body (${expected})`);
+  assert.match(REC_REPAIR, /v_md5 := md5\(v_prosrc\);/, "recovery ต้องคำนวณ md5(prosrc) จริง");
+  assert.match(REC_REPAIR, /v_md5 IS DISTINCT FROM c_md5/, "ต้องเทียบกับ canonical constant");
+  assert.match(REC_REPAIR, /expected=% actual=%/, "hash ไม่ตรงต้องรายงาน expected/actual");
+  assert.match(REC_REPAIR, /ห้ามแก้ prosrc บน scratch/, "hash ไม่ตรง = ห้าม manual workaround");
+  // recovery ห้าม duplicate body / ห้ามมี tag ก่อน canonical S0.4
+  const idxS04 = SQL.indexOf("DO $b13a_s0_fn_bootstrap$");
+  assert.ok(idxS04 > 0, "ต้องหาตำแหน่ง S0.4 ได้");
+  assert.equal((SQL.slice(0, idxS04).match(/\$fn_bootstrap\$/g) || []).length, 0,
+    "ห้ามมี literal $fn_bootstrap$ ก่อน S0.4 (จะทำให้ extractor slice ผิดช่วง = MD5 หลอกตา)");
+  assert.ok(!RECOVERY.includes("$fn_bootstrap$"), "recovery ห้าม duplicate bootstrap body/tag");
+});
+
+test("G62. S0.5–S0.7 absence + zero rows + retained-run message เฉพาะทาง", () => {
+  for (const sig of ["public.b13a_browser_transition(", "public.b13a_owner_finalize(",
+                     "public.b13a_rpc_exposed()"]) {
+    assert.ok(RECOVERY.includes(`to_regprocedure('${sig}`),
+      `recovery ต้องตรวจว่า ${sig} ยังไม่มี`);
+  }
+  assert.match(RECOVERY, /พบ S0\.5-S0\.7 function แล้ว/, "มี S0.5–S0.7 = STOP");
+  assert.match(REC_REPAIR, /มี % แถว \(ต้อง 0\)/, "ตารางต้อง zero rows ก่อน repair");
+  assert.match(RECOVERY,
+    /retained B13a run detected — ห้ามลบหรือ takeover; ต้องใช้ owner-authorized recovery phase แยกหลัง reviewer approval/,
+    "retained run ต้องใช้ข้อความเฉพาะทาง");
+});
+
+test("G63-G64. sentinel refresh อยู่ใน runbook เท่านั้น + self-gate + atomic DO", () => {
+  const b4 = rbSection("### B4.3 Atomic sentinel refresh", "### B4.4");
+  assert.match(b4, /DO \$b13a_sentinel_refresh\$/, "refresh ต้องเป็น DO block เดียว");
+  assert.match(b4, /END\s*\n\$b13a_sentinel_refresh\$;/, "ต้องปิด DO block ด้วย tag เดิม");
+  assert.doesNotMatch(b4, /^BEGIN;/m, "ห้ามใช้ BEGIN;/COMMIT; ครอบหลาย statement");
+  assert.doesNotMatch(b4, /^COMMIT;/m, "ห้ามใช้ BEGIN;/COMMIT; ครอบหลาย statement");
+  // B12 self-gate + DELETE + INSERT + internal post-check อยู่ใน DO เดียวกัน
+  const doBlock = b4.slice(b4.indexOf("DO $b13a_sentinel_refresh$"),
+                           b4.indexOf("$b13a_sentinel_refresh$;") + 24);
+  for (const need of [/_staging_b12_results/, /bool_and\(ok\)/,
+                      /job_no LIKE 'B12TEST-%'/, /doc_no LIKE 'B12TEST-%'/,
+                      /FROM public\.journal_lines/,
+                      /chart_of_accounts/, /account_mapping/,
+                      /DELETE FROM public\._staging_b13a_sentinel;/,
+                      /INSERT INTO public\._staging_b13a_sentinel/,
+                      /post-check ไม่ผ่าน/]) {
+    assert.match(doBlock, need, `sentinel refresh DO ต้องมี: ${need}`);
+  }
+  const posGate = doBlock.indexOf("_staging_b12_results");
+  const posDel = doBlock.indexOf("DELETE FROM public._staging_b13a_sentinel");
+  const posPost = doBlock.indexOf("post-check ไม่ผ่าน");
+  assert.ok(posGate > 0 && posGate < posDel && posDel < posPost,
+    "ลำดับต้องเป็น B12 self-gate → DELETE/INSERT → internal post-check ในบล็อกเดียว");
+  assert.match(b4, /ห้าม INSERT มือเปล่า/, "ห้าม owner INSERT มือเปล่า");
+  assert.match(b4, /owner-typed literal/, "confirm_text ต้อง owner พิมพ์เอง ห้าม generate");
+  // package SQL ห้ามสร้าง/refresh/hardcode sentinel และห้ามแตะ ACL ของ sentinel
+  assert.doesNotMatch(SQL, /CREATE TABLE[^;]*_staging_b13a_sentinel/i, "SQL ห้ามสร้าง sentinel");
+  assert.doesNotMatch(SQL_CODE, /'B13A-STAGING-\d{4}-\d{2}-\d{2}'/, "SQL ห้าม hardcode วันที่ sentinel");
+  assert.doesNotMatch(SQL_CODE, /(DELETE FROM|INSERT INTO|UPDATE) public\._staging_b13a_sentinel/,
+    "SQL ห้าม refresh sentinel เอง (runbook เท่านั้น)");
+  assert.doesNotMatch(SQL_CODE, /(REVOKE|GRANT|ALTER|DROP)[^;]{0,80}_staging_b13a_sentinel/i,
+    "SQL ห้ามแตะ ACL/DDL ของ sentinel (อยู่นอก scope)");
+});
+
+test("G65-G66. B11 current-active-row wording + ไม่มี helper object ใหม่", () => {
+  const b11 = rbSection("## B11)", "## เกณฑ์ผ่านรวม");
+  assert.match(b11, /ไม่ใช่ retained behavioral evidence/, "B11 ต้องบอกว่า sentinel ไม่ใช่ retained evidence");
+  assert.match(b11, /current active row หนึ่งแถว/, "B11 ต้องระบุ current active row หนึ่งแถว");
+  assert.match(b11, /atomic sentinel refresh \(B4\.3\) เท่านั้น/, "แทนที่ได้ทาง refresh เดียว");
+  assert.match(b11, /ห้าม archive ด้วย schema\/table ใหม่/, "ห้าม archive ด้วย table ใหม่");
+  const retLine = b11.match(/- \*\*Retained evidence ห้ามลบ\*\*:[\s\S]*?\n(?=- )/);
+  assert.ok(retLine, "B11 ต้องยังมีรายการ Retained evidence ห้ามลบ");
+  assert.ok(!retLine[0].includes("_staging_b13a_sentinel"),
+    "sentinel ต้องไม่อยู่ในรายการ retained ห้ามลบ แบบ absolute");
+  // helper policy — ไม่มี object ใหม่ใน package SQL
+  const created = (SQL_CODE.match(/CREATE (TABLE|FUNCTION|VIEW|MATERIALIZED VIEW)/g) || []);
+  assert.equal(created.length, 7,
+    `package ต้องสร้าง object 7 ตัวเท่าเดิม (3 tables + 4 functions) — พบ ${created.length}`);
+  assert.doesNotMatch(SQL_CODE, /CREATE (OR REPLACE )?(VIEW|MATERIALIZED VIEW)/, "ห้ามสร้าง view ใหม่");
+});
+
+test("G67. docs stable anchors + guard/CI ไม่ถูก claim เป็น scratch ACL proof", () => {
+  const HANDOFF = fs.readFileSync(path.join(ROOT, "HANDOFF.md"), "utf8");
+  const CHANGELOG = fs.readFileSync(path.join(ROOT, "CHANGELOG.md"), "utf8");
+  const DBMIG = fs.readFileSync(path.join(ROOT, "DB_MIGRATIONS_APPLIED.md"), "utf8");
+  const SESSION = fs.readFileSync(path.join(ROOT, "SESSION_START_SHARED.md"), "utf8");
+  assert.match(DBMIG, /Staging verification runs/, "ledger ต้องมี section staging verification");
+  assert.match(DBMIG, /NOT production migration/i, "ต้องประกาศว่าไม่ใช่ production migration");
+  for (const [name, doc] of [["HANDOFF", HANDOFF], ["CHANGELOG", CHANGELOG],
+                             ["DB_MIGRATIONS_APPLIED", DBMIG], ["SESSION_START_SHARED", SESSION]]) {
+    assert.match(doc, /S0\.1[–-]S0\.4/, `${name}: ต้องระบุว่า S0.1–S0.4 รันแล้ว`);
+    assert.match(doc, /S0\.5[–-]S0\.7 NOT RUN/, `${name}: ต้องระบุ S0.5–S0.7 NOT RUN`);
+    assert.match(doc, /certificates NOT ISSUED/i, `${name}: ต้องระบุ certificates NOT ISSUED`);
+    assert.match(doc, /604 \/ v5\.69\.72/, `${name}: build/version ต้องคง 604 / v5.69.72`);
+  }
+  assert.match(DBMIG, /R0/, "ledger ต้องระบุ R0");
+  // historical block ที่ยังเขียน "execution NOT RUN" ต้องติดป้าย superseded บนบรรทัดเดียวกัน
+  // มิฉะนั้นผู้อ่านคนถัดไปจะอ่านสถานะเก่าเป็นสถานะปัจจุบัน
+  for (const [name, doc] of [["HANDOFF", HANDOFF], ["CHANGELOG", CHANGELOG],
+                             ["SESSION_START_SHARED", SESSION]]) {
+    const stale = doc.split("\n")
+      .filter((l) => /execution\s*=?\s*NOT RUN/.test(l) && !/supersede/i.test(l));
+    assert.equal(stale.length, 0,
+      `${name}: บรรทัดที่ยังเขียน "execution NOT RUN" ต้องติดป้าย superseded (พบ ${stale.length} บรรทัด)`);
+  }
+  // guard/CI ต้องไม่ถูก claim ว่าเป็น scratch ACL proof
+  for (const [name, doc] of [["HANDOFF", HANDOFF], ["CHANGELOG", CHANGELOG]]) {
+    assert.match(doc, /guard\/CI[^\n]*ไม่ใช่[^\n]*(scratch )?ACL/,
+      `${name}: ต้องประกาศว่า guard/CI ไม่ใช่ scratch ACL proof`);
+  }
+  // ห้าม transient wording — ตรวจเฉพาะ "บล็อก 606-B13a.1 ที่เขียนใหม่" เท่านั้น
+  // (บันทึกประวัติเก่ามี "STOP รอ reviewer" โดยชอบธรรม และ §G ห้าม broad-rewrite historical records)
+  for (const [name, doc, endAnchor] of [
+    ["HANDOFF", HANDOFF, "**Phase 606-B13a package (merged"],
+    ["CHANGELOG", CHANGELOG, "- `33356a4`"],
+    ["SESSION_START_SHARED", SESSION, "> **2026-07-23 — Phase 606-B13a package merged"],
+  ]) {
+    const s = doc.indexOf("606-B13a.1");
+    assert.ok(s >= 0, `${name}: ต้องมีบล็อก 606-B13a.1`);
+    const e = doc.indexOf(endAnchor, s);
+    assert.ok(e > s, `${name}: ต้องมี end anchor ของบล็อกก่อนหน้า (${endAnchor})`);
+    const cur = doc.slice(s, e);
+    for (const bad of ["รอ review", "รอ audit", "ยังไม่ merge", "PR ค้าง"]) {
+      assert.ok(!cur.includes(bad), `${name}: ห้ามใส่ transient wording "${bad}" ในบล็อก 606-B13a.1`);
+    }
+  }
 });

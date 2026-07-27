@@ -35,7 +35,8 @@
 --     (DISABLE→UPDATE→ENABLE→VERIFY trg_service_jobs_metadata_update_guard ใน transaction เดียว)
 --
 -- ลำดับการรัน (per-statement ใน Supabase SQL Editor):
---   R0 → S0 (runs/results/evidence/functions) → S0-RELOAD → PREFLIGHT → SEED
+--   [owner sentinel refresh ตาม runbook D ถ้าข้ามวัน/reconnect] → R0 → S0-ACL-RECOVERY
+--   → S0 (runs/results/evidence/functions) → S0-RELOAD → PREFLIGHT → SEED
 --   → owner bootstrap → [browser: gates → r1 → r2 ตาม runbook] → owner finalize:
 --   verify_db → teardown → attest_cleanup → complete → REPORT
 -- ============================================================================
@@ -88,6 +89,337 @@ SELECT 'B13a sentinel (owner สร้างเองตาม runbook)', (to_re
 
 
 -- ────────────────────────────────────────────────────────────────────────────
+-- S0-ACL-RECOVERY — Phase 606-B13a.1 · owner-controlled ACL recovery ของ interrupted S0
+--   ทำไมต้องมี: fresh-create เดิม (ก่อน B13a.1) ไม่ได้ถอน default ACL ของ Supabase API role
+--   ที่ผูกมากับ CREATE จึงทำให้ object ที่สร้างสำเร็จแล้ว rerun ไม่ผ่าน exact-reuse allowlist
+--   tri-state (explicit · ห้าม fallback ข้าม state):
+--     STATE 1 NO-OP  — ไม่มี B13a object เลย (fresh scratch) → ไม่มี mutation ใด ๆ
+--     STATE 2 REPAIR — ตรง interrupted evidence เป๊ะ → REVOKE surplus 4 objects เท่านั้น
+--     STATE 3 STOP   — state อื่นทั้งหมด fail-closed → owner-authorized recovery phase แยก
+--   ขอบเขต mutation: REVOKE (ลดสิทธิ์อย่างเดียว) — ห้าม DDL/DML/GRANT/ALTER DEFAULT PRIVILEGES
+--   full columns/defaults/PK/CHECK/index/RLS/policy contract = ให้ S0.1–S0.3 reuse ตรวจหลัง recovery
+--   precheck → REVOKE → post-check อยู่ใน DO statement เดียว: exception = rollback ทั้ง block
+-- ────────────────────────────────────────────────────────────────────────────
+DO $b13a_s0_acl_recovery$
+DECLARE
+  v_staging_ok boolean := false;
+  v_tbl text;
+  v_oid oid;
+  v_cnt int;
+  v_rows bigint;
+  v_residue bigint;
+  v_rel_bad text;
+  v_fn_bad text;
+  v_priv_bad text;
+  v_ok boolean;
+  v_secdef boolean;
+  v_owner_ok boolean;
+  v_cfg text;
+  v_lang text;
+  v_vol "char";
+  v_strict boolean;
+  v_par "char";
+  v_leak boolean;
+  v_kind "char";
+  v_prosrc text;
+  v_args text;
+  v_ret text;
+  v_md5 text;
+  v_have_tbl int;
+  v_have_fn int;
+  c_md5 CONSTANT text := '8a185d251d660a9d690c0cf2075d821e';
+  c_tbls CONSTANT text[] := ARRAY['_staging_b13a_runs','_staging_b13a_results','_staging_b13a_evidence'];
+  c_privs CONSTANT text[] := ARRAY['DELETE','INSERT','MAINTAIN','REFERENCES','SELECT','TRIGGER','TRUNCATE','UPDATE'];
+BEGIN
+  -- [B13A-INTERLOCK] sentinel ต้องผ่านก่อน introspection/mutation ใด ๆ (fail-closed)
+  BEGIN
+    SELECT count(*) = 1 AND bool_and(x.confirm_text = 'B13A-STAGING-' || to_char(current_date, 'YYYY-MM-DD'))
+      INTO v_staging_ok FROM public._staging_b13a_sentinel x;
+  EXCEPTION WHEN undefined_table THEN
+    RAISE EXCEPTION 'B13A INTERLOCK: ไม่พบตาราง _staging_b13a_sentinel — นี่ไม่ใช่ staging ห้ามรันเด็ดขาด';
+  END;
+  IF NOT COALESCE(v_staging_ok, false) THEN
+    RAISE EXCEPTION 'B13A INTERLOCK: sentinel ต้องมีหนึ่งแถวและ confirm_text = B13A-STAGING-% เป๊ะ — หยุดทุกกรณี',
+      to_char(current_date, 'YYYY-MM-DD');
+  END IF;
+
+  -- [B13A-ROLE-PRECOND] block นี้อ้าง service_role — ต้องยืนยันว่า role มีจริงก่อน (กัน raw SQL error)
+  -- authenticated ก็ต้องมีจริง มิฉะนั้น to_regrole(...)::oid = NULL แล้ว comparison กลายเป็น NULL (กลืน grantee แปลกปลอม)
+  IF to_regrole('service_role') IS NULL THEN
+    RAISE EXCEPTION 'B13A RECOVERY: ไม่พบ role service_role — target ไม่ใช่ Supabase scratch ที่คาด STOP';
+  END IF;
+  IF to_regrole('authenticated') IS NULL OR to_regrole('anon') IS NULL THEN
+    RAISE EXCEPTION 'B13A RECOVERY: ไม่พบ role authenticated/anon — target ไม่ใช่ Supabase scratch ที่คาด STOP';
+  END IF;
+
+  -- ── (1) presence ของ target objects (นับเพื่อแยก state — ยังไม่ตัดสิน)
+  v_have_tbl := (CASE WHEN to_regclass('public._staging_b13a_runs')     IS NOT NULL THEN 1 ELSE 0 END)
+              + (CASE WHEN to_regclass('public._staging_b13a_results')  IS NOT NULL THEN 1 ELSE 0 END)
+              + (CASE WHEN to_regclass('public._staging_b13a_evidence') IS NOT NULL THEN 1 ELSE 0 END);
+  v_have_fn := CASE WHEN to_regprocedure('public.b13a_owner_bootstrap(uuid)') IS NOT NULL THEN 1 ELSE 0 END;
+
+  -- ── (2) S0.5–S0.7 ต้องไม่มีในทุก state ที่ recovery รองรับ
+  IF to_regprocedure('public.b13a_browser_transition(uuid,text,text,bigint,numeric,text,text,timestamptz,uuid,text,text,bigint,bigint,boolean,boolean,boolean,boolean,numeric,numeric,text,text,text)') IS NOT NULL
+     OR to_regprocedure('public.b13a_owner_finalize(uuid,text,text,boolean,boolean,boolean)') IS NOT NULL
+     OR to_regprocedure('public.b13a_rpc_exposed()') IS NOT NULL THEN
+    RAISE EXCEPTION 'B13A RECOVERY STOP: พบ S0.5-S0.7 function แล้ว — อยู่นอกขอบเขต recovery นี้ ต้องใช้ owner-authorized recovery phase แยกหลัง reviewer approval';
+  END IF;
+
+  -- ── (3) unknown-object inventory (starts_with = _ เป็น literal · ตัดเฉพาะ index/TOAST
+  --      ไม่ใช่ allowlist relkind — sequence 'S' / composite 'c' ต้องถูกจับเป็น unknown ด้วย)
+  SELECT string_agg(c.relname || ':' || c.relkind, ', ' ORDER BY c.relname) INTO v_rel_bad
+    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+   WHERE n.nspname = 'public' AND starts_with(c.relname, '_staging_b13a')
+     AND c.relkind <> ALL (ARRAY['i','I','t'])
+     AND c.relname <> ALL (ARRAY['_staging_b13a_sentinel'] || c_tbls);
+  IF v_rel_bad IS NOT NULL THEN
+    RAISE EXCEPTION 'B13A RECOVERY STOP: พบ relation นอก allowlist ใต้ B13a prefix (%) — owner-authorized recovery phase แยก', v_rel_bad;
+  END IF;
+  SELECT string_agg(p.proname, ', ' ORDER BY p.proname) INTO v_fn_bad
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND starts_with(p.proname, 'b13a_')
+     AND p.proname <> 'b13a_owner_bootstrap';
+  IF v_fn_bad IS NOT NULL THEN
+    RAISE EXCEPTION 'B13A RECOVERY STOP: พบ function นอก allowlist ใต้ B13a prefix (%) — owner-authorized recovery phase แยก', v_fn_bad;
+  END IF;
+  SELECT count(*) INTO v_cnt FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.proname = 'b13a_owner_bootstrap';
+  IF v_cnt > 1 THEN
+    RAISE EXCEPTION 'B13A RECOVERY STOP: b13a_owner_bootstrap มี % signature (อนุญาตหนึ่งเดียว — overload) — recovery phase แยก', v_cnt;
+  END IF;
+  IF v_cnt = 1 AND v_have_fn = 0 THEN
+    RAISE EXCEPTION 'B13A RECOVERY STOP: พบ b13a_owner_bootstrap แต่ signature ไม่ตรงเวอร์ชันนี้ — recovery phase แยก';
+  END IF;
+
+  -- ── (4) canonical B13a residue absence proof — predicates เดียวกับ PREFLIGHT ทั้งสี่
+  --      (exact job lookup อย่างเดียวมองไม่เห็น orphan JE 'B13ATEST-JV1' — absence proof ต้องเป็น pattern/ledger scan)
+  SELECT (SELECT count(*) FROM public.service_jobs WHERE job_no LIKE 'B13ATEST-%')
+       + (SELECT count(*) FROM public.journal_entries WHERE doc_no LIKE 'B13ATEST-%')
+       + (SELECT count(*) FROM public.service_payments)
+       + (SELECT count(*) FROM public.service_payment_reversals)
+    INTO v_residue;
+  IF v_residue <> 0 THEN
+    RAISE EXCEPTION 'B13A RECOVERY STOP: พบ B13a residue รวม % แถว (jobs/JE/payments/reversals) — ห้าม repair · owner-authorized recovery phase แยก', v_residue;
+  END IF;
+
+  -- ── (5) retained run = STOP เฉพาะทาง (terminal run ก็บล็อก — ห้ามลบ/takeover เอง)
+  IF to_regclass('public._staging_b13a_runs') IS NOT NULL THEN
+    SELECT count(*) INTO v_rows FROM public._staging_b13a_runs;
+    IF v_rows <> 0 THEN
+      RAISE EXCEPTION 'B13A RECOVERY STOP: retained B13a run detected — ห้ามลบหรือ takeover; ต้องใช้ owner-authorized recovery phase แยกหลัง reviewer approval (พบ % run)', v_rows;
+    END IF;
+  END IF;
+
+  IF v_have_tbl = 0 AND v_have_fn = 0 THEN
+    -- ══ STATE 1 — RECOVERY NO-OP (fresh scratch) · ห้ามมี DDL/DML/REVOKE/GRANT ใด ๆ ใน branch นี้
+    RAISE NOTICE 'B13A S0 ACL RECOVERY NO-OP: ไม่มี B13a object บน scratch — ไม่มีอะไรต้องซ่อม ไปต่อ S0.1 ได้';
+
+  ELSIF v_have_tbl = 3 AND v_have_fn = 1 THEN
+    -- ══ STATE 2 — RECOVERY REPAIR (ตรง interrupted evidence: S0.1-S0.4 สำเร็จ · S0.5-S0.7 ยังไม่รัน)
+    -- identity-critical checks ของตาราง (ไม่ duplicate full schema contract — S0.1-S0.3 reuse ตรวจต่อ)
+    FOREACH v_tbl IN ARRAY c_tbls LOOP
+      SELECT (c.relkind = 'r') AND (r.rolsuper OR r.rolbypassrls) INTO v_ok
+        FROM pg_class c JOIN pg_roles r ON r.oid = c.relowner
+       WHERE c.oid = ('public.' || v_tbl)::regclass;
+      IF NOT COALESCE(v_ok, false) THEN
+        RAISE EXCEPTION 'B13A RECOVERY STOP: % ไม่ใช่ ordinary table หรือ owner ไม่ใช่ trusted role', v_tbl;
+      END IF;
+      EXECUTE format('SELECT count(*) FROM public.%I', v_tbl) INTO v_rows;
+      IF v_rows <> 0 THEN
+        RAISE EXCEPTION 'B13A RECOVERY STOP: % มี % แถว (ต้อง 0) — ห้าม repair state ที่มีข้อมูลแล้ว', v_tbl, v_rows;
+      END IF;
+      SELECT count(*) INTO v_cnt
+        FROM pg_class c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+       WHERE c.oid = ('public.' || v_tbl)::regclass AND a.is_grantable;
+      IF v_cnt <> 0 THEN
+        RAISE EXCEPTION 'B13A RECOVERY STOP: % มี grant WITH GRANT OPTION % รายการ — ห้าม repair', v_tbl, v_cnt;
+      END IF;
+      SELECT count(*) INTO v_cnt
+        FROM pg_class c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+       WHERE c.oid = ('public.' || v_tbl)::regclass
+         AND a.grantee <> c.relowner
+         AND a.grantee <> to_regrole('authenticated')::oid
+         AND a.grantee <> to_regrole('service_role')::oid;
+      IF v_cnt <> 0 THEN
+        RAISE EXCEPTION 'B13A RECOVERY STOP: % มี grantee นอก allowlist % รายการ (surplus ที่ซ่อมได้มีชนิดเดียว) — ห้าม repair', v_tbl, v_cnt;
+      END IF;
+      SELECT count(*) INTO v_cnt
+        FROM pg_class c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+       WHERE c.oid = ('public.' || v_tbl)::regclass
+         AND a.grantee = to_regrole('authenticated')::oid
+         AND (v_tbl = '_staging_b13a_results' OR a.privilege_type <> 'SELECT');
+      IF v_cnt <> 0 THEN
+        RAISE EXCEPTION 'B13A RECOVERY STOP: % มี authenticated privilege นอก contract % รายการ — ห้าม repair', v_tbl, v_cnt;
+      END IF;
+      -- surplus ต้องเป็น non-empty subset ของชุด observed (ไม่บังคับครบ 8 — MAINTAIN ขึ้นกับ PostgreSQL version)
+      SELECT string_agg(DISTINCT a.privilege_type, ', ') INTO v_priv_bad
+        FROM pg_class c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+       WHERE c.oid = ('public.' || v_tbl)::regclass
+         AND a.grantee = to_regrole('service_role')::oid
+         AND NOT (a.privilege_type = ANY (c_privs));
+      IF v_priv_bad IS NOT NULL THEN
+        RAISE EXCEPTION 'B13A RECOVERY STOP: % มี privilege นอกชุดที่อนุญาต (%) — ห้าม repair', v_tbl, v_priv_bad;
+      END IF;
+      SELECT count(*) INTO v_cnt
+        FROM pg_class c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+       WHERE c.oid = ('public.' || v_tbl)::regclass
+         AND a.grantee = to_regrole('service_role')::oid;
+      IF v_cnt < 1 THEN
+        RAISE EXCEPTION 'B13A RECOVERY STOP: % ไม่มี ACL surplus ที่ต้องซ่อม — state ไม่ตรง interrupted evidence', v_tbl;
+      END IF;
+    END LOOP;
+
+    -- identity-critical checks ของ bootstrap (canonical body ผูกด้วย MD5 — ห้าม duplicate body ที่นี่)
+    v_oid := to_regprocedure('public.b13a_owner_bootstrap(uuid)');
+    SELECT p.prosrc, p.prosecdef, array_to_string(p.proconfig, ','), l.lanname,
+           (SELECT r.rolsuper OR r.rolbypassrls FROM pg_roles r WHERE r.oid = p.proowner),
+           p.provolatile, p.proisstrict, p.proparallel, p.proleakproof, p.prokind,
+           pg_get_function_arguments(p.oid), pg_get_function_result(p.oid)
+      INTO v_prosrc, v_secdef, v_cfg, v_lang, v_owner_ok, v_vol, v_strict, v_par, v_leak, v_kind,
+           v_args, v_ret
+      FROM pg_proc p JOIN pg_language l ON l.oid = p.prolang
+     WHERE p.oid = v_oid;
+    -- API metadata exact เท่ากับที่ S0.4 reuse ตรวจ — ต้อง STOP "ก่อน" REVOKE
+    -- (ไม่ใช่ปล่อยให้ผ่าน recovery แล้วไปล้มทีหลังที่ S0.4 หลัง ACL ถูกแก้ไปแล้ว)
+    IF v_args IS DISTINCT FROM 'p_actor_id uuid' THEN
+      RAISE EXCEPTION 'B13A RECOVERY STOP: bootstrap argument names/defaults ไม่ตรง canonical (%) — ห้าม repair', v_args;
+    END IF;
+    IF v_ret IS DISTINCT FROM 'jsonb' THEN
+      RAISE EXCEPTION 'B13A RECOVERY STOP: bootstrap return type ไม่ตรง canonical (%) — ห้าม repair', v_ret;
+    END IF;
+    IF v_secdef THEN
+      RAISE EXCEPTION 'B13A RECOVERY STOP: bootstrap ต้องเป็น SECURITY INVOKER (prosecdef=false) — ห้าม repair';
+    END IF;
+    IF v_cfg IS DISTINCT FROM 'search_path=public' THEN
+      RAISE EXCEPTION 'B13A RECOVERY STOP: bootstrap proconfig ไม่ตรง canonical (%) — ห้าม repair', v_cfg;
+    END IF;
+    IF v_lang IS DISTINCT FROM 'plpgsql' THEN
+      RAISE EXCEPTION 'B13A RECOVERY STOP: bootstrap language ไม่ตรง canonical (%) — ห้าม repair', v_lang;
+    END IF;
+    IF NOT COALESCE(v_owner_ok, false) THEN
+      RAISE EXCEPTION 'B13A RECOVERY STOP: bootstrap owner ไม่ใช่ trusted role — ห้าม repair';
+    END IF;
+    IF v_vol IS DISTINCT FROM 'v' OR v_strict OR v_par IS DISTINCT FROM 'u'
+       OR v_leak OR v_kind IS DISTINCT FROM 'f' THEN
+      RAISE EXCEPTION 'B13A RECOVERY STOP: bootstrap attributes ไม่ตรง canonical (volatile=% strict=% parallel=% leakproof=% kind=%) — ห้าม repair',
+        v_vol, v_strict, v_par, v_leak, v_kind;
+    END IF;
+    IF position('B13A-FN-BOOTSTRAP-V1' IN coalesce(v_prosrc, '')) = 0 THEN
+      RAISE EXCEPTION 'B13A RECOVERY STOP: bootstrap ไม่มี canonical marker — ห้าม repair';
+    END IF;
+    v_md5 := md5(v_prosrc);
+    IF v_md5 IS DISTINCT FROM c_md5 THEN
+      RAISE EXCEPTION 'B13A RECOVERY STOP: bootstrap body hash ไม่ตรง canonical (expected=% actual=%) — อาจเป็น body drift หรือ line-ending/paste difference · ห้ามแก้ prosrc บน scratch · ห้าม manual workaround · ต้องออก recovery phase ใหม่หลัง reviewer ตัดสิน',
+        c_md5, v_md5;
+    END IF;
+    SELECT count(*) INTO v_cnt
+      FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+     WHERE p.oid = v_oid AND a.is_grantable;
+    IF v_cnt <> 0 THEN
+      RAISE EXCEPTION 'B13A RECOVERY STOP: bootstrap มี EXECUTE WITH GRANT OPTION % รายการ — ห้าม repair', v_cnt;
+    END IF;
+    SELECT count(*) INTO v_cnt
+      FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+     WHERE p.oid = v_oid AND a.grantee <> p.proowner
+       AND a.grantee <> to_regrole('service_role')::oid;
+    IF v_cnt <> 0 THEN
+      RAISE EXCEPTION 'B13A RECOVERY STOP: bootstrap มี grantee นอก allowlist % รายการ — ห้าม repair', v_cnt;
+    END IF;
+    SELECT count(*) INTO v_cnt
+      FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+     WHERE p.oid = v_oid AND a.grantee = to_regrole('service_role')::oid
+       AND a.privilege_type = 'EXECUTE';
+    IF v_cnt <> 1 THEN
+      RAISE EXCEPTION 'B13A RECOVERY STOP: bootstrap ไม่มี ACL surplus ที่ต้องซ่อม — state ไม่ตรง interrupted evidence';
+    END IF;
+
+    -- ── mutation ที่อนุญาตทั้งหมด: REVOKE surplus บน 4 objects เป๊ะ (exact identifier · ลดสิทธิ์อย่างเดียว)
+    EXECUTE 'REVOKE ALL ON public._staging_b13a_runs FROM service_role';
+    EXECUTE 'REVOKE ALL ON public._staging_b13a_results FROM service_role';
+    EXECUTE 'REVOKE ALL ON public._staging_b13a_evidence FROM service_role';
+    EXECUTE 'REVOKE ALL ON FUNCTION public.b13a_owner_bootstrap(uuid) FROM service_role';
+
+    -- ── post-check: อ่าน ACL ใหม่ทั้งหมด — ไม่ตรง reuse contract = rollback ทั้ง block (รวม REVOKE)
+    FOREACH v_tbl IN ARRAY c_tbls LOOP
+      SELECT count(*) INTO v_cnt
+        FROM pg_class c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+       WHERE c.oid = ('public.' || v_tbl)::regclass
+         AND a.grantee = to_regrole('service_role')::oid;
+      IF v_cnt <> 0 THEN
+        RAISE EXCEPTION 'B13A RECOVERY post-check: % ยังเหลือ surplus % รายการ หลัง REVOKE — rollback ทั้ง block', v_tbl, v_cnt;
+      END IF;
+      SELECT count(*) INTO v_cnt
+        FROM pg_class c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+       WHERE c.oid = ('public.' || v_tbl)::regclass
+         AND (a.grantee = 0 OR a.grantee = to_regrole('anon')::oid);
+      IF v_cnt <> 0 THEN
+        RAISE EXCEPTION 'B13A RECOVERY post-check: % มี PUBLIC/anon privilege % รายการ — rollback ทั้ง block', v_tbl, v_cnt;
+      END IF;
+      SELECT count(*) INTO v_cnt
+        FROM pg_class c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+       WHERE c.oid = ('public.' || v_tbl)::regclass
+         AND NOT (a.grantee = c.relowner
+                  OR (v_tbl <> '_staging_b13a_results'
+                      AND a.grantee = to_regrole('authenticated')::oid
+                      AND a.privilege_type = 'SELECT'));
+      IF v_cnt <> 0 THEN
+        RAISE EXCEPTION 'B13A RECOVERY post-check: % ACL ไม่ตรง reuse contract (% รายการนอก allowlist) — rollback ทั้ง block', v_tbl, v_cnt;
+      END IF;
+      IF v_tbl <> '_staging_b13a_results'
+         AND NOT EXISTS (SELECT 1 FROM pg_class c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+                          WHERE c.oid = ('public.' || v_tbl)::regclass
+                            AND a.grantee = to_regrole('authenticated')::oid
+                            AND a.privilege_type = 'SELECT') THEN
+        RAISE EXCEPTION 'B13A RECOVERY post-check: % ขาด authenticated SELECT ตาม contract — rollback ทั้ง block', v_tbl;
+      END IF;
+      SELECT count(*) INTO v_cnt
+        FROM pg_class c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+       WHERE c.oid = ('public.' || v_tbl)::regclass AND a.is_grantable;
+      IF v_cnt <> 0 THEN
+        RAISE EXCEPTION 'B13A RECOVERY post-check: % มี grant option % รายการ — rollback ทั้ง block', v_tbl, v_cnt;
+      END IF;
+      SELECT r.rolsuper OR r.rolbypassrls INTO v_ok
+        FROM pg_class c JOIN pg_roles r ON r.oid = c.relowner
+       WHERE c.oid = ('public.' || v_tbl)::regclass;
+      IF NOT COALESCE(v_ok, false) THEN
+        RAISE EXCEPTION 'B13A RECOVERY post-check: % owner ไม่ใช่ trusted role — rollback ทั้ง block', v_tbl;
+      END IF;
+      EXECUTE format('SELECT count(*) FROM public.%I', v_tbl) INTO v_rows;
+      IF v_rows <> 0 THEN
+        RAISE EXCEPTION 'B13A RECOVERY post-check: % มี % แถว หลัง recovery (ต้องคง 0) — rollback ทั้ง block', v_tbl, v_rows;
+      END IF;
+    END LOOP;
+    SELECT count(*) INTO v_cnt
+      FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+     WHERE p.oid = v_oid AND a.grantee <> p.proowner;
+    IF v_cnt <> 0 THEN
+      RAISE EXCEPTION 'B13A RECOVERY post-check: bootstrap ยังมี grantee นอก owner % รายการ — rollback ทั้ง block', v_cnt;
+    END IF;
+    SELECT count(*) INTO v_cnt
+      FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+     WHERE p.oid = v_oid AND a.is_grantable;
+    IF v_cnt <> 0 THEN
+      RAISE EXCEPTION 'B13A RECOVERY post-check: bootstrap มี grant option % รายการ — rollback ทั้ง block', v_cnt;
+    END IF;
+    SELECT (SELECT count(*) FROM public.service_jobs WHERE job_no LIKE 'B13ATEST-%')
+         + (SELECT count(*) FROM public.journal_entries WHERE doc_no LIKE 'B13ATEST-%')
+         + (SELECT count(*) FROM public.service_payments)
+         + (SELECT count(*) FROM public.service_payment_reversals)
+      INTO v_residue;
+    IF v_residue <> 0 THEN
+      RAISE EXCEPTION 'B13A RECOVERY post-check: พบ business residue % แถว หลัง recovery — rollback ทั้ง block', v_residue;
+    END IF;
+    RAISE NOTICE 'B13A S0 ACL RECOVERY PASS: ถอน ACL surplus บน 4 objects แล้ว · ACL ตรง reuse contract · rows/residue ยัง 0 — ขั้นต่อไปคือ rerun S0.1-S0.4 เพื่อพิสูจน์ reuse path (ห้ามข้ามไป S0.5)';
+
+  ELSE
+    -- ══ STATE 3 — RECOVERY STOP (partial state อื่นทั้งหมด · ห้าม fallback ไป NO-OP/REPAIR)
+    RAISE EXCEPTION 'B13A RECOVERY STOP: partial state ไม่ตรง interrupted evidence (tables=%/3 bootstrap=%/1) — ห้าม repair · ต้องใช้ owner-authorized recovery phase แยกหลัง reviewer approval',
+      v_have_tbl, v_have_fn;
+  END IF;
+END $b13a_s0_acl_recovery$;
+
+
+-- ────────────────────────────────────────────────────────────────────────────
 -- S0.1 — _staging_b13a_runs (durable run-state · singleton · introspect-or-create-exact)
 --   Intent/IDs เป็น typed columns — ไม่ใช้ JSON เป็น authority
 --   IDs bind NULL → exact positive ID ครั้งเดียว · bind แล้วห้ามแก้ (บังคับใน writers)
@@ -120,6 +452,11 @@ BEGIN
   IF NOT COALESCE(v_staging_ok, false) THEN
     RAISE EXCEPTION 'B13A INTERLOCK: sentinel ต้องมีหนึ่งแถวและ confirm_text = B13A-STAGING-% เป๊ะ — หยุดทุกกรณี',
       to_char(current_date, 'YYYY-MM-DD');
+  END IF;
+
+  -- [B13A-ROLE-PRECOND] block นี้อ้าง service_role — ต้องยืนยันว่า role มีจริงก่อน (กัน raw SQL error)
+  IF to_regrole('service_role') IS NULL THEN
+    RAISE EXCEPTION 'B13A S0.1: ไม่พบ role service_role — target ไม่ใช่ Supabase scratch ที่คาด STOP';
   END IF;
 
   IF to_regclass('public._staging_b13a_runs') IS NULL THEN
@@ -157,8 +494,35 @@ BEGIN
     EXECUTE 'CREATE POLICY b13a_runs_select_actor ON public._staging_b13a_runs
                FOR SELECT TO authenticated
                USING (singleton AND actor_id = auth.uid())';
-    EXECUTE 'REVOKE ALL ON public._staging_b13a_runs FROM PUBLIC, anon, authenticated';
+    EXECUTE 'REVOKE ALL ON public._staging_b13a_runs FROM PUBLIC, anon, authenticated, service_role';
     EXECUTE 'GRANT SELECT ON public._staging_b13a_runs TO authenticated';
+    -- [B13A-ACL-POST] fresh-create postcondition — ต้องจบด้วย ACL contract เดียวกับ reuse path
+    -- (REVOKE/GRANT ไม่ error ไม่พอ — Supabase default privileges ให้ service_role ตอน CREATE)
+    SELECT count(*) INTO v_cnt
+      FROM pg_class c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+     WHERE c.oid = 'public._staging_b13a_runs'::regclass
+       AND NOT (a.grantee = c.relowner
+                OR (a.grantee = to_regrole('authenticated')::oid AND a.privilege_type = 'SELECT'));
+    IF v_cnt <> 0 THEN
+      RAISE EXCEPTION 'B13A S0.1 postcondition: พบ table grant นอก allowlist % รายการ หลัง REVOKE/GRANT — rollback ทั้ง block', v_cnt;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_class c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+                    WHERE c.oid = 'public._staging_b13a_runs'::regclass
+                      AND a.grantee = to_regrole('authenticated')::oid AND a.privilege_type = 'SELECT') THEN
+      RAISE EXCEPTION 'B13A S0.1 postcondition: ขาด SELECT grant ของ authenticated — rollback ทั้ง block';
+    END IF;
+    SELECT count(*) INTO v_cnt
+      FROM pg_class c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+     WHERE c.oid = 'public._staging_b13a_runs'::regclass AND a.is_grantable;
+    IF v_cnt <> 0 THEN
+      RAISE EXCEPTION 'B13A S0.1 postcondition: พบ table grant WITH GRANT OPTION % รายการ — rollback ทั้ง block', v_cnt;
+    END IF;
+    SELECT r.rolsuper OR r.rolbypassrls INTO v_ok
+      FROM pg_class c JOIN pg_roles r ON r.oid = c.relowner
+     WHERE c.oid = 'public._staging_b13a_runs'::regclass;
+    IF NOT COALESCE(v_ok, false) THEN
+      RAISE EXCEPTION 'B13A S0.1 postcondition: table owner ไม่ใช่ trusted role — rollback ทั้ง block';
+    END IF;
     RAISE NOTICE 'B13A S0.1: created _staging_b13a_runs (RLS enabled+forced · SELECT-only ผ่าน actor policy)';
   ELSE
     -- introspect exact — ไม่ตรง = STOP (ห้าม overwrite / ห้าม reuse stale)
@@ -323,6 +687,11 @@ BEGIN
       to_char(current_date, 'YYYY-MM-DD');
   END IF;
 
+  -- [B13A-ROLE-PRECOND] block นี้อ้าง service_role — ต้องยืนยันว่า role มีจริงก่อน (กัน raw SQL error)
+  IF to_regrole('service_role') IS NULL THEN
+    RAISE EXCEPTION 'B13A S0.2: ไม่พบ role service_role — target ไม่ใช่ Supabase scratch ที่คาด STOP';
+  END IF;
+
   IF to_regclass('public._staging_b13a_results') IS NULL THEN
     EXECUTE 'CREATE TABLE public._staging_b13a_results (
       run_id      uuid NOT NULL,
@@ -336,7 +705,27 @@ BEGIN
     EXECUTE 'ALTER TABLE public._staging_b13a_results ENABLE ROW LEVEL SECURITY';
     EXECUTE 'ALTER TABLE public._staging_b13a_results FORCE ROW LEVEL SECURITY';
     -- results ไม่มี browser grants ใด ๆ (ไม่มี policy = อ่านไม่ได้ผ่าน API · owner อ่านใน SQL Editor)
-    EXECUTE 'REVOKE ALL ON public._staging_b13a_results FROM PUBLIC, anon, authenticated';
+    EXECUTE 'REVOKE ALL ON public._staging_b13a_results FROM PUBLIC, anon, authenticated, service_role';
+    -- [B13A-ACL-POST] fresh-create postcondition — allowlist = owner เท่านั้น (เดียวกับ reuse path)
+    SELECT count(*) INTO v_cnt
+      FROM pg_class c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+     WHERE c.oid = 'public._staging_b13a_results'::regclass
+       AND a.grantee <> c.relowner;
+    IF v_cnt <> 0 THEN
+      RAISE EXCEPTION 'B13A S0.2 postcondition: พบ table grant นอก allowlist % รายการ หลัง REVOKE — rollback ทั้ง block', v_cnt;
+    END IF;
+    SELECT count(*) INTO v_cnt
+      FROM pg_class c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+     WHERE c.oid = 'public._staging_b13a_results'::regclass AND a.is_grantable;
+    IF v_cnt <> 0 THEN
+      RAISE EXCEPTION 'B13A S0.2 postcondition: พบ table grant WITH GRANT OPTION % รายการ — rollback ทั้ง block', v_cnt;
+    END IF;
+    SELECT r.rolsuper OR r.rolbypassrls INTO v_ok
+      FROM pg_class c JOIN pg_roles r ON r.oid = c.relowner
+     WHERE c.oid = 'public._staging_b13a_results'::regclass;
+    IF NOT COALESCE(v_ok, false) THEN
+      RAISE EXCEPTION 'B13A S0.2 postcondition: table owner ไม่ใช่ trusted role — rollback ทั้ง block';
+    END IF;
     RAISE NOTICE 'B13A S0.2: created _staging_b13a_results (no browser grants)';
   ELSE
     SELECT string_agg(column_name || ':' || data_type || ':' || is_nullable, ',' ORDER BY ordinal_position)
@@ -453,6 +842,11 @@ BEGIN
       to_char(current_date, 'YYYY-MM-DD');
   END IF;
 
+  -- [B13A-ROLE-PRECOND] block นี้อ้าง service_role — ต้องยืนยันว่า role มีจริงก่อน (กัน raw SQL error)
+  IF to_regrole('service_role') IS NULL THEN
+    RAISE EXCEPTION 'B13A S0.3: ไม่พบ role service_role — target ไม่ใช่ Supabase scratch ที่คาด STOP';
+  END IF;
+
   IF to_regclass('public._staging_b13a_evidence') IS NULL THEN
     EXECUTE 'CREATE TABLE public._staging_b13a_evidence (
       run_id              uuid NOT NULL,
@@ -497,8 +891,34 @@ BEGIN
                USING (EXISTS (SELECT 1 FROM public._staging_b13a_runs r
                                WHERE r.singleton AND r.run_id = _staging_b13a_evidence.run_id
                                  AND r.actor_id = auth.uid()))';
-    EXECUTE 'REVOKE ALL ON public._staging_b13a_evidence FROM PUBLIC, anon, authenticated';
+    EXECUTE 'REVOKE ALL ON public._staging_b13a_evidence FROM PUBLIC, anon, authenticated, service_role';
     EXECUTE 'GRANT SELECT ON public._staging_b13a_evidence TO authenticated';
+    -- [B13A-ACL-POST] fresh-create postcondition — allowlist = owner + authenticated(SELECT)
+    SELECT count(*) INTO v_cnt
+      FROM pg_class c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+     WHERE c.oid = 'public._staging_b13a_evidence'::regclass
+       AND NOT (a.grantee = c.relowner
+                OR (a.grantee = to_regrole('authenticated')::oid AND a.privilege_type = 'SELECT'));
+    IF v_cnt <> 0 THEN
+      RAISE EXCEPTION 'B13A S0.3 postcondition: พบ table grant นอก allowlist % รายการ หลัง REVOKE/GRANT — rollback ทั้ง block', v_cnt;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_class c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+                    WHERE c.oid = 'public._staging_b13a_evidence'::regclass
+                      AND a.grantee = to_regrole('authenticated')::oid AND a.privilege_type = 'SELECT') THEN
+      RAISE EXCEPTION 'B13A S0.3 postcondition: ขาด SELECT grant ของ authenticated — rollback ทั้ง block';
+    END IF;
+    SELECT count(*) INTO v_cnt
+      FROM pg_class c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+     WHERE c.oid = 'public._staging_b13a_evidence'::regclass AND a.is_grantable;
+    IF v_cnt <> 0 THEN
+      RAISE EXCEPTION 'B13A S0.3 postcondition: พบ table grant WITH GRANT OPTION % รายการ — rollback ทั้ง block', v_cnt;
+    END IF;
+    SELECT r.rolsuper OR r.rolbypassrls INTO v_ok
+      FROM pg_class c JOIN pg_roles r ON r.oid = c.relowner
+     WHERE c.oid = 'public._staging_b13a_evidence'::regclass;
+    IF NOT COALESCE(v_ok, false) THEN
+      RAISE EXCEPTION 'B13A S0.3 postcondition: table owner ไม่ใช่ trusted role — rollback ทั้ง block';
+    END IF;
     RAISE NOTICE 'B13A S0.3: created _staging_b13a_evidence (typed · write-once · SELECT ผ่าน actor RLS)';
   ELSE
     SELECT string_agg(column_name || ':' || data_type || ':' || is_nullable, ',' ORDER BY ordinal_position)
@@ -680,6 +1100,11 @@ BEGIN
   IF NOT COALESCE(v_staging_ok, false) THEN
     RAISE EXCEPTION 'B13A INTERLOCK: sentinel ต้องมีหนึ่งแถวและ confirm_text = B13A-STAGING-% เป๊ะ — หยุดทุกกรณี',
       to_char(current_date, 'YYYY-MM-DD');
+  END IF;
+
+  -- [B13A-ROLE-PRECOND] block นี้อ้าง service_role — ต้องยืนยันว่า role มีจริงก่อน (กัน raw SQL error)
+  IF to_regrole('service_role') IS NULL THEN
+    RAISE EXCEPTION 'B13A S0.4: ไม่พบ role service_role — target ไม่ใช่ Supabase scratch ที่คาด STOP';
   END IF;
 
   v_def := $B13A_DEF_BOOTSTRAP$
@@ -868,7 +1293,37 @@ $B13A_DEF_BOOTSTRAP$;
     RAISE NOTICE 'B13A S0.4: reuse b13a_owner_bootstrap (exact: signature/body/secdef/config/language/owner/grants)';
   ELSE
     EXECUTE v_def;
-    EXECUTE 'REVOKE ALL ON FUNCTION public.b13a_owner_bootstrap(uuid) FROM PUBLIC, anon, authenticated';
+    EXECUTE 'REVOKE ALL ON FUNCTION public.b13a_owner_bootstrap(uuid) FROM PUBLIC, anon, authenticated, service_role';
+    -- [B13A-ACL-POST] fresh-create postcondition — allowlist = function owner เท่านั้น (เดียวกับ reuse path)
+    v_oid := to_regprocedure('public.b13a_owner_bootstrap(uuid)');
+    IF v_oid IS NULL THEN
+      RAISE EXCEPTION 'B13A S0.4 postcondition: ไม่พบ function หลัง CREATE — rollback ทั้ง block';
+    END IF;
+    SELECT count(*) INTO v_cnt_name FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public' AND p.proname = 'b13a_owner_bootstrap';
+    IF v_cnt_name <> 1 THEN
+      RAISE EXCEPTION 'B13A S0.4 postcondition: พบ % signature (ต้องหนึ่งเดียว — overload) — rollback ทั้ง block', v_cnt_name;
+    END IF;
+    SELECT count(*) INTO v_acl_bad
+      FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+     WHERE p.oid = v_oid AND a.grantee <> p.proowner;
+    IF v_acl_bad > 0 THEN
+      RAISE EXCEPTION 'B13A S0.4 postcondition: พบ grantee นอก allowlist % รายการ หลัง REVOKE — rollback ทั้ง block', v_acl_bad;
+    END IF;
+    SELECT count(*) INTO v_acl_bad
+      FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+     WHERE p.oid = v_oid AND a.is_grantable;
+    IF v_acl_bad > 0 THEN
+      RAISE EXCEPTION 'B13A S0.4 postcondition: พบ EXECUTE WITH GRANT OPTION % รายการ — rollback ทั้ง block', v_acl_bad;
+    END IF;
+    SELECT p.prosecdef, (SELECT r.rolsuper OR r.rolbypassrls FROM pg_roles r WHERE r.oid = p.proowner)
+      INTO v_secdef, v_owner_ok FROM pg_proc p WHERE p.oid = v_oid;
+    IF v_secdef THEN
+      RAISE EXCEPTION 'B13A S0.4 postcondition: ต้องเป็น SECURITY INVOKER (prosecdef=false) — rollback ทั้ง block';
+    END IF;
+    IF NOT COALESCE(v_owner_ok, false) THEN
+      RAISE EXCEPTION 'B13A S0.4 postcondition: function owner ไม่ใช่ trusted role — rollback ทั้ง block';
+    END IF;
     RAISE NOTICE 'B13A S0.4: created b13a_owner_bootstrap (no API grants)';
   END IF;
 END $b13a_s0_fn_bootstrap$;
@@ -922,6 +1377,11 @@ BEGIN
   IF NOT COALESCE(v_staging_ok, false) THEN
     RAISE EXCEPTION 'B13A INTERLOCK: sentinel ต้องมีหนึ่งแถวและ confirm_text = B13A-STAGING-% เป๊ะ — หยุดทุกกรณี',
       to_char(current_date, 'YYYY-MM-DD');
+  END IF;
+
+  -- [B13A-ROLE-PRECOND] block นี้อ้าง service_role — ต้องยืนยันว่า role มีจริงก่อน (กัน raw SQL error)
+  IF to_regrole('service_role') IS NULL THEN
+    RAISE EXCEPTION 'B13A S0.5: ไม่พบ role service_role — target ไม่ใช่ Supabase scratch ที่คาด STOP';
   END IF;
 
   v_def := $B13A_DEF_BROWSER$
@@ -1425,8 +1885,45 @@ $B13A_DEF_BROWSER$;
     RAISE NOTICE 'B13A S0.5: reuse b13a_browser_transition (exact: signature/body/secdef/config/language/owner/grants)';
   ELSE
     EXECUTE v_def;
-    EXECUTE 'REVOKE ALL ON FUNCTION public.b13a_browser_transition(uuid,text,text,bigint,numeric,text,text,timestamptz,uuid,text,text,bigint,bigint,boolean,boolean,boolean,boolean,numeric,numeric,text,text,text) FROM PUBLIC, anon';
+    EXECUTE 'REVOKE ALL ON FUNCTION public.b13a_browser_transition(uuid,text,text,bigint,numeric,text,text,timestamptz,uuid,text,text,bigint,bigint,boolean,boolean,boolean,boolean,numeric,numeric,text,text,text) FROM PUBLIC, anon, authenticated, service_role';
     EXECUTE 'GRANT EXECUTE ON FUNCTION public.b13a_browser_transition(uuid,text,text,bigint,numeric,text,text,timestamptz,uuid,text,text,bigint,bigint,boolean,boolean,boolean,boolean,numeric,numeric,text,text,text) TO authenticated';
+    -- [B13A-ACL-POST] fresh-create postcondition — allowlist = owner + authenticated(EXECUTE) เท่านั้น
+    v_oid := to_regprocedure('public.b13a_browser_transition(uuid,text,text,bigint,numeric,text,text,timestamptz,uuid,text,text,bigint,bigint,boolean,boolean,boolean,boolean,numeric,numeric,text,text,text)');
+    IF v_oid IS NULL THEN
+      RAISE EXCEPTION 'B13A S0.5 postcondition: ไม่พบ function หลัง CREATE — rollback ทั้ง block';
+    END IF;
+    SELECT count(*) INTO v_cnt_name FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public' AND p.proname = 'b13a_browser_transition';
+    IF v_cnt_name <> 1 THEN
+      RAISE EXCEPTION 'B13A S0.5 postcondition: พบ % signature (ต้องหนึ่งเดียว — overload) — rollback ทั้ง block', v_cnt_name;
+    END IF;
+    SELECT count(*) INTO v_acl_bad
+      FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+     WHERE p.oid = v_oid
+       AND NOT (a.grantee = p.proowner
+                OR (a.grantee = to_regrole('authenticated')::oid AND a.privilege_type = 'EXECUTE'));
+    IF v_acl_bad > 0 THEN
+      RAISE EXCEPTION 'B13A S0.5 postcondition: พบ grantee นอก allowlist % รายการ หลัง REVOKE/GRANT — rollback ทั้ง block', v_acl_bad;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                    WHERE p.oid = v_oid AND a.grantee = to_regrole('authenticated')::oid
+                      AND a.privilege_type = 'EXECUTE') THEN
+      RAISE EXCEPTION 'B13A S0.5 postcondition: ขาด EXECUTE grant ของ authenticated — rollback ทั้ง block';
+    END IF;
+    SELECT count(*) INTO v_acl_bad
+      FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+     WHERE p.oid = v_oid AND a.is_grantable;
+    IF v_acl_bad > 0 THEN
+      RAISE EXCEPTION 'B13A S0.5 postcondition: พบ EXECUTE WITH GRANT OPTION % รายการ — rollback ทั้ง block', v_acl_bad;
+    END IF;
+    SELECT p.prosecdef, (SELECT r.rolsuper OR r.rolbypassrls FROM pg_roles r WHERE r.oid = p.proowner)
+      INTO v_secdef, v_owner_ok FROM pg_proc p WHERE p.oid = v_oid;
+    IF NOT v_secdef THEN
+      RAISE EXCEPTION 'B13A S0.5 postcondition: ต้องเป็น SECURITY DEFINER (prosecdef=true) — rollback ทั้ง block';
+    END IF;
+    IF NOT COALESCE(v_owner_ok, false) THEN
+      RAISE EXCEPTION 'B13A S0.5 postcondition: function owner ไม่ใช่ trusted role — rollback ทั้ง block';
+    END IF;
     RAISE NOTICE 'B13A S0.5: created b13a_browser_transition (SECURITY DEFINER · authenticated เท่านั้น)';
   END IF;
 END $b13a_s0_fn_browser$;
@@ -1476,6 +1973,11 @@ BEGIN
   IF NOT COALESCE(v_staging_ok, false) THEN
     RAISE EXCEPTION 'B13A INTERLOCK: sentinel ต้องมีหนึ่งแถวและ confirm_text = B13A-STAGING-% เป๊ะ — หยุดทุกกรณี',
       to_char(current_date, 'YYYY-MM-DD');
+  END IF;
+
+  -- [B13A-ROLE-PRECOND] block นี้อ้าง service_role — ต้องยืนยันว่า role มีจริงก่อน (กัน raw SQL error)
+  IF to_regrole('service_role') IS NULL THEN
+    RAISE EXCEPTION 'B13A S0.6: ไม่พบ role service_role — target ไม่ใช่ Supabase scratch ที่คาด STOP';
   END IF;
 
   v_def := $B13A_DEF_FINALIZE$
@@ -2062,7 +2564,37 @@ $B13A_DEF_FINALIZE$;
     RAISE NOTICE 'B13A S0.6: reuse b13a_owner_finalize (exact: signature/body/secdef/config/language/owner/grants)';
   ELSE
     EXECUTE v_def;
-    EXECUTE 'REVOKE ALL ON FUNCTION public.b13a_owner_finalize(uuid,text,text,boolean,boolean,boolean) FROM PUBLIC, anon, authenticated';
+    EXECUTE 'REVOKE ALL ON FUNCTION public.b13a_owner_finalize(uuid,text,text,boolean,boolean,boolean) FROM PUBLIC, anon, authenticated, service_role';
+    -- [B13A-ACL-POST] fresh-create postcondition — allowlist = function owner เท่านั้น (เดียวกับ reuse path)
+    v_oid := to_regprocedure('public.b13a_owner_finalize(uuid,text,text,boolean,boolean,boolean)');
+    IF v_oid IS NULL THEN
+      RAISE EXCEPTION 'B13A S0.6 postcondition: ไม่พบ function หลัง CREATE — rollback ทั้ง block';
+    END IF;
+    SELECT count(*) INTO v_cnt_name FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public' AND p.proname = 'b13a_owner_finalize';
+    IF v_cnt_name <> 1 THEN
+      RAISE EXCEPTION 'B13A S0.6 postcondition: พบ % signature (ต้องหนึ่งเดียว — overload) — rollback ทั้ง block', v_cnt_name;
+    END IF;
+    SELECT count(*) INTO v_acl_bad
+      FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+     WHERE p.oid = v_oid AND a.grantee <> p.proowner;
+    IF v_acl_bad > 0 THEN
+      RAISE EXCEPTION 'B13A S0.6 postcondition: พบ grantee นอก allowlist % รายการ หลัง REVOKE — rollback ทั้ง block', v_acl_bad;
+    END IF;
+    SELECT count(*) INTO v_acl_bad
+      FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+     WHERE p.oid = v_oid AND a.is_grantable;
+    IF v_acl_bad > 0 THEN
+      RAISE EXCEPTION 'B13A S0.6 postcondition: พบ EXECUTE WITH GRANT OPTION % รายการ — rollback ทั้ง block', v_acl_bad;
+    END IF;
+    SELECT p.prosecdef, (SELECT r.rolsuper OR r.rolbypassrls FROM pg_roles r WHERE r.oid = p.proowner)
+      INTO v_secdef, v_owner_ok FROM pg_proc p WHERE p.oid = v_oid;
+    IF v_secdef THEN
+      RAISE EXCEPTION 'B13A S0.6 postcondition: ต้องเป็น SECURITY INVOKER (prosecdef=false) — rollback ทั้ง block';
+    END IF;
+    IF NOT COALESCE(v_owner_ok, false) THEN
+      RAISE EXCEPTION 'B13A S0.6 postcondition: function owner ไม่ใช่ trusted role — rollback ทั้ง block';
+    END IF;
     RAISE NOTICE 'B13A S0.6: created b13a_owner_finalize (no API grants)';
   END IF;
 END $b13a_s0_fn_finalize$;
@@ -2110,6 +2642,11 @@ BEGIN
   IF NOT COALESCE(v_staging_ok, false) THEN
     RAISE EXCEPTION 'B13A INTERLOCK: sentinel ต้องมีหนึ่งแถวและ confirm_text = B13A-STAGING-% เป๊ะ — หยุดทุกกรณี',
       to_char(current_date, 'YYYY-MM-DD');
+  END IF;
+
+  -- [B13A-ROLE-PRECOND] block นี้อ้าง service_role — ต้องยืนยันว่า role มีจริงก่อน (กัน raw SQL error)
+  IF to_regrole('service_role') IS NULL THEN
+    RAISE EXCEPTION 'B13A S0.7: ไม่พบ role service_role — target ไม่ใช่ Supabase scratch ที่คาด STOP';
   END IF;
 
   v_def := $B13A_DEF_EXPOSED$
@@ -2210,8 +2747,45 @@ $B13A_DEF_EXPOSED$;
     RAISE NOTICE 'B13A S0.7: reuse b13a_rpc_exposed (exact: signature/body/secdef/config/language/owner/grants)';
   ELSE
     EXECUTE v_def;
-    EXECUTE 'REVOKE ALL ON FUNCTION public.b13a_rpc_exposed() FROM PUBLIC, anon';
+    EXECUTE 'REVOKE ALL ON FUNCTION public.b13a_rpc_exposed() FROM PUBLIC, anon, authenticated, service_role';
     EXECUTE 'GRANT EXECUTE ON FUNCTION public.b13a_rpc_exposed() TO authenticated';
+    -- [B13A-ACL-POST] fresh-create postcondition — allowlist = owner + authenticated(EXECUTE) เท่านั้น
+    v_oid := to_regprocedure('public.b13a_rpc_exposed()');
+    IF v_oid IS NULL THEN
+      RAISE EXCEPTION 'B13A S0.7 postcondition: ไม่พบ function หลัง CREATE — rollback ทั้ง block';
+    END IF;
+    SELECT count(*) INTO v_cnt_name FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public' AND p.proname = 'b13a_rpc_exposed';
+    IF v_cnt_name <> 1 THEN
+      RAISE EXCEPTION 'B13A S0.7 postcondition: พบ % signature (ต้องหนึ่งเดียว — overload) — rollback ทั้ง block', v_cnt_name;
+    END IF;
+    SELECT count(*) INTO v_acl_bad
+      FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+     WHERE p.oid = v_oid
+       AND NOT (a.grantee = p.proowner
+                OR (a.grantee = to_regrole('authenticated')::oid AND a.privilege_type = 'EXECUTE'));
+    IF v_acl_bad > 0 THEN
+      RAISE EXCEPTION 'B13A S0.7 postcondition: พบ grantee นอก allowlist % รายการ หลัง REVOKE/GRANT — rollback ทั้ง block', v_acl_bad;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                    WHERE p.oid = v_oid AND a.grantee = to_regrole('authenticated')::oid
+                      AND a.privilege_type = 'EXECUTE') THEN
+      RAISE EXCEPTION 'B13A S0.7 postcondition: ขาด EXECUTE grant ของ authenticated — rollback ทั้ง block';
+    END IF;
+    SELECT count(*) INTO v_acl_bad
+      FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+     WHERE p.oid = v_oid AND a.is_grantable;
+    IF v_acl_bad > 0 THEN
+      RAISE EXCEPTION 'B13A S0.7 postcondition: พบ EXECUTE WITH GRANT OPTION % รายการ — rollback ทั้ง block', v_acl_bad;
+    END IF;
+    SELECT p.prosecdef, (SELECT r.rolsuper OR r.rolbypassrls FROM pg_roles r WHERE r.oid = p.proowner)
+      INTO v_secdef, v_owner_ok FROM pg_proc p WHERE p.oid = v_oid;
+    IF v_secdef THEN
+      RAISE EXCEPTION 'B13A S0.7 postcondition: ต้องเป็น SECURITY INVOKER (prosecdef=false) — rollback ทั้ง block';
+    END IF;
+    IF NOT COALESCE(v_owner_ok, false) THEN
+      RAISE EXCEPTION 'B13A S0.7 postcondition: function owner ไม่ใช่ trusted role — rollback ทั้ง block';
+    END IF;
     RAISE NOTICE 'B13A S0.7: created b13a_rpc_exposed (read-only probe)';
   END IF;
 END $b13a_s0_fn_exposed$;
