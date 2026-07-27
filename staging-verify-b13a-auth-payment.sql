@@ -122,6 +122,8 @@ DECLARE
   v_leak boolean;
   v_kind "char";
   v_prosrc text;
+  v_args text;
+  v_ret text;
   v_md5 text;
   v_have_tbl int;
   v_have_fn int;
@@ -163,11 +165,12 @@ BEGIN
     RAISE EXCEPTION 'B13A RECOVERY STOP: พบ S0.5-S0.7 function แล้ว — อยู่นอกขอบเขต recovery นี้ ต้องใช้ owner-authorized recovery phase แยกหลัง reviewer approval';
   END IF;
 
-  -- ── (3) unknown-object inventory (starts_with = _ เป็น literal · relkind filter กัน index/PK false positive)
-  SELECT string_agg(c.relname, ', ' ORDER BY c.relname) INTO v_rel_bad
+  -- ── (3) unknown-object inventory (starts_with = _ เป็น literal · ตัดเฉพาะ index/TOAST
+  --      ไม่ใช่ allowlist relkind — sequence 'S' / composite 'c' ต้องถูกจับเป็น unknown ด้วย)
+  SELECT string_agg(c.relname || ':' || c.relkind, ', ' ORDER BY c.relname) INTO v_rel_bad
     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
    WHERE n.nspname = 'public' AND starts_with(c.relname, '_staging_b13a')
-     AND c.relkind IN ('r','p','v','m','f')
+     AND c.relkind <> ALL (ARRAY['i','I','t'])
      AND c.relname <> ALL (ARRAY['_staging_b13a_sentinel'] || c_tbls);
   IF v_rel_bad IS NOT NULL THEN
     RAISE EXCEPTION 'B13A RECOVERY STOP: พบ relation นอก allowlist ใต้ B13a prefix (%) — owner-authorized recovery phase แยก', v_rel_bad;
@@ -270,10 +273,20 @@ BEGIN
     v_oid := to_regprocedure('public.b13a_owner_bootstrap(uuid)');
     SELECT p.prosrc, p.prosecdef, array_to_string(p.proconfig, ','), l.lanname,
            (SELECT r.rolsuper OR r.rolbypassrls FROM pg_roles r WHERE r.oid = p.proowner),
-           p.provolatile, p.proisstrict, p.proparallel, p.proleakproof, p.prokind
-      INTO v_prosrc, v_secdef, v_cfg, v_lang, v_owner_ok, v_vol, v_strict, v_par, v_leak, v_kind
+           p.provolatile, p.proisstrict, p.proparallel, p.proleakproof, p.prokind,
+           pg_get_function_arguments(p.oid), pg_get_function_result(p.oid)
+      INTO v_prosrc, v_secdef, v_cfg, v_lang, v_owner_ok, v_vol, v_strict, v_par, v_leak, v_kind,
+           v_args, v_ret
       FROM pg_proc p JOIN pg_language l ON l.oid = p.prolang
      WHERE p.oid = v_oid;
+    -- API metadata exact เท่ากับที่ S0.4 reuse ตรวจ — ต้อง STOP "ก่อน" REVOKE
+    -- (ไม่ใช่ปล่อยให้ผ่าน recovery แล้วไปล้มทีหลังที่ S0.4 หลัง ACL ถูกแก้ไปแล้ว)
+    IF v_args IS DISTINCT FROM 'p_actor_id uuid' THEN
+      RAISE EXCEPTION 'B13A RECOVERY STOP: bootstrap argument names/defaults ไม่ตรง canonical (%) — ห้าม repair', v_args;
+    END IF;
+    IF v_ret IS DISTINCT FROM 'jsonb' THEN
+      RAISE EXCEPTION 'B13A RECOVERY STOP: bootstrap return type ไม่ตรง canonical (%) — ห้าม repair', v_ret;
+    END IF;
     IF v_secdef THEN
       RAISE EXCEPTION 'B13A RECOVERY STOP: bootstrap ต้องเป็น SECURITY INVOKER (prosecdef=false) — ห้าม repair';
     END IF;
