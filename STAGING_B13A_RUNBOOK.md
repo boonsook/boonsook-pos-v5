@@ -18,7 +18,13 @@
 - **Package phase (PR นี้) ห้ามรัน SQL ทุก statement** — ไฟล์ทั้งสามเป็น deliverable เท่านั้น
 - **Execution เป็น owner-controlled เท่านั้น หลัง PR merge** — owner + reviewer คุมทีละสเตป
 - **CI/guard test ไม่ใช่ behavioral proof** — guard พิสูจน์แค่ว่า script/runbook ตรง spec
-- สถานะ **B13a = NOT RUN** จนกว่าจะ execute จริงและมี certificate ใน `_staging_b13a_results`
+- สถานะ **B13a = NOT RUN** (หมายถึง authenticated payment **behavioral** path) จนกว่าจะ execute
+  จริงและมี certificate ใน `_staging_b13a_results`
+- ⚠️ **ข้อเท็จจริงปัจจุบัน (2026-07-26):** owner รัน `R0` (17/17) + `S0.1`–`S0.4` บน scratch ไปแล้ว
+  (สร้าง 3 ตาราง + `b13a_owner_bootstrap`) แล้ว **STOP** เพราะ fresh-create ACL ขัด exact-reuse
+  contract — แก้ด้วย Phase 606-B13a.1 · ตาราง B13a ทั้งสามมี **0 rows** · **ไม่มี** `S0.5`–`S0.7` /
+  PREFLIGHT / SEED / bootstrap invocation / payment / JV / certificate ใด ๆ · "NOT RUN" จึงหมายถึง
+  behavioral payment path ไม่ใช่ว่าไม่มี statement ใดถูกรันเลย
 - ห้าม claim `PAYMENT_BEHAVIOR_PASS` / `EXECUTION_COMPLETE` จาก CI เขียวหรือ code review
 
 ## B2) Scratch target — ใช้ scratch เดิมของ B12 เท่านั้น
@@ -78,9 +84,107 @@ INSERT INTO public._staging_b13a_sentinel (confirm_text) VALUES ('B13A-STAGING-<
 แทน `<YYYY-MM-DD>` ด้วยค่า `db_current_date` จาก precheck เป๊ะ — sentinel ต้องมี
 **หนึ่งแถวเท่านั้น** (script ปฏิเสธเมื่อ 0 หรือ >1 แถว)
 
-### B4.3 ลำดับรัน script (Supabase SQL Editor · per-statement · อ่านผลก่อนไปตัวถัดไป)
+ใช้ B4.2 **เฉพาะการสร้างครั้งแรก** — ถ้ามีแถวอยู่แล้ว (reconnect / ข้ามวัน) **ห้าม INSERT ซ้ำ**
+(จะกลายเป็น 2 แถว = interlock ปฏิเสธทุก block) ให้ใช้ **B4.3 atomic sentinel refresh** แทน
 
-`R0` → `S0.1`–`S0.7` → `S0-RELOAD` → `PREFLIGHT` → `SEED` → **bootstrap**:
+### B4.3 Atomic sentinel refresh (reconnect / เปลี่ยน project / ข้ามวัน)
+
+sentinel เป็น **control token รายวัน** ไม่ใช่ behavioral evidence — เมื่อ `db_current_date` เลื่อนไป
+confirm_text เดิมจะไม่ตรงและ **ทุก block จะ RAISE** ต้อง refresh ด้วย transaction ที่ self-gate ตัวเอง
+
+**ต้องรัน B4.1 precheck ใหม่ก่อนเสมอ** แล้วแทน `<db_current_date>` ด้วยค่าที่อ่านจาก target DB
+session แล้ว **รัน DO block ทั้งก้อนเป็น statement เดียวครั้งเดียว**:
+
+```sql
+DO $b13a_sentinel_refresh$
+DECLARE
+  v_n  bigint;
+  v_ok boolean;
+BEGIN
+  -- (1) B12 retained truth — results 6 แถว ok=true ครบ
+  SELECT count(*) = 6 AND bool_and(ok) INTO v_ok FROM public._staging_b12_results;
+  IF NOT COALESCE(v_ok, false) THEN
+    RAISE EXCEPTION 'SENTINEL REFRESH: _staging_b12_results ไม่ใช่ 6/6 ok=true — ไม่ใช่ scratch เดิมของ B12 STOP';
+  END IF;
+  -- (2) B12 residual jobs/JE/JL = 0/0/0 (predicates เดียวกับ B12 TEARDOWN)
+  SELECT (SELECT count(*) FROM public.service_jobs WHERE job_no LIKE 'B12TEST-%')
+       + (SELECT count(*) FROM public.journal_entries WHERE doc_no LIKE 'B12TEST-%')
+       + (SELECT count(*) FROM public.journal_lines
+           WHERE entry_id IN (SELECT id FROM public.journal_entries WHERE doc_no LIKE 'B12TEST-%'))
+    INTO v_n;
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'SENTINEL REFRESH: B12 residual = % (ต้อง 0/0/0) — STOP', v_n;
+  END IF;
+  -- (3) reference counts ของ scratch เดิม
+  SELECT count(*) INTO v_n FROM public.chart_of_accounts;
+  IF v_n <> 68 THEN RAISE EXCEPTION 'SENTINEL REFRESH: chart_of_accounts = % (ต้อง 68) — STOP', v_n; END IF;
+  SELECT count(*) INTO v_n FROM public.account_mapping;
+  IF v_n <> 36 THEN RAISE EXCEPTION 'SENTINEL REFRESH: account_mapping = % (ต้อง 36) — STOP', v_n; END IF;
+  -- (4) ตาราง sentinel ต้องมีอยู่แล้ว (สร้างครั้งแรก = B4.2 เท่านั้น)
+  IF to_regclass('public._staging_b13a_sentinel') IS NULL THEN
+    RAISE EXCEPTION 'SENTINEL REFRESH: ไม่พบตาราง _staging_b13a_sentinel — ใช้ B4.2 สร้างครั้งแรกก่อน STOP';
+  END IF;
+  -- (5) แถวเดิมต้องเป็น 0 หรือ 1 เท่านั้น
+  SELECT count(*) INTO v_n FROM public._staging_b13a_sentinel;
+  IF v_n > 1 THEN
+    RAISE EXCEPTION 'SENTINEL REFRESH: sentinel มี % แถว (ต้อง 0 หรือ 1) — STOP ห้ามเดา', v_n;
+  END IF;
+  -- (6) ถ้ามีแถวเดิม confirm_text ต้องขึ้นต้น B13A-STAGING-
+  IF v_n = 1 AND NOT EXISTS (SELECT 1 FROM public._staging_b13a_sentinel
+                              WHERE starts_with(confirm_text, 'B13A-STAGING-')) THEN
+    RAISE EXCEPTION 'SENTINEL REFRESH: confirm_text เดิมไม่ขึ้นต้น B13A-STAGING- — STOP ห้ามแทนที่';
+  END IF;
+
+  DELETE FROM public._staging_b13a_sentinel;
+  INSERT INTO public._staging_b13a_sentinel (confirm_text)
+  VALUES ('B13A-STAGING-<db_current_date>');
+
+  -- (7) internal post-check — ไม่ผ่าน = rollback ทั้ง block (DELETE/INSERT ย้อนกลับด้วยกัน)
+  SELECT count(*) = 1 AND bool_and(confirm_text = 'B13A-STAGING-' || to_char(current_date, 'YYYY-MM-DD'))
+    INTO v_ok FROM public._staging_b13a_sentinel;
+  IF NOT COALESCE(v_ok, false) THEN
+    RAISE EXCEPTION 'SENTINEL REFRESH: post-check ไม่ผ่าน — ค่าที่พิมพ์ไม่ตรง db_current_date · rollback ทั้ง block';
+  END IF;
+  RAISE NOTICE 'SENTINEL REFRESH OK: sentinel = หนึ่งแถว ตรง current_date ของ DB session';
+END
+$b13a_sentinel_refresh$;
+```
+
+ข้อบังคับ:
+
+- **self-gate + DELETE + INSERT + internal post-check อยู่ใน DO statement เดียว** — exception ใด ๆ
+  rollback ทั้งบล็อกรวม DELETE/INSERT
+- **ห้ามใช้ `BEGIN;`/`COMMIT;` ครอบหลาย statement** และ **ห้ามพึ่ง execution context ข้าม statement**
+  (เคยเกิดจริงบนโปรเจกต์นี้: การเลือก Run ไม่คง transaction ข้ามชุด statement — ดูบันทึก
+  Phase 606-b1.1 ใน `DB_MIGRATIONS_APPLIED.md`)
+- `<db_current_date>` ต้องเป็น **owner-typed literal** จาก B4.1 precheck — ห้าม generate อัตโนมัติ
+  ห้าม derive จาก local/Bangkok/UTC clock · ห้าม `SET TIME ZONE`
+- sentinel 0 แถวก่อนเริ่ม อนุญาตเฉพาะเมื่อ self-gate ผ่านครบ · **sentinel >1 แถว = STOP**
+- **owner ห้าม INSERT มือเปล่า** — block fail ให้แก้สาเหตุแล้วรัน **บล็อกเดิมทั้งก้อน** ใหม่
+  (idempotent: DELETE 0 แถวไม่ error) ห้ามรันเฉพาะ INSERT
+- คำสั่ง refresh อยู่ใน runbook นี้เท่านั้น — **package SQL ห้ามสร้าง/refresh/hardcode วันที่ sentinel**
+
+หลัง DO สำเร็จ ให้รัน read-only post-check (human-readable):
+
+```sql
+SELECT
+  current_date AS db_current_date,
+  'B13A-STAGING-' || to_char(current_date, 'YYYY-MM-DD') AS expected_text,
+  count(*) AS total_rows,
+  count(*) FILTER (
+    WHERE confirm_text = 'B13A-STAGING-' || to_char(current_date, 'YYYY-MM-DD')
+  ) AS exact_rows,
+  bool_and(
+    confirm_text = 'B13A-STAGING-' || to_char(current_date, 'YYYY-MM-DD')
+  ) AS all_exact
+FROM public._staging_b13a_sentinel;
+```
+
+ต้องได้ `total_rows = 1` · `exact_rows = 1` · `all_exact = true` — ไม่ครบสามข้อ = **STOP**
+
+### B4.4 ลำดับรัน script (Supabase SQL Editor · per-statement · อ่านผลก่อนไปตัวถัดไป)
+
+`R0` → `S0-ACL-RECOVERY` → `S0.1`–`S0.7` → `S0-RELOAD` → `PREFLIGHT` → `SEED` → **bootstrap**:
 
 ```sql
 SELECT public.b13a_owner_bootstrap('<actor-uuid>'::uuid);
@@ -91,6 +195,36 @@ SELECT public.b13a_owner_bootstrap('<actor-uuid>'::uuid);
 - bootstrap คืน `run_id` — จดไว้ใช้กับ browser CAS/finalize (run_id ไม่ใช่ secret)
 - **active run เดิมต้อง = 0** — พบ run ค้าง (แม้ terminal) = **stale run = STOP** ห้าม
   ลบ/takeover เอง (การลบ retained run = owner recovery phase แยกหลัง reviewer approval)
+
+`S0-ACL-RECOVERY` (Phase 606-B13a.1) เป็น tri-state — อ่าน NOTICE แล้วตัดสินตามนี้:
+
+| NOTICE / ผล | แปลว่า | ทำต่อ |
+|---|---|---|
+| `B13A S0 ACL RECOVERY NO-OP` | scratch สะอาด ไม่มี B13a object | ไปต่อ `S0.1` ได้ |
+| `B13A S0 ACL RECOVERY PASS` | ถอน ACL surplus บน 4 objects แล้ว | **rerun `S0.1`–`S0.4`** พิสูจน์ reuse ก่อน แล้วค่อย `S0.5` |
+| `EXCEPTION` ใด ๆ | state อยู่นอกขอบเขต recovery | **STOP** — owner-authorized recovery phase แยกหลัง reviewer approval |
+
+- recovery **ไม่แตะข้อมูล** — mutation เดียวคือ `REVOKE ALL ... FROM service_role` บน 4 objects เป๊ะ
+  (ลดสิทธิ์อย่างเดียว) · full schema/PK/CHECK/policy contract พิสูจน์ด้วย `S0.1`–`S0.4` reuse หลัง recovery
+- **RECOVERY PASS ≠ payment behavioral PASS** — ยังไม่มี certificate ใด ๆ ออกจากขั้นนี้
+- ห้าม manual `REVOKE`/`GRANT`/`ALTER` ACL นอก block นี้ · ห้าม drop/recreate object เพื่อเลี่ยงปัญหา
+
+### B4.5 Resume sequence หลัง hotfix 606-B13a.1 merge
+
+รันตามลำดับนี้เท่านั้น แล้ว **STOP รายงานผล**:
+
+1. target/B12 read-only checks (B2) — ยืนยัน scratch เดิมของ B12 และไม่ใช่ production
+2. DB date authority (B4.1)
+3. atomic sentinel refresh (B4.3) + human-readable post-check
+4. `R0` — ทุกแถวต้อง `found=true`
+5. `S0-ACL-RECOVERY` — อ่าน NOTICE ตามตารางข้างบน
+6. rerun `S0.1`–`S0.4` เพื่อพิสูจน์ reuse path (S0.1–S0.3 ตรวจ full table contract · S0.4 ตรวจ
+   exact bootstrap contract รวม body byte-exact)
+7. **STOP** และรายงานผล
+
+**ห้ามรันในรอบ recovery verification เดียวกัน** จนกว่าจะมี execution-resume prompt + owner approval แยก:
+`S0.5`–`S0.7` · `S0-RELOAD` · `PREFLIGHT` · `SEED` · bootstrap invocation · Auth user ·
+payment/JV · certificates
 
 ## B5) Isolated app (browser)
 
@@ -278,9 +412,12 @@ await sb.rpc('b13a_browser_transition', {
    ```
 
 - **Retained evidence ห้ามลบ**: `_staging_b13a_runs`/`_staging_b13a_results`/
-  `_staging_b13a_evidence`/`_staging_b13a_sentinel` + ของ B12 ทั้งหมด คงไว้บน scratch
-  หลัง `execution_complete` — การลบเป็น owner-authorized recovery/cleanup phase แยก
-  หลัง reviewer approval เท่านั้น
+  `_staging_b13a_evidence` + ของ B12 ทั้งหมด คงไว้บน scratch หลัง `execution_complete`
+  — การลบเป็น owner-authorized recovery/cleanup phase แยกหลัง reviewer approval เท่านั้น
+- **`_staging_b13a_sentinel` ไม่ใช่ retained behavioral evidence** แต่เป็น **control token
+  รายวัน** — เก็บ **current active row หนึ่งแถว** เท่านั้น · แถวที่หมดอายุ (confirm_text ไม่ตรง
+  `db_current_date` ปัจจุบัน) **แทนที่ได้ผ่าน atomic sentinel refresh (B4.3) เท่านั้น** ·
+  ห้าม archive ด้วย schema/table ใหม่ · ห้าม INSERT/DELETE มือเปล่านอกบล็อกนั้น
 
 ---
 
