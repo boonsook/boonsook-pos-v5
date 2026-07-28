@@ -167,7 +167,9 @@ BEGIN
 
   -- ── (3) unknown-object inventory (starts_with = _ เป็น literal · ตัดเฉพาะ index/TOAST
   --      ไม่ใช่ allowlist relkind — sequence 'S' / composite 'c' ต้องถูกจับเป็น unknown ด้วย)
-  SELECT string_agg(c.relname || ':' || c.relkind, ', ' ORDER BY c.relname) INTO v_rel_bad
+  --      pg_class.relkind เป็น internal type "char" — ต้อง cast ::text ก่อนต่อสตริง
+  --      มิฉะนั้น text || "char" มี operator candidate สองตัว = ambiguous (SQLSTATE 42725)
+  SELECT string_agg(c.relname || ':' || c.relkind::text, ', ' ORDER BY c.relname) INTO v_rel_bad
     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
    WHERE n.nspname = 'public' AND starts_with(c.relname, '_staging_b13a')
      AND c.relkind <> ALL (ARRAY['i','I','t'])

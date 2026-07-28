@@ -1197,3 +1197,42 @@ test("G67. docs stable anchors + guard/CI ไม่ถูก claim เป็น 
     }
   }
 });
+
+// ═════════════════════════════════════════════════
+//  Phase 606-B13a.1.1 — recovery inventory relkind cast regression (G68)
+// ═════════════════════════════════════════════════
+//  owner-run 2026-07-27 ล้มที่ unknown-object inventory ด้วย SQLSTATE 42725
+//  เพราะ pg_class.relkind เป็น internal type "char" → `text || "char"` มี
+//  operator candidate สองตัว = ambiguous · แก้ด้วย explicit ::text cast
+//  ⚠️ นี่เป็น source-regression guard ไม่ใช่ PostgreSQL runtime execution proof
+test("G68. recovery inventory: relkind ต้อง cast ::text (กัน SQLSTATE 42725)", () => {
+  // extract เฉพาะ statement ของ unknown relation inventory ในบล็อก recovery
+  // (ห้าม grep ทั้งไฟล์ — ต้องผูกกับ statement จริงเท่านั้น)
+  const s = RECOVERY.indexOf("SELECT string_agg(c.relname");
+  assert.ok(s > 0, "ต้องหา unknown relation inventory statement ใน recovery เจอ");
+  const e = RECOVERY.indexOf("IF v_rel_bad IS NOT NULL THEN", s);
+  assert.ok(e > s, "ต้องหาจุดจบของ inventory statement เจอ");
+  const INV = RECOVERY.slice(s, e);
+
+  // (1) ต้องมีรูป cast ที่ถูกต้อง
+  assert.ok(INV.includes("c.relname || ':' || c.relkind::text"),
+    "inventory ต้องต่อสตริงด้วย c.relkind::text");
+  // (2) ::text ต้องมี occurrence เดียวใน statement นี้
+  assert.equal((INV.match(/c\.relkind::text/g) || []).length, 1,
+    "c.relkind::text ต้องมีหนึ่ง occurrence ใน inventory statement");
+  // (3) ห้ามเหลือรูป uncast — negative lookahead กันไม่ให้ไปแมตช์ substring ของ ::text
+  assert.doesNotMatch(INV, /c\.relname \|\| ':' \|\| c\.relkind(?!::text)/,
+    "ห้ามเหลือ c.relkind แบบไม่ cast (text || \"char\" = ambiguous 42725)");
+  // (4) ห้าม cast เป็นชนิดอื่น
+  assert.doesNotMatch(INV, /c\.relkind::(?!text\b)/,
+    "relkind ต้อง cast เป็น ::text เท่านั้น ห้าม char/\"char\"/ชนิดอื่น");
+  // (5) filter เดิมต้องคงอยู่ — ตัดเฉพาะ index/partitioned-index/TOAST
+  assert.match(INV, /c\.relkind <> ALL \(ARRAY\['i','I','t'\]\)/,
+    "ต้องคง filter c.relkind <> ALL (ARRAY['i','I','t'])");
+  // (6) ห้ามเปลี่ยนกลับเป็น allowlist relkind (sequence 'S'/composite 'c' ต้องถูกจับ)
+  assert.doesNotMatch(INV, /c\.relkind IN \(/,
+    "ห้ามใช้ allowlist relkind — sequence/composite ใต้ prefix ต้องถูกจับเป็น unknown");
+  // (7) mutation set ของ recovery ต้องไม่ถูกแตะจากการแก้นี้
+  const muts = (REC_REPAIR.match(/EXECUTE '(REVOKE|GRANT|CREATE|ALTER|DROP|TRUNCATE)[^']*'/g) || []);
+  assert.equal(muts.length, 4, "REVOKE ต้องยังมี 4 คำสั่งเป๊ะ ไม่ถูกเพิ่ม/ลด/ย้าย");
+});
