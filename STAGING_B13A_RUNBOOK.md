@@ -226,6 +226,43 @@ SELECT public.b13a_owner_bootstrap('<actor-uuid>'::uuid);
 `S0.5`–`S0.7` · `S0-RELOAD` · `PREFLIGHT` · `SEED` · bootstrap invocation · Auth user ·
 payment/JV · certificates
 
+### B4.6 บันทึก owner-run ที่ล้ม (DB date 2026-07-27) — package SHA `fefe477`
+
+**เกิดอะไรขึ้น**
+
+| ขั้น | ผล |
+|---|---|
+| STEP 1 target/state/ACL preflight | ผ่าน |
+| STEP 2 atomic sentinel refresh | ผ่าน |
+| STEP 3 `R0` | ผ่าน **17/17** |
+| STEP 4 `S0-ACL-RECOVERY` | **ล้ม — SQLSTATE `42725`** |
+
+**Root cause:** unknown-object inventory ต่อสตริง `c.relname || ':' || c.relkind` โดยไม่ cast
+`pg_class.relkind` เป็น internal type `"char"` → `text || "char"` มี operator candidate สองตัว
+(`anynonarray || text` และ `text || anynonarray`) → **ambiguous operator** · แก้แล้วใน Phase
+606-B13a.1.1 ด้วย `c.relkind::text`
+
+**ผลกระทบต่อ scratch (สำคัญ)**
+
+- error เกิด **ก่อน** ถึง `REVOKE` ที่อนุญาตทั้ง 4 คำสั่ง
+- `DO` เป็น statement เดียว → **rollback ทั้ง statement** · ไม่มี `REVOKE` ใดถูก commit
+- **ไม่มี** business / payment / JV / accounting mutation
+- ACL surplus ยังอยู่ใน **interrupted state เดิม** ไม่เปลี่ยนแปลง
+- `S0.1`–`S0.4` **ยังไม่ได้ rerun** หลัง recovery · `S0.5`–`S0.7` **NOT RUN** · certificates **NOT ISSUED**
+- 🚫 **ห้าม claim ว่า ACL recovery ผ่าน** และ **ห้าม claim ว่า authenticated payment behavioral verification ผ่าน**
+
+**ข้อห้ามหลังเหตุการณ์นี้**
+
+- 🚫 ห้ามแก้ SQL ด้วยมือใน SQL Editor เพื่อให้ผ่าน — ต้องแก้ที่ source แล้ว merge เท่านั้น
+- 🚫 ห้าม rerun package SHA `fefe477` อีก (มี defect นี้อยู่)
+- ต้องรอ hotfix merge แล้ว **เริ่ม execution prompt ใหม่** จาก SHA ใหม่
+
+**เงื่อนไขของรอบใหม่ (ห้ามข้าม)**
+
+- sentinel ต้อง derive จาก `current_date` ของ **target DB session รอบใหม่** เท่านั้น
+- ต้องทำ target/state/ACL precheck และ `R0` **ใหม่ทั้งหมด**
+- 🚫 **ห้ามถือผล STEP 1–3 ของวันที่/session เดิมเป็น authority ข้ามวันหรือข้าม session**
+
 ## B5) Isolated app (browser)
 
 - Copy แอปเป็น **temp directory นอก repo** — ห้ามรันจาก working tree ของ repo

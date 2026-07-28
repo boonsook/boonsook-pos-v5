@@ -2,7 +2,23 @@
 
 > Prompt brief skill: read [`PROMPT_PHASE_BRIEF_SKILL.md`](PROMPT_PHASE_BRIEF_SKILL.md) before drafting, reviewing, or implementing phase prompts for Claude/Codex. It locks the required baseline, scope, failure semantics, tests, build/docs, and STOP marker.
 
-**🆕 Phase 606-B13a.1 — fresh-create ACL exactness + S0-ACL-RECOVERY (package hotfix · build 604 / v5.69.72 ไม่ bump):**
+**🆕 Phase 606-B13a.1.1 — cast `relkind` ใน recovery inventory (package hotfix · build 604 / v5.69.72 ไม่ bump):**
+
+**สถานะ execution ปัจจุบัน (supersede ข้อความ "ยังไม่มี SQL ถูกรัน" ในบล็อก 606-B13a.1 ด้านล่าง):** package `fefe477` merge แล้ว และ owner **เริ่ม owner-run บน scratch จริงแล้ว** — STEP 1 (target/state/ACL preflight) · STEP 2 (atomic sentinel refresh) · STEP 3 (`R0` **17/17**) **ผ่านทั้งหมด** เมื่อ DB date `2026-07-27` · แต่ **STEP 4 `S0-ACL-RECOVERY` ล้มด้วย SQLSTATE `42725`**
+
+**Root cause:** unknown-object inventory ใน recovery ต่อสตริง `c.relname || ':' || c.relkind` โดยไม่ cast — `pg_class.relkind` เป็น internal type `"char"` ทำให้ `text || "char"` มี operator candidate สองตัว = **ambiguous operator** · เป็น defect ที่ source-regex guard มองไม่เห็นเพราะไม่เคย execute จริง
+
+**ผลกระทบต่อ scratch:** error เกิด **ก่อน** `REVOKE` ที่อนุญาตทั้ง 4 คำสั่ง · `DO` เป็น statement เดียวจึง **rollback ทั้ง statement** · **ไม่มี `REVOKE` ใดถูก commit** · **ไม่มี business / payment / JV / accounting mutation** · ACL surplus ยังอยู่ใน interrupted state เดิม · `S0.1`–`S0.4` ยังไม่ได้ rerun หลัง recovery · `S0.5`–`S0.7` **NOT RUN** · certificates **NOT ISSUED** · authenticated payment behavioral verification **ยังไม่ผ่าน**
+
+**สิ่งที่ 606-B13a.1.1 แก้ (surgical):** เปลี่ยนเฉพาะ expression เดียวเป็น `c.relname || ':' || c.relkind::text` · คง filter `c.relkind <> ALL (ARRAY['i','I','t'])` เดิม (sequence `S` / composite `c` ใต้ prefix ยังถูกจับเป็น unknown) · ไม่แตะ tri-state / sentinel interlock / residue predicates / canonical body+MD5 / mutation set 4 `REVOKE` · guard ใหม่ **G68** ผูก regression นี้กับ statement ที่ extract จริง + mutation proof M1/M2
+
+**ข้อห้ามต่อจากนี้:** 🚫 ห้ามแก้ SQL ด้วยมือใน SQL Editor · 🚫 ห้าม rerun package SHA `fefe477` · หลัง hotfix merge ต้อง **เริ่ม execution prompt ใหม่** โดย derive sentinel จาก `current_date` ของ session รอบใหม่ และทำ target/state/ACL precheck + `R0` ใหม่ทั้งหมด — **ห้ามถือผล STEP 1–3 ของวันที่เดิมเป็น authority ข้ามวัน/ข้าม session**
+
+**ขอบเขต:** source/test/runbook/docs เท่านั้น — ไม่มี runtime/UI change · ไม่มี production SQL · ไม่มี staging SQL ระหว่าง implement · **guard/CI เขียวไม่ใช่ scratch runtime ACL proof** (พิสูจน์แค่ว่า source ตรง contract — G68 เป็น source-regression proof ไม่ใช่ PostgreSQL runtime execution proof) · 606-b2c/606-b3/607 ยังไม่ได้รับอนุญาต
+
+---
+
+**Phase 606-B13a.1 — fresh-create ACL exactness + S0-ACL-RECOVERY (package hotfix · build 604 / v5.69.72 ไม่ bump)** *(ข้อความเรื่อง "ยังไม่มี SQL ถูกรัน" ในบล็อกนี้ถูก superseded โดยบล็อก 606-B13a.1.1 ด้านบน)*:
 
 **ข้อเท็จจริงของ scratch ณ ตอนนี้ (supersede ข้อความ "execution NOT RUN" ในบล็อก B13a ด้านล่าง):** owner รัน B13a บน scratch staging เดิมของ Phase 606-B12 เมื่อ **2026-07-26** ไปแล้วบางส่วน — `R0` = **17/17** · **S0.1–S0.4 สำเร็จ** (สร้าง `_staging_b13a_runs` / `_staging_b13a_results` / `_staging_b13a_evidence` + `b13a_owner_bootstrap(uuid)`) · ตาราง B13a ทั้งสามมี **0 rows** · **S0.5–S0.7 NOT RUN** · PREFLIGHT / SEED / bootstrap invocation / payment / JV **NOT RUN** · ไม่มี run/evidence/result · **certificates NOT ISSUED** · ไม่มี manual REVOKE/ALTER/DROP/cleanup · sentinel ที่ใช้ในวันนั้นคือ `B13A-STAGING-2026-07-26` · **ไม่มี B13a SQL รันบน production** — defect และ recovery ทั้งหมดจำกัดอยู่ใน scratch package
 
