@@ -309,7 +309,13 @@ BEGIN
     IF position('B13A-FN-BOOTSTRAP-V1' IN coalesce(v_prosrc, '')) = 0 THEN
       RAISE EXCEPTION 'B13A RECOVERY STOP: bootstrap ไม่มี canonical marker — ห้าม repair';
     END IF;
-    v_md5 := md5(v_prosrc);
+    -- [B13A-EOL-NORM] SQL Editor paste ทำให้ prosrc บน scratch เป็น CRLF ได้ (owner-run 2026-07-29
+    -- ล้ม P0001 เพราะ hash ต่างเฉพาะ EOL ทั้งที่ body เดียวกัน) — ยอมรับ equivalence เฉพาะ CRLF↔LF:
+    -- ตัด CRLF pairs ด้วย exact replace ก่อน · เหลือ lone CR = STOP (ห้ามกลืนทิ้ง) · ห้าม trim/regexp folding
+    IF position(E'\r' IN replace(v_prosrc, E'\r\n', E'\n')) > 0 THEN
+      RAISE EXCEPTION 'B13A RECOVERY STOP: bootstrap prosrc มี lone CR (ไม่ใช่ CRLF pair) — ไม่ใช่ line-ending transport ห้าม repair';
+    END IF;
+    v_md5 := md5(replace(v_prosrc, E'\r\n', E'\n'));
     IF v_md5 IS DISTINCT FROM c_md5 THEN
       RAISE EXCEPTION 'B13A RECOVERY STOP: bootstrap body hash ไม่ตรง canonical (expected=% actual=%) — อาจเป็น body drift หรือ line-ending/paste difference · ห้ามแก้ prosrc บน scratch · ห้าม manual workaround · ต้องออก recovery phase ใหม่หลัง reviewer ตัดสิน',
         c_md5, v_md5;
@@ -1233,9 +1239,14 @@ $B13A_DEF_BOOTSTRAP$;
       INTO v_prosrc, v_secdef, v_cfg, v_lang, v_owner_ok
       FROM pg_proc p JOIN pg_language l ON l.oid = p.prolang
      WHERE p.oid = v_oid;
-    -- body ต้องตรงเวอร์ชันนี้ byte-ต่อ-byte — marker substring อย่างเดียวไม่พอ
-    IF v_prosrc IS DISTINCT FROM v_body THEN
-      RAISE EXCEPTION 'B13A S0.4: b13a_owner_bootstrap body ไม่ตรงเวอร์ชันนี้เป๊ะ — STOP ห้าม overwrite/reuse';
+    -- body ต้องตรงเวอร์ชันนี้แบบ exact — [B13A-EOL-NORM] ผ่อนเฉพาะ CRLF↔LF (line-ending transport)
+    -- lone CR หลังตัด CRLF pairs = STOP · ห้าม trim/regexp folding · ความต่างอื่นทุกชนิด = STOP
+    IF position(E'\r' IN replace(v_prosrc, E'\r\n', E'\n')) > 0
+       OR position(E'\r' IN replace(v_body, E'\r\n', E'\n')) > 0 THEN
+      RAISE EXCEPTION 'B13A S0.4: พบ lone CR ใน prosrc/expected body (ไม่ใช่ CRLF pair) — STOP ห้าม reuse';
+    END IF;
+    IF replace(v_prosrc, E'\r\n', E'\n') IS DISTINCT FROM replace(v_body, E'\r\n', E'\n') THEN
+      RAISE EXCEPTION 'B13A S0.4: b13a_owner_bootstrap body ไม่ตรงเวอร์ชันนี้เป๊ะ (ความต่างนอกเหนือ CRLF/LF) — STOP ห้าม overwrite/reuse';
     END IF;
     IF v_secdef THEN
       RAISE EXCEPTION 'B13A S0.4: b13a_owner_bootstrap ต้องไม่เป็น SECURITY DEFINER — STOP';
@@ -1824,9 +1835,14 @@ $B13A_DEF_BROWSER$;
       INTO v_prosrc, v_secdef, v_cfg, v_lang, v_owner_ok
       FROM pg_proc p JOIN pg_language l ON l.oid = p.prolang
      WHERE p.oid = v_oid;
-    -- body ต้องตรงเวอร์ชันนี้ byte-ต่อ-byte — marker substring อย่างเดียวไม่พอ
-    IF v_prosrc IS DISTINCT FROM v_body THEN
-      RAISE EXCEPTION 'B13A S0.5: b13a_browser_transition body ไม่ตรงเวอร์ชันนี้เป๊ะ — STOP ห้าม overwrite/reuse';
+    -- body ต้องตรงเวอร์ชันนี้แบบ exact — [B13A-EOL-NORM] ผ่อนเฉพาะ CRLF↔LF (line-ending transport)
+    -- lone CR หลังตัด CRLF pairs = STOP · ห้าม trim/regexp folding · ความต่างอื่นทุกชนิด = STOP
+    IF position(E'\r' IN replace(v_prosrc, E'\r\n', E'\n')) > 0
+       OR position(E'\r' IN replace(v_body, E'\r\n', E'\n')) > 0 THEN
+      RAISE EXCEPTION 'B13A S0.5: พบ lone CR ใน prosrc/expected body (ไม่ใช่ CRLF pair) — STOP ห้าม reuse';
+    END IF;
+    IF replace(v_prosrc, E'\r\n', E'\n') IS DISTINCT FROM replace(v_body, E'\r\n', E'\n') THEN
+      RAISE EXCEPTION 'B13A S0.5: b13a_browser_transition body ไม่ตรงเวอร์ชันนี้เป๊ะ (ความต่างนอกเหนือ CRLF/LF) — STOP ห้าม overwrite/reuse';
     END IF;
     IF NOT v_secdef THEN
       RAISE EXCEPTION 'B13A S0.5: b13a_browser_transition ต้องเป็น SECURITY DEFINER — STOP';
@@ -2504,9 +2520,14 @@ $B13A_DEF_FINALIZE$;
       INTO v_prosrc, v_secdef, v_cfg, v_lang, v_owner_ok
       FROM pg_proc p JOIN pg_language l ON l.oid = p.prolang
      WHERE p.oid = v_oid;
-    -- body ต้องตรงเวอร์ชันนี้ byte-ต่อ-byte — marker substring อย่างเดียวไม่พอ
-    IF v_prosrc IS DISTINCT FROM v_body THEN
-      RAISE EXCEPTION 'B13A S0.6: b13a_owner_finalize body ไม่ตรงเวอร์ชันนี้เป๊ะ — STOP ห้าม overwrite/reuse';
+    -- body ต้องตรงเวอร์ชันนี้แบบ exact — [B13A-EOL-NORM] ผ่อนเฉพาะ CRLF↔LF (line-ending transport)
+    -- lone CR หลังตัด CRLF pairs = STOP · ห้าม trim/regexp folding · ความต่างอื่นทุกชนิด = STOP
+    IF position(E'\r' IN replace(v_prosrc, E'\r\n', E'\n')) > 0
+       OR position(E'\r' IN replace(v_body, E'\r\n', E'\n')) > 0 THEN
+      RAISE EXCEPTION 'B13A S0.6: พบ lone CR ใน prosrc/expected body (ไม่ใช่ CRLF pair) — STOP ห้าม reuse';
+    END IF;
+    IF replace(v_prosrc, E'\r\n', E'\n') IS DISTINCT FROM replace(v_body, E'\r\n', E'\n') THEN
+      RAISE EXCEPTION 'B13A S0.6: b13a_owner_finalize body ไม่ตรงเวอร์ชันนี้เป๊ะ (ความต่างนอกเหนือ CRLF/LF) — STOP ห้าม overwrite/reuse';
     END IF;
     IF v_secdef THEN
       RAISE EXCEPTION 'B13A S0.6: b13a_owner_finalize ต้องไม่เป็น SECURITY DEFINER — STOP';
@@ -2686,9 +2707,14 @@ $B13A_DEF_EXPOSED$;
       INTO v_prosrc, v_secdef, v_cfg, v_lang, v_owner_ok
       FROM pg_proc p JOIN pg_language l ON l.oid = p.prolang
      WHERE p.oid = v_oid;
-    -- body ต้องตรงเวอร์ชันนี้ byte-ต่อ-byte — marker substring อย่างเดียวไม่พอ
-    IF v_prosrc IS DISTINCT FROM v_body THEN
-      RAISE EXCEPTION 'B13A S0.7: b13a_rpc_exposed body ไม่ตรงเวอร์ชันนี้เป๊ะ — STOP ห้าม overwrite/reuse';
+    -- body ต้องตรงเวอร์ชันนี้แบบ exact — [B13A-EOL-NORM] ผ่อนเฉพาะ CRLF↔LF (line-ending transport)
+    -- lone CR หลังตัด CRLF pairs = STOP · ห้าม trim/regexp folding · ความต่างอื่นทุกชนิด = STOP
+    IF position(E'\r' IN replace(v_prosrc, E'\r\n', E'\n')) > 0
+       OR position(E'\r' IN replace(v_body, E'\r\n', E'\n')) > 0 THEN
+      RAISE EXCEPTION 'B13A S0.7: พบ lone CR ใน prosrc/expected body (ไม่ใช่ CRLF pair) — STOP ห้าม reuse';
+    END IF;
+    IF replace(v_prosrc, E'\r\n', E'\n') IS DISTINCT FROM replace(v_body, E'\r\n', E'\n') THEN
+      RAISE EXCEPTION 'B13A S0.7: b13a_rpc_exposed body ไม่ตรงเวอร์ชันนี้เป๊ะ (ความต่างนอกเหนือ CRLF/LF) — STOP ห้าม overwrite/reuse';
     END IF;
     IF v_secdef THEN
       RAISE EXCEPTION 'B13A S0.7: b13a_rpc_exposed ต้องไม่เป็น SECURITY DEFINER — STOP';
