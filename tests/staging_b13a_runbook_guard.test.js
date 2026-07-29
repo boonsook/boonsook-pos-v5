@@ -406,8 +406,10 @@ test("G24. S0 introspect-or-create-exact — ห้าม silent IF NOT EXISTS /
     assert.ok(b.includes(`to_regprocedure('${sig}')`),
       `${tag}: ต้องผูกด้วย exact to_regprocedure signature (ห้ามค้นด้วยชื่ออย่างเดียว)`);
     assert.match(b, /signature ไม่ตรงเวอร์ชันนี้ — STOP/, `${tag}: ชื่อซ้ำแต่ signature อื่น = STOP`);
-    assert.match(b, /IF v_prosrc IS DISTINCT FROM v_body THEN/,
-      `${tag}: reuse ต้องเทียบ prosrc กับ expected body แบบ exact (marker อย่างเดียวไม่พอ)`);
+    // Phase 606-B13a.1.2: raw byte compare → normalized exact compare (CRLF↔LF เท่านั้น)
+    // — prosrc บน scratch ผ่าน SQL Editor paste เป็น CRLF ได้ (owner-run 2026-07-29 ล้ม P0001)
+    assert.match(b, /IF replace\(v_prosrc, E'\\r\\n', E'\\n'\) IS DISTINCT FROM replace\(v_body, E'\\r\\n', E'\\n'\) THEN/,
+      `${tag}: reuse ต้องเทียบ prosrc กับ expected body แบบ normalized exact (CRLF↔LF เท่านั้น — marker อย่างเดียวไม่พอ)`);
     assert.match(b, /p\.prosecdef/, `${tag}: ต้องตรวจ prosecdef`);
     assert.match(b, /array_to_string\(p\.proconfig, ','\)/, `${tag}: ต้องตรวจ proconfig exact`);
     assert.match(b, /l\.lanname/, `${tag}: ต้องตรวจ language`);
@@ -1075,7 +1077,8 @@ test("G60-G61. canonical MD5 cross-check + ห้าม $fn_bootstrap$ ก่อ
   assert.ok(m, "recovery ต้องฝัง canonical MD5 constant");
   assert.equal(m[1], expected,
     `MD5 ใน recovery (${m ? m[1] : "-"}) ต้องตรง canonical $fn_bootstrap$ body (${expected})`);
-  assert.match(REC_REPAIR, /v_md5 := md5\(v_prosrc\);/, "recovery ต้องคำนวณ md5(prosrc) จริง");
+  assert.match(REC_REPAIR, /v_md5 := md5\(replace\(v_prosrc, E'\\r\\n', E'\\n'\)\);/,
+    "recovery ต้องคำนวณ md5 จาก normalized prosrc (CRLF→LF) — canonical MD5 ยังผูกกับ LF source");
   assert.match(REC_REPAIR, /v_md5 IS DISTINCT FROM c_md5/, "ต้องเทียบกับ canonical constant");
   assert.match(REC_REPAIR, /expected=% actual=%/, "hash ไม่ตรงต้องรายงาน expected/actual");
   assert.match(REC_REPAIR, /ห้ามแก้ prosrc บน scratch/, "hash ไม่ตรง = ห้าม manual workaround");
@@ -1235,4 +1238,54 @@ test("G68. recovery inventory: relkind ต้อง cast ::text (กัน SQLST
   // (7) mutation set ของ recovery ต้องไม่ถูกแตะจากการแก้นี้
   const muts = (REC_REPAIR.match(/EXECUTE '(REVOKE|GRANT|CREATE|ALTER|DROP|TRUNCATE)[^']*'/g) || []);
   assert.equal(muts.length, 4, "REVOKE ต้องยังมี 4 คำสั่งเป๊ะ ไม่ถูกเพิ่ม/ลด/ย้าย");
+});
+
+// ═════════════════════════════════════════════════
+//  Phase 606-B13a.1.2 — EOL normalization contract (G69)
+// ═════════════════════════════════════════════════
+//  owner-run 2026-07-29: STEP 1–3 ผ่านแต่ STEP 4 ล้ม SQLSTATE P0001 — prosrc บน scratch
+//  เป็น CRLF (SQL Editor paste) ขณะ c_md5 ผูกกับ canonical LF → hash ต่างทั้งที่ body เดียวกัน
+//  deterministic proof: LF md5=8a185d25… · LF→CRLF md5=198fb98c… ตรง actual บน scratch เป๊ะ
+//  contract: ยอมรับ CRLF↔LF เท่านั้น · lone CR = STOP · ห้าม trim/regexp folding
+//  ⚠️ นี่คือ source-regression guard — ไม่ใช่ PostgreSQL runtime execution proof
+test("G69. EOL normalization: exact replace CRLF→LF + lone-CR reject ครบ recovery + 4 reuse blocks", () => {
+  const NORM_P = "replace(v_prosrc, E'\\r\\n', E'\\n')";
+  const NORM_B = "replace(v_body, E'\\r\\n', E'\\n')";
+  // (a) recovery: normalize ก่อน md5 · อยู่ก่อน REVOKE (ใน REC_PRE) · ห้ามเหลือ raw md5
+  assert.ok(REC_PRE.includes(`v_md5 := md5(${NORM_P});`),
+    "recovery ต้องคำนวณ md5 จาก normalized prosrc และต้องอยู่ก่อน mutation");
+  assert.ok(!RECOVERY.includes("md5(v_prosrc)"),
+    "ห้ามเหลือ raw md5(v_prosrc) ใน recovery (CRLF paste จะล้มแบบ 2026-07-29 ซ้ำ)");
+  // (b) lone-CR rejection — recovery (prosrc) + ทุก reuse block (ทั้ง prosrc และ body)
+  assert.ok(REC_PRE.includes(`position(E'\\r' IN ${NORM_P}) > 0`),
+    "recovery ต้อง reject lone CR หลังตัด CRLF pairs (ห้ามกลืนทิ้ง)");
+  for (const tag of S0_FN_BLOCKS) {
+    const b = block(tag);
+    assert.ok(b.includes(`IF ${NORM_P} IS DISTINCT FROM ${NORM_B} THEN`),
+      `${tag}: reuse ต้องเทียบ normalized values แบบ exact`);
+    assert.ok(!/IF v_prosrc IS DISTINCT FROM v_body THEN/.test(b),
+      `${tag}: ห้ามเหลือ raw byte comparison`);
+    assert.ok(b.includes(`position(E'\\r' IN ${NORM_P}) > 0`)
+           && b.includes(`position(E'\\r' IN ${NORM_B}) > 0`),
+      `${tag}: ต้อง reject lone CR ทั้ง prosrc และ expected body`);
+  }
+  // (c) ห้าม trim/folding บนตัวเปรียบเทียบ · ห้าม regexp_replace ที่แตะ \r ทั้งไฟล์
+  //     (regexp_replace เดิม 13 จุดใน S0.1–S0.3 ใช้กับ constraint defs ไม่มี \r — ไม่โดน)
+  assert.doesNotMatch(SQL_CODE, /\b[lr]?trim\(\s*(v_prosrc|v_body)/,
+    "ห้าม trim/ltrim/rtrim บน prosrc/body (whitespace ต้องยัง exact)");
+  assert.doesNotMatch(SQL_CODE, /regexp_replace\([^;]{0,160}\\r/,
+    "ห้าม regexp_replace ที่ใช้ \\r — ต้อง exact replace เท่านั้น (regexp กลืน lone CR เงียบได้)");
+  // (d) canonical MD5 คงเดิม (G60-G61 cross-check กับ LF source อยู่แล้ว — ล็อกค่า constant ซ้ำ)
+  assert.ok(RECOVERY.includes("c_md5 CONSTANT text := '8a185d251d660a9d690c0cf2075d821e'"),
+    "c_md5 ต้องคงค่า canonical LF hash เดิม (normalize ฝั่ง prosrc ไม่ใช่ฝั่ง constant)");
+  // (e) mutation set ยังเป็น REVOKE 4 จุดเป๊ะ + ไม่มี CREATE OR REPLACE / helper object ใหม่
+  const muts = (REC_REPAIR.match(/EXECUTE '(REVOKE|GRANT|CREATE|ALTER|DROP|TRUNCATE)[^']*'/g) || []);
+  assert.equal(muts.length, 4, "recovery ต้องมี mutation 4 REVOKE เป๊ะ");
+  for (const m of muts) assert.match(m, /^EXECUTE 'REVOKE ALL ON /, `mutation ต้องเป็น REVOKE เท่านั้น: ${m}`);
+  assert.doesNotMatch(SQL_CODE, /CREATE OR REPLACE/i, "ห้าม CREATE OR REPLACE ทุกกรณี");
+  assert.equal((SQL_CODE.match(/CREATE (TABLE|FUNCTION|VIEW|MATERIALIZED VIEW)/g) || []).length, 7,
+    "object ที่สร้างต้องคงเดิม 7 (3 tables + 4 functions) — ห้าม helper ใหม่");
+  // (f) SQL source ต้องเป็น LF ล้วน — มิฉะนั้น canonical MD5 ที่ guard คำนวณจะเพี้ยน
+  assert.doesNotMatch(SQL, /\r/,
+    "SQL source ต้องเป็น LF ล้วน — checkout/fixture ที่เป็น CRLF ทำให้ canonical MD5 เพี้ยน (ดู M13)");
 });

@@ -263,6 +263,43 @@ payment/JV · certificates
 - ต้องทำ target/state/ACL precheck และ `R0` **ใหม่ทั้งหมด**
 - 🚫 **ห้ามถือผล STEP 1–3 ของวันที่/session เดิมเป็น authority ข้ามวันหรือข้าม session**
 
+### B4.7 บันทึก owner-run ครั้งที่สอง (DB date 2026-07-29) — package SHA `e676f9c` · EOL hash mismatch
+
+**เกิดอะไรขึ้น**
+
+| ขั้น | ผล |
+|---|---|
+| STEP 1 target/state/ACL preflight | ผ่าน (รวม ACL surplus probe: 4 objects · 52 entries) |
+| STEP 2 atomic sentinel refresh | ผ่าน (`B13A-STAGING-2026-07-29` · total/exact/all_exact = 1/1/true) |
+| STEP 3 `R0` | ผ่าน **17/17** |
+| STEP 4 `S0-ACL-RECOVERY` | **ล้ม — SQLSTATE `P0001`** (bootstrap body hash mismatch) |
+
+**Root cause:** recovery เทียบ `md5(v_prosrc)` แบบ raw กับ `c_md5` ที่ผูกกับ canonical **LF** —
+แต่ `pg_proc.prosrc` บน scratch เก็บ body ที่ผ่าน SQL Editor paste เป็น **CRLF** ·
+deterministic proof จาก source: canonical LF md5 = `8a185d251d660a9d690c0cf2075d821e` ·
+body เดียวกันแปลง LF→CRLF md5 = `198fb98c4269792c6549b7e162ad2d3b` **ตรง actual บน scratch เป๊ะ**
+→ ความต่างคือ **line-ending transport ล้วน ไม่ใช่ body drift**
+
+**ผลกระทบต่อ scratch:** error เกิด**ก่อน** `REVOKE` ทั้ง 4 คำสั่ง · `DO` rollback ทั้ง statement ·
+**no REVOKE committed** · ไม่มี business / payment / JV / accounting mutation · ACL surplus ยังอยู่
+interrupted state เดิม · `S0.1`–`S0.7` ไม่ได้รันในรอบนี้ · certificates **NOT ISSUED**
+
+**สิ่งที่ Phase 606-B13a.1.2 แก้:** recovery + reuse ทั้ง 4 blocks (`S0.4`–`S0.7`) ใช้
+EOL-equivalence contract เดียวกัน — normalize ด้วย exact `replace(value, E'\r\n', E'\n')`
+ทั้งสองฝั่งก่อน hash/เทียบ · **reject lone CR** หลังตัด CRLF pairs (ห้ามกลืนทิ้ง) ·
+ห้าม trim / regexp folding · `c_md5` คงค่าเดิม (ผูกกับ LF source)
+
+> **CRLF↔LF equivalence เป็นการผ่อน byte-exact โดยตั้งใจเฉพาะ line-ending transport เท่านั้น;
+> whitespace, tabs, comments และ body semantics ยังต้อง exact และความต่างอื่นต้อง STOP**
+
+**ข้อห้ามหลังเหตุการณ์นี้**
+
+- 🚫 ห้ามแก้ SQL ด้วยมือใน SQL Editor เพื่อให้ hash ผ่าน — ต้องแก้ที่ source แล้ว merge เท่านั้น
+- 🚫 ห้าม rerun package SHA `e676f9c` อีก (raw-hash defect นี้ยังอยู่ใน SHA นั้น)
+- ต้องรอ hotfix 606-B13a.1.2 merge แล้ว **เริ่ม execution prompt ใหม่จาก squash SHA ใหม่**
+- เงื่อนไขรอบใหม่ = ตาม B4.6 เดิมทุกข้อ: refresh sentinel จาก `current_date` ของ session รอบใหม่ ·
+  precheck/`R0` ใหม่ทั้งหมด · sentinel `2026-07-29` หมดสิทธิ์เมื่อข้ามวัน/เปลี่ยน session
+
 ## B5) Isolated app (browser)
 
 - Copy แอปเป็น **temp directory นอก repo** — ห้ามรันจาก working tree ของ repo

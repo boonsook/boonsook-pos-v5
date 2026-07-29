@@ -2,7 +2,25 @@
 
 > Prompt brief skill: read [`PROMPT_PHASE_BRIEF_SKILL.md`](PROMPT_PHASE_BRIEF_SKILL.md) before drafting, reviewing, or implementing phase prompts for Claude/Codex. It locks the required baseline, scope, failure semantics, tests, build/docs, and STOP marker.
 
-**🆕 Phase 606-B13a.1.1 — cast `relkind` ใน recovery inventory (package hotfix · build 604 / v5.69.72 ไม่ bump):**
+**🆕 Phase 606-B13a.1.2 — normalize function-body EOL comparisons (package hotfix · build 604 / v5.69.72 ไม่ bump):**
+
+**สถานะ execution ปัจจุบัน (supersede สถานะในบล็อก 606-B13a.1.1 ด้านล่าง):** หลัง merge `e676f9c` owner รันรอบใหม่บน scratch เมื่อ DB date **2026-07-29** — STEP 1 target/state/ACL preflight **ผ่าน** · STEP 2 atomic sentinel refresh **ผ่าน** (`B13A-STAGING-2026-07-29` · 1/1/true) · STEP 3 `R0` **17/17** · แต่ **STEP 4 `S0-ACL-RECOVERY` ล้มด้วย SQLSTATE `P0001`** — bootstrap body hash mismatch: expected `8a185d251d660a9d690c0cf2075d821e` / actual `198fb98c4269792c6549b7e162ad2d3b`
+
+**Root cause (deterministic proof จาก source — ไม่เผย body):** recovery ใช้ raw `md5(v_prosrc)` เทียบกับ `c_md5` ที่ผูกกับ canonical **LF** แต่ `pg_proc.prosrc` บน scratch เก็บ body ผ่าน SQL Editor paste เป็น **CRLF** · canonical body แปลง LF→CRLF แล้ว md5 = `198fb98c…` **ตรง actual เป๊ะ** → ความต่างคือ line-ending transport ล้วน ไม่ใช่ body drift · defect เดียวกันซ่อนอยู่ใน reuse compare (`v_prosrc IS DISTINCT FROM v_body`) ของ `S0.4`–`S0.7` ทั้งสี่ block ด้วย
+
+**ผลต่อ scratch:** error เกิด**ก่อน** `REVOKE` ทั้ง 4 คำสั่ง · `DO` rollback ทั้ง statement → **no REVOKE committed** · ไม่มี business/payment/JV/accounting mutation · ACL surplus ยังอยู่ interrupted state เดิม · `S0.1`–`S0.7` ไม่ได้รันในรอบนี้ · certificates **NOT ISSUED** · **ACL recovery ยัง NOT PASS**
+
+**สิ่งที่ 606-B13a.1.2 แก้ (surgical · ไม่แตะ function body/`v_def` literal):** (1) recovery — reject lone CR ใน `v_prosrc` หลังตัด CRLF pairs แล้ว `v_md5 := md5(replace(v_prosrc, E'\r\n', E'\n'))` · `c_md5` คงเดิม · checks ทั้งหมดยังอยู่ก่อน REVOKE (2) reuse ทั้ง 4 blocks `S0.4`–`S0.7` ใช้ contract เดียวกัน — reject lone CR ทั้ง `v_prosrc`/`v_body` แล้วเทียบ normalized แบบ exact · ห้าม trim/regexp folding · ความต่างอื่นนอกจาก CRLF/LF ยัง STOP (3) guard: G24 + G60-G61 อัปเดตเป็น normalized form · เพิ่ม **G69** (exact replace form · lone-CR reject ครบทุก path · ban `regexp_replace` ที่แตะ `\r` · ban trim บน prosrc/body · c_md5 คงเดิม · REVOKE 4 เป๊ะ · ห้าม CREATE OR REPLACE/helper · **SQL source ต้องเป็น LF**) + mutation proof M1–M13
+
+> **CRLF↔LF equivalence เป็นการผ่อน byte-exact โดยตั้งใจเฉพาะ line-ending transport เท่านั้น; whitespace, tabs, comments และ body semantics ยังต้อง exact และความต่างอื่นต้อง STOP**
+
+**ข้อห้ามต่อจากนี้:** 🚫 ห้ามแก้ SQL ด้วยมือใน SQL Editor · 🚫 ห้าม rerun package SHA `e676f9c` (raw-hash defect ยังอยู่ใน SHA นั้น) · หลัง hotfix merge ต้อง**เริ่ม execution prompt ใหม่จาก squash SHA ใหม่** + refresh sentinel จาก `current_date` ของ session รอบใหม่ + precheck/R0 ใหม่ทั้งหมด — sentinel `2026-07-29` หมดสิทธิ์เมื่อข้ามวัน/เปลี่ยน session
+
+**ขอบเขต:** source/test/runbook/docs เท่านั้น — ไม่มี runtime/UI change · ไม่มี production SQL · ไม่มี staging SQL ระหว่าง implement · **guard/CI เขียวไม่ใช่ scratch runtime proof** (G69 เป็น source-regression guard) · authenticated payment behavioral verification ยังไม่ผ่าน · 606-b2c/606-b3/607 ยังไม่ได้รับอนุญาต
+
+---
+
+**Phase 606-B13a.1.1 — cast `relkind` ใน recovery inventory (package hotfix · build 604 / v5.69.72 ไม่ bump)** *(สถานะ execution ในบล็อกนี้ถูก superseded โดยบล็อก 606-B13a.1.2 ด้านบน)*:
 
 **สถานะ execution ปัจจุบัน (supersede ข้อความ "ยังไม่มี SQL ถูกรัน" ในบล็อก 606-B13a.1 ด้านล่าง):** package `fefe477` merge แล้ว และ owner **เริ่ม owner-run บน scratch จริงแล้ว** — STEP 1 (target/state/ACL preflight) · STEP 2 (atomic sentinel refresh) · STEP 3 (`R0` **17/17**) **ผ่านทั้งหมด** เมื่อ DB date `2026-07-27` · แต่ **STEP 4 `S0-ACL-RECOVERY` ล้มด้วย SQLSTATE `42725`**
 
