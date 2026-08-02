@@ -30,11 +30,18 @@ test("(c) logout() ล้าง authStatus (กัน 'กำลังเข้�
   assert.match(body, /if\s*\(\$\("authStatus"\)\)\s*\$\("authStatus"\)\.textContent\s*=\s*""/, "logout() ต้องล้าง authStatus");
 });
 
-// ── (d) customer_dashboard :615 escHtml(statusLabel) ──
-test("(d) customer_dashboard: statusLabel ถูก escHtml (defense-in-depth)", () => {
+// ── (d) customer_dashboard: ค่าจาก DB ต้องผ่าน escHtml ก่อนลง innerHTML ──
+// ★ Phase 606-b2c (build 605): บล็อกประวัติสั่งซื้อ (เจ้าของ statusLabel/bgColor เดิม) ถูกถอดออก
+//   — แท็บนั้นเป็น honest unavailable state แล้ว (RLS deny ฝั่งลูกค้า). invariant เดิม
+//   "ค่าจาก DB ห้ามลง innerHTML ดิบ" ยังบังคับ แต่ย้ายไปพิสูจน์บนฟิลด์ที่ยัง render จริง
+//   (งานบริการจาก proxy) + ยังกัน pattern เดิมไม่ให้กลับมา.
+test("(d) customer_dashboard: ค่าจาก DB ถูก escHtml (defense-in-depth)", () => {
   const cd = read("modules/customer_dashboard.js");
-  assert.match(cd, /\$\{escHtml\(statusLabel\)\}/, "ต้อง escHtml(statusLabel)");
+  for (const field of ['j.job_no || "-"', "desc", "presentation.message", "j.id"]) {
+    assert.ok(cd.includes(`escHtml(${field})`), `ต้อง escHtml(${field})`);
+  }
   assert.ok(!/border-radius:99px;background:\$\{bgColor\}">\$\{statusLabel\}/.test(cd), "ต้องไม่มี ${statusLabel} ดิบ");
+  assert.ok(!/\$\{statusLabel\}/.test(cd), "ต้องไม่มี statusLabel ดิบหลงเหลือ");
 });
 
 // ── (e) backfill: finally ล้าง _running ──

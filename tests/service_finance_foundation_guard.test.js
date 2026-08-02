@@ -421,9 +421,13 @@ test("C3. 606-a ไม่ปลดล็อก recovery และ runtime ที
   assert.match(read("scripts/service_no_jv_recover_lib.js"), /RECOVERY_APPLY_DISABLED = true/);
   // ★ Phase 606-b2 (build 603): main.js drawer รู้จัก recordServicePayment/serviceFinanceFlowOf แล้ว
   //   = เนื้องานของ b2 (dormant สำหรับ v1 — พิสูจน์ใน service_drawer_v2_semantics_guard +
-  //   service_payment_ui_guard). customer_dashboard (customer confirm) = 606-b2c ยังห้ามแตะ.
-  assert.ok(!/service_payments|record_service_payment_v2|recordServicePayment|finance_flow_version/.test(read("modules/customer_dashboard.js")),
-    "modules/customer_dashboard.js ต้องยังไม่รู้จักของใหม่ (606-b2c เท่านั้นที่ activate)");
+  //   service_payment_ui_guard).
+  // ★ Phase 606-b2c (build 605): customer_dashboard "อ่าน" finance_flow_version ได้แล้ว (flow-aware
+  //   confirm ผ่าน canonical serviceFinanceFlowOf — พิสูจน์ใน customer_dashboard_service_flow_guard
+  //   C1–C8) ตามที่บล็อกนี้เขียนไว้เองว่า "606-b2c เท่านั้นที่ activate". ที่ยังห้ามคือ payment/ledger:
+  //   หน้าลูกค้าห้ามแตะ service_payments / RPC รับชำระ ทุกกรณี (เป็นงานของ 606-b3 ขึ้นไป).
+  assert.ok(!/service_payments|record_service_payment_v2|recordServicePayment/.test(read("modules/customer_dashboard.js")),
+    "modules/customer_dashboard.js ห้ามแตะ payment/ledger (flow-read เปิดที่ 606-b2c แล้ว)");
   // main.js เขียนได้เฉพาะผ่าน canonical helper — ห้ามยิง RPC/ตาราง ledger ตรง
   assert.ok(!/record_service_payment_v2|rest\/v1\/service_payments/.test(read("main.js")),
     "main.js ห้ามเรียก RPC record_service_payment_v2 / REST service_payments ตรง — ต้องผ่าน recordServicePayment (auto_post)");

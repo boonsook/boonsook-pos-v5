@@ -12,6 +12,9 @@ import { acTypeOf, acTypeLabel, AC_TYPES } from "./settings/ac-stock-form.js";
 import { pushAirBookingDraft } from "./ac_booking_draft.js";
 // Phase 351: badge "จากแคตตาล็อกแอร์" ในแท็บงานของฉัน (read-only parse จาก note)
 import { parseAirJobMeta, airBadgeHtml, airJobInfoHtml } from "./air_job_meta.js";
+// ★ Phase 606-b2c: canonical flow parser ตัวเดียวกับ writer (auto_post) — ห้ามสร้าง parser คู่ที่นี่
+//   (import helper อย่างเดียว ห้ามเรียก posting/accounting function ใด ๆ จากหน้าลูกค้า)
+import { serviceFinanceFlowOf } from "./accounting/auto_post.js";
 
 let _custCart = safeParse("bsk_cust_cart", []); // Phase 573: safe parse (เดิม JSON.parse เปลือย → เสีย = แอปลูกค้าขาว)
 let _custTab = "shop"; // shop | cart | orders | jobs | points
@@ -32,6 +35,44 @@ let _loyalty = null;          // { balance, earned, redeemed, recent:[] } | null
 let _loyaltyState = "idle";   // idle | loading | loaded | error
 let _loyaltyKey = null;       // phone (identity ของ session ปัจจุบัน)
 
+// ★ Phase 606-b2c: งานบริการของลูกค้าอ่านจาก proxy (/api/v1/customer-service-jobs) — RLS deny
+//   service_jobs ตรง ๆ สำหรับ customer role (Phase 505 GROUP B) → state.serviceJobs ว่างเสมอ =
+//   หน้าลูกค้าโชว์ "ยังไม่มีงาน" หลอก. server derive identity จาก JWT (ไม่รับ phone/id จาก client).
+//   cache keyed ด้วย identity ของ session; logout เคลียร์; error → ข้อความ + retry (ไม่โชว์ empty หลอก).
+let _custJobs = null;          // [{ id, job_no, job_type, sub_service, description, status, total_cost, created_at, finance_flow_version }] | null
+let _custJobsState = "idle";   // idle | loading | loaded | error
+let _custJobsKey = null;       // authenticated identity ของ session ปัจจุบัน
+let _custJobsTruncated = false;
+const _custConfirmGuard = createInflightGuard();  // กันกดยืนยันซ้ำ (แยกจาก checkout guard)
+
+// ★ Phase 606-b2c: pure helper — ปุ่มยืนยันและ badge ต้องใช้ตัวนี้ตัวเดียว (กัน badge/action drift).
+//   flow อ่านผ่าน canonical serviceFinanceFlowOf (null = unknown → fail closed ห้ามยืนยัน).
+//   v1: done/delivered ยืนยันได้ (พฤติกรรมเดิม) · v2: delivered เท่านั้น (done → closed ข้าม
+//   recognition event) — ตรงกับ allowlist ฝั่ง server ซึ่งเป็นด่านจริง.
+export function customerCanConfirmJob(job) {
+  const flow = serviceFinanceFlowOf(job);
+  if (flow !== 1 && flow !== 2) return false;
+  const status = String(job?.status || "");
+  if (flow === 1) return status === "done" || status === "delivered";
+  return status === "delivered";
+}
+
+// ★ Phase 606-b2c: ข้อความสถานะของงาน (ใช้คู่ helper ด้านบน — ห้ามตัดสินปุ่มจากที่อื่น)
+export function customerJobStatusPresentation(job) {
+  const flow = serviceFinanceFlowOf(job);
+  const status = String(job?.status || "");
+  if (flow !== 1 && flow !== 2) {
+    return { kind: "unknown", canConfirm: false, message: "ตรวจสอบข้อมูลงานไม่สำเร็จ — กรุณาติดต่อเจ้าหน้าที่" };
+  }
+  if (customerCanConfirmJob(job)) {
+    return { kind: "confirmable", canConfirm: true, message: "พร้อมให้ลูกค้ายืนยันปิดงาน" };
+  }
+  if (flow === 2 && status === "done") {
+    return { kind: "awaiting_delivery", canConfirm: false, message: "งานเสร็จแล้ว — รอเจ้าหน้าที่ส่งมอบและรับรู้รายได้" };
+  }
+  return { kind: "other", canConfirm: false, message: "" };
+}
+
 function saveCustCart() {
   try { localStorage.setItem("bsk_cust_cart", JSON.stringify(_custCart)); } catch(e){}
 }
@@ -51,6 +92,11 @@ export function clearCustomerDashboardState() {
   _loyalty = null;
   _loyaltyState = "idle";
   _loyaltyKey = null;
+  // ★ Phase 606-b2c: เคลียร์ cache งานบริการตอน logout ด้วยเหตุผลเดียวกัน (กัน A logout → B เห็นงาน A)
+  _custJobs = null;
+  _custJobsState = "idle";
+  _custJobsKey = null;
+  _custJobsTruncated = false;
   try { localStorage.removeItem("bsk_cust_cart"); } catch(e){}
 }
 
@@ -78,6 +124,38 @@ async function _loadLoyaltyBalance(phone, ctx) {
     if (_loyaltyKey !== phone) return;
     _loyalty = null;
     _loyaltyState = "error";
+  }
+  if (!document.getElementById("page-customer_dashboard")) return; // ออกหน้าไปแล้ว
+  renderCustomerDashboard(ctx);
+}
+
+// ★ Phase 606-b2c: โหลดงานบริการของลูกค้าจาก proxy (server derive identity จาก JWT).
+//   idle→loading→loaded/error; error ห้ามกลายเป็น empty list (RLS deny ≠ ไม่มีข้อมูล).
+async function _loadCustomerJobs(identityKey, ctx) {
+  if (!identityKey) { _custJobsState = "error"; return; }
+  _custJobsState = "loading";
+  _custJobsKey = identityKey;
+  try {
+    const token = window._sbAccessToken;
+    const resp = await fetch("/api/v1/customer-service-jobs", {
+      headers: { "Authorization": "Bearer " + token },
+    });
+    const body = await resp.json().catch(() => null);
+    if (_custJobsKey !== identityKey) return;   // สลับ account ระหว่างโหลด → ทิ้งผลเก่า
+    if (resp.ok && body?.ok && Array.isArray(body.jobs)) {
+      _custJobs = body.jobs;
+      _custJobsTruncated = Boolean(body.truncated || body.has_more);
+      _custJobsState = "loaded";
+    } else {
+      _custJobs = null;
+      _custJobsTruncated = false;
+      _custJobsState = "error";
+    }
+  } catch (_e) {
+    if (_custJobsKey !== identityKey) return;
+    _custJobs = null;
+    _custJobsTruncated = false;
+    _custJobsState = "error";
   }
   if (!document.getElementById("page-customer_dashboard")) return; // ออกหน้าไปแล้ว
   renderCustomerDashboard(ctx);
@@ -167,6 +245,8 @@ export function renderCustomerDashboard(ctx) {
   // หาข้อมูลลูกค้า
   const customerRecord = state.customers?.find(c => c.phone === userPhone || c.email === userEmail) || null;
   const customerId = customerRecord?.id;
+  // ★ Phase 606-b2c: cache key ของงานบริการ = authenticated identity (uid+phone) ไม่ใช่แค่ phone
+  const identityKey = (state.currentUser?.id || userPhone) ? `${state.currentUser?.id || ""}|${userPhone}` : "";
 
   // ★ Phase 580: แต้มสะสม — อ่านจาก proxy (server-derived id) ไม่ใช่ state.loyaltyPoints (ว่างเสมอสำหรับลูกค้า = 0 หลอก).
   //   kick โหลดครั้งแรก/เมื่อสลับ account; re-render อื่นใช้ cache. loading→"…" / error→ปุ่ม retry ในแท็บแต้ม.
@@ -179,30 +259,17 @@ export function renderCustomerDashboard(ctx) {
     : _loyaltyState === "error" ? "—"
     : "…";  // loading
 
-  // ประวัติซื้อ — ดึงจาก service_jobs (ออเดอร์จากลูกค้า) + sales (ขายที่เคาน์เตอร์)
-  const myOrders = (state.serviceJobs || []).filter(j =>
-    (j.customer_phone === userPhone || j.created_by === state.currentUser?.id) &&
-    (j.sub_service || "").includes("สั่งซื้อ") &&
-    String(j.status || "").toLowerCase() !== "cancelled" &&
-    !(j.note || "").includes("[ลบแล้ว]")
-  );
-  // ★ งานบริการของฉัน (ซ่อม/ล้าง/ติดตั้ง — ไม่รวมออเดอร์ซื้อสินค้า)
-  const myServiceJobs = (state.serviceJobs || []).filter(j =>
-    (j.customer_phone === userPhone || j.created_by === state.currentUser?.id) &&
-    !(j.sub_service || "").includes("สั่งซื้อ") &&
-    !/^SH-(transfer|cod_cash|cod_transfer)\|/.test(j.note || "") &&
-    String(j.status || "").toLowerCase() !== "cancelled" &&
-    !(j.note || "").includes("[ลบแล้ว]")
-  ).sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
-  // นับงานที่ต้องการยืนยันจากลูกค้า (ช่างส่งงานแล้ว)
-  const pendingConfirmCount = myServiceJobs.filter(j => j.status === "done" || j.status === "delivered").length;
-  const mySales = customerId
-    ? (state.sales || []).filter(s =>
-        s.customer_id === customerId &&
-        String(s.status || "").toLowerCase() !== "cancelled" &&
-        !(s.note||"").includes("[ลบแล้ว]")
-      )
-    : [];
+  // ★ Phase 606-b2c: งานบริการของฉัน — โหลดจาก proxy เท่านั้น (state.serviceJobs ว่างเสมอสำหรับ
+  //   customer role เพราะ RLS deny; ใช้ต่อ = "ยังไม่มีงาน" หลอก). kick ครั้งแรก/เมื่อสลับ account.
+  //   ★ ประวัติสั่งซื้อ (orders/sales) ไม่อยู่ใน scope เฟสนี้ — proxy ไม่คืนรายการสั่งซื้อและไม่อ่าน
+  //   sales; แท็บประวัติซื้อจึงแสดง honest unavailable state (ห้ามสรุปว่า "ไม่มีประวัติ" จาก RLS deny).
+  //   residual = Phase 606-b2d / customer-order-history phase แยก.
+  if (identityKey && (_custJobsState === "idle" || _custJobsKey !== identityKey)) {
+    _loadCustomerJobs(identityKey, ctx);  // async (ไม่ await) — จะ re-render เมื่อเสร็จ
+  }
+  const myServiceJobs = (_custJobsState === "loaded" && Array.isArray(_custJobs)) ? _custJobs : [];
+  // นับงานที่รอยืนยัน — ★ ใช้ helper เดียวกับปุ่ม (กัน badge/action drift)
+  const pendingConfirmCount = myServiceJobs.filter(customerCanConfirmJob).length;
 
   // ★ สินค้าหน้าลูกค้า = แคตตาล็อกแอร์ (จาก localStorage หรือ JSON ไฟล์) แยกจากสต๊อกในร้าน
   const catalog = (function(){
@@ -592,58 +659,18 @@ export function renderCustomerDashboard(ctx) {
     `;
 
   } else if (_custTab === "orders") {
-    const hasOrders = myOrders.length > 0 || mySales.length > 0;
+    // ★ Phase 606-b2c: ประวัติสั่งซื้อยังไม่มีช่องทางฝั่งลูกค้า — RLS (Phase 505) deny ทั้ง service_jobs
+    //   และ sales สำหรับ customer role และ proxy ของเฟสนี้ครอบเฉพาะ "งานบริการ" เท่านั้น.
+    //   ★ ห้ามแสดง "ยังไม่มีประวัติ" เพราะ deny ไม่ได้พิสูจน์ว่าไม่มีข้อมูล และห้ามอ่าน
+    //   state.serviceJobs/state.sales มาสรุปแทน (ว่างเสมอ = false empty).
+    //   residual: Phase 606-b2d / customer-order-history phase แยก.
     contentEl.innerHTML = `
       <h3 style="margin:0;color:var(--primary2);font-size:16px">📋 ประวัติการสั่งซื้อ</h3>
-      ${hasOrders ? `
-      <div style="display:grid;gap:10px">
-        ${myOrders.map(j => {
-          const statusMap = { pending:"🟡 รอดำเนินการ", progress:"🔵 กำลังดำเนินการ", in_progress:"🔵 กำลังดำเนินการ", done:"🟢 เสร็จแล้ว", delivered:"🟣 ส่งมอบแล้ว", cancelled:"🔴 ยกเลิก" };
-          const statusBg  = { pending:"#fef3c7", progress:"#dbeafe", in_progress:"#dbeafe", done:"#dcfce7", delivered:"#e0e7ff", cancelled:"#fee2e2" };
-          const statusLabel = statusMap[j.status] || j.status || "—";
-          const bgColor = statusBg[j.status] || "#f1f5f9";
-          const itemLines = ((j.description||"").match(/• .+/g) || []).map(l => l.replace(/^• /, ""));
-          // ★ ดึงวิธีชำระจาก note (format: SH-transfer|xxx หรือ SH-cod_cash|xxx)
-          const notePayMatch = (j.note || "").match(/^SH-(transfer|cod_cash|cod_transfer)/);
-          const payMethodIcons = { transfer: "🏦 โอนเงิน", cod_cash: "💵 เงินสด", cod_transfer: "📲 โอนหน้างาน" };
-          const payDisplay = notePayMatch ? payMethodIcons[notePayMatch[1]] || "" : "";
-          return `
-          <div style="background:#fff;border-radius:14px;border:1px solid #e2e8f0;overflow:hidden">
-            <div style="padding:14px">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-                <div style="font-weight:700;font-size:13px">🛒 ${escHtml(j.job_no)}</div>
-                <div style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:99px;background:${bgColor}">${escHtml(statusLabel)}</div>
-              </div>
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-                <div style="font-size:12px;color:#94a3b8">${new Date(j.created_at).toLocaleString("th-TH")}</div>
-                ${payDisplay ? `<div style="font-size:11px;font-weight:700;color:#1e40af;padding:2px 8px;border-radius:99px;background:#dbeafe">${payDisplay}</div>` : ''}
-              </div>
-              ${itemLines.length > 0 ? `<div style="display:grid;gap:2px">${itemLines.map(line => `<div style="font-size:13px;color:#374151;padding:3px 0;border-bottom:1px solid #f1f5f9">📦 ${escHtml(line)}</div>`).join("")}</div>` : ''}
-            </div>
-            <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:#f0f9ff;border-top:1px solid #e0f2fe">
-              <span style="font-size:13px;color:#64748b">รวมทั้งหมด</span>
-              <span style="font-size:18px;font-weight:900;color:var(--primary2)">${money(j.total_cost)}</span>
-            </div>
-          </div>`;
-        }).join("")}
-        ${mySales.map(s => {
-          let items = [];
-          try { items = typeof s.items === "string" ? JSON.parse(s.items) : (s.items || []); } catch(e){ console.warn("[customer_dashboard] sale items parse failed:", e); }
-          return `
-          <div style="background:#fff;border-radius:14px;border:1px solid #e2e8f0;padding:14px">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-              <div style="font-weight:700;font-size:13px">🧾 ${escHtml(s.order_no)}</div>
-              <div style="font-weight:900;color:var(--primary2)">${money(s.total_amount)}</div>
-            </div>
-            <div style="font-size:12px;color:#94a3b8">${new Date(s.created_at).toLocaleString("th-TH")}</div>
-            ${items.length > 0 ? `<div style="margin-top:8px;font-size:12px;color:#64748b">${items.map(i => `${escHtml(i.name||i.product_name||"สินค้า")} x${i.qty||1}`).join(", ")}</div>` : ''}
-          </div>`;
-        }).join("")}
-      </div>` : `
-      <div style="text-align:center;padding:40px;color:#94a3b8">
-        <div style="font-size:48px;margin-bottom:8px">📋</div>
-        <div>ยังไม่มีประวัติการสั่งซื้อ</div>
-      </div>`}
+      <div style="text-align:center;padding:40px 20px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:16px;margin-top:10px">
+        <div style="font-size:40px;margin-bottom:8px">🧾</div>
+        <div style="font-weight:700;margin-bottom:6px">ประวัติการสั่งซื้อยังไม่พร้อมใช้งานในช่องทางลูกค้า</div>
+        <div style="font-size:13px;line-height:1.5">ระบบยังไม่เปิดช่องทางให้ดูประวัติสั่งซื้อจากหน้านี้ — ติดต่อเจ้าหน้าที่เพื่อขอข้อมูลได้ครับ</div>
+      </div>
     `;
 
   } else if (_custTab === "jobs") {
@@ -666,17 +693,35 @@ export function renderCustomerDashboard(ctx) {
       return 0;
     };
 
-    contentEl.innerHTML = `
+    // ★ Phase 606-b2c: error → ข้อความ + ปุ่ม retry (ห้ามกลายเป็น "ยังไม่มีงาน" หลอก); loading → skeleton
+    const _jobsHeader = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
         <h3 style="margin:0;color:var(--primary2);font-size:16px">🔧 งานบริการของฉัน</h3>
         ${pendingConfirmCount > 0 ? `<span style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:99px;background:#fef3c7;color:#92400e">รอยืนยัน ${pendingConfirmCount} งาน</span>` : ''}
-      </div>
+      </div>`;
+    if (_custJobsState === "error") {
+      contentEl.innerHTML = `
+        ${_jobsHeader}
+        <div style="text-align:center;padding:40px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:16px">
+          <div style="font-size:40px;margin-bottom:8px">⚠️</div>
+          <div style="font-weight:700">โหลดงานบริการไม่สำเร็จ</div>
+          <div style="font-size:13px;margin:6px 0 14px">ยังตรวจสอบข้อมูลงานไม่ได้ — ลองใหม่อีกครั้ง</div>
+          <button id="custJobsRetry" style="padding:8px 18px;border-radius:10px;border:1px solid #f59e0b;background:#fff;color:#92400e;cursor:pointer;font-weight:700">ลองโหลดใหม่</button>
+        </div>`;
+    } else if (_custJobsState !== "loaded") {
+      contentEl.innerHTML = `${_jobsHeader}${renderSkeleton({ type: "list", count: 3 })}`;
+    } else {
+    contentEl.innerHTML = `
+      ${_jobsHeader}
+      ${_custJobsTruncated ? `<div style="font-size:12px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:8px 12px;margin-bottom:8px">แสดงงานล่าสุดบางส่วนเท่านั้น — ติดต่อเจ้าหน้าที่หากต้องการดูงานเก่ากว่านี้</div>` : ''}
       ${myServiceJobs.length > 0 ? `
       <div style="display:grid;gap:12px">
         ${myServiceJobs.map(j => {
           const step = statusToStep(j.status);
           const isCancelled = j.status === "cancelled";
-          const canConfirm = j.status === "done" || j.status === "delivered";
+          // ★ Phase 606-b2c: ปุ่ม + badge ใช้ helper เดียวกัน (flow-aware; unknown flow = ไม่มีปุ่ม)
+          const presentation = customerJobStatusPresentation(j);
+          const canConfirm = presentation.canConfirm;
           const typeKey = j.job_type || "other";
           const emoji = jobTypeEmoji[typeKey] || "🔧";
           const typeLabel2 = jobTypeLabel[typeKey] || "งานอื่นๆ";
@@ -734,14 +779,19 @@ export function renderCustomerDashboard(ctx) {
                   </button>
                 </div>
               ` : ''}
+              ${presentation.kind === "awaiting_delivery" ? `
+                <div style="background:#eff6ff;border:1px dashed #60a5fa;border-radius:10px;padding:10px;margin-top:10px;font-size:12px;color:#1e40af;line-height:1.45">
+                  📦 ${escHtml(presentation.message)}
+                </div>
+              ` : ''}
+              ${presentation.kind === "unknown" ? `
+                <div style="background:#fffbeb;border:1px dashed #f59e0b;border-radius:10px;padding:10px;margin-top:10px;font-size:12px;color:#92400e;line-height:1.45">
+                  ⚠️ ${escHtml(presentation.message)}
+                </div>
+              ` : ''}
               ${j.status === "closed" ? `
                 <div style="background:#f3e8ff;color:#6b21a8;padding:8px 12px;border-radius:10px;font-size:12px;font-weight:700;text-align:center;margin-top:8px">
                   🎉 ปิดงานเรียบร้อยแล้ว — ขอบคุณที่ใช้บริการครับ
-                </div>
-              ` : ''}
-              ${j.note && !/^SH-/.test(j.note) && !j.note.includes("[ลบแล้ว]") && !airMeta.isAir ? `
-                <div style="font-size:12px;color:#64748b;margin-top:8px;padding:8px 10px;background:#f8fafc;border-radius:8px;border-left:3px solid var(--primary2)">
-                  💬 ${escHtml(j.note)}
                 </div>
               ` : ''}
             </div>
@@ -755,6 +805,7 @@ export function renderCustomerDashboard(ctx) {
         <div style="font-size:13px">เมื่อแจ้งซ่อม/จอง งานจะมาแสดงที่นี่</div>
       </div>`}
     `;
+    }
 
   } else if (_custTab === "points") {
     // ★ Phase 580: error → ข้อความ + ปุ่ม retry (ไม่โชว์ 0 หลอก); loading → skeleton; loaded → ยอดจริง + ประวัติจาก proxy
@@ -813,30 +864,46 @@ export function renderCustomerDashboard(ctx) {
     renderCustomerDashboard(ctx);
   });
 
+  // ★ Phase 606-b2c: retry โหลดงานบริการ (reset เป็น idle → render ใหม่ = kick fetch อีกครั้ง)
+  document.getElementById("custJobsRetry")?.addEventListener("click", () => {
+    _custJobsState = "idle";
+    renderCustomerDashboard(ctx);
+  });
+
   // ★ ปุ่ม "ยืนยันปิดงาน" ในแท็บงานของฉัน — ลูกค้ายืนยันว่าช่างส่งงานเรียบร้อย
+  //   ★ Phase 606-b2c: ยิงผ่าน authenticated proxy เท่านั้น (customer ไม่มีสิทธิ์ PATCH service_jobs
+  //   ตาม RLS 505 และ direct PATCH เดิม filter ด้วย id อย่างเดียว/gate จาก cached row = ไม่ปลอดภัย).
+  //   server ตรวจ ownership + flow/status allowlist + CAS; ห้าม optimistic local close — success/409
+  //   ต้อง refetch จาก server เสมอ. offline = ไม่เข้า queue และไม่แตะ local state.
   container.querySelectorAll(".cust-confirm-btn").forEach(btn => btn.addEventListener("click", async (_e) => {
     const jobId = btn.dataset.jobId;
     if (!jobId) return;
     if (!(await window.App?.confirm?.("ยืนยันว่าช่างส่งงานเรียบร้อยแล้วใช่ไหมครับ?\nหลังจากยืนยันแล้วงานจะถูกปิดและแจ้งไปที่แอดมิน"))) return;
+    if (_custConfirmGuard.isInflight) return;   // กันกดซ้ำ/กดหลายใบพร้อมกันระหว่างรอผล
     /* eslint-disable require-atomic-updates -- A: UI feedback set BEFORE try block (sequential, single click handler) */
     btn.disabled = true;
     btn.textContent = "กำลังยืนยัน...";
     /* eslint-enable require-atomic-updates */
     try {
-      const xhrPatch = window._appXhrPatch;
-      if (!xhrPatch) throw new Error("xhrPatch not available");
-      // หา job เพื่อ append note ยืนยัน
-      const currentJob = (state.serviceJobs || []).find(j => String(j.id) === String(jobId));
-      const existingNote = (currentJob?.note || "").trim();
-      const ts = new Date().toLocaleString("th-TH");
-      const stamp = `[ลูกค้ายืนยันปิดงาน ${ts}]`;
-      const newNote = existingNote ? `${existingNote}\n${stamp}` : stamp;
-      const res = await xhrPatch("service_jobs", { status: "closed", note: newNote }, "id", jobId);
-      if (!res.ok) throw new Error(res.error?.message || "บันทึกไม่สำเร็จ");
-      // อัพเดท local state ทันที ไม่ต้องรอ reload
-      if (currentJob) { currentJob.status = "closed"; currentJob.note = newNote; }
-      showToast("✓ ปิดงานเรียบร้อย ขอบคุณที่ใช้บริการ");
-      renderCustomerDashboard(ctx);
+      await _custConfirmGuard.run(async () => {
+        const token = window._sbAccessToken;
+        const resp = await fetch("/api/v1/customer-service-jobs", {
+          method: "POST",
+          headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
+          body: JSON.stringify({ job_id: String(jobId) }),   // ★ ส่งเฉพาะ job_id — ไม่มี status/flow/note
+        });
+        const body = await resp.json().catch(() => null);
+        if (resp.status === 409) {
+          showToast("สถานะงานเปลี่ยนไปแล้ว — กำลังโหลดข้อมูลใหม่", "warning");
+          _custJobsState = "idle";                 // refetch จาก server (ไม่แก้ local เอง)
+          renderCustomerDashboard(ctx);
+          return;
+        }
+        if (!resp.ok || !body?.ok) throw new Error(body?.error || "บันทึกไม่สำเร็จ");
+        showToast("✓ ปิดงานเรียบร้อย ขอบคุณที่ใช้บริการ");
+        _custJobsState = "idle";                   // ★ success → refetch (ห้าม optimistic close)
+        renderCustomerDashboard(ctx);
+      });
     } catch (err) {
       showToast("เกิดข้อผิดพลาด: " + (err.message || err));
       /* eslint-disable require-atomic-updates -- A: UI rollback in catch (sequential error path, single click handler) */
