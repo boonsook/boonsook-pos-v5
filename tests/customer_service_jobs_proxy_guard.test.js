@@ -342,11 +342,19 @@ test("G38: handler ปฏิเสธ job_id ที่ไม่ใช่ canonic
       return { status: resp.status, calls, body: await resp.json() };
     };
 
+    // ★ เลขเกิน 2^53 ต้องสร้างผ่าน JSON.parse (เส้นทางจริงของ request) ไม่ใช่ number literal:
+    //   literal แบบนั้นผิด eslint no-loss-of-precision และปิดบังว่า "การปัดค่าเกิดที่ parser"
+    //   ซึ่งเป็นสาระของเคสนี้ — 9007199254740993 ถูกปัดเป็น 9007199254740992 ตั้งแต่ JSON.parse
+    const overflow2p53 = JSON.parse('{"job_id":9007199254740993}');
+    const overflowBigint = JSON.parse('{"job_id":92233720368547758070}');
+    assert.notEqual(String(overflow2p53.job_id), "9007199254740993",
+      "sanity: JSON.parse ต้องปัดค่าเลขเกิน 2^53 จริง (ไม่งั้นเคสนี้ไม่ได้ทดสอบอะไร)");
+
     // ปฏิเสธ + ต้องไม่มี HTTP call ออกไปเลย
     const rejects = [
       ["number 1", { job_id: 1 }],
-      ["number เกิน 2^53", { job_id: 9007199254740993 }],
-      ["number เกิน BIGINT", { job_id: 92233720368547758070 }],
+      ["number เกิน 2^53 (ถูก parser ปัดค่าแล้ว)", overflow2p53],
+      ["number เกิน BIGINT", overflowBigint],
       ['" 1" (นำหน้าเว้นวรรค)', { job_id: " 1" }],
       ['"1 " (ตามหลังเว้นวรรค)', { job_id: "1 " }],
       ['"0"', { job_id: "0" }],
