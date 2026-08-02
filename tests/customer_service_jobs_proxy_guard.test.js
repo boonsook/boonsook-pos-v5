@@ -16,6 +16,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isVisibleJob as isVisibleJobFn, isValidJobId, ownsJob as ownsJobFn }
+  from "../functions/api/v1/customer-service-jobs.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const rd = (f) => fs.readFileSync(path.join(ROOT, f), "utf8");
@@ -240,10 +242,82 @@ test("G22: affected rows ต้องเท่ากับ 1 — 0 rows = 409 (s
   assert.match(POST, /Prefer: "return=representation"/, "ต้องขอ representation เพื่อวัด affected rows");
 });
 
-test("G23: ownership mismatch และ row หาย ตอบ 404 เหมือนกัน (กัน existence probe)", () => {
-  assert.match(POST, /if \(!row \|\| !ownsJob\(row, ident\)\)[\s\S]{0,160}404/,
-    "row missing กับ cross-customer ต้องตอบเหมือนกัน");
+test("G23: ownership mismatch, row หาย และ hidden row ตอบ 404 เหมือนกัน (กัน existence probe)", () => {
+  assert.match(POST, /if \(!row \|\| !ownsJob\(row, ident\) \|\| !isVisibleJob\(row\)\)[\s\S]{0,200}404/,
+    "row missing / cross-customer / hidden ต้องตอบเหมือนกันหมด");
   assert.match(POST, /not_confirmable[\s\S]{0,120}409/, "flow/status ที่ยืนยันไม่ได้ = 409 (client refetch)");
+});
+
+// ═══ G33–G36 · POST visibility contract (blocking fix จาก cross-team audit) ═══════
+
+test("G33: POST ตรวจ isVisibleJob เหมือน GET — ไม่ให้ปิดแถวที่ UI ซ่อนไว้", () => {
+  assert.match(POST, /!isVisibleJob\(row\)/,
+    "POST ต้องกรอง visibility ด้วย (ownership อย่างเดียวไม่พอ: แถวสั่งซื้อ/SH/[ลบแล้ว]/cancelled เป็นของลูกค้าคนนั้นจริง)");
+  // ต้องเป็น helper ตัวเดียวกับ GET (ห้าม fork logic) — เช็คบนบรรทัด gate จริง
+  const gateLine = POST.split("\n").find((l) => l.includes("!row") && l.includes("isVisibleJob"));
+  assert.ok(gateLine, "gate เดียวกันต้องรวม !row + ownership + visibility ไว้บรรทัดเดียว");
+  assert.ok(gateLine.includes("ownsJob(row, ident)") && gateLine.includes("isVisibleJob(row)"),
+    "ต้อง reuse ownsJob/isVisibleJob ตัวเดียวกับ GET");
+  assert.ok(GET.includes("isVisibleJob"), "GET ต้องใช้ helper ตัวเดียวกัน");
+});
+
+test("G34: visibility gate อยู่ก่อน flow/status และก่อน PATCH เสมอ", () => {
+  const visAt = POST.indexOf("!isVisibleJob(row)");
+  const flowAt = POST.indexOf("const flowRaw");
+  const casAt = POST.indexOf("const casUrl");
+  const patchAt = POST.indexOf('method: "PATCH"');
+  assert.ok(visAt > 0, "ไม่พบ visibility gate");
+  for (const [name, at] of [["flow/status", flowAt], ["CAS url", casAt], ["PATCH", patchAt]]) {
+    assert.ok(at > visAt, `visibility gate ต้องอยู่ก่อน ${name} (ห้ามยิง PATCH ก่อนกรอง)`);
+  }
+  // ระหว่าง gate กับ PATCH ต้องมี return 404 จริง (ไม่ใช่ log เฉย ๆ)
+  const gateBlock = POST.slice(visAt, visAt + 220);
+  assert.match(gateBlock, /return jsonResponse\(clientError\("not_found"[\s\S]{0,80}404\)/,
+    "hidden row ต้อง return 404 ทันที ไม่มี PATCH ถูกส่ง");
+});
+
+test("G35: isVisibleJob ปฏิเสธครบทั้ง 4 กรณี (behavior จริง ไม่ใช่ regex)", () => {
+  const base = { sub_service: "ล้างแอร์", note: "", status: "delivered" };
+  assert.equal(isVisibleJobFn(base), true, "งานบริการปกติต้องมองเห็น");
+  assert.equal(isVisibleJobFn({ ...base, sub_service: "สั่งซื้อสินค้า" }), false, "รายการสั่งซื้อต้องถูกซ่อน");
+  for (const m of ["SH-transfer|x", "SH-cod_cash|x", "SH-cod_transfer|x"]) {
+    assert.equal(isVisibleJobFn({ ...base, note: m }), false, `SH pseudo-job (${m}) ต้องถูกซ่อน`);
+  }
+  assert.equal(isVisibleJobFn({ ...base, note: "งานเสร็จ [ลบแล้ว]" }), false, "[ลบแล้ว] ต้องถูกซ่อน");
+  assert.equal(isVisibleJobFn({ ...base, status: "cancelled" }), false, "cancelled ต้องถูกซ่อน");
+  assert.equal(isVisibleJobFn({ ...base, status: "CANCELLED" }), false, "cancelled ต้องเทียบแบบ case-insensitive");
+});
+
+test("G36: hidden row ที่ ownership ผ่าน ยังต้องถูกปฏิเสธ (ownership ≠ ใบอนุญาตปิดงาน)", () => {
+  const ident = { phone: "0812345678", userId: "11111111-1111-1111-1111-111111111111" };
+  const hidden = [
+    { customer_phone: "0812345678", sub_service: "สั่งซื้อสินค้า", note: "", status: "delivered" },
+    { customer_phone: "0812345678", sub_service: "ล้างแอร์", note: "SH-cod_cash|abc", status: "done" },
+    { created_by: ident.userId, sub_service: "ล้างแอร์", note: "[ลบแล้ว]", status: "delivered" },
+    { created_by: ident.userId, sub_service: "ล้างแอร์", note: "", status: "cancelled" },
+  ];
+  for (const row of hidden) {
+    assert.equal(ownsJobFn(row, ident), true, "fixture ต้องเป็นของลูกค้าคนนี้จริง (ไม่งั้นไม่ได้ทดสอบช่องนี้)");
+    assert.equal(isVisibleJobFn(row), false, "แต่ต้องถูก visibility gate ปฏิเสธ");
+  }
+});
+
+// ═══ G37 · job_id BIGINT contract ═════════════════════════════════════════════════
+
+test("G37: job_id = canonical positive BIGINT (string) — ไม่แปลงเป็น Number", () => {
+  assert.match(FN, /const BIGINT_MAX = 9223372036854775807n/, "ต้องมีขอบบน signed BIGINT");
+  assert.match(FN, /\/\^\[1-9\]\[0-9\]\*\$\//, "ต้องกัน leading zero + 0");
+  assert.match(POST, /if \(!isValidJobId\(jobId\)\)[\s\S]{0,120}400/, "job_id ไม่ถูกต้อง = 400");
+  assert.doesNotMatch(FN_CODE, /Number\(jobId\)|parseInt\(jobId|\+jobId/, "ห้ามแปลง job_id เป็น JS Number");
+  assert.match(FN, /const jobId = String\(body\?\.job_id \?\? ""\)\.trim\(\)/, "jobId ต้องคงเป็น string");
+
+  for (const ok of ["1", "42", "9223372036854775807", "999999999999999999"]) {
+    assert.equal(isValidJobId(ok), true, `ต้องรับ ${ok}`);
+  }
+  for (const bad of ["0", "00", "01", "007", "-1", "+1", "1.0", "1e3", " 1", "1 ", "",
+    "9223372036854775808", "99999999999999999999", "abc", "1abc", "٣", "1_000"]) {
+    assert.equal(isValidJobId(bad), false, `ต้องปฏิเสธ ${JSON.stringify(bad)}`);
+  }
 });
 
 // ═══ G24–G26 · middleware wiring ══════════════════════════════════════════════════

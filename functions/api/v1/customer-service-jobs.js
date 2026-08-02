@@ -135,6 +135,17 @@ function isVisibleJob(row) {
   return true;
 }
 
+// ★ job_id ต้องเป็น canonical positive BIGINT (service_jobs.id = bigint):
+//   digits ล้วน · ไม่มี leading zero · ไม่ใช่ 0 · ไม่เกิน signed BIGINT max.
+//   เก็บเป็น string ตลอด — ★ ห้ามแปลงเป็น JS Number (id เกิน 2^53 จะเพี้ยนเงียบ ๆ แล้วไปชนแถวอื่น).
+//   กันค่าที่ผ่าน regex digits แต่ไปตายเป็น PostgREST error ทีหลัง (22003 out of range).
+const BIGINT_MAX = 9223372036854775807n;
+function isValidJobId(v) {
+  if (!/^[1-9][0-9]*$/.test(v)) return false;
+  if (v.length > 19) return false;
+  return BigInt(v) <= BIGINT_MAX;
+}
+
 function toClientJob(row) {
   const out = {};
   for (const k of JOB_FIELDS) out[k] = row?.[k] ?? null;
@@ -189,7 +200,7 @@ export async function onRequestPost({ request, env, data }) {
     let body = null;
     try { body = await request.json(); } catch { body = null; }
     const jobId = String(body?.job_id ?? "").trim();
-    if (!jobId || !/^[0-9]+$/.test(jobId)) {
+    if (!isValidJobId(jobId)) {
       return jsonResponse(clientError("bad_request", "job_id is required"), 400);
     }
 
@@ -202,8 +213,12 @@ export async function onRequestPost({ request, env, data }) {
       return jsonResponse(clientError("read_failed", "service job read failed"), 502);
     }
     const row = rr.rows[0];
-    // 2) ownership — row หาย / เป็นของลูกค้าคนอื่น ตอบ 404 เหมือนกัน (กัน existence probe ข้ามลูกค้า)
-    if (!row || !ownsJob(row, ident)) {
+    // 2) ownership + visibility — ★ ต้องผ่าน isVisibleJob เหมือน GET ด้วย: แถวที่ถูกซ่อน
+    //    (รายการสั่งซื้อ / SH transfer-COD pseudo-job / [ลบแล้ว] / cancelled) เป็นของลูกค้าคนนี้
+    //    ก็จริง แต่ไม่เคยถูกเสิร์ฟผ่าน GET → ถ้าเช็คแค่ ownership ลูกค้าที่รู้/เดา job_id ปิดแถวที่
+    //    UI ซ่อนไว้ได้ถ้า flow/status บังเอิญผ่าน allowlist. row หาย / ของคนอื่น / ถูกซ่อน =
+    //    ตอบ 404 เดียวกันหมด (ไม่เปิดเผยว่ามีแถวอยู่จริง) และต้อง return **ก่อน** ส่ง PATCH ใด ๆ
+    if (!row || !ownsJob(row, ident) || !isVisibleJob(row)) {
       return jsonResponse(clientError("not_found", "ไม่พบงานนี้"), 404);
     }
 
@@ -250,4 +265,4 @@ export function onRequestOptions() {
   return new Response(null, { status: 204 });
 }
 
-export { phoneFromEmail, customerIdentity, getServiceAuth, ownsJob, isVisibleJob, toClientJob, JOB_FIELDS, CONFIRM_ALLOWLIST };
+export { phoneFromEmail, customerIdentity, getServiceAuth, ownsJob, isVisibleJob, isValidJobId, toClientJob, JOB_FIELDS, CONFIRM_ALLOWLIST };
