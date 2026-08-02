@@ -6,10 +6,10 @@
 
 **Runtime sequence ที่ผ่านจริงบน scratch staging เดิมของ B12 (owner-controlled ทีละ statement):** `S0-ACL-RECOVERY` runtime PASS → `S0.1`–`S0.7` exact create/reuse checks PASS → `S0-RELOAD` PASS → `PREFLIGHT` PASS → temporary Auth admin + profile (สร้างเฉพาะรอบทดสอบ) → `SEED` PASS → bootstrap สร้าง singleton run → isolated exact-SHA app + fresh browser profile ตาม runbook → **gates CAS PASS → immutable intent snapshot PASS → r1 → r2 → verify_db → teardown → attest_cleanup → complete**
 
-**Behavioral proof (authenticated cash-payment path ของจริง):**
+**Behavioral results — owner-attested จาก retained scratch evidence** (บันทึกใน `_staging_b13a_runs` / `_staging_b13a_results` / `_staging_b13a_evidence` · retained ไว้ให้ cross-team review · reviewer ตรวจจาก evidence ที่คงไว้โดยไม่ได้ rerun SQL):
 - **r1:** `ledgerRecorded=true` · `accountingPosted=true` · `inserted=true` · payment/JV IDs ถูก bind แบบ CAS สำเร็จ (one-time NULL→ID) · `paidTotal=100` · `outstanding=900`
 - **r2 (idempotent retry ด้วย intent เดิมเป๊ะ):** `ledgerRecorded=true` · `accountingPosted=true` · **`inserted=false` · `duplicate-valid`** · IDs เดิมทุกตัว · **payment 1 แถว · payment JV 1 ใบ · JV lines 2 · reversal 0** · totals 100/900 — พิสูจน์จาก DB จริงว่า **retry ไม่สร้าง write ซ้ำ**
-- **HTTP 409 ที่ duplicate JV attempt = expected retry path** — runtime ตรวจ approved JV เดิมแล้วคืน duplicate-valid ไม่ใช่ execution failure
+- **HTTP 409 ที่ duplicate JV attempt = owner-observed behavior ที่สอดคล้องกับ expected duplicate-valid retry contract** — runtime ตรวจ approved JV เดิมแล้วคืน duplicate-valid ตาม contract ของ package
 
 **Finalizer/cleanup ครบทุกขั้น:** `verify_db` → `db_verified` · `teardown` → `teardown_complete` (**deleted_rows = 8 แบบ exact-ID**) · business residual หลัง teardown **jobs/JE/JL/payment/reversal = 0/0/0/0/0** · actor signOut สำเร็จ · Auth user/profile หลัง cleanup = **0/0** · **credential เดิม login ถูกปฏิเสธ** · isolated browser profile/app copy/static server ถูกลบครบ · source repo ยัง clean · `attest_cleanup` → `auth_cleanup_complete` · `complete` → **`execution_complete`**
 
