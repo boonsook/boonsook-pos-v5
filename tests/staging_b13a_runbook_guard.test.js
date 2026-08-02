@@ -789,10 +789,13 @@ test("G45. package-only: ห้ามรัน SQL/แตะ runtime/build + nex
   assert.match(b1, /ห้าม claim `PAYMENT_BEHAVIOR_PASS`/, "ห้าม claim PASS จาก CI");
   assert.match(RB, /606-b2c\/606-b3\/607\)?[\s\S]{0,60}ยังไม่ได้รับอนุญาต/,
     "เฟสถัดไปต้องมี prompt/audit/owner approval แยก");
-  // build markers ต้องไม่ถูกแตะโดย package นี้ (สามไฟล์ deliverable ไม่มีใครแตะ index.html/sw.js)
-  const idx = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
-  assert.match(idx, /data-app-build="604"/, "build marker ต้องคง 604 (ไม่ bump)");
-  assert.match(idx, /data-app-version="5\.69\.72"/, "version ต้องคง 5.69.72");
+  // ★ เดิมที่นี่ pin `data-app-build="604"` / `5.69.72` เพื่อพิสูจน์ว่า **PR ของ B13a package เอง**
+  //   ไม่ bump build. ข้อพิสูจน์นั้นเป็นข้อเท็จจริงของ diff ตอนนั้น (PR #197/#204–#206 — ยืนยันแล้ว
+  //   ก่อน merge) ไม่ใช่ invariant ถาวรของ repo: build ต้องขยับทุกครั้งที่มี runtime change เฟสอื่น
+  //   (Phase 606-b2c bump 604→605) ทำให้ pin นี้แดงโดยไม่เกี่ยวกับ B13a เลย. จึงถอด pin ออก
+  //   แทนที่จะ re-anchor เป็นเลขใหม่ (re-anchor = ยังแดงซ้ำทุก build ถัดไป และไม่ได้พิสูจน์อะไรจริง).
+  //   ส่วนที่เป็น invariant จริงของ package (ห้ามรัน SQL · execution = owner · CI ≠ behavioral proof ·
+  //   ห้าม claim PASS · เฟสถัดไปต้อง approval แยก) ยังถูก assert ครบด้านบน ไม่ถูกลดความเข้ม.
 });
 
 // ═════════════════════════════════════════════════
