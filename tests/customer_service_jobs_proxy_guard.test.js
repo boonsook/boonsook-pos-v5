@@ -16,7 +16,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { isVisibleJob as isVisibleJobFn, isValidJobId, ownsJob as ownsJobFn }
+import { isVisibleJob as isVisibleJobFn, isValidJobId, ownsJob as ownsJobFn, onRequestPost }
   from "../functions/api/v1/customer-service-jobs.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -304,12 +304,17 @@ test("G36: hidden row ที่ ownership ผ่าน ยังต้องถ�
 
 // ═══ G37 · job_id BIGINT contract ═════════════════════════════════════════════════
 
-test("G37: job_id = canonical positive BIGINT (string) — ไม่แปลงเป็น Number", () => {
+test("G37: job_id = canonical positive BIGINT (string) — ไม่มี coercion ใด ๆ", () => {
   assert.match(FN, /const BIGINT_MAX = 9223372036854775807n/, "ต้องมีขอบบน signed BIGINT");
   assert.match(FN, /\/\^\[1-9\]\[0-9\]\*\$\//, "ต้องกัน leading zero + 0");
-  assert.match(POST, /if \(!isValidJobId\(jobId\)\)[\s\S]{0,120}400/, "job_id ไม่ถูกต้อง = 400");
-  assert.doesNotMatch(FN_CODE, /Number\(jobId\)|parseInt\(jobId|\+jobId/, "ห้ามแปลง job_id เป็น JS Number");
-  assert.match(FN, /const jobId = String\(body\?\.job_id \?\? ""\)\.trim\(\)/, "jobId ต้องคงเป็น string");
+  // ★ ต้องรับเฉพาะ JSON string — ห้าม coerce ทุกรูปแบบ
+  assert.match(POST, /const jobId = body\?\.job_id;/, "ต้องอ่าน job_id ดิบ ไม่ coerce");
+  assert.match(POST, /if \(typeof jobId !== "string" \|\| !isValidJobId\(jobId\)\)[\s\S]{0,140}400/,
+    "non-string หรือไม่ canonical = 400");
+  for (const bad of [/String\(\s*body\?\.job_id/, /jobId\s*=\s*String\(/, /jobId[^\n]*\.trim\(\)/,
+    /Number\(\s*body\?\.job_id/, /parseInt\(\s*body\?\.job_id/, /Number\(jobId\)/, /parseInt\(jobId/, /\+jobId/]) {
+    assert.doesNotMatch(POST.replace(/^[ \t]*\/\/.*$/gm, ""), bad, `ห้าม coerce job_id (${bad})`);
+  }
 
   for (const ok of ["1", "42", "9223372036854775807", "999999999999999999"]) {
     assert.equal(isValidJobId(ok), true, `ต้องรับ ${ok}`);
@@ -317,6 +322,58 @@ test("G37: job_id = canonical positive BIGINT (string) — ไม่แปลง
   for (const bad of ["0", "00", "01", "007", "-1", "+1", "1.0", "1e3", " 1", "1 ", "",
     "9223372036854775808", "99999999999999999999", "abc", "1abc", "٣", "1_000"]) {
     assert.equal(isValidJobId(bad), false, `ต้องปฏิเสธ ${JSON.stringify(bad)}`);
+  }
+});
+
+// ★ G38: พิสูจน์ที่ handler จริง ไม่ใช่เรียก isValidJobId ตรง ๆ — รอบก่อน G37 เขียวหลอกกรณี " 1"
+//   เพราะ handler ทำ .trim() ก่อนถึง helper. ทดสอบนี้เดินเส้น onRequestPost เต็ม (identity +
+//   service auth ผ่าน, stub fetch) → วัดทั้ง status และ "มี HTTP call ออกไปหรือไม่".
+test("G38: handler ปฏิเสธ job_id ที่ไม่ใช่ canonical string ก่อนยิง HTTP ใด ๆ", async () => {
+  const ENV = { SUPABASE_SERVICE_ROLE_KEY: "test-service-key", SUPABASE_URL: "https://example.test" };
+  const DATA = { user: { id: "11111111-1111-1111-1111-111111111111", email: "0812345678@phone.boonsook.local", role: "customer" } };
+  const realFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => { calls++; return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } }); };
+  try {
+    const post = async (rawBody) => {
+      calls = 0;
+      const request = { json: async () => rawBody };
+      const resp = await onRequestPost({ request, env: ENV, data: DATA });
+      return { status: resp.status, calls, body: await resp.json() };
+    };
+
+    // ปฏิเสธ + ต้องไม่มี HTTP call ออกไปเลย
+    const rejects = [
+      ["number 1", { job_id: 1 }],
+      ["number เกิน 2^53", { job_id: 9007199254740993 }],
+      ["number เกิน BIGINT", { job_id: 92233720368547758070 }],
+      ['" 1" (นำหน้าเว้นวรรค)', { job_id: " 1" }],
+      ['"1 " (ตามหลังเว้นวรรค)', { job_id: "1 " }],
+      ['"0"', { job_id: "0" }],
+      ['"01"', { job_id: "01" }],
+      ["number 0", { job_id: 0 }],
+      ["null", { job_id: null }],
+      ["boolean", { job_id: true }],
+      ["object", { job_id: { id: "1" } }],
+      ["array", { job_id: ["1"] }],
+      ["ไม่มี job_id", {}],
+      ["body ไม่ใช่ JSON", null],
+    ];
+    for (const [label, raw] of rejects) {
+      const r = await post(raw);
+      assert.equal(r.status, 400, `${label} ต้องได้ 400`);
+      assert.equal(r.calls, 0, `${label} ต้องไม่ยิง HTTP ออกไปเลย`);
+      assert.equal(r.body.ok, false);
+    }
+
+    // ผ่าน validation → เดินต่อจริง (ไม่ใช่ 400) และมี HTTP call ออกไป
+    for (const [label, id] of [["string 1", "1"], ["max BIGINT", "9223372036854775807"]]) {
+      const r = await post({ job_id: id });
+      assert.notEqual(r.status, 400, `${label} ต้องผ่าน validation`);
+      assert.ok(r.calls >= 1, `${label} ต้องเดินต่อไปอ่าน row จริง`);
+    }
+  } finally {
+    globalThis.fetch = realFetch;
   }
 });
 

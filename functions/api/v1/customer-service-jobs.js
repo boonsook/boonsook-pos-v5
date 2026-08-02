@@ -199,9 +199,15 @@ export async function onRequestPost({ request, env, data }) {
     //   finance_flow_version/note/role) ถูกเพิกเฉยทั้งหมด ไม่มีทางมีผลต่อ authority
     let body = null;
     try { body = await request.json(); } catch { body = null; }
-    const jobId = String(body?.job_id ?? "").trim();
-    if (!isValidJobId(jobId)) {
-      return jsonResponse(clientError("bad_request", "job_id is required"), 400);
+    // ★ รับเฉพาะ JSON **string** ที่ canonical เท่านั้น — ห้าม coerce ทุกรูปแบบ
+    //   (`String()` / `.trim()` / `Number()` / `parseInt()` / unary `+`). เหตุผล:
+    //   (ก) JSON **number** ที่เกิน 2^53 ถูก JSON.parse ปัดค่าไปแล้วตั้งแต่ก่อนถึงเรา →
+    //       coerce ต่อจะได้ id "ที่ยัง valid" แต่ **ชี้คนละแถว** (เงียบสนิท ตรวจไม่เจอปลายทาง)
+    //   (ข) `.trim()` ทำให้ `" 1"` / `"1 "` ผ่านทั้งที่ไม่ canonical — และทำให้ unit test ที่
+    //       เรียก isValidJobId ตรง ๆ "เขียวหลอก" เพราะไม่ได้เดินผ่าน coercion เส้นจริง
+    const jobId = body?.job_id;
+    if (typeof jobId !== "string" || !isValidJobId(jobId)) {
+      return jsonResponse(clientError("bad_request", "invalid job_id"), 400);
     }
 
     // 1) fresh-read row (authority = DB ไม่ใช่ client)
