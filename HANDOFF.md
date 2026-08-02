@@ -2,7 +2,24 @@
 
 > Prompt brief skill: read [`PROMPT_PHASE_BRIEF_SKILL.md`](PROMPT_PHASE_BRIEF_SKILL.md) before drafting, reviewing, or implementing phase prompts for Claude/Codex. It locks the required baseline, scope, failure semantics, tests, build/docs, and STOP marker.
 
-**🆕 Phase 606-B13a.1.2 — normalize function-body EOL comparisons (package hotfix · build 604 / v5.69.72 ไม่ bump):**
+**🎉 Phase 606-B13a authenticated payment staging execution — PASS (owner-run · source `17ab723f52afe28a87fa2ef16e880e6ee1b7d0f0` · final DB date 2026-08-02 · sentinel `B13A-STAGING-2026-08-02` · build 604 / v5.69.72 ไม่ bump):**
+
+**Runtime sequence ที่ผ่านจริงบน scratch staging เดิมของ B12 (owner-controlled ทีละ statement):** `S0-ACL-RECOVERY` runtime PASS → `S0.1`–`S0.7` exact create/reuse checks PASS → `S0-RELOAD` PASS → `PREFLIGHT` PASS → temporary Auth admin + profile (สร้างเฉพาะรอบทดสอบ) → `SEED` PASS → bootstrap สร้าง singleton run → isolated exact-SHA app + fresh browser profile ตาม runbook → **gates CAS PASS → immutable intent snapshot PASS → r1 → r2 → verify_db → teardown → attest_cleanup → complete**
+
+**Behavioral results — owner-attested จาก retained scratch evidence** (บันทึกใน `_staging_b13a_runs` / `_staging_b13a_results` / `_staging_b13a_evidence` · retained ไว้ให้ cross-team review · reviewer ตรวจจาก evidence ที่คงไว้โดยไม่ได้ rerun SQL):
+- **r1:** `ledgerRecorded=true` · `accountingPosted=true` · `inserted=true` · payment/JV IDs ถูก bind แบบ CAS สำเร็จ (one-time NULL→ID) · `paidTotal=100` · `outstanding=900`
+- **r2 (idempotent retry ด้วย intent เดิมเป๊ะ):** `ledgerRecorded=true` · `accountingPosted=true` · **`inserted=false` · `duplicate-valid`** · IDs เดิมทุกตัว · **payment 1 แถว · payment JV 1 ใบ · JV lines 2 · reversal 0** · totals 100/900 — พิสูจน์จาก DB จริงว่า **retry ไม่สร้าง write ซ้ำ**
+- **HTTP 409 ที่ duplicate JV attempt = owner-observed behavior ที่สอดคล้องกับ expected duplicate-valid retry contract** — runtime ตรวจ approved JV เดิมแล้วคืน duplicate-valid ตาม contract ของ package
+
+**Finalizer/cleanup ครบทุกขั้น:** `verify_db` → `db_verified` · `teardown` → `teardown_complete` (**deleted_rows = 8 แบบ exact-ID**) · business residual หลัง teardown **jobs/JE/JL/payment/reversal = 0/0/0/0/0** · actor signOut สำเร็จ · Auth user/profile หลัง cleanup = **0/0** · **credential เดิม login ถูกปฏิเสธ** · isolated browser profile/app copy/static server ถูกลบครบ · source repo ยัง clean · `attest_cleanup` → `auth_cleanup_complete` · `complete` → **`execution_complete`**
+
+**Final retained proof บน scratch:** run stage = `execution_complete` · **certificates total/distinct = 2/2 — `PAYMENT_BEHAVIOR_PASS` = 1 · `EXECUTION_COMPLETE` = 1** · evidence รวม **6** (browser_cas gates/r1/r2 = 3 + owner cleanup attestations = 3 · **failure evidence = 0**) · retained: `_staging_b13a_runs` / `_staging_b13a_results` / `_staging_b13a_evidence` + sentinel (current active row) — **retained evidence ห้ามลบ** (การลบ = owner-authorized cleanup phase แยกหลัง reviewer approval) · B12 retained truth ยัง **6/6 ok=true** · B12 residual = 0 · chart_of_accounts/account_mapping = **68/36**
+
+**ขอบเขต/ความปลอดภัย:** production SQL/write = **ไม่มี** ตลอดทุกรอบ · docs closeout นี้ไม่รัน SQL เพิ่ม · build/version/cache markers ไม่เปลี่ยน · ไม่มี identity (actor UUID / payment-JV IDs / host / ref / path / credential) ถูกบันทึกใน repo · **606-b2c / 606-b3 / 607 ยังไม่เริ่ม** — ต้องมี prompt + audit + owner approval แยกทีละ phase
+
+---
+
+**Phase 606-B13a.1.2 — normalize function-body EOL comparisons (package hotfix · build 604 / v5.69.72 ไม่ bump)** *(บล็อกประวัติ interrupted attempt — execution status ในบล็อกนี้ถูก superseded โดย closeout 2026-08-02 ด้านบน · รายละเอียด failure 42725/P0001 เก็บไว้เป็นหลักฐานตามเดิม)*:
 
 **สถานะ execution ปัจจุบัน (supersede สถานะในบล็อก 606-B13a.1.1 ด้านล่าง):** หลัง merge `e676f9c` owner รันรอบใหม่บน scratch เมื่อ DB date **2026-07-29** — STEP 1 target/state/ACL preflight **ผ่าน** · STEP 2 atomic sentinel refresh **ผ่าน** (`B13A-STAGING-2026-07-29` · 1/1/true) · STEP 3 `R0` **17/17** · แต่ **STEP 4 `S0-ACL-RECOVERY` ล้มด้วย SQLSTATE `P0001`** — bootstrap body hash mismatch: expected `8a185d251d660a9d690c0cf2075d821e` / actual `198fb98c4269792c6549b7e162ad2d3b`
 
