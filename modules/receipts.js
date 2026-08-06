@@ -862,7 +862,7 @@ function renderReceiptPreview(container) {
             </div>
           </div>
 
-          ${renderDocumentTemplateNote(si, { accent: "re", documentNote: r.note })}
+          ${renderDocumentTemplateNote(si, { accent: "re", documentType: "receipt", documentNote: r.note })}
 
           <div class="doc-payment-check">
             <div class="doc-payment-check-row">

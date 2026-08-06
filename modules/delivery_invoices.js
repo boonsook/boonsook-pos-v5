@@ -704,7 +704,7 @@ function renderInvoicePreview(container) {
             </div>
           </div>
 
-          ${renderDocumentTemplateNote(si, { accent: "inv", documentNote: inv.note, fallbackNote: "วิธีการชำระเงิน-ชำระเงินสด/เช็คเงินสด โอนผ่านธนาคาร" })}
+          ${renderDocumentTemplateNote(si, { accent: "inv", documentType: "delivery", documentNote: inv.note, fallbackNote: "วิธีการชำระเงิน-ชำระเงินสด/เช็คเงินสด โอนผ่านธนาคาร" })}
 
           <div class="doc-signatures">
             <div class="doc-sig-col">
