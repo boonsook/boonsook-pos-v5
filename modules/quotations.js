@@ -1214,7 +1214,7 @@ function renderQuotationPreview(container) {
             </div>
           </div>
 
-          ${renderDocumentTemplateNote(si, { accent: "qt", documentNote: q.note })}
+          ${renderDocumentTemplateNote(si, { accent: "qt", documentType: "quotation", documentNote: q.note })}
 
           <div class="doc-signatures">
             <div class="doc-sig-col">

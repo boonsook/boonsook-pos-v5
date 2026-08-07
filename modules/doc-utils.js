@@ -133,7 +133,19 @@ export function renderDocumentTemplateHeader(storeInfo = {}) {
   return `<div class="doc-note-section doc-template-header"><div>${_docTemplateMultiline(header)}</div></div>`;
 }
 
+const DOCUMENT_NOTE_VISIBILITY_KEYS = Object.freeze({
+  quotation: "docShowNoteQuotation",
+  delivery: "docShowNoteDelivery",
+  receipt: "docShowNoteReceipt",
+});
+
+export function isDocumentNoteVisible(storeInfo = {}, documentType = "") {
+  const key = DOCUMENT_NOTE_VISIBILITY_KEYS[documentType];
+  return !key || storeInfo?.[key] !== false;
+}
+
 export function renderDocumentTemplateNote(storeInfo = {}, opts = {}) {
+  if (!isDocumentNoteVisible(storeInfo, opts.documentType)) return "";
   const { note } = getDocumentTemplate(storeInfo);
   const accent = _docTemplateEsc(opts.accent || "");
   const noteTitle = opts.noteTitle || "หมายเหตุ";
