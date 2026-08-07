@@ -39,6 +39,27 @@ export function collectBreakBoundaries(rootEl, scale = 1) {
   return Array.from(new Set(out)).filter(v => v > 0).sort((a, b) => a - b);
 }
 
+// ความสูง "เนื้อหาจริง" — canvas สูงเท่ากรอบ A4 เสมอ (min-height) ส่วนที่เนื้อหาไม่ถึงคือ padding
+export function contentExtentPx(totalPx, boundariesPx = [], pxPerMm = 0) {
+  if (!(totalPx > 0)) return 0;
+  const contentBottom = boundariesPx.length ? Math.max(...boundariesPx) : 0;
+  if (!(contentBottom > 0)) return totalPx;
+  const pad = pxPerMm > 0 ? Math.round(2 * pxPerMm) : 0;
+  return Math.min(totalPx, contentBottom + pad);
+}
+
+// ★ shrink-to-fit — เอกสารที่ยาวเกินหน้ากระดาษ "นิดเดียว" ควรได้หน้าเดียว ไม่ใช่แตกเป็นสองหน้า
+//   ที่มา: สไตล์ force-A4 ตอนสร้าง PDF ให้เมตริกต่างจาก CSS ตอนพิมพ์เล็กน้อย เอกสารที่เครื่องพิมพ์
+//   ออกมา 1 หน้า จึงกลายเป็น 2 หน้าในไฟล์แชร์ (หน้า 2 มีแค่บล็อกลายเซ็น) — เครื่องพิมพ์แก้ด้วยการ
+//   ย่อให้พอดีหน้า เราทำแบบเดียวกัน; ถ้าต้องย่อมากกว่า minScale = ยาวจริง ให้แบ่งหน้าตามปกติ
+export function computeFitToPage({ contentPx, pxPerMm, pageHeightMm, minScale = 0.85 } = {}) {
+  if (!(contentPx > 0) || !(pxPerMm > 0) || !(pageHeightMm > 0)) return null;
+  const pagePx = pageHeightMm * pxPerMm;
+  if (contentPx <= pagePx) return { scale: 1 };
+  const scale = pagePx / contentPx;
+  return scale >= minScale ? { scale } : null;
+}
+
 // pure — คำนวณว่าแต่ละหน้าครอบพิกเซลช่วงไหนของรูป (unit-test ได้โดยไม่ต้องมี DOM)
 export function computePageSlices({
   totalPx, pxPerMm, pageHeightMm,
@@ -48,8 +69,7 @@ export function computePageSlices({
   if (!(totalPx > 0) || !(pxPerMm > 0) || !(pageHeightMm > 0)) return pages;
   // ★ ตัดพื้นที่ว่างท้ายเอกสารทิ้งก่อน — canvas สูงเท่ากรอบ A4 เสมอ (min-height 1123px)
   //   ถ้าเนื้อหาจบก่อน ส่วนที่เหลือคือ padding ล้วน ไม่ควรนับเป็นความยาวที่ต้องแบ่งหน้า
-  const contentBottom = boundariesPx.length ? Math.max(...boundariesPx) : 0;
-  const total = contentBottom > 0 ? Math.min(totalPx, contentBottom + Math.round(2 * pxPerMm)) : totalPx;
+  const total = contentExtentPx(totalPx, boundariesPx, pxPerMm);
 
   let start = 0;
   while (start < total - 1 && pages.length < maxPages) {
@@ -236,7 +256,23 @@ export async function shareDoc({
           const st = documentRef.getElementById("shareStatus");
           if (st) { st.textContent = "⚠️ แบ่งหน้าแบบประมาณ — ตรวจรอยต่อหน้าก่อนส่ง"; st.style.display = "block"; st.style.color = "#b45309"; }
         }
-        if (slices.length === 0) {
+        // ★ ยาวเกินหน้าแค่นิดเดียว = ย่อให้พอดีหน้าเดียว (เหมือน shrink-to-fit ของเครื่องพิมพ์)
+        //   เอกสารที่พิมพ์ออกมา 1 หน้า ต้องไม่กลายเป็น 2 หน้าในไฟล์แชร์
+        const extentPx = contentExtentPx(c.height, _breakPx, pxPerMm);
+        const fit = slices.length > 1 ? computeFitToPage({ contentPx: extentPx, pxPerMm, pageHeightMm: pageH }) : null;
+
+        if (fit) {
+          const sh = Math.max(1, Math.round(extentPx));
+          const tmp = documentRef.createElement("canvas");
+          tmp.width = c.width;
+          tmp.height = sh;
+          const tctx = tmp.getContext ? tmp.getContext("2d") : null;
+          if (tctx?.fillRect) { tctx.fillStyle = "#ffffff"; tctx.fillRect(0, 0, tmp.width, sh); }
+          if (tctx?.drawImage) tctx.drawImage(c, 0, 0, c.width, sh, 0, 0, c.width, sh);
+          const wMm = pageW * fit.scale;
+          const hMm = (sh / pxPerMm) * fit.scale;
+          pdf.addImage(tmp.toDataURL("image/jpeg", 0.92), "JPEG", (pageW - wMm) / 2, 0, wMm, hMm);
+        } else if (slices.length === 0) {
           // ไม่มีข้อมูลขนาด (เช่น canvas stub) — คงพฤติกรรมเดิมไว้ ไม่ทำให้พัง
           pdf.addImage(c.toDataURL("image/jpeg", 0.92), "JPEG", 0, 0, pageW, (c.height * pageW) / c.width);
         } else {

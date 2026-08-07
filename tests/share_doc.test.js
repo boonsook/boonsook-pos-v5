@@ -19,7 +19,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-import { shareDoc, computePageSlices, collectBreakBoundaries } from "../modules/share_doc.js";
+import { shareDoc, computePageSlices, collectBreakBoundaries, computeFitToPage, contentExtentPx } from "../modules/share_doc.js";
 
 // ── Stubs ──────────────────────────────────────────────────────────────────
 function makeEl(tag) {
@@ -260,6 +260,46 @@ test("share_doc.js: ถ้าวัดขอบเขตไม่ได้ ต�
     "ต้องตรวจเคส 'วัดไม่ได้ + หลายหน้า' อย่างชัดเจน");
   assert.ok(/logger\?\.warn\?\.\(/.test(code) && /แบ่งหน้าแบบประมาณ/.test(shareSrc),
     "ต้องมีทั้ง log และข้อความแจ้ง user — ห้ามเงียบ");
+});
+
+// ★ 609: เอกสารที่เครื่องพิมพ์ออกมา 1 หน้า แต่ไฟล์แชร์ได้ 2 หน้า (owner เจอจริง 2 รอบ)
+//   เหตุ: สไตล์ force-A4 ตอนสร้าง PDF ให้เมตริกต่างจาก CSS ตอนพิมพ์ → เนื้อหาสูงเกินหน้า ~1%
+//   ทางแก้แบบเดียวกับเครื่องพิมพ์: ย่อให้พอดีหน้า (shrink to fit) แทนที่จะแตกหน้า
+test("computeFitToPage: เนื้อหาพอดีหน้าอยู่แล้ว → scale 1", () => {
+  const pagePx = A4.pageHeightMm * A4.pxPerMm;
+  assert.deepEqual(computeFitToPage({ contentPx: pagePx - 10, ...A4 }), { scale: 1 });
+  assert.deepEqual(computeFitToPage({ contentPx: pagePx, ...A4 }), { scale: 1 });
+});
+
+test("computeFitToPage: เกินหน้านิดเดียว (~1-10%) → ย่อให้พอดี ไม่แตกหน้า", () => {
+  const pagePx = A4.pageHeightMm * A4.pxPerMm;
+  for (const over of [1.01, 1.05, 1.1]) {
+    const fit = computeFitToPage({ contentPx: pagePx * over, ...A4 });
+    assert.ok(fit, `เกิน ${Math.round((over - 1) * 100)}% ต้องย่อให้พอดี ไม่ใช่แตกหน้า`);
+    assert.ok(Math.abs(fit.scale - 1 / over) < 0.001, "scale ต้อง = พื้นที่หน้า / ความสูงเนื้อหา");
+    assert.ok(fit.scale >= 0.85 && fit.scale < 1);
+  }
+});
+
+test("computeFitToPage: ยาวจริง (เกิน ~18%+) ต้องคืน null แล้วไปแบ่งหน้าตามปกติ", () => {
+  const pagePx = A4.pageHeightMm * A4.pxPerMm;
+  assert.equal(computeFitToPage({ contentPx: pagePx * 1.5, ...A4 }), null);
+  assert.equal(computeFitToPage({ contentPx: pagePx * 2.4, ...A4 }), null);
+  assert.equal(computeFitToPage({}), null, "input ไม่ครบต้องไม่ throw");
+});
+
+test("contentExtentPx: ตัด padding ท้ายกรอบ A4 ออกจากความยาวที่ต้องแบ่งหน้า", () => {
+  assert.equal(contentExtentPx(0, [100], A4.pxPerMm), 0);
+  assert.equal(contentExtentPx(2246, [], A4.pxPerMm), 2246, "ไม่มี boundary = ใช้ความสูงเต็ม");
+  const ext = contentExtentPx(2246, [400, 900, 1800], A4.pxPerMm);
+  assert.ok(ext > 1800 && ext < 1850, "ต้องจบใกล้ ๆ เนื้อหาจริง ไม่ลากไปท้าย canvas");
+});
+
+test("share_doc.js: ต้องเรียก shrink-to-fit ก่อนตัดสินใจแบ่งหน้า (ไม่ใช่แบ่งทันที)", () => {
+  const code = shareSrc.replace(/^\s*\/\/.*$/gm, "");
+  assert.ok(/computeFitToPage\(\{/.test(code), "ต้องมีการเรียก computeFitToPage");
+  assert.ok(/slices\.length > 1 \? computeFitToPage/.test(code),
+    "ต้องพิจารณาย่อเฉพาะตอนที่จะแตกหน้าเท่านั้น");
 });
 
 test("regression: share_doc.js ต้องไม่กลับไปหั่นหน้าแบบเลื่อนทีละความสูงกระดาษ", () => {
