@@ -5,6 +5,13 @@
 
 รูปแบบ: `<commit> feat|fix|docs|refactor: <สรุปสั้น>` + bullet 1-2 ข้อถ้าจำเป็น
 
+- `607` fix(documents): **เอกสารไม่ถูกผ่ากลางบรรทัดตอนแชร์/บันทึก PDF** (build 607 / v5.69.75)
+  - เดิม `modules/share_doc.js` เรนเดอร์เอกสารเป็นรูปยาวรูปเดียวแล้วหั่นหน้าด้วย `y += pageH` (ตัดตามความสูงกระดาษล้วน ไม่รู้ว่าตรงรอยตัดมีอะไร) → **แถวตาราง/บล็อกลายเซ็นถูกผ่ากลาง** และหน้า 2 เป็นต้นไปเนื้อหาชนขอบกระดาษ — กระทบ **ทุกเอกสาร** (ใบเสนอราคา/ใบส่งสินค้า/ใบเสร็จ) เพราะใช้ `_appShareDoc` ตัวเดียวกัน
+  - ใหม่: วัดขอบล่างของบล็อกที่ห้ามตัด (แถวตาราง · ยอดรวม · หมายเหตุ · ลายเซ็น) ก่อนถอด clone → `computePageSlices()` เลือกจุดตัด = รอยต่อสุดท้ายที่ยังอยู่ในหน้า → copy เฉพาะช่วงนั้นลง canvas ต่อหน้า (ถมพื้นขาวก่อนแปลง JPEG กันพื้นดำ) + หน้า 2+ เว้นขอบบน 8mm
+  - วัดขอบเขตไม่ได้ + เอกสารหลายหน้า = `warn` + แจ้ง user (**ห้าม fallback เงียบกลับไปตัดตรงขอบ**) · กันลูปค้างเมื่อบล็อกเดียวสูงเกินหนึ่งหน้า
+  - `doc-print.css`: `page-break-inside: avoid` ให้แถว/ยอดรวม/ลายเซ็น + `thead` ซ้ำหัวตารางทุกหน้า (เส้นทางปุ่ม 🖨️ พิมพ์)
+  - +guard `share_doc` 10 → 21 (ตัดที่รอยต่อจริง · หน้าต่อกันสนิทไม่ขาดไม่ซ้ำ · แปลง px→mm ไม่เกินพื้นที่ A4 · ไม่ fallback เงียบ · regression กัน `y += pageH` กลับมา) · **ไม่มี SQL · ไม่แตะยอดเงิน/สต็อก**
+
 - `606-b2c` feat(customer,security): **ลูกค้าเห็น "งานบริการของฉัน" ได้จริง + ยืนยันปิดงานแบบ flow-aware ผ่าน authenticated proxy** (build 605 / v5.69.73)
   - เดิม RLS Phase 505 deny customer `SELECT`/`UPDATE` บน `service_jobs` → หน้าลูกค้าโชว์ "ยังไม่มีงาน" หลอก และปุ่มยืนยันปิดงาน (direct PATCH filter id อย่างเดียว + note append จาก cache + optimistic close) ใช้ไม่ได้จริง
   - ใหม่: `/api/v1/customer-service-jobs` (GET/POST) — service-role proxy ที่ derive identity จาก JWT เท่านั้น · ownership exact (`customer_phone` หรือ `created_by`) + re-check ทุก row · response allowlist 9 field (ไม่มี note/identity) · POST = ownership **+ visibility gate ตัวเดียวกับ GET** (แถวที่ UI ซ่อนไว้ปิดไม่ได้ ตอบ 404 เดียวกัน) + `job_id` = JSON string canonical BIGINT (ไม่มี coercion) + CAS ผูก id+status+flow+ownership, affected rows ต้อง = 1, 0 rows → 409
