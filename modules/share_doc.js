@@ -8,6 +8,67 @@
 //  loaders ถูก inject ทั้งหมด → testable + main.js เก็บ thin wrapper.
 // ═══════════════════════════════════════════════════════════
 
+// ── หั่นหน้า PDF แบบรู้ขอบเขตเนื้อหา ────────────────────────────────────────
+//   เดิม: เรนเดอร์เอกสารเป็นรูปยาวรูปเดียวแล้วเลื่อนทีละ "ความสูงหน้ากระดาษ" เป๊ะ ๆ
+//   → รอยตัดตกกลางแถวตาราง/บล็อกลายเซ็น (ผ่ากลางบรรทัด) เพราะไม่รู้ว่าตรงนั้นมีอะไร
+//   ตอนนี้: วัดขอบล่างของบล็อกที่ห้ามตัด (แถวตาราง/ยอดรวม/หมายเหตุ/ลายเซ็น) ก่อน
+//   แล้วเลือกจุดตัดที่ "รอยต่อสุดท้ายที่ยังอยู่ในหน้า" — ไม่มี boundary = ตัดตรงขอบหน้าเหมือนเดิม
+
+// บล็อกที่ห้ามถูกผ่ากลาง — ใช้ขอบล่างของแต่ละตัวเป็นจุดตัดที่ปลอดภัย
+const BREAK_SELECTOR = [
+  ".doc-page-inner > *",
+  ".doc-table thead tr",
+  ".doc-table tbody tr",
+  ".doc-totals",
+  ".doc-note-section",
+  ".doc-signatures",
+].join(", ");
+
+export function collectBreakBoundaries(rootEl, scale = 1) {
+  if (!rootEl || typeof rootEl.querySelectorAll !== "function") return [];
+  if (typeof rootEl.getBoundingClientRect !== "function") return [];
+  const rootTop = rootEl.getBoundingClientRect()?.top;
+  if (typeof rootTop !== "number") return [];
+  const out = [];
+  for (const el of Array.from(rootEl.querySelectorAll(BREAK_SELECTOR) || [])) {
+    if (!el || typeof el.getBoundingClientRect !== "function") continue;
+    const r = el.getBoundingClientRect();
+    if (!r || !(r.height > 0)) continue;
+    out.push(Math.round((r.bottom - rootTop) * scale));
+  }
+  return Array.from(new Set(out)).filter(v => v > 0).sort((a, b) => a - b);
+}
+
+// pure — คำนวณว่าแต่ละหน้าครอบพิกเซลช่วงไหนของรูป (unit-test ได้โดยไม่ต้องมี DOM)
+export function computePageSlices({
+  totalPx, pxPerMm, pageHeightMm,
+  boundariesPx = [], topMarginMm = 8, bottomMarginMm = 8, maxPages = 200,
+} = {}) {
+  const pages = [];
+  if (!(totalPx > 0) || !(pxPerMm > 0) || !(pageHeightMm > 0)) return pages;
+  let start = 0;
+  while (start < totalPx - 1 && pages.length < maxPages) {
+    // หน้าแรกไม่ต้องเว้นขอบบน (เทมเพลตมี padding ของตัวเองอยู่แล้ว) — หน้า 2+ ต้องเว้น
+    const topMm = pages.length === 0 ? 0 : topMarginMm;
+    const usablePx = (pageHeightMm - topMm - bottomMarginMm) * pxPerMm;
+    if (!(usablePx > 0)) break;
+    let end = start + usablePx;
+    if (end >= totalPx) {
+      end = totalPx;
+    } else {
+      // เลือกรอยต่อสุดท้ายที่ยังอยู่ในหน้านี้ — ถ้าไม่มีเลย (บล็อกเดียวสูงกว่าหน้า) ตัดตรงขอบ
+      let cut = 0;
+      for (const b of boundariesPx) {
+        if (b > start + 1 && b <= end && b > cut) cut = b;
+      }
+      if (cut > start) end = cut;
+    }
+    pages.push({ startPx: start, endPx: end, topMm });
+    start = end;
+  }
+  return pages;
+}
+
 export async function shareDoc({
   docElementId,
   docName,
@@ -133,6 +194,12 @@ export async function shareDoc({
     documentRef.body.appendChild(clone);
 
     windowRef.html2canvas(clone, { scale: 2, useCORS: true, backgroundColor: "#ffffff", width: 794 }).then(c => {
+      // ★ วัดขอบเขตบล็อก "ก่อน" ถอด clone ออกจาก DOM (หลังถอดแล้ววัดไม่ได้)
+      let _breakPx = [];
+      try {
+        const cloneW = clone.offsetWidth || 794;
+        _breakPx = collectBreakBoundaries(clone, (c.width || cloneW) / cloneW);
+      } catch (e) { logger?.warn?.("break boundary measure failed:", e); }
       documentRef.body.removeChild(clone);
       documentRef.head.removeChild(forceA4Style);
       _canvas = c;
@@ -145,17 +212,34 @@ export async function shareDoc({
         const pdf = new jsPDF("p","mm","a4");
         const pageW = pdf.internal.pageSize.getWidth();
         const pageH = pdf.internal.pageSize.getHeight();
-        const imgData = c.toDataURL("image/jpeg", 0.92);
-        const imgW = pageW;
-        const imgH = (c.height * pageW) / c.width;
-        // ถ้ายาวกว่า 1 หน้า ให้ตัดเป็นหลายหน้า
-        let y = 0;
-        let pageNum = 0;
-        while (y < imgH) {
-          if (pageNum > 0) pdf.addPage();
-          pdf.addImage(imgData, "JPEG", 0, -y, imgW, imgH);
-          y += pageH;
-          pageNum++;
+        // ★ หั่นหน้าโดยไม่ผ่ากลางแถว: ตัดที่ขอบล่างของบล็อกที่วัดไว้ แล้ว copy เฉพาะช่วงนั้นลง canvas ต่อหน้า
+        const pxPerMm = c.width / pageW;
+        const slices = computePageSlices({
+          totalPx: c.height, pxPerMm, pageHeightMm: pageH, boundariesPx: _breakPx,
+        });
+        // ★ ห้าม fallback เงียบ: วัดขอบเขตไม่ได้ + เอกสารยาวเกินหนึ่งหน้า = กลับไปตัดตรงขอบ (ผ่ากลางแถวได้)
+        //   ต้องส่งสัญญาณออกมา ไม่งั้นบั๊กเดิมกลับมาโดยไม่มีใครรู้
+        if (_breakPx.length === 0 && slices.length > 1) {
+          logger?.warn?.("[share_doc] วัดขอบเขตแถวไม่ได้ — หั่นหน้าแบบตัดตรงขอบ อาจผ่ากลางแถว");
+          const st = documentRef.getElementById("shareStatus");
+          if (st) { st.textContent = "⚠️ แบ่งหน้าแบบประมาณ — ตรวจรอยต่อหน้าก่อนส่ง"; st.style.display = "block"; st.style.color = "#b45309"; }
+        }
+        if (slices.length === 0) {
+          // ไม่มีข้อมูลขนาด (เช่น canvas stub) — คงพฤติกรรมเดิมไว้ ไม่ทำให้พัง
+          pdf.addImage(c.toDataURL("image/jpeg", 0.92), "JPEG", 0, 0, pageW, (c.height * pageW) / c.width);
+        } else {
+          slices.forEach((s, i) => {
+            if (i > 0) pdf.addPage();
+            const sh = Math.max(1, Math.round(s.endPx - s.startPx));
+            const tmp = documentRef.createElement("canvas");
+            tmp.width = c.width;
+            tmp.height = sh;
+            const tctx = tmp.getContext ? tmp.getContext("2d") : null;
+            // ★ ต้องถมขาวก่อน — canvas ใหม่โปร่งใส พอแปลงเป็น JPEG จะกลายเป็นพื้นดำ
+            if (tctx?.fillRect) { tctx.fillStyle = "#ffffff"; tctx.fillRect(0, 0, tmp.width, sh); }
+            if (tctx?.drawImage) tctx.drawImage(c, 0, s.startPx, c.width, sh, 0, 0, c.width, sh);
+            pdf.addImage(tmp.toDataURL("image/jpeg", 0.92), "JPEG", 0, s.topMm, pageW, sh / pxPerMm);
+          });
         }
         _pdfBlob = pdf.output("blob");
         _pdfUrl = windowRef.URL.createObjectURL(_pdfBlob);

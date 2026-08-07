@@ -483,6 +483,21 @@
     page-break-after: avoid;
   }
 
+  /* Phase 607: ห้ามให้ตัวแบ่งหน้าของเบราว์เซอร์ผ่ากลางแถว/บล็อก (คู่กับตัวหั่นหน้าของ share PDF) */
+  .doc-table tr,
+  .doc-table thead,
+  .doc-totals,
+  .doc-note-section,
+  .doc-signatures,
+  .doc-sig-col {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .doc-table thead {
+    display: table-header-group;   /* ขึ้นหน้าใหม่ให้ซ้ำหัวตาราง */
+  }
+
   /* แสดงสีและ border ตอนพิมพ์ */
   .doc-accent.qt  { background: #f97316 !important; }
   .doc-accent.inv { background: #0284c7 !important; }

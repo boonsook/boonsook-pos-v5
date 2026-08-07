@@ -19,7 +19,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-import { shareDoc } from "../modules/share_doc.js";
+import { shareDoc, computePageSlices, collectBreakBoundaries } from "../modules/share_doc.js";
 
 // ── Stubs ──────────────────────────────────────────────────────────────────
 function makeEl(tag) {
@@ -151,4 +151,97 @@ test("Phase 92.7: share_doc.js routes globals through injected refs (no bareword
 
 test("Phase 92.5 preserved: share_doc.js still has the html2canvas-fail fallback (error msg)", () => {
   assert.ok(/โหลดตัวสร้าง PDF ไม่สำเร็จ/.test(shareSrc));
+});
+
+// ── หั่นหน้า PDF ต้องไม่ผ่ากลางแถว (bug: เอกสารล้นบรรทัดตอนแชร์) ─────────────
+// A4: 210x297mm — สมมติภาพกว้าง 1588px (794 css px * scale 2) => pxPerMm ≈ 7.562
+const A4 = { pxPerMm: 1588 / 210, pageHeightMm: 297 };
+
+test("computePageSlices: ตัดที่รอยต่อของบล็อก ไม่ผ่ากลางแถว", () => {
+  // แถวสูง 100px เรียงกัน 40 แถว -> ขอบล่างอยู่ที่ 100,200,...,4000
+  const boundaries = Array.from({ length: 40 }, (_, i) => (i + 1) * 100);
+  const pages = computePageSlices({ totalPx: 4000, ...A4, boundariesPx: boundaries });
+  assert.ok(pages.length >= 2, "เอกสารยาวกว่า 1 หน้าต้องถูกแบ่งหลายหน้า");
+  for (const p of pages.slice(0, -1)) {
+    assert.ok(boundaries.includes(p.endPx), `จุดตัด ${p.endPx} ต้องเป็นขอบล่างของแถว ไม่ใช่กลางแถว`);
+  }
+  assert.equal(pages[pages.length - 1].endPx, 4000, "หน้าสุดท้ายต้องจบที่ท้ายเอกสารพอดี");
+});
+
+test("computePageSlices: หน้าต่อกันสนิท ไม่ซ้ำ ไม่ขาดหาย", () => {
+  const boundaries = Array.from({ length: 60 }, (_, i) => (i + 1) * 90);
+  const pages = computePageSlices({ totalPx: 5400, ...A4, boundariesPx: boundaries });
+  assert.equal(pages[0].startPx, 0, "หน้าแรกต้องเริ่มที่ 0");
+  for (let i = 1; i < pages.length; i++) {
+    assert.equal(pages[i].startPx, pages[i - 1].endPx, "หน้าถัดไปต้องเริ่มตรงที่หน้าก่อนจบ");
+  }
+  assert.equal(pages[pages.length - 1].endPx, 5400, "รวมทุกหน้าต้องครอบเอกสารครบ");
+});
+
+test("computePageSlices: หน้าแรกไม่เว้นขอบบน หน้าถัดไปเว้น (กันเนื้อหาชนขอบกระดาษ)", () => {
+  const pages = computePageSlices({ totalPx: 6000, ...A4, boundariesPx: [], topMarginMm: 8 });
+  assert.equal(pages[0].topMm, 0);
+  assert.ok(pages.length > 1 && pages.slice(1).every(p => p.topMm === 8));
+});
+
+test("computePageSlices: ไม่มี boundary เลย ต้องยังแบ่งหน้าได้ (fallback ตัดตรงขอบ)", () => {
+  const pages = computePageSlices({ totalPx: 6000, ...A4, boundariesPx: [] });
+  assert.ok(pages.length >= 2, "ต้องไม่คืนค่าว่างจนได้ PDF หน้าเดียวที่เนื้อหาหาย");
+  assert.equal(pages[pages.length - 1].endPx, 6000);
+});
+
+test("computePageSlices: บล็อกเดียวสูงกว่าหนึ่งหน้า ต้องไม่วนไม่รู้จบ", () => {
+  const pages = computePageSlices({ totalPx: 9000, ...A4, boundariesPx: [9000] });
+  assert.ok(pages.length >= 2 && pages.length < 200, "ต้อง hard cut แล้วจบ ไม่ค้างลูป");
+  assert.equal(pages[pages.length - 1].endPx, 9000);
+});
+
+test("computePageSlices: ค่าขนาดไม่ถูกต้อง (canvas ว่าง) ต้องคืน [] ไม่ throw", () => {
+  assert.deepEqual(computePageSlices({}), []);
+  assert.deepEqual(computePageSlices({ totalPx: 0, ...A4 }), []);
+  assert.deepEqual(computePageSlices({ totalPx: 100, pxPerMm: 0, pageHeightMm: 297 }), []);
+});
+
+test("collectBreakBoundaries: element ที่วัดไม่ได้ ต้องคืน [] ไม่ throw", () => {
+  assert.deepEqual(collectBreakBoundaries(null), []);
+  assert.deepEqual(collectBreakBoundaries({}), []);
+  assert.deepEqual(collectBreakBoundaries({ querySelectorAll: () => [] }), []);
+});
+
+test("collectBreakBoundaries: คืนขอบล่างของแต่ละบล็อก (สเกลตาม canvas) เรียงจากน้อยไปมาก", () => {
+  const mk = (top, height) => ({ getBoundingClientRect: () => ({ top, bottom: top + height, height }) });
+  const root = {
+    getBoundingClientRect: () => ({ top: 50, bottom: 500, height: 450 }),
+    querySelectorAll: () => [mk(50, 100), mk(150, 100), mk(250, 0)], // ตัวสูง 0 ต้องถูกข้าม
+  };
+  assert.deepEqual(collectBreakBoundaries(root, 2), [200, 400]);
+});
+
+test("computePageSlices: ความสูงเนื้อหาต่อหน้า (แปลง px→mm) ต้องไม่เกินพื้นที่ใช้ได้ของ A4", () => {
+  // ตรวจการแปลงพิกัด 3 ทอด: CSS px → canvas px (scale 2) → mm ที่ส่งเข้า pdf.addImage
+  const boundaries = Array.from({ length: 80 }, (_, i) => (i + 1) * 77);
+  const pages = computePageSlices({ totalPx: 6160, ...A4, boundariesPx: boundaries, topMarginMm: 8, bottomMarginMm: 8 });
+  assert.ok(pages.length >= 3, "ต้องได้หลายหน้าเพื่อทดสอบทั้งหน้าแรกและหน้าถัดไป");
+  for (const p of pages) {
+    const heightMm = (p.endPx - p.startPx) / A4.pxPerMm;
+    const usableMm = A4.pageHeightMm - p.topMm - 8;
+    assert.ok(heightMm <= usableMm + 0.001,
+      `หน้าที่สูง ${heightMm.toFixed(2)}mm ต้องไม่เกินพื้นที่ใช้ได้ ${usableMm}mm (ไม่งั้นเนื้อหาล้นออกนอกกระดาษ)`);
+    assert.ok(p.topMm + heightMm <= A4.pageHeightMm + 0.001, "ขอบบน + เนื้อหา ต้องไม่เกินความสูงกระดาษ");
+  }
+});
+
+test("share_doc.js: ถ้าวัดขอบเขตไม่ได้ ต้องไม่ fallback เงียบ (มีสัญญาณเตือน)", () => {
+  const code = shareSrc.replace(/^\s*\/\/.*$/gm, "");
+  assert.ok(/_breakPx\.length === 0 && slices\.length > 1/.test(code),
+    "ต้องตรวจเคส 'วัดไม่ได้ + หลายหน้า' อย่างชัดเจน");
+  assert.ok(/logger\?\.warn\?\.\(/.test(code) && /แบ่งหน้าแบบประมาณ/.test(shareSrc),
+    "ต้องมีทั้ง log และข้อความแจ้ง user — ห้ามเงียบ");
+});
+
+test("regression: share_doc.js ต้องไม่กลับไปหั่นหน้าแบบเลื่อนทีละความสูงกระดาษ", () => {
+  const code = shareSrc.replace(/^\s*\/\/.*$/gm, "");
+  assert.ok(!/y\s*\+=\s*pageH\b/.test(code), "ห้ามใช้ y += pageH (ตัดกลางแถว)");
+  assert.ok(code.includes("computePageSlices({"), "ต้องหั่นหน้าผ่าน computePageSlices");
+  assert.ok(/fillStyle\s*=\s*"#ffffff"/.test(code), "ต้องถมพื้นขาวก่อนแปลง JPEG (กันพื้นดำ)");
 });
