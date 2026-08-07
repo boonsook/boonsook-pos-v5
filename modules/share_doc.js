@@ -46,15 +46,27 @@ export function computePageSlices({
 } = {}) {
   const pages = [];
   if (!(totalPx > 0) || !(pxPerMm > 0) || !(pageHeightMm > 0)) return pages;
+  // ★ ตัดพื้นที่ว่างท้ายเอกสารทิ้งก่อน — canvas สูงเท่ากรอบ A4 เสมอ (min-height 1123px)
+  //   ถ้าเนื้อหาจบก่อน ส่วนที่เหลือคือ padding ล้วน ไม่ควรนับเป็นความยาวที่ต้องแบ่งหน้า
+  const contentBottom = boundariesPx.length ? Math.max(...boundariesPx) : 0;
+  const total = contentBottom > 0 ? Math.min(totalPx, contentBottom + Math.round(2 * pxPerMm)) : totalPx;
+
   let start = 0;
-  while (start < totalPx - 1 && pages.length < maxPages) {
+  while (start < total - 1 && pages.length < maxPages) {
     // หน้าแรกไม่ต้องเว้นขอบบน (เทมเพลตมี padding ของตัวเองอยู่แล้ว) — หน้า 2+ ต้องเว้น
     const topMm = pages.length === 0 ? 0 : topMarginMm;
+    // ★ หน้าสุดท้ายใช้ความสูงกระดาษเต็ม — ขอบล่างมีไว้กันเนื้อหาชนขอบ "เฉพาะหน้าที่ถูกตัดกลาง"
+    //   ถ้าหักขอบล่างกับหน้าสุดท้ายด้วย เอกสารที่เดิมพอดีหนึ่งหน้าจะถูกดันเป็นสองหน้า (regression 607)
+    const fullPx = (pageHeightMm - topMm) * pxPerMm;
+    if (total - start <= fullPx) {
+      pages.push({ startPx: start, endPx: total, topMm });
+      break;
+    }
     const usablePx = (pageHeightMm - topMm - bottomMarginMm) * pxPerMm;
     if (!(usablePx > 0)) break;
     let end = start + usablePx;
-    if (end >= totalPx) {
-      end = totalPx;
+    if (end >= total) {
+      end = total;
     } else {
       // เลือกรอยต่อสุดท้ายที่ยังอยู่ในหน้านี้ — ถ้าไม่มีเลย (บล็อกเดียวสูงกว่าหน้า) ตัดตรงขอบ
       let cut = 0;
