@@ -194,7 +194,9 @@ test.describe("Smoke — build version sync", () => {
     const buildMatch =
       indexHtml.match(/data-app-build=["'](\d+)["']/) ||
       indexHtml.match(/APP_BUILD\s*=\s*(\d+)/);
-    const cacheMatch = swText.match(/cache-v(\d+)/);
+    // ★ Phase 608: ต้อง anchor ที่บรรทัดประกาศจริง — sw.js มีคอมเมนต์ changelog ที่ยกโค้ดเก่ามาอ้าง
+    //   regex ไม่ anchor จะจับเลขในคอมเมนต์ก่อน แล้วบอกว่า build ไม่ตรงทั้งที่ตรง (หรือแย่กว่า: เขียวหลอก)
+    const cacheMatch = swText.match(/^const CACHE_NAME = 'boonsook-pos-v5-cache-v(\d+)';$/m);
 
     expect(buildMatch, "APP_BUILD not found (ตรวจ data-app-build attribute)").toBeTruthy();
     expect(cacheMatch, "cache-vN not found in sw.js").toBeTruthy();
