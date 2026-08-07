@@ -168,6 +168,27 @@ test("computePageSlices: ตัดที่รอยต่อของบล็�
   assert.equal(pages[pages.length - 1].endPx, 4000, "หน้าสุดท้ายต้องจบที่ท้ายเอกสารพอดี");
 });
 
+// ★ regression 608: build 607 หักขอบล่าง 8mm กับ "ทุกหน้า" รวมหน้าสุดท้าย
+//   → เอกสารที่พอดีหนึ่งหน้า (canvas สูงเท่ากรอบ A4 = 1123px @794) ถูกดันเป็นสองหน้า
+//   โดยหน้า 2 มีแค่บล็อกลายเซ็น (owner เจอจริงกับใบเสนอราคา อบต.หนองขวาว)
+test("computePageSlices: เอกสารที่พอดีหนึ่งหน้า ต้องได้หน้าเดียว (regression 608)", () => {
+  const canvasH = Math.round(A4.pageHeightMm * A4.pxPerMm);   // 1123px * 2 = ความสูงกรอบ A4 เป๊ะ
+  // เนื้อหาจบที่ ~97% ของหน้า (ลายเซ็นอยู่ท้ายสุด) — ที่เหลือคือ padding ของเทมเพลต
+  const boundaries = [400, 900, 1400, 1900, Math.round(canvasH * 0.97)];
+  const pages = computePageSlices({ totalPx: canvasH, ...A4, boundariesPx: boundaries });
+  assert.equal(pages.length, 1, `ต้องได้หน้าเดียว แต่ได้ ${pages.length} หน้า — ขอบล่างห้ามกินพื้นที่หน้าสุดท้าย`);
+  assert.equal(pages[0].topMm, 0);
+});
+
+test("computePageSlices: เนื้อหาจบก่อนขอบล่าง canvas ต้องไม่เกิดหน้าว่างท้ายเล่ม", () => {
+  const canvasH = 4000;
+  // เนื้อหาจริงจบที่ 2100px ที่เหลือเป็นพื้นที่ว่างของกรอบเอกสาร
+  const boundaries = [700, 1400, 2100];
+  const pages = computePageSlices({ totalPx: canvasH, ...A4, boundariesPx: boundaries });
+  assert.equal(pages.length, 1, "ส่วนที่ว่างเปล่าไม่ควรถูกนับเป็นหน้าเพิ่ม");
+  assert.ok(pages[0].endPx <= 2100 + 3 * A4.pxPerMm, "ต้องตัดท้ายที่เนื้อหาจริง ไม่ลากไปถึงท้าย canvas");
+});
+
 test("computePageSlices: หน้าต่อกันสนิท ไม่ซ้ำ ไม่ขาดหาย", () => {
   const boundaries = Array.from({ length: 60 }, (_, i) => (i + 1) * 90);
   const pages = computePageSlices({ totalPx: 5400, ...A4, boundariesPx: boundaries });
@@ -222,13 +243,15 @@ test("computePageSlices: ความสูงเนื้อหาต่อห�
   const boundaries = Array.from({ length: 80 }, (_, i) => (i + 1) * 77);
   const pages = computePageSlices({ totalPx: 6160, ...A4, boundariesPx: boundaries, topMarginMm: 8, bottomMarginMm: 8 });
   assert.ok(pages.length >= 3, "ต้องได้หลายหน้าเพื่อทดสอบทั้งหน้าแรกและหน้าถัดไป");
-  for (const p of pages) {
+  pages.forEach((p, i) => {
     const heightMm = (p.endPx - p.startPx) / A4.pxPerMm;
-    const usableMm = A4.pageHeightMm - p.topMm - 8;
+    const isLast = i === pages.length - 1;
+    // หน้าที่ถูกตัดกลาง = เว้นขอบล่าง 8mm กันเนื้อหาชนขอบ · หน้าสุดท้าย = ใช้ได้เต็มหน้า
+    const usableMm = A4.pageHeightMm - p.topMm - (isLast ? 0 : 8);
     assert.ok(heightMm <= usableMm + 0.001,
-      `หน้าที่สูง ${heightMm.toFixed(2)}mm ต้องไม่เกินพื้นที่ใช้ได้ ${usableMm}mm (ไม่งั้นเนื้อหาล้นออกนอกกระดาษ)`);
+      `หน้า ${i + 1} สูง ${heightMm.toFixed(2)}mm ต้องไม่เกินพื้นที่ใช้ได้ ${usableMm}mm`);
     assert.ok(p.topMm + heightMm <= A4.pageHeightMm + 0.001, "ขอบบน + เนื้อหา ต้องไม่เกินความสูงกระดาษ");
-  }
+  });
 });
 
 test("share_doc.js: ถ้าวัดขอบเขตไม่ได้ ต้องไม่ fallback เงียบ (มีสัญญาณเตือน)", () => {
