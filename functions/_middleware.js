@@ -96,6 +96,57 @@ function getCorsHeaders(origin) {
   };
 }
 
+// ── Vary merge (Phase 606-b2c-H1) ────────────────────────────────────────────
+// ปัญหาที่แก้: downstream endpoint ตั้ง Vary ของตัวเองได้ (customer-service-jobs ตั้ง
+// "Authorization" คู่ Cache-Control: private, no-store เป็น defense-in-depth ของ
+// per-customer cache) แต่ตอนใส่ CORS headers กลับ response เราใช้ Headers.set() ซึ่ง
+// "ทับ" ไม่ใช่ "รวม" → เหลือแค่ "Origin" และ contract ฝั่ง endpoint หายเงียบ ๆ.
+// helper นี้รวมค่า Vary หลายชุดเป็น token list เดียว: trim, ตัด token ว่าง, dedup
+// case-insensitive (field name เป็น case-insensitive ตาม RFC 9110 §5.1) และคง spelling
+// ของ token ที่พบก่อนไว้.
+// ★ "*" (RFC 9110 §12.5.5 = แปรผันตามสิ่งที่ header จับไม่ได้) ครอบทุกอย่างอยู่แล้ว →
+//   พบที่ฝั่งใดก็ตาม ผลลัพธ์เป็น "*" เดี่ยว ห้ามคืนค่าประหลาดอย่าง "*, Origin".
+// ★ generic ล้วน — ไม่มี token บังคับ ไม่มีชื่อ endpoint ใด hardcode อยู่ในนี้.
+export function mergeVaryValues(...values) {
+  const tokens = [];
+  const seen = new Set();
+  for (const value of values) {
+    for (const raw of String(value ?? "").split(",")) {
+      const token = raw.trim();
+      if (!token) continue;
+      if (token === "*") return "*";
+      const key = token.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      tokens.push(token);
+    }
+  }
+  return tokens.join(", ");
+}
+
+// ใส่ CORS + rate-limit headers ทับ response ของ downstream endpoint (ใช้ร่วมกัน
+// ทั้ง normal path และ Ning-agent path — ห้าม fork logic สองชุด).
+// ★ ลำดับเป็นข้อบังคับ: ต้องอ่าน Vary เดิมออกมา **ก่อน** ลูป set() ทับ แล้วค่อย set ค่า
+//   ที่ merge แล้ว. ถ้าอ่านหลังลูป จะได้ "Origin" ที่ถูกทับไปแล้ว → token ของ endpoint
+//   หายเงียบ ๆ ทั้งที่ helper ถูกเรียกครบ (guard แบบ source-regex จับไม่ได้เลย —
+//   ตัวที่จับคือ behavioral test G39/G40 ที่ขับ onRequest จริง).
+function withProxyResponseHeaders(response, corsHeaders, rl) {
+  const newHeaders = new Headers(response.headers);
+  const downstreamVary = newHeaders.get("Vary");
+  Object.entries(corsHeaders).forEach(([k, v]) => newHeaders.set(k, v));
+  const mergedVary = mergeVaryValues(downstreamVary, corsHeaders.Vary);
+  if (mergedVary) newHeaders.set("Vary", mergedVary);
+  if (rl.limit) newHeaders.set("X-RateLimit-Limit", String(rl.limit));
+  if (rl.remaining !== undefined) newHeaders.set("X-RateLimit-Remaining", String(rl.remaining));
+  if (rl.skipped) newHeaders.set("X-RateLimit-Skipped", "no-kv-binding");
+
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: newHeaders
+  });
+}
+
 function getClientIp(request) {
   // Cloudflare provides client IP in CF-Connecting-IP header
   return request.headers.get("CF-Connecting-IP") ||
@@ -335,17 +386,7 @@ export async function onRequest(context) {
         };
 
         const response = await next();
-        const newHeaders = new Headers(response.headers);
-        Object.entries(corsHeaders).forEach(([k, v]) => newHeaders.set(k, v));
-        if (rl.limit) newHeaders.set("X-RateLimit-Limit", String(rl.limit));
-        if (rl.remaining !== undefined) newHeaders.set("X-RateLimit-Remaining", String(rl.remaining));
-        if (rl.skipped) newHeaders.set("X-RateLimit-Skipped", "no-kv-binding");
-
-        return new Response(response.body, {
-          status: response.status,
-          statusText: response.statusText,
-          headers: newHeaders
-        });
+        return withProxyResponseHeaders(response, corsHeaders, rl);
       }
       if (!agentAuth.skipped) {
         return new Response(
@@ -394,15 +435,5 @@ export async function onRequest(context) {
 
   // ── ยิงต่อไปยัง endpoint จริง + ใส่ CORS headers + rate limit headers ใน response ──
   const response = await next();
-  const newHeaders = new Headers(response.headers);
-  Object.entries(corsHeaders).forEach(([k, v]) => newHeaders.set(k, v));
-  if (rl.limit) newHeaders.set("X-RateLimit-Limit", String(rl.limit));
-  if (rl.remaining !== undefined) newHeaders.set("X-RateLimit-Remaining", String(rl.remaining));
-  if (rl.skipped) newHeaders.set("X-RateLimit-Skipped", "no-kv-binding");
-
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers: newHeaders
-  });
+  return withProxyResponseHeaders(response, corsHeaders, rl);
 }

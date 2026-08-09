@@ -5,6 +5,14 @@
 
 รูปแบบ: `<commit> feat|fix|docs|refactor: <สรุปสั้น>` + bullet 1-2 ข้อถ้าจำเป็น
 
+- `609-H1` fix(api): **middleware ไม่ทับ `Vary` ที่ endpoint ส่งมา** — คืน defense-in-depth layer ของหน้างานบริการฝั่งลูกค้า (build 609 คงเดิม / v5.69.77 · server-only)
+  - `/api/v1/customer-service-jobs` ส่ง `Cache-Control: private, no-store` + `Vary: Authorization` แต่ `_middleware.js` ใส่ CORS headers กลับ response ด้วย `Headers.set()` = **ทับ ไม่ใช่รวม** → เหลือแค่ `Vary: Origin` (owner-run ONLINE_MATRIX_A จับได้)
+  - **ไม่ใช่ active data-leak fix** — ด่านหลักคือ SW `/api/*` network-only (ยังทำงาน) และ `Cache-Control: private, no-store` ยังอยู่ครบ
+  - แก้: helper `mergeVaryValues()` (generic, comma-list, trim, dedup case-insensitive, คง spelling ตัวแรก, `*` → `*` เดี่ยว) + รวมจุดประกอบ response header เป็นชุดเดียวใช้ทั้ง normal path และ Ning-agent path · `getCorsHeaders()` ไม่เปลี่ยน → OPTIONS/401/403/429 ยังคง `Vary: Origin` เดิม
+  - +guard 6 ตัว (**ขับ `onRequest` จริง** ทั้งสอง downstream path — source-regex พิสูจน์ลำดับ merge ไม่ได้) + header-key collision guard · mutation 10 แบบ RED ครบ
+  - **ไม่ bump build/cache marker** (server-only Function change · `/api/*` เป็น network-only ไม่มี client cache ถือ header เก่า · bump = บังคับ PWA ทุกเครื่องล้าง cache โดยไม่ได้ประโยชน์) · **ไม่มี SQL · ไม่แตะ endpoint/SW/client/rate limit 30-60/เงิน/สต็อก**
+  - 🔴 customer behavioral staging = **NOT RE-RUN / NOT PASS** · 429 ที่เจอ = AUTO pacing defect รอ EXEC-AUTO v6.6 · 606-b3/607 ยังไม่ได้รับอนุญาต
+
 - `609` fix(documents): **เอกสารที่เครื่องพิมพ์ออกมา 1 หน้า ต้องไม่กลายเป็น 2 หน้าในไฟล์แชร์** (build 609 / v5.69.77)
   - owner เจอจริงสองรอบ: หน้าพรีวิว 1 หน้า · หน้าเครื่องพิมพ์ 1 หน้า · **แต่ PDF แชร์เป็น 2 หน้า** โดยหน้า 2 มีแค่บล็อกลายเซ็น
   - เหตุ: สไตล์ force-A4 ที่ใช้ตอน render PDF ให้เมตริกต่างจาก CSS ตอนพิมพ์เล็กน้อย → เนื้อหาสูงเกินหน้ากระดาษ **~1%** (≈300mm จาก 297mm) แล้วตัวหั่นหน้าก็แบ่งตามตรง (build 608 แก้เรื่องขอบล่างไปแล้ว แต่ไม่พอเพราะเนื้อหาเกินจริง)

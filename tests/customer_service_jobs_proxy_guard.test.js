@@ -18,6 +18,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { isVisibleJob as isVisibleJobFn, isValidJobId, ownsJob as ownsJobFn, onRequestPost }
   from "../functions/api/v1/customer-service-jobs.js";
+import { onRequest as mwOnRequest, mergeVaryValues } from "../functions/_middleware.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const rd = (f) => fs.readFileSync(path.join(ROOT, f), "utf8");
@@ -460,4 +461,184 @@ test("G32: proxy เขียนได้เฉพาะ service_jobs และ�
   assert.deepEqual([...new Set(methods)], ["PATCH"], `เขียนด้วย method อื่น: ${methods.join(",")}`);
   const tables = [...FN.matchAll(/\/rest\/v1\/([a-z_]+)/g)].map((m) => m[1]);
   assert.deepEqual([...new Set(tables)], ["service_jobs"], `แตะตารางอื่น: ${tables.join(",")}`);
+});
+
+// ═══ G39+ · middleware response-header merge contract (Phase 606-b2c-H1) ══════════
+//
+// ทำไมต้องมี: endpoint ตั้ง `Vary: Authorization` + `Cache-Control: private, no-store`
+// เป็น defense-in-depth ของ per-customer cache (G8) แต่ _middleware ใส่ CORS headers
+// กลับ response ด้วย Headers.set() = "ทับ" ไม่ใช่ "รวม" → เหลือแค่ `Vary: Origin`
+// (owner-run ONLINE_MATRIX_A จับได้ที่ get.visible.headers).
+// ★ guard ชุดนี้ต้อง **ขับ onRequest จริง** เพราะ regex บน source พิสูจน์ "ลำดับ" ไม่ได้:
+//   ถ้าอ่านค่า Vary เดิม *หลัง* ลูป CORS (order hazard) helper ยังถูกเรียกครบทั้งสอง path
+//   และ source ก็ไม่มี set("Vary","Origin") เหลือ — แต่ผลลัพธ์จริงกลับเป็น Origin เพียว ๆ.
+
+const NING_PROBE_ENDPOINT = "/api/v1/ning-memory/recall";      // อยู่ใน NING_AGENT_ENDPOINTS จริง
+const VARY_PROBE_PATH = "/api/__vary_probe__";                 // ไม่อยู่ใน RATE_LIMITS/REQUIRE_AUTH/NING list ใด
+const DUMMY_NING_KEY = "dummy-ning-agent-key-for-tests-only";  // ≥24 ตัวตาม contract ของ verifyNingAgentKey
+
+// middleware ใช้จาก request แค่ url/method/headers — ใช้ stub เพื่อไม่ให้ fetch-spec
+// header guard มาจำกัดการตั้ง Origin และไม่ต้องมี body
+function stubRequest(pathname, { method = "GET", headers = {} } = {}) {
+  return { url: `https://boonsukair.com${pathname}`, method, headers: new Headers(headers) };
+}
+
+// response ของ downstream endpoint (mirror ของ jsonResponse ใน customer-service-jobs)
+function downstreamResponse() {
+  return new Response(JSON.stringify({ ok: true }), {
+    status: 200,
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "private, no-store",
+      "Vary": "Authorization",
+    },
+  });
+}
+
+// ขับ onRequest จริง: ไม่มี KV binding (rate limit graceful-skip) และ fetch ถูก stub ให้
+// throw + นับ เพื่อ "พิสูจน์" ว่า guard ไม่แตะ network เลย
+async function driveMiddleware(request, env = {}) {
+  const realFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = async () => { fetchCalls++; throw new Error("guard นี้ห้ามยิง network จริง"); };
+  let nextCalls = 0;
+  const context = { request, env, next: async () => { nextCalls++; return downstreamResponse(); } };
+  try {
+    const resp = await mwOnRequest(context);
+    return { resp, nextCalls, fetchCalls, context };
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+
+const varyTokens = (resp) => String(resp.headers.get("Vary") || "")
+  .split(",").map((t) => t.trim().toLowerCase()).filter(Boolean);
+
+test("G39: normal downstream path — Vary ของ endpoint ต้องรอด CORS merge (ขับ onRequest จริง)", async () => {
+  const r = await driveMiddleware(stubRequest(VARY_PROBE_PATH, { headers: { Origin: "https://boonsukair.com" } }));
+  assert.equal(r.nextCalls, 1, "downstream ต้องถูกเรียกครั้งเดียว");
+  assert.equal(r.fetchCalls, 0, "ห้ามยิง network จริง");
+  assert.equal(r.resp.status, 200);
+  const tokens = varyTokens(r.resp);
+  assert.deepEqual([...tokens].sort(), ["authorization", "origin"],
+    `Vary ต้องมีทั้ง Authorization และ Origin — ได้ "${r.resp.headers.get("Vary")}"`);
+  assert.equal(tokens.length, 2, "แต่ละ token ต้องมีอย่างละหนึ่ง (ห้ามซ้ำ)");
+  assert.equal(r.resp.headers.get("Cache-Control"), "private, no-store",
+    "Cache-Control ของ endpoint ต้องไม่ถูก middleware ทับ/ลบ");
+  assert.equal(r.resp.headers.get("Access-Control-Allow-Origin"), "https://boonsukair.com");
+  assert.equal(r.resp.headers.get("Access-Control-Allow-Methods"), "GET, POST, OPTIONS");
+  assert.match(r.resp.headers.get("Access-Control-Allow-Headers") || "", /Authorization/);
+  assert.equal(r.resp.headers.get("Access-Control-Max-Age"), "86400");
+  // ★ โหมดไม่มี KV: checkRateLimit คืน {ok,remaining,skipped} — ไม่มี key `limit`
+  //   จึงต้องไม่มี X-RateLimit-Limit (อย่า assert ว่ามี ไม่งั้นแดงด้วยเหตุที่ไม่เกี่ยวกับ fix)
+  assert.match(r.resp.headers.get("X-RateLimit-Remaining") || "", /^\d+$/);
+  assert.equal(r.resp.headers.get("X-RateLimit-Skipped"), "no-kv-binding");
+  assert.equal(r.resp.headers.get("X-RateLimit-Limit"), null);
+});
+
+test("G40: Ning-agent downstream path — merge ชุดเดียวกัน (ขับ onRequest จริง)", async () => {
+  const r = await driveMiddleware(
+    stubRequest(NING_PROBE_ENDPOINT, {
+      headers: { Origin: "https://boonsukair.com", "X-NING-AGENT-KEY": DUMMY_NING_KEY },
+    }),
+    { NING_AGENT_API_KEY: DUMMY_NING_KEY }
+  );
+  assert.equal(r.context.data?.user?.authMode, "ning_agent", "ต้องเดินเข้า Ning-agent path จริง");
+  assert.equal(r.nextCalls, 1, "downstream ต้องถูกเรียกครั้งเดียว");
+  assert.equal(r.fetchCalls, 0, "ning path ไม่ผ่าน Supabase auth → ห้ามยิง network");
+  assert.equal(r.resp.status, 200);
+  const tokens = varyTokens(r.resp);
+  assert.deepEqual([...tokens].sort(), ["authorization", "origin"],
+    `Ning path: Vary ต้องมีทั้งสอง token — ได้ "${r.resp.headers.get("Vary")}"`);
+  assert.equal(tokens.length, 2, "แต่ละ token ต้องมีอย่างละหนึ่ง (ห้ามซ้ำ)");
+  assert.equal(r.resp.headers.get("Cache-Control"), "private, no-store");
+  assert.equal(r.resp.headers.get("Access-Control-Allow-Origin"), "https://boonsukair.com");
+});
+
+test("G41: response ที่ middleware สร้างเอง (OPTIONS/401) ไม่เดินผ่าน merge และคง Vary: Origin", async () => {
+  const opt = await driveMiddleware(
+    stubRequest(VARY_PROBE_PATH, { method: "OPTIONS", headers: { Origin: "https://boonsukair.com" } })
+  );
+  assert.equal(opt.resp.status, 204);
+  assert.equal(opt.nextCalls, 0, "OPTIONS ต้อง return ก่อนถึง downstream (จึงไม่ผ่าน merge)");
+  assert.equal(opt.resp.headers.get("Vary"), "Origin", "OPTIONS ต้องคง Vary: Origin เป๊ะ");
+  assert.equal(opt.resp.headers.get("Access-Control-Allow-Origin"), "https://boonsukair.com");
+  assert.equal(opt.resp.headers.get("Access-Control-Max-Age"), "86400");
+
+  // REQUIRE_AUTH endpoint แต่ไม่ส่ง Authorization เลย → 401 จาก middleware เอง
+  // (ต้องไม่ส่ง header นี้ ไม่งั้นจะวิ่งไป verifyWithSupabaseAuth = ยิง network จริง)
+  const un = await driveMiddleware(stubRequest(ENDPOINT, { headers: { Origin: "https://boonsukair.com" } }));
+  assert.equal(un.resp.status, 401);
+  assert.equal(un.nextCalls, 0, "401 ต้อง return ก่อนถึง downstream");
+  assert.equal(un.fetchCalls, 0, "ไม่มี Authorization → fail closed ก่อนแตะ Supabase auth");
+  assert.equal(un.resp.headers.get("Vary"), "Origin", "401 ต้องคง Vary: Origin เป๊ะ");
+  assert.equal(un.resp.headers.get("Access-Control-Allow-Origin"), "https://boonsukair.com");
+});
+
+test("G42: mergeVaryValues — token list contract (pure helper)", () => {
+  assert.equal(mergeVaryValues("Authorization", "Origin"), "Authorization, Origin");
+  assert.equal(mergeVaryValues("Origin, Authorization", "ORIGIN"), "Origin, Authorization",
+    "dedup ต้องเป็น case-insensitive (field name เป็น case-insensitive ตาม RFC 9110 §5.1)");
+  assert.equal(mergeVaryValues(null, "Origin"), "Origin");
+  assert.equal(mergeVaryValues(undefined, "Origin"), "Origin");
+  assert.equal(mergeVaryValues("", "Origin"), "Origin");
+  assert.equal(mergeVaryValues("  Authorization ,, , Accept-Language ", "Origin"),
+    "Authorization, Accept-Language, Origin", "ต้อง trim และตัด token ว่างทิ้ง");
+  assert.equal(mergeVaryValues("AUTHORIZATION", "authorization"), "AUTHORIZATION",
+    "ต้องคง spelling ของ token ที่พบก่อน");
+  assert.equal(mergeVaryValues("Accept-Encoding", "Accept-Language"), "Accept-Encoding, Accept-Language",
+    "token ที่ต่างกันจริงห้ามถูก dedup ทิ้ง");
+  // ★ "*" (RFC 9110 §12.5.5) ครอบทุกอย่าง → ผลต้องเป็น "*" เดี่ยว ห้ามได้ "*, Origin"
+  assert.equal(mergeVaryValues("*", "Origin"), "*");
+  assert.equal(mergeVaryValues("Authorization", "*"), "*");
+  assert.equal(mergeVaryValues("Origin, *", "Origin"), "*");
+  assert.equal(mergeVaryValues("", ""), "", "ไม่มี token เลย → คืนค่าว่าง (caller ไม่ต้อง set header)");
+});
+
+test("G43: header-key collision guard — cors ∩ endpoint = ['vary'] เท่านั้น", () => {
+  const braceBlock = (src, startIdx, label) => {
+    const from = src.indexOf("{", startIdx);
+    assert.ok(from > startIdx, `หา { ของ ${label} ไม่เจอ`);
+    let depth = 0;
+    for (let i = from; i < src.length; i++) {
+      if (src[i] === "{") depth++;
+      else if (src[i] === "}") { depth--; if (depth === 0) return src.slice(from, i + 1); }
+    }
+    return assert.fail(`หา } ปิด ${label} ไม่เจอ`);
+  };
+  // ดึง key ด้วย anchored property pattern (ตัดคอมเมนต์ก่อน) — ห้าม includes()/regex ลอย/scan ทั้งไฟล์
+  const keysOf = (block) => [...stripComments(block).matchAll(/^\s*"([A-Za-z0-9-]+)"\s*:/gm)].map((m) => m[1]);
+
+  const corsAt = MW.indexOf("function getCorsHeaders(");
+  assert.ok(corsAt > 0, "ไม่พบ getCorsHeaders ใน _middleware.js");
+  const corsRet = MW.indexOf("return {", corsAt);
+  assert.ok(corsRet > corsAt, "ไม่พบ object literal ที่ getCorsHeaders คืนค่า");
+  const corsKeys = keysOf(braceBlock(MW, corsRet, "getCorsHeaders return"));
+
+  const jrAt = FN.indexOf("function jsonResponse(");
+  assert.ok(jrAt > 0, "ไม่พบ jsonResponse ใน customer-service-jobs.js");
+  const jrHdr = FN.indexOf("headers: {", jrAt);
+  assert.ok(jrHdr > jrAt, "ไม่พบ headers object ใน jsonResponse");
+  const endpointKeys = keysOf(braceBlock(FN, jrHdr, "jsonResponse headers"));
+
+  // sanity: extractor ต้องจับของจริงได้ (กัน guard เขียวเพราะดึง block ผิด/ว่าง)
+  assert.ok(corsKeys.includes("Access-Control-Allow-Origin"), `cors keys เพี้ยน: ${corsKeys.join(",")}`);
+  assert.ok(corsKeys.includes("Vary"), `cors ต้องมี Vary: ${corsKeys.join(",")}`);
+  assert.ok(endpointKeys.includes("Cache-Control"), `endpoint ต้องมี Cache-Control: ${endpointKeys.join(",")}`);
+  assert.ok(endpointKeys.includes("Vary"), `endpoint ต้องมี Vary: ${endpointKeys.join(",")}`);
+
+  const norm = (list) => [...new Set(list.map((k) => k.toLowerCase()))].sort();
+  const cors = norm(corsKeys);
+  const endpoint = norm(endpointKeys);
+  const collision = cors.filter((k) => endpoint.includes(k));
+  assert.deepEqual(collision, ["vary"],
+    `header ที่ middleware ทับของ endpoint ต้องมีแค่ Vary (ตัวที่ merge ไว้แล้ว) — ได้ [${collision.join(",")}]`);
+});
+
+test("G44: merge implementation ชุดเดียว — ห้าม fork ระหว่าง normal/Ning path", () => {
+  const body = MW.slice(MW.indexOf("export async function onRequest("));
+  assert.equal((body.match(/withProxyResponseHeaders\(/g) || []).length, 2,
+    "onRequest ต้องเรียก helper ตัวเดียวกันทั้งสอง downstream path");
+  assert.equal((MW.match(/new Headers\(response\.headers\)/g) || []).length, 1,
+    "ต้องมีจุดประกอบ response header ชุดเดียว (ห้าม copy บล็อก merge ซ้ำ)");
 });
