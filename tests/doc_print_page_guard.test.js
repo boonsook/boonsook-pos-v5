@@ -56,3 +56,33 @@ test("print: บล็อกที่ห้ามผ่ากลางต้อ�
     assert.ok(rule.includes(sel), `${sel} ต้องอยู่ในรายการ page-break-inside: avoid ของฝั่งพิมพ์`);
   }
 });
+
+// ── Phase 615 — CSS ของ "หน้าต่างพิมพ์" ที่ฝังอยู่ในโมดูล ──────────────────
+// ปุ่มพิมพ์ของใบเสร็จ/ใบส่งสินค้า เปิดหน้าต่างใหม่แล้ว document.write HTML พร้อม CSS ฝังในตัว
+// ⇒ **ไม่โหลด doc-print.css เลย** — แก้ที่ doc-print.css ไปสามรอบจึงไม่มีผลใด ๆ
+// (ใบเสนอราคาไม่เจอปัญหาเพราะ CSS ฝังของมันไม่ได้ล็อกขนาดกระดาษตั้งแต่แรก)
+
+const modDir = path.join(__dirname2, "..", "modules");
+const printModules = ["receipts.js", "delivery_invoices.js"];
+
+for (const m of printModules) {
+  const src = readFileSync(path.join(modDir, m), "utf8");
+  const line = src.split(/\r?\n/).find(l => l.includes("document.write('<html>")) || "";
+
+  test(`print window (${m}): ห้ามล็อกขนาดกระดาษตายตัวใน CSS ที่ฝังไว้`, () => {
+    assert.ok(line, `${m}: ต้องหาบรรทัดที่สร้างหน้าต่างพิมพ์เจอ`);
+    const rule = (line.match(/\.doc-page\{[^}]*\}/) || [""])[0];
+    assert.ok(rule, `${m}: ต้องมีกฎ .doc-page ใน CSS ที่ฝัง`);
+    // ★ ต้องกัน "max-width:210mm" ไม่ให้ถูกจับเป็น "width:210mm" (สตริงซ้อนกัน)
+    assert.ok(!/(^|[^-])width:210mm/.test(rule), "width ตายตัวล้นพื้นที่พิมพ์เมื่อผู้ใช้ใช้ระยะขอบค่าเริ่มต้น");
+    assert.ok(!/min-height:29\d(\.\d+)?mm/.test(rule), "min-height เท่าความสูงกระดาษ = ได้หน้าเปล่าต่อท้ายทุกฉบับ");
+    assert.ok(/max-width:210mm/.test(rule), "ใช้ max-width แทน width");
+  });
+
+  test(`print window (${m}): บล็อกที่ห้ามผ่ากลางต้องครบ รวมบล็อกรับชำระ`, () => {
+    for (const sel of [".doc-table tr", ".doc-totals", ".doc-signatures", ".doc-payment-check", ".doc-bank-line"]) {
+      assert.ok(line.includes(sel), `${m}: ${sel} ต้องอยู่ในกฎ page-break-inside ของหน้าต่างพิมพ์`);
+    }
+    assert.ok(/page-break-inside:avoid/.test(line), `${m}: ต้องมี page-break-inside:avoid`);
+  });
+}
