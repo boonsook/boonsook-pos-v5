@@ -228,37 +228,48 @@ export function bahtText(amount) {
 // วิธีแก้: ย่อให้พอดีหน้า = กติกาเดียวกับหน้าแชร์ (share_doc.js planCopyPages) → เอกสารสองทางตรงกัน
 //
 // ★ ต้องใช้ zoom ไม่ใช่ transform:scale — transform ไม่ย่อ layout box จำนวนแผ่นจึงไม่ลด
-// ★ zoom ย่อความสูงแบบไม่เป็นเชิงเส้น (font-size/line-height ปัดเศษ) → ต้องวัดซ้ำจนพอดีจริง
-//   (คำนวณรอบเดียวแล้วเชื่อเลย เคยได้ 299.9mm ทั้งที่คำนวณว่า 297mm → ยังล้นอยู่)
+// ★ zoom ย่อ "ทั้งกว้างและสูง" → ต้องขยาย width/min-height ชดเชย (pageWidthMm / z) ไม่งั้นเอกสาร
+//   หดไปกองมุมซ้ายบนเหลือครึ่งแผ่น (เจ้าของเจอกับ build 617 รอบแรก)
+// ★ ต้องบังคับความกว้างตอนวัดเป็น mm ห้ามใช้ 100% ของหน้าต่าง — หน้าต่างพิมพ์กว้างไม่เท่ากระดาษ
+//   (จอ scale 125-150% ยิ่งแคบ) วัดผิดความกว้าง = ข้อความตัดบรรทัดต่างกัน = สูงผิด = ย่อเกินจำเป็น
 export const PRINT_PAGE_HEIGHT_MM = 297;
+export const PRINT_PAGE_WIDTH_MM = 210;
 export const PRINT_MIN_SCALE = 0.55;
 const PX_PER_MM = 96 / 25.4;
 
-// คืน zoom รอบถัดไป — pure function เพื่อ test ได้โดยไม่ต้องมี DOM
-// zoom เดิม → zoom ใหม่ที่เล็กลง; ถ้าพอดีอยู่แล้วหรือย่อต่อไม่ได้ คืนค่าเดิม (ตัวหยุดลูป)
-export function nextPrintFitScale(zoom, measuredPx, triggerPx, targetPx, minScale = PRINT_MIN_SCALE) {
-  if (!(measuredPx > 0) || measuredPx <= triggerPx) return zoom;
-  const next = Math.max(minScale, Math.floor(zoom * (targetPx / measuredPx) * 998) / 1000);
-  return next < zoom ? next : zoom;
-}
-
-// ย่อทุก .doc-page ในเอกสารให้ไม่เกินความสูงกระดาษ — คืน array ของ zoom ที่ใช้จริง
+// ย่อทุก .doc-page ให้พอดีหน้ากระดาษ — คืน array ของ zoom ที่ใช้จริง (1 = ไม่ได้ย่อ)
+// ค้นแบบ binary search เพื่อได้ "ตัวย่อที่ใหญ่ที่สุดที่ยังพอดี" — ตัวอักษรเล็กเท่าที่จำเป็นเท่านั้น
 export function fitPrintedPages(doc, opts = {}) {
   const pageHeightMm = opts.pageHeightMm ?? PRINT_PAGE_HEIGHT_MM;
+  const pageWidthMm = opts.pageWidthMm ?? PRINT_PAGE_WIDTH_MM;
   const minScale = opts.minScale ?? PRINT_MIN_SCALE;
   const triggerPx = (pageHeightMm + 0.5) * PX_PER_MM; // เอกสารที่พอดีหน้าอยู่แล้ว ห้ามย่อ
   const targetPx = (pageHeightMm - 1) * PX_PER_MM;    // ถ้าต้องย่อ เผื่อ 1mm กันไดรเวอร์ปัดเศษ
   const scales = [];
   for (const el of doc.querySelectorAll(".doc-page")) {
-    el.style.zoom = "";
+    // ตอนวัด: ปลด min-height ออกก่อน ไม่งั้นทุกหน้าสูงเท่ากระดาษหมด แยกไม่ออกว่าอันไหนล้นจริง
+    const apply = (z) => {
+      el.style.zoom = z === 1 ? "" : String(z);
+      el.style.maxWidth = "none";
+      el.style.width = (pageWidthMm / z) + "mm";
+      el.style.minHeight = "0";
+    };
+    const heightPx = () => el.getBoundingClientRect().height; // zoom แล้ว rect คืนขนาดที่ตาเห็น
+    apply(1);
     let z = 1;
-    for (let i = 0; i < 8; i++) {
-      const next = nextPrintFitScale(z, el.getBoundingClientRect().height, triggerPx, targetPx, minScale);
-      if (next === z) break;
-      z = next;
-      el.style.zoom = String(z);
-      if (z <= minScale) break;
+    if (heightPx() > triggerPx) {
+      let lo = minScale, hi = 1;
+      z = minScale; // ถ้าหาไม่เจอเลย = ล้นเกินเพดาน ใช้เพดานล่างไว้ก่อน (ยอมให้ล้นดีกว่าอ่านไม่ออก)
+      for (let i = 0; i < 10; i++) {
+        const mid = Math.round(((lo + hi) / 2) * 1000) / 1000;
+        if (mid <= lo || mid >= hi) break;
+        apply(mid);
+        if (heightPx() <= targetPx) { z = mid; lo = mid; } else hi = mid;
+      }
+      apply(z);
     }
+    // คืน min-height แบบชดเชย → กล่องสูงเต็มแผ่นเหมือนเดิม ลายเซ็นยังปักท้ายหน้า
+    el.style.minHeight = (pageHeightMm / z) + "mm";
     scales.push(z);
   }
   return scales;

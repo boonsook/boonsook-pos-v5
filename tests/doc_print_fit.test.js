@@ -1,10 +1,14 @@
 // Phase 617 — ตัวย่อเอกสารให้พอดีหน้าพิมพ์ + กันแก้ผิดไฟล์ซ้ำรอย
 //
-// บทเรียนราคาแพง: ปุ่มพิมพ์ของใบเสนอราคา/ใบส่งสินค้า/ใบเสร็จ ไม่ได้ใช้ handler ในโมดูลตัวเอง
+// บทเรียนราคาแพง #1: ปุ่มพิมพ์ของใบเสนอราคา/ใบส่งสินค้า/ใบเสร็จ ไม่ได้ใช้ handler ในโมดูลตัวเอง
 // doc-override.js ดัก click ตั้งแต่ capturing phase แล้ว stopImmediatePropagation()
 // → เส้นทางจริงคือ doc-utils.printDoc() + PRINT_CSS เท่านั้น
 // การแก้ doc-print.css หรือ CSS ที่ฝังใน receipts.js/delivery_invoices.js จึงไม่มีผลใด ๆ ต่อการพิมพ์
-// (จำนวนแผ่นจริงวัดด้วย tests/e2e/doc_print_pagecount.spec.js — ไฟล์นี้คุมสัญญาของฟังก์ชัน)
+//
+// บทเรียนราคาแพง #2: zoom ย่อทั้งกว้างและสูง — ถ้าไม่ขยาย width/min-height ชดเชย
+// เอกสารจะหดไปกองมุมซ้ายบนเหลือครึ่งแผ่น (ได้ 2 แผ่นก็จริง แต่ใช้งานไม่ได้)
+//
+// จำนวนแผ่นจริงวัดด้วย tests/e2e/doc_print_pagecount.spec.js — ไฟล์นี้คุมสัญญาของฟังก์ชัน
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -12,58 +16,96 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import {
-  nextPrintFitScale, fitPrintedPages, PRINT_CSS, PRINT_MIN_SCALE, PRINT_PAGE_HEIGHT_MM,
+  fitPrintedPages, PRINT_CSS, PRINT_MIN_SCALE, PRINT_PAGE_HEIGHT_MM, PRINT_PAGE_WIDTH_MM,
 } from "../modules/doc-utils.js";
 
 const __dirname2 = path.dirname(fileURLToPath(import.meta.url));
 const PX_PER_MM = 96 / 25.4;
-const TRIGGER = (PRINT_PAGE_HEIGHT_MM + 0.5) * PX_PER_MM;
-const TARGET = (PRINT_PAGE_HEIGHT_MM - 1) * PX_PER_MM;
 
-// ── สัญญาของตัวคำนวณ zoom ──────────────────────────────────
+// จำลอง layout: กล่องยิ่งกว้าง ข้อความยิ่งตัดบรรทัดน้อย เนื้อหาจึงยิ่งเตี้ย
+// (ความสัมพันธ์นี้คือเหตุผลที่ต้องบังคับความกว้างตอนวัด ไม่ใช่ปล่อยตามหน้าต่าง)
+function fakePage(contentMm) {
+  const style = { zoom: "", width: "", maxWidth: "", minHeight: "" };
+  const measuredMinHeights = [];
+  const el = {
+    style,
+    getBoundingClientRect() {
+      const z = style.zoom === "" ? 1 : Number(style.zoom);
+      const widthMm = parseFloat(style.width) || PRINT_PAGE_WIDTH_MM;
+      const minMm = parseFloat(style.minHeight) || 0;
+      measuredMinHeights.push(style.minHeight);
+      const layoutMm = Math.max(contentMm * (PRINT_PAGE_WIDTH_MM / widthMm), minMm);
+      return { height: layoutMm * z * PX_PER_MM, width: widthMm * z * PX_PER_MM };
+    },
+  };
+  return { el, style, measuredMinHeights, doc: { querySelectorAll: () => [el] } };
+}
+
+const visualMm = (f) => {
+  const z = f.style.zoom === "" ? 1 : Number(f.style.zoom);
+  return {
+    w: parseFloat(f.style.width) * z,
+    minH: parseFloat(f.style.minHeight) * z,
+  };
+};
+
 test("fit: เอกสารที่พอดีหน้าอยู่แล้ว ต้องไม่ถูกย่อ", () => {
-  assert.equal(nextPrintFitScale(1, 200 * PX_PER_MM, TRIGGER, TARGET), 1);
-  // กล่องสูง 297mm เป๊ะ (min-height ของ .doc-page) = พอดีหน้า ห้ามย่อ
-  assert.equal(nextPrintFitScale(1, PRINT_PAGE_HEIGHT_MM * PX_PER_MM, TRIGGER, TARGET), 1);
+  const f = fakePage(250);
+  assert.deepEqual(fitPrintedPages(f.doc), [1]);
+  assert.equal(f.style.width, PRINT_PAGE_WIDTH_MM + "mm");
+  assert.equal(f.style.minHeight, PRINT_PAGE_HEIGHT_MM + "mm");
 });
 
-test("fit: เอกสารล้นต้องถูกย่อลง และไม่ต่ำกว่าเพดานล่าง", () => {
-  const s = nextPrintFitScale(1, 349 * PX_PER_MM, TRIGGER, TARGET);
-  assert.ok(s < 1 && s > 0.8, `349mm ควรย่อราว 0.85 ได้ ${s}`);
-  // ล้นมโหฬาร → หยุดที่เพดานล่าง ไม่ย่อจนอ่านไม่ออก
-  assert.equal(nextPrintFitScale(1, 2000 * PX_PER_MM, TRIGGER, TARGET), PRINT_MIN_SCALE);
+test("fit: กล่องสูง 297mm เป๊ะ = พอดีหน้า ห้ามย่อ", () => {
+  assert.deepEqual(fitPrintedPages(fakePage(PRINT_PAGE_HEIGHT_MM).doc), [1]);
 });
 
-test("fit: ห้ามคืนค่าที่ใหญ่ขึ้น (ตัวหยุดลูป — ไม่งั้นวนไม่จบตอนวัดซ้ำ)", () => {
-  // ย่อไปแล้ว 0.55 แล้ววัดได้ว่ายังล้น → ต้องคืน 0.55 เท่าเดิม ไม่ใช่เด้งขึ้น
-  assert.equal(nextPrintFitScale(PRINT_MIN_SCALE, 400 * PX_PER_MM, TRIGGER, TARGET, PRINT_MIN_SCALE), PRINT_MIN_SCALE);
-  // ความสูงวัดไม่ได้ (0 / ยังไม่ layout) → คงค่าเดิม ไม่ใช่หารด้วยศูนย์
-  assert.equal(nextPrintFitScale(0.9, 0, TRIGGER, TARGET), 0.9);
+test("fit: เอกสารล้นต้องย่อลงจนพอดี แต่ยังเต็มความกว้าง+ความสูงกระดาษ", () => {
+  const f = fakePage(520);
+  const [z] = fitPrintedPages(f.doc);
+  assert.ok(z < 1, "ต้องย่อ");
+  const v = visualMm(f);
+  assert.ok(Math.abs(v.w - PRINT_PAGE_WIDTH_MM) < 0.5,
+    `ต้องเต็มความกว้าง 210mm ได้ ${v.w.toFixed(1)}mm — ย่อแล้วหดไปครึ่งแผ่นคือบั๊ก`);
+  assert.ok(Math.abs(v.minH - PRINT_PAGE_HEIGHT_MM) < 0.5,
+    `กล่องต้องสูงเต็มแผ่น 297mm ได้ ${v.minH.toFixed(1)}mm — ไม่งั้นลายเซ็นลอยกลางหน้า`);
+  assert.ok(f.el.getBoundingClientRect().height / PX_PER_MM <= PRINT_PAGE_HEIGHT_MM + 0.5, "ต้องไม่ล้น");
 });
 
-test("fit: วัดซ้ำจนพอดีจริง — zoom ย่อความสูงไม่เป็นเชิงเส้น", () => {
-  // จำลอง DOM: zoom ย่อความสูงได้แค่ 99% ของที่คำนวณ (ปัดเศษ font-size/line-height)
-  let zoom = 1;
-  const natural = 349 * PX_PER_MM;
-  const el = {
-    style: { set zoom(v) { zoom = Number(v) || 1; }, get zoom() { return zoom === 1 ? "" : String(zoom); } },
-    getBoundingClientRect: () => ({ height: natural * zoom * 1.01 }),
-  };
-  const [scale] = fitPrintedPages({ querySelectorAll: () => [el] });
-  assert.ok(scale < 1, "ต้องย่อ");
-  assert.ok(natural * scale * 1.01 <= TRIGGER,
-    `หลังย่อยังล้น (${(natural * scale * 1.01 / PX_PER_MM).toFixed(1)}mm) — คำนวณรอบเดียวไม่พอ ต้องวัดซ้ำ`);
+test("fit: ต้องได้ตัวย่อที่ใหญ่ที่สุดเท่าที่ยังพอดี (ห้ามย่อเกินจำเป็น)", () => {
+  const f = fakePage(340);
+  const [z] = fitPrintedPages(f.doc);
+  // เนื้อหา 340mm เกินแค่ ~15% — ย่อควรอยู่แถว 0.9 ไม่ใช่ดิ่งไปเพดานล่าง
+  assert.ok(z > 0.85, `ย่อเกินจำเป็น (${z})`);
 });
 
-test("fit: หน้าที่ไม่ล้นต้องล้าง zoom ทิ้ง ไม่ค้างค่าจากรอบก่อน", () => {
-  let assigned = "unset";
-  const el = {
-    style: { set zoom(v) { assigned = v; }, get zoom() { return assigned; } },
-    getBoundingClientRect: () => ({ height: 100 * PX_PER_MM }),
-  };
-  const [scale] = fitPrintedPages({ querySelectorAll: () => [el] });
-  assert.equal(scale, 1);
-  assert.equal(assigned, "", "ต้องเซ็ต zoom เป็นค่าว่างก่อนวัดเสมอ");
+test("fit: ล้นเกินเพดาน → หยุดที่ PRINT_MIN_SCALE ไม่ย่อจนอ่านไม่ออก", () => {
+  assert.deepEqual(fitPrintedPages(fakePage(5000).doc), [PRINT_MIN_SCALE]);
+});
+
+test("fit: ตอนวัดต้องปลด min-height ทิ้ง ไม่งั้นทุกหน้าสูงเท่ากันแยกไม่ออกว่าอันไหนล้น", () => {
+  const f = fakePage(520);
+  fitPrintedPages(f.doc);
+  assert.ok(f.measuredMinHeights.length > 1, "ต้องวัดหลายรอบ");
+  assert.ok(f.measuredMinHeights.every((v) => v === "0"),
+    `ทุกครั้งที่วัดต้อง min-height:0 ได้ ${JSON.stringify([...new Set(f.measuredMinHeights)])}`);
+});
+
+test("fit: ความกว้างตอนวัดต้องเป็น mm ตายตัว ไม่ผูกกับขนาดหน้าต่าง", () => {
+  const f = fakePage(520);
+  fitPrintedPages(f.doc);
+  assert.ok(/mm$/.test(f.style.width), `ต้องเป็นหน่วย mm ได้ "${f.style.width}"`);
+  assert.equal(f.style.maxWidth, "none", "ต้องปลด max-width ไม่งั้นความกว้างชดเชยถูกตัด");
+  // หน้าต่างพิมพ์จริงกว้างไม่เท่ากระดาษ (จอ scale 125-150% ยิ่งแคบ) — ถ้าใช้ % จะย่อเกินจำเป็น
+  assert.ok(!/%/.test(f.style.width), "ห้ามใช้ % ของหน้าต่าง");
+});
+
+test("fit: หลายหน้าในเอกสารเดียว ต้องคิดแยกใบ", () => {
+  const a = fakePage(250), b = fakePage(520);
+  const scales = fitPrintedPages({ querySelectorAll: () => [a.el, b.el] });
+  assert.equal(scales.length, 2);
+  assert.equal(scales[0], 1, "ใบที่พอดีต้องไม่ถูกย่อตามใบที่ล้น");
+  assert.ok(scales[1] < 1);
 });
 
 // ── PRINT_CSS = สไตล์ที่ใช้ตอนพิมพ์จริง ────────────────────

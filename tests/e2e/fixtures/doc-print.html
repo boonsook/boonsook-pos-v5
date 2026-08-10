@@ -113,8 +113,9 @@ document.getElementById("docPreview").innerHTML = docPage(1) + docPage(2);
 // รอฟอนต์ก่อนวัด — ถ้าวัดตอนฟอนต์ยังไม่มา ความสูงจะผิดแล้วย่อไม่พอ
 try { await document.fonts.ready; } catch { /* ไม่มี Font Loading API */ }
 window.__printScales = fitPrintedPages(document);
-window.__pageHeightsMm = [...document.querySelectorAll(".doc-page")]
-  .map((p) => +(p.getBoundingClientRect().height / (96 / 25.4)).toFixed(1));
+const mm = (px) => +(px / (96 / 25.4)).toFixed(1);
+window.__pageHeightsMm = [...document.querySelectorAll(".doc-page")].map((p) => mm(p.getBoundingClientRect().height));
+window.__pageWidthsMm = [...document.querySelectorAll(".doc-page")].map((p) => mm(p.getBoundingClientRect().width));
 window.__ready = true;
 </script>
 </body>
