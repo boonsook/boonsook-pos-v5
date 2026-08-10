@@ -36,25 +36,37 @@ const CASES = [
   { kind: "delivery", rows: 30, note: "ยาวมาก" },
 ];
 
+// ผู้ใช้เลือกระยะขอบเองได้ ต้องได้ 2 แผ่นทั้งสองแบบ
+//   "ไม่มี"        → พื้นที่พิมพ์ = 210x297 เป๊ะ ไม่มีอะไรให้เผื่อเลย (เคสที่เจ้าของเจอ 4 แผ่น)
+//   "ค่าเริ่มต้น"  → Chrome ย่อ fit-to-printable ให้เอง จึงกลบอาการล้นไว้
+const PDF_MODES = [
+  ["ระยะขอบ: ไม่มี", { width: "210mm", height: "297mm", margin: { top: "0", bottom: "0", left: "0", right: "0" }, printBackground: true }],
+  ["@page (ค่าเริ่มต้น)", { preferCSSPageSize: true, printBackground: true }],
+];
+
 for (const c of CASES) {
   test(`พิมพ์ ${c.kind} ${c.rows} รายการ = 2 แผ่นเต็มหน้า (${c.note})`, async ({ page }) => {
     const m = await render(page, c.kind, c.rows);
-
-    let pdf;
-    try {
-      pdf = await page.pdf({ preferCSSPageSize: true, printBackground: true });
-    } catch {
-      test.skip(true, "page.pdf() ต้องใช้ chromium แบบ headless");
-      return;
-    }
     const info = `สูง ${m.heights.join("/")}mm · กว้าง ${m.widths.join("/")}mm · zoom ${m.scales.join("/")}`;
 
-    expect(countPdfPages(pdf), info).toBe(2);
-    for (const h of m.heights) expect(h, info).toBeLessThanOrEqual(297.5);
-    // ★ ต้องเต็มความกว้างกระดาษเสมอ — ย่อแล้วหดไปครึ่งแผ่นคือบั๊ก ไม่ใช่ "พอดีหน้า"
-    for (const w of m.widths) expect(Math.abs(w - 210), info).toBeLessThanOrEqual(1);
-    // ★ และต้องเต็มความสูงด้วย (min-height ชดเชยแล้ว) ไม่ใช่เนื้อหาลอยอยู่ครึ่งบน
+    for (const [label, opt] of PDF_MODES) {
+      let pdf;
+      try {
+        pdf = await page.pdf(opt);
+      } catch {
+        test.skip(true, "page.pdf() ต้องใช้ chromium แบบ headless");
+        return;
+      }
+      expect(countPdfPages(pdf), `${label} · ${info}`).toBe(2);
+    }
+
+    // ★ กล่องต้อง "เล็กกว่า" กระดาษเสมอ ห้ามเท่ากันเป๊ะ — วัดหน้าผาไว้แล้วอยู่ที่ 297.2mm
+    //   ตั้ง 297.0 = ห่างผาแค่ 0.2mm → Chrome คนละรุ่นปัดเศษต่างนิดเดียวก็ได้หน้าเปล่า
+    for (const h of m.heights) expect(h, info).toBeLessThanOrEqual(296.5);
+    for (const w of m.widths) expect(w, info).toBeLessThanOrEqual(209.5);
+    // ★ แต่ก็ต้องเกือบเต็มแผ่น ไม่ใช่หดไปกองมุมซ้ายบนครึ่งแผ่น
     for (const h of m.heights) expect(h, info).toBeGreaterThanOrEqual(290);
+    for (const w of m.widths) expect(w, info).toBeGreaterThanOrEqual(205);
     // เอกสารสั้นห้ามถูกย่อ (ย่อทั้งที่ไม่จำเป็น = ตัวหนังสือเล็กลงโดยไม่มีเหตุผล)
     if (c.rows === 3) for (const s of m.scales) expect(s, info).toBe(1);
   });

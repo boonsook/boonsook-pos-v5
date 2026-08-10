@@ -232,8 +232,12 @@ export function bahtText(amount) {
 //   หดไปกองมุมซ้ายบนเหลือครึ่งแผ่น (เจ้าของเจอกับ build 617 รอบแรก)
 // ★ ต้องบังคับความกว้างตอนวัดเป็น mm ห้ามใช้ 100% ของหน้าต่าง — หน้าต่างพิมพ์กว้างไม่เท่ากระดาษ
 //   (จอ scale 125-150% ยิ่งแคบ) วัดผิดความกว้าง = ข้อความตัดบรรทัดต่างกัน = สูงผิด = ย่อเกินจำเป็น
+// ★ ห้ามทำกล่องเท่ากระดาษเป๊ะ — วัดหน้าผาไว้แล้ว: กล่อง 297.0mm = 2 แผ่น แต่ 297.2mm = 4 แผ่น
+//   ห่างกันแค่ 0.2mm (297mm = 1122.52px ไม่ลงตัว) Chrome คนละรุ่น/ไดรเวอร์ปัดเศษต่างนิดเดียวก็ตก
+//   อาการที่เจ้าของเจอตอนตั้ง "ระยะขอบ: ไม่มี" — ตอนตั้ง "ค่าเริ่มต้น" Chrome ย่อ fit ให้เองเลยไม่เห็น
 export const PRINT_PAGE_HEIGHT_MM = 297;
 export const PRINT_PAGE_WIDTH_MM = 210;
+export const PRINT_SAFE_MM = 1;
 export const PRINT_MIN_SCALE = 0.55;
 const PX_PER_MM = 96 / 25.4;
 
@@ -242,34 +246,36 @@ const PX_PER_MM = 96 / 25.4;
 export function fitPrintedPages(doc, opts = {}) {
   const pageHeightMm = opts.pageHeightMm ?? PRINT_PAGE_HEIGHT_MM;
   const pageWidthMm = opts.pageWidthMm ?? PRINT_PAGE_WIDTH_MM;
+  const safeMm = opts.safeMm ?? PRINT_SAFE_MM;
   const minScale = opts.minScale ?? PRINT_MIN_SCALE;
-  const triggerPx = (pageHeightMm + 0.5) * PX_PER_MM; // เอกสารที่พอดีหน้าอยู่แล้ว ห้ามย่อ
-  const targetPx = (pageHeightMm - 1) * PX_PER_MM;    // ถ้าต้องย่อ เผื่อ 1mm กันไดรเวอร์ปัดเศษ
+  const boxHeightMm = pageHeightMm - safeMm; // กล่องต้องเล็กกว่ากระดาษเสมอ ห้ามเท่ากันเป๊ะ
+  const boxWidthMm = pageWidthMm - safeMm;
+  const limitPx = boxHeightMm * PX_PER_MM;
   const scales = [];
   for (const el of doc.querySelectorAll(".doc-page")) {
     // ตอนวัด: ปลด min-height ออกก่อน ไม่งั้นทุกหน้าสูงเท่ากระดาษหมด แยกไม่ออกว่าอันไหนล้นจริง
     const apply = (z) => {
       el.style.zoom = z === 1 ? "" : String(z);
       el.style.maxWidth = "none";
-      el.style.width = (pageWidthMm / z) + "mm";
+      el.style.width = (boxWidthMm / z) + "mm";
       el.style.minHeight = "0";
     };
     const heightPx = () => el.getBoundingClientRect().height; // zoom แล้ว rect คืนขนาดที่ตาเห็น
     apply(1);
     let z = 1;
-    if (heightPx() > triggerPx) {
+    if (heightPx() > limitPx) {
       let lo = minScale, hi = 1;
       z = minScale; // ถ้าหาไม่เจอเลย = ล้นเกินเพดาน ใช้เพดานล่างไว้ก่อน (ยอมให้ล้นดีกว่าอ่านไม่ออก)
       for (let i = 0; i < 10; i++) {
         const mid = Math.round(((lo + hi) / 2) * 1000) / 1000;
         if (mid <= lo || mid >= hi) break;
         apply(mid);
-        if (heightPx() <= targetPx) { z = mid; lo = mid; } else hi = mid;
+        if (heightPx() <= limitPx) { z = mid; lo = mid; } else hi = mid;
       }
       apply(z);
     }
-    // คืน min-height แบบชดเชย → กล่องสูงเต็มแผ่นเหมือนเดิม ลายเซ็นยังปักท้ายหน้า
-    el.style.minHeight = (pageHeightMm / z) + "mm";
+    // คืน min-height แบบชดเชย → กล่องสูงเกือบเต็มแผ่น ลายเซ็นยังปักท้ายหน้า (แต่ไม่แตะขอบ)
+    el.style.minHeight = (boxHeightMm / z) + "mm";
     scales.push(z);
   }
   return scales;

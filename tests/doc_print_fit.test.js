@@ -16,7 +16,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import {
-  fitPrintedPages, PRINT_CSS, PRINT_MIN_SCALE, PRINT_PAGE_HEIGHT_MM, PRINT_PAGE_WIDTH_MM,
+  fitPrintedPages, PRINT_CSS, PRINT_MIN_SCALE, PRINT_PAGE_HEIGHT_MM, PRINT_PAGE_WIDTH_MM, PRINT_SAFE_MM,
 } from "../modules/doc-utils.js";
 
 const __dirname2 = path.dirname(fileURLToPath(import.meta.url));
@@ -24,6 +24,7 @@ const PX_PER_MM = 96 / 25.4;
 
 // จำลอง layout: กล่องยิ่งกว้าง ข้อความยิ่งตัดบรรทัดน้อย เนื้อหาจึงยิ่งเตี้ย
 // (ความสัมพันธ์นี้คือเหตุผลที่ต้องบังคับความกว้างตอนวัด ไม่ใช่ปล่อยตามหน้าต่าง)
+const BOX_W = PRINT_PAGE_WIDTH_MM - PRINT_SAFE_MM; // contentMm = ความสูงเมื่อกล่องกว้างเท่านี้
 function fakePage(contentMm) {
   const style = { zoom: "", width: "", maxWidth: "", minHeight: "" };
   const measuredMinHeights = [];
@@ -31,10 +32,10 @@ function fakePage(contentMm) {
     style,
     getBoundingClientRect() {
       const z = style.zoom === "" ? 1 : Number(style.zoom);
-      const widthMm = parseFloat(style.width) || PRINT_PAGE_WIDTH_MM;
+      const widthMm = parseFloat(style.width) || BOX_W;
       const minMm = parseFloat(style.minHeight) || 0;
       measuredMinHeights.push(style.minHeight);
-      const layoutMm = Math.max(contentMm * (PRINT_PAGE_WIDTH_MM / widthMm), minMm);
+      const layoutMm = Math.max(contentMm * (BOX_W / widthMm), minMm);
       return { height: layoutMm * z * PX_PER_MM, width: widthMm * z * PX_PER_MM };
     },
   };
@@ -52,24 +53,34 @@ const visualMm = (f) => {
 test("fit: เอกสารที่พอดีหน้าอยู่แล้ว ต้องไม่ถูกย่อ", () => {
   const f = fakePage(250);
   assert.deepEqual(fitPrintedPages(f.doc), [1]);
-  assert.equal(f.style.width, PRINT_PAGE_WIDTH_MM + "mm");
-  assert.equal(f.style.minHeight, PRINT_PAGE_HEIGHT_MM + "mm");
+  assert.equal(f.style.width, (PRINT_PAGE_WIDTH_MM - PRINT_SAFE_MM) + "mm");
+  assert.equal(f.style.minHeight, (PRINT_PAGE_HEIGHT_MM - PRINT_SAFE_MM) + "mm");
 });
 
-test("fit: กล่องสูง 297mm เป๊ะ = พอดีหน้า ห้ามย่อ", () => {
-  assert.deepEqual(fitPrintedPages(fakePage(PRINT_PAGE_HEIGHT_MM).doc), [1]);
+test("fit: เอกสารที่สูงเท่ากล่องพอดี ห้ามย่อ", () => {
+  assert.deepEqual(fitPrintedPages(fakePage(PRINT_PAGE_HEIGHT_MM - PRINT_SAFE_MM).doc), [1]);
 });
 
-test("fit: เอกสารล้นต้องย่อลงจนพอดี แต่ยังเต็มความกว้าง+ความสูงกระดาษ", () => {
+test("fit: เอกสารสูงเท่ากระดาษเป๊ะ ต้องถูกย่อ — ห้ามปล่อยให้กล่องแตะขอบกระดาษ", () => {
+  // วัดหน้าผาไว้แล้ว: กล่อง 297.0mm = 2 แผ่น แต่ 297.2mm = 4 แผ่น ห่างกันแค่ 0.2mm
+  // ตั้งกล่อง = ขนาดกระดาษเป๊ะ คือยืนริมผา Chrome คนละรุ่นปัดเศษต่างนิดเดียวก็ได้หน้าเปล่า
+  const [z] = fitPrintedPages(fakePage(PRINT_PAGE_HEIGHT_MM).doc);
+  assert.ok(z < 1, "297mm ต้องถูกย่อ เพราะกล่องต้องเล็กกว่ากระดาษเสมอ");
+});
+
+test("fit: เอกสารล้นต้องย่อลงจนพอดี แต่ยังเกือบเต็มแผ่น (และไม่แตะขอบกระดาษ)", () => {
   const f = fakePage(520);
   const [z] = fitPrintedPages(f.doc);
   assert.ok(z < 1, "ต้องย่อ");
   const v = visualMm(f);
-  assert.ok(Math.abs(v.w - PRINT_PAGE_WIDTH_MM) < 0.5,
-    `ต้องเต็มความกว้าง 210mm ได้ ${v.w.toFixed(1)}mm — ย่อแล้วหดไปครึ่งแผ่นคือบั๊ก`);
-  assert.ok(Math.abs(v.minH - PRINT_PAGE_HEIGHT_MM) < 0.5,
-    `กล่องต้องสูงเต็มแผ่น 297mm ได้ ${v.minH.toFixed(1)}mm — ไม่งั้นลายเซ็นลอยกลางหน้า`);
-  assert.ok(f.el.getBoundingClientRect().height / PX_PER_MM <= PRINT_PAGE_HEIGHT_MM + 0.5, "ต้องไม่ล้น");
+  const boxW = PRINT_PAGE_WIDTH_MM - PRINT_SAFE_MM, boxH = PRINT_PAGE_HEIGHT_MM - PRINT_SAFE_MM;
+  assert.ok(Math.abs(v.w - boxW) < 0.5,
+    `ต้องกว้าง ${boxW}mm ได้ ${v.w.toFixed(1)}mm — ย่อแล้วหดไปครึ่งแผ่นคือบั๊ก`);
+  assert.ok(Math.abs(v.minH - boxH) < 0.5,
+    `กล่องต้องสูง ${boxH}mm ได้ ${v.minH.toFixed(1)}mm — ไม่งั้นลายเซ็นลอยกลางหน้า`);
+  assert.ok(v.w < PRINT_PAGE_WIDTH_MM && v.minH < PRINT_PAGE_HEIGHT_MM,
+    "กล่องต้องเล็กกว่ากระดาษเสมอ ห้ามเท่ากันเป๊ะ");
+  assert.ok(f.el.getBoundingClientRect().height / PX_PER_MM <= boxH + 0.5, "ต้องไม่ล้น");
 });
 
 test("fit: ต้องได้ตัวย่อที่ใหญ่ที่สุดเท่าที่ยังพอดี (ห้ามย่อเกินจำเป็น)", () => {
