@@ -438,3 +438,43 @@ test("Phase 610: จุดเรียกจริงต้องให้ .doc-
   assert.ok(/if \(copyPages\) \{[\s\S]*?\} else if \(fit\)/.test(code),
     "copyPages ต้องถูกเช็คก่อน fit (หนึ่งฉบับ = หนึ่งหน้า มาก่อนการย่อทั้งม้วน)");
 });
+
+// ── Phase 613 — ทางสำรองของมือถือต้องไม่ใช่ window.open(blob:) ─────────────
+// iOS Safari ปฏิเสธ blob: ในแท็บใหม่ · Android มักบล็อกเป็น popup ⇒ กดแล้วเงียบ
+// (ปุ่ม PDF ทำถูกมาแต่เดิม แต่ LINE/FB/แชร์อื่น/อีเมล/พิมพ์ ยังใช้ window.open ทุกแพลตฟอร์ม)
+
+test("Phase 613: ทุกเส้นทางที่เปิด PDF ต้องแยกมือถือ/เดสก์ท็อป ห้าม window.open ตรง ๆ", () => {
+  const code = shareSrc.replace(/^\s*\/\/.*$/gm, "");
+  assert.ok(/const openOrDownloadPdf = \(\) => \{/.test(code), "ต้องมี helper กลางสำหรับเปิด/ดาวน์โหลด PDF");
+  assert.ok(/if \(isMobile\) return dlPdf\(\);/.test(code), "helper ต้องดาวน์โหลดเมื่อเป็นมือถือ");
+
+  // ตรวจ "สัญญา" ไม่ใช่นับบรรทัด: ทุก handler ที่ต้องเปิด PDF ต้องผ่าน helper
+  // หรือมีสาขา isMobile ของตัวเอง (ปุ่ม pdf/print) — helper เองมี window.open ได้ (สาขาเดสก์ท็อป)
+  const helperStart = code.indexOf("const openOrDownloadPdf");
+  const helperEnd = code.indexOf("};", helperStart);
+  const outsideHelper = code.slice(0, helperStart) + code.slice(helperEnd);
+  for (const seg of outsideHelper.split(/else if \(t===/)) {
+    if (!/windowRef\.open\(_pdfUrl/.test(seg)) continue;
+    assert.ok(/isMobile/.test(seg),
+      `handler ที่เปิด PDF เองต้องมีสาขา isMobile: ${seg.trim().slice(0, 70)}`);
+  }
+  // และสองปุ่มที่ยังเปิดเองต้องเป็น pdf กับ print เท่านั้น
+  assert.ok(/t==="pdf"[\s\S]{0,200}isMobile/.test(code), "ปุ่ม PDF ต้องแยกมือถือ");
+  assert.ok(/t==="print"[\s\S]{0,300}isMobile/.test(code), "ปุ่มพิมพ์ต้องแยกมือถือ");
+});
+
+test("Phase 613: ปุ่มพิมพ์บนมือถือต้องดาวน์โหลด ไม่ใช่เปิดแท็บแล้วสั่ง print", () => {
+  const code = shareSrc.replace(/^\s*\/\/.*$/gm, "");
+  const i = code.indexOf('t==="print"');
+  assert.ok(i > 0, "ต้องมีปุ่มพิมพ์");
+  const body = code.slice(i, i + 700);
+  assert.ok(/if \(isMobile\) \{ if \(dlPdf\(\)\)/.test(body), "มือถือต้องดาวน์โหลด PDF");
+  assert.ok(/else \{ setStatus\("เบราว์เซอร์บล็อกแท็บใหม่/.test(body),
+    "เดสก์ท็อปที่ถูกบล็อก popup ต้องบอกผู้ใช้ ไม่ใช่เงียบ");
+});
+
+test("Phase 613: native share ที่ล้มแบบไม่ใช่ AbortError ต้องไม่ถูกกลืนเงียบ", () => {
+  const code = shareSrc.replace(/^\s*\/\/.*$/gm, "");
+  assert.ok(/AbortError["'] *\) *shared *= *true; *else *logger\?\.warn\?\./.test(code.replace(/\s+/g, " ")),
+    "ผู้ใช้ยกเลิกเอง = ปกติ · ล้มด้วยเหตุอื่น = ต้อง log ไว้สืบได้");
+});

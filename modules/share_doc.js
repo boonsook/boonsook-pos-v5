@@ -401,6 +401,15 @@ export async function shareDoc({
   const dlImg = () => { if(!_canvas) return; const a=documentRef.createElement("a");a.download=docName+".png";a.href=_canvas.toDataURL("image/png");a.click(); };
   // ── Helper: สร้าง PDF File สำหรับ native share ──
   const getPdfFile = () => { if(!_pdfBlob) return null; return new windowRef.File([_pdfBlob], docName+".pdf", {type:"application/pdf"}); };
+  // ★ Phase 613: มือถือเปิด blob: ในแท็บใหม่ไม่ได้ — iOS Safari ปฏิเสธตรง ๆ · Android มักบล็อกเป็น popup
+  //   ทางสำรองของมือถือจึงต้องเป็น "ดาวน์โหลดไฟล์" ไม่ใช่ window.open ไม่งั้นกดแล้วเงียบ = ผู้ใช้เห็นว่าแชร์ไม่ได้
+  //   (ปุ่ม PDF ทำถูกอยู่แล้วมาแต่เดิม ส่วน LINE/FB/แชร์อื่น/อีเมล ยังใช้ window.open ทุกแพลตฟอร์ม)
+  const openOrDownloadPdf = () => {
+    if (!_pdfUrl) { setStatus("กำลังสร้าง PDF รอสักครู่..."); return false; }
+    if (isMobile) return dlPdf();
+    windowRef.open(_pdfUrl, "_blank");
+    return true;
+  };
 
   overlay.querySelectorAll(".share-opt").forEach(btn => {
     btn.addEventListener("mouseenter", ()=>btn.style.background="#f1f5f9");
@@ -416,14 +425,17 @@ export async function shareDoc({
         let shared = false;
         // มือถือ: ใช้ native share ส่ง PDF ตรง
         if (isMobile && pdfFile && windowRef.navigator.canShare && windowRef.navigator.canShare({title:docName,files:[pdfFile]})) {
-          try { await windowRef.navigator.share({title:docName+" — บุญสุข อิเล็กทรอนิกส์",text:"เอกสาร "+docName,files:[pdfFile]}); setStatus("📤 แชร์ PDF สำเร็จ!"); shared=true; } catch(e){ if(e.name==="AbortError") shared=true; }
+          try { await windowRef.navigator.share({title:docName+" — บุญสุข อิเล็กทรอนิกส์",text:"เอกสาร "+docName,files:[pdfFile]}); setStatus("📤 แชร์ PDF สำเร็จ!"); shared=true; }
+          catch(e){ if(e.name==="AbortError") shared=true; else logger?.warn?.("[share_doc] native share ล้ม:", e?.name, e?.message); }
         }
-        // Desktop: เปิด PDF ในแท็บใหม่ + เปิดแอป
+        // ทางสำรอง — มือถือ: ดาวน์โหลดไฟล์ · เดสก์ท็อป: เปิด PDF ในแท็บใหม่
         if (!shared) {
-          // เปิด PDF ในแท็บใหม่ (ไม่ขึ้น Save As)
-          if (_pdfUrl) windowRef.open(_pdfUrl, "_blank");
-          // เปิดแอปที่เลือก
-          if (t==="line") {
+          const ok = openOrDownloadPdf();
+          if (!ok) return;                         // PDF ยังไม่พร้อม — setStatus บอกไปแล้ว
+          if (isMobile) {
+            // ★ ห้ามเปิดแท็บซ้อนบนมือถือ (ถูกบล็อกและทับหน้าเอกสาร) — บอกวิธีต่อให้ชัดแทน
+            setStatus("📥 ดาวน์โหลด PDF แล้ว — เปิด "+_appName+" แล้วแนบไฟล์จากเครื่องได้เลย");
+          } else if (t==="line") {
             setStatus("📄 เปิด PDF แล้ว — ลากไฟล์ไปวางใน LINE หรือกดดาวน์โหลดแล้วแนบ");
           } else if (t==="fb") {
             windowRef.open("https://www.messenger.com/", "_blank");
@@ -435,11 +447,13 @@ export async function shareDoc({
       }
       // ── Email → เปิด PDF + เปิด mailto ──
       else if (t==="email") {
-        if (_pdfUrl) windowRef.open(_pdfUrl, "_blank");
+        if (!openOrDownloadPdf()) return;
         const s=encodeURIComponent("เอกสาร "+docName+" — บุญสุข อิเล็กทรอนิกส์");
         const b=encodeURIComponent("สวัสดีครับ/ค่ะ\n\nส่งเอกสาร "+docName+" มาให้ (ไฟล์ PDF แนบ)\n\nขอบคุณครับ/ค่ะ\nบุญสุข อิเล็กทรอนิกส์");
         windowRef.open("mailto:?subject="+s+"&body="+b);
-        setStatus("📄 เปิด PDF + Email แล้ว — ดาวน์โหลดแล้วแนบไฟล์ได้เลย");
+        setStatus(isMobile
+          ? "📥 ดาวน์โหลด PDF แล้ว — แนบไฟล์ในอีเมลที่เปิดขึ้นมาได้เลย"
+          : "📄 เปิด PDF + Email แล้ว — ดาวน์โหลดแล้วแนบไฟล์ได้เลย");
       }
       // ── บันทึก PDF ──
       else if (t==="pdf") {
@@ -454,8 +468,11 @@ export async function shareDoc({
       // ── พิมพ์ ──
       else if (t==="print") {
         if (!_pdfUrl) { setStatus("กำลังสร้าง PDF รอสักครู่..."); return; }
+        // ★ Phase 613: มือถือเปิด blob: แล้วสั่ง print ไม่ได้ — ดาวน์โหลดให้แล้วบอกวิธีต่อ
+        if (isMobile) { if (dlPdf()) setStatus("📥 ดาวน์โหลด PDF แล้ว — เปิดไฟล์แล้วสั่งพิมพ์จากเครื่องได้เลย"); return; }
         const w = windowRef.open(_pdfUrl, "_blank");
         if (w) { setTimeout(() => { try { w.print(); } catch(e){} }, 800); }
+        else { setStatus("เบราว์เซอร์บล็อกแท็บใหม่ — กดปุ่ม PDF เพื่อดาวน์โหลดแล้วสั่งพิมพ์แทน"); return; }
         setStatus("🖨️ เปิดหน้าพิมพ์แล้ว");
       }
     });
