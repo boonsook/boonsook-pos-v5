@@ -472,7 +472,11 @@
 
   .doc-page {
     width: 210mm;
-    min-height: 297mm;
+    /* ★ Phase 611: ห้ามเท่า 297mm พอดี — @page margin:0 ทำให้กล่องสูงเท่าหน้ากระดาษเป๊ะ
+       เบราว์เซอร์ปัดเศษขึ้นเศษเดียวก็ล้นไปแผ่นถัดไป ⇒ เอกสาร 2 ฉบับกลายเป็น "4 แผ่น"
+       (owner เจอจริง: พรีวิวพอดีแผ่นเดียว แต่ไดอะล็อกพิมพ์ขึ้น 4 แผ่น)
+       เหลือ slack 1mm มองไม่เห็นด้วยตา แต่ตัดปัญหาการปัดเศษทิ้งทั้งหมด */
+    min-height: 296mm;
     margin: 0;
     box-shadow: none !important;
     page-break-after: always;
@@ -489,7 +493,12 @@
   .doc-totals,
   .doc-note-section,
   .doc-signatures,
-  .doc-sig-col {
+  .doc-sig-col,
+  /* ★ Phase 611: บล็อกรับชำระเงินของใบเสร็จ — ฝั่งพิมพ์ไม่มี catch-all แบบฝั่งแชร์
+     (share ใช้ ".doc-page-inner > *") จึงต้องประกาศตรง ๆ ไม่งั้นถูกผ่ากลาง:
+     "เงินสด/เช็ค/โอนเงิน/บัตรเครดิต + ธนาคาร + เลขที่" ค้างแผ่นแรก ส่วน "วันที่ + จำนวนเงิน" ไปแผ่นสอง */
+  .doc-payment-check,
+  .doc-bank-line {
     page-break-inside: avoid;
     break-inside: avoid;
   }

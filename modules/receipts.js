@@ -795,7 +795,10 @@ function renderReceiptPreview(container) {
     <div id="rcDocPreview" class="doc-preview mt16">
       ${[1,2].map(pageNum => `
       <div class="doc-page doc-watermark-wrap">
-        ${r.status === "cancelled" ? '<div class="doc-watermark cancelled">ยกเลิก</div>' : '<div class="doc-watermark paid">ชำระแล้ว</div>'}
+        ${/* Phase 612: ลายน้ำมีไว้เตือน "เอกสารใช้ไม่ได้" เท่านั้น — ใบเสร็จปกติต้องสะอาด
+              เดิมขึ้น "ชำระแล้ว" ทับกลางใบทุกใบที่ไม่ถูกยกเลิก ทำให้ส่งเป็นเอกสารราชการไม่ได้
+              (ใบส่งสินค้า/ใบเสนอราคาทำถูกอยู่แล้ว: โชว์เฉพาะ cancelled/expired) */""}
+        ${r.status === "cancelled" ? '<div class="doc-watermark cancelled">ยกเลิก</div>' : ""}
         <div class="doc-accent re"></div>
         <div class="doc-page-inner">
           <div class="doc-header">
