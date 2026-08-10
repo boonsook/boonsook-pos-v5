@@ -60,6 +60,30 @@ export function computeFitToPage({ contentPx, pxPerMm, pageHeightMm, minScale = 
   return scale >= minScale ? { scale } : null;
 }
 
+// ★ Phase 610 — "หน้าสุดท้ายกำพร้า": เอกสารล้นหน้าจนหน้าที่ 2 มีแค่บล็อกลายเซ็น
+//   เพดาน 0.85 แคบไปสำหรับเคสนี้ (ใบส่งสินค้า/ใบเสร็จที่รายการเยอะกว่าใบเสนอราคา) จึงยอมย่อลึกขึ้น
+//   เฉพาะตอนที่ทางเลือกอีกทางคือ "หน้ากระดาษที่แทบไม่มีอะไร"
+//   🔴 ต้องไม่ไปย่อเอกสารที่ยาวจริง:
+//     - 3 หน้าขึ้นไป = ยาวจริง ย่อลงหน้าเดียวไม่สมเหตุผล → ใช้เพดานปกติ
+//     - หน้าสุดท้ายเต็ม = ไม่ใช่หน้ากำพร้า (เช่น ใบเสร็จที่เรนเดอร์ต้นฉบับ+สำเนาในไฟล์เดียว
+//       หน้า 2 คือสำเนาเต็มใบ ห้ามยุบรวมกับต้นฉบับเด็ดขาด) → ใช้เพดานปกติ
+//   🔴 ค่าสองตัวต้องสอดคล้องกัน: orphanFloor ต้อง ≤ 1 / (1 + orphanMaxFill)
+//     ไม่งั้นจะมีเคสที่ "ตัดสินว่ากำพร้า" แล้ว computeFitToPage ยังคืน null อยู่ดี = กฎนี้ไม่ทำอะไรเลย
+//     (มี guard test ล็อกความสัมพันธ์นี้ไว้ — ผมพลาดข้อนี้เองตอนตั้งค่าครั้งแรก)
+export function fitFloorForSlices({
+  slices = [], pxPerMm = 0, pageHeightMm = 0,
+  defaultFloor = 0.85, orphanFloor = 0.70, orphanMaxFill = 0.40,
+} = {}) {
+  if (!Array.isArray(slices) || slices.length !== 2) return defaultFloor;
+  if (!(pxPerMm > 0) || !(pageHeightMm > 0)) return defaultFloor;
+  const pagePx = pageHeightMm * pxPerMm;
+  if (!(pagePx > 0)) return defaultFloor;
+  const last = slices[slices.length - 1] || {};
+  const lastPx = Number(last.endPx) - Number(last.startPx);
+  if (!(lastPx > 0)) return defaultFloor;
+  return (lastPx / pagePx) <= orphanMaxFill ? orphanFloor : defaultFloor;
+}
+
 // pure — คำนวณว่าแต่ละหน้าครอบพิกเซลช่วงไหนของรูป (unit-test ได้โดยไม่ต้องมี DOM)
 export function computePageSlices({
   totalPx, pxPerMm, pageHeightMm,
@@ -259,7 +283,9 @@ export async function shareDoc({
         // ★ ยาวเกินหน้าแค่นิดเดียว = ย่อให้พอดีหน้าเดียว (เหมือน shrink-to-fit ของเครื่องพิมพ์)
         //   เอกสารที่พิมพ์ออกมา 1 หน้า ต้องไม่กลายเป็น 2 หน้าในไฟล์แชร์
         const extentPx = contentExtentPx(c.height, _breakPx, pxPerMm);
-        const fit = slices.length > 1 ? computeFitToPage({ contentPx: extentPx, pxPerMm, pageHeightMm: pageH }) : null;
+        // Phase 610: เพดานการย่อขึ้นกับว่าหน้าสุดท้าย "กำพร้า" หรือไม่ (ดู fitFloorForSlices)
+        const minScale = fitFloorForSlices({ slices, pxPerMm, pageHeightMm: pageH });
+        const fit = slices.length > 1 ? computeFitToPage({ contentPx: extentPx, pxPerMm, pageHeightMm: pageH, minScale }) : null;
 
         if (fit) {
           const sh = Math.max(1, Math.round(extentPx));

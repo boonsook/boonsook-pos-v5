@@ -19,7 +19,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-import { shareDoc, computePageSlices, collectBreakBoundaries, computeFitToPage, contentExtentPx } from "../modules/share_doc.js";
+import { shareDoc, computePageSlices, collectBreakBoundaries, computeFitToPage, contentExtentPx, fitFloorForSlices } from "../modules/share_doc.js";
 
 // ── Stubs ──────────────────────────────────────────────────────────────────
 function makeEl(tag) {
@@ -307,4 +307,72 @@ test("regression: share_doc.js ต้องไม่กลับไปหั่�
   assert.ok(!/y\s*\+=\s*pageH\b/.test(code), "ห้ามใช้ y += pageH (ตัดกลางแถว)");
   assert.ok(code.includes("computePageSlices({"), "ต้องหั่นหน้าผ่าน computePageSlices");
   assert.ok(/fillStyle\s*=\s*"#ffffff"/.test(code), "ต้องถมพื้นขาวก่อนแปลง JPEG (กันพื้นดำ)");
+});
+
+// ── Phase 610 — หน้าสุดท้ายกำพร้า (ใบส่งสินค้า/ใบเสร็จล้นหน้าจนเหลือแค่ลายเซ็นบนหน้า 2) ──
+// เพดานย่อ 0.85 ของ 609 แคบไปสำหรับเอกสารที่รายการเยอะกว่าใบเสนอราคา
+// ต้องย่อลึกขึ้นเฉพาะเคส "หน้าสุดท้ายแทบไม่มีอะไร" และห้ามแตะเอกสารที่ยาวจริง
+
+const PPM = 1123 / 297;               // px ต่อ มม. ของกรอบ A4 ที่ใช้จริง
+const PAGE_MM = 297;
+const PAGE_PX = PAGE_MM * PPM;
+
+test("Phase 610: หน้า 2 มีแค่ลายเซ็น = หน้ากำพร้า → ผ่อนเพดานย่อ", () => {
+  // ลายเซ็น+ที่ว่างราว 25% ของหน้า → รวม 1.25 หน้า → ต้องย่อ 0.80 ซึ่ง "เพดานเดิม 0.85 ไม่ให้ผ่าน"
+  // (ตั้งไว้ 12% ตอนแรกแล้ว test แดง เพราะ 0.89 เพดานเดิมก็ผ่านอยู่แล้ว = ไม่ใช่เคสที่ owner เจอ)
+  const orphan = Math.round(PAGE_PX * 0.25);
+  const slices = [{ startPx: 0, endPx: PAGE_PX }, { startPx: PAGE_PX, endPx: PAGE_PX + orphan }];
+  const floor = fitFloorForSlices({ slices, pxPerMm: PPM, pageHeightMm: PAGE_MM });
+  assert.equal(floor, 0.70, "หน้าสุดท้ายเกือบว่าง ต้องยอมย่อลึกกว่าปกติ");
+
+  // และต้องแปลว่า "ได้หน้าเดียวจริง" ไม่ใช่แค่ตัวเลขเปลี่ยน
+  const contentPx = PAGE_PX + orphan;
+  assert.equal(computeFitToPage({ contentPx, pxPerMm: PPM, pageHeightMm: PAGE_MM }), null,
+    "เพดานเดิม 0.85 ยังทำให้แตกสองหน้า (นี่คืออาการที่ owner เจอ)");
+  const fit = computeFitToPage({ contentPx, pxPerMm: PPM, pageHeightMm: PAGE_MM, minScale: floor });
+  assert.ok(fit && fit.scale > 0.70 && fit.scale < 1, "ต้องย่อลงหน้าเดียวได้");
+});
+
+test("Phase 610: หน้าสุดท้ายเต็ม (ใบเสร็จ ต้นฉบับ+สำเนา) ห้ามยุบรวมเป็นหน้าเดียว", () => {
+  const slices = [{ startPx: 0, endPx: PAGE_PX }, { startPx: PAGE_PX, endPx: PAGE_PX * 2 }];
+  const floor = fitFloorForSlices({ slices, pxPerMm: PPM, pageHeightMm: PAGE_MM });
+  assert.equal(floor, 0.85, "สำเนาเต็มใบไม่ใช่หน้ากำพร้า ต้องใช้เพดานปกติ");
+  assert.equal(computeFitToPage({ contentPx: PAGE_PX * 2, pxPerMm: PPM, pageHeightMm: PAGE_MM, minScale: floor }), null,
+    "ต้องยังได้ 2 หน้า — ห้ามย่อต้นฉบับ+สำเนาให้ทับกันในหน้าเดียว");
+});
+
+test("Phase 610: เอกสารยาวจริง (3 หน้าขึ้นไป) ต้องใช้เพดานปกติเสมอ", () => {
+  const three = [
+    { startPx: 0, endPx: PAGE_PX },
+    { startPx: PAGE_PX, endPx: PAGE_PX * 2 },
+    { startPx: PAGE_PX * 2, endPx: PAGE_PX * 2 + Math.round(PAGE_PX * 0.05) },
+  ];
+  assert.equal(fitFloorForSlices({ slices: three, pxPerMm: PPM, pageHeightMm: PAGE_MM }), 0.85,
+    "3 หน้าขึ้นไป = ยาวจริง ย่อลงหน้าเดียวไม่สมเหตุผล แม้หน้าสุดท้ายจะว่าง");
+});
+
+test("Phase 610: อินพุตไม่ครบ/ผิดรูป ต้องคืนเพดานปกติ (fail-safe ไม่ย่อมั่ว)", () => {
+  assert.equal(fitFloorForSlices(), 0.85);
+  assert.equal(fitFloorForSlices({ slices: [], pxPerMm: PPM, pageHeightMm: PAGE_MM }), 0.85);
+  assert.equal(fitFloorForSlices({ slices: [{ startPx: 0, endPx: 10 }], pxPerMm: PPM, pageHeightMm: PAGE_MM }), 0.85);
+  assert.equal(fitFloorForSlices({ slices: [{}, {}], pxPerMm: PPM, pageHeightMm: PAGE_MM }), 0.85,
+    "slice ไม่มีตัวเลข = ตัดสินไม่ได้ ต้องไม่ผ่อนเพดาน");
+  assert.equal(fitFloorForSlices({ slices: [{ startPx: 0, endPx: PAGE_PX }, { startPx: PAGE_PX, endPx: PAGE_PX + 10 }], pxPerMm: 0, pageHeightMm: PAGE_MM }), 0.85);
+});
+
+test("Phase 610: จุดเรียกจริงต้องส่งเพดานที่คำนวณแล้วเข้า computeFitToPage", () => {
+  const code = shareSrc.replace(/^\s*\/\/.*$/gm, "");
+  assert.ok(/fitFloorForSlices\(\{\s*slices/.test(code), "ต้องคำนวณเพดานจาก slices จริง");
+  assert.ok(/computeFitToPage\(\{[^}]*minScale\s*\}\)/.test(code),
+    "ต้องส่ง minScale ที่คำนวณได้เข้าไป ไม่ใช่ปล่อยให้ใช้ค่า default");
+});
+
+test("Phase 610: orphanFloor ต้องสอดคล้องกับ orphanMaxFill (ไม่งั้นกฎนี้จะไม่ทำอะไรเลย)", () => {
+  // ถ้า orphanFloor > 1/(1+orphanMaxFill) จะมีช่วงที่ "ตัดสินว่ากำพร้า" แต่ computeFitToPage ยังคืน null
+  // = ผ่อนเพดานแล้วก็ยังแตกสองหน้าเหมือนเดิม (bug เงียบ) — ล็อกด้วยเคสกำพร้าที่แย่ที่สุด
+  const worst = Math.round(PAGE_PX * 0.40);
+  const slices = [{ startPx: 0, endPx: PAGE_PX }, { startPx: PAGE_PX, endPx: PAGE_PX + worst }];
+  const floor = fitFloorForSlices({ slices, pxPerMm: PPM, pageHeightMm: PAGE_MM });
+  const fit = computeFitToPage({ contentPx: PAGE_PX + worst, pxPerMm: PPM, pageHeightMm: PAGE_MM, minScale: floor });
+  assert.ok(fit, "เคสกำพร้าที่แย่ที่สุดต้องยังย่อลงหน้าเดียวได้จริง");
 });

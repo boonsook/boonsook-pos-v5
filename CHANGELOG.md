@@ -5,6 +5,13 @@
 
 รูปแบบ: `<commit> feat|fix|docs|refactor: <สรุปสั้น>` + bullet 1-2 ข้อถ้าจำเป็น
 
+- `610` fix(documents): **แชร์เอกสารแล้วไม่เหลือ "หน้าสุดท้ายที่มีแค่ลายเซ็น"** — ต่อจาก 607/608/609 (build 610 / v5.69.78)
+  - อาการ: ใบเสนอราคาหายแล้ว แต่ **ใบส่งสินค้า/ใบเสร็จ** ที่รายการเยอะกว่ายังได้ 2 หน้า โดยหน้า 2 มีแค่บล็อกลายเซ็น
+  - เหตุ: เพดาน shrink-to-fit ของ 609 ยอมย่อแค่ ~18% (`minScale 0.85`) เอกสารที่ล้นมากกว่านั้นจึงตกไปแบ่งหน้าตามขอบแถว
+  - แก้: `fitFloorForSlices()` — ได้ 2 หน้า **และหน้าสุดท้ายมีเนื้อหา ≤40% ของหน้า** → ผ่อนเพดานเป็น 0.70 เพื่อยุบเหลือหน้าเดียว · นอกนั้นใช้เพดานเดิมทุกกรณี
+  - 🔴 ไม่แตะเอกสารที่ยาวจริง: **3 หน้าขึ้นไป** และ **หน้าสุดท้ายเต็ม** (ใบเสร็จเรนเดอร์ต้นฉบับ+สำเนาในไฟล์เดียว — หน้า 2 คือสำเนาเต็มใบ ห้ามยุบรวม) ยังใช้เพดานเดิม
+  - +guard 28→34 รวมตัวล็อก `orphanFloor ≤ 1/(1+orphanMaxFill)` กันกฎที่ผ่อนเพดานแล้วยังคืน null เหมือนเดิม (bug เงียบ)
+  - **ไม่มี SQL · ไม่แตะยอดเงิน/สต็อก · ไม่แตะ `functions/*`** — bump `data-app-build`/`?v=`/`CACHE_NAME`/`SW_BUILD` ครบ
 - `609-H1` fix(api): **middleware ไม่ทับ `Vary` ที่ endpoint ส่งมา** — คืน defense-in-depth layer ของหน้างานบริการฝั่งลูกค้า (build 609 คงเดิม / v5.69.77 · server-only)
   - `/api/v1/customer-service-jobs` ส่ง `Cache-Control: private, no-store` + `Vary: Authorization` แต่ `_middleware.js` ใส่ CORS headers กลับ response ด้วย `Headers.set()` = **ทับ ไม่ใช่รวม** → เหลือแค่ `Vary: Origin` (owner-run ONLINE_MATRIX_A จับได้)
   - **ไม่ใช่ active data-leak fix** — ด่านหลักคือ SW `/api/*` network-only (ยังทำงาน) และ `Cache-Control: private, no-store` ยังอยู่ครบ
