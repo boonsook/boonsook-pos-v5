@@ -19,7 +19,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-import { shareDoc, computePageSlices, collectBreakBoundaries, computeFitToPage, contentExtentPx, fitFloorForSlices } from "../modules/share_doc.js";
+import { shareDoc, computePageSlices, collectBreakBoundaries, computeFitToPage, contentExtentPx, fitFloorForSlices, collectDocPageBounds, planCopyPages } from "../modules/share_doc.js";
 
 // ── Stubs ──────────────────────────────────────────────────────────────────
 function makeEl(tag) {
@@ -375,4 +375,66 @@ test("Phase 610: orphanFloor ต้องสอดคล้องกับ orpha
   const floor = fitFloorForSlices({ slices, pxPerMm: PPM, pageHeightMm: PAGE_MM });
   const fit = computeFitToPage({ contentPx: PAGE_PX + worst, pxPerMm: PPM, pageHeightMm: PAGE_MM, minScale: floor });
   assert.ok(fit, "เคสกำพร้าที่แย่ที่สุดต้องยังย่อลงหน้าเดียวได้จริง");
+});
+
+// ── Phase 610 (แก้รอบสอง) — "หนึ่ง .doc-page = หนึ่งหน้า PDF" ────────────────
+// ใบส่งสินค้า/ใบเสร็จ เรนเดอร์ [1,2].map = ต้นฉบับ+สำเนา → .doc-page สองอัน
+// force-a4 ตั้ง min-height:1123px ⇒ ฉบับที่รายการเยอะสูงเกิน A4 → เดิมถูกหั่นกลางฉบับ
+
+function boundsFromHeights(heights) {
+  let y = 0;
+  return heights.map(h => { const b = { startPx: y, endPx: y + h }; y += h; return b; });
+}
+
+test("Phase 610: ต้นฉบับ+สำเนาที่สูงเกิน A4 ต้องได้ฉบับละหน้า และย่อแยกกัน", () => {
+  const over = Math.round(PAGE_PX * 1.18);            // แต่ละฉบับสูงเกิน A4 ~18%
+  const pages = planCopyPages({ bounds: boundsFromHeights([over, over]), pxPerMm: PPM, pageHeightMm: PAGE_MM });
+  assert.equal(pages.length, 2, "สองฉบับ = สองหน้า PDF ห้ามยุบรวมและห้ามแตกเป็นสามหน้า");
+  for (const p of pages) {
+    assert.ok(p.scale > 0.55 && p.scale < 1, "ฉบับที่เกิน A4 ต้องถูกย่อให้พอดีหน้า");
+    assert.equal(Math.round((p.endPx - p.startPx)), over, "ช่วงพิกเซลต้องครอบทั้งฉบับ ไม่ตัดกลาง");
+  }
+  assert.equal(pages[1].startPx, over, "ฉบับที่สองต้องเริ่มตรงขอบบนของสำเนา");
+});
+
+test("Phase 610: ฉบับที่พอดีหน้าอยู่แล้ว ต้องไม่ถูกย่อ (scale = 1)", () => {
+  const fit = Math.round(PAGE_PX * 0.92);
+  const pages = planCopyPages({ bounds: boundsFromHeights([fit, fit]), pxPerMm: PPM, pageHeightMm: PAGE_MM });
+  assert.deepEqual(pages.map(p => p.scale), [1, 1], "ไม่เกินหน้า = ห้ามย่อ");
+});
+
+test("Phase 610: ใบเสนอราคา (.doc-page อันเดียว) ต้องได้หน้าเดียว", () => {
+  const pages = planCopyPages({ bounds: boundsFromHeights([Math.round(PAGE_PX * 1.1)]), pxPerMm: PPM, pageHeightMm: PAGE_MM });
+  assert.equal(pages.length, 1);
+  assert.ok(pages[0].scale < 1 && pages[0].scale > 0.55);
+});
+
+test("Phase 610: ฉบับที่สูงเกินเพดาน หรือวัดขอบไม่ได้ → คืน null (กลับไปใช้ตัวหั่นหน้าเดิม)", () => {
+  assert.equal(planCopyPages({ bounds: boundsFromHeights([PAGE_PX * 3]), pxPerMm: PPM, pageHeightMm: PAGE_MM }), null,
+    "ฉบับเดียวสูง 3 หน้า = ย่อแล้วอ่านไม่ออก ต้อง fallback");
+  assert.equal(planCopyPages({ bounds: [], pxPerMm: PPM, pageHeightMm: PAGE_MM }), null);
+  assert.equal(planCopyPages({ bounds: [{ startPx: 0, endPx: 0 }], pxPerMm: PPM, pageHeightMm: PAGE_MM }), null);
+  assert.equal(planCopyPages({ bounds: boundsFromHeights([PAGE_PX]), pxPerMm: 0, pageHeightMm: PAGE_MM }), null);
+  assert.equal(planCopyPages(), null);
+});
+
+test("Phase 610: collectDocPageBounds วัดจาก .doc-page จริงและเรียงตามลำดับ", () => {
+  const mk = (top, bottom) => ({ getBoundingClientRect: () => ({ top, bottom, height: bottom - top }) });
+  const root = {
+    getBoundingClientRect: () => ({ top: 10, bottom: 2000, height: 1990 }),
+    querySelectorAll: (sel) => (sel === ".doc-page" ? [mk(1210, 2410), mk(10, 1210)] : []),
+  };
+  const bounds = collectDocPageBounds(root, 2);        // scale 2 = html2canvas scale
+  assert.deepEqual(bounds, [{ startPx: 0, endPx: 2400 }, { startPx: 2400, endPx: 4800 }],
+    "ต้องคืนช่วงของแต่ละฉบับ เรียงจากบนลงล่าง และคูณ scale แล้ว");
+  assert.deepEqual(collectDocPageBounds(null), []);
+  assert.deepEqual(collectDocPageBounds({}), []);
+});
+
+test("Phase 610: จุดเรียกจริงต้องให้ .doc-page ชนะตัวหั่นหน้าเดิม", () => {
+  const code = shareSrc.replace(/^\s*\/\/.*$/gm, "");
+  assert.ok(/collectDocPageBounds\(clone/.test(code), "ต้องวัด .doc-page ตอน clone ยังอยู่ใน DOM");
+  assert.ok(/planCopyPages\(\{\s*bounds/.test(code), "ต้องวางแผนหน้าจากขอบของแต่ละฉบับ");
+  assert.ok(/if \(copyPages\) \{[\s\S]*?\} else if \(fit\)/.test(code),
+    "copyPages ต้องถูกเช็คก่อน fit (หนึ่งฉบับ = หนึ่งหน้า มาก่อนการย่อทั้งม้วน)");
 });

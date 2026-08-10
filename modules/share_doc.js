@@ -84,6 +84,50 @@ export function fitFloorForSlices({
   return (lastPx / pagePx) <= orphanMaxFill ? orphanFloor : defaultFloor;
 }
 
+// ★ Phase 610 — เอกสารบางชนิดเรนเดอร์ "หลายฉบับในไฟล์เดียว": ใบส่งสินค้า/ใบเสร็จ ทำ [1,2].map
+//   = ต้นฉบับ + สำเนา → มี .doc-page สองอัน (ใบเสนอราคามีอันเดียว จึงไม่เคยเจอปัญหานี้)
+//   force-a4 ตั้ง .doc-page เป็น min-height:1123px (ไม่ใช่ height) ⇒ ฉบับที่รายการเยอะจะสูงเกิน A4
+//   ⇒ canvas = ต้นฉบับ(เกิน A4) + สำเนา(เกิน A4) แล้วถ้าหั่นตามความสูงรวม จุดตัดจะตกกลางฉบับ
+//     (อาการที่ owner เจอ: หน้า 2 มีแค่ลายเซ็นของต้นฉบับ แล้วต่อด้วยหัวของสำเนา)
+//   กติกาที่ถูก: **หนึ่ง .doc-page = หนึ่งหน้า PDF เสมอ** ย่อเฉพาะฉบับที่สูงเกิน ไม่ใช่ย่อทั้งม้วน
+export function collectDocPageBounds(rootEl, scale = 1) {
+  if (!rootEl || typeof rootEl.querySelectorAll !== "function") return [];
+  if (typeof rootEl.getBoundingClientRect !== "function") return [];
+  const rootTop = rootEl.getBoundingClientRect()?.top;
+  if (typeof rootTop !== "number") return [];
+  const out = [];
+  for (const el of Array.from(rootEl.querySelectorAll(".doc-page") || [])) {
+    if (!el || typeof el.getBoundingClientRect !== "function") continue;
+    const r = el.getBoundingClientRect();
+    if (!r || !(r.height > 0)) continue;
+    out.push({
+      startPx: Math.max(0, Math.round((r.top - rootTop) * scale)),
+      endPx: Math.round((r.bottom - rootTop) * scale),
+    });
+  }
+  return out.filter(b => b.endPx > b.startPx).sort((a, b) => a.startPx - b.startPx);
+}
+
+// หนึ่งฉบับ = หนึ่งหน้า PDF · ย่อเฉพาะฉบับที่สูงเกิน A4
+// คืน null = มีฉบับใดต้องย่อลึกกว่าเพดาน (หรือวัดขอบไม่ได้) → ผู้เรียกกลับไปใช้ตัวหั่นหน้าเดิม
+export function planCopyPages({ bounds = [], pxPerMm = 0, pageHeightMm = 0, minScale = 0.55 } = {}) {
+  if (!Array.isArray(bounds) || bounds.length === 0) return null;
+  if (!(pxPerMm > 0) || !(pageHeightMm > 0)) return null;
+  const pagePx = pageHeightMm * pxPerMm;
+  if (!(pagePx > 0)) return null;
+  const pages = [];
+  for (const b of bounds) {
+    const startPx = Number(b?.startPx);
+    const endPx = Number(b?.endPx);
+    const h = endPx - startPx;
+    if (!(h > 0) || !(startPx >= 0)) return null;
+    const scale = h <= pagePx ? 1 : pagePx / h;
+    if (scale < minScale) return null;
+    pages.push({ startPx, endPx, scale });
+  }
+  return pages;
+}
+
 // pure — คำนวณว่าแต่ละหน้าครอบพิกเซลช่วงไหนของรูป (unit-test ได้โดยไม่ต้องมี DOM)
 export function computePageSlices({
   totalPx, pxPerMm, pageHeightMm,
@@ -252,9 +296,12 @@ export async function shareDoc({
     windowRef.html2canvas(clone, { scale: 2, useCORS: true, backgroundColor: "#ffffff", width: 794 }).then(c => {
       // ★ วัดขอบเขตบล็อก "ก่อน" ถอด clone ออกจาก DOM (หลังถอดแล้ววัดไม่ได้)
       let _breakPx = [];
+      let _copyBounds = [];
       try {
         const cloneW = clone.offsetWidth || 794;
-        _breakPx = collectBreakBoundaries(clone, (c.width || cloneW) / cloneW);
+        const _s = (c.width || cloneW) / cloneW;
+        _breakPx = collectBreakBoundaries(clone, _s);
+        _copyBounds = collectDocPageBounds(clone, _s);
       } catch (e) { logger?.warn?.("break boundary measure failed:", e); }
       documentRef.body.removeChild(clone);
       documentRef.head.removeChild(forceA4Style);
@@ -270,6 +317,9 @@ export async function shareDoc({
         const pageH = pdf.internal.pageSize.getHeight();
         // ★ หั่นหน้าโดยไม่ผ่ากลางแถว: ตัดที่ขอบล่างของบล็อกที่วัดไว้ แล้ว copy เฉพาะช่วงนั้นลง canvas ต่อหน้า
         const pxPerMm = c.width / pageW;
+        // ★ Phase 610: ถ้าวัด .doc-page ได้ ให้ "หนึ่งฉบับ = หนึ่งหน้า PDF" ก่อนเสมอ
+        //   (ต้นฉบับ/สำเนา ของใบส่งสินค้า-ใบเสร็จ ต้องได้ใบละแผ่น ไม่ใช่ถูกหั่นกลางใบ)
+        const copyPages = planCopyPages({ bounds: _copyBounds, pxPerMm, pageHeightMm: pageH });
         const slices = computePageSlices({
           totalPx: c.height, pxPerMm, pageHeightMm: pageH, boundariesPx: _breakPx,
         });
@@ -287,7 +337,23 @@ export async function shareDoc({
         const minScale = fitFloorForSlices({ slices, pxPerMm, pageHeightMm: pageH });
         const fit = slices.length > 1 ? computeFitToPage({ contentPx: extentPx, pxPerMm, pageHeightMm: pageH, minScale }) : null;
 
-        if (fit) {
+        if (copyPages) {
+          // หนึ่ง .doc-page = หนึ่งหน้า PDF · ย่อเฉพาะฉบับที่สูงเกิน A4 (คงสัดส่วน จัดกึ่งกลางแนวนอน)
+          copyPages.forEach((p, i) => {
+            if (i > 0) pdf.addPage();
+            const sh = Math.max(1, Math.round(p.endPx - p.startPx));
+            const tmp = documentRef.createElement("canvas");
+            tmp.width = c.width;
+            tmp.height = sh;
+            const tctx = tmp.getContext ? tmp.getContext("2d") : null;
+            // ★ ถมขาวก่อนเสมอ — canvas ใหม่โปร่งใส แปลงเป็น JPEG แล้วจะได้พื้นดำ
+            if (tctx?.fillRect) { tctx.fillStyle = "#ffffff"; tctx.fillRect(0, 0, tmp.width, sh); }
+            if (tctx?.drawImage) tctx.drawImage(c, 0, p.startPx, c.width, sh, 0, 0, c.width, sh);
+            const wMm = pageW * p.scale;
+            const hMm = (sh / pxPerMm) * p.scale;
+            pdf.addImage(tmp.toDataURL("image/jpeg", 0.92), "JPEG", (pageW - wMm) / 2, 0, wMm, hMm);
+          });
+        } else if (fit) {
           const sh = Math.max(1, Math.round(extentPx));
           const tmp = documentRef.createElement("canvas");
           tmp.width = c.width;
