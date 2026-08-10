@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<title>doc-print fixture</title>
+<!--
+  Phase 617 — fixture สำหรับวัด "จำนวนแผ่นที่พิมพ์จริง"
+  ใช้ PRINT_CSS + fitPrintedPages ตัวจริงจาก modules/doc-utils.js (ไม่ลอกมาวาง)
+  เส้นทางจริงของปุ่มพิมพ์คือ doc-override.js → doc-utils.printDoc() → PRINT_CSS
+  (ไม่ใช่ doc-print.css และไม่ใช่ CSS ที่ฝังใน receipts.js/delivery_invoices.js)
+  ?rows=N  กำหนดจำนวนรายการ   ?kind=receipt|delivery
+-->
+</head>
+<body>
+<div id="docPreview" class="doc-preview"></div>
+<script type="module">
+import { PRINT_CSS, fitPrintedPages } from "/modules/doc-utils.js";
+
+const q = new URLSearchParams(location.search);
+const rows = Math.max(1, Number(q.get("rows") || 15));
+const kind = q.get("kind") === "delivery" ? "delivery" : "receipt";
+const accent = kind === "receipt" ? "re" : "inv";
+const title = kind === "receipt" ? "ใบเสร็จรับเงิน" : "ใบส่งสินค้า";
+
+const style = document.createElement("style");
+style.textContent = PRINT_CSS;
+document.head.appendChild(style);
+
+const item = (i) => `<tr>
+  <td style="text-align:left">ล้างเครื่องปรับอากาศ+ชาร์จน้ำยา ขนาด24,000btu(420-66-${String(1000 + i).slice(1)})</td>
+  <td style="text-align:center">1.00</td><td style="text-align:center">เครื่อง</td>
+  <td style="text-align:right">1,300.00</td><td style="text-align:right">1,300.00</td></tr>`;
+
+const payBlock = kind === "receipt" ? `
+  <div class="doc-payment-check">
+    <div class="doc-payment-check-row"><span>การชำระเงินจะสมบูรณ์เมื่อบริษัทได้รับเงินเรียบร้อยแล้ว</span></div>
+    <div class="doc-payment-check-row" style="margin-top:6px">
+      <span class="doc-checkbox"><span class="doc-checkbox-box"></span> เงินสด</span>
+      <span class="doc-checkbox"><span class="doc-checkbox-box"></span> เช็ค</span>
+      <span class="doc-checkbox"><span class="doc-checkbox-box"></span> โอนเงิน</span>
+      <span class="doc-checkbox"><span class="doc-checkbox-box"></span> บัตรเครดิต</span>
+    </div>
+    <div class="doc-bank-line">
+      <div class="doc-bank-field">ธนาคาร<span class="underline"></span></div>
+      <div class="doc-bank-field">เลขที่<span class="underline"></span></div>
+      <div class="doc-bank-field">วันที่<span class="underline"></span></div>
+      <div class="doc-bank-field">จำนวนเงิน<span class="underline"></span></div>
+    </div>
+  </div>` : "";
+
+const docPage = (copy) => `
+<div class="doc-page">
+  <div class="doc-accent ${accent}"></div>
+  <div class="doc-page-inner">
+    <div class="doc-header">
+      <div class="doc-header-left">
+        <div class="doc-logo" style="background:#e5e7eb"></div>
+        <div>
+          <div class="doc-company-name">บุญสุข อิเล็กทรอนิกส์</div>
+          <div class="doc-company-detail">123 หมู่ 4 ต.ในเมือง อ.เมือง จ.ขอนแก่น 40000<br>เลขประจำตัวผู้เสียภาษี 1234567890123<br>โทร. 08x-xxx-xxxx</div>
+        </div>
+      </div>
+      <div class="doc-header-right">
+        <div class="doc-title ${accent}">${title}</div>
+        <table class="doc-detail-table">
+          <tr><td>เลขที่</td><td>RE20260808001</td></tr>
+          <tr><td>วันที่</td><td>8 สิงหาคม 2569</td></tr>
+          <tr><td>ผู้ขาย</td><td>-</td></tr>
+          <tr><td>อ้างอิง</td><td>INV20260808001</td></tr>
+        </table>
+      </div>
+    </div>
+    <div class="doc-customer-section">
+      <div class="doc-customer-label ${accent}">ลูกค้า</div>
+      <div class="doc-customer-name">องค์การบริหารส่วนตำบลตัวอย่าง (${copy === 1 ? "ต้นฉบับ" : "สำเนา"})</div>
+      <div class="doc-customer-detail">หมู่ 5 ต.ตัวอย่าง อ.ตัวอย่าง จ.ตัวอย่าง 30000<br>โทร. 044-xxxxxx<br>เลขผู้เสียภาษี 0994000xxxxxx</div>
+    </div>
+    <table class="doc-table">
+      <thead><tr>
+        <th class="${accent}" style="text-align:left">รายละเอียด</th>
+        <th class="${accent}" style="width:65px">จำนวน</th><th class="${accent}" style="width:55px">หน่วย</th>
+        <th class="${accent}" style="width:95px">ราคาต่อหน่วย</th><th class="${accent}" style="width:95px">ยอดรวม</th>
+      </tr></thead>
+      <tbody>${Array.from({ length: rows }, (_, i) => item(i)).join("")}</tbody>
+    </table>
+    <div class="doc-baht-text">(หนึ่งหมื่นสี่พันเจ็ดร้อยบาทถ้วน)</div>
+    <div class="doc-totals">
+      <div class="doc-total-row"><span>รวมเป็นเงิน</span><span>14,700.00 บาท</span></div>
+      <div class="doc-total-row grand ${accent}"><span>จำนวนเงินรวมทั้งสิ้น</span><span>14,700.00 บาท</span></div>
+    </div>
+    <div class="doc-note-section">
+      <div class="doc-note-title ${accent}">หมายเหตุ</div>
+      <div>จากใบสั่งค้า INV20260808001</div>
+    </div>
+    ${payBlock}
+    <div class="doc-signatures">
+      <div class="doc-sig-col">
+        <div class="doc-sig-behalf">องค์การบริหารส่วนตำบลตัวอย่าง</div>
+        <div class="doc-sig-line"></div>
+        <div class="doc-sig-label-row"><span>ผู้จ่ายเงิน</span><span>วันที่</span></div>
+      </div>
+      <div class="doc-sig-col">
+        <div class="doc-sig-behalf">บุญสุข อิเล็กทรอนิกส์</div>
+        <div class="doc-sig-line"></div>
+        <div class="doc-sig-label-row"><span>ผู้รับเงิน</span><span>วันที่</span></div>
+      </div>
+    </div>
+  </div>
+</div>`;
+
+document.getElementById("docPreview").innerHTML = docPage(1) + docPage(2);
+
+// รอฟอนต์ก่อนวัด — ถ้าวัดตอนฟอนต์ยังไม่มา ความสูงจะผิดแล้วย่อไม่พอ
+try { await document.fonts.ready; } catch { /* ไม่มี Font Loading API */ }
+window.__printScales = fitPrintedPages(document);
+window.__pageHeightsMm = [...document.querySelectorAll(".doc-page")]
+  .map((p) => +(p.getBoundingClientRect().height / (96 / 25.4)).toFixed(1));
+window.__ready = true;
+</script>
+</body>
+</html>

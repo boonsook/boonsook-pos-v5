@@ -1121,6 +1121,10 @@ function renderReceiptPreview(container) {
   });
 
   // Print
+  // ⚠️ Phase 617: handler นี้ "ไม่ทำงาน" — doc-override.js ดัก rcPrintBtn ตั้งแต่ capturing phase
+  //    แล้ว stopImmediatePropagation() → ปุ่มพิมพ์วิ่งไป doc-utils.printDoc() + PRINT_CSS แทน
+  //    แก้ CSS ในบรรทัดล่างนี้ไม่มีผลต่อการพิมพ์ (เสียไป 4 รอบมาแล้ว) ต้องแก้ที่ modules/doc-utils.js
+  //    เก็บไว้เป็น fallback เผื่อวันไหนเลิกใช้ doc-override
   document.getElementById("rcPrintBtn")?.addEventListener("click", () => {
     const content = document.getElementById("rcDocPreview")?.innerHTML; if (!content) return;
     const w = window.open("","_blank"); if (!w) return _ctx?.showToast?.("เบราว์เซอร์บล็อกหน้าต่างพิมพ์ — อนุญาต popup แล้วลองใหม่"); // Phase 585: popup block → null

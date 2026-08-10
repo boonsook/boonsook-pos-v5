@@ -884,6 +884,8 @@ function renderInvoicePreview(container) {
     window._appShareDoc("diDocPreview", inv.inv_no || "invoice");
   });
 
+  // ⚠️ Phase 617: handler นี้ "ไม่ทำงาน" — doc-override.js ดัก diPrintBtn ตั้งแต่ capturing phase
+  //    ปุ่มพิมพ์วิ่งไป doc-utils.printDoc() + PRINT_CSS แทน → แก้เรื่องพิมพ์ที่ modules/doc-utils.js
   document.getElementById("diPrintBtn")?.addEventListener("click", () => {
     const content = document.getElementById("diDocPreview")?.innerHTML; if (!content) return;
     const w = window.open("","_blank");

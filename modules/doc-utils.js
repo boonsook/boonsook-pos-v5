@@ -5,7 +5,9 @@
 // ═══════════════════════════════════════════════════════════
 
 // CSS ที่ใช้ในหน้า print window (inline เพื่อ self-contained)
-const PRINT_CSS = `
+// ★ export ไว้ให้ tests/e2e/fixtures/doc-print.html เอาไปวัดจำนวนแผ่นจริงได้ —
+//   ก่อนหน้านี้ไม่มีทางทดสอบเส้นทางพิมพ์เลย จึงแก้ CSS ผิดไฟล์อยู่หลายรอบ
+export const PRINT_CSS = `
 @import url("https://fonts.googleapis.com/css2?family=Sarabun:ital,wght@0,400;0,600;0,700;0,800;0,900;1,400&display=swap");
 
 @page { size: A4 portrait; margin: 0; }
@@ -16,9 +18,17 @@ body { margin: 0; padding: 0; background: #fff; font-family: "Sarabun","Noto San
 
 .doc-preview { background: #fff; padding: 0; }
 
-.doc-page { width: 210mm; min-height: 297mm; margin: 0 auto; padding: 14mm 14mm 12mm; box-sizing: border-box; background: #fff; position: relative; display: flex; flex-direction: column; page-break-after: always; }
+/* width เป็น 100%+max-width ไม่ใช่ 210mm ตายตัว — ถ้าผู้ใช้ตั้งระยะขอบในไดอะล็อกพิมพ์
+   พื้นที่พิมพ์จะแคบกว่า 210mm แล้วกล่องจะล้นแนวนอนจนงอกแผ่นเพิ่ม */
+.doc-page { width: 100%; max-width: 210mm; min-height: 297mm; margin: 0 auto; padding: 14mm 14mm 12mm; box-sizing: border-box; background: #fff; position: relative; display: flex; flex-direction: column; page-break-after: always; }
 
 .doc-page:last-child { page-break-after: avoid; }
+
+/* ★ กันบล็อกโดนผ่ากลางตอนขึ้นแผ่นใหม่ — PRINT_CSS เดิมไม่มีข้อนี้เลย
+   แถวตาราง/บล็อกรับชำระ/ลายเซ็น จึงขาดครึ่งคาบเกี่ยวสองแผ่น */
+.doc-table thead { display: table-header-group; }
+.doc-table tr, .doc-totals, .doc-note-section, .doc-signatures, .doc-sig-col,
+.doc-payment-info, .doc-payment-grid, .doc-payment-check, .doc-bank-line, .doc-baht-text { page-break-inside: avoid; break-inside: avoid; }
 
 .doc-page-inner { flex: 1; display: flex; flex-direction: column; }
 
@@ -211,6 +221,79 @@ export function bahtText(amount) {
   return txt;
 }
 
+// ─── Phase 617: พิมพ์ให้พอดีหน้า ──────────────────────────
+// อาการ: ใบเสร็จ/ใบส่งสินค้าที่มีรายการเยอะ พิมพ์ออกมา 4 แผ่น (ต้นฉบับ+สำเนา ใบละ 2)
+// วัดของจริงด้วย Chromium: .doc-page สูง 349mm (ใบเสร็จ) / 314mm (ใบส่งสินค้า) ที่ 15 รายการ
+// — เกิน A4 (297mm) → ล้นไปแผ่นถัดไปทุกฉบับ ไม่ใช่ "หน้าเปล่า" แต่เป็นเนื้อหาที่ล้น
+// วิธีแก้: ย่อให้พอดีหน้า = กติกาเดียวกับหน้าแชร์ (share_doc.js planCopyPages) → เอกสารสองทางตรงกัน
+//
+// ★ ต้องใช้ zoom ไม่ใช่ transform:scale — transform ไม่ย่อ layout box จำนวนแผ่นจึงไม่ลด
+// ★ zoom ย่อความสูงแบบไม่เป็นเชิงเส้น (font-size/line-height ปัดเศษ) → ต้องวัดซ้ำจนพอดีจริง
+//   (คำนวณรอบเดียวแล้วเชื่อเลย เคยได้ 299.9mm ทั้งที่คำนวณว่า 297mm → ยังล้นอยู่)
+export const PRINT_PAGE_HEIGHT_MM = 297;
+export const PRINT_MIN_SCALE = 0.55;
+const PX_PER_MM = 96 / 25.4;
+
+// คืน zoom รอบถัดไป — pure function เพื่อ test ได้โดยไม่ต้องมี DOM
+// zoom เดิม → zoom ใหม่ที่เล็กลง; ถ้าพอดีอยู่แล้วหรือย่อต่อไม่ได้ คืนค่าเดิม (ตัวหยุดลูป)
+export function nextPrintFitScale(zoom, measuredPx, triggerPx, targetPx, minScale = PRINT_MIN_SCALE) {
+  if (!(measuredPx > 0) || measuredPx <= triggerPx) return zoom;
+  const next = Math.max(minScale, Math.floor(zoom * (targetPx / measuredPx) * 998) / 1000);
+  return next < zoom ? next : zoom;
+}
+
+// ย่อทุก .doc-page ในเอกสารให้ไม่เกินความสูงกระดาษ — คืน array ของ zoom ที่ใช้จริง
+export function fitPrintedPages(doc, opts = {}) {
+  const pageHeightMm = opts.pageHeightMm ?? PRINT_PAGE_HEIGHT_MM;
+  const minScale = opts.minScale ?? PRINT_MIN_SCALE;
+  const triggerPx = (pageHeightMm + 0.5) * PX_PER_MM; // เอกสารที่พอดีหน้าอยู่แล้ว ห้ามย่อ
+  const targetPx = (pageHeightMm - 1) * PX_PER_MM;    // ถ้าต้องย่อ เผื่อ 1mm กันไดรเวอร์ปัดเศษ
+  const scales = [];
+  for (const el of doc.querySelectorAll(".doc-page")) {
+    el.style.zoom = "";
+    let z = 1;
+    for (let i = 0; i < 8; i++) {
+      const next = nextPrintFitScale(z, el.getBoundingClientRect().height, triggerPx, targetPx, minScale);
+      if (next === z) break;
+      z = next;
+      el.style.zoom = String(z);
+      if (z <= minScale) break;
+    }
+    scales.push(z);
+  }
+  return scales;
+}
+
+// รอฟอนต์+โลโก้โหลดเสร็จก่อนค่อยวัด แล้วค่อยสั่งพิมพ์
+// (วัดก่อนฟอนต์มา = ได้ความสูงผิด แล้วย่อไม่พอ) — opts.print=false ใช้กับหน้า "บันทึก PDF" ที่ผู้ใช้กดเอง
+export function printWhenReady(win, opts = {}) {
+  const shouldPrint = opts.print !== false;
+  let done = false;
+  const go = () => {
+    if (done) return;
+    done = true;
+    try { fitPrintedPages(win.document, opts); } catch { /* ย่อไม่ได้ก็ยังต้องพิมพ์ได้ */ }
+    if (!shouldPrint) return;
+    try { win.focus(); } catch { /* บาง browser ปฏิเสธ focus */ }
+    win.print();
+  };
+  const waits = [];
+  try { if (win.document.fonts?.ready) waits.push(win.document.fonts.ready); } catch { /* ไม่มี Font Loading API */ }
+  try {
+    for (const img of win.document.images) {
+      if (img.complete) continue;
+      waits.push(new Promise((res) => {
+        img.addEventListener("load", res, { once: true });
+        img.addEventListener("error", res, { once: true });
+      }));
+    }
+  } catch { /* ไม่มีรูปก็ข้าม */ }
+  const soon = () => { try { win.setTimeout(go, 60); } catch { go(); } };
+  Promise.all(waits).then(soon, soon);
+  try { win.setTimeout(go, 3000); } catch { /* หน้าต่างถูกปิดไปแล้ว */ } // กันค้างถ้าฟอนต์/โลโก้โหลดไม่จบ
+  return go;
+}
+
 // ─── printDoc ──────────────────────────────────────────────
 // เปิดหน้าต่าง print พร้อม CSS ที่ถูกต้อง
 // elementId: id ของ div ที่มี .doc-preview
@@ -237,12 +320,8 @@ ${el.outerHTML}
 </body>
 </html>`);
   w.document.close();
-  w.focus();
-  setTimeout(() => {
-    w.print();
-    // ปิดหน้าต่างหลังพิมพ์ (optional — comment out ถ้าไม่ต้องการ)
-    // setTimeout(() => w.close(), 1000);
-  }, 600);
+  // Phase 617: รอฟอนต์/โลโก้ → ย่อให้พอดีหน้า → ค่อยพิมพ์ (เดิม setTimeout 600ms แล้วพิมพ์เลย)
+  printWhenReady(w);
 }
 
 // ─── pdfDoc ────────────────────────────────────────────────
@@ -310,6 +389,8 @@ ${el.outerHTML}
 </html>`);
   w.document.close();
   w.focus();
+  // Phase 617: ย่อให้พอดีหน้าเหมือนกัน แต่ไม่สั่งพิมพ์ — ผู้ใช้กดปุ่มในหน้าต่างเอง
+  printWhenReady(w, { print: false });
 }
 
 // ─── shareDoc ──────────────────────────────────────────────
