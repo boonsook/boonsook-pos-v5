@@ -196,6 +196,9 @@ test("wiring: ต้องวัดใหม่ตอน beforeprint และ�
   const body = duSrc.slice(duSrc.indexOf("export function printWhenReady"), duSrc.indexOf("export function printDoc"));
   assert.ok(/addEventListener\("beforeprint", fit\)/.test(body), "ต้องวัดซ้ำตอน beforeprint");
   assert.ok(/fonts\?\.addEventListener\?\.\("loadingdone", fit\)/.test(body), "ฟอนต์มาทีหลังต้องวัดใหม่");
+  // build 620 เคยต่อท้าย document.title ด้วยตัวเลขวินิจฉัยชั่วคราว — title คือชื่อไฟล์ตั้งต้นตอน
+  // "บันทึกเป็น PDF" ของผู้ใช้ ห้ามหลุดกลับมาอีก (ค่าที่ต้องการดูอยู่ใน win.__printFit แล้ว)
+  assert.ok(!/document\.title\s*=/.test(body), "ห้ามเขียนอะไรลง document.title ของหน้าต่างพิมพ์");
 });
 
 test("wiring: doc-override.js ยังดักปุ่มพิมพ์ทั้งสามใบอยู่ (สมมติฐานของ test ชุดนี้)", () => {

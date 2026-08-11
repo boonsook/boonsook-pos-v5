@@ -316,18 +316,18 @@ export function fitPrintedPages(doc, opts = {}) {
 //       ★★ นี่คือจุดชี้ขาด: วัดบนหน้าจอ (popup กว้าง 900px, จอ scale 125-150%) ไม่ใช่เลย์เอาต์เดียวกับตอนพิมพ์
 export function printWhenReady(win, opts = {}) {
   const shouldPrint = opts.print !== false;
-  const baseTitle = (() => { try { return win.document.title || ""; } catch { return ""; } })();
   let done = false;
 
   const fit = () => {
     try {
       const scales = fitPrintedPages(win.document, opts);
-      const mm = [...win.document.querySelectorAll(".doc-page")]
-        .map((p) => (p.getBoundingClientRect().height / (96 / 25.4)).toFixed(1));
-      win.__printFit = { scales, mm };
-      // ตัวเลขวินิจฉัยชั่วคราว (build 620) — โชว์บนแถบชื่อหน้าต่างพิมพ์เพื่ออ่านค่าจริงจากเครื่องเจ้าของ
-      // ถ้าไม่มีวงเล็บนี้ = ตัวย่อไม่ได้ทำงานเลย
-      win.document.title = baseTitle + " [fit " + scales.join("/") + " · " + mm.join("/") + "mm]";
+      // เก็บค่าไว้ให้ตรวจย้อนหลังได้จาก console (win.__printFit) — ห้ามเขียนลง document.title
+      // เพราะ title = ชื่อไฟล์ตั้งต้นตอน "บันทึกเป็น PDF" ของผู้ใช้
+      win.__printFit = {
+        scales,
+        layoutMm: [...win.document.querySelectorAll(".doc-fit")]
+          .map((b) => +(b.offsetHeight / (96 / 25.4)).toFixed(1)),
+      };
     } catch { /* ย่อไม่ได้ก็ยังต้องพิมพ์ได้ */ }
   };
 
