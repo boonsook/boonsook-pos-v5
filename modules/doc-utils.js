@@ -283,13 +283,36 @@ export function fitPrintedPages(doc, opts = {}) {
 
 // รอฟอนต์+โลโก้โหลดเสร็จก่อนค่อยวัด แล้วค่อยสั่งพิมพ์
 // (วัดก่อนฟอนต์มา = ได้ความสูงผิด แล้วย่อไม่พอ) — opts.print=false ใช้กับหน้า "บันทึก PDF" ที่ผู้ใช้กดเอง
+//
+// ★ วัดครั้งเดียวไม่พอ — ต้องวัดใหม่ทุกครั้งที่เลย์เอาต์อาจเปลี่ยน:
+//   (1) ฟอนต์มาหลัง fallback 3 วิ (เน็ตช้า/ฟอนต์ CDN ช้า) → เอกสารสูงขึ้นหลังย่อไปแล้ว
+//   (2) beforeprint = จังหวะที่ Chrome สลับไปเลย์เอาต์กระดาษจริงก่อนแบ่งหน้า
+//       ★★ นี่คือจุดชี้ขาด: วัดบนหน้าจอ (popup กว้าง 900px, จอ scale 125-150%) ไม่ใช่เลย์เอาต์เดียวกับตอนพิมพ์
 export function printWhenReady(win, opts = {}) {
   const shouldPrint = opts.print !== false;
+  const baseTitle = (() => { try { return win.document.title || ""; } catch { return ""; } })();
   let done = false;
+
+  const fit = () => {
+    try {
+      const scales = fitPrintedPages(win.document, opts);
+      const mm = [...win.document.querySelectorAll(".doc-page")]
+        .map((p) => (p.getBoundingClientRect().height / (96 / 25.4)).toFixed(1));
+      win.__printFit = { scales, mm };
+      // ตัวเลขวินิจฉัยชั่วคราว (build 620) — โชว์บนแถบชื่อหน้าต่างพิมพ์เพื่ออ่านค่าจริงจากเครื่องเจ้าของ
+      // ถ้าไม่มีวงเล็บนี้ = ตัวย่อไม่ได้ทำงานเลย
+      win.document.title = baseTitle + " [fit " + scales.join("/") + " · " + mm.join("/") + "mm]";
+    } catch { /* ย่อไม่ได้ก็ยังต้องพิมพ์ได้ */ }
+  };
+
+  // วัดใหม่ตอนฟอนต์มาถึงทีหลัง และตอนก่อนพิมพ์จริง (เลย์เอาต์กระดาษ ไม่ใช่เลย์เอาต์หน้าจอ)
+  try { win.document.fonts?.addEventListener?.("loadingdone", fit); } catch { /* ไม่มี Font Loading API */ }
+  try { win.addEventListener("beforeprint", fit); } catch { /* เบราว์เซอร์ไม่รองรับ */ }
+
   const go = () => {
     if (done) return;
     done = true;
-    try { fitPrintedPages(win.document, opts); } catch { /* ย่อไม่ได้ก็ยังต้องพิมพ์ได้ */ }
+    fit();
     if (!shouldPrint) return;
     try { win.focus(); } catch { /* บาง browser ปฏิเสธ focus */ }
     win.print();

@@ -152,6 +152,14 @@ test("wiring: printDoc/pdfDoc ต้องเรียก printWhenReady ไม�
     "หน้าบันทึก PDF ต้องย่อให้พอดีเหมือนกัน แต่ไม่สั่งพิมพ์เอง");
 });
 
+test("wiring: ต้องวัดใหม่ตอน beforeprint และตอนฟอนต์มาทีหลัง ไม่ใช่วัดครั้งเดียวจบ", () => {
+  const body = duSrc.slice(duSrc.indexOf("export function printWhenReady"), duSrc.indexOf("export function printDoc"));
+  assert.ok(/addEventListener\("beforeprint", fit\)/.test(body),
+    "ต้องวัดซ้ำตอน beforeprint — เลย์เอาต์หน้าจอ (popup 900px, จอ scale 125-150%) ไม่เท่าเลย์เอาต์กระดาษ");
+  assert.ok(/fonts\?\.addEventListener\?\.\("loadingdone", fit\)/.test(body),
+    "ฟอนต์มาหลัง fallback 3 วิ ต้องวัดใหม่ ไม่งั้นย่อไม่พอ");
+});
+
 test("wiring: doc-override.js ยังดักปุ่มพิมพ์ทั้งสามใบอยู่ (สมมติฐานของ test ชุดนี้)", () => {
   const ov = readFileSync(path.join(__dirname2, "..", "modules", "doc-override.js"), "utf8");
   for (const id of ["qtPrintBtn", "diPrintBtn", "rcPrintBtn"]) {
