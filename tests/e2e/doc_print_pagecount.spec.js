@@ -24,6 +24,8 @@ async function render(page, kind, rows, viewport) {
     scales: window.__printScales,
     heights: window.__pageHeightsMm,
     widths: window.__pageWidthsMm,
+    layoutH: window.__layoutHeightsMm,
+    layoutW: window.__layoutWidthsMm,
   }));
 }
 
@@ -59,6 +61,14 @@ for (const c of CASES) {
       }
       expect(countPdfPages(pdf), `${label} · ${info}`).toBe(2);
     }
+
+    // ★★ ตัวชี้ขาด: เบราว์เซอร์แบ่งหน้าจาก "layout box" ไม่ใช่ภาพที่ตาเห็น
+    //    zoom ย่อแต่ภาพ → เคยได้ rect 296mm แต่ layout 309.8mm แล้วล้นเป็นแผ่นเปล่าบนเครื่องเจ้าของ
+    //    (Chromium ของ Playwright ยอมใช้ zoom ตอนพิมพ์ จึงจับด้วยจำนวนแผ่นอย่างเดียวไม่ได้ ต้องวัด layout ตรง ๆ)
+    expect(m.layoutH.length, "ต้องมี .doc-fit ห่อทุกหน้า").toBe(m.heights.length);
+    for (const h of m.layoutH) expect(h, `layout box · ${info}`).toBeLessThanOrEqual(296.5);
+    for (const w of m.layoutW) expect(w, `layout box · ${info}`).toBeLessThanOrEqual(209.5);
+    for (const h of m.layoutH) expect(h, `layout box · ${info}`).toBeGreaterThanOrEqual(290);
 
     // ★ กล่องต้อง "เล็กกว่า" กระดาษเสมอ ห้ามเท่ากันเป๊ะ — วัดหน้าผาไว้แล้วอยู่ที่ 297.2mm
     //   ตั้ง 297.0 = ห่างผาแค่ 0.2mm → Chrome คนละรุ่นปัดเศษต่างนิดเดียวก็ได้หน้าเปล่า

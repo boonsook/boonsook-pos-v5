@@ -116,6 +116,10 @@ window.__printScales = fitPrintedPages(document);
 const mm = (px) => +(px / (96 / 25.4)).toFixed(1);
 window.__pageHeightsMm = [...document.querySelectorAll(".doc-page")].map((p) => mm(p.getBoundingClientRect().height));
 window.__pageWidthsMm = [...document.querySelectorAll(".doc-page")].map((p) => mm(p.getBoundingClientRect().width));
+// ★ กล่องที่เบราว์เซอร์ใช้ "แบ่งหน้า" คือ layout box ของ .doc-fit ไม่ใช่ภาพที่ตาเห็น
+//   zoom ย่อแต่ภาพ ไม่ย่อ layout → เคยได้ 296mm ที่ตาเห็นแต่ layout 309.8mm แล้วล้นเป็นแผ่นเปล่า
+window.__layoutHeightsMm = [...document.querySelectorAll(".doc-fit")].map((p) => mm(p.offsetHeight));
+window.__layoutWidthsMm = [...document.querySelectorAll(".doc-fit")].map((p) => mm(p.offsetWidth));
 window.__ready = true;
 </script>
 </body>

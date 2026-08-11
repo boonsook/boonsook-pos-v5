@@ -24,6 +24,12 @@ body { margin: 0; padding: 0; background: #fff; font-family: "Sarabun","Noto San
 
 .doc-page:last-child { page-break-after: avoid; }
 
+/* กล่องที่ fitPrintedPages() ห่อไว้ — ตัวนี้คือสิ่งที่ Chrome ใช้แบ่งหน้า (layout = ขนาดบนกระดาษเป๊ะ)
+   .doc-page ข้างในถูก transform:scale ลง จึงห้ามให้มันสั่งขึ้นแผ่นใหม่เองอีก */
+.doc-fit { overflow: hidden; page-break-after: always; break-after: page; }
+.doc-fit:last-child { page-break-after: avoid; break-after: auto; }
+.doc-fit > .doc-page { page-break-after: avoid; break-after: avoid; }
+
 /* ★ กันบล็อกโดนผ่ากลางตอนขึ้นแผ่นใหม่ — PRINT_CSS เดิมไม่มีข้อนี้เลย
    แถวตาราง/บล็อกรับชำระ/ลายเซ็น จึงขาดครึ่งคาบเกี่ยวสองแผ่น */
 .doc-table thead { display: table-header-group; }
@@ -227,9 +233,14 @@ export function bahtText(amount) {
 // — เกิน A4 (297mm) → ล้นไปแผ่นถัดไปทุกฉบับ ไม่ใช่ "หน้าเปล่า" แต่เป็นเนื้อหาที่ล้น
 // วิธีแก้: ย่อให้พอดีหน้า = กติกาเดียวกับหน้าแชร์ (share_doc.js planCopyPages) → เอกสารสองทางตรงกัน
 //
-// ★ ต้องใช้ zoom ไม่ใช่ transform:scale — transform ไม่ย่อ layout box จำนวนแผ่นจึงไม่ลด
-// ★ zoom ย่อ "ทั้งกว้างและสูง" → ต้องขยาย width/min-height ชดเชย (pageWidthMm / z) ไม่งั้นเอกสาร
-//   หดไปกองมุมซ้ายบนเหลือครึ่งแผ่น (เจ้าของเจอกับ build 617 รอบแรก)
+// 🔴 ห้ามใช้ `zoom` ย่อ — วัดบนเครื่องเจ้าของแล้ว (build 620, Chrome จริง):
+//   .doc-page ที่ zoom 0.955 → getBoundingClientRect() = 296mm (ที่ตาเห็น) แต่ offsetHeight = 309.8mm
+//   Chrome แบ่งหน้าจาก layout box (309.8mm) ไม่ใช่ภาพที่เห็น → ล้น A4 ไป 12.8mm ทุกฉบับ
+//   ส่วนที่ล้นคือ padding ล่างเปล่า ๆ → ได้ "แผ่นเปล่าสนิท" ต่อท้ายทุกใบ = 4 แผ่น
+//   (Chromium ของ Playwright ยอมใช้ค่า zoom ตอนพิมพ์ จึงจำลองอาการนี้ไม่ออก — เสียไปหลายรอบ)
+//
+// ★ วิธีที่ถูก: ห่อ .doc-page ด้วย .doc-fit ที่มีขนาด layout = ขนาดจริงบนกระดาษ แล้ว transform:scale ข้างใน
+//   .doc-fit เป็นตัวที่ถูกแบ่งหน้า (layout = 209×296mm เป๊ะ) ส่วน .doc-page ขยาย 1/z แล้วย่อกลับด้วย scale
 // ★ ต้องบังคับความกว้างตอนวัดเป็น mm ห้ามใช้ 100% ของหน้าต่าง — หน้าต่างพิมพ์กว้างไม่เท่ากระดาษ
 //   (จอ scale 125-150% ยิ่งแคบ) วัดผิดความกว้าง = ข้อความตัดบรรทัดต่างกัน = สูงผิด = ย่อเกินจำเป็น
 // ★ ห้ามทำกล่องเท่ากระดาษเป๊ะ — วัดหน้าผาไว้แล้ว: กล่อง 297.0mm = 2 แผ่น แต่ 297.2mm = 4 แผ่น
@@ -253,14 +264,29 @@ export function fitPrintedPages(doc, opts = {}) {
   const limitPx = boxHeightMm * PX_PER_MM;
   const scales = [];
   for (const el of doc.querySelectorAll(".doc-page")) {
+    // กล่องที่ Chrome ใช้แบ่งหน้า — layout ต้องเท่าขนาดจริงบนกระดาษเสมอ
+    // เรียกซ้ำได้ (fit ทำงานหลายรอบ: ตอนแรก / ฟอนต์มา / beforeprint) → ห้ามห่อซ้อนกัน
+    let box = el.parentElement;
+    if (!box || !box.classList?.contains("doc-fit")) {
+      box = doc.createElement("div");
+      box.className = "doc-fit";
+      el.parentNode.insertBefore(box, el);
+      box.appendChild(el);
+    }
+    box.style.width = boxWidthMm + "mm";
+    box.style.height = boxHeightMm + "mm";
+    box.style.overflow = "hidden";
+
     // ตอนวัด: ปลด min-height ออกก่อน ไม่งั้นทุกหน้าสูงเท่ากระดาษหมด แยกไม่ออกว่าอันไหนล้นจริง
     const apply = (z) => {
-      el.style.zoom = z === 1 ? "" : String(z);
+      el.style.zoom = "";                                   // 🔴 zoom ไม่ย่อ layout box — ห้ามใช้
+      el.style.transform = z === 1 ? "" : "scale(" + z + ")";
+      el.style.transformOrigin = "top left";
       el.style.maxWidth = "none";
       el.style.width = (boxWidthMm / z) + "mm";
       el.style.minHeight = "0";
     };
-    const heightPx = () => el.getBoundingClientRect().height; // zoom แล้ว rect คืนขนาดที่ตาเห็น
+    const heightPx = () => el.getBoundingClientRect().height; // transform แล้ว rect คืนขนาดที่ตาเห็น
     apply(1);
     let z = 1;
     if (heightPx() > limitPx) {
