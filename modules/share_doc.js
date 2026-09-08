@@ -60,6 +60,74 @@ export function computeFitToPage({ contentPx, pxPerMm, pageHeightMm, minScale = 
   return scale >= minScale ? { scale } : null;
 }
 
+// ★ Phase 610 — "หน้าสุดท้ายกำพร้า": เอกสารล้นหน้าจนหน้าที่ 2 มีแค่บล็อกลายเซ็น
+//   เพดาน 0.85 แคบไปสำหรับเคสนี้ (ใบส่งสินค้า/ใบเสร็จที่รายการเยอะกว่าใบเสนอราคา) จึงยอมย่อลึกขึ้น
+//   เฉพาะตอนที่ทางเลือกอีกทางคือ "หน้ากระดาษที่แทบไม่มีอะไร"
+//   🔴 ต้องไม่ไปย่อเอกสารที่ยาวจริง:
+//     - 3 หน้าขึ้นไป = ยาวจริง ย่อลงหน้าเดียวไม่สมเหตุผล → ใช้เพดานปกติ
+//     - หน้าสุดท้ายเต็ม = ไม่ใช่หน้ากำพร้า (เช่น ใบเสร็จที่เรนเดอร์ต้นฉบับ+สำเนาในไฟล์เดียว
+//       หน้า 2 คือสำเนาเต็มใบ ห้ามยุบรวมกับต้นฉบับเด็ดขาด) → ใช้เพดานปกติ
+//   🔴 ค่าสองตัวต้องสอดคล้องกัน: orphanFloor ต้อง ≤ 1 / (1 + orphanMaxFill)
+//     ไม่งั้นจะมีเคสที่ "ตัดสินว่ากำพร้า" แล้ว computeFitToPage ยังคืน null อยู่ดี = กฎนี้ไม่ทำอะไรเลย
+//     (มี guard test ล็อกความสัมพันธ์นี้ไว้ — ผมพลาดข้อนี้เองตอนตั้งค่าครั้งแรก)
+export function fitFloorForSlices({
+  slices = [], pxPerMm = 0, pageHeightMm = 0,
+  defaultFloor = 0.85, orphanFloor = 0.70, orphanMaxFill = 0.40,
+} = {}) {
+  if (!Array.isArray(slices) || slices.length !== 2) return defaultFloor;
+  if (!(pxPerMm > 0) || !(pageHeightMm > 0)) return defaultFloor;
+  const pagePx = pageHeightMm * pxPerMm;
+  if (!(pagePx > 0)) return defaultFloor;
+  const last = slices[slices.length - 1] || {};
+  const lastPx = Number(last.endPx) - Number(last.startPx);
+  if (!(lastPx > 0)) return defaultFloor;
+  return (lastPx / pagePx) <= orphanMaxFill ? orphanFloor : defaultFloor;
+}
+
+// ★ Phase 610 — เอกสารบางชนิดเรนเดอร์ "หลายฉบับในไฟล์เดียว": ใบส่งสินค้า/ใบเสร็จ ทำ [1,2].map
+//   = ต้นฉบับ + สำเนา → มี .doc-page สองอัน (ใบเสนอราคามีอันเดียว จึงไม่เคยเจอปัญหานี้)
+//   force-a4 ตั้ง .doc-page เป็น min-height:1123px (ไม่ใช่ height) ⇒ ฉบับที่รายการเยอะจะสูงเกิน A4
+//   ⇒ canvas = ต้นฉบับ(เกิน A4) + สำเนา(เกิน A4) แล้วถ้าหั่นตามความสูงรวม จุดตัดจะตกกลางฉบับ
+//     (อาการที่ owner เจอ: หน้า 2 มีแค่ลายเซ็นของต้นฉบับ แล้วต่อด้วยหัวของสำเนา)
+//   กติกาที่ถูก: **หนึ่ง .doc-page = หนึ่งหน้า PDF เสมอ** ย่อเฉพาะฉบับที่สูงเกิน ไม่ใช่ย่อทั้งม้วน
+export function collectDocPageBounds(rootEl, scale = 1) {
+  if (!rootEl || typeof rootEl.querySelectorAll !== "function") return [];
+  if (typeof rootEl.getBoundingClientRect !== "function") return [];
+  const rootTop = rootEl.getBoundingClientRect()?.top;
+  if (typeof rootTop !== "number") return [];
+  const out = [];
+  for (const el of Array.from(rootEl.querySelectorAll(".doc-page") || [])) {
+    if (!el || typeof el.getBoundingClientRect !== "function") continue;
+    const r = el.getBoundingClientRect();
+    if (!r || !(r.height > 0)) continue;
+    out.push({
+      startPx: Math.max(0, Math.round((r.top - rootTop) * scale)),
+      endPx: Math.round((r.bottom - rootTop) * scale),
+    });
+  }
+  return out.filter(b => b.endPx > b.startPx).sort((a, b) => a.startPx - b.startPx);
+}
+
+// หนึ่งฉบับ = หนึ่งหน้า PDF · ย่อเฉพาะฉบับที่สูงเกิน A4
+// คืน null = มีฉบับใดต้องย่อลึกกว่าเพดาน (หรือวัดขอบไม่ได้) → ผู้เรียกกลับไปใช้ตัวหั่นหน้าเดิม
+export function planCopyPages({ bounds = [], pxPerMm = 0, pageHeightMm = 0, minScale = 0.55 } = {}) {
+  if (!Array.isArray(bounds) || bounds.length === 0) return null;
+  if (!(pxPerMm > 0) || !(pageHeightMm > 0)) return null;
+  const pagePx = pageHeightMm * pxPerMm;
+  if (!(pagePx > 0)) return null;
+  const pages = [];
+  for (const b of bounds) {
+    const startPx = Number(b?.startPx);
+    const endPx = Number(b?.endPx);
+    const h = endPx - startPx;
+    if (!(h > 0) || !(startPx >= 0)) return null;
+    const scale = h <= pagePx ? 1 : pagePx / h;
+    if (scale < minScale) return null;
+    pages.push({ startPx, endPx, scale });
+  }
+  return pages;
+}
+
 // pure — คำนวณว่าแต่ละหน้าครอบพิกเซลช่วงไหนของรูป (unit-test ได้โดยไม่ต้องมี DOM)
 export function computePageSlices({
   totalPx, pxPerMm, pageHeightMm,
@@ -228,9 +296,12 @@ export async function shareDoc({
     windowRef.html2canvas(clone, { scale: 2, useCORS: true, backgroundColor: "#ffffff", width: 794 }).then(c => {
       // ★ วัดขอบเขตบล็อก "ก่อน" ถอด clone ออกจาก DOM (หลังถอดแล้ววัดไม่ได้)
       let _breakPx = [];
+      let _copyBounds = [];
       try {
         const cloneW = clone.offsetWidth || 794;
-        _breakPx = collectBreakBoundaries(clone, (c.width || cloneW) / cloneW);
+        const _s = (c.width || cloneW) / cloneW;
+        _breakPx = collectBreakBoundaries(clone, _s);
+        _copyBounds = collectDocPageBounds(clone, _s);
       } catch (e) { logger?.warn?.("break boundary measure failed:", e); }
       documentRef.body.removeChild(clone);
       documentRef.head.removeChild(forceA4Style);
@@ -246,6 +317,9 @@ export async function shareDoc({
         const pageH = pdf.internal.pageSize.getHeight();
         // ★ หั่นหน้าโดยไม่ผ่ากลางแถว: ตัดที่ขอบล่างของบล็อกที่วัดไว้ แล้ว copy เฉพาะช่วงนั้นลง canvas ต่อหน้า
         const pxPerMm = c.width / pageW;
+        // ★ Phase 610: ถ้าวัด .doc-page ได้ ให้ "หนึ่งฉบับ = หนึ่งหน้า PDF" ก่อนเสมอ
+        //   (ต้นฉบับ/สำเนา ของใบส่งสินค้า-ใบเสร็จ ต้องได้ใบละแผ่น ไม่ใช่ถูกหั่นกลางใบ)
+        const copyPages = planCopyPages({ bounds: _copyBounds, pxPerMm, pageHeightMm: pageH });
         const slices = computePageSlices({
           totalPx: c.height, pxPerMm, pageHeightMm: pageH, boundariesPx: _breakPx,
         });
@@ -259,9 +333,27 @@ export async function shareDoc({
         // ★ ยาวเกินหน้าแค่นิดเดียว = ย่อให้พอดีหน้าเดียว (เหมือน shrink-to-fit ของเครื่องพิมพ์)
         //   เอกสารที่พิมพ์ออกมา 1 หน้า ต้องไม่กลายเป็น 2 หน้าในไฟล์แชร์
         const extentPx = contentExtentPx(c.height, _breakPx, pxPerMm);
-        const fit = slices.length > 1 ? computeFitToPage({ contentPx: extentPx, pxPerMm, pageHeightMm: pageH }) : null;
+        // Phase 610: เพดานการย่อขึ้นกับว่าหน้าสุดท้าย "กำพร้า" หรือไม่ (ดู fitFloorForSlices)
+        const minScale = fitFloorForSlices({ slices, pxPerMm, pageHeightMm: pageH });
+        const fit = slices.length > 1 ? computeFitToPage({ contentPx: extentPx, pxPerMm, pageHeightMm: pageH, minScale }) : null;
 
-        if (fit) {
+        if (copyPages) {
+          // หนึ่ง .doc-page = หนึ่งหน้า PDF · ย่อเฉพาะฉบับที่สูงเกิน A4 (คงสัดส่วน จัดกึ่งกลางแนวนอน)
+          copyPages.forEach((p, i) => {
+            if (i > 0) pdf.addPage();
+            const sh = Math.max(1, Math.round(p.endPx - p.startPx));
+            const tmp = documentRef.createElement("canvas");
+            tmp.width = c.width;
+            tmp.height = sh;
+            const tctx = tmp.getContext ? tmp.getContext("2d") : null;
+            // ★ ถมขาวก่อนเสมอ — canvas ใหม่โปร่งใส แปลงเป็น JPEG แล้วจะได้พื้นดำ
+            if (tctx?.fillRect) { tctx.fillStyle = "#ffffff"; tctx.fillRect(0, 0, tmp.width, sh); }
+            if (tctx?.drawImage) tctx.drawImage(c, 0, p.startPx, c.width, sh, 0, 0, c.width, sh);
+            const wMm = pageW * p.scale;
+            const hMm = (sh / pxPerMm) * p.scale;
+            pdf.addImage(tmp.toDataURL("image/jpeg", 0.92), "JPEG", (pageW - wMm) / 2, 0, wMm, hMm);
+          });
+        } else if (fit) {
           const sh = Math.max(1, Math.round(extentPx));
           const tmp = documentRef.createElement("canvas");
           tmp.width = c.width;
@@ -309,6 +401,15 @@ export async function shareDoc({
   const dlImg = () => { if(!_canvas) return; const a=documentRef.createElement("a");a.download=docName+".png";a.href=_canvas.toDataURL("image/png");a.click(); };
   // ── Helper: สร้าง PDF File สำหรับ native share ──
   const getPdfFile = () => { if(!_pdfBlob) return null; return new windowRef.File([_pdfBlob], docName+".pdf", {type:"application/pdf"}); };
+  // ★ Phase 613: มือถือเปิด blob: ในแท็บใหม่ไม่ได้ — iOS Safari ปฏิเสธตรง ๆ · Android มักบล็อกเป็น popup
+  //   ทางสำรองของมือถือจึงต้องเป็น "ดาวน์โหลดไฟล์" ไม่ใช่ window.open ไม่งั้นกดแล้วเงียบ = ผู้ใช้เห็นว่าแชร์ไม่ได้
+  //   (ปุ่ม PDF ทำถูกอยู่แล้วมาแต่เดิม ส่วน LINE/FB/แชร์อื่น/อีเมล ยังใช้ window.open ทุกแพลตฟอร์ม)
+  const openOrDownloadPdf = () => {
+    if (!_pdfUrl) { setStatus("กำลังสร้าง PDF รอสักครู่..."); return false; }
+    if (isMobile) return dlPdf();
+    windowRef.open(_pdfUrl, "_blank");
+    return true;
+  };
 
   overlay.querySelectorAll(".share-opt").forEach(btn => {
     btn.addEventListener("mouseenter", ()=>btn.style.background="#f1f5f9");
@@ -324,14 +425,17 @@ export async function shareDoc({
         let shared = false;
         // มือถือ: ใช้ native share ส่ง PDF ตรง
         if (isMobile && pdfFile && windowRef.navigator.canShare && windowRef.navigator.canShare({title:docName,files:[pdfFile]})) {
-          try { await windowRef.navigator.share({title:docName+" — บุญสุข อิเล็กทรอนิกส์",text:"เอกสาร "+docName,files:[pdfFile]}); setStatus("📤 แชร์ PDF สำเร็จ!"); shared=true; } catch(e){ if(e.name==="AbortError") shared=true; }
+          try { await windowRef.navigator.share({title:docName+" — บุญสุข อิเล็กทรอนิกส์",text:"เอกสาร "+docName,files:[pdfFile]}); setStatus("📤 แชร์ PDF สำเร็จ!"); shared=true; }
+          catch(e){ if(e.name==="AbortError") shared=true; else logger?.warn?.("[share_doc] native share ล้ม:", e?.name, e?.message); }
         }
-        // Desktop: เปิด PDF ในแท็บใหม่ + เปิดแอป
+        // ทางสำรอง — มือถือ: ดาวน์โหลดไฟล์ · เดสก์ท็อป: เปิด PDF ในแท็บใหม่
         if (!shared) {
-          // เปิด PDF ในแท็บใหม่ (ไม่ขึ้น Save As)
-          if (_pdfUrl) windowRef.open(_pdfUrl, "_blank");
-          // เปิดแอปที่เลือก
-          if (t==="line") {
+          const ok = openOrDownloadPdf();
+          if (!ok) return;                         // PDF ยังไม่พร้อม — setStatus บอกไปแล้ว
+          if (isMobile) {
+            // ★ ห้ามเปิดแท็บซ้อนบนมือถือ (ถูกบล็อกและทับหน้าเอกสาร) — บอกวิธีต่อให้ชัดแทน
+            setStatus("📥 ดาวน์โหลด PDF แล้ว — เปิด "+_appName+" แล้วแนบไฟล์จากเครื่องได้เลย");
+          } else if (t==="line") {
             setStatus("📄 เปิด PDF แล้ว — ลากไฟล์ไปวางใน LINE หรือกดดาวน์โหลดแล้วแนบ");
           } else if (t==="fb") {
             windowRef.open("https://www.messenger.com/", "_blank");
@@ -343,11 +447,13 @@ export async function shareDoc({
       }
       // ── Email → เปิด PDF + เปิด mailto ──
       else if (t==="email") {
-        if (_pdfUrl) windowRef.open(_pdfUrl, "_blank");
+        if (!openOrDownloadPdf()) return;
         const s=encodeURIComponent("เอกสาร "+docName+" — บุญสุข อิเล็กทรอนิกส์");
         const b=encodeURIComponent("สวัสดีครับ/ค่ะ\n\nส่งเอกสาร "+docName+" มาให้ (ไฟล์ PDF แนบ)\n\nขอบคุณครับ/ค่ะ\nบุญสุข อิเล็กทรอนิกส์");
         windowRef.open("mailto:?subject="+s+"&body="+b);
-        setStatus("📄 เปิด PDF + Email แล้ว — ดาวน์โหลดแล้วแนบไฟล์ได้เลย");
+        setStatus(isMobile
+          ? "📥 ดาวน์โหลด PDF แล้ว — แนบไฟล์ในอีเมลที่เปิดขึ้นมาได้เลย"
+          : "📄 เปิด PDF + Email แล้ว — ดาวน์โหลดแล้วแนบไฟล์ได้เลย");
       }
       // ── บันทึก PDF ──
       else if (t==="pdf") {
@@ -362,8 +468,11 @@ export async function shareDoc({
       // ── พิมพ์ ──
       else if (t==="print") {
         if (!_pdfUrl) { setStatus("กำลังสร้าง PDF รอสักครู่..."); return; }
+        // ★ Phase 613: มือถือเปิด blob: แล้วสั่ง print ไม่ได้ — ดาวน์โหลดให้แล้วบอกวิธีต่อ
+        if (isMobile) { if (dlPdf()) setStatus("📥 ดาวน์โหลด PDF แล้ว — เปิดไฟล์แล้วสั่งพิมพ์จากเครื่องได้เลย"); return; }
         const w = windowRef.open(_pdfUrl, "_blank");
         if (w) { setTimeout(() => { try { w.print(); } catch(e){} }, 800); }
+        else { setStatus("เบราว์เซอร์บล็อกแท็บใหม่ — กดปุ่ม PDF เพื่อดาวน์โหลดแล้วสั่งพิมพ์แทน"); return; }
         setStatus("🖨️ เปิดหน้าพิมพ์แล้ว");
       }
     });

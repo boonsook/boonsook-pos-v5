@@ -19,7 +19,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-import { shareDoc, computePageSlices, collectBreakBoundaries, computeFitToPage, contentExtentPx } from "../modules/share_doc.js";
+import { shareDoc, computePageSlices, collectBreakBoundaries, computeFitToPage, contentExtentPx, fitFloorForSlices, collectDocPageBounds, planCopyPages } from "../modules/share_doc.js";
 
 // ── Stubs ──────────────────────────────────────────────────────────────────
 function makeEl(tag) {
@@ -307,4 +307,174 @@ test("regression: share_doc.js ต้องไม่กลับไปหั่�
   assert.ok(!/y\s*\+=\s*pageH\b/.test(code), "ห้ามใช้ y += pageH (ตัดกลางแถว)");
   assert.ok(code.includes("computePageSlices({"), "ต้องหั่นหน้าผ่าน computePageSlices");
   assert.ok(/fillStyle\s*=\s*"#ffffff"/.test(code), "ต้องถมพื้นขาวก่อนแปลง JPEG (กันพื้นดำ)");
+});
+
+// ── Phase 610 — หน้าสุดท้ายกำพร้า (ใบส่งสินค้า/ใบเสร็จล้นหน้าจนเหลือแค่ลายเซ็นบนหน้า 2) ──
+// เพดานย่อ 0.85 ของ 609 แคบไปสำหรับเอกสารที่รายการเยอะกว่าใบเสนอราคา
+// ต้องย่อลึกขึ้นเฉพาะเคส "หน้าสุดท้ายแทบไม่มีอะไร" และห้ามแตะเอกสารที่ยาวจริง
+
+const PPM = 1123 / 297;               // px ต่อ มม. ของกรอบ A4 ที่ใช้จริง
+const PAGE_MM = 297;
+const PAGE_PX = PAGE_MM * PPM;
+
+test("Phase 610: หน้า 2 มีแค่ลายเซ็น = หน้ากำพร้า → ผ่อนเพดานย่อ", () => {
+  // ลายเซ็น+ที่ว่างราว 25% ของหน้า → รวม 1.25 หน้า → ต้องย่อ 0.80 ซึ่ง "เพดานเดิม 0.85 ไม่ให้ผ่าน"
+  // (ตั้งไว้ 12% ตอนแรกแล้ว test แดง เพราะ 0.89 เพดานเดิมก็ผ่านอยู่แล้ว = ไม่ใช่เคสที่ owner เจอ)
+  const orphan = Math.round(PAGE_PX * 0.25);
+  const slices = [{ startPx: 0, endPx: PAGE_PX }, { startPx: PAGE_PX, endPx: PAGE_PX + orphan }];
+  const floor = fitFloorForSlices({ slices, pxPerMm: PPM, pageHeightMm: PAGE_MM });
+  assert.equal(floor, 0.70, "หน้าสุดท้ายเกือบว่าง ต้องยอมย่อลึกกว่าปกติ");
+
+  // และต้องแปลว่า "ได้หน้าเดียวจริง" ไม่ใช่แค่ตัวเลขเปลี่ยน
+  const contentPx = PAGE_PX + orphan;
+  assert.equal(computeFitToPage({ contentPx, pxPerMm: PPM, pageHeightMm: PAGE_MM }), null,
+    "เพดานเดิม 0.85 ยังทำให้แตกสองหน้า (นี่คืออาการที่ owner เจอ)");
+  const fit = computeFitToPage({ contentPx, pxPerMm: PPM, pageHeightMm: PAGE_MM, minScale: floor });
+  assert.ok(fit && fit.scale > 0.70 && fit.scale < 1, "ต้องย่อลงหน้าเดียวได้");
+});
+
+test("Phase 610: หน้าสุดท้ายเต็ม (ใบเสร็จ ต้นฉบับ+สำเนา) ห้ามยุบรวมเป็นหน้าเดียว", () => {
+  const slices = [{ startPx: 0, endPx: PAGE_PX }, { startPx: PAGE_PX, endPx: PAGE_PX * 2 }];
+  const floor = fitFloorForSlices({ slices, pxPerMm: PPM, pageHeightMm: PAGE_MM });
+  assert.equal(floor, 0.85, "สำเนาเต็มใบไม่ใช่หน้ากำพร้า ต้องใช้เพดานปกติ");
+  assert.equal(computeFitToPage({ contentPx: PAGE_PX * 2, pxPerMm: PPM, pageHeightMm: PAGE_MM, minScale: floor }), null,
+    "ต้องยังได้ 2 หน้า — ห้ามย่อต้นฉบับ+สำเนาให้ทับกันในหน้าเดียว");
+});
+
+test("Phase 610: เอกสารยาวจริง (3 หน้าขึ้นไป) ต้องใช้เพดานปกติเสมอ", () => {
+  const three = [
+    { startPx: 0, endPx: PAGE_PX },
+    { startPx: PAGE_PX, endPx: PAGE_PX * 2 },
+    { startPx: PAGE_PX * 2, endPx: PAGE_PX * 2 + Math.round(PAGE_PX * 0.05) },
+  ];
+  assert.equal(fitFloorForSlices({ slices: three, pxPerMm: PPM, pageHeightMm: PAGE_MM }), 0.85,
+    "3 หน้าขึ้นไป = ยาวจริง ย่อลงหน้าเดียวไม่สมเหตุผล แม้หน้าสุดท้ายจะว่าง");
+});
+
+test("Phase 610: อินพุตไม่ครบ/ผิดรูป ต้องคืนเพดานปกติ (fail-safe ไม่ย่อมั่ว)", () => {
+  assert.equal(fitFloorForSlices(), 0.85);
+  assert.equal(fitFloorForSlices({ slices: [], pxPerMm: PPM, pageHeightMm: PAGE_MM }), 0.85);
+  assert.equal(fitFloorForSlices({ slices: [{ startPx: 0, endPx: 10 }], pxPerMm: PPM, pageHeightMm: PAGE_MM }), 0.85);
+  assert.equal(fitFloorForSlices({ slices: [{}, {}], pxPerMm: PPM, pageHeightMm: PAGE_MM }), 0.85,
+    "slice ไม่มีตัวเลข = ตัดสินไม่ได้ ต้องไม่ผ่อนเพดาน");
+  assert.equal(fitFloorForSlices({ slices: [{ startPx: 0, endPx: PAGE_PX }, { startPx: PAGE_PX, endPx: PAGE_PX + 10 }], pxPerMm: 0, pageHeightMm: PAGE_MM }), 0.85);
+});
+
+test("Phase 610: จุดเรียกจริงต้องส่งเพดานที่คำนวณแล้วเข้า computeFitToPage", () => {
+  const code = shareSrc.replace(/^\s*\/\/.*$/gm, "");
+  assert.ok(/fitFloorForSlices\(\{\s*slices/.test(code), "ต้องคำนวณเพดานจาก slices จริง");
+  assert.ok(/computeFitToPage\(\{[^}]*minScale\s*\}\)/.test(code),
+    "ต้องส่ง minScale ที่คำนวณได้เข้าไป ไม่ใช่ปล่อยให้ใช้ค่า default");
+});
+
+test("Phase 610: orphanFloor ต้องสอดคล้องกับ orphanMaxFill (ไม่งั้นกฎนี้จะไม่ทำอะไรเลย)", () => {
+  // ถ้า orphanFloor > 1/(1+orphanMaxFill) จะมีช่วงที่ "ตัดสินว่ากำพร้า" แต่ computeFitToPage ยังคืน null
+  // = ผ่อนเพดานแล้วก็ยังแตกสองหน้าเหมือนเดิม (bug เงียบ) — ล็อกด้วยเคสกำพร้าที่แย่ที่สุด
+  const worst = Math.round(PAGE_PX * 0.40);
+  const slices = [{ startPx: 0, endPx: PAGE_PX }, { startPx: PAGE_PX, endPx: PAGE_PX + worst }];
+  const floor = fitFloorForSlices({ slices, pxPerMm: PPM, pageHeightMm: PAGE_MM });
+  const fit = computeFitToPage({ contentPx: PAGE_PX + worst, pxPerMm: PPM, pageHeightMm: PAGE_MM, minScale: floor });
+  assert.ok(fit, "เคสกำพร้าที่แย่ที่สุดต้องยังย่อลงหน้าเดียวได้จริง");
+});
+
+// ── Phase 610 (แก้รอบสอง) — "หนึ่ง .doc-page = หนึ่งหน้า PDF" ────────────────
+// ใบส่งสินค้า/ใบเสร็จ เรนเดอร์ [1,2].map = ต้นฉบับ+สำเนา → .doc-page สองอัน
+// force-a4 ตั้ง min-height:1123px ⇒ ฉบับที่รายการเยอะสูงเกิน A4 → เดิมถูกหั่นกลางฉบับ
+
+function boundsFromHeights(heights) {
+  let y = 0;
+  return heights.map(h => { const b = { startPx: y, endPx: y + h }; y += h; return b; });
+}
+
+test("Phase 610: ต้นฉบับ+สำเนาที่สูงเกิน A4 ต้องได้ฉบับละหน้า และย่อแยกกัน", () => {
+  const over = Math.round(PAGE_PX * 1.18);            // แต่ละฉบับสูงเกิน A4 ~18%
+  const pages = planCopyPages({ bounds: boundsFromHeights([over, over]), pxPerMm: PPM, pageHeightMm: PAGE_MM });
+  assert.equal(pages.length, 2, "สองฉบับ = สองหน้า PDF ห้ามยุบรวมและห้ามแตกเป็นสามหน้า");
+  for (const p of pages) {
+    assert.ok(p.scale > 0.55 && p.scale < 1, "ฉบับที่เกิน A4 ต้องถูกย่อให้พอดีหน้า");
+    assert.equal(Math.round((p.endPx - p.startPx)), over, "ช่วงพิกเซลต้องครอบทั้งฉบับ ไม่ตัดกลาง");
+  }
+  assert.equal(pages[1].startPx, over, "ฉบับที่สองต้องเริ่มตรงขอบบนของสำเนา");
+});
+
+test("Phase 610: ฉบับที่พอดีหน้าอยู่แล้ว ต้องไม่ถูกย่อ (scale = 1)", () => {
+  const fit = Math.round(PAGE_PX * 0.92);
+  const pages = planCopyPages({ bounds: boundsFromHeights([fit, fit]), pxPerMm: PPM, pageHeightMm: PAGE_MM });
+  assert.deepEqual(pages.map(p => p.scale), [1, 1], "ไม่เกินหน้า = ห้ามย่อ");
+});
+
+test("Phase 610: ใบเสนอราคา (.doc-page อันเดียว) ต้องได้หน้าเดียว", () => {
+  const pages = planCopyPages({ bounds: boundsFromHeights([Math.round(PAGE_PX * 1.1)]), pxPerMm: PPM, pageHeightMm: PAGE_MM });
+  assert.equal(pages.length, 1);
+  assert.ok(pages[0].scale < 1 && pages[0].scale > 0.55);
+});
+
+test("Phase 610: ฉบับที่สูงเกินเพดาน หรือวัดขอบไม่ได้ → คืน null (กลับไปใช้ตัวหั่นหน้าเดิม)", () => {
+  assert.equal(planCopyPages({ bounds: boundsFromHeights([PAGE_PX * 3]), pxPerMm: PPM, pageHeightMm: PAGE_MM }), null,
+    "ฉบับเดียวสูง 3 หน้า = ย่อแล้วอ่านไม่ออก ต้อง fallback");
+  assert.equal(planCopyPages({ bounds: [], pxPerMm: PPM, pageHeightMm: PAGE_MM }), null);
+  assert.equal(planCopyPages({ bounds: [{ startPx: 0, endPx: 0 }], pxPerMm: PPM, pageHeightMm: PAGE_MM }), null);
+  assert.equal(planCopyPages({ bounds: boundsFromHeights([PAGE_PX]), pxPerMm: 0, pageHeightMm: PAGE_MM }), null);
+  assert.equal(planCopyPages(), null);
+});
+
+test("Phase 610: collectDocPageBounds วัดจาก .doc-page จริงและเรียงตามลำดับ", () => {
+  const mk = (top, bottom) => ({ getBoundingClientRect: () => ({ top, bottom, height: bottom - top }) });
+  const root = {
+    getBoundingClientRect: () => ({ top: 10, bottom: 2000, height: 1990 }),
+    querySelectorAll: (sel) => (sel === ".doc-page" ? [mk(1210, 2410), mk(10, 1210)] : []),
+  };
+  const bounds = collectDocPageBounds(root, 2);        // scale 2 = html2canvas scale
+  assert.deepEqual(bounds, [{ startPx: 0, endPx: 2400 }, { startPx: 2400, endPx: 4800 }],
+    "ต้องคืนช่วงของแต่ละฉบับ เรียงจากบนลงล่าง และคูณ scale แล้ว");
+  assert.deepEqual(collectDocPageBounds(null), []);
+  assert.deepEqual(collectDocPageBounds({}), []);
+});
+
+test("Phase 610: จุดเรียกจริงต้องให้ .doc-page ชนะตัวหั่นหน้าเดิม", () => {
+  const code = shareSrc.replace(/^\s*\/\/.*$/gm, "");
+  assert.ok(/collectDocPageBounds\(clone/.test(code), "ต้องวัด .doc-page ตอน clone ยังอยู่ใน DOM");
+  assert.ok(/planCopyPages\(\{\s*bounds/.test(code), "ต้องวางแผนหน้าจากขอบของแต่ละฉบับ");
+  assert.ok(/if \(copyPages\) \{[\s\S]*?\} else if \(fit\)/.test(code),
+    "copyPages ต้องถูกเช็คก่อน fit (หนึ่งฉบับ = หนึ่งหน้า มาก่อนการย่อทั้งม้วน)");
+});
+
+// ── Phase 613 — ทางสำรองของมือถือต้องไม่ใช่ window.open(blob:) ─────────────
+// iOS Safari ปฏิเสธ blob: ในแท็บใหม่ · Android มักบล็อกเป็น popup ⇒ กดแล้วเงียบ
+// (ปุ่ม PDF ทำถูกมาแต่เดิม แต่ LINE/FB/แชร์อื่น/อีเมล/พิมพ์ ยังใช้ window.open ทุกแพลตฟอร์ม)
+
+test("Phase 613: ทุกเส้นทางที่เปิด PDF ต้องแยกมือถือ/เดสก์ท็อป ห้าม window.open ตรง ๆ", () => {
+  const code = shareSrc.replace(/^\s*\/\/.*$/gm, "");
+  assert.ok(/const openOrDownloadPdf = \(\) => \{/.test(code), "ต้องมี helper กลางสำหรับเปิด/ดาวน์โหลด PDF");
+  assert.ok(/if \(isMobile\) return dlPdf\(\);/.test(code), "helper ต้องดาวน์โหลดเมื่อเป็นมือถือ");
+
+  // ตรวจ "สัญญา" ไม่ใช่นับบรรทัด: ทุก handler ที่ต้องเปิด PDF ต้องผ่าน helper
+  // หรือมีสาขา isMobile ของตัวเอง (ปุ่ม pdf/print) — helper เองมี window.open ได้ (สาขาเดสก์ท็อป)
+  const helperStart = code.indexOf("const openOrDownloadPdf");
+  const helperEnd = code.indexOf("};", helperStart);
+  const outsideHelper = code.slice(0, helperStart) + code.slice(helperEnd);
+  for (const seg of outsideHelper.split(/else if \(t===/)) {
+    if (!/windowRef\.open\(_pdfUrl/.test(seg)) continue;
+    assert.ok(/isMobile/.test(seg),
+      `handler ที่เปิด PDF เองต้องมีสาขา isMobile: ${seg.trim().slice(0, 70)}`);
+  }
+  // และสองปุ่มที่ยังเปิดเองต้องเป็น pdf กับ print เท่านั้น
+  assert.ok(/t==="pdf"[\s\S]{0,200}isMobile/.test(code), "ปุ่ม PDF ต้องแยกมือถือ");
+  assert.ok(/t==="print"[\s\S]{0,300}isMobile/.test(code), "ปุ่มพิมพ์ต้องแยกมือถือ");
+});
+
+test("Phase 613: ปุ่มพิมพ์บนมือถือต้องดาวน์โหลด ไม่ใช่เปิดแท็บแล้วสั่ง print", () => {
+  const code = shareSrc.replace(/^\s*\/\/.*$/gm, "");
+  const i = code.indexOf('t==="print"');
+  assert.ok(i > 0, "ต้องมีปุ่มพิมพ์");
+  const body = code.slice(i, i + 700);
+  assert.ok(/if \(isMobile\) \{ if \(dlPdf\(\)\)/.test(body), "มือถือต้องดาวน์โหลด PDF");
+  assert.ok(/else \{ setStatus\("เบราว์เซอร์บล็อกแท็บใหม่/.test(body),
+    "เดสก์ท็อปที่ถูกบล็อก popup ต้องบอกผู้ใช้ ไม่ใช่เงียบ");
+});
+
+test("Phase 613: native share ที่ล้มแบบไม่ใช่ AbortError ต้องไม่ถูกกลืนเงียบ", () => {
+  const code = shareSrc.replace(/^\s*\/\/.*$/gm, "");
+  assert.ok(/AbortError["'] *\) *shared *= *true; *else *logger\?\.warn\?\./.test(code.replace(/\s+/g, " ")),
+    "ผู้ใช้ยกเลิกเอง = ปกติ · ล้มด้วยเหตุอื่น = ต้อง log ไว้สืบได้");
 });

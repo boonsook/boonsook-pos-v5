@@ -1275,6 +1275,8 @@ function renderQuotationPreview(container) {
     if (q2) { _viewMode = "form"; renderQuotationsPage(_ctx); }
   });
 
+  // ⚠️ Phase 617: handler นี้ "ไม่ทำงาน" — doc-override.js ดัก qtPrintBtn ตั้งแต่ capturing phase
+  //    ปุ่มพิมพ์วิ่งไป doc-utils.printDoc() + PRINT_CSS แทน → แก้เรื่องพิมพ์ที่ modules/doc-utils.js
   document.getElementById("qtPrintBtn")?.addEventListener("click", () => {
     const content = document.getElementById("qtDocPreview")?.innerHTML; if (!content) return;
     const w = window.open("","_blank");

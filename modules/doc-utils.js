@@ -5,7 +5,9 @@
 // ═══════════════════════════════════════════════════════════
 
 // CSS ที่ใช้ในหน้า print window (inline เพื่อ self-contained)
-const PRINT_CSS = `
+// ★ export ไว้ให้ tests/e2e/fixtures/doc-print.html เอาไปวัดจำนวนแผ่นจริงได้ —
+//   ก่อนหน้านี้ไม่มีทางทดสอบเส้นทางพิมพ์เลย จึงแก้ CSS ผิดไฟล์อยู่หลายรอบ
+export const PRINT_CSS = `
 @import url("https://fonts.googleapis.com/css2?family=Sarabun:ital,wght@0,400;0,600;0,700;0,800;0,900;1,400&display=swap");
 
 @page { size: A4 portrait; margin: 0; }
@@ -16,9 +18,23 @@ body { margin: 0; padding: 0; background: #fff; font-family: "Sarabun","Noto San
 
 .doc-preview { background: #fff; padding: 0; }
 
-.doc-page { width: 210mm; min-height: 297mm; margin: 0 auto; padding: 14mm 14mm 12mm; box-sizing: border-box; background: #fff; position: relative; display: flex; flex-direction: column; page-break-after: always; }
+/* width เป็น 100%+max-width ไม่ใช่ 210mm ตายตัว — ถ้าผู้ใช้ตั้งระยะขอบในไดอะล็อกพิมพ์
+   พื้นที่พิมพ์จะแคบกว่า 210mm แล้วกล่องจะล้นแนวนอนจนงอกแผ่นเพิ่ม */
+.doc-page { width: 100%; max-width: 210mm; min-height: 297mm; margin: 0 auto; padding: 14mm 14mm 12mm; box-sizing: border-box; background: #fff; position: relative; display: flex; flex-direction: column; page-break-after: always; }
 
 .doc-page:last-child { page-break-after: avoid; }
+
+/* กล่องที่ fitPrintedPages() ห่อไว้ — ตัวนี้คือสิ่งที่ Chrome ใช้แบ่งหน้า (layout = ขนาดบนกระดาษเป๊ะ)
+   .doc-page ข้างในถูก transform:scale ลง จึงห้ามให้มันสั่งขึ้นแผ่นใหม่เองอีก */
+.doc-fit { overflow: hidden; page-break-after: always; break-after: page; }
+.doc-fit:last-child { page-break-after: avoid; break-after: auto; }
+.doc-fit > .doc-page { page-break-after: avoid; break-after: avoid; }
+
+/* ★ กันบล็อกโดนผ่ากลางตอนขึ้นแผ่นใหม่ — PRINT_CSS เดิมไม่มีข้อนี้เลย
+   แถวตาราง/บล็อกรับชำระ/ลายเซ็น จึงขาดครึ่งคาบเกี่ยวสองแผ่น */
+.doc-table thead { display: table-header-group; }
+.doc-table tr, .doc-totals, .doc-note-section, .doc-signatures, .doc-sig-col,
+.doc-payment-info, .doc-payment-grid, .doc-payment-check, .doc-bank-line, .doc-baht-text { page-break-inside: avoid; break-inside: avoid; }
 
 .doc-page-inner { flex: 1; display: flex; flex-direction: column; }
 
@@ -211,6 +227,139 @@ export function bahtText(amount) {
   return txt;
 }
 
+// ─── Phase 617: พิมพ์ให้พอดีหน้า ──────────────────────────
+// อาการ: ใบเสร็จ/ใบส่งสินค้าที่มีรายการเยอะ พิมพ์ออกมา 4 แผ่น (ต้นฉบับ+สำเนา ใบละ 2)
+// วัดของจริงด้วย Chromium: .doc-page สูง 349mm (ใบเสร็จ) / 314mm (ใบส่งสินค้า) ที่ 15 รายการ
+// — เกิน A4 (297mm) → ล้นไปแผ่นถัดไปทุกฉบับ ไม่ใช่ "หน้าเปล่า" แต่เป็นเนื้อหาที่ล้น
+// วิธีแก้: ย่อให้พอดีหน้า = กติกาเดียวกับหน้าแชร์ (share_doc.js planCopyPages) → เอกสารสองทางตรงกัน
+//
+// 🔴 ห้ามใช้ `zoom` ย่อ — วัดบนเครื่องเจ้าของแล้ว (build 620, Chrome จริง):
+//   .doc-page ที่ zoom 0.955 → getBoundingClientRect() = 296mm (ที่ตาเห็น) แต่ offsetHeight = 309.8mm
+//   Chrome แบ่งหน้าจาก layout box (309.8mm) ไม่ใช่ภาพที่เห็น → ล้น A4 ไป 12.8mm ทุกฉบับ
+//   ส่วนที่ล้นคือ padding ล่างเปล่า ๆ → ได้ "แผ่นเปล่าสนิท" ต่อท้ายทุกใบ = 4 แผ่น
+//   (Chromium ของ Playwright ยอมใช้ค่า zoom ตอนพิมพ์ จึงจำลองอาการนี้ไม่ออก — เสียไปหลายรอบ)
+//
+// ★ วิธีที่ถูก: ห่อ .doc-page ด้วย .doc-fit ที่มีขนาด layout = ขนาดจริงบนกระดาษ แล้ว transform:scale ข้างใน
+//   .doc-fit เป็นตัวที่ถูกแบ่งหน้า (layout = 209×296mm เป๊ะ) ส่วน .doc-page ขยาย 1/z แล้วย่อกลับด้วย scale
+// ★ ต้องบังคับความกว้างตอนวัดเป็น mm ห้ามใช้ 100% ของหน้าต่าง — หน้าต่างพิมพ์กว้างไม่เท่ากระดาษ
+//   (จอ scale 125-150% ยิ่งแคบ) วัดผิดความกว้าง = ข้อความตัดบรรทัดต่างกัน = สูงผิด = ย่อเกินจำเป็น
+// ★ ห้ามทำกล่องเท่ากระดาษเป๊ะ — วัดหน้าผาไว้แล้ว: กล่อง 297.0mm = 2 แผ่น แต่ 297.2mm = 4 แผ่น
+//   ห่างกันแค่ 0.2mm (297mm = 1122.52px ไม่ลงตัว) Chrome คนละรุ่น/ไดรเวอร์ปัดเศษต่างนิดเดียวก็ตก
+//   อาการที่เจ้าของเจอตอนตั้ง "ระยะขอบ: ไม่มี" — ตอนตั้ง "ค่าเริ่มต้น" Chrome ย่อ fit ให้เองเลยไม่เห็น
+export const PRINT_PAGE_HEIGHT_MM = 297;
+export const PRINT_PAGE_WIDTH_MM = 210;
+export const PRINT_SAFE_MM = 1;
+export const PRINT_MIN_SCALE = 0.55;
+const PX_PER_MM = 96 / 25.4;
+
+// ย่อทุก .doc-page ให้พอดีหน้ากระดาษ — คืน array ของ zoom ที่ใช้จริง (1 = ไม่ได้ย่อ)
+// ค้นแบบ binary search เพื่อได้ "ตัวย่อที่ใหญ่ที่สุดที่ยังพอดี" — ตัวอักษรเล็กเท่าที่จำเป็นเท่านั้น
+export function fitPrintedPages(doc, opts = {}) {
+  const pageHeightMm = opts.pageHeightMm ?? PRINT_PAGE_HEIGHT_MM;
+  const pageWidthMm = opts.pageWidthMm ?? PRINT_PAGE_WIDTH_MM;
+  const safeMm = opts.safeMm ?? PRINT_SAFE_MM;
+  const minScale = opts.minScale ?? PRINT_MIN_SCALE;
+  const boxHeightMm = pageHeightMm - safeMm; // กล่องต้องเล็กกว่ากระดาษเสมอ ห้ามเท่ากันเป๊ะ
+  const boxWidthMm = pageWidthMm - safeMm;
+  const limitPx = boxHeightMm * PX_PER_MM;
+  const scales = [];
+  for (const el of doc.querySelectorAll(".doc-page")) {
+    // กล่องที่ Chrome ใช้แบ่งหน้า — layout ต้องเท่าขนาดจริงบนกระดาษเสมอ
+    // เรียกซ้ำได้ (fit ทำงานหลายรอบ: ตอนแรก / ฟอนต์มา / beforeprint) → ห้ามห่อซ้อนกัน
+    let box = el.parentElement;
+    if (!box || !box.classList?.contains("doc-fit")) {
+      box = doc.createElement("div");
+      box.className = "doc-fit";
+      el.parentNode.insertBefore(box, el);
+      box.appendChild(el);
+    }
+    box.style.width = boxWidthMm + "mm";
+    box.style.height = boxHeightMm + "mm";
+    box.style.overflow = "hidden";
+
+    // ตอนวัด: ปลด min-height ออกก่อน ไม่งั้นทุกหน้าสูงเท่ากระดาษหมด แยกไม่ออกว่าอันไหนล้นจริง
+    const apply = (z) => {
+      el.style.zoom = "";                                   // 🔴 zoom ไม่ย่อ layout box — ห้ามใช้
+      el.style.transform = z === 1 ? "" : "scale(" + z + ")";
+      el.style.transformOrigin = "top left";
+      el.style.maxWidth = "none";
+      el.style.width = (boxWidthMm / z) + "mm";
+      el.style.minHeight = "0";
+    };
+    const heightPx = () => el.getBoundingClientRect().height; // transform แล้ว rect คืนขนาดที่ตาเห็น
+    apply(1);
+    let z = 1;
+    if (heightPx() > limitPx) {
+      let lo = minScale, hi = 1;
+      z = minScale; // ถ้าหาไม่เจอเลย = ล้นเกินเพดาน ใช้เพดานล่างไว้ก่อน (ยอมให้ล้นดีกว่าอ่านไม่ออก)
+      for (let i = 0; i < 10; i++) {
+        const mid = Math.round(((lo + hi) / 2) * 1000) / 1000;
+        if (mid <= lo || mid >= hi) break;
+        apply(mid);
+        if (heightPx() <= limitPx) { z = mid; lo = mid; } else hi = mid;
+      }
+      apply(z);
+    }
+    // คืน min-height แบบชดเชย → กล่องสูงเกือบเต็มแผ่น ลายเซ็นยังปักท้ายหน้า (แต่ไม่แตะขอบ)
+    el.style.minHeight = (boxHeightMm / z) + "mm";
+    scales.push(z);
+  }
+  return scales;
+}
+
+// รอฟอนต์+โลโก้โหลดเสร็จก่อนค่อยวัด แล้วค่อยสั่งพิมพ์
+// (วัดก่อนฟอนต์มา = ได้ความสูงผิด แล้วย่อไม่พอ) — opts.print=false ใช้กับหน้า "บันทึก PDF" ที่ผู้ใช้กดเอง
+//
+// ★ วัดครั้งเดียวไม่พอ — ต้องวัดใหม่ทุกครั้งที่เลย์เอาต์อาจเปลี่ยน:
+//   (1) ฟอนต์มาหลัง fallback 3 วิ (เน็ตช้า/ฟอนต์ CDN ช้า) → เอกสารสูงขึ้นหลังย่อไปแล้ว
+//   (2) beforeprint = จังหวะที่ Chrome สลับไปเลย์เอาต์กระดาษจริงก่อนแบ่งหน้า
+//       ★★ นี่คือจุดชี้ขาด: วัดบนหน้าจอ (popup กว้าง 900px, จอ scale 125-150%) ไม่ใช่เลย์เอาต์เดียวกับตอนพิมพ์
+export function printWhenReady(win, opts = {}) {
+  const shouldPrint = opts.print !== false;
+  let done = false;
+
+  const fit = () => {
+    try {
+      const scales = fitPrintedPages(win.document, opts);
+      // เก็บค่าไว้ให้ตรวจย้อนหลังได้จาก console (win.__printFit) — ห้ามเขียนลง document.title
+      // เพราะ title = ชื่อไฟล์ตั้งต้นตอน "บันทึกเป็น PDF" ของผู้ใช้
+      win.__printFit = {
+        scales,
+        layoutMm: [...win.document.querySelectorAll(".doc-fit")]
+          .map((b) => +(b.offsetHeight / (96 / 25.4)).toFixed(1)),
+      };
+    } catch { /* ย่อไม่ได้ก็ยังต้องพิมพ์ได้ */ }
+  };
+
+  // วัดใหม่ตอนฟอนต์มาถึงทีหลัง และตอนก่อนพิมพ์จริง (เลย์เอาต์กระดาษ ไม่ใช่เลย์เอาต์หน้าจอ)
+  try { win.document.fonts?.addEventListener?.("loadingdone", fit); } catch { /* ไม่มี Font Loading API */ }
+  try { win.addEventListener("beforeprint", fit); } catch { /* เบราว์เซอร์ไม่รองรับ */ }
+
+  const go = () => {
+    if (done) return;
+    done = true;
+    fit();
+    if (!shouldPrint) return;
+    try { win.focus(); } catch { /* บาง browser ปฏิเสธ focus */ }
+    win.print();
+  };
+  const waits = [];
+  try { if (win.document.fonts?.ready) waits.push(win.document.fonts.ready); } catch { /* ไม่มี Font Loading API */ }
+  try {
+    for (const img of win.document.images) {
+      if (img.complete) continue;
+      waits.push(new Promise((res) => {
+        img.addEventListener("load", res, { once: true });
+        img.addEventListener("error", res, { once: true });
+      }));
+    }
+  } catch { /* ไม่มีรูปก็ข้าม */ }
+  const soon = () => { try { win.setTimeout(go, 60); } catch { go(); } };
+  Promise.all(waits).then(soon, soon);
+  try { win.setTimeout(go, 3000); } catch { /* หน้าต่างถูกปิดไปแล้ว */ } // กันค้างถ้าฟอนต์/โลโก้โหลดไม่จบ
+  return go;
+}
+
 // ─── printDoc ──────────────────────────────────────────────
 // เปิดหน้าต่าง print พร้อม CSS ที่ถูกต้อง
 // elementId: id ของ div ที่มี .doc-preview
@@ -237,12 +386,8 @@ ${el.outerHTML}
 </body>
 </html>`);
   w.document.close();
-  w.focus();
-  setTimeout(() => {
-    w.print();
-    // ปิดหน้าต่างหลังพิมพ์ (optional — comment out ถ้าไม่ต้องการ)
-    // setTimeout(() => w.close(), 1000);
-  }, 600);
+  // Phase 617: รอฟอนต์/โลโก้ → ย่อให้พอดีหน้า → ค่อยพิมพ์ (เดิม setTimeout 600ms แล้วพิมพ์เลย)
+  printWhenReady(w);
 }
 
 // ─── pdfDoc ────────────────────────────────────────────────
@@ -310,6 +455,8 @@ ${el.outerHTML}
 </html>`);
   w.document.close();
   w.focus();
+  // Phase 617: ย่อให้พอดีหน้าเหมือนกัน แต่ไม่สั่งพิมพ์ — ผู้ใช้กดปุ่มในหน้าต่างเอง
+  printWhenReady(w, { print: false });
 }
 
 // ─── shareDoc ──────────────────────────────────────────────
