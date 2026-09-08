@@ -5,6 +5,9 @@
 
 รูปแบบ: `<commit> feat|fix|docs|refactor: <สรุปสั้น>` + bullet 1-2 ข้อถ้าจำเป็น
 
+- `ac7096d` merge(documents,610-622): **MERGED → main (PR #214 merge-commit · 13 commits `62c180f..e32778e`) · Tests+Deploy success · live pages.dev = 622 ครบ** (2026-09-08)
+  - independent audit ก่อน merge = MERGE-READY: lint 0 err · unit 3210/3210 · e2e 21/21 · mutation 7/7 RED · EOL LF/no BOM · markers 622 ครบ · ไม่มี SQL/`functions/*`/`main.js`/เงิน/สต็อก
+  - กิ่ง `claude/phase-610-doc-unbreakable-blocks` **คงไว้** (preview alias `claude-phase-610-doc-unbreak` ผูกกับชื่อกิ่ง) · รายละเอียดเชิงลึก + residual ดู HANDOFF
 - `622` chore(documents): **ถอดตัวเลขวินิจฉัยออก — ปิดเคสเอกสารล้นหน้า** (build 622 / v5.69.90)
   - เจ้าของยืนยันบนเครื่องจริง: ใบเสร็จ `fit 0.857` · ใบส่งสินค้า `fit 0.953` → **2 แผ่นทั้งคู่**
   - ถอด `[fit …]` ที่ต่อท้าย `document.title` ของหน้าต่างพิมพ์ (620) ออก — `title` คือชื่อไฟล์ตั้งต้นตอน "บันทึกเป็น PDF" ของผู้ใช้ · ค่าที่ต้องดูย้ายไปอยู่ `window.__printFit` (อ่านจาก console ได้) · +guard กัน `document.title` หลุดกลับมา
@@ -43,6 +46,19 @@
   - ★ ย่อเฉพาะที่ล้นจริง — เอกสารสั้นได้ `zoom = 1` ลายเซ็นยังปักท้ายหน้าเหมือนเดิม (คง `min-height: 297mm`)
   - +test 2 ชั้น: `tests/e2e/doc_print_pagecount.spec.js` **พิมพ์เป็น PDF จริงแล้วนับแผ่น** (2 เอกสาร × 3/15/30 รายการ) — guard เดิมอ่าน CSS เป็นข้อความจึงเขียวหลอกตามาตลอด · `tests/doc_print_fit.test.js` 9 ตัวคุมสัญญาฟังก์ชัน + wiring + สมมติฐานว่า `doc-override` ยังดักปุ่มอยู่ · mutation 5 แบบ RED ครบ
   - **ไม่มี SQL · ไม่แตะยอดเงิน/สต็อก/`functions/*`** — bump `data-app-build`/`?v=`/`CACHE_NAME`/`SW_BUILD` ครบ
+- `616` fix(documents): **ตัด `min-height` ของหน้าต่างพิมพ์ทิ้ง เพื่อแยกสาเหตุแผ่นเปล่า** (build 616 / v5.69.84)
+  - 615 ลดเหลือ 245mm แล้วยังได้แผ่นเปล่า → ตัด min-height เป็น 0 ให้กล่องสูงเท่าเนื้อหา ถ้ายังมีแผ่นเปล่า = ไม่ใช่เรื่องความสูง (ผล: ยังไม่หาย → 617 พบว่าแก้ผิดไฟล์)
+  - แตะเฉพาะ CSS ฝังใน `receipts.js`/`delivery_invoices.js` (เส้นทางที่ปุ่มพิมพ์ไม่ได้ใช้จริง — ดู 617 · เก็บเป็น fallback) · ไม่มี SQL
+- `615` fix(documents): **หน้าต่างพิมพ์ใช้ CSS ที่ฝังในโมดูล ไม่โหลด `doc-print.css`** (build 615 / v5.69.83)
+  - `receipts.js`/`delivery_invoices.js` `document.write` CSS ฝังที่ล็อก `.doc-page` 210×297mm + padding 20/18/15mm และไม่มี `page-break-inside` → แก้เป็น `width:auto;max-width:210mm;min-height:245mm` + padding 10/10/8mm + break-inside ครบ · +guard `doc_print_page_guard` (ภายหลัง 617 พบว่า handler นี้ถูก `doc-override.js` ดักไว้ = ไม่ทำงาน)
+- `614` fix(documents): **พิมพ์แล้วมีแผ่นเปล่าต่อท้ายทุกฉบับ — เลิกล็อกขนาดกระดาษใน `doc-print.css`** (build 614 / v5.69.82)
+  - `@page{margin:0}` มีผลเฉพาะเมื่อผู้ใช้เลือกขอบ "ไม่มี" · ขอบค่าเริ่มต้นเหลือพื้นที่ ~277×190mm → กล่อง 210×296mm ล้น → `width:auto;max-width:210mm;min-height:0` + padding 10/10/8mm · แยกฉบับด้วย `page-break-after` เท่านั้น · +guard 4 (ไฟล์นี้ไม่ใช่เส้นทางปุ่มพิมพ์ — ดู 617)
+- `613` fix(documents): **มือถือกดแชร์แล้วเงียบ — fallback ต้องดาวน์โหลด ไม่ใช่ `window.open(blob:)`** (build 613 / v5.69.81)
+  - iOS Safari ปฏิเสธ blob: ในแท็บใหม่ · Android บล็อกเป็น popup → `openOrDownloadPdf()` ใช้ร่วมทุกเส้นทาง (LINE/FB/อื่น/อีเมล/พิมพ์) · เดสก์ท็อป popup ถูกบล็อก = แจ้งข้อความ · native share ล้มนอกจาก AbortError = log · +guard 40→43
+- `612` fix(documents): **ถอดลายน้ำ "ชำระแล้ว" ออกจากใบเสร็จปกติ + กันแผ่นเกินตอนพิมพ์** (build 612 / v5.69.80)
+  - ใบเสร็จส่งราชการไม่ได้เพราะลายน้ำทับกลางใบ → คงเฉพาะ "ยกเลิก" (กติกาเดียวกับใบส่งสินค้า/ใบเสนอราคา) · +guard `doc_watermark_guard` 4 · ฝั่งพิมพ์ `min-height` 297→296mm + `.doc-payment-check/.doc-bank-line` เข้า break-inside list
+- `611` fix(documents): **แชร์: หนึ่ง `.doc-page` = หนึ่งหน้า PDF (ต้นฉบับ/สำเนาไม่ถูกหั่นกลางใบ)** (build 611 / v5.69.79)
+  - ใบส่งสินค้า/ใบเสร็จมี `.doc-page` สองอัน (ต้นฉบับ+สำเนา) → `collectDocPageBounds()` + `planCopyPages()` ย่อเฉพาะฉบับที่เกิน A4 (floor 0.55) · วัดไม่ได้/เกินเพดาน = ตัวหั่นหน้าเดิม · +guard 34→40
 - `610` fix(documents): **แชร์เอกสารแล้วไม่เหลือ "หน้าสุดท้ายที่มีแค่ลายเซ็น"** — ต่อจาก 607/608/609 (build 610 / v5.69.78)
   - อาการ: ใบเสนอราคาหายแล้ว แต่ **ใบส่งสินค้า/ใบเสร็จ** ที่รายการเยอะกว่ายังได้ 2 หน้า โดยหน้า 2 มีแค่บล็อกลายเซ็น
   - เหตุ: เพดาน shrink-to-fit ของ 609 ยอมย่อแค่ ~18% (`minScale 0.85`) เอกสารที่ล้นมากกว่านั้นจึงตกไปแบ่งหน้าตามขอบแถว
