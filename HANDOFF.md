@@ -2,6 +2,13 @@
 
 > Prompt brief skill: read [`PROMPT_PHASE_BRIEF_SKILL.md`](PROMPT_PHASE_BRIEF_SKILL.md) before drafting, reviewing, or implementing phase prompts for Claude/Codex. It locks the required baseline, scope, failure semantics, tests, build/docs, and STOP marker.
 
+**Phase 624 — dev dependency security (build 623 / v5.69.91 unchanged · awaiting independent review)**
+- Baseline: ef43385c5d1562216125f69532855524ec0ab511; branch: codex/phase-624-dev-dependency-security. Only package-lock.json, CHANGELOG.md and HANDOFF.md changed.
+- Lock entry only: brace-expansion 5.0.6 → 5.0.12 (version/resolved/integrity/its engines per live npm registry); dev:true retained. Path: eslint 10.4.0 → minimatch 10.2.5 → brace-expansion 5.0.12. package.json byte-identical: no production dependencies, node >=20 unchanged. Dependency engine now 20 || >=22.
+- Live npm audit --package-lock-only: before = 1 high dependency, GHSA-3jxr-9vmj-r5cp / GHSA-mh99-v99m-4gvg / GHSA-rgw5-rvv9-x895; after = 0 vulnerabilities. Registry tarball URL and SHA-512 integrity matched; npm ci verified installation.
+- Verification (Node 24.14.0 / npm 11.9.0): npm ci PASS; npm ls --package-lock-only brace-expansion minimatch eslint PASS; lint:errors PASS (0 errors); unit 3225/3225; e2e 21/21; diff check and LF/no BOM PASS. Structural comparison confirms no other lock entry changed.
+- No runtime, item_type, old worktree, tests, SQL/schema, stock/money/accounting or production-data changes; no build/cache/version bump. No push/PR/merge/deploy. Residual: dev-tooling transitive update; tests cover local Node 24, not every supported Node version; audit reflects current registry data. STOP at local commit for independent review; CI/deploy not run.
+
 **Phase 623 — product partial warehouse save message (build 623 / v5.69.91 · messaging-only · รอ independent review)**
 - Baseline: ac7096d0195d8c916c3bf4113b212183d787007f. ย้าย _whFails ให้อ่านตอน final toast ได้: มี warehouse failure → “⚠️ บันทึกสินค้าแล้ว แต่สต็อกบางคลังไม่สำเร็จ”; สำเร็จทุกคลัง → “บันทึกสินค้าแล้ว”. คง warning ชื่อคลัง, optimistic update, reset/close, refresh และ delayed reload เดิม.
 - ไม่มี SQL/schema/stock algorithm/write-order/payload/retry change; warehouse write semantics/atomicity ไม่เปลี่ยน. ไม่แตะ style.css, modules/api.js, bundle หรือ double-click. Thrown writer, transaction atomicity และ ok:true แต่ data.id ว่าง ยัง out of scope.

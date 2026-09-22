@@ -5,6 +5,9 @@
 
 รูปแบบ: `<commit> feat|fix|docs|refactor: <สรุปสั้น>` + bullet 1-2 ข้อถ้าจำเป็น
 
+- Phase 624 chore(deps): **brace-expansion 5.0.6 → 5.0.12, dev lock entry only** (build 623 / v5.69.91 unchanged).
+  - Live registry URL/integrity verified; eslint → minimatch → brace-expansion remains dev:true. Audit: 1 high dependency (3 advisories) → 0 vulnerabilities. package.json/runtime/item_type/build/cache untouched.
+  - npm ci + dependency tree + lint PASS; unit 3225/3225; e2e 21/21; diff check + LF/no BOM PASS. STOP at local commit for independent review; no push/PR/merge/deploy.
 - Phase 623 fix(products): **ข้อความบันทึกสินค้าเมื่อสต็อกบางคลังไม่สำเร็จ** (build 623 / v5.69.91 · messaging-only)
   - Final toast คงคำเตือน “⚠️ บันทึกสินค้าแล้ว แต่สต็อกบางคลังไม่สำเร็จ” เมื่อมี warehouse failure; all-success คงข้อความเดิม. ไม่เปลี่ยน warehouse writes/ordering/payload/stock algorithm/atomicity; ไม่มี SQL/schema และไม่แตะ CSS/bundle/double-click.
   - Regression 15/15 + integrity 3/3; baseline partial cases RED 6/6, mutation ถูกจับ 6/6; lint 0 errors · unit 3225/3225 · e2e 21/21 · local visual 360/390px PASS · LF/no BOM/build markers PASS. ไม่มี authenticated warehouse-write smoke/production writes. STOP รอ independent review; ไม่ merge/deploy.
