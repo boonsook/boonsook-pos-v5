@@ -4,7 +4,7 @@
 // ═══════════════════════════════════════════════════════════
 import { renderEmpty, renderSkeleton } from "./ui_states.js";
 // Phase 57: audit log + Phase 70 (D3): Excel export
-import { logActivity, exportToExcel, todaySuffix } from "./utils.js";
+import { logActivity, exportToExcel, todaySuffix, escHtml } from "./utils.js";
 import { renderDocumentTemplateHeader, renderDocumentTemplateNote, renderDocumentTemplateFooter } from "./doc-utils.js";
 // Phase 89.1: void JV ตอน cancel (กัน double-revenue ใน P&L)
 import { voidJvForSource } from "./accounting/auto_post.js";
@@ -1054,12 +1054,6 @@ async function convertToReceipt(inv) {
     // early return ทุกจุด (dup-block / ยกเลิก confirm / create fail) ผ่านที่นี่ → trigger ใหม่ได้เสมอ
     _diConvertInflight = false;
   }
-}
-
-function escHtml(str) {
-  const div = document.createElement("div");
-  div.textContent = str || "";
-  return div.innerHTML;
 }
 
 // ═══════════════════════════════════════════════════════════

@@ -4,7 +4,7 @@
 // ═══════════════════════════════════════════════════════════
 import { renderEmpty, renderSkeleton } from "./ui_states.js";
 // Phase 57: audit log + Phase 70 (D3): Excel export
-import { logActivity, exportToExcel, todaySuffix, todayBkk, addDaysBkk, dateBkk } from "./utils.js";
+import { logActivity, exportToExcel, todaySuffix, todayBkk, addDaysBkk, dateBkk, escHtml } from "./utils.js";
 import { renderDocumentTemplateHeader, renderDocumentTemplateNote, renderDocumentTemplateFooter } from "./doc-utils.js";
 // Phase 88.1b: auto-post JV หลังรับชำระลูกหนี้
 import { postJournalForReceipt, voidJvForSource } from "./accounting/auto_post.js";
@@ -1175,12 +1175,6 @@ function renderReceiptPreview(container) {
     pdf.save((r.receipt_no||'receipt')+'.pdf');
     _ctx.showToast("ดาวน์โหลด PDF แล้ว");
   });
-}
-
-function escHtml(str) {
-  const div = document.createElement("div");
-  div.textContent = str || "";
-  return div.innerHTML;
 }
 
 // ═══════════════════════════════════════════════════════════

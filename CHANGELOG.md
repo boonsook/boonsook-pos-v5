@@ -5,6 +5,9 @@
 
 รูปแบบ: `<commit> feat|fix|docs|refactor: <สรุปสั้น>` + bullet 1-2 ข้อถ้าจำเป็น
 
+- Phase 625 fix(security): **escape document form attributes — ปิด attribute XSS ใน quotations / delivery_invoices / receipts** (build 625 / v5.69.92)
+  - local `escHtml()` แบบ `textContent → innerHTML` ไม่ escape `"`/`'` แล้วถูกใส่ใน `value="${escHtml(…)}"` ⇒ ค่าที่มี `"` หลุดออกจาก attribute เป็น `autofocus onfocus=…` ได้ (พิสูจน์ด้วย Chromium). แก้: import `escHtml` กลางจาก `utils.js` (escape `& < > " '`) ผ่าน import เดิม + ลบ local helper. call sites/UI/payload/write path/money/JV/stock/DB/CSP ไม่เปลี่ยน.
+  - +tests/phase625_document_attribute_xss.{shared,test}.js (unit 37) + tests/e2e/phase625_document_attribute_xss.spec.js (Chromium 24, มี positive control). Baseline RED unit 19/37 · e2e 13/24; patched GREEN; mutation RED 4/4. lint 0 errors · unit 3262/3262 · e2e 45/45 · diff --check/LF/no BOM PASS. Follow-up: textContent-style escHtml ยังเหลือใน expenses/ui_states/accounting 9 ไฟล์ (text-context เท่านั้น). STOP รอ independent review; ไม่ push/PR/merge/deploy.
 - Phase 624 chore(deps): **brace-expansion 5.0.6 → 5.0.12, dev lock entry only** (build 623 / v5.69.91 unchanged).
   - Live registry URL/integrity verified; eslint → minimatch → brace-expansion remains dev:true. Audit: 1 high dependency (3 advisories) → 0 vulnerabilities. package.json/runtime/item_type/build/cache untouched.
   - npm ci + dependency tree + lint PASS; unit 3225/3225; e2e 21/21; diff check + LF/no BOM PASS. STOP at local commit for independent review; no push/PR/merge/deploy.

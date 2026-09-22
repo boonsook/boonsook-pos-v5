@@ -4,7 +4,7 @@
 // ═══════════════════════════════════════════════════════════
 import { renderEmpty, renderSkeleton } from "./ui_states.js";
 // Phase 57: audit log + Phase 70 (D3): Excel export
-import { logActivity, exportToExcel, todaySuffix, round2 } from "./utils.js";
+import { logActivity, exportToExcel, todaySuffix, round2, escHtml } from "./utils.js";
 import { renderDocumentTemplateHeader, renderDocumentTemplateNote, renderDocumentTemplateFooter } from "./doc-utils.js";
 // Phase 440 (B2): resolve receiving bank from customer group → auto-fill on the quotation (carries to receipt)
 import { resolveBankForCustomerGroup } from "./customer_groups.js";
@@ -1651,10 +1651,4 @@ function showShareLinkPopup(url, docName) {
 
   // Auto-select input text for easy copy
   document.getElementById("shareLinkInput")?.addEventListener("click", function() { this.select(); });
-}
-
-function escHtml(str) {
-  const div = document.createElement("div");
-  div.textContent = str || "";
-  return div.innerHTML;
 }
