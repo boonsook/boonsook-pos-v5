@@ -931,6 +931,9 @@ async function convertToReceipt(inv) {
   _diConvertInflight = true;
   try {
     // ★ ป้องกันสร้างซ้ำ — เช็คว่ามีใบเสร็จจากใบส่งสินค้านี้อยู่แล้วไหม
+    // ★ Phase 626 prerequisite #1 — ผล lookup ต้อง "พิสูจน์ได้" ก่อนเดินต่อ (fail closed):
+    //   HTTP ไม่ ok / network error / JSON พัง / ไม่ใช่ array → หยุด ห้าม fallback ไป confirm
+    //   (เดิม catch → confirm: lookup ล้มเมื่อไร ก็ออกใบเสร็จซ้ำทับใบ active เดิมได้)
     try {
       const cfg = window.SUPABASE_CONFIG;
       const token = window._sbAccessToken || cfg.anonKey;
@@ -938,8 +941,10 @@ async function convertToReceipt(inv) {
         cfg.url + "/rest/v1/receipts?delivery_invoice_id=eq." + inv.id + "&select=receipt_no,status",
         { headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token } }
       );
-      const existing = await chkResp.json().catch(() => []);
-      const active = Array.isArray(existing) ? existing.filter(d => d.status !== "cancelled") : [];
+      if (!chkResp.ok) throw new Error("HTTP " + chkResp.status);
+      const existing = await chkResp.json();
+      if (!Array.isArray(existing)) throw new Error("duplicate lookup payload ไม่ใช่ array");
+      const active = existing.filter(d => d && d.status !== "cancelled");
       if (active.length > 0) {
         // Phase 409: บังคับ 1:1 — มีใบเสร็จ active แล้ว → บล็อก ไม่ให้ออกซ้ำ (เดิมแค่ confirm แล้วผ่านได้)
         const list = active.map(d => d.receipt_no).join(", ");
@@ -949,26 +954,38 @@ async function convertToReceipt(inv) {
         if (!(await window.App?.confirm?.("ออกใบเสร็จรับเงินจากใบส่งสินค้านี้?"))) return;
       }
     } catch(e) {
-      console.warn("[delivery_invoices convert] duplicate check failed, fallback to confirm:", e);
-      if (!(await window.App?.confirm?.("ออกใบเสร็จรับเงินจากใบส่งสินค้านี้?"))) return;
+      console.warn("[delivery_invoices convert] duplicate check failed:", e);
+      window.App?.showToast?.("ตรวจสอบใบเสร็จเดิมไม่สำเร็จ — ยังไม่สร้างใบเสร็จ กรุณาลองใหม่");
+      return;   // ❌ พิสูจน์ไม่ได้ว่าไม่มีใบซ้ำ = ห้ามสร้าง
     }
 
-    // Load items if not loaded
-    if (!_lineItems.length) {
+    // ★ Phase 626 prerequisite #2 — โหลด snapshot รายการของ inv.id ใหม่ "ทุกครั้ง"
+    //   _lineItems เป็น preview cache (อาจเป็นของใบอื่น หรือถูกเขียนทับระหว่าง await) → ห้ามใช้เป็น
+    //   source of truth. snapshot อยู่ใน local ตลอด loop → cache เปลี่ยนกลางคันไม่กระทบใบนี้
+    let sourceItems;
+    try {
       const cfg = window.SUPABASE_CONFIG;
       const token = window._sbAccessToken || cfg.anonKey;
-      try {
-        const resp = await fetch(cfg.url + "/rest/v1/delivery_invoice_items?delivery_invoice_id=eq." + inv.id + "&order=sort_order.asc",
-          { headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token } });
-        // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L3 module state load (invoice gen flow, single button)
-        _lineItems = ((await resp.json()) || []).map(i => ({
-          product_id: i.product_id, item_name: i.item_name || "",
-          qty: Number(i.qty||1), unit: i.unit || "ชิ้น",
-          unit_price: Number(i.unit_price||0), discount_pct: Number(i.discount_pct||0),
-          line_total: Number(i.line_total||0)
-        }));
-      // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L3 module state reset (catch path, invoice gen flow)
-      } catch(e) { _lineItems = []; }
+      const resp = await fetch(cfg.url + "/rest/v1/delivery_invoice_items?delivery_invoice_id=eq." + inv.id + "&order=sort_order.asc",
+        { headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token } });
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      const rows = await resp.json();
+      if (!Array.isArray(rows)) throw new Error("item payload ไม่ใช่ array");
+      sourceItems = rows.map(i => ({
+        product_id: i.product_id, item_name: i.item_name || "",
+        qty: Number(i.qty||1), unit: i.unit || "ชิ้น",
+        unit_price: Number(i.unit_price||0), discount_pct: Number(i.discount_pct||0),
+        line_total: Number(i.line_total||0)
+      }));
+    } catch(e) {
+      console.warn("[delivery_invoices convert] item load failed:", e);
+      window.App?.showToast?.("โหลดรายการสินค้าไม่สำเร็จ — ยังไม่สร้างใบเสร็จ กรุณาลองใหม่");
+      return;   // ❌ ไม่รู้รายการจริง = ห้ามสร้าง (กันใบเสร็จรายการขาด/เปล่า)
+    }
+    // ★ Phase 626 (owner ruling R1): โหลดสำเร็จแต่ 0 แถว = เอกสารต้นทางผิด → บล็อก ไม่มี confirm override
+    if (sourceItems.length === 0) {
+      window.App?.showToast?.("ไม่พบรายการในใบส่งสินค้า จึงยังออกใบเสร็จไม่ได้ — กรุณาตรวจเอกสารต้นทาง");
+      return;
     }
 
     const xhrPost = window._appXhrPost;
@@ -1013,20 +1030,26 @@ async function convertToReceipt(inv) {
     if (!rcRes.ok) return _ctx.showToast(rcRes.error?.message || "สร้างใบเสร็จไม่สำเร็จ");
 
     const receiptId = rcRes.data?.id;
+    // ★ Phase 626 (owner ruling R3): ok:true แต่ไม่มี id → header "อาจ" commit ไปแล้วแต่ยืนยันรหัสไม่ได้
+    //   หยุด write ที่เหลือทั้งหมด (receipt_items / PATCH ต้นทาง) · ห้าม rollback/delete/retry อัตโนมัติ
+    //   · ข้อความห้ามบอกว่า "ยังไม่ได้สร้าง" เพราะพิสูจน์ไม่ได้
+    if (!receiptId) {
+      console.error("[delivery_invoices convert] receipt insert returned no id:", rcRes.data);
+      return _ctx.showToast("อาจสร้างใบเสร็จแล้ว แต่ยืนยันรหัสไม่ได้ — โปรดตรวจรายการใบเสร็จก่อนลองใหม่");
+    }
+
     const realReceiptNo = rcRes.data?.receipt_no || receiptNo;  // Phase B2: ใช้เลขที่ DB trigger ออกจริง
     // ★ Phase 412: เช็คผล insert รายการ — เดิมเงียบ = ใบรายการขาดแบบไม่มีใครรู้
     const failedItems = [];
-    if (receiptId && _lineItems.length) {
-      for (let i = 0; i < _lineItems.length; i++) {
-        const li = _lineItems[i];
-        const ir = await xhrPost("receipt_items", {
-          receipt_id: receiptId, product_id: li.product_id || null,
-          item_name: li.item_name, qty: li.qty, unit: li.unit || "ชิ้น",
-          unit_price: li.unit_price, discount_pct: li.discount_pct || 0,
-          line_total: li.line_total, sort_order: i + 1
-        });
-        if (!ir?.ok) failedItems.push(li.item_name || ("#" + (i + 1)));
-      }
+    for (let i = 0; i < sourceItems.length; i++) {
+      const li = sourceItems[i];
+      const ir = await xhrPost("receipt_items", {
+        receipt_id: receiptId, product_id: li.product_id || null,
+        item_name: li.item_name, qty: li.qty, unit: li.unit || "ชิ้น",
+        unit_price: li.unit_price, discount_pct: li.discount_pct || 0,
+        line_total: li.line_total, sort_order: i + 1
+      });
+      if (!ir?.ok) failedItems.push(li.item_name || ("#" + (i + 1)));
     }
     if (failedItems.length > 0) {
       // ห้าม rollback/ลบ header — ใบเกิดแล้ว (409 existence-check กันออกซ้ำตอน retry)
@@ -1041,17 +1064,24 @@ async function convertToReceipt(inv) {
     if (inv.quotation_id) {
       sp2 = await xhrPatch("quotations", { status: "receipted" }, "id", inv.quotation_id);
     }
-    if (!sp1?.ok || (inv.quotation_id && !sp2?.ok)) {
+    const statusFailed = !sp1?.ok || (inv.quotation_id && !sp2?.ok);
+    if (statusFailed) {
       console.warn("[delivery_invoices convert] status patch failed:", sp1?.error?.message, sp2?.error?.message);
       _ctx.showToast("⚠️ อัปเดตสถานะเอกสารต้นทางไม่สำเร็จ — ใบใหม่ถูกสร้างแล้ว");
     }
 
-    await _ctx.loadAllData();
-    _ctx.showToast("ออกใบเสร็จรับเงินแล้ว: " + realReceiptNo);
+    // reload ล้มห้ามกลืนข้อความสรุป (ใบเกิดแล้ว — user ต้องได้ผลลัพธ์สุดท้ายเสมอ)
+    try { await _ctx.loadAllData(); } catch(e) { console.warn("[delivery_invoices convert] reload failed:", e); }
+    // ★ Phase 626 (owner ruling R4): ข้อความสุดท้ายต้องสะท้อน partial state จริง —
+    //   success ห้ามเขียนทับคำเตือน (ยังไป list ใบเสร็จได้ เพื่อให้เปิดตรวจของจริง)
+    _ctx.showToast(failedItems.length > 0 || statusFailed
+      ? `⚠️ ออกใบเสร็จ ${realReceiptNo} แล้ว แต่บันทึกไม่ครบ — เปิดใบเพื่อตรวจ`
+      : "ออกใบเสร็จรับเงินแล้ว: " + realReceiptNo);
     _viewMode = "list";
     _ctx.showRoute("receipts");
   } finally {
-    // early return ทุกจุด (dup-block / ยกเลิก confirm / create fail) ผ่านที่นี่ → trigger ใหม่ได้เสมอ
+    // early return ทุกจุด (dup-block / lookup ล้ม / โหลดรายการล้ม / ใบไม่มีรายการ / ยกเลิก confirm /
+    // create fail / ไม่มี receipt id) ผ่านที่นี่ → trigger ใหม่ได้เสมอ
     _diConvertInflight = false;
   }
 }
