@@ -1925,8 +1925,8 @@ async function saveProduct(){
   }
 
   // ★ บันทึกสต็อกแยกคลัง
+  const _whFails = [];  // Phase 623: keep failures available for the final save message.
   if (productId && whStockData.length > 0) {
-    const _whFails = [];  // ★ Phase 474: เดิมเมินผล → warehouse write ล้มเงียบ (RLS/เน็ต) แต่โชว์ "บันทึกแล้ว"
     for (const ws of whStockData) {
       const existing = state.warehouseStock.find(s => s.product_id === productId && s.warehouse_id === ws.warehouse_id);
       const _r = existing
@@ -1994,7 +1994,9 @@ async function saveProduct(){
   } catch(e) { console.warn("[saveProduct] optimistic", e); }
   resetProductForm();
   closeAllDrawers();
-  showToast("บันทึกสินค้าแล้ว");
+  showToast(_whFails.length > 0
+    ? "⚠️ บันทึกสินค้าแล้ว แต่สต็อกบางคลังไม่สำเร็จ"
+    : "บันทึกสินค้าแล้ว");
   if (state.currentRoute === "products") {
     try { if (!refreshProductsPage()) showRoute("products"); } catch(e){}
   }
