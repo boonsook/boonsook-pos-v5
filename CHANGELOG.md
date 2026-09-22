@@ -5,6 +5,9 @@
 
 รูปแบบ: `<commit> feat|fix|docs|refactor: <สรุปสั้น>` + bullet 1-2 ข้อถ้าจำเป็น
 
+- Phase 625 fix(security): **escape document + expense OCR form attributes — ปิด attribute XSS ใน quotations / delivery_invoices / receipts / expenses** (build 625 / v5.69.92 · rev2 = +expenses.js, build/version คงเดิมเพราะยังไม่ push)
+  - local `escHtml()` แบบ `textContent → innerHTML` ไม่ escape `"`/`'` แล้วถูกใส่ใน `value="${escHtml(…)}"` ⇒ ค่าที่มี `"` หลุดออกจาก attribute เป็น `autofocus onfocus=…` ได้ (พิสูจน์ด้วย Chromium). source: ค่าเอกสารใน DB และ **ผล AutoKey OCR (Gemini) ที่เป็น untrusted input** (`_showParsedResult` → akEdVendor/akEdDocNo/akEdDate). แก้: import `escHtml` กลางจาก `utils.js` (escape `& < > " '`) ผ่าน import เดิม + ลบ local helper ทั้ง 4 ไฟล์. call sites/UI/OCR fetch-parse/save payload/write path/money/JV/stock/DB/CSP ไม่เปลี่ยน. rev1 เคยระบุผิดว่า expenses.js ใช้ helper แค่ text-context (probe false-clean) — ถอนแล้ว.
+  - +tests/phase625_document_attribute_xss.{shared,test}.js (unit 48) + tests/e2e/phase625_document_attribute_xss.spec.js (Chromium 33, positive control). Baseline RED rev1 19/37 · 13/24, rev2 (expenses) 7/48 · 5/33; patched GREEN; mutation RED 5/5. lint 0 errors · unit 3273/3273 · e2e 54/54 · diff --check/LF/no BOM PASS. Follow-up: textContent-style escHtml ยังเหลือใน ui_states + accounting 8 ไฟล์ — ยังไม่ได้พิสูจน์เป็นรายไฟล์. STOP รอ independent review rev2; ไม่ push/PR/merge/deploy.
 - Phase 624 chore(deps): **brace-expansion 5.0.6 → 5.0.12, dev lock entry only** (build 623 / v5.69.91 unchanged).
   - Live registry URL/integrity verified; eslint → minimatch → brace-expansion remains dev:true. Audit: 1 high dependency (3 advisories) → 0 vulnerabilities. package.json/runtime/item_type/build/cache untouched.
   - npm ci + dependency tree + lint PASS; unit 3225/3225; e2e 21/21; diff check + LF/no BOM PASS. STOP at local commit for independent review; no push/PR/merge/deploy.
