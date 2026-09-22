@@ -944,7 +944,15 @@ async function convertToReceipt(inv) {
       if (!chkResp.ok) throw new Error("HTTP " + chkResp.status);
       const existing = await chkResp.json();
       if (!Array.isArray(existing)) throw new Error("duplicate lookup payload ไม่ใช่ array");
-      const active = existing.filter(d => d && d.status !== "cancelled");
+      // ★ Phase 626 rev2: เป็น array อย่างเดียวไม่พอ — ต้อง validate "ทุกแถว" ก่อน filter.
+      //   เดิม filter(d => d && …) ทิ้งแถว null เงียบ ⇒ payload [null] ถูกอ่านว่า "ไม่มีใบซ้ำ"
+      //   แล้วสร้างใบต่อ (fail OPEN) ส่วน {} / status:null ถูกนับเป็น active แล้วแจ้ง "มีใบเสร็จ undefined".
+      //   แถวที่ไม่ใช่ plain object หรือไม่มี status ที่จำแนกเป็น string ได้ = พิสูจน์สถานะไม่ได้ → uncertainty
+      for (const row of existing) {
+        if (typeof row !== "object" || row === null || Array.isArray(row)) throw new Error("duplicate row ไม่ใช่ object");
+        if (typeof row.status !== "string" || row.status.trim() === "") throw new Error("duplicate row ไม่มี status ที่จำแนกได้");
+      }
+      const active = existing.filter(d => d.status !== "cancelled");
       if (active.length > 0) {
         // Phase 409: บังคับ 1:1 — มีใบเสร็จ active แล้ว → บล็อก ไม่ให้ออกซ้ำ (เดิมแค่ confirm แล้วผ่านได้)
         const list = active.map(d => d.receipt_no).join(", ");

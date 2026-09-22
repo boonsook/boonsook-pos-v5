@@ -165,6 +165,18 @@ for (const [label, viewport] of [["mobile 390x844", { width: 390, height: 844 }]
         expectNoWrites(ledger, entry);
       });
 
+      // rev2 (independent review): แถวที่จำแนกไม่ได้ ห้ามถูกอ่านว่า "ไม่มีใบซ้ำ"
+      for (const [rowLabel, body] of [["[null]", [null]], ["[{}]", [{}]], ["[{status:null}]", [{ receipt_no: "RC-1", status: null }]]]) {
+        test(`${entry}: duplicate row ${rowLabel} จำแนกไม่ได้ → ไม่สร้างใบเสร็จ`, async ({ page }) => {
+          await boot(page, viewport);
+          await setPlan(page, { dup: { status: 200, body } });
+          await trigger(page);
+          const { ledger, toasts } = await readState(page);
+          expect(toasts).toEqual([MSG.DUP_FAIL]);
+          expectNoWrites(ledger, entry);
+        });
+      }
+
       test(`${entry}: โหลดรายการล้ม (HTTP 503 พร้อม body ที่ใช้ได้) → ไม่สร้างใบเสร็จ`, async ({ page }) => {
         await boot(page, viewport);
         await setPlan(page, { items: { status: 503, body: ROWS } });

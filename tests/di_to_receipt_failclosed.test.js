@@ -371,6 +371,35 @@ S["N4 duplicate null / non-array"] = async (code) => {
   }
 };
 
+// rev2 (independent review): array อย่างเดียวไม่พอ — แถวที่ "จำแนกไม่ได้" ต้องเข้า uncertainty path
+//   เดิม filter(d => d && …) ทิ้ง null เงียบ ⇒ [null] = "ไม่มีใบซ้ำ" แล้วสร้างใบต่อ (fail OPEN)
+//   ส่วน [{}] / [{status:null}] เดิมถูกนับเป็น active duplicate แล้ว toast "มีใบเสร็จ undefined …"
+const BAD_ROWS = [
+  ["row = null", [null]],
+  ["row = undefined", [undefined]],
+  ["row = {} (ไม่มี status)", [{}]],
+  ["status = null", [{ receipt_no: "RC-1", status: null }]],
+  ["status = number", [{ receipt_no: "RC-1", status: 1 }]],
+  ["status = object", [{ receipt_no: "RC-1", status: { v: "pending" } }]],
+  ["status = empty string", [{ receipt_no: "RC-1", status: "" }]],
+  ["status = whitespace", [{ receipt_no: "RC-1", status: "   " }]],
+  ["row = primitive string", ["RC-1"]],
+  ["row = primitive number", [7]],
+  ["row = array", [["RC-1", "pending"]]],
+  ["mixed: cancelled ที่ valid + row null", [{ receipt_no: "RC-1", status: "cancelled" }, null]],
+  ["mixed: active ที่ valid + row {}", [{ receipt_no: "RC-1", status: "pending" }, {}]],
+  ["mixed: valid + status number", [{ receipt_no: "RC-1", status: "cancelled" }, { receipt_no: "RC-2", status: 2 }]],
+];
+S["N4b duplicate row shape จำแนกไม่ได้ → uncertainty path (ห้ามนับว่าไม่ซ้ำ)"] = async (code) => {
+  for (const [label, body] of BAD_ROWS) {
+    const r = await runConvert({ dup: { body } }, code);
+    assertNoWrites(r, `N4b(${label})`);
+    assert.deepEqual(r.msgs, [MSG.DUP_FAIL],
+      `N4b(${label}): ต้องเป็นข้อความ uncertainty เท่านั้น — ห้ามผ่านไปสร้าง และห้าม toast "มีใบเสร็จ undefined"`);
+    assert.equal(r.confirmCalls, 0, `N4b(${label}): ห้ามถาม confirm`);
+  }
+};
+
 // ── (5)-(8) item snapshot fail closed ──
 S["N5 item HTTP non-2xx แม้ body เป็น array ที่ใช้ได้"] = async (code) => {
   const r = await runConvert({ items: { status: 503, body: SERVER_ROWS } }, code);
@@ -638,9 +667,9 @@ const MUTANTS = [
     killer: "N3 duplicate malformed JSON (HTTP 200)",
   },
   {
-    id: "MUT-05", why: "คืน non-array → []",
-    from: '      if (!Array.isArray(existing)) throw new Error("duplicate lookup payload ไม่ใช่ array");\n      const active = existing.filter(d => d && d.status !== "cancelled");',
-    to: '      const active = Array.isArray(existing) ? existing.filter(d => d.status !== "cancelled") : [];',
+    id: "MUT-05", why: "คืน classifier baseline (non-array → [])",
+    from: /^ {6}if \(!Array\.isArray\(existing\)\) throw new Error[\s\S]*?^ {6}const active = existing\.filter\(d => d\.status !== "cancelled"\);\n/m,
+    to: '      const active = Array.isArray(existing) ? existing.filter(d => d.status !== "cancelled") : [];\n',
     killer: "N4 duplicate null / non-array",
   },
   {
@@ -683,9 +712,24 @@ const MUTANTS = [
     to: '    _ctx.showToast("ออกใบเสร็จรับเงินแล้ว: " + realReceiptNo);',
     killer: "W3 item insert ล้มบางรายการ → terminal = คำเตือน ไม่ใช่สำเร็จ",
   },
+  {
+    // rev2: ถอด "เฉพาะ" row-shape validation แล้วคืน filter แบบเดิมที่ทิ้งแถว falsy เงียบ
+    // = โค้ด rev1 เป๊ะ ๆ ที่ independent review จับได้ (single site, single behavioural concern)
+    id: "MUT-12", why: "ถอด row-shape validation (คืน filter(d => d && …) ของ rev1)",
+    from: /^ {6}for \(const row of existing\) \{[\s\S]*?^ {6}\}\n {6}const active = existing\.filter\(d => d\.status !== "cancelled"\);\n/m,
+    to: '      const active = existing.filter(d => d && d.status !== "cancelled");\n',
+    killer: "N4b duplicate row shape จำแนกไม่ได้ → uncertainty path (ห้ามนับว่าไม่ซ้ำ)",
+  },
 ];
 
 function applyOnce(code, { from, to }, id) {
+  if (from instanceof RegExp) {
+    const all = new RegExp(from.source, from.flags.includes("g") ? from.flags : from.flags + "g");
+    const hits = (code.match(all) || []).length;
+    assert.equal(hits, 1, `${id}: anchor (regex) ต้องตรงหนึ่งแห่งพอดี (เจอ ${hits})`);
+    assert.ok(!/[$]/.test(to), `${id}: to ห้ามมี $ (กัน replacement pattern)`);
+    return code.replace(from, to);
+  }
   const hits = code.split(from).length - 1;
   assert.equal(hits, 1, `${id}: anchor ต้องตรงหนึ่งแห่งพอดี (เจอ ${hits})`);
   return code.split(from).join(to);
