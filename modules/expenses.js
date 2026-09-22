@@ -4,14 +4,13 @@
 // ═══════════════════════════════════════════════════════════
 import { renderEmpty } from "./ui_states.js";
 // Phase 70 (D3): Excel export
-import { exportToExcel, todaySuffix, todayBkk, visibleSalesForRole } from "./utils.js";
+import { exportToExcel, todaySuffix, todayBkk, visibleSalesForRole, escHtml } from "./utils.js";
 import { fetchSalesSince } from "./sales_fetch.js";
 // Phase 88.1a: auto-post JV ตอนบันทึก expense
 import { postJournalForExpense, voidJvForSource } from "./accounting/auto_post.js";
 
 function money(n){ return new Intl.NumberFormat("th-TH",{style:"currency",currency:"THB",minimumFractionDigits:2}).format(Number(n||0)); }
 function dateTH(d){ if(!d) return "-"; try{ return new Date(d).toLocaleDateString("th-TH",{year:"numeric",month:"short",day:"numeric"}); }catch(e){ return d; } }
-function escHtml(s){ const div = document.createElement("div"); div.textContent = s; return div.innerHTML; }
 
 const EXPENSE_CATEGORIES = [
   { value: "materials", label: "ค่าวัสดุ" },

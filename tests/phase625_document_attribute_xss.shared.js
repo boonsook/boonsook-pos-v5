@@ -68,6 +68,15 @@ export const MODULES = [
       { label: "receipt multi-payment ref (rc-mp-ref)", anchor: /<input class="rc-mp-ref"[^\n]*?\/>/ },
     ],
   },
+  {
+    // Rev2 (owner addendum): AutoKey OCR result (Gemini via /api/parse-receipt) is
+    // untrusted input rendered straight into value="…" by _showParsedResult().
+    file: "modules/expenses.js",
+    attrs: [
+      { label: "expense OCR vendor (akEdVendor)", anchor: /<input id="akEdVendor"[^\n]*?\/>/ },
+      { label: "expense OCR document no (akEdDocNo)", anchor: /<input id="akEdDocNo"[^\n]*?\/>/ },
+    ],
+  },
 ];
 
 export function readModuleSource(file) {
@@ -81,7 +90,9 @@ export function readModuleSource(file) {
 //   ambiguous – both (which is also a SyntaxError in a real module graph)
 //   none      – neither (every escHtml(...) call would throw ReferenceError)
 const RE_UTILS_IMPORT = /^import\s*\{([^}]*)\}\s*from\s*["']\.\/utils\.js["'];?/gm;
-const RE_LOCAL_FN = /^[ \t]*(?:export\s+)?(?:async\s+)?function\s+escHtml\s*\([^)]*\)\s*\{[\s\S]*?\n\}/m;
+// Body is either a one-liner `{ … }` closed on the same line (expenses.js shape)
+// or a multi-line block closed by a `}` at the start of a later line.
+const RE_LOCAL_FN = /^[ \t]*(?:export\s+)?(?:async\s+)?function\s+escHtml\s*\([^)]*\)\s*\{(?:[^\n]*\}[ \t]*$|[\s\S]*?\n\})/m;
 const RE_LOCAL_VAR = /^[ \t]*(?:export\s+)?(?:const|let|var)\s+escHtml\b/m;
 
 export function resolveEscHtmlBinding(src) {
