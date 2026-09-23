@@ -6,6 +6,8 @@ import { renderEmpty, renderSkeleton } from "./ui_states.js";
 // Phase 57: audit log + Phase 70 (D3): Excel export
 import { logActivity, exportToExcel, todaySuffix, round2, escHtml } from "./utils.js";
 import { renderDocumentTemplateHeader, renderDocumentTemplateNote, renderDocumentTemplateFooter } from "./doc-utils.js";
+// Phase 628B: ชนิดแถวรายการ (item | heading) — helper กลางตัวเดียว (pure)
+import { normalizeDocumentItem, isHeadingItem, countableDocumentItems, sumDocumentLineTotals } from "./doc_items.js";
 // Phase 440 (B2): resolve receiving bank from customer group → auto-fill on the quotation (carries to receipt)
 import { resolveBankForCustomerGroup } from "./customer_groups.js";
 // Phase 408 cash-basis: ใบส่งของไม่ post JV revenue แล้ว (ย้ายไปที่ใบเสร็จ paid)
@@ -95,7 +97,7 @@ function airDraftToLineItem(d) {
     if (d.note) item_name += ` — ${d.note}`;
   }
   const price = Number(d.offerPrice || 0);
-  return {
+  return normalizeDocumentItem({
     product_id: null,
     item_name,
     qty: 1,
@@ -108,7 +110,7 @@ function airDraftToLineItem(d) {
     _catalogId: d.catalogId ?? null,
     _airType: d.airType || "",
     _estCost: (d.estimatedCost == null ? null : Number(d.estimatedCost))
-  };
+  });
 }
 
 // ═══ Phase 355: link-back อ้างอิงงานต้นทาง ลงใน note ตอน "บันทึกเอง" เท่านั้น ═══
@@ -198,8 +200,8 @@ export function renderQuotationsPage(ctx) {
           product_id: i.product_id, item_name: i.item_name || "",
           qty: Number(i.qty||1), unit: i.unit || "ชิ้น",
           unit_price: Number(i.unit_price||0), discount_pct: Number(i.discount_pct||0),
-          line_total: Number(i.line_total||0)
-        }));
+          line_total: Number(i.line_total||0), item_type: i.item_type
+        })).map(normalizeDocumentItem);   // Phase 628B: heading คงชนิด+เลขศูนย์ · ค่าอื่น = item เดิม
         _lineItemsLoadFailed = false;
       } catch(e) {
         // Phase 576: เลิกเงียบ — preview ทางลัดนี้ read-only ไม่มี save ตาม จึงแค่แจ้ง (ไม่ block)
@@ -535,7 +537,9 @@ function renderQuotationForm(container) {
   const editDoc   = isEdit ? _ctx.state.quotations.find(x => x.id === _editingId) : null;
 
   // Calculate totals
-  const subtotal       = _lineItems.reduce((s, i) => s + Number(i.line_total || 0), 0);
+  // Phase 628B: ยอดไม่นับหัวข้อ · แถวใน template เช็ค item.item_type === "heading" ตรงตัว (ทุกทางเข้า _lineItems
+  //   ผ่าน normalizeDocumentItem แล้ว) — ห้ามเรียก helper ใน callback ของแถว: guard Phase 629 รัน callback แยกใน node:vm
+  const subtotal       = sumDocumentLineTotals(_lineItems);
   const discPctVal     = Number(document.getElementById("qt_discPct")?.value ?? (editDoc?.discount_pct || 0));
   const discAmount     = subtotal * (discPctVal / 100);
   const afterDisc      = subtotal - discAmount;
@@ -627,7 +631,10 @@ function renderQuotationForm(container) {
     <div class="panel mt16">
       <div class="row" style="margin-bottom:12px">
         <h4 style="margin:0">รายการสินค้า / บริการ</h4>
-        <button id="qtAddItemBtn" class="btn primary" style="font-size:13px;padding:8px 14px">+ เพิ่มรายการ</button>
+        <div class="qt-li-add-actions">
+          <button id="qtAddHeadingBtn" class="btn light" style="font-size:13px;padding:8px 14px" title="แถวหัวข้อ — ข้อความล้วน ไม่มีจำนวน/ราคา ไม่นับยอด">+ เพิ่มหัวข้อ</button>
+          <button id="qtAddItemBtn" class="btn primary" style="font-size:13px;padding:8px 14px">+ เพิ่มรายการ</button>
+        </div>
       </div>
 
       <div id="qtProductSearchBox" class="hidden" style="margin-bottom:12px;position:relative">
@@ -654,8 +661,16 @@ function renderQuotationForm(container) {
             </tr>
           </thead>
           <tbody id="qtLineItemsBody">
-            ${_lineItems.length ? _lineItems.map((item, idx) => `
-              <tr>
+            ${_lineItems.length ? _lineItems.map((item, idx) => item.item_type === "heading" ? `
+              <tr class="qt-heading-row">
+                <td style="text-align:center;color:var(--muted)">${idx + 1}</td>
+                <td colspan="6">
+                  <input class="qt-li-heading-name" data-idx="${idx}" value="${escHtml(item.item_name)}" aria-label="ชื่อหัวข้อ" />
+                </td>
+                <td class="qt-li-actions"><button type="button" class="qt-li-up" data-idx="${idx}" title="เลื่อนขึ้น" aria-label="เลื่อนขึ้น">▲</button><button type="button" class="qt-li-down" data-idx="${idx}" title="เลื่อนลง" aria-label="เลื่อนลง">▼</button><button class="qt-li-del" data-idx="${idx}" title="ลบหัวข้อ" aria-label="ลบหัวข้อ" style="border:none;background:none;cursor:pointer;color:#ef4444;font-size:16px;padding:2px 6px">✕</button></td>
+              </tr>
+            ` : `
+              <tr class="qt-item-row">
                 <td style="text-align:center;color:var(--muted)">${idx + 1}</td>
                 <td>
                   <input class="qt-li-name" data-idx="${idx}" value="${escHtml(item.item_name)}" style="width:100%;border:none;padding:4px 0;font-size:13px;background:transparent" />
@@ -665,7 +680,7 @@ function renderQuotationForm(container) {
                 <td><input class="qt-li-price" data-idx="${idx}" type="number" inputmode="decimal" value="${item.unit_price}" style="width:90px;text-align:right;padding:4px;font-size:13px" /></td>
                 <td><input class="qt-li-disc" data-idx="${idx}" type="number" inputmode="decimal" value="${item.discount_pct||0}" style="width:55px;text-align:center;padding:4px;font-size:13px" /></td>
                 <td style="text-align:right;font-weight:700;font-size:13px">${num(item.line_total)}</td>
-                <td><button class="qt-li-del" data-idx="${idx}" style="border:none;background:none;cursor:pointer;color:#ef4444;font-size:16px;padding:2px 6px">✕</button></td>
+                <td class="qt-li-actions"><button type="button" class="qt-li-up" data-idx="${idx}" title="เลื่อนขึ้น" aria-label="เลื่อนขึ้น">▲</button><button type="button" class="qt-li-down" data-idx="${idx}" title="เลื่อนลง" aria-label="เลื่อนลง">▼</button><button class="qt-li-del" data-idx="${idx}" style="border:none;background:none;cursor:pointer;color:#ef4444;font-size:16px;padding:2px 6px">✕</button></td>
               </tr>
             `).join("") : `
               <tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px">ยังไม่มีรายการ — กดปุ่ม "+ เพิ่มรายการ"</td></tr>
@@ -792,7 +807,14 @@ function bindFormEvents(container, customers, products) {
 
   // Custom item
   document.getElementById("qtAddCustomItem")?.addEventListener("click", () => {
-    _lineItems.push({ product_id: null, item_name: "รายการใหม่", qty: 1, unit: "ชิ้น", unit_price: 0, discount_pct: 0, line_total: 0 });
+    _lineItems.push(normalizeDocumentItem({ product_id: null, item_name: "รายการใหม่", qty: 1, unit: "ชิ้น", unit_price: 0, discount_pct: 0, line_total: 0 }));
+    document.getElementById("qtProductSearchBox")?.classList.add("hidden");
+    renderQuotationForm(container);
+  });
+
+  // ★ Phase 628B: เพิ่มหัวข้อ — แถวข้อความล้วน ไม่นับยอด (normalizer บังคับ product_id=null + qty/ราคา/ส่วนลด/ยอด = 0)
+  document.getElementById("qtAddHeadingBtn")?.addEventListener("click", () => {
+    _lineItems.push(normalizeDocumentItem({ item_name: "หัวข้อใหม่", item_type: "heading" }));
     document.getElementById("qtProductSearchBox")?.classList.add("hidden");
     renderQuotationForm(container);
   });
@@ -822,7 +844,7 @@ function bindFormEvents(container, customers, products) {
         el.addEventListener("click", () => {
           const p = products.find(x => x.id === Number(el.dataset.pid));
           if (p) {
-            _lineItems.push({ product_id: p.id, item_name: p.name, qty: 1, unit: "ชิ้น", unit_price: Number(p.price||0), discount_pct: 0, line_total: Number(p.price||0) });
+            _lineItems.push(normalizeDocumentItem({ product_id: p.id, item_name: p.name, qty: 1, unit: "ชิ้น", unit_price: Number(p.price||0), discount_pct: 0, line_total: Number(p.price||0) }));
             document.getElementById("qtProductSearchBox")?.classList.add("hidden");
             searchInput.value = ""; dropdown?.classList.add("hidden");
             renderQuotationForm(container);
@@ -875,7 +897,7 @@ function bindFormEvents(container, customers, products) {
   container.querySelectorAll(".qt-li-name,.qt-li-qty,.qt-li-price,.qt-li-disc,.qt-li-unit").forEach(inp => {
     inp.addEventListener("change", () => {
       const idx = Number(inp.dataset.idx);
-      const item = _lineItems[idx]; if (!item) return;
+      const item = _lineItems[idx]; if (!item || isHeadingItem(item)) return;   // Phase 628B: หัวข้อมี handler ของตัวเอง
       const row = inp.closest("tr");
       item.item_name    = row.querySelector(".qt-li-name")?.value || item.item_name;
       item.qty          = Number(row.querySelector(".qt-li-qty")?.value || 1);
@@ -887,6 +909,32 @@ function bindFormEvents(container, customers, products) {
       renderQuotationForm(container);
     });
   });
+
+  // ★ Phase 628B: แก้ชื่อหัวข้อ — handler แยก (ไม่ผ่าน handler สินค้าที่ตั้ง qty 1 / หน่วย ชิ้น / คำนวณยอด)
+  container.querySelectorAll(".qt-li-heading-name").forEach(inp => {
+    inp.addEventListener("change", () => {
+      const item = _lineItems[Number(inp.dataset.idx)];
+      if (!item || !isHeadingItem(item)) return;
+      item.item_name = inp.value || item.item_name;
+      renderQuotationForm(container);
+    });
+  });
+
+  // ★ Phase 628B: เลื่อนแถวขึ้น/ลง (ทั้งสินค้าและหัวข้อ) — สลับตำแหน่งใน _lineItems เท่านั้น ค่าในแถวไม่ถูกแตะ
+  //   ปุ่มขึ้นของแถวแรก / ปุ่มลงของแถวสุดท้าย = disabled (ตั้งหลัง render เพราะ callback ของแถวไม่รู้จำนวนแถว)
+  const upBtns = container.querySelectorAll(".qt-li-up");
+  const downBtns = container.querySelectorAll(".qt-li-down");
+  if (upBtns.length) upBtns[0].disabled = true;
+  if (downBtns.length) downBtns[downBtns.length - 1].disabled = true;
+  container.querySelectorAll(".qt-li-up,.qt-li-down").forEach(btn => btn.addEventListener("click", () => {
+    const from = Number(btn.dataset.idx);
+    const to = btn.classList.contains("qt-li-up") ? from - 1 : from + 1;
+    if (!Number.isInteger(from) || !_lineItems[from] || !_lineItems[to]) return;
+    const moved = _lineItems[from];
+    _lineItems[from] = _lineItems[to];
+    _lineItems[to] = moved;
+    renderQuotationForm(container);
+  }));
 
   // Delete line item
   container.querySelectorAll(".qt-li-del").forEach(btn => btn.addEventListener("click", () => {
@@ -908,6 +956,8 @@ async function saveQuotationFull() {
   const customerName = document.getElementById("qt_customerSearch")?.value?.trim() || "";
   if (!customerName) return _ctx.showToast("กรอกชื่อลูกค้า");
   if (!_lineItems.length) return _ctx.showToast("เพิ่มรายการสินค้าอย่างน้อย 1 รายการ");
+  // ★ Phase 628B: ต้องมีสินค้าจริง ≥ 1 — มีแต่หัวข้อ = ห้ามบันทึก (อยู่ก่อน inflight → ไม่มี write ใด ๆ)
+  if (countableDocumentItems(_lineItems) === 0) return _ctx.showToast("ต้องมีรายการสินค้าอย่างน้อย 1 รายการ — มีแต่หัวข้อบันทึกไม่ได้");
 
   // ★ Phase 576: รายการเดิมโหลดไม่สำเร็จ (ฟอร์มเปิดมาว่าง/ไม่ครบเพราะโหลดพัง) → ห้ามบันทึกทับ
   //   edit path ข้างล่าง DELETE quotation_items ทั้งใบก่อน insert จากฟอร์ม — ถ้าปล่อยผ่าน = รายการเดิมหายถาวรแบบเงียบ
@@ -923,7 +973,7 @@ async function saveQuotationFull() {
   if (_saveBtn) _saveBtn.disabled = true;
 
   try {
-    const subtotal   = _lineItems.reduce((s, i) => s + Number(i.line_total || 0), 0);
+    const subtotal   = sumDocumentLineTotals(_lineItems);   // Phase 628B: หัวข้อไม่นับยอด
     const discPct    = Number(document.getElementById("qt_discPct")?.value || 0);
     const discAmount = subtotal * (discPct / 100);
     const afterDisc  = subtotal - discAmount;
@@ -990,12 +1040,14 @@ async function saveQuotationFull() {
     const failedItems = [];
     if (quotationId && _lineItems.length) {
       for (let i = 0; i < _lineItems.length; i++) {
-        const li = _lineItems[i];
+        // Phase 628B: allowlist เดิม + item_type (ห้าม spread แถว — air draft มี _source/_serviceJobId ภายใน)
+        //   heading ผ่าน normalizer → product_id null + เลขศูนย์ ก่อนเขียนเสมอ
+        const li = normalizeDocumentItem(_lineItems[i]);
         const ir = await xhrPost("quotation_items", {
           quotation_id: quotationId, product_id: li.product_id || null,
           item_name: li.item_name, qty: li.qty, unit: li.unit || "ชิ้น",
           unit_price: li.unit_price, discount_pct: li.discount_pct || 0,
-          line_total: li.line_total, sort_order: i + 1
+          line_total: li.line_total, item_type: li.item_type, sort_order: i + 1
         });
         if (!ir?.ok) failedItems.push(li.item_name || ("#" + (i + 1)));
       }
@@ -1047,8 +1099,8 @@ async function openEditForm(q) {
       product_id: i.product_id, item_name: i.item_name || "",
       qty: Number(i.qty||1), unit: i.unit || "ชิ้น",
       unit_price: Number(i.unit_price||0), discount_pct: Number(i.discount_pct||0),
-      line_total: Number(i.line_total||0)
-    }));
+      line_total: Number(i.line_total||0), item_type: i.item_type
+    })).map(normalizeDocumentItem);   // Phase 628B: heading คงชนิด+เลขศูนย์ (ห้ามกลับเป็น item/qty 1 ตอน re-save)
     _lineItemsLoadFailed = false;
   } catch (e) {
     // ★ Phase 576: เลิกเงียบ — ฟอร์มที่เปิดมาว่างเพราะโหลดพัง ถ้า user กดบันทึก = DELETE รายการทั้งใบ
@@ -1078,8 +1130,8 @@ async function openPreview(q) {
       product_id: i.product_id, item_name: i.item_name || "",
       qty: Number(i.qty||1), unit: i.unit || "ชิ้น",
       unit_price: Number(i.unit_price||0), discount_pct: Number(i.discount_pct||0),
-      line_total: Number(i.line_total||0)
-    }));
+      line_total: Number(i.line_total||0), item_type: i.item_type
+    })).map(normalizeDocumentItem);   // Phase 628B: heading คงชนิด+เลขศูนย์ · ค่าอื่น = item เดิม
     _lineItemsLoadFailed = false;
   } catch (e) {
     // ★ Phase 576: โหลดล้ม → ยกเลิกการเปิด preview ไปเลย (เอกสาร 0 รายการห้ามโชว์/พิมพ์/ส่งลูกค้า) + แจ้งจริง
@@ -1194,7 +1246,9 @@ function renderQuotationPreview(container) {
               <th class="qt" style="width:95px">ยอดรวม</th>
             </tr></thead>
             <tbody>
-              ${_lineItems.length ? _lineItems.map((item) => '<tr>'
+              ${_lineItems.length ? _lineItems.map((item) => item.item_type === "heading"
+                ? '<tr class="doc-heading-row"><td colspan="5">'+escHtml(item.item_name)+'</td></tr>'
+                : '<tr class="doc-item-row">'
                 +'<td style="text-align:left">'+escHtml(item.item_name)+'</td>'
                 +'<td style="text-align:center">'+num(item.qty)+'</td>'
                 +'<td style="text-align:center">'+escHtml(item.unit||'ชิ้น')+'</td>'
@@ -1398,8 +1452,8 @@ async function convertToDeliveryInvoice(q) {
           product_id: i.product_id, item_name: i.item_name || "",
           qty: Number(i.qty||1), unit: i.unit || "ชิ้น",
           unit_price: Number(i.unit_price||0), discount_pct: Number(i.discount_pct||0),
-          line_total: Number(i.line_total||0)
-        }));
+          line_total: Number(i.line_total||0), item_type: i.item_type
+        })).map(normalizeDocumentItem);   // Phase 628B: heading คงชนิด+เลขศูนย์ ไปถึงใบส่งสินค้า
         _lineItemsLoadFailed = false;
       } catch(e) {
         // ★ Phase 576: โหลดล้ม → ยกเลิกการแปลงไปเลย (เดิมไหลต่อ = สร้างใบส่งสินค้า 0 รายการ) + แจ้งจริง
@@ -1410,6 +1464,13 @@ async function convertToDeliveryInvoice(q) {
         _ctx.showToast("⚠️ โหลดรายการสินค้าไม่สำเร็จ — ยกเลิกการสร้างใบส่งสินค้า ลองใหม่อีกครั้ง");
         return;   // finally ปลด _qtConvertInflight ให้เสมอ
       }
+    }
+
+    // ★ Phase 628B: ต้องมีสินค้าจริง ≥ 1 ก่อนเขียนใบส่งสินค้า (ว่าง/มีแต่หัวข้อ = ไม่มี write ใด ๆ)
+    //   ใช้ source เดิม (_lineItems ที่มีอยู่ หรือที่เพิ่งโหลดด้านบน) — ไม่บังคับ fetch ใหม่
+    if (countableDocumentItems(_lineItems) === 0) {
+      _ctx.showToast("ใบเสนอราคานี้ไม่มีรายการสินค้า (ว่างหรือมีแต่หัวข้อ) — ยังไม่สร้างใบส่งสินค้า");
+      return;   // finally ปลด _qtConvertInflight ให้เสมอ
     }
 
     const xhrPost = window._appXhrPost;
@@ -1446,12 +1507,13 @@ async function convertToDeliveryInvoice(q) {
     const failedItems = [];
     if (invoiceId && _lineItems.length) {
       for (let i = 0; i < _lineItems.length; i++) {
-        const li = _lineItems[i];
+        // Phase 628B: allowlist เดิม + item_type · heading ผ่าน normalizer (product_id null + เลขศูนย์) ก่อนเขียน
+        const li = normalizeDocumentItem(_lineItems[i]);
         const ir = await xhrPost("delivery_invoice_items", {
           delivery_invoice_id: invoiceId, product_id: li.product_id || null,
           item_name: li.item_name, qty: li.qty, unit: li.unit || "ชิ้น",
           unit_price: li.unit_price, discount_pct: li.discount_pct || 0,
-          line_total: li.line_total, sort_order: i + 1
+          line_total: li.line_total, item_type: li.item_type, sort_order: i + 1
         });
         if (!ir?.ok) failedItems.push(li.item_name || ("#" + (i + 1)));
       }

@@ -5,6 +5,9 @@
 
 รูปแบบ: `<commit> feat|fix|docs|refactor: <สรุปสั้น>` + bullet 1-2 ข้อถ้าจำเป็น
 
+- Phase 628B feat(documents): **แถวหัวข้อ (`item_type = heading`) ใช้งานจริงใน ใบเสนอราคา → ใบส่งสินค้า → ใบเสร็จ** (build 628 / v5.69.95 · local commit · รอ independent review)
+  - +`modules/doc_items.js` (pure helper เดียว) · ฟอร์ม: "+ เพิ่มหัวข้อ" + ปุ่มขึ้น/ลงทุกแถว · loader 8 เส้นเก็บชนิด (หัวข้อ qty 0 ไม่กลายเป็น 1) · writer 3 จุดเขียน `item_type` ชัด ๆ ทุกแถวตามลำดับ · ยอด/การนับไม่รวมหัวข้อ · ใบว่าง/มีแต่หัวข้อ = บันทึก/แปลงไม่ได้ (0 write) · preview/print/PDF/สลิป Bluetooth แสดงหัวข้อเป็นข้อความล้วน · ลายสลับนับเฉพาะสินค้า · หัวข้อไม่ค้างท้ายแผ่น
+  - REST gate owner-measured 2026-09-23T16:39:39.846Z: 3 ตาราง HTTP 200 + array (SELECT เท่านั้น) · +unit 44 + e2e 17 · baseline RED 38/44 · 16/17 · mutation behavioral 41/41 · lint 0 · unit 3438/3438 · e2e 133/133 · ไม่มี SQL · 🔴 ทุกเครื่องต้อง build 628 ก่อนใช้หัวข้อ · STOP `READY-FOR-INDEPENDENT-PHASE-628B-REVIEW`
 - Phase 629 fix(security): **escape หน่วย (`unit`) ของรายการเอกสาร — ปิด stored XSS ในฟอร์มใบเสนอราคา + preview ใบเสนอราคา/ใบส่งสินค้า/ใบเสร็จ** (build 627 / v5.69.94 · local commit · รอ independent review)
   - เดิม `item.unit` ถูกเขียนลง HTML ดิบ 4 จุด: ฟอร์ม `value="…"` (attribute breakout → autofocus/onfocus) และ preview `<td>` (`<img onerror>` เป็น element จริง และไหลต่อไป print/PDF/share). แก้: ครอบ `escHtml` กลางจาก utils.js ทั้ง 4 จุด — fallback 'ชิ้น' คงเดิม · หน่วยปกติ output byte เดิม
   - +tests/phase629_document_unit_xss.test.js (unit 37 · รันแถวจริงของโมดูลใน node:vm) + tests/e2e/phase629_document_unit_xss.spec.js (Chromium 20). Baseline RED unit 19/37 · e2e 5/20; mutation behavioral 6/6 RED (crash 0). lint 0 errors · unit 3394/3394 · e2e 116/116. ไม่มี SQL · ไม่แตะ item_type/ยอดเงิน/payload/สต็อก/CSP/SW strategy. STOP `READY-FOR-INDEPENDENT-PHASE-629-REVIEW`

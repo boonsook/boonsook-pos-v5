@@ -80,7 +80,11 @@ body { margin: 0; padding: 0; background: #fff; font-family: "Sarabun","Noto San
 .doc-table th.re  { background: #10b981; }
 .doc-table th:not(.qt):not(.inv):not(.re) { background: #64748b; }
 .doc-table td { padding: 6px 7px; border: 1px solid #e2e8f0; vertical-align: top; }
-.doc-table tbody tr:nth-child(even) td { background: #f8fafc; }
+/* Phase 628B: ลายสลับนับเฉพาะแถวสินค้า (.doc-item-row) — แถวหัวข้อไม่ถูกนับ (tr:nth-child(even) เดิมนับหัวข้อด้วย ลายเลยสลับผิด)
+   แถวหัวข้อ = ข้อความเต็มแถว ตัวหนา และห้ามค้างท้ายแผ่นแยกจากรายการถัดไป */
+.doc-table tbody tr.doc-item-row:nth-child(even of .doc-item-row) td { background: #f8fafc; }
+.doc-table tbody tr.doc-heading-row td { background: #eef2f7; font-weight: 800; color: #0f172a; text-align: left; }
+.doc-table tbody tr.doc-heading-row { break-after: avoid; page-break-after: avoid; }
 
 /* Baht text */
 .doc-baht-text { font-size: 11.5px; font-weight: 600; color: #64748b; margin: 6px 0 2px; }

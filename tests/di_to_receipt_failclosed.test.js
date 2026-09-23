@@ -15,6 +15,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
+// Phase 628B: convertToReceipt เรียก helper จาก modules/doc_items.js — inject export จริงเข้า vm (ห้าม stub)
+import * as DOC_ITEMS from "../modules/doc_items.js";
 
 const MODULE_PATH = new URL("../modules/delivery_invoices.js", import.meta.url);
 const MODULE_SRC = readFileSync(MODULE_PATH, "utf8");
@@ -183,6 +185,7 @@ function expectedItemPayload(row, index, receiptId = RECEIPT_ID) {
     discount_pct: Number(row.discount_pct || 0),
     line_total: Number(row.line_total || 0),
     sort_order: index + 1,
+    item_type: "item",   // Phase 628B: payload ทุกแถวส่งชนิดชัด ๆ — literal (oracle ไม่เรียก normalizer ของ production)
   };
 }
 
@@ -230,6 +233,7 @@ async function runConvert(options = {}, code = SOURCE) {
   const record = (entry) => { ledger.push(entry); return entry; };
 
   const sandbox = {
+    ...DOC_ITEMS,
     _diConvertInflight: false,
     _lineItems: lineItems.slice(),
     _viewMode: "preview",
