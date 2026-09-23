@@ -848,7 +848,7 @@ function renderReceiptPreview(container) {
               ${_lineItems.length ? _lineItems.map((item) => '<tr>'
                 +'<td style="text-align:left">'+escHtml(item.item_name)+'</td>'
                 +'<td style="text-align:center">'+num(item.qty)+'</td>'
-                +'<td style="text-align:center">'+(item.unit||'ชิ้น')+'</td>'
+                +'<td style="text-align:center">'+escHtml(item.unit||'ชิ้น')+'</td>'
                 +'<td style="text-align:right">'+num(item.unit_price)+'</td>'
                 +'<td style="text-align:right">'+num(item.line_total)+'</td>'
                 +'</tr>').join('') : '<tr><td colspan="5" style="text-align:center;color:#999;padding:20px">ไม่มีรายการ</td></tr>'}

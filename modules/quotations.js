@@ -661,7 +661,7 @@ function renderQuotationForm(container) {
                   <input class="qt-li-name" data-idx="${idx}" value="${escHtml(item.item_name)}" style="width:100%;border:none;padding:4px 0;font-size:13px;background:transparent" />
                 </td>
                 <td><input class="qt-li-qty" data-idx="${idx}" type="number" inputmode="decimal" value="${item.qty}" style="width:60px;text-align:center;padding:4px;font-size:13px" /></td>
-                <td><input class="qt-li-unit" data-idx="${idx}" value="${item.unit||'ชิ้น'}" style="width:48px;text-align:center;padding:4px;font-size:12px" /></td>
+                <td><input class="qt-li-unit" data-idx="${idx}" value="${escHtml(item.unit||'ชิ้น')}" style="width:48px;text-align:center;padding:4px;font-size:12px" /></td>
                 <td><input class="qt-li-price" data-idx="${idx}" type="number" inputmode="decimal" value="${item.unit_price}" style="width:90px;text-align:right;padding:4px;font-size:13px" /></td>
                 <td><input class="qt-li-disc" data-idx="${idx}" type="number" inputmode="decimal" value="${item.discount_pct||0}" style="width:55px;text-align:center;padding:4px;font-size:13px" /></td>
                 <td style="text-align:right;font-weight:700;font-size:13px">${num(item.line_total)}</td>
@@ -1197,7 +1197,7 @@ function renderQuotationPreview(container) {
               ${_lineItems.length ? _lineItems.map((item) => '<tr>'
                 +'<td style="text-align:left">'+escHtml(item.item_name)+'</td>'
                 +'<td style="text-align:center">'+num(item.qty)+'</td>'
-                +'<td style="text-align:center">'+(item.unit||'ชิ้น')+'</td>'
+                +'<td style="text-align:center">'+escHtml(item.unit||'ชิ้น')+'</td>'
                 +'<td style="text-align:right">'+num(item.unit_price)+'</td>'
                 +'<td style="text-align:right">'+num(item.line_total)+'</td>'
                 +'</tr>').join('') : '<tr><td colspan="5" style="text-align:center;color:#999;padding:20px">ไม่มีรายการ</td></tr>'}
