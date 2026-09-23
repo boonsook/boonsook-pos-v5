@@ -5,6 +5,9 @@
 
 รูปแบบ: `<commit> feat|fix|docs|refactor: <สรุปสั้น>` + bullet 1-2 ข้อถ้าจำเป็น
 
+- Phase 629 fix(security): **escape หน่วย (`unit`) ของรายการเอกสาร — ปิด stored XSS ในฟอร์มใบเสนอราคา + preview ใบเสนอราคา/ใบส่งสินค้า/ใบเสร็จ** (build 627 / v5.69.94 · local commit · รอ independent review)
+  - เดิม `item.unit` ถูกเขียนลง HTML ดิบ 4 จุด: ฟอร์ม `value="…"` (attribute breakout → autofocus/onfocus) และ preview `<td>` (`<img onerror>` เป็น element จริง และไหลต่อไป print/PDF/share). แก้: ครอบ `escHtml` กลางจาก utils.js ทั้ง 4 จุด — fallback 'ชิ้น' คงเดิม · หน่วยปกติ output byte เดิม
+  - +tests/phase629_document_unit_xss.test.js (unit 37 · รันแถวจริงของโมดูลใน node:vm) + tests/e2e/phase629_document_unit_xss.spec.js (Chromium 20). Baseline RED unit 19/37 · e2e 5/20; mutation behavioral 6/6 RED (crash 0). lint 0 errors · unit 3394/3394 · e2e 116/116. ไม่มี SQL · ไม่แตะ item_type/ยอดเงิน/payload/สต็อก/CSP/SW strategy. STOP `READY-FOR-INDEPENDENT-PHASE-629-REVIEW`
 - Phase 628A-CLOSEOUT docs(db): **บันทึก production apply ของ Phase 628A** (docs only · build 626 / v5.69.93 ไม่ bump · ไม่มี SQL/runtime)
   - owner รัน migration (SHA-256 `7172b79d…5cc7`) บน production 2026-09-23 ครั้งเดียว ไม่มี retry (owner-reported) · xid 31587 · quotation 136/136 · delivery invoice 111/111 · receipt 95/95 เป็น item · heading 0 · invalid 0 · canonical CHECK 3 ตัวเท่านั้น · text / NOT NULL / default item / `atthasmissing=false` · ไม่มี trigger/function/policy/view อ้าง `item_type` · `pg_stat_statements` calls=1 → ledger [`DB_MIGRATIONS_APPLIED.md`](DB_MIGRATIONS_APPLIED.md)
   - หลักฐาน owner-measured → independent post-run reviewer: `READY-FOR-OWNER-PHASE-628B-AUTHORIZATION` (ไม่ใช่การอนุมัติ). ข้อความเดิม "SQL ยังไม่ apply" / "PostgreSQL parser/live execution: NOT RUN" = SUPERSEDED. Phase 628B ผ่าน prerequisite gate แต่ runtime ยังไม่เริ่ม. STOP `READY-FOR-INDEPENDENT-PHASE-628A-CLOSEOUT-REVIEW`
