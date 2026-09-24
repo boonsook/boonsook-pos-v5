@@ -14,6 +14,8 @@
 // ═══════════════════════════════════════════════════════════
 
 import { money, formatNumber, formatDateTime } from "./utils.js";
+// Phase 628B: แถวหัวข้อ (item_type) ของใบเสร็จ — normalizer กลาง (pure)
+import { normalizeItemType } from "./doc_items.js";
 
 // Common BLE thermal-printer service UUIDs (generic slip printers + 000018f0 generic printer)
 // ★ Phase 586: fee7 = PeriPage (A9/A9MAX ฯลฯ) — วางต้น list เพื่อให้ match ก่อน
@@ -312,7 +314,9 @@ function normalizeReceipt(rc) {
     const qty = Number(it.qty || 1);
     const price = Number(it.unit_price ?? it.price ?? 0);
     const lineTotal = Number(it.line_total ?? (qty * price));
-    return { name: it.product_name || it.item_name || it.name || "", qty, price, lineTotal };
+    // Phase 628B: เก็บชนิดแถว (canonical) — POS/แถวเก่าที่ไม่มี item_type = item เหมือนเดิม
+    const itemType = normalizeItemType(it.item_type);
+    return { name: it.product_name || it.item_name || it.name || "", qty, price, lineTotal, itemType };
   });
   const total = Number(rc.total_amount ?? rc.grand_total ?? 0);
   const grandTotal = Number(rc.grand_total ?? rc.total_amount ?? 0);
@@ -375,6 +379,11 @@ export function renderReceiptCanvas(receipt, store) {
   row("รายการ", "รวม", { bold: true });
   rule();
   for (const it of rc.items) {
+    // Phase 628B: หัวข้อ = ข้อความบรรทัดเดียวตัวหนา ชิดซ้าย — ไม่มียอดด้านขวา ไม่มีบรรทัด qty x ราคา
+    if (it.itemType === "heading") {
+      left(clip(it.name.replace(/\s+/g, " ").trim(), 30), { size: 18, bold: true, lh: 26 });
+      continue;
+    }
     row(clip(it.name, 24), money(it.lineTotal));
     left("   " + formatNumber(it.qty) + " x " + money(it.price));
   }

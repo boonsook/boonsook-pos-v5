@@ -6,6 +6,8 @@ import { renderEmpty, renderSkeleton } from "./ui_states.js";
 // Phase 57: audit log + Phase 70 (D3): Excel export
 import { logActivity, exportToExcel, todaySuffix, todayBkk, addDaysBkk, dateBkk, escHtml } from "./utils.js";
 import { renderDocumentTemplateHeader, renderDocumentTemplateNote, renderDocumentTemplateFooter } from "./doc-utils.js";
+// Phase 628B: ชนิดแถวรายการ (item | heading) — helper กลางตัวเดียว (pure)
+import { normalizeDocumentItem } from "./doc_items.js";
 // Phase 88.1b: auto-post JV หลังรับชำระลูกหนี้
 import { postJournalForReceipt, voidJvForSource } from "./accounting/auto_post.js";
 // Phase 89.42: single-flight guard for multi-payment save (prevent double-click race)
@@ -617,8 +619,8 @@ export function renderReceiptsPage(ctx) {
         _lineItems = ((await resp.json()) || []).map(i => ({
           item_name: i.item_name || "", qty: Number(i.qty||1), unit: i.unit || "ชิ้น",
           unit_price: Number(i.unit_price||0), discount_pct: Number(i.discount_pct||0),
-          line_total: Number(i.line_total||0)
-        }));
+          line_total: Number(i.line_total||0), item_type: i.item_type
+        })).map(normalizeDocumentItem);   // Phase 628B: heading คงชนิด+เลขศูนย์ (preview + สลิป Bluetooth ใช้ชุดเดียวกัน)
       } catch(e) { _lineItems = []; }
       renderReceiptsPage(ctx);
     }
@@ -845,7 +847,9 @@ function renderReceiptPreview(container) {
               <th style="width:95px">ยอดรวม</th>
             </tr></thead>
             <tbody>
-              ${_lineItems.length ? _lineItems.map((item) => '<tr>'
+              ${_lineItems.length ? _lineItems.map((item) => item.item_type === "heading"
+                ? '<tr class="doc-heading-row"><td colspan="5">'+escHtml(item.item_name)+'</td></tr>'
+                : '<tr class="doc-item-row">'
                 +'<td style="text-align:left">'+escHtml(item.item_name)+'</td>'
                 +'<td style="text-align:center">'+num(item.qty)+'</td>'
                 +'<td style="text-align:center">'+escHtml(item.unit||'ชิ้น')+'</td>'

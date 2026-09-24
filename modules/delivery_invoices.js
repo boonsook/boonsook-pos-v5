@@ -6,6 +6,8 @@ import { renderEmpty, renderSkeleton } from "./ui_states.js";
 // Phase 57: audit log + Phase 70 (D3): Excel export
 import { logActivity, exportToExcel, todaySuffix, escHtml } from "./utils.js";
 import { renderDocumentTemplateHeader, renderDocumentTemplateNote, renderDocumentTemplateFooter } from "./doc-utils.js";
+// Phase 628B: ชนิดแถวรายการ (item | heading) — helper กลางตัวเดียว (pure)
+import { normalizeDocumentItem, countableDocumentItems } from "./doc_items.js";
 // Phase 89.1: void JV ตอน cancel (กัน double-revenue ใน P&L)
 import { voidJvForSource } from "./accounting/auto_post.js";
 // Phase 544: single-flight guard กัน double-click ตอนตัดสต็อกภายใน
@@ -211,8 +213,8 @@ export function renderDeliveryInvoicesPage(ctx) {
         _lineItems = ((await resp.json()) || []).map(i => ({
           item_name: i.item_name || "", qty: Number(i.qty||1), unit: i.unit || "ชิ้น",
           unit_price: Number(i.unit_price||0), discount_pct: Number(i.discount_pct||0),
-          line_total: Number(i.line_total||0)
-        }));
+          line_total: Number(i.line_total||0), item_type: i.item_type
+        })).map(normalizeDocumentItem);   // Phase 628B: heading คงชนิด+เลขศูนย์ · ค่าอื่น = item เดิม
       } catch(e) { _lineItems = []; }
       renderDeliveryInvoicesPage(ctx);
     })();
@@ -523,8 +525,8 @@ export function renderDeliveryInvoicesPage(ctx) {
         _lineItems = ((await resp.json()) || []).map(i => ({
           item_name: i.item_name || "", qty: Number(i.qty||1), unit: i.unit || "ชิ้น",
           unit_price: Number(i.unit_price||0), discount_pct: Number(i.discount_pct||0),
-          line_total: Number(i.line_total||0)
-        }));
+          line_total: Number(i.line_total||0), item_type: i.item_type
+        })).map(normalizeDocumentItem);   // Phase 628B: heading คงชนิด+เลขศูนย์ · ค่าอื่น = item เดิม
       } catch(e) { _lineItems = []; }
       renderDeliveryInvoicesPage(ctx);
     }
@@ -684,7 +686,9 @@ function renderInvoicePreview(container) {
               <th style="width:95px">ยอดรวม</th>
             </tr></thead>
             <tbody>
-              ${_lineItems.length ? _lineItems.map((item) => '<tr>'
+              ${_lineItems.length ? _lineItems.map((item) => item.item_type === "heading"
+                ? '<tr class="doc-heading-row"><td colspan="5">'+escHtml(item.item_name)+'</td></tr>'
+                : '<tr class="doc-item-row">'
                 +'<td style="text-align:left">'+escHtml(item.item_name)+'</td>'
                 +'<td style="text-align:center">'+num(item.qty)+'</td>'
                 +'<td style="text-align:center">'+escHtml(item.unit||'ชิ้น')+'</td>'
@@ -983,8 +987,8 @@ async function convertToReceipt(inv) {
         product_id: i.product_id, item_name: i.item_name || "",
         qty: Number(i.qty||1), unit: i.unit || "ชิ้น",
         unit_price: Number(i.unit_price||0), discount_pct: Number(i.discount_pct||0),
-        line_total: Number(i.line_total||0)
-      }));
+        line_total: Number(i.line_total||0), item_type: i.item_type
+      })).map(normalizeDocumentItem);   // Phase 628B: heading คงชนิด+เลขศูนย์ ไปถึงใบเสร็จ
     } catch(e) {
       console.warn("[delivery_invoices convert] item load failed:", e);
       window.App?.showToast?.("โหลดรายการสินค้าไม่สำเร็จ — ยังไม่สร้างใบเสร็จ กรุณาลองใหม่");
@@ -993,6 +997,11 @@ async function convertToReceipt(inv) {
     // ★ Phase 626 (owner ruling R1): โหลดสำเร็จแต่ 0 แถว = เอกสารต้นทางผิด → บล็อก ไม่มี confirm override
     if (sourceItems.length === 0) {
       window.App?.showToast?.("ไม่พบรายการในใบส่งสินค้า จึงยังออกใบเสร็จไม่ได้ — กรุณาตรวจเอกสารต้นทาง");
+      return;
+    }
+    // ★ Phase 628B: มีแถวแต่เป็นหัวข้อทั้งหมด = ไม่มีสินค้าให้ออกใบเสร็จ → บล็อกก่อน write ใด ๆ (ไม่มี override)
+    if (countableDocumentItems(sourceItems) === 0) {
+      window.App?.showToast?.("ใบส่งสินค้านี้มีแต่หัวข้อ ไม่มีรายการสินค้า จึงยังออกใบเสร็จไม่ได้ — กรุณาตรวจเอกสารต้นทาง");
       return;
     }
 
@@ -1051,11 +1060,12 @@ async function convertToReceipt(inv) {
     const failedItems = [];
     for (let i = 0; i < sourceItems.length; i++) {
       const li = sourceItems[i];
+      // Phase 628B: allowlist เดิม + item_type ชัด ๆ ทุกแถว (sourceItems ผ่าน normalizer ตอนโหลดแล้ว — ไม่พึ่ง DB default)
       const ir = await xhrPost("receipt_items", {
         receipt_id: receiptId, product_id: li.product_id || null,
         item_name: li.item_name, qty: li.qty, unit: li.unit || "ชิ้น",
         unit_price: li.unit_price, discount_pct: li.discount_pct || 0,
-        line_total: li.line_total, sort_order: i + 1
+        line_total: li.line_total, item_type: li.item_type, sort_order: i + 1
       });
       if (!ir?.ok) failedItems.push(li.item_name || ("#" + (i + 1)));
     }
