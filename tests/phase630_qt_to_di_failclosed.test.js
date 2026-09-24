@@ -510,6 +510,46 @@ S["S10 DB ว่าง / มีแต่หัวข้อ → NO_ITEMS · 0 wri
     assert.deepEqual(r.ledger, [GET_DUP(), CONFIRM, GET_ITEMS(), TOAST(MSG.NO_ITEMS)], `S10(${body.length})`);
   }
 };
+// rev2 (independent review P1): array อย่างเดียวไม่พอ — แถวที่ไม่ใช่ quotation_items จริงห้ามถูก map
+//   rev1: [{}] → สินค้า item_name "" qty 1 ถูกเขียนจริง + PATCH ใบเสนอราคา (fail OPEN)
+//   แถวจริงจาก PostgREST (ไม่มี select=) มีทุกคอลัมน์เสมอแม้ค่าเป็น null → ขาดคอลัมน์ที่ mapper อ่าน = ไม่ใช่แถวจริง
+const without = (row, key) => { const { [key]: _drop, ...rest } = row; return rest; };
+const ITEM_ROW = SERVER_ROWS[1];
+const BAD_ITEM_ROWS = [
+  ["row = {}", [{}]],
+  ["row = []", [[]]],
+  ["row = string", ["x"]],
+  ["row = number", [7]],
+  ["row = boolean", [true]],
+  ["row = error object", [{ code: "PGRST000", message: "boom" }]],
+  ["ขาดคอลัมน์ item_name", [without(ITEM_ROW, "item_name")]],
+  ["ขาดคอลัมน์ qty", [without(ITEM_ROW, "qty")]],
+  ["ขาดคอลัมน์ line_total", [without(ITEM_ROW, "line_total")]],
+  ["mixed: valid + {}", [ITEM_ROW, {}]],
+  ["mixed: {} + valid", [{}, ITEM_ROW]],
+  ["mixed: valid + []", [ITEM_ROW, []]],
+  ["mixed: valid + string", [ITEM_ROW, "x"]],
+  ["mixed: valid + null", [ITEM_ROW, null]],
+  ["mixed: heading + ขาดคอลัมน์ unit_price", [SERVER_ROWS[0], without(ITEM_ROW, "unit_price")]],
+];
+S["S11 item row รูปแบบผิด (validate ทุกแถวก่อน map) → ITEM_FAIL · confirm ผ่านแล้ว · 0 write"] = async (code) => {
+  for (const [label, body] of BAD_ITEM_ROWS) {
+    const r = await runConvert({ items: { body } }, code);
+    assertNoWrites(r, `S11(${label})`);
+    assert.deepEqual(r.ledger, [GET_DUP(), CONFIRM, GET_ITEMS(), TOAST(MSG.ITEM_FAIL)], `S11(${label}): ต้องเป็น ITEM_FAIL เท่านั้น`);
+    assert.equal(r.confirmCalls, 1, `S11(${label}): confirm ผ่านแล้วก่อนรู้ว่ารายการพัง — ยังต้อง write 0`);
+    assert.equal(r.logs.error.length, 1, `S11(${label}): ต้อง log`);
+  }
+};
+S["S12 แถวจริงที่ค่าเป็น null ครบทุกคอลัมน์ยังผ่าน (validation ดูแค่ว่ามีคอลัมน์ ไม่ตัดแถว legacy)"] = async (code) => {
+  const legacy = { id: 9, quotation_id: 900, product_id: null, item_name: null, qty: null, unit: null, unit_price: null, discount_pct: null, line_total: null, sort_order: null };
+  const r = await runConvert({ items: { body: [legacy] } }, code);
+  assert.equal(r.thrown, undefined);
+  assert.deepEqual(r.itemPosts.map((p) => p.payload), [
+    { delivery_invoice_id: INV_ID, product_id: null, item_name: "", qty: 1, unit: "ชิ้น", unit_price: 0, discount_pct: 0, line_total: 0, item_type: "item", sort_order: 1 },
+  ], "S12: mapper/normalizer เดิมทุก fallback");
+  assert.equal(r.msgs.at(-1), okToast(SERVER_NO));
+};
 
 // ── §5.3 header ──
 S["H1 header ok:false → error toast · ไม่มี write ต่อ"] = async (code) => {
@@ -821,11 +861,25 @@ const MUTANTS = [
     to: "line_total: li.line_total, sort_order",
     killer: "P1 สำเร็จเต็ม: ledger exact · header เงินเดิม · item ทุก field + item_type + sort_order",
   },
+  {
+    id: "MUT-21", why: "rev2: ถอด item-row validation ทั้ง loop (กลับไป map แถว {} เป็นสินค้า)",
+    from: /^ {6}for \(const row of rows\) \{\n[\s\S]*?^ {6}\}\n/m,
+    to: "",
+    killer: "S11 item row รูปแบบผิด (validate ทุกแถวก่อน map) → ITEM_FAIL · confirm ผ่านแล้ว · 0 write",
+  },
+  {
+    id: "MUT-22", why: "rev2: ถอดเฉพาะ column-presence check (เหลือ object check)",
+    from: '          if (!Object.prototype.hasOwnProperty.call(row, col)) throw new Error("item row ไม่มีคอลัมน์ " + col);\n',
+    to: "",
+    killer: "S11 item row รูปแบบผิด (validate ทุกแถวก่อน map) → ITEM_FAIL · confirm ผ่านแล้ว · 0 write",
+  },
 ];
 // Equivalent mutants (ไม่นับคะแนน · ไม่อยู่ใน matrix): ถอด `row === null` / `Array.isArray(row)` /
 //   `typeof row !== "object"` ทีละตัว — แถวแบบนั้นยังตกที่ status check (undefined.status → TypeError หรือ
 //   status ไม่ใช่ string ที่ไม่ว่าง) แล้วเข้า catch เดิม = toast/ledger เหมือนเดิมทุกกรณีที่ JSON สร้างได้.
 //   คง object check ไว้เพราะเป็นสัญญาใน prompt §5.1 (plain object ไม่ใช่ null/array) และอ่านตรงกว่า
+//   rev2 item rows: ถอด object check ของแถวรายการก็ equivalent แบบเดียวกัน — hasOwnProperty ของ primitive/array
+//   ไม่มีคอลัมน์ (throw) และของ null โยน TypeError → catch เดิม. คงไว้เพื่อสัญญา "plain object"
 
 function applyOnce(code, { from, to }, id) {
   if (from instanceof RegExp) {

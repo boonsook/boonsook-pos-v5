@@ -211,6 +211,28 @@ for (const [label, viewport] of [["mobile 390x844", { width: 390, height: 844 }]
         expectNoWrites(ledger, entry);
       });
 
+      // rev2 (independent review P1): แถวที่ไม่ใช่ quotation_items จริงห้ามถูก map เป็นสินค้า "" qty 1
+      test(`${entry}: แถวรายการรูปแบบผิด ([{}] · [[]] · ["x"] · valid + malformed) → confirm ผ่านแล้วแต่ไม่มี write`, async ({ page }) => {
+        await boot(page, viewport);
+        await ENTRIES[entry].prepare(page);
+        const valid = ROWS_V2[1];
+        const { qty: _qty, ...missingQty } = valid;
+        for (const [plabel, body] of [
+          ["[{}]", [{}]],
+          ["[[]]", [[]]],
+          ['["x"]', ["x"]],
+          ["valid + {}", [valid, {}]],
+          ["valid + []", [valid, []]],
+          ["valid + ขาดคอลัมน์ qty", [valid, missingQty]],
+        ]) {
+          await setPlan(page, { items: { status: 200, body } });
+          const { ledger, toasts } = await trigger(page, entry);
+          expectNoWrites(ledger, `${entry} ${plabel}`);
+          expect(toasts, plabel).toEqual([MSG.ITEM_FAIL]);
+          expect(ledger.filter((e) => e.m === "CONFIRM").length, `${plabel}: confirm ผ่านแล้วก่อนโหลดรายการ`).toBe(1);
+        }
+      });
+
       test(`${entry}: ใช้แถว DB ล่าสุดของ q.id เท่านั้น (ฟอร์มที่ยังไม่บันทึก / preview cache ถูก ignore)`, async ({ page }) => {
         await boot(page, viewport);
         await ENTRIES[entry].prepare(page);
