@@ -1418,6 +1418,9 @@ async function convertToDeliveryInvoice(q) {
   _qtConvertInflight = true;
   try {
     // ★ ป้องกันสร้างซ้ำ — เช็คว่ามีใบส่งสินค้าจาก quotation นี้อยู่แล้วไหม
+    // ★ Phase 630 — ผล lookup ต้อง "พิสูจน์ได้" ก่อนเดินต่อ (fail closed · behavior เดียวกับ Phase 626 DI→RC):
+    //   HTTP ไม่ ok / network error / JSON พัง / ไม่ใช่ array / แถวจำแนกไม่ได้ → หยุด ห้าม fallback ไป confirm
+    //   (เดิม .json().catch(() => []) + catch → confirm: lookup ล้มเมื่อไร ก็ออกใบส่งสินค้าซ้ำทับใบ active เดิมได้)
     try {
       const cfg = window.SUPABASE_CONFIG;
       const token = window._sbAccessToken || cfg.anonKey;
@@ -1425,50 +1428,60 @@ async function convertToDeliveryInvoice(q) {
         cfg.url + "/rest/v1/delivery_invoices?quotation_id=eq." + q.id + "&select=inv_no,status",
         { headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token } }
       );
-      const existing = await chkResp.json().catch(() => []);
-      const active = Array.isArray(existing) ? existing.filter(d => d.status !== "cancelled") : [];
+      if (!chkResp.ok) throw new Error("HTTP " + chkResp.status);
+      const existing = await chkResp.json();
+      if (!Array.isArray(existing)) throw new Error("duplicate lookup payload ไม่ใช่ array");
+      //   validate "ทุกแถว" ก่อน filter — แถวที่ไม่ใช่ plain object หรือไม่มี status เป็น string ที่ไม่ว่าง
+      //   = พิสูจน์สถานะไม่ได้ (ห้ามทิ้งเงียบ / ห้ามนับเป็น active) → uncertainty
+      for (const row of existing) {
+        if (typeof row !== "object" || row === null || Array.isArray(row)) throw new Error("duplicate row ไม่ใช่ object");
+        if (typeof row.status !== "string" || row.status.trim() === "") throw new Error("duplicate row ไม่มี status ที่จำแนกได้");
+      }
+      const active = existing.filter(d => d.status !== "cancelled");
       if (active.length > 0) {
         // Phase 409: บังคับ 1:1 — มีใบส่งสินค้า active แล้ว → บล็อก ไม่ให้ออกซ้ำ (เดิมแค่ confirm แล้วผ่านได้)
         const list = active.map(d => d.inv_no).join(", ");
         window.App?.showToast?.(`มีใบส่งสินค้า ${list} จากใบเสนอราคานี้แล้ว — ลบ/จัดการใบเดิมก่อนถึงออกใบใหม่ได้`);
         return;   // ❌ ไม่สร้างซ้ำ
       } else {
-        if (!(await window.App?.confirm?.("สร้างใบส่งสินค้า/ใบแจ้งหนี้ จากใบเสนอราคานี้?"))) return;
+        // Phase 630: แปลงจาก "ข้อมูลที่บันทึกแล้ว" เท่านั้น — ฟอร์มที่ยังไม่กดบันทึกไม่ถูกนำไปใช้
+        if (!(await window.App?.confirm?.("สร้างใบส่งสินค้า/ใบแจ้งหนี้ จากข้อมูลใบเสนอราคาที่บันทึกล่าสุด?"))) return;
       }
     } catch(e) {
-      console.warn("[quotations convert] duplicate check failed, fallback to confirm:", e);
-      if (!(await window.App?.confirm?.("สร้างใบส่งสินค้า/ใบแจ้งหนี้ จากใบเสนอราคานี้?"))) return;
+      console.warn("[quotations convert] duplicate check failed:", e);
+      window.App?.showToast?.("ตรวจสอบใบส่งสินค้าเดิมไม่สำเร็จ — ยังไม่สร้างใบส่งสินค้า กรุณาลองใหม่");
+      return;   // ❌ พิสูจน์ไม่ได้ว่าไม่มีใบซ้ำ = ห้ามสร้าง
     }
 
-    // Load items if not loaded
-    if (!_lineItems.length) {
+    // ★ Phase 630 — โหลด snapshot รายการของ q.id ใหม่ "ทุกครั้ง" (persisted-only source)
+    //   _lineItems = state ของฟอร์ม/preview (อาจยังไม่บันทึก หรือเป็นของใบอื่น) → ไม่ใช่ source และห้ามเขียนทับ
+    //   snapshot อยู่ใน local ตลอด gate + loop → cache เปลี่ยนกลางคันไม่กระทบใบนี้
+    let sourceItems;
+    try {
       const cfg = window.SUPABASE_CONFIG;
       const token = window._sbAccessToken || cfg.anonKey;
-      try {
-        const resp = await fetch(cfg.url + "/rest/v1/quotation_items?quotation_id=eq." + q.id + "&order=sort_order.asc",
-          { headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token } });
-        // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L3 module state reset (invoice gen flow, single button)
-        _lineItems = ((await resp.json()) || []).map(i => ({
-          product_id: i.product_id, item_name: i.item_name || "",
-          qty: Number(i.qty||1), unit: i.unit || "ชิ้น",
-          unit_price: Number(i.unit_price||0), discount_pct: Number(i.discount_pct||0),
-          line_total: Number(i.line_total||0), item_type: i.item_type
-        })).map(normalizeDocumentItem);   // Phase 628B: heading คงชนิด+เลขศูนย์ ไปถึงใบส่งสินค้า
-        _lineItemsLoadFailed = false;
-      } catch(e) {
-        // ★ Phase 576: โหลดล้ม → ยกเลิกการแปลงไปเลย (เดิมไหลต่อ = สร้างใบส่งสินค้า 0 รายการ) + แจ้งจริง
-        // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L3 module state reset (catch path, invoice gen flow)
-        _lineItems = [];
-        _lineItemsLoadFailed = true;
-        console.error("[quotations convert] load items failed:", e);
-        _ctx.showToast("⚠️ โหลดรายการสินค้าไม่สำเร็จ — ยกเลิกการสร้างใบส่งสินค้า ลองใหม่อีกครั้ง");
-        return;   // finally ปลด _qtConvertInflight ให้เสมอ
-      }
+      const resp = await fetch(cfg.url + "/rest/v1/quotation_items?quotation_id=eq." + q.id + "&order=sort_order.asc",
+        { headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + token } });
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      const rows = await resp.json();
+      if (!Array.isArray(rows)) throw new Error("item payload ไม่ใช่ array");
+      sourceItems = rows.map(i => ({
+        product_id: i.product_id, item_name: i.item_name || "",
+        qty: Number(i.qty||1), unit: i.unit || "ชิ้น",
+        unit_price: Number(i.unit_price||0), discount_pct: Number(i.discount_pct||0),
+        line_total: Number(i.line_total||0), item_type: i.item_type
+      })).map(normalizeDocumentItem);   // Phase 628B: heading คงชนิด+เลขศูนย์ ไปถึงใบส่งสินค้า
+    } catch(e) {
+      // ★ Phase 576: โหลดล้ม → ยกเลิกการแปลงไปเลย (เดิมไหลต่อ = สร้างใบส่งสินค้า 0 รายการ) + แจ้งจริง
+      //   Phase 630: HTTP ไม่ ok / JSON พัง / ไม่ใช่ array / แถวพัง เข้าทางนี้ด้วย · ไม่แตะ state ของฟอร์ม
+      console.error("[quotations convert] load items failed:", e);
+      _ctx.showToast("⚠️ โหลดรายการสินค้าไม่สำเร็จ — ยกเลิกการสร้างใบส่งสินค้า ลองใหม่อีกครั้ง");
+      return;   // finally ปลด _qtConvertInflight ให้เสมอ
     }
 
     // ★ Phase 628B: ต้องมีสินค้าจริง ≥ 1 ก่อนเขียนใบส่งสินค้า (ว่าง/มีแต่หัวข้อ = ไม่มี write ใด ๆ)
-    //   ใช้ source เดิม (_lineItems ที่มีอยู่ หรือที่เพิ่งโหลดด้านบน) — ไม่บังคับ fetch ใหม่
-    if (countableDocumentItems(_lineItems) === 0) {
+    //   Phase 630: นับจาก snapshot ที่เพิ่งโหลด (sourceItems) เท่านั้น
+    if (countableDocumentItems(sourceItems) === 0) {
       _ctx.showToast("ใบเสนอราคานี้ไม่มีรายการสินค้า (ว่างหรือมีแต่หัวข้อ) — ยังไม่สร้างใบส่งสินค้า");
       return;   // finally ปลด _qtConvertInflight ให้เสมอ
     }
@@ -1502,21 +1515,27 @@ async function convertToDeliveryInvoice(q) {
     if (!invRes.ok) return _ctx.showToast(invRes.error?.message || "สร้างไม่สำเร็จ");
 
     const invoiceId = invRes.data?.id;
+    // ★ Phase 630: ok:true แต่ไม่มี id → header "อาจ" commit ไปแล้วแต่ยืนยันรหัสไม่ได้
+    //   หยุด write ที่เหลือทั้งหมด (รายการ / PATCH ต้นทาง / reload / route) · ห้าม rollback/delete/retry อัตโนมัติ
+    //   · ข้อความห้ามบอกว่า "ยังไม่ได้สร้าง" เพราะพิสูจน์ไม่ได้
+    if (!invoiceId) {
+      console.error("[quotations convert] delivery invoice insert returned no id:", invRes.data);
+      return _ctx.showToast("อาจสร้างใบส่งสินค้าแล้ว แต่ยืนยันรหัสไม่ได้ — โปรดตรวจรายการใบส่งสินค้าก่อนลองใหม่");
+    }
+
     const realInvNo = invRes.data?.inv_no || invNo;  // Phase B2: ใช้เลขที่ DB trigger ออกจริง (fallback = ที่ส่งไป)
     // ★ Phase 412: เช็คผล insert รายการ — เดิมเงียบ = ใบรายการขาดแบบไม่มีใครรู้
     const failedItems = [];
-    if (invoiceId && _lineItems.length) {
-      for (let i = 0; i < _lineItems.length; i++) {
-        // Phase 628B: allowlist เดิม + item_type · heading ผ่าน normalizer (product_id null + เลขศูนย์) ก่อนเขียน
-        const li = normalizeDocumentItem(_lineItems[i]);
-        const ir = await xhrPost("delivery_invoice_items", {
-          delivery_invoice_id: invoiceId, product_id: li.product_id || null,
-          item_name: li.item_name, qty: li.qty, unit: li.unit || "ชิ้น",
-          unit_price: li.unit_price, discount_pct: li.discount_pct || 0,
-          line_total: li.line_total, item_type: li.item_type, sort_order: i + 1
-        });
-        if (!ir?.ok) failedItems.push(li.item_name || ("#" + (i + 1)));
-      }
+    for (let i = 0; i < sourceItems.length; i++) {
+      const li = sourceItems[i];
+      // Phase 628B: allowlist เดิม + item_type · sourceItems ผ่าน normalizer ตอนโหลดแล้ว (heading = product_id null + เลขศูนย์)
+      const ir = await xhrPost("delivery_invoice_items", {
+        delivery_invoice_id: invoiceId, product_id: li.product_id || null,
+        item_name: li.item_name, qty: li.qty, unit: li.unit || "ชิ้น",
+        unit_price: li.unit_price, discount_pct: li.discount_pct || 0,
+        line_total: li.line_total, item_type: li.item_type, sort_order: i + 1
+      });
+      if (!ir?.ok) failedItems.push(li.item_name || ("#" + (i + 1)));
     }
     if (failedItems.length > 0) {
       // ห้าม rollback/ลบ header — ใบเกิดแล้ว (409 existence-check กันออกซ้ำตอน retry)
@@ -1526,7 +1545,8 @@ async function convertToDeliveryInvoice(q) {
 
     // ★ Phase 412: เช็คผล PATCH status — fail = เตือน ไม่ rollback (status = display; ตัวกัน 1:1 จริงคือ existence-check)
     const sp = await xhrPatch("quotations", { status: "invoiced" }, "id", q.id);
-    if (!sp?.ok) {
+    const statusFailed = !sp?.ok;
+    if (statusFailed) {
       console.warn("[quotations convert] status patch failed:", sp?.error?.message);
       _ctx.showToast("⚠️ อัปเดตสถานะเอกสารต้นทางไม่สำเร็จ — ใบใหม่ถูกสร้างแล้ว");
     }
@@ -1539,12 +1559,17 @@ async function convertToDeliveryInvoice(q) {
     //   postJournalForDeliveryInvoice({ ... }).catch(...);
     // }
 
-    await _ctx.loadAllData();
-    _ctx.showToast("สร้างใบส่งสินค้าแล้ว: " + realInvNo);
+    // ★ Phase 630: reload ล้มห้ามกลืนข้อความสรุป (ใบเกิดแล้ว — user ต้องได้ผลลัพธ์สุดท้ายเสมอ)
+    try { await _ctx.loadAllData(); } catch(e) { console.warn("[quotations convert] reload failed:", e); }
+    // ★ Phase 630: ข้อความสุดท้ายต้องสะท้อน partial state จริง — success ห้ามเขียนทับคำเตือน
+    //   (ยังไป list ใบส่งสินค้าได้ เพื่อให้เปิดตรวจของจริง)
+    _ctx.showToast(failedItems.length > 0 || statusFailed
+      ? `⚠️ สร้างใบส่งสินค้า ${realInvNo} แล้ว แต่บันทึกไม่ครบ — เปิดใบเพื่อตรวจ`
+      : "สร้างใบส่งสินค้าแล้ว: " + realInvNo);
     _viewMode = "list";
     _ctx.showRoute("delivery_invoices");
   } finally {
-    // early return ทุกจุด (dup-block / ยกเลิก confirm / create fail) ผ่านที่นี่ → trigger ใหม่ได้เสมอ
+    // early return ทุกจุด (dup-block / lookup ไม่แน่นอน / ยกเลิก confirm / โหลดรายการล้ม / create fail / ไม่มี id) ผ่านที่นี่ → trigger ใหม่ได้เสมอ
     _qtConvertInflight = false;
   }
 }

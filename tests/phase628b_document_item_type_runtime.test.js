@@ -513,9 +513,14 @@ async function runQtConvert({ lineItems = [], fetchRows = [], q = QUOTE } = {}) 
   };
 }
 
-test("D1 [behavioral] QT→DI cache path: ไม่ fetch รายการใหม่ · header เงินเดิม · รายการครบทุกแถวตามลำดับพร้อม item_type", async () => {
-  const r = await runQtConvert({ lineItems: [H_MALFORMED, I_AIR, H_CLEAN, I_LEGACY] });
-  assert.equal(r.gets.length, 1, "มี _lineItems แล้ว = ใช้ cache path เดิม (fetch เฉพาะ duplicate check)");
+// Phase 630: QT→DI ใช้ fresh snapshot ของ q.id เสมอ — _lineItems (ฟอร์ม/preview/ใบอื่น) ถูกปฏิเสธ ไม่ใช่ source
+const QT_CACHE_POISON = [{ ...I_AIR, item_name: "ของใบอื่น (cache)", qty: 9, line_total: 1 }, { ...H_CLEAN, item_name: "หัวข้อในฟอร์มยังไม่บันทึก" }];
+
+test("D1 [behavioral] QT→DI fresh snapshot: _lineItems ถูก ignore · fetch รายการของ q.id ใหม่เสมอ · header เงินเดิม · รายการครบทุกแถวตามลำดับพร้อม item_type", async () => {
+  const r = await runQtConvert({ lineItems: QT_CACHE_POISON, fetchRows: [H_MALFORMED, I_AIR, H_CLEAN, I_LEGACY] });
+  assert.equal(r.gets.length, 2, "ต้อง fetch รายการใหม่เสมอ แม้ _lineItems ไม่ว่าง (duplicate check + quotation_items)");
+  assert.ok(r.gets[1].url.includes(`/rest/v1/quotation_items?quotation_id=eq.${QUOTE.id}&order=sort_order.asc`), "snapshot ต้องเป็นของ q.id ตามลำดับ sort_order");
+  assert.deepEqual(r.sandbox._lineItems, QT_CACHE_POISON, "ห้ามเขียนทับ _lineItems ของฟอร์ม/preview");
   const header = r.ledger.find((e) => e.m === "POST" && e.table === "delivery_invoices");
   assert.deepEqual(header.payload, expectedDiHeader(QUOTE), "header/เงินต้องไม่เปลี่ยน");
   assert.deepEqual(r.itemPosts.map((p) => p.payload), [
@@ -538,7 +543,8 @@ test("D2 [behavioral] QT→DI fetch path (cache ว่าง): heading จาก
 
 test("D3 [behavioral] QT→DI heading-only / ว่าง → ไม่มี write ใด ๆ (header/items/PATCH)", async () => {
   for (const [label, opts] of [
-    ["cache heading-only", { lineItems: [H_MALFORMED, H_CLEAN] }],
+    // Phase 630: cache มีสินค้าไม่ช่วย — gate นับจาก snapshot ของ DB เท่านั้น
+    ["cache มีสินค้า แต่ DB มีแต่หัวข้อ", { lineItems: [I_AIR, I_LEGACY], fetchRows: [DB_ROWS[0], { ...H_CLEAN }] }],
     ["fetch heading-only", { lineItems: [], fetchRows: [DB_ROWS[0]] }],
     ["fetch ว่าง", { lineItems: [], fetchRows: [] }],
   ]) {
@@ -839,14 +845,15 @@ test("I5 [structural] Phase 625/629 anchors: item input qt-li-name บรรท�
   assert.equal((RC_SRC.match(/escHtml\(item\.unit\|\|'ชิ้น'\)/g) || []).length, 1);
 });
 
-test("I6 [structural] build 628 / v5.69.95 / cache-v628 ตรงกันทุกจุด", () => {
+// Phase 630: build pin เลื่อนตาม marker ที่ bump (629 / 5.69.96 / cache-v629) — ความเข้มเท่าเดิม
+test("I6 [structural] build 629 / v5.69.96 / cache-v629 ตรงกันทุกจุด", () => {
   const html = read("index.html");
   const sw = read("sw.js");
-  assert.match(html, /data-app-build="628" data-app-version="5\.69\.95"/);
+  assert.match(html, /data-app-build="629" data-app-version="5\.69\.96"/);
   for (const asset of ["style.css", "doc-print.css", "selfheal.js", "main.js", "boot.js"]) {
-    assert.ok(html.includes(`${asset}?v=628`), `${asset}?v=628`);
+    assert.ok(html.includes(`${asset}?v=629`), `${asset}?v=629`);
   }
-  assert.match(sw, /^const CACHE_NAME = 'boonsook-pos-v5-cache-v628';$/m);
-  assert.match(sw, /^const SW_BUILD = '628';$/m);
-  assert.match(sw.split("\n")[1], /^\/\/ v628 \(/, "phase comment บรรทัดบนสุดต้องเป็น v628");
+  assert.match(sw, /^const CACHE_NAME = 'boonsook-pos-v5-cache-v629';$/m);
+  assert.match(sw, /^const SW_BUILD = '629';$/m);
+  assert.match(sw.split("\n")[1], /^\/\/ v629 \(/, "phase comment บรรทัดบนสุดต้องเป็น v629");
 });
