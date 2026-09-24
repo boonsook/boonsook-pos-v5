@@ -1,6 +1,6 @@
 # Phase 628B — Production Smoke Closeout (authenticated UI smoke)
 
-สถานะ: **docs-only closeout** · build 628 / v5.69.95 (ไม่ bump) · ไม่แตะ runtime / SQL / ข้อมูล production · STOP `READY-FOR-INDEPENDENT-PHASE-628B-CLOSEOUT-REVIEW`
+สถานะ: **docs-only closeout** · build 628 / v5.69.95 (ไม่ bump) · closeout commit นี้ไม่แตะ runtime / SQL / ข้อมูล production (smoke ในข้อ 3–5 สร้างและลบข้อมูลจริงก่อนหน้านี้ตามที่ owner อนุมัติ) · STOP `READY-FOR-INDEPENDENT-PHASE-628B-CLOSEOUT-REVIEW`
 
 ## 1. Baseline
 
@@ -42,7 +42,7 @@
 - แปลง DI → Receipt แล้วทั้งสองแถวยังเป็นชนิดเดิมและลำดับเดิม
 - แถวหัวข้อไม่มีจำนวน ราคาต่อหน่วย หรือยอดรวม
 - แถวสินค้าแสดงจำนวน 1 · หน่วย `ชิ้น` · ราคา ฿1.00
-- ใบเสร็จอยู่สถานะ **pending** · ไม่มีการรับชำระ · ไม่มีการ post JV · ไม่มีการตัดหรือแก้ stock
+- ใบเสร็จคงสถานะ pending และในการ smoke ไม่ได้กดรับชำระหรือสั่งงานบัญชี/สต็อก — ไม่มี DB snapshot จึงไม่ได้ตรวจยืนยันตาราง JV หรือ stock โดยตรง
 
 ข้อสรุป: smoke นี้พิสูจน์ **INSERT และ readback ของ `item_type` ผ่าน production application path ครบทั้งสามตาราง** (`quotation_items` → `delivery_invoice_items` → `receipt_items`) ด้วยชนิดและลำดับที่ถูกต้อง
 
@@ -66,12 +66,12 @@ owner อนุมัติให้ลบตามลำดับ **Receipt →
 | ใบส่งสินค้า (Delivery invoices) | 33 | 32 |
 | ใบเสนอราคา (Quotations) | 43 | 42 |
 
-ไม่พบ `SMOKE-628B` หรือเลขเอกสารทดลองทั้งสามในหน้ารายการหลัง cleanup → **UI cleanup/readback verified** (ไม่ใช่การพิสูจน์ว่า DB สะอาด)
+เลขเอกสารทดลองทั้งสาม (`QT20260924001` / `INV20260924001` / `RC20260924001`) ไม่ปรากฏในหน้ารายการหลัง cleanup → **UI cleanup/readback verified** (ไม่ใช่การพิสูจน์ว่า DB สะอาด)
 
 ## 6. ข้อจำกัด (ต้องอ่านคู่กับผล)
 
 - ตัวเลข cleanup เป็น **UI-observed counts** ไม่ใช่ `COUNT(*)` จาก DB
-- ไม่มี raw SQL / DB snapshot ก่อนหรือหลังการทดสอบ
+- ไม่มี raw SQL / DB snapshot ก่อนหรือหลังการทดสอบ — จึงไม่ได้ตรวจยืนยันตาราง JV / stock โดยตรง (ข้อ 4 บอกได้แค่ว่าไม่ได้กดรับชำระหรือสั่งงานบัญชี/สต็อกใน smoke)
 - ไม่ได้ทดสอบ concurrent writers (หลายเครื่องพร้อมกัน)
 - **ไม่ปิด** residual เรื่อง client-side gate ที่ไม่ใช่ DB transaction/atomic
 - ไม่พิสูจน์ pagination ของ Share PDF บนเอกสารยาว (`share_doc.js` ไม่รู้จัก `break-after` ของหัวข้อ)
