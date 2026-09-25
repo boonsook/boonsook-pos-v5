@@ -5,9 +5,13 @@
 
 รูปแบบ: `<commit> feat|fix|docs|refactor: <สรุปสั้น>` + bullet 1-2 ข้อถ้าจำเป็น
 
-- Phase 631 fix(documents): **ใบส่งสินค้า → ใบเสร็จ ตรวจทุกแถวรายการก่อน map** (build 630 / v5.69.97 · local commit · รอ independent review)
+- Phase 631 Production Closeout docs(documents): **merged/deployed + historical empty-document audit PASS** (docs closeout · build 630 / v5.69.97 ไม่ bump)
+  - PR #225 head `9586f90` → merge `785aaf5`; Tests+Deploy success; live build/main/cache/SW = 630. Read-only production audit (**owner-measured**, raw `evidence/audit_result.json` SHA-256 `9b1a0fc3…0d5db`): quotation 44 / delivery invoice 30 / receipt 26; missing rows 0, heading-only 0, paid-empty 0, empty-with-JV 0, anomaly 0.
+  - authenticated production conversion smoke NOT RUN; closeout นี้ไม่แตะ runtime/SQL/data/build. STOP `READY-FOR-INDEPENDENT-DOCS-RECOVERY-REVIEW`.
+
+- Phase 631 fix(documents): **ใบส่งสินค้า → ใบเสร็จ ตรวจทุกแถวรายการก่อน map** (build 630 / v5.69.97 · local commit · รอ independent review) *(SUPERSEDED 2026-09-25 เฉพาะสถานะ local/review — PR #225 merged/deployed; ดู closeout ด้านบน)*
   - `convertToReceipt` เดิมเช็คแค่ว่าเป็น array → `[{}]` / `[[]]` / `["x"]` / แถวขาดคอลัมน์ ถูก map เป็นสินค้า "" qty 1 แล้วออกใบเสร็จจริง. ตอนนี้ทุกแถวต้องเป็น plain object ที่มีครบ 7 คอลัมน์ที่ mapper อ่าน ไม่งั้นเข้า catch เดิม (write 0) · ตรวจแค่ presence → แถว legacy ค่า null ยังแปลงได้
-  - unit +16 · e2e +12 · baseline RED N13 12/12 + e2e 4/12 (control เขียว) · mutation M1/M2 killed · equivalent 1 ไม่นับ · lint 0 · unit 3517/3517 · e2e 183/183 · ไม่มี SQL · production smoke NOT RUN · STOP `READY-FOR-INDEPENDENT-PHASE-631-REVIEW`
+  - unit +16 · e2e +12 · baseline RED N13 12/12 + e2e 4/12 (control เขียว) · mutation M1/M2 killed · equivalent 1 ไม่นับ · lint 0 · unit 3517/3517 · e2e 183/183 · ไม่มี SQL · production smoke NOT RUN · STOP `READY-FOR-INDEPENDENT-PHASE-631-REVIEW` *(SUPERSEDED 2026-09-25 เฉพาะ STOP ก่อน merge; smoke NOT RUN ยังจริง)*
 - Phase 630 fix(documents): **ใบเสนอราคา → ใบส่งสินค้า fail closed ก่อนสร้างเอกสาร** (build 629 / v5.69.96 · local commit · รอ independent review)
   - `convertToDeliveryInvoice` เดิม fail open: lookup ใบซ้ำพัง (HTTP/เน็ต/JSON/ไม่ใช่ array) = "ไม่มีใบซ้ำ" แล้วไป confirm ต่อ · รายการมาจาก `_lineItems` (preview cache/ฟอร์มที่ยังไม่บันทึก/ใบอื่น) · header ไม่มี id ยังเดินต่อ · success ทับคำเตือน · reload throw แล้วไม่มีผลสรุป. ตอนนี้: lookup ต้องพิสูจน์ได้ (ok + JSON + array + ทุกแถวมี status) ไม่งั้นหยุด (confirm/write 0) · โหลดรายการของ q.id ใหม่ทุกครั้งเข้า local snapshot (confirm แจ้งว่าใช้ข้อมูลที่บันทึกล่าสุด) · ไม่มี id → หยุด write ที่เหลือ · terminal toast สะท้อน partial จริง + reload ล้มไม่กลบผล
   - +unit 59 + e2e 32 · baseline RED unit 52/58 · e2e 30/32 · mutation 20/20 (disk campaign 20/20 · equivalent 3 ไม่นับ) · lint 0 · unit 3497/3497 · e2e 165/165 · ไม่มี SQL · payload/ยอดเงิน/ลำดับ/`item_type` เดิม · ไม่แตะ stock/POS/บัญชี/SW strategy · production smoke NOT RUN · STOP `READY-FOR-INDEPENDENT-PHASE-630-REVIEW`
@@ -46,6 +50,9 @@
 - Phase 623 fix(products): **ข้อความบันทึกสินค้าเมื่อสต็อกบางคลังไม่สำเร็จ** (build 623 / v5.69.91 · messaging-only)
   - Final toast คงคำเตือน “⚠️ บันทึกสินค้าแล้ว แต่สต็อกบางคลังไม่สำเร็จ” เมื่อมี warehouse failure; all-success คงข้อความเดิม. ไม่เปลี่ยน warehouse writes/ordering/payload/stock algorithm/atomicity; ไม่มี SQL/schema และไม่แตะ CSS/bundle/double-click.
   - Regression 15/15 + integrity 3/3; baseline partial cases RED 6/6, mutation ถูกจับ 6/6; lint 0 errors · unit 3225/3225 · e2e 21/21 · local visual 360/390px PASS · LF/no BOM/build markers PASS. ไม่มี authenticated warehouse-write smoke/production writes. STOP รอ independent review; ไม่ merge/deploy.
+- `ac7096d` merge(documents,610-622): **MERGED → main (PR #214 merge-commit · 13 commits `62c180f..e32778e`) · Tests+Deploy success · live pages.dev = 622 ครบ** (2026-09-08)
+  - independent audit ก่อน merge = MERGE-READY: lint 0 err · unit 3210/3210 · e2e 21/21 · mutation 7/7 RED · EOL LF/no BOM · markers 622 ครบ · ไม่มี SQL/`functions/*`/`main.js`/เงิน/สต็อก
+  - กิ่ง `claude/phase-610-doc-unbreakable-blocks` **คงไว้** (preview alias `claude-phase-610-doc-unbreak` ผูกกับชื่อกิ่ง) · รายละเอียดเชิงลึก + residual ดู HANDOFF
 - `622` chore(documents): **ถอดตัวเลขวินิจฉัยออก — ปิดเคสเอกสารล้นหน้า** (build 622 / v5.69.90)
   - เจ้าของยืนยันบนเครื่องจริง: ใบเสร็จ `fit 0.857` · ใบส่งสินค้า `fit 0.953` → **2 แผ่นทั้งคู่**
   - ถอด `[fit …]` ที่ต่อท้าย `document.title` ของหน้าต่างพิมพ์ (620) ออก — `title` คือชื่อไฟล์ตั้งต้นตอน "บันทึกเป็น PDF" ของผู้ใช้ · ค่าที่ต้องดูย้ายไปอยู่ `window.__printFit` (อ่านจาก console ได้) · +guard กัน `document.title` หลุดกลับมา
@@ -84,6 +91,19 @@
   - ★ ย่อเฉพาะที่ล้นจริง — เอกสารสั้นได้ `zoom = 1` ลายเซ็นยังปักท้ายหน้าเหมือนเดิม (คง `min-height: 297mm`)
   - +test 2 ชั้น: `tests/e2e/doc_print_pagecount.spec.js` **พิมพ์เป็น PDF จริงแล้วนับแผ่น** (2 เอกสาร × 3/15/30 รายการ) — guard เดิมอ่าน CSS เป็นข้อความจึงเขียวหลอกตามาตลอด · `tests/doc_print_fit.test.js` 9 ตัวคุมสัญญาฟังก์ชัน + wiring + สมมติฐานว่า `doc-override` ยังดักปุ่มอยู่ · mutation 5 แบบ RED ครบ
   - **ไม่มี SQL · ไม่แตะยอดเงิน/สต็อก/`functions/*`** — bump `data-app-build`/`?v=`/`CACHE_NAME`/`SW_BUILD` ครบ
+- `616` fix(documents): **ตัด `min-height` ของหน้าต่างพิมพ์ทิ้ง เพื่อแยกสาเหตุแผ่นเปล่า** (build 616 / v5.69.84)
+  - 615 ลดเหลือ 245mm แล้วยังได้แผ่นเปล่า → ตัด min-height เป็น 0 ให้กล่องสูงเท่าเนื้อหา ถ้ายังมีแผ่นเปล่า = ไม่ใช่เรื่องความสูง (ผล: ยังไม่หาย → 617 พบว่าแก้ผิดไฟล์)
+  - แตะเฉพาะ CSS ฝังใน `receipts.js`/`delivery_invoices.js` (เส้นทางที่ปุ่มพิมพ์ไม่ได้ใช้จริง — ดู 617 · เก็บเป็น fallback) · ไม่มี SQL
+- `615` fix(documents): **หน้าต่างพิมพ์ใช้ CSS ที่ฝังในโมดูล ไม่โหลด `doc-print.css`** (build 615 / v5.69.83)
+  - `receipts.js`/`delivery_invoices.js` `document.write` CSS ฝังที่ล็อก `.doc-page` 210×297mm + padding 20/18/15mm และไม่มี `page-break-inside` → แก้เป็น `width:auto;max-width:210mm;min-height:245mm` + padding 10/10/8mm + break-inside ครบ · +guard `doc_print_page_guard` (ภายหลัง 617 พบว่า handler นี้ถูก `doc-override.js` ดักไว้ = ไม่ทำงาน)
+- `614` fix(documents): **พิมพ์แล้วมีแผ่นเปล่าต่อท้ายทุกฉบับ — เลิกล็อกขนาดกระดาษใน `doc-print.css`** (build 614 / v5.69.82)
+  - `@page{margin:0}` มีผลเฉพาะเมื่อผู้ใช้เลือกขอบ "ไม่มี" · ขอบค่าเริ่มต้นเหลือพื้นที่ ~277×190mm → กล่อง 210×296mm ล้น → `width:auto;max-width:210mm;min-height:0` + padding 10/10/8mm · แยกฉบับด้วย `page-break-after` เท่านั้น · +guard 4 (ไฟล์นี้ไม่ใช่เส้นทางปุ่มพิมพ์ — ดู 617)
+- `613` fix(documents): **มือถือกดแชร์แล้วเงียบ — fallback ต้องดาวน์โหลด ไม่ใช่ `window.open(blob:)`** (build 613 / v5.69.81)
+  - iOS Safari ปฏิเสธ blob: ในแท็บใหม่ · Android บล็อกเป็น popup → `openOrDownloadPdf()` ใช้ร่วมทุกเส้นทาง (LINE/FB/อื่น/อีเมล/พิมพ์) · เดสก์ท็อป popup ถูกบล็อก = แจ้งข้อความ · native share ล้มนอกจาก AbortError = log · +guard 40→43
+- `612` fix(documents): **ถอดลายน้ำ "ชำระแล้ว" ออกจากใบเสร็จปกติ + กันแผ่นเกินตอนพิมพ์** (build 612 / v5.69.80)
+  - ใบเสร็จส่งราชการไม่ได้เพราะลายน้ำทับกลางใบ → คงเฉพาะ "ยกเลิก" (กติกาเดียวกับใบส่งสินค้า/ใบเสนอราคา) · +guard `doc_watermark_guard` 4 · ฝั่งพิมพ์ `min-height` 297→296mm + `.doc-payment-check/.doc-bank-line` เข้า break-inside list
+- `611` fix(documents): **แชร์: หนึ่ง `.doc-page` = หนึ่งหน้า PDF (ต้นฉบับ/สำเนาไม่ถูกหั่นกลางใบ)** (build 611 / v5.69.79)
+  - ใบส่งสินค้า/ใบเสร็จมี `.doc-page` สองอัน (ต้นฉบับ+สำเนา) → `collectDocPageBounds()` + `planCopyPages()` ย่อเฉพาะฉบับที่เกิน A4 (floor 0.55) · วัดไม่ได้/เกินเพดาน = ตัวหั่นหน้าเดิม · +guard 34→40
 - `610` fix(documents): **แชร์เอกสารแล้วไม่เหลือ "หน้าสุดท้ายที่มีแค่ลายเซ็น"** — ต่อจาก 607/608/609 (build 610 / v5.69.78)
   - อาการ: ใบเสนอราคาหายแล้ว แต่ **ใบส่งสินค้า/ใบเสร็จ** ที่รายการเยอะกว่ายังได้ 2 หน้า โดยหน้า 2 มีแค่บล็อกลายเซ็น
   - เหตุ: เพดาน shrink-to-fit ของ 609 ยอมย่อแค่ ~18% (`minScale 0.85`) เอกสารที่ล้นมากกว่านั้นจึงตกไปแบ่งหน้าตามขอบแถว
