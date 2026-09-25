@@ -5,6 +5,9 @@
 
 รูปแบบ: `<commit> feat|fix|docs|refactor: <สรุปสั้น>` + bullet 1-2 ข้อถ้าจำเป็น
 
+- Phase 631 fix(documents): **ใบส่งสินค้า → ใบเสร็จ ตรวจทุกแถวรายการก่อน map** (build 630 / v5.69.97 · local commit · รอ independent review)
+  - `convertToReceipt` เดิมเช็คแค่ว่าเป็น array → `[{}]` / `[[]]` / `["x"]` / แถวขาดคอลัมน์ ถูก map เป็นสินค้า "" qty 1 แล้วออกใบเสร็จจริง. ตอนนี้ทุกแถวต้องเป็น plain object ที่มีครบ 7 คอลัมน์ที่ mapper อ่าน ไม่งั้นเข้า catch เดิม (write 0) · ตรวจแค่ presence → แถว legacy ค่า null ยังแปลงได้
+  - unit +16 · e2e +12 · baseline RED N13 12/12 + e2e 4/12 (control เขียว) · mutation M1/M2 killed · equivalent 1 ไม่นับ · lint 0 · unit 3517/3517 · e2e 183/183 · ไม่มี SQL · production smoke NOT RUN · STOP `READY-FOR-INDEPENDENT-PHASE-631-REVIEW`
 - Phase 630 fix(documents): **ใบเสนอราคา → ใบส่งสินค้า fail closed ก่อนสร้างเอกสาร** (build 629 / v5.69.96 · local commit · รอ independent review)
   - `convertToDeliveryInvoice` เดิม fail open: lookup ใบซ้ำพัง (HTTP/เน็ต/JSON/ไม่ใช่ array) = "ไม่มีใบซ้ำ" แล้วไป confirm ต่อ · รายการมาจาก `_lineItems` (preview cache/ฟอร์มที่ยังไม่บันทึก/ใบอื่น) · header ไม่มี id ยังเดินต่อ · success ทับคำเตือน · reload throw แล้วไม่มีผลสรุป. ตอนนี้: lookup ต้องพิสูจน์ได้ (ok + JSON + array + ทุกแถวมี status) ไม่งั้นหยุด (confirm/write 0) · โหลดรายการของ q.id ใหม่ทุกครั้งเข้า local snapshot (confirm แจ้งว่าใช้ข้อมูลที่บันทึกล่าสุด) · ไม่มี id → หยุด write ที่เหลือ · terminal toast สะท้อน partial จริง + reload ล้มไม่กลบผล
   - +unit 59 + e2e 32 · baseline RED unit 52/58 · e2e 30/32 · mutation 20/20 (disk campaign 20/20 · equivalent 3 ไม่นับ) · lint 0 · unit 3497/3497 · e2e 165/165 · ไม่มี SQL · payload/ยอดเงิน/ลำดับ/`item_type` เดิม · ไม่แตะ stock/POS/บัญชี/SW strategy · production smoke NOT RUN · STOP `READY-FOR-INDEPENDENT-PHASE-630-REVIEW`
