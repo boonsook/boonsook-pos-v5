@@ -1,12 +1,13 @@
--- Phase 633 v1. Owner executes only after independent review and separate authorization.
+-- Phase 633 v1.1. Owner executes only after independent review and separate authorization.
 -- Goal: app roles must not call public.next_doc_number(text,text) directly,
 -- while authorized INSERTs on quotations / delivery_invoices / receipts still get
 -- their number from the existing BEFORE INSERT triggers.
 -- Cutover (one transaction): pin catalog -> harden helper search_path ->
 -- trigger functions become SECURITY DEFINER with empty search_path ->
--- revoke direct EXECUTE on the helper -> exact verify (+ denied-call probe) -> COMMIT.
+-- revoke EXECUTE on the helper AND on the three trigger functions ->
+-- exact verify (+ denied-call probe, reported NOT RUN when it cannot run) -> COMMIT.
 -- No function body, counter row, document row, RLS policy or default privilege changes.
--- Run this entire file in one submission. Run POST-CHECK A and B separately again.
+-- Run this entire file in one submission. Run POST-CHECK A, B and C separately again.
 BEGIN;
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';
@@ -129,13 +130,20 @@ $phase633_preflight$;
 -- helper stays SECURITY DEFINER; only its search_path is hardened (body is fully qualified)
 ALTER FUNCTION public.next_doc_number(text, text) SET search_path = '';
 
--- trigger functions run as their owner so they keep calling the helper after the revoke;
--- a function returning trigger cannot be called directly, only fired by its trigger
+-- trigger functions run as their owner so they keep calling the helper after the revoke.
+-- A function returning trigger cannot be called directly, but any role that still has
+-- EXECUTE on it and can create a trigger (e.g. on its own or a temp table) could bind it to
+-- another table and run it with the owner's rights; so their EXECUTE is revoked below too.
+-- Firing an existing trigger does not check EXECUTE, so document INSERTs keep working.
 ALTER FUNCTION public.assign_quotation_no()        SECURITY DEFINER SET search_path = '';
 ALTER FUNCTION public.assign_delivery_invoice_no() SECURITY DEFINER SET search_path = '';
 ALTER FUNCTION public.assign_receipt_no()          SECURITY DEFINER SET search_path = '';
 
 REVOKE EXECUTE ON FUNCTION public.next_doc_number(text, text)
+  FROM PUBLIC, anon, authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.assign_quotation_no(),
+                           public.assign_delivery_invoice_no(),
+                           public.assign_receipt_no()
   FROM PUBLIC, anon, authenticated, service_role;
 
 DO $phase633_verify$
@@ -182,15 +190,32 @@ BEGIN
     IF NOT FOUND THEN
       RAISE EXCEPTION 'Phase 633 STOP: % final state mismatch', r.fn;
     END IF;
+    SELECT count(*) INTO v_n
+    FROM pg_catalog.pg_proc p, LATERAL pg_catalog.aclexplode(p.proacl) a
+    WHERE p.oid = to_regprocedure(r.fn) AND a.privilege_type = 'EXECUTE' AND a.grantee = 0;
+    IF v_n <> 0 OR (SELECT p.proacl FROM pg_catalog.pg_proc p WHERE p.oid = to_regprocedure(r.fn)) IS NULL THEN
+      RAISE EXCEPTION 'Phase 633 STOP: PUBLIC still has EXECUTE on %', r.fn;
+    END IF;
+    IF has_function_privilege('anon', to_regprocedure(r.fn), 'EXECUTE')
+       OR has_function_privilege('authenticated', to_regprocedure(r.fn), 'EXECUTE')
+       OR has_function_privilege('service_role', to_regprocedure(r.fn), 'EXECUTE') THEN
+      RAISE EXCEPTION 'Phase 633 STOP: an app role can still EXECUTE %', r.fn;
+    END IF;
   END LOOP;
 
   -- behavioral probe: a denied call fails at the permission check before the body runs,
   -- so it cannot touch doc_number_counters. If a call ever succeeds, the RAISE below
   -- aborts the whole transaction and rolls back that counter increment too.
-  FOR r IN SELECT rolname FROM pg_catalog.pg_roles
+  -- The probe needs postgres to be a member of the role; otherwise it is NOT RUN (reported
+  -- by NOTICE and by POST-CHECK C) and only the catalog checks above apply.
+  FOR r IN SELECT rolname, pg_catalog.pg_has_role('postgres', oid, 'MEMBER') AS can_probe
+           FROM pg_catalog.pg_roles
            WHERE rolname IN ('anon', 'authenticated')
-             AND pg_catalog.pg_has_role('postgres', oid, 'MEMBER')
   LOOP
+    IF NOT r.can_probe THEN
+      RAISE NOTICE 'Phase 633 probe as %: NOT RUN (postgres is not a member)', r.rolname;
+      CONTINUE;
+    END IF;
     v_state := NULL;
     BEGIN
       EXECUTE format('SET LOCAL ROLE %I', r.rolname);
@@ -203,6 +228,7 @@ BEGIN
     IF v_state IS DISTINCT FROM 'denied' THEN
       RAISE EXCEPTION 'Phase 633 STOP: direct call as % was %', r.rolname, v_state;
     END IF;
+    RAISE NOTICE 'Phase 633 probe as %: denied', r.rolname;
   END LOOP;
 END
 $phase633_verify$;
@@ -236,3 +262,11 @@ WHERE tg.tgname IN ('trg_assign_quotation_no', 'trg_assign_delivery_invoice_no',
   AND NOT tg.tgisinternal
 ORDER BY 1;
 -- POST-CHECK B END
+
+-- POST-CHECK C BEGIN
+-- probe_ran = false means the in-migration behavioral probe for that role was NOT RUN
+SELECT r.rolname, pg_catalog.pg_has_role('postgres', r.oid, 'MEMBER') AS probe_ran
+FROM pg_catalog.pg_roles r
+WHERE r.rolname IN ('anon', 'authenticated')
+ORDER BY 1;
+-- POST-CHECK C END

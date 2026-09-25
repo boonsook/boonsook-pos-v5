@@ -32,18 +32,29 @@ const ALTERS = [
   "ALTER FUNCTION public.assign_delivery_invoice_no() SECURITY DEFINER SET search_path = '';",
   "ALTER FUNCTION public.assign_receipt_no()          SECURITY DEFINER SET search_path = '';",
 ];
+// v1.1: trigger functions are SECURITY DEFINER, so their EXECUTE is revoked too — otherwise a
+// role that can create a trigger could bind them to its own (temp) table and bump the counter
+const TRIGGER_REVOKE = 'REVOKE EXECUTE ON FUNCTION public.assign_quotation_no(),\n'
+  + '                           public.assign_delivery_invoice_no(),\n'
+  + '                           public.assign_receipt_no()\n'
+  + '  FROM PUBLIC, anon, authenticated, service_role;';
 const VERIFY_TOKENS = [
   "IF NOT FOUND THEN\n    RAISE EXCEPTION 'Phase 633 STOP: helper final state mismatch';",
-  "a.privilege_type = 'EXECUTE' AND a.grantee = 0",
+  "WHERE p.oid = v_helper AND a.privilege_type = 'EXECUTE' AND a.grantee = 0",
   "has_function_privilege('anon', v_helper, 'EXECUTE')",
   "has_function_privilege('authenticated', v_helper, 'EXECUTE')",
   "has_function_privilege('service_role', v_helper, 'EXECUTE')",
   "IF NOT has_function_privilege('postgres', v_helper, 'EXECUTE') THEN",
   "RAISE EXCEPTION 'Phase 633 STOP: % final state mismatch', r.fn;",
+  "WHERE p.oid = to_regprocedure(r.fn) AND a.privilege_type = 'EXECUTE' AND a.grantee = 0",
+  "has_function_privilege('anon', to_regprocedure(r.fn), 'EXECUTE')",
+  "has_function_privilege('authenticated', to_regprocedure(r.fn), 'EXECUTE')",
+  "has_function_privilege('service_role', to_regprocedure(r.fn), 'EXECUTE')",
   "EXECUTE format('SET LOCAL ROLE %I', r.rolname);",
   "PERFORM public.next_doc_number('QT', 'quotation');",
   "EXCEPTION WHEN insufficient_privilege THEN",
   "IF v_state IS DISTINCT FROM 'denied' THEN",
+  "RAISE NOTICE 'Phase 633 probe as %: NOT RUN (postgres is not a member)', r.rolname;",
 ];
 const PREFLIGHT_TOKENS = [
   "NOT BETWEEN 170000 AND 179999",
@@ -69,7 +80,8 @@ function validate(source) {
 
   // one transaction in the documented order
   const order = ['BEGIN;', "SET LOCAL lock_timeout = '5s';", "SET LOCAL statement_timeout = '60s';",
-    'DO $phase633_preflight$', ...ALTERS, REVOKE, 'DO $phase633_verify$', "NOTIFY pgrst, 'reload schema';", 'COMMIT;'];
+    'DO $phase633_preflight$', ...ALTERS, REVOKE, TRIGGER_REVOKE, 'DO $phase633_verify$',
+    "NOTIFY pgrst, 'reload schema';", 'COMMIT;'];
   let previous = -1;
   for (const token of order) {
     const at = executable.indexOf(token);
@@ -78,7 +90,10 @@ function validate(source) {
   }
   assert.equal((executable.match(/\bBEGIN;/g) || []).length, 1, 'one BEGIN');
   assert.equal((executable.match(/\bCOMMIT;/g) || []).length, 1, 'one COMMIT');
-  assert.equal((executable.match(/\bREVOKE\b/g) || []).length, 1, 'one REVOKE');
+  assert.equal((executable.match(/\bREVOKE\b/g) || []).length, 2, 'exactly two REVOKE (helper + trigger functions)');
+  // the probe skip path must stay visible: a POST-CHECK reports whether the probe ran
+  assert.ok(source.includes('-- POST-CHECK C BEGIN') && source.includes("pg_catalog.pg_has_role('postgres', r.oid, 'MEMBER') AS probe_ran"),
+    'POST-CHECK C reports probe_ran');
   assert.equal((executable.match(/\bALTER FUNCTION\b/g) || []).length, 4, 'exactly four ALTER FUNCTION');
 
   // narrow: no body rewrite, no grants, no default-privilege or data changes
@@ -96,7 +111,7 @@ function validate(source) {
   for (const token of VERIFY_TOKENS) assert.ok(verify.includes(token), `verify: ${token}`);
 }
 
-test('v1 structural SQL contract', () => validate(sql));
+test('v1.1 structural SQL contract', () => validate(sql));
 
 test('pinned md5 values are the Phase B2 bodies', () => {
   assert.deepEqual(PINS, {
@@ -112,9 +127,15 @@ function once(source, from, to) {
   return source.replace(from, () => to);
 }
 const mutants = [
-  ['no REVOKE', s => once(s, REVOKE, '')],
-  ['REVOKE only PUBLIC', s => once(s, 'FROM PUBLIC, anon, authenticated, service_role;', 'FROM PUBLIC;')],
-  ['REVOKE without service_role', s => once(s, 'FROM PUBLIC, anon, authenticated, service_role;', 'FROM PUBLIC, anon, authenticated;')],
+  ['no helper REVOKE', s => once(s, REVOKE, '')],
+  ['helper REVOKE only PUBLIC', s => once(s, REVOKE, REVOKE.replace(', anon, authenticated, service_role', ''))],
+  ['helper REVOKE without service_role', s => once(s, REVOKE, REVOKE.replace(', service_role', ''))],
+  ['no trigger-function REVOKE', s => once(s, TRIGGER_REVOKE, '')],
+  ['trigger-function REVOKE only PUBLIC', s => once(s, TRIGGER_REVOKE, TRIGGER_REVOKE.replace(', anon, authenticated, service_role', ''))],
+  ['trigger-function REVOKE misses receipt', s => once(s, TRIGGER_REVOKE,
+    TRIGGER_REVOKE.replace(',\n                           public.assign_receipt_no()', ''))],
+  ['trigger-function REVOKE before DEFINER cutover', s => once(once(s, TRIGGER_REVOKE, ''), ALTERS[1], TRIGGER_REVOKE + '\n' + ALTERS[1])],
+  ['POST-CHECK C removed', s => once(s, '-- POST-CHECK C BEGIN', '-- POST-CHECK X BEGIN')],
   ['trigger stays INVOKER', s => once(s, ALTERS[3], "ALTER FUNCTION public.assign_receipt_no()          SET search_path = '';")],
   ['helper search_path kept public', s => once(s, ALTERS[0], "ALTER FUNCTION public.next_doc_number(text, text) SET search_path = public;")],
   ['REVOKE before trigger cutover', s => once(once(s, REVOKE, ''), ALTERS[1], REVOKE + '\n' + ALTERS[1])],
@@ -129,6 +150,8 @@ const mutants = [
 ];
 for (const [name, mutate] of mutants) {
   test(`structural mutation RED: ${name}`, () => {
-    assert.throws(() => validate(mutate(sql)), { code: 'ERR_ASSERTION' });
+    const candidate = mutate(sql);   // outside assert.throws: a stale mutant anchor must fail the test
+    assert.notEqual(candidate, sql, 'mutant changed the source');
+    assert.throws(() => validate(candidate), { code: 'ERR_ASSERTION' });
   });
 }

@@ -68,6 +68,19 @@ async function freshDb() {
 const counters = async db => (await db.query(
   `SELECT doc_type, last_no FROM public.doc_number_counters ORDER BY doc_type`)).rows
   .map(r => `${r.doc_type}=${r.last_no}`).join(',');
+const TRIGGER_FNS = ['assign_quotation_no', 'assign_delivery_invoice_no', 'assign_receipt_no'];
+const triggerFnAcl = async db => (await db.query(`
+  SELECT p.proname, p.proacl::text AS acl,
+         has_function_privilege('anon', p.oid, 'EXECUTE') AS anon,
+         has_function_privilege('authenticated', p.oid, 'EXECUTE') AS auth,
+         has_function_privilege('service_role', p.oid, 'EXECUTE') AS svc
+  FROM pg_proc p WHERE p.proname IN ('assign_quotation_no','assign_delivery_invoice_no','assign_receipt_no')
+  ORDER BY 1`)).rows;
+// authenticated creates its own temp table and tries to bind a document trigger function to it
+const bindSql = fn => `SET ROLE authenticated;
+  CREATE TEMP TABLE t633_${fn} (qt_no text, inv_no text, receipt_no text);
+  CREATE TRIGGER t633_${fn}_trg BEFORE INSERT ON t633_${fn} FOR EACH ROW EXECUTE FUNCTION public.${fn}();
+  INSERT INTO t633_${fn} DEFAULT VALUES;`;
 const helperState = async db => (await db.query(`
   SELECT p.prosecdef, p.proconfig, p.proacl::text AS acl,
          has_function_privilege('anon', p.oid, 'EXECUTE') AS anon,
@@ -107,6 +120,10 @@ const helperState = async db => (await db.query(`
   check('3 trigger functions SECURITY DEFINER + empty search_path',
     tf.length === 3 && tf.every(r => r.prosecdef && JSON.stringify(r.proconfig) === '["search_path=\\"\\""]'),
     JSON.stringify(tf));
+  const ta = await triggerFnAcl(db);
+  check('trigger functions: no PUBLIC EXECUTE and no app-role EXECUTE',
+    ta.length === 3 && ta.every(r => r.acl && !/(^|[{,])=X/.test(r.acl) && !r.anon && !r.auth && !r.svc),
+    ta.map(r => `${r.proname} ${r.acl}`).join(' · '));
 
   // seed today's quotation counter at 0 so a leaked direct call would show up as last_no=1
   await db.exec(`INSERT INTO public.doc_number_counters (doc_type, period, last_no)
@@ -119,6 +136,13 @@ const helperState = async db => (await db.query(`
   }
   check('denied direct calls leave counters unchanged', (await counters(db)) === before, `${before} -> ${await counters(db)}`);
 
+  for (const fn of TRIGGER_FNS) {
+    const e = await expectError(db, bindSql(fn), '42501');
+    await db.exec('RESET ROLE');
+    check(`authenticated cannot bind ${fn} to its own temp table (42501)`, e.ok, e.got);
+  }
+  check('denied trigger binding leaves counters unchanged', (await counters(db)) === before, `${before} -> ${await counters(db)}`);
+
   // authorized INSERTs still get trigger numbers (client value overridden)
   await db.exec(`SET ROLE authenticated`);
   const q = (await db.query(`INSERT INTO public.quotations (qt_no) VALUES ('CLIENT') RETURNING qt_no`)).rows[0].qt_no;
@@ -129,6 +153,7 @@ const helperState = async db => (await db.query(`
   check('authenticated INSERT quotation numbered by trigger', /^QT\d{8}001$/.test(q), q);
   check('authenticated INSERT delivery invoice numbered by trigger', /^INV\d{8}001$/.test(d.inv_no), d.inv_no);
   check('authenticated INSERT receipt numbered by trigger', /^RC\d{8}001$/.test(rc), rc);
+  results.push('INFO  the three document INSERTs above ran after the trigger-function EXECUTE revoke');
 
   await db.exec(`SET ROLE service_role`);
   const q2 = (await db.query(`INSERT INTO public.quotations (qt_no) VALUES (NULL) RETURNING qt_no`)).rows[0].qt_no;
@@ -157,12 +182,41 @@ const helperState = async db => (await db.query(`
 
   // rerun is safe and changes nothing
   const c2 = await counters(db);
-  const aclBefore = (await helperState(db)).acl;
+  const aclBefore = (await helperState(db)).acl + JSON.stringify(await triggerFnAcl(db));
   let err2 = null;
   try { await db.exec(P633); } catch (e) { err2 = e; await abortTx(db); }
   check('rerun executes (idempotent)', !err2, err2 ? `${err2.code} ${err2.message}` : '');
-  check('rerun leaves counters and ACL unchanged',
-    (await counters(db)) === c2 && (await helperState(db)).acl === aclBefore, `${c2} / ${aclBefore}`);
+  check('rerun leaves counters, helper ACL and trigger-function ACLs unchanged',
+    (await counters(db)) === c2 && ((await helperState(db)).acl + JSON.stringify(await triggerFnAcl(db))) === aclBefore, c2);
+  await db.exec('SET ROLE authenticated');
+  const q4 = (await db.query('INSERT INTO public.quotations (qt_no) VALUES (NULL) RETURNING qt_no')).rows[0].qt_no;
+  await db.exec('RESET ROLE');
+  check('after rerun, quotation INSERT still numbered in sequence', /^QT\d{8}004$/.test(q4), q4);
+  await db.close();
+}
+
+// ── 2b. sensitivity: without the trigger-function revoke the binding attack is real ──
+{
+  const db = await freshDb();
+  const weakened = P633
+    .replace(/REVOKE EXECUTE ON FUNCTION public\.assign_quotation_no\(\),[\s\S]*?FROM PUBLIC, anon, authenticated, service_role;\n/, '')
+    .replace(`    IF v_n <> 0 OR (SELECT p.proacl FROM pg_catalog.pg_proc p WHERE p.oid = to_regprocedure(r.fn)) IS NULL THEN`, '    IF false THEN')
+    .replace(`    IF has_function_privilege('anon', to_regprocedure(r.fn), 'EXECUTE')
+       OR has_function_privilege('authenticated', to_regprocedure(r.fn), 'EXECUTE')
+       OR has_function_privilege('service_role', to_regprocedure(r.fn), 'EXECUTE') THEN`, '    IF false THEN');
+  if ((weakened.match(/IF false THEN/g) || []).length !== 2 || /public\.assign_quotation_no\(\),/.test(weakened)) {
+    throw new Error('sensitivity mutation did not apply');
+  }
+  await db.exec(weakened);
+  await db.exec(`INSERT INTO public.doc_number_counters (doc_type, period, last_no)
+    VALUES ('quotation', to_char((now() AT TIME ZONE 'Asia/Bangkok'), 'YYYYMMDD'), 0)`);
+  const c0 = await counters(db);
+  let bound;
+  try { await db.exec(bindSql('assign_quotation_no')); bound = 'bound'; } catch (e) { bound = `${e.code} ${e.message}`; }
+  await db.exec('RESET ROLE');
+  const c1 = await counters(db);
+  check('sensitivity: without trigger-fn revoke, authenticated binds a trigger and bumps the counter',
+    bound === 'bound' && c0 !== c1, `${bound} · ${c0} -> ${c1}`);
   await db.close();
 }
 
@@ -200,14 +254,23 @@ function once(src, from, to) {
   return src.replace(from, () => to);
 }
 const MUTANTS = [
-  ['no REVOKE', s => once(s, 'REVOKE EXECUTE ON FUNCTION public.next_doc_number(text, text)\n  FROM PUBLIC, anon, authenticated, service_role;', '')],
-  ['REVOKE only PUBLIC', s => once(s, 'FROM PUBLIC, anon, authenticated, service_role;', 'FROM PUBLIC;')],
-  ['REVOKE without service_role', s => once(s, 'FROM PUBLIC, anon, authenticated, service_role;', 'FROM PUBLIC, anon, authenticated;')],
+  ['no helper REVOKE', s => once(s, 'REVOKE EXECUTE ON FUNCTION public.next_doc_number(text, text)\n  FROM PUBLIC, anon, authenticated, service_role;', '')],
+  ['helper REVOKE only PUBLIC', s => once(s, 'REVOKE EXECUTE ON FUNCTION public.next_doc_number(text, text)\n  FROM PUBLIC, anon, authenticated, service_role;', 'REVOKE EXECUTE ON FUNCTION public.next_doc_number(text, text)\n  FROM PUBLIC;')],
+  ['helper REVOKE without service_role', s => once(s, 'REVOKE EXECUTE ON FUNCTION public.next_doc_number(text, text)\n  FROM PUBLIC, anon, authenticated, service_role;', 'REVOKE EXECUTE ON FUNCTION public.next_doc_number(text, text)\n  FROM PUBLIC, anon, authenticated;')],
   ['receipt trigger stays INVOKER', s => once(s, 'ALTER FUNCTION public.assign_receipt_no()          SECURITY DEFINER SET search_path = \'\';', 'ALTER FUNCTION public.assign_receipt_no()          SET search_path = \'\';')],
+  ['no trigger-function REVOKE', s => once(s, `REVOKE EXECUTE ON FUNCTION public.assign_quotation_no(),
+                           public.assign_delivery_invoice_no(),
+                           public.assign_receipt_no()
+  FROM PUBLIC, anon, authenticated, service_role;`, '')],
+  ['trigger-function REVOKE only PUBLIC', s => once(s, `                           public.assign_receipt_no()
+  FROM PUBLIC, anon, authenticated, service_role;`, `                           public.assign_receipt_no()
+  FROM PUBLIC;`)],
+  ['trigger-function REVOKE misses receipt', s => once(s, `                           public.assign_delivery_invoice_no(),
+                           public.assign_receipt_no()`, '                           public.assign_delivery_invoice_no()')],
   ['helper search_path not hardened', s => once(s, "ALTER FUNCTION public.next_doc_number(text, text) SET search_path = '';", '')],
   // catalog ACL checks removed too: only the behavioral SET ROLE probe is left to catch the leak
   ['REVOKE only PUBLIC + ACL checks removed (probe only)', s => once(
-    once(s, 'FROM PUBLIC, anon, authenticated, service_role;', 'FROM PUBLIC;'),
+    once(s, 'REVOKE EXECUTE ON FUNCTION public.next_doc_number(text, text)\n  FROM PUBLIC, anon, authenticated, service_role;', 'REVOKE EXECUTE ON FUNCTION public.next_doc_number(text, text)\n  FROM PUBLIC;'),
     `  IF has_function_privilege('anon', v_helper, 'EXECUTE')
      OR has_function_privilege('authenticated', v_helper, 'EXECUTE')
      OR has_function_privilege('service_role', v_helper, 'EXECUTE') THEN`,
