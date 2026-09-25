@@ -1,5 +1,12 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
+**Phase 632 — DB one-active-receipt invariant (DB-only · build 630 / v5.69.97 ไม่ bump · SQL NOT RUN)**
+- Baseline: `78b30178e71ed116f8d5def6b15bca536110fb43` (= origin/main · merge PR #226). ปัญหา: client duplicate lookup กับ INSERT receipt เป็นคนละ request จึง race ข้ามเครื่องได้.
+- Owner-measured preflight `2026-09-25T10:08:09.802491Z`: receipts 26 (paid 24, pending 2), linked 26, active duplicate 0, NULL/blank/noncanonical status 0, orphan 0; index เดิม 3 ตัว valid/ready/live ทั้งหมด.
+- Added `supabase-phase632-receipt-active-unique.sql`: transaction + 5s lock timeout + SHARE lock, duplicate recheck, partial UNIQUE บน `delivery_invoice_id` เมื่อ non-null และ `status IS DISTINCT FROM 'cancelled'`, exact catalog verification (single key/no INCLUDE/expression/exact predicate) และ post-check A/B; v1.1 runbook: PHASE-632-OWNER-SQL-RUNBOOK.md. ใช้ normal index เพราะมี 26 แถว; ไม่ใช้ CONCURRENTLY.
+- Added structural guard `tests/phase632_receipt_active_unique_guard.test.js` + structural mutations 31 ตัว. นี่ไม่ใช่ PostgreSQL parser proof หรือ production concurrency proof. ไม่แตะ runtime/payload/items/payment/JV/RLS/build/cache และไม่เขียน `DB_MIGRATIONS_APPLIED.md` จน owner apply จริง.
+- Residual: race loser จะได้ 23505/HTTP 409 และข้อความอาจเป็น DB English; cancellation/JV void/source-status/item writes ยังไม่ atomic; cancelled → active ขัด replacement จะโดน 23505; numbering sequence อาจมีเลขเว้น. **STOP: READY-FOR-INDEPENDENT-PHASE-632-REVIEW** — implement team ห้ามรัน SQL/push/merge/deploy.
+
 > Prompt brief skill: read [`PROMPT_PHASE_BRIEF_SKILL.md`](PROMPT_PHASE_BRIEF_SKILL.md) before drafting, reviewing, or implementing phase prompts for Claude/Codex. It locks the required baseline, scope, failure semantics, tests, build/docs, and STOP marker.
 
 **Phase 631 Production Closeout — merged + deployed + historical empty-document audit PASS (docs only · build 630 / v5.69.97 ไม่ bump)**
