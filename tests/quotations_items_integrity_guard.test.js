@@ -5,6 +5,9 @@
 //            (3) xhrDelete เช็คผล (throw ก่อนถึง insert loop) + insert loop เก็บ failedItems แบบ Phase 412
 //                — มี fail ห้าม toast สำเร็จ
 //            (4) openPreview / convertToDeliveryInvoice: โหลดล้ม → ยกเลิกการเปิด/แปลง (เอกสาร 0 รายการห้ามเกิด)
+//            Phase 630: convertToDeliveryInvoice ใช้ snapshot ใหม่ของ q.id ใน local เท่านั้น —
+//                ห้ามอ่าน/เขียน _lineItems / _lineItemsLoadFailed (ปฏิเสธ cache ของฟอร์ม/preview)
+//                behavioral ครบอยู่ใน tests/phase630_qt_to_di_failclosed.test.js
 //
 // Source-regex (iron rule #5: extract body ของฟังก์ชันเป้าหมายก่อน — ห้าม grep ทั้งไฟล์)
 // Run: npm test
@@ -57,11 +60,14 @@ test("ทุก catch ที่ fallback _lineItems = [] ต้องมี toas
     assert.ok(/showToast/.test(m[1]),
       `catch ที่ fallback _lineItems = [] ต้องมี showToast — เจอ block เงียบ:\n${m[0].slice(0, 200)}`);
   }
-  assert.ok(found >= 4, `ต้องเจอ catch fallback อย่างน้อย 4 จุด (pending-preview/edit/preview/convert) — เจอ ${found}`);
+  // Phase 630: convert ไม่ fallback _lineItems แล้ว (ใช้ local snapshot) → เหลือ pending-preview/edit/preview
+  assert.ok(found >= 3, `ต้องเจอ catch fallback อย่างน้อย 3 จุด (pending-preview/edit/preview) — เจอ ${found}`);
+  assert.ok(!convertFn.includes("_lineItems = []"), "convertToDeliveryInvoice ห้าม fallback/เขียน _lineItems (Phase 630)");
 });
 
 // ═══ (1b) จุดโหลดที่มี save/document ตาม ต้อง set flag ═══
-for (const [label, fn] of [["openEditForm", editFn], ["openPreview", previewFn], ["convertToDeliveryInvoice", convertFn]]) {
+//   Phase 630: convertToDeliveryInvoice ออกจากชุดนี้ — กลับด้านเป็น "ห้ามแตะ flag/cache" (test ถัดไป)
+for (const [label, fn] of [["openEditForm", editFn], ["openPreview", previewFn]]) {
   test(`${label}: catch โหลดล้ม set _lineItemsLoadFailed = true · โหลดสำเร็จ reset false`, () => {
     assert.match(fn, /_lineItemsLoadFailed = true;/, `${label}: catch ต้อง set flag = true`);
     assert.match(fn, /_lineItemsLoadFailed = false;/, `${label}: success path ต้อง reset flag = false`);
@@ -70,6 +76,16 @@ for (const [label, fn] of [["openEditForm", editFn], ["openPreview", previewFn],
     assert.ok(okIdx < failIdx, `${label}: reset false (success) ต้องมาก่อน set true (catch)`);
   });
 }
+
+// ═══ (1c) Phase 630: convertToDeliveryInvoice ปฏิเสธ cache — ไม่อ่าน/ไม่เขียน _lineItems / _lineItemsLoadFailed ═══
+test("convertToDeliveryInvoice: ไม่อ้าง _lineItems / _lineItemsLoadFailed (ใช้ local snapshot ของ q.id)", () => {
+  const code = convertFn.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");   // ตัด comment
+  assert.ok(!/\b_lineItems\b/.test(code), "ห้ามใช้ _lineItems เป็น source/ปลายทางของการแปลง");
+  assert.ok(!/\b_lineItemsLoadFailed\b/.test(code), "ห้ามอ่าน/เขียน _lineItemsLoadFailed ในการแปลง");
+  assert.match(code, /let sourceItems;/, "snapshot ต้องอยู่ใน local (sourceItems)");
+  assert.match(code, /countableDocumentItems\(sourceItems\)/, "countable gate ต้องนับจาก snapshot");
+  assert.match(code, /for \(let i = 0; i < sourceItems\.length; i\+\+\)/, "item loop ต้องวนจาก snapshot");
+});
 
 // ═══ (2) saveQuotationFull: guard ก่อน xhrDelete (source order) ═══
 test("saveQuotationFull: guard _editingId && _lineItemsLoadFailed อยู่ก่อน xhrDelete + toast ห้ามบันทึกทับ", () => {
@@ -121,8 +137,9 @@ test("openPreview: โหลดล้ม → ยกเลิกการเป�
 });
 
 test("convertToDeliveryInvoice: โหลดล้ม → ยกเลิกการแปลง (toast + return) — ใบส่งสินค้า 0 รายการห้ามเกิด", () => {
+  // Phase 630: catch ไม่ set _lineItemsLoadFailed แล้ว (ห้ามแตะ state ของฟอร์ม) — ยัง toast + return เหมือนเดิม
   assert.match(convertFn,
-    /catch\(e\) \{[\s\S]*?_lineItemsLoadFailed = true;[\s\S]*?ยกเลิกการสร้างใบส่งสินค้า[\s\S]*?return;/,
+    /catch\(e\) \{[\s\S]*?ยกเลิกการสร้างใบส่งสินค้า[\s\S]*?return;/,
     "catch ของ items-load ต้อง toast + return ก่อนถึง xhrPost delivery_invoices");
   // return ต้องอยู่ก่อนสร้าง invoice
   const catchIdx = convertFn.indexOf("ยกเลิกการสร้างใบส่งสินค้า");
