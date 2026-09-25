@@ -54,7 +54,14 @@ const VERIFY_TOKENS = [
   "PERFORM public.next_doc_number('QT', 'quotation');",
   "EXCEPTION WHEN insufficient_privilege THEN",
   "IF v_state IS DISTINCT FROM 'denied' THEN",
-  "RAISE NOTICE 'Phase 633 probe as %: NOT RUN (postgres is not a member)', r.rolname;",
+  // v1.2 probe honesty: gate on the SET option, prove the switch, and only then count 42501
+  "pg_catalog.pg_has_role(session_user, oid, 'SET') AS can_set",
+  "RAISE NOTICE 'Phase 633 probe as %: NOT RUN (session user % has no SET option on the role)', r.rolname, session_user;",
+  "    EXCEPTION WHEN OTHERS THEN\n      v_state := 'set_role_failed';",
+  "IF v_state IS NULL AND current_user <> r.rolname THEN",
+  "    IF v_state IS NULL THEN\n      BEGIN\n        PERFORM public.next_doc_number('QT', 'quotation');",
+  "RAISE NOTICE 'Phase 633 probe as %: NOT RUN (could not switch role: %)', r.rolname, v_msg;",
+  "RAISE NOTICE 'Phase 633 probe as %: RAN, helper call denied (%)', r.rolname, v_msg;",
 ];
 const PREFLIGHT_TOKENS = [
   "NOT BETWEEN 170000 AND 179999",
@@ -92,8 +99,20 @@ function validate(source) {
   assert.equal((executable.match(/\bCOMMIT;/g) || []).length, 1, 'one COMMIT');
   assert.equal((executable.match(/\bREVOKE\b/g) || []).length, 2, 'exactly two REVOKE (helper + trigger functions)');
   // the probe skip path must stay visible: a POST-CHECK reports whether the probe ran
-  assert.ok(source.includes('-- POST-CHECK C BEGIN') && source.includes("pg_catalog.pg_has_role('postgres', r.oid, 'MEMBER') AS probe_ran"),
-    'POST-CHECK C reports probe_ran');
+  // POST-CHECK C only shows the prerequisite; it must not present current rights as "probe ran"
+  assert.ok(source.includes('-- POST-CHECK C BEGIN')
+    && source.includes("pg_catalog.pg_has_role(session_user, r.oid, 'SET') AS probe_prerequisite_set_option_now"),
+    'POST-CHECK C reports the SET-option prerequisite');
+  assert.doesNotMatch(executable, /probe_ran/, 'no column claims the probe ran');
+  // membership alone never gates the probe
+  assert.doesNotMatch(verify, /'MEMBER'/, 'probe must not gate on MEMBER');
+  // the SET ROLE attempt has its own handler, before and outside the helper-call handler
+  const setAt = verify.indexOf("EXECUTE format('SET LOCAL ROLE %I', r.rolname);");
+  const setHandlerAt = verify.indexOf("EXCEPTION WHEN OTHERS THEN\n      v_state := 'set_role_failed';");
+  const callAt = verify.indexOf("PERFORM public.next_doc_number('QT', 'quotation');");
+  const deniedAt = verify.indexOf('EXCEPTION WHEN insufficient_privilege THEN');
+  assert.ok(setAt >= 0 && setAt < setHandlerAt && setHandlerAt < callAt && callAt < deniedAt,
+    'SET ROLE failure is handled separately before the helper call');
   assert.equal((executable.match(/\bALTER FUNCTION\b/g) || []).length, 4, 'exactly four ALTER FUNCTION');
 
   // narrow: no body rewrite, no grants, no default-privilege or data changes
@@ -111,7 +130,7 @@ function validate(source) {
   for (const token of VERIFY_TOKENS) assert.ok(verify.includes(token), `verify: ${token}`);
 }
 
-test('v1.1 structural SQL contract', () => validate(sql));
+test('v1.2 structural SQL contract', () => validate(sql));
 
 test('pinned md5 values are the Phase B2 bodies', () => {
   assert.deepEqual(PINS, {
@@ -136,6 +155,14 @@ const mutants = [
     TRIGGER_REVOKE.replace(',\n                           public.assign_receipt_no()', ''))],
   ['trigger-function REVOKE before DEFINER cutover', s => once(once(s, TRIGGER_REVOKE, ''), ALTERS[1], TRIGGER_REVOKE + '\n' + ALTERS[1])],
   ['POST-CHECK C removed', s => once(s, '-- POST-CHECK C BEGIN', '-- POST-CHECK X BEGIN')],
+  ['probe gated on MEMBER', s => once(s, "pg_catalog.pg_has_role(session_user, oid, 'SET') AS can_set",
+    "pg_catalog.pg_has_role(session_user, oid, 'MEMBER') AS can_set")],
+  ['POST-CHECK C claims probe_ran', s => once(s, 'AS probe_prerequisite_set_option_now', 'AS probe_ran')],
+  ['SET ROLE folded into the helper handler (v1.1 shape)', s => once(s,
+    "      EXECUTE format('SET LOCAL ROLE %I', r.rolname);\n    EXCEPTION WHEN OTHERS THEN\n      v_state := 'set_role_failed';",
+    "      NULL;\n    EXCEPTION WHEN OTHERS THEN\n      v_state := 'set_role_failed';").replace(
+    "      BEGIN\n        PERFORM public.next_doc_number('QT', 'quotation');",
+    "      BEGIN\n        EXECUTE format('SET LOCAL ROLE %I', r.rolname);\n        PERFORM public.next_doc_number('QT', 'quotation');")],
   ['trigger stays INVOKER', s => once(s, ALTERS[3], "ALTER FUNCTION public.assign_receipt_no()          SET search_path = '';")],
   ['helper search_path kept public', s => once(s, ALTERS[0], "ALTER FUNCTION public.next_doc_number(text, text) SET search_path = public;")],
   ['REVOKE before trigger cutover', s => once(once(s, REVOKE, ''), ALTERS[1], REVOKE + '\n' + ALTERS[1])],

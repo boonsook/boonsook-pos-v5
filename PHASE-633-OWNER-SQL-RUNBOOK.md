@@ -1,4 +1,4 @@
-# Phase 633 v1.1 — owner SQL runbook (doc-number helper lockdown)
+# Phase 633 v1.2 — owner SQL runbook (doc-number helper lockdown)
 
 SQL production execution: **NOT RUN**. ใช้เอกสารนี้หลัง independent review **และ** หลังผ่านขั้นพิสูจน์บน PostgreSQL 17.6 แยกจาก production แล้วเท่านั้น และต้องได้ owner อนุมัติ apply แยกอีกครั้ง
 
@@ -12,7 +12,7 @@ Migration `supabase-phase633-doc-number-helper-lockdown.sql` ทำใน transa
 2. helper: คง SECURITY DEFINER แต่ตั้ง `search_path = ''` (body ระบุ schema ครบแล้ว)
 3. trigger functions 3 ตัว: เป็น SECURITY DEFINER + `search_path = ''` เพื่อให้ยังเรียก helper ได้หลังถอนสิทธิ์. ฟังก์ชันที่คืนค่า `trigger` เรียกแบบ `SELECT fn()` ตรง ๆ ไม่ได้ **แต่ยังถูกผูกกับ trigger อื่นได้** ถ้า role นั้นมี EXECUTE บนฟังก์ชัน และมีสิทธิ์สร้าง trigger บนตารางของตัวเอง (เช่น temp table หรือตารางที่สร้างเองใน `public`) — เมื่อเป็น SECURITY DEFINER จะรันด้วยสิทธิ์ owner และเพิ่มตัวนับได้
 4. `REVOKE EXECUTE` บน helper **และบน trigger functions ทั้ง 3 ตัว** จาก `PUBLIC, anon, authenticated, service_role` ใน transaction เดียวกัน (trigger ที่มีอยู่แล้วยังทำงานได้ เพราะ PostgreSQL ตรวจ EXECUTE ตอน `CREATE TRIGGER` ไม่ใช่ตอน trigger ทำงาน)
-5. verify: สถานะ catalog ตรงทุกข้อ รวม ACL ของ helper และ trigger functions + probe `SET LOCAL ROLE anon/authenticated` แล้วเรียก helper ต้องได้ 42501 (ถ้าเรียกผ่าน จะ RAISE ทำให้ rollback ทั้ง transaction รวมตัวนับที่เพิ่ม). probe รันได้เฉพาะเมื่อ `postgres` เป็นสมาชิก role นั้น — ถ้าไม่เป็น จะข้ามและต้องรายงานว่า **probe NOT RUN** (ไม่ใช่ behavioral PASS) ดู POST-CHECK C
+5. verify: สถานะ catalog ตรงทุกข้อ รวม ACL ของ helper และ trigger functions + probe เชิงพฤติกรรมต่อ role `anon`/`authenticated`: (ก) ข้ามทันทีถ้า session user ไม่มี **SET option** บน role (การเป็นแค่ MEMBER ไม่พอ ตั้งแต่ PostgreSQL 16) (ข) ลอง `SET LOCAL ROLE` ใน handler แยก แล้วยืนยันว่า `current_user` เปลี่ยนเป็น role นั้นจริง (ค) หลังสลับสำเร็จเท่านั้นจึงเรียก helper — 42501 จากการเรียก helper นับเป็น "denied" · ถ้า (ก) หรือ (ข) ไม่ผ่าน probe ของ role นั้นเป็น **NOT RUN** (ไม่ใช่ behavioral PASS) เพราะ `SET ROLE` ที่ล้มก็ให้ 42501 เหมือนกัน · ถ้าเรียก helper ได้ จะ RAISE และ rollback ทั้ง transaction รวมตัวนับที่เพิ่ม · ผลของ probe มีหลักฐานเฉพาะจากข้อความ NOTICE ของการ Run ทั้งไฟล์
 6. `NOTIFY pgrst` แล้ว COMMIT
 
 ไม่แก้ body ฟังก์ชัน, ตัวนับ, ข้อมูลเอกสาร, RLS, default privileges หรือ runtime/UI
@@ -39,8 +39,8 @@ SELECT current_setting('server_version') AS server_version, current_user,
        has_function_privilege('anon', p.oid, 'EXECUTE') AS anon_exec,
        has_function_privilege('authenticated', p.oid, 'EXECUTE') AS authenticated_exec,
        has_function_privilege('service_role', p.oid, 'EXECUTE') AS service_role_exec,
-       pg_catalog.pg_has_role('postgres', 'anon', 'MEMBER') AS postgres_in_anon,
-       pg_catalog.pg_has_role('postgres', 'authenticated', 'MEMBER') AS postgres_in_authenticated,
+       pg_catalog.pg_has_role(session_user, 'anon', 'SET') AS session_can_set_anon,
+       pg_catalog.pg_has_role(session_user, 'authenticated', 'SET') AS session_can_set_authenticated,
        has_schema_privilege('authenticated', 'public', 'CREATE') AS authenticated_can_create_in_public,
        (SELECT count(*) FROM pg_catalog.pg_proc q
          JOIN pg_catalog.pg_namespace n ON n.oid = q.pronamespace
@@ -63,7 +63,7 @@ ORDER BY p.oid::regprocedure::text;
 | `assign_delivery_invoice_no()` | false | NULL | `0309cb0dc3406d84e63d35a4046d30df` |
 | `assign_receipt_no()` | false | NULL | `19f0ac1c8ebc5c1e76b6a76e65d1121d` |
 
-`anon_exec`/`authenticated_exec` ของทั้ง 4 ฟังก์ชันคาดว่า true (คือสิ่งที่จะถอน) · `authenticated_can_create_in_public` เป็นข้อมูลประกอบ (ถ้า true แปลว่า authenticated สร้างตารางแล้วผูก trigger ได้ — เหตุผลที่ต้องถอน EXECUTE ของ trigger functions ด้วย) · `postgres_in_anon`/`postgres_in_authenticated` ไม่ใช่เงื่อนไข STOP แต่ถ้า false probe ของ role นั้นจะ **NOT RUN**
+`anon_exec`/`authenticated_exec` ของทั้ง 4 ฟังก์ชันคาดว่า true (คือสิ่งที่จะถอน) · `authenticated_can_create_in_public` เป็นข้อมูลประกอบ (ถ้า true แปลว่า authenticated สร้างตารางแล้วผูก trigger ได้ — เหตุผลที่ต้องถอน EXECUTE ของ trigger functions ด้วย) · `session_can_set_anon`/`session_can_set_authenticated` ไม่ใช่เงื่อนไข STOP แต่ถ้า false probe ของ role นั้นจะ **NOT RUN** (ค่านี้เป็นเงื่อนไขล่วงหน้า ไม่ใช่หลักฐานว่า probe ผ่าน)
 
 ## Apply
 
@@ -73,13 +73,14 @@ ORDER BY p.oid::regprocedure::text;
 
 ## ตรวจผล
 
-SQL Editor อาจแสดงเฉพาะผล SELECT สุดท้าย ให้คัดลอกส่วน `-- POST-CHECK A BEGIN … END`, `-- POST-CHECK B BEGIN … END` และ `-- POST-CHECK C BEGIN … END` จากไฟล์ไปรันแยก
+SQL Editor อาจแสดงเฉพาะผล SELECT สุดท้าย ให้คัดลอกส่วน `-- POST-CHECK A BEGIN … END`, `-- POST-CHECK B BEGIN … END` และ `-- POST-CHECK C BEGIN … END` จากไฟล์ไปรันแยก **ทั้งสามชุด** และเก็บข้อความ NOTICE ทั้งหมดจากการ Run ทั้งไฟล์ (บรรทัดที่ขึ้นต้นด้วย `Phase 633 probe as`) แบบ raw ด้วย
 
 - **A** ต้องได้ 4 แถว: owner `postgres` · `security_definer = true` ทุกแถว · `proconfig = {"search_path=\"\""}` ทุกแถว · body_md5 ตรงตารางด้านบน · **ทั้ง 4 แถว** (helper + trigger functions): `anon_exec`/`authenticated_exec`/`service_role_exec` = false และ `acl` ไม่มีรายการ `=X/` (PUBLIC)
 - **B** ต้องได้ 3 แถว: trigger ทั้งสามชี้ฟังก์ชันเดิม · `tgenabled = O` · `tgtype = 7`
-- **C** ได้ 2 แถว (`anon`, `authenticated`): `probe_ran = true` แปลว่า probe เรียก helper ในขั้น verify ถูกปฏิเสธจริง · `probe_ran = false` ต้องรายงานว่า **probe NOT RUN** สำหรับ role นั้น — มีเพียง catalog PASS ไม่ใช่ behavioral PASS
+- **C** ได้ 2 แถว (`anon`, `authenticated`) แสดง `session_user_now`, `is_member_now` และ `probe_prerequisite_set_option_now` — เป็นเพียง **สิทธิ์ ณ ตอนตรวจ ที่เอื้อให้ probe รันได้ ไม่ใช่หลักฐานว่า probe รันแล้วหรือผ่าน**
+- **ผล probe** ยืนยันได้จาก NOTICE เท่านั้น: `Phase 633 probe as <role>: RAN, helper call denied (...)` = behavioral PASS ของ role นั้น · `... NOT RUN (...)` = รายงานว่า NOT RUN · ถ้าเก็บ NOTICE ไม่ได้ (เช่น SQL Editor ไม่แสดง) ให้รายงานว่า **probe result not evidenced** ห้ามอนุมานจาก POST-CHECK C
 
-ส่ง raw A/B + ผล Run ทั้งไฟล์ พร้อม timestamp กลับ reviewer ผลนี้เป็น catalog PASS เท่านั้น ไม่ใช่ smoke การออกเอกสารจริง
+ส่ง **raw A/B/C ครบทั้งสามชุด** + ผล Run ทั้งไฟล์ + NOTICE ของ probe (หรือระบุว่าเก็บไม่ได้) พร้อม timestamp กลับ reviewer · ขาดชุดใดชุดหนึ่ง = หลักฐานไม่ครบ · ผลนี้เป็น catalog PASS (+ behavioral probe เฉพาะ role ที่มี NOTICE "RAN") ไม่ใช่ smoke การออกเอกสารจริง
 
 ## หลัง apply — smoke (แยกขั้น ต้อง owner อนุมัติ)
 
@@ -97,5 +98,5 @@ SQL Editor อาจแสดงเฉพาะผล SELECT สุดท้า�
 
 - INSERT ที่ล้มหรือถูก rollback ไม่เพิ่มตัวนับ เพราะตัวนับเป็นแถวในตาราง (พฤติกรรมเดิม ไม่ได้เปลี่ยน)
 - `service_role` ถูกถอนสิทธิ์เรียกตรงด้วย (ใน repo ไม่มี caller) — ถ้ามีเครื่องมือภายนอกเรียก helper ตรง หรือผูก trigger functions เอง จะได้ 42501
-- ผลทดสอบ PGlite 17.5 เป็น preliminary: ใน PGlite `postgres` เป็น superuser จึงเป็นสมาชิกทุก role — ทางที่ probe ถูกข้าม (NOT RUN) ยังไม่ได้ทดสอบเชิงพฤติกรรม
+- ผลทดสอบ PGlite 17.5 เป็น preliminary: ทาง NOT RUN ของ probe ทดสอบแล้วเฉพาะใน PGlite โดยรันบล็อก probe จาก migration ด้วย session user ที่ไม่ใช่ superuser (MEMBER=true แต่ SET=false → NOT RUN, ไม่มี RAN) — ยังต้องยืนยันบน PostgreSQL 17.6 ที่ `postgres` ไม่ใช่ superuser แบบ Supabase
 - การป้องกันนี้ไม่ได้แก้ช่องว่างเลขที่เกิดขึ้นแล้ว และไม่ได้เปลี่ยนสิทธิ์ `CREATE` บน schema `public`

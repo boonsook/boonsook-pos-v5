@@ -104,8 +104,14 @@ const helperState = async db => (await db.query(`
 {
   const db = await freshDb();
   let err = null;
-  try { await db.exec(P633); } catch (e) { err = e; await abortTx(db); }
+  const notices = [];
+  try { await db.exec(P633, { onNotice: n => notices.push(n.message) }); } catch (e) { err = e; await abortTx(db); }
   check('migration executes as one file', !err, err ? `${err.code} ${err.message}` : '');
+  for (const role of ['anon', 'authenticated']) {
+    check(`in-migration probe as ${role} RAN and the helper call was denied (NOTICE)`,
+      notices.some(m => m.startsWith(`Phase 633 probe as ${role}: RAN, helper call denied`)),
+      notices.filter(m => m.includes(`as ${role}:`)).join(' | '));
+  }
 
   const h = await helperState(db);
   check('helper stays SECURITY DEFINER', h.prosecdef === true);
@@ -217,6 +223,95 @@ const helperState = async db => (await db.query(`
   const c1 = await counters(db);
   check('sensitivity: without trigger-fn revoke, authenticated binds a trigger and bumps the counter',
     bound === 'bound' && c0 !== c1, `${bound} · ${c0} -> ${c1}`);
+  await db.close();
+}
+
+// ── 2c. probe honesty: MEMBER without SET must be NOT RUN, never a PASS ──────
+// The probe block is taken verbatim from the migration and run as a non-superuser session
+// user, so role-switch rights can be controlled (in PGlite postgres is a superuser).
+{
+  const probeBody = P633.slice(P633.indexOf('  -- PROBE BLOCK BEGIN'), P633.indexOf('  -- PROBE BLOCK END'));
+  if (!probeBody.includes("pg_has_role(session_user, oid, 'SET')")) throw new Error('probe block not found');
+  const helperOid = "to_regprocedure('public.next_doc_number(text,text)')";
+  const probeDo = `DO $probe$
+DECLARE
+  v_helper oid := ${helperOid};
+  r record; v_state text; v_msg text;
+BEGIN
+${probeBody}END
+$probe$;`;
+  const runProbe = async (db, setOption) => {
+    await db.exec(`DROP ROLE IF EXISTS probe_runner; CREATE ROLE probe_runner NOLOGIN;
+      GRANT anon, authenticated TO probe_runner WITH SET ${setOption}, INHERIT TRUE;`);
+    const rights = (await db.query(`SELECT pg_has_role('probe_runner','anon','MEMBER') AS m,
+      pg_has_role('probe_runner','anon','SET') AS s`)).rows[0];
+    const notices = [];
+    let err = null;
+    await db.exec('SET SESSION AUTHORIZATION probe_runner');
+    try { await db.exec(probeDo, { onNotice: n => notices.push(n.message) }); } catch (e) { err = e; }
+    await db.exec('SET SESSION AUTHORIZATION postgres');  // PGlite: RESET does not restore the bootstrap user
+    return { rights, notices, err };
+  };
+
+  const db = await freshDb();
+  await db.exec(P633);
+  await db.exec(`INSERT INTO public.doc_number_counters (doc_type, period, last_no)
+    VALUES ('quotation', to_char((now() AT TIME ZONE 'Asia/Bangkok'), 'YYYYMMDD'), 0)`);
+
+  // the trap: without the SET option, SET ROLE itself fails with the same 42501 code
+  await db.exec(`CREATE ROLE trap_runner NOLOGIN; GRANT anon TO trap_runner WITH SET FALSE;`);
+  await db.exec('SET SESSION AUTHORIZATION trap_runner');
+  const trap = await expectError(db, 'SET ROLE anon;', '42501');
+  await db.exec('SET SESSION AUTHORIZATION postgres');  // PGlite: RESET does not restore the bootstrap user
+  check('trap exists: MEMBER without SET makes SET ROLE fail with 42501', trap.ok, trap.got);
+
+  const noSet = await runProbe(db, 'FALSE');
+  check('MEMBER=true / SET=false fixture', noSet.rights.m === true && noSet.rights.s === false, JSON.stringify(noSet.rights));
+  check('MEMBER without SET: probe does not error', !noSet.err, noSet.err ? noSet.err.message : '');
+  check('MEMBER without SET: probe reports NOT RUN for both roles and never RAN',
+    ['anon', 'authenticated'].every(r => noSet.notices.some(m => m.startsWith(`Phase 633 probe as ${r}: NOT RUN`)))
+      && !noSet.notices.some(m => m.includes('RAN, helper call denied')),
+    noSet.notices.join(' | '));
+
+  // sensitivity: the v1.1 probe shape (MEMBER gate, SET ROLE inside the helper's 42501 handler)
+  // reports "denied" in this same fixture although it never switched role
+  const oldProbeDo = `DO $old$
+DECLARE r record; v_state text;
+BEGIN
+  FOR r IN SELECT rolname FROM pg_catalog.pg_roles
+           WHERE rolname IN ('anon', 'authenticated') AND pg_catalog.pg_has_role(session_user, oid, 'MEMBER')
+  LOOP
+    v_state := NULL;
+    BEGIN
+      EXECUTE format('SET LOCAL ROLE %I', r.rolname);
+      PERFORM public.next_doc_number('QT', 'quotation');
+      v_state := 'allowed';
+    EXCEPTION WHEN insufficient_privilege THEN
+      v_state := 'denied';
+    END;
+    RESET ROLE;
+    RAISE NOTICE 'old probe as %: %', r.rolname, v_state;
+  END LOOP;
+END $old$;`;
+  const oldNotices = [];
+  await db.exec('SET SESSION AUTHORIZATION probe_runner');
+  await db.exec(oldProbeDo, { onNotice: n => oldNotices.push(n.message) });
+  await db.exec('SET SESSION AUTHORIZATION postgres');  // PGlite: RESET does not restore the bootstrap user
+  check('sensitivity: v1.1 probe shape reports a false "denied" when MEMBER lacks SET',
+    oldNotices.includes('old probe as anon: denied'), oldNotices.join(' | '));
+
+  const withSet = await runProbe(db, 'TRUE');
+  check('SET=true: probe RAN and helper call denied for both roles',
+    !withSet.err && ['anon', 'authenticated'].every(r => withSet.notices.some(m => m.startsWith(`Phase 633 probe as ${r}: RAN, helper call denied`))),
+    withSet.err ? withSet.err.message : withSet.notices.join(' | '));
+
+  const c0 = await counters(db);
+  await db.exec('GRANT EXECUTE ON FUNCTION public.next_doc_number(text, text) TO anon');
+  const leak = await runProbe(db, 'TRUE');
+  await db.exec('REVOKE EXECUTE ON FUNCTION public.next_doc_number(text, text) FROM anon');
+  check('SET=true + leaked EXECUTE: probe STOPs', !!leak.err && /direct call as anon was allowed/.test(leak.err.message),
+    leak.err ? leak.err.message : 'no error');
+  check('leaked call increment rolled back with the failed probe', (await counters(db)) === c0, `${c0} -> ${await counters(db)}`);
   await db.close();
 }
 

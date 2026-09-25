@@ -1,11 +1,11 @@
--- Phase 633 v1.1. Owner executes only after independent review and separate authorization.
+-- Phase 633 v1.2. Owner executes only after independent review and separate authorization.
 -- Goal: app roles must not call public.next_doc_number(text,text) directly,
 -- while authorized INSERTs on quotations / delivery_invoices / receipts still get
 -- their number from the existing BEFORE INSERT triggers.
 -- Cutover (one transaction): pin catalog -> harden helper search_path ->
 -- trigger functions become SECURITY DEFINER with empty search_path ->
 -- revoke EXECUTE on the helper AND on the three trigger functions ->
--- exact verify (+ denied-call probe, reported NOT RUN when it cannot run) -> COMMIT.
+-- exact verify (+ denied-call probe; NOT RUN unless the role switch is proven) -> COMMIT.
 -- No function body, counter row, document row, RLS policy or default privilege changes.
 -- Run this entire file in one submission. Run POST-CHECK A, B and C separately again.
 BEGIN;
@@ -152,6 +152,7 @@ DECLARE
   r        record;
   v_n      integer;
   v_state  text;
+  v_msg    text;
 BEGIN
   PERFORM 1 FROM pg_catalog.pg_proc p
   WHERE p.oid = v_helper AND p.prosecdef = true
@@ -206,30 +207,51 @@ BEGIN
   -- behavioral probe: a denied call fails at the permission check before the body runs,
   -- so it cannot touch doc_number_counters. If a call ever succeeds, the RAISE below
   -- aborts the whole transaction and rolls back that counter increment too.
-  -- The probe needs postgres to be a member of the role; otherwise it is NOT RUN (reported
-  -- by NOTICE and by POST-CHECK C) and only the catalog checks above apply.
-  FOR r IN SELECT rolname, pg_catalog.pg_has_role('postgres', oid, 'MEMBER') AS can_probe
+  -- SET ROLE needs the SET option (PostgreSQL 16+), not mere membership, and a failed
+  -- SET ROLE also raises 42501. So the switch is attempted and proven (current_user) on its
+  -- own first; only a 42501 from the helper call itself counts as "denied". A probe that
+  -- cannot switch is reported NOT RUN by NOTICE and is never a behavioral PASS.
+  -- PROBE BLOCK BEGIN
+  FOR r IN SELECT rolname, pg_catalog.pg_has_role(session_user, oid, 'SET') AS can_set
            FROM pg_catalog.pg_roles
            WHERE rolname IN ('anon', 'authenticated')
   LOOP
-    IF NOT r.can_probe THEN
-      RAISE NOTICE 'Phase 633 probe as %: NOT RUN (postgres is not a member)', r.rolname;
+    IF NOT r.can_set THEN
+      RAISE NOTICE 'Phase 633 probe as %: NOT RUN (session user % has no SET option on the role)', r.rolname, session_user;
       CONTINUE;
     END IF;
     v_state := NULL;
+    v_msg := NULL;
     BEGIN
       EXECUTE format('SET LOCAL ROLE %I', r.rolname);
-      PERFORM public.next_doc_number('QT', 'quotation');
-      v_state := 'allowed';
-    EXCEPTION WHEN insufficient_privilege THEN
-      v_state := 'denied';
+    EXCEPTION WHEN OTHERS THEN
+      v_state := 'set_role_failed';
+      v_msg := SQLSTATE || ' ' || SQLERRM;
     END;
+    IF v_state IS NULL AND current_user <> r.rolname THEN
+      v_state := 'set_role_failed';
+      v_msg := 'current_user is ' || current_user;
+    END IF;
+    IF v_state IS NULL THEN
+      BEGIN
+        PERFORM public.next_doc_number('QT', 'quotation');
+        v_state := 'allowed';
+      EXCEPTION WHEN insufficient_privilege THEN
+        v_state := 'denied';
+        v_msg := SQLERRM;
+      END;
+    END IF;
     RESET ROLE;
+    IF v_state = 'set_role_failed' THEN
+      RAISE NOTICE 'Phase 633 probe as %: NOT RUN (could not switch role: %)', r.rolname, v_msg;
+      CONTINUE;
+    END IF;
     IF v_state IS DISTINCT FROM 'denied' THEN
       RAISE EXCEPTION 'Phase 633 STOP: direct call as % was %', r.rolname, v_state;
     END IF;
-    RAISE NOTICE 'Phase 633 probe as %: denied', r.rolname;
+    RAISE NOTICE 'Phase 633 probe as %: RAN, helper call denied (%)', r.rolname, v_msg;
   END LOOP;
+  -- PROBE BLOCK END
 END
 $phase633_verify$;
 
@@ -264,8 +286,12 @@ ORDER BY 1;
 -- POST-CHECK B END
 
 -- POST-CHECK C BEGIN
--- probe_ran = false means the in-migration behavioral probe for that role was NOT RUN
-SELECT r.rolname, pg_catalog.pg_has_role('postgres', r.oid, 'MEMBER') AS probe_ran
+-- Prerequisite only, NOT evidence that the probe ran or passed: it shows whether the
+-- current session user can SET ROLE to each app role now. The probe outcome is evidenced
+-- only by the NOTICE lines of the full-file run ("RAN, helper call denied" vs "NOT RUN").
+SELECT r.rolname, session_user AS session_user_now,
+       pg_catalog.pg_has_role(session_user, r.oid, 'MEMBER') AS is_member_now,
+       pg_catalog.pg_has_role(session_user, r.oid, 'SET') AS probe_prerequisite_set_option_now
 FROM pg_catalog.pg_roles r
 WHERE r.rolname IN ('anon', 'authenticated')
 ORDER BY 1;
