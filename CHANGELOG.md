@@ -5,8 +5,12 @@
 
 รูปแบบ: `<commit> feat|fix|docs|refactor: <สรุปสั้น>` + bullet 1-2 ข้อถ้าจำเป็น
 
-- Phase 632 fix(db): **ปิด multi-device race — 1 active receipt ต่อ delivery invoice** (DB-only · build 630 / v5.69.97 ไม่ bump · SQL NOT RUN)
-  - owner preflight: receipts 26, duplicate/status/orphan 0; index health เดิมผ่าน. เพิ่ม transactional partial UNIQUE ด้วย `status IS DISTINCT FROM 'cancelled'` + guard/mutation structural; ไม่แตะ runtime/payment/JV/RLS. STOP `READY-FOR-INDEPENDENT-PHASE-632-REVIEW`.
+- Phase 632 Production SQL Closeout docs(db): **unique index 1 active receipt ต่อ delivery invoice applied บน production** (docs only · build 630 / v5.69.97 ไม่ bump)
+  - `supabase-phase632-receipt-active-unique.sql` (SHA-256 `bd7fd12d…d7de` · merge `fef61f9`) บน `boonsook-pos / main PRODUCTION` · **Catalog PASS (POST-CHECK A/B), Codex-operated, owner-authorized**: A = 1 แถว unique/valid/ready/live/immediate, btree `(delivery_invoice_id)` + exact predicate; B = 0 แถว. ไม่พิสูจน์ byte-for-byte; transaction เดียวเป็นหลักฐานทางอ้อม. Ledger `DB_MIGRATIONS_APPLIED.md` + `PHASE-632-PRODUCTION-SQL-CLOSEOUT.md`.
+  - authenticated two-client smoke + production numbering function check NOT RUN. STOP `READY-FOR-INDEPENDENT-PHASE-632-DOCS-CLOSEOUT-REVIEW`.
+
+- Phase 632 fix(db): **ปิด multi-device race — 1 active receipt ต่อ delivery invoice** (DB-only · build 630 / v5.69.97 ไม่ bump · SQL NOT RUN) *(SUPERSEDED 2026-09-25 เฉพาะสถานะ SQL NOT RUN — ดู Production SQL Closeout ด้านบน)*
+  - owner preflight: receipts 26, duplicate/status/orphan 0; index health เดิมผ่าน. เพิ่ม transactional partial UNIQUE ด้วย `status IS DISTINCT FROM 'cancelled'` + guard/mutation structural; ไม่แตะ runtime/payment/JV/RLS. STOP `READY-FOR-INDEPENDENT-PHASE-632-REVIEW`. *(SUPERSEDED 2026-09-25 เฉพาะสถานะ STOP ก่อน apply — ดู closeout ด้านบน)*
 
 - Phase 631 Production Closeout docs(documents): **merged/deployed + historical empty-document audit PASS** (docs closeout · build 630 / v5.69.97 ไม่ bump)
   - PR #225 head `9586f90` → merge `785aaf5`; Tests+Deploy success; live build/main/cache/SW = 630. Read-only production audit (**owner-measured**, raw `evidence/audit_result.json` SHA-256 `9b1a0fc3…0d5db`): quotation 44 / delivery invoice 30 / receipt 26; missing rows 0, heading-only 0, paid-empty 0, empty-with-JV 0, anomaly 0.
