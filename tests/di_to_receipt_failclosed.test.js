@@ -6,6 +6,7 @@
 //   (3) ใบส่งสินค้ามีรายการอย่างน้อย 1 รายการ
 // + R3 header ok:true แต่ไม่มี id → หยุดทุก write ที่เหลือ ห้าม rollback/retry
 // + R4 terminal toast ต้องสะท้อน partial state จริง (success ห้ามทับคำเตือน)
+// + Phase 631: ทุกแถวรายการต้องเป็น plain object ที่มีครบ 7 คอลัมน์ที่ mapper อ่านก่อน map (N13–N15)
 //
 // วิธีทดสอบ: ดึง source ของ convertToReceipt แบบ brace-aware (Phase 625 ถอด local
 // escHtml ออกแล้ว — ห้ามใช้ `function escHtml` เป็น anchor) แล้วรัน "ของจริง" ใน
@@ -491,6 +492,52 @@ S["N12 ยกเลิก confirm → ไม่โหลดรายการ �
   assert.equal(r.confirmCalls, 1);
 };
 
+// ── (13)-(15) Phase 631: แถวรายการต้องเป็นแถว delivery_invoice_items จริงก่อน map ──
+//   baseline: ตรวจแค่ว่าเป็น array → [{}] / [[]] / ["x"] ถูก map เป็นสินค้า "" qty 1 แล้วออกใบเสร็จจริง (fail OPEN)
+//   fetch ไม่มี select= → PostgREST คืนทุกคอลัมน์เสมอแม้ค่าเป็น null → gate ตรวจ presence ของ 7 คอลัมน์ที่ mapper อ่านเท่านั้น
+const ITEM_COLUMNS = ["product_id", "item_name", "qty", "unit", "unit_price", "discount_pct", "line_total"];
+const withoutKey = (row, key) => { const { [key]: _drop, ...rest } = row; return rest; };
+const MALFORMED_ITEM_ROWS = [
+  ["{}", [{}]],
+  ["[]", [[]]],
+  ['"x"', ["x"]],
+  ...ITEM_COLUMNS.map((col) => [`ขาดคอลัมน์ ${col}`, [withoutKey(SERVER_ROWS[0], col)]]),
+  ["valid + {}", [SERVER_ROWS[0], {}]],
+  ["{} + valid", [{}, SERVER_ROWS[0]]],
+];
+for (const [label, body] of MALFORMED_ITEM_ROWS) {
+  S[`N13 item row รูปแบบผิด ${label} → ITEM_FAIL · confirm 1 · 0 write`] = async (code) => {
+    const r = await runConvert({ items: { body } }, code);
+    assertNoWrites(r, `N13(${label})`);
+    assert.deepEqual(r.ledger, [
+      { m: "GET", url: dupUrl(77), headers: AUTH },
+      { m: "GET", url: itemUrl(77), headers: AUTH },
+    ], `N13(${label}): หยุดหลังตรวจแถวรายการ ไม่มี request อื่น`);
+    assert.deepEqual(r.msgs, [MSG.ITEM_FAIL], `N13(${label}): ข้อความเดิมเป๊ะ`);
+    assert.equal(r.confirmCalls, 1, `N13(${label}): confirm ผ่านแล้วครั้งเดียวก่อนโหลดรายการ`);
+  };
+}
+// regression controls — mapper ที่ baseline throw ใส่ null อยู่แล้ว (เข้า catch เดิม) → ต้องเขียวทั้งก่อนและหลัง Phase 631
+S["N14 control [null] / [valid, null] → ITEM_FAIL ทั้งก่อนและหลัง Phase 631"] = async (code) => {
+  for (const [label, body] of [["[null]", [null]], ["[valid, null]", [SERVER_ROWS[0], null]]]) {
+    const r = await runConvert({ items: { body } }, code);
+    assertNoWrites(r, `N14(${label})`);
+    assert.deepEqual(r.msgs, [MSG.ITEM_FAIL], `N14(${label})`);
+    assert.equal(r.confirmCalls, 1, `N14(${label})`);
+  }
+};
+// positive control — key ครบ 7 แต่ค่า null ทั้งหมด = แถว legacy จริง → ห้ามถูก gate ปฏิเสธ + fallback ของ mapper เดิมทุกช่อง
+S["N15 control แถวครบ 7 คอลัมน์แต่ค่า null → ยังออกใบเสร็จด้วย fallback เดิม"] = async (code) => {
+  const legacy = { product_id: null, item_name: null, qty: null, unit: null, unit_price: null, discount_pct: null, line_total: null };
+  const r = await runConvert({ items: { body: [legacy] } }, code);
+  assert.deepEqual(r.posts.filter((p) => p.table === "receipt_items").map((p) => p.payload), [{
+    receipt_id: RECEIPT_ID, product_id: null, item_name: "", qty: 1, unit: "ชิ้น",
+    unit_price: 0, discount_pct: 0, line_total: 0, sort_order: 1, item_type: "item",
+  }], "N15: payload ต้องเท่า fallback เดิม");
+  assert.equal(r.msgs.at(-1), okToast(SERVER_NO), "N15: ออกใบเสร็จสำเร็จตามเดิม");
+  assert.deepEqual(r.routes, ["receipts"]);
+};
+
 // ── positive controls ──
 S["P1 cancelled-only duplicate + มีรายการจริง → สำเร็จเต็ม"] = async (code) => {
   const inv = invoice();
@@ -724,7 +771,24 @@ const MUTANTS = [
     to: '      const active = existing.filter(d => d && d.status !== "cancelled");\n',
     killer: "N4b duplicate row shape จำแนกไม่ได้ → uncertainty path (ห้ามนับว่าไม่ซ้ำ)",
   },
+  {
+    // Phase 631 (M1): ถอด item-row validation loop ทั้งก้อน → กลับไป map [{}] เป็นสินค้า "" qty 1
+    id: "MUT-13", why: "Phase 631 M1: ถอด item-row validation loop ทั้งก้อน",
+    from: /^ {6}for \(const row of rows\) \{\n[\s\S]*?^ {6}\}\n/m,
+    to: "",
+    killer: "N13 item row รูปแบบผิด {} → ITEM_FAIL · confirm 1 · 0 write",
+  },
+  {
+    // Phase 631 (M2): ถอดเฉพาะ own-property check (คง object-shape check) → {} ผ่าน gate
+    id: "MUT-14", why: "Phase 631 M2: ถอด own-property check แต่คง object-shape check",
+    from: '          if (!Object.prototype.hasOwnProperty.call(row, col)) throw new Error("item row ไม่มีคอลัมน์ " + col);\n',
+    to: "",
+    killer: "N13 item row รูปแบบผิด {} → ITEM_FAIL · confirm 1 · 0 write",
+  },
 ];
+// Phase 631 equivalent mutant (ไม่อยู่ใน matrix · ไม่นับ production-safety score): ถอดเฉพาะ object-shape check
+//   ของแถวรายการ — primitive/array ไม่มีคอลัมน์ (throw ที่ own-property gate) และ null ทำ hasOwnProperty โยน
+//   TypeError → catch เดิม = ข้อความ/ledger เหมือนเดิมทุกกรณี. คงไว้เป็นสัญญา plain object ตาม prompt §3
 
 function applyOnce(code, { from, to }, id) {
   if (from instanceof RegExp) {

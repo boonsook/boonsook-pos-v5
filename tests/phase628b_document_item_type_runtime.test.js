@@ -845,15 +845,15 @@ test("I5 [structural] Phase 625/629 anchors: item input qt-li-name บรรท�
   assert.equal((RC_SRC.match(/escHtml\(item\.unit\|\|'ชิ้น'\)/g) || []).length, 1);
 });
 
-// Phase 630: build pin เลื่อนตาม marker ที่ bump (629 / 5.69.96 / cache-v629) — ความเข้มเท่าเดิม
-test("I6 [structural] build 629 / v5.69.96 / cache-v629 ตรงกันทุกจุด", () => {
+// Phase 630/631: build pin เลื่อนตาม marker ที่ bump (630 / 5.69.97 / cache-v630) — ความเข้มเท่าเดิม
+test("I6 [structural] build 630 / v5.69.97 / cache-v630 ตรงกันทุกจุด", () => {
   const html = read("index.html");
   const sw = read("sw.js");
-  assert.match(html, /data-app-build="629" data-app-version="5\.69\.96"/);
+  assert.match(html, /data-app-build="630" data-app-version="5\.69\.97"/);
   for (const asset of ["style.css", "doc-print.css", "selfheal.js", "main.js", "boot.js"]) {
-    assert.ok(html.includes(`${asset}?v=629`), `${asset}?v=629`);
+    assert.ok(html.includes(`${asset}?v=630`), `${asset}?v=630`);
   }
-  assert.match(sw, /^const CACHE_NAME = 'boonsook-pos-v5-cache-v629';$/m);
-  assert.match(sw, /^const SW_BUILD = '629';$/m);
-  assert.match(sw.split("\n")[1], /^\/\/ v629 \(/, "phase comment บรรทัดบนสุดต้องเป็น v629");
+  assert.match(sw, /^const CACHE_NAME = 'boonsook-pos-v5-cache-v630';$/m);
+  assert.match(sw, /^const SW_BUILD = '630';$/m);
+  assert.match(sw.split("\n")[1], /^\/\/ v630 \(/, "phase comment บรรทัดบนสุดต้องเป็น v630");
 });

@@ -983,6 +983,14 @@ async function convertToReceipt(inv) {
       if (!resp.ok) throw new Error("HTTP " + resp.status);
       const rows = await resp.json();
       if (!Array.isArray(rows)) throw new Error("item payload ไม่ใช่ array");
+      // Phase 631: array อย่างเดียวไม่พอ — validate ทุกแถวก่อน map เพื่อไม่ให้ malformed row
+      // ถูกแปลงเป็นสินค้าว่าง qty 1 แล้วสร้างใบเสร็จจริง. ตรวจ presence เท่านั้นเพื่อคง legacy null fallback.
+      for (const row of rows) {
+        if (typeof row !== "object" || row === null || Array.isArray(row)) throw new Error("item row ไม่ใช่ object");
+        for (const col of ["product_id", "item_name", "qty", "unit", "unit_price", "discount_pct", "line_total"]) {
+          if (!Object.prototype.hasOwnProperty.call(row, col)) throw new Error("item row ไม่มีคอลัมน์ " + col);
+        }
+      }
       sourceItems = rows.map(i => ({
         product_id: i.product_id, item_name: i.item_name || "",
         qty: Number(i.qty||1), unit: i.unit || "ชิ้น",

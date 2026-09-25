@@ -69,7 +69,7 @@ function installFixture(rows) {
   const toast = (m) => window.__toasts.push(String(m));
   window.App = {
     showToast: toast,
-    confirm: async () => true,
+    confirm: async () => { window.__confirms = (window.__confirms || 0) + 1; return true; },   // Phase 631: นับ confirm
     state: { profile: { role: "admin" } },
   };
   window.__ctx = {
@@ -134,6 +134,41 @@ function expectNoWrites(ledger, label) {
   const writes = ledger.filter((e) => ["POST", "PATCH", "PUT", "DELETE", "ROUTE", "RELOAD"].includes(e.m));
   expect(writes, `${label}: ห้ามมี write/route/reload — เจอ ${JSON.stringify(writes)}`).toEqual([]);
 }
+
+// Phase 631: กดแปลงซ้ำหลายรอบในหน้าเดียว — reset ledger/toast/confirm แล้วรอจน ledger นิ่ง
+// (ให้ baseline แดงด้วย expect ไม่ใช่ timeout)
+async function fireAndSettle(page, fire) {
+  await page.evaluate(() => { window.__ledger.length = 0; window.__toasts.length = 0; window.__confirms = 0; });
+  await fire(page);
+  await page.waitForFunction(() => window.__toasts.length > 0, null, { timeout: 5000 });
+  let last = "";
+  for (let i = 0; i < 40; i++) {
+    const now = await page.evaluate(() => `${window.__ledger.length}/${window.__toasts.length}`);
+    if (now === last) break;
+    last = now;
+    await page.waitForTimeout(150);
+  }
+  return page.evaluate(() => ({ ledger: window.__ledger, toasts: window.__toasts, confirms: window.__confirms }));
+}
+
+// Phase 631: แถวที่ไม่ใช่ delivery_invoice_items จริง (fetch ไม่มี select= → แถวจริงมีครบทุกคอลัมน์เสมอ)
+const ITEM_COLUMNS = ["product_id", "item_name", "qty", "unit", "unit_price", "discount_pct", "line_total"];
+const withoutKey = (row, key) => { const { [key]: _drop, ...rest } = row; return rest; };
+const MALFORMED_ITEM_ROWS = [
+  ["[{}]", [{}]],
+  ["[[]]", [[]]],
+  ['["x"]', ["x"]],
+  ...ITEM_COLUMNS.map((col) => [`ขาดคอลัมน์ ${col}`, [withoutKey(ROWS[0], col)]]),
+  ["valid + {}", [ROWS[0], {}]],
+  ["{} + valid", [{}, ROWS[0]]],
+];
+const PHASE631_ENTRIES = [
+  ["dropdown แถว", async () => {}, (page) => page.selectOption(".di-status-select", "receipt")],
+  ["ปุ่มในหน้า preview", async (page) => {
+    await page.locator(".di-view-btn").first().click();   // เปิด preview ด้วยแถวปกติก่อน แล้วค่อยเปลี่ยน plan ตอนแปลง
+    await expect(page.locator("#diConvertReceiptBtn")).toHaveCount(1);
+  }, (page) => page.click("#diConvertReceiptBtn")],
+];
 
 for (const [label, viewport] of [["mobile 390x844", { width: 390, height: 844 }], ["desktop 1280x800", { width: 1280, height: 800 }]]) {
   test.describe(`Phase 626 · ${label}`, () => {
@@ -217,6 +252,49 @@ for (const [label, viewport] of [["mobile 390x844", { width: 390, height: 844 }]
         expect(ledger.filter((e) => e.m === "PATCH").map((e) => e.table)).toEqual(["delivery_invoices", "quotations"]);
         expect(ledger.filter((e) => e.m === "ROUTE").map((e) => e.r)).toEqual(["receipts"]);
         expect(ledger.filter((e) => ["PUT", "DELETE"].includes(e.m))).toEqual([]);
+      });
+    }
+
+    for (const [entry, open, fire] of PHASE631_ENTRIES) {
+      test(`${entry}: Phase 631 แถวรายการรูปแบบผิด → ข้อความเดิม · confirm 1 · ไม่มี write`, async ({ page }) => {
+        await boot(page, viewport);
+        await open(page);
+        for (const [label, body] of MALFORMED_ITEM_ROWS) {
+          await setPlan(page, { items: { status: 200, body } });
+          const { ledger, toasts, confirms } = await fireAndSettle(page, fire);
+          expectNoWrites(ledger, `${entry} ${label}`);
+          expect(toasts, `${entry} ${label}`).toEqual([MSG.ITEM_FAIL]);
+          expect(confirms, `${entry} ${label}: confirm ผ่านแล้วครั้งเดียวก่อนโหลดรายการ`).toBe(1);
+        }
+      });
+
+      test(`${entry}: Phase 631 control [null] / [valid, null] → ข้อความเดิม · ไม่มี write (เขียวทั้งก่อนและหลัง)`, async ({ page }) => {
+        await boot(page, viewport);
+        await open(page);
+        for (const [label, body] of [["[null]", [null]], ["[valid, null]", [ROWS[0], null]]]) {
+          await setPlan(page, { items: { status: 200, body } });
+          const { ledger, toasts, confirms } = await fireAndSettle(page, fire);
+          expectNoWrites(ledger, `${entry} ${label}`);
+          expect(toasts, `${entry} ${label}`).toEqual([MSG.ITEM_FAIL]);
+          expect(confirms, `${entry} ${label}`).toBe(1);
+        }
+      });
+
+      test(`${entry}: Phase 631 control แถวครบ 7 คอลัมน์แต่ค่า null → ยังออกใบเสร็จด้วย fallback เดิม`, async ({ page }) => {
+        await boot(page, viewport);
+        await open(page);
+        const legacy = { product_id: null, item_name: null, qty: null, unit: null, unit_price: null, discount_pct: null, line_total: null };
+        await setPlan(page, { items: { status: 200, body: [legacy] } });
+        const { ledger, toasts, confirms } = await fireAndSettle(page, fire);
+        expect(toasts.at(-1)).toBe(MSG.OK);
+        expect(confirms).toBe(1);
+        const posts = ledger.filter((e) => e.m === "POST");
+        expect(posts.map((e) => e.table)).toEqual(["receipts", "receipt_items"]);
+        expect(posts[1].payload).toEqual({
+          receipt_id: 626001, product_id: null, item_name: "", qty: 1, unit: "ชิ้น",
+          unit_price: 0, discount_pct: 0, line_total: 0, sort_order: 1, item_type: "item",
+        });
+        expect(ledger.filter((e) => e.m === "ROUTE").map((e) => e.r)).toEqual(["receipts"]);
       });
     }
 
