@@ -12,7 +12,7 @@ Migration `supabase-phase633-doc-number-helper-lockdown.sql` ทำใน transa
 2. helper: คง SECURITY DEFINER แต่ตั้ง `search_path = ''` (body ระบุ schema ครบแล้ว)
 3. trigger functions 3 ตัว: เป็น SECURITY DEFINER + `search_path = ''` เพื่อให้ยังเรียก helper ได้หลังถอนสิทธิ์. ฟังก์ชันที่คืนค่า `trigger` เรียกแบบ `SELECT fn()` ตรง ๆ ไม่ได้ **แต่ยังถูกผูกกับ trigger อื่นได้** ถ้า role นั้นมี EXECUTE บนฟังก์ชัน และมีสิทธิ์สร้าง trigger บนตารางของตัวเอง (เช่น temp table หรือตารางที่สร้างเองใน `public`) — เมื่อเป็น SECURITY DEFINER จะรันด้วยสิทธิ์ owner และเพิ่มตัวนับได้
 4. `REVOKE EXECUTE` บน helper **และบน trigger functions ทั้ง 3 ตัว** จาก `PUBLIC, anon, authenticated, service_role` ใน transaction เดียวกัน (trigger ที่มีอยู่แล้วยังทำงานได้ เพราะ PostgreSQL ตรวจ EXECUTE ตอน `CREATE TRIGGER` ไม่ใช่ตอน trigger ทำงาน)
-5. verify: สถานะ catalog ตรงทุกข้อ รวม ACL ของ helper และ trigger functions + probe เชิงพฤติกรรมต่อ role `anon`/`authenticated`: (ก) ข้ามทันทีถ้า session user ไม่มี **SET option** บน role (การเป็นแค่ MEMBER ไม่พอ ตั้งแต่ PostgreSQL 16) (ข) ลอง `SET LOCAL ROLE` ใน handler แยก แล้วยืนยันว่า `current_user` เปลี่ยนเป็น role นั้นจริง (ค) หลังสลับสำเร็จเท่านั้นจึงเรียก helper — 42501 จากการเรียก helper นับเป็น "denied" · ถ้า (ก) หรือ (ข) ไม่ผ่าน probe ของ role นั้นเป็น **NOT RUN** (ไม่ใช่ behavioral PASS) เพราะ `SET ROLE` ที่ล้มก็ให้ 42501 เหมือนกัน · ถ้าเรียก helper ได้ จะ RAISE และ rollback ทั้ง transaction รวมตัวนับที่เพิ่ม · ผลของ probe มีหลักฐานเฉพาะจากข้อความ NOTICE ของการ Run ทั้งไฟล์
+5. verify: สถานะ catalog ตรงทุกข้อ รวม ACL ของ helper และ trigger functions + probe เชิงพฤติกรรมต่อ role `anon`/`authenticated`: (ก) ข้ามทันทีถ้า session user ไม่มี **SET option** บน role (การเป็นแค่ MEMBER ไม่พอ ตั้งแต่ PostgreSQL 16) (ข) ลอง `SET LOCAL ROLE` ใน handler แยก แล้วยืนยันว่า `current_user` เปลี่ยนเป็น role นั้นจริง (ค) หลังสลับสำเร็จเท่านั้นจึงเรียก helper — 42501 จากการเรียก helper นับเป็น "denied" · ถ้า (ก) หรือ (ข) ไม่ผ่าน probe ของ role นั้นเป็น **NOT RUN** (ไม่ใช่ behavioral PASS) เพราะ `SET ROLE` ที่ล้มก็ให้ 42501 เหมือนกัน · ถ้าเรียก helper ได้ จะ RAISE และ transaction ล้มเหลว ไม่มีส่วนใด commit รวมตัวนับที่เพิ่ม (ยังต้อง `ROLLBACK` ใน connection เดิมตามหัวข้อ error) · ผลของ probe มีหลักฐานเฉพาะจากข้อความ NOTICE ของการ Run ทั้งไฟล์
 6. `NOTIFY pgrst` แล้ว COMMIT
 
 ไม่แก้ body ฟังก์ชัน, ตัวนับ, ข้อมูลเอกสาร, RLS, default privileges หรือ runtime/UI
@@ -67,7 +67,7 @@ ORDER BY p.oid::regprocedure::text;
 
 ## Apply
 
-เปิดไฟล์ที่ตรวจ SHA แล้ว กด Run **ทั้งไฟล์ครั้งเดียว** ห้ามเลือกเฉพาะบาง statement ถ้าข้อความ `Phase 633 STOP` ขึ้น แปลว่า transaction ถูก rollback แล้ว ให้ส่ง error เต็มกลับ reviewer ห้ามผ่อน preflight เอง
+เปิดไฟล์ที่ตรวจ SHA แล้ว กด Run **ทั้งไฟล์ครั้งเดียว** ห้ามเลือกเฉพาะบาง statement ถ้าข้อความ `Phase 633 STOP` ขึ้น แปลว่า transaction ล้มเหลว — **ยังไม่ถือว่าปิดแล้ว** (connection อาจค้างอยู่ใน transaction ที่ล้มเหลวจนกว่าจะสั่ง `ROLLBACK`) ให้ทำตามขั้นตอนในหัวข้อ "เมื่อ error, timeout หรือ connection ขาด" ด้านล่าง และตรวจสถานะใหม่ด้วย preflight read-only ก่อน retry · ส่ง error เต็มกลับ reviewer ห้ามผ่อน preflight เอง
 
 `lock_timeout` 5 วินาทีคุมการรอ lock ส่วน `statement_timeout` 60 วินาทีเป็นเวลาต่อ statement ไม่ใช่รวมทั้งไฟล์
 
@@ -88,7 +88,7 @@ SQL Editor อาจแสดงเฉพาะผล SELECT สุดท้า�
 
 ## เมื่อ error, timeout หรือ connection ขาด
 
-หยุด ไม่ retry ทันที ไม่แก้ข้อมูล Transaction ที่ค้างต้อง ROLLBACK ใน connection เดิม รัน preflight read-only ใหม่เพื่อดูว่าอยู่สถานะไหน (ก่อน/หลัง) — preflight ตรวจ**ทีละฟังก์ชัน** และรับเฉพาะสถานะก่อนหรือหลัง cutover ที่ pin ไว้ (helper: `search_path=public` หรือ `""` · trigger function: INVOKER + ไม่มี `proconfig` หรือ DEFINER + `search_path=""`) แต่ละตัวอยู่คนละสถานะกันได้ และ migration จะทำต่อจนครบ · ค่าอื่นนอกจากนี้ (body/owner/trigger/proconfig drift) = STOP · verify ปลายทางต้องตรงทุกข้อ (DEFINER + `search_path=""` + ACL) ไม่งั้น STOP และ rollback ทั้ง transaction
+หยุด ไม่ retry ทันที ไม่แก้ข้อมูล Transaction ที่ค้างต้อง ROLLBACK ใน connection เดิม รัน preflight read-only ใหม่เพื่อดูว่าอยู่สถานะไหน (ก่อน/หลัง) — preflight ตรวจ**ทีละฟังก์ชัน** และรับเฉพาะสถานะก่อนหรือหลัง cutover ที่ pin ไว้ (helper: `search_path=public` หรือ `""` · trigger function: INVOKER + ไม่มี `proconfig` หรือ DEFINER + `search_path=""`) แต่ละตัวอยู่คนละสถานะกันได้ และ migration จะทำต่อจนครบ · ค่าอื่นนอกจากนี้ (body/owner/trigger/proconfig drift) = STOP · verify ปลายทางต้องตรงทุกข้อ (DEFINER + `search_path=""` + ACL) ไม่งั้น STOP (transaction ล้มเหลว ไม่มีส่วนใด commit — แต่ต้องสั่ง `ROLLBACK` ใน connection เดิมตามข้างต้นก่อนทำอย่างอื่น)
 
 ## Rollback (ต้อง owner อนุมัติแยก)
 
