@@ -10,6 +10,12 @@
 --      (override ค่าที่ client ส่งมาเสมอ — client value เป็นแค่ fallback ก่อน trigger ลง)
 --      + UNIQUE index เป็น backstop
 -- format คงเดิม: <PREFIX><YYYYMMDD><NNN>  (QT/RC prefix 2 ตัว, INV prefix 3 ตัว)
+--
+-- ⚠️ หลัง Phase 633 (supabase-phase633-doc-number-helper-lockdown.sql) ห้ามรันไฟล์นี้ซ้ำ
+--    หรือ CREATE OR REPLACE ฟังก์ชันออกเลขทั้ง 4 ตัว โดยไม่ทบทวน SECURITY DEFINER + search_path:
+--    CREATE OR REPLACE คง owner/ACL เดิม แต่ตั้งคุณสมบัติอื่นใหม่ → trigger functions ด้านล่าง
+--    กลับเป็น INVOKER แล้วเรียก helper ที่ถูกถอน EXECUTE → INSERT QT/DI/RC ล้มด้วย 42501
+--    และ helper กลับไปใช้ search_path=public (ดู PHASE-633-OWNER-SQL-RUNBOOK.md)
 -- ════════════════════════════════════════════════════════════════════════
 
 -- ─────────────────────────────────────────────────────────────────────────
