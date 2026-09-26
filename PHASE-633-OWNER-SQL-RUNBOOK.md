@@ -88,7 +88,7 @@ SQL Editor อาจแสดงเฉพาะผล SELECT สุดท้า�
 
 ## เมื่อ error, timeout หรือ connection ขาด
 
-หยุด ไม่ retry ทันที ไม่แก้ข้อมูล Transaction ที่ค้างต้อง ROLLBACK ใน connection เดิม รัน preflight read-only ใหม่เพื่อดูว่าอยู่สถานะไหน (ก่อน/หลัง) — migration นี้ rerun ได้เมื่ออยู่ในสถานะก่อนหรือหลัง cutover ครบเท่านั้น สถานะผสมจะ STOP
+หยุด ไม่ retry ทันที ไม่แก้ข้อมูล Transaction ที่ค้างต้อง ROLLBACK ใน connection เดิม รัน preflight read-only ใหม่เพื่อดูว่าอยู่สถานะไหน (ก่อน/หลัง) — preflight ตรวจ**ทีละฟังก์ชัน** และรับเฉพาะสถานะก่อนหรือหลัง cutover ที่ pin ไว้ (helper: `search_path=public` หรือ `""` · trigger function: INVOKER + ไม่มี `proconfig` หรือ DEFINER + `search_path=""`) แต่ละตัวอยู่คนละสถานะกันได้ และ migration จะทำต่อจนครบ · ค่าอื่นนอกจากนี้ (body/owner/trigger/proconfig drift) = STOP · verify ปลายทางต้องตรงทุกข้อ (DEFINER + `search_path=""` + ACL) ไม่งั้น STOP และ rollback ทั้ง transaction
 
 ## Rollback (ต้อง owner อนุมัติแยก)
 
@@ -98,5 +98,6 @@ SQL Editor อาจแสดงเฉพาะผล SELECT สุดท้า�
 
 - INSERT ที่ล้มหรือถูก rollback ไม่เพิ่มตัวนับ เพราะตัวนับเป็นแถวในตาราง (พฤติกรรมเดิม ไม่ได้เปลี่ยน)
 - `service_role` ถูกถอนสิทธิ์เรียกตรงด้วย (ใน repo ไม่มี caller) — ถ้ามีเครื่องมือภายนอกเรียก helper ตรง หรือผูก trigger functions เอง จะได้ 42501
-- ผลทดสอบ PGlite 17.5 เป็น preliminary: ทาง NOT RUN ของ probe ทดสอบแล้วเฉพาะใน PGlite โดยรันบล็อก probe จาก migration ด้วย session user ที่ไม่ใช่ superuser (MEMBER=true แต่ SET=false → NOT RUN, ไม่มี RAN) — ยังต้องยืนยันบน PostgreSQL 17.6 ที่ `postgres` ไม่ใช่ superuser แบบ Supabase
+- ⚠️ **หลัง 633 ห้ามรัน `supabase-phaseB2-doc-no-sequence.sql` ซ้ำ หรือ redefine (`CREATE OR REPLACE`) `next_doc_number` / `assign_quotation_no` / `assign_delivery_invoice_no` / `assign_receipt_no` โดยไม่ทบทวน `SECURITY DEFINER` และ `search_path`** — `CREATE OR REPLACE FUNCTION` คง owner และ ACL เดิม แต่ตั้งคุณสมบัติอื่นใหม่ตามคำสั่ง: trigger functions ของ B2 จะกลับเป็น SECURITY INVOKER ไม่มี `search_path` แล้วเรียก helper ที่ถูกถอน EXECUTE → INSERT QT/DI/RC ล้มด้วย 42501 (ออกเอกสารไม่ได้) ส่วน helper ของ B2 จะกลับไปใช้ `search_path=public`
+- ผลทดสอบ PGlite 17.5 เป็น preliminary (v1.2: 71 checks ตามที่ Codex รายงาน — ไม่ใช่ผลที่ reviewer รันเอง): ทาง NOT RUN ของ probe ทดสอบแล้วเฉพาะใน PGlite โดยรันบล็อก probe จาก migration ด้วย session user ที่ไม่ใช่ superuser (MEMBER=true แต่ SET=false → NOT RUN, ไม่มี RAN) — ยังต้องยืนยันบน PostgreSQL 17.6 ที่ `postgres` ไม่ใช่ superuser แบบ Supabase
 - การป้องกันนี้ไม่ได้แก้ช่องว่างเลขที่เกิดขึ้นแล้ว และไม่ได้เปลี่ยนสิทธิ์ `CREATE` บน schema `public`
