@@ -280,6 +280,52 @@ for (const [n, l] of LOADERS.entries()) {
   });
 }
 
+// Phase 637: UI defaults must not turn missing raw money into a summary claim.
+// Conversion loaders stay outside this display-only metadata contract.
+const SUMMARY_LOADERS = LOADERS.filter(l => l.region.includes('_lineItems ='));
+test('637 loader inventory: six UI mappers (QT 3 / DI 2 / RC 1), no conversion loaders', () => {
+  assert.deepEqual(['modules/quotations.js', 'modules/delivery_invoices.js', 'modules/receipts.js']
+    .map(file => SUMMARY_LOADERS.filter(l => l.file === file).length), [3, 2, 1]);
+});
+for (const [n, loader] of SUMMARY_LOADERS.entries()) {
+  test(`637 UI loader ${n + 1}: raw missing fields remain incomplete despite valid numeric defaults`, async () => {
+    const good = { item_type: 'item', item_name: 'valid', qty: 1, unit: 'ชิ้น', unit_price: 100, discount_pct: 10, line_total: 90 };
+    for (const [field, source] of [
+      ['qty', good],
+      ['unit_price', { ...good, unit_price: 0, line_total: 0 }],
+      ['discount_pct', { ...good, discount_pct: 0, line_total: 100 }],
+      ['line_total', { ...good, discount_pct: 100, line_total: 0 }],
+    ]) {
+      for (const value of [null, undefined, '', ' ']) {
+        const bad = { ...source, [field]: value };
+        const out = await runLoader(loader.region, [good, bad]);
+        assert.equal(out.length, 2);
+        assert.equal(out[0]._discountSummaryComplete, true);
+        assert.equal(out[1]._discountSummaryComplete, false, `${loader.file}: raw ${field}`);
+        const subtotal = out.reduce((sum, row) => sum + row.line_total, 0);
+        assert.equal(helpers().getDocumentDiscountSummary(out, subtotal), null);
+        assert.equal(helpers().renderDocumentDiscountSummary(out, subtotal), '');
+        // Positive control for null/absent/empty defaults: rejecting the marker is
+        // essential; the rest of the mapped row can be perfectly valid numerically.
+        if (value !== ' ') {
+          const withoutMarkers = copy(out);
+          for (const row of withoutMarkers) delete row._discountSummaryComplete;
+          assert.ok(helpers().getDocumentDiscountSummary(withoutMarkers, subtotal), `${field}: fixture must otherwise be valid`);
+        }
+      }
+    }
+    const zeroQty = { ...good, qty: 0, unit_price: 45500, discount_pct: 100, line_total: 0 };
+    const loaded = await runLoader(loader.region, [zeroQty]);
+    assert.equal(loaded[0].qty, 1, 'legacy display qty fallback must stay unchanged');
+    assert.equal(loaded[0]._discountSummaryComplete, false, 'raw qty zero must be flagged before fallback');
+    assert.equal(helpers().getDocumentDiscountSummary(loaded, 0), null);
+    assert.equal(helpers().renderDocumentDiscountSummary(loaded, 0), '');
+    const withoutMarker = { ...loaded[0] };
+    delete withoutMarker._discountSummaryComplete;
+    assert.ok(helpers().getDocumentDiscountSummary([withoutMarker], 0), 'positive control: normalized qty 1 would otherwise claim a full discount');
+  });
+}
+
 // ═══════════════════════════════════════════════════════════
 //  C — quotation save (saveQuotationFull ของจริง)
 // ═══════════════════════════════════════════════════════════
@@ -439,6 +485,7 @@ test("C8 [behavioral] reload → edit → re-save: heading ที่อ่าน
     ["Heading ตัวพิมพ์ใหญ่", "item", 1, 4],
   ]);
   assert.deepEqual(r.itemPosts[0].payload, qtItem(5001, 1, { item_name: "หมวด งานติดตั้ง", item_type: "heading" }));
+  for (const post of r.itemPosts) assert.ok(!Object.hasOwn(post.payload, '_discountSummaryComplete'), 'UI metadata must never enter save payload');
 });
 
 // ═══════════════════════════════════════════════════════════
@@ -696,10 +743,8 @@ for (const site of PREVIEW_SITES) {
     const render = renderer(site);
     for (const row of [I_AIR, I_LEGACY, { ...I_LEGACY, item_type: "HEADING" }, { ...I_LEGACY, item_type: null }]) {
       const html = render(row, 0);
-      // Phase 636 permits exactly the shared numeric annotation, not arbitrary divs.
-      const annotation = helpers().renderDocumentLineDiscount(row);
-      if (annotation) assert.equal(html.split(annotation).length - 1, 1);
-      assertNoInjection(annotation ? html.replace(annotation, "") : html, ["tr", "td"]);
+      assertNoInjection(html, ["tr", "td"]);
+      assert.equal(rawCells(html)[0], sharedEscHtml(row.item_name), "ชื่อสินค้าต้องเป็น escaped text เท่านั้น");
       assert.equal(classOf(startTags(html)[0]), "doc-item-row", html);
       assert.equal(rawCells(html).length, 5, html);
     }
@@ -848,15 +893,15 @@ test("I5 [structural] Phase 625/629 anchors: item input qt-li-name บรรท�
   assert.equal((RC_SRC.match(/escHtml\(item\.unit\|\|'ชิ้น'\)/g) || []).length, 1);
 });
 
-// Phase 636: build pin เลื่อนตาม marker ที่ bump (633 / 5.69.100 / cache-v633) — ความเข้มเท่าเดิม
-test("I6 [structural] build 633 / v5.69.100 / cache-v633 ตรงกันทุกจุด", () => {
+// Phase 637: build pin เลื่อนตาม marker ที่ owner bump — ความเข้มเท่าเดิม
+test("I6 [structural] build 634 / v5.69.101 / cache-v634 ตรงกันทุกจุด", () => {
   const html = read("index.html");
   const sw = read("sw.js");
-  assert.match(html, /data-app-build="633" data-app-version="5\.69\.100"/);
+  assert.match(html, /data-app-build="634" data-app-version="5\.69\.101"/);
   for (const asset of ["style.css", "doc-print.css", "selfheal.js", "main.js", "boot.js"]) {
-    assert.ok(html.includes(`${asset}?v=633`), `${asset}?v=633`);
+    assert.ok(html.includes(`${asset}?v=634`), `${asset}?v=634`);
   }
-  assert.match(sw, /^const CACHE_NAME = 'boonsook-pos-v5-cache-v633';$/m);
-  assert.match(sw, /^const SW_BUILD = '633';$/m);
-  assert.match(sw.split("\n")[1], /^\/\/ v633 \(/, "phase comment บรรทัดบนสุดต้องเป็น v633");
+  assert.match(sw, /^const CACHE_NAME = 'boonsook-pos-v5-cache-v634';$/m);
+  assert.match(sw, /^const SW_BUILD = '634';$/m);
+  assert.match(sw.split("\n")[1], /^\/\/ v634 \(/, "phase comment บรรทัดบนสุดต้องเป็น v634");
 });

@@ -5,6 +5,10 @@
 
 รูปแบบ: `<commit> feat|fix|docs|refactor: <สรุปสั้น>` + bullet 1-2 ข้อถ้าจำเป็น
 
+- Phase 637 fix(documents): ย้ายส่วนลดจากใต้ชื่อสินค้าไปสรุปท้ายบิล QT/DI/RC และฟอร์ม QT (build 634 / v5.69.101 · local only)
+  - แสดงยอดก่อนลด/ส่วนลดรายสินค้า/ยอดหลังลด แยกส่วนลดเพิ่มเติมท้ายบิล โดยคงสูตรและยอดบันทึกเดิม ไม่หักซ้ำ. หลายสินค้าไม่อ้างเปอร์เซ็นต์เดียว; ข้อมูลไม่ครบ/ขัดกันงด breakdown โดยไม่เปลี่ยนยอด.
+  - เพิ่ม raw completeness flag ก่อน fallback ใน UI loader เท่านั้น ไม่ persist; Preview/พิมพ์/PDF ใช้ footer เดียวกัน. Regression และภาพ/PDF จาก localhost เท่านั้น; CI/deploy/physical mobile NOT RUN. STOP `READY-FOR-INDEPENDENT-PHASE-637-REVIEW`.
+
 - Phase 636 fix(documents): แสดง `ส่วนลด 10% (4,550.00 บาท)` ใต้รายการใน Preview/พิมพ์/PDF ของ QT/DI/RC (build 633 / v5.69.100 · local only)
   - S1 correction หลัง review `793c1c7`: ซ่อนคำอธิบายเมื่อ % กับยอดสุทธิไม่สอดคล้องเกิน 1 สตางค์ พร้อม regression ของ counterexample และขอบ tolerance; ไม่เปลี่ยนข้อมูลหรือสูตรเงิน. Nit แยกไว้ รอ delta review.
   - Helper และ CSS ร่วมกัน อธิบายส่วนลดจากยอดแถวเดิม ไม่เปลี่ยนสูตร/save/convert ไม่หักซ้ำ และไม่แตะข้อมูลจริง. ส่วนลดท้ายบิลคงเดิม.

@@ -7,7 +7,7 @@ import { renderEmpty, renderSkeleton } from "./ui_states.js";
 import { logActivity, exportToExcel, todaySuffix, todayBkk, addDaysBkk, dateBkk, escHtml } from "./utils.js";
 import { renderDocumentTemplateHeader, renderDocumentTemplateNote, renderDocumentTemplateFooter } from "./doc-utils.js";
 // Phase 628B: ชนิดแถวรายการ (item | heading) — helper กลางตัวเดียว (pure)
-import { normalizeDocumentItem, renderDocumentLineDiscount } from "./doc_items.js";
+import { normalizeDocumentItem, renderDocumentDiscountSummary, hasDocumentDiscountFields } from "./doc_items.js";
 // Phase 88.1b: auto-post JV หลังรับชำระลูกหนี้
 import { postJournalForReceipt, voidJvForSource } from "./accounting/auto_post.js";
 // Phase 89.42: single-flight guard for multi-payment save (prevent double-click race)
@@ -619,7 +619,8 @@ export function renderReceiptsPage(ctx) {
         _lineItems = ((await resp.json()) || []).map(i => ({
           item_name: i.item_name || "", qty: Number(i.qty||1), unit: i.unit || "ชิ้น",
           unit_price: Number(i.unit_price||0), discount_pct: Number(i.discount_pct||0),
-          line_total: Number(i.line_total||0), item_type: i.item_type
+          line_total: Number(i.line_total||0), item_type: i.item_type,
+          _discountSummaryComplete: hasDocumentDiscountFields(i)
         })).map(normalizeDocumentItem);   // Phase 628B: heading คงชนิด+เลขศูนย์ (preview + สลิป Bluetooth ใช้ชุดเดียวกัน)
       } catch(e) { _lineItems = []; }
       renderReceiptsPage(ctx);
@@ -733,6 +734,7 @@ function renderReceiptPreview(container) {
 
   const si = _ctx.state.storeInfo || {};
   const subtotal   = Number(r.total_amount || 0);
+  const lineDiscountSummary = renderDocumentDiscountSummary(_lineItems, r.total_amount);
   const discPct    = Number(r.discount_pct || 0);
   const discAmount = Number(r.discount_amount || 0);
   const _afterDisc = Number(r.after_discount || subtotal);
@@ -850,7 +852,7 @@ function renderReceiptPreview(container) {
               ${_lineItems.length ? _lineItems.map((item) => item.item_type === "heading"
                 ? '<tr class="doc-heading-row"><td colspan="5">'+escHtml(item.item_name)+'</td></tr>'
                 : '<tr class="doc-item-row">'
-                +'<td style="text-align:left">'+escHtml(item.item_name)+renderDocumentLineDiscount(item)+'</td>'
+                +'<td style="text-align:left">'+escHtml(item.item_name)+'</td>'
                 +'<td style="text-align:center">'+num(item.qty)+'</td>'
                 +'<td style="text-align:center">'+escHtml(item.unit||'ชิ้น')+'</td>'
                 +'<td style="text-align:right">'+num(item.unit_price)+'</td>'
@@ -862,8 +864,9 @@ function renderReceiptPreview(container) {
           <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-top:4px">
             <div class="doc-baht-text">(${bahtText(grandTotal)})</div>
             <div class="doc-totals">
-              <div class="doc-total-row"><span>รวมเป็นเงิน</span><span>${num(subtotal)} บาท</span></div>
-              ${discPct > 0 ? '<div class="doc-total-row"><span>ส่วนลด '+discPct+'%</span><span>-'+num(discAmount)+' บาท</span></div>' : ''}
+              ${lineDiscountSummary}
+              <div class="doc-total-row"><span>${lineDiscountSummary ? 'ยอดหลังส่วนลดรายสินค้า' : 'รวมเป็นเงิน'}</span><span>${num(subtotal)} บาท</span></div>
+              ${discPct > 0 ? '<div class="doc-total-row"><span>ส่วนลดเพิ่มเติมท้ายบิล '+discPct+'%</span><span>-'+num(discAmount)+' บาท</span></div>' : ''}
               ${whtChecked ? '<div class="doc-total-row"><span>หัก ณ ที่จ่าย '+whtPct+'%</span><span>-'+num(whtAmount)+' บาท</span></div>' : ''}
               <div class="doc-total-row grand re" style="color:#1a1a1a"><span>จำนวนเงินรวมทั้งสิ้น</span><span>${num(grandTotal)} บาท</span></div>
             </div>

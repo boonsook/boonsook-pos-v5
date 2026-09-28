@@ -85,8 +85,10 @@ body { margin: 0; padding: 0; background: #fff; font-family: "Sarabun","Noto San
 .doc-table tbody tr.doc-item-row:nth-child(even of .doc-item-row) td { background: #f8fafc; }
 .doc-table tbody tr.doc-heading-row td { background: #eef2f7; font-weight: 800; color: #0f172a; text-align: left; }
 .doc-table tbody tr.doc-heading-row { break-after: avoid; page-break-after: avoid; }
-/* Phase 636: same annotation in print/PDF as the preview. */
-.doc-table .doc-line-discount { display: block; margin-top: 2px; font-size: 11px; line-height: 1.4; font-weight: 400; color: #475569; white-space: normal; overflow-wrap: anywhere; }
+/* Phase 637: same footer breakdown in print/PDF as the preview. */
+.doc-line-discount-summary .doc-total-row { gap: 12px; }
+.doc-line-discount-summary .doc-total-row span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.doc-line-discount-summary .doc-total-row span:last-child { flex-shrink: 0; white-space: nowrap; }
 
 /* Baht text */
 .doc-baht-text { font-size: 11.5px; font-weight: 600; color: #64748b; margin: 6px 0 2px; }

@@ -18,7 +18,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import vm from "node:vm";
 import { escHtml as sharedEscHtml } from "../modules/utils.js";
-import { renderDocumentLineDiscount } from "../modules/doc_items.js";
 import { resolveEscHtmlBinding } from "./phase625_document_attribute_xss.shared.js";
 import {
   SITES, ATTACK_PAYLOADS, PAYLOAD_DQ, PAYLOAD_IMG, PAYLOAD_ALL5, PAYLOAD_ALL5_ESCAPED, PAYLOAD_THAI,
@@ -30,7 +29,7 @@ const ALLOWED_TAGS = { attribute: ["tr", "td", "input", "button"], text: ["tr", 
 const UNIT_CELL = 2; // preview rows: รายละเอียด · จำนวน · หน่วย · ราคาต่อหน่วย · ยอดรวม
 
 function rowRenderer(src, callbackSrc) {
-  return vm.runInNewContext(`${extractNumHelper(src)}\n;(${callbackSrc})`, { escHtml: sharedEscHtml, renderDocumentLineDiscount });
+  return vm.runInNewContext(`${extractNumHelper(src)}\n;(${callbackSrc})`, { escHtml: sharedEscHtml });
 }
 
 function renderRow(src, callbackSrc, unit) {

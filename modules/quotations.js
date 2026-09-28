@@ -7,7 +7,7 @@ import { renderEmpty, renderSkeleton } from "./ui_states.js";
 import { logActivity, exportToExcel, todaySuffix, round2, escHtml } from "./utils.js";
 import { renderDocumentTemplateHeader, renderDocumentTemplateNote, renderDocumentTemplateFooter } from "./doc-utils.js";
 // Phase 628B: ชนิดแถวรายการ (item | heading) — helper กลางตัวเดียว (pure)
-import { normalizeDocumentItem, isHeadingItem, countableDocumentItems, sumDocumentLineTotals, renderDocumentLineDiscount } from "./doc_items.js";
+import { normalizeDocumentItem, isHeadingItem, countableDocumentItems, sumDocumentLineTotals, renderDocumentDiscountSummary, hasDocumentDiscountFields } from "./doc_items.js";
 // Phase 440 (B2): resolve receiving bank from customer group → auto-fill on the quotation (carries to receipt)
 import { resolveBankForCustomerGroup } from "./customer_groups.js";
 // Phase 408 cash-basis: ใบส่งของไม่ post JV revenue แล้ว (ย้ายไปที่ใบเสร็จ paid)
@@ -208,7 +208,8 @@ export function renderQuotationsPage(ctx) {
           product_id: i.product_id, item_name: i.item_name || "",
           qty: Number(i.qty||1), unit: i.unit || "ชิ้น",
           unit_price: Number(i.unit_price||0), discount_pct: Number(i.discount_pct||0),
-          line_total: Number(i.line_total||0), item_type: i.item_type
+          line_total: Number(i.line_total||0), item_type: i.item_type,
+          _discountSummaryComplete: hasDocumentDiscountFields(i)
         })).map(normalizeDocumentItem);   // Phase 628B: heading คงชนิด+เลขศูนย์ · ค่าอื่น = item เดิม
         _lineItemsLoadFailed = false;
       } catch(e) {
@@ -548,6 +549,7 @@ function renderQuotationForm(container) {
   // Phase 628B: ยอดไม่นับหัวข้อ · แถวใน template เช็ค item.item_type === "heading" ตรงตัว (ทุกทางเข้า _lineItems
   //   ผ่าน normalizeDocumentItem แล้ว) — ห้ามเรียก helper ใน callback ของแถว: guard Phase 629 รัน callback แยกใน node:vm
   const subtotal       = sumDocumentLineTotals(_lineItems);
+  const lineDiscountSummary = renderDocumentDiscountSummary(_lineItems, subtotal);
   const discPctVal     = Number(document.getElementById("qt_discPct")?.value ?? (editDoc?.discount_pct || 0));
   const discAmount     = subtotal * (discPctVal / 100);
   const afterDisc      = subtotal - discAmount;
@@ -702,9 +704,10 @@ function renderQuotationForm(container) {
     <div class="panel mt16">
       <h4 style="margin:0 0 12px">สรุปยอด</h4>
       <div style="max-width:420px;margin-left:auto">
-        <div class="row" style="padding:6px 0"><span>รวมเป็นเงิน</span><strong id="qtSubtotal">${num(subtotal)}</strong></div>
+        <div id="qtLineDiscountSummary">${lineDiscountSummary}</div>
+        <div class="row" style="padding:6px 0"><span id="qtSubtotalLabel">${lineDiscountSummary ? 'ยอดหลังส่วนลดรายสินค้า' : 'รวมเป็นเงิน'}</span><strong id="qtSubtotal">${num(subtotal)}</strong></div>
         <div class="row" style="padding:6px 0;align-items:center">
-          <span>ส่วนลด</span>
+          <span>ส่วนลดเพิ่มเติมท้ายบิล</span>
           <div style="display:flex;align-items:center;gap:6px">
             <input id="qt_discPct" type="number" inputmode="decimal" value="${discPctVal}" style="width:55px;text-align:center;padding:5px;font-size:13px" /> <span>%</span>
             <span id="qtDiscountAmount" style="font-weight:700;color:#ef4444">-${num(discAmount)}</span>
@@ -796,6 +799,10 @@ function updateQuotationFormTotals(container) {
     if (!isHeadingItem(item)) setTotal(`.qt-li-total[data-idx="${idx}"]`, num(item.line_total));
   });
   setTotal("#qtSubtotal", num(subtotal));
+  const discountSummary = renderDocumentDiscountSummary(_lineItems, subtotal);
+  const summaryEl = container.querySelector("#qtLineDiscountSummary");
+  if (summaryEl) summaryEl.innerHTML = discountSummary;
+  setTotal("#qtSubtotalLabel", discountSummary ? "ยอดหลังส่วนลดรายสินค้า" : "รวมเป็นเงิน");
   setTotal("#qtDiscountAmount", "-" + num(discAmount));
   setTotal("#qtAfterDiscount", num(afterDisc));
   setTotal("#qtWhtAmount", "-" + num(whtAmount));
@@ -1273,7 +1280,8 @@ async function openEditForm(q) {
       product_id: i.product_id, item_name: i.item_name || "",
       qty: Number(i.qty||1), unit: i.unit || "ชิ้น",
       unit_price: Number(i.unit_price||0), discount_pct: Number(i.discount_pct||0),
-      line_total: Number(i.line_total||0), item_type: i.item_type
+      line_total: Number(i.line_total||0), item_type: i.item_type,
+      _discountSummaryComplete: hasDocumentDiscountFields(i)
     })).map(normalizeDocumentItem);   // Phase 628B: heading คงชนิด+เลขศูนย์ (ห้ามกลับเป็น item/qty 1 ตอน re-save)
     _lineItemsLoadFailed = false;
   } catch (e) {
@@ -1309,6 +1317,10 @@ function restoreDraftForm(container) {
     if (!isHeadingItem(item)) setTotal(`.qt-li-total[data-idx="${idx}"]`, num(item.line_total));
   });
   setTotal("#qtSubtotal", num(draft.doc.total_amount));
+  const discountSummary = renderDocumentDiscountSummary(draft.formItems, draft.doc.total_amount);
+  const summaryEl = container.querySelector("#qtLineDiscountSummary");
+  if (summaryEl) summaryEl.innerHTML = discountSummary;
+  setTotal("#qtSubtotalLabel", discountSummary ? "ยอดหลังส่วนลดรายสินค้า" : "รวมเป็นเงิน");
   setTotal("#qtDiscountAmount", "-" + num(draft.doc.discount_amount));
   setTotal("#qtAfterDiscount", num(draft.doc.after_discount));
   setTotal("#qtWhtAmount", "-" + num(draft.doc.wht_amount));
@@ -1392,7 +1404,8 @@ async function openPreview(q) {
       product_id: i.product_id, item_name: i.item_name || "",
       qty: Number(i.qty||1), unit: i.unit || "ชิ้น",
       unit_price: Number(i.unit_price||0), discount_pct: Number(i.discount_pct||0),
-      line_total: Number(i.line_total||0), item_type: i.item_type
+      line_total: Number(i.line_total||0), item_type: i.item_type,
+      _discountSummaryComplete: hasDocumentDiscountFields(i)
     })).map(normalizeDocumentItem);   // Phase 628B: heading คงชนิด+เลขศูนย์ · ค่าอื่น = item เดิม
     _lineItemsLoadFailed = false;
   } catch (e) {
@@ -1416,6 +1429,7 @@ function renderQuotationPreview(container) {
   const si = _ctx.state.storeInfo || {};
   const customerName = q.customer_name || q.customer || "-";
   const subtotal     = Number(q.total_amount || 0);
+  const lineDiscountSummary = renderDocumentDiscountSummary(_lineItems, q.total_amount);
   const discPct      = Number(q.discount_pct || 0);
   const discAmount   = Number(q.discount_amount || 0);
   const _afterDisc   = Number(q.after_discount || subtotal);
@@ -1513,7 +1527,7 @@ function renderQuotationPreview(container) {
               ${_lineItems.length ? _lineItems.map((item) => item.item_type === "heading"
                 ? '<tr class="doc-heading-row"><td colspan="5">'+escHtml(item.item_name)+'</td></tr>'
                 : '<tr class="doc-item-row">'
-                +'<td style="text-align:left">'+escHtml(item.item_name)+renderDocumentLineDiscount(item)+'</td>'
+                +'<td style="text-align:left">'+escHtml(item.item_name)+'</td>'
                 +'<td style="text-align:center">'+num(item.qty)+'</td>'
                 +'<td style="text-align:center">'+escHtml(item.unit||'ชิ้น')+'</td>'
                 +'<td style="text-align:right">'+num(item.unit_price)+'</td>'
@@ -1525,8 +1539,9 @@ function renderQuotationPreview(container) {
           <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-top:4px">
             <div class="doc-baht-text">(${bahtText(grandTotal)})</div>
             <div class="doc-totals">
-              <div class="doc-total-row"><span>รวมเป็นเงิน</span><span>${num(subtotal)} บาท</span></div>
-              ${discPct > 0 ? '<div class="doc-total-row"><span>ส่วนลด '+discPct+'%</span><span>-'+num(discAmount)+' บาท</span></div>' : ''}
+              ${lineDiscountSummary}
+              <div class="doc-total-row"><span>${lineDiscountSummary ? 'ยอดหลังส่วนลดรายสินค้า' : 'รวมเป็นเงิน'}</span><span>${num(subtotal)} บาท</span></div>
+              ${discPct > 0 ? '<div class="doc-total-row"><span>ส่วนลดเพิ่มเติมท้ายบิล '+discPct+'%</span><span>-'+num(discAmount)+' บาท</span></div>' : ''}
               ${whtChecked ? '<div class="doc-total-row"><span>หัก ณ ที่จ่าย '+whtPct+'%</span><span>-'+num(whtAmount)+' บาท</span></div>' : ''}
               <div class="doc-total-row grand qt" style="color:#1a1a1a"><span>จำนวนเงินรวมทั้งสิ้น</span><span>${num(grandTotal)} บาท</span></div>
             </div>

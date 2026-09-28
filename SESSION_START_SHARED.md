@@ -1,5 +1,8 @@
 # Boonsook POS V5 - Shared Session Start
 
+> 🟠 **2026-09-28 — Phase 637 (build 634 / v5.69.101 · local only):** owner ให้ย้ายส่วนลดจากใต้ชื่อสินค้าไปสรุปท้ายบิลเท่านั้น ทั้ง QT/DI/RC Preview/พิมพ์/PDF และสรุปฟอร์ม QT. แสดงยอดก่อนลด → ส่วนลดรายสินค้า → ยอดหลังลด แยกจากส่วนลดเพิ่มเติมท้ายบิล; ไม่เปลี่ยนสูตร/save/convert/payment/SQL. Baseline PR #233 merge `4e42905` (สถานะ local ของ 636 ด้านล่างเป็นประวัติ). ตรวจทุกแถวรวม raw completeness ก่อน loader เติม 0/1 และเทียบ subtotal; ไม่ครบ/ขัดกันไม่แสดง breakdown. ผล local gates ในรายงาน commit; CI/deploy/live smoke/มือถือจริง NOT RUN. **ห้ามเก็บเงิน RC20260927001**. STOP `READY-FOR-INDEPENDENT-PHASE-637-REVIEW`.
+>
+
 > 🟠 **Phase 636 S1 correction (ต่อจาก `793c1c7` · build 633 เดิม):** เพิ่ม validation ก่อนแสดง annotation ให้ % ตรงกับ net ภายใน 1 สตางค์; ข้อมูลขัดกันไม่แสดงข้อความ ไม่ซ่อมยอด. เพิ่ม regression QT/DI/RC Preview/พิมพ์/PDF; ไม่แตะ production, ไม่ push และรอ independent delta review. Nit รูปแบบ % / formatter ยังไม่แก้.
 >
 
