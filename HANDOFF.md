@@ -1,5 +1,15 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
+**Phase 635 — QT input continuity (2026-09-28 · build 632 / v5.69.99 · local only)**
+- Baseline `824dabeeffb746cb2e0565717ea98784ccb1125b` (PR #231 merged; Phase 634 build 631). Prior merge Tests/Deploy success และ UI smoke preview/back แบบไม่บันทึกผ่าน; สถานะ NOT RUN/local ของ Phase 634 ด้านล่างเป็นประวัติก่อน merge ไม่ใช่สถานะล่าสุด.
+- หลักฐาน live UI ก่อนแก้: พิมพ์ส่วนลด 10/20 เหลือ 1/2 และ dirty-row Tab หลุดไป BODY. F1 preview/back ผ่าน; F2 รอบนี้ยืนยันเฉพาะ focus/typing ไม่ใช่ข้อพิสูจน์เรื่องชื่อ/หน่วยที่เคยสงสัยว่าบันทึกผิดทุกกรณี. WHT ตรวจเพราะ handler โครงสร้างเดียวกัน ไม่อ้างว่า reproduce บน live.
+- Input/change sync อ่านรายการปัจจุบันตาม data-idx และอัปเดต derived totals ด้วย textContent โดยไม่สร้างฟอร์มใหม่; ไม่ blur/refocus ชดเชย. รักษาการพิมพ์ชั่วคราวและ normalize เมื่อจบการแก้ตาม fallback เดิม. WHT toggle ปรับ disabled และยอด; structural add/delete/reorder ยัง render ตามเดิม.
+- ระหว่าง Save ล็อกการแก้ไขฟอร์ม/รายการจนคำขอจบ เพื่อไม่ให้ input ใหม่ทำให้ยอด header กับ items ต่างกัน. เมื่อ failed Save คืนสถานะ disabled เดิมและแก้/retry ได้; draft Preview ยังคง gate แจ้งรอบันทึกแบบ Phase 634.
+- Scope: quotations, regression tests, build/cache markers และเอกสารเท่านั้น. `saveQuotationFull`/`convertToDeliveryInvoice` คงเดิมทุก byte; ไม่เพิ่ม autosave/network/เลขเอกสาร ไม่เปลี่ยนสูตรเงิน/SQL/RLS/payment/JV/stock. F1 draft ไม่ใช่ persistence ข้าม reload.
+- Verification ใช้ข้อมูลจำลองบน localhost; baseline RED และผล unit/browser/integration gate รายงานแยกพร้อม exit codes ใน final report. ไม่ใช่หลักฐาน real-touch/IME ทุกแพลตฟอร์ม หรือ production save/DB footprint/concurrency. Phase 635 CI/deploy/authenticated live smoke NOT RUN.
+- Residual: ตรวจบนมือถือจริงหลัง deploy เมื่ออนุมัติ; billing banner และเอกสาร `QT20260927001` → `INV20260927001` → `RC20260927001` ยังแยกงาน. **ห้ามเก็บเงิน RC20260927001** และไม่ cleanup โดยไม่ขออนุมัติ.
+- **STOP: `READY-FOR-INDEPENDENT-PHASE-635-REVIEW`** — local commit เท่านั้น ไม่ push/PR/merge/deploy หรือแตะ staging/production.
+
 **Phase 634 — F1: preview ใบเสนอราคาใหม่ไม่ทำ draft หาย (2026-09-28 · build 631 / v5.69.98 · local only)**
 - Baseline `ffe230a8a99b75162193bc6b3671e0310991e75b` (PR #230); branch `codex/phase-634-qt-draft-preview`. Scope: F1 เท่านั้น — preview ก่อนบันทึกและกลับมาแก้ต่อ โดยไม่สร้างเอกสาร ไม่จองเลข และไม่ใช้ draft เป็นข้อมูลแปลง QT→DI.
 - Draft preview เก็บฟอร์ม/รายการในหน่วยความจำ ป้าย “ร่าง — ยังไม่ได้บันทึก” ไม่มี saved ID/เลขออกเอกสาร; Back/แก้ไขคืนค่าช่องเดิมและยอดจาก snapshot ล่าสุด. ซ่อน share-link/share/print/PDF/date-write/convert จนบันทึกจริง. ไม่ใช่ autosave หรือ draft persistence ข้าม reload/ปิดแท็บ.

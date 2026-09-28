@@ -1,5 +1,8 @@
 # Boonsook POS V5 - Shared Session Start
 
+> 🟠 **2026-09-28 — Phase 635 (build 632 / v5.69.99 · local only):** แก้ QT ส่วนลดหลายหลักถูกตัดและ dirty-field Tab เสีย focus ด้วย incremental state/totals; ไม่เปลี่ยนสูตรเงิน/save/convert หรือ SQL. Baseline PR #231 `824dabe` (Phase 634 merged/live 631; bounded preview/back smoke ผ่าน). Tests ใช้ synthetic localhost; ผลจริงดู final report. Phase 635 CI/deploy/live smoke NOT RUN. F2 จำกัดผลเฉพาะ reproduced input/focus case; billing/test documents แยกงาน และ **ห้ามเก็บเงิน RC20260927001**. STOP `READY-FOR-INDEPENDENT-PHASE-635-REVIEW`.
+>
+
 > 🟠 **2026-09-28 — Phase 634 F1 (build 631 / v5.69.98 · local only):** แก้ preview QT ที่ยังไม่บันทึกแล้ว draft หาย; ไม่ auto-save/จองเลข/แปลงจาก draft. Baseline PR #230 `ffe230a`. Local gates: lint 0, unit 3604/3604, E2E 205/205 (F1 22/22); ทดสอบ localhost ด้วยข้อมูลจำลองเท่านั้น. CI/deploy/live smoke NOT RUN. ไม่แก้ F2, SQL หรือ production data; เอกสาร smoke เดิมคงอยู่และ **ห้ามเก็บเงิน RC20260927001**. STOP `READY-FOR-INDEPENDENT-PHASE-634-REVIEW`.
 >
 

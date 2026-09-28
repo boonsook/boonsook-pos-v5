@@ -90,10 +90,13 @@ test("saveQuotationFull builds note via appendAirJobNoteRef(qt_note, _airDraftMe
 
 test("the linkback fires only on manual save — the draft-consume block never saves", () => {
   const block = quo.slice(quo.indexOf("Phase 346: ถ้ามีรายการร่าง"), quo.indexOf("Phase 45.10 (B5-3)"));
-  assert.ok(!/saveQuotationFull|xhrPost|_appXhr|appendAirJobNoteRef/.test(block),
+  assert.ok(!/saveQuotation(?:Full|FromForm)|xhrPost|_appXhr|appendAirJobNoteRef/.test(block),
     "consuming a draft must not save or inject the reference");
   // manual save button still wired
-  assert.match(quo, /getElementById\("qtSaveBtn"\)\?\.addEventListener\("click",\s*saveQuotationFull\)/);
+  assert.match(quo, /getElementById\("qtSaveBtn"\)\?\.addEventListener\("click",\s*\(\)\s*=>\s*saveQuotationFromForm\(container\)\)/);
+  const saveWrapper = quo.match(/^async function saveQuotationFromForm\(container\) \{[\s\S]*?^\}/m)?.[0];
+  assert.ok(saveWrapper, "manual Save wrapper must exist");
+  assert.match(saveWrapper, /^\s*return await saveQuotationFull\(\);\s*$/m, "manual Save wrapper must await the existing save delegate");
 });
 
 // ── guards: no service-job mutation / no stock·POS·cart / no schema change ───
