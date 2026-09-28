@@ -47,3 +47,19 @@ export function sumDocumentLineTotals(rows) {
   if (!Array.isArray(rows)) return 0;
   return rows.reduce((s, r) => (isHeadingItem(r) ? s : s + Number(r.line_total || 0)), 0);
 }
+
+// Phase 636: presentation only; line_total remains the source of the net amount.
+// The displayed discount is the gross-to-net difference, never another deduction.
+// Only numeric primitives enter the markup; invalid/absent data adds no claim.
+export function renderDocumentLineDiscount(row) {
+  if (!row || isHeadingItem(row)) return "";
+  const fields = [row.discount_pct, row.qty, row.unit_price, row.line_total];
+  if (fields.some(v => (typeof v !== "number" && typeof v !== "string") || String(v).trim() === "")) return "";
+  const [pct, qty, price, net] = fields.map(Number);
+  if (![pct, qty, price, net].every(Number.isFinite) || pct <= 0 || pct > 100 || qty <= 0 || price < 0 || net < 0) return "";
+  const gross = qty * price;
+  const amount = Math.round((gross - net) * 100) / 100;
+  if (!Number.isFinite(amount) || amount <= 0 || net > gross) return "";
+  const money = new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
+  return '<div class="doc-line-discount">ส่วนลด ' + pct + '% (' + money + ' บาท)</div>';
+}

@@ -1,5 +1,14 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
+**Phase 636 — ส่วนลดรายรายการในเอกสาร QT/DI/RC (2026-09-28 · build 633 / v5.69.100 · local only)**
+- Baseline `ef9378afc68df8505ccbab1c9e6446690bbd9245` (PR #232 merged; Phase 635 build 632). สถานะ local/NOT RUN ของ Phase 635 ด้านล่างเป็นประวัติก่อน merge.
+- Owner พบจากภาพมือถือ QT20260928001: ราคาต่อหน่วย 45,500.00 ยอดสุทธิ 40,950.00 แต่ไม่มีคำอธิบายส่วนลด. เพิ่มข้อความใต้ชื่อรายการ `ส่วนลด 10% (4,550.00 บาท)` ใน Preview/พิมพ์/PDF ของ QT, DI และ RC โดยใช้ helper เดียวกัน.
+- Presentation only: จำนวนเงินส่วนลด = gross ของแถวลบ line_total ที่มีอยู่ (ปัดเพื่อแสดงสองตำแหน่ง) ไม่หักซ้ำ ไม่แก้สูตรหรือยอดบันทึก/save/convert/payment/JV/stock/SQL. ไม่แสดงบน heading, ส่วนลด 0 หรือข้อมูลไม่ครบ/ผิดรูปแบบ; ไม่ซ่อมข้อมูลย้อนหลัง. ส่วนลดท้ายบิลคงแยกตามเดิม.
+- เพิ่ม CSS ของ annotation ในหน้าจอและ print popup ไม่เพิ่มคอลัมน์; print/PDF ใช้เส้นทางเดิม. Bluetooth receipt ไม่อยู่ใน scope. Draft QT ยังห้ามพิมพ์/PDF จนบันทึกจริงตาม Phase 634.
+- Verification: synthetic localhost เท่านั้น; baseline browser RED ทั้ง QT/DI/RC เพราะไม่มี annotation, หลังแก้ตรวจ widths 360/390/1280 พร้อม print/PDF, ส่วนลดท้ายบิล, heading, XSS และ no writes. Hash guards ล็อก save/convert/accounting/print routing เทียบ baseline. ผล gate สุดท้ายรายงานแยก ไม่ใช่หลักฐานมือถือสัมผัสจริงหรือ production data.
+- CI/deploy/authenticated live smoke/physical mobile = NOT RUN. ไม่แตะเอกสารทดสอบเดิม และ **ห้ามเก็บเงิน RC20260927001**; cleanup/billing เป็นงานแยก.
+- **STOP: `READY-FOR-INDEPENDENT-PHASE-636-REVIEW`** — local commit เท่านั้น ไม่ push/PR/merge/deploy หรือแตะ staging/production.
+
 **Phase 635 — QT input continuity (2026-09-28 · build 632 / v5.69.99 · local only)**
 - Baseline `824dabeeffb746cb2e0565717ea98784ccb1125b` (PR #231 merged; Phase 634 build 631). Prior merge Tests/Deploy success และ UI smoke preview/back แบบไม่บันทึกผ่าน; สถานะ NOT RUN/local ของ Phase 634 ด้านล่างเป็นประวัติก่อน merge ไม่ใช่สถานะล่าสุด.
 - หลักฐาน live UI ก่อนแก้: พิมพ์ส่วนลด 10/20 เหลือ 1/2 และ dirty-row Tab หลุดไป BODY. F1 preview/back ผ่าน; F2 รอบนี้ยืนยันเฉพาะ focus/typing ไม่ใช่ข้อพิสูจน์เรื่องชื่อ/หน่วยที่เคยสงสัยว่าบันทึกผิดทุกกรณี. WHT ตรวจเพราะ handler โครงสร้างเดียวกัน ไม่อ้างว่า reproduce บน live.
