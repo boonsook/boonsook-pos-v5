@@ -34,6 +34,8 @@ async function runProbe(env) {
     const ctx = {
       request: { json: () => Promise.resolve({ probe: true }) },
       env,
+      // Phase 638: handler มี defense-in-depth guard → ต้องมี data.user แบบที่ middleware ตั้งให้ staff JWT
+      data: { user: { id: "u-staff-test", email: null, role: "staff" } },
     };
     const resp = await onRequestPost(ctx);
     const data = await resp.json();

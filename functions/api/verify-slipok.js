@@ -24,6 +24,12 @@ export async function onRequestPost(context) {
   };
   const json = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: corsHeaders });
 
+  // Phase 638: defense-in-depth — middleware ต้องตั้ง data.user แล้ว (JWT ใด ๆ ที่ valid — customer ใช้ได้;
+  //   ไม่มี role check ที่นี่โดยตั้งใจ). ไม่มี = ปฏิเสธก่อนแตะ env/body/fetch.
+  if (!context.data?.user) {
+    return json({ ok: false, error: "Unauthorized" }, 401);
+  }
+
   try {
     const apiKey = context.env?.SLIPOK_API_KEY;
     if (!apiKey) {
