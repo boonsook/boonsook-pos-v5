@@ -25,6 +25,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import vm from "node:vm";
+import * as DOC_PRESENTATION from "../modules/document_presentation.js";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -131,6 +132,7 @@ const QUOTE = Object.freeze({
 });
 // header ที่ต้องไม่เปลี่ยน — literal (ไม่ derive จาก source)
 const QUOTE_HEADER = {
+  document_template_snapshot: { version: 1, document_type: 'delivery', title: 'ใบส่งสินค้า/ใบแจ้งหนี้', header: '', footer: '', note: '', show_note: true },
   inv_no: EXPECTED_INV_NO, quotation_id: 900,
   customer_name: "ลูกค้า ก", customer_phone: "0800000000", customer_address: "99 ถนนทดสอบ",
   customer_tax_id: "1234567890123",
@@ -144,6 +146,7 @@ const QUOTE_HEADER = {
 // ใบเก่าที่ field ขาด → fallback เดิมทุกช่อง
 const SPARSE_QUOTE = Object.freeze({ id: 901, customer: "ลูกค้าเก่า", total_amount: 1400, amount: 1500 });
 const SPARSE_HEADER = {
+  document_template_snapshot: { version: 1, document_type: 'delivery', title: 'ใบส่งสินค้า/ใบแจ้งหนี้', header: '', footer: '', note: '', show_note: true },
   inv_no: EXPECTED_INV_NO, quotation_id: 901,
   customer_name: "ลูกค้าเก่า", customer_phone: "", customer_address: "", customer_tax_id: "",
   total_amount: 1400, discount_pct: 0, discount_amount: 0, after_discount: 1400,
@@ -218,7 +221,7 @@ async function runConvert(options = {}, code = SOURCE) {
   const lineItemsSnapshot = copy(lineItemsRef);
 
   const sandbox = {
-    ...DOC_ITEMS,
+    ...DOC_ITEMS, ...DOC_PRESENTATION,
     _qtConvertInflight: false,
     _lineItems: lineItemsRef,
     _lineItemsLoadFailed: loadFailed,
@@ -250,6 +253,7 @@ async function runConvert(options = {}, code = SOURCE) {
     throw new Error("unexpected fetch url: " + url);
   };
   sandbox._ctx = {
+    state: { storeInfo: {} },
     showToast: toast("ctx"),
     showRoute: (r) => { ledger.push({ m: "ROUTE", r }); },
     loadAllData: async () => {

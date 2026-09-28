@@ -5,6 +5,10 @@
 
 รูปแบบ: `<commit> feat|fix|docs|refactor: <สรุปสั้น>` + bullet 1-2 ข้อถ้าจำเป็น
 
+- Phase 639 feat(documents): ตั้งค่าชื่อ/เงื่อนไขเอกสารใหม่พร้อม snapshot ต่อใบ (build 635 / v5.69.102 · local only)
+  - QT/DI/RC Preview/พิมพ์/PDF อ่าน snapshot เดิม; เพิ่ม metadata ใน INSERT เท่านั้น ไม่เปลี่ยนสูตรเงินหรือขั้นตอนรับชำระ. Settings preview เป็นข้อมูลจำลอง, failures ไม่อ้าง cloud success.
+  - ย้าย baseline เป็น PR #235 `ee17392`; SQL mutation อยู่ใน DO เดียว + timeout prerequisite/UTF8 pins/post-C. Native PG17.6 fixture 54/54; reader ชื่อเก่าไม่ผูก current options และเพิ่ม DI exact-title mutation test. ไม่มี UPDATE/backfill; staging/production NOT RUN. ห้าม deploy ก่อน SQL approval/post-check; รอ independent review.
+
 - Phase 638 fix(api): canonicalize /api path before auth and rate limit (Functions only · build marker ไม่ bump · local only)
   - `functions/_middleware.js` เพิ่ม `canonicalApiPath` (decode → lowercase → ยุบสแลชซ้ำ → ตัดสแลชท้าย) และใช้ path นี้ในทุกการตัดสินใจ (is-API, rate-limit bucket, REQUIRE_AUTH/NING/STAFF/REPORT). ปิดช่อง `/api/LINE-notify`, `/api/line-notify/` ที่ LIVE build 634 ข้าม auth ได้; decode ครั้งเดียว — path ที่ decode ไม่ได้ → 400 และ API path ที่ยังเหลือ `%` (double-encoding) → 400.
   - Defense-in-depth: line-notify / ai-assistant / parse-receipt / verify-slip / verify-slipok ตอบ 401 ถ้าไม่มี `context.data.user` ก่อนอ่าน body/env/fetch. เทสต์ใหม่ `tests/api_path_canonical_guard.test.js` (behavioral + positive role/Ning paths + counting rate-limit + endpoint inventory). เทสต์จำลองไม่พิสูจน์ routing ของ Cloudflare. CI/deploy/live probe NOT RUN; STOP `READY-FOR-INDEPENDENT-PHASE-638-REVIEW`.

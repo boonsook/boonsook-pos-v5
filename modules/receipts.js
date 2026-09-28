@@ -6,6 +6,7 @@ import { renderEmpty, renderSkeleton } from "./ui_states.js";
 // Phase 57: audit log + Phase 70 (D3): Excel export
 import { logActivity, exportToExcel, todaySuffix, todayBkk, addDaysBkk, dateBkk, escHtml } from "./utils.js";
 import { renderDocumentTemplateHeader, renderDocumentTemplateNote, renderDocumentTemplateFooter } from "./doc-utils.js";
+import { resolveDocumentPresentation } from "./document_presentation.js";
 // Phase 628B: ชนิดแถวรายการ (item | heading) — helper กลางตัวเดียว (pure)
 import { normalizeDocumentItem, renderDocumentDiscountSummary, hasDocumentDiscountFields } from "./doc_items.js";
 // Phase 88.1b: auto-post JV หลังรับชำระลูกหนี้
@@ -732,7 +733,9 @@ function renderReceiptPreview(container) {
   const r = (_ctx.state.receipts || []).find(x => x.id === _viewingId);
   if (!r) { _viewMode = "list"; renderReceiptsPage(_ctx); return; }
 
-  const si = _ctx.state.storeInfo || {};
+  let si;
+  try { si = resolveDocumentPresentation(_ctx.state.storeInfo, r, 'receipt'); }
+  catch (error) { _ctx.showToast(error.message); _viewMode = "list"; renderReceiptsPage(_ctx); return; }
   const subtotal   = Number(r.total_amount || 0);
   const lineDiscountSummary = renderDocumentDiscountSummary(_lineItems, r.total_amount);
   const discPct    = Number(r.discount_pct || 0);
@@ -818,7 +821,7 @@ function renderReceiptPreview(container) {
               </div>
             </div>
             <div class="doc-header-right">
-              <div class="doc-title re">ใบเสร็จรับเงิน</div>
+              <div class="doc-title re">${escHtml(si.documentTitle)}</div>
               <div class="doc-copy-label" style="display:inline-block;border:1.5px solid ${pageNum === 1 ? '#15803d' : '#94a3b8'};color:${pageNum === 1 ? '#15803d' : '#64748b'};background:${pageNum === 1 ? '#f0fdf4' : '#f8fafc'};padding:3px 10px;border-radius:14px;font-weight:700;margin-top:4px">${pageNum === 1 ? 'ต้นฉบับ · สำหรับลูกค้า' : 'สำเนา · สำหรับร้าน'}</div>
               <table class="doc-detail-table">
                 <tr><td>เลขที่</td><td>${escHtml(r.receipt_no || '-')}</td></tr>

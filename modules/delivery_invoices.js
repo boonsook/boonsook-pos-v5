@@ -6,6 +6,7 @@ import { renderEmpty, renderSkeleton } from "./ui_states.js";
 // Phase 57: audit log + Phase 70 (D3): Excel export
 import { logActivity, exportToExcel, todaySuffix, escHtml } from "./utils.js";
 import { renderDocumentTemplateHeader, renderDocumentTemplateNote, renderDocumentTemplateFooter } from "./doc-utils.js";
+import { createDocumentTemplateSnapshot, resolveDocumentPresentation } from "./document_presentation.js";
 // Phase 628B: ชนิดแถวรายการ (item | heading) — helper กลางตัวเดียว (pure)
 import { normalizeDocumentItem, countableDocumentItems, renderDocumentDiscountSummary, hasDocumentDiscountFields } from "./doc_items.js";
 // Phase 89.1: void JV ตอน cancel (กัน double-revenue ใน P&L)
@@ -577,7 +578,9 @@ function renderInvoicePreview(container) {
   const inv = (_ctx.state.deliveryInvoices || []).find(x => x.id === _viewingId);
   if (!inv) { _viewMode = "list"; renderDeliveryInvoicesPage(_ctx); return; }
 
-  const si = _ctx.state.storeInfo || {};
+  let si;
+  try { si = resolveDocumentPresentation(_ctx.state.storeInfo, inv, 'delivery'); }
+  catch (error) { _ctx.showToast(error.message); _viewMode = "list"; renderDeliveryInvoicesPage(_ctx); return; }
   const subtotal   = Number(inv.total_amount || 0);
   const lineDiscountSummary = renderDocumentDiscountSummary(_lineItems, inv.total_amount);
   const discPct    = Number(inv.discount_pct || 0);
@@ -657,7 +660,7 @@ function renderInvoicePreview(container) {
               </div>
             </div>
             <div class="doc-header-right">
-              <div class="doc-title inv">ใบส่งสินค้า/ใบแจ้งหนี้</div>
+              <div class="doc-title inv">${escHtml(si.documentTitle)}</div>
               <div class="doc-copy-label" style="display:inline-block;border:1.5px solid ${pageNum === 1 ? '#0369a1' : '#94a3b8'};color:${pageNum === 1 ? '#0369a1' : '#64748b'};background:${pageNum === 1 ? '#eff6ff' : '#f8fafc'};padding:3px 10px;border-radius:14px;font-weight:700;margin-top:4px">${pageNum === 1 ? 'ต้นฉบับ · สำหรับลูกค้า' : 'สำเนา · สำหรับร้าน'}</div>
               <table class="doc-detail-table">
                 <tr><td>เลขที่</td><td>${escHtml(inv.inv_no || '-')}</td></tr>
@@ -1053,6 +1056,7 @@ async function convertToReceipt(inv) {
       bank_coa_code: inv.bank_coa_code || null, bank_label: inv.bank_label || null, // Phase 440: carry receiving bank
       note: "จากใบส่งสินค้า " + (inv.inv_no || "")
     };
+    receiptPayload.document_template_snapshot = createDocumentTemplateSnapshot(_ctx.state.storeInfo, 'receipt');
 
     _ctx.showToast("กำลังออกใบเสร็จรับเงิน...");
     const rcRes = await xhrPost("receipts", receiptPayload, { returnData: true });

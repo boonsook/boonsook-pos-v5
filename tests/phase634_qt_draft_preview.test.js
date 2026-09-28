@@ -8,6 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import * as docItems from '../modules/doc_items.js';
+import * as presentation from '../modules/document_presentation.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const baseline = 'ffe230a8a99b75162193bc6b3671e0310991e75b';
@@ -51,7 +52,7 @@ test('F1: actual preview click handler keeps an unsaved QT in preview, not list'
     money: String, showToast: (message) => ledger.push(message),
   };
   const sandbox = {
-    ...docItems, console, Intl, Date, URLSearchParams,
+    ...docItems, ...presentation, console, Intl, Date, URLSearchParams,
     document: { getElementById: (id) => id === 'page-quotations' ? container : nodes.get(id),
       querySelectorAll: () => [] },
     window: { App: { state: ctx.state }, SUPABASE_CONFIG: { url: 'https://fixture.invalid' } },

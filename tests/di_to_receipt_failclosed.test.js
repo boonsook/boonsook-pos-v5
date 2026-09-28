@@ -18,6 +18,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 // Phase 628B: convertToReceipt เรียก helper จาก modules/doc_items.js — inject export จริงเข้า vm (ห้าม stub)
 import * as DOC_ITEMS from "../modules/doc_items.js";
+import * as DOC_PRESENTATION from "../modules/document_presentation.js";
 
 const MODULE_PATH = new URL("../modules/delivery_invoices.js", import.meta.url);
 const MODULE_SRC = readFileSync(MODULE_PATH, "utf8");
@@ -135,6 +136,7 @@ function invoice(over = {}) {
 // payload header ที่ต้องไม่เปลี่ยน (เขียนตรง ๆ — ห้าม derive จาก source)
 function expectedHeader(inv) {
   return {
+    document_template_snapshot: { version: 1, document_type: 'receipt', title: 'ใบเสร็จรับเงิน', header: '', footer: '', note: '', show_note: true },
     receipt_no: EXPECTED_RECEIPT_NO,
     delivery_invoice_id: inv.id,
     quotation_id: inv.quotation_id || null,
@@ -234,7 +236,7 @@ async function runConvert(options = {}, code = SOURCE) {
   const record = (entry) => { ledger.push(entry); return entry; };
 
   const sandbox = {
-    ...DOC_ITEMS,
+    ...DOC_ITEMS, ...DOC_PRESENTATION,
     _diConvertInflight: false,
     _lineItems: lineItems.slice(),
     _viewMode: "preview",
@@ -269,6 +271,7 @@ async function runConvert(options = {}, code = SOURCE) {
   };
 
   sandbox._ctx = {
+    state: { storeInfo: {} },
     showToast: (m) => { toasts.push({ via: "ctx", msg: m }); },
     showRoute: (r) => { routes.push(r); },
     loadAllData: async () => {

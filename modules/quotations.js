@@ -6,6 +6,7 @@ import { renderEmpty, renderSkeleton } from "./ui_states.js";
 // Phase 57: audit log + Phase 70 (D3): Excel export
 import { logActivity, exportToExcel, todaySuffix, round2, escHtml } from "./utils.js";
 import { renderDocumentTemplateHeader, renderDocumentTemplateNote, renderDocumentTemplateFooter } from "./doc-utils.js";
+import { createDocumentTemplateSnapshot, resolveDocumentPresentation } from "./document_presentation.js";
 // Phase 628B: ชนิดแถวรายการ (item | heading) — helper กลางตัวเดียว (pure)
 import { normalizeDocumentItem, isHeadingItem, countableDocumentItems, sumDocumentLineTotals, renderDocumentDiscountSummary, hasDocumentDiscountFields } from "./doc_items.js";
 // Phase 440 (B2): resolve receiving bank from customer group → auto-fill on the quotation (carries to receipt)
@@ -1187,6 +1188,8 @@ async function saveQuotationFull() {
       // Phase 355: append อ้างอิงงานต้นทาง (air_job) ตอนกดบันทึกเองเท่านั้น — preserve note ผู้ใช้, ไม่ duplicate
       note: appendAirJobNoteRef(document.getElementById("qt_note")?.value?.trim() || "", _airDraftMeta)
     };
+    // Freeze presentation only on first INSERT. PATCH never replaces the snapshot.
+    if (!_editingId) payload.document_template_snapshot = createDocumentTemplateSnapshot(_ctx.state.storeInfo, 'quotation');
 
     // Auto QT number — Phase B2: เลขจริงออกฝั่ง DB (trigger trg_assign_quotation_no override เสมอ
     //   = เรียงต่อเนื่องต่อวัน + UNIQUE). ค่าด้านล่างเป็นแค่ fallback ช่วงก่อน trigger ถูก apply
@@ -1378,6 +1381,7 @@ function openDraftPreview(container) {
       withholding_tax: whtChecked, wht_pct: whtPct, wht_amount: whtAmount, grand_total: grandTotal,
       status: "draft" // No persisted ID/number; typed number/status remain only in the retained form.
     };
+    doc.document_template_snapshot = createDocumentTemplateSnapshot(_ctx.state.storeInfo, 'quotation');
     _draftPreview = { doc, formNodes: Array.from(container.childNodes), formItems: items };
     _lineItems = items;
     _viewMode = "preview";
@@ -1426,7 +1430,14 @@ function renderQuotationPreview(container) {
   const q = isDraft ? _draftPreview.doc : _ctx.state.quotations.find(x => x.id === _editingId);
   if (!q) { _viewMode = "list"; renderQuotationsPage(_ctx); return; }
 
-  const si = _ctx.state.storeInfo || {};
+  let si;
+  try { si = resolveDocumentPresentation(_ctx.state.storeInfo, q, 'quotation'); }
+  catch (error) {
+    _ctx.showToast(error.message);
+    if (isDraft) restoreDraftForm(container);
+    else { _viewMode = "list"; renderQuotationsPage(_ctx); }
+    return;
+  }
   const customerName = q.customer_name || q.customer || "-";
   const subtotal     = Number(q.total_amount || 0);
   const lineDiscountSummary = renderDocumentDiscountSummary(_lineItems, q.total_amount);
@@ -1491,7 +1502,7 @@ function renderQuotationPreview(container) {
               </div>
             </div>
             <div class="doc-header-right">
-              <div class="doc-title qt">ใบเสนอราคา</div>
+              <div class="doc-title qt">${escHtml(si.documentTitle)}</div>
               <div class="doc-title-sub">Quotation</div>
               ${isDraft ? '<div class="doc-title-sub">ร่าง — ยังไม่ได้บันทึก</div>' : ''}
               <table class="doc-detail-table">
@@ -1803,6 +1814,8 @@ async function convertToDeliveryInvoice(q) {
       bank_coa_code: q.bank_coa_code || null, bank_label: q.bank_label || null, // Phase 440: carry receiving bank down
       note: "จากใบเสนอราคา " + (q.qt_no || "")
     };
+    // DI is a NEW document: use current DI defaults, not the source QT template.
+    invoicePayload.document_template_snapshot = createDocumentTemplateSnapshot(_ctx.state.storeInfo, 'delivery');
 
     _ctx.showToast("กำลังสร้างใบส่งสินค้า...");
     const invRes = await xhrPost("delivery_invoices", invoicePayload, { returnData: true });

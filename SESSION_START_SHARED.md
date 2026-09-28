@@ -1,5 +1,7 @@
 # Boonsook POS V5 - Shared Session Start
 
+> 🟠 **2026-09-28 — Phase 639 (build 635 / v5.69.102 · LOCAL ONLY):** งานรูปแบบเอกสารเดิม `6fc21dd` เปลี่ยนเลขเป็น 639 บน baseline `ee17392` (Phase 638 API merged; เก็บงานอีกทีมครบ). ใบใหม่เก็บ `document_template_snapshot`, ใบเก่าตรึง cloud text ณ cutover ไม่ใช่ย้อนหลังวันออกใบ. แก้ review: SQL atomic DO + timeout ก่อนเริ่ม/UTF8 pins/post-C, DI exact-title mutation, reader ไม่ผูกชื่อเก่ากับตัวเลือกปัจจุบัน. Native PG17.6 54/54; ผล gate รอบนี้ดู `PHASE-639-LOCAL-REVIEW.md` และขั้นปล่อย `PHASE-639-OWNER-SQL-RUNBOOK.md`. **SQL staging/production, push/PR/merge/deploy NOT RUN; ห้าม deploy ก่อน SQL approval/post-check แยก. ห้ามเก็บเงิน RC20260927001.** STOP `READY-FOR-INDEPENDENT-PHASE-639-REVIEW`.
+
 > 🟠 **2026-09-28 — Phase 638 api-path-canonical (Functions only · build 634 ไม่ bump · local only):** ปิดช่องข้าม auth `/api/LINE-notify` / `/api/line-notify/` (LIVE probe 200) — middleware ใช้ `canonicalApiPath` (decode/lowercase/ยุบสแลช/ตัดสแลชท้าย) กับทุกการตัดสินใจ auth/rate-limit; decode ครั้งเดียว — decode ไม่ได้ (ทุก path) หรือ API path เหลือ `%` → 400. เทสต์จำลองไม่พิสูจน์ routing ของ Cloudflare (รอ live probe). 5 handler (line-notify, ai-assistant, parse-receipt, verify-slip, verify-slipok) ตอบ 401 ถ้าไม่มี `data.user`. Baseline `05297a7`. ไม่แตะหน้าเว็บ/SQL/RLS/v1/OTP. CI/deploy/live probe NOT RUN. STOP `READY-FOR-INDEPENDENT-PHASE-638-REVIEW`.
 >
 

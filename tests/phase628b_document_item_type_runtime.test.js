@@ -22,6 +22,7 @@ import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import vm from "node:vm";
+import * as DOC_PRESENTATION from "../modules/document_presentation.js";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { escHtml as sharedEscHtml, money, formatNumber } from "../modules/utils.js";
 import {
@@ -50,7 +51,7 @@ function helpers() {
   return DOC_ITEMS;
 }
 // real exports only — the sandbox never gets a stub
-const REAL_HELPERS = () => ({ ...(DOC_ITEMS || {}) });
+const REAL_HELPERS = () => ({ ...(DOC_ITEMS || {}), ...DOC_PRESENTATION });
 
 // ═══════════════════════════════════════════════════════════
 //  brace-aware extraction (comment / string / template + ${})
@@ -502,6 +503,7 @@ const DS = d.getFullYear() + String(d.getMonth() + 1).padStart(2, "0") + String(
 
 function expectedDiHeader(q) {
   return {
+    document_template_snapshot: { version: 1, document_type: 'delivery', title: 'ใบส่งสินค้า/ใบแจ้งหนี้', header: '', footer: '', note: '', show_note: true },
     inv_no: "INV" + DS + String(FIXED_MS).slice(-6), quotation_id: q.id,
     customer_name: q.customer_name || q.customer || "",
     customer_phone: q.customer_phone || "", customer_address: q.customer_address || "",
@@ -538,6 +540,7 @@ async function runQtConvert({ lineItems = [], fetchRows = [], q = QUOTE } = {}) 
   };
   sandbox._ctx = {
     showToast: (m) => toasts.push(m), showRoute: (x) => ledger.push({ m: "ROUTE", x }),
+    state: { storeInfo: {} },
     loadAllData: async () => ledger.push({ m: "RELOAD" }),
   };
   sandbox.window = {
@@ -644,6 +647,7 @@ async function runRcConvert(rows) {
   };
   sandbox._ctx = {
     showToast: (m) => toasts.push(m), showRoute: (x) => ledger.push({ m: "ROUTE", x }),
+    state: { storeInfo: {} },
     loadAllData: async () => ledger.push({ m: "RELOAD" }),
   };
   sandbox.window = {
@@ -893,15 +897,15 @@ test("I5 [structural] Phase 625/629 anchors: item input qt-li-name บรรท�
   assert.equal((RC_SRC.match(/escHtml\(item\.unit\|\|'ชิ้น'\)/g) || []).length, 1);
 });
 
-// Phase 637: build pin เลื่อนตาม marker ที่ owner bump — ความเข้มเท่าเดิม
-test("I6 [structural] build 634 / v5.69.101 / cache-v634 ตรงกันทุกจุด", () => {
+// Phase 639: build pin เลื่อนตาม marker — ความเข้มเท่าเดิม
+test("I6 [structural] build 635 / v5.69.102 / cache-v635 ตรงกันทุกจุด", () => {
   const html = read("index.html");
   const sw = read("sw.js");
-  assert.match(html, /data-app-build="634" data-app-version="5\.69\.101"/);
+  assert.match(html, /data-app-build="635" data-app-version="5\.69\.102"/);
   for (const asset of ["style.css", "doc-print.css", "selfheal.js", "main.js", "boot.js"]) {
-    assert.ok(html.includes(`${asset}?v=634`), `${asset}?v=634`);
+    assert.ok(html.includes(`${asset}?v=635`), `${asset}?v=635`);
   }
-  assert.match(sw, /^const CACHE_NAME = 'boonsook-pos-v5-cache-v634';$/m);
-  assert.match(sw, /^const SW_BUILD = '634';$/m);
-  assert.match(sw.split("\n")[1], /^\/\/ v634 \(/, "phase comment บรรทัดบนสุดต้องเป็น v634");
+  assert.match(sw, /^const CACHE_NAME = 'boonsook-pos-v5-cache-v635';$/m);
+  assert.match(sw, /^const SW_BUILD = '635';$/m);
+  assert.match(sw.split("\n")[1], /^\/\/ v635 \(/, "phase comment บรรทัดบนสุดต้องเป็น v635");
 });
