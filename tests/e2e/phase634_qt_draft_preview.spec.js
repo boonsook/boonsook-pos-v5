@@ -366,14 +366,17 @@ for (const [label, viewport] of [['desktop1280', { width: 1280, height: 800 }], 
         await page.locator(selector).fill(value);
         await preview(page);
         await expect(page.locator('.doc-item-row td').last()).toHaveText(expectedTotal);
-        await expect(page.locator('.doc-total-row').first()).toContainText(`${expectedTotal} บาท`);
+        const netRow = page.locator('.doc-total-row').filter({ has: page.getByText('ยอดหลังส่วนลดรายสินค้า', { exact: true }) });
+        await expect(netRow).toHaveCount(1);
+        await expect(netRow).toContainText(`${expectedTotal} บาท`);
         await expect(page.locator('.doc-total-row.grand')).toContainText(`${expectedTotal} บาท`);
         await page.locator('#qtPreviewBack').click();
         await expect(page.locator(selector)).toHaveValue(value);
         // P2: retained controls alone are insufficient. Visible form totals must
         // match the just-rendered preview, not the pre-blur DOM's old amounts.
         await expect(page.locator('.qt-item-row td').nth(6)).toHaveText(expectedTotal);
-        await expect(page.getByText('รวมเป็นเงิน', { exact: true }).locator('..').locator('strong')).toHaveText(expectedTotal);
+        await expect(page.locator('#qtSubtotalLabel')).toHaveText('ยอดหลังส่วนลดรายสินค้า');
+        await expect(page.locator('#qtSubtotal')).toHaveText(expectedTotal);
         await expect(page.getByText('หลังหักส่วนลด', { exact: true }).locator('..').locator('strong')).toHaveText(expectedTotal);
         await expect(page.getByText('รวมทั้งสิ้น', { exact: true }).locator('..').locator('strong').last()).toHaveText(`฿${expectedTotal}`);
         await expectNoDraftSideEffects(page);

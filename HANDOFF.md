@@ -1,5 +1,15 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
+**Phase 637 — ย้ายส่วนลดรายสินค้าไปท้ายบิล (2026-09-28 · build 634 / v5.69.101 · local only)**
+- Baseline PR #233 merge `4e42905ecb7d9f1f8929148d765f917bd0b48fc5`; Phase 636 shipped build 633. สถานะ local/NOT RUN ของ 636 ด้านล่างเป็นประวัติก่อน merge ไม่ใช่เหตุให้ทำซ้ำ.
+- Owner ยืนยันให้เอาข้อความส่วนลดใต้ชื่อสินค้าออกทั้งหมด ใช้ footer เดียวกันใน QT/DI/RC Preview/พิมพ์/PDF และสรุปฟอร์ม QT: ยอดก่อนลด → ส่วนลดรายสินค้า → subtotal เดิมหลังลด → ส่วนลดเพิ่มเติมท้ายบิล/หัก ณ ที่จ่ายเดิม → grand total เดิม. ตัวอย่าง 45,500 − 4,550 = 40,950; ไม่มีการหักซ้ำ.
+- สินค้าเดียวแสดง % เมื่อสื่อได้ตรงไม่เกินสองตำแหน่ง; หลายสินค้าหรือ % ละเอียดกว่านั้นใช้ “ส่วนลดรายสินค้ารวม” ไม่อ้าง % ของทั้งบิล. ไม่มีส่วนลดไม่เพิ่ม breakdown. ตรวจทุกแถว (ยกเว้น heading), %/net tolerance เดิม 1 สตางค์, จำนวนเงินระดับสตางค์ที่ safe และผลรวม net ต้องตรง subtotal จึงแสดง; ข้อมูลไม่ครบ/ขัดกันงดคำอธิบายทั้งหมด ไม่ซ่อมข้อมูลและไม่ซ่อนยอดเดิม.
+- UI loaders QT3/DI2/RC1 เก็บ `_discountSummaryComplete` ก่อน fallback เดิมเติม 0/1 รวมป้องกัน raw qty=0; flag อยู่ในหน่วยความจำเท่านั้น ไม่เข้า save/convert payload. Row ที่โหลดมาไม่ครบยังงด breakdown ระหว่างแก้ไขจนบันทึก/โหลดใหม่ครบ. Preview ตรวจ raw header total_amount ไม่อาศัย null→0. ไม่เปลี่ยนค่าที่ loader แสดงเดิม.
+- Form อัปเดตเฉพาะ markup/text ของสรุป ไม่มีการสร้าง input ใหม่หรือทำ focus หลุด; กลับจาก draft preview อัปเดต summary จาก snapshot เดียวกัน. Row callback กลับเป็น escaped name ล้วน; XSS harness ถอน allowance ของ annotation เดิมและคง guard เข้ม.
+- Verification: baseline browser RED ทั้ง QT/DI/RC ตรวจจับ annotation ตำแหน่งเก่า; regression ครอบ mixed rates/0/100%/heading/raw missing-null-zero/header mismatch, extra discount/WHT, no writes/immutability, 360/390/1280px, Preview/print/PDF. ผล full gates ในรายงาน commit; ดู PDF QT 1 หน้า/DI 2 หน้า/RC 2 หน้าแล้ว. ไม่ใช่ physical mobile/printer หรือ authenticated production smoke.
+- ไม่แตะสูตรเงิน/save/convert/payment/accounting/stock/SQL/RLS/DB; ไม่ push/PR/merge/deploy. ไม่ cleanup เอกสารทดสอบและ **ห้ามเก็บเงิน RC20260927001**. Bluetooth receipt นอก scope. CI/deploy/live marker ของ build 634 NOT RUN.
+- **STOP: `READY-FOR-INDEPENDENT-PHASE-637-REVIEW`** — local commit เพื่อรีวิว ก่อนขออนุมัติ push/PR แยก.
+
 **Phase 636 — ส่วนลดรายรายการในเอกสาร QT/DI/RC (2026-09-28 · build 633 / v5.69.100 · local only)**
 - S1 correction ต่อจาก `793c1c7`: ไม่แสดง annotation ถ้า round2(gross × (1 − pct/100)) ต่างจาก net เกิน 0.01 บาท (เผื่อเฉพาะ binary floating noise ที่ขอบ). ไม่ซ่อม net หรือเปลี่ยนสูตรบันทึก. Regression ยืนยันเดิม 10%/net 20,000 แสดงข้อความผิดจริง; เพิ่ม unit ขอบ ±1 สตางค์และ browser QT/DI/RC Preview/พิมพ์/PDF. Nit รูปแบบ % / formatter ยังไม่พ่วง; build เดิมเพราะยังไม่เผยแพร่. รอ delta review ไม่ push.
 - Baseline `ef9378afc68df8505ccbab1c9e6446690bbd9245` (PR #232 merged; Phase 635 build 632). สถานะ local/NOT RUN ของ Phase 635 ด้านล่างเป็นประวัติก่อน merge.

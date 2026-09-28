@@ -48,23 +48,50 @@ export function sumDocumentLineTotals(rows) {
   return rows.reduce((s, r) => (isHeadingItem(r) ? s : s + Number(r.line_total || 0)), 0);
 }
 
-// Phase 636: presentation only; line_total remains the source of the net amount.
-// The displayed discount is the gross-to-net difference, never another deduction.
-// Only numeric primitives enter the markup; invalid/absent data adds no claim.
-export function renderDocumentLineDiscount(row) {
-  if (!row || isHeadingItem(row)) return "";
-  const fields = [row.discount_pct, row.qty, row.unit_price, row.line_total];
-  if (fields.some(v => (typeof v !== "number" && typeof v !== "string") || String(v).trim() === "")) return "";
-  const [pct, qty, price, net] = fields.map(Number);
-  if (![pct, qty, price, net].every(Number.isFinite) || pct <= 0 || pct > 100 || qty <= 0 || price < 0 || net < 0) return "";
-  const gross = qty * price;
-  // S1: validate the label against the existing QT round2 rule, not a new net.
-  // One satang is allowed; EPSILON only absorbs binary noise at that boundary.
-  const expectedNet = Math.round(gross * (1 - pct / 100) * 100) / 100;
-  const tolerance = 0.01 + Number.EPSILON * Math.max(1, Math.abs(expectedNet), net);
-  if (!Number.isFinite(expectedNet) || Math.abs(expectedNet - net) > tolerance) return "";
-  const amount = Math.round((gross - net) * 100) / 100;
-  if (!Number.isFinite(amount) || amount <= 0 || net > gross) return "";
-  const money = new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
-  return '<div class="doc-line-discount">ส่วนลด ' + pct + '% (' + money + ' บาท)</div>';
+// Phase 637: footer explanation only. Never used by save/conversion arithmetic.
+// Validate EVERY item and reconcile the header before claiming a bill-wide total.
+// Incomplete/contradictory legacy data keeps the original stored totals only.
+// UI loaders record completeness BEFORE their existing 0/1 fallbacks. This
+// in-memory flag is not a payload field; an incomplete loaded row stays hidden
+// from the breakdown until saved/reloaded with complete data.
+export function hasDocumentDiscountFields(row) {
+  return !!row && (isHeadingItem(row) || ([row.discount_pct, row.qty, row.unit_price, row.line_total].every(
+    v => (typeof v === "number" || typeof v === "string") && String(v).trim() !== "" && Number.isFinite(Number(v))
+  ) && Number(row.qty) > 0));
+}
+
+export function getDocumentDiscountSummary(rows, subtotal) {
+  const numeric = v => (typeof v === "number" || typeof v === "string") && String(v).trim() !== "" && Number.isFinite(Number(v));
+  if (!Array.isArray(rows) || !numeric(subtotal) || Number(subtotal) < 0) return null;
+  let grossCents = 0, netCents = 0, itemCount = 0, discounted = 0, singlePct = 0;
+  for (const row of rows) {
+    if (isHeadingItem(row)) continue;
+    if (!hasDocumentDiscountFields(row) || row._discountSummaryComplete === false) return null;
+    const [pct, qty, price, net] = [row.discount_pct, row.qty, row.unit_price, row.line_total].map(Number);
+    if (pct < 0 || pct > 100 || qty <= 0 || price < 0 || net < 0) return null;
+    const gross = qty * price;
+    const expectedNet = Math.round(gross * (1 - pct / 100) * 100) / 100;
+    const tolerance = 0.01 + Number.EPSILON * Math.max(1, Math.abs(expectedNet), net);
+    if (!Number.isFinite(expectedNet) || net > gross || Math.abs(expectedNet - net) > tolerance) return null;
+    const gc = Math.round(gross * 100), nc = Math.round(net * 100);
+    if (!Number.isSafeInteger(gc) || !Number.isSafeInteger(nc) || (pct === 0 && gc !== nc)) return null;
+    grossCents += gc;
+    netCents += nc;
+    itemCount++;
+    if (pct > 0 && gc > nc) { discounted++; singlePct = pct; }
+  }
+  const headerCents = Math.round(Number(subtotal) * 100);
+  if (![grossCents, netCents, headerCents].every(Number.isSafeInteger) || netCents !== headerCents || !discounted || grossCents <= netCents) return null;
+  // Do not round an arbitrary percentage into a different claim or exponent text.
+  const pctLabel = itemCount === 1 && singlePct >= 0.01 && Math.round(singlePct * 100) / 100 === singlePct ? " " + singlePct + "%" : "รวม";
+  return { gross: grossCents / 100, discount: (grossCents - netCents) / 100, label: "ส่วนลดรายสินค้า" + pctLabel };
+}
+
+export function renderDocumentDiscountSummary(rows, subtotal) {
+  const summary = getDocumentDiscountSummary(rows, subtotal);
+  if (!summary) return "";
+  const format = new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return '<div class="doc-line-discount-summary">'
+    + '<div class="doc-total-row"><span>รวมราคาสินค้าก่อนส่วนลด</span><span>' + format.format(summary.gross) + ' บาท</span></div>'
+    + '<div class="doc-total-row"><span>' + summary.label + '</span><span>-' + format.format(summary.discount) + ' บาท</span></div></div>';
 }
