@@ -82,6 +82,7 @@ let _airDraftNotice = 0;   // Phase 346: จำนวนรายการร่
 let _airDraftSource = "air_catalog";          // Phase 353: "air_catalog" | "air_job"
 let _airDraftCustomer = { name: "", phone: "" }; // Phase 353: prefill ลูกค้าจากงานแอร์ (ถ้ามี)
 let _airDraftMeta = null;                     // Phase 354: draft แรก (โชว์ source summary + back-to-job)
+let _draftPreview = null; // Phase 634: in-memory only; original form nodes/items survive preview and render failure
 
 // Phase 346/353: แปลง air draft → line item ของฟอร์มใบเสนอราคา
 //  marker `_source` ฯลฯ เป็น in-memory เท่านั้น (save เลือกเฉพาะ field คงที่ → ไม่ persist/ไม่แตะ schema)
@@ -160,6 +161,7 @@ export function renderQuotationsPage(ctx) {
     let _airDrafts = [];
     try { _airDrafts = consumeAirQuoteDrafts(); } catch (e) { console.warn("[quotations] air draft consume failed:", e); _airDrafts = []; }
     if (Array.isArray(_airDrafts) && _airDrafts.length) {
+      _draftPreview = null;
       _editingId = null;
       _viewMode = "form";
       _lineItems = _airDrafts.map(airDraftToLineItem);
@@ -174,6 +176,7 @@ export function renderQuotationsPage(ctx) {
 
   // Phase 45.10 (B5-3): clear stale line items + selection
   if (!window._pendingQuotationPreviewId && _viewMode === "list") {
+    _draftPreview = null;
     _lineItems = [];
     _lineItemsLoadFailed = false;   // Phase 576: ออกจากฟอร์ม/กลับหน้า list — เคลียร์สถานะโหลดล้ม
     _selectedIds.clear();
@@ -185,6 +188,7 @@ export function renderQuotationsPage(ctx) {
 
   // ★ ถ้าถูก trigger จากหน้าอื่น (เช่น delivery_invoice กด "อ้างอิง") → เปิด preview
   if (window._pendingQuotationPreviewId) {
+    _draftPreview = null;
     const pendingId = window._pendingQuotationPreviewId;
     window._pendingQuotationPreviewId = null;
     container.innerHTML = renderSkeleton({ type: "list", count: 4 });
@@ -679,7 +683,7 @@ function renderQuotationForm(container) {
                 <td><input class="qt-li-unit" data-idx="${idx}" value="${escHtml(item.unit||'ชิ้น')}" style="width:48px;text-align:center;padding:4px;font-size:12px" /></td>
                 <td><input class="qt-li-price" data-idx="${idx}" type="number" inputmode="decimal" value="${item.unit_price}" style="width:90px;text-align:right;padding:4px;font-size:13px" /></td>
                 <td><input class="qt-li-disc" data-idx="${idx}" type="number" inputmode="decimal" value="${item.discount_pct||0}" style="width:55px;text-align:center;padding:4px;font-size:13px" /></td>
-                <td style="text-align:right;font-weight:700;font-size:13px">${num(item.line_total)}</td>
+                <td class="qt-li-total" data-idx="${idx}" style="text-align:right;font-weight:700;font-size:13px">${num(item.line_total)}</td>
                 <td class="qt-li-actions"><button type="button" class="qt-li-up" data-idx="${idx}" title="เลื่อนขึ้น" aria-label="เลื่อนขึ้น">▲</button><button type="button" class="qt-li-down" data-idx="${idx}" title="เลื่อนลง" aria-label="เลื่อนลง">▼</button><button class="qt-li-del" data-idx="${idx}" style="border:none;background:none;cursor:pointer;color:#ef4444;font-size:16px;padding:2px 6px">✕</button></td>
               </tr>
             `).join("") : `
@@ -694,15 +698,15 @@ function renderQuotationForm(container) {
     <div class="panel mt16">
       <h4 style="margin:0 0 12px">สรุปยอด</h4>
       <div style="max-width:420px;margin-left:auto">
-        <div class="row" style="padding:6px 0"><span>รวมเป็นเงิน</span><strong>${num(subtotal)}</strong></div>
+        <div class="row" style="padding:6px 0"><span>รวมเป็นเงิน</span><strong id="qtSubtotal">${num(subtotal)}</strong></div>
         <div class="row" style="padding:6px 0;align-items:center">
           <span>ส่วนลด</span>
           <div style="display:flex;align-items:center;gap:6px">
             <input id="qt_discPct" type="number" inputmode="decimal" value="${discPctVal}" style="width:55px;text-align:center;padding:5px;font-size:13px" /> <span>%</span>
-            <span style="font-weight:700;color:#ef4444">-${num(discAmount)}</span>
+            <span id="qtDiscountAmount" style="font-weight:700;color:#ef4444">-${num(discAmount)}</span>
           </div>
         </div>
-        <div class="row" style="padding:6px 0"><span>หลังหักส่วนลด</span><strong>${num(afterDisc)}</strong></div>
+        <div class="row" style="padding:6px 0"><span>หลังหักส่วนลด</span><strong id="qtAfterDiscount">${num(afterDisc)}</strong></div>
         <div class="row" style="padding:6px 0;align-items:center">
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
             <input id="qt_wht" type="checkbox" ${whtChecked ? 'checked' : ''} style="width:auto" />
@@ -710,13 +714,13 @@ function renderQuotationForm(container) {
           </label>
           <div style="display:flex;align-items:center;gap:6px">
             <input id="qt_whtPct" type="number" inputmode="decimal" value="${whtPctVal}" style="width:48px;text-align:center;padding:5px;font-size:13px" ${!whtChecked?'disabled':''} /> <span>%</span>
-            <span style="font-weight:700;color:#ef4444">-${num(whtAmount)}</span>
+            <span id="qtWhtAmount" style="font-weight:700;color:#ef4444">-${num(whtAmount)}</span>
           </div>
         </div>
         <hr style="margin:8px 0" />
         <div class="row" style="padding:8px 0">
           <strong style="font-size:16px">รวมทั้งสิ้น</strong>
-          <strong style="font-size:20px;color:var(--primary2)">${money(grandTotal)}</strong>
+          <strong id="qtGrandTotal" style="font-size:20px;color:var(--primary2)">${money(grandTotal)}</strong>
         </div>
       </div>
     </div>
@@ -780,7 +784,14 @@ function bindFormEvents(container, customers, products) {
     else window.location.hash = "service_jobs";
   });
   document.getElementById("qtSaveBtn")?.addEventListener("click", saveQuotationFull);
+  // Draft preview snapshots current inputs on click. Prevent pointer focus/blur
+  // from letting a dirty row's change handler re-render away that click target.
+  // Saved forms keep their existing focus/change behavior.
+  document.getElementById("qtPreviewBtn")?.addEventListener("pointerdown", (ev) => {
+    if (!_editingId && ev.button === 0) ev.preventDefault();
+  });
   document.getElementById("qtPreviewBtn")?.addEventListener("click", () => {
+    if (!_editingId) { openDraftPreview(container); return; }
     _viewMode = "preview"; renderQuotationsPage(_ctx);
   });
 
@@ -1085,6 +1096,7 @@ async function saveQuotationFull() {
 //  EDIT — Load existing quotation + items
 // ═══════════════════════════════════════════════════════════
 async function openEditForm(q) {
+  _draftPreview = null;
   _editingId = q.id;
   _viewMode = "form";
   const container = document.getElementById("page-quotations");
@@ -1116,7 +1128,94 @@ async function openEditForm(q) {
 // ═══════════════════════════════════════════════════════════
 //  PREVIEW — Document view
 // ═══════════════════════════════════════════════════════════
+// Phase 634: retain the actual form (including blank/zero values and listeners),
+// not a reconstruction from a persisted document. No save/number/DB helper here.
+function restoreDraftForm(container) {
+  if (!_draftPreview) return;
+  const draft = _draftPreview;
+  container.replaceChildren(...draft.formNodes);
+  _lineItems = draft.formItems;
+  _draftPreview = null;
+  _viewMode = "form";
+  // Dirty numeric inputs can reach preview without change/re-render. Refresh
+  // only the displayed amounts from that same snapshot; retain inputs/listeners.
+  const setTotal = (selector, text) => {
+    const el = container.querySelector(selector);
+    if (el) el.textContent = text;
+  };
+  draft.formItems.forEach((item, idx) => {
+    if (!isHeadingItem(item)) setTotal(`.qt-li-total[data-idx="${idx}"]`, num(item.line_total));
+  });
+  setTotal("#qtSubtotal", num(draft.doc.total_amount));
+  setTotal("#qtDiscountAmount", "-" + num(draft.doc.discount_amount));
+  setTotal("#qtAfterDiscount", num(draft.doc.after_discount));
+  setTotal("#qtWhtAmount", "-" + num(draft.doc.wht_amount));
+  setTotal("#qtGrandTotal", money(draft.doc.grand_total));
+}
+
+function openDraftPreview(container) {
+  if (_editingId || _draftPreview) return;
+  // Keep the save button mounted so save's finally can re-enable it on failure.
+  if (_qtSaveInflight) return _ctx.showToast("กำลังบันทึก... กรุณารอให้บันทึกเสร็จก่อนดูตัวอย่าง");
+  try {
+    const value = id => document.getElementById(id)?.value ?? "";
+    // Read current row controls without rewriting F2 handlers. The snapshot
+    // also restores item state because detaching a focused input can skip change.
+    // Raw blank/zero control values remain in the retained form nodes.
+    const items = _lineItems.map((item, idx) => {
+      const field = cls => container.querySelector(`.${cls}[data-idx="${idx}"]`)?.value;
+      if (isHeadingItem(item)) {
+        return normalizeDocumentItem({ ...item, item_name: field("qt-li-heading-name") ?? item.item_name });
+      }
+      const qty = Number((field("qt-li-qty") ?? item.qty) || 1);
+      const unitPrice = Number(field("qt-li-price") ?? item.unit_price);
+      const discountPct = Number(field("qt-li-disc") ?? item.discount_pct ?? 0);
+      return normalizeDocumentItem({
+        ...item, item_name: field("qt-li-name") ?? item.item_name,
+        unit: field("qt-li-unit") ?? item.unit,
+        qty, unit_price: unitPrice, discount_pct: discountPct,
+        line_total: round2(qty * unitPrice * (1 - discountPct / 100))
+      });
+    });
+    const subtotal = sumDocumentLineTotals(items);
+    const discPct = Number(value("qt_discPct") || 0);
+    const discAmount = subtotal * (discPct / 100);
+    const afterDisc = subtotal - discAmount;
+    const whtChecked = document.getElementById("qt_wht")?.checked || false;
+    const whtPct = Number(value("qt_whtPct") || 3);
+    const whtAmount = whtChecked ? afterDisc * (whtPct / 100) : 0;
+    const grandTotal = afterDisc - whtAmount;
+    if (![subtotal, discPct, discAmount, afterDisc, whtPct, whtAmount, grandTotal,
+      ...items.flatMap(item => [item.qty, item.unit_price, item.discount_pct, item.line_total])].every(Number.isFinite)) {
+      _ctx.showToast("ตรวจสอบจำนวน ราคา และส่วนลดก่อนดูตัวอย่าง — ข้อมูลร่างยังอยู่ในฟอร์ม");
+      return;
+    }
+    const bankCoa = value("qt_bankCoa");
+    const bank = (_ctx.state.paymentInfo?.banks || []).find(b => b.coaCode === bankCoa);
+    const doc = {
+      customer_name: value("qt_customerSearch"), customer_phone: value("qt_customerPhone"),
+      customer_address: value("qt_customerAddress"), customer_tax_id: value("qt_customerTaxId"),
+      created_at: value("qt_date"), salesperson: value("qt_salesperson"),
+      payment_terms: value("qt_payTerms"), credit_days: Number(value("qt_creditDays") || 0),
+      project_name: value("qt_project"), ref_no: value("qt_refNo"), note: value("qt_note"),
+      bank_coa_code: bankCoa, bank_label: bank ? [bank.bankName, bank.bankAccount].filter(Boolean).join(" ") : "",
+      total_amount: subtotal, discount_pct: discPct, discount_amount: discAmount, after_discount: afterDisc,
+      withholding_tax: whtChecked, wht_pct: whtPct, wht_amount: whtAmount, grand_total: grandTotal,
+      status: "draft" // No persisted ID/number; typed number/status remain only in the retained form.
+    };
+    _draftPreview = { doc, formNodes: Array.from(container.childNodes), formItems: items };
+    _lineItems = items;
+    _viewMode = "preview";
+    renderQuotationPreview(container);
+  } catch (e) {
+    restoreDraftForm(container);
+    console.error("[quotations] draft preview failed:", e);
+    _ctx.showToast("เปิดตัวอย่างไม่สำเร็จ — ข้อมูลร่างยังอยู่ในฟอร์ม กรุณาลองใหม่");
+  }
+}
+
 async function openPreview(q) {
+  _draftPreview = null;
   _editingId = q.id; _viewMode = "preview";
   const container = document.getElementById("page-quotations");
   if (container) container.innerHTML = renderSkeleton({ type: "list", count: 4 });
@@ -1147,7 +1246,8 @@ async function openPreview(q) {
 }
 
 function renderQuotationPreview(container) {
-  const q = _ctx.state.quotations.find(x => x.id === _editingId);
+  const isDraft = !_editingId && !!_draftPreview;
+  const q = isDraft ? _draftPreview.doc : _ctx.state.quotations.find(x => x.id === _editingId);
   if (!q) { _viewMode = "list"; renderQuotationsPage(_ctx); return; }
 
   const si = _ctx.state.storeInfo || {};
@@ -1157,12 +1257,12 @@ function renderQuotationPreview(container) {
   const discAmount   = Number(q.discount_amount || 0);
   const _afterDisc   = Number(q.after_discount || subtotal);
   const whtChecked   = q.withholding_tax || false;
-  const whtPct       = Number(q.wht_pct || 3);
+  const whtPct       = Number(isDraft ? q.wht_pct : (q.wht_pct || 3));
   const whtAmount    = Number(q.wht_amount || 0);
-  const grandTotal   = Number(q.grand_total || q.amount || subtotal);
+  const grandTotal   = Number(isDraft ? q.grand_total : (q.grand_total || q.amount || subtotal));
 
   // ★ เช็คว่ามีใบส่งสินค้าอ้างอิงใบเสนอราคานี้อยู่หรือไม่ — ถ้ามี = lock
-  const hasInvoice = (_ctx.state.deliveryInvoices || []).some(di =>
+  const hasInvoice = !isDraft && (_ctx.state.deliveryInvoices || []).some(di =>
     di.quotation_id === q.id && di.status !== 'cancelled'
   );
 
@@ -1175,7 +1275,7 @@ function renderQuotationPreview(container) {
             <input type="checkbox" id="qtShowDate" checked style="width:15px;height:15px;cursor:pointer" />
             ลงวันที่
           </label>
-          ${hasInvoice ? `
+          ${isDraft ? '<span>ร่าง — ยังไม่ได้บันทึก (แก้วันที่ในฟอร์ม)</span>' : hasInvoice ? `
           <span style="display:flex;align-items:center;gap:6px;font-size:13px;border:1px solid #fecaca;border-radius:8px;padding:6px 10px;background:#fef2f2;color:#991b1b" title="มีใบส่งสินค้าอ้างอิงอยู่ — ต้องลบใบส่งสินค้าก่อนถึงจะแก้วันที่ได้">
             🔒 วันที่: ${dateTH(q.created_at)} (ล็อก — มีใบส่งสินค้าแล้ว)
           </span>
@@ -1186,11 +1286,11 @@ function renderQuotationPreview(container) {
           </label>
           `}
           <button id="qtEditFromPreview" class="btn light">แก้ไข</button>
-          <button id="qtShareLinkBtn" class="btn" style="background:#6366f1;color:#fff">🔗 คัดลอกลิงก์</button>
-          <button id="qtShareBtn" class="btn" style="background:#06C755;color:#fff">📤 แชร์</button>
+          ${!isDraft ? '<button id="qtShareLinkBtn" class="btn" style="background:#6366f1;color:#fff">🔗 คัดลอกลิงก์</button>' : ''}
+          ${!isDraft ? `<button id="qtShareBtn" class="btn" style="background:#06C755;color:#fff">📤 แชร์</button>
           <button id="qtPrintBtn" class="btn light">🖨️ พิมพ์</button>
-          <button id="qtPdfBtn" class="btn primary">📄 PDF</button>
-          ${!['invoiced','cancelled','receipted'].includes(q.status) ? '<button id="qtConvertBtn" class="btn" style="background:#10b981;color:#fff">📦 สร้างใบส่ง</button>' : ''}
+          <button id="qtPdfBtn" class="btn primary">📄 PDF</button>` : ''}
+          ${!isDraft && !['invoiced','cancelled','receipted'].includes(q.status) ? '<button id="qtConvertBtn" class="btn" style="background:#10b981;color:#fff">📦 สร้างใบส่ง</button>' : ''}
         </div>
       </div>
     </div>
@@ -1216,8 +1316,9 @@ function renderQuotationPreview(container) {
             <div class="doc-header-right">
               <div class="doc-title qt">ใบเสนอราคา</div>
               <div class="doc-title-sub">Quotation</div>
+              ${isDraft ? '<div class="doc-title-sub">ร่าง — ยังไม่ได้บันทึก</div>' : ''}
               <table class="doc-detail-table">
-                <tr><td>เลขที่</td><td>${escHtml(q.qt_no || '-')}</td></tr>
+                <tr><td>เลขที่</td><td>${isDraft ? 'ยังไม่ได้ออกเลขที่เอกสาร' : escHtml(q.qt_no || '-')}</td></tr>
                 <tr><td>วันที่</td><td id="qtDateCell">..........................</td></tr>
                 <tr><td>ผู้ขาย</td><td>${escHtml(q.salesperson || '-')}</td></tr>
                 ${q.payment_terms ? '<tr><td>ชำระเงิน</td><td>'+escHtml(q.payment_terms)+'</td></tr>' : ''}
@@ -1289,11 +1390,15 @@ function renderQuotationPreview(container) {
     </div>
   `;
 
-  document.getElementById("qtPreviewBack")?.addEventListener("click", () => { _viewMode = "list"; renderQuotationsPage(_ctx); });
+  document.getElementById("qtPreviewBack")?.addEventListener("click", () => {
+    if (isDraft) { restoreDraftForm(container); return; }
+    _viewMode = "list"; renderQuotationsPage(_ctx);
+  });
 
   // ── date toggle ──
   const qtDateCell = document.getElementById("qtDateCell");
   const qtShowDate = document.getElementById("qtShowDate");
+  if (isDraft && qtDateCell) qtDateCell.textContent = dateTH(q.created_at);
   if (qtShowDate && qtDateCell) {
     qtShowDate.addEventListener("change", () => {
       qtDateCell.textContent = qtShowDate.checked ? dateTH(q.created_at) : "..................................";
@@ -1302,6 +1407,7 @@ function renderQuotationPreview(container) {
 
   // ★ แก้วันที่เอกสาร — อนุญาตเมื่อไม่มีใบส่งสินค้าอ้างอิง
   document.getElementById("qtEditDate")?.addEventListener("change", async (ev) => {
+    if (isDraft) return;
     const newDate = ev.target.value;
     if (!newDate) return;
     const isoDate = newDate + "T00:00:00.000Z";
@@ -1320,11 +1426,12 @@ function renderQuotationPreview(container) {
     }
   });
 
-  document.getElementById("qtShareLinkBtn")?.addEventListener("click", () => generateShareLink(q));
+  if (!isDraft) document.getElementById("qtShareLinkBtn")?.addEventListener("click", () => generateShareLink(q));
   document.getElementById("qtShareBtn")?.addEventListener("click", () => {
     window._appShareDoc("qtDocPreview", q.qt_no || "quotation");
   });
   document.getElementById("qtEditFromPreview")?.addEventListener("click", () => {
+    if (isDraft) { restoreDraftForm(container); return; }
     const q2 = _ctx.state.quotations.find(x => x.id === _editingId);
     if (q2) { _viewMode = "form"; renderQuotationsPage(_ctx); }
   });
@@ -1354,7 +1461,7 @@ function renderQuotationPreview(container) {
     });
   });
 
-  document.getElementById("qtConvertBtn")?.addEventListener("click", () => convertToDeliveryInvoice(q));
+  if (!isDraft) document.getElementById("qtConvertBtn")?.addEventListener("click", () => convertToDeliveryInvoice(q));
 }
 
 // ═══════════════════════════════════════════════════════════
