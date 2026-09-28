@@ -79,9 +79,12 @@ test("middleware: /api/verify-slipok is auth-required and rate-limited (not anon
 
 const { onRequestPost } = await import("../functions/api/verify-slipok.js");
 const TINY_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+// Phase 638: what the middleware sets for any valid (customer) JWT on /api/verify-slipok — role null.
+const CUSTOMER_USER = { id: "u-customer-test", email: null, role: null };
 
 test("behavioral: no SLIPOK_API_KEY env → graceful no_api (configured:false), never crashes", async () => {
-  const resp = await onRequestPost({ env: {}, request: { json: async () => ({ image: TINY_PNG }) } });
+  // Phase 638: handler guard needs a middleware-set user (customer JWT → role null, no role check)
+  const resp = await onRequestPost({ env: {}, data: { user: CUSTOMER_USER }, request: { json: async () => ({ image: TINY_PNG }) } });
   const body = await resp.json();
   assert.equal(body.error, "no_api");
   assert.equal(body.configured, false);
@@ -101,6 +104,7 @@ test("behavioral: valid slip → normalized result, NO raw, and the key never ap
   try {
     const resp = await onRequestPost({
       env: { SLIPOK_API_KEY: SECRET },
+      data: { user: CUSTOMER_USER },
       request: { json: async () => ({ image: TINY_PNG, expected_amount: 250 }) }
     });
     const text = await resp.clone().text();
@@ -121,6 +125,7 @@ test("behavioral: malformed image → bad_image 400, no upstream call", async ()
   try {
     const resp = await onRequestPost({
       env: { SLIPOK_API_KEY: "k" },
+      data: { user: CUSTOMER_USER },
       request: { json: async () => ({ image: "not-a-data-url" }) }
     });
     assert.equal(resp.status, 400);

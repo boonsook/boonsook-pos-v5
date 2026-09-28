@@ -48,6 +48,7 @@ test("failed LINE push: upstream body + recipient id are NOT in the client respo
     const resp = await onRequestPost({
       request: { json: async () => ({ message: "hello" }) },
       env: { LINE_CHANNEL_ACCESS_TOKEN: "tok-secret", LINE_USER_ID: RECIPIENT },
+      data: { user: { id: "u-staff-test", email: null, role: "staff" } }, // Phase 638: handler guard needs middleware-set user
     });
     assert.equal(resp.status, 502, "all-failed push → 502");
     const body = await resp.json();
@@ -78,6 +79,7 @@ test("successful push still returns a clean result (status + ok, no recipient id
     const resp = await onRequestPost({
       request: { json: async () => ({ message: "hi" }) },
       env: { LINE_CHANNEL_ACCESS_TOKEN: "tok", LINE_USER_ID: "Uabc" },
+      data: { user: { id: "u-staff-test", email: null, role: "staff" } }, // Phase 638: handler guard needs middleware-set user
     });
     assert.equal(resp.status, 200);
     const body = await resp.json();

@@ -5,6 +5,10 @@
 
 รูปแบบ: `<commit> feat|fix|docs|refactor: <สรุปสั้น>` + bullet 1-2 ข้อถ้าจำเป็น
 
+- Phase 638 fix(api): canonicalize /api path before auth and rate limit (Functions only · build marker ไม่ bump · local only)
+  - `functions/_middleware.js` เพิ่ม `canonicalApiPath` (decode → lowercase → ยุบสแลชซ้ำ → ตัดสแลชท้าย) และใช้ path นี้ในทุกการตัดสินใจ (is-API, rate-limit bucket, REQUIRE_AUTH/NING/STAFF/REPORT). ปิดช่อง `/api/LINE-notify`, `/api/line-notify/` ที่ LIVE build 634 ข้าม auth ได้; decode ครั้งเดียว — path ที่ decode ไม่ได้ → 400 และ API path ที่ยังเหลือ `%` (double-encoding) → 400.
+  - Defense-in-depth: line-notify / ai-assistant / parse-receipt / verify-slip / verify-slipok ตอบ 401 ถ้าไม่มี `context.data.user` ก่อนอ่าน body/env/fetch. เทสต์ใหม่ `tests/api_path_canonical_guard.test.js` (behavioral + positive role/Ning paths + counting rate-limit + endpoint inventory). เทสต์จำลองไม่พิสูจน์ routing ของ Cloudflare. CI/deploy/live probe NOT RUN; STOP `READY-FOR-INDEPENDENT-PHASE-638-REVIEW`.
+
 - Phase 637 fix(documents): ย้ายส่วนลดจากใต้ชื่อสินค้าไปสรุปท้ายบิล QT/DI/RC และฟอร์ม QT (build 634 / v5.69.101 · local only)
   - แสดงยอดก่อนลด/ส่วนลดรายสินค้า/ยอดหลังลด แยกส่วนลดเพิ่มเติมท้ายบิล โดยคงสูตรและยอดบันทึกเดิม ไม่หักซ้ำ. หลายสินค้าไม่อ้างเปอร์เซ็นต์เดียว; ข้อมูลไม่ครบ/ขัดกันงด breakdown โดยไม่เปลี่ยนยอด.
   - เพิ่ม raw completeness flag ก่อน fallback ใน UI loader เท่านั้น ไม่ persist; Preview/พิมพ์/PDF ใช้ footer เดียวกัน. Regression และภาพ/PDF จาก localhost เท่านั้น; CI/deploy/physical mobile NOT RUN. STOP `READY-FOR-INDEPENDENT-PHASE-637-REVIEW`.

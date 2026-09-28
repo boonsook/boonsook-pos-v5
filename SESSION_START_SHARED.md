@@ -1,5 +1,8 @@
 # Boonsook POS V5 - Shared Session Start
 
+> 🟠 **2026-09-28 — Phase 638 api-path-canonical (Functions only · build 634 ไม่ bump · local only):** ปิดช่องข้าม auth `/api/LINE-notify` / `/api/line-notify/` (LIVE probe 200) — middleware ใช้ `canonicalApiPath` (decode/lowercase/ยุบสแลช/ตัดสแลชท้าย) กับทุกการตัดสินใจ auth/rate-limit; decode ครั้งเดียว — decode ไม่ได้ (ทุก path) หรือ API path เหลือ `%` → 400. เทสต์จำลองไม่พิสูจน์ routing ของ Cloudflare (รอ live probe). 5 handler (line-notify, ai-assistant, parse-receipt, verify-slip, verify-slipok) ตอบ 401 ถ้าไม่มี `data.user`. Baseline `05297a7`. ไม่แตะหน้าเว็บ/SQL/RLS/v1/OTP. CI/deploy/live probe NOT RUN. STOP `READY-FOR-INDEPENDENT-PHASE-638-REVIEW`.
+>
+
 > 🟠 **2026-09-28 — Phase 637 (build 634 / v5.69.101 · local only):** owner ให้ย้ายส่วนลดจากใต้ชื่อสินค้าไปสรุปท้ายบิลเท่านั้น ทั้ง QT/DI/RC Preview/พิมพ์/PDF และสรุปฟอร์ม QT. แสดงยอดก่อนลด → ส่วนลดรายสินค้า → ยอดหลังลด แยกจากส่วนลดเพิ่มเติมท้ายบิล; ไม่เปลี่ยนสูตร/save/convert/payment/SQL. Baseline PR #233 merge `4e42905` (สถานะ local ของ 636 ด้านล่างเป็นประวัติ). ตรวจทุกแถวรวม raw completeness ก่อน loader เติม 0/1 และเทียบ subtotal; ไม่ครบ/ขัดกันไม่แสดง breakdown. ผล local gates ในรายงาน commit; CI/deploy/live smoke/มือถือจริง NOT RUN. **ห้ามเก็บเงิน RC20260927001**. STOP `READY-FOR-INDEPENDENT-PHASE-637-REVIEW`.
 >
 

@@ -20,6 +20,14 @@ export async function onRequestPost(context) {
     "Content-Type": "application/json"
   };
 
+  // Phase 638: defense-in-depth — middleware ต้องตั้ง data.user แล้ว (staff JWT). ถ้าไม่มี = หลุด auth
+  //   มาทางใดทางหนึ่ง → ปฏิเสธก่อนอ่าน body/env/probe/fetch ใด ๆ.
+  if (!context.data?.user) {
+    return new Response(JSON.stringify({ ok: false, error: "Unauthorized" }), {
+      status: 401, headers: corsHeaders
+    });
+  }
+
   try {
     const body = await context.request.json().catch(() => ({}));
     const message = String(body.message || "").trim();

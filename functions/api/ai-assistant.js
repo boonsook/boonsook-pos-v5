@@ -241,6 +241,14 @@ export async function onRequestPost(context) {
     "Content-Type": "application/json; charset=utf-8",
   };
 
+  // Phase 638: defense-in-depth — middleware ต้องตั้ง data.user แล้ว (JWT). ไม่มี = ปฏิเสธก่อนแตะ env/body.
+  if (!context.data?.user) {
+    return new Response(
+      JSON.stringify({ ok: false, error: "Unauthorized" }),
+      { status: 401, headers: corsHeaders }
+    );
+  }
+
   try {
     if (!env.AI) {
       return new Response(

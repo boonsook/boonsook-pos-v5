@@ -334,15 +334,53 @@ function verifyNingAgentKey(request, env) {
   return { ok: true };
 }
 
+// ── Canonical API path (Phase 638) ──────────────────────────────────────────
+// Cloudflare Pages route /api/* แบบไม่สนตัวพิมพ์ + ยอมสแลชท้าย/สแลชซ้ำ แต่รายการ endpoint
+// ด้านบนเทียบแบบ string ตรงตัว → "/api/LINE-notify" หรือ "/api/line-notify/" เคยหลุด auth
+// + rate-limit bucket แยก (LIVE build 634 พิสูจน์แล้ว). ทุกการตัดสินใจใน onRequest ต้องใช้
+// path รูปนี้เท่านั้น — ห้ามกลับไปใช้ url.pathname ดิบ.
+//   decodeURIComponent **ครั้งเดียว** (throw → null; ห้าม loop decode) → lowercase → ยุบ "/" ซ้ำ
+//   → ตัด "/" ท้าย (เหลือ "/" ได้). double-encoding เช่น "%252D" จึงเหลือ "%2d" → onRequest ปฏิเสธ 400 (ดู %-residue check).
+export function canonicalApiPath(pathname) {
+  let decoded;
+  try {
+    decoded = decodeURIComponent(String(pathname ?? ""));
+  } catch (_) {
+    return null;
+  }
+  let p = decoded.toLowerCase().replace(/\/{2,}/g, "/");
+  if (p.length > 1 && p.endsWith("/")) p = p.slice(0, -1);
+  return p;
+}
+
 export async function onRequest(context) {
   const { request, env, next } = context;
   const url = new URL(request.url);
   const origin = request.headers.get("Origin") || "";
   const corsHeaders = getCorsHeaders(origin);
+  const apiPath = canonicalApiPath(url.pathname);
 
-  // ── ผ่านเฉพาะ /api/* — request อื่นปล่อยผ่าน ──
-  if (!url.pathname.startsWith("/api/")) {
+  // ── path ที่ decode ไม่ได้ (malformed %) → ปฏิเสธทุก path (Phase 638 D4) ──
+  //    ไม่เดาว่าเป็น API หรือไม่ — static asset ปกติไม่มี % เสียอยู่แล้ว
+  if (apiPath === null) {
+    return new Response(
+      JSON.stringify({ ok: false, error: "Bad request path" }),
+      { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
+
+  // ── ผ่านเฉพาะ /api/* (รูป canonical) — request อื่นปล่อยผ่าน ──
+  if (apiPath !== "/api" && !apiPath.startsWith("/api/")) {
     return await next();
+  }
+
+  // ── API path ที่ยังเหลือ "%" หลัง decode ครั้งเดียว (เช่น double-encoding "%252D") → ปฏิเสธ ──
+  //    ไม่พึ่งว่า Cloudflare จะ route รูปนี้ไป handler ไหน (Phase 638 E2)
+  if (apiPath.includes("%")) {
+    return new Response(
+      JSON.stringify({ ok: false, error: "Bad request path" }),
+      { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
   }
 
   // ── CORS Preflight ──
@@ -352,7 +390,7 @@ export async function onRequest(context) {
 
   // ── Rate Limit ──
   const ip = getClientIp(request);
-  const rl = await checkRateLimit(env, ip, url.pathname);
+  const rl = await checkRateLimit(env, ip, apiPath);
   if (!rl.ok) {
     return new Response(
       JSON.stringify({
@@ -373,8 +411,8 @@ export async function onRequest(context) {
   }
 
   // ── Auth check (เฉพาะ endpoint ที่ระบุ) ──
-  if (REQUIRE_AUTH_ENDPOINTS.includes(url.pathname)) {
-    if (NING_AGENT_ENDPOINTS.includes(url.pathname)) {
+  if (REQUIRE_AUTH_ENDPOINTS.includes(apiPath)) {
+    if (NING_AGENT_ENDPOINTS.includes(apiPath)) {
       const agentAuth = verifyNingAgentKey(request, env);
       if (agentAuth.ok) {
         context.data = context.data || {};
@@ -406,7 +444,7 @@ export async function onRequest(context) {
     }
     // Pass user info ผ่าน data context
     let role = null;
-    if (STAFF_ONLY_ENDPOINTS.includes(url.pathname) || REPORT_ONLY_ENDPOINTS.includes(url.pathname)) {
+    if (STAFF_ONLY_ENDPOINTS.includes(apiPath) || REPORT_ONLY_ENDPOINTS.includes(apiPath)) {
       const roleResult = await fetchUserRole(auth.userId, authHeader, env);
       if (!roleResult.ok) {
         return new Response(
@@ -415,13 +453,13 @@ export async function onRequest(context) {
         );
       }
       role = roleResult.role;
-      if (STAFF_ONLY_ENDPOINTS.includes(url.pathname) && !STAFF_ROLES.has(role)) {
+      if (STAFF_ONLY_ENDPOINTS.includes(apiPath) && !STAFF_ROLES.has(role)) {
         return new Response(
           JSON.stringify({ ok: false, error: "Forbidden: staff role required" }),
           { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-      if (REPORT_ONLY_ENDPOINTS.includes(url.pathname) && !REPORT_ROLES.has(role)) {
+      if (REPORT_ONLY_ENDPOINTS.includes(apiPath) && !REPORT_ROLES.has(role)) {
         return new Response(
           JSON.stringify({ ok: false, error: "Forbidden: report role required" }),
           { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
