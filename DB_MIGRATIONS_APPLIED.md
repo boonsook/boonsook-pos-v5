@@ -34,6 +34,14 @@
 
 ---
 
+## ✅ Applied — 2026-09-27
+
+| SQL file | ทำอะไร | applied | verified อย่างไร |
+|---|---|---|---|
+| `supabase-phase633-doc-number-helper-lockdown.sql` | Phase 633: helper + trigger functions รวม 4 ตัว SECURITY DEFINER, empty search_path, ถอน EXECUTE จาก PUBLIC/anon/authenticated/service_role; body ไม่เปลี่ยน. Source PR #229 merge `df12979f6a89127bf1d0140b69f8ac4f979bd572`; migration SHA-256 `c9a6f061dc97721c3fa73732b3fa260fe7c2e5f7467b9c0594f77a6c417039e2`; runbook SHA-256 `8a0534fbe17eaa3f912e2563d5b0e72878f8905ec3275a08cc9c349265c95015` | **2026-09-27 · Codex-operated, owner-authorized** บน `boonsook-pos / main PRODUCTION` ref `rwmmjljelpcpwohwiplu`, Web SQL Editor, PostgreSQL 17.6 / postgres. Fresh preflight 2 รอบตรงกัน; ส่งทั้งไฟล์ครั้งเดียว ไม่มี retry. Client clock `13:16:16.444Z`–`13:16:36.958Z`; DB after-check `13:18:20.864958Z` เป็นขอบเวลาหลัง A/B/C ไม่ใช่ timestamp ของ A/B/C หรือ COMMIT. ข้อความ editor ตรงหลัง CRLF→LF normalization; ไม่มี backend trace พิสูจน์ transaction เดียว | **Catalog PASS (POST-CHECK A/B) · probe result not evidenced**: A 4 แถว owner postgres, DEFINER, empty search_path, body MD5 ตรง, ACL `{postgres=X/postgres}`, app-role EXECUTE false; B 3 triggers เดิม enabled O / tgtype 7; C 2 role prerequisites true ไม่ใช่ probe execution evidence. ผลดิบเป็นข้อความที่ Codex คัดลอกจาก UI ไม่ใช่ owner-measured / reviewer-measured DB results. **UI smoke QT→DI→RC ยอด 0 บาท PASS แบบมีขอบเขต** หลังอนุมัติแยก: ออกเลข/แปลง/อ่านกลับหลัง reload ผ่าน; test `QT20260927001` → `INV20260927001` → `RC20260927001` ยังอยู่ใน production/KPI, RC pending **ห้ามเก็บเงิน**. ไม่มี DB footprint audit / paid-accounting / concurrency PASS. ดู raw A/B/C, evidence hashes, F1 confirmed/F2 unresolved และข้อจำกัดใน [PHASE-633-PRODUCTION-SQL-CLOSEOUT.md](PHASE-633-PRODUCTION-SQL-CLOSEOUT.md). ประวัติ Phase 632 ด้านล่างคงเดิม แต่ residual numbering catalog check ถูก superseded ด้วยรายการนี้ ไม่รวม two-client smoke |
+
+---
+
 ## ✅ Applied — 2026-09-25
 
 | SQL file | ทำอะไร | applied | verified อย่างไร |

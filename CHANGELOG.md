@@ -5,6 +5,10 @@
 
 รูปแบบ: `<commit> feat|fix|docs|refactor: <สรุปสั้น>` + bullet 1-2 ข้อถ้าจำเป็น
 
+- Phase 633 Production SQL + UI Smoke Closeout docs(db): **catalog PASS · probe result not evidenced · UI smoke QT→DI→RC ยอด 0 บาท PASS แบบมีขอบเขต** (docs only · build 630 / v5.69.97 ไม่ bump)
+  - Migration `c9a6f061dc97721c3fa73732b3fa260fe7c2e5f7467b9c0594f77a6c417039e2` จาก PR #229 merge `df12979` applied 2026-09-27: Codex-operated, owner-authorized; A/B ยืนยัน 4 functions + 3 triggers, C เป็น prerequisite ไม่ใช่ probe evidence. Ledger และ [closeout](PHASE-633-PRODUCTION-SQL-CLOSEOUT.md) บันทึกเวลา/provenance/ข้อจำกัดครบ.
+  - Test documents `QT20260927001` → `INV20260927001` → `RC20260927001` ยังอยู่ใน production และนับใน KPI; RC pending ยอด 0 **ห้ามเก็บเงิน**. ไม่มี DB footprint audit / paid-accounting / concurrency PASS. F1 confirmed และ F2 unresolved ส่งต่อแยก ไม่ได้แก้. Residual ตรวจ numbering ของ Phase 632 ด้านล่างเป็นประวัติที่ superseded เฉพาะข้อนั้น; two-client smoke ยังค้าง. STOP `READY-FOR-INDEPENDENT-PHASE-633-DOCS-CLOSEOUT-REVIEW`.
+
 - Phase 632 Production SQL Closeout docs(db): **unique index 1 active receipt ต่อ delivery invoice applied บน production** (docs only · build 630 / v5.69.97 ไม่ bump)
   - `supabase-phase632-receipt-active-unique.sql` (SHA-256 `bd7fd12d…d7de` · merge `fef61f9`) บน `boonsook-pos / main PRODUCTION` · **Catalog PASS (POST-CHECK A/B), Codex-operated, owner-authorized**: A = 1 แถว unique/valid/ready/live/immediate, btree `(delivery_invoice_id)` + exact predicate; B = 0 แถว. ไม่พิสูจน์ byte-for-byte; transaction เดียวเป็นหลักฐานทางอ้อม. Ledger `DB_MIGRATIONS_APPLIED.md` + `PHASE-632-PRODUCTION-SQL-CLOSEOUT.md`.
   - authenticated two-client smoke + production numbering function check NOT RUN. STOP `READY-FOR-INDEPENDENT-PHASE-632-DOCS-CLOSEOUT-REVIEW`.
