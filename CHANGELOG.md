@@ -5,6 +5,10 @@
 
 รูปแบบ: `<commit> feat|fix|docs|refactor: <สรุปสั้น>` + bullet 1-2 ข้อถ้าจำเป็น
 
+- Phase 634 fix(quotations): preview QT ใหม่ก่อนบันทึกโดยไม่ทิ้ง draft (build 631 / v5.69.98 · local only)
+  - แยก draft preview ออกจากเอกสารที่บันทึกแล้ว; กลับมาแก้ต่อได้โดยไม่มี auto-save/จองเลข/แปลงเอกสาร. F1 เท่านั้น ไม่พ่วง F2, SQL, payment/JV หรือ stock.
+  - Local synthetic fixtures: F1 browser 22/22, baseline RED และ 3 mutants ถูกจับ; lint 0, unit 3604/3604, E2E 205/205 (ไม่ retry). ไม่ต่อ staging/production; CI/deploy/live smoke NOT RUN. STOP `READY-FOR-INDEPENDENT-PHASE-634-REVIEW`.
+
 - Phase 633 Production SQL + UI Smoke Closeout docs(db): **catalog PASS · probe result not evidenced · UI smoke QT→DI→RC ยอด 0 บาท PASS แบบมีขอบเขต** (docs only · build 630 / v5.69.97 ไม่ bump)
   - Migration `c9a6f061dc97721c3fa73732b3fa260fe7c2e5f7467b9c0594f77a6c417039e2` จาก PR #229 merge `df12979` applied 2026-09-27: Codex-operated, owner-authorized; A/B ยืนยัน 4 functions + 3 triggers, C เป็น prerequisite ไม่ใช่ probe evidence. Ledger และ [closeout](PHASE-633-PRODUCTION-SQL-CLOSEOUT.md) บันทึกเวลา/provenance/ข้อจำกัดครบ.
   - Test documents `QT20260927001` → `INV20260927001` → `RC20260927001` ยังอยู่ใน production และนับใน KPI; RC pending ยอด 0 **ห้ามเก็บเงิน**. ไม่มี DB footprint audit / paid-accounting / concurrency PASS. F1 confirmed และ F2 unresolved ส่งต่อแยก ไม่ได้แก้. Residual ตรวจ numbering ของ Phase 632 ด้านล่างเป็นประวัติที่ superseded เฉพาะข้อนั้น; two-client smoke ยังค้าง. STOP `READY-FOR-INDEPENDENT-PHASE-633-DOCS-CLOSEOUT-REVIEW`.
