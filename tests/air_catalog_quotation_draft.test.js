@@ -92,7 +92,7 @@ test("quotations page consumes the air draft into a fresh form (no auto-saved do
   assert.match(block, /consumeAirQuoteDrafts\(\)/);
   assert.match(block, /_viewMode = "form"/);
   assert.match(block, /_lineItems = _airDrafts\.map\(airDraftToLineItem\)/);
-  assert.ok(!/saveQuotationFull|xhrPost|_appXhr/.test(block), "consuming a draft must NOT auto-save a quotation");
+  assert.ok(!/saveQuotation(?:Full|FromForm)|xhrPost|_appXhr/.test(block), "consuming a draft must NOT auto-save a quotation");
 });
 
 test("air draft maps to a custom (product_id:null) line item — not a real product/stock link", () => {
@@ -112,6 +112,9 @@ test("a clear notice tells the user the draft is NOT yet saved", () => {
 // ── existing quotation flow still intact ─────────────────────────────────────
 test("existing quotation save flow is untouched (manual save button still wired)", () => {
   assert.match(quotations, /id="qtSaveBtn"/);
-  assert.match(quotations, /getElementById\("qtSaveBtn"\)\?\.addEventListener\("click",\s*saveQuotationFull\)/);
+  assert.match(quotations, /getElementById\("qtSaveBtn"\)\?\.addEventListener\("click",\s*\(\)\s*=>\s*saveQuotationFromForm\(container\)\)/);
+  const saveWrapper = quotations.match(/^async function saveQuotationFromForm\(container\) \{[\s\S]*?^\}/m)?.[0];
+  assert.ok(saveWrapper, "manual Save wrapper must exist");
+  assert.match(saveWrapper, /^\s*return await saveQuotationFull\(\);\s*$/m, "manual Save wrapper must await the existing save delegate");
   assert.match(quotations, /async function saveQuotationFull|function saveQuotationFull/);
 });

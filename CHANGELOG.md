@@ -5,6 +5,10 @@
 
 รูปแบบ: `<commit> feat|fix|docs|refactor: <สรุปสั้น>` + bullet 1-2 ข้อถ้าจำเป็น
 
+- Phase 635 fix(quotations): พิมพ์ส่วนลดหลายหลักและ Tab แถว QT โดยไม่เสีย focus (build 632 / v5.69.99 · local only)
+  - อัปเดต state/ยอดเฉพาะจุดแทน rerender ทุก keystroke/change; รักษา input node และค่าที่กำลังพิมพ์ รวม WHT/heading และแก้ต่อหลัง draft preview. ไม่เปลี่ยนสูตรเงินหรือ save/convert body.
+  - Regression ใช้ real module กับ synthetic localhost fixtures; ผล gate อยู่ใน final report ของ local commit. CI/deploy/authenticated Phase 635 smoke NOT RUN. ไม่แตะ SQL/data/payment/stock; STOP `READY-FOR-INDEPENDENT-PHASE-635-REVIEW`.
+
 - Phase 634 fix(quotations): preview QT ใหม่ก่อนบันทึกโดยไม่ทิ้ง draft (build 631 / v5.69.98 · local only)
   - แยก draft preview ออกจากเอกสารที่บันทึกแล้ว; กลับมาแก้ต่อได้โดยไม่มี auto-save/จองเลข/แปลงเอกสาร. F1 เท่านั้น ไม่พ่วง F2, SQL, payment/JV หรือ stock.
   - Local synthetic fixtures: F1 browser 22/22, baseline RED และ 3 mutants ถูกจับ; lint 0, unit 3604/3604, E2E 205/205 (ไม่ retry). ไม่ต่อ staging/production; CI/deploy/live smoke NOT RUN. STOP `READY-FOR-INDEPENDENT-PHASE-634-REVIEW`.

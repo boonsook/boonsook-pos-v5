@@ -76,6 +76,7 @@ let _viewMode = "list";    // list | form | preview
 let _tabFilter = "all";    // all | pending | approved | invoiced | receipted | cancelled
 let _selectedIds = new Set();
 let _qtSaveInflight = false;   // Phase 356: กันกดปุ่ม "บันทึก" รัว/ดับเบิลคลิก → สร้างเอกสารซ้ำ
+let _qtFormSaveLock = null; // Phase 635: lock the form until the entire explicit Save settles
 let _qtConvertInflight = false; // Phase 412: กัน trigger convert→ใบส่งสินค้า ซ้ำระหว่างใบแรกกำลังสร้าง (ทุกทางเข้า)
 let _lineItemsLoadFailed = false; // Phase 576: โหลด quotation_items ใบเดิมล้ม → ห้ามบันทึกทับ (edit path DELETE ทั้งใบก่อน insert — ฟอร์มที่เปิดมาว่างเพราะโหลดพัง = รายการเดิมหายถาวร)
 let _airDraftNotice = 0;   // Phase 346: จำนวนรายการร่างจากแคตตาล็อกแอร์/งานแอร์ที่เพิ่งเติม (โชว์ notice)
@@ -153,6 +154,9 @@ export function renderQuotationsPage(ctx) {
   _ctx = ctx;
   const container = document.getElementById("page-quotations");
   if (!container) return;
+  // Do not replace the live form/model during a pending Save (including route
+  // re-entry). Save's successful list render is still allowed.
+  if (_qtFormSaveLock && _viewMode === "form") return;
 
   // ★ Phase 346: ถ้ามีรายการร่างจากแคตตาล็อกแอร์ → consume (อ่านครั้งเดียวแล้วลบ) + เปิดฟอร์มร่าง
   //   ไม่บันทึกเอกสารจริง — แค่ prefill ฟอร์มให้ user ตรวจแล้วกดบันทึกเอง.
@@ -774,16 +778,105 @@ function renderQuotationForm(container) {
 // ═══════════════════════════════════════════════════════════
 //  BIND FORM EVENTS
 // ═══════════════════════════════════════════════════════════
+// Phase 635: refresh only derived text; never replace inputs or their selection.
+function updateQuotationFormTotals(container) {
+  const subtotal = sumDocumentLineTotals(_lineItems);
+  const discPct = Number(container.querySelector("#qt_discPct")?.value ?? 0);
+  const discAmount = subtotal * (discPct / 100);
+  const afterDisc = subtotal - discAmount;
+  const whtChecked = container.querySelector("#qt_wht")?.checked ?? false;
+  const whtPct = Number(container.querySelector("#qt_whtPct")?.value ?? 3);
+  const whtAmount = whtChecked ? afterDisc * (whtPct / 100) : 0;
+  const grandTotal = afterDisc - whtAmount;
+  const setTotal = (selector, text) => {
+    const el = container.querySelector(selector);
+    if (el) el.textContent = text;
+  };
+  _lineItems.forEach((item, idx) => {
+    if (!isHeadingItem(item)) setTotal(`.qt-li-total[data-idx="${idx}"]`, num(item.line_total));
+  });
+  setTotal("#qtSubtotal", num(subtotal));
+  setTotal("#qtDiscountAmount", "-" + num(discAmount));
+  setTotal("#qtAfterDiscount", num(afterDisc));
+  setTotal("#qtWhtAmount", "-" + num(whtAmount));
+  setTotal("#qtGrandTotal", money(grandTotal));
+}
+
+// End-of-edit boundary only. In the old form, render converted an empty
+// percentage to 0 before Save/Preview could read it (not their empty fallback 3).
+function commitQuotationPercentInputs(container) {
+  ["qt_discPct", "qt_whtPct"].forEach(id => {
+    const inp = container.querySelector("#" + id);
+    if (!inp) return;
+    const next = String(Number(inp.value));
+    if (inp.value !== next) inp.value = next;
+  });
+  updateQuotationFormTotals(container);
+}
+
+// Native disabled blocks editing/structural controls; capture and target guards
+// cover custom result DIVs and dispatched events. Keep draft Preview available
+// for Phase 634's existing inflight toast. Do not change prior inert state.
+function blockQuotationFormEdit(container) {
+  if (!_qtFormSaveLock && !_qtSaveInflight) return false;
+  if (_qtFormSaveLock?.container === container) {
+    for (const state of _qtFormSaveLock.controls) {
+      if (!container.contains(state.el)) continue;
+      if (state.el.value !== state.value) state.el.value = state.value;
+      if (state.el.checked !== state.checked) state.el.checked = state.checked;
+    }
+  }
+  _ctx.showToast("กำลังบันทึก... กรุณารอ");
+  return true;
+}
+
+async function saveQuotationFromForm(container) {
+  if (blockQuotationFormEdit(container)) return;
+  commitQuotationPercentInputs(container);
+  const lock = {
+    container,
+    controls: Array.from(container.querySelectorAll("input,select,textarea,button"), el => ({
+      el, disabled: el.disabled, value: el.value, checked: el.checked
+    }))
+  };
+  const events = ["beforeinput", "input", "change", "click", "keydown", "pointerdown"];
+  const blockEvent = ev => {
+    if (!_editingId && ev.target.closest?.("#qtPreviewBtn")) return;
+    if (!blockQuotationFormEdit(container)) return;
+    ev.preventDefault();
+    ev.stopImmediatePropagation();
+  };
+  _qtFormSaveLock = lock;
+  try {
+    events.forEach(type => container.addEventListener(type, blockEvent, true));
+    lock.controls.forEach(({ el }) => {
+      if (!_editingId && el.id === "qtPreviewBtn") return;
+      el.disabled = true;
+    });
+    return await saveQuotationFull();
+  } finally {
+    events.forEach(type => container.removeEventListener(type, blockEvent, true));
+    // Restore only the original controls still in this container. A successful
+    // Save replaces them with the list; never modify the new page's controls.
+    lock.controls.forEach(({ el, disabled }) => {
+      if (container.contains(el)) el.disabled = disabled;
+    });
+    _qtFormSaveLock = null;
+  }
+}
+
 function bindFormEvents(container, customers, products) {
   document.getElementById("qtBackBtn")?.addEventListener("click", () => {
+    if (blockQuotationFormEdit(container)) return;
     _viewMode = "list"; renderQuotationsPage(_ctx);
   });
   // ★ Phase 354: กลับไปดูงานต้นทาง (air_job) — navigation เท่านั้น ไม่เปลี่ยนสถานะงาน
   document.getElementById("qtBackToJob")?.addEventListener("click", () => {
+    if (blockQuotationFormEdit(container)) return;
     if (typeof _ctx?.showRoute === "function") _ctx.showRoute("service_jobs");
     else window.location.hash = "service_jobs";
   });
-  document.getElementById("qtSaveBtn")?.addEventListener("click", saveQuotationFull);
+  document.getElementById("qtSaveBtn")?.addEventListener("click", () => saveQuotationFromForm(container));
   // Draft preview snapshots current inputs on click. Prevent pointer focus/blur
   // from letting a dirty row's change handler re-render away that click target.
   // Saved forms keep their existing focus/change behavior.
@@ -792,32 +885,38 @@ function bindFormEvents(container, customers, products) {
   });
   document.getElementById("qtPreviewBtn")?.addEventListener("click", () => {
     if (!_editingId) { openDraftPreview(container); return; }
+    if (blockQuotationFormEdit(container)) return;
     _viewMode = "preview"; renderQuotationsPage(_ctx);
   });
 
   // ดูเอกสาร (preview saved version)
   document.getElementById("qtViewDocBtn")?.addEventListener("click", () => {
+    if (blockQuotationFormEdit(container)) return;
     const q = _ctx.state.quotations.find(x => x.id === _editingId);
     if (q) openPreview(q);
   });
 
   // ออกใบส่งสินค้าจากฟอร์ม
   document.getElementById("qtConvertFromForm")?.addEventListener("click", () => {
+    if (blockQuotationFormEdit(container)) return;
     const q = _ctx.state.quotations.find(x => x.id === _editingId);
     if (q) convertToDeliveryInvoice(q);
   });
 
   // Add item toggle
   document.getElementById("qtAddItemBtn")?.addEventListener("click", () => {
+    if (blockQuotationFormEdit(container)) return;
     document.getElementById("qtProductSearchBox")?.classList.remove("hidden");
     document.getElementById("qt_productSearch")?.focus();
   });
   document.getElementById("qtCancelAddItem")?.addEventListener("click", () => {
+    if (blockQuotationFormEdit(container)) return;
     document.getElementById("qtProductSearchBox")?.classList.add("hidden");
   });
 
   // Custom item
   document.getElementById("qtAddCustomItem")?.addEventListener("click", () => {
+    if (blockQuotationFormEdit(container)) return;
     _lineItems.push(normalizeDocumentItem({ product_id: null, item_name: "รายการใหม่", qty: 1, unit: "ชิ้น", unit_price: 0, discount_pct: 0, line_total: 0 }));
     document.getElementById("qtProductSearchBox")?.classList.add("hidden");
     renderQuotationForm(container);
@@ -825,6 +924,7 @@ function bindFormEvents(container, customers, products) {
 
   // ★ Phase 628B: เพิ่มหัวข้อ — แถวข้อความล้วน ไม่นับยอด (normalizer บังคับ product_id=null + qty/ราคา/ส่วนลด/ยอด = 0)
   document.getElementById("qtAddHeadingBtn")?.addEventListener("click", () => {
+    if (blockQuotationFormEdit(container)) return;
     _lineItems.push(normalizeDocumentItem({ item_name: "หัวข้อใหม่", item_type: "heading" }));
     document.getElementById("qtProductSearchBox")?.classList.add("hidden");
     renderQuotationForm(container);
@@ -835,6 +935,7 @@ function bindFormEvents(container, customers, products) {
   const dropdown    = document.getElementById("qt_productDropdown");
   if (searchInput) {
     searchInput.addEventListener("input", () => {
+      if (blockQuotationFormEdit(container)) return;
       const q = searchInput.value.trim().toLowerCase();
       if (q.length < 1) { dropdown?.classList.add("hidden"); return; }
       const matches = products.filter(p =>
@@ -853,6 +954,7 @@ function bindFormEvents(container, customers, products) {
       dropdown?.classList.remove("hidden");
       dropdown.querySelectorAll(".qt-dd-item[data-pid]").forEach(el => {
         el.addEventListener("click", () => {
+          if (blockQuotationFormEdit(container)) return;
           const p = products.find(x => x.id === Number(el.dataset.pid));
           if (p) {
             _lineItems.push(normalizeDocumentItem({ product_id: p.id, item_name: p.name, qty: 1, unit: "ชิ้น", unit_price: Number(p.price||0), discount_pct: 0, line_total: Number(p.price||0) }));
@@ -870,6 +972,7 @@ function bindFormEvents(container, customers, products) {
   const custDD     = document.getElementById("qt_customerDropdown");
   if (custSearch) {
     custSearch.addEventListener("input", () => {
+      if (blockQuotationFormEdit(container)) return;
       const q = custSearch.value.trim().toLowerCase();
       if (q.length < 1) { custDD?.classList.add("hidden"); return; }
       const matches = customers.filter(c =>
@@ -885,6 +988,7 @@ function bindFormEvents(container, customers, products) {
       custDD?.classList.remove("hidden");
       custDD.querySelectorAll(".qt-dd-item[data-cid]").forEach(el => {
         el.addEventListener("click", () => {
+          if (blockQuotationFormEdit(container)) return;
           const c = customers.find(x => x.id === Number(el.dataset.cid));
           if (c) {
             custSearch.value = c.name;
@@ -904,31 +1008,69 @@ function bindFormEvents(container, customers, products) {
     });
   }
 
-  // Line item inline editing
+  // Phase 635: input keeps the model current for immediate Save/Preview; change
+  // commits the old field fallbacks without removing the next Tab target.
   container.querySelectorAll(".qt-li-name,.qt-li-qty,.qt-li-price,.qt-li-disc,.qt-li-unit").forEach(inp => {
-    inp.addEventListener("change", () => {
+    // A scalar fallback for an emptied name, not a captured item object.
+    // Re-read on focus: draft preview/back can replace _lineItems entirely.
+    let nameAtFocus;
+    inp.addEventListener("focus", () => {
+      nameAtFocus = _lineItems[Number(inp.dataset.idx)]?.item_name;
+    });
+    const syncItem = (commit) => {
+      // Preview already owns the snapshot; detach-triggered change must retain raw inputs.
+      if (_draftPreview) return;
+      if (blockQuotationFormEdit(container)) return;
       const idx = Number(inp.dataset.idx);
-      const item = _lineItems[idx]; if (!item || isHeadingItem(item)) return;   // Phase 628B: หัวข้อมี handler ของตัวเอง
+      const item = _lineItems[idx]; if (!item || isHeadingItem(item)) return;
       const row = inp.closest("tr");
-      item.item_name    = row.querySelector(".qt-li-name")?.value || item.item_name;
+      if (!row) return;
+      if (nameAtFocus === undefined) nameAtFocus = item.item_name;
+      item.item_name    = row.querySelector(".qt-li-name")?.value || nameAtFocus;
       item.qty          = Number(row.querySelector(".qt-li-qty")?.value || 1);
       item.unit_price   = Number(row.querySelector(".qt-li-price")?.value || 0);
       item.discount_pct = Number(row.querySelector(".qt-li-disc")?.value || 0);
       item.unit         = row.querySelector(".qt-li-unit")?.value || "ชิ้น";
-      // Phase 89.4: round2 กัน float drift (0.1+0.2 = 0.30000000000000004)
       item.line_total   = round2(item.qty * item.unit_price * (1 - item.discount_pct / 100));
-      renderQuotationForm(container);
-    });
+      if (commit) {
+        // Normalize only the committed input, not any active/in-progress sibling.
+        const fields = [["qt-li-name", "item_name"], ["qt-li-qty", "qty"],
+          ["qt-li-price", "unit_price"], ["qt-li-disc", "discount_pct"], ["qt-li-unit", "unit"]];
+        const field = fields.find(([cls]) => inp.classList.contains(cls));
+        if (field) {
+          const next = String(item[field[1]] ?? "");
+          if (inp.value !== next) inp.value = next;
+        }
+        nameAtFocus = undefined;
+      }
+      updateQuotationFormTotals(container);
+    };
+    inp.addEventListener("input", () => syncItem(false));
+    inp.addEventListener("change", () => syncItem(true));
   });
 
-  // ★ Phase 628B: แก้ชื่อหัวข้อ — handler แยก (ไม่ผ่าน handler สินค้าที่ตั้ง qty 1 / หน่วย ชิ้น / คำนวณยอด)
+  // Heading names use the same focus-preserving commit, never item math.
   container.querySelectorAll(".qt-li-heading-name").forEach(inp => {
-    inp.addEventListener("change", () => {
+    let nameAtFocus;
+    inp.addEventListener("focus", () => {
+      nameAtFocus = _lineItems[Number(inp.dataset.idx)]?.item_name;
+    });
+    const syncHeading = (commit) => {
+      // Keep retained heading text untouched while the draft snapshot is displayed.
+      if (_draftPreview) return;
+      if (blockQuotationFormEdit(container)) return;
       const item = _lineItems[Number(inp.dataset.idx)];
       if (!item || !isHeadingItem(item)) return;
-      item.item_name = inp.value || item.item_name;
-      renderQuotationForm(container);
-    });
+      if (nameAtFocus === undefined) nameAtFocus = item.item_name;
+      item.item_name = inp.value || nameAtFocus;
+      if (commit) {
+        const next = String(item.item_name ?? "");
+        if (inp.value !== next) inp.value = next;
+        nameAtFocus = undefined;
+      }
+    };
+    inp.addEventListener("input", () => syncHeading(false));
+    inp.addEventListener("change", () => syncHeading(true));
   });
 
   // ★ Phase 628B: เลื่อนแถวขึ้น/ลง (ทั้งสินค้าและหัวข้อ) — สลับตำแหน่งใน _lineItems เท่านั้น ค่าในแถวไม่ถูกแตะ
@@ -938,6 +1080,7 @@ function bindFormEvents(container, customers, products) {
   if (upBtns.length) upBtns[0].disabled = true;
   if (downBtns.length) downBtns[downBtns.length - 1].disabled = true;
   container.querySelectorAll(".qt-li-up,.qt-li-down").forEach(btn => btn.addEventListener("click", () => {
+    if (blockQuotationFormEdit(container)) return;
     const from = Number(btn.dataset.idx);
     const to = btn.classList.contains("qt-li-up") ? from - 1 : from + 1;
     if (!Number.isInteger(from) || !_lineItems[from] || !_lineItems[to]) return;
@@ -949,14 +1092,33 @@ function bindFormEvents(container, customers, products) {
 
   // Delete line item
   container.querySelectorAll(".qt-li-del").forEach(btn => btn.addEventListener("click", () => {
+    if (blockQuotationFormEdit(container)) return;
     _lineItems.splice(Number(btn.dataset.idx), 1);
     renderQuotationForm(container);
   }));
 
-  // Discount / WHT recalc
-  document.getElementById("qt_discPct")?.addEventListener("input", () => renderQuotationForm(container));
-  document.getElementById("qt_wht")?.addEventListener("change", () => renderQuotationForm(container));
-  document.getElementById("qt_whtPct")?.addEventListener("input", () => renderQuotationForm(container));
+  // Phase 635: keep raw numeric text/caret while typing. The former render used
+  // Number(value) for these fields; defer that normalization until commit.
+  ["qt_discPct", "qt_whtPct"].forEach(id => {
+    const inp = document.getElementById(id);
+    inp?.addEventListener("input", () => {
+      if (blockQuotationFormEdit(container)) return;
+      updateQuotationFormTotals(container);
+    });
+    inp?.addEventListener("change", () => {
+      if (blockQuotationFormEdit(container)) return;
+      const next = String(Number(inp.value));
+      if (inp.value !== next) inp.value = next;
+      updateQuotationFormTotals(container);
+    });
+  });
+  document.getElementById("qt_wht")?.addEventListener("change", () => {
+    if (blockQuotationFormEdit(container)) return;
+    const checked = document.getElementById("qt_wht")?.checked || false;
+    const pct = document.getElementById("qt_whtPct");
+    if (pct) pct.disabled = !checked;
+    updateQuotationFormTotals(container);
+  });
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1156,8 +1318,9 @@ function restoreDraftForm(container) {
 function openDraftPreview(container) {
   if (_editingId || _draftPreview) return;
   // Keep the save button mounted so save's finally can re-enable it on failure.
-  if (_qtSaveInflight) return _ctx.showToast("กำลังบันทึก... กรุณารอให้บันทึกเสร็จก่อนดูตัวอย่าง");
+  if (_qtSaveInflight || _qtFormSaveLock) return _ctx.showToast("กำลังบันทึก... กรุณารอให้บันทึกเสร็จก่อนดูตัวอย่าง");
   try {
+    commitQuotationPercentInputs(container);
     const value = id => document.getElementById(id)?.value ?? "";
     // Read current row controls without rewriting F2 handlers. The snapshot
     // also restores item state because detaching a focused input can skip change.
