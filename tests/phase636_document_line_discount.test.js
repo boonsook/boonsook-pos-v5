@@ -37,6 +37,20 @@ test('636: no markup for heading, zero, missing, invalid or negative data', () =
   assert.equal(renderDocumentLineDiscount({ ...item, discount_pct: '10', qty: '1', unit_price: '45500', line_total: '40950' }), annotation);
 });
 
+test('636 S1: contradictory percentage/net makes no claim; one-satang tolerance is inclusive', () => {
+  const inconsistent = Object.freeze({ ...item, line_total: 20000 });
+  assert.equal(renderDocumentLineDiscount(inconsistent), '');
+  assert.equal(inconsistent.line_total, 20000, 'must not repair stored data');
+  for (const net of [40949.98, 40950.02, 40949.9899, 40950.0101]) {
+    assert.equal(renderDocumentLineDiscount({ ...item, line_total: net }), '', String(net));
+  }
+  for (const net of [40949.99, 40950, 40950.01]) {
+    assert.match(renderDocumentLineDiscount({ ...item, line_total: net }), /ส่วนลด 10%/, String(net));
+  }
+  assert.equal(renderDocumentLineDiscount({ ...item, discount_pct: 100, line_total: 20000 }), '');
+  assert.equal(renderDocumentLineDiscount({ ...item, qty: 1e308, unit_price: 1e308 }), '');
+});
+
 for (const site of SITES.filter(site => site.context === 'text')) {
   test(`636: ${site.id} adds ONLY escaped-name annotation; stored totals/cells unchanged`, () => {
     const run = src => vm.runInNewContext(`${extractNumHelper(src)}\n(${extractRowCallback(src, site)})`, { escHtml, renderDocumentLineDiscount });

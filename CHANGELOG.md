@@ -6,6 +6,7 @@
 รูปแบบ: `<commit> feat|fix|docs|refactor: <สรุปสั้น>` + bullet 1-2 ข้อถ้าจำเป็น
 
 - Phase 636 fix(documents): แสดง `ส่วนลด 10% (4,550.00 บาท)` ใต้รายการใน Preview/พิมพ์/PDF ของ QT/DI/RC (build 633 / v5.69.100 · local only)
+  - S1 correction หลัง review `793c1c7`: ซ่อนคำอธิบายเมื่อ % กับยอดสุทธิไม่สอดคล้องเกิน 1 สตางค์ พร้อม regression ของ counterexample และขอบ tolerance; ไม่เปลี่ยนข้อมูลหรือสูตรเงิน. Nit แยกไว้ รอ delta review.
   - Helper และ CSS ร่วมกัน อธิบายส่วนลดจากยอดแถวเดิม ไม่เปลี่ยนสูตร/save/convert ไม่หักซ้ำ และไม่แตะข้อมูลจริง. ส่วนลดท้ายบิลคงเดิม.
   - Synthetic browser regression ครอบสามเอกสาร/สามขนาดจอ/print/PDF/draft; baseline RED ทั้งสามชนิด. CI/deploy/physical mobile NOT RUN; STOP `READY-FOR-INDEPENDENT-PHASE-636-REVIEW`.
 

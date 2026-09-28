@@ -58,6 +58,11 @@ export function renderDocumentLineDiscount(row) {
   const [pct, qty, price, net] = fields.map(Number);
   if (![pct, qty, price, net].every(Number.isFinite) || pct <= 0 || pct > 100 || qty <= 0 || price < 0 || net < 0) return "";
   const gross = qty * price;
+  // S1: validate the label against the existing QT round2 rule, not a new net.
+  // One satang is allowed; EPSILON only absorbs binary noise at that boundary.
+  const expectedNet = Math.round(gross * (1 - pct / 100) * 100) / 100;
+  const tolerance = 0.01 + Number.EPSILON * Math.max(1, Math.abs(expectedNet), net);
+  if (!Number.isFinite(expectedNet) || Math.abs(expectedNet - net) > tolerance) return "";
   const amount = Math.round((gross - net) * 100) / 100;
   if (!Number.isFinite(amount) || amount <= 0 || net > gross) return "";
   const money = new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);

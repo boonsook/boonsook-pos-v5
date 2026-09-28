@@ -1,6 +1,7 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
 **Phase 636 — ส่วนลดรายรายการในเอกสาร QT/DI/RC (2026-09-28 · build 633 / v5.69.100 · local only)**
+- S1 correction ต่อจาก `793c1c7`: ไม่แสดง annotation ถ้า round2(gross × (1 − pct/100)) ต่างจาก net เกิน 0.01 บาท (เผื่อเฉพาะ binary floating noise ที่ขอบ). ไม่ซ่อม net หรือเปลี่ยนสูตรบันทึก. Regression ยืนยันเดิม 10%/net 20,000 แสดงข้อความผิดจริง; เพิ่ม unit ขอบ ±1 สตางค์และ browser QT/DI/RC Preview/พิมพ์/PDF. Nit รูปแบบ % / formatter ยังไม่พ่วง; build เดิมเพราะยังไม่เผยแพร่. รอ delta review ไม่ push.
 - Baseline `ef9378afc68df8505ccbab1c9e6446690bbd9245` (PR #232 merged; Phase 635 build 632). สถานะ local/NOT RUN ของ Phase 635 ด้านล่างเป็นประวัติก่อน merge.
 - Owner พบจากภาพมือถือ QT20260928001: ราคาต่อหน่วย 45,500.00 ยอดสุทธิ 40,950.00 แต่ไม่มีคำอธิบายส่วนลด. เพิ่มข้อความใต้ชื่อรายการ `ส่วนลด 10% (4,550.00 บาท)` ใน Preview/พิมพ์/PDF ของ QT, DI และ RC โดยใช้ helper เดียวกัน.
 - Presentation only: จำนวนเงินส่วนลด = gross ของแถวลบ line_total ที่มีอยู่ (ปัดเพื่อแสดงสองตำแหน่ง) ไม่หักซ้ำ ไม่แก้สูตรหรือยอดบันทึก/save/convert/payment/JV/stock/SQL. ไม่แสดงบน heading, ส่วนลด 0 หรือข้อมูลไม่ครบ/ผิดรูปแบบ; ไม่ซ่อมข้อมูลย้อนหลัง. ส่วนลดท้ายบิลคงแยกตามเดิม.

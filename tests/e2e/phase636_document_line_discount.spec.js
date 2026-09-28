@@ -75,6 +75,34 @@ const docs = [
   ['di', 'renderDeliveryInvoicesPage', 'INV-SYNTHETIC-636', '#diDocPreview', 2],
   ['rc', 'renderReceiptsPage', 'RC-SYNTHETIC-636', '#rcDocPreview', 2],
 ];
+for (const [kind, render, number, preview] of docs) test(`636 S1 ${kind}: inconsistent net hides annotation in preview/print/PDF without repairing amounts`, async ({ page, context }) => {
+  await boot(page, context, 390, false);
+  await page.evaluate(() => {
+    window.__rows[1].line_total = 20000;
+    for (const list of ['quotations', 'deliveryInvoices', 'receipts']) {
+      Object.assign(window.__ctx.state[list][0], { total_amount: 20050, grand_total: 20050, after_discount: 20050 });
+    }
+    window.__original = JSON.stringify([window.__ctx.state, window.__rows]);
+  });
+  await page.evaluate(({ kind, render }) => window['__' + kind][render](window.__ctx), { kind, render });
+  await page.getByRole('link', { name: number, exact: true }).click();
+  await expect(page.locator(preview + ' .doc-line-discount')).toHaveCount(0);
+  await expect(page.locator(preview + ' .doc-item-row').first()).toContainText('20,000.00');
+  await expect(page.locator(preview + ' .doc-total-row.grand').first()).toContainText('20,050.00');
+  for (const suffix of ['PrintBtn', 'PdfBtn']) {
+    const popupPromise = page.waitForEvent('popup');
+    await page.locator('#' + kind + suffix).click();
+    const popup = await popupPromise;
+    await popup.waitForLoadState('domcontentloaded');
+    await expect(popup.locator(preview + ' .doc-item-row').first()).toContainText('20,000.00');
+    await expect(popup.locator(preview + ' .doc-total-row.grand').first()).toContainText('20,050.00');
+    await expect(popup.locator(preview + ' .doc-line-discount')).toHaveCount(0);
+    await popup.close();
+  }
+  expect(await page.evaluate(() => window.__writes)).toEqual([]);
+  expect(await page.evaluate(() => JSON.stringify([window.__ctx.state, window.__rows]) === window.__original)).toBe(true);
+});
+
 for (const width of [360, 390, 1280]) for (const [kind, render, number, preview, copies] of docs) {
   for (const headerDiscount of [false, true]) test(`636 ${kind} ${width} ${headerDiscount ? 'stacked' : 'example'}: preview/print/PDF same annotation, no double deduction or writes`, async ({ page, context }, info) => {
     await boot(page, context, width, headerDiscount);

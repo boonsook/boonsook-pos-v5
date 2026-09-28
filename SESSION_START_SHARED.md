@@ -1,5 +1,8 @@
 # Boonsook POS V5 - Shared Session Start
 
+> 🟠 **Phase 636 S1 correction (ต่อจาก `793c1c7` · build 633 เดิม):** เพิ่ม validation ก่อนแสดง annotation ให้ % ตรงกับ net ภายใน 1 สตางค์; ข้อมูลขัดกันไม่แสดงข้อความ ไม่ซ่อมยอด. เพิ่ม regression QT/DI/RC Preview/พิมพ์/PDF; ไม่แตะ production, ไม่ push และรอ independent delta review. Nit รูปแบบ % / formatter ยังไม่แก้.
+>
+
 > 🟠 **2026-09-28 — Phase 636 (build 633 / v5.69.100 · local only):** แสดงข้อความส่วนลดใต้รายการ QT/DI/RC เหมือนกันใน Preview/พิมพ์/PDF; ไม่เปลี่ยนสูตรหรือหักซ้ำ ไม่แก้ save/convert/DB. Baseline PR #232 `ef9378a` (Phase 635 merged build 632; สถานะ local ด้านล่างเป็นประวัติ). ทดสอบ synthetic localhost 360/390/1280px เท่านั้น; CI/deploy/physical mobile NOT RUN. **ห้ามเก็บเงิน RC20260927001** และไม่ cleanup เอกสารจริง. STOP `READY-FOR-INDEPENDENT-PHASE-636-REVIEW`.
 >
 
