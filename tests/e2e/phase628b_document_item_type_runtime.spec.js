@@ -361,7 +361,7 @@ for (const s of SITES) { s.callback = extractRowCallback(s.src, s); s.num = extr
 async function renderRows(page, site, rows) {
   return page.evaluate(async ({ numSrc, callbackSrc, rows }) => {
     const utilsUrl = new URL("/modules/utils.js", location.origin).href;
-    const src = `import { escHtml } from ${JSON.stringify(utilsUrl)};\n${numSrc}\nexport default (${callbackSrc});`;
+    const src = `import { escHtml } from ${JSON.stringify(utilsUrl)};\nimport { renderDocumentLineDiscount } from ${JSON.stringify(new URL('/modules/doc_items.js', location.origin).href)};\n${numSrc}\nexport default (${callbackSrc});`;
     const mod = await import(URL.createObjectURL(new Blob([src], { type: "text/javascript" })));
     return rows.map((r, i) => mod.default(r, i)).join("");
   }, { numSrc: site.num, callbackSrc: site.callback, rows });
@@ -452,7 +452,7 @@ test("positive control: heading ที่ไม่ escape รัน payload ไ�
   const heading = (payload) => ({ product_id: null, item_name: payload, qty: 0, unit: "ชิ้น", unit_price: 0, discount_pct: 0, line_total: 0, item_type: "heading" });
   const run = async (site, callbackSrc) => page.evaluate(async ({ numSrc, callbackSrc, item }) => {
     const utilsUrl = new URL("/modules/utils.js", location.origin).href;
-    const src = `import { escHtml } from ${JSON.stringify(utilsUrl)};\n${numSrc}\nexport default (${callbackSrc});`;
+    const src = `import { escHtml } from ${JSON.stringify(utilsUrl)};\nimport { renderDocumentLineDiscount } from ${JSON.stringify(new URL('/modules/doc_items.js', location.origin).href)};\n${numSrc}\nexport default (${callbackSrc});`;
     const mod = await import(URL.createObjectURL(new Blob([src], { type: "text/javascript" })));
     delete window.__phase628bPwned;
     const host = document.getElementById("host");

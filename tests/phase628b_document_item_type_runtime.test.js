@@ -663,7 +663,7 @@ const FORM_SITE = { id: "QT-FORM", src: QT_SRC, fnDecl: "function renderQuotatio
 
 function renderer(site) {
   const cb = extractRowCallback(site.src, site);
-  return vm.runInNewContext(`${extractNumHelper(site.src)}\n;(${cb})`, { escHtml: sharedEscHtml });
+  return vm.runInNewContext(`${extractNumHelper(site.src)}\n;(${cb})`, { escHtml: sharedEscHtml, ...REAL_HELPERS() });
 }
 const classOf = (tag) => (tag.attrs.find((a) => a.name === "class") || {}).value || "";
 
@@ -696,7 +696,10 @@ for (const site of PREVIEW_SITES) {
     const render = renderer(site);
     for (const row of [I_AIR, I_LEGACY, { ...I_LEGACY, item_type: "HEADING" }, { ...I_LEGACY, item_type: null }]) {
       const html = render(row, 0);
-      assertNoInjection(html, ["tr", "td"]);
+      // Phase 636 permits exactly the shared numeric annotation, not arbitrary divs.
+      const annotation = helpers().renderDocumentLineDiscount(row);
+      if (annotation) assert.equal(html.split(annotation).length - 1, 1);
+      assertNoInjection(annotation ? html.replace(annotation, "") : html, ["tr", "td"]);
       assert.equal(classOf(startTags(html)[0]), "doc-item-row", html);
       assert.equal(rawCells(html).length, 5, html);
     }
@@ -845,15 +848,15 @@ test("I5 [structural] Phase 625/629 anchors: item input qt-li-name บรรท�
   assert.equal((RC_SRC.match(/escHtml\(item\.unit\|\|'ชิ้น'\)/g) || []).length, 1);
 });
 
-// Phase 635: build pin เลื่อนตาม marker ที่ bump (632 / 5.69.99 / cache-v632) — ความเข้มเท่าเดิม
-test("I6 [structural] build 632 / v5.69.99 / cache-v632 ตรงกันทุกจุด", () => {
+// Phase 636: build pin เลื่อนตาม marker ที่ bump (633 / 5.69.100 / cache-v633) — ความเข้มเท่าเดิม
+test("I6 [structural] build 633 / v5.69.100 / cache-v633 ตรงกันทุกจุด", () => {
   const html = read("index.html");
   const sw = read("sw.js");
-  assert.match(html, /data-app-build="632" data-app-version="5\.69\.99"/);
+  assert.match(html, /data-app-build="633" data-app-version="5\.69\.100"/);
   for (const asset of ["style.css", "doc-print.css", "selfheal.js", "main.js", "boot.js"]) {
-    assert.ok(html.includes(`${asset}?v=632`), `${asset}?v=632`);
+    assert.ok(html.includes(`${asset}?v=633`), `${asset}?v=633`);
   }
-  assert.match(sw, /^const CACHE_NAME = 'boonsook-pos-v5-cache-v632';$/m);
-  assert.match(sw, /^const SW_BUILD = '632';$/m);
-  assert.match(sw.split("\n")[1], /^\/\/ v632 \(/, "phase comment บรรทัดบนสุดต้องเป็น v632");
+  assert.match(sw, /^const CACHE_NAME = 'boonsook-pos-v5-cache-v633';$/m);
+  assert.match(sw, /^const SW_BUILD = '633';$/m);
+  assert.match(sw.split("\n")[1], /^\/\/ v633 \(/, "phase comment บรรทัดบนสุดต้องเป็น v633");
 });

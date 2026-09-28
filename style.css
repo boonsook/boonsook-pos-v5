@@ -1435,6 +1435,8 @@ th { color: var(--muted); font-size: 12px; }
   background: #eef2f7; font-weight: 800; color: #0f172a; text-align: left;
 }
 .doc-table tbody tr.doc-heading-row { break-after: avoid; page-break-after: avoid; }
+/* Phase 636: annotation stays with its item; no extra table column on mobile. */
+.doc-table .doc-line-discount { display: block; margin-top: 2px; font-size: 11px; line-height: 1.4; font-weight: 400; color: #475569; white-space: normal; overflow-wrap: anywhere; }
 @media print {
   .doc-table tbody tr.doc-item-row:nth-child(n) td { background: transparent !important; }
   .doc-table tbody tr.doc-item-row:nth-child(even of .doc-item-row) td { background: #fafafa !important; }

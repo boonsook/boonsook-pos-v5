@@ -30,7 +30,7 @@ async function openFixture(page) {
 async function renderInBrowser(page, { numSrc, callbackSrc, item }) {
   return page.evaluate(async ({ numSrc, callbackSrc, item }) => {
     const utilsUrl = new URL("/modules/utils.js", location.origin).href;
-    const src = `import { escHtml } from ${JSON.stringify(utilsUrl)};\n${numSrc}\nexport default (${callbackSrc});`;
+    const src = `import { escHtml } from ${JSON.stringify(utilsUrl)};\nimport { renderDocumentLineDiscount } from ${JSON.stringify(new URL('/modules/doc_items.js', location.origin).href)};\n${numSrc}\nexport default (${callbackSrc});`;
     const mod = await import(URL.createObjectURL(new Blob([src], { type: "text/javascript" })));
     delete window.__phase629Pwned;
     const host = document.getElementById("host");

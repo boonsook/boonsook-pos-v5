@@ -5,6 +5,11 @@
 
 รูปแบบ: `<commit> feat|fix|docs|refactor: <สรุปสั้น>` + bullet 1-2 ข้อถ้าจำเป็น
 
+- Phase 636 fix(documents): แสดง `ส่วนลด 10% (4,550.00 บาท)` ใต้รายการใน Preview/พิมพ์/PDF ของ QT/DI/RC (build 633 / v5.69.100 · local only)
+  - S1 correction หลัง review `793c1c7`: ซ่อนคำอธิบายเมื่อ % กับยอดสุทธิไม่สอดคล้องเกิน 1 สตางค์ พร้อม regression ของ counterexample และขอบ tolerance; ไม่เปลี่ยนข้อมูลหรือสูตรเงิน. Nit แยกไว้ รอ delta review.
+  - Helper และ CSS ร่วมกัน อธิบายส่วนลดจากยอดแถวเดิม ไม่เปลี่ยนสูตร/save/convert ไม่หักซ้ำ และไม่แตะข้อมูลจริง. ส่วนลดท้ายบิลคงเดิม.
+  - Synthetic browser regression ครอบสามเอกสาร/สามขนาดจอ/print/PDF/draft; baseline RED ทั้งสามชนิด. CI/deploy/physical mobile NOT RUN; STOP `READY-FOR-INDEPENDENT-PHASE-636-REVIEW`.
+
 - Phase 635 fix(quotations): พิมพ์ส่วนลดหลายหลักและ Tab แถว QT โดยไม่เสีย focus (build 632 / v5.69.99 · local only)
   - อัปเดต state/ยอดเฉพาะจุดแทน rerender ทุก keystroke/change; รักษา input node และค่าที่กำลังพิมพ์ รวม WHT/heading และแก้ต่อหลัง draft preview. ไม่เปลี่ยนสูตรเงินหรือ save/convert body.
   - Regression ใช้ real module กับ synthetic localhost fixtures; ผล gate อยู่ใน final report ของ local commit. CI/deploy/authenticated Phase 635 smoke NOT RUN. ไม่แตะ SQL/data/payment/stock; STOP `READY-FOR-INDEPENDENT-PHASE-635-REVIEW`.

@@ -7,7 +7,7 @@ import { renderEmpty, renderSkeleton } from "./ui_states.js";
 import { logActivity, exportToExcel, todaySuffix, escHtml } from "./utils.js";
 import { renderDocumentTemplateHeader, renderDocumentTemplateNote, renderDocumentTemplateFooter } from "./doc-utils.js";
 // Phase 628B: ชนิดแถวรายการ (item | heading) — helper กลางตัวเดียว (pure)
-import { normalizeDocumentItem, countableDocumentItems } from "./doc_items.js";
+import { normalizeDocumentItem, countableDocumentItems, renderDocumentLineDiscount } from "./doc_items.js";
 // Phase 89.1: void JV ตอน cancel (กัน double-revenue ใน P&L)
 import { voidJvForSource } from "./accounting/auto_post.js";
 // Phase 544: single-flight guard กัน double-click ตอนตัดสต็อกภายใน
@@ -689,7 +689,7 @@ function renderInvoicePreview(container) {
               ${_lineItems.length ? _lineItems.map((item) => item.item_type === "heading"
                 ? '<tr class="doc-heading-row"><td colspan="5">'+escHtml(item.item_name)+'</td></tr>'
                 : '<tr class="doc-item-row">'
-                +'<td style="text-align:left">'+escHtml(item.item_name)+'</td>'
+                +'<td style="text-align:left">'+escHtml(item.item_name)+renderDocumentLineDiscount(item)+'</td>'
                 +'<td style="text-align:center">'+num(item.qty)+'</td>'
                 +'<td style="text-align:center">'+escHtml(item.unit||'ชิ้น')+'</td>'
                 +'<td style="text-align:right">'+num(item.unit_price)+'</td>'
