@@ -4,6 +4,7 @@
 // ═══════════════════════════════════════════════════════════
 
 import { escHtml } from './utils.js';
+import { renderDocumentSettings } from './document.js';
 // Phase 585: เชื่อม/ทดสอบเครื่องพิมพ์สลิป Bluetooth (Android)
 import * as receiptBt from '../receipt_bt.js';
 
@@ -419,86 +420,7 @@ export function renderSettingsAbout(el, ctx, goBack) {
  * Render Document Settings page (header / footer / note for receipts & quotations)
  */
 export function renderSettingsDocument(el, ctx, goBack) {
-  const { state, showToast, saveStoreInfo } = ctx || {};
-  const info = state?.storeInfo || {};
-  const docHeader = info.docHeader || '';
-  const docFooter = info.docFooter || 'ขอบพระคุณที่ใช้บริการครับ 🙏';
-  const docNote   = info.docNote   || '';
-  const showNoteQuotation = info.docShowNoteQuotation !== false;
-  const showNoteDelivery = info.docShowNoteDelivery !== false;
-  const showNoteReceipt = info.docShowNoteReceipt !== false;
-
-  el.innerHTML = `
-    <div class="set-subpage">
-      <div class="set-subpage-header">
-        <button class="set-back-btn" id="setBackBtn">←</button>
-        <h3 class="set-subpage-title">เทมเพลตเอกสาร</h3>
-      </div>
-      <div class="set-form-card">
-        <div class="sku" style="margin-bottom:12px">ข้อความเหล่านี้จะแสดงในใบเสร็จ / ใบเสนอราคา / ใบส่งของ</div>
-        <div class="stack">
-          <label class="set-field-label">ส่วนหัวเอกสาร (เช่น สโลแกนร้าน)</label>
-          <textarea id="docHeaderInput" class="bank-input" rows="2" placeholder="ตัวอย่าง: ยินดีให้บริการทุกท่าน">${escHtml(docHeader)}</textarea>
-
-          <label class="set-field-label" style="margin-top:10px">ส่วนท้ายเอกสาร</label>
-          <textarea id="docFooterInput" class="bank-input" rows="2" placeholder="ตัวอย่าง: ขอบพระคุณที่ใช้บริการครับ">${escHtml(docFooter)}</textarea>
-
-          <label class="set-field-label" style="margin-top:10px">หมายเหตุเอกสาร</label>
-          <textarea id="docNoteInput" class="bank-input" rows="2" placeholder="ตัวอย่าง: สินค้ารับประกัน 1 ปี">${escHtml(docNote)}</textarea>
-
-          <div class="set-field-label" style="margin-top:14px">แสดงส่วนหมายเหตุในเอกสาร</div>
-          <div class="sku" style="margin-bottom:4px">ปิดเฉพาะประเภทที่ต้องการ เพื่อให้เอกสารสั้นลงและไม่ล้นหน้ากระดาษ</div>
-          <label class="form-checkbox" style="margin-top:8px">
-            <input id="docShowNoteQuotationInput" type="checkbox" ${showNoteQuotation ? 'checked' : ''} />
-            <span>ใบเสนอราคา</span>
-          </label>
-          <label class="form-checkbox" style="margin-top:8px">
-            <input id="docShowNoteDeliveryInput" type="checkbox" ${showNoteDelivery ? 'checked' : ''} />
-            <span>ใบส่งสินค้า</span>
-          </label>
-          <label class="form-checkbox" style="margin-top:8px">
-            <input id="docShowNoteReceiptInput" type="checkbox" ${showNoteReceipt ? 'checked' : ''} />
-            <span>ใบเสร็จรับเงิน</span>
-          </label>
-        </div>
-      </div>
-      <button id="saveDocSettingsBtn" class="set-save-btn">บันทึกเทมเพลตเอกสาร</button>
-    </div>
-  `;
-
-  document.getElementById("setBackBtn")?.addEventListener("click", goBack);
-  document.getElementById("saveDocSettingsBtn")?.addEventListener("click", async () => {
-    const btn = document.getElementById("saveDocSettingsBtn");
-    if (!btn) return;
-    btn.disabled = true;
-    const origText = btn.textContent;
-    btn.textContent = '⏳ กำลังบันทึก...';
-
-    try {
-      const merged = {
-        ...(state?.storeInfo || {}),
-        docHeader: document.getElementById("docHeaderInput")?.value?.trim() || '',
-        docFooter: document.getElementById("docFooterInput")?.value?.trim() || '',
-        docNote:   document.getElementById("docNoteInput")?.value?.trim()   || '',
-        docShowNoteQuotation: !!document.getElementById("docShowNoteQuotationInput")?.checked,
-        docShowNoteDelivery: !!document.getElementById("docShowNoteDeliveryInput")?.checked,
-        docShowNoteReceipt: !!document.getElementById("docShowNoteReceiptInput")?.checked
-      };
-      if (state) state.storeInfo = merged;
-
-      if (typeof saveStoreInfo === 'function') {
-        await saveStoreInfo(merged);
-      } else {
-        localStorage.setItem('bsk_store_info', JSON.stringify(merged));
-      }
-      showToast?.('บันทึกเทมเพลตเอกสารแล้ว ✅');
-    } catch (err) {
-      showToast?.(`บันทึกผิดพลาด: ${err.message}`, 'error');
-    } finally {
-      btn.disabled = false;
-      btn.textContent = origText;
-    }
-  });
+  return renderDocumentSettings(el, ctx, goBack);
 }
 
 /**

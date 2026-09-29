@@ -15,6 +15,8 @@ const quotations = readFileSync(path.resolve("modules/quotations.js"), "utf8");
 const deliveryInvoices = readFileSync(path.resolve("modules/delivery_invoices.js"), "utf8");
 const receipts = readFileSync(path.resolve("modules/receipts.js"), "utf8");
 const settingsPages = readFileSync(path.resolve("modules/settings/pages.js"), "utf8");
+const presentation = readFileSync(path.resolve("modules/document_presentation.js"), "utf8");
+const settingsDocument = readFileSync(path.resolve("modules/settings/document.js"), "utf8");
 
 test("document template helpers trim and render saved storeInfo fields", () => {
   const storeInfo = {
@@ -46,8 +48,11 @@ test("document template settings persist the same storeInfo keys used by documen
     "docShowNoteDelivery",
     "docShowNoteReceipt",
   ]) {
-    assert.ok(settingsPages.includes(key), `settings page must persist ${key}`);
+    assert.ok(presentation.includes(key), `snapshot must preserve legacy ${key}`);
   }
+  assert.match(settingsPages, /return renderDocumentSettings\(el, ctx, goBack\)/);
+  assert.match(settingsDocument, /\.\.\.\(state\?\.storeInfo \|\| \{\}\)/);
+  assert.match(settingsDocument, /await saveStoreInfo\(draft\)/);
 });
 
 test("document note visibility defaults on and can be disabled per document type", () => {

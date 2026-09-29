@@ -10,6 +10,8 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
+import * as presentation from '../modules/document_presentation.js';
+import { withoutPhase639SnapshotInsertion } from './phase639_snapshot_delta.shared.js';
 
 const ROOT = process.env.PHASE635_SOURCE_ROOT || fileURLToPath(new URL('../', import.meta.url));
 const BASE = '824dabeeffb746cb2e0565717ea98784ccb1125b';
@@ -22,8 +24,9 @@ const docItems = baseline
   ? await import('data:text/javascript;base64,' + Buffer.from(blob('modules/doc_items.js')).toString('base64'))
   : await import(pathToFileURL(path.join(ROOT, 'modules/doc_items.js')).href);
 
-test('existing Save and convert function bodies remain byte-for-byte unchanged', () => {
-  // LF-normalized bodies freshly pinned from BASE. Default CI needs no Git history.
+test('existing Save and convert bodies retain pins except exact Phase 639 snapshot insertion', () => {
+  // Strip the one allowlisted metadata addition, then require the complete old
+  // LF-normalized body hash. Default CI needs no Git history.
   const expected = {
     saveQuotationFull: '901e14d62c2ba3a2adb5b31084c20555d576f4420377c550aded572036553e83',
     convertToDeliveryInvoice: 'bb68898428f4e5280002927edd9a19ed835f997fa7cce41a3600efad9a407330',
@@ -33,7 +36,7 @@ test('existing Save and convert function bodies remain byte-for-byte unchanged',
     const after = source.match(pattern)?.[0];
     assert.ok(after, name + ' must exist');
     // Git stores LF; a Windows checkout can use CRLF without code changes.
-    assert.equal(createHash('sha256').update(after.replaceAll('\r\n', '\n')).digest('hex'), sha256, name);
+    assert.equal(createHash('sha256').update(withoutPhase639SnapshotInsertion(after.replaceAll('\r\n', '\n'), name, baseline)).digest('hex'), sha256, name);
   }
 });
 
@@ -103,7 +106,7 @@ function harness(mode = 'new') {
     loadAllData: async () => { ledger.push({ m: 'RELOAD' }); },
   };
   const sandbox = {
-    ...docItems, console, Intl, Date, URLSearchParams,
+    ...docItems, ...presentation, console, Intl, Date, URLSearchParams,
     document: { getElementById: (id) => id === 'page-quotations' ? container : nodes.get(id),
       querySelector: find, querySelectorAll: (selector) => container.querySelectorAll(selector) },
     window: { App: { state: ctx.state }, SUPABASE_CONFIG: { url: 'https://fixture.invalid' } },

@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { escHtml } from '../modules/utils.js';
+import { withoutPhase639SnapshotInsertion } from './phase639_snapshot_delta.shared.js';
 import { SITES, extractRowCallback, extractNumHelper, rawCells, extractFunctionRegion } from './phase629_document_unit_xss.shared.js';
 
 const item = Object.freeze({ item_name: 'แอร์พร้อมติดตั้ง', item_type: 'item', qty: 1, unit: 'เครื่อง', unit_price: 45500, discount_pct: 10, line_total: 40950 });
@@ -262,12 +263,12 @@ for (const site of SITES.filter(site => site.context === 'text')) {
   });
 }
 
-test('636: save/conversion and accounting/print routing match ef9378a LF-normalized pins', () => {
+test('636: save/conversion money and accounting/print routing retain pins; only 639 snapshot insertion allowed', () => {
   for (const [file, decl, pin] of [
     ['modules/quotations.js', 'async function saveQuotationFull() {', 'cff89d4813ad43cd117c37dc2a98d8637b4fe0a26455688afcdfaa9505cccb92'],
     ['modules/quotations.js', 'async function convertToDeliveryInvoice(q) {', 'fbf3e58e989bd020848156fef8b76cd5a59d2838f23509cc945e94b187f3e7b1'],
     ['modules/delivery_invoices.js', 'async function convertToReceipt(inv) {', '85bb3e9531942ee7abefffb2c70e55f91a6073d6cea7c8c3c1628ecf16e7f664'],
-  ]) assert.equal(sha(extractFunctionRegion(read(file), decl)), pin);
+  ]) assert.equal(sha(withoutPhase639SnapshotInsertion(extractFunctionRegion(read(file), decl), decl.match(/function (\w+)/)[1], baseline)), pin);
   for (const [file, pin] of [
     ['modules/accounting/auto_post.js', 'cf044a2bd8e23d1104a7be9feaa98c84011dc9ca864191058b95f86a1dbed613'],
     ['modules/doc-override.js', 'b77bcf8a724883605ebd4b59d76ceb47f5f4ef5c71ff8817d3b52b21aa81bfde'],
