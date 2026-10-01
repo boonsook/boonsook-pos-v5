@@ -5,6 +5,9 @@
 
 รูปแบบ: `<commit> feat|fix|docs|refactor: <สรุปสั้น>` + bullet 1-2 ข้อถ้าจำเป็น
 
+- Phase 642 fix(users): เพิ่มผู้ใช้/เปลี่ยนสิทธิ์ต้องยืนยันสิทธิ์ด้วย read-back (build 638 / v5.69.105 · local only)
+  - signup ครั้งเดียว ไม่ใส่ role ใน metadata; สิทธิ์ต้องอ่านกลับได้ตรงก่อนแจ้งสำเร็จ/ส่งคำเชิญ; signup ไม่มีคำตอบ = "ไม่ทราบว่าสร้างแล้วหรือไม่"; บัญชีเดิมแก้ผ่าน assignRole ไม่สมัครซ้ำ; select ในรายการผู้ใช้ไม่แสดง Admin ให้คนที่ไม่ใช่ admin. ไม่มี SQL/Auth · ไม่เกี่ยวกับ Phase 640 · ยังไม่มี audit_log writer (gap)
+
 - Phase 639 feat(documents): ตั้งค่าชื่อ/เงื่อนไขเอกสารใหม่พร้อม snapshot ต่อใบ (build 635 / v5.69.102 · local only)
   - QT/DI/RC Preview/พิมพ์/PDF อ่าน snapshot เดิม; เพิ่ม metadata ใน INSERT เท่านั้น ไม่เปลี่ยนสูตรเงินหรือขั้นตอนรับชำระ. Settings preview เป็นข้อมูลจำลอง, failures ไม่อ้าง cloud success.
   - ย้าย baseline เป็น PR #235 `ee17392`; SQL mutation อยู่ใน DO เดียว + timeout prerequisite/UTF8 pins/post-C. Native PG17.6 fixture 54/54; reader ชื่อเก่าไม่ผูก current options และเพิ่ม DI exact-title mutation test. ไม่มี UPDATE/backfill; staging/production NOT RUN. ห้าม deploy ก่อน SQL approval/post-check; รอ independent review.

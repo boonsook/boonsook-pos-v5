@@ -1,7 +1,8 @@
 import { escHtml } from "./utils.js";
+import { renderRoleSelectOptions, roleSelectValue, applyRoleResultToSelect } from "./user_provisioning.js";
 
 export function renderSettingsUsers(el, ctx, goBack, navigateToView) {
-  const { state, ROLE_LABELS, changeRole, openAddUserDrawer, showToast } = ctx;
+  const { state, ROLE_LABELS, changeRole, sendPasswordLinkFor, openAddUserDrawer, showToast } = ctx;
   const roleColors = { admin: "#dc2626", technician: "#d97706", accountant: "#7c3aed", sales: "#0284c7", customer: "#059669" };
 
   const users = (state.allProfiles || []).filter(p => p.role !== "customer");
@@ -62,12 +63,10 @@ export function renderSettingsUsers(el, ctx, goBack, navigateToView) {
               </div>
               <div class="usr-actions">
                 ${isMe ? '' : `
-                  <select data-role-user-id="${p.id}" title="เปลี่ยนบทบาท">
-                    <option value="admin" ${p.role==='admin'?'selected':''}>Admin</option>
-                    <option value="technician" ${p.role==='technician'?'selected':''}>ช่าง</option>
-                    <option value="accountant" ${p.role==='accountant'?'selected':''}>สำนักงานบัญชี</option>
-                    <option value="sales" ${p.role==='sales'?'selected':''}>พนักงานขาย</option>
+                  <select data-role-user-id="${p.id}" data-role-prev="${roleSelectValue(p.role)}" title="เปลี่ยนบทบาท">
+                    ${renderRoleSelectOptions(p.role, escHtml)}
                   </select>
+                  ${p.email && !/@phone\.boonsook\.local$/i.test(String(p.email)) ? `<button class="btn-edit" data-link-user-email="${escHtml(p.email)}" title="ส่งลิงก์ตั้งรหัสผ่าน">📧 ส่งลิงก์</button>` : ''}
                   <button class="btn-edit" data-edit-user-id="${p.id}" title="แก้ไขชื่อ/เบอร์">✏️ แก้ไข</button>
                   <button class="btn-del" data-del-user-id="${p.id}" data-del-user-name="${escHtml(p.full_name || '')}" title="ลบผู้ใช้">🗑️</button>
                 `}
@@ -143,9 +142,18 @@ export function renderSettingsUsers(el, ctx, goBack, navigateToView) {
   });
 
   // เปลี่ยน role
+  // Phase 642: หลังเปลี่ยนสิทธิ์ select + ป้ายสิทธิ์แสดงเฉพาะสิ่งที่รู้จริง (verified / ค่าที่อ่านได้ / ไม่ทราบ)
+  //   คืนค่าเดิมเฉพาะเมื่อไม่มีการเขียน (ยกเลิก/ไม่ใช่ admin) — ห้ามแสดงสิทธิ์เก่าเป็นค่าปัจจุบันเมื่อผลการเขียนไม่ทราบ
   el.querySelectorAll("[data-role-user-id]").forEach(sel => {
-    sel.addEventListener("change", () => changeRole(sel.dataset.roleUserId, sel.value));
+    sel.addEventListener("change", async () => {
+      const prev = sel.dataset.rolePrev || "";
+      const res = await changeRole(sel.dataset.roleUserId, sel.value);
+      if (sel.isConnected) applyRoleResultToSelect(sel, res, { prev, escHtml, roleLabels: ROLE_LABELS });
+    });
   });
+  el.querySelectorAll("[data-link-user-email]").forEach(btn => btn.addEventListener("click", () => {
+    if (typeof sendPasswordLinkFor === "function") sendPasswordLinkFor(btn.dataset.linkUserEmail);
+  }));
 
   // แก้ไข (full_name + phone + department) — Phase 75 + 75.1
   el.querySelectorAll("[data-edit-user-id]").forEach(btn => btn.addEventListener("click", async () => {
