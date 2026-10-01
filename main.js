@@ -12,6 +12,7 @@ import { renderQuotationsPage } from "./modules/quotations.js";
 import { renderServiceJobsPage } from "./modules/service_jobs.js";
 import { normalizeServiceJobStatus, serviceJobNoteWithReviewMarker, isServiceJobPendingReview, isServiceCompletionStatus, isServiceCloseTransition } from "./modules/service_status.js";
 import { renderSettingsPage } from "./modules/settings/index.js";
+import { createUserProvisioning, createUserProvisioningAdapters, createUserAdminController, showProvisioningModal } from "./modules/settings/user_provisioning.js";
 // Phase 89.20/89.21: delivery_invoices, receipts, expenses lazy
 import { renderStockMovementsPage } from "./modules/stock_movements.js";
 // Phase 89.21: profit_report, calendar, loyalty lazy
@@ -885,7 +886,7 @@ async function showRoute(route){
   // Phase 25 help tutor → ถอดออก Phase 427 (FAB คำแนะนำ)
 
   // Lazy render on navigate
-  const ctx = { state, money, addToCart, changeQty, removeFromCart, openProductDrawer, checkout, openReceiptDrawer, showRoute, openCustomerDrawer, openQuotationDrawer, openServiceJobDrawer, loadAllData, loadReceipt, ROLE_LABELS, currentRole, requireAdmin, requireAdminOrSales, showToast, saveStoreInfo, savePaymentInfo, loadUsers, changeRole, openAddUserDrawer, hasPermission: (key) => hasPermission(key, { state, currentRole }), renderLineNotifySettings, renderPermissionMatrix, sendLineNotify };
+  const ctx = { state, money, addToCart, changeQty, removeFromCart, openProductDrawer, checkout, openReceiptDrawer, showRoute, openCustomerDrawer, openQuotationDrawer, openServiceJobDrawer, loadAllData, loadReceipt, ROLE_LABELS, currentRole, requireAdmin, requireAdminOrSales, showToast, saveStoreInfo, savePaymentInfo, loadUsers, changeRole, sendPasswordLinkFor, openAddUserDrawer, hasPermission: (key) => hasPermission(key, { state, currentRole }), renderLineNotifySettings, renderPermissionMatrix, sendLineNotify };
 
   // Phase 89.20: dynamic-import dispatch for admin/service-only routes (550KB+ shifted off first-load)
   if (await _renderLazy(route, ctx)) return;
@@ -4997,7 +4998,7 @@ function exportReceiptPdf(){
 //  USER MANAGEMENT (Admin only)
 // ═══════════════════════════════════════════════════════════
 async function loadUsers(){
-  if (!requireAdmin()) return;
+  if (!requireAdmin()) return { ok: false };
   // ★ ลอง view ที่มี email ก่อน (ถ้ายังไม่ได้รัน SQL ใหม่ fallback เป็น profiles)
   let result = await state.supabase.from("profiles_with_email").select("*").order("created_at");
   if (result.error) {
@@ -5005,17 +5006,42 @@ async function loadUsers(){
   }
   // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L1 user-event (admin loadUsers — single admin click)
   state.allProfiles = result.data || [];
+  // Phase 642: ผู้เรียกต้องรู้ว่ารายการโหลดใหม่สำเร็จหรือไม่ (ห้ามแสดงรายการเก่าโดยไม่บอก)
+  return result.error ? { ok: false, error: result.error } : { ok: true };
 }
-async function changeRole(userId, newRole){
-  if (!requireAdmin()) return showToast("เฉพาะ Admin เปลี่ยนสิทธิ์ได้");
-  const roleName = ROLE_LABELS[newRole] || newRole;
-  showConfirmModal(`เปลี่ยนสิทธิ์เป็น "${roleName}"?`, async () => {
-    const res = await xhrPatch("profiles", { role: newRole }, "id", userId);
-    if (!res.ok) return showToast("เปลี่ยนไม่สำเร็จ");
-    await loadUsers();
-    showRoute("settings");
-    showToast(`เปลี่ยนเป็น ${roleName} แล้ว`);
-  });
+// Phase 642: เพิ่มผู้ใช้ / เปลี่ยนสิทธิ์ / ส่งลิงก์ — ตรรกะทั้งหมดอยู่ใน modules/settings/user_provisioning.js
+// (สิทธิ์ต้องยืนยันด้วย read-back · ห้าม signup ซ้ำ · สถานะที่ไม่ทราบต้องแสดงว่าไม่ทราบ)
+let _userAdmin = null;
+function userAdmin(){
+  if (!_userAdmin) {
+    const provisioning = createUserProvisioning(createUserProvisioningAdapters({ windowRef: window, xhrPatch, isAdmin: requireAdmin }));
+    _userAdmin = createUserAdminController({
+      provisioning,
+      roleLabels: ROLE_LABELS,
+      ui: {
+        toast: (msg) => showToast(msg),
+        confirm: (msg) => confirmAsync(msg),
+        loadUsers: () => loadUsers(),
+        rerender: () => showRoute("settings"),
+        modal: (view, handlers) => showProvisioningModal(document, view, handlers),
+        resetAddForm: () => {
+          const emailEl = $("newUserEmail"); const nameEl = $("newUserName");
+          if (emailEl) emailEl.value = "";
+          if (nameEl) nameEl.value = "";
+          closeAllDrawers();
+        },
+      },
+    });
+  }
+  return _userAdmin;
+}
+function changeRole(userId, newRole){
+  if (!requireAdmin()) { showToast("เฉพาะ Admin เปลี่ยนสิทธิ์ได้"); return Promise.resolve({ ok: false }); }
+  return userAdmin().changeRole(userId, newRole);
+}
+function sendPasswordLinkFor(email){
+  if (!requireAdmin()) { showToast("เฉพาะ Admin"); return Promise.resolve({ ok: false }); }
+  return userAdmin().sendLink(email);
 }
 function openAddUserDrawer(){ openDrawer("addUserDrawer"); }
 async function addNewUser(){
@@ -5026,97 +5052,14 @@ async function addNewUser(){
   if (!email || !fullName) return showToast("กรุณากรอกอีเมลและชื่อ-นามสกุล");
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return showToast("อีเมลไม่ถูกต้อง");
 
-  // ★ Auto-generate random password — user จะตั้งใหม่เองผ่านลิงก์ใน email
-  const randomPw = Array.from(crypto.getRandomValues(new Uint8Array(18)))
-    .map(b => b.toString(36).padStart(2, '0')).join('').slice(0, 20) + "A1!";
-
   const btn = $("addNewUserBtn");
+  if (btn && btn.disabled) return;
   if (btn) { btn.disabled = true; btn.textContent = "กำลังส่งคำเชิญ..."; }
-
   try {
-    const cfg = window.SUPABASE_CONFIG;
-
-    // ── Step 1: signUp ──
-    const signUpResult = await new Promise((resolve) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open("POST", cfg.url + "/auth/v1/signup");
-      xhr.setRequestHeader("Content-Type", "application/json");
-      xhr.setRequestHeader("apikey", cfg.anonKey);
-      xhr.timeout = 15000;
-      xhr.onload = function () {
-        try {
-          const body = JSON.parse(xhr.responseText);
-          if (xhr.status >= 200 && xhr.status < 300) {
-            resolve({ ok: true, userId: body?.id || body?.user?.id, error: null });
-          } else {
-            resolve({ ok: false, userId: null, error: body?.msg || body?.error_description || body?.message || "HTTP " + xhr.status });
-          }
-        } catch (e) { resolve({ ok: false, userId: null, error: "Parse error" }); }
-      };
-      xhr.onerror = function () { resolve({ ok: false, userId: null, error: "Network error" }); };
-      xhr.ontimeout = function () { resolve({ ok: false, userId: null, error: "Timeout" }); };
-      xhr.send(JSON.stringify({
-        email, password: randomPw,
-        data: { full_name: fullName }
-      }));
-    });
-
-    if (!signUpResult.ok) {
-      // ถ้า email ซ้ำ — บอกให้ชัด
-      if (/already|registered|duplicate/i.test(signUpResult.error || "")) {
-        throw new Error("อีเมลนี้ถูกใช้แล้ว");
-      }
-      throw new Error(signUpResult.error || "ลงทะเบียนไม่สำเร็จ");
-    }
-
-    // ── Step 2: ตั้ง full_name + role ใน profiles ──
-    // ★ ALWAYS update profiles (เดิมเช็คเฉพาะ role !== sales — ทำให้ sales user ไม่มีชื่อ)
-    if (signUpResult.userId) {
-      // รอให้ trigger สร้าง profile row ก่อน (Supabase มี trigger handle_new_user)
-      await new Promise(r => { setTimeout(r, 800); });
-      try {
-        const patchPayload = { full_name: fullName };
-        if (role && role !== "sales") patchPayload.role = role;
-        const res = await xhrPatch("profiles", patchPayload, "id", signUpResult.userId);
-        if (!res.ok) console.warn("[addNewUser] PATCH profiles failed:", res.error);
-        // ★ ถ้า PATCH ไม่สำเร็จ (อาจ trigger ยังไม่สร้าง row) → ลอง UPSERT
-        if (!res.ok) {
-          await new Promise(r => { setTimeout(r, 600); });
-          await fetch(cfg.url + "/rest/v1/profiles", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "apikey": cfg.anonKey,
-              "Authorization": "Bearer " + (window._sbAccessToken || cfg.anonKey),
-              "Prefer": "resolution=merge-duplicates,return=minimal"
-            },
-            body: JSON.stringify({ id: signUpResult.userId, full_name: fullName, role: role || "sales" })
-          }).catch(e => console.warn("[addNewUser] UPSERT profiles failed:", e));
-        }
-      } catch(e) { console.warn("[addNewUser] set name/role failed:", e); }
-    }
-
-    // ── Step 3: ส่งอีเมลเชิญตั้งรหัสผ่าน (recover endpoint) ──
-    await new Promise((resolve) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open("POST", cfg.url + "/auth/v1/recover");
-      xhr.setRequestHeader("Content-Type", "application/json");
-      xhr.setRequestHeader("apikey", cfg.anonKey);
-      xhr.timeout = 10000;
-      xhr.onload = () => resolve();
-      xhr.onerror = () => resolve();
-      xhr.ontimeout = () => resolve();
-      xhr.send(JSON.stringify({ email }));
-    });
-
-    $("newUserEmail").value = ""; $("newUserName").value = "";
-    closeAllDrawers();
-    await loadUsers();
-    showRoute("settings");
-    showToast(`✉️ ส่งคำเชิญไปที่ ${email} แล้ว — ผู้ใช้จะได้รับลิงก์ตั้งรหัสผ่าน`);
+    await userAdmin().addUser({ email, fullName, role });
   } catch (err) {
     console.error("[addNewUser] error:", err);
-    showToast("❌ " + (err.message || "สร้างผู้ใช้ไม่สำเร็จ"));
+    showToast("❌ เกิดข้อผิดพลาด — ไม่ทราบว่าสร้างบัญชีแล้วหรือไม่ กรุณาตรวจรายการผู้ใช้ก่อนลองใหม่");
   } finally {
     if (btn && btn.isConnected) { btn.disabled = false; btn.textContent = "✉️ ส่งคำเชิญทางอีเมล"; }
   }

@@ -1,5 +1,12 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
+**Phase 642 — add-user-role-verified (2026-10-01 · build 638 / v5.69.105 · local review candidate)**
+- Baseline `2650a719ffdae8ecdfa8cd1015729a14c15ce9a0` (origin/main · build 635). อิสระจาก Phase 640 (พักอยู่) — ไม่มีไฟล์/commit ของ 640.
+- ใหม่ `modules/settings/user_provisioning.js`: signup ครั้งเดียว (ไม่มี role ใน metadata) → poll profile → PATCH/UPSERT → read-back ต้องตรงก่อนแจ้งสำเร็จ → ส่งคำเชิญเฉพาะเมื่อยังเป็น admin. signup ไม่มีคำตอบ/5xx = ไม่ทราบว่าสร้างแล้ว; lookup error ≠ ไม่มีแถว; ค่าในข้อความมาจาก read-back รอบนี้เท่านั้น.
+- main.js: loadUsers คืน {ok}; changeRole/addNewUser/sendPasswordLinkFor เป็น wrapper. users.js: select แสดงสิทธิ์จริง (ไม่ใช่ Admin) + ปุ่มส่งลิงก์ต่อแถว; หลังเปลี่ยนสิทธิ์ select/ป้ายแสดงเฉพาะค่าที่รู้ (verified / ค่าที่อ่านกลับ / ไม่ทราบ) — คืนค่าเดิมเฉพาะเมื่อไม่มีการเขียน. retry รักษาประเภทงานเดิม (บัญชีเดิม = ตั้งสิทธิ์อย่างเดียว ไม่ส่ง recover) และใช้ userId/email ของงานแรก; ส่งลิงก์ด้วยอีเมลว่าง/ผิดรูปแบบ = ไม่มี request. รายการผู้ใช้ยังกรอง customer ออกเหมือนเดิม — บัญชีพนักงานที่ค้างเป็น customer แก้ผ่าน modal/ค้นด้วยอีเมล.
+- ไม่มี SQL/Auth/production smoke (ต้องให้เจ้าของอนุมัติแผน smoke แยก). Gap: ไม่มี audit_log writer ฝั่ง client.
+- **STOP: `READY-FOR-INDEPENDENT-PHASE-642-ADD-USER-ROLE-REVIEW`**
+
 **Phase 639 — ตั้งค่ารูปแบบเอกสารใหม่ + snapshot (2026-09-28 · build 635 / v5.69.102 · local review candidate)**
 - Baseline `ee173922fdd00bd3753be36c5294ea0114d1d0b3` (PR #235 / Phase 638 API merged). เปลี่ยนเลขงานเอกสารจาก candidate `6fc21dd` เป็น 639 ไม่ชนงาน API; branch `codex/phase-639-document-templates`. Owner อนุมัติปรับ baseline/เลขเฟสและแก้ review เฉพาะในเครื่อง.
 - ตั้งค่าชื่อจากรายการที่อนุญาต + หมายเหตุ/เงื่อนไขและการแสดงผลแยก QT/DI/RC; ส่วนหัว/ท้ายร่วม; synthetic preview ไม่สร้างเอกสารหรือจองเลข. ใบใหม่ snapshot ตอน INSERT, edit ไม่เขียนทับ, DI/RC ใช้ default ของชนิดใหม่ ไม่สืบทอดชื่อจากต้นทาง.

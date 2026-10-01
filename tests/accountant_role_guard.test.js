@@ -10,6 +10,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { renderRoleSelectOptions } from "../modules/settings/user_provisioning.js";
 
 const mainJs = fs.readFileSync(path.resolve("main.js"), "utf8");
 const usersJs = fs.readFileSync(path.resolve("modules/settings/users.js"), "utf8");
@@ -107,8 +108,12 @@ test("accountant ROLE_PAGES excludes operational/admin screens", () => {
 test("accountant role is selectable and labelled in user management", () => {
   assert.match(mainJs, /accountant:\s*"สำนักงานบัญชี"/, "ROLE_LABELS must include Thai accountant label");
   assert.match(usersJs, /accountant:\s*"#7c3aed"/, "settings user cards must have accountant color");
-  assert.match(usersJs, /<option value="accountant"[^>]*>สำนักงานบัญชี<\/option>/,
-    "existing-user role dropdown must include accountant");
+  // Phase 642: ตัวเลือกของ select ผู้ใช้เดิมมาจาก renderRoleSelectOptions — ตรวจผลที่ render จริง
+  assert.match(usersJs, /renderRoleSelectOptions\(p\.role, escHtml\)/, "existing-user role dropdown must use the shared renderer");
+  for (const current of ["sales", "accountant", "customer", null]) {
+    assert.match(renderRoleSelectOptions(current, (s) => String(s)), /<option value="accountant"[^>]*>สำนักงานบัญชี<\/option>/,
+      "existing-user role dropdown must include accountant");
+  }
   assert.match(indexHtml, /<option value="accountant">สำนักงานบัญชี<\/option>/,
     "new-user invitation dropdown must include accountant");
 });
