@@ -34,6 +34,7 @@ async function runSeed({ role, result, warehouses = [] }) {
 
 const okEmpty = { status: "fulfilled", value: { data: [], error: null } };
 const deniedRead = { status: "fulfilled", value: { data: null, error: { message: "RLS denied" } } };
+const deniedEmptyRead = { status: "fulfilled", value: { data: [], error: { message: "RLS denied" } } };
 
 for (const role of ["customer", "technician", "sales", "accountant", null]) {
   test(`${role ?? "missing profile"}: startup never inserts warehouses`, async () => {
@@ -50,12 +51,17 @@ test("customer: denied warehouse SELECT never turns into a seed INSERT", async (
 test("admin: successful confirmed empty read preserves existing seed behavior", async () => {
   const result = await runSeed({ role: "admin", result: okEmpty });
   assert.equal(result.inserts.length, 1);
-  assert.deepEqual(Array.from(result.inserts[0], row => row.sort_order), [1, 2, 3]);
+  assert.deepEqual(Array.from(result.inserts[0], row => [row.name, row.sort_order]), [
+    ["คันขาว", 1],
+    ["คันแดง", 2],
+    ["ศีขร", 3]
+  ]);
   assert.equal(result.warehouses.length, 3);
 });
 
 for (const [caseName, result] of [
   ["denied", deniedRead],
+  ["denied with empty data", deniedEmptyRead],
   ["rejected", { status: "rejected", reason: new Error("network") }],
   ["missing data", { status: "fulfilled", value: { data: null, error: null } }]
 ]) {
