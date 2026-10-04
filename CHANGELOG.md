@@ -5,6 +5,9 @@
 
 รูปแบบ: `<commit> feat|fix|docs|refactor: <สรุปสั้น>` + bullet 1-2 ข้อถ้าจำเป็น
 
+- `0916f29` fix(startup): ป้องกันลูกค้า seed คลังอัตโนมัติ (PR #238 · build 639 / v5.69.106 · deployed)
+  - Tests/Deploy ผ่านบน merge SHA; live HTTP 200 และ smoke หน้า UI ลูกค้าโดยไม่กดบันทึก/สร้างผ่านตามขอบเขต. ไม่ได้จับ network method หรืออ่าน DB footprint จึงไม่อ้างว่าเป็นหลักฐานไม่มี INSERT ระดับ request; รายการ local-only ด้านล่างเป็นประวัติก่อน merge.
+
 - fix(startup): ไม่ seed คลังเมื่อบัญชีไม่ใช่ admin หรืออ่านตารางไม่สำเร็จ (build 639 / v5.69.106 · local only)
   - ปิดคำขอ INSERT ที่เกิดระหว่างลูกค้าเปิดแอปหลัง SELECT ถูก RLS ปฏิเสธ; admin ยัง seed ได้เฉพาะเมื่อ SELECT สำเร็จและตารางว่างจริง. ไม่เปลี่ยน SQL/RLS/สูตรสต็อก/การขาย; รอ independent review ก่อนปล่อย.
 
