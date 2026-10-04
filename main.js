@@ -1288,8 +1288,11 @@ async function loadAllData(){
     state.warehouseStock    = valArr(rWhStock);
     /* eslint-enable require-atomic-updates */
 
-    // ★ Auto-seed warehouses ถ้ายังไม่มี
-    if (state.warehouses.length === 0) {
+    // ★ Auto-seed warehouses only after admin confirms the table is truly empty.
+    // A denied/failed SELECT also maps to [] in state, but must never trigger an INSERT.
+    const warehouseRead = rWarehouses.status === "fulfilled" ? rWarehouses.value : null;
+    if (state.profile?.role === "admin" && !warehouseRead?.error &&
+        Array.isArray(warehouseRead?.data) && warehouseRead.data.length === 0) {
       try {
         const defaultWarehouses = [
           { name: "คันขาว", sort_order: 1 },

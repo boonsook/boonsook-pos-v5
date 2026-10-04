@@ -1,5 +1,10 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
+**Customer warehouse startup guard (2026-10-04 · build 639 / v5.69.106 · local review candidate)**
+- Baseline `e04576f4` (`origin/main`, live build 638). Customer authenticated smoke found a denied `warehouses` auto-seed INSERT at startup: `loadAllData` maps failed/denied SELECT to `[]` before its seed branch.
+- `main.js` now seeds only when `profiles.role` read-back is admin and the warehouse SELECT itself succeeded with a true empty array. Non-admin, missing profile, denied/rejected/unknown reads do not INSERT; the successful-admin empty-table path retains the existing three seed names/order.
+- Added behavioral regression around the real seed block (initial baseline RED 8/10; final fixed 11/11). Local gates: lint 0 errors, unit 3844/3844, e2e 402/402. Bumped only app/SW build markers and their existing pin test. No SQL/RLS, stock calculation, POS, payment, API, or production writes. CI/deploy/live verification NOT RUN; production remains build 638 until approved release. STOP for independent review.
+
 **Phase 642 — add-user-role-verified (2026-10-01 · build 638 / v5.69.105 · local review candidate)**
 - Baseline `2650a719ffdae8ecdfa8cd1015729a14c15ce9a0` (origin/main · build 635). อิสระจาก Phase 640 (พักอยู่) — ไม่มีไฟล์/commit ของ 640.
 - ใหม่ `modules/settings/user_provisioning.js`: signup ครั้งเดียว (ไม่มี role ใน metadata) → poll profile → PATCH/UPSERT → read-back ต้องตรงก่อนแจ้งสำเร็จ → ส่งคำเชิญเฉพาะเมื่อยังเป็น admin. signup ไม่มีคำตอบ/5xx = ไม่ทราบว่าสร้างแล้ว; lookup error ≠ ไม่มีแถว; ค่าในข้อความมาจาก read-back รอบนี้เท่านั้น.
