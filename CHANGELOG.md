@@ -5,6 +5,9 @@
 
 รูปแบบ: `<commit> feat|fix|docs|refactor: <สรุปสั้น>` + bullet 1-2 ข้อถ้าจำเป็น
 
+- fix(startup): ไม่ seed คลังเมื่อบัญชีไม่ใช่ admin หรืออ่านตารางไม่สำเร็จ (build 639 / v5.69.106 · local only)
+  - ปิดคำขอ INSERT ที่เกิดระหว่างลูกค้าเปิดแอปหลัง SELECT ถูก RLS ปฏิเสธ; admin ยัง seed ได้เฉพาะเมื่อ SELECT สำเร็จและตารางว่างจริง. ไม่เปลี่ยน SQL/RLS/สูตรสต็อก/การขาย; รอ independent review ก่อนปล่อย.
+
 - Phase 642 fix(users): เพิ่มผู้ใช้/เปลี่ยนสิทธิ์ต้องยืนยันสิทธิ์ด้วย read-back (build 638 / v5.69.105 · local only)
   - signup ครั้งเดียว ไม่ใส่ role ใน metadata; สิทธิ์ต้องอ่านกลับได้ตรงก่อนแจ้งสำเร็จ/ส่งคำเชิญ; signup ไม่มีคำตอบ = "ไม่ทราบว่าสร้างแล้วหรือไม่"; บัญชีเดิมแก้ผ่าน assignRole ไม่สมัครซ้ำ; select ในรายการผู้ใช้ไม่แสดง Admin ให้คนที่ไม่ใช่ admin. ไม่มี SQL/Auth · ไม่เกี่ยวกับ Phase 640 · ยังไม่มี audit_log writer (gap)
 
