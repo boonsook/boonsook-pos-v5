@@ -1,5 +1,11 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
+**PR #238 — customer warehouse startup guard closeout (2026-10-04 · build 639 / v5.69.106 · deployed)**
+- Head `64b7d2bd4e97be0b90a7444024a7a7d319463b43` merged into `main` as `0916f2985b6d145aaaa29cf4fd65a6571e5a884c`; Tests and Deploy to Cloudflare Pages both succeeded on that merge SHA. Canonical `https://boonsukair.com/` returned HTTP 200 with build 639 / v5.69.106 and `selfheal.js`, `main.js`, `boot.js` pinned to `?v=639`.
+- Owner logged in as customer. UI-only live smoke without an explicit save/create action: reload stayed on `#customer_dashboard`, showed the customer role, connected-database status and product catalog; no warehouse-related console error or auto-created-warehouse message was observed. A fresh targeted run of `tests/customer_warehouse_startup_guard.test.js` passed 12/12, including customer denied SELECT and admin confirmed-empty/denied paths.
+- Scope of proof: browser tooling did not capture network request methods, startup side effects or a production DB footprint. Do not claim a trace-level proof that no INSERT occurred, or that the admin empty-table seed ran live. The local-candidate section below is historical; this entry supersedes its release status only.
+- No SQL, RLS, runtime, stock, payment, ledger or build-marker change in this docs-only closeout. Next: independent review of the docs commit before any push/PR. STOP `READY-FOR-INDEPENDENT-PR238-DOCS-CLOSEOUT-REVIEW`.
+
 **Customer warehouse startup guard (2026-10-04 · build 639 / v5.69.106 · local review candidate)**
 - Baseline `e04576f4` (`origin/main`, live build 638). Customer authenticated smoke found a denied `warehouses` auto-seed INSERT at startup: `loadAllData` maps failed/denied SELECT to `[]` before its seed branch.
 - `main.js` now seeds only when `profiles.role` read-back is admin and the warehouse SELECT itself succeeded with a true empty array. Non-admin, missing profile, denied/rejected/unknown reads do not INSERT; the successful-admin empty-table path retains the existing three seed names/order.
