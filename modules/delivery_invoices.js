@@ -863,12 +863,14 @@ function renderInvoicePreview(container) {
   });
 
   // ── date toggle ──
-  const diDateCell = document.getElementById("diDateCell");
+  const diDateCells = document.querySelectorAll("#diDocPreview [id='diDateCell']");
   const diShowDate = document.getElementById("diShowDate");
-  if (diShowDate && diDateCell) {
-    diShowDate.addEventListener("change", () => {
-      diDateCell.textContent = diShowDate.checked ? dateTH(inv.created_at) : "..................................";
-    });
+  const syncDiPreviewDates = () => {
+    diDateCells.forEach(cell => { cell.textContent = diShowDate?.checked ? dateTH(inv.created_at) : ".................................."; });
+  };
+  syncDiPreviewDates();
+  if (diShowDate && diDateCells.length) {
+    diShowDate.addEventListener("change", syncDiPreviewDates);
   }
 
   // ★ แก้วันที่เอกสาร — อนุญาตเมื่อไม่มีใบเสร็จอ้างอิง
@@ -881,7 +883,7 @@ function renderInvoicePreview(container) {
       if (res && res.ok === false) throw new Error(res.error?.message || "patch failed");
       // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L4 doc-edit handler (date input change, single admin)
       inv.created_at = isoDate;
-      if (diShowDate?.checked && diDateCell) diDateCell.textContent = dateTH(isoDate);
+      syncDiPreviewDates();
       _ctx.showToast("อัปเดตวันที่เรียบร้อย ✓");
     } catch (e) {
       console.error("[delivery_invoices edit date] error:", e);

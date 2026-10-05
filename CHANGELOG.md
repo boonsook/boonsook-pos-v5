@@ -5,6 +5,9 @@
 
 รูปแบบ: `<commit> feat|fix|docs|refactor: <สรุปสั้น>` + bullet 1-2 ข้อถ้าจำเป็น
 
+- Phase 643 fix(documents): Preview โหมดมืดอ่านตารางได้ และวันที่แสดงตาม checkbox ตั้งแต่เปิด QT/DI/RC (build 640 / v5.69.107 · local only)
+  - DI/RC อัปเดตต้นฉบับกับสำเนาพร้อมกัน; เส้นทางพิมพ์/PDF ผ่าน `doc-override.js` ใช้ DOM ที่ sync แล้ว. ไม่แตะสูตรเงิน, save/convert/payment, SQL หรือข้อมูลจริง. Regression baseline RED → 14/14; lint 0, unit 3845/3845, full e2e exit 0 (415 pass, 1 startup smoke flaky/retry); รอ independent review. STOP `READY-FOR-INDEPENDENT-PHASE-643-REVIEW`.
+
 - `0916f29` fix(startup): ป้องกันลูกค้า seed คลังอัตโนมัติ (PR #238 · build 639 / v5.69.106 · deployed)
   - Tests/Deploy ผ่านบน merge SHA; live HTTP 200 และ smoke หน้า UI ลูกค้าโดยไม่กดบันทึก/สร้างผ่านตามขอบเขต. ไม่ได้จับ network method หรืออ่าน DB footprint จึงไม่อ้างว่าเป็นหลักฐานไม่มี INSERT ระดับ request; รายการ local-only ด้านล่างเป็นประวัติก่อน merge.
 

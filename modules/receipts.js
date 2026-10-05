@@ -1064,12 +1064,14 @@ function renderReceiptPreview(container) {
   });
 
   // ── date toggle ──
-  const rcDateCell = document.getElementById("rcDateCell");
+  const rcDateCells = document.querySelectorAll("#rcDocPreview [id='rcDateCell']");
   const rcShowDate = document.getElementById("rcShowDate");
-  if (rcShowDate && rcDateCell) {
-    rcShowDate.addEventListener("change", () => {
-      rcDateCell.textContent = rcShowDate.checked ? dateTH(r.created_at) : "..................................";
-    });
+  const syncRcPreviewDates = () => {
+    rcDateCells.forEach(cell => { cell.textContent = rcShowDate?.checked ? dateTH(r.created_at) : ".................................."; });
+  };
+  syncRcPreviewDates();
+  if (rcShowDate && rcDateCells.length) {
+    rcShowDate.addEventListener("change", syncRcPreviewDates);
   }
 
   // ★ แก้วันที่เอกสาร — PATCH created_at
@@ -1082,9 +1084,7 @@ function renderReceiptPreview(container) {
       if (res && res.ok === false) throw new Error(res.error?.message || "patch failed");
       // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L4 doc-edit handler (date input change, single admin)
       r.created_at = isoDate;
-      document.querySelectorAll("#rcDocPreview [id^='rcDateCell']").forEach(el => {
-        if (rcShowDate?.checked) el.textContent = dateTH(isoDate);
-      });
+      syncRcPreviewDates();
       _ctx.showToast("อัปเดตวันที่เรียบร้อย ✓");
     } catch (e) {
       console.error("[receipts edit date] error:", e);

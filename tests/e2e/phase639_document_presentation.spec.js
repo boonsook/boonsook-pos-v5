@@ -253,3 +253,77 @@ test('639 new QT save includes snapshot; draft preview is write-free; edit PATCH
   await expect.poll(()=>page.evaluate(()=>window.__writes.filter(w=>w.method==='PATCH'&&w.table==='quotations').length)).toBe(1);
   expect(await page.evaluate(()=>Object.hasOwn(window.__writes.find(w=>w.method==='PATCH'&&w.table==='quotations').payload,'document_template_snapshot'))).toBe(false);
 });
+
+// Phase 643: date visibility is a presentation choice, including both DI/RC copies.
+// The effective print/PDF path is the capturing doc-override listener, not module-local handlers.
+for (const theme of ['light','dark']) for (const width of [390,1280]) for (const doc of docs) {
+  test(`643 ${doc[0]} ${theme} ${width}: readable preview and date choice in preview/print/PDF`,async({page,context})=>{
+    await boot(page,context,width);
+    await page.evaluate(theme=>{ document.documentElement.dataset.theme=theme; },theme);
+    await openDoc(page,doc);
+    const [,kind,,,,,copies]=doc;
+    const preview=page.locator('#'+kind+'DocPreview');
+    const dates=preview.locator(`[id="${kind}DateCell"]`);
+    const toggle=page.locator('#'+kind+'ShowDate');
+    await expect(dates).toHaveCount(copies);
+    await expect(toggle).toBeChecked();
+
+    const contrast=await page.evaluate(kind=>{
+      const root=document.getElementById(kind+'DocPreview');
+      const paper=getComputedStyle(root.querySelector('.doc-page')).backgroundColor;
+      const cells=[...root.querySelectorAll('.doc-detail-table td:last-child, .doc-table tbody tr.doc-item-row td')];
+      const rgb=s=>s.match(/[\d.]+/g).slice(0,3).map(Number);
+      const luminance=s=>rgb(s).map(v=>{v/=255;return v<=0.04045?v/12.92:((v+0.055)/1.055)**2.4;}).reduce((sum,v,i)=>sum+v*[0.2126,0.7152,0.0722][i],0);
+      const bg=luminance(paper);
+      return cells.map(cell=>{
+        const fg=luminance(getComputedStyle(cell).color);
+        return (Math.max(fg,bg)+0.05)/(Math.min(fg,bg)+0.05);
+      });
+    },kind);
+    expect(contrast.length).toBeGreaterThan(0);
+    for(const ratio of contrast) expect(ratio).toBeGreaterThanOrEqual(4.5);
+
+    for (const showDate of [true,false,true]) {
+      if(showDate) await toggle.check(); else await toggle.uncheck();
+      for(const cell of await dates.all()) {
+        if(showDate) await expect(cell).toContainText(/28.*2569/);
+        else await expect(cell).toHaveText(/^\.{10,}$/);
+      }
+      for(const suffix of ['PrintBtn','PdfBtn']) {
+        const popupPromise=page.waitForEvent('popup');
+        await page.locator('#'+kind+suffix).click();
+        const popup=await popupPromise; await popup.waitForLoadState('domcontentloaded');
+        const printedDates=popup.locator('#'+kind+'DocPreview [id="'+kind+'DateCell"]');
+        await expect(printedDates).toHaveCount(copies);
+        for(const cell of await printedDates.all()) {
+          if(showDate) await expect(cell).toContainText(/28.*2569/);
+          else await expect(cell).toHaveText(/^\.{10,}$/);
+        }
+        await popup.close();
+      }
+    }
+    await noDocumentWrites(page);
+  });
+}
+
+for (const doc of docs.filter(([,kind])=>kind!=='qt')) {
+  test(`643 ${doc[0]}: existing date-edit control updates both copies without changing show/hide choice`,async({page,context})=>{
+    await boot(page,context);
+    const [,kind]=doc;
+    if(kind==='di') await page.evaluate(()=>{
+      // Synthetic DI without a linked receipt: the existing edit-date control is then available.
+      window.__ctx.state.receipts[0].delivery_invoice_id=null;
+      window.__baseline=JSON.stringify([window.__ctx.state.quotations,window.__ctx.state.deliveryInvoices,window.__ctx.state.receipts]);
+    });
+    await openDoc(page,doc);
+    const dates=page.locator('#'+kind+'DocPreview [id="'+kind+'DateCell"]');
+    const toggle=page.locator('#'+kind+'ShowDate');
+    await toggle.uncheck();
+    await page.locator('#'+kind+'EditDate').fill('2026-09-29');
+    await expect.poll(()=>page.evaluate(()=>window.__writes.length)).toBe(1);
+    for(const cell of await dates.all()) await expect(cell).toHaveText(/^\.{10,}$/);
+    await toggle.check();
+    for(const cell of await dates.all()) await expect(cell).toContainText(/29.*2569/);
+    expect(await page.evaluate(()=>window.__writes.map(w=>w.method))).toEqual(['PATCH']);
+  });
+}
