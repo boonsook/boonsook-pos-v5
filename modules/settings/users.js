@@ -17,7 +17,7 @@ export function renderSettingsUsers(el, ctx, goBack, navigateToView) {
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap">
         <div style="font-size:11px;color:#94a3b8">${users.length} ผู้ใช้ในระบบ</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
-          <button id="syncUsersBtn" class="btn light" style="font-size:12px" title="ดึง user ที่อาจตกหล่นจาก Supabase auth → profiles">🔄 Sync ผู้ใช้</button>
+          <button id="syncUsersBtn" class="btn light" style="font-size:12px" title="ตรวจโปรไฟล์จากรายการผู้ใช้ที่อ่านได้ โดยไม่เปลี่ยนสิทธิ์เดิม">🔄 Sync ผู้ใช้</button>
           <button id="openAddUserBtn" class="btn primary">+ เพิ่มผู้ใช้</button>
         </div>
       </div>
@@ -81,7 +81,7 @@ export function renderSettingsUsers(el, ctx, goBack, navigateToView) {
   document.getElementById("setBackBtn")?.addEventListener("click", goBack);
   document.getElementById("openAddUserBtn")?.addEventListener("click", openAddUserDrawer);
 
-  // ★ Sync ผู้ใช้จาก auth.users (ใช้ profiles_with_email VIEW) → กรอก profiles ที่ขาด
+  // This view starts from profiles; it cannot discover auth-only accounts.
   document.getElementById("syncUsersBtn")?.addEventListener("click", async () => {
     const btn = document.getElementById("syncUsersBtn");
     btn.disabled = true; btn.textContent = "⏳ กำลัง sync...";
@@ -92,9 +92,11 @@ export function renderSettingsUsers(el, ctx, goBack, navigateToView) {
       const viewRes = await fetch(cfg.url + "/rest/v1/profiles_with_email?select=id,email,full_name,role", {
         headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + accessToken }
       });
-      let viewData = [];
-      if (viewRes.ok) {
-        try { viewData = await viewRes.json(); } catch(e){}
+      if (!viewRes.ok) throw new Error("อ่านรายการผู้ใช้ไม่สำเร็จ");
+      const viewData = await viewRes.json();
+      const knownRoles = ["customer", "sales", "technician", "accountant", "admin"];
+      if (!Array.isArray(viewData) || viewData.some(u => !u || typeof u.id !== "string" || !u.id || !knownRoles.includes(u.role))) {
+        throw new Error("ข้อมูลสิทธิ์ผู้ใช้ไม่ครบ — กรุณาตรวจสอบก่อน Sync");
       }
 
       // Step 2: หา id ที่อยู่ใน VIEW แต่ไม่อยู่ใน state.allProfiles
@@ -102,18 +104,19 @@ export function renderSettingsUsers(el, ctx, goBack, navigateToView) {
       const missing = (viewData || []).filter(v => !existingIds.has(String(v.id)));
 
       if (missing.length === 0) {
-        showToast?.("✓ ผู้ใช้ครบแล้ว — ไม่มีตกหล่น");
+        showToast?.("ไม่พบโปรไฟล์เพิ่มเติมจากรายการที่อ่านได้");
         btn.disabled = false; btn.textContent = "🔄 Sync ผู้ใช้";
         return;
       }
 
-      // Step 3: UPSERT แต่ละคนเข้า profiles
+      // Insert missing rows only. A stale view must never overwrite an existing role.
       let ok = 0;
+      let unresolved = 0;
       for (const u of missing) {
         const payload = {
           id: u.id,
           full_name: u.full_name || (u.email ? u.email.split("@")[0] : ""),
-          role: u.role || "sales"
+          role: "customer"
         };
         try {
           const r = await fetch(cfg.url + "/rest/v1/profiles", {
@@ -122,20 +125,25 @@ export function renderSettingsUsers(el, ctx, goBack, navigateToView) {
               "Content-Type": "application/json",
               "apikey": cfg.anonKey,
               "Authorization": "Bearer " + accessToken,
-              "Prefer": "resolution=merge-duplicates,return=minimal"
+              "Prefer": "resolution=ignore-duplicates,return=representation"
             },
             body: JSON.stringify(payload)
           });
-          if (r.ok) ok++;
-        } catch(e) {}
+          if (!r.ok) { unresolved++; continue; }
+          const inserted = await r.json();
+          if (Array.isArray(inserted) && inserted.length === 1 && inserted[0]?.id === u.id && inserted[0]?.role === "customer") ok++;
+          else unresolved++;
+        } catch(e) { unresolved++; }
       }
 
-      showToast?.(`✓ Sync สำเร็จ ${ok}/${missing.length} user`);
+      showToast?.(unresolved
+        ? `⚠️ เพิ่มโปรไฟล์ลูกค้า ${ok} รายการ · ${unresolved} รายการมีอยู่แล้วหรือยืนยันไม่ได้ — โหลดข้อมูลใหม่ก่อนตั้งสิทธิ์พนักงาน`
+        : `✓ เพิ่มโปรไฟล์ลูกค้า ${ok} รายการ — ตั้งสิทธิ์พนักงานผ่านเมนูเพิ่มผู้ใช้`);
       if (window.App?.loadAllData) await window.App.loadAllData();
       // re-render
       if (window.App?.showRoute) window.App.showRoute("settings");
     } catch (e) {
-      showToast?.("❌ ผิดพลาด: " + (e?.message || e) + " — ลองรัน SQL backfill แทน");
+      showToast?.("❌ Sync ไม่สำเร็จ: " + (e?.message || e));
     } finally {
       btn.disabled = false; btn.textContent = "🔄 Sync ผู้ใช้";
     }
