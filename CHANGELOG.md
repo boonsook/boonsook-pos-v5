@@ -3,6 +3,8 @@
 รายการการแก้ไขแบบสั้น เรียงจากใหม่ → เก่า
 รายละเอียดเชิงลึก (architecture / why) ดูใน [HANDOFF.md](HANDOFF.md)
 
+- Phase 645 B1 local SQL candidate: จำกัด credit RPC สองตัวด้วย trusted profile และ database role; revoke anon/PUBLIC/service_role. ไม่รวม direct-ledger RLS หรือ B2, ไม่เปลี่ยน build 641 และยังไม่ apply/push. รายละเอียดและข้อจำกัดใน `PHASE645-CREDIT-RPC-RUNBOOK.md`.
+
 - Phase 644 release prep: รีเฟรชรายชื่อโปรไฟล์ที่อ่านได้ (build 641 / v5.69.108 · LOCAL ONLY)
   - เตรียม build/cache markers สำหรับ correction `9f5b052` ที่อ่านอย่างเดียว ไม่เปลี่ยนสิทธิ์หรือกู้ auth-only accounts; runtime และ tests ของ correction คงเดิมทุกไบต์. ผล gate ต้องอ้าง final release commit และต้องผ่าน independent review ก่อนขั้น push/PR; ยังไม่ deploy และไม่รัน SQL ซ้ำ.
 
