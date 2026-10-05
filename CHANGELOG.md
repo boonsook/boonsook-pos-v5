@@ -3,6 +3,9 @@
 รายการการแก้ไขแบบสั้น เรียงจากใหม่ → เก่า
 รายละเอียดเชิงลึก (architecture / why) ดูใน [HANDOFF.md](HANDOFF.md)
 
+- Phase 644 release prep: รีเฟรชรายชื่อโปรไฟล์ที่อ่านได้ (build 641 / v5.69.108 · LOCAL ONLY)
+  - เตรียม build/cache markers สำหรับ correction `9f5b052` ที่อ่านอย่างเดียว ไม่เปลี่ยนสิทธิ์หรือกู้ auth-only accounts; runtime และ tests ของ correction คงเดิมทุกไบต์. ผล gate ต้องอ้าง final release commit และต้องผ่าน independent review ก่อนขั้น push/PR; ยังไม่ deploy และไม่รัน SQL ซ้ำ.
+
 รูปแบบ: `<commit> feat|fix|docs|refactor: <สรุปสั้น>` + bullet 1-2 ข้อถ้าจำเป็น
 
 - Phase 643 fix(documents): Preview โหมดมืดอ่านตารางได้ และวันที่แสดงตาม checkbox ตั้งแต่เปิด QT/DI/RC (build 640 / v5.69.107 · local only)

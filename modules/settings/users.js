@@ -15,9 +15,9 @@ export function renderSettingsUsers(el, ctx, goBack, navigateToView) {
       </div>
 
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap">
-        <div style="font-size:11px;color:#94a3b8">${users.length} ผู้ใช้ในระบบ</div>
+        <div style="font-size:11px;color:#94a3b8">${users.length} โปรไฟล์พนักงานที่อ่านได้</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
-          <button id="syncUsersBtn" class="btn light" style="font-size:12px" title="ดึง user ที่อาจตกหล่นจาก Supabase auth → profiles">🔄 Sync ผู้ใช้</button>
+          <button id="syncUsersBtn" class="btn light" style="font-size:12px" title="รีเฟรชรายชื่อโปรไฟล์ที่อ่านได้ โดยไม่สร้างบัญชีหรือเปลี่ยนสิทธิ์">🔄 รีเฟรชรายชื่อ</button>
           <button id="openAddUserBtn" class="btn primary">+ เพิ่มผู้ใช้</button>
         </div>
       </div>
@@ -73,7 +73,7 @@ export function renderSettingsUsers(el, ctx, goBack, navigateToView) {
               </div>
             </div>
           `;
-        }).join("") : '<div style="text-align:center;padding:24px;color:#94a3b8">ยังไม่มีผู้ใช้ — กด "+ เพิ่มผู้ใช้" เพื่อเริ่มต้น</div>'}
+        }).join("") : '<div style="text-align:center;padding:24px;color:#94a3b8">ไม่พบโปรไฟล์พนักงานในรายการที่อ่านได้</div>'}
       </div>
     </div>
   `;
@@ -81,63 +81,50 @@ export function renderSettingsUsers(el, ctx, goBack, navigateToView) {
   document.getElementById("setBackBtn")?.addEventListener("click", goBack);
   document.getElementById("openAddUserBtn")?.addEventListener("click", openAddUserDrawer);
 
-  // ★ Sync ผู้ใช้จาก auth.users (ใช้ profiles_with_email VIEW) → กรอก profiles ที่ขาด
+  // This view starts from profiles; refreshing it cannot recover auth-only accounts.
   document.getElementById("syncUsersBtn")?.addEventListener("click", async () => {
     const btn = document.getElementById("syncUsersBtn");
-    btn.disabled = true; btn.textContent = "⏳ กำลัง sync...";
+    if (!btn || btn.disabled) return;
+    if (ctx.requireAdmin?.() !== true) {
+      showToast?.("เฉพาะ Admin รีเฟรชรายชื่อได้");
+      return;
+    }
+    btn.disabled = true; btn.textContent = "⏳ กำลังรีเฟรช...";
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
     try {
-      // Step 1: query profiles_with_email VIEW (มี email + full_name จาก auth.users)
       const cfg = window.SUPABASE_CONFIG;
       const accessToken = window._sbAccessToken || cfg.anonKey;
-      const viewRes = await fetch(cfg.url + "/rest/v1/profiles_with_email?select=id,email,full_name,role", {
-        headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + accessToken }
+      // Same view/order as loadUsers. Do not use its fallback/global loader:
+      // loadUsers clears state on errors, while loadAllData can run startup writes.
+      const viewRes = await fetch(cfg.url + "/rest/v1/profiles_with_email?select=*&order=created_at", {
+        headers: { "apikey": cfg.anonKey, "Authorization": "Bearer " + accessToken },
+        signal: controller.signal
       });
-      let viewData = [];
-      if (viewRes.ok) {
-        try { viewData = await viewRes.json(); } catch(e){}
+      if (!viewRes.ok) throw new Error("อ่านรายการผู้ใช้ไม่สำเร็จ");
+      const viewData = await viewRes.json();
+      if (controller.signal.aborted) throw new Error("หมดเวลารอข้อมูล");
+      const knownRoles = ["customer", "sales", "technician", "accountant", "admin"];
+      if (!Array.isArray(viewData) || viewData.some(u => !u || typeof u.id !== "string" || !u.id ||
+        !knownRoles.includes(u.role) ||
+        (u.full_name != null && typeof u.full_name !== "string") ||
+        (u.email != null && typeof u.email !== "string") ||
+        (u.created_at != null && typeof u.created_at !== "string"))) {
+        throw new Error("รูปแบบข้อมูลโปรไฟล์ไม่ถูกต้อง");
       }
-
-      // Step 2: หา id ที่อยู่ใน VIEW แต่ไม่อยู่ใน state.allProfiles
-      const existingIds = new Set((state.allProfiles || []).map(p => String(p.id)));
-      const missing = (viewData || []).filter(v => !existingIds.has(String(v.id)));
-
-      if (missing.length === 0) {
-        showToast?.("✓ ผู้ใช้ครบแล้ว — ไม่มีตกหล่น");
-        btn.disabled = false; btn.textContent = "🔄 Sync ผู้ใช้";
-        return;
-      }
-
-      // Step 3: UPSERT แต่ละคนเข้า profiles
-      let ok = 0;
-      for (const u of missing) {
-        const payload = {
-          id: u.id,
-          full_name: u.full_name || (u.email ? u.email.split("@")[0] : ""),
-          role: u.role || "sales"
-        };
-        try {
-          const r = await fetch(cfg.url + "/rest/v1/profiles", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "apikey": cfg.anonKey,
-              "Authorization": "Bearer " + accessToken,
-              "Prefer": "resolution=merge-duplicates,return=minimal"
-            },
-            body: JSON.stringify(payload)
-          });
-          if (r.ok) ok++;
-        } catch(e) {}
-      }
-
-      showToast?.(`✓ Sync สำเร็จ ${ok}/${missing.length} user`);
-      if (window.App?.loadAllData) await window.App.loadAllData();
-      // re-render
-      if (window.App?.showRoute) window.App.showRoute("settings");
+      // Ignore late responses after navigation/re-render or loss of admin access.
+      if (document.getElementById("syncUsersBtn") !== btn) return;
+      if (ctx.requireAdmin?.() !== true) throw new Error("ไม่มีสิทธิ์ Admin");
+      state.allProfiles = viewData;
+      renderSettingsUsers(el, ctx, goBack, navigateToView);
+      showToast?.("✓ รีเฟรชรายชื่อโปรไฟล์ที่อ่านได้ " + viewData.length + " รายการ — ตามสิทธิ์และขอบเขตที่อ่านได้");
     } catch (e) {
-      showToast?.("❌ ผิดพลาด: " + (e?.message || e) + " — ลองรัน SQL backfill แทน");
+      if (document.getElementById("syncUsersBtn") === btn) {
+        showToast?.("❌ รีเฟรชรายชื่อไม่สำเร็จ — " + (controller.signal.aborted ? "หมดเวลารอข้อมูล กรุณาลองใหม่" : (e?.message || e)));
+      }
     } finally {
-      btn.disabled = false; btn.textContent = "🔄 Sync ผู้ใช้";
+      clearTimeout(timeout);
+      btn.disabled = false; btn.textContent = "🔄 รีเฟรชรายชื่อ";
     }
   });
 
