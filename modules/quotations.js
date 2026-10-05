@@ -1587,11 +1587,12 @@ function renderQuotationPreview(container) {
   // ── date toggle ──
   const qtDateCell = document.getElementById("qtDateCell");
   const qtShowDate = document.getElementById("qtShowDate");
-  if (isDraft && qtDateCell) qtDateCell.textContent = dateTH(q.created_at);
+  const syncQtPreviewDate = () => {
+    if (qtDateCell) qtDateCell.textContent = qtShowDate?.checked ? dateTH(q.created_at) : "..................................";
+  };
+  syncQtPreviewDate();
   if (qtShowDate && qtDateCell) {
-    qtShowDate.addEventListener("change", () => {
-      qtDateCell.textContent = qtShowDate.checked ? dateTH(q.created_at) : "..................................";
-    });
+    qtShowDate.addEventListener("change", syncQtPreviewDate);
   }
 
   // ★ แก้วันที่เอกสาร — อนุญาตเมื่อไม่มีใบส่งสินค้าอ้างอิง
@@ -1605,7 +1606,7 @@ function renderQuotationPreview(container) {
       if (res && res.ok === false) throw new Error(res.error?.message || "patch failed");
       // eslint-disable-next-line require-atomic-updates -- LOW_RISK: L4 doc-edit handler (date input change, single admin)
       q.created_at = isoDate;
-      if (qtShowDate?.checked && qtDateCell) qtDateCell.textContent = dateTH(isoDate);
+      syncQtPreviewDate();
       _ctx.showToast("อัปเดตวันที่เรียบร้อย ✓");
     } catch (e) {
       console.error("[quotations edit date] error:", e);
