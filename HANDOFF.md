@@ -1,5 +1,11 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
+**Phase 645 B1 — production SQL closeout (2026-10-06 · docs only · build remains 641 / v5.69.108)**
+- PR #242 locked head `7af8d972566a283081a71b94f4d7c4f473294e98` → merge `3a3ee8e09379ad011c29f33c838c652d5907974c`; exact migration SHA-256 `568123fe489b7e1bb1e80b3255abc8807e96ed5a4e4545f4dfc7260e440729b1`.
+- Owner approved and ran whole SQL once through session-mode psql. Result `BEGIN ... COMMIT`, exit 0; fresh read-only preflight passed, then separate read-only post-check returned `PHASE645 CATALOG PASS`/`ROLLBACK`. Independent artifact review found no catalog-level Blocking. Hashes/provenance in `DB_MIGRATIONS_APPLIED.md`; **never reapply B1**.
+- Scope of proof: RPC body/metadata/ACL catalog only. No live behavioral credit call, business-row read, direct-ledger containment, or B2 active-sale release test. Stderr displayed in owner's terminal but was not retained. Next: fresh ledger catalog-only check and redesign Phase 646 with owner-required admin approval for each credit refund; preserve accountant SELECT and technician normal credit use. Phase 646/B2 SQL require separate reviews/approval.
+
+
 **Phase 645 — B1 RPC-only local candidate (2026-10-05 · build remains 641 / v5.69.108)**
 - Baseline `bb9f66cd4f62645819400e2b087a446a92078269` (PR #241 merged). Branch `codex/phase-645-credit-rpc-authz`; final SHA, migration SHA-256 and final-commit gate results belong to the separate delivery evidence report.
 - Only redeem/release credit RPC definitions and EXECUTE ACLs change. First-statement database-role + trusted-profile guard allows admin/sales/technician; PUBLIC/anon/service_role are revoked explicitly. Money statements preserved apart from safe builtin qualification; function owner/return/default/locking/idempotency retained. REPEATABLE READ transaction, exact raw-body/metadata/ACL preflight, atomic postcheck and timeouts. No ledger RLS/data/runtime/build changes.

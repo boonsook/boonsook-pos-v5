@@ -34,6 +34,14 @@
 
 ---
 
+## ✅ Applied — 2026-10-06
+
+| SQL file | ทำอะไร | applied | verified อย่างไร |
+|---|---|---|---|
+| `supabase-phase645-credit-rpc-authz.sql` (PR #242 head `7af8d972566a283081a71b94f4d7c4f473294e98`, merge `3a3ee8e09379ad011c29f33c838c652d5907974c`, SHA-256 `568123fe489b7e1bb1e80b3255abc8807e96ed5a4e4545f4dfc7260e440729b1`) | B1 จำกัด `redeem_customer_credit` และ `release_customer_credit` ด้วย database role `authenticated` + trusted `profiles.role` admin/sales/technician; revoke EXECUTE จาก PUBLIC/anon/service_role. ไม่แตะ ledger grants/RLS, ข้อมูลเครดิต, B2 หรือ build 641 | **Owner-approved, owner-run** ผ่าน psql session-mode pooler :5432, TLS verify-full, ทั้งไฟล์ครั้งเดียว; result มี `BEGIN` → `CREATE FUNCTION` ×2 → `REVOKE` ×2 → `GRANT` ×2 → `NOTIFY` → `COMMIT`, exit 0. **ห้ามรันซ้ำ** | Fresh read-only preflight v3 `PHASE645 PREFLIGHT PASS` + `ROLLBACK` (result SHA `12984e1c6fa17e650cacc1592f32c1dcd83c26968819fb97841a93171276fe3f`); apply result SHA `39f03dcd9e71d544c88636df47b24fdccb842902c925beecb1005cef5aeb13a3`; separate read-only post-check `PHASE645 CATALOG PASS` + `ROLLBACK` (result SHA `a7dba27059a5c06d4f7a25f1bdd494beccaa90865b70927f9f1080a2aa118941`). Independent artifact review PASS ระดับ catalog; ไม่ได้เรียก RPC จริง/อ่านข้อมูลธุรกิจ และ stderr ไม่ถูกเก็บเป็นไฟล์. Direct-ledger containment กับ B2 ยังเปิดแยก |
+
+---
+
 ## ✅ Applied — 2026-09-27
 
 | SQL file | ทำอะไร | applied | verified อย่างไร |
