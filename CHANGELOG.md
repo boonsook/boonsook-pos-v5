@@ -3,6 +3,8 @@
 รายการการแก้ไขแบบสั้น เรียงจากใหม่ → เก่า
 รายละเอียดเชิงลึก (architecture / why) ดูใน [HANDOFF.md](HANDOFF.md)
 
+- Phase 646 status correction (docs only; build คง 642): บันทึกว่า owner-approved SQL SHA `d360562b…a467` ลง production แล้วและ catalog post-check ได้ 10 true + 1 verifier formatting false ที่ตรวจแยกกับฟังก์ชัน 10/10; ห้ามรัน SQL ซ้ำ. แอป build 642 ยังไม่ push/PR/merge/deploy, คงพัก refund เครดิต และต้องขออนุมัติแยกสำหรับการทดสอบคืนเงินจริง. ดู `DB_MIGRATIONS_APPLIED.md` / `PHASE646-RELEASE-REVIEW.md`.
+
 - Phase 645 B1 production SQL closeout (docs only, build คง 641): PR #242 merge `3a3ee8e`, migration SHA `568123fe…729b1`; owner ยืนยัน target/การอนุมัติ, log เก็บผล `COMMIT`/exit 0 หนึ่งรอบและ read-only post-check ผ่านระดับ catalog แต่ log ไม่พิสูจน์ target identity อย่างอิสระ. ห้ามรัน B1 ซ้ำจากผลนี้. Direct-ledger และ B2 ยังไม่ปิด; ดู `DB_MIGRATIONS_APPLIED.md`.
 
 - **Historical/superseded status (2026-10-05):** Phase 645 B1 local SQL candidate จำกัด credit RPC สองตัวด้วย trusted profile และ database role; revoke anon/PUBLIC/service_role. ไม่รวม direct-ledger RLS หรือ B2, ไม่เปลี่ยน build 641; ข้อความเดิมที่ว่า `ยังไม่ apply/push` หมายถึงวันนั้นเท่านั้น ดู closeout ด้านบนและ `PHASE645-CREDIT-RPC-RUNBOOK.md`.

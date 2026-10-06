@@ -1,10 +1,13 @@
-# Phase 646 release review — local candidate, NOT approved for production
+# Phase 646 release review — SQL applied, app release pending
 
 Baseline: `99c0303` (build 641). Candidate client: build 642 / v5.69.109.
 SQL: `supabase-phase646-credit-refund-approval.sql`.
 Current SQL SHA-256: `d360562bdd408cbbbca1edbf54f2af1ad309e7c91cab970e59d11a8a4625a467`.
-Recompute from the exact reviewed file before any approval or apply; any byte change
-invalidates this pin. No SQL has been run on staging or production.
+The reviewed SQL at this SHA was applied to production under separate owner
+approval on 2026-10-06. Do not apply it again. At this review snapshot, the
+app build 642 has not been pushed, merged or deployed; credit refunds remain
+paused. A byte change to the SQL would be a new migration requiring separate
+review and approval.
 The prior approval of `c6eb13f3...70ae7e0d9` is invalid for this changed SQL.
 The prior ID-order candidate `9a9b3766...5b79ea83ed8` is also invalid:
 independent review and the a21 local counterexample proved a bypass. The
@@ -12,8 +15,9 @@ history-only candidate `1b2af060...c412d16` is invalid too: an independent
 review and a25 local RED test proved staff could rewrite a redeem row. The
 deduction-only candidate `6174c6af...dfa339c63` is invalid too: independent
 review and a29 local RED test proved staff could relabel a sale earn row.
-The current SHA makes loyalty history append-only; independent review and
-owner approval are still required before a fresh preflight or any apply.
+The current SHA makes loyalty history append-only. Its independent local
+review, owner approval, fresh read-only preflight and one successful apply
+are historical gates now; none authorizes a second apply or app deployment.
 
 ## Scope and owner policy
 
@@ -49,8 +53,21 @@ owner approval are still required before a fresh preflight or any apply.
 
 ## Evidence available now
 
-- Production catalog only: `PHASE646-PRODUCTION-CATALOG-READONLY-20261006.md`.
-  No business rows, RPC behavior or migration apply were read/tested live.
+- Before apply, production catalog only:
+  `PHASE646-PRODUCTION-CATALOG-READONLY-20261006.md`.
+- After owner-approved apply, retained psql result shows one `BEGIN` through
+  final `COMMIT` with empty stderr. The owner reported a production/session-mode
+  connection; the retained command tags do not independently prove target or
+  transport. The read-only post-check returned ten true categories and one
+  false verifier predicate: PostgreSQL
+  stored the empty `search_path` as `search_path=""`, while the predicate
+  expected literal `search_path=`. A separate catalog-only query returned all
+  ten functions with expected owner, security mode, empty search path and
+  EXECUTE ACL. See `PHASE646-PRODUCTION-POSTCHECK-REVIEW.md` in task
+  `019f81e8-22b9-77c3-a825-71f36306c482`'s
+  `phase646-production-postcheck-diagnostic-20261006-v4` evidence directory.
+  This is catalog evidence only: no live financial RPC, business-row read or
+  authenticated app behavior was tested.
 - Local PostgreSQL 17.6 isolated rehearsal a31 (including the repository's
   real Phase 92.61b legacy refund trigger and Phase 540 redemption RPC):
   full-sale net 90 from gross
@@ -93,25 +110,19 @@ owner approval are still required before a fresh preflight or any apply.
   the 15/15 SQL source guard. Local evidence is not production ACL/RLS proof
   and does not authorize a release.
 
-## Proposed release sequence — do not execute without separate approval
+## Remaining app release sequence — no SQL rerun
 
-1. Complete independent re-review, freeze the exact source commit and SQL
-   SHA, then present the owner with the **full new** SHA and the conservative
-   manual-review policy. The old SHA approval must not be reused.
-2. Only after owner direction, verify a fresh production catalog/preflight on
-   the same project and session-mode psql connection. Stop on drift. Confirm
-   no overlapping schema/credit activity; pause only credit refunds, not
-   ordinary non-credit sales. Obtain a separate apply approval after reviewing
-   the fresh result. Apply once through the reviewed runbook with
-   `ON_ERROR_STOP` and a transaction; no auto-retry after uncertain outcome.
-3. Read-only post-check table/RLS/grants/functions/triggers/schema reload and
-   compare exact expected objects. Resolve any ambiguity before deploying.
-4. Only after database post-check and separate merge/deploy decision, deploy
-   build 642, verify CI/deploy and canonical live build marker. Refresh all
-   devices; old builds' direct credit-refund writes are expected to fail closed.
-5. Authenticated read-only UI smoke for sales request/admin queue on both
+1. Amend release records to reflect the applied SQL and its limited catalog
+   evidence, then independently review the exact new commit. Do not rerun SQL.
+2. Push and open a PR for build 642; wait for lint, unit and browser CI on the
+   final head. A green local run is not PR CI.
+3. Seek a separate merge/deploy decision. After deployment, verify the
+   canonical live build marker and refresh all devices; old builds' direct
+   credit-refund writes are expected to fail closed.
+4. Authenticated read-only UI smoke for sales request/admin queue on both
    desktop and mobile. A real financial end-to-end test would create a refund,
    stock/JV/loyalty/credit effects and needs a separately approved synthetic
    sale/test plan; do not mutate existing customer documents for smoke.
 
-STOP: no push, PR, merge, deployment or production SQL under this review note.
+STOP: credit refunds stay paused; no merge, deployment, production SQL rerun or
+financial smoke under this review note.

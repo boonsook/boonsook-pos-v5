@@ -1,5 +1,9 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
+**Phase 646 — SQL applied; app release pending (2026-10-06 · build 642 / v5.69.109)**
+- Owner-approved production migration SHA `d360562bdd408cbbbca1edbf54f2af1ad309e7c91cab970e59d11a8a4625a467`: retained psql result shows `BEGIN`→`COMMIT`, empty stderr. Read-only post-check 10 true/1 verifier false (`search_path` display), followed by catalog query matching 10/10 functions. Owner attested target/session-mode; retained tags do not independently establish transport. See `DB_MIGRATIONS_APPLIED.md` for provenance and evidence hashes. **Do not rerun SQL**.
+- Branch `codex/phase-646-admin-credit-refund` at `2290bc7` was local-only when this status correction began. App build 642 has not been pushed/merged/deployed; PostgREST acceptance, authenticated UI and financial behavior remain unverified. Keep credit refunds paused. Next: review the status-correction commit, PR/CI, then separate merge/deploy decision and read-only app smoke. A synthetic financial refund needs separate owner approval. STOP `PHASE646-APP-RELEASE-PENDING`.
+
 **Phase 645 B1 — production SQL closeout (2026-10-06 · docs only · build remains 641 / v5.69.108)**
 - PR #242 locked head `7af8d972566a283081a71b94f4d7c4f473294e98` → merge `3a3ee8e09379ad011c29f33c838c652d5907974c`; exact migration SHA-256 `568123fe489b7e1bb1e80b3255abc8807e96ed5a4e4545f4dfc7260e440729b1`.
 - Owner approval and reported production target/session-mode transport are attestations from Codex task `019f81e8-22b9-77c3-a825-71f36306c482` on 2026-10-06 (specific owner messages and local result paths indexed in `DB_MIGRATIONS_APPLIED.md`). Retained result shows one `BEGIN ... COMMIT` run with exit 0, but does not independently bind target identity/transport or prove no other attempts. Fresh read-only preflight passed; separate read-only post-check returned `PHASE645 CATALOG PASS`/`ROLLBACK`. Artifact review covered command tags/catalog only. **Do not rerun B1 on this evidence**.
