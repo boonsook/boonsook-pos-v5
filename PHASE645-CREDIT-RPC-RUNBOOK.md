@@ -1,6 +1,6 @@
 # Phase 645 — B1 RPC-only local review candidate
 
-**LOCAL ONLY. Not approved for staging/production, push or release.** Baseline: `bb9f66cd4f62645819400e2b087a446a92078269`; branch `codex/phase-645-credit-rpc-authz`. Build remains 641 / v5.69.108 because this draft changes no browser assets. Final source commit, migration SHA-256 and actual test results are recorded in the separate evidence report after validation.
+**HISTORICAL RUNBOOK STATUS (2026-10-05), superseded by the Phase 645 closeout in `DB_MIGRATIONS_APPLIED.md`.** The following `LOCAL ONLY`/not-approved instructions describe the draft at that date and are not current release status. Do not execute or rerun B1 from this runbook. Baseline: `bb9f66cd4f62645819400e2b087a446a92078269`; branch `codex/phase-645-credit-rpc-authz`. Build remains 641 / v5.69.108 because this draft changes no browser assets. Final source commit, migration SHA-256 and actual test results are recorded in the separate evidence report after validation.
 
 ## Scope and behavior
 

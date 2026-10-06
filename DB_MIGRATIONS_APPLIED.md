@@ -34,6 +34,16 @@
 
 ---
 
+## ✅ Applied — 2026-10-06
+
+| SQL file | ทำอะไร | applied | verified อย่างไร |
+|---|---|---|---|
+| `supabase-phase645-credit-rpc-authz.sql` (PR #242 head `7af8d972566a283081a71b94f4d7c4f473294e98`, merge `3a3ee8e09379ad011c29f33c838c652d5907974c`, SHA-256 `568123fe489b7e1bb1e80b3255abc8807e96ed5a4e4545f4dfc7260e440729b1`) | B1 จำกัด `redeem_customer_credit` และ `release_customer_credit` ด้วย database role `authenticated` + trusted `profiles.role` admin/sales/technician; revoke EXECUTE จาก PUBLIC/anon/service_role. ไม่แตะ ledger grants/RLS, ข้อมูลเครดิต, B2 หรือ build 641 | **Owner attestation ในบทสนทนานี้:** อนุมัติ exact SHA, ยืนยันพักงานชนกัน, แจ้งผลหน้าต่าง apply ว่า `PSQL EXIT 0; COMMIT reported` และให้พาธ result. ไฟล์ผลรันที่เก็บมี `BEGIN` → `CREATE FUNCTION` ×2 → `REVOKE` ×2 → `GRANT` ×2 → `NOTIFY` → `COMMIT`, exit 0 **หนึ่งรอบที่มีบันทึกผล**; ไม่ยืนยันจำนวนการเชื่อมต่อ/รันทั้งหมดจากไฟล์นี้. ห้ามรัน B1 ซ้ำโดยเดาผล | Fresh read-only preflight v3 `PHASE645 PREFLIGHT PASS` + `ROLLBACK` (result SHA `12984e1c6fa17e650cacc1592f32c1dcd83c26968819fb97841a93171276fe3f`); apply result SHA `39f03dcd9e71d544c88636df47b24fdccb842902c925beecb1005cef5aeb13a3`; separate read-only post-check `PHASE645 CATALOG PASS` + `ROLLBACK` (result SHA `a7dba27059a5c06d4f7a25f1bdd494beccaa90865b70927f9f1080a2aa118941`). Owner ระบุปลายทาง production ผ่าน session-mode :5432/TLS verify-full; result/status ที่เก็บไม่ได้พิสูจน์ target identity หรือ transport อย่างอิสระ. Independent artifact review PASS ระดับ catalog; ไม่ได้เรียก RPC จริง/อ่านข้อมูลธุรกิจ และ stderr ไม่ถูกเก็บเป็นไฟล์. Direct-ledger containment กับ B2 ยังเปิดแยก |
+
+หลักฐาน B1 ที่ย้อนดูได้โดยไม่เปิด credential: Codex task `019f81e8-22b9-77c3-a825-71f36306c482` (ข้อความ owner วันที่ 2026-10-06: อนุมัติ migration SHA, ยืนยันพักงานชนกัน, และแจ้ง `PSQL EXIT 0; COMMIT reported` พร้อมพาธผลรัน); ไฟล์ local `PHASE645-B1-PRODUCTION-CLOSEOUT-20261006.md` ใน visualization root ของ task เดียวกันชี้พาธ preflight/apply/post-check และ SHA เต็ม. ข้อความ owner เป็น attestation ไม่ใช่หลักฐาน target identity อิสระ; ผลตรวจ artifact ใน task นี้ตรวจเฉพาะ command tags/catalog. ห้ามใช้บันทึกนี้เป็นเหตุให้รัน SQL ซ้ำ.
+
+---
+
 ## ✅ Applied — 2026-09-27
 
 | SQL file | ทำอะไร | applied | verified อย่างไร |
