@@ -38,6 +38,7 @@ BEGIN
      OR pg_catalog.to_regprocedure('public.phase646_stock_return_proven(bigint,bigint,text)') IS NOT NULL
      OR pg_catalog.to_regprocedure('public.phase646_protect_refunded_sale()') IS NOT NULL
      OR pg_catalog.to_regprocedure('public.phase646_protect_refunded_sale_items()') IS NOT NULL
+     OR pg_catalog.to_regprocedure('public.phase646_protect_refunded_sale_points()') IS NOT NULL
      OR pg_catalog.to_regprocedure('public.phase646_block_completed_sale_refund()') IS NOT NULL THEN
     RAISE EXCEPTION 'Phase 646 STOP: object already exists; inspect, do not rerun';
   END IF;
@@ -46,8 +47,12 @@ BEGIN
                  AND pg_catalog.pg_get_userbyid(c.relowner)='postgres')
      OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class c WHERE c.oid=v_refunds
                     AND c.relkind='r' AND c.relrowsecurity AND NOT c.relforcerowsecurity
-                    AND pg_catalog.pg_get_userbyid(c.relowner)='postgres') THEN
-    RAISE EXCEPTION 'Phase 646 STOP: refund or ledger owner/RLS shape drift';
+                    AND pg_catalog.pg_get_userbyid(c.relowner)='postgres')
+     OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class c
+                    WHERE c.oid='public.loyalty_points'::pg_catalog.regclass
+                      AND c.relkind='r' AND c.relrowsecurity AND NOT c.relforcerowsecurity
+                      AND pg_catalog.pg_get_userbyid(c.relowner)='postgres') THEN
+    RAISE EXCEPTION 'Phase 646 STOP: refund, ledger or loyalty owner/RLS shape drift';
   END IF;
   IF EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a WHERE a.attrelid=v_ledger
              AND a.attnum>0 AND NOT a.attisdropped AND a.attacl IS NOT NULL) THEN
@@ -749,7 +754,19 @@ BEGIN
                                        WHEN type='redeem' THEN -points ELSE 0 END),0)
     INTO v_balance FROM public.loyalty_points
     WHERE customer_id=v_req.customer_id;
-  IF v_earned<0 OR v_balance<v_earned THEN
+  -- The ledger does not allocate redeemed points to a particular earn row.
+  -- A later earn can replenish the aggregate balance after points were spent:
+  -- sale A +5, redeem 3, sale B +3 leaves 5 but cannot prove A is unspent.
+  -- Ledger IDs/timestamps are not immutable proof of which sale funded a
+  -- redemption. Owner policy: ANY historical redeem (including another
+  -- sale's reversal or a redemption predating this sale) parks a full-sale
+  -- credit refund for manual review. Never claw back points from a different
+  -- sale or issue spendable credit while point allocation is ambiguous.
+  IF v_earned<0 OR v_balance<v_earned
+     OR EXISTS (
+       SELECT 1 FROM public.loyalty_points spent
+       WHERE spent.customer_id=v_req.customer_id AND spent.type='redeem'
+     ) THEN
     UPDATE public.credit_refund_requests SET status='manual_review',
       review_reason='loyalty_spent_or_ambiguous'
       WHERE id=v_req.id RETURNING * INTO v_req;
@@ -1030,6 +1047,47 @@ CREATE TRIGGER phase646_protect_refunded_sale_items
   BEFORE INSERT OR UPDATE OR DELETE ON public.sale_items FOR EACH ROW
   EXECUTE FUNCTION public.phase646_protect_refunded_sale_items();
 
+-- POS awards sale points after saving the sale. An award still in flight when
+-- the full credit refund commits must not create points for the refunded sale
+-- afterward; the finalizer already serialized existing loyalty rows above.
+-- The ledger is append-only from this migration onward: UPDATE/DELETE could
+-- otherwise relabel a target sale's earn as an adjustment before finalization,
+-- hiding points that must be reversed. All current app/Phase 540 writers use
+-- INSERT; corrections require separately reviewed compensating entries.
+CREATE FUNCTION public.phase646_protect_refunded_sale_points()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=''
+AS $point_guard$
+DECLARE
+  v_new_sale bigint;
+BEGIN
+  -- Preserve both deduction history and the sale-earn provenance used to
+  -- determine the exact reversal. A staff role must not rewrite either side.
+  IF TG_OP<>'INSERT' THEN
+    RAISE EXCEPTION 'loyalty history is immutable'
+      USING ERRCODE='42501';
+  END IF;
+  IF NEW.type='earn' AND NEW.ref_type='sale' THEN
+    v_new_sale := NEW.ref_id;
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.credit_refund_requests q
+             WHERE q.status='completed'
+               AND q.sale_id=v_new_sale) THEN
+    RAISE EXCEPTION 'completed credit refund sale points are immutable'
+      USING ERRCODE='42501';
+  END IF;
+  RETURN NEW;
+END;
+$point_guard$;
+REVOKE ALL ON FUNCTION public.phase646_protect_refunded_sale_points()
+  FROM PUBLIC,anon,authenticated,service_role;
+CREATE TRIGGER phase646_protect_refunded_sale_points
+  BEFORE INSERT OR UPDATE OR DELETE ON public.loyalty_points FOR EACH ROW
+  EXECUTE FUNCTION public.phase646_protect_refunded_sale_points();
+-- TRUNCATE bypasses row triggers and RLS; no browser/service role may erase
+-- the redemption history that gates automatic credit refund finalization.
+REVOKE TRUNCATE ON TABLE public.loyalty_points
+  FROM PUBLIC,anon,authenticated,service_role;
+
 -- Table-level write privileges and the old FOR ALL policy allowed direct
 -- authenticated inserts/deletes despite B1's two RPC guards. Retain SELECT
 -- for accountant/staff; existing restrictive customer policy still applies.
@@ -1042,6 +1100,9 @@ CREATE POLICY ccl_staff_select ON public.customer_credit_ledger
 DO $post$
 BEGIN
   IF pg_catalog.has_table_privilege('anon','public.customer_credit_ledger','INSERT')
+     OR pg_catalog.has_table_privilege('anon','public.loyalty_points','TRUNCATE')
+     OR pg_catalog.has_table_privilege('authenticated','public.loyalty_points','TRUNCATE')
+     OR pg_catalog.has_table_privilege('service_role','public.loyalty_points','TRUNCATE')
      OR pg_catalog.has_table_privilege('authenticated','public.customer_credit_ledger','INSERT')
      OR pg_catalog.has_table_privilege('authenticated','public.customer_credit_ledger','UPDATE')
      OR pg_catalog.has_table_privilege('authenticated','public.customer_credit_ledger','DELETE')
@@ -1074,6 +1135,10 @@ BEGIN
      OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger
                     WHERE tgrelid='public.sale_items'::pg_catalog.regclass
                       AND tgname='phase646_protect_refunded_sale_items'
+                      AND tgenabled='O')
+     OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger
+                    WHERE tgrelid='public.loyalty_points'::pg_catalog.regclass
+                      AND tgname='phase646_protect_refunded_sale_points'
                       AND tgenabled='O') THEN
     RAISE EXCEPTION 'Phase 646 STOP: postcheck privileges failed';
   END IF;

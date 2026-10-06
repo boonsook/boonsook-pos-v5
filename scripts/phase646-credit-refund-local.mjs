@@ -41,6 +41,7 @@ fs.mkdirSync(clusterRoot);
 fs.writeFileSync(path.join(clusterRoot, ".owner"), owner, { flag: "wx" });
 const sourceFiles = [
   "supabase-phase92-61b-refund-guard.sql",
+  "supabase-phase540-loyalty-redeem-atomic.sql",
   "supabase-phase646-credit-refund-approval.sql",
   "tests/phase646_credit_refund_fixture.sql",
   "tests/phase646_credit_refund_checks.sql",
@@ -119,6 +120,8 @@ try {
   // Install the repository's real legacy over-refund trigger in the local
   // fixture so Phase 646 is tested against its actual SQL, not a stub.
   sql("phase646", file("supabase-phase92-61b-refund-guard.sql"));
+  // Use the real Phase 540 redemption RPC for the finalizer race probe.
+  sql("phase646", file("supabase-phase540-loyalty-redeem-atomic.sql"));
   sql("phase646", file("supabase-phase646-credit-refund-approval.sql"));
   const checks = sql("phase646", file("tests/phase646_credit_refund_checks.sql"));
   assert.match(checks, /PHASE646 LOCAL PASS/);
@@ -141,6 +144,35 @@ try {
   assert.match(await finalize, /completed/);
   assert.equal(sql("phase646", "SELECT qty FROM public.sale_items WHERE id=88;"), "1");
   console.log("PHASE646 CONCURRENT SOURCE LOCK PASS");
+  // Pause another finalizer after it has locked customer 105's loyalty rows.
+  // A Phase 540 redeem and the POS late-earn writer must both wait; after
+  // completion neither may consume or recreate the refunded sale's points.
+  sql("phase646", "SET ROLE authenticated; SET request.jwt.claim.sub='00000000-0000-0000-0000-000000000002'; SELECT (public.phase646_submit_credit_refund('00000000-0000-0000-0000-000000000088',21,'[{\"sale_item_id\":92,\"qty\":1}]'::jsonb,'credit','concurrent loyalty',false,NULL,NULL)).status;");
+  sql("phase646", "SET ROLE authenticated; SET request.jwt.claim.sub='00000000-0000-0000-0000-000000000001'; SELECT (public.phase646_admin_decide_credit_refund((SELECT id FROM public.credit_refund_requests WHERE request_key='00000000-0000-0000-0000-000000000088'),true,40,NULL)).status;");
+  const finalizeLoyalty = sqlAsync("phase646", "SET ROLE authenticated; SET request.jwt.claim.sub='00000000-0000-0000-0000-000000000001'; SELECT (public.phase646_finalize_credit_refund((SELECT id FROM public.credit_refund_requests WHERE request_key='00000000-0000-0000-0000-000000000088'),40)).status;");
+  let loyaltyPaused = false;
+  const loyaltyDeadline = Date.now() + 4000;
+  while (Date.now() < loyaltyDeadline) {
+    loyaltyPaused = sql("phase646", "SELECT NOT pg_try_advisory_lock(64616);") === "t";
+    if (loyaltyPaused) break;
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  assert.ok(loyaltyPaused, "loyalty finalizer did not reach hold point");
+  const concurrentRedeem = sqlAsync("phase646", "SET application_name='phase646-redeem-race'; SET lock_timeout='10s'; SET ROLE authenticated; SET request.jwt.claim.sub='00000000-0000-0000-0000-000000000002'; SELECT public.redeem_loyalty_points_atomic(105,2,'race after full refund');").then(value => value, error => error);
+  const concurrentEarn = sqlAsync("phase646", "SET application_name='phase646-earn-race'; SET lock_timeout='10s'; SET ROLE authenticated; SET request.jwt.claim.sub='00000000-0000-0000-0000-000000000002'; INSERT INTO public.loyalty_points(customer_id,points,type,ref_type,ref_id,note) VALUES (105,1,'earn','sale',21,'late concurrent earn');").then(value => value, error => error);
+  let blockedCount = 0;
+  const blockedDeadline = Date.now() + 2500;
+  while (Date.now() < blockedDeadline) {
+    blockedCount = Number(sql("phase646", "SELECT count(*) FROM pg_stat_activity WHERE application_name IN ('phase646-redeem-race','phase646-earn-race') AND wait_event_type='Lock';"));
+    if (blockedCount === 2) break;
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  assert.equal(blockedCount, 2, "both loyalty writers must block until finalization commits");
+  assert.match(await finalizeLoyalty, /completed/);
+  assert.match(String(await concurrentRedeem), /insufficient loyalty points/i);
+  assert.match(String(await concurrentEarn), /completed credit refund sale points are immutable/i);
+  assert.equal(sql("phase646", "SELECT count(*) FROM public.loyalty_points WHERE customer_id=105 AND type='earn' AND ref_type='sale' AND ref_id=21;"), "1");
+  console.log("PHASE646 CONCURRENT LOYALTY LOCK PASS");
   console.log(checks);
 } catch (error) {
   console.error(error.message);

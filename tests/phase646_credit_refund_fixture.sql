@@ -13,6 +13,10 @@ $$;
 CREATE FUNCTION public.is_customer_role() RETURNS boolean LANGUAGE sql STABLE AS $$
   SELECT EXISTS(SELECT 1 FROM public.profiles WHERE id=auth.uid() AND role='customer')
 $$;
+CREATE FUNCTION public.is_staff() RETURNS boolean LANGUAGE sql STABLE AS $$
+  SELECT EXISTS(SELECT 1 FROM public.profiles
+                WHERE id=auth.uid() AND role IN ('admin','sales','technician'))
+$$;
 CREATE TABLE public.customers (id bigint PRIMARY KEY, name text);
 CREATE TABLE public.products (
   id bigint PRIMARY KEY, stock integer NOT NULL DEFAULT 0,
@@ -50,9 +54,9 @@ CREATE TABLE public.refunds (
 -- UPDATE is blocked while the finalizer is already inside its refund INSERT.
 CREATE FUNCTION public.phase646_test_pause_refund() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  IF NEW.sale_id=16 THEN
+  IF NEW.sale_id IN (16,21) THEN
     PERFORM pg_advisory_lock(64616);
-    PERFORM pg_sleep(4);
+    PERFORM pg_sleep(CASE WHEN NEW.sale_id=21 THEN 6 ELSE 4 END);
     PERFORM pg_advisory_unlock(64616);
   END IF;
   RETURN NEW;
@@ -86,6 +90,9 @@ CREATE TABLE public.loyalty_points (
   customer_id bigint REFERENCES public.customers(id), points integer,
   type text, ref_type text, ref_id bigint, note text, created_at timestamptz DEFAULT now()
 );
+ALTER TABLE public.loyalty_points ENABLE ROW LEVEL SECURITY;
+CREATE POLICY loyalty_points_staff_rw ON public.loyalty_points FOR ALL TO authenticated
+  USING (public.is_staff()) WITH CHECK (public.is_staff());
 CREATE UNIQUE INDEX uq_loyalty_sale_reverse ON public.loyalty_points(ref_id) WHERE ref_type='sale_reverse';
 CREATE TABLE public.chart_of_accounts (code text PRIMARY KEY, is_active boolean NOT NULL DEFAULT true);
 CREATE TABLE public.account_mapping (
@@ -144,15 +151,26 @@ GRANT SELECT ON public.profiles TO authenticated;
 -- does not grant these permissions in production.
 GRANT SELECT ON public.products,public.warehouse_stock,public.stock_movements,
   public.journal_entries,public.journal_lines,public.loyalty_points TO authenticated;
+-- Mirror the existing POS loyalty writer for trigger tests under staff role.
+GRANT INSERT,UPDATE,DELETE ON public.loyalty_points TO authenticated;
+-- Adversarial local grant: row triggers do not run for TRUNCATE.
+GRANT TRUNCATE ON public.loyalty_points TO authenticated,service_role;
+GRANT USAGE ON SEQUENCE public.loyalty_points_id_seq TO authenticated;
 GRANT SELECT,INSERT,UPDATE,DELETE ON public.customer_credit_ledger,public.refunds TO authenticated,service_role;
-GRANT EXECUTE ON FUNCTION auth.uid(),public.is_admin(),public.is_customer_role() TO authenticated;
+GRANT EXECUTE ON FUNCTION auth.uid(),public.is_admin(),public.is_customer_role(),public.is_staff() TO authenticated;
 
 INSERT INTO public.profiles VALUES
   ('00000000-0000-0000-0000-000000000001','admin'),
   ('00000000-0000-0000-0000-000000000002','sales'),
   ('00000000-0000-0000-0000-000000000003','customer'),
   ('00000000-0000-0000-0000-000000000004','sales');
-INSERT INTO public.customers VALUES (101,'ลูกค้าทดสอบ'),(102,'ลูกค้าคืนบางรายการ');
+INSERT INTO public.customers VALUES
+  (101,'ลูกค้าทดสอบ'),(102,'ลูกค้าคืนบางรายการ'),
+  (103,'ลูกค้าใช้แต้มแล้วได้แต้มใหม่'),
+  (104,'ลูกค้าที่ใช้แต้มก่อนซื้อบิลนี้'),
+  (105,'ลูกค้าทดสอบแข่งกับ finalizer'),
+  (106,'ลูกค้าทดสอบบัญชีล้ม'),
+  (107,'ลูกค้าทดสอบแลกแต้มปกติ');
 INSERT INTO public.products(id,stock) VALUES (44,3),(45,2);
 INSERT INTO public.warehouses VALUES (2);
 INSERT INTO public.warehouse_stock(product_id,warehouse_id,stock) VALUES (44,2,3),(45,2,2);
@@ -160,11 +178,16 @@ INSERT INTO public.sales(id,order_no,customer_id,customer_name,total_amount,subt
  VALUES (9,'BSK-9',101,'ลูกค้าทดสอบ',90,100,10,90,0,0,0,0,false),
         (10,'BSK-10',102,'ลูกค้าคืนบางรายการ',150,150,0,150,0,0,0,0,false),
         (11,'BSK-11',101,'ลูกค้า VAT เก่า',107,100,0,107,0,0,7,7,false),
-        (12,'BSK-12',102,'ลูกค้า JV fail',50,50,0,50,0,0,0,0,false),
+        (12,'BSK-12',106,'ลูกค้า JV fail',50,50,0,50,0,0,0,0,false),
         (13,'BSK-13',102,'ลูกค้ายอดไม่ตรง',99,100,0,99,0,0,0,0,false),
         (15,'BSK-15',102,'ลูกค้าใช้แต้มแล้ว',40,40,0,40,0,0,0,0,false),
-        (16,'BSK-16',102,'ทดสอบแก้รายการพร้อมกัน',20,20,0,20,0,0,0,0,false),
-        (17,'BSK-17',101,'บิลเงินสดจำลอง',30,30,0,30,0,0,0,0,false);
+        (16,'BSK-16',106,'ทดสอบแก้รายการพร้อมกัน',20,20,0,20,0,0,0,0,false),
+        (17,'BSK-17',101,'บิลเงินสดจำลอง',30,30,0,30,0,0,0,0,false),
+        (18,'BSK-18',103,'บิลแต้มถูกใช้แล้วเติมกลับ',40,40,0,40,0,0,0,0,false),
+        (19,'BSK-19',103,'บิลได้รับแต้มใหม่',30,30,0,30,0,0,0,0,false),
+        (20,'BSK-20',104,'บิลหลังใช้แต้มเดิม',40,40,0,40,0,0,0,0,false),
+        (21,'BSK-21',105,'บิลทดสอบ concurrent loyalty',40,40,0,40,0,0,0,0,false),
+        (22,'BSK-22',104,'บิลไม่มีแต้มแต่เคยหักแต้ม',25,25,0,25,0,0,0,0,false);
 INSERT INTO public.sale_items VALUES
   (81,9,44,'สินค้า A',1,100,100,2),
   (82,10,44,'สินค้า A',1,100,100,2),
@@ -173,7 +196,12 @@ INSERT INTO public.sale_items VALUES
   (85,12,45,'สินค้า B',1,50,50,2),
   (86,13,44,'สินค้า A',1,100,100,2),
   (87,15,45,'สินค้า B',1,40,40,2),
-  (88,16,45,'สินค้า B',1,20,20,2);
+  (88,16,45,'สินค้า B',1,20,20,2),
+  (89,18,45,'สินค้า B',1,40,40,2),
+  (90,19,45,'สินค้า B',1,30,30,2),
+  (91,20,45,'สินค้า B',1,40,40,2),
+  (92,21,45,'สินค้า B',1,40,40,2),
+  (93,22,45,'สินค้า B',1,25,25,2);
 -- A real full-sale candidate needs both the original stock deduction trail
 -- and its approved sale journal; otherwise the database must park it for review.
 INSERT INTO public.stock_movements(product_id,type,qty,note)
@@ -183,11 +211,28 @@ INSERT INTO public.journal_entries
   VALUES ('SALE-9','sale',CURRENT_DATE,'original sale 9','approved',90,90,'sales',9),
          ('SALE-12','sale',CURRENT_DATE,'original sale 12','approved',50,50,'sales',12),
          ('SALE-15','sale',CURRENT_DATE,'original sale 15','approved',40,40,'sales',15),
-         ('SALE-16','sale',CURRENT_DATE,'original sale 16','approved',20,20,'sales',16);
+         ('SALE-16','sale',CURRENT_DATE,'original sale 16','approved',20,20,'sales',16),
+         ('SALE-18','sale',CURRENT_DATE,'original sale 18','approved',40,40,'sales',18),
+         ('SALE-20','sale',CURRENT_DATE,'original sale 20','approved',40,40,'sales',20),
+         ('SALE-21','sale',CURRENT_DATE,'original sale 21','approved',40,40,'sales',21),
+         ('SALE-22','sale',CURRENT_DATE,'original sale 22','approved',25,25,'sales',22);
 INSERT INTO public.loyalty_points(customer_id,points,type,ref_type,ref_id,note)
   VALUES (101,5,'earn','sale',9,'earn sale 9'),
          (102,5,'earn','sale',15,'earn sale 15'),
-         (102,3,'redeem','sale',12,'spent points after sale 15');
+         (102,3,'redeem','redemption',NULL,'spent points after sale 15'),
+         (103,5,'earn','sale',18,'earn sale 18'),
+         (103,3,'redeem','redemption',NULL,'spent points after sale 18'),
+         (103,3,'earn','sale',19,'replacement points from sale 19'),
+         (104,7,'earn','adjustment',NULL,'prior points'),
+         (104,2,'redeem','redemption',NULL,'redeemed before sale 20'),
+         (104,1,'redeem','sale_reverse',300,'other-sale reversal before sale 20'),
+         (104,5,'earn','sale',20,'earn sale 20'),
+         (105,5,'earn','sale',21,'earn sale 21');
+-- Pre-existing ledger identity can differ from transaction order. Construct
+-- this before installing the append-only Phase 646 guard, not by mutating a
+-- production-style ledger row after the migration.
+UPDATE public.loyalty_points SET id=1000000
+  WHERE customer_id=103 AND type='earn' AND ref_type='sale' AND ref_id=18;
 INSERT INTO public.chart_of_accounts(code) VALUES ('4110'),('2180');
 INSERT INTO public.account_mapping VALUES
   ('refund_credit','4110','2180',true),('refund_exchange','4110','2180',true);

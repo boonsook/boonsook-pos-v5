@@ -180,6 +180,8 @@ test("refund, stock log, exact balanced 4110/2180 JV, loyalty and credit are one
   assert.ok(body.indexOf("hashtextextended('loyalty:'") < body.indexOf("LOCK TABLE public.loyalty_points"));
   assert.ok(body.indexOf("LOCK TABLE public.loyalty_points") < body.indexOf("  BEGIN\n    -- The trigger below"));
   assert.match(body, /v_balance<v_earned[\s\S]*?review_reason='loyalty_spent_or_ambiguous'/);
+  assert.match(body, /OR EXISTS \(\s*SELECT 1 FROM public\.loyalty_points spent\s+WHERE spent\.customer_id=v_req\.customer_id AND spent\.type='redeem'\s*\) THEN[\s\S]*?review_reason='loyalty_spent_or_ambiguous'/);
+  assert.doesNotMatch(body, /v_first_earn_id|spent\.id|v_earned>0 AND EXISTS/);
   assert.match(atomic, /v_reverse := v_earned/);
   assert.match(body, /EXCEPTION WHEN OTHERS THEN[\s\S]*?status='manual_review'/);
   assert.match(body, /GET STACKED DIAGNOSTICS v_error_code=RETURNED_SQLSTATE/);
@@ -208,4 +210,23 @@ test("completed credit refund makes source sale items immutable on every write p
   assert.match(guard, /ELSIF TG_OP='DELETE' THEN[\s\S]*?q.sale_id=OLD.sale_id[\s\S]*?RETURN OLD/);
   assert.match(guard, /q.sale_id IN \(OLD.sale_id,NEW.sale_id\)/);
   assert.match(sql, /BEFORE INSERT OR UPDATE OR DELETE ON public.sale_items FOR EACH ROW\s+EXECUTE FUNCTION public.phase646_protect_refunded_sale_items/);
+});
+
+test("completed credit refund blocks late sale points and source-point mutation", () => {
+  const guard = between("CREATE FUNCTION public.phase646_protect_refunded_sale_points", "REVOKE ALL ON FUNCTION public.phase646_protect_refunded_sale_points");
+  assert.match(guard, /SECURITY DEFINER SET search_path=''/);
+  assert.match(guard, /NEW\.type='earn' AND NEW\.ref_type='sale'/);
+  assert.match(guard, /q\.status='completed'[\s\S]*?q\.sale_id=v_new_sale/);
+  assert.match(sql, /CREATE TRIGGER phase646_protect_refunded_sale_points\s+BEFORE INSERT OR UPDATE OR DELETE ON public\.loyalty_points/);
+  assert.match(sql, /tgname='phase646_protect_refunded_sale_points'[\s\S]*?tgenabled='O'/);
+});
+
+test("loyalty ledger is append-only, including sale earn provenance and redemptions", () => {
+  const guard = between("CREATE FUNCTION public.phase646_protect_refunded_sale_points", "REVOKE ALL ON FUNCTION public.phase646_protect_refunded_sale_points");
+  assert.match(guard, /IF TG_OP<>'INSERT' THEN[\s\S]*?ERRCODE='42501'/);
+  assert.match(sql, /c\.oid='public\.loyalty_points'::pg_catalog\.regclass[\s\S]*?c\.relrowsecurity[\s\S]*?pg_catalog\.pg_get_userbyid\(c\.relowner\)='postgres'/);
+  assert.match(sql, /REVOKE TRUNCATE ON TABLE public\.loyalty_points\s+FROM PUBLIC,anon,authenticated,service_role/);
+  for (const role of ["anon", "authenticated", "service_role"]) {
+    assert.match(sql, new RegExp(`has_table_privilege\\('${role}','public\\.loyalty_points','TRUNCATE'\\)`));
+  }
 });

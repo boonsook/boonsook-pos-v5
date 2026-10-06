@@ -142,7 +142,7 @@ BEGIN
   SELECT * INTO r FROM public.phase646_finalize_credit_refund(2,50);
   IF r.status<>'manual_review' OR r.review_reason NOT LIKE 'finalize_failed_%'
      OR EXISTS (SELECT 1 FROM public.refunds WHERE sale_id=12)
-     OR EXISTS (SELECT 1 FROM public.customer_credit_ledger WHERE customer_id=102) THEN
+     OR EXISTS (SELECT 1 FROM public.customer_credit_ledger WHERE customer_id=106) THEN
     RAISE EXCEPTION 'accounting failure left a refund or spendable credit';
   END IF;
   RAISE NOTICE 'PASS accounting failure rolls back refund and credit';
@@ -222,6 +222,265 @@ BEGIN
   EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
   END;
   RAISE NOTICE 'PASS customer cannot request, finalize or write ledger';
+END $check$;
+RESET ROLE;
+
+-- A sale's 5 earned points were spent (3) and later replenished by a
+-- different sale (3). Aggregate balance is again 5, so balance-only checks
+-- cannot prove that sale 18's original points remain available. Moving the
+-- earn identity above the redemption must not make it safe either: existing
+-- ledger IDs are not immutable evidence of transaction order. The fixture
+-- established that identity before installing Phase 646.
+-- Staff has UPDATE/DELETE in the local fixture. Rewriting or deleting the
+-- redemption would hide the risk from finalization; unrelated sale_reverse
+-- is also a point deduction and must stay append-only.
+SET ROLE authenticated;
+SET request.jwt.claim.sub='00000000-0000-0000-0000-000000000002'; -- sales
+DO $check$
+BEGIN
+  IF NOT pg_catalog.has_table_privilege('authenticated','public.loyalty_points','UPDATE')
+     OR NOT pg_catalog.has_table_privilege('authenticated','public.loyalty_points','DELETE') THEN
+    RAISE EXCEPTION 'fixture must permit staff ledger mutation to test trigger';
+  END IF;
+  IF pg_catalog.has_table_privilege('authenticated','public.loyalty_points','TRUNCATE')
+     OR pg_catalog.has_table_privilege('service_role','public.loyalty_points','TRUNCATE') THEN
+    RAISE EXCEPTION 'browser/service role can truncate loyalty history';
+  END IF;
+  BEGIN
+    TRUNCATE TABLE public.loyalty_points;
+    RAISE EXCEPTION 'staff truncated loyalty history';
+  EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
+  END;
+  BEGIN
+    UPDATE public.loyalty_points SET type='earn'
+      WHERE customer_id=103 AND type='redeem' AND ref_type='redemption';
+    RAISE EXCEPTION 'staff rewrote redemption before finalization';
+  EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
+  END;
+  BEGIN
+    DELETE FROM public.loyalty_points
+      WHERE customer_id=103 AND type='redeem' AND ref_type='redemption';
+    RAISE EXCEPTION 'staff deleted redemption before finalization';
+  EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
+  END;
+  BEGIN
+    UPDATE public.loyalty_points SET points=0
+      WHERE customer_id=104 AND type='redeem' AND ref_type='sale_reverse';
+    RAISE EXCEPTION 'staff changed other-sale reversal';
+  EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
+  END;
+  BEGIN
+    DELETE FROM public.loyalty_points
+      WHERE customer_id=104 AND type='redeem' AND ref_type='sale_reverse';
+    RAISE EXCEPTION 'staff deleted other-sale reversal';
+  EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
+  END;
+  BEGIN
+    UPDATE public.loyalty_points SET ref_type='adjustment'
+      WHERE customer_id=103 AND type='earn' AND ref_type='sale' AND ref_id=18;
+    RAISE EXCEPTION 'staff hid target-sale earn before finalization';
+  EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
+  END;
+  BEGIN
+    DELETE FROM public.loyalty_points
+      WHERE customer_id=103 AND type='earn' AND ref_type='sale' AND ref_id=18;
+    RAISE EXCEPTION 'staff deleted target-sale earn before finalization';
+  EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
+  END;
+  IF (SELECT count(*) FROM public.loyalty_points
+      WHERE customer_id=103 AND type='redeem' AND ref_type='redemption')<>1
+     OR (SELECT count(*) FROM public.loyalty_points
+         WHERE customer_id=104 AND type='redeem' AND ref_type='sale_reverse' AND points=1)<>1
+     OR (SELECT count(*) FROM public.loyalty_points
+         WHERE customer_id=103 AND type='earn' AND ref_type='sale' AND ref_id=18 AND points=5)<>1 THEN
+    RAISE EXCEPTION 'blocked point mutation changed ledger';
+  END IF;
+  RAISE NOTICE 'PASS staff cannot erase redemption or sale-earn history before finalization';
+END $check$;
+RESET ROLE;
+DO $check$
+BEGIN
+  IF (SELECT COALESCE(sum(CASE WHEN type='earn' THEN points
+                                WHEN type='redeem' THEN -points ELSE 0 END),0)
+      FROM public.loyalty_points WHERE customer_id=103)<>5
+     OR (SELECT COALESCE(sum(points),0) FROM public.loyalty_points
+         WHERE customer_id=103 AND type='earn' AND ref_type='sale' AND ref_id=18)<>5 THEN
+    RAISE EXCEPTION 'replenished-loyalty counterexample is not balanced';
+  END IF;
+END $check$;
+SET ROLE authenticated;
+SET request.jwt.claim.sub='00000000-0000-0000-0000-000000000002'; -- sales
+DO $check$
+DECLARE r public.credit_refund_requests%ROWTYPE;
+BEGIN
+  SELECT * INTO r FROM public.phase646_submit_credit_refund(
+    '00000000-0000-0000-0000-000000000099',18,
+    '[{"sale_item_id":89,"qty":1}]'::jsonb,'credit','แต้มถูกใช้แล้วเติมกลับ',false,NULL,NULL);
+  IF r.status<>'pending' OR r.quoted_amount<>40 THEN
+    RAISE EXCEPTION 'replenished-loyalty fixture did not reach approval';
+  END IF;
+END $check$;
+SET request.jwt.claim.sub='00000000-0000-0000-0000-000000000001'; -- admin
+DO $check$
+DECLARE r public.credit_refund_requests%ROWTYPE;
+BEGIN
+  SELECT * INTO r FROM public.phase646_admin_decide_credit_refund(
+    (SELECT id FROM public.credit_refund_requests WHERE sale_id=18),true,40,NULL);
+  IF r.status<>'approved' THEN
+    RAISE EXCEPTION 'replenished-loyalty request did not reach finalization';
+  END IF;
+  SELECT * INTO r FROM public.phase646_finalize_credit_refund(r.id,40);
+  IF r.status<>'manual_review' OR r.review_reason<>'loyalty_spent_or_ambiguous'
+     OR EXISTS (SELECT 1 FROM public.refunds WHERE sale_id=18)
+     OR EXISTS (SELECT 1 FROM public.journal_entries
+                WHERE doc_no='RF-P646-'||r.id::text)
+     OR EXISTS (SELECT 1 FROM public.customer_credit_ledger WHERE customer_id=103)
+     OR EXISTS (SELECT 1 FROM public.loyalty_points
+                WHERE ref_type='sale_reverse' AND ref_id=18) THEN
+    RAISE EXCEPTION 'replenished points wrongly permitted credit or reversal';
+  END IF;
+  RAISE NOTICE 'PASS replenished spent-loyalty sale remains manual with no side effects';
+END $check$;
+RESET ROLE;
+
+-- Owner policy: any redemption history, including an older redemption and
+-- another sale's reversal, requires manual review before credit is issued.
+SET ROLE authenticated;
+SET request.jwt.claim.sub='00000000-0000-0000-0000-000000000002'; -- sales
+DO $check$
+DECLARE r public.credit_refund_requests%ROWTYPE;
+BEGIN
+  SELECT * INTO r FROM public.phase646_submit_credit_refund(
+    '00000000-0000-0000-0000-000000000090',20,
+    '[{"sale_item_id":91,"qty":1}]'::jsonb,'credit','ใช้แต้มก่อนซื้อบิลนี้',false,NULL,NULL);
+  IF r.status<>'pending' OR r.quoted_amount<>40 THEN
+    RAISE EXCEPTION 'prior-redemption fixture did not reach approval';
+  END IF;
+END $check$;
+SET request.jwt.claim.sub='00000000-0000-0000-0000-000000000001'; -- admin
+DO $check$
+DECLARE r public.credit_refund_requests%ROWTYPE;
+BEGIN
+  SELECT * INTO r FROM public.phase646_admin_decide_credit_refund(
+    (SELECT id FROM public.credit_refund_requests WHERE sale_id=20),true,40,NULL);
+  IF r.status<>'approved' THEN
+    RAISE EXCEPTION 'prior-redemption request did not reach finalization';
+  END IF;
+  SELECT * INTO r FROM public.phase646_finalize_credit_refund(r.id,40);
+  IF r.status<>'manual_review' OR r.review_reason<>'loyalty_spent_or_ambiguous'
+     OR EXISTS (SELECT 1 FROM public.refunds WHERE sale_id=20)
+     OR (SELECT COALESCE(sum(amount),0) FROM public.customer_credit_ledger
+         WHERE customer_id=104)<>0
+     OR EXISTS (SELECT 1 FROM public.journal_entries
+         WHERE doc_no='RF-P646-'||r.id::text)
+     OR EXISTS (SELECT 1 FROM public.loyalty_points
+         WHERE ref_type='sale_reverse' AND ref_id=20) THEN
+    RAISE EXCEPTION 'prior redemption wrongly issued credit or reversal';
+  END IF;
+  RAISE NOTICE 'PASS prior redemption parks full refund without side effects';
+END $check$;
+RESET ROLE;
+
+-- The approved conservative policy also parks a later sale with no earn row:
+-- the ledger cannot allocate historical point deductions to a sale.
+SET ROLE authenticated;
+SET request.jwt.claim.sub='00000000-0000-0000-0000-000000000002'; -- sales
+DO $check$
+DECLARE r public.credit_refund_requests%ROWTYPE;
+BEGIN
+  SELECT * INTO r FROM public.phase646_submit_credit_refund(
+    '00000000-0000-0000-0000-000000000087',22,
+    '[{"sale_item_id":93,"qty":1}]'::jsonb,'credit','ไม่มีแต้มบิลนี้แต่เคยหักแต้ม',false,NULL,NULL);
+  IF r.status<>'pending' OR r.quoted_amount<>25 THEN
+    RAISE EXCEPTION 'zero-earned historical-redemption fixture did not reach approval';
+  END IF;
+END $check$;
+SET request.jwt.claim.sub='00000000-0000-0000-0000-000000000001'; -- admin
+DO $check$
+DECLARE r public.credit_refund_requests%ROWTYPE;
+BEGIN
+  SELECT * INTO r FROM public.phase646_admin_decide_credit_refund(
+    (SELECT id FROM public.credit_refund_requests WHERE sale_id=22),true,25,NULL);
+  IF r.status<>'approved' THEN
+    RAISE EXCEPTION 'zero-earned historical-redemption request did not reach finalization';
+  END IF;
+  SELECT * INTO r FROM public.phase646_finalize_credit_refund(r.id,25);
+  IF r.status<>'manual_review' OR r.review_reason<>'loyalty_spent_or_ambiguous'
+     OR EXISTS (SELECT 1 FROM public.refunds WHERE sale_id=22)
+     OR EXISTS (SELECT 1 FROM public.customer_credit_ledger WHERE customer_id=104)
+     OR EXISTS (SELECT 1 FROM public.journal_entries
+         WHERE doc_no='RF-P646-'||r.id::text) THEN
+    RAISE EXCEPTION 'zero-earned historical-redemption sale issued credit';
+  END IF;
+  RAISE NOTICE 'PASS zero-earned sale with redemption history also remains manual';
+END $check$;
+RESET ROLE;
+
+-- A late browser earn for an already completed credit-refunded sale must not
+-- create points after the finalizer has committed its loyalty reversal.
+SET ROLE authenticated;
+SET request.jwt.claim.sub='00000000-0000-0000-0000-000000000002'; -- POS staff
+DO $check$
+BEGIN
+  BEGIN
+    INSERT INTO public.loyalty_points(customer_id,points,type,ref_type,ref_id,note)
+      VALUES (101,1,'earn','sale',9,'late earn after completed credit refund');
+    RAISE EXCEPTION 'late sale earn passed completed refund guard';
+  EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
+  END;
+  BEGIN
+    UPDATE public.loyalty_points SET points=6
+      WHERE customer_id=101 AND type='earn' AND ref_type='sale' AND ref_id=9;
+    RAISE EXCEPTION 'completed sale earn was mutable';
+  EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
+  END;
+  BEGIN
+    DELETE FROM public.loyalty_points
+      WHERE customer_id=101 AND type='earn' AND ref_type='sale' AND ref_id=9;
+    RAISE EXCEPTION 'completed sale earn could be deleted';
+  EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
+  END;
+  BEGIN
+    UPDATE public.loyalty_points SET points=0
+      WHERE customer_id=101 AND type='redeem' AND ref_type='sale_reverse' AND ref_id=9;
+    RAISE EXCEPTION 'completed sale reversal was mutable';
+  EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
+  END;
+  BEGIN
+    DELETE FROM public.loyalty_points
+      WHERE customer_id=101 AND type='redeem' AND ref_type='sale_reverse' AND ref_id=9;
+    RAISE EXCEPTION 'completed sale reversal could be deleted';
+  EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
+  END;
+  INSERT INTO public.loyalty_points(customer_id,points,type,ref_type,ref_id,note)
+    VALUES (101,1,'earn','sale',17,'earn on other sale remains allowed');
+  IF (SELECT count(*) FROM public.loyalty_points
+      WHERE customer_id=101 AND type='earn' AND ref_type='sale' AND ref_id=17)<>1
+     OR (SELECT count(*) FROM public.loyalty_points
+         WHERE customer_id=101 AND type='redeem' AND ref_type='sale_reverse'
+           AND ref_id=9 AND points=5)<>1 THEN
+    RAISE EXCEPTION 'other-sale loyalty earn did not work';
+  END IF;
+  RAISE NOTICE 'PASS late earn blocked for completed sale; loyalty mutation blocked globally';
+END $check$;
+RESET ROLE;
+
+-- The append-only guard must not break normal staff earning or the existing
+-- Phase 540 redemption RPC for a customer without a completed credit refund.
+SET ROLE authenticated;
+SET request.jwt.claim.sub='00000000-0000-0000-0000-000000000002'; -- sales
+DO $check$
+DECLARE redeemed public.loyalty_points%ROWTYPE;
+BEGIN
+  INSERT INTO public.loyalty_points(customer_id,points,type,ref_type,note)
+    VALUES (107,2,'earn','adjustment','normal loyalty control');
+  SELECT * INTO redeemed FROM public.redeem_loyalty_points_atomic(
+    107,1,'normal redemption after Phase 646');
+  IF redeemed.customer_id<>107 OR redeemed.type<>'redeem'
+     OR redeemed.ref_type<>'redemption' OR redeemed.points<>1 THEN
+    RAISE EXCEPTION 'normal Phase 540 redemption was blocked or changed';
+  END IF;
+  RAISE NOTICE 'PASS normal Phase 540 staff redemption still works';
 END $check$;
 RESET ROLE;
 SELECT 'PHASE646 LOCAL PASS';
