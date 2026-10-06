@@ -6,10 +6,10 @@
 //   no per-customer source-of-truth for "เครดิตคงเหลือ". 517a adds:
 //     - table customer_credit_ledger (+ add credit / - use credit)
 //     - RPC redeem_customer_credit (atomic, rejects over-use, idempotent)
-//     - refunds.js writes +amount on credit/exchange refunds (idempotent, best-effort)
-//   517a does NOT touch POS checkout / postJournalForSale / credit_payments — using
-//   credit on a new sale (Dr 2180 split) is deferred to 517b after checkout rollback
-//   is made safe. These guards lock the foundation invariants.
+//     - historically refunds.js wrote +amount on credit/exchange refunds
+//   Phase 646 supersedes the direct browser refund-ledger writer. The historical
+//   517a schema assertions below remain; current refund wiring must submit an
+//   admin-approval request before any refund or credit side effect.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -19,41 +19,34 @@ import path from "node:path";
 const refunds = fs.readFileSync(path.resolve("modules/refunds.js"), "utf8");
 const sql = fs.readFileSync(path.resolve("supabase-phase517a-customer-credit-ledger.sql"), "utf8");
 
-// Extract the doCheckout/save handler region where the ledger write lives,
-// so assertions target the new block, not the whole file.
-function regionAround(src, anchor = "_credLedgerKey =", before = 80, after = 2200) {
+// Extract the credit request branch, not an unrelated occurrence in comments.
+function regionAround(src, anchor = "if (isCreditRefundMethod(method))", before = 0, after = 2100) {
   const i = src.indexOf(anchor);
   assert.ok(i >= 0, `anchor not found: ${anchor}`);
   return src.slice(Math.max(0, i - before), i + after);
 }
 
 // ── refunds.js wiring ─────────────────────────────────────────────────────────
-test("refunds.js writes +amount credit ledger for credit/exchange via canonical classifier", () => {
-  assert.match(refunds, /refundMappingKeyForMethod/, "must reuse refundMappingKeyForMethod (single source of truth for credit/exchange)");
+test("refunds.js submits credit/exchange request before creating a refund", () => {
   const block = regionAround(refunds);
-  // classified as refund_credit or refund_exchange only
-  assert.match(block, /refund_credit"\s*\|\|\s*_credLedgerKey === "refund_exchange"|refund_credit".*refund_exchange"/s,
-    "ledger write must be gated to refund_credit/refund_exchange only");
-  // POST to the ledger table, positive amount
-  assert.match(block, /customer_credit_ledger/, "must POST to customer_credit_ledger");
-  assert.match(block, /amount:\s*round2\(/, "amount must be round2() of the refund total");
-  assert.match(block, /source_id:\s*insertedRefund\.id/, "source_id must be the refund id (idempotency anchor)");
+  assert.match(block, /callCreditRefundRpc\("phase646_submit_credit_refund"/);
+  assert.match(block, /p_sale_id:\s*_selectedSale\.id/);
+  assert.match(block, /p_items:\s*itemsToRefund\.map/);
+  assert.match(block, /p_request_key:\s*_creditRequestKey/);
+  assert.ok(block.indexOf("const refundNo") > 0, "legacy cash/transfer path must still follow");
+  assert.ok(block.indexOf("return;", block.indexOf("ส่งคำขอ #")) < block.indexOf("const refundNo"),
+    "request branch must return before legacy refund insert");
 });
 
 test("refunds.js does NOT create floating credit when customer_id is missing", () => {
   const block = regionAround(refunds);
-  assert.match(block, /if\s*\(\s*!insertedRefund\.customer_id\s*\)/, "must branch on missing customer_id");
-  // the no-customer branch must warn and NOT POST a ledger row
-  const noCust = block.slice(block.indexOf("!insertedRefund.customer_id"));
-  const elseIdx = noCust.indexOf("} else {");
-  const noCustBranch = elseIdx > 0 ? noCust.slice(0, elseIdx) : noCust;
-  assert.ok(!/method:\s*"POST"/.test(noCustBranch), "must not POST a ledger row without a customer_id");
+  assert.match(block, /!_selectedSale\.customer_id/);
+  assert.ok(block.indexOf("return;", block.indexOf("!_selectedSale.customer_id")) < block.indexOf("callCreditRefundRpc"),
+    "missing customer must return before request RPC");
 });
 
 test("refunds.js credit-ledger path does NOT touch credit_payments (that's 1200 AR, not 2180)", () => {
   const block = regionAround(refunds);
-  // the real invariant: no AR (credit_payments) write — using 2180 credit is not a debtor payment.
-  // (a comment may mention the word; we assert there is no actual credit_payments operation)
   assert.ok(!/rest\/v1\/credit_payments|processCreditPayment\s*\(/.test(block), "ledger write must not insert/post credit_payments");
 });
 
@@ -61,10 +54,9 @@ test("refunds.js still posts the refund JV (Phase 512 not removed)", () => {
   assert.match(refunds, /postJournalForRefund\(/, "must still call postJournalForRefund (JV Cr 2180 intact)");
 });
 
-test("refunds.js ledger write is best-effort (idempotent 409 ok, never throws to roll back the refund)", () => {
-  const block = regionAround(refunds);
-  assert.match(block, /led\.status\s*!==\s*409/, "409 (duplicate) must be treated as success (idempotent)");
-  assert.match(block, /try\s*\{/, "ledger write must be wrapped so failure cannot roll back the committed refund");
+test("refunds.js no longer POSTs customer credit ledger directly", () => {
+  assert.doesNotMatch(refunds, /rest\/v1\/customer_credit_ledger/);
+  assert.match(refunds, /callCreditRefundRpc\("phase646_submit_credit_refund"/);
 });
 
 // ── SQL: table + idempotency ──────────────────────────────────────────────────

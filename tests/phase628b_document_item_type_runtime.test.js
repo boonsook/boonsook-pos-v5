@@ -898,14 +898,14 @@ test("I5 [structural] Phase 625/629 anchors: item input qt-li-name บรรท�
 });
 
 // Build pin เลื่อนตาม marker — ความเข้มเท่าเดิม
-test("I6 [structural] build 641 / v5.69.108 / cache-v641 ตรงกันทุกจุด", () => {
+test("I6 [structural] build 642 / v5.69.109 / cache-v642 ตรงกันทุกจุด", () => {
   const html = read("index.html");
   const sw = read("sw.js");
-  assert.match(html, /data-app-build="641" data-app-version="5\.69\.108"/);
+  assert.match(html, /data-app-build="642" data-app-version="5\.69\.109"/);
   for (const asset of ["style.css", "doc-print.css", "selfheal.js", "main.js", "boot.js"]) {
-    assert.ok(html.includes(`${asset}?v=641`), `${asset}?v=641`);
+    assert.ok(html.includes(`${asset}?v=642`), `${asset}?v=642`);
   }
-  assert.match(sw, /^const CACHE_NAME = 'boonsook-pos-v5-cache-v641';$/m);
-  assert.match(sw, /^const SW_BUILD = '641';$/m);
-  assert.match(sw.split("\n")[1], /^\/\/ v641 \(/, "phase comment บรรทัดบนสุดต้องเป็น v641");
+  assert.match(sw, /^const CACHE_NAME = 'boonsook-pos-v5-cache-v642';$/m);
+  assert.match(sw, /^const SW_BUILD = '642';$/m);
+  assert.match(sw.split("\n")[1], /^\/\/ v642 \(/, "phase comment บรรทัดบนสุดต้องเป็น v642");
 });

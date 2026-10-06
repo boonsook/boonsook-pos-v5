@@ -5,10 +5,11 @@
 // ═══════════════════════════════════════════════════════════
 import { renderSkeleton, renderEmpty, renderError } from "./ui_states.js";
 // Phase 89.29 (audit C3): post JV เมื่อบันทึก refund → Dr 4110 Sales Returns / Cr Cash/Bank
-import { postJournalForRefund, refundMappingKeyForMethod } from "./accounting/auto_post.js";
+import { postJournalForRefund } from "./accounting/auto_post.js";
 
 import { escHtml, addDaysBkk, round2 } from "./utils.js";
 import { createInflightGuard } from "./_inflight_guard.js";
+import { callCreditRefundRpc, isCreditRefundMethod, readCreditRefundRequests } from "./refund_credit_approval.js";
 
 // Audit fix: single-flight กันกดบันทึกคืนซ้ำ. เดิม saveBtn.disabled ตั้ง "หลัง"
 // await confirm → กดรัว 2 ครั้ง = 2 handler ค้างที่ confirm พร้อมกัน → ผ่าน
@@ -53,6 +54,7 @@ export function computeRefundableItems(saleItems, priorRefunds) {
     const originalQty = Number(it.qty || 0);
     const refundedQty = Math.min(originalQty, refunded.get(k) || 0);
     return {
+      sale_item_id: it.id || null,
       product_id: it.product_id || null,
       name: it.product_name || "",
       qty: 0,
@@ -186,6 +188,32 @@ export async function renderRefundsPage(ctx) {
   });
   const topReasons = Object.entries(reasonCount).sort((a,b) => b[1]-a[1]).slice(0, 5);
 
+  let creditRequestPanel = "";
+  if (_state?.profile?.role === "admin") {
+    const requests = await readCreditRefundRequests();
+    const rows = requests.ok ? requests.data : [];
+    const reviewReasons = {
+      partial_return: "คืนบางรายการ: ตรวจส่วนลดและแต้มก่อน",
+      prior_refund: "บิลเคยมีการคืนแล้ว: ตรวจยอดและแต้มก่อน",
+      historical_vat: "บิลเดิมมี VAT: ตรวจมือก่อน"
+    };
+    creditRequestPanel = `<div class="panel" style="padding:14px;margin-bottom:14px">
+      <h3 style="margin:0 0 8px">คำขอคืนเป็นเครดิต — admin</h3>
+      <p style="margin:0 0 10px;font-size:12px;color:#64748b">admin ตรวจและอนุมัติยอดสุทธิจากบิลก่อน จากนั้นจึงกดดำเนินการคืน; ระบบจะทำรายการคืน สต็อก บัญชี แต้ม และเครดิตในธุรกรรมเดียว</p>
+      ${requests.ok ? (rows.length ? rows.map(q => `<div style="border-top:1px solid #e2e8f0;padding:9px 0;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <div style="flex:1 1 240px;min-width:0;overflow-wrap:anywhere">
+          <strong>#${escHtml(q.id)} · บิล ${escHtml(q.sale_id)}</strong> — ${escHtml(q.refund_method)} · ${escHtml(q.status)}<br>
+          <span style="font-size:12px">${escHtml(q.reason)} · ${q.status === "manual_review" ? "ยอดประมาณการ (ยังไม่อนุมัติ)" : "ยอดสุทธิที่ขอคืน"} ฿${money(q.quoted_amount)}</span>
+          ${q.status === "manual_review" ? `<br><span style="font-size:12px;color:#b45309">พักตรวจมือ: ${escHtml(reviewReasons[q.review_reason] || "ต้องตรวจสอบก่อนดำเนินการ")}</span>` : ""}
+        </div>
+        ${q.status === "pending" ? `<button class="rf-approve-credit" data-id="${escHtml(q.id)}" style="padding:7px 10px">อนุมัติคำขอ</button>
+          <button class="rf-reject-credit" data-id="${escHtml(q.id)}" style="padding:7px 10px">ไม่อนุมัติ</button>` : ""}
+        ${q.status === "approved" ? `<button class="rf-finalize-credit" data-id="${escHtml(q.id)}" style="padding:7px 10px">ดำเนินการคืนเครดิต</button>` : ""}
+      </div>`).join("") : `<div style="font-size:12px;color:#64748b">ไม่มีคำขอ</div>`) : `<div style="color:#b91c1c;font-size:12px">โหลดคำขอไม่สำเร็จ — ห้ามอนุมัติจากข้อมูลเก่า</div>`}
+    </div>`;
+    container._creditRequests = rows;
+  }
+
   container.innerHTML = `
     <div style="padding:8px">
       <div class="hero" style="text-align:center;padding:20px 16px;margin-bottom:16px;background:linear-gradient(135deg,#fef3c7,#fee2e2);border-radius:16px">
@@ -202,6 +230,8 @@ export async function renderRefundsPage(ctx) {
         `).join("")}
         <button id="rfNewBtn" class="btn primary" style="margin-left:auto;font-size:13px">+ บันทึกการคืนสินค้า</button>
       </div>
+
+      ${creditRequestPanel}
 
       <!-- Summary -->
       <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:14px">
@@ -295,6 +325,70 @@ export async function renderRefundsPage(ctx) {
   }));
   container.querySelector("#rfNewBtn")?.addEventListener("click", () => openRefundModal(ctx));
   container.querySelector("#rfEmptyNewBtn")?.addEventListener("click", () => openRefundModal(ctx));
+  for (const btn of container.querySelectorAll(".rf-approve-credit, .rf-reject-credit")) {
+    btn.addEventListener("click", async () => {
+      const request = container._creditRequests?.find(q => String(q.id) === btn.dataset.id);
+      if (!request || request.status !== "pending") return;
+      const approve = btn.classList.contains("rf-approve-credit");
+      const reason = approve ? null : window.prompt?.("เหตุผลที่ไม่อนุมัติคำขอคืนเครดิต:");
+      if (!approve && !reason?.trim()) return;
+      const action = approve ? "อนุมัติคำขอ" : "ไม่อนุมัติคำขอ";
+      if (!(await window.App?.confirm?.(`${action} #${request.id} บิล ${request.sale_id} ยอดสุทธิ ฿${money(request.quoted_amount)}? ขั้นอนุมัตินี้ยังไม่ออกเครดิต`))) return;
+      btn.disabled = true;
+      const result = await callCreditRefundRpc("phase646_admin_decide_credit_refund", {
+        p_request_id: request.id,
+        p_approve: approve,
+        p_expected_quote: approve ? request.quoted_amount : null,
+        p_reason: approve ? null : reason.trim()
+      });
+      if (!result.ok) {
+        ctx.showToast?.(result.error, "error");
+        if (!result.uncertain) btn.disabled = false;
+        return;
+      }
+      if (approve && result.data?.status === "manual_review" && String(result.data?.id) === String(request.id)) {
+        ctx.showToast?.("คำขอเปลี่ยนเป็นพักตรวจมือ — ตรวจส่วนลดและแต้มก่อน ไม่ได้ออกเครดิต", "warn");
+        await renderRefundsPage(ctx);
+        return;
+      }
+      const expectedStatus = approve ? "approved" : "rejected";
+      if (result.data?.status !== expectedStatus || String(result.data?.id) !== String(request.id)) {
+        ctx.showToast?.("ไม่ทราบผลอนุมัติ — โหลดรายการใหม่เพื่อตรวจสอบก่อนทำต่อ", "error");
+        return;
+      }
+      ctx.showToast?.(`คำขอ #${request.id}: ${expectedStatus} — ยังไม่ออกเครดิต`, "info");
+      await renderRefundsPage(ctx);
+    });
+  }
+  for (const btn of container.querySelectorAll(".rf-finalize-credit")) {
+    btn.addEventListener("click", async () => {
+      const request = container._creditRequests?.find(q => String(q.id) === btn.dataset.id);
+      if (!request || request.status !== "approved" || _state?.profile?.role !== "admin") return;
+      if (!(await window.App?.confirm?.(`ดำเนินการคืนเครดิตคำขอ #${request.id} บิล ${request.sale_id} ยอดสุทธิ ฿${money(request.quoted_amount)}? ระบบจะบันทึกการคืน สต็อก บัญชี แต้ม และเครดิตพร้อมกัน`))) return;
+      btn.disabled = true;
+      const result = await callCreditRefundRpc("phase646_finalize_credit_refund", {
+        p_request_id: request.id,
+        p_expected_net: request.quoted_amount
+      });
+      // A network error is never a signal to submit again. Reload the durable
+      // request before offering another action; the SQL finalizer is idempotent.
+      if (!result.ok) {
+        ctx.showToast?.(`${result.error} — ตรวจสถานะคำขอเดิมก่อนทำต่อ`, "error");
+        await renderRefundsPage(ctx);
+        return;
+      }
+      if (String(result.data?.id) !== String(request.id)) {
+        ctx.showToast?.("ผลดำเนินการไม่ตรงคำขอ — ตรวจรายการเดิมก่อนทำต่อ", "error");
+      } else if (result.data.status === "manual_review") {
+        ctx.showToast?.("พักตรวจมือ — ยังไม่มีการออกเครดิต", "warn");
+      } else if (result.data.status === "completed" && result.data.refund_id) {
+        ctx.showToast?.(`คืนเครดิตคำขอ #${request.id} สำเร็จ`, "info");
+      } else {
+        ctx.showToast?.("สถานะการคืนยังไม่ยืนยัน — ตรวจรายการเดิมก่อนทำต่อ", "error");
+      }
+      await renderRefundsPage(ctx);
+    });
+  }
 }
 
 function openRefundModal(ctx) {
@@ -307,6 +401,7 @@ function openRefundModal(ctx) {
 
   let _selectedSale = null;
   let _refundItems = []; // [{product_id, name, qty, unit_price, restock}]
+  let _creditRequestKey = null; // Retain on an uncertain response; never generate a new request on blind retry.
 
   const modal = document.createElement("div");
   modal.id = "rfModal";
@@ -357,7 +452,7 @@ function openRefundModal(ctx) {
         <label style="font-size:12px;font-weight:700;display:block;margin-top:10px">หมายเหตุ:</label>
         <input id="rfNote" type="text" placeholder="หมายเหตุเพิ่มเติม" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px" />
         <div style="margin-top:14px;padding:10px;background:#fee2e2;border-radius:8px;text-align:center">
-          <div style="font-size:12px;color:#7f1d1d">มูลค่าคืนรวม:</div>
+          <div id="rfAmountLabel" style="font-size:12px;color:#7f1d1d">มูลค่าคืนรวม:</div>
           <div id="rfTotalAmount" style="font-size:24px;font-weight:900;color:#b91c1c">฿0.00</div>
         </div>
       </div>
@@ -380,6 +475,17 @@ function openRefundModal(ctx) {
   const saveBtn = modal.querySelector("#rfSave");
   const restockCb = modal.querySelector("#rfRestockCb");
   const restockWh = modal.querySelector("#rfRestockWh");
+  const methodSelect = modal.querySelector("#rfMethodSelect");
+
+  function updateCreditRequestLabels() {
+    const creditRequest = isCreditRefundMethod(methodSelect.value);
+    modal.querySelector("#rfAmountLabel").textContent = creditRequest
+      ? "ประมาณราคาสินค้าก่อนส่วนลด — ระบบตรวจยอดสุทธิจากบิลอีกครั้ง:"
+      : "มูลค่าคืนรวม:";
+    saveBtn.textContent = creditRequest ? "📨 ส่งคำขอให้ admin" : "💾 บันทึกการคืน";
+  }
+  methodSelect.addEventListener("change", updateCreditRequestLabels);
+  updateCreditRequestLabels();
 
   function renderSales(query = "") {
     const q = query.toLowerCase().trim();
@@ -465,7 +571,9 @@ function openRefundModal(ctx) {
     const whIdRaw = modal.querySelector("#rfWhSelect").value;
     const note = modal.querySelector("#rfNote").value.trim();
 
-    const confirmMsg = `ยืนยันการคืน? บิล ${_selectedSale.order_no} • ${itemsToRefund.length} รายการ • ฿${money(totalAmount)} • ${REFUND_METHODS[method].label}${restock ? ' • คืนสต็อก' : ''}`;
+    const confirmMsg = isCreditRefundMethod(method)
+      ? `ส่งคำขอคืนเป็นเครดิตบิล ${_selectedSale.order_no} ให้ admin ตรวจ? ราคาสินค้าประมาณ ฿${money(totalAmount)} ก่อนส่วนลด • ระบบจะใช้ยอดสุทธิจากบิล และยังไม่คืนเงิน/สต็อก/แต้ม/เครดิต`
+      : `ยืนยันการคืน? บิล ${_selectedSale.order_no} • ${itemsToRefund.length} รายการ • ฿${money(totalAmount)} • ${REFUND_METHODS[method].label}${restock ? ' • คืนสต็อก' : ''}`;
     if (!(await window.App?.confirm?.(confirmMsg))) return;
 
     saveBtn.disabled = true; saveBtn.textContent = "กำลังบันทึก...";
@@ -478,14 +586,48 @@ function openRefundModal(ctx) {
       const saleItemsNow = await _fetchSaleItemsForSale(_selectedSale.id);
       if (saleItemsNow === null) {
         window.App?.showToast?.("ตรวจสอบรายการบิลไม่สำเร็จ — ลองใหม่อีกครั้ง", "error");
-        saveBtn.disabled = false; saveBtn.textContent = "💾 บันทึกการคืน";
+        saveBtn.disabled = false; updateCreditRequestLabels();
         return;
       }
       const priorNow = await _fetchRefundsForSale(_selectedSale.id);
       const chk = validateRefundWithinRemaining(itemsToRefund, saleItemsNow, priorNow);
       if (!chk.ok) {
         window.App?.showToast?.(`คืนเกินจำนวนที่เหลือ: ${chk.offending} — รีเฟรชแล้วลองใหม่`, "error");
-        saveBtn.disabled = false; saveBtn.textContent = "💾 บันทึกการคืน";
+        saveBtn.disabled = false; updateCreditRequestLabels();
+        return;
+      }
+      if (isCreditRefundMethod(method)) {
+        if (!_selectedSale.customer_id || itemsToRefund.some(it => !it.sale_item_id) ||
+            !globalThis.crypto?.randomUUID) {
+          ctx.showToast?.("คืนเป็นเครดิตต้องมีลูกค้าและรายการบิลที่ตรวจสอบได้", "error");
+          saveBtn.disabled = false; updateCreditRequestLabels();
+          return;
+        }
+        _creditRequestKey ||= globalThis.crypto.randomUUID();
+        const submitted = await callCreditRefundRpc("phase646_submit_credit_refund", {
+          p_request_key: _creditRequestKey,
+          p_sale_id: _selectedSale.id,
+          p_items: itemsToRefund.map(it => ({ sale_item_id: it.sale_item_id, qty: it.qty })),
+          p_method: method,
+          p_reason: reason,
+          p_restock: restock,
+          p_warehouse_id: restock ? Number(whIdRaw) : null,
+          p_note: note || null
+        });
+        if (!submitted.ok) {
+          ctx.showToast?.(submitted.error, "error");
+          if (!submitted.uncertain) {
+            saveBtn.disabled = false; saveBtn.textContent = "📨 ส่งคำขอให้ admin";
+          }
+          return;
+        }
+        if (!submitted.data?.id || !["pending", "manual_review"].includes(submitted.data.status)) {
+          ctx.showToast?.("ไม่ทราบสถานะคำขอ — ตรวจรายการเดิมก่อนลองใหม่", "error");
+          return;
+        }
+        modal.remove();
+        const reviewNote = submitted.data.status === "manual_review" ? "พักตรวจมือเรื่องส่วนลดและแต้มก่อน" : "รอ admin อนุมัติ";
+        ctx.showToast?.(`ส่งคำขอ #${submitted.data.id} แล้ว — ${reviewNote}; ยังไม่คืนเงิน สต็อก แต้ม หรือเครดิต`, "info");
         return;
       }
       const refundNo = "RF-" + Date.now();
@@ -566,41 +708,6 @@ function openRefundModal(ctx) {
         }
       }
 
-      // 3b) Phase 517a — customer credit ledger (+amount) สำหรับคืนแบบเครดิต/เปลี่ยนสินค้า.
-      //   = source-of-truth ระดับลูกค้าของ "เครดิตคงเหลือ 2180" (JV ลง Cr 2180 ใน step 3 อยู่แล้ว).
-      //   Best-effort + idempotent (uq_ccl_source บน source_type+source_id) — ความล้มเหลว "ห้าม"
-      //   ทำให้ refund ที่ commit แล้ว rollback (under-credit ทิศปลอดภัย; backfill 517a ซ่อมได้).
-      //   ไม่มี customer_id → ไม่สร้างเครดิตลอย (เตือนให้ผูกลูกค้าก่อน). ไม่แตะ credit_payments.
-      const _credLedgerKey = refundMappingKeyForMethod(method); // refund_credit | refund_exchange | ...
-      if (insertedRefund?.id && (_credLedgerKey === "refund_credit" || _credLedgerKey === "refund_exchange")) {
-        if (!insertedRefund.customer_id) {
-          console.warn("[refunds] credit/exchange refund without customer_id — no credit ledger:", insertedRefund.id);
-          jvPostWarning = jvPostWarning || "คืนเป็นเครดิตแต่ไม่มีลูกค้าผูก — เครดิตนี้ยังใช้ไม่ได้ (ผูกลูกค้าก่อน)";
-        } else {
-          try {
-            const led = await fetch(cfg.url + "/rest/v1/customer_credit_ledger", {
-              method: "POST",
-              headers: { "Content-Type":"application/json","apikey":cfg.anonKey,"Authorization":"Bearer "+accessToken,"Prefer":"return=minimal" },
-              body: JSON.stringify({
-                customer_id: insertedRefund.customer_id,
-                source_type: _credLedgerKey,
-                source_id: insertedRefund.id,
-                amount: round2(Number(totalAmount)),
-                note: `เครดิตจากการคืน ${refundNo}`
-              })
-            });
-            // 409 = ลงซ้ำ (idempotent hit) = ถือว่าสำเร็จ
-            if (!led.ok && led.status !== 409) {
-              console.warn("[refunds] credit ledger insert failed:", led.status);
-              jvPostWarning = jvPostWarning || "บันทึกเครดิตลูกค้าไม่สำเร็จ — ใช้ Backfill เครดิตภายหลัง";
-            }
-          } catch (e) {
-            console.warn("[refunds] credit ledger insert exception:", e?.message);
-            jvPostWarning = jvPostWarning || "บันทึกเครดิตลูกค้าไม่สำเร็จ — ใช้ Backfill เครดิตภายหลัง";
-          }
-        }
-      }
-
       // 4) Phase 91.3 + 91.4 — reverse loyalty auto-earn (fire-and-forget, idempotent).
       // Helper is silent on: no customer / no earn record / already reversed.
       // Caps reverse at customer's remaining balance so the total never goes negative.
@@ -645,7 +752,7 @@ function openRefundModal(ctx) {
       renderRefundsPage(ctx);
     } catch (e) {
       window.App?.showToast?.("ผิดพลาด: " + (e?.message || e), "error");
-      saveBtn.disabled = false; saveBtn.textContent = "💾 บันทึกการคืน";
+      saveBtn.disabled = false; updateCreditRequestLabels();
     }
   }));
 }
