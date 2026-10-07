@@ -1,5 +1,5 @@
 // Boonsook POS V5 Service Worker
-// v643 (2026-10-07): Phase 647 read-only attendance day summary; cache strategy unchanged.
+// v643 (2026-10-07): Phase 648 read-only attendance day summary; cache strategy unchanged.
 // v642 (2026-10-06): Phase 646 — admin-approved full-sale credit refunds use a gated PostgreSQL transaction; partial/VAT/ambiguous sales wait for manual review. Schema must be applied separately before this client build. No service-worker strategy change.
 // v641 (2026-10-05): Phase 644 — read-only refresh of readable profiles. No account recovery, role writes, SQL or cache strategy change.
 // v640 (2026-10-05): Phase 643 — document preview contrast and date visibility for QT/DI/RC. No cache strategy change.

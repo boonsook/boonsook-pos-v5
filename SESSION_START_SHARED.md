@@ -1,6 +1,6 @@
-#
-> 🟠 **2026-10-07 — Phase 647 attendance summary LOCAL CANDIDATE (build 643 / v5.69.110):** baseline main `254f092` (Phase 646 app release merged). Admin time-clock now has a read-only distinct-work-date summary, Monday–Sunday/month/custom presets, complete-count pagination and open/cross-day review counts. No payroll/OT/clock writes or credit/SQL changes. Separate worktree `attendance-summary`; tests and release boundary in `PHASE647-ATTENDANCE-SUMMARY.md`. Not deployed; independent review required.
- Boonsook POS V5 - Shared Session Start
+# Boonsook POS V5 - Shared Session Start
+
+> 🟠 **2026-10-07 — Phase 648 attendance summary Draft PR #245 (build 643 / v5.69.110):** baseline main `254f092` (Phase 646 app release merged). Admin time-clock now has a read-only distinct-work-date summary, Monday–Sunday/month/custom presets, complete-count pagination and open/cross-day review counts. No payroll/OT/clock writes or credit/SQL changes. Separate worktree `attendance-summary`; tests and release boundary in `PHASE648-ATTENDANCE-SUMMARY.md`. Independent feature review passed; Draft PR #245 remains on hold for explicit credit-team pause confirmation. Not deployed.
 
 > 🟡 **2026-10-06 — Phase 646 production SQL applied; app build 642 / v5.69.109 NOT released:** Owner-approved SQL SHA `d360562bdd408cbbbca1edbf54f2af1ad309e7c91cab970e59d11a8a4625a467` has a retained `BEGIN`→`COMMIT` result and read-only catalog post-check. One post-check predicate was a verifier formatting error (`search_path=` vs stored `search_path=""`); separate query matched 10/10 functions. Target/session-mode is owner-attested, not independently proven by command tags. **Do not rerun SQL. Keep credit refunds paused.** No Phase 646 push/PR/CI/merge/deploy or live financial behavior test yet. See `DB_MIGRATIONS_APPLIED.md` and `PHASE646-RELEASE-REVIEW.md`; synthetic financial smoke needs separate approval. STOP `PHASE646-APP-RELEASE-PENDING`.
 

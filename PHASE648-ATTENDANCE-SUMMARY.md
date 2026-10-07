@@ -1,8 +1,8 @@
-# Phase 647 — Attendance summary (local candidate)
+# Phase 648 — Attendance summary (local candidate)
 
 Baseline: main `254f09213697ad7366a19a05eb3976ad7fe5e603`, build 642.
 Branch: `codex/phase-647-attendance-summary`. Candidate: build 643 / v5.69.110.
-Owner approved a summary directly on the time-clock page on 2026-10-07.
+Owner approved a summary directly on the time-clock page on 2026-10-07. HR was relabeled from Phase 647 to Phase 648 after the accounting team claimed Phase 647. The existing PR #245 branch name is retained for continuity; executable code and build 643 are unchanged by this relabel. Merge/deploy remain on hold pending explicit credit-team pause confirmation.
 
 ## Contract
 
@@ -28,4 +28,4 @@ Local gates: lint 0 errors; full unit 3,911/3,911; full browser 439/439 (no retr
 
 Known separate findings: production had unusually long closed sessions and different open-session counts between HR Overview and time-clock. This feature surfaces review counts; it does not resolve those historical records or rewrite the other dashboard.
 
-STOP: READY-FOR-INDEPENDENT-PHASE647-REVIEW.
+STOP: READY-FOR-INDEPENDENT-PHASE648-REVIEW.
