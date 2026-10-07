@@ -1,5 +1,9 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
+**Phase 648 — attendance summary Draft PR #245 (2026-10-07 · build 643 / v5.69.110)**
+- Baseline main `254f092`; separate branch `codex/phase-647-attendance-summary`. Admin time-clock summary counts unique recorded work dates, defaults to current Bangkok month, supports Monday–Sunday and custom ranges. Open and cross-day entries flagged; zero is not an absence finding.
+- GET-only paginated reader verifies count/ranges; incomplete/error does not produce a total. No SQL, payroll/OT changes or edits to historical attendance. Credit work untouched. Local checks are recorded in the delivery report; pushed as Draft PR #245; not deployed. See `PHASE648-ATTENDANCE-SUMMARY.md`. STOP `READY-FOR-INDEPENDENT-PHASE648-REVIEW`.
+
 **Phase 646 — SQL applied; app release pending (2026-10-06 · build 642 / v5.69.109)**
 - Owner-approved production migration SHA `d360562bdd408cbbbca1edbf54f2af1ad309e7c91cab970e59d11a8a4625a467`: retained psql result shows `BEGIN`→`COMMIT`, empty stderr. Read-only post-check 10 true/1 verifier false (`search_path` display), followed by catalog query matching 10/10 functions. Owner attested target/session-mode; retained tags do not independently establish transport. See `DB_MIGRATIONS_APPLIED.md` for provenance and evidence hashes. **Do not rerun SQL**.
 - Branch `codex/phase-646-admin-credit-refund` at `2290bc7` was local-only when this status correction began. App build 642 has not been pushed/merged/deployed; PostgREST acceptance, authenticated UI and financial behavior remain unverified. Keep credit refunds paused. Next: review the status-correction commit, PR/CI, then separate merge/deploy decision and read-only app smoke. A synthetic financial refund needs separate owner approval. STOP `PHASE646-APP-RELEASE-PENDING`.
