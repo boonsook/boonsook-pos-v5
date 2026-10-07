@@ -1,4 +1,6 @@
-# 📜 CHANGELOG — Boonsook POS V5 PRO
+#
+- Phase 647 local candidate (build 643): เพิ่มสรุปวันมาทำงานรายคนในหน้าลงเวลาของ admin เลือกสัปดาห์/เดือน/ช่วงวันที่ นับวันไม่ซ้ำและแยกรายการควรตรวจสอบ; ไม่เปลี่ยนสูตร OT เงินเดือน หรือข้อมูลจริง ยังไม่ deploy.
+ 📜 CHANGELOG — Boonsook POS V5 PRO
 
 รายการการแก้ไขแบบสั้น เรียงจากใหม่ → เก่า
 รายละเอียดเชิงลึก (architecture / why) ดูใน [HANDOFF.md](HANDOFF.md)

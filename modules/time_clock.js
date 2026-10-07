@@ -19,6 +19,7 @@ import { renderSkeleton, renderEmpty, renderError } from "./ui_states.js";
 import { escHtml, exportToExcel, todaySuffix, logActivity } from "./utils.js";
 // Phase 92.27: offline queue (IndexedDB-backed)
 import * as OfflineQueue from "./_offline_queue.js";
+import { mountAttendanceSummary, fetchAttendanceSummary } from "./attendance_summary.js";
 
 const TZ = "Asia/Bangkok";
 
@@ -927,6 +928,8 @@ async function _renderManagerView(container, ctx) {
         <button id="tcRefreshBtn" class="btn light" style="font-size:12px">🔄 รีเฟรช</button>
       </div>
 
+      <section id="tcAttendanceSummary" style="border:1px solid #e2e8f0;border-radius:12px;padding:14px;margin-bottom:18px;min-width:0"></section>
+
       <!-- Section 1: กำลังทำงานอยู่ตอนนี้ -->
       <div style="margin-bottom:18px">
         <div style="font-weight:700;font-size:14px;margin-bottom:8px">⏱️ กำลังทำงาน (${openSessions.length})</div>
@@ -1003,6 +1006,12 @@ async function _renderManagerView(container, ctx) {
       </div>
     </div>
   `;
+
+  mountAttendanceSummary(container.querySelector("#tcAttendanceSummary"), {
+    profiles: profiles.map(p => ({ id: p.id, name: profileDisplayName(p) })),
+    today: workDateBangkok(),
+    load: options => fetchAttendanceSummary({ ...options, baseUrl: window.SUPABASE_CONFIG.url, headers: _sbHeaders() }),
+  });
 
   // ─── Bind events ───────────────────────────────────────────
   document.getElementById("tcRefreshBtn")?.addEventListener("click", () => renderTimeClockPage(ctx));
