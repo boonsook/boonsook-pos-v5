@@ -68,4 +68,12 @@ staff 10/10 bulk lines fail with 0/0 before the change; pass after it;
    or write failure. Do not call the entire accounting path closed until those
    risks have been reviewed.
 
+6. After this change the trigger's RAISE still reports `v_dr/v_cr` (the real
+   line totals) and the header totals to the inserting caller. Before the
+   change a non-accountant caller only ever saw `0.00/0.00`. For an
+   unbalanced insert the caller therefore learns the partial line totals of
+   an entry it may insert into but cannot SELECT. This is a disclosure
+   observation from source review, not a blocking defect; the owner accepts
+   or rejects it explicitly before apply.
+
 STOP: local candidate ready for independent review; production unchanged.

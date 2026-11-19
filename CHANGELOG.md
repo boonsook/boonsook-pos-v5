@@ -3,6 +3,8 @@
 รายการการแก้ไขแบบสั้น เรียงจากใหม่ → เก่า
 รายละเอียดเชิงลึก (architecture / why) ดูใน [HANDOFF.md](HANDOFF.md)
 
+- Phase 647 release-prep (docs only; build คง 642): เปิด PR จาก candidate `7cab179` (migration blob SHA-256 `d8065a30…23d1` ไม่เปลี่ยน) + เพิ่ม `PHASE647-OWNER-SQL-RUNBOOK.md`, แถว PENDING ใน `DB_MIGRATIONS_APPLIED.md`, ข้อ 6 disclosure ใน `PHASE647-JE-ROOT-CAUSE-AND-RELEASE.md`. SQL ยังไม่ apply; JV 663 repair / discovery / badge / writer = phase แยก.
+
 - Phase 647 local candidate (build คง 642): แก้ทางที่พนักงานบันทึก JE lines แล้ว balance trigger เห็นยอด 0/0 เพราะ SELECT RLS โดยปรับเฉพาะ execution context ของ trigger function; PostgreSQL 17.6 จำลองผ่านทั้งก่อน/หลังและเคสยอดไม่สมดุล. ยังไม่แก้ production/ซ่อม JV 663/เปิด PR; ต้องตรวจ catalog สดและขออนุมัติ SQL SHA แยก. ดู `PHASE647-JE-ROOT-CAUSE-AND-RELEASE.md`.
 
 - Phase 646 status correction (docs only; build คง 642): บันทึกว่า owner-approved SQL SHA `d360562b…a467` ลง production แล้วและ catalog post-check ได้ 10 true + 1 verifier formatting false ที่ตรวจแยกกับฟังก์ชัน 10/10; ห้ามรัน SQL ซ้ำ. แอป build 642 ยังไม่ push/PR/merge/deploy, คงพัก refund เครดิต และต้องขออนุมัติแยกสำหรับการทดสอบคืนเงินจริง. ดู `DB_MIGRATIONS_APPLIED.md` / `PHASE646-RELEASE-REVIEW.md`.
