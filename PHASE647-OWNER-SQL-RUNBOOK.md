@@ -38,14 +38,14 @@
 5. วางฟังก์ชันใน §1A ลงใน shell ที่จะใช้รัน (ครั้งเดียวต่อ shell)
 6. ทำนอกเวลาขาย และไม่มีใครรัน DDL/งานบัญชีอื่นพร้อมกัน (lock_timeout 5s จะ STOP ถ้าชน)
 
-### 1A. ฟังก์ชันผูกปลายทางและหลักฐาน — target check v4 (วางทั้งบล็อกใน Git Bash)
+### 1A. ฟังก์ชันผูกปลายทางและหลักฐาน — target check v5 r2 (วางทั้งบล็อกใน Git Bash)
 
-ไฟล์ต้นทาง: `p647-target-check-v4.sh` · SHA-256 `242dcd225614a5874ebd0588f32f5b5a5f8a7d1d6dd2f334d3ea9c279ec879ce` — ข้อความในบล็อกนี้เท่ากับไฟล์นั้นทุกตัวอักษร และคู่มือหลักฐานเสริม C2-S ใช้ไฟล์เดียวกัน
+ไฟล์ต้นทาง: `p647-target-check-v5-r2.sh` · SHA-256 `c375cdc68cbeea979c62b345e918a22f1329e61d8f431218164b542f6294afbe` — ข้อความในบล็อกนี้เท่ากับไฟล์นั้นทุกตัวอักษร. `p647_target`, `p647_sha`, `p647_c2_record_ok`, `p647_c2s_run`, `p647_same_target` และ `p647_postcheck_run` เหมือน v4 (`242dcd22…79ce`) ทุกตัวอักษร
 
-> ⚠️ **2026-11-20:** v4 ใน `p647_pins_ok` ยัง pin SHA-256 ของ migration เดิม `d8065a30cd51ed5f683d90a3961f936168023176ee3822054a85e64fa35d23c1` ส่วน migration ปัจจุบันคือ `9b7fb286b9d08f8d1479b2876e42996a966048d65c3566ca75727b6677effd0f` (pin md5 ใหม่ตามผล C2/C2-S) ดังนั้น `p647_c2_run` และ `p647_postcheck_run` บน checkout นี้จะ STOP ที่ hash check (psql ไม่ถูกเรียก) จนกว่าจะออก target check v5 และแทนบล็อกนี้ในรอบแยก ห้ามแก้บล็อกนี้เอง
+> **v5 (2026-11-20) ต่างจาก v4 สองจุด:** (1) `p647_pins_ok` pin SHA-256 ของ migration `9b7fb286b9d08f8d1479b2876e42996a966048d65c3566ca75727b6677effd0f` (pin md5 ตามผล C2/C2-S) และ preflight `f34f5670e67530a8c43cb5229f36e814bbcff36d4a775e863ef04530d643c075` แล้วพิมพ์ `PINS: STOP …` เมื่อไม่ผ่าน — C2 (§2), apply (§4) และ post-check (§5) ใช้ฟังก์ชันนี้ตัวเดียวกัน (2) `p647_c2_run` ตรวจ hash แล้วตรวจปลายทาง (`p647_target`) ก่อนลบหรือเขียนไฟล์หลักฐานใด ๆ (r2 ย้ายการตรวจปลายทางขึ้นมาก่อน `rm`). **ชุดเก่าที่ยัง pin v4 หรือ HEAD เดิม ใช้กับ checkout นี้ไม่ได้:** `phase647-release-r6` (v4 · migration `d8065a30…`), `phase647-c2s-r4` (คู่มือ C2-S อ้าง v4 · `p647_c2s_run` ของ v5 เหมือนเดิม), `phase647-c2-read-approval-r1` / `-r2` (ขั้น 0 pin v4 และ HEAD `ccd7e31`), `phase647-target-check-v5-r1` (v5 r1 `2e81c139…f903` · ตรวจปลายทางหลัง `rm`) — การอ่าน production รอบใหม่ต้องใช้ชุดที่ pin v5 และ HEAD ใหม่
 
 ```bash
-# p647 target check v4 (Phase 647 runbooks). Paste the whole block into Git Bash once per shell.
+# p647 target check v5 r2 (Phase 647 runbooks). Paste the whole block into Git Bash once per shell.
 p647_target() {
   local v
   for v in PGHOST PGHOSTADDR PGPORT PGDATABASE PGUSER PGSERVICE PGSERVICEFILE; do
@@ -61,7 +61,9 @@ p647_target() {
 }
 p647_sha() { sha256sum "$1" 2>/dev/null | cut -c1-64; }
 p647_pins_ok() {
-  printf '%s  %s\n' d8065a30cd51ed5f683d90a3961f936168023176ee3822054a85e64fa35d23c1 supabase-phase647-je-balance-trigger-rls.sql f34f5670e67530a8c43cb5229f36e814bbcff36d4a775e863ef04530d643c075 phase647-je-balance-preflight-readonly.sql | sha256sum -c -
+  if ! printf '%s  %s\n' 9b7fb286b9d08f8d1479b2876e42996a966048d65c3566ca75727b6677effd0f supabase-phase647-je-balance-trigger-rls.sql f34f5670e67530a8c43cb5229f36e814bbcff36d4a775e863ef04530d643c075 phase647-je-balance-preflight-readonly.sql | sha256sum -c -; then
+    echo "PINS: STOP (migration or preflight file missing, unreadable or hash mismatch; psql not called)"; return 1
+  fi
 }
 p647_c2_record_ok() {
   local t r s
@@ -72,15 +74,15 @@ p647_c2_record_ok() {
 }
 p647_c2_run() {
   local t rc s
+  if ! p647_pins_ok; then echo "C2: STOP (file hash check failed before any evidence file was removed or written; previous C2 / C2-S files left unchanged; psql not called)"; return 1; fi
+  t="$(p647_target)" || { echo "C2: STOP (target refused before any evidence file was removed or written; previous C2 / C2-S files left unchanged; psql not called)"; return 1; }
   rm -f phase647-target-C2.txt phase647-c2-record.txt phase647-c2-result.txt phase647-c2s-result.txt phase647-c2s-record.txt
   if [ -e phase647-target-C2.txt ] || [ -e phase647-c2-record.txt ] || [ -e phase647-c2-result.txt ] || [ -e phase647-c2s-result.txt ] || [ -e phase647-c2s-record.txt ]; then
     echo "C2: STOP (cannot clear the previous C2 / C2-S files in this directory; psql not called)"; return 1
   fi
-  t="$(p647_target)" || { echo "C2: STOP (target refused; psql not called)"; return 1; }
   if ! printf '%s\n' "$t" > phase647-c2-pending.txt || [ "$(cat phase647-c2-pending.txt 2>/dev/null)" != "$t" ]; then
     echo "C2: STOP (cannot write the target record in this directory; psql not called)"; return 1
   fi
-  if ! p647_pins_ok; then rm -f phase647-c2-pending.txt; echo "C2: STOP (file hash check failed; psql not called)"; return 1; fi
   if ! printf '%s\n' "# p647 C2 run $(date -u +%Y%m%dT%H%M%SZ) $RANDOM$RANDOM" > phase647-c2-result.txt; then
     rm -f phase647-c2-pending.txt; echo "C2: STOP (cannot write the C2 result file; psql not called)"; return 1
   fi
@@ -166,7 +168,8 @@ p647_postcheck_run() {
 }
 ```
 - `p647_target` พิมพ์เฉพาะ user / host[:port] / dbname ของ URL และ**ปฏิเสธ** (พิมพ์ `TARGET: REFUSED …` ทาง stderr โดยไม่พิมพ์ URL ปลายทาง หรือรหัสผ่าน) เมื่อ URL ไม่ตรงรูป `postgresql://USER[:PASSWORD]@HOST[:PORT]/DBNAME` ตามข้อจำกัดของ §1 ข้อ 4: มี query string, หลาย host, IPv6 literal, อักขระนอกรูปใน user/host/port/dbname, รหัสผ่านที่มีอักขระสงวนแบบดิบ (เช่น `/` `?` `#` `:` `@` ช่องว่าง หรือ `%` ที่ไม่ตามด้วยเลขฐานสิบหกสองหลัก), **รหัสผ่านที่มี `%00`** — หรือเมื่อมีตัวแปร `PGHOST` / `PGHOSTADDR` / `PGPORT` / `PGDATABASE` / `PGUSER` / `PGSERVICE` / `PGSERVICEFILE` ใน shell
-- `p647_c2_run` คือขั้น C2 ทั้งขั้น (§2): ลบบันทึก C2 **และผล/บันทึก C2-S** ของรอบก่อน → ตรวจปลายทาง → เขียนบันทึกปลายทางชั่วคราวแล้วอ่านกลับ → ตรวจ SHA-256 ของไฟล์บนดิสก์ → เขียนบรรทัดแรกของ `phase647-c2-result.txt` (`# p647 C2 run <เวลา UTC> <เลขสุ่ม>`) แล้วเรียก psql กับไฟล์ preflight เก็บผลต่อท้าย → เมื่อ psql exit 0 และผลจบด้วย `ROLLBACK` เท่านั้น จึงเขียน `phase647-target-C2.txt` และ `phase647-c2-record.txt`. ขั้นใดไม่ผ่าน = `C2: STOP …` หรือ `C2: FAILED …` และไม่มีบันทึก C2 ของรอบนั้น
+- `p647_pins_ok` คือด่าน hash ร่วมของ C2 (§2), apply (§4) และ post-check (§5): ตรวจ SHA-256 ของ `supabase-phase647-je-balance-trigger-rls.sql` และ `phase647-je-balance-preflight-readonly.sql` บนดิสก์ใน directory ปัจจุบัน — ไฟล์หาย อ่านไม่ได้ หรือ hash ไม่ตรง = บรรทัด `FAILED` ของ sha256sum ตามด้วย `PINS: STOP …` และคืนค่า error
+- `p647_c2_run` คือขั้น C2 ทั้งขั้น (§2): ตรวจ SHA-256 ของไฟล์บนดิสก์ (`p647_pins_ok`) แล้วตรวจปลายทาง (`p647_target`) **ก่อนลบหรือเขียนไฟล์ใด** — ด่านใดไม่ผ่าน = หยุดโดยไฟล์ C2/C2-S เดิมไม่ถูกแตะ → ลบบันทึก C2 **และผล/บันทึก C2-S** ของรอบก่อน → เขียนบันทึกปลายทางชั่วคราวแล้วอ่านกลับ → เขียนบรรทัดแรกของ `phase647-c2-result.txt` (`# p647 C2 run <เวลา UTC> <เลขสุ่ม>`) แล้วเรียก psql กับไฟล์ preflight เก็บผลต่อท้าย → เมื่อ psql exit 0 และผลจบด้วย `ROLLBACK` เท่านั้น จึงเขียน `phase647-target-C2.txt` และ `phase647-c2-record.txt`. ขั้นใดไม่ผ่าน = `C2: STOP …` หรือ `C2: FAILED …` และไม่มีบันทึก C2 ของรอบนั้น
 - `p647_c2_record_ok` ถือว่าบันทึก C2 ใช้ได้เมื่อสามไฟล์อยู่ครบและ SHA-256 ของ `phase647-c2-result.txt` ตรงกับที่ `phase647-c2-record.txt` บันทึกไว้
 - `p647_c2s_run <ไฟล์ query>` คือขั้นหลักฐานเสริม C2-S (คู่มือ C2-S): ลบผล/บันทึก C2-S ของรอบก่อน → ปลายทางปัจจุบันต้อง = บันทึก C2 ที่ใช้ได้ → ตรวจ SHA-256 ของไฟล์ query → เขียนบรรทัดแรกของ `phase647-c2s-result.txt` ซึ่งระบุ `c2_result_sha256=` ของผล C2 ที่ใช้ในรอบนั้น → เรียก psql เก็บผลต่อท้าย → เมื่อเก็บผลได้ครบจึงเขียน `phase647-c2s-record.txt` (`target=… c2_result_sha256=… c2s_result_sha256=… status=complete|s4_unavailable`). ไม่ผ่าน = `C2-S: STOP …` หรือ `C2-S: FAILED …` และไม่มีบันทึก C2-S ของรอบนั้น
 - `p647_same_target` คือด่านก่อน apply และก่อน post-check — ผ่านเมื่อครบทุกข้อ: (1) ปลายทางปัจจุบัน = `P647_APPROVED_TARGET` = บันทึก C2 ที่ใช้ได้ (2) SHA-256 ของ `phase647-c2-result.txt` ในเครื่อง = `P647_APPROVED_C2_SHA` (3) SHA-256 ของ `phase647-c2s-result.txt` ในเครื่อง = `P647_APPROVED_C2S_SHA` (4) `phase647-c2s-record.txt` และบรรทัดแรกของผล C2-S อ้าง SHA-256 ของผล C2 ชุดเดียวกัน. ค่าหาย ไม่ตรง หรืออ่านไฟล์ไม่ได้ = `TARGET: MISMATCH` หรือ `EVIDENCE: MISMATCH` และคืนค่า error ทำให้ psql ไม่ถูกเรียก (รวมกรณีตัวแปรยังไม่ถูกตั้งใน shell ที่เปิด `set -u`)
@@ -179,10 +182,10 @@ p647_postcheck_run() {
 ```bash
 p647_c2_run
 ```
-- ฟังก์ชันทำตามลำดับ: ลบบันทึก C2 และผล/บันทึก C2-S ของรอบก่อน (ลบไม่ได้ = หยุด) → ตรวจรูป URL และตัวแปร `PG*` → เขียนบันทึกปลายทางชั่วคราวแล้วอ่านกลับ — **เขียนไม่ได้ = `C2: STOP (cannot write the target record …)` พร้อมข้อความ error ของระบบไฟล์ และ psql ไม่ถูกเรียก** → ตรวจ SHA-256 ของสองไฟล์บนดิสก์ (ต้องเห็น `…: OK` สองบรรทัด; `FAILED` = psql ไม่ถูกเรียก) → เรียก psql กับไฟล์ preflight ซึ่งเป็น `BEGIN READ ONLY … ROLLBACK` ไม่เขียนอะไรลงฐาน
+- ฟังก์ชันทำตามลำดับ: ตรวจ SHA-256 ของสองไฟล์บนดิสก์ด้วย `p647_pins_ok` **ก่อนลบหรือเขียนไฟล์ใด** (ต้องเห็น `…: OK` สองบรรทัด; ไฟล์หาย อ่านไม่ได้ หรือ `FAILED` = `PINS: STOP …` และ `C2: STOP (file hash check failed before any evidence file was removed or written; …)` — psql ไม่ถูกเรียก และไฟล์ C2/C2-S เดิมทั้ง 5 ไฟล์อยู่ครบทุก byte) → ตรวจรูป URL และตัวแปร `PG*` ก่อนลบหรือเขียนไฟล์ใดเช่นกัน (ถูกปฏิเสธ = `TARGET: REFUSED …` และ `C2: STOP (target refused before any evidence file was removed or written; …)` — psql ไม่ถูกเรียก ไม่มีไฟล์ pending และไฟล์ C2/C2-S เดิมทั้ง 5 ไฟล์อยู่ครบทุก byte) → ลบบันทึก C2 และผล/บันทึก C2-S ของรอบก่อน (ลบไม่ได้ = หยุด) → เขียนบันทึกปลายทางชั่วคราวแล้วอ่านกลับ — **เขียนไม่ได้ = `C2: STOP (cannot write the target record …)` พร้อมข้อความ error ของระบบไฟล์ และ psql ไม่ถูกเรียก** → เรียก psql กับไฟล์ preflight ซึ่งเป็น `BEGIN READ ONLY … ROLLBACK` ไม่เขียนอะไรลงฐาน
 - ผลของ psql ทั้งหมด (stdout และ stderr) ถูกเก็บใน `phase647-c2-result.txt` และแสดงบนจอ; บรรทัดแรกของไฟล์คือ `# p647 C2 run <เวลา UTC> <เลขสุ่ม>` ทำให้ผลของแต่ละรอบมี SHA-256 ไม่ซ้ำกันแม้ catalog ไม่เปลี่ยน — คำอนุมัติ C3 จึงผูกกับผลของรอบที่ reviewer ตรวจเท่านั้น
 - **สำเร็จ** = บรรทัดสุดท้ายคือ `C2: RECORDED (user=… hostport=… db=…) result_sha256=…` — เมื่อนั้นจึงมี `phase647-target-C2.txt` (บรรทัดปลายทาง ไม่มี credential) และ `phase647-c2-record.txt` (ผูกปลายทางกับ SHA-256 ของ `phase647-c2-result.txt` ของ**รอบเดียวกัน**). เปิด `phase647-target-C2.txt` ตรวจว่า user / host:port / dbname คือ production ที่ตั้งใจ
-- `C2: STOP …` หรือ `C2: FAILED or evidence incomplete …` = **ไม่มีบันทึก C2 ของรอบนี้** — บันทึกของรอบก่อนถูกลบตั้งแต่ต้นรอบ จึงใช้ไฟล์เก่าหรือไฟล์ค้างแทนผลรอบนี้ไม่ได้ → หยุด ห้ามสร้างหรือแก้ไฟล์บันทึกเอง แจ้ง reviewer; ถ้ามี `phase647-c2-result.txt` ให้ส่งไปด้วยในฐานะผลของรอบที่ล้ม
+- `C2: STOP …` หรือ `C2: FAILED or evidence incomplete …` = **ไม่มีบันทึก C2 ของรอบนี้** — ถ้าหยุดที่ด่าน hash หรือด่านปลายทาง ไฟล์ของรอบก่อนยังอยู่ครบและไม่ถูกแตะ แต่ไม่ใช่ผลของรอบนี้; ถ้าผ่านทั้งสองด่านแล้ว บันทึกของรอบก่อนถูกลบตั้งแต่ต้นรอบ — ทั้งสองกรณีใช้ไฟล์เก่าหรือไฟล์ค้างแทนผลรอบนี้ไม่ได้ → หยุด ห้ามสร้างหรือแก้ไฟล์บันทึกเอง แจ้ง reviewer; ถ้ามี `phase647-c2-result.txt` ให้ส่งไปด้วยในฐานะผลของรอบที่ล้ม
 - สามไฟล์นี้คือหลักฐานของ C2 รอบนี้และอยู่นอก git — ห้าม commit ห้ามแก้ ห้ามย้าย จนจบ §5; ขั้น §4/§5 จะได้ `TARGET: MISMATCH` และขั้น C2-S จะได้ `C2-S: STOP …` ถ้าไฟล์ใดหายหรือ `phase647-c2-result.txt` ไม่ตรงกับ SHA ที่บันทึก
 - ส่งสามไฟล์ให้ reviewer **เป็นไฟล์** (ไม่คัดลอกข้อความ เพราะ SHA-256 คิดจาก byte จริงของไฟล์) แล้วเทียบ `phase647-c2-result.txt` กับตารางด้านล่าง
 
@@ -251,16 +254,13 @@ export P647_APPROVED_C2S_SHA='<SHA-256 ของผล C2-S จากข้อ�
 
 ## 4. Apply ครั้งเดียว
 
-รันทั้งบล็อกนี้ (4 บรรทัด) จาก root ของ checkout ใน shell ที่ตั้งค่าสามตัวของ §3 แล้ว:
+รันบรรทัดนี้ (1 บรรทัด) จาก root ของ checkout ใน shell ที่ตั้งค่าสามตัวของ §3 แล้ว:
 ```bash
-p647_same_target && sha256sum -c - <<'P647_PINS' && psql "$BSK_DB_SESSION_URL" -X -v ON_ERROR_STOP=1 -f supabase-phase647-je-balance-trigger-rls.sql
-9b7fb286b9d08f8d1479b2876e42996a966048d65c3566ca75727b6677effd0f  supabase-phase647-je-balance-trigger-rls.sql
-f34f5670e67530a8c43cb5229f36e814bbcff36d4a775e863ef04530d643c075  phase647-je-balance-preflight-readonly.sql
-P647_PINS
+p647_same_target && p647_pins_ok && psql "$BSK_DB_SESSION_URL" -X -v ON_ERROR_STOP=1 -f supabase-phase647-je-balance-trigger-rls.sql
 ```
 - `TARGET: MISMATCH` (อาจมีบรรทัด `TARGET: REFUSED …` บอกเหตุนำหน้า) = ปลายทางปัจจุบันไม่ตรงกับ C2 หรือกับคำอนุมัติ C3 หรือยืนยันไม่ได้ หรือบันทึก C2 ไม่ครบ/ไม่ตรงกับไฟล์ผล C2 → psql ไม่ถูกเรียก ไม่มีอะไรเกิดกับ DB → หยุด แจ้ง reviewer
 - `EVIDENCE: MISMATCH …` = ไฟล์ผล C2 หรือ C2-S ในเครื่องหาย อ่านไม่ได้ ถูกแก้ หรือไม่ตรงกับ SHA-256 ที่คัดมาจากคำอนุมัติ C3 หรือบันทึก C2-S ไม่ได้อ้างผล C2 ชุดเดียวกัน → psql ไม่ถูกเรียก ไม่มีอะไรเกิดกับ DB → หยุด แจ้ง reviewer
-- `FAILED` ที่บรรทัด hash = psql ไม่ถูกเรียก ไม่มีอะไรเกิดกับ DB → หยุด แจ้ง reviewer
+- `FAILED` ที่บรรทัด hash ตามด้วย `PINS: STOP …` (ไฟล์ migration หรือ preflight หาย อ่านไม่ได้ หรือ hash ไม่ตรง — ตรวจด้วย `p647_pins_ok` ตัวเดียวกับ §2 และ §5) = psql ไม่ถูกเรียก ไม่มีอะไรเกิดกับ DB → หยุด แจ้ง reviewer
 - ไฟล์เป็น `BEGIN … COMMIT` ก้อนเดียว; มี preflight DO ของตัวเอง — ถ้าข้อใด STOP จะเห็น `ERROR: Phase647 STOP: …` และ transaction ย้อนกลับทั้งหมด (ไม่มี partial apply)
 - เก็บ stdout/stderr ทั้งหมด + exit code เป็นไฟล์ทุกกรณี แล้วจำแนกผล**จากไฟล์นั้น**:
   - **สำเร็จ** (ต้องครบทุกข้อ): เห็น `TARGET: OK`, `EVIDENCE: OK` และ `OK` ของ hash สองบรรทัดของการเรียกครั้งนี้ · output ครบตั้งแต่ต้นจนจบไม่ถูกตัด · บรรทัดสุดท้ายจาก server คือ `COMMIT` · exit code 0 → ไป §5
@@ -273,7 +273,7 @@ P647_PINS
 ```bash
 p647_postcheck_run
 ```
-- ใช้**หลักฐานชุดเดียวกับ apply**: ฟังก์ชันผ่านด่านเดียวกับ §4 (ปลายทาง + SHA-256 ของผล C2 และ C2-S เทียบค่าจากคำอนุมัติ C3) แล้วตรวจ SHA-256 ของไฟล์บนดิสก์ก่อนเรียก psql; ไม่ผ่าน = `TARGET: MISMATCH` / `EVIDENCE: MISMATCH` / `POST-CHECK: STOP …` และ psql ไม่ถูกเรียก
+- ใช้**หลักฐานชุดเดียวกับ apply**: ฟังก์ชันผ่านด่านเดียวกับ §4 (ปลายทาง + SHA-256 ของผล C2 และ C2-S เทียบค่าจากคำอนุมัติ C3) แล้วตรวจ SHA-256 ของไฟล์บนดิสก์ด้วย `p647_pins_ok` (ตัวเดียวกับ §2 และ §4) ก่อนเรียก psql; ไม่ผ่าน = `TARGET: MISMATCH` / `EVIDENCE: MISMATCH` / `PINS: STOP …` + `POST-CHECK: STOP …` และ psql ไม่ถูกเรียก
 - ผลถูกเก็บ**แยก**ใน `phase647-postcheck-result.txt` (ลบของรอบก่อนก่อนเขียน) — ไม่แตะ `phase647-c2-result.txt`, `phase647-c2s-result.txt` และไฟล์บันทึกที่คำอนุมัติ C3 อ้าง; บรรทัดท้ายคือ `POST-CHECK: psql_exit=… result_sha256=…`
 เทียบ**ครบทุกแถว**ของ 2A และ 2B ใน `phase647-postcheck-result.txt` กับ `phase647-c2-result.txt` (ไม่นับบรรทัดแรกที่ขึ้นต้น `# p647`):
 - เปลี่ยนได้เฉพาะ 2 ช่อง: `security_definer` จาก `f` เป็น `t` และ `function_config` จากว่างเป็นค่าที่มี element `search_path=pg_catalog, pg_temp` (migration มี postcheck ของ element นี้ก่อน `COMMIT`; บน fixture ในเครื่อง psql 17 แสดงเป็น `{"search_path=pg_catalog, pg_temp"}`)
