@@ -1,5 +1,7 @@
 # Boonsook POS V5 - Shared Session Start
 
+> 🟠 **2026-11-20 — Phase 647 MD5 pin (build คง 642 · local commit ยังไม่ push · SQL NOT APPLIED):** C2/C2-S read-only แล้ว; md5 body บน production `cd812932adf24bc9887a432c084db477` (Phase 498 ตัดคอมเมนต์ + CRLF) ≠ pin เดิม → migration pin ค่า production ค่าเดียว, SHA-256 ใหม่ `9b7fb286…fd0f`. ถัดไป: Codex ตรวจ commit → fixture PostgreSQL (อนุมัติแยก) → target check v5 / read-approval r3 → C3. Production NO-GO.
+>
 > 🟠 **2026-11-19 — Phase 647 release-prep (build คง 642 / v5.69.109 · PR เปิด · SQL NOT APPLIED):** candidate `7cab179` + docs only (ข้อ 6 disclosure, ledger PENDING row, `PHASE647-OWNER-SQL-RUNBOOK.md`); migration blob SHA-256 `d8065a30…23d1` ไม่เปลี่ยน. ก่อน apply: independent review ของ PR → owner รัน preflight read-only + หลักฐานเสริม C2-S (runbook §2) → owner อนุมัติ SHA เต็ม + ปลายทางเดียวกับ C2. Apply ครั้งเดียว `psql -f` หลังตรวจปลายทางและ SHA-256 ของไฟล์บนดิสก์. หลัง apply: post-check → บันทึก ledger → synthetic sale ที่อนุมัติแยก. **ห้าม apply/repair/Backfill ก่อน gate ผ่าน; merge เข้า main เริ่ม workflow Deploy จึงต้องมีคำอนุมัติแยก; credit refunds ยังพัก.** STOP `READY-FOR-INDEPENDENT-PHASE647-RELEASE-REVIEW`.
 >
 

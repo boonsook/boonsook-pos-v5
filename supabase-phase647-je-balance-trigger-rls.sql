@@ -25,7 +25,7 @@ BEGIN
     AND l.lanname = 'plpgsql'
     AND p.prorettype = 'pg_catalog.trigger'::pg_catalog.regtype
     AND p.proowner = 'postgres'::pg_catalog.regrole
-    AND pg_catalog.md5(p.prosrc) = '77709a3f7271068a44cce7307f68dd14'
+    AND pg_catalog.md5(p.prosrc) = 'cd812932adf24bc9887a432c084db477'
     AND NOT p.prosecdef;
   IF v_body IS NULL
      OR pg_catalog.strpos(v_body, 'FROM public.journal_entries') = 0

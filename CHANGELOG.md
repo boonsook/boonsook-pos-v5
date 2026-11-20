@@ -3,6 +3,8 @@
 รายการการแก้ไขแบบสั้น เรียงจากใหม่ → เก่า
 รายละเอียดเชิงลึก (architecture / why) ดูใน [HANDOFF.md](HANDOFF.md)
 
+- Phase 647 MD5 pin ตามผล C2/C2-S (build คง 642): C2/C2-S read-only 2026-11-20 พบ md5 ของ `public.enforce_je_lines_balance()` บน production = `cd812932adf24bc9887a432c084db477` (body Phase 498 ตัดคอมเมนต์ + CRLF) ไม่ตรง pin เดิม `77709a3f7271068a44cce7307f68dd14` (source แบบ LF) → migration pin ค่าของ production ค่าเดียว (Option A ที่ Codex ผ่าน), guard test คำนวณค่าจาก source และห้ามค่า LF, rehearsal ปรับ body เป็นรูป production ก่อนรัน migration (ยังไม่ได้รันบน PostgreSQL). migration SHA-256 `d8065a30…23d1` → `9b7fb286…fd0f`. SQL ยังไม่ apply; target check v4 ยัง pin SHA เดิม ต้องออก v5 รอบแยก.
+
 - Phase 647 release-prep (docs only; build คง 642): เปิด PR จาก candidate `7cab179` (migration blob SHA-256 `d8065a30…23d1` ไม่เปลี่ยน) + เพิ่ม `PHASE647-OWNER-SQL-RUNBOOK.md`, แถว PENDING ใน `DB_MIGRATIONS_APPLIED.md`, ข้อ 6 disclosure ใน `PHASE647-JE-ROOT-CAUSE-AND-RELEASE.md`. SQL ยังไม่ apply; JV 663 repair / discovery / badge / writer = phase แยก.
 
 - Phase 647 local candidate (build คง 642): แก้ทางที่พนักงานบันทึก JE lines แล้ว balance trigger เห็นยอด 0/0 เพราะ SELECT RLS โดยปรับเฉพาะ execution context ของ trigger function; PostgreSQL 17.6 จำลองผ่านทั้งก่อน/หลังและเคสยอดไม่สมดุล. ยังไม่แก้ production/ซ่อม JV 663/เปิด PR; ต้องตรวจ catalog สดและขออนุมัติ SQL SHA แยก. ดู `PHASE647-JE-ROOT-CAUSE-AND-RELEASE.md`.

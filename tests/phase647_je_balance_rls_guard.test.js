@@ -28,8 +28,20 @@ test("candidate fixes trigger visibility only with pinned owner and search path"
   assert.equal(isPrivilegeSafeFix(migration), true);
   const body = original.match(/CREATE OR REPLACE FUNCTION public\.enforce_je_lines_balance\(\)[\s\S]*?AS \$\$([\s\S]*?)\$\$;/)?.[1];
   assert.ok(body, "reviewed original function body exists");
-  const bodyMd5 = createHash("md5").update(body).digest("hex");
-  assert.match(migration, new RegExp(`pg_catalog\\.md5\\(p\\.prosrc\\) = '${bodyMd5}'`));
+  // Production prosrc read by C2/C2-S on 2026-11-20 = this reviewed body with SQL line comments
+  // removed and CRLF line endings; the statements are otherwise byte-identical.
+  const liveBody = body.split("\n").filter((l) => !/^[ \t]*--/.test(l))
+    .map((l) => l.replace(/[ \t]+--.*$/, "")).join("\r\n");
+  const liveMd5 = createHash("md5").update(liveBody).digest("hex");
+  const lfMd5 = createHash("md5").update(body).digest("hex");
+  assert.equal(liveMd5, "cd812932adf24bc9887a432c084db477");
+  assert.equal(lfMd5, "77709a3f7271068a44cce7307f68dd14");
+  assert.match(migration, new RegExp(`pg_catalog\\.md5\\(p\\.prosrc\\) = '${liveMd5}'\\n`));
+  assert.doesNotMatch(migration, new RegExp(lfMd5), "LF fixture body must not be accepted on production");
+  assert.match(rehearsal, new RegExp("\\\\i supabase-phase498-je-lines-balance\\.sql\\n[\\s\\S]*?"
+    + `pg_catalog\\.md5\\(v_src\\) <> '${liveMd5}'[\\s\\S]*?EXECUTE pg_catalog\\.format\\('CREATE OR REPLACE FUNCTION`
+    + "[\\s\\S]*?\\\\i supabase-phase647-je-balance-trigger-rls\\.sql"),
+    "rehearsal must install the production-shaped body before the migration");
   assert.equal(isPrivilegeSafeFix(migration.replace(" SECURITY DEFINER", " SECURITY INVOKER")), false,
     "test must catch an invoker mutant");
   assert.match(migration, /BEGIN;[\s\S]*?SET LOCAL lock_timeout = '5s'/);

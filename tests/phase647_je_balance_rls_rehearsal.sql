@@ -29,6 +29,25 @@ GRANT USAGE ON SEQUENCE public.journal_lines_id_seq TO authenticated;
 
 \i supabase-phase498-je-lines-balance.sql
 
+-- Reshape the installed body to the production prosrc read by C2-S on 2026-11-20
+-- (same statements; SQL line comments removed; CRLF line endings) so the pin applies.
+DO $prodshape$
+DECLARE
+  v_src text;
+BEGIN
+  SELECT p.prosrc INTO v_src FROM pg_catalog.pg_proc p
+   WHERE p.oid = 'public.enforce_je_lines_balance()'::pg_catalog.regprocedure;
+  v_src := pg_catalog.regexp_replace(v_src, '^[ \t]*--[^\n]*\n', '', 'gn');
+  v_src := pg_catalog.regexp_replace(v_src, '[ \t]+--[^\n]*', '', 'g');
+  v_src := pg_catalog.replace(v_src, E'\n', E'\r\n');
+  IF pg_catalog.md5(v_src) <> 'cd812932adf24bc9887a432c084db477' THEN
+    RAISE EXCEPTION 'Phase647 fixture: production-shaped body md5 %', pg_catalog.md5(v_src);
+  END IF;
+  EXECUTE pg_catalog.format('CREATE OR REPLACE FUNCTION public.enforce_je_lines_balance()'
+    ' RETURNS trigger LANGUAGE plpgsql AS %L', v_src);
+END;
+$prodshape$;
+
 SET ROLE authenticated;
 INSERT INTO public.journal_entries(id, total_debit, total_credit) VALUES (663, 10, 10);
 DO $before$

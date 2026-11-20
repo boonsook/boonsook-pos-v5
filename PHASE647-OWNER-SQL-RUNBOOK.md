@@ -1,6 +1,6 @@
 # PHASE647 — Owner SQL Runbook (JE balance trigger · SECURITY DEFINER)
 
-> ไฟล์ที่จะ apply: `supabase-phase647-je-balance-trigger-rls.sql` · SHA-256 `d8065a30cd51ed5f683d90a3961f936168023176ee3822054a85e64fa35d23c1` · 3164 bytes · LF
+> ไฟล์ที่จะ apply: `supabase-phase647-je-balance-trigger-rls.sql` · SHA-256 `9b7fb286b9d08f8d1479b2876e42996a966048d65c3566ca75727b6677effd0f` · 3164 bytes · LF
 > ไฟล์ preflight/post-check: `phase647-je-balance-preflight-readonly.sql` · SHA-256 `f34f5670e67530a8c43cb5229f36e814bbcff36d4a775e863ef04530d643c075` · 1870 bytes · LF
 > เปลี่ยนเฉพาะ execution context ของ function เดิม (`SECURITY DEFINER` + `search_path` pin) ไม่แตะ policy/grant/data/trigger definition/สูตรเงิน
 > ทุกขั้นเป็นของเจ้าของ (หรือ operator ที่เจ้าของ authorize และระบุ provenance ใน ledger) — ทีม implement/reviewer ไม่รัน SQL ใด ๆ บน production
@@ -10,7 +10,7 @@
 
 ## 0. ข้อห้าม (ตลอด runbook)
 
-- ห้ามวาง SQL ใน Supabase SQL Editor: clipboard บน Windows ส่ง CRLF → md5 pin ของ body ไม่ตรง → migration STOP เอง (fail-closed) แต่จะเสียรอบ; ใช้ `psql -f` กับไฟล์ LF จาก git checkout เท่านั้น
+- ห้ามวาง SQL ใน Supabase SQL Editor: ใช้ `psql -f` กับไฟล์ LF จาก git checkout เท่านั้น เพื่อให้ไฟล์ที่ apply เป็นไฟล์เดียวกับที่ตรวจ SHA-256 ในคำสั่งเดียวกัน (migration ไม่ได้สร้าง function ใหม่ วิธีวางไฟล์จึงไม่เปลี่ยน body ที่ md5 pin ตรวจ)
 - ห้ามเรียก `psql -f` แยกจากการตรวจ SHA-256 ของ**ไฟล์บนดิสก์**: hash ของ git blob พิสูจน์ commit ไม่ได้พิสูจน์ไฟล์ใน working tree ที่ `psql` อ่านจริง — ใช้บล็อกคำสั่งของ §2/§4 ทั้งบล็อกเท่านั้น (ตรวจ hash แล้ว `&&` จึงเรียก psql)
 - ห้ามเรียก `psql` ถ้ายืนยันไม่ได้ว่า `$BSK_DB_SESSION_URL` ชี้ปลายทางเดียวกับหลักฐาน C2 และกับที่คำอนุมัติ C3 ระบุ — บล็อกคำสั่งของ §4/§5 ตรวจข้อนี้เองก่อน (`p647_same_target`); เห็น `TARGET: MISMATCH`, `TARGET: REFUSED` หรือ `EVIDENCE: MISMATCH` = หยุด ห้ามแก้ตัวแปรหรือไฟล์ให้ผ่านเอง
 - ห้ามใส่ query string ใน `BSK_DB_SESSION_URL` และห้ามมีตัวแปร `PGHOST` / `PGHOSTADDR` / `PGPORT` / `PGDATABASE` / `PGUSER` / `PGSERVICE` / `PGSERVICEFILE` ใน shell ที่รัน — libpq ใช้ค่าเหล่านี้เปลี่ยนปลายทางได้โดยที่ข้อความ user/host/db ของ URL ไม่เปลี่ยน
@@ -28,7 +28,7 @@
    ```bash
    git cat-file blob HEAD:supabase-phase647-je-balance-trigger-rls.sql | sha256sum
    ```
-   ต้องได้ `d8065a30cd51ed5f683d90a3961f936168023176ee3822054a85e64fa35d23c1` — ไม่ตรง = หยุด แจ้ง reviewer
+   ต้องได้ `9b7fb286b9d08f8d1479b2876e42996a966048d65c3566ca75727b6677effd0f` — ไม่ตรง = หยุด แจ้ง reviewer
 3. ยืนยันว่าสองไฟล์ไม่มีการแก้ค้างใน working tree:
    ```bash
    git status --short -- supabase-phase647-je-balance-trigger-rls.sql phase647-je-balance-preflight-readonly.sql
@@ -41,6 +41,8 @@
 ### 1A. ฟังก์ชันผูกปลายทางและหลักฐาน — target check v4 (วางทั้งบล็อกใน Git Bash)
 
 ไฟล์ต้นทาง: `p647-target-check-v4.sh` · SHA-256 `242dcd225614a5874ebd0588f32f5b5a5f8a7d1d6dd2f334d3ea9c279ec879ce` — ข้อความในบล็อกนี้เท่ากับไฟล์นั้นทุกตัวอักษร และคู่มือหลักฐานเสริม C2-S ใช้ไฟล์เดียวกัน
+
+> ⚠️ **2026-11-20:** v4 ใน `p647_pins_ok` ยัง pin SHA-256 ของ migration เดิม `d8065a30cd51ed5f683d90a3961f936168023176ee3822054a85e64fa35d23c1` ส่วน migration ปัจจุบันคือ `9b7fb286b9d08f8d1479b2876e42996a966048d65c3566ca75727b6677effd0f` (pin md5 ใหม่ตามผล C2/C2-S) ดังนั้น `p647_c2_run` และ `p647_postcheck_run` บน checkout นี้จะ STOP ที่ hash check (psql ไม่ถูกเรียก) จนกว่าจะออก target check v5 และแทนบล็อกนี้ในรอบแยก ห้ามแก้บล็อกนี้เอง
 
 ```bash
 # p647 target check v4 (Phase 647 runbooks). Paste the whole block into Git Bash once per shell.
@@ -195,7 +197,7 @@ p647_c2_run
 | `function_owner` | `postgres` | STOP → reviewer |
 | `security_definer` (ก่อน apply) | `f` | ถ้า `t` อยู่แล้ว = มีคน apply ไปแล้วหรือ function ถูกแก้ → STOP → reviewer (ห้าม apply) |
 | `function_config` (ก่อน apply) | ว่าง (NULL) — source `supabase-phase498-je-lines-balance.sql:62-65` ไม่มี `SET` | มีค่า = STOP → reviewer |
-| `function_body_md5` | `77709a3f7271068a44cce7307f68dd14` | STOP → reviewer (migration จะ STOP เองด้วย) |
+| `function_body_md5` | `cd812932adf24bc9887a432c084db477` (body ดิบบน production ที่อ่านใน C2/C2-S 2026-11-20 = source `supabase-phase498-je-lines-balance.sql` ตัดคอมเมนต์ + CRLF; ค่า LF ของ source `77709a3f7271068a44cce7307f68dd14` ไม่ผ่าน) | STOP → reviewer (migration จะ STOP เองด้วย) |
 | `reads_header` / `reads_lines` / `compares_header` | `t` / `t` / `t` | STOP → reviewer |
 | ตาราง `journal_entries`, `journal_lines` | 2 แถว: `table_owner=postgres`, `rls_enabled=t`, `force_rls=f` ทั้งสอง | STOP → reviewer |
 | trigger | 1 แถว: `trg_je_lines_balance`, `tgenabled=O`, `tgdeferrable=t`, `tginitdeferred=t`, `trigger_function` = `public.enforce_je_lines_balance()` | STOP → reviewer |
@@ -252,7 +254,7 @@ export P647_APPROVED_C2S_SHA='<SHA-256 ของผล C2-S จากข้อ�
 รันทั้งบล็อกนี้ (4 บรรทัด) จาก root ของ checkout ใน shell ที่ตั้งค่าสามตัวของ §3 แล้ว:
 ```bash
 p647_same_target && sha256sum -c - <<'P647_PINS' && psql "$BSK_DB_SESSION_URL" -X -v ON_ERROR_STOP=1 -f supabase-phase647-je-balance-trigger-rls.sql
-d8065a30cd51ed5f683d90a3961f936168023176ee3822054a85e64fa35d23c1  supabase-phase647-je-balance-trigger-rls.sql
+9b7fb286b9d08f8d1479b2876e42996a966048d65c3566ca75727b6677effd0f  supabase-phase647-je-balance-trigger-rls.sql
 f34f5670e67530a8c43cb5229f36e814bbcff36d4a775e863ef04530d643c075  phase647-je-balance-preflight-readonly.sql
 P647_PINS
 ```

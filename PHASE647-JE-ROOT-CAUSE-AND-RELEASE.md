@@ -31,9 +31,11 @@ the migration must stop if those differ.
 
 `supabase-phase647-je-balance-trigger-rls.sql` changes only the existing
 function's execution mode to SECURITY DEFINER and pins its `search_path`.
-Candidate file SHA-256: `d8065a30cd51ed5f683d90a3961f936168023176ee3822054a85e64fa35d23c1`.
-The reviewed historical function body MD5 pin is
-`77709a3f7271068a44cce7307f68dd14`; a different live body must STOP.
+Candidate file SHA-256: `9b7fb286b9d08f8d1479b2876e42996a966048d65c3566ca75727b6677effd0f`.
+The function body MD5 pin is `cd812932adf24bc9887a432c084db477`: the raw `prosrc` read from
+production by the read-only C2/C2-S run on 2026-11-20. It equals the reviewed
+Phase 498 source body with SQL comments removed and CRLF line endings. The LF
+source body (`77709a3f7271068a44cce7307f68dd14`) and any other body must STOP.
 It requires owner `postgres`, exact reviewed function body MD5, enabled
 deferred trigger, RLS on both tables and no FORCE RLS. It does not redefine
 the function, change grants or RLS policies, touch business rows, change the
@@ -44,6 +46,9 @@ causes a transaction error, not a partial apply.
 The local `tests/phase647_je_balance_rls_rehearsal.sql` probe confirms:
 staff 10/10 bulk lines fail with 0/0 before the change; pass after it;
 10/9 remains blocked. This is a local fixture, **not** live Supabase proof.
+Since the 2026-11-20 pin change the probe first rewrites the installed body to
+the production shape (`$prodshape$`); that revised probe has **not** yet been
+run on PostgreSQL.
 
 ## Gates before any production apply
 
