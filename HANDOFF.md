@@ -1,7 +1,16 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
-**Phase 647 — C4 PASS (การขายทดสอบ §7 · บิล `sale_id=279` · 2026-11-26 · build คง 642 / v5.69.109 · docs only · PR #246 ยังไม่ merge · ยังไม่ deploy)**
-- สถานะ: **SQL 647 APPLIED · Post-check PASS · C4 PASS (sale_id=279) · PR #246 ยังไม่ merge · ยังไม่ deploy** · รายละเอียดเต็มและตาราง SHA-256 ดู `DB_MIGRATIONS_APPLIED.md` หมวด "✅ Applied — 2026-11-25" หัวข้อ "ผล C4"
+**Phase 647 — CLOSED (2026-11-26 · merge `640b96c` · deploy ผ่าน · build คง 642 / v5.69.109)**
+- สถานะ: **SQL 647 APPLIED (2026-11-25) · Post-check PASS · C4 PASS (2026-11-26, sale_id=279) · PR #246 MERGED + DEPLOYED** · รายละเอียดเต็มและตาราง SHA-256 ดู `DB_MIGRATIONS_APPLIED.md` หมวด "✅ Applied — 2026-11-25" หัวข้อ "ผล C4" และ "ปิด release Phase 647"
+- PR #246 (https://github.com/boonsook/boonsook-pos-v5/pull/246) merge เข้า `main` เวลา **20:32:47 น.** เวลาไทย 2026-11-26 ที่ merge commit `640b96c40526afd1ef87084675045e42fc41c7ff` (parents `254f092` + `dfe1efe` — head สุดท้ายของ PR = เอกสารปิด C4 `3f089fd` + Pages allowlist r1 `47a5c68` + ตรึง Node 24.14.0 / Wrangler 4.168.0 r2 `dfe1efe`)
+- CI **Tests** บน `main` ที่ `640b96c40526afd1ef87084675045e42fc41c7ff` (https://github.com/boonsook/boonsook-pos-v5/actions/runs/45830185289) จบ **20:38:32 น.**: lint 0 errors · unit **3,925/3,925** · E2E smoke **436/436**
+- **Deploy to Cloudflare Pages** ที่ commit เดียวกัน (https://github.com/boonsook/boonsook-pos-v5/actions/runs/45830185226): Build Pages output (allowlist 166 ไฟล์) → Verify → Deploy ผ่าน · Docker build/smoke ผ่าน · build คง **642 / v5.69.109** (ไม่มีการเปลี่ยน runtime)
+- ตรวจหลังปล่อยแบบอ่านอย่างเดียว (Codex รายงาน): POS เปิดถึงหน้าเข้าสู่ระบบที่ build 642 / v5.69.109 · PWA ทำงาน · Pages Functions ตอบตามคาด · URL ตัวอย่างของไฟล์ที่กันออกจาก deploy (`.md`/`.sql`) ส่งกลับหน้าแอปแทนเนื้อไฟล์
+- **JV 663 repair = งานแยก ยังไม่ดำเนินการ ต้องได้รับอนุมัติแยก**
+- **ห้ามรัน SQL 647 หรือขายทดสอบ C4 ซ้ำ** · รายการ Phase 647 ด้านล่างเป็นประวัติ ณ เวลาที่บันทึก
+
+**Phase 647 — C4 PASS (การขายทดสอบ §7 · บิล `sale_id=279` · 2026-11-26 · build คง 642 / v5.69.109 · docs only · ณ เวลาที่บันทึก: PR #246 ยังไม่ merge · ยังไม่ deploy)**
+- สถานะ ณ เวลาที่บันทึก: **SQL 647 APPLIED · Post-check PASS · C4 PASS (sale_id=279) · PR #246 ยังไม่ merge · ยังไม่ deploy** (merge + deploy แล้ว 2026-11-26 — ดู "Phase 647 — CLOSED" ด้านบน) · รายละเอียดเต็มและตาราง SHA-256 ดู `DB_MIGRATIONS_APPLIED.md` หมวด "✅ Applied — 2026-11-25" หัวข้อ "ผล C4"
 - ผู้ขาย: บัญชี `babang sale` role `sales` (UID `eb0cd378-7099-41fb-9830-0aae18338091` · A1 และ S3 = `sales` · S1 `created_by_is_approved_seller=t`) · build `642` / version `5.69.109`
 - บิล `BSK-1795679943942` (`sale_id=279`) สร้าง 2026-11-26 07:59:07.387554+00 = **14:59:07 น. เวลาไทย** (ภายใน 15 นาทีจาก `transaction_time` ของ A 14:51:40 น.) · สินค้า `2848` 1 ชิ้น × 10.00 บาท จากคลัง `2` (คลังสินค้า ร้านบุญสุข (ศีขร)) · เงินสด รับ 10.00 ทอน 0.00 · ส่วนลด 0.00 · VAT 0.00 · ไม่ใช้เครดิตลูกค้า · **เก็บบิลไว้** (ไม่ยกเลิก)
 - ผล B (อ่านอย่างเดียว จบ `ROLLBACK` · G2 system identifier `7606130613603586966` · server 17.6): สต็อก A3 **5 → K1 4** · K2 movement ของบิล 1 แถว (`sale` qty 1 · note 5→4) · K4 `other_movements=0` · `verdict=separable` · J1 JV `SV2026110095` (entry 848) `status=approved` หนึ่งใบ `total_debit=total_credit=10.00` · J2 สองบรรทัด **Dr `1110` 10.00 / Cr `4100` 10.00** · J3 ผลรวมบรรทัด 10.00/10.00
@@ -10,9 +19,9 @@
 - หลักฐาน M / V1 / A / B และภาพ Console พร้อม SHA-256 (Codex ตรวจผ่าน · ผู้คุมงาน Claude คำนวณซ้ำได้ตรง): ดูตารางใน `DB_MIGRATIONS_APPLIED.md` หมวด "✅ Applied — 2026-11-25" หัวข้อ "ผล C4" · ไฟล์ M/A/B อยู่ใน `bpos-wt-647-release` (ไม่ commit) · สำเนาภาพ V1 และภาพการขายอยู่ใน worktree `phase-647-readiness-17be74/phase647-c4-evidence/`
 
 - แยกจาก C4: Console มี `Failed to load resource … 502` ที่ `/api/line-notify` และ `LINE send failed: [{"status":429,"ok":false}]` = การแจ้งเตือน LINE ล้ม ไม่กระทบการขาย สต็อก หรือ JV ของบิลนี้ · ต้องตรวจแยกเป็นงานของ LINE notify
-- ยังไม่ทำ: merge PR #246 (merge เข้า main จะเริ่ม workflow Deploy) · deploy · JV 663 repair · ลงเอกสารเหล่านี้ใน PR — แต่ละขั้นต้องได้รับอนุมัติแยก
+- ณ เวลาที่บันทึก ยังไม่ทำ: merge PR #246 (merge เข้า main จะเริ่ม workflow Deploy) · deploy · JV 663 repair · ลงเอกสารเหล่านี้ใน PR — แต่ละขั้นต้องได้รับอนุมัติแยก (merge + deploy ทำแล้ว 2026-11-26 · JV 663 repair ยังไม่ทำ)
 
-**Phase 647 — SQL applied บน production · post-check PASS · C4 NOT RUN (2026-11-25 · build คง 642 / v5.69.109 · docs only · PR #246 ยังไม่ merge · ยังไม่ deploy)**
+**Phase 647 — SQL applied บน production · post-check PASS · C4 NOT RUN (2026-11-25 · build คง 642 / v5.69.109 · docs only · ณ เวลาที่บันทึก: PR #246 ยังไม่ merge · ยังไม่ deploy)**
 - เจ้าของ (gangboo) apply `supabase-phase647-je-balance-trigger-rls.sql` (SHA-256 `9b7fb286b9d08f8d1479b2876e42996a966048d65c3566ca75727b6677effd0f`, ไฟล์ที่ Git ติดตามใน PR #246 head `621b44162d096d9a52a61174428144bb1d50e5c2`) เองหนึ่งครั้ง ตามคำอนุมัติ C3 ในแชต Codex thread `01a20b01-14dc-7e42-9e8c-afda77e512d1` (อนุมัติ 11:27:23 น. · ช่วง 11:50 ถึงก่อน 12:10 น. เวลาไทย). ข้อความอนุมัติและร่างที่อ้างถึงคัดคำต่อคำไว้ใน `DB_MIGRATIONS_APPLIED.md` หมวด "✅ Applied — 2026-11-25". **ห้ามรัน SQL ซ้ำ**
 - ผล apply (§4): `TARGET: OK` · `EVIDENCE: OK` · hash ของ migration และ preflight `OK` ทั้งคู่ · `BEGIN` → `SET`×3 → `DO` → `ALTER FUNCTION`×2 → `DO` → `COMMIT` · `PSQL_EXIT=0`. ในไฟล์ log ไม่มี timestamp; ไฟล์เขียนเสร็จ 11:52:01 น. (mtime) อยู่ในช่วงอนุมัติ. ปลายทาง `user=postgres.rwmmjljelpcpwohwiplu hostport=aws-1-ap-northeast-1.pooler.supabase.com:5432 db=postgres` = คำยืนยันของเจ้าของ + ด่าน `TARGET: OK` ไม่ใช่หลักฐานอิสระ
 - ผล post-check (§5, read-only, run `20261125T045245Z` = 11:52:45 น., จบ `ROLLBACK`): เทียบกับผล C2 แล้วต่างเฉพาะ `security_definer` `f`→`t` และ `function_config` ว่าง→`{"search_path=pg_catalog, pg_temp"}`; ค่าอื่นใน §2A–§2B ตรงเดิมทุกตัวอักษร. `psql_exit=0` ตามที่ผู้รันรายงาน (บรรทัด `POST-CHECK:` ไม่อยู่ในไฟล์ผล). Codex ตรวจผ่าน และทีม Claude เทียบซ้ำได้ผลเดียวกัน
