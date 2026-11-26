@@ -30,6 +30,8 @@ node_modules/
 # Build output
 dist/
 build/
+# Cloudflare Pages allowlist output (scripts/build-pages-output.js)
+dist-pages/
 
 # Claude Code worktrees
 .claude/

@@ -14,12 +14,24 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
+      # Phase 647 pages allowlist: upload only the exact Git-tracked runtime files in
+      # scripts/pages-allowlist.txt (no *.md / *.sql / scripts / tests / evidence).
+      # build = copy byte-for-byte into a fresh dist-pages/ and verify; verify = re-check
+      # the folder Wrangler will upload. Any failure stops the job before deploy.
+      # Wrangler still runs from the repo root, so functions/ (+ _middleware.js) is
+      # bundled as Pages Functions; dist-pages/ only holds static assets + _headers.
+      - name: Build Pages output (allowlist)
+        run: node scripts/build-pages-output.js build --out dist-pages --report "${{ runner.temp }}/pages-output-report.json"
+
+      - name: Verify Pages output
+        run: node scripts/build-pages-output.js verify --out dist-pages
+
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy . --project-name=boonsook-pos-v5 --commit-dirty=true --commit-message="Deploy ${{ github.sha }}"
+          command: pages deploy dist-pages --project-name=boonsook-pos-v5 --commit-dirty=true --commit-message="Deploy ${{ github.sha }}"
 
   docker:
     runs-on: ubuntu-latest
