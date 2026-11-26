@@ -14,6 +14,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
+      # Pinned toolchain = the versions the allowlist build + Pages Functions build were
+      # verified with (Node 24.14.0, Wrangler 4.168.0). Bump both together, re-verify.
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24.14.0"
+
       # Phase 647 pages allowlist: upload only the exact Git-tracked runtime files in
       # scripts/pages-allowlist.txt (no *.md / *.sql / scripts / tests / evidence).
       # build = copy byte-for-byte into a fresh dist-pages/ and verify; verify = re-check
@@ -29,6 +36,7 @@ jobs:
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v4
         with:
+          wranglerVersion: "4.168.0"
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy dist-pages --project-name=boonsook-pos-v5 --commit-dirty=true --commit-message="Deploy ${{ github.sha }}"

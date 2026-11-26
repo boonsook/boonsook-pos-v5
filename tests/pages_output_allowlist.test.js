@@ -322,3 +322,16 @@ test("workflow: build + verify dist-pages before deploy; deploy dist-pages from 
   assert.match(wf, /docker:\n {4}runs-on: ubuntu-latest\n {4}name: Build Docker Image\n {4}needs: deploy/);
   assert.match(fs.readFileSync(path.join(ROOT, ".gitignore"), "utf8"), /^dist-pages\/$/m);
 });
+
+test("workflow: deploy toolchain pinned to the verified versions (Node 24.14.0 before build, Wrangler 4.168.0)", () => {
+  const wf = fs.readFileSync(path.join(ROOT, ".github", "workflows", "main.yml"), "utf8");
+  const deployJob = wf.slice(wf.indexOf("  deploy:"), wf.indexOf("  docker:"));
+  const iNode = deployJob.indexOf("uses: actions/setup-node@v5");
+  const iBuild = deployJob.indexOf("node scripts/build-pages-output.js build");
+  assert.ok(iNode > 0 && iNode < iBuild, "setup-node runs before the allowlist build");
+  assert.match(deployJob.slice(iNode, iBuild), /node-version: "24\.14\.0"/);
+  const iAction = deployJob.indexOf("uses: cloudflare/wrangler-action@v4");
+  assert.ok(iAction > iBuild);
+  assert.match(deployJob.slice(iAction), /\n {10}wranglerVersion: "4\.168\.0"\n/);
+  assert.equal((deployJob.match(/wranglerVersion:/g) || []).length, 1);
+});
