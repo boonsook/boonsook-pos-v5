@@ -28,10 +28,99 @@
 
 | SQL file | ทำอะไร | สถานะ |
 |---|---|---|
-| `supabase-phase647-je-balance-trigger-rls.sql` (SHA-256 `9b7fb286b9d08f8d1479b2876e42996a966048d65c3566ca75727b6677effd0f` · 3164 bytes · LF) | **Phase 647: ให้ JE balance trigger มองเห็น journal_lines ใต้ RLS** — `ALTER FUNCTION public.enforce_je_lines_balance() SECURITY DEFINER` + `SET search_path = pg_catalog, pg_temp` ใน transaction เดียว; preflight DO ในไฟล์ตรวจ owner=postgres / md5 body ดิบของ production `cd812932adf24bc9887a432c084db477` (= body Phase 498 ตัดคอมเมนต์ + CRLF ตาม C2/C2-S 2026-11-20) / trigger deferred+enabled / RLS on + ไม่ FORCE → ไม่ตรง = STOP ทั้ง transaction. ไม่แตะ policy/grant/data/trigger definition. ขั้นตอนเจ้าของ: `PHASE647-OWNER-SQL-RUNBOOK.md` | 🔴 PENDING — ก่อน apply ต้องผ่าน (1) independent review ของ PR (2) owner รัน preflight read-only: runbook §2 ตาราง 2A ตรงทุกแถว + reviewer ยืนยันตาราง 2B + หลักฐานเสริม read-only C2-S ครอบ effective policies/helper (query ยังไม่มี ต้อง review แยก) (3) owner อนุมัติ SHA นี้ + ปลายทางเดียวกับ C2 + change window → apply ครั้งเดียวด้วย `psql -f` หลังตรวจปลายทางและ SHA-256 ของ**ไฟล์บนดิสก์**ในคำสั่งเดียวกัน (ห้ามวางใน SQL Editor: ไฟล์ที่ apply ต้องเป็นไฟล์เดียวกับที่ตรวจ SHA-256). หลัง apply: post-check §5 แล้วจึง synthetic sale ที่อนุมัติแยก (§7) |
 | `supabase-phase569-ning-memory-facts.sql` | **สร้าง table `public.ning_memory_facts`** รองรับ Ning long-term memory ผ่าน POS proxy (Phase 569). idempotent: `CREATE TABLE IF NOT EXISTS` (id uuid default gen_random_uuid · user_id text · text text · text_hash text · tags jsonb default '[]' · created_at timestamptz default now) + `UNIQUE(user_id,text_hash)` (จำเป็นต่อ upsert `on_conflict=user_id,text_hash` ของ endpoint remember — ขาด=PostgREST 42P10) + index `(user_id,created_at)` ช่วย recall + **ENABLE RLS แบบ deny-by-default** (ไม่มี policy → anon/authenticated เข้าไม่ได้; เข้าถึงทางเดียว = service-role ผ่าน Cloudflare Function ซึ่ง bypass RLS) + `NOTIFY pgrst`. ⚠️ เดิม Ning bot ยิง table นี้ตรงด้วย service-role key — Phase 569 ย้าย access ผ่าน POS function (service-role อยู่ฝั่ง server) | ✅ **applied 2026-07-06 + preview smoke passed** (owner รันใน SQL Editor). **DB-verify ผ่านทางอ้อมด้วย preview smoke** (deployment hash `f8350c86`, key จริง): remember→ok · remember ซ้ำ→dedup เหลือ 1 fact (พิสูจน์ UNIQUE(user_id,text_hash)) · recall→เจอ · forget-all→deleted:1 · recall หลังลบ→`facts:[]` ว่าง = table+UNIQUE+RLS(service-role เขียนได้)+index ทำงานจริง. ✅ **prod smoke passed 2026-07-06** (owner รันบน `boonsook-pos-v5.pages.dev` key จริง: remember→ok · remember ซ้ำ→id เดิม (dedup) · recall→เจอ 1 · forget-all→deleted:1 · recall หลังลบ→`facts:[]`). POS merged **PR #144 `14a3b97`**; prod endpoints ทั้ง 3 live+gated (bad-key→"Invalid Ning agent key"). Ning runtime สลับเป็น HTTP POS proxy แล้ว (`SUPABASE_SERVICE_ROLE_KEY` ออกจาก Ning runtime). (owner verify ตรงที่ DB เพิ่มได้: (1) คอลัมน์ครบ (2) `ning_memory_facts_user_hash_uniq` pg_constraint contype='u' (3) `relrowsecurity=true` + `pg_policy` ว่าง). หมายเหตุ: preview env เคยตั้ง `SUPABASE_URL` ผิด → remember 500 ชั่วคราว, แก้ env แล้วผ่าน (ไม่ใช่บั๊กโค้ด) |
 | `supabase-phase560-service-transfer-bank.sql` | **งานบริการรับเงินโอน → Dr เข้าบัญชีตามประเภทงาน** — ADD COLUMN `account_mapping.transfer_debit_code` + ตั้งค่า (owner decision: ติดตั้งแอร์+โซลาร์→**1136** SCB ขายพร้อมติดตั้ง · ที่เหลือทุกงาน→**1134** KBANK งานช่าง). code (build 559) อ่านค่านี้ route Dr แทน 1130 แบน (ยังไม่ตั้ง=fallback 1130). STEP0 ALTER+NOTIFY → STEP1 verify (service_* 11 keys) → STEP2 UPDATE → STEP3 verify. ไม่แตะ POS/ใบเสร็จ/รายจ่าย/credit side | ✅ **applied 2026-07-04** (owner รัน STEP0→3 ใน SQL Editor) — STEP0 ADD COLUMN `transfer_debit_code` + NOTIFY สำเร็จ; STEP1 = service_* 11 keys ครบ (transfer_debit_code NULL ก่อนตั้ง); STEP2 UPDATE; **STEP3 verified: `service_install_ac=1136` · `service_solar=1136` · อีก 9 keys=1134** ตรง owner decision. code build 559 (branch phase-560, กำลัง merge) อ่านค่านี้ route Dr. ✅ **owner smoke verified 2026-07-05** (build 562 live): งานล้างแอร์ (clean_ac) จ่ายโอน → JV `SV2026070020` **Dr 1134 เงินฝากกสิกร งานช่าง 600 / Cr 4220 รายได้ล้างแอร์ 600** — Dr route ตามประเภทงานถูก (ไม่ใช่ 1130 แบบเก่า); QR ที่โชว์ตอนเลือกโอน (KBANK 1408197380) = บัญชีเดียวกับ JV. งานเงินสด (`SV2026070018`) → Dr 1110 ยืนยันแล้ว. ติดตั้ง/โซลาร์→1136 ยังไม่มีเคสจริงทดสอบ (route เดียวกัน mapping verified STEP3) |
 | `supabase-phase557-bundle-cogs-backfill.sql` | **Backfill ย้อนหลัง** `sale_items.unit_cost` ของบรรทัด bundle (เดิม=0 จาก cost ตัวแม่) → `Σ(child.cost × recipe.qty)` + recompute `sales.gross_profit=round(subtotal−Σ qty×COALESCE(NULLIF(unit_cost,0),products.cost,0),2)` (fallback products.cost — mirror profit_report.js:186 + live column). STEP1 verify (นับแถว) → STEP2 UPDATE sale_items (scope: `unit_cost=0` + `is_bundle` + Σ children cost>0) → STEP3 UPDATE sales.gross_profit (เว้น gross_profit/subtotal NULL + note `[ลบแล้ว]`) → STEP4 verify. **ย้อนหลังใช้ cost ปัจจุบันของ children** (ไม่มี historical cost — ฐานเดียวกับ fallback profit_report เดิม). code side (build 557) = source `unit_cost` เขียน bundle COGS ถูกตั้งแต่แรกแล้ว; ไฟล์นี้ปะข้อมูลเก่า | ✅ **applied 2026-07-03** (owner รันครบ STEP1→4 ใน SQL Editor) — **ผล: no-op** (STEP1 `bundle_lines_to_fix=0` → STEP2/3 = 0 แถว → STEP4a `remaining=0`). diagnostic ยืนยันสาเหตุ: **ระบบไม่มีสินค้า bundle เลย** (`products.is_bundle=true` = 0 แถว, bundle sale lines = 0, product_bundles = 0) → ไม่มีข้อมูลย้อนหลังต้องปะ; Phase 555/557 = preventive สำหรับ bundle ในอนาคต. backup tables `_bk557_*` (0 แถว) drop ได้. smoke ขาย bundle = N/A (ยังไม่มี bundle ให้ขาย — โค้ด build 557 จะทำงานเมื่อสร้าง bundle ครั้งแรก) |
+
+---
+
+## ✅ Applied — 2026-11-25
+
+| SQL file | ทำอะไร | applied | verified อย่างไร |
+|---|---|---|---|
+| `supabase-phase647-je-balance-trigger-rls.sql` (PR #246 head `621b44162d096d9a52a61174428144bb1d50e5c2` — **ยังไม่ merge**, SHA-256 `9b7fb286b9d08f8d1479b2876e42996a966048d65c3566ca75727b6677effd0f` · 3164 bytes · LF) | **Phase 647: ให้ JE balance trigger มองเห็น journal_lines ใต้ RLS** — `ALTER FUNCTION public.enforce_je_lines_balance() SECURITY DEFINER` + `SET search_path = pg_catalog, pg_temp` ใน transaction เดียว พร้อม preflight DO ในไฟล์; ไม่แตะ policy/grant/data/trigger definition. ขั้นตอนเจ้าของ: `PHASE647-OWNER-SQL-RUNBOOK.md`. **C4 (การขายทดสอบ) ณ วัน apply = NOT RUN · ผล C4 PASS 2026-11-26 บิล `sale_id=279` ดูหัวข้อ "ผล C4" ด้านล่าง · แอปไม่ได้ deploy ใหม่** | **2026-11-25 owner-run หนึ่งครั้ง (gangboo) ตามคำอนุมัติ C3** ช่วง 11:50 ถึงก่อน 12:10 น. เวลาไทย ด้วยคำสั่ง runbook §4 (`p647_same_target && p647_pins_ok && psql … -f`). Log `p647-c3-apply-20261125.log`: `TARGET: OK` · `EVIDENCE: OK` (SHA-256 ของผล C2/C2-S ตรงคำอนุมัติ) · hash ของ migration และ preflight `OK` ทั้งคู่ · `BEGIN` → `SET`×3 → `DO` → `ALTER FUNCTION`×2 → `DO` → `COMMIT` · `PSQL_EXIT=0`. ในไฟล์ log ไม่มี timestamp; ไฟล์เขียนเสร็จ 11:52:01 น. (mtime) อยู่ในช่วงอนุมัติ. ปลายทาง: `user=postgres.rwmmjljelpcpwohwiplu hostport=aws-1-ap-northeast-1.pooler.supabase.com:5432 db=postgres` (บรรทัดจาก `phase647-target-C2.txt`, project ref `rwmmjljelpcpwohwiplu`) — **อ้างอิงจากคำยืนยันของเจ้าของและด่าน `TARGET: OK`** ไม่ใช่หลักฐานอิสระของตัวตนปลายทาง. **ห้ามรัน SQL ซ้ำ** | Post-check §5 read-only `phase647-postcheck-result.txt` (run `20261125T045245Z` = 11:52:45 น. เวลาไทย, ผลอ่านจบด้วย `ROLLBACK`; `psql_exit=0` ตามที่ผู้รันรายงาน — บรรทัด `POST-CHECK:` ไม่ได้อยู่ในไฟล์ผล). เทียบกับ `phase647-c2-result.txt` (ไม่นับบรรทัดแรก): ต่างเฉพาะแถวฟังก์ชัน คือ `security_definer` `f`→`t` และ `function_config` ว่าง→`{"search_path=pg_catalog, pg_temp"}`; owner, body md5 `cd812932adf24bc9887a432c084db477`, reads_header/reads_lines/compares_header, flags ของสองตาราง, trigger และ policies 6 แถวตรงเดิมทุกตัวอักษร. Codex ตรวจผ่าน และผู้คุมงาน Claude เทียบซ้ำจากไฟล์ได้ผลเดียวกัน. ความสดของหลักฐาน: snap-read `transaction_time` 11:22:43.530809 น. (อายุราว 29 นาที ณ เวลา apply ไม่เกิน 60 นาทีตามคำอนุมัติ). **ขอบเขต:** post-check = สถานะ catalog เท่านั้น ไม่พิสูจน์ว่า auto-post ของพนักงานถูกต้อง (ณ วัน apply; C4 §7 ทำแล้วและ PASS 2026-11-26 บิล `sale_id=279` — ดูหัวข้อ "ผล C4" ด้านล่าง); §2C ใช้ C2-S และ snap-read ยืนยัน catalog ภายในขอบเขตที่ตรวจ (อ่าน trigger ตามชื่อ, ไม่ค้น helper ชั้นที่สอง); รอบอ่านไม่ได้ตรวจ JV 663 หรือข้อมูลธุรกิจ |
+
+หลักฐาน Phase 647 ที่ย้อนดูได้โดยไม่เปิด credential — ไฟล์ผลและ log ทั้งหกเก็บอยู่ใน `bpos-wt-647-release` โดยไม่ commit ส่วน `supabase-phase647-je-balance-trigger-rls.sql` เป็นไฟล์ที่ Git ติดตามใน PR #246. SHA-256 ด้านล่าง Codex คำนวณจากไฟล์จริง และผู้คุมงาน Claude คำนวณซ้ำได้ตรงทุกไฟล์เมื่อ 2026-11-25 ราว 11:56 น.:
+
+| ไฟล์ | ใช้ในขั้น | SHA-256 |
+|---|---|---|
+| `supabase-phase647-je-balance-trigger-rls.sql` | migration | `9b7fb286b9d08f8d1479b2876e42996a966048d65c3566ca75727b6677effd0f` |
+| `phase647-c2-result.txt` | §2 C2 (2026-11-20) | `c39a7419c3cce5d88487759b30eac33a76f11641863c5fc323f86b98b16ae6cd` |
+| `phase647-c2s-result.txt` | §2C C2-S (2026-11-20) | `ad777506063445cf19f10800f73e7132685c372320409ecca6590d197ec37dfc` |
+| `p647-snap-read-result.txt` | ความสดก่อน C3 (transaction 11:22:43.530809 น.) | `11a838f240045e42141d5ffa4947cf4c922fd9d1d84880372c930ef32d436f56` |
+| `p647-snap-read-record.txt` | record ของ snap-read | `c43676009c773d2702f7a6afee4ffb1443fa9ab6152e5c3be985b95001fa08a6` |
+| `p647-c3-apply-20261125.log` | §4 apply | `e05fcda3ed55911fdc3c0b2a894c7e9c82475c729ae848a24b7ef1a6fb1c5252` |
+| `phase647-postcheck-result.txt` | §5 post-check | `402f5797f4cbf13558fa6897a4b90119723beefb14cf6eae6429db6bb1b3d3d9` |
+
+แพ็ก snap-read ที่ใช้รัน: `prompts\phase647-snap-read-r1` manifest ชุดปิด 09:20 น. SHA-256 `6dccd3c14beed3d9a5bf3aa97990dec49f320ef0eded1a92e76d046b845ab8d0`.
+
+**คำอนุมัติ C3 (§3)** — เจ้าของอนุมัติในแชต Codex thread `01a20b01-14dc-7e42-9e8c-afda77e512d1` วันที่ 2026-11-25. ข้อความด้านล่างคัดคำต่อคำจากไฟล์บันทึกแชตของ Codex บนเครื่องเจ้าของ (อ่านอย่างเดียว) โดยผู้คุมงาน Claude.
+
+ข้อความอนุมัติของเจ้าของ (11:27:23 น. เวลาไทย):
+
+```text
+ผมอนุมัติ C3 ตามร่างครับ ให้ผม (gangboo) apply Phase 647 เองหนึ่งครั้งช่วง 11:50–ก่อน 12:10 น. วันนี้ ช่วยพาผมเตรียมด่านปลายทาง หลักฐาน และ SHA-256 ทีละขั้นก่อนถึงเวลา ยังไม่ apply ไม่ merge ครับ
+```
+
+ร่างที่ข้อความอนุมัติอ้างถึง (Codex เขียนเมื่อ 11:26:00 น. เวลาไทย, คัดเฉพาะส่วนร่าง):
+
+```text
+> **คำอนุมัติ C3 — Phase 647**
+>
+> ผม (`gangboo`) อนุมัติให้ผมเป็นผู้รัน apply Phase 647 บน production **หนึ่งครั้ง** ตาม runbook §4 ในวันที่ **25 พฤศจิกายน 2569 ตั้งแต่ 11:50 น. ถึงก่อน 12:10 น. เวลาไทย** โดยใช้ migration `supabase-phase647-je-balance-trigger-rls.sql` ที่มี SHA-256 `9b7fb286b9d08f8d1479b2876e42996a966048d65c3566ca75727b6677effd0f`
+>
+> **ปลายทาง production** คือ project ref `rwmmjljelpcpwohwiplu` และ system identifier `7606130613603586966` โดยใช้บรรทัดจาก `phase647-target-C2.txt` ดังนี้
+>
+> `user=postgres.rwmmjljelpcpwohwiplu hostport=aws-1-ap-northeast-1.pooler.supabase.com:5432 db=postgres`
+>
+> **SHA-256 ของหลักฐานที่ Codex ตรวจ**
+>
+> | ไฟล์ | SHA-256 |
+> |---|---|
+> | `phase647-c2-result.txt` | `c39a7419c3cce5d88487759b30eac33a76f11641863c5fc323f86b98b16ae6cd` |
+> | `phase647-c2s-result.txt` | `ad777506063445cf19f10800f73e7132685c372320409ecca6590d197ec37dfc` |
+> | `MANIFEST.sha256` ของ `phase647-snap-read-r1` ชุดปิด 09:20 น. | `6dccd3c14beed3d9a5bf3aa97990dec49f320ef0eded1a92e76d046b845ab8d0` |
+> | `p647-snap-read-result.txt` | `11a838f240045e42141d5ffa4947cf4c922fd9d1d84880372c930ef32d436f56` |
+> | `p647-snap-read-record.txt` | `c43676009c773d2702f7a6afee4ffb1443fa9ab6152e5c3be985b95001fa08a6` |
+>
+> ผมยืนยันตามคำตัดสินของ Codex ว่า **C2 ผ่านครบ 4 ข้อ** ค่า §2A และ `cmd`/`roles` ใน §2B ตรงครบ Codex ยืนยันว่า `qual`/`with_check` ตรงตามความหมายทั้ง 6 policies และ C2-S ครบ S1–S3 ข้อประเมิน S3 ยืนยันสาเหตุเดิมและขอบเขตการเพิ่ม journal lines สำหรับผู้ใช้ที่เกี่ยวข้องอยู่ใน 7 กลุ่ม `source_table` เดิม โดย `source_id` ต้องมีค่า และ `staff_payroll` อยู่นอกขอบเขตนั้น
+>
+> ผมยืนยันการยอมรับข้อสังเกต disclosure ข้อ 6 ตามที่เคยรับไว้ กล่าวคือ หลัง apply ข้อความผิดพลาดจาก trigger อาจเผยยอดรวม journal lines และยอด header ของรายการที่ผู้เรียกมีสิทธิ์เพิ่ม lines
+>
+> ผล snap-read ใช้ยืนยันความสดของหลักฐาน C2/C2-S โดย `transaction_time` ฝั่ง server คือ **11:22:43.530809 น. เวลาไทย** อายุผล ณ เวลาเริ่ม apply ต้องไม่เกิน **60 นาที** และต้องอยู่ในช่วงที่อนุมัติข้างต้น
+>
+> หากด่านปลายทาง หลักฐาน หรือ SHA-256 ไม่ผ่าน ให้หยุดก่อน apply หากผลล้มหรือกำกวม ให้เก็บ stdout/stderr และ exit code ตาม runbook แล้วหยุดโดยไม่รันซ้ำ คำอนุมัตินี้ครอบเฉพาะ apply หนึ่งครั้ง ส่วน C4 การขายทดสอบ merge และ deploy ต้องได้รับอนุมัติแยก
+```
+
+ข้อจำกัดของหลักฐาน: ปลายทาง = คำยืนยันของเจ้าของ + ด่าน `TARGET: OK` ในเครื่อง; ผล post-check พิสูจน์สถานะ catalog ไม่พิสูจน์พฤติกรรมการขาย; C4 ได้รับอนุมัติแยกและทำเสร็จแล้ว 2026-11-26 (PASS บิล `sale_id=279` · ดูหัวข้อ "ผล C4" ด้านล่าง); merge PR #246 และ deploy ยังรออนุมัติแยก; ห้ามใช้บันทึกนี้เป็นเหตุให้รัน SQL ซ้ำ.
+
+### ผล C4 (§7 การขายทดสอบ) — **PASS** 2026-11-26 · บิล `sale_id=279`
+
+ลำดับที่ทำ: M → V1 → Codex ตรึง JV → A → ขาย → B แต่ละขั้นอนุมัติแยก. ผลตามเกณฑ์ §7:
+
+- ผู้ขาย: บัญชี `babang sale` role `sales` (UID `eb0cd378-7099-41fb-9830-0aae18338091` · A1 และ S3 = `sales` · S1 `created_by_is_approved_seller=t`) · build `642` / version `5.69.109`
+- บิล `BSK-1795679943942` (`sale_id=279`) สร้าง 2026-11-26 07:59:07.387554+00 = **14:59:07 น. เวลาไทย** (ภายใน 15 นาทีจาก `transaction_time` ของ A 14:51:40 น.) · สินค้า `2848` 1 ชิ้น × 10.00 บาท จากคลัง `2` (คลังสินค้า ร้านบุญสุข (ศีขร)) · เงินสด รับ 10.00 ทอน 0.00 · ส่วนลด 0.00 · VAT 0.00 · ไม่ใช้เครดิตลูกค้า · **เก็บบิลไว้** (ไม่ยกเลิก)
+- ผล B (อ่านอย่างเดียว จบ `ROLLBACK` · G2 system identifier `7606130613603586966` · server 17.6): สต็อก A3 **5 → K1 4** · K2 movement ของบิล 1 แถว (`sale` qty 1 · note 5→4) · K4 `other_movements=0` · `verdict=separable` · J1 JV `SV2026110095` (entry 848) `status=approved` หนึ่งใบ `total_debit=total_credit=10.00` · J2 สองบรรทัด **Dr `1110` 10.00 / Cr `4100` 10.00** · J3 ผลรวมบรรทัด 10.00/10.00
+- Dr/Cr ตรงกับผล M (`sale_cash` active 1 แถว · 1110 เงินสดในมือ / 4100 รายได้ขายสินค้า — หน้าร้าน (POS) · ทั้งสองบัญชี active)
+- ภาพ Console จากแท็บผู้ขายเดิม (เปิด **All levels** และ **Network messages**): บรรทัดตัดสต็อก `[deductStock] … 5 → 4 (qty 1, atomic)` และ `[auto_post] created SV2026110095 from sales #279 amount 10` · ไม่พบ `23514` ใน log ที่เก็บไว้
+
+หลักฐาน (ไฟล์ M/A/B อยู่ใน `bpos-wt-647-release` โดยไม่ commit · ภาพ Console ของ V1 และของการขายต้นฉบับอยู่ใน Temp ของเครื่องเจ้าของ จึงคัดสำเนาไว้ใน worktree ทีม Claude). M ยืนยันค่า mapping บน production และ V1 ยืนยันว่าบัญชีผู้ขายอ่านแถว `sale_cash` ได้ค่าเดียวกันด้วย GET ที่อนุมัติ — ใช้ย้อนตรวจที่มาของ Dr `1110` / Cr `4100`. SHA-256 ด้านล่าง Codex คำนวณจากไฟล์จริง และผู้คุมงาน Claude คำนวณซ้ำได้ตรงทุกไฟล์เมื่อ 2026-11-26:
+
+| ไฟล์ | ใช้ในขั้น | SHA-256 |
+|---|---|---|
+| `p647-c4-m-result.txt` | M ที่มาของ Dr/Cr (`sale_cash` active 1 แถว · 1110 / 4100 · ทั้งสองบัญชี active · ช่วงอนุมัติ 13:53–14:08 น.) | `92e834045201d29329b2539960999072d2d8258c435472218922da6d0a24419d` |
+| `p647-c4-m-record.txt` | record ของ M | `40834f454201b37aae16c8a54be973edc0ff5784cbc0881acb8c02c30489d4eb` |
+| `p647-c4-m.lock/reserved.txt` | lock ของ M | `00506b91a5cdc275e2c19e33df956df924ead21bd3165a1b4a2fbe66e355dac2` |
+| `codex-clipboard-4180d9e8-9ba1-4cea-9227-060a5fe645e0.png` | V1 ภาพ Console จาก session ผู้ขาย (สำเนาใน worktree `phase-647-readiness-17be74/phase647-c4-evidence/`): `2026-11-26T14:13:58.512+07:00` · build 642 / version 5.69.109 · origin `https://boonsook-pos-v5.pages.dev` · `seller uid matches approval` · GET สี่ฟิลด์ของ `sale_cash` → HTTP 200 หนึ่งแถว `debit_account_code=1110` `credit_account_code=4100` (ตรงกับ M) | `d3588d7751f403f05aefe0b90d233436624ec8758499fe19aeac4a58aeb1bdff` |
+| `p647-c4-a-result.txt` | A ก่อนขาย (`transaction_time` 2026-11-26 07:51:40.293433+00 = 14:51:40 น.) | `bc6b48065f10d94c7c2ce6a4a58f2518a5b3ef6d0729892c963d121e409d0072` |
+| `p647-c4-a-record.txt` | record ของ A | `570ee8292ff70809eeca4e978bf5f9f38fe62a7e9473c76577aaa7d8cef57c62` |
+| `p647-c4-a.lock/reserved.txt` | lock ของ A | `2f9472a75eb0c4a022f685f104dec5a938e76156db9f839326f80e819d928d46` |
+| `p647-c4-b-result.txt` | B หลังขาย (`transaction_time` 2026-11-26 08:10:30.756913+00 = 15:10:30 น.) | `dd220bfcadcc880a3149e986c54294aec93c2f131e6c2202fb0d735c9730c423` |
+| `p647-c4-b-record.txt` | record ของ B | `d37a65391f42b38aedeb213fe9aaf470bb10f6ccf9bc93bfd613746683fddc31` |
+| `p647-c4-b.lock/reserved.txt` | lock ของ B | `e5839938a7af79a72bebfab1eb2ac9e93c4e5a2550a1edbe62a34eb6603d8da9` |
+| `codex-clipboard-f922a754-316a-4404-8448-84ffea29b920.png` | ภาพ Console จากแท็บผู้ขาย (สำเนาใน worktree `phase-647-readiness-17be74/phase647-c4-evidence/`) | `41f89567e68e4f1104098c3ddbdf37237e500a9cf0cc25eaaa517f2bdf7a43e0` |
+
+ข้อจำกัดของ C4: พิสูจน์เส้นทางขายเงินสดหนึ่งบิลของพนักงาน role `sales` บน build 642 เท่านั้น ไม่ครอบการขายเชื่อ บัตร โอน VAT หรือเครดิตลูกค้า · ข้อผิดพลาด `502`/`429` ใน Console เป็นของการแจ้งเตือน LINE (บันทึกแยกใน HANDOFF) ไม่เกี่ยวกับ JV · PR #246 ยังไม่ merge · ยังไม่ deploy · ห้ามรัน SQL หรือขายทดสอบซ้ำจากบันทึกนี้.
 
 ---
 

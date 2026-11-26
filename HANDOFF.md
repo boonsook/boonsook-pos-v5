@@ -1,5 +1,36 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
+**Phase 647 — C4 PASS (การขายทดสอบ §7 · บิล `sale_id=279` · 2026-11-26 · build คง 642 / v5.69.109 · docs only · PR #246 ยังไม่ merge · ยังไม่ deploy)**
+- สถานะ: **SQL 647 APPLIED · Post-check PASS · C4 PASS (sale_id=279) · PR #246 ยังไม่ merge · ยังไม่ deploy** · รายละเอียดเต็มและตาราง SHA-256 ดู `DB_MIGRATIONS_APPLIED.md` หมวด "✅ Applied — 2026-11-25" หัวข้อ "ผล C4"
+- ผู้ขาย: บัญชี `babang sale` role `sales` (UID `eb0cd378-7099-41fb-9830-0aae18338091` · A1 และ S3 = `sales` · S1 `created_by_is_approved_seller=t`) · build `642` / version `5.69.109`
+- บิล `BSK-1795679943942` (`sale_id=279`) สร้าง 2026-11-26 07:59:07.387554+00 = **14:59:07 น. เวลาไทย** (ภายใน 15 นาทีจาก `transaction_time` ของ A 14:51:40 น.) · สินค้า `2848` 1 ชิ้น × 10.00 บาท จากคลัง `2` (คลังสินค้า ร้านบุญสุข (ศีขร)) · เงินสด รับ 10.00 ทอน 0.00 · ส่วนลด 0.00 · VAT 0.00 · ไม่ใช้เครดิตลูกค้า · **เก็บบิลไว้** (ไม่ยกเลิก)
+- ผล B (อ่านอย่างเดียว จบ `ROLLBACK` · G2 system identifier `7606130613603586966` · server 17.6): สต็อก A3 **5 → K1 4** · K2 movement ของบิล 1 แถว (`sale` qty 1 · note 5→4) · K4 `other_movements=0` · `verdict=separable` · J1 JV `SV2026110095` (entry 848) `status=approved` หนึ่งใบ `total_debit=total_credit=10.00` · J2 สองบรรทัด **Dr `1110` 10.00 / Cr `4100` 10.00** · J3 ผลรวมบรรทัด 10.00/10.00
+- Dr/Cr ตรงกับผล M (`sale_cash` active 1 แถว · 1110 เงินสดในมือ / 4100 รายได้ขายสินค้า — หน้าร้าน (POS) · ทั้งสองบัญชี active)
+- ภาพ Console จากแท็บผู้ขายเดิม (เปิด **All levels** และ **Network messages**): บรรทัดตัดสต็อก `[deductStock] … 5 → 4 (qty 1, atomic)` และ `[auto_post] created SV2026110095 from sales #279 amount 10` · ไม่พบ `23514` ใน log ที่เก็บไว้
+- หลักฐาน M / V1 / A / B และภาพ Console พร้อม SHA-256 (Codex ตรวจผ่าน · ผู้คุมงาน Claude คำนวณซ้ำได้ตรง): ดูตารางใน `DB_MIGRATIONS_APPLIED.md` หมวด "✅ Applied — 2026-11-25" หัวข้อ "ผล C4" · ไฟล์ M/A/B อยู่ใน `bpos-wt-647-release` (ไม่ commit) · สำเนาภาพ V1 และภาพการขายอยู่ใน worktree `phase-647-readiness-17be74/phase647-c4-evidence/`
+
+- แยกจาก C4: Console มี `Failed to load resource … 502` ที่ `/api/line-notify` และ `LINE send failed: [{"status":429,"ok":false}]` = การแจ้งเตือน LINE ล้ม ไม่กระทบการขาย สต็อก หรือ JV ของบิลนี้ · ต้องตรวจแยกเป็นงานของ LINE notify
+- ยังไม่ทำ: merge PR #246 (merge เข้า main จะเริ่ม workflow Deploy) · deploy · JV 663 repair · ลงเอกสารเหล่านี้ใน PR — แต่ละขั้นต้องได้รับอนุมัติแยก
+
+**Phase 647 — SQL applied บน production · post-check PASS · C4 NOT RUN (2026-11-25 · build คง 642 / v5.69.109 · docs only · PR #246 ยังไม่ merge · ยังไม่ deploy)**
+- เจ้าของ (gangboo) apply `supabase-phase647-je-balance-trigger-rls.sql` (SHA-256 `9b7fb286b9d08f8d1479b2876e42996a966048d65c3566ca75727b6677effd0f`, ไฟล์ที่ Git ติดตามใน PR #246 head `621b44162d096d9a52a61174428144bb1d50e5c2`) เองหนึ่งครั้ง ตามคำอนุมัติ C3 ในแชต Codex thread `01a20b01-14dc-7e42-9e8c-afda77e512d1` (อนุมัติ 11:27:23 น. · ช่วง 11:50 ถึงก่อน 12:10 น. เวลาไทย). ข้อความอนุมัติและร่างที่อ้างถึงคัดคำต่อคำไว้ใน `DB_MIGRATIONS_APPLIED.md` หมวด "✅ Applied — 2026-11-25". **ห้ามรัน SQL ซ้ำ**
+- ผล apply (§4): `TARGET: OK` · `EVIDENCE: OK` · hash ของ migration และ preflight `OK` ทั้งคู่ · `BEGIN` → `SET`×3 → `DO` → `ALTER FUNCTION`×2 → `DO` → `COMMIT` · `PSQL_EXIT=0`. ในไฟล์ log ไม่มี timestamp; ไฟล์เขียนเสร็จ 11:52:01 น. (mtime) อยู่ในช่วงอนุมัติ. ปลายทาง `user=postgres.rwmmjljelpcpwohwiplu hostport=aws-1-ap-northeast-1.pooler.supabase.com:5432 db=postgres` = คำยืนยันของเจ้าของ + ด่าน `TARGET: OK` ไม่ใช่หลักฐานอิสระ
+- ผล post-check (§5, read-only, run `20261125T045245Z` = 11:52:45 น., จบ `ROLLBACK`): เทียบกับผล C2 แล้วต่างเฉพาะ `security_definer` `f`→`t` และ `function_config` ว่าง→`{"search_path=pg_catalog, pg_temp"}`; ค่าอื่นใน §2A–§2B ตรงเดิมทุกตัวอักษร. `psql_exit=0` ตามที่ผู้รันรายงาน (บรรทัด `POST-CHECK:` ไม่อยู่ในไฟล์ผล). Codex ตรวจผ่าน และทีม Claude เทียบซ้ำได้ผลเดียวกัน
+- หลักฐาน (ไฟล์ผลและ log ทั้งหกเก็บอยู่ใน `bpos-wt-647-release` โดยไม่ commit; migration เป็นไฟล์ที่ Git ติดตามใน PR #246) — รายการอ้างอิงหลักที่เอกสารสถานะอื่นชี้กลับมา:
+
+| ไฟล์ | ขั้น | SHA-256 |
+|---|---|---|
+| `p647-c3-apply-20261125.log` | §4 apply | `e05fcda3ed55911fdc3c0b2a894c7e9c82475c729ae848a24b7ef1a6fb1c5252` |
+| `phase647-postcheck-result.txt` | §5 post-check | `402f5797f4cbf13558fa6897a4b90119723beefb14cf6eae6429db6bb1b3d3d9` |
+| `phase647-c2-result.txt` | §2 C2 (2026-11-20) | `c39a7419c3cce5d88487759b30eac33a76f11641863c5fc323f86b98b16ae6cd` |
+| `phase647-c2s-result.txt` | §2C C2-S (2026-11-20) | `ad777506063445cf19f10800f73e7132685c372320409ecca6590d197ec37dfc` |
+| `p647-snap-read-result.txt` | ความสดก่อน C3 (transaction 11:22:43.530809 น.) | `11a838f240045e42141d5ffa4947cf4c922fd9d1d84880372c930ef32d436f56` |
+| `p647-snap-read-record.txt` | record ของ snap-read | `c43676009c773d2702f7a6afee4ffb1443fa9ab6152e5c3be985b95001fa08a6` |
+
+- ขอบเขตของหลักฐาน: post-check พิสูจน์สถานะ catalog เท่านั้น ไม่พิสูจน์ว่า auto-post ของพนักงานลง JV ได้ถูกต้อง; §2C ใช้ C2-S และ snap-read (แพ็ก `phase647-snap-read-r1` manifest `6dccd3c14beed3d9a5bf3aa97990dec49f320ef0eded1a92e76d046b845ab8d0`) ยืนยัน catalog ภายในขอบเขตที่ตรวจ; รอบอ่านไม่ได้ตรวจ JV 663 หรือข้อมูลธุรกิจ
+- ผล C4 (§7 การขายทดสอบ): **PASS 2026-11-26 บิล `sale_id=279`** — ดูหัวข้อ "Phase 647 — C4 PASS" ด้านบน
+- ยังไม่ทำ (ณ 2026-11-25): C4 · merge PR #246 (merge เข้า main จะเริ่ม workflow Deploy) · deploy · JV 663 repair. แต่ละขั้นต้องได้รับอนุมัติแยก · (C4 ทำแล้ว 2026-11-26 — ดูหัวข้อด้านบน)
+
 **Phase 647 — MD5 pin ตามผล C2/C2-S (2026-11-20 · build คง 642 / v5.69.109 · local commit ยังไม่ push)**
 - C2/C2-S read-only รันแล้ว 2026-11-20 21:59:44–22:00:38 (เจ้าของรันเอง · ปลายทางที่อนุมัติ `aws-1-ap-northeast-1.pooler.supabase.com:5432` · เจ้าของรายงาน `STEP0: OK` ในแชต, transcript เต็มยังไม่อยู่ในชุดหลักฐาน). C2 ไม่ผ่าน §2A เฉพาะแถว `function_body_md5`: production `cd812932adf24bc9887a432c084db477` ≠ pin เดิม `77709a3f7271068a44cce7307f68dd14`. ถอด body จาก C2-S แล้วเท่ากับ source Phase 498 ที่ตัดคอมเมนต์ + CRLF ทุก byte.
 - แก้ตาม Option A (Codex ผ่าน): pin md5 ดิบของ production ค่าเดียว; guard test คำนวณค่าจาก source และห้ามค่า LF; rehearsal เพิ่ม `$prodshape$`. migration SHA-256 ใหม่ `9b7fb286b9d08f8d1479b2876e42996a966048d65c3566ca75727b6677effd0f`.
