@@ -1,0 +1,84 @@
+# Phase 647 pages allowlist r2 — one-off Linux evidence job (TEST BRANCH ONLY).
+#
+# Lives only on branch `pages-check/phase-647-r2-linux` (never merged, never on PR #246).
+# Runs Build -> Verify -> Pages Functions build with the same toolchain as the
+# deploy job in main.yml (Node 24.14.0, Wrangler 4.168.0) on ubuntu-latest
+# (same runner label as the deploy job). No secrets, no wrangler-action,
+# no `pages deploy`, read-only token. Results are uploaded as an artifact.
+name: Pages allowlist Linux check (Phase 647 r2)
+
+on:
+  push:
+    branches: ["pages-check/phase-647-r2-linux"]
+
+permissions:
+  contents: read
+
+jobs:
+  linux-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      WRANGLER_SEND_METRICS: "false"
+      # r1 pack pages-output.sha256 (166 lines "sha256  path", C-sorted) and route list.
+      EXPECTED_OUTPUT_LIST_SHA256: 37abecd531b1d47af245d1ac280daa3f51820225492047d52983856407b875a1
+      EXPECTED_OUTPUT_FILES: "166"
+      EXPECTED_ROUTES_LIST_SHA256: ef873dd85f7d27417b1ed9552df039cbc9a8f54b6cc22e2c6db431b1b279a7c6
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24.14.0"
+
+      - name: Build -> Verify -> Pages Functions build (formal r2 sequence)
+        shell: bash
+        run: |
+          set -euo pipefail
+          logs_dir="$RUNNER_TEMP/pages-linux-check"
+          mkdir -p "$logs_dir"
+          exec > >(tee "$logs_dir/run.log") 2>&1
+          step() { echo "=== $*"; }
+          step "env"; uname -a; grep PRETTY_NAME /etc/os-release; echo "arch=$(uname -m)"
+          echo "commit=$(git rev-parse HEAD)"; echo "deploy_workflow_sha256=$(sha256sum .github/workflows/main.yml | cut -c1-64)"
+          test ! -e dist-pages
+          step "node --version"; node --version
+          step "npm --version"; npm --version
+          step "wrangler --version"; npx --yes wrangler@4.168.0 --version
+          step "build"; node scripts/build-pages-output.js build --out dist-pages --report "$logs_dir/pages-output-report.json"; echo "exit=$?"
+          step "verify"; node scripts/build-pages-output.js verify --out dist-pages; echo "exit=$?"
+          step "pages functions build (cwd=repo root)"; npx --yes wrangler@4.168.0 pages functions build functions --outdir "$logs_dir/functions-build" --output-routes-path "$logs_dir/functions-routes.json"; echo "exit=$?"
+          step "targeted test"; node --test tests/pages_output_allowlist.test.js; echo "exit=$?"
+          step "git diff --check"; git diff --check; echo "exit=$?"
+
+          step "compare output list with r1"
+          (cd dist-pages && find . -type f | sed 's#^\./##' | LC_ALL=C sort | while IFS= read -r f; do sha256sum "$f"; done) > "$logs_dir/pages-output.sha256"
+          n=$(wc -l < "$logs_dir/pages-output.sha256"); got=$(sha256sum "$logs_dir/pages-output.sha256" | cut -c1-64)
+          echo "files=$n list_sha256=$got expected=$EXPECTED_OUTPUT_LIST_SHA256"
+          test "$n" = "$EXPECTED_OUTPUT_FILES"; test "$got" = "$EXPECTED_OUTPUT_LIST_SHA256"
+          if find dist-pages -type f | grep -iE '\.(md|sql)$|^dist-pages/(functions|tests|scripts|\.github)/|_worker\.js$'; then echo "forbidden file in output"; exit 1; fi
+
+          step "compare Functions routes with r1"
+          node -e '
+            const t = require("fs").readFileSync(process.argv[1], "utf8");
+            const re = /routePath: "([^"]*)",\s*mountPath: "([^"]*)",\s*method: "([^"]*)",\s*middlewares: \[([^\]]*)\],\s*modules: \[([^\]]*)\]/g;
+            const out = []; let m;
+            while ((m = re.exec(t))) out.push(`${m[3] || "ALL"} ${m[1]} mw=${m[4].trim() || "-"}`);
+            process.stdout.write(out.sort().join("\n") + "\n");
+          ' "$logs_dir/functions-build/index.js" > "$logs_dir/functions-routes.txt"
+          r=$(wc -l < "$logs_dir/functions-routes.txt"); rs=$(sha256sum "$logs_dir/functions-routes.txt" | cut -c1-64)
+          echo "routes=$r list_sha256=$rs expected=$EXPECTED_ROUTES_LIST_SHA256"; cat "$logs_dir/functions-routes.txt"
+          test "$rs" = "$EXPECTED_ROUTES_LIST_SHA256"
+          grep -q '"/\*"' "$logs_dir/functions-routes.json"
+          step "ALL CHECKS PASSED"
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase647-r2-pages-linux-check
+          path: ${{ runner.temp }}/pages-linux-check
+          retention-days: 7
+          if-no-files-found: error
