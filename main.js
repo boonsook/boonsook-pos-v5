@@ -98,6 +98,7 @@ function _lazyImport(path) {
 const LAZY_ROUTES = {
   tech_home:                  ["./modules/tech_home.js",                  "renderTechHome"],   // Phase 549: หน้าหลักช่าง (read-only)
   team_center:                ["./modules/team_command_center.js",        "renderTeamCommandCenter"],
+  customer_chat:              ["./modules/customer_chat.js",              "renderCustomerChatPage"],  // Phase 648: กล่องแชทลูกค้า LINE (admin+sales, อ่านอย่างเดียว)
   // Phase 89.20 — Service/admin heavy (9)
   customer_dashboard:         ["./modules/customer_dashboard.js",         "renderCustomerDashboard"],
   solar:                      ["./modules/solar.js",                       "renderSolarPage"],
@@ -713,7 +714,7 @@ window.addEventListener("online", () => _drainTimeClockQueue("online"));
 const SERVICE_FORM_TYPES = ["repair_ac","clean_ac","move_ac","satellite","repair_fridge","repair_washer","cctv","repair_tv","other"];
 const SERVICE_FORM_ROUTES = SERVICE_FORM_TYPES.map(t => "service_" + t);
 
-const ALL_ROUTES = ["tech_home","dashboard","team_center","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","quote_templates","service_jobs","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","refunds","tasks","profit_by_product","birthdays","serials","warranty_report","calendar","loyalty","customer_dashboard","btu_calculator","service_request","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop","audit_log","hr_overview","leave_management","hr_applications","hr_resignations","departments","payroll","payroll_overview","expense_overview","income_overview","accounting_journals","accounting_journal_new","accounting_coa","accounting_backfill","accounting_trial_balance","accounting_profit_loss","accounting_balance_sheet","accounting_opening_balance","accounting_export_bundle","accounting_periods","time_clock","stock_reconcile_report","service_reconcile", ...SERVICE_FORM_ROUTES];
+const ALL_ROUTES = ["tech_home","dashboard","team_center","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","customer_chat","quotations","quote_templates","service_jobs","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","refunds","tasks","profit_by_product","birthdays","serials","warranty_report","calendar","loyalty","customer_dashboard","btu_calculator","service_request","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop","audit_log","hr_overview","leave_management","hr_applications","hr_resignations","departments","payroll","payroll_overview","expense_overview","income_overview","accounting_journals","accounting_journal_new","accounting_coa","accounting_backfill","accounting_trial_balance","accounting_profit_loss","accounting_balance_sheet","accounting_opening_balance","accounting_export_bundle","accounting_periods","time_clock","stock_reconcile_report","service_reconcile", ...SERVICE_FORM_ROUTES];
 const ROLE_PAGES = {
   admin:      ALL_ROUTES,
   // Phase 434: ช่าง (+ผู้ช่วยช่างที่ตั้ง role=technician) เข้าสินค้า/คลังเพื่อเบิกขึ้นรถ + ตัดสต็อกเองได้
@@ -727,7 +728,7 @@ const ROLE_PAGES = {
   //   individual salaries — privacy) + refunds (operational money-out). Still excluded: POS, stock/warehouse
   //   ops, service execution, settings/users. (Salary EXPENSE total still flows to P&L; per-person hidden via RLS.)
   accountant: ["dashboard","sales","delivery_invoices","receipts","customers","quotations","quote_templates","expenses","profit_report","stock_value","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","profit_by_product","expense_overview","income_overview","accounting_journals","accounting_journal_new","accounting_coa","accounting_backfill","accounting_trial_balance","accounting_profit_loss","accounting_balance_sheet","accounting_opening_balance","accounting_export_bundle","accounting_periods","stock_reconcile_report","service_reconcile"],
-  sales:      ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","quotations","quote_templates","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","refunds","tasks","profit_by_product","birthdays","serials","warranty_report","calendar","loyalty","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop","time_clock","leave_management", ...SERVICE_FORM_ROUTES],
+  sales:      ["dashboard","pos","products","wh_kunkhao","wh_kundaeng","wh_sikhon","sales","delivery_invoices","receipts","customers","customer_chat","quotations","quote_templates","settings","expenses","profit_report","stock_movements","stock_value","dead_stock","stock_count","stock_in_wizard","cash_recon","top_customers","sales_heatmap","recurring_expenses","credit_tracker","refunds","tasks","profit_by_product","birthdays","serials","warranty_report","calendar","loyalty","btu_calculator","solar","ac_install","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop","time_clock","leave_management", ...SERVICE_FORM_ROUTES],
   customer:   ["customer_dashboard","btu_calculator","service_request","error_codes","error_codes_fridge","error_codes_washer","ai_sales","ac_shop"]
 };
 const ROLE_LABELS = {
@@ -858,6 +859,7 @@ async function showRoute(route){
     tasks:"Task / สิ่งที่ต้องทำ",
     profit_by_product:"กำไรต่อสินค้า",
     birthdays:"วันเกิดลูกค้า",
+    customer_chat:"กล่องแชทลูกค้า",
     serials:"Serial Number Tracking",
     warranty_report:"รายงาน Warranty",
     quote_templates:"Template ใบเสนอราคา",

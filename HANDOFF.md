@@ -1,5 +1,19 @@
 # 📋 HANDOFF — Boonsook POS V5 PRO
 
+**Phase 648 — กล่องแชทลูกค้า เฟส A (2026-11-27 · build 643 / v5.69.110 · branch `claude/phase-648-line-chat-inbox` · ยังไม่ merge · SQL PENDING)**
+- ที่มา: owner ขอ "AI ดูแลเพจร้าน อ่านไลน์ ตอบแชทลูกค้า" — ตัดสินใจแล้ว: LINE OA ก่อน (Facebook = เฟส E) · AI ร่าง → พนักงานกดส่ง · หน้าใหม่ใน POS · ใช้ OA ตัวเดียวกับบอทแจ้งเตือน · ส่งจาก POS (reply token ก่อน, push เป็นทางสำรอง = กินโควตา)
+- เฟส A ทำ: `functions/api/line-webhook.js` (ตรวจ `X-Line-Signature` HMAC กับ raw body ก่อน parse/แตะ DB, ไม่มี secret = 503 fail closed, เก็บเฉพาะ `message` จากแชทส่วนตัว `source.type="user"` — **ข้อความกลุ่มร้าน/room/standby ถูกทิ้ง**, GET ชื่อโปรไฟล์ LINE, เขียนผ่าน RPC `customer_chat_ingest_line` ด้วย service role) · `_middleware.js` rate-limit 300/นาที (ไม่อยู่ใน JWT list — LINE ไม่มี JWT; จัดใน `PUBLIC_ALLOWLIST` ของ api_path_canonical_guard พร้อมเหตุผล) · หน้า `customer_chat` (`modules/customer_chat.js`, เมนู ลูกค้า/สมาชิก → 💬 กล่องแชทลูกค้า, admin+sales) แสดงห้องแชท/ค้างตอบ/ข้อความ, เปิดห้อง = mark read, ปุ่มเสร็จ/เปิดใหม่ผ่าน RPC `customer_chat_set_thread_state`, poll ทุก 30 วิ ขณะเปิดหน้า
+- **ไม่ได้ทำ/ไม่แตะ:** ไม่ส่งข้อความหาลูกค้า (ไม่เรียก reply/push → ไม่กินโควตา) · ไม่มี AI · ไม่เก็บ reply token · ไม่ดาวน์โหลดรูป/ไฟล์ (เก็บเป็นป้าย `[รูปภาพ]`) · ไม่แตะเงิน/สต็อก/บัญชี/POS/ตารางเดิม · ไม่เปลี่ยน cache strategy
+- **สิ่งที่ owner ต้องทำ (ตามลำดับ, หลัง merge + deploy):**
+  1. รัน `supabase-phase648-customer-chat-inbox.sql` ใน Supabase SQL editor แล้วรัน VERIFY ท้ายไฟล์ (RLS true ×2 · policy 4 ตัว ไม่มี INSERT/UPDATE/DELETE · ingest RPC: authenticated/anon=false, service_role=true) → บันทึกใน `DB_MIGRATIONS_APPLIED.md`
+  2. LINE Developers → channel Messaging API ของ OA ร้าน → Basic settings → คัดลอก **Channel secret** → Cloudflare Pages → Settings → Environment variables → เพิ่ม `LINE_CHANNEL_SECRET` ใน **Production** (ไม่ใช่ Preview) → redeploy
+  3. LINE Developers → Messaging API → Webhook URL = `https://boonsook-pos-v5.pages.dev/api/line-webhook` → กด Verify (ต้องได้ Success) → เปิด **Use webhook** (+ เปิด Webhook redelivery ได้ — ข้อความซ้ำถูกกันด้วย unique id)
+  4. LINE Official Account Manager → การตอบกลับ: เปิด **แชท** ไว้ตามเดิม (พนักงานยังตอบในแอป OA ได้), ปิด "ข้อความตอบกลับอัตโนมัติ" ถ้าไม่ต้องการให้ตอบซ้อน
+  5. ทดสอบ: ใช้ LINE ส่วนตัวทักหา OA → หน้า 💬 กล่องแชทลูกค้า ต้องขึ้นภายใน 30 วิ · ส่งข้อความในกลุ่มร้าน → ต้องไม่ขึ้น
+- ความเสี่ยงที่รู้: SQL ยังไม่ได้ซ้อมบน PostgreSQL จริง (ตรวจด้วย source guard เท่านั้น) · rate limit ต่อ IP (LINE ใช้ IP ไม่กี่ตัว; 300/นาทีพอสำหรับร้าน) · `is_customer_role()` ต้องมีอยู่แล้วใน DB (phase505 applied)
+- เฟสถัดไป (ต้องได้รับอนุมัติแยก): **B** AI ร่างคำตอบ + กดส่ง (reply token → push fallback + แสดงโควตา) · **C** แจ้งซ่อมจากแชท → คำขอบริการ (พนักงานยืนยัน) · **D** สรุปแชทค้าง · **E** Facebook Page
+- **STOP — รอ review ก่อนเริ่มเฟส B**
+
 **Phase 647 — CLOSED (2026-11-26 · merge `640b96c` · deploy ผ่าน · build คง 642 / v5.69.109)**
 - สถานะ: **SQL 647 APPLIED (2026-11-25) · Post-check PASS · C4 PASS (2026-11-26, sale_id=279) · PR #246 MERGED + DEPLOYED** · รายละเอียดเต็มและตาราง SHA-256 ดู `DB_MIGRATIONS_APPLIED.md` หมวด "✅ Applied — 2026-11-25" หัวข้อ "ผล C4" และ "ปิด release Phase 647"
 - PR #246 (https://github.com/boonsook/boonsook-pos-v5/pull/246) merge เข้า `main` เวลา **20:32:47 น.** เวลาไทย 2026-11-26 ที่ merge commit `640b96c40526afd1ef87084675045e42fc41c7ff` (parents `254f092` + `dfe1efe` — head สุดท้ายของ PR = เอกสารปิด C4 `3f089fd` + Pages allowlist r1 `47a5c68` + ตรึง Node 24.14.0 / Wrangler 4.168.0 r2 `dfe1efe`)

@@ -390,6 +390,7 @@ const PUBLIC_ALLOWLIST = {
   "/api/send-otp": "ลูกค้ายังไม่ login — ขอ OTP; คุมด้วย rate-limit 5/นาที + cooldown ฝั่ง handler",
   "/api/verify-otp": "ลูกค้ายังไม่ login — ยืนยัน OTP; คุมด้วย rate-limit 10/นาที + attempt cap ฝั่ง handler",
   "/api/log-error": "error reporter ต้องทำงานก่อน login/ตอน auth พัง; rate-limit 60/นาที + sanitize ฝั่ง handler",
+  "/api/line-webhook": "Phase 648: LINE servers เรียกแบบ server-to-server (ไม่มี JWT); ด่านจริง = X-Line-Signature HMAC ฝั่ง handler (fail closed ถ้าไม่มี secret) + rate-limit 300/นาที — ดู tests/line_webhook_guard.test.js",
 };
 
 function listEndpointFiles(dir, prefix = "/api") {

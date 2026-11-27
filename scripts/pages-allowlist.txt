@@ -89,6 +89,7 @@ modules/calendar.js
 modules/cash_recon.js
 modules/credit_sales_fetch.js
 modules/credit_tracker.js
+modules/customer_chat.js
 modules/customer_dashboard.js
 modules/customer_groups.js
 modules/customers.js

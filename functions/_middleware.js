@@ -18,6 +18,7 @@ const RATE_LIMITS = {
   "/api/send-otp":      { limit: 5,   windowSec: 60 },  // OTP ส่ง SMS — Twilio cost จริง
   "/api/verify-otp":    { limit: 10,  windowSec: 60 },  // ป้องกัน brute-force OTP
   "/api/line-notify":   { limit: 30,  windowSec: 60 },
+  "/api/line-webhook":  { limit: 300, windowSec: 60 },  // Phase 648: LINE → แชทลูกค้า (server-to-server, ไม่มี JWT — ด่านจริงคือ X-Line-Signature ใน handler)
   "/api/ai-assistant":  { limit: 20,  windowSec: 60 },  // AI inference cost
   "/api/parse-receipt": { limit: 10,  windowSec: 60 },  // Phase 89.14: Gemini OCR — cost ต่อ image
   "/api/verify-slip":   { limit: 20,  windowSec: 60 },  // Phase 89.14: Gemini OCR — cost ต่อ verify

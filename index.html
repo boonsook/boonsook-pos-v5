@@ -9,8 +9,8 @@
   <link rel="icon" type="image/svg+xml" href="./icons/logo.svg" />
   <link rel="manifest" href="./manifest.json" />
   <link rel="apple-touch-icon" href="./icons/logo.svg" />
-  <link rel="stylesheet" href="./style.css?v=642" />
-  <link rel="stylesheet" href="./doc-print.css?v=642" />
+  <link rel="stylesheet" href="./style.css?v=643" />
+  <link rel="stylesheet" href="./doc-print.css?v=643" />
   <!-- ✨ Phase 4: Design System & Components (30/3/2569) -->
   <link rel="stylesheet" href="./phase4-design-system.css?v=529" />
   <link rel="stylesheet" href="./phase4-components.css?v=421" />
@@ -228,6 +228,7 @@
         <button class="nav-group-toggle">👥 ลูกค้า / สมาชิก <span class="nav-arrow">▶</span></button>
         <div class="nav-group-items">
           <button class="nav-btn sub" data-route="customers">👥 ลูกค้า</button>
+          <button class="nav-btn sub" data-route="customer_chat">💬 กล่องแชทลูกค้า</button>
           <button class="nav-btn sub" data-route="birthdays">🎂 วันเกิดลูกค้า</button>
           <button class="nav-btn sub" data-route="loyalty">🎁 สะสมแต้ม</button>
         </div>
@@ -447,6 +448,7 @@
       <section id="page-tasks" class="page hidden"></section>
       <section id="page-profit_by_product" class="page hidden"></section>
       <section id="page-birthdays" class="page hidden"></section>
+      <section id="page-customer_chat" class="page hidden"></section>
       <section id="page-serials" class="page hidden"></section>
       <section id="page-warranty_report" class="page hidden"></section>
       <section id="page-quote_templates" class="page hidden"></section>
@@ -885,10 +887,10 @@
        ทำงานก่อน main.js โหลด → ป้องกัน user เห็น version display เก่า
        Phase 89.15: ย้ายออกไป external file + set window.APP_BUILD ให้ pages.js/main.js อ่านได้
        (CSP drop script-src 'unsafe-inline') -->
-  <script src="./selfheal.js?v=642" data-app-build="642" data-app-version="5.69.109"></script>
-  <script type="module" src="./main.js?v=642"></script>
+  <script src="./selfheal.js?v=643" data-app-build="643" data-app-version="5.69.110"></script>
+  <script type="module" src="./main.js?v=643"></script>
   <!-- Phase 89.15: externalized loading overlay + SW update banner (was inline script — drop CSP unsafe-inline) -->
-  <script src="./boot.js?v=642"></script>
+  <script src="./boot.js?v=643"></script>
 
   <!-- AI Assistant Chat Widget (Phase 1) -->
   <script src="./ai-chat-widget.js?v=9"></script>
