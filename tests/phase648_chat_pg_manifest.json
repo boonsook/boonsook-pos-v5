@@ -1,0 +1,17 @@
+{
+  "phase": "648A",
+  "status": "NOT_RUN",
+  "note": "Run only on an owner-approved test database: node scripts/phase648-chat-pg-local.mjs --bin-dir <pg/bin> --cluster-root <new dir> --port <49152-65535>",
+  "files": {
+    "scripts/phase648-chat-pg-local.mjs": "9b30007d8a1980dea10f155f114738dc99ca67bfa2c288960153eb1bf9881408",
+    "supabase-phase648-customer-chat-inbox.sql": "24059462aa636c4039dc05366c83b548ac43830405fa9e3558f62c3a7e5e536f",
+    "tests/phase648_chat_pg_checks.sql": "618606ceb3dcaad8e35c932aded7ab8a038a5e333924670bfa0df4ed8d404f74",
+    "tests/phase648_chat_pg_fixture.sql": "f842d44cddc82d23b18ff95b46c8931ebb352ef3b9d1f755c2669f40ad9313ee"
+  },
+  "expected_stdout": [
+    "PHASE648 PG CHECKS PASS",
+    "PHASE648 RACE INGEST-BEFORE-DONE PASS",
+    "PHASE648 RACE DONE-BEFORE-INGEST PASS",
+    "PHASE648 RACE PARALLEL-INGEST PASS"
+  ]
+}

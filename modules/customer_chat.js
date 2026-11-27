@@ -10,24 +10,42 @@
 //   - หลังทุก await ต้องผ่าน _alive(sess): gen เดิม + user id เดิม + ยังเป็น admin/sales + มี token
 //     ไม่ผ่าน = ทิ้งผลลัพธ์เงียบ ๆ (ไม่ render ไม่ยิง RPC ต่อ)
 //   - clearCustomerChatState() (main.js เรียกตอน logout/sign-out/afterLogin) = abort + หยุด poll + ล้าง DOM
-//  อ่านแล้ว/เสร็จ อิง seq: ส่งเฉพาะ inbound_seq สูงสุดที่ "แสดงบนจอจริง" → ข้อความที่เข้ามาทีหลังยังไม่ถูกนับว่าอ่าน
-//  และกด "เสร็จ" ด้วย seq เก่า เซิร์ฟเวอร์ไม่ปิดห้อง (reason new_messages) → โหลดห้องใหม่ให้เห็นก่อน
+//
+//  คิว (r3): กรอง "ค้างตอบ" = status open หรือ unread > 0 ที่ฝั่ง DB ก่อนแบ่งหน้า (PostgREST or=)
+//   + จำนวนจาก Content-Range (Prefer: count=exact) = ทุกห้องที่บัญชีนี้มีสิทธิ์เห็นตาม RLS
+//   + ปุ่ม "โหลดเพิ่ม" ทีละ THREAD_PAGE ห้อง
+//  ห้อง (r3): anchor = read_seq ตอนเปิดห้อง
+//   - ประวัติ = ข้อความที่ seq <= anchor หรือไม่มี seq (ล่าสุด HISTORY_LIMIT ข้อความ)
+//   - ข้อความหลังจุดอ่าน = seq > anchor เรียงตาม seq (ไม่ใช่ sent_at → ข้อความที่ LINE ส่งช้าไม่หลุด)
+//     ทีละ MESSAGE_PAGE + ปุ่ม "โหลดข้อความที่เหลือ"
+//   - "อ่านถึง" = seq ต่อเนื่องจาก anchor ที่โหลดและแสดงแล้วจริงเท่านั้น
+//   - กด "เสร็จ" ขณะยังมีข้อความที่ไม่ได้โหลด → ไม่ยิง RPC แจ้งให้โหลดก่อน; seq เก่า → server ไม่ปิด (new_messages)
+//   - poll/รีเฟรช โหลดห้องที่เปิดใหม่ทุกครั้ง (จับ unsend ที่ seq ไม่เปลี่ยน); ข้อความที่เคยเห็นว่าถูกยกเลิก
+//     จะไม่กลับมาแสดงเนื้อหาอีก (unsent set) และผลจาก request เก่าถูกทิ้ง (reqId)
 // ═══════════════════════════════════════════════════════════
 import { renderSkeleton, renderEmpty, renderError } from "./ui_states.js";
 import { escHtml } from "./utils.js";
 
 const PAGE_ID = "page-customer_chat";
 const POLL_MS = 30000;
+const THREAD_PAGE = 100;
+const MESSAGE_PAGE = 200;
+const HISTORY_LIMIT = 50;
 const THREAD_COLS = "id,display_name,status,unread_count,inbound_seq,read_seq,last_message_at,last_message_preview";
 const MESSAGE_COLS = "id,direction,message_type,body,inbound_seq,unsent_at,sent_at,created_at";
+const THREADS_PATH = "/rest/v1/customer_chat_threads";
+const MESSAGES_PATH = "/rest/v1/customer_chat_messages";
 const STATE_RPC = "/rest/v1/rpc/customer_chat_set_thread_state";
+export const PENDING_FILTER_QS = "or=(status.eq.open,unread_count.gt.0)";
 
 let _gen = 0;
 let _sess = null;        // { gen, uid, controller }
 let _ctx = null;
 let _threads = [];
+let _threadTotal = null;
+let _pendingTotal = null;
 let _filter = "pending"; // pending | all
-let _room = null;        // { threadId, maxSeq } — ห้องที่เปิดอยู่ + seq สูงสุดที่แสดงบนจอ
+let _room = null;        // ดู _newRoom()
 let _pollTimer = null;
 let _listReq = 0;
 let _roomReq = 0;
@@ -54,6 +72,8 @@ function _stopPolling() {
 
 function _resetState() {
   _threads = [];
+  _threadTotal = null;
+  _pendingTotal = null;
   _room = null;
   _filter = "pending";
   _statusBusy = false;
@@ -70,7 +90,12 @@ export function clearCustomerChatState() {
   if (c) c.innerHTML = "";
 }
 
-async function _rest(sess, path, opts = {}) {
+export function parseContentRangeTotal(value) {
+  const m = /\/(\d+)\s*$/.exec(String(value || ""));
+  return m ? Number(m[1]) : null;
+}
+
+async function _rest(sess, path, opts = {}, { withCount = false } = {}) {
   if (!_alive(sess)) throw new StaleSessionError("stale");
   const cfg = window.SUPABASE_CONFIG || {};
   const res = await fetch(cfg.url + path, {
@@ -80,6 +105,7 @@ async function _rest(sess, path, opts = {}) {
       apikey: cfg.anonKey,
       Authorization: "Bearer " + window._sbAccessToken,
       "Content-Type": "application/json",
+      ...(withCount ? { Prefer: "count=exact" } : {}),
       ...(opts.headers || {}),
     },
   });
@@ -87,7 +113,9 @@ async function _rest(sess, path, opts = {}) {
   if (!res.ok) throw new Error("HTTP " + res.status);
   const text = await res.text();
   if (!_alive(sess)) throw new StaleSessionError("stale");
-  return text ? JSON.parse(text) : null;
+  const data = text ? JSON.parse(text) : null;
+  if (!withCount) return data;
+  return { data, total: parseContentRangeTotal(res.headers?.get?.("content-range")) };
 }
 
 function _isStale(e) {
@@ -110,12 +138,6 @@ export function isPendingThread(t) {
   return !!t && (Number(t.unread_count) > 0 || t.status === "open");
 }
 
-export function filterThreads(threads, filter) {
-  const list = Array.isArray(threads) ? threads : [];
-  if (filter !== "pending") return list;
-  return list.filter(isPendingThread);
-}
-
 // เรียงข้อความเก่า → ใหม่ (sent_at แล้ว seq แล้ว created_at) — ไม่พึ่งลำดับที่ server ส่งมา
 export function sortMessagesAsc(messages) {
   const list = Array.isArray(messages) ? messages.slice() : [];
@@ -126,14 +148,37 @@ export function sortMessagesAsc(messages) {
     || (t(a.created_at) - t(b.created_at)));
 }
 
-// seq สูงสุดของข้อความขาเข้าที่อยู่ในรายการ (= ที่แสดงบนจอ) — ใช้เป็น "อ่านถึง"
-export function maxInboundSeq(messages) {
-  let max = 0;
+// "อ่านถึง" = seq ต่อเนื่องจาก anchor ในข้อความขาเข้าที่โหลดแล้ว (มีช่องว่าง = หยุดตรงนั้น)
+export function contiguousSeenSeq(anchor, messages) {
+  const have = new Set();
   for (const m of Array.isArray(messages) ? messages : []) {
     const s = Number(m?.inbound_seq);
-    if (m?.direction === "in" && Number.isFinite(s) && s > max) max = s;
+    if (m?.direction === "in" && Number.isInteger(s) && s > 0) have.add(s);
   }
-  return max;
+  let seen = Math.max(0, Number(anchor) || 0);
+  while (have.has(seen + 1)) seen++;
+  return seen;
+}
+
+// รวมข้อความ (id ซ้ำใช้ตัวล่าสุด) + ข้อความที่เคยรู้ว่าถูกยกเลิกห้ามกลับมาแสดงเนื้อหา
+export function mergeRoomMessages(lists, unsentIds) {
+  const byId = new Map();
+  for (const list of lists) {
+    for (const m of Array.isArray(list) ? list : []) {
+      if (!m || m.id == null) continue;
+      byId.set(String(m.id), { ...m });
+    }
+  }
+  const out = [];
+  for (const [id, m] of byId) {
+    if (m.unsent_at) unsentIds?.add(id);
+    if (unsentIds?.has(id)) {
+      m.body = null;
+      m.unsent_at = m.unsent_at || true;
+    }
+    out.push(m);
+  }
+  return sortMessagesAsc(out);
 }
 
 function _displayName(t) {
@@ -170,7 +215,7 @@ export function renderMessageBubble(m) {
     ? `<span class="cc-unsent-text">ลูกค้ายกเลิกข้อความนี้</span>`
     : escHtml(m.body || "");
   return `
-    <div class="cc-msg ${mine ? "cc-msg-out" : "cc-msg-in"}${unsent ? " cc-unsent" : ""}">
+    <div class="cc-msg ${mine ? "cc-msg-out" : "cc-msg-in"}${unsent ? " cc-unsent" : ""}" data-msg-id="${escHtml(m.id)}">
       <div class="cc-bubble">${body}</div>
       <div class="cc-msg-time">${escHtml(formatChatTime(m.sent_at))}</div>
     </div>`;
@@ -196,8 +241,10 @@ const STYLE = `
   .cc-thread-preview{color:var(--muted);font-size:13px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .cc-badge{background:var(--danger);color:#fff;border-radius:999px;font-size:12px;padding:1px 8px;white-space:nowrap}
   .cc-done-tag{color:var(--success);font-size:12px;white-space:nowrap}
+  .cc-more{display:block;width:100%;padding:10px;border:0;background:none;color:var(--primary);font-weight:600;cursor:pointer}
   .cc-detail-head{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:12px;border-bottom:1px solid var(--line)}
   .cc-detail-head .cc-detail-name{font-weight:700;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .cc-gap{margin:0 12px;padding:8px 12px;border-radius:12px;background:rgba(245,158,11,.12);color:var(--text);font-size:13px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
   .cc-messages{display:flex;flex-direction:column;gap:8px;padding:12px;max-height:60vh;overflow-y:auto}
   .cc-msg{display:flex;flex-direction:column;max-width:85%}
   .cc-msg-in{align-self:flex-start}
@@ -227,7 +274,7 @@ function _startPolling(sess) {
     const c = _container();
     if (c.classList.contains("hidden")) { _stopPolling(); return; }
     if (document.hidden) return;
-    _loadThreads(sess, { quiet: true });
+    _refreshAll(sess, { quiet: true });
   }, POLL_MS);
 }
 
@@ -252,14 +299,25 @@ function _renderShell(sess) {
   c.querySelectorAll("[data-cc-filter]").forEach((btn) => {
     btn.addEventListener("click", () => {
       if (!_alive(sess)) return;
-      _filter = btn.dataset.ccFilter === "all" ? "all" : "pending";
+      const next = btn.dataset.ccFilter === "all" ? "all" : "pending";
+      if (next === _filter) return;
+      _filter = next;
+      _threads = [];
+      _threadTotal = null;
       _renderList();
+      _loadThreads(sess);
     });
   });
-  c.querySelector("#ccRefreshBtn")?.addEventListener("click", () => _loadThreads(sess));
+  c.querySelector("#ccRefreshBtn")?.addEventListener("click", () => _refreshAll(sess));
   c.querySelector("#ccThreadList")?.addEventListener("click", (e) => {
+    if (e.target.closest("#ccMoreThreads")) { _loadThreads(sess, { append: true }); return; }
     const btn = e.target.closest("[data-thread-id]");
     if (btn) _openThread(sess, btn.dataset.threadId);
+  });
+  c.querySelector("#ccDetail")?.addEventListener("click", (e) => {
+    if (e.target.closest("#ccLoadRest")) { if (_room) { _room.pages++; _loadRoom(sess); } return; }
+    const st = e.target.closest("#ccStatusBtn");
+    if (st && _room) _changeStatus(sess, _room.threadId, st.dataset.next);
   });
 }
 
@@ -268,13 +326,11 @@ function _renderList() {
   if (!c) return;
   c.querySelectorAll("[data-cc-filter]").forEach((b) => b.classList.toggle("cc-on", b.dataset.ccFilter === _filter));
   const countEl = c.querySelector("#ccPendingCount");
-  if (countEl) {
-    const n = _threads.filter(isPendingThread).length;
-    countEl.textContent = n > 0 ? `(${n})` : "";
-  }
+  if (countEl) countEl.textContent = Number(_pendingTotal) > 0 ? `(${_pendingTotal})` : "";
   const box = c.querySelector("#ccThreadList");
   if (!box) return;
-  const list = filterThreads(_threads, _filter);
+  // คิว "ค้างตอบ" มาจาก server แล้ว; กรองซ้ำเฉพาะห้องที่สถานะเพิ่งเปลี่ยนในเครื่อง
+  const list = _filter === "pending" ? _threads.filter(isPendingThread) : _threads;
   if (list.length === 0) {
     box.innerHTML = renderEmpty({
       icon: "💬",
@@ -283,31 +339,54 @@ function _renderList() {
     });
     return;
   }
-  box.innerHTML = list.map((t) => renderThreadItem(t, _room?.threadId)).join("");
+  const hasMore = _threadTotal != null ? _threads.length < _threadTotal : false;
+  box.innerHTML = list.map((t) => renderThreadItem(t, _room?.threadId)).join("")
+    + (hasMore ? `<button type="button" class="cc-more" id="ccMoreThreads">โหลดเพิ่ม (${_threadTotal - _threads.length} ห้อง)</button>` : "");
 }
 
 function _applyThreadPatch(patch) {
   if (!patch || patch.id == null) return;
-  const t = _threads.find((x) => String(x.id) === String(patch.id));
-  if (!t) return;
-  for (const k of ["status", "unread_count", "inbound_seq", "read_seq"]) {
-    if (patch[k] !== undefined && patch[k] !== null) t[k] = patch[k];
+  const targets = _threads.filter((x) => String(x.id) === String(patch.id));
+  if (_room?.thread && String(_room.thread.id) === String(patch.id)) targets.push(_room.thread);
+  for (const t of targets) {
+    for (const k of ["status", "unread_count", "inbound_seq", "read_seq"]) {
+      if (patch[k] !== undefined && patch[k] !== null) t[k] = patch[k];
+    }
   }
 }
 
-async function _loadThreads(sess, { quiet = false } = {}) {
+function _threadsUrl({ filter, limit, offset }) {
+  const where = filter === "pending" ? `&${PENDING_FILTER_QS}` : "";
+  return `${THREADS_PATH}?select=${THREAD_COLS}${where}&order=last_message_at.desc.nullslast,id.desc&limit=${limit}&offset=${offset}`;
+}
+
+async function _refreshAll(sess, { quiet = false } = {}) {
+  await _loadThreads(sess, { quiet });
+  if (_alive(sess) && _room) _loadRoom(sess, { quiet: true });
+}
+
+async function _loadThreads(sess, { quiet = false, append = false } = {}) {
   if (!_alive(sess)) return;
   const reqId = ++_listReq;
+  const filter = _filter;
+  const limit = append ? THREAD_PAGE : Math.max(THREAD_PAGE, _threads.length);
+  const offset = append ? _threads.length : 0;
   try {
-    const rows = await _rest(sess, `/rest/v1/customer_chat_threads?select=${THREAD_COLS}&order=last_message_at.desc.nullslast&limit=200`);
-    if (reqId !== _listReq) return; // มีคำขอใหม่กว่าแล้ว — ทิ้งผลเก่า
-    _threads = Array.isArray(rows) ? rows : [];
-    _renderList();
-    // ห้องที่เปิดอยู่มีข้อความใหม่กว่าที่แสดง → โหลดห้องใหม่ (และ mark read เท่าที่แสดงจริง)
-    if (_room) {
-      const t = _threads.find((x) => String(x.id) === String(_room.threadId));
-      if (t && Number(t.inbound_seq) > _room.maxSeq) _openThread(sess, _room.threadId, { keepScroll: true });
+    const listP = _rest(sess, _threadsUrl({ filter, limit, offset }), {}, { withCount: true });
+    const countP = filter === "pending" ? null
+      : _rest(sess, `${THREADS_PATH}?select=id&${PENDING_FILTER_QS}&limit=1`, {}, { withCount: true });
+    const [list, count] = await Promise.all([listP, countP]);
+    if (reqId !== _listReq || filter !== _filter) return; // มีคำขอใหม่กว่า/เปลี่ยนแท็บแล้ว — ทิ้งผลเก่า
+    const rows = Array.isArray(list.data) ? list.data : [];
+    if (append) {
+      const seen = new Set(_threads.map((t) => String(t.id)));
+      _threads = _threads.concat(rows.filter((t) => !seen.has(String(t.id))));
+    } else {
+      _threads = rows;
     }
+    _threadTotal = list.total;
+    _pendingTotal = filter === "pending" ? list.total : count?.total ?? _pendingTotal;
+    _renderList();
   } catch (e) {
     if (_isStale(e)) return;
     console.warn("[customer_chat] load threads", e);
@@ -331,55 +410,83 @@ function _setThreadState(sess, threadId, readThroughSeq, status = null) {
   });
 }
 
-function _renderRoom(thread, msgs) {
+function _newRoom(threadId) {
+  return { threadId, thread: null, anchor: null, pages: 1, msgs: [], seen: 0, inbound: 0, unsent: new Set(), loaded: false };
+}
+
+function _renderRoom() {
   const box = _container()?.querySelector("#ccDetail");
-  if (!box) return;
+  if (!box || !_room) return;
+  const prev = box.querySelector("#ccMessages");
+  const atBottom = !prev || (prev.scrollHeight - prev.scrollTop - prev.clientHeight < 40);
+  const prevTop = prev ? prev.scrollTop : 0;
+  const thread = _room.thread;
   const isDone = thread?.status === "done";
+  const missing = Math.max(0, _room.inbound - _room.seen);
   box.innerHTML = `
     <div class="cc-detail-head">
       <span class="cc-detail-name">${escHtml(_displayName(thread))}</span>
-      <button type="button" class="btn light" id="ccStatusBtn" data-next="${isDone ? "open" : "done"}">${isDone ? "↩️ เปิดใหม่" : "✅ ทำเครื่องหมายว่าเสร็จ"}</button>
+      <button type="button" class="btn light" id="ccStatusBtn" data-next="${isDone ? "open" : "done"}"${_statusBusy ? " disabled" : ""}>${isDone ? "↩️ เปิดใหม่" : "✅ ทำเครื่องหมายว่าเสร็จ"}</button>
     </div>
     <div class="cc-messages" id="ccMessages">
-      ${msgs.length ? msgs.map(renderMessageBubble).join("") : `<div class="cc-placeholder">ยังไม่มีข้อความ</div>`}
-    </div>`;
+      ${_room.msgs.length ? _room.msgs.map(renderMessageBubble).join("") : `<div class="cc-placeholder">ยังไม่มีข้อความ</div>`}
+    </div>
+    ${missing > 0 ? `<div class="cc-gap" id="ccGap">ยังมีข้อความที่ยังไม่ได้โหลด ${missing} ข้อความ <button type="button" class="btn light" id="ccLoadRest">โหลดข้อความที่เหลือ</button></div>` : ""}`;
   const list = box.querySelector("#ccMessages");
-  if (list) list.scrollTop = list.scrollHeight;
+  if (list) list.scrollTop = atBottom ? list.scrollHeight : prevTop;
 }
 
-async function _openThread(sess, threadId, { keepScroll: _keepScroll = false } = {}) {
+function _openThread(sess, threadId) {
   if (!_alive(sess)) return;
-  const switching = !_room || String(_room.threadId) !== String(threadId);
-  if (switching) {
-    _room = { threadId, maxSeq: 0 };
-    _renderList();
-    const box = _container()?.querySelector("#ccDetail");
-    if (box) box.innerHTML = renderSkeleton({ type: "list", count: 4 });
-  }
-  const reqId = ++_roomReq;
-  try {
-    const rows = await _rest(sess, `/rest/v1/customer_chat_messages?select=${MESSAGE_COLS}&thread_id=eq.${encodeURIComponent(threadId)}&order=sent_at.desc,created_at.desc&limit=200`);
-    if (reqId !== _roomReq || !_room || String(_room.threadId) !== String(threadId)) return; // กดห้องอื่น/โหลดใหม่ไปแล้ว
-    const msgs = sortMessagesAsc(rows);
-    const seen = maxInboundSeq(msgs);
-    _room.maxSeq = Math.max(_room.maxSeq, seen);
-    const thread = _threads.find((t) => String(t.id) === String(threadId));
-    _renderRoom(thread, msgs);
-    _container()?.querySelector("#ccStatusBtn")?.addEventListener("click", (e) => _changeStatus(sess, threadId, e.currentTarget.dataset.next));
+  if (_room && String(_room.threadId) === String(threadId)) { _loadRoom(sess); return; }
+  _room = _newRoom(threadId);
+  _renderList();
+  const box = _container()?.querySelector("#ccDetail");
+  if (box) box.innerHTML = renderSkeleton({ type: "list", count: 4 });
+  _loadRoom(sess);
+}
 
-    // อ่านแล้ว = เฉพาะถึง seq ที่แสดงบนจอ (ไม่ใช่ศูนย์ทั้งห้อง) และเฉพาะตอนหน้าจอเปิดอยู่จริง
-    if (thread && Number(thread.read_seq ?? 0) < seen && !document.hidden) {
-      const res = await _setThreadState(sess, threadId, seen, null);
+async function _loadRoom(sess, { quiet = false } = {}) {
+  if (!_alive(sess) || !_room) return;
+  const room = _room;
+  const threadId = room.threadId;
+  const reqId = ++_roomReq;
+  const tid = encodeURIComponent(threadId);
+  try {
+    const rows = await _rest(sess, `${THREADS_PATH}?select=${THREAD_COLS}&id=eq.${tid}&limit=1`);
+    if (reqId !== _roomReq || _room !== room) return;
+    const thread = Array.isArray(rows) ? rows[0] : null;
+    if (!thread) throw new Error("thread not found");
+    const anchor = room.anchor ?? Math.max(0, Number(thread.read_seq) || 0);
+    const [hist, fwd] = await Promise.all([
+      _rest(sess, `${MESSAGES_PATH}?select=${MESSAGE_COLS}&thread_id=eq.${tid}&or=(inbound_seq.lte.${anchor},inbound_seq.is.null)&order=sent_at.desc,created_at.desc&limit=${HISTORY_LIMIT}`),
+      _rest(sess, `${MESSAGES_PATH}?select=${MESSAGE_COLS}&thread_id=eq.${tid}&inbound_seq=gt.${anchor}&order=inbound_seq.asc&limit=${room.pages * MESSAGE_PAGE}`),
+    ]);
+    if (reqId !== _roomReq || _room !== room) return; // กดห้องอื่น/มีคำขอใหม่กว่า — ทิ้งผลเก่า
+    const knownInbound = room.inbound;
+    room.anchor = anchor;
+    room.thread = { ...thread };
+    room.msgs = mergeRoomMessages([hist, fwd], room.unsent);
+    room.seen = contiguousSeenSeq(anchor, room.msgs);
+    let maxSeq = 0;
+    for (const m of room.msgs) { const s = Number(m.inbound_seq); if (Number.isInteger(s) && s > maxSeq) maxSeq = s; }
+    room.inbound = Math.max(Number(thread.inbound_seq) || 0, maxSeq);
+    room.loaded = true;
+    _renderRoom();
+
+    // อ่านแล้ว = ถึง seq ต่อเนื่องที่แสดงบนจอเท่านั้น และเฉพาะตอนหน้าจอเปิดอยู่จริง
+    if (room.seen > (Number(thread.read_seq) || 0) && !document.hidden) {
+      const res = await _setThreadState(sess, threadId, room.seen, null);
+      if (_room !== room) return;
       _applyThreadPatch(res);
       _renderList();
-      if (res && Number(res.inbound_seq) > seen && _room && String(_room.threadId) === String(threadId)) {
-        _openThread(sess, threadId, { keepScroll: true }); // มีข้อความใหม่เข้าระหว่างโหลด → แสดงก่อน
-      }
+      // มีข้อความใหม่เข้ามาหลังโหลด (ไม่ใช่แค่ยังไม่ได้กดโหลดหน้าถัดไป) → โหลดห้องอีกรอบ
+      if (res && Number(res.inbound_seq) > Math.max(room.inbound, knownInbound)) _loadRoom(sess, { quiet: true });
     }
   } catch (e) {
     if (_isStale(e)) return;
-    console.warn("[customer_chat] load messages", e);
-    if (reqId !== _roomReq) return;
+    console.warn("[customer_chat] load room", e);
+    if (quiet || reqId !== _roomReq || _room !== room) return;
     const box = _container()?.querySelector("#ccDetail");
     if (box) box.innerHTML = renderError({ message: "โหลดข้อความไม่สำเร็จ", detail: "ลองกดรีเฟรชอีกครั้ง", retryLabel: "", retryId: "" });
   }
@@ -387,31 +494,35 @@ async function _openThread(sess, threadId, { keepScroll: _keepScroll = false } =
 
 async function _changeStatus(sess, threadId, next) {
   if (!_alive(sess) || _statusBusy) return;
-  if (!_room || String(_room.threadId) !== String(threadId)) return;
+  const room = _room;
+  if (!room || !room.loaded || String(room.threadId) !== String(threadId)) return;
   const status = next === "open" ? "open" : "done";
-  const seenSeq = _room.maxSeq;
-  const btn = _container()?.querySelector("#ccStatusBtn");
+  if (status === "done" && room.seen < room.inbound) {
+    _ctx?.showToast?.("📥 ยังมีข้อความที่ยังไม่ได้โหลด — กด «โหลดข้อความที่เหลือ» ให้ครบก่อนปิดห้อง", "warn");
+    return;
+  }
   _statusBusy = true;
+  const btn = _container()?.querySelector("#ccStatusBtn");
   if (btn) btn.disabled = true;
   try {
-    const res = await _setThreadState(sess, threadId, seenSeq, status);
+    const res = await _setThreadState(sess, threadId, room.seen, status);
     _applyThreadPatch(res);
     if (res && res.ok === false && res.reason === "new_messages") {
       _ctx?.showToast?.("💬 มีข้อความใหม่เข้ามา — ยังไม่ได้ปิดห้อง กรุณาอ่านก่อน", "warn");
       _renderList();
-      _openThread(sess, threadId, { keepScroll: true });
+      _loadRoom(sess);
       return;
     }
     _ctx?.showToast?.(status === "done" ? "✅ ย้ายไปเสร็จแล้ว" : "↩️ เปิดห้องแชทใหม่แล้ว");
     if (status === "done" && _filter === "pending") {
       _room = null;
-      _renderList();
       const box = _container()?.querySelector("#ccDetail");
       if (box) box.innerHTML = `<div class="cc-placeholder">เลือกห้องแชททางซ้ายเพื่อดูข้อความ</div>`;
     } else {
-      _renderList();
-      _openThread(sess, threadId, { keepScroll: true });
+      _loadRoom(sess);
     }
+    _loadThreads(sess, { quiet: true }); // จำนวนค้างตอบ/คิว ตามข้อมูลจริงจาก server
+    _renderList();
   } catch (e) {
     if (_isStale(e)) return;
     console.warn("[customer_chat] set status", e);

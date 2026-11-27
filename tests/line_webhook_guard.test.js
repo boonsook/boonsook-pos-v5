@@ -24,9 +24,12 @@ import {
 import {
   renderThreadItem,
   renderMessageBubble,
-  filterThreads,
+  isPendingThread,
   sortMessagesAsc,
-  maxInboundSeq,
+  contiguousSeenSeq,
+  mergeRoomMessages,
+  parseContentRangeTotal,
+  PENDING_FILTER_QS,
 } from "../modules/customer_chat.js";
 
 const SECRET = "test-channel-secret-not-real";
@@ -295,16 +298,59 @@ test("webhook: unsend จากแชทส่วนตัวถูกส่ง 
   });
 });
 
-test("หน้าแชท: seq ที่ใช้ mark read = ข้อความขาเข้าที่แสดงจริง; เรียงข้อความเก่า→ใหม่", () => {
+test("หน้าแชท: อ่านถึง = seq ต่อเนื่องจาก anchor ที่โหลดแล้ว; เรียงข้อความเก่า→ใหม่; ข้อความที่ถูกยกเลิกไม่กลับมา", () => {
   const msgs = [
     { id: "b", direction: "in", inbound_seq: 3, sent_at: "2026-11-27T03:00:02Z" },
     { id: "o", direction: "out", inbound_seq: null, sent_at: "2026-11-27T03:00:03Z" },
     { id: "t", direction: "in", inbound_seq: null, unsent_at: "2026-11-27T03:00:04Z", sent_at: "2026-11-27T03:00:04Z" },
     { id: "a", direction: "in", inbound_seq: 2, sent_at: "2026-11-27T03:00:02Z" },
+    { id: "z", direction: "in", inbound_seq: 5, sent_at: "2026-11-27T03:00:01Z" },
   ];
-  assert.equal(maxInboundSeq(msgs), 3);
-  assert.equal(maxInboundSeq([]), 0);
-  assert.deepEqual(sortMessagesAsc(msgs).map((m) => m.id), ["a", "b", "o", "t"]);
+  assert.equal(contiguousSeenSeq(1, msgs), 3, "gap at 4 stops the read pointer");
+  assert.equal(contiguousSeenSeq(0, msgs), 0, "seq 1 missing → nothing new read");
+  assert.equal(contiguousSeenSeq(7, msgs), 7, "never below anchor");
+  assert.equal(contiguousSeenSeq(0, []), 0);
+  assert.deepEqual(sortMessagesAsc(msgs).map((m) => m.id), ["z", "a", "b", "o", "t"]);
+  const unsent = new Set();
+  const first = mergeRoomMessages([[{ id: "m1", direction: "in", inbound_seq: 1, body: "เดิม", unsent_at: "2026-11-27T03:00:00Z", sent_at: "2026-11-27T03:00:00Z" }]], unsent);
+  assert.equal(first[0].body, null);
+  const stale = mergeRoomMessages([[{ id: "m1", direction: "in", inbound_seq: 1, body: "เดิม", unsent_at: null, sent_at: "2026-11-27T03:00:00Z" }]], unsent);
+  assert.equal(stale[0].body, null, "once seen as unsent, an older response cannot restore the body");
+  assert.ok(stale[0].unsent_at);
+});
+
+test("หน้าแชท: คิวค้างตอบกรองฝั่งข้อมูลด้วย status open หรือ unread > 0 + นับจาก Content-Range", () => {
+  assert.equal(PENDING_FILTER_QS, "or=(status.eq.open,unread_count.gt.0)");
+  assert.ok(isPendingThread({ unread_count: 3, status: "done" }));
+  assert.ok(isPendingThread({ unread_count: 0, status: "open" }));
+  assert.ok(!isPendingThread({ unread_count: 0, status: "done" }));
+  assert.equal(parseContentRangeTotal("0-99/310"), 310);
+  assert.equal(parseContentRangeTotal("*/0"), 0);
+  assert.equal(parseContentRangeTotal(null), null);
+  const loader = chatSrc.slice(chatSrc.indexOf("async function _loadThreads("), chatSrc.indexOf("function _setThreadState("));
+  assert.match(loader, /withCount: true/);
+  assert.match(chatSrc, /\$\{THREADS_PATH\}\?select=id&\$\{PENDING_FILTER_QS\}&limit=1/);
+  const url = chatSrc.slice(chatSrc.indexOf("function _threadsUrl("), chatSrc.indexOf("async function _refreshAll("));
+  assert.match(url, /filter === "pending" \? `&\$\{PENDING_FILTER_QS\}`/);
+  assert.match(url, /order=last_message_at\.desc\.nullslast,id\.desc&limit=\$\{limit\}&offset=\$\{offset\}/);
+});
+
+test("หน้าแชท: ห้องโหลดข้อความหลังจุดอ่านเรียงตาม seq (ไม่ใช่ sent_at) และกดเสร็จไม่ได้ถ้ายังโหลดไม่ครบ", () => {
+  const room = chatSrc.slice(chatSrc.indexOf("async function _loadRoom("), chatSrc.indexOf("async function _changeStatus("));
+  assert.match(room, /inbound_seq=gt\.\$\{anchor\}&order=inbound_seq\.asc&limit=\$\{room\.pages \* MESSAGE_PAGE\}/);
+  assert.match(room, /room\.seen = contiguousSeenSeq\(anchor, room\.msgs\)/);
+  assert.match(room, /_setThreadState\(sess, threadId, room\.seen, null\)/);
+  const status = chatSrc.slice(chatSrc.indexOf("async function _changeStatus("), chatSrc.indexOf("export async function renderCustomerChatPage("));
+  assert.match(status, /if \(status === "done" && room\.seen < room\.inbound\) \{/);
+  assert.match(status, /_setThreadState\(sess, threadId, room\.seen, status\)/);
+  const refresh = chatSrc.slice(chatSrc.indexOf("async function _refreshAll("), chatSrc.indexOf("async function _loadThreads("));
+  assert.match(refresh, /if \(_alive\(sess\) && _room\) _loadRoom\(sess, \{ quiet: true \}\)/, "poll/refresh always reloads the open room (catches unsend)");
+});
+
+test("SQL r3: ok เป็น boolean เสมอ (p_status NULL) + index คิวค้างตอบ", () => {
+  assert.match(sqlSrc, /v_stale := \(p_status IS NOT DISTINCT FROM 'done'\) AND \(p_read_through_seq < v_row\.inbound_seq\);/);
+  assert.ok(!/v_stale := \(p_status = 'done'/.test(sqlSrc), "NULL-producing comparison removed");
+  assert.match(sqlSrc, /CREATE INDEX IF NOT EXISTS idx_customer_chat_threads_pending[\s\S]{0,200}WHERE status = 'open' OR unread_count > 0;/);
 });
 
 test("lifecycle: main.js ล้างกล่องแชทตอน logout / sign-out / afterLogin; หน้าแชทตรวจ session หลังทุก await", () => {
@@ -340,16 +386,6 @@ test("หน้าแชท: ชื่อและข้อความลูก
   const bubble = renderMessageBubble({ direction: "in", body: evil, sent_at: "2026-11-27T03:00:00Z" });
   assert.ok(!bubble.includes("<img"));
   assert.ok(bubble.includes("&lt;img"));
-});
-
-test("หน้าแชท: filter ค้างตอบ = unread > 0 หรือยังเปิดอยู่", () => {
-  const rows = [
-    { id: 1, unread_count: 0, status: "done" },
-    { id: 2, unread_count: 3, status: "done" },
-    { id: 3, unread_count: 0, status: "open" },
-  ];
-  assert.deepEqual(filterThreads(rows, "pending").map((r) => r.id), [2, 3]);
-  assert.equal(filterThreads(rows, "all").length, 3);
 });
 
 test("หน้าแชท: เฟส A ไม่ส่งข้อความหาลูกค้า — เขียนได้แค่ RPC customer_chat_set_thread_state", () => {

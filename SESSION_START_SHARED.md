@@ -1,5 +1,7 @@
 # Boonsook POS V5 - Shared Session Start
 
+> 🟠 **2026-11-27 — Phase 648 เฟส A r3 (Codex review fixes 4 ข้อ · build คง 643 · ยังไม่ merge · PostgreSQL NOT_RUN = เงื่อนไขก่อน merge):** รายละเอียด HANDOFF · merge/prod SQL/webhook/เฟส B ต้องอนุมัติแยก · STOP
+>
 > 🟠 **2026-11-27 — Phase 648 เฟส A r2 (review fixes: lifecycle ข้ามบัญชี · seq อ่าน/เสร็จ · unsend · build คง 643 · ยังไม่ merge · PostgreSQL NOT_RUN):** รายละเอียด HANDOFF · merge/prod SQL/webhook/เฟส B ต้องอนุมัติแยก · STOP
 >
 > 🟠 **2026-11-27 — Phase 648 เฟส A กล่องแชทลูกค้า LINE (build 643 / v5.69.110 · branch `claude/phase-648-line-chat-inbox` · ยังไม่ merge · SQL PENDING):** หน้า `customer_chat` + `/api/line-webhook` + `supabase-phase648-customer-chat-inbox.sql`. อ่านอย่างเดียว ไม่ส่งข้อความหาลูกค้า. owner ต้องรัน SQL + ตั้ง `LINE_CHANNEL_SECRET` (Production) + Webhook URL — ขั้นตอนใน HANDOFF. เฟส B (AI ร่าง+ส่ง) รออนุมัติ · STOP

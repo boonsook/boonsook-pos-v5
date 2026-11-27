@@ -3,6 +3,7 @@
 รายการการแก้ไขแบบสั้น เรียงจากใหม่ → เก่า
 รายละเอียดเชิงลึก (architecture / why) ดูใน [HANDOFF.md](HANDOFF.md)
 
+- Phase 648 เฟส A r3 (2026-11-27 · build คง 643 · ยังไม่ merge · SQL PENDING · PG NOT_RUN): unsend ขณะเปิดห้องอัปเดตทั้ง poll/รีเฟรช · อ่าน/เสร็จนับเฉพาะช่วงต่อเนื่องที่โหลดแล้ว + โหลดข้อความที่เหลือ (เรียงตาม seq) · คิวค้างตอบกรองฝั่ง DB + แบ่งหน้า + จำนวนจาก count=exact · RPC ok เป็น boolean เสมอ · ชุดทดสอบ PostgreSQL + manifest (ยังไม่รัน)
 - Phase 648 เฟส A r2 (2026-11-27 · build คง 643 · ยังไม่ merge · SQL PENDING · PG NOT_RUN): หน้าแชทตัด request/poll/DOM ของบัญชีเดิมเมื่อ logout/sign-out/login ใหม่ · อ่านแล้ว/เสร็จ อิง seq ข้อความที่แสดงจริง (ข้อความใหม่ที่เข้าระหว่างนั้นยังนับค้าง, กดเสร็จด้วยข้อมูลเก่าไม่ปิดห้อง) · รองรับลูกค้ายกเลิกข้อความ (ลบเนื้อหา) · RPC สถานะห้องเปลี่ยน signature เป็น (uuid, bigint, text)
 - Phase 648 เฟส A กล่องแชทลูกค้า LINE (2026-11-27 · build 643 / v5.69.110 · ยังไม่ merge · SQL PENDING): หน้าใหม่ 💬 กล่องแชทลูกค้า (admin+sales) อ่านแชทที่ลูกค้าทัก LINE OA + `/api/line-webhook` ตรวจ X-Line-Signature เก็บเฉพาะแชทส่วนตัว (ไม่เก็บข้อความกลุ่มร้าน) + SQL `supabase-phase648-customer-chat-inbox.sql` (RLS อ่าน admin+sales, เขียนเฉพาะ service_role). ยังไม่ส่งข้อความหาลูกค้า/ไม่มี AI · ไม่แตะเงิน/สต็อก/บัญชี. ต้องตั้ง env `LINE_CHANNEL_SECRET` + Webhook URL (ดู HANDOFF)
 

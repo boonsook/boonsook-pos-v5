@@ -56,7 +56,11 @@ CREATE TABLE IF NOT EXISTS public.customer_chat_threads (
 );
 
 CREATE INDEX IF NOT EXISTS idx_customer_chat_threads_last_msg
-  ON public.customer_chat_threads (last_message_at DESC NULLS LAST);
+  ON public.customer_chat_threads (last_message_at DESC NULLS LAST, id DESC);
+-- คิวค้างตอบ (status open / ยังไม่อ่าน) กรองฝั่ง DB ก่อนแบ่งหน้า
+CREATE INDEX IF NOT EXISTS idx_customer_chat_threads_pending
+  ON public.customer_chat_threads (last_message_at DESC NULLS LAST, id DESC)
+  WHERE status = 'open' OR unread_count > 0;
 
 -- 2) ข้อความ — external_message_id unique กัน LINE ส่ง webhook ซ้ำ (redelivery) แล้วเกิดข้อความซ้ำ
 --    unsent_at = ลูกค้ากดยกเลิกข้อความ → body ต้องเป็น NULL (ไม่เก็บเนื้อหาที่ลูกค้าถอนแล้ว)
@@ -324,7 +328,8 @@ BEGIN
     RAISE EXCEPTION 'thread not found' USING ERRCODE = 'P0002';
   END IF;
 
-  v_stale := (p_status = 'done' AND p_read_through_seq < v_row.inbound_seq);
+  -- IS NOT DISTINCT FROM: p_status = NULL ต้องได้ false ไม่ใช่ NULL → ok เป็น boolean เสมอ
+  v_stale := (p_status IS NOT DISTINCT FROM 'done') AND (p_read_through_seq < v_row.inbound_seq);
 
   RETURN jsonb_build_object(
     'ok',           NOT v_stale,
