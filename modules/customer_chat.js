@@ -4,40 +4,94 @@
 //  เฟสนี้ "อ่านอย่างเดียว": ไม่ส่งข้อความหาลูกค้า ไม่เรียก LINE API ไม่แตะเงิน/สต็อก/บัญชี.
 //  การเขียนที่ทำได้มีแค่ RPC customer_chat_set_thread_state (อ่านแล้ว / เสร็จ / เปิดใหม่).
 //  ทุกค่าจาก DB ผ่าน escHtml ก่อนเข้า innerHTML (ชื่อ/ข้อความลูกค้า = untrusted).
+//
+//  Lifecycle (กันข้อมูลลูกค้าข้ามบัญชี):
+//   - ทุกการ render สร้าง "session" ใหม่ (gen + user id + AbortController); งานเก่าถูก abort
+//   - หลังทุก await ต้องผ่าน _alive(sess): gen เดิม + user id เดิม + ยังเป็น admin/sales + มี token
+//     ไม่ผ่าน = ทิ้งผลลัพธ์เงียบ ๆ (ไม่ render ไม่ยิง RPC ต่อ)
+//   - clearCustomerChatState() (main.js เรียกตอน logout/sign-out/afterLogin) = abort + หยุด poll + ล้าง DOM
+//  อ่านแล้ว/เสร็จ อิง seq: ส่งเฉพาะ inbound_seq สูงสุดที่ "แสดงบนจอจริง" → ข้อความที่เข้ามาทีหลังยังไม่ถูกนับว่าอ่าน
+//  และกด "เสร็จ" ด้วย seq เก่า เซิร์ฟเวอร์ไม่ปิดห้อง (reason new_messages) → โหลดห้องใหม่ให้เห็นก่อน
 // ═══════════════════════════════════════════════════════════
 import { renderSkeleton, renderEmpty, renderError } from "./ui_states.js";
 import { escHtml } from "./utils.js";
 
 const PAGE_ID = "page-customer_chat";
 const POLL_MS = 30000;
-const THREAD_COLS = "id,display_name,status,unread_count,last_message_at,last_message_preview";
-const MESSAGE_COLS = "id,direction,message_type,body,sent_at";
+const THREAD_COLS = "id,display_name,status,unread_count,inbound_seq,read_seq,last_message_at,last_message_preview";
+const MESSAGE_COLS = "id,direction,message_type,body,inbound_seq,unsent_at,sent_at,created_at";
+const STATE_RPC = "/rest/v1/rpc/customer_chat_set_thread_state";
 
+let _gen = 0;
+let _sess = null;        // { gen, uid, controller }
+let _ctx = null;
 let _threads = [];
 let _filter = "pending"; // pending | all
-let _activeId = null;
+let _room = null;        // { threadId, maxSeq } — ห้องที่เปิดอยู่ + seq สูงสุดที่แสดงบนจอ
 let _pollTimer = null;
-let _ctx = null;
+let _listReq = 0;
+let _roomReq = 0;
+let _statusBusy = false;
 
-function _cfg() {
-  const cfg = window.SUPABASE_CONFIG || {};
-  return { url: cfg.url, anonKey: cfg.anonKey, token: window._sbAccessToken || cfg.anonKey };
+class StaleSessionError extends Error {}
+
+function _container() { return document.getElementById(PAGE_ID); }
+function _uid() { return _ctx?.state?.currentUser?.id || null; }
+
+function _alive(sess) {
+  return !!sess
+    && sess.gen === _gen
+    && !!sess.uid
+    && _uid() === sess.uid
+    && !!window._sbAccessToken
+    && !!_ctx?.requireAdminOrSales?.()
+    && !!_container();
 }
 
-async function _rest(path, opts = {}) {
-  const { url, anonKey, token } = _cfg();
-  const res = await fetch(url + path, {
+function _stopPolling() {
+  if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+}
+
+function _resetState() {
+  _threads = [];
+  _room = null;
+  _filter = "pending";
+  _statusBusy = false;
+}
+
+// ล้างทุกอย่างของหน้า (เรียกจาก main.js ตอน logout / sign-out / login บัญชีใหม่)
+export function clearCustomerChatState() {
+  _gen++;
+  try { _sess?.controller?.abort(); } catch (_) { /* ignore */ }
+  _sess = null;
+  _stopPolling();
+  _resetState();
+  const c = _container();
+  if (c) c.innerHTML = "";
+}
+
+async function _rest(sess, path, opts = {}) {
+  if (!_alive(sess)) throw new StaleSessionError("stale");
+  const cfg = window.SUPABASE_CONFIG || {};
+  const res = await fetch(cfg.url + path, {
     ...opts,
+    signal: sess.controller.signal,
     headers: {
-      apikey: anonKey,
-      Authorization: "Bearer " + token,
+      apikey: cfg.anonKey,
+      Authorization: "Bearer " + window._sbAccessToken,
       "Content-Type": "application/json",
       ...(opts.headers || {}),
     },
   });
+  if (!_alive(sess)) throw new StaleSessionError("stale");
   if (!res.ok) throw new Error("HTTP " + res.status);
   const text = await res.text();
+  if (!_alive(sess)) throw new StaleSessionError("stale");
   return text ? JSON.parse(text) : null;
+}
+
+function _isStale(e) {
+  return e instanceof StaleSessionError || e?.name === "AbortError";
 }
 
 export function formatChatTime(iso) {
@@ -52,10 +106,34 @@ export function formatChatTime(iso) {
   return d.toLocaleDateString("th-TH", { ...opts, day: "numeric", month: "short" }) + " " + time;
 }
 
+export function isPendingThread(t) {
+  return !!t && (Number(t.unread_count) > 0 || t.status === "open");
+}
+
 export function filterThreads(threads, filter) {
   const list = Array.isArray(threads) ? threads : [];
   if (filter !== "pending") return list;
-  return list.filter((t) => t && (Number(t.unread_count) > 0 || t.status === "open"));
+  return list.filter(isPendingThread);
+}
+
+// เรียงข้อความเก่า → ใหม่ (sent_at แล้ว seq แล้ว created_at) — ไม่พึ่งลำดับที่ server ส่งมา
+export function sortMessagesAsc(messages) {
+  const list = Array.isArray(messages) ? messages.slice() : [];
+  const t = (v) => { const n = Date.parse(v || ""); return Number.isFinite(n) ? n : 0; };
+  return list.sort((a, b) =>
+    (t(a.sent_at) - t(b.sent_at))
+    || ((Number(a.inbound_seq) || 0) - (Number(b.inbound_seq) || 0))
+    || (t(a.created_at) - t(b.created_at)));
+}
+
+// seq สูงสุดของข้อความขาเข้าที่อยู่ในรายการ (= ที่แสดงบนจอ) — ใช้เป็น "อ่านถึง"
+export function maxInboundSeq(messages) {
+  let max = 0;
+  for (const m of Array.isArray(messages) ? messages : []) {
+    const s = Number(m?.inbound_seq);
+    if (m?.direction === "in" && Number.isFinite(s) && s > max) max = s;
+  }
+  return max;
 }
 
 function _displayName(t) {
@@ -87,9 +165,13 @@ export function renderThreadItem(t, activeId) {
 
 export function renderMessageBubble(m) {
   const mine = m.direction === "out";
+  const unsent = !!m.unsent_at;
+  const body = unsent
+    ? `<span class="cc-unsent-text">ลูกค้ายกเลิกข้อความนี้</span>`
+    : escHtml(m.body || "");
   return `
-    <div class="cc-msg ${mine ? "cc-msg-out" : "cc-msg-in"}">
-      <div class="cc-bubble">${escHtml(m.body || "")}</div>
+    <div class="cc-msg ${mine ? "cc-msg-out" : "cc-msg-in"}${unsent ? " cc-unsent" : ""}">
+      <div class="cc-bubble">${body}</div>
       <div class="cc-msg-time">${escHtml(formatChatTime(m.sent_at))}</div>
     </div>`;
 }
@@ -123,6 +205,7 @@ const STYLE = `
   .cc-bubble{padding:8px 12px;border-radius:14px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.45}
   .cc-msg-in .cc-bubble{background:var(--bg);color:var(--text)}
   .cc-msg-out .cc-bubble{background:var(--primary);color:#fff}
+  .cc-unsent .cc-bubble{background:transparent;border:1px dashed var(--line);color:var(--muted);font-style:italic}
   .cc-msg-time{color:var(--muted);font-size:11px;margin-top:2px}
   .cc-placeholder{padding:28px 16px;color:var(--muted);text-align:center}
   @media (min-width:900px){
@@ -132,33 +215,30 @@ const STYLE = `
   }
 </style>`;
 
-function _container() { return document.getElementById(PAGE_ID); }
-
-function _stopPolling() {
-  if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
-}
-
-function _startPolling() {
+function _startPolling(sess) {
   _stopPolling();
   _pollTimer = setInterval(() => {
-    const c = _container();
-    // ออกจากหน้านี้แล้ว (section ถูกซ่อน) → หยุด poll เอง
-    if (!c || c.classList.contains("hidden") || document.hidden) {
-      if (!c || c.classList.contains("hidden")) _stopPolling();
+    if (!_alive(sess)) {
+      // บัญชีเปลี่ยน/หมดสิทธิ์ระหว่างเปิดหน้า → ล้างทั้งหมด (รวม DOM ที่ซ่อนอยู่)
+      if (sess.gen === _gen) clearCustomerChatState();
+      else _stopPolling();
       return;
     }
-    _loadThreads({ quiet: true });
+    const c = _container();
+    if (c.classList.contains("hidden")) { _stopPolling(); return; }
+    if (document.hidden) return;
+    _loadThreads(sess, { quiet: true });
   }, POLL_MS);
 }
 
-function _renderShell() {
+function _renderShell(sess) {
   const c = _container();
   if (!c) return;
   c.innerHTML = `${STYLE}
     <div class="cc-wrap">
       <div class="cc-note">💬 แชทจากลูกค้าที่ทักเข้า LINE OA ของร้าน · เฟสนี้ดูได้อย่างเดียว ตอบลูกค้าในแอป LINE OA ตามเดิม (AI ร่างคำตอบจะมาในเฟสถัดไป)</div>
       <div class="cc-toolbar">
-        <button type="button" class="cc-tab" data-cc-filter="pending">ค้างตอบ</button>
+        <button type="button" class="cc-tab" data-cc-filter="pending">ค้างตอบ <span id="ccPendingCount"></span></button>
         <button type="button" class="cc-tab" data-cc-filter="all">ทั้งหมด</button>
         <span class="cc-spacer"></span>
         <button type="button" class="btn light" id="ccRefreshBtn">🔄 รีเฟรช</button>
@@ -171,14 +251,15 @@ function _renderShell() {
 
   c.querySelectorAll("[data-cc-filter]").forEach((btn) => {
     btn.addEventListener("click", () => {
+      if (!_alive(sess)) return;
       _filter = btn.dataset.ccFilter === "all" ? "all" : "pending";
       _renderList();
     });
   });
-  c.querySelector("#ccRefreshBtn")?.addEventListener("click", () => _loadThreads());
+  c.querySelector("#ccRefreshBtn")?.addEventListener("click", () => _loadThreads(sess));
   c.querySelector("#ccThreadList")?.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-thread-id]");
-    if (btn) _openThread(btn.dataset.threadId);
+    if (btn) _openThread(sess, btn.dataset.threadId);
   });
 }
 
@@ -186,6 +267,11 @@ function _renderList() {
   const c = _container();
   if (!c) return;
   c.querySelectorAll("[data-cc-filter]").forEach((b) => b.classList.toggle("cc-on", b.dataset.ccFilter === _filter));
+  const countEl = c.querySelector("#ccPendingCount");
+  if (countEl) {
+    const n = _threads.filter(isPendingThread).length;
+    countEl.textContent = n > 0 ? `(${n})` : "";
+  }
   const box = c.querySelector("#ccThreadList");
   if (!box) return;
   const list = filterThreads(_threads, _filter);
@@ -197,20 +283,36 @@ function _renderList() {
     });
     return;
   }
-  box.innerHTML = list.map((t) => renderThreadItem(t, _activeId)).join("");
+  box.innerHTML = list.map((t) => renderThreadItem(t, _room?.threadId)).join("");
 }
 
-async function _loadThreads({ quiet = false } = {}) {
-  const c = _container();
-  if (!c) return;
+function _applyThreadPatch(patch) {
+  if (!patch || patch.id == null) return;
+  const t = _threads.find((x) => String(x.id) === String(patch.id));
+  if (!t) return;
+  for (const k of ["status", "unread_count", "inbound_seq", "read_seq"]) {
+    if (patch[k] !== undefined && patch[k] !== null) t[k] = patch[k];
+  }
+}
+
+async function _loadThreads(sess, { quiet = false } = {}) {
+  if (!_alive(sess)) return;
+  const reqId = ++_listReq;
   try {
-    const rows = await _rest(`/rest/v1/customer_chat_threads?select=${THREAD_COLS}&order=last_message_at.desc.nullslast&limit=200`);
+    const rows = await _rest(sess, `/rest/v1/customer_chat_threads?select=${THREAD_COLS}&order=last_message_at.desc.nullslast&limit=200`);
+    if (reqId !== _listReq) return; // มีคำขอใหม่กว่าแล้ว — ทิ้งผลเก่า
     _threads = Array.isArray(rows) ? rows : [];
     _renderList();
+    // ห้องที่เปิดอยู่มีข้อความใหม่กว่าที่แสดง → โหลดห้องใหม่ (และ mark read เท่าที่แสดงจริง)
+    if (_room) {
+      const t = _threads.find((x) => String(x.id) === String(_room.threadId));
+      if (t && Number(t.inbound_seq) > _room.maxSeq) _openThread(sess, _room.threadId, { keepScroll: true });
+    }
   } catch (e) {
+    if (_isStale(e)) return;
     console.warn("[customer_chat] load threads", e);
-    if (quiet) return;
-    const box = c.querySelector("#ccThreadList");
+    if (quiet || reqId !== _listReq) return;
+    const box = _container()?.querySelector("#ccThreadList");
     if (box) {
       box.innerHTML = renderError({
         message: "โหลดแชทไม่สำเร็จ",
@@ -222,79 +324,113 @@ async function _loadThreads({ quiet = false } = {}) {
   }
 }
 
-async function _setThreadState(threadId, { markRead = false, status = null } = {}) {
-  return _rest("/rest/v1/rpc/customer_chat_set_thread_state", {
+function _setThreadState(sess, threadId, readThroughSeq, status = null) {
+  return _rest(sess, STATE_RPC, {
     method: "POST",
-    body: JSON.stringify({ p_thread_id: threadId, p_mark_read: markRead, p_status: status }),
+    body: JSON.stringify({ p_thread_id: threadId, p_read_through_seq: readThroughSeq, p_status: status }),
   });
 }
 
-async function _openThread(threadId) {
-  _activeId = threadId;
-  _renderList();
-  const c = _container();
-  const box = c?.querySelector("#ccDetail");
+function _renderRoom(thread, msgs) {
+  const box = _container()?.querySelector("#ccDetail");
   if (!box) return;
-  const thread = _threads.find((t) => String(t.id) === String(threadId));
-  box.innerHTML = renderSkeleton({ type: "list", count: 4 });
-  try {
-    const rows = await _rest(`/rest/v1/customer_chat_messages?select=${MESSAGE_COLS}&thread_id=eq.${encodeURIComponent(threadId)}&order=sent_at.desc&limit=200`);
-    if (String(_activeId) !== String(threadId)) return; // ผู้ใช้กดห้องอื่นไปแล้ว
-    const msgs = (Array.isArray(rows) ? rows : []).slice().reverse();
-    const isDone = thread?.status === "done";
-    box.innerHTML = `
-      <div class="cc-detail-head">
-        <span class="cc-detail-name">${escHtml(_displayName(thread))}</span>
-        <button type="button" class="btn light" id="ccStatusBtn" data-next="${isDone ? "open" : "done"}">${isDone ? "↩️ เปิดใหม่" : "✅ ทำเครื่องหมายว่าเสร็จ"}</button>
-      </div>
-      <div class="cc-messages" id="ccMessages">
-        ${msgs.length ? msgs.map(renderMessageBubble).join("") : `<div class="cc-placeholder">ยังไม่มีข้อความ</div>`}
-      </div>`;
-    const list = box.querySelector("#ccMessages");
-    if (list) list.scrollTop = list.scrollHeight;
-    box.querySelector("#ccStatusBtn")?.addEventListener("click", (e) => _changeStatus(threadId, e.currentTarget.dataset.next));
+  const isDone = thread?.status === "done";
+  box.innerHTML = `
+    <div class="cc-detail-head">
+      <span class="cc-detail-name">${escHtml(_displayName(thread))}</span>
+      <button type="button" class="btn light" id="ccStatusBtn" data-next="${isDone ? "open" : "done"}">${isDone ? "↩️ เปิดใหม่" : "✅ ทำเครื่องหมายว่าเสร็จ"}</button>
+    </div>
+    <div class="cc-messages" id="ccMessages">
+      ${msgs.length ? msgs.map(renderMessageBubble).join("") : `<div class="cc-placeholder">ยังไม่มีข้อความ</div>`}
+    </div>`;
+  const list = box.querySelector("#ccMessages");
+  if (list) list.scrollTop = list.scrollHeight;
+}
 
-    if (thread && Number(thread.unread_count) > 0) {
-      try {
-        await _setThreadState(threadId, { markRead: true });
-        thread.unread_count = 0;
-        _renderList();
-      } catch (err) {
-        console.warn("[customer_chat] mark read", err);
+async function _openThread(sess, threadId, { keepScroll: _keepScroll = false } = {}) {
+  if (!_alive(sess)) return;
+  const switching = !_room || String(_room.threadId) !== String(threadId);
+  if (switching) {
+    _room = { threadId, maxSeq: 0 };
+    _renderList();
+    const box = _container()?.querySelector("#ccDetail");
+    if (box) box.innerHTML = renderSkeleton({ type: "list", count: 4 });
+  }
+  const reqId = ++_roomReq;
+  try {
+    const rows = await _rest(sess, `/rest/v1/customer_chat_messages?select=${MESSAGE_COLS}&thread_id=eq.${encodeURIComponent(threadId)}&order=sent_at.desc,created_at.desc&limit=200`);
+    if (reqId !== _roomReq || !_room || String(_room.threadId) !== String(threadId)) return; // กดห้องอื่น/โหลดใหม่ไปแล้ว
+    const msgs = sortMessagesAsc(rows);
+    const seen = maxInboundSeq(msgs);
+    _room.maxSeq = Math.max(_room.maxSeq, seen);
+    const thread = _threads.find((t) => String(t.id) === String(threadId));
+    _renderRoom(thread, msgs);
+    _container()?.querySelector("#ccStatusBtn")?.addEventListener("click", (e) => _changeStatus(sess, threadId, e.currentTarget.dataset.next));
+
+    // อ่านแล้ว = เฉพาะถึง seq ที่แสดงบนจอ (ไม่ใช่ศูนย์ทั้งห้อง) และเฉพาะตอนหน้าจอเปิดอยู่จริง
+    if (thread && Number(thread.read_seq ?? 0) < seen && !document.hidden) {
+      const res = await _setThreadState(sess, threadId, seen, null);
+      _applyThreadPatch(res);
+      _renderList();
+      if (res && Number(res.inbound_seq) > seen && _room && String(_room.threadId) === String(threadId)) {
+        _openThread(sess, threadId, { keepScroll: true }); // มีข้อความใหม่เข้าระหว่างโหลด → แสดงก่อน
       }
     }
   } catch (e) {
+    if (_isStale(e)) return;
     console.warn("[customer_chat] load messages", e);
-    box.innerHTML = renderError({ message: "โหลดข้อความไม่สำเร็จ", detail: "ลองกดรีเฟรชอีกครั้ง", retryLabel: "", retryId: "" });
+    if (reqId !== _roomReq) return;
+    const box = _container()?.querySelector("#ccDetail");
+    if (box) box.innerHTML = renderError({ message: "โหลดข้อความไม่สำเร็จ", detail: "ลองกดรีเฟรชอีกครั้ง", retryLabel: "", retryId: "" });
   }
 }
 
-async function _changeStatus(threadId, next) {
+async function _changeStatus(sess, threadId, next) {
+  if (!_alive(sess) || _statusBusy) return;
+  if (!_room || String(_room.threadId) !== String(threadId)) return;
   const status = next === "open" ? "open" : "done";
+  const seenSeq = _room.maxSeq;
+  const btn = _container()?.querySelector("#ccStatusBtn");
+  _statusBusy = true;
+  if (btn) btn.disabled = true;
   try {
-    await _setThreadState(threadId, { markRead: true, status });
-    const t = _threads.find((x) => String(x.id) === String(threadId));
-    if (t) { t.status = status; t.unread_count = 0; }
+    const res = await _setThreadState(sess, threadId, seenSeq, status);
+    _applyThreadPatch(res);
+    if (res && res.ok === false && res.reason === "new_messages") {
+      _ctx?.showToast?.("💬 มีข้อความใหม่เข้ามา — ยังไม่ได้ปิดห้อง กรุณาอ่านก่อน", "warn");
+      _renderList();
+      _openThread(sess, threadId, { keepScroll: true });
+      return;
+    }
     _ctx?.showToast?.(status === "done" ? "✅ ย้ายไปเสร็จแล้ว" : "↩️ เปิดห้องแชทใหม่แล้ว");
-    if (status === "done" && _filter === "pending") _activeId = null;
-    _renderList();
-    if (_activeId) _openThread(_activeId);
-    else {
+    if (status === "done" && _filter === "pending") {
+      _room = null;
+      _renderList();
       const box = _container()?.querySelector("#ccDetail");
       if (box) box.innerHTML = `<div class="cc-placeholder">เลือกห้องแชททางซ้ายเพื่อดูข้อความ</div>`;
+    } else {
+      _renderList();
+      _openThread(sess, threadId, { keepScroll: true });
     }
   } catch (e) {
+    if (_isStale(e)) return;
     console.warn("[customer_chat] set status", e);
     _ctx?.showToast?.("⚠️ เปลี่ยนสถานะไม่สำเร็จ", "warn");
+  } finally {
+    if (sess.gen === _gen) {
+      _statusBusy = false;
+      const b = _container()?.querySelector("#ccStatusBtn");
+      if (b) b.disabled = false;
+    }
   }
 }
 
 export async function renderCustomerChatPage(ctx) {
+  clearCustomerChatState(); // ตัดงาน/poll/DOM ของรอบก่อนทุกครั้ง (รวมบัญชีก่อนหน้า)
   _ctx = ctx;
   const c = _container();
   if (!c) return;
   if (!ctx?.requireAdminOrSales?.()) {
-    _stopPolling();
     c.innerHTML = renderError({
       message: "เฉพาะผู้ดูแลระบบและพนักงานขาย",
       detail: "หน้านี้เห็นได้เฉพาะ role admin และ sales",
@@ -303,9 +439,14 @@ export async function renderCustomerChatPage(ctx) {
     });
     return;
   }
-  _activeId = null;
-  _renderShell();
+  const sess = { gen: _gen, uid: _uid(), controller: new AbortController() };
+  _sess = sess;
+  if (!_alive(sess)) {
+    c.innerHTML = renderError({ message: "กรุณาเข้าสู่ระบบใหม่", detail: "", retryLabel: "", retryId: "" });
+    return;
+  }
+  _renderShell(sess);
   _renderList();
-  await _loadThreads();
-  _startPolling();
+  await _loadThreads(sess);
+  if (_alive(sess)) _startPolling(sess);
 }

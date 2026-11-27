@@ -8,9 +8,11 @@
 // Security invariants (ล็อกด้วย tests/line_webhook_guard.test.js):
 //  - ตรวจลายเซ็นกับ raw body "ก่อน" JSON.parse และก่อนเรียก Supabase ทุกครั้ง; เทียบแบบ timing-safe.
 //  - ไม่มี LINE_CHANNEL_SECRET → ปฏิเสธ (fail closed) ไม่ใช่ปล่อยผ่าน.
-//  - รับเฉพาะ event type "message" จากแชทส่วนตัว (source.type === "user") และ mode ไม่ใช่ standby.
+//  - รับเฉพาะ event type "message" และ "unsend" จากแชทส่วนตัว (source.type === "user") และ mode ไม่ใช่ standby.
 //    OA ตัวนี้เป็นบอทแจ้งเตือนในกลุ่มร้านด้วย → ข้อความกลุ่ม/ห้อง (group/room) ห้ามเก็บ.
-//  - เขียน DB ทางเดียวผ่าน RPC customer_chat_ingest_line (service_role) — ไม่มี table/filter จาก request.
+//  - เขียน DB ทางเดียวผ่าน RPC customer_chat_ingest_line / customer_chat_unsend_line (service_role)
+//    — ไม่มี table/filter จาก request. ประมวลผลตามลำดับ event ใน payload.
+//  - unsend: ลบเนื้อหาข้อความที่ลูกค้าถอน (body = NULL) — ไม่เก็บเนื้อหาที่ลูกค้ายกเลิกแล้ว.
 //  - phase นี้ "ไม่ส่งข้อความหาลูกค้า" (ไม่เรียก reply/push API) → ไม่กินโควตา LINE.
 //  - ไม่ส่ง error ดิบของ Supabase/LINE กลับ client และไม่ log เนื้อหาข้อความลูกค้า.
 
@@ -18,6 +20,7 @@ import { logServerError, clientError } from "./_error_sanitizer.js";
 
 const PUBLIC_SUPABASE_URL = "https://rwmmjljelpcpwohwiplu.supabase.co";
 const INGEST_RPC = "customer_chat_ingest_line";
+const UNSEND_RPC = "customer_chat_unsend_line";
 const MAX_BODY_BYTES = 1024 * 1024;
 const MAX_TEXT = 5000;
 
@@ -81,28 +84,42 @@ export function describeLineMessage(message) {
   }
 }
 
-// ดึงเฉพาะข้อความจากแชทส่วนตัวของลูกค้า. group/room/standby/event อื่น ๆ ถูกทิ้งทั้งหมด
-export function extractInboundMessages(payload) {
+function eventTime(ev) {
+  const ts = Number(ev?.timestamp);
+  return Number.isFinite(ts) && ts > 0 ? new Date(ts).toISOString() : new Date().toISOString();
+}
+
+function privateUserId(ev) {
+  if (ev?.source?.type !== "user") return "";
+  if (ev?.mode === "standby") return "";
+  const userId = typeof ev.source.userId === "string" ? ev.source.userId.trim() : "";
+  return userId && userId.length <= 128 ? userId : "";
+}
+
+// ดึง event ที่ต้องเก็บ ตามลำดับใน payload: ข้อความ + การยกเลิกข้อความ จากแชทส่วนตัวของลูกค้าเท่านั้น.
+// group/room/standby/follow/อื่น ๆ ถูกทิ้งทั้งหมด
+export function extractChatEvents(payload) {
   const events = Array.isArray(payload?.events) ? payload.events : [];
   const out = [];
   for (const ev of events) {
-    if (ev?.type !== "message") continue;
-    if (ev?.source?.type !== "user") continue;
-    if (ev?.mode === "standby") continue;
-    const userId = typeof ev.source.userId === "string" ? ev.source.userId.trim() : "";
-    const messageId = typeof ev?.message?.id === "string" ? ev.message.id.trim() : "";
-    if (!userId || userId.length > 128 || !messageId || messageId.length > 128) continue;
-    const { type, body } = describeLineMessage(ev.message);
-    const ts = Number(ev.timestamp);
-    out.push({
-      userId,
-      messageId,
-      type,
-      body,
-      sentAt: Number.isFinite(ts) && ts > 0 ? new Date(ts).toISOString() : new Date().toISOString(),
-    });
+    const userId = privateUserId(ev);
+    if (!userId) continue;
+    if (ev?.type === "message") {
+      const messageId = typeof ev?.message?.id === "string" ? ev.message.id.trim() : "";
+      if (!messageId || messageId.length > 128) continue;
+      const { type, body } = describeLineMessage(ev.message);
+      out.push({ kind: "message", userId, messageId, type, body, sentAt: eventTime(ev) });
+    } else if (ev?.type === "unsend") {
+      const messageId = typeof ev?.unsend?.messageId === "string" ? ev.unsend.messageId.trim() : "";
+      if (!messageId || messageId.length > 128) continue;
+      out.push({ kind: "unsend", userId, messageId, unsentAt: eventTime(ev) });
+    }
   }
   return out;
+}
+
+export function extractInboundMessages(payload) {
+  return extractChatEvents(payload).filter((e) => e.kind === "message").map(({ kind: _k, ...m }) => m);
 }
 
 // ชื่อโปรไฟล์ LINE (GET — ไม่กินโควตาข้อความ). ล้มเหลว = null (RPC คงชื่อเดิมไว้)
@@ -126,41 +143,53 @@ async function fetchLineDisplayName(userId, accessToken) {
   }
 }
 
-async function ingestMessage(env, msg, displayName) {
+async function callRpc(env, rpc, args) {
   const serviceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY;
   const base = (env.SUPABASE_URL || PUBLIC_SUPABASE_URL).replace(/\/+$/, "");
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
   try {
-    const resp = await fetch(`${base}/rest/v1/rpc/${INGEST_RPC}`, {
+    const resp = await fetch(`${base}/rest/v1/rpc/${rpc}`, {
       method: "POST",
       headers: {
         apikey: serviceRoleKey,
         Authorization: `Bearer ${serviceRoleKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        p_external_user_id: msg.userId,
-        p_external_message_id: msg.messageId,
-        p_message_type: msg.type,
-        p_body: msg.body,
-        p_sent_at: msg.sentAt,
-        p_display_name: displayName,
-      }),
+      body: JSON.stringify(args),
       signal: controller.signal,
     });
     if (!resp.ok) {
       const detail = await resp.text().catch(() => "");
-      logServerError("[line-webhook] ingest-failed", resp.status, detail.slice(0, 300));
+      logServerError("[line-webhook] rpc-failed", rpc, resp.status, detail.slice(0, 300));
       return false;
     }
     return true;
   } catch (e) {
-    logServerError("[line-webhook] ingest-error", e?.name || "error");
+    logServerError("[line-webhook] rpc-error", rpc, e?.name || "error");
     return false;
   } finally {
     clearTimeout(timer);
   }
+}
+
+function ingestMessage(env, msg, displayName) {
+  return callRpc(env, INGEST_RPC, {
+    p_external_user_id: msg.userId,
+    p_external_message_id: msg.messageId,
+    p_message_type: msg.type,
+    p_body: msg.body,
+    p_sent_at: msg.sentAt,
+    p_display_name: displayName,
+  });
+}
+
+function unsendMessage(env, ev) {
+  return callRpc(env, UNSEND_RPC, {
+    p_external_user_id: ev.userId,
+    p_external_message_id: ev.messageId,
+    p_unsent_at: ev.unsentAt,
+  });
 }
 
 export async function onRequestPost({ request, env }) {
@@ -192,9 +221,9 @@ export async function onRequestPost({ request, env }) {
     return jsonResponse(clientError("bad_json", "invalid JSON"), 400);
   }
 
-  const messages = extractInboundMessages(payload);
+  const chatEvents = extractChatEvents(payload);
   // ปุ่ม "Verify" ใน LINE console ส่ง events ว่าง → ตอบ 200 ได้เลย
-  if (messages.length === 0) return jsonResponse({ ok: true, stored: 0 });
+  if (chatEvents.length === 0) return jsonResponse({ ok: true, stored: 0 });
 
   if (!env.SUPABASE_SERVICE_ROLE_KEY) {
     logServerError("[line-webhook] SUPABASE_SERVICE_ROLE_KEY not configured");
@@ -203,11 +232,16 @@ export async function onRequestPost({ request, env }) {
 
   const names = new Map();
   let failed = 0;
-  for (const msg of messages) {
-    if (!names.has(msg.userId)) {
-      names.set(msg.userId, await fetchLineDisplayName(msg.userId, env.LINE_CHANNEL_ACCESS_TOKEN));
+  for (const ev of chatEvents) {
+    let ok;
+    if (ev.kind === "unsend") {
+      ok = await unsendMessage(env, ev);
+    } else {
+      if (!names.has(ev.userId)) {
+        names.set(ev.userId, await fetchLineDisplayName(ev.userId, env.LINE_CHANNEL_ACCESS_TOKEN));
+      }
+      ok = await ingestMessage(env, ev, names.get(ev.userId));
     }
-    const ok = await ingestMessage(env, msg, names.get(msg.userId));
     if (!ok) failed++;
   }
 
@@ -215,5 +249,5 @@ export async function onRequestPost({ request, env }) {
   if (failed > 0) {
     return jsonResponse(clientError("store_failed", "store failed"), 500);
   }
-  return jsonResponse({ ok: true, stored: messages.length });
+  return jsonResponse({ ok: true, stored: chatEvents.length });
 }

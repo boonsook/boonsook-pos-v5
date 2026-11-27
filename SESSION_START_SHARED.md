@@ -1,5 +1,7 @@
 # Boonsook POS V5 - Shared Session Start
 
+> 🟠 **2026-11-27 — Phase 648 เฟส A r2 (review fixes: lifecycle ข้ามบัญชี · seq อ่าน/เสร็จ · unsend · build คง 643 · ยังไม่ merge · PostgreSQL NOT_RUN):** รายละเอียด HANDOFF · merge/prod SQL/webhook/เฟส B ต้องอนุมัติแยก · STOP
+>
 > 🟠 **2026-11-27 — Phase 648 เฟส A กล่องแชทลูกค้า LINE (build 643 / v5.69.110 · branch `claude/phase-648-line-chat-inbox` · ยังไม่ merge · SQL PENDING):** หน้า `customer_chat` + `/api/line-webhook` + `supabase-phase648-customer-chat-inbox.sql`. อ่านอย่างเดียว ไม่ส่งข้อความหาลูกค้า. owner ต้องรัน SQL + ตั้ง `LINE_CHANNEL_SECRET` (Production) + Webhook URL — ขั้นตอนใน HANDOFF. เฟส B (AI ร่าง+ส่ง) รออนุมัติ · STOP
 >
 > 🟢 **2026-11-26 — Phase 647 CLOSED (merge `640b96c` · deploy ผ่าน · build คง 642 / v5.69.109):** SQL 647 APPLIED (2026-11-25) · Post-check PASS · C4 PASS (sale_id=279) · PR #246 merge 20:32:47 น. · Tests บน main ผ่าน (lint 0 errors · unit 3,925/3,925 · E2E smoke 436/436) https://github.com/boonsook/boonsook-pos-v5/actions/runs/45830185289 · Pages Build → Verify → Deploy + Docker ผ่าน https://github.com/boonsook/boonsook-pos-v5/actions/runs/45830185226 · deploy อัปโหลดเฉพาะ allowlist 166 ไฟล์ (ไม่มี .md/.sql). รายละเอียดดู `DB_MIGRATIONS_APPLIED.md` หัวข้อ "ปิด release Phase 647" และ `HANDOFF.md` หัวข้อ "Phase 647 — CLOSED". **JV 663 repair ยังไม่ทำ (อนุมัติแยก) · ห้ามรัน SQL 647 หรือ C4 ซ้ำ.** รายการ Phase 647 ด้านล่างเป็นประวัติ ณ เวลาที่บันทึก

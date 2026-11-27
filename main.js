@@ -1095,6 +1095,7 @@ async function initSupabase(){
       state._recoveryMode = false; // Phase 448: logout abandons any pending set-password flow
       _appSessionUserId = null; // ★ Phase 572: logout → re-login user เดิมต้องรัน afterLogin ใหม่ (กัน cross-login)
       window._sbAccessToken = null;
+      _clearCustomerChat(); // Phase 648
       try { sessionStorage.removeItem("bsk_pending_set_password"); } catch (e) { /* ignore */ }
       $("authScreen")?.classList.remove("hidden");
       $("appShell")?.classList.add("hidden");
@@ -1130,6 +1131,15 @@ const { requestOtp, verifyOtp } = createOtpAuth({ state, $, setText, showToast }
 //  Phase 86.1 — api utils ย้ายไป modules/api_utils.js
 //  (auth_otp.js เป็น consumer ตรง — main.js ไม่ต้อง import แล้ว)
 // ═══════════════════════════════════════════════════════════
+
+// Phase 648: ล้างกล่องแชทลูกค้า (abort request ค้าง + หยุด poll + ล้าง DOM) กันข้อมูลลูกค้าค้างข้ามบัญชี.
+//   no-op ถ้ายังไม่เคยเปิดหน้า (โมดูล lazy ยังไม่โหลด)
+async function _clearCustomerChat(){
+  const p = "./modules/customer_chat.js";
+  if (!_lazyMod.has(p)) return;
+  try { (await _lazyMod.get(p)).clearCustomerChatState(); }
+  catch(e){ console.warn("[auth] clearCustomerChatState", e); }
+}
 
 async function logout(){
   try { await state.supabase.auth.signOut(); } catch(e) { console.warn("signOut error:", e); }
@@ -1167,6 +1177,7 @@ async function logout(){
   state.lastReceipt = null;
   try { localStorage.removeItem("bsk_last_receipt"); } catch(_) {}
   showToast("ออกจากระบบแล้ว");
+  await _clearCustomerChat(); // Phase 648 (response ค้างถูกทิ้งอยู่แล้วเพราะ user/token = null)
 }
 
 async function loadProfile(){
@@ -1177,6 +1188,7 @@ async function loadProfile(){
 }
 
 async function afterLogin(){
+  await _clearCustomerChat(); // Phase 648: บัญชีใหม่ไม่เห็นห้องแชท/คำขอค้างของบัญชีก่อน
   await loadProfile();
   // ★ Phase 572: มาร์คว่า user นี้ initialize แล้ว (จุดเดียวครอบทุก caller — boot/email/otp/recovery/listener)
   //   → onAuthStateChange จะข้าม afterLogin ซ้ำสำหรับ user เดิม (INITIAL_SESSION/SIGNED_IN ที่ยิงตามมา).
