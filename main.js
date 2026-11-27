@@ -1012,6 +1012,13 @@ function toggleSidebar(){
 //   กัน afterLogin ซ้ำต่อ user เดิม (boot getSession + INITIAL_SESSION/SIGNED_IN ที่ยิงตามมา = 2-3 รอบ).
 //   ล้างเป็น null ตอน sign-out → re-login user เดิมรัน afterLogin ใหม่ครบ.
 let _appSessionUserId = null;
+// ข้อความเริ่มต้นของ #authStatus ใน index.html — ล้างเฉพาะค่านี้ตอนเปิดแบบไม่มี session สำเร็จ
+//   (ข้อความที่ flow อื่นเขียนระหว่างโหลด เช่น login/reset/recovery/error จะไม่ถูกล้าง)
+const AUTH_STATUS_INITIAL_TEXT = "กำลังตรวจสอบการเชื่อมต่อ...";
+function clearInitialAuthStatus(){
+  const el = $("authStatus");
+  if (el && el.textContent.trim() === AUTH_STATUS_INITIAL_TEXT) el.textContent = "";
+}
 async function initSupabase(){
   if (!window.SUPABASE_CONFIG?.url || !window.SUPABASE_CONFIG?.anonKey) {
     setText("authStatus", "ยังไม่ได้ตั้งค่า supabase-config.js");
@@ -1050,7 +1057,8 @@ async function initSupabase(){
     try { sessionStorage.setItem("bsk_pending_set_password", "1"); } catch (e) { /* ignore */ }
   }
 
-  const { data:{session} } = await state.supabase.auth.getSession();
+  const { data:{session}, error: sessionLookupError } = await state.supabase.auth.getSession();
+  const sessionLookupOk = !sessionLookupError;
   if (session?.user) {
     /* eslint-disable require-atomic-updates -- LOW_RISK: L6 init-time only (boot getSession, runs once at app start) */
     state.currentUser = session.user;
@@ -1097,6 +1105,9 @@ async function initSupabase(){
       $("authScreen")?.classList.remove("hidden");
       $("appShell")?.classList.add("hidden");
       $("setPasswordScreen")?.classList.add("hidden");
+      // เปิดแอปแบบไม่มี session และ getSession ไม่ error → ล้างข้อความเริ่มต้นที่ค้างก่อน bsk-app-ready
+      //   ข้าม recovery (isRecovery ที่บันทึกก่อนล้าง flag) — ลิงก์หมดอายุ/ใช้แล้วคงพฤติกรรมเดิม
+      if (_event === "INITIAL_SESSION" && sessionLookupOk && !isRecovery) clearInitialAuthStatus();
       window.dispatchEvent(new Event("bsk-app-ready"));
     }
   });
