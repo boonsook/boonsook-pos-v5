@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { money, formatNumber, formatCurrency, formatDate, formatDateTime } from "../modules/utils.js";
 
+// OpenBot automatic unit test smoke.
 // ── Behavioral (pure I/O) ──
 test("money: formats THB currency with 2 decimals", () => {
   assert.match(money(1234.5), /1,234\.50/);
